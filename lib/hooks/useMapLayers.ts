@@ -93,7 +93,7 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   // Traktdelar (L_TRAKTDEL) är ALLTID tända och har ingen toggle. I körvyn tänds alla via whitelist.
   traktNyckelbiotop: true,
   traktLamning: true,
-  // Fastighetsgräns (rågång, pinnar, vems mark, beteckningar) ur Vidas SV_FASTIGHET — default PÅ, finns bara där Vida levererat fastighetsytor.
+  // Fastighetsgräns (rågång, nedtoning utanför trakten, beteckningar) — EN knapp: Vidas SV_FASTIGHET där den finns, annars Lantmäteriets gräns i samma stil. Default PÅ.
   fastighetsgrans: true,
 }
 
@@ -166,7 +166,9 @@ export function useMapLayers(): [MapLayers, Dispatch<SetStateAction<MapLayers>>]
         const stored = JSON.parse(raw)
         if (stored && typeof stored === 'object') {
           // Merga defaults med sparade värden så nya keys får default
-          setLayers({ ...DEFAULT_MAP_LAYERS, ...stored })
+          // `fastighetsgranser` (Lantmäteri-rastret) hade en egen menyrad förut och kan stå sparad som PÅ; nu styrs allt fastighetsgräns av EN rad (`fastighetsgrans`) och
+          // nyckeln används bara tillfälligt av briefingen. En gammal sparad PÅ skulle annars ligga kvar utan att något i menyn kan släcka den.
+          setLayers({ ...DEFAULT_MAP_LAYERS, ...stored, fastighetsgranser: false })
         }
       }
     } catch {

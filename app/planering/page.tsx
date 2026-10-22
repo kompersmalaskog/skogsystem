@@ -59,7 +59,7 @@ import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
 import { byggRagang, fastighetsFall, gransVidTryck, gransRubrik, FASTIGHET_KORT_MENING, FASTIGHET_FALL_M, type RagangModell } from '../../lib/fastighetsgrans'
-import { RAGANG_KALLOR, RAGANG_LAGER_ORDNING, ragangKallor, ragangLager, fastighetsCirkelPaint, forstaVektorLagerId, TRAKTGRANS_BREDD, TRAKTGRANS_KANT_BREDD, TRAKTGRANS_KANT_FARG } from '../../lib/fastighetsgransKarta'
+import { RAGANG_KALLOR, RAGANG_LAGER_ORDNING, ragangKallor, ragangLager, lmGransLager, LM_GRANS, fastighetsCirkelPaint, forstaVektorLagerId, TRAKTGRANS_BREDD, TRAKTGRANS_KANT_BREDD, TRAKTGRANS_KANT_FARG } from '../../lib/fastighetsgransKarta'
 import { vidaEtikettPunkter, zonEtikettPunkter } from '../../lib/ytaEtikett'
 import { FastighetsgransKortVy } from '../../components/planering/FastighetsgransKort'
 import { kopplaFlyttaMig, kopplaLangtryckFlytt } from '../../lib/testPosition'
@@ -1315,7 +1315,7 @@ export default function PlannerPage() {
   // de nya lagerknapparna (nyckelbiotop/lämning). Traktdelar har ingen knapp — de är alltid tända.
   const [geoKategorier, setGeoKategorier] = useState<Set<TraktKategori>>(new Set());
   const [traktGeo, setTraktGeo] = useState<any>(null); // hela FeatureCollection för valt objekt → snabbpanelen räknar faror/hänsyn/basväg ur den
-  // FASTIGHETSGRÄNS (rågång) ur Vidas SV_FASTIGHET: linjer, pinnar, vems mark, beteckningar (lib/fastighetsgrans). null = Vida har inte levererat fastighetsytor.
+  // FASTIGHETSGRÄNS (rågång) ur Vidas SV_FASTIGHET: linjer i full/svag styrka, vilka fastigheter trakten överlappar (skimmer/nedtoning), beteckningar (lib/fastighetsgrans). null = Vida har inte levererat fastighetsytor.
   const ragang = useMemo(() => byggRagang(traktGeo), [traktGeo]);
   const ragangRef = useRef<RagangModell | null>(null);
   ragangRef.current = ragang;
@@ -1706,7 +1706,6 @@ export default function PlannerPage() {
       { id: 'lm_ortofoto', tiles: ['/api/wms-proxy?layer=lm_ortofoto&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 1.0 },
       { id: 'lm_ortofoto_ir', tiles: ['/api/wms-proxy?layer=lm_ortofoto_ir&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 1.0 },
       { id: 'nmd_tradslag', tiles: ['/api/wms-proxy?layer=nmd_tradslag&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 0.65 },
-      { id: 'fastighetsgranser', tiles: ['https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=granser&STYLES=morkbakgrund&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'], opacity: 0.7 },
       { id: 'hydrografi', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaFlodesackumulation/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Vattenyta,Fl%C3%B6desackumulation__70ha41670,Fl%C3%B6desackumulation_20ha-70ha48822,Fl%C3%B6desackumulation_10ha-20ha19752&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'], opacity: 0.7 },
     ];
     wmsLayerDefs.forEach((def: { id: string; tiles: string[]; maxzoom?: number; opacity?: number }) => {
@@ -1718,6 +1717,14 @@ export default function PlannerPage() {
         console.log(`[MapLibre] WMS layer created: wms-layer-${def.id}`);
       } catch (e) { console.error(`[MapLibre] WMS ${def.id} error:`, e); }
     });
+
+    // Fastighetsgräns från Lantmäteriet (när Vida inte levererat fastighetsytor): SAMMA stil som Vidas rågång — vit kärna med mörk kant (lib/fastighetsgransKarta lmGransLager).
+    // Kanten ligger under kärnan; båda börjar osynliga och styrs av lagret "Fastighetsgränser" (effekten [overlays.fastighetsgrans …]).
+    try {
+      const lm = lmGransLager();
+      for (const [id, spec] of lm.kallor) map.addSource(id, spec);
+      for (const spec of lm.lager) map.addLayer(spec, 'zone-fill');
+    } catch (e) { console.error('[MapLibre] Lantmäteri-gräns error:', e); }
 
     // Körbarhetstiles
     try {
@@ -1856,7 +1863,7 @@ export default function PlannerPage() {
     // eget tunt lager. Faint fyllning kvar BARA för tappbarhet (hela ytan öppnar kortet). Snitseln =
     // svart casing + röd bas (LEGEND.fara) + gul streckad (LEGEND.gul), samma recept som line-boundary-*.
     // Filtrerar på _lager (SV_BESKRIVNINGSENHET_FL delar _typ='traktgräns' men ska ALDRIG renderas).
-    // Fastighetsgränsen (rågång) ligger UNDER traktgränsen: vit linje med mörk kant, röda gränspinnar, skimmer på trakten egen mark, beteckningar (lib/fastighetsgransKarta).
+    // Fastighetsgränsen (rågång) ligger UNDER traktgränsen: vit linje med mörk kant, skimmer på fastigheter trakten överlappar och nedtoning av övriga, beteckningar (lib/fastighetsgransKarta).
     // Källorna fylls av effekten [ragang]; lagren börjar osynliga. Skimret läggs under alla vektorlager, resten ritas före traktgränsen (nedan) så den hamnar ovanpå.
     for (const [id, spec] of ragangKallor()) map.addSource(id, spec as any);
     const forstaVektorId = forstaVektorLagerId(map.getStyle().layers as any);
@@ -4813,6 +4820,7 @@ export default function PlannerPage() {
     const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet', 'lm_skuggning', 'lm_ortofoto', 'lm_ortofoto_ir', 'nmd_tradslag', 'fastighetsgranser', 'hydrografi'];
 
     allWmsIds.forEach(id => {
+      if (id === 'fastighetsgranser') return;   // Lantmäteri-gränsen styrs av lagret "Fastighetsgränser" (effekten ovan), tillsammans med sin kant
       const layerId = `wms-layer-${id}`;
       if (map.getLayer(layerId)) {
         map.setLayoutProperty(layerId, 'visibility', overlays[id] ? 'visible' : 'none');
@@ -4924,7 +4932,7 @@ export default function PlannerPage() {
     } catch { /* */ }
   }, [korvyActive, mapLibreReady, korvyBasKarta]);
 
-  // === Fastighetsgräns (rågång): pumpa modellen till de fyra källorna (lib/fastighetsgrans → lib/fastighetsgransKarta) ===
+  // === Fastighetsgräns (rågång): pumpa modellen till de tre källorna (lib/fastighetsgrans → lib/fastighetsgransKarta) ===
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -4932,7 +4940,6 @@ export default function PlannerPage() {
     const put = (id: string, d: any) => { try { (map.getSource(id) as any)?.setData(d ?? tom); } catch { /* källan inte klar */ } };
     put(RAGANG_KALLOR.yta, ragang?.ytor);
     put(RAGANG_KALLOR.linje, ragang?.linjer);
-    put(RAGANG_KALLOR.pinne, ragang?.pinnar);
     put(RAGANG_KALLOR.etikett, ragang?.etiketter);
   }, [ragang, mapLibreReady]);
   // En etikettpunkt per Vida-yta (hänsyn, nyckelbiotop, fornlämning): aldrig dubbel eller avklippt (lib/ytaEtikett).
@@ -4941,13 +4948,23 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     try { (map.getSource('trakt-etikett-source') as any)?.setData(vidaEtiketter); } catch { /* källan inte klar */ }
   }, [vidaEtiketter, mapLibreReady]);
-  // Synlighet: på när lagret är tänt OCH Vida levererat fastighetsytor (annars finns inget att visa — och lagret finns inte i menyn).
+  // Synlighet: ALLT hör till lagret "Fastighetsgränser". Tänt + Vida har levererat fastighetsytor → Vidas rågång (vektor); tänt utan Vidas fastighetsdata →
+  // Lantmäteriets gräns i samma stil; släckt → ingenting (vanlig karta). Fällningsvarningen i skördaren gäller alltid (fgFall, ingen koppling hit).
+  // Medan objektets geometri ännu läses visas inte Lantmäteri-gränsen (annars blinkar den till innan Vidas data kommer).
+  const lmGransPa = !!overlays.fastighetsgrans && !ragang && (!valtObjekt?.id || traktGeoHamtadFor === valtObjekt.id);
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const pa = !!overlays.fastighetsgrans && !!ragang;
     for (const id of RAGANG_LAGER_ORDNING) { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', pa ? 'visible' : 'none'); }
   }, [overlays.fastighetsgrans, ragang, mapLibreReady]);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    // overlays.fastighetsgranser = egenkontrollens/briefingens egen tändning av Lantmäteri-lagret (TraktBriefing), oförändrad.
+    const vis = lmGransPa || overlays.fastighetsgranser ? 'visible' : 'none';
+    for (const id of [LM_GRANS.kantLager, LM_GRANS.linjeLager]) { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); }
+  }, [lmGransPa, overlays.fastighetsgranser, mapLibreReady]);
 
   // === Trakt-geometri: toggle synlighet per lagerknapp ===
   useEffect(() => {
@@ -8802,6 +8819,9 @@ export default function PlannerPage() {
       // (synlig i källan, osynlig på skärmen — testselens skärmbild avslöjade det).
       const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett', 'omtrakten-', 'skotar-avlagg-', 'larm-'];
       for (const l of allLayers) {
+        // Fastighetsgränsen (Vidas rågång trakt-ragang-* och Lantmäteri-paret wms-layer-fastighetsgranser*) hör till lagret "Fastighetsgränser", inte till körvyns
+        // whitelist: släckt lager = vanlig karta också i körvyn. Synligheten sätts av lagereffekterna, som inte rörs av att körvyn öppnas.
+        if (l.id.startsWith('trakt-ragang-') || l.id.startsWith('wms-layer-fastighetsgranser')) continue;
         // wms-layer-*: DEFERAS. Den kurerade skyddsmängden lämnas ORÖRD här och tänds av defer-
         // effekten en knapp EFTER öppning → basen (LM nedtonad) + symboler laddar okonkurrerat →
         // snabb start. Övriga WMS → av (ren tyst vy). Återställs på utträde via korvyPrevVisRef
@@ -8828,6 +8848,7 @@ export default function PlannerPage() {
     } else if (korvyPrevVisRef.current) {
       // Restore
       for (const [id, vis] of Object.entries(korvyPrevVisRef.current)) {
+        if (id.startsWith('trakt-ragang-') || id.startsWith('wms-layer-fastighetsgranser')) continue;   // lagret "Fastighetsgränser" äger sin synlighet (även om det slagits av/på i körvyn)
         try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch {}
       }
       // Återställ zone-fill-opaciteten (gallring-nollningen ovan) till originalet gallringCase(0.75, 0.2).
@@ -12015,10 +12036,8 @@ export default function PlannerPage() {
     ...((geoTyper.has('linje') || geoTyper.has('punkt')) ? [{ id: 'korFara', name: 'Kör & fara', desc: 'Basväg, avlägg, larm & kraftledning', enabled: true }] : []),
     { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
     { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
-    // Har Vida levererat fastigheterna ritar vi rågången själva (vit, pinnar, grannar); annars Lantmäteriets rasterlager som förut.
-    ragang
-      ? { id: 'fastighetsgrans', name: 'Fastighetsgränser', desc: 'Rågång, gränspinnar och grannar', enabled: true }
-      : { id: 'fastighetsgranser', name: 'Fastighetsgränser', desc: 'Lantmäteriet fastighetsindelning', enabled: true },
+    // EN rad som styr ALLT fastighetsgräns: Vidas rågång (vektor) när Vida levererat fastighetsytor, annars Lantmäteriets gräns i samma vita stil. Släckt = vanlig karta.
+    { id: 'fastighetsgrans', name: 'Fastighetsgränser', desc: 'Vita gränser och beteckningar, utanför trakten tonas ned', enabled: true },
     { id: 'hydrografi', name: 'Diken & vattendrag', desc: 'Vattenytor och flödesackumulation (SKS)', enabled: true },
     // Körvyn: högstubbar/evighetsträd som små prickar — eget lager, PÅ som standard (saknad nyckel = på)
     ...(korvyActive ? [{ id: PRICK_LAGER_ID, name: 'Högstubbar och evighetsträd', desc: 'Små prickar på kartan (på som standard)', enabled: true }] : []),
@@ -19582,7 +19601,7 @@ export default function PlannerPage() {
               const wasOn = checklistPrevOverlaysRef.current.fastighetsgranser;
               if (m.getLayer('wms-layer-fastighetsgranser')) {
                 m.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', wasOn ? 'visible' : 'none');
-                m.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7);
+                m.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1);
               }
               setOverlays(prev => ({ ...prev, fastighetsgranser: checklistPrevOverlaysRef.current?.fastighetsgranser ?? false }));
               checklistPrevOverlaysRef.current = null;

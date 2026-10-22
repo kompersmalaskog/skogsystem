@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  AGARE_MAX_OTACKT, ETIKETT_INSKJUT_M, ETIKETT_MAX_KNICK_GRADER, FASTIGHET_FALL_M, NARA_TRAKTEN_M, OUTRETT_NAMN, PINNE_MAX_AVSTAND_M,
-  avstandTillRagang, bedomAgare, byggRagang, etikettText, fastigheterUr, fastighetNamn, fastighetsFall, gransRubrik, gransVidTryck,
-  provpunkter, punktIPolygon, traktdelarUr, FASTIGHET_KORT_MENING,
+  ETIKETT_INSKJUT_M, ETIKETT_MAX_KNICK_GRADER, FASTIGHET_FALL_M, NARA_STYRKA_M, NARA_TRAKTEN_M, OUTRETT_NAMN, TRAKT_MIN_ANDEL,
+  avstandTillRagang, bedomTrakt, byggRagang, etikettText, fastigheterUr, fastighetNamn, fastighetsFall, gransRubrik, gransVidTryck,
+  provpunkter, punktIPolygon, traktdelarUr, FASTIGHET_KORT_MENING, type RagangModell,
 } from './fastighetsgrans';
 
 // Syntetisk värld i meter (x österut, y norrut från [15, 57]) — samma omräkning som modulen använder.
@@ -66,65 +66,51 @@ describe('fastigheterUr', () => {
   });
 });
 
-describe('vilken fastighet ligger trakten på?', () => {
+describe('vilka fastigheter ingår i trakten?', () => {
   const fs_ = fastigheterUr(varld(A, B, C));
-  const ar = (t: any) => bedomAgare(traktdelarUr(varld(t)), fs_);
+  const urval = (t: any) => bedomTrakt(traktdelarUr(varld(t)), fs_);
+  const namnIn = (u: ReturnType<typeof urval>) => fs_.filter((_, i) => u.iTrakten[i]).map((f) => f.namn).sort();
 
-  it('trakten helt inom en fastighet → egen, och det är rätt fastighet', () => {
-    const a = ar(TRAKT_I_A);
-    expect(a.status).toBe('egen');
-    expect(fs_[a.index!].namn).toBe('Kompersmåla 3:12');
-    expect(a.skal).toBe('entydig');
+  it('trakten helt inom en fastighet → bara den ingår', () => {
+    const u = urval(TRAKT_I_A);
+    expect(u.status).toBe('kand');
+    expect(u.skal).toBe('overlapp');
+    expect(namnIn(u)).toEqual(['Kompersmåla 3:12']);
   });
-  it('trakten på två fastigheter (hälften var) → osäker: ingen nedtoning', () => {
-    const a = ar(traktdel([ruta(150, 40, 250, 160)]));
-    expect(a.status).toBe('osaker');
-    expect(a.index).toBeNull();
-    expect(a.skal).toBe('flera_fastigheter');
+  it('trakten på två fastigheter (hälften var) → BÅDA ingår (appen vet inte vem som äger vad, det som räknas är marken)', () => {
+    expect(namnIn(urval(traktdel([ruta(150, 40, 250, 160)])))).toEqual(['Kompersmåla 3:12', 'Ryd 1:4']);
   });
-  it('en smal kant i grannen (traktgränsen ligger några meter över rågången) är fortfarande entydigt', () => {
-    const a = ar(traktdel([ruta(40, 40, 204, 160)]));   // ≈ 2 % i B
-    expect(a.status).toBe('egen');
-    expect(fs_[a.index!].namn).toBe('Kompersmåla 3:12');
+  it('en smal kant i grannen (traktgränsen ligger ett par meter över rågången, ≈ 2–4 %) räknas inte som att marken ingår', () => {
+    const u = urval(traktdel([ruta(40, 40, 204, 160)]));
+    expect(u.andelar[1]).toBeGreaterThan(0.01); expect(u.andelar[1]).toBeLessThan(TRAKT_MIN_ANDEL);
+    expect(namnIn(u)).toEqual(['Kompersmåla 3:12']);
   });
-  it('mer än 10 % i grannen är inte längre entydigt', () => {
-    const a = ar(traktdel([ruta(40, 40, 240, 160)]));   // 20 % i B
-    expect(a.status).toBe('osaker');
+  it('6 % i grannen är mark som ingår i trakten (över tröskeln på 4 %)', () => {
+    const u = urval(traktdel([ruta(40, 40, 210, 160)]));
+    expect(u.andelar[1]).toBeGreaterThan(TRAKT_MIN_ANDEL);
+    expect(namnIn(u)).toEqual(['Kompersmåla 3:12', 'Ryd 1:4']);
   });
-  it('12 % i grannen räcker för "osäker" även när egna fastigheten har 88 % — gränsen är 10 %, inte "mest i en"', () => {
-    const a = ar(traktdel([ruta(40, 40, 224, 160)]));   // 160 m i A, 24 m i B → 87 % / 13 %
-    expect(a.andelar.filter((x) => x > 0).sort().reverse().map((x) => Math.round(x * 100))).toEqual([87, 13]);
-    expect(a.status).toBe('osaker');
-    expect(a.skal).toBe('flera_fastigheter');
-  });
-  it('spridd över många små grannar är osäkert även när ingen enskild granne når 10 %: egna fastigheten måste ha minst 85 %', () => {
-    // 58 % i A och sju remsor à 6 % — varje remsa ligger klart under 10 %, men A har bara 58 %.
+  it('flera små grannar som trakten delvis täcker tas alla med', () => {
     const remsa = (i: number) => fast('GRANNE', `${i}:1`, ruta(58 + i * 6, -50, 64 + i * 6, 150));
     const fl = fastigheterUr(varld(fast('KOMPERSMÅLA', '3:12', ruta(-50, -50, 58, 150)), ...[0, 1, 2, 3, 4, 5, 6].map(remsa)));
-    const a = bedomAgare(traktdelarUr(varld(traktdel([ruta(0, 0, 100, 100)]))), fl);
-    const [egen, ...grannar] = a.andelar;
-    expect(egen).toBeGreaterThan(0.5); expect(egen).toBeLessThan(0.7);
-    expect(grannar.every((x) => x < 0.09), `grannarna ${grannar.map((x) => x.toFixed(2))}`).toBe(true);
-    expect(a.status).toBe('osaker');
-    expect(a.skal).toBe('flera_fastigheter');
+    const u = bedomTrakt(traktdelarUr(varld(traktdel([ruta(0, 0, 100, 100)]))), fl);
+    expect(u.iTrakten.filter(Boolean).length).toBeGreaterThanOrEqual(7);   // egna + remsorna som trakten når
+    expect(u.iTrakten[0]).toBe(true);
   });
-  it('en trakt som delvis ligger utanför det Vida levererat → osäker (utanfor_data)', () => {
-    const a = ar(traktdel([ruta(100, 100, 100 + 120, 100 + 300)]));   // sticker ut norrut över C:s kant (400) ... men C täcker; flytta längre
-    expect(['egen', 'osaker']).toContain(a.status);
-    const ut = bedomAgare(traktdelarUr(varld(traktdel([ruta(40, -200, 160, 160)]))), fs_);   // 55 % söder om allt
-    expect(ut.status).toBe('osaker');
-    expect(ut.skal).toBe('utanfor_data');
-    expect(ut.otackt).toBeGreaterThan(AGARE_MAX_OTACKT);
+  it('trakt delvis utanför det Vida levererat: fastigheterna vi VET ingår tas med, resten tonas — inget "osäkert"', () => {
+    const u = bedomTrakt(traktdelarUr(varld(traktdel([ruta(40, -200, 160, 160)]))), fs_);   // 55 % söder om allt
+    expect(u.status).toBe('kand');
+    expect(u.otackt).toBeGreaterThan(0.5);
+    expect(namnIn(u)).toEqual(['Kompersmåla 3:12']);
   });
-  it('saknas traktgräns eller fastigheter är svaret osäker, aldrig ett antagande', () => {
-    expect(bedomAgare([], fs_).skal).toBe('ingen_traktgrans');
-    expect(bedomAgare(traktdelarUr(varld(TRAKT_I_A)), []).skal).toBe('inga_fastigheter');
+  it('trakt helt utanför fastighetsdatan, eller ingen traktgräns / inga fastigheter → okänt (ingen nedtoning), aldrig ett antagande', () => {
+    const ute = bedomTrakt(traktdelarUr(varld(traktdel([ruta(2000, 2000, 2100, 2100)]))), fs_);
+    expect(ute.status).toBe('okand'); expect(ute.skal).toBe('ingen_overlapp'); expect(ute.iTrakten.some(Boolean)).toBe(false);
+    expect(bedomTrakt([], fs_).skal).toBe('ingen_traktgrans');
+    expect(bedomTrakt(traktdelarUr(varld(TRAKT_I_A)), []).skal).toBe('inga_fastigheter');
   });
-  it('flera traktdelar: alla i samma fastighet → egen; en del i grannen (stor) → osäker', () => {
-    expect(ar(traktdel([ruta(20, 20, 60, 60), ruta(100, 100, 180, 180)])).status).toBe('egen');
-    expect(ar(traktdel([ruta(20, 20, 100, 100), ruta(220, 20, 300, 100)])).status).toBe('osaker');   // lika stora delar i A och B
-    const dominerar = ar(traktdel([ruta(20, 20, 60, 60), ruta(220, 20, 380, 180)]));                  // 94 % i B → B är fastigheten
-    expect(fs_[dominerar.index!].namn).toBe('Ryd 1:4');
+  it('flera traktdelar: delar i A och B → båda ingår', () => {
+    expect(namnIn(urval(traktdel([ruta(20, 20, 100, 100), ruta(220, 20, 300, 100)])))).toEqual(['Kompersmåla 3:12', 'Ryd 1:4']);
   });
   it('ett hål i fastigheten räknas inte som fastighetens mark', () => {
     const ring = ruta(0, 0, 200, 200);
@@ -141,40 +127,84 @@ describe('vilken fastighet ligger trakten på?', () => {
   });
 });
 
+/** Längd (m) av ett stycke. */
+const langd = (coords: number[][]) => coords.map(xy).slice(1).reduce((sum, p, i, a) => sum + Math.hypot(p[0] - xy(coords[i])[0], p[1] - xy(coords[i])[1]), 0);
+const stycken = (m: RagangModell, namn: string) => m.linjer.features.filter((f: any) => f.properties.namn === namn);
+/** Styrkan i stycket som ligger närmast punkten (x, y) i meter. */
+const styrkaVid = (m: RagangModell, namn: string, x: number, y: number): string => {
+  let bast = { d: Infinity, styrka: '' };
+  for (const f of stycken(m, namn)) for (const c of f.geometry.coordinates as number[][]) {
+    const [cx, cy] = xy(c); const d = Math.hypot(cx - x, cy - y);
+    if (d < bast.d) bast = { d, styrka: f.properties.styrka };
+  }
+  return bast.styrka;
+};
+
 describe('rågångens modell', () => {
   const m = byggRagang(varld(A, B, C, TRAKT_I_A))!;
-  const osaker = byggRagang(varld(A, B, C, traktdel([ruta(150, 40, 250, 160)])))!;
+  const delad = byggRagang(varld(A, B, C, traktdel([ruta(150, 40, 250, 160)])))!;
+  const utanData = byggRagang(varld(A, B, C, traktdel([ruta(2000, 2000, 2100, 2100)])))!;
+  const utanTrakt = byggRagang(varld(A, B, C))!;
+  const sidor = (mm: RagangModell) => Object.fromEntries(mm.ytor.features.map((f: any) => [f.properties.namn, f.properties.sida]));
 
-  it('sida: egen fastighet = egen, de andra = granne; vet vi inte vilken är trakten är ALLA okända (ingen nedtoning)', () => {
-    const sidor = Object.fromEntries(m.ytor.features.map((f: any) => [f.properties.namn, f.properties.sida]));
-    expect(sidor).toEqual({ 'Kompersmåla 3:12': 'egen', 'Ryd 1:4': 'granne', 'Ryd 1:5': 'granne' });
-    expect(new Set(osaker.ytor.features.map((f: any) => f.properties.sida))).toEqual(new Set(['okand']));
-    expect(new Set(osaker.linjer.features.map((f: any) => f.properties.sida))).toEqual(new Set(['okand']));
+  it('sida: fastigheter trakten överlappar = trakt, ALLA övriga = utanfor (oavsett ägare)', () => {
+    expect(sidor(m)).toEqual({ 'Kompersmåla 3:12': 'trakt', 'Ryd 1:4': 'utanfor', 'Ryd 1:5': 'utanfor' });
+    expect(sidor(delad)).toEqual({ 'Kompersmåla 3:12': 'trakt', 'Ryd 1:4': 'trakt', 'Ryd 1:5': 'utanfor' });
   });
-  it('rågångens linjer är varje polygons ring, med fastighetens namn', () => {
-    expect(m.linjer.features).toHaveLength(3);
-    expect(m.linjer.features.every((f: any) => f.geometry.type === 'LineString' && f.properties.namn)).toBe(true);
+  it('saknas fastighetsdata runt trakten (eller traktgräns) tonas ingenting: alla okända', () => {
+    expect(new Set(Object.values(sidor(utanData)))).toEqual(new Set(['okand']));
+    expect(new Set(Object.values(sidor(utanTrakt)))).toEqual(new Set(['okand']));
   });
-  it('etikettens text: grannen heter "Granne · …", den egna och okända bara beteckningen', () => {
-    expect(etikettText('Ryd 1:4', 'granne')).toBe('Granne · Ryd 1:4');
-    expect(etikettText('Kompersmåla 3:12', 'egen')).toBe('Kompersmåla 3:12');
-    expect(etikettText('Ryd 1:4', 'okand')).toBe('Ryd 1:4');
-    const texter = m.etiketter.features.map((f: any) => f.properties.text).sort();
-    expect(texter).toEqual(['Granne · Ryd 1:4', 'Granne · Ryd 1:5', 'Kompersmåla 3:12']);
-    expect(osaker.etiketter.features.every((f: any) => !String(f.properties.text).startsWith('Granne'))).toBe(true);
+  it('rågångens stycken: varje fastighets rand finns med i sin helhet, i bitar med namn, nyckel och styrka', () => {
+    for (const namn of ['Kompersmåla 3:12', 'Ryd 1:4', 'Ryd 1:5']) {
+      const st = stycken(m, namn);
+      expect(st.length).toBeGreaterThan(0);
+      expect(st.every((f: any) => f.geometry.type === 'LineString' && f.properties.nyckel && ['full', 'svag'].includes(f.properties.styrka))).toBe(true);
+      const tot = st.reduce((sum: number, f: any) => sum + langd(f.geometry.coordinates), 0);
+      expect(tot, namn).toBeCloseTo(800, 0);    // 4 × 200 m, ingen bit saknas eller dubbleras
+    }
+  });
+  it('styrka efter närhet: berör eller ligger inom 50 m från trakten = full, annars svag', () => {
+    // Trakten 40–160. A:s rand (0–200) ligger som mest 40 m från den → allt full. B (200–400): västra kanten x=200 är 40 m från trakten → full; östra x=400 → svag.
+    expect(styrkaVid(m, 'Kompersmåla 3:12', 0, 100)).toBe('full');
+    expect(styrkaVid(m, 'Kompersmåla 3:12', 200, 100)).toBe('full');
+    expect(styrkaVid(m, 'Ryd 1:4', 200, 100)).toBe('full');
+    expect(styrkaVid(m, 'Ryd 1:4', 400, 100)).toBe('svag');
+    expect(styrkaVid(m, 'Ryd 1:5', 100, 400)).toBe('svag');
+  });
+  it('en rand som korsar trakten är full där den korsar', () => {
+    const E = fast('KORSAR', '1:1', ruta(100, -300, 300, 100));   // västra kanten x=100 går genom trakten (y 40–100), men är svag längre söderut
+    const mm = byggRagang(varld(E, TRAKT_I_A))!;
+    expect(styrkaVid(mm, 'Korsar 1:1', 100, 70)).toBe('full');
+    expect(styrkaVid(mm, 'Korsar 1:1', 100, -250)).toBe('svag');
+  });
+  it('gränsen är NARA_STYRKA_M (50 m): 45 m bort = full, 55 m bort = svag', () => {
+    expect(NARA_STYRKA_M).toBe(50);
+    const D = (x: number) => fast('LÅNGT', '2:2', ruta(x, 0, x + 100, 200));
+    // Trakten når x=160; fastighetens västra kant på x=205 (45 m) respektive x=215 (55 m).
+    expect(styrkaVid(byggRagang(varld(D(205), TRAKT_I_A))!, 'Långt 2:2', 205, 100)).toBe('full');
+    expect(styrkaVid(byggRagang(varld(D(215), TRAKT_I_A))!, 'Långt 2:2', 215, 100)).toBe('svag');
+  });
+  it('utan traktgräns vet vi inte vad som är nära: allt ritas i full styrka', () => {
+    expect(new Set(utanTrakt.linjer.features.map((f: any) => f.properties.styrka))).toEqual(new Set(['full']));
+  });
+  it('beteckningens text är bara fastighetsbeteckningen — på båda sidor, aldrig "granne"', () => {
+    expect(etikettText('Ryd 1:4')).toBe('Ryd 1:4');
+    expect(m.etiketter.features.map((f: any) => f.properties.text).sort()).toEqual(['Kompersmåla 3:12', 'Ryd 1:4', 'Ryd 1:5']);
+    expect(delad.etiketter.features.map((f: any) => f.properties.text).sort()).toEqual(['Kompersmåla 3:12', 'Ryd 1:4', 'Ryd 1:5']);
   });
   it('en kort kant närmast trakten (20 m) väljs bort för en lång (200 m): texten måste få plats — och gränsen är 40 m, inte konstanten', () => {
     const remsa = fast('SMALA', '1:1', ruta(0, 0, 200, 20));            // 200 × 20 m: östra kanten är 20 m, södra och norra är 200 m
     const m = byggRagang(varld(remsa, traktdel([ruta(208, 8, 212, 12)])))!;
     const c = (m.etiketter.features[0].geometry.coordinates as number[][]).map(xy);
-    const langd = c.slice(1).reduce((sum, p, i) => sum + Math.hypot(p[0] - c[i][0], p[1] - c[i][1]), 0);
-    expect(langd, 'beteckningslinjens längd').toBeGreaterThanOrEqual(40);   // bokstavligt 40: ETIKETT_MIN_SPAN_M får inte bli sitt eget facit
+    const lang = c.slice(1).reduce((sum, p, i) => sum + Math.hypot(p[0] - c[i][0], p[1] - c[i][1]), 0);
+    expect(lang, 'beteckningslinjens längd').toBeGreaterThanOrEqual(40);   // bokstavligt 40: ETIKETT_MIN_SPAN_M får inte bli sitt eget facit
     expect(Math.max(...c.map((p) => p[0])) - Math.min(...c.map((p) => p[0])), 'ligger längs den långa kanten').toBeGreaterThan(100);
   });
   it('varje beteckning ligger på sin EGEN sida: alla punkter inne i den egna fastigheten, inskjutna från gränsen', () => {
     const poly = (namn: string) => fastigheterUr(varld(A, B, C)).find((f) => f.namn === namn)!.ytor[0];
     for (const e of m.etiketter.features) {
-      const namn = String(e.properties.text).replace('Granne · ', '');
+      const namn = String(e.properties.text);
       const p = poly(namn);
       for (const c of e.geometry.coordinates) {
         expect(punktIPolygon(c[0], c[1], p), `${namn} ${xy(c)}`).toBe(true);
@@ -189,24 +219,18 @@ describe('rågångens modell', () => {
       }
     }
   });
-  it('gränspinnar: i hörnen, ingen dubbel pinne där två fastigheter delar hörn, och aldrig längre än PINNE_MAX_AVSTAND_M mellan', () => {
-    const p = m.pinnar.features.map((f: any) => xy(f.geometry.coordinates));
-    const nara = (x: number, y: number) => p.filter(([px, py]) => Math.hypot(px - x, py - y) < 8).length;
-    expect(nara(0, 0)).toBe(1);        // A:s hörn
-    expect(nara(200, 0)).toBe(1);      // A och B delar hörnet: EN pinne
-    expect(nara(200, 200)).toBe(1);    // A, B och C delar det
-    expect(nara(400, 400)).toBe(0);    // ...C:s yttre hörn (400,400) finns, men (400,400) är utanför ytorna: ingen pinne där
-    // sidan 0..200 har inga hörn mitt på men fyllnad så ingen lucka överstiger max
-    const langsKanten = p.filter(([px, py]) => Math.abs(py) < 1 && px > 0 && px < 400).map(([px]) => px).sort((a, b) => a - b);
-    const med = [0, ...langsKanten, 400];
-    for (let i = 1; i < med.length; i++) expect(med[i] - med[i - 1]).toBeLessThanOrEqual(PINNE_MAX_AVSTAND_M + 1);
+  it('INGA gränspinnar: modellen har ingen pinnlista och modulen ritar inga (rött är bara varning)', () => {
+    expect((m as any).pinnar).toBeUndefined();
+    const kalla = fs.readFileSync(path.join(process.cwd(), 'lib/fastighetsgrans.ts'), 'utf8');
+    expect(kalla).not.toMatch(/pinnarLangs|PINNE_|laggPinne/);
   });
-  it('pinnar och beteckningar ritas bara nära trakten — en fastighet 5 km bort får ingen', () => {
+  it('beteckningar ritas bara nära trakten — en fastighet 5 km bort får ingen, men dess rågång ritas ändå (svag)', () => {
     const lang = fast('LÅNGT', '9:9', ruta(5000, 5000, 5200, 5200));
     const mm = byggRagang(varld(A, lang, TRAKT_I_A))!;
-    expect(mm.pinnar.features.every((f: any) => { const [x, y] = xy(f.geometry.coordinates); return x < NARA_TRAKTEN_M + 200 && y < NARA_TRAKTEN_M + 200; })).toBe(true);
     expect(mm.etiketter.features.map((f: any) => f.properties.text)).toEqual(['Kompersmåla 3:12']);
-    expect(mm.linjer.features).toHaveLength(2);   // men själva rågången ritas överallt
+    expect(stycken(mm, 'Långt 9:9').length).toBeGreaterThan(0);
+    expect(new Set(stycken(mm, 'Långt 9:9').map((f: any) => f.properties.styrka))).toEqual(new Set(['svag']));
+    expect(NARA_TRAKTEN_M).toBe(600);
   });
   it('utan fastighetsytor finns ingen modell (ingenting att rita)', () => {
     expect(byggRagang(varld(TRAKT_I_A))).toBeNull();
@@ -229,6 +253,10 @@ describe('fällningscirkeln: rågången inom 30 m', () => {
     expect(fastighetsFall(null, m)).toBeNull();
     expect(fastighetsFall(pos(190, 100), null)).toBeNull();
   });
+  it('fällningsvarningen gäller ALLA gränser inom 30 m, också svaga stycken långt från trakten', () => {
+    expect(styrkaVid(m, 'Ryd 1:4', 400, 100)).toBe('svag');
+    expect(fastighetsFall(pos(380, 100), m)).toEqual({ avstandM: 20 });
+  });
   it('avståndet räknas åt båda hållen (från grannens sida också)', () => {
     expect(fastighetsFall(pos(215, 100), m)).toEqual({ avstandM: 15 });
     expect(avstandTillRagang(pos(100, 100), m)).toBeNull();
@@ -238,7 +266,7 @@ describe('fällningscirkeln: rågången inom 30 m', () => {
 describe('tryck på gränsen → "X mot Y"', () => {
   const m = byggRagang(varld(A, B, C, TRAKT_I_A))!;
   const tryck = (x: number, y: number) => { const [lng, lat] = ll(x, y); return { lng, lat }; };
-  it('på delad gräns: den egna fastigheten först, sedan grannen', () => {
+  it('på delad gräns: fastigheten som ingår i trakten först, sedan den andra', () => {
     const g = gransVidTryck(tryck(200, 100), m)!;
     expect(g.a).toBe('Kompersmåla 3:12');
     expect(g.b).toBe('Ryd 1:4');
@@ -247,33 +275,42 @@ describe('tryck på gränsen → "X mot Y"', () => {
   it('ordningen är densamma oavsett från vilken sida man trycker', () => {
     expect(gransVidTryck(tryck(205, 100), m)!.a).toBe('Kompersmåla 3:12');
   });
-  it('på en yttergräns där grannen inte finns i Vidas data: "mot granne"', () => {
+  it('på en yttergräns där den andra fastigheten inte finns i Vidas data står bara den ena — aldrig "granne"', () => {
     const g = gransVidTryck(tryck(0, 100), m)!;
     expect(g.a).toBe('Kompersmåla 3:12');
     expect(g.b).toBeNull();
-    expect(gransRubrik(g)).toBe('Fastighetsgräns · Kompersmåla 3:12 mot granne');
+    expect(gransRubrik(g)).toBe('Fastighetsgräns · Kompersmåla 3:12');
   });
   it('mitt inne i en fastighet (långt från rågång) → inget kort', () => {
     expect(gransVidTryck(tryck(100, 100), m)).toBeNull();
     expect(gransVidTryck(tryck(100, 100), null)).toBeNull();
   });
-  it('kortets mening säger att gränsen kan avvika och att man ska lita på pinnar och snitsel', () => {
-    expect(FASTIGHET_KORT_MENING).toBe('Gränsen kan avvika några meter. Lita på gränspinnar och snitsel i fält.');
+  it('kortets mening: gränsen kan avvika några meter, lita på snitsel och märkning — inget om gränspinnar', () => {
+    expect(FASTIGHET_KORT_MENING).toBe('Gränsen kan avvika några meter. Lita på snitsel och märkning i fält.');
+  });
+  it('tryck på ett SVAGT stycke (långt från trakten) öppnar kortet precis som ett starkt', () => {
+    expect(styrkaVid(m, 'Ryd 1:4', 400, 100)).toBe('svag');
+    expect(gransVidTryck(tryck(400, 100), m)!.a).toBe('Ryd 1:4');
   });
 });
 
 describe('verklig data: Stänkelsmåla 2025 (prod 2026-10-22)', () => {
   const fc = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'lib/__fixtures__/fastighetsgrans_stankelsmala.json'), 'utf8'));
   const m = byggRagang(fc)!;
-  it('trakten ligger på två fastigheter (Gammalsmåla 2:12 och Stänkelsmåla 1:3) → appen säger osäker och tonar inte ner något', () => {
-    expect(m.agare.status).toBe('osaker');
-    expect(m.agare.skal).toBe('flera_fastigheter');
+  it('trakten ligger på två fastigheter (Gammalsmåla 2:12 och Stänkelsmåla 1:3) → BÅDA ingår (ljusa), de 15 andra tonas ned — oavsett ägare', () => {
+    expect(m.urval.status).toBe('kand');
     const namn = m.fastigheter.map((f) => f.namn);
     const i212 = namn.indexOf('Gammalsmåla 2:12'), i13 = namn.indexOf('Stänkelsmåla 1:3');
-    expect(m.agare.andelar[i212]).toBeGreaterThan(0.3);
-    expect(m.agare.andelar[i13]).toBeGreaterThan(0.3);
-    expect(new Set(m.ytor.features.map((f: any) => f.properties.sida))).toEqual(new Set(['okand']));
-    expect(m.etiketter.features.every((f: any) => !String(f.properties.text).startsWith('Granne'))).toBe(true);
+    expect(m.urval.andelar[i212]).toBeGreaterThan(0.3);
+    expect(m.urval.andelar[i13]).toBeGreaterThan(0.3);
+    const sidor = Object.fromEntries(m.ytor.features.map((f: any) => [f.properties.namn, f.properties.sida]));
+    expect(Object.entries(sidor).filter(([, v]) => v === 'trakt').map(([k]) => k).sort()).toEqual(['Gammalsmåla 2:12', 'Stänkelsmåla 1:3']);
+    expect(Object.values(sidor).filter((v) => v === 'utanfor')).toHaveLength(15);
+    expect(m.etiketter.features.every((f: any) => !/granne/i.test(String(f.properties.text)))).toBe(true);
+  });
+  it('stycken nära trakten är starka, resten svaga — och båda finns i den verkliga datan', () => {
+    const styrkor = new Set(m.linjer.features.map((f: any) => f.properties.styrka));
+    expect(styrkor).toEqual(new Set(['full', 'svag']));
   });
   it('områden av samma fastighet blir en: 17 fastigheter ur 19 polygoner; det outretta området heter så', () => {
     expect(m.fastigheter).toHaveLength(17);
@@ -283,20 +320,15 @@ describe('verklig data: Stänkelsmåla 2025 (prod 2026-10-22)', () => {
   it('hålet i Gammalsmåla 2:12 blir en egen ringlinje och räknas inte som dess mark', () => {
     const g = m.fastigheter.find((f) => f.namn === 'Gammalsmåla 2:12')!;
     expect(g.ytor[0].length).toBeGreaterThan(1);
-    expect(m.linjer.features.filter((f: any) => f.properties.namn === 'Gammalsmåla 2:12')).toHaveLength(g.ytor[0].length);
-  });
-  it('gränspinnar finns längs linjen men inte tätare än var 8:e meter', () => {
-    expect(m.pinnar.features.length).toBeGreaterThan(50);
-    const p = m.pinnar.features.map((f: any) => f.geometry.coordinates as [number, number]);
-    const KXr = 111320 * Math.cos((56.588 * Math.PI) / 180);
-    for (let i = 0; i < p.length; i++) for (let j = i + 1; j < p.length; j++) expect(Math.hypot((p[i][0] - p[j][0]) * KXr, (p[i][1] - p[j][1]) * 111320)).toBeGreaterThanOrEqual(8);
+    const ringar = m.linjer.features.filter((f: any) => f.properties.namn === 'Gammalsmåla 2:12');
+    expect(ringar.length).toBeGreaterThanOrEqual(g.ytor[0].length);   // varje ring ger minst ett stycke
   });
   it('beteckningen följer EN rak sträcka längs rågången närmast trakten — aldrig runt ett hörn (MapLibre lägger ingen text runt ett skarpt hörn)', () => {
     // Trakt nära A:s östra kant (x = 200): A:s beteckning ska ligga längs den kanten (x ≈ 186), B:s längs sin västra (x ≈ 214).
     const nara = byggRagang(varld(A, B, traktdel([ruta(120, 60, 196, 140)])))!;
     const rad = (text: string) => nara.etiketter.features.find((f: any) => f.properties.text === text)!.geometry.coordinates.map(xy);
     for (const [x, y] of rad('Kompersmåla 3:12')) expect(Math.abs(x - 186), `A ${x},${y}`).toBeLessThan(1);
-    for (const [x, y] of rad('Granne · Ryd 1:4')) expect(Math.abs(x - 214), `B ${x},${y}`).toBeLessThan(1);
+    for (const [x, y] of rad('Ryd 1:4')) expect(Math.abs(x - 214), `B ${x},${y}`).toBeLessThan(1);
     for (const f of nara.etiketter.features) {
       const c = (f.geometry.coordinates as number[][]).map(xy);
       for (let i = 1; i + 1 < c.length; i++) {

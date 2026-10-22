@@ -1,13 +1,14 @@
 // @vitest-environment node
 // FASTIGHETSGRÄNSEN I RIKTIG CHROMIUM + MAPLIBRE (2026-10-22, "Fastighetsgräns supertydlig"). jsdom kan inte rita en karta, därför Chromium; finns ingen hoppas mätningen över.
-// Ritar en syntetisk värld (två grannfastigheter A och B, en traktdel i A) med EXAKT lagerspecarna ur lib/fastighetsgransKarta och traktgränsen med samma konstanter som
+// Ritar en syntetisk värld (grannfastigheter A, B och C, en traktdel) med EXAKT lagerspecarna ur lib/fastighetsgransKarta och traktgränsen med samma konstanter som
 // planeringsvyn (page.tsx är källvaktad nedan), på mörkgrön "flygfoto"-bakgrund och på vit karta, och mäter i pixlar:
-//   1. rågången är en vit kärna med mörk kant — på BÅDA bakgrunderna (på vit syns den på kanten, på mörkt på kärnan),
-//   2. gränspinnarna är röda,
+//   1. rågången är en vit kärna med mörk kant — på BÅDA bakgrunderna (på vit syns den på kanten, på mörkt på kärnan), och ingen pinne/röd prick finns,
+//   2. styrka efter närhet: stycket nära trakten är fullt, stycket långt bort tunnare och svagare,
 //   3. traktgränsen ligger OVANPÅ rågången: där de sammanfaller syns ett vitt band med röd/gul snitsel i mitten, där de skiljer sig syns båda var för sig,
-//   4. skimmer på trakten egen fastighet / nedtonad granne — och INGEN nedtoning när ägaren inte går att avgöra,
+//   4. skimmer på fastigheter trakten överlappar, nedtoning av ALLA övriga — och INGEN nedtoning när fastighetsdata saknas runt trakten,
 //   5. beteckningen står på båda sidor om gränsen,
-//   6. en etikett per yta: en MultiPolygon med tre delar ger tre etiketter när polygonen själv bär etiketten (felet) och EN när etiketten är en punkt (lib/ytaEtikett).
+//   6. en etikett per yta: en MultiPolygon med tre delar ger tre etiketter när polygonen själv bär etiketten (felet) och EN när etiketten är en punkt (lib/ytaEtikett),
+//   7. Lantmäteriets rasterlager (när Vida inte levererat fastigheter) ritas i SAMMA stil: vit kärna med mörk kant, aldrig gult (syntetisk tile — riktiga WMS nås inte härifrån).
 // Skala: zoom 17 på lat 57 = 3,07 px per meter (MapLibres 512-rutor), vyn är 900 × 640 px = ±146 × ±104 m kring (200, 100).
 // FASTIGHET_SKRIV=<mapp> sparar skärmbilderna.
 import { createRequire } from 'node:module';
@@ -18,7 +19,8 @@ import { describe, expect, it } from 'vitest';
 import { byggRagang } from './fastighetsgrans';
 import { LEGEND } from './kartstil';
 import { vidaEtikettPunkter } from './ytaEtikett';
-import { RAGANG_LAGER_ORDNING, TRAKTGRANS_BREDD, TRAKTGRANS_KANT_BREDD, TRAKTGRANS_KANT_FARG, ragangKallor, ragangLager, forstaVektorLagerId } from './fastighetsgransKarta';
+import { RAGANG_LAGER_ORDNING, TRAKTGRANS_BREDD, TRAKTGRANS_KANT_BREDD, TRAKTGRANS_KANT_FARG, ragangKallor, ragangLager, forstaVektorLagerId, lmGransLager, LM_GRANS } from './fastighetsgransKarta';
+import zlib from 'node:zlib';
 
 function chromium(): { launch: (o: object) => Promise<any> } | null {
   try {
@@ -48,8 +50,14 @@ const A = fast('KOMPERSMÅLA', '3:12', ruta(0, 0, 200, 200));
 const B = fast('RYD', '1:4', ruta(200, 0, 400, 200));
 // Trakt i A. Östra kanten ligger PÅ rågången (x = 200) för y 40–100 och viker sedan in till x = 170 (y 100–160): där skiljer sig traktgränsen från rågången.
 const TRAKT_EGEN = traktdel(ring([[60, 40], [200, 40], [200, 100], [170, 100], [170, 160], [60, 160]]));
-// Trakt på BÅDA fastigheterna lika mycket (x 100–300): ägaren går inte att avgöra.
+// Trakt på BÅDA fastigheterna lika mycket (x 100–300): båda ingår i trakten.
 const TRAKT_PA_TVA = traktdel(ruta(100, 40, 300, 160));
+// Trakt väl inne i A, långt från B:s östra kant.
+const TRAKT_I_A_LIT = traktdel(ruta(60, 40, 160, 160));
+// Tredje fastigheten, norr om A: trakten når aldrig dit.
+const C = fast('RYD', '1:5', ruta(0, 200, 200, 400));
+// Trakt långt utanför all fastighetsdata: appen kan inte avgöra något och tonar inget.
+const TRAKT_UTANFOR_DATA = traktdel(ruta(5000, 5000, 5100, 5100));
 
 type Rod = [number, number, number];
 const BG: Record<string, string> = { flygfoto: '#3d4a2c', karta: '#f2efe9' };
@@ -82,7 +90,7 @@ async function rita(bakgrund: 'flygfoto' | 'karta', fc: any, opt: { skriv?: stri
         style: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': a.bg } }] } });
       (window as any).__map = map;
       await new Promise((r) => map.on('load', r));
-      const data: Record<string, any> = { 'trakt-ragang-yta-source': a.modell.ytor, 'trakt-ragang-linje-source': a.modell.linjer, 'trakt-ragang-pinne-source': a.modell.pinnar, 'trakt-ragang-etikett-source': a.modell.etiketter };
+      const data: Record<string, any> = { 'trakt-ragang-yta-source': a.modell.ytor, 'trakt-ragang-linje-source': a.modell.linjer, 'trakt-ragang-etikett-source': a.modell.etiketter };
       for (const [id, spec] of a.kallor) map.addSource(id, { ...spec, data: data[id] });
       map.addSource('traktdel-parts-source', { type: 'geojson', data: a.traktdelar });
       const forsta = a.forstaId;   // beforeId ur forstaVektorLagerId — här finns bara bakgrunden, alltså undefined (allt läggs överst, som på sidan)
@@ -96,7 +104,7 @@ async function rita(bakgrund: 'flygfoto' | 'karta', fc: any, opt: { skriv?: stri
       (window as any).__ctx = c.getContext('2d')!; (window as any).__ctx.drawImage(map.getCanvas(), 0, 0);
       (window as any).__dpr = c.width / map.getCanvas().clientWidth;
     }, {
-      bg: BG[bakgrund], zoom: opt.zoom ?? 17, center: ll(200, 100), modell: { ytor: modell!.ytor, linjer: modell!.linjer, pinnar: modell!.pinnar, etiketter: modell!.etiketter },
+      bg: BG[bakgrund], zoom: opt.zoom ?? 17, center: ll(200, 100), modell: { ytor: modell!.ytor, linjer: modell!.linjer, etiketter: modell!.etiketter },
       kallor: ragangKallor(), lager: ragangLager(), forstaId: forstaVektorLagerId([{ id: 'bg', type: 'background' }]),
       traktdelar: { type: 'FeatureCollection', features: fc.features.filter((f: any) => f.properties._lager === 'L_TRAKTDEL').flatMap((f: any) => f.geometry.coordinates.map((p: any) => ({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: p } }))) },
       kantFarg: TRAKTGRANS_KANT_FARG, kantBredd: TRAKTGRANS_KANT_BREDD, bredd: TRAKTGRANS_BREDD, fara: LEGEND.fara, gul: LEGEND.gul,
@@ -174,13 +182,27 @@ describe.skipIf(!CHROMIUM)('Rågången i riktig Chromium + MapLibre — vit kär
     }, 90000);
   }
 
-  it('gränspinnarna är röda prickar med vit kant (hörnet vid y = 0, där ingen traktgräns ligger över)', async () => {
+  it('INGA röda prickar: hörnet vid (200, 0) där tre fastigheters rågång möts har ingen röd pixel (rött är bara varning)', async () => {
     const m = await rita('flygfoto', { features: [A, B, TRAKT_EGEN] });
-    const kol = m.kol(200, -8, 8);
-    expect(kol.some(arRod), 'ingen röd pinne vid (200, 0)').toBe(true);
-    const fara = LEGEND.fara; const [r, g, b] = [1, 3, 5].map((k) => parseInt(fara.slice(k, k + 2), 16));
-    const rodast = kol.reduce((best, p) => (Math.abs(p[0] - r) + Math.abs(p[1] - g) + Math.abs(p[2] - b) < Math.abs(best[0] - r) + Math.abs(best[1] - g) + Math.abs(best[2] - b) ? p : best));
-    expect(Math.abs(rodast[0] - r) + Math.abs(rodast[1] - g) + Math.abs(rodast[2] - b), `pinnens färg rgb(${rodast})`).toBeLessThan(60);
+    const kol = m.kol(200, -12, 12);
+    expect(kol.some(arRod), 'röd pixel vid hörnet').toBe(false);
+    const hela = [m.kol(0, 0, 200), m.kol(200, 0, 200), m.kol(400, 0, 200)].flat();
+    expect(hela.filter(arRod).length, 'röda pixlar längs rågången (utom traktgränsens egen snitsel)').toBeLessThan(hela.length * 0.35);
+  }, 90000);
+
+  it('styrka efter närhet: stycket 40 m från trakten (x = 200) är brett och vitt, stycket 240 m bort (x = 400) hälften så brett och svagare — men synligt', async () => {
+    const m = await rita('flygfoto', { features: [A, B, TRAKT_I_A_LIT] }, { skriv: SKRIV, namn: 'styrka', zoom: 16 });
+    const bredd = (x: number, ok: (p: Rod) => boolean) => {
+      const r = m.rad(100, x - 12 / 1.53, x + 12 / 1.53);   // ±12 px kring gränsen (zoom 16: 1,53 px/m)
+      let basta = 0, nu = 0; for (const p of r) { nu = ok(p) ? nu + 1 : 0; basta = Math.max(basta, nu); }
+      return basta;
+    };
+    const stark = bredd(200, arVit), svag = bredd(400, (p) => lum(p) > lum(m.bakgrund) + 40);
+    const svagVit = bredd(400, arVit);
+    expect(stark, 'starka stycket: vit kärna i pixlar').toBeGreaterThanOrEqual(8);
+    expect(svag, 'svaga stycket syns (ljusare än bakgrunden)').toBeGreaterThanOrEqual(3);
+    expect(svag, 'svaga stycket är smalare än det starka').toBeLessThan(stark - 2);
+    expect(svagVit, 'svaga stycket är inte helvitt (lägre opacitet)').toBe(0);
   }, 90000);
 });
 
@@ -219,16 +241,27 @@ describe.skipIf(!CHROMIUM)('Traktgränsen OVANPÅ rågången — ingen döljer d
   }
 });
 
-describe.skipIf(!CHROMIUM)('Vems mark — skimmer på trakten egen fastighet, nedtonad granne, och INGET när det inte går att avgöra', () => {
-  it('trakten ligger i A: A ljusare än bakgrunden, B mörkare', async () => {
-    const m = await rita('flygfoto', { features: [A, B, TRAKT_EGEN] }, { skriv: SKRIV, namn: 'skimmer-egen' });
-    expect(lum(m.px(120, 20)), 'A (egen) ska vara ljusare än bakgrunden').toBeGreaterThan(lum(m.bakgrund) + 2);
-    expect(lum(m.px(300, 20)), 'B (granne) ska vara mörkare än bakgrunden').toBeLessThan(lum(m.bakgrund) - 6);
+describe.skipIf(!CHROMIUM)('Vems mark — skimmer på fastigheter trakten överlappar, nedtoning av alla övriga, INGET när data saknas', () => {
+  it('trakten ligger i A: A ljusare än bakgrunden, B och C (övriga) mörkare', async () => {
+    const m = await rita('flygfoto', { features: [A, B, C, TRAKT_EGEN] }, { skriv: SKRIV, namn: 'skimmer-egen', zoom: 16 });
+    expect(lum(m.px(120, 20)), 'A (trakten) ska vara ljusare än bakgrunden').toBeGreaterThan(lum(m.bakgrund) + 2);
+    expect(lum(m.px(300, 20)), 'B (utanför) ska vara mörkare än bakgrunden').toBeLessThan(lum(m.bakgrund) - 6);
+    expect(lum(m.px(100, 300)), 'C (utanför) ska vara mörkare än bakgrunden').toBeLessThan(lum(m.bakgrund) - 6);
   }, 90000);
-  it('trakten ligger lika mycket på A och B: ingen av dem tonas — hellre lika än fel', async () => {
-    const m = await rita('flygfoto', { features: [A, B, TRAKT_PA_TVA] }, { skriv: SKRIV, namn: 'skimmer-osaker' });
-    expect(Math.abs(lum(m.px(120, 20)) - lum(m.bakgrund)), 'A ska vara orörd').toBeLessThan(1.5);
-    expect(Math.abs(lum(m.px(300, 20)) - lum(m.bakgrund)), 'B ska vara orörd').toBeLessThan(1.5);
+  it('nedtoningen är svag: 20–30 % mörkare, så vägar, hus och diken syns genom', async () => {
+    const m = await rita('flygfoto', { features: [A, B, C, TRAKT_EGEN] }, { zoom: 16 });
+    const forhall = lum(m.px(300, 20)) / lum(m.bakgrund);
+    expect(forhall, 'B:s ljushet relativt bakgrunden').toBeGreaterThan(0.7); expect(forhall).toBeLessThan(0.8);
+  }, 90000);
+  it('trakten ligger på A och B: BÅDA lyser (marken ingår), C tonas', async () => {
+    const m = await rita('flygfoto', { features: [A, B, C, TRAKT_PA_TVA] }, { skriv: SKRIV, namn: 'skimmer-tva', zoom: 16 });
+    expect(lum(m.px(120, 20)), 'A ska vara ljusare än bakgrunden').toBeGreaterThan(lum(m.bakgrund) + 2);
+    expect(lum(m.px(300, 20)), 'B ska vara ljusare än bakgrunden').toBeGreaterThan(lum(m.bakgrund) + 2);
+    expect(lum(m.px(100, 300)), 'C ska vara mörkare än bakgrunden').toBeLessThan(lum(m.bakgrund) - 6);
+  }, 90000);
+  it('fastighetsdata saknas runt trakten: ingenting tonas, varken ljust eller mörkt', async () => {
+    const m = await rita('flygfoto', { features: [A, B, C, TRAKT_UTANFOR_DATA] }, { skriv: SKRIV, namn: 'skimmer-okand', zoom: 16 });
+    for (const [x, y] of [[120, 20], [300, 20], [100, 300]]) expect(Math.abs(lum(m.px(x, y)) - lum(m.bakgrund)), `(${x}, ${y}) ska vara orörd`).toBeLessThan(1.5);
   }, 90000);
 });
 
@@ -286,6 +319,92 @@ describe.skipIf(!CHROMIUM)('En etikett per yta — aldrig dubbel', () => {
   }, 120000);
 });
 
+// -- Lantmäteriets rasterlager i samma stil -------------------------------------------------------------------------------------------------------
+// Riktiga WMS nås inte härifrån, så servern ersätts av en syntetisk tile: genomskinlig med en GUL linje (Lantmäteriets egen färg), 2 px bred, lodrät mitt i rutan.
+// Servern ritar linjen lika bred i pixlar oavsett WIDTH, så en tile med WIDTH=128 visad över 512 skärmpixlar ger en 4 × så bred linje — som mätningen ska se.
+function pngRuta(w: number): Buffer {
+  const crcTab = new Uint32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (b: Buffer) => { let c = 0xffffffff; for (const x of b) c = crcTab[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const bit = (typ: string, d: Buffer) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const t = Buffer.concat([Buffer.from(typ), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(t)); return Buffer.concat([l, t, c]); };
+  const rad = Buffer.alloc(1 + w * 4);                       // filter 0 + RGBA
+  const mitt = Math.floor(w / 2);
+  for (const x of [mitt - 1, mitt]) { rad[1 + x * 4] = 245; rad[1 + x * 4 + 1] = 196; rad[1 + x * 4 + 2] = 0; rad[1 + x * 4 + 3] = 255; }   // gul, ogenomskinlig
+  const raw = Buffer.concat(Array.from({ length: w }, () => rad));
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(w, 4); ihdr[8] = 8; ihdr[9] = 6;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), bit('IHDR', ihdr), bit('IDAT', zlib.deflateSync(raw)), bit('IEND', Buffer.alloc(0))]);
+}
+
+async function ritaLm(bakgrund: 'flygfoto' | 'karta', skriv?: string): Promise<{ rad: Rod[]; gula: number; bgRod: Rod }> {
+  const b = await CHROMIUM!.launch({});
+  try {
+    const pg = await b.newPage({ viewport: { width: 900, height: 640 } });
+    await pg.route('**/minkarta.lantmateriet.se/**', async (route: any) => {
+      const w = Number(new URL(route.request().url()).searchParams.get('WIDTH') ?? '256');
+      await route.fulfill({ status: 200, contentType: 'image/png', headers: { 'access-control-allow-origin': '*' }, body: pngRuta(w) });
+    });
+    await pg.setContent('<!doctype html><html><head><meta charset="utf-8"><style>html,body,#m{margin:0;height:100%}</style></head><body><div id="m"></div></body></html>');
+    await pg.addStyleTag({ path: path.join(MAPLIBRE, 'maplibre-gl.css') });
+    await pg.addScriptTag({ path: path.join(MAPLIBRE, 'maplibre-gl.js') });
+    const lm = lmGransLager();
+    const ut = await pg.evaluate(async (a: any) => {
+      const map = new (window as any).maplibregl.Map({ container: 'm', center: a.center, zoom: 16, fadeDuration: 0, preserveDrawingBuffer: true, attributionControl: false,
+        style: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': a.bg } }] } });
+      await new Promise((r) => map.on('load', r));
+      for (const [id, spec] of a.kallor) map.addSource(id, spec);
+      for (const spec of a.lager) { const l = JSON.parse(JSON.stringify(spec)); l.layout.visibility = 'visible'; map.addLayer(l); }
+      await new Promise((r) => { map.once('idle', r); map.triggerRepaint(); });
+      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => { map.once('idle', r); map.triggerRepaint(); });
+      const c = document.createElement('canvas'); c.width = map.getCanvas().width; c.height = map.getCanvas().height;
+      const ctx = c.getContext('2d')!; ctx.drawImage(map.getCanvas(), 0, 0);
+      const w = c.width, h = c.height, d = ctx.getImageData(0, 0, w, h).data;
+      let gula = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] > 150 && d[i + 2] < 110) gula++;
+      // Raden mitt i bilden: den lodräta linjen syns som ett band någonstans i den.
+      const Y = Math.floor(h / 2); const rad: number[][] = []; for (let X = 0; X < w; X++) { const i = (Y * w + X) * 4; rad.push([d[i], d[i + 1], d[i + 2]]); }
+      return { rad, gula };
+    }, { center: ll(200, 100), bg: BG[bakgrund], kallor: lm.kallor, lager: lm.lager });
+    if (skriv) { fs.mkdirSync(skriv, { recursive: true }); await pg.screenshot({ path: path.join(skriv, `lantmateriet-${bakgrund}.png`) }); }
+    const bgHex = BG[bakgrund]; const bgRod = [1, 3, 5].map((k) => parseInt(bgHex.slice(k, k + 2), 16)) as Rod;
+    return { rad: ut.rad as Rod[], gula: ut.gula, bgRod };
+  } finally { await b.close(); }
+}
+
+describe.skipIf(!CHROMIUM)('Lantmäteriets gräns i SAMMA stil — vit kärna med mörk kant, aldrig gul', () => {
+  for (const bg of ['flygfoto', 'karta'] as const) {
+    it(`${bg}: den gula tile-linjen blir en vit kärna med mörk kant på båda sidor, och inget gult återstår`, async () => {
+      const r = await ritaLm(bg, SKRIV);
+      expect(r.gula, 'gula pixlar kvar i bilden').toBe(0);
+      // Hitta kärnan: en sammanhängande rad av "vita" pixlar (ljusare än allt omkring).
+      const ljus = r.rad.map((p) => lum(p));
+      const bgL = lum(r.bgRod);
+      let bast = { start: -1, len: 0 }; let nu = { start: 0, len: 0 };
+      ljus.forEach((l, i) => { if (l > 235) { if (nu.len === 0) nu.start = i; nu.len++; if (nu.len > bast.len) bast = { ...nu }; } else nu = { start: i + 1, len: 0 }; });
+      if (bg === 'flygfoto') {
+        expect(bast.len, 'vit kärna (px)').toBeGreaterThanOrEqual(4);
+        // Mörk kant: pixlar mörkare än bakgrunden precis utanför kärnan, på båda sidor.
+        const vanster = ljus.slice(Math.max(0, bast.start - 8), bast.start), hoger = ljus.slice(bast.start + bast.len, bast.start + bast.len + 8);
+        expect(Math.min(...vanster), 'mörk kant väster').toBeLessThan(bgL - 10);
+        expect(Math.min(...hoger), 'mörk kant öster').toBeLessThan(bgL - 10);
+      } else {
+        // På vit karta är kärnan i princip bakgrundens färg: kanten syns som mörka band på båda sidor om ett ljust band.
+        const mork = ljus.map((l, i) => (l < 120 ? i : -1)).filter((i) => i >= 0);
+        expect(mork.length, 'mörka kantpixlar').toBeGreaterThanOrEqual(2);
+        const mid = mork[Math.floor(mork.length / 2)];
+        expect(mork.some((i) => i < mid - 2) && mork.some((i) => i > mid + 2), 'mörk kant på båda sidor om kärnan').toBe(true);
+      }
+      // Genomskinligt ska förbli genomskinligt: långt från linjen är bakgrunden orörd.
+      const lang = r.rad[10]; expect(Math.abs(lum(lang) - bgL), 'bakgrunden orörd långt från linjen').toBeLessThan(2);
+    }, 90000);
+  }
+  it('mätningen har tänder: utan färgbytet (ingen raster-brightness) är linjen gul', async () => {
+    expect(LM_GRANS.kantLager).toBe('wms-layer-fastighetsgranser-kant');
+    const lm = lmGransLager();
+    const linje = lm.lager.find((l: any) => l.id === LM_GRANS.linjeLager)!;
+    expect(linje.paint['raster-brightness-min']).toBe(1);
+    expect(lm.lager.find((l: any) => l.id === LM_GRANS.kantLager)!.paint['raster-brightness-max']).toBe(0);
+  });
+});
+
 // -- källvakter: sidan ritar rågången och etiketterna med de delade specarna --------------------------------------------------------------------
 describe('page.tsx ritar rågången med de delade specarna', () => {
   const sida = fs.readFileSync(path.join(process.cwd(), 'app/planering/page.tsx'), 'utf8');
@@ -306,14 +425,26 @@ describe('page.tsx ritar rågången med de delade specarna', () => {
     expect(sida).toMatch(/zonEtikettPunkter\(features\)/);
     expect(sida).toMatch(/vidaEtikettPunkter\(traktGeo\)/);
   });
-  it('rågångens lager följer körvyns whitelist (prefixet trakt-) och synlighet styrs av RAGANG_LAGER_ORDNING', () => {
+  it('rågångens lager följer körvyns whitelist (prefixet trakt-) men körvyn rör inte deras synlighet — den hör till lagret', () => {
     for (const id of RAGANG_LAGER_ORDNING) expect(id.startsWith('trakt-')).toBe(true);
     expect(sida).toMatch(/for \(const id of RAGANG_LAGER_ORDNING\)/);
+    expect(sida).toMatch(/if \(l\.id\.startsWith\('trakt-ragang-'\) \|\| l\.id\.startsWith\('wms-layer-fastighetsgranser'\)\) continue;/);
+    expect(sida).toMatch(/if \(id\.startsWith\('trakt-ragang-'\) \|\| id\.startsWith\('wms-layer-fastighetsgranser'\)\) continue;/);   // och inte heller återställningen ut ur körvyn
   });
-  it('tryck på rågången avstår för allt som är högre, och lagerknappen styr ritningen men INTE fällningsvarningen', () => {
-    expect(sida).toMatch(/if \(vinnandeKategoriForKarta\(map, e\.point\) !== 'fastighet'\) return;/);
+  it('ALLT hör till lagret Fastighetsgränser: Vidas rågång, Lantmäteri-paret och menyraden är en och samma knapp, och inga pinnar finns', () => {
     expect(sida).toMatch(/const pa = !!overlays\.fastighetsgrans && !!ragang;/);
+    expect(sida).toMatch(/const lmGransPa = !!overlays\.fastighetsgrans && !ragang && \(!valtObjekt\?\.id \|\| traktGeoHamtadFor === valtObjekt\.id\);/);
+    expect(sida).toMatch(/for \(const spec of lm\.lager\) map\.addLayer\(spec, 'zone-fill'\)/);
+    expect(sida).toMatch(/if \(id === 'fastighetsgranser'\) return;/);   // den generiska WMS-effekten rör inte Lantmäteri-paret
+    expect(sida).toMatch(/\{ id: 'fastighetsgrans', name: 'Fastighetsgränser', desc: [^}]+\}/);
+    expect(sida).not.toMatch(/\{ id: 'fastighetsgranser', name: 'Fastighetsgränser'/);   // ingen andra menyrad för Lantmäteri
+    expect(sida).not.toMatch(/RAGANG_KALLOR\.pinne|ragang\?\.pinnar|trakt-ragang-pinne/);
+    expect(sida).not.toMatch(/gränspinnar|Granne ·/);
+  });
+  it('tryck på rågången avstår för allt som är högre, och fällningsvarningen följer INTE lagerknappen (säkerhet)', () => {
+    expect(sida).toMatch(/if \(vinnandeKategoriForKarta\(map, e\.point\) !== 'fastighet'\) return;/);
     expect(sida).toMatch(/const nu = fastighetsFall\(fgPos, ragang, /);          // säkerhetsvarningen ligger kvar även med lagret släckt
+    expect(sida).not.toMatch(/fastighetsFall\([^)]*overlays/);
   });
   it('fällningscirkeln blir vit streckad bara när inget skyddsvärt vinner, och kortet viker för larm, instruktion och grind', () => {
     expect(sida).toMatch(/!fall\.grupp && fgFall \? fastighetsCirkelPaint\(!!visa\) : fallningCirkelPaint\(fall, !!visa\)/);

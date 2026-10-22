@@ -3,10 +3,13 @@
 // flera områden (OMRNR) — den identifieras av kommun + TRAKT + BLOCKENHET, aldrig av en enskild polygon.
 //
 // Det här gör modulen (alla beslut har tester, lib/fastighetsgrans.test.ts):
-//  1. byggRagang(fc): rågångens linjer (varje polygons ringar), gränspinnarna (röda prickar), fastighetsytorna (skimmer/nedtoning) och beteckningarna längs gränsen.
-//  2. bedomAgare: VILKEN fastighet trakten ligger på — punktprov i traktdelarna mot fastighetsytorna. Är det inte entydigt (trakten på två, eller delvis utanför det
-//     Vida levererat) säger vi det: ingen nedtoning, ingen "Granne" — hellre lika än fel.
-//  3. avstandTillRagang / fastighetsFall: avståndet till rågången för fällningscirkeln (30 m), och vilka fastigheter som möts vid ett tryck (kortet).
+//  1. byggRagang(fc): rågångens linjer (varje polygons ringar, delade i full/svag styrka efter närhet till trakten), fastighetsytorna (skimmer/nedtoning) och
+//     beteckningarna längs gränsen. Inga gränspinnar: rött betyder fara i hela appen (Martin 2026-10-22).
+//  2. bedomTrakt: VILKA fastigheter trakten överlappar — punktprov i traktdelarna mot fastighetsytorna. Appen vet inte vem som äger vad (samma ägare kan äga
+//     grannfastigheten), så det som räknas är om MARKEN ingår i trakten: de fastigheterna får ett svagt skimmer, alla övriga tonas ned. Saknas fastighetsdata
+//     runt trakten helt tonas ingenting.
+//  3. avstandTillRagang / fastighetsFall: avståndet till rågången för fällningscirkeln (30 m, ALLA gränser oavsett styrka), och vilka fastigheter som möts vid ett
+//     tryck (kortet).
 // Gränsen kan avvika några meter från verkligheten (Vidas data är digitaliserad): ingenting här påstår mer än så, och kortet säger det.
 
 import { avstandTillLinjeM, narRuta, type LatLon } from './larm/geo';
@@ -26,23 +29,23 @@ export interface Fastighet {
   ytor: Poly[];
 }
 
-export type AgareStatus = 'egen' | 'osaker';
-export interface Agare {
-  status: AgareStatus;
-  /** Index i `fastigheter` — bara när status är 'egen'. */
-  index: number | null;
+export interface Trakturval {
+  /** 'kand' = minst en fastighet överlappar trakten (då är resten "utanför"); 'okand' = vi kan inte avgöra och tonar ingenting. */
+  status: 'kand' | 'okand';
+  /** Per fastighet (samma ordning som `fastigheter`): ingår någon del av fastigheten i trakten? Alla false när status är 'okand'. */
+  iTrakten: boolean[];
   /** Varför det inte gick att avgöra (för test och felsökning) — aldrig visad för föraren. */
-  skal: 'entydig' | 'ingen_traktgrans' | 'inga_fastigheter' | 'ingen_yta' | 'flera_fastigheter' | 'utanfor_data';
+  skal: 'overlapp' | 'ingen_traktgrans' | 'inga_fastigheter' | 'ingen_yta' | 'ingen_overlapp';
   /** Andel av traktens provpunkter per fastighet (samma ordning som `fastigheter`) och andelen utan fastighet. */
   andelar: number[];
   otackt: number;
 }
 
-// Tröskelvärden: trakten är "på" en fastighet när den har minst 85 % av provpunkterna och ingen annan över 10 % (Vidas traktgräns ligger sällan exakt på rågången, en smal
-// kant i grannen är normal). Mer än 10 % utan fastighet alls = data saknas runt trakten, vi vet inte.
-export const AGARE_MIN_ANDEL = 0.85;
-export const AGARE_MAX_ANNAN = 0.10;
-export const AGARE_MAX_OTACKT = 0.10;
+// En fastighet "ingår i trakten" när minst 4 % av traktens yta ligger i den. Traktgränsen ligger sällan exakt på rågången: några meter över gränsen (några procent av
+// ytan) är digitaliseringsbrus, inte mark som ingår. Allt över det är mark vi jobbar på.
+export const TRAKT_MIN_ANDEL = 0.04;
+/** Rågångens stycken som berör trakten eller ligger så här nära den ritas i full styrka; resten tunnare och svagare. */
+export const NARA_STYRKA_M = 50;
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Namn
@@ -147,7 +150,8 @@ export function punktIPolygon(x: number, y: number, poly: Poly): boolean {
   return true;
 }
 
-/** Provpunkter jämnt över traktdelarna (rutnät i meter, aldrig fler än ~1 200). Små ytor får minst en punkt. */
+/** Provpunkter jämnt över traktdelarna (rutnät i meter, aldrig fler än ~2 500 och aldrig glesare än var 3:e meter — en grövre ruta ger "hopp" på 5 % när traktgränsen
+ *  ligger ett par meter över en rågång, och då skulle grannen lysa upp av en slump). Små ytor får minst en punkt. */
 export function provpunkter(trakt: readonly Poly[]): Pos[] {
   const ut: Pos[] = [];
   for (const poly of trakt) {
@@ -155,7 +159,7 @@ export function provpunkter(trakt: readonly Poly[]): Pos[] {
     const latM = (y0 + y1) / 2;
     const kx = M_PER_GRAD * Math.cos((latM * Math.PI) / 180), ky = M_PER_GRAD;
     const bredd = (x1 - x0) * kx, hojd = (y1 - y0) * ky;
-    const steg = Math.max(8, Math.sqrt(Math.max(bredd * hojd, 1) / 500));
+    const steg = Math.max(3, Math.sqrt(Math.max(bredd * hojd, 1) / 2500));
     const dx = steg / kx, dy = steg / ky;
     const innan = ut.length;
     for (let y = y0 + dy / 2; y < y1; y += dy) for (let x = x0 + dx / 2; x < x1; x += dx) if (punktIPolygon(x, y, poly)) ut.push([x, y]);
@@ -168,13 +172,13 @@ export function provpunkter(trakt: readonly Poly[]): Pos[] {
   return ut;
 }
 
-/** Vilken fastighet ligger trakten på? Entydigt eller inte alls — se tröskelvärdena ovan. */
-export function bedomAgare(trakt: readonly Poly[], fastigheter: readonly Fastighet[]): Agare {
-  const osaker = (skal: Agare['skal'], andelar: number[] = [], otackt = 0): Agare => ({ status: 'osaker', index: null, skal, andelar, otackt });
-  if (trakt.length === 0) return osaker('ingen_traktgrans');
-  if (fastigheter.length === 0) return osaker('inga_fastigheter');
+/** Vilka fastigheter överlappar trakten? Se TRAKT_MIN_ANDEL. Går det inte att avgöra (ingen traktgräns, inga fastigheter, ingen fastighet över tröskeln) tonas ingenting. */
+export function bedomTrakt(trakt: readonly Poly[], fastigheter: readonly Fastighet[]): Trakturval {
+  const okand = (skal: Trakturval['skal'], andelar: number[] = [], otackt = 0): Trakturval => ({ status: 'okand', iTrakten: fastigheter.map(() => false), skal, andelar, otackt });
+  if (trakt.length === 0) return okand('ingen_traktgrans');
+  if (fastigheter.length === 0) return okand('inga_fastigheter');
   const prov = provpunkter(trakt);
-  if (prov.length === 0) return osaker('ingen_yta');
+  if (prov.length === 0) return okand('ingen_yta');
   const boxar = fastigheter.map((f) => f.ytor.map((p) => bbox(p[0])));
   const antal = new Array(fastigheter.length).fill(0);
   let otackt = 0;
@@ -187,77 +191,48 @@ export function bedomAgare(trakt: readonly Poly[], fastigheter: readonly Fastigh
     if (!traff) otackt++;
   }
   const andelar = antal.map((n) => n / prov.length);
-  const ot = otackt / prov.length;
-  let bast = 0;
-  andelar.forEach((a, i) => { if (a > andelar[bast]) bast = i; });
-  if (ot > AGARE_MAX_OTACKT) return osaker('utanfor_data', andelar, ot);
-  if (andelar[bast] < AGARE_MIN_ANDEL || andelar.some((a, i) => i !== bast && a > AGARE_MAX_ANNAN)) return osaker('flera_fastigheter', andelar, ot);
-  return { status: 'egen', index: bast, skal: 'entydig', andelar, otackt: ot };
+  const iTrakten = andelar.map((a) => a >= TRAKT_MIN_ANDEL);
+  if (!iTrakten.some(Boolean)) return okand('ingen_overlapp', andelar, otackt / prov.length);
+  return { status: 'kand', iTrakten, skal: 'overlapp', andelar, otackt: otackt / prov.length };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Modellen kartan ritar
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-export type Sida = 'egen' | 'granne' | 'okand';
+/** Fastighetens förhållande till trakten: ingår i den (skimmer), ligger utanför (nedtonad) eller okänt (ingenting). */
+export type Sida = 'trakt' | 'utanfor' | 'okand';
 type FC = { type: 'FeatureCollection'; features: any[] };
 
 export interface RagangModell {
   fastigheter: Fastighet[];
-  agare: Agare;
-  /** Rågångens linjer: varje polygons ringar. Egenskaper: namn, nyckel, sida. */
+  urval: Trakturval;
+  /** Rågångens linjer: varje polygons ringar i stycken. Egenskaper: namn, nyckel, sida, styrka ('full' | 'svag'). Täcker ALLA gränser (fällningsvarning och tryck). */
   linjer: FC;
-  /** Fastighetsytor (skimmer/nedtoning). Egenskaper: namn, sida. */
+  /** Fastighetsytor (skimmer/nedtoning). Egenskaper: namn, nyckel, sida. */
   ytor: FC;
-  /** Gränspinnar: röda prickar längs linjen. */
-  pinnar: FC;
-  /** Beteckningar längs gränsen, på varje fastighets egen sida (linjer inskjutna i den egna ytan). Egenskaper: text, sida. */
+  /** Beteckningar längs gränsen, på varje fastighets egen sida (linjer inskjutna i den egna ytan). Egenskaper: text. */
   etiketter: FC;
 }
 
 const tomFC = (): FC => ({ type: 'FeatureCollection', features: [] });
 
-function sidaFor(agare: Agare, i: number): Sida {
-  if (agare.status !== 'egen') return 'okand';
-  return agare.index === i ? 'egen' : 'granne';
+function sidaFor(urval: Trakturval, i: number): Sida {
+  if (urval.status !== 'kand') return 'okand';
+  return urval.iTrakten[i] ? 'trakt' : 'utanfor';
 }
 
-/** Etikettens text: egen "Kompersmåla 3:12", grannen "Granne · Ryd 1:4". Vet vi inte vem som är vem står bara beteckningen. */
-export function etikettText(namn: string, sida: Sida): string {
-  return sida === 'granne' ? `Granne · ${namn}` : namn;
+/** Etikettens text: bara beteckningen, "Kompersmåla 3:12", på båda sidor av linjen. Aldrig "granne" eller ägare — appen vet inte vem som äger vad. */
+export function etikettText(namn: string): string {
+  return namn;
 }
 
-// -- pinnar -------------------------------------------------------------------------------------------------------------------------
-
-/** En pinne står i hörnen (vinkeländring ≥ HORN_GRADER) och aldrig längre än PINNE_MAX_AVSTAND_M från nästa. Två pinnar närmare än PINNE_DUBBEL_M är samma pinne (delad gräns). */
-export const PINNE_HORN_GRADER = 20;
-export const PINNE_MAX_AVSTAND_M = 100;
-export const PINNE_DUBBEL_M = 8;
-/** Pinnar och beteckningar ritas bara nära trakten — resten av fastighetens omkrets är inte förarens sak och skulle bara bli prickar överallt. */
+/** Närheten som ritar: på Vida-fastigheter nära trakten (rutan runt traktdelarna utvidgad så här mycket) sätts beteckningar. */
 export const NARA_TRAKTEN_M = 600;
 /** Beteckningar sätts bara på fastigheter vars rand ligger så här nära trakten (det är grannarna föraren möter, inte hela bygden). */
 export const ETIKETT_NARA_M = 250;
-
-function pinnarLangs(ring: Ring, kx: number, ky: number): Pos[] {
-  const n = ring.length - 1;                 // sista == första
-  if (n < 3) return [];
-  const ut: Pos[] = [];
-  let sedan = 0;                             // meter sedan senaste pinne
-  for (let i = 0; i < n; i++) {
-    const a = ring[(i + n - 1) % n], b = ring[i], c = ring[i + 1];
-    const v1 = Math.atan2((b[1] - a[1]) * ky, (b[0] - a[0]) * kx), v2 = Math.atan2((c[1] - b[1]) * ky, (c[0] - b[0]) * kx);
-    let d = Math.abs(((v2 - v1) * 180) / Math.PI); if (d > 180) d = 360 - d;
-    if (d >= PINNE_HORN_GRADER) { ut.push([b[0], b[1]]); sedan = 0; }
-    const len = Math.hypot((c[0] - b[0]) * kx, (c[1] - b[1]) * ky);
-    const delar = Math.floor((sedan + len) / PINNE_MAX_AVSTAND_M);
-    for (let k = 1; k <= delar; k++) {
-      const t = (k * PINNE_MAX_AVSTAND_M - sedan) / len;
-      if (t > 0 && t < 1) ut.push([b[0] + (c[0] - b[0]) * t, b[1] + (c[1] - b[1]) * t]);
-    }
-    sedan = delar > 0 ? (sedan + len) - delar * PINNE_MAX_AVSTAND_M : sedan + len;
-  }
-  return ut;
-}
+/** Rågången delas i stycken om högst så här många meter, så styrkan (full/svag) kan växla mitt i en lång gräns. */
+export const STYRKA_STEG_M = 10;
 
 // -- beteckningar -------------------------------------------------------------------------------------------------------------------
 
@@ -352,46 +327,81 @@ export function etikettLinje(poly: Poly, traktPunkter: Pos[], kx: number, ky: nu
   return null;
 }
 
+// -- närhet till trakten ------------------------------------------------------------------------------------------------------------
+
+type Seg = [Pos, Pos];
+
+/** Meter från punkt till sträcka (lokal plan approximation). */
+function punktTillSegM(p: Pos, a: Pos, b: Pos, kx: number, ky: number): number {
+  const ax = a[0] * kx, ay = a[1] * ky, bx = b[0] * kx, by = b[1] * ky, px = p[0] * kx, py = p[1] * ky;
+  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+  const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+/**
+ * Rågångens stycken: varje ring delas i bitar om högst STYRKA_STEG_M, och intilliggande bitar med samma styrka slås ihop. 'full' = biten berör trakten eller ligger
+ * inom NARA_STYRKA_M från den, annars 'svag'. Utan traktgräns är allt 'full' (vi vet inte vad som är nära).
+ */
+export function ringStycken(ring: Ring, trakt: readonly Poly[], kx: number, ky: number): { styrka: 'full' | 'svag'; coords: Pos[] }[] {
+  const traktBox = trakt.length
+    ? trakt.map((p) => bbox(p[0])).reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])] as [number, number, number, number])
+    : null;
+  const traktSeg: Seg[] = trakt.flatMap((p) => p.flatMap((r) => r.slice(1).map((c, i): Seg => [r[i], c])));
+  const narTrakt = (p: Pos): boolean => {
+    if (!traktBox) return true;
+    const m = NARA_STYRKA_M;
+    if (p[0] < traktBox[0] - m / kx || p[0] > traktBox[2] + m / kx || p[1] < traktBox[1] - m / ky || p[1] > traktBox[3] + m / ky) return false;
+    if (trakt.some((t) => punktIPolygon(p[0], p[1], t))) return true;
+    for (const [a, b] of traktSeg) if (punktTillSegM(p, a, b, kx, ky) <= m) return true;
+    return false;
+  };
+  // Täta ringen: punkter högst STYRKA_STEG_M isär.
+  const pts: Pos[] = [ring[0]];
+  for (let i = 1; i < ring.length; i++) {
+    const a = ring[i - 1], b = ring[i];
+    const len = Math.hypot((b[0] - a[0]) * kx, (b[1] - a[1]) * ky);
+    const n = Math.max(1, Math.ceil(len / STYRKA_STEG_M));
+    for (let k = 1; k <= n; k++) pts.push(k === n ? b : [a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n]);
+  }
+  const ut: { styrka: 'full' | 'svag'; coords: Pos[] }[] = [];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    // Biten är nära om någon av dess ändar eller mitten är det (en bit som korsar trakten berör den).
+    const styrka: 'full' | 'svag' = narTrakt(a) || narTrakt(b) || narTrakt([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]) ? 'full' : 'svag';
+    const sista = ut[ut.length - 1];
+    if (sista && sista.styrka === styrka) sista.coords.push(b);
+    else ut.push({ styrka, coords: [a, b] });
+  }
+  return ut;
+}
+
 // -- hela modellen ------------------------------------------------------------------------------------------------------------------
 
 export function byggRagang(fc: { features?: any[] } | null | undefined): RagangModell | null {
   const fastigheter = fastigheterUr(fc);
   if (fastigheter.length === 0) return null;
   const trakt = traktdelarUr(fc);
-  const agare = bedomAgare(trakt, fastigheter);
+  const urval = bedomTrakt(trakt, fastigheter);
 
   const alla = fastigheter.flatMap((f) => f.ytor.map((p) => p[0]));
   const latM = alla.reduce((s, r) => s + r[0][1], 0) / alla.length;
   const kx = M_PER_GRAD * Math.cos((latM * Math.PI) / 180), ky = M_PER_GRAD;
 
-  // Närhet till trakten: rutan runt traktdelarna, utvidgad NARA_TRAKTEN_M. Utan traktgräns ritas allt.
+  // Närhet till trakten för beteckningarna: rutan runt traktdelarna, utvidgad NARA_TRAKTEN_M.
   const tb = trakt.length ? trakt.map((p) => bbox(p[0])).reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])] as [number, number, number, number]) : null;
   const nara = (p: Pos): boolean => !tb || (p[0] >= tb[0] - NARA_TRAKTEN_M / kx && p[0] <= tb[2] + NARA_TRAKTEN_M / kx && p[1] >= tb[1] - NARA_TRAKTEN_M / ky && p[1] <= tb[3] + NARA_TRAKTEN_M / ky);
   const traktPunkter: Pos[] = trakt.flatMap((p) => p[0]);
 
-  const linjer = tomFC(), ytor = tomFC(), pinnar = tomFC(), etiketter = tomFC();
-  const rutor = new Map<string, Pos[]>();   // pinnar per meterruta — dubblettkontrollen tittar bara i grannrutorna
-  const ruta = (p: Pos): [number, number] => [Math.floor((p[0] * kx) / PINNE_DUBBEL_M), Math.floor((p[1] * ky) / PINNE_DUBBEL_M)];
-  const arDubbel = (p: Pos): boolean => {
-    const [rx, ry] = ruta(p);
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-      const lista = rutor.get(`${rx + dx}:${ry + dy}`);
-      if (lista && lista.some((q) => Math.hypot((q[0] - p[0]) * kx, (q[1] - p[1]) * ky) < PINNE_DUBBEL_M)) return true;
-    }
-    return false;
-  };
-  const laggPinne = (p: Pos) => { const [rx, ry] = ruta(p); const k = `${rx}:${ry}`; (rutor.get(k) ?? rutor.set(k, []).get(k)!).push(p); };
+  const linjer = tomFC(), ytor = tomFC(), etiketter = tomFC();
 
   fastigheter.forEach((f, i) => {
-    const sida = sidaFor(agare, i);
+    const sida = sidaFor(urval, i);
     for (const poly of f.ytor) {
       ytor.features.push({ type: 'Feature', properties: { namn: f.namn, nyckel: f.nyckel, sida }, geometry: { type: 'Polygon', coordinates: poly } });
       poly.forEach((ring) => {
-        linjer.features.push({ type: 'Feature', properties: { namn: f.namn, nyckel: f.nyckel, sida }, geometry: { type: 'LineString', coordinates: ring } });
-        for (const p of pinnarLangs(ring, kx, ky)) {
-          if (!nara(p) || arDubbel(p)) continue;
-          laggPinne(p);
-          pinnar.features.push({ type: 'Feature', properties: { sida }, geometry: { type: 'Point', coordinates: p } });
+        for (const st of ringStycken(ring, trakt, kx, ky)) {
+          linjer.features.push({ type: 'Feature', properties: { namn: f.namn, nyckel: f.nyckel, sida, styrka: st.styrka }, geometry: { type: 'LineString', coordinates: st.coords } });
         }
       });
     }
@@ -408,10 +418,10 @@ export function byggRagang(fc: { features?: any[] } | null | undefined): RagangM
     }
     if (!bast || bast.d > ETIKETT_NARA_M) return;
     const linje = etikettLinje(bast.poly, traktPunkter, kx, ky);
-    if (linje) etiketter.features.push({ type: 'Feature', properties: { text: etikettText(f.namn, sida), sida }, geometry: { type: 'LineString', coordinates: linje } });
+    if (linje) etiketter.features.push({ type: 'Feature', properties: { text: etikettText(f.namn) }, geometry: { type: 'LineString', coordinates: linje } });
   });
 
-  return { fastigheter, agare, linjer, ytor, pinnar, etiketter };
+  return { fastigheter, urval, linjer, ytor, etiketter };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -462,16 +472,16 @@ export function gransVidTryck(lngLat: { lng: number; lat: number }, modell: Raga
     const tidigare = traffar.get(nyckel);
     if (!tidigare || d < tidigare.d) traffar.set(nyckel, { namn: f.properties.namn, sida: f.properties.sida, d });
   }
-  const lista = [...traffar.values()].sort((x, y) => (x.sida === 'egen' ? -1 : 0) - (y.sida === 'egen' ? -1 : 0) || x.d - y.d);
+  const lista = [...traffar.values()].sort((x, y) => (x.sida === 'trakt' ? -1 : 0) - (y.sida === 'trakt' ? -1 : 0) || x.d - y.d);
   if (lista.length === 0) return null;
   return { a: lista[0].namn, b: lista[1]?.namn ?? null, aSida: lista[0].sida, bSida: lista[1]?.sida ?? null };
 }
 
-export const FASTIGHET_KORT_MENING = 'Gränsen kan avvika några meter. Lita på gränspinnar och snitsel i fält.';
+export const FASTIGHET_KORT_MENING = 'Gränsen kan avvika några meter. Lita på snitsel och märkning i fält.';
 
-/** Kortets rubrik: "Fastighetsgräns · Kompersmåla 3:12 mot Ryd 1:4". Känner vi bara den ena sidan: "… mot granne". */
+/** Kortets rubrik: "Fastighetsgräns · Stänkelsmåla 1:3 mot Stänkelsmåla 1:9". Känner vi bara den ena sidan (andra fastigheten finns inte i Vidas data) står bara den. */
 export function gransRubrik(m: GransMot): string {
-  return `Fastighetsgräns · ${m.a} mot ${m.b ?? 'granne'}`;
+  return m.b ? `Fastighetsgräns · ${m.a} mot ${m.b}` : `Fastighetsgräns · ${m.a}`;
 }
 
 /** Kortet i fällningsläget: "Fastighetsgräns 18 m" + uppmaningen. */
