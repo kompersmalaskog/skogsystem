@@ -70,8 +70,6 @@ if (lage === "snabb") {
     ["lib: Lantmäteri-paret tänds även när Vida har levererat (två stilar samtidigt)", "lm: (lagerPa && !i.harVidaData && i.geometriLast)", "lm: (lagerPa && i.geometriLast)", KA],
     ["lib: Lantmäteri-paret följer inte lagerknappen", "lm: (lagerPa && !i.harVidaData && i.geometriLast)", "lm: (!i.harVidaData && i.geometriLast)", KA],
     ["lib: Lantmäteri-paret ritas innan geometrin är läst (blinkar)", "lm: (lagerPa && !i.harVidaData && i.geometriLast)", "lm: (lagerPa && !i.harVidaData)", KA],
-    ["lib: nedtoningen lämnas tänd när lagret släcks (bara linjerna släcks)", "for (const id of RAGANG_LAGER_ORDNING) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', s.vida ? 'visible' : 'none');", "for (const id of RAGANG_LAGER_ORDNING.filter((x) => !x.includes('yta'))) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', s.vida ? 'visible' : 'none');", KA],
-    ["lib: Lantmäteri-kanten glöms bort vid släckning", "for (const id of [LM_GRANS.kantLager, LM_GRANS.linjeLager])", "for (const id of [LM_GRANS.linjeLager])", KA],
     ["hook: ett sparat läge från första versionen (utan märke) behålls som ett val", "if (s.fastighetsgransVal !== true) ut.fastighetsgrans = DEFAULT_MAP_LAYERS.fastighetsgrans", "", HK],
     ["hook: standardvärdet är på", "  fastighetsgrans: false,", "  fastighetsgrans: true,", HK],
     ["hook: märket skrivs inte, så nollningen upprepas varje start", "  ut.fastighetsgransVal = true\n", "", HK],
@@ -91,6 +89,7 @@ if (lage === "snabb") {
     lm: "Lantmäteriets gräns",
     bet: "Beteckningen står",
   };
+  const SYN = { fil: "lib/fastighetsgransKarta.synlighet.test.ts", t: "Lantmäteri-paret|LAGRET SLÄCKT|lagret tänds och släcks|SAMMA karta" };   // synlighetstestet har egen fil
   const M = [
     ["rågångens kärna är röd i stället för vit", "export const RAGANG_FARG = '#ffffff';", "export const RAGANG_FARG = '#ff0000';", FILTER.rod],
     ["rågången har ingen mörk kant (syns inte på vit karta)", "export const RAGANG_KANT_FARG = 'rgba(0,0,0,0.85)';", "export const RAGANG_KANT_FARG = 'rgba(0,0,0,0)';", FILTER.rod],
@@ -105,14 +104,17 @@ if (lage === "snabb") {
     ["Lantmäteri-gränsen byter inte färg (gul linje)", "paint: { 'raster-brightness-min': 1, 'raster-brightness-max': 1, 'raster-opacity': 1 }", "paint: { 'raster-opacity': 1 }", FILTER.lm],
     ["Lantmäteri-gränsen har ingen mörk kant", "kantOpacitet: 0.85,", "kantOpacitet: 0,", FILTER.lm],
     ["beteckningen visas aldrig (minzoom 25)", "export const ETIKETT_MIN_ZOOM = 16;", "export const ETIKETT_MIN_ZOOM = 25;", FILTER.bet],
+    ["lib: nedtoningen lämnas tänd när lagret släcks (bara linjerna släcks)", "for (const id of RAGANG_LAGER_ORDNING) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', s.vida ? 'visible' : 'none');", "for (const id of RAGANG_LAGER_ORDNING.filter((x) => !x.includes('yta'))) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', s.vida ? 'visible' : 'none');", SYN],
+    ["lib: Lantmäteri-kanten glöms bort vid släckning", "for (const id of [LM_GRANS.kantLager, LM_GRANS.linjeLager])", "for (const id of [LM_GRANS.linjeLager])", SYN],
   ];
   const original = readFileSync(KA, "utf8");
-  const kortor = (f) => spawnSync("npx", ["vitest", "run", "lib/fastighetsgransKarta.hytt.test.ts", "-t", f, "--reporter=dot"], { encoding: "utf8", env: { ...process.env, CI: "1" } });
+  const kortor = (f) => spawnSync("npx", ["vitest", "run", typeof f === "string" ? "lib/fastighetsgransKarta.hytt.test.ts" : f.fil, "-t", typeof f === "string" ? f : f.t, "--reporter=dot"], { encoding: "utf8", env: { ...process.env, CI: "1" } });
   const overlevde = [];
   let dog = 0;
   try {
     const grund = kortor("Rågången i riktig Chromium|där de sammanfaller|Vems mark|styrka efter närhet|Lantmäteriets gräns|Beteckningen står");
-    if (grund.status !== 0) { console.error("Testerna är röda innan mutationerna.\n" + grund.stdout + grund.stderr); writeFileSync(KA, original); process.exit(2); }
+    const grundSyn = kortor(SYN);
+    if (grund.status !== 0 || grundSyn.status !== 0) { console.error("Testerna är röda innan mutationerna.\n" + grund.stdout + grund.stderr + grundSyn.stdout + grundSyn.stderr); writeFileSync(KA, original); process.exit(2); }
     for (const [namn, fran, till, filter] of M) {
       const n = original.split(fran).length - 1;
       if (n !== 1) { console.error(`✗ "${namn}": mönstret finns ${n} gånger i ${KA}:\n   ${fran}`); writeFileSync(KA, original); process.exit(2); }

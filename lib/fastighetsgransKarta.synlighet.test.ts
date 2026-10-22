@@ -152,6 +152,22 @@ describe.skipIf(!CHROMIUM)('Fastighetslagret i riktig karta med verklig prod-geo
       expect(r.avvikande, 'tänt lager ska ändra duken').toBeGreaterThan(50000);
     } finally { await b.close(); }
   }, 120000);
+  it('Lantmäteri-paret (kant + linje) tänds OCH släcks tillsammans: briefingens tändning på → båda syns, av → båda osynliga igen, lagerknappen släckt påverkas inte', async () => {
+    const { b, pg } = await oppna(BG, 16.2, [15.3035, 56.5873]);
+    try {
+      await bygg(pg);
+      const lm = [LM_GRANS.kantLager, LM_GRANS.linjeLager];
+      const vis = async () => pg.evaluate((ids: string[]) => ids.map((id) => (window as any).__map.getLayoutProperty(id, 'visibility')), lm);
+      await tillampa(pg, { lagerPa: false, harVidaData: true, geometriLast: true, briefingLM: true });
+      expect(await vis(), 'briefingen tänder båda').toEqual(['visible', 'visible']);
+      await tillampa(pg, { lagerPa: false, harVidaData: true, geometriLast: true, briefingLM: false });
+      expect(await vis(), 'släckt: båda osynliga igen (kanten får inte glömmas)').toEqual(['none', 'none']);
+      await tillampa(pg, { lagerPa: true, harVidaData: false, geometriLast: true, briefingLM: false });
+      expect(await vis(), 'lagret tänt utan Vida-data: Lantmäteri-vägen, båda syns').toEqual(['visible', 'visible']);
+      await tillampa(pg, { lagerPa: false, harVidaData: false, geometriLast: true, briefingLM: false });
+      expect(await vis()).toEqual(['none', 'none']);
+    } finally { await b.close(); }
+  }, 120000);
   it('lagret tänds och släcks om och om igen: duken är exakt bakgrunden varje gång det är släckt', async () => {
     const { b, pg } = await oppna(BG, 16.2, [15.3035, 56.5873]);
     try {
