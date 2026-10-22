@@ -91,7 +91,13 @@ export type GallradYta = {
   /** Stammar som räknas i uttaget per hektar (innanför + gallring utanför). */
   raknade: Set<StamPos['id']>;
   /** Kartan: rutnätet med en klass per ruta (RUTA), bredd × höjd, rad 0 = norr. */
-  karta: { bredd: number; hojd: number; rutor: Uint8Array; ringar: { x: number; y: number }[][] };
+  karta: {
+    bredd: number; hojd: number; rutor: Uint8Array; ringar: { x: number; y: number }[][];
+    /** Kartans hörn i grader [minLng, minLat, maxLng, maxLat] — flygfotot hämtas för exakt den rutan. */
+    lnglat: [number, number, number, number];
+    /** De avverkade stammarna i rutnätets koordinater; `raknas` = räknas per hektar. */
+    stammar: { x: number; y: number; raknas: boolean }[];
+  };
   /** Är en punkt ([lng, lat]) i den gallrade ytan? För stickvägarna. */
   innehaller: (lng: number, lat: number) => boolean;
   /** Projektion till rutnätets koordinater (i rutor, y nedåt) — för spår som ska klippas. */
@@ -306,7 +312,11 @@ export function beraknaGallradYta(ind: GallradYtaIndata): GallradYta | null {
     utanfor,
     ejGallrat,
     raknade,
-    karta: { bredd, hojd, rutor, ringar },
+    karta: {
+      bredd, hojd, rutor, ringar,
+      lnglat: [minX / kx, (maxY - hojd * ruta) / ky, (minX + bredd * ruta) / kx, maxY / ky],
+      stammar: stammar.map((s) => ({ ...tillRuta(s.lng, s.lat), raknas: raknade.has(s.id) })),
+    },
     innehaller: (lng, lat) => {
       const p = tillRuta(lng, lat);
       const x = Math.floor(p.x), y = Math.floor(p.y);

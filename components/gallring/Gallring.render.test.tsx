@@ -254,6 +254,34 @@ describe('trakten', () => {
     expect(bit.textContent).toContain('appens bedömning');
   });
 
+  it('kartan: flygfoto på från början, avverkade stammar går att tända, och valet sparas på enheten', async () => {
+    window.localStorage.clear();
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const yta = ytaMedBitUtanfor();
+    hamtaPerHa.mockResolvedValue({ ...PER_HA, arealHa: yta.gallradHa, vidaHa: yta.vidaHa, yta });
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    const rad = h.querySelector('[data-gallrad-yta]') as HTMLElement;
+    await act(async () => { (rad.querySelector('button, a') as HTMLElement ?? rad).click(); });
+    const ark = document.querySelector('[role="dialog"]')!;
+    const foto = ark.querySelector('[data-lager="flygfoto"]') as HTMLButtonElement;
+    const stam = ark.querySelector('[data-lager="stammar"]') as HTMLButtonElement;
+    expect(foto.getAttribute('role')).toBe('switch');
+    expect(foto.getAttribute('aria-checked')).toBe('true');
+    expect(stam.getAttribute('aria-checked')).toBe('false');
+    expect(ark.textContent).not.toContain('Avverkad stam');
+    expect(ark.querySelector('[data-gallrad-karta]')!.getAttribute('data-stammar')).toBe('nej');
+    // jsdom har ingen canvas: inget foto hämtas och inget fel sägs.
+    expect(ark.querySelector('[data-flygfoto-fel]')).toBeNull();
+    await act(async () => { stam.click(); });
+    expect(stam.getAttribute('aria-checked')).toBe('true');
+    expect(ark.querySelector('[data-gallrad-karta]')!.getAttribute('data-stammar')).toBe('ja');
+    expect(ark.textContent).toContain('Avverkad stam');
+    expect(ark.textContent).toContain(`${yta.karta.stammar.length} stammar med position`);
+    await act(async () => { foto.click(); });
+    expect(foto.getAttribute('aria-checked')).toBe('false');
+    expect(JSON.parse(window.localStorage.getItem('gallring_karta_lager_v1')!)).toEqual({ flygfoto: false, stammar: true });
+  });
+
   it('ett svar sparas och talen läses om; utan tabellen sparas inget och det sägs', async () => {
     hamtaGallring.mockResolvedValue(DETALJ);
     const yta = ytaMedBitUtanfor();

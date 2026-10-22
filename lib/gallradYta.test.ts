@@ -51,6 +51,35 @@ describe('den gallrade ytan', () => {
     expect(vag.some((s) => y.raknade.has(s.id))).toBe(false);
   });
 
+  it('kartan bär sina hörn i grader och varje stam med sin plats och om den räknas', () => {
+    const inne = rutnat(3, 197, 3, 97);
+    const vag: StamPos[] = [];
+    for (let y = 110; y <= 400; y += 4) { const [lng, lat] = g(100, y); vag.push({ id: nesta++, lat, lng, dbhMm: 150 }); }
+    const y = beraknaGallradYta({ ringar: GRANS, stammar: [...inne, ...vag] })!;
+    const [minLng, minLat, maxLng, maxLat] = y.karta.lnglat;
+    const alla = [...inne, ...vag];
+    // Rutan rymmer alla stammar och hela gränsen.
+    for (const s of alla) {
+      expect(s.lng).toBeGreaterThanOrEqual(minLng); expect(s.lng).toBeLessThanOrEqual(maxLng);
+      expect(s.lat).toBeGreaterThanOrEqual(minLat); expect(s.lat).toBeLessThanOrEqual(maxLat);
+    }
+    expect(y.karta.stammar).toHaveLength(alla.length);
+    // Rutnätets koordinater: x österut, y söderut, inom kartan.
+    for (const p of y.karta.stammar) {
+      expect(p.x).toBeGreaterThanOrEqual(0); expect(p.x).toBeLessThanOrEqual(y.karta.bredd);
+      expect(p.y).toBeGreaterThanOrEqual(0); expect(p.y).toBeLessThanOrEqual(y.karta.hojd);
+    }
+    // Vägen in (norrut) ligger ovanför trakten på kartan, och räknas inte.
+    const vagPunkter = y.karta.stammar.slice(inne.length);
+    const innePunkter = y.karta.stammar.slice(0, inne.length);
+    expect(Math.max(...vagPunkter.map((p) => p.y))).toBeLessThan(Math.min(...innePunkter.map((p) => p.y)));
+    expect(vagPunkter.every((p) => !p.raknas)).toBe(true);
+    expect(innePunkter.every((p) => p.raknas)).toBe(true);
+    // Hörnen i grader motsvarar kartans storlek i rutor (2 m per ruta).
+    const bM = (maxLng - minLng) * Math.cos((la0 * Math.PI) / 180) * 111320;
+    expect(bM / y.karta.bredd).toBeCloseTo(2, 0);
+  });
+
   it('enstaka träd (barkborre) räknas inte', () => {
     const inne = rutnat(3, 197, 3, 97);
     const [lng, lat] = g(300, 300);
