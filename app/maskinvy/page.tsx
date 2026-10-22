@@ -2,9 +2,11 @@
 import { AVSTAND, FARG, FONT, RADIE, RORELSE, TYP, VIKT, underTopbar } from '@/lib/design/tokens'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { MASKINER, type Maskin } from './OversiktShared'
 import { useMaskinvyMaskiner } from './useMaskinvyMaskiner'
+import Sidolista from './Sidolista'
+import { SIDOLISTA_BREDD, SIDOLISTA_MIN_SKARM, type SidoRoll } from '@/lib/maskinvy/sidolista'
 import Maskinvy from '../../maskinvy'
 import SkotareVy from '../../skotare'
 import MaskinLogg from './MaskinLogg'
@@ -52,7 +54,7 @@ export default function MaskinvyPage() {
   const [maskinSkordare, setMaskinSkordare] = useState<Maskin>(MASKINER[0])
   // Skotarlistan är dynamisk (dim_maskin, bekräftad + data) — ny maskin syns
   // automatiskt. Default = första i listan när den laddats.
-  const { maskiner: skotareMaskiner } = useMaskinvyMaskiner('skotare')
+  const { maskiner: skotareMaskiner, laddar: skotareLaddar } = useMaskinvyMaskiner('skotare')
   const [maskinSkotare, setMaskinSkotare] = useState<SkotareMaskin | null>(null)
   useEffect(() => {
     if (!maskinSkotare && skotareMaskiner.length > 0) setMaskinSkotare(skotareMaskiner[0])
@@ -68,6 +70,28 @@ export default function MaskinvyPage() {
   // Vy-navet visas när vi är i nya vyn på Skördare- eller Skotare-fliken.
   const showVyNav = ny && (mode === 'skordare' || mode === 'skotare')
 
+  // Sidolistan (stor skärm): maskinvalet som en lista till vänster i stället för rullgardinen i varje vy. Bara i nya vyn och
+  // inte i Jämförelse (som jämför maskinerna och inte har något maskinval). Under SIDOLISTA_MIN_SKARM gäller rullgardinen som förut.
+  const [bred, setBred] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia(`(min-width: ${SIDOLISTA_MIN_SKARM}px)`)
+    const uppdatera = () => setBred(mq.matches)
+    uppdatera()
+    mq.addEventListener('change', uppdatera)
+    return () => mq.removeEventListener('change', uppdatera)
+  }, [])
+  const visaSidolista = ny && bred && mode !== 'jamforelse'
+  useEffect(() => {
+    if (!visaSidolista) return
+    document.body.setAttribute('data-mv-sidolista', '')
+    return () => document.body.removeAttribute('data-mv-sidolista')
+  }, [visaSidolista])
+  const sidoMaskiner = useMemo(() => [
+    ...MASKINER.map(m => ({ id: m.id, namn: m.namn, roll: 'skordare' as SidoRoll })),
+    ...skotareMaskiner.map(m => ({ id: m.id, namn: m.namn, roll: 'skotare' as SidoRoll })),
+  ], [skotareMaskiner])
+
   // Vilka vy-knappar ska visas i navet?
   const vyNavList = mode === 'skotare' ? SKOTARE_NY_VYER : NY_VYER
 
@@ -79,6 +103,27 @@ export default function MaskinvyPage() {
     if (newVy) url.searchParams.set('vy', newVy)
     else      url.searchParams.delete('vy')
     history.replaceState({}, '', url.toString())
+  }
+
+  // Byte av flik (Skördare / Skotare / Jämförelse). Skördarens Kapacitet finns inte hos skotaren (och tvärtom Jämförelse):
+  // står vyn kvar på en vy som den nya fliken saknar blir navet utan vald knapp och Översikt visas — då går vi till Översikt.
+  const valjMode = (nytt: Mode) => {
+    setMode(nytt)
+    if (nytt === 'jamforelse') return
+    const lista = nytt === 'skotare' ? SKOTARE_NY_VYER : NY_VYER
+    if (!lista.some(v => v.key === vy)) handleVyChange('')
+  }
+
+  // Ett tryck i sidolistan: välj maskinen och byt till dess flik. Vyn (Idag, Produktion …) står kvar när fliken har den.
+  const valjFranSidolista = (roll: SidoRoll, id: string) => {
+    if (roll === 'skordare') {
+      const m = MASKINER.find(x => x.id === id)
+      if (m) setMaskinSkordare(m)
+    } else {
+      const m = skotareMaskiner.find(x => x.id === id)
+      if (m) setMaskinSkotare(m)
+    }
+    valjMode(roll)
   }
 
   // Dölj TopBar-hemknappen i ny-vyn — vi visar egen bakåtpil + kryss istället.
@@ -262,6 +307,15 @@ export default function MaskinvyPage() {
         /* Push wrapped content below the toggle bar(s) */
         .mv-wrapper > div { top: ${underTopbar(52)} !important; }
         .mv-wrapper.with-vy-nav > div { top: ${underTopbar(96)} !important; }
+
+        /* ── Sidolistan står: allt flyttas höger om den, rullgardinen i vyerna blir bara ett namn ──
+           Attributet sätts på body bara medan listan renderas (stor skärm, nya vyn, inte Jämförelse). */
+        body[data-mv-sidolista] .mv-toggle-bar,
+        body[data-mv-sidolista] .mv-vy-bar { left: ${SIDOLISTA_BREDD}px; }
+        body[data-mv-sidolista] .mv-wrapper > div,
+        body[data-mv-sidolista] .mv-djup { left: ${SIDOLISTA_BREDD}px !important; }
+        body[data-mv-sidolista] .mv-maskinval { pointer-events: none; cursor: default; }
+        body[data-mv-sidolista] .mv-maskinval-pil { display: none; }
       `}</style>
 
       <div className="mv-toggle-bar">
@@ -270,9 +324,9 @@ export default function MaskinvyPage() {
             className="mv-seg-ind"
             style={{ transform: `translateX(${mode === 'skordare' ? 0 : mode === 'skotare' ? 100 : 200}%)` }}
           />
-          <button role="tab" aria-selected={mode === 'skordare'} className={`mv-seg-btn${mode === 'skordare' ? ' active' : ''}`} onClick={() => setMode('skordare')}>Skördare</button>
-          <button role="tab" aria-selected={mode === 'skotare'} className={`mv-seg-btn${mode === 'skotare' ? ' active' : ''}`} onClick={() => setMode('skotare')}>Skotare</button>
-          <button role="tab" aria-selected={mode === 'jamforelse'} className={`mv-seg-btn${mode === 'jamforelse' ? ' active' : ''}`} onClick={() => setMode('jamforelse')}>Jämförelse</button>
+          <button role="tab" aria-selected={mode === 'skordare'} className={`mv-seg-btn${mode === 'skordare' ? ' active' : ''}`} onClick={() => valjMode('skordare')}>Skördare</button>
+          <button role="tab" aria-selected={mode === 'skotare'} className={`mv-seg-btn${mode === 'skotare' ? ' active' : ''}`} onClick={() => valjMode('skotare')}>Skotare</button>
+          <button role="tab" aria-selected={mode === 'jamforelse'} className={`mv-seg-btn${mode === 'jamforelse' ? ' active' : ''}`} onClick={() => valjMode('jamforelse')}>Jämförelse</button>
         </div>
       </div>
 
@@ -292,6 +346,16 @@ export default function MaskinvyPage() {
             ))}
           </div>
         </div>
+      )}
+
+      {visaSidolista && (
+        <Sidolista
+          maskiner={sidoMaskiner}
+          skotareLaddar={skotareLaddar}
+          valdRoll={mode === 'skordare' || mode === 'skotare' ? mode : null}
+          valdId={mode === 'skordare' ? maskinSkordare.id : mode === 'skotare' ? (maskinSkotare?.id ?? null) : null}
+          onVal={valjFranSidolista}
+        />
       )}
 
       {mode === 'jamforelse' ? (

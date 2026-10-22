@@ -4,6 +4,8 @@ import { underTopbar, RADIE, AVSTAND, TYP, VIKT, medSafeBotten, FARG, FONT, kolu
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { hamtaSpecialObjekt, specialPerNamn } from '@/lib/maskinvy/specialObjekt'
+import { forklaraTommaDagar, forklaringsRader, type Forklaring } from '@/lib/maskinvy/forklaradeDagar'
+import { hamtaForklaringsUnderlag } from '@/lib/maskinvy/forklaradeDagarLasning'
 import { ObjektNamn } from './SpecialBadge'
 import { translateKategori } from '@/lib/avbrott-kategorier'
 import {
@@ -39,6 +41,8 @@ type ProduktionData = {
   m3PerArbetsdag: number
   /** Special-objekt (dim_objekt.special) bland dagens objekt: namn → skäl. Bara för badgen. */
   specialNamn: Record<string, string | null>
+  /** Tomma dagar där orsaken är känd (semester, ledig, stopp). Saknas en dag här står den som "Ej aktiv". */
+  forklaring: Record<string, Forklaring>
   perDag: Record<string, DagInfo>
   start: string
   end: string
@@ -48,12 +52,14 @@ type ProduktionData = {
 export async function fetchProduktion(maskinId: string, start: string, end: string): Promise<ProduktionData> {
   const ids = COMBO_IDS[maskinId] || [maskinId]
 
-  const [prodRows, avbrRows, opRes, objRes, special] = await Promise.all([
+  const [prodRows, avbrRows, opRes, objRes, special, forklaringsUnderlag] = await Promise.all([
     fetchAll('fakt_produktion', 'datum, volym_m3sub, stammar, operator_id, objekt_id', ids, start, end),
     fetchAll('fakt_avbrott', 'datum, kategori_kod, langd_sek', ids, start, end),
     supabase.from('dim_operator').select('operator_id, operator_namn').in('maskin_id', ids),
     supabase.from('dim_objekt').select('objekt_id, object_name'),
     hamtaSpecialObjekt(),
+    // Ett tillägg: går det inte att läsa står dagarna som "Ej aktiv", precis som förut.
+    hamtaForklaringsUnderlag(ids, start, end).catch(e => { console.warn('Förklarade dagar kunde inte läsas:', e); return null }),
   ])
 
   const opNames: Record<string, string> = {}
@@ -121,6 +127,10 @@ export async function fetchProduktion(maskinId: string, start: string, end: stri
     totalVolym, totalStammar, arbetsdagar,
     m3PerArbetsdag: arbetsdagar > 0 ? totalVolym / arbetsdagar : 0,
     specialNamn: specialPerNamn(Object.values(objektSets).flatMap(set => Array.from(set)), objNames, special),
+    // En dag med produktion förklaras aldrig, vad ledigheten än säger.
+    forklaring: forklaringsUnderlag
+      ? forklaraTommaDagar(forklaringsUnderlag, new Set(Object.values(perDag).filter(d => d.vol > 0).map(d => d.datum)))
+      : {},
     perDag, start, end,
   }
 }
@@ -144,6 +154,8 @@ type Bucket = {
   forareNamn: string[]
   avbrott: { kategori: string; sek: number; antal: number }[]
   arbetsdagar: number                          // antal dagar med vol > 0 i bucketen
+  /** Bara dagbucketar: varför en tom dag är tom, när det är känt. */
+  forklaring?: Forklaring | null
 }
 
 const MAANAD_KORT = ['Jan','Feb','Mar','Apr','Maj','Jun','Jul','Aug','Sep','Okt','Nov','Dec']
@@ -187,7 +199,7 @@ function aggregateAvbrott(days: DagInfo[]): Bucket['avbrott'] {
     .sort((a, b) => b.sek - a.sek)
 }
 
-function buildDailyBuckets(perDag: Record<string, DagInfo>, start: string, end: string): Bucket[] {
+function buildDailyBuckets(perDag: Record<string, DagInfo>, start: string, end: string, forklaring: Record<string, Forklaring> = {}): Bucket[] {
   const sD = new Date(start + 'T12:00:00')
   const eD = new Date(end + 'T12:00:00')
   const totalDays = Math.round((eD.getTime() - sD.getTime()) / 86400000) + 1
@@ -209,6 +221,7 @@ function buildDailyBuckets(perDag: Record<string, DagInfo>, start: string, end: 
       forareNamn: dag?.forareNamn ?? [],
       avbrott: dag?.avbrott ?? [],
       arbetsdagar: (dag?.vol ?? 0) > 0 ? 1 : 0,
+      forklaring: (dag?.vol ?? 0) > 0 ? null : forklaring[datum] ?? null,
     })
   }
   return out
@@ -433,7 +446,7 @@ function BarChart({ data, onBarClick }: {
 
 // ── Kalender ─────────────────────────────────────────────────
 function Calendar({ data, onDayClick }: {
-  data: { datum: string; vol: number; dayOfMonth: number }[]
+  data: { datum: string; vol: number; dayOfMonth: number; forklaring: Forklaring | null }[]
   onDayClick: (datum: string) => void
 }) {
   if (data.length === 0) return null
@@ -441,6 +454,10 @@ function Calendar({ data, onDayClick }: {
   const firstDate = new Date(data[0].datum + 'T12:00:00')
   const firstDow = firstDate.getDay()
   const padBefore = firstDow === 0 ? 6 : firstDow - 1
+
+  const forklaringar: Record<string, Forklaring> = {}
+  for (const d of data) if (d.vol <= 0 && d.forklaring) forklaringar[d.datum] = d.forklaring
+  const rader = forklaringsRader(forklaringar, data.map(d => d.datum))
 
   const cells: ((typeof data[0]) | null)[] = []
   for (let i = 0; i < padBefore; i++) cells.push(null)
@@ -461,6 +478,7 @@ function Calendar({ data, onDayClick }: {
         {cells.map((c, i) => {
           if (!c) return <div key={i} style={{ aspectRatio: '1', borderRadius: RADIE.stapel }} />
           const hasProd = c.vol > 0
+          const fork = hasProd ? null : c.forklaring
           const bg = hasProd ? FARG.gron : FARG.upphojt
           const color = hasProd ? FARG.bg : FARG.text2
           return (
@@ -469,7 +487,7 @@ function Calendar({ data, onDayClick }: {
               onClick={() => onDayClick(c.datum)}
               title={hasProd
                 ? `${c.dayOfMonth}: ${Math.round(c.vol).toLocaleString('sv-SE')} m³`
-                : `${c.dayOfMonth}: Ej aktiv`}
+                : `${c.dayOfMonth}: ${fork ? fork.text : 'Ej aktiv'}`}
               style={{
                 aspectRatio: '1', borderRadius: RADIE.stapel, border: 'none',
                 background: bg,
@@ -477,13 +495,27 @@ function Calendar({ data, onDayClick }: {
                 fontFamily: FONT, cursor: 'pointer',
                 fontVariantNumeric: 'tabular-nums',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
+                // Förklarad dag: en ring, och raden under kalendern säger vad (ordet ryms inte i en cell på telefon).
+                boxShadow: fork ? `inset 0 0 0 1.5px ${FARG.text3}` : undefined,
               }}
+              data-dag-forklaring={fork ? fork.slag : undefined}
             >
               {c.dayOfMonth}
             </button>
           )
         })}
       </div>
+      {rader.length > 0 && (
+        <div data-forklaringar style={{ marginTop: AVSTAND.l, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+          {rader.map(r => (
+            <div key={r.fran + r.slag + (r.detalj ?? '')} data-forklaring-rad={r.slag}
+              style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+              <span style={{ width: 10, height: 10, borderRadius: RADIE.stapel, flexShrink: 0, boxShadow: `inset 0 0 0 1.5px ${FARG.text3}` }} />
+              <span><span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{r.text}</span> {r.period}{r.detalj ? ` · ${r.detalj}` : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div style={{
         display: 'flex', gap: 16, marginTop: AVSTAND.l, fontSize: TYP.micro.fontSize, color: FARG.text2,
       }}>
@@ -538,7 +570,9 @@ export function PeriodDetalj({ bucket, specialNamn, onClose }: {
   // Underrubrik
   let subtitle = ''
   if (bucket.kind === 'day') {
-    subtitle = hasProd ? 'Produktion' : 'Ingen produktion registrerad'
+    subtitle = hasProd ? 'Produktion'
+      : bucket.forklaring ? `${bucket.forklaring.text}${bucket.forklaring.detalj ? ` · ${bucket.forklaring.detalj}` : ''}`
+      : 'Ingen produktion registrerad'
   } else {
     subtitle = hasProd
       ? `${bucket.arbetsdagar} ${bucket.arbetsdagar === 1 ? 'arbetsdag' : 'arbetsdagar'}`
@@ -548,6 +582,7 @@ export function PeriodDetalj({ bucket, specialNamn, onClose }: {
   return (
     <div
       role="dialog"
+      className="mv-djup"
       aria-label={`Detalj: ${bucket.titleLabel}`}
       style={{
         position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0,
@@ -724,7 +759,7 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
   // Buckets för stapeldiagrammet (V/M = daglig, K = veckovis, Å = månadsvis).
   // Kalendern använder fortfarande daglig data — separat lookup nedan.
   const perDag = data?.perDag ?? {}
-  const dailyBuckets = buildDailyBuckets(perDag, start, end)
+  const dailyBuckets = buildDailyBuckets(perDag, start, end, data?.forklaring)
   const bars: Bucket[] = (() => {
     if (period === 'K') return buildWeeklyBuckets(perDag, start, end)
     if (period === 'Å') return buildMonthlyBuckets(perDag, start, end)
@@ -736,6 +771,7 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
     datum: b.key,
     vol: b.vol,
     dayOfMonth: new Date(b.key + 'T12:00:00').getDate(),
+    forklaring: b.forklaring ?? null,
   }))
 
   // Slå upp öppen bucket — kan vara i bars (klick från stapel) eller
@@ -769,6 +805,7 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
         {/* Topbar: maskinnamn centrerat (samma mönster som OversiktNy) */}
         <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.l}px`, textAlign: 'center', position: 'relative' }}>
           <button
+            className="mv-maskinval"
             onClick={() => setMaskinOpen(o => !o)}
             aria-expanded={maskinOpen}
             style={{
@@ -779,7 +816,7 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
             }}
           >
             {maskin.namn}
-            <span style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
+            <span className="mv-maskinval-pil" style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
           </button>
           {maskinOpen && (
             <div style={{

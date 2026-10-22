@@ -707,3 +707,57 @@ describe('stängt', () => {
     } finally { vi.useRealTimers(); }
   });
 });
+
+describe('förarens enkla kort (maskinläget): enkel-propen ersätter kortet — och en rad flyger kartan dit', () => {
+  const RADER = [
+    { nyckel: 'hansyn:1', bricka: 'Hänsyn 1', typ: 'Kant mot vatten', grupp: 'natur' as const, text: 'kantzon lämnas på ca 10-15 m', osedd: true },
+    { nyckel: 'hansyn:4', bricka: 'Övrigt 4', typ: '', grupp: 'ovrigt' as const, text: 'avverkning av frötallar.', osedd: false },
+  ];
+  const onYta = vi.fn();
+  const enkelProp = () => ({
+    namn: 'Hålabäck au 2025', under: 'Slutavverkning · 2,5 av 5,2 ha klart', andel: 0.48, faror: [], grot: null, tillForaren: tillForaren({ vida: 'Obs tjärdal enligt karta. Lämna ca 50-70 tallar per ha.' }),
+    brand: null, onBrand: () => {}, ytor: RADER, onYta, knappar: [], larm: { satt: true, koordinat: '56.40012, 14.70123', beskrivning: '', onVisa: () => {} },
+    onKarta: undefined, dokument: null,
+  });
+  const med = () => ({ ...props({ roll: 'forare' }), enkel: enkelProp(), karta: { markeringar: [], vida: [], roll: 'skordare' as const } });
+  beforeEach(() => { onYta.mockClear(); });
+
+  it('kortvyn är ObjektKortEnkel: tre delar, inget "På trakten", inga m³-chip; utan enkel-propen är kortet som förut', async () => {
+    await montera(med() as any);
+    expect(q('kort-innehall')!.getAttribute('data-enkel')).toBe('ja');
+    expect(q('kort-galler-rubrik')).not.toBeNull();
+    expect(q('kort-pa-trakten')).toBeNull(); expect(q('kort-brickor')).toBeNull();
+    expect(qa('yta-rad')).toHaveLength(2);
+    await act(async () => { rot!.unmount(); }); behallare!.remove();
+    await montera(props({ roll: 'forare' }));
+    expect(q('kort-innehall')!.getAttribute('data-enkel')).toBeNull();
+    expect(q('kort-pa-trakten')).not.toBeNull();
+  });
+
+  it('Kartans färger och Mer öppnar sina vyer härifrån (och tillbaka)', async () => {
+    await montera({ ...med(), enkel: { ...enkelProp(), onKarta: undefined } } as any);
+    klicka(q('kort-vad-betyder-kartan'));
+    expect(q('objekt-info')!.getAttribute('data-vy')).toBe('karta');
+    klicka(q('info-tillbaka'));
+    klicka(q('kort-mer'));
+    expect(q('objekt-info')!.getAttribute('data-vy')).toBe('mer');
+  });
+
+  it('bred skärm: tryck på en yta → onYta(nyckel, "panel"); panelen ligger kvar', async () => {
+    sattBredd(1280);
+    await montera(med() as any);
+    klicka(qa('yta-rad')[1]);
+    expect(onYta).toHaveBeenCalledWith('hansyn:4', 'panel');
+    expect(q('objekt-info')!.getAttribute('data-oppen')).toBe('1');
+  });
+
+  it('telefon: arket fälls ner till halv höjd när man trycker på en yta (kartan syns ovanför), också om det var uppdraget till hel', async () => {
+    sattBredd(390);
+    await montera(med() as any);
+    trycka(q('objekt-info-grepp'));
+    expect(q('objekt-info')!.getAttribute('data-detent')).toBe('hel');
+    klicka(qa('yta-rad')[0]);
+    expect(onYta).toHaveBeenCalledWith('hansyn:1', 'ark');
+    expect(q('objekt-info')!.getAttribute('data-detent')).toBe('halv');
+  });
+});

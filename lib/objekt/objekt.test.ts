@@ -94,8 +94,8 @@ const SKALVIKEN = {
 
 describe('geometrin — Skälviken', () => {
   const g = geo(SKALVIKEN)!;
-  it('5 hänsynsytor 0,83 ha "Grova lövträd F"', () => {
-    expect(g.hansyn).toMatchObject({ antal: 5, beskrivningar: ['Grova lövträd F'] });
+  it('5 hänsynsytor 0,83 ha "Grova lövträd" (Vidas kodtecken " F" visas aldrig)', () => {
+    expect(g.hansyn).toMatchObject({ antal: 5, beskrivningar: ['Grova lövträd'] });
     expect(g.hansyn!.ha.toFixed(2)).toBe('0.83');
   });
   it('basväg 205 m, kraftledning är en fara och räknas inte som väg', () => {

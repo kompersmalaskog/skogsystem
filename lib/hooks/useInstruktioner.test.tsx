@@ -2,7 +2,7 @@
 // Instruktioner till föraren i React: samma hook som sidan kör, mot en låtsasdatabas med tabellen kommentar_sett_forare.
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useInstruktioner, type InstruktionerIn, type InstruktionerUt } from './useInstruktioner';
 import { nollstallSett } from '../instruktioner/sett';
 import type { KommentarVy } from '../kartkommentar';
@@ -69,7 +69,8 @@ describe('useInstruktioner', () => {
     await montera(grund(s.db));
     expect(ut.kort).toBeNull();
     await satt(grund(s.db, { pos: INNE }));
-    expect(ut.kort?.namn).toBe('Naturvårdsyta');
+    expect(ut.kort?.namn).toBe('Hänsyn 7 · Naturvårdsyta');   // samma rubrik som kartans etikett + typen
+    expect(ut.kort).toMatchObject({ bricka: 'Hänsyn 7', typ: 'Naturvårdsyta', brickaGrupp: 'natur' });
     expect(ut.kort?.instruktioner.map((i) => i.kalla)).toEqual(['vida']);
   });
 
@@ -237,3 +238,56 @@ describe('useInstruktioner', () => {
     expect(ut.paTrakten.antal).toBe(0);
   });
 });
+
+describe('useInstruktioner — påminnelsen i ytan (redan sedd + inne)', () => {
+  const tomt = async () => { await act(async () => { await vi.advanceTimersByTimeAsync(0); }); };
+  const rendera = async (inp: InstruktionerIn) => { await act(async () => { rot!.render(<Test inp={inp} />); }); await tomt(); };
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] }); vi.setSystemTime(new Date('2026-10-22T08:00:00Z')); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('sedd yta: hela pillen i 10 s, sedan bara brickan (timern väcker hooken, inget polling); kör ut → borta; in igen → hela pillen igen', async () => {
+    const s = server();
+    ruta = document.createElement('div'); document.body.appendChild(ruta); rot = createRoot(ruta);
+    await rendera(grund(s.db, { pos: INNE }));
+    await act(async () => { ut.settKort(); });                      // föraren har sett instruktionen (kortet vid första inkörningen)
+    await tomt();
+    expect(ut.kort).toBeNull();
+    expect(ut.paminnelse).toMatchObject({ fas: 'bricka', bricka: 'Hänsyn 7', typ: 'Naturvårdsyta', text: 'Spara aspar' });   // Sett inne i ytan: direkt bricka
+    await rendera(grund(s.db, { pos: UTE }));
+    expect(ut.paminnelse).toBeNull();
+    await rendera(grund(s.db, { pos: INNE }));
+    expect(ut.paminnelse).toMatchObject({ fas: 'full', kvarMs: 10000 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
+    expect(ut.paminnelse).toMatchObject({ fas: 'full' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
+    expect(ut.paminnelse).toMatchObject({ fas: 'bricka', kvarMs: 0 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(ut.paminnelse).toMatchObject({ fas: 'bricka' });          // ligger kvar så länge man är i ytan
+    await rendera(grund(s.db, { pos: UTE }));
+    expect(ut.paminnelse).toBeNull();
+  });
+
+  it('larm/lossning (blockeradPaminnelse) göms och kommer tillbaka; osedd yta ger kortet, inte påminnelsen; testläget skriver inget', async () => {
+    const s = server();
+    ruta = document.createElement('div'); document.body.appendChild(ruta); rot = createRoot(ruta);
+    await rendera(grund(s.db, { pos: INNE, torr: true }));
+    expect(ut.kort).not.toBeNull(); expect(ut.paminnelse).toBeNull();   // osedd: stora kortet
+    await act(async () => { ut.settKort(); }); await tomt();
+    expect(s.rader).toHaveLength(0);                                    // torr: inget i databasen
+    await rendera(grund(s.db, { pos: INNE, torr: true, blockeradPaminnelse: true }));
+    expect(ut.paminnelse).toBeNull();
+    await rendera(grund(s.db, { pos: INNE, torr: true, blockeradPaminnelse: false }));
+    expect(ut.paminnelse).toMatchObject({ bricka: 'Hänsyn 7' });
+  });
+
+  it('en ny kommentar medan man är inne: osedd → ingen påminnelse för ytan (den får sitt kort vid nästa inkörning)', async () => {
+    const s = server();
+    ruta = document.createElement('div'); document.body.appendChild(ruta); rot = createRoot(ruta);
+    await rendera(grund(s.db, { pos: INNE }));
+    await act(async () => { ut.settKort(); }); await tomt();
+    expect(ut.paminnelse).not.toBeNull();
+    await rendera(grund(s.db, { pos: INNE, kommentarer: [kk('c1', 'Ny: stolpe lutar')] }));
+    expect(ut.paminnelse).toBeNull();
+  });
+});
+

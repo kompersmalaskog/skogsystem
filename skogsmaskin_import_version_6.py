@@ -5738,7 +5738,7 @@ def komplettera_saknat_vader(max_antal: int = 25, skriv: bool = True, http=None,
     Kastar aldrig. Rapport: sokta, fyllda, ersatta, inte_klara, hoppade_permanent, redan_ratta, misslyckade [(id, filnamn,
     skäl)], avbrutet (skäl eller None), aterstall [(id, gammalt väder)]. skriv=False räknar bara (torrkörning)."""
     rapport = {'sokta': 0, 'fyllda': 0, 'ersatta': 0, 'inte_klara': 0, 'hoppade_permanent': 0, 'redan_ratta': 0,
-               'misslyckade': [], 'avbrutet': None, 'aterstall': []}
+               'saknar_stockar': 0, 'misslyckade': [], 'avbrutet': None, 'aterstall': []}
     try:
         http = http or requests
         nu = nu or datetime.now(timezone.utc)
@@ -5789,6 +5789,12 @@ def komplettera_saknat_vader(max_antal: int = 25, skriv: bool = True, http=None,
                                         'stem_lon': None if s.get('stem_lon') is None else float(s['stem_lon']),
                                         'harvest_date': lokal})
                     punkt = valj_vaderpunkt(stockar, rad.get('datum'))
+                    if punkt is None and not stockar and befintligt:
+                        # Ren upprepning i en ackumulerande fil: alla stockar låg redan i en tidigare fil och
+                        # finns bara kvar där (detalj_kontroll_stock_matning_unik). Raden har väder sedan förut —
+                        # det lämnas som det är, och det är inget fel.
+                        rapport['saknar_stockar'] += 1
+                        continue
                     if punkt is None:
                         skal = 'ingen stock med både GPS-position och skördetid'
                         rapport['misslyckade'].append((rad['id'], rad['filnamn'], skal))
@@ -5846,6 +5852,12 @@ def komplettera_saknat_vader(max_antal: int = 25, skriv: bool = True, http=None,
     except Exception as e:
         logger.warning(f"  ⚠ Väder: komplettering avbröts: {e}")
     return rapport
+
+
+# Nyckeln i unika indexet detalj_kontroll_stock_matning_unik (migration 20261022091100): samma
+# maskin, skördetid, stam, stock och mättider = samma fysiska mätning, oavsett vilken HQC-fil den kom i.
+KONTROLL_STOCK_NYCKEL = ['maskin_id', 'harvest_date', 'stam_nummer', 'stock_nummer',
+                         'machine_measurement_date', 'operator_measurement_date']
 
 
 def save_hqc_to_supabase(data: Dict) -> bool:
@@ -5906,10 +5918,15 @@ def save_hqc_to_supabase(data: Dict) -> bool:
                 fel.append('fakt_kalibrering_historik')
 
         if data.get('kontroll_stockar'):
+            # Ackumulerande HQC-filer upprepar alla tidigare stockar. EN rad per fysisk mätning
+            # (index detalj_kontroll_stock_matning_unik): det som redan finns hoppas över, bara det
+            # nya läggs till. 'ignore', inte 'merge' — en upprepad stock ska aldrig skriva över den
+            # äldsta kopian (vars kontroll_datum är dagen mätningen först exporterades).
             if upsert_data(
                 'detalj_kontroll_stock',
                 data['kontroll_stockar'],
-                unique_columns=['filnamn', 'stam_nummer', 'stock_nummer']
+                unique_columns=KONTROLL_STOCK_NYCKEL,
+                on_conflict='ignore'
             ) == 0:
                 fel.append('detalj_kontroll_stock')
 
@@ -5928,6 +5945,7 @@ def save_hqc_to_supabase(data: Dict) -> bool:
             import urllib.parse
             filnamn = data.get('filnamn')
             stock_id_lookup = {}
+            stock_lookup_ok = False
             if filnamn:
                 enc = urllib.parse.quote(filnamn, safe='')
                 url = (
@@ -5938,6 +5956,7 @@ def save_hqc_to_supabase(data: Dict) -> bool:
                 try:
                     resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=30)
                     if resp.status_code == 200:
+                        stock_lookup_ok = True
                         for row in resp.json():
                             stock_id_lookup[(row['stam_nummer'], row['stock_nummer'])] = row['id']
                     else:
@@ -5963,7 +5982,13 @@ def save_hqc_to_supabase(data: Dict) -> bool:
                 })
 
             saknade = len(data['kontroll_matpunkter']) - len(matpunkter_med_id)
-            if saknade > 0:
+            if saknade > 0 and stock_lookup_ok:
+                # Stockarna fanns redan under en tidigare fil (ackumulerande export) och har sina
+                # mätpunkter sedan dess — inget fel.
+                logger.info(
+                    f"  ↷ {saknade} matpunkter hör till stockar som redan importerats under en tidigare fil"
+                )
+            elif saknade > 0:
                 logger.warning(
                     f"  ⚠ {saknade} matpunkter saknade detalj_kontroll_stock_id, ej sparade"
                 )

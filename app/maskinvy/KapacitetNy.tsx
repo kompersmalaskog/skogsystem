@@ -277,12 +277,13 @@ export default function KapacitetNy({ maskin, onMaskinChange }: {
       <div style={{ position: 'sticky', top: 0, zIndex: 5, background: FARG.bg, borderBottom: `0.5px solid ${FARG.linje}` }}>
         <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.l}px`, textAlign: 'center', position: 'relative' }}>
           <button
+            className="mv-maskinval"
             onClick={() => setMaskinOpen(o => !o)}
             aria-expanded={maskinOpen}
             style={{ background: 'transparent', border: 'none', color: FARG.text, fontFamily: FONT, fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -0.3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s, padding: 0, minHeight: 44 }}
           >
             {maskin.namn}
-            <span style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
+            <span className="mv-maskinval-pil" style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
           </button>
           {maskinOpen && (
             <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', background: FARG.kort, borderRadius: RADIE.kort, marginTop: AVSTAND.s, minWidth: 260, overflow: 'hidden', zIndex: 100, boxShadow: '0 8px 28px rgba(0,0,0,0.6)' }}>

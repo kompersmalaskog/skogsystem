@@ -22,14 +22,14 @@ const aldre: Instruktion = { ref: 'aldre:marker:5', text: 'Gammal text', hash: '
 const kort = (o: Partial<InstruktionKortData> = {}): InstruktionKortData => ({ nyckel: 'hansyn:7', namn: 'Naturvårdsyta', avlagg: false, instruktioner: [vida, egen], fler: 0, ...o });
 
 describe('InstruktionKortVy', () => {
-  it('rubrik "<Område> – instruktioner" och "Du kör in i området nu"', () => {
+  it('rubrik = områdets namn (utan "– instruktioner") och "Du kör in i området nu"', () => {
     montera(<InstruktionKortVy kort={kort()} top="10px" onSett={() => {}} />);
-    expect(q('instruktion-rubrik')!.textContent).toBe('Naturvårdsyta – instruktioner');
+    expect(q('instruktion-rubrik')!.textContent).toBe('Naturvårdsyta');
     expect(q('instruktion-under')!.textContent).toBe('Du kör in i området nu');
   });
   it('vid ett avlägg står "Du är vid avlägget" i stället för "Du kör in i området nu"', () => {
     montera(<InstruktionKortVy kort={kort({ namn: 'Virkesavlägg', avlagg: true, instruktioner: [egen] })} top="10px" onSett={() => {}} />);
-    expect(q('instruktion-rubrik')!.textContent).toBe('Virkesavlägg – instruktioner');
+    expect(q('instruktion-rubrik')!.textContent).toBe('Virkesavlägg');
     expect(q('instruktion-under')!.textContent).toBe('Du är vid avlägget');
   });
   it('Vidas text först med blå etikett "Vida · traktdirektiv", sedan egna med "Namn · tid"', () => {

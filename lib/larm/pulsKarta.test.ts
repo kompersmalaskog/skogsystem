@@ -35,7 +35,10 @@ describe('pulsData och pulsens lager', () => {
     expect(d.features).toHaveLength(1);
     expect(d.features[0].properties).toEqual({ id: 'k1', farg: '#FF453A' });
     expect(pulsData(null, O).features).toEqual([]);
-    expect(pulsData({ id: 'x', farg: '#fff', geometri: { type: 'Point', coordinates: c(0, 0) } }, null).features).toEqual([]);
+    // Utan position: en linje kan inte klippas till sträckan närmast maskinen (ingen puls), men en yta/punkt pulserar helt (ⓘ-listans "flyg till ytan" utan GPS).
+    expect(pulsData({ id: 'x', farg: '#fff', geometri: { type: 'LineString', coordinates: [c(0, 0), c(10, 0)] } }, null).features).toEqual([]);
+    expect(pulsData({ id: 'x', farg: '#fff', geometri: { type: 'Point', coordinates: c(0, 0) } }, null).features).toHaveLength(1);
+    expect(pulsData({ id: 'y', farg: '#fff', geometri: { type: 'Polygon', coordinates: [[c(0, 0), c(10, 0), c(10, 10), c(0, 0)]] } }, null).features).toHaveLength(1);
   });
   it('lagren har prefixet larm- (körvyns lager-whitelist) och färgen kommer ur featuren, aldrig en egen', () => {
     for (const l of pulsLagerSpecar()) {

@@ -12,9 +12,10 @@
 //   2. yta-nr  — ytans nummer: öppnar ALLTID ytkortet, även när högar täcker ytan
 //   3. punkt   — högar (timmer + GROT), markörer/pilar, Vidas tilläggspunkter
 //   4. linje   — stickvägar, basvägar, kraftledningar, RAÄ-linjer, områdesgräns-linjer
-//   5. yta     — minsta ytan (gräns-fyllning, zoner, Vidas hänsyns-/traktdels-ytor)
+//   5. fastighet — fastighetsgränsen (rågången): ett tryck på gränsen öppnar "X mot Y" före traktdelens yta, så att man kan trycka på en rågång som ligger på traktgränsen
+//   6. yta     — minsta ytan (gräns-fyllning, zoner, Vidas hänsyns-/traktdels-ytor)
 
-export type KlickKategori = 'larm' | 'yta-nr' | 'punkt' | 'linje' | 'yta';
+export type KlickKategori = 'larm' | 'yta-nr' | 'punkt' | 'linje' | 'fastighet' | 'yta';
 
 // Kategori → dess kart-lager. Ett lager får bara stå i EN kategori.
 export const KLICK_LAGER: { kategori: KlickKategori; lager: string[] }[] = [
@@ -28,9 +29,10 @@ export const KLICK_LAGER: { kategori: KlickKategori; lager: string[] }[] = [
     kategori: 'linje',
     lager: ['line-hitbox', 'trakt-linje-hit', 'trakt-raa-line'],   // träffytor (44 px) för egna och Vidas linjer; RAÄ-linjer som förut
   },
+  { kategori: 'fastighet', lager: ['trakt-ragang-hit'] },
   {
     kategori: 'yta',
-    lager: ['grans-fill', 'zone-fill', 'trakt-hansyn-fill', 'trakt-nb-fill', 'trakt-raa-fill', 'trakt-gr-fill'],
+    lager: ['grans-fill', 'zone-fill', 'trakt-hansyn-fill', 'trakt-ovrigt-fill', 'trakt-nb-fill', 'trakt-raa-fill', 'trakt-gr-fill'],
   },
 ];
 

@@ -156,7 +156,7 @@ describe('Mät i körvyn OCH planeringen → en rad, Klar visar talet', () => {
   });
   it('ett tryck medan man mäter eller har valt en symbol öppnar INGET kort (ytkort, larm, symbolkort …) — alla tryckvakter', () => {
     const vakt = 'hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current';
-    expect(page.split(vakt).length - 1).toBe(11);                                        // yt-, larm-, symbol-, hög-, GROT-, TMA- … linjens tryck och skotarens avläggsrutor
+    expect(page.split(vakt).length - 1).toBe(12);                                        // yt-, larm-, symbol-, hög-, GROT-, TMA- … linjens tryck och skotarens avläggsrutor
     expect(page).toContain('skotningDrawing || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current) return;');   // zonens tryck
   });
   it('ett tryck på kartan utanför dockan STÄNGER den (och gör inget annat); lyftet efter ett långtryck stänger inte', () => {

@@ -119,6 +119,7 @@ export default function VolymDeepView({
   return (
     <div
       role="dialog"
+      className="mv-djup"
       aria-label="Volym per trädslag"
       style={{
         position: 'fixed', top: 'calc(56px + env(safe-area-inset-top))', left: 0, right: 0, bottom: 0,

@@ -43,7 +43,8 @@ describe('Kortet del 2 — linjekortet', () => {
 describe('Kortet del 2 — Vidas text är kommentaren', () => {
   it('båda korten skickar Vidas text till kortet; hänsynsytans ATGARD når kortet som vidaKommentar, inte som en lös textrad', () => {
     expect(traktKort).toContain("vidaKommentar={traktInfo.kategori === 'punkt' ? undefined : traktInfo.vidaKommentar}");   // avlägg: Vidas ATGARD är ett namn (visas i namnraden), aldrig en kommentar
-    expect(sida).toMatch(/vidaKommentar: txt\(props\.ATGARD\) \|\| undefined/);
+    // Hänsynsytan/Övrigt: kortet byggs av byggTraktKort (Vidas ATGARD som vidaKommentar, namnet som kartans etikett) och sidan lägger bara på källan "Vida".
+    expect(sida).toContain("kort = { ...kort, kalla: 'Vida', nr: '' };");
   });
   it('byggTraktKort: ATGARD på hänsynsyta och avlägg är Vidas kommentar; traktdelens FLBESKR ("Första gallring") är åtgärden, ingen kommentar', () => {
     expect(byggTraktKort({ _lager: 'L_TILLAGGSYTOR', _typ: 'hansyn', LOPNR: '3', FLBESKR: 'Övrigt', ATGARD: 'avverkning av frötallar.\r\nLämn kantzon mot sjön.' }).vidaKommentar).toBe('avverkning av frötallar.\r\nLämn kantzon mot sjön.');

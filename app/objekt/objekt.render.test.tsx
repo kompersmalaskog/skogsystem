@@ -383,7 +383,7 @@ describe('Objektvyn — vad filen gav oss', () => {
     expect(knapp('Öppna filen')).toBeTruthy();
     expect(knapp('Ja, det stämmer')).toBeUndefined(); // en bekräftelse som försvinner vid nästa omimport är sämre än ingen knapp
     expect(t).toContain('1 blad');
-    expect(t).toContain('5 ytor · 0,83\u00a0ha · Grova lövträd F');
+    expect(t).toContain('5 ytor · 0,83\u00a0ha · Grova lövträd');   // Vidas kodtecken " F" visas aldrig
     expect(t).toContain('Kraftledning över trakten');
     expect(t).toContain('731\u00a0m ritad i filen');
     expect(t).toContain('Basväg 205\u00a0m');

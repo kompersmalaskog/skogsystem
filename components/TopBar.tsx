@@ -56,6 +56,7 @@ export default function TopBar() {
     // /i/<rad_id>: QR-koden på en låda.
     : pathname.startsWith('/i/') ? 'Inventarier'
     : pathname.startsWith('/admin/markagarrapport') ? 'Markägarrapport'
+    : pathname.startsWith('/admin/objektoversikt') ? 'Objektöversikt'
     : pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2))
 
   // Undersida-vyer (t.ex. Arbetsrapport-interna steg) sätter body[data-hide-home]

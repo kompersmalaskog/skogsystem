@@ -5,8 +5,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  TOMT_INSTRUKTION, arOsedd, attKvittera, instruktionerPaTrakten, kortAttVisa, samlaOmraden, stegaInstruktion,
-  type InstruktionKortData, type InstruktionState, type InstruktionerPaTrakten,
+  TOMT_INSTRUKTION, arOsedd, attKvittera, instruktionerPaTrakten, kortAttVisa, paminnelseAttVisa, samlaOmraden, stegaInstruktion,
+  type InstruktionKortData, type InstruktionState, type InstruktionerPaTrakten, type Paminnelse,
 } from '../instruktioner/instruktioner';
 import { attSkicka, hamtaSett, lasLokaltSett, settKarta, skrivLokaltSett, slaIhopSett, sparaSett, type SettLager, type SparaSettPost } from '../instruktioner/sett';
 import type { KommentarVy } from '../kartkommentar';
@@ -31,12 +31,16 @@ export interface InstruktionerIn {
   db: { from: (tabell: string) => any };
   /** Ett annat kort har platsen (larmkort eller lossningskortet): instruktionen väntar tills det är borta. Se lib/instruktioner/ordning. */
   blockerad: boolean;
+  /** Påminnelsen i ytan väntar bakom ALLA kort som visas (också ett larmkort som redan setts) — de går före. Saknas = samma som `blockerad`. */
+  blockeradPaminnelse?: boolean;
   /** Testläget (/maskin?som=): "sett" gäller bara i minnet, ingenting skrivs. */
   torr?: boolean;
 }
 
 export interface InstruktionerUt {
   kort: InstruktionKortData | null;
+  /** PÅMINNELSEN I YTAN: redan sedd instruktion i området maskinen är i — hela pillen en stund, sedan bara brickan. Null när inget område, eller när larm/lossning/instruktionskortet har platsen. */
+  paminnelse: Paminnelse | null;
   /** En instruktion väntar på "Sett" (visas nu eller väntar på larm/lossning). Avläggsraden (målbilden) väntar tills den är kvitterad. */
   vantar: boolean;
   /** Alla instruktioner på trakten — raden "Instruktioner på trakten (N)" i genomgången. */
@@ -51,7 +55,9 @@ export interface InstruktionerUt {
 
 const samma = (a: InstruktionState, b: InstruktionState): boolean => {
   const ak = Object.keys(a.inne), bk = Object.keys(b.inne);
-  return ak.length === bk.length && ak.every((k) => b.inne[k]) && a.vantande.length === b.vantande.length && a.vantande.every((n, i) => n === b.vantande[i]);
+  const pa = Object.keys(a.paminn), pb = Object.keys(b.paminn);
+  return ak.length === bk.length && ak.every((k) => b.inne[k]) && a.vantande.length === b.vantande.length && a.vantande.every((n, i) => n === b.vantande[i])
+    && pa.length === pb.length && pa.every((k) => a.paminn[k] === b.paminn[k]);
 };
 
 const TOM_LISTA: InstruktionerPaTrakten = { antal: 0, nya: 0, omraden: [] };
@@ -107,6 +113,22 @@ export function useInstruktioner(inp: InstruktionerIn): InstruktionerUt {
   // Kön fylls bara när sett är läst (effekten ovan), så kortet behöver ingen egen spärr: det finns inget att visa innan dess.
   const kort = useMemo(() => (aktiv ? kortAttVisa(state, omraden, karta, inp.blockerad) : null), [aktiv, state, omraden, karta, inp.blockerad]);
   const vantar = useMemo(() => (aktiv ? kortAttVisa(state, omraden, karta, false) != null : false), [aktiv, state, omraden, karta]);
+  // Påminnelsen räknas om när hela pillen blivit bricka: en timer till exakt dess slut (inget polling). Tiden läses färsk vid varje beräkning.
+  const [tick, setTick] = useState(0);
+  const paminnelse = useMemo(
+    () => (aktiv && laddad ? paminnelseAttVisa(state, omraden, karta, Date.now(), inp.blockeradPaminnelse ?? inp.blockerad, kort != null) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [aktiv, laddad, state, omraden, karta, inp.blockerad, inp.blockeradPaminnelse, kort, tick],
+  );
+  const paFull = paminnelse?.fas === 'full';
+  const paKvarMs = paminnelse?.kvarMs ?? 0;
+  const paKvarRef = useRef(paKvarMs);
+  paKvarRef.current = paKvarMs;
+  useEffect(() => {
+    if (!paFull) return;
+    const t = setTimeout(() => setTick((n) => n + 1), paKvarRef.current + 20);
+    return () => clearTimeout(t);
+  }, [paFull, paminnelse?.nyckel, state]);
   const paTrakten = useMemo(() => (aktiv && laddad ? instruktionerPaTrakten(omraden, karta) : TOM_LISTA), [aktiv, laddad, omraden, karta]);
 
   const kvittera = useCallback((poster: readonly SparaSettPost[]) => {
@@ -143,5 +165,5 @@ export function useInstruktioner(inp: InstruktionerIn): InstruktionerUt {
     return ut;
   }, [aktiv, laddad, omraden, karta]);
 
-  return { kort, vantar, paTrakten, settKort, settOmraden, oseddaPer };
+  return { kort, paminnelse, vantar, paTrakten, settKort, settOmraden, oseddaPer };
 }

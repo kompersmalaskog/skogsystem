@@ -53,17 +53,19 @@ export interface KommentarVisningProps {
   text: string;
   /** Vidas traktdirektiv: delas vid meningsslut i stället för bara på radbrytning. */
   meningar?: boolean;
+  /** Vidas etikett i den blå raden överst. Standard "Vida · traktdirektiv"; ⓘ-panelen säger "Hela trakten · Vida" (direktivet gäller hela trakten, ingen yta). */
+  vidaEtikett?: string;
 }
 
 /**
  * Visningen av EN kommentar utan åtgärder: rutan, källan överst, texten som punkter. Det är den här som alla ställen utom kartkortets redigerbara rader använder
  * (instruktionskortet, "Instruktioner på trakten", "Till föraren", Om trakten) — samma ruta, samma 19 px, samma etiketter.
  */
-export function KommentarVisning({ vida = false, forfattare = null, etikett, vantar = false, text, meningar = false }: KommentarVisningProps) {
+export function KommentarVisning({ vida = false, forfattare = null, etikett, vantar = false, text, meningar = false, vidaEtikett = 'Vida · traktdirektiv' }: KommentarVisningProps) {
   return (
     <KommentarRuta
       testid={vida ? 'kartkort-kommentar-vida' : 'kartkort-kommentar-rad'}
-      kalla={vida ? 'Vida · traktdirektiv' : <><span data-testid="kartkort-kommentar-forfattare">{etikett ?? forfattare ?? 'Äldre kommentar'}</span>{vantar ? <span data-testid="kartkort-kommentar-vantar"> · väntar</span> : null}</>}
+      kalla={vida ? vidaEtikett : <><span data-testid="kartkort-kommentar-forfattare">{etikett ?? forfattare ?? 'Äldre kommentar'}</span>{vantar ? <span data-testid="kartkort-kommentar-vantar"> · väntar</span> : null}</>}
       kallaFarg={vida ? FARG.bla : FARG.text2}
     >
       <KommentarPunkter text={text} meningar={meningar} />
