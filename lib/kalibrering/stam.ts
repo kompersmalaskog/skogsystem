@@ -1,6 +1,6 @@
 /**
  * STAMVYN — räknandet bakom "Stam N" i kontrollarket: avvikelsen (maskin − klave) längs stammen rot → topp, svaret i klartext, stockraderna
- * och sammanfattningen av planområdena. Vyn (components/kalibrering/StamArk + StamAvvikelse) ritar, den räknar inte.
+ * och sammanfattningen av ställena där greppet släppte (definitionen bor i ./grepp). Vyn (components/kalibrering/StamArk + StamAvvikelse) ritar, den räknar inte.
  *
  * REGLER (som i resten av kalibreringsvyn):
  *  - "klavad" = operatören har mätt. Ett värde som är NULL/0 har ingen avvikelse och räknas aldrig som "inom tolerans".
@@ -11,7 +11,8 @@
 import type { StockRow } from '@/app/api/kalibrering/kontroll/route';
 import { avvikelseTon, type ToneToken } from './bedomning';
 import { dec, fmtAvvikelse } from './format';
-import { stockRadVarde, type Plan } from './kontroll';
+import { GREPP_MIN_CM, type Grepp, type KlavePunkt } from './grepp';
+import { stockRadVarde } from './kontroll';
 
 /** Färgen på en avvikelse: kontrollarkets egen funktion (`avvikelseTon`, diameter), inte en kopia — så en stock är orange/röd/blå här om och
  *  bara om den är det i Kontroll. ok = inom ±4 mm (ingen färg). Kravprofilens tolerans (`tol`) styr bandet och räkningen "utanför" (som i
@@ -40,8 +41,13 @@ export type StamGeometri = {
 
 const klavat = (v: number | null | undefined): v is number => v != null && v !== 0;
 
+/** Det stamgeometrin behöver av en stock — `StockRow` duger, och diagnos-rutten bygger samma form ur sina egna läsningar. */
+export type StamStock = Pick<StockRow, 'stock_nummer' | 'maskin_langd_cm' | 'maskin_toppdia_mm' | 'operator_toppdia_mm'> & {
+  matpunkter: { position_cm: number; diameter_maskin_mm: number | null; diameter_operator_mm: number | null }[];
+};
+
 /** Maskinens och klavens mått längs hela stammen: mätpunkterna på varje stock plus toppen vid kapsnittet. Stockarna läggs rot → topp. */
-export const stamGeometri = (stamStockar: StockRow[]): StamGeometri => {
+export const stamGeometri = (stamStockar: StamStock[]): StamGeometri => {
   const stockar = stamStockar.slice().sort((a, b) => a.stock_nummer - b.stock_nummer);
   const granserCm: number[] = [0];
   const punkter: StamPunkt[] = [];
@@ -62,6 +68,10 @@ export const stamGeometri = (stamStockar: StockRow[]): StamGeometri => {
   punkter.sort((a, b) => a.posCm - b.posCm);
   return { punkter, granserCm, stockNr: stockar.map(s => s.stock_nummer), totalCm: granserCm[granserCm.length - 1] };
 };
+
+/** Klavens mått längs stammen (bara där klaven mätt) — det `findGreppSlapp` jämför maskinens profil mot. */
+export const klavePunkter = (g: StamGeometri): KlavePunkt[] =>
+  g.punkter.filter((p): p is StamPunkt & { klave: number } => p.klave != null).map(p => ({ posCm: p.posCm, klave: p.klave }));
 
 // === Prickarna: avvikelsen per mätpunkt ===
 export type StamPrick = {
@@ -109,9 +119,6 @@ export const stamPrickar = (g: StamGeometri, tol: number): StamPrick[] => {
 /** Skalan i mm åt båda hållen (alltid symmetrisk kring noll): största avvikelsen eller 1,5 × toleransen, uppåt till jämnt tal. */
 export const stamSkala = (prickar: StamPrick[], tol: number): number =>
   Math.max(4, Math.ceil(Math.max(tol * 1.5, ...prickar.map(p => Math.abs(p.avvik))) / 2) * 2);
-
-/** Var planområdena ligger, som läge på stammen (cm, mitten av området) — de ritas som ihåliga prickar. */
-export const planPlatser = (planer: Plan[]): number[] => planer.map(p => (p.startCm + p.endCm) / 2);
 
 // === Svaret i klartext ===
 export type StamSvar = {
@@ -161,29 +168,51 @@ export const stamSvar = (g: StamGeometri, tol: number): StamSvar => {
   return { rubrik, tal, n, ut, grova: grova.length, klena: klena.length };
 };
 
-// === Planområden i vardagsord ===
-/** "Fastnade på 8 ställen, mest i rotändan." Null när stammen saknar tät profil (då vet vi inget — vi säger ingenting). */
-export const planSammanfattning = (planer: Plan[], harProfil: boolean, totalCm: number): string | null => {
-  if (!harProfil) return null;
-  if (planer.length === 0) return 'Mätningen fastnade ingenstans.';
-  const plats = planer.map(p => stamPlats((p.startCm + p.endCm) / 2, totalCm));
-  if (planer.length === 1) return `Fastnade på ett ställe, ${PLATS_ORD[plats[0]]}.`;
+// === Ställena där greppet släppte, i vardagsord ===
+/** "Greppet släppte på 3 ställen, mest i rotändan." Null när vi inte kan bedöma (ingen tät profil eller för få klavmått) — då säger vi ingenting. */
+export const greppSammanfattning = (stallen: Grepp[], kanBedomas: boolean, totalCm: number): string | null => {
+  if (!kanBedomas) return null;
+  if (stallen.length === 0) return 'Greppet släppte ingenstans.';
+  const plats = stallen.map(p => stamPlats((p.startCm + p.endCm) / 2, totalCm));
+  if (stallen.length === 1) return `Greppet släppte på ett ställe, ${PLATS_ORD[plats[0]]}.`;
   const antal = { rot: 0, mitt: 0, topp: 0 };
   for (const p of plats) antal[p]++;
   const rangordnad = (Object.keys(antal) as (keyof typeof antal)[]).sort((a, b) => antal[b] - antal[a]);
   const [forst, andra] = rangordnad;
-  const tydlig = antal[forst] > antal[andra] && antal[forst] / planer.length >= 0.5;
-  return `Fastnade på ${planer.length} ställen, ${tydlig ? PLATS_MEST[forst] : 'utspridda längs stammen'}.`;
+  const tydlig = antal[forst] > antal[andra] && antal[forst] / stallen.length >= 0.5;
+  return `Greppet släppte på ${stallen.length} ställen, ${tydlig ? PLATS_MEST[forst] : 'utspridda längs stammen'}.`;
 };
 
-/** Vilka stockar ett planområde ligger på, som text: "Stock 2" eller "Stock 2–3". */
-export const planStockText = (p: Plan, g: StamGeometri): string => {
+/** Vilka stockar ett ställe ligger på, som text: "stock 2" eller "stock 2–3". */
+export const greppStockText = (p: { startCm: number; endCm: number }, g: StamGeometri): string => {
   const traffade: number[] = [];
   g.stockNr.forEach((nr, i) => {
     if (g.granserCm[i] < p.endCm && g.granserCm[i + 1] > p.startCm) traffade.push(nr);
   });
   if (traffade.length === 0) return '';
-  return traffade.length === 1 ? `Stock ${traffade[0]}` : `Stock ${traffade[0]}–${traffade[traffade.length - 1]}`;
+  return traffade.length === 1 ? `stock ${traffade[0]}` : `stock ${traffade[0]}–${traffade[traffade.length - 1]}`;
+};
+
+export type GreppRad = {
+  /** "2,5–2,8 m · stock 1" — var på stammen. */
+  titel: string;
+  /** Längden på sträckan, bara när den är längre än den minsta som räknas ("50 cm lång"); annars null. */
+  langd: string | null;
+  /** Felet stället gav, maskin − klave: "+5 mm". */
+  fel: string;
+  /** Kontrollarkets färg på felet (`stamTon`): ok inom ±4 mm. */
+  ton: ToneToken;
+};
+
+/** En rad per ställe: var på stammen och hur mycket fel det gav. */
+export const greppRad = (p: Grepp, g: StamGeometri): GreppRad => {
+  const stock = greppStockText(p, g);
+  return {
+    titel: `${dec(p.startCm / 100, 1)}–${dec(p.endCm / 100, 1)} m${stock ? ` · ${stock}` : ''}`,
+    langd: p.lengthCm > GREPP_MIN_CM ? `${p.lengthCm} cm lång` : null,
+    fel: `${fmtAvvikelse(p.felMm, 'mm')} mm`,
+    ton: stamTon(Math.round(p.felMm)),
+  };
 };
 
 // === Stockraderna ===

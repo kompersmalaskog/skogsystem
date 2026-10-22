@@ -121,32 +121,6 @@ export const stockRadVarde = (s: StockRow): StockRadVarde => {
   return { lenKl, sLen, sLenTon, diaKl, sDia, sDiaTon, worstTon };
 };
 
-// === Stamvyn: planområden (resten av stamvyn bor i ./stam) ===
-export type Plan = { startCm: number; endCm: number; lengthCm: number; diameterMm: number };
-
-/** Planområden i den täta diameterprofilen — Skogforsks grunddefinition: icke-minskande sträcka ≥ 30 cm.
- *  För varje punkt i går j framåt så länge dia[j] >= dia[j-1]; sträckan [i, j-1] är planområde om längden ≥ 30. */
-export const findPlanomraden = (profile: { position_cm: number; diameter_mm: number }[]): Plan[] => {
-  const sorted = profile.slice().sort((a, b) => a.position_cm - b.position_cm);
-  if (sorted.length <= 1) return [];
-  const out: Plan[] = [];
-  let i = 0;
-  while (i < sorted.length - 1) {
-    let j = i + 1;
-    while (j < sorted.length && sorted[j].diameter_mm >= sorted[j - 1].diameter_mm) {
-      j++;
-    }
-    const startCm = sorted[i].position_cm;
-    const endCm = sorted[j - 1].position_cm;
-    const length = endCm - startCm;
-    if (length >= 30) {
-      out.push({ startCm, endCm, lengthCm: length, diameterMm: sorted[i].diameter_mm });
-    }
-    i = j;
-  }
-  return out;
-};
-
 // === Stockarket (från stamvyn) ===
 export type StockDiagnos = { tone: 'ok' | 'warn' | 'bad'; text: string } | null;
 export type MatpunktAvvik = { position_cm: number; avvikelse: number; mVal: number; oVal: number };

@@ -3,28 +3,13 @@ import type { StockRow } from '@/app/api/kalibrering/kontroll/route';
 import fs from 'node:fs';
 import path from 'node:path';
 import { avvikelseTon } from './bedomning';
-import { findPlanomraden, stockRadVarde } from './kontroll';
+import { findGreppSlapp } from './grepp';
+import { stockRadVarde } from './kontroll';
 import {
-  planPlatser, planSammanfattning, planStockText, stamGeometri, stamPlats, stamPrickar, stamSkala, stamStockRader, stamSvar, stamTon,
+  greppRad, greppStockText, greppSammanfattning, klavePunkter, stamGeometri, stamPlats, stamPrickar, stamSkala, stamStockRader, stamSvar, stamTon,
 } from './stam';
-
-type Mp = [number, number | null, number | null];
-const stock = (nr: number, langd: number, topp: [number | null, number | null], mp: Mp[], o: Partial<StockRow> = {}): StockRow => ({
-  id: 100 + nr, stam_nummer: 1, stock_nummer: nr, sortiment_namn: 'Vislanda_195_1-2_V3', sortiment_grupp: 'Timmer', sortiment_kod: null,
-  maskin_langd_cm: langd, operator_langd_cm: langd, langd_avvikelse_cm: 0, maskin_toppdia_mm: topp[0], operator_toppdia_mm: topp[1],
-  dia_avvikelse_mm: topp[0] != null && topp[1] ? topp[0] - topp[1] : null,
-  matpunkter: mp.map(([p, m, op]) => ({ position_cm: p, diameter_maskin_mm: m, diameter_operator_mm: op, klave_first_mm: null, klave_second_mm: null })),
-  ...o,
-} as unknown as StockRow);
-
-// Skälviken RP J-Hus, Giant 2026-10-21, stam 1: fem stockar, 21,8 m (riktig kontroll ur prod).
-const SKALVIKEN: StockRow[] = [
-  stock(1, 610, [296, 294], [[200, 331, 321], [300, 319, 315], [400, 311, 304], [500, 302, 294]]),
-  stock(2, 610, [237, 234], [[100, 283, 285], [200, 279, 279], [300, 268, 272], [400, 260, 261], [500, 247, 252]]),
-  stock(3, 308, [203, 203], [[100, 227, 223], [200, 218, 212]], { sortiment_grupp: 'Kubb', sortiment_namn: 'Alvesta305_V3' }),
-  stock(4, 310, [153, 142], [[100, 184, 182], [200, 173, 169]], { sortiment_grupp: 'Kubb', sortiment_namn: 'Alvesta305_V3' }),
-  stock(5, 341, [79, 77], [[100, 126, 128], [200, 106, 108], [300, 86, 78]], { sortiment_grupp: 'Massa', sortiment_namn: 'BmavFall_V3' }),
-];
+import { SKALVIKEN, stock } from './stam.fixtur';
+import skalvikenProfil from './__fixtures__/skalviken_stam1_profil.json';
 
 describe('stamGeometri', () => {
   it('lägger stockarna rot → topp och mätpunkterna på stammen', () => {
@@ -163,54 +148,64 @@ describe('stamPrickar: tal som ligger nära varandra skjuts isär i sidled', () 
   });
 });
 
-describe('stamSkala och planPlatser', () => {
+describe('stamSkala', () => {
   it('symmetrisk skala: största avvikelsen uppåt till jämnt tal, minst 1,5 × toleransen', () => {
     expect(stamSkala(stamPrickar(stamGeometri(SKALVIKEN), 4), 4)).toBe(12); // +11 → 12
     expect(stamSkala([], 4)).toBe(6);
     expect(stamSkala([], 1)).toBe(4);
   });
-  it('planområdenas platser är mitten av varje område', () => {
-    expect(planPlatser([{ startCm: 100, endCm: 140, lengthCm: 40, diameterMm: 300 }, { startCm: 250, endCm: 280, lengthCm: 30, diameterMm: 290 }])).toEqual([120, 265]);
-    expect(planPlatser([])).toEqual([]);
-  });
 });
 
-describe('planområden i vardagsord', () => {
-  const plan = (startCm: number, endCm: number) => ({ startCm, endCm, lengthCm: endCm - startCm, diameterMm: 300 });
+describe('där greppet släppte, i vardagsord', () => {
+  const grepp = (startCm: number, endCm: number, felMm = 5) => ({ startCm, endCm, lengthCm: endCm - startCm, felMm, klaveSjunkerMm: 3, glipa: [] });
   it('mest i rotändan när hälften eller fler ligger där', () => {
-    expect(planSammanfattning([plan(0, 40), plan(100, 140), plan(300, 340), plan(1000, 1040), plan(2000, 2040)], true, 2100)).toBe('Fastnade på 5 ställen, mest i rotändan.');
+    expect(greppSammanfattning([grepp(0, 40), grepp(100, 140), grepp(300, 340), grepp(1000, 1040), grepp(2000, 2040)], true, 2100)).toBe('Greppet släppte på 5 ställen, mest i rotändan.');
   });
   it('mest i toppen och mest mitt på stammen', () => {
-    expect(planSammanfattning([plan(1900, 1940), plan(2000, 2040), plan(100, 140)], true, 2100)).toBe('Fastnade på 3 ställen, mest i toppen.');
-    expect(planSammanfattning([plan(800, 840), plan(1000, 1040), plan(100, 140)], true, 2100)).toBe('Fastnade på 3 ställen, mest mitt på stammen.');
+    expect(greppSammanfattning([grepp(1900, 1940), grepp(2000, 2040), grepp(100, 140)], true, 2100)).toBe('Greppet släppte på 3 ställen, mest i toppen.');
+    expect(greppSammanfattning([grepp(800, 840), grepp(1000, 1040), grepp(100, 140)], true, 2100)).toBe('Greppet släppte på 3 ställen, mest mitt på stammen.');
   });
   it('jämnt fördelat sägs som det är', () => {
-    expect(planSammanfattning([plan(0, 40), plan(1000, 1040), plan(2000, 2040)], true, 2100)).toBe('Fastnade på 3 ställen, utspridda längs stammen.');
-    expect(planSammanfattning([plan(0, 40), plan(100, 140), plan(1000, 1040), plan(1100, 1140)], true, 2100)).toBe('Fastnade på 4 ställen, utspridda längs stammen.');
+    expect(greppSammanfattning([grepp(0, 40), grepp(1000, 1040), grepp(2000, 2040)], true, 2100)).toBe('Greppet släppte på 3 ställen, utspridda längs stammen.');
+    expect(greppSammanfattning([grepp(0, 40), grepp(100, 140), grepp(1000, 1040), grepp(1100, 1140)], true, 2100)).toBe('Greppet släppte på 4 ställen, utspridda längs stammen.');
   });
   it('ett enda ställe', () => {
-    expect(planSammanfattning([plan(1900, 1940)], true, 2100)).toBe('Fastnade på ett ställe, i toppen.');
+    expect(greppSammanfattning([grepp(1900, 1940)], true, 2100)).toBe('Greppet släppte på ett ställe, i toppen.');
   });
-  it('inga planområden men en profil: säger det. Ingen profil: tiger.', () => {
-    expect(planSammanfattning([], true, 2100)).toBe('Mätningen fastnade ingenstans.');
-    expect(planSammanfattning([], false, 2100)).toBeNull();
+  it('inga ställen men något att bedöma mot: säger det. Inget att bedöma mot: tiger.', () => {
+    expect(greppSammanfattning([], true, 2100)).toBe('Greppet släppte ingenstans.');
+    expect(greppSammanfattning([], false, 2100)).toBeNull();
   });
   it('stamPlats delar stammen i tredjedelar', () => {
     expect(stamPlats(0, 900)).toBe('rot');
     expect(stamPlats(450, 900)).toBe('mitt');
     expect(stamPlats(899, 900)).toBe('topp');
   });
-  it('stamPlats och sammanfattning på Skälvikens riktiga profil räknar samma planområden som tabellen', () => {
-    const prof = [{ position_cm: 0, diameter_mm: 400 }, { position_cm: 10, diameter_mm: 390 }, { position_cm: 20, diameter_mm: 392 }, { position_cm: 30, diameter_mm: 392 }, { position_cm: 40, diameter_mm: 395 }, { position_cm: 50, diameter_mm: 380 }];
-    const planer = findPlanomraden(prof);
-    expect(planer).toEqual([{ startCm: 10, endCm: 40, lengthCm: 30, diameterMm: 390 }]);
-    expect(planSammanfattning(planer, true, 2179)).toBe('Fastnade på ett ställe, i rotändan.');
-  });
-  it('vilka stockar ett planområde ligger på', () => {
+  it('vilka stockar ett ställe ligger på', () => {
     const g = stamGeometri(SKALVIKEN);
-    expect(planStockText(plan(100, 160), g)).toBe('Stock 1');
-    expect(planStockText(plan(580, 700), g)).toBe('Stock 1–2');
-    expect(planStockText(plan(1230, 1300), g)).toBe('Stock 3');
+    expect(greppStockText(grepp(100, 160), g)).toBe('stock 1');
+    expect(greppStockText(grepp(580, 700), g)).toBe('stock 1–2');
+    expect(greppStockText(grepp(1230, 1300), g)).toBe('stock 3');
+  });
+  it('Skälviken: rubrikraden och raderna bakom den', () => {
+    const g = stamGeometri(SKALVIKEN);
+    const stallen = findGreppSlapp(skalvikenProfil.stem_diameter_profile, klavePunkter(g));
+    expect(greppSammanfattning(stallen, true, g.totalCm)).toBe('Greppet släppte på 7 ställen, mest mitt på stammen.');
+    const rader = stallen.map(p => greppRad(p, g));
+    // var på stammen och hur mycket fel det gav — längden bara när den är längre än minsta som räknas (30 cm)
+    expect(rader[0]).toEqual({ titel: '2,5–2,8 m · stock 1', langd: null, fel: '+5 mm', ton: 'hi' });
+    expect(rader[1]).toEqual({ titel: '4,8–5,3 m · stock 1', langd: '50 cm lång', fel: '+8 mm', ton: 'hot' });
+    expect(rader[2]).toMatchObject({ titel: '9,2–9,5 m · stock 2', langd: null, fel: '-2 mm', ton: 'ok' });
+    expect(rader.filter(r => r.langd).length).toBe(1);
+  });
+  it('felet har kontrollarkets färg: orange över +4, röd över +6, blå under −4, annars ingen', () => {
+    const g = stamGeometri(SKALVIKEN);
+    const ton = (felMm: number) => greppRad(grepp(100, 160, felMm), g).ton;
+    expect(ton(4.4)).toBe('ok'); // visas som +4: inom ±4
+    expect(ton(5)).toBe('hi');
+    expect(ton(7)).toBe('hot');
+    expect(ton(-5)).toBe('cold');
+    expect(ton(-3)).toBe('ok');
   });
 });
 

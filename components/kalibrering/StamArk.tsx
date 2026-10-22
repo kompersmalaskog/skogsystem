@@ -8,8 +8,8 @@ import Sektion from '@/components/design/Sektion';
 import Svarsrad from '@/components/design/Svarsrad';
 import { AVSTAND, FARG, TYP } from '@/lib/design/tokens';
 import { dec } from '@/lib/kalibrering/format';
-import { findPlanomraden } from '@/lib/kalibrering/kontroll';
-import { planSammanfattning, stamGeometri, stamStockRader, stamSvar } from '@/lib/kalibrering/stam';
+import { findGreppSlapp } from '@/lib/kalibrering/grepp';
+import { greppSammanfattning, klavePunkter, stamGeometri, stamStockRader, stamSvar } from '@/lib/kalibrering/stam';
 import { stockText } from '@/lib/kalibrering/text';
 import { Fyll, Meta, TonVarde } from './delar';
 import StamAvvikelse from './StamAvvikelse';
@@ -26,11 +26,13 @@ export default function StamArk({ data, stamNummer, tolDia, onByt, onStock, onPl
   const rader = stamStockRader(stamStockar);
   const alleStammar = Array.from(new Set(data.stockar.map(st => st.stam_nummer))).sort((a, b) => a - b);
 
-  // Planområden finns bara för kontrollstammar med tät profil. Utan profil vet vi inget om dem och säger ingenting.
+  // Ställena där greppet släppte räknas mot klaven (lib/kalibrering/grepp) och finns bara för kontrollstammar med tät profil och klavmått.
+  // Utan dem vet vi inget och säger ingenting.
   const profil = data.stammar.find(st => st.stam_nummer === stamNummer)?.stem_diameter_profile ?? [];
-  const harProfil = profil.length > 1;
-  const planer = findPlanomraden(profil);
-  const planRad = planSammanfattning(planer, harProfil, g.totalCm);
+  const klave = klavePunkter(g);
+  const kanBedomas = profil.length > 1 && klave.length > 1;
+  const stallen = findGreppSlapp(profil, klave);
+  const greppRadText = greppSammanfattning(stallen, kanBedomas, g.totalCm);
 
   return (
     <>
@@ -40,12 +42,12 @@ export default function StamArk({ data, stamNummer, tolDia, onByt, onStock, onPl
         rad={(
           <>
             {svar.tal && <div>{svar.tal}</div>}
-            {planRad && <div style={{ marginTop: svar.tal ? AVSTAND.xs : 0 }}>{planRad}</div>}
+            {greppRadText && <div style={{ marginTop: svar.tal ? AVSTAND.xs : 0 }}>{greppRadText}</div>}
           </>
         )} />
 
       <Sektion rubrik="Avvikelse längs stammen">
-        <Fyll><StamAvvikelse g={g} tol={tolDia} planer={planer} /></Fyll>
+        <Fyll><StamAvvikelse g={g} tol={tolDia} stallen={stallen} /></Fyll>
       </Sektion>
 
       <Sektion rubrik="Stockar">
@@ -57,9 +59,9 @@ export default function StamArk({ data, stamNummer, tolDia, onByt, onStock, onPl
         ))}
       </Sektion>
 
-      {planer.length > 0 && (
-        <Sektion rubrik="Planområden">
-          <Rad sista onTryck={onPlan} titel={`Där mätningen fastnade · ${planer.length} ${planer.length === 1 ? 'ställe' : 'ställen'}`} />
+      {stallen.length > 0 && (
+        <Sektion rubrik="Greppet">
+          <Rad sista onTryck={onPlan} titel={`Där greppet släppte · ${stallen.length} ${stallen.length === 1 ? 'ställe' : 'ställen'}`} />
         </Sektion>
       )}
 

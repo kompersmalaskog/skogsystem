@@ -150,9 +150,9 @@ function Siffror({ d, v, ark }: { d: KalibreringData; v: KalibreringVy; ark: Kal
         </Sektion>
       )}
 
-      {/* b) Planområden — tryckmätaren */}
+      {/* b) Där greppet släppte — tryckmätaren */}
       {diagnosData && (
-        <Sektion rubrik="Planområden — tryckmätaren" not="Andel mätpunkter där diametern inte sjunker (position >130 cm). Stiger med greppfel; rör sig först vid en tryckhöjning.">
+        <Sektion rubrik="Greppet släppte — tryckmätaren" not="Andel där maskinens mått stod still medan klavens sjönk (position >130 cm, bara där klaven mätt). Stiger med greppfel; rör sig först vid en tryckhöjning.">
           <Fyll>
             <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
               {diagnosData.klasser.map(k => <Procentrad key={k.klass} klass={k.klass} pct={k.plateauShare ?? 0} varde={k.plateauShare != null ? `${Math.round(k.plateauShare)}%` : '–'} />)}

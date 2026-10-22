@@ -13,7 +13,7 @@ import type { DiagKlass, DiagnosResp } from './typer';
 // ska vara tyst när den inte har något att säga.
 //   Kurva:   underpresterande klass, systematik KONSEKVENT (samma tecken) → kontakta tekniker
 //   Tryck:   underpresterande klass, systematik VÄXLAR TECKEN → höj matartrycket
-//   Slitage: tryck-signatur MEN planområden sjönk inte efter en förar-markör → verkstad
+//   Slitage: tryck-signatur MEN andelen där greppet släppte sjönk inte efter en förar-markör → verkstad
 export type DiagFel = 'kurva' | 'tryck' | 'slitage';
 export type DiagnosVerdikt = {
   status: 'bra' | 'tendens' | 'diagnos';
@@ -77,7 +77,7 @@ export const aggregeraSprid = (
 };
 
 export type Serie = { klass: string; punkter: Map<string, { v: number; n: number }> };
-/** En serie per grovlek (klass) för Läget: träffprocent respektive planområden, aggregerade per valt tidssteg. */
+/** En serie per grovlek (klass) för Läget: träffprocent respektive var greppet släppte, aggregerade per valt tidssteg. */
 export const traffSerier = (kl: DiagKlass[], steg: LagetSteg): Serie[] =>
   kl.map(k => ({ klass: k.klass, punkter: aggregeraSteg(k.traffMonthly.map(m => ({ manad: m.manad, v: m.traffPct, n: m.n })), steg) }));
 export const platSerier = (kl: DiagKlass[], steg: LagetSteg): Serie[] =>
@@ -122,7 +122,7 @@ export const diagnos = (resp: DiagnosResp | null): DiagnosVerdikt => {
   const tecken = new Set(mån.filter(m => Math.abs(m.systematik) >= 0.05).map(m => Math.sign(m.systematik)));
   const konsekvent = tecken.size <= 1;
   let fel: DiagFel = konsekvent ? 'kurva' : 'tryck';
-  // Slitage-eskalering: tryck + en förar-markör + planområden sjönk INTE efter den.
+  // Slitage-eskalering: tryck + en förar-markör + andelen där greppet släppte sjönk INTE efter den.
   if (fel === 'tryck') {
     const atg = resp.markorer.filter(m => m.kalla === 'atgard').sort((a, b) => a.datum.localeCompare(b.datum)).pop();
     if (atg) {

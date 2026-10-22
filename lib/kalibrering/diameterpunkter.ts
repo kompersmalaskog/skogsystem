@@ -32,6 +32,8 @@ export const TOPPDIA_COLS = "maskin_toppdia_mm,operator_toppdia_mm";
 
 export type DiaPunkt = {
   stockId: number;
+  /** Läge på stocken, cm från stockens rotända. null för toppen (den sitter vid kapsnittet). */
+  position_cm: number | null;
   maskin_mm: number;
   operator_mm: number;
   avvik: number;
@@ -58,7 +60,7 @@ export async function hamtaDiameterPunkter(
     const dm = s.maskin_toppdia_mm;
     const op = s.operator_toppdia_mm;
     if (dm == null || op == null || op === 0) continue; // OMÄTT-filter
-    punkter.push({ stockId: s.id, maskin_mm: dm, operator_mm: op, avvik: dm - op, kalla: "topp" });
+    punkter.push({ stockId: s.id, position_cm: null, maskin_mm: dm, operator_mm: op, avvik: dm - op, kalla: "topp" });
   }
 
   // === 2) Mätpunkter längs stocken ===
@@ -71,13 +73,14 @@ export async function hamtaDiameterPunkter(
       // order på PK — utan stabil sortering kan paginering tappa/dubblera rader.
       const { data, error } = await supabase
         .from("detalj_kontroll_stock_matpunkt")
-        .select("detalj_kontroll_stock_id,diameter_maskin_mm,diameter_operator_mm")
+        .select("detalj_kontroll_stock_id,position_cm,diameter_maskin_mm,diameter_operator_mm")
         .in("detalj_kontroll_stock_id", chunk)
         .order("id", { ascending: true })
         .range(offset, offset + PAGE - 1);
       if (error) return { data: punkter, error };
       const batch = (data ?? []) as {
         detalj_kontroll_stock_id: number;
+        position_cm: number;
         diameter_maskin_mm: number | null;
         diameter_operator_mm: number | null;
       }[];
@@ -87,6 +90,7 @@ export async function hamtaDiameterPunkter(
         if (dm == null || op == null || op === 0) continue; // OMÄTT-filter
         punkter.push({
           stockId: m.detalj_kontroll_stock_id,
+          position_cm: m.position_cm,
           maskin_mm: dm,
           operator_mm: op,
           avvik: dm - op,

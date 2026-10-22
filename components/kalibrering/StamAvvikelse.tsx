@@ -1,38 +1,49 @@
 'use client';
 // Avvikelsen längs stammen: x = läge rot → topp, y = maskin − klave i mm. En nollinje, ett svagt band för ±toleransen (ur kravprofilen), en
 // prick per mätpunkt och tunna lodräta linjer vid stockgränserna med stockens nummer. Prickar utanför bandet får kontrollarkets färg (orange
-// över, röd långt över, blå under) och talet bredvid; inom bandet är pricken grå. Där mätningen fastnade (planområdena) ligger ihåliga
-// prickar i en egen rad under diagrammet. Räknandet bor i lib/kalibrering/stam; här ritas bara.
+// över, röd långt över, blå under) och talet bredvid; inom bandet är pricken grå. Där greppet släppte (maskinens mått står still medan klavens
+// sjunker) är glipan mellan nollinjen och avvikelsen färgad, med felets färg. Räknandet bor i lib/kalibrering (stam, grepp); här ritas bara.
 import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens';
 import { fmtAvvikelse, fmtKrav } from '@/lib/kalibrering/format';
-import { planPlatser, stamPrickar, stamSkala, type StamGeometri } from '@/lib/kalibrering/stam';
-import type { Plan } from '@/lib/kalibrering/kontroll';
+import type { Grepp } from '@/lib/kalibrering/grepp';
+import { stamPrickar, stamSkala, stamTon, type StamGeometri } from '@/lib/kalibrering/stam';
 import { Lugn, Meta, TON_FARG } from './delar';
 
-const W = 320, PAD_L = 30, PAD_R = 18, PAD_T = 22, PLOT_H = 160, STRIPE_GAP = 8, STRIPE_H = 22, PAD_B = 24;
-const H = PAD_T + PLOT_H + STRIPE_GAP + STRIPE_H + PAD_B;
+const W = 320, PAD_L = 30, PAD_R = 18, PAD_T = 22, PLOT_H = 160, PAD_B = 24;
+const H = PAD_T + PLOT_H + PAD_B;
 const PLOT_W = W - PAD_L - PAD_R;
 const PRICK_R = 3.6;
+/** Hur tät glipans yta är: tydlig mot bandet men prickarna syns igenom. */
+const GLIPA_YTA = 0.55;
+/** Ett ställe är ofta bara 30 cm på en stam om 20 m — några pixlar. Smalare än så vidgas ytan så den syns (höjden, glipan, rörs inte). */
+const GLIPA_MIN_BREDD = 6;
 
-/** En liten prick i förklaringen: fylld i tonens färg eller ihålig. */
-function Provprick({ farg, ihalig }: { farg: string; ihalig?: boolean }) {
+/** En liten prick i förklaringen, i tonens färg. */
+function Provprick({ farg }: { farg: string }) {
   return (
     <svg width={AVSTAND.m} height={AVSTAND.m} viewBox="0 0 12 12" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <circle cx={6} cy={6} r={4} fill={ihalig ? 'none' : farg} stroke={ihalig ? farg : FARG.kort} strokeWidth={ihalig ? 1.6 : 1} />
+      <circle cx={6} cy={6} r={4} fill={farg} stroke={FARG.kort} strokeWidth={1} />
     </svg>
   );
 }
 
-export default function StamAvvikelse({ g, tol, planer }: { g: StamGeometri; tol: number; planer: Plan[] }) {
+/** Glipans yta i förklaringen: en fylld ruta. */
+function Provyta() {
+  return (
+    <svg width={AVSTAND.m} height={AVSTAND.m} viewBox="0 0 12 12" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <rect x={1} y={2} width={10} height={8} fill={FARG.text2} fillOpacity={GLIPA_YTA} stroke={FARG.text2} strokeWidth={1} />
+    </svg>
+  );
+}
+
+export default function StamAvvikelse({ g, tol, stallen }: { g: StamGeometri; tol: number; stallen: Grepp[] }) {
   const prickar = stamPrickar(g, tol);
   if (g.totalCm <= 0 || prickar.length === 0) return <Lugn ikon="info">Inga klavmått på stammen att jämföra mot.</Lugn>;
 
   const skala = stamSkala(prickar, tol);
   const xFor = (cm: number) => PAD_L + (cm / g.totalCm) * PLOT_W;
   const yFor = (mm: number) => PAD_T + (1 - (mm + skala) / (2 * skala)) * PLOT_H;
-  const platser = planPlatser(planer);
-  const stripTop = PAD_T + PLOT_H + STRIPE_GAP;
-  const stripY = stripTop + STRIPE_H / 2;
+  const botten = PAD_T + PLOT_H;
 
   const metersteg = g.totalCm > 1500 ? 5 : g.totalCm > 600 ? 2 : 1;
   const mTicks: number[] = [];
@@ -51,11 +62,20 @@ export default function StamAvvikelse({ g, tol, planer }: { g: StamGeometri; tol
         ))}
         {/* Stockgränser: tunna lodräta linjer, stockens nummer överst i mitten av stocken. */}
         {g.granserCm.slice(1, -1).map((cm, i) => (
-          <line key={`g${i}`} x1={xFor(cm)} y1={PAD_T} x2={xFor(cm)} y2={stripTop + STRIPE_H} stroke={FARG.text3} strokeWidth={1} strokeOpacity={0.6} vectorEffect="non-scaling-stroke" />
+          <line key={`g${i}`} x1={xFor(cm)} y1={PAD_T} x2={xFor(cm)} y2={botten} stroke={FARG.text3} strokeWidth={1} strokeOpacity={0.6} vectorEffect="non-scaling-stroke" />
         ))}
         {g.stockNr.map((nr, i) => (
           <text key={`n${i}`} x={(xFor(g.granserCm[i]) + xFor(g.granserCm[i + 1])) / 2} y={PAD_T - 7} {...etikettStil} textAnchor="middle">{nr}</text>
         ))}
+        {/* Där greppet släppte: glipan mellan nollinjen och avvikelsen, i felets färg (kontrollarkets, grå inom bandet). */}
+        {stallen.map((p, i) => {
+          const farg = TON_FARG[stamTon(Math.round(p.felMm))];
+          const x0 = xFor(p.glipa[0].posCm), x1 = xFor(p.glipa[p.glipa.length - 1].posCm);
+          const mitt = (x0 + x1) / 2, vidga = Math.max(1, GLIPA_MIN_BREDD / Math.max(x1 - x0, 0.01));
+          const xv = (cm: number) => mitt + (xFor(cm) - mitt) * vidga;
+          const kurva = p.glipa.map(q => `${xv(q.posCm)},${yFor(Math.max(-skala, Math.min(skala, q.mm)))}`);
+          return <polygon key={`s${i}`} data-grepp points={`${xv(p.glipa[0].posCm)},${yFor(0)} ${kurva.join(' ')} ${xv(p.glipa[p.glipa.length - 1].posCm)},${yFor(0)}`} fill={farg} fillOpacity={GLIPA_YTA} />;
+        })}
         {/* Nollinjen: maskinen och klaven är lika. */}
         <line x1={PAD_L} y1={yFor(0)} x2={W - PAD_R} y2={yFor(0)} stroke={FARG.text2} strokeWidth={1} vectorEffect="non-scaling-stroke" />
         {yTicks.map(v => (
@@ -73,11 +93,6 @@ export default function StamAvvikelse({ g, tol, planer }: { g: StamGeometri; tol
             stroke={FARG.kort} strokeWidth={3} paintOrder="stroke">{fmtAvvikelse(p.avvik, 'mm')}</text>
         ))}
 
-        {/* Där mätningen fastnade: ihåliga prickar i en egen rad under diagrammet, skild från avvikelsen med en linje (raden har ingen mm-skala). */}
-        <line x1={PAD_L} y1={stripTop} x2={W - PAD_R} y2={stripTop} stroke={FARG.text3} strokeWidth={1} strokeOpacity={0.6} vectorEffect="non-scaling-stroke" />
-        {platser.map((cm, i) => (
-          <circle key={`f${i}`} cx={xFor(cm)} cy={stripY} r={PRICK_R} fill="none" stroke={FARG.text} strokeWidth={1.6} />
-        ))}
         {mTicks.map(m => (
           <text key={`m${m}`} x={xFor(m * 100)} y={H - 8} {...etikettStil} textAnchor={m === 0 ? 'start' : 'middle'}>{m === mTicks[mTicks.length - 1] ? `${m} m` : m}</text>
         ))}
@@ -87,10 +102,10 @@ export default function StamAvvikelse({ g, tol, planer }: { g: StamGeometri; tol
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}><Provprick farg={TON_FARG.hi} />Grövre</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}><Provprick farg={TON_FARG.hot} />Mycket grövre</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}><Provprick farg={TON_FARG.cold} />Klentare</span>
-        {platser.length > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}><Provprick farg={FARG.text} ihalig />Mätningen fastnade</span>}
+        {stallen.length > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}><Provyta />Greppet släppte</span>}
       </div>
       <Meta style={{ marginTop: AVSTAND.xs }}>
-        Maskinens mått minus klavens, rot → topp. Bandet är ±{fmtKrav(tol)} mm: pricken får färg först utanför det.
+        Maskinens mått minus klavens, rot → topp. Bandet är ±{fmtKrav(tol)} mm: pricken får färg först utanför det. Färgad yta: maskinens mått stod still medan klavens sjönk.
       </Meta>
     </div>
   );

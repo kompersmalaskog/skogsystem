@@ -20,7 +20,7 @@ export function arkRubrik(a: KalibArk): string {
   switch (a.typ) {
     case 'kontroll': return 'Kontroll';
     case 'stam': return `Stam ${a.stamNummer}`;
-    case 'plan': return 'Där mätningen fastnade';
+    case 'plan': return 'Där greppet släppte';
     case 'stock': return `Stock ${a.data.stockar.find(s => s.id === a.stockId)?.stock_nummer ?? ''}`.trim();
     case 'seStock': return `Stock ${a.stock.stock_nummer}`;
     case 'art': return artNamn(a.art);
