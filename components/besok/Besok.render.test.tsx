@@ -114,6 +114,9 @@ describe('besökssidan', () => {
     expect(getComputedStyle(skicka()).pointerEvents).toBe('none');
     const falt = Array.from(document.querySelectorAll<HTMLInputElement>('input'));
     await skriv(falt[0], 'Anna Svensson');
+    expect(getComputedStyle(skicka()).pointerEvents).toBe('none');   // bara namn räcker inte
+    await skriv(falt[1], '070');
+    expect(getComputedStyle(skicka()).pointerEvents).toBe('none');   // ett för kort nummer inte heller
     await skriv(falt[1], '070-123 45 67');
     expect(getComputedStyle(skicka()).pointerEvents).not.toBe('none');
     await tryck(skicka());

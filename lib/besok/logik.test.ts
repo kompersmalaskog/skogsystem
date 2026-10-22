@@ -121,7 +121,7 @@ describe('säkerhetsreglerna: huvudregel + högst tre rader, bara det som finns'
   it('huvudregeln har tre steg och avståndet kommer ur konstanten', () => {
     expect(HUVUDREGEL.rubrik).toBe('Gå aldrig fram till en maskin');
     expect(HUVUDREGEL.steg).toHaveLength(3);
-    expect(HUVUDREGEL.steg[0]).toBe(`Stanna minst ${BESOK_RING_M.skordare} m bort`);
+    expect(HUVUDREGEL.steg).toEqual([`Stanna minst ${BESOK_RING_M.skordare} m bort`, 'Vinka – vänta tills föraren stängt av', 'Ha reflexväst, håll barn och hund nära']);
   });
   it('rader i fast ordning, max tre', () => {
     const alla = sakerhetsRader({ roller: ['skordare', 'skotare'], harMotorsag: true });
@@ -224,6 +224,11 @@ describe('hytten', () => {
     expect(kvitteringsRader([])).toEqual([]);
     expect(kvitteringsRader([{ roll: 'skordare', tid: '2026-10-22T11:52:00Z' }, { roll: 'skotare', tid: '2026-10-22T11:55:00Z' }])).toEqual(['✓ Skördaren har sett det 13:52', '✓ Skotaren har sett det 13:55']);
     expect(harKvitterat([{ maskin_id: 'M1' }], 'M1')).toBe(true);
+    expect(harKvitterat([{ maskin_id: 'M1' }], 'M2')).toBe(false);
+    // en maskin utan id har aldrig kvitterat — inte ens mot en rad som saknar id
+    expect(harKvitterat([{ maskin_id: null as any }], null)).toBe(false);
+    expect(harKvitterat([{ maskin_id: '' }], '')).toBe(false);
+    expect(harKvitterat([{ maskin_id: 'M1' }], undefined)).toBe(false);
     expect(besokRubrik('Anna Svensson', 'kommer ca 14:30')).toBe('Besök: Anna Svensson kommer ca 14:30');
   });
 });

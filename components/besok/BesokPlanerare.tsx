@@ -65,7 +65,7 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
   const mottagare = [p.markagare?.trim() || null, p.markagareTel?.trim() || null].filter(Boolean).join(' · ');
 
   function skicka() {
-    if (!d.lank || !d.lank.aktiv || avslutat) return;
+    if (!d.lank) return;   // knappen anropar bara skicka() när lankKlar (länk på, trakten ej avslutad) — ENDA stället som avgör det
     const lank = besoksUrl(p.origin ?? window.location.origin, d.lank.token);
     const text = besokSmsText({
       markagare: p.markagare, fastighet: p.fastighet,

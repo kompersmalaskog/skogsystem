@@ -114,7 +114,6 @@ const M = [
   ["Skicka är aktiv utan telefonnummer", "tel.replace(/\\D/g, '').length >= 6 &&", "", KLIENT],
 
   // ── planerarens kort och logg ──
-  ["SMS öppnas även när länken är avstängd", "if (!d.lank || !d.lank.aktiv || avslutat) return;", "if (!d.lank) return;", PLANKORT],
   ["öppnandet loggas inte", "void d.loggaSms({", "void (async () => ({", PLANKORT],
   ["SMS-knappen är aktiv på en avslutad trakt", "const lankKlar = !!d.lank && d.lank.aktiv && !avslutat;", "const lankKlar = !!d.lank && d.lank.aktiv;", PLANKORT],
   ["loggen visar äldsta anmälan först", ".sort((a, b) => Date.parse(b.skapad_at) - Date.parse(a.skapad_at))\n    .map((b) =>", ".sort((a, b) => Date.parse(a.skapad_at) - Date.parse(b.skapad_at))\n    .map((b) =>", PLAN],

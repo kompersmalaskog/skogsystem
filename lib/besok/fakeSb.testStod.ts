@@ -6,6 +6,7 @@ type Resultat = { data: any; error: { message: string } | null; count?: number |
 export function fakeSb(tabeller: Record<string, Rad[]>, rpcSvar: Record<string, any> = {}, opt: { fel?: Record<string, string> } = {}) {
   const loggar: { tabell: string; op: string; rad?: Rad }[] = [];
   const valda: { tabell: string; kolumner: string }[] = [];
+  const filtrerade: { tabell: string; op: 'eq' | 'gte' | 'lte' | 'in'; kolumn: string; varde: any }[] = [];
   let n = 0;
   function bygg(tabell: string) {
     const filter: ((r: Rad) => boolean)[] = [];
@@ -37,7 +38,7 @@ export function fakeSb(tabeller: Record<string, Rad[]>, rpcSvar: Record<string, 
       insert(rad: Rad) { op = 'insert'; insRad = rad; return b; },
       upsert(rad: Rad, o?: { onConflict?: string }) { op = 'upsert'; insRad = rad; upsertNyckel = Object.fromEntries((o?.onConflict ?? 'id').split(',').map((k) => [k.trim(), true as const])); return b; },
       eq(k: string, v: any) { filter.push((r) => r[k] === v); return b; },
-      gte(k: string, v: any) { filter.push((r) => r[k] >= v); return b; },
+      gte(k: string, v: any) { filtrerade.push({ tabell, op: 'gte', kolumn: k, varde: v }); filter.push((r) => r[k] >= v); return b; },
       lte(k: string, v: any) { filter.push((r) => r[k] <= v); return b; },
       in(k: string, v: any[]) { filter.push((r) => v.includes(r[k])); return b; },
       order() { return b; },
@@ -53,5 +54,6 @@ export function fakeSb(tabeller: Record<string, Rad[]>, rpcSvar: Record<string, 
     rpc: async (namn: string) => (namn in rpcSvar ? { data: rpcSvar[namn], error: null } : { data: null, error: { message: `rpc ${namn} saknas` } }),
     _loggar: loggar,
     _valda: valda,
+    _filter: filtrerade,
   } as any;
 }

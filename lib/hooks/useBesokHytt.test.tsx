@@ -38,6 +38,14 @@ describe('useBesokHytt', () => {
     expect(ref.ut!.aktiva.map((x) => x.id)).toEqual(['a']);
     expect(ref.ut!.vantar.map((x) => x.id)).toEqual(['a']);
   });
+  it('frågan till databasen avgränsar själv till besök yngre än 2 h (inte bara filtret efteråt)', async () => {
+    const { db } = await montera({ objekt_besok: [b('a', 30)], objekt_besok_kvittens: [] });
+    const g = db._filter.filter((f: any) => f.tabell === 'objekt_besok' && f.op === 'gte' && f.kolumn === 'besokstid');
+    expect(g).toHaveLength(1);
+    const minutersedan = (Date.now() - new Date(g[0].varde).getTime()) / 60000;
+    expect(minutersedan).toBeGreaterThan(119);
+    expect(minutersedan).toBeLessThan(121);
+  });
   it('ett ljud för ett nytt besök; inget för ett som den här maskinen redan kvitterat', async () => {
     await montera({ objekt_besok: [b('a', 30)], objekt_besok_kvittens: [] });
     expect(ljud.spelaLarmLjud).toHaveBeenCalledTimes(1);
