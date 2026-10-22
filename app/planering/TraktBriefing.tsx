@@ -393,7 +393,7 @@ export default function TraktBriefing({
         try { if (map.getLayer('briefing-fastighet-pulse-layer')) map.removeLayer('briefing-fastighet-pulse-layer'); } catch {}
         try { if (map.getSource('briefing-fastighet-pulse')) map.removeSource('briefing-fastighet-pulse'); } catch {}
         if (map.getLayer('wms-layer-fastighetsgranser')) {
-          try { map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7); } catch {}
+          try { map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1); } catch {}
         }
       }
       if (prevOverlaysRef.current) setOverlays(() => prevOverlaysRef.current!);
@@ -465,7 +465,7 @@ export default function TraktBriefing({
       if (map.getLayer('wms-layer-fastighetsgranser')) {
         const wasOn = prevOverlaysRef.current.fastighetsgranser;
         map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', wasOn ? 'visible' : 'none');
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7);
+        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1);
       }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: prevOverlaysRef.current?.fastighetsgranser ?? false }));
       prevOverlaysRef.current = null;
@@ -498,7 +498,7 @@ export default function TraktBriefing({
       try { if (map.getLayer('briefing-fastighet-pulse-layer')) map.removeLayer('briefing-fastighet-pulse-layer'); } catch {}
       try { if (map.getSource('briefing-fastighet-pulse')) map.removeSource('briefing-fastighet-pulse'); } catch {}
       if (map.getLayer('wms-layer-fastighetsgranser')) {
-        try { map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7); } catch {}
+        try { map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1); } catch {}
       }
     }
     onActiveMarkerChange?.(null);

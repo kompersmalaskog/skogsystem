@@ -62,6 +62,10 @@ import { YtaPaminnelseVy } from '../../components/planering/YtaPaminnelse'
 import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
+import { byggRagang, fastighetsFall, gransVidTryck, gransRubrik, FASTIGHET_KORT_MENING, FASTIGHET_FALL_M, type RagangModell } from '../../lib/fastighetsgrans'
+import { RAGANG_KALLOR, ragangKallor, ragangLager, lmGransLager, fastighetsSynlighet, tillampaFastighetsSynlighet, fastighetsCirkelPaint, forstaVektorLagerId, TRAKTGRANS_BREDD, TRAKTGRANS_KANT_BREDD, TRAKTGRANS_KANT_FARG } from '../../lib/fastighetsgransKarta'
+import { vidaEtikettPunkter, zonEtikettPunkter } from '../../lib/ytaEtikett'
+import { FastighetsgransKortVy } from '../../components/planering/FastighetsgransKort'
 import { kopplaFlyttaMig, kopplaLangtryckFlytt } from '../../lib/testPosition'
 import { GrindKortVy, LarmKortVy, SettRad, larmMalbild } from '../../components/planering/LarmKort'
 import { GRIND_KORT_HOJD_PX, InstruktionKortVy } from '../../components/planering/InstruktionKort'
@@ -1317,6 +1321,12 @@ export default function PlannerPage() {
   // de nya lagerknapparna (nyckelbiotop/lämning). Traktdelar har ingen knapp — de är alltid tända.
   const [geoKategorier, setGeoKategorier] = useState<Set<TraktKategori>>(new Set());
   const [traktGeo, setTraktGeo] = useState<any>(null); // hela FeatureCollection för valt objekt → snabbpanelen räknar faror/hänsyn/basväg ur den
+  // FASTIGHETSGRÄNS (rågång) ur Vidas SV_FASTIGHET: linjer i full/svag styrka, vilka fastigheter trakten överlappar (övriga tonas ned), beteckningar (lib/fastighetsgrans). null = Vida har inte levererat fastighetsytor.
+  const ragang = useMemo(() => byggRagang(traktGeo), [traktGeo]);
+  const ragangRef = useRef<RagangModell | null>(null);
+  ragangRef.current = ragang;
+  // EN etikettpunkt per Vida-yta (hänsyn, nyckelbiotop, fornlämning) — aldrig dubbel eller avklippt (lib/ytaEtikett).
+  const vidaEtiketter = useMemo(() => vidaEtikettPunkter(traktGeo), [traktGeo]);
 
   // MapLibre map style config (stable constant)
   const mapStyleConfig = useRef({
@@ -1393,6 +1403,7 @@ export default function PlannerPage() {
     map.addSource('lines-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addSource('backvag-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });   // dubbla tvärstreck i hinderänden av en backväg (lib/backvag)
     map.addSource('zones-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addSource('zones-etikett-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });   // en etikettpunkt per zon (zone-label)
     map.addSource('drawing-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addSource('drawing-points-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addSource('tma-roads-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -1436,7 +1447,7 @@ export default function PlannerPage() {
     map.addLayer({
       id: 'zone-label',
       type: 'symbol',
-      source: 'zones-source',
+      source: 'zones-etikett-source',
       filter: ['in', ['get', 'zoneType'], ['literal', Object.keys(YTA_ETIKETT)]],
       layout: {
         'text-field': ['match', ['get', 'zoneType'], ...Object.entries(YTA_ETIKETT).flat(), ''],
@@ -1701,7 +1712,6 @@ export default function PlannerPage() {
       { id: 'lm_ortofoto', tiles: ['/api/wms-proxy?layer=lm_ortofoto&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 1.0 },
       { id: 'lm_ortofoto_ir', tiles: ['/api/wms-proxy?layer=lm_ortofoto_ir&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 1.0 },
       { id: 'nmd_tradslag', tiles: ['/api/wms-proxy?layer=nmd_tradslag&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 0.65 },
-      { id: 'fastighetsgranser', tiles: ['https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=granser&STYLES=morkbakgrund&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'], opacity: 0.7 },
       { id: 'hydrografi', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaFlodesackumulation/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Vattenyta,Fl%C3%B6desackumulation__70ha41670,Fl%C3%B6desackumulation_20ha-70ha48822,Fl%C3%B6desackumulation_10ha-20ha19752&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'], opacity: 0.7 },
     ];
     wmsLayerDefs.forEach((def: { id: string; tiles: string[]; maxzoom?: number; opacity?: number }) => {
@@ -1713,6 +1723,14 @@ export default function PlannerPage() {
         console.log(`[MapLibre] WMS layer created: wms-layer-${def.id}`);
       } catch (e) { console.error(`[MapLibre] WMS ${def.id} error:`, e); }
     });
+
+    // Fastighetsgräns från Lantmäteriet (när Vida inte levererat fastighetsytor): SAMMA stil som Vidas rågång — vit kärna med mörk kant (lib/fastighetsgransKarta lmGransLager).
+    // Kanten ligger under kärnan; båda börjar osynliga och styrs av lagret "Fastighetsgränser" (effekten [overlays.fastighetsgrans …]).
+    try {
+      const lm = lmGransLager();
+      for (const [id, spec] of lm.kallor) map.addSource(id, spec);
+      for (const spec of lm.lager) map.addLayer(spec, 'zone-fill');
+    } catch (e) { console.error('[MapLibre] Lantmäteri-gräns error:', e); }
 
     // Körbarhetstiles
     try {
@@ -1844,15 +1862,23 @@ export default function PlannerPage() {
     // stabil _partKey (<TRDEL_ID>:<idx>). Krävs för att kunna tappa/analysera/dölja PER del (Martin: alla
     // bitar, inte bara största). trakt-gr-* renderas från denna, ej från trakt-geo-source.
     map.addSource('traktdel-parts-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    // Etiketterna för Vidas ytor läses ur EN punkt per yta (inte ur polygonen): en polygonetikett placeras per kartruta och per del och blev dubbel/avklippt.
+    map.addSource('trakt-etikett-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     const FLB = ['downcase', ['to-string', ['coalesce', ['get', 'FLBESKR'], '']]] as any;
     // Traktdelar (L_TRAKTDEL, Vida) — ritas som en EGENRITAD TRAKTGRÄNS (röd/gul snitsel), inte ett
     // eget tunt lager. Faint fyllning kvar BARA för tappbarhet (hela ytan öppnar kortet). Snitseln =
     // svart casing + röd bas (LEGEND.fara) + gul streckad (LEGEND.gul), samma recept som line-boundary-*.
     // Filtrerar på _lager (SV_BESKRIVNINGSENHET_FL delar _typ='traktgräns' men ska ALDRIG renderas).
-    const trTdW = ['interpolate', ['linear'], ['zoom'], 8, 3, 14, 5, 17, 8] as any;
-    const trTdCasingW = ['interpolate', ['linear'], ['zoom'], 8, 5, 14, 8, 17, 12] as any;
+    // Fastighetsgränsen (rågång) ligger UNDER traktgränsen: vit linje med mörk kant och nedtoning av fastigheter trakten inte ligger på (de andra lämnas orörda), beteckningar (lib/fastighetsgransKarta).
+    // Källorna fylls av effekten [ragang]; lagren börjar osynliga. Skimret läggs under alla vektorlager, resten ritas före traktgränsen (nedan) så den hamnar ovanpå.
+    for (const [id, spec] of ragangKallor()) map.addSource(id, spec as any);
+    const forstaVektorId = forstaVektorLagerId(map.getStyle().layers as any);
+    for (const { spec, nedre } of ragangLager()) map.addLayer(spec, nedre ? forstaVektorId : undefined);
+    // Traktgränsen OVANPÅ rågången: smal, med bara en tunn mörk kant (förut 3/5/8 px med en bred svart kant som täckte rågången under).
+    const trTdW = TRAKTGRANS_BREDD as any;
+    const trTdCasingW = TRAKTGRANS_KANT_BREDD as any;
     map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'traktdel-parts-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': 0.05 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-gr-casing', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': 'rgba(0,0,0,0.9)', 'line-width': trTdCasingW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'trakt-gr-casing', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': TRAKTGRANS_KANT_FARG, 'line-width': trTdCasingW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.fara, 'line-width': trTdW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'trakt-gr-stripe', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.gul, 'line-width': trTdW, 'line-dasharray': [2, 2] }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     // Hänsynsytor — grön fylld yta + kontur (Natur; Vidas egen _farg används inte: färgen kommer ur färggruppen)
@@ -1861,11 +1887,11 @@ export default function PlannerPage() {
     map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: HANSYNSYTA_FILTER as any, paint: { 'line-color': FARG_NATUR, 'line-width': 1.5, 'line-opacity': fokusOpacitet(1) as any }, layout: { visibility: 'none' } });
     // LOPNR mitt i varje hänsynsyta (symbol på polygon = centroid). Numret kopplar ytan till
     // traktdirektivets hänsynstabell; tryck på ytan öppnar åtgärdstexten (se handleTraktKlick).
-    map.addLayer({ id: 'trakt-hansyn-label', type: 'symbol', source: 'trakt-geo-source', filter: fokusEtikettFilter(HANSYNSYTA_FILTER as any) as any, layout: { 'text-field': ['concat', VIDA_ETIKETT.hansynsyta, ' ', ['to-string', ['coalesce', ['get', 'LOPNR'], '']]], 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
+    map.addLayer({ id: 'trakt-hansyn-label', type: 'symbol', source: 'trakt-etikett-source', filter: fokusEtikettFilter(HANSYNSYTA_FILTER as any) as any, layout: { 'text-field': ['concat', VIDA_ETIKETT.hansynsyta, ' ', ['to-string', ['coalesce', ['get', 'LOPNR'], '']]], 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
     // Övrigt (Vidas TYP 71) — INGEN hänsyn (lib/vidaYtaTyp): tunn streckad ljus kant, ingen fyllning, ingen snedstreckning, inget larm. Fyllningen är en osynlig träffyta så ytan går att trycka på.
     map.addLayer({ id: 'trakt-ovrigt-fill', type: 'fill', source: 'trakt-geo-source', filter: OVRIGT_YTA_FILTER as any, paint: { 'fill-color': OVRIGT_YTA_STIL.farg, 'fill-opacity': OVRIGT_YTA_STIL.traffFyllning }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-ovrigt-line', type: 'line', source: 'trakt-geo-source', filter: OVRIGT_YTA_FILTER as any, paint: { 'line-color': OVRIGT_YTA_STIL.farg, 'line-width': OVRIGT_YTA_STIL.kantBredd, 'line-dasharray': [...OVRIGT_YTA_STIL.streck], 'line-opacity': fokusOpacitet(1) as any }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-ovrigt-label', type: 'symbol', source: 'trakt-geo-source', filter: fokusEtikettFilter(OVRIGT_YTA_FILTER as any) as any, layout: { 'text-field': ['concat', VIDA_ETIKETT.ovrigt, ' ', ['to-string', ['coalesce', ['get', 'LOPNR'], '']]], 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
+    map.addLayer({ id: 'trakt-ovrigt-label', type: 'symbol', source: 'trakt-etikett-source', filter: fokusEtikettFilter(OVRIGT_YTA_FILTER as any) as any, layout: { 'text-field': ['concat', VIDA_ETIKETT.ovrigt, ' ', ['to-string', ['coalesce', ['get', 'LOPNR'], '']]], 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
     // Kör & fara — basväg (brun HELDRAGEN, tjock) vs kraftledning (röd STRECKAD, tunnare).
     // Två lager: streckning kan inte vara datadriven. FLBESKR avgör vilket -> visuellt distinkt.
     map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#a16207'], 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
@@ -1895,14 +1921,14 @@ export default function PlannerPage() {
     map.addLayer({ id: 'trakt-nb-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'fill-color': FARG_NATUR, 'fill-opacity': fokusOpacitet(0.10) as any }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-nb-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'line-color': FARG_NATUR, 'line-width': 2.5, 'line-opacity': fokusOpacitet(1) as any }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-nb-hatch', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'fill-pattern': snedstreckId('natur'), 'fill-opacity': FOKUS_HATCH_OPACITET as any }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-nb-label', type: 'symbol', source: 'trakt-geo-source', filter: fokusEtikettFilter(['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101']) as any, layout: { 'text-field': VIDA_ETIKETT.nyckelbiotop, 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
+    map.addLayer({ id: 'trakt-nb-label', type: 'symbol', source: 'trakt-etikett-source', filter: fokusEtikettFilter(['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101']) as any, layout: { 'text-field': VIDA_ETIKETT.nyckelbiotop, 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
 
     // === RAÄ-lämningar (L_RAA_POLY/LINE/POINT_101, Riksantikvarieämbetet) — brun kontur/symbol (Kultur) ===
     // Poly: svag fyllning + kontur. Line: brunt streck. Point: liten brun prick med mörk kant.
     // Samma brun som fornlämning och kulturminne (lib/larm/grupper). Tappbara → gemensamt kort.
     map.addLayer({ id: 'trakt-raa-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POLY_101'], paint: { 'fill-color': FARG_KULTUR, 'fill-opacity': fokusOpacitet(0.14) as any }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-raa-hatch', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POLY_101'], paint: { 'fill-pattern': snedstreckId('kultur'), 'fill-opacity': FOKUS_HATCH_OPACITET as any }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-raa-label', type: 'symbol', source: 'trakt-geo-source', filter: fokusEtikettFilter(['==', ['get', '_lager'], 'L_RAA_POLY_101']) as any, layout: { 'text-field': VIDA_ETIKETT.raa_yta, 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
+    map.addLayer({ id: 'trakt-raa-label', type: 'symbol', source: 'trakt-etikett-source', filter: fokusEtikettFilter(['==', ['get', '_lager'], 'L_RAA_POLY_101']) as any, layout: { 'text-field': VIDA_ETIKETT.raa_yta, 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
     map.addLayer({ id: 'trakt-raa-line', type: 'line', source: 'trakt-geo-source', filter: ['in', ['get', '_lager'], ['literal', ['L_RAA_POLY_101', 'L_RAA_LINE_101']]], paint: { 'line-color': FARG_KULTUR, 'line-width': 2.5, 'line-opacity': fokusOpacitet(1) as any }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-raa-point', type: 'circle', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POINT_101'], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 7], 'circle-color': FARG_KULTUR, 'circle-stroke-color': '#1a1a1a', 'circle-stroke-width': 1.5 }, layout: { visibility: 'none' } });
     // Fokus på trakten: fornlämningspunkten (raden ovan lämnas orörd) blir svag utanför trakten som övriga Vida-ytor (lib/fokusTrakt). Basvägen och kraftledningen blir ALDRIG svaga (de får ingen _fokus).
@@ -4811,6 +4837,7 @@ export default function PlannerPage() {
     const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet', 'lm_skuggning', 'lm_ortofoto', 'lm_ortofoto_ir', 'nmd_tradslag', 'fastighetsgranser', 'hydrografi'];
 
     allWmsIds.forEach(id => {
+      if (id === 'fastighetsgranser') return;   // Lantmäteri-gränsen styrs av lagret "Fastighetsgränser" (effekten ovan), tillsammans med sin kant
       const layerId = `wms-layer-${id}`;
       if (map.getLayer(layerId)) {
         map.setLayoutProperty(layerId, 'visibility', overlays[id] ? 'visible' : 'none');
@@ -4923,6 +4950,32 @@ export default function PlannerPage() {
       if (map.getLayer('trakt-hansyn-line')) map.setPaintProperty('trakt-hansyn-line', 'line-width', korvyActive ? KORVY_HANSYN_KANT : PLAN_HANSYN_KANT);
     } catch { /* */ }
   }, [korvyActive, mapLibreReady, korvyBasKarta]);
+
+  // === Fastighetsgräns (rågång): pumpa modellen till de tre källorna (lib/fastighetsgrans → lib/fastighetsgransKarta) ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const tom = { type: 'FeatureCollection', features: [] };
+    const put = (id: string, d: any) => { try { (map.getSource(id) as any)?.setData(d ?? tom); } catch { /* källan inte klar */ } };
+    put(RAGANG_KALLOR.yta, ragang?.ytor);
+    put(RAGANG_KALLOR.linje, ragang?.linjer);
+    put(RAGANG_KALLOR.etikett, ragang?.etiketter);
+  }, [ragang, mapLibreReady]);
+  // En etikettpunkt per Vida-yta (hänsyn, nyckelbiotop, fornlämning): aldrig dubbel eller avklippt (lib/ytaEtikett).
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try { (map.getSource('trakt-etikett-source') as any)?.setData(vidaEtiketter); } catch { /* källan inte klar */ }
+  }, [vidaEtiketter, mapLibreReady]);
+  // Synlighet: ALLT hör till lagret "Fastighetsgränser" och avgörs av EN ren funktion (lib/fastighetsgransKarta fastighetsSynlighet): tänt + Vida har levererat fastighetsytor → Vidas rågång
+  // (vektor); tänt utan Vidas fastighetsdata → Lantmäteriets gräns i samma stil; släckt → ingenting (vanlig karta). Fällningsvarningen i skördaren gäller alltid (fgFall, ingen koppling hit).
+  // Medan objektets geometri ännu läses visas inte Lantmäteri-gränsen (annars blinkar den till innan Vidas data kommer). overlays.fastighetsgranser = briefingens egen tändning, oförändrad.
+  const fastighetsSyn = fastighetsSynlighet({ lagerPa: !!overlays.fastighetsgrans, harVidaData: !!ragang, geometriLast: !valtObjekt?.id || traktGeoHamtadFor === valtObjekt.id, briefingLM: !!overlays.fastighetsgranser });
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    tillampaFastighetsSynlighet(map as any, { vida: fastighetsSyn.vida, lm: fastighetsSyn.lm });
+  }, [fastighetsSyn.vida, fastighetsSyn.lm, mapLibreReady]);
 
   // === Trakt-geometri: toggle synlighet per lagerknapp ===
   useEffect(() => {
@@ -6350,11 +6403,23 @@ export default function PlannerPage() {
         oppnaTraktdelKort(String(p.partKey));
       }
     };
+    // Tryck på fastighetsgränsen (rågången): kortet "Fastighetsgräns · X mot Y" + "Gränsen kan avvika några meter …". Bara vid tryck — aldrig framme av sig själv.
+    const onRagangKlick = (e: any) => {
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current) return;
+      if (ritlageRef.current || larmPlacering) return;
+      if (vinnandeKategoriForKarta(map, e.point) !== 'fastighet') return;   // larm, ytnummer, symbol och linje är högre → avstå
+      const g = gransVidTryck(e.lngLat, ragangRef.current);
+      if (!g) return;
+      oppnaKort({ kategori: 'fastighetsgrans', kalla: 'Lantmäteriet', rubrik: gransRubrik(g), nr: '', arealHa: null, rader: [], grupp: 'info', forklaring: FASTIGHET_KORT_MENING }, null, null);
+    };
     for (const l of LAGER) {
       map.on('click', l, onKlick);
       map.on('mouseenter', l, onEnter);
       map.on('mouseleave', l, onLeave);
     }
+    map.on('click', 'trakt-ragang-hit', onRagangKlick);
+    map.on('mouseenter', 'trakt-ragang-hit', onEnter);
+    map.on('mouseleave', 'trakt-ragang-hit', onLeave);
     map.on('click', 'yta-nr-hit', onYtaNrKlick);
     map.on('mouseenter', 'yta-nr-hit', onEnter);
     map.on('mouseleave', 'yta-nr-hit', onLeave);
@@ -6364,6 +6429,9 @@ export default function PlannerPage() {
         map.off('mouseenter', l, onEnter);
         map.off('mouseleave', l, onLeave);
       }
+      map.off('click', 'trakt-ragang-hit', onRagangKlick);
+      map.off('mouseenter', 'trakt-ragang-hit', onEnter);
+      map.off('mouseleave', 'trakt-ragang-hit', onLeave);
       map.off('click', 'yta-nr-hit', onYtaNrKlick);
       map.off('mouseenter', 'yta-nr-hit', onEnter);
       map.off('mouseleave', 'yta-nr-hit', onLeave);
@@ -7995,7 +8063,7 @@ export default function PlannerPage() {
     try {
       const src = map.getSource('zones-source') as any;
       if (!src) return;
-      if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte på fel plats
+      if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); (map.getSource('zones-etikett-source') as any)?.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte på fel plats
       const features: any[] = [];
       markers
         .filter((m: any) => m.isZone && m.path && m.path.length > 2)
@@ -8025,6 +8093,7 @@ export default function PlannerPage() {
         });
       });
       src.setData({ type: 'FeatureCollection', features });
+      (map.getSource('zones-etikett-source') as any)?.setData(zonEtikettPunkter(features));
     } catch (e) { /* source not ready */ }
   }, [markers, mapLibreReady, mapCenter, visibleZones, objektSaknarPosition]);
 
@@ -8765,6 +8834,9 @@ export default function PlannerPage() {
       // (synlig i källan, osynlig på skärmen — testselens skärmbild avslöjade det).
       const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett', 'omtrakten-', 'skotar-avlagg-', 'larm-'];
       for (const l of allLayers) {
+        // Fastighetsgränsen (Vidas rågång trakt-ragang-* och Lantmäteri-paret wms-layer-fastighetsgranser*) hör till lagret "Fastighetsgränser", inte till körvyns
+        // whitelist: släckt lager = vanlig karta också i körvyn. Synligheten sätts av lagereffekterna, som inte rörs av att körvyn öppnas.
+        if (l.id.startsWith('trakt-ragang-') || l.id.startsWith('wms-layer-fastighetsgranser')) continue;
         // wms-layer-*: DEFERAS. Den kurerade skyddsmängden lämnas ORÖRD här och tänds av defer-
         // effekten en knapp EFTER öppning → basen (LM nedtonad) + symboler laddar okonkurrerat →
         // snabb start. Övriga WMS → av (ren tyst vy). Återställs på utträde via korvyPrevVisRef
@@ -8791,6 +8863,7 @@ export default function PlannerPage() {
     } else if (korvyPrevVisRef.current) {
       // Restore
       for (const [id, vis] of Object.entries(korvyPrevVisRef.current)) {
+        if (id.startsWith('trakt-ragang-') || id.startsWith('wms-layer-fastighetsgranser')) continue;   // lagret "Fastighetsgränser" äger sin synlighet (även om det slagits av/på i körvyn)
         try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch {}
       }
       // Återställ zone-fill-opaciteten (gallring-nollningen ovan) till originalet gallringCase(0.75, 0.2).
@@ -8935,6 +9008,16 @@ export default function PlannerPage() {
     svgToLatLon,
     vida: traktGeo,
   });
+  // FASTIGHETSGRÄNSEN i fällningscirkeln: ligger rågången inom 30 m (och inget skyddsvärt är det — det vinner alltid) blir cirkeln vit streckad och ett kort
+  // högst upp säger "Fastighetsgräns 18 m – Fäll inte åt det hållet". Tyst. Hysteres 30/34 m så kortet inte blinkar vid gränsen.
+  const fgPos = korvyActive && !skotarKorvy && korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null;
+  const fgHallRef = useRef(false);
+  const fgFall = useMemo(() => {
+    // Följer INTE lagerknappen: varningen vid gränsen är en säkerhetsrad (som fällningscirkeln), den ska inte försvinna för att man släckt rågångens ritning.
+    const nu = fastighetsFall(fgPos, ragang, fgHallRef.current ? FASTIGHET_FALL_M + 4 : FASTIGHET_FALL_M);
+    fgHallRef.current = !!nu;
+    return nu;
+  }, [fgPos?.lat, fgPos?.lon, ragang]); // eslint-disable-line react-hooks/exhaustive-deps
   // GRIND MED KOD (lib/grind): inom ~50 m visas hänglåskoden i ett kort högst upp. Tyst, ingen kvittering. Körvyn och skotarläget.
   const grindKort = useGrind({
     aktiv: korvyActive,
@@ -9705,13 +9788,13 @@ export default function PlannerPage() {
           : { type: 'FeatureCollection', features: [] });
       }
       if (map.getLayer('gps-radie-line')) {
-        for (const [k, v] of Object.entries(fallningCirkelPaint(fall, !!visa))) map.setPaintProperty('gps-radie-line', k, v);
+        for (const [k, v] of Object.entries(!fall.grupp && fgFall ? fastighetsCirkelPaint(!!visa) : fallningCirkelPaint(fall, !!visa))) map.setPaintProperty('gps-radie-line', k, v);
       }
       const fsrc = map.getSource(FALL_KALLA) as any;
       if (fsrc) fsrc.setData(fallningOrsakData(fall, !!visa));
     } catch (e) { console.error('[Körvy] fällningscirkel update:', e); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, korvyActive, skotarKorvy, mapLibreReady, fall]);
+  }, [currentPosition, korvyActive, skotarKorvy, mapLibreReady, fall, fgFall]);
 
   // === KÖRVY: larmets ringar på kartan (gruppens färg) ===
   useEffect(() => {
@@ -11975,7 +12058,8 @@ export default function PlannerPage() {
     ...((geoTyper.has('linje') || geoTyper.has('punkt')) ? [{ id: 'korFara', name: 'Kör & fara', desc: 'Basväg, avlägg, larm & kraftledning', enabled: true }] : []),
     { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
     { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
-    { id: 'fastighetsgranser', name: 'Fastighetsgränser', desc: 'Lantmäteriet fastighetsindelning', enabled: true },
+    // EN rad som styr ALLT fastighetsgräns: Vidas rågång (vektor) när Vida levererat fastighetsytor, annars Lantmäteriets gräns i samma vita stil. Släckt = vanlig karta.
+    { id: 'fastighetsgrans', name: 'Fastighetsgränser', desc: 'Vita gränser och beteckningar, utanför trakten tonas ned', enabled: true },
     { id: 'hydrografi', name: 'Diken & vattendrag', desc: 'Vattenytor och flödesackumulation (SKS)', enabled: true },
     // Körvyn: högstubbar/evighetsträd som små prickar — eget lager, PÅ som standard (saknad nyckel = på)
     ...(korvyActive ? [{ id: PRICK_LAGER_ID, name: 'Högstubbar och evighetsträd', desc: 'Små prickar på kartan (på som standard)', enabled: true }] : []),
@@ -11985,7 +12069,7 @@ export default function PlannerPage() {
     const ut: { id: string; name: string }[] = [];
     const lagg = (id: string, name: string) => { if (!sett.has(id)) { sett.add(id); ut.push({ id, name }); } };
     for (const o of overlayLista) if (o.enabled) lagg(o.id, o.name);
-    for (const g of wmsLayerGroups) for (const l of g.layers) lagg(l.id, l.name);
+    for (const g of wmsLayerGroups) for (const l of g.layers) if (l.meny !== false) lagg(l.id, l.name);
     lagg('brandrisk', 'Brandrisk');
     return ut;
   })();
@@ -12083,7 +12167,7 @@ export default function PlannerPage() {
     });
     g.push({ id: 'overlay', rubrik: 'Overlay', rader: overlayLista.map((o) => vaxel(o.id, o.name, o.desc, lagerPa(o.id), lagerBild(o.id), () => { if (o.enabled) vaxlaLager(o.id); })) });
     for (const grp of wmsLayerGroups) {
-      g.push({ id: `wms-${grp.group}`, rubrik: grp.group, rader: grp.layers.map((l) => vaxel(l.id, l.name, l.desc, !!(overlays as any)[l.id], lagerBild(l.id, l.color), sla(l.id))) });
+      g.push({ id: `wms-${grp.group}`, rubrik: grp.group, rader: grp.layers.filter((l) => l.meny !== false).map((l) => vaxel(l.id, l.name, l.desc, !!(overlays as any)[l.id], lagerBild(l.id, l.color), sla(l.id))) });
     }
     g.push({ id: 'smhi', rubrik: 'SMHI', rader: [vaxel('brandrisk', 'Brandrisk', 'SMHI prognos, uppdateras dagligen', !!(overlays as any).brandrisk, lagerBild('brandrisk'), sla('brandrisk'))] });
     g.push({
@@ -14021,6 +14105,12 @@ export default function PlannerPage() {
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${larm.kort && !inst.kort ? 96 : 0}px + ${larmMalbild(inst.kort ? null : larm.kort) ? LARM_MALBILD_RAD_PX : 0}px)`}
         />
       )}
+      {korvyActive && !skotarKorvy && fgFall && !fall.grupp && !larm.kort && !inst.kort && !grindKort && (
+        <FastighetsgransKortVy
+          fall={fgFall}
+          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
+        />
+      )}
       {korvyActive && larm.settRad && (
         <SettRad namn={larm.settRad.namn} farg={larm.settRad.farg} smal={screenSize.width < 640} onSett={larm.kvittera} />
       )}
@@ -15116,12 +15206,12 @@ export default function PlannerPage() {
       {traktInfo && (() => {
         const TYP_NAMN: Record<TraktKategori, string> = {
           traktdel: 'Traktdel', hansyn: 'Hänsynsyta', ovrigt: 'Övrigt', punkt: 'Avlägg',
-          nyckelbiotop: 'Nyckelbiotop', lamning: 'Fornlämning', omrade: 'Område', linje: 'Linje', ignorera: '',
+          nyckelbiotop: 'Nyckelbiotop', lamning: 'Fornlämning', omrade: 'Område', linje: 'Linje', fastighetsgrans: 'Fastighetsgräns', ignorera: '',
         };
         const typNamn = TYP_NAMN[traktInfo.kategori] || 'Trakt-objekt';
         // Numrerade ytor (hänsyn/traktdel/område): rubriken bär redan typ+nummer → undertexten = bara källan
         // (t.ex. "Vida", "Traktdel 0526", "Kompersmåla Skog"). Övriga: "<Typ> · <källa>" som förr.
-        const arNumrerad = traktInfo.kategori === 'hansyn' || traktInfo.kategori === 'ovrigt' || traktInfo.kategori === 'traktdel' || traktInfo.kategori === 'omrade';
+        const arNumrerad = traktInfo.kategori === 'hansyn' || traktInfo.kategori === 'ovrigt' || traktInfo.kategori === 'traktdel' || traktInfo.kategori === 'omrade' || traktInfo.kategori === 'fastighetsgrans';
         const typKalla = arNumrerad ? (traktInfo.kalla || typNamn) : (traktInfo.kalla ? `${typNamn} · ${traktInfo.kalla}` : typNamn);
         // Egen boundary-markör: titeln räknas LIVE ur numreringen → följer med när numret ändras och
         // visar rätt siffra även direkt efter "Justera gräns" (kopian numreras vid nästa render). Ensam
@@ -19593,7 +19683,7 @@ export default function PlannerPage() {
               const wasOn = checklistPrevOverlaysRef.current.fastighetsgranser;
               if (m.getLayer('wms-layer-fastighetsgranser')) {
                 m.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', wasOn ? 'visible' : 'none');
-                m.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7);
+                m.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1);
               }
               setOverlays(prev => ({ ...prev, fastighetsgranser: checklistPrevOverlaysRef.current?.fastighetsgranser ?? false }));
               checklistPrevOverlaysRef.current = null;

@@ -93,6 +93,40 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   // Traktdelar (L_TRAKTDEL) är ALLTID tända och har ingen toggle. I körvyn tänds alla via whitelist.
   traktNyckelbiotop: true,
   traktLamning: true,
+  // Fastighetsgräns (rågång, nedtoning utanför trakten, beteckningar) — EN knapp: Vidas SV_FASTIGHET där den finns, annars Lantmäteriets gräns i samma stil.
+  // Default AV, som alla andra lager (Martin 2026-10-22: gränserna syntes fast han inte tänt lagret). Första versionen hade true här, och eftersom hooken skriver in standardvärdena
+  // i localStorage vid första körningen blev "tänt" ett sparat val hos alla — se `fastighetsgransVal` nedan.
+  fastighetsgrans: false,
+  // Märke: finns det i en sparad uppsättning är `fastighetsgrans` i den ett val användaren själv gjort (eller det nya standardvärdet). Sparningar utan märket skrevs av
+  // första versionen, där standarden true skrevs till alla enheter, och nollas en gång. Märket är alltid true i en uppsättning som den här hooken skrivit sedan dess.
+  fastighetsgransVal: true,
+  // Märke 2: raden "Fastighetsgränser" för Lantmäteri-lagret (`fastighetsgranser`) är borttagen — det finns EN rad (`fastighetsgrans`). Ett sparat PÅ på den gamla raden flyttas
+  // till den nya EN gång; märket gör att det inte upprepas (briefingen slår tillfälligt på `fastighetsgranser` och det får aldrig tända lagret).
+  fastighetsgransEtt: true,
+}
+
+/**
+ * Tolkar den sparade uppsättningen (ren funktion, prövas i lib/hooks/useMapLayers.test.ts). Alltid en giltig uppsättning: skräp, tomt och trasig JSON ger standard.
+ * Nya nycklar får sitt standardvärde. `fastighetsgranser` (Lantmäteri-rastret) hade en egen menyrad förut; nu styrs allt fastighetsgräns av EN rad (`fastighetsgrans`) och nyckeln
+ * används bara tillfälligt av briefingen. Ett gammalt sparat PÅ på den borttagna raden flyttas EN gång till den nya raden (se `fastighetsgransEtt`), sedan nollas nyckeln.
+ */
+export function lasSparadeLager(raw: string | null | undefined): MapLayers {
+  if (!raw) return { ...DEFAULT_MAP_LAYERS }
+  let stored: unknown
+  try { stored = JSON.parse(raw) } catch { return { ...DEFAULT_MAP_LAYERS } }
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return { ...DEFAULT_MAP_LAYERS }
+  const s = stored as Record<string, unknown>
+  const ut: MapLayers = { ...DEFAULT_MAP_LAYERS }
+  for (const [k, v] of Object.entries(s)) if (typeof v === 'boolean') ut[k] = v
+  // Ett eget val i den nya uppsättningen består; en uppsättning från första versionen (utan märket fastighetsgransVal) nollas (standarden skrevs in, det var aldrig ett val).
+  let fg = s.fastighetsgransVal === true ? s.fastighetsgrans === true : DEFAULT_MAP_LAYERS.fastighetsgrans
+  // Den borttagna raden (Lantmäteri-lagret) var ett eget val: PÅ där blir PÅ på den enda raden — en gång, innan märket finns.
+  if (s.fastighetsgransEtt !== true && s.fastighetsgranser === true) fg = true
+  ut.fastighetsgrans = fg
+  ut.fastighetsgranser = false
+  ut.fastighetsgransVal = true
+  ut.fastighetsgransEtt = true
+  return ut
 }
 
 /**
@@ -160,13 +194,7 @@ export function useMapLayers(): [MapLayers, Dispatch<SetStateAction<MapLayers>>]
     }
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const stored = JSON.parse(raw)
-        if (stored && typeof stored === 'object') {
-          // Merga defaults med sparade värden så nya keys får default
-          setLayers({ ...DEFAULT_MAP_LAYERS, ...stored })
-        }
-      }
+      if (raw) setLayers(lasSparadeLager(raw))
     } catch {
       // Ogiltig JSON eller blockerad localStorage — använd defaults
     }

@@ -144,6 +144,12 @@ describe('sparas per maskin och överlever omstart', () => {
     expect(plusRadNyckel(null)).toBe(plusRadNyckel(''));
     expect(plusRadNyckel(undefined)).toContain(':ingen');
   });
+  it('fastighetsgränser: användningen av den borttagna Lantmäteri-raden flyttas till den enda raden (inget tappas, inget dubbleras)', () => {
+    const s = tolkaPlusRad(JSON.stringify({ fasta: [], anv: { 'lager:fastighetsgranser': 3, 'lager:fastighetsgrans': 2, 'symbol:highstump': 5 } }));
+    expect(s.anv['lager:fastighetsgrans']).toBe(5);
+    expect(s.anv['lager:fastighetsgranser']).toBeUndefined();
+    expect(s.anv['symbol:highstump']).toBe(5);
+  });
   it('en äldre sparad rad (lager/Rita/mät som fasta) kastas tyst — bara symboler blir kvar', () => {
     const gammal = JSON.stringify({
       fasta: [lager('wetlands'), { typ: 'rita', id: 'linje' }, { typ: 'matning', id: 'yta' }, sym('bridge'), sym('ditch')],
