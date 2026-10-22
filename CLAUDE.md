@@ -280,6 +280,8 @@ Raden heter **Brandrisk – OB** (`brandrisk_ob`) = beordrade timmar från start
 ### HQC-import (Harvesting Quality Control)
 Kalibreringsdata -> `fakt_kalibrering`, `fakt_kalibrering_historik`, `detalj_kontroll_stock`
 
+**HQC-filer är ackumulerande (Scorpionen, Rottne Rössmåla) — `detalj_kontroll_stock` har EN rad per fysisk mätning** (2026-10-22, unika indexet `detalj_kontroll_stock_matning_unik` på `(maskin_id, harvest_date, stam_nummer, stock_nummer, machine_measurement_date, operator_measurement_date) NULLS NOT DISTINCT`). Importen skriver stockarna mot den nyckeln med ignore-duplicates (`KONTROLL_STOCK_NYCKEL`): en ny fil lägger bara till det nya, och den äldsta kopian (vars `kontroll_datum` är dagen mätningen först exporterades) skrivs aldrig över. En kontroll (`fakt_kalibrering`) kan därför sakna egna stockrader när alla dess stockar låg i en tidigare fil. Läs aldrig kalibreringsstatistik ur en enskild fils stockar som om den vore hela kontrollen. 881 kopior (506 grupper) togs bort 2026-10-22; Scorpionens 90-dagarsvärden var oförändrade. Se STATUS.md.
+
 ### FPR-import (Forwarder Production Report)
 Skotardata -> `fakt_lass`, `fakt_lass_sortiment`, `fakt_skotning_status`
 

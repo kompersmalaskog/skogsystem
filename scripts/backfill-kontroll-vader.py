@@ -107,7 +107,7 @@ def jamfor_gamla(m, http=None, nu=None):
     from urllib.parse import quote
     http = http or m.requests
     nu = nu or datetime.now(timezone.utc)
-    res = {'rader': [], 'redan_ratta': 0, 'inte_klara': 0, 'misslyckade': [], 'avbrutet': None}
+    res = {'rader': [], 'redan_ratta': 0, 'inte_klara': 0, 'saknar_stockar': 0, 'misslyckade': [], 'avbrutet': None}
     sist_id = 0
     while True:
         r = m.requests.get(f"{m.SUPABASE_URL}/rest/v1/fakt_kalibrering?id=gt.{sist_id}&weather_at_harvest=not.is.null"
@@ -135,6 +135,9 @@ def jamfor_gamla(m, http=None, nu=None):
                             'harvest_date': m.db_tid_till_lokal(s.get('harvest_date'), bool(s.get('tid_ar_utc')))}
                            for s in sresp.json()]
                 punkt = m.valj_vaderpunkt(stockar, rad.get('datum'))
+                if punkt is None and not stockar:
+                    res['saknar_stockar'] += 1   # ren upprepning i en ackumulerande fil: stockarna ligger i en tidigare fil
+                    continue
                 if punkt is None:
                     res['misslyckade'].append((rad['id'], rad['filnamn'], 'ingen stock med både GPS-position och skördetid'))
                     continue
@@ -174,7 +177,7 @@ def jamfor_gamla(m, http=None, nu=None):
 def skriv_jamforelse(res, ut=print):
     rader = res['rader']
     ut(f"Gamla rader med fel tid som skulle ersättas: {len(rader)}  |  redan rätt tid: {res['redan_ratta']}  |  "
-       f"inte klara än: {res['inte_klara']}  |  misslyckade: {len(res['misslyckade'])}")
+       f"inte klara än: {res['inte_klara']}  |  utan stockar (behålls): {res['saknar_stockar']}  |  misslyckade: {len(res['misslyckade'])}")
     ut("")
     ut("   id  fil                                  kontroll    gammal tid (UTC)  ny tid (UTC)       gammal °C   ny °C   skillnad  frost")
     for x in rader:
@@ -236,7 +239,7 @@ def main():
     tot1, med1 = rakna(m)
     verb = 'Fyllde i' if skriv else 'Skulle fylla i'
     print(f"{verb}: {r['fyllda']}  |  {'ersatte' if skriv else 'skulle ersätta'} gamla: {r['ersatta']}  |  redan rätt tid: {r['redan_ratta']}  |  "
-          f"inte klara än (yngre än {m.VADER_ARKIV_FORDROJNING_DAGAR} dygn): {r['inte_klara']}  |  misslyckade: {len(r['misslyckade'])}  |  sökta: {r['sokta']}")
+          f"inte klara än (yngre än {m.VADER_ARKIV_FORDROJNING_DAGAR} dygn): {r['inte_klara']}  |  utan stockar (behålls): {r['saknar_stockar']}  |  misslyckade: {len(r['misslyckade'])}  |  sökta: {r['sokta']}")
     print(f"Efter: {med1} av {tot1} kontroller har väder")
     if r['avbrutet']:
         print(f"AVBRÖTS: {r['avbrutet']}")
