@@ -50,6 +50,15 @@ class Jamfor(unittest.TestCase):
         h = RaknaHttp(svara)
         return fr, h, B.jamfor_gamla(M, http=h, nu=NU, **kw)
 
+    def test_rad_med_vader_utan_stockar_ar_en_ren_upprepning_inte_ett_fel(self):
+        """Efter rensningen av ackumulerande HQC-dubbletter kan en kontroll sakna egna stockar. Vädret den har behålls."""
+        fr, h, res = self.kor([kontroll(1, gammalt(4.0))], {})
+        self.assertEqual((res['saknar_stockar'], len(res['misslyckade']), len(res['rader']), h.anrop), (1, 0, 0, 0))
+
+    def test_stockar_utan_gps_ar_fortfarande_ett_fel(self):
+        fr, h, res = self.kor([kontroll(1, gammalt(4.0))], {'k1.hqc': stock(lat=None, lon=None)})
+        self.assertEqual((res['saknar_stockar'], len(res['misslyckade'])), (0, 1))
+
     def test_skriver_aldrig_och_rorer_inga_rader(self):
         kontroller = [kontroll(1, gammalt(4.0)), kontroll(2, gammalt(-1.0))]
         fore = [dict(k) for k in kontroller]
