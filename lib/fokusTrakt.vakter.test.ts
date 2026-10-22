@@ -11,20 +11,29 @@ const idAv = (r: string) => /id: '([^']+)'/.exec(r)?.[1] ?? '';
 /** Osynliga träffytor (tryck på ytan/linjen): ritas inte, så de ska inte vara svaga — och trycket ska träffa även en svag yta. */
 const TRAFFYTOR = ['trakt-ovrigt-fill', 'trakt-linje-hit'];
 /** Lager vars rader lämnats orörda (de bär färgvärden som design-lint annars räknar som nya); styrkan sätts med setPaintProperty efter lagren. */
-const EFTERAT = ['trakt-basvag-line', 'trakt-raa-point'];
+const EFTERAT = ['trakt-raa-point'];
+/** Fara och vägar (Vidas kraftledning och basväg) blir ALDRIG svaga: inget fokusuttryck i deras lager. */
+const ALDRIG_SVAGA = ['trakt-basvag-line', 'trakt-linje-hit'];
 
 describe('varje ritat Vida-lager läser fokus', () => {
   it('lagerraderna hittas (vakten tittar på något)', () => {
     expect(lagerRader.length).toBeGreaterThanOrEqual(18);
   });
   it('alla utom träffytorna har fokusuttryck i paint eller filter (basvägen och fornlämningspunkten sätts efteråt, se nästa test)', () => {
-    const utan = lagerRader.filter((r) => !TRAFFYTOR.includes(idAv(r)) && !EFTERAT.includes(idAv(r)) && !/fokus|FOKUS/.test(r)).map(idAv);
+    const utan = lagerRader.filter((r) => !TRAFFYTOR.includes(idAv(r)) && !ALDRIG_SVAGA.includes(idAv(r)) && !EFTERAT.includes(idAv(r)) && !/fokus|FOKUS/.test(r)).map(idAv);
     expect(utan).toEqual([]);
   });
-  it('basvägen och fornlämningspunkten får sin styrka i en egen setPaintProperty direkt efter lagren', () => {
-    expect(kalla).toContain("map.setPaintProperty('trakt-basvag-line', 'line-opacity', fokusOpacitet(1) as any);");
+  it('fornlämningspunkten får sin styrka i en egen setPaintProperty direkt efter lagren', () => {
     expect(kalla).toContain("map.setPaintProperty('trakt-raa-point', 'circle-opacity', fokusOpacitet(1) as any);");
     expect(kalla).toContain("map.setPaintProperty('trakt-raa-point', 'circle-stroke-opacity', fokusOpacitet(1) as any);");
+  });
+  it('FARA OCH VÄGAR: basvägen och träffytan för Vidas linjer har inget fokus, och sidan sätter ingen fokusstyrka på basvägen', () => {
+    for (const id of ALDRIG_SVAGA) {
+      const r = lagerRader.find((x) => idAv(x) === id)!;
+      expect(r, id).toBeDefined();
+      expect(/fokus|FOKUS/.test(r), id).toBe(false);
+    }
+    expect(kalla).not.toMatch(/setPaintProperty\('trakt-basvag-line'[^\n]*fokus/i);
   });
   it('träffytorna är orörda (ett tryck på en svag yta öppnar kortet som vanligt)', () => {
     for (const id of TRAFFYTOR) {
@@ -43,8 +52,11 @@ describe('varje ritat Vida-lager läser fokus', () => {
     expect(hatch.length).toBe(3);
     for (const r of hatch) expect(r, idAv(r)).toContain('FOKUS_HATCH_OPACITET');
   });
-  it('kraftledningens lager (egen lagerfabrik) får samma styrka', () => {
-    expect(kalla).toMatch(/kraftledningLager\('trakt-geo-source'[^\n]*map\.addLayer\(medFokusStyrka\(l\)\)/);
+  it('FARA: kraftledningens lager (egen lagerfabrik) läggs som de är — ingen fokusstyrka, aldrig svag', () => {
+    const rad = rader.find((r) => r.includes("kraftledningLager('trakt-geo-source'"))!;
+    expect(rad).toBeDefined();
+    expect(rad).toMatch(/map\.addLayer\(l\);\s*$/);
+    expect(/fokus|FOKUS/.test(rad)).toBe(false);
   });
   it('hänsynsytans fyllning sätts om vid körvy/planering MED fokus (annars försvinner den svaga fyllningen)', () => {
     expect(kalla).toMatch(/setPaintProperty\('trakt-hansyn-fill', 'fill-opacity', fokusOpacitet\(/);
@@ -57,7 +69,7 @@ describe('fokus räknas ut en gång, när geometrin läses in', () => {
   });
   it('ingen annan källa får fokus: egna markeringar, linjer, zoner, hyttspår och skördarspår rörs inte', () => {
     const egna = rader.filter((r) => /source: '(markers-source|lines-source|zones-source|hyttspar[^']*|drawing-source|planspar[^']*)'/.test(r));
-    expect(egna.length).toBeGreaterThan(10);
+    expect(egna.length).toBeGreaterThan(10);   // egna markeringar, egna vägar och linjer (el-ledning m.m.), zoner och spår: alla andra källor, aldrig fokus
     expect(egna.filter((r) => /fokus|FOKUS/.test(r))).toEqual([]);
   });
 });

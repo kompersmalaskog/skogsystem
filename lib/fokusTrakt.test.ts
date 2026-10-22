@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createExpression, featureFilter } from '@maplibre/maplibre-gl-style-spec';
 import hålabäck from './__fixtures__/halaback_au2025_vida_lager.json';
 import {
-  FOKUS_EGENSKAP, FOKUS_HATCH_OPACITET, FOKUS_NARA_M, FOKUS_UTE_ANDEL, fokusEtikettFilter, fokusOpacitet, medFokus, medFokusStyrka,
+  FOKUS_EGENSKAP, FOKUS_HATCH_OPACITET, FOKUS_NARA_M, FOKUS_UTE_ANDEL, arFara, arVag, fokusEtikettFilter, fokusOpacitet, medFokus,
 } from './fokusTrakt';
 
 const LAT = 56, LNG = 15;
@@ -35,18 +35,59 @@ describe('medFokus — vilka som blir svaga', () => {
     const fc = medFokus({ features: [TRAKT, fast, plan] });
     for (const f of fc.features) expect(f.properties).not.toHaveProperty(FOKUS_EGENSKAP);
   });
-  it('Vidas linjer (basväg, kraftledning) och punkter (avlägg) räknas också', () => {
-    const lin = { type: 'Feature', properties: { _lager: 'L_TILLAGGSLINJER', _typ: 'linje' }, geometry: { type: 'LineString', coordinates: [p(400, 0), p(400, 100)] } };
-    const avl = { type: 'Feature', properties: { _lager: 'L_TILLAGGSPUNKTER', _typ: 'punkt', EXTRA_LABE: '01-1' }, geometry: { type: 'Point', coordinates: p(50, 120) } };
-    const fc = medFokus({ features: [TRAKT, lin, avl] });
-    expect(fokusAv(fc, 1)).toBe('ute');
-    expect(fokusAv(fc, 2)).toBe('inne');      // 20 m från kanten
+  it('Vidas punkter (avlägg) räknas: 20 m från kanten = inne, långt bort = ute', () => {
+    const avl = (x: number, y: number) => ({ type: 'Feature', properties: { _lager: 'L_TILLAGGSPUNKTER', _typ: 'punkt', EXTRA_LABE: '01-1' }, geometry: { type: 'Point', coordinates: p(x, y) } });
+    const fc = medFokus({ features: [TRAKT, avl(50, 120), avl(900, 900)] });
+    expect(fokusAv(fc, 1)).toBe('inne');
+    expect(fokusAv(fc, 2)).toBe('ute');
   });
   it('ändrar inte indata (nya objekt, ingen mutation)', () => {
     const fc = { features: [TRAKT, nb(500, 600)] };
     const fore = JSON.stringify(fc);
     medFokus(fc);
     expect(JSON.stringify(fc)).toBe(fore);
+  });
+});
+
+describe('FARA OCH VÄGAR BLIR ALDRIG SVAGA (Martin 2026-10-22: skotaren kör utanför trakten till avlägget och korsar ledningar där)', () => {
+  const linje = (flb: string, xs: number[], extra: Record<string, any> = {}) => ({
+    type: 'Feature', properties: { _lager: 'L_TILLAGGSLINJER', _typ: 'linje', FLBESKR: flb, ...extra },
+    geometry: { type: 'LineString', coordinates: xs.map((x) => p(x, 0)) },
+  });
+  const LANGT = [900, 1000];            // 800 m från trakten — långt över 50 m
+  it('Vidas kraftledning långt från trakten får ingen fokusegenskap = full styrka (och larmet rörs aldrig)', () => {
+    const fc = medFokus({ features: [TRAKT, linje('Kraftledning', LANGT)] });
+    expect(fc.features[1].properties).not.toHaveProperty(FOKUS_EGENSKAP);
+    expect(arFara(fc.features[1].properties, fc.features[1].geometry)).toBe(true);
+  });
+  it('Vidas basväg långt från trakten är full styrka överallt', () => {
+    const fc = medFokus({ features: [TRAKT, linje('Basväg', LANGT)] });
+    expect(fc.features[1].properties).not.toHaveProperty(FOKUS_EGENSKAP);
+    expect(arVag(fc.features[1].properties, fc.features[1].geometry)).toBe(true);
+  });
+  it('en okänd Vida-linje (annan benämning, stor/liten bokstav) räknas som väg och blir aldrig svag', () => {
+    const fc = medFokus({ features: [TRAKT, linje('Stickväg', LANGT), linje('KRAFTLEDNING 130 kV', LANGT), linje('', LANGT)] });
+    for (const f of fc.features.slice(1)) expect(f.properties).not.toHaveProperty(FOKUS_EGENSKAP);
+  });
+  it('samma sak inom 50 m: ingen egenskap heller (de märks aldrig)', () => {
+    const fc = medFokus({ features: [TRAKT, linje('Kraftledning', [120, 140]), linje('Basväg', [120, 140])] });
+    for (const f of fc.features.slice(1)) expect(f.properties).not.toHaveProperty(FOKUS_EGENSKAP);
+  });
+  it('en yta, en punkt eller en RAÄ-lämning långt bort blir däremot svag (undantagen är fara och vägar, inget annat)', () => {
+    const rest = [nb(900, 1000), { type: 'Feature', properties: { _lager: 'L_RAA_POINT_101' }, geometry: { type: 'Point', coordinates: p(900, 900) } }];
+    const fc = medFokus({ features: [TRAKT, ...rest] });
+    expect(fokusAv(fc, 1)).toBe('ute');
+    expect(fokusAv(fc, 2)).toBe('ute');
+  });
+  it('arFara och arVag skiljer rätt: en yta med ordet kraftledning i namnet är varken fara eller väg', () => {
+    const yta = { _lager: 'L_TILLAGGSYTOR', _typ: 'hänsynsyta', TYP: '24', FLBESKR: 'Kraftledning O' };
+    expect(arFara(yta, { type: 'Polygon' })).toBe(false);
+    expect(arVag(yta, { type: 'Polygon' })).toBe(false);
+    expect(arFara({ _typ: 'linje', FLBESKR: 'Basväg' }, { type: 'LineString' })).toBe(false);
+    expect(arVag({ _typ: 'linje', FLBESKR: 'Kraftledning' }, { type: 'LineString' })).toBe(false);   // fara, inte väg
+  });
+  it('Hålabäck au 2025 har inga Vida-linjer: alla linjer i fixturen saknas och inget undantag påverkar resultatet', () => {
+    expect((hålabäck as any).features.some((f: any) => f.properties._typ === 'linje')).toBe(false);
   });
 });
 
@@ -102,13 +143,6 @@ describe('uttrycken i MapLibres egen uttrycksmotor', () => {
     expect(med('X')).toBe(true);
     expect(med('X', 'ute')).toBe(false);
     expect(med('Y', 'inne')).toBe(false);
-  });
-  it('medFokusStyrka: linje → line-opacity, symbol → icon-opacity, behåller en dimning som redan fanns', () => {
-    const spec = (type: string, paint?: Record<string, any>) => medFokusStyrka({ type, paint });
-    expect(spec('line', { 'line-width': 3 }).paint!['line-opacity']).toEqual(fokusOpacitet(1));
-    expect(spec('symbol').paint!['icon-opacity']).toEqual(fokusOpacitet(1));
-    expect(spec('line', { 'line-opacity': 0.6 }).paint!['line-opacity']).toEqual(fokusOpacitet(0.6));
-    expect(medFokusStyrka({ type: 'fill' } as any)).toEqual({ type: 'fill' });
   });
   it('50 m och en tredjedel är siffrorna (regeln står i en konstant, inte i spridda tal)', () => {
     expect(FOKUS_NARA_M).toBe(50);

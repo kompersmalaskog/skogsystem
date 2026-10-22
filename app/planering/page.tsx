@@ -86,7 +86,7 @@ import { vidaSlagIFeatures } from '../../lib/teckenforklaring';
 import { BJORK_KANT_FARG, GALLRING_FARG, GROT_FARG, HOG_TRADSLAG_FARG, KARTA_BLANDAT, sortimentFarg } from '../../lib/tradslag';
 import { TRAFF_RADIE_PX } from '../../lib/egenkontrollTryck';
 import { FORBJUDNA_ZONTYPER, HANSYNSYTA_FILTER, OVRIGT_YTA_FILTER, OVRIGT_YTA_STIL, SNEDSTRECK_GRUPPER, VIDA_ETIKETT, YTA_ETIKETT, YTA_ETIKETT_STIL, snedstreckBild, snedstreckId } from '@/lib/ytaStil';
-import { FOKUS_HATCH_OPACITET, fokusEtikettFilter, fokusOpacitet, medFokus, medFokusStyrka } from '@/lib/fokusTrakt';
+import { FOKUS_HATCH_OPACITET, fokusEtikettFilter, fokusOpacitet, medFokus } from '@/lib/fokusTrakt';
 import { arHansynsyta, arOvrigYta } from '@/lib/vidaYtaTyp';
 
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
@@ -1877,7 +1877,7 @@ export default function PlannerPage() {
     try {
       if (!map.hasImage(KRAFTLEDNING_STOLPE_BILD)) { const b = canvasToMapLibreImage(ritaStolpeIkon()); if (b) map.addImage(KRAFTLEDNING_STOLPE_BILD, b); }
     } catch (e) { console.error('[MapLibre] kraftledning-stolpe:', e); }
-    for (const l of kraftledningLager('trakt-geo-source', 'trakt-kraftledning', ['all', ['==', ['get', '_typ'], 'linje'], ['in', 'kraftled', FLB]], false)) map.addLayer(medFokusStyrka(l));
+    for (const l of kraftledningLager('trakt-geo-source', 'trakt-kraftledning', ['all', ['==', ['get', '_typ'], 'linje'], ['in', 'kraftled', FLB]], false)) map.addLayer(l);
     // Träffyta för ALLA Vidas linjer (kraftledning + basväg): osynlig, LINJE_TRAFF_PX bred — samma som egna linjer. Tänds/släcks med Kör & fara.
     map.addLayer({ id: 'trakt-linje-hit', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'linje'], paint: { 'line-color': 'rgba(0,0,0,0)', 'line-width': LINJE_TRAFF_PX }, layout: { visibility: 'none' } });
     // Kör & fara — punkter, ENDAST avlägg. Vidas avlägg ritas med VÅR avläggssymbol (samma bild som ett eget avlägg, `marker-landing`) och behåller Vidas nummer som etikett
@@ -1905,8 +1905,7 @@ export default function PlannerPage() {
     map.addLayer({ id: 'trakt-raa-label', type: 'symbol', source: 'trakt-geo-source', filter: fokusEtikettFilter(['==', ['get', '_lager'], 'L_RAA_POLY_101']) as any, layout: { 'text-field': VIDA_ETIKETT.raa_yta, 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
     map.addLayer({ id: 'trakt-raa-line', type: 'line', source: 'trakt-geo-source', filter: ['in', ['get', '_lager'], ['literal', ['L_RAA_POLY_101', 'L_RAA_LINE_101']]], paint: { 'line-color': FARG_KULTUR, 'line-width': 2.5, 'line-opacity': fokusOpacitet(1) as any }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-raa-point', type: 'circle', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POINT_101'], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 7], 'circle-color': FARG_KULTUR, 'circle-stroke-color': '#1a1a1a', 'circle-stroke-width': 1.5 }, layout: { visibility: 'none' } });
-    // Fokus på trakten: basvägen och fornlämningspunkten (raderna ovan lämnas orörda) blir svaga utanför trakten som övriga Vida-lager (lib/fokusTrakt).
-    map.setPaintProperty('trakt-basvag-line', 'line-opacity', fokusOpacitet(1) as any);
+    // Fokus på trakten: fornlämningspunkten (raden ovan lämnas orörd) blir svag utanför trakten som övriga Vida-ytor (lib/fokusTrakt). Basvägen och kraftledningen blir ALDRIG svaga (de får ingen _fokus).
     map.setPaintProperty('trakt-raa-point', 'circle-opacity', fokusOpacitet(1) as any);
     map.setPaintProperty('trakt-raa-point', 'circle-stroke-opacity', fokusOpacitet(1) as any);
 
