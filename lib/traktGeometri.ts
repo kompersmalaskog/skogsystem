@@ -4,9 +4,10 @@
 // INTE SV_BESKRIVNINGSENHET_FL (markägarens skogsbruksplan → renderas ej).
 
 export type TraktKategori =
-  | 'traktdel' | 'hansyn' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'linje' | 'ignorera';
+  | 'traktdel' | 'hansyn' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'linje' | 'fastighetsgrans' | 'ignorera';
 //   'linje'  = Vidas linje (L_TILLAGGSLINJER: kraftledning, basväg) — byggs av lib/linjeKort, inte ur `_lager`-tabellen nedan.
 //   'omrade' = planerarens egna ritade område (planering_markeringar, ej objekt_geometri) — PR B.
+//   'fastighetsgrans' = rågången (SV_FASTIGHET). Klassas INTE ur _lager-tabellen nedan: kortet byggs vid trycket ur lib/fastighetsgrans ("X mot Y"), inte ur en feature.
 
 // _lager → kategori (+ källa). Allt som inte mappas → 'ignorera' (renderas/tappas inte).
 // Ej renderade med flit: SV_BESKRIVNINGSENHET_FL (skogsbruksplan), SV_FASTIGHET, NVV/SKS-områden.

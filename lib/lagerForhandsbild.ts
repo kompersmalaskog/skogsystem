@@ -19,6 +19,7 @@ const OVERLAY_FARG: Readonly<Record<string, string>> = {
   hansyn: GRUPPER.natur.farg,
   traktNyckelbiotop: GRUPPER.natur.farg,
   traktLamning: GRUPPER.kultur.farg,
+  fastighetsgrans: '#ffffff',
   korFara: GRUPPER.fara.farg,
   wetlands: GRUPPER.blott.farg,
   produktionshogar: '#2d6a4f',

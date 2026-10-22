@@ -93,6 +93,8 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   // Traktdelar (L_TRAKTDEL) är ALLTID tända och har ingen toggle. I körvyn tänds alla via whitelist.
   traktNyckelbiotop: true,
   traktLamning: true,
+  // Fastighetsgräns (rågång, pinnar, vems mark, beteckningar) ur Vidas SV_FASTIGHET — default PÅ, finns bara där Vida levererat fastighetsytor.
+  fastighetsgrans: true,
 }
 
 /**
