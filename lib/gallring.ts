@@ -34,16 +34,15 @@
 //
 // ── VAD SOM MEDVETET SAKNAS ───────────────────────────────────────────────
 //
-// Stickvägsandel, gallringskvot och skattat kvarvarande bestånd finns inte här
-// och ska inte läggas till. Alla tre bygger på att stickvägsträden
-// representerar beståndet före gallring. Verifierat på Hålabäck att det inte
-// håller för beståndsgående drivning: maskinen kör inne i beståndet, och de
-// träd metoden skulle klassa som stickvägsträd är klenare och står längre från
-// maskinen än övriga. En siffra som bygger på ett falskt antagande är värre än
-// ingen siffra.
+// Gallringskvot och kvarvarande bestånd skattat ur STICKVÄGSTRÄDEN finns inte
+// här och ska inte läggas till: de bygger på att stickvägsträden representerar
+// beståndet före gallring. Verifierat på Hålabäck att det inte håller för
+// beståndsgående drivning (maskinen kör inne i beståndet, och de träd metoden
+// skulle klassa som stickvägsträd är klenare och står längre från maskinen).
 //
-// Areal skattas ALDRIG ur rutnät eller körspår. Finns ingen uppmätt areal visas
-// antal stammar utan per-hektar-tal.
+// Stickvägsandelen MÄTS i stället ur maskinernas GPS-spår, och per hektar räknas
+// på Vidas traktgräns — se lib/gallringPerHa.ts (2026-10-22). Areal skattas
+// aldrig ur rutnät eller körspår.
 
 import { supabase } from './supabase';
 import { fetchAllRows } from './ekonomi/period';
@@ -52,6 +51,9 @@ import { harledTyp } from './objekt/typ';
 // appen. Gallringsvyn definierar inga egna.
 import { tradslagLabel } from './tradslag';
 import { DIM_MASKIN_NAMN_KOLUMNER, maskinNamnMap, type MaskinNamnKalla } from './maskinNamn';
+import { beraknaPerHa, type PerHa } from './gallringPerHa';
+import { traktgransRingar, type TraktGeometriFC } from './objektPlats';
+import { hyttsparTillLinjer, type HyttPunkt } from './hyttspar';
 
 // ---------------------------------------------------------------------------
 // Typer
@@ -473,6 +475,44 @@ export async function hamtaGallring(vo: string): Promise<GallringDetalj | null> 
     sortiment,
     dagar: Array.from(perDag.values()).sort((a, b) => a.datum.localeCompare(b.datum)),
   };
+}
+
+/** Per hektar och stickvägar (lib/gallringPerHa.ts). Egen läsning efter att trakten visats: traktgränsen,
+ *  maskinernas GPS-spår och varje stams position. Ett läsfel kastas — "inget spår" och "kunde inte läsa" är
+ *  olika svar. objekt_geometri har RLS: en utgången session ger tomma rader, och då står "traktgräns saknas". */
+export async function hamtaPerHa(rad: GallringRad): Promise<PerHa> {
+  const obj = await supabase.from('objekt').select('id').eq('vo_nummer', rad.vo);
+  kasta('objekt', obj.error);
+  const ids = (obj.data ?? []).map((o) => o.id as string);
+
+  const [geo, spar, stammar] = await Promise.all([
+    ids.length ? supabase.from('objekt_geometri').select('geometri').in('objekt_id', ids) : Promise.resolve({ data: [], error: null }),
+    ids.length ? supabase.from('hyttspar').select('roll, points').in('objekt_id', ids) : Promise.resolve({ data: [], error: null }),
+    rad.objektIds.length
+      ? (fetchAllRows((from, to) =>
+          supabase
+            .from('detalj_stam')
+            .select('latitude, longitude, dbh_mm')
+            .in('objekt_id', rad.objektIds)
+            .order('objekt_id')
+            .order('id')
+            .range(from, to),
+        ) as Promise<{ latitude: number | null; longitude: number | null; dbh_mm: number | null }[]>)
+      : Promise.resolve([]),
+  ]);
+  kasta('traktgräns', geo.error);
+  kasta('GPS-spår', spar.error);
+
+  return beraknaPerHa({
+    ringar: (geo.data ?? []).flatMap((g) => traktgransRingar(g.geometri as TraktGeometriFC)),
+    volymM3fub: rad.volymM3fub,
+    stammar: rad.stammar,
+    stamrader: stammar.map((s) => ({ lat: Number(s.latitude), lng: Number(s.longitude), dbhMm: s.dbh_mm })),
+    spar: (spar.data ?? []).map((s) => ({
+      roll: String(s.roll),
+      linjer: hyttsparTillLinjer(Array.isArray(s.points) ? (s.points as HyttPunkt[]) : []),
+    })),
+  });
 }
 
 /** Sortiment per objekt-total ur fakt_sortiment. Datumfilter vore fel

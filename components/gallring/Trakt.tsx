@@ -1,5 +1,6 @@
 'use client';
 // En gallrad trakt — svaret först: uttaget i m³fub. Under det frågor i vanliga ord, som markägarrapporten:
+//   Hur hårt gallrades det? — per hektar på Vidas traktgräns och stickvägarna ur GPS-spåren (lib/gallringPerHa.ts)
 //   Vad blev virket?        — fyra grupper i SORTIMENTFARG (mörkast = mest värt), aldrig maskinens koder
 //   Hur grovt gallrades det? — Dgv och diameterfördelningen
 //   Vilka träd togs ut?      — trädslagen
@@ -8,7 +9,7 @@
 // trädslag/dagar bakom EN rad som öppnar ett ark; från 640 px (iPad liggande med listan bredvid, dator) ligger alla
 // fyra i ett rutnät med två kolumner — där finns plats, så inget göms.
 //
-// Här finns MEDVETET ingen stickvägsandel, gallringskvot eller skattat kvarvarande bestånd — se lib/gallring.ts.
+// Här finns MEDVETET ingen gallringskvot eller kvarvarande bestånd skattat ur stickvägsträden — se lib/gallring.ts.
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AVSTAND, FARG, KNAPP, KOLUMN, RADIE, TNUM, TYP } from '@/lib/design/tokens';
@@ -22,11 +23,13 @@ import {
   fmtDecimal,
   fmtVolym,
   hamtaGallring,
+  hamtaPerHa,
   klassLabel,
   type GallringDetalj,
 } from '@/lib/gallring';
 import { dagarText, dagMan, procentSomSummerar, sortimentGrupper, traktSpann, veckodagDag } from '@/lib/gallringVy';
 import { tradslagStil } from '@/lib/tradslag';
+import { UTANFOR_VISA_FRAN, type PerHa } from '@/lib/gallringPerHa';
 
 /** Traktens bredd där frågorna går från en till två kolumner. */
 export const TVA_KOLUMNER_PX = 640;
@@ -112,8 +115,6 @@ function Innehall({ d }: { d: GallringDetalj }) {
           <Delar delar={[
             `${fmtAntal(d.stammar)} stammar`,
             `medelstam ${fmtDecimal(medelstam, 3)} m³`,
-            // Areal skattas aldrig: utan uppmätt areal finns inget per-hektar-tal.
-            d.arealHa && d.arealHa > 0 ? `${fmtAntal(Math.round(d.stammar / d.arealHa))} st/ha` : '',
           ]} />
         </p>
         <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
@@ -135,6 +136,7 @@ function Innehall({ d }: { d: GallringDetalj }) {
       </header>
 
       <div className="gd-rutnat">
+        <PerHektar d={d} />
         <Virket d={d} />
         <Grovlek d={d} />
         <div className="gd-bred"><Tradslag d={d} /></div>
@@ -166,6 +168,82 @@ function tradslagKort(d: GallringDetalj): string {
 // ---------------------------------------------------------------------------
 // Frågorna
 // ---------------------------------------------------------------------------
+
+type PerHaLage = { typ: 'laddar' } | { typ: 'fel' } | { typ: 'klar'; p: PerHa };
+
+const fmtPct = (andel: number) => `${Math.round(andel * 100)} %`;
+
+/** Per hektar och stickvägar. Läses efter trakten (traktgräns, GPS-spår, varje stams position) — resten av
+ *  trakten väntar aldrig på den. Talen och reglerna bor i lib/gallringPerHa.ts; här ritas de bara. */
+function PerHektar({ d }: { d: GallringDetalj }) {
+  const [lage, setLage] = useState<PerHaLage>({ typ: 'laddar' });
+  const ladda = useCallback(async () => {
+    setLage({ typ: 'laddar' });
+    try {
+      setLage({ typ: 'klar', p: await hamtaPerHa(d) });
+    } catch {
+      setLage({ typ: 'fel' });
+    }
+  }, [d]);
+  useEffect(() => { ladda(); }, [ladda]);
+
+  const rubrik = 'Hur hårt gallrades det?';
+  if (lage.typ === 'laddar') {
+    return (
+      <Sektion rubrik={rubrik} inset>
+        <p style={{ margin: 0, padding: `${AVSTAND.l}px 0`, ...TYP.text, color: FARG.text2 }}>Räknar per hektar…</p>
+      </Sektion>
+    );
+  }
+  if (lage.typ === 'fel') {
+    return (
+      <Sektion rubrik={rubrik} inset>
+        <div style={{ padding: `${AVSTAND.l}px 0` }} data-perha-fel="">
+          <p style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.text, color: FARG.text2 }}>Kunde inte räkna per hektar just nu.</p>
+          <button type="button" onClick={ladda} style={KNAPP.sekundar}>Försök igen</button>
+        </div>
+      </Sektion>
+    );
+  }
+  const p = lage.p;
+  if (p.lage === 'ingen-grans') {
+    return (
+      <Sektion rubrik={rubrik} inset>
+        <p style={{ margin: 0, padding: `${AVSTAND.l}px 0`, ...TYP.text, color: FARG.text2 }} data-perha-ingen-grans="">
+          Vidas traktgräns saknas, så inget kan räknas per hektar.
+        </p>
+      </Sektion>
+    );
+  }
+
+  const sv = p.stickvag;
+  const notDelar = [`${fmtDecimal(p.arealHa, 1)} ha enligt Vidas traktgräns.`];
+  if (p.andelUtanfor !== null && p.andelUtanfor >= UTANFOR_VISA_FRAN) {
+    notDelar.push(`${fmtPct(p.andelUtanfor)} av stammarna står utanför gränsen och räknas inte.`);
+  }
+  if (sv.lage === 'ok') notDelar.push(`Stickvägarna ur ${sv.roller.map(rollGenitiv).join(' och ')} GPS-spår, räknade 4 m breda.`);
+
+  return (
+    <Sektion rubrik={rubrik} not={notDelar.join(' ')} inset>
+      <div data-perha="">
+        <Rad titel="Volym" hoger={`${fmtDecimal(p.volymPerHa, 1)} m³fub/ha`} />
+        <Rad titel="Stammar" hoger={`${fmtAntal(Math.round(p.stammarPerHa))} st/ha`} />
+        {p.grundytaPerHa !== null && <Rad titel="Grundyta" hoger={`${fmtDecimal(p.grundytaPerHa, 1)} m²/ha`} />}
+        {sv.lage === 'ok' ? (
+          <Rad titel="Stickvägar" hoger={`ca ${fmtPct(sv.andel)}`} hogerUnder={`ca ${Math.round(sv.avstandM)} m isär`} sista
+            attr={{ 'data-stickvag': 'ok' }} />
+        ) : (
+          <Rad titel="Stickvägar" hoger="–" sista attr={{ 'data-stickvag': sv.lage }}
+            under={sv.lage === 'inget-spar' ? 'Inget GPS-spår från maskinerna än' : 'GPS-spåret täcker bara en del av trakten'} />
+        )}
+      </div>
+    </Sektion>
+  );
+}
+
+function rollGenitiv(roll: string): string {
+  return roll === 'skordare' ? 'skördarens' : roll === 'skotare' ? 'skotarens' : `${roll}s`;
+}
 
 function Virket({ d }: { d: GallringDetalj }) {
   const grupper = sortimentGrupper(d.sortiment);

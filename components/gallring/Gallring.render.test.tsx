@@ -3,10 +3,11 @@
 // maskinens koder i stället för virkets namn, en kvittoknapp som syns innan skördningen är klar, eller ett läsfel
 // som ser ut som "inga gallringar". Layouten (listan bredvid trakten från 1100 px, två kolumner från 640 px
 // trakt-bredd) mäts i riktig Chromium, inte här — jsdom har ingen layout (CLAUDE.md).
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { GallringDetalj, GallringRad } from '@/lib/gallring';
+import type { PerHa } from '@/lib/gallringPerHa';
 
 let sokvag = '/gallring';
 vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: any) => createElement('a', { href, ...rest }, children) }));
@@ -14,11 +15,13 @@ vi.mock('next/navigation', () => ({ usePathname: () => sokvag }));
 
 const hamtaGallringar = vi.fn<() => Promise<GallringRad[]>>();
 const hamtaGallring = vi.fn<(vo: string) => Promise<GallringDetalj | null>>();
+const hamtaPerHa = vi.fn<(d: GallringRad) => Promise<PerHa>>();
 vi.mock('@/lib/gallring', async (orig) => ({
   ...(await orig<typeof import('@/lib/gallring')>()),
   aktuelltAr: () => 2026,
   hamtaGallringar: () => hamtaGallringar(),
   hamtaGallring: (vo: string) => hamtaGallring(vo),
+  hamtaPerHa: (d: GallringRad) => hamtaPerHa(d),
 }));
 
 import GallringRam from './GallringRam';
@@ -40,7 +43,7 @@ afterEach(async () => {
   if (root) await act(async () => { root!.unmount(); });
   host?.remove(); root = null; host = null;
   document.body.innerHTML = '';
-  hamtaGallringar.mockReset(); hamtaGallring.mockReset();
+  hamtaGallringar.mockReset(); hamtaGallring.mockReset(); hamtaPerHa.mockReset();
   sokvag = '/gallring';
 });
 
@@ -126,7 +129,14 @@ const DETALJ: GallringDetalj = {
   },
 };
 
+const PER_HA: PerHa = {
+  lage: 'ok', arealHa: 8.834, volymPerHa: 22.4, stammarPerHa: 347.2, grundytaPerHa: 4.2, andelUtanfor: 0.284,
+  stickvag: { lage: 'ok', andel: 0.24, avstandM: 16.7, roller: ['skordare', 'skotare'] },
+};
+
 describe('trakten', () => {
+  beforeEach(() => { hamtaPerHa.mockResolvedValue(PER_HA); });
+
   it('svaret först, status i ord, maskinens namn och ingen kvittoknapp medan den pågår', async () => {
     hamtaGallring.mockResolvedValue(DETALJ);
     const h = await montera(createElement(Trakt, { vo: '11183108' }));
@@ -175,6 +185,50 @@ describe('trakten', () => {
     const ark = document.querySelector('[role="dialog"]')!;
     expect(ark.textContent).toContain('Vilka träd togs ut?');
     expect(ark.textContent).toContain('mån 12 okt');
+  });
+
+  it('per hektar på Vidas traktgräns: rader, stammar utanför och stickvägarna i ord', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    const s = h.querySelector('section[aria-label="Hur hårt gallrades det?"]')!;
+    const t = s.textContent!.replace(/\u00a0/g, ' ');
+    expect(t).toContain('22,4 m³fub/ha');
+    expect(t).toContain('347 st/ha');
+    expect(t).toContain('4,2 m²/ha');
+    expect(t).toContain('ca 24 %');
+    expect(t).toContain('ca 17 m isär');
+    expect(t).toContain('8,8 ha enligt Vidas traktgräns.');
+    expect(t).toContain('28 % av stammarna står utanför gränsen och räknas inte.');
+    expect(t).toContain('skördarens och skotarens GPS-spår');
+    // Per hektar står på ETT ställe: inte också i huvudet (där kom det ur objekt.areal, som var fel på Sandåsen).
+    expect(h.querySelector('[data-svar]')!.textContent).not.toContain('st/ha');
+  });
+
+  it('stickvägar utan spår eller med ofullständigt spår säger varför — aldrig ett tal', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    hamtaPerHa.mockResolvedValue({ ...PER_HA, andelUtanfor: 0.01, stickvag: { lage: 'ofullstandigt', andel: 0.04, roller: ['skotare'] } } as PerHa);
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    const rad = h.querySelector('[data-stickvag]')!;
+    expect(rad.getAttribute('data-stickvag')).toBe('ofullstandigt');
+    expect(rad.textContent).toContain('GPS-spåret täcker bara en del av trakten');
+    expect(rad.textContent).not.toContain('%');
+    expect(h.textContent).not.toContain('utanför gränsen');
+  });
+
+  it('utan traktgräns inget per hektar, och ett läsfel är ett fel med Försök igen', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    hamtaPerHa.mockResolvedValue({ lage: 'ingen-grans' });
+    let h = await montera(createElement(Trakt, { vo: '11183108' }));
+    expect(h.querySelector('[data-perha-ingen-grans]')).not.toBeNull();
+    expect(h.textContent).not.toContain('/ha');
+    await act(async () => { root!.unmount(); }); root = null; host?.remove();
+    hamtaPerHa.mockRejectedValueOnce(new Error('nät')).mockResolvedValueOnce(PER_HA);
+    h = await montera(createElement(Trakt, { vo: '11183108' }));
+    const fel = h.querySelector('[data-perha-fel]')!;
+    expect(fel.textContent).toContain('Kunde inte räkna per hektar');
+    await act(async () => { (fel.querySelector('button') as HTMLButtonElement).click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(h.querySelector('[data-perha]')).not.toBeNull();
   });
 
   it('"hittades inte" och "kunde inte läsa" skrivs olika', async () => {
