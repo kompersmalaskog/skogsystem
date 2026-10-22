@@ -11,6 +11,7 @@ import DagArk from './DagArk';
 import HjalpArk from './HjalpArk';
 import KontrollArk from './KontrollArk';
 import MaskinArk from './MaskinArk';
+import PlanArk from './PlanArk';
 import StamArk from './StamArk';
 import { SenasteStockArk, StockArk } from './StockArk';
 import SvajStang from './SvajStang';
@@ -30,9 +31,11 @@ export default function DeladeArk({ ark, d, hjalpOpen, onStangHjalp, maskinOpen,
             {top.foregaende && <Tillbaka etikett={arkRubrik(top.foregaende)} onTryck={ark.tillbaka} />}
             {post.typ === 'kontroll' && <KontrollArk data={post.data} bedomning={d.bedomning} onStam={n => ark.oppnaStam(post.data, n)} />}
             {post.typ === 'stam' && (
-              <StamArk data={post.data} stamNummer={post.stamNummer}
-                onByt={n => ark.byt({ typ: 'stam', data: post.data, stamNummer: n })} onStock={id => ark.oppnaStock(post.data, id)} />
+              <StamArk data={post.data} stamNummer={post.stamNummer} tolDia={tolFranProfil(d.bedomning?.trosklar, 'diameter', 4)}
+                onByt={n => ark.byt({ typ: 'stam', data: post.data, stamNummer: n })} onStock={id => ark.oppnaStock(post.data, id)}
+                onPlan={() => ark.oppnaPlan(post.data, post.stamNummer)} />
             )}
+            {post.typ === 'plan' && <PlanArk data={post.data} stamNummer={post.stamNummer} />}
             {post.typ === 'stock' && (() => {
               const stock = post.data.stockar.find(s => s.id === post.stockId);
               return stock ? <StockArk stock={stock} tolLen={tolFranProfil(d.bedomning?.trosklar, 'langd', 2)} /> : null;
