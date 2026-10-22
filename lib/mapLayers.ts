@@ -33,6 +33,8 @@ export interface LayerDef {
    * dubblerade skuggningen är medveten — bättre läsbarhet > teoretisk renhet.
    */
   show3D: boolean
+  /** false = lagret finns men har ingen egen rad i planeringsvyns Lager-meny (fastighetsgränsen har EN rad, `fastighetsgrans`, som styr både Vidas data och detta Lantmäteri-lager). Saknas = visas. */
+  meny?: false
   desc?: string
   customApi?: boolean
   proxyTarget?: string
@@ -137,7 +139,7 @@ export const wmsLayerGroups: LayerGroup[] = [
       // IR-ortofoto: falskfärg där lövkronor lyser rött → skiljer löv från barr. Ritunderlag, samma
       // öppna minkarta-väg. Flygår varierar per område (Kompersmåla-trakten: 2024). show3D=false → körvyn orörd.
       { id: 'lm_ortofoto_ir', url: '/api/wms-proxy', layers: 'Ortofoto_IR', name: 'Ortofoto IR (löv rött)', color: '#ff453a', proxyTarget: 'https://minkarta.lantmateriet.se/map/ortofoto', desc: '0,5 m falskfärg — lövkronor rött, barr mörkt. Flygår varierar (Kompersmåla ~2024).', show3D: false, tiles: ['/api/wms-proxy?layer=lm_ortofoto_ir&bbox={bbox-epsg-3857}&width=256&height=256'], tileOpacity: 1.0 },
-      { id: 'fastighetsgranser', url: 'https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3', layers: 'granser', name: 'Fastighetsgränser', color: '#f59e0b', show3D: true, tiles: ['https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=granser&STYLES=morkbakgrund&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'], tileOpacity: 0.7 },
+      { id: 'fastighetsgranser', url: 'https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3', layers: 'granser', name: 'Fastighetsgränser', color: '#f59e0b', show3D: true, meny: false, tiles: ['https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=granser&STYLES=morkbakgrund&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'], tileOpacity: 0.7 },
     ],
   },
 ]

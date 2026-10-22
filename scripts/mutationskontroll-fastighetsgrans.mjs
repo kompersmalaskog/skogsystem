@@ -13,6 +13,8 @@ const KP = "lib/klickPrioritet.ts";
 const PG = "app/planering/page.tsx";
 const KA = "lib/fastighetsgransKarta.ts";
 const HK = "lib/hooks/useMapLayers.ts";
+const ML = "lib/mapLayers.ts";
+const PR = "lib/plusRad.ts";
 
 const lage = process.argv[2] === "karta" ? "karta" : "snabb";
 
@@ -25,6 +27,7 @@ if (lage === "snabb") {
     "lib/fastighetsgransKarta.hytt.test.ts",
     "lib/fastighetsgransKarta.synlighet.test.ts",
     "lib/hooks/useMapLayers.test.ts",
+    "lib/plusRad.test.ts",
   ];
   process.env.FASTIGHET_UTAN_CHROMIUM = "1";   // bara källvakterna ur hytt-testet; Chromium-mätningarna körs i läge "karta"
   const M = [
@@ -76,9 +79,16 @@ if (lage === "snabb") {
     ["sidan: körvyns whitelist tvingar rågången synlig med lagret släckt", "if (l.id.startsWith('trakt-ragang-') || l.id.startsWith('wms-layer-fastighetsgranser')) continue;\n", "", PG],
     ["sidan: återställningen ur körvyn skriver över lagret", "if (id.startsWith('trakt-ragang-') || id.startsWith('wms-layer-fastighetsgranser')) continue;", "", PG],
     ["sidan: WMS-effekten styr Lantmäteri-gränsen vid sidan av lagret", "if (id === 'fastighetsgranser') return;", "", PG],
+    ["hook: gamla Lantmäteri-radens PÅ flyttas inte till den enda raden", "  if (s.fastighetsgransEtt !== true && s.fastighetsgranser === true) fg = true\n", "", HK],
+    ["hook: flytten av gamla raden upprepas (briefingens tillfälliga PÅ tänder lagret)", "if (s.fastighetsgransEtt !== true && s.fastighetsgranser === true) fg = true", "if (s.fastighetsgranser === true) fg = true", HK],
+    ["hook: märket för flytten skrivs inte, så den upprepas varje start", "  ut.fastighetsgransEtt = true\n", "", HK],
+    ["plusrad: användningen av den gamla raden flyttas inte till den enda raden", "const NYTT_GRANSLAGER = 'lager:fastighetsgrans';", "const NYTT_GRANSLAGER = 'lager:fastighetsgranser';", PR],
+    ["menyn: Lantmäteri-raden finns kvar i plusradens katalog", "if (l.meny !== false) lagg(l.id, l.name);", "lagg(l.id, l.name);", PG],
+    ["menyn: Lantmäteri-raden finns kvar i Lager-menyns grupper", "grp.layers.filter((l) => l.meny !== false).map(", "grp.layers.map(", PG],
+    ["menyn: Lantmäteri-lagret har ingen meny: false (andra raden syns)", "name: 'Fastighetsgränser', color: '#f59e0b', show3D: true, meny: false,", "name: 'Fastighetsgränser', color: '#f59e0b', show3D: true,", ML],
     ["sidan: en andra menyrad för Lantmäteri", "{ id: 'fastighetsgrans', name: 'Fastighetsgränser', desc:", "{ id: 'fastighetsgranser', name: 'Fastighetsgränser', desc:", PG],
   ];
-  kor({ filer: [FG, YE, KP, PG, KA, HK], tester: TESTER, standardFil: FG, mutationer: M });
+  kor({ filer: [FG, YE, KP, PG, KA, HK, ML, PR], tester: TESTER, standardFil: FG, mutationer: M });
 } else {
   // Chromium: varje mutant provas bara mot de mätningar den ska fälla (annars tar en körning tre minuter per mutant).
   const FILTER = {
@@ -89,16 +99,18 @@ if (lage === "snabb") {
     lm: "Lantmäteriets gräns",
     bet: "Beteckningen står",
   };
+  const SYNVAG = { fil: "lib/fastighetsgransKarta.synlighet.test.ts", t: "en väg i nedtonad mark|varje traktdels yta" };
   const SYN = { fil: "lib/fastighetsgransKarta.synlighet.test.ts", t: "Lantmäteri-paret|LAGRET SLÄCKT|lagret tänds och släcks|SAMMA karta" };   // synlighetstestet har egen fil
   const M = [
     ["rågångens kärna är röd i stället för vit", "export const RAGANG_FARG = '#ffffff';", "export const RAGANG_FARG = '#ff0000';", FILTER.rod],
     ["rågången har ingen mörk kant (syns inte på vit karta)", "export const RAGANG_KANT_FARG = 'rgba(0,0,0,0.85)';", "export const RAGANG_KANT_FARG = 'rgba(0,0,0,0)';", FILTER.rod],
     ["rågången är smal (3 px) — bandet åts upp av traktgränsens kant", "export const RAGANG_BREDD = ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 8, 17, 12, 19, 16] as const;", "export const RAGANG_BREDD = ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 3, 17, 4, 19, 5] as const;", FILTER.band],
     ["traktgränsen har en bred svart kant som täcker rågången", "export const TRAKTGRANS_KANT_BREDD = ['interpolate', ['linear'], ['zoom'], 8, 2.5, 14, 3.5, 17, 5.5] as const;", "export const TRAKTGRANS_KANT_BREDD = ['interpolate', ['linear'], ['zoom'], 8, 6, 14, 10, 17, 20] as const;", FILTER.band],
-    ["övriga fastigheter tonas inte ned", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.58 } as const;", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0 } as const;", FILTER.morkt],
-    ["nedtoningen är nästan svart (80 %): vägar och hus syns inte", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.58 } as const;", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.8 } as const;", FILTER.morkt],
-    ["nedtoningen är den gamla svaga (26 %): en dämpad tomt blir ljusare än skogen", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.58 } as const;", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.26 } as const;", FILTER.morkt],
-    ["fastigheter trakten överlappar får inget skimmer", "export const SKIMMER_TRAKT = { color: '#ffffff', opacity: 0.14 } as const;", "export const SKIMMER_TRAKT = { color: '#ffffff', opacity: 0 } as const;", FILTER.morkt],
+    ["övriga fastigheter tonas inte ned", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.45 } as const;", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0 } as const;", FILTER.morkt],
+    ["nedtoningen är nästan svart (80 %): vägar och hus syns inte", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.45 } as const;", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.8 } as const;", FILTER.morkt],
+    ["nedtoningen är den gamla svaga (26 %): en dämpad tomt blir ljusare än skogen", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.45 } as const;", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.26 } as const;", FILTER.morkt],
+    ["skimret kommer tillbaka: ett vitt fyllt lager på fastigheterna trakten ligger på (flygfotot blir mjölkigt)", "{ nedre: true, spec: { id: RAGANG_LAGER.ytaUtanfor,", "{ nedre: true, spec: { id: 'trakt-ragang-yta-trakt', type: 'fill', source: RAGANG_KALLOR.yta, filter: sidaFilter('trakt'), paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.14, 'fill-antialias': false }, layout: dold } },\n    { nedre: true, spec: { id: RAGANG_LAGER.ytaUtanfor,", FILTER.morkt],
+    ["nedtoningen är för stark (58 %): vägar och diken i nedtonad mark dämpas för mycket", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.45 } as const;", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.58 } as const;", SYNVAG],
     ["svaga stycken har full opacitet", "export const SVAG_OPACITET = 0.5;", "export const SVAG_OPACITET = 1;", FILTER.styrka],
     ["svaga stycken är lika breda som starka", "export const RAGANG_BREDD_SVAG = ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 4, 17, 6, 19, 8] as const;", "export const RAGANG_BREDD_SVAG = ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 8, 17, 12, 19, 16] as const;", FILTER.styrka],
     ["Lantmäteri-gränsen byter inte färg (gul linje)", "paint: { 'raster-brightness-min': 1, 'raster-brightness-max': 1, 'raster-opacity': 1 }", "paint: { 'raster-opacity': 1 }", FILTER.lm],
@@ -114,7 +126,8 @@ if (lage === "snabb") {
   try {
     const grund = kortor("Rågången i riktig Chromium|där de sammanfaller|Vems mark|styrka efter närhet|Lantmäteriets gräns|Beteckningen står");
     const grundSyn = kortor(SYN);
-    if (grund.status !== 0 || grundSyn.status !== 0) { console.error("Testerna är röda innan mutationerna.\n" + grund.stdout + grund.stderr + grundSyn.stdout + grundSyn.stderr); writeFileSync(KA, original); process.exit(2); }
+    const grundVag = kortor(SYNVAG);
+    if (grund.status !== 0 || grundSyn.status !== 0 || grundVag.status !== 0) { console.error("Testerna är röda innan mutationerna.\n" + grund.stdout + grund.stderr + grundSyn.stdout + grundSyn.stderr + grundVag.stdout + grundVag.stderr); writeFileSync(KA, original); process.exit(2); }
     for (const [namn, fran, till, filter] of M) {
       const n = original.split(fran).length - 1;
       if (n !== 1) { console.error(`✗ "${namn}": mönstret finns ${n} gånger i ${KA}:\n   ${fran}`); writeFileSync(KA, original); process.exit(2); }

@@ -5,7 +5,7 @@
 //   1. rågången är en vit kärna med mörk kant — på BÅDA bakgrunderna (på vit syns den på kanten, på mörkt på kärnan), och ingen pinne/röd prick finns,
 //   2. styrka efter närhet: stycket nära trakten är fullt, stycket långt bort tunnare och svagare,
 //   3. traktgränsen ligger OVANPÅ rågången: där de sammanfaller syns ett vitt band med röd/gul snitsel i mitten, där de skiljer sig syns båda var för sig,
-//   4. skimmer på fastigheter trakten överlappar, nedtoning av ALLA övriga — och INGEN nedtoning när fastighetsdata saknas runt trakten,
+//   4. INGET skimmer på fastigheter trakten ligger på (orörd flygbild), nedtoning (45 %) av ALLA övriga — och INGEN nedtoning när fastighetsdata saknas runt trakten,
 //   5. beteckningen står på båda sidor om gränsen,
 //   6. en etikett per yta: en MultiPolygon med tre delar ger tre etiketter när polygonen själv bär etiketten (felet) och EN när etiketten är en punkt (lib/ytaEtikett),
 //   7. Lantmäteriets rasterlager (när Vida inte levererat fastigheter) ritas i SAMMA stil: vit kärna med mörk kant, aldrig gult (syntetisk tile — riktiga WMS nås inte härifrån).
@@ -241,22 +241,22 @@ describe.skipIf(!CHROMIUM)('Traktgränsen OVANPÅ rågången — ingen döljer d
   }
 });
 
-describe.skipIf(!CHROMIUM)('Vems mark — skimmer på fastigheter trakten överlappar, nedtoning av alla övriga, INGET när data saknas', () => {
-  it('trakten ligger i A: A ljusare än bakgrunden, B och C (övriga) mörkare', async () => {
+describe.skipIf(!CHROMIUM)('Vems mark — INGET skimmer på fastigheter trakten ligger på, nedtoning av alla övriga, INGET när data saknas', () => {
+  it('trakten ligger i A: A är orörd flygbild (inget skimmer), B och C (övriga) mörkare', async () => {
     const m = await rita('flygfoto', { features: [A, B, C, TRAKT_EGEN] }, { skriv: SKRIV, namn: 'skimmer-egen', zoom: 16 });
-    expect(lum(m.px(120, 20)), 'A (trakten) ska vara ljusare än bakgrunden').toBeGreaterThan(lum(m.bakgrund) + 2);
+    expect(Math.abs(lum(m.px(120, 20)) - lum(m.bakgrund)), 'A (trakten) ska vara OROERD: inget vitt skimmer som gör flygfotot mjölkigt').toBeLessThan(1.5);
     expect(lum(m.px(300, 20)), 'B (utanför) ska vara mörkare än bakgrunden').toBeLessThan(lum(m.bakgrund) - 6);
     expect(lum(m.px(100, 300)), 'C (utanför) ska vara mörkare än bakgrunden').toBeLessThan(lum(m.bakgrund) - 6);
   }, 90000);
-  it('nedtoningen är tydlig men inte svart: 35–50 % av ljuset kvar, så vägar, hus och diken syns genom men en dämpad tomt aldrig är ljusare än skogen i den ljusa fastigheten', async () => {
+  it('nedtoningen är 45 %: 50–60 % av ljuset kvar, så vägar, hus och diken syns genom men en dämpad tomt aldrig är ljusare än skogen på trakten', async () => {
     const m = await rita('flygfoto', { features: [A, B, C, TRAKT_EGEN] }, { zoom: 16 });
     const forhall = lum(m.px(300, 20)) / lum(m.bakgrund);
-    expect(forhall, 'B:s ljushet relativt bakgrunden').toBeGreaterThan(0.35); expect(forhall).toBeLessThan(0.5);
+    expect(forhall, 'B:s ljushet relativt bakgrunden').toBeGreaterThan(0.5); expect(forhall).toBeLessThan(0.6);
   }, 90000);
-  it('trakten ligger på A och B: BÅDA lyser (marken ingår), C tonas', async () => {
+  it('trakten ligger på A och B: BÅDA är orörda (marken ingår), C tonas', async () => {
     const m = await rita('flygfoto', { features: [A, B, C, TRAKT_PA_TVA] }, { skriv: SKRIV, namn: 'skimmer-tva', zoom: 16 });
-    expect(lum(m.px(120, 20)), 'A ska vara ljusare än bakgrunden').toBeGreaterThan(lum(m.bakgrund) + 2);
-    expect(lum(m.px(300, 20)), 'B ska vara ljusare än bakgrunden').toBeGreaterThan(lum(m.bakgrund) + 2);
+    expect(Math.abs(lum(m.px(120, 20)) - lum(m.bakgrund)), 'A ska vara orörd').toBeLessThan(1.5);
+    expect(Math.abs(lum(m.px(300, 20)) - lum(m.bakgrund)), 'B ska vara orörd').toBeLessThan(1.5);
     expect(lum(m.px(100, 300)), 'C ska vara mörkare än bakgrunden').toBeLessThan(lum(m.bakgrund) - 6);
   }, 90000);
   it('fastighetsdata saknas runt trakten: ingenting tonas, varken ljust eller mörkt', async () => {
@@ -408,7 +408,8 @@ describe.skipIf(!CHROMIUM)('Lantmäteriets gräns i SAMMA stil — vit kärna me
 // -- källvakter: sidan ritar rågången och etiketterna med de delade specarna --------------------------------------------------------------------
 describe('page.tsx ritar rågången med de delade specarna', () => {
   const sida = fs.readFileSync(path.join(process.cwd(), 'app/planering/page.tsx'), 'utf8');
-  it('rågångens källor och lager skapas ur lib/fastighetsgransKarta, skimret UNDER första vektorlagret, resten före traktgränsen', () => {
+  const mapLayersKalla = fs.readFileSync(path.join(process.cwd(), 'lib/mapLayers.ts'), 'utf8');
+  it('rågångens källor och lager skapas ur lib/fastighetsgransKarta, nedtoningen UNDER första vektorlagret, resten före traktgränsen', () => {
     expect(sida).toMatch(/for \(const \[id, spec\] of ragangKallor\(\)\) map\.addSource\(id, spec as any\)/);
     expect(sida).toMatch(/for \(const \{ spec, nedre \} of ragangLager\(\)\) map\.addLayer\(spec, nedre \? forstaVektorId : undefined\)/);
     expect(sida.indexOf('ragangLager()')).toBeLessThan(sida.indexOf("id: 'trakt-gr-casing'"));
@@ -437,6 +438,11 @@ describe('page.tsx ritar rågången med de delade specarna', () => {
     expect(sida).toMatch(/if \(id === 'fastighetsgranser'\) return;/);   // den generiska WMS-effekten rör inte Lantmäteri-paret
     expect(sida).toMatch(/\{ id: 'fastighetsgrans', name: 'Fastighetsgränser', desc: [^}]+\}/);
     expect(sida).not.toMatch(/\{ id: 'fastighetsgranser', name: 'Fastighetsgränser'/);   // ingen andra menyrad för Lantmäteri
+    // …och inte heller via den generella WMS-listan: Lantmäteri-lagret har `meny: false` och Lager-menyn (både katalogen för plusraden och grupperna) hoppar över sådana.
+    expect(mapLayersKalla).toMatch(/id: 'fastighetsgranser', url: [^\n]*name: 'Fastighetsgränser'[^\n]*meny: false/);
+    expect(sida).toMatch(/for \(const g of wmsLayerGroups\) for \(const l of g\.layers\) if \(l\.meny !== false\) lagg\(l\.id, l\.name\);/);
+    expect(sida).toMatch(/rader: grp\.layers\.filter\(\(l\) => l\.meny !== false\)\.map/);
+    expect((sida.match(/name: 'Fastighetsgränser'/g) || []).length, 'EN rad med namnet Fastighetsgränser i planeringens meny').toBe(1);
     expect(sida).not.toMatch(/RAGANG_KALLOR\.pinne|ragang\?\.pinnar|trakt-ragang-pinne/);
     expect(sida).not.toMatch(/gränspinnar|Granne ·/);
   });

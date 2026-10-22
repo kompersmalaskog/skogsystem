@@ -1320,7 +1320,7 @@ export default function PlannerPage() {
   // de nya lagerknapparna (nyckelbiotop/lämning). Traktdelar har ingen knapp — de är alltid tända.
   const [geoKategorier, setGeoKategorier] = useState<Set<TraktKategori>>(new Set());
   const [traktGeo, setTraktGeo] = useState<any>(null); // hela FeatureCollection för valt objekt → snabbpanelen räknar faror/hänsyn/basväg ur den
-  // FASTIGHETSGRÄNS (rågång) ur Vidas SV_FASTIGHET: linjer i full/svag styrka, vilka fastigheter trakten överlappar (skimmer/nedtoning), beteckningar (lib/fastighetsgrans). null = Vida har inte levererat fastighetsytor.
+  // FASTIGHETSGRÄNS (rågång) ur Vidas SV_FASTIGHET: linjer i full/svag styrka, vilka fastigheter trakten överlappar (övriga tonas ned), beteckningar (lib/fastighetsgrans). null = Vida har inte levererat fastighetsytor.
   const ragang = useMemo(() => byggRagang(traktGeo), [traktGeo]);
   const ragangRef = useRef<RagangModell | null>(null);
   ragangRef.current = ragang;
@@ -1868,7 +1868,7 @@ export default function PlannerPage() {
     // eget tunt lager. Faint fyllning kvar BARA för tappbarhet (hela ytan öppnar kortet). Snitseln =
     // svart casing + röd bas (LEGEND.fara) + gul streckad (LEGEND.gul), samma recept som line-boundary-*.
     // Filtrerar på _lager (SV_BESKRIVNINGSENHET_FL delar _typ='traktgräns' men ska ALDRIG renderas).
-    // Fastighetsgränsen (rågång) ligger UNDER traktgränsen: vit linje med mörk kant, skimmer på fastigheter trakten överlappar och nedtoning av övriga, beteckningar (lib/fastighetsgransKarta).
+    // Fastighetsgränsen (rågång) ligger UNDER traktgränsen: vit linje med mörk kant och nedtoning av fastigheter trakten inte ligger på (de andra lämnas orörda), beteckningar (lib/fastighetsgransKarta).
     // Källorna fylls av effekten [ragang]; lagren börjar osynliga. Skimret läggs under alla vektorlager, resten ritas före traktgränsen (nedan) så den hamnar ovanpå.
     for (const [id, spec] of ragangKallor()) map.addSource(id, spec as any);
     const forstaVektorId = forstaVektorLagerId(map.getStyle().layers as any);
@@ -12063,7 +12063,7 @@ export default function PlannerPage() {
     const ut: { id: string; name: string }[] = [];
     const lagg = (id: string, name: string) => { if (!sett.has(id)) { sett.add(id); ut.push({ id, name }); } };
     for (const o of overlayLista) if (o.enabled) lagg(o.id, o.name);
-    for (const g of wmsLayerGroups) for (const l of g.layers) lagg(l.id, l.name);
+    for (const g of wmsLayerGroups) for (const l of g.layers) if (l.meny !== false) lagg(l.id, l.name);
     lagg('brandrisk', 'Brandrisk');
     return ut;
   })();
@@ -12161,7 +12161,7 @@ export default function PlannerPage() {
     });
     g.push({ id: 'overlay', rubrik: 'Overlay', rader: overlayLista.map((o) => vaxel(o.id, o.name, o.desc, lagerPa(o.id), lagerBild(o.id), () => { if (o.enabled) vaxlaLager(o.id); })) });
     for (const grp of wmsLayerGroups) {
-      g.push({ id: `wms-${grp.group}`, rubrik: grp.group, rader: grp.layers.map((l) => vaxel(l.id, l.name, l.desc, !!(overlays as any)[l.id], lagerBild(l.id, l.color), sla(l.id))) });
+      g.push({ id: `wms-${grp.group}`, rubrik: grp.group, rader: grp.layers.filter((l) => l.meny !== false).map((l) => vaxel(l.id, l.name, l.desc, !!(overlays as any)[l.id], lagerBild(l.id, l.color), sla(l.id))) });
     }
     g.push({ id: 'smhi', rubrik: 'SMHI', rader: [vaxel('brandrisk', 'Brandrisk', 'SMHI prognos, uppdateras dagligen', !!(overlays as any).brandrisk, lagerBild('brandrisk'), sla('brandrisk'))] });
     g.push({

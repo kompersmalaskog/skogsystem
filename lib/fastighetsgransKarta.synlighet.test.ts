@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { build } from 'esbuild';
 import { byggRagang, provpunkter, traktdelarUr } from './fastighetsgrans';
 import { DEFAULT_MAP_LAYERS, lasSparadeLager } from './hooks/useMapLayers';
-import { LM_GRANS, RAGANG_LAGER_ORDNING, fastighetsSynlighet } from './fastighetsgransKarta';
+import { LM_GRANS, NEDTONING_UTANFOR, RAGANG_LAGER_ORDNING, ragangLager, fastighetsSynlighet } from './fastighetsgransKarta';
 
 function chromium(): { launch: (o: object) => Promise<any> } | null {
   try {
@@ -48,11 +48,29 @@ describe('fastighetsSynlighet — släckt lager = ingenting av fastighetsgränse
   it('lagerPa måste vara exakt true: undefined, 0, "" och "true" tänder inget', () => {
     for (const v of [undefined, 0, '', 'true', null] as any[]) expect(fastighetsSynlighet({ lagerPa: v, harVidaData: true, geometriLast: true, briefingLM: false })).toEqual({ vida: false, lm: false });
   });
-  it('gammalt sparat läge → lagerPa → synlighet: ett läge från första versionen (true utan märke) tänder inget', () => {
-    const gammalt = '{"hansyn":true,"fastighetsgrans":true,"fastighetsgranser":true}';
+  it('gammalt sparat läge → lagerPa → synlighet: ett läge från första versionen (true utan märke, gamla raden av) tänder inget', () => {
+    const gammalt = '{"hansyn":true,"fastighetsgrans":true,"fastighetsgranser":false}';
     const l = lasSparadeLager(gammalt);
     expect(fastighetsSynlighet({ lagerPa: l.fastighetsgrans, harVidaData: true, geometriLast: true, briefingLM: l.fastighetsgranser })).toEqual({ vida: false, lm: false });
     expect(fastighetsSynlighet({ lagerPa: DEFAULT_MAP_LAYERS.fastighetsgrans, harVidaData: true, geometriLast: true, briefingLM: false })).toEqual({ vida: false, lm: false });
+  });
+  it('EN rad: ett gammalt PÅ på den borttagna Lantmäteri-raden är nu PÅ på den enda raden (en gång) — Vidas rågång när Vida har data, annars Lantmäteri', () => {
+    const l = lasSparadeLager('{"fastighetsgranser":true}');
+    expect(l.fastighetsgrans).toBe(true);
+    expect(fastighetsSynlighet({ lagerPa: l.fastighetsgrans, harVidaData: true, geometriLast: true, briefingLM: l.fastighetsgranser })).toEqual({ vida: true, lm: false });
+    expect(fastighetsSynlighet({ lagerPa: l.fastighetsgrans, harVidaData: false, geometriLast: true, briefingLM: l.fastighetsgranser })).toEqual({ vida: false, lm: true });
+  });
+});
+
+describe('fastigheterna trakten ligger på får inget skimmer, de övriga tonas ned 45 %', () => {
+  it('lagerspecarna: EN yta (de utanför), svart, 45 % — ingen fyllning för fastigheterna trakten ligger på', () => {
+    const ytor = ragangLager().filter((l) => l.spec.type === 'fill');
+    expect(ytor.map((l) => l.spec.id)).toEqual(['trakt-ragang-yta-utanfor']);
+    expect(ytor[0].spec.paint['fill-color']).toBe('#000000');
+    expect(ytor[0].spec.paint['fill-opacity']).toBe(0.45);
+    expect(NEDTONING_UTANFOR.opacity).toBe(0.45);
+    expect(RAGANG_LAGER_ORDNING).not.toContain('trakt-ragang-yta-trakt');
+    expect(ragangLager().filter((l) => l.spec.type === 'fill' && String(l.spec.paint['fill-color']).toLowerCase().includes('fff'))).toEqual([]);
   });
 });
 
@@ -113,7 +131,7 @@ describe.skipIf(!CHROMIUM)('Fastighetslagret i riktig karta med verklig prod-geo
 
   const lagen: [string, string | null][] = [
     ['ingenting sparat (första starten)', null],
-    ['gammalt sparat läge från första versionen: fastighetsgrans true, inget märke', '{"hansyn":true,"fastighetsgrans":true,"fastighetsgranser":true}'],
+    ['gammalt sparat läge från första versionen: fastighetsgrans true, inget märke', '{"hansyn":true,"fastighetsgrans":true,"fastighetsgranser":false}'],
     ['sparat läge där användaren släckt lagret', '{"fastighetsgransVal":true,"fastighetsgrans":false}'],
     ['trasigt sparat läge', '{trasig'],
   ];
@@ -142,7 +160,7 @@ describe.skipIf(!CHROMIUM)('Fastighetslagret i riktig karta med verklig prod-geo
       expect(r.synliga).toEqual([]); expect(r.avvikande).toBe(0);
     } finally { await b.close(); }
   }, 120000);
-  it('SAMMA karta, lagret TÄNT: alla åtta vektorlager syns (så att tomt ovan inte beror på att inget går att rita) och Lantmäteri-paret är släckt', async () => {
+  it('SAMMA karta, lagret TÄNT: alla sju vektorlager syns (så att tomt ovan inte beror på att inget går att rita) och Lantmäteri-paret är släckt', async () => {
     const { b, pg } = await oppna(BG, 16.2, [15.3035, 56.5873]);
     try {
       await bygg(pg);
@@ -180,6 +198,60 @@ describe.skipIf(!CHROMIUM)('Fastighetslagret i riktig karta med verklig prod-geo
     } finally { await b.close(); }
   }, 120000);
 
+  // ── vägar och diken i nedtonad mark syns (Martin 2026-10-22: nedtoning ~45 %, inte mer) ───────────────────────────────────────────────────────────────────
+  // Flygfotot ligger UNDER nedtoningen (den läggs under första vektorlagret, ovanpå baskartan), så en väg i fotot dämpas som allt annat. Här ritas en ljus väg under nedtoningen, en gång på
+  // trakten (orörd) och en gång mitt i en nedtonad fastighet, och kontrasten väg/mark mäts i pixlar: i den nedtonade marken ska minst hälften av kontrasten finnas kvar (och minst 25 nivåer).
+  for (const bg of ['#3d4a2c', '#8a8a8a']) {
+    it(`bakgrund ${bg}: en väg i nedtonad mark syns — minst hälften av kontrasten mot marken finns kvar (45 % nedtoning lämnar 55 %)`, async () => {
+      const mork = (modell.ytor.features as any[]).filter((f) => f.properties.sida === 'utanfor');
+      const delar = traktdelarUr(FC);
+      const avstand = (pt: number[], poly: number[][][]): number => {
+        const ky = 111320, kx = 111320 * Math.cos((pt[1] * Math.PI) / 180); let d = Infinity;
+        for (const r of poly) for (let i = 1; i < r.length; i++) {
+          const ax = (r[i - 1][0] - pt[0]) * kx, ay = (r[i - 1][1] - pt[1]) * ky, bx = (r[i][0] - pt[0]) * kx, by = (r[i][1] - pt[1]) * ky;
+          const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy, u = l2 === 0 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2));
+          d = Math.min(d, Math.hypot(ax + u * dx, ay + u * dy));
+        }
+        return d;
+      };
+      // Den punkt i den STÖRSTA nedtonade ytan som ligger längst från sin kant, och motsvarande i trakten.
+      const bast = (polys: { poly: number[][][] }[]): number[] => {
+        let b: { p: number[]; d: number } = { p: [0, 0], d: -1 };
+        for (const { poly } of polys) for (const p of provpunkter([poly as any])) { const d = avstand(p, poly); if (d > b.d) b = { p, d }; }
+        return b.p;
+      };
+      const ptDim = bast(mork.map((f) => ({ poly: f.geometry.coordinates })));
+      const ptTrakt = bast(delar.map((d) => ({ poly: d })));
+      const { b, pg } = await oppna(bg, 16.2, ptTrakt as [number, number]);
+      try {
+        const lum = await pg.evaluate(async (a: any) => {
+          const map = (window as any).__map, FG = (window as any).FG;
+          // En 60 m lång väg (öst–väst) genom varje punkt, ritad FÖRE nedtoningen så att den ligger i "fotot" och dämpas som allt annat.
+          const vag = (p: number[]) => { const dx = 30 / (111320 * Math.cos((p[1] * Math.PI) / 180)); return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [[p[0] - dx, p[1]], [p[0] + dx, p[1]]] } }; };
+          map.addSource('vagar', { type: 'geojson', data: { type: 'FeatureCollection', features: [vag(a.dim), vag(a.trakt)] } });
+          map.addLayer({ id: 'vagar', type: 'line', source: 'vagar', paint: { 'line-color': '#e6e0c8', 'line-width': 6 } });
+          map.addSource('y', { type: 'geojson', data: a.ytor });
+          for (const { spec } of FG.ragangLager()) if (spec.id === 'trakt-ragang-yta-utanfor') { const s = JSON.parse(JSON.stringify(spec)); s.source = 'y'; s.layout.visibility = 'visible'; map.addLayer(s); }
+          // Punkterna ligger långt från varandra: kameran flyttas till varje punkt och rutan ritas om innan pixlarna läses (väg mitt i bilden, mark 18 px ovanför).
+          const mata = async (p: number[]) => {
+            map.jumpTo({ center: p, zoom: 16.2 });
+            await new Promise((r) => { map.once('idle', r); map.triggerRepaint(); });
+            const src = map.getCanvas(); const c = document.createElement('canvas'); c.width = src.width; c.height = src.height; const ctx = c.getContext('2d')!; ctx.drawImage(src, 0, 0);
+            const dpr = src.width / src.clientWidth; const q = map.project(p);
+            const L = (dy: number) => { const d = ctx.getImageData(Math.round(q.x * dpr), Math.round((q.y + dy) * dpr), 1, 1).data; return 0.2126 * d[0] + 0.7152 * d[1] + 0.0722 * d[2]; };
+            return { vag: L(0), mark: L(-18) };
+          };
+          const d = await mata(a.dim), t = await mata(a.trakt);
+          return { dimVag: d.vag, dimMark: d.mark, traktVag: t.vag, traktMark: t.mark };
+        }, { ytor: modell.ytor, dim: ptDim, trakt: ptTrakt });
+        const kTrakt = lum.traktVag - lum.traktMark, kDim = lum.dimVag - lum.dimMark;
+        expect(kTrakt, 'kontrasten väg/mark på trakten (orörd)').toBeGreaterThan(40);
+        expect(kDim, `kontrasten väg/mark i nedtonad mark (${kDim.toFixed(0)} av ${kTrakt.toFixed(0)})`).toBeGreaterThanOrEqual(0.5 * kTrakt);
+        expect(kDim, 'minst 25 nivåer kontrast kvar i nedtonad mark').toBeGreaterThanOrEqual(25);
+      } finally { await b.close(); }
+    }, 120000);
+  }
+
   // ── fel 2: traktdelarna ligger i den ljusa delen, ljusare än varje nedtonad fastighet, på mörk OCH ljus bakgrund ─────────────────────
   for (const bg of ['#3d4a2c', '#f2efe9', '#101510', '#8a8a8a']) {
     it(`bakgrund ${bg}: varje traktdels yta är LJUSARE än varje nedtonad fastighets yta (verkliga polygoner, bara fyllningarna så att inga linjer stör)`, async () => {
@@ -190,7 +262,7 @@ describe.skipIf(!CHROMIUM)('Fastighetslagret i riktig karta med verklig prod-geo
         await pg.evaluate(async (a: any) => {
           const map = (window as any).__map, FG = (window as any).FG;
           map.addSource('y', { type: 'geojson', data: a.ytor });
-          for (const { spec } of FG.ragangLager()) if (spec.id === 'trakt-ragang-yta-trakt' || spec.id === 'trakt-ragang-yta-utanfor') { const s = JSON.parse(JSON.stringify(spec)); s.source = 'y'; s.layout.visibility = 'visible'; map.addLayer(s); }
+          for (const { spec } of FG.ragangLager()) if (spec.id === 'trakt-ragang-yta-utanfor') { const s = JSON.parse(JSON.stringify(spec)); s.source = 'y'; s.layout.visibility = 'visible'; map.addLayer(s); }
           await new Promise((r) => { map.once('idle', r); map.triggerRepaint(); });
         }, { ytor: modell.ytor });
         // Punkter: alla provpunkter i traktdelarna, och tio punkter per nedtonad yta (jämnt utspridda över dess provpunkter) som ligger på skärmen.
@@ -227,9 +299,9 @@ describe.skipIf(!CHROMIUM)('Fastighetslagret i riktig karta med verklig prod-geo
           const ljusare = v.filter((x) => x > morkMax).length / v.length;
           expect(ljusare, `traktdel ${k + 1}: andel av punkterna ljusare än den ljusaste nedtonade punkten (${morkMax.toFixed(1)})`).toBeGreaterThanOrEqual(0.97);
         });
-        // Och i snitt är trakten MYCKET ljusare: medelljuset i trakten överstiger medelljuset i de nedtonade med minst faktorn 2 (på alla bakgrunder är lit/dim ≥ 2).
+        // Och i snitt är trakten tydligt ljusare: trakten är orörd (inget skimmer) och de nedtonade har 55 % av ljuset kvar, alltså är kvoten ≈ 1,8 på varje bakgrund — kravet är 1,5.
         const snitt = (v: number[]) => v.reduce((s, x) => s + x, 0) / v.length;
-        expect(snitt(lum.trakt as number[]) / Math.max(snitt(alla), 1), 'ljusförhållande trakt/nedtonad').toBeGreaterThan(2);
+        expect(snitt(lum.trakt as number[]) / Math.max(snitt(alla), 1), 'ljusförhållande trakt/nedtonad').toBeGreaterThan(1.5);
       } finally { await b.close(); }
     }, 120000);
   }

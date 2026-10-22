@@ -73,6 +73,10 @@ export function nyckelTillPost(nyckel: string): PlusPost | null {
   return giltigPost(p) ? (p as PlusPost) : null;
 }
 
+/** Lantmäteri-lagret hade en egen rad i Lager-menyn; nu finns EN rad för fastighetsgränser. Användningsräkningen för den gamla flyttas till den nya (annars tappas den tyst). */
+const GAMMALT_GRANSLAGER = 'lager:fastighetsgranser';
+const NYTT_GRANSLAGER = 'lager:fastighetsgrans';
+
 /** Tolka sparad JSON. Trasigt, fel form eller okända poster ger aldrig ett fel — de kastas tyst bort. */
 export function tolkaPlusRad(raw: string | null | undefined): PlusRadState {
   if (!raw) return tomtPlusRad();
@@ -95,7 +99,7 @@ export function tolkaPlusRad(raw: string | null | undefined): PlusRadState {
       .map(([k, v]) => [k, Math.floor(v as number)] as [string, number])
       .sort((a, b) => b[1] - a[1])
       .slice(0, MAX_ANV_NYCKLAR);
-    for (const [k, v] of poster) anv[k] = v;
+    for (const [k, v] of poster) anv[k === GAMMALT_GRANSLAGER ? NYTT_GRANSLAGER : k] = (anv[k === GAMMALT_GRANSLAGER ? NYTT_GRANSLAGER : k] || 0) + v;
   }
   return { fasta, anv };
 }

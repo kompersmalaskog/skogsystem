@@ -5,7 +5,7 @@
 //     lmGransLager) — föraren ser aldrig två olika stilar för fastighetsgräns.
 //   • Styrka efter närhet: stycken som berör trakten eller ligger inom ~50 m från den ritas i full styrka, övriga hälften så breda och svagare.
 //   • Traktgränsen (röd/gul snitsel) ligger SMAL OVANPÅ rågången. Där de sammanfaller blir det ett vitt band med snitselstreck, där de skiljer sig syns båda.
-//   • Vems mark: fastigheter som trakten överlappar får ett svagt ljust skimmer, ALLA övriga tonas ned något (vägar, hus och diken syns fortfarande) — appen vet inte
+//   • Vems mark: fastigheter som trakten överlappar lämnas orörda (inget skimmer), ALLA övriga tonas ned 45 % (vägar, hus och diken syns fortfarande) — appen vet inte
 //     vem som äger vad, så det som räknas är om marken ingår i trakten. Saknas fastighetsdata helt tonas ingenting.
 //   • Beteckningen står längs gränsen på båda sidor (bara beteckningen, aldrig "granne").
 //   • Allt här hör till lagret "Fastighetsgränser": släckt lager = vanlig karta. Undantaget är fällningsvarningen i skördaren, som gäller alltid (säkerhet).
@@ -20,7 +20,6 @@ export const RAGANG_KALLOR = {
 } as const;
 
 export const RAGANG_LAGER = {
-  ytaTrakt: 'trakt-ragang-yta-trakt',
   ytaUtanfor: 'trakt-ragang-yta-utanfor',
   kantSvag: 'trakt-ragang-kant-svag',
   kant: 'trakt-ragang-kant',
@@ -32,18 +31,16 @@ export const RAGANG_LAGER = {
 
 /** Alla lagren i den ordning de ska ligga (underst först). Tryck-lagret ligger sist bland linjerna och syns inte. */
 export const RAGANG_LAGER_ORDNING: readonly string[] = [
-  RAGANG_LAGER.ytaTrakt, RAGANG_LAGER.ytaUtanfor, RAGANG_LAGER.kantSvag, RAGANG_LAGER.kant, RAGANG_LAGER.linjeSvag, RAGANG_LAGER.linje, RAGANG_LAGER.hit, RAGANG_LAGER.etikett,
+  RAGANG_LAGER.ytaUtanfor, RAGANG_LAGER.kantSvag, RAGANG_LAGER.kant, RAGANG_LAGER.linjeSvag, RAGANG_LAGER.linje, RAGANG_LAGER.hit, RAGANG_LAGER.etikett,
 ];
 
 // -- färger -------------------------------------------------------------------------------------------------------------------------
 export const RAGANG_FARG = '#ffffff';
 export const RAGANG_KANT_FARG = 'rgba(0,0,0,0.85)';
-/** Fastigheter som trakten överlappar: ljust skimmer. Övriga fastigheter: tydligt nedtonade (vägar, hus och diken syns fortfarande genom).
- *  Styrkan är vald mot ett flygfoto, inte mot en jämn bakgrund: skog är mörk, tomter och åker ljusa. Med 10 % skimmer och 26 % nedtoning (första versionen) var en dämpad tomt
- *  fortfarande LJUSARE än skogen i den ljusa fastigheten — det såg ut som att masken var omvänd (Martin 2026-10-22, Stänkelsmåla 2025) fast urvalet var rätt. Med 14 % / 58 %
- *  hamnar en dämpad tomt under skogen i den ljusa fastigheten. */
-export const SKIMMER_TRAKT = { color: '#ffffff', opacity: 0.14 } as const;
-export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.58 } as const;
+/** Övriga fastigheter (de trakten inte ligger på) tonas ned; vägar, hus och diken syns fortfarande genom. **Fastigheterna trakten ligger på får INGET skimmer** (Martin 2026-10-22: ett vitt skimmer
+ *  gjorde flygfotot mjölkigt där vi avverkar) — vår mark är orörd flygbild och kontrasten kommer bara från nedtoningen av övriga. 45 % (Martin; först 26 %, sedan 58 %): tillräckligt för att
+ *  traktdelarna ska vara ljusare än den nedtonade marken på mörk och ljus bakgrund, men vägar och diken i den nedtonade marken syns (ljuset kvar är 55 %). */
+export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.45 } as const;
 /** Svaga stycken (långt från trakten): lägre opacitet på både kärna och kant. */
 export const SVAG_OPACITET = 0.5;
 
@@ -74,12 +71,11 @@ export function ragangKallor(): [string, { type: 'geojson'; data: { type: 'Featu
   return Object.values(RAGANG_KALLOR).map((id) => [id, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }]);
 }
 
-/** Lagerspecarna (alla börjar osynliga — sidans synlighetseffekt tänder dem). `nedre` = ska ligga UNDER alla andra vektorlager (skimret). */
+/** Lagerspecarna (alla börjar osynliga — sidans synlighetseffekt tänder dem). `nedre` = ska ligga UNDER alla andra vektorlager (nedtoningen). */
 export function ragangLager(): { spec: any; nedre: boolean }[] {
   const dold = { visibility: 'none' as const };
   const rund = { ...dold, 'line-cap': 'round' as const, 'line-join': 'round' as const };
   return [
-    { nedre: true, spec: { id: RAGANG_LAGER.ytaTrakt, type: 'fill', source: RAGANG_KALLOR.yta, filter: sidaFilter('trakt'), paint: { 'fill-color': SKIMMER_TRAKT.color, 'fill-opacity': SKIMMER_TRAKT.opacity, 'fill-antialias': false }, layout: dold } },
     { nedre: true, spec: { id: RAGANG_LAGER.ytaUtanfor, type: 'fill', source: RAGANG_KALLOR.yta, filter: sidaFilter('utanfor'), paint: { 'fill-color': NEDTONING_UTANFOR.color, 'fill-opacity': NEDTONING_UTANFOR.opacity, 'fill-antialias': false }, layout: dold } },
     { nedre: false, spec: { id: RAGANG_LAGER.kantSvag, type: 'line', source: RAGANG_KALLOR.linje, filter: styrkaFilter('svag'), paint: { 'line-color': RAGANG_KANT_FARG, 'line-width': RAGANG_KANT_BREDD_SVAG, 'line-opacity': SVAG_OPACITET }, layout: rund } },
     { nedre: false, spec: { id: RAGANG_LAGER.kant, type: 'line', source: RAGANG_KALLOR.linje, filter: styrkaFilter('full'), paint: { 'line-color': RAGANG_KANT_FARG, 'line-width': RAGANG_KANT_BREDD }, layout: rund } },

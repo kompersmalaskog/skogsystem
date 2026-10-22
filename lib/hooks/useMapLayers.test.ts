@@ -36,6 +36,33 @@ describe('fastighetsgrans: standard och sparade lägen', () => {
     expect(lasSparadeLager('{"fastighetsgransVal":true,"fastighetsgranser":true}').fastighetsgranser).toBe(false);
     expect(lasSparadeLager('{"fastighetsgranser":true}').fastighetsgranser).toBe(false);
   });
+  it('EN RAD: ett gammalt val PÅ på den borttagna raden (Lantmäteri-lagret) flyttas till den nya raden — en gång', () => {
+    // Före: den gamla raden var på och den nya (som saknade märke 2) av/saknad.
+    const forst = lasSparadeLager('{"fastighetsgransVal":true,"fastighetsgrans":false,"fastighetsgranser":true}');
+    expect(forst.fastighetsgrans).toBe(true);
+    expect(forst.fastighetsgranser).toBe(false);
+    expect(forst.fastighetsgransEtt).toBe(true);
+    // Också utan någon av den nya radens nycklar alls (äldre än första versionen).
+    expect(lasSparadeLager('{"fastighetsgranser":true}').fastighetsgrans).toBe(true);
+    // Samma uppsättning, sparad tillbaka och läst igen med lagret avslaget av användaren: den flyttas INTE igen.
+    const avslaget = lasSparadeLager(JSON.stringify({ ...forst, fastighetsgrans: false }));
+    expect(avslaget.fastighetsgrans).toBe(false);
+  });
+  it('märket för flytten skrivs alltid som true efter flytten (annars upprepas den vid varje start)', () => {
+    const ut = lasSparadeLager('{"fastighetsgransEtt":false,"fastighetsgranser":true,"fastighetsgrans":false}');
+    expect(ut.fastighetsgrans).toBe(true);
+    expect(ut.fastighetsgransEtt).toBe(true);
+    // Användaren släcker lagret; nästa start får inte flytta den gamla PÅ en gång till.
+    expect(lasSparadeLager(JSON.stringify({ ...ut, fastighetsgrans: false })).fastighetsgrans).toBe(false);
+  });
+  it('briefingens tillfälliga PÅ på den gamla nyckeln tänder aldrig lagret när märket finns', () => {
+    const l = lasSparadeLager(JSON.stringify({ ...DEFAULT_MAP_LAYERS, fastighetsgrans: false, fastighetsgranser: true }));
+    expect(l.fastighetsgrans).toBe(false);
+    expect(l.fastighetsgranser).toBe(false);
+  });
+  it('gammalt val AV på den gamla raden och inget märke: den nya raden förblir AV', () => {
+    expect(lasSparadeLager('{"fastighetsgranser":false}').fastighetsgrans).toBe(false);
+  });
   it('övriga lager rörs inte: sparade val består, nya nycklar får sitt standardvärde', () => {
     const l = lasSparadeLager('{"hansyn":false,"mittSpar":false,"fastighetsgransVal":true}');
     expect(l.hansyn).toBe(false); expect(l.mittSpar).toBe(false);

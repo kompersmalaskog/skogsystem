@@ -3,10 +3,10 @@
 // flera områden (OMRNR) — den identifieras av kommun + TRAKT + BLOCKENHET, aldrig av en enskild polygon.
 //
 // Det här gör modulen (alla beslut har tester, lib/fastighetsgrans.test.ts):
-//  1. byggRagang(fc): rågångens linjer (varje polygons ringar, delade i full/svag styrka efter närhet till trakten), fastighetsytorna (skimmer/nedtoning) och
+//  1. byggRagang(fc): rågångens linjer (varje polygons ringar, delade i full/svag styrka efter närhet till trakten), fastighetsytorna (nedtoning av alla utom de trakten ligger på) och
 //     beteckningarna längs gränsen. Inga gränspinnar: rött betyder fara i hela appen (Martin 2026-10-22).
 //  2. bedomTrakt: VILKA fastigheter trakten överlappar — punktprov i traktdelarna mot fastighetsytorna. Appen vet inte vem som äger vad (samma ägare kan äga
-//     grannfastigheten), så det som räknas är om MARKEN ingår i trakten: de fastigheterna får ett svagt skimmer, alla övriga tonas ned. Saknas fastighetsdata
+//     grannfastigheten), så det som räknas är om MARKEN ingår i trakten: de fastigheterna lämnas orörda, alla övriga tonas ned. Saknas fastighetsdata
 //     runt trakten helt tonas ingenting.
 //  3. avstandTillRagang / fastighetsFall: avståndet till rågången för fällningscirkeln (30 m, ALLA gränser oavsett styrka), och vilka fastigheter som möts vid ett
 //     tryck (kortet).
@@ -200,7 +200,7 @@ export function bedomTrakt(trakt: readonly Poly[], fastigheter: readonly Fastigh
 // Modellen kartan ritar
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-/** Fastighetens förhållande till trakten: ingår i den (skimmer), ligger utanför (nedtonad) eller okänt (ingenting). */
+/** Fastighetens förhållande till trakten: ingår i den (orörd), ligger utanför (nedtonad) eller okänt (ingenting). */
 export type Sida = 'trakt' | 'utanfor' | 'okand';
 type FC = { type: 'FeatureCollection'; features: any[] };
 
@@ -209,7 +209,7 @@ export interface RagangModell {
   urval: Trakturval;
   /** Rågångens linjer: varje polygons ringar i stycken. Egenskaper: namn, nyckel, sida, styrka ('full' | 'svag'). Täcker ALLA gränser (fällningsvarning och tryck). */
   linjer: FC;
-  /** Fastighetsytor (skimmer/nedtoning). Egenskaper: namn, nyckel, sida. */
+  /** Fastighetsytor (bara 'utanfor' ritas, nedtonade; 'trakt' är orörd flygbild). Egenskaper: namn, nyckel, sida. */
   ytor: FC;
   /** Beteckningar längs gränsen, på varje fastighets egen sida (linjer inskjutna i den egna ytan). Egenskaper: text. */
   etiketter: FC;
