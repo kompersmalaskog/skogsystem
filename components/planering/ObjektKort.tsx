@@ -37,6 +37,8 @@ export interface ObjektKortProps {
   /** "N markeringar · M med text" — null = inga markeringar (raden visas inte) */
   paTrakten: string | null;
   onPaTrakten: () => void;
+  /** MASKINLÄGET: "Instruktioner på trakten (N) ›" — alla kommentarer per område, med förarens "✓ Sett". Saknas/null = ingen rad (planeringsvyn och trakter utan instruktioner). */
+  instruktioner?: { antal: number; nya: number; onOppna: () => void } | null;
   /** "Vad betyder kartan ›" — öppnar teckenförklaringen. Saknas = ingen rad. */
   onKarta?: () => void;
   brand: { lat: number; lng: number } | null;
@@ -170,11 +172,15 @@ export default function ObjektKort(p: ObjektKortProps) {
 
         {/* UPPDRAGET: På trakten · Brandrisk · Dokument · Larmkoordinat */}
         <Gruppkort testid="kort-uppdrag">
+          {p.instruktioner && p.instruktioner.antal > 0 && (
+            <RadKnapp forstaRad testid="kort-instruktioner" etikett={`Instruktioner på trakten (${p.instruktioner.antal})`} onTryck={p.instruktioner.onOppna}
+              hoger={p.instruktioner.nya > 0 ? <span data-testid="kort-instruktioner-nya" style={{ ...TYP.listtitel, color: FARG.text }}>{p.instruktioner.nya} {p.instruktioner.nya === 1 ? 'ny' : 'nya'}</span> : undefined} />
+          )}
           {p.paTrakten && (
-            <RadKnapp forstaRad testid="kort-pa-trakten" etikett={<><span style={{ color: FARG.text2 }}>På trakten </span>{p.paTrakten}</>} onTryck={p.onPaTrakten} />
+            <RadKnapp forstaRad={!(p.instruktioner && p.instruktioner.antal > 0)} testid="kort-pa-trakten" etikett={<><span style={{ color: FARG.text2 }}>På trakten </span>{p.paTrakten}</>} onTryck={p.onPaTrakten} />
           )}
           {p.onKarta && (
-            <RadKnapp forstaRad={!p.paTrakten} testid="kort-vad-betyder-kartan" etikett="Vad betyder kartan" onTryck={p.onKarta} />
+            <RadKnapp forstaRad={!p.paTrakten && !(p.instruktioner && p.instruktioner.antal > 0)} testid="kort-vad-betyder-kartan" etikett="Vad betyder kartan" onTryck={p.onKarta} />
           )}
           {p.dokument && (
             <>
