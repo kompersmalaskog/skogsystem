@@ -65,7 +65,7 @@ function props(o: { roll?: 'planerare' | 'forare'; faror?: string[]; markeringar
       brickor: faktaBrickor({ areal: 3.6, volym: 950, grot: true }), extraBrickor: [],
       paTrakten: '4 markeringar · 2 med text', brand: { lat: 56.4, lng: 14.7 }, onBrand: () => { spion.brand += 1; },
       dokument: { antal: 3, chips: <span data-testid="dok-chips">chips</span> },
-      larm: { satt: true, koordinat: '56.40012, 14.70123', bekraftad: false, beskrivning: '', onVisa: () => { spion.larm += 1; } },
+      larm: { satt: true, koordinat: '56.40012, 14.70123', bekraftad: false, visaKontroll: roll === 'planerare', beskrivning: '', onVisa: () => { spion.larm += 1; } },
     },
     om: {
       hela: tillForaren({ vida: LANG_TEXT, anteckningar: 'Ring Stefan.' }), planttext: null, restriktioner: [],
@@ -107,6 +107,20 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
     expect(q('objekt-info')!.getAttribute('data-detent')).toBe('halv');
   });
 
+  it('panelens bredd: 380 px som standard, den bredare (420 px) när sidan ger den — och aldrig bredare än skärmen minus marginal', async () => {
+    sattBredd(1280);
+    await montera(props());
+    expect(q('objekt-info')!.getAttribute('data-bredd')).toBe('380');
+    await act(async () => { rot!.unmount(); }); behallare!.remove();
+    await montera({ ...props(), bredd: 420 });
+    expect(q('objekt-info')!.getAttribute('data-bredd')).toBe('420');
+    sattBredd(390);   // telefon: ett ark i full bredd, ingen panelbredd
+    await act(async () => { rot!.unmount(); }); behallare!.remove();
+    await montera({ ...props(), bredd: 420 });
+    expect(q('objekt-info')!.getAttribute('data-lage')).toBe('ark');
+    expect(q('objekt-info')!.getAttribute('data-bredd')).toBeNull();
+  });
+
   it('bred skärm (≥ 900 px): panel från höger, inget grepp', async () => {
     sattBredd(1280);
     await montera(props());
@@ -117,31 +131,42 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
     expect(q('kort-uppdrag')).not.toBeNull();   // allt syns
   });
 
-  it('planerare: Kör hit · Mer (ingen Inför maskin, ingen Körvy)', async () => {
+  it('planerare: EN knapp, Kör hit (ingen Inför maskin, ingen Körvy) — och Mer är en rad längst ner i uppdraget, inte en knapp', async () => {
     await montera(props());
-    expect(qa('kort-knappar')[0].querySelectorAll('button').length).toBe(2);
+    expect(qa('kort-knappar')[0].querySelectorAll('button').length).toBe(1);
     expect(q('kort-knapp-kor-hit')).not.toBeNull();
-    expect(q('kort-knapp-mer')).not.toBeNull();
+    expect(q('kort-knapp-mer')).toBeNull();
+    expect(q('kort-mer')).not.toBeNull();
     expect(q('kort-knapp-korvy')).toBeNull();
     expect(behallare!.textContent).not.toContain('Inför maskin');
     klicka(q('kort-knapp-kor-hit'));
     expect(spion.knapp).toEqual(['kor-hit']);
   });
 
-  it('förare: Körvy · Skotning · Utkört · Mer — varje knapp ropar rätt handling; Mer öppnar Mer här inne', async () => {
+  it('förare: Körvy · Skotning · Utkört — varje knapp ropar rätt handling; Mer (en rad) öppnar Mer här inne', async () => {
     await montera(props({ roll: 'forare' }));
-    expect(Array.from(q('kort-knappar')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Körvy', 'Skotning', 'Utkört', 'Mer']);
-    expect(q('kort-knappar')!.style.gridTemplateColumns).toContain('repeat(4,');   // alla fyra på EN rad
+    expect(Array.from(q('kort-knappar')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Körvy', 'Skotning', 'Utkört']);
+    expect(q('kort-knappar')!.style.gridTemplateColumns).toContain('repeat(3,');   // alla tre på EN rad
     klicka(q('kort-knapp-korvy')); klicka(q('kort-knapp-skotning')); klicka(q('kort-knapp-utkort'));
     expect(spion.knapp).toEqual(['korvy', 'skotning', 'utkort']);
-    klicka(q('kort-knapp-mer'));
+    klicka(q('kort-mer'));
     expect(q('objekt-info')!.getAttribute('data-vy')).toBe('mer');
     expect(spion.knapp).toEqual(['korvy', 'skotning', 'utkort']);   // Mer ropar inte sidan
   });
 
-  it('skördarförare: Körvy · Mer', async () => {
+  it('skördarförare: bara Körvy som knapp', async () => {
     await montera(props({ roll: 'forare', maskinSlag: 'skordare' }));
-    expect(Array.from(q('kort-knappar')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Körvy', 'Mer']);
+    expect(Array.from(q('kort-knappar')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Körvy']);
+  });
+
+  it('Mer är en vanlig rad längst ner i uppdraget (sist, efter Larmkoordinat), med samma radstil som övriga rader', async () => {
+    await montera(props({ roll: 'forare' }));
+    const uppdrag = q('kort-uppdrag')!;
+    const rader = Array.from(uppdrag.children) as HTMLElement[];
+    expect(rader[rader.length - 1].getAttribute('data-testid')).toBe('kort-mer');
+    expect(q('kort-mer')!.className).toContain('press-row');
+    expect(q('kort-mer')!.textContent).toContain('Mer');
+    expect(q('kort-mer')!.textContent).toContain('Fler val och inställningar');   // raden säger vad den gör
   });
 
   it('faror står överst som röd rad med ord, och saknas helt när det inte finns några', async () => {
@@ -152,20 +177,50 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
     expect(q('kort-faror')).toBeNull();
   });
 
-  it('Till föraren: var och en med avsändare; en lång text ger "Läs allt ›" som öppnar Om trakten', async () => {
+  it('Till föraren: Vidas direktiv i sin helhet — aldrig avklippt, inget "Läs allt" — i samma ruta som instruktionskortet, delat i numrerade punkter vid meningsslut', async () => {
     await montera(props());
-    expect(q('kort-post-vida')!.textContent).toContain('Vida');
-    expect(q('kort-post-anteckningar')!.textContent).toContain('Planerare');
-    expect(q('kort-post-vida')!.querySelector('[data-testid="kort-las-allt"]')).not.toBeNull();
-    expect(q('kort-post-anteckningar')!.querySelector('[data-testid="kort-las-allt"]')).toBeNull();   // kort text: inget "Läs allt"
-    klicka(q('kort-post-vida')!.querySelector('[data-testid="kort-las-allt"]'));
-    expect(q('objekt-info')!.getAttribute('data-vy')).toBe('om');
-    expect(q('om-hela')!.textContent).toContain('Markberedning planeras till våren.');   // hela texten
+    const vida = q('kort-post-vida')!;
+    expect(vida.querySelector('[data-testid="kort-las-allt"]')).toBeNull();
+    expect(vida.querySelector('[data-testid="kartkort-kommentar-kalla"]')!.textContent).toBe('Vida · traktdirektiv');
+    // tre meningar → tre numrerade punkter, hela texten (inget klipp)
+    expect(Array.from(vida.querySelectorAll('[data-testid="kartkort-kommentar-punkt"]')).map((li) => li.textContent!.replace(/^\d+/, ''))).toEqual([
+      'Skogsägaren önskar att ca 15 tallar per ha sparas som fröträd.', 'Hänsynsytor vid bäcken ska lämnas orörda.', 'Markberedning planeras till våren.',
+    ]);
+    expect(vida.textContent).toContain('Markberedning planeras till våren.');
+    // planerarens text: egen etikett, EN rad = vanlig text (delas aldrig vid meningsslut)
+    expect(q('kort-post-anteckningar')!.querySelector('[data-testid="kartkort-kommentar-kalla"]')!.textContent).toBe('Planerare');
+    expect(q('kort-post-anteckningar')!.querySelector('[data-testid="kartkort-kommentar-text"]')!.textContent).toBe('Ring Stefan.');
+  });
+
+  it('Till föraren ligger HÖGST UPP efter Faror: före Brandrisk, knapparna och uppdraget', async () => {
+    await montera(props({ faror: ['Kraftledning'] }));
+    const f = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(f(q('kort-faror')!, q('kort-till-foraren')!)).toBe(true);
+    expect(f(q('kort-till-foraren')!, q('info-brandrisk-kort')!)).toBe(true);
+    expect(f(q('kort-till-foraren')!, q('kort-knappar')!)).toBe(true);
+    expect(f(q('kort-till-foraren')!, q('kort-uppdrag')!)).toBe(true);
+  });
+
+  it('Vidas direktiv har ✓ Sett under rutan i maskinläget (instruktion nr 1) — tills det setts; planeringsvyn har ingen knapp', async () => {
+    const sett: string[][] = [];
+    const p = props({ roll: 'forare' });
+    p.instruktioner = { data: { antal: 1, nya: 1, omraden: [{ nyckel: 'direktiv', namn: 'Traktdirektiv', nya: 1, instruktioner: [] }] }, onSett: (n) => { sett.push(n); } };
+    await montera(p);
+    klicka(q('kort-direktiv-sett'));
+    expect(sett).toEqual([['direktiv']]);
+    await act(async () => { rot!.unmount(); }); behallare!.remove();
+    const sedd = props({ roll: 'forare' });
+    sedd.instruktioner = { data: { antal: 1, nya: 0, omraden: [{ nyckel: 'direktiv', namn: 'Traktdirektiv', nya: 0, instruktioner: [] }] }, onSett: () => {} };
+    await montera(sedd);
+    expect(q('kort-direktiv-sett')).toBeNull();
+    await act(async () => { rot!.unmount(); }); behallare!.remove();
+    await montera(props());
+    expect(q('kort-direktiv-sett')).toBeNull();
   });
 
   it('På trakten är EN rad ("N markeringar · M med text ›") och öppnar Om trakten — ingen högstubbe-dubblett i kortet', async () => {
     await montera(props());
-    expect(q('kort-pa-trakten')!.textContent).toBe('På trakten 4 markeringar · 2 med text');
+    expect(q('kort-pa-trakten')!.textContent).toBe('På trakten · 4 markeringar · 2 med text');
     expect(q('kort-uppdrag')!.textContent).not.toMatch(/Högstubb|Evighetsträd/);
     klicka(q('kort-pa-trakten'));
     expect(q('objekt-info')!.getAttribute('data-vy')).toBe('om');
@@ -238,14 +293,18 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
     expect(spion.larm).toBe(1);
   });
 
-  it('Larmkoordinat: "Larmplats inte kontrollerad" — ingen teknisk text om källan; kontrollerad säger det', async () => {
-    await montera(props());
+  it('Larmkoordinat: "Larmplats inte kontrollerad" visas bara i planeringsläget — föraren ser koordinaten, inte kontrollstatusen; ingen teknisk text om källan', async () => {
+    await montera(props());   // planerare
     expect(q('kort-larm-status')!.textContent).toBe('Larmplats inte kontrollerad');
     expect(q('kort-larm')!.textContent).not.toMatch(/envz|traktfil|Ej bekräftad/);
     await act(async () => { rot!.unmount(); }); behallare!.remove();
     const p = props(); p.kort.larm.bekraftad = true;
     await montera(p);
     expect(q('kort-larm-status')!.textContent).toBe('Larmplats kontrollerad');
+    await act(async () => { rot!.unmount(); }); behallare!.remove();
+    await montera(props({ roll: 'forare' }));
+    expect(q('kort-larm')!.textContent).toContain('56.40012, 14.70123');   // koordinaten syns för föraren
+    expect(q('kort-larm-status')).toBeNull();                                // kontrollstatusen gör det inte
   });
 
   it('Esc och × stänger', async () => {
@@ -417,13 +476,13 @@ describe('Om trakten — typvyn, objekten och vägen tillbaka', () => {
     expect(q('objekt-info')!.getAttribute('data-detent')).toBe('halv');
   });
 
-  it('typvyn listar objekten — vägar längst först — med "Basväg röd · 640 m", kommentaren på en rad under och fotot som liten bild', async () => {
+  it('typvyn listar objekten — vägar längst först — med "Basväg röd · 640 m", kommentaren i samma ruta som kartkortet under raden och fotot som liten bild', async () => {
     await oppnaOm(sk());
     klicka(q('om-typ-linje-mainroad'));
     const rader = qa('om-objekt');
     expect(rader.map((r) => r.getAttribute('data-id'))).toEqual(['b1', 'b2']);
     expect(rader[0].querySelector('[data-testid="om-huvudtext"]')!.textContent).toBe('Basväg röd · 640 m');
-    expect(rader[0].querySelector('[data-testid="om-kommentar"]')!.textContent).toBe('Röd väg in från norr');
+    expect(rader[0].querySelector('[data-testid="om-kommentar"] [data-testid="kartkort-kommentar-text"]')!.textContent).toBe('Röd väg in från norr');   // samma ruta som kartkortet
     expect(rader[1].querySelector('[data-testid="om-huvudtext"]')!.textContent).toBe('Basväg · 260 m');
     expect(rader[1].querySelector('[data-testid="om-kommentar"]')).toBeNull();
     // Kulturminnet med kommentar OCH foto: samma radformat, fotot en liten bild till höger (typvyn finns bara för två eller fler — lägg till ett).
@@ -432,8 +491,27 @@ describe('Om trakten — typvyn, objekten och vägen tillbaka', () => {
     klicka(q('om-typ-symbol-culturemonument'));
     const k = qa('om-objekt').find((r) => r.getAttribute('data-id') === 'k1')!;
     expect(k.querySelector('[data-testid="om-huvudtext"]')!.textContent).toBe('Kulturminne');
-    expect(k.querySelector('[data-testid="om-kommentar"]')!.textContent).toBe('Stenrös vid vägen');
+    expect(k.querySelector('[data-testid="om-kommentar"] [data-testid="kartkort-kommentar-text"]')!.textContent).toBe('Stenrös vid vägen');
     expect(k.querySelector('[data-testid="om-foto"]')).not.toBeNull();
+  });
+
+  it('Om trakten visar kommentarerna i SAMMA ruta som kartkortet: författare och tid, äldre kommentar, Vidas text i blå etikett — hela texten, inte två rader', async () => {
+    const lang = 'Kör inte i kanten\nLämna tallarna\nHusruin i nordöstra delen\nSpara ekarna vid vägen';
+    const ms = [
+      M({ id: 'm1', typ: 'culturemonument', namn: 'Kulturminne', lat: 56.4007, lng: 14.7002, skapad: 201, comment: 'Gammal text',
+        kommentarer: [{ id: 'k1', text: lang, forfattare: 'Daniel · i går 16:20' }, { id: 'aldre', text: 'Gammal text', forfattare: null }] }),
+      M({ id: 'm2', typ: 'culturemonument', namn: 'Kulturminne', lat: 56.4008, lng: 14.7003, skapad: 202, comment: '',
+        kommentarer: [{ id: 'vida:x', text: 'Lämnas orört', forfattare: null, vida: true }] }),
+    ];
+    await oppnaOm(sk({ markeringar: ms }));
+    klicka(q('om-typ-symbol-culturemonument'));
+    const rad = qa('om-objekt')[0];
+    const etiketter = Array.from(rad.querySelectorAll('[data-testid="kartkort-kommentar-kalla"]')).map((e) => e.textContent);
+    expect(etiketter).toEqual(['Daniel · i går 16:20', 'Äldre kommentar']);
+    expect(Array.from(rad.querySelectorAll('[data-testid="kartkort-kommentar-punkt"]')).map((li) => li.textContent!.replace(/^\d+/, ''))).toEqual(lang.split('\n'));   // alla fyra, ingen klippning
+    const vida = qa('om-objekt')[1].querySelector('[data-testid="kartkort-kommentar-vida"]')!;
+    expect(vida.textContent).toContain('Vida · traktdirektiv');
+    expect(vida.textContent).toContain('Lämnas orört');
   });
 
   it('‹ Om trakten i typvyn tar tillbaka till listan och släpper typmarkeringen', async () => {
@@ -589,7 +667,7 @@ describe('Mer', () => {
     const p = props();
     p.mer.planerare = { visaSom: { aktivId: null, alternativ: [{ id: null, label: 'Planerare' }], onValj: () => {} } };
     await montera(p);
-    klicka(q('kort-knapp-mer'));
+    klicka(q('kort-mer'));
     expect(['korvy', 'foraren', 'planeraren', 'ovrigt', 'avsluta'].map((g) => !!q(`mer-grupp-${g}`))).toEqual([true, true, true, true, true]);
     expect(q('mer-avsluta-objekt')!.textContent).toBe('check_circleAvsluta objekt');
     const sist = Array.from(q('mer-innehall')!.querySelectorAll('section')).pop()!;
@@ -598,7 +676,7 @@ describe('Mer', () => {
 
   it('en rad ropar sin handling; ‹ tillbaka till kortet', async () => {
     await montera(props());
-    klicka(q('kort-knapp-mer'));
+    klicka(q('kort-mer'));
     klicka(q('mer-genomgang'));
     klicka(q('mer-vagdata'));
     expect(spion.mer).toEqual(['genomgang', 'vagdata']);
@@ -608,7 +686,7 @@ describe('Mer', () => {
 
   it('inga gamla menyval: Byt objekt, Brandrisk, Gallring, Inställningar, Förslag', async () => {
     await montera(props());
-    klicka(q('kort-knapp-mer'));
+    klicka(q('kort-mer'));
     const text = q('mer-innehall')!.textContent!;
     for (const bort of ['Byt objekt', 'Brandrisk', 'Gallring', 'Inställningar', 'Förslag', 'Briefing', 'Kvittera markeringar']) expect(text, bort).not.toContain(bort);
     expect(text).toContain('Genomgång & kvittering');

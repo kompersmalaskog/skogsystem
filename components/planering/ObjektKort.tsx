@@ -2,23 +2,26 @@
 
 // ⓘ-KORTET (tavla 26/26b). Info och verktyg är skilda: kortet säger VAD trakten är och vad föraren ska veta; menyvalen bor i Mer.
 //
-//   Halv höjd (telefon): namn · "typ · avtalsform · cert" · knapprad efter roll · Till föraren · faktabrickor.
-//   Uppdraget (och bred panel, där allt syns): + På trakten · Brandrisk · Dokument · Larmkoordinat.
-//   Faror (röd rad) står alltid överst under namnet — säkerhet trängs aldrig undan av ett ark som är halvt.
+//   Uppifrån: namn · Faror (röd rad, säkerhet står alltid överst) · TILL FÖRAREN (Vidas traktdirektiv i sin helhet, samma ruta som instruktionskortet) · Brandrisk · knapprad efter
+//   roll (utan Mer) · faktabrickor · uppdraget: Instruktioner på trakten · På trakten · Vad betyder kartan · Dokument · Larmkoordinat · Mer (en rad, längst ner).
 //
 // Ren presentation: sidan bygger texterna (lib/objektKort) och bestämmer vad ett tryck gör.
 
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { AVSTAND, FARG, IKON, KNAPP, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import type { SammanfattningRad } from '@/lib/klarTrakt';
-import { behoverLasAllt, KORT_RADER, type Bricka, type KortKnapp, type KortKnappId, type TillForarenPost } from '@/lib/objektKort';
+import { type Bricka, type KortKnapp, type KortKnappId, type TillForarenPost } from '@/lib/objektKort';
 import BrandriskRad from './BrandriskRad';
 import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
+import { KommentarVisning } from './KommentarRuta';
+import { SettKnapp } from './InstruktionKort';
 
 export interface KortLarm {
   satt: boolean;
   koordinat: string;
   bekraftad: boolean;
+  /** "Larmplats kontrollerad / inte kontrollerad" — planerarens uppgift, så den visas bara i planeringsläget. Föraren ser koordinaten, inte kontrollstatusen. */
+  visaKontroll: boolean;
   beskrivning: string;
   onVisa: () => void;
 }
@@ -30,8 +33,12 @@ export interface ObjektKortProps {
   onKnapp: (id: KortKnappId) => void;
   onStang: () => void;
   faror: string[];
+  /** Vidas traktdirektiv och planerarens texter, ALLTID i sin helhet (inget "Läs allt"). */
   tillForaren: TillForarenPost[];
-  onLasAllt: () => void;
+  /** MASKINLÄGET: Vidas direktiv är instruktion nr 1 — "✓ Sett" under rutan medan det inte setts. Null/saknas = ingen knapp (planeringsvyn). */
+  direktivSett?: { sedd: boolean; onSett: () => void } | null;
+  /** "Mer" är en rad längst ner i uppdraget (inte en stor knapp högst upp): menyn med Körvy, Föraren, Planeraren, Övrigt och Avsluta objekt. */
+  onMer: () => void;
   brickor: Bricka[];
   extraBrickor: Bricka[];
   /** "N markeringar · M med text" — null = inga markeringar (raden visas inte) */
@@ -54,28 +61,6 @@ export interface ObjektKortProps {
   vader?: React.ReactNode;
 }
 
-/** En text begränsad till tre rader; "Läs allt ›" när den inte ryms (mätt i webbläsaren, annars den rena tumregeln). */
-function BegransadText({ text, onLasAllt }: { text: string; onLasAllt: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [klipps, setKlipps] = useState(behoverLasAllt(text));
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const matt = el.scrollHeight > el.clientHeight + 1;
-    setKlipps(matt || behoverLasAllt(text));
-  }, [text]);
-  return (
-    <>
-      <div ref={ref} data-testid="kort-text"
-        style={{ ...TYP.text, color: FARG.text, whiteSpace: 'pre-wrap', overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: KORT_RADER, overflowWrap: 'anywhere' }}>{text}</div>
-      {klipps && (
-        <button type="button" data-testid="kort-las-allt" onClick={onLasAllt}
-          style={{ ...KNAPP.lank, marginTop: AVSTAND.xs, fontFamily: 'inherit', cursor: 'pointer', touchAction: 'manipulation' }}>Läs allt ›</button>
-      )}
-    </>
-  );
-}
-
 export default function ObjektKort(p: ObjektKortProps) {
   const [dokOppen, setDokOppen] = useState(false);
   const n = p.knappar.length;
@@ -96,6 +81,25 @@ export default function ObjektKort(p: ObjektKortProps) {
           </div>
         )}
 
+        {/* TILL FÖRAREN — Vidas traktdirektiv och planerarens texter, HÖGST UPP (efter Faror-raden: säkerhet står alltid överst) och ALLTID i sin helhet: aldrig avklippt, inget "Läs allt".
+            SAMMA ruta som instruktionskortet och kartkortet (KommentarRuta): ljusare ruta, 19 px text, blå "Vida · traktdirektiv". Vidas direktiv är löptext utan radbrytningar och delas
+            i numrerade punkter vid meningsslut; planerarens text delas bara på radbrytning. I maskinläget är Vidas direktiv instruktion nr 1: "✓ Sett" under rutan tills det setts. */}
+        {p.tillForaren.length > 0 && (
+          <div data-testid="kort-till-foraren" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s, marginBottom: AVSTAND.l }}>
+            {p.tillForaren.map((t) => {
+              const vida = t.id === 'vida';
+              return (
+                <div key={t.id} data-testid={`kort-post-${t.id}`}>
+                  <KommentarVisning vida={vida} etikett={t.avsandare} text={t.text} meningar={vida} />
+                  {vida && p.direktivSett && !p.direktivSett.sedd && (
+                    <div style={{ marginTop: AVSTAND.s }}><SettKnapp testid="kort-direktiv-sett" onSett={p.direktivSett.onSett} /></div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* BRANDRISK — bara när någon av de fem dagarna är 3 eller högre; direkt under Faror */}
         {p.brand && <BrandriskRad lat={p.brand.lat} lng={p.brand.lng} onOppna={p.onBrand} luftUnder={AVSTAND.m} />}
 
@@ -109,30 +113,15 @@ export default function ObjektKort(p: ObjektKortProps) {
           </div>
         )}
 
-        {/* KNAPPRAD efter roll — högst EN primär: den första */}
-        <div data-testid="kort-knappar" style={{ display: 'grid', gridTemplateColumns: `repeat(${kolumner}, minmax(0, 1fr))`, gap: tat ? AVSTAND.xs : AVSTAND.s, marginBottom: AVSTAND.l }}>
+        {/* KNAPPRAD efter roll — högst EN primär: den första. "Mer" ligger inte här: den är en rad längst ner i uppdraget. Inga knappar = ingen rad. */}
+        {n > 0 && <div data-testid="kort-knappar" style={{ display: 'grid', gridTemplateColumns: `repeat(${kolumner}, minmax(0, 1fr))`, gap: tat ? AVSTAND.xs : AVSTAND.s, marginBottom: AVSTAND.l }}>
           {p.knappar.map((k, i) => (
             <button key={k.id} type="button" data-testid={`kort-knapp-${k.id}`} onClick={() => p.onKnapp(k.id)} className="press-scale"
-              style={{ ...(i === 0 && k.id !== 'mer' ? KNAPP.primar : KNAPP.sekundar), minHeight: TRAFFYTA.primar, ...(tat ? { padding: 0, whiteSpace: 'nowrap', overflow: 'hidden' } : null), cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+              style={{ ...(i === 0 ? KNAPP.primar : KNAPP.sekundar), minHeight: TRAFFYTA.primar, ...(tat ? { padding: 0, whiteSpace: 'nowrap', overflow: 'hidden' } : null), cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
               {k.etikett}
             </button>
           ))}
-        </div>
-
-        {/* TILL FÖRAREN — Vidas direktiv och planerarens text, var och en med avsändare; högst tre rader, sedan "Läs allt ›" */}
-        {p.tillForaren.length > 0 && (
-          <div data-testid="kort-till-foraren" style={{ marginBottom: AVSTAND.l }}>
-            <Rubrik>Till föraren</Rubrik>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-              {p.tillForaren.map((t) => (
-                <div key={t.id} data-testid={`kort-post-${t.id}`} style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: FARG.upphojt }}>
-                  <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>{t.avsandare}</div>
-                  <BegransadText text={t.text} onLasAllt={p.onLasAllt} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        </div>}
 
         {/* PLANERING — det planeraren fyllt i. Bara läsning: ingen Klar-knapp, inget att ändra. Vidas direktiv står ovanför. */}
         {p.planering && (p.planering.rader.length > 0 || p.planering.oplanerad || p.planering.gamla.trim()) && (
@@ -177,7 +166,7 @@ export default function ObjektKort(p: ObjektKortProps) {
               hoger={p.instruktioner.nya > 0 ? <span data-testid="kort-instruktioner-nya" style={{ ...TYP.listtitel, color: FARG.text }}>{p.instruktioner.nya} {p.instruktioner.nya === 1 ? 'ny' : 'nya'}</span> : undefined} />
           )}
           {p.paTrakten && (
-            <RadKnapp forstaRad={!(p.instruktioner && p.instruktioner.antal > 0)} testid="kort-pa-trakten" etikett={<><span style={{ color: FARG.text2 }}>På trakten </span>{p.paTrakten}</>} onTryck={p.onPaTrakten} />
+            <RadKnapp forstaRad={!(p.instruktioner && p.instruktioner.antal > 0)} testid="kort-pa-trakten" etikett={`På trakten · ${p.paTrakten}`} onTryck={p.onPaTrakten} />
           )}
           {p.onKarta && (
             <RadKnapp forstaRad={!p.paTrakten && !(p.instruktioner && p.instruktioner.antal > 0)} testid="kort-vad-betyder-kartan" etikett="Vad betyder kartan" onTryck={p.onKarta} />
@@ -190,6 +179,7 @@ export default function ObjektKort(p: ObjektKortProps) {
             </>
           )}
           <LarmKort larm={p.larm} />
+          <RadKnapp testid="kort-mer" etikett="Mer" under="Fler val och inställningar" onTryck={p.onMer} />
         </Gruppkort>
         {p.vader && <div data-testid="kort-vader" style={{ marginTop: AVSTAND.l }}>{p.vader}</div>}
       </div>
@@ -217,7 +207,7 @@ function LarmKort({ larm }: { larm: KortLarm }) {
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>Larmkoordinat</span>
           <span style={{ display: 'block', ...TYP.listtitel, ...TNUM, overflowWrap: 'anywhere' }}>{larm.koordinat}</span>
-          <span data-testid="kort-larm-status" style={{ display: 'block', ...TYP.meta, color: larm.bekraftad ? FARG.gron : FARG.orange }}>{larm.bekraftad ? 'Larmplats kontrollerad' : 'Larmplats inte kontrollerad'}</span>
+          {larm.visaKontroll && <span data-testid="kort-larm-status" style={{ display: 'block', ...TYP.meta, color: larm.bekraftad ? FARG.gron : FARG.orange }}>{larm.bekraftad ? 'Larmplats kontrollerad' : 'Larmplats inte kontrollerad'}</span>}
         </span>
         <Pil />
       </span>

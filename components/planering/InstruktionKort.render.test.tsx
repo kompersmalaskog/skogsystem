@@ -34,17 +34,18 @@ describe('InstruktionKortVy', () => {
   });
   it('Vidas text först med blå etikett "Vida · traktdirektiv", sedan egna med "Namn · tid"', () => {
     montera(<InstruktionKortVy kort={kort({ instruktioner: [vida, egen, aldre] })} top="10px" onSett={() => {}} />);
-    const e = qa('instruktion-etikett');
+    const e = qa('kartkort-kommentar-kalla');
     expect(e.map((x) => x.textContent)).toEqual(['Vida · traktdirektiv', 'Martin · i går 16:20', 'Äldre kommentar']);
     expect(e[0].style.color).toBe(FARG.bla.replace('#0a84ff', 'rgb(10, 132, 255)'));
     expect(qa('instruktion-ruta').map((x) => x.getAttribute('data-kalla'))).toEqual(['vida', 'egen', 'aldre']);
   });
   it('flera rader = numrerade punkter med siffra i rund bricka; en rad = vanlig text', () => {
     montera(<InstruktionKortVy kort={kort()} top="10px" onSett={() => {}} />);
-    expect(qa('instruktion-text').map((x) => x.textContent)).toEqual(['Spara alla aspar']);
-    expect(qa('instruktion-siffra').map((x) => x.textContent)).toEqual(['1', '2', '3']);
-    expect(qa('instruktion-punkt').map((x) => x.textContent!.replace(/^\d/, ''))).toEqual(['Stanna vid stenen', 'Gå runt', 'Lämna ris']);
-    expect(qa('instruktion-siffra')[0].style.borderRadius).not.toBe('');
+    expect(qa('kartkort-kommentar-text')[0].textContent).toBe('Spara alla aspar');   // Vidas text: en rad = vanlig text
+    expect(qa('kartkort-kommentar-text')).toHaveLength(2);                             // + den numrerade listan
+    expect(qa('kartkort-kommentar-siffra').map((x) => x.textContent)).toEqual(['1', '2', '3']);
+    expect(qa('kartkort-kommentar-punkt').map((x) => x.textContent!.replace(/^\d/, ''))).toEqual(['Stanna vid stenen', 'Gå runt', 'Lämna ris']);
+    expect(qa('kartkort-kommentar-siffra')[0].style.borderRadius).not.toBe('');
   });
   it('EN Sett-knapp för allt på kortet, minst 56 px, som larmets (bock + "Sett"), och ett tryck kvitterar en gång', () => {
     const onSett = vi.fn();
@@ -140,5 +141,32 @@ describe('raden "Instruktioner på trakten (N) ›" på kortet', () => {
     montera(<ObjektKort {...props} instruktioner={{ antal: 3, nya: 0, onOppna: () => {} }} />);
     expect(q('kort-instruktioner')).not.toBeNull();
     expect(q('kort-instruktioner-nya')).toBeNull();
+  });
+});
+
+describe('Vidas traktdirektiv i listan (instruktion nr 1)', () => {
+  const DIR = 'Obs tjärdal enligt karta. Lämna ca 50-70 tallar per ha . Lämna fina ekar och några bokar. Två hänsynsområde enligt karta.';
+  const direktiv: Instruktion = { ref: 'vida:direktiv', text: DIR, hash: 'd', kalla: 'vida', forfattare: null, vantar: false, meningar: true };
+  const data = (nya: number): InstruktionerPaTrakten => ({
+    antal: 2, nya,
+    omraden: [
+      { nyckel: 'direktiv', namn: 'Traktdirektiv', nya, instruktioner: [{ ...direktiv, sedd: nya === 0 }] },
+      { nyckel: 'hansyn:7', namn: 'Naturvårdsyta', nya: 1, instruktioner: [{ ...vida, sedd: false }] },
+    ],
+  });
+  it('står först, med blå "Vida · traktdirektiv", hela texten i numrerade punkter (en per mening) i 19 px', () => {
+    montera(<InstruktionLista data={data(1)} objektNamn="Trakten" onSett={() => {}} onTillbaka={() => {}} onStang={() => {}} />);
+    const forsta = qa('instruktion-omrade')[0];
+    expect(forsta.getAttribute('data-nyckel')).toBe('direktiv');
+    expect(forsta.querySelector('[data-testid="kartkort-kommentar-kalla"]')!.textContent).toBe('Vida · traktdirektiv');
+    const punkter = Array.from(forsta.querySelectorAll('[data-testid="kartkort-kommentar-punkt"]')).map((li) => li.textContent!.replace(/^\d+/, ''));
+    expect(punkter).toEqual(['Obs tjärdal enligt karta.', 'Lämna ca 50-70 tallar per ha .', 'Lämna fina ekar och några bokar.', 'Två hänsynsområde enligt karta.']);
+    expect((forsta.querySelector('[data-testid="kartkort-kommentar-text"]') as HTMLElement).style.fontSize).toBe('19px');
+  });
+  it('Sett på direktivet räknas som Sett på ett område: onSett(["direktiv"])', () => {
+    const onSett = vi.fn();
+    montera(<InstruktionLista data={data(1)} objektNamn="Trakten" onSett={onSett} onTillbaka={() => {}} onStang={() => {}} />);
+    act(() => { qa('instruktion-sett-omrade')[0].click(); });
+    expect(onSett).toHaveBeenCalledWith(['direktiv']);
   });
 });

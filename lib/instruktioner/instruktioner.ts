@@ -23,7 +23,6 @@ import { innehallHash } from '../larm/larm';
 import { vidaSlag } from '../larm/objekt';
 import { byggTraktKort } from '../traktGeometri';
 import { vidaNycklar } from '../vidaNycklar';
-import { arNumrerad, kommentarPunkter } from '../kommentarPunkter';
 import { aldreKommentar, forfattarText, kommentarerForNyckel, markerNyckel, type KommentarVy } from '../kartkommentar';
 
 /** Punkter och linjer räknas som "inne" inom så här många meter (ut först vid +UT_MARGINAL_M, så GPS-brus vid kanten inte ger flimmer). */
@@ -42,6 +41,8 @@ export interface Instruktion {
   /** "Martin · i går 16:20"; null för Vidas text och äldre kommentarer (de har ingen författare). */
   forfattare: string | null;
   vantar: boolean;
+  /** Vidas traktdirektiv (löptext utan radbrytningar): delas i numrerade punkter vid meningsslut. Aldrig sant för en egen kommentar eller en ytas ATGARD. */
+  meningar?: boolean;
 }
 
 /** Var maskinen är i förhållande till området. `inne` gäller ytor; `avstandM` punkter och linjer (null = okänt). */
@@ -54,6 +55,8 @@ export interface InstruktionOmrade {
   narvaro: Narvaro;
   /** Ett avlägg (Vidas avlägg eller eget): kortet säger "Du är vid avlägget" i stället för "Du kör in i området nu". */
   avlagg: boolean;
+  /** Hela trakten, inte en plats: Vidas traktdirektiv. Instruktion nr 1 i listan och i genomgången — men utan inkörning, det ger aldrig ett kort. */
+  objektniva?: boolean;
   instruktioner: Instruktion[];
 }
 
@@ -67,16 +70,6 @@ export const arOsedd = (i: Pick<Instruktion, 'ref' | 'hash'>, sett: SettKarta): 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Texten på kortet
 // ---------------------------------------------------------------------------------------------------------------------------------
-
-/**
- * Radbrytningar blir numrerade punkter (1, 2, 3); en enda rad är vanlig text. SAMMA regel som kartkortet (lib/kommentarPunkter — EN källa): bara avsändarens egna
- * radbrytningar räknas, tomma rader hoppas över. `punkter` är null för en vanlig text.
- */
-export function instruktionRader(text: string): { punkter: string[] | null; text: string } {
-  const rader = kommentarPunkter(text);
-  if (arNumrerad(rader)) return { punkter: rader, text: rader.join('\n') };
-  return { punkter: null, text: rader[0] ?? '' };
-}
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Att samla områden
@@ -143,6 +136,9 @@ export function arInstruktionsText(text: string | null | undefined, namn: readon
   return !namn.some((n) => !!n && jamfor(n) === t);
 }
 
+/** Områdesnyckeln för Vidas traktdirektiv (hela trakten). */
+export const DIREKTIV_NYCKEL = 'direktiv';
+
 /** Typen på förarens egen avläggssymbol — den enda egna punktsymbolen som är en plats. */
 export const EGET_AVLAGG_TYP = 'landing';
 
@@ -154,6 +150,8 @@ export interface SamlaIn {
   svgToLatLon: (x: number, y: number) => LatLon;
   typNamn: (typ?: string) => string;
   kommentarer: readonly KommentarVy[];
+  /** Vidas traktdirektiv för hela objektet (`objekt.anteckningar`): blir instruktion nr 1. */
+  direktiv?: string | null;
   /** Maskinens position. Null = ingen (genomgången behöver bara listan, inte närvaron). */
   pos: LatLon | null;
   nu?: Date;
@@ -162,6 +160,14 @@ export interface SamlaIn {
 /** Alla områden som har minst en instruktion, med var maskinen är i förhållande till dem. */
 export function samlaOmraden(i: SamlaIn): InstruktionOmrade[] {
   const ut: InstruktionOmrade[] = [];
+  // Vidas traktdirektiv för hela trakten är instruktion nr 1 (före ytorna). Hashen av texten gör att en ändrad text är osedd igen; ingen närvaro, så det ger aldrig ett kort vid inkörning.
+  const direktiv = String(i.direktiv ?? '').trim();
+  if (direktiv) {
+    ut.push({
+      nyckel: DIREKTIV_NYCKEL, namn: 'Traktdirektiv', narvaro: { slag: 'yta', inne: false }, avlagg: false, objektniva: true,
+      instruktioner: [{ ref: `vida:${DIREKTIV_NYCKEL}`, text: direktiv, hash: hashText(direktiv), kalla: 'vida', forfattare: null, vantar: false, meningar: true }],
+    });
+  }
   const features = i.vida?.features ?? [];
   const nycklar = vidaNycklar(features);
 
@@ -233,6 +239,7 @@ export function stegaInstruktion(state: InstruktionState, omraden: readonly Inst
   const inne: Record<string, true> = {};
   const vantande = state.vantande.filter((n) => omraden.some((o) => o.nyckel === n && osedda(o, sett).length > 0));
   for (const o of omraden) {
+    if (o.objektniva) continue;   // hela trakten: ingen inkörning, inget kort
     const var_ = !!state.inne[o.nyckel];
     const ar = arInne(o, var_);
     if (ar) inne[o.nyckel] = true;
@@ -285,7 +292,8 @@ export function instruktionerPaTrakten(omraden: readonly InstruktionOmrade[], se
     const instruktioner = o.instruktioner.map((x) => ({ ...x, sedd: !arOsedd(x, sett) }));
     return { nyckel: o.nyckel, namn: o.namn, instruktioner, nya: instruktioner.filter((x) => !x.sedd).length };
   });
-  const sorterad = lista.map((o, n) => ({ o, n })).sort((a, b) => Number(b.o.nya > 0) - Number(a.o.nya > 0) || a.n - b.n).map((x) => x.o);
+  // Traktdirektivet är instruktion nr 1 och ligger alltid först; därefter de områden som har osedda, sedan resten i den ordning de samlats.
+  const sorterad = lista.map((o, n) => ({ o, n })).sort((a, b) => Number(b.o.nyckel === DIREKTIV_NYCKEL) - Number(a.o.nyckel === DIREKTIV_NYCKEL) || Number(b.o.nya > 0) - Number(a.o.nya > 0) || a.n - b.n).map((x) => x.o);
   return { antal: lista.reduce((s, o) => s + o.instruktioner.length, 0), nya: lista.reduce((s, o) => s + o.nya, 0), omraden: sorterad };
 }
 

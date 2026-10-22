@@ -21,6 +21,8 @@ export interface InstruktionerIn {
   svgToLatLon: (x: number, y: number) => LL;
   typNamn: (typ?: string) => string;
   vida: { features?: any[] } | null;
+  /** Vidas traktdirektiv för hela trakten (`objekt.anteckningar`) — instruktion nr 1. */
+  direktiv?: string | null;
   /** Alla kommentarer på objektet (kartkommentar, med det som väntar i kön). */
   kommentarer: readonly KommentarVy[];
   objektId: string | null;
@@ -90,10 +92,10 @@ export function useInstruktioner(inp: InstruktionerIn): InstruktionerUt {
 
   const omraden = useMemo(() => {
     if (!aktiv || !objektId) return [];
-    return samlaOmraden({ objektId, vida: inp.vida, markers: inp.markers, svgToLatLon: inp.svgToLatLon, typNamn: inp.typNamn, kommentarer: inp.kommentarer, pos: inp.pos });
+    return samlaOmraden({ objektId, vida: inp.vida, direktiv: inp.direktiv, markers: inp.markers, svgToLatLon: inp.svgToLatLon, typNamn: inp.typNamn, kommentarer: inp.kommentarer, pos: inp.pos });
     // typNamn/svgToLatLon byter identitet vid varje rendering; det som påverkar innehållet är markeringarna, geometrin, kommentarerna och positionen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aktiv, objektId, inp.vida, inp.markers, inp.kommentarer, inp.pos?.lat, inp.pos?.lon]);
+  }, [aktiv, objektId, inp.vida, inp.direktiv, inp.markers, inp.kommentarer, inp.pos?.lat, inp.pos?.lon]);
 
   const karta = useMemo(() => settKarta(sett), [sett]);
 

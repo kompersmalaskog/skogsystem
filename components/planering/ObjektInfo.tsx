@@ -12,7 +12,7 @@ import OmTrakten, { type OmNav, type OmTraktenProps } from './OmTrakten';
 import MerMeny, { type MerMenyProps } from './MerMeny';
 import VadBetyderKartan, { type VadBetyderKartanProps } from './VadBetyderKartan';
 import { InstruktionLista } from './InstruktionKort';
-import type { InstruktionerPaTrakten } from '@/lib/instruktioner/instruktioner';
+import { DIREKTIV_NYCKEL, type InstruktionerPaTrakten } from '@/lib/instruktioner/instruktioner';
 import KlarMedTrakten, { type KlarMedTraktenProps } from './KlarMedTrakten';
 import type { KartMarkering, KortKnappId } from '@/lib/objektKort';
 import type { PlusLage } from '@/lib/plusArk';
@@ -25,8 +25,8 @@ export interface ObjektInfoProps {
   /** objektets id — Om trakten använder det för att hitta foton som väntar på uppladdning */
   objektId: string | null;
   /** en knapp på kortet utom Mer (Mer öppnar Mer-vyn här) */
-  onKnapp: (id: Exclude<KortKnappId, 'mer'>) => void;
-  kort: Omit<ObjektKortProps, 'namn' | 'onStang' | 'onKnapp' | 'onLasAllt' | 'onPaTrakten'>;
+  onKnapp: (id: KortKnappId) => void;
+  kort: Omit<ObjektKortProps, 'namn' | 'onStang' | 'onKnapp' | 'onMer' | 'onPaTrakten' | 'direktivSett'>;
   /** onVisa får även ramens läge: telefon stänger arket och flyger dit, bred skärm lämnar panelen */
   om: Omit<OmTraktenProps, 'objektNamn' | 'objektId' | 'onTillbaka' | 'onStang' | 'onVisa' | 'onSlapp' | 'onTyp'> & {
     onVisa: (m: KartMarkering, lage: PlusLage) => void; onSlapp: (orsak: SlappOrsak) => void;
@@ -42,10 +42,14 @@ export interface ObjektInfoProps {
   karta?: Pick<VadBetyderKartanProps, 'markeringar' | 'vida' | 'roll'> | null;
   /** MASKINLÄGET: instruktionerna på trakten (raden på kortet och listan bakom den) med förarens "✓ Sett". null = ingen rad, ingen vy. */
   instruktioner?: { data: InstruktionerPaTrakten; onSett: (nycklar: string[]) => void } | null;
+  /** Panelens bredd (px) på bred skärm. Standard `PANEL_BREDD_PX`; maskinläget ger den bredare panelen (som korten). På telefon är det ett ark i full bredd. */
+  bredd?: number;
 }
 
-export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, startVy = 'kort' }: ObjektInfoProps) {
+export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, bredd, startVy = 'kort' }: ObjektInfoProps) {
   const [vy, setVy] = useState<InfoVy>(startVy);
+  // Vidas traktdirektiv är instruktion nr 1 (lib/instruktioner): finns det en post för det kan föraren kvittera det direkt under rutan på kortet.
+  const direktiv = instruktioner?.data.omraden.find((o) => o.nyckel === DIREKTIV_NYCKEL) ?? null;
   const ramLage = useSkarmLage(oppen);
   // Var man stod i Om trakten när ett objekt stängde arket ("‹ Lista"): ges till Om trakten EN gång, sedan börjar den rent.
   const [aterstall, setAterstall] = useState<OmNav | undefined>(om.start);
@@ -64,15 +68,16 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
   const stangRam = () => { stangOm(); if (vy === 'om') { om.onTyp(null, ramLage); om.onNav(null); } onStang(); };
 
   return (
-    <InfoRam oppen={oppen} vy={vy} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : 'Mer'} onStang={stangRam}>
+    <InfoRam oppen={oppen} vy={vy} bredd={bredd} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : 'Mer'} onStang={stangRam}>
       {({ lage }) => (
         vy === 'klar' && klar ? (
           <KlarMedTrakten {...klar} namn={objektNamn} onStang={stangRam} onInfo={() => setVy('kort')} />
         ) : vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner) ? (
           <ObjektKort {...kort} instruktioner={instruktioner && instruktioner.data.antal > 0 ? { antal: instruktioner.data.antal, nya: instruktioner.data.nya, onOppna: () => setVy('instruktioner') } : null}
+            direktivSett={direktiv ? { sedd: direktiv.nya === 0, onSett: () => instruktioner!.onSett([DIREKTIV_NYCKEL]) } : null}
             namn={objektNamn} onStang={stangRam} onKlar={klar ? () => setVy('klar') : undefined}
-            onKnapp={(id) => { if (id === 'mer') setVy('mer'); else onKnapp(id); }}
-            onLasAllt={() => setVy('om')} onPaTrakten={() => setVy('om')} onKarta={karta ? () => setVy('karta') : undefined} />
+            onKnapp={onKnapp} onMer={() => setVy('mer')}
+            onPaTrakten={() => setVy('om')} onKarta={karta ? () => setVy('karta') : undefined} />
         ) : vy === 'om' ? (
           <OmTrakten {...om} start={aterstall} onVisa={(m) => om.onVisa(m, lage)} onSlapp={() => om.onSlapp('rad')} onTyp={(m) => { setTypOppen(!!m); om.onTyp(m, lage); }}
             objektNamn={objektNamn} objektId={objektId} onTillbaka={() => { stangOm(); om.onTyp(null, lage); om.onNav(null); setAterstall(undefined); setTypOppen(false); setVy('kort'); }} onStang={stangRam} />
