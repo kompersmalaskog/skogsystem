@@ -139,7 +139,7 @@ function seed(extra: Record<string, any[]> = {}) {
   g.__storage = { upp: [], signerade: [], uppFel: null, signFel: null };
   g.__skriv = []; g.__eq = []; g.__ingaRader = false; g.__avvisaKolumner = {}; g.__dbFel = null; g.__saknasLasKolumner = {};
   g.__leverans = { laddar: false, fel: null, data: [{ maskinId: "R64101", namn: "Rottne H8E", aktivTill: null, sanderFiler: true, bekraftad: true, senasteData: "2026-10-06", dagarSedan: 1 }] };
-  g.__fetchAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = []; g.__kontroll = null; g.__kontrollAnrop = []; g.__hempunkt = null; g.__hempunktAnrop = []; g.__arsovertid = null; g.__arbetstid = null; g.__fortnoxStatus = null;
+  g.__fetchAnrop = []; g.__bjudIn = null; g.__bjudInAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = []; g.__kontroll = null; g.__kontrollAnrop = []; g.__hempunkt = null; g.__hempunktAnrop = []; g.__arsovertid = null; g.__arbetstid = null; g.__fortnoxStatus = null;
   g.fetch = vi.fn(async (url: string, init?: any) => {
     const u = String(url); g.__fetchAnrop.push([u, init?.method || "GET", init?.body]);
     if (u.includes("/api/fortnox/kontrollera-anstallningsnummer")) {
@@ -158,6 +158,17 @@ function seed(extra: Record<string, any[]> = {}) {
         return { ok: true };
       })();
       return { ok: svar.ok !== false, status: svar.ok === false ? 422 : 200, json: async () => svar } as any;
+    }
+    if (u.includes("/api/personal/bjud-in")) {
+      const b = JSON.parse(init?.body || "{}");
+      g.__bjudInAnrop.push(b);
+      // Servern: raden skapas med vald roll och en inbjudan går ut. Standardsvaret gör det; ett test kan byta ut det.
+      const svar = g.__bjudIn ? g.__bjudIn(b) : (() => {
+        const id = "ny" + (g.__db.medarbetare.length + 1);
+        g.__db.medarbetare.push({ id, namn: b.namn, epost: String(b.epost).toLowerCase(), telefon: b.telefon || null, roll: b.roll, user_id: null, maskin_id: null, hemadress: null, hem_lat: null, hem_lng: null, anstallningsdatum: null, timlon_kr: null, manadslon_kr: null });
+        return { status: 200, body: { ok: true, id, inbjudan: "skickad" } };
+      })();
+      return { ok: svar.status === 200, status: svar.status, json: async () => svar.body } as any;
     }
     if (u.includes("/api/medarbetare/geokoda")) {
       const b = JSON.parse(init?.body || "{}");
@@ -2256,27 +2267,66 @@ describe("Ny medarbetare: fyra steg, ett i taget", () => {
     expect(cont.querySelectorAll("[data-klar=true]").length).toBe(0);
   });
 
-  it("steg 1: namn och e-post sparas när man går vidare (personen finns då), och man hamnar på steg 2", async () => {
+  it("steg 1: en NY person skapas av servern (rad + inbjudan) — webbläsaren skriver ingenting i medarbetare — och man hamnar på steg 2", async () => {
     await monter("flik=medarbetare&ny=1");
     await skriv(falt("Namn"), "Nils Ek");
     await skriv(falt("E-post"), "nils@example.se");
-    await klick("Spara och fortsätt");
+    await skriv(falt("Telefon"), "070-123 45 67");
+    await valj(valFalt("Roll"), "admin");
+    await klick("Bjud in och fortsätt");
+    expect(g.__bjudInAnrop).toEqual([{ namn: "Nils Ek", epost: "nils@example.se", telefon: "070-123 45 67", roll: "admin" }]);
+    expect(g.__skriv.filter((x: any) => x.tabell === "medarbetare" && x.op === "insert")).toEqual([]);
     const ny = g.__db.medarbetare.find((m: any) => m.namn === "Nils Ek");
-    expect(ny).toMatchObject({ epost: "nils@example.se", roll: "forare" });
+    expect(ny).toMatchObject({ epost: "nils@example.se", roll: "admin", telefon: "070-123 45 67" });
     expect(window.location.search).toContain(`person=${ny.id}`);
     expect(window.location.search).toContain("steg=2");
     expect(text()).toContain("Steg 2 av 4");
     expect(stegRad("Namn och e-post").getAttribute("data-klar")).toBe("true");
   });
 
-  it("steg 1: namn krävs, och en skrivning som RLS stoppar (0 rader) står som fel — ingen person och inget steg 2", async () => {
+  it("steg 1: texten under e-posten säger att personen får ett mail och väljer lösenord själv, och knappen heter Bjud in", async () => {
+    await monter("flik=medarbetare&ny=1");
+    expect(text()).toContain("Personen får ett mail med en länk och väljer själv sitt lösenord.");
+    expect(blad("Bjud in och fortsätt").length).toBe(1);
+    expect(blad("Spara och fortsätt").length).toBe(0);
+  });
+
+  it("steg 1: servern säger nej (e-posten finns redan, mailet gick inte) → felet står kvar på steg 1, ingen person och inget steg 2", async () => {
     await monter("flik=medarbetare&ny=1");
     await skriv(falt("Namn"), "Nils Ek");
-    g.__ingaRader = true;
-    await klick("Spara och fortsätt");
-    expect(text()).toContain("sparades inte");
+    await skriv(falt("E-post"), "nils@example.se");
+    g.__bjudIn = () => ({ status: 409, body: { ok: false, error: "Oskar har redan en inloggning med den e-postadressen." } });
+    await klick("Bjud in och fortsätt");
+    expect(text()).toContain("Oskar har redan en inloggning");
     expect(text()).toContain("Steg 1 av 4");
     expect(g.__db.medarbetare.some((m: any) => m.namn === "Nils Ek")).toBe(false);
+  });
+
+  it("steg 1: e-post krävs för en ny person (knappen är avstängd utan den)", async () => {
+    await monter("flik=medarbetare&ny=1");
+    await skriv(falt("Namn"), "Nils Ek");
+    expect(blad("Bjud in och fortsätt")[0].closest("button")!.disabled).toBe(true);
+    expect(g.__bjudInAnrop).toEqual([]);
+  });
+
+  it("steg 1 för en person UTAN inloggning: 'Skicka inbjudan igen' skickar om (servern återanvänder raden); en med inloggning har ingen sådan knapp", async () => {
+    nyPerson();
+    await monter("flik=medarbetare&ny=1&person=n1&steg=1");
+    await klick("Skicka inbjudan igen");
+    expect(g.__bjudInAnrop).toHaveLength(1);
+    expect(g.__bjudInAnrop[0]).toMatchObject({ epost: "nils@example.se" });
+    expect(text()).toContain("Ny inbjudan är skickad.");
+    expect(text()).toContain("Steg 1 av 4");
+  });
+
+  it("steg 1 för en person MED inloggning: ingen 'Skicka inbjudan igen', och sparandet är en vanlig uppdatering som förut", async () => {
+    nyPerson({ user_id: "u1" });
+    await monter("flik=medarbetare&ny=1&person=n1&steg=1");
+    expect(blad("Skicka inbjudan igen").length).toBe(0);
+    expect(text()).toContain("Inloggning kopplad.");
+    await klick("Spara och fortsätt");
+    expect(g.__bjudInAnrop).toEqual([]);
+    expect(g.__skriv.some((x: any) => x.tabell === "medarbetare" && x.op === "update")).toBe(true);
   });
 
   it("steg 2: adressen geokodas direkt, kartan visar punkten och etiketten, och Nästa är öppen då punkten finns", async () => {
