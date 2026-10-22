@@ -5,7 +5,7 @@
 // panorera och zooma medan kortet är öppet. Stängs med ×, Esc eller (telefon) genom att dra ned arket.
 //
 // Telefon: kortet öppnas på HALV höjd och dras upp till nästan full (grepp överst, samma `valjListdetent`/`dragHojd` som objektlistan); "Om trakten"
-// och "Mer" är egna ark och öppnas på full höjd. Bred skärm: panelen är 380 px och visar allt — ingen halv höjd.
+// och "Mer" är egna ark och öppnas på full höjd. Bred skärm: panelen är 380 px (420 px i maskinläget) och visar allt — ingen halv höjd.
 // Ramen vet inget om vad den visar: innehållet kommer som en funktion av läget (`lage`) och höjden (`detent`).
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -22,6 +22,8 @@ export interface InfoRamProps {
   ariaLabel: string;
   /** Om trakten › typvyn: arket på halv höjd så att kartan med de markerade objekten syns ovanför (annars full höjd som övriga vyer) */
   halv?: boolean;
+  /** Panelens bredd (px) på bred skärm; standard `PANEL_BREDD_PX`. */
+  bredd?: number;
   onStang: () => void;
   children: (ctx: { lage: PlusLage; detent: Detent }) => React.ReactNode;
 }
@@ -31,7 +33,7 @@ const DRAG_START_PX = 8;
 
 const minskadRorelse = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-export default function InfoRam({ oppen, vy, ariaLabel, halv = false, onStang, children }: InfoRamProps) {
+export default function InfoRam({ oppen, vy, ariaLabel, halv = false, bredd = PANEL_BREDD_PX, onStang, children }: InfoRamProps) {
   const lage = useSkarmLage(oppen);
   const [inne, setInne] = useState(false);
   const [utglidet, setUtglidet] = useState(!oppen);   // monterad stängd (sidan lämnar den monterad) → inget i DOM
@@ -106,7 +108,7 @@ export default function InfoRam({ oppen, vy, ariaLabel, halv = false, onStang, c
   const ram: React.CSSProperties = lage === 'panel'
     ? {
         top: `calc(env(safe-area-inset-top, 0px) + ${AVSTAND.s}px)`, right: AVSTAND.s, bottom: `calc(env(safe-area-inset-bottom, 0px) + ${AVSTAND.s}px)`,
-        width: `min(${PANEL_BREDD_PX}px, calc(100vw - ${2 * AVSTAND.s}px))`, borderRadius: RADIE.sheet, border: `1px solid ${FARG.linje}`,
+        width: `min(${bredd}px, calc(100vw - ${2 * AVSTAND.s}px))`, borderRadius: RADIE.sheet, border: `1px solid ${FARG.linje}`,
         transform: glidInne ? 'translateX(0)' : `translateX(calc(100% + ${2 * AVSTAND.s}px))`,
       }
     : {
@@ -125,6 +127,7 @@ export default function InfoRam({ oppen, vy, ariaLabel, halv = false, onStang, c
       data-lage={lage}
       data-vy={vy}
       data-detent={draggbar ? detent : undefined}
+      data-bredd={lage === 'panel' ? bredd : undefined}
       data-oppen={oppen ? '1' : '0'}
       aria-hidden={oppen ? undefined : true}
       ref={arkRef}

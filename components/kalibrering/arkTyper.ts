@@ -7,6 +7,7 @@ import type { CalDag, DetaljKontrollStock } from '@/lib/kalibrering/typer';
 export type KalibArk =
   | { typ: 'kontroll'; data: KontrollResponse }
   | { typ: 'stam'; data: KontrollResponse; stamNummer: number }
+  | { typ: 'plan'; data: KontrollResponse; stamNummer: number }
   | { typ: 'stock'; data: KontrollResponse; stockId: number }
   | { typ: 'seStock'; stock: DetaljKontrollStock }
   | { typ: 'art'; art: string }
@@ -19,6 +20,7 @@ export function arkRubrik(a: KalibArk): string {
   switch (a.typ) {
     case 'kontroll': return 'Kontroll';
     case 'stam': return `Stam ${a.stamNummer}`;
+    case 'plan': return 'Där greppet släppte';
     case 'stock': return `Stock ${a.data.stockar.find(s => s.id === a.stockId)?.stock_nummer ?? ''}`.trim();
     case 'seStock': return `Stock ${a.stock.stock_nummer}`;
     case 'art': return artNamn(a.art);

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, behoverLasAllt, sammanfattaMarkeringar, markeringsRad,
+  objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, sammanfattaMarkeringar, markeringsRad,
   sorteraMarkeringar, filtreraMarkeringar, avstandText, distM, byggMerGrupper, femDagar, gpsNu, efektivPos, markeringsGrupp, arBasvag, type KartMarkering, type MerIn,
 } from './objektKort';
 
@@ -26,25 +26,32 @@ describe('raden under namnet: typ · avtalsform · cert', () => {
 
 describe('knapprad efter roll', () => {
   const ids = (k: ReturnType<typeof kortKnappar>) => k.map((x) => x.id);
-  it('planerare: Kör hit · Mer — Inför maskin visas inte förrän den finns', () => {
-    expect(ids(kortKnappar({ roll: 'planerare', harKoordinat: true, korvyAktiv: false, maskinSlag: null }))).toEqual(['kor-hit', 'mer']);
+  it('planerare: Kör hit (Mer är en rad längst ner, inte en knapp) — Inför maskin visas inte förrän den finns', () => {
+    expect(ids(kortKnappar({ roll: 'planerare', harKoordinat: true, korvyAktiv: false, maskinSlag: null }))).toEqual(['kor-hit']);
   });
-  it('planerare utan koordinat: bara Mer (ingen Kör hit att trycka på)', () => {
-    expect(ids(kortKnappar({ roll: 'planerare', harKoordinat: false, korvyAktiv: false, maskinSlag: null }))).toEqual(['mer']);
+  it('planerare utan koordinat: inga knappar alls (ingen Kör hit att trycka på)', () => {
+    expect(ids(kortKnappar({ roll: 'planerare', harKoordinat: false, korvyAktiv: false, maskinSlag: null }))).toEqual([]);
   });
-  it('förare på skotare: Körvy · Skotning · Utkört · Mer', () => {
-    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skotare' }))).toEqual(['korvy', 'skotning', 'utkort', 'mer']);
+  it('förare på skotare: Körvy · Skotning · Utkört', () => {
+    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skotare' }))).toEqual(['korvy', 'skotning', 'utkort']);
   });
-  it('förare utan känd maskin: samma fyra', () => {
-    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: null }))).toEqual(['korvy', 'skotning', 'utkort', 'mer']);
+  it('förare utan känd maskin: samma tre', () => {
+    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: null }))).toEqual(['korvy', 'skotning', 'utkort']);
   });
-  it('skördarförare har ingen skotning att öppna eller markera utkört: Körvy · Mer', () => {
-    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skordare' }))).toEqual(['korvy', 'mer']);
+  it('skördarförare har ingen skotning att öppna eller markera utkört: bara Körvy', () => {
+    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skordare' }))).toEqual(['korvy']);
     // skotarläget med lassrapportering: inget gammalt skotningsverktyg – varken Skotning eller Utkört (som leder till Skotningsuttag)
-    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skotare', utanSkotning: true }))).toEqual(['korvy', 'mer']);
+    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skotare', utanSkotning: true }))).toEqual(['korvy']);
   });
-  it('körvyn redan igång: ingen Körvy-knapp (Avsluta körvy ligger i Mer)', () => {
-    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: true, maskinSlag: 'skotare' }))).toEqual(['skotning', 'utkort', 'mer']);
+  it('körvyn redan igång: ingen Körvy-knapp (Avsluta körvy ligger i Mer, raden längst ner)', () => {
+    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: true, maskinSlag: 'skotare' }))).toEqual(['skotning', 'utkort']);
+  });
+  it('skördare i körvy (maskinläget): inga knappar alls — kortet har ingen knapprad, "Mer" är en rad', () => {
+    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: true, maskinSlag: 'skordare' }))).toEqual([]);
+  });
+  it('"Mer" är aldrig en knapp (den är inte det viktigaste på kortet)', () => {
+    for (const roll of ['planerare', 'forare'] as const) for (const maskinSlag of [null, 'skordare', 'skotare'] as const) for (const korvyAktiv of [false, true])
+      expect(ids(kortKnappar({ roll, harKoordinat: true, korvyAktiv, maskinSlag }))).not.toContain('mer');
   });
   it('Kör hit finns aldrig för förare', () => {
     expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skotare' }))).not.toContain('kor-hit');
@@ -82,12 +89,6 @@ describe('Till föraren', () => {
     ]);
   });
   it('allt tomt → ingen post (kortet visar inget tomt block)', () => expect(tillForaren({})).toEqual([]));
-  it('"Läs allt" när texten inte ryms på tre rader', () => {
-    expect(behoverLasAllt('Kort text')).toBe(false);
-    expect(behoverLasAllt('x'.repeat(200))).toBe(true);
-    expect(behoverLasAllt('a\nb\nc\nd')).toBe(true);
-    expect(behoverLasAllt('a\nb\nc')).toBe(false);
-  });
 });
 
 describe('På trakten: antal och text', () => {

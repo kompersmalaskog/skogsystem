@@ -6,50 +6,23 @@
 
 import React from 'react';
 import { AVSTAND, FARG, RADIE, TYP, designCss } from '@/lib/design/tokens';
-import { instruktionRader, type Instruktion, type InstruktionKortData, type InstruktionerPaTrakten } from '@/lib/instruktioner/instruktioner';
+import { type Instruktion, type InstruktionKortData, type InstruktionerPaTrakten } from '@/lib/instruktioner/instruktioner';
 import { Huvud, Rubrik } from './infoDelar';
+import { KommentarVisning } from './KommentarRuta';
 
 /** Minsta höjd på Sett-knappen: tummen i en skakande hytt, ofta med handske (samma som larmets Sett). */
 export const INSTRUKTION_SETT_MIN_PX = 56;
-const SIFFRA_PX = 28;
 /** Grindkortets höjd (ikonen 52 px + padding): instruktionskortet ligger under det när båda visas. */
 export const GRIND_KORT_HOJD_PX = 52 + 2 * AVSTAND.m;
 
-/** Etiketten över en kommentar: Vidas text i blått ("Vida · traktdirektiv"), annars "Namn · tid" eller "Äldre kommentar". */
-export function InstruktionEtikett({ i }: { i: Pick<Instruktion, 'kalla' | 'forfattare' | 'vantar'> }) {
-  if (i.kalla === 'vida') return <span data-testid="instruktion-etikett" data-kalla="vida" style={{ ...TYP.meta, color: FARG.bla }}>Vida · traktdirektiv</span>;
-  return (
-    <span data-testid="instruktion-etikett" data-kalla={i.kalla} style={{ ...TYP.meta, color: FARG.text3 }}>
-      {i.forfattare ?? 'Äldre kommentar'}{i.vantar ? ' · väntar' : ''}
-    </span>
-  );
-}
-
-/** Texten: flera rader = numrerade punkter (vit siffra i rund bricka), en rad = vanlig text. */
-export function InstruktionText({ text }: { text: string }) {
-  const r = instruktionRader(text);
-  if (!r.punkter) return <div data-testid="instruktion-text" style={{ ...TYP.text, color: FARG.text, overflowWrap: 'anywhere' }}>{r.text}</div>;
-  return (
-    <ol data-testid="instruktion-punkter" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-      {r.punkter.map((p, n) => (
-        <li key={n} data-testid="instruktion-punkt" style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.m }}>
-          <span aria-hidden="true" data-testid="instruktion-siffra" style={{
-            flexShrink: 0, width: SIFFRA_PX, height: SIFFRA_PX, borderRadius: RADIE.cirkel, background: FARG.text3, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.listtitel,
-          }}>{n + 1}</span>
-          <span style={{ ...TYP.text, color: FARG.text, overflowWrap: 'anywhere', paddingTop: 2 }}>{p}</span>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-/** En kommentar i egen ruta: etiketten överst, sedan texten. `sedd` dämpar den (listan i genomgången). */
+/**
+ * En kommentar i egen ruta: SAMMA komponent som kartkortet (KommentarRuta + KommentarPunkter, 19 px, ljusare ruta, källan överst). Vidas text får blå "Vida · traktdirektiv", egna
+ * "Namn · tid" eller "Äldre kommentar". `sedd` dämpar den (listan i genomgången). Vidas traktdirektiv delas vid meningsslut (`meningar`), allt annat bara på radbrytning.
+ */
 export function InstruktionRuta({ i, sedd = false }: { i: Instruktion; sedd?: boolean }) {
   return (
-    <div data-testid="instruktion-ruta" data-kalla={i.kalla} data-sedd={sedd ? 'ja' : 'nej'}
-      style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: FARG.upphojt, opacity: sedd ? 0.6 : 1 }}>
-      <InstruktionEtikett i={i} />
-      <InstruktionText text={i.text} />
+    <div data-testid="instruktion-ruta" data-kalla={i.kalla} data-sedd={sedd ? 'ja' : 'nej'} style={{ opacity: sedd ? 0.6 : 1 }}>
+      <KommentarVisning vida={i.kalla === 'vida'} forfattare={i.forfattare} vantar={i.vantar} text={i.text} meningar={!!i.meningar} />
     </div>
   );
 }

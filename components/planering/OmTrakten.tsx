@@ -15,11 +15,12 @@ import MarkeringFoto from '@/app/planering/MarkeringFoto';
 import { AVSTAND, FARG, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import {
   AVSANDARE_VIDA, avstandText, efektivPos, filtreraMarkeringar, harFoto, matcharSok, sorteraMarkeringar,
-  type KartMarkering, type MarkeringMedAvstand, type TillForarenPost,
+  type KartMarkering, type MarkeringMedAvstand, type OmKommentar, type TillForarenPost,
 } from '@/lib/objektKort';
 import { antalFaror, byggOmGrupper, objektTitel, OM_GRUPP_RUBRIK, typRadText, type OmGrupp, type TypRad } from '@/lib/omTrakten';
 import BrandriskRad from './BrandriskRad';
 import { Gruppkort, Huvud, Pil, Rubrik } from './infoDelar';
+import { KommentarVisning } from './KommentarRuta';
 
 export interface OmYta { nr: number; typLabel: string; text: string | null; harLjud: boolean; harFoto: boolean; onOppna: () => void }
 export interface OmRestriktion { name?: string; type?: string; details?: string; warning?: string }
@@ -180,9 +181,8 @@ export default function OmTrakten(p: OmTraktenProps) {
             <Rubrik>{helaTraffar.some((h) => h.avsandare !== AVSANDARE_VIDA) ? 'Från Vida och planeraren' : OM_GRUPP_RUBRIK.vida}</Rubrik>
             <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
               {helaTraffar.map((h) => (
-                <div key={h.id} data-testid={`om-post-${h.id}`} style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: FARG.upphojt }}>
-                  <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>{h.avsandare}</div>
-                  <div style={{ ...TYP.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{h.text}</div>
+                <div key={h.id} data-testid={`om-post-${h.id}`}>
+                  <KommentarVisning vida={h.id === 'vida'} etikett={h.avsandare} text={h.text} meningar={h.id === 'vida'} />
                   {h.id === 'vida' && p.planttext && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>{p.planttext}</div>}
                 </div>
               ))}
@@ -242,22 +242,24 @@ function TypRadKnapp({ r, forsta, ikon, onTryck }: { r: TypRad; forsta: boolean;
 }
 
 /**
- * Ett objekt i en lista (Faror, typvyn): symbolens namn (basväg: "Basväg röd · 640 m"), kommentaren som en rad under (högst två), foto som liten bild till höger, avstånd när man är på trakten.
+ * Ett objekt i en lista (Faror, typvyn): symbolens namn (basväg: "Basväg röd · 640 m"), kommentarerna i sin helhet under raden i samma ruta som kartkortet (KommentarVisning), foto som liten bild till höger, avstånd när man är på trakten.
  * Hela raden är tryckbar; vald rad har en ring och trycks den igen släpps framhävningen. Samma format för alla — kommentar och foto är extra rader, inte ett eget kort.
  */
 function ObjektRad({ m, forsta, objektId, ikon, framhavdId, onVisa, onSlapp, onFoto }: {
   m: MarkeringMedAvstand; forsta: boolean; objektId: string | null; ikon: (m: KartMarkering) => React.ReactNode; framhavdId: string | null; onVisa: (m: KartMarkering) => void; onSlapp: () => void; onFoto: (src: string) => void;
 }) {
   const framhavd = framhavdId === m.id;
+  // Kommentarerna visas i SAMMA ruta som på kartkortet (KommentarVisning) och alltid i sin helhet — inte som en avklippt grå rad. Saknas `kommentarer` är det bara det äldre fältet.
   const komm = m.comment.trim();
+  const kommentarer: OmKommentar[] = m.kommentarer ?? (komm ? [{ id: 'aldre', text: komm, forfattare: null }] : []);
   return (
-    <div data-testid="om-objekt" data-id={m.id} data-framhavd={framhavd ? '1' : '0'} style={{ display: 'flex', alignItems: 'stretch', borderTop: forsta ? 'none' : `1px solid ${FARG.linje}`, boxShadow: framhavd ? `inset 0 0 0 2px ${FARG.text}` : 'none' }}>
+    <div data-testid="om-objekt" data-id={m.id} data-framhavd={framhavd ? '1' : '0'} style={{ borderTop: forsta ? 'none' : `1px solid ${FARG.linje}`, boxShadow: framhavd ? `inset 0 0 0 2px ${FARG.text}` : 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'stretch' }}>
       <button type="button" data-testid="om-objekt-knapp" onClick={() => (framhavd ? onSlapp() : onVisa(m))} className="press-row"
         style={{ ...radStil, flex: 1, minWidth: 0, width: 'auto', paddingTop: AVSTAND.m, paddingBottom: AVSTAND.m }}>
         <span style={{ flexShrink: 0, display: 'inline-flex' }}>{ikon(m)}</span>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span data-testid="om-huvudtext" style={{ display: 'block', ...TYP.listtitel, overflowWrap: 'anywhere' }}>{objektTitel(m)}</span>
-          {komm && <span data-testid="om-kommentar" style={{ display: '-webkit-box', ...TYP.meta, color: FARG.text2, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', overflow: 'hidden', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{komm}</span>}
         </span>
         {m.avstandM != null && <span data-testid="om-avstand" style={{ ...TYP.meta, color: FARG.text2, flexShrink: 0, ...TNUM }}>{avstandText(m.avstandM)}</span>}
         <Pil />
@@ -267,6 +269,12 @@ function ObjektRad({ m, forsta, objektId, ikon, framhavdId, onVisa, onSlapp, onF
           <MarkeringFoto lokal={m.fotoVantar && objektId ? { objektId, markerId: m.id } : null} photoPath={m.photoPath} photoData={m.photoData} photoTs={m.photoTs} alt={`Foto: ${m.namn}`} onOpen={onFoto}
             style={{ width: AVSTAND.xxl + AVSTAND.s, height: AVSTAND.xxl + AVSTAND.s, objectFit: 'cover', borderRadius: RADIE.rad, display: 'block' }} />
         </span>
+      )}
+      </div>
+      {kommentarer.length > 0 && (
+        <div data-testid="om-kommentar" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s, padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px` }}>
+          {kommentarer.map((k) => <KommentarVisning key={k.id} vida={k.vida} forfattare={k.forfattare} vantar={k.vantar} text={k.text} meningar={false} />)}
+        </div>
       )}
     </div>
   );

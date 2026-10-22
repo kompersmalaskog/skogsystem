@@ -121,67 +121,6 @@ export const stockRadVarde = (s: StockRow): StockRadVarde => {
   return { lenKl, sLen, sLenTon, diaKl, sDia, sDiaTon, worstTon };
 };
 
-// === Stamvyn: stammen som den ligger, stockar rot→topp ===
-export type Plan = { startCm: number; endCm: number; lengthCm: number; diameterMm: number };
-export type PlanSegment = { startInStockCm: number; endInStockCm: number; diameterMm: number; lengthCm: number };
-
-/** Planområden i den täta diameterprofilen — Skogforsks grunddefinition: icke-minskande sträcka ≥ 30 cm.
- *  För varje punkt i går j framåt så länge dia[j] >= dia[j-1]; sträckan [i, j-1] är planområde om längden ≥ 30. */
-export const findPlanomraden = (profile: { position_cm: number; diameter_mm: number }[]): Plan[] => {
-  const sorted = profile.slice().sort((a, b) => a.position_cm - b.position_cm);
-  if (sorted.length <= 1) return [];
-  const out: Plan[] = [];
-  let i = 0;
-  while (i < sorted.length - 1) {
-    let j = i + 1;
-    while (j < sorted.length && sorted[j].diameter_mm >= sorted[j - 1].diameter_mm) {
-      j++;
-    }
-    const startCm = sorted[i].position_cm;
-    const endCm = sorted[j - 1].position_cm;
-    const length = endCm - startCm;
-    if (length >= 30) {
-      out.push({ startCm, endCm, lengthCm: length, diameterMm: sorted[i].diameter_mm });
-    }
-    i = j;
-  }
-  return out;
-};
-
-/** Mappa planområden till stockar — planet börjar/slutar vid pos på STAMMEN, stockarna har egen kumulativ längd.
- *  Ett plan kan sträcka sig över flera stockar; varje stock samlar de segment som faller inom sina gränser. */
-export const planerPerStock = (planer: Plan[], stamStockar: { maskin_langd_cm: number | null }[]): PlanSegment[][] => {
-  const stockGranser: number[] = [0];
-  for (const st of stamStockar) {
-    stockGranser.push(stockGranser[stockGranser.length - 1] + (st.maskin_langd_cm ?? 0));
-  }
-  const planerPerStock: PlanSegment[][] = stamStockar.map(() => []);
-  for (const p of planer) {
-    let i = 0;
-    while (i < stamStockar.length && stockGranser[i + 1] <= p.startCm) i++;
-    while (i < stamStockar.length && stockGranser[i] < p.endCm) {
-      const sStart = stockGranser[i];
-      const sEnd = stockGranser[i + 1];
-      planerPerStock[i].push({
-        startInStockCm: Math.max(0, p.startCm - sStart),
-        endInStockCm: Math.min(sEnd - sStart, p.endCm - sStart),
-        diameterMm: p.diameterMm,
-        lengthCm: p.lengthCm,
-      });
-      i++;
-    }
-  }
-  return planerPerStock;
-};
-
-/** Stockens form-ton i stamvyn: 'null' = saknad mätning (streckad kontur), annars delade skalan. */
-export const stamStockForm = (st: StockRow): { hasAvvikData: boolean; sDia: number; ton: ToneToken | 'null' } => {
-  const mpA = matpunktAvvik(st);
-  const hasAvvikData = mpA.length > 0 || st.dia_avvikelse_mm != null;
-  const sDia = storstAvvik([...mpA, st.dia_avvikelse_mm ?? 0]);
-  return { hasAvvikData, sDia, ton: hasAvvikData ? avvikelseTon(sDia, 'dia') : 'null' };
-};
-
 // === Stockarket (från stamvyn) ===
 export type StockDiagnos = { tone: 'ok' | 'warn' | 'bad'; text: string } | null;
 export type MatpunktAvvik = { position_cm: number; avvikelse: number; mVal: number; oVal: number };
