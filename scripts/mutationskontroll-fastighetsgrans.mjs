@@ -12,6 +12,7 @@ const YE = "lib/ytaEtikett.ts";
 const KP = "lib/klickPrioritet.ts";
 const PG = "app/planering/page.tsx";
 const KA = "lib/fastighetsgransKarta.ts";
+const HK = "lib/hooks/useMapLayers.ts";
 
 const lage = process.argv[2] === "karta" ? "karta" : "snabb";
 
@@ -22,6 +23,8 @@ if (lage === "snabb") {
     "lib/klickPrioritet.fastighet.test.ts",
     "components/planering/FastighetsgransKort.render.test.tsx",
     "lib/fastighetsgransKarta.hytt.test.ts",
+    "lib/fastighetsgransKarta.synlighet.test.ts",
+    "lib/hooks/useMapLayers.test.ts",
   ];
   process.env.FASTIGHET_UTAN_CHROMIUM = "1";   // bara källvakterna ur hytt-testet; Chromium-mätningarna körs i läge "karta"
   const M = [
@@ -62,15 +65,22 @@ if (lage === "snabb") {
     ["sidan: kortet ritas över grindkortet", "fgFall && !fall.grupp && !larm.kort && !inst.kort && !grindKort", "fgFall && !fall.grupp && !larm.kort && !inst.kort", PG],
     ["sidan: tryck på rågången avstår inte för högre lager", "if (vinnandeKategoriForKarta(map, e.point) !== 'fastighet') return;", "", PG],
     ["sidan: fällningsvarningen följer lagerknappen", "const nu = fastighetsFall(fgPos, ragang, ", "const nu = fastighetsFall(fgPos, overlays.fastighetsgrans ? ragang : null, ", PG],
-    ["sidan: ritningen ignorerar lagerknappen", "const pa = !!overlays.fastighetsgrans && !!ragang;", "const pa = !!ragang;", PG],
-    ["sidan: Lantmäteri-paret tänds även när Vida har levererat (två stilar samtidigt)", "const lmGransPa = !!overlays.fastighetsgrans && !ragang && ", "const lmGransPa = !!overlays.fastighetsgrans && ", PG],
-    ["sidan: Lantmäteri-paret följer inte lagerknappen", "const lmGransPa = !!overlays.fastighetsgrans && !ragang && ", "const lmGransPa = !ragang && ", PG],
+    ["sidan: ritningen ignorerar lagerknappen", "lagerPa: !!overlays.fastighetsgrans, harVidaData", "lagerPa: true, harVidaData", PG],
+    ["lib: Vidas rågång ritas utan att lagret är tänt", "return { vida: lagerPa && i.harVidaData,", "return { vida: i.harVidaData,", KA],
+    ["lib: Lantmäteri-paret tänds även när Vida har levererat (två stilar samtidigt)", "lm: (lagerPa && !i.harVidaData && i.geometriLast)", "lm: (lagerPa && i.geometriLast)", KA],
+    ["lib: Lantmäteri-paret följer inte lagerknappen", "lm: (lagerPa && !i.harVidaData && i.geometriLast)", "lm: (!i.harVidaData && i.geometriLast)", KA],
+    ["lib: Lantmäteri-paret ritas innan geometrin är läst (blinkar)", "lm: (lagerPa && !i.harVidaData && i.geometriLast)", "lm: (lagerPa && !i.harVidaData)", KA],
+    ["lib: nedtoningen lämnas tänd när lagret släcks (bara linjerna släcks)", "for (const id of RAGANG_LAGER_ORDNING) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', s.vida ? 'visible' : 'none');", "for (const id of RAGANG_LAGER_ORDNING.filter((x) => !x.includes('yta'))) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', s.vida ? 'visible' : 'none');", KA],
+    ["lib: Lantmäteri-kanten glöms bort vid släckning", "for (const id of [LM_GRANS.kantLager, LM_GRANS.linjeLager])", "for (const id of [LM_GRANS.linjeLager])", KA],
+    ["hook: ett sparat läge från första versionen (utan märke) behålls som ett val", "if (s.fastighetsgransVal !== true) ut.fastighetsgrans = DEFAULT_MAP_LAYERS.fastighetsgrans", "", HK],
+    ["hook: standardvärdet är på", "  fastighetsgrans: false,", "  fastighetsgrans: true,", HK],
+    ["hook: märket skrivs inte, så nollningen upprepas varje start", "  ut.fastighetsgransVal = true\n", "", HK],
     ["sidan: körvyns whitelist tvingar rågången synlig med lagret släckt", "if (l.id.startsWith('trakt-ragang-') || l.id.startsWith('wms-layer-fastighetsgranser')) continue;\n", "", PG],
     ["sidan: återställningen ur körvyn skriver över lagret", "if (id.startsWith('trakt-ragang-') || id.startsWith('wms-layer-fastighetsgranser')) continue;", "", PG],
     ["sidan: WMS-effekten styr Lantmäteri-gränsen vid sidan av lagret", "if (id === 'fastighetsgranser') return;", "", PG],
     ["sidan: en andra menyrad för Lantmäteri", "{ id: 'fastighetsgrans', name: 'Fastighetsgränser', desc:", "{ id: 'fastighetsgranser', name: 'Fastighetsgränser', desc:", PG],
   ];
-  kor({ filer: [FG, YE, KP, PG], tester: TESTER, standardFil: FG, mutationer: M });
+  kor({ filer: [FG, YE, KP, PG, KA, HK], tester: TESTER, standardFil: FG, mutationer: M });
 } else {
   // Chromium: varje mutant provas bara mot de mätningar den ska fälla (annars tar en körning tre minuter per mutant).
   const FILTER = {
@@ -86,9 +96,10 @@ if (lage === "snabb") {
     ["rågången har ingen mörk kant (syns inte på vit karta)", "export const RAGANG_KANT_FARG = 'rgba(0,0,0,0.85)';", "export const RAGANG_KANT_FARG = 'rgba(0,0,0,0)';", FILTER.rod],
     ["rågången är smal (3 px) — bandet åts upp av traktgränsens kant", "export const RAGANG_BREDD = ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 8, 17, 12, 19, 16] as const;", "export const RAGANG_BREDD = ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 3, 17, 4, 19, 5] as const;", FILTER.band],
     ["traktgränsen har en bred svart kant som täcker rågången", "export const TRAKTGRANS_KANT_BREDD = ['interpolate', ['linear'], ['zoom'], 8, 2.5, 14, 3.5, 17, 5.5] as const;", "export const TRAKTGRANS_KANT_BREDD = ['interpolate', ['linear'], ['zoom'], 8, 6, 14, 10, 17, 20] as const;", FILTER.band],
-    ["övriga fastigheter tonas inte ned", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.26 } as const;", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0 } as const;", FILTER.morkt],
-    ["nedtoningen är kraftig (55 %): vägar och hus syns inte", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.26 } as const;", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.55 } as const;", FILTER.morkt],
-    ["fastigheter trakten överlappar får inget skimmer", "export const SKIMMER_TRAKT = { color: '#ffffff', opacity: 0.1 } as const;", "export const SKIMMER_TRAKT = { color: '#ffffff', opacity: 0 } as const;", FILTER.morkt],
+    ["övriga fastigheter tonas inte ned", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.58 } as const;", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0 } as const;", FILTER.morkt],
+    ["nedtoningen är nästan svart (80 %): vägar och hus syns inte", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.58 } as const;", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.8 } as const;", FILTER.morkt],
+    ["nedtoningen är den gamla svaga (26 %): en dämpad tomt blir ljusare än skogen", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.58 } as const;", "export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.26 } as const;", FILTER.morkt],
+    ["fastigheter trakten överlappar får inget skimmer", "export const SKIMMER_TRAKT = { color: '#ffffff', opacity: 0.14 } as const;", "export const SKIMMER_TRAKT = { color: '#ffffff', opacity: 0 } as const;", FILTER.morkt],
     ["svaga stycken har full opacitet", "export const SVAG_OPACITET = 0.5;", "export const SVAG_OPACITET = 1;", FILTER.styrka],
     ["svaga stycken är lika breda som starka", "export const RAGANG_BREDD_SVAG = ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 4, 17, 6, 19, 8] as const;", "export const RAGANG_BREDD_SVAG = ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 8, 17, 12, 19, 16] as const;", FILTER.styrka],
     ["Lantmäteri-gränsen byter inte färg (gul linje)", "paint: { 'raster-brightness-min': 1, 'raster-brightness-max': 1, 'raster-opacity': 1 }", "paint: { 'raster-opacity': 1 }", FILTER.lm],

@@ -294,10 +294,61 @@ describe('tryck på gränsen → "X mot Y"', () => {
   });
 });
 
+// TRAKTDELARNA LIGGER ALLTID I DEN LJUSA DELEN (Martin 2026-10-22: "nedtoningen ser omvänd ut" på Stänkelsmåla 2025 — traktdelarna såg mörka ut och småtomterna ljusa).
+// Facit är den RIKTIGA geometrin (hela prod-uppsättningen, 44 features, md5-kontrollerad mot databasen; förut låg här en beskuren kopia på 21). Prövas OBEROENDE av bedomTrakt:
+// varje traktdels egna provpunkter slås upp direkt mot de ritade fastighetsytorna (m.ytor, det kartan får), så att ett fel i urvalet INTE kan dölja ett fel i ytorna.
+describe('traktdelarna ligger alltid i den ljusa delen (verklig data: Stänkelsmåla 2025)', () => {
+  const fc = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'lib/__fixtures__/fastighetsgrans_stankelsmala.json'), 'utf8'));
+  const m = byggRagang(fc)!;
+  const delar = traktdelarUr(fc);
+  const sidaVid = (x: number, y: number): Set<string> => {
+    const s = new Set<string>();
+    for (const f of m.ytor.features as any[]) if (punktIPolygon(x, y, f.geometry.coordinates)) s.add(f.properties.sida);
+    return s;
+  };
+  it('traktdelarna är fem, alla med provpunkter', () => {
+    expect(delar).toHaveLength(5);
+    for (const d of delar) expect(provpunkter([d]).length).toBeGreaterThan(100);
+  });
+  it('varje traktdel ligger till minst 97 % i LJUSA ytor (sida "trakt") och aldrig i ett hål eller utanför all fastighetsdata', () => {
+    delar.forEach((d, k) => {
+      const pp = provpunkter([d]);
+      let ljus = 0, mork = 0, ingen = 0;
+      for (const [x, y] of pp) { const s = sidaVid(x, y); if (s.has('trakt')) ljus++; else if (s.has('utanfor')) mork++; else ingen++; }
+      expect(ingen, `traktdel ${k + 1}: punkter utan fastighet`).toBe(0);
+      expect(ljus / pp.length, `traktdel ${k + 1}: andel i ljus yta (${mork} av ${pp.length} i nedtonad)`).toBeGreaterThanOrEqual(0.97);
+    });
+  });
+  it('ingen punkt i trakten ligger i BÅDE en ljus och en nedtonad yta (då skulle de två lagren ligga ovanpå varandra)', () => {
+    for (const d of delar) for (const [x, y] of provpunkter([d])) expect(sidaVid(x, y).size).toBe(1);
+  });
+  it('de ljusa är precis Gammalsmåla 2:12 (43–45 %) och Stänkelsmåla 1:3 (55–57 %); Stänkelsmåla 1:8 (under 1 %) och alla andra tonas ned', () => {
+    const per = Object.fromEntries(m.fastigheter.map((f, i) => [f.namn + (f.namn === OUTRETT_NAMN ? `#${i}` : ''), { a: m.urval.andelar[i], i: m.urval.iTrakten[i] }]));
+    expect(per['Gammalsmåla 2:12'].a).toBeGreaterThan(0.43); expect(per['Gammalsmåla 2:12'].a).toBeLessThan(0.45);
+    expect(per['Stänkelsmåla 1:3'].a).toBeGreaterThan(0.55); expect(per['Stänkelsmåla 1:3'].a).toBeLessThan(0.57);
+    expect(Object.entries(per).filter(([, v]) => v.i).map(([k]) => k).sort()).toEqual(['Gammalsmåla 2:12', 'Stänkelsmåla 1:3']);
+    expect(per['Stänkelsmåla 1:8'].a).toBeLessThan(0.01);
+    expect(m.urval.otackt).toBe(0);
+  });
+  it('småtomterna ligger i nedtonade ytor, inte i de ljusa (även de som ligger som hål/urtag i Gammalsmåla 2:12)', () => {
+    for (const namn of ['Gammalsmåla 2:5', 'Gammalsmåla 2:6', 'Gammalsmåla 2:7', 'Gammalsmåla 2:8', 'Gammalsmåla 3:1', 'Gammalsmåla 4:1', 'Gammalsmåla 6:1', 'Stänkelsmåla 1:8', 'Stänkelsmåla 1:9', 'Stänkelsmåla 1:12']) {
+      const ytor = (m.ytor.features as any[]).filter((f) => f.properties.namn === namn);
+      expect(ytor.length, namn).toBeGreaterThan(0);
+      for (const y of ytor) {
+        expect(y.properties.sida, namn).toBe('utanfor');
+        // en punkt mitt i tomten (medelpunkt av ytterringens hörn) ska bara träffa tomtens egen nedtonade yta
+        const r = y.geometry.coordinates[0] as number[][];
+        const cx = r.reduce((s, c) => s + c[0], 0) / r.length, cy = r.reduce((s, c) => s + c[1], 0) / r.length;
+        if (punktIPolygon(cx, cy, y.geometry.coordinates)) expect([...sidaVid(cx, cy)], `${namn} mitt`).toEqual(['utanfor']);
+      }
+    }
+  });
+});
+
 describe('verklig data: Stänkelsmåla 2025 (prod 2026-10-22)', () => {
   const fc = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'lib/__fixtures__/fastighetsgrans_stankelsmala.json'), 'utf8'));
   const m = byggRagang(fc)!;
-  it('trakten ligger på två fastigheter (Gammalsmåla 2:12 och Stänkelsmåla 1:3) → BÅDA ingår (ljusa), de 15 andra tonas ned — oavsett ägare', () => {
+  it('trakten ligger på två fastigheter (Gammalsmåla 2:12 och Stänkelsmåla 1:3) → BÅDA ingår (ljusa), alla andra tonas ned — oavsett ägare', () => {
     expect(m.urval.status).toBe('kand');
     const namn = m.fastigheter.map((f) => f.namn);
     const i212 = namn.indexOf('Gammalsmåla 2:12'), i13 = namn.indexOf('Stänkelsmåla 1:3');
@@ -305,16 +356,16 @@ describe('verklig data: Stänkelsmåla 2025 (prod 2026-10-22)', () => {
     expect(m.urval.andelar[i13]).toBeGreaterThan(0.3);
     const sidor = Object.fromEntries(m.ytor.features.map((f: any) => [f.properties.namn, f.properties.sida]));
     expect(Object.entries(sidor).filter(([, v]) => v === 'trakt').map(([k]) => k).sort()).toEqual(['Gammalsmåla 2:12', 'Stänkelsmåla 1:3']);
-    expect(Object.values(sidor).filter((v) => v === 'utanfor')).toHaveLength(15);
+    expect(Object.values(sidor).filter((v) => v === 'utanfor')).toHaveLength(33);   // 35 namn minus de två ljusa (de tre outretta områdena delar namn)
     expect(m.etiketter.features.every((f: any) => !/granne/i.test(String(f.properties.text)))).toBe(true);
   });
   it('stycken nära trakten är starka, resten svaga — och båda finns i den verkliga datan', () => {
     const styrkor = new Set(m.linjer.features.map((f: any) => f.properties.styrka));
     expect(styrkor).toEqual(new Set(['full', 'svag']));
   });
-  it('områden av samma fastighet blir en: 17 fastigheter ur 19 polygoner; det outretta området heter så', () => {
-    expect(m.fastigheter).toHaveLength(17);
-    expect(m.fastigheter.filter((f) => f.namn === OUTRETT_NAMN)).toHaveLength(1);
+  it('områden av samma fastighet blir en: 37 fastigheter ur 42 polygoner (fiskesamfälligheten på sjön är ingen mark); de outretta områdena heter så och slås aldrig ihop', () => {
+    expect(m.fastigheter).toHaveLength(37);
+    expect(m.fastigheter.filter((f) => f.namn === OUTRETT_NAMN)).toHaveLength(3);
     expect(m.fastigheter.find((f) => f.namn === 'Stänkelsmåla 1:5')!.ytor).toHaveLength(2);
   });
   it('hålet i Gammalsmåla 2:12 blir en egen ringlinje och räknas inte som dess mark', () => {

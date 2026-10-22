@@ -38,9 +38,12 @@ export const RAGANG_LAGER_ORDNING: readonly string[] = [
 // -- färger -------------------------------------------------------------------------------------------------------------------------
 export const RAGANG_FARG = '#ffffff';
 export const RAGANG_KANT_FARG = 'rgba(0,0,0,0.85)';
-/** Fastigheter som trakten överlappar: svagt ljust skimmer. Övriga fastigheter: nedtonade (~26 % mörkare — vägar, hus och diken syns genom). */
-export const SKIMMER_TRAKT = { color: '#ffffff', opacity: 0.1 } as const;
-export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.26 } as const;
+/** Fastigheter som trakten överlappar: ljust skimmer. Övriga fastigheter: tydligt nedtonade (vägar, hus och diken syns fortfarande genom).
+ *  Styrkan är vald mot ett flygfoto, inte mot en jämn bakgrund: skog är mörk, tomter och åker ljusa. Med 10 % skimmer och 26 % nedtoning (första versionen) var en dämpad tomt
+ *  fortfarande LJUSARE än skogen i den ljusa fastigheten — det såg ut som att masken var omvänd (Martin 2026-10-22, Stänkelsmåla 2025) fast urvalet var rätt. Med 14 % / 58 %
+ *  hamnar en dämpad tomt under skogen i den ljusa fastigheten. */
+export const SKIMMER_TRAKT = { color: '#ffffff', opacity: 0.14 } as const;
+export const NEDTONING_UTANFOR = { color: '#000000', opacity: 0.58 } as const;
 /** Svaga stycken (långt från trakten): lägre opacitet på både kärna och kant. */
 export const SVAG_OPACITET = 0.5;
 
@@ -134,4 +137,29 @@ export function fastighetsCirkelPaint(visa: boolean): Record<string, any> {
 /** Första vektorlagret i stilen (allt utom bakgrund och raster): skimret läggs under det, så det tonar bara kartan och aldrig täcker en markering. */
 export function forstaVektorLagerId(lager: ReadonlyArray<{ id: string; type: string }>): string | undefined {
   return lager.find((l) => l.type !== 'background' && l.type !== 'raster' && l.type !== 'hillshade' && l.type !== 'color-relief')?.id;
+}
+
+// -- synlighet: EN funktion för ALLT som hör till lagret "Fastighetsgränser" ---------------------------------------------------------------
+// Martin 2026-10-22: lagret var inte tänt av honom men gränserna syntes. Därför finns synligheten på ETT ställe och i ren form, så den går att pröva i en riktig karta:
+// släckt lager = ingenting av detta syns (inga linjer, ingen nedtoning, inga beteckningar, ingen Lantmäteri-gräns). Undantaget är briefingens egen tändning av Lantmäteri-rastret
+// (`briefingLM`, TraktBriefing) som aldrig kommer från menyn. Fällningsvarningen i skördaren är inget lager och hör inte hit.
+export interface FastighetsSynlighetIn {
+  /** Lagerknappen "Fastighetsgränser" i menyn (overlays.fastighetsgrans). Enda källan. */
+  lagerPa: boolean;
+  /** Vida har levererat fastighetsytor (byggRagang gav en modell). */
+  harVidaData: boolean;
+  /** Objektets geometri är läst (svaret har kommit, med eller utan fastighetsytor) — innan dess ritas inte Lantmäteri-gränsen (den skulle blinka till). */
+  geometriLast: boolean;
+  /** Briefingens egen tändning av Lantmäteri-rastret (overlays.fastighetsgranser). */
+  briefingLM: boolean;
+}
+export function fastighetsSynlighet(i: FastighetsSynlighetIn): { vida: boolean; lm: boolean } {
+  const lagerPa = i.lagerPa === true;
+  return { vida: lagerPa && i.harVidaData, lm: (lagerPa && !i.harVidaData && i.geometriLast) || i.briefingLM === true };
+}
+
+/** Skriver synligheten på alla lager som hör till fastighetsgränsen. Rör inget annat lager. */
+export function tillampaFastighetsSynlighet(map: { getLayer: (id: string) => unknown; setLayoutProperty: (id: string, k: string, v: string) => void }, s: { vida: boolean; lm: boolean }): void {
+  for (const id of RAGANG_LAGER_ORDNING) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', s.vida ? 'visible' : 'none');
+  for (const id of [LM_GRANS.kantLager, LM_GRANS.linjeLager]) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', s.lm ? 'visible' : 'none');
 }

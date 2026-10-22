@@ -248,10 +248,10 @@ describe.skipIf(!CHROMIUM)('Vems mark — skimmer på fastigheter trakten överl
     expect(lum(m.px(300, 20)), 'B (utanför) ska vara mörkare än bakgrunden').toBeLessThan(lum(m.bakgrund) - 6);
     expect(lum(m.px(100, 300)), 'C (utanför) ska vara mörkare än bakgrunden').toBeLessThan(lum(m.bakgrund) - 6);
   }, 90000);
-  it('nedtoningen är svag: 20–30 % mörkare, så vägar, hus och diken syns genom', async () => {
+  it('nedtoningen är tydlig men inte svart: 35–50 % av ljuset kvar, så vägar, hus och diken syns genom men en dämpad tomt aldrig är ljusare än skogen i den ljusa fastigheten', async () => {
     const m = await rita('flygfoto', { features: [A, B, C, TRAKT_EGEN] }, { zoom: 16 });
     const forhall = lum(m.px(300, 20)) / lum(m.bakgrund);
-    expect(forhall, 'B:s ljushet relativt bakgrunden').toBeGreaterThan(0.7); expect(forhall).toBeLessThan(0.8);
+    expect(forhall, 'B:s ljushet relativt bakgrunden').toBeGreaterThan(0.35); expect(forhall).toBeLessThan(0.5);
   }, 90000);
   it('trakten ligger på A och B: BÅDA lyser (marken ingår), C tonas', async () => {
     const m = await rita('flygfoto', { features: [A, B, C, TRAKT_PA_TVA] }, { skriv: SKRIV, namn: 'skimmer-tva', zoom: 16 });
@@ -427,13 +427,12 @@ describe('page.tsx ritar rågången med de delade specarna', () => {
   });
   it('rågångens lager följer körvyns whitelist (prefixet trakt-) men körvyn rör inte deras synlighet — den hör till lagret', () => {
     for (const id of RAGANG_LAGER_ORDNING) expect(id.startsWith('trakt-')).toBe(true);
-    expect(sida).toMatch(/for \(const id of RAGANG_LAGER_ORDNING\)/);
+    expect(sida).toMatch(/tillampaFastighetsSynlighet\(map as any, \{ vida: fastighetsSyn\.vida, lm: fastighetsSyn\.lm \}\)/);
     expect(sida).toMatch(/if \(l\.id\.startsWith\('trakt-ragang-'\) \|\| l\.id\.startsWith\('wms-layer-fastighetsgranser'\)\) continue;/);
     expect(sida).toMatch(/if \(id\.startsWith\('trakt-ragang-'\) \|\| id\.startsWith\('wms-layer-fastighetsgranser'\)\) continue;/);   // och inte heller återställningen ut ur körvyn
   });
   it('ALLT hör till lagret Fastighetsgränser: Vidas rågång, Lantmäteri-paret och menyraden är en och samma knapp, och inga pinnar finns', () => {
-    expect(sida).toMatch(/const pa = !!overlays\.fastighetsgrans && !!ragang;/);
-    expect(sida).toMatch(/const lmGransPa = !!overlays\.fastighetsgrans && !ragang && \(!valtObjekt\?\.id \|\| traktGeoHamtadFor === valtObjekt\.id\);/);
+    expect(sida).toMatch(/fastighetsSynlighet\(\{ lagerPa: !!overlays\.fastighetsgrans, harVidaData: !!ragang, geometriLast: !valtObjekt\?\.id \|\| traktGeoHamtadFor === valtObjekt\.id, briefingLM: !!overlays\.fastighetsgranser \}\)/);
     expect(sida).toMatch(/for \(const spec of lm\.lager\) map\.addLayer\(spec, 'zone-fill'\)/);
     expect(sida).toMatch(/if \(id === 'fastighetsgranser'\) return;/);   // den generiska WMS-effekten rör inte Lantmäteri-paret
     expect(sida).toMatch(/\{ id: 'fastighetsgrans', name: 'Fastighetsgränser', desc: [^}]+\}/);

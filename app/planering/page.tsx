@@ -59,7 +59,7 @@ import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
 import { byggRagang, fastighetsFall, gransVidTryck, gransRubrik, FASTIGHET_KORT_MENING, FASTIGHET_FALL_M, type RagangModell } from '../../lib/fastighetsgrans'
-import { RAGANG_KALLOR, RAGANG_LAGER_ORDNING, ragangKallor, ragangLager, lmGransLager, LM_GRANS, fastighetsCirkelPaint, forstaVektorLagerId, TRAKTGRANS_BREDD, TRAKTGRANS_KANT_BREDD, TRAKTGRANS_KANT_FARG } from '../../lib/fastighetsgransKarta'
+import { RAGANG_KALLOR, ragangKallor, ragangLager, lmGransLager, fastighetsSynlighet, tillampaFastighetsSynlighet, fastighetsCirkelPaint, forstaVektorLagerId, TRAKTGRANS_BREDD, TRAKTGRANS_KANT_BREDD, TRAKTGRANS_KANT_FARG } from '../../lib/fastighetsgransKarta'
 import { vidaEtikettPunkter, zonEtikettPunkter } from '../../lib/ytaEtikett'
 import { FastighetsgransKortVy } from '../../components/planering/FastighetsgransKort'
 import { kopplaFlyttaMig, kopplaLangtryckFlytt } from '../../lib/testPosition'
@@ -4948,23 +4948,15 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     try { (map.getSource('trakt-etikett-source') as any)?.setData(vidaEtiketter); } catch { /* källan inte klar */ }
   }, [vidaEtiketter, mapLibreReady]);
-  // Synlighet: ALLT hör till lagret "Fastighetsgränser". Tänt + Vida har levererat fastighetsytor → Vidas rågång (vektor); tänt utan Vidas fastighetsdata →
-  // Lantmäteriets gräns i samma stil; släckt → ingenting (vanlig karta). Fällningsvarningen i skördaren gäller alltid (fgFall, ingen koppling hit).
-  // Medan objektets geometri ännu läses visas inte Lantmäteri-gränsen (annars blinkar den till innan Vidas data kommer).
-  const lmGransPa = !!overlays.fastighetsgrans && !ragang && (!valtObjekt?.id || traktGeoHamtadFor === valtObjekt.id);
+  // Synlighet: ALLT hör till lagret "Fastighetsgränser" och avgörs av EN ren funktion (lib/fastighetsgransKarta fastighetsSynlighet): tänt + Vida har levererat fastighetsytor → Vidas rågång
+  // (vektor); tänt utan Vidas fastighetsdata → Lantmäteriets gräns i samma stil; släckt → ingenting (vanlig karta). Fällningsvarningen i skördaren gäller alltid (fgFall, ingen koppling hit).
+  // Medan objektets geometri ännu läses visas inte Lantmäteri-gränsen (annars blinkar den till innan Vidas data kommer). overlays.fastighetsgranser = briefingens egen tändning, oförändrad.
+  const fastighetsSyn = fastighetsSynlighet({ lagerPa: !!overlays.fastighetsgrans, harVidaData: !!ragang, geometriLast: !valtObjekt?.id || traktGeoHamtadFor === valtObjekt.id, briefingLM: !!overlays.fastighetsgranser });
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    const pa = !!overlays.fastighetsgrans && !!ragang;
-    for (const id of RAGANG_LAGER_ORDNING) { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', pa ? 'visible' : 'none'); }
-  }, [overlays.fastighetsgrans, ragang, mapLibreReady]);
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-    // overlays.fastighetsgranser = egenkontrollens/briefingens egen tändning av Lantmäteri-lagret (TraktBriefing), oförändrad.
-    const vis = lmGransPa || overlays.fastighetsgranser ? 'visible' : 'none';
-    for (const id of [LM_GRANS.kantLager, LM_GRANS.linjeLager]) { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); }
-  }, [lmGransPa, overlays.fastighetsgranser, mapLibreReady]);
+    tillampaFastighetsSynlighet(map as any, { vida: fastighetsSyn.vida, lm: fastighetsSyn.lm });
+  }, [fastighetsSyn.vida, fastighetsSyn.lm, mapLibreReady]);
 
   // === Trakt-geometri: toggle synlighet per lagerknapp ===
   useEffect(() => {
