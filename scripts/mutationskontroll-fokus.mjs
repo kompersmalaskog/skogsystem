@@ -12,6 +12,7 @@ const TESTER = [
   "lib/traktNara.test.ts",
   "lib/fokusTrakt.test.ts",
   "lib/fokusTrakt.vakter.test.ts",
+  "lib/fokusTrakt.undantag.test.ts",
 ];
 
 const M = [
