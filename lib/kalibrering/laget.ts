@@ -206,7 +206,7 @@ export const startMaskin = (args: {
 };
 
 // === Ett trädslag: stödtalen under träffprocenten ===
-/** Raden under träffprocenten i ett trädslag: längd = toleransen och n; diameter = "Går den rakt?" och "Flaxar den?" (samma format som gamla Rapport). */
+/** Raden under träffprocenten i ett trädslag: längd = toleransen och n; diameter = "Drar den åt ett håll?" och "Flaxar den?" (samma format som gamla Rapport). */
 export const tradslagStod = (stat: { n: number; tolerans: number | null; systematisk: number | null; standardavv: number | null }, variabel: 'diameter' | 'langd'): string =>
   variabel === 'langd'
     ? `inom ±${fmtKrav(stat.tolerans)} cm · n ${stat.n}`

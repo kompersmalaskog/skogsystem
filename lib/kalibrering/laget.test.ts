@@ -151,8 +151,8 @@ describe('vilken maskin vyn startar på — alltid EN, aldrig "alla"', () => {
 });
 
 describe('trädslagets stödtal', () => {
-  it('diameter: Går den rakt? och Flaxar den? med tecken och en decimal; längd: toleransen', () => {
-    expect(tradslagStod(stat({ n: 412, systematisk: 0.26, standardavv: 3.44 }), 'diameter')).toBe('Går den rakt? +0,3 mm · Flaxar den? 3,4 mm · n 412');
+  it('diameter: Drar den åt ett håll? och Flaxar den? med tecken och en decimal; längd: toleransen', () => {
+    expect(tradslagStod(stat({ n: 412, systematisk: 0.26, standardavv: 3.44 }), 'diameter')).toBe('Drar den åt ett håll? +0,3 mm · Flaxar den? 3,4 mm · n 412');
     expect(tradslagStod(stat({ n: 120, tolerans: 2 }), 'langd')).toBe('inom ±2 cm · n 120');
   });
 });
@@ -165,7 +165,7 @@ describe('en åtgärd i detalj — "Hjälpte åtgärden?"', () => {
     const rader = atgardDetalj(r.dom!);
     expect(rader.map(x => [x.fraga, x.fore, x.efter, x.text])).toEqual([
       ['Träffar den rätt?', '71 %', '84 %', '↑ 13 · bättre'],
-      ['Går den rakt?', '+1,4 mm', '+0,3 mm', '↓ 1,1 mm · rakare'],
+      ['Drar den åt ett håll?', '+1,4 mm', '+0,3 mm', '↓ 1,1 mm · rakare'],
       ['Flaxar den?', '4,6 mm', '3,7 mm', '↓ 0,9 mm · lugnare'],
     ]);
   });

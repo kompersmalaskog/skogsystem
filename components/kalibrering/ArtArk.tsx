@@ -1,6 +1,6 @@
 'use client';
 // Ett trädslag: träffprocenten mot Vidas krav (diameter och längd, med stödtalen), snittavvikelsen (viktad per kontrollstock) och de senaste kontrollerna.
-// De två första raderna är trädslagsraden ur gamla Rapport — stödtalen ("Går den rakt?", "Flaxar den?", n) bor här sedan Läget visar träffprocenten.
+// De två första raderna är trädslagsraden ur gamla Rapport — stödtalen ("Drar den åt ett håll?", "Flaxar den?", n) bor här sedan Läget visar träffprocenten.
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import { AVSTAND } from '@/lib/design/tokens';
