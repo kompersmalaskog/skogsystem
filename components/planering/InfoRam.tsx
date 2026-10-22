@@ -25,7 +25,8 @@ export interface InfoRamProps {
   /** Panelens bredd (px) på bred skärm; standard `PANEL_BREDD_PX`. */
   bredd?: number;
   onStang: () => void;
-  children: (ctx: { lage: PlusLage; detent: Detent }) => React.ReactNode;
+  /** `sattDetent`: innehållet kan fälla ner arket (telefon) — ⓘ-listans "flyg till ytan" gör det så att kartan syns ovanför. */
+  children: (ctx: { lage: PlusLage; detent: Detent; sattDetent: (d: Detent) => void }) => React.ReactNode;
 }
 
 const GREPP_HOJD_PX = AVSTAND.xl + AVSTAND.xs;
@@ -142,7 +143,7 @@ export default function InfoRam({ oppen, vy, ariaLabel, halv = false, bredd = PA
         </button>
       )}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', paddingTop: lage === 'panel' ? AVSTAND.l : 0 }}>
-        {children({ lage, detent })}
+        {children({ lage, detent, sattDetent: (d) => { setDragPx(null); setDetent(d); } })}
       </div>
       {/* safe-area under innehållet (ett ark ritas annars in i hemindikatorn) */}
       {lage === 'ark' && <div aria-hidden="true" style={{ flexShrink: 0, height: 0, paddingBottom: medSafeBotten(0) }} />}

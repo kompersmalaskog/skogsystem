@@ -24,6 +24,7 @@ import { vidaSlag } from '../larm/objekt';
 import { byggTraktKort } from '../traktGeometri';
 import { vidaNycklar } from '../vidaNycklar';
 import { aldreKommentar, forfattarText, kommentarerForNyckel, markerNyckel, type KommentarVy } from '../kartkommentar';
+import { forstaPunkt, rensaVidaNamn, type BrickaGrupp } from '../ytaNamn';
 
 /** Punkter och linjer räknas som "inne" inom så här många meter (ut först vid +UT_MARGINAL_M, så GPS-brus vid kanten inte ger flimmer). */
 export const INNE_M = 30;
@@ -57,6 +58,10 @@ export interface InstruktionOmrade {
   avlagg: boolean;
   /** Hela trakten, inte en plats: Vidas traktdirektiv. Instruktion nr 1 i listan och i genomgången — men utan inkörning, det ger aldrig ett kort. */
   objektniva?: boolean;
+  /** Kartans namn på ytan som bricka ("Hänsyn 1", "Övrigt 4") + typen ("Kant mot vatten", utan Vidas " O") + brickans färggrupp — samma på kartan, i listan, på kortet och i påminnelsen (lib/ytaNamn). */
+  bricka?: string;
+  typ?: string;
+  brickaGrupp?: BrickaGrupp;
   instruktioner: Instruktion[];
 }
 
@@ -179,14 +184,17 @@ export function samlaOmraden(i: SamlaIn): InstruktionOmrade[] {
     if (!arPlats(f.geometry?.type, kort.kategori === 'punkt')) return;
     // Vidas egen text (ATGARD) är en instruktion bara på ytor (hänsynsytor) och bara om den säger något; på avlägg är den ett namn och ger aldrig kort (se överst).
     const arAvlagg = kort.kategori === 'punkt';
-    const vidaText = !arAvlagg && arInstruktionsText(kort.vidaKommentar, [props.FLBESKR, kort.rubrik]) ? String(kort.vidaKommentar).trim() : '';
+    const vidaText = !arAvlagg && arInstruktionsText(kort.vidaKommentar, [props.FLBESKR, rensaVidaNamn(props.FLBESKR), kort.rubrik, kort.brickaTyp]) ? String(kort.vidaKommentar).trim() : '';
     const lista: Instruktion[] = [];
     if (vidaText) lista.push({ ref: `vida:${nyckel}`, text: vidaText, hash: hashText(vidaText), kalla: 'vida', forfattare: null, vantar: false });
     lista.push(...egnaInstruktioner(i.kommentarer, i.objektId, nyckel, null, i.nu));
     if (!lista.length) return;
     const slag = vidaSlag(props, f.geometry?.type);
-    const namn = (kort.kategori === 'hansyn' || kort.kategori === 'punkt') ? kort.rubrik : slag ? VIDA[slag].namn : (kort.rubrik || 'Område');
-    ut.push({ nyckel, namn, narvaro: vidaNarvaro(f.geometry, i.pos), avlagg: arAvlagg, instruktioner: sorteraInstruktioner(lista) });
+    const namn = (kort.kategori === 'hansyn' || kort.kategori === 'ovrigt' || kort.kategori === 'punkt') ? kort.rubrik : slag ? VIDA[slag].namn : (kort.rubrik || 'Område');
+    // Brickan = kartans etikett (hänsyn/Övrigt) — ett avlägg heter "Avlägg <nr>", neutral bricka.
+    const bricka = arAvlagg ? (kort.nr ? `Avlägg ${kort.nr}` : 'Avlägg') : kort.bricka;
+    const brickaGrupp: BrickaGrupp | undefined = arAvlagg ? 'ovrigt' : kort.brickaGrupp;
+    ut.push({ nyckel, namn, narvaro: vidaNarvaro(f.geometry, i.pos), avlagg: arAvlagg, instruktioner: sorteraInstruktioner(lista), ...(bricka ? { bricka, typ: arAvlagg ? '' : kort.brickaTyp, brickaGrupp } : {}) });
   });
 
   for (const m of i.markers) {
@@ -196,15 +204,17 @@ export function samlaOmraden(i: SamlaIn): InstruktionOmrade[] {
     let narvaro: Narvaro;
     let namn: string;
     let avlagg = false;
+    let brickaGrupp: BrickaGrupp = 'ovrigt';
     if (m.isMarker && m.type === EGET_AVLAGG_TYP && typeof m.x === 'number' && typeof m.y === 'number') {
       namn = i.typNamn(m.type);
       avlagg = true;
       narvaro = { slag: 'avstand', avstandM: i.pos ? avstandPunktM(i.pos, i.svgToLatLon(m.x, m.y)) : null };
     } else if ((m.isZone || m.lineType === 'boundary') && m.path?.length > 2) {
       namn = m.isZone ? (ytaDef(m.zoneType)?.namn ?? 'Område') : 'Område';
+      if (m.isZone && ytaDef(m.zoneType)) brickaGrupp = ytaDef(m.zoneType)!.grupp;
       narvaro = { slag: 'yta', inne: i.pos ? arInnePolygon(i.pos, [m.path.map((p: any) => i.svgToLatLon(p.x, p.y))]) : false };
     } else continue;   // punktsymboler och linjer är inga platser man kör in i
-    ut.push({ nyckel, namn, narvaro, avlagg, instruktioner: lista });
+    ut.push({ nyckel, namn, narvaro, avlagg, instruktioner: lista, bricka: avlagg ? 'Avlägg' : namn, typ: '', brickaGrupp });
   }
   return ut;
 }
@@ -218,9 +228,17 @@ export interface InstruktionState {
   inne: Readonly<Record<string, true>>;
   /** Områden som körts in i med osedda instruktioner och väntar på "Sett", i den ordning de kördes in i. Ett kort står kvar tills Sett. */
   vantande: readonly string[];
+  /**
+   * PÅMINNELSEN I YTAN: områden maskinen är inne i där allt redan är sett → när påminnelsen startade (ms). Första inkörningen: hela pillen i `PAMINNELSE_FULL_MS`, sedan bara brickan
+   * så länge man är kvar. Efter ett Sett inne i ytan startar den direkt som bricka (man har precis läst det). Kör man ut försvinner posten; kör man in igen börjar pillen om.
+   */
+  paminn: Readonly<Record<string, number>>;
 }
 
-export const TOMT_INSTRUKTION: InstruktionState = { inne: {}, vantande: [] };
+/** Hela pillen (bricka + kort text) visas så här länge efter en inkörning, sedan krymper den till bara brickan. */
+export const PAMINNELSE_FULL_MS = 10000;
+
+export const TOMT_INSTRUKTION: InstruktionState = { inne: {}, vantande: [], paminn: {} };
 
 export function arInne(o: InstruktionOmrade, tidigareInne: boolean): boolean {
   if (o.narvaro.slag === 'yta') return o.narvaro.inne;
@@ -235,17 +253,24 @@ export const osedda = (o: InstruktionOmrade, sett: SettKarta): Instruktion[] => 
  * Ett steg. Ny inkörning i ett område med osedda instruktioner lägger området sist i kön (det första utvärderingen räknas också som inkörning: står maskinen
  * redan i området när appen startar ska instruktionen fram). Ett område som inte längre har något osett — lästs på annat håll — lämnar kön.
  */
-export function stegaInstruktion(state: InstruktionState, omraden: readonly InstruktionOmrade[], sett: SettKarta): InstruktionState {
+export function stegaInstruktion(state: InstruktionState, omraden: readonly InstruktionOmrade[], sett: SettKarta, nu: number = Date.now()): InstruktionState {
   const inne: Record<string, true> = {};
+  const paminn: Record<string, number> = {};
   const vantande = state.vantande.filter((n) => omraden.some((o) => o.nyckel === n && osedda(o, sett).length > 0));
   for (const o of omraden) {
     if (o.objektniva) continue;   // hela trakten: ingen inkörning, inget kort
     const var_ = !!state.inne[o.nyckel];
     const ar = arInne(o, var_);
     if (ar) inne[o.nyckel] = true;
-    if (ar && !var_ && osedda(o, sett).length > 0 && !vantande.includes(o.nyckel)) vantande.push(o.nyckel);
+    const nya = osedda(o, sett).length;
+    if (ar && !var_ && nya > 0 && !vantande.includes(o.nyckel)) vantande.push(o.nyckel);
+    // Påminnelsen: bara medan man är inne och allt är sett. Ny inkörning = hela pillen; sett inne i ytan = direkt bara brickan; kör man ut försvinner den.
+    if (ar && nya === 0) {
+      const start = state.paminn[o.nyckel];
+      paminn[o.nyckel] = start != null && var_ ? start : (var_ ? nu - PAMINNELSE_FULL_MS : nu);
+    }
   }
-  return { inne, vantande };
+  return { inne, vantande, paminn };
 }
 
 export interface InstruktionKortData {
@@ -257,6 +282,10 @@ export interface InstruktionKortData {
   instruktioner: Instruktion[];
   /** Fler områden väntar efter det här (visas när detta är sett). */
   fler: number;
+  /** Kartans namn på ytan (bricka + typ + färg): rubriken på kortet är samma som i listan, påminnelsen och kartkortet. */
+  bricka?: string;
+  typ?: string;
+  brickaGrupp?: BrickaGrupp;
 }
 
 /**
@@ -269,7 +298,43 @@ export function kortAttVisa(state: InstruktionState, omraden: readonly Instrukti
     const o = omraden.find((x) => x.nyckel === nyckel);
     if (!o) continue;
     const nya = osedda(o, sett);
-    if (nya.length) return { nyckel, namn: o.namn, avlagg: o.avlagg, instruktioner: nya, fler: state.vantande.filter((n) => n !== nyckel).length };
+    if (nya.length) return { nyckel, namn: o.namn, avlagg: o.avlagg, instruktioner: nya, fler: state.vantande.filter((n) => n !== nyckel).length, bricka: o.bricka, typ: o.typ, brickaGrupp: o.brickaGrupp };
+  }
+  return null;
+}
+
+/** Påminnelsen i ytan: pillen (bricka + första punkten + ›) de första sekunderna, sedan bara brickan. */
+export interface Paminnelse {
+  nyckel: string;
+  namn: string;
+  avlagg: boolean;
+  bricka: string;
+  typ: string;
+  brickaGrupp: BrickaGrupp;
+  /** Första punkten av instruktionen — en rad i pillen. */
+  text: string | null;
+  /** Hela instruktionen (alla kommentarer, sedda): visas utan Sett när föraren trycker på pillen eller brickan. */
+  instruktioner: Instruktion[];
+  fas: 'full' | 'bricka';
+  /** Millisekunder kvar av hela pillen (0 när den blivit bricka). Sidan väcker sig själv då. */
+  kvarMs: number;
+}
+
+/**
+ * Påminnelsen som ska visas nu, eller null. Den gäller området maskinen är inne i där allt redan är sett (`state.paminn`) — och väntar bakom ALLT annat: ett larmkort eller lossningskortet
+ * (`blockerad`) och instruktionskortet med Sett (`kortVisas`). Kommer platsen tillbaka visas den igen (har de 10 sekunderna gått är det bara brickan). Hela trakten (direktivet) har ingen.
+ */
+export function paminnelseAttVisa(state: InstruktionState, omraden: readonly InstruktionOmrade[], sett: SettKarta, nu: number, blockerad: boolean, kortVisas: boolean): Paminnelse | null {
+  if (blockerad || kortVisas) return null;
+  for (const o of omraden) {
+    if (o.objektniva || !state.inne[o.nyckel]) continue;
+    const start = state.paminn[o.nyckel];
+    if (start == null || osedda(o, sett).length > 0 || !o.instruktioner.length) continue;
+    const kvarMs = Math.max(0, PAMINNELSE_FULL_MS - (nu - start));
+    return {
+      nyckel: o.nyckel, namn: o.namn, avlagg: o.avlagg, bricka: o.bricka ?? o.namn, typ: o.typ ?? '', brickaGrupp: o.brickaGrupp ?? 'ovrigt',
+      text: forstaPunkt(o.instruktioner[0].text), instruktioner: o.instruktioner, fas: kvarMs > 0 ? 'full' : 'bricka', kvarMs,
+    };
   }
   return null;
 }
@@ -283,14 +348,14 @@ export interface InstruktionerPaTrakten {
   antal: number;
   /** Hur många som föraren inte sett. */
   nya: number;
-  omraden: { nyckel: string; namn: string; instruktioner: (Instruktion & { sedd: boolean })[]; nya: number }[];
+  omraden: { nyckel: string; namn: string; instruktioner: (Instruktion & { sedd: boolean })[]; nya: number; bricka?: string; typ?: string; brickaGrupp?: BrickaGrupp }[];
 }
 
 /** Raden "Instruktioner på trakten (N)": alla områden med instruktioner, de med osedda överst, annars i den ordning de samlats. */
 export function instruktionerPaTrakten(omraden: readonly InstruktionOmrade[], sett: SettKarta): InstruktionerPaTrakten {
   const lista = omraden.map((o) => {
     const instruktioner = o.instruktioner.map((x) => ({ ...x, sedd: !arOsedd(x, sett) }));
-    return { nyckel: o.nyckel, namn: o.namn, instruktioner, nya: instruktioner.filter((x) => !x.sedd).length };
+    return { nyckel: o.nyckel, namn: o.namn, instruktioner, nya: instruktioner.filter((x) => !x.sedd).length, bricka: o.bricka, typ: o.typ, brickaGrupp: o.brickaGrupp };
   });
   // Traktdirektivet är instruktion nr 1 och ligger alltid först; därefter de områden som har osedda, sedan resten i den ordning de samlats.
   const sorterad = lista.map((o, n) => ({ o, n })).sort((a, b) => Number(b.o.nyckel === DIREKTIV_NYCKEL) - Number(a.o.nyckel === DIREKTIV_NYCKEL) || Number(b.o.nya > 0) - Number(a.o.nya > 0) || a.n - b.n).map((x) => x.o);

@@ -4,6 +4,7 @@
 // INTE SV_BESKRIVNINGSENHET_FL (markägarens skogsbruksplan → renderas ej).
 
 import { arOvrigYta } from './vidaYtaTyp';
+import { vidaYtaNamn, type BrickaGrupp } from './ytaNamn';
 
 export type TraktKategori =
   | 'traktdel' | 'hansyn' | 'ovrigt' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'linje' | 'ignorera';
@@ -61,6 +62,10 @@ export interface TraktKort {
    *  Traktdelens FLBESKR är bara åtgärdens namn ("Första gallring") — ingen kommentar, så den finns inte här. */
   vidaKommentar?: string;
   rader: { etikett?: string; text: string }[];   // beskrivande textfält (åtgärd / biotop / lämningsbeskrivning)
+  /** Vidas tilläggsytor (hänsyn, Övrigt): kartans etikett som bricka ("Hänsyn 1"), typen ("Kant mot vatten", utan Vidas " O") och brickans färggrupp — samma namn på kartan och i listan (lib/ytaNamn). */
+  bricka?: string;
+  brickaTyp?: string;
+  brickaGrupp?: BrickaGrupp;
 }
 
 /** Bygg kortets innehåll för en tappad trakt-feature. Ett gemensamt kort, fältuppsättning per kategori. */
@@ -69,19 +74,19 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
   const arealHa = traktArealHa(props);
   const rader: { etikett?: string; text: string }[] = [];
   let rubrik = ''; let nr = ''; let vidaKommentar = '';
+  let bricka = ''; let brickaTyp = ''; let brickaGrupp: BrickaGrupp | undefined;
 
   if (kategori === 'traktdel') {
     nr = txt(props.TRDEL_NR_K);
     rubrik = nr ? `Traktdel ${nr}` : 'Traktdel';
     if (txt(props.FLBESKR)) rader.push({ text: txt(props.FLBESKR) });
-  } else if (kategori === 'hansyn') {
+  } else if (kategori === 'hansyn' || kategori === 'ovrigt') {
+    // Samma namn som kartans etikett: brickan "Hänsyn 1" / "Övrigt 4" + typen utan Vidas kodtecken (lib/ytaNamn). Rubriken är EN för kortet, listan och instruktionskortet.
     nr = txt(props.LOPNR);
-    rubrik = txt(props.FLBESKR) || 'Hänsynsyta';
+    const namn = vidaYtaNamn(props);
+    rubrik = namn?.rubrik || (kategori === 'ovrigt' ? 'Övrigt' : 'Hänsynsyta');
     vidaKommentar = txt(props.ATGARD);
-  } else if (kategori === 'ovrigt') {
-    nr = txt(props.LOPNR);
-    rubrik = txt(props.FLBESKR) || 'Övrigt';
-    vidaKommentar = txt(props.ATGARD);
+    if (namn) { bricka = namn.bricka; brickaTyp = namn.typ; brickaGrupp = namn.grupp; }
   } else if (kategori === 'punkt') {
     nr = txt(props.EXTRA_LABE);
     rubrik = txt(props.FLBESKR) || 'Avlägg';
@@ -99,7 +104,7 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
   } else {
     rubrik = 'Trakt-objekt';
   }
-  return { kategori, kalla, rubrik, nr, arealHa, rader, ...(vidaKommentar ? { vidaKommentar } : {}) };
+  return { kategori, kalla, rubrik, nr, arealHa, rader, ...(vidaKommentar ? { vidaKommentar } : {}), ...(bricka ? { bricka, brickaTyp, brickaGrupp } : {}) };
 }
 
 /** Stabil yta-nyckel för per-yta-anteckning (tabell objekt_yta_anteckning). Måste ÖVERLEVA omimport,

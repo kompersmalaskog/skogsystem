@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import InfoRam, { type InfoVy } from './InfoRam';
 import ObjektKort, { type ObjektKortProps } from './ObjektKort';
+import ObjektKortEnkel, { type ObjektKortEnkelProps } from './ObjektKortEnkel';
 import OmTrakten, { type OmNav, type OmTraktenProps } from './OmTrakten';
 import MerMeny, { type MerMenyProps } from './MerMeny';
 import VadBetyderKartan, { type VadBetyderKartanProps } from './VadBetyderKartan';
@@ -42,11 +43,16 @@ export interface ObjektInfoProps {
   karta?: Pick<VadBetyderKartanProps, 'markeringar' | 'vida' | 'roll'> | null;
   /** MASKINLÄGET: instruktionerna på trakten (raden på kortet och listan bakom den) med förarens "✓ Sett". null = ingen rad, ingen vy. */
   instruktioner?: { data: InstruktionerPaTrakten; onSett: (nycklar: string[]) => void } | null;
+  /**
+   * MASKINLÄGET: förarens enkla kort (bara tre delar — namn och framsteg, "Det här gäller här", 112 med larmkoordinaten · Kartans färger · Dokument · Mer). Ersätter `ObjektKort` på kortvyn.
+   * `onYta` flyger kartan till ytan; på telefon fälls arket ner först så att kartan syns ovanför. Saknas/null = det vanliga kortet (planeringsläget).
+   */
+  enkel?: (Omit<ObjektKortEnkelProps, 'onStang' | 'onMer' | 'onKnapp' | 'direktivSett' | 'onYta'> & { onYta: (nyckel: string, lage: PlusLage) => void }) | null;
   /** Panelens bredd (px) på bred skärm. Standard `PANEL_BREDD_PX`; maskinläget ger den bredare panelen (som korten). På telefon är det ett ark i full bredd. */
   bredd?: number;
 }
 
-export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, bredd, startVy = 'kort' }: ObjektInfoProps) {
+export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, enkel = null, bredd, startVy = 'kort' }: ObjektInfoProps) {
   const [vy, setVy] = useState<InfoVy>(startVy);
   // Vidas traktdirektiv är instruktion nr 1 (lib/instruktioner): finns det en post för det kan föraren kvittera det direkt under rutan på kortet.
   const direktiv = instruktioner?.data.omraden.find((o) => o.nyckel === DIREKTIV_NYCKEL) ?? null;
@@ -69,9 +75,13 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
 
   return (
     <InfoRam oppen={oppen} vy={vy} bredd={bredd} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : 'Mer'} onStang={stangRam}>
-      {({ lage }) => (
+      {({ lage, sattDetent }) => (
         vy === 'klar' && klar ? (
           <KlarMedTrakten {...klar} namn={objektNamn} onStang={stangRam} onInfo={() => setVy('kort')} />
+        ) : (vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner)) && enkel ? (
+          <ObjektKortEnkel {...enkel} direktivSett={direktiv ? { sedd: direktiv.nya === 0, onSett: () => instruktioner!.onSett([DIREKTIV_NYCKEL]) } : null}
+            onStang={stangRam} onKnapp={onKnapp} onMer={() => setVy('mer')} onKarta={karta ? () => setVy('karta') : undefined}
+            onYta={(nyckel) => { sattDetent('halv'); enkel.onYta(nyckel, lage); }} />
         ) : vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner) ? (
           <ObjektKort {...kort} instruktioner={instruktioner && instruktioner.data.antal > 0 ? { antal: instruktioner.data.antal, nya: instruktioner.data.nya, onOppna: () => setVy('instruktioner') } : null}
             direktivSett={direktiv ? { sedd: direktiv.nya === 0, onSett: () => instruktioner!.onSett([DIREKTIV_NYCKEL]) } : null}
