@@ -11,7 +11,7 @@ import path from 'path';
 const las = (rel: string) => fs.readFileSync(path.resolve(__dirname, '..', rel), 'utf8');
 const page = las('app/planering/page.tsx');
 const vakt = las('components/AppStartVakt.tsx');
-const layout = las('app/layout.tsx');
+const layout = las('components/AppRamverk.tsx');   // rotlayoutens ramverk (app/layout.tsx renderar <AppRamverk>)
 
 describe('rollen kommer ur maskinregistret — aldrig en tyst reserv', () => {
   it('ingen "?? \'skotare\'"-reserv kvar i planeringsvyn (en skördare fick skotarens körvy)', () => {
