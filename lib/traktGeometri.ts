@@ -3,8 +3,12 @@
 // för referenslagren, så vi kan inte lita på _typ). Rättelse (Martin): traktdelar = L_TRAKTDEL (Vida),
 // INTE SV_BESKRIVNINGSENHET_FL (markägarens skogsbruksplan → renderas ej).
 
+import { arOvrigYta } from './vidaYtaTyp';
+import { vidaYtaNamn, type BrickaGrupp } from './ytaNamn';
+
 export type TraktKategori =
-  | 'traktdel' | 'hansyn' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'linje' | 'fastighetsgrans' | 'ignorera';
+  | 'traktdel' | 'hansyn' | 'ovrigt' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'linje' | 'fastighetsgrans' | 'ignorera';
+//   'ovrigt' = Vidas fria ytkod (TYP 71 i tilläggsytorna, lib/vidaYtaTyp): en neutral yta, INTE hänsyn — betydelsen står bara i ATGARD.
 //   'linje'  = Vidas linje (L_TILLAGGSLINJER: kraftledning, basväg) — byggs av lib/linjeKort, inte ur `_lager`-tabellen nedan.
 //   'omrade' = planerarens egna ritade område (planering_markeringar, ej objekt_geometri) — PR B.
 //   'fastighetsgrans' = rågången (SV_FASTIGHET). Klassas INTE ur _lager-tabellen nedan: kortet byggs vid trycket ur lib/fastighetsgrans ("X mot Y"), inte ur en feature.
@@ -24,6 +28,7 @@ const LAGER_KATEGORI: Record<string, { kategori: TraktKategori; kalla: string }>
 export function klassaTraktFeature(props: Record<string, any> | null | undefined): { kategori: TraktKategori; kalla: string | null } {
   const lager = String((props && props._lager) ?? '');
   const m = LAGER_KATEGORI[lager];
+  if (m && m.kategori === 'hansyn' && arOvrigYta(props)) return { kategori: 'ovrigt', kalla: m.kalla };   // TYP 71 är ingen hänsyn
   return m ? { kategori: m.kategori, kalla: m.kalla } : { kategori: 'ignorera', kalla: null };
 }
 
@@ -58,6 +63,10 @@ export interface TraktKort {
    *  Traktdelens FLBESKR är bara åtgärdens namn ("Första gallring") — ingen kommentar, så den finns inte här. */
   vidaKommentar?: string;
   rader: { etikett?: string; text: string }[];   // beskrivande textfält (åtgärd / biotop / lämningsbeskrivning)
+  /** Vidas tilläggsytor (hänsyn, Övrigt): kartans etikett som bricka ("Hänsyn 1"), typen ("Kant mot vatten", utan Vidas " O") och brickans färggrupp — samma namn på kartan och i listan (lib/ytaNamn). */
+  bricka?: string;
+  brickaTyp?: string;
+  brickaGrupp?: BrickaGrupp;
 }
 
 /** Bygg kortets innehåll för en tappad trakt-feature. Ett gemensamt kort, fältuppsättning per kategori. */
@@ -66,15 +75,19 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
   const arealHa = traktArealHa(props);
   const rader: { etikett?: string; text: string }[] = [];
   let rubrik = ''; let nr = ''; let vidaKommentar = '';
+  let bricka = ''; let brickaTyp = ''; let brickaGrupp: BrickaGrupp | undefined;
 
   if (kategori === 'traktdel') {
     nr = txt(props.TRDEL_NR_K);
     rubrik = nr ? `Traktdel ${nr}` : 'Traktdel';
     if (txt(props.FLBESKR)) rader.push({ text: txt(props.FLBESKR) });
-  } else if (kategori === 'hansyn') {
+  } else if (kategori === 'hansyn' || kategori === 'ovrigt') {
+    // Samma namn som kartans etikett: brickan "Hänsyn 1" / "Övrigt 4" + typen utan Vidas kodtecken (lib/ytaNamn). Rubriken är EN för kortet, listan och instruktionskortet.
     nr = txt(props.LOPNR);
-    rubrik = txt(props.FLBESKR) || 'Hänsynsyta';
+    const namn = vidaYtaNamn(props);
+    rubrik = namn?.rubrik || (kategori === 'ovrigt' ? 'Övrigt' : 'Hänsynsyta');
     vidaKommentar = txt(props.ATGARD);
+    if (namn) { bricka = namn.bricka; brickaTyp = namn.typ; brickaGrupp = namn.grupp; }
   } else if (kategori === 'punkt') {
     nr = txt(props.EXTRA_LABE);
     rubrik = txt(props.FLBESKR) || 'Avlägg';
@@ -92,7 +105,7 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
   } else {
     rubrik = 'Trakt-objekt';
   }
-  return { kategori, kalla, rubrik, nr, arealHa, rader, ...(vidaKommentar ? { vidaKommentar } : {}) };
+  return { kategori, kalla, rubrik, nr, arealHa, rader, ...(vidaKommentar ? { vidaKommentar } : {}), ...(bricka ? { bricka, brickaTyp, brickaGrupp } : {}) };
 }
 
 /** Stabil yta-nyckel för per-yta-anteckning (tabell objekt_yta_anteckning). Måste ÖVERLEVA omimport,
@@ -106,6 +119,8 @@ export function ytaNyckel(props: Record<string, any> | null | undefined): string
   if (kategori === 'ignorera' && typeof p._nyckel === 'string' && p._nyckel) return p._nyckel;
   switch (kategori) {
     case 'hansyn':       { const v = txt(p.LOPNR);                       return v ? `hansyn:${v}` : null; }
+    // Övrigt (TYP 71) behåller nyckeln `hansyn:<LOPNR>`: kommentarer, foton och "Sett" som redan sparats på ytan hänger på den, och LOPNR är Vidas egna löpnummer i samma serie.
+    case 'ovrigt':       { const v = txt(p.LOPNR);                       return v ? `hansyn:${v}` : null; }
     case 'traktdel':     { const v = txt(p.TRDEL_ID) || txt(p.TRDEL_NR_K); return v ? `traktdel:${v}` : null; }
     case 'nyckelbiotop': { const v = txt(p.Beteckn);                     return v ? `nb:${v}` : null; }
     case 'lamning':      { const v = txt(p.lamningsnu);                  return v ? `raa:${v}` : null; }

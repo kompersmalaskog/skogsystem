@@ -5,10 +5,11 @@
 // Reglerna (vad som visas, vad som är sett) ligger i lib/instruktioner; här är bara utseendet.
 
 import React from 'react';
-import { AVSTAND, FARG, RADIE, TYP, designCss } from '@/lib/design/tokens';
+import { AVSTAND, FARG, KNAPP, RADIE, TYP, designCss } from '@/lib/design/tokens';
 import { type Instruktion, type InstruktionKortData, type InstruktionerPaTrakten } from '@/lib/instruktioner/instruktioner';
 import { Huvud, Rubrik } from './infoDelar';
 import { KommentarVisning } from './KommentarRuta';
+import { YtaBricka } from './YtaRad';
 
 /** Minsta höjd på Sett-knappen: tummen i en skakande hytt, ofta med handske (samma som larmets Sett). */
 export const INSTRUKTION_SETT_MIN_PX = 56;
@@ -49,8 +50,10 @@ export function SettKnapp({ onSett, testid = 'instruktion-sett', etikett = 'Sett
 /**
  * KORTET VID INKÖRNING. Fast högst upp, där larmkortet sitter (larmet går först — sidan visar inte det här medan ett larm visas). Ingen ljudsignal.
  * Kortet scrollar inom sig själv när det är långt; Sett-knappen står fast längst ner i kortet.
+ * Rubriken är ytans namn som på kartan och i listan: brickan ("Hänsyn 1") + typen ("Kant mot vatten"). `utanSett` = påminnelsens hela instruktion (tryck på pillen/brickan): ingen Sett,
+ * i stället "Stäng" — den är redan sedd.
  */
-export function InstruktionKortVy({ kort, top, onSett }: { kort: InstruktionKortData; top: string; onSett: () => void }) {
+export function InstruktionKortVy({ kort, top, onSett, utanSett }: { kort: InstruktionKortData; top: string; onSett?: () => void; utanSett?: { onStang: () => void } }) {
   return (
     <div style={{ position: 'fixed', left: AVSTAND.m, right: AVSTAND.m, top, zIndex: 620, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
       <style>{designCss}</style>
@@ -64,14 +67,21 @@ export function InstruktionKortVy({ kort, top, onSett }: { kort: InstruktionKort
         }}
       >
         <div style={{ flexShrink: 0, paddingRight: AVSTAND.s }}>
-          <div data-testid="instruktion-rubrik" style={{ ...TYP.rubrik, overflowWrap: 'anywhere' }}>{kort.namn} – instruktioner</div>
-          <div data-testid="instruktion-under" style={{ ...TYP.text, color: FARG.text2 }}>{kort.avlagg ? 'Du är vid avlägget' : 'Du kör in i området nu'}</div>
+          {kort.bricka ? (
+            <div data-testid="instruktion-rubrik" aria-label={kort.typ ? `${kort.bricka} · ${kort.typ}` : kort.bricka} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minWidth: 0 }}>
+              <YtaBricka bricka={kort.bricka} grupp={kort.brickaGrupp ?? 'ovrigt'} testid="instruktion-bricka" />
+              {kort.typ && <span data-testid="instruktion-typ" style={{ ...TYP.rubrik, minWidth: 0, overflowWrap: 'anywhere' }}>{kort.typ}</span>}
+            </div>
+          ) : <div data-testid="instruktion-rubrik" style={{ ...TYP.rubrik, overflowWrap: 'anywhere' }}>{kort.namn}</div>}
+          <div data-testid="instruktion-under" style={{ ...TYP.text, color: FARG.text2 }}>{kort.avlagg ? 'Du är vid avlägget' : utanSett ? 'Du är i området' : 'Du kör in i området nu'}</div>
         </div>
         <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', display: 'flex', flexDirection: 'column', gap: AVSTAND.s, paddingRight: AVSTAND.s }}>
           {kort.instruktioner.map((i) => <InstruktionRuta key={i.ref} i={i} />)}
         </div>
         <div style={{ flexShrink: 0, paddingRight: AVSTAND.s }}>
-          <SettKnapp onSett={onSett} />
+          {utanSett
+            ? <button type="button" data-testid="instruktion-stang" onClick={utanSett.onStang} className="press-scale" style={{ ...KNAPP.sekundar, width: '100%', minHeight: INSTRUKTION_SETT_MIN_PX, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>Stäng</button>
+            : <SettKnapp onSett={onSett ?? (() => {})} />}
           {kort.fler > 0 && <div data-testid="instruktion-fler" style={{ ...TYP.meta, color: FARG.text2, textAlign: 'center', marginTop: AVSTAND.xs }}>+{kort.fler} {kort.fler === 1 ? 'område' : 'områden'} till väntar</div>}
         </div>
       </div>

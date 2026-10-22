@@ -38,7 +38,9 @@ export function pulsGeometri(g: PulsGeometri | null | undefined, pos: LatLon, ha
 }
 
 export function pulsData(puls: Puls | null | undefined, pos: LatLon | null) {
-  const g = puls && pos ? pulsGeometri(puls.geometri, pos) : null;
+  // En linje klipps till sträckan närmast maskinen och behöver positionen; en yta eller punkt pulserar helt och behöver den inte (ⓘ-listans "flyg till ytan" utan GPS).
+  const rak = !!puls && (puls.geometri.type === 'Polygon' || puls.geometri.type === 'MultiPolygon' || puls.geometri.type === 'Point' || puls.geometri.type === 'MultiPoint');
+  const g = puls ? (pos ? pulsGeometri(puls.geometri, pos) : rak ? puls.geometri : null) : null;
   return {
     type: 'FeatureCollection' as const,
     features: puls && g ? [{ type: 'Feature' as const, properties: { id: puls.id, farg: puls.farg }, geometry: g as any }] : [],

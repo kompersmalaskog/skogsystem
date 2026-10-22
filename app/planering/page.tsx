@@ -22,7 +22,7 @@ import { anvandObjektLista, anvandObjektListaUtanObjekt } from '../../lib/objekt
 import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
 import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/ObjektInfo'
-import { arBasvag as arBasvagMark, svTal, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll, type OmKommentar } from '../../lib/objektKort'
+import { arBasvag as arBasvagMark, svTal, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, grotRad, framstegRad, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll, type OmKommentar } from '../../lib/objektKort'
 import { arInstruktionsText } from '../../lib/instruktioner/instruktioner'
 import PanelErrorBoundary from './panel-error-boundary'
 import VolymPanel from './volym-panel'
@@ -54,7 +54,11 @@ import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
 import { useInstruktioner } from '../../lib/hooks/useInstruktioner'
 import { avlaggsradLedig, instruktionBlockerad, larmHallerPlatsen } from '../../lib/instruktioner/ordning'
-import { PULS_KALLA, pulsData, pulsFas, pulsLagerSpecar, pulsPaint } from '../../lib/larm/pulsKarta'
+import { PULS_KALLA, pulsData, pulsFas, pulsLagerSpecar, pulsPaint, type Puls } from '../../lib/larm/pulsKarta'
+import { ytaRader } from '../../lib/ytaRader'
+import { rensaVidaNamn, brickaFarg } from '../../lib/ytaNamn'
+import { ytaGeo, ytaKameraPadding, YTA_PULS_MS, YTA_MAX_ZOOM } from '../../lib/ytaFlyg'
+import { YtaPaminnelseVy } from '../../components/planering/YtaPaminnelse'
 import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
@@ -85,7 +89,8 @@ import { LarmIkon, SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
 import { vidaSlagIFeatures } from '../../lib/teckenforklaring';
 import { BJORK_KANT_FARG, GALLRING_FARG, GROT_FARG, HOG_TRADSLAG_FARG, KARTA_BLANDAT, sortimentFarg } from '../../lib/tradslag';
 import { TRAFF_RADIE_PX } from '../../lib/egenkontrollTryck';
-import { FORBJUDNA_ZONTYPER, SNEDSTRECK_GRUPPER, VIDA_ETIKETT, YTA_ETIKETT, YTA_ETIKETT_STIL, snedstreckBild, snedstreckId } from '@/lib/ytaStil';
+import { FORBJUDNA_ZONTYPER, HANSYNSYTA_FILTER, OVRIGT_YTA_FILTER, OVRIGT_YTA_STIL, SNEDSTRECK_GRUPPER, VIDA_ETIKETT, YTA_ETIKETT, YTA_ETIKETT_STIL, snedstreckBild, snedstreckId } from '@/lib/ytaStil';
+import { arHansynsyta, arOvrigYta } from '@/lib/vidaYtaTyp';
 
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
@@ -1876,12 +1881,16 @@ export default function PlannerPage() {
     map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.fara, 'line-width': trTdW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'trakt-gr-stripe', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.gul, 'line-width': trTdW, 'line-dasharray': [2, 2] }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     // Hänsynsytor — grön fylld yta + kontur (Natur; Vidas egen _farg används inte: färgen kommer ur färggruppen)
-    map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': FARG_NATUR, 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-hansyn-hatch', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-pattern': snedstreckId('natur') }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': FARG_NATUR, 'line-width': 1.5 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: HANSYNSYTA_FILTER as any, paint: { 'fill-color': FARG_NATUR, 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-hansyn-hatch', type: 'fill', source: 'trakt-geo-source', filter: HANSYNSYTA_FILTER as any, paint: { 'fill-pattern': snedstreckId('natur') }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: HANSYNSYTA_FILTER as any, paint: { 'line-color': FARG_NATUR, 'line-width': 1.5 }, layout: { visibility: 'none' } });
     // LOPNR mitt i varje hänsynsyta (symbol på polygon = centroid). Numret kopplar ytan till
     // traktdirektivets hänsynstabell; tryck på ytan öppnar åtgärdstexten (se handleTraktKlick).
-    map.addLayer({ id: 'trakt-hansyn-label', type: 'symbol', source: 'trakt-etikett-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], layout: { 'text-field': ['concat', VIDA_ETIKETT.hansynsyta, ' ', ['to-string', ['coalesce', ['get', 'LOPNR'], '']]], 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
+    map.addLayer({ id: 'trakt-hansyn-label', type: 'symbol', source: 'trakt-etikett-source', filter: HANSYNSYTA_FILTER as any, layout: { 'text-field': ['concat', VIDA_ETIKETT.hansynsyta, ' ', ['to-string', ['coalesce', ['get', 'LOPNR'], '']]], 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
+    // Övrigt (Vidas TYP 71) — INGEN hänsyn (lib/vidaYtaTyp): tunn streckad ljus kant, ingen fyllning, ingen snedstreckning, inget larm. Fyllningen är en osynlig träffyta så ytan går att trycka på.
+    map.addLayer({ id: 'trakt-ovrigt-fill', type: 'fill', source: 'trakt-geo-source', filter: OVRIGT_YTA_FILTER as any, paint: { 'fill-color': OVRIGT_YTA_STIL.farg, 'fill-opacity': OVRIGT_YTA_STIL.traffFyllning }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-ovrigt-line', type: 'line', source: 'trakt-geo-source', filter: OVRIGT_YTA_FILTER as any, paint: { 'line-color': OVRIGT_YTA_STIL.farg, 'line-width': OVRIGT_YTA_STIL.kantBredd, 'line-dasharray': [...OVRIGT_YTA_STIL.streck] }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-ovrigt-label', type: 'symbol', source: 'trakt-etikett-source', filter: OVRIGT_YTA_FILTER as any, layout: { 'text-field': ['concat', VIDA_ETIKETT.ovrigt, ' ', ['to-string', ['coalesce', ['get', 'LOPNR'], '']]], 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
     // Kör & fara — basväg (brun HELDRAGEN, tjock) vs kraftledning (röd STRECKAD, tunnare).
     // Två lager: streckning kan inte vara datadriven. FLBESKR avgör vilket -> visuellt distinkt.
     map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#a16207'], 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
@@ -4025,6 +4034,10 @@ export default function PlannerPage() {
   const malbildRoll: Maskinroll | null = enhetRoll ?? korvyForceRoll ?? minRoll ?? null;
   // Målbilden som öppnats ur larmkortets lilla bild ("Visa").
   const [larmMalbildOppen, setLarmMalbildOppen] = useState<string | null>(null);
+  // ⓘ-listans "flyg till ytan": ytan pulserar en kort stund med larmens puls (lib/ytaFlyg). Påminnelsen i ytan: vilken yta vars hela instruktion (utan Sett) är uppe.
+  const [ytaPuls, setYtaPuls] = useState<Puls | null>(null);
+  const ytaPulsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [paminnelseOppen, setPaminnelseOppen] = useState<string | null>(null);
 
   // ═══ HYTTSPÅR (realtids-körspår, steg 1) ════════════════════════════════════════════════════════
   // Appen loggar körvägen LIVE medan körvyn är öppen på ett objekt (BÅDA maskinerna). En rad per
@@ -4894,7 +4907,7 @@ export default function PlannerPage() {
       // Referenskategorier klassade på _lager (nyckelbiotop/lämning syns inte i _typ='okänt').
       const kategorier = new Set<TraktKategori>();
       for (const f of fc.features) {
-        const t = f?.properties?._typ; if (t) typer.add(t);
+        const t = f?.properties?._typ; if (t) typer.add(arOvrigYta(f?.properties) ? 'ovrigtyta' : t);   // Övrigt (TYP 71) är ingen hänsynsyta: knappen "Hänsynsytor" visas inte för den
         const { kategori } = klassaTraktFeature(f?.properties);
         if (kategori !== 'ignorera') kategorier.add(kategori);
       }
@@ -4972,6 +4985,10 @@ export default function PlannerPage() {
     set('trakt-hansyn-line', !!overlays.hansyn);
     set('trakt-hansyn-hatch', !!overlays.hansyn);
     set('trakt-hansyn-label', !!overlays.hansyn);
+    // Övrigt (TYP 71) följer samma knapp (Vidas tilläggsytor) men är ingen hänsyn: egna lager, neutral kant.
+    set('trakt-ovrigt-fill', !!overlays.hansyn);
+    set('trakt-ovrigt-line', !!overlays.hansyn);
+    set('trakt-ovrigt-label', !!overlays.hansyn);
     // Nyckelbiotoper (Skogsstyrelsen) + RAÄ-lämningar — egna toggles, default PÅ.
     set('trakt-nb-fill', !!overlays.traktNyckelbiotop);
     set('trakt-nb-line', !!overlays.traktNyckelbiotop);
@@ -5007,7 +5024,7 @@ export default function PlannerPage() {
   // N→S, V→Ö); egna områden fortsätter efter delarna. numreringRef → stale-fri läsning i klick/rit-handlers.
   const objektNumrering = useMemo(() => {
     const hansynLopnr = (traktGeo?.features || [])
-      .filter((f: any) => klassaTraktFeature(f?.properties).kategori === 'hansyn')
+      .filter((f: any) => { const k = klassaTraktFeature(f?.properties).kategori; return k === 'hansyn' || k === 'ovrigt'; })   // Vidas löpnummer är facit även för Övrigt (TYP 71): numren flyttar inte
       .map((f: any) => f?.properties?.LOPNR);
     const bitar = traktdelDelar.map(d => ({ partKey: d.partKey, centroid: ringCentroid(d.ringLngLat) }));
     // Egna områden + egenritade traktgränser = boundary-markörer. fromVidaTd-kopior ärver bitens nummer.
@@ -6275,7 +6292,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     const LAGER = [
       'trakt-punkt-circle', 'trakt-raa-point',   // Vidas LINJER (kraftledning, basväg) trycks via linje-trycket (nedan, närmaste linje vinner), inte här
-      'trakt-raa-line', 'trakt-hansyn-fill', 'trakt-nb-fill', 'trakt-raa-fill', 'trakt-gr-fill',
+      'trakt-raa-line', 'trakt-hansyn-fill', 'trakt-ovrigt-fill', 'trakt-nb-fill', 'trakt-raa-fill', 'trakt-gr-fill',
     ];
     // Öppna trakt-kortet (bottom sheet) + ladda ev. sparad anteckning (via ref → aldrig stale).
     // Gäller Vida/SKS/RAÄ-features. Egna områden/traktgränser är boundary-markörer → eget markörkort (line-hitbox).
@@ -6351,10 +6368,10 @@ export default function PlannerPage() {
               nr: '',
             };
             nyckel = partKey ? `traktdel:${partKey}` : null;
-          } else if (kat === 'hansyn') {
-            const lopnr = txt(props.LOPNR);
-            // Vidas ATGARD är kommentaren (visas först i kortet, märkt "Vida · traktdirektiv"); FLBESKR är vilken sorts hänsyn det är och står som källa.
-            kort = { kategori: 'hansyn', kalla: txt(props.FLBESKR) ? `Vida · ${txt(props.FLBESKR)}` : 'Vida', arealHa: traktArealHa(props), rader: [], vidaKommentar: txt(props.ATGARD) || undefined, rubrik: lopnr ? `Hänsynsyta ${lopnr}` : 'Hänsynsyta', nr: '' };
+          } else if (kat === 'hansyn' || kat === 'ovrigt') {
+            // Samma namn som kartans etikett: rubriken är brickan + typen ("Hänsyn 1 · Kant mot vatten", "Övrigt 4"), byggd av byggTraktKort (lib/ytaNamn) — samma som i listan och instruktionskortet.
+            // Vidas ATGARD är kommentaren (visas först i kortet, märkt "Vida · traktdirektiv"); källan är bara "Vida".
+            kort = { ...kort, kalla: 'Vida', nr: '' };
           }
           oppnaKort(kort, nyckel, vida);
         }
@@ -9796,8 +9813,10 @@ export default function PlannerPage() {
     const src = map.getSource(PULS_KALLA) as any;
     if (!src) return;
     const pos = korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null;
-    try { src.setData(pulsData(korvyActive ? larm.puls : null, pos)); } catch (e) { console.error('[Körvy] larm-puls update:', e); }
-    if (!korvyActive || !larm.puls) return;
+    // Larmets puls går före; annars ytan man just tryckt på i ⓘ-listan (kort stund).
+    const pulsNu = korvyActive ? (larm.puls ?? ytaPuls) : null;
+    try { src.setData(pulsData(pulsNu, pos)); } catch (e) { console.error('[Körvy] larm-puls update:', e); }
+    if (!pulsNu) return;
     const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const tick = () => {
       const paint = pulsPaint(pulsFas(Date.now(), minskad));
@@ -9811,7 +9830,7 @@ export default function PlannerPage() {
     const t = setInterval(tick, 100);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [larm.puls, korvyActive, mapLibreReady, korvyEffectivePos?.lat, korvyEffectivePos?.lon]);
+  }, [larm.puls, ytaPuls, korvyActive, mapLibreReady, korvyEffectivePos?.lat, korvyEffectivePos?.lon]);
 
   // === KÖRVY: uppdatera maskin-source (Point + heading) vid varje tick ===
   useEffect(() => {
@@ -11908,9 +11927,14 @@ export default function PlannerPage() {
     objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id) } : null,
     db: supabase,
-    blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' }), lossningVisas }),
+    blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' || larm.fler.some((x) => x.grupp === 'fara') }), lossningVisas }),
+    blockeradPaminnelse: !!larm.kort || lossningVisas,   // larm och lossningskort går före påminnelsen: den göms medan något av dem visas och kommer tillbaka efteråt
     torr: !!testlage,
   });
+  // Påminnelsens hela instruktion stängs när påminnelsen försvinner (kört ut, larm/lossning visas): kommer man tillbaka börjar den som pill/bricka igen.
+  useEffect(() => { if (!inst.paminnelse) setPaminnelseOppen(null); }, [inst.paminnelse]);
+  // Instruktionskortet och påminnelsen sitter på samma plats (under objektpillen och larmets/grindens kort).
+  const instruktionTop = `calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px + ${grindKort ? GRIND_KORT_HOJD_PX + AVSTAND.s : 0}px)`;
   // Lästes kommentarerna på annat håll — kartkortet (Vidas objekt eller egen markering) eller ⓘ (ett framhävt objekt) — räknas de som sedda och visas inte igen vid inkörning.
   // Kartkortet (KartKort) rörs inte: sidan ser bara vilket objekts kort som är öppet.
   const lastNycklar = instruktionerAktiv
@@ -13295,7 +13319,7 @@ export default function PlannerPage() {
             const p = f?.properties || {};
             const aK = Object.keys(p).find((k) => /star/i.test(k));
             const lK = Object.keys(p).find((k) => /stle/i.test(k));
-            if (p._typ === 'hänsynsyta' && aK) { hansynA += antal(p[aK]); hAntal++; if (p.FLBESKR) hBeskr.add(String(p.FLBESKR).trim()); }
+            if (arHansynsyta(p) && aK) { hansynA += antal(p[aK]); hAntal++; if (p.FLBESKR) hBeskr.add(rensaVidaNamn(p.FLBESKR)); }
             else if (p._typ === 'traktgräns' && aK) traktA += antal(p[aK]);
             else if (p._typ === 'linje' && lK && /basväg/i.test(String(p.FLBESKR || ''))) basvag += antal(p[lK]);
           }
@@ -13315,18 +13339,20 @@ export default function PlannerPage() {
         const ytor: { nr: number; typ: string; typLabel: string; nyckel: string; vidaText: string | null; open: () => void; ring?: { lat: number; lng: number }[] | null }[] = [];
         for (const f of (traktGeo?.features || [])) {
           const p = f?.properties || {};
-          if (klassaTraktFeature(p).kategori !== 'hansyn') continue;
+          const ytKat = klassaTraktFeature(p).kategori;
+          if (ytKat !== 'hansyn' && ytKat !== 'ovrigt') continue;
+          const arOvrigt = ytKat === 'ovrigt';   // Vidas TYP 71: egen rad ("Övrigt"), aldrig en hänsynsyta
           const lopnrRaw = p.LOPNR;
           const nr = typeof lopnrRaw === 'number' ? lopnrRaw : parseInt(String(lopnrRaw), 10);
           if (!Number.isFinite(nr)) continue;
           const nyckel = ytaNyckel(p) || `hansyn:${lopnrRaw}`;
-          const vidaText = foersta(p.FLBESKR) || foersta(p.ATGARD) || null;
-          ytor.push({ nr, typ: 'hansyn', typLabel: 'Hänsynsyta', nyckel, vidaText, ring: punkterUrGeometri(f.geometry), open: () => {
+          const vidaText = foersta(rensaVidaNamn(p.FLBESKR)) || foersta(p.ATGARD) || null;
+          ytor.push({ nr, typ: arOvrigt ? 'ovrigt' : 'hansyn', typLabel: arOvrigt ? 'Övrigt' : 'Hänsynsyta', nyckel, vidaText, ring: punkterUrGeometri(f.geometry), open: () => {
             setTraktOversiktOpen(false);
             const rader: { etikett?: string; text: string }[] = [];
-            if (String(p.FLBESKR || '').trim()) rader.push({ text: String(p.FLBESKR).trim() });
+            if (rensaVidaNamn(p.FLBESKR)) rader.push({ text: rensaVidaNamn(p.FLBESKR) });
             if (String(p.ATGARD || '').trim()) rader.push({ text: String(p.ATGARD).trim() });
-            oppnaYtaKort({ kategori: 'hansyn', kalla: 'Vida', arealHa: traktArealHa(p), rader, rubrik: `Hänsynsyta ${lopnrRaw}`, nr: '' }, nyckel, null);
+            oppnaYtaKort({ ...byggTraktKort(p), kalla: 'Vida', rader, nr: '' }, nyckel, null);
           } });
         }
         if (objektNumrering.visaBitNummer) {
@@ -13682,6 +13708,53 @@ export default function PlannerPage() {
           },
           karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features), roll: malbildRoll },
           instruktioner: instruktionerAktiv ? { data: inst.paTrakten, onSett: inst.settOmraden } : null,
+          // FÖRARENS ENKLA KORT (maskinläget): bara tre delar — namn och framsteg, "Det här gäller här" och en grupp rader längst ner (komponenten ObjektKortEnkel). Planeringsläget har det vanliga kortet.
+          enkel: instruktionerAktiv ? (() => {
+            const rader = ytaRader(traktGeo?.features, inst.paTrakten);
+            const framsteg = framstegRad({ typ: typTxt, arealHa: arealHaKort, klartHa: maskinSlag === 'skordare' && avverkat?.harSpar ? avverkat.ha : null });
+            return {
+              namn: valtObjekt.namn,
+              under: framsteg.text,
+              andel: framsteg.andel,
+              faror: faroLinjer,
+              grot: grotRad(valtObjekt.grot ?? null, maskinSlag),
+              tillForaren: forareTexter,
+              brand: Number.isFinite(Number(valtObjekt.lat)) && Number.isFinite(Number(valtObjekt.lng)) && valtObjekt.lat != null && valtObjekt.lng != null ? { lat: Number(valtObjekt.lat), lng: Number(valtObjekt.lng) } : null,
+              onBrand: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
+              ytor: rader,
+              // Tryck på en yta: kartan flyger dit (ytan i bild, lagom zoom) och ytan pulserar kort — samma puls som larmen. Telefon: ObjektInfo har fällt ner arket (halv höjd) så att kartan syns ovanför. Ytan borta → inget händer.
+              onYta: (nyckel: string, lage: PlusLage) => {
+                const map = mapInstanceRef.current;
+                const geo = ytaGeo({ nyckel, features: traktGeo?.features, markers: markers as any[], svgToLatLon });
+                const rad = rader.find((r) => r.nyckel === nyckel);
+                if (!map || !geo) return;
+                map.fitBounds(geo.bounds, {
+                  padding: ytaKameraPadding(lage, { fonsterH: typeof window !== 'undefined' ? window.innerHeight : 800, panelBreddPx: infoPanelBredd + AVSTAND.s * 2, luft: AVSTAND.xxl * 2, toppLuft: AVSTAND.xxl * 3 }),
+                  maxZoom: YTA_MAX_ZOOM, duration: 800,
+                });
+                if (ytaPulsTimerRef.current) clearTimeout(ytaPulsTimerRef.current);
+                setYtaPuls({ id: `yta:${nyckel}`, farg: brickaFarg(rad?.grupp ?? 'ovrigt'), geometri: geo.geometri });
+                ytaPulsTimerRef.current = setTimeout(() => setYtaPuls(null), YTA_PULS_MS);
+              },
+              knappar: kortKnappar({ roll: kortRoll, harKoordinat: objektListaVal && harKoordinat(valtObjekt), korvyAktiv: korvyActive, maskinSlag, utanSkotning: skotarLassAktiv }),
+              larm: { satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '', beskrivning: larmBeskr, onVisa: larmFlyTill },
+              dokument: harDok ? {
+                antal: dokAntal,
+                chips: (
+                  <DokumentChips
+                    traktdirektivUrl={valtObjekt.traktdirektiv_url} traktkartaUrl={valtObjekt.traktkarta_url}
+                    traktkartor={Array.isArray(valtObjekt.traktkartor) ? valtObjekt.traktkartor : null}
+                    oversiktskartaUrl={valtObjekt.oversiktskarta_url}
+                    stamplingslangdUrl={valtObjekt.stamplingslangd_url} valtlappUrl={valtObjekt.valtlapp_url}
+                    ovrigaDokument={Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument : null}
+                    typ={valtObjekt.typ}
+                    onOppna={(s, titel) => setPdfDok({ url: s, titel })}
+                  />
+                ),
+              } : null,
+              vader: skotarKorvy ? <VaderLista dagar={skotarVader.dagar} laddar={skotarVader.laddar} idag={lokaltDatumStockholm(serverNu())} /> : undefined,
+            };
+          })() : null,
           klar: klarGaller ? {
             status: klarStatusKort,
             objektStatus: valtObjekt.status ?? '',
@@ -14005,7 +14078,18 @@ export default function PlannerPage() {
         <InstruktionKortVy
           kort={inst.kort}
           onSett={inst.settKort}
-          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px + ${grindKort ? GRIND_KORT_HOJD_PX + AVSTAND.s : 0}px)`}
+          top={instruktionTop}
+        />
+      )}
+      {/* PÅMINNELSEN I YTAN: redan sedd instruktion + inne i ytan → pill (bricka + första punkten) en stund, sedan bara brickan; tryck = hela instruktionen utan Sett. */}
+      {korvyActive && inst.paminnelse && paminnelseOppen !== inst.paminnelse.nyckel && (
+        <YtaPaminnelseVy paminnelse={inst.paminnelse} top={instruktionTop} onTryck={() => setPaminnelseOppen(inst.paminnelse!.nyckel)} />
+      )}
+      {korvyActive && inst.paminnelse && paminnelseOppen === inst.paminnelse.nyckel && (
+        <InstruktionKortVy
+          kort={{ nyckel: inst.paminnelse.nyckel, namn: inst.paminnelse.namn, avlagg: inst.paminnelse.avlagg, instruktioner: inst.paminnelse.instruktioner, fler: 0, bricka: inst.paminnelse.bricka, typ: inst.paminnelse.typ, brickaGrupp: inst.paminnelse.brickaGrupp }}
+          utanSett={{ onStang: () => setPaminnelseOppen(null) }}
+          top={instruktionTop}
         />
       )}
       {korvyActive && grindKort && (
@@ -15115,13 +15199,13 @@ export default function PlannerPage() {
       {/* Gemensamt trakt-kort: rubrik + typ/källa (Vida/Skogsstyrelsen/RAÄ) + nr/areal + textrader */}
       {traktInfo && (() => {
         const TYP_NAMN: Record<TraktKategori, string> = {
-          traktdel: 'Traktdel', hansyn: 'Hänsynsyta', punkt: 'Avlägg',
+          traktdel: 'Traktdel', hansyn: 'Hänsynsyta', ovrigt: 'Övrigt', punkt: 'Avlägg',
           nyckelbiotop: 'Nyckelbiotop', lamning: 'Fornlämning', omrade: 'Område', linje: 'Linje', fastighetsgrans: 'Fastighetsgräns', ignorera: '',
         };
         const typNamn = TYP_NAMN[traktInfo.kategori] || 'Trakt-objekt';
         // Numrerade ytor (hänsyn/traktdel/område): rubriken bär redan typ+nummer → undertexten = bara källan
         // (t.ex. "Vida", "Traktdel 0526", "Kompersmåla Skog"). Övriga: "<Typ> · <källa>" som förr.
-        const arNumrerad = traktInfo.kategori === 'hansyn' || traktInfo.kategori === 'traktdel' || traktInfo.kategori === 'omrade' || traktInfo.kategori === 'fastighetsgrans';
+        const arNumrerad = traktInfo.kategori === 'hansyn' || traktInfo.kategori === 'ovrigt' || traktInfo.kategori === 'traktdel' || traktInfo.kategori === 'omrade' || traktInfo.kategori === 'fastighetsgrans';
         const typKalla = arNumrerad ? (traktInfo.kalla || typNamn) : (traktInfo.kalla ? `${typNamn} · ${traktInfo.kalla}` : typNamn);
         // Egen boundary-markör: titeln räknas LIVE ur numreringen → följer med när numret ändras och
         // visar rätt siffra även direkt efter "Justera gräns" (kopian numreras vid nästa render). Ensam

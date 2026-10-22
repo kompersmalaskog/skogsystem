@@ -1,7 +1,7 @@
 // FÄRGGRUPPER — EN källa för symbolens, ytans, ringens och kortets färg, och för vad som larmar.
 // Färgen säger vad det är och om det larmar (skissen "Färgspråket", tavla 10–12).
 //
-//   Röd    Fara     larmar alltid (även kvitterad: kvitteringen sparas som bevis men tystar inte)
+//   Röd    Fara     larmar alltid och har INGEN "✓ Sett" (Martin 2026-10-22): en fara tystnar aldrig, kortet försvinner först när man passerat
 //   Grön   Natur    larmar tills föraren kvitterat
 //   Brun   Kultur   larmar tills föraren kvitterat
 //   Blå    Blött    larmar tills föraren kvitterat
