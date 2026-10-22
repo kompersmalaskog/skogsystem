@@ -22,6 +22,13 @@ describe('fastighetsgrans: standard och sparade lägen', () => {
     expect(lasSparadeLager(ettEgetVal).fastighetsgrans).toBe(true);
     expect(lasSparadeLager(JSON.stringify({ fastighetsgrans: false, fastighetsgransVal: true })).fastighetsgrans).toBe(false);
   });
+  it('märket skrivs alltid som true efter nollningen (annars upprepas nollningen vid varje start och ett eget val försvinner)', () => {
+    const ut = lasSparadeLager(JSON.stringify({ ...DEFAULT_MAP_LAYERS, fastighetsgrans: true, fastighetsgransVal: false }));
+    expect(ut.fastighetsgrans).toBe(false);
+    expect(ut.fastighetsgransVal).toBe(true);
+    // Skriven tillbaka och läst igen: nu är PÅ ett eget val och består.
+    expect(lasSparadeLager(JSON.stringify({ ...ut, fastighetsgrans: true })).fastighetsgrans).toBe(true);
+  });
   it('en sparad uppsättning med märket men trasigt värde (inte boolean) ger standard', () => {
     expect(lasSparadeLager('{"fastighetsgransVal":true,"fastighetsgrans":"ja"}').fastighetsgrans).toBe(false);
   });
