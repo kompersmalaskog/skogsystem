@@ -32,7 +32,7 @@ describe('foreslaDelning — Sandåsen', () => {
     const p = sandPerHa();
     const d = foreslaDelning(p.yta, SAND)!;
     expect(d).not.toBeNull();
-    const [a, b] = d.forslag;
+    const [a, b] = d.forslag!;
     expect([a.namn, a.lage, b.namn, b.lage]).toEqual(['forsta', 'väster', 'andra', 'öster']);
     expect(a.medianDbhMm).toBeGreaterThanOrEqual(90);
     expect(a.medianDbhMm).toBeLessThanOrEqual(100);
@@ -49,7 +49,7 @@ describe('foreslaDelning — Sandåsen', () => {
   it('delarna delar exakt de stammar som räknas, och uttaget per del summerar till hela trakten', () => {
     const p = sandPerHa();
     const d = foreslaDelning(p.yta, SAND)!;
-    const [a, b] = d.forslag;
+    const [a, b] = d.forslag!;
     for (const id of a.stammar) expect(b.stammar.has(id)).toBe(false);
     expect(a.stammar.size + b.stammar.size).toBe(p.yta.raknade.size);
     const ind = { volymM3fub: 300, stammar: SAND.length, stamrader: SAND };
@@ -65,11 +65,11 @@ describe('foreslaDelning — Sandåsen', () => {
   it('innehaller följer delen: en punkt i väster hör till första, en i öster till andra', () => {
     const p = sandPerHa();
     const d = foreslaDelning(p.yta, SAND)!;
-    const vast = SAND.find((s) => d.forslag[0].stammar.has(s.id))!;
-    const ost = SAND.find((s) => d.forslag[1].stammar.has(s.id))!;
-    expect(d.forslag[0].innehaller(vast.lng, vast.lat)).toBe(true);
-    expect(d.forslag[1].innehaller(vast.lng, vast.lat)).toBe(false);
-    expect(d.forslag[1].innehaller(ost.lng, ost.lat)).toBe(true);
+    const vast = SAND.find((s) => d.forslag![0].stammar.has(s.id))!;
+    const ost = SAND.find((s) => d.forslag![1].stammar.has(s.id))!;
+    expect(d.forslag![0].innehaller(vast.lng, vast.lat)).toBe(true);
+    expect(d.forslag![1].innehaller(vast.lng, vast.lat)).toBe(false);
+    expect(d.forslag![1].innehaller(ost.lng, ost.lat)).toBe(true);
   });
 
   it('svaret går före förslaget: tvärtom byter delarna, en gallring tar bort delningen', () => {
@@ -78,8 +78,8 @@ describe('foreslaDelning — Sandåsen', () => {
     expect(t.delar![0].lage).toBe('öster');
     expect(t.delar![0].namn).toBe('forsta');
     expect(t.delar![1].lage).toBe('väster');
-    expect(t.forslag[0].lage).toBe('väster'); // förslaget syns alltid
-    const vast = SAND.find((s) => t.forslag[0].stammar.has(s.id))!;
+    expect(t.forslag![0].lage).toBe('väster'); // förslaget syns alltid
+    const vast = SAND.find((s) => t.forslag![0].stammar.has(s.id))!;
     expect(t.delar![1].innehaller(vast.lng, vast.lat)).toBe(true);
     const en = foreslaDelning(p.yta, SAND, 'en')!;
     expect(en.delar).toBeNull();
@@ -100,9 +100,9 @@ describe('foreslaDelning — en gallring föreslås aldrig som två', () => {
   it('tydlig skillnad → två delar, den klenare först', () => {
     const { yta, stammar } = trakt(150, 95);
     const d = foreslaDelning(yta, stammar)!;
-    expect(d.forslag[0].lage).toBe('öster');
-    expect(d.forslag[0].medianDbhMm).toBeLessThan(100);
-    expect(d.forslag[0].andelYta).toBeCloseTo(0.5, 1);
+    expect(d.forslag![0].lage).toBe('öster');
+    expect(d.forslag![0].medianDbhMm).toBeLessThan(100);
+    expect(d.forslag![0].andelYta).toBeCloseTo(0.5, 1);
   });
   it('en del under en hektar → null (trakten är 3 ha, delen 0,5)', () => {
     const ringar = [[g(0, 0), g(300, 0), g(300, 100), g(0, 100), g(0, 0)]];
@@ -127,5 +127,67 @@ describe('otsuGrans och vaderstreck', () => {
     expect(vaderstreck({ x: 0, y: 0 }, { x: 10, y: 0 })).toBe('väster');
     expect(vaderstreck({ x: 0, y: 0 }, { x: 0, y: 10 })).toBe('norr');
     expect(vaderstreck({ x: 10, y: 10 }, { x: 0, y: 0 })).toBe('sydost');
+  });
+});
+
+describe('ritad gräns', () => {
+  // En rektangel runt västra halvan av Sandåsen (14.5990–14.6090), stora marginaler i nord–syd.
+  const vast: [number, number][] = [[14.598, 56.510], [14.609, 56.510], [14.609, 56.522], [14.598, 56.522]];
+
+  it('den gallrade marken innanför ringen är den ritade delen, resten den andra', () => {
+    const p = sandPerHa();
+    const d = foreslaDelning(p.yta, SAND, 'ritad', { del: 'forsta', ring: vast })!;
+    expect(d.svar).toBe('ritad');
+    expect(d.ritadDelarInte).toBe(false);
+    const [f, a] = d.delar!;
+    expect([f.namn, f.lage, a.namn, a.lage]).toEqual(['forsta', 'väster', 'andra', 'öster']);
+    expect(f.stammar.size + a.stammar.size).toBe(p.yta.raknade.size);
+    for (const s of SAND) if (f.stammar.has(s.id)) expect(s.lng).toBeLessThan(14.609);
+    for (const s of SAND) if (a.stammar.has(s.id)) expect(s.lng).toBeGreaterThanOrEqual(14.609);
+    expect(f.andelYta + a.andelYta).toBeCloseTo(1, 9);
+    // Förslaget finns kvar bredvid.
+    expect(d.forslag![0].lage).toBe('väster');
+  });
+
+  it('ritar man runt andra gallringen blir resten första', () => {
+    const p = sandPerHa();
+    const d = foreslaDelning(p.yta, SAND, 'ritad', { del: 'andra', ring: vast })!;
+    expect(d.delar![1].lage).toBe('väster');
+    expect(d.delar![0].lage).toBe('öster');
+  });
+
+  it('en ring som tar allt (eller inget) delar inte ytan, och det sägs', () => {
+    const p = sandPerHa();
+    const allt: [number, number][] = [[14.5, 56.4], [14.7, 56.4], [14.7, 56.6], [14.5, 56.6]];
+    const d = foreslaDelning(p.yta, SAND, 'ritad', { del: 'forsta', ring: allt })!;
+    expect(d.delar).toBeNull();
+    expect(d.ritadDelarInte).toBe(true);
+  });
+
+  it('ritningen gäller också när appen inte ser två gallringar', () => {
+    const { yta, stammar } = trakt(110, 110);
+    expect(foreslaDelning(yta, stammar)).toBeNull();
+    const ring: [number, number][] = [g(-5, -5), g(150, -5), g(150, 105), g(-5, 105)];
+    const d = foreslaDelning(yta, stammar, 'ritad', { del: 'forsta', ring })!;
+    expect(d.forslag).toBeNull();
+    expect(d.delar![0].lage).toBe('väster');
+    expect(d.delar![0].andelYta).toBeCloseTo(0.5, 1);
+  });
+
+  it('en trasig ring räknas inte som ritad', () => {
+    const p = sandPerHa();
+    const d = foreslaDelning(p.yta, SAND, 'ritad', { del: 'forsta', ring: [[1, 2], [3, 4]] })!;
+    expect(d.ritad).toBeNull();
+    expect(d.svar).toBeNull();
+    expect(d.delar).toBe(d.forslag);
+  });
+});
+
+describe('källvakt', () => {
+  it('läsningen skickar den sparade ritningen vidare (annars syns en ritad gräns aldrig efter omladdning)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const kod = readFileSync(new URL('./gallring.ts', import.meta.url), 'utf8');
+    expect(kod).toMatch(/foreslaDelning\([^;]*svarDelning,\s*ritad\)/);
+    expect(kod).toMatch(/select\('\*'\)\.eq\('vo', rad\.vo\)/);
   });
 });

@@ -20,14 +20,14 @@ vi.mock('next/navigation', () => ({ usePathname: () => sokvag }));
 const hamtaGallringar = vi.fn<() => Promise<GallringRad[]>>();
 const hamtaGallring = vi.fn<(vo: string) => Promise<GallringDetalj | null>>();
 const hamtaPerHa = vi.fn<(d: GallringRad) => Promise<PerHa>>();
-const sparaYtaSvar = vi.fn<(vo: string, nyckel: string, svar: string | null) => Promise<void>>();
+const sparaYtaSvar = vi.fn<(vo: string, nyckel: string, svar: string | null, ritad?: unknown) => Promise<void>>();
 vi.mock('@/lib/gallring', async (orig) => ({
   ...(await orig<typeof import('@/lib/gallring')>()),
   aktuelltAr: () => 2026,
   hamtaGallringar: () => hamtaGallringar(),
   hamtaGallring: (vo: string) => hamtaGallring(vo),
   hamtaPerHa: (d: GallringRad) => hamtaPerHa(d),
-  sparaYtaSvar: (vo: string, nyckel: string, svar: string | null) => sparaYtaSvar(vo, nyckel, svar),
+  sparaYtaSvar: (vo: string, nyckel: string, svar: string | null, ritad?: unknown) => (ritad ? sparaYtaSvar(vo, nyckel, svar, ritad) : sparaYtaSvar(vo, nyckel, svar)),
 }));
 
 // Laserdatan (Skogsstyrelsen) nås aldrig från testet: rutorna kommer härifrån.

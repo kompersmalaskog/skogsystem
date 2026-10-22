@@ -302,7 +302,7 @@ function PerHektar({ d }: { d: GallringDetalj }) {
       )}
       {delningOppen && yta && delning && (
         <DelningArk yta={yta} delning={delning} arealHa={p.arealHa} svarSparas={p.svarSparas} onStang={() => setDelningOppen(false)}
-          onSvar={async (svar) => { await sparaYtaSvar(d.vo, DELNING_NYCKEL, svar); await ladda(true); }} />
+          onSvar={async (svar, ritad) => { await sparaYtaSvar(d.vo, DELNING_NYCKEL, svar, ritad); await ladda(true); }} />
       )}
     </Sektion>
     {kvar}

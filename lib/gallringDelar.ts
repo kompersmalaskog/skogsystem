@@ -13,11 +13,15 @@
 //  3. Sammanhängande bitar mindre än MIN_BIT_HA byter grupp till den som omger dem (en skog delas inte i fläckar).
 //  4. Förslaget finns BARA om delarna verkligen skiljer sig: medianerna minst MIN_SKILLNAD_MM isär och båda delarna
 //     minst MIN_DEL_HA och MIN_DEL_ANDEL av ytan. Annars är det en gallring, och då föreslås ingenting.
-//  5. Ett svar från en människa går före förslaget: "stämmer", "tvärtom" eller "en gallring" (gallring_yta_svar,
-//     nyckeln DELNING_NYCKEL). Förslaget och svaret syns alltid båda.
+//  5. Ett svar från en människa går före förslaget: "stämmer", "tvärtom", "en gallring" eller en RITAD gräns
+//     (gallring_yta_svar, nyckeln DELNING_NYCKEL). Förslaget och svaret syns alltid båda.
+//  6. Ritad gräns (Martin 2026-10-22: "jag vill kunna rita om så det stämmer med verkligheten"): en ring runt den ena
+//     delen; den gallrade marken innanför är den delen, resten är den andra. Ringen sparas i lat/lng så den står still
+//     när filen växer. Uttaget och "kvar" räknas på samma sätt som för förslaget. Ritningen behöver inget förslag.
 
 import type { GallradYta, StamPos } from './gallradYta';
 import { RUTA } from './gallradYta';
+import { punktIPolygon } from './skotat';
 
 /** Rutans sida i meter — ungefär två stickvägar breda, så ett stråk aldrig är en egen ruta. */
 export const RUTA_M = 25;
@@ -34,8 +38,9 @@ export const MIN_BIT_HA = 0.5;
 
 /** Nyckeln i gallring_yta_svar. */
 export const DELNING_NYCKEL = 'delning';
-export type DelningSvar = 'stammer' | 'tvartom' | 'en';
-export const DELNING_ORD: Record<DelningSvar, string> = {
+export type DelningSvar = 'stammer' | 'tvartom' | 'en' | 'ritad';
+/** Svaren man väljer i en lista. "Ritad" kommer från Rita om, inte från listan. */
+export const DELNING_ORD: Record<Exclude<DelningSvar, 'ritad'>, string> = {
   stammer: 'Stämmer',
   tvartom: 'Tvärtom',
   en: 'Det var en gallring',
@@ -59,15 +64,28 @@ export type Del = {
   innehaller: (lng: number, lat: number) => boolean;
 };
 
+/** En ritad gräns: ringen runt den ena delen, [lng, lat]. */
+export type RitadDelning = { del: DelNamn; ring: [number, number][] };
+
 export type Delning = {
-  /** Appens förslag (klenare först). */
-  forslag: [Del, Del];
+  /** Appens förslag (klenare först). null = appen ser en gallring — men en ritad gräns gäller ändå. */
+  forslag: [Del, Del] | null;
   svar: DelningSvar | null;
-  /** Det som gäller: null = en gallring (svaret "en"), annars [första, andra] efter svaret. */
+  /** Den ritade gränsen när svaret är "ritad". */
+  ritad: RitadDelning | null;
+  /** Det som gäller: null = en gallring (svaret "en", eller en ritning som inte delar ytan), annars [första, andra]. */
   delar: [Del, Del] | null;
-  /** Rutnätet med DEL_RUTA för kartan, samma storlek som yta.karta. Efter svaret. */
+  /** Ritningen gav ingen delning (allt eller inget av den gallrade marken låg innanför). */
+  ritadDelarInte: boolean;
+  /** Rutnätet med DEL_RUTA för kartan, samma storlek som yta.karta. Det som gäller (förslaget när inget annat gäller). */
   rutor: Uint8Array;
 };
+
+/** Minst tre olika punkter, alla tal. */
+export function giltigRing(ring: unknown): ring is [number, number][] {
+  return Array.isArray(ring) && ring.length >= 3
+    && ring.every((p) => Array.isArray(p) && p.length === 2 && p.every((v) => typeof v === 'number' && Number.isFinite(v)));
+}
 
 function median(v: number[]): number {
   const s = [...v].sort((a, b) => a - b);
@@ -102,7 +120,94 @@ export function vaderstreck(a: { x: number; y: number }, b: { x: number; y: numb
   return VADERSTRECK[(steg + 8) % 8];
 }
 
-export function foreslaDelning(yta: GallradYta, stammar: StamPos[], svar: DelningSvar | null = null): Delning | null {
+export function foreslaDelning(
+  yta: GallradYta, stammar: StamPos[], svar: DelningSvar | null = null, ritad: RitadDelning | null = null,
+): Delning | null {
+  const { bredd, hojd, rutor: fina } = yta.karta;
+  const gallrad = (c: number) => c === RUTA.gallrat || c === RUTA.utanforGallring;
+  const iRutan = (s: StamPos) => {
+    const p = yta.tillRuta(s.lng, s.lat);
+    const x = Math.floor(p.x), y = Math.floor(p.y);
+    return x < 0 || y < 0 || x >= bredd || y >= hojd ? null : { x, y };
+  };
+
+  // Delarna ur ett rutnät (1 = första, 2 = andra) och varje stams del. null = en del är tom.
+  const delarUr = (rut: Uint8Array, stamDel: Map<StamPos['id'], 1 | 2>): [Del, Del] | null => {
+    const antal = [0, 0, 0], sx = [0, 0, 0], sy = [0, 0, 0];
+    for (let i = 0; i < rut.length; i++) {
+      const e = rut[i];
+      if (!e) continue;
+      antal[e]++; sx[e] += i % bredd; sy[e] += Math.floor(i / bredd);
+    }
+    const totalt = antal[1] + antal[2];
+    if (!antal[1] || !antal[2]) return null;
+    const delSt: Set<StamPos['id']>[] = [new Set(), new Set(), new Set()];
+    const dia: number[][] = [[], [], []];
+    for (const s of stammar) {
+      const e = stamDel.get(s.id);
+      if (!e) continue;
+      delSt[e].add(s.id);
+      const d = Number(s.dbhMm);
+      if (Number.isFinite(d) && d > 0) dia[e].push(d);
+    }
+    if (!dia[1].length || !dia[2].length) return null;
+    const mitt = (e: number) => ({ x: sx[e] / antal[e], y: sy[e] / antal[e] });
+    const del = (namn: DelNamn, e: 1 | 2): Del => ({
+      namn,
+      andelYta: antal[e] / totalt,
+      stammar: delSt[e],
+      medianDbhMm: median(dia[e]),
+      lage: vaderstreck(mitt(e), mitt(e === 1 ? 2 : 1)),
+      innehaller: (lng, lat) => {
+        const p = yta.tillRuta(lng, lat);
+        const x = Math.floor(p.x), y = Math.floor(p.y);
+        return x >= 0 && y >= 0 && x < bredd && y < hojd && rut[y * bredd + x] === e;
+      },
+    });
+    return [del('forsta', 1), del('andra', 2)];
+  };
+  const byt = (rut: Uint8Array, stamDel: Map<StamPos['id'], 1 | 2>) => ({
+    rut: rut.map((v) => (v === 1 ? 2 : v === 2 ? 1 : 0)),
+    stamDel: new Map([...stamDel].map(([id, e]) => [id, (e === 1 ? 2 : 1) as 1 | 2])),
+  });
+
+  const fors = beraknaForslag(yta, stammar);
+  const forslag = fors && fors.giltig ? delarUr(fors.rut, fors.stamDel) : null;
+  const tomt = new Uint8Array(bredd * hojd);
+
+  if (svar === 'ritad' && ritad && giltigRing(ritad.ring)) {
+    const ring = ritad.ring.map(([lng, lat]) => { const p = yta.tillRuta(lng, lat); return [p.x, p.y]; });
+    const innan = ritad.del === 'forsta' ? 1 : 2;
+    const utan = innan === 1 ? 2 : 1;
+    const rut = new Uint8Array(bredd * hojd);
+    for (let y = 0; y < hojd; y++) for (let x = 0; x < bredd; x++) {
+      const i = y * bredd + x;
+      if (gallrad(fina[i])) rut[i] = punktIPolygon([x + 0.5, y + 0.5], ring) ? innan : utan;
+    }
+    const stamDel = new Map<StamPos['id'], 1 | 2>();
+    for (const s of stammar) {
+      if (!yta.raknade.has(s.id) || !iRutan(s)) continue;
+      const p = yta.tillRuta(s.lng, s.lat);
+      stamDel.set(s.id, punktIPolygon([p.x, p.y], ring) ? innan : utan);
+    }
+    const delar = delarUr(rut, stamDel);
+    return { forslag, svar, ritad, delar, ritadDelarInte: !delar, rutor: delar ? rut : fors?.rut ?? tomt };
+  }
+
+  if (!forslag || !fors) return null;
+  // En ritning utan giltig ring räknas inte som ett svar: då gäller förslaget.
+  const bas = { forslag, svar: svar === 'ritad' ? null : svar, ritad: null, ritadDelarInte: false };
+  if (svar === 'en') return { ...bas, delar: null, rutor: fors.rut };
+  if (svar === 'tvartom') {
+    const b = byt(fors.rut, fors.stamDel);
+    return { ...bas, delar: delarUr(b.rut, b.stamDel), rutor: b.rut };
+  }
+  return { ...bas, delar: forslag, rutor: fors.rut };
+}
+
+/** Appens förslag: rutnätet (1 klenare, 2 grövre), varje stams del, och om delarna skiljer sig nog (regel 4). */
+function beraknaForslag(yta: GallradYta, stammar: StamPos[]):
+  { rut: Uint8Array; stamDel: Map<StamPos['id'], 1 | 2>; giltig: boolean } | null {
   const { bredd, hojd, rutor: fina, rutaM } = yta.karta;
   const f = Math.max(1, Math.round(RUTA_M / rutaM));
   const gb = Math.ceil(bredd / f), gh = Math.ceil(hojd / f);
@@ -175,67 +280,37 @@ export function foreslaDelning(yta: GallradYta, stammar: StamPos[], svar: Delnin
     if (!bytt) break;
   }
 
-  // Det fina rutnätet efter förslaget.
-  const delRutor = new Uint8Array(bredd * hojd);
+  // Det fina rutnätet och stammarna efter förslaget.
+  const rut = new Uint8Array(bredd * hojd);
   const antal = [0, 0, 0];
-  const sx = [0, 0, 0], sy = [0, 0, 0];
   for (let y = 0; y < hojd; y++) for (let x = 0; x < bredd; x++) {
     const i = y * bredd + x;
     if (!gallrad(fina[i])) continue;
     const e = etikett[grov(x, y)];
     if (!e) continue;
-    delRutor[i] = e;
-    antal[e]++; sx[e] += x; sy[e] += y;
+    rut[i] = e;
+    antal[e]++;
   }
-  const totalt = antal[1] + antal[2];
-  if (totalt === 0 || antal[1] === 0 || antal[2] === 0) return null;
-
-  const delStammar: [Set<StamPos['id']>, Set<StamPos['id']>, Set<StamPos['id']>] = [new Set(), new Set(), new Set()];
-  const delDia: number[][] = [[], [], []];
+  const stamDel = new Map<StamPos['id'], 1 | 2>();
+  const dia: number[][] = [[], [], []];
   for (const s of stammar) {
     const g = stamGrov.get(s.id);
     if (g === undefined) continue;
-    const e = etikett[g];
+    const e = etikett[g] as 0 | 1 | 2;
     if (!e) continue;
-    delStammar[e].add(s.id);
+    stamDel.set(s.id, e);
     const d = Number(s.dbhMm);
-    if (Number.isFinite(d) && d > 0) delDia[e].push(d);
+    if (Number.isFinite(d) && d > 0) dia[e].push(d);
   }
-  if (delDia[1].length === 0 || delDia[2].length === 0) return null;
+  const totalt = antal[1] + antal[2];
+  if (!antal[1] || !antal[2] || !dia[1].length || !dia[2].length) return { rut, stamDel, giltig: false };
 
   // 4. Är det två gallringar?
-  const haTot = yta.gallradHa;
-  const m1 = median(delDia[1]), m2 = median(delDia[2]);
   const andel1 = antal[1] / totalt, andel2 = antal[2] / totalt;
-  if (Math.abs(m2 - m1) < MIN_SKILLNAD_MM) return null;
-  if (andel1 < MIN_DEL_ANDEL || andel2 < MIN_DEL_ANDEL) return null;
-  if (andel1 * haTot < MIN_DEL_HA || andel2 * haTot < MIN_DEL_HA) return null;
-
-  const mitt = (e: number) => ({ x: sx[e] / antal[e], y: sy[e] / antal[e] });
-  const innehaller = (rut: Uint8Array, e: number) => (lng: number, lat: number) => {
-    const p = yta.tillRuta(lng, lat);
-    const x = Math.floor(p.x), y = Math.floor(p.y);
-    if (x < 0 || y < 0 || x >= bredd || y >= hojd) return false;
-    return rut[y * bredd + x] === e;
-  };
-  // e = förslagets grupp (statistiken), rut/varde = rutnätet som gäller och värdet delen har där.
-  const del = (namn: DelNamn, e: 1 | 2, rut: Uint8Array, varde: 1 | 2 = e): Del => ({
-    namn,
-    andelYta: antal[e] / totalt,
-    stammar: delStammar[e],
-    medianDbhMm: median(delDia[e]),
-    lage: vaderstreck(mitt(e), mitt(e === 1 ? 2 : 1)),
-    innehaller: innehaller(rut, varde),
-  });
-  const forslag: [Del, Del] = [del('forsta', 1, delRutor), del('andra', 2, delRutor)];
-
-  if (svar === 'en') return { forslag, svar, delar: null, rutor: delRutor };
-  if (svar === 'tvartom') {
-    const omvand = new Uint8Array(delRutor.length);
-    for (let i = 0; i < delRutor.length; i++) omvand[i] = delRutor[i] === 1 ? 2 : delRutor[i] === 2 ? 1 : 0;
-    return { forslag, svar, delar: [del('forsta', 2, omvand, 1), del('andra', 1, omvand, 2)], rutor: omvand };
-  }
-  return { forslag, svar, delar: forslag, rutor: delRutor };
+  const giltig = Math.abs(median(dia[2]) - median(dia[1])) >= MIN_SKILLNAD_MM
+    && andel1 >= MIN_DEL_ANDEL && andel2 >= MIN_DEL_ANDEL
+    && andel1 * yta.gallradHa >= MIN_DEL_HA && andel2 * yta.gallradHa >= MIN_DEL_HA;
+  return { rut, stamDel, giltig };
 }
 
 function fyllNarmaste(etikett: Uint8Array, harYta: Uint8Array, gb: number, gh: number) {
