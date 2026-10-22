@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { GallringDetalj, GallringRad } from '@/lib/gallring';
-import type { PerHa } from '@/lib/gallringPerHa';
+import type { PerHaLast as PerHa } from '@/lib/gallring';
+import { beraknaGallradYta, type StamPos } from '@/lib/gallradYta';
 
 let sokvag = '/gallring';
 vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: any) => createElement('a', { href, ...rest }, children) }));
@@ -16,12 +17,14 @@ vi.mock('next/navigation', () => ({ usePathname: () => sokvag }));
 const hamtaGallringar = vi.fn<() => Promise<GallringRad[]>>();
 const hamtaGallring = vi.fn<(vo: string) => Promise<GallringDetalj | null>>();
 const hamtaPerHa = vi.fn<(d: GallringRad) => Promise<PerHa>>();
+const sparaYtaSvar = vi.fn<(vo: string, nyckel: string, svar: string | null) => Promise<void>>();
 vi.mock('@/lib/gallring', async (orig) => ({
   ...(await orig<typeof import('@/lib/gallring')>()),
   aktuelltAr: () => 2026,
   hamtaGallringar: () => hamtaGallringar(),
   hamtaGallring: (vo: string) => hamtaGallring(vo),
   hamtaPerHa: (d: GallringRad) => hamtaPerHa(d),
+  sparaYtaSvar: (vo: string, nyckel: string, svar: string | null) => sparaYtaSvar(vo, nyckel, svar),
 }));
 
 import GallringRam from './GallringRam';
@@ -43,7 +46,7 @@ afterEach(async () => {
   if (root) await act(async () => { root!.unmount(); });
   host?.remove(); root = null; host = null;
   document.body.innerHTML = '';
-  hamtaGallringar.mockReset(); hamtaGallring.mockReset(); hamtaPerHa.mockReset();
+  hamtaGallringar.mockReset(); hamtaGallring.mockReset(); hamtaPerHa.mockReset(); sparaYtaSvar.mockReset();
   sokvag = '/gallring';
 });
 
@@ -130,7 +133,7 @@ const DETALJ: GallringDetalj = {
 };
 
 const PER_HA: PerHa = {
-  lage: 'ok', arealHa: 8.834, volymPerHa: 22.4, stammarPerHa: 347.2, grundytaPerHa: 4.2, andelUtanfor: 0.284,
+  lage: 'ok', arealHa: 8.834, vidaHa: 8.834, yta: null, svarSparas: true, volymPerHa: 22.4, stammarPerHa: 347.2, grundytaPerHa: 4.2, andelUtanfor: 0.284,
   stickvag: { lage: 'ok', andel: 0.24, avstandM: 16.7, roller: ['skordare', 'skotare'] },
 };
 
@@ -198,7 +201,7 @@ describe('trakten', () => {
     expect(t).toContain('ca 24 %');
     expect(t).toContain('ca 17 m isär');
     expect(t).toContain('8,8 ha enligt Vidas traktgräns.');
-    expect(t).toContain('28 % av stammarna står utanför gränsen och räknas inte.');
+    expect(t).toContain('28 % av stammarna står utanför (väg in eller enstaka träd) och räknas inte per hektar.');
     expect(t).toContain('skördarens och skotarens GPS-spår');
     // Per hektar står på ETT ställe: inte också i huvudet (där kom det ur objekt.areal, som var fel på Sandåsen).
     expect(h.querySelector('[data-svar]')!.textContent).not.toContain('st/ha');
@@ -212,12 +215,77 @@ describe('trakten', () => {
     expect(rad.getAttribute('data-stickvag')).toBe('ofullstandigt');
     expect(rad.textContent).toContain('GPS-spåret täcker bara en del av trakten');
     expect(rad.textContent).not.toContain('%');
-    expect(h.textContent).not.toContain('utanför gränsen');
+    expect(h.textContent).not.toContain('utanför (väg');
+  });
+
+  // En gräns 200 × 100 m och gallring utanför den (Sandåsen i litet format) — räknad av den riktiga modulen.
+  function ytaMedBitUtanfor() {
+    const g = (x: number, y: number) => [15 + x / (Math.cos((56.4 * Math.PI) / 180) * 111320), 56.4 + y / 110540];
+    const ringar = [[g(0, 0), g(200, 0), g(200, 100), g(0, 100), g(0, 0)]] as [number, number][][];
+    const stammar: StamPos[] = [];
+    let id = 1;
+    for (let x = 3; x <= 290; x += 6) for (let y = 3; y <= 97; y += 6) {
+      if (x > 197 && x < 210) continue;
+      const [lng, lat] = g(x, y);
+      stammar.push({ id: id++, lat, lng, dbhMm: 120 });
+    }
+    return beraknaGallradYta({ ringar, stammar })!;
+  }
+
+  it('den gallrade ytan: raden säger hur den skiljer sig från Vidas gräns, och kartan öppnas i ett ark', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const yta = ytaMedBitUtanfor();
+    hamtaPerHa.mockResolvedValue({ ...PER_HA, arealHa: yta.gallradHa, vidaHa: yta.vidaHa, yta });
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    const rad = h.querySelector('[data-gallrad-yta]') as HTMLElement;
+    const t = rad.textContent!.replace(/\u00a0/g, ' ');
+    expect(t).toContain('Gallrat');
+    expect(t).toContain('Vidas gräns 2,0 ha');
+    expect(t).toMatch(/\d,\d ha utanför/);
+    expect(h.textContent).toContain('marken som gallrades');
+    await act(async () => { (rad.querySelector('button, a') as HTMLElement ?? rad).click(); });
+    const ark = document.querySelector('[role="dialog"]')!;
+    expect(ark.textContent).toContain('Var gallrades det?');
+    expect(ark.textContent).toContain('Gallrat, räknas');
+    expect(ark.querySelector('[data-gallrad-karta]')).not.toBeNull();
+    const bit = ark.querySelector('[data-bit]')!;
+    expect(bit.textContent).toContain('Utanför gränsen');
+    expect(bit.textContent).toContain('Gallring vi kört');
+    expect(bit.textContent).toContain('appens bedömning');
+  });
+
+  it('ett svar sparas och talen läses om; utan tabellen sparas inget och det sägs', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const yta = ytaMedBitUtanfor();
+    hamtaPerHa.mockResolvedValue({ ...PER_HA, arealHa: yta.gallradHa, vidaHa: yta.vidaHa, yta });
+    sparaYtaSvar.mockResolvedValue();
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    const rad = h.querySelector('[data-gallrad-yta]') as HTMLElement;
+    await act(async () => { (rad.querySelector('button, a') as HTMLElement ?? rad).click(); });
+    await act(async () => { (document.querySelector('[data-bit] button, [data-bit]') as HTMLElement).click(); });
+    const vag = document.querySelector('[data-svar="vag"]')!;
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain('Appen bedömde: Gallring vi kört');
+    await act(async () => { ((vag.querySelector('button') ?? vag) as HTMLElement).click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(sparaYtaSvar).toHaveBeenCalledWith('11183108', yta.utanfor[0].nyckel, 'vag');
+    expect(hamtaPerHa).toHaveBeenCalledTimes(2);
+
+    await act(async () => { root!.unmount(); }); root = null; host?.remove(); document.body.innerHTML = '';
+    hamtaPerHa.mockResolvedValue({ ...PER_HA, arealHa: yta.gallradHa, vidaHa: yta.vidaHa, yta, svarSparas: false });
+    sparaYtaSvar.mockReset();
+    const h2 = await montera(createElement(Trakt, { vo: '11183108' }));
+    const rad2 = h2.querySelector('[data-gallrad-yta]') as HTMLElement;
+    await act(async () => { (rad2.querySelector('button, a') as HTMLElement ?? rad2).click(); });
+    await act(async () => { (document.querySelector('[data-bit] button, [data-bit]') as HTMLElement).click(); });
+    expect(document.querySelector('[data-svar-sparas-inte]')).not.toBeNull();
+    const vag2 = document.querySelector('[data-svar="vag"]')!;
+    await act(async () => { ((vag2.querySelector('button') ?? vag2) as HTMLElement).click(); });
+    expect(sparaYtaSvar).not.toHaveBeenCalled();
   });
 
   it('utan traktgräns inget per hektar, och ett läsfel är ett fel med Försök igen', async () => {
     hamtaGallring.mockResolvedValue(DETALJ);
-    hamtaPerHa.mockResolvedValue({ lage: 'ingen-grans' });
+    hamtaPerHa.mockResolvedValue({ lage: 'ingen-grans', svarSparas: true });
     let h = await montera(createElement(Trakt, { vo: '11183108' }));
     expect(h.querySelector('[data-perha-ingen-grans]')).not.toBeNull();
     expect(h.textContent).not.toContain('/ha');
