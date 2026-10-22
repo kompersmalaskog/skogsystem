@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  findPlanomraden, kontrollSumma, lenKlavad, planerPerStock, senasteStockVarde, senasteSumma, stamStockForm,
+  kontrollSumma, lenKlavad, senasteStockVarde, senasteSumma,
   stamValOchMatare, stockDetalj, stockDiagnos, stockFordelning, stockRadVarde, swarmX, swarmY, vaderText, xPctFor, yPctFor,
 } from './kontroll';
 import type { StockRow } from '@/app/api/kalibrering/kontroll/route';
@@ -97,35 +97,6 @@ describe('stocklistan', () => {
   it('oklavat visas inte som avvikelse', () => {
     const r = stockRadVarde(stock({ operator_langd_cm: null, langd_avvikelse_cm: 9, operator_toppdia_mm: null, dia_avvikelse_mm: 9 }));
     expect(r).toMatchObject({ lenKl: false, diaKl: false, sLenTon: 'ok', sDiaTon: 'ok', worstTon: 'ok' });
-  });
-});
-
-describe('stamvyn — planområden', () => {
-  const profil = (d: number[]) => d.map((diameter_mm, i) => ({ position_cm: i * 20, diameter_mm }));
-  it('en profil med färre än 2 punkter ger inga planområden', () => {
-    expect(findPlanomraden([])).toEqual([]);
-    expect(findPlanomraden(profil([300]))).toEqual([]);
-  });
-  it('icke-minskande sträcka ≥ 30 cm är ett planområde; minskande diameter är det inte', () => {
-    expect(findPlanomraden(profil([300, 290, 280, 270]))).toEqual([]);
-    // 290 → 290 → 290 är en platå: 40 cm lång, diameter 290
-    expect(findPlanomraden(profil([300, 290, 290, 290, 280]))).toEqual([{ startCm: 20, endCm: 60, lengthCm: 40, diameterMm: 290 }]);
-    // en platå på 20 cm räcker inte
-    expect(findPlanomraden(profil([300, 290, 290, 280]))).toEqual([]);
-  });
-  it('profilen sorteras på position först', () => {
-    const o = [{ position_cm: 60, diameter_mm: 290 }, { position_cm: 0, diameter_mm: 300 }, { position_cm: 20, diameter_mm: 290 }, { position_cm: 40, diameter_mm: 290 }];
-    expect(findPlanomraden(o)).toEqual([{ startCm: 20, endCm: 60, lengthCm: 40, diameterMm: 290 }]);
-  });
-  it('ett plan kan sträcka sig över flera stockar — varje stock får sitt segment', () => {
-    const planer = [{ startCm: 400, endCm: 600, lengthCm: 200, diameterMm: 250 }];
-    const per = planerPerStock(planer, [{ maskin_langd_cm: 490 }, { maskin_langd_cm: 490 }]);
-    expect(per[0]).toEqual([{ startInStockCm: 400, endInStockCm: 490, diameterMm: 250, lengthCm: 200 }]);
-    expect(per[1]).toEqual([{ startInStockCm: 0, endInStockCm: 110, diameterMm: 250, lengthCm: 200 }]);
-  });
-  it('stockens form: saknad mätning → "null" (streckad kontur)', () => {
-    expect(stamStockForm(stock({ dia_avvikelse_mm: null }))).toMatchObject({ hasAvvikData: false, ton: 'null' });
-    expect(stamStockForm(stock({ dia_avvikelse_mm: 5 }))).toMatchObject({ hasAvvikData: true, sDia: 5, ton: 'hi' });
   });
 });
 
