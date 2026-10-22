@@ -1,5 +1,5 @@
 // Tema för de DELADE listkomponenterna i components/: ListRow, ListGroup,
-// SectionHeader och StatusDot. De används av egenkontroll och gallring och
+// SectionHeader och StatusDot. De används av egenkontroll och
 // ritas EXAKT som förut — värdena här är oförändrade, bara flyttade.
 //
 // Varför de ligger här och inte i lib/utbildning.ts: komponenterna är
@@ -7,7 +7,7 @@
 // bygger numera på lib/design/tokens och äger inte längre någon palett.
 //
 // NY KOD SKA INTE ANVÄNDA DEN HÄR FILEN — använd lib/design/tokens.
-// Den finns bara tills egenkontroll och gallring själva flyttas till tokens
+// Den finns bara tills egenkontroll själv flyttas till tokens (gallring flyttade 2026-10-22)
 // (deras spår äger de vyerna, se CLAUDE.md "En vy ägs av ett spår").
 
 import type { UtbStatus } from './utbildning';
