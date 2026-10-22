@@ -1,23 +1,22 @@
 /**
- * STAMVYN — räknandet bakom "Stam N" i kontrollarket: diameterprofilen rot → topp (maskinens mått mot klavens), fältet mellan linjerna,
- * svaret i klartext, stockraderna och sammanfattningen av planområdena. Vyn (components/kalibrering/StamArk + StamProfil) ritar, den räknar inte.
+ * STAMVYN — räknandet bakom "Stam N" i kontrollarket: avvikelsen (maskin − klave) längs stammen rot → topp, svaret i klartext, stockraderna
+ * och sammanfattningen av planområdena. Vyn (components/kalibrering/StamArk + StamAvvikelse) ritar, den räknar inte.
  *
  * REGLER (som i resten av kalibreringsvyn):
  *  - "klavad" = operatören har mätt. Ett värde som är NULL/0 har ingen avvikelse och räknas aldrig som "inom tolerans".
  *  - Avvikelse = maskin − operatör. Positivt = maskinen mäter GROVARE än klaven.
  *  - Färg bara på det som ligger utanför toleransen (tol, ur maskinens kravprofil), och talet står alltid bredvid.
+ *  - Färgen är EXAKT kontrollarkets: `avvikelseTon` i ./bedomning (orange över 4, röd över 6, blå under −4). Ingen egen skala här.
  */
 import type { StockRow } from '@/app/api/kalibrering/kontroll/route';
+import { avvikelseTon, type ToneToken } from './bedomning';
 import { dec, fmtAvvikelse } from './format';
 import { stockRadVarde, type Plan } from './kontroll';
 
-/** Färgen i stamvyn: orange = maskinen mäter grövre än klaven, blå = klentare, ok = inom toleransen (ingen färg). Bara riktningen — hur
- *  mycket säger talet bredvid. (Kontrollarkets stockrader har ett extra steg, röd över tol + 2; stamvyn har det inte.) */
-export type FaltTon = 'ok' | 'hi' | 'cold';
-
-/** Ton för en diameteravvikelse mot toleransen ur maskinens kravprofil. Samma gräns överallt i stamvyn: fält, prickar, tal och stockrader. */
-export const stamTon = (avvik: number, tol: number): FaltTon => (avvik > tol ? 'hi' : avvik < -tol ? 'cold' : 'ok');
-const faltTon = stamTon;
+/** Färgen på en avvikelse: kontrollarkets egen funktion (`avvikelseTon`, diameter), inte en kopia — så en stock är orange/röd/blå här om och
+ *  bara om den är det i Kontroll. ok = inom ±4 mm (ingen färg). Kravprofilens tolerans (`tol`) styr bandet och räkningen "utanför" (som i
+ *  `kontrollSumma`); den är 4 mm för båda profilerna idag. */
+export const stamTon = (avvik: number): ToneToken => avvikelseTon(avvik, 'dia');
 
 // === Punkterna längs stammen ===
 export type StamPunkt = {
@@ -64,77 +63,55 @@ export const stamGeometri = (stamStockar: StockRow[]): StamGeometri => {
   return { punkter, granserCm, stockNr: stockar.map(s => s.stock_nummer), totalCm: granserCm[granserCm.length - 1] };
 };
 
-// === Linjerna och fältet mellan dem ===
-export type KlaveBit = { posCm: number; klave: number };
-
-/** Klavens linje i sammanhängande bitar: en lucka (punkt utan klavmått) bryter linjen i stället för att dras rakt över. */
-export const klaveBitar = (punkter: StamPunkt[]): KlaveBit[][] => {
-  const bitar: KlaveBit[][] = [];
-  let nu: KlaveBit[] = [];
-  for (const p of punkter) {
-    if (p.klave == null) {
-      if (nu.length) bitar.push(nu);
-      nu = [];
-    } else {
-      nu.push({ posCm: p.posCm, klave: p.klave });
-    }
-  }
-  if (nu.length) bitar.push(nu);
-  return bitar;
+// === Prickarna: avvikelsen per mätpunkt ===
+export type StamPrick = {
+  /** Läge på stammen, cm från rotändan. */
+  posCm: number;
+  /** maskin − klave, mm. */
+  avvik: number;
+  /** Färgen — samma som i Kontroll (`stamTon`). */
+  ton: ToneToken;
+  /** Utanför bandet ±tol: bara de får färg och tal. */
+  utanfor: boolean;
+  /** Talet skrivs vid pricken. Två tal på samma sida närmare än `ETIKETT_LUCKA` skriver sig inte ovanpå varandra: det största behålls. */
+  etikett: boolean;
+  /** Var talet ankras mot pricken. Två tal på samma sida som ligger närmare än `ETIKETT_NARA` skjuts isär (vänstra åt vänster, högra åt höger). */
+  ankare: 'start' | 'middle' | 'end';
 };
 
-export type FaltBit = { x0: number; x1: number; m0: number; m1: number; k0: number; k1: number; ton: FaltTon };
+/** Minsta avstånd mellan två tal på samma sida, som andel av stammens längd — närmare än så skriver sig det mindre inte alls (≈ 9 px av 320). */
+export const ETIKETT_LUCKA = 0.03;
+/** Närmare än så (≈ 24 px av 320) och talen skjuts isär i sidled i stället för att stå ovanpå varandra. */
+export const ETIKETT_NARA = 0.09;
 
-/** Fältet mellan maskinens och klavens linje, delat där skillnaden passerar noll eller ±tolerans — varje bit har EN ton, så färgen
- *  börjar och slutar exakt där skillnaden går utanför toleransen. */
-export const stamFalt = (punkter: StamPunkt[], tol: number): FaltBit[] => {
-  const ut: FaltBit[] = [];
-  for (let i = 0; i + 1 < punkter.length; i++) {
-    const a = punkter[i], b = punkter[i + 1];
-    if (a.klave == null || b.klave == null || b.posCm <= a.posCm) continue;
-    const d0 = a.maskin - a.klave, d1 = b.maskin - b.klave;
-    const ts = [0, 1];
-    if (d1 !== d0) {
-      for (const niva of [0, tol, -tol]) {
-        const t = (niva - d0) / (d1 - d0);
-        if (t > 0 && t < 1) ts.push(t);
-      }
-    }
-    ts.sort((x, y) => x - y);
-    const lerp = (v0: number, v1: number, t: number) => v0 + (v1 - v0) * t;
-    for (let j = 0; j + 1 < ts.length; j++) {
-      const ta = ts[j], tb = ts[j + 1];
-      if (tb - ta < 1e-9) continue;
-      ut.push({
-        x0: lerp(a.posCm, b.posCm, ta), x1: lerp(a.posCm, b.posCm, tb),
-        m0: lerp(a.maskin, b.maskin, ta), m1: lerp(a.maskin, b.maskin, tb),
-        k0: lerp(a.klave, b.klave, ta), k1: lerp(a.klave, b.klave, tb),
-        ton: faltTon(lerp(d0, d1, (ta + tb) / 2), tol),
-      });
-    }
+/** En prick per mätpunkt där klaven mätt (en punkt utan klavmått har ingen avvikelse och ritas inte). */
+export const stamPrickar = (g: StamGeometri, tol: number): StamPrick[] => {
+  const ut: StamPrick[] = g.punkter
+    .filter((p): p is StamPunkt & { avvik: number } => p.avvik != null)
+    .map((p): StamPrick => ({ posCm: p.posCm, avvik: p.avvik, ton: stamTon(p.avvik), utanfor: Math.abs(p.avvik) > tol, etikett: false, ankare: 'middle' }));
+  const tagna: StamPrick[] = [];
+  for (const p of ut.filter(x => x.utanfor).sort((a, b) => Math.abs(b.avvik) - Math.abs(a.avvik))) {
+    const granne = tagna.some(t => Math.sign(t.avvik) === Math.sign(p.avvik) && Math.abs(t.posCm - p.posCm) < ETIKETT_LUCKA * g.totalCm);
+    if (!granne) { p.etikett = true; tagna.push(p); }
   }
+  // Grannar på samma sida: det vänstra talet åt vänster, det högra åt höger, så de inte ligger ovanpå varandra.
+  const medTal = ut.filter(x => x.etikett);
+  medTal.forEach((p, i) => {
+    const nasta = medTal[i + 1];
+    if (nasta && Math.sign(nasta.avvik) === Math.sign(p.avvik) && nasta.posCm - p.posCm < ETIKETT_NARA * g.totalCm) {
+      if (p.ankare === 'middle') p.ankare = 'end';
+      nasta.ankare = 'start';
+    }
+  });
   return ut;
 };
 
-export type StamEtikett = { posCm: number; maskin: number; avvik: number; ton: 'hi' | 'cold' };
+/** Skalan i mm åt båda hållen (alltid symmetrisk kring noll): största avvikelsen eller 1,5 × toleransen, uppåt till jämnt tal. */
+export const stamSkala = (prickar: StamPrick[], tol: number): number =>
+  Math.max(4, Math.ceil(Math.max(tol * 1.5, ...prickar.map(p => Math.abs(p.avvik))) / 2) * 2);
 
-/** Talen som står i diagrammet: den största avvikelsen i varje sammanhängande stycke utanför toleransen (högst `max`, störst först behålls). */
-export const stamEtiketter = (punkter: StamPunkt[], tol: number, max = 6): StamEtikett[] => {
-  const grupper: StamEtikett[] = [];
-  let nu: StamEtikett | null = null;
-  for (const p of punkter) {
-    if (p.avvik == null) { nu = null; continue; }
-    const ton = faltTon(p.avvik, tol);
-    if (ton === 'ok') { nu = null; continue; }
-    if (nu && nu.ton === ton) {
-      if (Math.abs(p.avvik) > Math.abs(nu.avvik)) { nu.posCm = p.posCm; nu.maskin = p.maskin; nu.avvik = p.avvik; }
-    } else {
-      nu = { posCm: p.posCm, maskin: p.maskin, avvik: p.avvik, ton };
-      grupper.push(nu);
-    }
-  }
-  return grupper.sort((a, b) => Math.abs(b.avvik) - Math.abs(a.avvik)).slice(0, max).sort((a, b) => a.posCm - b.posCm);
-};
+/** Var planområdena ligger, som läge på stammen (cm, mitten av området) — de ritas som ihåliga prickar. */
+export const planPlatser = (planer: Plan[]): number[] => planer.map(p => (p.startCm + p.endCm) / 2);
 
 // === Svaret i klartext ===
 export type StamSvar = {
@@ -220,12 +197,13 @@ export type StamStockRad = {
   /** Största diameteravvikelsen (med tecken), och om den är klavad. */
   sDia: number;
   diaKl: boolean;
-  ton: FaltTon;
+  /** Raden bär kontrollarkets färg (`stockRadVarde` → `avvikelseTon`) — det är samma värde som Kontroll visar för stocken. */
+  ton: ToneToken;
   /** "+8" eller null när stocken inte är klavad. */
   avvikText: string | null;
 };
 
-export const stamStockRader = (stamStockar: StockRow[], tol: number): StamStockRad[] => {
+export const stamStockRader = (stamStockar: StockRow[]): StamStockRad[] => {
   const stockar = stamStockar.slice().sort((a, b) => a.stock_nummer - b.stock_nummer);
   let start = 0;
   return stockar.map(s => {
@@ -236,7 +214,7 @@ export const stamStockRader = (stamStockar: StockRow[], tol: number): StamStockR
       titel: `${s.sortiment_grupp ?? 'Okänt sortiment'} ${s.maskin_langd_cm != null ? `${dec(langd / 100, 1)} m` : '–'}`,
       under: `Stock ${s.stock_nummer} · ${dec(start / 100, 1)}–${dec((start + langd) / 100, 1)} m`,
       sDia: v.sDia, diaKl: v.diaKl,
-      ton: v.diaKl ? stamTon(v.sDia, tol) : 'ok',
+      ton: v.sDiaTon,
       avvikText: v.diaKl ? fmtAvvikelse(v.sDia, 'mm') : null,
     };
     start += langd;

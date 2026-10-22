@@ -149,7 +149,7 @@ export const SKARPA = [
   "components/kalibrering/Skarmar.tsx",
   "components/kalibrering/PlanArk.tsx",
   "components/kalibrering/StamArk.tsx",
-  "components/kalibrering/StamProfil.tsx",
+  "components/kalibrering/StamAvvikelse.tsx",
   "components/kalibrering/StockArk.tsx",
   "components/kalibrering/SvajStang.tsx",
   "components/kalibrering/TidsDiagram.tsx",

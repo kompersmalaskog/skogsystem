@@ -1,5 +1,5 @@
 'use client';
-// Stammen i ett ark: vad den mäter och hur (en mening), diameterprofilen rot → topp, stockarna och var mätningen fastnade.
+// Stammen i ett ark: vad den mäter och hur (en mening), avvikelsen längs stammen rot → topp, stockarna och var mätningen fastnade.
 // Räknandet bor i lib/kalibrering/stam; här sätts bara byggstenarna ihop. Samma uppbyggnad som kontrollarket: svaret först, sedan raderna.
 import type { KontrollResponse } from '@/app/api/kalibrering/kontroll/route';
 import Flikkontroll from '@/components/design/Flikkontroll';
@@ -12,7 +12,7 @@ import { findPlanomraden } from '@/lib/kalibrering/kontroll';
 import { planSammanfattning, stamGeometri, stamStockRader, stamSvar } from '@/lib/kalibrering/stam';
 import { stockText } from '@/lib/kalibrering/text';
 import { Fyll, Meta, TonVarde } from './delar';
-import StamProfil from './StamProfil';
+import StamAvvikelse from './StamAvvikelse';
 
 export default function StamArk({ data, stamNummer, tolDia, onByt, onStock, onPlan }: {
   data: KontrollResponse; stamNummer: number; tolDia: number;
@@ -23,7 +23,7 @@ export default function StamArk({ data, stamNummer, tolDia, onByt, onStock, onPl
 
   const g = stamGeometri(stamStockar);
   const svar = stamSvar(g, tolDia);
-  const rader = stamStockRader(stamStockar, tolDia);
+  const rader = stamStockRader(stamStockar);
   const alleStammar = Array.from(new Set(data.stockar.map(st => st.stam_nummer))).sort((a, b) => a - b);
 
   // Planområden finns bara för kontrollstammar med tät profil. Utan profil vet vi inget om dem och säger ingenting.
@@ -44,8 +44,8 @@ export default function StamArk({ data, stamNummer, tolDia, onByt, onStock, onPl
           </>
         )} />
 
-      <Sektion rubrik="Diameter från rot till topp">
-        <Fyll><StamProfil g={g} tol={tolDia} /></Fyll>
+      <Sektion rubrik="Avvikelse längs stammen">
+        <Fyll><StamAvvikelse g={g} tol={tolDia} planer={planer} /></Fyll>
       </Sektion>
 
       <Sektion rubrik="Stockar">

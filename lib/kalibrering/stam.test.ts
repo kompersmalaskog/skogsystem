@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { StockRow } from '@/app/api/kalibrering/kontroll/route';
-import { findPlanomraden } from './kontroll';
+import fs from 'node:fs';
+import path from 'node:path';
+import { avvikelseTon } from './bedomning';
+import { findPlanomraden, stockRadVarde } from './kontroll';
 import {
-  klaveBitar, planSammanfattning, planStockText, stamEtiketter, stamFalt, stamGeometri, stamPlats, stamStockRader, stamSvar, stamTon,
-  type StamPunkt,
+  planPlatser, planSammanfattning, planStockText, stamGeometri, stamPlats, stamPrickar, stamSkala, stamStockRader, stamSvar, stamTon,
 } from './stam';
 
 type Mp = [number, number | null, number | null];
@@ -48,14 +50,25 @@ describe('stamGeometri', () => {
   });
 });
 
-describe('stamTon', () => {
-  it('färg bara utanför toleransen, och bara riktningen: orange = grövre, blå = klentare', () => {
-    expect(stamTon(4, 4)).toBe('ok');
-    expect(stamTon(-4, 4)).toBe('ok');
-    expect(stamTon(5, 4)).toBe('hi');
-    expect(stamTon(11, 4)).toBe('hi'); // aldrig röd här — talet säger hur mycket
-    expect(stamTon(-5, 4)).toBe('cold');
-    expect(stamTon(3, 2)).toBe('hi'); // tolerans ur kravprofilen, inte hårdkodad 4
+describe('stamTon — kontrollarkets färg, ingen egen skala', () => {
+  it('är avvikelseTon(…, "dia") för varje heltal och halvtal −12…+12', () => {
+    for (let v = -12; v <= 12; v += 0.5) expect(stamTon(v)).toBe(avvikelseTon(v, 'dia'));
+  });
+  it('orange över 4, RÖD över 6, blå under −4, inom ±4 ingen färg', () => {
+    expect(stamTon(4)).toBe('ok');
+    expect(stamTon(-4)).toBe('ok');
+    expect(stamTon(5)).toBe('hi');
+    expect(stamTon(6)).toBe('hi');
+    expect(stamTon(7)).toBe('hot');
+    expect(stamTon(11)).toBe('hot');
+    expect(stamTon(-5)).toBe('cold');
+    expect(stamTon(-12)).toBe('cold');
+  });
+  it('källvakt: stam.ts bygger ingen egen tröskel (tol + 2, ±6 …) och hämtar färgen ur bedomning', () => {
+    const kalla = fs.readFileSync(path.join(__dirname, 'stam.ts'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    expect(kalla).toMatch(/avvikelseTon\(avvik, 'dia'\)/);
+    expect(kalla).not.toMatch(/tol\s*\+\s*\d/);
+    expect(kalla).not.toMatch(/'hot'/);
   });
 });
 
@@ -102,52 +115,63 @@ describe('stamSvar', () => {
   });
 });
 
-describe('stamFalt', () => {
-  const p = (posCm: number, maskin: number, klave: number | null): StamPunkt => ({ posCm, maskin, klave, avvik: klave == null ? null : maskin - klave });
-  it('en bit med en ton när skillnaden håller sig på samma sida', () => {
-    const f = stamFalt([p(0, 310, 300), p(100, 309, 300)], 4);
-    expect(f).toHaveLength(1);
-    expect(f[0]).toMatchObject({ x0: 0, x1: 100, ton: 'hi' });
+describe('stamPrickar', () => {
+  const g = stamGeometri(SKALVIKEN);
+  it('en prick per mätpunkt där klaven mätt, rot → topp', () => {
+    const p = stamPrickar(g, 4);
+    expect(p).toHaveLength(21);
+    expect(p.map(x => x.posCm)).toEqual([...p.map(x => x.posCm)].sort((a, b) => a - b));
+    expect(p.find(x => x.posCm === 200)).toMatchObject({ avvik: 10, ton: 'hot', utanfor: true });
+    expect(p.find(x => x.posCm === 300)).toMatchObject({ avvik: 4, ton: 'ok', utanfor: false }); // exakt på bandkanten = inom
   });
-  it('delas där skillnaden går över toleransen och över noll, och bitarna sluter tätt', () => {
-    // skillnad 0 → +8 → −8 över tre punkter, tol 4
-    const f = stamFalt([p(0, 300, 300), p(100, 308, 300), p(200, 292, 300)], 4);
-    expect(f.map(b => b.ton)).toEqual(['ok', 'hi', 'hi', 'ok', 'ok', 'cold']);
-    for (let i = 0; i + 1 < f.length; i++) expect(f[i].x1).toBeCloseTo(f[i + 1].x0, 9);
-    expect(f[0].x0).toBe(0);
-    expect(f[f.length - 1].x1).toBe(200);
-    // alla bitar ligger på ena sidan av klavens linje
-    for (const b of f) expect((b.m0 - b.k0) * (b.m1 - b.k1)).toBeGreaterThanOrEqual(-1e-9);
+  it('utanför bandet: orange, röd och blå efter kontrollarkets regel, inom bandet grå', () => {
+    const p = stamPrickar(g, 4);
+    expect(p.filter(x => x.utanfor).map(x => x.ton).sort()).toEqual(['cold', 'hi', 'hot', 'hot', 'hot', 'hot', 'hot']);
+    expect(p.filter(x => !x.utanfor).every(x => x.ton === 'ok')).toBe(true);
+    expect(p.find(x => x.avvik === 6)?.ton).toBe('hi'); // +6 är orange, +7 är röd — som i Kontroll
   });
-  it('inom toleransen är fältet neutralt (ok)', () => {
-    expect(stamFalt([p(0, 302, 300), p(100, 298, 300)], 4).every(b => b.ton === 'ok')).toBe(true);
+  it('oklavat ger ingen prick', () => {
+    const gg = stamGeometri([stock(1, 500, [200, 0], [[100, 250, null], [200, 240, 0], [300, 230, 228]])]);
+    expect(stamPrickar(gg, 4).map(x => x.avvik)).toEqual([2]);
   });
-  it('ritar inget över en lucka i klavens mått', () => {
-    expect(stamFalt([p(0, 310, 300), p(100, 305, null), p(200, 300, 295)], 4)).toEqual([]);
-  });
-});
-
-describe('klaveBitar', () => {
-  it('bryter klavens linje vid en lucka', () => {
-    const g = stamGeometri([stock(1, 500, [200, 198], [[100, 250, 249], [200, 240, null], [300, 230, 228]])]);
-    const bitar = klaveBitar(g.punkter);
-    expect(bitar.map(b => b.map(x => x.posCm))).toEqual([[100], [300, 500]]);
+  it('tal bara vid prickar utanför bandet, och inte två ovanpå varandra på samma sida (det största behålls)', () => {
+    const rader = (avvik: number[], posCm: number[]) => stamPrickar({
+      punkter: avvik.map((a, i) => ({ posCm: posCm[i], maskin: 300 + a, klave: 300, avvik: a })), granserCm: [0, 2000], stockNr: [1], totalCm: 2000,
+    }, 4);
+    // 0,03 × 2000 = 60 cm: 700 och 740 ligger för nära, 900 går bra
+    const p = rader([8, 9, 7, 2], [700, 740, 900, 1200]);
+    expect(p.map(x => x.etikett)).toEqual([false, true, true, false]);
+    // olika sidor krockar inte
+    expect(rader([8, -8], [700, 720]).map(x => x.etikett)).toEqual([true, true]);
   });
 });
 
-describe('stamEtiketter', () => {
-  it('ett tal per sammanhängande stycke utanför toleransen — det största', () => {
-    const e = stamEtiketter(stamGeometri(SKALVIKEN).punkter, 4);
-    // stycket 200–500 på stock 1 (+10, +7, +8) ger ETT tal, +10
-    expect(e[0]).toMatchObject({ posCm: 200, avvik: 10, ton: 'hi' });
-    expect(e.filter(x => x.ton === 'cold')).toHaveLength(1);
-    expect(e.every(x => Math.abs(x.avvik) > 4)).toBe(true);
+describe('stamPrickar: tal som ligger nära varandra skjuts isär i sidled', () => {
+  const rader = (avvik: number[], posCm: number[]) => stamPrickar({
+    punkter: avvik.map((a, i) => ({ posCm: posCm[i], maskin: 300 + a, klave: 300, avvik: a })), granserCm: [0, 2000], stockNr: [1], totalCm: 2000,
+  }, 4);
+  it('vänstra åt vänster, högra åt höger när två tal på samma sida är närmare än 9 % av stammen', () => {
+    // 100 cm = 5 % → nära; 300 cm = 15 % → inte
+    expect(rader([8, 7], [700, 800]).map(x => x.ankare)).toEqual(['end', 'start']);
+    expect(rader([8, 7], [700, 1000]).map(x => x.ankare)).toEqual(['middle', 'middle']);
   });
-  it('högst `max` tal, de största behålls', () => {
-    const g = stamGeometri(SKALVIKEN);
-    const e = stamEtiketter(g.punkter, 4, 2);
-    expect(e).toHaveLength(2);
-    expect(Math.min(...e.map(x => Math.abs(x.avvik)))).toBeGreaterThanOrEqual(10);
+  it('tre i rad: mittersta ankras åt höger (och är därmed vänster om nästa)', () => {
+    expect(rader([8, 7, 9], [700, 800, 900]).map(x => x.ankare)).toEqual(['end', 'start', 'start']);
+  });
+  it('olika sidor skjuts inte isär', () => {
+    expect(rader([8, -8], [700, 720]).map(x => x.ankare)).toEqual(['middle', 'middle']);
+  });
+});
+
+describe('stamSkala och planPlatser', () => {
+  it('symmetrisk skala: största avvikelsen uppåt till jämnt tal, minst 1,5 × toleransen', () => {
+    expect(stamSkala(stamPrickar(stamGeometri(SKALVIKEN), 4), 4)).toBe(12); // +11 → 12
+    expect(stamSkala([], 4)).toBe(6);
+    expect(stamSkala([], 1)).toBe(4);
+  });
+  it('planområdenas platser är mitten av varje område', () => {
+    expect(planPlatser([{ startCm: 100, endCm: 140, lengthCm: 40, diameterMm: 300 }, { startCm: 250, endCm: 280, lengthCm: 30, diameterMm: 290 }])).toEqual([120, 265]);
+    expect(planPlatser([])).toEqual([]);
   });
 });
 
@@ -192,18 +216,20 @@ describe('planområden i vardagsord', () => {
 
 describe('stamStockRader', () => {
   it('sortimentgruppen och längden i klartext — aldrig maskinkoden', () => {
-    const rader = stamStockRader(SKALVIKEN, 4);
+    const rader = stamStockRader(SKALVIKEN);
     expect(rader.map(r => r.titel)).toEqual(['Timmer 6,1 m', 'Timmer 6,1 m', 'Kubb 3,1 m', 'Kubb 3,1 m', 'Massa 3,4 m']);
     expect(rader.some(r => /Vislanda|_V3|Alvesta/.test(r.titel + r.under))).toBe(false);
     expect(rader.map(r => r.under)).toEqual(['Stock 1 · 0,0–6,1 m', 'Stock 2 · 6,1–12,2 m', 'Stock 3 · 12,2–15,3 m', 'Stock 4 · 15,3–18,4 m', 'Stock 5 · 18,4–21,8 m']);
   });
-  it('avvikelsen är den största över mätpunkter och topp, med tecken, och tonen följer toleransen', () => {
-    const rader = stamStockRader(SKALVIKEN, 4);
+  it('avvikelsen är den största över mätpunkter och topp, med tecken, och tonen är kontrollarkets (röd över 6)', () => {
+    const rader = stamStockRader(SKALVIKEN);
     expect(rader.map(r => r.avvikText)).toEqual(['+10', '-5', '+6', '+11', '+8']);
-    expect(rader.map(r => r.ton)).toEqual(['hi', 'cold', 'hi', 'hi', 'hi']);
+    expect(rader.map(r => r.ton)).toEqual(['hot', 'cold', 'hi', 'hot', 'hot']);
+    // exakt samma värde som Kontroll visar för stocken
+    expect(rader.map(r => r.ton)).toEqual(SKALVIKEN.map(s => stockRadVarde(s).sDiaTon));
   });
   it('saknat sortiment och oklavad stock', () => {
-    const [r] = stamStockRader([stock(1, 500, [200, null], [[100, 250, null]], { sortiment_grupp: null, operator_toppdia_mm: null, dia_avvikelse_mm: null })], 4);
+    const [r] = stamStockRader([stock(1, 500, [200, null], [[100, 250, null]], { sortiment_grupp: null, operator_toppdia_mm: null, dia_avvikelse_mm: null })]);
     expect(r.titel).toBe('Okänt sortiment 5,0 m');
     expect(r).toMatchObject({ diaKl: false, avvikText: null, ton: 'ok' });
   });

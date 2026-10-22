@@ -1,5 +1,5 @@
 'use client';
-// Små diagram i kontroll- och stockarken: stock-svärmen och lollipop-grafen (stamvyns profil bor i StamProfil). Portade ur page.tsx (de var CSS-klasser
+// Små diagram i kontroll- och stockarken: stock-svärmen och lollipop-grafen (stamvyns avvikelsediagram bor i StamAvvikelse). Portade ur page.tsx (de var CSS-klasser
 // kalib-swarm-*, kalib-lollipop-*, kalib-stam-*), nu inline på tokens. Färgerna är AVVIKELSESKALAN (TON_FARG) — samma betydelse som förut.
 import { AVSTAND, FARG, RADIE, TNUM, TYP } from '@/lib/design/tokens';
 import type { ToneToken } from '@/lib/kalibrering/bedomning';
