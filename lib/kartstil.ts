@@ -60,6 +60,41 @@ export const LEGEND = {
 export const BASVAG_FARG_UTTRYCK: any[] = ['match', ['get', 'farg'], 'red', LEGEND.fara, 'yellow', LEGEND.gul, 'blue', LEGEND.vatten, LEGEND.vatten];
 export const BASVAG_UTAN_FARG: any[] = ['!', ['has', 'farg']];
 
+/**
+ * Blå/gul basväg = snitselband i fält: LIKA långa blå och gula streck. Det gula strecket ritas ovanpå en heldragen blå linje med dasharray [2, 2] (enheter av linjebredden),
+ * och med PLATTA ändar blir det exakt hälften gult och hälften blått. Med rundade ändar växer varje streck med en halv linjebredd åt båda håll och äter luckorna:
+ * 75 % gult, 25 % blått (uppmätt 2026-10-21 i riktig MapLibre). Gäller bara basvägen — traktgränsens och övriga randade linjers streck är oförändrade.
+ */
+export const BASVAG_STRECK_DASH = [2, 2] as const;
+export const BASVAG_STRECK_LAYOUT = { 'line-cap': 'butt', 'line-join': 'miter' } as const;
+
+/**
+ * Körvyns sken runt basvägar nära maskinen (≤ 200 m). Det ska bara LYFTA FRAM de närmaste vägarna — aldrig ändra vägens färg. Därför vitt och svagt, och det läggs UNDER
+ * väglagren (se `forstaVagLagerId`). Förut: gult #ffd60a, 40 %, ritat OVANPÅ vägen — det färgade blått grågrönt, rött orange och blå/gul helt gul.
+ */
+export const BASVAG_SKEN_ID = 'lines-korvy-mainroad-glow';
+export const BASVAG_SKEN_FARG = '#ffffff';
+export const BASVAG_SKEN_OPACITET = 0.28;
+export function basvagSkenLager(kalla: string): any {
+  return {
+    id: BASVAG_SKEN_ID,
+    type: 'line',
+    source: kalla,
+    filter: ['all', ['==', ['get', 'lineType'], 'mainRoad'], ['==', ['get', 'nearby'], true]],
+    paint: {
+      'line-color': BASVAG_SKEN_FARG,
+      'line-opacity': BASVAG_SKEN_OPACITET,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 14, 14, 17, 28, 19, 42],
+      'line-blur': 4,
+    },
+    layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' },
+  };
+}
+/** Lagret skenet ska ligga precis UNDER: det lägsta väglagret (`line-…`) i stilens ordning. undefined = inget väglager finns än. */
+export function forstaVagLagerId(lagerIdn: ReadonlyArray<string>): string | undefined {
+  return lagerIdn.find((id) => id.startsWith('line-'));
+}
+
 // ---------------------------------------------------------------------------
 // Zoomkurvor. EN interpolate per uttryck, aldrig nastlad i aritmetik - MapLibre
 // avvisar annars lagret ("zoom expression may only be used as input to a
@@ -240,8 +275,8 @@ export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim
       lager.push({
         // Basväg MED färg är heldragen i färgen: de gula strecken ritas bara på basväg utan färg.
         id: `${prefix}-lin-${lt.id}-streck`, type: 'line', source: kalla, filter: lt.id === 'mainRoad' ? och(filter, BASVAG_UTAN_FARG) : filter,
-        paint: { 'line-color': lt.color2, 'line-width': zoomKurva(bredd, bf), 'line-dasharray': [...STRECK_RANDAD], ...op },
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': lt.color2, 'line-width': zoomKurva(bredd, bf), 'line-dasharray': [...(lt.id === 'mainRoad' ? BASVAG_STRECK_DASH : STRECK_RANDAD)], ...op },
+        layout: lt.id === 'mainRoad' ? { ...BASVAG_STRECK_LAYOUT } : { 'line-cap': 'round', 'line-join': 'round' },
       });
     }
   }

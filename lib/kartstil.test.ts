@@ -25,7 +25,7 @@ import {
 } from './kartstil';
 import { ZONE_COLORS } from './zone-colors';
 import { symbolDef } from './symboler';
-import { MAPLIBRE_SPACING_FAKTOR, KRAFTLEDNING_KANT_EXTRA, KRAFTLEDNING_STOLPE_AVSTAND_PX, KRAFTLEDNING_STOLPE_BILD, KRAFTLEDNING_SYMBOL_AVSTAND_PX, kraftledningLager } from './kartstil';
+import { MAPLIBRE_SPACING_FAKTOR, KRAFTLEDNING_KANT_EXTRA, KRAFTLEDNING_STOLPE_AVSTAND_PX, KRAFTLEDNING_STOLPE_BILD, KRAFTLEDNING_SYMBOL_AVSTAND_PX, kraftledningLager, BASVAG_STRECK_DASH, linjeLager } from './kartstil';
 import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR } from './larm/grupper';
 
 // Radslut normaliseras: filen kan ha CRLF pa Windows och LF pa Vercel, och
@@ -137,7 +137,18 @@ describe('linjetyperna (lineTypeDefs)', () => {
     const a = (v: readonly number[]) => `[${v.join(', ')}]`;
     expect(k).toContain(sammanfoga(`...(lt.dashed ? { 'line-dasharray': ${a(STRECK_DASHED)} } : {})`));
     expect(k).toContain(sammanfoga(`...(!lt.striped && !lt.dashed ? { 'line-dasharray': ${a(STRECK_VANLIG)} } : {})`));
-    expect(k).toContain(sammanfoga(`paint: { 'line-color': lt.color2, 'line-width': lw, 'line-dasharray': ${a(STRECK_RANDAD)} }`));
+    // Randad: basvägen (blå/gul) har lika långa streck med PLATTA ändar (BASVAG_STRECK_*); övriga randade linjer är oförändrade [2, 2] med rundade ändar.
+    expect(k).toContain(sammanfoga(`paint: { 'line-color': lt.color2, 'line-width': lw, 'line-dasharray': isMainRoad ? [...BASVAG_STRECK_DASH] : ${a(STRECK_RANDAD)} }`));
+    expect([...BASVAG_STRECK_DASH]).toEqual([...STRECK_RANDAD]);
+  });
+
+  it('egenkontrollens karta: basvägens streck har platta ändar (som planeringen), övriga randade linjer rundade', () => {
+    const lager = linjeLager('k', 'ek', null);
+    const streck = (typ: string) => lager.find((l: any) => l.id === `ek-lin-${typ}-streck`);
+    expect(streck('mainRoad').layout['line-cap']).toBe('butt');
+    expect(streck('mainRoad').paint['line-dasharray']).toEqual([2, 2]);
+    expect(streck('boundary').layout['line-cap']).toBe('round');
+    expect(streck('nature').layout['line-cap']).toBe('round');
   });
 
   it('planeringen tonar ALDRIG ner traktgransen (undantaget som kontextlagret speglar)', () => {
