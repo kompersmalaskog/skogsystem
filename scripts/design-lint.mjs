@@ -33,6 +33,13 @@ const ALFA = new Set(["0.04", "0.08", "0.1", "0.10"]); // rgba(255,255,255,x) so
 
 /** Filer som är rättade mot tokens. Nya literaler här är fel, inte skuld. */
 export const SKARPA = [
+  // Gallring (2026-10-22): omgjord på tokens och components/design, noll literaler.
+  "components/gallring/GallringRam.tsx",
+  "components/gallring/GallringLista.tsx",
+  "components/gallring/Trakt.tsx",
+  "app/gallring/page.tsx",
+  "app/gallring/layout.tsx",
+  "app/gallring/[vo]/page.tsx",
   "components/arbetsrapport/Arbetsrapport.tsx", // piloten (dagsvyn) — nya literaler fäller
   // Admin (2026-10): flyttat till tokens, noll literaler. components/admin/ui.tsx är byggstenarna.
   "components/admin/ui.tsx",

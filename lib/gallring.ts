@@ -51,6 +51,7 @@ import { harledTyp } from './objekt/typ';
 // Trädslagens namn och färger bor i lib/tradslag.ts — EN palett för hela
 // appen. Gallringsvyn definierar inga egna.
 import { tradslagLabel } from './tradslag';
+import { DIM_MASKIN_NAMN_KOLUMNER, maskinNamnMap, type MaskinNamnKalla } from './maskinNamn';
 
 // ---------------------------------------------------------------------------
 // Typer
@@ -245,13 +246,17 @@ async function hamtaArealer(): Promise<Map<string, number>> {
 }
 
 async function hamtaNamnkartor() {
-  const [tradslag, operatorer] = await Promise.all([
+  const [tradslag, operatorer, maskiner] = await Promise.all([
     supabase.from('dim_tradslag').select('tradslag_id, namn'),
     supabase.from('dim_operator').select('operator_id, operator_namn'),
+    supabase.from('dim_maskin').select(DIM_MASKIN_NAMN_KOLUMNER),
   ]);
   kasta('trädslag', tradslag.error);
   kasta('förare', operatorer.error);
+  kasta('maskiner', maskiner.error);
   return {
+    // Maskinens namn ur dim_maskin ("Rottne H8E -26"), aldrig maskin_id ("R64428").
+    maskiner: maskinNamnMap(maskiner.data as MaskinNamnKalla[] | null),
     tradslag: new Map((tradslag.data ?? []).map((t) => [t.tradslag_id, t.namn as string | null])),
     operatorer: new Map(
       (operatorer.data ?? []).map((o) => [o.operator_id, o.operator_namn as string | null]),
@@ -323,7 +328,11 @@ function unikt(varden: (string | null | undefined)[]): string[] {
 function byggRader(
   objekt: DimObjektRad[],
   prod: ProdRad[],
-  namn: { tradslag: Map<string, string | null>; operatorer: Map<string, string | null> },
+  namn: {
+    tradslag: Map<string, string | null>;
+    operatorer: Map<string, string | null>;
+    maskiner: Record<string, string>;
+  },
   arealer: Map<string, number>,
 ): GallringRad[] {
   // Gruppera på VO — ett fysiskt objekt kan ligga som flera dim_objekt-rader
@@ -381,7 +390,7 @@ function byggRader(
       // Maskin och förare läses ur produktionen, inte ur dim_objekt.maskin_id —
       // det fältet pekar på flera gallringsobjekt ut en skotare (A030353), och
       // den som körde uttaget är den som faktiskt står på raderna.
-      maskiner: unikt(p.map((r) => r.maskin_id)),
+      maskiner: unikt(p.map((r) => (r.maskin_id ? namn.maskiner[r.maskin_id] || r.maskin_id : null))),
       forare: unikt(p.map((r) => (r.operator_id ? namn.operatorer.get(r.operator_id) : null))),
       forstaDatum: sorteradeDatum[0] ?? null,
       sistaDatum: sorteradeDatum[sorteradeDatum.length - 1] ?? null,

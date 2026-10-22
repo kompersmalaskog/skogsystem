@@ -16,7 +16,6 @@ const UNDANTAG: Record<string, string> = {
   'components/admin/ui.tsx:Sektion': 'bara en etikett (ingen kortbehållare), orange variant',
   'components/historik/delar.tsx:Sektion': 'etikett med maskinprick, innehållet ligger fritt under',
   'app/starta-jobb/delar.tsx:Grupp': 'etikett + fritt innehåll (formulärfält), inget kort',
-  'app/gallring/[vo]/page.tsx:Grupp': 'bara kortet, ingen etikett (egen palett)',
   'app/ekonomi/fakturaunderlag/FakturaunderlagClient.tsx:Grupp': 'titel (TYP.meta) + rader + tomtext, egen palett — kan tas i en egen PR',
 }
 
