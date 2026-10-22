@@ -70,7 +70,7 @@ export default function BesokKarta({ data, hojd = 340 }: { data: KartaData; hojd
     map.on('load', () => {
       map.addSource('gran', { type: 'geojson', data: gransFc(senaste.current) });
       map.addSource('ringar', { type: 'geojson', data: ringar(senaste.current) });
-      map.addLayer({ id: 'gran-kant', type: 'line', source: 'gran', paint: { 'line-color': '#000', 'line-width': 5, 'line-opacity': 0.7 } });
+      map.addLayer({ id: 'gran-kant', type: 'line', source: 'gran', paint: { 'line-color': FARG.bg, 'line-width': 5, 'line-opacity': 0.7 } });
       map.addLayer({ id: 'gran', type: 'line', source: 'gran', paint: { 'line-color': '#fff', 'line-width': 2.5, 'line-dasharray': [2, 1.2] } });
       map.addLayer({ id: 'ringar-fyll', type: 'fill', source: 'ringar', paint: { 'fill-color': FARG.rod, 'fill-opacity': 0.14 } });
       map.addLayer({ id: 'ringar-linje', type: 'line', source: 'ringar', paint: { 'line-color': FARG.rod, 'line-width': 2.5, 'line-dasharray': [2, 1.5] } });
