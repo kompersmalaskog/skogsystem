@@ -22,6 +22,17 @@ export const SIDOLISTA_BREDD = 320
 
 export type SidoRoll = 'skordare' | 'skotare'
 
+/**
+ * Avslutad maskin = `dim_maskin.aktiv_till` är satt och ligger före idag (sista dagen räknas som aktiv). Den hamnar i den
+ * hopfällda gruppen "Tidigare" längst ner i listan: bara namnet, ingen prick och inga dagssiffror. Styrs av datan — en
+ * framtida avslutad maskin (som gamla Elephant King) hamnar där utan kodändring.
+ * Ett kombo-val ("H8E (båda)") är avslutat först när ALLA maskinerna i det är det. Okänd maskin (saknas i `aktivTill`) räknas
+ * aldrig som avslutad.
+ */
+export function arAvslutad(ids: string[], aktivTill: Readonly<Record<string, string | null | undefined>>, idag: string): boolean {
+  return ids.length > 0 && ids.every(id => { const t = aktivTill[id]; return !!t && t < idag })
+}
+
 export type SidoGrupp = { roll: SidoRoll; rubrik: string }
 export const SIDO_GRUPPER: SidoGrupp[] = [
   { roll: 'skordare', rubrik: 'Skördare' },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sidoRad, summeraIdag, type SidoData } from './sidolista'
+import { arAvslutad, sidoRad, summeraIdag, type SidoData } from './sidolista'
 
 // 2026-10-22 10:00 svensk tid (08:00 UTC)
 const NU = Date.UTC(2026, 9, 22, 8, 0, 0)
@@ -88,5 +88,28 @@ describe('sidoRad — dagens siffror', () => {
   })
   it('signal idag men inga rader hämtade → inga siffror (ingen påhittad 0)', () => {
     expect(sidoRad('skordare', dag(4, null), NU, klockslag).siffror).toBeNull()
+  })
+})
+
+describe('arAvslutad — vilka maskiner som hamnar i "Tidigare"', () => {
+  const aktivTill = { R64101: '2026-03-11', A110148: '2026-07-08', R64428: null, A030353: null }
+  it('aktiv_till före idag = avslutad (R64101, gamla Elephant King)', () => {
+    expect(arAvslutad(['R64101'], aktivTill, '2026-10-22')).toBe(true)
+    expect(arAvslutad(['A110148'], aktivTill, '2026-10-22')).toBe(true)
+  })
+  it('sista dagen räknas som aktiv; framtida slutdatum likaså', () => {
+    expect(arAvslutad(['R64101'], aktivTill, '2026-03-11')).toBe(false)
+    expect(arAvslutad(['R64101'], aktivTill, '2026-03-10')).toBe(false)
+    expect(arAvslutad(['A110148'], aktivTill, '2026-07-08')).toBe(false)
+  })
+  it('utan slutdatum, eller okänd maskin, är aldrig avslutad', () => {
+    expect(arAvslutad(['R64428'], aktivTill, '2026-10-22')).toBe(false)
+    expect(arAvslutad(['PONS20SDJAA270231'], aktivTill, '2026-10-22')).toBe(false)
+    expect(arAvslutad([], aktivTill, '2026-10-22')).toBe(false)
+  })
+  it('ett kombo är avslutat först när ALLA maskinerna i det är det', () => {
+    expect(arAvslutad(['R64101', 'R64428'], aktivTill, '2026-10-22')).toBe(false)
+    expect(arAvslutad(['R64101', 'A110148'], aktivTill, '2026-10-22')).toBe(true)
+    expect(arAvslutad(['R64101', 'OKAND'], aktivTill, '2026-10-22')).toBe(false)
   })
 })

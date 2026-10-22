@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { stockholmDag } from '@/lib/maskinvy/livestatus'
-import { summeraIdag, type SidoData, type SidoRoll } from '@/lib/maskinvy/sidolista'
+import { arAvslutad, summeraIdag, type SidoData, type SidoRoll } from '@/lib/maskinvy/sidolista'
 import { COMBO_IDS } from './OversiktShared'
 
 export type SidoMaskin = { id: string; namn: string; roll: SidoRoll }
@@ -77,4 +77,35 @@ export function useSidolistaData(maskiner: SidoMaskin[], aktiv: boolean): Record
   }, [aktiv, nyckel])
 
   return svar
+}
+
+/**
+ * Vilka av maskinerna som är avslutade (`dim_maskin.aktiv_till` före idag). `null` medan det läses; går det inte att läsa är
+ * ingen maskin avslutad (listan ser ut som förut, felet loggas) — hellre en gammal maskin i huvudlistan än en aktiv i "Tidigare".
+ */
+export function useAvslutadeMaskiner(maskiner: SidoMaskin[]): Set<string> | null {
+  // Svaret bär nyckeln för listan det räknades på: skotarna kommer in efter skördarna, och en mängd för den gamla listan får
+  // aldrig gälla den nya (då hämtas och visas en avslutad maskin som aktiv en stund).
+  const [svar, setSvar] = useState<{ nyckel: string; ut: Set<string> } | null>(null)
+  const nyckel = useMemo(() => maskiner.map(m => m.id).join('|'), [maskiner])
+
+  useEffect(() => {
+    if (!nyckel) return
+    let avbruten = false
+    const ider = nyckel.split('|')
+    const medlemmar = Array.from(new Set(ider.flatMap(id => COMBO_IDS[id] || [id])))
+    Promise.resolve(supabase.from('dim_maskin').select('maskin_id, aktiv_till').in('maskin_id', medlemmar))
+      .then(({ data, error }) => {
+        if (avbruten) return
+        if (error) throw error
+        const aktivTill: Record<string, string | null> = {}
+        for (const r of (data as { maskin_id: string; aktiv_till: string | null }[] | null) || []) aktivTill[r.maskin_id] = r.aktiv_till
+        const idag = stockholmDag(Date.now())
+        setSvar({ nyckel, ut: new Set(ider.filter(id => arAvslutad(COMBO_IDS[id] || [id], aktivTill, idag))) })
+      })
+      .catch(e => { console.warn('[sidolista] aktiv_till', e); if (!avbruten) setSvar({ nyckel, ut: new Set() }) })
+    return () => { avbruten = true }
+  }, [nyckel])
+
+  return svar && svar.nyckel === nyckel ? svar.ut : null
 }

@@ -1,15 +1,17 @@
 'use client'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { AVSTAND, FARG, FONT, RADIE, TYP, underTopbar } from '@/lib/design/tokens'
 import { SIDOLISTA_BREDD, SIDO_GRUPPER, sidoRad, type SidoNiva, type SidoRoll } from '@/lib/maskinvy/sidolista'
 import { tint } from './OversiktShared'
 import { useMinutklocka } from './useMinutklocka'
-import { useSidolistaData, type SidoMaskin } from './useSidolista'
+import { useAvslutadeMaskiner, useSidolistaData, type SidoMaskin } from './useSidolista'
 
 // ─────────────────────────────────────────────────────────────
 // Sidolistan: maskinvalet på stor skärm. Ersätter rullgardinen "namn ▾" i varje vy (page.tsx släcker den med CSS medan
 // listan står). Alla maskiner syns samtidigt, grupperade Skördare / Skotare; varje rad säger om maskinen lever nu och vad den
 // gjort idag. Ett tryck på en rad väljer maskinen och byter till dess flik (skördare/skotare), vyn (Idag, Produktion …) står kvar.
+// Avslutade maskiner (`dim_maskin.aktiv_till` före idag) ligger i en hopfälld grupp "Tidigare" längst ner: bara namnet, ingen prick
+// och inga dagssiffror (de hämtas inte ens) — men ett tryck väljer dem som vanligt, så helår och historik går att se.
 // Reglerna för prick och text bor i lib/maskinvy/sidolista.
 // ─────────────────────────────────────────────────────────────
 
@@ -32,11 +34,18 @@ export default function Sidolista({ maskiner, skotareLaddar, valdRoll, valdId, o
   onVal: (roll: SidoRoll, id: string) => void
 }) {
   const nu = useMinutklocka()
-  const svar = useSidolistaData(maskiner, true)
+  // null medan det läses: då står inga maskinrader (annars hoppar de avslutade från huvudlistan ner till "Tidigare").
+  const avslutade = useAvslutadeMaskiner(maskiner)
+  const aktiva = useMemo(() => (avslutade ? maskiner.filter(m => !avslutade.has(m.id)) : []), [maskiner, avslutade])
+  const tidigare = useMemo(() => (avslutade ? maskiner.filter(m => avslutade.has(m.id)) : []), [maskiner, avslutade])
+  // Bara de aktiva läser dagens siffror.
+  const svar = useSidolistaData(aktiva, avslutade !== null)
   const perGrupp = useMemo(
-    () => SIDO_GRUPPER.map(g => ({ ...g, rader: maskiner.filter(m => m.roll === g.roll) })),
-    [maskiner],
+    () => SIDO_GRUPPER.map(g => ({ ...g, rader: aktiva.filter(m => m.roll === g.roll) })),
+    [aktiva],
   )
+  const [tidigareOppen, setTidigareOppen] = useState(false)
+  const laddar = avslutade === null
 
   return (
     <nav
@@ -53,11 +62,11 @@ export default function Sidolista({ maskiner, skotareLaddar, valdRoll, valdId, o
           <div style={{ ...TYP.micro, color: FARG.text2, padding: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>{g.rubrik}</div>
           {g.rader.length === 0 && (
             <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.s}px ${AVSTAND.m}px` }}>
-              {g.roll === 'skotare' && skotareLaddar ? 'Läser maskiner …' : 'Inga maskiner med data'}
+              {laddar || (g.roll === 'skotare' && skotareLaddar) ? 'Läser maskiner …' : 'Inga aktiva maskiner'}
             </div>
           )}
           {g.rader.map(m => {
-            const rad = sidoRad(m.roll, svar[m.id] ?? 'laser', nu, klockslag)
+            const rad = sidoRad(m.roll, m.id in svar ? svar[m.id] : 'laser', nu, klockslag)
             const vald = valdRoll === m.roll && valdId === m.id
             return (
               <button
@@ -92,6 +101,45 @@ export default function Sidolista({ maskiner, skotareLaddar, valdRoll, valdId, o
           })}
         </section>
       ))}
+
+      {tidigare.length > 0 && (
+        <section data-sido-tidigare>
+          <button
+            type="button"
+            aria-expanded={tidigareOppen}
+            onClick={() => setTidigareOppen(o => !o)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box',
+              minHeight: 44, padding: `0 ${AVSTAND.m}px`, border: 'none', background: 'transparent', cursor: 'pointer',
+              fontFamily: FONT, color: FARG.text2, ...TYP.micro, WebkitTapHighlightColor: 'transparent',
+            }}
+          >
+            <span>Tidigare ({tidigare.length})</span>
+            <span aria-hidden>{tidigareOppen ? '▾' : '▸'}</span>
+          </button>
+          {tidigareOppen && tidigare.map(m => {
+            const vald = valdRoll === m.roll && valdId === m.id
+            return (
+              <button
+                key={m.id}
+                type="button"
+                data-sido-rad={m.id}
+                data-sido-tidigare=""
+                aria-current={vald ? 'true' : undefined}
+                onClick={() => onVal(m.roll, m.id)}
+                style={{
+                  display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 44, padding: `${AVSTAND.s}px ${AVSTAND.m}px`,
+                  border: 'none', textAlign: 'left', borderRadius: RADIE.rad, cursor: 'pointer', fontFamily: FONT,
+                  ...TYP.listtitel, color: vald ? FARG.text : FARG.text2,
+                  background: vald ? FARG.fyllning : 'transparent', WebkitTapHighlightColor: 'transparent',
+                }}
+              >
+                {m.namn}
+              </button>
+            )
+          })}
+        </section>
+      )}
     </nav>
   )
 }

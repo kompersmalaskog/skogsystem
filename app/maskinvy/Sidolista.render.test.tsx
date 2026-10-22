@@ -10,15 +10,23 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 
 const SCORPION = 'PONS20SDJAA270231'
 const WISENT = 'A030353'
-const data = vi.hoisted(() => ({ fel: new Set<string>(), manga: false, tidFel: false, senasteAnrop: 0 }))
+const data = vi.hoisted(() => ({ fel: new Set<string>(), manga: false, tidFel: false, senasteAnrop: 0, avslutadFel: false, anrop: [] as string[][] }))
 
 vi.mock('@/lib/supabase', () => {
   const from = (t: string) => {
     const q: any = {}
-    for (const m of ['select', 'in', 'eq', 'is', 'limit', 'order']) q[m] = () => q
+    let kolumner = ''
+    for (const m of ['in', 'eq', 'is', 'limit', 'order']) q[m] = () => q
+    q.select = (c: string) => { kolumner = c; return q }
     q.then = (res: any) => {
+      // dim_maskin läses av två: skotarlistan (useMaskinvyMaskiner) och sidolistans aktiv_till. R64101 och gamla Elefant AF är avslutade.
+      if (t === 'dim_maskin' && kolumner === 'maskin_id, aktiv_till' && data.avslutadFel) return Promise.resolve({ data: null, error: new Error('nej') }).then(res)
       const rader =
-        t === 'dim_maskin' ? [{ maskin_id: 'A030353', visningsnamn: 'Ponsse Wisent', modell: 'Wisent', maskin_typ: 'Forwarder', aktiv_fran: '2020-01-01', aktiv_till: null }]
+        t === 'dim_maskin' ? [
+          { maskin_id: 'A030353', visningsnamn: 'Ponsse Wisent', modell: 'Wisent', maskin_typ: 'Forwarder', aktiv_fran: '2020-01-01', aktiv_till: null },
+          { maskin_id: 'A110148', visningsnamn: 'Elefant AF', modell: 'Elephant King', maskin_typ: 'Forwarder', aktiv_fran: '2021-03-01', aktiv_till: '2026-07-08' },
+          { maskin_id: 'R64101', visningsnamn: 'H8E -23', modell: 'H8E', maskin_typ: 'Harvester', aktiv_fran: null, aktiv_till: '2026-03-11' },
+        ]
         : t === 'fakt_tid' ? [{ maskin_id: 'A030353' }]
         : []
       return Promise.resolve({ data: rader, error: null }).then(res)
@@ -27,6 +35,7 @@ vi.mock('@/lib/supabase', () => {
   }
   const rpc = (namn: string, args: any) => {
     const id = (args.p_maskin_ids as string[])[0]
+    data.anrop.push(args.p_maskin_ids as string[])
     if (data.fel.has(id)) return Promise.resolve({ data: null, error: new Error('nej') })
     if (namn === 'maskindata_produktion_senaste') {
       data.senasteAnrop += 1
@@ -87,7 +96,7 @@ const flik = (text: string) => Array.from(document.querySelectorAll('[role=tab]'
 beforeEach(() => {
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
   vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-22T08:00:00Z') })   // 10:00 svensk tid
-  data.fel = new Set(); data.manga = false; data.tidFel = false; data.senasteAnrop = 0
+  data.fel = new Set(); data.manga = false; data.tidFel = false; data.senasteAnrop = 0; data.avslutadFel = false; data.anrop = []
   rot = document.createElement('div'); document.body.appendChild(rot); r = createRoot(rot)
 })
 afterEach(() => { act(() => r.unmount()); rot.remove(); vi.useRealTimers(); document.body.removeAttribute('data-mv-sidolista') })
@@ -98,7 +107,7 @@ describe('sidolistan på stor skärm', () => {
     expect(sida()).not.toBeNull()
     expect(document.body.hasAttribute('data-mv-sidolista')).toBe(true)
     const skordare = Array.from(document.querySelectorAll('[data-sido-grupp="skordare"] [data-sido-rad]')).map(e => e.getAttribute('data-sido-rad'))
-    expect(skordare).toEqual([SCORPION, 'R64428', 'R64101', 'R64101+R64428'])
+    expect(skordare).toEqual([SCORPION, 'R64428', 'R64101+R64428'])      // R64101 är avslutad → "Tidigare"; kombon har en aktiv maskin kvar
     const skotare = Array.from(document.querySelectorAll('[data-sido-grupp="skotare"] [data-sido-rad]')).map(e => e.getAttribute('data-sido-rad'))
     expect(skotare).toEqual([WISENT])
   })
@@ -114,9 +123,14 @@ describe('sidolistan på stor skärm', () => {
     expect(wi.getAttribute('data-sido-niva')).toBe('sen')                  // lass för 40 min sedan → gul
     expect(wi.textContent).toContain('För 40 min sedan')
     expect(wi.textContent).toContain('33 m³ · 3 lass')
-    const gammal = rad('R64101')!
-    expect(gammal.textContent).toContain('Senast 11 mar')
-    expect(gammal.textContent).toContain('Ingen körning idag')
+  })
+
+  it('en maskin utan någon data alls säger "Ingen data" — den står aldrig kvar på "Läser …"', async () => {
+    await montera()
+    const r4428 = rad('R64428')!                                          // mocken svarar med noll rader för den
+    expect(r4428.getAttribute('data-sido-niva')).toBe('ingen')
+    expect(r4428.textContent).toContain('Ingen data')
+    expect(r4428.textContent).not.toContain('Läser')
   })
 
   it('ett tryck på en skotare byter flik och maskin, och vyn (Idag) står kvar', async () => {
@@ -182,6 +196,72 @@ describe('sidolistan på stor skärm', () => {
     await act(async () => { vi.advanceTimersByTime(120000) })
     await lugn()
     expect(data.senasteAnrop).toBeGreaterThan(fore)
+  })
+})
+
+describe('Tidigare — avslutade maskiner', () => {
+  const tidigareKnapp = () => document.querySelector('[data-sido-tidigare] button[aria-expanded]') as HTMLElement | null
+  const tidigareRader = () => Array.from(document.querySelectorAll('[data-sido-tidigare] [data-sido-rad]')).map(e => e.getAttribute('data-sido-rad'))
+
+  it('avslutade maskiner (aktiv_till före idag) ligger i en hopfälld grupp längst ner — inte i skördar- eller skotargruppen', async () => {
+    await montera()
+    const knapp = tidigareKnapp()!
+    expect(knapp.textContent).toContain('Tidigare (2)')
+    expect(knapp.getAttribute('aria-expanded')).toBe('false')
+    expect(tidigareRader()).toEqual([])                                   // hopfälld: raderna finns inte
+    expect(rad('R64101')).toBeNull()
+    expect(rad('A110148')).toBeNull()
+    // Gruppen ligger sist i listan, efter Skotare.
+    const nav = document.querySelector('[data-sidolista]')!
+    const ordning = Array.from(nav.children).map(e => e.getAttribute('data-sido-grupp') ?? (e.hasAttribute('data-sido-tidigare') ? 'tidigare' : '?'))
+    expect(ordning).toEqual(['skordare', 'skotare', 'tidigare'])
+  })
+
+  it('öppnad: bara namnet — ingen prick, ingen status, inga dagssiffror — och inget hämtas för dem', async () => {
+    await montera()
+    await tryck(tidigareKnapp())
+    expect(tidigareKnapp()!.getAttribute('aria-expanded')).toBe('true')
+    expect(tidigareRader()).toEqual(['R64101', 'A110148'])
+    expect(rad('R64101')!.textContent).toBe('Rottne H8E -23')
+    expect(rad('A110148')!.textContent).toBe('Elefant AF')
+    expect(rad('R64101')!.hasAttribute('data-sido-niva')).toBe(false)
+    expect(document.querySelectorAll('[data-sido-tidigare] [aria-hidden]').length).toBe(1)   // bara pilen i rubrikknappen
+    // Ingen läsning av dagens signal/siffror för de avslutade (kombon läser bara sina egna id:n i en egen fråga).
+    const ensamma = data.anrop.filter(a => a.length === 1).map(a => a[0])
+    expect(ensamma).not.toContain('R64101')
+    expect(ensamma).not.toContain('A110148')
+  })
+
+  it('en avslutad maskin går att välja som vanligt: fliken och maskinen byts, vyn står kvar, och raden syns vald', async () => {
+    await montera('/maskinvy?ny=1&vy=idag')
+    await tryck(tidigareKnapp())
+    await tryck(rad('A110148'))
+    expect(vy()).toBe('skotare-idag')
+    expect(document.querySelector('[data-vy]')?.textContent).toBe('Elefant AF')
+    expect(flik('Skotare').getAttribute('aria-selected')).toBe('true')
+    expect(rad('A110148')!.getAttribute('aria-current')).toBe('true')
+    await tryck(rad('R64101'))
+    expect(vy()).toBe('skordare-idag')
+    expect(document.querySelector('[data-vy]')?.textContent).toBe('Rottne H8E -23')
+    expect(rad('R64101')!.getAttribute('aria-current')).toBe('true')
+    expect(rad('A110148')!.getAttribute('aria-current')).toBeNull()
+  })
+
+  it('går aktiv_till inte att läsa är ingen maskin avslutad — listan ser ut som förut och felet säger sig inte vara "Tidigare"', async () => {
+    data.avslutadFel = true
+    await montera()
+    expect(document.querySelector('[data-sido-tidigare]')).toBeNull()
+    const skordare = Array.from(document.querySelectorAll('[data-sido-grupp="skordare"] [data-sido-rad]')).map(e => e.getAttribute('data-sido-rad'))
+    expect(skordare).toContain('R64101')
+    expect(rad('A110148')).not.toBeNull()
+  })
+
+  it('sista dagen räknas som aktiv: är aktiv_till idag eller längre fram finns ingen avslutad maskin och ingen grupp', async () => {
+    vi.setSystemTime(new Date('2026-03-11T08:00:00Z'))   // R64101:s sista dag; Elefant AF (t.o.m. 2026-07-08) är ännu inte avslutad
+    await montera()
+    expect(document.querySelector('[data-sido-tidigare]')).toBeNull()
+    expect(rad('R64101')).not.toBeNull()
+    expect(rad('A110148')).not.toBeNull()
   })
 })
 
