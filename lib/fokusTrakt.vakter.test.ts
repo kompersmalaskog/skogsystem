@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 const kalla = readFileSync(join(__dirname, '../app/planering/page.tsx'), 'utf8');
 const rader = kalla.split('\n');
-const lagerRader = rader.filter((r) => r.includes('map.addLayer({') && r.includes("source: 'trakt-geo-source'"));
+// Vidas etikettlager läser en egen punktkälla (`trakt-etikett-source`, en etikett per yta, lib/ytaEtikett) vars punkter kopierar ytans egenskaper inkl. `_fokus`.
+const lagerRader = rader.filter((r) => r.includes('map.addLayer({') && (r.includes("source: 'trakt-geo-source'") || r.includes("source: 'trakt-etikett-source'")));
 const idAv = (r: string) => /id: '([^']+)'/.exec(r)?.[1] ?? '';
 
 /** Osynliga träffytor (tryck på ytan/linjen): ritas inte, så de ska inte vara svaga — och trycket ska träffa även en svag yta. */
