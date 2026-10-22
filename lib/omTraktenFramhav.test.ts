@@ -255,7 +255,7 @@ describe('sidans koppling (page.tsx kan inte monteras — källvakt)', () => {
     expect(page).toContain('const bounds = framhavBounds(framhavdFran(m));');
     expect(page).toContain('map.fitBounds(bounds,');
     expect(page).toContain('offset: [-panelPx / 2, 0]');
-    expect(page).toContain("const panelPx = lage === 'panel' ? PANEL_BREDD_PX");
+    expect(page).toContain("const panelPx = lage === 'panel' ? infoPanelBredd");
   });
   it('markeringarna bär hela linjen/ytan (geometri) och listans ikon är kartans: SymbolIkon (samma form, färg och glyf ur lib/symboler)', () => {
     expect(page).toContain('geometri = heltSpar(m.path)');

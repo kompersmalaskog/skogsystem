@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  INNE_M, TOMT_INSTRUKTION, arInstruktionsText, arPlats, UT_MARGINAL_M, arOsedd, attKvittera, hashText, instruktionRader, instruktionerPaTrakten, kortAttVisa, samlaOmraden, stegaInstruktion,
+  INNE_M, TOMT_INSTRUKTION, arInstruktionsText, arPlats, UT_MARGINAL_M, arOsedd, attKvittera, hashText, instruktionerPaTrakten, kortAttVisa, samlaOmraden, stegaInstruktion,
   type InstruktionOmrade, type SettKarta,
 } from './instruktioner';
 import type { KommentarVy } from '../kartkommentar';
+import { kommentarPunkter } from '../kommentarPunkter';
 
 const OBJ = 'obj-1';
 const kvadrat = (lon: number, lat: number, d = 0.0005) => ({ type: 'Polygon', coordinates: [[[lon - d, lat - d], [lon + d, lat - d], [lon + d, lat + d], [lon - d, lat + d], [lon - d, lat - d]]] });
@@ -23,15 +24,6 @@ const samla = (o: { vida?: any[]; kommentarer?: KommentarVy[]; markers?: any[]; 
     kommentarer: o.kommentarer ?? [], pos: o.pos === undefined ? { lat: 56, lon: 15 } : o.pos, nu: new Date('2026-10-21T08:00:00Z'),
   });
 const INGET: SettKarta = new Map();
-
-describe('instruktionRader — radbrytning blir numrerade punkter', () => {
-  it('en rad är vanlig text', () => { expect(instruktionRader('Kör inte närmare än 5 m')).toEqual({ punkter: null, text: 'Kör inte närmare än 5 m' }); });
-  it('flera rader är numrerade punkter, tomma rader hoppas över', () => {
-    expect(instruktionRader('Stanna vid stenen\n\n  Gå runt  \r\nLämna ris').punkter).toEqual(['Stanna vid stenen', 'Gå runt', 'Lämna ris']);
-  });
-  it('två rader är redan punkter (1 och 2)', () => { expect(instruktionRader('Först\nSedan').punkter).toEqual(['Först', 'Sedan']); });
-  it('en rad omgiven av tomma rader är fortfarande vanlig text', () => { expect(instruktionRader('\nbara en\n\n').punkter).toBeNull(); });
-});
 
 describe('samlaOmraden — var Vidas text finns', () => {
   it('Vidas ATGARD på en hänsynsyta blir en instruktion från Vida', () => {
@@ -311,11 +303,66 @@ describe('Hålabäck au 2025 — Vidas fem tilläggsytor och avläggen (properti
     expect(o.find((x) => x.nyckel === 'hansyn:5')!.instruktioner[0]).toMatchObject({ kalla: 'vida' });
   });
   it('typ 71 med två rader blir två numrerade punkter', () => {
-    expect(instruktionRader(o.find((x) => x.nyckel === 'hansyn:4')!.instruktioner[0].text).punkter).toEqual(['avverkning av frötallar.', 'Lämn kantzon mot sjön. Lämna enstaka utspridda tallar.']);
+    expect(kommentarPunkter(o.find((x) => x.nyckel === 'hansyn:4')!.instruktioner[0].text)).toEqual(['avverkning av frötallar.', 'Lämn kantzon mot sjön. Lämna enstaka utspridda tallar.']);
   });
   it('en yta vars ATGARD bara upprepar dess eget namn (FLBESKR) ger ingen instruktion', () => {
     const upprepning = samla({ vida: [yta(6, '8', 'Sumpskog O', 'sumpskog o.', 56.35, 15.05)], pos: null });
     expect(upprepning).toEqual([]);
   });
   it('de fyra ytorna är inga avlägg', () => { expect(o.every((x) => !x.avlagg)).toBe(true); });
+});
+
+describe('Vidas traktdirektiv är instruktion nr 1', () => {
+  const DIR = 'Obs tjärdal enligt karta. Lämna ca 50-70 tallar per ha . Lämna fina ekar och några bokar.';
+  const medDirektiv = (extra: Parameters<typeof samla>[0] = {}) => samlaOmraden({
+    objektId: OBJ, vida: { features: extra.vida ?? [] }, markers: [], svgToLatLon: (x, y) => ({ lat: y, lon: x }), typNamn: () => 'Symbol', kommentarer: extra.kommentarer ?? [],
+    pos: extra.pos === undefined ? { lat: 56, lon: 15 } : extra.pos, direktiv: DIR, nu: new Date('2026-10-21T08:00:00Z'),
+  });
+  it('är första området, före ytorna, och är märkt som hela trakten', () => {
+    const o = medDirektiv({ vida: [hansyn('7', 'Spara aspar')] });
+    expect(o.map((x) => x.nyckel)).toEqual(['direktiv', 'hansyn:7']);
+    expect(o[0]).toMatchObject({ objektniva: true, namn: 'Traktdirektiv' });
+    expect(o[0].instruktioner[0]).toMatchObject({ ref: 'vida:direktiv', kalla: 'vida', text: DIR, meningar: true, forfattare: null });
+  });
+  it('ytornas Vida-text delas INTE vid meningsslut (bara direktivet)', () => {
+    const o = medDirektiv({ vida: [hansyn('7', 'Spara aspar')] });
+    expect(o[1].instruktioner[0].meningar).toBeUndefined();
+  });
+  it('ger aldrig ett kort vid inkörning — oavsett var maskinen står', () => {
+    const o = medDirektiv();
+    const s = stegaInstruktion(TOMT_INSTRUKTION, o, INGET);
+    expect(s.vantande).toEqual([]);
+    expect(kortAttVisa(s, o, INGET, false)).toBeNull();
+  });
+  it('även ett objektnivå-område som står "inne" köar aldrig ett kort (ingen inkörning för hela trakten)', () => {
+    const o = medDirektiv().map((x) => ({ ...x, narvaro: { slag: 'yta' as const, inne: true } }));
+    const s = stegaInstruktion(TOMT_INSTRUKTION, o, INGET);
+    expect(s.vantande).toEqual([]);
+    expect(kortAttVisa(s, o, INGET, false)).toBeNull();
+  });
+  it('ingår i "Instruktioner på trakten": räknas och ligger FÖRST, också när det är sett och en yta har osedda', () => {
+    const o = medDirektiv({ vida: [hansyn('7', 'Spara aspar')] });
+    const sett: SettKarta = new Map([['vida:direktiv', hashText(DIR)]]);
+    const l = instruktionerPaTrakten(o, sett);
+    expect(l.antal).toBe(2);
+    expect(l.nya).toBe(1);
+    expect(l.omraden.map((x) => x.nyckel)).toEqual(['direktiv', 'hansyn:7']);
+    expect(instruktionerPaTrakten(o, INGET).omraden[0].nyckel).toBe('direktiv');
+  });
+  it('Sett räknas likadant: refen + hash av texten — en ändrad text är osedd igen', () => {
+    const o = medDirektiv();
+    const sett: SettKarta = new Map([['vida:direktiv', hashText(DIR)]]);
+    expect(arOsedd(o[0].instruktioner[0], sett)).toBe(false);
+    const andrad = samlaOmraden({ objektId: OBJ, vida: { features: [] }, markers: [], svgToLatLon: (x, y) => ({ lat: y, lon: x }), typNamn: () => 'S', kommentarer: [], pos: null, direktiv: DIR + ' Ny rad.' });
+    expect(arOsedd(andrad[0].instruktioner[0], sett)).toBe(true);
+  });
+  it('attKvittera ger direktivet när "direktiv" är valt', () => {
+    const o = medDirektiv({ vida: [hansyn('7', 'Spara aspar')] });
+    expect(attKvittera(o, ['direktiv'], INGET).map((x) => x.i.ref)).toEqual(['vida:direktiv']);
+  });
+  it('tomt eller bara blanksteg ger inget direktiv-område', () => {
+    for (const d of ['', '   ', null, undefined]) {
+      expect(samlaOmraden({ objektId: OBJ, vida: { features: [] }, markers: [], svgToLatLon: (x, y) => ({ lat: y, lon: x }), typNamn: () => 'S', kommentarer: [], pos: null, direktiv: d as any })).toEqual([]);
+    }
+  });
 });

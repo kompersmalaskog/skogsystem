@@ -5,6 +5,8 @@ import { join } from 'path';
 
 const rot = join(__dirname, '..', '..');
 const las = (rel: string) => readFileSync(join(rot, rel), 'utf8');
+/** Källan utan kommentarer (// och /* *​/) — vakterna gäller koden, inte förklaringarna. */
+const utanKommentarer = (rel: string) => las(rel).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
 function filer(dir: string, ut: string[] = []): string[] {
   for (const n of readdirSync(dir)) {
@@ -75,12 +77,31 @@ describe('avläggets vanliga kort och ⓘ i skördarens vy', () => {
   });
 });
 
-describe('en regel för radbrytning', () => {
-  it('instruktionerna använder kartkortets kommentarPunkter (lib/kommentarPunkter), ingen egen uppdelning', () => {
-    const k = las('lib/instruktioner/instruktioner.ts');
-    expect(k).toContain("from '../kommentarPunkter'");
+describe('EN kommentarkomponent och EN regel för radbrytning', () => {
+  it('rutan och punkterna bor i components/planering/KommentarRuta.tsx och delar text med lib/kommentarPunkter — ingen egen uppdelning någon annanstans', () => {
+    const k = las('components/planering/KommentarRuta.tsx');
+    expect(k).toContain("from '@/lib/kommentarPunkter'");
     expect(k).toContain('kommentarPunkter(text)');
-    expect(k).not.toMatch(/\.split\(\/\\r\?\\n\//);
+    expect(k).toContain('vidaMeningar(text)');
+    expect(las('lib/instruktioner/instruktioner.ts')).not.toMatch(/\.split\(\/\\r\?\\n\//);
+    expect(las('components/planering/InstruktionKort.tsx')).not.toMatch(/\.split\(/);
+  });
+  it('alla ställen som visar en kommentar använder KommentarRuta/KommentarVisning: kartkortet, instruktionskortet, Till föraren, Om trakten', () => {
+    expect(las('components/planering/KartKort.tsx')).toContain("from './KommentarRuta'");
+    expect(las('components/planering/InstruktionKort.tsx')).toContain('<KommentarVisning');
+    expect(las('components/planering/ObjektKort.tsx')).toContain('<KommentarVisning');
+    const om = las('components/planering/OmTrakten.tsx');
+    expect(om.match(/<KommentarVisning/g)!.length).toBeGreaterThanOrEqual(2);   // raderna och "Från Vida"-posterna
+  });
+  it('ingen kopia av rutan: ingen annan fil än KommentarRuta ritar etiketten "Vida · traktdirektiv"', () => {
+    for (const f of ['components/planering/KartKort.tsx', 'components/planering/InstruktionKort.tsx', 'components/planering/ObjektKort.tsx', 'components/planering/OmTrakten.tsx']) {
+      expect(utanKommentarer(f), f).not.toContain('Vida · traktdirektiv');
+    }
+    expect(las('components/planering/KommentarRuta.tsx')).toContain('Vida · traktdirektiv');
+  });
+  it('kommentarer klipps aldrig: inget "Läs allt" och ingen radbegränsning på kommentartext i kortet eller Om trakten', () => {
+    expect(utanKommentarer('components/planering/ObjektKort.tsx')).not.toMatch(/Läs allt|WebkitLineClamp|onLasAllt/);
+    expect(utanKommentarer('components/planering/OmTrakten.tsx')).not.toMatch(/WebkitLineClamp/);
   });
 });
 
