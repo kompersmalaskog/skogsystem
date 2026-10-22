@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GRUPPER, SYMBOL_GRUPP, type FargGrupp } from './grupper';
-import { HYSTERES_NARA_M, MYCKET_NARA_M, NARA_M, TOMT_LARM, arKvitterad, harRing, innehallHash, larmar, markeraSett, stegaLarm, type KvittensKarta, type LarmObjekt, type LarmState } from './larm';
+import { HYSTERES_NARA_M, MYCKET_NARA_M, NARA_M, TOMT_LARM, arKvitterad, harRing, harSettRad, innehallHash, larmar, markeraSett, stegaLarm, type KvittensKarta, type LarmObjekt, type LarmState } from './larm';
 
 const A = 'forare-A';
 const B = 'forare-B';
@@ -27,7 +27,7 @@ describe('grupp × kvitterad / okvitterad × annan förare (nära: 30 m)', () =>
         expect(u.ljud !== null).toBe(larmasOkvitterad);
       });
       const tystKvitterad = grupp === 'natur' || grupp === 'kultur' || grupp === 'blott';
-      it('kvitterad av samma förare: ' + (tystKvitterad ? 'inget kort, inget ljud' : grupp === 'fara' ? 'larmar ändå (bevis, tystar inte)' : 'som förut (larmar aldrig)'), () => {
+      it('kvitterad av samma förare: ' + (tystKvitterad ? 'inget kort, inget ljud' : grupp === 'fara' ? 'larmar ändå (en gammal kvittens har ingen verkan på en Röd)' : 'som förut (larmar aldrig)'), () => {
         const o = sym(grupp, 30);
         const u = steg([o], kv(o));
         if (tystKvitterad) { expect(u.kort).toBeNull(); expect(u.ljud).toBeNull(); expect(u.settRad).toBeNull(); }
@@ -210,21 +210,37 @@ describe('vem får kortet, och "Sett"-raden', () => {
     expect(steg([sym('natur', 30, { id: 'n' }), sym('fara', 10, { id: 'f' })]).ljud).toBe('mycket_nara');
     expect(steg([sym('natur', 30, { id: 'n' }), sym('kultur', 20, { id: 'k' })]).ljud).toBe('nara');
   });
-  it('Sett-raden visas för Röd, Grön, Brun, Blå — aldrig för Lila och Mörk', () => {
-    for (const g of ['fara', 'natur', 'kultur', 'blott'] as FargGrupp[]) expect(steg([sym(g, 20)]).settRad, g).toMatchObject({ id: `s-${g}` });
-    for (const g of ['att_gora', 'info'] as FargGrupp[]) expect(steg([sym(g, 20)]).settRad, g).toBeNull();
+  it('Sett-raden visas för Grön, Brun, Blå — aldrig för Röd, Lila och Mörk (Martin 2026-10-22: ingen Sett på fara)', () => {
+    for (const g of ['natur', 'kultur', 'blott'] as FargGrupp[]) expect(steg([sym(g, 20)]).settRad, g).toMatchObject({ id: `s-${g}` });
+    for (const g of ['fara', 'att_gora', 'info'] as FargGrupp[]) expect(steg([sym(g, 20)]).settRad, g).toBeNull();
   });
-  it('för Röd: efter Sett försvinner raden men larmet står kvar och kommer igen nästa gång', () => {
+  it('ingen Sett på en Röd av NÅGOT slag: symbol, linje, yta (Brant) och förbjuden yta (Ej framkomlig)', () => {
+    const symbol = sym('fara', 20);
+    const linje: LarmObjekt = { id: 'l-fara', kalla: 'linje', grupp: 'fara', namn: 'El-ledning', hash: 'hl', avstandM: 20 };
+    const brant = yta('fara', true, false, { id: 'y-brant', namn: 'Brant' });
+    const ejFramkomlig = yta('fara', true, true, { id: 'y-ej', namn: 'Ej framkomlig' });
+    for (const o of [symbol, linje, brant, ejFramkomlig]) {
+      const u = steg([o]);
+      expect(u.kort, o.namn).not.toBeNull();
+      expect(u.settRad, o.namn).toBeNull();
+      expect(harSettRad(o), o.namn).toBe(false);
+    }
+  });
+  it('för Röd: ingen Sett-rad, kortet står kvar och försvinner först när man passerat; ett forcerat sett ändrar ingenting', () => {
     const o = sym('fara', 30);
     let u = steg([o]);
-    expect(u.settRad).not.toBeNull();
-    u = steg([o], INGEN, A, markeraSett(u.state, o.id));
     expect(u.settRad).toBeNull(); expect(u.kort).not.toBeNull();
+    // även om något ändå markerade den som sedd (hook/minne) tystnar och sjunker den aldrig
+    u = steg([o], INGEN, A, markeraSett(u.state, o.id));
+    expect(u.settRad).toBeNull(); expect(u.kort).not.toBeNull(); expect(u.kort?.okvitterad).toBe(true);
+    expect(u.state.sett[o.id]).toBeUndefined();
+    // passerat: kortet försvinner, och kommer igen med ljud nästa gång
     const ute = steg([sym('fara', 100)], INGEN, A, u.state);
+    expect(ute.kort).toBeNull();
     const igen = steg([o], INGEN, A, ute.state);
-    expect(igen.settRad).not.toBeNull(); expect(igen.ljud).toBe('nara');
+    expect(igen.kort).not.toBeNull(); expect(igen.ljud).toBe('nara'); expect(igen.settRad).toBeNull();
   });
-  it('Sett-raden visas inte för en redan kvitterad Röd (beviset finns)', () => {
+  it('en gammal kvittens på en Röd (sparad före 2026-10-22) rörs inte men har ingen verkan: kortet står kvar, ingen Sett-rad', () => {
     const o = sym('fara', 30);
     expect(steg([o], kv(o)).settRad).toBeNull();
   });
@@ -303,49 +319,56 @@ describe('flera larm samtidigt', () => {
     expect(u.kort).toMatchObject({ namn: 'Hänsyn', forbjuden: true });
   });
 
-  describe('Röd inom 15 m ligger ALLTID överst, även kvitterad — Sett gäller första okvitterade', () => {
-    it('kvitterad Röd inom 15 m: stort kort kvar, ingen Sett på den; Sett gäller första okvitterade i +-raden', () => {
+  describe('Röd ligger alltid överst och har aldrig Sett — Sett gäller första av de andra', () => {
+    it('Röd inom 15 m: stort kort, ingen Sett på den; Sett gäller första i +-raden (med eller utan gammal kvittens)', () => {
       const r = rod('Varning', 8);
       const g = gron('Hänsyn', 20);
-      const u = steg([g, r], kv(r));
-      expect(u.kort).toMatchObject({ namn: 'Varning', pulserar: true });
-      expect(u.fler.map((f) => f.namn)).toEqual(['Hänsyn']);
-      expect(u.settRad).toMatchObject({ id: g.id, namn: 'Hänsyn' });
+      for (const kvitt of [INGEN, kv(r)]) {
+        const u = steg([g, r], kvitt);
+        expect(u.kort).toMatchObject({ namn: 'Varning', pulserar: true });
+        expect(u.fler.map((f) => f.namn)).toEqual(['Hänsyn']);
+        expect(u.settRad).toMatchObject({ id: g.id, namn: 'Hänsyn' });
+      }
     });
-    it('Sett på Röd inom 15 m (denna passage) flyttar den inte ned; Sett går till nästa', () => {
+    it('Sett på grönt under en Röd: Röd står kvar överst, raden försvinner', () => {
       const r = rod('Varning', 8);
       const g = gron('Hänsyn', 20);
       const s0 = steg([g, r]);
-      expect(s0.settRad?.id).toBe(r.id);
-      const s1 = markeraSett(s0.state, r.id);
-      const u = steg([g, r], kv(r), A, s1);
-      expect(u.kort?.namn).toBe('Varning');
-      expect(u.settRad?.id).toBe(g.id);
-    });
-    it('kvitterad Röd ensam inom 15 m: kortet står kvar, ingen Sett-rad', () => {
-      const r = rod('Varning', 8);
-      const u = steg([r], kv(r));
+      expect(s0.settRad?.id).toBe(g.id);
+      const s1 = markeraSett(s0.state, g.id);
+      const u = steg([g, r], new Map([[g.id, { hash: g.hash, forareId: A }]]), A, s1);
       expect(u.kort?.namn).toBe('Varning');
       expect(u.settRad).toBeNull();
     });
-    it('kvitterad Röd UTANFÖR 15 m får sjunka under en okvitterad grön', () => {
+    it('Röd ensam: kortet står kvar, ingen Sett-rad (okvitterad, kvitterad eller forcerat sett)', () => {
+      const r = rod('Varning', 8);
+      for (const kvitt of [INGEN, kv(r)]) {
+        const u = steg([r], kvitt);
+        expect(u.kort?.namn).toBe('Varning');
+        expect(u.settRad).toBeNull();
+      }
+    });
+    it('en gammal kvittens på en Röd UTANFÖR 15 m sänker den INTE under en okvitterad grön (Röd tystnar aldrig)', () => {
       const r = rod('Varning', 25);
       const g = gron('Hänsyn', 30);
       const u = steg([g, r], kv(r));
-      expect(u.kort?.namn).toBe('Hänsyn');
-      expect(u.fler.map((f) => f.namn)).toEqual(['Varning']);
+      expect(u.kort?.namn).toBe('Varning');
+      expect(u.fler.map((f) => f.namn)).toEqual(['Hänsyn']);
       expect(u.settRad?.id).toBe(g.id);
     });
     it('okvitterad Röd utanför 15 m vinner som förut över grön', () => {
       const u = steg([gron('Hänsyn', 5), rod('Varning', 30)]);
       expect(u.kort?.namn).toBe('Varning');
     });
-    it('två röda inom 15 m, den ena kvitterad: närmast först, Sett på den okvitterade om den står i raden', () => {
+    it('två röda inom 15 m: närmast först, ingen Sett för någon av dem (även med gammal kvittens på den ena)', () => {
       const a = rod('A', 6);
       const b = rod('B', 12);
-      const u = steg([a, b], kv(a));
-      expect(u.kort?.namn).toBe('A');
-      expect(u.settRad?.id).toBe(b.id);
+      for (const kvitt of [INGEN, kv(a)]) {
+        const u = steg([a, b], kvitt);
+        expect(u.kort?.namn).toBe('A');
+        expect(u.fler.map((f) => f.namn)).toEqual(['B']);
+        expect(u.settRad).toBeNull();
+      }
     });
   });
 
@@ -370,13 +393,13 @@ describe('flera larm samtidigt', () => {
     expect(u.fler).toEqual([]);                                           // kvitterad grön larmar inte mer → ingen rad
   });
 
-  it('Sett på en RÖD UTANFÖR 15 m: den tystas inte men sjunker till raden när något annat väntar på kvittering', () => {
+  it('ett forcerat sett på en RÖD UTANFÖR 15 m ändrar ingenting: den sjunker inte under en grön, Sett-raden hör till den gröna', () => {
     const r = rod('Varning', 22), g = gron('Hänsyn', 25);
     let u = steg([r, g]);
     expect(u.kort?.namn).toBe('Varning');
     u = steg([r, g], new Map([['Varning', { hash: r.hash, forareId: A }]]), A, markeraSett(u.state, 'Varning'));
-    expect(u.kort?.namn).toBe('Hänsyn');
-    expect(u.fler.map((f) => f.namn)).toEqual(['Varning']);               // röd larmar fortfarande, bara inte överst
+    expect(u.kort?.namn).toBe('Varning');
+    expect(u.fler.map((f) => f.namn)).toEqual(['Hänsyn']);
     expect(u.settRad?.namn).toBe('Hänsyn');
   });
 

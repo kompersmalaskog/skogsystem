@@ -10,7 +10,8 @@
 
 /**
  * Har larmet platsen — alltså ska instruktionen vänta? Ett larm har platsen medan det väntar på "Sett" (`vantarPaSett`: Sett-raden visas), och ALLTID om det är en Fara (Röd):
- * en fara får aldrig skymmas. Efter Sett står larmkortet kvar så länge man är inne i en förbjuden yta (lib/larm: "kvitterad men inte tystad") — då har föraren sett det, och
+ * en fara får aldrig skymmas. En Röd har ingen Sett-rad (Martin 2026-10-22) — den håller platsen så länge den larmar, alltså tills man passerat; `arFara` gäller både det stora
+ * kortet och en Röd i "+"-raden under ett annat stort kort (annars tog instruktionen platsen medan en El-ledning fortfarande larmade). Efter Sett står larmkortet kvar så länge man är inne i en förbjuden yta (lib/larm: "kvitterad men inte tystad") — då har föraren sett det, och
  * instruktionen för just den ytan får platsen (larmkortet göms medan instruktionen visas och kommer tillbaka efter dess Sett). Utan den regeln kunde instruktionen på en
  * hänsynsyta aldrig visas inne i ytan: larmkortet står kvar tills man kört ut.
  */

@@ -98,7 +98,7 @@ describe('Lager: samma grupper i samma ordning som den gamla Lager-menyn', () =>
 describe('Ytor och Spårning: inga flikar — Ytor ligger i objektinfon (Om trakten) som förut, spårens reglage bara i Lager', () => {
   it('YTOR-listan räknas som före PR:en och ritas i Om trakten — och arket vet inget om ytor', () => {
     expect(page).toContain('// === YTOR — en rad per NUMRERAD yta (Vidas hänsynsytor + traktdel-bitar + egna områden), i');
-    expect(page).toContain("ytor.push({ nr, typ: 'hansyn', typLabel: 'Hänsynsyta'");
+    expect(page).toContain("ytor.push({ nr, typ: arOvrigt ? 'ovrigt' : 'hansyn', typLabel: arOvrigt ? 'Övrigt' : 'Hänsynsyta'");   // Vidas TYP 71 (Övrigt) är en egen rad, aldrig hänsyn
     expect(page).toContain("ytor.push({ nr, typ: 'traktdel', typLabel: 'Traktdel'");
     expect(page).toContain("ytor.push({ nr, typ: 'omrade', typLabel: 'Eget område'");
     expect(page).toContain('ytor.sort((a, b) => a.nr - b.nr);');

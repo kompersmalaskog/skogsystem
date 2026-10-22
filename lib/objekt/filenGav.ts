@@ -10,6 +10,7 @@ import { ORIMLIG_VOLYM_NYCKEL, orimligVolymText } from '@/lib/trakt/rimlighet';
 import { tillVarningar, VOLYM_BEHALLEN_NYCKEL } from '@/lib/trakt/varningar';
 import { avvikelseText, jamfor } from './stamplingslangd';
 import { arRotpost } from './rotpost';
+import { arHansynsyta } from '../vidaYtaTyp';
 import { AVVIKANDE_UTFALL_NYCKEL, arAvslutat, avvikandeUtfall } from './utfall';
 
 const sv = (n: number) => Math.round(n).toLocaleString('sv-SE');
@@ -237,7 +238,7 @@ export function geometriSammanfattning(fc: unknown): GeoSammanfattning | null {
     const p = ((f as { properties?: Record<string, unknown> })?.properties ?? {}) as Record<string, unknown>;
     const typ = String(p._typ ?? '');
     const text = String(p.FLBESKR ?? '').trim();
-    if (typ === 'hänsynsyta') {
+    if (arHansynsyta(p)) {   // Vidas fria ytkod (TYP 71 "Övrigt") är ingen hänsyn och räknas inte här
       hansynAntal++;
       hansynM2 += attr(p, /star/i);
       if (text && !beskr.includes(text)) beskr.push(text);

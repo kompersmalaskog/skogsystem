@@ -7,6 +7,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { useKorvyLarm, type KorvyLarmIn, type KorvyLarmUt } from './useKorvyLarm';
 import { vidaNycklar } from '../vidaNycklar';
+import { innehallHash } from '../larm/larm';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -204,13 +205,14 @@ describe('useKorvyLarm — kopplingen till sidan', () => {
     void rerender;
   });
 
-  it('Röd (El-ledning) larmar även efter kvittering; Sett skrivs som bevis men tystar inte nästa närmande', async () => {
+  it('Röd (El-ledning) har ingen Sett: ingen rad, knappen skriver inget, kortet står kvar tills man passerat och larmar igen nästa närmande', async () => {
     const db = fakeDb([]); const { ctx, toner } = ljudCtx();
     const rerender = mount(bas({ markers: [sym(2, 'powerline', 30)], db, ljudCtx: () => ctx })); await tom();
     expect(ut.kort).toMatchObject({ grupp: 'fara' });
+    expect(ut.settRad).toBeNull();                                   // Martin 2026-10-22: ingen Sett på fara
     await act(async () => { ut.kvittera(); });
-    expect(db.upserts).toHaveLength(1);                              // beviset sparat
-    expect(ut.kort).toMatchObject({ grupp: 'fara' });                // men kortet står kvar
+    expect(db.upserts).toHaveLength(0);                              // inget skrivs: det finns inget att kvittera
+    expect(ut.kort).toMatchObject({ grupp: 'fara' });                // kortet står kvar
     // lämna (200 m bort) och kom tillbaka: nytt ljud
     toner.length = 0;
     klocka += 5000;   // utanför ljudfönstret
@@ -218,7 +220,18 @@ describe('useKorvyLarm — kopplingen till sidan', () => {
     expect(ut.kort).toBeNull();
     rerender(bas({ markers: [sym(2, 'powerline', 30)], db, ljudCtx: () => ctx })); await tom();
     expect(ut.kort).toMatchObject({ grupp: 'fara' });
+    expect(ut.settRad).toBeNull();
     expect(toner.length).toBeGreaterThan(0);
+  });
+
+  it('en gammal Sett-post på en Röd (sparad före 2026-10-22) rörs inte och har ingen verkan: larmet kommer som om den inte fanns', async () => {
+    const o = sym(2, 'powerline', 30);
+    const rad: Rad = { objekt_id: 'o1', marker_id: '2', forare_id: 'A', innehall_hash: innehallHash({ type: 'powerline', comment: '' }), kvitterad_at: '2026-10-20T08:00:00Z' };
+    const db = fakeDb([rad]); const { ctx } = ljudCtx();
+    mount(bas({ markers: [o], db, ljudCtx: () => ctx })); await tom();
+    expect(ut.kort).toMatchObject({ grupp: 'fara', okvitterad: true });
+    expect(ut.settRad).toBeNull();
+    expect(db.upserts).toHaveLength(0);
   });
 
   it('inom 15 m pulserar Röd och ett tydligare ljud (en enda ton) spelas', async () => {

@@ -34,7 +34,7 @@ describe('ytor man inte får köra in i är snedstreckade i gruppens färg', () 
   });
   it('namnet står i ytan i versaler (Blött heter RISA) och Vidas ytor har samma stil', () => {
     expect(YTA_ETIKETT).toMatchObject({ wet: 'RISA', protected: 'HÄNSYN', noentry: 'EJ FRAMKOMLIG', fornlamning: 'FORNLÄMNING', culture: 'KULTURMILJÖ', steep: 'BRANT' });
-    expect(VIDA_ETIKETT).toEqual({ hansynsyta: 'HÄNSYN', nyckelbiotop: 'NYCKELBIOTOP', raa_yta: 'FORNLÄMNING' });
+    expect(VIDA_ETIKETT).toEqual({ hansynsyta: 'HÄNSYN', nyckelbiotop: 'NYCKELBIOTOP', raa_yta: 'FORNLÄMNING', ovrigt: 'ÖVRIGT' });   // Vidas TYP 71 är ingen hänsyn: eget namn
   });
   it('egenkontrollens karta: ett snedstrecklager per grupp, filtrerat på de förbjudna zontyperna', () => {
     const lager = zonSnedstreckLager('kalla', 'ek-p', null);

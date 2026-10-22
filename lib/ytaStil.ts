@@ -3,6 +3,7 @@
 // Planeringsvyn, körvyn, egenkontrollens karta (lib/kartstil) och A4-rapporten hämtar härifrån — ingen egen streckning, färg eller etikettstil.
 
 import { GRUPPER, YTA, VIDA, type FargGrupp } from './larm/grupper';
+import { OVRIGA_YTKODER } from './vidaYtaTyp';
 
 /** Snedstreckningens bildruta (px). Måste vara en multipel av periodens längd så mönstret går ihop i kanterna. */
 export const SNEDSTRECK_PX = 16;
@@ -51,6 +52,8 @@ export const VIDA_ETIKETT = {
   hansynsyta: VIDA.hansynsyta.namn.toLocaleUpperCase('sv-SE'),
   nyckelbiotop: VIDA.nyckelbiotop.namn.toLocaleUpperCase('sv-SE'),
   raa_yta: VIDA.raa_yta.namn.toLocaleUpperCase('sv-SE'),
+  /** Vidas TYP 71 ("Övrigt"): ingen hänsyn, neutral etikett. */
+  ovrigt: 'ÖVRIGT',
 } as const;
 
 /** Etikettens stil: vit text, mörk kant — läsbar på flygfoto och på vit karta. Ingen andra nyans. */
@@ -59,3 +62,21 @@ export const YTA_ETIKETT_STIL = {
   kant: '#000000',
   kantBredd: 2.2,
 } as const;
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// "ÖVRIGT" (Vidas TYP 71 i tilläggsytorna) — en NEUTRAL yta, ingen hänsyn (lib/vidaYtaTyp): tunn streckad kant, ingen fyllning, ingen snedstreckning, inget larm.
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+/** Utseendet: ljus tunn streckad kant (läsbar på flygfoto och på vit karta med den mörka etikettkanten), ingen färg ur någon grupp. */
+export const OVRIGT_YTA_STIL = {
+  farg: '#ffffff',
+  kantBredd: 1.5,
+  streck: [3, 2],
+  /** Fyllningen är bara en träffyta så ytan går att trycka på (kortet med Vidas text) — osynlig. */
+  traffFyllning: 0.01,
+} as const;
+
+/** MapLibre-uttryck för `trakt-geo-source`: alla Vidas tilläggsytor som ÄR hänsyn (Övrigt-koderna undantagna) respektive de som är Övrigt. Samma uttryck för alla lager. */
+const YTKOD = ['to-string', ['coalesce', ['get', 'TYP'], '']] as const;
+export const HANSYNSYTA_FILTER = ['all', ['==', ['get', '_typ'], 'hänsynsyta'], ['!', ['in', YTKOD, ['literal', OVRIGA_YTKODER]]]] as unknown as unknown[];
+export const OVRIGT_YTA_FILTER = ['all', ['==', ['get', '_typ'], 'hänsynsyta'], ['in', YTKOD, ['literal', OVRIGA_YTKODER]]] as unknown as unknown[];
