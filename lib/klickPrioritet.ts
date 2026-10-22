@@ -30,7 +30,7 @@ export const KLICK_LAGER: { kategori: KlickKategori; lager: string[] }[] = [
   },
   {
     kategori: 'yta',
-    lager: ['grans-fill', 'zone-fill', 'trakt-hansyn-fill', 'trakt-nb-fill', 'trakt-raa-fill', 'trakt-gr-fill'],
+    lager: ['grans-fill', 'zone-fill', 'trakt-hansyn-fill', 'trakt-ovrigt-fill', 'trakt-nb-fill', 'trakt-raa-fill', 'trakt-gr-fill'],
   },
 ];
 

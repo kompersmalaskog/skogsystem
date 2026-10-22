@@ -3,8 +3,11 @@
 // för referenslagren, så vi kan inte lita på _typ). Rättelse (Martin): traktdelar = L_TRAKTDEL (Vida),
 // INTE SV_BESKRIVNINGSENHET_FL (markägarens skogsbruksplan → renderas ej).
 
+import { arOvrigYta } from './vidaYtaTyp';
+
 export type TraktKategori =
-  | 'traktdel' | 'hansyn' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'linje' | 'ignorera';
+  | 'traktdel' | 'hansyn' | 'ovrigt' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'linje' | 'ignorera';
+//   'ovrigt' = Vidas fria ytkod (TYP 71 i tilläggsytorna, lib/vidaYtaTyp): en neutral yta, INTE hänsyn — betydelsen står bara i ATGARD.
 //   'linje'  = Vidas linje (L_TILLAGGSLINJER: kraftledning, basväg) — byggs av lib/linjeKort, inte ur `_lager`-tabellen nedan.
 //   'omrade' = planerarens egna ritade område (planering_markeringar, ej objekt_geometri) — PR B.
 
@@ -23,6 +26,7 @@ const LAGER_KATEGORI: Record<string, { kategori: TraktKategori; kalla: string }>
 export function klassaTraktFeature(props: Record<string, any> | null | undefined): { kategori: TraktKategori; kalla: string | null } {
   const lager = String((props && props._lager) ?? '');
   const m = LAGER_KATEGORI[lager];
+  if (m && m.kategori === 'hansyn' && arOvrigYta(props)) return { kategori: 'ovrigt', kalla: m.kalla };   // TYP 71 är ingen hänsyn
   return m ? { kategori: m.kategori, kalla: m.kalla } : { kategori: 'ignorera', kalla: null };
 }
 
@@ -74,6 +78,10 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
     nr = txt(props.LOPNR);
     rubrik = txt(props.FLBESKR) || 'Hänsynsyta';
     vidaKommentar = txt(props.ATGARD);
+  } else if (kategori === 'ovrigt') {
+    nr = txt(props.LOPNR);
+    rubrik = txt(props.FLBESKR) || 'Övrigt';
+    vidaKommentar = txt(props.ATGARD);
   } else if (kategori === 'punkt') {
     nr = txt(props.EXTRA_LABE);
     rubrik = txt(props.FLBESKR) || 'Avlägg';
@@ -105,6 +113,8 @@ export function ytaNyckel(props: Record<string, any> | null | undefined): string
   if (kategori === 'ignorera' && typeof p._nyckel === 'string' && p._nyckel) return p._nyckel;
   switch (kategori) {
     case 'hansyn':       { const v = txt(p.LOPNR);                       return v ? `hansyn:${v}` : null; }
+    // Övrigt (TYP 71) behåller nyckeln `hansyn:<LOPNR>`: kommentarer, foton och "Sett" som redan sparats på ytan hänger på den, och LOPNR är Vidas egna löpnummer i samma serie.
+    case 'ovrigt':       { const v = txt(p.LOPNR);                       return v ? `hansyn:${v}` : null; }
     case 'traktdel':     { const v = txt(p.TRDEL_ID) || txt(p.TRDEL_NR_K); return v ? `traktdel:${v}` : null; }
     case 'nyckelbiotop': { const v = txt(p.Beteckn);                     return v ? `nb:${v}` : null; }
     case 'lamning':      { const v = txt(p.lamningsnu);                  return v ? `raa:${v}` : null; }

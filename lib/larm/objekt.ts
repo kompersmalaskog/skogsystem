@@ -5,6 +5,7 @@ import { arInnePolygon, avstandPunktM, avstandTillLinjeM, narRuta, type LatLon }
 import { LARMFRIA_SYMBOLER, LINJE_NAMN, VIDA, gruppForLinje, gruppForSymbol, ytaDef, type VidaSlag } from './grupper';
 import { innehallHash, type LarmObjekt } from './larm';
 import { vidaNycklar } from '../vidaNycklar';
+import { arHansynsyta } from '../vidaYtaTyp';
 
 /** Riktning i grader medurs från norr, från a till b. */
 export function bearingM(a: LatLon, b: LatLon): number {
@@ -74,7 +75,8 @@ export function vidaSlag(props: Record<string, any> | null | undefined, geomTyp:
   const yta = geomTyp === 'Polygon' || geomTyp === 'MultiPolygon';
   const linje = geomTyp === 'LineString' || geomTyp === 'MultiLineString';
   const punkt = geomTyp === 'Point' || geomTyp === 'MultiPoint';
-  if (typ === 'hänsynsyta' && yta) return 'hansynsyta';
+  // Vidas fria ytkod (TYP 71 "Övrigt") är ingen hänsyn: inget zonlarm (lib/vidaYtaTyp).
+  if (yta && arHansynsyta(props)) return 'hansynsyta';
   if (lager === 'SV_SKS_NYCKELBIOTOP_101' && yta) return 'nyckelbiotop';
   if (lager === 'L_RAA_POLY_101' && yta) return 'raa_yta';
   if (lager === 'L_RAA_POINT_101' && punkt) return 'raa_punkt';

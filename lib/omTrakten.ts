@@ -32,6 +32,7 @@ export function omGrupp(m: Pick<KartMarkering, 'slag' | 'typ'>): OmGrupp {
 const YTA_PLURAL: Record<string, { namn: string; grupp: OmGrupp }> = {
   'Traktdel': { namn: 'Traktdelar', grupp: 'ovrigt' },
   'Eget område': { namn: 'Egna områden', grupp: 'ovrigt' },
+  // Vidas fria ytkod (TYP 71, typLabel 'Övrigt') behöver ingen post här: reserven (`namn: typ`, grupp 'ovrigt') ger raden "Övrigt" i gruppen ÖVRIGT, aldrig under Hänsyn.
 };
 
 export interface MiljoIn { id: 'hogstubbar' | 'evighetstrad'; namn: string; antal: number; krav: number | null; uppfyllt: boolean }

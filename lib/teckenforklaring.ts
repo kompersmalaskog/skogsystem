@@ -5,6 +5,7 @@
 // Fara · Natur · Kultur · Blött · Att göra · Info. "Visa alla symboler" slår på visaAlla: allt som går att sätta eller möta.
 
 import { GRUPPER, LINJE_GRUPP, LINJE_NAMN, SYMBOL_NAMN, YTA, VIDA, type FargGrupp, type SymbolForm, type VidaSlag } from './larm/grupper';
+import { arHansynsyta } from './vidaYtaTyp';
 import { LINJE_FORKLARING, MENY_KATEGORIER, symbolDef, symbolDefTyp, VIDA_FORKLARING, YTA_FORKLARING } from './symboler';
 
 export const GRUPP_ORDNING: readonly FargGrupp[] = ['fara', 'natur', 'kultur', 'blott', 'att_gora', 'info'];
@@ -33,7 +34,7 @@ export function vidaSlagIFeatures(features: ReadonlyArray<{ properties?: Record<
   for (const f of features ?? []) {
     const p = f?.properties ?? {};
     const typ = String(p._typ ?? ''), lager = String(p._lager ?? ''), beskr = String(p.FLBESKR ?? '').toLowerCase();
-    if (typ === 'hänsynsyta') ut.add('hansynsyta');
+    if (arHansynsyta(p)) ut.add('hansynsyta');
     else if (lager === 'SV_SKS_NYCKELBIOTOP_101') ut.add('nyckelbiotop');
     else if (lager === 'L_RAA_POLY_101') ut.add('raa_yta');
     else if (lager === 'L_RAA_POINT_101') ut.add('raa_punkt');

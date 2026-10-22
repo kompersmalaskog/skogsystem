@@ -1,6 +1,8 @@
 // LARMLOGIKEN för körvyn och skotarläget — ren och testbar. Typen avgör vad som larmar (lib/larm/grupper), ingen inställning per markering.
 //
-//   Röd (Fara)          larmar alltid. Kvittering sparas som bevis men tystar inte: larmet kommer nästa gång.
+//   Röd (Fara)          larmar alltid och har INGEN "✓ Sett" (Martin 2026-10-22): varken i kortet eller i raden nertill. En fara tystnar aldrig — en knapp som inte gör något synligt
+//                       lär föraren att Sett inte fungerar. Kortet försvinner först när man passerat/lämnat. En gammal kvittens på en Röd (sparad före 2026-10-22) läses men har ingen
+//                       verkan: Röd behandlas som okvitterad, ligger alltid överst och sjunker aldrig.
 //   Grön, Brun, Blå     larmar tills FÖRAREN kvitterat (samma innehåll). Efter det: inget ljud, inget kort, bara ring i gruppens färg när man är nära.
 //   Lila, Mörk          larmar aldrig.
 //   Förbjudna ytor      (Hänsyn, Nyckelbiotop, Fornlämning, Ej framkomlig) larmar ALLTID vid inkörning, även kvitterade.
@@ -12,8 +14,8 @@
 //
 //   FLERA LARM SAMTIDIGT: ALLTID ETT stort kort — det viktigaste (förbjuden yta, sedan Röd, sedan övrigt; inom samma nivå närmast först).
 //   Under det, i samma kort, en liten rad: ett till larm = "+ <Namn> · <kommentar>  <meter> m", två eller fler = "+N till". Aldrig flera stora kort.
-//   Passerat/lämnat → nästa flyttar upp. "Sett" gäller det stora: det sjunker till den lilla raden och nästa som inte kvitterats under den här
-//   passagen flyttar upp (Röd tystas inte av Sett, men får inte längre stå överst när något annat väntar på kvittering).
+//   Passerat/lämnat → nästa flyttar upp. "Sett" gäller det stora (aldrig en Röd): det sjunker till den lilla raden och nästa som inte kvitterats under den här
+//   passagen flyttar upp.
 //   Det stora larmets objekt PULSERAR på kartan (lib/larm/pulsKarta); objektet i "+"-raden lyser i sin färg utan att pulsera.
 //
 // Kvittensen gäller bara den förare som kvitterat (`forareId`). En annan förare får fullt larm.
@@ -143,9 +145,12 @@ export function harRing(o: LarmObjekt): boolean {
   return !o.undantagen && (o.forbjuden === true || GRUPPER[o.grupp].larm !== 'aldrig');
 }
 
-/** Får objektet en "Sett"-rad? Röd, Grön, Brun, Blå (och förbjudna ytor). Lila och Mörk: aldrig. */
+/** Är objektet en Röd (Fara)? En fara kvitteras aldrig: ingen Sett-rad, ingen kvittens som räknas, den tystnar inte. Ej framkomlig (Röd och förbjuden) är också en fara. */
+export const arFara = (o: Pick<LarmObjekt, 'grupp'>): boolean => o.grupp === 'fara';
+
+/** Får objektet en "Sett"-rad? Grön, Brun, Blå (och förbjudna ytor av de grupperna). Röd (Fara), Lila och Mörk: aldrig. */
 export function harSettRad(o: LarmObjekt): boolean {
-  return larmar({ ...o, undantagen: false }, false) && !o.undantagen;
+  return !arFara(o) && larmar({ ...o, undantagen: false }, false) && !o.undantagen;
 }
 
 function nastaSteg(o: LarmObjekt, prev: Steg): Steg {
@@ -168,11 +173,11 @@ function prio(o: LarmObjekt): number {
 
 type Rangbar = { o: LarmObjekt; sett?: boolean; kvitterad?: boolean; steg?: Steg };
 
-/** Röd inom 15 m ligger ALLTID överst — kvitterad eller inte (kvittensen tar bort knappen, inte kortet). */
+/** Röd inom 15 m ligger ALLTID överst. */
 const arMycketNaraRod = (a: Rangbar) => a.steg === 'mycket_nara' && a.o.grupp === 'fara' && !a.o.forbjuden;
 
-/** En kvitterad Röd (databasen) och allt som fått "Sett" i den här passagen får sjunka — utom Röd inom 15 m. Förbjuden yta sjunker bara av Sett. */
-const harSjunkit = (a: Rangbar) => !!a.sett || (!!a.kvitterad && a.o.grupp === 'fara' && !a.o.forbjuden);
+/** Allt som fått "Sett" i den här passagen får sjunka. En Röd får aldrig Sett och sjunker därför aldrig (en gammal kvittens på den räknas inte). */
+const harSjunkit = (a: Rangbar) => !!a.sett;
 
 /**
  * Rangordningen: Röd inom 15 m först (alltid), sedan det som kvitterats sist, Röd → förbjuden yta → övrigt, inom samma nivå närmast först.
@@ -206,11 +211,13 @@ export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensK
     const steg = nastaSteg(o, prev);
     if (steg === 'ute') continue;                         // lämnat radien: steg och "sett" glöms, så nästa närmande larmar igen
     nyaSteg[o.id] = steg;
-    if (inp.state.sett[o.id]) nyaSett[o.id] = true;
-    const kvitterad = arKvitterad(o, inp.kvitt, inp.forareId);
+    // En Röd kvitteras aldrig: en gammal kvittens i databasen (och ett "sett" i minnet) har ingen verkan på den.
+    const fara = arFara(o);
+    if (inp.state.sett[o.id] && !fara) nyaSett[o.id] = true;
+    const kvitterad = !fara && arKvitterad(o, inp.kvitt, inp.forareId);
     if (harRing(o) && o.kalla !== 'yta') ringar.push({ id: o.id, kalla: o.kalla, grupp: o.grupp, farg: GRUPPER[o.grupp].farg, steg, kvitterad, roll: 'ovrig' });
     if (!larmar(o, kvitterad)) continue;
-    aktiva.push({ o, steg, kvitterad, sett: !!inp.state.sett[o.id] });
+    aktiva.push({ o, steg, kvitterad, sett: !fara && !!inp.state.sett[o.id] });
     // Ljud en gång per närmande: första gången objektet kommer in, och en gång till när Röd kommer inom 15 m.
     if (prev === 'ute' && steg === 'nara') {
       if (ljud !== 'mycket_nara') ljud = 'nara';
@@ -239,7 +246,7 @@ export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensK
       okvitterad: !vinnare.kvitterad && !vinnare.sett,
     };
   }
-  // "✓ Sett <Namn>" gäller första OKVITTERADE i rangordningen: det stora kortet, eller — när en kvitterad Röd inom 15 m ligger överst utan knapp — första i +-raden.
+  // "✓ Sett <Namn>" gäller första OKVITTERADE i rangordningen som kan få Sett: det stora kortet, eller — när en Röd (utan Sett) ligger överst — första i +-raden. Röd hoppas över.
   const sett = rang.find((x) => harSettRad(x.o) && !x.kvitterad && !nyaSett[x.o.id]);
   if (sett) settRad = { id: sett.o.id, namn: sett.o.namn, farg: GRUPPER[sett.o.grupp].farg };
   const fler: LarmNasta[] = ovriga.map(({ o }) => ({
@@ -253,7 +260,7 @@ export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensK
   return { state: { steg: nyaSteg, sett: nyaSett }, kort, fler, settRad, ringar, ljud, vibration };
 }
 
-/** Föraren tryckte "Sett": raden försvinner under den här passagen. Röd och förbjudna ytor larmar ändå vidare. */
+/** Föraren tryckte "Sett": raden försvinner under den här passagen. Förbjudna ytor larmar ändå vidare. (Röd får aldrig Sett: `harSettRad` ger ingen rad, och stegaLarm bortser från ett sett på en Röd.) */
 export function markeraSett(state: LarmState, id: string): LarmState {
   return { steg: state.steg, sett: { ...state.sett, [id]: true } };
 }
