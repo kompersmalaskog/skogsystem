@@ -22,7 +22,8 @@ import { anvandObjektLista, anvandObjektListaUtanObjekt } from '../../lib/objekt
 import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
 import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/ObjektInfo'
-import { arBasvag as arBasvagMark, svTal, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll } from '../../lib/objektKort'
+import { arBasvag as arBasvagMark, svTal, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll, type OmKommentar } from '../../lib/objektKort'
+import { arInstruktionsText } from '../../lib/instruktioner/instruktioner'
 import PanelErrorBoundary from './panel-error-boundary'
 import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
@@ -109,7 +110,7 @@ import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
 import { hogarSynliga, vaxlaSkotarHogar } from '../../lib/skotarHogar'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
-import { PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
+import { INFO_PANEL_MASKIN_BREDD_PX, PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
 import { framhavBounds, framhavdFran, slappAtgard, type FramhavdMarkering, type SlappOrsak } from '../../lib/omTraktenFramhav'
 import type { OmNav } from '../../components/planering/OmTrakten'
 import { startaFramhavning, startaKartSlapp } from '../../lib/omTraktenFramhavKarta'
@@ -11889,6 +11890,7 @@ export default function PlannerPage() {
     svgToLatLon,
     typNamn: (typ) => markerTypes.find((t) => t.id === typ)?.name || 'Markering',
     vida: traktGeo,
+    direktiv: vidaDirektiv,   // Vidas traktdirektiv för hela trakten: instruktion nr 1 (lib/instruktioner)
     kommentarer: kk.rader,
     objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id) } : null,
@@ -13339,9 +13341,15 @@ export default function PlannerPage() {
         }
         ytor.sort((a, b) => a.nr - b.nr);
         // Vidas hänsynsytor och avlägg är objekt av SAMMA typ som våra egna: de listas i Om trakten på samma rad som våra ("Hänsynsytor · 3 st"), källan syns först när man öppnar dem.
+        // Kommentarerna som rutor i Om trakten — SAMMA uppgifter som kartkortets rader (kartkommentar med författare och tid, markeringens äldre fält) och Vidas text som blå "Vida · traktdirektiv"
+        // (bara om den säger något, lib/instruktioner/arInstruktionsText).
+        const omKommentarer = (nyckel: string, aldreText?: string | null, vidaText?: string | null): OmKommentar[] => [
+          ...(valtObjekt && arInstruktionsText(vidaText) ? [{ id: `vida:${nyckel}`, text: String(vidaText).trim(), forfattare: null, vida: true }] : []),
+          ...(valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel, objektId: valtObjekt.id, aldreText, minId: currentMedarbetare?.id, arAdmin: isAdminRiktig }) : []).map((k) => ({ id: k.id, text: k.text, forfattare: k.forfattare, vantar: k.vantar })),
+        ];
         const vidaHansynMark: KartMarkering[] = ytor.filter((y) => y.typ === 'hansyn').map((y, i) => {
           const mitt = y.ring ? mittAvPunkter(y.ring) : null;
-          return { id: `vida-yta:${y.nyckel}`, slag: 'zon' as const, typ: 'protected', namn: 'Hänsynsyta', comment: y.vidaText ?? '', lat: mitt?.lat ?? null, lng: mitt?.lng ?? null, geometri: y.ring ?? undefined, kalla: 'vida' as const, skapad: null, ordning: 100000 + i };
+          return { id: `vida-yta:${y.nyckel}`, slag: 'zon' as const, typ: 'protected', namn: 'Hänsynsyta', comment: y.vidaText ?? '', kommentarer: omKommentarer(y.nyckel, null, y.vidaText), lat: mitt?.lat ?? null, lng: mitt?.lng ?? null, geometri: y.ring ?? undefined, kalla: 'vida' as const, skapad: null, ordning: 100000 + i };
         });
         const vidaAvlaggMark: KartMarkering[] = klarVidaPunkter.filter((a) => a.lat != null && a.lng != null).map((a, i) => (
           { id: `vida-avlagg:${a.nummer}`, slag: 'symbol' as const, typ: 'landing', namn: 'Avlägg', comment: '', lat: a.lat, lng: a.lng, kalla: 'vida' as const, skapad: null, ordning: 100500 + i }));
@@ -13370,7 +13378,7 @@ export default function PlannerPage() {
           else if (m.isZone) { slag = 'zon'; typ = m.zoneType || 'zone'; namn = zoneTypes.find(z => z.id === m.zoneType)?.name || typ; if (Array.isArray(m.path) && m.path.length) { pos = mitt(m.path); geometri = heltSpar(m.path); } }
           if (!slag) return;
           const tid = Number(m.id);
-          kartMarkeringar.push({ id: String(m.id), slag, typ, namn, comment: String(m.comment ?? '').trim(), photoPath: m.photoPath ?? null, photoData: m.photoData ?? null, photoTs: m.photoTs ?? null, fotoVantar: lokalFotoFor(m) != null,
+          kartMarkeringar.push({ id: String(m.id), slag, typ, namn, comment: String(m.comment ?? '').trim(), kommentarer: omKommentarer(markerNyckel(m.id), m.comment), photoPath: m.photoPath ?? null, photoData: m.photoData ?? null, photoTs: m.photoTs ?? null, fotoVantar: lokalFotoFor(m) != null,
             lat: pos?.lat ?? null, lng: pos?.lon ?? null, geometri, antal: slag === 'symbol' && typeof m.antal === 'number' ? m.antal : null, ...(slag === 'linje' && typ === 'mainRoad' ? { farg: arBasvagFarg(m.farg) ? m.farg : null, langdM: geometri ? basvagLangdM(geometri) : null } : {}), skapad: Number.isFinite(tid) && tid > 1e11 ? tid : null, ordning: i });
         });
         // Listans ikon = kartans: symbolen i sin RIKTIGA färg och vita ring (getIconDef — samma källa som kartlagret och dockan), linjen i sin kartfärg
@@ -13552,7 +13560,10 @@ export default function PlannerPage() {
           if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
           stang();
         };
+        // ⓘ-panelen är bredare i maskinläget (som korten); på telefon är det ett ark i full bredd.
+        const infoPanelBredd = (maskinlage || !!maskinSomParam) ? INFO_PANEL_MASKIN_BREDD_PX : PANEL_BREDD_PX;
         objektInfoSenasteRef.current = {
+          bredd: infoPanelBredd,
           objektNamn: valtObjekt.namn,
           objektId: String(valtObjekt.id),
           onStang: stang,
@@ -13591,7 +13602,7 @@ export default function PlannerPage() {
             } : null,
             larm: {
               satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '',
-              bekraftad: !!infoLarmBekraftad, beskrivning: larmBeskr, onVisa: larmFlyTill,
+              bekraftad: !!infoLarmBekraftad, visaKontroll: kortRoll === 'planerare' && !maskinlage && !maskinSomParam, beskrivning: larmBeskr, onVisa: larmFlyTill,
             },
           },
           om: {
@@ -13616,7 +13627,7 @@ export default function PlannerPage() {
               const map = mapInstanceRef.current;
               if (!map) return;
               // Bred skärm: panelen täcker höger sida — kameran siktar på den synliga delen. Telefon: arket är stängt, hela kartan syns.
-              const panelPx = lage === 'panel' ? PANEL_BREDD_PX + AVSTAND.s * 2 : 0;
+              const panelPx = lage === 'panel' ? infoPanelBredd + AVSTAND.s * 2 : 0;
               const bounds = framhavBounds(framhavdFran(m));
               if (bounds) {
                 // Linje/yta: kameran rymmer HELA figuren.
@@ -13641,7 +13652,7 @@ export default function PlannerPage() {
               const map = mapInstanceRef.current;
               if (!map) return;
               const arkPx = lage === 'ark' && typeof window !== 'undefined' ? Math.round(window.innerHeight * ARK_HOJD_ANDEL) : 0;
-              const panelPx = lage === 'panel' ? PANEL_BREDD_PX + AVSTAND.s * 2 : 0;
+              const panelPx = lage === 'panel' ? infoPanelBredd + AVSTAND.s * 2 : 0;
               const bounds = framhavBounds(alla);
               if (bounds) map.fitBounds(bounds, { padding: { top: AVSTAND.xxl * 3, bottom: AVSTAND.xxl * 2 + arkPx, left: AVSTAND.xxl * 2, right: AVSTAND.xxl * 2 + panelPx }, maxZoom: 18, duration: 800 });
               else if (ms[0].lat != null && ms[0].lng != null) map.flyTo({ center: [ms[0].lng, ms[0].lat], zoom: Math.max(map.getZoom(), 18), duration: 700, offset: [-panelPx / 2, -arkPx / 2] });

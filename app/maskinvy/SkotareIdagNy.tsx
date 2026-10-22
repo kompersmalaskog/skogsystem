@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 import { supabase } from '@/lib/supabase'
 import { LivestatusRad } from './Livestatus'
+import DagensObjekt from './DagensObjekt'
 import { snittSkotningsavstandM, SKOTNINGSAVSTAND_ETIKETT, SKOTNINGSAVSTAND_UNDERTEXT } from '@/lib/skotningsavstand'
 import {
   fmtSv, VolymBadge, FLYTT_FARG, tint,
@@ -121,6 +122,8 @@ type SkotareIdagData = {
   g15h:        number            // SUM(processing_sek + terrain_sek) / 3600 från fakt_tid
   hourBuckets: Record<number, HourBucket>  // timme (0–23) → bucket
   momTider:    Record<number, MomTiderHour> | null  // null = fetch misslyckades
+  /** Dagens lass (objekt + volym) — för listan över dagens objekt. */
+  objektRader: { objekt_id: string | null; volym_m3sub: number | null }[]
 }
 
 // ── Datahämtning ──────────────────────────────────────────────
@@ -196,6 +199,7 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
     g15h,
     hourBuckets,
     momTider,
+    objektRader: allRows.map(r => ({ objekt_id: r.objekt_id ?? null, volym_m3sub: r.volym_m3sub ?? null })),
   }
 }
 
@@ -791,6 +795,9 @@ export default function SkotareIdagNy({ maskin, onMaskinChange }: {
 
         {/* 2. Dagens siffror: Utkört · Lass · Skotningsavstånd */}
         <SiffraCard data={data} loading={loading} />
+
+        {/* 2b. Vilket objekt maskinen arbetade på */}
+        <DagensObjekt rader={data?.objektRader ?? null} loading={loading} />
 
         {/* 3. Leveranser per timme */}
         <LeveransChart

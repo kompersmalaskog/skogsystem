@@ -3,7 +3,7 @@ import { TYP, RADIE, AVSTAND, FARG } from '@/lib/design/tokens'
 
 import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
-import { livestatus, importhalsa, dagarMellan, stockholmDag, type SenasteSignal } from '@/lib/maskinvy/livestatus'
+import { livestatus, importhalsa, arSammaSignal, dagarMellan, stockholmDag, type SenasteSignal } from '@/lib/maskinvy/livestatus'
 import { COMBO_IDS, tint, type Maskin } from './OversiktShared'
 import { useMinutklocka } from './useMinutklocka'
 
@@ -114,15 +114,30 @@ export function useImporthalsa(maskinId: string): Hamtat<{ iso: string | null; s
   return s
 }
 
-/** Överst i Översikten: livestatus och maskinhälsa i ETT kort, två rader. */
+/**
+ * Överst i Översikten: livestatus och maskinhälsa i ETT kort.
+ *
+ * Skördaren: bygger de två på samma signal (produktionsraden och importen skrivs av samma körning, `arSammaSignal`) står
+ * bara EN rad — två rader med samma tid är dubbelt. Skiljer de sig, eller importen gav fel, eller något inte gick att läsa,
+ * står båda. Medan något läses står en enda rad, så kortet inte byter höjd i onödan.
+ * Skotaren: båda raderna alltid — lossningstiden och importen är olika signaler.
+ */
 export function LivestatusKort({ maskin, roll }: { maskin: Maskin | { id: string }; roll: Roll }) {
   const sig = useSenasteSignal(maskin.id, roll)
   const imp = useImporthalsa(maskin.id)
+  const laser = sig.loading || imp.loading
+  const ensam = roll === 'skordare' && (laser || (
+    !sig.fel && !imp.fel && sig.data != null && arSammaSignal(sig.data.signalIso, imp.data?.iso, imp.data?.status)
+  ))
   return (
-    <div data-livestatus-kort style={{ ...kortStil, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
+    <div data-livestatus-kort data-en-rad={ensam ? '' : undefined} style={{ ...kortStil, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
       <LivestatusRad fresh={sig.data} loading={sig.loading} fel={sig.fel} />
-      <div style={{ height: 1, background: FARG.linje }} />
-      <ImportRad iso={imp.data?.iso ?? null} status={imp.data?.status ?? null} loading={imp.loading} fel={imp.fel} />
+      {!ensam && (
+        <>
+          <div style={{ height: 1, background: FARG.linje }} />
+          <ImportRad iso={imp.data?.iso ?? null} status={imp.data?.status ?? null} loading={imp.loading} fel={imp.fel} />
+        </>
+      )}
     </div>
   )
 }

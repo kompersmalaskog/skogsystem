@@ -7,7 +7,7 @@
 // Tryck på en rad = typvyn (alla av typen markeras på kartan, objekten listas); tryck på ett objekt = kartan zoomar dit.
 
 import { basvagSammanfattning, basvagText } from './basvag';
-import { arBasvag, markeringsGrupp, sorteraMarkeringar, type KartMarkering, type MarkeringMedAvstand } from './objektKort';
+import { arBasvag, harText, markeringsGrupp, sorteraMarkeringar, type KartMarkering, type MarkeringMedAvstand } from './objektKort';
 
 export type OmGrupp = 'faror' | 'vida' | 'hansyn' | 'vagar' | 'ovrigt';
 export const OM_GRUPPER_I_ORDNING: OmGrupp[] = ['faror', 'vida', 'hansyn', 'vagar', 'ovrigt'];
@@ -152,7 +152,7 @@ export function byggOmGrupper(ms: readonly KartMarkering[], pos: { lat: number; 
  * (traktdelar, egna områden). Ett tal på kortet som inte går att hitta i listan vore ett fel. "Med text" = kommentar, foto eller (ytor) en anteckning.
  */
 export function omSammanfattning(ms: readonly KartMarkering[], ovrigaYtor: readonly { harText: boolean }[]): { antal: number; medText: number } {
-  return { antal: ms.length + ovrigaYtor.length, medText: ms.filter((m) => !!m.comment.trim() || !!(m.photoPath || m.photoData || m.fotoVantar)).length + ovrigaYtor.filter((y) => y.harText).length };
+  return { antal: ms.length + ovrigaYtor.length, medText: ms.filter((m) => harText(m) || !!(m.photoPath || m.photoData || m.fotoVantar)).length + ovrigaYtor.filter((y) => y.harText).length };
 }
 
 /** Antalet faror (rubrikens tal): markeringar i gruppen Faror. */

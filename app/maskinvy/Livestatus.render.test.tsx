@@ -47,13 +47,13 @@ const rgb = (hex: string) => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i +
 const prickFarg = (valj: string) => (document.querySelector(`${valj} [aria-hidden]`) as HTMLElement | null)?.style.background ?? ''
 
 describe('LivestatusKort — skördare', () => {
-  it('signal för 4 min sedan och fil för 6 min sedan: båda gröna, med ord', async () => {
+  it('signal för 4 min sedan och fil för 14 min sedan (olika signaler): båda gröna, med ord', async () => {
     db.signal = { data: [{ datum: '2026-10-21', skapad_tid: fore(4) }], error: null }
-    db.fil = { data: [{ importerad_tid: fore(6), status: 'OK' }], error: null }
+    db.fil = { data: [{ importerad_tid: fore(14), status: 'OK' }], error: null }
     await act(async () => { r.render(<LivestatusKort maskin={{ id: 'PONS20SDJAA270231' }} roll="skordare" />) })
     await vanta(() => text().includes('Filer in'))
     expect(text()).toContain('Aktiv nu · senaste signal för 4 min sedan')
-    expect(text()).toContain('Filer in · senaste för 6 min sedan')
+    expect(text()).toContain('Filer in · senaste för 14 min sedan')
     expect(db.rpc[0]).toEqual({ namn: 'maskindata_produktion_senaste', p: { p_maskin_ids: ['PONS20SDJAA270231'] } })
     expect(prickFarg('[data-livestatus]')).toBe(rgb(FARG.gron))
   })
@@ -95,14 +95,78 @@ describe('LivestatusKort — skördare', () => {
 
   it('kombinationen R64101+R64428 frågar båda maskinerna', async () => {
     db.signal = { data: [{ datum: '2026-10-21', skapad_tid: fore(4) }], error: null }
-    db.fil = { data: [{ importerad_tid: fore(6), status: 'OK' }], error: null }
+    db.fil = { data: [{ importerad_tid: fore(16), status: 'OK' }], error: null }
     await act(async () => { r.render(<LivestatusKort maskin={{ id: 'R64101+R64428' }} roll="skordare" />) })
     await vanta(() => text().includes('Filer in'))
     expect(db.rpc[0].p).toEqual({ p_maskin_ids: ['R64101', 'R64428'] })
   })
 })
 
+describe('LivestatusKort — skördaren: EN rad när raderna bygger på samma signal', () => {
+  const rader = () => document.querySelectorAll('[data-livestatus], [data-importhalsa]').length
+
+  it('produktionsraden och importen några sekunder isär: en enda rad, ingen avdelare', async () => {
+    db.signal = { data: [{ datum: '2026-10-21', skapad_tid: fore(4) }], error: null }
+    db.fil = { data: [{ importerad_tid: fore(3.9), status: 'OK' }], error: null }
+    await act(async () => { r.render(<LivestatusKort maskin={{ id: 'PONS20SDJAA270231' }} roll="skordare" />) })
+    await vanta(() => text().includes('Aktiv nu'))
+    await act(async () => { await new Promise(res => setTimeout(res, 20)) })
+    expect(text()).toBe('Aktiv nu · senaste signal för 4 min sedan')
+    expect(rader()).toBe(1)
+    expect(document.querySelector('[data-importhalsa]')).toBeNull()
+    expect(document.querySelector('[data-livestatus-kort]')!.hasAttribute('data-en-rad')).toBe(true)
+  })
+
+  it('gränsen: 5 min isär slås ihop, 6 min isär visas båda', async () => {
+    db.signal = { data: [{ datum: '2026-10-21', skapad_tid: fore(10) }], error: null }
+    db.fil = { data: [{ importerad_tid: fore(5), status: 'OK' }], error: null }
+    await act(async () => { r.render(<LivestatusKort maskin={{ id: 'R64428' }} roll="skordare" />) })
+    await vanta(() => text().includes('Aktiv nu'))
+    await act(async () => { await new Promise(res => setTimeout(res, 20)) })
+    expect(rader()).toBe(1)
+    act(() => r.unmount()); r = createRoot(rot)
+    db.fil = { data: [{ importerad_tid: fore(4), status: 'OK' }], error: null }
+    await act(async () => { r.render(<LivestatusKort maskin={{ id: 'R64428' }} roll="skordare" />) })
+    await vanta(() => text().includes('Filer in'))
+    expect(rader()).toBe(2)
+  })
+
+  it('importfel slås aldrig ihop — felet ska sägas, även när tiderna är samma', async () => {
+    db.signal = { data: [{ datum: '2026-10-21', skapad_tid: fore(4) }], error: null }
+    db.fil = { data: [{ importerad_tid: fore(4), status: 'FEL' }], error: null }
+    await act(async () => { r.render(<LivestatusKort maskin={{ id: 'R64428' }} roll="skordare" />) })
+    await vanta(() => text().includes('importfel'))
+    expect(rader()).toBe(2)
+  })
+
+  it('läsfel på importen: båda raderna, felet sägs', async () => {
+    db.signal = { data: [{ datum: '2026-10-21', skapad_tid: fore(4) }], error: null }
+    db.fil = { data: null as any, error: { message: 'x' } }
+    await act(async () => { r.render(<LivestatusKort maskin={{ id: 'R64428' }} roll="skordare" />) })
+    await vanta(() => text().includes('Kunde inte läsa filimporten.'))
+    expect(rader()).toBe(2)
+  })
+
+  it('maskinen stod still men importen lever (R64101-mönstret): två olika saker, båda visas', async () => {
+    db.signal = { data: [{ datum: '2026-03-11', skapad_tid: fore(48520) }], error: null }
+    db.fil = { data: [{ importerad_tid: fore(5), status: 'OK' }], error: null }
+    await act(async () => { r.render(<LivestatusKort maskin={{ id: 'R64101' }} roll="skordare" />) })
+    await vanta(() => text().includes('Filer in'))
+    expect(text()).toContain('Senaste körning')
+    expect(rader()).toBe(2)
+  })
+})
+
 describe('LivestatusKort — skotare läser lossningstiden', () => {
+  it('skotaren behåller BÅDA raderna även när tiderna sammanfaller', async () => {
+    db.signal = { data: [{ datum: '2026-10-21', lossnings_tid: fore(4) }], error: null }
+    db.fil = { data: [{ importerad_tid: fore(4), status: 'OK' }], error: null }
+    await act(async () => { r.render(<LivestatusKort maskin={{ id: 'A030353' }} roll="skotare" />) })
+    await vanta(() => text().includes('Filer in'))
+    expect(document.querySelectorAll('[data-livestatus], [data-importhalsa]').length).toBe(2)
+    expect(document.querySelector('[data-livestatus-kort]')!.hasAttribute('data-en-rad')).toBe(false)
+  })
+
   it('maskindata_lass_senaste → lossnings_tid', async () => {
     db.signal = { data: [{ datum: '2026-10-21', lossnings_tid: fore(30) }], error: null }
     db.fil = { data: [{ importerad_tid: fore(10), status: 'OK' }], error: null }

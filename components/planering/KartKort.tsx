@@ -23,7 +23,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GRUPPER, type FargGrupp } from '@/lib/larm/grupper';
 import { AVSTAND, FARG, IKON, KNAPP, RADIE, TRAFFYTA, TYP, VIKT, designCss } from '@/lib/design/tokens';
-import { arNumrerad, kommentarPunkter } from '@/lib/kommentarPunkter';
+import { kommentarPunkter } from '@/lib/kommentarPunkter';
+import { KommentarPunkter, KommentarRuta, KommentarVisning } from './KommentarRuta';
 
 /** Svepet nedåt (px) som stänger kortet. */
 const SVEP_STANG_PX = 100;
@@ -246,45 +247,9 @@ function NyKommentar({ text, setText, onSpara, onAvbryt }: { text: string; setTe
 export function KartKortKommentarer({ vida, rader, onAndra, onRadera }: { vida?: string | null; rader: KartKortKommentar[]; onAndra?: (id: string, t: string) => void; onRadera?: (id: string) => void }) {
   return (
     <div data-testid="kartkort-kommentar" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-      {kommentarPunkter(vida).length > 0 && (
-        <KommentarRuta testid="kartkort-kommentar-vida" kalla="Vida · traktdirektiv" kallaFarg={FARG.bla}>
-          <KommentarPunkter text={vida ?? ''} />
-        </KommentarRuta>
-      )}
+      {kommentarPunkter(vida).length > 0 && <KommentarVisning vida text={vida ?? ''} />}
       {rader.map((r) => <KommentarRadVy key={r.id} r={r} onAndra={onAndra} onRadera={onRadera} />)}
     </div>
-  );
-}
-
-/** Rutan: ljusare än kortet, källan överst, innehållet under. */
-function KommentarRuta({ testid, kalla, kallaFarg, atgard, children }: { testid: string; kalla: React.ReactNode; kallaFarg: string; atgard?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div data-testid={testid} style={{ background: FARG.upphojt, borderRadius: RADIE.kort, padding: `${AVSTAND.m}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min - AVSTAND.m }}>
-        <div data-testid="kartkort-kommentar-kalla" style={{ flex: 1, minWidth: 0, ...TYP.meta, fontWeight: VIKT.halvfet, color: kallaFarg }}>{kalla}</div>
-        {atgard}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-/** Texten som punkter: en rad = ren text, två eller fler = numrerade 1, 2, 3 (vit siffra i rund bricka). Appen delar aldrig upp en mening själv. */
-export function KommentarPunkter({ text }: { text: string }) {
-  const punkter = kommentarPunkter(text);
-  if (punkter.length === 0) return null;
-  const text19: React.CSSProperties = { ...TYP.kommentar, color: FARG.text, overflowWrap: 'anywhere' };
-  if (!arNumrerad(punkter)) return <div data-testid="kartkort-kommentar-text" style={text19}>{punkter[0]}</div>;
-  return (
-    <ol data-testid="kartkort-kommentar-text" style={{ ...text19, listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
-      {punkter.map((rad, i) => (
-        <li key={i} data-testid="kartkort-kommentar-punkt" style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.m }}>
-          <span aria-hidden data-testid="kartkort-kommentar-siffra"
-            style={{ flexShrink: 0, width: AVSTAND.xl + AVSTAND.xs, height: AVSTAND.xl + AVSTAND.xs, borderRadius: RADIE.cirkel, background: FARG.bg, color: FARG.text, ...TYP.meta, fontWeight: VIKT.halvfet, fontVariantNumeric: 'tabular-nums', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
-          <span style={{ ...text19, flex: 1, minWidth: 0 }}>{rad}</span>
-        </li>
-      ))}
-    </ol>
   );
 }
 

@@ -29,6 +29,14 @@ describe('ObjektNamn', () => {
     expect(rot.textContent).toContain('Hushållningssällskapet')
     expect(document.querySelectorAll('[data-special-badge]')).toHaveLength(1)
   })
+  it('radbryt: namnet kortas aldrig med … utan får gå över flera rader', () => {
+    visa(<ObjektNamn namn="Ett långt namn" radbryt />)
+    const namn = rot.querySelector('span > span') as HTMLElement
+    expect(namn.style.whiteSpace).not.toBe('nowrap')
+    expect(namn.style.textOverflow).toBe('')
+    visa(<ObjektNamn namn="Ett långt namn" />)
+    expect((rot.querySelector('span > span') as HTMLElement).style.whiteSpace).toBe('nowrap')
+  })
   it('vanligt objekt: bara namnet, ingen badge', () => {
     visa(<ObjektNamn namn="Vanligt objekt" />)
     expect(rot.textContent).toBe('Vanligt objekt')
