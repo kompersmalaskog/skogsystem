@@ -1,11 +1,12 @@
 'use client';
-// Objekt: slå upp en trakt när en kund undrar över mätningen. Domen för vald trakt överst, sedan tre grupper med rubriken som bär ordet
-// (Under kravet / Godkända / För tunt underlag). Maskinoberoende — filtret här är objektet. Innehåll och siffror är den gamla flikens.
+// OBJEKT — slå upp en trakt när en kund undrar över mätningen. Maskinoberoende (filtret här är objektet, därför inget maskinval). Funktionen är den gamla
+// fliken: domen för vald trakt, sedan tre grupper med rubriken som bär ordet (Under kravet / Godkända / För tunt underlag).
+// Telefon: domen överst, listan under. iPad och dator: listan till vänster, domen till höger (som Mail) — samma komponenter, `ObjektDetalj` bor i panelen.
 import Falt from '@/components/design/Falt';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import Svarsrad from '@/components/design/Svarsrad';
-import { AVSTAND, FARG, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, KNAPP, TYP } from '@/lib/design/tokens';
 import type { KalibreringData } from '@/lib/hooks/useKalibreringData';
 import type { KalibreringVy } from '@/lib/hooks/useKalibreringVy';
 import { objektDom, objektSaknarNamn } from '@/lib/kalibrering/bedomning';
@@ -14,7 +15,8 @@ import { OBJEKT_GRUPPER, objektRader, type ObjektRad } from '@/lib/kalibrering/o
 import { MATT } from '@/lib/kalibrering/ordlista';
 import { Lugn, Meta, Prick } from './delar';
 
-function ObjektDomKort({ d, valt }: { d: KalibreringData; valt: string }) {
+/** Domen för en vald trakt — det som står överst på telefon och i panelen till höger på iPad/dator. */
+export function ObjektDetalj({ d, valt }: { d: KalibreringData; valt: string }) {
   const data = d.objektData;
   const o = data?.objekt.find(x => x.object_name === valt);
   if (!data || !o) return null;
@@ -31,7 +33,7 @@ function ObjektDomKort({ d, valt }: { d: KalibreringData; valt: string }) {
   );
 }
 
-export default function ObjektFlik({ d, v }: { d: KalibreringData; v: KalibreringVy }) {
+export default function ObjektFlik({ d, v, bred }: { d: KalibreringData; v: KalibreringVy; /** iPad/dator: domen ritas i panelen bredvid, inte här. */ bred: boolean }) {
   const data = d.objektData;
   const radUt = (r: ObjektRad, sista: boolean) => {
     const saknarNamn = objektSaknarNamn(r.o.object_name);
@@ -39,7 +41,7 @@ export default function ObjektFlik({ d, v }: { d: KalibreringData; v: Kalibrerin
     const under = [saknarNamn ? `registrerat som ${r.o.object_name}` : null, tips].filter(Boolean).join(' · ');
     const vald = v.valtObjekt === r.o.object_name;
     return (
-      <Rad key={r.o.object_name} sista={sista} pil={false} onTryck={() => v.setValtObjekt(r.o.object_name)}
+      <Rad key={r.o.object_name} sista={sista} pil={false} onTryck={() => v.setValtObjekt(r.o.object_name)} attr={{ 'aria-current': vald ? 'true' : 'false' }}
         titel={<span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}>{vald && <Prick farg={FARG.text} />}<span>{saknarNamn ? 'Namn saknas' : r.o.object_name}</span></span>}
         under={under || undefined}
         hoger={r.b.grupp === 'tunt' ? `n ${r.o.n}` : `${Math.round(r.o.traffPct)}%`} hogerUnder={d.maskinKortNamnFor(r.o.maskin_id)} dampad={r.b.grupp === 'tunt'} />
@@ -51,12 +53,17 @@ export default function ObjektFlik({ d, v }: { d: KalibreringData; v: Kalibrerin
   return (
     <>
       <Svarsrad rubrik="Objekt" rad="Slå upp en trakt när en kund undrar över mätningen." fri />
-      {!data ? (
+      {d.objektFel ? (
+        <>
+          <Lugn ikon="error" marginTop={0}>{d.objektFel}</Lugn>
+          <button type="button" onClick={d.forsokIgen} style={{ ...KNAPP.sekundar, marginTop: AVSTAND.m }}>Försök igen</button>
+        </>
+      ) : !data ? (
         <Lugn ikon="hourglass_empty" marginTop={0}>Laddar objekt…</Lugn>
       ) : (
         <>
           <Falt etikett="Sök objekt" value={v.objektQ} onChange={v.setObjektQ} />
-          {v.valtObjekt && <ObjektDomKort d={d} valt={v.valtObjekt} />}
+          {!bred && v.valtObjekt && <ObjektDetalj d={d} valt={v.valtObjekt} />}
 
           {OBJEKT_GRUPPER.map(g => {
             const alla = rader.filter(r => r.b.grupp === g.key);

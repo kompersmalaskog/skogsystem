@@ -1,16 +1,14 @@
 'use client';
-// De två stockarken: StockArk (en stock ur en kontroll — lollipop över mätpunkterna) och SenasteStockArk (en stock ur Senaste-fliken —
-// maskin mot operatör, mätjämförelse och volym). Samma innehåll som de gamla modalerna; räknandet bor i lib/kalibrering/kontroll.
+// En stock ur en kontroll: längd, diameter (lollipop över mätpunkterna), mätpunkterna och volymen. Volymen (maskin mot operatör) låg förr i
+// Senaste-stockarket, som gått upp i det här; räknandet bor i lib/kalibrering/kontroll.
 import type { StockRow } from '@/app/api/kalibrering/kontroll/route';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
-import { AVSTAND, FARG, RADIE, TNUM, TYP } from '@/lib/design/tokens';
-import { AVVIKELSE } from '@/lib/kalibrering/ordlista';
+import { AVSTAND, FARG, RADIE, TYP } from '@/lib/design/tokens';
 import { avvikelseTon } from '@/lib/kalibrering/bedomning';
 import { dec, fmtAvvikelse } from '@/lib/kalibrering/format';
-import { senasteStockVarde, stockDetalj } from '@/lib/kalibrering/kontroll';
-import type { DetaljKontrollStock } from '@/lib/kalibrering/typer';
-import { Info, Meta, Status, TalGrid, TonVarde, TON_FARG } from './delar';
+import { stockDetalj } from '@/lib/kalibrering/kontroll';
+import { Info, Meta, Status, TonVarde } from './delar';
 import { Lollipop } from './diagram';
 
 const DIAG_TON = { ok: 'ok', warn: 'hi', bad: 'hot' } as const;
@@ -20,6 +18,8 @@ export function StockArk({ stock, tolLen }: { stock: StockRow; tolLen: number })
   const lenM = stock.maskin_langd_cm != null ? `${dec(stock.maskin_langd_cm / 100, 1)} m` : '–';
   const mpText = stock.matpunkter.length === 1 ? '1 mätpunkt' : `${stock.matpunkter.length} mätpunkter`;
   const diaTon = !d.diaKlavad ? 'ok' : d.diagnos?.tone === 'bad' ? 'hot' : d.diagnos?.tone === 'warn' ? 'hi' : 'ok';
+  // Operatörsvolym kräver att operatören klavat BÅDE längd och diameter. Utan det kan volymen (och diffen) inte finnas.
+  const volKlavad = d.lenKlavad && d.diaKlavad && stock.operator_volym_sub != null;
 
   return (
     <>
@@ -71,86 +71,14 @@ export function StockArk({ stock, tolLen }: { stock: StockRow; tolLen: number })
             ))}
           </Sektion>
         )}
-      </div>
-    </>
-  );
-}
 
-/** Stock ur Senaste-fliken: maskin mot operatör, mätjämförelse, mätpunkter längs stocken och volym. */
-export function SenasteStockArk({ stock }: { stock: DetaljKontrollStock }) {
-  const v = senasteStockVarde(stock);
-  const ord = (t: 'ok' | 'cold' | 'hi' | 'hot') => v.badgeText(t);
-  const totalt = v.mps.length + (v.diaKlavad ? 1 : 0);
-  // Operatörsvolym kräver att operatören klavat BÅDE längd och diameter. Utan det kan volymen (och diffen) inte finnas.
-  const volKlavad = v.lenKlavad && v.diaKlavad && stock.operator_volym_sub != null;
-
-  const stapel = (bredd: number, hojd: number, text: string, kant: string) => (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: bredd, maxWidth: '100%', height: hojd, background: FARG.upphojt, borderRadius: RADIE.rad, border: `1px solid ${kant}`, ...TYP.listtitel, ...TNUM }}>{text}</div>
-  );
-
-  return (
-    <>
-      <Meta>{`Stam ${stock.stam_nummer} • ${stock.kontroll_datum}`}</Meta>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s, margin: `${AVSTAND.l}px 0` }}>
-        <div>
-          <Meta style={{ marginBottom: AVSTAND.xs }}>Maskin</Meta>
-          {stapel(v.maskinW, v.maskinH, `${stock.maskin_langd_cm} cm`, v.diaTon === 'ok' ? FARG.linje : TON_FARG[v.diaTon])}
-        </div>
-        <div>
-          <Meta style={{ marginBottom: AVSTAND.xs }}>Operatör</Meta>
-          {stapel(v.operatorW, v.operatorH, v.opLen, FARG.linje)}
-        </div>
-      </div>
-
-      <TalGrid rubrik="Mätjämförelse" celler={[
-        { etikett: 'Längd maskin', varde: stock.maskin_langd_cm, enhet: 'cm' },
-        { etikett: 'Längd operatör', varde: v.lenKlavad ? stock.operator_langd_cm : '–', enhet: v.lenKlavad ? 'cm' : undefined },
-      ]} />
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: AVSTAND.s, padding: AVSTAND.m, background: FARG.tonad, borderRadius: RADIE.kort, marginTop: AVSTAND.l }}>
-        <div style={{ textAlign: 'center' }}>
-          <Meta style={{ marginBottom: AVSTAND.xs }}>{AVVIKELSE.langd}</Meta>
-          <div style={{ ...TYP.listtitel, ...TNUM }}>{v.lenKlavad ? `${fmtAvvikelse(stock.langd_avvikelse_cm, 'cm')} cm` : '–'}</div>
-          <div style={{ marginTop: AVSTAND.xs, display: 'flex', justifyContent: 'center' }}><Status ton={v.lenTon} ord={v.lenKlavad ? ord(v.lenTon) : 'Ej klavad'} /></div>
-        </div>
-        <div style={{ textAlign: 'center' }}>
-          <Meta style={{ marginBottom: AVSTAND.xs }}>Topp ⌀ maskin</Meta>
-          <div style={{ ...TYP.listtitel, ...TNUM }}>{stock.maskin_toppdia_mm} mm</div>
-          <Meta style={{ marginTop: AVSTAND.xs }}>op: {v.opDia}</Meta>
-        </div>
-        <div style={{ textAlign: 'center' }}>
-          <Meta style={{ marginBottom: AVSTAND.xs }}>{AVVIKELSE.topp}</Meta>
-          <div style={{ ...TYP.listtitel, ...TNUM }}>{v.diaKlavad ? `${fmtAvvikelse(stock.dia_avvikelse_mm, 'mm')} mm` : '–'}</div>
-          <div style={{ marginTop: AVSTAND.xs, display: 'flex', justifyContent: 'center' }}><Status ton={v.diaTon} ord={v.diaKlavad ? ord(v.diaTon) : 'Ej klavad'} /></div>
-        </div>
-      </div>
-
-      {v.mps.length > 0 && (
-        <div style={{ marginTop: AVSTAND.l }}>
-          <Sektion rubrik="Mätpunkter längs stocken" kort={false}
-            not={v.diaKlavad ? `Toppen ovan är 1 av ${totalt} diametermått — alla ingår i statistiken` : `${v.mps.length} diametermått på stocken — alla ingår i statistiken`}>
-            {v.mps.map((m, i) => {
-              const kl = m.diameter_operator_mm != null && m.diameter_operator_mm !== 0;
-              const dd = kl ? (m.diameter_maskin_mm as number) - (m.diameter_operator_mm as number) : null;
-              return (
-                <Rad key={m.position_cm} sista={i === v.mps.length - 1} titel={`${m.position_cm} cm`}
-                  under={`Maskin ${m.diameter_maskin_mm} mm${kl ? ` · Operatör ${m.diameter_operator_mm} mm` : ' · ej klavad av operatör'}`}
-                  hoger={dd != null ? <TonVarde ton={avvikelseTon(dd, 'dia')}>{`${fmtAvvikelse(dd, 'mm')} mm`}</TonVarde> : 'ej klavad'} />
-              );
-            })}
-          </Sektion>
-        </div>
-      )}
-
-      {stock.maskin_volym_sub != null && (
-        <div style={{ marginTop: AVSTAND.l }}>
+        {stock.maskin_volym_sub != null && (
           <Info ikon="inventory_2" titel="Volym (m³fub)">
             Maskin: {dec(stock.maskin_volym_sub, 4)} • Operatör: {volKlavad ? dec(stock.operator_volym_sub!, 4) : '–'}
             {volKlavad && stock.volym_avvikelse != null ? ` • Diff: ${dec(stock.volym_avvikelse, 4)}` : ''}
           </Info>
-        </div>
-      )}
+        )}
+      </div>
     </>
   );
 }
