@@ -5,9 +5,9 @@ import { dagNummer, rimligRuta } from '@/lib/laserKvar';
 
 // Grundyta och skanningsdag ur Skogsstyrelsens Skogliga grunddata för punkter i en gallrad trakt.
 // In:  { punkter: [lng, lat][] }   (provpunkter var 10:e meter, lib/laserKvar.ts provpunkter)
-// Ut:  { rutor: [grundyta | null, skanningsdag | null][] }   en per 10 m-ruta, i dagar sedan 1970
+// Ut:  { rutor: [grundyta | null, medeldiameter cm | null, skanningsdag | null][] }   en per 10 m-ruta, dag sedan 1970
 //
-// Banden i SkogligaGrunddata_3_1: 2 = grundyta (m²/ha), 7 = skanningsdag (UnixDay) — samma ordning som
+// Banden i SkogligaGrunddata_3_1: 2 = grundyta (m²/ha), 3 = grundytevägd medeldiameter (cm), 7 = skanningsdag (UnixDay) — samma ordning som
 // lib/skoglig-berakning.ts har läst sedan volymberäkningen byggdes. Svarar tjänsten med värden som inte kan vara
 // grundyta eller ett datum är det ett FEL (502), aldrig ett tal: då har banden bytt plats.
 //
@@ -15,6 +15,7 @@ import { dagNummer, rimligRuta } from '@/lib/laserKvar';
 
 const SGD = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SkogligaGrunddata_3_1/ImageServer/exportImage';
 const BAND_GRUNDYTA = 2;
+const BAND_DIAMETER = 3;
 const BAND_DAG = 7;
 const NODATA = -9999;
 const MAX_PUNKTER = 40_000;
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
     size: `${u.bredd},${u.hojd}`,
     format: 'tiff',
     pixelType: 'F32',
-    bandIds: `${BAND_GRUNDYTA},${BAND_DAG}`,
+    bandIds: `${BAND_GRUNDYTA},${BAND_DIAMETER},${BAND_DAG}`,
     interpolation: 'RSP_NearestNeighbor',
     noData: String(NODATA),
     noDataInterpretation: 'esriNoDataMatchAny',
@@ -84,19 +85,19 @@ export async function POST(req: NextRequest) {
 
   try {
     const bild = await (await fromArrayBuffer(buf)).getImage();
-    if (bild.getWidth() !== u.bredd || bild.getHeight() !== u.hojd || bild.getSamplesPerPixel() < 2) {
+    if (bild.getWidth() !== u.bredd || bild.getHeight() !== u.hojd || bild.getSamplesPerPixel() < 3) {
       console.error(`[laser-grundyta] oväntad bild ${bild.getWidth()}x${bild.getHeight()}x${bild.getSamplesPerPixel()}`);
       return fel(502, 'Laserdatan hade ett oväntat format.');
     }
-    const band = (await bild.readRasters({ samples: [0, 1] })) as unknown as ArrayLike<number>[];
+    const band = (await bild.readRasters({ samples: [0, 1, 2] })) as unknown as ArrayLike<number>[];
     const nodata = bild.getGDALNoData() ?? NODATA;
-    const rutor = slaUpp(xy, u, band[0], band[1], nodata);
+    const rutor = slaUpp(xy, u, band[0], band[1], band[2], nodata);
     const idag = dagNummer(new Date().toISOString());
     if (!rutor.every((r) => rimligRuta(r, idag))) {
       console.error('[laser-grundyta] orimliga värden — har banden bytt plats?', JSON.stringify(rutor.slice(0, 5)));
       return fel(502, 'Laserdatan hade ett oväntat format.');
     }
-    return NextResponse.json({ rutaM: RUTA_M, rutor: rutor.map((r) => [r.g, r.dag]) });
+    return NextResponse.json({ rutaM: RUTA_M, rutor: rutor.map((r) => [r.g, r.d ?? null, r.dag]) });
   } catch (e) {
     console.error('[laser-grundyta] tolkning:', e instanceof Error ? e.message : e);
     return fel(502, 'Laserdatan gick inte att läsa.');

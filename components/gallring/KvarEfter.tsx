@@ -1,23 +1,22 @@
 'use client';
-// Hur mycket står kvar? — grundyta före (Skogsstyrelsens laserdata, uppräknad till dagen skördaren började), uttaget
-// (skördaren) och kvar = före − uttag. Talen och reglerna bor i lib/laserKvar.ts; här ritas de bara.
-//
-// Raderna står i kvittots ordning — före, uttaget, kvar — så kvar går att kontrollräkna med det som står ovanför:
-// kvar visas som (avrundat före) − (avrundat uttag), aldrig som en egen avrundning av det oavrundade talet.
+// Hur mycket står kvar? — svaret är det som står KVAR efter gallringen (Martin 2026-10-22: "man vill ju veta hur mycket
+// som står kvar"), först i stammar per hektar, sedan i grundyta. Under varje kvar-tal står före och uttaget, så kvar
+// går att kontrollräkna: kvar = (avrundat före) − (avrundat uttag), aldrig en egen avrundning av det oavrundade talet.
+// Före = Skogsstyrelsens laserdata (grundytan uppräknad till dagen skördaren började; stammarna vid skanningen),
+// uttaget = skördaren. Talen och reglerna bor i lib/laserKvar.ts; här ritas de bara.
 // "ca" och spannet står alltid vid före och kvar: de är uppräknade, inte mätta. Uttaget är en mätning och står utan.
 // Laserdatan läses efter per hektar och fäller aldrig trakten: ett fel här är ett fel med Försök igen.
 import { useCallback, useEffect, useState } from 'react';
 import { AVSTAND, FARG, KNAPP, TYP } from '@/lib/design/tokens';
 import Sektion from '@/components/design/Sektion';
 import Rad from '@/components/design/Rad';
-import { fmtDecimal } from '@/lib/gallring';
+import { fmtAntal, fmtDecimal } from '@/lib/gallring';
 import { beraknaKvar, provpunkter, TILLVAXT, type KvarSvar } from '@/lib/laserKvar';
 import { hamtaLaserRutor } from '@/lib/laserGrundyta';
 import type { GallradYta } from '@/lib/gallradYta';
 
 const RUBRIK = 'Hur mycket står kvar?';
 const avr1 = (v: number) => Math.round(v * 10) / 10;
-const pct = (v: number) => `${Math.round(v * 100)} %`;
 
 type Lage = { typ: 'laddar' } | { typ: 'fel'; text: string } | { typ: 'klar'; s: KvarSvar };
 
@@ -25,9 +24,11 @@ function Text({ children, attr }: { children: React.ReactNode; attr?: Record<str
   return <p style={{ margin: 0, padding: `${AVSTAND.l}px 0`, ...TYP.text, color: FARG.text2 }} {...attr}>{children}</p>;
 }
 
-export default function KvarEfter({ yta, uttagPerHa, skordStart }: {
+export default function KvarEfter({ yta, uttagPerHa, uttagStammarPerHa, skordStart }: {
   yta: GallradYta;
   uttagPerHa: number;
+  /** Skördarens uttagna stammar per hektar på samma yta. */
+  uttagStammarPerHa: number;
   /** Första dagen skördaren körde, "YYYY-MM-DD". */
   skordStart: string;
 }) {
@@ -36,11 +37,11 @@ export default function KvarEfter({ yta, uttagPerHa, skordStart }: {
     setLage({ typ: 'laddar' });
     try {
       const rutor = await hamtaLaserRutor(provpunkter(yta.karta.lnglat, yta.innehaller));
-      setLage({ typ: 'klar', s: beraknaKvar({ rutor, uttagPerHa, skordStart }) });
+      setLage({ typ: 'klar', s: beraknaKvar({ rutor, uttagPerHa, uttagStammarPerHa, skordStart }) });
     } catch (e) {
       setLage({ typ: 'fel', text: e instanceof Error ? e.message : 'Laserdatan gick inte att hämta.' });
     }
-  }, [yta, uttagPerHa, skordStart]);
+  }, [yta, uttagPerHa, uttagStammarPerHa, skordStart]);
   useEffect(() => { ladda(); }, [ladda]);
 
   if (lage.typ === 'laddar') {
@@ -91,10 +92,17 @@ export default function KvarEfter({ yta, uttagPerHa, skordStart }: {
   const hog = Math.ceil(s.kvarHog);
   const skanning = s.skanningFran === s.skanningTill ? `${s.skanningFran}` : `${s.skanningFran}–${s.skanningTill}`;
   const ar = Math.round(s.ar);
-  // Skanningsåret och spannet står i raderna — noten säger bara varifrån de kommer, en gång.
+  // Stammar: före avrundas till tiotal (det är en uppskattning), uttaget till hela stammar som i "Hur hårt gallrades det?".
+  const st = s.stammar;
+  const stFore = st ? Math.round(st.fore / 10) * 10 : 0;
+  const stUttag = st ? Math.round(st.uttag) : 0;
+  const stKvar = stFore - stUttag;
+  // Skanningsåret och spannet står i raderna — noten säger bara varifrån talen kommer, en gång.
   const not = [
-    `Före är Skogsstyrelsens laserskanning, uppräknad ${ar} år med ca ${Math.round(TILLVAXT.mitt * 100)} % tillväxt per år`
-      + ` (${Math.round(TILLVAXT.lag * 100)}–${Math.round(TILLVAXT.hog * 100)} % ger spannet under Kvar).`,
+    st ? 'Stammarna före är räknade ur laserns grundyta och medeldiameter vid skanningen och blir hellre för få än för'
+      + ' många – lasern ser inte de minsta träden.' : 'Stammarna före går inte att räkna ur laserdatan för den här trakten.',
+    `Grundytan före är uppräknad ${ar} år med ca ${Math.round(TILLVAXT.mitt * 100)} % tillväxt per år`
+      + ` (${Math.round(TILLVAXT.lag * 100)}–${Math.round(TILLVAXT.hog * 100)} % ger spannet).`,
     'Uttaget mätte skördaren.',
     s.efterRaknasInte > 0 ? `${s.efterRaknasInte} rutor skannades efter gallringen och räknas inte.` : null,
   ].filter(Boolean).join(' ');
@@ -102,10 +110,14 @@ export default function KvarEfter({ yta, uttagPerHa, skordStart }: {
   return (
     <Sektion rubrik={RUBRIK} not={not} inset>
       <div data-kvar="ok">
-        <Rad titel="Före" hoger={`ca ${fmtDecimal(fore, 1)} m²/ha`} under={`Laserskanning ${skanning}`} />
-        <Rad titel="Uttaget" hoger={`${fmtDecimal(uttag, 1)} m²/ha`} under={`${pct(s.uttagAndel)} av grundytan`} />
-        <Rad titel="Kvar" hoger={`ca ${fmtDecimal(kvar, 1)} m²/ha`} hogerUnder={`troligen ${lag}–${hog}`} sista
-          attr={{ 'data-kvar-tal': fmtDecimal(kvar, 1) }} />
+        {st && (
+          <Rad titel="Stammar kvar" hoger={`ca ${fmtAntal(stKvar)} st/ha`}
+            under={`före ca ${fmtAntal(stFore)} · uttaget ${fmtAntal(stUttag)}`}
+            attr={{ 'data-kvar-stammar': String(stKvar) }} />
+        )}
+        <Rad titel="Grundyta kvar" hoger={`ca ${fmtDecimal(kvar, 1)} m²/ha`} hogerUnder={`troligen ${lag}–${hog}`}
+          under={`före ca ${fmtDecimal(fore, 1)} · uttaget ${fmtDecimal(uttag, 1)} · skannad ${skanning}`}
+          sista attr={{ 'data-kvar-tal': fmtDecimal(kvar, 1) }} />
       </div>
     </Sektion>
   );

@@ -28,8 +28,17 @@ export const MAX_GRUNDYTA = 100;
 const DAG_MS = 86_400_000;
 const AR_DAGAR = 365.25;
 
-/** En 10 m-ruta: grundyta m²/ha (null = ingen data) och skanningsdag i dagar sedan 1970 (null/0 = okänt). */
-export type LaserRuta = { g: number | null; dag: number | null };
+/** Rimlighet för en ruta: grundytevägd medeldiameter i cm. */
+export const MAX_DIAMETER_CM = 100;
+/** Rutor med grundyta men utan diameter: över denna andel räknas inga stammar före. */
+export const MAX_ANDEL_UTAN_DIAMETER = 0.2;
+
+/** En 10 m-ruta: grundyta m²/ha (null = ingen data), grundytevägd medeldiameter i cm (`d`, null/0 = okänd) och
+ *  skanningsdag i dagar sedan 1970 (null/0 = okänt). */
+export type LaserRuta = { g: number | null; d?: number | null; dag: number | null };
+
+/** Stammar per hektar före och uttaget. Kvar räknas av vyn ur de avrundade talen, så det går att räkna. */
+export type StammarKvar = { fore: number; uttag: number };
 
 export type KvarSvar =
   | {
@@ -46,6 +55,8 @@ export type KvarSvar =
       ar: number;
       /** Antal rutor som skannats efter skördarens start och därför inte räknas. */
       efterRaknasInte: number;
+      /** Stammar före (ur laserns grundyta och medeldiameter vid skanningen) och uttaget. null = går inte att räkna. */
+      stammar: StammarKvar | null;
     }
   | { lage: 'saknas'; tackning: number }
   | { lage: 'skannad-efter'; skanningAr: number }
@@ -63,6 +74,7 @@ export function rimligRuta(r: LaserRuta, idagDag: number): boolean {
   if (r.g !== null && (!Number.isFinite(r.g) || r.g < 0 || r.g > MAX_GRUNDYTA)) return false;
   // Laserskanningen startade 2009; en dag före det eller i framtiden är inte ett datum.
   if (r.dag !== null && r.dag !== 0 && (r.dag < dagNummer('2009-01-01') || r.dag > idagDag)) return false;
+  if (r.d != null && (!Number.isFinite(r.d) || r.d < 0 || r.d > MAX_DIAMETER_CM)) return false;
   return true;
 }
 
@@ -72,10 +84,12 @@ export function beraknaKvar(ind: {
   uttagPerHa: number;
   /** Första dagen skördaren körde, "YYYY-MM-DD". */
   skordStart: string;
+  /** Skördarens uttagna stammar per hektar på samma yta (null = okänt). */
+  uttagStammarPerHa?: number | null;
 }): KvarSvar {
   const start = dagNummer(ind.skordStart);
   const total = ind.rutor.length;
-  const medData = ind.rutor.filter((r) => r.g !== null) as { g: number; dag: number | null }[];
+  const medData = ind.rutor.filter((r) => r.g !== null) as { g: number; d?: number | null; dag: number | null }[];
   const tackning = total > 0 ? medData.length / total : 0;
   if (total === 0 || tackning < MIN_TACKNING) return { lage: 'saknas', tackning };
 
@@ -121,7 +135,30 @@ export function beraknaKvar(ind: {
     skanningFran: fran, skanningTill: till,
     ar: arSum / arN,
     efterRaknasInte: efter.length,
+    stammar: stammarFore(raknas, ind.uttagStammarPerHa ?? null),
   };
+}
+
+/** Stammar per hektar före gallringen: per ruta grundyta / (π/4 · Dg²), vid SKANNINGEN — antalet stammar växer inte,
+ *  så det räknas aldrig upp. Dg är grundytevägd och lasern ser inte de minsta träden, så talet blir hellre för lågt
+ *  än för högt. null när diametern saknas på för många rutor, eller när uttaget är minst lika stort som före. */
+export function stammarFore(
+  rutor: { g: number; d?: number | null }[],
+  uttag: number | null,
+): StammarKvar | null {
+  if (uttag === null || !Number.isFinite(uttag)) return null;
+  let summa = 0, n = 0, utanD = 0, medG = 0;
+  for (const r of rutor) {
+    if (r.g === 0) { n++; continue; }
+    medG++;
+    if (!r.d || r.d <= 0) { utanD++; continue; }
+    summa += r.g / ((Math.PI / 4) * (r.d / 100) ** 2);
+    n++;
+  }
+  if (n === 0 || medG === 0 || utanD / medG > MAX_ANDEL_UTAN_DIAMETER) return null;
+  const fore = summa / n;
+  if (uttag >= fore) return null;
+  return { fore, uttag };
 }
 
 /** Provpunkter var 10:e meter i den gallrade ytan ([lng, lat]) — servern slår upp rutan varje punkt ligger i. */

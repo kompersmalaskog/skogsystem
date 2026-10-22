@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beraknaKvar, dagNummer, provpunkter, rimligRuta, TILLVAXT, type LaserRuta } from './laserKvar';
+import { beraknaKvar, dagNummer, provpunkter, rimligRuta, stammarFore, TILLVAXT, type LaserRuta } from './laserKvar';
 
 const dag = dagNummer;
 const rutor = (n: number, r: LaserRuta): LaserRuta[] => Array.from({ length: n }, () => ({ ...r }));
@@ -100,5 +100,37 @@ describe('provpunkter', () => {
     expect(alla.length).toBeLessThanOrEqual(121);
     const halva = provpunkter([15, lat0, 15 + dLng, lat0 + dLat], (lng) => lng < 15 + dLng / 2);
     expect(halva.length / alla.length).toBeCloseTo(0.5, 1);
+  });
+});
+
+describe('stammarFore', () => {
+  it('räknar stammar ur grundyta och diameter vid skanningen — utan uppräkning', () => {
+    // 20 m²/ha med Dg 15 cm: 20 / (π/4 · 0,15²) = 1 131,8 st/ha.
+    const s = stammarFore([{ g: 20, d: 15 }, { g: 20, d: 15 }], 400)!;
+    expect(s.fore).toBeCloseTo(20 / ((Math.PI / 4) * 0.15 ** 2), 6);
+    expect(s.uttag).toBe(400);
+  });
+  it('rutor med 0 räknas som 0 stammar i snittet', () => {
+    const s = stammarFore([{ g: 20, d: 15 }, { g: 0, d: null }], 100)!;
+    expect(s.fore).toBeCloseTo(20 / ((Math.PI / 4) * 0.15 ** 2) / 2, 6);
+  });
+  it('för många rutor utan diameter, okänt uttag eller uttag ≥ före → null', () => {
+    expect(stammarFore([{ g: 20, d: 15 }, { g: 20, d: null }, { g: 20, d: 0 }], 100)).toBeNull();
+    expect(stammarFore([{ g: 20, d: 15 }], null)).toBeNull();
+    expect(stammarFore([{ g: 20, d: 15 }], 2000)).toBeNull();
+  });
+  it('går med i svaret från beraknaKvar', () => {
+    const s = beraknaKvar({
+      rutor: Array.from({ length: 10 }, () => ({ g: 20, d: 15, dag: dagNummer('2022-06-01') })),
+      uttagPerHa: 5, uttagStammarPerHa: 400, skordStart: '2026-06-01',
+    });
+    expect(s.lage === 'ok' && s.stammar?.fore).toBeCloseTo(20 / ((Math.PI / 4) * 0.15 ** 2), 6);
+  });
+});
+
+describe('rimligRuta — diameter', () => {
+  it('avvisar en orimlig diameter', () => {
+    expect(rimligRuta({ g: 20, d: 19000, dag: null }, dagNummer('2026-10-22'))).toBe(false);
+    expect(rimligRuta({ g: 20, d: 15, dag: null }, dagNummer('2026-10-22'))).toBe(true);
   });
 });

@@ -244,7 +244,7 @@ function PerHektar({ d }: { d: GallringDetalj }) {
   // Kvar efter gallringen räknas på samma gallrade yta och samma uttag som raderna här.
   const skordStart = d.dagar.map((x) => x.datum).sort()[0];
   const kvar = yta && p.grundytaPerHa !== null && skordStart
-    ? <KvarEfter yta={yta} uttagPerHa={p.grundytaPerHa} skordStart={skordStart} />
+    ? <KvarEfter yta={yta} uttagPerHa={p.grundytaPerHa} uttagStammarPerHa={p.stammarPerHa} skordStart={skordStart} />
     : null;
 
   return (
@@ -255,9 +255,9 @@ function PerHektar({ d }: { d: GallringDetalj }) {
           <Rad titel="Gallrat" hoger={`${fmtDecimal(p.arealHa, 1)} ha`} under={ytaUnder}
             pil={bitar > 0} onTryck={() => setKartaOppen(true)} attr={{ 'data-gallrad-yta': '' }} />
         )}
-        <Rad titel="Volym" hoger={`${fmtDecimal(p.volymPerHa, 1)} m³fub/ha`} />
-        <Rad titel="Stammar" hoger={`${fmtAntal(Math.round(p.stammarPerHa))} st/ha`} />
-        {p.grundytaPerHa !== null && <Rad titel="Grundyta" hoger={`${fmtDecimal(p.grundytaPerHa, 1)} m²/ha`} />}
+        <Rad titel="Uttagen volym" hoger={`${fmtDecimal(p.volymPerHa, 1)} m³fub/ha`} />
+        <Rad titel="Uttagna stammar" hoger={`${fmtAntal(Math.round(p.stammarPerHa))} st/ha`} />
+        {p.grundytaPerHa !== null && <Rad titel="Uttagen grundyta" hoger={`${fmtDecimal(p.grundytaPerHa, 1)} m²/ha`} />}
         {sv.lage === 'ok' ? (
           <Rad titel="Stickvägar" hoger={`ca ${fmtPct(sv.andel)}`} hogerUnder={`ca ${Math.round(sv.avstandM)} m isär`} sista
             attr={{ 'data-stickvag': 'ok' }} />

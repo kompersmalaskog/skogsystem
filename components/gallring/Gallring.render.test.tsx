@@ -295,7 +295,7 @@ describe('trakten', () => {
     hamtaPerHa.mockResolvedValue({ ...PER_HA, arealHa: yta.gallradHa, vidaHa: yta.vidaHa, yta, grundytaPerHa: 7.24 });
     // Skannat 2022-10-12, exakt 4 år före skördarens första dag (DETALJ.dagar: 2026-10-12).
     const dag = Math.floor(Date.parse('2022-10-12T00:00:00Z') / 86_400_000);
-    hamtaLaserRutor.mockResolvedValue(Array.from({ length: 20 }, () => ({ g: 22, dag })));
+    hamtaLaserRutor.mockResolvedValue(Array.from({ length: 20 }, () => ({ g: 22, d: 15, dag })));
     const h = await montera(createElement(Trakt, { vo: '11183108' }));
     await act(async () => { await Promise.resolve(); });
     // Provpunkterna ligger i den gallrade ytan.
@@ -307,14 +307,24 @@ describe('trakten', () => {
     const t = kort.textContent!.replace(/\u00a0/g, ' ');
     // 22 × 1,03^4 = 24,76 → 24,8; uttag 7,24 → 7,2; kvar = 24,8 − 7,2 = 17,6 — det som står går att räkna.
     // (Det oavrundade 24,76 − 7,24 = 17,52 skulle visas 17,5 och inte gå ihop med raderna ovanför.)
-    expect(t).toContain('ca 24,8 m²/ha');
-    expect(t).toContain('7,2 m²/ha');
+    expect(t).toContain('före ca 24,8');
+    expect(t).toContain('uttaget 7,2');
     expect(t).toContain('ca 17,6 m²/ha');
     expect(t).toMatch(/troligen 16–19/);
-    expect(t).toContain('Laserskanning 2022');
-    expect(h.textContent).toContain('uppräknad 4 år med ca 3 % tillväxt per år (2–4 % ger spannet under Kvar)');
+    expect(t).toContain('skannad 2022');
+    // Stammar kvar står FÖRST: 22 / (π/4 · 0,15²) = 1 244,9 → före ca 1 240; uttaget 347 (PER_HA); kvar 1 240 − 347 = 893.
+    // Antalet stammar räknas aldrig upp — det är laserns tal vid skanningen.
+    const rader = kort.querySelectorAll('[data-kvar-stammar], [data-kvar-tal]');
+    expect(rader[0].getAttribute('data-kvar-stammar')).toBe('893');
+    expect(t).toContain('före ca 1 240 · uttaget 347');
+    expect(t).toContain('ca 893 st/ha');
+    expect(h.textContent).toContain('uppräknad 4 år med ca 3 % tillväxt per år (2–4 % ger spannet)');
+    expect(h.textContent).toContain('hellre för få än för många');
     // Skanningsåret står en gång (i raden), inte också i noten.
     expect(h.textContent!.split('2022').length - 1).toBe(1);
+    // Uttaget heter uttaget — "333 st/ha" ska aldrig gå att läsa som det som står kvar.
+    expect(h.textContent).toContain('Uttagna stammar');
+    expect(h.textContent).toContain('Uttagen grundyta');
     expect(h.textContent).toContain('Uttaget mätte skördaren');
   });
 

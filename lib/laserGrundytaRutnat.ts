@@ -41,11 +41,12 @@ export function utsnitt(xy: [number, number][]): Utsnitt | null {
 /** Ett tal ur rastret som "ingen data": nodata-värdet, NaN eller negativt. */
 const saknas = (v: number, nodata: number | null) => !Number.isFinite(v) || v < 0 || (nodata !== null && v === nodata);
 
-/** Slår upp rutan för varje punkt (en gång per ruta). Banden är grundyta och skanningsdag, rad 0 = norr. */
+/** Slår upp rutan för varje punkt (en gång per ruta). Banden är grundyta, medeldiameter och skanningsdag, rad 0 = norr. */
 export function slaUpp(
   xy: [number, number][],
   u: Utsnitt,
   grundyta: ArrayLike<number>,
+  diameter: ArrayLike<number>,
   dag: ArrayLike<number>,
   nodata: number | null,
 ): LaserRuta[] {
@@ -58,9 +59,10 @@ export function slaUpp(
     const i = rad * u.bredd + kol;
     if (sett.has(i)) continue;
     sett.add(i);
-    const g = grundyta[i], d = dag[i];
+    const g = grundyta[i], dia = diameter[i], d = dag[i];
     ut.push({
       g: saknas(g, nodata) ? null : g,
+      d: saknas(dia, nodata) || dia === 0 ? null : dia,
       dag: saknas(d, nodata) || d === 0 ? null : Math.round(d),
     });
   }
