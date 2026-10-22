@@ -73,7 +73,7 @@ if (lage === "snabb") {
     ["lib: Lantmäteri-paret tänds även när Vida har levererat (två stilar samtidigt)", "lm: (lagerPa && !i.harVidaData && i.geometriLast)", "lm: (lagerPa && i.geometriLast)", KA],
     ["lib: Lantmäteri-paret följer inte lagerknappen", "lm: (lagerPa && !i.harVidaData && i.geometriLast)", "lm: (!i.harVidaData && i.geometriLast)", KA],
     ["lib: Lantmäteri-paret ritas innan geometrin är läst (blinkar)", "lm: (lagerPa && !i.harVidaData && i.geometriLast)", "lm: (lagerPa && !i.harVidaData)", KA],
-    ["hook: ett sparat läge från första versionen (utan märke) behålls som ett val", "if (s.fastighetsgransVal !== true) ut.fastighetsgrans = DEFAULT_MAP_LAYERS.fastighetsgrans", "", HK],
+    ["hook: ett sparat läge från första versionen (utan märke) behålls som ett val", "s.fastighetsgransVal === true ? s.fastighetsgrans === true : DEFAULT_MAP_LAYERS.fastighetsgrans", "s.fastighetsgrans === true", HK],
     ["hook: standardvärdet är på", "  fastighetsgrans: false,", "  fastighetsgrans: true,", HK],
     ["hook: märket skrivs inte, så nollningen upprepas varje start", "  ut.fastighetsgransVal = true\n", "", HK],
     ["sidan: körvyns whitelist tvingar rågången synlig med lagret släckt", "if (l.id.startsWith('trakt-ragang-') || l.id.startsWith('wms-layer-fastighetsgranser')) continue;\n", "", PG],
