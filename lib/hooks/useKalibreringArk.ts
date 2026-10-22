@@ -43,12 +43,13 @@ export function useKalibreringArk(speciesData: Record<string, ArtSnitt>) {
     if (!data.stockar.some(st => st.stam_nummer === stamNummer)) return;
     lagg({ typ: 'stam', data, stamNummer });
   }, [lagg]);
+  const oppnaPlan = useCallback((data: KontrollResponse, stamNummer: number) => lagg({ typ: 'plan', data, stamNummer }), [lagg]);
   const oppnaStock = useCallback((data: KontrollResponse, stockId: number) => lagg({ typ: 'stock', data, stockId }), [lagg]);
   const oppnaSenasteStock = useCallback((stock: DetaljKontrollStock) => lagg({ typ: 'seStock', stock }), [lagg]);
   const oppnaArt = useCallback((art: string) => { if (speciesData[art]) lagg({ typ: 'art', art }); }, [lagg, speciesData]);
   const oppnaDag = useCallback((dag: CalDag) => lagg({ typ: 'dag', dag }), [lagg]);
 
-  return { ...stapel, laddarKontroll, oppnaKontroll, oppnaStam, oppnaStock, oppnaSenasteStock, oppnaArt, oppnaDag };
+  return { ...stapel, laddarKontroll, oppnaKontroll, oppnaStam, oppnaPlan, oppnaStock, oppnaSenasteStock, oppnaArt, oppnaDag };
 }
 
 export type KalibreringArk = ReturnType<typeof useKalibreringArk>;
