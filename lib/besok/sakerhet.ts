@@ -25,7 +25,8 @@ export function sakerhetsRader(a: { roller: MaskinRoll[]; harMotorsag: boolean }
   return rader.slice(0, 3);
 }
 
-/** Arkets enda text — inga nya regler i arket. */
+/** Arkets rubrik beskriver bara bilden (ingen ny regel), och dess enda text förklarar varför raden finns — inga nya regler i arket. */
+export const SKOTARARK_RUBRIK = 'Skotaren sedd uppifrån';
 export const SKOTARARK_TEXT = 'När skotaren backar med lass ser föraren ingenting bakom sig.';
 
 export const ROLL_NAMN: Record<MaskinRoll, string> = { skordare: 'Skördare', skotare: 'Skotare' };

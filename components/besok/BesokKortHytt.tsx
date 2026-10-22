@@ -16,8 +16,7 @@ export default function BesokKortHytt({ besok, fler, sparar, fel, onUppfattat, t
 }) {
   return (
     <div data-testid="besok-kort" role="alert" style={{ position: 'fixed', left: AVSTAND.m, right: AVSTAND.m, top, zIndex: 130, maxWidth: 520, margin: '0 auto', background: FARG.orange, color: FARG.bg, borderRadius: RADIE.kort, padding: AVSTAND.l }}>
-      <div style={{ ...TYP.micro }}>Besök på trakten</div>
-      <div data-testid="besok-kort-rubrik" style={{ ...TYP.rubrik, marginTop: AVSTAND.xs, overflowWrap: 'anywhere' }}>{besokRubrik(besok.namn, kommerText(besok.besokstid))}</div>
+      <div data-testid="besok-kort-rubrik" style={{ ...TYP.rubrik, overflowWrap: 'anywhere' }}>{besokRubrik(besok.namn, kommerText(besok.besokstid))}</div>
       <a data-testid="besok-kort-tel" href={`tel:${besok.telefon.replace(/[^\d+]/g, '')}`} style={{ display: 'inline-block', marginTop: AVSTAND.xs, ...TYP.listtitel, color: FARG.bg, textDecoration: 'underline' }}>{besok.telefon}</a>
       <button type="button" data-testid="besok-kort-uppfattat" onClick={onUppfattat} disabled={sparar}
         style={{ display: 'block', width: '100%', minHeight: BESOK_KORT_MIN_KNAPP_PX, marginTop: AVSTAND.m, border: 'none', borderRadius: RADIE.knapp, background: FARG.bg, color: FARG.text, ...TYP.listtitel, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation', opacity: sparar ? 0.6 : 1 }}>

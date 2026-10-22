@@ -12,7 +12,7 @@ import Falt from '@/components/design/Falt';
 import Flikkontroll from '@/components/design/Flikkontroll';
 import SkotarBild from './SkotarBild';
 import type { KartaData } from './BesokKarta';
-import { HUVUDREGEL, SKOTARARK_TEXT, sakerhetsRader, type MaskinRoll } from '@/lib/besok/sakerhet';
+import { HUVUDREGEL, SKOTARARK_RUBRIK, SKOTARARK_TEXT, sakerhetsRader, type MaskinRoll } from '@/lib/besok/sakerhet';
 import { klockslag } from '@/lib/besok/tid';
 import { VANTAR_TEXT, kvitteringsRader } from '@/lib/besok/status';
 import { PUBLIK_POLL_MS } from '@/lib/besok/konstanter';
@@ -175,7 +175,7 @@ export default function BesokKlient({ token }: { token: string }) {
         <AnmalForm token={token} onStang={() => setFormOppen(false)} onSkickat={(id) => { sparaAnmalan(token, id); setBesokId(id); setFormOppen(false); }} />
       )}
       {skotarArk && (
-        <Ark rubrik="Gå aldrig bakom skotaren" stang="Klar" onStang={() => setSkotarArk(false)}>
+        <Ark rubrik={SKOTARARK_RUBRIK} stang="Klar" onStang={() => setSkotarArk(false)}>
           <div data-testid="besok-skotarark">
             <SkotarBild />
             <p style={{ margin: `${AVSTAND.l}px 0 ${AVSTAND.m}px`, ...TYP.kommentar }}>{SKOTARARK_TEXT}</p>

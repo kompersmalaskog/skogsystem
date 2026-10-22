@@ -34,8 +34,7 @@ export default function SkotarBild() {
         <rect x="88" y="100" width="92" height="46" rx="5" fill="#2e7d32" stroke="#0b1d0c" strokeWidth="2" />
         {[0, 1, 2, 3].map((i) => <line key={i} x1={100 + i * 22} y1="104" x2={100 + i * 22} y2="142" stroke="#0b1d0c" strokeWidth="2" opacity="0.6" />)}
         <rect x="186" y="104" width="50" height="38" rx="8" fill="#e0b84a" stroke="#0b1d0c" strokeWidth="2" />
-        <rect x="214" y="109" width="16" height="28" rx="4" fill="#1b2a17" opacity="0.85" />
-        <text x="204" y="128" textAnchor="middle" fontSize="11" fontWeight="600" fill="#0b1d0c">Hytt</text>
+        <text x="211" y="128" textAnchor="middle" fontSize="12" fontWeight="700" fill="#0b1d0c">Hytt</text>
         <line x1="176" y1="112" x2="244" y2="82" stroke="#0b1d0c" strokeWidth="5" strokeLinecap="round" />
         <circle cx="244" cy="82" r="5" fill="#0b1d0c" />
       </g>

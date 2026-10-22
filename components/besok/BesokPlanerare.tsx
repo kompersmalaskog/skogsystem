@@ -24,6 +24,10 @@ export interface BesokPlanerareProps {
   pagaendeStartad: string | null;
   /** påminnelsen öppnade kortet: SMS-raden rullas fram och markeras */
   fokusSms?: boolean;
+  /** Bara för test: hur sms:-länken öppnas och vilken adress länken till markägaren byggs på. Standard: Meddelanden via window.location och den adress appen körs på. */
+  navigera?: (href: string) => void;
+  oppnaSida?: (url: string) => void;
+  origin?: string;
 }
 
 /** sms:-länk — med nummer om det finns, annars utan mottagare (planeraren skriver numret själv i Meddelanden). */
@@ -62,7 +66,7 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
 
   function skicka() {
     if (!d.lank || !d.lank.aktiv || avslutat) return;
-    const lank = besoksUrl(window.location.origin, d.lank.token);
+    const lank = besoksUrl(p.origin ?? window.location.origin, d.lank.token);
     const text = besokSmsText({
       markagare: p.markagare, fastighet: p.fastighet,
       nar: narOrd({ planeradStart: p.planeradStart, faktiskStart: p.faktiskStart, pagaendeStartad: p.pagaendeStartad, status: p.status }),
@@ -71,7 +75,7 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
     const href = smsLank(p.markagareTel, text, arIos(navigator.userAgent, navigator.maxTouchPoints));
     // Loggen först (fire-and-forget: ett fel där får aldrig stoppa SMS:et), sedan Meddelanden — i samma tryck.
     void d.loggaSms({ avsandareId: d.avsandare?.id ?? null, mottagareNamn: fornamnMark ?? (p.markagare?.trim() || null), mottagareNummer: telNummer(p.markagareTel) });
-    window.location.href = href;
+    (p.navigera ?? ((h: string) => { window.location.href = h; }))(href);
   }
 
   async function vaxlaLank() {
@@ -91,7 +95,7 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
             onTryck={() => (lankKlar ? skicka() : setMeddelande(avslutat ? 'Trakten är avslutad.' : 'Länken är inte klar än.'))} />
         </div>
         <RadKnapp testid="kort-besok-sida" ikon="open_in_new" etikett="Visa som markägaren" under="Öppnar besökssidan"
-          onTryck={() => { if (d.lank && !avslutat) window.open(besoksUrl(window.location.origin, d.lank.token), '_blank', 'noopener'); }} />
+          onTryck={() => { if (d.lank && !avslutat) { const url = besoksUrl(p.origin ?? window.location.origin, d.lank.token); (p.oppnaSida ?? ((u: string) => { window.open(u, '_blank', 'noopener'); }))(url); } }} />
         <RadKnapp testid="kort-besok-lank" ikon="link" etikett="Länk till markägaren" pil={false}
           hoger={<span data-testid="kort-besok-lank-lage" style={{ ...TYP.listtitel, color: d.lank?.aktiv ? FARG.gron : FARG.text2 }}>{d.lank ? (d.lank.aktiv ? 'På' : 'Av') : '…'}</span>}
           onTryck={vaxlaLank} />

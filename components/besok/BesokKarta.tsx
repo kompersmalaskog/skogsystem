@@ -8,7 +8,10 @@ import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { cirkelPolygon } from '@/lib/telefonGps';
 import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
-import { FARG } from '@/lib/design/tokens';
+import { AVSTAND, FARG } from '@/lib/design/tokens';
+
+/** Skogsgrönt bakom flygfotot medan rutorna laddas (en kartfärg, ingen UI-färg). */
+const KART_BAKGRUND = '#1b2a17';
 import { ROLL_NAMN, type MaskinRoll } from '@/lib/besok/sakerhet';
 
 export type KartMaskin = { roll: MaskinRoll; lat: number; lng: number };
@@ -40,7 +43,7 @@ function passa(map: maplibregl.Map, d: KartaData) {
   for (const r of d.gran ?? []) for (const p of r) { b.extend(p as [number, number]); n++; }
   for (const m of d.maskiner) { b.extend([m.lng, m.lat]); n++; }
   if (n === 0) { if (d.mitt) map.jumpTo({ center: [d.mitt.lng, d.mitt.lat], zoom: 15 }); return; }
-  map.fitBounds(b, { padding: 40, maxZoom: 17, duration: 0 });
+  map.fitBounds(b, { padding: AVSTAND.xxl + AVSTAND.s, maxZoom: 17, duration: 0 });
 }
 
 export default function BesokKarta({ data, hojd = 340 }: { data: KartaData; hojd?: number }) {
@@ -63,7 +66,7 @@ export default function BesokKarta({ data, hojd = 340 }: { data: KartaData; hojd
       style: {
         version: 8,
         sources: { foto: { type: 'raster', tiles: [`${location.origin}/api/besok/${senaste.current.token}/karta?z={z}&x={x}&y={y}`], tileSize: 256, maxzoom: 18, attribution: '© Lantmäteriet' } },
-        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#1b2a17' } }, { id: 'foto', type: 'raster', source: 'foto', paint: { 'raster-brightness-max': 0.85 } }],
+        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': KART_BAKGRUND } }, { id: 'foto', type: 'raster', source: 'foto', paint: { 'raster-brightness-max': 0.85 } }],
       },
     });
     kartaRef.current = map;
@@ -105,5 +108,5 @@ export default function BesokKarta({ data, hojd = 340 }: { data: KartaData; hojd
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.gran, data.maskiner, data.motorsag, data.ringM]);
 
-  return <div ref={behallare} data-testid="besok-karta" style={{ width: '100%', height: hojd, borderRadius: 12, overflow: 'hidden', background: '#1b2a17' }} />;
+  return <div ref={behallare} data-testid="besok-karta" style={{ width: '100%', height: hojd, borderRadius: 12, overflow: 'hidden', background: KART_BAKGRUND }} />;
 }
