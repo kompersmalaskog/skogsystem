@@ -688,6 +688,7 @@ function SkotareOperatorDeepView({
   return (
     <div
       role="dialog"
+      className="mv-djup"
       aria-label={`Förare: ${operator.namn}`}
       style={{
         position: 'fixed', top: 'calc(56px + env(safe-area-inset-top))', left: 0, right: 0, bottom: 0,
@@ -894,6 +895,7 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
         {/* Maskin-dropdown */}
         <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.l}px`, textAlign: 'center', position: 'relative' }}>
           <button
+            className="mv-maskinval"
             onClick={() => setMaskinOpen(o => !o)}
             aria-expanded={maskinOpen}
             style={{
@@ -904,7 +906,7 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
             }}
           >
             {maskin.namn}
-            <span style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
+            <span className="mv-maskinval-pil" style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
           </button>
 
           {maskinOpen && (
