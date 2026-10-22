@@ -27,6 +27,10 @@ vi.mock('@/lib/gallring', async (orig) => ({
   sparaYtaSvar: (vo: string, nyckel: string, svar: string | null) => sparaYtaSvar(vo, nyckel, svar),
 }));
 
+// Laserdatan (Skogsstyrelsen) nås aldrig från testet: rutorna kommer härifrån.
+const hamtaLaserRutor = vi.fn<(p: [number, number][]) => Promise<{ g: number | null; dag: number | null }[]>>();
+vi.mock('@/lib/laserGrundyta', () => ({ hamtaLaserRutor: (p: [number, number][]) => hamtaLaserRutor(p) }));
+
 import GallringRam from './GallringRam';
 import Trakt from './Trakt';
 
@@ -46,7 +50,7 @@ afterEach(async () => {
   if (root) await act(async () => { root!.unmount(); });
   host?.remove(); root = null; host = null;
   document.body.innerHTML = '';
-  hamtaGallringar.mockReset(); hamtaGallring.mockReset(); hamtaPerHa.mockReset(); sparaYtaSvar.mockReset();
+  hamtaGallringar.mockReset(); hamtaGallring.mockReset(); hamtaPerHa.mockReset(); sparaYtaSvar.mockReset(); hamtaLaserRutor.mockReset();
   sokvag = '/gallring';
 });
 
@@ -138,7 +142,10 @@ const PER_HA: PerHa = {
 };
 
 describe('trakten', () => {
-  beforeEach(() => { hamtaPerHa.mockResolvedValue(PER_HA); });
+  beforeEach(() => {
+    hamtaPerHa.mockResolvedValue(PER_HA);
+    hamtaLaserRutor.mockResolvedValue([]);
+  });
 
   it('svaret först, status i ord, maskinens namn och ingen kvittoknapp medan den pågår', async () => {
     hamtaGallring.mockResolvedValue(DETALJ);
@@ -280,6 +287,77 @@ describe('trakten', () => {
     await act(async () => { foto.click(); });
     expect(foto.getAttribute('aria-checked')).toBe('false');
     expect(JSON.parse(window.localStorage.getItem('gallring_karta_lager_v1')!)).toEqual({ flygfoto: false, stammar: true });
+  });
+
+  it('kvar efter gallringen: före − uttaget = kvar, går att räkna med det som står, och spannet syns', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const yta = ytaMedBitUtanfor();
+    hamtaPerHa.mockResolvedValue({ ...PER_HA, arealHa: yta.gallradHa, vidaHa: yta.vidaHa, yta, grundytaPerHa: 7.24 });
+    // Skannat 2022-10-12, exakt 4 år före skördarens första dag (DETALJ.dagar: 2026-10-12).
+    const dag = Math.floor(Date.parse('2022-10-12T00:00:00Z') / 86_400_000);
+    hamtaLaserRutor.mockResolvedValue(Array.from({ length: 20 }, () => ({ g: 22, dag })));
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    await act(async () => { await Promise.resolve(); });
+    // Provpunkterna ligger i den gallrade ytan.
+    const punkter = hamtaLaserRutor.mock.calls[0][0];
+    expect(punkter.length).toBeGreaterThan(0);
+    expect(punkter.every(([lng, lat]) => yta.innehaller(lng, lat))).toBe(true);
+
+    const kort = h.querySelector('[data-kvar="ok"]') as HTMLElement;
+    const t = kort.textContent!.replace(/\u00a0/g, ' ');
+    // 22 × 1,03^4 = 24,76 → 24,8; uttag 7,24 → 7,2; kvar = 24,8 − 7,2 = 17,6 — det som står går att räkna.
+    // (Det oavrundade 24,76 − 7,24 = 17,52 skulle visas 17,5 och inte gå ihop med raderna ovanför.)
+    expect(t).toContain('ca 24,8 m²/ha');
+    expect(t).toContain('7,2 m²/ha');
+    expect(t).toContain('ca 17,6 m²/ha');
+    expect(t).toMatch(/troligen 16–19/);
+    expect(t).toContain('Laserskanning 2022');
+    expect(h.textContent).toContain('uppräknad 4 år med ca 3 % tillväxt per år (2–4 % ger spannet under Kvar)');
+    // Skanningsåret står en gång (i raden), inte också i noten.
+    expect(h.textContent!.split('2022').length - 1).toBe(1);
+    expect(h.textContent).toContain('Uttaget mätte skördaren');
+  });
+
+  it('kvar: läsfel är ett fel med Försök igen, och utan underlag sägs varför — aldrig ett tal', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const yta = ytaMedBitUtanfor();
+    hamtaPerHa.mockResolvedValue({ ...PER_HA, arealHa: yta.gallradHa, vidaHa: yta.vidaHa, yta, grundytaPerHa: 7 });
+    const dagFore = Math.floor(Date.parse('2021-06-01T00:00:00Z') / 86_400_000);
+    hamtaLaserRutor.mockRejectedValueOnce(new Error('Skogsstyrelsen svarade inte i tid.'))
+      .mockResolvedValueOnce(Array.from({ length: 10 }, () => ({ g: 20, dag: dagFore })));
+    let h = await montera(createElement(Trakt, { vo: '11183108' }));
+    await act(async () => { await Promise.resolve(); });
+    const fel = h.querySelector('[data-kvar-fel]') as HTMLElement;
+    expect(fel.textContent).toContain('Kunde inte hämta laserdatan');
+    expect(h.querySelector('[data-kvar-tal]')).toBeNull();
+    await act(async () => { (fel.querySelector('button') as HTMLElement).click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(h.querySelector('[data-kvar="ok"]')).not.toBeNull();
+
+    const fall: [{ g: number | null; dag: number | null }[], string, string][] = [
+      [Array.from({ length: 10 }, () => ({ g: null, dag: null })), 'saknas', 'ingen laserdata'],
+      [Array.from({ length: 10 }, () => ({ g: 12, dag: dagFore + 2000 })), 'skannad-efter', 'efter att skördaren började'],
+      [Array.from({ length: 10 }, () => ({ g: 3, dag: dagFore })), 'stammer-inte', 'tog ut mer än'],
+    ];
+    for (const [rutor, lage, text] of fall) {
+      if (root) await act(async () => { root!.unmount(); });
+      document.body.innerHTML = '';
+      hamtaLaserRutor.mockResolvedValue(rutor);
+      h = await montera(createElement(Trakt, { vo: '11183108' }));
+      await act(async () => { await Promise.resolve(); });
+      const el = h.querySelector(`[data-kvar="${lage}"]`) as HTMLElement;
+      expect(el, lage).not.toBeNull();
+      expect(el.textContent).toContain(text);
+      expect(h.querySelector('[data-kvar-tal]')).toBeNull();
+    }
+  });
+
+  it('kvar visas inte utan stampositioner (ingen gallrad yta) — och laserdatan hämtas inte', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    await act(async () => { await Promise.resolve(); });
+    expect(h.querySelector('[data-kvar]')).toBeNull();
+    expect(hamtaLaserRutor).not.toHaveBeenCalled();
   });
 
   it('ett svar sparas och talen läses om; utan tabellen sparas inget och det sägs', async () => {
