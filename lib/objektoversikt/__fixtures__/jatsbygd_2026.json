@@ -1,0 +1,52 @@
+{
+  "_kalla": "Prod 2026-10-22, read-only: objekt Jätsbygd au 2026 och dess rader i fakt_tid, maskin_flytt, skotare_objekt_manuell och summan av fakt_produktion (objekt_id 11217392 + A130743_7).",
+  "objekt": {"id":"1faf7a48-93be-4b17-aeb4-b89090e9047f","namn":"Jätsbygd au 2026","vo_nummer":"11217392","dim_objekt_id":null,"status":"avslutat","typ":"slutavverkning","bolag":"Vida","volym":1738,"areal":7.3,"manuell_prognos":{"skotare":"72","skordare":"56"},"avslutad_timestamp":"2026-08-10T15:35:08.919+00:00","barighet":"dalig","terrang":"flackt","skotningsavstand":null,"skordare_band":true,"skotare_band":true,"skotare_extra_vagn":true,"skotare_lastreder_breddat":false,"transport_trailer_in":true,"skordare_manuell_fallning":true,"skordare_manuell_fallning_text":null,"cert":"FSC PEFC","anteckningar":"Spara ca 50 tallar per ha.","forardirektiv":null,"info_anteckningar":null,"markagare_ska_ha_ved":true,"markagare_ved_text":"Bränsle och lövet ska vara ved och avverkas i fallande men sortera det bränsle och björk för sig för om det blir mycket ska han sälja en del","grot":false,"grot_status":"ej_aktuellt","skordare_maskin_id":"PONS20SDJAA270231","skotare_maskin_id":"A030353"},
+  "dim": [
+    {"objekt_id":"11217392","vo_nummer":"11217392","skordning_avslutad":"2026-08-10","skotning_avslutad":"2026-08-21","egen_skotning":false,"grot_hamtad":null},
+    {"objekt_id":"A130743_7","vo_nummer":"11217392","skordning_avslutad":null,"skotning_avslutad":"2026-08-21","egen_skotning":false,"grot_hamtad":null}
+  ],
+  "tid": [
+    {"datum":"2026-08-03","maskin_id":"PONS20SDJAA270231","objekt_id":"11217392","processing_sek":9958,"terrain_sek":375,"other_work_sek":0,"bransle_liter":61.5},
+    {"datum":"2026-08-04","maskin_id":"PONS20SDJAA270231","objekt_id":"11217392","processing_sek":36271,"terrain_sek":120,"other_work_sek":0,"bransle_liter":214},
+    {"datum":"2026-08-05","maskin_id":"PONS20SDJAA270231","objekt_id":"11217392","processing_sek":33990,"terrain_sek":435,"other_work_sek":0,"bransle_liter":197},
+    {"datum":"2026-08-06","maskin_id":"PONS20SDJAA270231","objekt_id":"11217392","processing_sek":32525,"terrain_sek":450,"other_work_sek":0,"bransle_liter":191.5},
+    {"datum":"2026-08-07","maskin_id":"PONS20SDJAA270231","objekt_id":"11217392","processing_sek":35441,"terrain_sek":735,"other_work_sek":0,"bransle_liter":203},
+    {"datum":"2026-08-10","maskin_id":"PONS20SDJAA270231","objekt_id":"11217392","processing_sek":22644,"terrain_sek":2655,"other_work_sek":0,"bransle_liter":153.5},
+    {"datum":"2026-08-10","maskin_id":"PONS20SDJAA270231","objekt_id":"11217392","processing_sek":0,"terrain_sek":0,"other_work_sek":0,"bransle_liter":2},
+    {"datum":"2026-08-11","maskin_id":"A030353","objekt_id":"11217392","processing_sek":10038,"terrain_sek":1873,"other_work_sek":0,"bransle_liter":32},
+    {"datum":"2026-08-12","maskin_id":"A030353","objekt_id":"11217392","processing_sek":23044,"terrain_sek":3496,"other_work_sek":56,"bransle_liter":75},
+    {"datum":"2026-08-13","maskin_id":"A030353","objekt_id":"11217392","processing_sek":19937,"terrain_sek":5205,"other_work_sek":0,"bransle_liter":80},
+    {"datum":"2026-08-13","maskin_id":"A130743","objekt_id":"A130743_7","processing_sek":9480,"terrain_sek":5820,"other_work_sek":182,"bransle_liter":51},
+    {"datum":"2026-08-14","maskin_id":"A030353","objekt_id":"11217392","processing_sek":25414,"terrain_sek":4442,"other_work_sek":0,"bransle_liter":91},
+    {"datum":"2026-08-14","maskin_id":"A130743","objekt_id":"A130743_7","processing_sek":10635,"terrain_sek":6822,"other_work_sek":1670,"bransle_liter":65},
+    {"datum":"2026-08-17","maskin_id":"A030353","objekt_id":"11217392","processing_sek":28807,"terrain_sek":12263,"other_work_sek":0,"bransle_liter":133},
+    {"datum":"2026-08-17","maskin_id":"A130743","objekt_id":"A130743_7","processing_sek":15726,"terrain_sek":7440,"other_work_sek":1847,"bransle_liter":82},
+    {"datum":"2026-08-18","maskin_id":"A030353","objekt_id":"11217392","processing_sek":27255,"terrain_sek":5989,"other_work_sek":0,"bransle_liter":101},
+    {"datum":"2026-08-18","maskin_id":"A030353","objekt_id":"11217392","processing_sek":10798,"terrain_sek":2086,"other_work_sek":0,"bransle_liter":42},
+    {"datum":"2026-08-18","maskin_id":"A130743","objekt_id":"A130743_7","processing_sek":16875,"terrain_sek":11010,"other_work_sek":14,"bransle_liter":100},
+    {"datum":"2026-08-19","maskin_id":"A030353","objekt_id":"11217392","processing_sek":7714,"terrain_sek":4458,"other_work_sek":40,"bransle_liter":42},
+    {"datum":"2026-08-19","maskin_id":"A030353","objekt_id":"11217392","processing_sek":21373,"terrain_sek":5495,"other_work_sek":1842,"bransle_liter":81},
+    {"datum":"2026-08-19","maskin_id":"A130743","objekt_id":"A130743_7","processing_sek":14493,"terrain_sek":12466,"other_work_sek":990,"bransle_liter":86},
+    {"datum":"2026-08-20","maskin_id":"A030353","objekt_id":"11217392","processing_sek":0,"terrain_sek":0,"other_work_sek":76,"bransle_liter":0},
+    {"datum":"2026-08-20","maskin_id":"A130743","objekt_id":"A130743_7","processing_sek":20505,"terrain_sek":9931,"other_work_sek":8,"bransle_liter":105},
+    {"datum":"2026-08-21","maskin_id":"A130743","objekt_id":"A130743_7","processing_sek":11081,"terrain_sek":2521,"other_work_sek":5026,"bransle_liter":73}
+  ],
+  "manuell": [
+    {"objekt_id":"11217392","maskin_id":"A030353","g15_timmar":null},
+    {"objekt_id":"A130743_7","maskin_id":"A130743","g15_timmar":null}
+  ],
+  "flytt": [
+    {"id":"00ebbfa8-0394-4b04-8618-2d12d981edad","maskin_id":"PONS20SDJAA270231","extern_maskin":null,"till_objekt_id":"1faf7a48-93be-4b17-aeb4-b89090e9047f","fran_objekt_id":"7bed9177-1aac-4d31-aad0-99c3724ad808","fran_plats_id":null,"starttid":"2026-08-03T10:07:00+00:00","sluttid":"2026-08-03T11:06:00+00:00","hamtad_tid":"2026-08-03T10:19:44+00:00","avbruten":false,"tid_flytt_min":46,"flytt_km":27.2},
+    {"id":"cac55472-7e1c-4a8d-950d-593645b1e7c6","maskin_id":"A030353","extern_maskin":null,"till_objekt_id":"1faf7a48-93be-4b17-aeb4-b89090e9047f","fran_objekt_id":"e94dc438-6973-4800-8cae-586a9350ed90","fran_plats_id":null,"starttid":"2026-08-10T16:52:10+00:00","sluttid":"2026-08-11T10:27:00+00:00","hamtad_tid":"2026-08-11T09:44:12+00:00","avbruten":false,"tid_flytt_min":43,"flytt_km":12.9}
+  ],
+  "franObjekt": [
+    {"id":"7bed9177-1aac-4d31-aad0-99c3724ad808","namn":"Åbogen RP 2026"},
+    {"id":"e94dc438-6973-4800-8cae-586a9350ed90","namn":"Sandåsen gallring 2025"}
+  ],
+  "maskiner": [
+    {"maskin_id":"A030353","visningsnamn":"Wisent","maskin_typ":"Forwarder"},
+    {"maskin_id":"A130743","visningsnamn":"Elefant 26","maskin_typ":"Forwarder"},
+    {"maskin_id":"PONS20SDJAA270231","visningsnamn":"Giant","maskin_typ":"Harvester"}
+  ],
+  "produktion": {"volym_m3sub":1400.8219,"stammar":4659,"maskin_id":"PONS20SDJAA270231","objekt_id":"11217392"}
+}
