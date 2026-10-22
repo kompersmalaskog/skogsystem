@@ -90,7 +90,7 @@ export default function TidsDiagram({ manader, series, yMax, kravLinje, kravBand
         })}
         {serieEl}
         {manader.map((m, i) => (i % step === 0 || i === manader.length - 1
-          ? <text key={m} x={xFor(i)} y={H - 6} {...etikett} textAnchor="middle">{fmtX(m)}</text>
+          ? <text key={m} x={xFor(i)} y={H - 6} {...etikett} textAnchor={i === manader.length - 1 && manader.length > 1 ? 'end' : 'middle'}>{fmtX(m)}</text>
           : null))}
       </svg>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: AVSTAND.m, marginTop: AVSTAND.s }}>
