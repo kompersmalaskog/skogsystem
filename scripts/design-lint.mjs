@@ -126,6 +126,7 @@ export const SKARPA = [
   "app/maskinvy/SortimentKort.tsx",
   "app/maskinvy/Livestatus.tsx",
   "app/maskinvy/DagensObjekt.tsx",
+  "app/maskinvy/Sidolista.tsx",
   "app/maskinvy/page.tsx",
   // Inventarier (2026-10-21): tokens från början, noll literaler.
   "components/inventarier/InventarierStart.tsx",

@@ -82,6 +82,7 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
         {/* Topbar: maskinnamn centrerat */}
         <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.l}px`, textAlign: 'center', position: 'relative' }}>
           <button
+            className="mv-maskinval"
             onClick={() => setMaskinOpen(o => !o)}
             aria-expanded={maskinOpen}
             style={{
@@ -92,7 +93,7 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
             }}
           >
             {maskin.namn}
-            <span style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
+            <span className="mv-maskinval-pil" style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
           </button>
           {maskinOpen && (
             <div style={{
