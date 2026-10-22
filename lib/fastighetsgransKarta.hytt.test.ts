@@ -254,7 +254,7 @@ describe.skipIf(!CHROMIUM)('En etikett per yta — aldrig dubbel', () => {
         await pg.setContent('<!doctype html><html><head><meta charset="utf-8"><style>html,body,#m{margin:0;height:100%}</style></head><body><div id="m"></div></body></html>');
         await pg.addStyleTag({ path: path.join(MAPLIBRE, 'maplibre-gl.css') });
         await pg.addScriptTag({ path: path.join(MAPLIBRE, 'maplibre-gl.js') });
-        return await pg.evaluate(async (a: any) => {
+        const antal = await pg.evaluate(async (a: any) => {
           const map = new (window as any).maplibregl.Map({ container: 'm', center: a.center, zoom: 17.5, fadeDuration: 0, preserveDrawingBuffer: true, attributionControl: false,
             style: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#3d4a2c' } }] } });
           await new Promise((r) => map.on('load', r));
@@ -276,6 +276,8 @@ describe.skipIf(!CHROMIUM)('En etikett per yta — aldrig dubbel', () => {
           }
           return n;
         }, { center: ll(75, 105), nb, nbPunkt, kalla });
+        if (SKRIV) { fs.mkdirSync(SKRIV, { recursive: true }); await pg.screenshot({ path: path.join(SKRIV, `nb-${kalla}.png`) }); }
+        return antal;
       } finally { await b.close(); }
     };
     const gammal = await bild('poly'), ny = await bild('punkt');
