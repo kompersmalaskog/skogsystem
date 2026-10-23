@@ -11,9 +11,14 @@
 //            Sandåsen: 28 % av stammarna står utanför gränsen — de hör inte till trakten och räknas inte.
 //            detalj_stam har luckor (se lib/gallring.ts): grundytan skalas därför upp med MOM-stammar / stamrader,
 //            samma antagande som stammar per hektar bygger på.
-//  STICKVÄG = maskinernas GPS-spår (hyttspar, skördare OCH skotare — skotaren kör samma stickvägar), 2 m åt varje
-//            håll (4 m breda vägar), klippt mot traktgränsen = vägarnas yta. Andel = vägyta / areal, avstånd mellan
-//            vägarna = bredd / andel. Rådata, aldrig det utjämnade spåret (lib/sparJamning gäller bara ritning).
+//  STICKVÄG = SKOTARENS GPS-spår (hyttspar, roll 'skotare'), 2 m åt varje håll (4 m breda vägar), klippt mot
+//            traktgränsen = vägarnas yta. Andel = vägyta / areal, avstånd mellan vägarna = bredd / andel. Rådata,
+//            aldrig det utjämnade spåret (lib/sparJamning gäller bara ritning).
+//            BARA skotaren (Martin 2026-10-22): vi kör beståndsgående skördare, som också kör INNE i beståndet mellan
+//            stickvägarna. Skördarens spår gav Trestensdal 34 % och 12 m isär — körningen i beståndet räknad som
+//            stickväg. Volymen per meter körväg skiljer inte stickväg från körning i beståndet (provat i prod: en
+//            topp, ingen delning). Skotaren kör bara stickvägarna. Saknas skotarens spår (egen skotning, eller inte
+//            skotat än) visas inget tal.
 //
 // KÄND SKEVHET (ej kalibrerad, 2026-10-22): GPS-bruset (± 2–3 m) och att skotaren kör samma väg flera gånger gör
 // vägarna bredare än 4 m i rastret. Betet och Sandåsen gav 24–25 %, alltså ca 16–17 m mellan vägarna, där normalt är
@@ -26,6 +31,8 @@ import { avverkadAreaM2, type Punkt } from './avverkadAreal';
 import { punktIPolygon } from './skotat';
 import { beraknaGallradYta, type GallradYta, type UtanforSvar, type EjGallratSvar } from './gallradYta';
 
+/** Bara skotarens spår räknas som stickväg (skördaren kör också i beståndet). */
+export const STICKVAG_ROLL = 'skotare';
 /** Stickvägens bredd i meter — bufferten runt spåret är halva. */
 export const STICKVAG_BREDD_M = 4;
 /** Rastrets ruta. 0,5 m: ett 4 m brett stråk blir 8 rutor, fel ca 3 %. */
@@ -107,7 +114,8 @@ export function stickvag(
   spar: PerHaIndata['spar'], ringar: Punkt[][], arealM2: number,
   inne?: (lng: number, lat: number) => boolean,
 ): StickvagSvar {
-  const medLinjer = spar.filter((s) => s.linjer.some((l) => l.length >= 2));
+  // Bara skotaren — se huvudet: skördaren kör också inne i beståndet.
+  const medLinjer = spar.filter((s) => s.roll === STICKVAG_ROLL && s.linjer.some((l) => l.length >= 2));
   if (medLinjer.length === 0 || !(arealM2 > 0)) return { lage: 'inget-spar' };
   const vagM2 = avverkadAreaM2(medLinjer.flatMap((s) => s.linjer), {
     ringar, inne, bufferM: STICKVAG_BREDD_M / 2, cellM: STICKVAG_RUTA_M,
