@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beraknaKvar, dagNummer, provpunkter, rimligRuta, stammarFore, TILLVAXT, type LaserRuta } from './laserKvar';
+import { beraknaKvar, dagNummer, provpunkter, rimligRuta, stammarFore, TILLVAXT, ovreHojd, hojdVidStart, HOJD_TILLVAXT, type LaserRuta } from './laserKvar';
 
 const dag = dagNummer;
 const rutor = (n: number, r: LaserRuta): LaserRuta[] => Array.from({ length: n }, () => ({ ...r }));
@@ -132,5 +132,33 @@ describe('rimligRuta — diameter', () => {
   it('avvisar en orimlig diameter', () => {
     expect(rimligRuta({ g: 20, d: 19000, dag: null }, dagNummer('2026-10-22'))).toBe(false);
     expect(rimligRuta({ g: 20, d: 15, dag: null }, dagNummer('2026-10-22'))).toBe(true);
+  });
+});
+
+
+describe('ovreHojd — P95-bandets enhet avgörs mot medelhöjden (dm)', () => {
+  const ruta = (hm: number, p95: number) => ({ g: 20, hm, p95 });
+  it('P95 i dm (kvot ~1,2) → meter', () => {
+    expect(ovreHojd([ruta(150, 180), ruta(150, 180)])).toBeCloseTo(18);
+  });
+  it('P95 i meter (kvot ~0,12) → meter', () => {
+    expect(ovreHojd([ruta(150, 18), ruta(160, 19)])).toBeCloseTo(18.5);
+  });
+  it('okänd kvot → ingen höjd, aldrig en gissning', () => {
+    expect(ovreHojd([ruta(150, 60), ruta(150, 60)])).toBeNull();
+    expect(ovreHojd([ruta(150, 500), ruta(150, 500)])).toBeNull();
+  });
+  it('rutor utan skog (grundyta 0) räknas inte; för få rutor med höjd → null', () => {
+    expect(ovreHojd([ruta(150, 180), { g: 0, hm: 10, p95: 999 }])).toBeCloseTo(18);
+    expect(ovreHojd([ruta(150, 180), { g: 20, hm: null, p95: null }])).toBeNull();
+  });
+  it('räknas upp från skanningen till skördarens start', () => {
+    const start = dagNummer('2025-06-01');
+    const dag = dagNummer('2020-06-01');
+    const h = hojdVidStart([{ g: 20, hm: 150, p95: 180, dag }], start)!;
+    const ar = (start - dag) / 365.25;
+    expect(h.mitt).toBeCloseTo(18 + HOJD_TILLVAXT.mitt * ar);
+    expect(h.lag).toBeLessThan(h.mitt);
+    expect(h.hog).toBeGreaterThan(h.mitt);
   });
 });

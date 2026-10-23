@@ -336,6 +336,42 @@ describe('trakten', () => {
     expect(h.textContent).toContain('Uttaget mätte skördaren');
   });
 
+  it('låg gallringen rätt?: kvar mot Vidas mall vid traktens höjd, svaret först', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const yta = ytaMedBitUtanfor();
+    hamtaPerHa.mockResolvedValue({ ...PER_HA, arealHa: yta.gallradHa, vidaHa: yta.vidaHa, yta, grundytaPerHa: 7.24 });
+    const dag = Math.floor(Date.parse('2022-10-12T00:00:00Z') / 86_400_000);
+    // Medelhöjd 14 m (dm), P95 168 → kvoten 1,2 = dm → 16,8 m vid skanningen, + 4 år × 0,4 = 18,4 m.
+    hamtaLaserRutor.mockResolvedValue(Array.from({ length: 20 }, () => ({ g: 22, d: 15, dag, hm: 140, p95: 168 })));
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    await act(async () => { await Promise.resolve(); });
+    const mall = h.querySelector('[data-mall]') as HTMLElement;
+    const t = mall.closest('section')!.textContent!.replace(/\u00a0/g, ' ');
+    // Gran 68 % av uttaget; 18,4 m = andra gallringen. Kvar 17,6 (16,6–18,5) ligger helt under hårdaste programmet (19).
+    expect(mall.getAttribute('data-mall')).toBe('hardare');
+    expect(t).toContain('Hårdare än Vidas mall');
+    expect(t).toContain('Vidas mall 19–27 (grönt) efter andra gallringen');
+    expect(t).toContain('G26–G36');
+    expect(h.querySelector('[data-mall-tid]')!.getAttribute('data-mall-tid')).toBe('i-tid');
+    expect(t).toContain('Tumregel 500–600 efter sista gallringen');
+    expect(t).toContain('ca 18 m');
+    expect(t).toContain('gran 68 % av uttaget');
+    // Svaret står före talen.
+    expect(t.indexOf('Hårdare än Vidas mall')).toBeLessThan(t.indexOf('Kvar efter'));
+  });
+
+  it('låg gallringen rätt?: utan höjd i laserdatan sägs det — ingen dom', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const yta = ytaMedBitUtanfor();
+    hamtaPerHa.mockResolvedValue({ ...PER_HA, arealHa: yta.gallradHa, vidaHa: yta.vidaHa, yta, grundytaPerHa: 7.24 });
+    const dag = Math.floor(Date.parse('2022-10-12T00:00:00Z') / 86_400_000);
+    hamtaLaserRutor.mockResolvedValue(Array.from({ length: 20 }, () => ({ g: 22, d: 15, dag })));
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    await act(async () => { await Promise.resolve(); });
+    expect(h.querySelector('[data-mall]')!.getAttribute('data-mall')).toBe('ingen-hojd');
+    expect(h.querySelector('[data-mall-svar]')).toBeNull();
+  });
+
   it('kvar: läsfel är ett fel med Försök igen, och utan underlag sägs varför — aldrig ett tal', async () => {
     hamtaGallring.mockResolvedValue(DETALJ);
     const yta = ytaMedBitUtanfor();

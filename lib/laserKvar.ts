@@ -35,7 +35,16 @@ export const MAX_ANDEL_UTAN_DIAMETER = 0.2;
 
 /** En 10 m-ruta: grundyta m²/ha (null = ingen data), grundytevägd medeldiameter i cm (`d`, null/0 = okänd) och
  *  skanningsdag i dagar sedan 1970 (null/0 = okänt). */
-export type LaserRuta = { g: number | null; d?: number | null; dag: number | null };
+export type LaserRuta = {
+  g: number | null; d?: number | null; dag: number | null;
+  /** Medelhöjd (band 1, dm) och P95-höjd (band 5, enhet okänd: se ovreHojd). null/0 = okänd. */
+  hm?: number | null; p95?: number | null;
+};
+
+/** Övre höjdens tillväxt per år (m) i gallringsålder, södra Sverige. Spannet står i vyn. */
+export const HOJD_TILLVAXT = { lag: 0.3, mitt: 0.4, hog: 0.5 } as const;
+/** Rimlighet för en ruta: höjd i dm. */
+export const MAX_HOJD_DM = 500;
 
 /** Stammar per hektar före och uttaget. Kvar räknas av vyn ur de avrundade talen, så det går att räkna. */
 export type StammarKvar = { fore: number; uttag: number };
@@ -57,6 +66,8 @@ export type KvarSvar =
       efterRaknasInte: number;
       /** Stammar före (ur laserns grundyta och medeldiameter vid skanningen) och uttaget. null = går inte att räkna. */
       stammar: StammarKvar | null;
+      /** Övre höjd (m) uppräknad till skördarens start, med spann. null = höjden gick inte att läsa. */
+      hojd: { mitt: number; lag: number; hog: number } | null;
     }
   | { lage: 'saknas'; tackning: number }
   | { lage: 'skannad-efter'; skanningAr: number }
@@ -75,6 +86,7 @@ export function rimligRuta(r: LaserRuta, idagDag: number): boolean {
   // Laserskanningen startade 2009; en dag före det eller i framtiden är inte ett datum.
   if (r.dag !== null && r.dag !== 0 && (r.dag < dagNummer('2009-01-01') || r.dag > idagDag)) return false;
   if (r.d != null && (!Number.isFinite(r.d) || r.d < 0 || r.d > MAX_DIAMETER_CM)) return false;
+  for (const v of [r.hm, r.p95]) if (v != null && (!Number.isFinite(v) || v < 0 || v > MAX_HOJD_DM)) return false;
   return true;
 }
 
@@ -89,7 +101,7 @@ export function beraknaKvar(ind: {
 }): KvarSvar {
   const start = dagNummer(ind.skordStart);
   const total = ind.rutor.length;
-  const medData = ind.rutor.filter((r) => r.g !== null) as { g: number; d?: number | null; dag: number | null }[];
+  const medData = ind.rutor.filter((r) => r.g !== null) as (LaserRuta & { g: number })[];
   const tackning = total > 0 ? medData.length / total : 0;
   if (total === 0 || tackning < MIN_TACKNING) return { lage: 'saknas', tackning };
 
@@ -136,6 +148,7 @@ export function beraknaKvar(ind: {
     ar: arSum / arN,
     efterRaknasInte: efter.length,
     stammar: stammarFore(raknas, ind.uttagStammarPerHa ?? null),
+    hojd: hojdVidStart(raknas, start),
   };
 }
 
@@ -180,4 +193,32 @@ export function provpunkter(
     }
   }
   return ut;
+}
+
+/** Övre höjd (m) vid skanningen: snittet av rutornas P95-höjd, där det finns skog (grundyta > 0).
+ *
+ *  P95-bandets enhet står inte i produktbeskrivningen vi har. Medelhöjden (band 1) är i dm. P95 ligger alltid
+ *  något över medelhöjden, så kvoten P95/medelhöjd avgör enheten: ca 1–1,8 = samma enhet (dm), ca 0,1–0,18 = meter.
+ *  Annat = vi vet inte vad bandet är, och då finns ingen höjd (null) — aldrig en gissning. */
+export function ovreHojd(rutor: { g: number | null; hm?: number | null; p95?: number | null }[]): number | null {
+  const med = rutor.filter((r) => (r.g ?? 0) > 0 && (r.hm ?? 0) > 0 && (r.p95 ?? 0) > 0) as { hm: number; p95: number }[];
+  if (med.length === 0 || med.length < rutor.filter((r) => (r.g ?? 0) > 0).length * MIN_TACKNING) return null;
+  const kvoter = med.map((r) => r.p95 / r.hm).sort((a, b) => a - b);
+  const kvot = kvoter[Math.floor(kvoter.length / 2)];
+  const delare = kvot >= 0.9 && kvot <= 1.8 ? 10 : kvot >= 0.09 && kvot <= 0.18 ? 1 : null;
+  if (delare === null) return null;
+  const hojd = med.reduce((s, r) => s + r.p95 / delare, 0) / med.length;
+  return hojd >= 3 && hojd <= 45 ? hojd : null;
+}
+
+/** Övre höjd uppräknad från varje rutas skanningsdag till skördarens start. */
+export function hojdVidStart(
+  rutor: { g: number | null; hm?: number | null; p95?: number | null; dag: number | null }[],
+  start: number,
+): { mitt: number; lag: number; hog: number } | null {
+  const h = ovreHojd(rutor);
+  if (h === null) return null;
+  const daterade = rutor.filter((r) => (r.g ?? 0) > 0 && r.dag && r.dag > 0);
+  const ar = daterade.length ? daterade.reduce((s, r) => s + Math.max(0, (start - (r.dag as number)) / AR_DAGAR), 0) / daterade.length : 0;
+  return { mitt: h + HOJD_TILLVAXT.mitt * ar, lag: h + HOJD_TILLVAXT.lag * ar, hog: h + HOJD_TILLVAXT.hog * ar };
 }

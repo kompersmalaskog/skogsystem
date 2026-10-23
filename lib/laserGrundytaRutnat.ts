@@ -41,7 +41,9 @@ export function utsnitt(xy: [number, number][]): Utsnitt | null {
 /** Ett tal ur rastret som "ingen data": nodata-värdet, NaN eller negativt. */
 const saknas = (v: number, nodata: number | null) => !Number.isFinite(v) || v < 0 || (nodata !== null && v === nodata);
 
-/** Slår upp rutan för varje punkt (en gång per ruta). Banden är grundyta, medeldiameter och skanningsdag, rad 0 = norr. */
+const hojdVarde = (v: number, nodata: number | null) => (saknas(v, nodata) || v === 0 ? null : v);
+
+/** Slår upp rutan för varje punkt (en gång per ruta). Banden är grundyta, medeldiameter, skanningsdag och (valfritt) medelhöjd och P95-höjd, rad 0 = norr. */
 export function slaUpp(
   xy: [number, number][],
   u: Utsnitt,
@@ -49,6 +51,8 @@ export function slaUpp(
   diameter: ArrayLike<number>,
   dag: ArrayLike<number>,
   nodata: number | null,
+  medelhojd?: ArrayLike<number>,
+  p95?: ArrayLike<number>,
 ): LaserRuta[] {
   const sett = new Set<number>();
   const ut: LaserRuta[] = [];
@@ -64,6 +68,8 @@ export function slaUpp(
       g: saknas(g, nodata) ? null : g,
       d: saknas(dia, nodata) || dia === 0 ? null : dia,
       dag: saknas(d, nodata) || d === 0 ? null : Math.round(d),
+      ...(medelhojd ? { hm: hojdVarde(medelhojd[i], nodata) } : {}),
+      ...(p95 ? { p95: hojdVarde(p95[i], nodata) } : {}),
     });
   }
   return ut;

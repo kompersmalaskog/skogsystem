@@ -11,5 +11,5 @@ export async function hamtaLaserRutor(punkter: [number, number][]): Promise<Lase
   if (!resp.ok || !data || !Array.isArray(data.rutor)) {
     throw new Error(data?.error ?? 'Laserdatan gick inte att hämta.');
   }
-  return (data.rutor as [number | null, number | null, number | null][]).map(([g, d, dag]) => ({ g, d, dag }));
+  return (data.rutor as (number | null)[][]).map(([g, d, dag, hm, p95]) => ({ g, d, dag, hm: hm ?? null, p95: p95 ?? null }));
 }

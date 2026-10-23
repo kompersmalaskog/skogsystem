@@ -257,7 +257,8 @@ function PerHektar({ d }: { d: GallringDetalj }) {
   const skordStart = d.dagar.map((x) => x.datum).sort()[0];
   const kvar = yta && visat.grundyta !== null && skordStart
     ? <KvarEfter yta={yta} uttagPerHa={visat.grundyta} uttagStammarPerHa={visat.stammar} skordStart={skordStart}
-        innehaller={del?.d.innehaller} delNamn={del ? DEL_ORD[del.d.namn] : undefined} />
+        innehaller={del?.d.innehaller} delNamn={del ? DEL_ORD[del.d.namn] : undefined}
+        tradslag={d.tradslag} gallring={del ? (del.d.namn === 'forsta' ? 1 : 2) : null} />
     : null;
 
   return (

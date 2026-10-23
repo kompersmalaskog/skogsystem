@@ -14,6 +14,7 @@ import { fmtAntal, fmtDecimal } from '@/lib/gallring';
 import { beraknaKvar, provpunkter, TILLVAXT, type KvarSvar, type LaserRuta } from '@/lib/laserKvar';
 import { hamtaLaserRutor } from '@/lib/laserGrundyta';
 import type { GallradYta } from '@/lib/gallradYta';
+import MallJamforelse from './MallJamforelse';
 
 const RUBRIK_BAS = 'Hur mycket står kvar?';
 const avr1 = (v: number) => Math.round(v * 10) / 10;
@@ -24,8 +25,12 @@ function Text({ children, attr }: { children: React.ReactNode; attr?: Record<str
   return <p style={{ margin: 0, padding: `${AVSTAND.l}px 0`, ...TYP.text, color: FARG.text2 }} {...attr}>{children}</p>;
 }
 
-export default function KvarEfter({ yta, uttagPerHa, uttagStammarPerHa, skordStart, innehaller, delNamn }: {
+export default function KvarEfter({ yta, uttagPerHa, uttagStammarPerHa, skordStart, innehaller, delNamn, tradslag, gallring }: {
   yta: GallradYta;
+  /** Uttagets trädslag (volym) — avgör om gran- eller tallmallen gäller ("Låg gallringen rätt?"). */
+  tradslag?: { namn: string; volym: number }[];
+  /** Känd gallring (trakten delad), annars null. */
+  gallring?: 1 | 2 | null;
   /** En del av den gallrade ytan (första eller andra gallring) — laserdatan läses bara där. Annars hela ytan. */
   innehaller?: (lng: number, lat: number) => boolean;
   /** "Första gallring" — står i rubriken när talen gäller en del. */
@@ -118,6 +123,7 @@ export default function KvarEfter({ yta, uttagPerHa, uttagStammarPerHa, skordSta
   ].filter(Boolean).join(' ');
 
   return (
+    <>
     <Sektion rubrik={RUBRIK} not={not} inset>
       <div data-kvar="ok">
         {st && (
@@ -130,5 +136,7 @@ export default function KvarEfter({ yta, uttagPerHa, uttagStammarPerHa, skordSta
           sista attr={{ 'data-kvar-tal': fmtDecimal(kvar, 1) }} />
       </div>
     </Sektion>
+    {tradslag && <MallJamforelse s={s} tradslag={tradslag} gallring={gallring ?? null} stammarKvar={st ? stKvar : null} />}
+    </>
   );
 }
