@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LONEARTER, loneartskoder, loneartkopplingar, loneartInfo, loneartEnhetText, fmtMangd } from "./loneart";
+import { LONEARTER, loneartskoder, loneartkopplingar, loneartInfo, loneartEnhetText, enhetForMangd, fmtMangd } from "./loneart";
 
 describe("lönearterna är EN lista", () => {
   it("tio lönearter i exportens ordning, och varje har etikett, enhet och förklaring", () => {
@@ -74,5 +74,25 @@ describe("lönearterna är EN lista", () => {
     expect(fmtMangd("14.97")).toBe("14,97");
     expect(fmtMangd(8)).toBe("8");
     expect(fmtMangd("abc")).toBe("abc");
+  });
+});
+
+
+describe("enheten följer antalet: '1 vecka', inte '1 veckor'", () => {
+  it("vältlappar: 1 → vecka (även som '1.00'), annat → veckor, utan antal → veckor", () => {
+    expect(loneartEnhetText("valtlappar", 1)).toBe("vecka");
+    expect(loneartEnhetText("valtlappar", "1.00")).toBe("vecka");
+    expect(loneartEnhetText("valtlappar", "1")).toBe("vecka");
+    for (const n of [0, 2, "5", "1.5", "11"]) expect(loneartEnhetText("valtlappar", n), String(n)).toBe("veckor");
+    expect(loneartEnhetText("valtlappar")).toBe("veckor");
+  });
+  it("andra enheter är orörda av antalet (1 tim, 1 påbörjade mil)", () => {
+    expect(loneartEnhetText("timlon", 1)).toBe("tim");
+    expect(loneartEnhetText("korersattning", 1)).toBe("påbörjade mil");
+    expect(enhetForMangd("mil", 1)).toBe("mil");
+  });
+  it("enhetForMangd för den som bara har enheten (blockerande rader, utelämnade)", () => {
+    expect(enhetForMangd("veckor", "1.00")).toBe("vecka");
+    expect(enhetForMangd("veckor", "4.00")).toBe("veckor");
   });
 });

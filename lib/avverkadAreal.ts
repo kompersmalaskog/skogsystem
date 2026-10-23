@@ -22,16 +22,22 @@ export interface AvverkatOpts {
   bufferM?: number;
   /** Rutstorlek i meter (växer automatiskt för mycket stora ytor). */
   cellM?: number;
+  /** Klippning med en egen yta i stället för ringar: sann för en punkt ([lng, lat]) som räknas.
+   *  Används av gallringens "gallrade yta" (lib/gallradYta.ts), som inte är en polygon. */
+  inne?: (lng: number, lat: number) => boolean;
 }
 
-function projicera(alla: Punkt[]): (p: Punkt) => [number, number] {
+function projektion(alla: Punkt[]) {
   let lat0 = 0, lng0 = 0;
   for (const p of alla) { lat0 += p[1]; lng0 += p[0]; }
   lat0 /= alla.length; lng0 /= alla.length;
   const rad = Math.PI / 180;
   const kx = JORDRADIE_M * Math.cos(lat0 * rad) * rad;
   const ky = JORDRADIE_M * rad;
-  return (p) => [(p[0] - lng0) * kx, (p[1] - lat0) * ky];
+  return {
+    proj: (p: Punkt): [number, number] => [(p[0] - lng0) * kx, (p[1] - lat0) * ky],
+    tillbaka: (x: number, y: number): Punkt => [x / kx + lng0, y / ky + lat0],
+  };
 }
 
 function punktIRing(x: number, y: number, ring: [number, number][]): boolean {
@@ -53,7 +59,7 @@ export function avverkadAreaM2(segment: readonly (readonly Punkt[])[] | null | u
   const ringarIn = (opts.ringar || []).map((r) => (r || []).filter(giltig)).filter((r) => r.length >= 3);
 
   const alla: Punkt[] = segs.flat();
-  const proj = projicera(alla);
+  const { proj, tillbaka } = projektion(alla);
   const spar = segs.map((s) => s.map(proj));
   const ringar = ringarIn.map((r) => r.map(proj));
 
@@ -61,7 +67,7 @@ export function avverkadAreaM2(segment: readonly (readonly Punkt[])[] | null | u
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const s of spar) for (const [x, y] of s) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
   x0 -= buffert; y0 -= buffert; x1 += buffert; y1 += buffert;
-  if (ringar.length > 0) {
+  if (ringar.length > 0 && !opts.inne) {
     let rx0 = Infinity, ry0 = Infinity, rx1 = -Infinity, ry1 = -Infinity;
     for (const r of ringar) for (const [x, y] of r) { if (x < rx0) rx0 = x; if (x > rx1) rx1 = x; if (y < ry0) ry0 = y; if (y > ry1) ry1 = y; }
     x0 = Math.max(x0, rx0); y0 = Math.max(y0, ry0); x1 = Math.min(x1, rx1); y1 = Math.min(y1, ry1);
@@ -103,7 +109,10 @@ export function avverkadAreaM2(segment: readonly (readonly Punkt[])[] | null | u
     const cy = y0 + (iy + 0.5) * cell;
     for (let ix = 0; ix < nx; ix++) {
       if (!rutor[iy * nx + ix]) continue;
-      if (ringar.length > 0) {
+      if (opts.inne) {
+        const [lng, lat] = tillbaka(x0 + (ix + 0.5) * cell, cy);
+        if (!opts.inne(lng, lat)) continue;
+      } else if (ringar.length > 0) {
         const cx = x0 + (ix + 0.5) * cell;
         if (!ringar.some((r) => punktIRing(cx, cy, r))) continue;
       }

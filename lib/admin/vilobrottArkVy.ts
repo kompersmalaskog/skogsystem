@@ -33,6 +33,21 @@ export type VilobrottArkBrott = {
 
 export type VilobrottArkVy = { namn: string; forstaNamn: string; medarbetare_id: string; rubrik: string; brott: VilobrottArkBrott[] };
 
+export type VilobrottPerson = { medarbetare_id: string; namn: string; antal: number; text: string };
+
+/** Vem som har obesvarade vilobrott: en rad per person, flest först (sedan namn). Listan bakom Översiktens rad "Vilobrott". */
+export function vilobrottPerPerson(rader: VilobrottRad[]): VilobrottPerson[] {
+  const per = new Map<string, { namn: string; antal: number }>();
+  for (const b of rader) {
+    if (b.svar) continue;
+    const e = per.get(b.medarbetare_id) || { namn: b.namn, antal: 0 };
+    e.antal++; per.set(b.medarbetare_id, e);
+  }
+  return Array.from(per.entries())
+    .map(([medarbetare_id, e]) => ({ medarbetare_id, namn: e.namn, antal: e.antal, text: `${e.antal} ${e.antal === 1 ? "obesvarat" : "obesvarade"}` }))
+    .sort((a, b) => b.antal - a.antal || a.namn.localeCompare(b.namn, "sv"));
+}
+
 const punktNyckel = (datum: string, tid: string) => `${datum} ${tid}`;
 
 export function byggVilobrottArk(rader: VilobrottRad[], medarbetare_id: string): VilobrottArkVy | null {

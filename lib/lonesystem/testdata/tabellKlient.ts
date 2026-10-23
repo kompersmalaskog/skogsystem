@@ -19,7 +19,7 @@ class Fraga {
 }
 
 /** Tabeller som beraknaLoneunderlag läser men som ett test sällan bryr sig om: tomma om testet inte anger dem. */
-const TOMMA = ["extra_tid", "ledighet_ansokningar", "fortnox_export_logg", "utjamningsperiod", "vilobrott", "arbetsdag_objekt", "dim_objekt", "fakt_avbrott", "operator_medarbetare", "fakt_tid"];
+const TOMMA = ["extra_tid", "ledighet_ansokningar", "fortnox_export_logg", "loneunderlag", "utjamningsperiod", "vilobrott", "arbetsdag_objekt", "dim_objekt", "fakt_avbrott", "operator_medarbetare", "fakt_tid"];
 
 export function tabellKlient(tabeller: Record<string, Rad[]>) {
   const alla: Record<string, Rad[]> = { ...Object.fromEntries(TOMMA.map(t => [t, []])), ...tabeller };
