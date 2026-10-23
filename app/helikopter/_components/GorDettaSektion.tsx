@@ -27,7 +27,8 @@ export default function GorDettaSektion({ rader, onOppna, onAlla }: { rader: Gor
   return (
     <Sektion rubrik="Gör detta">
       {synliga.map((r, i) => <GorRadVy key={r.id} r={r} sista={fler === 0 && i === synliga.length - 1} onTryck={() => onOppna(r)} />)}
-      {fler > 0 && <Rad titel={`${fler} ${fler === 1 ? 'sak' : 'saker'} till`} under={rader.slice(GOR_SYNLIGA).map(r => r.text).join(' · ')} onTryck={onAlla} sista attr={{ 'data-gor': 'alla' }} />}
+      {/* Bara antalet — en lista över resten i underraden gjorde raden till ett stycke text (prod 2026-10-23). */}
+      {fler > 0 && <Rad titel={`${fler} ${fler === 1 ? 'sak' : 'saker'} till`} onTryck={onAlla} sista attr={{ 'data-gor': 'alla' }} />}
     </Sektion>
   )
 }
