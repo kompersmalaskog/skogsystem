@@ -52,6 +52,7 @@ import { harledTyp } from './objekt/typ';
 import { tradslagLabel } from './tradslag';
 import { DIM_MASKIN_NAMN_KOLUMNER, maskinNamnMap, type MaskinNamnKalla } from './maskinNamn';
 import { beraknaPerHa, type PerHa } from './gallringPerHa';
+import type { UtanforSvar, EjGallratSvar } from './gallradYta';
 import { traktgransRingar, type TraktGeometriFC } from './objektPlats';
 import { hyttsparTillLinjer, type HyttPunkt } from './hyttspar';
 
@@ -480,39 +481,74 @@ export async function hamtaGallring(vo: string): Promise<GallringDetalj | null> 
 /** Per hektar och stickvägar (lib/gallringPerHa.ts). Egen läsning efter att trakten visats: traktgränsen,
  *  maskinernas GPS-spår och varje stams position. Ett läsfel kastas — "inget spår" och "kunde inte läsa" är
  *  olika svar. objekt_geometri har RLS: en utgången session ger tomma rader, och då står "traktgräns saknas". */
-export async function hamtaPerHa(rad: GallringRad): Promise<PerHa> {
+export type PerHaLast = PerHa & {
+  /** false = tabellen gallring_yta_svar finns inte än (migrationen ej körd): förslagen visas, svaren sparas inte. */
+  svarSparas: boolean;
+};
+
+const saknasTabell = (e: { code?: string } | null) => !!e && (e.code === 'PGRST205' || e.code === '42P01');
+
+export async function hamtaPerHa(rad: GallringRad): Promise<PerHaLast> {
   const obj = await supabase.from('objekt').select('id').eq('vo_nummer', rad.vo);
   kasta('objekt', obj.error);
   const ids = (obj.data ?? []).map((o) => o.id as string);
 
-  const [geo, spar, stammar] = await Promise.all([
+  const [geo, spar, stammar, svar] = await Promise.all([
     ids.length ? supabase.from('objekt_geometri').select('geometri').in('objekt_id', ids) : Promise.resolve({ data: [], error: null }),
     ids.length ? supabase.from('hyttspar').select('roll, points').in('objekt_id', ids) : Promise.resolve({ data: [], error: null }),
     rad.objektIds.length
       ? (fetchAllRows((from, to) =>
           supabase
             .from('detalj_stam')
-            .select('latitude, longitude, dbh_mm')
+            .select('id, latitude, longitude, dbh_mm')
             .in('objekt_id', rad.objektIds)
             .order('objekt_id')
             .order('id')
             .range(from, to),
-        ) as Promise<{ latitude: number | null; longitude: number | null; dbh_mm: number | null }[]>)
+        ) as Promise<{ id: number; latitude: number | null; longitude: number | null; dbh_mm: number | null }[]>)
       : Promise.resolve([]),
+    supabase.from('gallring_yta_svar').select('nyckel, svar').eq('vo', rad.vo),
   ]);
   kasta('traktgräns', geo.error);
   kasta('GPS-spår', spar.error);
+  const svarSparas = !saknasTabell(svar.error);
+  if (svarSparas) kasta('svar', svar.error);
 
-  return beraknaPerHa({
+  const svarUtanfor: Record<string, UtanforSvar> = {};
+  const svarEjGallrat: Record<string, EjGallratSvar> = {};
+  for (const r of (svarSparas ? svar.data ?? [] : []) as { nyckel: string; svar: string }[]) {
+    if (r.nyckel.startsWith('u:')) svarUtanfor[r.nyckel] = r.svar as UtanforSvar;
+    else if (r.nyckel.startsWith('e:')) svarEjGallrat[r.nyckel] = r.svar as EjGallratSvar;
+  }
+
+  const perHa = beraknaPerHa({
     ringar: (geo.data ?? []).flatMap((g) => traktgransRingar(g.geometri as TraktGeometriFC)),
     volymM3fub: rad.volymM3fub,
     stammar: rad.stammar,
-    stamrader: stammar.map((s) => ({ lat: Number(s.latitude), lng: Number(s.longitude), dbhMm: s.dbh_mm })),
+    stamrader: stammar.map((s) => ({ id: s.id, lat: Number(s.latitude), lng: Number(s.longitude), dbhMm: s.dbh_mm })),
     spar: (spar.data ?? []).map((s) => ({
       roll: String(s.roll),
       linjer: hyttsparTillLinjer(Array.isArray(s.points) ? (s.points as HyttPunkt[]) : []),
     })),
+    svarUtanfor,
+    svarEjGallrat,
   });
+  return { ...perHa, svarSparas };
+}
+
+/** Sparar (eller tar bort, svar null) ett svar om en bit. Servern sätter vem och när. Kastar vid fel. */
+export async function sparaYtaSvar(vo: string, nyckel: string, svar: UtanforSvar | EjGallratSvar | null): Promise<void> {
+  if (svar === null) {
+    const { error } = await supabase.from('gallring_yta_svar').delete().eq('vo', vo).eq('nyckel', nyckel);
+    kasta('svar', error);
+    return;
+  }
+  const { data, error } = await supabase
+    .from('gallring_yta_svar')
+    .upsert({ vo, nyckel, svar }, { onConflict: 'vo,nyckel' })
+    .select('svar');
+  kasta('svar', error);
+  if (!data || data.length === 0 || data[0].svar !== svar) throw new Error('Svaret sparades inte.');
 }
 
 /** Sortiment per objekt-total ur fakt_sortiment. Datumfilter vore fel
