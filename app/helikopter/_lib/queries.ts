@@ -10,6 +10,7 @@ import { G15_TOM, g15Tabell, type G15DagRad, type G15Tabell } from '@/lib/heliko
 import type { VeckolageData } from './veckolage'
 import { lasHistorik, lasManadsfacit, type Historik, type Manadsfacit } from './manadsfacit'
 import { normStopp, normTakt } from './maskinData'
+import { lasKlar, type KlarData, type KlarRoll, type ForraBestallning } from './klar'
 
 export type Typ = 'slutavverkning' | 'gallring'
 
@@ -482,5 +483,77 @@ export async function hamtaHistorik(): Promise<Svar<Historik>> {
   } catch (e) {
     console.error('[helikopter] helikopter_historik gav ogiltigt svar', e)
     return { data: null, error: felText(e) }
+  }
+}
+
+/** "Räcker månaden?" som datum: klar-datum per maskin, trakter och spår (helikopter_ny_klar). Ett konstigt svar är ett fel. */
+export async function hamtaKlar(ar: number, manad: number, idag: string): Promise<Svar<KlarData>> {
+  const r = await rpc<unknown>('helikopter_ny_klar', { p_ar: ar, p_manad: manad, p_idag: idag })
+  if (r.error) return { data: null, error: r.error }
+  try {
+    return { data: lasKlar(r.data), error: null }
+  } catch (e) {
+    console.error('[helikopter] helikopter_ny_klar gav ett svar vi inte förstår', e)
+    return { data: null, error: felText(e) }
+  }
+}
+
+type BestallningsPost = { typ: string; bolag: string; bolag_id: number | null; volym: number }
+const MANAD_FORE = (ar: number, manad: number) => (manad === 1 ? { ar: ar - 1, manad: 12 } : { ar, manad: manad - 1 })
+
+async function lasBestallning(ar: number, manad: number): Promise<{ rader: BestallningsPost[]; error: string | null }> {
+  const { data, error } = await supabase.from('bestallningar').select('typ, bolag, bolag_id, volym').eq('ar', ar).eq('manad', manad)
+  if (error) return { rader: [], error: felText(error) }
+  return { rader: (data ?? []).map((b: any) => ({ typ: String(b.typ), bolag: String(b.bolag), bolag_id: b.bolag_id ?? null, volym: tal(b.volym) })), error: null }
+}
+
+/**
+ * Förra månadens beställning per typ ("Samma som oktober · 5 000 · 1 000"). null = det fanns ingen (knappen blir "Lägg in beställning");
+ * ett läsfel är ett fel, inte "ingen beställning".
+ */
+export async function hamtaForraBestallning(ar: number, manad: number, manadNamn: (m: number) => string): Promise<Svar<ForraBestallning | null>> {
+  try {
+    const f = MANAD_FORE(ar, manad)
+    const { rader, error } = await lasBestallning(f.ar, f.manad)
+    if (error) return { data: null, error }
+    if (rader.length === 0) return { data: null, error: null }
+    const summa = (typ: string) => rader.filter(r => r.typ === typ).reduce((s, r) => s + r.volym, 0)
+    return { data: { manadNamn: manadNamn(f.manad), slutavverkning: Math.round(summa('slutavverkning')), gallring: Math.round(summa('gallring')) }, error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
+
+/**
+ * "Samma som förra månaden": lägger in förra månadens beställningsrader för (ar, manad). Gör ingenting om månaden redan har rader
+ * (aldrig dubbla). Skrivning kräver admin (RLS) — ett nekat anrop kommer tillbaka som fel.
+ */
+export async function kopieraForraBestallning(ar: number, manad: number): Promise<{ error: string | null }> {
+  try {
+    const nu = await lasBestallning(ar, manad)
+    if (nu.error) return { error: nu.error }
+    if (nu.rader.length > 0) return { error: null }
+    const f = MANAD_FORE(ar, manad)
+    const forra = await lasBestallning(f.ar, f.manad)
+    if (forra.error) return { error: forra.error }
+    if (forra.rader.length === 0) return { error: 'Förra månaden har ingen beställning att kopiera' }
+    const { error } = await supabase.from('bestallningar').insert(forra.rader.map(r => ({ ar, manad, typ: r.typ, bolag_id: r.bolag_id, bolag: r.bolag, volym: r.volym })))
+    return { error: error ? felText(error) : null }
+  } catch (e) {
+    return { error: felText(e) }
+  }
+}
+
+/** Byt maskin för en trakt: skriver objekt.skordare_maskin_id / skotare_maskin_id (samma kolumner som planeringsverktyget). Läser tillbaka raden — noll rader är ett fel. */
+export async function tilldelaMaskin(objektId: string, roll: KlarRoll, maskinId: string): Promise<{ error: string | null }> {
+  try {
+    const kolumn = roll === 'skordare' ? 'skordare_maskin_id' : 'skotare_maskin_id'
+    const { data, error } = await supabase.from('objekt').update({ [kolumn]: maskinId }).eq('id', objektId).select(`id, ${kolumn}`)
+    if (error) return { error: felText(error) }
+    if (!data || data.length === 0) return { error: 'Ändringen sparades inte (saknar behörighet eller trakten finns inte längre)' }
+    if ((data[0] as any)[kolumn] !== maskinId) return { error: 'Ändringen sparades inte' }
+    return { error: null }
+  } catch (e) {
+    return { error: felText(e) }
   }
 }
