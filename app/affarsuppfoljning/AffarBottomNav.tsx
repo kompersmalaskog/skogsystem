@@ -22,7 +22,7 @@ export const FLIKAR: Flik[] = [
   { href: '/affarsuppfoljning', ikon: 'insights', etikett: 'Översikt',
     match: p => p === '/affarsuppfoljning' || p.startsWith('/affarsuppfoljning/manad') },
   { href: '/affarsuppfoljning/kvalitet', ikon: 'verified', etikett: 'Kvalitet',
-    match: p => p.startsWith('/affarsuppfoljning/kvalitet') || p.startsWith('/affarsuppfoljning/objekt') },
+    match: p => p.startsWith('/affarsuppfoljning/kvalitet') || p.startsWith('/affarsuppfoljning/objekt') || p.startsWith('/affarsuppfoljning/rotposter') },
 ];
 
 export default function AffarBottomNav() {

@@ -127,6 +127,11 @@ function Innehall() {
           )}
         </>
       )}
+
+      {/* Rotposterna: trakterna vi köpt på rot, mot det vanliga vid samma medelstam. Gäller inte månaden ovan. */}
+      <Rader>
+        <Rad text="Rotposter" sub="Blev det som det brukar vid samma medelstam?" href="/affarsuppfoljning/rotposter" />
+      </Rader>
     </div>
   );
 }
