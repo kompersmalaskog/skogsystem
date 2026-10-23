@@ -5,9 +5,11 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { dagAvvikelser, minText, datumLang } from "@/lib/lonesystem/forarText";
 import { rastSaknas } from "@/lib/arbetsdagRegler";
 import ManadRubrik from "@/components/design/ManadRubrik";
+import { laggTillDag, pct, kvotMaskinText, kvotNot, kvotVarde, summaAvKvot, tomKvot, type KvotSumma, type Maskintid } from "@/lib/admin/lonekvot";
 import { TYP, IKON, AVSTAND, FARG, KNAPP, KORT, TRAFFYTA, TNUM, RORELSE, designCss } from "@/lib/design/tokens";
 import { getPeriodRange, type Period } from "@/app/maskinvy/OversiktShared";
 import { useAdminNav } from "./nav";
+import { Ikon, Sektion } from "./ui";
 
 /**
  * Lön → Dagar — KONTROLLVYN. Alla förares dagar för en arbetsmånad, en rad per
@@ -29,6 +31,11 @@ import { useAdminNav } from "./nav";
  * där maskinen skickar filer, med antalet dagar bredvid. Filfri maskin (810E)
  * = "ingen maskintid rapporteras", aldrig 0 %. Täljaren är G15, inte branschens
  * G0 — docs/lonesystem/lonekvot.md.
+ *
+ * SAMMANSTÄLLNINGEN PER FÖRARE (betalt · maskin · lönekvot) står ÖVERST och visas
+ * alltid — den räknas över ALLA månadens dagar, inte över filtret "bara avvikelser".
+ * Uppställningen är lib/admin/lonekvot, densamma som Förare · Månad, så samma
+ * förare och månad ger samma tal på båda ställena.
  */
 
 /** Neutral information i dagens detalj när ett långt pass saknar rast: ingen varning, bara hur tiden räknas. */
@@ -37,20 +44,14 @@ export const RAST_SAKNAS_INFO = "Inget stopp över 15 min – räknas som arbets
 /** Larmordet i förarens/avtalets ord; i kontrollvyn säger vi trakt, inte objekt. */
 const avvOrd = (a: string) => (a === "utan objekt" ? "ingen trakt" : a === "utan maskin" ? "ingen maskin" : a);
 
-const pct = (taljareMin: number, namnareMin: number) => namnareMin > 0 ? Math.round((taljareMin / namnareMin) * 100) : null;
 
-/** Under så här många fil-dagar visas ingen lönekvot per förare — "för få dagar"
- *  i stället för 66 % som bara är en dag (Martin 2026-10-02: en pågående
- *  period ser annars färdig ut). Samma resonemang som TU:s JAMFOR_MIN_DAGAR. */
-const KVOT_MIN_DAGAR = 5;
-
-type Maskintid = { min: number; kalla: "fil" | "ingen_fil" | "ingen_maskin"; maskinens_min: number };
+type MaskintidDag = Maskintid & { maskinens_min: number };
 type Dag = {
   id: string; datum: string; start_tid: string | null; slut_tid: string | null; rast_min: number | null;
   arbetad_min: number; extra_min: number; objekt: string[]; perioddag: boolean; maskin_id: string | null;
   km_totalt: number; ersattningsmil: number; traktamente: boolean; bekraftad: boolean; ob_min: number;
   /** Lönekvot-underlag ur dry_run (loneunderlag medMaskintid): maskinens G15 under förarens inloggning. */
-  maskintid?: Maskintid;
+  maskintid?: MaskintidDag;
 };
 type Medarbetare = {
   medarbetare_id: string; namn: string; dagar: Dag[];
@@ -61,7 +62,7 @@ type Medarbetare = {
   ledighetskollision: { datum: string; typ: string }[];
   vilobrott: { datum: string; typ: string; vila_h: number; krav_h: number }[];
 };
-type Rad = { nyckel: string; datum: string; namn: string; d: Dag; min: number; avv: string[] };
+type Rad = { nyckel: string; datum: string; id: string; namn: string; d: Dag; min: number; avv: string[] };
 
 const stega = (ym: string, delta: number) => { const [å, m] = ym.split("-").map(Number); const d = new Date(å, m - 1 + delta, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 /** Löneperiod = arbetsmånad + 1 (samma regel som /api/lon/min-manad). */
@@ -95,9 +96,20 @@ function arbetsdagarI(start: string, end: string, roda: Record<string, string>):
   return { totalt, hittills };
 }
 
+/** Tid i en smal tabellcell: "128 tim 10 min" bryts mellan tim och min i stället för mitt i en del. Texten är minText. */
+function TidCell({ min }: { min: number }) {
+  const m = Math.round(min || 0);
+  const delar = m < 60 ? [`${m} min`] : m % 60 ? [`${Math.floor(m / 60)} tim`, `${m % 60} min`] : [`${Math.floor(m / 60)} tim`];
+  return <>{delar.map((t, i) => <React.Fragment key={i}>{i > 0 && " "}<span style={{ display: "inline-block" }}>{t}</span></React.Fragment>)}</>;
+}
+
+/** Tabellens kolumner: förare, betalt, maskin, lönekvot (+ en pil när raden går att öppna). */
+const KOL_BREDD = { betalt: 56, maskin: 56, kvot: 64 } as const;
+const kolumner = (oppnabar: boolean) => `minmax(0, 1fr) ${KOL_BREDD.betalt}px ${KOL_BREDD.maskin}px ${KOL_BREDD.kvot}px${oppnabar ? ` ${IKON.text}px` : ""}`;
+
 export default function DagarUnderflik() {
   // Översiktens länk "Se dagarna" öppnar rätt period och bara avvikelserna (?dagper=M&dagoff=-1&avv=1).
-  const { nav } = useAdminNav();
+  const { nav, gaTill } = useAdminNav();
   const startPeriod: DagarPeriod = nav.params.dagper === "K" || nav.params.dagper === "Å" ? nav.params.dagper : "M";
   const [period, setPeriod] = useState<DagarPeriod>(startPeriod);
   const [offset, setOffset] = useState(/^-?\d+$/.test(nav.params.dagoff || "") ? Number(nav.params.dagoff) : forvaltOffset(startPeriod));
@@ -174,7 +186,7 @@ export default function DagarUnderflik() {
         });
         // En rad utan någon tid alls är också något att titta på (tom skalrad).
         if (min === 0) avv.unshift("ingen tid");
-        ut.push({ nyckel: `${m.medarbetare_id}|${d.datum}`, datum: d.datum, namn: m.namn, d, min, avv });
+        ut.push({ nyckel: `${m.medarbetare_id}|${d.datum}`, datum: d.datum, id: m.medarbetare_id, namn: m.namn, d, min, avv });
       }
     }
     return ut.sort((a, b) => a.datum.localeCompare(b.datum) || a.namn.localeCompare(b.namn, "sv"));
@@ -186,35 +198,29 @@ export default function DagarUnderflik() {
   const arNu = offset >= 0;
   const periodLabel = range.label;
 
-  // SUMMERINGEN räknas ur SAMMA rader som listan visar — filtret påverkar den,
-  // annars säger den emot listan. Varje rad avrundas först (hela minuter, hela
-  // km), summan sedan — så den går att räkna efter för hand. "Dagar" = rader
-  // med tid; tomma skalrader räknas som rader men inte som dagar.
-  // Lönekvoten räknas BARA över dagar där maskinen skickar filer (kalla 'fil'):
-  // kvotDagar/kvotBetald/kvotMaskin. Filfria och maskinlösa dagar står utanför
-  // — hellre ett ärligt tal med antalet dagar bredvid än ett som ljuger.
+  // SAMMANSTÄLLNINGEN räknas över ALLA månadens rader — aldrig över filtret "bara avvikelser" (den ska visas alltid och
+  // vara samma tal vare sig man tittar på 3 dagar eller 111). Varje rad är hela minuter, summan
+  // sedan — så den går att räkna efter för hand. "Dagar" = rader med tid; tomma skalrader räknas som rader men inte
+  // som dagar. (Km visas inte här: tabellen svarar på lönekvoten; milen finns i Förare · Månad.) Lönekvoten räknas bara över dagar där maskinen skickar filer (lib/admin/lonekvot).
   const summa = useMemo(() => {
-    const perForare = new Map<string, { namn: string; dagar: number; min: number; km: number; obekr: number; kvotDagar: number; kvotBetald: number; kvotMaskin: number; utanMaskintid: number }>();
-    for (const r of visade) {
-      const s = perForare.get(r.namn) || { namn: r.namn, dagar: 0, min: 0, km: 0, obekr: 0, kvotDagar: 0, kvotBetald: 0, kvotMaskin: 0, utanMaskintid: 0 };
-      if (r.min > 0) s.dagar++;
-      s.min += r.min;
-      s.km += Math.round(r.d.km_totalt || 0);
+    const perForare = new Map<string, { id: string; namn: string; obekr: number; kvot: KvotSumma }>();
+    for (const r of rader) {
+      const s = perForare.get(r.id) || { id: r.id, namn: r.namn, obekr: 0, kvot: tomKvot() };
       if (!r.d.bekraftad) s.obekr++;
-      const mt = r.d.maskintid;
-      if (mt && mt.kalla === "fil" && r.min > 0) {
-        s.kvotDagar++; s.kvotBetald += r.min; s.kvotMaskin += mt.min;
-        if (mt.min === 0) s.utanMaskintid++;
-      }
-      perForare.set(r.namn, s);
+      laggTillDag(s.kvot, r.min, r.d.maskintid);
+      perForare.set(r.id, s);
     }
-    const lista = Array.from(perForare.values()).sort((a, b) => b.min - a.min);
-    const tot = lista.reduce((t, s) => ({
-      dagar: t.dagar + s.dagar, min: t.min + s.min, km: t.km + s.km, obekr: t.obekr + s.obekr,
-      kvotDagar: t.kvotDagar + s.kvotDagar, kvotBetald: t.kvotBetald + s.kvotBetald, kvotMaskin: t.kvotMaskin + s.kvotMaskin, utanMaskintid: t.utanMaskintid + s.utanMaskintid,
-    }), { dagar: 0, min: 0, km: 0, obekr: 0, kvotDagar: 0, kvotBetald: 0, kvotMaskin: 0, utanMaskintid: 0 });
-    return { lista, ...tot };
-  }, [visade]);
+    const lista = Array.from(perForare.values()).sort((a, b) => b.kvot.min - a.kvot.min);
+    return {
+      lista,
+      kvot: summaAvKvot(lista.map(f => f.kvot)),
+      obekr: lista.reduce((t, f) => t + f.obekr, 0),
+    };
+  }, [rader]);
+  // Förare · Månad finns för arbetsmånader vars löneunderlag går att läsa (löneperioden, arbetsmånad + 1, är inte i framtiden) och
+  // bara för EN månad — en rad över ett kvartal eller ett år har ingen enskild månad att öppna.
+  const manadAttOppna = period === "M" && loneperiodFor(range.start.slice(0, 7)) <= idagISO().slice(0, 7);
+  const oppnaForare = (id: string) => gaTill({ flik: "lon", underflik: "underlag", params: { period: loneperiodFor(range.start.slice(0, 7)), forare: id } });
 
   return (
     <div style={{ color: FARG.text }}>
@@ -267,6 +273,64 @@ export default function DagarUnderflik() {
 
       {data && !laddar && (
         <>
+          {/* SAMMANSTÄLLNINGEN PER FÖRARE — överst och alltid synlig, räknad över ALLA månadens dagar (inte över filtret). En rad
+              per förare: Betalt · Maskin · Lönekvot, "Alla" sist. Utan maskinfiler "–", under 5 fildagar "för få dagar", aldrig 0 %.
+              Ett tryck öppnar Förare · Månad för föraren (bara för en månad vars löneunderlag går att läsa). */}
+          {rader.length > 0 && (
+            <div data-lonekvot-tabell="" style={{ marginBottom: AVSTAND.l }}>
+              <Sektion topp={0}>{`Förare · ${periodLabel}${pagar ? " · pågår" : ""}`}</Sektion>
+              <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
+                <div style={{ display: "grid", gridTemplateColumns: kolumner(manadAttOppna), columnGap: AVSTAND.xs, alignItems: "end", padding: `${AVSTAND.m}px 0 ${AVSTAND.xs}px`, borderBottom: `1px solid ${FARG.linje}`, ...TYP.micro, color: FARG.text2 }}>
+                  <span>Förare</span><span style={{ textAlign: "right" }}>Betalt</span><span style={{ textAlign: "right" }}>Maskin</span><span style={{ textAlign: "right" }}>Lönekvot</span>
+                  {manadAttOppna && <span />}
+                </div>
+                {summa.lista.map(f => {
+                  const not = kvotNot(f.kvot);
+                  const innehall = (
+                    <>
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: "block", ...TYP.text, color: FARG.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.namn.split(" ")[0]}</span>
+                        <span style={{ display: "block", ...TYP.meta, ...TNUM, color: FARG.text2 }}>
+                          {f.kvot.dagar} {f.kvot.dagar === 1 ? "dag" : "dagar"}{f.obekr ? <span style={{ color: FARG.orange }}> · {f.obekr} obekr.</span> : null}
+                        </span>
+                      </span>
+                      <span style={{ textAlign: "right", ...TYP.meta, ...TNUM, color: FARG.text }}><TidCell min={f.kvot.min} /></span>
+                      <span style={{ textAlign: "right", ...TYP.meta, ...TNUM, color: FARG.text }}>{f.kvot.kvotDagar > 0 ? <TidCell min={f.kvot.kvotMaskin} /> : kvotMaskinText(f.kvot)}</span>
+                      <span data-kvot-varde="" style={{ textAlign: "right", ...TYP.listtitel, ...TNUM, color: FARG.text }}>{kvotVarde(f.kvot)}</span>
+                      {manadAttOppna && <Ikon namn="chevron_right" farg={FARG.text3} />}
+                    </>
+                  );
+                  const rad: React.CSSProperties = { display: "grid", gridTemplateColumns: kolumner(manadAttOppna), columnGap: AVSTAND.xs, alignItems: "center", width: "100%", minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0`, background: "none", border: "none", fontFamily: "inherit", textAlign: "left", color: "inherit" };
+                  return (
+                    <div key={f.id} style={{ borderBottom: `1px solid ${FARG.linje}` }}>
+                      {manadAttOppna
+                        ? <button type="button" data-kvot-rad={f.id} onClick={() => oppnaForare(f.id)} style={{ ...rad, cursor: "pointer" }}>{innehall}</button>
+                        : <div data-kvot-rad={f.id} style={rad}>{innehall}</div>}
+                      {not && <p style={{ margin: 0, paddingBottom: AVSTAND.s, ...TYP.meta, color: FARG.text3 }}>{not}</p>}
+                    </div>
+                  );
+                })}
+                <div data-kvot-alla="" style={{ display: "grid", gridTemplateColumns: kolumner(manadAttOppna), columnGap: AVSTAND.xs, alignItems: "center", minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0` }}>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: "block", ...TYP.listtitel, color: FARG.text }}>Alla</span>
+                    <span style={{ display: "block", ...TYP.meta, ...TNUM, color: FARG.text2 }}>
+                      {summa.kvot.dagar} {summa.kvot.dagar === 1 ? "dag" : "dagar"}{summa.obekr ? <span style={{ color: FARG.orange }}> · {summa.obekr} obekr.</span> : null}
+                    </span>
+                  </span>
+                  <span style={{ textAlign: "right", ...TYP.meta, ...TNUM, color: FARG.text, fontWeight: TYP.listtitel.fontWeight }}><TidCell min={summa.kvot.min} /></span>
+                  <span style={{ textAlign: "right", ...TYP.meta, ...TNUM, color: FARG.text, fontWeight: TYP.listtitel.fontWeight }}>{summa.kvot.kvotDagar > 0 ? <TidCell min={summa.kvot.kvotMaskin} /> : kvotMaskinText(summa.kvot)}</span>
+                  <span data-kvot-varde="" style={{ textAlign: "right", ...TYP.listtitel, ...TNUM, color: FARG.text }}>{kvotVarde(summa.kvot)}</span>
+                  {manadAttOppna && <span />}
+                </div>
+              </div>
+              {summa.kvot.kvotDagar > 0 && (
+                <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text3 }}>
+                  Lönekvot = maskinens G15 under förarens inloggning delat med betald tid, över dagar med maskinfiler. Mäter verksamheten, inte föraren.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Svaret först: hur många dagar som avviker. "Bara avvikelser" är förvalt; alla dagar ligger bakom "Visa alla". */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.m, marginBottom: AVSTAND.l }}>
             <span style={{ ...TYP.meta, ...TNUM, color: medAvv.length ? FARG.orange : FARG.text2 }}>
@@ -352,9 +416,6 @@ export default function DagarUnderflik() {
             </div>
           )}
 
-          {/* SUMMERINGEN längst ner, som förarens Dag för dag. Per förare först
-              ("vem jobbade mest" utan att räkna), månaden sist som huvudtal. */}
-          {/* Alla dagar-läget avslutas med summeringen; avvikelselistan är svaret och har ingen summering under sig. */}
           {baraAvv && rader.length > visade.length && (
             <button onClick={() => setBaraAvv(false)} data-visa-alla=""
               style={{ ...KNAPP.sekundar, marginTop: AVSTAND.l }}>
@@ -362,51 +423,6 @@ export default function DagarUnderflik() {
             </button>
           )}
 
-          {!baraAvv && visade.length > 0 && (
-            <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0, marginTop: AVSTAND.l }}>
-              <p style={{ margin: 0, paddingTop: AVSTAND.l, paddingBottom: AVSTAND.xs, ...TYP.micro, color: FARG.text2 }}>
-                {`Summering ${periodLabel}`}{pagar ? " · pågår" : ""}
-              </p>
-              {summa.lista.map(s => (
-                <div key={s.namn} style={{ borderBottom: `1px solid ${FARG.linje}`, padding: `${AVSTAND.s}px 0` }}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: AVSTAND.m, minHeight: TRAFFYTA.min - AVSTAND.l }}>
-                    <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.namn.split(" ")[0]}</span>
-                    <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2, whiteSpace: "nowrap" }}>{s.dagar} {s.dagar === 1 ? "dag" : "dagar"} · {s.km.toLocaleString("sv-SE")} km{s.obekr ? <span style={{ color: FARG.orange }}> · {s.obekr} obekr.</span> : null}</span>
-                    <span style={{ ...TYP.text, ...TNUM, color: FARG.text, whiteSpace: "nowrap" }}>{minText(s.min)}</span>
-                  </div>
-                  {/* Lönekvot per förare — bara över dagar med filmaskin, antalet dagar bredvid. */}
-                  <p style={{ margin: 0, ...TYP.meta, ...TNUM, color: FARG.text3 }}>
-                    {s.kvotDagar >= KVOT_MIN_DAGAR
-                      ? `Lönekvot ${pct(s.kvotMaskin, s.kvotBetald)} % · ${minText(s.kvotMaskin)} maskintid av ${minText(s.kvotBetald)} · ${s.kvotDagar} dagar${s.utanMaskintid ? ` · ${s.utanMaskintid} utan maskintid` : ""}`
-                      : s.kvotDagar > 0
-                        ? `Lönekvot kräver minst ${KVOT_MIN_DAGAR} dagar med maskinfiler (${s.kvotDagar} hittills)`
-                        : "Ingen lönekvot — inga dagar med maskinfiler"}
-                  </p>
-                </div>
-              ))}
-              <div style={{ display: "flex", alignItems: "baseline", gap: AVSTAND.m, padding: `${AVSTAND.m}px 0 0` }}>
-                <span style={{ flex: 1, ...TYP.listtitel, ...TNUM, color: FARG.text }}>{summa.dagar} {summa.dagar === 1 ? "dag" : "dagar"} · {summa.km.toLocaleString("sv-SE")} km</span>
-                <span style={{ ...TYP.listtitel, ...TNUM, color: FARG.text, whiteSpace: "nowrap" }}>{minText(summa.min)}</span>
-              </div>
-              {/* Månadens lönekvot: aldrig ett tal som blandar in filfria maskiner.
-                  Visas bara över dagar där båda källorna finns, med antalet dagar. */}
-              <p style={{ margin: 0, padding: `${AVSTAND.xs}px 0 ${AVSTAND.m}px`, ...TYP.meta, ...TNUM, color: FARG.text2 }}>
-                {summa.kvotDagar >= KVOT_MIN_DAGAR
-                  ? `Lönekvot ${pct(summa.kvotMaskin, summa.kvotBetald)} % · ${minText(summa.kvotMaskin)} maskintid av ${minText(summa.kvotBetald)} · ${summa.kvotDagar} dagar med maskinfiler`
-                  : summa.kvotDagar > 0
-                    ? `Lönekvot kräver minst ${KVOT_MIN_DAGAR} dagar med maskinfiler (${summa.kvotDagar} hittills)`
-                    : "Ingen lönekvot — inga dagar med maskinfiler"}
-              </p>
-              {summa.obekr > 0 && (
-                <p style={{ margin: 0, paddingBottom: AVSTAND.m, ...TYP.meta, color: FARG.orange }}>{summa.obekr} {summa.obekr === 1 ? "dag är inte bekräftad" : "dagar är inte bekräftade"}</p>
-              )}
-            </div>
-          )}
-          {!baraAvv && summa.kvotDagar > 0 && (
-            <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text3 }}>
-              Lönekvot = maskinens G15 under förarens inloggning delat med betald tid. Mäter verksamheten, inte föraren.
-            </p>
-          )}
         </>
       )}
     </div>
