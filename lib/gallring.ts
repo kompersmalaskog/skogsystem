@@ -51,7 +51,9 @@ import { harledTyp } from './objekt/typ';
 // appen. Gallringsvyn definierar inga egna.
 import { tradslagLabel } from './tradslag';
 import { DIM_MASKIN_NAMN_KOLUMNER, maskinNamnMap, type MaskinNamnKalla } from './maskinNamn';
-import { beraknaPerHa, type PerHa } from './gallringPerHa';
+import { beraknaPerHa, perHaForDel, type PerHa, type PerHaDel } from './gallringPerHa';
+import type { UtanforSvar, EjGallratSvar } from './gallradYta';
+import { DELNING_NYCKEL, foreslaDelning, giltigRing, type Delning, type DelningSvar, type RitadDelning } from './gallringDelar';
 import { traktgransRingar, type TraktGeometriFC } from './objektPlats';
 import { hyttsparTillLinjer, type HyttPunkt } from './hyttspar';
 
@@ -480,39 +482,101 @@ export async function hamtaGallring(vo: string): Promise<GallringDetalj | null> 
 /** Per hektar och stickvägar (lib/gallringPerHa.ts). Egen läsning efter att trakten visats: traktgränsen,
  *  maskinernas GPS-spår och varje stams position. Ett läsfel kastas — "inget spår" och "kunde inte läsa" är
  *  olika svar. objekt_geometri har RLS: en utgången session ger tomma rader, och då står "traktgräns saknas". */
-export async function hamtaPerHa(rad: GallringRad): Promise<PerHa> {
+export type PerHaLast = PerHa & {
+  /** false = tabellen gallring_yta_svar finns inte än (migrationen ej körd): förslagen visas, svaren sparas inte. */
+  svarSparas: boolean;
+  /** Första och andra gallring i samma trakt (lib/gallringDelar.ts). null = en gallring, eller inga positioner. */
+  delning: Delning | null;
+  /** Uttaget per hektar för delarna som gäller (efter svaret), i samma ordning som delning.delar. */
+  delarPerHa: [PerHaDel, PerHaDel] | null;
+};
+
+const saknasTabell = (e: { code?: string } | null) => !!e && (e.code === 'PGRST205' || e.code === '42P01');
+
+export async function hamtaPerHa(rad: GallringRad): Promise<PerHaLast> {
   const obj = await supabase.from('objekt').select('id').eq('vo_nummer', rad.vo);
   kasta('objekt', obj.error);
   const ids = (obj.data ?? []).map((o) => o.id as string);
 
-  const [geo, spar, stammar] = await Promise.all([
+  const [geo, spar, stammar, svar] = await Promise.all([
     ids.length ? supabase.from('objekt_geometri').select('geometri').in('objekt_id', ids) : Promise.resolve({ data: [], error: null }),
     ids.length ? supabase.from('hyttspar').select('roll, points').in('objekt_id', ids) : Promise.resolve({ data: [], error: null }),
     rad.objektIds.length
       ? (fetchAllRows((from, to) =>
           supabase
             .from('detalj_stam')
-            .select('latitude, longitude, dbh_mm')
+            .select('id, latitude, longitude, dbh_mm')
             .in('objekt_id', rad.objektIds)
             .order('objekt_id')
             .order('id')
             .range(from, to),
-        ) as Promise<{ latitude: number | null; longitude: number | null; dbh_mm: number | null }[]>)
+        ) as Promise<{ id: number; latitude: number | null; longitude: number | null; dbh_mm: number | null }[]>)
       : Promise.resolve([]),
+    // '*': kolumnen geometri (ritad gräns) finns först efter migrationen 20261023143310 — en namngiven kolumn som
+    // saknas skulle fälla hela läsningen.
+    supabase.from('gallring_yta_svar').select('*').eq('vo', rad.vo),
   ]);
   kasta('traktgräns', geo.error);
   kasta('GPS-spår', spar.error);
+  const svarSparas = !saknasTabell(svar.error);
+  if (svarSparas) kasta('svar', svar.error);
 
-  return beraknaPerHa({
+  const svarUtanfor: Record<string, UtanforSvar> = {};
+  const svarEjGallrat: Record<string, EjGallratSvar> = {};
+  let svarDelning: DelningSvar | null = null;
+  let ritad: RitadDelning | null = null;
+  for (const r of (svarSparas ? svar.data ?? [] : []) as { nyckel: string; svar: string; geometri?: unknown }[]) {
+    if (r.nyckel.startsWith('u:')) svarUtanfor[r.nyckel] = r.svar as UtanforSvar;
+    else if (r.nyckel.startsWith('e:')) svarEjGallrat[r.nyckel] = r.svar as EjGallratSvar;
+    else if (r.nyckel === DELNING_NYCKEL) {
+      svarDelning = r.svar as DelningSvar;
+      const g = r.geometri as { del?: unknown; ring?: unknown } | null | undefined;
+      if (g && (g.del === 'forsta' || g.del === 'andra') && giltigRing(g.ring)) ritad = { del: g.del, ring: g.ring };
+    }
+  }
+
+  const stamrader = stammar.map((s) => ({ id: s.id, lat: Number(s.latitude), lng: Number(s.longitude), dbhMm: s.dbh_mm }));
+  const perHa = beraknaPerHa({
     ringar: (geo.data ?? []).flatMap((g) => traktgransRingar(g.geometri as TraktGeometriFC)),
     volymM3fub: rad.volymM3fub,
     stammar: rad.stammar,
-    stamrader: stammar.map((s) => ({ lat: Number(s.latitude), lng: Number(s.longitude), dbhMm: s.dbh_mm })),
+    stamrader,
     spar: (spar.data ?? []).map((s) => ({
       roll: String(s.roll),
       linjer: hyttsparTillLinjer(Array.isArray(s.points) ? (s.points as HyttPunkt[]) : []),
     })),
+    svarUtanfor,
+    svarEjGallrat,
   });
+  const delning = perHa.lage === 'ok' && perHa.yta
+    ? foreslaDelning(perHa.yta, stamrader.filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng)), svarDelning, ritad)
+    : null;
+  const delarPerHa = perHa.lage === 'ok' && delning?.delar
+    ? delning.delar.map((d) => perHaForDel({ volymM3fub: rad.volymM3fub, stammar: rad.stammar, stamrader }, perHa.arealHa, d.andelYta, d.stammar)) as [PerHaDel, PerHaDel]
+    : null;
+  return { ...perHa, svarSparas, delning, delarPerHa };
+}
+
+/** Sparar (eller tar bort, svar null) ett svar om en bit. Servern sätter vem och när. Kastar vid fel. */
+export async function sparaYtaSvar(
+  vo: string, nyckel: string, svar: UtanforSvar | EjGallratSvar | DelningSvar | null, ritad?: RitadDelning,
+): Promise<void> {
+  if (svar === null) {
+    const { error } = await supabase.from('gallring_yta_svar').delete().eq('vo', vo).eq('nyckel', nyckel);
+    kasta('svar', error);
+    return;
+  }
+  const { data, error } = await supabase
+    .from('gallring_yta_svar')
+    // geometri skickas bara med en ritning: utan migrationen finns inte kolumnen, och de andra svaren ska ändå gå.
+    .upsert(ritad ? { vo, nyckel, svar, geometri: ritad } : { vo, nyckel, svar }, { onConflict: 'vo,nyckel' })
+    .select('svar');
+  // 23514: databasen känner inte till svaret än (migrationen för första/andra gallring är inte körd).
+  if (error?.code === '23514' || error?.code === 'PGRST204' || error?.code === '42703') {
+    throw new Error('Svaret kan inte sparas förrän databasen uppdaterats.');
+  }
+  kasta('svar', error);
+  if (!data || data.length === 0 || data[0].svar !== svar) throw new Error('Svaret sparades inte.');
 }
 
 /** Sortiment per objekt-total ur fakt_sortiment. Datumfilter vore fel

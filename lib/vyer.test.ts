@@ -30,9 +30,9 @@ describe('vyregistret', () => {
     expect(hrefs.length).toBeGreaterThan(25)
     const iRegistret = new Set(VYER.map(v => v.href))
     expect(hrefs.filter(h => !iRegistret.has(h))).toEqual([])
-    // Gamla sidans tre admin-poster är spärrade här också — och inget annat.
+    // Gamla sidans tre admin-poster är spärrade här också — plus Objektöversikten (ny, bara admin) — och inget annat.
     expect(VYER.filter(v => v.bara === 'admin').map(v => v.href).sort())
-      .toEqual(['/admin', '/admin/markagarrapport', '/ekonomi'])
+      .toEqual(['/admin', '/admin/markagarrapport', '/admin/objektoversikt', '/ekonomi'])
   })
 
   it('förare ser aldrig en admin-vy — varken i grupperna, kontomenyn, favoriterna eller sökningen', () => {
@@ -72,6 +72,6 @@ describe('vyregistret', () => {
     expect(sokVyer('admin', 'semester').map(v => v.id)).toEqual(['ledighet'])
     expect(sokVyer('admin', 'Maskin').map(v => v.id).slice(0, 3)).toEqual(['maskinvy', 'maskinvy-2', 'lastbilen'])
     expect(sokVyer('admin', 'flytt').map(v => v.id)).toEqual(['lastbilen'])
-    expect(sokVyer('admin', 'ÖVERSIKT').map(v => v.id)).toEqual(['oversikt'])
+    expect(sokVyer('admin', 'ÖVERSIKT').map(v => v.id)).toEqual(['oversikt', 'objektoversikt'])
   })
 })

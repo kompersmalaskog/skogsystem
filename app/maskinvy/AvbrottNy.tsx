@@ -192,7 +192,7 @@ function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
       {synliga.map((t, i) => {
         const isHaveri    = t.typ === 'Reparation'
         const hasData     = t.antal > 0
-        const showAlarm   = isHaveri && hasData   // rött+bold bara om faktisk reparation
+        const showAlarm   = isHaveri && hasData   // mörkare orange+bold bara om faktisk reparation
         const isExpanded  = expanded === t.typ
         const hasKat      = !loading && t.kategorier.length > 0
 
@@ -370,7 +370,7 @@ export default function AvbrottNy({ maskin, onMaskinChange }: {
   }, [maskin.namn, label])
 
   const showFlytt = !loading && (data?.flyttAntal ?? 0) > 0
-  const haveriColor = (data?.reparationTimmar ?? 0) > 0 ? FARG.rod : undefined
+  const reparationColor = (data?.reparationTimmar ?? 0) > 0 ? TYP_FARG.Reparation : undefined
 
   return (
     <div style={{
@@ -495,11 +495,11 @@ export default function AvbrottNy({ maskin, onMaskinChange }: {
             loading={loading}
           />
           <MetricKort
-            label="Varav haveri"
+            label="Varav reparation"
             value={data?.reparationTimmar ?? null}
             unit=""
             loading={loading}
-            color={haveriColor}
+            color={reparationColor}
             display={data ? avbrottTid(data.reparationTimmar * 3600, fmtTid) : undefined}
           />
         </div>

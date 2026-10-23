@@ -106,3 +106,18 @@ describe("lonerader: varje rad som HAR antal, med sin status", () => {
     expect(u.lonerader.map(r => r.loneart)).toEqual(["timlon", "premielon_skordare", "valtlappar"]);
   });
 });
+
+describe("'1 vecka', inte '1 veckor' (Martin 2026-10-21)", () => {
+  const enDag = [dag("2026-09-02", 480, "R64428")];
+  it("vältlappsraden och varningen säger 'vecka' vid en vecka och 'veckor' annars", () => {
+    const { valtlappar, ...utan } = PROD_KODER;
+    const en = beräknaExport("m", "Anna", "7", enDag, { R64428: TYP.SK }, "2026-10", [], [], 60, null, new Set(), null, null, PROD_KODER);
+    expect(en.rader.find(r => r.loneart === "valtlappar")!.beskrivning).toBe("Vältlappar: 1 vecka");
+    const enUtanKod = beräknaExport("m", "Anna", "7", enDag, { R64428: TYP.SK }, "2026-10", [], [], 60, null, new Set(), null, null, utan);
+    expect(enUtanKod.varningar.find(v => /^Löneart saknas för Vältlappar/.test(v))).toMatch(/\(1 vecka\)/);
+    const fem = kor(PROD_KODER);
+    expect(fem.rader.find(r => r.loneart === "valtlappar")!.beskrivning).toBe("Vältlappar: 5 veckor");
+    expect(kor(utan).varningar.find(v => /^Löneart saknas för Vältlappar/.test(v))).toMatch(/\(5 veckor\)/);
+  });
+});
+

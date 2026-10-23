@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
     // Frånvaro från måndagen i ISO-vecka 1 (kan vara i december året före) t.o.m. idag. Alla förare i en läsning.
     const franvaroRes = await hamtaFranvaro(supabase, { fran: `${ar - 1}-12-22`, till: tomDatum });
     const [medRes, arbetsdagar, extraRader, avtalRes, utjRes] = await Promise.all([
-      supabase.from("medarbetare").select("id, namn, anstallningsdatum").order("namn"),
+      supabase.from("medarbetare").select("id, namn, anstallningsdatum, foretagsledare").order("namn"),
       allaRader<any>(() => supabase.from("arbetsdag").select("medarbetare_id, datum, arbetad_min, dagtyp, start_tid").gte("datum", `${ar}-01-01`).lte("datum", tomDatum)),
       allaRader<any>(() => supabase.from("extra_tid").select("medarbetare_id, datum, minuter").gte("datum", `${ar}-01-01`).lte("datum", tomDatum)),
       supabase.from("gs_avtal").select("max_overtid_ar_h, helglon_dagar, ordinarie_vecka_h").order("giltigt_fran", { ascending: false }).limit(1).maybeSingle(),
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
       const a = beraknaArsovertid(dagar, extra, ar, tomDatum, perioder, franvaro, {
         anstallningsdatum: m.anstallningsdatum ?? null, helglonNamn: avtalRes.data?.helglon_dagar ?? null, ordinarieVeckaH: avtalRes.data?.ordinarie_vecka_h ?? null,
       });
-      return { medarbetare_id: m.id, namn: m.namn, ...a, per_manad: overtidPerManad(a) };
+      return { medarbetare_id: m.id, namn: m.namn, foretagsledare: m.foretagsledare === true, ...a, per_manad: overtidPerManad(a) };
     }).filter(Boolean);
     return NextResponse.json({
       ok: true, ar, tomDatum, tak, modeller: OVERTID_MODELLER, medarbetare: perMed,

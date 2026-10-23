@@ -54,6 +54,18 @@ describe.each(VYER)('Avbrott %s', (_namn, vy) => {
     for (const f of [FARG.gron, FARG.bla]) expect(alla).not.toContain(rgb(f))
   })
 
+  it('kortet heter "Varav reparation" och har Reparations färg — inget rött (datan har ingen haveri-typ)', async () => {
+    svar.rader = [{ datum: '2026-10-07', kategori_kod: 'Hydraulics', typ: 'Reparation', langd_sek: 3600 }]
+    await montera(vy)
+    const etikett = Array.from(document.querySelectorAll('div')).find(d => d.children.length === 0 && d.textContent === 'Varav reparation')
+    expect(etikett).toBeDefined()
+    const varde = etikett!.nextElementSibling!.firstElementChild as HTMLElement
+    expect(varde.textContent).toBe('1 h')
+    expect(varde.style.color).toBe(rgb(FARG.orangeMork))
+    expect(text()).not.toContain('haveri')
+    expect(document.body.innerHTML).not.toContain(rgb(FARG.rod))
+  })
+
   it('en kategori utan stopp visas inte — inga rader med "0 ggr" och streck', async () => {
     svar.rader = [{ datum: '2026-10-05', kategori_kod: 'Service', typ: 'Underhåll', langd_sek: 1800 }]
     await montera(vy)

@@ -56,9 +56,14 @@ export function loneartInfo(key: string): (typeof LONEARTER)[number] | null {
   return LONEARTER.find(l => l.key === key) ?? null;
 }
 
-/** Enheten som föraren ser bredvid mängden ("påbörjade mil", inte bara "mil"). Okänd löneart: tomt. */
-export function loneartEnhetText(key: string): string {
-  return loneartInfo(key)?.enhetText ?? "";
+/** Enheten följer antalet: "1 vecka", inte "1 veckor". Andra enheter ("tim", "mil") är desamma i singular och plural. */
+export function enhetForMangd(enhet: string, mangd?: string | number): string {
+  return enhet === "veckor" && mangd !== undefined && Number(mangd) === 1 ? "vecka" : enhet;
+}
+
+/** Enheten som föraren ser bredvid mängden ("påbörjade mil", inte bara "mil"). Okänd löneart: tomt. Ges mängden följer enheten antalet. */
+export function loneartEnhetText(key: string, mangd?: string | number): string {
+  return enhetForMangd(loneartInfo(key)?.enhetText ?? "", mangd);
 }
 
 /** "112.00" → "112", "14.97" → "14,97" — svenskt decimalkomma, inga döda nollor. */

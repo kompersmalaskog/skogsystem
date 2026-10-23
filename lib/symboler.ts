@@ -232,6 +232,7 @@ const ANNAN_IKON_SYMBOL: Readonly<Record<string, string>> = {
 const ANNAN_IKON_GLYF: Readonly<Record<string, string>> = {
   stonewall: 'M3 19h18 M5 19v-5h5v5 M12 19v-5h6v5 M8 14V9h6v5',
   noentry: 'M6 6l12 12 M18 6L6 18',
+  fastighetsgrans: 'M5 19L19 5 M5 19h.01 M12 12h.01 M19 5h.01',   // en gräns med gränspinnar
 };
 export function larmIkonDef(kalla: 'symbol' | 'linje' | 'yta', typ: string | null | undefined, grupp: FargGrupp): SymbolDef {
   if (kalla === 'symbol') return symbolDef(typ);
@@ -264,6 +265,7 @@ export function traktKortBetydelse(k: { kategori: string; grupp?: FargGrupp; for
     case 'hansyn': return vida('hansynsyta', 'hansynsyta');
     case 'nyckelbiotop': return vida('nyckelbiotop', 'nyckelbiotop');
     case 'lamning': return vida('raa_yta', 'raa_yta');
+    case 'fastighetsgrans': return { grupp: 'info', forklaring: k.forklaring || null, forbjuden: false, ikon: { kalla: 'linje', typ: 'fastighetsgrans' } };
     case 'punkt': { const d = symbolDef('landing'); return { grupp: d.grupp, forklaring: d.forklaring || null, forbjuden: false, ikon: { kalla: 'symbol', typ: 'landing' } }; }
     default: return { grupp: 'info', forklaring: null, forbjuden: false, ikon: { kalla: 'yta', typ: 'default' } };
   }

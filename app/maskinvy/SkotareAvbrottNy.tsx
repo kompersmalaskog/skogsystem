@@ -388,7 +388,7 @@ export default function SkotareAvbrottNy({ maskin, onMaskinChange }: {
   }, [maskin.namn, label])
 
   const showFlytt  = !loading && (data?.flyttAntal ?? 0) > 0
-  const haveriColor = (data?.reparationTimmar ?? 0) > 0 ? FARG.rod : undefined
+  const reparationColor = (data?.reparationTimmar ?? 0) > 0 ? TYP_FARG.Reparation : undefined
 
   return (
     <div style={{
@@ -513,11 +513,11 @@ export default function SkotareAvbrottNy({ maskin, onMaskinChange }: {
             loading={loading}
           />
           <MetricKort
-            label="Varav haveri"
+            label="Varav reparation"
             value={data?.reparationTimmar ?? null}
             unit=""
             loading={loading}
-            color={haveriColor}
+            color={reparationColor}
             display={data ? avbrottTid(data.reparationTimmar * 3600, fmtTid) : undefined}
           />
         </div>
