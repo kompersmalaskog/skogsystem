@@ -2,7 +2,7 @@
 //
 //   • dagen före planerad start (objekt.planerad_start = i morgon), eller
 //   • när första maskinen startar (objekt.pagaende_startad_timestamp = i dag) om ingen planerad start finns.
-//   Ingen påminnelse om SMS:et redan öppnats (objekt_besok_sms) och ingen för ett avslutat objekt. Köas av flush (cron var 5:e min), EN gång per objekt och tillfälle (dedup_nyckel).
+//   Ingen påminnelse om SMS:et redan är BEKRÄFTAT skickat (objekt_besok_sms.handelse = 'skickad' – att knappen öppnades räknas inte) och ingen för ett avslutat objekt. Köas av flush (cron var 5:e min), EN gång per objekt och tillfälle (dedup_nyckel).
 //   Texten byggs FÄRSKT vid utskick: har SMS:et hunnit öppnas, eller objektet avslutats, skickas ingenting.
 //
 // Ren modul (ingen Supabase-import): raderna hämtas av anroparen.
@@ -42,7 +42,7 @@ export function valjPaminnelser(objekt: PaminnelseObjekt[], harSms: Set<string>,
   return ut;
 }
 
-export type BesokNotisRad = { id: string; namn: string; status: string | null; sms_oppnat: boolean };
+export type BesokNotisRad = { id: string; namn: string; status: string | null; sms_skickat: boolean };
 export type HamtaBesokObjekt = (objektId: string) => Promise<{ rad: BesokNotisRad | null; fel?: string }>;
 export type BesokNotisUtfall =
   | { typ: 'skicka'; meddelande: { title: string; body: string; url: string; tag: string } }
@@ -66,7 +66,7 @@ export async function byggBesokNotis(
   if (fel) return { typ: 'uppskjut' };
   if (!rad) return { typ: 'hoppa_over', orsak: 'Ej skickad — objektet finns inte längre' };
   if (rad.status === 'avslutat' || rad.status === 'klar') return { typ: 'hoppa_over', orsak: 'Ej skickad — objektet är avslutat' };
-  if (rad.sms_oppnat) return { typ: 'hoppa_over', orsak: 'Ej skickad — SMS till markägaren är redan öppnat' };
+  if (rad.sms_skickat) return { typ: 'hoppa_over', orsak: 'Ej skickad — SMS till markägaren är redan bekräftat skickat' };
   return {
     typ: 'skicka',
     meddelande: { title: `${rad.namn} startar ${nar}`, body: 'Skicka till markägaren?', url: besokNotisUrl(rad.id), tag: `besok-${rad.id}` },

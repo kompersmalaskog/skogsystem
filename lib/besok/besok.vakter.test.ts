@@ -18,7 +18,7 @@ const selectLista = (src: string) => Array.from(src.matchAll(/\.select\('([^']*)
 describe('besökssidan läser exakt de fält den visar', () => {
   const TILLATET = new Set([
     'objekt_id, aktiv',                                                                     // länken
-    'id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id',  // objektet (volym används bara för procenten, skickas aldrig ut)
+    'id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id, fastighetsbeteckning',  // objektet (volym används bara för procenten, skickas aldrig ut)
     'typ, data',                                                                            // motorsåg
     'roll, datum, points, uppdaterad_at',                                                   // maskinernas SENASTE punkt
     'id, besokstid',                                                                        // markägarens egen anmälan
@@ -106,7 +106,7 @@ describe('planeringsvyn: besöken syns bara där de ska', () => {
     expect(page).toContain("id: 'larm-besok-ring-fyll'");
     expect(page).toContain("id: 'larm-besok-ring-linje'");
     expect(page).toContain('circlePolygon(pos.lat, pos.lon, HYTT_RING_M, 64)');
-    expect(page).toContain('besokHytt.aktiva.length > 0');
+    expect(page).toContain('besokHytt.ringBesok.length > 0');   // ringen följer ringBesok (utan de föraren stängt av)
   });
   it('Uppfattat sparas på riktigt också i testläget (märkt testlage) — kvittenser sparas inte "torrt" här', () => {
     expect(page).toMatch(/testlage: !!testlage,\s*\n\s*ljudCtx/);
@@ -141,5 +141,119 @@ describe('påminnelsen i flush', () => {
     expect(flush).toMatch(/try \{\s*const bp = await koaBesokPaminnelser\(supabase\);[\s\S]*?\} catch/);
     expect(flush).toContain('arBesokPaminnelse(n.typ)');
     expect(flush).toContain('byggBesokNotis(n, hamtaBesokObjekt)');
+  });
+});
+
+// ---- Uppstramning 2026-10-23 -----------------------------------------------------------------------------------------------------------------
+
+const migration2 = las('supabase/migrations/20261023190000_besok_uppstramning.sql');
+
+describe('uppstramning: databasen – läsning bara för admin, kvittens bara från servern, SMS-logg bara admin', () => {
+  it('besök, kvittenser och SMS-logg läses bara av admin (inte alla inloggade)', () => {
+    for (const p of ['besok_sel on public.objekt_besok', 'besok_kvittens_sel on public.objekt_besok_kvittens', 'besok_sms_sel on public.objekt_besok_sms']) {
+      expect(migration2).toContain(`alter policy ${p} using (public.ar_admin());`);
+    }
+    expect(migration2).not.toMatch(/using \(true\)/);
+  });
+  it('ingen inloggad kan skriva en kvittens (policyn är false och INSERT-rätten återkallas); SMS-raden bara som admin och som sig själv', () => {
+    expect(migration2).toContain('alter policy besok_kvittens_ins on public.objekt_besok_kvittens with check (false);');
+    expect(migration2).toContain('alter policy besok_sms_ins on public.objekt_besok_sms with check (public.ar_admin() and oppnad_av = public.korvy_min_medarbetare());');
+    expect(migration2).toMatch(/revoke all on public\.objekt_besok, public\.objekt_besok_kvittens, public\.objekt_besok_sms from authenticated;/);
+    expect(migration2).toContain('grant insert on public.objekt_besok_sms to authenticated;');
+    expect(migration2).not.toMatch(/grant (insert|update|delete)[^;]*objekt_besok_kvittens/i);
+    expect(migration2).not.toMatch(/grant (update|delete|truncate)/i);
+  });
+  it('SMS-loggen får en händelse; bara fyra värden, default är den svaga ("oppnad")', () => {
+    expect(migration2).toContain("add column if not exists handelse text not null default 'oppnad'");
+    expect(migration2).toContain("check (handelse in ('oppnad', 'kopierad', 'skickad', 'ej_skickad'))");
+  });
+  it('additiv, och utan ordet som får Supabase-MCP:n att hänga', () => {
+    expect(migration2).not.toMatch(/drop|delete from|truncate/i);
+  });
+});
+
+describe('uppstramning: hytten går via servern', () => {
+  const hook = las('lib/hooks/useBesokHytt.ts');
+  it('hooken rör aldrig Supabase-klienten – bara serverrutterna', () => {
+    expect(hook).not.toMatch(/from '@\/lib\/supabase'|supabase\./);
+    expect(hook).toContain('/api/besok/hytt');
+    expect(hook).toContain('/api/besok/hytt/kvittera');
+  });
+  it('klienten skickar aldrig roll, förare eller tid', () => {
+    const post = hook.slice(hook.indexOf("fetch('/api/besok/hytt/kvittera'"));
+    expect(post.slice(0, post.indexOf('});'))).not.toMatch(/roll|forare|kvitterad_at/);
+  });
+  it('sidan skickar inte längre roll eller förare till hooken', () => {
+    const anrop = page.slice(page.indexOf('const besokHytt = useBesokHytt({'), page.indexOf('const besokKortSynligt'));
+    expect(anrop).not.toMatch(/roll:|forareId:/);
+  });
+  it('rutterna kräver inloggning, använder service-klienten och är inte öppna i middleware', async () => {
+    for (const f of ['app/api/besok/hytt/route.ts', 'app/api/besok/hytt/kvittera/route.ts']) {
+      const s = las(f);
+      expect(s).toContain('kravInloggad');
+      expect(s).toContain('tjanstKlient');
+      expect(s).toContain("export const runtime = 'nodejs'");
+    }
+    const { arOffentligBesokSokvag } = await import('./offentlig');
+    expect(arOffentligBesokSokvag('/api/besok/hytt')).toBe(false);
+    expect(arOffentligBesokSokvag('/api/besok/hytt/kvittera')).toBe(false);
+  });
+  it('servern läser bara kolumnerna kortet visar och skriver kvittensen med roll/förare/testläge ur sessionen och registret', () => {
+    const s = las('lib/besok/hyttserver.ts');
+    expect(selectLista(s)).toEqual(expect.arrayContaining(['id, namn, telefon, besokstid']));
+    expect(s).toContain("roll: p.roll, forare_id: s.medarbetareId, testlage: p.testlage");
+    expect(s).not.toMatch(/b\.(roll|forare_id|kvitterad_at)\b/);   // inget från klientens kropp
+    expect(s).toContain("const test = arAdmin(s) && begartTest;");
+  });
+  it('banner "Visar som maskin" är neutral grå, inte orange', () => {
+    const banner = page.slice(page.indexOf('"ÖPPNA SOM MASKIN"-BANNER'), page.indexOf('/maskin: HELSVART'));
+    expect(banner).toContain('background: FARG.upphojt, color: FARG.text');
+    expect(banner).not.toMatch(/f59e0b|1a1200|ff9f0a/i);
+  });
+});
+
+describe('uppstramning: SMS-loggen och påminnelsen', () => {
+  it('påminnelsen tystnar bara av en BEKRÄFTAD skickad rad (handelse = skickad) – i både kön och flushen', () => {
+    expect(las('lib/besok/paminnelse-ko.ts')).toContain(".eq('handelse', 'skickad')");
+    expect(las('app/api/notis/flush/route.ts')).toContain('.eq("handelse", "skickad")');
+    expect(las('lib/besok/paminnelse.ts')).toContain('sms_skickat');
+    expect(las('lib/besok/paminnelse.ts')).not.toContain('sms_oppnat');
+  });
+  it('knappen loggar "oppnad" (mobil) eller "kopierad" (dator) – aldrig "skickad"; "skickad" kommer bara ur planerarens svar', () => {
+    const k = las('components/besok/BesokPlanerare.tsx');
+    expect(k).toContain("handelse: 'oppnad'");
+    expect(k).toContain("handelse: 'kopierad'");
+    expect((k.match(/handelse: 'skickad'/g) ?? []).length).toBe(0);
+    expect(k).toContain("handelse: skickat ? 'skickad' : 'ej_skickad'");
+  });
+  it('dator: ingen sms:-länk öppnas utan mobil-grenen', () => {
+    const k = las('components/besok/BesokPlanerare.tsx');
+    const mobilGren = k.slice(k.indexOf('if (mobil) {'), k.indexOf('// Dator:'));
+    expect((k.match(/smsLank\(/g) ?? []).length).toBe(2);   // definitionen + ETT anrop
+    expect(mobilGren).toContain('smsLank(');
+  });
+});
+
+describe('uppstramning: besökssidan', () => {
+  it('namnet kommer ur besokNamn (platsen), inte rensaObjektnamn rakt av; fastighetsbeteckningen läses', () => {
+    expect(server).toContain('besokNamn(o.namn, o.vo_nummer, o.fastighetsbeteckning)');
+    expect(server).not.toContain('rensaObjektnamn');
+  });
+  it('kartan färgar maskinerna ur BESOK_MASKINFARG (skördare gul)', () => {
+    const k = las('components/besok/BesokKarta.tsx');
+    expect(k).toContain('BESOK_MASKINFARG[m.roll]');
+    expect(k).not.toContain('ROLLFARG_SKORDARE');
+  });
+  it('ingen antagen eftersläpning för skotningen i prognosen, och villkoren står i konstanterna', () => {
+    const f = las('lib/besok/framsteg.ts');
+    expect(f).not.toContain('SKOTNING_EFTER_DAGAR');
+    expect(las('lib/besok/konstanter.ts')).not.toContain('SKOTNING_EFTER_DAGAR');
+    expect(f).toContain('PROGNOS.TAKT_STABIL');
+    expect(f).toContain('PROGNOS.SENASTE_DAG_MAX');
+    expect(f).toContain('PROGNOS.HORISONT_MAX');
+  });
+  it('företagets nummer är EN konstant som SMS-texten använder när avsändaren saknar eget', () => {
+    expect(las('lib/besok/konstanter.ts')).toContain('export const FORETAG_TELEFON');
+    expect(las('lib/besok/sms.ts')).toContain('smsNummer(a)');
   });
 });

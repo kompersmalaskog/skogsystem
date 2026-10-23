@@ -23,9 +23,15 @@ const SIDA = "app/planering/page.tsx";
 const MW = "middleware.ts";
 const RAMVERK = "components/AppRamverk.tsx";
 const MIGR = "supabase/migrations/20261022170000_besok_pa_trakten.sql";
+const MIGR2 = "supabase/migrations/20261023190000_besok_uppstramning.sql";
+const PAMKO = "lib/besok/paminnelse-ko.ts";
+const NAMN = "lib/besok/namn.ts";
+const FARGF = "lib/besok/farg.ts";
+const HSERV = "lib/besok/hyttserver.ts";
 
 const TESTER = [
   "lib/besok/logik.test.ts",
+  "lib/besok/hyttserver.test.ts",
   "lib/besok/server.test.ts",
   "lib/besok/besok.vakter.test.ts",
   "lib/hooks/useBesokHytt.test.tsx",
@@ -71,23 +77,18 @@ const M = [
 
   // ── framsteg ──
   ["procenten räknar bara skördat", "Math.round(((sk + st) / 2) * 100)", "Math.round(sk * 100)", FRAM],
-  ["skotningen antas klar samtidigt som skördningen", "dagarSk + SKOTNING_EFTER_DAGAR", "dagarSk", FRAM],
   ["en enda dag räknas som takt", "if (med.length < 2) return null;", "if (med.length < 1) return null;", FRAM],
   ["arbetsdagar räknar helgen", "return v !== 0 && v !== 6; };", "return true; };", FRAM],
 
   // ── påminnelsen ──
   ["påminnelse trots att SMS:et redan öppnats", "if (harSms.has(o.id)) continue;", "", PAM],
   ["påminnelse två dagar före i stället för dagen före", "if (dagarMellan(idag, o.planerad_start) === 1)", "if (dagarMellan(idag, o.planerad_start) === 2)", PAM],
-  ["notisen skickas fast SMS:et öppnats", "if (rad.sms_oppnat) return { typ: 'hoppa_over'", "if (false) return { typ: 'hoppa_over'", PAM],
   ["en gammal notis skickas ändå", "if (Number.isFinite(koad) && nu - koad > PAMINNELSE_MAX_ALDER_MS)", "if (false)", PAM],
   ["ett avslutat objekt påminns", "if (o.status === 'avslutat' || o.status === 'klar') continue;", "", PAM],
 
   // ── hytten ──
   ["kortet försvinner när NÅGON maskin kvitterat", "aktiva.filter((b) => !harKvitterat(kvitt.filter((k) => k.besok_id === b.id), maskinId))", "aktiva.filter((b) => !kvitt.some((k) => k.besok_id === b.id))", HYTT],
   ["en maskin utan id räknas som att ha kvitterat", "!!maskinId && kvittenser.some", "kvittenser.some", STAT],
-  ["Uppfattat sparas utan förare", "forare_id: a.forareId,", "forare_id: null,", HOOK],
-  ["testläget märks inte", "testlage: a.testlage }", "testlage: false }", HOOK],
-  ["gamla besök läses också", ".gte('besokstid', fran)", "", HOOK],
   ["Uppfattat-knappen är under 56 px", "export const BESOK_KORT_MIN_KNAPP_PX = 56;", "export const BESOK_KORT_MIN_KNAPP_PX = 40;", KORT],
   ["kortet är inte orange", "background: FARG.orange, color: FARG.bg", "background: FARG.rod, color: FARG.bg", KORT],
   ["kortet visas även medan ett larm visas", "const besokKortSynligt = besokHytt.vantar.length > 0 && !larm.kort && !lossningVisas;", "const besokKortSynligt = besokHytt.vantar.length > 0;", SIDA],
@@ -114,7 +115,6 @@ const M = [
   ["Skicka är aktiv utan telefonnummer", "tel.replace(/\\D/g, '').length >= 6 &&", "", KLIENT],
 
   // ── planerarens kort och logg ──
-  ["öppnandet loggas inte", "void d.loggaSms({", "void (async () => ({", PLANKORT],
   ["SMS-knappen är aktiv på en avslutad trakt", "const lankKlar = !!d.lank && d.lank.aktiv && !avslutat;", "const lankKlar = !!d.lank && d.lank.aktiv;", PLANKORT],
   ["loggen visar äldsta anmälan först", ".sort((a, b) => Date.parse(b.skapad_at) - Date.parse(a.skapad_at))\n    .map((b) =>", ".sort((a, b) => Date.parse(a.skapad_at) - Date.parse(b.skapad_at))\n    .map((b) =>", PLAN],
   ["kvittenser sorteras inte efter tid", "const k = kvitt.filter((x) => x.besok_id === b.id).sort((x, y) => Date.parse(x.kvitterad_at) - Date.parse(y.kvitterad_at));", "const k = kvitt.filter((x) => x.besok_id === b.id);", PLAN],
@@ -122,10 +122,69 @@ const M = [
   // ── migrationen (strängvakterna; SQL-beteendet provas av besok_lokal/kor.sh) ──
   ["volymfunktionen ges till inloggade", "grant execute on function public.besok_volymer(uuid, text[]) to service_role;", "grant execute on function public.besok_volymer(uuid, text[]) to authenticated;", MIGR],
   ["anon får behålla åtkomsten", "public.objekt_besok_kvittens, public.objekt_besok_sms from anon;", "public.objekt_besok_kvittens, public.objekt_besok_sms from service_role;", MIGR],
+
+  // ── uppstramning 2026-10-23: prognosen ──
+  ["prognosen kräver ingen stabil takt", "if (med.some((d) => Math.abs(d.m3 - snitt) > snitt * PROGNOS.TAKT_STABIL)) return null;", "if (false) return null;", FRAM],
+  ["två dagar räcker för en takt", "if (med.length < TAKT_DAGAR) return null;", "if (med.length < 2) return null;", FRAM],
+  ["maskinen har stått still men dagen sägs ändå", "if (dagarMellan(med[0].datum, idag) > PROGNOS.SENASTE_DAG_MAX) return null;", "if (false) return null;", FRAM],
+  ["ingen gräns för hur långt fram dagen sägs", "if (dagar > PROGNOS.HORISONT_MAX) return { procent, klartCa: null };", "if (false) return { procent, klartCa: null };", FRAM],
+  ["skotning utan takt hoppas över i prognosen", "const t = hallandeTakt(i.skotatPerDag, i.idag);\n    if (t == null) return { procent, klartCa: null };\n    dagar = Math.max(dagar, Math.ceil(kvarSt / t));", "const t = hallandeTakt(i.skotatPerDag, i.idag);\n    if (t != null) dagar = Math.max(dagar, Math.ceil(kvarSt / t));", FRAM],
+  ["förklaringen av 'klart ca' skickas inte", "forklaring: tung.framsteg.klartCa ? KLART_CA_FORKLARING : null", "forklaring: null", SERV],
+
+  // ── besökssidan: namn, färg, nummer ──
+  ["traktens namn är Vidas internnamn", "besokNamn(o.namn, o.vo_nummer, o.fastighetsbeteckning)", "o.namn", SERV],
+  ["ledande koder i namnet klipps inte", "while (i < tokens.length && arKod(tokens[i])) i++;", "", NAMN],
+  ["fastighetsbeteckningen används inte som reserv", "return f || 'Trakten';", "return 'Trakten';", NAMN],
+  ["skördarens prick är lila igen", "skordare: FARG.gul", "skordare: '#bf5af2'", FARGF],
+  ["företagets nummer används inte", "(a.avsandareTelefon ?? '').trim() || (a.foretagTelefon === undefined ? FORETAG_TELEFON : (a.foretagTelefon ?? '')).trim()", "(a.avsandareTelefon ?? '').trim()", SMS],
+  ["en iPad i skrivbordsläge ses som dator", "|| (/Macintosh/i.test(userAgent) && maxTouchPoints > 1)", "", SMS],
+
+  // ── SMS-loggen: öppnat är inte skickat ──
+  ["påminnelsen tystnar av ett öppnat SMS", ".eq('handelse', 'skickad')", "", PAMKO],
+  ["notisen skickas fast SMS:et är skickat", "if (rad.sms_skickat) return { typ: 'hoppa_over'", "if (false) return { typ: 'hoppa_over'", PAM],
+  ["öppnat SMS räknas som skickat", "default: return { typ: 'obekraftad', text: `Öppnat", "default: return { typ: 'skickad', text: `Öppnat", PLAN],
+  ["öppnandet loggas inte", "void d.loggaSms({ ...loggInfo(), handelse: 'oppnad' });", "void 0;", PLANKORT],
+  ["öppnandet loggas som skickat", "handelse: 'oppnad' });", "handelse: 'skickad' });", PLANKORT],
+  ["kopieringen loggas som skickat", "handelse: 'kopierad' }); setMeddelande", "handelse: 'skickad' }); setMeddelande", PLANKORT],
+  ["dator öppnar sms:-länken", "if (mobil) {", "if (true) {", PLANKORT],
+  ["frågan 'Skickade du SMS:et?' visas aldrig", "{lage.typ === 'obekraftad' && !avslutat && (", "{false && (", PLANKORT],
+  ["'Ja, skickat' loggar nej", "handelse: skickat ? 'skickad' : 'ej_skickad'", "handelse: 'ej_skickad'", PLANKORT],
+  ["inget nummer i SMS:et varnar inte", "{saknarNummer && lankKlar && (", "{false && (", PLANKORT],
+
+  // ── hytten: via servern ──
+  ["klienten skickar sin egen roll", "body: JSON.stringify({ besok_id: besokId, maskin_id: maskin, ...(testRef.current", "body: JSON.stringify({ besok_id: besokId, maskin_id: maskin, roll: 'skordare', ...(testRef.current", HOOK],
+  ["testläget ber inte om testläge", "${testRef.current ? '&test=1' : ''}", "", HOOK],
+  ["stäng av stänger inte ringen", "setRingAv((p) => { const n = p.includes(besokId) ? p : [...p, besokId]; sparaRingAv(n); return n; });", "setRingAv((p) => p);", HOOK],
+  ["stäng av kvitterar inte", "const ok = await kvittera(besokId);\n    if (!ok) return false;", "const ok = true;\n    if (!ok) return false;", HOOK],
+  ["ringen följer inte avstängningen", "aktiva.filter((x) => !ringAv.includes(x.id))", "aktiva", HOOK],
+  ["kopplingsfel (403) rensar inte besöken", "if (r.status === 403) { setBesok([]); setKvitt([]); setFel(null); return; }", "if (r.status === 403) { return; }", HOOK],
+  ["Ring-knappen ringer ingenstans", "href={`tel:${besok.telefon.replace(/[^\\d+]/g, '')}`} aria-label", "href=\"#\" aria-label", KORT],
+  ["'Stäng av' är bara Uppfattat", "onClick={onStangAv}", "onClick={onUppfattat}", KORT],
+  ["knapparna i hytten krymper till 40 px", "export const BESOK_KORT_MIN_KNAPP_PX = 56;", "export const BESOK_KORT_MIN_KNAPP_PX = 40;", KORT],
+  ["bannern 'Visar som maskin' är orange igen", "background: FARG.upphojt, color: FARG.text, boxSizing", "background: '#f59e0b', color: '#1a1200', boxSizing", SIDA],
+
+  // ── servern avgör (hyttserver) ──
+  ["roll tas ur klientens kropp", "roll: p.roll, forare_id", "roll: b.roll as any, forare_id", HSERV],
+  ["förare tas ur klientens kropp", "forare_id: s.medarbetareId, testlage: p.testlage", "forare_id: b.forare_id as any, testlage: p.testlage", HSERV],
+  ["testläge gäller för alla", "const test = arAdmin(s) && begartTest;", "const test = begartTest;", HSERV],
+  ["kopplingen kontrolleras inte", "if (!test) {\n    const k = await maskinKopplad", "if (false) {\n    const k = await maskinKopplad", HSERV],
+  ["ej kopplad maskin släpps igenom", "if (!k) return { ok: false, svar: FEL(403, 'Maskinen är inte kopplad till objektet') };", "if (false) return { ok: false, svar: FEL(403, 'Maskinen är inte kopplad till objektet') };", HSERV],
+  ["varje maskin i kön räknas som kopplad", "if (Array.isArray(k.data) && k.data.length > 0) return true;", "if (true) return true;", HSERV],
+  ["hyttspår från alla tider räknas", "const SPAR_DAGAR = 30;", "const SPAR_DAGAR = 36500;", HSERV],
+  ["alla maskiners kvittenser läcker", ".eq('maskin_id', q.maskin).in('besok_id'", ".in('besok_id'", HSERV],
+  ["andra trakters besök läses", ".eq('objekt_id', q.objekt).gte('besokstid', fran)", ".gte('besokstid', fran)", HSERV],
+  ["en kvittens på ett annat objekts besök godtas", "const p = await prova(sb, s, besok.objekt_id, b.maskin_id", "const p = await prova(sb, s, (await sb.from('objekt').select('id').limit(1).maybeSingle()).data?.id ?? besok.objekt_id, b.maskin_id", HSERV],
+
+  // ── migration 2 (strängvakterna; SQL-beteendet provas av besok_lokal/kor2.sh) ──
+  ["besök läses av alla inloggade", "alter policy besok_sel on public.objekt_besok using (public.ar_admin());", "alter policy besok_sel on public.objekt_besok using (true);", MIGR2],
+  ["SMS-loggen läses av alla inloggade", "alter policy besok_sms_sel on public.objekt_besok_sms using (public.ar_admin());", "alter policy besok_sms_sel on public.objekt_besok_sms using (true);", MIGR2],
+  ["kvittens går att skriva från appen", "with check (false);", "with check (true);", MIGR2],
+  ["vem som helst loggar SMS", "with check (public.ar_admin() and oppnad_av", "with check (oppnad_av", MIGR2],
+  ["skrivrättigheterna återkallas inte", "revoke all on public.objekt_besok, public.objekt_besok_kvittens, public.objekt_besok_sms from authenticated;", "", MIGR2],
 ];
 
 kor({
-  filer: [KONST, OFF, SMS, TID, SAK, FRAM, PAM, HYTT, STAT, SERV, PLAN, KLIENT, KORT, PLANKORT, HOOK, SIDA, MW, RAMVERK, MIGR],
+  filer: [KONST, OFF, SMS, TID, SAK, FRAM, PAM, HYTT, STAT, SERV, PLAN, KLIENT, KORT, PLANKORT, HOOK, SIDA, MW, RAMVERK, MIGR, MIGR2, PAMKO, NAMN, FARGF, HSERV],
   tester: TESTER,
   standardFil: SMS,
   mutationer: M,
