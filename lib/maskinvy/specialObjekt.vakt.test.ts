@@ -44,7 +44,8 @@ describe('special-objekt: inga beräkningar läser flaggan', () => {
       .filter(f => /['"`]special['"`]|special_skal/.test(kod(f)))
       .sort()
     expect(traffar).toEqual([
-      'app/redigering/RedigeringClient.tsx', 'lib/maskinvy/specialObjekt.ts', 'lib/redigering/objektRouter.ts',
+      // Redigerings nya objektark sätter flaggan och skälet (samma direktSpara som det gamla arket).
+      'app/redigering/RedigeringClient.tsx', 'components/redigering/ObjektOversikt.tsx', 'lib/maskinvy/specialObjekt.ts', 'lib/redigering/objektRouter.ts',
     ].sort())
   })
 })
