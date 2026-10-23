@@ -11,7 +11,7 @@ import type { VantarLage } from './useVantar';
 import type { Pamminnelse } from './vantar';
 
 /**
- * Fakturasidan — en EGEN sida (bara admin) som raden "Fakturering · oktober  36 km ›" på huvudsidan öppnar, med tillbaka-pil.
+ * Fakturasidan — en EGEN sida (bara admin) som raden "89 km i oktober ›" under "Vad ska faktureras?" på huvudsidan öppnar, med tillbaka-pil.
  * Uppifrån: tillbaka-pilen, rubriken, periodväljaren "‹ Oktober 2026 ›" (bara månader — ingen Månad | År-växel; egen, men EN period för hela Lastbilen), summan med uppdelningen
  * hos faktureringen / fakturerade / strukna (`Remsa`: samma läsning som listan, så de aldrig kan skilja), en rad om det som
  * väntar i en ANNAN period, och kvittot (`FaktureringFlik`: Att godkänna, Hos faktureringen, Fakturerade, Strukna).

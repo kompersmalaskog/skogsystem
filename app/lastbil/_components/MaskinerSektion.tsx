@@ -124,7 +124,7 @@ export default function MaskinerSektion({ ar, lage, onForsokIgen, arAdmin, namn,
 
   return (
     <div data-maskiner>
-      <Sektion rubrik="Maskiner">
+      <Sektion rubrik="Vilka maskiner flyttades?">
         {lage.lage === 'laddar' && <p role="status" style={{ ...TYP.text, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.l}px 0`, margin: 0 }}>Läser maskiner …</p>}
         {lage.lage === 'fel' && (
           <div style={{ textAlign: 'center', padding: `${AVSTAND.l}px 0` }}>
