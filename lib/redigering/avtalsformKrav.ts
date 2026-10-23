@@ -4,6 +4,8 @@
 // Före migrationen 20261014125836 finns ingen avtalsform-kolumn på dim_objekt (select('*') ger inte nyckeln) — då går den inte att fylla i
 // och kravet är åtgärd som förut, annars skulle varje slutavverkning varna för något som inte går att rätta.
 
+import { arPrivat } from './faltGaller';
+
 export interface KravObjekt {
   huvudtyp?: string | null;
   atgard?: string | null;
@@ -18,8 +20,10 @@ export function kravAvtalsform(obj: KravObjekt | null | undefined): boolean {
 export interface SaknarVarning { key: 'avtalsform' | 'atgard'; text: string; target: string }
 
 /** Varningen för det som saknas (avtalsform ELLER åtgärd), eller null. Anropas inte för risjobb (de har varken huvudtyp eller åtgärd). */
-export function saknarAvtalsformEllerAtgard(obj: KravObjekt): SaknarVarning | null {
+export function saknarAvtalsformEllerAtgard(obj: KravObjekt & { bolag?: string | null }): SaknarVarning | null {
   if (kravAvtalsform(obj)) {
+    // Ett privat jobb har ingen avtalsform (faltGaller) — och åtgärd är valfri på slutavverkning. Inget saknas.
+    if (arPrivat(obj.bolag)) return null;
     return obj.avtalsform ? null : { key: 'avtalsform', text: 'Saknar avtalsform', target: 'avtalsform-section' };
   }
   if (obj.huvudtyp && !obj.atgard) return { key: 'atgard', text: 'Saknar åtgärd', target: 'atgard-section' };
