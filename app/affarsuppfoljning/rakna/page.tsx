@@ -1,8 +1,9 @@
 'use client';
 
-// RÄKNA — "vad ska jag bjuda?" Affärsuppföljningens andra flik.
+// RÄKNA — "vad ska jag bjuda?" Affärsuppföljningens FÖRSTA flik (och hemkortets mål, 2026-10-23).
 //
-// Ett stort val överst: ladda upp stämplingslängden (PDF). Ett tryck öppnar filväljaren, rapporten läses och kontrolleras, och
+// Överst "Vad ger det?" (VadGerDet.tsx): en rad per medelstam, vad varje sortiment blir — med traktens volym i kubik.
+// Under det: ladda upp stämplingslängden (PDF). Ett tryck öppnar filväljaren, rapporten läses och kontrolleras, och
 // stämplingssidan tar vid (?vy=pdf&id=…&kor=1: stämmer allt räknar den direkt, annars visar den vad som avviker).
 // Under: "Bara medelstam" (utan stämplingslängd), "Mata in" (längden för hand — reserv) och de sparade posterna, senaste först.
 //
@@ -16,6 +17,7 @@ import { AVSTAND, FARG, IKON, KNAPP, KORT, TYP } from '@/lib/design/tokens';
 import Ikon from '@/components/design/Ikon';
 import { SIDA, GUL, GRON, nf0, Rad, Rader, Rubrik, Damp } from '@/components/Ytform';
 import { laddaUppOchLas, listaRapporter, type Rapport } from '@/lib/stampling/pdf/klient';
+import VadGerDet from './VadGerDet';
 
 const STAMPLING = '/affarsuppfoljning/stampling';
 const STATUS_ORD: Record<string, string> = { stammer: 'stämmer', avviker: 'åtgärd behövs', fel: 'misslyckades', lasning: 'läses', uppladdad: 'ej läst' };
@@ -52,10 +54,11 @@ function Innehall() {
   return (
     <div style={SIDA}>
       <Rubrik>Räkna</Rubrik>
+      <VadGerDet />
       {/* 1. Det stora valet: skärmens EN handling (KNAPP.primar). Ett tryck öppnar filväljaren (kan inte ske efter en navigering —
           webbläsaren kräver ett tryck). */}
       <input ref={valjFil} type="file" accept="application/pdf,.pdf" hidden onChange={e => valdFil(e.target.files?.[0])} />
-      <div style={{ margin: `${AVSTAND.m}px ${AVSTAND.l}px 0` }}>
+      <div style={{ margin: `${AVSTAND.xl}px ${AVSTAND.l}px 0` }}>
         <button onClick={() => valjFil.current?.click()} style={KNAPP.primar}>
           <Ikon namn="upload_file" storlek={IKON.rad} farg="inherit" />Ladda upp stämplingslängd
         </button>
@@ -70,7 +73,6 @@ function Innehall() {
 
       {/* 2. De två andra vägarna in. */}
       <Rader>
-        <Rad text="Jag har bara medelstam" href="/affarsuppfoljning/medelstam" />
         <Rad text="Mata in för hand" href={`${STAMPLING}?vy=langd`} dampad />
       </Rader>
 

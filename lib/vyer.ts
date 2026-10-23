@@ -52,7 +52,7 @@ export const VYER: Vy[] = [
   { id: 'gallring', namn: 'Gallring', href: '/gallring', ikon: 'forest', grupp: 'produktion' },
   { id: 'helikopter', namn: 'Helikopter', href: '/helikopter', ikon: 'flight', grupp: 'produktion', sokord: ['beställt', 'prognos'] },
   { id: 'helikopter-v2', namn: 'Helikopter v2', href: '/helikopter-v2', ikon: 'helicopter', grupp: 'produktion' },
-  { id: 'affarsuppfoljning', namn: 'Affärsuppföljning', href: '/affarsuppfoljning', ikon: 'business_center', grupp: 'produktion', sokord: ['affär'] },
+  { id: 'affarsuppfoljning', namn: 'Affärsuppföljning', href: '/affarsuppfoljning/rakna', ikon: 'business_center', grupp: 'produktion', sokord: ['affär'] },
 
   // Maskiner
   { id: 'maskinvy', namn: 'Maskinvy', href: '/maskinvy', ikon: 'visibility', grupp: 'maskiner' },

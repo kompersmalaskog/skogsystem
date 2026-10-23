@@ -1,8 +1,8 @@
 'use client';
 
 // AFFÄRSUPPFÖLJNINGENS FLIKRAD — tre flikar längst ner, på varje sida under /affarsuppfoljning:
-//   Översikt   hur går det?          /affarsuppfoljning (och månadsskärmen)
-//   Räkna      vad ska jag bjuda?    /affarsuppfoljning/rakna (och stämplingslängd, medelstam)
+//   Räkna      vad ger det?          /affarsuppfoljning/rakna (och stämplingslängd, medelstam) — först, hemkortet öppnar hit
+//   Översikt   hur går året?         /affarsuppfoljning (och månadsskärmen)
 //   Kvalitet   kör vi bra?           /affarsuppfoljning/kvalitet (och objektskärmen)
 //
 // SAMMA bottenrad som arbetsrapporten (BottomNavBar i components/arbetsrapport/Arbetsrapport.tsx): halvgenomskinlig och
@@ -17,10 +17,10 @@ import Ikon from '@/components/design/Ikon';
 type Flik = { href: string; ikon: string; etikett: string; match: (p: string) => boolean };
 
 export const FLIKAR: Flik[] = [
-  { href: '/affarsuppfoljning', ikon: 'insights', etikett: 'Översikt',
-    match: p => p === '/affarsuppfoljning' || p.startsWith('/affarsuppfoljning/manad') },
   { href: '/affarsuppfoljning/rakna', ikon: 'calculate', etikett: 'Räkna',
     match: p => p.startsWith('/affarsuppfoljning/rakna') || p.startsWith('/affarsuppfoljning/stampling') || p.startsWith('/affarsuppfoljning/medelstam') },
+  { href: '/affarsuppfoljning', ikon: 'insights', etikett: 'Översikt',
+    match: p => p === '/affarsuppfoljning' || p.startsWith('/affarsuppfoljning/manad') },
   { href: '/affarsuppfoljning/kvalitet', ikon: 'verified', etikett: 'Kvalitet',
     match: p => p.startsWith('/affarsuppfoljning/kvalitet') || p.startsWith('/affarsuppfoljning/objekt') },
 ];
