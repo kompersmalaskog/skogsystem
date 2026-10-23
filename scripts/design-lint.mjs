@@ -39,6 +39,8 @@ export const SKARPA = [
   "components/gallring/Trakt.tsx",
   "components/gallring/GallradYtaArk.tsx",
   "components/gallring/GallradYtaKarta.tsx",
+  "components/gallring/KvarEfter.tsx",
+  "components/gallring/DelningArk.tsx",
   "app/gallring/page.tsx",
   "app/gallring/layout.tsx",
   "app/gallring/[vo]/page.tsx",
