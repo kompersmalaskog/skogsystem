@@ -130,7 +130,7 @@ function Innehall() {
         <Rader><Rad text="Inga trakter är markerade som Rp än" dampad /></Rader>
       )}
       <Rader>
-        <Rad text="Rotpost = avtalsform Rp eller "RP" i traktens namn." dampad />
+        <Rad text="Rotpost = avtalsform Rp eller RP i traktens namn." dampad />
       </Rader>
     </div>
   );
