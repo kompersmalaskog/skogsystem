@@ -4058,6 +4058,54 @@ describe("Lön → Dagar: svaret först", () => {
     expect(document.body.querySelector("[data-lonekvot]")!.textContent).toContain("67 %");
   });
 
+  const stangArk = async () => {
+    await act(async () => { (Array.from(document.body.querySelectorAll("[data-forare-manad] button")).find(b => b.textContent === "Stäng") as HTMLElement).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+  };
+
+  it("tillbaka från Förare · Månad landar i Dagar på samma månad (Dagar september → Stefan → tillbaka → Dagar september)", async () => {
+    tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
+    await monter("flik=lon&underflik=dagar");
+    expect(text()).toContain("September · lön i oktober");
+    await act(async () => { radFor("m2").dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    expect(document.body.querySelector('[data-forare-manad="m2"]')).not.toBeNull();
+    await stangArk();
+    expect(document.body.querySelector("[data-forare-manad]")).toBeNull();
+    expect(window.location.search).toContain("underflik=dagar");
+    expect(window.location.search).toContain("dagoff=-1");
+    expect(window.location.search).not.toContain("forare=");
+    expect(tabell()).not.toBeNull();
+    expect(text()).toContain("September · lön i oktober");
+  });
+
+  it("tillbaka landar på månaden man kom ifrån även när den inte är standardperioden (Dagar augusti → Stefan → tillbaka → Dagar augusti)", async () => {
+    tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
+    await monter("flik=lon&underflik=dagar");
+    await act(async () => { (cont.querySelector('[aria-label="Föregående period"]') as HTMLElement).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    expect(text()).toContain("Augusti · lön i september");
+    await act(async () => { radFor("m2").dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    expect(document.body.querySelector('[data-forare-manad="m2"]')).not.toBeNull();
+    await stangArk();
+    expect(window.location.search).toContain("underflik=dagar");
+    expect(window.location.search).toContain("dagoff=-2");
+    expect(text()).toContain("Augusti · lön i september");
+    expect(text()).not.toContain("September · lön i oktober");
+  });
+
+  it("tillbaka bevarar också filtret ('visa alla') och månaden", async () => {
+    tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
+    await monter("flik=lon&underflik=dagar&dagper=M&dagoff=-1&avv=0");
+    await act(async () => { radFor("m1").dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    await stangArk();
+    expect(window.location.search).toContain("underflik=dagar");
+    expect(window.location.search).toContain("avv=0");
+    expect(window.location.search).toContain("dagoff=-1");
+  });
+
   it("'Alla' är ingen länk, och kvartal/år (ingen enskild månad) och en månad vars underlag inte går att öppna har inga tryckbara rader", async () => {
     tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
     await monter("flik=lon&underflik=dagar");
