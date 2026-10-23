@@ -512,7 +512,7 @@ export async function hamtaPerHa(rad: GallringRad): Promise<PerHaLast> {
             .range(from, to),
         ) as Promise<{ id: number; latitude: number | null; longitude: number | null; dbh_mm: number | null }[]>)
       : Promise.resolve([]),
-    // '*': kolumnen geometri (ritad gräns) finns först efter migrationen 20261022170000 — en namngiven kolumn som
+    // '*': kolumnen geometri (ritad gräns) finns först efter migrationen 20261023143310 — en namngiven kolumn som
     // saknas skulle fälla hela läsningen.
     supabase.from('gallring_yta_svar').select('*').eq('vo', rad.vo),
   ]);
