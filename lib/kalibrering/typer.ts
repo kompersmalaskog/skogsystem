@@ -65,9 +65,14 @@ export interface KalibHistorik {
   operator_id: string | null;
   tradslag: string;
   orsak: string;
-  beskrivning: string;
+  beskrivning: string | null;
   langd_justering_mm: number | null;
+  /** Rotstockens längdjustering (LengthCalibrationAdjustmentButtLog). null = filen sa inget, aldrig 0. */
+  langd_justering_rot_mm: number | null;
   dia_justering_mm: number | null;
+  /** true = omkalibrering efter reparation ("Repair of measurement system"): värdena är INTE en justering i mm. Visa via
+   *  lib/kalibrering/historik (justeringsText), aldrig rått. Saknas fältet (migrationen ej körd) avgör orsaken där. */
+  omkalibrering?: boolean;
   position_cm: number | null;
   filnamn: string;
   skapad_tid: string;

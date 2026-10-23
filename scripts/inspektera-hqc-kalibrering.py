@@ -22,8 +22,9 @@ from collections import Counter, defaultdict
 
 # Det parsern (parse_hqc_file) läser ur ett kalibreringsblock. Allt annat är "oläst".
 LASER_LANGD = {'SpeciesGroupUserID', 'CalibrationDate', 'LengthCalibrationReason', 'LengthCalibrationDescription',
-               'LengthCalibrationAdjustment'}
-LASER_DIAMETER = {'SpeciesGroupUserID', 'CalibrationDate', 'DiameterCalibrationReason', 'DiameterCalibrationAdjustment'}
+               'LengthCalibrationAdjustment', 'LengthCalibrationAdjustmentButtLog'}
+LASER_DIAMETER = {'SpeciesGroupUserID', 'CalibrationDate', 'DiameterCalibrationReason',
+                 'DiameterCalibrationDescription', 'DiameterCalibrationAdjustment'}
 
 
 def lokal(tagg):
