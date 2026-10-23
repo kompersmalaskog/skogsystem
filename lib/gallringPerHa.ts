@@ -19,7 +19,8 @@
 // vägarna bredare än 4 m i rastret. Betet och Sandåsen gav 24–25 %, alltså ca 16–17 m mellan vägarna, där normalt är
 // 18–20 % och ca 20 m. Talet visas som "ca". En kalibrering mot EN trakt där avståndet mätts med måttband räcker.
 //
-// "Kvar efter gallring" (grundyta före ur Skogsstyrelsens laserdata) är INTE byggt — se STATUS/CLAUDE.md.
+// "Kvar efter gallring" (grundyta före ur Skogsstyrelsens laserdata, uppräknad) räknas i lib/laserKvar.ts på samma
+// gallrade yta och samma uttag som här.
 
 import { avverkadAreaM2, type Punkt } from './avverkadAreal';
 import { punktIPolygon } from './skotat';
