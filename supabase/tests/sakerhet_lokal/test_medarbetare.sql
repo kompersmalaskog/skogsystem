@@ -1,5 +1,5 @@
 \set ON_ERROR_STOP on
--- Punkt 3: medarbetarraden. Förväntan efter migrationen 20261023120100_medarbetare_skydda_kolumner.sql.
+-- Punkt 3: medarbetarraden. Förväntan efter migrationen 20261023152043_medarbetare_skydda_kolumner.sql.
 -- Alla "förbjudna" försök görs som förare 1 mot SIN EGEN rad (det RLS släpper in) — det är det som var hålet.
 create function test.vagrad(kol text, nytt text) returns text language sql as
   $$ select test.som('f1', format('update public.medarbetare set %I = %L where user_id = auth.uid()', kol, nytt)) $$;

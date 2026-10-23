@@ -6,7 +6,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const AUDIO = "supabase/migrations/20261023120000_audio_bucket_privat.sql";
-const MED = "supabase/migrations/20261023120100_medarbetare_skydda_kolumner.sql";
+const MED = "supabase/migrations/20261023152043_medarbetare_skydda_kolumner.sql";
+const GRANTS = "supabase/migrations/20261023160000_revoke_truncate_trigger_references.sql";
 
 const M = [
   ["audio: bucketen förblir publik", "set public = false,", "set public = true,", AUDIO],
@@ -30,6 +31,14 @@ const M = [
   ["medarbetare: servicenyckeln spärras (inbjudningsflödet slutar fungera)", "coalesce(auth.role(), '') not in ('authenticated', 'anon')", "false", MED],
   ["medarbetare: spärren släpper igenom förare (jämför inget)", "is distinct from (to_jsonb(old) - tillatna)", "is distinct from (to_jsonb(new) - tillatna)", MED],
   ["medarbetare: tillåtna fält spärras också (telefon går inte att ändra)", "if (to_jsonb(new) - tillatna) is distinct", "if (to_jsonb(new)) is distinct", MED],
+  ["grants: ingen återkallning på befintliga tabeller", "revoke truncate, trigger, references on all tables in schema public from anon, authenticated;", "", GRANTS],
+  ["grants: bara anon (authenticated behåller dem)", "revoke truncate, trigger, references on all tables in schema public from anon, authenticated;", "revoke truncate, trigger, references on all tables in schema public from anon;", GRANTS],
+  ["grants: TRUNCATE återkallas inte", "revoke truncate, trigger, references on all tables", "revoke trigger, references on all tables", GRANTS],
+  ["grants: TRIGGER återkallas inte", "revoke truncate, trigger, references on all tables", "revoke truncate, references on all tables", GRANTS],
+  ["grants: REFERENCES återkallas inte", "revoke truncate, trigger, references on all tables", "revoke truncate, trigger on all tables", GRANTS],
+  ["grants: default privileges ändras inte (nya tabeller får dem)", "alter default privileges in schema public revoke truncate, trigger, references on tables from anon, authenticated;", "", GRANTS],
+  ["grants: service_role förlorar sina rättigheter", "from anon, authenticated;\n\nalter default", "from anon, authenticated, service_role;\n\nalter default", GRANTS],
+  ["grants: SELECT återkallas (appen slutar fungera)", "revoke truncate, trigger, references on all tables", "revoke select, truncate, trigger, references on all tables", GRANTS],
   ["medarbetare: ingen exception (felet sväljs)", "raise exception 'Bara admin får ändra roll, lön, aktiv, e-post och liknande på en medarbetare'\n      using errcode = '42501';", "return new;", MED],
 ];
 

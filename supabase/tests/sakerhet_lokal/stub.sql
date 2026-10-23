@@ -71,6 +71,13 @@ insert into public.medarbetare (id, user_id, namn, epost, roll, timlon_kr, hemad
   ('f0000000-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 'Förare1', 'f1@x.se',    'forare', 200, 'Hem 2', 56.2),
   ('f0000000-0000-0000-0000-000000000002', '33333333-3333-3333-3333-333333333333', 'Förare2', 'f2@x.se',    'forare', 210, 'Hem 3', 56.3);
 
+-- Supabases standard: nya tabeller i public får arwdDxt (+ m) till anon, authenticated, service_role.
+alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+create table public.grants_a (id int primary key);
+create table public.grants_b (id int primary key, a int references public.grants_a(id));
+create view public.grants_vy as select * from public.grants_a;
+grant all on public.grants_a, public.grants_b, public.grants_vy to anon, authenticated, service_role;
+
 create schema test;
 create function test.forvanta(namn text, villkor boolean) returns void language plpgsql as $$
 begin if villkor is not true then raise exception 'FEL: %', namn; end if; raise notice 'ok: %', namn; end $$;
