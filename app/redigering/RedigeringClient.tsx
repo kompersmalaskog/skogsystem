@@ -19,6 +19,9 @@ import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import DokumentChips from '@/components/DokumentChips'
 import OkopplFilerKort from '@/components/redigering/OkopplFilerKort'
 import BehoverDig from '@/components/redigering/BehoverDig'
+import ObjektOversikt, { type MerMal } from '@/components/redigering/ObjektOversikt'
+import ObjektLista from '@/components/redigering/ObjektLista'
+import type { ListGrupp } from '@/lib/redigering/listaVy'
 import { byggSaker, patchForSvar, type BehoverGrupp, type FilJobb, type Sak } from '@/lib/redigering/behoverDig'
 import PdfLasare from '@/app/planering/PdfLasare'
 
@@ -54,6 +57,19 @@ const GLOBAL_CSS = `
   }
   .tap-press:disabled {
     cursor: not-allowed;
+  }
+  /* Bredd (2026-10-23): listan i en kolumn; objektets ark är centrerat på mellanstor skärm och en panel till höger
+     från 1100 px, med listan kvar till vänster (som Mail). */
+  .red-kolumn { max-width: 640px; margin-left: auto; margin-right: auto; }
+  @media (min-width: 700px) and (max-width: 1099px) {
+    .red-ark { left: 50% !important; right: auto !important; width: 640px; margin-left: -320px; }
+  }
+  @media (min-width: 1100px) {
+    .red-rot[data-ark-oppet] { padding-right: 580px !important; }
+    .red-overlay { background: transparent !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; pointer-events: none; }
+    .red-ark { left: auto !important; right: 0 !important; top: ${underTopbar()} !important; width: 560px; max-height: none !important;
+      border-radius: 0 !important; border-left: 1px solid ${FARG.linje}; animation: none !important; transform: none !important; }
+    .red-ark [data-ark-grepp] { display: none !important; }
   }
 `
 
@@ -1323,6 +1339,7 @@ function EditSheet({ open, onClose, onBack, title, subtitel, footer, contentKey,
     <>
       <div
         onClick={handleClose}
+        className="red-overlay"
         style={{
           ...styles.overlay,
           animation: closing ? 'fadeOut 0.28s ease forwards' : 'fadeIn 0.22s ease',
@@ -1330,6 +1347,7 @@ function EditSheet({ open, onClose, onBack, title, subtitel, footer, contentKey,
         }}
       />
       <div
+        className="red-ark"
         style={{
           ...styles.sheet,
           transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : undefined,
@@ -1340,6 +1358,7 @@ function EditSheet({ open, onClose, onBack, title, subtitel, footer, contentKey,
         }}
       >
         <div
+          data-ark-grepp=""
           style={{ ...styles.sheetHandle, cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
           onMouseDown={onDragStart}
           onTouchStart={onDragStart}
@@ -1494,52 +1513,6 @@ function NavRad({ label, summary, warn, onClick }: any) {
       <span style={styles.directRowLabel}>{label}</span>
       <span style={{ ...styles.navSummary, ...(warn ? styles.navSummaryWarn : {}) } as any}>{summary}</span>
       <span style={styles.navPil}>›</span>
-    </div>
-  )
-}
-
-// Maskin-badges för sheetens header — VILKA MASKINER som skickat filer för
-// objektet (namn/modell primärt, volym sekundärt), unionerat över VO-gruppens
-// rader. Ligger i fasta headern — syns alltid, utan scroll.
-function MaskinBadges({ syskon, kortInfo }: any) {
-  const skordat = (syskon || []).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0)
-  // skotatM3 är den DELADE skotat-regeln (lib/skotat.objektSkotat) via useMatchning
-  // — inkluderar filfri/manuell skotare. skotatManuell styr "(manuell)"-märket.
-  const skotat = (syskon || []).reduce((sum: number, o: any) => sum + (kortInfo[o.objekt_id]?.skotatM3 || 0), 0)
-  const skotatManuell = (syskon || []).some((o: any) => kortInfo[o.objekt_id]?.skotatManuell)
-
-  // Union av gruppens maskiner, dedupe på maskin_id, skördare först
-  const perId = new Map<string, any>()
-  ;(syskon || []).forEach((o: any) => {
-    (kortInfo[o.objekt_id]?.maskiner || []).forEach((m: any) => { if (!perId.has(m.id)) perId.set(m.id, m) })
-  })
-  const maskiner = Array.from(perId.values())
-    .sort((a: any, b: any) => (a.typ === b.typ ? 0 : a.typ === 'skordare' ? -1 : 1))
-
-  const badge = (nyckel: string, bg: string, farg: string, text: string) => (
-    <span key={nyckel} style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, background: bg, color: farg, whiteSpace: 'nowrap' }}>{text}</span>
-  )
-  const antalPerTyp = (typ: string) => maskiner.filter((m: any) => m.typ === typ).length
-
-  return (
-    <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
-      {maskiner.map((m: any) => {
-        const arSk = m.typ === 'skordare'
-        const ikon = arSk ? '🌲' : m.typ === 'skotare' ? '🚜' : '⚙'
-        const namn = m.modell || m.id
-        // Volymen visas bara när typen har EN maskin — annars vore samma
-        // total upprepad per maskin och se ut som per-maskin-siffror
-        const volym = arSk
-          ? (antalPerTyp('skordare') === 1 && skordat > 0 ? ` · ${Math.round(skordat).toLocaleString('sv-SE')} m³` : '')
-          : (m.typ === 'skotare' && antalPerTyp('skotare') === 1 && skotat > 0 ? ` · ${Math.round(skotat).toLocaleString('sv-SE')} m³${skotatManuell ? ' (manuell)' : ''}` : '')
-        return badge(m.id,
-          arSk ? 'rgba(168,213,130,0.12)' : 'rgba(240,178,76,0.12)',
-          arSk ? '#a8d582' : '#f0b24c',
-          `${ikon} ${namn}${volym}`)
-      })}
-      {maskiner.length === 0 && (
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Ingen maskindata ännu</span>
-      )}
     </div>
   )
 }
@@ -2597,11 +2570,12 @@ function PlanSelect({ label, value, options, onChange, disabled }: any) {
   )
 }
 
-function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, info, filRader, filHamtStatus, gruppSkotningAvslutad, skotareSanderEj, direktSpara, objektRad, objektRadLaddar, medarbetare, skordatTotal, skotatTotal, onOppnaDok, inkopare, setInkopare, direktSparaMaskin, direktSparaAvslut, skordForslag, skotForslag }: any) {
+function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, info, filRader, filHamtStatus, gruppSkotningAvslutad, skotareSanderEj, direktSpara, objektRad, objektRadLaddar, medarbetare, skordatTotal, skotatTotal, onOppnaDok, inkopare, setInkopare, direktSparaMaskin, direktSparaAvslut, skordForslag, skotForslag, startFalt }: any) {
   const isGallring = obj.huvudtyp === 'Gallring'
   const atgarder = isGallring ? atgarderGallring : atgarderSlut
   const setAtgarder = isGallring ? setAtgarderGallring : setAtgarderSlut
-  const [oppetFalt, setOppetFalt] = useState<any>(null)
+  // startFalt: översikten öppnade "Mer om objektet" för att ändra just det fältet — det står då utfällt.
+  const [oppetFalt, setOppetFalt] = useState<any>(startFalt ?? null)
   const [pendingHuvudtyp, setPendingHuvudtyp] = useState<any>(null)
 
   const kravFalt = kravFaltFor(obj)
@@ -3066,6 +3040,9 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
   const [valtObjekt, setValtObjekt] = useState<any>(null)
   const [originalObjekt, setOriginalObjekt] = useState<any>(null)
   const [subpage, setSubpage] = useState<any>(null)
+  // Varifrån en undersida öppnades: översikten (null) eller "Mer om objektet" ('mer') — tillbaka går dit.
+  const [forraSub, setForraSub] = useState<any>(null)
+  const [merMal, setMerMal] = useState<MerMal>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -3086,6 +3063,8 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       setValtObjekt(parsed)
       setOriginalObjekt(parsed)
       setSubpage(null)
+      setForraSub(null)
+      setMerMal(null)
       setSaved(false)
       setSaveError('')
     } else {
@@ -3109,7 +3088,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       // atgard + avtalsform: "trakt säger" under Åtgärd/Avtalsform. avtalsform finns först efter migrationen 20261014125836 —
       // medAvtalsformSvar kör om utan kolumnen om den saknas, så resten av objektraden (kartor, tilldelning …) alltid laddas.
       const { data } = await medAvtalsformSvar((med) => supabase.from('objekt')
-        .select(`id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar, volym, vo_nummer, markagare, inkopare, avverkningsform, atgard${med ? ', avtalsform' : ''}`)
+        .select(`id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, typ, bolag, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar, volym, vo_nummer, markagare, inkopare, avverkningsform, atgard${med ? ', avtalsform' : ''}`)
         .eq('id', rad.id).limit(1))
       if (avbruten) return
       setObjektRad((data && data[0]) || { id: rad.id })
@@ -3338,7 +3317,18 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
 
   // Identitet + Skördare är borta (Etapp 1c) — deras fält bor i tredelningen.
   // Kvar: arbetsflöden (Skotare), ekonomi (Extern skotare, Pris) och fil-info.
-  const titlar: any = { filer: 'Filer', skotare: '🚜 Skotare', skotning: 'Extern skotare', pris: 'Pris & ersättning' }
+  const titlar: any = { mer: 'Mer om objektet', filer: 'Filer', skotare: 'Skotare', skotning: 'Extern skotare', pris: 'Pris & ersättning' }
+  const tillbaka = () => setSubpage(subpage === 'mer' ? null : forraSub)
+  const oppnaUnder = (fran: any) => (sub: any) => { setForraSub(fran); setSubpage(sub) }
+  // "Mer om objektet" med ett fält att visa: sidan byts, sedan rullas fältet fram och blinkar (EditSheet börjar överst vid byte).
+  const MAL_ID: Record<string, string> = { huvudtyp: 'huvudtyp-section', bolag: 'bolag-section', skogsagare: 'skogsagare-section', atgard: 'atgard-section', avtalsform: 'avtalsform-section', avslut: 'avslut-skordare-section' }
+  const oppnaMer = (mal?: MerMal) => {
+    setMerMal(mal ?? null)
+    setForraSub(null)
+    setSubpage('mer')
+    const id = mal ? MAL_ID[mal] : null
+    if (id) setTimeout(() => scrollAndFlash(id), 350)
+  }
   // Filer över hela VO-gruppen — ett fysiskt objekt är ofta flera rader,
   // och en kopplad maskinrad ska synas oavsett vilken rad som öppnas
   const filRader = valtObjekt && fildata?.status === 'ok'
@@ -3350,9 +3340,9 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       <EditSheet
         open={!!valtObjekt}
         onClose={attemptCloseModal}
-        onBack={subpage ? () => setSubpage(null) : undefined}
+        onBack={subpage ? tillbaka : undefined}
         title={valtObjekt ? (subpage ? titlar[subpage] : (valtObjekt.object_name || 'Namnlöst objekt')) : ''}
-        subtitel={valtObjekt && !subpage ? <MaskinBadges syskon={syskon} kortInfo={kortInfo} /> : null}
+        subtitel={null}
         contentKey={subpage || 'oversikt'}
         footer={valtObjekt && subpage
           ? (isDirty
@@ -3362,12 +3352,24 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
                   )}
                   <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} dirty={isDirty} antal={andradeNycklar.length} />
                 </div>
-              : <button onClick={() => setSubpage(null)} className="tap-press" style={styles.klarBtn}>Klar</button>)
+              : <button onClick={tillbaka} className="tap-press" style={styles.klarBtn}>Klar</button>)
           : null}
       >
         {valtObjekt && !subpage && (
+          <ObjektOversikt
+            obj={valtObjekt} set={setValtObjekt} alla={objekt}
+            objektRad={objektRad} objektRadLaddar={objektRadLaddar}
+            medarbetare={medarbetare || []} statusVal={STATUS_VAL} bolagVal={bolag || []}
+            skordat={skordatTotal} skotat={skotatTotal}
+            filRader={filRader} filStatus={fildata?.status || 'laddar'}
+            skordForslag={skordForslag} skotForslag={skotForslag}
+            direktSpara={direktSpara} direktSparaAvslut={direktSparaAvslut}
+            oppnaFiler={() => oppnaUnder(null)('filer')} oppnaMer={oppnaMer}
+          />
+        )}
+        {valtObjekt && subpage === 'mer' && (
           <SheetOversikt
-            obj={valtObjekt} set={setValtObjekt} oppnaSub={setSubpage}
+            obj={valtObjekt} set={setValtObjekt} oppnaSub={oppnaUnder('mer')} startFalt={merMal && merMal !== 'avslut' ? merMal : null}
             bolag={bolag} setBolag={setBolag} listAtgarder={listAtgarder}
             atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut}
             atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring}
@@ -4027,6 +4029,28 @@ function ObjektRedigeringInner() {
     return (await kopplaJobbKarna(j, mal)) != null
   }
 
+  // En grupp som listan vill ha den (lib/redigering/listaVy.ts).
+  function tillListGrupp(g: any): ListGrupp {
+    const v = volymForGrupp(objekt, kortInfo, g.rep)
+    return {
+      nyckel: g.nyckel,
+      namn: g.rep.object_name ?? null,
+      vo: g.rep.vo_nummer ? String(g.rep.vo_nummer).trim() : null,
+      typ: g.rep.huvudtyp ?? null,
+      bolag: g.rep.bolag ?? null,
+      skogsagare: g.rep.skogsagare ?? null,
+      special: g.rader.some((o: any) => o.special === true),
+      pagaende: arPagaende(g),
+      skordningKlar: g.rader.some((o: any) => !!o.skordning_avslutad) || skordareForvantasEj(g.rader) !== null,
+      skordningAvslutad: g.rader.map((o: any) => o.skordning_avslutad).filter(Boolean).sort().pop() ?? null,
+      skotningAvslutad: g.rader.map((o: any) => o.skotning_avslutad).filter(Boolean).sort().pop() ?? null,
+      skordat: v.skordat,
+      skotat: v.skotat,
+      senasteData: gruppSenasteData(g, fildata),
+      avslutForslag: avslutsForslag(g, fildata).length > 0,
+    }
+  }
+
   // Loading-vy
   if (loading) {
     return (
@@ -4062,11 +4086,12 @@ function ObjektRedigeringInner() {
   }
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} className="red-rot" data-ark-oppet={redigerObj ? '' : undefined}>
       <style>{GLOBAL_CSS}</style>
 
       {/* BEHÖVER DIG — svaret först (markägarrapportens form), en rad per sak med appens förslag, och arket som tar
           en sak i taget. Ersätter rubriken "N att åtgärda", larmrutan för maskinjobb utan objekt och listan Att åtgärda. */}
+      <div className="red-kolumn">
       {hprStatus === 'fel' && (
         <p role="alert" style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.meta, color: FARG.rod }}>
           Kunde inte läsa maskinfilerna, så filer utan objekt kan inte visas. Ladda om sidan.
@@ -4100,107 +4125,17 @@ function ObjektRedigeringInner() {
       {/* Filer vars ordernummer inte matchar något objekt (planeringsvyn visar dem inte) — med "Koppla till objekt" */}
       <OkopplFilerKort maskiner={maskiner} />
 
-      {/* PÅGÅR — det som körs just nu, med maskinens avslutsförslag att godkänna. */}
-      {pagaende.length > 0 && (
-        <>
-          <h3 style={{ ...TYP.micro, color: FARG.text2, margin: `${AVSTAND.xl}px 0 ${AVSTAND.s}px ${AVSTAND.xs}px` }}>Pågår</h3>
-          <div style={styles.lista}>
-            {pagaende.map((g, i) => (
-              <ArbetsKort
-                key={g.nyckel}
-                obj={g.rep}
-                info={gruppKortInfo(g)}
-                modell={gruppModeller(g, maskiner)}
-                fildata={fildata}
-                filRader={filRaderGrupp(g.rep)}
-                sanderEj={gruppSkotareSanderEj(g.rader, fildata)}
-                volym={volymForGrupp(objekt, kortInfo, g.rep)}
-                warnings={gruppVarningar(g.rader, volymForGrupp(objekt, kortInfo, g.rep))}
-                senasteData={gruppSenasteData(g, fildata)}
-                forslag={avslutsForslag(g, fildata)}
-                onGodkannForslag={(f: any) => setAvslutVal({ g, forslag: f })}
-                delay={i * 60}
-                onOppna={() => openObjekt(g.rep)}
-                onIgnorera={() => ignoreraGrupp(g)}
-                aktivaSkotare={aktivaSkotare}
-                onTilldela={(mid: string | null) => tilldelaSkotareInline(g.rader.map((r: any) => r.objekt_id), mid)}
-                onPatch={(patch: Record<string, any>) => patchGrupp(g.rader.map((r: any) => r.objekt_id), patch)}
-                bolagOptions={bolag}
-                atgardSlutOptions={atgarderSlut}
-                atgardGallringOptions={atgarderGallring}
-              />
-            ))}
-          </div>
-        </>
-      )}
+      {/* OBJEKTEN — sök och typ, Pågår, Skotning kvar, senaste månaden, Tidigare per månad, Matchning och Exkluderade
+          (lib/redigering/listaVy.ts). Ett tryck öppnar objektets ark. */}
+      <ObjektLista
+        grupper={aktivaGrupper.map(tillListGrupp)}
+        exkluderade={exkluderadeGrupper.map(tillListGrupp)}
+        onOppna={(nyckel: string) => { const g = allaGrupper.find(x => x.nyckel === nyckel); if (g) openObjekt(g.rep) }}
+        onMatchning={() => setVisaMatchning(true)}
+        matchningUtan={matchning.status === 'ok' ? matchning.omatchadeMaskin.length : null}
+      />
 
-      {/* MATCHNING — summering + en knapp; listorna bor i egen vy så bara
-          arbetslistan konkurrerar om uppmärksamheten på förstasidan */}
-      <div style={{ ...styles.sectionHeader, marginTop: 28 }}>
-        <span style={styles.sectionTitel}>Matchning</span>
       </div>
-      <div style={{ margin: '0 20px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, overflow: 'hidden' }}>
-        {matchning.status === 'ok' ? (
-          <>
-            {[
-              { text: 'maskinobjekt utan planering', antal: matchning.omatchadeMaskin.length, varning: true },
-              { text: 'planerade utan maskindata', antal: matchning.utanMaskindata.length, varning: true },
-              { text: 'kopplade', antal: matchning.matchade.length, varning: false },
-            ].map((rad, i) => (
-              <div key={rad.text} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none', fontSize: 13 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: rad.varning && rad.antal > 0 ? '#FF9F0A' : '#30d158', flexShrink: 0 }} />
-                <span style={{ color: 'rgba(255,255,255,0.75)' }}>
-                  <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{rad.antal}</span> {rad.text}
-                </span>
-              </div>
-            ))}
-            <button onClick={() => setVisaMatchning(true)} className="tap-press" style={{ display: 'block', width: '100%', padding: '12px 16px', border: 'none', borderTop: '1px solid rgba(255,255,255,0.05)', background: 'transparent', color: '#adc6ff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
-              Öppna matchning ›
-            </button>
-          </>
-        ) : (
-          <div style={{ padding: '12px 16px', fontSize: 12, color: matchning.status === 'fel' ? 'rgba(255,160,160,0.9)' : 'rgba(255,255,255,0.4)' }}>
-            {matchning.status === 'fel' ? 'Kunde inte läsa matchningsdata' : 'Läser matchningsdata …'}
-          </div>
-        )}
-      </div>
-
-      <div style={{ padding: '24px 20px 0' }}>
-        <button
-          onClick={() => setVisaAllaObjekt(true)}
-          className="tap-press"
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', minHeight: 52, background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'rgba(255,255,255,0.65)', fontSize: 14, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer' }}
-        >
-          Alla objekt <span style={{ opacity: 0.6 }}>({aktivaGrupper.length})</span> ›
-        </button>
-      </div>
-
-      {exkluderadeGrupper.length > 0 && (
-        <>
-          <div style={{...styles.sectionHeader, marginTop: 40}}>
-            <span style={{...styles.sectionTitel, color: 'rgba(255,255,255,0.4)'}}>Exkluderade</span>
-            <span style={{...styles.sectionCount, background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)'}}>{exkluderadeGrupper.length}</span>
-          </div>
-          <div style={styles.lista}>
-            {exkluderadeGrupper.map((g, i) => (
-              <AnimatedCard key={g.nyckel} delay={i * 60} onClick={() => openObjekt(g.rep)}>
-                <div style={{...styles.kortInner, opacity: 0.5}}>
-                  <div style={styles.kortTop}>
-                    <div style={{flex: 1}}>
-                      <div style={styles.kortNamn}>{g.rep.object_name || 'Namnlöst objekt'}</div>
-                      <div style={styles.kortVo}>{g.rep.vo_nummer}</div>
-                    </div>
-                    <div style={styles.kortPil}>›</div>
-                  </div>
-                  <div style={styles.kortInfo}>
-                    {gruppModeller(g, maskiner) && <span>{gruppModeller(g, maskiner)}</span>}
-                  </div>
-                </div>
-              </AnimatedCard>
-            ))}
-          </div>
-        </>
-      )}
 
       <ObjektEditor
         obj={redigerObj}
