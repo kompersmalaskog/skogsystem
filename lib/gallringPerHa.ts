@@ -180,3 +180,40 @@ export function beraknaPerHa(ind: PerHaIndata): PerHa {
       : stickvag(ind.spar, ringar, vidaM2),
   };
 }
+
+/** Uttaget per hektar för EN del av den gallrade ytan (första eller andra gallring, lib/gallringDelar.ts), med samma
+ *  regler som hela trakten: volymen fördelas på grundytan, antalet på stammarna, luckorna i detalj_stam skalas upp
+ *  som ovan. Delarnas arealer summerar till arealHa och delarnas uttag till hela traktens. */
+export type PerHaDel = { arealHa: number; volymPerHa: number; stammarPerHa: number; grundytaPerHa: number | null };
+
+export function perHaForDel(
+  ind: Pick<PerHaIndata, 'volymM3fub' | 'stammar' | 'stamrader'>,
+  arealHa: number,
+  andelYta: number,
+  delStammar: Set<number | string>,
+): PerHaDel {
+  const med = ind.stamrader
+    .map((p, i) => ({ ...p, id: p.id ?? i }))
+    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+  let antal = 0, gAlla = 0, gDel = 0, medDiameter = 0;
+  for (const p of med) {
+    const i = delStammar.has(p.id);
+    if (i) antal++;
+    const d = Number(p.dbhMm);
+    if (Number.isFinite(d) && d > 0) {
+      medDiameter++;
+      gAlla += grundyta(d);
+      if (i) gDel += grundyta(d);
+    }
+  }
+  const andelAntal = med.length > 0 ? antal / med.length : 0;
+  const andelG = gAlla > 0 ? gDel / gAlla : andelAntal;
+  const luckfaktor = medDiameter > 0 ? Math.max(1, ind.stammar / medDiameter) : 1;
+  const ha = arealHa * andelYta;
+  return {
+    arealHa: ha,
+    volymPerHa: ha > 0 ? (ind.volymM3fub * andelG) / ha : 0,
+    stammarPerHa: ha > 0 ? (ind.stammar * andelAntal) / ha : 0,
+    grundytaPerHa: medDiameter > 0 && ha > 0 ? (gDel * luckfaktor) / ha : null,
+  };
+}

@@ -93,6 +93,8 @@ export type GallradYta = {
   /** Kartan: rutnätet med en klass per ruta (RUTA), bredd × höjd, rad 0 = norr. */
   karta: {
     bredd: number; hojd: number; rutor: Uint8Array; ringar: { x: number; y: number }[][];
+    /** Rutans sida i meter (RUTA_M, större på mycket stora trakter). */
+    rutaM: number;
     /** Kartans hörn i grader [minLng, minLat, maxLng, maxLat] — flygfotot hämtas för exakt den rutan. */
     lnglat: [number, number, number, number];
     /** De avverkade stammarna i rutnätets koordinater; `raknas` = räknas per hektar. */
@@ -313,7 +315,7 @@ export function beraknaGallradYta(ind: GallradYtaIndata): GallradYta | null {
     ejGallrat,
     raknade,
     karta: {
-      bredd, hojd, rutor, ringar,
+      bredd, hojd, rutor, ringar, rutaM: ruta,
       lnglat: [minX / kx, (maxY - hojd * ruta) / ky, (minX + bredd * ruta) / kx, maxY / ky],
       stammar: stammar.map((s) => ({ ...tillRuta(s.lng, s.lat), raknas: raknade.has(s.id) })),
     },
