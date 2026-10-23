@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { kravInloggad } from "@/lib/auth/server";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
 
 /**
- * GET /api/kalibrering/diagnos?key=skogsystem-debug&maskin_id=X
+ * GET /api/kalibrering/diagnos?maskin_id=X
  *
  * Diagnos-underlag för kalibreringsvyn: rådata per DIAMETERKLASS över det
  * rullande 90-dagarsfönstret, plus planområdesandel (tryckmätaren) och
@@ -31,7 +32,6 @@ import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpu
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEBUG_KEY = "skogsystem-debug";
 const FONSTER_DAGAR = 90;
 
 const KLASS_DEF = [
@@ -105,7 +105,8 @@ function popStd(vals: number[], mean: number): number {
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  if (url.searchParams.get("key") !== DEBUG_KEY) return new NextResponse("Ogiltig nyckel", { status: 401 });
+  const vakt = await kravInloggad();
+  if (!vakt.ok) return vakt.res;
   const maskinId = url.searchParams.get("maskin_id");
   if (!maskinId) return NextResponse.json({ ok: false, error: "maskin_id krävs" }, { status: 400 });
 

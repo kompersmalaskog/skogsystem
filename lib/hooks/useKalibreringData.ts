@@ -96,7 +96,7 @@ export function useKalibreringData(activeTab: Flik) {
   const laddaDiagnos = useCallback((maskin: string, force = false) => {
     if (!maskin) return;
     if (!force && diagnosMap[maskin]) return;
-    fetch(`/api/kalibrering/diagnos?key=skogsystem-debug&maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
+    fetch(`/api/kalibrering/diagnos?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: DiagnosResp & { ok?: boolean }) => {
         if (!data?.ok) return;
@@ -140,7 +140,7 @@ export function useKalibreringData(activeTab: Flik) {
     let cancelled = false;
     setCalLoading(true);
     setCalError(null);
-    fetch(`/api/kalibrering/kalender?manad=${calManad}&key=skogsystem-debug`, { cache: 'no-store' })
+    fetch(`/api/kalibrering/kalender?manad=${calManad}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: CalResponse) => { if (!cancelled) { setCalData(data); setCalLoading(false); } })
       .catch(err => { if (!cancelled) { setCalError(err?.message || 'Kunde inte ladda kalendern'); setCalLoading(false); } });
@@ -151,7 +151,7 @@ export function useKalibreringData(activeTab: Flik) {
   useEffect(() => {
     if (activeTab !== 'objekt' || objektData) return;
     let cancelled = false;
-    fetch('/api/kalibrering/objekt?key=skogsystem-debug', { cache: 'no-store' })
+    fetch('/api/kalibrering/objekt', { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: { ok?: boolean } & ObjektData) => {
         if (cancelled || !data?.ok) return;
@@ -167,7 +167,7 @@ export function useKalibreringData(activeTab: Flik) {
     const maskin = effektiv;
     let cancelled = false;
     // dagar=90 → samma rullande fönster som hjälten/bedomning. Ett fönster i hela rapporten.
-    fetch(`/api/kalibrering/tradslag?key=skogsystem-debug&maskin_id=${encodeURIComponent(maskin)}&dagar=90`, { cache: 'no-store' })
+    fetch(`/api/kalibrering/tradslag?maskin_id=${encodeURIComponent(maskin)}&dagar=90`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: { ok?: boolean } & TradslagData) => {
         if (cancelled || !data?.ok) return;
@@ -243,7 +243,7 @@ export function useKalibreringData(activeTab: Flik) {
   useEffect(() => {
     if (!heroMaskin || bedomningMap[heroMaskin]) return;
     let cancelled = false;
-    fetch(`/api/kalibrering/bedomning?key=skogsystem-debug&maskin_id=${encodeURIComponent(heroMaskin)}`, { cache: 'no-store' })
+    fetch(`/api/kalibrering/bedomning?maskin_id=${encodeURIComponent(heroMaskin)}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: BedomningResp & { ok?: boolean }) => {
         if (cancelled || !data?.ok) return;

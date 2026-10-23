@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { kravInloggad } from "@/lib/auth/server";
 
 /**
- * GET /api/kalibrering/kalender?manad=YYYY-MM&key=skogsystem-debug
+ * GET /api/kalibrering/kalender?manad=YYYY-MM
  *
  * Datalager för Kalibrering-kalendern. Returnerar status per skördare per dag
  * och en aggregerad dagsstatus (komplett/saknas/varning/inaktiv) för
@@ -12,8 +13,6 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const DEBUG_KEY = "skogsystem-debug";
 
 type Maskin = { maskin_id: string; tillverkare: string | null; modell: string | null; visningsnamn: string | null; aktiv_till: string | null };
 type ProdRow = { datum: string; maskin_id: string; objekt_id: string | null; volym_m3sub: number | null };
@@ -48,10 +47,8 @@ async function fetchAllRows(
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const key = url.searchParams.get("key");
-  if (key !== DEBUG_KEY) {
-    return new NextResponse("Ogiltig nyckel", { status: 401 });
-  }
+  const vakt = await kravInloggad();
+  if (!vakt.ok) return vakt.res;
 
   const manad = url.searchParams.get("manad");
   if (!manad || !/^\d{4}-\d{2}$/.test(manad)) {

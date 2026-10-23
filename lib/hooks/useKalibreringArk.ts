@@ -13,7 +13,7 @@ import type { CalDag, DetaljKontrollStock } from '@/lib/kalibrering/typer';
 
 async function hamtaKontroll(filnamn: string): Promise<KontrollResponse | null> {
   try {
-    const res = await fetch(`/api/kalibrering/kontroll?filnamn=${encodeURIComponent(filnamn)}&key=skogsystem-debug`);
+    const res = await fetch(`/api/kalibrering/kontroll?filnamn=${encodeURIComponent(filnamn)}`);
     if (!res.ok) {
       console.error(`fetchKontroll: HTTP ${res.status}`);
       return null;

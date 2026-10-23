@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
 import { arFullSynkNatt, FORTNOX_FONSTER_ANROP, FORTNOX_FONSTER_MS } from "@/lib/fortnox/synk";
 
@@ -36,12 +37,8 @@ function auktoriseradCron(req: NextRequest): boolean {
 
 async function kontrolleraAdmin(req: NextRequest): Promise<boolean> {
   if (auktoriseradCron(req)) return true;
-  // Fall tillbaka på Supabase-cookie (admin). Tillåt också ?key=skogsystem-debug för manuell testning.
-  const url = new URL(req.url);
-  if (url.searchParams.get("key") === "skogsystem-debug") return true;
-  // cookie-kontroll via createServerClient — enkel variant utan den
-  // interaktionen; cron-varianten ovan räcker.
-  return false;
+  // Manuell körning: bara en inloggad admin (sessionen). Ingen nyckel i URL:en.
+  return (await kravRoll(ADMIN_ROLLER)).ok;
 }
 
 type VoucherListItem = {
@@ -71,11 +68,11 @@ type VoucherDetail = {
 
 export async function POST(req: NextRequest) {
   const start = Date.now();
-  const supabase = serverSupabase();
 
   if (!(await kontrolleraAdmin(req))) {
     return NextResponse.json({ ok: false, error: "Obehörig" }, { status: 401 });
   }
+  const supabase = serverSupabase();
 
   await supabase
     .from("fortnox_sync_state")
