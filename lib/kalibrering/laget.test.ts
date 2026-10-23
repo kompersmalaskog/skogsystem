@@ -81,7 +81,7 @@ describe('Vidas krav — tre diameterrader + längden, ordlistan styr orden, sam
     const r = kravRader(bed());
     expect(r.map(x => x.fraga)).toEqual([MATT.traffprocent.fraga, MATT.systematisk.fraga, MATT.standardavv.fraga, LANGD_MATT.fraga]);
     expect(r.map(x => x.term)).toEqual([MATT.traffprocent.term, MATT.systematisk.term, MATT.standardavv.term, LANGD_MATT.term]);
-    expect(LANGD_MATT.fraga).toBe('Rätt längd?');
+    expect(LANGD_MATT.fraga).toBe('Träffar längden rätt?');
   });
   it('Giants tal: värde, ton, ord och krav per rad', () => {
     const r = kravRader(bed({ diameter: stat({ n: 1113, traffPct: 77, systematisk: 0.81, standardavv: 4.07 }) }));
@@ -118,10 +118,10 @@ describe('det stora talet är det mått som AVGÖR domen', () => {
     expect(stortTal(b)).toEqual({ mat: 'langd', varde: '94 %', ton: 'hot', etikett: 'av längderna inom ±2 cm', tyst: false });
     expect(andraRad(b)).toEqual({ varde: '77 %', ton: 'hi', text: 'Diameter 77 % inom ±4 mm · 1113 mått' });
   });
-  it('Scorpion: fjärde kravraden "Rätt längd?" är den röda — diameterraden är bara under målet', () => {
+  it('Scorpion: fjärde kravraden "Träffar längden rätt?" är den röda — diameterraden är bara under målet', () => {
     const r = kravRader(SCORPION());
     expect(r).toHaveLength(4);
-    expect(r[3]).toMatchObject({ key: 'langd', fraga: 'Rätt längd?', varde: '94 %', krav: 'krav ≥ 95 %', ton: 'hot', ord: 'under kravet' });
+    expect(r[3]).toMatchObject({ key: 'langd', fraga: 'Träffar längden rätt?', varde: '94 %', krav: 'krav ≥ 95 %', ton: 'hot', ord: 'under kravet' });
     expect(r[0]).toMatchObject({ varde: '77 %', ton: 'hi', ord: 'under målet' });
     expect(r.filter(x => x.ton === 'hot').map(x => x.key)).toEqual(['langd']);
   });
@@ -234,7 +234,7 @@ describe('en åtgärd i detalj — "Hjälpte åtgärden?"', () => {
     const [r] = atgardRader(bed({ atgarder: [post(stat2({ traffPct: 71.2, systematisk: 1.4, standardavv: 4.6 }), stat2({ traffPct: 84.4, systematisk: 0.3, standardavv: 3.7 }))] }));
     const rader = atgardDetalj(r.dom!);
     expect(rader.map(x => [x.fraga, x.fore, x.efter, x.text])).toEqual([
-      ['Träffar den rätt?', '71 %', '84 %', '↑ 13 · bättre'],
+      ['Träffar diametern rätt?', '71 %', '84 %', '↑ 13 · bättre'],
       ['Drar den åt ett håll?', '+1,4 mm', '+0,3 mm', '↓ 1,1 mm · rakare'],
       ['Flaxar den?', '4,6 mm', '3,7 mm', '↓ 0,9 mm · lugnare'],
     ]);

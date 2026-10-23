@@ -136,7 +136,7 @@ export const andraRad = (b: BedomningResp): MatRad => matRad(b, avgorandeMatt(b)
 // === Vidas krav: tre diameterrader + längden ===
 export type KravRad = {
   key: MattKey | 'langd';
-  /** Vardagsfrågan ur ordlistan ("Träffar den rätt?") — ordlistan styr orden. */
+  /** Vardagsfrågan ur ordlistan ("Träffar diametern rätt?") — ordlistan styr orden. */
   fraga: string;
   term: string;
   varde: string;
