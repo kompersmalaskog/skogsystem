@@ -191,7 +191,10 @@ describe('hyttens orange kort', () => {
 });
 
 describe('planerarens kort: Skicka till markägaren', () => {
+  // Datum och klockslag i texterna räknas mot "nu": klockan fryses så testet inte beror på vilken dag det körs.
   const props = { objektId: 'o1', status: 'planerad', markagare: 'Kerstin Olsson', markagareTel: '070-003 82 94', fastighet: 'HÅLABÄCK 1:13', planeradStart: '2026-10-23', faktiskStart: null, pagaendeStartad: null };
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-22T14:00:00Z')); });
+  afterEach(() => { vi.useRealTimers(); });
   const grund = () => ({
     laddat: true, migrering: true, fel: null, lank: { token: TOKEN, aktiv: true }, besok: [], kvittenser: [], sms: [], maskinNamn: {}, personNamn: { m1: 'Martin Lindqvist' },
     avsandare: { id: 'm1', namn: 'Martin Lindqvist', telefon: '070-111 22 33' }, sattAktiv: vi.fn(async () => null), loggaSms: vi.fn(async () => null), laddaOm: vi.fn(),
