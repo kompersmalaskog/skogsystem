@@ -41,14 +41,15 @@ class Fraga implements PromiseLike<Svar> {
   constructor(private db: FakeDb, private tabell: string) {}
 
   select(_kolumner?: string) { this.returnera = true; return this; }
-  eq(k: string, v: any) { this.filter.push(r => r[k] === v); return this; }
-  in(k: string, v: any[]) { this.filter.push(r => v.includes(r[k])); return this; }
-  gte(k: string, v: any) { this.filter.push(r => r[k] != null && jamfor(r[k], v) >= 0); return this; }
-  lt(k: string, v: any) { this.filter.push(r => r[k] != null && jamfor(r[k], v) < 0); return this; }
-  is(k: string, v: any) { this.filter.push(r => (v === null ? r[k] == null : r[k] === v)); return this; }
+  eq(k: string, v: any) { this.filter.push(r => hamta(r, k) === v); return this; }
+  neq(k: string, v: any) { this.filter.push(r => hamta(r, k) !== v); return this; }
+  in(k: string, v: any[]) { this.filter.push(r => v.includes(hamta(r, k))); return this; }
+  gte(k: string, v: any) { this.filter.push(r => hamta(r, k) != null && jamfor(hamta(r, k), v) >= 0); return this; }
+  lt(k: string, v: any) { this.filter.push(r => hamta(r, k) != null && jamfor(hamta(r, k), v) < 0); return this; }
+  is(k: string, v: any) { this.filter.push(r => (v === null ? hamta(r, k) == null : hamta(r, k) === v)); return this; }
   range(a: number, b: number) { this.fran = a; this.gräns = b - a + 1; return this; }
-  lte(k: string, v: any) { this.filter.push(r => r[k] != null && jamfor(r[k], v) <= 0); return this; }
-  not(k: string, op: string, v: any) { if (op === 'is' && v === null) this.filter.push(r => r[k] != null); return this; }
+  lte(k: string, v: any) { this.filter.push(r => hamta(r, k) != null && jamfor(hamta(r, k), v) <= 0); return this; }
+  not(k: string, op: string, v: any) { if (op === 'is' && v === null) this.filter.push(r => hamta(r, k) != null); return this; }
   order(kol: string, o?: { ascending?: boolean }) { this.ordning = { kol, stigande: o?.ascending !== false }; return this; }
   limit(n: number) { this.gräns = n; return this; }
   upsert(rader: Rad | Rad[], o?: { onConflict?: string; ignoreDuplicates?: boolean }) {
@@ -88,6 +89,9 @@ class Fraga implements PromiseLike<Svar> {
     return { data: null, error: null };
   }
 }
+
+/** Kolumn eller inbäddad kolumn ('skotar_lass.status') — PostgREST:s embed-filter. */
+function hamta(r: Rad, k: string): any { return k.includes('.') ? k.split('.').reduce((o: any, p) => o?.[p], r) : r[k]; }
 
 function jamfor(a: any, b: any): number {
   const ta = typeof a === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(a) ? Date.parse(a) : a;

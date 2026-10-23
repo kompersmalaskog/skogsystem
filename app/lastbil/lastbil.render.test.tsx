@@ -2841,6 +2841,29 @@ describe("Vilken maskin? — arket", () => {
     expect(norm(lassArk()!.textContent)).toContain("45,7 km · last 25 t");
   });
 
+  // 22 okt (a585074c): Wisent skotade 757 m från lastplatsen kl 12:48, Elefant 42 km bort, Giants GPS följde inte bilen.
+  it("22 OKT: Wisent 'Troligen · Sista lasset 757 m från lastplatsen kl 12:48', Elefant 'Skotade 42 km bort kl 11:20', Giant 'Följde inte bilen'", async () => {
+    vi.setSystemTime(new Date(2026, 9, 23, 12, 0));   // dagen efter lasset (frågan går ut 2 h efter lossningen)
+    mock.lass = [LASS({
+      fran_namn: "Vällust", till_namn: "LBC", lassning_tid: "2026-10-22T11:10:00Z", lossning_tid: "2026-10-22T13:40:00Z",
+      forslag_maskin_id: "A030353", sakerhet: "medel",
+      kandidater: [
+        { maskin_id: "A030353", poang: 8, utesluten: false, skal: [{ kod: "skotar_avgang", avstandM: 757, dag: "2026-10-22", kl: "12:48", annanDag: false }, { kod: "kedja_fran", dag: "2026-10-19", trakt: "Vällust" }] },
+        { maskin_id: "JD810E", poang: 0, utesluten: false, skal: [] },
+        { maskin_id: "A130743", poang: 0, utesluten: true, skal: [{ kod: "skotar_langt", nar: "fore", avstandM: 41_937, dag: "2026-10-22", kl: "11:20", annanDag: false }] },
+        { maskin_id: "PONS20SDJAA270231", poang: 0, utesluten: true, skal: [{ kod: "foljer_inte", medianM: 43_955 }] },
+      ],
+    })];
+    await montera();
+    await klicka(saknarRad()!);
+    await vantaTills(() => !!lassArk()!.querySelector('[role="listbox"]'));
+    const ark = norm(lassArk()!.textContent);
+    expect(ark).toContain("Wisent");
+    expect(ark).toContain("Troligen · Sista lasset 757 m från lastplatsen kl 12:48 · Skotade Vällust 19 okt");
+    expect(ark).toContain("Skotade 42 km bort kl 11:20");
+    expect(ark).toContain("Följde inte bilen");
+  });
+
   // 3 aug: lossningen på 56,2 N; Intaget 608 m, Åbogen 673 m, Sandåsen 1 km norrut — rätt var Åbogen. Lassningen vid Spåramåla (40 m).
   const M_GRAD = (6371000 * Math.PI) / 180;
   const NORR = (m: number) => 56.2 + m / M_GRAD;

@@ -20,6 +20,7 @@ import { detekteraLass, LASS, tidMs, viktPunkter, type DetektLass, type LoggPunk
 import { bedomMaskin, type MaskinBedomning, type MaskinBevis } from './maskin';
 import { hittaManuellFlytt, type ManuellFlytt, type ManuellTraff } from './matcha';
 import { LASS_MASKIN, LASS_MOTTAGARE_EPOST, NOTIS_FORDROJNING_MIN, valjMottagare, type Mottagare } from './notis';
+import { skotarBevisPerMaskin, SKOTARPOS, type SkotarPos } from './skotarpos';
 import { narmastePlats, narPlatsMeter, type FunnenPlats, type PlatsKandidat } from './plats';
 
 export const FONSTER_TIM = 96;
@@ -149,11 +150,30 @@ async function insamlaBevis(c: Ctx, l: DetektLass, fran: FunnenPlats | null, til
     }
   }
 
+  // Skotarnas egna lossningspositioner (skotar_lass_del): EN fråga, direkt med service-nyckeln. Struket lass räknas aldrig.
+  // Fönstret är det avgång (12 h före) och ankomst (36 h efter) behöver. Ett läsfel är ett bevis mindre, aldrig ett skäl åt något håll.
+  const skotarPos: SkotarPos[] = [];
+  const delar = await las<{ lossad_tid: string; lat: number | null; lng: number | null; skotar_lass: { maskin_id: string; status: string } | null }[]>(fel, 'skotar_lass_del',
+    db.from('skotar_lass_del').select('lossad_tid, lat, lng, skotar_lass!inner(maskin_id, status)')
+      .in('skotar_lass.maskin_id', maskiner).neq('skotar_lass.status', 'struket')
+      .gte('lossad_tid', new Date(lassningMs - SKOTARPOS.AVGANG_FONSTER_TIM * TIM).toISOString())
+      .lte('lossad_tid', new Date(lossningMs + SKOTARPOS.ANKOMST_FONSTER_TIM * TIM).toISOString())
+      .not('lat', 'is', null).not('lng', 'is', null).limit(2000));
+  for (const d of delar ?? []) {
+    if (d.skotar_lass && d.lat != null && d.lng != null) skotarPos.push({ maskin_id: d.skotar_lass.maskin_id, tid: d.lossad_tid, lat: d.lat, lng: d.lng });
+  }
+  const skotare = skotarBevisPerMaskin(skotarPos, maskiner, {
+    lassning: { tid: l.lassningTid, lat: l.lassning.lat, lng: l.lassning.lng },
+    lossning: { tid: l.lossningTid, lat: l.lossning.lat, lng: l.lossning.lng },
+    lossningArTrakt: till?.typ === 'objekt',
+  });
+
   return maskiner.map(m => samlaBevis({
     maskin_id: m, gps, ankomst: ankomst ?? [], avgang: avgang ?? [],
     kedja: byggKedja(arbete, m, { objekt_id: fran?.typ === 'objekt' ? fran.id : null }, { objekt_id: till?.typ === 'objekt' ? till.id : null }, lassDag, lossDag),
     paborjadFlytt: manuell?.typ === 'paborjad' && manuell.flytt.maskin_id === m,
     positionNara: nara.has(m),
+    skotare: skotare.get(m),
   }));
 }
 

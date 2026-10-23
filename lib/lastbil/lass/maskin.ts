@@ -3,6 +3,8 @@
 //  Hög    Maskinens eget GPS-spår (detalj_gps_spar) följde bilen medan den var lastad. Skördarna går under transporten: Giants dator
 //         loggar hela vägen (median 12–29 m från bilen i varje lass den var med på). H8E har datorn avstängd under transport, så den
 //         syns i stället som "sist arbetande vid lastplatsen" OCH "först igång vid lossningsplatsen". Bara Hög skapar en flytt av sig själv.
+//         Skotarna har inget GPS-spår under transport men registrerar lossningar för hand (skotar_lass_del): sista lossningen nära
+//         lastplatsen OCH första lossningen nära lossplatsen (en trakt) är Hög; en lossning kvar vid lastplatsen eller långt bort utesluter.
 //  Medel  Skotningshistoriken passar i BÅDA ändarna: maskinen skotade på lastplatsen dagarna före och på lossningsplatsen dagarna efter
 //         (fakt_lass / hyttspar) — eller en påbörjad flytt i appen och en passande senaste position. Frågar "Vilken maskin?" med förslaget förvalt.
 //  Låg    Ett enda stöd, eller det enda som återstår efter att de andra uteslutits. Samma fråga, förslaget märkt osäkert.
@@ -10,6 +12,8 @@
 //
 // Vikten används INTE för att välja maskin: viktgivaren svajar ±5 t (Giant lastas 21–34 t) och dim_maskin har ingen maskinvikt.
 // Ren modul: bevisen läses av kor.ts, poängen och texterna sätts här.
+
+import { SKOTARPOS, skotarUtesluten, type PosTraff, type SkotarBevis } from './skotarpos';
 
 export type Sakerhet = 'hog' | 'medel' | 'lag' | 'okand';
 
@@ -32,6 +36,8 @@ export interface MaskinBevis {
   paborjadFlytt?: boolean;
   /** Senast kända position (maskin_position) ligger inom 3 km från lastplatsen. */
   positionNara?: boolean;
+  /** Maskinens egna lossningspositioner kring lasset (skotare): avgång, ankomst, stannade kvar, var långt borta. */
+  skotare?: SkotarBevis;
 }
 
 export type Skal =
@@ -43,6 +49,10 @@ export type Skal =
   | { kod: 'kedja_till'; dag: string; trakt: string }
   | { kod: 'paborjad_flytt' }
   | { kod: 'position_nara' }
+  | ({ kod: 'skotar_avgang' } & PosTraff)
+  | ({ kod: 'skotar_ankomst' } & PosTraff)
+  | ({ kod: 'skotar_kvar' } & PosTraff)
+  | ({ kod: 'skotar_langt'; nar: 'fore' | 'under' } & PosTraff)
   | { kod: 'foljer_inte'; medianM: number };
 
 export interface Kandidat { maskin_id: string; poang: number; skal: Skal[]; utesluten: boolean }
@@ -86,7 +96,11 @@ function poangOchSkal(b: MaskinBevis): { poang: number; skal: Skal[]; hog: boole
   let poang = 0;
   const foljer = gpsFoljer(b.gps);
   const ankAvg = ankAvgHog(b);
-  const utesluten = !foljer && !ankAvg && gpsUtesluten(b.gps);
+  const sk = b.skotare;
+  const skUtesluten = skotarUtesluten(sk);
+  // Avgång OCH ankomst, och inte samtidigt kvar/långt borta: två positioner som pekar åt olika håll är inget bevis.
+  const skHog = !!sk?.avgang && !!sk?.ankomst && !skUtesluten;
+  const utesluten = !foljer && !ankAvg && (gpsUtesluten(b.gps) || skUtesluten);
 
   if (foljer && b.gps) { skal.push({ kod: 'gps_foljer', punkter: b.gps.punkter, traffar: b.gps.traffar, medianM: b.gps.medianM }); poang += 100; }
   if (ankAvg) { skal.push({ kod: 'gps_ankomst_avgang', ankomstM: b.ankomstM as number, avgangM: b.avgangM as number }); poang += 90; }
@@ -94,12 +108,16 @@ function poangOchSkal(b: MaskinBevis): { poang: number; skal: Skal[]; hog: boole
     if (b.ankomstM != null && b.ankomstM <= GPS.ANKOMST_M) { skal.push({ kod: 'gps_ankomst', ankomstM: b.ankomstM }); poang += 2; }
     if (b.avgangM != null && b.avgangM <= GPS.AVGANG_M) { skal.push({ kod: 'gps_avgang', avgangM: b.avgangM }); poang += 2; }
   }
+  if (sk?.avgang) { skal.push({ kod: 'skotar_avgang', ...sk.avgang }); poang += sk.avgang.avstandM <= SKOTARPOS.NARA_M ? 6 : 5; }
+  if (sk?.ankomst) { skal.push({ kod: 'skotar_ankomst', ...sk.ankomst }); poang += sk.ankomst.avstandM <= SKOTARPOS.NARA_M ? 6 : 5; }
+  if (sk?.kvar) skal.push({ kod: 'skotar_kvar', ...sk.kvar });
+  if (sk?.langt) skal.push({ kod: 'skotar_langt', ...sk.langt });
   if (b.kedjaFran) { skal.push({ kod: 'kedja_fran', ...b.kedjaFran }); poang += 3; }
   if (b.kedjaTill) { skal.push({ kod: 'kedja_till', ...b.kedjaTill }); poang += 3; }
   if (b.paborjadFlytt) { skal.push({ kod: 'paborjad_flytt' }); poang += 3; }
   if (b.positionNara) { skal.push({ kod: 'position_nara' }); poang += 2; }
   if (utesluten && b.gps?.medianM != null) skal.push({ kod: 'foljer_inte', medianM: Math.round(b.gps.medianM) });
-  return { poang, skal, hog: foljer || ankAvg, utesluten };
+  return { poang, skal, hog: foljer || ankAvg || skHog, utesluten };
 }
 
 export function bedomMaskin(bevis: readonly MaskinBevis[]): MaskinBedomning {
@@ -141,6 +159,9 @@ export const veckodag = (iso: string): string => {
   return Number.isNaN(d.getTime()) ? '' : DAGAR[d.getUTCDay()];
 };
 
+const avstandText = (m: number): string => (m < 1000 ? `${m} m` : m < 10_000 ? `${(Math.round(m / 100) / 10).toString().replace('.', ',')} km` : `${Math.round(m / 1000)} km`);
+const nar = (t: PosTraff): string => `${t.annanDag ? `${dagText(t.dag)} ` : ''}kl ${t.kl}`;
+
 /** En rad per skäl, kort: det en förare/planerare kan kontrollera mot sin egen bild. */
 export function skalText(s: Skal): string {
   switch (s.kod) {
@@ -152,11 +173,21 @@ export function skalText(s: Skal): string {
     case 'kedja_till': return `Skotar ${s.trakt} från ${dagText(s.dag)}`;
     case 'paborjad_flytt': return 'En påbörjad flytt i appen';
     case 'position_nara': return 'Senast kända plats ligger vid lastplatsen';
+    case 'skotar_avgang': return `Sista lasset ${avstandText(s.avstandM)} från lastplatsen ${nar(s)}`;
+    case 'skotar_ankomst': return `Första lasset ${avstandText(s.avstandM)} från lossplatsen ${nar(s)}`;
+    case 'skotar_kvar': return `Skotade kvar ${avstandText(s.avstandM)} från lastplatsen ${nar(s)}`;
+    case 'skotar_langt': return s.nar === 'fore' ? `Skotade ${avstandText(s.avstandM)} bort ${nar(s)}` : `Skotade ${avstandText(s.avstandM)} från lastplatsen under transporten ${nar(s)}`;
     case 'foljer_inte': return `Följde inte bilen (GPS cirka ${s.medianM < 1000 ? `${s.medianM} m` : `${Math.round(s.medianM / 100) / 10} km`} bort)`;
   }
 }
 
 /** Raden under förslaget i sheeten: de två bästa skälen. */
+/** Raden under en AVFÖRD maskin: varför den inte var på bilen. */
+export function uteslutenText(skal: readonly Skal[]): string {
+  const sk = skal.find(s => s.kod === 'skotar_kvar' || s.kod === 'skotar_langt');
+  return sk ? skalText(sk) : 'Följde inte bilen';
+}
+
 export function skalRad(skal: readonly Skal[], max = 2): string {
-  return skal.filter(s => s.kod !== 'foljer_inte').slice(0, max).map(skalText).join(' · ');
+  return skal.filter(s => s.kod !== 'foljer_inte' && s.kod !== 'skotar_kvar' && s.kod !== 'skotar_langt').slice(0, max).map(skalText).join(' · ');
 }
