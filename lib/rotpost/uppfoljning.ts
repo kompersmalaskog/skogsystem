@@ -12,6 +12,8 @@ export type Rotpost = {
   namn: string;
   forsta: string | null;
   volym: number;
+  /** Skördade stammar. */
+  stammar: number;
   medelstam: number;
   /** Traktens egen fördelning, hela procent som summerar till 100. */
   andel: Andelar;
@@ -38,6 +40,7 @@ export function rotposter(alla: Objekt[], rpIds: Set<string>): Rotpost[] {
         namn: o.namn ?? o.id,
         forsta: o.forsta,
         volym: o.volym,
+        stammar: o.stammar,
         medelstam: o.medelstam,
         andel: heltalTill100(egen),
         m3: { timmer: Math.round(o.timmer), kubb: Math.round(o.kubb), massa: Math.round(o.massa),

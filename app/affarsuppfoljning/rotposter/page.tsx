@@ -4,7 +4,7 @@
 //   (ingen ?id)   listan: en rad per rotpost, nyast först — timmerandelen mot det vanliga vid samma medelstam
 //   ?id=<objekt>  en trakt: vad det blev per sortiment mot det vanliga, rötan mot vår median, länk till rotkapet
 // Räkningen bor i lib/rotpost/uppfoljning.ts (samma utfall() som Räkna och medelstamssidan); den här filen hämtar och visar.
-// Stämplingslängden saknas med flit: ingen stämplingslängd är ännu kopplad till en trakt.
+// Stämplingen mot skördaren: StamplingDel.tsx (stämplingslängden Vidas import sparat, läst med samma verktyg som Räkna).
 
 import { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -15,6 +15,7 @@ import { sortimentFarg } from '@/components/Sortimentstapel';
 import { SORTIMENT_NAMN } from '@/lib/medelstam/berakna';
 import { lasMedelstamUnderlag, type MedelstamUnderlag, type LasFel } from '@/lib/medelstam/las';
 import { rotposter, skillnad, SORTIMENT } from '@/lib/rotpost/uppfoljning';
+import StamplingDel from './StamplingDel';
 
 const BAS = '/affarsuppfoljning/rotposter';
 const pct = (v: number) => `${v} %`;
@@ -88,9 +89,7 @@ function Innehall() {
           {medRotkap.has(r.id) && <Rad text="Timmer du förlorar med längre rotbit" href={`/affarsuppfoljning/objekt/${encodeURIComponent(r.id)}/rotkap`} />}
         </Rader>
 
-        <Rader>
-          <Rad text="Stämplingslängd · ingen kopplad till trakten än" dampad />
-        </Rader>
+        <StamplingDel r={r} />
       </div>
     );
   }

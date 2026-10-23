@@ -4,6 +4,8 @@ import { kontrollera, type Kontroll } from './kontroll';
 import { parsaLasning, type Lasning } from './rapport';
 
 export const BUCKET = 'stamplingsrapporter';
+/** Där Vidas import lägger traktens dokument, bland dem stämplingslängden (objekt.stamplingslangd_url). */
+export const TRAKT_BUCKET = 'kartbilder';
 export const MAX_LASNINGAR_PER_TIMME = 12;
 
 export const adminKlient = () => createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
@@ -13,6 +15,8 @@ export type RapportRad = {
   status: 'uppladdad' | 'lasning' | 'stammer' | 'avviker' | 'fel';
   modell: string | null; las: unknown; rattad: unknown; kontroll: unknown;
   namn: string | null; forrattare: string | null; datum: string | null; total_volym_m3sk: number | string | null; fel: string | null;
+  /** Trakten rapporten hör till (objekt.vo_nummer), migration 20261023163845. Saknas på äldre rader. */
+  objekt_id?: string | null;
 };
 
 /** Raden som webbläsaren får. Kontrollen räknas OM här ur den gällande versionen — den lagrade kopian litar vi inte på. */
@@ -25,7 +29,7 @@ export function tillSvar(r: RapportRad, medInnehall = true) {
   return {
     id: r.id, skapad: r.skapad, skapad_av: r.skapad_av, filnamn: r.filnamn, status: r.status, modell: r.modell, rattad: r.rattad != null,
     namn: r.namn, forrattare: r.forrattare, datum: r.datum, total_volym_m3sk: r.total_volym_m3sk == null ? null : Number(r.total_volym_m3sk),
-    fel: r.fel, lasning, kontroll,
+    fel: r.fel, objekt_id: r.objekt_id ?? null, lasning, kontroll,
   };
 }
 
