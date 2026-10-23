@@ -26,7 +26,7 @@ const vy = (r: SimRad[], kaplangd = 340, onKaplangd = (_: number) => {}) => {
     objektHref="/x" rotkapHref="/x/rotkap" />))
 }
 const text = () => el.textContent ?? ''
-const radText = () => [...el.querySelectorAll('section[aria-label="Rotbit i stället för 3,0 m"] button')].map(b => b.textContent)
+const radText = () => [...el.querySelectorAll('section[aria-label="Förlorat timmer per längd"] button')].map(b => b.textContent)
 
 describe('rotkapet visar varje simulerad längd mot 3,0 m', () => {
   it('längderna läses ur raderna, kortast först, utan referensen', () => {
@@ -37,18 +37,28 @@ describe('rotkapet visar varje simulerad längd mot 3,0 m', () => {
     vy(rader)
     const r = radText()
     expect(r).toHaveLength(4)
-    expect(r[0]).toContain('3,2 m'); expect(r[0]).toContain('−2,60')
-    expect(r[1]).toContain('3,4 m · visas ovan'); expect(r[1]).toContain('−4,60')
-    expect(r[3]).toContain('3,8 m'); expect(r[3]).toContain('−9,70')
+    expect(r[0]).toContain('3,2 m'); expect(r[0]).toContain('−2,6 m³')
+    expect(r[1]).toContain('3,4 m'); expect(r[1]).toContain('−4,6 m³')
+    expect(r[3]).toContain('3,8 m'); expect(r[3]).toContain('−9,7 m³')
   })
-  it('stort tal och undertext gäller vald längd', () => {
-    vy(rader, 340)
-    expect(text()).toContain('om rotbiten kapas på 3,4 m i stället för 3,0 m')
+  it('rubriken är frågan och bilden visar vald längd', () => {
+    vy(rader, 360)
+    expect(text()).toContain('Timmer du förlorar')
+    expect(text()).toContain('om rotbiten kapas längre än 3,0 m')
+    expect(text()).toContain('Om rotbiten är 3,6 m')
+    expect(text()).toContain('Biten som var timmer'); expect(text()).toContain('blir massaved')
+    const vald = el.querySelector('button[aria-pressed="true"]')
+    expect(vald?.textContent).toContain('3,6 m')
+  })
+  it('kubb och toppen står inte på huvudskärmen', () => {
+    vy(rader)
+    expect(text()).not.toContain('Kubb')
+    expect(text()).not.toContain('Var förlusten sitter')
   })
   it('ett tryck på en rad väljer längden', () => {
     const valda: number[] = []
     vy(rader, 340, k => valda.push(k))
-    const knapp = [...el.querySelectorAll('section[aria-label="Rotbit i stället för 3,0 m"] button')].find(b => b.textContent?.startsWith('3,8 m'))!
+    const knapp = [...el.querySelectorAll('section[aria-label="Förlorat timmer per längd"] button')].find(b => b.textContent?.startsWith('3,8 m'))!
     act(() => (knapp as HTMLButtonElement).click())
     expect(valda).toContain(380)
   })
