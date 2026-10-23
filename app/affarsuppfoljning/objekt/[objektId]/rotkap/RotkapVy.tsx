@@ -31,7 +31,7 @@
 // rad(k) − rad(3,0), aldrig lagrad — så kan ett tal aldrig motsäga sin
 // referens.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { SIDA, TAL, SEKUNDAR, TEXT, GRON, LINJE, nf, nf0, Tillbakarad, Stort, Damp, Kontroll, Rad, Rader, Stycken } from '@/components/Ytform';
 
 export type Validering = {
@@ -152,19 +152,35 @@ export function Atgardsruta({ atg }: { atg: Atgard[] }) {
   );
 }
 
-export default function RotkapVy({ rader, valt, kaplangd, onKaplangd, vy, onSaRaknas, objektHref, rotkapHref }: {
+/**
+ * Kaplängderna som går att välja: de simulerade som också finns som längdklass i traktens prislista för massaved
+ * (Bågskyttebanan: 3,0 / 3,4 / 3,7 / 4,0 m — 3,2, 3,6 och 3,8 m finns inte, och en rotbit på 3,2 m betalas som 3,0).
+ * `tillatna` null = prislistan kunde inte läsas: alla simulerade längder visas och sidan säger det.
+ */
+export function valbaraKaplangder(tillatna: number[] | null): number[] {
+  return tillatna ? KAPLANGDER.filter(k => tillatna.includes(k)) : [...KAPLANGDER];
+}
+
+export default function RotkapVy({ rader, valt, kaplangd, onKaplangd, vy, onSaRaknas, objektHref, rotkapHref, tillatna }: {
   rader: SimRad[]; valt: string | null; kaplangd: number;
   onKaplangd: (cm: number) => void;
+  /** Längdklasserna (cm) i traktens prislista för massaved; null = gick inte att läsa, undefined = läses fortfarande. */
+  tillatna?: number[] | null;
   /** 'sa-raknas' = skärmen där allt som förklarar talet bor (en nivå in). */
   vy?: 'sa-raknas'; onSaRaknas?: () => void;
   /** Objektskärmen (tillbakaraden) och den här vyns egen adress (tillbaka från Så räknas). */
   objektHref: string; rotkapHref: string;
 }) {
   const [visaVar, setVisaVar] = useState(false);
+  const val = valbaraKaplangder(tillatna ?? null);
+  // Ett val som inte finns i traktens prislista byts mot första som finns (förvalet 3,4 m finns inte överallt).
+  useEffect(() => { if (val.length > 0 && !val.includes(kaplangd)) onKaplangd(val[0]); }, [val.join(','), kaplangd]);   // eslint-disable-line react-hooks/exhaustive-deps
   const lista = objektLista(rader);
   const obj = lista.find(o => o.objekt_id === valt) ?? null;
   const ref = obj?.ref ?? null;
-  const rad = obj ? rader.find(r => r.objekt_id === obj.objekt_id && r.kaplangd_cm === kaplangd) ?? null : null;
+  // En längd som inte finns i traktens prislista visas aldrig som ett tal.
+  const rad = obj && val.includes(kaplangd) ? rader.find(r => r.objekt_id === obj.objekt_id && r.kaplangd_cm === kaplangd) ?? null : null;
+
   const skift = kaplangd - REFERENS;
 
   // Skillnaderna — räknas här, lagras aldrig.
@@ -281,6 +297,13 @@ export default function RotkapVy({ rader, valt, kaplangd, onKaplangd, vy, onSaRa
         </div>
       )}
 
+      {obj && obj.valjbar && ref && val.length === 0 && (
+        <div style={{ ...LITEN, padding: '24px 16px', lineHeight: 1.6 }}>
+          Ingen av de simulerade längderna ({KAPLANGDER.map(meter).join(' / ')} m) finns i traktens prislista för massaved,
+          så det finns inget att jämföra med {meter(REFERENS)} m här än.
+        </div>
+      )}
+
       {obj && obj.valjbar && ref && rad && (
         <>
           {/* 2. Talet. 3. Ordraden — en färg. Etiketten bär skillnaden mot resten av
@@ -290,10 +313,19 @@ export default function RotkapVy({ rader, valt, kaplangd, onKaplangd, vy, onSaRa
               stammar avverkade före 2026-07-18 får aldrig någon. */}
           <Stort tal={tecken(dT)} enhet="m³" ordrad={<>{ord}<span style={{ color: SEKUNDAR }}> · räknat, inte mätt</span></>}>
             <Damp>{tecken(pct, 1)} % av timret · {tecken(lPerStam, 0)} l per stam</Damp>
-            <Kontroll text={`kaplängd ${meter(kaplangd)} m`} value={String(kaplangd)}
-              onChange={v => onKaplangd(Number(v))} label="Kaplängd">
-              {KAPLANGDER.map(cm => <option key={cm} value={cm}>{meter(cm)} m i stället för {meter(REFERENS)}</option>)}
-            </Kontroll>
+            {val.length > 0 ? (
+              <Kontroll text={`kapat på ${meter(kaplangd)} m i stället för ${meter(REFERENS)} m`} value={String(kaplangd)}
+                onChange={v => onKaplangd(Number(v))} label="Kaplängd">
+                {val.map(cm => <option key={cm} value={cm}>{meter(cm)} m i stället för {meter(REFERENS)}</option>)}
+              </Kontroll>
+            ) : (
+              <div style={{ ...LITEN, marginTop: 2 }}>
+                Ingen av de simulerade längderna ({KAPLANGDER.map(meter).join(' / ')} m) finns i traktens prislista för massaved.
+              </div>
+            )}
+            {tillatna === null && (
+              <div style={{ ...LITEN, marginTop: 2 }}>Traktens prislista kunde inte läsas — alla simulerade längder visas.</div>
+            )}
             <div style={{ ...LITEN, marginTop: 2 }}>
               byggt på {nf0(ref.stammar)}{medRotkap > ref.stammar ? ` av ${nf0(medRotkap)}` : ''} stammar
             </div>
