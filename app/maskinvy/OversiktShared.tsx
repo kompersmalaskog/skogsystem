@@ -86,17 +86,22 @@ export function calcDelta(current: number | null, previous: number | null, lower
 export type Maskin = { id: string; namn: string }
 export type Period = 'V' | 'M' | 'K' | 'Å'
 
-// Namn = dim_maskin.visningsnamn (Martin äger dem i DB). Rottne-årsmodellerna
-// skiljs på -23 (R64101, gammal, körde t.o.m. 2026-03-11) och -26 (R64428, ny,
-// från 2026-03-12) i stället för det tvetydiga "(ny)/(gammal)".
-export const MASKINER: Maskin[] = [
-  { id: 'PONS20SDJAA270231', namn: 'Ponsse Scorpion' },
-  { id: 'R64428',            namn: 'Rottne H8E -26' },
-  { id: 'R64101',            namn: 'Rottne H8E -23' },
-  { id: 'R64101+R64428',     namn: 'Rottne H8E (båda)' },
+// Namn = modellnamn utan märke, samma stil som skotarna (Wisent, Elefant 26, 810E): Scorpion, H8E -26, H8E -23. Rottne-årsmodellerna
+// skiljs på -23 (R64101, gammal, körde t.o.m. 2026-03-11) och -26 (R64428, ny, från 2026-03-12) i stället för "(ny)/(gammal)".
+export const ALLA_SKORDARE_ID = 'ALLA_SKORDARE'
+const SKORDARE_ENSKILDA: Maskin[] = [
+  { id: 'PONS20SDJAA270231', namn: 'Scorpion' },
+  { id: 'R64428',            namn: 'H8E -26' },
+  { id: 'R64101',            namn: 'H8E -23' },
 ]
+// "Alla skördare" är ingen maskin utan en summa över alla tre (också den avslutade H8E -23, så helår och historik stämmer). Den
+// ersätter den gamla kombon "Rottne H8E (båda)", som såg ut som en tredje skördare och bara räknade H8E.
+export const MASKINER: Maskin[] = [...SKORDARE_ENSKILDA, { id: ALLA_SKORDARE_ID, namn: 'Alla skördare' }]
 
-export const COMBO_IDS: Record<string, string[]> = { 'R64101+R64428': ['R64101', 'R64428'] }
+export const COMBO_IDS: Record<string, string[]> = {
+  'R64101+R64428': ['R64101', 'R64428'],
+  [ALLA_SKORDARE_ID]: SKORDARE_ENSKILDA.map(m => m.id),
+}
 const MONTHS = ['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December']
 const MON_ABBR = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec']
 
