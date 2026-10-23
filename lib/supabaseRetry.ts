@@ -35,3 +35,21 @@ export async function medAbortRetry<T = any>(
   }
   return res
 }
+
+/** Postgres avbröt frågan på statement_timeout (8 s för inloggade). */
+export function arTimeoutFel(error: any): boolean {
+  return !!error && (error?.code === '57014' || /statement timeout/i.test(error?.message ?? ''))
+}
+
+/**
+ * Gör om en TUNG läsning EN gång om den föll på tidsgränsen. Databasens arbetsminne (256 MB) rymmer inte stock- och
+ * stamtabellerna (2,2 GB): första läsningen efter att annat trängt ut dem går mot disk och kan nå 8 s, andra läsningen
+ * ligger i minnet (affar_oversikt för ett år: ~2,8 s varm mot 6,5–7,8 s kall, uppmätt 2026-10-23). Bara för läsningar
+ * som är ofarliga att köra två gånger. Andra fel returneras direkt.
+ */
+export async function medTimeoutRetry<T = any>(
+  gor: () => PromiseLike<{ data: T; error: any }>,
+): Promise<{ data: T; error: any }> {
+  const res = await gor()
+  return res.error && arTimeoutFel(res.error) ? await gor() : res
+}

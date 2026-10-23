@@ -12,7 +12,7 @@
 import { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
+import { medAbortRetry, medTimeoutRetry, arAbortFel } from '@/lib/supabaseRetry';
 import { SIDA, Laddar, Fel, Rubrikrad } from '@/components/Ytform';
 import StartsidaVy, { BAS, type Oversikt, type Vy } from './StartsidaVy';
 
@@ -35,7 +35,7 @@ function Innehall() {
 
   const hamta = useCallback(async () => {
     setLaddar(true); setFel(null);
-    const { data, error } = await medAbortRetry(() => supabase.rpc('affar_oversikt', { p_ar: ar }));
+    const { data, error } = await medTimeoutRetry(() => medAbortRetry(() => supabase.rpc('affar_oversikt', { p_ar: ar })));
     if (error) {
       setFel({ kod: (error as { code?: string }).code ?? (arAbortFel(error) ? 'ABORT' : 'OKÄND'), text: error.message ?? String(error) });
       setD(null);
