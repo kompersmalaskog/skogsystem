@@ -197,6 +197,8 @@ export const FARG = {
   bla:      "#0a84ff",
   gron:     "#30d158",
   orange:   "#ff9f0a",
+  /** Ett steg allvarligare än orange, för kategorier som måste kunna skiljas från orange bredvid (Avbrott: Störning → Reparation). */
+  orangeMork: "#cc6600",
   rod:      "#ff453a",
   /** Bara kalenderns markeringar (synk-avvikelse, rättad dag). Aldrig en fjärde larmfärg i text. */
   gul:      "#ffd60a",
