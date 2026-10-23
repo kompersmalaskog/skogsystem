@@ -7,7 +7,7 @@
 import { loneartInfo } from "@/lib/lonesystem/loneart";
 import { minText, dagAvvikelser, kmUppdelning } from "@/lib/lonesystem/forarText";
 import { ordinarieText } from "@/lib/lonesystem/manadsordinarie";
-import { dagText } from "@/lib/admin/loneunderlagVy";
+import { dagText, synkVisas } from "@/lib/admin/loneunderlagVy";
 import { kvotDetalj, kvotMaskinText, kvotVarde, summeraKvot } from "@/lib/admin/lonekvot";
 import type { ExtraPost } from "@/lib/lonesystem/loneunderlag";
 
@@ -180,7 +180,7 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
     ...((m.hemskickad || []) as any[]).map(h => [h.datum, { typ: "hemskickad", fran_tid: h.fran_tid, till_tid: null }] as [string, any]),
   ]);
   const ledig = new Map<string, string>(((m.ledighetskollision || []) as any[]).map(x => [x.datum, x.typ]));
-  const synk = new Map<string, number>(((m.synk || []) as any[]).map(s => [s.datum, s.diff_min]));
+  const synk = new Map<string, number>(((m.synk || []) as any[]).filter(s => synkVisas(s.diff_min)).map(s => [s.datum, s.diff_min]));
   const dagar: VyDag[] = dagarRå.map(d => {
     const min = Math.round((d.arbetad_min || 0) + (d.extra_min || 0));
     const avv = dagAvvikelser(d, {

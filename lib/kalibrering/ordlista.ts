@@ -2,7 +2,7 @@
  * ETT SPRÅK I KALIBRERINGSVYN — den enda källan för ord och namn.
  *
  * Alla vyer, modaler, hjälpen och rapporten läser härifrån. Ingen vy får ha
- * egna varianter ("Drar den åt ett håll?", "Dia (M−O)", "syst./std", råa
+ * egna varianter ("Går den rakt?", "Dia (M−O)", "syst./std", råa
  * maskin-id:n) — de var exakt det designgenomgången 2026-09-04 hittade.
  *
  * Vardagsfrågan står stor i UI:t, facktermen dämpad under — så föraren lär
@@ -11,11 +11,14 @@
 
 /** De tre diametermåtten: vardagsfråga + fackterm. Nycklarna = kravprofil.metrik. */
 export const MATT = {
-  traffprocent: { fraga: 'Träffar den rätt?', term: 'träffprocent' },
-  systematisk: { fraga: 'Går den rakt?', term: 'systematisk avvikelse' },
+  traffprocent: { fraga: 'Träffar diametern rätt?', term: 'träffprocent' },
+  systematisk: { fraga: 'Drar den åt ett håll?', term: 'systematisk avvikelse' },
   standardavv: { fraga: 'Flaxar den?', term: 'standardavvikelse' },
 } as const;
 export type MattKey = keyof typeof MATT;
+
+/** Längdkravet: en fjärde rad bland Vidas krav. Egen post (inte i MATT) — MATT är de tre DIAMETERmåtten, och längd bedöms bara på träffprocent. */
+export const LANGD_MATT = { fraga: 'Träffar längden rätt?', term: 'träffprocent längd' } as const;
 
 /**
  * Skillnaden maskin − operatör på EN stock eller EN kontroll. Hette tidigare

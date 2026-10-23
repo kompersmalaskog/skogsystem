@@ -7,7 +7,7 @@
 // att brottet är obesvarat, och förarens svar när det finns.
 import React, { useState } from "react";
 import { AVSTAND, FARG, TNUM, TYP } from "@/lib/design/tokens";
-import type { VilobrottArkBrott, VilobrottArkVy } from "@/lib/admin/vilobrottArkVy";
+import type { VilobrottArkBrott, VilobrottArkVy, VilobrottPerson } from "@/lib/admin/vilobrottArkVy";
 import { Lank, Lista, Rad, Sektion, Sheet } from "./ui";
 
 function Dagar({ b }: { b: VilobrottArkBrott }) {
@@ -32,8 +32,24 @@ function Dagar({ b }: { b: VilobrottArkBrott }) {
   );
 }
 
-export default function VilobrottArk({ vy, hamtaManad, onStang }: {
+/** Listan bakom raden "Vilobrott": vem som har obesvarade. Ett tryck på en person öppnar hennes dagar (VilobrottArk). */
+export function VilobrottLista({ personer, onPerson, onStang }: { personer: VilobrottPerson[]; onPerson: (id: string) => void; onStang: () => void }) {
+  return (
+    <Sheet titel="Vilobrott" onStang={onStang} vanster={<Lank smal onClick={onStang}>Stäng</Lank>} attr={{ "data-vilobrott-lista": "" }}>
+      <Lista>
+        {personer.map((p, i) => (
+          <Rad key={p.medarbetare_id} attr={{ "data-vilobrott-person": p.medarbetare_id }} rubrik={p.namn} detalj={p.text} chevron
+            onClick={() => onPerson(p.medarbetare_id)} sista={i === personer.length - 1} />
+        ))}
+      </Lista>
+    </Sheet>
+  );
+}
+
+export default function VilobrottArk({ vy, hamtaManad, onStang, tillbaka }: {
   vy: VilobrottArkVy;
+  /** Kom man hit från listan över personer: ‹ Vilobrott tar tillbaka dit (Stäng lämnar allt). */
+  tillbaka?: () => void;
   /** Vart "Se hela månaden" går: en funktion som öppnar Förare · Månad på dagen, eller null när månaden inte går att öppna än (då visas ingen länk). */
   hamtaManad: (b: VilobrottArkBrott) => (() => void) | null;
   onStang: () => void;
@@ -41,7 +57,9 @@ export default function VilobrottArk({ vy, hamtaManad, onStang }: {
   // Ett brott: öppet från början (inget att välja). Flera: stängda, ett tryck fäller ut dagarna på plats.
   const [oppen, setOppen] = useState<string | null>(vy.brott.length === 1 ? vy.brott[0].nyckel : null);
   return (
-    <Sheet titel={vy.forstaNamn} onStang={onStang} vanster={<Lank smal onClick={onStang}>Stäng</Lank>} attr={{ "data-vilobrott-ark": vy.medarbetare_id }}>
+    <Sheet titel={vy.forstaNamn} onStang={onStang} attr={{ "data-vilobrott-ark": vy.medarbetare_id }}
+      vanster={tillbaka ? <Lank smal onClick={tillbaka}>‹ Vilobrott</Lank> : <Lank smal onClick={onStang}>Stäng</Lank>}
+      hoger={tillbaka ? <Lank smal onClick={onStang}>Stäng</Lank> : undefined}>
       <Sektion orange topp={AVSTAND.s}>{vy.rubrik}</Sektion>
       <Lista>
         {vy.brott.map((b, i) => {

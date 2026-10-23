@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { arAvslutad, sidoRad, summeraIdag, type SidoData } from './sidolista'
+import { arAvslutad, sidoRad, summaRad, summeraIdag, type SidoData } from './sidolista'
 
 // 2026-10-22 10:00 svensk tid (08:00 UTC)
 const NU = Date.UTC(2026, 9, 22, 8, 0, 0)
@@ -111,5 +111,33 @@ describe('arAvslutad — vilka maskiner som hamnar i "Tidigare"', () => {
     expect(arAvslutad(['R64101', 'R64428'], aktivTill, '2026-10-22')).toBe(false)
     expect(arAvslutad(['R64101', 'A110148'], aktivTill, '2026-10-22')).toBe(true)
     expect(arAvslutad(['R64101', 'OKAND'], aktivTill, '2026-10-22')).toBe(false)
+  })
+})
+
+describe('summaRad — Alla skördare', () => {
+  const kor = (volym: number, g15h: number | null): SidoData => dag(4, { volym, lass: null, g15Sek: g15h == null ? null : g15h * 3600 })
+  it('SUM/SUM över dem som körde, aldrig snitt av snitt', () => {
+    const r = summaRad([kor(100, 10), kor(50, 2)], NU)               // 150 m³ / 12 h = 12,5 (snitt av snitt vore 7,5)
+    expect(r.siffror).toBe('150 m³ · 12,5 m³/G15h')
+    expect(r.status).toBe('2 av 2 körde idag')
+  })
+  it('en som stått räknas i nämnaren av maskiner men inte i summan', () => {
+    const r = summaRad([kor(100, 10), { signalDatum: '2026-10-21', signalIso: minSedan(900), idag: null }, null], NU)
+    expect(r).toEqual({ status: '1 av 3 körde idag', siffror: '100 m³ · 10,0 m³/G15h' })
+  })
+  it('saknas G15-tid hos någon som körde visas volymen utan kvot — kvoten blåses annars upp', () => {
+    expect(summaRad([kor(100, 10), kor(50, null)], NU).siffror).toBe('150 m³')
+  })
+  it('ingen körde idag: det sägs, inga nollor', () => {
+    expect(summaRad([null, { signalDatum: '2026-10-21', signalIso: null, idag: null }], NU)).toEqual({ status: 'Ingen körning idag', siffror: null })
+  })
+  it('läsfel går före allt och läser-medan går före siffror — en delsumma skrivs aldrig', () => {
+    expect(summaRad([kor(100, 10), 'fel'], NU).status).toBe('Kunde inte läsas')
+    expect(summaRad([kor(100, 10), 'laser'], NU).status).toBe('Läser …')
+    expect(summaRad([kor(100, 10), undefined], NU).status).toBe('Läser …')
+    expect(summaRad([kor(100, 10), 'fel'], NU).siffror).toBeNull()
+  })
+  it('inga aktiva skördare', () => {
+    expect(summaRad([], NU).status).toBe('Inga aktiva skördare')
   })
 })

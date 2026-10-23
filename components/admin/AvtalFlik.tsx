@@ -6,6 +6,9 @@ import { Sektion, Stod, Kort, Lista, Rad, Lank, Sekundar, Besked, Fel, Laddar, T
 import { ymdLokal } from "@/lib/datumLokal";
 import { AVTAL_BUCKET, avtalPdfPath, kontrolleraAvtalPdf, oppnaAvtalPdf } from "@/lib/avtalPdf";
 import UtjamningsSektion from "./UtjamningsSektion";
+import OppnaFragorArk from "./OppnaFragor";
+import { oppnaFragor } from "@/lib/lonesystem/attTaMed";
+import { useAdminNav } from "./nav";
 
 type Avtal = {
   id?: string;
@@ -132,6 +135,9 @@ export default function AvtalFlik({ currentUser }: { currentUser: { id: string; 
   const [pdfUpptagen, setPdfUpptagen] = useState(false);
   const [pdfFel, setPdfFel] = useState<string | null>(null);
   const [pdfOk, setPdfOk] = useState<string | null>(null);
+  // Öppna frågor (flyttade hit från Löneunderlag): arket öppnas av raden, eller direkt från adressen (?fragor=1) när man kommer från Lön.
+  const { nav, sattParam } = useAdminNav();
+  const [visaFragor, setVisaFragor] = useState(nav.params.fragor === "1");
 
   const ladda = async () => {
     setLaddar(true);
@@ -312,6 +318,18 @@ export default function AvtalFlik({ currentUser }: { currentUser: { id: string; 
 
       {/* Utjämningsperioder (§5 mom 2): före, hör till avtalets arbetstidsregel */}
       <UtjamningsSektion namnInloggad={currentUser.namn || "admin"} />
+
+      {/* Öppna frågor: avtalsfrågor som ingen i appen kan se är besvarade. Bara när något är obesvarat. */}
+      {oppnaFragor.length > 0 && (
+        <>
+          <Sektion>Öppna frågor</Sektion>
+          <Lista>
+            <Rad attr={{ "data-oppna-fragor-rad": "" }} rubrik={`${oppnaFragor.length} öppna ${oppnaFragor.length === 1 ? "fråga" : "frågor"}`}
+              detalj="Frågor och beslut om avtalet som ingen i appen kan se är besvarade." chevron onClick={() => setVisaFragor(true)} sista />
+          </Lista>
+        </>
+      )}
+      {visaFragor && <OppnaFragorArk fragor={oppnaFragor} onStang={() => { setVisaFragor(false); sattParam("fragor", null); }} />}
 
       {/* Historik: bara när det finns något att visa (en tom grupp med en förklaring var bara text). */}
       {historik.length > 0 && (

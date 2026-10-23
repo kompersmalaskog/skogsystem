@@ -10,6 +10,7 @@ import { TYP, IKON, AVSTAND, FARG, KNAPP, KORT, TRAFFYTA, TNUM, RORELSE, designC
 import { getPeriodRange, type Period } from "@/app/maskinvy/OversiktShared";
 import { useAdminNav } from "./nav";
 import { Ikon, Sektion } from "./ui";
+import { synkVisas } from "@/lib/admin/loneunderlagVy";
 
 /**
  * Lön → Dagar — KONTROLLVYN. Alla förares dagar för en arbetsmånad, en rad per
@@ -174,7 +175,7 @@ export default function DagarUnderflik() {
     if (!data) return [];
     const ut: Rad[] = [];
     for (const m of data.medarbetare) {
-      const synk = new Map((m.synk || []).map(s => [s.datum, s.diff_min]));
+      const synk = new Map((m.synk || []).filter(s => synkVisas(s.diff_min)).map(s => [s.datum, s.diff_min]));
       // Hemskickad är en deldag som betalas (ingen frånvaro): dagens rad säger "hemskickad 2:00 – betalas" (dagAvvikelser).
       const deldag = new Map([...(m.deldagar || []), ...(m.hemskickad || []).map(h => ({ datum: h.datum, typ: "hemskickad", fran_tid: h.fran_tid, till_tid: null }))].map(x => [x.datum, x]));
       const ledig = new Map((m.ledighetskollision || []).map(x => [x.datum, x.typ]));
