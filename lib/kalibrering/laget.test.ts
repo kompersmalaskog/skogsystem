@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { atgardRader, fonsterText, kalibreringsDom, kravRader, langdRad, profilNamn, startMaskin, stortTal, tradslagStod, atgardDetalj } from './laget';
-import { MATT } from './ordlista';
+import { andraRad, atgardRader, avgorandeMatt, fonsterText, kalibreringsDom, kravRader, langdRad, profilNamn, startMaskin, stortTal, tradslagStod, atgardDetalj } from './laget';
+import { LANGD_MATT, MATT } from './ordlista';
 import type { AlleMaskin, AtgardPost, BedomningResp, KravRow, VariabelStat } from './typer';
 
 const VIDA: KravRow[] = [
@@ -76,11 +76,12 @@ describe('fönster, stort tal och längd', () => {
   });
 });
 
-describe('Vidas krav — tre rader, ordlistan styr orden, samma format som "Så ligger du till"', () => {
+describe('Vidas krav — tre diameterrader + längden, ordlistan styr orden, samma format som "Så ligger du till"', () => {
   it('frågorna är ordlistans, inte egna varianter', () => {
     const r = kravRader(bed());
-    expect(r.map(x => x.fraga)).toEqual([MATT.traffprocent.fraga, MATT.systematisk.fraga, MATT.standardavv.fraga]);
-    expect(r.map(x => x.term)).toEqual([MATT.traffprocent.term, MATT.systematisk.term, MATT.standardavv.term]);
+    expect(r.map(x => x.fraga)).toEqual([MATT.traffprocent.fraga, MATT.systematisk.fraga, MATT.standardavv.fraga, LANGD_MATT.fraga]);
+    expect(r.map(x => x.term)).toEqual([MATT.traffprocent.term, MATT.systematisk.term, MATT.standardavv.term, LANGD_MATT.term]);
+    expect(LANGD_MATT.fraga).toBe('Rätt längd?');
   });
   it('Giants tal: värde, ton, ord och krav per rad', () => {
     const r = kravRader(bed({ diameter: stat({ n: 1113, traffPct: 77, systematisk: 0.81, standardavv: 4.07 }) }));
@@ -92,13 +93,82 @@ describe('Vidas krav — tre rader, ordlistan styr orden, samma format som "Så 
     const r = kravRader(bed({ diameter: stat({ traffPct: 60 }) }));
     expect(r[0]).toMatchObject({ ton: 'hot', ord: 'under kravet' });
   });
-  it('för få mått: alla tre tysta (ok) men värdena står kvar', () => {
+  it('för få mått: diameterraderna tysta (ok) men värdena står kvar', () => {
     const r = kravRader(bed({ diameter: stat({ n: 50, traffPct: 60 }) }));
-    expect(r.map(x => x.ton)).toEqual(['ok', 'ok', 'ok']);
+    expect(r.map(x => x.ton)).toEqual(['ok', 'ok', 'ok', 'ok']);
     expect(r[0].varde).toBe('60 %');
   });
   it('utan data: streck, inte noll', () => {
-    expect(kravRader(bed({ diameter: null })).map(x => x.varde)).toEqual(['–', '–', '–']);
+    expect(kravRader(bed({ diameter: null })).map(x => x.varde)).toEqual(['–', '–', '–', '100 %']);
+    expect(kravRader(bed({ langd: null }))[3].varde).toBe('–');
+  });
+});
+
+// Scorpionens (Giants) verkliga 90-dagarstal ur prod (2026-10-21, samma som skärmbildsfixturen): diameter 77 % (n 1113), längd 93,68 % (n 285, ±2 cm).
+const SCORPION = (o: Partial<BedomningResp> = {}) => bed({
+  diameter: stat({ n: 1113, traffPct: 77, systematisk: 0.81, standardavv: 4.07 }),
+  langd: stat({ n: 285, traffPct: 93.68, tolerans: 2, systematisk: 0.09, standardavv: 1.36 }), ...o,
+});
+
+describe('det stora talet är det mått som AVGÖR domen', () => {
+  it('Scorpion: längden fäller (93,68 < 95) → längdens träff står stort, diametern under', () => {
+    const b = SCORPION();
+    expect(kalibreringsDom(b)).toMatchObject({ status: 'under', titel: 'Under kravet', rad: 'Längden ligger under Vidas krav.' });
+    expect(avgorandeMatt(b)).toBe('langd');
+    expect(stortTal(b)).toEqual({ mat: 'langd', varde: '94 %', ton: 'hot', etikett: 'av längderna inom ±2 cm', tyst: false });
+    expect(andraRad(b)).toEqual({ varde: '77 %', ton: 'hi', text: 'Diameter 77 % inom ±4 mm · 1113 mått' });
+  });
+  it('Scorpion: fjärde kravraden "Rätt längd?" är den röda — diameterraden är bara under målet', () => {
+    const r = kravRader(SCORPION());
+    expect(r).toHaveLength(4);
+    expect(r[3]).toMatchObject({ key: 'langd', fraga: 'Rätt längd?', varde: '94 %', krav: 'krav ≥ 95 %', ton: 'hot', ord: 'under kravet' });
+    expect(r[0]).toMatchObject({ varde: '77 %', ton: 'hi', ord: 'under målet' });
+    expect(r.filter(x => x.ton === 'hot').map(x => x.key)).toEqual(['langd']);
+  });
+  it('fäller diametern (och inte längden) → diametern stor, längden under — som förut', () => {
+    const b = bed({ diameter: stat({ traffPct: 60 }) });
+    expect(avgorandeMatt(b)).toBe('diameter');
+    expect(stortTal(b)).toMatchObject({ mat: 'diameter', varde: '60 %', ton: 'hot' });
+    expect(andraRad(b)?.text).toBe('Längd 100 % inom ±2 cm · 120 mått');
+  });
+  it('fäller båda → diametern (Vidas huvudmått) stor', () => {
+    const b = bed({ diameter: stat({ traffPct: 60 }), langd: stat({ n: 120, traffPct: 80, tolerans: 2 }) });
+    expect(avgorandeMatt(b)).toBe('diameter');
+    expect(stortTal(b)).toMatchObject({ mat: 'diameter', ton: 'hot' });
+  });
+  it('fäller ingen → diametern stor, som i dag (även när längden är orange)', () => {
+    expect(avgorandeMatt(bed())).toBe('diameter');
+    expect(avgorandeMatt(SCORPION({ langd: stat({ n: 285, traffPct: 97, tolerans: 2 }) }))).toBe('diameter');
+    expect(stortTal(bed()).etikett).toBe('av diametermätningarna träffar inom ±4 mm');
+  });
+  it('längd med för få mått fäller aldrig, och för få diametermått ger "För få mätningar" — diametern förblir stor', () => {
+    expect(avgorandeMatt(bed({ langd: stat({ n: 10, traffPct: 10, tolerans: 2 }) }))).toBe('diameter');
+    const tunn = SCORPION({ diameter: stat({ n: 90, traffPct: 77 }) });
+    expect(kalibreringsDom(tunn).status).toBe('for_fa');
+    expect(avgorandeMatt(tunn)).toBe('diameter');
+  });
+  it('utan längdtal finns ingen att välja: diametern, och ingen rad under', () => {
+    const b = bed({ langd: null });
+    expect(avgorandeMatt(b)).toBe('diameter');
+    expect(andraRad(b)).toBeNull();
+  });
+  it('saknad tolerans: etiketten påstår inget tal', () => {
+    expect(stortTal(SCORPION({ langd: stat({ n: 285, traffPct: 93.68, tolerans: null }) })).etikett).toBe('av längderna träffar rätt');
+  });
+  it('INVARIANT: är domen "Under kravet" är det stora talet alltid rött — skärmen ska aldrig visa ett tal som klarar kravet under en underkänd dom', () => {
+    let underkanda = 0;
+    for (const dia of [60, 74, 77, 90, 100]) for (const len of [50, 80, 93.7, 94.9, 95, 97, 100]) {
+      const b = bed({ diameter: stat({ n: 1113, traffPct: dia }), langd: stat({ n: 300, traffPct: len, tolerans: 2 }) });
+      if (kalibreringsDom(b).status !== 'under') continue;
+      underkanda++;
+      expect(stortTal(b).ton, `diameter ${dia} / längd ${len}`).toBe('hot');
+    }
+    expect(underkanda).toBeGreaterThan(10);
+  });
+  it('profil utan längdkrav: tre rader, ingen påhittad fjärde', () => {
+    const utanLangd = VIDA.filter(t => t.variabel === 'diameter');
+    expect(kravRader(bed({ trosklar: utanLangd }))).toHaveLength(3);
+    expect(avgorandeMatt(SCORPION({ trosklar: utanLangd }))).toBe('diameter');
   });
 });
 

@@ -17,6 +17,9 @@ export const MATT = {
 } as const;
 export type MattKey = keyof typeof MATT;
 
+/** Längdkravet: en fjärde rad bland Vidas krav. Egen post (inte i MATT) — MATT är de tre DIAMETERmåtten, och längd bedöms bara på träffprocent. */
+export const LANGD_MATT = { fraga: 'Rätt längd?', term: 'träffprocent längd' } as const;
+
 /**
  * Skillnaden maskin − operatör på EN stock eller EN kontroll. Hette tidigare
  * "Längd (M−O)" / "Dia (M−O)" — en formel, inte ett ord. Samma mönster som

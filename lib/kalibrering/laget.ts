@@ -9,7 +9,7 @@
 import { atgardDom, bedomProfil, PROFIL_TON, type AtgDom, type AtgRad, type AtgRiktning, type ToneToken } from './bedomning';
 import { fmtDagMan } from './datum';
 import { fmtAbs1, fmtKrav, fmtSig1 } from './format';
-import { MATT, type MattKey } from './ordlista';
+import { LANGD_MATT, MATT, type MattKey } from './ordlista';
 import { cap } from './text';
 import type { AlleMaskin, AtgardPost, BedomningResp, FaktKalibrering } from './typer';
 
@@ -29,6 +29,16 @@ export type Dom = {
 export const profilNamn = (profil: string | null | undefined): string => (profil ? cap(profil) : 'profilens');
 /** Genitiv: "Vidas", "Biometrias". */
 export const genitiv = (profil: string | null | undefined): string => (profil ? `${profilNamn(profil)}s` : 'profilens');
+
+/**
+ * Vilka mått som ligger under golvet (röda) och därmed fäller domen. EN funktion för domen, det stora talet och raderna, så att talet
+ * på skärmen alltid är det mått som gjorde domen "Under kravet". Ett mått med för få mått (larmTyst) fäller aldrig.
+ */
+const fallande = (b: BedomningResp): { diameter: boolean; langd: boolean } => {
+  const dia = bedomProfil(b.diameter, 'diameter', b.trosklar);
+  const len = bedomProfil(b.langd, 'langd', b.trosklar);
+  return { diameter: !dia.larmTyst && dia.status === 'röd', langd: !len.larmTyst && len.status === 'röd' };
+};
 
 /**
  * Domen: ETT ord för "är vi godkända?". Diameter och längd bedöms var för sig mot maskinens kravprofil (`bedomProfil`, samma som förr);
@@ -52,7 +62,8 @@ export const kalibreringsDom = (b: BedomningResp): Dom => {
       : min != null ? `${n} mått i perioden — minst ${min} behövs för en dom.` : `${n} mått i perioden — för få för en dom.`;
     return { status: 'for_fa', titel: 'För få mätningar', rad, avvikelse: false };
   }
-  const under = [dia.status === 'röd' ? 'diametern' : null, !len.larmTyst && len.status === 'röd' ? 'längden' : null].filter((x): x is string => !!x);
+  const f = fallande(b);
+  const under = [f.diameter ? 'diametern' : null, f.langd ? 'längden' : null].filter((x): x is string => !!x);
   if (under.length > 0) {
     return { status: 'under', titel: 'Under kravet', rad: `${cap(under.join(' och '))} ligger under ${genitiv(b.profil)} krav.`, avvikelse: true };
   }
@@ -70,37 +81,61 @@ export const fonsterText = (b: BedomningResp): string => {
   return `${profil} · ${b.fonster.dagar} dagar · ${fmtDagMan(b.fonster.fran)} – ${fmtDagMan(b.fonster.till)}`;
 };
 
-// === Det stora talet och längden under det ===
-export type StortTal = { varde: string; ton: ToneToken; etikett: string; tyst: boolean };
+// === Det stora talet och måttet under det ===
+export type Mat = 'diameter' | 'langd';
+export type StortTal = { mat: Mat; varde: string; ton: ToneToken; etikett: string; tyst: boolean };
 
-/** Skärmens enda stora tal: diameterns träffprocent. `tyst` = för få mått för en dom — talet står kvar men dämpat. */
+/**
+ * Skärmens enda stora tal är det mått som AVGÖR domen. Fäller längden (och bara längden) är det längdens träffprocent; i alla andra fall
+ * diameterns — fäller båda eller ingen är diametern Vidas huvudmått. Annars visar skärmen "Under kravet" över ett tal som klarar kravet.
+ */
+export const avgorandeMatt = (b: BedomningResp): Mat => {
+  const f = fallande(b);
+  return kalibreringsDom(b).status === 'under' && f.langd && !f.diameter ? 'langd' : 'diameter';
+};
+
+/** `tyst` = för få mått för en dom — talet står kvar men dämpat. */
 export const stortTal = (b: BedomningResp): StortTal => {
-  const bed = bedomProfil(b.diameter, 'diameter', b.trosklar);
-  const tol = b.diameter?.tolerans;
+  const mat = avgorandeMatt(b);
+  const stat = mat === 'langd' ? b.langd : b.diameter;
+  const bed = bedomProfil(stat, mat, b.trosklar);
+  const tol = stat?.tolerans;
   const traff = bed.detaljer.find(d => d.metrik === 'traffprocent');
+  const etikett = mat === 'langd'
+    ? (tol != null ? `av längderna inom ±${fmtKrav(tol)} cm` : 'av längderna träffar rätt')
+    : (tol != null ? `av diametermätningarna träffar inom ±${fmtKrav(tol)} mm` : 'av diametermätningarna träffar rätt');
   return {
-    varde: b.diameter?.traffPct == null ? '–' : `${Math.round(b.diameter.traffPct)} %`,
+    mat,
+    varde: stat?.traffPct == null ? '–' : `${Math.round(stat.traffPct)} %`,
     ton: bed.larmTyst || !traff ? 'ok' : PROFIL_TON[traff.status],
-    etikett: tol != null ? `av diametermätningarna träffar inom ±${fmtKrav(tol)} mm` : 'av diametermätningarna träffar rätt',
+    etikett,
     tyst: bed.larmTyst,
   };
 };
 
-export type LangdRad = { varde: string; ton: ToneToken; text: string } | null;
-/** Längden i en rad under det stora talet: "Längd 94 % inom ±2 cm · 285 mått". null när längden saknar underlag. */
-export const langdRad = (b: BedomningResp): LangdRad => {
-  const s = b.langd;
+export type MatRad = { varde: string; ton: ToneToken; text: string } | null;
+/** Ett mått i en rad: "Längd 94 % inom ±2 cm · 285 mått", "Diameter 77 % inom ±4 mm · 1113 mått". null när måttet saknar underlag. */
+export const matRad = (b: BedomningResp, mat: Mat): MatRad => {
+  const s = mat === 'langd' ? b.langd : b.diameter;
   if (!s || s.traffPct == null) return null;
-  const bed = bedomProfil(s, 'langd', b.trosklar);
-  const ton: ToneToken = bed.larmTyst ? 'ok' : PROFIL_TON[bed.status];
-  const tol = s.tolerans != null ? ` inom ±${fmtKrav(s.tolerans)} cm` : '';
+  const bed = bedomProfil(s, mat, b.trosklar);
+  const traff = bed.detaljer.find(d => d.metrik === 'traffprocent');
+  const ton: ToneToken = bed.larmTyst || !traff ? 'ok' : PROFIL_TON[traff.status];
+  const enhet = mat === 'langd' ? 'cm' : 'mm';
+  const tol = s.tolerans != null ? ` inom ±${fmtKrav(s.tolerans)} ${enhet}` : '';
   const varde = `${Math.round(s.traffPct)} %`;
-  return { varde, ton, text: `Längd ${varde}${tol} · ${s.n} mått` };
+  return { varde, ton, text: `${mat === 'langd' ? 'Längd' : 'Diameter'} ${varde}${tol} · ${s.n} mått` };
 };
 
-// === Vidas krav: tre rader ===
+/** Längden i en rad (som förut). Tonen är träffprocentens, inte längdens värsta mått — längd bedöms bara på träff. */
+export const langdRad = (b: BedomningResp): MatRad => matRad(b, 'langd');
+
+/** Raden under det stora talet: det andra måttet. Är längden stor står diametern här, annars längden. */
+export const andraRad = (b: BedomningResp): MatRad => matRad(b, avgorandeMatt(b) === 'langd' ? 'diameter' : 'langd');
+
+// === Vidas krav: tre diameterrader + längden ===
 export type KravRad = {
-  key: MattKey;
+  key: MattKey | 'langd';
   /** Vardagsfrågan ur ordlistan ("Träffar den rätt?") — ordlistan styr orden. */
   fraga: string;
   term: string;
@@ -113,7 +148,10 @@ export type KravRad = {
 
 const TON_ORD: Record<ToneToken, string | null> = { ok: null, cold: null, hi: 'under målet', hot: 'under kravet' };
 
-/** De tre diametertalen mot maskinens krav, exakt som "Så ligger du till" visade dem (samma format, samma bedömning). */
+/**
+ * De tre diametertalen mot maskinens krav, exakt som "Så ligger du till" visade dem (samma format, samma bedömning), och som fjärde rad längdens
+ * träffprocent mot längdkravet — med SAMMA färgregel, så det syns vilken rad som fäller. Längdraden finns bara när profilen har ett längdkrav.
+ */
 export const kravRader = (b: BedomningResp): KravRad[] => {
   const stat = b.diameter;
   const tr = b.trosklar;
@@ -131,11 +169,22 @@ export const kravRader = (b: BedomningResp): KravRad[] => {
   const rad = (key: MattKey, varde: string, krav: string): KravRad => ({
     key, fraga: MATT[key].fraga, term: MATT[key].term, varde, ton: tonFor(key), ord: TON_ORD[tonFor(key)], krav,
   });
-  return [
+  const rader: KravRad[] = [
     rad('traffprocent', stat?.traffPct == null ? '–' : `${Math.round(stat.traffPct)} %`, gT != null ? `krav ≥ ${fmtKrav(gT)} %` : ''),
     rad('systematisk', stat?.systematisk == null ? '–' : `${fmtSig1(stat.systematisk)} mm`, gS != null ? `krav ≤ ${fmtKrav(gS)} mm` : ''),
     rad('standardavv', stat?.standardavv == null ? '–' : `${fmtAbs1(stat.standardavv)} mm`, gStd != null ? `krav ≤ ${fmtKrav(gStd)} mm` : ''),
   ];
+  const langdKrav = tr.find(t => t.variabel === 'langd' && t.metrik === 'traffprocent');
+  if (langdKrav) {
+    const len = bedomProfil(b.langd, 'langd', tr);
+    const traff = len.detaljer.find(x => x.metrik === 'traffprocent');
+    const ton: ToneToken = len.larmTyst || !traff ? 'ok' : PROFIL_TON[traff.status];
+    rader.push({
+      key: 'langd', fraga: LANGD_MATT.fraga, term: LANGD_MATT.term, ton, ord: TON_ORD[ton],
+      varde: b.langd?.traffPct == null ? '–' : `${Math.round(b.langd.traffPct)} %`, krav: `krav ≥ ${fmtKrav(Number(langdKrav.golv))} %`,
+    });
+  }
+  return rader;
 };
 
 // === Åtgärder: träff före → efter ===

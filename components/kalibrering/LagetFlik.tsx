@@ -1,6 +1,7 @@
 'use client';
 // LÄGET — "Är vi godkända och vad ska jag göra?" Överst profil och fönster i liten text, domen som rubrik och träffprocenten som skärmens enda stora tal.
-// Under det: Vidas krav (tre rader), Per trädslag, Åtgärder. Ersätter Senaste-förarvyn, "Visa siffrorna", "Så ligger du till" och Rapport.
+// Det stora talet är det mått som AVGÖR domen (fäller längden: längdens träff, annars diameterns); det andra måttet står som en rad under.
+// Under det: Vidas krav (diameterns tre rader + längden), Per trädslag, Åtgärder. Ersätter Senaste-förarvyn, "Visa siffrorna", "Så ligger du till" och Rapport.
 // Domen bygger alltid på det rullande fönstret (90 dagar), aldrig på en enda dag. Räknandet bor i lib/kalibrering/laget.
 import Ikon from '@/components/design/Ikon';
 import Rad from '@/components/design/Rad';
@@ -11,7 +12,7 @@ import { AVSTAND, FARG, IKON, KNAPP, TNUM, TYP } from '@/lib/design/tokens';
 import type { KalibreringArk } from '@/lib/hooks/useKalibreringArk';
 import type { KalibreringData } from '@/lib/hooks/useKalibreringData';
 import { fmtAntal } from '@/lib/kalibrering/format';
-import { atgardRader, fonsterText, kalibreringsDom, kravRader, langdRad, stortTal } from '@/lib/kalibrering/laget';
+import { andraRad, atgardRader, fonsterText, kalibreringsDom, kravRader, stortTal } from '@/lib/kalibrering/laget';
 import { cap } from '@/lib/kalibrering/text';
 import { Fyll, Lugn, Meta, Status, TonVarde } from './delar';
 import Rubrik from './Rubrik';
@@ -49,7 +50,7 @@ function Innehall({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
   const b = d.bedomning!;
   const dom = kalibreringsDom(b);
   const tal = stortTal(b);
-  const langd = langdRad(b);
+  const andra = andraRad(b);
   const krav = kravRader(b);
   const atgarder = atgardRader(b);
   const harProfil = dom.status !== 'ingen_profil';
@@ -64,7 +65,7 @@ function Innehall({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
           <TonVarde ton={tal.ton}>{tal.varde}</TonVarde>
         </div>
         <Meta style={{ marginTop: AVSTAND.xs }}>{tal.etikett}</Meta>
-        {langd && <div style={{ marginTop: AVSTAND.s }}><TonVarde ton={langd.ton} dampadOk style={TYP.meta}>{langd.text}</TonVarde></div>}
+        {andra && <div style={{ marginTop: AVSTAND.s }}><TonVarde ton={andra.ton} dampadOk style={TYP.meta}>{andra.text}</TonVarde></div>}
       </div>
 
       {harProfil && (
