@@ -76,7 +76,7 @@ export default function KalibreringPage() {
       <VyKolumn bredd={kolumn}>
         <Tillstand nyckel={flik}>
           {flik === 'laget' && <LagetFlik d={d} ark={ark} />}
-          {flik === 'tid' && <OverTidFlik d={d} v={v} />}
+          {flik === 'tid' && <OverTidFlik d={d} v={v} ark={ark} />}
           {flik === 'kontroller' && (
             <div className="kal-md">
               <div className="kal-md-lista"><KontrollerFlik d={d} ark={ark} /></div>
