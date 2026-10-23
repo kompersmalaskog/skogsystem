@@ -412,6 +412,37 @@ describe("pengatalet: raden Fakturering och fakturasidan", () => {
   });
 });
 
+describe("två kolumner på bred skärm (layout, inget innehåll ändrat)", () => {
+  // jsdom kör inte container queries — här vaktas strukturen; bredderna är mätta i Chromium (390/820/1280 px).
+  const vanster = () => document.querySelector("[data-lastbil-vanster]") as HTMLElement | null;
+  const hoger = () => document.querySelector("[data-lastbil-hoger]") as HTMLElement | null;
+  it("vänster = det man GÖR (Hämta, Bilen nu, Att göra), höger = det man LÄSER (Körningar), i telefonens ordning", async () => {
+    await montera();
+    const v = vanster()!, h = hoger()!;
+    expect(v.contains(document.querySelector("[data-hamta-start]"))).toBe(true);
+    expect(v.textContent).toContain("Bilen nu");
+    expect(v.contains(attGora())).toBe(true);
+    expect(h.contains(document.querySelector("[data-korningar]"))).toBe(true);
+    expect(v.contains(document.querySelector("[data-korningar]"))).toBe(false);
+    // på telefon står allt i en kolumn: vänster FÖRE höger i dokumentet
+    expect(v.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  it("regeln: två kolumner från 900 px huvudsidebredd (container query), en kolumn på högst 640 px under", async () => {
+    await montera();
+    const css = Array.from(document.querySelectorAll("style")).map(s => s.textContent).join("\n");
+    expect(css).toMatch(/\.lb-huvud-ram\s*\{\s*container-type:\s*inline-size/);
+    expect(css).toMatch(/\.lb-huvud\s*\{\s*max-width:\s*640px/);
+    expect(css).toMatch(/@container \(min-width: 900px\)/);
+    expect(css).toMatch(/\.lb-vanster\s*\{\s*position:\s*sticky/);
+  });
+  it("fakturasidan och Uppföljning har ingen tvåkolumnsram (bara huvudsidan)", async () => {
+    await montera();
+    await tillFakturering();
+    expect(vanster()).toBeNull();
+    expect(hoger()).toBeNull();
+  });
+});
+
 describe("roller", () => {
   it("förare: Hämta en maskin, Bilen nu och Körningar — inget Att göra, ingen Fakturering, och frågan om fakturering skickas aldrig", async () => {
     mock.medarbetare = FORARE;

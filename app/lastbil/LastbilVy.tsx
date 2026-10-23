@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
-import { AVSTAND, FARG, FONT, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TYP, VY_ROT, designCss } from '@/lib/design/tokens';
+import { AVSTAND, FARG, FONT, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, TYP, VY_ROT, designCss } from '@/lib/design/tokens';
 import VyKolumn from '@/components/design/VyKolumn';
 import HamtaFlode from './_components/hamta/HamtaFlode';
 import { lasHamtaUrl } from './_components/hamta/flode';
@@ -43,6 +43,19 @@ import { useVikt } from './_components/useVikt';
  * Gamla länkar: ?flik=fakturering → fakturasidan (en förare får huvudsidan); ?flik=korningar och ?flik=nu → huvudsidan.
  * "Hämta en maskin" ersätter förarflödet /maskinflytt: kartappen gör navigeringen, Lassa och Lassat av är frivilliga.
  */
+/** Huvudsidans bredd (container) från vilken den delas i två kolumner: iPad liggande och dator. */
+export const TVA_KOLUMNER_PX = 900;
+
+// Under TVA_KOLUMNER_PX: en kolumn, högst KOLUMN.smal bred, exakt som förut. Över: vänster 38 % sticky, höger resten.
+const HUVUD_CSS = `
+.lb-huvud-ram { container-type: inline-size; }
+.lb-huvud { max-width: ${KOLUMN.smal}px; margin: 0 auto; }
+@container (min-width: ${TVA_KOLUMNER_PX}px) {
+  .lb-huvud { max-width: none; display: grid; grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); column-gap: ${AVSTAND.xxl}px; align-items: start; }
+  .lb-vanster { position: sticky; top: calc(${LAYOUT.topbar} + ${AVSTAND.s}px); }
+}
+`;
+
 export default function LastbilVy() {
   const { medarbetare, loading } = useCurrentMedarbetare();
   const arAdmin = medarbetare?.roll === 'admin';
@@ -142,8 +155,8 @@ export default function LastbilVy() {
 
   return (
     <div style={{ ...VY_ROT, minHeight: ROT_MIN_HOJD, fontFamily: FONT, WebkitFontSmoothing: 'antialiased', paddingBottom: AVSTAND.xxl }}>
-      <style>{designCss}{KOLUMN_CSS}</style>
-      <VyKolumn>
+      <style>{designCss}{KOLUMN_CSS}{HUVUD_CSS}</style>
+      <VyKolumn bredd={!loading && !hamtar && sida === 'huvud' ? 'bred' : 'smal'}>
         {loading ? (
           <p role="status" style={{ color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xl}px 0`, margin: 0 }}>Läser …</p>
         ) : hamtar ? (
@@ -157,23 +170,32 @@ export default function LastbilVy() {
             vantar={vantar.lage} pamminnelse={paminn} onOppnaVantande={oppnaVantande} onVantarForsokIgen={vantar.forsokIgen}
             onTillbaka={tillHuvudsidan} onForsokIgen={fakt.forsokIgen} onAndrad={efterAndring} />
         ) : (
-          <div style={{ paddingTop: AVSTAND.s }}>
-            <div style={{ marginBottom: AVSTAND.xl }}>
-              <HamtaKnapp forareId={medarbetare?.id ?? null} aktiv={!loading && !hamtar} onStart={startaHamta} />
-              {kvitto && (
-                <p role="status" data-lass-kvitto style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px ${AVSTAND.xs}px 0` }}>{kvitto}</p>
-              )}
+          // Huvudsidan: en kolumn på telefon och iPad stående (samma ordning som förut). Från TVA_KOLUMNER_PX (iPad liggande,
+          // dator) två kolumner: vänster det man GÖR (Hämta, Bilen nu, Att göra) — sticky så den står kvar — och höger det man
+          // LÄSER (Körningar), som scrollar. Ingen mätning i JS: container query, inget hopp vid första renderingen.
+          <div className="lb-huvud-ram" data-lastbil-huvud="">
+            <div className="lb-huvud" style={{ paddingTop: AVSTAND.s }}>
+              <div className="lb-vanster" data-lastbil-vanster="">
+                <div style={{ marginBottom: AVSTAND.xl }}>
+                  <HamtaKnapp forareId={medarbetare?.id ?? null} aktiv={!loading && !hamtar} onStart={startaHamta} />
+                  {kvitto && (
+                    <p role="status" data-lass-kvitto style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px ${AVSTAND.xs}px 0` }}>{kvitto}</p>
+                  )}
+                </div>
+                <BilenNuKort lage={nu.lage} onForsokIgen={nu.forsokIgen} />
+                {arAdmin && (
+                  <AttGoraKort medRubrik={harAttGora}>
+                    <SaknarMaskinRad lage={saknar.lage} onOppna={setValtLass} onForsokIgen={saknar.forsokIgen} />
+                    <VantarRad lage={vantar.lage} pamminnelse={paminn} onOppna={oppnaVantande} onForsokIgen={vantar.forsokIgen} />
+                    <FaktureringRad period={period} status={fakt.status} onOppna={oppnaFakturering} onForsokIgen={fakt.forsokIgen} />
+                  </AttGoraKort>
+                )}
+              </div>
+              <div className="lb-hoger" data-lastbil-hoger="">
+                <Korningar period={period} onPeriod={setPeriod} lage={rundor.lage} onForsokIgen={rundor.forsokIgen} onOppnaAr={oppnaAr}
+                  onOppna={r => setValdRunda({ id: r.id, start: r.start })} senaste={senaste} onOppnaSenaste={setValdRunda} />
+              </div>
             </div>
-            <BilenNuKort lage={nu.lage} onForsokIgen={nu.forsokIgen} />
-            {arAdmin && (
-              <AttGoraKort medRubrik={harAttGora}>
-                <SaknarMaskinRad lage={saknar.lage} onOppna={setValtLass} onForsokIgen={saknar.forsokIgen} />
-                <VantarRad lage={vantar.lage} pamminnelse={paminn} onOppna={oppnaVantande} onForsokIgen={vantar.forsokIgen} />
-                <FaktureringRad period={period} status={fakt.status} onOppna={oppnaFakturering} onForsokIgen={fakt.forsokIgen} />
-              </AttGoraKort>
-            )}
-            <Korningar period={period} onPeriod={setPeriod} lage={rundor.lage} onForsokIgen={rundor.forsokIgen} onOppnaAr={oppnaAr}
-              onOppna={r => setValdRunda({ id: r.id, start: r.start })} senaste={senaste} onOppnaSenaste={setValdRunda} />
           </div>
         )}
       </VyKolumn>
