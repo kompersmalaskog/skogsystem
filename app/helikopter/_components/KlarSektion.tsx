@@ -1,13 +1,13 @@
 'use client'
 
-// KLAR — ett datum per maskin: när hon är klar med sina trakter (helikopter_ny_klar, klarRader i _lib/kort.ts).
-// Orange prick + datum när det blir efter månadens sista arbetsdag; "–" utan trakter; "?" när en trakt saknar prognos.
+// NÄR BLIR MASKINERNA KLARA? — namn och datum, inget mer (klarRader i _lib/kort.ts). Orange prick + datum när det blir efter
+// månadens sista arbetsdag; "ca" när datumet bygger på ett G15-förslag; "–" utan trakter; "?" när en trakt saknar prognos.
+// Tryck på en maskin visar hennes trakter i ett ark.
 import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens'
 import Rad from '@/components/design/Rad'
 import Sektion from '@/components/design/Sektion'
 import { RadLank } from '@/components/ui/RadGrupp'
-import { fmtDag } from '../_lib/format'
-import type { KlarRad } from '../_lib/kort'
+import { klarNot, type KlarRad } from '../_lib/kort'
 import { Prick } from './Status'
 
 type Props = {
@@ -16,37 +16,40 @@ type Props = {
   laddar: boolean
   sistaArbetsdag: string | null
   onRetry: () => void
+  onOppna: (r: KlarRad) => void
 }
 
-export default function KlarSektion({ rader, fel, laddar, sistaArbetsdag, onRetry }: Props) {
+export default function KlarSektion({ rader, fel, laddar, sistaArbetsdag, onRetry, onOppna }: Props) {
+  const rubrik = 'När blir maskinerna klara?'
   if (fel) {
     return (
-      <Sektion rubrik="Klar">
-        <RadLank orange text="Kunde inte läsa när maskinerna blir klara" smakprov="försök igen" onClick={onRetry} sista />
+      <Sektion rubrik={rubrik}>
+        <RadLank orange text="Kunde inte räkna ut det" smakprov="försök igen" onClick={onRetry} sista />
       </Sektion>
     )
   }
   if (laddar || rader == null) {
     return (
-      <Sektion rubrik="Klar">
+      <Sektion rubrik={rubrik}>
         <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Räknar…</div>
       </Sektion>
     )
   }
   if (rader.length === 0) return null
   return (
-    <Sektion rubrik="Klar" not={sistaArbetsdag ? `Månadens sista arbetsdag är ${fmtDag(sistaArbetsdag)}` : undefined}>
+    <Sektion rubrik={rubrik} not={sistaArbetsdag ? klarNot(sistaArbetsdag, rader) : undefined}>
       {rader.map((r, i) => (
         <Rad
           key={r.maskin_id}
           titel={r.namn}
-          under={r.under ?? (r.dampad ? 'Inget planerat' : undefined)}
+          under={r.under ?? undefined}
+          dampad={r.dampad}
           hoger={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.inuti, ...TNUM, color: r.dampad ? FARG.text3 : FARG.text }}>
               {r.orange && <Prick ton="orange" />}{r.hoger}
             </span>
           }
-          hogerUnder={r.orange ? 'efter månaden' : undefined}
+          onTryck={() => onOppna(r)}
           sista={i === rader.length - 1}
           attr={{ 'data-klar': r.maskin_id }}
         />

@@ -26,7 +26,7 @@ const maskin = (o: Partial<KlarMaskin> & { maskin_id: string }): KlarMaskin => (
 })
 const trakt = (o: Partial<KlarTrakt> & { objekt_id: string }): KlarTrakt => ({
   namn: o.objekt_id, typ: 'slutavverkning', roll: 'skotare', maskin_id: null, sortn: 1, ordning: 1, ar: 2026, manad: 11,
-  forra_manaden: false, volym: 500, timmar: 16, rest_volym: 500, saknar_prognos: false, ...o,
+  forra_manaden: false, volym: 500, timmar: 16, rest_volym: 500, saknar_prognos: false, ur_ko: false, medelstam: null, ...o,
 })
 const data = (o: Partial<KlarData>): KlarData => ({
   ar: 2026, manad: 11, idag: '2026-10-17', start: '2026-11-02', sista_arbetsdag: '2026-11-30', har_bestallning: true,

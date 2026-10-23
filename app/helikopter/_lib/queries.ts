@@ -10,7 +10,8 @@ import { G15_TOM, g15Tabell, type G15DagRad, type G15Tabell } from '@/lib/heliko
 import type { VeckolageData } from './veckolage'
 import { lasHistorik, lasManadsfacit, type Historik, type Manadsfacit } from './manadsfacit'
 import { normStopp, normTakt } from './maskinData'
-import { lasKlar, type KlarData } from './klar'
+import { lasKlar, type KlarData, type KlarRoll } from './klar'
+import type { UtfallRad } from '@/lib/g15Forslag'
 
 export type Typ = 'slutavverkning' | 'gallring'
 
@@ -495,5 +496,33 @@ export async function hamtaKlar(ar: number, manad: number, idag: string): Promis
   } catch (e) {
     console.error('[helikopter] helikopter_ny_klar gav ett svar vi inte förstår', e)
     return { data: null, error: felText(e) }
+  }
+}
+
+/** Uppmätt utfall per avslutad trakt (RPC prognos_utfall) — underlaget för G15-förslaget när en trakt saknar prognos. Ett fel är ett fel, aldrig en tom lista. */
+export async function hamtaPrognosUtfall(): Promise<Svar<UtfallRad[]>> {
+  const r = await rpc<any[]>('prognos_utfall', {})
+  if (r.error) return { data: null, error: r.error }
+  if (!Array.isArray(r.data)) return { data: null, error: 'prognos_utfall gav ett oväntat svar' }
+  return {
+    data: r.data.map((x: any): UtfallRad => ({
+      typ: x.typ ?? null, volymObjekt: talEllerNull(x.volym_objekt), skordadM3: talEllerNull(x.skordad_m3), stammar: talEllerNull(x.stammar),
+      skordareG15: talEllerNull(x.skordare_g15), skotareG15: talEllerNull(x.skotare_g15),
+    })),
+    error: null,
+  }
+}
+
+/** Byt maskin för en trakt: skriver objekt.skordare_maskin_id / skotare_maskin_id (samma kolumner som planeringsverktyget). Läser tillbaka raden — noll rader är ett fel. */
+export async function tilldelaMaskin(objektId: string, roll: KlarRoll, maskinId: string): Promise<{ error: string | null }> {
+  try {
+    const kolumn = roll === 'skordare' ? 'skordare_maskin_id' : 'skotare_maskin_id'
+    const { data, error } = await supabase.from('objekt').update({ [kolumn]: maskinId }).eq('id', objektId).select(`id, ${kolumn}`)
+    if (error) return { error: felText(error) }
+    if (!data || data.length === 0) return { error: 'Ändringen sparades inte (saknar behörighet eller trakten finns inte längre)' }
+    if ((data[0] as any)[kolumn] !== maskinId) return { error: 'Ändringen sparades inte' }
+    return { error: null }
+  } catch (e) {
+    return { error: felText(e) }
   }
 }

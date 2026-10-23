@@ -9,12 +9,12 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import klarOkt from '../_lib/__fixtures__/klar_2026-10-17.json'
 import historikOkt from '../_lib/__fixtures__/historik_2026-10-15.json'
 import { lasHistorik } from '../_lib/manadsfacit'
-import { lasKlar } from '../_lib/klar'
+import { lasKlar, raknaAlla } from '../_lib/klar'
 import { fmt } from '../_lib/format'
 
 const q = vi.hoisted(() => ({
   hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaManuellaMaskiner: vi.fn(), hamtaSenasteLass: vi.fn(), hamtaMaskinLage: vi.fn(),
-  hamtaMaskiner: vi.fn(), hamtaMaskinTakter: vi.fn(), hamtaBolag: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), skickaVeckoNotis: vi.fn(), params: '', replace: vi.fn(),
+  hamtaMaskiner: vi.fn(), hamtaMaskinTakter: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), skickaVeckoNotis: vi.fn(), params: '', replace: vi.fn(),
 }))
 vi.mock('../_lib/queries', () => q)
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(q.params), useRouter: () => ({ replace: q.replace }) }))
@@ -76,6 +76,8 @@ beforeEach(() => {
   q.hamtaMaskiner.mockResolvedValue({ data: maskiner, error: null })
   q.hamtaBolag.mockResolvedValue({ data: [], error: null })
   q.hamtaMaskinTakter.mockResolvedValue({ data: {}, error: null })
+  q.hamtaPrognosUtfall.mockResolvedValue({ data: [], error: null })
+  q.tilldelaMaskin.mockResolvedValue({ error: null })
   q.hamtaHistorik.mockResolvedValue({ data: lasHistorik(historikOkt), error: null })
   q.hamtaKlar.mockResolvedValue({ data: lasKlar(structuredClone(klarOkt)), error: null })
 })
@@ -88,44 +90,52 @@ describe('/helikopter — en sida', () => {
     await monter()
     expect(text()).toContain('Oktober 2026')
     expect(text()).toContain('10 arbetsdagar kvar')
-    expect(cont.querySelector('main h2')?.textContent).toBe('Landar under beställt')
-    const skotat = sektion('Skotat mot beställning')!
+    expect(cont.querySelector('main h2')?.textContent).toBe('Vi hinner inte med beställningen')
+    const skotat = sektion('Skotat')!
     expect(skotat.querySelector('[data-tal="gallring"]')?.textContent).toBe(fmt(1020))
-    expect(skotat.querySelector('[data-spar="gallring"]')?.textContent).toContain('Landar')
+    expect(skotat.querySelector('[data-spar="gallring"]')?.textContent).toContain('Hinner')
     expect(skotat.querySelector('[data-tal="slutavverkning"]')?.textContent).toBe(fmt(4000))
-    expect(skotat.querySelector('[data-spar="slutavverkning"]')?.textContent).toContain('Under')
+    expect(skotat.querySelector('[data-spar="slutavverkning"]')?.textContent).toContain(`Fattas ${fmt(1000)}`)
     // Inga flikar, ingen Läge/Planering/Uppföljning-text.
     expect(cont.querySelector('[role="tablist"]')).toBeNull()
     expect(text()).not.toContain('Uppföljning')
-    // Klar: ett datum per maskin ur helikopter_ny_klar.
-    const klar = sektion('Klar')!
-    expect(klar.querySelectorAll('[data-klar]').length).toBe(lasKlar(structuredClone(klarOkt)).maskiner.length)
-    // Maskinerna: m³fub till höger, "Ingen produktion" dämpad.
-    expect(sektion('Skördare')!.textContent).toContain('m³fub')
-    expect(sektion('Skotare')!.textContent).toContain('Ingen produktion i oktober')
+    // Klar: ett datum per maskin — namn och datum, inga traktnamn på sidan.
+    const klar = sektion('När blir maskinerna klara?')!
+    const d = lasKlar(structuredClone(klarOkt))
+    expect(klar.querySelectorAll('[data-klar]').length).toBe(d.maskiner.length)
+    for (const t of d.trakter) expect(klar.textContent).not.toContain(t.namn.replace(/^\d+\s+/, '').slice(0, 12))
+    // Maskinernas m³fub ligger bakom Mer › Maskiner, inte på sidan.
+    expect(sektion('Skördare')).toBeNull()
     // Mer-raderna och admin-notisen.
-    expect(sektion('Mer')!.textContent).toContain('Veckor · Gallring')
+    expect(sektion('Mer')!.textContent).toContain('Veckor')
     expect(sektion('Onsdagsnotis')).not.toBeNull()
   })
 
-  it('Behöver dig finns bara när något kräver dig, och raden säger vad', async () => {
+  it('Gör detta: högst tre rader på sidan, resten bakom "N saker till"; ett tryck på en maskin visar hennes trakter', async () => {
     await monter()
-    // Giant blir klar efter månadens slut i fixturen? Räkna ut ur datan i stället för att anta.
-    const sena = lasKlar(structuredClone(klarOkt)).maskiner.filter(m => m.efter_manad && m.klar_datum)
-    const behov = sektion('Behöver dig')
-    if (sena.length === 0) expect(behov).toBeNull()
-    else expect(behov!.querySelectorAll('[data-behov]').length).toBe(sena.length)
+    const d = lasKlar(structuredClone(klarOkt))
+    const sena = Object.values(raknaAlla(d)).filter(p => p.efterManad)
+    const gor = sektion('Gör detta')
+    if (sena.length === 0) expect(gor).toBeNull()
+    else {
+      const rader = Array.from(gor!.querySelectorAll('[data-gor]'))
+      expect(rader.length).toBeLessThanOrEqual(4)
+      expect(rader.filter(r => r.getAttribute('data-gor') !== 'alla').length).toBeLessThanOrEqual(3)
+    }
+    const forsta = cont.querySelector('[data-klar]') as HTMLButtonElement
+    await act(async () => { forsta.click() })
+    expect(cont.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe(d.maskiner[0].namn)
   })
 
   it('oförklarat stopp blir en rad i Behöver dig; ett tryck öppnar Maskiner', async () => {
     q.hamtaKlar.mockResolvedValue({ data: null, error: 'nät' })
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ maskinStopp: [stoppRad({ oforklarade_datum: ['2026-10-14', '2026-10-15', '2026-10-16'] })] }), error: null })
     await monter()
-    const rad = cont.querySelector('[data-behov="stod:PONS"]') as HTMLButtonElement
+    const rad = cont.querySelector('[data-gor="stod:PONS"]') as HTMLButtonElement
     expect(rad.textContent).toContain('Giant körde inte ons–fre')
     expect(rad.textContent).toContain('Ingen ledighet registrerad')
-    // Klar-kortet säger att det inte gick att läsa — aldrig en tom lista.
-    expect(sektion('Klar')!.textContent).toContain('Kunde inte läsa')
+    // Klar-kortet säger att det inte gick att räkna — aldrig en tom lista.
+    expect(sektion('När blir maskinerna klara?')!.textContent).toContain('Kunde inte räkna')
     await act(async () => { rad.click() })
     expect(cont.querySelector('[role="dialog"]')).not.toBeNull()
   })
@@ -134,11 +144,29 @@ describe('/helikopter — en sida', () => {
     q.hamtaManadsdata.mockResolvedValueOnce({ data: null, error: 'nätet' })
     await monter()
     expect(text()).toContain('Kunde inte läsa data')
-    expect(sektion('Skotat mot beställning')).toBeNull()
+    expect(sektion('Skotat')).toBeNull()
     const knapp = Array.from(cont.querySelectorAll('button')).find(b => b.textContent === 'Försök igen')!
     await act(async () => { knapp.click() })
     for (let i = 0; i < 4; i++) await act(async () => { await Promise.resolve() })
-    expect(sektion('Skotat mot beställning')).not.toBeNull()
+    expect(sektion('Skotat')).not.toBeNull()
+  })
+
+  it('flyttförslaget är en rad; arket har EN knapp som skriver maskinen och läser om', async () => {
+    await monter()
+    const d = lasKlar(structuredClone(klarOkt))
+    const { bastaFlytt } = await import('../_lib/klar')
+    const f = bastaFlytt(d)
+    const rad = cont.querySelector('[data-gor="flytt"]') as HTMLButtonElement | null
+    if (!f) { expect(rad).toBeNull(); return }
+    expect(rad!.textContent).toContain(`till `)
+    await act(async () => { rad!.click() })
+    const knapp = cont.querySelector('[data-flytta]') as HTMLButtonElement
+    expect(knapp.textContent).toContain(f.till.namn)
+    const anrop = q.hamtaKlar.mock.calls.length
+    await act(async () => { knapp.click() })
+    for (let i = 0; i < 4; i++) await act(async () => { await Promise.resolve() })
+    expect(q.tilldelaMaskin).toHaveBeenCalledWith(f.objekt_id, f.roll, f.till.maskin_id)
+    expect(q.hamtaKlar.mock.calls.length).toBeGreaterThan(anrop)
   })
 
   it('en annan månad: Idag-knappen finns, och sidokolumnen länkar månaderna till samma sida', async () => {

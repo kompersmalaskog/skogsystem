@@ -10,20 +10,34 @@
 //  · dagar för en trakt = kvarvarande timmar / maskinens G15 per arbetsdag — eller, för maskin med manuell datakälla, kvarvarande volym / snittakt;
 //  · trakt n börjar på dag floor(kumulativt före)+1 och slutar på dag ceil(kumulativt efter), räknat på maskinens lediga dagar (avrundat till 6 decimaler);
 //  · saknas prognos (eller volym/takt för den manuella) på någon trakt: maskinen har inget datum (null) — aldrig en gissning.
+//    UNDANTAG (2026-10-23): en virkestrakt utan prognos får G15-förslaget ur uppmätt utfall (`medUppskattadPrognos`, lib/g15Forslag — samma
+//    tal som Klar med trakten föreslår) och märks `uppskattad`; maskinens datum blir då "ca". GROT/energiklippning har inget förslag.
+//  · GROT (bara skotning) och energiklippning ligger i maskinens kö som alla andra trakter (version 2 av RPC:n, migration 20261023181540) —
+//    de räknas aldrig mot beställningen men flyttar klar-datumet.
 // Inga imports av React eller Supabase.
 import { TYP_NAMN, klararTyp } from './berakningar'
 import { MANAD_NAMN, fmt, fmtDag, kortNamn } from './format'
 import type { Maskin, Typ } from './queries'
+import { beraknaG15Forslag, type UtfallRad } from '@/lib/g15Forslag'
+
+/** Trakttyperna i en maskins kö: virke (räknas mot beställningen) och GROT/energiklippning (räknas bara i kön). */
+export type KlarTyp = Typ | 'grot' | 'energiklippning'
+export const KLAR_TYP_NAMN: Record<KlarTyp, string> = { ...TYP_NAMN, grot: 'GROT', energiklippning: 'Energiklippning' }
+export const arVirke = (t: KlarTyp): t is Typ => t === 'gallring' || t === 'slutavverkning'
 
 export type KlarRoll = 'skordare' | 'skotare'
 
 export type KlarTrakt = {
   objekt_id: string
   namn: string
-  typ: Typ
+  typ: KlarTyp
   roll: KlarRoll
   /** Tilldelad maskin för rollen; null = ingen maskin. */
   maskin_id: string | null
+  /** Maskinen är inte vald på trakten utan härledd ur maskinkön (maskin_ko) — ingen fråga till planeraren. */
+  ur_ko: boolean
+  /** objekt.medelstam (m³fub per stam) — underlag för G15-förslaget när prognos saknas. */
+  medelstam: number | null
   /** Sorteringsplats (objekt.ordning, ar, manad, namn) som ett tal — appen sorterar bara på det. */
   sortn: number
   ordning: number | null
@@ -37,6 +51,8 @@ export type KlarTrakt = {
   /** Kvarvarande volym att skota (bara skotare); används av maskin med manuell datakälla. */
   rest_volym: number | null
   saknar_prognos: boolean
+  /** timmar är ett G15-förslag ur uppmätt utfall, inte planerarens prognos (medUppskattadPrognos). */
+  uppskattad?: boolean
 }
 
 export type KlarMaskinTrakt = { objekt_id: string; fran: string | null; till: string | null }
@@ -90,6 +106,7 @@ const typ = (v: unknown): Typ => {
   if (v === 'gallring' || v === 'slutavverkning') return v
   throw new Error('Okänd typ i helikopter_ny_klar')
 }
+const klarTyp = (v: unknown): KlarTyp => (v === 'grot' || v === 'energiklippning' ? v : typ(v))
 const roll = (v: unknown): KlarRoll => {
   if (v === 'skordare' || v === 'skotare') return v
   throw new Error('Okänd roll i helikopter_ny_klar')
@@ -123,9 +140,11 @@ export function lasKlar(raw: unknown): KlarData {
     trakter: r.trakter.map((t: any): KlarTrakt => ({
       objekt_id: String(t.objekt_id),
       namn: String(t.namn ?? 'Objekt'),
-      typ: typ(t.typ),
+      typ: klarTyp(t.typ),
       roll: roll(t.roll),
       maskin_id: t.maskin_id == null ? null : String(t.maskin_id),
+      ur_ko: t.ur_ko === true,
+      medelstam: talEllerNull(t.medelstam, 'medelstam'),
       sortn: tal(t.sortn, 'sortn'),
       ordning: talEllerNull(t.ordning, 'ordning'),
       ar: talEllerNull(t.ar, 'ar'),
@@ -152,20 +171,26 @@ export function lasKlar(raw: unknown): KlarData {
 const avrunda6 = (x: number) => Math.round(x * 1e6) / 1e6
 
 /** Maskinen klarar traktens typ (klarar_typ 'bada' eller lika med typen) — samma regel som resten av helikoptern. */
-export function klararTraktTyp(m: Pick<KlarMaskin, 'klarar_typ'>, t: Typ): boolean {
-  return klararTyp({ klarar_typ: m.klarar_typ } as Maskin, t)
+export function klararTraktTyp(m: Pick<KlarMaskin, 'klarar_typ'>, t: KlarTyp): boolean {
+  // GROT och energiklippning: ingen maskin är låst till en virkestyp där — den som är tilldelad kör.
+  return !arVirke(t) || klararTyp({ klarar_typ: m.klarar_typ } as Maskin, t)
 }
 
 /** Kan maskinen ta trakten? Rätt typ — och en maskin utan mätt G15 (810E, manuell) bara där den har en snittakt att räkna på. */
 export function kanTa(m: KlarMaskin, t: Pick<KlarTrakt, 'typ'>): boolean {
-  return klararTraktTyp(m, t.typ) && (!m.manuell || (m.takt[t.typ] ?? 0) > 0)
+  return klararTraktTyp(m, t.typ) && (!m.manuell || manuellTakt(m, t.typ) > 0)
 }
 
 /** Dagar en trakt tar på maskinen; null = det går inte att räkna (prognos, volym eller takt saknas). */
+/** Den manuella maskinens snittakt för en typ; GROT/energiklippning har ingen (0). */
+function manuellTakt(m: Pick<KlarMaskin, 'takt'>, t: KlarTyp): number {
+  return arVirke(t) ? (m.takt[t] ?? 0) : 0
+}
+
 export function dagarBehov(m: KlarMaskin, t: KlarTrakt): number | null {
   if (m.manuell) {
-    const takt = m.takt[t.typ]
-    return t.rest_volym == null || !(takt != null && takt > 0) ? null : t.rest_volym / takt
+    const takt = manuellTakt(m, t.typ)
+    return t.rest_volym == null || !(takt > 0) ? null : t.rest_volym / takt
   }
   return t.timmar == null || !(m.g15_per_dag > 0) ? null : t.timmar / m.g15_per_dag
 }
@@ -184,6 +209,8 @@ export type MaskinPlan = {
   klar: string | null
   saknar: boolean
   efterManad: boolean
+  /** Minst en trakt räknas på ett G15-förslag, inte planerarens prognos: datumet är "ca". */
+  uppskattad: boolean
 }
 
 /** Maskinens kö: `trakter` är de som ligger på maskinen (i valfri ordning). */
@@ -201,7 +228,7 @@ export function raknaMaskin(m: KlarMaskin, trakter: KlarTrakt[], sistaArbetsdag:
     return { trakt: t, dagar: dg, fran: m.dagar[Math.floor(foer)] ?? null, till: m.dagar[Math.max(Math.ceil(slut), 1) - 1] ?? null }
   })
   const klar = saknar || rader.length === 0 ? null : rader[rader.length - 1].till
-  return { maskin: m, rader, klar, saknar, efterManad: klar != null && klar > sistaArbetsdag }
+  return { maskin: m, rader, klar, saknar, efterManad: klar != null && klar > sistaArbetsdag, uppskattad: ordnade.some(t => t.uppskattad === true) }
 }
 
 /** En tänkt omtilldelning: trakten (för rollen) får en annan maskin. null = ingen maskin. */
@@ -222,6 +249,24 @@ export function senasteKlar(planer: Record<string, MaskinPlan>): string | null {
   let s: string | null = null
   for (const p of Object.values(planer)) if (p.klar != null && (s == null || p.klar > s)) s = p.klar
   return s
+}
+
+/**
+ * Virkestrakter utan prognos får G15-förslaget ur uppmätt utfall (samma räkning som Klar med trakten: lib/g15Forslag), så maskinen får ett
+ * datum i stället för "?". Skotarens rest skalas med det som är kvar att skota (rest_volym / volym). Manuell maskin (810E) räknar på volym
+ * och rörs inte; GROT/energiklippning har inget förslag; utan utfall (null = kunde inte läsas) ändras inget.
+ */
+export function medUppskattadPrognos(d: KlarData, utfall: UtfallRad[] | null): KlarData {
+  if (!utfall || utfall.length === 0) return d
+  const manuella = new Set(d.maskiner.filter(m => m.manuell).map(m => m.maskin_id))
+  const trakter = d.trakter.map(t => {
+    if (t.timmar != null || !arVirke(t.typ) || t.volym == null || t.volym <= 0 || (t.maskin_id != null && manuella.has(t.maskin_id))) return t
+    const f = beraknaG15Forslag({ typ: t.typ, volym: t.volym, medelstam: t.medelstam }, utfall)[t.roll]
+    if (!f.ok) return t
+    const andel = t.roll === 'skotare' && t.rest_volym != null ? Math.max(0, Math.min(1, t.rest_volym / t.volym)) : 1
+    return { ...t, timmar: Math.round(f.forslag.g15 * andel * 100) / 100, saknar_prognos: false, uppskattad: true }
+  })
+  return { ...d, trakter }
 }
 
 /** Trakter vars roll saknar maskin bland våra kapacitetsmaskiner (ingen vald, eller en vi inte räknar på) — de får inte försvinna tyst. */

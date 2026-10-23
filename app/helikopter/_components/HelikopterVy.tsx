@@ -2,17 +2,20 @@
 
 // /helikopter — EN sida, inga flikar (omtag 2026-10-23, Martin: "så att ett barn förstår den").
 //
-// Uppifrån: månaden (‹ Oktober 2026 ›, arbetsdagar kvar) · svaret i EN mening · korten i ett rutnät:
-//   SKOTAT MOT BESTÄLLNING (ett tal per spår) · BEHÖVER DIG (bara när något kräver dig) · KLAR (ett datum per maskin) ·
-//   DIN MASKIN (förare) · SKÖRDARE · SKOTARE · MER (länkrader: Skördat, Maskiner, Veckor, Per bolag, Tidigare månader, Månadsfacit) · ONSDAGSNOTIS (admin).
+// Uppifrån: månaden (‹ Oktober 2026 ›, arbetsdagar kvar) · svaret i EN mening i vanliga ord · fyra kort i ett rutnät:
+//   SKOTAT (ett tal per spår) · GÖR DETTA (högst tre rader, resten bakom "N saker till") · NÄR BLIR MASKINERNA KLARA? (namn + datum) ·
+//   MER (Skördat, Maskiner, Takt, Veckor, Per bolag, Tidigare månader, Månadsfacit) · DIN MASKIN (förare) · ONSDAGSNOTIS (admin).
 // Allt som står på sidan räknas i _lib/kort.ts (ren vymodell); den här filen hämtar och ritar.
+// Klar-datumen räknas i appen (klar.ts raknaAlla) på RPC:ns underlag + G15-förslaget för trakter utan prognos (medUppskattadPrognos),
+// så sidan och flyttförslaget räknar på samma tal.
 //
 // Bredd: korten ligger i ett rutnät med CONTAINER QUERIES (sidans egen bredd): 1 kolumn, 2 från 640 px, 3 från 960 px.
 // Från 1100 px står månaderna som sidokolumn till vänster (Manadssida), som markägarrapportens lista. Ark underifrån under 600 px, panel från höger annars.
 //
 // Data i lager, varje med eget fel (ett fel är ett fel, aldrig tomt):
 //   fast — maskiner, senaste importtid, bolagshistorik (en gång) · manadsdata — spår, arbetsdagar, planering, stopp (vid månadsbyte) ·
-//   klar — helikopter_ny_klar (vid månadsbyte, inte för avslutad månad) · maskiner — månadens maskiner · bolag — först när Per bolag öppnas.
+//   klar — helikopter_ny_klar (vid månadsbyte, inte för avslutad månad) · utfall — prognos_utfall (en gång) · maskiner — först när Maskiner öppnas ·
+//   bolag — först när Per bolag öppnas.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { SheetLageContext } from '@/components/Sheet'
@@ -25,12 +28,14 @@ import { AVSTAND, FARG, FONT, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, T
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
-  hamtaBolag, hamtaFast, hamtaManadsdata, hamtaManuellaMaskiner, hamtaMaskinLage, hamtaMaskiner, hamtaSenasteLass,
+  hamtaBolag, hamtaFast, hamtaManadsdata, hamtaManuellaMaskiner, hamtaMaskinLage, hamtaMaskiner, hamtaPrognosUtfall, hamtaSenasteLass, tilldelaMaskin,
   type BolagRad, type FastData, type Manadsdata, type MaskinLage, type MaskinManad, type Typ,
 } from '../_lib/queries'
 import { TYPER, TYP_NAMN, globalaArbetsdagar, kapacitetsMaskiner, manadStatus, maskinNamn, planeratPerTyp, raknaSpar, valjBas, type PlaneratResultat, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, manadRubrik, relativTid } from '../_lib/format'
-import { behoverDig, klarRader, sidSvar, sparKort, type BehovRad } from '../_lib/kort'
+import { gorDetta, klarRader, sidSvar, sparKort, type GorRad, type KlarRad } from '../_lib/kort'
+import { bastaFlytt, medUppskattadPrognos, raknaAlla, type FlyttForslag } from '../_lib/klar'
+import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
 import { useKlar } from '../_lib/useKlar'
 import { useFonsterBredd } from '../_lib/useFonsterBredd'
@@ -38,9 +43,10 @@ import { Fel, Laddar } from './Tillstand'
 import { HK_CSS } from './Lista'
 import { PanelContext, type PanelPost } from './PanelVal'
 import SkotatSektion from './SkotatSektion'
-import BehoverDigSektion from './BehoverDigSektion'
+import GorDettaSektion from './GorDettaSektion'
 import KlarSektion from './KlarSektion'
-import { DinMaskinSektion, MaskinSektion, VeckoNotisSektion } from './MaskinSektion'
+import { AllaSakerSheet, FlyttSheet, MaskinTrakterSheet } from './GorSheets'
+import { DinMaskinSektion, MaskinerManadSheet, VeckoNotisSektion } from './MaskinSektion'
 import Manadssida, { helikopterHref } from './Manadssida'
 import HistorikInnehall from './HistorikInnehall'
 import MaskinerSheet from './MaskinerSheet'
@@ -73,7 +79,7 @@ const css = `
 }
 `
 
-type Ark = 'maskiner' | 'utan' | 'ej' | 'best' | 'skordat' | 'historik' | `bolag:${Typ}`
+type Ark = 'maskiner' | 'maskiner_manad' | 'utan' | 'ej' | 'best' | 'skordat' | 'historik' | 'alla' | 'flytt' | 'veckor' | 'bolagval' | `bolag:${Typ}` | `maskin:${string}`
 
 export default function HelikopterVy() {
   const sp = useSearchParams()
@@ -171,8 +177,9 @@ export default function HelikopterVy() {
   }, [maskinId, idag, version])
 
   const nyckel = `${ar}-${manad}`
+  const maskinerOppet = panel?.agare === 'sida' && panel.val === 'maskiner_manad'
   useEffect(() => {
-    if (maskinerManad?.nyckel === nyckel) return
+    if (!maskinerOppet || maskinerManad?.nyckel === nyckel) return
     let avbruten = false
     setMaskinerFel(null)
     hamtaMaskiner(ar, manad, idag).then(r => {
@@ -181,7 +188,19 @@ export default function HelikopterVy() {
       else setMaskinerManad({ nyckel, rader: r.data })
     })
     return () => { avbruten = true }
-  }, [ar, manad, idag, maskinerManad, nyckel, version])
+  }, [maskinerOppet, ar, manad, idag, maskinerManad, nyckel, version])
+
+  // Utfallet bakom G15-förslaget — en gång. null = inte läst eller kunde inte läsas: trakter utan prognos får då "?" som förut.
+  const [utfall, setUtfall] = useState<UtfallRad[] | null>(null)
+  useEffect(() => {
+    let avbruten = false
+    hamtaPrognosUtfall().then(r => {
+      if (avbruten) return
+      if (r.error != null) console.error('[helikopter] prognos_utfall', r.error)
+      else setUtfall(r.data)
+    })
+    return () => { avbruten = true }
+  }, [version])
 
   // Per bolag — först när arket öppnas, cachat per månad.
   const bolagOppet = panel?.agare === 'sida' && panel.val.startsWith('bolag:')
@@ -198,6 +217,10 @@ export default function HelikopterVy() {
   }, [bolagOppet, ar, manad, idag, bolag, nyckel, version])
 
   const klar = useKlar(ar, manad, idag, status !== 'avslutad')
+  // Underlaget med uppskattade prognoser, och planerna (klar-datum per maskin) räknade ur det — SAMMA räkning som flyttförslaget.
+  const klarData = useMemo(() => (klar.data ? medUppskattadPrognos(klar.data, utfall) : null), [klar.data, utfall])
+  const planer = useMemo(() => (klarData ? raknaAlla(klarData) : null), [klarData])
+  const flytt = useMemo<FlyttForslag | null>(() => (klarData && status !== 'avslutad' ? bastaFlytt(klarData) : null), [klarData, status])
 
   // ── Räkningen (allt som står på sidan) ──
   const dagar = useMemo(() => (manadsdata ? globalaArbetsdagar(manadsdata.arbetsdagar) : null), [manadsdata])
@@ -220,14 +243,14 @@ export default function HelikopterVy() {
     for (const t of TYPER) ut[t] = planeratPerTyp(manadsdata?.planering ?? [], t, spar.find(s => s.typ === t)?.bestallt ?? 0, fast?.avvikelse ?? [])
     return ut
   }, [manadsdata, spar, fast])
-  const behov = useMemo<BehovRad[]>(() => {
+  const gor = useMemo<GorRad[]>(() => {
     if (!fast || !manadsdata) return []
-    return behoverDig({
+    return gorDetta({
       status, maskinStopp: manadsdata.maskinStopp, manuella, maskiner: fast.maskiner, senasteLass, arbetsdagar: manadsdata.arbetsdagar,
-      rapportdagar: manadsdata.rapportdagar, idag, manadNamn, utanTyp: manadsdata.utanTyp, planering: manadsdata.planering, plan, klar: klar.data,
+      rapportdagar: manadsdata.rapportdagar, idag, manadNamn, utanTyp: manadsdata.utanTyp, planering: manadsdata.planering, plan, klar: klarData, planer,
     })
-  }, [fast, manadsdata, status, manuella, senasteLass, idag, manadNamn, plan, klar.data])
-  const klarVy = useMemo(() => (klar.data ? klarRader(klar.data, manadsdata?.maskinStopp ?? null) : null), [klar.data, manadsdata])
+  }, [fast, manadsdata, status, manuella, senasteLass, idag, manadNamn, plan, klarData, planer])
+  const klarVy = useMemo(() => (klarData && planer ? klarRader(klarData, planer, manadsdata?.maskinStopp ?? null) : null), [klarData, planer, manadsdata])
 
   const underrad = !dagar
     ? ''
@@ -247,11 +270,19 @@ export default function HelikopterVy() {
   // den här komponenten står utanför sin egen Provider.
   const ark: Ark | null = panel?.agare === 'sida' ? (panel.val as Ark) : null
   const setArk = useCallback((v: Ark | null) => setPanel(v == null ? null : { agare: 'sida', val: v }), [])
-  const oppnaBehov = (r: BehovRad) => {
+  const oppnaGor = (r: GorRad) => {
     if (r.oppnar === 'ladda_om') { window.location.reload(); return }
     setArk(r.oppnar)
   }
   const stang = () => setArk(null)
+  const valdMaskin: KlarRad | null = ark && ark.startsWith('maskin:') ? (klarVy?.find(r => r.maskin_id === ark.slice(7)) ?? null) : null
+  // Flytten skrivs till objektet (samma kolumn som planeringsverktyget) och klar-underlaget läses om; ett fel visas i arket.
+  const flytta = async (f: FlyttForslag): Promise<string | null> => {
+    const r = await tilldelaMaskin(f.objekt_id, f.roll, f.till.maskin_id)
+    if (r.error) return r.error
+    await klar.ladda()
+    return null
+  }
 
   // Månadspilarna är blå (navigerar). Mellan pilarna står alltid månaden man tittar på; Idag är en egen liten länk (KNAPP.tertiar)
   // som bara finns när vald månad inte är innevarande — samma mönster som ledighetens kalender.
@@ -299,20 +330,19 @@ export default function HelikopterVy() {
                 <>
                   <Svarsrad rubrik={svar.rubrik} avvikelse={svar.avvikelse} />
                   <div className="hk-rutnat">
-                    <SkotatSektion kort={kort} forklaring={status === 'pagaende'} />
-                    <BehoverDigSektion rader={behov} onOppna={oppnaBehov} />
+                    <SkotatSektion kort={kort} />
+                    <GorDettaSektion rader={gor} onOppna={oppnaGor} onAlla={() => setArk('alla')} />
                     {status !== 'avslutad' && (
-                      <KlarSektion rader={klarVy} fel={klar.fel} laddar={klar.laddar} sistaArbetsdag={klar.data?.sista_arbetsdag ?? null} onRetry={() => void klar.ladda()} />
+                      <KlarSektion rader={klarVy} fel={klar.fel} laddar={klar.laddar} sistaArbetsdag={klar.data?.sista_arbetsdag ?? null} onRetry={() => void klar.ladda()} onOppna={r => setArk(`maskin:${r.maskin_id}`)} />
                     )}
                     {dinMaskin && <DinMaskinSektion maskinNamn={maskinNamn(dinMaskin)} lage={maskinLage} fel={maskinLageFel} onRetry={() => setVersion(v => v + 1)} />}
-                    <MaskinSektion roll="skordare" maskiner={maskinerManad?.nyckel === nyckel ? maskinerManad.rader : null} fel={maskinerFel} onRetry={() => { setMaskinerManad(null); setVersion(v => v + 1) }} manadNamn={manadNamn} manuella={manuella} />
-                    <MaskinSektion roll="skotare" maskiner={maskinerManad?.nyckel === nyckel ? maskinerManad.rader : null} fel={maskinerFel} onRetry={() => { setMaskinerManad(null); setVersion(v => v + 1) }} manadNamn={manadNamn} manuella={manuella} />
                     <Sektion rubrik="Mer" kort={false}>
                       <RadGrupp marginBottom={0}>
                         <RadLank text="Skördat" onClick={() => setArk('skordat')} />
-                        <RadLank text="Maskiner och takt" onClick={() => setArk('maskiner')} />
-                        {spar.map(s => <RadLank key={`v${s.typ}`} text={`Veckor · ${TYP_NAMN[s.typ]}`} href={`/helikopter/veckor?typ=${s.typ}&ar=${ar}&manad=${manad}`} />)}
-                        {spar.map(s => <RadLank key={`b${s.typ}`} text={`Per bolag · ${TYP_NAMN[s.typ]}`} onClick={() => setArk(`bolag:${s.typ}`)} />)}
+                        <RadLank text="Maskiner" smakprov="m³fub i månaden" onClick={() => setArk('maskiner_manad')} />
+                        <RadLank text="Takt och stopp" onClick={() => setArk('maskiner')} />
+                        <RadLank text="Veckor" onClick={() => setArk('veckor')} />
+                        <RadLank text="Per bolag" onClick={() => setArk('bolagval')} />
                         {status === 'avslutad' && <RadLank text="Månadsfacit" smakprov="dela som A4" href={facitHref(ar, manad)} />}
                         {/* Från 1100 px står månaderna i sidokolumnen; under det nås de här. */}
                         {fonsterBredd < SIDOKOLUMN_FRAN_PX && <RadLank text="Tidigare månader" onClick={() => setArk('historik')} />}
@@ -322,6 +352,20 @@ export default function HelikopterVy() {
                   </div>
 
                   <SkordatSheet open={ark === 'skordat'} onClose={stang} spar={spar} status={status} />
+                  <MaskinerManadSheet open={ark === 'maskiner_manad'} onClose={stang} maskiner={maskinerManad?.nyckel === nyckel ? maskinerManad.rader : null} fel={maskinerFel} onRetry={() => { setMaskinerManad(null); setVersion(v => v + 1) }} manadNamn={manadNamn} manuella={manuella} />
+                  {/* Veckor och Per bolag: ett spår i taget — valet i ett litet ark så Mer inte blir en lång lista. */}
+                  {(ark === 'veckor' || ark === 'bolagval') && (
+                    <Sheet open onClose={stang} title={ark === 'veckor' ? 'Veckor' : 'Per bolag'}>
+                      <RadGrupp bakgrund={FARG.upphojt}>
+                        {spar.map(s => ark === 'veckor'
+                          ? <RadLank key={s.typ} text={TYP_NAMN[s.typ]} href={`/helikopter/veckor?typ=${s.typ}&ar=${ar}&manad=${manad}`} />
+                          : <RadLank key={s.typ} text={TYP_NAMN[s.typ]} onClick={() => setArk(`bolag:${s.typ}`)} />)}
+                      </RadGrupp>
+                    </Sheet>
+                  )}
+                  <AllaSakerSheet open={ark === 'alla'} onClose={stang} rader={gor} onOppna={oppnaGor} />
+                  <MaskinTrakterSheet open={valdMaskin != null} onClose={stang} rad={valdMaskin} />
+                  <FlyttSheet open={ark === 'flytt'} onClose={stang} forslag={flytt} planer={planer} onFlytta={flytta} />
                   <MaskinerSheet open={ark === 'maskiner'} onClose={stang} spar={spar} status={status} maskiner={kapacitetsMaskiner(fast.maskiner, idag)} idag={idag} stopp={manadsdata.maskinStopp} />
                   <UtanTypSheet open={ark === 'utan'} onClose={stang} rader={manadsdata.utanTyp ?? []} manadNamn={manadNamn} />
                   <EjTilldeladeSheet open={ark === 'ej'} onClose={stang} objekt={manadsdata.planering} ar={ar} manad={manad} />

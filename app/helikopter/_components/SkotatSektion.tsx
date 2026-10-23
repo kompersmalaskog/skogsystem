@@ -1,11 +1,10 @@
 'use client'
 
-// SKOTAT MOT BESTÄLLNING — ett block per spår, och EN siffra per spår: var skotat landar (sparKort i _lib/kort.ts).
-//   rad 1: spårets namn · prick + ord (Under / Landar / Över / Nått …)
+// SKOTAT — ett block per spår, EN siffra per spår (var skotat landar, sparKort i _lib/kort.ts).
+//   rad 1: spårets namn · prick + ordet ("Fattas 229" / "Hinner" / "Klar")
 //   rad 2: talet (TYP.tal) "av beställt"
-//   rad 3: grå stapel = skotat hittills, vitt streck = där ni borde vara idag
-//   rad 4: en rad under (skördat landar / prognos från dag 4)
-// Stapeln är alltid grå och talet alltid vitt: status står i ordet bredvid pricken (skillen).
+//   rad 3: stapeln — ljust = skotat hittills, mörkt = det som kommer till, vitt streck = där ni borde vara idag
+// Talet är alltid vitt och stapeln alltid grå: status står i ordet bredvid pricken (skillen).
 import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens'
 import Sektion from '@/components/design/Sektion'
 import { fmt } from '../_lib/format'
@@ -13,9 +12,11 @@ import type { SparKortVy } from '../_lib/kort'
 import { Matare, RAD_KOLUMN } from './Lista'
 import { StatusOrd } from './Status'
 
-export default function SkotatSektion({ kort, forklaring }: { kort: SparKortVy[]; forklaring: boolean }) {
+export default function SkotatSektion({ kort }: { kort: SparKortVy[] }) {
+  const harPrognos = kort.some(k => k.prognosAndel != null)
+  const not = harPrognos ? 'Ljust = skotat · mörkt = kommer till · strecket = idag' : kort.some(k => k.andel != null) ? 'Stapeln = skotat av beställt' : undefined
   return (
-    <Sektion className="hk-grupp" rubrik="Skotat mot beställning" not={forklaring ? 'Talet = var ni landar · stapeln = hur långt ni kommit · strecket = idag' : undefined}>
+    <Sektion className="hk-grupp" rubrik="Skotat" not={not}>
       {kort.map(k => (
         <div key={k.typ} className="hk-rad" style={{ ...RAD_KOLUMN, gap: AVSTAND.s, padding: `${AVSTAND.l}px 0` }} data-spar={k.typ}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m }}>
@@ -23,11 +24,10 @@ export default function SkotatSektion({ kort, forklaring }: { kort: SparKortVy[]
             <StatusOrd ton={k.ton} ord={k.ord} />
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s }}>
-            <span style={{ ...TYP.tal, color: k.ton === 'dampad' && k.av == null ? FARG.text2 : FARG.text }} data-tal={k.typ}>{fmt(k.tal)}</span>
+            <span style={{ ...TYP.tal, color: k.av == null ? FARG.text2 : FARG.text }} data-tal={k.typ}>{fmt(k.tal)}</span>
             {k.av != null && <span style={{ ...TYP.text, ...TNUM, color: FARG.text2 }}>av {fmt(k.av)}</span>}
           </div>
-          {k.andel != null && <Matare andel={k.andel} planAndel={k.planAndel} />}
-          {k.under && <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>{k.under}</div>}
+          {k.andel != null && <Matare andel={k.andel} planAndel={k.planAndel} prognosAndel={k.prognosAndel} />}
         </div>
       ))}
     </Sektion>

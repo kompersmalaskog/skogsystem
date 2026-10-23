@@ -10,21 +10,32 @@ import { RadLank } from '@/components/ui/RadGrupp'
 import { dagarText, fmt, kortNamn } from '../_lib/format'
 import { skickaVeckoNotis, type MaskinLage, type MaskinManad } from '../_lib/queries'
 import { Matare } from './Lista'
+import { Sheet } from '@/components/Sheet'
 
-export function MaskinSektion({ maskiner, fel, onRetry, manadNamn, manuella, roll }: {
-  maskiner: MaskinManad[] | null; fel: string | null; onRetry: () => void; manadNamn: string; manuella: Set<string>; roll: 'skordare' | 'skotare'
+/** Arket "Maskiner" (ur Mer): månadens m³fub per maskin, skördare och skotare. */
+export function MaskinerManadSheet({ open, onClose, ...p }: { open: boolean; onClose: () => void; maskiner: MaskinManad[] | null; fel: string | null; onRetry: () => void; manadNamn: string; manuella: Set<string> }) {
+  return (
+    <Sheet open={open} onClose={onClose} title="Maskiner">
+      <MaskinSektion {...p} roll="skordare" kort={false} />
+      <MaskinSektion {...p} roll="skotare" kort={false} />
+    </Sheet>
+  )
+}
+
+export function MaskinSektion({ maskiner, fel, onRetry, manadNamn, manuella, roll, kort = true }: {
+  maskiner: MaskinManad[] | null; fel: string | null; onRetry: () => void; manadNamn: string; manuella: Set<string>; roll: 'skordare' | 'skotare'; kort?: boolean
 }) {
   const rubrik = roll === 'skordare' ? 'Skördare' : 'Skotare'
   if (fel) {
     return (
-      <Sektion rubrik={rubrik}>
+      <Sektion rubrik={rubrik} kort={kort}>
         <RadLank orange text="Kunde inte läsa maskinerna" smakprov="försök igen" onClick={onRetry} sista />
       </Sektion>
     )
   }
   const rader = (maskiner ?? []).filter(m => m.roll === roll)
   return (
-    <Sektion rubrik={rubrik}>
+    <Sektion rubrik={rubrik} kort={kort}>
       {maskiner == null ? (
         <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Laddar maskiner…</div>
       ) : rader.length === 0 ? (

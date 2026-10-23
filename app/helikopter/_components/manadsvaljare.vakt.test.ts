@@ -38,4 +38,10 @@ describe('månadsväljaren i HelikopterVy', () => {
     expect(skotat).not.toMatch(/Matare[^/]*farg=/)
     expect(skotat).not.toMatch(/TYP\.tal[^}]*FARG\.(orange|gron)/)
   })
+
+  it('sidan ritar inga traktlistor och inga maskinkort: trakterna ligger bakom trycket, maskinernas m³ bakom Mer', () => {
+    expect(kalla).not.toContain('<MaskinSektion')
+    const klar = readFileSync(join(__dirname, 'KlarSektion.tsx'), 'utf8')
+    expect(klar).not.toContain('trakter.map')
+  })
 })
