@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 // Datahälsas hook drar in supabase; här behövs bara tröskeln.
 vi.mock("@/app/datahalsa/useDatahalsa", () => ({ LEV_GUL_DYGN: 10 }));
 
-import { byggAttGora, avtalKraverDig, type AttGoraIndata } from "./attGora";
+import { byggAttGora, avtalKraverDig, antalKraver, raknaLonLage, lonUndertext, arFlyttdagUtanForare, type AttGoraIndata } from "./attGora";
 import type { ArbetstidForare, Gransstatus, Niva } from "@/lib/arbetstidsgranser";
 
 const ok = <T,>(data: T) => ({ data, fel: null as string | null });
@@ -11,8 +13,7 @@ const lugnt = (): AttGoraIndata => ({
   kontroller: ok({ okandaOperatorer: [], forareUtanMaskin: [], saknarHempunkt: [], obekraftadHempunkt: [] } as any),
   personer: ok([{ id: "m1", namn: "Anna Berg", user_id: "u1" }]),
   maskiner: ok([{ maskin_id: "R1", visningsnamn: "H8E", modell: null, bekraftad: true, aktiv_till: null }]),
-  obekraftade: ok([]),
-  lon: ok({ arbetsManad: "2026-09", antalMedDagar: 2, antalSkickade: 2 }),
+  lon: ok({ arbetsManad: "2026-09", antalKlara: 0, antalVantar: 0, antalSkickade: 2 }),
   vilobrott: ok([]),
   avtal: ok({ giltigt_till: "2027-03-31" }),
   arbetstid: ok({ forare: [], varningar: [] }),
@@ -26,45 +27,45 @@ describe("avtalKraverDig: inom en månad eller redan utgånget", () => {
 });
 
 describe("byggAttGora", () => {
-  it("allt stämmer: inga saker, åtta rader som stämmer", () => {
+  it("allt som är gjort: inga rader alls — och inget som 'stämmer' (listan är bara det som ska göras)", () => {
     const r = byggAttGora(lugnt(), "2026-10-07");
     expect(r.saker).toEqual([]);
-    expect(r.stammer.map(s => s.id).sort()).toEqual(["arbetstid", "avtal", "dagar", "lon", "maskinfiler", "operatorer", "personer", "vila"]);
+    expect(r).not.toHaveProperty("stammer");
   });
 
-  it("en källa som fallerar är en sak, inte en nolla — och den stämmer inte", () => {
+  it("en källa som fallerar är en sak, inte en nolla", () => {
     const i = lugnt(); i.vilobrott = { data: null, fel: "timeout" };
     const r = byggAttGora(i, "2026-10-07");
     expect(r.saker).toHaveLength(1);
     expect(r.saker[0]).toMatchObject({ rubrik: "Kunde inte kontrollera vilobrott", detalj: "timeout", mal: { typ: "forsok" } });
-    expect(r.stammer.find(s => s.id === "vila")).toBeUndefined();
   });
 
-  it("dagar som väntar: en rad, grupperad per person, länk med rätt månad (föregående = offset -1) och bara avvikelser", () => {
-    const i = lugnt();
-    i.obekraftade = ok([{ medarbetare_id: "m1", datum: "2026-09-04" }, { medarbetare_id: "m1", datum: "2026-09-03" }]);
+  it("lönen som inte går att läsa är en sak med Försök igen — aldrig 'ingen lönerad'", () => {
+    const i = lugnt(); i.lon = { data: null, fel: "permission denied" };
     const r = byggAttGora(i, "2026-10-07");
-    const s = r.saker.find(x => x.id === "dagar")!;
-    expect(s.rubrik).toBe("2 dagar väntar på bekräftelse");
-    expect(s.detalj).toBe("Anna Berg: 3 sep, 4 sep");
-    expect(s.mal).toEqual({ typ: "flik", flik: "lon", underflik: "dagar", params: { dagper: "M", dagoff: "-1", avv: "1" } });
+    expect(r.saker).toHaveLength(1);
+    expect(r.saker[0]).toMatchObject({ id: "fel-lon", rubrik: "Kunde inte kontrollera lönen", detalj: "permission denied", knapp: "Försök igen", mal: { typ: "forsok" } });
   });
 
-  it("dagar bara i innevarande månad → offset 0", () => {
-    const i = lugnt(); i.obekraftade = ok([{ medarbetare_id: "m1", datum: "2026-10-05" }]);
-    const s = byggAttGora(i, "2026-10-07").saker.find(x => x.id === "dagar")!;
-    expect(s.rubrik).toBe("1 dag väntar på bekräftelse");
-    expect((s.mal as any).params.dagoff).toBe("0");
+  it("dagar som väntar på bekräftelse är inte längre en rad i Översikten", () => {
+    const i = lugnt() as any; i.obekraftade = ok([{ medarbetare_id: "m1", datum: "2026-09-04" }]);
+    expect(byggAttGora(i, "2026-10-07").saker.some(x => x.id === "dagar")).toBe(false);
   });
 
-  it("lönen: ej skickad → sak; delvis skickad → antalet står; ingen förare med dagar → ingen rad alls", () => {
-    const i = lugnt(); i.lon = ok({ arbetsManad: "2026-09", antalMedDagar: 3, antalSkickade: 1 });
-    const s = byggAttGora(i, "2026-10-07").saker.find(x => x.id === "lon")!;
-    expect(s).toMatchObject({ rubrik: "Lönen för september är klar att granska", detalj: "1 av 3 förare är skickade till Fortnox" });
-    const tom = lugnt(); tom.lon = ok({ arbetsManad: "2026-09", antalMedDagar: 0, antalSkickade: 0 });
-    const r = byggAttGora(tom, "2026-10-07");
-    expect(r.saker).toEqual([]);
-    expect(r.stammer.find(x => x.id === "lon")).toBeUndefined();
+  describe("lönen: EN rad, 'N klara · M väntar på föraren'", () => {
+    const med = (l: Partial<AttGoraIndata["lon"]["data"] & object>) => { const i = lugnt(); i.lon = ok({ arbetsManad: "2026-09", antalKlara: 0, antalVantar: 0, antalSkickade: 0, ...l }); return byggAttGora(i, "2026-10-07").saker.filter(x => x.id === "lon"); };
+    it("klara och väntande: rubrik med månaden, undertexten med båda talen, leder till Löneunderlag", () => {
+      const [s] = med({ antalKlara: 3, antalVantar: 2 });
+      expect(s).toMatchObject({ rubrik: "Lönen för september", detalj: "3 klara · 2 väntar på föraren", mal: { typ: "flik", flik: "lon", underflik: "underlag" } });
+    });
+    it("bara väntande: ingen '0 klara'", () => { expect(med({ antalVantar: 2 })[0].detalj).toBe("2 väntar på föraren"); });
+    it("bara klara: ingen '0 väntar'", () => { expect(med({ antalKlara: 1 })[0].detalj).toBe("1 klar"); });
+    it("allt skickat → ingen rad (inte heller 'skickad till Fortnox')", () => { expect(med({ antalSkickade: 4 })).toEqual([]); });
+    it("ingen förare med dagar → ingen rad", () => { expect(med({})).toEqual([]); });
+    it("lonUndertext: delar som är noll skrivs inte", () => {
+      expect(lonUndertext({ antalKlara: 0, antalVantar: 0 })).toBe("");
+      expect(lonUndertext({ antalKlara: 5, antalVantar: 1 })).toBe("5 klara · 1 väntar på föraren");
+    });
   });
 
   it("personer: maskin, hempunkt och inloggning samlas på EN rad per person", () => {
@@ -78,17 +79,29 @@ describe("byggAttGora", () => {
     expect(rader[0].mal).toEqual({ typ: "flik", flik: "medarbetare", params: { person: "m2" } });
   });
 
-  it("vilobrott: bara obesvarade, en rad per person", () => {
-    const i = lugnt();
-    const b = (typ: string, datum: string, svar: string | null) => ({ medarbetare_id: "m1", namn: "Anna Berg", typ, datum, vila_h: 8.5, krav_h: 11, svar, vecka: 40, år: 2026, beskrivning: "" }) as any;
-    i.vilobrott = ok([b("dygnsvila", "2026-09-29", null), b("veckovila", "2026-09-29", "Akut situation"), b("dygnsvila", "2026-09-20", null)]);
-    const r = byggAttGora(i, "2026-10-07");
-    const rader = r.saker.filter(s => s.id.startsWith("vila-"));
-    expect(rader).toHaveLength(1);
-    expect(rader[0].rubrik).toBe("Anna Berg: 2 obesvarade vilobrott");
-    expect(rader[0].detalj).toBe("20 sep dygnsvila 8,5 h · 29 sep dygnsvila 8,5 h");
-    // raden öppnar personens vilobrott (ett ark med dagarna), inte hela vilobrottslistan
-    expect(rader[0].mal).toEqual({ typ: "vilobrott", medarbetare_id: "m1" });
+  describe("vilobrott: EN rad — vem och vilka dagar ligger bakom trycket", () => {
+    const b = (medarbetare_id: string, namn: string, typ: string, datum: string, svar: string | null) => ({ medarbetare_id, namn, typ, datum, vila_h: 8.5, krav_h: 11, svar, vecka: 40, år: 2026, beskrivning: "" }) as any;
+    it("flera brott hos flera personer: en rad 'Vilobrott', antalet som undertext, ingen namn- eller datumlista", () => {
+      const i = lugnt();
+      i.vilobrott = ok([b("m1", "Anna Berg", "dygnsvila", "2026-09-29", null), b("m1", "Anna Berg", "veckovila", "2026-09-29", "Akut situation"), b("m1", "Anna Berg", "dygnsvila", "2026-09-20", null), b("m2", "Erik Lind", "dygnsvila", "2026-09-22", null)]);
+      const rader = byggAttGora(i, "2026-10-07").saker.filter(s => s.id.startsWith("vila"));
+      expect(rader).toHaveLength(1);
+      expect(rader[0]).toMatchObject({ id: "vila", rubrik: "Vilobrott", detalj: "3 obesvarade" });
+      expect(`${rader[0].rubrik} ${rader[0].detalj}`).not.toMatch(/Anna|Erik|sep|dygnsvila|\d+ h/);
+      // flera personer → listan över vem
+      expect(rader[0].mal).toEqual({ typ: "vilobrott" });
+    });
+    it("bara en person: raden går rakt till hennes dagar", () => {
+      const i = lugnt();
+      i.vilobrott = ok([b("m1", "Anna Berg", "dygnsvila", "2026-09-29", null)]);
+      const s = byggAttGora(i, "2026-10-07").saker.find(x => x.id === "vila")!;
+      expect(s.detalj).toBe("1 obesvarat");
+      expect(s.mal).toEqual({ typ: "vilobrott", medarbetare_id: "m1" });
+    });
+    it("alla besvarade → ingen rad", () => {
+      const i = lugnt(); i.vilobrott = ok([b("m1", "Anna Berg", "dygnsvila", "2026-09-29", "Akut")]);
+      expect(byggAttGora(i, "2026-10-07").saker.some(x => x.id === "vila")).toBe(false);
+    });
   });
 
   it("maskiner: ny (obekräftad, ej ur drift) → sak med länk till maskinen; avtal utgånget → sak", () => {
@@ -99,6 +112,36 @@ describe("byggAttGora", () => {
     expect(r.saker.map(s => s.id).sort()).toEqual(["avtal", "maskin-R9"]);
     expect(r.saker.find(s => s.id === "maskin-R9")!.mal).toEqual({ typ: "flik", flik: "maskiner", params: { maskin: "R9" } });
     expect(r.saker.find(s => s.id === "avtal")!.rubrik).toBe("Avtalet har gått ut");
+  });
+
+  it("ordningen: lön, vilobrott och arbetstid överst — sedan resten", () => {
+    const i = lugnt();
+    i.maskiner = ok([{ maskin_id: "R9", visningsnamn: null, modell: "H8E", bekraftad: false, aktiv_till: null }]);
+    i.avtal = ok({ giltigt_till: "2026-09-30" });
+    i.lon = ok({ arbetsManad: "2026-09", antalKlara: 1, antalVantar: 1, antalSkickade: 0 });
+    i.vilobrott = ok([{ medarbetare_id: "m1", namn: "Anna", typ: "dygnsvila", datum: "2026-09-29", vila_h: 8.5, krav_h: 11, svar: null, vecka: 40, år: 2026, beskrivning: "" } as any]);
+    i.arbetstid = ok({ forare: [{ medarbetare_id: "s", namn: "S", varsta: "gul", foretagsledare: false, granser: [], notiser: [], restidSaknas: false } as any], varningar: [] });
+    expect(byggAttGora(i, "2026-10-07").saker.map(s => s.id)).toEqual(["lon", "vila", "arbetstid", "maskin-R9", "avtal"]);
+  });
+});
+
+describe("raknaLonLage: klara = förarens godkännande, väntar = inget godkännande, skickade vinner", () => {
+  const bas = { arbetsManad: "2026-09", medDagar: ["a", "b", "c", "d", "d"], foretagsledare: [] as string[], underlag: [] as { medarbetare_id: string; status: string | null }[], skickade: [] as string[] };
+  it("godkänd → klar; inget godkännande, NULL status eller okänd status → väntar", () => {
+    const l = raknaLonLage({ ...bas, underlag: [{ medarbetare_id: "a", status: "godkand_av_forare" }, { medarbetare_id: "b", status: "inskickat" }, { medarbetare_id: "c", status: null }] });
+    expect(l).toEqual({ arbetsManad: "2026-09", antalKlara: 2, antalVantar: 2, antalSkickade: 0 });   // d: ingen rad alls
+  });
+  it("skickad räknas som skickad även om godkännandet finns kvar, och aldrig som klar", () => {
+    const l = raknaLonLage({ ...bas, underlag: [{ medarbetare_id: "a", status: "godkand_av_forare" }], skickade: ["a"] });
+    expect(l).toMatchObject({ antalKlara: 0, antalVantar: 3, antalSkickade: 1 });
+  });
+  it("en förare räknas en gång även med flera dagar; en skickad som inte har dagar räknas inte", () => {
+    const l = raknaLonLage({ ...bas, medDagar: ["a", "a", "a"], skickade: ["zz"] });
+    expect(l).toMatchObject({ antalKlara: 0, antalVantar: 1, antalSkickade: 0 });
+  });
+  it("företagsledare räknas varken som klar, väntande eller skickad", () => {
+    const l = raknaLonLage({ ...bas, foretagsledare: ["a", "b"], underlag: [{ medarbetare_id: "a", status: "godkand_av_forare" }], skickade: ["b"] });
+    expect(l).toMatchObject({ antalKlara: 0, antalVantar: 2, antalSkickade: 0 });
   });
 });
 
@@ -118,49 +161,119 @@ describe("byggAttGora: hempunkt som ingen bekräftat", () => {
   });
 });
 
-describe("byggAttGora: arbetstid — lagens sex gränser (lib/arbetstidsgranser)", () => {
+describe("byggAttGora: arbetstid — EN rad, lagens sex gränser (lib/arbetstidsgranser) ligger i arket", () => {
   const gr = (id: Gransstatus["id"], niva: Niva): Gransstatus => ({ id, namn: id, niva, varde: 1, grans: 2, enhet: "tim", andel: 0.5, mening: "x", varfor: "§" });
   const forare = (namn: string, varsta: Niva, delagare = false): ArbetstidForare => ({ medarbetare_id: namn, namn, varsta: delagare ? "lugn" : varsta, foretagsledare: delagare, ...(delagare ? { skulleVarit: varsta } : {}), granser: [gr("allman_overtid_ar", varsta)], notiser: [], restidSaknas: false });
+  const rad = (i: AttGoraIndata) => byggAttGora(i, "2026-10-13").saker.filter(x => x.id === "arbetstid");
 
-  it("ingen närmar sig: en 'stämmer'-rad, inga saker, ingen förare i listan", () => {
+  it("ingen närmar sig: ingen rad, ingen förare i listan", () => {
     const i = lugnt(); i.arbetstid = ok({ forare: [forare("Anna", "lugn")], varningar: [] });
-    const r = byggAttGora(i, "2026-10-13");
-    expect(r.saker).toEqual([]);
-    expect(r.arbetstid).toEqual([]);
-    expect(r.stammer.find(x => x.id === "arbetstid")).toMatchObject({ rubrik: "Ingen nära eller över en gräns för arbetstid" });
+    expect(rad(i)).toEqual([]);
+    expect(byggAttGora(i, "2026-10-13").arbetstid).toEqual([]);
   });
 
-  it("bara gula: 'nära gränsen' visas ENSAM (varna före gränsen) — ingen röd behövs, och ingen 'stämmer'-rad", () => {
-    const i = lugnt(); i.arbetstid = ok({ forare: [forare("Gul", "gul"), forare("Lugn", "lugn")], varningar: [] });
-    const r = byggAttGora(i, "2026-10-13");
-    expect(r.arbetstid.map(f => f.namn)).toEqual(["Gul"]);
-    expect(r.stammer.find(x => x.id === "arbetstid")).toBeUndefined();
+  it("bara gula: 'N förare nära arbetstidsgränsen' — varna FÖRE gränsen — utan undertext, öppnar arket", () => {
+    const i = lugnt(); i.arbetstid = ok({ forare: [forare("Gul", "gul"), forare("Gul2", "gul"), forare("Lugn", "lugn")], varningar: [] });
+    expect(rad(i)).toEqual([{ id: "arbetstid", rubrik: "2 förare nära arbetstidsgränsen", detalj: undefined, knapp: "Öppna", mal: { typ: "arbetstid" }, raknas: false }]);
+    expect(byggAttGora(i, "2026-10-13").arbetstid.map(f => f.namn)).toEqual(["Gul", "Gul2"]);
   });
 
-  it("gula och röda förare kommer med, röda först — och då finns ingen 'stämmer'-rad", () => {
+  it("en förare: '1 förare nära …' (ingen annan böjning)", () => {
+    const i = lugnt(); i.arbetstid = ok({ forare: [forare("Gul", "gul")], varningar: [] });
+    expect(rad(i)[0].rubrik).toBe("1 förare nära arbetstidsgränsen");
+  });
+
+  it("röda: räknas i samma tal, och undertexten säger hur många som är över (ordet bär meningen, inte färgen)", () => {
     const i = lugnt(); i.arbetstid = ok({ forare: [forare("Gul", "gul"), forare("Lugn", "lugn"), forare("Röd", "rod")], varningar: [] });
     const r = byggAttGora(i, "2026-10-13");
-    expect(r.arbetstid.map(f => f.namn)).toEqual(["Röd", "Gul"]);
-    expect(r.stammer.find(x => x.id === "arbetstid")).toBeUndefined();
+    expect(r.arbetstid.map(f => f.namn)).toEqual(["Röd", "Gul"]);   // röda först i arket
+    expect(rad(i)[0]).toMatchObject({ rubrik: "2 förare nära arbetstidsgränsen", detalj: "1 över gränsen" });
   });
 
-  it("bara delägare är gula/röda: de visas inte alls (arbetstidslagen gäller inte) och 'Ingen över en gräns' står under Stämmer", () => {
+  it("delägare räknas aldrig: bara delägare gula/röda → ingen rad; bredvid en vanlig röd räknas bara den", () => {
     const i = lugnt(); i.arbetstid = ok({ forare: [forare("Martin", "rod", true), forare("Joacim", "gul", true), forare("Anna", "lugn")], varningar: [] });
-    const r = byggAttGora(i, "2026-10-13");
-    expect(r.arbetstid).toEqual([]);
-    expect(r.stammer.find(x => x.id === "arbetstid")).toMatchObject({ rubrik: "Ingen nära eller över en gräns för arbetstid" });
+    expect(rad(i)).toEqual([]);
+    expect(byggAttGora(i, "2026-10-13").arbetstid).toEqual([]);
+    i.arbetstid = ok({ forare: [forare("Martin", "rod", true), forare("Stefan", "rod")], varningar: [] });
+    expect(rad(i)[0]).toMatchObject({ rubrik: "1 förare nära arbetstidsgränsen", detalj: "1 över gränsen" });
   });
 
-  it("delägare bredvid en vanlig röd förare: bara den röda visas, och ingen 'stämmer'-rad", () => {
-    const i = lugnt(); i.arbetstid = ok({ forare: [forare("Martin", "rod", true), forare("Stefan", "rod")], varningar: [] });
-    const r = byggAttGora(i, "2026-10-13");
-    expect(r.arbetstid.map(f => f.namn)).toEqual(["Stefan"]);
-    expect(r.stammer.find(x => x.id === "arbetstid")).toBeUndefined();
+  describe("vad som räknas i siffran (menyn och rubriken): gul syns men räknas inte, röd räknas", () => {
+    it("bara gula: raden finns men raknas === false och antalet som kräver åtgärd är 0", () => {
+      const i = lugnt(); i.arbetstid = ok({ forare: [forare("Gul", "gul"), forare("Gul2", "gul")], varningar: [] });
+      const r = byggAttGora(i, "2026-10-13");
+      expect(r.saker).toHaveLength(1);
+      expect(r.saker[0].raknas).toBe(false);
+      expect(antalKraver(r.saker)).toBe(0);
+    });
+    it("en röd bland gula: raden räknas som EN (inte som antalet förare)", () => {
+      const i = lugnt(); i.arbetstid = ok({ forare: [forare("Gul", "gul"), forare("Röd", "rod"), forare("Röd2", "rod")], varningar: [] });
+      const r = byggAttGora(i, "2026-10-13");
+      expect(rad(i)[0].raknas).toBeUndefined();
+      expect(antalKraver(r.saker)).toBe(1);
+    });
+    it("exakt EN röd förare räknas (gränsen går vid över = 1, inte 2)", () => {
+      const i = lugnt(); i.arbetstid = ok({ forare: [forare("Röd", "rod")], varningar: [] });
+      expect(antalKraver(byggAttGora(i, "2026-10-13").saker)).toBe(1);
+    });
+    it("gul + något annat som kräver åtgärd: bara det andra räknas", () => {
+      const i = lugnt();
+      i.arbetstid = ok({ forare: [forare("Gul", "gul")], varningar: [] });
+      i.avtal = ok({ giltigt_till: "2026-09-30" });
+      const r = byggAttGora(i, "2026-10-13");
+      expect(r.saker.map(s => s.id)).toEqual(["arbetstid", "avtal"]);
+      expect(antalKraver(r.saker)).toBe(1);
+    });
+    it("ett läsfel i arbetstiden räknas (det är inte 'nära', det är okänt)", () => {
+      const i = lugnt(); i.arbetstid = ok({ forare: [], varningar: ["Kunde inte läsa frånvaron (x) — räknas utan den."] });
+      expect(antalKraver(byggAttGora(i, "2026-10-13").saker)).toBe(1);
+      i.arbetstid = { data: null, fel: "HTTP 500" };
+      expect(antalKraver(byggAttGora(i, "2026-10-13").saker)).toBe(1);
+    });
+    it("alla andra rader räknas (lön, vilobrott, personer …)", () => {
+      const i = lugnt();
+      i.lon = ok({ arbetsManad: "2026-09", antalKlara: 1, antalVantar: 1, antalSkickade: 0 });
+      i.vilobrott = ok([{ medarbetare_id: "m1", namn: "Anna", typ: "dygnsvila", datum: "2026-09-29", vila_h: 8.5, krav_h: 11, svar: null, vecka: 40, år: 2026, beskrivning: "" } as any]);
+      const r = byggAttGora(i, "2026-10-13");
+      expect(r.saker.every(s => s.raknas === undefined)).toBe(true);
+      expect(antalKraver(r.saker)).toBe(2);
+    });
   });
 
-  it("läsvarningar (frånvaro, avtal, utjämning) följer med så att kortet kan visa dem", () => {
-    const i = lugnt(); i.arbetstid = ok({ forare: [], varningar: ["Kunde inte läsa frånvaron (x)"] });
-    expect(byggAttGora(i, "2026-10-13").arbetstidVarningar).toEqual(["Kunde inte läsa frånvaron (x)"]);
+  it("ingen rad namnger en förare eller en gräns", () => {
+    const i = lugnt(); i.arbetstid = ok({ forare: [forare("Stefan", "rod")], varningar: [] });
+    expect(JSON.stringify(rad(i))).not.toMatch(/Stefan|allman_overtid/);
+  });
+
+  describe("varningar", () => {
+    const FLYTT = "2 flyttdagar kunde inte kopplas till en förare (saknar medarbetare och namnet matchar ingen) och ingår inte.";
+    const LAS = "Kunde inte läsa frånvaron (x) — övertid och 48-timmarssnittet räknas utan den och kan vara för låga.";
+    it("flyttdagar som inte kunde kopplas ger ALDRIG en rad i Översikten (men följer med till arket)", () => {
+      const i = lugnt(); i.arbetstid = ok({ forare: [], varningar: [FLYTT] });
+      expect(rad(i)).toEqual([]);
+      expect(byggAttGora(i, "2026-10-13").arbetstidVarningar).toEqual([FLYTT]);
+    });
+    it("…och inte heller när någon är nära gränsen: raden är densamma, flyttvarningen ändrar ingenting på den", () => {
+      const i = lugnt(); i.arbetstid = ok({ forare: [forare("Gul", "gul")], varningar: [FLYTT] });
+      expect(rad(i)[0]).toMatchObject({ rubrik: "1 förare nära arbetstidsgränsen", detalj: undefined });
+    });
+    it("ett läsfel som gör talen för låga är inte 'ingen närmar sig': raden finns, och arket visar varningen", () => {
+      const i = lugnt(); i.arbetstid = ok({ forare: [], varningar: [LAS] });
+      expect(rad(i)).toEqual([{ id: "arbetstid", rubrik: "Arbetstiden kunde inte kontrolleras helt", knapp: "Öppna", mal: { typ: "arbetstid" } }]);
+      expect(byggAttGora(i, "2026-10-13").arbetstidVarningar).toEqual([LAS]);
+    });
+    it("arFlyttdagUtanForare känner igen servrarnas text (1 och flera) men ingen läsvarning", () => {
+      expect(arFlyttdagUtanForare("1 flyttdag kunde inte kopplas till en förare (saknar medarbetare och namnet matchar ingen) och ingår inte.")).toBe(true);
+      expect(arFlyttdagUtanForare(FLYTT)).toBe(true);
+      expect(arFlyttdagUtanForare(LAS)).toBe(false);
+      expect(arFlyttdagUtanForare("Kunde inte läsa maskinflytten (flyttdag: x) — flyttdagarna ingår inte, och arbetstid och vila kan vara för låga.")).toBe(false);
+    });
+    it("texten finns kvar i servern: ändras formuleringen där måste regexen följa med", () => {
+      const k = readFileSync(join(__dirname, "../../app/api/lon/arbetstid/route.ts"), "utf8");
+      const m = k.match(/varningar\.push\(`\$\{oplacerade\}[^`]*`\)/);
+      expect(m, "route.ts: raden med oplacerade flyttdagar").not.toBeNull();
+      expect(arFlyttdagUtanForare(m![0].replace(/\$\{oplacerade\} \$\{oplacerade === 1 \? "flyttdag kunde" : "flyttdagar kunde"\}/, "2 flyttdagar kunde"))).toBe(true);
+    });
   });
 
   it("en källa som inte gick att läsa är en sak, inte 'ingen närmar sig'", () => {
@@ -168,7 +281,6 @@ describe("byggAttGora: arbetstid — lagens sex gränser (lib/arbetstidsgranser)
     const r = byggAttGora(i, "2026-10-13");
     expect(r.saker).toHaveLength(1);
     expect(r.saker[0]).toMatchObject({ rubrik: "Kunde inte kontrollera arbetstiden", detalj: "HTTP 500", mal: { typ: "forsok" } });
-    expect(r.stammer.find(x => x.id === "arbetstid")).toBeUndefined();
   });
 
   it("den gamla raden 'har X tim övertid i år, taket är 250' (vid 200 tim) finns inte längre — det nya kortet är enda källan", () => {

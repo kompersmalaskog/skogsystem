@@ -23,15 +23,12 @@ export type ArsovertidSvar = {
   ar?: number
   tak?: number
   tomDatum?: string
-  medarbetare?: { medarbetare_id: string; namn: string | null; timmar: number; modeller: Record<string, number>; perioder?: any[]; basavdrag?: { franvaroTimmar: number; rodaTimmar: number }; per_manad?: PerManad }[]
+  medarbetare?: { medarbetare_id: string; namn: string | null; foretagsledare?: boolean; timmar: number; modeller: Record<string, number>; perioder?: any[]; basavdrag?: { franvaroTimmar: number; rodaTimmar: number }; per_manad?: PerManad }[]
   utjamning?: { startdatum: string; slutdatum: string; medarbetare_id?: string | null; anteckning?: string | null }[]
   utjamning_fel?: string | null
   /** Frånvaron kunde inte läsas: basen drogs inte för frånvaro, så talen räknades utan den och är för LÅGA. */
   franvaro_fel?: string | null
 }
-
-/** Kortet visar bara förare som kommit halvvägs till taket. Sju rader "0 av 250 tim" svarade inte på frågan "vem närmar sig taket?". */
-export const VISA_FRAN_ANDEL = 0.5
 
 export type Niva = "noll" | "lugn" | "varning" | "over"
 
@@ -62,7 +59,9 @@ export function timmarText(timmar: number): string {
 export function arsovertidRader(svar: ArsovertidSvar | null | undefined): ArsovertidRad[] {
   if (!svar || !svar.ok) return []
   const tak = Number(svar.tak || STANDARD_TAK_H)
+  // Alla förare får en rad (Martin 2026-10-21) — utom företagsledare: ATL gäller inte företagsledande ställning, så ett tak för dem vore fel.
   return (svar.medarbetare || [])
+    .filter(m => m.foretagsledare !== true)
     .map(m => {
       const timmar = Number(m.modeller?.manad || 0)
       return {
@@ -72,11 +71,6 @@ export function arsovertidRader(svar: ArsovertidSvar | null | undefined): Arsove
       }
     })
     .sort((a, b) => b.timmar - a.timmar || a.namn.localeCompare(b.namn, "sv"))
-}
-
-/** De rader som ska synas: halvvägs till taket eller mer. */
-export function narmarTaket(rader: ArsovertidRad[]): ArsovertidRad[] {
-  return rader.filter(r => r.andel >= VISA_FRAN_ANDEL)
 }
 
 /** Överlappar en markerad period arbetsmånaden (YYYY-MM)? En utjämning i april–juli säger ingenting om december. */

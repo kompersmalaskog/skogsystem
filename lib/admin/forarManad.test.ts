@@ -150,3 +150,17 @@ describe("Förare · Månad — Stefan september 2026", () => {
     expect(tidMedDecimal(0)).toBe("0 min (0,00)");
   });
 });
+
+describe("minutskillnad mot maskinen visas bara från 15 min (Martin 2026-10-21)", () => {
+  const dagen = async (diff_min: number) => {
+    const { m } = await stefan();
+    const vy = byggForarManad({ ...m, synk: [{ medarbetare_id: m.medarbetare_id, datum: "2026-09-02", diff_min, bekraftat: "05:54", maskinen: "06:04" }] }, { rodaDagar: getRödaDagar(2026), maskinNamn: { [MASKIN]: "Giant" } });
+    return vy.dagar.find(x => x.datum === "2026-09-02")!;
+  };
+  it("14 min syns inte på dagen, 15 gör det", async () => {
+    expect((await dagen(14)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(false);
+    expect((await dagen(-14)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(false);
+    expect((await dagen(15)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(true);
+    expect((await dagen(-20)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(true);
+  });
+});

@@ -25,11 +25,14 @@ import {
   hamtaGallring,
   hamtaPerHa,
   klassLabel,
+  sparaYtaSvar,
+  type PerHaLast,
   type GallringDetalj,
 } from '@/lib/gallring';
 import { dagarText, dagMan, procentSomSummerar, sortimentGrupper, traktSpann, veckodagDag } from '@/lib/gallringVy';
 import { tradslagStil } from '@/lib/tradslag';
-import { UTANFOR_VISA_FRAN, type PerHa } from '@/lib/gallringPerHa';
+import { UTANFOR_VISA_FRAN } from '@/lib/gallringPerHa';
+import GallradYtaArk from './GallradYtaArk';
 
 /** Traktens bredd där frågorna går från en till två kolumner. */
 export const TVA_KOLUMNER_PX = 640;
@@ -169,7 +172,7 @@ function tradslagKort(d: GallringDetalj): string {
 // Frågorna
 // ---------------------------------------------------------------------------
 
-type PerHaLage = { typ: 'laddar' } | { typ: 'fel' } | { typ: 'klar'; p: PerHa };
+type PerHaLage = { typ: 'laddar' } | { typ: 'fel' } | { typ: 'klar'; p: PerHaLast };
 
 const fmtPct = (andel: number) => `${Math.round(andel * 100)} %`;
 
@@ -177,8 +180,9 @@ const fmtPct = (andel: number) => `${Math.round(andel * 100)} %`;
  *  trakten väntar aldrig på den. Talen och reglerna bor i lib/gallringPerHa.ts; här ritas de bara. */
 function PerHektar({ d }: { d: GallringDetalj }) {
   const [lage, setLage] = useState<PerHaLage>({ typ: 'laddar' });
-  const ladda = useCallback(async () => {
-    setLage({ typ: 'laddar' });
+  const [kartaOppen, setKartaOppen] = useState(false);
+  const ladda = useCallback(async (tyst = false) => {
+    if (!tyst) setLage({ typ: 'laddar' });
     try {
       setLage({ typ: 'klar', p: await hamtaPerHa(d) });
     } catch {
@@ -200,7 +204,7 @@ function PerHektar({ d }: { d: GallringDetalj }) {
       <Sektion rubrik={rubrik} inset>
         <div style={{ padding: `${AVSTAND.l}px 0` }} data-perha-fel="">
           <p style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.text, color: FARG.text2 }}>Kunde inte räkna per hektar just nu.</p>
-          <button type="button" onClick={ladda} style={KNAPP.sekundar}>Försök igen</button>
+          <button type="button" onClick={() => ladda()} style={KNAPP.sekundar}>Försök igen</button>
         </div>
       </Sektion>
     );
@@ -217,15 +221,31 @@ function PerHektar({ d }: { d: GallringDetalj }) {
   }
 
   const sv = p.stickvag;
-  const notDelar = [`${fmtDecimal(p.arealHa, 1)} ha enligt Vidas traktgräns.`];
+  const yta = p.yta;
+  const utanforHa = yta ? yta.utanfor.filter((b) => b.galler === 'gallring').reduce((s, b) => s + b.ha, 0) : 0;
+  const ejHa = yta ? yta.ejGallrat.reduce((s, b) => s + b.ha, 0) : 0;
+  const bitar = yta ? yta.utanfor.length + yta.ejGallrat.length : 0;
+  const notDelar = [yta
+    ? 'Per hektar räknas på marken som gallrades: Vidas gräns, plus gallring utanför den, minus mark som inte gallrats.'
+    : `${fmtDecimal(p.arealHa, 1)} ha enligt Vidas traktgräns.`];
   if (p.andelUtanfor !== null && p.andelUtanfor >= UTANFOR_VISA_FRAN) {
-    notDelar.push(`${fmtPct(p.andelUtanfor)} av stammarna står utanför gränsen och räknas inte.`);
+    notDelar.push(`${fmtPct(p.andelUtanfor)} av stammarna står utanför (väg in eller enstaka träd) och räknas inte per hektar.`);
   }
   if (sv.lage === 'ok') notDelar.push(`Stickvägarna ur ${sv.roller.map(rollGenitiv).join(' och ')} GPS-spår, räknade 4 m breda.`);
+
+  const ytaUnder = [
+    `Vidas gräns ${fmtDecimal(p.vidaHa, 1)} ha`,
+    utanforHa >= 0.05 ? `${fmtDecimal(utanforHa, 1)} ha utanför` : null,
+    ejHa >= 0.05 ? `${fmtDecimal(ejHa, 1)} ha inte gallrat` : null,
+  ].filter(Boolean).join(' · ');
 
   return (
     <Sektion rubrik={rubrik} not={notDelar.join(' ')} inset>
       <div data-perha="">
+        {yta && (
+          <Rad titel="Gallrat" hoger={`${fmtDecimal(p.arealHa, 1)} ha`} under={ytaUnder}
+            pil={bitar > 0} onTryck={() => setKartaOppen(true)} attr={{ 'data-gallrad-yta': '' }} />
+        )}
         <Rad titel="Volym" hoger={`${fmtDecimal(p.volymPerHa, 1)} m³fub/ha`} />
         <Rad titel="Stammar" hoger={`${fmtAntal(Math.round(p.stammarPerHa))} st/ha`} />
         {p.grundytaPerHa !== null && <Rad titel="Grundyta" hoger={`${fmtDecimal(p.grundytaPerHa, 1)} m²/ha`} />}
@@ -237,6 +257,10 @@ function PerHektar({ d }: { d: GallringDetalj }) {
             under={sv.lage === 'inget-spar' ? 'Inget GPS-spår från maskinerna än' : 'GPS-spåret täcker bara en del av trakten'} />
         )}
       </div>
+      {kartaOppen && yta && (
+        <GallradYtaArk yta={yta} svarSparas={p.svarSparas} onStang={() => setKartaOppen(false)}
+          onSvar={async (nyckel, svar) => { await sparaYtaSvar(d.vo, nyckel, svar); await ladda(true); }} />
+      )}
     </Sektion>
   );
 }
