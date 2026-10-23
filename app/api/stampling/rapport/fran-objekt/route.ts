@@ -1,4 +1,5 @@
-// Läs en trakts stämplingslängd — den som Vidas import redan sparat (objekt.stamplingslangd_url i bucketen kartbilder).
+// Läs en trakts stämplingslängd — den som Vidas import redan sparat (objekt.stamplingslangd_url i bucketen kartbilder,
+// eller en ensam inskannad PDF bland övriga dokument — lib/rotpost/kalla.ts).
 //
 //   POST { objektId }  → kopierar PDF:en till stämplingsrapporternas bucket och skapar en rapportrad med objekt_id satt
 //                         (status uppladdad). Svarar { ok, id, finns }. Själva läsningen är samma som vid uppladdning:
@@ -10,6 +11,7 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { kravInloggad } from '@/lib/auth/server';
+import { stamplingsKalla } from '@/lib/rotpost/kalla';
 import { adminKlient, BUCKET, MAX_LASNINGAR_PER_TIMME, TRAKT_BUCKET } from '@/lib/stampling/pdf/server';
 
 export const runtime = 'nodejs';
@@ -30,10 +32,10 @@ export async function POST(req: Request) {
   if (e0) return NextResponse.json({ ok: false, error: e0.message }, { status: 500 });
   if (finns && finns.length > 0) return NextResponse.json({ ok: true, id: finns[0].id, finns: true });
 
-  const { data: obj, error: e1 } = await admin.from('objekt').select('vo_nummer,namn,stamplingslangd_url')
+  const { data: obj, error: e1 } = await admin.from('objekt').select('vo_nummer,namn,stamplingslangd_url,ovriga_dokument')
     .eq('vo_nummer', objektId).limit(1).maybeSingle();
   if (e1) return NextResponse.json({ ok: false, error: e1.message }, { status: 500 });
-  const kalla = (obj as { stamplingslangd_url?: string | null } | null)?.stamplingslangd_url;
+  const kalla = obj ? stamplingsKalla(obj as Parameters<typeof stamplingsKalla>[0])?.path : null;
   if (!kalla) return NextResponse.json({ ok: false, error: 'Trakten har ingen stämplingslängd från Vida.' }, { status: 404 });
 
   const email = v.session.user!.email;

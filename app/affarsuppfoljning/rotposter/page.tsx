@@ -1,6 +1,6 @@
 'use client';
 
-// ROTPOSTER — uppföljning av trakterna vi köpt på rot (dim_objekt.avtalsform = 'Rp'), utan pengar (Martin 2026-10-23).
+// ROTPOSTER — uppföljning av trakterna vi köpt på rot (avtalsform Rp eller "RP" i Vidas namn, lib/rotpost/kalla.ts), utan pengar (Martin 2026-10-23).
 //   (ingen ?id)   listan: en rad per rotpost, nyast först — timmerandelen mot det vanliga vid samma medelstam
 //   ?id=<objekt>  en trakt: vad det blev per sortiment mot det vanliga, rötan mot vår median, länk till rotkapet
 // Räkningen bor i lib/rotpost/uppfoljning.ts (samma utfall() som Räkna och medelstamssidan); den här filen hämtar och visar.
@@ -15,6 +15,7 @@ import { sortimentFarg } from '@/components/Sortimentstapel';
 import { SORTIMENT_NAMN } from '@/lib/medelstam/berakna';
 import { lasMedelstamUnderlag, type MedelstamUnderlag, type LasFel } from '@/lib/medelstam/las';
 import { rotposter, skillnad, SORTIMENT } from '@/lib/rotpost/uppfoljning';
+import { arRotpost } from '@/lib/rotpost/kalla';
 import StamplingDel from './StamplingDel';
 
 const BAS = '/affarsuppfoljning/rotposter';
@@ -31,14 +32,23 @@ function Innehall() {
 
   const hamta = useCallback(async () => {
     setFel(null); setD(null);
-    const [u, a, s] = await Promise.all([
+    const [u, a, o, s] = await Promise.all([
       lasMedelstamUnderlag(),
-      medAbortRetry(() => supabase.from('dim_objekt').select('objekt_id').eq('bolag', 'Vida').ilike('avtalsform', 'rp')),
+      medAbortRetry(() => supabase.from('dim_objekt').select('objekt_id,object_name,avtalsform').eq('bolag', 'Vida')),
+      medAbortRetry(() => supabase.from('objekt').select('vo_nummer,namn,avtalsform').not('vo_nummer', 'is', null)),
       medAbortRetry(() => supabase.from('sim_rotkap').select('objekt_id').eq('kaplangd_cm', 300)),
     ]);
     if (!u.ok) { setFel(u.fel); return; }
     if (a.error) { setFel({ kod: a.error.code ?? (arAbortFel(a.error) ? 'ABORT' : 'OKÄND'), text: a.error.message }); return; }
-    setRp(new Set(((a.data ?? []) as { objekt_id: string }[]).map(x => String(x.objekt_id))));
+    if (o.error) { setFel({ kod: o.error.code ?? (arAbortFel(o.error) ? 'ABORT' : 'OKÄND'), text: o.error.message }); return; }
+    // Rotpost = avtalsform Rp (objekt eller dim_objekt) ELLER "RP" i Vidas namn — lib/rotpost/kalla.ts.
+    const obj = new Map(((o.data ?? []) as { vo_nummer: string; namn: string | null; avtalsform: string | null }[]).map(x => [String(x.vo_nummer), x]));
+    const ids = new Set<string>();
+    for (const x of (a.data ?? []) as { objekt_id: string; object_name: string | null; avtalsform: string | null }[]) {
+      const id = String(x.objekt_id); const ob = obj.get(id);
+      if (arRotpost({ namn: ob?.namn ?? x.object_name, avtalsform: ob?.avtalsform, dimAvtalsform: x.avtalsform })) ids.add(id);
+    }
+    setRp(ids);
     // Rotkapet är ett tillägg: går det inte att läsa finns bara ingen länk.
     if (!s.error) setMedRotkap(new Set(((s.data ?? []) as { objekt_id: string }[]).map(x => String(x.objekt_id))));
     setD(u.d);
@@ -57,7 +67,7 @@ function Innehall() {
     if (!r) return (
       <div style={SIDA}>
         <Tillbakarad href={BAS} text="Rotposter" />
-        <Stort tal="–" ordrad="trakten finns inte bland rotposterna"><Damp>Den saknar skördardata eller är inte markerad som Rp.</Damp></Stort>
+        <Stort tal="–" ordrad="trakten finns inte bland rotposterna"><Damp>Den saknar skördardata eller är inte en rotpost.</Damp></Stort>
       </div>
     );
     const dT = skillnad(r, 'timmer');
@@ -120,7 +130,7 @@ function Innehall() {
         <Rader><Rad text="Inga trakter är markerade som Rp än" dampad /></Rader>
       )}
       <Rader>
-        <Rad text="Rotpost = avtalsform Rp på trakten. Ändras i Redigering." dampad />
+        <Rad text="Rotpost = avtalsform Rp eller "RP" i traktens namn." dampad />
       </Rader>
     </div>
   );

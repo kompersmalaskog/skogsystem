@@ -15,6 +15,7 @@ import type { Cell, Meta } from '@/lib/stampling/berakna';
 import { lasFranObjekt, rapportForObjekt, type Rapport } from '@/lib/stampling/pdf/klient';
 import { jamforStampling, procentMot } from '@/lib/rotpost/stampling';
 import type { Rotpost } from '@/lib/rotpost/uppfoljning';
+import { stamplingsKalla } from '@/lib/rotpost/kalla';
 
 const pct = (p: number | null) => (p == null ? '' : p === 0 ? '±0 %' : p > 0 ? `+${p} %` : `−${-p} %`);
 
@@ -23,7 +24,7 @@ type Lage =
   | { typ: 'fel'; text: string }
   | { typ: 'laser' }
   | { typ: 'saknas' }                                   // ingen stämplingslängd på trakten
-  | { typ: 'olast' }                                    // finns från Vida, inte läst
+  | { typ: 'olast'; gissad: boolean }                   // finns från Vida, inte läst
   | { typ: 'avviker'; rapport: Rapport }                // läst men kontrollen stämmer inte
   | { typ: 'klar'; rapport: Rapport; celler: Cell[]; meta: Meta };
 
@@ -57,12 +58,13 @@ export default function StamplingDel({ r }: { r: Rotpost }) {
     setLage({ typ: 'laddar' });
     const [rap, obj] = await Promise.all([
       rapportForObjekt(r.id),
-      medAbortRetry(() => supabase.from('objekt').select('stamplingslangd_url').eq('vo_nummer', r.id).limit(1).maybeSingle()),
+      medAbortRetry(() => supabase.from('objekt').select('stamplingslangd_url,ovriga_dokument').eq('vo_nummer', r.id).limit(1).maybeSingle()),
     ]);
     if (!rap.ok) { setLage({ typ: 'fel', text: rap.fel }); return; }
     if (rap.rapport) { await visaRapport(rap.rapport); return; }
     if (obj.error) { setLage({ typ: 'fel', text: obj.error.message }); return; }
-    setLage((obj.data as { stamplingslangd_url?: string | null } | null)?.stamplingslangd_url ? { typ: 'olast' } : { typ: 'saknas' });
+    const kalla = obj.data ? stamplingsKalla(obj.data as Parameters<typeof stamplingsKalla>[0]) : null;
+    setLage(kalla ? { typ: 'olast', gissad: kalla.gissad } : { typ: 'saknas' });
   }, [r.id, visaRapport]);
   useEffect(() => { hamta(); }, [hamta]);
 
