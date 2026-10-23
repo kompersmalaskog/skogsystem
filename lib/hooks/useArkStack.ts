@@ -18,5 +18,13 @@ export function useArkStack<T>() {
   }, []);
   const tillbaka = useCallback(() => setStack(prev => prev.slice(0, -1)), []);
   const stang = useCallback(() => setStack([]), []);
-  return { oversta: stack.length ? stack[stack.length - 1] : null, lagg, byt, tillbaka, stang };
+  /** Byt HELA stapeln mot ett enda ark (valet i en lista bredvid: ett nytt val ersätter det förra, det staplas inte). */
+  const ersatt = useCallback((post: T) => setStack([{ post, foregaende: null }]), []);
+  return {
+    oversta: stack.length ? stack[stack.length - 1] : null,
+    /** Det första arket i stapeln — det som öppnades av ett val, inte av en tryckning inne i arket. */
+    rot: stack.length ? stack[0] : null,
+    djup: stack.length,
+    lagg, byt, tillbaka, stang, ersatt,
+  };
 }
