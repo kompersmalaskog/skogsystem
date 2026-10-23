@@ -5,17 +5,14 @@
 //   Räkna      vad ska jag bjuda?    /affarsuppfoljning/rakna (och stämplingslängd, medelstam)
 //   Kvalitet   kör vi bra?           /affarsuppfoljning/kvalitet (och objektskärmen)
 //
-// Egen bottenrad per sektion, som app/ekonomi/EkonomiBottomNav.tsx — den globala BottomNav monteras inte här. Raden är full bredd
-// men flikarna ligger under innehållskolumnen (samma 480 px som components/Ytform.tsx), så de inte hamnar vid fönsterkanterna på
-// en dator. Objektskärmen räknas till Kvalitet, oavsett var man kom ifrån.
+// SAMMA bottenrad som arbetsrapporten (BottomNavBar i components/arbetsrapport/Arbetsrapport.tsx): halvgenomskinlig och
+// suddig, rundade övre hörn, ikonerna i appens kolumn, blå för vald flik. Den globala BottomNav monteras inte här.
+// Objektskärmen räknas till Kvalitet, oavsett var man kom ifrån.
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { DAMPAD, TEXT, LINJE } from '@/components/Ytform';
-import { medSafeBotten } from '@/lib/design/tokens'; // hemindikatorn på iPhone
-
-/** Samma kolumnbredd som innehållet (BREDD i components/Ytform.tsx). */
-const KOLUMN = 480;
+import { AVSTAND, FARG, FONT, IKON, KOLUMN, RADIE, TRAFFYTA, VIKT, medSafeBotten } from '@/lib/design/tokens';
+import Ikon from '@/components/design/Ikon';
 
 type Flik = { href: string; ikon: string; etikett: string; match: (p: string) => boolean };
 
@@ -32,25 +29,23 @@ export default function AffarBottomNav() {
   const pathname = usePathname() || '';
   return (
     <nav aria-label="Affärsuppföljning" style={{
-      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
-      background: '#0c0c0e', borderTop: LINJE,
-      paddingBottom: medSafeBotten(8),
-      fontFamily: "'Geist', system-ui, sans-serif",
+      position: 'fixed', bottom: 0, left: 0, width: '100%', zIndex: 50, boxSizing: 'border-box',
+      display: 'flex', justifyContent: 'space-around', alignItems: 'center',
+      padding: `${AVSTAND.m}px max(${AVSTAND.l}px, calc((100% - ${KOLUMN.smal}px) / 2)) ${medSafeBotten(AVSTAND.xl)}`,
+      background: 'rgba(31,31,31,0.7)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+      borderRadius: `${RADIE.kort}px ${RADIE.kort}px 0 0`, fontFamily: FONT,
     }}>
-      <div style={{ display: 'flex', maxWidth: KOLUMN, margin: '0 auto' }}>
-        {FLIKAR.map(f => {
-          const aktiv = f.match(pathname);
-          return (
-            <Link key={f.href} href={f.href} aria-current={aktiv ? 'page' : undefined}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
-                       minHeight: 56, padding: '6px 0', textDecoration: 'none', color: aktiv ? TEXT : DAMPAD }}>
-              <span className="material-symbols-outlined" aria-hidden="true"
-                style={{ fontSize: 22, lineHeight: 1, fontVariationSettings: aktiv ? "'FILL' 1" : "'FILL' 0" }}>{f.ikon}</span>
-              <span style={{ fontSize: 11, fontWeight: aktiv ? 600 : 500, whiteSpace: 'nowrap' }}>{f.etikett}</span>
-            </Link>
-          );
-        })}
-      </div>
+      {FLIKAR.map(f => {
+        const aktiv = f.match(pathname);
+        return (
+          <Link key={f.href} href={f.href} aria-current={aktiv ? 'page' : undefined}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                     minHeight: TRAFFYTA.primar, minWidth: 64, textDecoration: 'none', color: aktiv ? FARG.bla : FARG.text2 }}>
+            <Ikon namn={f.ikon} storlek={IKON.rad} farg="inherit" fylld={aktiv} />
+            <span style={{ fontSize: 10, fontWeight: aktiv ? VIKT.halvfet : VIKT.normal, whiteSpace: 'nowrap' }}>{f.etikett}</span>
+          </Link>
+        );
+      })}
     </nav>
   );
 }
