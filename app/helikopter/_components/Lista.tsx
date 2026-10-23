@@ -1,6 +1,6 @@
 'use client'
 
-// Byggstenarna för /helikopter, ur tokens: rader (RAD) med linje mellan men inte efter den sista, mätare (6 px) med planstreck. Länkrader: components/ui/RadGrupp. Svarsrad, Sektion och Ikon: components/design.
+// Byggstenarna för /helikopter (sidan, arken, veckor, månadsfacit), ur tokens: rader (RAD) med linje mellan men inte efter den sista, mätare (6 px) med planstreck. Länkrader: components/ui/RadGrupp. Svarsrad, Sektion och Ikon: components/design.
 // Typ: tal TYP.tal, rubrik TYP.rubrik, radnamn TYP.listtitel, brödtext TYP.text, förklaring TYP.meta, etikett TYP.micro.
 import { AVSTAND, FARG, KORT, RAD, RADIE, TNUM, TYP, VIKT } from '@/lib/design/tokens'
 import Ikon from '@/components/design/Ikon'

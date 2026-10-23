@@ -10,6 +10,7 @@ import { G15_TOM, g15Tabell, type G15DagRad, type G15Tabell } from '@/lib/heliko
 import type { VeckolageData } from './veckolage'
 import { lasHistorik, lasManadsfacit, type Historik, type Manadsfacit } from './manadsfacit'
 import { normStopp, normTakt } from './maskinData'
+import { lasKlar, type KlarData } from './klar'
 
 export type Typ = 'slutavverkning' | 'gallring'
 
@@ -481,6 +482,18 @@ export async function hamtaHistorik(): Promise<Svar<Historik>> {
     return { data: lasHistorik(r.data), error: null }
   } catch (e) {
     console.error('[helikopter] helikopter_historik gav ogiltigt svar', e)
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** "Räcker månaden?" som datum: klar-datum per maskin, trakter och spår (helikopter_ny_klar). Ett konstigt svar är ett fel. */
+export async function hamtaKlar(ar: number, manad: number, idag: string): Promise<Svar<KlarData>> {
+  const r = await rpc<unknown>('helikopter_ny_klar', { p_ar: ar, p_manad: manad, p_idag: idag })
+  if (r.error) return { data: null, error: r.error }
+  try {
+    return { data: lasKlar(r.data), error: null }
+  } catch (e) {
+    console.error('[helikopter] helikopter_ny_klar gav ett svar vi inte förstår', e)
     return { data: null, error: felText(e) }
   }
 }
