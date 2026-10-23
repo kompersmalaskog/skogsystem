@@ -44,8 +44,6 @@ function Innehall() {
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<{ kod: string; text: string } | null>(null);
   const [kaplangd, setKaplangd] = useState(340);
-  // Längdklasserna i traktens prislista för massaved (ej hemved). null = kunde inte läsas.
-  const [tillatna, setTillatna] = useState<number[] | null | undefined>(undefined);   // undefined = läses
 
   const bas = `/affarsuppfoljning/objekt/${encodeURIComponent(objektId)}`;
   const rotkapHref = `${bas}/rotkap`;
@@ -64,26 +62,6 @@ function Innehall() {
 
   useEffect(() => { hamta(); }, [hamta]);
 
-  useEffect(() => {
-    let avbruten = false;
-    (async () => {
-      const f = await medAbortRetry(() => supabase.from('fakt_sortiment').select('sortiment_id').eq('objekt_id', objektId));
-      const ids = [...new Set(((f.data ?? []) as { sortiment_id: string }[]).map(r => r.sortiment_id))];
-      if (f.error || ids.length === 0) { if (!avbruten) setTillatna(null); return; }
-      const p = await medAbortRetry(() => supabase.from('dim_sortiment')
-        .select('namn, dim_sortiment_pris(langd_min_cm)').in('sortiment_id', ids).ilike('namn', 'Massa:%'));
-      if (avbruten) return;
-      if (p.error) { setTillatna(null); return; }
-      const langder = new Set<number>();
-      for (const r of (p.data ?? []) as { namn: string; dim_sortiment_pris: { langd_min_cm: number }[] | null }[]) {
-        if (/hemved/i.test(r.namn)) continue;                 // markägarens ved styr inte rotkapet
-        for (const x of r.dim_sortiment_pris ?? []) langder.add(Number(x.langd_min_cm));
-      }
-      setTillatna(langder.size > 0 ? [...langder].sort((a, b) => a - b) : null);
-    })();
-    return () => { avbruten = true; };
-  }, [objektId]);
-
   if (laddar) return <div style={SIDA}><Laddar vad="simuleringen" /></div>;
 
   if (fel) return <div style={SIDA}><Fel rubrik="Simuleringen kunde inte hämtas" fel={fel} igen={hamta} /></div>;
@@ -101,7 +79,7 @@ function Innehall() {
     </div>
   );
 
-  return <RotkapVy rader={rader} valt={objektId} kaplangd={kaplangd} onKaplangd={setKaplangd} vy={vy} tillatna={tillatna}
+  return <RotkapVy rader={rader} valt={objektId} kaplangd={kaplangd} onKaplangd={setKaplangd} vy={vy}
     onSaRaknas={() => router.push(`${rotkapHref}?vy=sa-raknas`)} objektHref={bas} rotkapHref={rotkapHref} />;
 }
 

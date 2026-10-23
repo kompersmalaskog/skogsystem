@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
-import RotkapVy, { valbaraKaplangder, type SimRad } from './RotkapVy'
+import RotkapVy, { simuleradeLangder, type SimRad } from './RotkapVy'
 
 vi.mock('next/link', () => ({ default: (p: any) => <a {...p} /> }))
 
@@ -11,48 +11,50 @@ vi.mock('next/link', () => ({ default: (p: any) => <a {...p} /> }))
 const TIMMER: Record<number, number> = { 300: 96.0, 320: 93.4, 340: 91.4, 360: 89.1, 380: 86.3 }
 const rad = (k: number): SimRad => ({
   objekt_id: '11271849', kaplangd_cm: k, objekt_namn: 'Bågskyttebanan RP J-Hus- 25', maskiner: ['PONS20SDJAA270231'],
-  stammar_objekt: 1614, stammar: 156, grupp1_stammar: 120, grupp2_stammar: 36, utan_sagstock: 9, utan_kurva: 0,
+  stammar_objekt: 1614, stammar: 156, grupp1_stammar: 144, grupp2_stammar: 12, utan_sagstock: 9, utan_kurva: 0,
   timmer_m3: TIMMER[k], kubb_m3: 10, massa_m3: 20, rest_m3: 0, grupp1_timmer_m3: TIMMER[k] - 10, grupp2_timmer_m3: 10,
   grupp2_kedja_fast: 0, validering: null, anmarkning: null, stockar_antal: 0, serier_antal: 0, beraknad: '2026-10-20',
 })
 const rader = [300, 320, 340, 360, 380].map(rad)
-// Traktens prislista för massaved (BmavFall_V3): 3,0 / 3,05 / 3,4 / 3,7 / 4,0 … — 3,2, 3,6 och 3,8 m finns inte.
-const BAGSKYTTE = [300, 305, 340, 370, 400, 430, 460, 490, 520]
 
 let root: Root | null = null
 let el: HTMLDivElement
 afterEach(() => { act(() => root?.unmount()); root = null; el?.remove() })
-const vy = (tillatna: number[] | null | undefined, kaplangd = 340) => {
+const vy = (r: SimRad[], kaplangd = 340, onKaplangd = (_: number) => {}) => {
   el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el)
-  act(() => root!.render(<RotkapVy rader={rader} valt="11271849" kaplangd={kaplangd} onKaplangd={() => {}} tillatna={tillatna}
+  act(() => root!.render(<RotkapVy rader={r} valt="11271849" kaplangd={kaplangd} onKaplangd={onKaplangd}
     objektHref="/x" rotkapHref="/x/rotkap" />))
 }
-const valen = () => [...(el.querySelector('select[aria-label="Kaplängd"]')?.querySelectorAll('option') ?? [])].map(o => o.textContent)
 const text = () => el.textContent ?? ''
+const radText = () => [...el.querySelectorAll('section[aria-label="Rotbit i stället för 3,0 m"] button')].map(b => b.textContent)
 
-describe('rotkapets kaplängder följer traktens prislista för massaved', () => {
-  it('Bågskyttebanan: bara 3,4 m går att välja', () => {
-    expect(valbaraKaplangder(BAGSKYTTE)).toEqual([340])
-    vy(BAGSKYTTE)
-    expect(valen()).toEqual(['3,4 m i stället för 3,0'])
+describe('rotkapet visar varje simulerad längd mot 3,0 m', () => {
+  it('längderna läses ur raderna, kortast först, utan referensen', () => {
+    expect(simuleradeLangder(rader, '11271849')).toEqual([320, 340, 360, 380])
+    expect(simuleradeLangder(rader, 'annat')).toEqual([])
   })
-  it('3,4 m i stället för 3,0 m kostar 4,6 m³ timmer', () => {
-    vy(BAGSKYTTE)
-    expect(text()).toContain('−4,60')
+  it('en rad per längd med förlusten', () => {
+    vy(rader)
+    const r = radText()
+    expect(r).toHaveLength(4)
+    expect(r[0]).toContain('3,2 m'); expect(r[0]).toContain('−2,60')
+    expect(r[1]).toContain('3,4 m · visas ovan'); expect(r[1]).toContain('−4,60')
+    expect(r[3]).toContain('3,8 m'); expect(r[3]).toContain('−9,70')
   })
-  it('en längd som inte finns i prislistan visas aldrig som ett tal', () => {
-    vy(BAGSKYTTE, 320)
-    expect(text()).not.toContain('−2,60')
+  it('stort tal och undertext gäller vald längd', () => {
+    vy(rader, 340)
+    expect(text()).toContain('om rotbiten kapas på 3,4 m i stället för 3,0 m')
   })
-  it('ingen simulerad längd i prislistan: inget tal, sidan säger varför', () => {
-    vy([300, 370, 400])
-    expect(valen()).toEqual([])
-    expect(text()).toMatch(/finns i traktens prislista för massaved/)
-    expect(text()).not.toContain('−4,60')
+  it('ett tryck på en rad väljer längden', () => {
+    const valda: number[] = []
+    vy(rader, 340, k => valda.push(k))
+    const knapp = [...el.querySelectorAll('section[aria-label="Rotbit i stället för 3,0 m"] button')].find(b => b.textContent?.startsWith('3,8 m'))!
+    act(() => (knapp as HTMLButtonElement).click())
+    expect(valda).toContain(380)
   })
-  it('prislistan gick inte att läsa: alla längder och det sägs', () => {
-    vy(null)
-    expect(valen()).toHaveLength(4)
-    expect(text()).toMatch(/prislista kunde inte läsas/)
+  it('nya steg (3,1–3,7 m) dyker upp när simuleringen räknat dem', () => {
+    const fler = [300, 310, 320, 330, 340, 350, 360, 370, 380].map(k => ({ ...rad(k in TIMMER ? k : 300), kaplangd_cm: k }))
+    vy(fler)
+    expect(radText()).toHaveLength(8)
   })
 })
