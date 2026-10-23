@@ -1,5 +1,5 @@
 "use client"
-import { underTopbar, medSafeBotten, FARG, TYP } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, medSafeBotten, FARG, TYP, AVSTAND } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useState, useEffect, useRef, Fragment, Children, Suspense, type CSSProperties, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
@@ -18,6 +18,8 @@ import { medAvtalsformSvar } from '@/lib/avtalsformKolumn'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import DokumentChips from '@/components/DokumentChips'
 import OkopplFilerKort from '@/components/redigering/OkopplFilerKort'
+import BehoverDig from '@/components/redigering/BehoverDig'
+import { byggSaker, patchForSvar, type BehoverGrupp, type FilJobb, type Sak } from '@/lib/redigering/behoverDig'
 import PdfLasare from '@/app/planering/PdfLasare'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
@@ -3683,21 +3685,7 @@ function ObjektRedigeringInner() {
   const [saveError, setSaveError] = useState('')
   const [visaAllaObjekt, setVisaAllaObjekt] = useState(false)
   const [visaMatchning, setVisaMatchning] = useState(false)
-  // Valt listfilter, bokmärkbart via ?filter= (samma mönster som /objekt
-  // läser ?ar=&manad=). Okänt värde faller tillbaka på arbetslistan.
   const sokParams = useSearchParams()
-  const filterFranUrl = sokParams.get('filter') === 'pagaende' ? 'pagaende' : 'att-atgarda'
-  const [listFilter, setListFilter] = useState<'att-atgarda' | 'pagaende'>(filterFranUrl)
-  const valjFilter = (v: 'att-atgarda' | 'pagaende') => {
-    setListFilter(v)
-    if (typeof window === 'undefined') return
-    const p = new URLSearchParams(window.location.search)
-    if (v === 'att-atgarda') p.delete('filter')
-    else p.set('filter', v)
-    const fraga = p.toString()
-    window.history.replaceState(null, '', window.location.pathname + (fraga ? `?${fraga}` : ''))
-  }
-  // DEL 2: jobb med maskindata men utan objekt (hpr_filer-VO utan dim_objekt)
   const [hprFiler, setHprFiler] = useState<any[]>([])
   const [hprStatus, setHprStatus] = useState<'laddar' | 'fel' | 'ok'>('laddar')
   const [maskinTyper, setMaskinTyper] = useState<Record<string, string | null>>({})
@@ -3879,22 +3867,11 @@ function ObjektRedigeringInner() {
   ;[...matchning.omatchadeMaskin, ...matchning.matchade.map(p => p.maskin)]
     .forEach(k => { kortInfo[k.objektId] = k })
 
-  // ARBETSLISTAN — det som behöver en människa, per VO-grupp. Namnlösa
-  // först (importen hittar inte på namn längre), sedan grupper där NÅGON
-  // rad har varningar, efter senaste aktivitet. Listans längd ÄR statusen.
-  const namnlosa = aktivaGrupper.filter(g => !g.rep.object_name)
-  const ofullstandiga = aktivaGrupper
-    .filter(g => g.rep.object_name && gruppVarningar(g.rader, volymForGrupp(objekt, kortInfo, g.rep)).length > 0)
-    .sort((a, b) => gruppSenaste(b).localeCompare(gruppSenaste(a)))
-  const attAtgarda = [...namnlosa, ...ofullstandiga]
-
   // PÅGÅENDE — det som körs just nu, färskast datadatum överst så det
   // Martin jobbar med idag ligger först. Grupper utan data hamnar sist.
   const pagaende = aktivaGrupper
     .filter(arPagaende)
     .sort((a, b) => (gruppSenasteData(b, fildata) || '').localeCompare(gruppSenasteData(a, fildata) || ''))
-
-  const synligaGrupper = listFilter === 'pagaende' ? pagaende : attAtgarda
 
   // Ignorera = exkludera HELA VO-gruppen (annars ligger syskonraden kvar i
   // listan). Ärlig sparning enligt #222-mönstret: räkna rader OCH läs
@@ -3980,7 +3957,17 @@ function ObjektRedigeringInner() {
     setKopplar(true)
     setSaveError('')
     const { jobb, kandidat } = kopplaVal
-    const mal = kandidat.objekt
+    const ny = await kopplaJobbKarna(jobb, kandidat.objekt)
+    if (ny) {
+      setKopplaVal(null)
+      setOppetKopplaJobb(null)
+      setRedigerObj(ny) // öppna gruppen — Filer-undersidan visar nu jobbets filer
+    }
+    setKopplar(false)
+  }
+
+  // Själva kopplingen (delas av larmraden och Behöver dig-arket). null = inget sparades (felet visas).
+  async function kopplaJobbKarna(jobb: any, mal: any): Promise<any | null> {
     const rad = {
       objekt_id: jobb.vo,
       vo_nummer: mal.vo_nummer,
@@ -3999,14 +3986,45 @@ function ObjektRedigeringInner() {
     if (err || !data || data.length === 0) {
       setSaveError('Kunde inte koppla — inget sparades')
       setTimeout(() => setSaveError(''), 6000)
-    } else {
-      const ny = { ...data[0], maskin_typ: maskinTyper[jobb.maskinId] || null }
-      setObjekt((prev: any[]) => [...prev, ny])
-      setKopplaVal(null)
-      setOppetKopplaJobb(null)
-      setRedigerObj(ny) // öppna gruppen — Filer-undersidan visar nu jobbets filer
+      return null
     }
-    setKopplar(false)
+    const ny = { ...data[0], maskin_typ: maskinTyper[jobb.maskinId] || null }
+    setObjekt((prev: any[]) => [...prev, ny])
+    return ny
+  }
+
+  // BEHÖVER DIG — det enda vyn frågar om (lib/redigering/behoverDig.ts). Fältsvar sparas över hela VO-gruppen
+  // via sparaFalt (dim + objekt-spegeln, värdet läses tillbaka), samma väg som objektets ark.
+  const behoverGrupper: BehoverGrupp[] = aktivaGrupper.map(g => {
+    const varningar = gruppVarningar(g.rader, volymForGrupp(objekt, kortInfo, g.rep)).map((w: any) => ({ key: w.key, text: w.text }))
+    if (!g.rep.object_name) varningar.unshift({ key: 'namn', text: 'Objektet saknar namn' })
+    return { nyckel: g.nyckel, rep: g.rep, ids: g.rader.map((r: any) => r.objekt_id), varningar }
+  })
+  const saker = byggSaker({
+    grupper: behoverGrupper,
+    alla: objekt,
+    bolagVal: bolag,
+    filJobb: okopplade.larm.map((j: any) => ({
+      nyckel: j.nyckel, namn: j.namn || null, vo: j.vo, stammar: j.stammar, maskinNamn: maskiner[j.maskinId] || j.maskinId,
+      kandidater: hittaKandidater(j, objekt).map((k: any) => ({
+        objekt_id: k.objekt.objekt_id, vo_nummer: k.objekt.vo_nummer ?? null, object_name: k.objekt.object_name ?? null, skogsagare: k.objekt.skogsagare ?? null,
+      })),
+      _jobb: j,
+    } as FilJobb & { _jobb: any })),
+  })
+
+  async function sparaSvar(sak: Extract<Sak, { typ: 'falt' }>, varde: string): Promise<boolean> {
+    const patch = patchForSvar(sak.falt, varde)
+    const res = await sparaFalt({ dimObjektIds: sak.grupp.ids, voNummer: String(sak.grupp.rep.vo_nummer ?? '').trim() }, patch)
+    if (!res.ok) { setSaveError(res.message || 'Kunde inte spara'); setTimeout(() => setSaveError(''), 6000); return false }
+    setObjekt((prev: any[]) => prev.map((o: any) => sak.grupp.ids.includes(o.objekt_id) ? { ...o, ...patch } : o))
+    return true
+  }
+  async function kopplaSvar(jobb: FilJobb, kandidat: { objekt_id: string }): Promise<boolean> {
+    const mal = objekt.find((o: any) => o.objekt_id === kandidat.objekt_id)
+    const j = (jobb as any)._jobb
+    if (!mal || !j) return false
+    return (await kopplaJobbKarna(j, mal)) != null
   }
 
   // Loading-vy
@@ -4047,66 +4065,21 @@ function ObjektRedigeringInner() {
     <div style={styles.container}>
       <style>{GLOBAL_CSS}</style>
 
-      <div style={styles.header}>
-        <div style={styles.headerCenter}>
-          <div style={styles.titel}>Objekt</div>
-          <div style={styles.subtitel}>{attAtgarda.length === 0 ? 'Allt åtgärdat' : `${attAtgarda.length} att åtgärda`}</div>
-        </div>
-      </div>
-
-      {/* DEL 2: LARM — maskindata som inte hör till något objekt. Överst,
-          orange vänsterkant: det här är riktiga jobb som är osynliga i
-          resten av systemet tills objektet skapas. */}
+      {/* BEHÖVER DIG — svaret först (markägarrapportens form), en rad per sak med appens förslag, och arket som tar
+          en sak i taget. Ersätter rubriken "N att åtgärda", larmrutan för maskinjobb utan objekt och listan Att åtgärda. */}
       {hprStatus === 'fel' && (
-        <div style={{ ...styles.smajobbWrap, color: 'rgba(255,160,160,0.9)' }}>
-          Kunde inte läsa maskinjobben (hpr_filer) — okopplade jobb kan inte visas
-        </div>
+        <p role="alert" style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.meta, color: FARG.rod }}>
+          Kunde inte läsa maskinfilerna, så filer utan objekt kan inte visas. Ladda om sidan.
+        </p>
       )}
-      {okopplade.larm.length > 0 && (
-        <div style={styles.larmBox}>
-          <div style={styles.larmHeader}>
-            <span style={styles.larmIkon}>!</span>
-            <span>{okopplade.larm.length} {okopplade.larm.length === 1 ? 'jobb har data men inget objekt' : 'jobb har data men inget objekt'}</span>
-          </div>
-          {okopplade.larm.map((j: any) => {
-            const kandidater = hittaKandidater(j, objekt)
-            const oppen = oppetKopplaJobb === j.nyckel
-            return (
-              <Fragment key={j.nyckel}>
-                <div style={{ ...styles.larmRad, borderTop: '1px solid rgba(255,159,10,0.12)' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {j.namn || 'Namnlöst jobb'}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>
-                      VO {j.vo} · {j.stammar.toLocaleString('sv-SE')} stammar · {maskiner[j.maskinId] || j.maskinId}
-                    </div>
-                  </div>
-                  {kandidater.length > 0 ? (
-                    <button onClick={() => setOppetKopplaJobb(oppen ? null : j.nyckel)} className="tap-press" style={styles.skapaBtn}>Koppla ›</button>
-                  ) : (
-                    <button onClick={() => setSkapaJobb(j)} className="tap-press" style={styles.skapaBtn}>Skapa nytt ›</button>
-                  )}
-                </div>
-                {oppen && (
-                  <div style={styles.kandidatLista}>
-                    <div style={styles.kandidatRubrik}>Koppla till befintligt objekt — troligast först</div>
-                    {kandidater.map((k: any) => (
-                      <button key={k.objekt.objekt_id} onClick={() => setKopplaVal({ jobb: j, kandidat: k })} className="tap-press" style={styles.kandidatRad as any}>
-                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>{k.objekt.object_name}</span>
-                        <span style={{ flexShrink: 0, color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>VO {k.objekt.vo_nummer}{k.objekt.skogsagare ? ` · ${k.objekt.skogsagare}` : ''}</span>
-                      </button>
-                    ))}
-                    <button onClick={() => { setOppetKopplaJobb(null); setSkapaJobb(j) }} className="tap-press" style={styles.kandidatSkapaNytt as any}>
-                      Ingen av dessa stämmer — skapa nytt objekt
-                    </button>
-                  </div>
-                )}
-              </Fragment>
-            )
-          })}
-        </div>
-      )}
+      <BehoverDig
+        saker={saker}
+        antalObjekt={aktivaGrupper.length}
+        onSparaFalt={sparaSvar}
+        onKoppla={kopplaSvar}
+        onSkapaNytt={(j: any) => setSkapaJobb(j._jobb)}
+        onOppnaObjekt={(g: BehoverGrupp) => openObjekt(g.rep)}
+      />
       {okopplade.smajobb.length > 0 && (
         <div style={styles.smajobbWrap}>
           <button onClick={() => setVisaSmajobb(!visaSmajobb)} className="tap-press" style={styles.smajobbToggle as any}>
@@ -4127,56 +4100,38 @@ function ObjektRedigeringInner() {
       {/* Filer vars ordernummer inte matchar något objekt (planeringsvyn visar dem inte) — med "Koppla till objekt" */}
       <OkopplFilerKort maskiner={maskiner} />
 
-      {/* Listfilter — samma kortlista, två urval */}
-      <div style={styles.filterToggleBar as any}>
-        {[
-          { varde: 'att-atgarda' as const, etikett: 'Att åtgärda', antal: attAtgarda.length },
-          { varde: 'pagaende' as const, etikett: 'Pågående', antal: pagaende.length },
-        ].map(p => (
-          <button
-            key={p.varde}
-            onClick={() => valjFilter(p.varde)}
-            className="tap-press"
-            style={{ ...styles.filterToggleBtn, ...(listFilter === p.varde ? styles.filterToggleBtnActive : {}) }}
-          >
-            {p.etikett} <span style={{ marginLeft: 6, opacity: 0.7 }}>{p.antal}</span>
-          </button>
-        ))}
-      </div>
-
-      {synligaGrupper.length === 0 ? (
-        <div style={styles.allaDone}>
-          <div style={styles.allaDoneCheck}>✓</div>
-          <div>{listFilter === 'pagaende' ? 'Inget pågående just nu' : 'Inget att åtgärda'}</div>
-        </div>
-      ) : (
-        <div style={styles.lista}>
-          {synligaGrupper.map((g, i) => (
-            <ArbetsKort
-              key={g.nyckel}
-              obj={g.rep}
-              info={gruppKortInfo(g)}
-              modell={gruppModeller(g, maskiner)}
-              fildata={fildata}
-              filRader={filRaderGrupp(g.rep)}
-              sanderEj={gruppSkotareSanderEj(g.rader, fildata)}
-              volym={volymForGrupp(objekt, kortInfo, g.rep)}
-              warnings={gruppVarningar(g.rader, volymForGrupp(objekt, kortInfo, g.rep))}
-              senasteData={listFilter === 'pagaende' ? gruppSenasteData(g, fildata) : null}
-              forslag={listFilter === 'pagaende' ? avslutsForslag(g, fildata) : []}
-              onGodkannForslag={(f: any) => setAvslutVal({ g, forslag: f })}
-              delay={i * 60}
-              onOppna={() => openObjekt(g.rep)}
-              onIgnorera={() => ignoreraGrupp(g)}
-              aktivaSkotare={aktivaSkotare}
-              onTilldela={(mid: string | null) => tilldelaSkotareInline(g.rader.map((r: any) => r.objekt_id), mid)}
-              onPatch={(patch: Record<string, any>) => patchGrupp(g.rader.map((r: any) => r.objekt_id), patch)}
-              bolagOptions={bolag}
-              atgardSlutOptions={atgarderSlut}
-              atgardGallringOptions={atgarderGallring}
-            />
-          ))}
-        </div>
+      {/* PÅGÅR — det som körs just nu, med maskinens avslutsförslag att godkänna. */}
+      {pagaende.length > 0 && (
+        <>
+          <h3 style={{ ...TYP.micro, color: FARG.text2, margin: `${AVSTAND.xl}px 0 ${AVSTAND.s}px ${AVSTAND.xs}px` }}>Pågår</h3>
+          <div style={styles.lista}>
+            {pagaende.map((g, i) => (
+              <ArbetsKort
+                key={g.nyckel}
+                obj={g.rep}
+                info={gruppKortInfo(g)}
+                modell={gruppModeller(g, maskiner)}
+                fildata={fildata}
+                filRader={filRaderGrupp(g.rep)}
+                sanderEj={gruppSkotareSanderEj(g.rader, fildata)}
+                volym={volymForGrupp(objekt, kortInfo, g.rep)}
+                warnings={gruppVarningar(g.rader, volymForGrupp(objekt, kortInfo, g.rep))}
+                senasteData={gruppSenasteData(g, fildata)}
+                forslag={avslutsForslag(g, fildata)}
+                onGodkannForslag={(f: any) => setAvslutVal({ g, forslag: f })}
+                delay={i * 60}
+                onOppna={() => openObjekt(g.rep)}
+                onIgnorera={() => ignoreraGrupp(g)}
+                aktivaSkotare={aktivaSkotare}
+                onTilldela={(mid: string | null) => tilldelaSkotareInline(g.rader.map((r: any) => r.objekt_id), mid)}
+                onPatch={(patch: Record<string, any>) => patchGrupp(g.rader.map((r: any) => r.objekt_id), patch)}
+                bolagOptions={bolag}
+                atgardSlutOptions={atgarderSlut}
+                atgardGallringOptions={atgarderGallring}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {/* MATCHNING — summering + en knapp; listorna bor i egen vy så bara

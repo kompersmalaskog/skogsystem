@@ -17,7 +17,7 @@ describe('harled — säkert bara när två oberoende källor säger samma sak',
     const h = harled('huvudtyp', MOLLERYD_TOM, ALLA)!;
     expect(h.varde).toBe('Slutavverkning');
     expect(h.saker).toBe(true);
-    expect(h.kallor).toEqual(['namnet', 'skördarens fil', 'samma namn: VO 11271883']);
+    expect(h.kallor).toEqual(['namnet', 'skördarens fil', 'objektet med samma namn (VO 11271883)']);
   });
 
   it('Mölleryd: avtalsform ur namnet + samma namn → säker Rp', () => {
@@ -27,7 +27,7 @@ describe('harled — säkert bara när två oberoende källor säger samma sak',
 
   it('Mölleryd: bolag bara ur samma namn → förslag, inte säkert', () => {
     const h = harled('bolag', MOLLERYD_TOM, ALLA)!;
-    expect(h).toMatchObject({ varde: 'Vida', saker: false, kallor: ['samma namn: VO 11271883'] });
+    expect(h).toMatchObject({ varde: 'Vida', saker: false, kallor: ['objektet med samma namn (VO 11271883)'] });
   });
 
   it('Skälviken: typ ur namnet + fil → säker; avtalsform bara ur namnet → förslag Rp', () => {

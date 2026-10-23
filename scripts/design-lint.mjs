@@ -33,6 +33,8 @@ const ALFA = new Set(["0.04", "0.08", "0.1", "0.10"]); // rgba(255,255,255,x) so
 
 /** Filer som är rättade mot tokens. Nya literaler här är fel, inte skuld. */
 export const SKARPA = [
+  // Redigering · Behöver dig (2026-10-23): byggd på tokens och components/design, noll literaler.
+  "components/redigering/BehoverDig.tsx",
   // Gallring (2026-10-22): omgjord på tokens och components/design, noll literaler.
   "components/gallring/GallringRam.tsx",
   "components/gallring/GallringLista.tsx",

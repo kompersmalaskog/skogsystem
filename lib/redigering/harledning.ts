@@ -39,7 +39,7 @@ export interface Harledning {
   falt: HarlettFalt;
   /** Appens bästa gissning; null när källorna säger olika lika starkt. */
   varde: string | null;
-  /** Källorna som säger `varde`, i ord ("namnet", "skördarens fil", "samma namn: VO 11271883"). */
+  /** Källorna som säger `varde`, i ord ("namnet", "skördarens fil", "objektet med samma namn (VO 11271883)"). */
   kallor: string[];
   /** Två eller fler källor säger samma sak och ingen säger emot. */
   saker: boolean;
@@ -51,7 +51,7 @@ export const KALLA = {
   trakt: 'trakten',
   namn: 'namnet',
   fil: 'skördarens fil',
-  tvilling: (vo: string | null | undefined) => (vo ? `samma namn: VO ${vo}` : 'samma namn'),
+  tvilling: (vo: string | null | undefined) => (vo ? `objektet med samma namn (VO ${vo})` : 'objektet med samma namn'),
 } as const;
 
 /** Namnets ord i versaler. "Mölleryd RP J-Hus -25" → [MÖLLERYD, RP, J, HUS, 25]. */
