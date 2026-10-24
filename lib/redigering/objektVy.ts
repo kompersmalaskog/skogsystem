@@ -3,7 +3,7 @@
 //
 // Svaret först: var står objektet (Pågår / Skotning kvar / Klart / Inte påbörjat) i ett ord, och en mening med talen.
 // Sedan frågor: Vad saknas? · Stämmer uppgifterna? (varifrån varje värde kom) · Vad har maskinerna skickat? · Är det klart?
-// · Vem kör? — och allt annat bakom raden "Mer om objektet".
+// · Vem kör? · Hur får vi betalt? · Mer (undersidor, egenskaper, dokument, VO-nummer) — ett enda ark per objekt.
 
 import { AVTALSFORM_ORD } from './behoverDig';
 import { faltGaller, arPrivat } from './faltGaller';
@@ -97,7 +97,8 @@ export function traktSagerEmot(varde: unknown, trakt: unknown): boolean {
   return !!v && !!t && v.toLowerCase() !== t.toLowerCase();
 }
 
-export type UppgiftNyckel = 'huvudtyp' | 'avtalsform' | 'atgard' | 'bolag' | 'skogsagare' | 'inkopare' | 'vo_nummer';
+// Inköpare och avverkningsform visas inte längre (Martin 2026-10-24); fälten finns kvar i datan.
+export type UppgiftNyckel = 'huvudtyp' | 'avtalsform' | 'atgard' | 'bolag' | 'skogsagare' | 'vo_nummer';
 
 export interface UppgiftRad {
   nyckel: UppgiftNyckel;
@@ -131,7 +132,6 @@ export function uppgiftRader(obj: ObjFalt, trakt: Record<string, any> | null): U
   if (faltGaller('atgard', obj)) lagg('atgard', 'Åtgärd', trakt?.atgard);
   lagg('bolag', 'Bolag');
   lagg('skogsagare', 'Markägare', trakt?.markagare);
-  if (faltGaller('inkopare', obj)) lagg('inkopare', 'Inköpare', trakt?.inkopare);
   lagg('vo_nummer', 'VO-nummer');
   return rader;
 }
@@ -142,7 +142,6 @@ export function saknadeUtanForslag(obj: ObjFalt & { object_name?: string | null 
   if (tomt(obj.object_name)) ut.push({ nyckel: 'object_name', etikett: 'Namn' });
   if (faltGaller('atgard', obj) && tomt(obj.atgard)) ut.push({ nyckel: 'atgard', etikett: 'Åtgärd' });
   if (tomt(obj.skogsagare)) ut.push({ nyckel: 'skogsagare', etikett: 'Markägare' });
-  if (!arPrivat(obj.bolag) && faltGaller('inkopare', obj) && tomt(obj.inkopare)) ut.push({ nyckel: 'inkopare', etikett: 'Inköpare' });
   return ut;
 }
 

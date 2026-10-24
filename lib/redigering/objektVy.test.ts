@@ -52,8 +52,8 @@ describe('uppgiftRader', () => {
     expect(r.find(x => x.nyckel === 'avtalsform')).toMatchObject({ varde: 'Rotpost (Rp)', kalla: 'samma som trakten', emot: false });
     expect(r.find(x => x.nyckel === 'bolag')!.kalla).toBe('från trakten');
   });
-  it('privat: ingen inköpare och ingen avtalsform', () => {
-    const r = uppgiftRader({ huvudtyp: 'Slutavverkning', bolag: 'Privat', avtalsform: 'Au', inkopare: 'X' }, null);
+  it('privat: ingen avtalsform', () => {
+    const r = uppgiftRader({ huvudtyp: 'Slutavverkning', bolag: 'Privat', avtalsform: 'Au' }, null);
     expect(r.map(x => x.nyckel)).toEqual(['huvudtyp', 'bolag']);
   });
   it('trakten säger emot markägaren', () => {
@@ -63,8 +63,8 @@ describe('uppgiftRader', () => {
 });
 
 describe('saknadeUtanForslag', () => {
-  it('namn, åtgärd (gallring), markägare, inköpare (inte privat)', () => {
-    expect(saknadeUtanForslag({ huvudtyp: 'Gallring', bolag: 'Vida' }).map(x => x.nyckel)).toEqual(['object_name', 'atgard', 'skogsagare', 'inkopare']);
+  it('namn, åtgärd (gallring), markägare — aldrig inköpare (Martin 2026-10-24)', () => {
+    expect(saknadeUtanForslag({ huvudtyp: 'Gallring', bolag: 'Vida' }).map(x => x.nyckel)).toEqual(['object_name', 'atgard', 'skogsagare']);
     expect(saknadeUtanForslag({ object_name: 'X', huvudtyp: 'Slutavverkning', bolag: 'Privat', skogsagare: 'A' })).toEqual([]);
   });
 });

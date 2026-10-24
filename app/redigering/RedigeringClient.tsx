@@ -23,7 +23,7 @@ import { useFilerUtanObjekt } from '@/lib/hooks/useFilerUtanObjekt'
 import { delaFilJobb, kandidaterFor, sokObjekt as sokPlanObjekt } from '@/lib/redigering/filerUtanObjekt'
 import { okopplatJobb, altNummerAttSkriva, ignoreradNyckel, nummerbyten, type OkopplatJobb } from '@/lib/objektNummer'
 import BehoverDig from '@/components/redigering/BehoverDig'
-import ObjektOversikt, { type MerMal } from '@/components/redigering/ObjektOversikt'
+import ObjektOversikt from '@/components/redigering/ObjektOversikt'
 import ObjektLista from '@/components/redigering/ObjektLista'
 import type { ListGrupp } from '@/lib/redigering/listaVy'
 import { voGruppKarta, medVoGrupp } from '@/lib/redigering/voGrupp'
@@ -2607,469 +2607,6 @@ function PlanSelect({ label, value, options, onChange, disabled }: any) {
   )
 }
 
-function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, info, filRader, filHamtStatus, gruppSkotningAvslutad, skotareSanderEj, direktSpara, objektRad, objektRadLaddar, medarbetare, skordatTotal, skotatTotal, onOppnaDok, inkopare, setInkopare, direktSparaMaskin, direktSparaAvslut, skordForslag, skotForslag, startFalt }: any) {
-  const isGallring = obj.huvudtyp === 'Gallring'
-  const atgarder = isGallring ? atgarderGallring : atgarderSlut
-  const setAtgarder = isGallring ? setAtgarderGallring : setAtgarderSlut
-  // startFalt: översikten öppnade "Mer om objektet" för att ändra just det fältet — det står då utfällt.
-  const [oppetFalt, setOppetFalt] = useState<any>(startFalt ?? null)
-  const [pendingHuvudtyp, setPendingHuvudtyp] = useState<any>(null)
-
-  const kravFalt = kravFaltFor(obj)
-  const saknas = kravFalt.filter(f => !obj[f.key])
-  const warnings = getWarnings(obj)
-  const avslutWarn = warnings.find(w => w.key === 'reported_end' || w.key === 'maybe_done')
-  const radTyp = (obj.maskin_typ || '').toLowerCase()
-
-  // Vilka maskinrader som visas styrs av FAKTISK data (useMatchning) — aldrig
-  // dim_objekt.maskin_id, som på delade objekt bara pekar på senast skrivande
-  // fil. Noll data -> visa båda raderna (gissa inte).
-  const harSkordarData = (info?.skordatM3 ?? 0) > 0
-  const harSkotarData = (info?.skotatM3 ?? 0) > 0 || (Number(obj.skotad_volym_manuell) || 0) > 0
-  const ingenData = !harSkordarData && !harSkotarData
-  const visaSkordare = harSkordarData || ingenData
-  // Skotare-raden syns även utan skotardata när objektet är SKÖRDAT (skotning är
-  // nästa steg → måste vara nåbar för att avsluta/registrera manuellt även när
-  // maskinen körde före filsändning, Åbogen-fallet), när skotningen är avslutad,
-  // eller när skotarmaskinen aldrig sänder filer — uppräkningen måste vara nåbar
-  // från noll (Åkarp-fallet: skotad utan en enda lassrad).
-  const visaSkotare = harSkotarData || ingenData || harSkordarData || !!gruppSkotningAvslutad || !!skotareSanderEj
-
-  // Grot är ett huvudtyp-värde OCH en flagga — de synkas här så de aldrig kan
-  // säga emot varandra: väljer man 'Grot' sätts risskotning=true, väljer man
-  // slutavverkning/gallring nollas den. Ett byte TILL/FRÅN grot ändrar alltid
-  // risskotning, så det får aldrig gömmas som en fantomändring.
-  const nyHuvudtypPatch = (v: any) => {
-    const patch: any = { huvudtyp: v }
-    if (arGrotHuvudtyp(v) !== (obj.risskotning === true)) patch.risskotning = arGrotHuvudtyp(v)
-    return patch
-  }
-  // Avslutsdatum: optimistisk lokal uppdatering + direktsave mot rätt maskinslags
-  // rader (med grot-automatiken på risjobb). Fel → toast, snapshot rullas ej fram.
-  const avslut = (typ: 'harvester' | 'forwarder', p: Record<string, any>) => {
-    set({ ...obj, ...p })
-    direktSparaAvslut(typ, p)
-  }
-
-  const requestHuvudtyp = (v: any) => {
-    if (v === obj.huvudtyp) { setOppetFalt(null); return }
-    if (obj.atgard) {
-      setPendingHuvudtyp(v)
-    } else {
-      // Rör inte atgard här — den är redan tom, och null -> '' skulle
-      // räknas som en fantomändring i Spara-räknaren
-      const patch = nyHuvudtypPatch(v)
-      set({ ...obj, ...patch })
-      direktSpara(patch)
-      setOppetFalt(null)
-    }
-  }
-
-  // Radsammanfattningar — det viktigaste utan att öppna undersidan
-  const identitetSum = looksLikeAutoDate(obj.object_name)
-    ? { text: 'Autogenererat namn', warn: true }
-    : { text: obj.vo_nummer ? `VO ${obj.vo_nummer}` : 'VO saknas', warn: false }
-
-  const maskinSum = (avslutadDatum: any, egenskaper: any[], arRadensTyp: boolean) => {
-    const aktiva = egenskaper.filter(e => obj[e.key] === true).length
-    const suffix = aktiva > 0 ? ` · ${aktiva} ${aktiva === 1 ? 'aktiv' : 'aktiva'}` : ''
-    if (avslutWarn && arRadensTyp) {
-      return { text: avslutWarn.key === 'reported_end' ? 'Avslut ej markerat' : 'Verkar klar — ej markerad', warn: true }
-    }
-    if (avslutadDatum) return { text: `Klar ${fmtKortDatum(avslutadDatum)}${suffix}`, warn: false }
-    return { text: `Pågår${suffix}`, warn: false }
-  }
-  const skordareSum = maskinSum(obj.skordning_avslutad, EGENSKAPER_SKORDARE, radTyp === 'harvester')
-  const skotareSum = maskinSum(obj.skotning_avslutad, EGENSKAPER_SKOTARE, radTyp === 'forwarder')
-
-  const skotningSum = (() => {
-    const skotDel = obj._extern_skotning ? 'Extern skotare' : obj.egen_skotning ? 'Egen skotning' : null
-    const delar = [obj.extern_skordning ? 'Extern skördare' : null, skotDel].filter(Boolean)
-    return { text: delar.length ? delar.join(' · ') : '—', warn: false }
-  })()
-  const harUndantag = obj.timpeng !== true && (
-    (Number(obj.timpeng_undantag_timmar_skordare) || 0) > 0 ||
-    (Number(obj.timpeng_undantag_timmar_skotare) || 0) > 0 ||
-    (Number(obj.timpeng_undantag_volym) || 0) > 0)
-  const prisSum = {
-    text: `${obj.timpeng === true ? 'Timpeng' : 'Ackord'}${harUndantag ? ' · undantag' : ''}`,
-    warn: false,
-  }
-
-  const fil = filStatus(obj, filRader, { skotareSanderEjFiler: skotareSanderEj })
-  const antalFiler = (filRader || []).reduce((sum: number, r: any) => sum + (r.antalFiler || 0), 0)
-  const filerSum = filHamtStatus === 'fel' ? { text: 'Kunde inte läsas', warn: true }
-    : filHamtStatus === 'laddar' ? { text: 'Läser …', warn: false }
-    : fil.ovantadSkotardata ? { text: 'Oväntad skotardata', warn: true }
-    : fil.ovantadSkordardata ? { text: 'Oväntad skördardata', warn: true }
-    : fil.skordare === 'saknas' && fil.skotare === 'saknas' ? { text: 'Inget data ännu', warn: true }
-    : fil.skotare === 'saknas' ? { text: 'Skotardata saknas', warn: true }
-    : fil.skordare === 'saknas' ? { text: 'Skördardata saknas', warn: true }
-    : { text: `${antalFiler} ${antalFiler === 1 ? 'fil' : 'filer'}`, warn: false }
-
-  return (
-    <>
-      <div
-        style={{ ...styles.progressHeader, cursor: saknas.length > 0 ? 'pointer' : 'default' }}
-        onClick={() => {
-          if (saknas.length === 0) return
-          setOppetFalt(saknas[0].key)
-          scrollAndFlash(saknas[0].target)
-        }}
-      >
-        <MiniRing progress={(kravFalt.length - saknas.length) / kravFalt.length} />
-        <span style={styles.progressText}>{progressText(saknas, kravFalt.length)}</span>
-      </div>
-
-      {/* (a) FRÅN MASKINEN — auto, aldrig redigerbar. Kommer av importen. */}
-      <IosGroup title="Från maskinen">
-        <MaskinRad label="Avverkat" value={fmtM3(skordatTotal)} suffix="m³" />
-        <MaskinRad label="Skotat" value={fmtM3(skotatTotal)} suffix="m³" />
-        <MaskinRad label="Kvar på backen" value={fmtM3(Math.max(0, (Number(skordatTotal) || 0) - (Number(skotatTotal) || 0)))} suffix="m³" />
-      </IosGroup>
-
-      {/* (b) PLANERING — status/förare bor på objekt-tabellen. Saknas den raden
-          går fälten ej att spara ("kräver trakt-import"). Direktsave. */}
-      <IosGroup title="Planering">
-        {objektRadLaddar ? (
-          <div style={{ padding: '12px 16px', fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Läser planering …</div>
-        ) : !objektRad ? (
-          <>
-            <PlanSelect label="Status" disabled />
-            <PlanSelect label="Förare skördare" disabled />
-            <PlanSelect label="Förare skotare" disabled />
-            <div style={{ padding: '8px 16px 12px', fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>
-              Ingen planeringsrad för objektet ännu — sätts när trakten importerats.
-            </div>
-          </>
-        ) : (
-          <>
-            <PlanSelect label="Status" value={objektRad.status} options={STATUS_VAL}
-              onChange={(v: any) => direktSpara({ status: v })} />
-            <PlanSelect label="Förare skördare" value={objektRad.assigned_skordare_user_id}
-              options={(medarbetare || []).map((m: any) => ({ varde: m.id, label: m.namn }))}
-              onChange={(v: any) => direktSpara({ assigned_skordare_user_id: v })} />
-            <PlanSelect label="Förare skotare" value={objektRad.assigned_skotare_user_id}
-              options={(medarbetare || []).map((m: any) => ({ varde: m.id, label: m.namn }))}
-              onChange={(v: any) => direktSpara({ assigned_skotare_user_id: v })} />
-          </>
-        )}
-      </IosGroup>
-
-      {/* Etapp 1b: trakt-fälten (objekt-tabellen). Saknas objekt-rad visas EN nedtonad
-          grupp med fältnamnen — synliga men ej sparbara, aldrig tyst; ingen rad skapas. */}
-      {!objektRadLaddar && !objektRad && (
-        <IosGroup title="Trakt-uppgifter">
-          <div style={{ padding: '12px 16px', fontSize: 13, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
-            Volym planerad · prognos · planerad start/slut · band · traktnr · fastighet · kontrakt · GROT-status · transport · traktkarta · traktdirektiv
-            <div style={{ marginTop: 6, color: 'rgba(255,255,255,0.3)' }}>kräver trakt-import — ingen planeringsrad finns för objektet ännu.</div>
-          </div>
-        </IosGroup>
-      )}
-      {!objektRadLaddar && objektRad && (
-        <>
-          <IosGroup title="Volym & tidplan">
-            {/* Planerad volym = objekt.volym (trakt-importens <Target>, route.ts). INTE
-                volym_planerad (död kolumn, 0 rader) och INTE trakt_data.volym — den är
-                planeringsvyns hårdkodade placeholder 649 (page.tsx) på 44 av 47 objekt. */}
-            <PlanNum label="Volym planerad" value={objektRad.volym} suffix="m³fub"
-              onCommit={(v: any) => direktSpara({ volym: v })} />
-            <PlanText label="Prognos skördare" placeholder="G15-tim" value={objektRad.manuell_prognos?.skordare ?? ''}
-              onCommit={(v: any) => direktSpara({ manuell_prognos: { ...(objektRad.manuell_prognos || {}), skordare: v ?? '' } })} />
-            <PlanText label="Prognos skotare" placeholder="G15-tim" value={objektRad.manuell_prognos?.skotare ?? ''}
-              onCommit={(v: any) => direktSpara({ manuell_prognos: { ...(objektRad.manuell_prognos || {}), skotare: v ?? '' } })} />
-            <PlanDate label="Planerad start" value={objektRad.planerad_start} onCommit={(v: any) => direktSpara({ planerad_start: v })} />
-            <PlanDate label="Planerad slut" value={objektRad.planerad_slut} onCommit={(v: any) => direktSpara({ planerad_slut: v })} />
-          </IosGroup>
-
-          {/* Band + band-par: paret visas som egen rad direkt under sin maskin när band är på. */}
-          <IosGroup title="Band">
-            <div style={{ padding: '8px 16px' }}>
-              <EgenskapSwitch label="Skördare — band" active={!!objektRad.skordare_band} onClick={() => direktSpara({ skordare_band: !objektRad.skordare_band })} orange={false} />
-            </div>
-            {objektRad.skordare_band && (
-              <PlanText label="Band-par skördare" placeholder="t.ex. 2" value={objektRad.skordare_band_par}
-                onCommit={(v: any) => direktSpara({ skordare_band_par: v })} />
-            )}
-            <div style={{ padding: '8px 16px' }}>
-              <EgenskapSwitch label="Skotare — band" active={!!objektRad.skotare_band} onClick={() => direktSpara({ skotare_band: !objektRad.skotare_band })} orange={false} />
-            </div>
-            {objektRad.skotare_band && (
-              <PlanText label="Band-par skotare" placeholder="t.ex. 1" value={objektRad.skotare_band_par}
-                onCommit={(v: any) => direktSpara({ skotare_band_par: v })} />
-            )}
-          </IosGroup>
-
-          <IosGroup title="Trakt">
-            <PlanText label="Traktnr" value={objektRad.traktnr} onCommit={(v: any) => direktSpara({ traktnr: v })} />
-            <PlanText label="Fastighet" value={objektRad.fastighetsbeteckning} onCommit={(v: any) => direktSpara({ fastighetsbeteckning: v })} />
-            {/* Kontraktsnr: trakt-importen mappade OGI ContractNumber hit — men det ÄR VO-numret
-                (13 rader i prod). Visa aldrig ett kontraktsnr som bara är VO:t; tomt = saknas. */}
-            <PlanText label="Kontraktsnr"
-              value={(objektRad.kontraktsnummer && objektRad.vo_nummer && String(objektRad.kontraktsnummer).includes(String(objektRad.vo_nummer).trim())) ? '' : objektRad.kontraktsnummer}
-              onCommit={(v: any) => direktSpara({ kontraktsnummer: v })} />
-            <PlanSelect label="GROT-status" value={objektRad.grot_status} options={GROT_STATUS_VAL}
-              onChange={(v: any) => direktSpara({ grot_status: v })} />
-            <PlanText label="Transport" placeholder="Vändplan, framkomlighet …" multiline value={objektRad.transport_kommentar}
-              onCommit={(v: any) => direktSpara({ transport_kommentar: v })} />
-          </IosGroup>
-
-          {/* Klickbara trakt-länkar via delad DokumentChips (signerar privat bucket) → in-app PdfLasare. */}
-          <IosGroup title="Dokument">
-            {(objektRad.traktdirektiv_url || objektRad.traktkarta_url) ? (
-              <div style={{ padding: '12px 16px' }}>
-                <DokumentChips traktdirektivUrl={objektRad.traktdirektiv_url} traktkartaUrl={objektRad.traktkarta_url}
-                  typ={obj.huvudtyp === 'Slutavverkning' ? 'slut' : null} onOppna={onOppnaDok} />
-              </div>
-            ) : (
-              <div style={{ padding: '12px 16px', fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>Inga dokument ännu — traktkarta och direktiv kommer med trakt-importen.</div>
-            )}
-          </IosGroup>
-        </>
-      )}
-
-      {/* (c) RÄTTA UPPGIFTER — det man rättar för hand. Direktsave via routern
-          (skrivs över hela VO-gruppen, speglas till objekt-tabellen). */}
-      <IosGroup title="Rätta uppgifter">
-        <div id="huvudtyp-section">
-          {/* Grot är ett riktigt huvudtyp-val bredvid Slutavverkning/Gallring,
-              inte en härledd sidoflagga. Att välja 'Grot' synkar risskotning
-              (se requestHuvudtyp). Ett grot-objekt kan därför också väljas bort
-              från grot igen — det gick inte med den gamla läs-bara raden. */}
-          <KravRad label="Huvudtyp" value={obj.huvudtyp} expanded={oppetFalt === 'huvudtyp'} onToggle={() => setOppetFalt(oppetFalt === 'huvudtyp' ? null : 'huvudtyp')}>
-            <div style={{ padding: '0 16px 16px' }}>
-              <div style={styles.chipGrid as any}>
-                {HUVUDTYPER.map(h => (
-                  <Chip key={h} label={h} selected={obj.huvudtyp === h} onClick={() => requestHuvudtyp(h)} editMode={false} onDelete={() => {}} />
-                ))}
-              </div>
-              {arGrotHuvudtyp(obj.huvudtyp) && (
-                <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
-                  Grot = risskotning. Åtgärd efterfrågas inte för grot.
-                </div>
-              )}
-            </div>
-          </KravRad>
-        </div>
-        <div id="bolag-section">
-          <KravRad label="Bolag" value={obj.bolag} expanded={oppetFalt === 'bolag'} onToggle={() => setOppetFalt(oppetFalt === 'bolag' ? null : 'bolag')}>
-            <ChipInput embedded label={null} value={obj.bolag || ''} options={bolag} setOptions={setBolag} onChange={(v: string) => { set({ ...obj, bolag: v }); direktSpara({ bolag: v || null }); if (v) setOppetFalt(null) }} onAddOption={listAtgarder?.onAddBolag} onRemoveOption={listAtgarder?.onRemoveBolag} />
-          </KravRad>
-        </div>
-        <div id="skogsagare-section">
-          <KravRad label="Markägare" value={obj.skogsagare} expanded={oppetFalt === 'skogsagare'} onToggle={() => setOppetFalt(oppetFalt === 'skogsagare' ? null : 'skogsagare')}>
-            <div style={{ padding: '0 16px 16px' }}>
-              <input
-                autoFocus
-                type="text"
-                value={obj.skogsagare || ''}
-                onChange={(e) => set({ ...obj, skogsagare: e.target.value })}
-                onBlur={() => direktSpara({ markagare: obj.skogsagare || null })}
-                onKeyDown={(e) => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); setOppetFalt(null) } }}
-                placeholder="Skriv markägarens namn …"
-                style={{ ...styles.chipInput, marginBottom: 0 } as any}
-              />
-            </div>
-          </KravRad>
-          {objektRad && <TraktSager trakt={objektRad.markagare} dim={obj.skogsagare} provenans={obj.auto_ifyllt?.skogsagare}
-            onAnvand={(v: string) => { set({ ...obj, skogsagare: v }); direktSpara({ markagare: v }) }} />}
-        </div>
-        <div id="atgard-section">
-          <KravRad label="Åtgärd" value={obj.atgard} expanded={oppetFalt === 'atgard'} onToggle={() => setOppetFalt(oppetFalt === 'atgard' ? null : 'atgard')}>
-            {obj.huvudtyp ? (
-              <ChipInput embedded label={null} value={obj.atgard || ''} options={atgarder} setOptions={setAtgarder} onChange={(v: string) => { set({ ...obj, atgard: v }); direktSpara({ atgard: v || null }); if (v) setOppetFalt(null) }} />
-            ) : (
-              <div style={{ padding: '0 16px 16px', fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>Välj huvudtyp först.</div>
-            )}
-          </KravRad>
-          {/* Importens åtgärd (ur TD:ns Arbetsform). Äldre rader har en AVTALSFORM (Au/Rp …) i objekt.atgard — den erbjuds inte som åtgärd. */}
-          {objektRad && !arAvtalsformVarde(objektRad.atgard) && <TraktSager trakt={objektRad.atgard} dim={obj.atgard}
-            onAnvand={(v: string) => { set({ ...obj, atgard: v }); direktSpara({ atgard: v }) }} />}
-        </div>
-        {/* Avtalsform (hur trakten är avtalad) är ett eget fält, skilt från Åtgärd (vad som görs). Bara slutavverkning har avtalsform. Importen läser den
-            ur TD:ns "Ursprung" (Rotpost → Rp); "trakt säger" visar den så den kan tas med ett tryck. */}
-        {obj.huvudtyp === 'Slutavverkning' && (
-          <div id="avtalsform-section">
-            <KravRad label="Avtalsform" value={obj.avtalsform} expanded={oppetFalt === 'avtalsform'} onToggle={() => setOppetFalt(oppetFalt === 'avtalsform' ? null : 'avtalsform')}>
-              <ChipInput embedded fast label={null} value={obj.avtalsform || ''} options={[...AVTALSFORMER]} setOptions={() => {}}
-                onChange={(v: string) => { set({ ...obj, avtalsform: v }); direktSpara({ avtalsform: v || null }); if (v) setOppetFalt(null) }} />
-            </KravRad>
-            {objektRad && <TraktSager trakt={objektRad.avtalsform} dim={obj.avtalsform}
-              onAnvand={(v: string) => { set({ ...obj, avtalsform: v }); direktSpara({ avtalsform: v }) }} />}
-          </div>
-        )}
-        {/* Etapp 1c — uppdraget ur Identitet-undersidan. VO/namn skrivs aldrig TOMMA
-            (som #407-synken): ett blankat VO skulle nolla objekt-speglingen. */}
-        <PlanText label="VO-nummer" value={obj.vo_nummer} placeholder="Ange VO …"
-          onCommit={(v: any) => { if (v) { set({ ...obj, vo_nummer: v }); direktSpara({ vo_nummer: v }) } }} />
-        <NamnRad obj={obj} set={set} direktSpara={direktSpara} />
-        <div style={{ padding: '4px 0' }}>
-          <ChipInput embedded label="Inköpare" value={obj.inkopare || ''} options={inkopare} setOptions={setInkopare}
-            onChange={(v: string) => { set({ ...obj, inkopare: v }); direktSpara({ inkopare: v || null }) }}
-            onAddOption={listAtgarder?.onAddInkopare} onRemoveOption={listAtgarder?.onRemoveInkopare} />
-          {objektRad && <TraktSager trakt={objektRad.inkopare} dim={obj.inkopare} provenans={obj.auto_ifyllt?.inkopare}
-            onAnvand={(v: string) => { set({ ...obj, inkopare: v }); direktSpara({ inkopare: v }) }} />}
-        </div>
-        <PlanText label="Avverkningsform" value={obj.avverkningsform} placeholder="t.ex. Föryngringsavverkning"
-          onCommit={(v: any) => { set({ ...obj, avverkningsform: v }); direktSpara({ avverkningsform: v }) }} />
-        {objektRad && <TraktSager trakt={objektRad.avverkningsform} dim={obj.avverkningsform} provenans={obj.auto_ifyllt?.avverkningsform}
-          onAnvand={(v: string) => { set({ ...obj, avverkningsform: v }); direktSpara({ avverkningsform: v }) }} />}
-      </IosGroup>
-
-      {/* Egenskaper per maskinslag — maskinspecifika fält skrivs bara till det
-          maskinslagets rader (direktSparaMaskin), gemensamma till hela gruppen. */}
-      <IosGroup title="Egenskaper">
-        <div style={{ padding: '10px 16px' }}>
-          <div style={styles.switchList}>
-            <EgenskapSwitch label="Extern skördare (annan avverkar)" active={obj.extern_skordning === true}
-              onClick={() => { const v = !obj.extern_skordning; set({ ...obj, extern_skordning: v }); direktSpara({ extern_skordning: v }) }} orange={false} />
-            {visaSkordare && EGENSKAPER_SKORDARE.map(e => (
-              <EgenskapSwitch key={e.key} label={e.label} active={obj[e.key] === true} orange={false}
-                onClick={() => {
-                  const v = !obj[e.key]; set({ ...obj, [e.key]: v })
-                  // grot_anpassad är ett GEMENSAMT objekt-faktum (hela gruppen), stubbe är skördarens.
-                  if (e.key === 'grot_anpassad') direktSpara({ grot_anpassad: v }); else direktSparaMaskin({ [e.key]: v }, 'harvester')
-                }} />
-            ))}
-            <EgenskapSwitch label="Egen skotning (markägaren skotar)" active={obj.egen_skotning === true}
-              onClick={() => { const v = !obj.egen_skotning; set({ ...obj, egen_skotning: v }); direktSparaMaskin({ egen_skotning: v }, 'forwarder') }} orange={false} />
-            {visaSkotare && EGENSKAPER_SKOTARE.map(e => (
-              <EgenskapSwitch key={e.key} label={e.label} active={obj[e.key] === true} orange={false}
-                onClick={() => { const v = !obj[e.key]; set({ ...obj, [e.key]: v }); direktSparaMaskin({ [e.key]: v }, 'forwarder') }} />
-            ))}
-          </div>
-          {obj.extern_skordning && (
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, marginTop: 8 }}>
-              Annan maskin avverkar — vi skotar bara. Skördardata förväntas inte och skördningsavslut krävs inte.
-            </div>
-          )}
-          {/* Grot hämtad — bara på grot-anpassade objekt. Frikopplar riset från virket. Ångerbar. */}
-          {obj.grot_anpassad === true && (
-            <div style={{ marginTop: 12 }}>
-              {!obj.grot_hamtad ? (
-                <button onClick={() => { const d = new Date().toISOString().slice(0, 10); set({ ...obj, grot_hamtad: d }); direktSpara({ grot_hamtad: d }) }} className="tap-press"
-                  style={{ width: '100%', minHeight: 48, borderRadius: 12, border: 'none', background: '#f0b24c', color: '#000', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
-                  Markera grot hämtad
-                </button>
-              ) : (
-                <button onClick={() => { set({ ...obj, grot_hamtad: null }); direktSpara({ grot_hamtad: null }) }} className="tap-press"
-                  style={{ width: '100%', minHeight: 44, borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
-                  Grot hämtad {fmtKortDatum(obj.grot_hamtad)} · ångra
-                </button>
-              )}
-            </div>
-          )}
-          {/* Markägarens datum + skäl — bara medan GROT väntar; när riset är hämtat finns ingen önskan kvar att visa. */}
-          {obj.grot_anpassad === true && !obj.grot_hamtad && (
-            <GrotSenastFalt obj={obj} direktSpara={direktSpara} />
-          )}
-        </div>
-      </IosGroup>
-
-      {/* Avslut — datum per maskinslag, med maskindatans förslag. Direktsave med
-          samma grot-automatik som förr (direktSparaAvslut). */}
-      {(visaSkordare || visaSkotare) && (
-        <IosGroup title="Avslut">
-          {visaSkordare && (
-            <div id="avslut-skordare-section" style={{ padding: '10px 16px' }}>
-              <div style={styles.switchList}>
-                <DateToggle label="Skördning avslutad" date={obj.skordning_avslutad || null}
-                  onToggle={(val: string | null) => avslut('harvester', { skordning_avslutad: val, skordning_avslutad_auto: false })}
-                  onDateChange={(val: any) => avslut('harvester', { skordning_avslutad: val, skordning_avslutad_auto: false })} />
-              </div>
-              <AvslutForslagRuta obj={obj} field="skordning_avslutad" autoField="skordning_avslutad_auto" label="skördning" forslag={skordForslag}
-                set={(ny: any) => avslut('harvester', { skordning_avslutad: ny.skordning_avslutad, skordning_avslutad_auto: ny.skordning_avslutad_auto })} />
-            </div>
-          )}
-          {visaSkotare && (
-            <div id="avslut-skotare-section" style={{ padding: '10px 16px' }}>
-              <div style={styles.switchList}>
-                <DateToggle label="Skotning avslutad" date={obj.skotning_avslutad || null}
-                  onToggle={(val: string | null) => avslut('forwarder', { skotning_avslutad: val, skotning_avslutad_auto: false })}
-                  onDateChange={(val: any) => avslut('forwarder', { skotning_avslutad: val, skotning_avslutad_auto: false })} />
-                {obj.skotning_avslutad && obj.skordning_avslutad && obj.skotning_avslutad < obj.skordning_avslutad && (
-                  <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>Skotning är satt före skördningens avslutsdatum.</div>
-                )}
-              </div>
-              <AvslutForslagRuta obj={obj} field="skotning_avslutad" autoField="skotning_avslutad_auto" label="skotning" forslag={skotForslag}
-                set={(ny: any) => avslut('forwarder', { skotning_avslutad: ny.skotning_avslutad, skotning_avslutad_auto: ny.skotning_avslutad_auto })} />
-            </div>
-          )}
-        </IosGroup>
-      )}
-
-      {/* Kvar som undersidor: arbetsflöden och ekonomi — inga fält som också finns ovan. */}
-      <IosGroup title="Mer om objektet">
-        <NavRad label="Filer" summary={filerSum.text} warn={filerSum.warn} onClick={() => oppnaSub('filer')} />
-        {visaSkotare && <NavRad label="🚜 Skotare — färdigskotat & fördelning" summary={skotareSum.text} warn={skotareSum.warn} onClick={() => oppnaSub('skotare')} />}
-        <NavRad label="Extern skotare (inlejd)" summary={obj._extern_skotning ? 'Extern skotare' : '—'} warn={false} onClick={() => oppnaSub('skotning')} />
-        <NavRad label="Pris & ersättning" summary={prisSum.text} warn={prisSum.warn} onClick={() => oppnaSub('pris')} />
-      </IosGroup>
-
-      {/* Special-objekt (vindfällor, stormskadat): syns med en badge i maskinvyn och ska kunna uteslutas ur framtida
-          jämförelser. Ändrar ingen siffra idag. Skild från Exkludera nedan, som döljer objektet helt. */}
-      <IosGroup title="Special-objekt">
-        <div style={{ padding: '12px 16px' }}>
-          <EgenskapSwitch
-            label="Special (t.ex. vindfällor, stormskadat)"
-            active={obj.special === true}
-            onClick={async () => {
-              const v = obj.special !== true
-              const fore = obj
-              set({ ...obj, special: v, special_skal: v ? obj.special_skal ?? null : null })
-              const ok = await direktSpara(v ? { special: true } : { special: false, special_skal: null })
-              if (!ok) set(fore)
-            }}
-            orange={false}
-          />
-          <div style={{ ...TYP.meta, color: FARG.text3, marginTop: 8 }}>
-            Objektet är kvar i statistiken och syns med markeringen Special i maskinvyn. Det ska kunna uteslutas ur framtida prestandajämförelser.
-          </div>
-        </div>
-        {obj.special === true && (
-          <PlanText label="Skäl" value={obj.special_skal} placeholder="t.ex. Vindfällor efter stormen"
-            onCommit={async (v: string | null) => {
-              const fore = obj
-              set({ ...obj, special_skal: v })
-              const ok = await direktSpara({ special_skal: v })
-              if (!ok) set(fore)
-            }} />
-        )}
-      </IosGroup>
-
-      {/* Exkludera — medvetet ÖPPEN rad längst ned, aldrig gömd i undersida */}
-      <IosGroup title="Statistik">
-        <div style={{ padding: '12px 16px' }}>
-          <EgenskapSwitch
-            label="Exkludera från statistik"
-            active={obj.exkludera}
-            onClick={() => { const v = !obj.exkludera; set({ ...obj, exkludera: v }); direktSpara({ exkludera: v }) }}
-            orange
-          />
-        </div>
-      </IosGroup>
-
-      <ConfirmDialog
-        open={!!pendingHuvudtyp}
-        title="Byt huvudtyp?"
-        message={arGrotHuvudtyp(pendingHuvudtyp)
-          ? `Detta tar bort vald åtgärd ("${obj.atgard}"). Grot har ingen åtgärd.`
-          : `Detta tar bort vald åtgärd ("${obj.atgard}"). Du måste välja åtgärd på nytt.`}
-        confirmLabel="Byt huvudtyp"
-        cancelLabel="Avbryt"
-        onConfirm={() => {
-          const patch = { ...nyHuvudtypPatch(pendingHuvudtyp), atgard: '' }
-          set({ ...obj, ...patch })
-          direktSpara(patch)
-          setPendingHuvudtyp(null)
-          setOppetFalt(null)
-        }}
-        onCancel={() => setPendingHuvudtyp(null)}
-      />
-    </>
-  )
-}
-
 // EDITORN — hela redigeringssheeten (översikt + undersidor + dirty-guard +
 // spara). EN delad instans används av både arbetslistan och Alla objekt —
 // tidigare bar varje vy sin egen kopia av all denna logik.
@@ -3077,9 +2614,6 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
   const [valtObjekt, setValtObjekt] = useState<any>(null)
   const [originalObjekt, setOriginalObjekt] = useState<any>(null)
   const [subpage, setSubpage] = useState<any>(null)
-  // Varifrån en undersida öppnades: översikten (null) eller "Mer om objektet" ('mer') — tillbaka går dit.
-  const [forraSub, setForraSub] = useState<any>(null)
-  const [merMal, setMerMal] = useState<MerMal>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -3100,8 +2634,6 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       setValtObjekt(parsed)
       setOriginalObjekt(parsed)
       setSubpage(null)
-      setForraSub(null)
-      setMerMal(null)
       setSaved(false)
       setSaveError('')
     } else {
@@ -3363,23 +2895,28 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
 
   // Identitet + Skördare är borta (Etapp 1c) — deras fält bor i tredelningen.
   // Kvar: arbetsflöden (Skotare), ekonomi (Extern skotare, Pris) och fil-info.
-  const titlar: any = { mer: 'Mer om objektet', filer: 'Filer', skotare: 'Skotare', skotning: 'Extern skotare', pris: 'Pris & ersättning' }
-  const tillbaka = () => setSubpage(subpage === 'mer' ? null : forraSub)
-  const oppnaUnder = (fran: any) => (sub: any) => { setForraSub(fran); setSubpage(sub) }
-  // "Mer om objektet" med ett fält att visa: sidan byts, sedan rullas fältet fram och blinkar (EditSheet börjar överst vid byte).
-  const MAL_ID: Record<string, string> = { huvudtyp: 'huvudtyp-section', bolag: 'bolag-section', skogsagare: 'skogsagare-section', atgard: 'atgard-section', avtalsform: 'avtalsform-section', avslut: 'avslut-skordare-section' }
-  const oppnaMer = (mal?: MerMal) => {
-    setMerMal(mal ?? null)
-    setForraSub(null)
-    setSubpage('mer')
-    const id = mal ? MAL_ID[mal] : null
-    if (id) setTimeout(() => scrollAndFlash(id), 350)
-  }
+  const titlar: any = { filer: 'Filer', skotare: 'Skotare', skotning: 'Extern skotare', pris: 'Pris och ersättning' }
+  // Ett ark per objekt: varje undersida öppnas från översikten och går tillbaka dit.
+  const tillbaka = () => setSubpage(null)
   // Filer över hela VO-gruppen — ett fysiskt objekt är ofta flera rader,
   // och en kopplad maskinrad ska synas oavsett vilken rad som öppnas
   const filRader = valtObjekt && fildata?.status === 'ok'
     ? slaIhopFildata(syskon.map((o: any) => fildata.perObjekt.get(o.objekt_id)))
     : undefined
+  const filerSummering = (() => {
+    if (!valtObjekt) return { text: '', warn: false }
+    const st = fildata?.status || 'laddar'
+    if (st === 'fel') return { text: 'Kunde inte läsas', warn: true }
+    if (st === 'laddar') return { text: 'Läser …', warn: false }
+    const fil = filStatus(valtObjekt, filRader, { skotareSanderEjFiler: skotareSanderEj })
+    const antal = (filRader || []).reduce((sum: number, r: any) => sum + (r.antalFiler || 0), 0)
+    if (fil.ovantadSkotardata) return { text: 'Oväntad skotardata', warn: true }
+    if (fil.ovantadSkordardata) return { text: 'Oväntad skördardata', warn: true }
+    if (fil.skordare === 'saknas' && fil.skotare === 'saknas') return { text: 'Inget data ännu', warn: true }
+    if (fil.skotare === 'saknas') return { text: 'Skotardata saknas', warn: true }
+    if (fil.skordare === 'saknas') return { text: 'Skördardata saknas', warn: true }
+    return { text: `${antal} ${antal === 1 ? 'fil' : 'filer'}`, warn: false }
+  })()
 
   return (
     <>
@@ -3410,8 +2947,16 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
             filRader={filRader} filStatus={fildata?.status || 'laddar'}
             skordForslag={skordForslag} skotForslag={skotForslag}
             direktSpara={direktSpara} direktSparaAvslut={direktSparaAvslut}
-            oppnaFiler={() => oppnaUnder(null)('filer')} oppnaMer={oppnaMer}
-            oppnaSkotare={() => oppnaUnder(null)('skotare')}
+            direktSparaMaskin={direktSparaMaskin}
+            oppnaUnder={(sida) => setSubpage(sida)}
+            atgardVal={(valtObjekt.huvudtyp === 'Gallring' ? atgarderGallring : atgarderSlut) || []}
+            filerSummering={filerSummering}
+            dokument={(objektRad?.traktdirektiv_url || objektRad?.traktkarta_url)
+              ? <DokumentChips traktdirektivUrl={objektRad.traktdirektiv_url} traktkartaUrl={objektRad.traktkarta_url}
+                  typ={valtObjekt.huvudtyp === 'Slutavverkning' ? 'slut' : null}
+                  onOppna={(url: string, titel: string) => setPdfDok({ url, titel })} />
+              : null}
+            grotSenast={<GrotSenastFalt obj={valtObjekt} direktSpara={direktSpara} />}
             sattSkotat={async (volym: number) => {
               const r = await sparaFardigskotat(valtObjekt, syskon, volym)
               if (!r.ok) { setSaveError(r.message || 'Kunde inte spara'); setTimeout(() => setSaveError(''), 6000); return false }
@@ -3420,22 +2965,6 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
               return true
             }}
             taBort={async () => { const ok = await direktSpara({ exkludera: true }); if (ok) onClose(); return ok }}
-          />
-        )}
-        {valtObjekt && subpage === 'mer' && (
-          <SheetOversikt
-            obj={valtObjekt} set={setValtObjekt} oppnaSub={oppnaUnder('mer')} startFalt={merMal && merMal !== 'avslut' ? merMal : null}
-            bolag={bolag} setBolag={setBolag} listAtgarder={listAtgarder}
-            atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut}
-            atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring}
-            info={info} filRader={filRader} filHamtStatus={fildata?.status || 'laddar'}
-            gruppSkotningAvslutad={gruppSkotningAvslutad} skotareSanderEj={skotareSanderEj}
-            direktSpara={direktSpara} objektRad={objektRad} objektRadLaddar={objektRadLaddar}
-            medarbetare={medarbetare} skordatTotal={skordatTotal} skotatTotal={skotatTotal}
-            onOppnaDok={(url: string, titel: string) => setPdfDok({ url, titel })}
-            inkopare={inkopare} setInkopare={setInkopare}
-            direktSparaMaskin={direktSparaMaskin} direktSparaAvslut={direktSparaAvslut}
-            skordForslag={skordForslag} skotForslag={skotForslag}
           />
         )}
         {valtObjekt && subpage === 'filer' && (

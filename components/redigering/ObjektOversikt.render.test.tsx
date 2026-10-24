@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Objektets ark: svaret först, förslaget sparas med ett tryck, Special är en brytare högt upp, källan står under fältet,
-// och allt annat nås via "Mer om objektet".
+// och allt annat finns i samma ark under Mer (det gamla "Mer om objektet" är borta, 2026-10-24).
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act, useState } from 'react';
@@ -36,7 +36,9 @@ function Vy({ start = SKALVIKEN, spara, extra = {} }: { start?: any; spara: (p: 
       filRader={[{ maskinId: 'G', modell: 'Giant', typ: 'skordare', antalFiler: 6, senasteData: '2026-10-14' }]} filStatus="ok"
       skordForslag={null} skotForslag={null}
       direktSpara={spara} direktSparaAvslut={async () => true}
-      oppnaFiler={() => {}} oppnaMer={() => {}} oppnaSkotare={() => {}} sattSkotat={async () => true} taBort={async () => true} {...extra} />
+      direktSparaMaskin={async () => true} oppnaUnder={() => {}} atgardVal={['Föryngring', 'Första gallring', 'Gallring']}
+      filerSummering={{ text: '6 filer', warn: false }} dokument={null} grotSenast={null}
+      sattSkotat={async () => true} taBort={async () => true} {...extra} />
   );
 }
 
@@ -85,23 +87,25 @@ describe('ObjektOversikt', () => {
 
   it('maskinerna, avslutsförslaget och Mer', async () => {
     const avslut = vi.fn(async () => true);
-    const mer = vi.fn();
-    const filer = vi.fn();
+    const under = vi.fn();
     montera(<Vy spara={async () => true} extra={{
       skordForslag: { field: 'skordning_avslutad', autoField: 'skordning_avslutad_auto', label: 'skördning', maskinTyp: 'harvester', datum: '2026-10-14', kalla: 'maskindata' },
-      direktSparaAvslut: avslut, oppnaMer: mer, oppnaFiler: filer,
+      direktSparaAvslut: avslut, oppnaUnder: under,
     }} />);
     expect(document.querySelector('[data-maskin="G"]')!.textContent).toContain('Skördare · 6 filer · t.o.m. 14 okt');
     await klick(document.querySelector('[data-maskin="G"]'));
-    expect(filer).toHaveBeenCalled();
+    expect(under).toHaveBeenCalledWith('filer');
     expect(text()).toContain('Skördning klar 14 okt?');
     await klick([...document.querySelectorAll('[data-avslut-forslag] button')].find(b => b.textContent === 'Godkänn')!);
     expect(avslut).toHaveBeenCalledWith('harvester', { skordning_avslutad: '2026-10-14', skordning_avslutad_auto: true });
     expect(document.querySelector('[data-avslut="Skördning"]')!.textContent).toContain('Klar 14 okt');
-    await klick(document.querySelector('[data-mer]'));
-    expect(mer).toHaveBeenCalledWith(null);
-    await klick(document.querySelector('[data-uppgift="skogsagare"]'));
-    expect(mer).toHaveBeenLastCalledWith('skogsagare');
+    // Mer: undersidorna öppnas från samma ark — inget "Mer om objektet" längre.
+    expect(document.querySelector('[data-mer]')).toBeNull();
+    expect(text()).not.toContain('Mer om objektet');
+    for (const sida of ['filer', 'skotare', 'skotning', 'pris']) {
+      await klick(document.querySelector(`[data-mer-rad="${sida}"]`));
+      expect(under).toHaveBeenLastCalledWith(sida);
+    }
   });
 
   it('Typ öppnar ett ark med valen; Vem kör visar namnet', async () => {
@@ -189,5 +193,77 @@ describe('ObjektLista', () => {
     expect(document.querySelector('[data-rad="Tjuvön"]')).not.toBeNull();
     expect(document.querySelector('[data-rad="Åbogen"]')).toBeNull();
     expect(text()).toContain('2 utan planering');
+  });
+});
+
+describe('ObjektOversikt — ett ark för allt (2026-10-24)', () => {
+  it('markägaren rättas i ett eget ark och sparas mot routerns markagare', async () => {
+    const spara = vi.fn(async () => true);
+    montera(<Vy spara={spara} />);
+    await klick(document.querySelector('[data-uppgift="skogsagare"]'));
+    const input = document.querySelector('[data-text-falt="skogsagare"]') as HTMLInputElement;
+    expect(input.value).toBe('Anna Berg');
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      set.call(input, 'Bertil Berg'); input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await klick(document.querySelector('[data-spara]'));
+    expect(spara).toHaveBeenCalledWith({ markagare: 'Bertil Berg' });
+  });
+
+  it('VO-numret frågar en gång till innan det sparas', async () => {
+    const spara = vi.fn(async () => true);
+    montera(<Vy spara={spara} />);
+    await klick(document.querySelector('[data-mer-rad="vo_nummer"]'));
+    const input = document.querySelector('[data-text-falt="vo_nummer"]') as HTMLInputElement;
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      set.call(input, '11999999'); input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await klick(document.querySelector('[data-spara]'));
+    expect(spara).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-vo-fraga]')!.textContent).toBe('Vill du verkligen ändra VO-numret?');
+    expect(text()).toContain('Från 11271860 till 11999999.');
+    // Nej tar tillbaka utan att spara.
+    await klick([...document.querySelectorAll('button')].find(b => b.textContent === 'Nej, gå tillbaka')!);
+    expect(spara).not.toHaveBeenCalled();
+    await klick(document.querySelector('[data-spara]'));
+    await klick(document.querySelector('[data-vo-bekrafta]'));
+    expect(spara).toHaveBeenCalledWith({ vo_nummer: '11999999' });
+    expect(document.querySelector('[data-vo-fraga]')).toBeNull();
+  });
+
+  it('typbyte med en åtgärd: arket säger att åtgärden töms, och den töms', async () => {
+    const spara = vi.fn(async () => true);
+    montera(<Vy spara={spara} start={{ ...SKALVIKEN, huvudtyp: 'Gallring', atgard: 'Första gallring' }} />);
+    await klick(document.querySelector('[data-uppgift="huvudtyp"]'));
+    await klick([...document.querySelectorAll('[role="radio"]')].find(r => r.textContent!.includes('Slutavverkning'))!);
+    expect(document.querySelector('[data-val-not]')!.textContent).toContain('Åtgärden "Första gallring" hör till typen och töms');
+    await klick(document.querySelector('[data-spara]'));
+    expect(spara).toHaveBeenCalledWith({ huvudtyp: 'Slutavverkning', risskotning: false, atgard: '' });
+  });
+
+  it('avslutsdatum sätts och tas bort i samma ark', async () => {
+    const avslut = vi.fn(async () => true);
+    montera(<Vy spara={async () => true} start={{ ...SKALVIKEN, skordning_avslutad: '2026-10-14' }} extra={{ direktSparaAvslut: avslut }} />);
+    await klick(document.querySelector('[data-avslut="Skördning"]'));
+    expect((document.querySelector('[data-avslut-datum]') as HTMLInputElement).value).toBe('2026-10-14');
+    await klick(document.querySelector('[data-avslut-inte]'));
+    expect(avslut).toHaveBeenCalledWith('harvester', { skordning_avslutad: null, skordning_avslutad_auto: false });
+    expect(document.querySelector('[data-avslut="Skördning"]')!.textContent).toContain('Inte än');
+  });
+
+  it('egenskaperna: maskinens fält till maskinens rader, gemensamma till hela gruppen', async () => {
+    const spara = vi.fn(async () => true);
+    const maskin = vi.fn(async () => true);
+    montera(<Vy spara={spara} extra={{ direktSparaMaskin: maskin }} />);
+    expect(document.querySelector('[data-mer-rad="egenskaper"]')!.textContent).toContain('Inga');
+    await klick(document.querySelector('[data-mer-rad="egenskaper"]'));
+    await klick(document.querySelector('[data-egenskap="stubbbehandling"] [role="switch"]'));
+    expect(maskin).toHaveBeenCalledWith({ stubbbehandling: true }, 'harvester');
+    await klick(document.querySelector('[data-egenskap="extern_skordning"] [role="switch"]'));
+    expect(spara).toHaveBeenCalledWith({ extern_skordning: true });
+    expect(text()).not.toContain('Inköpare');
+    expect(text()).not.toContain('Avverkningsform');
   });
 });
