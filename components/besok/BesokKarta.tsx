@@ -7,7 +7,7 @@ import React, { useEffect, useRef } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { cirkelPolygon } from '@/lib/telefonGps';
-import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
+import { BESOK_MASKINFARG } from '@/lib/besok/farg';
 import { AVSTAND, FARG } from '@/lib/design/tokens';
 
 /** Skogsgrönt bakom flygfotot medan rutorna laddas (en kartfärg, ingen UI-färg). */
@@ -89,7 +89,7 @@ export default function BesokKarta({ data, hojd = 340 }: { data: KartaData; hojd
   function uppdateraMarkorer(map: maplibregl.Map) {
     markorer.current.forEach((m) => m.remove());
     markorer.current = senaste.current.maskiner.map((m) => {
-      const farg = m.roll === 'skotare' ? ROLLFARG_SKOTARE : ROLLFARG_SKORDARE;
+      const farg = BESOK_MASKINFARG[m.roll];
       const el = document.createElement('div');
       el.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;pointer-events:none';
       el.innerHTML = `<div style="padding:3px 8px;border-radius:10px;background:#000c;color:#fff;font:600 13px/1.2 Inter,system-ui,sans-serif;white-space:nowrap">${ROLL_NAMN[m.roll]}</div><div style="width:16px;height:16px;border-radius:50%;background:${farg};border:3px solid #fff;box-shadow:0 0 0 1px #0007"></div>`;

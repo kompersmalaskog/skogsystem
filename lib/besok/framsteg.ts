@@ -1,11 +1,16 @@
 // Framsteget som markägaren ser överst på besökssidan: "62 % klart · klart ca fredag". Räknas på servern ur volymer som aldrig lämnar servern — sidan får bara procenten och dagen.
 //
 //   Klart = hälften skördat och hälften skotat (båda mot planerad volym, var för sig högst 100 %). Skotat noll = skotningen ännu inte börjat.
-//   Klart ca = den senare av när skördningen och skotningen väntas bli klara, räknat i ARBETSDAGAR (mån–fre) på takten de senaste dagarna med produktion. Går skotningens takt inte
-//   att mäta antas den bli klar SKOTNING_EFTER_DAGAR arbetsdagar efter skördningen. Saknas takt för skördningen (färre än två dagar med produktion) sägs ingen dag — ärligt tomt, ingen gissning.
+//   Klart ca = den senare av när skördningen och skotningen väntas bli klara, räknat i ARBETSDAGAR (mån–fre) på takten de senaste TAKT_DAGAR dagarna med produktion.
+//   Dagen sägs BARA när prognosen håller (uppstramning 2026-10-23) — annars står bara "% klart". Alla villkor måste gälla för varje del som återstår:
+//     1. minst TAKT_DAGAR dagar med produktion (färre = ingen takt),
+//     2. takten stabil: varje av de dagarna ligger inom ±PROGNOS.TAKT_STABIL av snittet (en dag med 10 m³ bland dagar på 100 är ingen takt),
+//     3. senaste produktionsdagen högst PROGNOS.SENASTE_DAG_MAX kalenderdagar gammal (en maskin som står still ger ingen prognos),
+//     4. högst PROGNOS.HORISONT_MAX arbetsdagar kvar (längre fram är det en gissning).
+//   Ingen antagen eftersläpning för skotningen längre: kan skotningens takt inte mätas (och något återstår att skota) sägs ingen dag.
 
 import { dagarMellan } from '@/lib/grotvy/format';
-import { SKOTNING_EFTER_DAGAR, TAKT_DAGAR } from './konstanter';
+import { PROGNOS, TAKT_DAGAR } from './konstanter';
 
 export type DagVolym = { datum: string; m3: number };
 
@@ -36,12 +41,28 @@ export function plusArbetsdagar(fran: string, n: number): string {
   return iso(d);
 }
 
+/** Dagarna takten räknas på: de senaste TAKT_DAGAR med produktion. */
+const taktDagar = (dagar: DagVolym[]) => dagar.filter((d) => Number.isFinite(d.m3) && d.m3 > 0).sort((a, b) => b.datum.localeCompare(a.datum)).slice(0, TAKT_DAGAR);
+
 /** Snitt m³ per dag med produktion, på de senaste TAKT_DAGAR dagarna; null när färre än två dagar finns (en enda dag är ingen takt). */
 export function takt(dagar: DagVolym[]): number | null {
-  const med = dagar.filter((d) => Number.isFinite(d.m3) && d.m3 > 0).sort((a, b) => b.datum.localeCompare(a.datum)).slice(0, TAKT_DAGAR);
+  const med = taktDagar(dagar);
   if (med.length < 2) return null;
   return med.reduce((s, d) => s + d.m3, 0) / med.length;
 }
+
+/** Takten som prognosen får bygga på: exakt TAKT_DAGAR dagar, stabil, och senaste dagen färsk. null = prognosen håller inte. */
+export function hallandeTakt(dagar: DagVolym[], idag: string): number | null {
+  const med = taktDagar(dagar);
+  if (med.length < TAKT_DAGAR) return null;
+  const snitt = med.reduce((s, d) => s + d.m3, 0) / med.length;
+  if (med.some((d) => Math.abs(d.m3 - snitt) > snitt * PROGNOS.TAKT_STABIL)) return null;
+  if (dagarMellan(med[0].datum, idag) > PROGNOS.SENASTE_DAG_MAX) return null;
+  return snitt;
+}
+
+/** Hur "klart ca" räknas – står på sidan under raden så markägaren ser vad dagen bygger på. */
+export const KLART_CA_FORKLARING = `Räknat på de senaste ${TAKT_DAGAR} dagarna med arbete. Ändras med vädret och maskinerna.`;
 
 /** "fredag" inom en vecka, annars "den 3 november". */
 export function dagText(dag: string, idag: string): string {
@@ -58,16 +79,20 @@ export function beraknaFramsteg(i: FramstegIndata): Framsteg {
   const procent = Math.round(((sk + st) / 2) * 100);
   if (sk >= 1 && st >= 1) return { procent, klartCa: null };
 
-  const taktSk = takt(i.skordatPerDag);
-  if (taktSk == null) return { procent, klartCa: null };
   const kvarSk = Math.max(0, plan - (i.skordatM3 ?? 0));
-  const dagarSk = kvarSk > 0 ? Math.ceil(kvarSk / taktSk) : 0;
-
-  const taktSt = takt(i.skotatPerDag);
   const kvarSt = Math.max(0, plan - (i.skotatM3 ?? 0));
-  const dagarSt = kvarSt <= 0 ? 0 : taktSt != null ? Math.ceil(kvarSt / taktSt) : dagarSk + SKOTNING_EFTER_DAGAR;
-
-  const dagar = Math.max(dagarSk, dagarSt);
+  let dagar = 0;
+  if (kvarSk > 0) {
+    const t = hallandeTakt(i.skordatPerDag, i.idag);
+    if (t == null) return { procent, klartCa: null };
+    dagar = Math.max(dagar, Math.ceil(kvarSk / t));
+  }
+  if (kvarSt > 0) {
+    const t = hallandeTakt(i.skotatPerDag, i.idag);
+    if (t == null) return { procent, klartCa: null };
+    dagar = Math.max(dagar, Math.ceil(kvarSt / t));
+  }
+  if (dagar > PROGNOS.HORISONT_MAX) return { procent, klartCa: null };
   return { procent, klartCa: dagText(plusArbetsdagar(i.idag, dagar), i.idag) };
 }
 

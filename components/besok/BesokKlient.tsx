@@ -23,7 +23,7 @@ type Vy = {
   ok: true;
   namn: string;
   utforare: string;
-  framsteg: { procent: number | null; klartCa: string | null; text: string | null };
+  framsteg: { procent: number | null; klartCa: string | null; text: string | null; forklaring?: string | null };
   gran: [number, number][][] | null;
   mitt: { lat: number; lng: number } | null;
   maskiner: { roll: MaskinRoll; lat: number; lng: number; tid: string }[];
@@ -101,6 +101,7 @@ export default function BesokKlient({ token }: { token: string }) {
         <h1 data-testid="besok-namn" style={{ margin: 0, ...TYP.titel }}>{vy.namn}</h1>
         <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{vy.utforare}</div>
         {vy.framsteg.text && <div data-testid="besok-framsteg" style={{ ...TYP.listtitel, marginTop: AVSTAND.m, ...TNUM }}>{vy.framsteg.text}</div>}
+        {vy.framsteg.klartCa && vy.framsteg.forklaring && <div data-testid="besok-framsteg-forklaring" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{vy.framsteg.forklaring}</div>}
         {vy.framsteg.procent != null && (
           <div aria-hidden="true" style={{ height: AVSTAND.xs, borderRadius: RADIE.stapel, background: FARG.fyllning, marginTop: AVSTAND.s, overflow: 'hidden' }}>
             <div style={{ width: `${vy.framsteg.procent}%`, height: '100%', background: FARG.text }} />
