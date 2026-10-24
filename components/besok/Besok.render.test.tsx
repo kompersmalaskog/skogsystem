@@ -50,7 +50,7 @@ describe('besökssidan', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
       anrop.push({ url, init });
       if (url.includes('/anmal')) return svar(200, { ok: true, id: '11111111-1111-4111-8111-111111111111', besokstid: '2026-10-22T11:42:00Z' });
-      if (url.includes('besok=')) return svar(200, { ...nastaVy, besok: { id: '11111111-1111-4111-8111-111111111111', besokstid: '2026-10-22T11:42:00Z', kvitteringar: nastaVy.besok?.kvitteringar ?? [] } });
+      if (url.includes('besok=')) return svar(200, { ...nastaVy, besok: { id: '11111111-1111-4111-8111-111111111111', besokstid: '2026-10-22T11:42:00Z', kvitteringar: nastaVy.besok?.kvitteringar ?? [], ...(nastaVy.besok?.maskiner ? { maskiner: nastaVy.besok.maskiner } : {}) } });
       return svar(200, nastaVy);
     }));
   });
@@ -142,6 +142,27 @@ describe('besökssidan', () => {
     vi.useRealTimers();
     expect(Array.from(el!.querySelectorAll('[data-testid="besok-kvittens"]')).map((n) => n.textContent)).toEqual(['✓ Skördaren har sett det 13:52']);
     expect(q('besok-vantar')).toBeNull();
+  });
+
+  it('anmälan: en rad per maskin — "Föraren har inte sett dig än – gå inte in, ring oss" tills Uppfattat, sedan "✓ <maskin> har sett att du kommer"', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    localStorage.setItem(`besok_anmalan_v1:${TOKEN}`, JSON.stringify({ id: '11111111-1111-4111-8111-111111111111' }));
+    const id = '11111111-1111-4111-8111-111111111111', tid = '2026-10-22T11:42:00Z';
+    nastaVy = vy({ besok: { id, besokstid: tid, kvitteringar: [], maskiner: [{ etikett: 'Skördaren Scorpion', roll: 'skordare', tid: null }, { etikett: 'Skotaren Wisent', roll: 'skotare', tid: null }] } });
+    await visa(<BesokKlient token={TOKEN} />);
+    const ejSett = () => Array.from(el!.querySelectorAll('[data-testid="besok-ej-sett"]')).map((n) => n.textContent);
+    expect(ejSett()).toEqual([
+      'Skördaren Scorpion: föraren har inte sett dig än – gå inte in, ring oss',
+      'Skotaren Wisent: föraren har inte sett dig än – gå inte in, ring oss',
+    ]);
+    expect(q('besok-vantar')).toBeNull();   // raderna per maskin ersätter den allmänna "väntar på föraren"
+    nastaVy = vy({ besok: { id, besokstid: tid, kvitteringar: [{ roll: 'skordare', tid: '2026-10-22T11:52:00Z' }], maskiner: [{ etikett: 'Skördaren Scorpion', roll: 'skordare', tid: '2026-10-22T11:52:00Z' }, { etikett: 'Skotaren Wisent', roll: 'skotare', tid: null }] } });
+    await act(async () => { vi.advanceTimersByTime(16000); for (let i = 0; i < 6; i++) await Promise.resolve(); });
+    vi.useRealTimers();
+    expect(Array.from(el!.querySelectorAll('[data-testid="besok-kvittens"]')).map((n) => n.textContent)).toEqual(['✓ Skördaren Scorpion har sett att du kommer']);
+    expect(ejSett()).toEqual(['Skotaren Wisent: föraren har inte sett dig än – gå inte in, ring oss']);
+    const text = el!.textContent ?? '';
+    expect(text).not.toMatch(/PONS20|A030353|R64428/);   // inga maskin-id
   });
 
   it('"Välj tid" kräver ett klockslag', async () => {

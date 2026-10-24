@@ -9,13 +9,16 @@ import { forhandsbesked } from '@/lib/flytt/forhandsbesked';
 import { kundForslag, kundKallaText, KUND_KRAV_TEXT } from '@/lib/flytt/kundForslag';
 import { fmtDatum } from './nu';
 import { fmtKm, kundNotis, mattSkiljer, mattText, strackaNotis } from './fakturerbart';
-import { angraGodkannande, andraFlytt } from './godkann';
+import { angraGodkannande, andraFlytt, sparaTraillertid } from './godkann';
 import { gransText, tolkaKm } from './kmRegler';
 import { andradeFalt, kravKund, kvittoText, rattaFlytt, strykEnFlytt, type Falt } from './ratta';
 import { beskrivRattning } from './rattningText';
 import { useFlyttDetalj, type FlyttDetalj } from './useFlyttDetalj';
 import type { Rattning } from './useFlyttDetalj';
 import { platsAvstand, traktMeddelande } from './platsVarning';
+import TidArk from './TidArk';
+import { fakturerasPaTid, sparadMin, useTraillertid } from './useTraillertid';
+import { fmtTid, timmarForFaktura } from '@/lib/flytt/traillertid';
 import { usePlatsData, type PlatsData, type PlatsKandidat } from './usePlatsData';
 
 type Vy = 'huvud' | 'maskin' | 'fran' | 'till' | 'typ' | 'stryk';
@@ -196,6 +199,11 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   const [stryktAnledning, setStryktAnledning] = useState('');
   const [sparar, setSparar] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
+  // Tiden (flytt över 3 mil) bor här, under FAKTURA: "Tid · 2 h 17 min ›" öppnar tidsvyn i samma ark (Martin 2026-10-24: ett kort = ett tryck).
+  const [tidVy, setTidVy] = useState(false);
+  const [tidSparadMin, setTidSparadMin] = useState<number | null>(null);
+  const tidUnderlag = useMemo(() => (u ? [u] : null), [u]);
+  const tidLas = useTraillertid(tidUnderlag);
 
   // Formuläret fylls en gång, när flytten är läst: från flytten (det angivna) och underlaget (sträcka, kund) om det finns.
   useEffect(() => {
@@ -242,6 +250,30 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   ].join(' · ');
   const rutt = `${nuPlats({ objekt: flytt.fran_objekt_id, plats: flytt.fran_plats_id })} → ${nuPlats({ objekt: flytt.till_objekt_id, plats: flytt.till_plats_id })}`;
   const ruttRad = <div data-rutt style={{ ...TYP.meta, color: FARG.text2, margin: `-${AVSTAND.s}px 0 ${AVSTAND.l}px` }}>{rutt}</div>;
+
+  // ── Tiden att fakturera (flytt över 3 mil): en rad under FAKTURA, och tidsvyn ersätter arket medan den är öppen ──
+  const tidMin = tidSparadMin ?? (u ? sparadMin(u) : null);
+  const tidForslag = u ? (tidLas.lage.lage === 'klar' ? tidLas.lage.forslag.get(u.id) ?? null : tidLas.lage.lage === 'fel' ? null : undefined) : undefined;
+  if (tidVy && u) {
+    return (
+      <TidArk maskin={titel} forslag={tidForslag ?? null} sparadMin={tidMin} last={!!u.fakturerad_tid}
+        onStang={() => setTidVy(false)}
+        onSpara={async min => {
+          const svar = await sparaTraillertid(u.id, timmarForFaktura(min));
+          if (svar.ok) { setTidSparadMin(min); setTidVy(false); onAndrad(); } else if (svar.utdaterad) onAndrad();
+          return svar;
+        }} />
+    );
+  }
+  const tidRad = u && fakturerasPaTid(u) ? (
+    <ValRad etikett="Tid" onTryck={u.fakturerad_tid ? undefined : () => setTidVy(true)}
+      varde={tidMin != null ? fmtTid(tidMin) : tidForslag === undefined ? 'Läser …' : 'Saknas'}
+      notis={tidMin != null ? null
+        : tidForslag?.lage === 'ok' ? `Förslag ${fmtTid(tidForslag.min)} — tryck för att spara`
+        : tidForslag?.lage === 'saknas' ? `${tidForslag.orsak} — ställ in tiden själv`
+        : tidForslag === null ? 'Kunde inte läsa rundan — ställ in tiden själv' : null}
+      notisFarg={FARG.orange} />
+  ) : null;
 
   // ── Låst: allt läsbart, inga chevrons, inga redigeringsknappar, en grå rad som säger varför ──
   const lasText: string | null = flytt.avbruten ? 'Struken — flytten hände aldrig och går inte att ändra'
@@ -291,6 +323,7 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
             <ValRad etikett="Fakturera" varde={lasFakturera.varde} notis={lasFakturera.notis} sista={!lasVisaFaltenUnder} />
             {lasVisaFaltenUnder && u && (
               <>
+                {tidRad}
                 <ValRad etikett="Sträcka" varde={strackaNotis(u.km, matt)} />
                 <ValRad etikett="Kund" varde={kundVarde(u.kund)} notis={kundNotis(u, fmtDatum)} notisFarg={FARG.orange} sista />
               </>
@@ -530,6 +563,7 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
                 {f.km.trim() !== '' && nyKm == null && <div role="alert" style={{ ...TYP.meta, color: FARG.rod, paddingBottom: AVSTAND.s }}>Skriv km som ett tal större än noll.</div>}
                 {grans && <div role="note" style={{ ...TYP.meta, color: FARG.text2, paddingBottom: AVSTAND.s }}>{grans}</div>}
               </div>
+              {u && tidRad}
             </>
           )}
           {kravAktiv && kundRad}

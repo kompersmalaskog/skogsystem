@@ -22,7 +22,7 @@ describe('besökssidan läser exakt de fält den visar', () => {
     'typ, data',                                                                            // motorsåg
     'roll, datum, points, uppdaterad_at',                                                   // maskinernas SENASTE punkt
     'id, besokstid',                                                                        // markägarens egen anmälan
-    'roll, kvitterad_at',                                                                   // vilka maskiner som sett den
+    'roll, kvitterad_at, maskin_id',                                                        // vilka maskiner som sett den (maskin_id matchar raden per maskin och lämnar aldrig servern)
     'id',                                                                                   // räkning av anmälningar i timmen
   ]);
   it('varje select i servern är en av de tillåtna kolumnlistorna', () => {

@@ -331,8 +331,7 @@ describe("pengatalet: raden Fakturering och fakturasidan", () => {
     expect(fakturaSida()).not.toBeNull();
     expect(remsa()!.textContent).toContain("Vad ska faktureras i oktober?");
     expect(remsa()!.textContent).toContain("89 km");
-    expect(remsa()!.textContent).toContain("2 flyttar");
-    expect(remsa()!.textContent).toContain("2 hos faktureringen · 0 fakturerade");
+    expect(remsa()!.querySelector("[data-remsa-lage]")!.textContent).toBe("2 flyttar · Ingen är fakturerad än");
   });
 
   it("fakturasidan är en egen sida med tillbaka-pil: inga flikar, och huvudsidan är borta medan den visas", async () => {
@@ -514,7 +513,9 @@ describe("adressen", () => {
   });
 });
 
-const rubrikTexter = () => Array.from(document.querySelectorAll("section[aria-label] > div")).map(d => d.textContent ?? "").filter(t => /·\s\d+$/.test(t));
+/** Grupprubrikerna på fakturasidan (frågor) med antalet rader under: "Vad väntar på faktura? · 2". */
+const rubrikTexter = () => Array.from(document.querySelectorAll("section[aria-label] > h3")).filter(h => h.parentElement!.querySelector("[data-underlag]"))
+  .map(h => `${h.textContent} · ${h.parentElement!.querySelectorAll("[data-underlag]").length}`);
 /** Felrutan i Fakturering-fliken (inte påminnelsens eget fel): rutan med Försök igen runt texten. */
 const felIFliken = (re: RegExp) => (Array.from(document.querySelectorAll('[role="alert"]')).find(a => re.test(a.textContent ?? "")) as HTMLElement).parentElement!;
 const underlagRad = (id: string) => document.querySelector(`[data-underlag="${id}"]`) as HTMLElement | null;
@@ -527,15 +528,16 @@ describe("Fakturering: kvittot, flyttat hit från Flyttloggen (steg 3)", () => {
   it("oktober: en grupp 'Hos faktureringen', nyast först, med maskin, sträcka och datum", async () => {
     await oppnaFakturering();
     expect(fakturaSida()).not.toBeNull();
-    expect(rubrikTexter()).toEqual(["Hos faktureringen · 2"]);
+    expect(rubrikTexter()).toEqual(["Vad väntar på faktura? · 2"]);
     const rader = Array.from(document.querySelectorAll("[data-underlag]")).map(r => (r as HTMLElement).dataset.underlag);
     expect(rader).toEqual(["u8", "u7"]);
     expect(underlagRad("u8")!.textContent).toContain("Giant");
-    expect(underlagRad("u8")!.textContent).toContain("Vällust RP M-R -25 → Bågskyttebanan RP J-Hus- 25");
+    expect(underlagRad("u8")!.querySelector("[data-underlag-vad]")!.textContent).toBe("Giant till Bågskyttebanan RP J-Hus- 25");
+    expect(underlagRad("u8")!.querySelector("[data-underlag-nar]")!.textContent).toBe("tis 6 okt · från Vällust RP M-R -25 · kund saknas");
     expect(underlagRad("u8")!.textContent).toContain("tis 6 okt");
     expect(underlagRad("u8")!.textContent).toContain("53 km");
     expect(underlagRad("u7")!.textContent).toContain("Elefant 26");
-    expect(underlagRad("u7")!.textContent).toContain("Hålabäck au 2025 → Östra-Hoka 1:7 A-C -25");
+    expect(underlagRad("u7")!.textContent).toContain("Elefant 26 till Östra-Hoka 1:7 A-C -25");
   });
 
   it("summan i remsan är summan av raderna som visas (36 + 53 = 89) — och kvittot har inget eget stort tal", async () => {
@@ -544,13 +546,14 @@ describe("Fakturering: kvittot, flyttat hit från Flyttloggen (steg 3)", () => {
     expect(radKm.reduce((a, b) => a + b, 0)).toBe(89);
     expect(remsa()!.textContent).toContain("89 km");
     expect(document.querySelectorAll("[data-remsa]").length).toBe(1);
-    expect(text()).toContain("En flytt som avslutas fakturerbar hamnar under Att godkänna");
+    expect(text()).not.toContain("En flytt som avslutas fakturerbar");          // rubrikerna är frågor: ingen instruktionstext behövs
   });
 
   it("en flytt utan startobjekt säger 'okänd plats' (verkliga raden 28 aug), aldrig tomt", async () => {
     await oppnaFakturering("2026-08");
-    expect(underlagRad("u2")!.textContent).toContain("okänd plats → Tjuvön AU 2026");
-    expect(rubrikTexter()).toEqual(["Hos faktureringen · 3"]);
+    expect(underlagRad("u2")!.querySelector("[data-underlag-vad]")!.textContent).toBe("Elefant 26 till Tjuvön AU 2026");
+    expect(underlagRad("u2")!.querySelector("[data-underlag-nar]")!.textContent).toBe("fre 28 aug · från okänd plats · kund saknas");
+    expect(rubrikTexter()).toEqual(["Vad väntar på faktura? · 3"]);
   });
 
   it("fakturerade och strukna får egna grupper efter 'hos'; en struken flytt räknas inte i summan", async () => {
@@ -559,14 +562,14 @@ describe("Fakturering: kvittot, flyttat hit från Flyttloggen (steg 3)", () => {
       U("us", "2026-10-03", 60, "PONS20SDJAA270231", "o-vallust", "o-ostra", { status: "struken", struken_tid: "2026-10-08T10:00:00Z", struken_anledning: "dubblett" }),
     ];
     await oppnaFakturering();
-    expect(rubrikTexter()).toEqual(["Hos faktureringen · 2", "Fakturerade · 1", "Strukna · 1"]);
+    expect(rubrikTexter()).toEqual(["Vad väntar på faktura? · 2", "Vad är fakturerat? · 1", "Vad är struket? · 1"]);
     expect(Array.from(document.querySelectorAll("[data-underlag]")).map(r => (r as HTMLElement).dataset.underlag)).toEqual(["u8", "u7", "uf", "us"]);
     expect(underlagRad("uf")!.textContent).toContain("Fakturerad fre 9 okt");
     expect(underlagRad("us")!.textContent).toContain("Struken tor 8 okt · dubblett");
     expect((underlagRad("us")!.querySelector('[style*="line-through"]'))).not.toBeNull();
     // remsan: 36 + 53 + 40 = 129 (struken 60 räknas aldrig)
     expect(remsa()!.textContent).toContain("129 km");
-    expect(remsa()!.textContent).toContain("1 strukna");
+    expect(remsa()!.textContent).toContain("1 struken");
   });
 
   it("en flytt utan km säger 'km saknas i datan' — aldrig 0 km", async () => {
@@ -579,7 +582,7 @@ describe("Fakturering: kvittot, flyttat hit från Flyttloggen (steg 3)", () => {
 
   it("fakturasidan har bara månader: en gammal länk med ett år (?per=2026) ger innevarande månad, inte ett år", async () => {
     await oppnaFakturering("2026");
-    expect(rubrikTexter()).toEqual(["Hos faktureringen · 2"]);
+    expect(rubrikTexter()).toEqual(["Vad väntar på faktura? · 2"]);
     expect(remsa()!.textContent).toContain("Vad ska faktureras i oktober?");
     expect(remsa()!.textContent).toContain("89 km");
     expect(window.location.search).toBe("?flik=fakturering&per=2026-10");
@@ -1219,7 +1222,7 @@ async function skrivText(el: HTMLTextAreaElement, v: string) {
   const sat = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
   await act(async () => { sat.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); });
 }
-const rubriker = () => Array.from(document.querySelectorAll("section[aria-label] > div")).map(d => d.textContent ?? "").filter(t => /·\s\d+$/.test(t));
+const rubriker = rubrikTexter;
 const vantarRad = () => document.querySelector("[data-vantar]") as HTMLElement | null;
 const godkannKnapp = (id: string) => knapp(/^Godkänn$/, underlagRad(id)!);
 
@@ -1227,11 +1230,11 @@ describe("Godkänna flyttar: en ny flytt väntar tills admin trycker Godkänn", 
   it("ogodkända ligger överst som 'Att godkänna' och ingår INTE i pengatalet", async () => {
     mock.extraUnderlag = [OG_OKT()];
     await oppnaFakturering();
-    expect(rubriker()).toEqual(["Att godkänna · 1", "Hos faktureringen · 2"]);
+    expect(rubriker()).toEqual(["Vad ska du godkänna? · 1", "Vad väntar på faktura? · 2"]);
     const rad = underlagRad("og1")!;
     expect(rad.dataset.status).toBe("att_godkanna");
     expect(rad.textContent).toContain("Elefant 26");
-    expect(rad.textContent).toContain("Östra-Hoka 1:7 A-C -25 → Vällust RP M-R -25");
+    expect(rad.textContent).toContain("Elefant 26 till Vällust RP M-R -25");
     expect(rad.textContent).toContain("62 km");
     expect(godkannKnapp("og1")).toBeDefined();
     // pengatalet: bara de två godkända oktoberflyttarna (36 + 53); den väntande flytten räknas inte
@@ -1251,7 +1254,7 @@ describe("Godkänna flyttar: en ny flytt väntar tills admin trycker Godkänn", 
     expect(mock.skrivningar).toHaveLength(1);
     expect(mock.skrivningar[0].varden).toMatchObject({ godkand_av: "Test Admin" });
     expect(typeof mock.skrivningar[0].varden.godkand_tid).toBe("string");
-    expect(rubriker()).toEqual(["Hos faktureringen · 3"]);
+    expect(rubriker()).toEqual(["Vad väntar på faktura? · 3"]);
     expect(underlagRad("og1")!.dataset.status).toBe("hos");
     expect(remsa()!.textContent).toContain("151 km");          // 36 + 53 + 62
     expect(remsa()!.textContent).toContain("3 flyttar");
@@ -1265,7 +1268,7 @@ describe("Godkänna flyttar: en ny flytt väntar tills admin trycker Godkänn", 
     await klicka(godkannKnapp("og1")!);
     await klicka(knapp(/^Ångra$/, document.querySelector("[data-kvitto]") as HTMLElement));
     expect(mock.skrivningar[1].varden).toEqual({ godkand_tid: null, godkand_av: null });
-    expect(rubriker()).toEqual(["Att godkänna · 1", "Hos faktureringen · 2"]);
+    expect(rubriker()).toEqual(["Vad ska du godkänna? · 1", "Vad väntar på faktura? · 2"]);
     expect(remsa()!.textContent).toContain("89 km");
     expect(document.querySelector("[data-kvitto]")).toBeNull();
   });
@@ -1286,7 +1289,7 @@ describe("Godkänna flyttar: en ny flytt väntar tills admin trycker Godkänn", 
     await klicka(knapp(/^Stryk flytten$/, dialog)!);
     expect(mock.rpc).toEqual([{ namn: "stryk_flytt", args: { p_flytt: "bg1", p_anledning: "dubblett av flytten 6 okt", p_av: "Test Admin" } }]);
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    expect(rubriker()).toEqual(["Hos faktureringen · 2", "Strukna · 1"]);
+    expect(rubriker()).toEqual(["Vad väntar på faktura? · 2", "Vad är struket? · 1"]);
     expect(underlagRad("og1")!.textContent).toContain("dubblett av flytten 6 okt");
     expect(remsa()!.textContent).toContain("89 km");                  // en struken flytt räknas aldrig
     expect(vantarRad()).toBeNull();                                  // ...och väntar inte längre
@@ -1333,7 +1336,7 @@ describe("Påminnelsen: 'N flyttar väntar på godkännande'", () => {
     await klicka(vantarRad()!);
     expect(fakturaSida()).not.toBeNull();
     expect(remsa()!.textContent).toContain("september");
-    expect(rubriker()[0]).toBe("Att godkänna · 1");
+    expect(rubriker()[0]).toBe("Vad ska du godkänna? · 1");
     expect(underlagRad("og2")).not.toBeNull();
     expect(window.location.search).toBe("?flik=fakturering&per=2026-09");
   });
@@ -1468,7 +1471,7 @@ describe("Flytten (sheet): öppna, läsa och rätta", () => {
     await skrivText(anledningS(), "saknades");
     await klicka(sparaS());
     expect(mock.skrivningar[0].varden).toEqual({ kund: "Vida Skog", redigerad_av: "Test Admin" });
-    expect(underlagRad("og1")!.textContent).toContain("Kund: Vida Skog");
+    expect(underlagRad("og1")!.querySelector("[data-underlag-nar]")!.textContent).toContain("· Vida Skog");
     await oppnaS("og1", "Elefant 26");
     expect(dlg()!.textContent).toContain("Tillagd av Test Admin");
     await skrivIn(kundS(), "Skogsbolaget"); await skrivText(anledningS(), "fel kund"); await klicka(sparaS());
@@ -1697,7 +1700,7 @@ describe("Flytten (sheet): stryka", () => {
     const kvitto = document.querySelector("[data-kvitto]")!.textContent!;
     expect(kvitto).toContain("Flytten är struken.");
     expect(kvitto).toContain("Positionen som skrevs när flytten avslutades är borttagen.");
-    expect(rubriker()).toEqual(["Hos faktureringen · 2", "Strukna · 1"]);
+    expect(rubriker()).toEqual(["Vad väntar på faktura? · 2", "Vad är struket? · 1"]);
     expect(remsa()!.textContent).toContain("89 km");
   });
 
@@ -1740,7 +1743,8 @@ describe("Flytten (sheet): låsta flyttar och historik", () => {
     await oppnaS("u8", "Giant");                                     // u8 är godkänd (backfill)
     expect(dlg()!.textContent).toContain("Giant");
     expect(dlg()!.textContent).toContain("Vällust RP M-R -25");
-    expect(dlg()!.querySelectorAll("button[aria-label*=':']")).toHaveLength(0);   // inga rader att trycka på
+    // inga rader att trycka på — utom Tid: tiden är en fakturauppgift och går att ställa in tills flytten är fakturerad
+    expect(Array.from(dlg()!.querySelectorAll("button[aria-label*=':']")).map(b => b.getAttribute("aria-label")!.split(":")[0])).toEqual(["Tid"]);
     expect(dlg()!.querySelector("input, textarea")).toBeNull();
     expect(knapp(/^Spara/, dlg()!)).toBeUndefined();
     expect(knapp(/^Stryk flytten/, dlg()!)).toBeUndefined();
@@ -2181,7 +2185,7 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
     expect(knapp(/Visa flytten Giant/, arkEl()).textContent).toContain("Låst · godkänd för fakturering");
     await klicka(knapp(/Visa flytten Giant/, arkEl()));
     expect(dlg()!.querySelector("[data-last]")!.textContent).toContain("Godkänd — lämna tillbaka till Att godkänna för att ändra");
-    expect(dlg()!.querySelectorAll("button[aria-label*=':']")).toHaveLength(0);
+    expect(Array.from(dlg()!.querySelectorAll("button[aria-label*=':']")).map(b => b.getAttribute("aria-label")!.split(":")[0])).toEqual(["Tid"]);
     expect(knapp(/^Spara/, dlg()!)).toBeUndefined();
     await klicka(knapp(/^Lämna tillbaka till Att godkänna$/, dlg()!));
     expect(mock.skrivningar[0].varden).toEqual({ godkand_tid: null, godkand_av: null });
@@ -3243,5 +3247,158 @@ describe("Hämta en maskin — uppifrån: knappen, Bilen nu, Att göra, Körning
     await klicka(knapp(/^Klar$/));
     expect(document.querySelector("[data-lass-kvitto]")!.textContent).toBe("Rundan är avslutad.");
     expect(hamtaKnapp()).not.toBeNull();
+  });
+});
+
+// ── Tid att fakturera: flyttar över 3 mil (regel A, Martin 2026-10-24) ─────────────────────────────────────────
+describe("Tid att fakturera (flytt över 3 mil): appen föreslår tiden ur rundan, en människa godkänner", () => {
+  const tidRad = (id: string) => document.querySelector(`[data-tid="${id}"]`) as HTMLElement | null;
+  const dlg = () => document.querySelector('[role="dialog"]') as HTMLElement | null;
+  // Lossningarna: Giant (b1) 16:10 på rundan 15:52–19:55, Elefant (b2) 08:30 på rundan 05:47–09:57 (svensk tid).
+  const medLossning = () => {
+    mock.flyttar = mock.flyttar.map(b => (b.id === "b1" ? { ...b, sluttid: "2026-10-06T14:10:00Z" } : b.id === "b2" ? { ...b, sluttid: "2026-10-05T06:30:00Z" } : b));
+  };
+
+  it("en godkänd flytt utan tid säger det i orange, med förslaget i ord — aldrig decimaler", async () => {
+    medLossning();
+    await oppnaFakturering();
+    expect(tidRad("u8")!.textContent).toBe("Tid saknas · förslag 4 h 3 min");
+    expect(tidRad("u7")!.textContent).toBe("Tid saknas · förslag 4 h 11 min");
+    expect(text()).not.toMatch(/\d,\d\d h|\d\.\d\d/);
+    // ETT kort = ETT tryck: tiden är text inne i radens knapp, ingen egen knapp med egen pil
+    expect(tidRad("u8")!.tagName).toBe("DIV");
+    expect(tidRad("u8")!.closest("button")!.getAttribute("aria-label")).toBe("Visa flytten Giant");
+  });
+
+  it("kortet öppnar flyttens ark; raden Tid under FAKTURA öppnar tidsvyn (stor tid, var den kommer ifrån, ±15 min/±1 h) — Spara skriver timmar med två decimaler och tar dig tillbaka", async () => {
+    medLossning();
+    await oppnaFakturering();
+    await oppnaS("u8", "Giant");
+    expect(dlg()!.getAttribute("aria-label")).toMatch(/^Giant · /);
+    expect(valRad("Tid")!.getAttribute("aria-label")).toBe("Tid: Saknas");
+    expect(valRad("Tid")!.parentElement!.textContent).toContain("Förslag 4 h 3 min — tryck för att spara");
+    await klicka(valRad("Tid")!);
+    expect(dlg()!.getAttribute("aria-label")).toBe("Tid att fakturera");
+    expect(dlg()!.querySelector("[data-tid-tal]")!.textContent).toBe("4 h 3 min");
+    expect(dlg()!.querySelector("[data-tid-varifran]")!.textContent).toBe("Från 15:52 – bilen åkteTill 19:55 – bilen var tillbaka");
+    await klicka(knapp(/^\+15 min$/, dlg()!));
+    expect(dlg()!.querySelector("[data-tid-tal]")!.textContent).toBe("4 h 18 min");
+    expect(knapp(/Tillbaka till appens förslag \(4 h 3 min\)/, dlg()!)).toBeTruthy();
+    await klicka(dlg()!.querySelector("[data-tid-spara]") as HTMLElement);
+    expect(mock.skrivningar.at(-1)).toEqual({ tabell: "fakturaunderlag_flytt", varden: { traillertimmar: 4.3 } });
+    expect(dlg()!.getAttribute("aria-label")).toMatch(/^Giant · /);                 // tillbaka i flyttens ark
+    expect(valRad("Tid")!.getAttribute("aria-label")).toBe("Tid: 4 h 18 min");
+    await vantaTills(() => tidRad("u8")?.textContent === "Tid 4 h 18 min");
+    expect(tidRad("u8")!.textContent).toBe("Tid 4 h 18 min");
+  });
+
+  it("Godkänn sparar förslaget med samma tryck, och Ångra tar bort både godkännandet och tiden", async () => {
+    medLossning();
+    mock.extraUnderlag = [U("og-t", "2026-10-06", 53, "PONS20SDJAA270231", "o-vallust", "o-bagskytte", { ...OGODKAND, flytt_id: "b1" })];
+    await oppnaFakturering();
+    expect(tidRad("og-t")!.textContent).toBe("Tid 4 h 3 min · sparas när du godkänner");
+    const rad = document.querySelector('[data-underlag="og-t"]') as HTMLElement;
+    await klicka(knapp(/^Godkänn$/, rad));
+    const godk = mock.skrivningar.at(-1)!;
+    expect(godk.varden.traillertimmar).toBe(4.05);                                  // 243 min
+    expect(godk.varden.godkand_av).toBeTruthy();
+    expect(text()).toContain("Godkänd · Giant · 4 h 3 min");
+    await klicka(knapp(/^Ångra$/));
+    expect(mock.skrivningar.at(-1)!.varden).toEqual({ godkand_tid: null, godkand_av: null, traillertimmar: null });
+  });
+
+  it("utan lossningstid, eller om rundan inte går att läsa, säger raden varför — och arket låter dig ställa in tiden själv", async () => {
+    await oppnaFakturering();                                                       // fixturens flyttar saknar lossningstid
+    expect(tidRad("u8")!.textContent).toBe("Tid saknas · en flytt i rundan saknar lossningstid");
+    await oppnaS("u8", "Giant");
+    expect(valRad("Tid")!.parentElement!.textContent).toContain("En flytt i rundan saknar lossningstid — ställ in tiden själv");
+    await klicka(valRad("Tid")!);
+    expect(dlg()!.querySelector("[data-tid-saknas]")!.textContent).toContain("Ställ in den själv");
+    expect(dlg()!.querySelector("[data-tid-tal]")!.textContent).toBe("Ingen tid");
+    expect((dlg()!.querySelector("[data-tid-spara]") as HTMLButtonElement).disabled).toBe(true);
+    await klicka(knapp(/^\+1 h$/, dlg()!));
+    await klicka(knapp(/^\+1 h$/, dlg()!));
+    expect(dlg()!.querySelector("[data-tid-spara]")!.textContent).toBe("Spara 2 h");
+    await act(async () => { rot?.unmount(); }); rot = null;
+    mock.rundorFel = true;
+    await oppnaFakturering();
+    expect(tidRad("u8")!.textContent).toBe("Tid saknas · kunde inte läsa rundan");
+  });
+
+  it("en flytt under 3 mil har ingen tidrad (den har fast pris)", async () => {
+    mock.extraUnderlag = [U("kort", "2026-10-06", 25, "PONS20SDJAA270231", "o-vallust", "o-bagskytte", { flytt_id: "b1" })];
+    await oppnaFakturering();
+    expect(document.querySelector('[data-underlag="kort"]')).not.toBeNull();
+    expect(tidRad("kort")).toBeNull();
+  });
+});
+
+// ── Fakturasidan börjar med det DU ska göra (Martin 2026-10-24: "vad gör man på denna sidan?") ───────────────────
+describe("Vad ska du göra? — en knapp som går igenom det en flytt i taget", () => {
+  const dlg = () => document.querySelector('[role="dialog"]') as HTMLElement | null;
+  const gora = () => document.querySelector("[data-gora]") as HTMLElement | null;
+  const medLossning = () => {
+    mock.flyttar = mock.flyttar.map(b => (b.id === "b1" ? { ...b, sluttid: "2026-10-06T14:10:00Z" } : b.id === "b2" ? { ...b, sluttid: "2026-10-05T06:30:00Z" } : b));
+  };
+
+  it("sidan börjar med frågan: 'Vad ska du göra?' står FÖRE summan, i ord, med EN knapp", async () => {
+    medLossning();
+    await oppnaFakturering();
+    expect(gora()!.querySelector("h3")!.textContent).toBe("Vad ska du göra?");
+    expect(gora()!.querySelector("[data-gora-tid]")!.textContent).toBe("2 flyttar saknar tid");
+    expect(gora()!.querySelector("[data-gora-godkann]")).toBeNull();
+    expect(gora()!.compareDocumentPosition(remsa()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(gora()!.querySelectorAll("button")).toHaveLength(1);
+  });
+
+  it("Gå igenom: en flytt i taget — 'Spara och nästa' sparar och går vidare, 'Hoppa över' lämnar den, sist ett kvitto", async () => {
+    medLossning();
+    await oppnaFakturering();
+    await klicka(knapp(/^Gå igenom$/));
+    expect(dlg()!.querySelector("[data-steg]")!.textContent).toBe("1 av 2");
+    expect(dlg()!.textContent).toContain("Giant till Bågskyttebanan RP J-Hus- 25");
+    expect(dlg()!.querySelector("[data-tid-tal]")!.textContent).toBe("4 h 3 min");
+    await klicka(dlg()!.querySelector("[data-tid-spara]") as HTMLElement);
+    expect(mock.skrivningar.at(-1)).toEqual({ tabell: "fakturaunderlag_flytt", varden: { traillertimmar: 4.05 } });
+    await vantaTills(() => dlg()?.querySelector("[data-steg]")?.textContent === "2 av 2");
+    expect(dlg()!.textContent).toContain("Elefant 26 till Östra-Hoka 1:7 A-C -25");
+    await klicka(dlg()!.querySelector("[data-hoppa-over]") as HTMLElement);
+    expect(dlg()).toBeNull();
+    expect(text()).toContain("Klart! Du har gått igenom allt.");
+    expect(mock.skrivningar).toHaveLength(1);                                       // den överhoppade rördes inte
+  });
+
+  it("en flytt att godkänna kommer först: 'Stämmer flytten?' — Ja, godkänn sparar flytten OCH tiden; Nej öppnar flyttens ark", async () => {
+    medLossning();
+    mock.extraUnderlag = [U("og-t", "2026-10-06", 53, "PONS20SDJAA270231", "o-vallust", "o-bagskytte", { ...OGODKAND, flytt_id: "b1" })];
+    await oppnaFakturering();
+    expect(gora()!.querySelector("[data-gora-godkann]")!.textContent).toBe("1 flytt ska godkännas");
+    await klicka(knapp(/^Gå igenom$/));
+    expect(dlg()!.getAttribute("aria-label")).toBe("Stämmer flytten?");
+    expect(dlg()!.querySelector("[data-steg]")!.textContent).toBe("1 av 3");
+    expect(Array.from(dlg()!.querySelectorAll("[data-godkann-tid]")).map(e => e.textContent)).toEqual(["Tid 4 h 3 min · sparas när du godkänner", "Från 15:52 till 19:55"]);
+    await klicka(dlg()!.querySelector("[data-godkann-ja]") as HTMLElement);
+    expect(mock.skrivningar.at(-1)!.varden.traillertimmar).toBe(4.05);
+    expect(mock.skrivningar.at(-1)!.varden.godkand_av).toBeTruthy();
+    await vantaTills(() => dlg()?.querySelector("[data-steg]")?.textContent === "2 av 3");
+    await klicka(knapp(/^Avbryt$/, dlg()!));
+    expect(dlg()).toBeNull();
+    await act(async () => { rot?.unmount(); }); rot = null;
+    mock.extraUnderlag = [U("og-n", "2026-10-06", 53, "PONS20SDJAA270231", "o-vallust", "o-bagskytte", { ...OGODKAND, flytt_id: "b1" })];
+    await oppnaFakturering();
+    await klicka(knapp(/^Gå igenom$/));
+    await klicka(dlg()!.querySelector("[data-godkann-nej]") as HTMLElement);
+    await vantaTills(() => dlg()?.getAttribute("aria-label") !== "Stämmer flytten?");
+    expect(dlg()!.getAttribute("aria-label")).not.toBe("Stämmer flytten?");      // flyttens eget ark ("Flytten") har tagit över
+  });
+
+  it("inget att göra: 'Allt är klart' med en länk till fakturaunderlaget — ingen knapp att trycka", async () => {
+    mock.underlag = mock.underlag.map(r => ({ ...r, traillertimmar: 3.5 }));
+    await oppnaFakturering();
+    expect(gora()).toBeNull();
+    const klart = document.querySelector("[data-klart]") as HTMLElement;
+    expect(klart.textContent).toContain("Allt är klart");
+    expect(klart.textContent).toContain("Faktureringen tar det härifrån.");
+    expect(klart.querySelector("a")!.getAttribute("href")).toBe("/ekonomi/fakturaunderlag");
   });
 });

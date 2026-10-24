@@ -64,6 +64,8 @@ export interface UnderlagRad extends FaktureratRad {
   struken_tid: string | null;
   struken_anledning: string | null;
   godkand_av: string | null;
+  /** Timmar för artikel 3 (flytt över 3 mil). NULL = inte sparad än — appen visar då förslaget (regel A). */
+  traillertimmar?: number | null;
   // Redigering före fakturering (migration 20261015155630): originalet bevaras av databasen.
   km_original: number | null;      // värdet FÖRE första ändringen (NULL = saknades) — gäller bara om redigerad_tid är satt
   kund_original: string | null;
