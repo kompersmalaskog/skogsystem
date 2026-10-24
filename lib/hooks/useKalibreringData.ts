@@ -124,7 +124,7 @@ export function useKalibreringData(activeTab: Flik) {
   // Per grovlek: hela historiken för maskinen, en gång.
   const laddaGrovlek = useCallback((maskin: string) => {
     if (!maskin || grovlekMap[maskin] || grovlekFelMap[maskin]) return;
-    fetch(`/api/kalibrering/grovlek?key=skogsystem-debug&maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
+    fetch(`/api/kalibrering/grovlek?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: GrovlekResp) => {
         if (!data?.ok) throw new Error('svar utan grovlek');
@@ -143,7 +143,7 @@ export function useKalibreringData(activeTab: Flik) {
     greppPagar.current.add(maskin);
     try {
       for (let varv = 0; varv < 25; varv++) {
-        const r = await fetch(`/api/kalibrering/grepp?key=skogsystem-debug&maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' });
+        const r = await fetch(`/api/kalibrering/grepp?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json() as GreppResp;
         if (!data?.ok) throw new Error('svar utan grepp');

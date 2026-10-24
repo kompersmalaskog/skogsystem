@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { ADMIN_ROLLER, kravRoll } from "@/lib/auth/server";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
 import { byggGrovlekRader, type StockRad } from "@/lib/kalibrering/grovlek";
 import type { GrovlekResp } from "@/lib/kalibrering/typer";
 
 /**
- * GET /api/kalibrering/grovlek?key=skogsystem-debug&maskin_id=X
+ * GET /api/kalibrering/grovlek?maskin_id=X
+ * Kräver inloggad admin (kravRoll) — ingen nyckel i adressen.
  *
  * Underlaget till Över tid › Per grovlek: en rad per STAM, månad och grovlek (operatörens diameter) med trädslag, kontroll och träff mot klaven. Hela historiken
  * för EN maskin. Rutnätet (period, trädslag, färg) räknas i klienten (lib/kalibrering/grovlek) av de här raderna — servern bara hämtar och grupperar.
@@ -18,7 +20,6 @@ import type { GrovlekResp } from "@/lib/kalibrering/typer";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEBUG_KEY = "skogsystem-debug";
 const FALLBACK_TOLERANS = 4;
 
 async function fetchAllRows<T>(
@@ -36,7 +37,8 @@ async function fetchAllRows<T>(
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  if (url.searchParams.get("key") !== DEBUG_KEY) return new NextResponse("Ogiltig nyckel", { status: 401 });
+  const vakt = await kravRoll(ADMIN_ROLLER);
+  if (!vakt.ok) return vakt.res;
   const maskinId = url.searchParams.get("maskin_id");
   if (!maskinId) return NextResponse.json({ ok: false, error: "maskin_id krävs" }, { status: 400 });
 
