@@ -476,7 +476,7 @@ function ValjRad({ etikett, varde, val, tom = 'Välj', sista, onValj }: {
   );
 }
 
-function Brytare({ pa, etikett, upptagen, onByt }: { pa: boolean; etikett: string; upptagen?: boolean; onByt: (v: boolean) => void }) {
+export function Brytare({ pa, etikett, upptagen, onByt }: { pa: boolean; etikett: string; upptagen?: boolean; onByt: (v: boolean) => void }) {
   return (
     <button type="button" role="switch" aria-checked={pa} aria-label={etikett} disabled={upptagen} onClick={() => onByt(!pa)}
       style={{ width: TRAFFYTA.primar + AVSTAND.s, height: AVSTAND.xxl, borderRadius: AVSTAND.xl, border: 'none', cursor: 'pointer', flexShrink: 0, position: 'relative', background: pa ? FARG.gron : FARG.upphojt, transition: `background ${RORELSE.tryck}ms ${RORELSE.kurva}`, ...(upptagen ? INAKTIV : {}) }}>
