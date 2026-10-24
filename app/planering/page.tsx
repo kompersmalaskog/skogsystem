@@ -3336,7 +3336,7 @@ export default function PlannerPage() {
         setGpsFordrojdMs(null);
       } else if (!fix.giltig) {
         setGpsFixFarsk(false);   // fix tappad → dämpa; currentPosition rörs ej (inga punkter loggas)
-        // Åldersvakten (lib/gpsKalla): NMEA-tiden släpar > 30 s efter datorns klocka → "GPS-data är fördröjd" i st.f. "Ingen GPS-fix".
+        // Åldersvakten (lib/gpsKalla): NMEA-tiden släpar > 30 s efter datorns klocka → "GPS-data är fördröjd" (ingen text förrän "GPS saknas" efter 60 s).
         // En gammal kö ger giltig=false → hamnar här, så position/hyttspår rörs inte av den.
         setGpsFordrojdMs(fix.fordrojd ? (fix.nmeaAlderMs ?? 0) : null);
       }
@@ -9167,7 +9167,7 @@ export default function PlannerPage() {
       try { map.moveLayer('gps-halo'); } catch {}
       try { map.moveLayer('gps-ring'); } catch {}
       try { map.moveLayer('gps-dot'); } catch {}
-      // Fix tappad (gpsFixFarsk=false) → DÄMPA pricken (rule 4: "Ingen GPS-fix"). Full opacitet vid färsk fix.
+      // Fix tappad (gpsFixFarsk=false) → DÄMPA pricken (ingen text). Full opacitet vid färsk fix.
       try {
         map.setPaintProperty('gps-halo', 'circle-opacity', gpsFixFarsk ? 0.22 : 0.06);
         map.setPaintProperty('gps-ring', 'circle-opacity', gpsFixFarsk ? 1 : 0.35);
