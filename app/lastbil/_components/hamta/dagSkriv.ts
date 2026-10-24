@@ -14,6 +14,7 @@ import { haversine } from '@/utils/geo';
 import { fakturerbarEffektiv, type FlyttTyp } from '@/lib/flytt/fakturerbar';
 import { rimligGpsPunkt } from '@/app/maskinflytt/senastePlats';
 import type { Pos } from './gps';
+import { matarKm } from '../fakturerbart';
 
 export interface Forare { id: string; namn: string; hem_lat: number | null; hem_lng: number | null }
 
@@ -284,14 +285,17 @@ export interface AvslutadFlytt { flyttKm: number; fakturerbar: boolean; typ: Fly
  * Läser startpunkten ur flytten själv, så att den fungerar även efter en omstart av appen.
  */
 export async function avslutaFlytt(ctx: Ctx, flyttId: string, del: FlyttPart, mal: Mal, kund: string | null): Promise<Utfall<AvslutadFlytt>> {
-  const { data: rad, error: radFel } = await supabase.from('maskin_flytt').select('fran_lat, fran_lng, starttid, hamtad_tid').eq('id', flyttId).maybeSingle();
+  const { data: rad, error: radFel } = await supabase.from('maskin_flytt').select('fran_lat, fran_lng, starttid, hamtad_tid, fran_odometer_m').eq('id', flyttId).maybeSingle();
   if (radFel || !rad || rad.fran_lat == null || rad.fran_lng == null) return fel(`Kunde inte läsa lastningen: ${radFel?.message || 'flytten hittades inte'}`);
   const typ: FlyttTyp = del.extern ? 'kunduppdrag' : mal.verkstad ? 'service' : 'produktion';
   if (typ === 'kunduppdrag' && !(kund ?? '').trim()) return fel('Kunduppdrag kräver kund — fyll i kundnamnet.');
 
   const aPos = { lat: rad.fran_lat as number, lng: rad.fran_lng as number };
   const [flytt, vader, tillOdo] = await Promise.all([korRutt(aPos, mal), hamtaVader(mal.lat, mal.lng), narmasteOdometer(ctx.vin)]);
-  const flyttKm = flytt.km;
+  // Bilens mätare går före den räknade vägen (Martin 2026-10-24): lastad → lossad på mätaren är det som faktiskt kördes.
+  // Bara när mätaren vid lossningen är färsk (bilen står där nu) och skillnaden är rimlig; annars den räknade vägen.
+  const matare = tillOdo?.farsk ? matarKm(rad.fran_odometer_m == null ? null : Number(rad.fran_odometer_m), tillOdo.odometer_m) : null;
+  const flyttKm = matare ?? flytt.km;
   const fakturerbar = fakturerbarEffektiv(typ, flyttKm, null);   // ett nytt flytt har inget manuellt val (null)
   const nu = new Date().toISOString();
   const minMellan = (a: string | null, b: string) => (a ? Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000) : null);

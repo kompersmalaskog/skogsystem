@@ -37,6 +37,9 @@ export interface FlyttDetalj {
   flytt_typ: string;
   kund: string | null;
   flytt_km: number | null;
+  /** Bilens mätare vid lastad och lossad (meter) — null när den inte lästes. */
+  fran_odometer_m: number | null;
+  till_odometer_m: number | null;
   fakturerbar: boolean;
   avbruten: boolean;
   /** NULL = flytten pågår (inte avslutad än). */
@@ -60,7 +63,7 @@ export type DetaljLage =
   | { lage: 'laddar' | 'fel' }
   | { lage: 'klar'; flytt: FlyttDetalj | null; underlag: UnderlagRad | null; historik: Rattning[]; forare: string | null };
 
-const FALT_UTAN_MANUELL = 'id, maskin_id, extern_maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, flytt_typ, kund, flytt_km, fakturerbar, avbruten, sluttid, fran_lat, fran_lng, till_lat, till_lng, starttid, flyttdag_id, koord_kalla';
+const FALT_UTAN_MANUELL = 'id, maskin_id, extern_maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, flytt_typ, kund, flytt_km, fakturerbar, avbruten, sluttid, fran_lat, fran_lng, till_lat, till_lng, starttid, flyttdag_id, koord_kalla, fran_odometer_m, till_odometer_m';
 const FALT = `${FALT_UTAN_MANUELL}, fakturerbar_manuell`;
 export const HISTORIK_ANTAL = 5;
 
@@ -113,7 +116,7 @@ export function useFlyttDetalj(flyttId: string | null | undefined, underlagId?: 
         setLage({
           lage: 'klar',
           flytt: rad ? {
-            ...rad, flytt_km: num(rad.flytt_km), fran_lat: num(rad.fran_lat), fran_lng: num(rad.fran_lng), till_lat: num(rad.till_lat), till_lng: num(rad.till_lng),
+            ...rad, flytt_km: num(rad.flytt_km), fran_odometer_m: num(rad.fran_odometer_m), till_odometer_m: num(rad.till_odometer_m), fran_lat: num(rad.fran_lat), fran_lng: num(rad.fran_lng), till_lat: num(rad.till_lat), till_lng: num(rad.till_lng),
             fakturerbar: !!rad.fakturerbar, avbruten: !!rad.avbruten, sluttid: rad.sluttid ?? null,
             starttid: rad.starttid ?? null, flyttdag_id: rad.flyttdag_id ?? null, koord_kalla: rad.koord_kalla ?? null,
             fakturerbar_manuell: typeof rad.fakturerbar_manuell === 'boolean' ? rad.fakturerbar_manuell : null, manuell_finns: manuellFinns,
