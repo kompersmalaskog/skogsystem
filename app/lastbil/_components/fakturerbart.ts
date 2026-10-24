@@ -155,3 +155,27 @@ export const mattSkiljer = (km: number | null, matt: number | null): boolean =>
 
 /** "mätt 53" — eller att mätningen saknas. */
 export const mattText = (matt: number | null): string => (matt != null ? `mätt ${fmtKm(matt)}` : 'mätt saknas i datan');
+
+
+// ── Var kommer flyttens km ifrån? (2026-10-24) ─────────────────────────────────────────────────────────────────────
+// flytt_km är antingen bilens MÄTARE (lastad → lossad, `till_odometer_m − fran_odometer_m`) eller en RÄKNAD väg
+// (/api/routing: cache → ORS → fågelväg × 1,4 när ingen väg gick att räkna). Den räknade kallades "mätt" i sheeten.
+// Prod 2026-10-24: 5 flyttar där mätaren fanns men en räknad väg sparades (Giant 10 aug: 5 km mot mätarens 11,0).
+
+/** Bilens mätare mellan lastad och lossad, i km med en decimal — null när en mätning saknas eller är orimlig (≤ 0, > 250 km). */
+export function matarKm(franOdometerM: number | null, tillOdometerM: number | null): number | null {
+  if (franOdometerM == null || tillOdometerM == null) return null;
+  const d = tillOdometerM - franOdometerM;
+  return d > 0 && d <= 250_000 ? Math.round(d / 100) / 10 : null;
+}
+
+/**
+ * Raden under Sträcka i sheeten: null när km ÄR mätarens. Annars sägs det att km är räknad, och vad mätaren säger om den finns:
+ * "Räknad väg — bilens mätare säger 11 km" · "Räknad väg — bilens mätare saknas".
+ */
+export function kmKallaText(flyttKm: number | null, franOdometerM: number | null, tillOdometerM: number | null): string | null {
+  if (flyttKm == null) return null;
+  const m = matarKm(franOdometerM, tillOdometerM);
+  if (m != null && Math.abs(m - flyttKm) < 0.15) return null;
+  return m != null ? `Räknad väg — bilens mätare säger ${fmtKm(m)} km` : 'Räknad väg — bilens mätare saknas';
+}

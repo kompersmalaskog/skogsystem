@@ -2050,7 +2050,7 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
     expect(faktura.textContent).toContain("Automatiskt: nej — service faktureras inte");
     expect(faktura.querySelector('button[role="switch"]')!.getAttribute("aria-checked")).toBe("false");
     expect(kmS()).toBeNull();
-    expect(dlg()!.querySelector("[data-matt-flytt]")!.textContent).toContain("Mätt sträcka 53 km — går inte att rätta");
+    expect(dlg()!.querySelector("[data-matt-flytt]")!.textContent).toContain("Sträcka 53 km (räknad väg, bilens mätare saknas) — går inte att rätta");
     expect(sparaS().disabled).toBe(true);
     expect(knapp(/^Stryk flytten …$/, dlg()!)).toBeDefined();
   });

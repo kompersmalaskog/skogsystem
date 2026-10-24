@@ -8,7 +8,7 @@ import { automatisktSkal, beraknaFakturerbar, fakturerbarEffektiv, FLYTT_TYPER, 
 import { forhandsbesked } from '@/lib/flytt/forhandsbesked';
 import { kundForslag, kundKallaText, KUND_KRAV_TEXT } from '@/lib/flytt/kundForslag';
 import { fmtDatum } from './nu';
-import { fmtKm, kundNotis, mattSkiljer, mattText, strackaNotis } from './fakturerbart';
+import { fmtKm, kmKallaText, kundNotis, mattSkiljer, mattText, strackaNotis } from './fakturerbart';
 import { angraGodkannande, andraFlytt, sparaTraillertid } from './godkann';
 import { gransText, tolkaKm } from './kmRegler';
 import { andradeFalt, kravKund, kvittoText, rattaFlytt, strykEnFlytt, type Falt } from './ratta';
@@ -241,6 +241,8 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
 
   const nuPlats = (p: Plats) => platsNamn(data, p);
   const matt = flytt.flytt_km;
+  /** Är km bilens mätare eller en räknad väg? null = mätaren (inget att säga). */
+  const kmKalla = kmKallaText(flytt.flytt_km, flytt.fran_odometer_m ?? null, flytt.till_odometer_m ?? null);
   // Rubriken säger VILKEN flytt det är — maskin, dag, förare — så två flyttar med samma maskin aldrig går att förväxla.
   // Maskinnamnet är alltid dim_maskin.visningsnamn (aldrig maskin_id); det är flyttens maskin som den registrerades, inte den som rättas till.
   const titel = [
@@ -324,7 +326,7 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
             {lasVisaFaltenUnder && u && (
               <>
                 {tidRad}
-                <ValRad etikett="Sträcka" varde={strackaNotis(u.km, matt)} />
+                <ValRad etikett="Sträcka" varde={strackaNotis(u.km, matt)} notis={kmKalla} />
                 <ValRad etikett="Kund" varde={kundVarde(u.kund)} notis={kundNotis(u, fmtDatum)} notisFarg={FARG.orange} sista />
               </>
             )}
@@ -518,7 +520,7 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
         {/* Utan ett redigerbart underlag visas mätningen här: den avgör om flytten är fakturerbar (≥ 30 km) och går aldrig att rätta. */}
         <Sektion rubrik="Flytten" inset not={!fakturaRedigerbar ? (
           <span data-matt-flytt>
-            {matt != null ? `Mätt sträcka ${fmtKm(matt)} km — går inte att rätta. Är mätningen fel, stryk flytten.` : 'Mätt sträcka saknas i datan.'}
+            {matt != null ? `Sträcka ${fmtKm(matt)} km (${kmKalla ? kmKalla.replace('Räknad väg — ', 'räknad väg, ') : 'bilens mätare'}) — går inte att rätta. Är den fel, stryk flytten.` : 'Sträcka saknas i datan.'}
           </span>
         ) : undefined}>
             <ValRad etikett="Maskin" varde={maskinNamn(data, f.maskinId, f.extern)} onTryck={() => setVy('maskin')}
@@ -560,6 +562,7 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
                     <span data-matt>km{mattSkiljer(nyKm ?? u!.km, matt) ? ` · ${mattText(matt)}` : ''}</span>
                   </span>
                 </label>
+                {kmKalla && <div data-km-kalla style={{ ...TYP.meta, color: FARG.text2, paddingBottom: AVSTAND.s }}>{kmKalla}</div>}
                 {f.km.trim() !== '' && nyKm == null && <div role="alert" style={{ ...TYP.meta, color: FARG.rod, paddingBottom: AVSTAND.s }}>Skriv km som ett tal större än noll.</div>}
                 {grans && <div role="note" style={{ ...TYP.meta, color: FARG.text2, paddingBottom: AVSTAND.s }}>{grans}</div>}
               </div>
@@ -569,7 +572,7 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
           {kravAktiv && kundRad}
           {u && !fakturaRedigerbar && (
             <>
-              <ValRad etikett="Sträcka" varde={strackaNotis(u.km, matt)} />
+              <ValRad etikett="Sträcka" varde={strackaNotis(u.km, matt)} notis={kmKalla} />
               <ValRad etikett="Kund" varde={kundVarde(u.kund)} notis={kundNotis(u, fmtDatum)} notisFarg={FARG.orange} sista />
               <div style={{ ...TYP.meta, color: FARG.text2, paddingBottom: AVSTAND.s }}>
                 Underlaget är struket i faktureringen{u.struken_anledning ? `: ${u.struken_anledning}` : ''}.
