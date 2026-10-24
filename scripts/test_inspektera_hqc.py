@@ -26,7 +26,7 @@ KURVA = ('<DiameterCalibration><SpeciesGroupUserID>SE1_Gran</SpeciesGroupUserID>
          '<DiameterCalibrationAdjustment diameterCalibrationPosition="50">-1</DiameterCalibrationAdjustment>'
          '<DiameterCalibrationAdjustment diameterCalibrationPosition="150">0</DiameterCalibrationAdjustment>'
          '<DiameterCalibrationAdjustment diameterCalibrationPosition="300">2</DiameterCalibrationAdjustment>'
-         '<DiameterCalibrationDescription>kurva</DiameterCalibrationDescription></DiameterCalibration>')
+         '<DiameterCalibrationNote>kurva</DiameterCalibrationNote></DiameterCalibration>')
 ENKEL = ('<DiameterCalibration><SpeciesGroupUserID>SE1_Tall</SpeciesGroupUserID><CalibrationDate>2026-03-03T09:00:00</CalibrationDate>'
          '<DiameterCalibrationReason>Auto</DiameterCalibrationReason>'
          '<DiameterCalibrationAdjustment diameterCalibrationPosition="50">0</DiameterCalibrationAdjustment></DiameterCalibration>')
@@ -72,7 +72,7 @@ class Inspektera(unittest.TestCase):
 
     def test_taggar_parsern_inte_laser_redovisas(self):
         flera, text = self.kor(self.skriv_filer(a=hqc(KURVA)))
-        self.assertIn('taggar parsern inte läser: DiameterCalibrationDescription', text)
+        self.assertIn('taggar parsern inte läser: DiameterCalibrationNote', text)
 
     def test_trasig_fil_stoppar_inte_resten(self):
         d = self.skriv_filer(bra=hqc(KURVA), trasig='<inte xml')

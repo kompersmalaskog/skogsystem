@@ -58,6 +58,12 @@ export const FALT_RUTT: Record<string, FaltRutt> = {
   klippning:               { dim: 'klippning' },
   skordning_avslutad_auto: { dim: 'skordning_avslutad_auto' },
   skotning_avslutad_auto:  { dim: 'skotning_avslutad_auto' },
+  // Avslut ur maskindata (migration 20261024161546): människans "Inte klar än" och automatikens skäl.
+  // Skrivs bara av avslutsarket; saknas kolumnerna sparar arket utan dem (lib/redigering/avslut.ts).
+  skordning_ej_klar:       { dim: 'skordning_ej_klar' },
+  skotning_ej_klar:        { dim: 'skotning_ej_klar' },
+  skordning_auto_skal:     { dim: 'skordning_auto_skal' },
+  skotning_auto_skal:      { dim: 'skotning_auto_skal' },
   terrang_kr_manuell:  { dim: 'terrang_kr_manuell' },
   skotavstand_manuell: { dim: 'skotavstand_manuell' },
   tilldelad_skotare:   { dim: 'tilldelad_skotare' },

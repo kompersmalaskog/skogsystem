@@ -243,7 +243,11 @@ Två varianter:
 | `<LengthCalibration>/<LengthCalibrationDescription>` | ✅ | `beskrivning` |
 | `<LengthCalibration>/<LengthCalibrationAdjustment>` (mm) | ✅ | `langd_justering_mm` |
 | `<LengthCalibration>/<LengthCalibrationAdjustment>` `@lengthCalibrationPosition` | ✅ | `position_cm` |
-| Samma för `<DiameterCalibration>` (med `dia_justering_mm`-fält + `DiameterCalibrationDescription` saknas i vår parser → `beskrivning=None`) | ✅ (delvis) | **Lucka (Låg):** DiameterCalibrationDescription läses inte — bara orsak och justering |
+| `<LengthCalibration>/<LengthCalibrationAdjustmentButtLog>` (rotstockens längdjustering, mm) | ✅ (2026-10-23) | `langd_justering_rot_mm` — NULL när elementet saknas (aldrig 0) |
+| Samma för `<DiameterCalibration>` (med `dia_justering_mm`-fält) | ✅ | `dia_justering_mm`, `position_cm` (bara första `DiameterCalibrationAdjustment` — kalibreringskurvan finns inte i filerna, se STATUS.md) |
+| `<DiameterCalibration>/<DiameterCalibrationDescription>` | ✅ (2026-10-23) | `beskrivning` |
+
+`orsak` = `Repair of measurement system` är en omkalibrering efter reparation, inte en justering i mm: raden märks i databasen (`omkalibrering`, generated column) och visas via `lib/kalibrering/historik.ts`.
 
 ## Status-beräkning
 
@@ -295,7 +299,7 @@ parser-koden. Om branschens tolerans ändras måste parser-koden ändras.
 | 10 | `<ControlStemSettings>` på ControlValues-nivå (urvalsregler) ignoreras | **Låg** |
 | 11 | `<SawCutWidth>` (mm) ignoreras — påverkar volymberäkning marginellt | **Låg** |
 | 12 | `<MeasurementDate>` per LogMeasurement ignoreras — vi använder header.CreationDate som kontroll-datum | **Låg** |
-| 13 | `<DiameterCalibrationDescription>` ignoreras (parser sätter `beskrivning=None` för diameter-rader, fångar bara LengthCalibrationDescription) | **Låg** |
+| 13 | ~~`<DiameterCalibrationDescription>` ignoreras~~ — läses sedan 2026-10-23 (`beskrivning`), liksom `<LengthCalibrationAdjustmentButtLog>` (`langd_justering_rot_mm`) | Åtgärdad |
 | 14 | `<HarvestDate>` per Stem ignoreras — vi använder header.CreationDate | **Låg** |
 | 15 | `<StemKey>` på kontrollstammen ignoreras — kunde länka till `detalj_stam.stam_key` för att hitta original-HPR-data | **Låg** |
 | 16 | `<MachineApplicationVersion>` ignoreras (samma kanariefågel-resonemang som MOM) | **Låg** |

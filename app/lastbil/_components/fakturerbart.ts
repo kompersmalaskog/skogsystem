@@ -119,18 +119,6 @@ export function kmAndringsText(r: Pick<UnderlagRad, 'km' | 'km_original' | 'redi
   return `ändrad från ${fmtKm(r.km_original)}`;
 }
 
-/** Samma för kund: "ändrad från Vida" · "tillagd, saknades i datan" · "borttagen, var Vida". */
-export function kundAndringsText(r: Pick<UnderlagRad, 'kund' | 'kund_original' | 'redigerad_tid'>): string | null {
-  if (!kundAndrad(r)) return null;
-  const orig = kundNorm(r.kund_original);
-  if (orig == null) return 'tillagd, saknades i datan';
-  if (kundNorm(r.kund) == null) return `borttagen, var ${orig}`;
-  return `ändrad från ${orig}`;
-}
-
-/** Går raden att rätta? Före fakturering, så länge den inte är struken (databasen vägrar annars). */
-export const kanRedigeras = (r: FaktureratRad): boolean => r.status === 'aktiv' && !r.fakturerad_tid;
-
 /** Under kund-raden i sheeten: "Tillagd av Martin tor 15 okt" · "Ändrad från Vida" · null när den inte rörts. */
 export function kundNotis(r: Pick<UnderlagRad, 'kund' | 'kund_original' | 'redigerad_tid' | 'redigerad_av'>, datum: (iso: string) => string): string | null {
   if (!kundAndrad(r)) return null;

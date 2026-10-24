@@ -9,6 +9,7 @@ import { hamtaAckordgrundAuto, type AckordgrundAuto } from '@/lib/ekonomi/ackord
 import { useMatchning } from './hooks/useMatchning'
 import { useFildata, filStatus, slaIhopFildata, harExternSkotning, harExternSkordning, skordareForvantasEj, skotareForvantasEj } from './hooks/useFildata'
 import SkotareFordelning from './SkotareFordelning'
+import { harNyaFalt, utanNyaFalt } from '@/lib/redigering/avslut'
 import { arRisjobb, arGrotHuvudtyp } from '@/lib/objekt/typ'
 import { sparaFalt, resolveObjektRad, FALT_RUTT } from '@/lib/redigering/objektRouter'
 import { AVTALSFORMER } from '@/lib/trakt/avtalsform'
@@ -303,6 +304,7 @@ function avslutsForslag(g: any, fildata: any): Array<{
   ) => {
     if (hoppaOver) return
     if (rader.some((o: any) => !!o[field])) return // redan avslutat i gruppen
+    if (rader.some((o: any) => o[field.replace('_avslutad', '_ej_klar')] === true)) return // "Inte klar än" — människan har sagt
     // Primär: maskinens end_date (max över maskinslagets rader)
     let endYmd: string | null = null
     rader.forEach((o: any) => {
@@ -311,9 +313,13 @@ function avslutsForslag(g: any, fildata: any): Array<{
         if (y && (!endYmd || y > endYmd)) endYmd = y
       }
     })
-    if (endYmd) { forslag.push({ field, autoField, label, typ, maskinTyp, datum: endYmd, kalla: 'maskindata' }); return }
-    // Fallback: stale — senaste data för maskinslaget äldre än STALE_DAGAR
+    // Maskinens slutdatum gäller bara om inget har kommit EFTER det. Skördaren och skotaren kan dela nummer och
+    // därmed rad — Mölleryd: raden bar skördarens slutdatum (21 okt) medan skotaren körde till 23 okt, och appen
+    // föreslog "Skotning klar 21 okt".
     const sista = gruppSenasteDataTyp(g, fildata, typ)
+    const slut = endYmd as string | null
+    if (slut && !(sista && sista > slut)) { forslag.push({ field, autoField, label, typ, maskinTyp, datum: slut, kalla: 'maskindata' }); return }
+    // Fallback: stale — senaste data för maskinslaget äldre än STALE_DAGAR
     if (sista) {
       const d = dagarSedan(sista)
       if (d >= STALE_DAGAR) forslag.push({ field, autoField, label, typ, maskinTyp, datum: sista, kalla: 'stale', dagar: d })
@@ -2722,7 +2728,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
   // opts.ids = skriv dim-delen BARA till dessa rader (maskinspecifika fält:
   // skördning → harvester-raderna, skotning → forwarder-raderna, som batch-saven).
   // Utan opts.ids = hela VO-gruppen (gemensamma fält).
-  async function direktSpara(patch: Record<string, any>, opts?: { ids?: string[] }): Promise<boolean> {
+  async function direktSpara(patch: Record<string, any>, opts?: { ids?: string[]; tyst?: boolean }): Promise<boolean> {
     if (!valtObjekt) return false
     const sysk = syskonRader(objekt, valtObjekt)
     let dimIds = opts?.ids && opts.ids.length > 0 ? opts.ids : sysk.map((o: any) => o.objekt_id)
@@ -2740,6 +2746,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       patch,
     )
     if (!res.ok) {
+      if (opts?.tyst) return false
       setSaveError(res.message || 'Kunde inte spara — försök igen')
       setTimeout(() => setSaveError(''), 6000)
       return false
@@ -2778,10 +2785,15 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
   // Avslutsdatum med samma automatik som batch-saven (F2): på RISJOBB driver
   // skotning_avslutad grot-avbockningen på de kopplade avverkningsobjekten.
   // Körs EFTER lyckad save; ett fel visas — en halvkörd avbockning tigs aldrig ihjäl.
+  // Klar gäller HELA objektet (alla dess rader, samma som automatiken i databasen skriver) — Mölleryd har
+  // skördarens och skotarens rader under två nummer, och ett "Inte klar än" på bara den ena raden lämnade
+  // automatikens datum kvar på den andra. Saknas avslutskolumnerna (migration 20261024161546) sparas
+  // utan dem.
   async function direktSparaAvslut(typ: 'harvester' | 'forwarder', patch: Record<string, any>): Promise<boolean> {
     if (!valtObjekt) return false
     const fore = valtObjekt.skotning_avslutad || null
-    const ok = await direktSparaMaskin(patch, typ)
+    let ok = await direktSpara(patch, { tyst: harNyaFalt(patch) })
+    if (!ok && harNyaFalt(patch)) ok = await direktSpara(utanNyaFalt(patch))
     if (!ok) return false
     if (typ === 'forwarder' && 'skotning_avslutad' in patch && arRisjobb(valtObjekt)) {
       const efter = patch.skotning_avslutad || null
@@ -2967,6 +2979,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
               return true
             }}
             taBort={async () => { const ok = await direktSpara({ exkludera: true }); if (ok) onClose(); return ok }}
+            gruppRader={syskon}
           />
         )}
         {valtObjekt && subpage === 'filer' && (
