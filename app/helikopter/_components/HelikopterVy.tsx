@@ -6,7 +6,7 @@
 //   SKOTAT (ett tal per spår) · GÖR DETTA (högst tre rader, resten bakom "N saker till") · NÄR BLIR MASKINERNA KLARA? (namn + datum) ·
 //   MER (Skördat, Maskiner, Takt, Veckor, Per bolag, Tidigare månader, Månadsfacit) · DIN MASKIN (förare) · ONSDAGSNOTIS (admin).
 // Allt som står på sidan räknas i _lib/kort.ts (ren vymodell); den här filen hämtar och ritar.
-// Klar-datumen räknas i appen (klar.ts raknaAlla) på RPC:ns underlag + G15-förslaget för trakter utan prognos (medUppskattadPrognos),
+// Klar-datumen räknas i appen (klar.ts raknaAlla) på RPC:ns underlag + G15-förslaget för trakter utan prognos (medUppskattadPrognos) + prognosen som följer trakten (medFoljandePrognos),
 // så sidan och flyttförslaget räknar på samma tal.
 //
 // Bredd: korten ligger i ett rutnät med CONTAINER QUERIES (sidans egen bredd): 1 kolumn, 2 från 640 px, 3 från 960 px.
@@ -34,7 +34,7 @@ import {
 import { TYPER, TYP_NAMN, globalaArbetsdagar, kapacitetsMaskiner, manadStatus, maskinNamn, planeratPerTyp, raknaSpar, valjBas, type PlaneratResultat, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, manadRubrik, relativTid } from '../_lib/format'
 import { gorDetta, klarRader, sidSvar, sparKort, type GorRad, type KlarRad } from '../_lib/kort'
-import { bastaFlytt, medUppskattadPrognos, raknaAlla, type FlyttForslag } from '../_lib/klar'
+import { bastaFlytt, medFoljandePrognos, medUppskattadPrognos, raknaAlla, type FlyttForslag } from '../_lib/klar'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
 import { useKlar } from '../_lib/useKlar'
@@ -218,7 +218,8 @@ export default function HelikopterVy() {
 
   const klar = useKlar(ar, manad, idag, status !== 'avslutad')
   // Underlaget med uppskattade prognoser, och planerna (klar-datum per maskin) räknade ur det — SAMMA räkning som flyttförslaget.
-  const klarData = useMemo(() => (klar.data ? medUppskattadPrognos(klar.data, utfall) : null), [klar.data, utfall])
+  // G15-förslag för trakter utan prognos, sedan den FÖLJANDE prognosen för trakter maskinen redan kört på (lib/prognosFoljer) — i den ordningen.
+  const klarData = useMemo(() => (klar.data ? medFoljandePrognos(medUppskattadPrognos(klar.data, utfall)) : null), [klar.data, utfall])
   const planer = useMemo(() => (klarData ? raknaAlla(klarData) : null), [klarData])
   const flytt = useMemo<FlyttForslag | null>(() => (klarData && status !== 'avslutad' ? bastaFlytt(klarData) : null), [klarData, status])
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { raknaSpar, planeratPerTyp, type PlaneratResultat } from './berakningar'
 import { fmt, fmtDag } from './format'
-import { gorDetta, klarRader, manuellaUtanLass, sidSvar, sparKort, GOR_SYNLIGA, type GorIndata } from './kort'
+import { gorDetta, klarRader, traktUnder, manuellaUtanLass, sidSvar, sparKort, GOR_SYNLIGA, type GorIndata } from './kort'
 import { lasKlar, medUppskattadPrognos, raknaAlla, type KlarData } from './klar'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import fixtur from './__fixtures__/klar_2026-10-17.json'
@@ -216,5 +216,14 @@ describe('medUppskattadPrognos — en trakt utan prognos får G15-förslaget, da
     expect(medUppskattadPrognos(d, null)).toBe(d)
     const grot: KlarData = { ...d, trakter: [{ ...d.trakter[0], typ: 'grot', timmar: null, saknar_prognos: true }] }
     expect(medUppskattadPrognos(grot, utfall).trakter[0].uppskattad).toBeUndefined()
+  })
+})
+
+describe('traktUnder — raden under trakten i Klar-arket', () => {
+  it('följer takten går före "räknat på liknande trakter", och säger hur mycket', () => {
+    expect(traktUnder({})).toBeNull()
+    expect(traktUnder({ uppskattad: true })).toBe('Prognos räknad på liknande trakter')
+    expect(traktUnder({ uppskattad: true, foljer: { restPlanH: 10, skillnad: 0.12, utfortH: 8 } })).toBe('Följer takten på trakten · 12 % fortare än prognosen')
+    expect(traktUnder({ foljer: { restPlanH: null, skillnad: null, utfortH: 8 } })).toBe('Följer takten på trakten')
   })
 })

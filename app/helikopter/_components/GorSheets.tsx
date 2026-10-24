@@ -35,7 +35,7 @@ export function MaskinTrakterSheet({ open, onClose, rad }: { open: boolean; onCl
             <Rad
               key={t.objekt_id}
               titel={t.namn}
-              under={t.uppskattad ? 'Prognos räknad på liknande trakter' : undefined}
+              under={t.under ?? undefined}
               hoger={t.fran && t.till ? (t.fran === t.till ? fmtDag(t.till) : `${fmtDag(t.fran)} – ${fmtDag(t.till)}`) : '?'}
               dampad={!t.till}
               sista={i === rad.trakter.length - 1}

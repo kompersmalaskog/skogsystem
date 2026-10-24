@@ -14,11 +14,14 @@
 //    tal som Klar med trakten föreslår) och märks `uppskattad`; maskinens datum blir då "ca". GROT/energiklippning har inget förslag.
 //  · GROT (bara skotning) och energiklippning ligger i maskinens kö som alla andra trakter (version 2 av RPC:n, migration 20261023181540) —
 //    de räknas aldrig mot beställningen men flyttar klar-datumet.
+//  · PROGNOSEN FÖLJER TRAKTEN (2026-10-24, version 3 av RPC:n, migration 20261024100000): har maskinen lagt ≥ 4 G15-timmar på trakten räknas
+//    resten på hur fort det faktiskt gått där, viktat mot prognosen (`medFoljandePrognos`, lib/prognosFoljer) — trakten märks `foljer`.
 // Inga imports av React eller Supabase.
 import { TYP_NAMN, klararTyp } from './berakningar'
 import { MANAD_NAMN, fmt, fmtDag, kortNamn } from './format'
 import type { Maskin, Typ } from './queries'
 import { beraknaG15Forslag, type UtfallRad } from '@/lib/g15Forslag'
+import { foljPrognos } from '@/lib/prognosFoljer'
 
 /** Trakttyperna i en maskins kö: virke (räknas mot beställningen) och GROT/energiklippning (räknas bara i kön). */
 export type KlarTyp = Typ | 'grot' | 'energiklippning'
@@ -51,8 +54,16 @@ export type KlarTrakt = {
   /** Kvarvarande volym att skota (bara skotare); används av maskin med manuell datakälla. */
   rest_volym: number | null
   saknar_prognos: boolean
+  /** Prognosen för HELA trakten i G15-timmar (objekt.manuell_prognos, eller G15-förslaget när `uppskattad`). null = saknas / äldre RPC. */
+  prognos_h: number | null
+  /** G15-timmar redan lagda på trakten för rollen (0 med äldre RPC). */
+  utfort_h: number
+  /** m³fub redan gjorda för rollen: skördat resp. skotat (0 med äldre RPC). */
+  utfort_volym: number
   /** timmar är ett G15-förslag ur uppmätt utfall, inte planerarens prognos (medUppskattadPrognos). */
   uppskattad?: boolean
+  /** timmar räknas på traktens egen takt (medFoljandePrognos): resten enligt prognosen rakt av, och uppmätt takt mot prognosens. */
+  foljer?: { restPlanH: number | null; skillnad: number | null; utfortH: number }
 }
 
 export type KlarMaskinTrakt = { objekt_id: string; fran: string | null; till: string | null }
@@ -154,6 +165,9 @@ export function lasKlar(raw: unknown): KlarData {
       timmar: talEllerNull(t.timmar, 'timmar'),
       rest_volym: talEllerNull(t.rest_volym, 'rest_volym'),
       saknar_prognos: t.saknar_prognos === true,
+      prognos_h: talEllerNull(t.prognos_h, 'prognos_h'),
+      utfort_h: t.utfort_h == null ? 0 : tal(t.utfort_h, 'utfort_h'),
+      utfort_volym: t.utfort_volym == null ? 0 : tal(t.utfort_volym, 'utfort_volym'),
     })),
     spar: r.spar.map((s: any): KlarSpar => ({
       typ: typ(s.typ),
@@ -228,7 +242,7 @@ export function raknaMaskin(m: KlarMaskin, trakter: KlarTrakt[], sistaArbetsdag:
     return { trakt: t, dagar: dg, fran: m.dagar[Math.floor(foer)] ?? null, till: m.dagar[Math.max(Math.ceil(slut), 1) - 1] ?? null }
   })
   const klar = saknar || rader.length === 0 ? null : rader[rader.length - 1].till
-  return { maskin: m, rader, klar, saknar, efterManad: klar != null && klar > sistaArbetsdag, uppskattad: ordnade.some(t => t.uppskattad === true) }
+  return { maskin: m, rader, klar, saknar, efterManad: klar != null && klar > sistaArbetsdag, uppskattad: ordnade.some(t => t.uppskattad === true && !t.foljer) }
 }
 
 /** En tänkt omtilldelning: trakten (för rollen) får en annan maskin. null = ingen maskin. */
@@ -264,7 +278,23 @@ export function medUppskattadPrognos(d: KlarData, utfall: UtfallRad[] | null): K
     const f = beraknaG15Forslag({ typ: t.typ, volym: t.volym, medelstam: t.medelstam }, utfall)[t.roll]
     if (!f.ok) return t
     const andel = t.roll === 'skotare' && t.rest_volym != null ? Math.max(0, Math.min(1, t.rest_volym / t.volym)) : 1
-    return { ...t, timmar: Math.round(f.forslag.g15 * andel * 100) / 100, saknar_prognos: false, uppskattad: true }
+    return { ...t, timmar: Math.round(f.forslag.g15 * andel * 100) / 100, prognos_h: f.forslag.g15, saknar_prognos: false, uppskattad: true }
+  })
+  return { ...d, trakter }
+}
+
+/**
+ * Prognosen FÖLJER trakten: har maskinen lagt ≥ FOLJER_MIN_H G15-timmar på trakten räknas resten på hur fort det faktiskt går där, viktat mot
+ * prognosen (lib/prognosFoljer). Gäller virkestrakter på automatiska maskiner (810E räknar på volym och takt redan). Trakter där inget går att
+ * följa (för lite utfört, okänd volym) lämnas orörda. Körs EFTER medUppskattadPrognos, så också en trakt med G15-förslag följer sin takt.
+ */
+export function medFoljandePrognos(d: KlarData): KlarData {
+  const manuella = new Set(d.maskiner.filter(m => m.manuell).map(m => m.maskin_id))
+  const trakter = d.trakter.map(t => {
+    if (!arVirke(t.typ) || (t.maskin_id != null && manuella.has(t.maskin_id))) return t
+    const f = foljPrognos({ volym: t.volym, prognosH: t.prognos_h, utfortH: t.utfort_h, utfortVolym: t.utfort_volym })
+    if (!f) return t
+    return { ...t, timmar: f.restH, saknar_prognos: false, foljer: { restPlanH: f.restPlanH, skillnad: f.skillnad, utfortH: f.utfortH } }
   })
   return { ...d, trakter }
 }
