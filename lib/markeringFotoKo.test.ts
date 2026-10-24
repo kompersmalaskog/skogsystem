@@ -32,8 +32,8 @@ describe('fotot sparas lokalt först — aldrig uppladdning vid fotograferingen,
     expect(page).toContain('lokal={lokalFotoFor(marker)}');
     expect(page).toContain('lokal={lokalFotoFor(editingMarker)}');
   });
-  it('kön startas globalt (layout) — också när appen öppnas på startsidan', () => {
-    expect(las('../app/layout.tsx')).toContain('<FotoKoStartare />');
+  it('kön startas globalt (AppRamverk i layouten) — också när appen öppnas på startsidan', () => {
+    expect(las('../components/AppRamverk.tsx')).toContain('<FotoKoStartare />');
   });
 });
 

@@ -1,16 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
-import TopBar from '../components/TopBar'
-import PushRegister from '../components/PushRegister'
-import PushNavigering from '../components/PushNavigering'
-import FotoKoStartare from '../components/FotoKoStartare'
-import MarkeringSynkStartare from '../components/MarkeringSynkStartare'
-import KartkommentarStartare from '../components/KartkommentarStartare'
-import SkotarLassStartare from '../components/SkotarLassStartare'
-import VersionChecker from '../components/VersionChecker'
-import AppStartVakt from '../components/AppStartVakt'
-import { CurrentMedarbetareProvider } from '@/lib/CurrentMedarbetareContext'
-import { LAYOUT } from '@/lib/design/tokens'
+import AppRamverk from '../components/AppRamverk'
 
 export const metadata: Metadata = {
   title: 'Kompersmåla Skog',
@@ -55,21 +45,7 @@ export default function RootLayout({
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" />
       </head>
       <body style={{ margin: 0, padding: 0 }}>
-        <TopBar />
-        <VersionChecker />
-        <AppStartVakt />
-        <PushRegister />
-        <PushNavigering />
-        <FotoKoStartare />
-        <MarkeringSynkStartare />
-        <KartkommentarStartare />
-        <SkotarLassStartare />
-        <CurrentMedarbetareProvider>
-          {/* Innehållet börjar under toppfältet — samma mått som TopBar (tokens LAYOUT). */}
-          <div style={{ paddingTop: LAYOUT.topbar }}>
-            {children}
-          </div>
-        </CurrentMedarbetareProvider>
+        <AppRamverk>{children}</AppRamverk>
       </body>
     </html>
   )
