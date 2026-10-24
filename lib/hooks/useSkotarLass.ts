@@ -26,7 +26,7 @@ import { beraknaKvar, harSkordat, idagText, kvarSammanfattning, skalningsfaktore
 import { hamtaLassKo, begarFardigskotad, lasAvslut, lasLassForObjekt, lasObjektSortiment, lasOptiLass, lasSkordat, lasSkotningAvslutad, lasSortimentHistorik, prenumereraLassKo, sparaLass } from '@/lib/skotarLass/koKopplad';
 import { optiForAvslut, type OptiLass } from '@/lib/skotarLass/opti';
 import type { Avslut } from '@/lib/skotarLass/server';
-import { tunnaSpar, vagTider, type RaFix, type VagLinje } from '@/lib/skotarLass/spar';
+import { SPAR, sparUrHyttspar, tunnaSpar, vagTider, type RaFix, type VagLinje } from '@/lib/skotarLass/spar';
 import { forslagTillVantande } from '@/lib/skotarLass/lassModell';
 import { sortimentVal, traktAnvandning, type HistorikSortiment, type SkordatSortiment } from '@/lib/skotarLass/sortiment';
 import type { Avlagg, Lass, SortimentRad } from '@/lib/skotarLass/typer';
@@ -58,6 +58,8 @@ export interface SkotarLassIn {
   egna: readonly EgenMarkering[];
   /** Skördarens stråk som linjer (för "Nytt avlägg här?" och tid per väg). Läses vid behov. */
   hamtaVagar: () => VagLinje[];
+  /** Dagens hyttspår (rådata: lat, lng, tid per punkt). Lassets spår byggs ur det mellan förra och den här lossningen; saknas det faller hooken tillbaka på sin egen fixbuffert. */
+  hamtaHyttspar?: () => readonly { lat: number; lng: number; tid: string; lucka?: boolean }[];
   /** Skapar en egen avläggsmarkering på platsen (synlig för alla direkt via markeringssynken). Ger markeringens id. */
   skapaEgetAvlagg: (lat: number, lng: number, nummer: string, via?: 'lossa_har') => string | null;
   /** Flyttar ett avlägg som skapats via Lossa här (markeringens id). Rör aldrig något annat avlägg. */
@@ -233,9 +235,17 @@ export function useSkotarLass(i: SkotarLassIn) {
     };
     const nyttLassFran = (traff = h.traff) => {
       const forra = forraLass(lassRef.current, ctx.maskinId, ctx.objektId);
+      // Spåret = hyttspåret från förra lossningen (vilket lass som helst på maskinen, också ett tomt som väntar) till den här.
+      let fran = 0;
+      for (const x of lassRef.current) {
+        if (x.maskinId !== ctx.maskinId || x.objektId !== ctx.objektId || x.status === 'struket') continue;
+        for (const d of x.delar) fran = Math.max(fran, Date.parse(d.lossadTid) || 0);
+      }
+      const urHyttspar = sparUrHyttspar(inRef.current.hamtaHyttspar?.() ?? [], fran, h.ts, { lat: h.lat, lng: h.lng });
+      const sparFixar = urHyttspar ?? fixar;
       const l = skapaLass({
         ctx, lassNummer: nastaLassNummer(lassRef.current, ctx.maskinId, ctx.objektId), ts: h.ts, lat: h.lat, lng: h.lng, traff, forra,
-        sparPunkter: tunnaSpar(fixar), vagar: vagTider(fixar, inRef.current.hamtaVagar()), nu,
+        sparPunkter: tunnaSpar(sparFixar), vagar: vagTider(sparFixar, inRef.current.hamtaVagar(), urHyttspar ? SPAR.MAX_STEG_HYTTSPAR_S : undefined), nu,
       });
       fixarRef.current = fixarRef.current.filter((f) => f.ts >= h.ts);
       spara(l);

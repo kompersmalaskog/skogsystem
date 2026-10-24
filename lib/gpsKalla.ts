@@ -12,6 +12,8 @@ import { SERIAL_FLAGG, harWebSerial, serialGpsVald, glomSerialGps, antalBeviljad
 import { BAUD_PROVORDNING, effektivBaud, hamtaBaudVal, sattBaudVal, sattHittadBaud, type BaudVal } from './gpsBaud';
 import { OKORRIGERAD, klockaKorr, startaKlockSynk, type KlockaKorr } from './serverKlocka';
 import { filtreraFix, nyttFilter, type FilterState } from './telefonGps';
+import { nyStryp, skaNotifiera } from './gpsStrypning';
+import { stromRakna, strypningAktiv } from './gpsStrom';
 
 export interface GpsFix {
   lat: number | null;
@@ -364,6 +366,7 @@ function startaUnderliggande(highAccuracy: boolean): { stop(): void; stoppaOchVa
     let state = nyNmeaState();
     let pagaende: Promise<void> = Promise.resolve();
     let loggadFordrojd = false;
+    let strypState = nyStryp();
     const kor = async () => {
       if (avbryt.current) return;
       let portar: any[] = [];
@@ -395,6 +398,12 @@ function startaUnderliggande(highAccuracy: boolean): { stop(): void; stoppaOchVa
                 // Loggas EN gång per fördröjd period (inte per mening, det är hundratals i sekunden på en uppbyggd kö)
                 if (fix.fordrojd && !loggadFordrojd) { loggadFordrojd = true; console.warn(`[GPS] data fördröjd: NMEA-tiden ligger ${Math.round((fix.nmeaAlderMs ?? 0) / 1000)} s efter verklig tid (klockavvikelse ${Math.round(kk.offsetMs / 1000)} s, ${effektivBaud()} baud) — räknas som ingen fix`); }
                 else if (!fix.fordrojd) loggadFordrojd = false;
+                // En multi-GNSS-mottagare skickar tiotals rader i sekunden; appen behöver en fix i sekunden (lib/gpsStrypning).
+                stromRakna('rader');
+                const stryp = strypningAktiv() ? skaNotifiera(strypState, fix, nuMs) : { notifiera: true, state: strypState };
+                strypState = stryp.state;
+                if (!stryp.notifiera) continue;
+                stromRakna('fixar');
                 notifiera(fix);
               }
             }
