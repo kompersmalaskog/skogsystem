@@ -615,7 +615,7 @@ function getWarnings(obj: RObjekt | null | undefined, volym?: { skordat: number;
     const saknar = saknarAvtalsformEllerAtgard(obj)
     if (saknar) w.push(saknar)
   }
-  if (looksLikeAutoDate(obj.object_name)) w.push({ key: 'autoname', text: 'Autogenererat namn', target: 'object_name-section' })
+  if (looksLikeAutoDate(obj.object_name)) w.push({ key: 'autoname', text: 'Namnet är bara ett datum', target: 'object_name-section' })
   if (!obj.skogsagare) w.push({ key: 'skogsagare', text: 'Saknar markägare', target: 'skogsagare-section' })
   if (!obj.bolag) w.push({ key: 'bolag', text: 'Saknar bolag', target: 'bolag-section' })
 
@@ -626,7 +626,8 @@ function getWarnings(obj: RObjekt | null | undefined, volym?: { skordat: number;
   if (av && obj.end_date && !obj[av.field]) {
     w.push({
       key: 'reported_end',
-      text: `Maskinen rapporterar ${av.label} avslutad — ej markerad`,
+      // Samma ord som raden i objektets ark ("Skotning klar?") — inte maskinens språk.
+      text: `${capFirst(av.label)} klar?`,
       target: avslutTarget
     })
   }
@@ -637,7 +638,7 @@ function getWarnings(obj: RObjekt | null | undefined, volym?: { skordat: number;
     if (days !== null && days >= 14) {
       w.push({
         key: 'maybe_done',
-        text: `${capFirst(av.label)} verkar klar (startade för ${days} dagar sedan)`,
+        text: `${capFirst(av.label)} klar? Startade för ${days} dagar sedan`,
         target: avslutTarget
       })
     }
