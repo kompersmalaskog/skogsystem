@@ -48,6 +48,8 @@ export interface FilJobb {
   vo: string;
   stammar: number;
   maskinNamn: string;
+  /** Senaste filens dag ("2026-10-23"). */
+  datum?: string | null;
   kandidater: { objekt_id: string; vo_nummer: string | null; object_name: string | null; skogsagare?: string | null }[];
 }
 
@@ -109,7 +111,7 @@ export function byggSaker(input: { grupper: BehoverGrupp[]; alla: HarledRad[]; f
   const filer: Sak[] = input.filJobb.map(j => ({
     typ: 'fil' as const, nyckel: `fil:${j.nyckel}`, jobb: j,
     namn: j.namn || `VO ${j.vo}`,
-    under: `${j.maskinNamn} · ${j.stammar.toLocaleString('sv-SE')} stammar · inget objekt`,
+    under: [j.maskinNamn, filDag(j.datum), j.stammar > 0 ? `${j.stammar.toLocaleString('sv-SE')} stammar` : null, 'inget objekt'].filter(Boolean).join(' · '),
   }));
 
   // Förslag först (ett tryck var), sedan "välj" utan förslag.
@@ -129,4 +131,11 @@ export function patchForSvar(falt: HarlettFalt, varde: string): Record<string, s
   if (falt === 'avtalsform' && varde === SPECIAL_SVAR) return { special: true };
   if (falt === 'huvudtyp') return { huvudtyp: varde, risskotning: varde === 'Grot' };
   return { [falt]: varde };
+}
+
+const MANAD = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+/** "2026-10-23" → "23 okt". */
+function filDag(d: string | null | undefined): string | null {
+  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(String(d ?? ''));
+  return m ? `${Number(m[2])} ${MANAD[Number(m[1]) - 1]}` : null;
 }

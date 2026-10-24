@@ -18,6 +18,10 @@ import { medAvtalsformSvar } from '@/lib/avtalsformKolumn'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import DokumentChips from '@/components/DokumentChips'
 import OkopplFilerKort from '@/components/redigering/OkopplFilerKort'
+import Ark from '@/components/design/Ark'
+import { useFilerUtanObjekt } from '@/lib/hooks/useFilerUtanObjekt'
+import { delaFilJobb, kandidaterFor, sokObjekt as sokPlanObjekt } from '@/lib/redigering/filerUtanObjekt'
+import { okopplatJobb, altNummerAttSkriva, ignoreradNyckel, nummerbyten, type OkopplatJobb } from '@/lib/objektNummer'
 import BehoverDig from '@/components/redigering/BehoverDig'
 import ObjektOversikt, { type MerMal } from '@/components/redigering/ObjektOversikt'
 import ObjektLista from '@/components/redigering/ObjektLista'
@@ -3706,6 +3710,10 @@ function ObjektRedigeringInner() {
   const [saveError, setSaveError] = useState('')
   const [visaAllaObjekt, setVisaAllaObjekt] = useState(false)
   const [visaMatchning, setVisaMatchning] = useState(false)
+  const [visaGamlaFiler, setVisaGamlaFiler] = useState(false)
+  // Maskinfiler utan objekt (lib/redigering/filerUtanObjekt.ts): de senaste 30 dagarna är frågor i Behöver dig, äldre
+  // ligger tyst bakom en rad längst ner i listan.
+  const filerUO = useFilerUtanObjekt()
   const sokParams = useSearchParams()
   const [hprFiler, setHprFiler] = useState<any[]>([])
   const [hprStatus, setHprStatus] = useState<'laddar' | 'fel' | 'ok'>('laddar')
@@ -4021,17 +4029,20 @@ function ObjektRedigeringInner() {
     if (!g.rep.object_name) varningar.unshift({ key: 'namn', text: 'Objektet saknar namn' })
     return { nyckel: g.nyckel, rep: g.rep, ids: g.rader.map((r: any) => r.objekt_id), varningar }
   })
+  const filDelning = filerUO.status === 'ok'
+    ? delaFilJobb(okopplatJobb(filerUO.data.filer, filerUO.data.objekt, filerUO.data.alias), filerUO.data.ignorerade, new Date())
+    : { aktuella: [] as OkopplatJobb[], tysta: 0 }
+  const filByten = filerUO.status === 'ok' ? nummerbyten(filerUO.data.alias, filerUO.data.objekt).length : 0
   const saker = byggSaker({
     grupper: behoverGrupper,
     alla: objekt,
     bolagVal: bolag,
-    filJobb: okopplade.larm.map((j: any) => ({
-      nyckel: j.nyckel, namn: j.namn || null, vo: j.vo, stammar: j.stammar, maskinNamn: maskiner[j.maskinId] || j.maskinId,
-      kandidater: hittaKandidater(j, objekt).map((k: any) => ({
-        objekt_id: k.objekt.objekt_id, vo_nummer: k.objekt.vo_nummer ?? null, object_name: k.objekt.object_name ?? null, skogsagare: k.objekt.skogsagare ?? null,
-      })),
+    filJobb: filDelning.aktuella.map((j: OkopplatJobb) => ({
+      nyckel: j.nyckel ?? j.filnamn, namn: j.namn, vo: j.ident ?? '', stammar: j.stammar, datum: j.datum,
+      maskinNamn: (j.maskin && maskiner[j.maskin]) || j.maskin || 'Maskin',
+      kandidater: kandidaterFor(j, filerUO.data.objekt).map(o => ({ objekt_id: o.id, vo_nummer: o.vo_nummer, object_name: o.namn })),
       _jobb: j,
-    } as FilJobb & { _jobb: any })),
+    } as FilJobb & { _jobb: OkopplatJobb })),
   })
 
   async function sparaSvar(sak: Extract<Sak, { typ: 'falt' }>, varde: string): Promise<boolean> {
@@ -4041,11 +4052,24 @@ function ObjektRedigeringInner() {
     setObjekt((prev: any[]) => prev.map((o: any) => sak.grupp.ids.includes(o.objekt_id) ? { ...o, ...patch } : o))
     return true
   }
+  // Koppla = filens nummer blir ett extra nummer på objektet (samma som importen gör vid namnträff). Räknas som gjort
+  // först när filen är borta ur listan vid omläsning.
   async function kopplaSvar(jobb: FilJobb, kandidat: { objekt_id: string }): Promise<boolean> {
-    const mal = objekt.find((o: any) => o.objekt_id === kandidat.objekt_id)
-    const j = (jobb as any)._jobb
-    if (!mal || !j) return false
-    return (await kopplaJobbKarna(j, mal)) != null
+    const j: OkopplatJobb | undefined = (jobb as any)._jobb
+    const rad = j ? altNummerAttSkriva(j, kandidat.objekt_id) : null
+    if (!j || !rad) return false
+    const { data: skrivet, error } = await supabase.from('objekt_alt_nummer').insert(rad).select('id')
+    if (error || !skrivet || skrivet.length === 0) return false
+    const ny = await filerUO.ladda()
+    return !!ny && !okopplatJobb(ny.filer, ny.objekt, ny.alias).some(x => (x.nyckel ?? x.filnamn) === (j.nyckel ?? j.filnamn))
+  }
+  async function ignoreraSvar(jobb: FilJobb): Promise<boolean> {
+    const j: OkopplatJobb | undefined = (jobb as any)._jobb
+    if (!j) return false
+    const { data: skrivet, error } = await supabase.from('hpr_ignorerad').insert({ nyckel: ignoreradNyckel(j) }).select('nyckel')
+    if (error || !skrivet || skrivet.length === 0) return false
+    const ny = await filerUO.ladda()
+    return !!ny && ny.ignorerade.has(ignoreradNyckel(j))
   }
 
   // En grupp som listan vill ha den (lib/redigering/listaVy.ts).
@@ -4111,7 +4135,7 @@ function ObjektRedigeringInner() {
       {/* BEHÖVER DIG — svaret först (markägarrapportens form), en rad per sak med appens förslag, och arket som tar
           en sak i taget. Ersätter rubriken "N att åtgärda", larmrutan för maskinjobb utan objekt och listan Att åtgärda. */}
       <div className="red-kolumn">
-      {hprStatus === 'fel' && (
+      {filerUO.status === 'fel' && (
         <p role="alert" style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.meta, color: FARG.rod }}>
           Kunde inte läsa maskinfilerna, så filer utan objekt kan inte visas. Ladda om sidan.
         </p>
@@ -4121,28 +4145,10 @@ function ObjektRedigeringInner() {
         antalObjekt={aktivaGrupper.length}
         onSparaFalt={sparaSvar}
         onKoppla={kopplaSvar}
-        onSkapaNytt={(j: any) => setSkapaJobb(j._jobb)}
+        onIgnorera={ignoreraSvar}
+        sokObjekt={(q: string) => sokPlanObjekt(filerUO.data.objekt, q).map(o => ({ objekt_id: o.id, vo_nummer: o.vo_nummer, object_name: o.namn }))}
         onOppnaObjekt={(g: BehoverGrupp) => openObjekt(g.rep)}
       />
-      {okopplade.smajobb.length > 0 && (
-        <div style={styles.smajobbWrap}>
-          <button onClick={() => setVisaSmajobb(!visaSmajobb)} className="tap-press" style={styles.smajobbToggle as any}>
-            <span style={{ flex: 1, textAlign: 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {okopplade.smajobb.length} småjobb utan VO · t.ex. {okopplade.smajobb.slice(0, 2).map((j: any) => j.namn || j.vo).join(', ')}
-            </span>
-            <span style={{ color: 'rgba(255,255,255,0.35)', flexShrink: 0 }}>{visaSmajobb ? '▴' : '▾'}</span>
-          </button>
-          {visaSmajobb && okopplade.smajobb.map((j: any) => (
-            <div key={j.nyckel} style={styles.smajobbRad}>
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.namn || 'Namnlöst'}</span>
-              <span style={{ flexShrink: 0 }}>{j.vo} · {j.stammar.toLocaleString('sv-SE')} stammar · {maskiner[j.maskinId] || j.maskinId}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Filer vars ordernummer inte matchar något objekt (planeringsvyn visar dem inte) — med "Koppla till objekt" */}
-      <OkopplFilerKort maskiner={maskiner} />
 
       {/* OBJEKTEN — sök och typ, Pågår, Skotning kvar, senaste månaden, Tidigare per månad, Matchning och Exkluderade
           (lib/redigering/listaVy.ts). Ett tryck öppnar objektets ark. */}
@@ -4152,7 +4158,17 @@ function ObjektRedigeringInner() {
         onOppna={(nyckel: string) => { const g = allaGrupper.find(x => x.nyckel === nyckel); if (g) openObjekt(g.rep) }}
         onMatchning={() => setVisaMatchning(true)}
         matchningUtan={matchning.status === 'ok' ? matchning.omatchadeMaskin.length : null}
+        aldreFiler={filDelning.tysta + filByten > 0 ? { antal: filDelning.tysta, byten: filByten } : null}
+        onAldreFiler={() => setVisaGamlaFiler(true)}
       />
+      {visaGamlaFiler && (
+        <Ark rubrik="Äldre maskinfiler" stang="Klar" onStang={() => { setVisaGamlaFiler(false); void filerUO.ladda() }}>
+          <p style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.text, color: FARG.text2 }}>
+            Filer från jobb som är klara i skogen och aldrig kopplades till ett objekt. Inget behöver göras – koppla eller ignorera om du vill.
+          </p>
+          <OkopplFilerKort maskiner={maskiner} startOppen />
+        </Ark>
+      )}
 
       </div>
 

@@ -37,7 +37,7 @@ function Vy({ spara }: { spara: (nyckel: string, v: string) => Promise<boolean> 
         if (ok) setVarn(p => ({ ...p, [s.grupp.nyckel]: p[s.grupp.nyckel].filter(k => k !== s.falt) }));
         return ok;
       }}
-      onKoppla={async () => true} onSkapaNytt={() => {}} onOppnaObjekt={() => {}} />
+      onKoppla={async () => true} onIgnorera={async () => true} sokObjekt={() => []} onOppnaObjekt={() => {}} />
   );
 }
 
@@ -109,9 +109,39 @@ describe('Behöver dig', () => {
     expect(spara).toHaveBeenCalledWith('11271860:avtalsform', 'Special');
   });
 
+  it('en fil: troligast först, sök annat objekt, eller "Hör inte till något objekt"', async () => {
+    const koppla = vi.fn(async () => true);
+    const ignorera = vi.fn(async () => true);
+    const fil = { typ: 'fil' as const, nyckel: 'fil:R64428:k53', namn: 'Görgen Gustafsson Trolleboda', under: 'H8E -26 · 23 okt · 350 stammar · inget objekt',
+      jobb: { nyckel: 'R64428:k53', namn: 'Görgen Gustafsson Trolleboda', vo: 'k53', stammar: 350, maskinNamn: 'H8E -26', datum: '2026-10-23',
+        kandidater: [{ objekt_id: 'a', vo_nummer: 'P-1025', object_name: 'Görgen Gustafsson Trolleboda' }] } };
+    el = document.createElement('div'); document.body.appendChild(el);
+    root = createRoot(el);
+    act(() => root!.render(<BehoverDig saker={[fil]} antalObjekt={10} onSparaFalt={async () => true} onKoppla={koppla} onIgnorera={ignorera}
+      sokObjekt={(q) => q ? [{ objekt_id: 'c', vo_nummer: '11166477', object_name: 'Mölleryd RP J-Hus -25' }] : []} onOppnaObjekt={() => {}} />));
+    await klick(document.querySelector('[data-sak="fil:R64428:k53"]') as HTMLElement);
+    expect(document.querySelector('[role=dialog]')!.textContent).toContain('Vilket objekt hör filen till?');
+    await klick(knapp('Koppla till Görgen Gustafsson Trolleboda'));
+    expect(koppla).toHaveBeenCalledWith(fil.jobb, fil.jobb.kandidater[0]);
+  });
+
+  it('en fil utan förslag: sök fram objektet, eller dölj filen', async () => {
+    const ignorera = vi.fn(async () => true);
+    const fil = { typ: 'fil' as const, nyckel: 'fil:x', namn: 'Test avsluta', under: 'H8E -23 · inget objekt',
+      jobb: { nyckel: 'x', namn: 'Test avsluta', vo: 'k9', stammar: 2, maskinNamn: 'H8E -23', kandidater: [] } };
+    el = document.createElement('div'); document.body.appendChild(el);
+    root = createRoot(el);
+    act(() => root!.render(<BehoverDig saker={[fil]} antalObjekt={10} onSparaFalt={async () => true} onKoppla={async () => true} onIgnorera={ignorera}
+      sokObjekt={() => []} onOppnaObjekt={() => {}} />));
+    await klick(document.querySelector('[data-sak="fil:x"]') as HTMLElement);
+    expect(knapp('Välj ett objekt').disabled).toBe(true);
+    await klick(document.querySelector('[data-ignorera]') as HTMLElement);
+    expect(ignorera).toHaveBeenCalledWith(fil.jobb);
+  });
+
   it('utan något att göra: en lugn svarsrad, ingen knapp', () => {
     el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el);
-    act(() => root!.render(<BehoverDig saker={[]} antalObjekt={133} onSparaFalt={async () => true} onKoppla={async () => true} onSkapaNytt={() => {}} onOppnaObjekt={() => {}} />));
+    act(() => root!.render(<BehoverDig saker={[]} antalObjekt={133} onSparaFalt={async () => true} onKoppla={async () => true} onIgnorera={async () => true} sokObjekt={() => []} onOppnaObjekt={() => {}} />));
     expect(el.textContent).toContain('Allt kopplat och ifyllt');
     expect(knapp('Gå igenom')).toBeUndefined();
   });

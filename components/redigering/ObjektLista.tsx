@@ -18,9 +18,12 @@ export interface ObjektListaProps {
   onMatchning: () => void;
   /** Maskinobjekt utan planering (matchningens första tal); null medan det läses eller när det inte gick. */
   matchningUtan: number | null;
+  /** Äldre maskinfiler utan objekt (jobb som är klara i skogen) och nummerbyten importen gjort; null = inga. */
+  aldreFiler?: { antal: number; byten: number } | null;
+  onAldreFiler?: () => void;
 }
 
-export default function ObjektLista({ grupper, exkluderade, onOppna, onMatchning, matchningUtan }: ObjektListaProps) {
+export default function ObjektLista({ grupper, exkluderade, onOppna, onMatchning, matchningUtan, aldreFiler, onAldreFiler }: ObjektListaProps) {
   const [typ, setTyp] = useState<TypFilter>('alla');
   const [sok, setSok] = useState('');
   const [oppna, setOppna] = useState<Set<string>>(new Set());
@@ -96,7 +99,11 @@ export default function ObjektLista({ grupper, exkluderade, onOppna, onMatchning
       <Sektion rubrik="Övrigt" inset>
         <Rad titel="Matchning" under="Maskinobjekt mot planerade objekt" onTryck={onMatchning}
           hoger={matchningUtan != null && matchningUtan > 0 ? <span style={{ fontWeight: 400, color: FARG.orange }}>{matchningUtan} utan planering</span> : undefined}
-          sista={exklSynliga.length === 0} />
+          sista={exklSynliga.length === 0 && !aldreFiler} />
+        {aldreFiler && onAldreFiler && (
+          <Rad titel="Äldre maskinfiler" attr={{ 'data-aldre-filer': '' }} sista={exklSynliga.length === 0} onTryck={onAldreFiler}
+            under={[aldreFiler.antal > 0 ? `${aldreFiler.antal} utan objekt` : null, aldreFiler.byten > 0 ? `${aldreFiler.byten} bytte nummer` : null].filter(Boolean).join(' · ')} />
+        )}
         {exklSynliga.length > 0 && (
           <Rad titel="Exkluderade" under="Döljs i statistiken" pil={false} sista={!visaExkl} onTryck={() => setVisaExkl(v => !v)}
             attr={{ 'aria-expanded': String(visaExkl), 'data-exkluderade': '' }}

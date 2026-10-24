@@ -458,9 +458,10 @@ describe('ärliga lägen', () => {
 describe('källvakter', () => {
   const kort = readFileSync(resolve(__dirname, 'OkopplFilerKort.tsx'), 'utf8');
   const redigering = readFileSync(resolve(__dirname, '../../app/redigering/RedigeringClient.tsx'), 'utf8');
-  it('kortet är monterat i /redigering, bredvid de andra larmen', () => {
+  it('kortet nås i /redigering via raden "Äldre maskinfiler" (aktuella filer är frågor i Behöver dig)', () => {
     expect(redigering).toContain("import OkopplFilerKort from '@/components/redigering/OkopplFilerKort'");
-    expect(redigering).toContain('<OkopplFilerKort maskiner={maskiner} />');
+    expect(redigering).toContain('<OkopplFilerKort maskiner={maskiner} startOppen />');
+    expect(redigering).not.toContain('<OkopplFilerKort maskiner={maskiner} />');
   });
   it('tokens, inga färgliteraler eller egna textstorlekar', () => {
     expect(kort).toContain("from '@/lib/design/tokens'");

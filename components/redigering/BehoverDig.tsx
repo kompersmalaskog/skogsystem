@@ -5,7 +5,7 @@
 // ("1 av 4" → "Spara Rotpost och ta nästa"). Allt i texten kommer ur lib/redigering/behoverDig.ts.
 
 import { useMemo, useState } from 'react';
-import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, TNUM, TYP, designCss } from '@/lib/design/tokens';
+import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, RADIE, TNUM, TRAFFYTA, TYP, designCss } from '@/lib/design/tokens';
 import Sektion from '@/components/design/Sektion';
 import Rad from '@/components/design/Rad';
 import Ark from '@/components/design/Ark';
@@ -24,13 +24,16 @@ export interface BehoverDigProps {
   antalObjekt: number;
   onSparaFalt: (sak: Extract<Sak, { typ: 'falt' }>, varde: string) => Promise<boolean>;
   onKoppla: (jobb: FilJobb, kandidat: Kandidat) => Promise<boolean>;
-  onSkapaNytt: (jobb: FilJobb) => void;
+  /** Filen hör inte till något objekt — dölj den (går att visa igen under "Äldre maskinfiler"). */
+  onIgnorera: (jobb: FilJobb) => Promise<boolean>;
+  /** Sök bland objekten när inget av förslagen stämmer. */
+  sokObjekt: (sok: string) => Kandidat[];
   onOppnaObjekt: (grupp: BehoverGrupp) => void;
 }
 
 const etikett = (s: Extract<Sak, { typ: 'falt' }>, v: string) => (s.falt === 'avtalsform' ? AVTALSFORM_ORD[v] ?? v : v);
 
-export default function BehoverDig({ saker, antalObjekt, onSparaFalt, onKoppla, onSkapaNytt, onOppnaObjekt }: BehoverDigProps) {
+export default function BehoverDig({ saker, antalObjekt, onSparaFalt, onKoppla, onIgnorera, sokObjekt, onOppnaObjekt }: BehoverDigProps) {
   // Kön fryses när arket öppnas: en sak som besvaras försvinner ur `saker`, och då får "2 av 4" inte hoppa.
   const [ko, setKo] = useState<string[] | null>(null);
   const [klara, setKlara] = useState<{ sparade: number; hoppade: number; gjorda: Set<string> }>({ sparade: 0, hoppade: 0, gjorda: new Set() });
@@ -92,8 +95,7 @@ export default function BehoverDig({ saker, antalObjekt, onSparaFalt, onKoppla, 
             plats={`${ko.filter(k => klara.gjorda.has(k)).length + 1} av ${ko.length}`}
             onStang={stang}
             onKlar={sparad => klar(nuvarande.nyckel, sparad)}
-            onSparaFalt={onSparaFalt} onKoppla={onKoppla}
-            onSkapaNytt={j => { stang(); onSkapaNytt(j); }}
+            onSparaFalt={onSparaFalt} onKoppla={onKoppla} onIgnorera={onIgnorera} sokObjekt={sokObjekt}
             onOppnaObjekt={g => { stang(); onOppnaObjekt(g); }} />
         ) : (
           <Ark rubrik="Klart" stang="Klar" onStang={stang} fot={<button type="button" onClick={stang} style={KNAPP.primar}>Klar</button>}>
@@ -123,11 +125,13 @@ function ValRad({ titel, under, hoger, vald, onValj, sista }: { titel: string; u
   );
 }
 
-function SakArk({ sak, plats, onStang, onKlar, onSparaFalt, onKoppla, onSkapaNytt, onOppnaObjekt }: {
+function SakArk({ sak, plats, onStang, onKlar, onSparaFalt, onKoppla, onIgnorera, sokObjekt, onOppnaObjekt }: {
   sak: Sak; plats: string; onStang: () => void; onKlar: (sparad: boolean) => void;
   onSparaFalt: BehoverDigProps['onSparaFalt']; onKoppla: BehoverDigProps['onKoppla'];
-  onSkapaNytt: (j: FilJobb) => void; onOppnaObjekt: (g: BehoverGrupp) => void;
+  onIgnorera: BehoverDigProps['onIgnorera']; sokObjekt: BehoverDigProps['sokObjekt'];
+  onOppnaObjekt: (g: BehoverGrupp) => void;
 }) {
+  const [sok, setSok] = useState('');
   const forval = sak.typ === 'falt' ? sak.forslag?.varde ?? null : sak.typ === 'fil' ? sak.jobb.kandidater[0]?.objekt_id ?? null : null;
   const [valt, setValt] = useState<string | null>(forval);
   const [sparar, setSparar] = useState(false);
@@ -184,19 +188,19 @@ function SakArk({ sak, plats, onStang, onKlar, onSparaFalt, onKoppla, onSkapaNyt
 
   if (sak.typ === 'fil') {
     const { jobb } = sak;
-    const valdKandidat = jobb.kandidater.find(k => k.objekt_id === valt) ?? null;
+    const traffar = sokObjekt(sok).filter(k => !jobb.kandidater.some(x => x.objekt_id === k.objekt_id));
+    const alla = [...jobb.kandidater, ...traffar];
+    const valdKandidat = alla.find(k => k.objekt_id === valt) ?? null;
     const fot = (
       <>
         {felRad}
-        {jobb.kandidater.length > 0 && (
-          <button type="button" disabled={!valdKandidat || sparar} onClick={() => valdKandidat && kor(() => onKoppla(jobb, valdKandidat))}
-            style={{ ...KNAPP.primar, ...(!valdKandidat || sparar ? INAKTIV : {}) }} data-spara="">
-            {sparar ? 'Kopplar …' : 'Koppla och ta nästa'}
-          </button>
-        )}
-        <button type="button" onClick={() => onSkapaNytt(jobb)}
-          style={jobb.kandidater.length > 0 ? { ...KNAPP.tertiar, alignSelf: 'center' } : KNAPP.primar}>
-          {jobb.kandidater.length > 0 ? 'Inget av dessa – skapa nytt objekt' : 'Skapa nytt objekt'}
+        <button type="button" disabled={!valdKandidat || sparar} onClick={() => valdKandidat && kor(() => onKoppla(jobb, valdKandidat))}
+          style={{ ...KNAPP.primar, ...(!valdKandidat || sparar ? INAKTIV : {}) }} data-spara="">
+          {sparar ? 'Kopplar …' : valdKandidat ? `Koppla till ${valdKandidat.object_name ?? 'objektet'}` : 'Välj ett objekt'}
+        </button>
+        <button type="button" disabled={sparar} onClick={() => kor(() => onIgnorera(jobb))}
+          style={{ ...KNAPP.tertiar, alignSelf: 'center' }} data-ignorera="">
+          Hör inte till något objekt
         </button>
         {hoppa}
       </>
@@ -204,20 +208,33 @@ function SakArk({ sak, plats, onStang, onKlar, onSparaFalt, onKoppla, onSkapaNyt
     return (
       <Ark rubrik={plats} onStang={onStang} fot={fot}>
         {huvud(
-          `${jobb.maskinNamn} · ${jobb.stammar.toLocaleString('sv-SE')} stammar · VO ${jobb.vo}`,
+          sak.under,
           'Vilket objekt hör filen till?',
-          jobb.kandidater[0]?.object_name ?? 'Inget objekt hittat',
-          jobb.kandidater.length > 0 ? 'Namnet i filen liknar det mest. Troligast står först.' : `Inget objekt har ett namn som liknar "${jobb.namn ?? jobb.vo}".`,
+          jobb.namn ?? 'Namnlös fil',
+          jobb.kandidater.length > 0 ? 'Namnet i filen liknar det här objektet mest.' : 'Inget objekt har ett namn som liknar filens. Sök fram det nedan.',
         )}
         {jobb.kandidater.length > 0 && (
-          <Sektion rubrik="Troligast först" not="Filen ändras inte. Den knyts till objektet och går att flytta igen." kort={false}>
+          <Sektion rubrik="Troligast" kort={false}>
             {jobb.kandidater.map((k, i) => (
               <ValRad key={k.objekt_id} titel={k.object_name ?? `VO ${k.vo_nummer}`}
-                under={[k.vo_nummer && `VO ${k.vo_nummer}`, k.skogsagare].filter(Boolean).join(' · ')}
+                under={k.vo_nummer ? `VO ${k.vo_nummer}` : undefined}
                 vald={valt === k.objekt_id} onValj={() => setValt(k.objekt_id)} sista={i === jobb.kandidater.length - 1} />
             ))}
           </Sektion>
         )}
+        <Sektion rubrik={jobb.kandidater.length > 0 ? 'Något annat objekt?' : 'Sök objekt'} kort={false}
+          not="Filen ändras inte. Den knyts till objektet, så skotaren ser högarna.">
+          <input value={sok} onChange={e => setSok(e.target.value)} placeholder="Namn eller VO-nummer" data-sok-objekt=""
+            style={{ width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, borderRadius: RADIE.knapp, border: 'none', background: FARG.upphojt, color: FARG.text, ...TYP.text, fontFamily: 'inherit', outline: 'none' }} />
+          {traffar.map((k, i) => (
+            <ValRad key={k.objekt_id} titel={k.object_name ?? `VO ${k.vo_nummer}`}
+              under={k.vo_nummer ? `VO ${k.vo_nummer}` : undefined}
+              vald={valt === k.objekt_id} onValj={() => setValt(k.objekt_id)} sista={i === traffar.length - 1} />
+          ))}
+          {sok.trim() !== '' && traffar.length === 0 && (
+            <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Inget objekt heter så.</p>
+          )}
+        </Sektion>
       </Ark>
     );
   }
