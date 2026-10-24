@@ -44,16 +44,12 @@ const FRAGA: Record<Lage, string> = {
  * över ETT diagram · månadslistan, där ett tryck går till Körningar för månaden.
  * Den visar körning, inte fakturering. Lastbilen är en egen maskin i uppföljningen: l/mil och km blandas aldrig med maskinernas l/h.
  */
-export default function UppfoljningSida({ ar, onAr, fakt, vikt, maskiner, arAdmin, namn, onMaskinAndrad, lage, onForsokIgen, onTillbaka, onValjManad }: {
+export default function UppfoljningSida({ ar, onAr, fakt, vikt, maskiner, lage, onForsokIgen, onTillbaka, onValjManad }: {
   ar: number; onAr: (ar: number) => void;
   /** Årets körning delad på med lass / utan lass / okänd ur bilens vikt (Förbrukning, Körsträcka och jämförelsen i Betalt). */
   vikt: { lage: ViktLage; forsokIgen: () => void };
   /** Årets flyttar per maskin ("Maskiner" längst ner; också Y i "Lass kan saknas"). */
   maskiner: { lage: MaskinerLage; forsokIgen: () => void };
-  /** Bara admin kan öppna en flytt för att rätta den (sheeten "Flytten"). */
-  arAdmin: boolean; namn: string;
-  /** En flytt rättades i maskinens ark: läs om allt som kan ha ändrats. */
-  onMaskinAndrad: () => void;
   /** Årets fakturaunderlag (bara admin; null = förare, då finns inget Betalt-läge). */
   fakt: { status: FakturerbartStatus; forsokIgen: () => void } | null;
   lage: RundorLage; onForsokIgen: () => void; onTillbaka: () => void; onValjManad: (m: Manad) => void;
@@ -172,7 +168,7 @@ export default function UppfoljningSida({ ar, onAr, fakt, vikt, maskiner, arAdmi
       )}
       {/* Maskiner läser maskin_flytt själv: ett fel i rundorna ska inte ta bort den, och tvärtom. */}
       <div style={{ marginTop: AVSTAND.xl }}>
-        <MaskinerSektion ar={ar} lage={maskiner.lage} onForsokIgen={maskiner.forsokIgen} arAdmin={arAdmin} namn={namn} onAndrad={onMaskinAndrad} />
+        <MaskinerSektion ar={ar} lage={maskiner.lage} onForsokIgen={maskiner.forsokIgen} />
       </div>
     </div>
   );
