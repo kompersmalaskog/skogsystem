@@ -42,7 +42,8 @@ function rita(rader: OversiktsRad[], utanTrakt: { poster: number; timmar: number
   return el;
 }
 
-const text = (n: HTMLElement) => (n.textContent ?? '').replace(/[  ]/g, ' ');
+// Element, inte HTMLElement: querySelector ger Element och vi läser bara textContent.
+const text = (n: Element) => (n.textContent ?? '').replace(/[  ]/g, ' ');
 
 describe('FakturaLista — ett tal per skärm', () => {
   it('det stora talet står i blocket som bara syns på telefon/iPad', () => {
