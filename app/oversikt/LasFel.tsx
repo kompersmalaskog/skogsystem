@@ -11,6 +11,8 @@ export const LASFEL_FARA = 'Kunde inte läsa faror och hänsyn — kolla planeri
 export const LASFEL_FARA_LADDAR = 'Läser faror och hänsyn…';
 export const LASFEL_KO = 'Kunde inte läsa maskiner och köer — försök igen';
 export const KO_KUNDE_INTE_LASAS = 'Kön kunde inte läsas';
+export const LASFEL_POS = 'Kunde inte läsa var maskinerna står — maskiner kan saknas på kartan';
+export const LASFEL_POS_DELVIS = 'Kunde inte läsa alla platser — en del maskiner kan stå på en äldre plats';
 
 /** Orange felrad (role=alert) med valfri "Försök igen". Träffyta 44 px. Gamla vyns egna tokens — inga nya färger. */
 export function LasFelRad({ text, onForsok, style }: { text: string; onForsok?: () => void; style?: React.CSSProperties }) {
