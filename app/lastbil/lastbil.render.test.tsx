@@ -1845,33 +1845,30 @@ describe("Uppföljning: Maskiner", () => {
     ]);
   });
 
-  it("Giant: antal stort, 'Står på X sedan N dagar', och de tre snitten med antalet utskrivet", async () => {
+  it("Giant: frågor som rubriker och svaret i ord — var den är nu, hur ofta den flyttas, hur lång en flytt är", async () => {
     await montera();
     await tillAr();
     await klicka(maskinRad("Giant"));
     const d = dlg()!;
     expect(d.getAttribute("aria-label")).toBe("Giant");
-    expect(d.querySelector("[data-maskin-antal]")!.textContent).toBe("11 flyttar");
-    expect(d.textContent).toContain("i 2026");
-    expect(d.querySelector("[data-star-pa]")!.textContent).toMatch(/^Står på .+ sedan \d+ dagar$/);
-    const snitt = norm(d.querySelector("[data-maskin-snitt]")!.textContent);
-    expect(snitt).toContain("Lassat → lossat");
-    expect(snitt).toContain("snitt av 11 flyttar");
-    expect(snitt).toContain("Snitt-kmsnitt av 11 flyttar23 km");              // 249 / 11 = 22,6
-    expect(snitt).toContain("På en traktsnitt av 5 mellanrum2,8 dagar");
-    expect(snitt).not.toMatch(/kan inte räknas|saknar/);
+    expect(Array.from(d.querySelectorAll("h3")).map(h => h.textContent)).toEqual(["Var är Giant nu?", "Hur ofta flyttas den?", "Hur lång är en flytt?", "Vart har den flyttats?"]);
+    expect(d.querySelector("[data-star-pa]")!.textContent).not.toMatch(/^Står på/);    // platsen ÄR svaret
+    expect(d.querySelector("[data-star-pa]")!.parentElement!.textContent).toMatch(/sedan \d+ dagar$/);
+    expect(d.querySelector("[data-maskin-antal]")!.textContent).toBe("11 gånger i år");
+    expect(d.querySelector("[data-maskin-trakt]")!.textContent).toBe("Står ungefär 3 dagar på varje trakt");   // 2,8 dagar
+    expect(d.querySelector("[data-maskin-snitt]")!.textContent).toMatch(/^23 km · /);                         // 249 / 11 = 22,6
+    expect(d.textContent).toContain("i snitt, från lastad till lossad");
+    expect(d.textContent).not.toMatch(/snitt av|Snitt-km|Lassat → lossat|saknar/);
+    expect(knapp(/^Klar$/, d)).toBeTruthy();
   });
 
   it("Elefant 26: för få räknebara mellanrum ger inget snitt, och flyttar utan Från står som 'Från saknas'", async () => {
     await montera();
     await tillAr();
     await klicka(maskinRad("Elefant 26"));
-    const snitt = norm(dlg()!.querySelector("[data-maskin-snitt]")!.textContent);
-    expect(snitt).toContain("På en traktbara 1 mellanrum – för få för snitt–");
-    expect(snitt).not.toMatch(/kan inte räknas/);
-    expect(snitt).toContain("snitt av 4 flyttar");
+    expect(dlg()!.querySelector("[data-maskin-trakt]")!.textContent).toBe("För få flyttar för att säga hur länge den står på en trakt");
     const lista = norm(dlg()!.querySelector("[data-maskin-flyttar]")!.textContent);
-    expect(lista.match(/Från saknas/g)).toHaveLength(3);
+    expect(lista.match(/från okänd plats/g)).toHaveLength(3);
   });
 
   it("Wisent (2 flyttar): inget snitt — 'bara 2 flyttar – för få för snitt' — och flyttlistan har båda flyttarna med km och tid", async () => {
@@ -1879,7 +1876,8 @@ describe("Uppföljning: Maskiner", () => {
     await tillAr();
     await klicka(maskinRad("Wisent"));
     const d = dlg()!;
-    expect(norm(d.querySelector("[data-maskin-snitt]")!.textContent)).toContain("bara 2 flyttar – för få för snitt");
+    expect(d.querySelector("[data-maskin-snitt]")!.textContent).toBe("För få flyttar för snitt");
+    expect(d.textContent).toContain("bara 2 flyttar");
     const rader = d.querySelectorAll("[data-maskin-flyttar] > *");
     expect(rader).toHaveLength(2);
     expect(norm(rader[0].textContent)).toMatch(/km/);
@@ -1893,7 +1891,7 @@ describe("Uppföljning: Maskiner", () => {
     expect(norm(maskinRad("Giant").textContent)).toContain("1 flytt saknar km");
     expect(norm(maskinRad("Giant").textContent)).toContain("229 km");
     await klicka(maskinRad("Giant"));
-    expect(norm(dlg()!.querySelector("[data-maskin-snitt]")!.textContent)).toContain("snitt av 10 flyttar · 1 flytt saknar km");
+    expect(dlg()!.textContent).toContain("i snitt, från lastad till lossad · 1 flytt saknar km");
     expect(norm(dlg()!.querySelector("[data-maskin-flyttar]")!.textContent)).toContain("km saknas");
   });
 
@@ -1923,7 +1921,7 @@ describe("Uppföljning: Maskiner", () => {
     await montera();
     await tillAr();
     await klicka(maskinRad("Giant"));
-    expect(dlg()!.querySelector("[data-maskin-antal]")!.textContent).toBe("11 flyttar");
+    expect(dlg()!.querySelector("[data-maskin-antal]")!.textContent).toBe("11 gånger i år");
     expect(dlg()!.textContent).not.toContain("Tryck på en flytt");
     expect(knapp(/^Visa flytten/, dlg()!)).toBeUndefined();
   });
@@ -1940,7 +1938,7 @@ describe("Uppföljning: Maskiner", () => {
     expect(rader[rader.length - 1]).toBe("Andras maskiner2 flyttar80 km");
     await klicka(maskinRad("Andras maskiner"));
     expect(dlg()!.querySelector("[data-star-pa]")).toBeNull();
-    expect(norm(dlg()!.querySelector("[data-maskin-snitt]")!.textContent)).not.toContain("På en trakt");
+    expect(dlg()!.querySelector("[data-maskin-trakt]")).toBeNull();
     expect(norm(dlg()!.querySelector("[data-maskin-flyttar]")!.textContent)).toContain("Vidas skördare");
   });
 
