@@ -4,8 +4,7 @@ import { underTopbar, medSafeBotten, FARG, TYP, AVSTAND } from '@/lib/design/tok
 import { useState, useEffect, useRef, useMemo, Fragment, Children, Suspense, type CSSProperties, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { hamtaRisKandidater, hamtaKopplingar, sparaKopplingar, grotHamtadAutomatik, angraGrotHamtadAutomatik } from '@/lib/grot-koppling'
-import { hamtaAckordgrundAuto, type AckordgrundAuto } from '@/lib/ekonomi/ackordgrund'
+import { grotHamtadAutomatik, angraGrotHamtadAutomatik } from '@/lib/grot-koppling'
 import { useMatchning } from './hooks/useMatchning'
 import { useFildata, filStatus, slaIhopFildata, harExternSkotning, harExternSkordning, skordareForvantasEj, skotareForvantasEj } from './hooks/useFildata'
 import SkotareFordelning from './SkotareFordelning'
@@ -27,6 +26,7 @@ import Sektion from '@/components/design/Sektion'
 import Rad from '@/components/design/Rad'
 import ObjektOversikt from '@/components/redigering/ObjektOversikt'
 import ObjektLista from '@/components/redigering/ObjektLista'
+import { FilerSida, PrisSida, ExternSida, SkotareSida } from '@/components/redigering/Undersidor'
 import type { ListGrupp } from '@/lib/redigering/listaVy'
 import { voGruppKarta, medVoGrupp } from '@/lib/redigering/voGrupp'
 import { byggSaker, patchForSvar, type BehoverGrupp, type FilJobb, type Sak } from '@/lib/redigering/behoverDig'
@@ -951,48 +951,6 @@ function ChipInput({ label, value, options, setOptions, onChange, embedded = fal
   )
 }
 
-// Egenskap Switch
-function EgenskapSwitch({ label, active, onClick, orange }: { label: string; active: boolean; onClick: () => void; orange?: boolean }) {
-  const [bounce, setBounce] = useState(false)
-  const [hover, setHover] = useState(false)
-  const activeColor = orange ? '#FF9F0A' : '#adc6ff'
-  const activeBg = orange ? 'rgba(255,159,10,0.10)' : 'rgba(173,198,255,0.10)'
-  const activeBorder = orange ? 'rgba(255,159,10,0.30)' : 'rgba(173,198,255,0.30)'
-  
-  const handleClick = () => {
-    setBounce(true)
-    setTimeout(() => setBounce(false), 300)
-    onClick()
-  }
-
-  return (
-    <div 
-      onClick={handleClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        ...styles.switchRow,
-        background: active ? activeBg : hover ? 'rgba(255,255,255,0.03)' : 'transparent',
-        borderColor: active ? activeBorder : hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
-        transform: hover ? 'scale(1.01)' : 'scale(1)',
-        boxShadow: active ? `0 0 20px ${activeColor}20` : 'none'
-      }}
-    >
-      <div style={styles.switchLeft}>
-        <span style={{ fontSize: 15, fontWeight: 500, color: active ? '#fff' : 'rgba(255,255,255,0.5)', transition: 'color 0.2s ease' }}>{label}</span>
-      </div>
-      <div style={{
-        ...styles.switch,
-        background: active ? activeColor : 'rgba(255,255,255,0.15)',
-        boxShadow: active ? `0 0 20px ${activeColor}90` : 'none',
-        transform: bounce ? 'scale(1.1)' : 'scale(1)',
-        transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)'
-      }}>
-        <div style={{ ...styles.switchKnob, transform: active ? 'translateX(20px)' : 'translateX(0)' }} />
-      </div>
-    </div>
-  )
-}
 
 // DateToggle (för avslut-datum)
 function DateToggle({ label, date, onToggle, onDateChange }: { label: string; date: string | null | undefined; onToggle: (v: string | null) => void; onDateChange: (v: string | null) => void }) {
@@ -1103,33 +1061,6 @@ function DateToggle({ label, date, onToggle, onDateChange }: { label: string; da
   )
 }
 
-// Locked Input (som VO-nummer men för vanliga fält)
-// Direkt-redigerbart fält i iOS Settings-stil: label vänster, input höger.
-// onChange uppdaterar state vid varje keystroke; spara till Supabase sker
-// vid stora gröna Spara-knappen i footern.
-function LockedInput({ label, value, onChange, placeholder, embedded = false }: { label: string; value: string | null | undefined; onChange: (v: string) => void; placeholder?: string; embedded?: boolean }) {
-  const [focused, setFocused] = useState(false)
-  const baseStyle = embedded ? styles.directRowEmbedded : styles.directRowStandalone
-  return (
-    <div
-      style={embedded
-        ? { ...baseStyle, background: focused ? 'rgba(173,198,255,0.06)' : 'transparent' }
-        : { ...baseStyle, borderColor: focused ? 'rgba(173,198,255,0.35)' : 'rgba(255,255,255,0.08)' }
-      }
-    >
-      <span style={styles.directRowLabel}>{label}</span>
-      <input
-        type="text"
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        placeholder={placeholder}
-        style={styles.directRowInput}
-      />
-    </div>
-  )
-}
 
 // Save button — dimmad när inget är ändrat, tänd blå med ändringsräknare vid dirty.
 // Sparandet triggas bara härifrån (undersidor har bara "Klar" som går tillbaka).
@@ -1423,95 +1354,8 @@ function EditSheet({ open, onClose, onBack, title, subtitel, footer, contentKey,
   )
 }
 
-// iOS Settings-stil grupp: kort med tunna avdelare mellan rader
-function IosGroup({ title, children }: { title?: string; children: ReactNode }) {
-  const items = Children.toArray(children).filter(Boolean)
-  if (items.length === 0) return null
-  return (
-    <div style={styles.iosGroupWrap}>
-      {title && <div style={styles.iosGroupTitle}>{title}</div>}
-      <div style={styles.iosGroupCard}>
-        {items.map((child, i) => (
-          <Fragment key={i}>
-            {child}
-            {i < items.length - 1 && <div style={styles.iosDivider} />}
-          </Fragment>
-        ))}
-      </div>
-    </div>
-  )
-}
 
-// Talfält med svensk decimalkomma. Rå text lokalt (så "5," går att skriva),
-// parsat värde (eller null) propageras vid varje ändring. Ogiltig text får
-// röd kant och propagerar null — aldrig ett tyst 0.
-function NumField({ label, value, onChange, placeholder, suffix, accent }: any) {
-  const [raw, setRaw] = useState(value == null ? '' : String(value).replace('.', ','))
-  const [focused, setFocused] = useState(false)
-  useEffect(() => {
-    // Synka utifrån bara när fältet inte är fokuserat (annars förstörs pågående skrivning)
-    if (!focused) setRaw(value == null ? '' : String(value).replace('.', ','))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value])
-  const invalid = raw.trim() !== '' && !Number.isFinite(parseFloat(raw.replace(',', '.')))
-  const handle = (t: string) => {
-    setRaw(t)
-    const parsed = parseFloat(t.replace(',', '.'))
-    onChange(Number.isFinite(parsed) ? parsed : null)
-  }
-  return (
-    <div style={{ ...styles.directRowEmbedded, background: focused ? 'rgba(173,198,255,0.06)' : 'transparent' }}>
-      <span style={styles.directRowLabel}>{label}</span>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flex: 1, justifyContent: 'flex-end' }}>
-        <input
-          type="text"
-          inputMode="decimal"
-          value={raw}
-          onChange={(e) => handle(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder={placeholder || ''}
-          style={{
-            ...styles.directRowInput, flex: 'none', width: 110,
-            padding: '4px 8px', borderRadius: 8,
-            border: `1px solid ${invalid ? 'rgba(255,69,58,0.6)' : 'transparent'}`,
-            // accent: satt värde i manuell-orange — skiljer "mitt override"
-            // från auto-placeholderns grå på en blick
-            color: invalid ? '#FF453A' : (accent && raw.trim() !== '' ? '#FF9F0A' : '#fff'),
-          } as any}
-        />
-        {suffix && <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{suffix}</span>}
-      </div>
-    </div>
-  )
-}
 
-// Segmented control (två-tre val i rad) — samma visuella språk som
-// Ackord/Timpeng-väljaren
-function Segment({ value, options, onChange }: any) {
-  return (
-    <div style={{ display: 'flex', gap: 8 }}>
-      {options.map((o: any) => {
-        const vald = value === o.varde
-        return (
-          <button
-            key={o.label}
-            onClick={() => onChange(o.varde)}
-            className="tap-press"
-            style={{
-              flex: 1, minHeight: 44, borderRadius: 12, fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-              border: `1px solid ${vald ? 'rgba(173,198,255,0.45)' : 'rgba(255,255,255,0.1)'}`,
-              background: vald ? 'rgba(173,198,255,0.14)' : 'transparent',
-              color: vald ? '#adc6ff' : 'rgba(255,255,255,0.55)',
-            }}
-          >
-            {o.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
 
 // Rad i "Måste fyllas i" — kollapsad visar värdet (grått) eller "Välj ›"
 // (orange), tryck expanderar redigeraren under raden
@@ -1602,336 +1446,6 @@ function MaskinPrickar({ obj, rader, sanderEj }: any) {
   )
 }
 
-// UNDERSIDA: Filer — vilka maskinfiler som bär objektets data, per maskinslag.
-// Datumet är primärsignalen; antal/typer är dämpad sekundärrad. Statusraden
-// överst knyter ihop förväntan (egenskaperna) med vad som faktiskt kommit in.
-function SubFiler({ obj, rader, hamtStatus, skotareSanderEj }: any) {
-  if (hamtStatus === 'fel') {
-    return (
-      <IosGroup title="Filer">
-        <div style={{ padding: '14px 16px', fontSize: 14, color: 'rgba(255,160,160,0.9)' }}>Kunde inte hämta fildata</div>
-      </IosGroup>
-    )
-  }
-  if (hamtStatus === 'laddar') {
-    return (
-      <IosGroup title="Filer">
-        <div style={{ padding: '14px 16px', fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Läser fildata …</div>
-      </IosGroup>
-    )
-  }
-
-  const s = filStatus(obj, rader, { skotareSanderEjFiler: skotareSanderEj })
-  const alla = rader || []
-  const skordare = alla.filter((r: any) => r.typ === 'skordare')
-  const skotare = alla.filter((r: any) => r.typ === 'skotare')
-  const okanda = alla.filter((r: any) => r.typ === null)
-
-  let statusText: string
-  let statusTon: 'gron' | 'gul'
-  if (s.ovantadSkotardata) {
-    statusTon = 'gul'
-    statusText = `Skotardata finns trots ${s.skotareEjOrsak} — kontrollera egenskapen`
-  } else if (s.ovantadSkordardata) {
-    statusTon = 'gul'
-    statusText = 'Skördardata finns trots extern skördare — kontrollera egenskapen'
-  } else if (s.skordare === 'saknas' && s.skotare === 'saknas') {
-    statusTon = 'gul'
-    statusText = 'Inget fildata ännu'
-  } else if (s.skotare === 'saknas') {
-    statusTon = 'gul'
-    statusText = obj.skordning_avslutad
-      ? `Inget skotardata ännu — skördning klar ${fmtKortDatum(obj.skordning_avslutad)}`
-      : 'Inget skotardata ännu'
-  } else if (s.skordare === 'saknas') {
-    statusTon = 'gul'
-    statusText = 'Inget skördardata ännu'
-  } else {
-    statusTon = 'gron'
-    statusText = s.skordare === 'data' && s.skotare === 'data' ? 'Data från båda maskinslagen'
-      : s.skordare === 'data' ? 'Data från skördaren'
-      : 'Data från skotaren'
-  }
-
-  const maskinRad = (r: any) => (
-    <div key={r.maskinId} style={{ padding: '12px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
-        <span style={{ fontSize: 15, fontWeight: 500, color: 'rgba(255,255,255,0.85)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.modell || r.maskinId}</span>
-        <span style={{ fontSize: 15, color: '#fff', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-          {r.senasteData ? `data t.o.m. ${fmtKortDatum(r.senasteData)}` : 'inget datum'}
-        </span>
-      </div>
-      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 3 }}>
-        {r.antalFiler} {r.antalFiler === 1 ? 'fil' : 'filer'} · {r.filtyper.join(', ')}
-        {r.senasteImport ? ` · importerad ${fmtKortDatum(r.senasteImport)}` : ''}
-      </div>
-    </div>
-  )
-
-  const tomRad = (text: string, ton: 'gul' | 'gra') => (
-    <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: ton === 'gul' ? '#FF9F0A' : 'rgba(255,255,255,0.18)' }} />
-      <span style={{ fontSize: 14, color: ton === 'gul' ? 'rgba(255,200,120,0.95)' : 'rgba(255,255,255,0.4)' }}>{text}</span>
-    </div>
-  )
-
-  return (
-    <>
-      <div style={{
-        ...styles.progressHeader,
-        border: `1px solid ${statusTon === 'gul' ? 'rgba(255,159,10,0.25)' : 'rgba(48,209,88,0.25)'}`,
-        background: statusTon === 'gul' ? 'rgba(255,159,10,0.07)' : 'rgba(48,209,88,0.06)',
-      }}>
-        <span style={{ width: 10, height: 10, borderRadius: 5, flexShrink: 0, background: statusTon === 'gul' ? '#FF9F0A' : '#30d158' }} />
-        <span style={{ ...styles.progressText, color: statusTon === 'gul' ? 'rgba(255,200,120,0.95)' : 'rgba(180,235,190,0.95)' }}>{statusText}</span>
-      </div>
-
-      <IosGroup title="Skördare">
-        {skordare.length > 0 ? skordare.map(maskinRad)
-          : s.skordare === 'forvantas_ej' ? tomRad(`Förväntas ej (${s.skordareEjOrsak})`, 'gra')
-          : tomRad('Inget data ännu', 'gul')}
-      </IosGroup>
-
-      <IosGroup title="Skotare">
-        {skotare.length > 0 ? skotare.map(maskinRad)
-          : s.skotare === 'forvantas_ej' ? tomRad(`Förväntas ej (${s.skotareEjOrsak})`, 'gra')
-          : tomRad(obj.skordning_avslutad ? `Inget data ännu — skördning klar ${fmtKortDatum(obj.skordning_avslutad)}` : 'Inget data ännu', 'gul')}
-      </IosGroup>
-
-      {okanda.length > 0 && (
-        <IosGroup title="Okänd maskintyp">{okanda.map(maskinRad)}</IosGroup>
-      )}
-    </>
-  )
-}
-
-// UNDERSIDA: Pris & ersättning — Ackord/Timpeng + timpeng-undantag.
-// dim_objekt.timpeng är ENDA källan för flaggan.
-function SubPris({ obj, set, gruppIds }: any) {
-  // AUTO-värdena för ackordgrunden — SAMMA helpers som ekonomins beräkning
-  // (lib/ekonomi/ackordgrund); redigeringen får aldrig visa ett annat
-  // auto-värde än det Mot ackord/Per klass räknar på. null = laddar/fel →
-  // fälten visar bara "auto", aldrig en påhittad nolla.
-  const [autoV, setAutoV] = useState<AckordgrundAuto | null>(null)
-  const idsNyckel = (gruppIds || [obj.objekt_id]).join('|')
-  useEffect(() => {
-    let aktiv = true
-    setAutoV(null)
-    hamtaAckordgrundAuto(idsNyckel.split('|').filter(Boolean))
-      .then(v => { if (aktiv) setAutoV(v) })
-      .catch(() => { if (aktiv) setAutoV(null) })
-    return () => { aktiv = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsNyckel])
-  // "0,42 · auto" när beräknat värde finns, annars bara "auto"
-  const autoText = (v: number | null | undefined, dec: number) =>
-    v == null ? 'auto' : `${v.toFixed(dec).replace('.', ',')} · auto`
-  return (
-    <IosGroup title="Pris & ersättning">
-      <div id="timpeng-section" style={{ padding: '14px 16px 4px' }}>
-        <Segment
-          value={obj.timpeng === true}
-          options={[
-            { varde: false, label: 'Ackord' },
-            { varde: true, label: 'Timpeng' },
-          ]}
-          onChange={(v: boolean) => set({ ...obj, timpeng: v })}
-        />
-      </div>
-      {obj.timpeng !== true && (
-        <div style={{ padding: '4px 16px 10px' }}>
-          <div style={{ ...styles.subsectionLabel, marginTop: 4 }}>Timpeng-undantag</div>
-          <NumField
-            label="Skördare"
-            value={obj.timpeng_undantag_timmar_skordare}
-            onChange={(v: number | null) => set({ ...obj, timpeng_undantag_timmar_skordare: v })}
-            placeholder="t.ex. 5,5"
-            suffix="h timpeng"
-          />
-          <NumField
-            label="Skotare"
-            value={obj.timpeng_undantag_timmar_skotare}
-            onChange={(v: number | null) => set({ ...obj, timpeng_undantag_timmar_skotare: v })}
-            placeholder="t.ex. 3"
-            suffix="h timpeng"
-          />
-          <NumField
-            label="Volym"
-            value={obj.timpeng_undantag_volym}
-            onChange={(v: number | null) => set({ ...obj, timpeng_undantag_volym: v })}
-            placeholder="0"
-            suffix="m³"
-          />
-          {(Number(obj.timpeng_undantag_volym) || 0) > 0 && (
-            <div style={styles.switchList as any}>
-              <EgenskapSwitch
-                label="Dra volymen från skördarackordet"
-                active={obj.timpeng_undantag_dra_skordare !== false}
-                onClick={() => set({ ...obj, timpeng_undantag_dra_skordare: !(obj.timpeng_undantag_dra_skordare !== false) })}
-                orange={false}
-              />
-              <EgenskapSwitch
-                label="Dra volymen från skotarackordet"
-                active={obj.timpeng_undantag_dra_skotare !== false}
-                onClick={() => set({ ...obj, timpeng_undantag_dra_skotare: !(obj.timpeng_undantag_dra_skotare !== false) })}
-                orange={false}
-              />
-            </div>
-          )}
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, padding: '6px 2px 0' }}>
-            Del av objektet körd på timpeng. Tomt fält = ingen timpeng-del för den
-            maskinen (rent ackord). Timmarna faktureras respektive maskins timpris;
-            volymen dras från ackordet enligt valen — annars dubbelbetald. Uträkningen
-            syns i Ekonomi → Per objekt → &quot;Så räknades priset&quot;.
-          </div>
-        </div>
-      )}
-      {/* ACKORDGRUND-OVERRIDES — handsatta värden som ersätter mätt/beräknat i
-          acordmotorn (Ekonomi + Mot ackord). Importen skriver ALDRIG över dem;
-          tomt fält = auto. Källmärks bärnsten i Mot ackord-detaljvyn. */}
-      <div style={{ padding: '4px 16px 10px' }}>
-        <div style={{ ...styles.subsectionLabel, marginTop: 4 }}>Ackordgrund — manuella värden</div>
-        <NumField
-          label="Medelstam"
-          value={obj.medelstam_manuell}
-          onChange={(v: number | null) => set({ ...obj, medelstam_manuell: v })}
-          placeholder={autoText(autoV?.medelstam, 3)}
-          suffix="m³"
-          accent
-        />
-        <NumField
-          label="Sortimentgrupper"
-          value={obj.sortiment_grupper_manuell}
-          onChange={(v: number | null) => set({ ...obj, sortiment_grupper_manuell: v })}
-          placeholder={autoV == null ? 'auto' : `${autoV.sortimentgrupper} · auto`}
-          suffix="st"
-          accent
-        />
-        <NumField
-          label="Skotavstånd"
-          value={obj.skotavstand_manuell}
-          onChange={(v: number | null) => set({ ...obj, skotavstand_manuell: v })}
-          placeholder={autoV?.skotavstand == null ? 'auto' : `${Math.round(autoV.skotavstand)} · auto`}
-          suffix="m"
-          accent
-        />
-        <NumField
-          label="G15 skördare"
-          value={obj.skordning_g15_manuell}
-          onChange={(v: number | null) => set({ ...obj, skordning_g15_manuell: v })}
-          placeholder={autoText(autoV?.g15Skordare, 1)}
-          suffix="h"
-          accent
-        />
-        <NumField
-          label="G15 skotare"
-          value={obj.skotning_g15_manuell}
-          onChange={(v: number | null) => set({ ...obj, skotning_g15_manuell: v })}
-          placeholder={autoText(autoV?.g15Skotare, 1)}
-          suffix="h"
-          accent
-        />
-        {/* TERRÄNG — ett SPANN (Svår 1–8 kr/m³), bedömt manuellt per objekt.
-            Kronvärdet bor i terrang_kr_manuell; NULL = Normal = 0 kr. Växling
-            till Svår förifyller spannets mitt (4) — redigerbart direkt. Tomt
-            fält = tillbaka till Normal; bara avvikelser lagras. */}
-        <div style={{ ...styles.subsectionLabel, marginTop: 12 }}>Terräng</div>
-        <Segment
-          value={(Number(obj.terrang_kr_manuell) || 0) > 0}
-          options={[
-            { varde: false, label: 'Normal' },
-            { varde: true, label: 'Svår (1–8 kr/m³)' },
-          ]}
-          onChange={(v: boolean) => set({ ...obj, terrang_kr_manuell: v ? (Number(obj.terrang_kr_manuell) || 4) : null })}
-        />
-        {(Number(obj.terrang_kr_manuell) || 0) > 0 && (
-          <NumField
-            label="Terrängtillägg"
-            value={obj.terrang_kr_manuell}
-            onChange={(v: number | null) => set({ ...obj, terrang_kr_manuell: v == null ? null : Math.min(8, Math.max(1, v)) })}
-            placeholder="1–8"
-            suffix="kr/m³"
-          />
-        )}
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, padding: '6px 2px 0' }}>
-          Ersätter mätt/beräknat värde i ackordberäkningen — permanent tills du
-          tömmer fältet (importen rör dem aldrig). Tomt = automatiskt värde.
-          Medelstam och sortimentgrupper styr prisuppslaget, skotavstånd räknar
-          tillägget på hela skotarvolymen, G15-timmarna styr timpeng-jämförelsen
-          i Mot ackord. Terräng: Svår är en bedömning per objekt inom prislistans
-          spann 1–8 kr/m³ — Normal är förval och kostar inget.
-        </div>
-      </div>
-    </IosGroup>
-  )
-}
-
-// UNDERSIDA: Skotning — egen/extern skotning. Alltid åtkomlig, oavsett
-// maskindata: extern skotning = någon annan skotar = det kommer ALDRIG en
-// skotarfil från oss, så fältet måste gå att sätta på rena skördarobjekt
-// (skotar-undersidan visas ju bara när skotardata finns). Uppföljningen
-// räknar externt skotade objekt som INTE oskotade.
-function SubSkotning({ obj, set }: any) {
-  const typTimme = obj._extern_pris_typ === 'timme'
-  const pris = Number(obj._extern_pris) || 0
-  const antal = Number(obj._extern_antal) || 0
-  const radRam = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14 }
-  return (
-    <>
-      {/* Extern skördare + egen skotning bor sedan Etapp 1c i översiktens
-          "Egenskaper" (direktsave). Kvar här: bara den inlejda skotaren med
-          pris — ekonomi, redigeras-sen-sparas som förr. */}
-      <IosGroup title="Extern skotare (inlejd)">
-        <div style={{ padding: '14px 16px' }}>
-          <div style={styles.switchList}>
-            <EgenskapSwitch label="Extern skotare (inlejd)" active={obj._extern_skotning === true} onClick={() => set({ ...obj, _extern_skotning: !obj._extern_skotning })} orange={false} />
-          </div>
-          {obj._extern_skotning && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-              <LockedInput label="Företag / person" value={obj._extern_foretag || ''} onChange={(v: any) => set({ ...obj, _extern_foretag: v })} placeholder="Namn på extern skotare …" />
-              <Segment
-                value={typTimme ? 'timme' : 'm3'}
-                options={[
-                  { varde: 'm3', label: 'per m³' },
-                  { varde: 'timme', label: 'per timme' },
-                ]}
-                onChange={(v: string) => set({ ...obj, _extern_pris_typ: v })}
-              />
-              <div style={radRam}>
-                <NumField
-                  label={`Pris per ${typTimme ? 'timme' : 'm³'}`}
-                  value={obj._extern_pris ?? null}
-                  onChange={(v: number | null) => set({ ...obj, _extern_pris: v })}
-                  placeholder="0"
-                  suffix="kr"
-                />
-              </div>
-              <div style={radRam}>
-                <NumField
-                  label={`Antal ${typTimme ? 'timmar' : 'm³'}`}
-                  value={obj._extern_antal ?? null}
-                  onChange={(v: number | null) => set({ ...obj, _extern_antal: v })}
-                  placeholder="0"
-                  suffix={typTimme ? 'h' : 'm³'}
-                />
-              </div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
-                Externt skotade objekt räknas inte som oskotade i uppföljningen — någon annan tar volymen.
-              </div>
-            </div>
-          )}
-        </div>
-      </IosGroup>
-      {obj._extern_skotning === true && pris > 0 && antal > 0 && (
-        <div style={styles.kostnadRad}>
-          Beräknad kostnad: {Math.round(pris * antal).toLocaleString('sv-SE')} kr
-        </div>
-      )}
-    </>
-  )
-}
-
-
 // Färdigskotat: skotad volym = skördad (på risjobb: riset som kördes ut). EN funktion för det gamla arkets knapp och
 // översiktens "Sätt skotat till …" — samma skrivningar och samma skydd mot fördelningen per skotare.
 async function sparaFardigskotat(obj: any, syskon: any[] | null | undefined, varde: number | null): Promise<{ ok: boolean; message: string; patch?: any; skotarIds: string[] }> {
@@ -2014,346 +1528,6 @@ async function sparaFardigskotat(obj: any, syskon: any[] | null | undefined, var
     if (!a.ok) { return fel(a.message) }
   }
   return { ok: true, message: '', patch, skotarIds }
-}
-
-// UNDERSIDA: Skotare — skotad volym/färdigskotat (direktsparas), egenskaper,
-// avslut. Färdigskotat-knappen skriver direkt till DB (ärlig sparning med
-// radräkning) och speglas i snapshotet via onRaderUppdaterade så den inte
-// räknas som osparad ändring.
-function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAvslutad, skotareSanderEj, syskon, onRaderUppdaterade, forslag }: any) {
-  const [fardigskotat, setFardigskotat] = useState({ sparar: false, fel: '' })
-
-  // TILLDELAD SKOTARE — planeringens skotare. dim_objekt.maskin_id är
-  // SKÖRDAREN och används ALDRIG här. Lassdata vinner i vyerna när den finns;
-  // tilldelningen grupperar objektet i kö dessförinnan.
-  const [skotarLista, setSkotarLista] = useState<any[]>([])
-  const [tillLage, setTillLage] = useState({ sparar: false, fel: '' })
-
-  useEffect(() => {
-    let avbruten = false
-    ;(async () => {
-      const { data } = await supabase.from('dim_maskin').select('maskin_id, visningsnamn, tillverkare, modell, maskin_typ, aktiv_till')
-      if (avbruten) return
-      setSkotarLista((data || []).filter((m: any) => {
-        const t = (m.maskin_typ || '').toLowerCase()
-        return t.includes('forwarder') || t.includes('skotare')
-      }))
-    })()
-    return () => { avbruten = true }
-  }, [])
-
-  const sattTilldeladSkotare = async (mid: string | null) => {
-    setTillLage({ sparar: true, fel: '' })
-    const ids = (syskon && syskon.length ? syskon : [obj]).map((o: any) => o.objekt_id)
-    const { data, error } = await supabase
-      .from('dim_objekt').update({ tilldelad_skotare: mid }).in('objekt_id', ids)
-      .select('objekt_id, tilldelad_skotare')
-    if (error) { setTillLage({ sparar: false, fel: 'Kunde inte spara: ' + error.message }); return }
-    if ((data || []).length !== ids.length) {
-      setTillLage({ sparar: false, fel: `Bara ${(data || []).length} av ${ids.length} rader uppdaterades` }); return
-    }
-    // #222: läs tillbaka VÄRDET, inte bara radantalet
-    if ((data as any[]).some(r => (r.tilldelad_skotare || null) !== mid)) {
-      setTillLage({ sparar: false, fel: 'Tilldelningen landade inte — ladda om och försök igen' }); return
-    }
-    set({ ...obj, tilldelad_skotare: mid })
-    if (onRaderUppdaterade) onRaderUppdaterade(ids, { tilldelad_skotare: mid })
-    setTillLage({ sparar: false, fel: '' })
-  }
-
-  // F1: RISJOBBETS KOPPLING — vilka avverkningsobjekt hämtas riset från?
-  // Fångas vid källan (här, där risskotning sätts) så avbockningen kan bli
-  // automatisk när jobbet markeras färdigt. Går att hoppa över (allt ris har
-  // inte känt ursprung, t.ex. "Ris över väg") och komplettera när som helst.
-  const arRisjobb = obj.risskotning === true || arGrotHuvudtyp(obj.huvudtyp)
-  const [risKand, setRisKand] = useState<any[]>([])
-  const [valdaRis, setValdaRis] = useState<string[]>([])
-  const [risLage, setRisLage] = useState({ laddar: false, sparar: false, fel: '', sparat: false })
-
-  useEffect(() => {
-    if (!arRisjobb || !obj.objekt_id) return
-    let avbruten = false
-    ;(async () => {
-      setRisLage(l => ({ ...l, laddar: true, fel: '' }))
-      const [kand, kopp] = await Promise.all([hamtaRisKandidater(), hamtaKopplingar(obj.objekt_id)])
-      if (avbruten) return
-      if (!kand.ok || !kopp.ok) {
-        setRisLage({ laddar: false, sparar: false, fel: kand.message || kopp.message, sparat: false })
-        return
-      }
-      setRisKand(kand.rader)
-      setValdaRis(kopp.rader.map(r => r.avverknings_objekt_id))
-      setRisLage({ laddar: false, sparar: false, fel: '', sparat: false })
-    })()
-    return () => { avbruten = true }
-  }, [arRisjobb, obj.objekt_id])
-
-  const vaxlaRis = (id: string) =>
-    setValdaRis(v => v.includes(id) ? v.filter(x => x !== id) : [...v, id])
-
-  const sparaRisKoppling = async () => {
-    setRisLage(l => ({ ...l, sparar: true, fel: '', sparat: false }))
-    const r = await sparaKopplingar(obj.objekt_id, valdaRis)
-    setRisLage({ laddar: false, sparar: false, fel: r.ok ? '' : r.message, sparat: r.ok })
-  }
-
-  // Proaktiv uppräkningsfråga: (skotning avslutad ELLER icke-filsändande
-  // skotare) OCH (lass + manuell) < skördat. Skrivningen är samma verifierade
-  // färdigskotat-knapp nedanför — frågan pekar bara på den.
-  // SAMMA gate som luckvarningen i getWarnings: tyst vid egen skotning
-  // (markägaren skotar — inte vår volym) och extern skotare (redovisas via
-  // prisfälten). Fråga och varning ska aldrig säga olika saker.
-  const manuellMax = Math.max(0, ...(syskon && syskon.length ? syskon : [obj]).map((o: any) => Number(o.skotad_volym_manuell) || 0))
-  const totSkotat = Math.round((Number(skotatTotal) || 0) + manuellMax)
-  const totSkordat = Math.round(Number(skordatTotal) || 0)
-  const skotningKlarDatum = (syskon && syskon.length ? syskon : [obj])
-    .map((o: any) => o.skotning_avslutad).filter(Boolean).sort().slice(-1)[0] || null
-  const visaUpprakningsFraga = (gruppSkotningAvslutad || skotareSanderEj)
-    && totSkordat > 0 && totSkotat < totSkordat
-    && obj.egen_skotning !== true && !harExternSkotning(obj)
-
-  const skotningWarning = (() => {
-    if (!obj.skotning_avslutad) return null
-    if (!obj.skordning_avslutad) {
-      // Grot-/rena skotarobjekt skördas aldrig — att skördning saknar
-      // avslut är normalläget där, ingen varning. (skordatTotal räknar
-      // över alla syskonrader, så P-VO-objektens skördarrad missas inte.)
-      if ((Number(skordatTotal) || 0) === 0) return null
-      return 'Skördning är inte avslutad än.'
-    }
-    if (obj.skotning_avslutad < obj.skordning_avslutad) return 'Skotning är satt före skördningens avslutsdatum.'
-    return null
-  })()
-
-  return (
-    <IosGroup title="🚜 Skotare">
-      {/* Skotad volym — lass från maskinen, eller manuellt angiven verklig
-          volym. Källan märks ALLTID ut; falska lass skrivs aldrig. */}
-      <div style={{ padding: '14px 16px 4px' }}>
-        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginBottom: 8 }}>
-          {(Number(obj.skotad_volym_manuell) || 0) > 0 ? (
-            <>Skotat: <span style={{ color: '#fff', fontWeight: 600 }}>{Number(obj.skotad_volym_manuell).toLocaleString('sv-SE')} m³</span>{' '}
-              <span style={{ color: '#FF9F0A', fontWeight: 600 }}>(manuellt angivet)</span>
-              <span style={{ color: 'rgba(255,255,255,0.35)' }}> · lass: {(info?.skotatM3 ?? 0).toLocaleString('sv-SE')} m³</span></>
-          ) : (
-            <>Skotat: <span style={{ color: '#fff', fontWeight: 600 }}>{(info?.skotatM3 ?? 0).toLocaleString('sv-SE')} m³</span> <span style={{ color: 'rgba(255,255,255,0.35)' }}>(lass)</span></>
-          )}
-        </div>
-        {visaUpprakningsFraga && (
-          <div style={{ ...styles.validationWarning, margin: '0 0 10px' }}>
-            {gruppSkotningAvslutad
-              ? `Skotning klar${skotningKlarDatum ? ` ${fmtKortDatum(skotningKlarDatum)}` : ''} men ${totSkotat.toLocaleString('sv-SE')} m³ skotat — rapportera upp till skördad volym (${totSkordat.toLocaleString('sv-SE')} m³)?`
-              : `Skotaren sänder inte filer — rapportera upp till skördad volym (${totSkordat.toLocaleString('sv-SE')} m³)?`}
-          </div>
-        )}
-        {/* MANUELL RAPPORTERING — bara när gruppens tilldelade skotare aldrig
-            sänder filer (JD810E). Inga fejkade fakt_tid-rader: G15-timmar och
-            volym bor på dim_objekt-raden, källmärkta manuella, räknas till
-            maskinen i uppföljningen. Spegel av extern skotare-blocket. */}
-        {skotareSanderEj && (() => {
-          const tim = Number(obj.skotning_g15_manuell) || 0
-          const vol = Number(obj.skotad_volym_manuell) || 0
-          const m3PerG15 = tim > 0 && vol > 0 ? vol / tim : null
-          const mObj = skotarLista.find((m: any) => m.maskin_id === obj.tilldelad_skotare)
-          const namn = mObj ? ((mObj.visningsnamn && String(mObj.visningsnamn).trim()) || mObj.modell || mObj.maskin_id) : (obj.tilldelad_skotare || 'skotaren')
-          const radRam = { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, marginTop: 8 }
-          // DIREKTSAVE per maskin (filfri skotare): raden maskin_id = tilldelad skotare får
-          // volym_egen_skotning / g15_timmar — samma form som fördelningen. Dim-kolumnerna
-          // speglas (legacy-läsare, #334) och snapshotet uppdateras så inget räknas som osparat.
-          const sparaFilfri = async (falt: 'egen' | 'g15', v: number | null) => {
-            const dimKey = falt === 'egen' ? 'skotad_volym_manuell' : 'skotning_g15_manuell'
-            set({ ...obj, [dimKey]: v })
-            if (!obj.tilldelad_skotare) { setFardigskotat({ sparar: false, fel: 'Ingen tilldelad skotare — välj skotare nedan först.' }); return }
-            const ids = raderForMaskinslag(syskon || [obj], 'forwarder', obj.objekt_id)
-            setFardigskotat({ sparar: true, fel: '' })
-            const r = await sparaPerMaskinSkotning(ids, obj.tilldelad_skotare, falt === 'egen' ? { egen: v } : { g15: v })
-            if (!r.ok) { setFardigskotat({ sparar: false, fel: r.message }); return }
-            const spegel = await direktPatchDimObjekt(ids, { [dimKey]: v })
-            if (!spegel.ok) { setFardigskotat({ sparar: false, fel: 'Sparat på maskinen — men speglingen: ' + spegel.message }); return }
-            if (onRaderUppdaterade) onRaderUppdaterade(ids, { [dimKey]: v })
-            setFardigskotat({ sparar: false, fel: '' })
-          }
-          return (
-            <div style={{ marginBottom: 10, padding: '12px 14px', borderRadius: 14, background: 'rgba(255,159,10,0.06)', border: '1px solid rgba(255,159,10,0.2)' }}>
-              <div style={{ ...styles.subsectionLabel, marginTop: 0 }}>Manuell rapportering — {namn} (sänder inga filer)</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5, marginBottom: 4 }}>
-                Inga filer kommer från maskinen. Ange G15-timmar och skotad volym manuellt — de räknas till {namn} i uppföljningen, källmärkta som manuella. Sparas direkt när du lämnar fältet — på maskinens rad, så objektet går att avsluta.
-              </div>
-              <div style={radRam}>
-                <PlanNum label="G15-timmar" value={obj.skotning_g15_manuell ?? null} suffix="h" onCommit={(v: number | null) => sparaFilfri('g15', v)} />
-              </div>
-              <div style={radRam}>
-                <PlanNum label="Skotad volym" value={obj.skotad_volym_manuell ?? null} suffix="m³" onCommit={(v: number | null) => sparaFilfri('egen', v)} />
-              </div>
-              {m3PerG15 != null && (
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>
-                  Rimlighetskoll: {m3PerG15.toLocaleString('sv-SE', { maximumFractionDigits: 1 })} m³/G15h
-                </div>
-              )}
-            </div>
-          )
-        })()}
-        {(() => {
-          const manuell = (Number(obj.skotad_volym_manuell) || 0) > 0
-          // RISJOBB: "färdigskotat" betyder RISET HÄMTAT, jobbet klart. Samma
-          // knapp, annan innebörd — ingen egen knapp (ett begrepp, ett ställe).
-          // Bekräftelsen utgår från MÄTT lass-volym (riset som faktiskt kördes
-          // ut); ett risjobb skördar inget, så skördad stamvolym är alltid 0
-          // och gråade tidigare ut knappen — automatiken hade ingen tändning.
-          const volymAttSatta = Math.round(Number(arRisjobb ? skotatTotal : skordatTotal) || 0)
-          const satt = async (varde: number | null) => {
-            setFardigskotat({ sparar: true, fel: '' })
-            const r = await sparaFardigskotat(obj, syskon, varde)
-            if (!r.ok) { setFardigskotat({ sparar: false, fel: r.message }); return }
-            set({ ...obj, ...r.patch })
-            if (onRaderUppdaterade) onRaderUppdaterade(r.skotarIds, r.patch)
-            setFardigskotat({ sparar: false, fel: '' })
-          }
-          return (
-            <div>
-              {!manuell ? (
-                <button
-                  onClick={() => satt(volymAttSatta)}
-                  disabled={fardigskotat.sparar || volymAttSatta <= 0}
-                  className="tap-press"
-                  style={{
-                    width: '100%', minHeight: 48, borderRadius: 12, border: 'none',
-                    background: volymAttSatta > 0 ? '#adc6ff' : 'rgba(255,255,255,0.08)',
-                    color: volymAttSatta > 0 ? '#000' : 'rgba(255,255,255,0.35)',
-                    fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
-                    cursor: volymAttSatta > 0 ? 'pointer' : 'not-allowed',
-                    opacity: fardigskotat.sparar ? 0.6 : 1,
-                  }}
-                >
-                  {fardigskotat.sparar ? 'Sparar …' : volymAttSatta > 0
-                    ? (arRisjobb
-                        ? `Färdigskotat · ${volymAttSatta.toLocaleString('sv-SE')} m³ ris hämtat`
-                        : `Markera som färdigskotat (${volymAttSatta.toLocaleString('sv-SE')} m³)`)
-                    : (arRisjobb
-                        ? 'Färdigskotat — inga lass registrerade än'
-                        : 'Färdigskotat — ingen skördad volym att utgå från')}
-                </button>
-              ) : (
-                <button
-                  onClick={() => satt(null)}
-                  disabled={fardigskotat.sparar}
-                  className="tap-press"
-                  style={{
-                    width: '100%', minHeight: 44, borderRadius: 12,
-                    border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
-                    color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
-                    opacity: fardigskotat.sparar ? 0.6 : 1,
-                  }}
-                >
-                  {fardigskotat.sparar ? 'Sparar …' : (arRisjobb
-                    ? 'Ångra — riset inte hämtat än'
-                    : 'Ta bort färdigskotat-markeringen')}
-                </button>
-              )}
-              {fardigskotat.fel && (
-                <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{fardigskotat.fel}</div>
-              )}
-            </div>
-          )
-        })()}
-      </div>
-      <div style={{ padding: '4px 16px' }}>
-        {/* Egenskaperna (extra vagn/klippning) och avslutsdatumet bor sedan Etapp 1c
-            i översiktens tredelning — här finns bara arbetsflödena kvar. */}
-        {!arRisjobb && (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ ...styles.subsectionLabel, marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span>Tilldelad skotare</span>
-              {obj.skotare_konfiguration && (
-                /* Objektets kravade konfiguration — syns vid valet så fel
-                   maskintyp inte väljs av misstag. */
-                <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#8ab4f8', border: '1px solid rgba(138,180,248,0.35)', borderRadius: 5, padding: '1px 5px' }}>
-                  kräver {obj.skotare_konfiguration}
-                </span>
-              )}
-            </div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', margin: '0 0 8px', lineHeight: 1.45 }}>
-              Grupperar objektet under skotaren redan innan första lasset. När lass börjar rulla vinner lassdatan.
-            </div>
-            <div style={styles.chipGrid as any}>
-              {/* Bara AKTIVA maskiner valbara (aktiv_till IS NULL) — sålda ska aldrig
-                  kunna tilldelas. En redan tilldelad SÅLD maskin visas ändå (märkt),
-                  så den går att byta bort. */}
-              {skotarLista
-                .filter((m: any) => m.aktiv_till == null || m.maskin_id === obj.tilldelad_skotare)
-                .map((m: any) => {
-                  const vald = obj.tilldelad_skotare === m.maskin_id
-                  const sald = m.aktiv_till != null
-                  const namn = ((m.visningsnamn && String(m.visningsnamn).trim()) || [m.tillverkare, m.modell].filter(Boolean).join(' ') || m.maskin_id) + (sald ? ' (såld)' : '')
-                  return (
-                    <Chip key={m.maskin_id} label={namn} selected={vald}
-                      onClick={() => sattTilldeladSkotare(vald ? null : m.maskin_id)}
-                      editMode={false} onDelete={() => {}} />
-                  )
-                })}
-            </div>
-            {tillLage.sparar && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 6 }}>Sparar …</div>}
-            {tillLage.fel && <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{tillLage.fel}</div>}
-          </div>
-        )}
-        {arRisjobb && (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ ...styles.subsectionLabel, marginTop: 0 }}>Ris hämtas från</div>
-            {risLage.laddar ? (
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', padding: '6px 0' }}>Läser objekt …</div>
-            ) : risLage.fel && risKand.length === 0 ? (
-              <div style={{ ...styles.validationWarning, margin: '4px 0 0' }}>{risLage.fel}</div>
-            ) : risKand.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', padding: '6px 0' }}>
-                Inga grot-anpassade objekt med ris kvar just nu.
-              </div>
-            ) : (
-              <>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginBottom: 8, lineHeight: 1.45 }}>
-                  Markera de avverkningsobjekt riset kommer från. När jobbet markeras skotat bockas groten av på dem automatiskt. Kan hoppas över och fyllas i senare.
-                  {' '}<span style={{ color: 'rgba(255,255,255,0.62)' }}>Vanligtvis ett hygge per risjobb — välj flera bara om rundan blandade ris från flera.</span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto' }}>
-                  {risKand.map((k: any) => {
-                    const vald = valdaRis.includes(k.objekt_id)
-                    const dagar = k.sista_datum ? Math.max(0, Math.round((Date.now() - new Date(k.sista_datum).getTime()) / 864e5)) : null
-                    return (
-                      <button
-                        key={k.objekt_id}
-                        onClick={() => vaxlaRis(k.objekt_id)}
-                        className="tap-press"
-                        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 11px', borderRadius: 10, border: vald ? '1px solid rgba(240,178,76,0.55)' : '1px solid rgba(255,255,255,0.10)', background: vald ? 'rgba(240,178,76,0.10)' : 'transparent', color: '#fff', fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}
-                      >
-                        <span style={{ width: 16, height: 16, borderRadius: 5, flexShrink: 0, border: vald ? 'none' : '1px solid rgba(255,255,255,0.3)', background: vald ? '#f0b24c' : 'transparent', color: '#000', fontSize: 12, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>{vald ? '✓' : ''}</span>
-                        <span style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ display: 'block', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.namn}</span>
-                          <span style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.45)', fontVariantNumeric: 'tabular-nums' }}>
-                            {Math.round(k.volym_m3sub).toLocaleString('sv-SE')} m³ avverkat{dagar != null ? ` · legat ${dagar} dgr` : ''}
-                          </span>
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-                <button
-                  onClick={sparaRisKoppling}
-                  disabled={risLage.sparar}
-                  className="tap-press"
-                  style={{ width: '100%', minHeight: 44, marginTop: 10, borderRadius: 12, border: 'none', background: '#adc6ff', color: '#000', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', opacity: risLage.sparar ? 0.6 : 1 }}
-                >
-                  {risLage.sparar ? 'Sparar …' : `Spara koppling (${valdaRis.length} valda)`}
-                </button>
-                {risLage.fel && <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{risLage.fel}</div>}
-                {risLage.sparat && <div style={{ fontSize: 12, color: '#a8d582', marginTop: 8 }}>Kopplingen sparad</div>}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-      {/* Skotare-fördelning (steg 1) — fristående komponent, per-maskin lass/omlastning */}
-      <SkotareFordelning objektId={obj.objekt_id} avverkatVolym={skordatTotal || 0} />
-    </IosGroup>
-  )
 }
 
 // ÖVERSIKTSSIDAN i sheeten: progressrad -> "Måste fyllas i" (öppna rader) ->
@@ -2482,27 +1656,6 @@ function PlanText({ label, value, onCommit, disabled, placeholder, multiline }: 
   )
 }
 
-// Talfält (svensk decimalkomma) — sparar på blur/Enter som tal eller null.
-function PlanNum({ label, value, onCommit, disabled, suffix }: any) {
-  const [txt, setTxt] = useState<string>(value == null ? '' : String(value).replace('.', ','))
-  useEffect(() => { setTxt(value == null ? '' : String(value).replace('.', ',')) }, [value])
-  if (disabled) return <PlanRad label={label}>{TRAKT_IMPORT_KRAVS}</PlanRad>
-  const commit = () => {
-    const t = String(txt).trim()
-    const n = t === '' ? null : Number(t.replace(',', '.'))
-    const ny = n == null || !Number.isFinite(n) ? null : n
-    if ((value ?? null) !== ny) onCommit(ny)
-  }
-  return (
-    <PlanRad label={label}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end' }}>
-        <input inputMode="decimal" value={txt} onChange={(e) => setTxt(e.target.value)} onBlur={commit}
-          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} style={{ ...PLAN_INPUT, flex: 'none', width: 110 } as any} />
-        {suffix && <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{suffix}</span>}
-      </div>
-    </PlanRad>
-  )
-}
 
 // Datumfält — kolumnen är `date` (YYYY-MM-DD), så värdet ekar oförändrat tillbaka
 // och den verifierade saven håller.
@@ -2814,6 +1967,83 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
     return true
   }
 
+  // ── Undersidorna under Mer sparar direkt (2026-10-24), som resten av arket ──
+  const skotarIdsNu = () => raderForMaskinslag(syskonRader(objekt, valtObjekt), 'forwarder', valtObjekt.objekt_id)
+
+  // Extern skotare: ovrigt_info på skotarens rader. De härledda _extern_*-fälten följer med så inget räknas som osparat.
+  async function direktSparaExtern(patch: Record<string, any>, typ: 'harvester' | 'forwarder'): Promise<boolean> {
+    const ok = await direktSparaMaskin(patch, typ)
+    if (ok) {
+      const ny = (o: any) => {
+        if (!o) return o
+        const { _extern_skotning, _extern_foretag, _extern_pris_typ, _extern_pris, _extern_antal, ...rest } = o
+        return parseExternSkotning(rest)
+      }
+      setValtObjekt((prev: any) => ny(prev))
+      setOriginalObjekt((prev: any) => ny(prev))
+    }
+    return ok
+  }
+
+  // Skotarens G15 i ackordgrunden speglas till skotarraden (som batch-sparningen gjorde) — men utan att röra en fördelning.
+  async function sparaSkotarG15(v: number | null): Promise<boolean> {
+    if (!valtObjekt) return false
+    const ids = skotarIdsNu()
+    const fel = (m: string) => { setSaveError(m); setTimeout(() => setSaveError(''), 6000); return false }
+    if (valtObjekt.tilldelad_skotare) {
+      const r = await sparaPerMaskinSkotning(ids, valtObjekt.tilldelad_skotare, { g15: v })
+      if (!r.ok) return fel(r.message)
+    } else {
+      const { data, error } = await supabase.from('skotare_objekt_manuell').update({ g15_timmar: v })
+        .in('objekt_id', ids).is('maskin_id', null).is('datum_fran', null).select('id')
+      if (error) return fel('Skotarraden: ' + error.message)
+      if ((data || []).length === 0 && v != null) {
+        const volym = Number(valtObjekt.skotad_volym_manuell) || 0
+        const { error: e2 } = await supabase.from('skotare_objekt_manuell').insert(
+          ids.map((id: string) => ({ objekt_id: id, maskin_id: null as null, volym_m3: volym > 0 ? volym : null, g15_timmar: v })))
+        if (e2) return fel('Skotarraden: ' + e2.message)
+      }
+    }
+    return direktSparaMaskin({ skotning_g15_manuell: v }, 'forwarder')
+  }
+
+  async function sattFardigskotat(varde: number | null): Promise<{ ok: boolean; message: string }> {
+    if (!valtObjekt) return { ok: false, message: 'Inget objekt' }
+    const r = await sparaFardigskotat(valtObjekt, syskon, varde)
+    if (!r.ok) return { ok: false, message: r.message }
+    setValtObjekt((prev: any) => ({ ...prev, ...r.patch }))
+    raderUppdaterade(r.skotarIds, r.patch)
+    return { ok: true, message: '' }
+  }
+
+  // Filfri skotare (t.ex. 810E): volym/G15 på maskinens rad, dim-kolumnerna speglas (#334).
+  async function sparaFilfri(falt: 'egen' | 'g15', v: number | null): Promise<{ ok: boolean; message: string }> {
+    if (!valtObjekt) return { ok: false, message: 'Inget objekt' }
+    if (!valtObjekt.tilldelad_skotare) return { ok: false, message: 'Välj först vem som skotar.' }
+    const dimKey = falt === 'egen' ? 'skotad_volym_manuell' : 'skotning_g15_manuell'
+    const ids = skotarIdsNu()
+    const r = await sparaPerMaskinSkotning(ids, valtObjekt.tilldelad_skotare, falt === 'egen' ? { egen: v } : { g15: v })
+    if (!r.ok) return r
+    const spegel = await direktPatchDimObjekt(ids, { [dimKey]: v })
+    if (!spegel.ok) return { ok: false, message: 'Sparat på maskinen — men speglingen: ' + spegel.message }
+    setValtObjekt((prev: any) => ({ ...prev, [dimKey]: v }))
+    raderUppdaterade(ids, { [dimKey]: v })
+    return { ok: true, message: '' }
+  }
+
+  // Vem skotar (planeringens skotare, dim_objekt.tilldelad_skotare) — hela VO-gruppen, värdet läses tillbaka.
+  async function sattTilldelad(mid: string | null): Promise<{ ok: boolean; message: string }> {
+    if (!valtObjekt) return { ok: false, message: 'Inget objekt' }
+    const ids = syskonRader(objekt, valtObjekt).map((o: any) => o.objekt_id)
+    const { data, error } = await supabase.from('dim_objekt').update({ tilldelad_skotare: mid }).in('objekt_id', ids).select('objekt_id, tilldelad_skotare')
+    if (error) return { ok: false, message: 'Kunde inte spara: ' + error.message }
+    if ((data || []).length !== ids.length) return { ok: false, message: `Bara ${(data || []).length} av ${ids.length} rader uppdaterades` }
+    if ((data as any[]).some(r => (r.tilldelad_skotare || null) !== mid)) return { ok: false, message: 'Det sparades inte — ladda om och försök igen' }
+    setValtObjekt((prev: any) => ({ ...prev, tilldelad_skotare: mid }))
+    raderUppdaterade(ids, { tilldelad_skotare: mid })
+    return { ok: true, message: '' }
+  }
+
   async function sparaObjekt() {
     if (!valtObjekt) return
     setSaving(true)
@@ -2983,13 +2213,20 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
           />
         )}
         {valtObjekt && subpage === 'filer' && (
-          <SubFiler obj={valtObjekt} rader={filRader} hamtStatus={fildata?.status || 'laddar'} skotareSanderEj={skotareSanderEj} />
+          <FilerSida rader={filRader as any} status={fildata?.status || 'laddar'} skordningKlar={valtObjekt.skordning_avslutad || null}
+            lage={fildata?.status === 'ok' ? filStatus(valtObjekt, filRader, { skotareSanderEjFiler: skotareSanderEj }) as any : null} />
         )}
         {valtObjekt && subpage === 'skotare' && (
-          <SubSkotare obj={valtObjekt} set={setValtObjekt} info={info} skordatTotal={skordatTotal} skotatTotal={skotatTotal} gruppSkotningAvslutad={gruppSkotningAvslutad} skotareSanderEj={skotareSanderEj} syskon={syskon} onRaderUppdaterade={raderUppdaterade} forslag={skotForslag} />
+          <SkotareSida obj={valtObjekt} syskon={syskon} skotatLass={info?.skotatM3 ?? 0} skordatTotal={skordatTotal} skotatTotal={skotatTotal}
+            gruppSkotningAvslutad={gruppSkotningAvslutad} skotareSanderEj={skotareSanderEj} externSkotare={harExternSkotning(valtObjekt)}
+            sattFardigskotat={sattFardigskotat} sparaFilfri={sparaFilfri} sattTilldelad={sattTilldelad}
+            fordelning={<SkotareFordelning objektId={valtObjekt.objekt_id} avverkatVolym={skordatTotal || 0} />} />
         )}
-        {valtObjekt && subpage === 'skotning' && <SubSkotning obj={valtObjekt} set={setValtObjekt} />}
-        {valtObjekt && subpage === 'pris' && <SubPris obj={valtObjekt} set={setValtObjekt} gruppIds={syskon.map((o: any) => o.objekt_id)} />}
+        {valtObjekt && subpage === 'skotning' && <ExternSida obj={valtObjekt} direktSparaMaskin={direktSparaExtern} />}
+        {valtObjekt && subpage === 'pris' && (
+          <PrisSida obj={valtObjekt} gruppIds={syskon.map((o: any) => o.objekt_id)}
+            direktSpara={direktSpara} direktSparaMaskin={direktSparaMaskin} sparaSkotarG15={sparaSkotarG15} />
+        )}
       </EditSheet>
       {pdfDok && <PdfLasare signedUrl={pdfDok.url} titel={pdfDok.titel} onClose={() => setPdfDok(null)} />}
       <ConfirmDialog
