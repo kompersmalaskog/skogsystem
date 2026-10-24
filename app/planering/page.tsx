@@ -26,6 +26,8 @@ import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/Obj
 import { type BesokPlanerareProps } from '../../components/besok/BesokPlanerare'
 import BesokKortHytt from '../../components/besok/BesokKortHytt'
 import { useBesokHytt } from '../../lib/hooks/useBesokHytt'
+import { useHyttNotiser, useHyttNotiserPa } from '../../lib/hooks/useHyttNotiser'
+import { farorUrLarm, omradeUrKort } from '../../lib/hytt/notiser'
 import { HYTT_RING_M } from '../../lib/besok/konstanter'
 import { arBasvag as arBasvagMark, svTal, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, grotRad, framstegRad, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll, type OmKommentar } from '../../lib/objektKort'
 import { arInstruktionsText } from '../../lib/instruktioner/instruktioner'
@@ -119,6 +121,7 @@ import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } fro
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
+import HyttNotiserKort from '../../components/planering/HyttNotiserKort'
 import { hogarSynliga, vaxlaSkotarHogar } from '../../lib/skotarHogar'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { INFO_PANEL_MASKIN_BREDD_PX, PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
@@ -11942,12 +11945,15 @@ export default function PlannerPage() {
   // BESÖK PÅ TRAKTEN (maskinläget, alla maskiner på trakten): ett orange kort högst upp tills föraren tryckt Uppfattat, ett ljud, och en 70 m-ring runt maskinen medan besöket är aktivt.
   // Fara-larm (och alla larmkort) och lossningsflödet går före kortet — det kommer tillbaka när de är borta. Instruktionskortet väntar på besökskortet.
   const besokMaskinId = testlage?.maskinId ?? enhetMaskinId ?? null;
+  // Notiser i hytten (Windows-notis när appen inte är framme): enhetsbrytaren i Inställningar, AV från början.
+  const hyttNotiserPa = useHyttNotiserPa();
   const besokHytt = useBesokHytt({
     aktiv: instruktionerAktiv,
     objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
     maskinId: besokMaskinId,
     testlage: !!testlage,
     ljudCtx: () => korvyAudioCtxRef.current,
+    bakgrund: hyttNotiserPa,
   });
   const besokKortSynligt = besokHytt.vantar.length > 0 && !larm.kort && !lossningVisas;
   // === BESÖK: 70 m-ring runt maskinen medan ett besök är aktivt (till besökstid + 2 h) ===
@@ -11983,6 +11989,17 @@ export default function PlannerPage() {
     blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' || larm.fler.some((x) => x.grupp === 'fara') }), lossningVisas }) || besokKortSynligt,
     blockeradPaminnelse: !!larm.kort || lossningVisas || besokKortSynligt,   // larm och lossningskort går före påminnelsen: den göms medan något av dem visas och kommer tillbaka efteråt
     torr: !!testlage,
+  });
+  // NOTISER I HYTTEN: fara, besök och område som Windows-notis när fönstret inte är framme (synligt OCH valt). Ett tillägg — korten i appen fungerar som förut. Passiv när brytaren är av.
+  useHyttNotiser({
+    aktiv: instruktionerAktiv && hyttNotiserPa,
+    roll: skotarKorvy ? 'skotare' : 'skordare',
+    trakt: valtObjekt?.namn ?? '',
+    maskinId: besokMaskinId,
+    test: !!testlage,
+    fara: farorUrLarm(larm.kort, larm.fler),
+    besok: besokHytt.vantar,
+    omrade: omradeUrKort(inst.vantandeKort),
   });
   // Påminnelsens hela instruktion stängs när påminnelsen försvinner (kört ut, larm/lossning visas): kommer man tillbaka börjar den som pill/bricka igen.
   useEffect(() => { if (!inst.paminnelse) setPaminnelseOppen(null); }, [inst.paminnelse]);
@@ -17277,6 +17294,8 @@ export default function PlannerPage() {
                     )}
                   </div>
                 )}
+                {/* Notiser i hytten (Windows-notis när appen inte är framme) — bara maskindatorn, som GPS-källa-kortet. */}
+                {webSerialStott && <HyttNotiserKort />}
                 {/* Lägen */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',

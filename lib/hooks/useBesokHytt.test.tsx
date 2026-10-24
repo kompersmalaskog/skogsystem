@@ -144,3 +144,51 @@ describe('useBesokHytt – via servern', () => {
     expect(ref.ut!.vantar.map((x) => x.id)).toEqual(['ny']);
   });
 });
+
+describe('useBesokHytt — notiser i hytten (bakgrund och Uppfattat från notisen)', () => {
+  const dolj = (v: 'visible' | 'hidden') => Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+  afterEach(() => dolj('visible'));
+
+  it('fönstret dolt och bakgrund AV: inga läsningar. Bakgrund PÅ: läser ändå (en notis ska komma fast appen är minimerad)', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    server.besok = [b('a', 30)];
+    await montera({ bakgrund: false });
+    dolj('hidden');
+    const fore = server.anrop.length;
+    await act(async () => { vi.advanceTimersByTime(20000); await Promise.resolve(); });
+    expect(server.anrop.length).toBe(fore);
+    act(() => { rot!.unmount(); }); ruta!.remove();
+    await montera({ bakgrund: true });
+    dolj('hidden');
+    const fore2 = server.anrop.length;
+    await act(async () => { vi.advanceTimersByTime(20000); for (let i = 0; i < 6; i++) await Promise.resolve(); });
+    expect(server.anrop.length).toBeGreaterThan(fore2);
+  });
+
+  it('ljud i appen bara när fönstret syns — i bakgrunden är det notisens eget ljud som gäller', async () => {
+    dolj('hidden');
+    server.besok = [b('a', 30)];
+    await montera({ bakgrund: true });
+    expect(ljud.spelaLarmLjud).not.toHaveBeenCalled();
+  });
+
+  it('Uppfattat tryckt i själva notisen (meddelande från service workern) tar bort kortet direkt', async () => {
+    const sw = new EventTarget();
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: sw });
+    server.besok = [b('a', 30)];
+    const ref = await montera();
+    expect(ref.ut!.vantar.map((x) => x.id)).toEqual(['a']);
+    server.kvitterade = ['a'];
+    await act(async () => { sw.dispatchEvent(new MessageEvent('message', { data: { typ: 'hytt-uppfattat', besokId: 'a', tid: Date.now() } })); await Promise.resolve(); });
+    expect(ref.ut!.vantar).toEqual([]);
+  });
+
+  it('meddelandet om testnotisen (inget besokId) rör inte besöken', async () => {
+    const sw = new EventTarget();
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: sw });
+    server.besok = [b('a', 30)];
+    const ref = await montera();
+    await act(async () => { sw.dispatchEvent(new MessageEvent('message', { data: { typ: 'hytt-uppfattat', test: true, tid: Date.now() } })); await Promise.resolve(); });
+    expect(ref.ut!.vantar.map((x) => x.id)).toEqual(['a']);
+  });
+});

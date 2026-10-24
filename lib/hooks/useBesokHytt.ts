@@ -19,6 +19,8 @@ export function useBesokHytt(a: {
   /** admin som provar i testläget (/maskin?som=…): kvittensen sparas på riktigt men märks `testlage` i loggen. Servern godtar det bara för en admin. */
   testlage: boolean;
   ljudCtx?: () => AudioContext | null;
+  /** Notiser i hytten är på: läs besöken även när fönstret inte är synligt (en notis ska komma fast appen är minimerad). Chrome kan strypa timers i ett dolt fönster – då läses de glesare. */
+  bakgrund?: boolean;
 }) {
   const [besok, setBesok] = useState<HyttBesok[]>([]);
   const [kvitt, setKvitt] = useState<HyttKvittens[]>([]);
@@ -31,6 +33,8 @@ export function useBesokHytt(a: {
   maskinRef.current = a.maskinId;
   const testRef = useRef(a.testlage);
   testRef.current = a.testlage;
+  const bakgrundRef = useRef(!!a.bakgrund);
+  bakgrundRef.current = !!a.bakgrund;
 
   const las = useCallback(async () => {
     const objekt = a.objektId, maskin = maskinRef.current;
@@ -46,7 +50,8 @@ export function useBesokHytt(a: {
       // EN ton per nytt besök som den här maskinen inte redan kvitterat. Första läsningen räknas också (ett besök som väntade när hytten öppnades ska höras).
       const nya = rader.filter((x) => !sett.current.has(x.id) && !kvittade.has(x.id));
       rader.forEach((x) => sett.current.add(x.id));
-      if (nya.length && ljudRef.current) { try { spelaLarmLjud(ljudRef.current(), 'nara'); } catch { /* ljud kräver ett tryck först */ } }
+      // Ljud i appen bara när den syns – i bakgrunden är det notisens eget ljud som gäller.
+      if (nya.length && ljudRef.current && document.visibilityState === 'visible') { try { spelaLarmLjud(ljudRef.current(), 'nara'); } catch { /* ljud kräver ett tryck först */ } }
       setBesok(rader);
       setKvitt(Array.from(kvittade).map((besok_id) => ({ besok_id, maskin_id: maskin })));
       setFel(null);
@@ -59,10 +64,20 @@ export function useBesokHytt(a: {
     if (!a.aktiv || !a.objektId || !a.maskinId) { setBesok([]); setKvitt([]); sett.current = new Set(); return; }
     sett.current = new Set();
     las();
-    const t = setInterval(() => { if (document.visibilityState === 'visible') las(); }, HYTT_POLL_MS);
+    const t = setInterval(() => { if (bakgrundRef.current || document.visibilityState === 'visible') las(); }, HYTT_POLL_MS);
     const synlig = () => { if (document.visibilityState === 'visible') las(); };
     document.addEventListener('visibilitychange', synlig);
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', synlig); };
+    // "Uppfattat" tryckt i själva notisen (public/sw.js kvitterade direkt mot servern): läs om så kortet försvinner direkt, utan att vänta på nästa varv.
+    const vidMeddelande = (e: MessageEvent) => {
+      const d = e.data as { typ?: string; besokId?: string } | null;
+      if (!d || d.typ !== 'hytt-uppfattat' || typeof d.besokId !== 'string') return;
+      const maskin = maskinRef.current;
+      if (maskin) setKvitt((p) => (p.some((x) => x.besok_id === d.besokId && x.maskin_id === maskin) ? p : [...p, { besok_id: d.besokId as string, maskin_id: maskin }]));
+      las();
+    };
+    const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined;
+    sw?.addEventListener('message', vidMeddelande);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', synlig); sw?.removeEventListener('message', vidMeddelande); };
   }, [a.aktiv, a.objektId, a.maskinId, a.testlage, las]);
 
   /** Tryck på "Uppfattat". Servern sparar med maskin, roll, förare och servertid; kortet försvinner först när det är sparat. */

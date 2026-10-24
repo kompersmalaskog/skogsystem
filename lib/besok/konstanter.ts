@@ -38,3 +38,15 @@ export const FORETAG_TELEFON = '';
 
 /** Länken är en slumpad token av minst så här många tecken (databasen kräver detsamma). */
 export const TOKEN_MIN_TECKEN = 32;
+
+/** Hytten: ej kvitterat besök efter så här lång tid → EN ny notis med ljud (bara när appen inte är framme). */
+export const BESOK_NOTIS_PAMINNELSE_MIN = 5;
+
+/** Ej kvitterat efter så här lång tid → push till planeraren (admin): "<maskin> har inte sett besöket på <trakt>". Cronen går var 5:e minut, så den kommer inom 10–15 min. */
+export const BESOK_EJ_SETT_ADMIN_MIN = 10;
+
+/** Klockan för "inte sett" börjar tidigast så här många minuter före besökstiden: en anmälan för i morgon eftermiddag larmar inte i kväll. */
+export const BESOK_KLOCKA_FORE_MIN = 60;
+
+/** Maskiner som räknas som "på trakten" för besöket: tilldelade (skördare/skotare på objektet) eller med hyttspår på objektet inom så här många timmar. */
+export const BESOK_MASKIN_PA_TRAKTEN_H = 24;
