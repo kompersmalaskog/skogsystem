@@ -3,9 +3,9 @@
 // KVAR = skördat (skördarens mätning, fakt_sortiment) minus skotat, per sortiment. Skotat = Opti-lassen (fakt_lass) för tiden INNAN appen började
 // rapportera lass på trakten för maskinen + appens lass därefter (lib/skotarLass/opti.ts: ingen dubbelräkning). Visas alltid med "~": det är en
 // uppskattning. Lass som väntar på föraren räknas med (de är ifyllda som förra lasset) — de bekräftar sig självt eller rättas inom sekunder;
-// de som är struken räknas aldrig. Kvar blir aldrig negativt: skotat mer än skördat på ett sortiment är "klart", aldrig "X över".
+// de som är struken räknas aldrig, och inte heller de som den gamla självbekräftelsen satte (bekraftad_av 'auto') förrän en planerare granskat dem. Kvar blir aldrig negativt: skotat mer än skördat på ett sortiment är "klart", aldrig "X över".
 import { arOklassat, sortimentNyckel, type SkordatSortiment } from './sortiment';
-import { heltM3, lassTotalM3 } from './lassModell';
+import { heltM3, lassTotalM3, raknasSomSkotat } from './lassModell';
 import { appStartPerMaskin, fordelaOpti, optiPerDag, raknadeOptiLass, type OptiLass } from './opti';
 import type { Lass } from './typer';
 
@@ -34,12 +34,13 @@ export interface Kvar {
   kvarTotal: number;
 }
 
-const raknasMed = (l: Lass) => l.status !== 'struket';
+/** Struket och det gamla obekräftade (bekraftad_av 'auto') räknas aldrig som skotat. */
+const raknasMed = (l: Lass) => raknasSomSkotat(l);
 
 /** Finns det något skördat alls? Utan det finns inget att räkna kvar på: "Kvar ~0 m³" skulle säga att trakten är klar fast skördaren inte kommit dit. */
 export const harSkordat = (skordat: readonly SkordatSortiment[] | null | undefined): boolean => !!skordat && skordat.some((s) => s.m3 > 0);
 
-/** Förarens summa per sortiment över alla (icke-strukna) lass. */
+/** Förarens summa per sortiment över alla lass som räknas (inte struket, inte det gamla obekräftade). */
 export function skotatPerSortiment(lass: readonly Lass[]): Map<string, { namn: string; m3: number }> {
   const per = new Map<string, { namn: string; m3: number }>();
   for (const l of lass) {
@@ -248,3 +249,39 @@ export function skalningsfaktorer(skordat: readonly SkordatSortiment[], lass: re
 }
 
 export const skalatVarde = (m3: number, faktor: number | undefined): number => (faktor == null ? m3 : m3 * faktor);
+
+
+// ── Skotat mer än skördat (info till planeraren) ───────────────────────────────────────────────────────────────────────
+
+/** Skotat får överstiga skördat med så här mycket (andel OCH m³) innan planeraren får en rad om det. Skördarens mätning och lassens m³ är aldrig exakt lika. */
+export const SKOTAT_OVER_PROCENT = 0.03;
+export const SKOTAT_OVER_M3 = 10;
+
+export interface SkotatMerAnSkordat {
+  skordat: number;
+  skotat: number;
+  /** skotat − skördat (m³, positivt). */
+  over: number;
+}
+
+/** Opti-lassets volym: sortimentsraderna, annars lassets egen volym. */
+const optiVolym = (o: OptiLass): number => {
+  const rader = o.rader.reduce((s, r) => s + r.m3, 0);
+  return rader > 0 ? rader : (o.volymM3 ?? 0);
+};
+
+/**
+ * Är mer skotat än skördat på trakten? Samma skotat som "kvar" räknar med — Opti före appens start + appens lass som räknas — men
+ * OKAPPAT: `beraknaKvar` kapar varje sortiment vid skördat (kvar blir aldrig negativt) och visar därför aldrig överskottet.
+ * Bara info, ingen spärr. null = inget att varna för (eller inget skördat att jämföra mot).
+ */
+export function skotatMerAnSkordat(skordat: readonly SkordatSortiment[], lass: readonly Lass[], opti: readonly OptiLass[] = []): SkotatMerAnSkordat | null {
+  const sk = skordat.reduce((s, r) => s + r.m3, 0);
+  if (!(sk > 0)) return null;
+  const app = Array.from(skotatPerSortiment(lass).values()).reduce((s, g) => s + g.m3, 0);
+  const optiSumma = raknadeOptiLass(opti, appStartPerMaskin(lass)).reduce((s, o) => s + optiVolym(o), 0);
+  const skotat = app + optiSumma;
+  const over = skotat - sk;
+  if (over <= SKOTAT_OVER_M3 || over / sk <= SKOTAT_OVER_PROCENT) return null;
+  return { skordat: sk, skotat, over };
+}
