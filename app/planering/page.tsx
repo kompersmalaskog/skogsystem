@@ -119,6 +119,7 @@ import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } fro
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
+import HyttNotiserKort from '../../components/planering/HyttNotiserKort'
 import { hogarSynliga, vaxlaSkotarHogar } from '../../lib/skotarHogar'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { INFO_PANEL_MASKIN_BREDD_PX, PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
@@ -17277,6 +17278,8 @@ export default function PlannerPage() {
                     )}
                   </div>
                 )}
+                {/* Notiser i hytten (Windows-notis när appen inte är framme) — bara maskindatorn, som GPS-källa-kortet. */}
+                {webSerialStott && <HyttNotiserKort />}
                 {/* Lägen */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
