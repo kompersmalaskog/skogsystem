@@ -5,7 +5,7 @@ import { FelRad, TryckRad } from './AttGoraKort';
 import type { SaknarLage } from './useSaknarMaskin';
 
 /**
- * "1 lass saknar maskin" — en rad i kortet "Att göra", bara när något väntar och bara för admin (som VantarRad och Arbetsrapportens
+ * "1 lass saknar maskin" — en rad i "Vad behöver du göra?", bara när något väntar och bara för admin (som VantarRad och Arbetsrapportens
  * väntar-rad). Trycket öppnar frågan för det äldsta lasset; när den är besvarad står nästa där. Inget väntar → ingen rad alls
  * (aldrig "0 lass"). Ett läsfel är ett fel (aldrig "inget väntar"): raden säger det och erbjuder Försök igen.
  */
