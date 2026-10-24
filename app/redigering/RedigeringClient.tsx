@@ -45,14 +45,6 @@ const GLOBAL_CSS = `
   @keyframes slideDown { from { transform: translateY(0); opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
   @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-  @keyframes flashHighlight {
-    0%   { background: rgba(255,159,10,0.20); box-shadow: 0 0 0 6px rgba(255,159,10,0.15); }
-    100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
-  }
-  .flash-highlight {
-    animation: flashHighlight 0.7s ease;
-    border-radius: 14px;
-  }
   .tap-press {
     transition: transform 0.12s ease, background 0.18s ease, opacity 0.18s ease;
   }
@@ -1873,5 +1865,4 @@ const styles: Record<string, CSSProperties> = {
   scrollFade: { position: 'absolute', top: AVSTAND.xxl * 2, left: 0, right: 0, height: AVSTAND.xl, background: `linear-gradient(to bottom, ${FARG.kort}, transparent)`, zIndex: 1, pointerEvents: 'none', transition: `opacity ${RORELSE.tryck}ms ease` },
   sheetContent: { flex: 1, overflowY: 'auto', padding: `${AVSTAND.s}px ${AVSTAND.l}px ${medSafeBotten(AVSTAND.xl)}` },
   sheetFooter: { padding: `${AVSTAND.m}px ${AVSTAND.l}px ${medSafeBotten(AVSTAND.l)}` },
-  switchKnob: { width: 24, height: 24, borderRadius: 12, background: '#fff', transition: 'transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)', boxShadow: '0 2px 4px rgba(0,0,0,0.3)' }
 }
