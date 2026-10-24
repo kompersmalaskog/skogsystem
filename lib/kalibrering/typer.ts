@@ -2,6 +2,8 @@
  * TYPER FÖR KALIBRERINGSVYN — flyttade ur app/kalibrering/page.tsx (2026-10), oförändrade.
  * Formerna speglar tabellerna och /api/kalibrering/*-svaren; vyn och räknarna delar dem här.
  */
+import type { GreppRad } from './greppTid';
+import type { GrovlekRad } from './grovlek';
 import type { VariabelStat } from './statistik';
 
 export type { VariabelStat };
@@ -141,6 +143,20 @@ export type DiagnosResp = {
   klasser: DiagKlass[];
   plateauMonthly: { manad: string; share: number; n: number }[];
   markorer: DiagMarkor[];
+};
+
+// === Per grovlek (/api/kalibrering/grovlek) ===
+/** En stam per månad och grovlek, med trädslag och kontroll — rutnätet räknas i klienten (lib/kalibrering/grovlek). `tolerans` = kravprofilens ±mm. */
+export type GrovlekResp = { ok: true; maskin_id: string; tolerans: number; rader: GrovlekRad[] };
+
+// === Greppet (/api/kalibrering/grepp) ===
+/**
+ * Maskinens egna stamprofiler, alla stammar, summerade per månad, trädslag och grovlek. `kvar` > 0 = några objekt är inte omräknade än (tabellen är en cache som
+ * räknas om objekt för objekt när underlaget ändrats) — klienten frågar igen tills det är 0. `tillganglig: false` = migrationen är inte körd.
+ */
+export type GreppResp = {
+  ok: true; maskin_id: string; tillganglig: boolean; orsak?: 'migration';
+  rader: GreppRad[]; kvar: number; fel: string[]; stammarTotalt: number; stammarRaknade: number;
 };
 
 // === Objekt (/api/kalibrering/objekt) ===

@@ -14,7 +14,7 @@ import { idagManad } from '@/lib/kalibrering/datum';
 import { startMaskin } from '@/lib/kalibrering/laget';
 import { aktivaMaskinIds, artSnitt, filtreraKalib, rapportSnitt, rapportSedan, tradslagRader } from '@/lib/kalibrering/rapport';
 import {
-  type AlleMaskin, type BedomningResp, type CalResponse, type DiagnosResp, type FaktKalibrering,
+  type AlleMaskin, type BedomningResp, type CalResponse, type DiagnosResp, type FaktKalibrering, type GreppResp, type GrovlekResp,
   type KontrollTid, type ObjektData, type TradslagData,
 } from '@/lib/kalibrering/typer';
 
@@ -49,6 +49,13 @@ export function useKalibreringData(activeTab: Flik) {
   const [diagnosFelMap, setDiagnosFelMap] = useState<Record<string, string>>({});
   const [tradslagFelMap, setTradslagFelMap] = useState<Record<string, string>>({});
   const [objektFel, setObjektFel] = useState<string | null>(null);
+  // Över tid › Per grovlek (stammar per månad och grovlek, kontrollerna) och Greppet (maskinens egna stamprofiler, alla stammar) — per maskin, hämtas när vinkeln öppnas.
+  const [grovlekMap, setGrovlekMap] = useState<Record<string, GrovlekResp>>({});
+  const [grovlekFelMap, setGrovlekFelMap] = useState<Record<string, string>>({});
+  const [greppMap, setGreppMap] = useState<Record<string, GreppResp>>({});
+  const [greppFelMap, setGreppFelMap] = useState<Record<string, string>>({});
+  const greppPagar = useRef<Set<string>>(new Set()); // maskiner vars Grepp-hämtning (flera varv) pågår
+  const greppForsok = useRef<Record<string, number>>({}); // hur många hämtningsomgångar per maskin — en omgång som inte blir klar ska inte börja om för alltid
   // Objekt-fliken (maskinoberoende)
   const [objektData, setObjektData] = useState<ObjektData | null>(null);
   // Per-trädslag (per maskin) — träff%/syst/std mot maskinens profil.
@@ -113,6 +120,42 @@ export function useKalibreringData(activeTab: Flik) {
       })
       .catch(() => setDiagnosFelMap(prev => ({ ...prev, [maskin]: 'Kurvorna kunde inte läsas.' })));
   }, [diagnosMap, diagnosFelMap]);
+
+  // Per grovlek: hela historiken för maskinen, en gång.
+  const laddaGrovlek = useCallback((maskin: string) => {
+    if (!maskin || grovlekMap[maskin] || grovlekFelMap[maskin]) return;
+    fetch(`/api/kalibrering/grovlek?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: GrovlekResp) => {
+        if (!data?.ok) throw new Error('svar utan grovlek');
+        setGrovlekMap(prev => ({ ...prev, [maskin]: data }));
+      })
+      .catch(() => setGrovlekFelMap(prev => ({ ...prev, [maskin]: 'Grovlekarna kunde inte läsas.' })));
+  }, [grovlekMap, grovlekFelMap]);
+
+  // Greppet: servern räknar om objekt för objekt när underlaget ändrats och säger hur många som är kvar (`kvar`). Det som redan är räknat visas under tiden;
+  // vi frågar igen tills inget är kvar (högst ett antal varv — ett objekt som aldrig blir klart stoppar inte vyn).
+  const laddaGrepp = useCallback(async (maskin: string) => {
+    if (!maskin || greppPagar.current.has(maskin)) return;
+    if (greppFelMap[maskin] || (greppMap[maskin] && greppMap[maskin].kvar === 0)) return;
+    if ((greppForsok.current[maskin] ?? 0) >= 3) return;
+    greppForsok.current[maskin] = (greppForsok.current[maskin] ?? 0) + 1;
+    greppPagar.current.add(maskin);
+    try {
+      for (let varv = 0; varv < 25; varv++) {
+        const r = await fetch(`/api/kalibrering/grepp?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json() as GreppResp;
+        if (!data?.ok) throw new Error('svar utan grepp');
+        setGreppMap(prev => ({ ...prev, [maskin]: data }));
+        if (!data.tillganglig || data.kvar === 0) break;
+      }
+    } catch {
+      setGreppFelMap(prev => ({ ...prev, [maskin]: 'Greppet kunde inte läsas.' }));
+    } finally {
+      greppPagar.current.delete(maskin);
+    }
+  }, [greppMap, greppFelMap]);
 
   // Spara en åtgärdsmarkör (förare: "höjde trycket till 400 mm").
   // Returnerar true när åtgärden sparats (arket stängs då); false lämnar arket öppet med det som skrivits.
@@ -263,6 +306,9 @@ export function useKalibreringData(activeTab: Flik) {
     setBedomningFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setDiagnosFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setTradslagFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
+    setGrovlekFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
+    setGreppFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
+    greppForsok.current[maskin] = 0;
     setObjektFel(null);
     setTiderFel(null);
   }, [effektiv]);
@@ -285,6 +331,8 @@ export function useKalibreringData(activeTab: Flik) {
     calManad, setCalManad, calData, calLoading, calError, filteredSammanfattning,
     objektData, objektFel, trData, trRader, tradslagFel: effektiv ? tradslagFelMap[effektiv] ?? null : null,
     tider, tiderFel,
+    laddaGrovlek, grovlekData: effektiv ? grovlekMap[effektiv] ?? null : null, grovlekFel: effektiv ? grovlekFelMap[effektiv] ?? null : null,
+    laddaGrepp, greppData: effektiv ? greppMap[effektiv] ?? null : null, greppFel: effektiv ? greppFelMap[effektiv] ?? null : null,
     filteredKalib, speciesData, totalStockar, reportSedan,
   };
 }
