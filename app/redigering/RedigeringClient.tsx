@@ -1,7 +1,7 @@
 "use client"
 import { underTopbar, medSafeBotten, FARG, TYP, AVSTAND } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
-import { useState, useEffect, useRef, Fragment, Children, Suspense, type CSSProperties, type ReactNode } from 'react'
+import { useState, useEffect, useRef, useMemo, Fragment, Children, Suspense, type CSSProperties, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { hamtaRisKandidater, hamtaKopplingar, sparaKopplingar, grotHamtadAutomatik, angraGrotHamtadAutomatik } from '@/lib/grot-koppling'
@@ -26,6 +26,7 @@ import BehoverDig from '@/components/redigering/BehoverDig'
 import ObjektOversikt, { type MerMal } from '@/components/redigering/ObjektOversikt'
 import ObjektLista from '@/components/redigering/ObjektLista'
 import type { ListGrupp } from '@/lib/redigering/listaVy'
+import { voGruppKarta, medVoGrupp } from '@/lib/redigering/voGrupp'
 import { byggSaker, patchForSvar, type BehoverGrupp, type FilJobb, type Sak } from '@/lib/redigering/behoverDig'
 import PdfLasare from '@/app/planering/PdfLasare'
 
@@ -146,9 +147,16 @@ const SKOTARFALT = ['risskotning', 'egen_skotning', 'extra_vagn', 'klippning',
 
 // Rader som hör till samma objekt: samma icke-tomma vo_nummer, annars bara
 // raden själv. maskin_typ är berikad vid inläsning.
+// Gruppnyckeln är _vo_grupp (lib/redigering/voGrupp.ts): samma objekt under två VO-nummer = EN grupp.
+const voNyckel = (o: any): string | null => {
+  const g = o?._vo_grupp ?? o?.vo_nummer
+  return g && String(g).trim() ? String(g) : null
+}
+
 function syskonRader(allaObjekt: any[], obj: any): any[] {
-  if (!obj?.vo_nummer) return [obj]
-  const grupp = allaObjekt.filter(o => o.vo_nummer === obj.vo_nummer)
+  const nyckel = voNyckel(obj)
+  if (!nyckel) return [obj]
+  const grupp = allaObjekt.filter(o => voNyckel(o) === nyckel)
   return grupp.length > 0 ? grupp : [obj]
 }
 
@@ -186,15 +194,16 @@ function volymForGrupp(allaObjekt: any[], kortInfo: Record<string, any>, obj: an
 function grupperaPerVo(rader: any[]): { nyckel: string; rep: any; rader: any[] }[] {
   const grupper = new Map<string, any[]>()
   rader.forEach((o: any) => {
-    const vo = o.vo_nummer && String(o.vo_nummer).trim() ? String(o.vo_nummer) : null
-    const nyckel = vo || `__rad__${o.objekt_id}`
+    const nyckel = voNyckel(o) || `__rad__${o.objekt_id}`
     const lista = grupper.get(nyckel) || []
     lista.push(o)
     grupper.set(nyckel, lista)
   })
   const poang = (o: any) => ['huvudtyp', 'bolag', 'skogsagare', 'atgard'].filter(f => o[f]).length + (o.object_name ? 10 : 0)
   return Array.from(grupper.entries()).map(([nyckel, lista]) => {
-    const rep = lista.reduce((basta: any, o: any) => poang(o) > poang(basta) ? o : basta, lista[0])
+    // Objektets eget nummer går före (det är där planeringsraden och sparningen landar), sedan mest ifyllt.
+    const egen = (o: any) => (String(o.vo_nummer ?? '') === nyckel ? 100 : 0)
+    const rep = lista.reduce((basta: any, o: any) => poang(o) + egen(o) > poang(basta) + egen(basta) ? o : basta, lista[0])
     return { nyckel, rep, rader: lista }
   })
 }
@@ -204,6 +213,11 @@ function grupperaPerVo(rader: any[]): { nyckel: string; rep: any; rader: any[] }
 function gruppVarningar(rader: any[], volym: { skordat: number; skotat: number }): any[] {
   const per = new Map<string, any>()
   rader.forEach((o: any) => getWarnings(o, volym).forEach((w: any) => { if (!per.has(w.key)) per.set(w.key, w) }))
+  // Gemensamma fält: har EN rad i gruppen värdet saknas det inte (nästa sparning skriver det till alla rader).
+  // Gäller främst en grupp under två VO-nummer (Mölleryd: skotarens rad har markägaren, skördarens inte).
+  for (const falt of ['skogsagare', 'bolag', 'huvudtyp']) {
+    if (per.has(falt) && rader.some((o: any) => o[falt])) per.delete(falt)
+  }
   return Array.from(per.values())
 }
 
@@ -441,8 +455,17 @@ async function sparaObjektTillSupabase(obj: any, syskon: any[]): Promise<{ ok: b
   const skordarPatch = plocka(obj, SKORDARFALT)
   const skotarPatch = { ...plocka(obj, SKOTARFALT), ovrigt_info: ovrigtInfo }
 
-  const r1 = await direktPatchDimObjekt(gruppIds, gemensamt)
+  // En grupp kan bära rader under två VO-nummer (lib/redigering/voGrupp.ts: Mölleryd 11166477 + 11271883).
+  // Raderna med det andra numret behåller sitt nummer — maskinens data ligger under det.
+  // Jämför med radens nummer FÖRE ändringen (syskon är det sparade läget), så ett ändrat VO följer med som förut.
+  const forraVo = String((syskon.find(o => o.objekt_id === obj.objekt_id) ?? obj).vo_nummer ?? '')
+  const egnaIds = syskon.filter(o => String(o.vo_nummer ?? '') === forraVo).map(o => o.objekt_id)
+  const andraIds = gruppIds.filter(id => !egnaIds.includes(id))
+  const { vo_nummer: _vo, ...gemensamtUtanVo } = gemensamt as Record<string, any>
+  const r1 = await direktPatchDimObjekt(egnaIds, gemensamt)
   if (!r1.ok) return r1
+  const r1b = await direktPatchDimObjekt(andraIds, gemensamtUtanVo)
+  if (!r1b.ok) return r1b
   const r2 = await direktPatchDimObjekt(skordarIds, skordarPatch)
   if (!r2.ok) return { ok: false, message: 'Skördarfälten: ' + r2.message }
   // TODO(#334): TILLFÄLLIG dubbel-skrivning — dim_objekt.skotad_volym_manuell / skotning_g15_manuell
@@ -3168,7 +3191,12 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
   async function direktSpara(patch: Record<string, any>, opts?: { ids?: string[] }): Promise<boolean> {
     if (!valtObjekt) return false
     const sysk = syskonRader(objekt, valtObjekt)
-    const dimIds = opts?.ids && opts.ids.length > 0 ? opts.ids : sysk.map((o: any) => o.objekt_id)
+    let dimIds = opts?.ids && opts.ids.length > 0 ? opts.ids : sysk.map((o: any) => o.objekt_id)
+    // Ett nytt VO-nummer gäller raderna under objektets eget nummer, aldrig gruppens andra (lib/redigering/voGrupp.ts).
+    if ('vo_nummer' in patch) {
+      const forra = String(originalObjekt?.vo_nummer ?? valtObjekt.vo_nummer ?? '')
+      dimIds = dimIds.filter(id => String(sysk.find((o: any) => o.objekt_id === id)?.vo_nummer ?? '') === forra)
+    }
     const res = await sparaFalt(
       {
         dimObjektIds: dimIds,
@@ -3290,7 +3318,11 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       setObjekt((prev: any[]) => prev.map((o: any) => {
         if (o.objekt_id === valtObjekt.objekt_id) return valtObjekt
         let uppdaterad = o
-        if (gruppIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...gemensamt }
+        if (gruppIds.includes(o.objekt_id)) {
+          // Rader under gruppens andra VO-nummer behåller sitt (samma regel som sparningen).
+          const egetVo = String(o.vo_nummer ?? '') === String(sysk.find((x: any) => x.objekt_id === valtObjekt.objekt_id)?.vo_nummer ?? '')
+          uppdaterad = { ...uppdaterad, ...gemensamt, ...(egetVo ? {} : { vo_nummer: o.vo_nummer }) }
+        }
         if (skordarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skordarPatch }
         if (skotarIds.includes(o.objekt_id)) uppdaterad = { ...uppdaterad, ...skotarPatch }
         return uppdaterad
@@ -3693,7 +3725,7 @@ export default function ObjektRedigering() {
 }
 
 function ObjektRedigeringInner() {
-  const [objekt, setObjekt] = useState<any[]>([])
+  const [objektRa, setObjekt] = useState<any[]>([])
   const [maskiner, setMaskiner] = useState<Record<string, any>>({})
   // Aktiva skotare (aktiv_till IS NULL) för inline-tilldelning i listan. SÅLDA
   // maskiner ska ALDRIG vara valbara (Akelius-på-sålda-Elefant-buggen).
@@ -3714,6 +3746,12 @@ function ObjektRedigeringInner() {
   // Maskinfiler utan objekt (lib/redigering/filerUtanObjekt.ts): de senaste 30 dagarna är frågor i Behöver dig, äldre
   // ligger tyst bakom en rad längst ner i listan.
   const filerUO = useFilerUtanObjekt()
+  // Samma objekt under två VO-nummer (Mölleryd: skördaren 11166477, skotaren 11271883) = EN grupp överallt.
+  const voKarta = useMemo(
+    () => filerUO.status === 'ok' ? voGruppKarta(filerUO.data.alias, filerUO.data.objekt, objektRa) : new Map<string, string>(),
+    [filerUO.status, filerUO.data, objektRa],
+  )
+  const objekt = useMemo(() => medVoGrupp(objektRa, voKarta), [objektRa, voKarta])
   const sokParams = useSearchParams()
   const [hprFiler, setHprFiler] = useState<any[]>([])
   const [hprStatus, setHprStatus] = useState<'laddar' | 'fel' | 'ok'>('laddar')
