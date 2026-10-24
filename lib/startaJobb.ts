@@ -104,7 +104,7 @@ export interface JobbIndata {
   /** GROT: virkesobjektet på samma trakt (objekt.id). Ignoreras för alla andra typer. */
   horTillObjektId?: string | null;
   /** Säljaren/markägaren skotar själv → inga filer väntas från en skotare. Bara slutavverkning och gallring; ignoreras för GROT/energi.
-   *  Skrivs bara när den är sann (kolumnen objekt.egen_skotning, migration 20261024120000_objekt_egen_skotning.sql). */
+   *  Skrivs bara när den är sann (kolumnen objekt.egen_skotning, migration 20261024121848_objekt_egen_skotning.sql). */
   egenSkotning?: boolean | null;
   /** Maskindator: maskinen som startar jobbet → tilldelas i rätt rollfält, status pågående. Utan maskin: ingen tilldelning (planerat jobb). */
   maskin?: { maskinId: string; roll: JobbRoll } | null;

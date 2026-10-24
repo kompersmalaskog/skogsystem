@@ -328,7 +328,7 @@ export default function StartaJobbPage() {
     const r = await skapaJobb(supabase as any, indata);
     if (!r.ok) {
       const saknasKolumn = /egen_skotning/.test(r.fel);
-      setFel(r.fel + (saknasKolumn ? ' (Egen skotning kräver migrationen 20261024120000_objekt_egen_skotning — välj Vi skotar så länge.)' : '')
+      setFel(r.fel + (saknasKolumn ? ' (Egen skotning kräver migrationen 20261024121848_objekt_egen_skotning — välj Vi skotar så länge.)' : '')
         + (r.voForbrukat ? ' VO-numret är förbrukat — nästa jobb får nästa nummer.' : ''));
       setSaving(false);
       return;
