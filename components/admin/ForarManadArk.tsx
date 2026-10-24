@@ -207,6 +207,11 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
         </>
       )}
 
+      <Sektion>Maskintid</Sektion>
+      <Lista>
+        <Rad attr={{ "data-lonekvot": "" }} rubrik="Lönekvot" detalj={vy.lonekvot.detalj} hoger={<span style={fet}>{vy.lonekvot.varde}</span>} sista />
+      </Lista>
+
       <Sektion>Dagar</Sektion>
       {vy.dagar.length === 0 ? (
         <Stod>Inga arbetsdagar den här månaden.</Stod>

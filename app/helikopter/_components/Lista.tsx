@@ -1,6 +1,6 @@
 'use client'
 
-// Byggstenarna för /helikopter, ur tokens: rader (RAD) med linje mellan men inte efter den sista, mätare (6 px) med planstreck. Länkrader: components/ui/RadGrupp. Svarsrad, Sektion och Ikon: components/design.
+// Byggstenarna för /helikopter (sidan, arken, veckor, månadsfacit), ur tokens: rader (RAD) med linje mellan men inte efter den sista, mätare (6 px) med planstreck. Länkrader: components/ui/RadGrupp. Svarsrad, Sektion och Ikon: components/design.
 // Typ: tal TYP.tal, rubrik TYP.rubrik, radnamn TYP.listtitel, brödtext TYP.text, förklaring TYP.meta, etikett TYP.micro.
 import { AVSTAND, FARG, KORT, RAD, RADIE, TNUM, TYP, VIKT } from '@/lib/design/tokens'
 import Ikon from '@/components/design/Ikon'
@@ -19,10 +19,13 @@ export function Kort({ children }: { children: React.ReactNode }) {
 }
 
 /** Mätare: 6 px, bakgrund FARG.fyllning, fyllning FARG.text2 (neutral) eller en statusfärg, planstreck FARG.text 2 px. `andel` och `planAndel` 0–1. */
-export function Matare({ andel, planAndel, farg = FARG.text2 }: { andel: number; planAndel?: number | null; farg?: string }) {
+export function Matare({ andel, planAndel, prognosAndel, farg = FARG.text2 }: { andel: number; planAndel?: number | null; /** 0–1: där prognosen landar — ritas mörkare från `andel` och framåt. */ prognosAndel?: number | null; farg?: string }) {
   const pct = (v: number) => Math.min(100, Math.max(0, v * 100))
   return (
     <div style={{ position: 'relative', height: 6, borderRadius: RADIE.stapel, background: FARG.fyllning }}>
+      {prognosAndel != null && prognosAndel > andel && (
+        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pct(prognosAndel)}%`, background: FARG.text3, borderRadius: RADIE.stapel }} aria-label="landar" />
+      )}
       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pct(andel)}%`, background: farg, borderRadius: RADIE.stapel }} />
       {planAndel != null && planAndel > 0 && (
         <div style={{ position: 'absolute', top: -3, height: 12, width: 2, left: `calc(${pct(planAndel)}% - 1px)`, background: FARG.text }} aria-label="plan idag" />

@@ -75,7 +75,7 @@ describe('ⓘ-panelen för föraren (maskinläget)', () => {
 
 describe('påminnelsen i ytan', () => {
   it('sidan visar den på instruktionskortets plats, och larm/lossning går före (blockeradPaminnelse räknar även ett larmkort som redan setts)', () => {
-    expect(sida).toContain('blockeradPaminnelse: !!larm.kort || lossningVisas,');
+    expect(sida).toContain('blockeradPaminnelse: !!larm.kort || lossningVisas || besokKortSynligt,');
     expect(sida).toContain('<YtaPaminnelseVy paminnelse={inst.paminnelse} top={instruktionTop} onTryck={() => setPaminnelseOppen(inst.paminnelse!.nyckel)} />');
     expect(sida).toContain('utanSett={{ onStang: () => setPaminnelseOppen(null) }}');
     expect(sida).toContain('useEffect(() => { if (!inst.paminnelse) setPaminnelseOppen(null); }, [inst.paminnelse]);');

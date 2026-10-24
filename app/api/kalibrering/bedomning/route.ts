@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { kravInloggad } from "@/lib/auth/server";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
 import { statistik, type VariabelStat } from "@/lib/kalibrering/statistik";
+import { atgardPoster, tidigasteFore, type DatumPunkt } from "@/lib/kalibrering/atgarder";
+import { hamtaMarkorer } from "@/lib/kalibrering/markorer.server";
+import type { AtgardPost } from "@/lib/kalibrering/typer";
 
 /**
- * GET /api/kalibrering/bedomning?key=skogsystem-debug&maskin_id=X
+ * GET /api/kalibrering/bedomning?maskin_id=X
  *
  * Bedömer en maskins mätnoggrannhet mot dess KRAVPROFIL (VIDA/BIOMETRIA)
  * över ett rullande 90-DAGARSFÖNSTER t.o.m. maskinens senaste kontroll.
@@ -35,7 +39,6 @@ import { statistik, type VariabelStat } from "@/lib/kalibrering/statistik";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEBUG_KEY = "skogsystem-debug";
 const FONSTER_DAGAR = 90;
 
 export type KravRow = {
@@ -85,6 +88,8 @@ export type BedomningResponse = {
   langd: VariabelStat | null;
   trosklar: KravRow[];
   atgard: AtgardEffekt | null;
+  /** Alla markörer (åtgärder och reparationer) med träff före/efter — raderna i Läget › Åtgärder. `atgard` ovan är oförändrad. */
+  atgarder: AtgardPost[];
 };
 
 // PostgREST tar max 1000 rader åt gången — paginera tills tomt.
@@ -111,9 +116,8 @@ const ATGARD_GRIND = 30;
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  if (url.searchParams.get("key") !== DEBUG_KEY) {
-    return new NextResponse("Ogiltig nyckel", { status: 401 });
-  }
+  const vakt = await kravInloggad();
+  if (!vakt.ok) return vakt.res;
   const maskinId = url.searchParams.get("maskin_id");
   if (!maskinId) {
     return NextResponse.json({ ok: false, error: "maskin_id krävs" }, { status: 400 });
@@ -164,7 +168,7 @@ export async function GET(req: NextRequest) {
   }
   if (!senaste || senaste.length === 0) {
     return NextResponse.json({
-      ok: true, maskin_id: maskinId, profil, fonster: null, diameter: null, langd: null, trosklar, atgard: null,
+      ok: true, maskin_id: maskinId, profil, fonster: null, diameter: null, langd: null, trosklar, atgard: null, atgarder: [],
     } satisfies BedomningResponse);
   }
   const till = String(senaste[0].kontroll_datum).slice(0, 10);
@@ -288,6 +292,45 @@ export async function GET(req: NextRequest) {
     };
   }
 
+  // === 7) Åtgärder: träff före/efter för varje markör ===
+  // Samma regler som ovan (90 dagar före, grind 30 per sida); `efter` slutar vid nästa markör. Se lib/kalibrering/atgarder.
+  // Ett TILLÄGG: går något fel här loggas det och listan blir tom — domen och Vidas tal (ovan) ska aldrig falla för att åtgärdslistan inte gick att räkna.
+  let atgarder: AtgardPost[] = [];
+  try {
+    const markorer = await hamtaMarkorer(supabase, maskinId);
+    const tidigast = tidigasteFore(markorer);
+    if (tidigast) {
+      type ListStock = { id: number; kontroll_datum: string; maskin_toppdia_mm: number | null; operator_toppdia_mm: number | null };
+      const listStock = await fetchAllRows<ListStock>((from, to) =>
+        supabase
+          .from("detalj_kontroll_stock")
+          .select(`id,kontroll_datum,${TOPPDIA_COLS}`)
+          .eq("maskin_id", maskinId)
+          .gte("kontroll_datum", tidigast)
+          .order("id", { ascending: true })
+          .range(from, to),
+      );
+      if (listStock.error) throw new Error(`stockar: ${(listStock.error as { message?: string }).message}`);
+      const dagAv = new Map(listStock.data.map((s) => [s.id, String(s.kontroll_datum).slice(0, 10)]));
+      const listPunkter = await hamtaDiameterPunkter(supabase, listStock.data);
+      if (listPunkter.error) throw new Error(`matpunkt: ${listPunkter.error.message}`);
+      const { data: kalRows, error: kalListErr } = await supabase
+        .from("fakt_kalibrering_historik")
+        .select("datum")
+        .eq("maskin_id", maskinId)
+        .eq("typ", "diameter");
+      if (kalListErr) throw new Error(`fakt_kalibrering_historik: ${kalListErr.message}`);
+      const punkter: DatumPunkt[] = listPunkter.data.map((p) => ({ datum: dagAv.get(p.stockId) ?? "", avvik: p.avvik }));
+      atgarder = atgardPoster({
+        markorer, punkter, tolTraff: tolFor("diameter", "traffprocent"), tolGrov: tolFor("diameter", "grov_avvikelse"),
+        kalibreringar: (kalRows ?? []).map((k) => String(k.datum).slice(0, 10)),
+      });
+    }
+  } catch (e) {
+    console.error("bedomning: åtgärdslistan gick inte att räkna:", e);
+    atgarder = [];
+  }
+
   const response: BedomningResponse = {
     ok: true,
     maskin_id: maskinId,
@@ -297,6 +340,7 @@ export async function GET(req: NextRequest) {
     langd: langd.n > 0 ? langd : null,
     trosklar,
     atgard,
+    atgarder,
   };
   return NextResponse.json(response);
 }

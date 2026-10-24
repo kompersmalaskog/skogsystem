@@ -318,7 +318,11 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
       {/* Förare · Månad: varför blev lönen, övertiden och milen som de blev. Förarens id står i adressen (?forare=…). */}
       {(() => {
         const m = fortnoxData?.ok ? (fortnoxData.medarbetare || []).find((x: any) => x.medarbetare_id === nav.params.forare) : null;
-        return m ? <ForarManadArk m={m} arbetsManad={arbetsManad} dag={nav.params.dag} onSkickaUtanGodkannande={skickaUtanGodkannande} onStang={() => { sattParam("forare", null); sattParam("dag", null); }} /> : null;
+        return m ? <ForarManadArk m={m} arbetsManad={arbetsManad} dag={nav.params.dag} onSkickaUtanGodkannande={skickaUtanGodkannande} onStang={() => {
+          // Kom man från Dagar (dagper i adressen) går man tillbaka dit, på samma period och månad och med samma filter.
+          if (nav.params.dagper) gaTill({ flik: "lon", underflik: "dagar", params: { dagper: nav.params.dagper, dagoff: nav.params.dagoff ?? "0", avv: nav.params.avv ?? "1" } });
+          else { sattParam("forare", null); sattParam("dag", null); }
+        }} /> : null;
       })()}
 
       {/* ÅRSÖVERTID: en fråga — hur nära taket är varje förare? Avtalets modell (§5 mom 2); förklaringen ligger bakom

@@ -35,8 +35,8 @@ describe('justeringskolumnerna läses bara via lib/kalibrering/historik', () => 
     expect(traffar).toEqual([]);
   });
 
-  it('diagnos-rutten tar reparationsmarkören ur arOmkalibrering, inte ur en egen regex', () => {
-    const src = readFileSync(join(ROT, 'app/api/kalibrering/diagnos/route.ts'), 'utf8');
+  it('reparationsmarkören (hamtaMarkorer, delad av diagnos och bedomning) tar regeln ur arOmkalibrering, inte ur en egen regex', () => {
+    const src = readFileSync(join(ROT, 'lib/kalibrering/markorer.server.ts'), 'utf8');
     expect(src).toContain('arOmkalibrering(');
     expect(src).not.toMatch(/\/repair\/i/);
   });

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { kravInloggad } from "@/lib/auth/server";
 
 /**
- * GET /api/kalibrering/kontroll?filnamn=X&key=skogsystem-debug
+ * GET /api/kalibrering/kontroll?filnamn=X
  *
  * Returnerar en komplett kalibreringskontroll med joinat data från:
  *  - fakt_kalibrering                 (per-fil aggregat + objekt-meta + väder)
@@ -15,8 +16,6 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const DEBUG_KEY = "skogsystem-debug";
 
 // === TYPES (speglar Supabase-schemat efter v2_1) ===
 
@@ -87,6 +86,8 @@ export type StockRow = {
   cutting_reason: string | null;
   machine_measurement_date: string | null;
   operator_measurement_date: string | null;
+  /** Konventionen för tiderna ovan (true = verkligt UTC). Läs tiderna bara via lib/optiTid med den här flaggan. */
+  tid_ar_utc: boolean | null;
   // Per-stam-meta (redundant på varje stock i sin stam — bekvämt för UI)
   stem_lat: number | null;
   stem_lon: number | null;
@@ -135,10 +136,8 @@ async function fetchAllRows(
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const key = url.searchParams.get("key");
-  if (key !== DEBUG_KEY) {
-    return new NextResponse("Ogiltig nyckel", { status: 401 });
-  }
+  const vakt = await kravInloggad();
+  if (!vakt.ok) return vakt.res;
 
   const filnamn = url.searchParams.get("filnamn");
   if (!filnamn) {
@@ -192,7 +191,7 @@ export async function GET(req: NextRequest) {
     "maskin_toppdia_mm,operator_toppdia_mm,dia_avvikelse_mm," +
     "maskin_volym_sub,operator_volym_sub,volym_avvikelse," +
     "log_diameter_mid_ob_mm,log_diameter_butt_ob_mm," +
-    "cutting_reason,machine_measurement_date,operator_measurement_date," +
+    "cutting_reason,machine_measurement_date,operator_measurement_date,tid_ar_utc," +
     "stem_lat,stem_lon,stem_alt,harvest_date,stem_dbh_mm," +
     "stem_selection,measurement_mode,rejected_reason," +
     "measurer_name,caliper_id,processing_category";
