@@ -50,7 +50,7 @@ export default function GreppVinkel({ d, v }: { d: KalibreringData; v: Kalibreri
       </span>
     )}>
       <Fyll>
-        {data.kvar > 0 && <div style={{ marginBottom: AVSTAND.l }}><Lugn ikon="hourglass_empty" marginTop={0}>Räknar om {data.kvar} objekt — siffrorna kompletteras…</Lugn></div>}
+        {data.kvar > 0 && <div style={{ marginBottom: AVSTAND.l }}><Lugn ikon="hourglass_empty" marginTop={0}>Räknas om — {data.kvar === 1 ? '1 objekt ligger' : `${data.kvar} objekt ligger`} efter. Siffrorna kompletteras av sig själva.</Lugn></div>}
         {r.perioder.length === 0 ? <Lugn marginTop={0}>Inget underlag ännu.</Lugn> : (
           <>
             <Rutnat
@@ -63,7 +63,6 @@ export default function GreppVinkel({ d, v }: { d: KalibreringData; v: Kalibreri
               { farg: FARG.gron, ord: `Mindre greppfel · ${GREPP_FORANDRING_ORANGE} procentenheter eller mer` },
               { farg: FARG.text3, ord: `Grå, – · färre än ${GREPP_MIN_STAMMAR} stammar` },
             ]} />
-            {data.fel.length > 0 && <Meta style={{ marginTop: AVSTAND.s }}>{data.fel.length} objekt gick inte att räkna just nu och saknas i siffrorna.</Meta>}
             {data.stammarTotalt > data.stammarRaknade && (
               <Meta style={{ marginTop: AVSTAND.s }}>{fmtAntal(data.stammarRaknade)} av {fmtAntal(data.stammarTotalt)} stammar ingår — resten saknar trädslag eller tid i stamfilen.</Meta>
             )}
