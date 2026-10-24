@@ -57,8 +57,44 @@ describe('ObjektOversikt', () => {
     expect(spara).toHaveBeenCalledWith({ avtalsform: 'Rp' });
     expect(document.querySelector('[data-saknas="avtalsform"]')).toBeNull();
     expect(document.querySelector('[data-uppgift="avtalsform"]')!.textContent).toContain('Rotpost (Rp)');
-    expect(document.querySelector('[data-uppgift="bolag"]')!.textContent).toContain('från trakten');
-    expect(document.querySelector('[data-uppgift="skogsagare"]')!.textContent).toContain('samma som trakten');
+    // Källan står inte på raden — den står i arket som öppnas.
+    expect(document.querySelector('[data-uppgift="bolag"]')!.textContent).not.toContain('från trakten');
+    await klick(document.querySelector('[data-uppgift="bolag"]'));
+    expect(document.querySelector('[data-ark-kalla]')!.textContent).toBe('Från trakten.');
+  });
+
+  it('markägarens källa står i textarket', async () => {
+    montera(<Vy spara={async () => true} />);
+    await klick(document.querySelector('[data-uppgift="skogsagare"]'));
+    expect(document.querySelector('[data-ark-kalla]')!.textContent).toBe('Samma som trakten.');
+  });
+
+  it('trakten säger emot: orange på raden', () => {
+    montera(<Vy spara={async () => true} start={{ ...SKALVIKEN, skogsagare: 'Karl Holm' }} />);
+    expect(document.querySelector('[data-uppgift="skogsagare"]')!.textContent).toContain('trakten säger Anna Berg');
+  });
+
+  it('tre delar i ordning: svaret, Gör det här, Om objektet, Mer', () => {
+    montera(<Vy spara={async () => true} />);
+    const rubriker = [...document.querySelectorAll('section')].map(s => s.getAttribute('aria-label'));
+    expect(rubriker).toEqual(['Gör det här', 'Om objektet', 'Mer']);
+    for (const borta of ['Vad saknas?', 'Stämmer uppgifterna?', 'Vem kör?', 'Hur får vi betalt?', 'Vad har maskinerna skickat?', 'Är det klart?'])
+      expect(text()).not.toContain(borta);
+  });
+
+  it('inget att göra: en rad som säger det', () => {
+    montera(<Vy spara={async () => true} start={{ ...SKALVIKEN, avtalsform: 'Rp' }} />);
+    expect(document.querySelector('[data-gor-tomt]')!.textContent).toContain('Inget att göra');
+  });
+
+  it('klar satt av appen är ingen uppgift — den står i Om objektet med skälet', () => {
+    const skal = 'Giant körde vidare till Skälviken 22 okt';
+    montera(<Vy spara={async () => true}
+      start={{ ...SKALVIKEN, avtalsform: 'Rp', skordning_avslutad: '2026-10-21', skordning_auto_skal: skal }}
+      extra={{ skotat: 678, skordForslag: { field: 'skordning_avslutad', autoField: 'skordning_avslutad_auto', label: 'skördning', maskinTyp: 'harvester', datum: '2026-10-21', kalla: 'maskindata' } }} />);
+    expect(document.querySelector('[data-avslut-forslag]')).toBeNull();
+    expect(document.querySelector('[data-gor-tomt]')).not.toBeNull();
+    expect(document.querySelector('[data-om] [data-avslut="Skördning"]')!.textContent).toContain(`Automatiskt · ${skal}`);
   });
 
   it('ett misslyckat sparande tar tillbaka det som stod', async () => {
@@ -82,7 +118,7 @@ describe('ObjektOversikt', () => {
 
   it('tips om vindfälle i Special-sektionen', () => {
     montera(<Vy spara={async () => true} start={{ ...SKALVIKEN, object_name: 'Stensjömåla VF' }} />);
-    expect(text()).toContain('Namnet säger vindfälle eller storm. Är det ett special-objekt?');
+    expect(text()).toContain('Namnet säger vindfälle eller storm.');
   });
 
   it('maskinerna, avslutsförslaget och Mer', async () => {
@@ -92,12 +128,12 @@ describe('ObjektOversikt', () => {
       skordForslag: { field: 'skordning_avslutad', autoField: 'skordning_avslutad_auto', label: 'skördning', maskinTyp: 'harvester', datum: '2026-10-14', kalla: 'maskindata' },
       direktSparaAvslut: avslut, oppnaUnder: under,
     }} />);
-    expect(document.querySelector('[data-maskin="G"]')!.textContent).toContain('Skördare · 6 filer · t.o.m. 14 okt');
-    await klick(document.querySelector('[data-maskin="G"]'));
-    expect(under).toHaveBeenCalledWith('filer');
+    expect(document.querySelector('[data-senast]')!.textContent).toBe('Senast från Giant 14 okt');
+    expect(document.querySelector('[data-gor] [data-avslut-forslag="Skördning"]')).not.toBeNull();
     expect(text()).toContain('Skördning klar 14 okt?');
     await klick([...document.querySelectorAll('[data-avslut-forslag] button')].find(b => b.textContent === 'Godkänn')!);
     expect(avslut).toHaveBeenCalledWith('harvester', { skordning_avslutad: '2026-10-14', skordning_avslutad_auto: true, skordning_ej_klar: false, skordning_auto_skal: null });
+    expect(document.querySelector('[data-avslut-forslag]')).toBeNull();
     expect(document.querySelector('[data-avslut="Skördning"]')!.textContent).toContain('Klar 14 okt');
     // Mer: undersidorna öppnas från samma ark — inget "Mer om objektet" längre.
     expect(document.querySelector('[data-mer]')).toBeNull();
@@ -122,14 +158,26 @@ describe('ObjektOversikt', () => {
 });
 
 describe('ObjektOversikt — betalning, skotat och ta bort (2026-10-24)', () => {
-  it('Ackord eller Timpeng sparas direkt', async () => {
+  it('Betalning: en rad som öppnar Ackord eller Timpeng', async () => {
     const spara = vi.fn(async () => true);
     montera(<Vy spara={spara} />);
-    const flik = (t: string) => [...document.querySelectorAll('[data-betalning] [role="tab"]')].find(b => b.textContent === t)!;
-    expect(flik('Ackord').getAttribute('aria-selected')).toBe('true');
-    await klick(flik('Timpeng'));
+    const rad = () => document.querySelector('[data-betalning]')!;
+    expect(rad().textContent).toContain('Ackord');
+    await klick(rad());
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain('Hur får vi betalt?');
+    await klick([...document.querySelectorAll('[role="radio"]')].find(r => r.textContent!.includes('Timpeng'))!);
+    await klick(document.querySelector('[data-spara]'));
     expect(spara).toHaveBeenCalledWith({ timpeng: true });
-    expect(flik('Timpeng').getAttribute('aria-selected')).toBe('true');
+    expect(rad().textContent).toContain('Timpeng');
+  });
+
+  it('Betalning: samma val igen sparar inget', async () => {
+    const spara = vi.fn(async () => true);
+    montera(<Vy spara={spara} />);
+    await klick(document.querySelector('[data-betalning]'));
+    await klick(document.querySelector('[data-spara]'));
+    expect(spara).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it('skördningen klar och lassen säger mindre: ett tryck sätter skotat till skördat', async () => {
