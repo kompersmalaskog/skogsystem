@@ -26,6 +26,8 @@ export type KartData = {
   origoText: string | null;
   markeringar: { data: unknown }[];
   vidaRingar: LngLat[][];
+  /** Vidas linjer (kraftledning, basväg) som GeoJSON-features ur objekt_geometri. */
+  vidaLinjer: unknown[];
   spar: { roll: 'skordare' | 'skotare'; linjer: LngLat[][] }[];
   stammar: KartStam[];
   /** Stammar som saknar position — de syns inte och räknas inte i ett område. */
@@ -83,7 +85,8 @@ export async function lasKartdata(
 
   // Vidas traktgräns
   let vidaRingar: LngLat[][] = [];
-  if (vida.typ === 'ok') vidaRingar = (vida.ringar ?? []) as LngLat[][];
+  let vidaLinjer: unknown[] = [];
+  if (vida.typ === 'ok') { vidaRingar = (vida.ringar ?? []) as LngLat[][]; vidaLinjer = vida.linjer ?? []; }
   else if (vida.typ === 'fel') fel.push('Vidas traktgräns');
 
   // Markeringarna + origot
@@ -190,5 +193,5 @@ export async function lasKartdata(
   });
   if (maskinFel) fel.push('maskinernas position');
 
-  return { origo, origoText, markeringar: origo ? markeringar : [], vidaRingar, spar, stammar, utanPosition, maskiner, utanPlats, kommentarer, skotarLass, fel };
+  return { origo, origoText, markeringar: origo ? markeringar : [], vidaRingar, vidaLinjer, spar, stammar, utanPosition, maskiner, utanPlats, kommentarer, skotarLass, fel };
 }

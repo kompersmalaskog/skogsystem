@@ -9,6 +9,7 @@
 // Volymen är stammarnas total_volym (m³sub = m³fub, detalj_stam). Stammar utan position kan inte ligga i ett område
 // och räknas inte — det sägs (`utanPosition`), aldrig tyst.
 
+import { vidaSlag } from '@/lib/larm/objekt';
 import { klustraStammar, type HogStam } from '@/lib/produktionshogar';
 import { tradslagFarg, tradslagLabel } from '@/lib/tradslag';
 import { ringAreaM2 } from '@/lib/geoMat';
@@ -368,4 +369,20 @@ export function traktSiffror(stammar: readonly KartStam[], lass: readonly Skotar
   const skotatM3 = rundaM3(k, k);
   const kvarM3 = Math.max(0, rundaM3(skordatM3 - skotatM3, skordatM3));
   return { skordat, skotat: `${tal(skotatM3)} m³fub`, kvar: `ca ${tal(kvarM3)} m³fub` };
+}
+
+/**
+ * Vidas linjer (objekt_geometri, _typ 'linje') för kartan: `kraft` = kraftledning (samma bedömning som larmen, vidaSlag),
+ * annars Vidas basväg. Bara LineString/MultiLineString kommer med.
+ */
+export function vidaLinjeFeatures(features: readonly unknown[]): { type: 'Feature'; geometry: unknown; properties: { kraft: boolean; farg: string | null } }[] {
+  const ut: { type: 'Feature'; geometry: unknown; properties: { kraft: boolean; farg: string | null } }[] = [];
+  for (const f of features as any[]) {
+    const g = f?.geometry;
+    if (!g || (g.type !== 'LineString' && g.type !== 'MultiLineString')) continue;
+    const kraft = vidaSlag(f.properties, g.type) === 'kraftledning';
+    const farg = typeof f.properties?._farg === 'string' ? f.properties._farg : null;
+    ut.push({ type: 'Feature', geometry: g, properties: { kraft, farg } });
+  }
+  return ut;
 }

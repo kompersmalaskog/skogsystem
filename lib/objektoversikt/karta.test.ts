@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hogFeatures, inneIRing, markeringKort, medOptiSpar, raknadeSkotarLass, skotatIOmradet, skotatRader, traktSiffror, type SkotarLass, iOmradet, inomRuta, maskinRad, omradeSvar, omradeUnder, rundaM3, rutaRunt, senastText, sistaPunkt, type KartStam, type LngLat } from './karta';
+import { hogFeatures, vidaLinjeFeatures, inneIRing, markeringKort, medOptiSpar, raknadeSkotarLass, skotatIOmradet, skotatRader, traktSiffror, type SkotarLass, iOmradet, inomRuta, maskinRad, omradeSvar, omradeUnder, rundaM3, rutaRunt, senastText, sistaPunkt, type KartStam, type LngLat } from './karta';
 import { klustraStammar } from '@/lib/produktionshogar';
 
 // En kvadrat ~111 m × ~62 m vid 56° N.
@@ -190,5 +190,17 @@ describe('hela trakten under kartan', () => {
   it('inga lass och läsfel', () => {
     expect(traktSiffror(st, []).skotat).toBe('inga lass än');
     expect(traktSiffror(st, null)).toEqual({ skordat: expect.any(String), skotat: null, kvar: null });
+  });
+});
+
+describe('vidaLinjeFeatures — Vidas kraftledning och basväg', () => {
+  it('kraftledning märks kraft, annan linje är basväg; ytor och punkter kommer inte med', () => {
+    const ut = vidaLinjeFeatures([
+      { type: 'Feature', properties: { _typ: 'linje', FLBESKR: 'Kraftledning 40 kV' }, geometry: { type: 'LineString', coordinates: [[14, 56], [14.1, 56.1]] } },
+      { type: 'Feature', properties: { _typ: 'linje', FLBESKR: 'Basväg', _farg: 'rgb(1,2,3)' }, geometry: { type: 'LineString', coordinates: [[14, 56], [14.2, 56.2]] } },
+      { type: 'Feature', properties: { _typ: 'linje' }, geometry: { type: 'Polygon', coordinates: [] } },
+      { type: 'Feature', properties: { _typ: 'linje' }, geometry: null },
+    ]);
+    expect(ut.map(f => f.properties)).toEqual([{ kraft: true, farg: null }, { kraft: false, farg: 'rgb(1,2,3)' }]);
   });
 });

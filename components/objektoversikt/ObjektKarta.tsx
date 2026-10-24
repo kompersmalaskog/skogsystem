@@ -27,7 +27,7 @@ import {
   BACKVAG_KALLA, SPAR_KALLA, VIDA_GRANS_KALLA, backvagFeatureUrData, backvagLager, kontextFeature, sparFeatures, sparLager,
   vidaGransFeatures, vidaGransLager,
 } from '@/lib/egenkontrollkarta';
-import { linjeLager, pilLager, symbolLager, zonFyllLager, zonKantLager, zonSnedstreckLager, PIL_STIL, backvagIkonNamn, ritaBackvagStreck, ritaPilIkon, ritaStolpeIkon } from '@/lib/kartstil';
+import { VIDA_BASVAG_FARG, kraftledningLager, linjeLager, pilLager, symbolLager, zonFyllLager, zonKantLager, zonSnedstreckLager, PIL_STIL, backvagIkonNamn, ritaBackvagStreck, ritaPilIkon, ritaStolpeIkon } from '@/lib/kartstil';
 import { VAG_LINJETYPER, BACKVAG_STRECK_FARGER } from '@/lib/backvag';
 import { snedstreckBild, snedstreckId, SNEDSTRECK_GRUPPER } from '@/lib/ytaStil';
 import { canvasToMapLibreImage, loadMarkerImageForMaplibre, markerIconDefs } from '@/lib/marker-icons';
@@ -35,7 +35,7 @@ import { rollFarg } from '@/lib/sparStil';
 import { arDubbeltryck, type TryckPunkt } from '@/lib/ritaPunkter';
 import { formatLength, pathMeters } from '@/lib/geoMat';
 import { lasKartdata, type KartData, type KartMaskin } from '@/lib/objektoversikt/lasKarta';
-import { hogFeatures, iOmradet, markeringKort, maskinRad, omradeSvar, omradeUnder, rutaRunt, skotatIOmradet, skotatRader, traktSiffror, type LngLat } from '@/lib/objektoversikt/karta';
+import { hogFeatures, vidaLinjeFeatures, iOmradet, markeringKort, maskinRad, omradeSvar, omradeUnder, rutaRunt, skotatIOmradet, skotatRader, traktSiffror, type LngLat } from '@/lib/objektoversikt/karta';
 import { KommentarVisning } from '@/components/planering/KommentarRuta';
 import MarkeringFoto from '@/app/planering/MarkeringFoto';
 
@@ -44,21 +44,23 @@ declare global { interface Window { maplibregl: any } }
 export const KARTA_HOJD = 360;
 export const KARTA_HOJD_BRED = 520;
 
-export type Lager = 'skordare' | 'skotare' | 'hogar' | 'vagar' | 'symboler' | 'grans' | 'maskiner';
+export type Lager = 'skordare' | 'skotare' | 'hogar' | 'vagar' | 'kraftledning' | 'symboler' | 'grans' | 'maskiner';
 export const LAGER: readonly { id: Lager; namn: string }[] = [
   { id: 'skordare', namn: 'Körspår skördare' },
   { id: 'skotare', namn: 'Körspår skotare' },
   { id: 'hogar', namn: 'Produktionshögar' },
   { id: 'vagar', namn: 'Basvägar och stickvägar' },
+  { id: 'kraftledning', namn: 'Kraftledning' },
   { id: 'symboler', namn: 'Symboler och ytor' },
   { id: 'grans', namn: 'Traktgräns' },
   { id: 'maskiner', namn: 'Maskinerna' },
 ];
-const ALLA_PA: Record<Lager, boolean> = { skordare: true, skotare: true, hogar: true, vagar: true, symboler: true, grans: true, maskiner: true };
+const ALLA_PA: Record<Lager, boolean> = { skordare: true, skotare: true, hogar: true, vagar: true, kraftledning: true, symboler: true, grans: true, maskiner: true };
 const LAGRING = 'oo_karta_lager_v1';
 
 const KALLA = 'oo-mark';
 const HOG_KALLA = 'oo-hogar';
+const VIDA_LINJE_KALLA = 'oo-vida-linjer';
 const MAT_KALLA = 'oo-mat';
 const PREFIX_GRANS = 'oo-g';
 const PREFIX_VAG = 'oo-v';
@@ -68,7 +70,11 @@ const HEL: { opacitet: number; breddFaktor: number } = { opacitet: 1, breddFakto
 /** Lagren per lagerval — id:n ur samma byggare som ritar dem. */
 function lagerSpec() {
   const grans = [...vidaGransLager(), ...linjeLager(KALLA, PREFIX_GRANS, null, undefined, { endast: ['boundary'] })];
-  const vagar = [...linjeLager(KALLA, PREFIX_VAG, null, undefined, { endast: VAG_LINJETYPER }), ...backvagLager()];
+  // Vidas basväg (samma brun som i planeringen, Vidas egen färg om den finns) under våra vägar.
+  const vidaVag = [{ id: 'oo-vida-vag', type: 'line', source: VIDA_LINJE_KALLA, filter: ['==', ['get', 'kraft'], false], paint: { 'line-color': ['coalesce', ['get', 'farg'], VIDA_BASVAG_FARG], 'line-width': 4 }, layout: { 'line-cap': 'round' } }];
+  const vagar = [...vidaVag, ...linjeLager(KALLA, PREFIX_VAG, null, undefined, { endast: VAG_LINJETYPER }), ...backvagLager()];
+  // Vidas kraftledning: samma ritning som i planeringen och körvyn (lib/kartstil kraftledningLager).
+  const kraftledning = kraftledningLager(VIDA_LINJE_KALLA, 'oo-kraft', ['==', ['get', 'kraft'], true]);
   const ovrigaFyll = [...zonFyllLager(KALLA, PREFIX_OVR, null), ...zonSnedstreckLager(KALLA, PREFIX_OVR, null)];
   const ovrigaLinjer = [...zonKantLager(KALLA, PREFIX_OVR, null), ...linjeLager(KALLA, PREFIX_OVR, null, undefined, { utom: [...VAG_LINJETYPER, 'boundary'] })];
   const ovrigaSymboler = [pilLager(KALLA, PREFIX_OVR, HEL), symbolLager(KALLA, PREFIX_OVR, null)];
@@ -84,7 +90,7 @@ function lagerSpec() {
   }];
   const skordare = sparLager('skordare');
   const skotare = sparLager('skotare');
-  return { grans, vagar, ovrigaFyll, ovrigaLinjer, ovrigaSymboler, hogar, skordare, skotare };
+  return { grans, vagar, kraftledning, ovrigaFyll, ovrigaLinjer, ovrigaSymboler, hogar, skordare, skotare };
 }
 
 /** Vilka lager-id som hör till vilket val. */
@@ -92,7 +98,7 @@ function lagerIdn(): Record<Exclude<Lager, 'maskiner'>, string[]> {
   const s = lagerSpec();
   const id = (l: any[]) => l.map(x => x.id as string);
   return {
-    grans: id(s.grans), vagar: id(s.vagar), symboler: [...id(s.ovrigaFyll), ...id(s.ovrigaLinjer), ...id(s.ovrigaSymboler)],
+    grans: id(s.grans), vagar: id(s.vagar), kraftledning: id(s.kraftledning), symboler: [...id(s.ovrigaFyll), ...id(s.ovrigaLinjer), ...id(s.ovrigaSymboler)],
     hogar: id(s.hogar), skordare: id(s.skordare), skotare: id(s.skotare),
   };
 }
@@ -216,6 +222,7 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
       mark: { ...tom, features: mark as any[] },
       backvag: { ...tom, features: backvag as any[] },
       vida: { ...tom, features: vidaGransFeatures(data.vidaRingar) },
+      vidaLinjer: { ...tom, features: vidaLinjeFeatures(data.vidaLinjer) as any[] },
       skordare: sparOf('skordare'),
       skotare: sparOf('skotare'),
       hogar: { ...tom, features: hogFeatures(data.stammar) },
@@ -230,6 +237,7 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
       maxPitch: 0, dragRotate: false, attributionControl: false,
     });
     mapRef.current = map;
+    stilRef.current = baskarta;
     try { map.touchZoomRotate.disableRotation(); } catch { /* */ }
     map.addControl(new window.maplibregl.AttributionControl({ customAttribution: FORARKARTA_ATTRIBUTION, compact: true }), 'bottom-left');
     map.on('load', async () => { await laggTillBilder(map); setMapLaddad(true); });
@@ -254,15 +262,19 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
   }, [cdnKlar]);
 
   // Bakgrunden byts: stilen laddas om, och våra lager läggs på igen (mapLaddad → effekten nedan).
-  const forstaStil = useRef(true);
+  // Kartan minns vilken bakgrund den har (stilRef); förut hoppades FÖRSTA bytet över, för en "första gången"-flagga
+  // slogs om först när effekten körde efter att kartan fanns — alltså på bytet.
+  const stilRef = useRef<BaskartaId | null>(null);
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (forstaStil.current) { forstaStil.current = false; return; }
+    if (stilRef.current === null) { stilRef.current = baskarta; return; }
+    if (stilRef.current === baskarta) return;
+    stilRef.current = baskarta;
     setMapLaddad(false);
-    map.setStyle(buildKartStil(baskarta));
     map.once('style.load', async () => { await laggTillBilder(map); setMapLaddad(true); });
-  }, [baskarta]);
+    map.setStyle(buildKartStil(baskarta), { diff: false });
+  }, [baskarta, cdnKlar]);
 
   // --- Källor och lager ----------------------------------------------------------------------------------------------
   useEffect(() => {
@@ -275,9 +287,10 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
     satt(SPAR_KALLA.skordare, geo.skordare);
     satt(SPAR_KALLA.skotare, geo.skotare);
     satt(HOG_KALLA, geo.hogar);
+    satt(VIDA_LINJE_KALLA, geo.vidaLinjer);
     satt(MAT_KALLA, { type: 'FeatureCollection', features: [] });
     const s = lagerSpec();
-    const ordning = [...s.ovrigaFyll, ...s.grans, ...s.ovrigaLinjer, ...s.vagar, ...s.skordare, ...s.skotare, ...s.hogar, ...s.ovrigaSymboler];
+    const ordning = [...s.ovrigaFyll, ...s.grans, ...s.ovrigaLinjer, ...s.vagar, ...s.kraftledning, ...s.skordare, ...s.skotare, ...s.hogar, ...s.ovrigaSymboler];
     for (const spec of ordning) { if (!map.getLayer(spec.id)) { try { map.addLayer(spec); } catch (e) { console.error('[objektkarta] lagret kunde inte läggas till', spec.id, e); } } }
     if (!map.getLayer('oo-mat-fyll')) {
       map.addLayer({ id: 'oo-mat-fyll', type: 'fill', source: MAT_KALLA, filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': FARG.bla, 'fill-opacity': 0.18 } });
@@ -375,7 +388,8 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
     skordare: !!data?.spar.some(s => s.roll === 'skordare'),
     skotare: !!data?.spar.some(s => s.roll === 'skotare'),
     hogar: (data?.stammar.length ?? 0) > 0,
-    vagar: !!geo?.mark.features.some((f: any) => f.properties.kind === 'linje' && VAG_LINJETYPER.includes(f.properties.typ)),
+    vagar: !!geo?.vidaLinjer.features.some((f: any) => !f.properties.kraft) || !!geo?.mark.features.some((f: any) => f.properties.kind === 'linje' && VAG_LINJETYPER.includes(f.properties.typ)),
+    kraftledning: !!geo?.vidaLinjer.features.some((f: any) => f.properties.kraft),
     symboler: !!geo?.mark.features.some((f: any) => f.properties.kind !== 'linje' || (!VAG_LINJETYPER.includes(f.properties.typ) && f.properties.typ !== 'boundary')),
     grans: (data?.vidaRingar.length ?? 0) > 0 || !!geo?.mark.features.some((f: any) => f.properties.typ === 'boundary'),
     maskiner: (data?.maskiner.length ?? 0) > 0,
@@ -383,6 +397,7 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
   const saknasText: Record<Lager, string> = {
     skordare: 'Inget spår – appen var inte igång i hytten', skotare: 'Inget spår – appen var inte igång i hytten', hogar: 'Inga stammar med position',
     vagar: data?.origoText ? 'Kan inte placeras på kartan' : 'Planeraren har inte ritat några vägar',
+    kraftledning: 'Vida har ingen kraftledning på trakten',
     symboler: data?.origoText ? 'Kan inte placeras på kartan' : 'Inga symboler eller ytor', grans: 'Ingen traktgräns',
     maskiner: 'Ingen maskin har skickat en position',
   };
