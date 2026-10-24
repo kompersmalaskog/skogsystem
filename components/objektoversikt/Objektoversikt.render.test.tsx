@@ -43,14 +43,14 @@ const namn = (id: string) => fixtur.maskiner.find(m => m.maskin_id === id)?.visn
 const vy = byggObjektVy(sammanstall(objekt, u), summeraProduktion(objekt, u, fixtur.produktion), namn);
 
 describe('Objektet', () => {
-  it('svaret står först: hela timmar, prognosen i ord och en förklaring', async () => {
+  it('svaret står först: maskinernas tid, prognosen i ord och en förklaring', async () => {
     const h = await montera(createElement(Objekt, { vy }));
     const svar = h.querySelector('[data-svar]')!.textContent ?? '';
-    expect(svar).toContain('Det tog');
-    expect(h.querySelector('[data-svar-tal]')!.textContent).toBe('158 timmar');
-    expect(h.querySelector('[data-plan]')!.textContent).toContain('Prognos för maskinerna: 128 timmar.');
-    expect(h.querySelector('[data-plan]')!.textContent).toContain('28 timmar mer än prognosen.');
-    expect(h.querySelector('[data-forklaring]')!.textContent).toBe('Skotaren behövde 35 timmar mer än prognosen. Skördaren var klar 7 timmar tidigare.');
+    expect(svar).toContain('Maskinerna körde');
+    expect(h.querySelector('[data-svar-tal]')!.textContent).toBe('156 h 4 min');
+    expect(h.querySelector('[data-plan]')!.textContent).toContain('Prognos för maskinerna: 128 h.');
+    expect(h.querySelector('[data-plan]')!.textContent).toContain('28 h 4 min mer än prognosen.');
+    expect(h.querySelector('[data-forklaring]')!.textContent).toBe('Skotaren behövde 35 h 17 min mer än prognosen. Skördaren var klar 7 h 13 min tidigare.');
     const rubriker = Array.from(h.querySelectorAll('section')).map(s => s.getAttribute('aria-label'));
     expect(rubriker).toEqual(['Vem gjorde vad?', 'Hur mycket virke?', 'Mer om objektet']);
     const synligt = h.cloneNode(true) as HTMLElement;
@@ -60,14 +60,14 @@ describe('Objektet', () => {
 
   it('avvikelsen är orange när det blev mer än 10 % över prognosen', async () => {
     const h = await montera(createElement(Objekt, { vy }));
-    const orange = Array.from(h.querySelectorAll('[data-plan] span')).find(x => x.textContent?.includes('28 timmar mer'));
+    const orange = Array.from(h.querySelectorAll('[data-plan] span')).find(x => x.textContent?.includes('28 h 4 min mer'));
     expect(orange?.getAttribute('style')).toContain('rgb(255, 159, 10)');
   });
 
   it('vem gjorde vad: skotaren fälls ut på plats och visar maskinerna, en rad åt gången', async () => {
     const h = await montera(createElement(Objekt, { vy }));
     const skotare = h.querySelector('[data-rad="skotare"]') as HTMLElement;
-    expect(skotare.textContent).toContain('prognos 72 timmar');
+    expect(skotare.textContent).toContain('prognos 72 h');
     expect(h.querySelector('[data-detalj]')).toBeNull();
     await act(async () => { skotare.click(); });
     expect(skotare.getAttribute('aria-expanded')).toBe('true');
@@ -91,10 +91,10 @@ describe('Objektet', () => {
     const h = await montera(createElement(Objekt, { vy }));
     expect(h.querySelector('[data-graf]')).toBeNull();
     await act(async () => { (h.querySelector('[data-mer="dag"]') as HTMLElement).click(); });
-    expect(h.querySelector('[data-graf-vald]')!.textContent).toBe('fre 21 aug · 5,2 tim');
+    expect(h.querySelector('[data-graf-vald]')!.textContent).toBe('fre 21 aug · 5 h 10 min');
     const forsta = h.querySelector('[data-graf] button') as HTMLButtonElement;
     await act(async () => { forsta.click(); });
-    expect(h.querySelector('[data-graf-vald]')!.textContent).toBe('mån 3 aug · 3,6 tim');
+    expect(h.querySelector('[data-graf-vald]')!.textContent).toBe('mån 3 aug · 3 h 38 min');
     expect(forsta.getAttribute('aria-pressed')).toBe('true');
     await act(async () => { (h.querySelector('[data-mer="fler"]') as HTMLElement).click(); });
     expect(h.querySelector('[data-graf]')).toBeNull();
@@ -111,7 +111,7 @@ describe('Objektet', () => {
     const s = sammanstall(objekt, { ...u, dim: u.dim.map(d => ({ ...d, skotning_avslutad: null })) });
     const h = await montera(createElement(Objekt, { vy: byggObjektVy(s, { volym: 0, stammar: 0, tradslag: [] }, namn) }));
     expect(h.querySelector('section')!.getAttribute('aria-label')).toBe('Vad är kvar?');
-    expect(h.querySelector('[data-svar]')!.textContent).toContain('Hittills har det tagit');
+    expect(h.querySelector('[data-svar]')!.textContent).toContain('Maskinerna har kört');
   });
 });
 
@@ -126,7 +126,7 @@ describe('Listan', () => {
     const vald = h.querySelector('[aria-current="page"]')!;
     expect(vald.getAttribute('href')).toBe(`/admin/objektoversikt/${objekt.id}`);
     expect(vald.textContent).toContain('Slutavverkning · 21 aug');
-    expect(vald.textContent).toContain('158 tim');
+    expect(vald.textContent).toContain('156 h 4 min');
     const sok = h.querySelector('input[type="search"]') as HTMLInputElement;
     await act(async () => {
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;

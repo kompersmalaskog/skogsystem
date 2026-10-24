@@ -1,7 +1,7 @@
 'use client';
 // Objektöversikten för ETT objekt, så att ett barn förstår (Martin 2026-10-24). Samma innehåll och ordning på telefon,
 // iPad och dator — bara uppställningen skiljer:
-//  1. svaret: "Det tog 158 timmar", prognosen i ord och EN mening om varför,
+//  1. svaret: "Maskinerna körde 156 h 4 min", prognosen i ord och EN mening om varför,
 //  2. Vem gjorde vad? — en stapel och en rad per del (raden fälls ut till maskinerna eller flyttarna),
 //  3. Hur mycket virke? — mot prognosen och trädslagen,
 //  4. tre rader som fälls ut på plats, en åt gången: Dag för dag, Vad skulle göras?, Fler siffror.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fixtur from './__fixtures__/jatsbygd_2026.json';
 import { objektIds, sammanstall, summeraProduktion, type Underlag, type ObjektRad } from './berakna';
-import { byggObjektVy, grupperaPoster, heltimmar, listPost, prognosText, staplar, tidText, timmar } from './vy';
+import { byggObjektVy, grupperaPoster, listPost, prognosText, staplar, tidText, timmar } from './vy';
 
 const objekt = fixtur.objekt as ObjektRad;
 function underlag(over: Partial<Underlag> = {}): Underlag {
@@ -37,35 +37,35 @@ describe('Jätsbygd au 2026 (prod)', () => {
     const per = Object.fromEntries(s.maskiner.map(m => [m.namn, Math.round(m.min / 6) / 10]));
     expect(per).toEqual({ Giant: 48.8, Wisent: 61.6, 'Elefant 26': 45.7 });
     expect(s.maskiner.find(m => m.namn === 'Giant')?.dagar).toBe(6);
-    expect(timmar(s.rollMin.skordare)).toBe('48,8 tim');
-    expect(timmar(s.rollMin.skotare)).toBe('107,3 tim');
+    expect(timmar(s.rollMin.skordare)).toBe('48 h 47 min');
+    expect(timmar(s.rollMin.skotare)).toBe('107 h 17 min');
   });
 
   it('flyttarna hit ligger under Flytt hit, med varifrån, dag och km', () => {
     expect(s.flyttMin).toBe(89);
     const flytt = vy.vem!.rader.find(r => r.nyckel === 'flytt')!;
-    expect(flytt).toMatchObject({ titel: 'Flytt hit', under: '2 maskiner kördes hit', hoger: '1,5 tim' });
+    expect(flytt).toMatchObject({ titel: 'Flytt hit', under: '2 maskiner kördes hit', hoger: '1 h 29 min' });
     expect(flytt.detaljer.map(r => [r.titel, r.under, r.hoger])).toEqual([
       ['Giant från Åbogen RP 2026', '3 aug · 27 km', '46 min'],
       ['Wisent från Sandåsen gallring 2025', '11 aug · 13 km', '43 min'],
     ]);
   });
 
-  it('svaret överst: hela timmar, prognosen i ord och EN förklaring', () => {
-    expect(vy.fraga).toBe('Det tog');
-    expect(vy.svar).toBe('158 timmar');
+  it('svaret överst: maskinernas tid, prognosen i ord och EN förklaring', () => {
+    expect(vy.fraga).toBe('Maskinerna körde');
+    expect(vy.svar).toBe('156 h 4 min');
     expect(s.totalMin).toBe(s.rollMin.skordare + s.rollMin.skotare + s.flyttMin);
-    expect(vy.plan).toEqual({ text: 'Prognos för maskinerna: 128 timmar.', avvikelse: '28 timmar mer än prognosen.', varning: true });
-    expect(vy.forklaring).toBe('Skotaren behövde 35 timmar mer än prognosen. Skördaren var klar 7 timmar tidigare.');
+    expect(vy.plan).toEqual({ text: 'Prognos för maskinerna: 128 h.', avvikelse: '28 h 4 min mer än prognosen.', varning: true });
+    expect(vy.forklaring).toBe('Skotaren behövde 35 h 17 min mer än prognosen. Skördaren var klar 7 h 13 min tidigare.');
     expect(vy.meta).toBe('Slutavverkning · Vida · klart 21 aug');
   });
 
   it('vem gjorde vad: en rad per roll, prognosen under, maskinerna bakom', () => {
     const r = Object.fromEntries(vy.vem!.rader.map(x => [x.nyckel, x]));
     expect(Object.keys(r)).toEqual(['skordare', 'skotare', 'flytt']);
-    expect(r.skordare).toMatchObject({ under: 'prognos 56 timmar', varning: false, hoger: '48,8 tim' });
-    expect(r.skotare).toMatchObject({ under: 'prognos 72 timmar', varning: true, hoger: '107,3 tim' });
-    expect(r.skotare.detaljer.map(d => [d.titel, d.hoger])).toEqual([['Wisent', '61,6 tim'], ['Elefant 26', '45,7 tim']]);
+    expect(r.skordare).toMatchObject({ under: 'prognos 56 h', varning: false, hoger: '48 h 47 min' });
+    expect(r.skotare).toMatchObject({ under: 'prognos 72 h', varning: true, hoger: '107 h 17 min' });
+    expect(r.skotare.detaljer.map(d => [d.titel, d.hoger])).toEqual([['Wisent', '61 h 35 min'], ['Elefant 26', '45 h 42 min']]);
     expect(vy.vem!.stapel.reduce((t, d) => t + d.andel, 0)).toBeCloseTo(1, 5);
   });
 
@@ -138,7 +138,7 @@ describe('regler', () => {
     expect(s.flytthjalpMin).toBe(30);
     expect(s.flyttMin).toBe(89 + 30);
     const vy = byggObjektVy(s, { volym: 0, stammar: 0, tradslag: [] }, namn);
-    expect(vy.vem!.rader.find(r => r.nyckel === 'planering')).toMatchObject({ hoger: '2 tim', under: 'Martin · 1 dag' });
+    expect(vy.vem!.rader.find(r => r.nyckel === 'planering')).toMatchObject({ hoger: '2 h', under: 'Martin · 1 dag' });
     const flytt = vy.vem!.rader.find(r => r.nyckel === 'flytt')!;
     expect(flytt.detaljer.at(-1)).toMatchObject({ titel: 'Hjälp att flytta', hoger: '30 min' });
     expect(vy.vem!.rader.some(r => r.nyckel === 'manuellt')).toBe(true);
@@ -151,16 +151,16 @@ describe('regler', () => {
     expect(s.grupp).toBe('pagar');
     expect(s.skotningKvar).toBe(true);
     const vy = byggObjektVy(s, { volym: 1400, stammar: 4659, tradslag: [] }, namn);
-    expect(vy.fraga).toBe('Hittills har det tagit');
+    expect(vy.fraga).toBe('Maskinerna har kört');
     expect(vy.kvar?.map(r => [r.titel, r.hoger])).toEqual([['Skördning', 'Klar'], ['Skotning', 'Kvar']]);
     expect(listPost(s).under).toBe('Slutavverkning · skotning kvar');
   });
 
   it('prognostexter', () => {
-    expect(prognosText(48.8 * 60, 56, true).text).toBe('Prognos 56 tim – blev 7 tim kortare');
-    expect(prognosText(56 * 60, 56, true).text).toBe('Prognos 56 tim – blev som prognosen');
-    expect(prognosText(30 * 60, 56, false).text).toBe('Prognos 56 tim – 26 tim kvar enligt prognosen');
-    expect(prognosText(70 * 60, 56, false)).toEqual({ text: 'Prognos 56 tim – redan 14 tim över', varning: true });
+    expect(prognosText(48.8 * 60, 56, true).text).toBe('Prognos 56 h – blev 7 h 12 min kortare');
+    expect(prognosText(56 * 60, 56, true).text).toBe('Prognos 56 h – blev som prognosen');
+    expect(prognosText(30 * 60, 56, false).text).toBe('Prognos 56 h – 26 h kvar enligt prognosen');
+    expect(prognosText(70 * 60, 56, false)).toEqual({ text: 'Prognos 56 h – redan 14 h över', varning: true });
     expect(prognosText(60 * 60, 56, true).varning).toBe(false);   // 7 % över: inte orange
     expect(prognosText(60, undefined, true).text).toBe('Ingen prognos');
   });
@@ -185,26 +185,26 @@ describe('regler', () => {
     expect(dag.delar.reduce((t, d) => t + d.min, 0)).toBe(dag.min);
   });
 
-  it('svaret i hela timmar', () => {
-    expect(heltimmar(9453)).toBe('158 timmar');
-    expect(heltimmar(70)).toBe('1 timme');
-    expect(heltimmar(46)).toBe('46 min');
+  it('maskinernas tid är skördare + skotare, flytt och planering räknas inte', () => {
+    const s = sammanstall(objekt, underlag());
+    expect(s.totalMin).toBeGreaterThan(s.rollMin.skordare + s.rollMin.skotare);   // flytten finns, men räknas inte i svaret
+    expect(byggObjektVy(s, summeraProduktion(objekt, underlag(), prod), namn).svar).toBe('156 h 4 min');
   });
 
   it('ingen tid ger ingen prognosrad och ingen förklaring', () => {
     const tom = sammanstall(objekt, underlag({ tid: [], manuell: [], flytt: [] }));
     const v = byggObjektVy(tom, { volym: 0, stammar: 0, tradslag: [] }, namn);
-    expect(v.fraga).toBe('Det har inte tagit någon tid än');
+    expect(v.fraga).toBe('Maskinerna har inte kört här än');
     expect(v.plan).toBeNull();
     expect(v.vem).toBeNull();
     expect(v.virke).toBeNull();
   });
 
   it('tidtexter', () => {
-    expect(tidText(9457)).toBe('157 tim 37 min');
+    expect(tidText(9457)).toBe('157 h 37 min');
     expect(tidText(46)).toBe('46 min');
-    expect(tidText(120)).toBe('2 tim');
-    expect(timmar(89)).toBe('1,5 tim');
+    expect(tidText(120)).toBe('2 h');
+    expect(timmar(89)).toBe('1 h 29 min');
   });
 
   it('staplar per vecka när spannet är långt', () => {

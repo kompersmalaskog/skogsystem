@@ -1,8 +1,8 @@
 // Objektöversiktens vymodell — ALL text och alla tal som sidan och PDF:en visar. Sidan och PDF:en ritar bara, så de
 // kan aldrig säga olika saker (samma mönster som markägarrapporten).
 //
-// Texten förklarar sig själv så att ett barn förstår (Martin 2026-10-22 och 2026-10-24): svaret i hela timmar, prognosen
-// i ord ("28 timmar mer än prognosen") och EN mening om varför. Ordet är prognos, aldrig plan.
+// Texten förklarar sig själv så att ett barn förstår (Martin 2026-10-22 och 2026-10-24): svaret = maskinernas tid (skördare + skotare), prognosen
+// i ord ("28 h 4 min mer än prognosen"; tiden som i resten av appen, `fmtTid`) och EN mening om varför. Ordet är prognos, aldrig plan.
 
 import { TID_DELAR, dagSumma, type DagDelar, type Produktion, type Roll, type Sammanstallning, type ObjektRad, type TidDel } from './berakna';
 import { heltal, procentSomSummerar, type Stapeldel } from '@/lib/markagarrapport/vy';
@@ -10,6 +10,7 @@ import { DELFARG, FARG } from '@/lib/design/tokens';
 import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 import { tradslagFarg, tradslagStil } from '@/lib/tradslag';
 import { typLabel, type ObjektTyp } from '@/lib/objekt/typ';
+import { fmtTid } from '@/lib/flytt/traillertid';
 
 const MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
 const KORT_MANAD = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
@@ -34,21 +35,13 @@ export const TID_FARG: Record<TidDel, string> = {
   annat: FARG.text3,
 };
 
-/** "157 tim 36 min", "12 tim", "46 min". */
+/** Tid på objektet: "157 h 37 min", "12 h", "46 min" — samma form som i resten av appen (`fmtTid`). */
 export function tidText(min: number): string {
-  const m = Math.max(0, Math.round(min));
-  const h = Math.floor(m / 60), r = m % 60;
-  if (h === 0) return `${r} min`;
-  return r === 0 ? `${heltal(h)} tim` : `${heltal(h)} tim ${r} min`;
+  return fmtTid(Math.max(0, min));
 }
 
-/** "48,8 tim" (en decimal); under en timme i minuter. */
-export function timmar(min: number): string {
-  const m = Math.max(0, Math.round(min));
-  if (m < 60) return `${m} min`;
-  const h = Math.round(m / 6) / 10;
-  return `${h.toLocaleString('sv-SE', { minimumFractionDigits: h % 1 ? 1 : 0, maximumFractionDigits: 1 })} tim`;
-}
+/** Samma som tidText; kvar som namn för raderna. */
+export const timmar = tidText;
 
 export function decimal(n: number, d = 1): string {
   return n.toLocaleString('sv-SE', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -116,9 +109,9 @@ export interface ObjektVy {
   namn: string;
   filnamn: string;
   meta: string;
-  /** "Det tog" / "Hittills har det tagit". */
+  /** "Maskinerna körde" / "Maskinerna har kört". */
   fraga: string;
-  /** "158 timmar". */
+  /** Maskinernas tid: "156 h 4 min". */
   svar: string;
   /** Prognosen i ord. `avvikelse` är orange när den är mer än 10 % över. */
   plan: { text: string; avvikelse: string | null; varning: boolean } | null;
@@ -140,21 +133,21 @@ function rollKlar(s: Sammanstallning, roll: Roll): boolean {
   return s.uppgifter.some(u => u.id === id && u.lage === 'klar');
 }
 
-/** "Prognos 56 tim – blev 7 tim kortare" / "… 7 tim kvar enligt prognosen" / "… redan 35 tim över". */
+/** "Prognos 56 h – blev 7 h 12 min kortare" / "… 7 h kvar enligt prognosen" / "… redan 35 h över". */
 export function prognosText(faktiskMin: number, prognosTim: number | undefined, klar: boolean): { text: string; varning: boolean } {
   if (prognosTim == null) return { text: 'Ingen prognos', varning: false };
-  const faktiskTim = faktiskMin / 60;
-  const diff = faktiskTim - prognosTim;
-  const tim = Math.round(Math.abs(diff));
-  const p = `Prognos ${decimal(prognosTim, prognosTim % 1 ? 1 : 0)} tim`;
-  const varning = faktiskTim > prognosTim * (1 + OVER_PROGNOS_ANDEL);
+  const diff = Math.round(faktiskMin - prognosTim * 60);
+  const t = tidText(Math.abs(diff));
+  const p = `Prognos ${tidText(prognosTim * 60)}`;
+  const varning = faktiskMin > prognosTim * 60 * (1 + OVER_PROGNOS_ANDEL);
+  const lika = Math.abs(diff) < 60;
   if (klar) {
-    if (tim === 0) return { text: `${p} – blev som prognosen`, varning: false };
-    return { text: `${p} – blev ${tim} tim ${diff < 0 ? 'kortare' : 'längre'}`, varning };
+    if (lika) return { text: `${p} – blev som prognosen`, varning: false };
+    return { text: `${p} – blev ${t} ${diff < 0 ? 'kortare' : 'längre'}`, varning };
   }
-  if (diff >= 0 && tim === 0) return { text: `${p} – nådd nu`, varning: false };
-  if (diff < 0) return { text: `${p} – ${tim} tim kvar enligt prognosen`, varning: false };
-  return { text: `${p} – redan ${tim} tim över`, varning };
+  if (diff >= 0 && lika) return { text: `${p} – nådd nu`, varning: false };
+  if (diff < 0) return { text: `${p} – ${t} kvar enligt prognosen`, varning: false };
+  return { text: `${p} – redan ${t} över`, varning };
 }
 
 function delarAv(d: DagDelar): Stapel['delar'] {
@@ -260,16 +253,9 @@ export function uppdragRader(o: ObjektRad, maskinNamn: (id: string) => string): 
 
 const UPPGIFT_NAMN = { skordning: 'Skördning', skotning: 'Skotning', grot: 'GROT' } as const;
 
-/** "158 timmar", "1 timme", "46 min" — hela timmar i svaret, aldrig minuter bredvid. */
-export function heltimmar(min: number): string {
-  const m = Math.max(0, Math.round(min));
-  if (m < 60) return `${m} min`;
-  const h = Math.round(m / 60);
-  return `${heltal(h)} ${h === 1 ? 'timme' : 'timmar'}`;
-}
-
-function timOrd(h: number): string {
-  return `${heltal(h)} ${h === 1 ? 'timme' : 'timmar'}`;
+/** Maskinernas tid på objektet: skördare + skotare (det som är kört där). Flytt och planering står i sina egna rader. */
+export function maskinMin(s: Sammanstallning): number {
+  return s.rollMin.skordare + s.rollMin.skotare;
 }
 
 /** De roller som räknas i planen: skördaren (inte på en GROT-trakt utan skördartid) och skotaren. */
@@ -286,17 +272,17 @@ export function planText(s: Sammanstallning): ObjektVy['plan'] {
   if (r.length === 0 || r.some(x => s.prognos[x] == null)) return null;
   const planTim = r.reduce((t, x) => t + s.prognos[x]!, 0);
   if (planTim <= 0) return null;
-  const maskinTim = r.reduce((t, x) => t + s.rollMin[x], 0) / 60;
-  const diff = Math.round(maskinTim - planTim);
-  const text = `Prognos för maskinerna: ${timOrd(Math.round(planTim))}.`;
-  const varning = maskinTim > planTim * (1 + OVER_PROGNOS_ANDEL);
+  const maskinM = r.reduce((t, x) => t + s.rollMin[x], 0);
+  const diff = Math.round(maskinM - planTim * 60);
+  const text = `Prognos för maskinerna: ${tidText(planTim * 60)}.`;
+  const varning = maskinM > planTim * 60 * (1 + OVER_PROGNOS_ANDEL);
   if (s.grupp !== 'avslutad') {
-    if (diff < 0) return { text, avvikelse: `${timOrd(-diff)} kvar enligt prognosen.`, varning: false };
+    if (diff < 0) return { text, avvikelse: `${tidText(-diff)} kvar enligt prognosen.`, varning: false };
     if (diff === 0) return { text, avvikelse: 'Prognosen är nådd.', varning: false };
-    return { text, avvikelse: `Redan ${timOrd(diff)} över prognosen.`, varning };
+    return { text, avvikelse: `Redan ${tidText(diff)} över prognosen.`, varning };
   }
   if (diff === 0) return { text, avvikelse: 'Det blev som prognosen.', varning: false };
-  return { text, avvikelse: `${timOrd(Math.abs(diff))} ${diff > 0 ? 'mer' : 'mindre'} än prognosen.`, varning };
+  return { text, avvikelse: `${tidText(Math.abs(diff))} ${diff > 0 ? 'mer' : 'mindre'} än prognosen.`, varning };
 }
 
 /** EN mening om varför: per roll som avvek minst en timme, den största först. */
@@ -305,12 +291,12 @@ export function forklaringText(s: Sammanstallning): string | null {
   for (const r of roller(s)) {
     const p = s.prognos[r];
     if (p == null || s.rollMin[r] <= 0) continue;
-    const diff = Math.round(s.rollMin[r] / 60 - p);
-    if (diff === 0) continue;
+    const diff = Math.round(s.rollMin[r] - p * 60);
+    if (Math.abs(diff) < 60) continue;
     const klar = rollKlar(s, r);
     const vem = ROLL_NAMN[r];
-    if (diff > 0) delar.push({ diff, text: klar ? `${vem} behövde ${timOrd(diff)} mer än prognosen.` : `${vem} har redan gått ${timOrd(diff)} över prognosen.` });
-    else if (klar) delar.push({ diff, text: `${vem} var klar ${timOrd(-diff)} tidigare.` });
+    if (diff > 0) delar.push({ diff, text: klar ? `${vem} behövde ${tidText(diff)} mer än prognosen.` : `${vem} har redan gått ${tidText(diff)} över prognosen.` });
+    else if (klar) delar.push({ diff, text: `${vem} var klar ${tidText(-diff)} tidigare.` });
   }
   if (delar.length === 0) return null;
   return delar.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)).map(d => d.text).join(' ');
@@ -355,7 +341,7 @@ export function vemVy(s: Sammanstallning): ObjektVy['vem'] {
     const over = p != null && min / 60 > p * (1 + OVER_PROGNOS_ANDEL);
     rader.push({
       nyckel: roll, titel: ROLL_NAMN[roll],
-      under: p != null ? `prognos ${timOrd(Math.round(p))}` : 'ingen prognos',
+      under: p != null ? `prognos ${tidText(p * 60)}` : 'ingen prognos',
       varning: over, hoger: timmar(min), farg: TID_FARG[roll], detaljer: maskinDetaljer(s, roll),
     });
   }
@@ -409,8 +395,9 @@ export function byggObjektVy(s: Sammanstallning, prod: Produktion, maskinNamn: (
   const lage = s.grupp === 'avslutad' ? (s.klart ? `klart ${kortDatum(s.klart)}` : 'klart')
     : s.grupp === 'planerad' ? 'planerat' : s.skotningKvar ? 'skotning kvar' : 'pågår';
   const meta = [typ === 'Typ okänd' ? null : typ, o.bolag?.trim() || null, lage].filter(Boolean).join(' · ');
-  const fraga = s.totalMin <= 0 ? 'Det har inte tagit någon tid än' : s.grupp === 'avslutad' ? 'Det tog' : 'Hittills har det tagit';
-  const svar = s.totalMin > 0 ? heltimmar(s.totalMin) : 'Ingen tid';
+  const kort = maskinMin(s);
+  const fraga = kort <= 0 ? 'Maskinerna har inte kört här än' : s.grupp === 'avslutad' ? 'Maskinerna körde' : 'Maskinerna har kört';
+  const svar = kort > 0 ? tidText(kort) : 'Ingen tid';
 
   const kvar = s.grupp === 'pagar' && s.uppgifter.length
     ? s.uppgifter.map(u => ({
@@ -432,7 +419,7 @@ export function byggObjektVy(s: Sammanstallning, prod: Produktion, maskinNamn: (
     meta,
     fraga,
     svar,
-    plan: s.totalMin > 0 ? planText(s) : null,
+    plan: kort > 0 ? planText(s) : null,
     forklaring: forklaringText(s),
     kvar,
     vem: vemVy(s),
@@ -459,7 +446,7 @@ export function listPost(s: Sammanstallning): ListPost {
     id: o.id,
     namn: o.namn?.trim() || o.vo_nummer || 'Objekt',
     under: [typ === 'Typ okänd' ? null : typ, lage].filter(Boolean).join(' · '),
-    hoger: s.totalMin > 0 ? `${heltal(s.totalMin / 60)} tim` : '–',
+    hoger: maskinMin(s) > 0 ? tidText(maskinMin(s)) : '–',
     grupp: s.grupp,
     klart: s.klart,
   };
