@@ -3268,3 +3268,73 @@ describe("Tid att fakturera (flytt över 3 mil): appen föreslår tiden ur runda
     expect(tidRad("kort")).toBeNull();
   });
 });
+
+// ── Fakturasidan börjar med det DU ska göra (Martin 2026-10-24: "vad gör man på denna sidan?") ───────────────────
+describe("Vad ska du göra? — en knapp som går igenom det en flytt i taget", () => {
+  const dlg = () => document.querySelector('[role="dialog"]') as HTMLElement | null;
+  const gora = () => document.querySelector("[data-gora]") as HTMLElement | null;
+  const medLossning = () => {
+    mock.flyttar = mock.flyttar.map(b => (b.id === "b1" ? { ...b, sluttid: "2026-10-06T14:10:00Z" } : b.id === "b2" ? { ...b, sluttid: "2026-10-05T06:30:00Z" } : b));
+  };
+
+  it("sidan börjar med frågan: 'Vad ska du göra?' står FÖRE summan, i ord, med EN knapp", async () => {
+    medLossning();
+    await oppnaFakturering();
+    expect(gora()!.querySelector("h3")!.textContent).toBe("Vad ska du göra?");
+    expect(gora()!.querySelector("[data-gora-tid]")!.textContent).toBe("2 flyttar saknar tid");
+    expect(gora()!.querySelector("[data-gora-godkann]")).toBeNull();
+    expect(gora()!.compareDocumentPosition(remsa()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(gora()!.querySelectorAll("button")).toHaveLength(1);
+  });
+
+  it("Gå igenom: en flytt i taget — 'Spara och nästa' sparar och går vidare, 'Hoppa över' lämnar den, sist ett kvitto", async () => {
+    medLossning();
+    await oppnaFakturering();
+    await klicka(knapp(/^Gå igenom$/));
+    expect(dlg()!.querySelector("[data-steg]")!.textContent).toBe("1 av 2");
+    expect(dlg()!.textContent).toContain("Giant till Bågskyttebanan RP J-Hus- 25");
+    expect(dlg()!.querySelector("[data-tid-tal]")!.textContent).toBe("4 h 3 min");
+    await klicka(dlg()!.querySelector("[data-tid-spara]") as HTMLElement);
+    expect(mock.skrivningar.at(-1)).toEqual({ tabell: "fakturaunderlag_flytt", varden: { traillertimmar: 4.05 } });
+    await vantaTills(() => dlg()?.querySelector("[data-steg]")?.textContent === "2 av 2");
+    expect(dlg()!.textContent).toContain("Elefant 26 till Östra-Hoka 1:7 A-C -25");
+    await klicka(dlg()!.querySelector("[data-hoppa-over]") as HTMLElement);
+    expect(dlg()).toBeNull();
+    expect(text()).toContain("Klart! Du har gått igenom allt.");
+    expect(mock.skrivningar).toHaveLength(1);                                       // den överhoppade rördes inte
+  });
+
+  it("en flytt att godkänna kommer först: 'Stämmer flytten?' — Ja, godkänn sparar flytten OCH tiden; Nej öppnar flyttens ark", async () => {
+    medLossning();
+    mock.extraUnderlag = [U("og-t", "2026-10-06", 53, "PONS20SDJAA270231", "o-vallust", "o-bagskytte", { ...OGODKAND, flytt_id: "b1" })];
+    await oppnaFakturering();
+    expect(gora()!.querySelector("[data-gora-godkann]")!.textContent).toBe("1 flytt ska godkännas");
+    await klicka(knapp(/^Gå igenom$/));
+    expect(dlg()!.getAttribute("aria-label")).toBe("Stämmer flytten?");
+    expect(dlg()!.querySelector("[data-steg]")!.textContent).toBe("1 av 3");
+    expect(Array.from(dlg()!.querySelectorAll("[data-godkann-tid]")).map(e => e.textContent)).toEqual(["Tid 4 h 3 min · sparas när du godkänner", "Från 15:52 till 19:55"]);
+    await klicka(dlg()!.querySelector("[data-godkann-ja]") as HTMLElement);
+    expect(mock.skrivningar.at(-1)!.varden.traillertimmar).toBe(4.05);
+    expect(mock.skrivningar.at(-1)!.varden.godkand_av).toBeTruthy();
+    await vantaTills(() => dlg()?.querySelector("[data-steg]")?.textContent === "2 av 3");
+    await klicka(knapp(/^Avbryt$/, dlg()!));
+    expect(dlg()).toBeNull();
+    await act(async () => { rot?.unmount(); }); rot = null;
+    mock.extraUnderlag = [U("og-n", "2026-10-06", 53, "PONS20SDJAA270231", "o-vallust", "o-bagskytte", { ...OGODKAND, flytt_id: "b1" })];
+    await oppnaFakturering();
+    await klicka(knapp(/^Gå igenom$/));
+    await klicka(dlg()!.querySelector("[data-godkann-nej]") as HTMLElement);
+    await vantaTills(() => dlg()?.getAttribute("aria-label") !== "Stämmer flytten?");
+    expect(dlg()!.getAttribute("aria-label")).not.toBe("Stämmer flytten?");      // flyttens eget ark ("Flytten") har tagit över
+  });
+
+  it("inget att göra: 'Allt är klart' med en länk till fakturaunderlaget — ingen knapp att trycka", async () => {
+    mock.underlag = mock.underlag.map(r => ({ ...r, traillertimmar: 3.5 }));
+    await oppnaFakturering();
+    expect(gora()).toBeNull();
+    const klart = document.querySelector("[data-klart]") as HTMLElement;
+    expect(klart.textContent).toContain("Allt är klart");
+    expect(klart.textContent).toContain("Faktureringen tar det härifrån.");
+    expect(klart.querySelector("a")!.getAttribute("href")).toBe("/ekonomi/fakturaunderlag");
+  });
+});

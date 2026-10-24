@@ -19,7 +19,7 @@ const STEG: { text: string; min: number }[] = [
  * Går tiden inte att räkna sägs varför, och man ställer in den själv (aldrig ett påhittat tal).
  * En fakturerad flytt går bara att läsa.
  */
-export default function TidArk({ maskin, forslag, sparadMin, last, onSpara, onStang }: {
+export default function TidArk({ maskin, forslag, sparadMin, last, onSpara, onStang, steg, sparaText, onHoppaOver }: {
   maskin: string;
   /** null = läsfel (rundan kunde inte läsas). */
   forslag: TidForslag | null;
@@ -28,6 +28,10 @@ export default function TidArk({ maskin, forslag, sparadMin, last, onSpara, onSt
   last: boolean;
   onSpara: (min: number) => Promise<Skrivsvar>;
   onStang: () => void;
+  /** I genomgången: "2 av 5" överst, knappen säger "Spara och nästa", och "Hoppa över" finns. */
+  steg?: string;
+  sparaText?: string;
+  onHoppaOver?: () => void;
 }) {
   const forslagMin = forslag?.lage === 'ok' ? forslag.min : null;
   const [min, setMin] = useState<number>(sparadMin ?? forslagMin ?? 0);
@@ -47,9 +51,10 @@ export default function TidArk({ maskin, forslag, sparadMin, last, onSpara, onSt
     <Ark rubrik="Tid att fakturera" onStang={onStang} stang={last ? 'Klar' : 'Avbryt'}
       fot={last ? undefined : (
         <button type="button" data-tid-spara onClick={spara} disabled={!kanSpara} style={{ ...KNAPP.primar, ...(kanSpara ? {} : INAKTIV) }}>
-          {sparar ? 'Sparar …' : min > 0 ? `Spara ${fmtTid(min)}` : 'Ställ in tiden'}
+          {sparar ? 'Sparar …' : min > 0 ? (sparaText ?? `Spara ${fmtTid(min)}`) : 'Ställ in tiden'}
         </button>
       )}>
+      {steg && <div data-steg style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>{steg}</div>}
       <div style={{ ...TYP.meta, color: FARG.text2 }}>{maskin}</div>
       <div data-tid-tal style={{ ...TYP.tal, ...TNUM, color: FARG.text, margin: `${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>{min > 0 ? fmtTid(min) : 'Ingen tid'}</div>
 
@@ -90,6 +95,9 @@ export default function TidArk({ maskin, forslag, sparadMin, last, onSpara, onSt
         </>
       )}
       {fel && <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: `${AVSTAND.m}px 0 0` }}>{fel}</p>}
+      {onHoppaOver && (
+        <button type="button" data-hoppa-over onClick={onHoppaOver} style={{ ...KNAPP.lank, display: 'block', margin: `${AVSTAND.l}px auto 0` }}>Hoppa över</button>
+      )}
     </Ark>
   );
 }

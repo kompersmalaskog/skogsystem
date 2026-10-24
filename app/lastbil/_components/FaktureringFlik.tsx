@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, KORT, RAD, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import GodkandKvitto from './GodkandKvitto';
 import FlyttSheet from './FlyttSheet';
@@ -9,6 +10,8 @@ import { periodKort, type Period } from './period';
 import { kmAndringsText, sorteraUnderlag, underlagStatus, type UnderlagRad, type UnderlagStatus } from './fakturerbart';
 import { angraGodkannande, godkannFlytt, sparaTraillertid } from './godkann';
 import TidArk from './TidArk';
+import GodkannArk from './GodkannArk';
+import { fmtKlocka } from './nu';
 import { fakturerasPaTid, useTraillertid, type TidLage } from './useTraillertid';
 import { fmtTid, minFranTimmar, timmarForFaktura, type TidForslag } from '@/lib/flytt/traillertid';
 import type { FakturerbartStatus } from './useFakturerbart';
@@ -75,6 +78,9 @@ function tidText(r: UnderlagRad, st: UnderlagStatus, f: TidForslag | null | unde
   if (st === 'att_godkanna') return { text: `Tid ${fmtTid(f.min)} · sparas när du godkänner`, farg: FARG.text2, varning: f.varning };
   return { text: `Tid saknas · förslag ${fmtTid(f.min)}`, farg: FARG.orange, varning: f.varning };
 }
+
+/** "1 flytt", "5 flyttar". */
+const antalFlyttar = (n: number) => `${n} ${n === 1 ? 'flytt' : 'flyttar'}`;
 
 const kmText = (r: UnderlagRad) => (r.km != null ? `${Math.round(r.km).toLocaleString('sv-SE')} km` : '–');
 
@@ -151,8 +157,10 @@ function KvittoRad({ r, st, n, sista, sparar, tid, onGodkann, onOppna, onOppnaTi
  * Godkänn-trycket på raden är oförändrat. Ett rättat värde märks "ändrad från 47" (originalet bevaras av
  * databasen) så det aldrig ser ut som en mätning. En godkänd eller fakturerad flytt är låst i sheeten.
  */
-export default function FaktureringFlik({ period, status, namn, onForsokIgen, onAndrad }: {
+export default function FaktureringFlik({ period, status, namn, onForsokIgen, onAndrad, summa }: {
   period: Period; status: FakturerbartStatus;
+  /** Summan ("Vad ska faktureras i oktober?") — står UNDER "Vad ska du göra?", så sidan börjar med handlingen. */
+  summa?: ReactNode;
   /** Den som godkänner (medarbetarens namn) — sparas som godkand_av. */
   namn: string;
   onForsokIgen: () => void;
@@ -168,6 +176,30 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
   const [tidOppen, setTidOppen] = useState<UnderlagRad | null>(null);
   const tid = useTraillertid(rader);
 
+  // ── Vad ska du göra? Flyttar att godkänna (äldsta först) och godkända flyttar över 3 mil som saknar tid. ──
+  const gora = useMemo(() => {
+    const sorterat = sorteraUnderlag(rader ?? []);
+    return {
+      godkann: sorterat.filter(r => underlagStatus(r) === 'att_godkanna').map(r => r.id),
+      tid: sorterat.filter(r => underlagStatus(r) === 'hos' && fakturerasPaTid(r) && sparadMin(r) == null).map(r => r.id),
+    };
+  }, [rader]);
+  // Genomgången: EN flytt i taget, kön låses när den startar (raderna flyttar mellan grupperna medan man sparar).
+  const [ga, setGa] = useState<{ ko: { id: string; typ: 'godkann' | 'tid' }[]; i: number } | null>(null);
+  const starta = () => setGa({ ko: [...gora.godkann.map(id => ({ id, typ: 'godkann' as const })), ...gora.tid.map(id => ({ id, typ: 'tid' as const }))], i: 0 });
+  const nasta = useCallback(() => {
+    setGa(g => {
+      if (!g) return null;
+      if (g.i + 1 < g.ko.length) return { ...g, i: g.i + 1 };
+      setKvitto({ id: 'genomgang', text: 'Klart! Du har gått igenom allt.' });
+      return null;
+    });
+  }, []);
+  const gaSteg = ga ? ga.ko[ga.i] : null;
+  const gaRad = gaSteg && rader ? rader.find(r => r.id === gaSteg.id) ?? null : null;
+  // En rad som försvunnit ur listan (någon annan hanterade den) hoppas över.
+  useEffect(() => { if (gaSteg && rader && !gaRad) nasta(); }, [gaSteg, gaRad, rader, nasta]);
+
   const grupper = useMemo(() => {
     const sorterat = sorteraUnderlag(rader ?? []);
     return GRUPP.map(g => ({ ...g, rader: sorterat.filter(r => underlagStatus(r) === g.id) })).filter(g => g.rader.length > 0);
@@ -175,13 +207,18 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
 
   const stangKvitto = useCallback(() => setKvitto(null), []);
 
-  async function godkann(r: UnderlagRad, n: Namnkartor) {
-    if (sparar) return;
-    setSparar(r.id); setFel(null);
-    // En flytt över 3 mil utan sparad tid: tiden som står på raden (förslaget) sparas med samma tryck.
+  /** Godkänn en flytt. En flytt över 3 mil utan sparad tid: tiden som står på raden (förslaget) sparas med samma tryck. */
+  async function skrivGodkann(r: UnderlagRad) {
     const f = fakturerasPaTid(r) && sparadMin(r) == null ? forslagFor(r, tid.lage) : undefined;
     const tidMin = f && f.lage === 'ok' ? f.min : null;
     const svar = await godkannFlytt(r.id, namn, new Date(), tidMin != null ? timmarForFaktura(tidMin) : undefined);
+    return { svar, tidMin };
+  }
+
+  async function godkann(r: UnderlagRad, n: Namnkartor) {
+    if (sparar) return;
+    setSparar(r.id); setFel(null);
+    const { svar, tidMin } = await skrivGodkann(r);
     setSparar(null);
     if (!svar.ok) {
       setFel(`Kunde inte godkänna flytten: ${svar.fel}`);
@@ -201,16 +238,38 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
     onAndrad();
   }
 
-  if (status.lage === 'laddar') return <Status text="Läser fakturaunderlaget …" />;
-  if (status.lage === 'fel' || !rader) return <Fel text="Kunde inte läsa fakturaunderlaget just nu." onForsokIgen={onForsokIgen} />;
-  if (namnLage.lage.lage === 'laddar') return <Status text="Läser namn …" />;
-  if (namnLage.lage.lage === 'fel') return <Fel text="Kunde inte läsa maskin- och platsnamnen just nu." onForsokIgen={namnLage.forsokIgen} />;
+  if (status.lage === 'laddar') return <>{summa}<Status text="Läser fakturaunderlaget …" /></>;
+  if (status.lage === 'fel' || !rader) return <>{summa}<Fel text="Kunde inte läsa fakturaunderlaget just nu." onForsokIgen={onForsokIgen} /></>;
+  if (namnLage.lage.lage === 'laddar') return <>{summa}<Status text="Läser namn …" /></>;
+  if (namnLage.lage.lage === 'fel') return <>{summa}<Fel text="Kunde inte läsa maskin- och platsnamnen just nu." onForsokIgen={namnLage.forsokIgen} /></>;
   const n = namnLage.lage.namn;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
 
       {fel && <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>{fel}</p>}
+
+      {/* Sidans första fråga: vad ska DU göra? Antingen en knapp som går igenom det en flytt i taget, eller "Allt är klart". */}
+      {gora.godkann.length + gora.tid.length > 0 ? (
+        <section aria-label="Vad ska du göra?" data-gora style={{ ...KORT, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+          <h3 style={{ ...TYP.micro, color: FARG.text2, margin: 0 }}>Vad ska du göra?</h3>
+          {gora.godkann.length > 0 && <div data-gora-godkann style={{ ...TYP.rubrik, color: FARG.text }}>{antalFlyttar(gora.godkann.length)} ska godkännas</div>}
+          {gora.tid.length > 0 && <div data-gora-tid style={{ ...TYP.rubrik, color: FARG.text }}>{antalFlyttar(gora.tid.length)} saknar tid</div>}
+          <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.s}px` }}>Du ser en flytt i taget.</p>
+          <button type="button" data-ga-igenom onClick={starta} style={KNAPP.primar}>Gå igenom</button>
+        </section>
+      ) : grupper.length > 0 ? (
+        <section aria-label="Allt är klart" data-klart style={KORT}>
+          <div style={{ ...TYP.rubrik, color: FARG.text, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.rad, color: FARG.gron }}>check_circle</span>
+            Allt är klart
+          </div>
+          <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px 0 0` }}>Du har inget att göra här. Faktureringen tar det härifrån.</p>
+          <Link href="/ekonomi/fakturaunderlag" style={{ ...KNAPP.lank, display: 'inline-flex', marginTop: AVSTAND.s, textDecoration: 'none' }}>Till fakturaunderlaget ›</Link>
+        </section>
+      ) : null}
+
+      {summa}
 
       {grupper.length === 0 ? (
         <section style={KORT} aria-label="Inga flyttar">
@@ -247,6 +306,38 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
             const svar = await sparaTraillertid(tidOppen.id, timmarForFaktura(min));
             if (svar.ok) { setTidOppen(null); setKvitto({ id: tidOppen.id, text: `Tiden sparad · ${maskinNamn(tidOppen, n)} · ${fmtTid(min)}` }); onAndrad(); }
             else if (svar.utdaterad) onAndrad();
+            return svar;
+          }} />
+      )}
+      {ga && gaSteg && gaRad && gaSteg.typ === 'godkann' && (() => {
+        const r = gaRad, f = forslagFor(r, tid.lage), sparad = sparadMin(r);
+        const tidRader = !fakturerasPaTid(r) ? []
+          : sparad != null ? [`Tid ${fmtTid(sparad)}`]
+          : f === undefined ? ['Tid: läser …']
+          : f === null ? ['Tid saknas · kunde inte läsa rundan']
+          : f.lage === 'saknas' ? [`Tid saknas · ${f.orsak.toLowerCase()}`]
+          : [`Tid ${fmtTid(f.min)} · sparas när du godkänner`, `Från ${fmtKlocka(f.fran)} till ${fmtKlocka(f.till)}`];
+        return (
+          <GodkannArk key={r.id} steg={`${ga.i + 1} av ${ga.ko.length}`} vad={vadText(r, n)} nar={narText(r, n)} km={kmText(r)}
+            tid={tidRader} tidVantar={fakturerasPaTid(r) && sparad == null && f === undefined}
+            onGodkann={async () => {
+              const { svar } = await skrivGodkann(r);
+              if (svar.ok || svar.utdaterad) onAndrad();
+              if (svar.ok) nasta();
+              return svar;
+            }}
+            onFel={() => { setGa(null); setOppnad(r); }}
+            onHoppaOver={nasta} onStang={() => setGa(null)} />
+        );
+      })()}
+      {ga && gaSteg && gaRad && gaSteg.typ === 'tid' && (
+        <TidArk key={gaRad.id} maskin={vadText(gaRad, n)} forslag={forslagFor(gaRad, tid.lage) ?? null}
+          sparadMin={sparadMin(gaRad)} last={false} steg={`${ga.i + 1} av ${ga.ko.length}`} sparaText="Spara och nästa"
+          onStang={() => setGa(null)} onHoppaOver={nasta}
+          onSpara={async min => {
+            const svar = await sparaTraillertid(gaRad.id, timmarForFaktura(min));
+            if (svar.ok || svar.utdaterad) onAndrad();
+            if (svar.ok) nasta();
             return svar;
           }} />
       )}
