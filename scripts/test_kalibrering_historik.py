@@ -235,6 +235,56 @@ class Backfill(Tmp):
         self.assertEqual(db.rader[1]['langd_justering_rot_mm'], 3)
 
 
+class Anslutning(Tmp):
+    """Första körningen gav 401 "No API key found" på varje läsning: skriptet laddade importmodulen men anropade aldrig
+    init_supabase(), som är det som fyller SUPABASE_HEADERS. FejkDb ser aldrig headrarna, så ingen test fångade det."""
+    def setUp(self):
+        super().setUp()
+        self.orig_ladda, self.orig_req = B.ladda_import, M.requests
+        self.orig_headers = getattr(M, 'SUPABASE_HEADERS', None)
+        self.orig_init = M.init_supabase
+
+    def tearDown(self):
+        B.ladda_import, M.requests = self.orig_ladda, self.orig_req
+        M.SUPABASE_HEADERS, M.init_supabase = self.orig_headers, self.orig_init
+
+    def kor_main(self, init_ok):
+        M.SUPABASE_HEADERS = {}                     # som i en nyladdad importmodul
+        anrop = {'init': 0, 'utan_nyckel': 0}
+
+        def init():
+            anrop['init'] += 1
+            if init_ok:
+                M.SUPABASE_HEADERS = {'apikey': 'k', 'Authorization': 'Bearer k'}
+            return init_ok
+
+        class Strikt(FejkDb):
+            def get(s, url, params=None, headers=None, timeout=None):
+                if not (headers or {}).get('apikey'):
+                    anrop['utan_nyckel'] += 1
+                return super().get(url, params, headers, timeout)
+
+        M.init_supabase = init
+        M.requests = Strikt([db_rad(1, '2026-08-03T10:00:00', 'langd')])
+        B.ladda_import = lambda: M
+        self.fil('a.hqc', hqc(langd=langd_block(rot='-2')))
+        import io, contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            kod = B.main([self.katalog])
+        return kod, anrop
+
+    def test_main_initierar_supabase_sa_att_varje_lasning_har_nyckel(self):
+        kod, anrop = self.kor_main(True)
+        self.assertEqual(anrop['init'], 1)
+        self.assertEqual(anrop['utan_nyckel'], 0)
+        self.assertEqual(kod, 0)
+
+    def test_utan_anslutning_stannar_skriptet_med_exit_2_och_ror_inte_databasen(self):
+        kod, anrop = self.kor_main(False)
+        self.assertEqual(kod, 2)
+        self.assertEqual(anrop['utan_nyckel'], 0)
+
+
 class Kallkod(unittest.TestCase):
     def test_skriptet_skriver_bara_de_tva_kolumnerna_och_aldrig_raderar_eller_skapar(self):
         with open(os.path.join(HAR, 'scripts', 'backfill-kalibrering-historik.py'), encoding='utf-8') as f:
