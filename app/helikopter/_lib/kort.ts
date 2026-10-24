@@ -10,7 +10,8 @@
 //     på RPC:ns underlag, så att en trakt utan prognos kan få G15-förslaget ("ca 5 nov").
 // Inga ·-kedjor, inga traktlistor, inga förklaringsrader med åtta fakta.
 import type { Maskin, MaskinStopp, PlaneringObjekt, Typ, UtanTypRad, Arbetsdagar } from './queries'
-import { KLAR_TYP_NAMN, arVirke, bastaFlytt, bestamdNamn, senasteKlar, type FlyttForslag, type KlarData, type MaskinPlan } from './klar'
+import { KLAR_TYP_NAMN, arVirke, bastaFlytt, bestamdNamn, senasteKlar, type FlyttForslag, type KlarData, type KlarTrakt, type MaskinPlan } from './klar'
+import { skillnadText } from '@/lib/prognosFoljer'
 import {
   PROGNOS_FRAN_ARBETSDAG, TYPER, TYP_NAMN, landarRoller, maskinNamn, otilldelade, planeringStoppText,
   type ManadStatus, type PlaneratResultat, type SparLage,
@@ -231,7 +232,16 @@ export type KlarRad = {
   /** Stoppet, bara när maskinen står: "Står 26–30 okt · Daniel ledig · kör igen 2 nov". */
   under: string | null
   /** Trakterna i ordning, för arket: "Intaget gallring", "GROT Sibbesson" … */
-  trakter: { objekt_id: string; namn: string; fran: string | null; till: string | null; uppskattad: boolean }[]
+  trakter: { objekt_id: string; namn: string; fran: string | null; till: string | null; uppskattad: boolean; under: string | null }[]
+}
+
+/** Raden under trakten i arket: följer takten (uppmätt) går före "räknat på liknande trakter" (gissat). */
+export function traktUnder(t: Pick<KlarTrakt, 'uppskattad' | 'foljer'>): string | null {
+  if (t.foljer) {
+    const s = skillnadText(t.foljer.skillnad)
+    return s ? `Följer takten på trakten · ${s}` : 'Följer takten på trakten'
+  }
+  return t.uppskattad ? 'Prognos räknad på liknande trakter' : null
 }
 
 export function klarRader(klar: KlarData, planer: Record<string, MaskinPlan>, stopp: MaskinStopp[] | null): KlarRad[] {
@@ -245,7 +255,7 @@ export function klarRader(klar: KlarData, planer: Record<string, MaskinPlan>, st
       dampad: !p || p.saknar || p.klar == null,
       trakter: (p?.rader ?? []).map(r => ({
         objekt_id: r.trakt.objekt_id, namn: `${arVirke(r.trakt.typ) ? '' : `${KLAR_TYP_NAMN[r.trakt.typ]} `}${kortNamn(r.trakt.namn)}`,
-        fran: r.fran, till: r.till, uppskattad: r.trakt.uppskattad === true,
+        fran: r.fran, till: r.till, uppskattad: r.trakt.uppskattad === true, under: traktUnder(r.trakt),
       })),
     }
   })

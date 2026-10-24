@@ -12,6 +12,8 @@ const h = vi.hoisted(() => ({ text: '', db: null as any }));
 vi.mock('next/headers', () => ({ cookies: async () => ({ getAll: () => [] }) }));
 vi.mock('unpdf', () => ({ extractText: async () => ({ text: h.text }) }));
 vi.mock('@/lib/hyttsparKoppling', () => ({ kopplaHyttsparTillObjekt: async () => ({ ok: true, kopplade: 0 }) }));
+// Appens prognos fryses efter skrivningen (lib/prognos/appPrognos) — provas i sin egen fil; här räcker att importen inte fäller.
+vi.mock('@/lib/prognos/appPrognos', () => ({ frysAppPrognos: async () => ({ status: 'hoppad', skal: 'inget_forslag' }), appPrognosText: () => '' }));
 vi.mock('@/lib/trakt/geometri', () => ({ packaGeometri: async () => ({ features: [], varningar: [] }), bboxCentrum: () => null }));
 vi.mock('@/lib/trakt/envz', () => ({
   packaUppEnvz: async () => ({

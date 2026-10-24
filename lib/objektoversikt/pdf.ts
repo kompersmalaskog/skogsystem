@@ -73,7 +73,7 @@ export async function skapaObjektPdf(vy: ObjektVy, datum: string = new Date().to
   const X = MARG + RUBRIK_B;
   const W = B - RUBRIK_B;
   const radH = (r: VyRad) => {
-    const under = [r.under, r.under2].filter(Boolean).flatMap(t => bryt(t!, STEG.micro + 1, normal, W - 90));
+    const under = [r.under, r.facit, r.under2].filter(Boolean).flatMap(t => bryt(t!, STEG.micro + 1, normal, W - 90));
     // En rad med bara en högerrad under talet (procenten vid ett trädslag) behöver plats för den.
     const rader = Math.max(under.length, r.hogerUnder ? 1 : 0);
     return 6 + STEG.text + 4 + rader * (STEG.micro + 4) + 6;
@@ -103,7 +103,7 @@ export async function skapaObjektPdf(vy: ObjektVy, datum: string = new Date().to
       if (r.hoger) hoger(r.hoger, X + W, y + 6, STEG.text, fet, farg);
       let yy = y + 6 + STEG.text + 4;
       if (r.hogerUnder) hoger(r.hogerUnder, X + W, yy, STEG.micro + 1, normal, F.sek);
-      for (const [t, varning] of [[r.under, !!r.varning], [r.under2, false]] as const) {
+      for (const [t, varning] of [[r.under, !!r.varning], [r.facit, false], [r.under2, false]] as const) {
         if (!t) continue;
         for (const del of bryt(t, STEG.micro + 1, normal, W - 90)) {
           text(del, xT, yy, STEG.micro + 1, normal, varning ? F.orange : F.sek);
