@@ -173,37 +173,33 @@ export const MELLANRUM = { ett: 'mellanrum', flera: 'mellanrum', ingen: 'inget m
 export const saknarKmText = (n: number) => `${plural(n, 'flytt', 'flyttar')} saknar km`;
 export const saknarTidText = (n: number) => `${plural(n, 'flytt', 'flyttar')} saknar tid`;
 
-// ── Svaren i maskinens ark (Martin 2026-10-24: "så ett barn förstår") ─────────────────────────────────────────────
-// Arket ställer tre frågor och svarar i ord först: Var är den nu? Hur ofta flyttas den? Hur lång är en flytt?
-// Regeln om snitt gäller fortfarande (MIN_FLYTTAR_SNITT): för få flyttar ger inget tal, och det sägs.
+// ── Sammanställningen per maskin (Martin 2026-10-24: "hur många flyttar varje maskin gjort varje månad, och vad tiden tar") ──
 
-/** "Var är Giant nu?" → plats + "sedan 18 dagar". Null för andras maskiner, utan flyttar, eller när Till saknas. */
-export function varArDen(m: Maskin, nu: Date): { plats: string; sedan: string } | null {
-  if (m.extern || m.flyttar.length === 0) return null;
-  const sista = m.flyttar[0];
-  const d = dagarSedan(sista.lossad, nu);
-  if (d == null || !sista.tillNamn) return null;
-  return { plats: sista.tillNamn, sedan: `sedan ${d === 0 ? 'idag' : d === 1 ? '1 dag' : `${d} dagar`}` };
+const MANAD_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+export const manadKort = (man: number) => MANAD_KORT[man - 1];
+
+/** Svensk månad (1–12) då flytten lossades. */
+const lossadManad = (f: Flytt): number | null => sthlmDelar(new Date(f.lossad))?.man ?? null;
+
+/**
+ * Månaderna staplarna visar — SAMMA för alla maskiner så att de går att jämföra: från första månaden någon maskin
+ * flyttades till den sista (innevarande månad när året pågår). Tomt när inga flyttar finns.
+ */
+export function manaderAttVisa(maskiner: readonly Maskin[], ar: number, nu: Date): number[] {
+  const man = maskiner.flatMap(m => m.flyttar.map(lossadManad)).filter((v): v is number => v != null);
+  if (man.length === 0) return [];
+  const n = sthlmDelar(nu);
+  const sista = n && n.ar === ar ? Math.max(n.man, ...man) : Math.max(...man);
+  return Array.from({ length: sista - Math.min(...man) + 1 }, (_, i) => Math.min(...man) + i);
 }
 
-/** "Hur ofta flyttas den?" → "18 gånger i år" + "Står ungefär 4 dagar på varje trakt" (bara med snitt; annars sägs varför). */
-export function hurOfta(m: Maskin, s: MaskinSammanfattning, ar: number, innevarandeAr: boolean): { svar: string; under: string | null } {
-  const svar = `${m.antal} ${m.antal === 1 ? 'gång' : 'gånger'} ${innevarandeAr ? 'i år' : `i ${ar}`}`;
-  if (!s.trakt) return { svar, under: null };
-  if (s.trakt.snitt != null) {
-    const d = Math.max(1, Math.round(s.trakt.snitt));
-    return { svar, under: `Står ungefär ${d} ${d === 1 ? 'dag' : 'dagar'} på varje trakt` };
-  }
-  return { svar, under: s.trakt.antal === 0 ? null : 'För få flyttar för att säga hur länge den står på en trakt' };
+/** Antal flyttar per månad för en maskin, i månadernas ordning (0 när maskinen inte flyttades). */
+export function perManad(m: Maskin, manader: readonly number[]): { man: number; antal: number }[] {
+  return manader.map(man => ({ man, antal: m.flyttar.filter(f => lossadManad(f) === man).length }));
 }
 
-/** "Hur lång är en flytt?" → "24 km · 55 min" + "i snitt, från lastad till lossad". Saknade värden sägs, aldrig 0. */
-export function hurLang(s: MaskinSammanfattning, fmtMin: (min: number) => string): { svar: string; under: string } {
-  const delar = [s.km.snitt != null ? `${Math.round(s.km.snitt).toLocaleString('sv-SE')} km` : null, s.tid.snitt != null ? fmtMin(s.tid.snitt) : null].filter(Boolean) as string[];
-  const saknas = [s.km.saknar > 0 ? saknarKmText(s.km.saknar) : null, s.tid.saknar > 0 ? saknarTidText(s.tid.saknar) : null].filter(Boolean).join(' · ');
-  if (delar.length === 0) {
-    const n = Math.max(s.km.antal, s.tid.antal);
-    return { svar: 'För få flyttar för snitt', under: [n === 0 ? 'ingen flytt att räkna på' : `bara ${plural(n, 'flytt', 'flyttar')}`, saknas].filter(Boolean).join(' · ') };
-  }
-  return { svar: delar.join(' · '), under: ['i snitt, från lastad till lossad', saknas].filter(Boolean).join(' · ') };
+/** Tiden på lastbilen (lastad → lossad) för årets flyttar, i hela minuter; flyttar utan tid räknas inte och sägs. */
+export function tidPaLastbilen(m: Maskin): { min: number; saknar: number } {
+  const med = m.flyttar.filter(f => f.min != null);
+  return { min: med.reduce((s, f) => s + Math.round(f.min as number), 0), saknar: m.flyttar.length - med.length };
 }

@@ -115,9 +115,6 @@ export default function LastbilVy() {
   }, [kvitto]);
   const efterRattning = useCallback(() => { rundorTyst(); enRundaTyst(); faktTyst(); vantarTyst(); }, [rundorTyst, enRundaTyst, faktTyst, vantarTyst]);
   // En rättning i en maskins ark: maskinerna, årets Betalt, rundorna och påminnelsen läses om tyst.
-  const { laddaOmTyst: maskinerTyst } = maskiner;
-  const { laddaOmTyst: faktArTyst } = faktAr;
-  const efterMaskinRattning = useCallback(() => { maskinerTyst(); faktArTyst(); faktTyst(); vantarTyst(); rundorTyst(); }, [maskinerTyst, faktArTyst, faktTyst, vantarTyst, rundorTyst]);
   const arkRunda = iListan ?? (valdRunda && enRunda.lage.lage === 'klar' ? enRunda.lage.rundor.find(r => r.id === valdRunda.id) ?? null : null);
 
   useEffect(() => {
@@ -165,7 +162,7 @@ export default function LastbilVy() {
           <HamtaFlode onAvsluta={efterHamta} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} />
         ) : sida === 'ar' ? (
           <UppfoljningSida ar={ar} onAr={setAr} fakt={arAdmin ? { status: faktAr.status, forsokIgen: faktAr.forsokIgen } : null}
-            vikt={{ lage: vikt.lage, forsokIgen: vikt.forsokIgen }} maskiner={{ lage: maskiner.lage, forsokIgen: maskiner.forsokIgen }} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} onMaskinAndrad={efterMaskinRattning} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
+            vikt={{ lage: vikt.lage, forsokIgen: vikt.forsokIgen }} maskiner={{ lage: maskiner.lage, forsokIgen: maskiner.forsokIgen }} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
             onTillbaka={tillHuvudsidan} onValjManad={valjManadFranAr} />
         ) : sida === 'fakturering' ? (
           <FaktureringSida period={period} onPeriod={setPeriod} status={fakt.status} namn={medarbetare?.namn || 'admin'}
