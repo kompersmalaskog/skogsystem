@@ -1,7 +1,7 @@
 "use client"
 import { underTopbar, medSafeBotten, FARG, TYP, AVSTAND, RADIE, TRAFFYTA, KNAPP, IKON, FONT, RORELSE } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
-import { useState, useEffect, useRef, useMemo, Fragment, Children, Suspense, type CSSProperties, type ReactNode } from 'react'
+import { useState, useEffect, useRef, useMemo, Suspense, type CSSProperties, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { grotHamtadAutomatik, angraGrotHamtadAutomatik } from '@/lib/grot-koppling'
@@ -11,8 +11,7 @@ import SkotareFordelning from './SkotareFordelning'
 import { harNyaFalt, utanNyaFalt } from '@/lib/redigering/avslut'
 import { arRisjobb, arGrotHuvudtyp } from '@/lib/objekt/typ'
 import { sparaFalt, resolveObjektRad, FALT_RUTT } from '@/lib/redigering/objektRouter'
-import { AVTALSFORMER } from '@/lib/trakt/avtalsform'
-import { kravAvtalsform, saknarAvtalsformEllerAtgard } from '@/lib/redigering/avtalsformKrav'
+import { saknarAvtalsformEllerAtgard } from '@/lib/redigering/avtalsformKrav'
 import { medAvtalsformSvar } from '@/lib/avtalsformKolumn'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import DokumentChips from '@/components/DokumentChips'
@@ -38,10 +37,6 @@ import PdfLasare from '@/app/planering/PdfLasare'
 // kompletteras med unika värden ur datan vid inläsning.
 // Inköpare seedas ENBART ur datan (inga hårdkodade namn).
 const STANDARD_BOLAG = ['Vida', 'ATA', 'Privat', 'JGA', 'Rönås', 'Södra']
-// 'Grot' är ett riktigt huvudtyp-värde (inte en uteslutningsklass). Att välja
-// det synkar risskotning-flaggan (arGrotHuvudtyp ⟺ risskotning=true) så typ-
-// regeln kan läsa vilken väg som helst. Se lib/objekt/typ.ts.
-const HUVUDTYPER = ['Slutavverkning', 'Gallring', 'Grot']
 
 // Delade keyframes/klasser — renderas av båda listvyerna (tidigare två
 // identiska inline-kopior)
@@ -81,23 +76,6 @@ const GLOBAL_CSS = `
     .red-ark [data-ark-grepp] { display: none !important; }
   }
 `
-
-// Egenskaper per maskinslag — sheeten visar bara det som är relevant för
-// objektet (styrt av FAKTISK data via useMatchning, aldrig dim_objekt.maskin_id
-// som är opålitlig på delade objekt).
-// OBS Klippning hör till SKOTAREN — energiaggregatet sitter på skotaren.
-const EGENSKAPER_SKORDARE = [
-  { key: 'grot_anpassad', label: 'GROT-anpassad' },
-  { key: 'stubbbehandling', label: 'Stubbbehandling' },
-]
-
-// Risskotning bor INTE längre som en skotar-switch — grot är ett riktigt
-// huvudtyp-värde och sätts via huvudtyp-chippen (som synkar risskotning-
-// flaggan). En enda kontroll, ingen dubbel som kan glida isär.
-const EGENSKAPER_SKOTARE = [
-  { key: 'extra_vagn', label: 'Extra vagn' },
-  { key: 'klippning', label: 'Klippning' },
-]
 
 // === SUPABASE-KOPPLING ===
 // Använder den delade browser-clienten från @/lib/supabase som ärver
@@ -647,233 +625,20 @@ function getWarnings(obj: RObjekt | null | undefined, volym?: { skordat: number;
   return w
 }
 
-// Obligatoriska fält — översiktssidans "Måste fyllas i"-rader + progressrad.
-// target = rad-id på översiktssidan (scroll + flash).
-const KRAV_FALT = [
-  { key: 'huvudtyp', label: 'Huvudtyp', target: 'huvudtyp-section' },
-  { key: 'bolag', label: 'Bolag', target: 'bolag-section' },
-  { key: 'skogsagare', label: 'Markägare', target: 'skogsagare-section' },
-  { key: 'atgard', label: 'Åtgärd', target: 'atgard-section' },
-]
-
 // TYP-REGEL: en enda källa — lib/objekt/typ.ts. Ett objekt är risjobb när
-// risskotning=true ELLER huvudtyp='Grot' (de synkas, se HUVUDTYPER). arRisjobb
+// risskotning=true ELLER huvudtyp='Grot' (de synkas). arRisjobb
 // importeras därifrån; ingen lokal kopia som kan glida isär.
 
 
 
-// "12 maj" ur "YYYY-MM-DD" — fasta namn, ingen locale-överraskning
-const MANADER_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
-
-// "2 av 4 klart — Bolag och åtgärd saknas" (första ordet versalt, resten gemena)
-function progressText(saknas: any[], total: number = KRAV_FALT.length) {
-  if (saknas.length === 0) return 'Alla obligatoriska fält ifyllda'
-  const namn = saknas.map((f: any, i: number) => i === 0 ? f.label : f.label.toLowerCase())
-  const lista = namn.length === 1 ? namn[0] : `${namn.slice(0, -1).join(', ')} och ${namn[namn.length - 1]}`
-  return `${total - saknas.length} av ${total} klart — ${lista} saknas`
-}
-
-
-// Snabbfix för Object_name — slår mot meta_importerade_filer (FPR-filer
-// för objektets maskin_id) och matchar mot dim_objekt.start_date.
-// Samma logik som SQL-fixet:
-//   date(fil_dag) = date(d.start_date)
-//   AND extract(hour from filnamnets klockslag) = extract(hour from d.start_date)
-async function hamtaNamnFranFilnamn(obj: RObjekt | null | undefined) {
-  const maskinId = obj?.maskin_id
-  const startDate = obj?.start_date
-  if (!maskinId) {
-    return { ok: false, message: 'Maskin_id saknas på objektet — fyll i manuellt' }
-  }
-  if (!startDate) {
-    return { ok: false, message: 'Start_date saknas på objektet — fyll i manuellt' }
-  }
-
-  // Parsa "YYYY-MM-DDTHH:MM:SS" eller "YYYY-MM-DD HH:MM:SS[+00]" som naive timestamp.
-  // start_date är timestamp without time zone — vi tar värdet som det är lagrat,
-  // ingen tz-konvertering (motsvarar SQL date()/extract() på naive timestamp).
-  const sd = String(startDate).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/)
-  if (!sd) {
-    return { ok: false, message: 'Kunde inte tolka start_date — fyll i manuellt' }
-  }
-  const [, yyyy, mm, dd, hh] = sd
-  const startDDMMYY = `${dd}${mm}${yyyy.slice(2)}`
-  const startHour = parseInt(hh, 10)
-
-  let rows = []
-  try {
-    const { data, error } = await supabase
-      .from('meta_importerade_filer')
-      .select('filnamn')
-      .eq('maskin_id', maskinId)
-      .eq('filtyp', 'FPR')
-      .eq('status', 'OK')
-    if (error) return { ok: false, message: `Kunde inte ansluta: ${error.message}` }
-    rows = data || []
-  } catch {
-    return { ok: false, message: 'Kunde inte ansluta — försök igen' }
-  }
-
-  // Filnamnsmönster: "Skogsnamn_Mark-DDMMYY-HHMMSS.fpr"
-  const re = /^(.+)-(\d{6})-(\d{6})\.fpr$/i
-  const matches = []
-  for (const r of rows) {
-    const m = (r.filnamn || '').match(re)
-    if (!m) continue
-    const ddmmyy = m[2]
-    const hhmmss = m[3]
-    const fileHour = parseInt(hhmmss.slice(0, 2), 10)
-    if (ddmmyy === startDDMMYY && fileHour === startHour) {
-      matches.push(m[1].replace(/_/g, ' ').trim())
-    }
-  }
-
-  const unika = Array.from(new Set(matches)).filter(Boolean)
-  if (unika.length === 0) return { ok: false, message: 'Ingen FPR-fil matchade datum + timme — fyll i manuellt' }
-  if (unika.length > 1) return { ok: false, message: 'Flera olika namn matchade — fyll i manuellt' }
-  return { ok: true, name: unika[0] }
-}
 
 // Musens och pekskärmens händelser har olika fält för Y-läget; getY läser det som finns.
 type PekarHandelse = { clientY?: number; touches?: ArrayLike<{ clientY: number }>; changedTouches?: ArrayLike<{ clientY: number }> }
 
 
 
-// Chip with hover
-function Chip({ label, selected, onClick, editMode, onDelete }: { label: string; selected: boolean; onClick: () => void; editMode: boolean; onDelete: () => void }) {
-  const [hover, setHover] = useState(false)
-  
-  return (
-    <div 
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        ...styles.chip,
-        background: selected ? 'rgba(173,198,255,0.2)' : hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
-        borderColor: selected ? 'rgba(173,198,255,0.4)' : hover ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)',
-        color: '#fff',
-        transform: hover ? 'scale(1.03)' : 'scale(1)',
-        boxShadow: hover && !selected ? '0 0 15px rgba(255,255,255,0.1)' : selected ? '0 0 15px rgba(173,198,255,0.3)' : 'none'
-      }}
-    >
-      <span>{label}</span>
-      {editMode && <button onClick={(e) => { e.stopPropagation(); onDelete() }} style={styles.chipDelete}>✕</button>}
-    </div>
-  )
-}
 
 
-
-
-// DateToggle (för avslut-datum)
-function DateToggle({ label, date, onToggle, onDateChange }: { label: string; date: string | null | undefined; onToggle: (v: string | null) => void; onDateChange: (v: string | null) => void }) {
-  const [bounce, setBounce] = useState(false)
-  const [hover, setHover] = useState(false)
-  const [textInput, setTextInput] = useState('')
-  const active = !!date
-  const activeColor = '#adc6ff'
-  const activeBg = 'rgba(173,198,255,0.10)'
-  const activeBorder = 'rgba(173,198,255,0.30)'
-
-  const handleTextSave = () => {
-    if (!textInput.trim()) return
-    const t = textInput.trim()
-    let parsed = null
-    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) parsed = t
-    else if (/^\d{2}[\/\-]\d{2}[\/\-]\d{4}$/.test(t)) {
-      const parts = t.split(/[\/\-]/)
-      parsed = `${parts[2]}-${parts[1]}-${parts[0]}`
-    } else if (/^\d{8}$/.test(t)) {
-      parsed = `${t.slice(0,4)}-${t.slice(4,6)}-${t.slice(6,8)}`
-    }
-    if (parsed && !isNaN(new Date(parsed).getTime())) {
-      onDateChange(parsed)
-      setTextInput('')
-    }
-  }
-
-  const handleClick = () => {
-    setBounce(true)
-    setTimeout(() => setBounce(false), 300)
-    if (active) {
-      onToggle(null)
-    } else {
-      onToggle(new Date().toISOString().split('T')[0])
-    }
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div 
-        onClick={handleClick}
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
-        style={{
-          ...styles.switchRow,
-          background: active ? activeBg : hover ? 'rgba(255,255,255,0.03)' : 'transparent',
-          borderColor: active ? activeBorder : hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
-          transform: hover ? 'scale(1.01)' : 'scale(1)',
-          boxShadow: active ? `0 0 20px ${activeColor}20` : 'none'
-        }}
-      >
-        <div style={styles.switchLeft}>
-          <span style={{ fontSize: 15, fontWeight: 500, color: active ? '#fff' : 'rgba(255,255,255,0.5)', transition: 'color 0.2s ease' }}>{label}</span>
-        </div>
-        <div style={{
-          ...styles.switch,
-          background: active ? activeColor : 'rgba(255,255,255,0.15)',
-          boxShadow: active ? `0 0 20px ${activeColor}90` : 'none',
-          transform: bounce ? 'scale(1.1)' : 'scale(1)',
-          transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)'
-        }}>
-          <div style={{ ...styles.switchKnob, transform: active ? 'translateX(20px)' : 'translateX(0)' }} />
-        </div>
-      </div>
-      {active && (
-        <div style={{ 
-          display: 'flex', alignItems: 'center', gap: 8, 
-          padding: '10px 16px', marginLeft: 8, marginRight: 8,
-          borderRadius: 12, background: 'rgba(173,198,255,0.08)', 
-          border: '1px solid rgba(173,198,255,0.2)',
-          animation: 'fadeIn 0.2s ease'
-        }}>
-          <input 
-            type="date" 
-            value={date || ''} 
-            onChange={(e) => onDateChange(e.target.value)}
-            style={{
-              flex: 1, padding: '8px 10px', borderRadius: 8,
-              border: '1px solid rgba(173,198,255,0.3)', background: 'rgba(0,0,0,0.3)',
-              color: '#fff', fontSize: 14, outline: 'none',
-              colorScheme: 'dark'
-            }}
-          />
-          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>eller</span>
-          <input 
-            type="text" 
-            value={textInput} 
-            onChange={(e) => setTextInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleTextSave() }}
-            placeholder=""
-            style={{
-              width: 110, padding: '8px 10px', borderRadius: 8,
-              border: '1px solid rgba(173,198,255,0.3)', background: 'rgba(0,0,0,0.3)',
-              color: '#fff', fontSize: 14, outline: 'none'
-            }}
-          />
-          {textInput.trim() && (
-            <button onClick={handleTextSave}
-              style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: '#adc6ff', color: '#000',
-                fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              OK
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
 
 
 
@@ -1090,23 +855,6 @@ function EditSheet({ open, onClose, onBack, title, subtitel, footer, contentKey,
 
 
 
-// Rad i "Mer om objektet" — navigerar till en undersida i sheeten
-function NavRad({ label, summary, warn, onClick }: any) {
-  const [hover, setHover] = useState(false)
-  return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{ ...styles.kravRad, background: hover ? 'rgba(255,255,255,0.03)' : 'transparent' }}
-    >
-      <span style={styles.directRowLabel}>{label}</span>
-      <span style={{ ...styles.navSummary, ...(warn ? styles.navSummaryWarn : {}) } as any}>{summary}</span>
-      <span style={styles.navPil}>›</span>
-    </div>
-  )
-}
-
 
 
 // Färdigskotat: skotad volym = skördad (på risjobb: riset som kördes ut). EN funktion för det gamla arkets knapp och
@@ -1204,26 +952,7 @@ const STATUS_VAL = [
   { varde: 'avslutat', label: 'Avslutat' },
 ]
 
-const fmtM3 = (n: any) => (Number(n) || 0).toLocaleString('sv-SE', { maximumFractionDigits: 1 })
 
-// GROT-statusens skarpa värden (objekt.grot_status) — de som förarflödet/översikten sätter.
-const GROT_STATUS_VAL = [
-  { varde: 'ej_aktuellt', label: 'Ej aktuellt' },
-  { varde: 'skotat', label: 'Skotat' },
-  { varde: 'bortkord', label: 'Bortkörd' },
-  { varde: 'flisad', label: 'Flisad' },
-]
-
-
-// ── Etapp 1b: direktsparande rader för trakt-fälten (objekt-tabellen) ──
-// Alla tar `disabled` = objekt-rad saknas → visar "kräver trakt-import" i
-// stället för kontrollen. Aldrig tyst misslyckande; ingen rad skapas (Etapp 0).
-const PLAN_INPUT = { flex: 1, maxWidth: '62%', minHeight: 36, borderRadius: 8, background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', fontSize: 14, fontFamily: 'inherit', padding: '0 8px', textAlign: 'right' } as any
-const TRAKT_IMPORT_KRAVS = <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>kräver trakt-import</span>
-
-
-// Är värdet en avtalsform (Au/Rp/LRK/VF/Bark)? Äldre rader har dem i åtgärden; de ska inte erbjudas som åtgärd.
-const arAvtalsformVarde = (v: any) => AVTALSFORMER.some(a => a.toLowerCase() === String(v ?? '').trim().toLowerCase())
 
 
 
@@ -1762,57 +1491,6 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
   )
 }
 
-// Objektnamn ur HPR-filnamnet — två kända mönster, null när filen är namnlös
-// (Ponsse skriver ibland bara maskinid+tidsstämpel):
-//   Ponsse: "Namn_MASKINID_ÅÅÅÅMMDDHHMMSS.hpr"
-//   Rottne: "Namn ÅÅÅÅ-MM-DD[ HHMM].hpr"
-function namnUrHprFilnamn(filnamn: string, maskinId: string): string | null {
-  const f = String(filnamn || '')
-  const ponsse = f.match(/^(.+)_[A-Za-z0-9]+_\d{14}\.hpr$/i)
-  if (ponsse && ponsse[1].toLowerCase() !== maskinId.toLowerCase()) return ponsse[1]
-  const rottne = f.match(/^(.+?)\s+\d{4}-\d{2}-\d{2}(\s+\d{4})?\.hpr$/i)
-  if (rottne) return rottne[1]
-  if (f.toLowerCase().startsWith(maskinId.toLowerCase())) return null
-  return f.replace(/\.hpr$/i, '') || null
-}
-
-// Jobb med maskindata men utan objekt: hpr_filer vars VO (ur objekt_nyckel
-// "maskin:vo", #78) inte matchar något dim_objekt.vo_nummer. Två hinkar:
-// - larm: riktiga VO:n -> objektet saknas, ska kunna skapas
-// - smajobb: Ponsses interna k-nummer (k63, k76 …) -> småjobb utan riktigt
-//   VO, ingen åtgärd krävs, bara synliga bakom en nedtonad rad
-function analyseraOkopplade(hprFiler: any[], objekt: any[]) {
-  // Träff på BÅDE vo_nummer och objekt_id: när importen (eller Koppla-flödet)
-  // skapat en rad vars objekt_id ÄR maskinens jobbnummer har jobbet ett
-  // objekt — även om radens vo_nummer är ett annat (P-VO/riktigt VO).
-  // Utan detta larmar redan-kopplade jobb för evigt (falsklarm).
-  const kandaId = new Set(objekt.map((o: any) => o.objekt_id).filter(Boolean))
-  const voSet = new Set(objekt.map((o: any) => o.vo_nummer).filter(Boolean))
-  const perNyckel = new Map<string, any>()
-  hprFiler.forEach((f: any) => {
-    const nyckel = f.objekt_nyckel || ''
-    const i = nyckel.indexOf(':')
-    if (i <= 0) return
-    const maskinId = nyckel.slice(0, i)
-    const vo = nyckel.slice(i + 1)
-    if (!vo || voSet.has(vo) || kandaId.has(vo)) return
-    const prev = perNyckel.get(nyckel)
-    if (!prev || (f.stammar_count || 0) > prev.stammar) {
-      perNyckel.set(nyckel, { nyckel, maskinId, vo, stammar: f.stammar_count || 0, filnamn: f.filnamn || '' })
-    }
-  })
-  const larm: any[] = []
-  const smajobb: any[] = []
-  perNyckel.forEach(j => {
-    const jobb = { ...j, namn: namnUrHprFilnamn(j.filnamn, j.maskinId) }
-    if (/^k\d+$/i.test(j.vo)) smajobb.push(jobb)
-    else larm.push(jobb)
-  })
-  larm.sort((a, b) => b.stammar - a.stammar)
-  smajobb.sort((a, b) => b.stammar - a.stammar)
-  return { larm, smajobb }
-}
-
 
 
 
@@ -1826,9 +1504,6 @@ export default function ObjektRedigering() {
 function ObjektRedigeringInner() {
   const [objektRa, setObjekt] = useState<any[]>([])
   const [maskiner, setMaskiner] = useState<Record<string, any>>({})
-  // Aktiva skotare (aktiv_till IS NULL) för inline-tilldelning i listan. SÅLDA
-  // maskiner ska ALDRIG vara valbara (Akelius-på-sålda-Elefant-buggen).
-  const [aktivaSkotare, setAktivaSkotare] = useState<{ id: string; namn: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [bolag, setBolag] = useState(STANDARD_BOLAG)
@@ -1851,19 +1526,10 @@ function ObjektRedigeringInner() {
   )
   const objekt = useMemo(() => medVoGrupp(objektRa, voKarta), [objektRa, voKarta])
   const sokParams = useSearchParams()
-  const [hprFiler, setHprFiler] = useState<any[]>([])
-  const [hprStatus, setHprStatus] = useState<'laddar' | 'fel' | 'ok'>('laddar')
-  const [maskinTyper, setMaskinTyper] = useState<Record<string, string | null>>({})
-  const [visaSmajobb, setVisaSmajobb] = useState(false)
   // Berikning (volym, senaste aktivitet, maskintyp) per objekt_id
   const matchning = useMatchning()
   // Fildata per objekt (kortprickar + Filer-undersidan)
   const fildata = useFildata()
-  // Prickar räknas över hela VO-gruppen — syskonradernas filer hör till objektet
-  const filRaderGrupp = (obj: any) => fildata.status === 'ok'
-    ? slaIhopFildata(syskonRader(objekt, obj).map((o: any) => fildata.perObjekt.get(o.objekt_id)))
-    : undefined
-
   // Val-listorna (bolag/inköpare) förvaltas i sina tabeller — lägg till/
   // ta bort påverkar BARA listan, aldrig objekt som redan har värdet satt.
   // Ärlig sparning: 0 träffade rader visas som fel.
@@ -1890,39 +1556,6 @@ function ObjektRedigeringInner() {
     onRemoveInkopare: (n: string) => taBortUrVallista('inkopare', n, setInkopare),
   }
 
-  // Aktiva forwarders för inline-väljaren — aktiv_till IS NULL + bekräftad.
-  useEffect(() => {
-    let av = false
-    ;(async () => {
-      const { data } = await supabase
-        .from('dim_maskin')
-        .select('maskin_id, visningsnamn, modell, maskin_typ, aktiv_till, bekraftad')
-        .is('aktiv_till', null).eq('bekraftad', true)
-      if (av) return
-      const sk = (data || [])
-        .filter((m: any) => { const t = (m.maskin_typ || '').toLowerCase(); return t.includes('forward') || t.includes('skot') })
-        .map((m: any) => ({ id: m.maskin_id, namn: (m.visningsnamn && String(m.visningsnamn).trim()) || m.modell || m.maskin_id }))
-      setAktivaSkotare(sk)
-    })()
-    return () => { av = true }
-  }, [])
-
-  // Generisk inline-patch av dim_objekt-fält direkt från listan (utan att öppna
-  // objektet), över hela VO-gruppen. Verifierad save: läser tillbaka VÄRDET på
-  // varje patchat fält (inte bara radantal) — samma ärlighet som #222/#475.
-  const patchGrupp = async (ids: string[], patch: Record<string, any>) => {
-    const kolumner = ['objekt_id', ...Object.keys(patch)].join(',')
-    const { data, error } = await supabase
-      .from('dim_objekt').update(patch).in('objekt_id', ids).select(kolumner)
-    if (error) { setSaveError('Kunde inte spara: ' + error.message); setTimeout(() => setSaveError(''), 6000); return }
-    const rader = (data || []) as any[]
-    const lika = (a: any, b: any) => (a ?? null) === (b ?? null)
-    if (rader.length !== ids.length || rader.some(r => Object.keys(patch).some(k => !lika(r[k], patch[k])))) {
-      setSaveError('Ändringen landade inte — ladda om och försök igen'); setTimeout(() => setSaveError(''), 6000); return
-    }
-    setObjekt(prev => prev.map(o => ids.includes(o.objekt_id) ? { ...o, ...patch } : o))
-  }
-  const tilldelaSkotareInline = (ids: string[], mid: string | null) => patchGrupp(ids, { tilldelad_skotare: mid })
 
   const openObjekt = (obj: any) => setRedigerObj(obj)
 
@@ -1944,9 +1577,8 @@ function ObjektRedigeringInner() {
     Promise.all([
       hamtaObjektFranSupabase(),
       hamtaMaskinerFranSupabase(),
-      supabase.from('hpr_filer').select('objekt_nyckel, filnamn, stammar_count'),
     ])
-      .then(async ([objektData, maskinData, hprRes]) => {
+      .then(async ([objektData, maskinData]) => {
         // Skapa lookup-objekt för maskiner: { maskin_id: modell }
         const maskinLookup: Record<string, string> = {}
         const maskinTypMap: Record<string, string | null> = {}
@@ -1958,11 +1590,6 @@ function ObjektRedigeringInner() {
         const berikade = (objektData || []).map(o => ({ ...o, maskin_typ: maskinTypMap[o.maskin_id] || null }))
         setObjekt(berikade)
         setMaskiner(maskinLookup)
-        setMaskinTyper(maskinTypMap)
-        // Ärligt läge: kan hpr_filer inte läsas ska larmsektionen säga det,
-        // inte se ut som "inga okopplade jobb"
-        if (hprRes.error) { setHprStatus('fel'); setHprFiler([]) }
-        else { setHprStatus('ok'); setHprFiler(hprRes.data || []) }
         // Val-listorna bor i bolag/inkopare-tabellerna (persistent förvaltning:
         // Hantera-läget kan ta bort, nya chips läggs till). Tomma tabeller
         // seedas EN gång från standard + unika värden i datan. Kan tabellen
@@ -2010,77 +1637,11 @@ function ObjektRedigeringInner() {
   const aktivaGrupper = allaGrupper.filter(g => g.rader.some((o: any) => o.exkludera !== true))
   const exkluderadeGrupper = allaGrupper.filter(g => g.rader.every((o: any) => o.exkludera === true))
 
-  const gruppSenaste = (g: any) => g.rader.reduce((max: string, o: any) => {
-    const d = kortInfo[o.objekt_id]?.senasteAktivitet || ''
-    return d > max ? d : max
-  }, '')
-  const gruppKortInfo = (g: any) => ({
-    senasteAktivitet: gruppSenaste(g) || null,
-    skordatM3: g.rader.reduce((s: number, o: any) => s + (kortInfo[o.objekt_id]?.skordatM3 || 0), 0),
-    skotatM3: g.rader.reduce((s: number, o: any) => s + (kortInfo[o.objekt_id]?.skotatM3 || 0), 0),
-  })
 
   // Berikningsinfo per objekt_id (från useMatchning — kan saknas medan den laddar)
   const kortInfo: Record<string, any> = {}
   ;[...matchning.omatchadeMaskin, ...matchning.matchade.map(p => p.maskin)]
     .forEach(k => { kortInfo[k.objektId] = k })
-
-  // PÅGÅENDE — det som körs just nu, färskast datadatum överst så det
-  // Martin jobbar med idag ligger först. Grupper utan data hamnar sist.
-  const pagaende = aktivaGrupper
-    .filter(arPagaende)
-    .sort((a, b) => (gruppSenasteData(b, fildata) || '').localeCompare(gruppSenasteData(a, fildata) || ''))
-
-  // Ignorera = exkludera HELA VO-gruppen (annars ligger syskonraden kvar i
-  // listan). Ärlig sparning enligt #222-mönstret: räkna rader OCH läs
-  // tillbaka värdet.
-  async function ignoreraGrupp(g: any) {
-    setSaveError('')
-    const ids = g.rader.map((o: any) => o.objekt_id)
-    const { data, error: err } = await supabase
-      .from('dim_objekt')
-      .update({ exkludera: true })
-      .in('objekt_id', ids)
-      .select('objekt_id, exkludera')
-    if (err || !data || data.length !== ids.length || (data as any[]).some(r => r.exkludera !== true)) {
-      setSaveError('Kunde inte ignorera — inget eller bara delvis sparat')
-      setTimeout(() => setSaveError(''), 6000)
-      return
-    }
-    setObjekt(objekt.map(o => ids.includes(o.objekt_id) ? { ...o, exkludera: true } : o))
-  }
-
-  // Okopplade jobb räknas mot AKTUELL objektlista — när ett objekt skapas
-  // med jobbets VO försvinner larmet av sig självt (samma vo-koppling som
-  // resten av systemet använder)
-  const okopplade = analyseraOkopplade(hprFiler, objekt)
-
-  // Själva kopplingen (delas av larmraden och Behöver dig-arket). null = inget sparades (felet visas).
-  async function kopplaJobbKarna(jobb: any, mal: any): Promise<any | null> {
-    const rad = {
-      objekt_id: jobb.vo,
-      vo_nummer: mal.vo_nummer,
-      object_name: mal.object_name,
-      maskin_id: jobb.maskinId,
-      skogsagare: mal.skogsagare ?? null,
-      bolag: mal.bolag ?? null,
-      inkopare: mal.inkopare ?? null,
-      huvudtyp: mal.huvudtyp ?? null,
-      atgard: mal.atgard ?? null,
-      grot_anpassad: mal.grot_anpassad === true,
-      timpeng: mal.timpeng === true,
-      exkludera: mal.exkludera === true,
-    }
-    const { data, error: err } = await supabase.from('dim_objekt').insert(rad).select('*')
-    if (err || !data || data.length === 0) {
-      setSaveError('Kunde inte koppla — inget sparades')
-      setTimeout(() => setSaveError(''), 6000)
-      return null
-    }
-    const ny = { ...data[0], maskin_typ: maskinTyper[jobb.maskinId] || null }
-    setObjekt((prev: any[]) => [...prev, ny])
-    return ny
-  }
 
   // BEHÖVER DIG — det enda vyn frågar om (lib/redigering/behoverDig.ts). Fältsvar sparas över hela VO-gruppen
   // via sparaFalt (dim + objekt-spegeln, värdet läses tillbaka), samma väg som objektets ark.
@@ -2301,12 +1862,6 @@ function ObjektRedigeringInner() {
 const styles: Record<string, CSSProperties> = {
   container: { position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0, background: FARG.bg, fontFamily: FONT, color: FARG.text, padding: `${AVSTAND.l}px ${AVSTAND.sidmarginal}px ${AVSTAND.xxl * 3}px`, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' },
   saveErrorToast: { position: 'fixed', bottom: AVSTAND.xxl * 4, left: '50%', transform: 'translateX(-50%)', background: FARG.upphojt, color: FARG.rod, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.knapp, ...TYP.meta, fontFamily: 'inherit', zIndex: 250, animation: `fadeIn ${RORELSE.byte}ms ease`, maxWidth: '90%', textAlign: 'center' },
-  // Rad i "Måste fyllas i"/"Mer om objektet" — iOS Settings-stil
-  kravRad: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', minHeight: 56, cursor: 'pointer', transition: 'background 0.15s ease' },
-  navSummary: { fontSize: 14, color: 'rgba(255,255,255,0.5)', textAlign: 'right', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  navSummaryWarn: { color: '#FF9F0A', fontWeight: 600 },
-  navPil: { fontSize: 20, color: 'rgba(255,255,255,0.25)', flexShrink: 0, lineHeight: 1 },
-  directRowLabel: { fontSize: 15, fontWeight: 500, color: 'rgba(255,255,255,0.85)', flexShrink: 0 },
 
 
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100 },
@@ -2318,10 +1873,5 @@ const styles: Record<string, CSSProperties> = {
   scrollFade: { position: 'absolute', top: AVSTAND.xxl * 2, left: 0, right: 0, height: AVSTAND.xl, background: `linear-gradient(to bottom, ${FARG.kort}, transparent)`, zIndex: 1, pointerEvents: 'none', transition: `opacity ${RORELSE.tryck}ms ease` },
   sheetContent: { flex: 1, overflowY: 'auto', padding: `${AVSTAND.s}px ${AVSTAND.l}px ${medSafeBotten(AVSTAND.xl)}` },
   sheetFooter: { padding: `${AVSTAND.m}px ${AVSTAND.l}px ${medSafeBotten(AVSTAND.l)}` },
-  chip: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 12, border: '1px solid', fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s ease' },
-  chipDelete: { background: 'rgba(255,69,58,0.18)', border: 'none', color: '#FF453A', fontSize: 14, width: 32, height: 32, borderRadius: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  switchRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 14, border: '1px solid', cursor: 'pointer', transition: 'all 0.2s ease' },
-  switchLeft: { display: 'flex', alignItems: 'center', gap: 14 },
-  switch: { width: 50, height: 30, borderRadius: 15, padding: 3, transition: 'all 0.2s ease' },
   switchKnob: { width: 24, height: 24, borderRadius: 12, background: '#fff', transition: 'transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)', boxShadow: '0 2px 4px rgba(0,0,0,0.3)' }
 }
