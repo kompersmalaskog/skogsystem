@@ -252,3 +252,90 @@ describe('fel — kraschar aldrig, och fel göms inte', () => {
     expect(r).toMatchObject({ ok: true, vin: null, nya: 0 });
   });
 });
+
+// ── Skotarnas egna lossningspositioner (skotar_lass_del) ──────────────────────────────────────────
+// Lastplats 56,400 / 15,000 (Östra-Hoka), lossplats 56,500 / 15,100 (Bågskyttebanan). 757 m norr om lastplatsen = +0,00681° lat.
+describe('koraLassdetektering — skotarpositioner som bevis', () => {
+  const NORR_757 = { lat: 56.40681, lng: 15.0 };
+  const del = (maskin_id: string, min: number, p: { lat: number; lng: number }, status = 'bekraftat') =>
+    ({ lass_id: `l-${maskin_id}-${min}`, del_nr: 1, lossad_tid: iso(min), lat: p.lat, lng: p.lng, skotar_lass: { maskin_id, status } });
+  const mkDb = () => {
+    const d = db();
+    d.rader('dim_maskin').push({ maskin_id: 'A030353', aktiv_till: null });
+    return d;
+  };
+  const lassRad = (d: FakeDb) => d.rader('lastbil_lass')[0] as any;
+
+  it('22 okt: Wisents sista lass 757 m från lastplatsen → Troligen; Elefant 42 km bort → utesluten; ingen flytt av sig själv', async () => {
+    const d = mkDb();
+    d.rader('skotar_lass_del').push(del('A030353', -60, NORR_757), del('A130743', -50, { lat: 56.78, lng: 15.0 }));
+    const r = await koraLassdetektering(d, NU_SENT);
+    expect(r.fel).toEqual([]);
+    expect(r).toMatchObject({ nya: 1, auto: 0, vantar: 1 });
+    expect(lassRad(d)).toMatchObject({ forslag_maskin_id: 'A030353', sakerhet: 'medel', status: 'vantar_maskin', status_orsak: 'sakerhet' });
+    const kand = lassRad(d).kandidater as any[];
+    expect(kand.find(k => k.maskin_id === 'A030353').skal).toEqual([expect.objectContaining({ kod: 'skotar_avgang', avstandM: 757, kl: '07:00' })]);
+    expect(kand.find(k => k.maskin_id === 'A130743')).toMatchObject({ utesluten: true, skal: [expect.objectContaining({ kod: 'skotar_langt', nar: 'fore' })] });
+    expect(d.anrop.rpc.filter(x => x.namn === 'skapa_flytt_ur_lass')).toHaveLength(0);
+  });
+
+  it('EN fråga mot skotar_lass_del, med inbäddad maskin och status — och bara med service-klienten (ingen ny tabell, ingen RPC)', async () => {
+    const d = mkDb();
+    await koraLassdetektering(d, NU_SENT);
+    expect(d.anrop.tabeller.filter(t => t === 'skotar_lass_del')).toHaveLength(1);
+    expect(d.anrop.rpc.map(x => x.namn).filter(n => n.includes('skotar'))).toEqual([]);
+  });
+
+  it('avgång OCH ankomst vid en trakt → Hög: flytten skapas av sig själv', async () => {
+    const d = mkDb();
+    d.rader('skotar_lass_del').push(del('A030353', -60, NORR_757), del('A030353', 75 + 60, { lat: 56.5003, lng: 15.1003 }));
+    const r = await koraLassdetektering(d, NU_SENT);
+    expect(r).toMatchObject({ nya: 1, auto: 1, vantar: 0 });
+    expect(d.anrop.rpc.find(x => x.namn === 'skapa_flytt_ur_lass')?.args).toMatchObject({ p_maskin_id: 'A030353', p_av: 'auto' });
+    expect(lassRad(d)).toMatchObject({ sakerhet: 'hog', forslag_maskin_id: 'A030353' });
+  });
+
+  it('lossning vid LBC (verkstad): ingen ankomst, aldrig Hög av skotarpositioner — frågan med förval', async () => {
+    const d = mkDb();
+    d.tabeller.objekt = d.rader('objekt').filter(o => o.id !== 'o-bagsk');
+    d.rader('flyttplats').push({ id: 'p-lbc', namn: 'LBC', typ: 'verkstad', aktiv: true, lat: 56.5002, lng: 15.1002 });
+    d.rader('skotar_lass_del').push(del('A030353', -60, NORR_757), del('A030353', 75 + 60, { lat: 56.5003, lng: 15.1003 }));
+    const r = await koraLassdetektering(d, NU_SENT);
+    expect(r).toMatchObject({ nya: 1, auto: 0, vantar: 1 });
+    expect(lassRad(d)).toMatchObject({ till_namn: 'LBC', forslag_maskin_id: 'A030353', sakerhet: 'medel' });
+    expect((lassRad(d).kandidater as any[]).find(k => k.maskin_id === 'A030353').skal.map((s: any) => s.kod)).toEqual(['skotar_avgang']);
+  });
+
+  it('kvar-position (lossning vid lastplatsen medan bilen är på väg) → utesluten', async () => {
+    const d = mkDb();
+    d.rader('skotar_lass_del').push(del('A030353', -60, NORR_757), del('A030353', 60, { lat: 56.4012, lng: 15.0 }));
+    await koraLassdetektering(d, NU_SENT);
+    const w = (lassRad(d).kandidater as any[]).find(k => k.maskin_id === 'A030353');
+    expect(w).toMatchObject({ utesluten: true, poang: 0 });
+    expect(w.skal.map((s: any) => s.kod)).toContain('skotar_kvar');
+    expect(lassRad(d).forslag_maskin_id).toBeNull();
+  });
+
+  it('ett STRUKET lass ignoreras: Elefant utesluts inte av en struken lossning 42 km bort', async () => {
+    const d = mkDb();
+    d.rader('skotar_lass_del').push(del('A130743', -50, { lat: 56.78, lng: 15.0 }, 'struket'));
+    await koraLassdetektering(d, NU_SENT);
+    const e = (lassRad(d).kandidater as any[]).find(k => k.maskin_id === 'A130743');
+    expect(e).toMatchObject({ utesluten: false, skal: [] });
+  });
+
+  it('SAKNADE positioner: inget skäl och ingen uteslutning åt något håll', async () => {
+    const d = mkDb();
+    await koraLassdetektering(d, NU_SENT);
+    expect((lassRad(d).kandidater as any[]).every(k => k.skal.length === 0 && !k.utesluten)).toBe(true);
+    expect(lassRad(d)).toMatchObject({ forslag_maskin_id: null, sakerhet: 'okand' });
+  });
+
+  it('ett läsfel på skotar_lass_del är ett bevis mindre (och syns i rapporten), inte ett skäl åt något håll', async () => {
+    const d = mkDb();
+    d.lasFel.skotar_lass_del = 'timeout';
+    const r = await koraLassdetektering(d, NU_SENT);
+    expect(r.fel.some(f => f.startsWith('skotar_lass_del'))).toBe(true);
+    expect(lassRad(d).sakerhet).toBe('okand');
+  });
+});
