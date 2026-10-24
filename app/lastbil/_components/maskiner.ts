@@ -173,41 +173,6 @@ export const MELLANRUM = { ett: 'mellanrum', flera: 'mellanrum', ingen: 'inget m
 export const saknarKmText = (n: number) => `${plural(n, 'flytt', 'flyttar')} saknar km`;
 export const saknarTidText = (n: number) => `${plural(n, 'flytt', 'flyttar')} saknar tid`;
 
-// ── Svaren i maskinens ark (Martin 2026-10-24: "så ett barn förstår") ─────────────────────────────────────────────
-// Arket ställer tre frågor och svarar i ord först: Var är den nu? Hur ofta flyttas den? Hur lång är en flytt?
-// Regeln om snitt gäller fortfarande (MIN_FLYTTAR_SNITT): för få flyttar ger inget tal, och det sägs.
-
-/** "Var är Giant nu?" → plats + "sedan 18 dagar". Null för andras maskiner, utan flyttar, eller när Till saknas. */
-export function varArDen(m: Maskin, nu: Date): { plats: string; sedan: string } | null {
-  if (m.extern || m.flyttar.length === 0) return null;
-  const sista = m.flyttar[0];
-  const d = dagarSedan(sista.lossad, nu);
-  if (d == null || !sista.tillNamn) return null;
-  return { plats: sista.tillNamn, sedan: `sedan ${d === 0 ? 'idag' : d === 1 ? '1 dag' : `${d} dagar`}` };
-}
-
-/** "Hur ofta flyttas den?" → "18 gånger i år" + "Står ungefär 4 dagar på varje trakt" (bara med snitt; annars sägs varför). */
-export function hurOfta(m: Maskin, s: MaskinSammanfattning, ar: number, innevarandeAr: boolean): { svar: string; under: string | null } {
-  const svar = `${m.antal} ${m.antal === 1 ? 'gång' : 'gånger'} ${innevarandeAr ? 'i år' : `i ${ar}`}`;
-  if (!s.trakt) return { svar, under: null };
-  if (s.trakt.snitt != null) {
-    const d = Math.max(1, Math.round(s.trakt.snitt));
-    return { svar, under: `Står ungefär ${d} ${d === 1 ? 'dag' : 'dagar'} på varje trakt` };
-  }
-  return { svar, under: s.trakt.antal === 0 ? null : 'För få flyttar för att säga hur länge den står på en trakt' };
-}
-
-/** "Hur lång är en flytt?" → "24 km · 55 min" + "i snitt, från lastad till lossad". Saknade värden sägs, aldrig 0. */
-export function hurLang(s: MaskinSammanfattning, fmtMin: (min: number) => string): { svar: string; under: string } {
-  const delar = [s.km.snitt != null ? `${Math.round(s.km.snitt).toLocaleString('sv-SE')} km` : null, s.tid.snitt != null ? fmtMin(s.tid.snitt) : null].filter(Boolean) as string[];
-  const saknas = [s.km.saknar > 0 ? saknarKmText(s.km.saknar) : null, s.tid.saknar > 0 ? saknarTidText(s.tid.saknar) : null].filter(Boolean).join(' · ');
-  if (delar.length === 0) {
-    const n = Math.max(s.km.antal, s.tid.antal);
-    return { svar: 'För få flyttar för snitt', under: [n === 0 ? 'ingen flytt att räkna på' : `bara ${plural(n, 'flytt', 'flyttar')}`, saknas].filter(Boolean).join(' · ') };
-  }
-  return { svar: delar.join(' · '), under: ['i snitt, från lastad till lossad', saknas].filter(Boolean).join(' · ') };
-}
-
 // ── Sammanställningen per maskin (Martin 2026-10-24: "hur många flyttar varje maskin gjort varje månad, och vad tiden tar") ──
 
 const MANAD_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
