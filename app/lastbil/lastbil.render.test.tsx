@@ -1832,17 +1832,33 @@ const norm = (t: string | null | undefined) => (t ?? "").replace(/chevron_right/
 describe("Uppföljning: Maskiner", () => {
   beforeEach(() => { mock.flyttar = maskinRader(); });
 
-  it("står under månadslistan med rubriken Maskiner, en rad per maskin, flest flyttar först", async () => {
+  it("står under månadslistan: ett kort per maskin, flest flyttar först, med tiden på lastbilen och en stapel per månad", async () => {
     await montera();
     await tillAr();
     const sek = maskinerSek();
-    expect(sek.querySelector("h3")!.textContent).toBe("Vilka maskiner flyttades?");
+    expect(sek.querySelector("h3")!.textContent).toBe("Hur mycket flyttades varje maskin?");
     const manader = arsSida()!.querySelector('section[aria-label="Månader"]')!;
     expect(!!(manader.compareDocumentPosition(sek) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
-    const rader = Array.from(sek.querySelectorAll("button")).map(b => norm(b.textContent));
-    expect(rader).toEqual([
-      "Giant11 flyttar249 km", "Elefant 264 flyttar143 km", "Wisent2 flyttar54 km", "810E1 flytt31 km", "R644281 flytt16 km",
-    ]);
+    const kort = Array.from(sek.querySelectorAll<HTMLElement>("[data-maskin-kort]"));
+    expect(kort.map(k => k.getAttribute("aria-label"))).toEqual(["Visa Giant", "Visa Elefant 26", "Visa Wisent", "Visa 810E", "Visa R64428"]);
+    expect(kort.map(k => k.querySelector("[data-maskin-kort-antal]")!.textContent)).toEqual(["11 flyttar", "4 flyttar", "2 flyttar", "1 flytt", "1 flytt"]);
+    expect(norm(kort[0].textContent)).toContain("249 km");
+    // Tiden = summan av lastad → lossad, i ord (aldrig decimaler)
+    for (const k of kort) expect(k.querySelector("[data-maskin-kort-tid]")!.textContent).toMatch(/^(\d+ h )?\d+ min på lastbilen$|^\d+ h på lastbilen$/);
+    // Samma månader på alla kort, och staplarna summerar till antalet flyttar
+    const manadsListor = kort.map(k => Array.from(k.querySelectorAll("[data-stapel]")).map(st => st.getAttribute("data-stapel")!.split(":")[0]));
+    for (const l of manadsListor) expect(l).toEqual(manadsListor[0]);
+    kort.forEach((k, i) => {
+      const summa = Array.from(k.querySelectorAll("[data-stapel]")).reduce((s, st) => s + Number(st.getAttribute("data-stapel")!.split(":")[1]), 0);
+      expect(summa).toBe([11, 4, 2, 1, 1][i]);
+    });
+  });
+
+  it("en flytt utan tid sägs på kortet ('1 flytt saknar tid'), aldrig som 0 min", async () => {
+    mock.flyttar = maskinRader().map((r: any) => (r.id === "g0" ? { ...r, tid_flytt_min: null } : r));
+    await montera();
+    await tillAr();
+    expect(maskinRad("Giant").querySelector("[data-maskin-kort-tid]")!.textContent).toMatch(/på lastbilen · 1 flytt saknar tid$/);
   });
 
   it("Giant: frågor som rubriker och svaret i ord — var den är nu, hur ofta den flyttas, hur lång en flytt är", async () => {
@@ -1895,25 +1911,23 @@ describe("Uppföljning: Maskiner", () => {
     expect(norm(dlg()!.querySelector("[data-maskin-flyttar]")!.textContent)).toContain("km saknas");
   });
 
-  it("alla flyttar utan km: raden visar '–' och 'N flyttar saknar km', aldrig '0 km'", async () => {
+  it("alla flyttar utan km: kortet säger 'km saknas', aldrig '0 km'", async () => {
     mock.flyttar = maskinRader().map((r: any) => (r.maskin_id === "A030353" ? { ...r, flytt_km: null } : r));
     await montera();
     await tillAr();
     const t = norm(maskinRad("Wisent").textContent);
-    expect(t).toBe("Wisent2 flyttar · 2 flyttar saknar km–");
+    expect(t).toContain("km saknas");
     expect(t).not.toContain("0 km");
   });
 
-  it("admin trycker en flytt i arket och får sheeten 'Flytten'; Avbryt tar tillbaka maskinens ark", async () => {
+  it("Uppföljning är bara att läsa: inte heller admin kan öppna en flytt i maskinens ark", async () => {
     await montera();
     await tillAr();
     await klicka(maskinRad("Giant"));
-    expect(dlg()!.textContent).toContain("Tryck på en flytt för att rätta eller stryka den.");
-    await klicka(knapp(/^Visa flytten Giant/, dlg()!.querySelector("[data-maskin-flyttar]")!)!);
-    expect(dlg()!.getAttribute("aria-label")).toMatch(/^Giant · /);
-    expect(valRad("Maskin")).not.toBeNull();
-    await klicka(knapp(/^Avbryt$/, dlg()!)!);
-    expect(dlg()!.getAttribute("aria-label")).toBe("Giant");
+    expect(dlg()!.textContent).not.toContain("Tryck på en flytt");
+    const lista = dlg()!.querySelector("[data-maskin-flyttar]")!;
+    expect(lista.querySelector("button")).toBeNull();
+    expect(lista.textContent).not.toContain("chevron_right");
   });
 
   it("en förare ser maskinerna och flyttlistan men kan inte öppna en flytt för att rätta den", async () => {
@@ -1934,8 +1948,10 @@ describe("Uppföljning: Maskiner", () => {
     }))];
     await montera();
     await tillAr();
-    const rader = Array.from(maskinerSek().querySelectorAll("button")).map(b => norm(b.textContent));
-    expect(rader[rader.length - 1]).toBe("Andras maskiner2 flyttar80 km");
+    const kort = Array.from(maskinerSek().querySelectorAll("[data-maskin-kort]"));
+    expect(kort[kort.length - 1].getAttribute("aria-label")).toBe("Visa Andras maskiner");
+    expect(kort[kort.length - 1].querySelector("[data-maskin-kort-antal]")!.textContent).toBe("2 flyttar");
+    expect(norm(kort[kort.length - 1].textContent)).toContain("80 km");
     await klicka(maskinRad("Andras maskiner"));
     expect(dlg()!.querySelector("[data-star-pa]")).toBeNull();
     expect(dlg()!.querySelector("[data-maskin-trakt]")).toBeNull();

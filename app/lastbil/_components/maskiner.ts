@@ -207,3 +207,34 @@ export function hurLang(s: MaskinSammanfattning, fmtMin: (min: number) => string
   }
   return { svar: delar.join(' · '), under: ['i snitt, från lastad till lossad', saknas].filter(Boolean).join(' · ') };
 }
+
+// ── Sammanställningen per maskin (Martin 2026-10-24: "hur många flyttar varje maskin gjort varje månad, och vad tiden tar") ──
+
+const MANAD_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+export const manadKort = (man: number) => MANAD_KORT[man - 1];
+
+/** Svensk månad (1–12) då flytten lossades. */
+const lossadManad = (f: Flytt): number | null => sthlmDelar(new Date(f.lossad))?.man ?? null;
+
+/**
+ * Månaderna staplarna visar — SAMMA för alla maskiner så att de går att jämföra: från första månaden någon maskin
+ * flyttades till den sista (innevarande månad när året pågår). Tomt när inga flyttar finns.
+ */
+export function manaderAttVisa(maskiner: readonly Maskin[], ar: number, nu: Date): number[] {
+  const man = maskiner.flatMap(m => m.flyttar.map(lossadManad)).filter((v): v is number => v != null);
+  if (man.length === 0) return [];
+  const n = sthlmDelar(nu);
+  const sista = n && n.ar === ar ? Math.max(n.man, ...man) : Math.max(...man);
+  return Array.from({ length: sista - Math.min(...man) + 1 }, (_, i) => Math.min(...man) + i);
+}
+
+/** Antal flyttar per månad för en maskin, i månadernas ordning (0 när maskinen inte flyttades). */
+export function perManad(m: Maskin, manader: readonly number[]): { man: number; antal: number }[] {
+  return manader.map(man => ({ man, antal: m.flyttar.filter(f => lossadManad(f) === man).length }));
+}
+
+/** Tiden på lastbilen (lastad → lossad) för årets flyttar, i hela minuter; flyttar utan tid räknas inte och sägs. */
+export function tidPaLastbilen(m: Maskin): { min: number; saknar: number } {
+  const med = m.flyttar.filter(f => f.min != null);
+  return { min: med.reduce((s, f) => s + Math.round(f.min as number), 0), saknar: m.flyttar.length - med.length };
+}

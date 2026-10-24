@@ -204,3 +204,30 @@ describe('Maskiner: ordning och dygnsräkning', () => {
     expect(m).toMatchObject({ antal: 2, km: 0, saknarKm: 2 });
   });
 });
+
+describe('Sammanställningen per maskin: flyttar per månad och tid på lastbilen', () => {
+  it('månaderna är samma för alla maskiner, från första flytten till innevarande månad, och staplarna summerar till antalet', async () => {
+    const { manaderAttVisa, perManad } = await import('./maskiner');
+    const m = prod();
+    const man = manaderAttVisa(m, 2026, new Date('2026-10-24T10:00:00Z'));
+    expect(man[man.length - 1]).toBe(10);
+    expect(man).toEqual(Array.from({ length: man.length }, (_, i) => man[0] + i));   // inga hål
+    for (const x of m) expect(perManad(x, man).reduce((s, p) => s + p.antal, 0)).toBe(x.antal);
+  });
+
+  it('ett avslutat år slutar vid sista flytten, inte vid dagens månad; inga flyttar ger inga månader', async () => {
+    const { manaderAttVisa } = await import('./maskiner');
+    const man = manaderAttVisa(prod(), 2026, new Date('2027-03-01T10:00:00Z'));
+    expect(man[man.length - 1]).toBeLessThanOrEqual(10);
+    expect(manaderAttVisa([], 2026, new Date())).toEqual([]);
+  });
+
+  it('tiden är summan av lastad → lossad; en flytt utan tid räknas inte och sägs', async () => {
+    const { tidPaLastbilen } = await import('./maskiner');
+    const g = per('Giant');
+    const hel = g.flyttar.reduce((s, f) => s + Math.round(f.min ?? 0), 0);
+    expect(tidPaLastbilen(g)).toEqual({ min: hel, saknar: 0 });
+    const utan = { ...g, flyttar: g.flyttar.map((f, i) => (i === 0 ? { ...f, min: null } : f)) };
+    expect(tidPaLastbilen(utan)).toEqual({ min: hel - Math.round(g.flyttar[0].min ?? 0), saknar: 1 });
+  });
+});
