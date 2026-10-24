@@ -1,5 +1,5 @@
 \set ON_ERROR_STOP on
--- Återkallade rättigheter: efter 20261023160000_revoke_truncate_trigger_references.sql.
+-- Återkallade rättigheter: efter 20261024100816_revoke_truncate_trigger_references.sql.
 create function test.har(roll text, tabell text, rattighet text) returns boolean language sql as $$ select has_table_privilege(roll, tabell, rattighet) $$;
 
 select test.forvanta(r || ' har inte ' || p || ' på ' || t, not test.har(r, 'public.' || t, p))

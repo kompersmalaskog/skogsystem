@@ -10,7 +10,7 @@ import { join } from "node:path";
 const MIG = join(__dirname, "..", "..", "supabase", "migrations");
 const audio = readFileSync(join(MIG, "20261023120000_audio_bucket_privat.sql"), "utf8");
 const med = readFileSync(join(MIG, "20261023152043_medarbetare_skydda_kolumner.sql"), "utf8");
-const grants = readFileSync(join(MIG, "20261023160000_revoke_truncate_trigger_references.sql"), "utf8");
+const grants = readFileSync(join(MIG, "20261024100816_revoke_truncate_trigger_references.sql"), "utf8");
 const utanKommentarer = (s: string) => s.replace(/--.*$/gm, "");
 const ettMellanslag = (s: string) => s.replace(/[ \t]+/g, " ");
 
