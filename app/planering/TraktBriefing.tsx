@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { LjudSpelare } from '@/components/LjudSpelare'
 import { ZONE_COLORS } from '@/lib/zone-colors'
 import { symbolFarg } from '@/lib/larm/grupper'
 import { SymbolIkon } from '@/components/SymbolIkon'
@@ -669,7 +670,7 @@ export default function TraktBriefing({
                     <button onClick={(ev) => { ev.stopPropagation(); toggleAudio(audioId); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '10px', background: audioOpen ? 'rgba(138,180,96,0.15)' : 'rgba(138,180,96,0.06)', border: `1px solid ${audioOpen ? 'rgba(138,180,96,0.25)' : 'rgba(138,180,96,0.1)'}`, color: A, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
                       <span style={{ fontSize: '13px' }}>{audioOpen ? '⏹' : '🎤'}</span>{audioOpen ? 'Stoppa' : 'Lyssna'}
                     </button>
-                    {audioOpen && <div style={{ marginTop: '8px' }}><audio controls autoPlay src={audioData} style={{ width: '100%', height: '32px', borderRadius: '8px' }} /></div>}
+                    {audioOpen && <div style={{ marginTop: '8px' }}><LjudSpelare autoPlay src={audioData} style={{ width: '100%', height: '32px', borderRadius: '8px' }} /></div>}
                   </div>
                 )}
                 {(photoData || fotoMarkor?.photoPath) && <div style={{ marginTop: '8px' }}><MarkeringFoto lazy photoPath={fotoMarkor?.photoPath} photoData={photoData} photoTs={fotoMarkor?.photoTs} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }} /></div>}

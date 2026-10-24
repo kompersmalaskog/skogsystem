@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
 
 export const runtime = "nodejs";
@@ -15,8 +16,7 @@ export const maxDuration = 300;
  * satt (sync-styrd). manual_objekt_id skrivs aldrig över — admin sätter den
  * via inställningar om regex inte hittar.
  *
- * Auktorisering: Bearer <FORTNOX_SYNC_SECRET> (pg_cron) eller
- * ?key=skogsystem-debug (manuell testning).
+ * Auktorisering: Bearer <FORTNOX_SYNC_SECRET> / <CRON_SECRET> (cron) eller en inloggad admin.
  */
 
 function auktoriseradCron(req: NextRequest): boolean {
@@ -32,9 +32,8 @@ function auktoriseradCron(req: NextRequest): boolean {
 
 async function kontrolleraAdmin(req: NextRequest): Promise<boolean> {
   if (auktoriseradCron(req)) return true;
-  const url = new URL(req.url);
-  if (url.searchParams.get("key") === "skogsystem-debug") return true;
-  return false;
+  // Manuell körning: bara en inloggad admin (sessionen). Ingen nyckel i URL:en.
+  return (await kravRoll(ADMIN_ROLLER)).ok;
 }
 
 type InvoiceListItem = {
@@ -66,11 +65,11 @@ const VO_REGEX = /VO\s*(\d+)/i;
 
 export async function POST(req: NextRequest) {
   const start = Date.now();
-  const supabase = serverSupabase();
 
   if (!(await kontrolleraAdmin(req))) {
     return NextResponse.json({ ok: false, error: "Obehörig" }, { status: 401 });
   }
+  const supabase = serverSupabase();
 
   await supabase
     .from("fortnox_sync_state")

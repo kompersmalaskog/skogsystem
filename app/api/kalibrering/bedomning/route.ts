@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { kravInloggad } from "@/lib/auth/server";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
 import { statistik, type VariabelStat } from "@/lib/kalibrering/statistik";
 import { atgardPoster, tidigasteFore, type DatumPunkt } from "@/lib/kalibrering/atgarder";
@@ -7,7 +8,7 @@ import { hamtaMarkorer } from "@/lib/kalibrering/markorer.server";
 import type { AtgardPost } from "@/lib/kalibrering/typer";
 
 /**
- * GET /api/kalibrering/bedomning?key=skogsystem-debug&maskin_id=X
+ * GET /api/kalibrering/bedomning?maskin_id=X
  *
  * Bedömer en maskins mätnoggrannhet mot dess KRAVPROFIL (VIDA/BIOMETRIA)
  * över ett rullande 90-DAGARSFÖNSTER t.o.m. maskinens senaste kontroll.
@@ -38,7 +39,6 @@ import type { AtgardPost } from "@/lib/kalibrering/typer";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEBUG_KEY = "skogsystem-debug";
 const FONSTER_DAGAR = 90;
 
 export type KravRow = {
@@ -116,9 +116,8 @@ const ATGARD_GRIND = 30;
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  if (url.searchParams.get("key") !== DEBUG_KEY) {
-    return new NextResponse("Ogiltig nyckel", { status: 401 });
-  }
+  const vakt = await kravInloggad();
+  if (!vakt.ok) return vakt.res;
   const maskinId = url.searchParams.get("maskin_id");
   if (!maskinId) {
     return NextResponse.json({ ok: false, error: "maskin_id krävs" }, { status: 400 });

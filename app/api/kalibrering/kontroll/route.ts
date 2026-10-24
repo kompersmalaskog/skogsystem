@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { kravInloggad } from "@/lib/auth/server";
 
 /**
- * GET /api/kalibrering/kontroll?filnamn=X&key=skogsystem-debug
+ * GET /api/kalibrering/kontroll?filnamn=X
  *
  * Returnerar en komplett kalibreringskontroll med joinat data från:
  *  - fakt_kalibrering                 (per-fil aggregat + objekt-meta + väder)
@@ -15,8 +16,6 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const DEBUG_KEY = "skogsystem-debug";
 
 // === TYPES (speglar Supabase-schemat efter v2_1) ===
 
@@ -137,10 +136,8 @@ async function fetchAllRows(
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const key = url.searchParams.get("key");
-  if (key !== DEBUG_KEY) {
-    return new NextResponse("Ogiltig nyckel", { status: 401 });
-  }
+  const vakt = await kravInloggad();
+  if (!vakt.ok) return vakt.res;
 
   const filnamn = url.searchParams.get("filnamn");
   if (!filnamn) {
