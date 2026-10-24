@@ -19,6 +19,8 @@ import type { ObjektVy, Stapel as StapelDag, VemRad, VyRad } from '@/lib/objekto
 import { timmar } from '@/lib/objektoversikt/vy';
 import type { Stapeldel } from '@/lib/markagarrapport/vy';
 import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning';
+import ObjektKarta from './ObjektKarta';
+import type { KartMaskin } from '@/lib/objektoversikt/lasKarta';
 
 export const TVA_KOLUMNER_PX = 640;
 export const TRE_KOLUMNER_PX = 960;
@@ -33,7 +35,9 @@ const css = `
 
 type Oppen = 'dag' | 'plan' | 'fler' | null;
 
-export default function Objekt({ vy }: { vy: ObjektVy }) {
+export type KartaProps = { objektUuid: string; ids: string[]; maskiner: KartMaskin[]; jobbade: string[] };
+
+export default function Objekt({ vy, karta }: { vy: ObjektVy; karta?: KartaProps }) {
   const [pdfOppen, setPdfOppen] = useState(false);
   const [mer, setMer] = useState<Oppen>(null);
   const vaxla = (k: Exclude<Oppen, null>) => () => setMer(m => (m === k ? null : k));
@@ -67,6 +71,8 @@ export default function Objekt({ vy }: { vy: ObjektVy }) {
           </p>
         )}
       </header>
+
+      {karta && <ObjektKarta {...karta} />}
 
       <div className="oo-rutnat">
         {vy.kvar && (

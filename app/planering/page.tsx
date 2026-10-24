@@ -159,6 +159,7 @@ import { StartSvartSkarm, MaskinSomFelSkarm, MaskinFelSkarm } from '../../compon
 import { VilkenMaskinSkarm } from '../../components/maskin/VilkenMaskinSkarm'
 import { typLabel } from '../../lib/objekt/typ'
 import { hamtaAltNummer, hogarObjektIds, nyckelHorTillObjekt } from '../../lib/objektNummer'
+import { klustraStammar } from '../../lib/produktionshogar'
 import { useSkotarLass } from '../../lib/hooks/useSkotarLass'
 import { useSkotarVader } from '../../lib/hooks/useSkotarVader'
 import { hamtaPrognos, narmasteSteg } from '../../lib/smhi-prognos'
@@ -5576,63 +5577,9 @@ export default function PlannerPage() {
           }));
         console.log(`[HOGAR] vo=${vo}, ${dedupStammar.length} stammar (detalj_stam, okapad)`);
 
-        // Klustra stammar inom ~10m radie
-        // 10m ≈ 0.00009 grader lat, 0.00016 grader lng vid 56°N
-        const CLUSTER_RAD_LAT = 0.00009;
-        const CLUSTER_RAD_LNG = 0.00016;
-        const used = new Uint8Array(dedupStammar.length);
-
-        for (let i = 0; i < dedupStammar.length; i++) {
-          if (used[i]) continue;
-          const s = dedupStammar[i];
-          if (!s.lat || !s.lng) continue;
-
-          const cluster = [i];
-          used[i] = 1;
-          let sumLat = s.lat, sumLng = s.lng;
-
-          for (let j = i + 1; j < dedupStammar.length; j++) {
-            if (used[j]) continue;
-            const t = dedupStammar[j];
-            if (!t.lat || !t.lng) continue;
-            if (Math.abs(t.lat - s.lat) < CLUSTER_RAD_LAT && Math.abs(t.lng - s.lng) < CLUSTER_RAD_LNG) {
-              cluster.push(j);
-              used[j] = 1;
-              sumLat += t.lat;
-              sumLng += t.lng;
-            }
-          }
-
-          // Centroid
-          const n = cluster.length;
-          const cLat = sumLat / n;
-          const cLng = sumLng / n;
-
-          // Summera volym och trädslag, räkna GROT-stammar, samla sortiment-volymer
-          let volym = 0;
-          const tradslagCount: Record<string, number> = {};
-          const sortimentVolym: Record<string, number> = {};
-          let datum = '';
-          let grotCount = 0;
-
-          for (const idx of cluster) {
-            const st = dedupStammar[idx];
-            const stVol = st.total_volym || 0;
-            volym += stVol;
-            const ts = st.tradslag || 'OKÄNT';
-            tradslagCount[ts] = (tradslagCount[ts] || 0) + 1;
-            if (st.sortiment) {
-              sortimentVolym[st.sortiment] = (sortimentVolym[st.sortiment] || 0) + stVol;
-            }
-            if (!datum && st.datum) {
-              datum = st.datum;
-            }
-            if (st.bio_energy_adaption) {
-              grotCount++;
-            }
-          }
-
-          byggHog(cLat, cLng, n, volym, tradslagCount, sortimentVolym, grotCount, datum);
+        // Klustra stammar inom ~10m radie (lib/produktionshogar: samma algoritm som Objektöversiktens karta)
+        for (const k of klustraStammar(dedupStammar)) {
+          byggHog(k.lat, k.lng, k.n, k.volym, k.tradslagCount, k.sortimentVolym, k.grotCount, k.datum);
         }
       }
 
