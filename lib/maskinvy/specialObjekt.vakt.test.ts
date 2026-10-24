@@ -67,10 +67,12 @@ describe('special-objekt: Redigering', () => {
   })
 
   it('slås flaggan av nollas skälet i samma skrivning (CHECK special OR skäl IS NULL)', () => {
-    expect(kod('app/redigering/RedigeringClient.tsx')).toMatch(/\{ special: false, special_skal: null \}/)
+    expect(kod('components/redigering/ObjektOversikt.tsx')).toMatch(/\{ special: false, special_skal: null \}/)
   })
 
-  it('exkludera-switchen är orörd (annan betydelse: döljer objektet helt)', () => {
-    expect(kod('app/redigering/RedigeringClient.tsx')).toContain('label="Exkludera från statistik"')
+  it('Special och Ta bort (exkludera) är skilda saker: Ta bort sätter exkludera, aldrig special', () => {
+    const k = kod('app/redigering/RedigeringClient.tsx')
+    expect(k).toContain('direktSpara({ exkludera: true })')
+    expect(k).not.toMatch(/exkludera: true[^\n]*special|special[^\n]*exkludera: true/)
   })
 })
