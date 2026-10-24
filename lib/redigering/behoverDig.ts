@@ -56,7 +56,12 @@ export interface FilJobb {
 export type Sak =
   | { typ: 'falt'; nyckel: string; grupp: BehoverGrupp; falt: HarlettFalt; namn: string; under: string; forslag: Harledning | null; val: string[] }
   | { typ: 'fil'; nyckel: string; jobb: FilJobb; namn: string; under: string }
-  | { typ: 'oppna'; nyckel: string; grupp: BehoverGrupp; namn: string; under: string };
+  | { typ: 'oppna'; nyckel: string; grupp: BehoverGrupp; namn: string; under: string }
+  /** Flera saker på SAMMA objekt = en rad (Martin 2026-10-24: "varför ligger det så många mölleryd i listan").
+   *  Arket tar frågorna i tur och ordning och sist det som rättas inne i objektet. */
+  | { typ: 'objekt'; nyckel: string; grupp: BehoverGrupp; namn: string; under: string; fragor: FaltSak[]; ovrigt: string[] };
+
+export type FaltSak = Extract<Sak, { typ: 'falt' }>;
 
 const FALT_FRAN_VARNING: Record<string, HarlettFalt> = { huvudtyp: 'huvudtyp', avtalsform: 'avtalsform', bolag: 'bolag' };
 
@@ -69,6 +74,7 @@ export function sakNamn(rad: { object_name?: string | null; vo_nummer?: string |
 export function forslagKort(s: Sak): string {
   if (s.typ === 'fil') return 'Koppla';
   if (s.typ === 'oppna') return 'Öppna';
+  if (s.typ === 'objekt') return `${s.fragor.length + s.ovrigt.length} saker`;
   if (!s.forslag?.varde) return 'Välj';
   return `${s.forslag.varde}?`;
 }
@@ -114,10 +120,37 @@ export function byggSaker(input: { grupper: BehoverGrupp[]; alla: HarledRad[]; f
     under: [j.maskinNamn, filDag(j.datum), j.stammar > 0 ? `${j.stammar.toLocaleString('sv-SE')} stammar` : null, 'inget objekt'].filter(Boolean).join(' · '),
   }));
 
-  // Förslag först (ett tryck var), sedan "välj" utan förslag.
-  const harForslag = (s: Sak) => s.typ === 'falt' && s.forslag?.varde != null;
-  falt.sort((a, b) => Number(harForslag(b)) - Number(harForslag(a)));
-  return [...falt, ...filer, ...oppna];
+  // Ett objekt = en rad. Har objektet bara en sak står den som förut; flera blir en objektrad.
+  const ensamma: Sak[] = [];
+  const objektRader: Sak[] = [];
+  const nycklar = Array.from(new Set([...falt, ...oppna].map(s => (s as FaltSak).grupp.nyckel)));
+  for (const nyckel of nycklar) {
+    const f = falt.filter(s => (s as FaltSak).grupp.nyckel === nyckel) as FaltSak[];
+    const o = oppna.filter(s => (s as Extract<Sak, { typ: 'oppna' }>).grupp.nyckel === nyckel) as Extract<Sak, { typ: 'oppna' }>[];
+    if (f.length + o.length === 1) { ensamma.push(f[0] ?? o[0]); continue; }
+    const g = (f[0] ?? o[0]).grupp;
+    const delar = [...f.map(s => SAKNAR[s.falt]), ...o.map(s => kortText(s.under))];
+    objektRader.push({
+      typ: 'objekt', nyckel: `objekt:${nyckel}`, grupp: g, namn: sakNamn(g.rep),
+      under: versal(delar.map((d, i) => (i === 0 ? d : forstaLiten(d))).join(' · ')),
+      fragor: f, ovrigt: o.map(s => kortText(s.under)),
+    });
+  }
+
+  // Förslag först (ett tryck var), sedan "välj" utan förslag, maskinfiler, och sist det man öppnar objektet för.
+  const harForslag = (s: Sak) =>
+    (s.typ === 'falt' && s.forslag?.varde != null) || (s.typ === 'objekt' && s.fragor.some(q => q.forslag?.varde != null));
+  const rang = (s: Sak) => (harForslag(s) ? 0 : s.typ === 'falt' || s.typ === 'objekt' ? 1 : 3);
+  const sorterade = [...ensamma, ...objektRader].sort((a, b) => rang(a) - rang(b));
+  return [...sorterade.filter(s => rang(s) < 3), ...filer, ...sorterade.filter(s => rang(s) === 3)];
+}
+
+const forstaLiten = (s: string) => (s ? s[0].toLowerCase() + s.slice(1) : s);
+
+/** "Maskinen rapporterar skördning avslutad — ej markerad" → "Skördning klar?". Annat står som det är. */
+export function kortText(text: string): string {
+  const m = /rapporterar\s+(\S+)\s+avslutad/i.exec(text);
+  return m ? `${versal(m[1])} klar?` : text;
 }
 
 function underFalt(f: HarlettFalt, forslag: Harledning | null): string {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { byggSaker, forslagKort, varforText, patchForSvar, type BehoverGrupp } from './behoverDig';
+import { byggSaker, forslagKort, varforText, patchForSvar, kortText, type BehoverGrupp } from './behoverDig';
 import type { HarledRad } from './harledning';
 
 const rad = (objekt_id: string, object_name: string, vo_nummer: string, extra: Partial<HarledRad> = {}): HarledRad =>
@@ -19,8 +19,19 @@ describe('byggSaker', () => {
     bolagVal: ['Vida', 'ATA'],
   });
 
-  it('fält med förslag först, sedan utan förslag, maskinjobb, och sist det man måste öppna objektet för', () => {
-    expect(saker.map(s => s.nyckel)).toEqual(['11271860:avtalsform', '547622:huvudtyp', 'fil:PONS:11271883', '547622:skogsagare']);
+  it('förslag först, sedan utan förslag, maskinjobb; flera saker på samma objekt är EN rad', () => {
+    expect(saker.map(s => s.nyckel)).toEqual(['11271860:avtalsform', 'objekt:547622', 'fil:PONS:11271883']);
+    const o = saker[1];
+    expect(o.typ).toBe('objekt');
+    expect(o.under).toBe('Saknar typ · saknar skogsagare');
+    expect(forslagKort(o)).toBe('2 saker');
+    expect(o.typ === 'objekt' && o.fragor.map(f => f.falt)).toEqual(['huvudtyp']);
+    expect(o.typ === 'objekt' && o.ovrigt).toEqual(['Saknar skogsagare']);
+  });
+
+  it('maskinens avslut blir korta frågor på objektraden', () => {
+    expect(kortText('Maskinen rapporterar skördning avslutad — ej markerad')).toBe('Skördning klar?');
+    expect(kortText('Saknar markägare')).toBe('Saknar markägare');
   });
 
   it('ett privat jobb frågas aldrig om avtalsform', () => {
@@ -35,7 +46,7 @@ describe('byggSaker', () => {
   });
 
   it('utan förslag: "Välj", och arket säger att inget i datan säger det', () => {
-    const s = saker[1];
+    const s = saker[1].typ === 'objekt' ? saker[1].fragor[0] : saker[1];
     expect(forslagKort(s)).toBe('Välj');
     expect(s.typ === 'falt' && varforText(s.forslag)).toBe('Inget i datan säger det, så du får välja.');
   });

@@ -91,6 +91,14 @@ export default function BehoverDig({ saker, antalObjekt, onSparaFalt, onKoppla, 
 
       {ko && (
         nuvarande ? (
+          nuvarande.typ === 'objekt' ? (
+            <ObjektSakArk key={nuvarande.nyckel} sak={nuvarande}
+              plats={`${ko.filter(k => klara.gjorda.has(k)).length + 1} av ${ko.length}`}
+              onStang={stang}
+              onKlar={sparad => klar(nuvarande.nyckel, sparad)}
+              onSparaFalt={onSparaFalt}
+              onOppnaObjekt={g => { stang(); onOppnaObjekt(g); }} />
+          ) :
           <SakArk key={nuvarande.nyckel} sak={nuvarande}
             plats={`${ko.filter(k => klara.gjorda.has(k)).length + 1} av ${ko.length}`}
             onStang={stang}
@@ -245,6 +253,46 @@ function SakArk({ sak, plats, onStang, onKlar, onSparaFalt, onKoppla, onIgnorera
       {hoppa}
     </>}>
       {huvud(sak.namn, 'Vad behöver rättas?', sak.under, 'Det här rättar du inne i objektet.')}
+    </Ark>
+  );
+}
+
+/**
+ * Flera saker på samma objekt: frågorna en i taget (samma ark som annars), sist det som rättas inne i objektet.
+ * "Hoppa över" på en fråga går till nästa. Objektraden räknas som klar när allt är genomgånget.
+ */
+function ObjektSakArk({ sak, plats, onStang, onKlar, onSparaFalt, onOppnaObjekt }: {
+  sak: Extract<Sak, { typ: 'objekt' }>; plats: string; onStang: () => void; onKlar: (sparad: boolean) => void;
+  onSparaFalt: BehoverDigProps['onSparaFalt']; onOppnaObjekt: (g: BehoverGrupp) => void;
+}) {
+  const [steg, setSteg] = useState(0);
+  const [sparat, setSparat] = useState(false);
+  const fraga = sak.fragor[steg];
+  const vidare = (sparad: boolean) => {
+    const nuSparat = sparat || sparad;
+    setSparat(nuSparat);
+    if (steg + 1 < sak.fragor.length || sak.ovrigt.length > 0) setSteg(steg + 1);
+    else onKlar(nuSparat);
+  };
+  if (fraga) {
+    return (
+      <SakArk key={fraga.nyckel} sak={fraga} plats={plats} onStang={onStang} onKlar={vidare}
+        onSparaFalt={onSparaFalt} onKoppla={async () => false} onIgnorera={async () => false} sokObjekt={() => []}
+        onOppnaObjekt={onOppnaObjekt} />
+    );
+  }
+  return (
+    <Ark rubrik={plats} onStang={onStang} fot={<>
+      <button type="button" onClick={() => onOppnaObjekt(sak.grupp)} style={KNAPP.primar} data-oppna-objekt="">Öppna objektet</button>
+      <button type="button" onClick={() => onKlar(sparat)} style={{ ...KNAPP.tertiar, alignSelf: 'center' }}>Hoppa över</button>
+    </>}>
+      <div style={{ marginBottom: AVSTAND.xl }}>
+        <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>{sak.namn}</p>
+        <p style={{ margin: `${AVSTAND.l}px 0 0`, ...TYP.text, color: FARG.text2 }}>Det här rättar du inne i objektet</p>
+      </div>
+      <Sektion rubrik="Att rätta" kort={false}>
+        {sak.ovrigt.map((t, i) => <Rad key={t} titel={t} pil={false} sista={i === sak.ovrigt.length - 1} />)}
+      </Sektion>
     </Ark>
   );
 }

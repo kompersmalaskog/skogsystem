@@ -139,6 +139,29 @@ describe('Behöver dig', () => {
     expect(ignorera).toHaveBeenCalledWith(fil.jobb);
   });
 
+  it('flera saker på samma objekt: EN rad, frågan först och sist det man rättar i objektet', async () => {
+    const MOLLERYD = rad('11166477', 'Mölleryd RP J-Hus -25', { huvudtyp: 'Slutavverkning', bolag: 'Vida', cutting_method: 'ClearCutting' });
+    const saker = byggSaker({ grupper: [{ nyckel: 'M', rep: MOLLERYD, ids: [MOLLERYD.objekt_id], varningar: [
+      { key: 'avtalsform', text: 'Saknar avtalsform' }, { key: 'skogsagare', text: 'Saknar markägare' },
+      { key: 'reported_end', text: 'Maskinen rapporterar skotning avslutad — ej markerad' },
+    ] }], alla: [MOLLERYD], filJobb: [], bolagVal: [] });
+    expect(saker).toHaveLength(1);
+    const spara = vi.fn(async () => true);
+    const oppnaObj = vi.fn();
+    el = document.createElement('div'); document.body.appendChild(el);
+    root = createRoot(el);
+    act(() => root!.render(<BehoverDig saker={saker} antalObjekt={10} onSparaFalt={spara} onKoppla={async () => true}
+      onIgnorera={async () => true} sokObjekt={() => []} onOppnaObjekt={oppnaObj} />));
+    expect(document.querySelectorAll('[data-sak]')).toHaveLength(1);
+    expect(document.querySelector('[data-sak]')!.textContent).toContain('Saknar avtalsform · saknar markägare · skotning klar?');
+    await klick(document.querySelector('[data-sak]') as HTMLElement);
+    await klick(knapp('Spara Rotpost och ta nästa'));
+    expect(spara).toHaveBeenCalled();
+    expect(document.querySelector('[role=dialog]')!.textContent).toContain('Skotning');
+    await klick(document.querySelector('[data-oppna-objekt]') as HTMLElement);
+    expect(oppnaObj).toHaveBeenCalled();
+  });
+
   it('utan något att göra: en lugn svarsrad, ingen knapp', () => {
     el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el);
     act(() => root!.render(<BehoverDig saker={[]} antalObjekt={133} onSparaFalt={async () => true} onKoppla={async () => true} onIgnorera={async () => true} sokObjekt={() => []} onOppnaObjekt={() => {}} />));
