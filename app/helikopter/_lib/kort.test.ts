@@ -24,22 +24,22 @@ const gallOk = raknaSpar(rad('gallring', { bestallt: 1000, skordat: 900, skotat:
 // Över: skördat 900 + 20 × 10 = 1 100, skotat 800 + 30 × 10 = 1 100 — 10 % över.
 const gallOver = raknaSpar(rad('gallring', { bestallt: 1000, skordat: 900, skotat: 800, takt_skordat: 20, takt_skotat: 30, ingaende_oskotat: 0 }), okt)
 
-describe('sparKort — ett tal per spår, ordet säger vad som gäller', () => {
+describe('sparKort — talet är ALLTID skotat hittills, prognosen står i `landar`, ordet säger vad som gäller', () => {
   it('fattas: oktober 2026 ur prod (gallring skotat 714 av 1 000, skotaren står still)', () => {
     const k = sparKort(gallOkt, 'pagaende', 3)
-    expect(k).toMatchObject({ namn: 'Gallring', lage: 'fattas', ord: 'Fattas 286', ton: 'orange', tal: 714, av: 1000 })
+    expect(k).toMatchObject({ namn: 'Gallring', lage: 'fattas', ord: 'Fattas 286', ton: 'orange', tal: 714, landar: 714, av: 1000 })
     expect(k.andel).toBeCloseTo(0.714, 3)
     expect(k.prognosAndel).toBeCloseTo(0.714, 3)
     expect(k.planAndel).toBeCloseTo(12 / 22, 6)
   })
-  it('hinner: grön, talet är prognosen (inte hittills), stapeln får en mörk del fram till prognosen', () => {
+  it('hinner: grön, talet är skotat hittills (800), prognosen 1 020 står i landar, stapeln får en mörk del fram till prognosen', () => {
     const k = sparKort(gallOk, 'pagaende', 3)
-    expect(k).toMatchObject({ lage: 'hinner', ord: 'Hinner', ton: 'gron', tal: 1020, av: 1000 })
+    expect(k).toMatchObject({ lage: 'hinner', ord: 'Hinner', ton: 'gron', tal: 800, landar: 1020, av: 1000 })
     expect(k.andel).toBeCloseTo(0.8, 6)
     expect(k.prognosAndel).toBe(1)
   })
   it('över beställt (> 5 %) är dämpat, inte grönt, och säger med hur mycket', () => {
-    expect(sparKort(gallOver, 'pagaende', 3)).toMatchObject({ lage: 'over', ord: 'Över med 100', ton: 'dampad', tal: 1100 })
+    expect(sparKort(gallOver, 'pagaende', 3)).toMatchObject({ lage: 'over', ord: 'Över med 100', ton: 'dampad', tal: 800, landar: 1100 })
   })
   it('klar: skotat hittills ≥ beställt', () => {
     const framme = raknaSpar(rad('gallring', { bestallt: 1000, skordat: 1100, skotat: 1000, takt_skordat: 10, takt_skotat: 10, ingaende_oskotat: 0 }), okt)
@@ -47,7 +47,7 @@ describe('sparKort — ett tal per spår, ordet säger vad som gäller', () => {
   })
   it('ingen prognos före arbetsdag 4: "Hittills", talet är skotat hittills, ingen mörk del', () => {
     const tidig = raknaSpar(rad('gallring', { bestallt: 1000, skotat: 120, takt_dagar: 2 }), okt)
-    expect(sparKort(tidig, 'pagaende', 3)).toMatchObject({ lage: 'hittills', ord: 'Hittills', ton: 'dampad', tal: 120, av: 1000, prognosAndel: null })
+    expect(sparKort(tidig, 'pagaende', 3)).toMatchObject({ lage: 'hittills', ord: 'Hittills', ton: 'dampad', tal: 120, landar: null, av: 1000, prognosAndel: null })
   })
   it('inga trakter planerade: dämpat, inget planstreck — aldrig grönt utan plan', () => {
     expect(sparKort(gallOk, 'pagaende', 0)).toMatchObject({ lage: 'inga_trakter', ord: 'Inga trakter', ton: 'dampad', tal: 800, planAndel: null })
@@ -60,7 +60,7 @@ describe('sparKort — ett tal per spår, ordet säger vad som gäller', () => {
     expect(sparKort(gallOk, 'kommande', 0)).toMatchObject({ lage: 'inte_startad', ord: 'Inte startad', ton: 'dampad', tal: 0, av: 1000, andel: 0 })
   })
   it('avslutad månad: Klar eller Fattas på skotat hittills, inget planstreck', () => {
-    expect(sparKort(gallOkt, 'avslutad', 3)).toMatchObject({ lage: 'fattas', ord: 'Fattas 286', ton: 'orange', tal: 714, planAndel: null })
+    expect(sparKort(gallOkt, 'avslutad', 3)).toMatchObject({ lage: 'fattas', ord: 'Fattas 286', ton: 'orange', tal: 714, landar: null, planAndel: null })
     const natt = raknaSpar(rad('gallring', { bestallt: 1000, skordat: 1100, skotat: 1004.6 }), okt)
     expect(sparKort(natt, 'avslutad', 3)).toMatchObject({ lage: 'klar', ord: 'Klar', ton: 'gron', tal: 1005 })
   })

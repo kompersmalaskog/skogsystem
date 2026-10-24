@@ -2,8 +2,8 @@
 //
 // Sidan svarar på EN fråga per kort, i vanliga ord:
 //   · svaret överst ("Vi hinner inte med beställningen")
-//   · SKOTAT: ett block per spår — talet = var skotat landar, "av beställt", en stapel där ljust = skotat hittills och mörkt = det som
-//     kommer till (prognosen), och ordet bredvid pricken säger exakt vad: "Fattas 229" / "Hinner" / "Klar". Färgen är aldrig ensam.
+//   · SKOTAT: ett block per spår — talet = SKOTAT HITTILLS, "av beställt", raden "Landar på N" (prognosen), en stapel där ljust = skotat
+//     och mörkt = det som kommer till, och ordet bredvid pricken säger exakt vad: "Fattas 229" / "Hinner" / "Klar". Färgen är aldrig ensam.
 //   · GÖR DETTA: högst tre rader på sidan — handlingar, viktigast först (flyttförslaget, maskiner som blir klara efter månaden,
 //     maskiner som inte körde). Resten ligger bakom "N saker till".
 //   · NÄR BLIR MASKINERNA KLARA?: namn + datum, inget mer. Trakterna visas när man trycker. Datumet räknas i appen (klar.ts raknaAlla)
@@ -28,8 +28,10 @@ export type SparKortVy = {
   lage: SparOrd
   ord: string
   ton: Ton
-  /** Skärmens tal för spåret: var skotat landar (prognos), annars skotat hittills. */
+  /** Skärmens stora tal: SKOTAT HITTILLS, alltid (Martin 2026-10-24: ett stort tal under "Skotat" måste vara skotat — prognosen som tal lästes som ett faktum). */
   tal: number
+  /** Var skotat landar vid månadens slut (prognos), raden under talet. null = ingen prognos. */
+  landar: number | null
   /** Beställt. null = ingen beställning (då står inget "av"). */
   av: number | null
   /** 0–1: skotat hittills mot beställt (ljust). null = ingen stapel. */
@@ -44,7 +46,7 @@ const klamp = (x: number) => Math.max(0, Math.min(1, x))
 
 export function sparKort(s: SparLage, status: ManadStatus, antalPlanerade: number): SparKortVy {
   const namn = TYP_NAMN[s.typ]
-  const bas = { typ: s.typ, namn, av: s.bestallt, planAndel: null as number | null, prognosAndel: null as number | null }
+  const bas = { typ: s.typ, namn, av: s.bestallt, planAndel: null as number | null, prognosAndel: null as number | null, landar: null as number | null }
   if (s.bestallt <= 0) {
     return { ...bas, lage: 'ingen_bestallning', ord: 'Ingen beställning', ton: 'dampad', tal: Math.round(s.skotat), av: null, andel: null }
   }
@@ -61,11 +63,12 @@ export function sparKort(s: SparLage, status: ManadStatus, antalPlanerade: numbe
   if (!roller) return { ...bas, lage: 'hittills', ord: 'Hittills', ton: 'dampad', tal: Math.round(s.skotat), andel, planAndel }
   const skotat = roller[1]
   const landar = Math.round(skotat.landar)
+  const tal = Math.round(s.skotat)
   const prognosAndel = klamp(skotat.landar / s.bestallt)
-  if (skotat.framme) return { ...bas, lage: 'klar', ord: 'Klar', ton: 'gron', tal: landar, andel, prognosAndel, planAndel }
-  if (skotat.under) return { ...bas, lage: 'fattas', ord: `Fattas ${fmt(s.bestallt - landar)}`, ton: 'orange', tal: landar, andel, prognosAndel, planAndel }
-  if (skotat.over) return { ...bas, lage: 'over', ord: `Över med ${fmt(landar - s.bestallt)}`, ton: 'dampad', tal: landar, andel, prognosAndel, planAndel }
-  return { ...bas, lage: 'hinner', ord: 'Hinner', ton: 'gron', tal: landar, andel, prognosAndel, planAndel }
+  if (skotat.framme) return { ...bas, lage: 'klar', ord: 'Klar', ton: 'gron', tal, landar, andel, prognosAndel, planAndel }
+  if (skotat.under) return { ...bas, lage: 'fattas', ord: `Fattas ${fmt(s.bestallt - landar)}`, ton: 'orange', tal, landar, andel, prognosAndel, planAndel }
+  if (skotat.over) return { ...bas, lage: 'over', ord: `Över med ${fmt(landar - s.bestallt)}`, ton: 'dampad', tal, landar, andel, prognosAndel, planAndel }
+  return { ...bas, lage: 'hinner', ord: 'Hinner', ton: 'gron', tal, landar, andel, prognosAndel, planAndel }
 }
 
 // ── Svaret överst ────────────────────────────────────────────────────────────

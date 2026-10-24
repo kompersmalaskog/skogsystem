@@ -2,7 +2,8 @@
 
 // SKOTAT — ett block per spår, EN siffra per spår (var skotat landar, sparKort i _lib/kort.ts).
 //   rad 1: spårets namn · prick + ordet ("Fattas 229" / "Hinner" / "Klar")
-//   rad 2: talet (TYP.tal) "av beställt"
+//   rad 2: talet (TYP.tal) = SKOTAT HITTILLS "av beställt" — aldrig prognosen (2026-10-24: 726 lästes som skotat när skotat var 561)
+//   rad 2b: "Landar på 726" (prognosen, dämpad) — bara när det finns en
 //   rad 3: stapeln — ljust = skotat hittills, mörkt = det som kommer till, vitt streck = där ni borde vara idag
 // Talet är alltid vitt och stapeln alltid grå: status står i ordet bredvid pricken (skillen).
 import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens'
@@ -27,6 +28,7 @@ export default function SkotatSektion({ kort }: { kort: SparKortVy[] }) {
             <span style={{ ...TYP.tal, color: k.av == null ? FARG.text2 : FARG.text }} data-tal={k.typ}>{fmt(k.tal)}</span>
             {k.av != null && <span style={{ ...TYP.text, ...TNUM, color: FARG.text2 }}>av {fmt(k.av)}</span>}
           </div>
+          {k.landar != null && <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }} data-landar={k.typ}>Landar på {fmt(k.landar)}</span>}
           {k.andel != null && <Matare andel={k.andel} planAndel={k.planAndel} prognosAndel={k.prognosAndel} />}
         </div>
       ))}

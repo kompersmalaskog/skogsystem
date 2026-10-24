@@ -92,9 +92,12 @@ describe('/helikopter — en sida', () => {
     expect(text()).toContain('10 arbetsdagar kvar')
     expect(cont.querySelector('main h2')?.textContent).toBe('Vi hinner inte med beställningen')
     const skotat = sektion('Skotat')!
-    expect(skotat.querySelector('[data-tal="gallring"]')?.textContent).toBe(fmt(1020))
+    // Det stora talet är SKOTAT HITTILLS, prognosen står som "Landar på N" under (2026-10-24: 726 lästes som skotat när skotat var 561).
+    expect(skotat.querySelector('[data-tal="gallring"]')?.textContent).toBe(fmt(800))
+    expect(skotat.querySelector('[data-landar="gallring"]')?.textContent).toBe(`Landar på ${fmt(1020)}`)
     expect(skotat.querySelector('[data-spar="gallring"]')?.textContent).toContain('Hinner')
-    expect(skotat.querySelector('[data-tal="slutavverkning"]')?.textContent).toBe(fmt(4000))
+    expect(skotat.querySelector('[data-tal="slutavverkning"]')?.textContent).toBe(fmt(3000))
+    expect(skotat.querySelector('[data-landar="slutavverkning"]')?.textContent).toBe(`Landar på ${fmt(4000)}`)
     expect(skotat.querySelector('[data-spar="slutavverkning"]')?.textContent).toContain(`Fattas ${fmt(1000)}`)
     // Inga flikar, ingen Läge/Planering/Uppföljning-text.
     expect(cont.querySelector('[role="tablist"]')).toBeNull()
