@@ -54,19 +54,37 @@ describe('vad besökssidan får: exakt de fält sidan visar', () => {
     const json = JSON.stringify(r.body);
     for (const hemligt of ['Hemligsson', '0709999999', '11251359', '1000', 'forare_id', 'Stefan', 'points', 'volym', 'token', 'uppdaterad_at']) expect(json.includes(hemligt), hemligt).toBe(false);
     expect((r.body.maskiner as any[]).map((m) => Object.keys(m).sort())).toEqual([['lat', 'lng', 'roll', 'tid'], ['lat', 'lng', 'roll', 'tid']]);
-    expect(r.body.namn).toBe('Hålabäck au 2025');   // utan VO-nummer och årssuffix
+    expect(r.body.namn).toBe('Hålabäck');   // utan VO-nummer, årssuffix och Vidas koder (au)
     expect(r.body.utforare).toBe('Kompersmåla Skog åt Vida');
   });
-  it('framsteget: procent och dag, aldrig m³', async () => {
+  it('framsteget: bara procent när prognosen inte håller (två dagar räcker inte)', async () => {
     const r = await publikVy(varld(), TOKEN, { nu: NU });
-    expect((r.body.framsteg as any).procent).toBe(25);
-    expect((r.body.framsteg as any).text).toMatch(/^25 % klart · klart ca /);
+    expect(r.body.framsteg).toEqual({ procent: 25, klartCa: null, text: '25 % klart', forklaring: null });
+  });
+  it('framsteget: "klart ca" med förklaring när varje del har fem stabila färska dagar', async () => {
+    const dag = (n: number) => `2026-10-${String(22 - n).padStart(2, '0')}`;
+    const rpc = { besok_volymer: [
+      ...[0, 1, 2, 3, 4].map((n) => ({ kalla: 'skordat', datum: dag(n), m3: 100 })),
+      ...[0, 1, 2, 3, 4].map((n) => ({ kalla: 'skotat', datum: dag(n), m3: 50 })),
+    ] };
+    const r = await publikVy(varld({ rpc }), TOKEN, { nu: NU });
+    const f = r.body.framsteg as any;
+    expect(f.procent).toBe(Math.round(((500 / 1000 + 250 / 1000) / 2) * 100));
+    expect(f.klartCa).toBe('den 12 november');   // skotningen: 750 kvar i 50/dag = 15 arbetsdagar från torsdag 22 okt
+    expect(f.text).toBe(`${f.procent} % klart · klart ca den 12 november`);
+    expect(f.forklaring).toContain('senaste 5 dagarna');
+  });
+  it('traktens namn är platsen, inte Vidas internnamn: kod bort, fastighetsbeteckning när inget namn finns kvar', async () => {
+    const v = (namn: string, fastighetsbeteckning: string | null) => varld({ tabeller: { objekt: [objekt({ namn, fastighetsbeteckning })] } });
+    expect((await publikVy(v('RP J-Hus -25', 'Skälviken 1:23'), TOKEN, { nu: NU })).body.namn).toBe('Skälviken 1:23');
+    expect((await publikVy(v('Skälviken au 2025', null), TOKEN, { nu: NU })).body.namn).toBe('Skälviken');
+    expect((await publikVy(v('RP J-Hus -25', null), TOKEN, { nu: NU })).body.namn).toBe('Trakten');
   });
   it('går volymfunktionen inte att anropa (migrationen ej körd) utelämnas framsteget — sidan faller inte', async () => {
     const sb = fakeSb({ objekt_besok_lank: [{ token: TOKEN, objekt_id: OBJ, aktiv: true }], objekt: [objekt()], objekt_geometri: [], planering_markeringar: [], objekt_alt_nummer: [], hyttspar: [], objekt_besok: [] });
     const r = await publikVy(sb, TOKEN, { nu: NU });
     expect(r.status).toBe(200);
-    expect(r.body.framsteg).toEqual({ procent: null, klartCa: null, text: null });
+    expect(r.body.framsteg).toEqual({ procent: null, klartCa: null, text: null, forklaring: null });
   });
 });
 

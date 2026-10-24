@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { escapeHtml } from '@/lib/html'
 
 // Status-typer med färger
 const STATUS: Record<string, { label: string; farg: string; bg: string; ikon: string }> = {
@@ -293,7 +294,7 @@ export default function KartaPage() {
             font-weight: 600;
             white-space: nowrap;
             box-shadow: 0 1px 4px rgba(0,0,0,0.15);
-          ">${obj.namn}</div>
+          ">${escapeHtml(obj.namn)}</div>
         </div>
       `
 

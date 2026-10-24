@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { kravInloggad } from "@/lib/auth/server";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
 import { statistik, type VariabelStat } from "@/lib/kalibrering/statistik";
 
 /**
- * GET /api/kalibrering/tradslag?key=skogsystem-debug&maskin_id=X
+ * GET /api/kalibrering/tradslag?maskin_id=X
  *
  * Per-trädslag-underlag för Rapport-tabellen — PER MASKIN (aldrig flottans
  * total). Gran på PONSSE (VIDA) och Gran på R64428 (BIOMETRIA) är olika saker.
@@ -26,8 +27,6 @@ import { statistik, type VariabelStat } from "@/lib/kalibrering/statistik";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const DEBUG_KEY = "skogsystem-debug";
-
 export type KravRow = {
   variabel: string; metrik: string; riktning: string;
   tolerans: number | null; mal: number; golv: number; enhet: string; larm_min_matt: number | null;
@@ -53,7 +52,8 @@ async function fetchAllRows<T>(
 }
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  if (url.searchParams.get("key") !== DEBUG_KEY) return new NextResponse("Ogiltig nyckel", { status: 401 });
+  const vakt = await kravInloggad();
+  if (!vakt.ok) return vakt.res;
   const maskinId = url.searchParams.get("maskin_id");
   if (!maskinId) return NextResponse.json({ ok: false, error: "maskin_id krävs" }, { status: 400 });
   const dagarParam = url.searchParams.get("dagar");

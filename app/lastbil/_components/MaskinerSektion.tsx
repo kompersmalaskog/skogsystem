@@ -8,10 +8,7 @@ import { sthlmDelar } from '@/lib/sthlmTid';
 import FlyttSheet from './FlyttSheet';
 import { fmtDatum } from './nu';
 import { fmtMinuter } from './rundaText';
-import {
-  FLYTT, MELLANRUM, fmtDagar, grupperaMaskiner, saknarKmText, saknarTidText, sammanfatta, snittUnder, starPa,
-  type Flytt, type Maskin,
-} from './maskiner';
+import { grupperaMaskiner, hurLang, hurOfta, saknarKmText, sammanfatta, varArDen, type Flytt, type Maskin } from './maskiner';
 import type { MaskinerLage } from './useMaskiner';
 
 const km = (v: number) => `${Math.round(v).toLocaleString('sv-SE')} km`;
@@ -62,9 +59,11 @@ function MaskinArk({ maskin, ar, arAdmin, namn, onStang, onAndrad }: {
   const s = sammanfatta(maskin);
   const nu = new Date();
   const innevarandeAr = sthlmDelar(nu)?.ar === ar;
-  const star = innevarandeAr ? starPa(maskin, nu) : null;
+  const var_ = innevarandeAr ? varArDen(maskin, nu) : null;
+  const ofta = hurOfta(maskin, s, ar, innevarandeAr);
+  const lang = hurLang(s, fmtMinuter);
   return (
-    <Ark rubrik={maskin.namn} onStang={onStang}>
+    <Ark rubrik={maskin.namn} onStang={onStang} stang="Klar">
       {kvitto && (
         <div role="status" data-ratta-kvitto style={{ background: FARG.fyllning, borderRadius: RADIE.knapp, padding: AVSTAND.m, marginBottom: AVSTAND.s }}>
           <p style={{ ...TYP.text, color: FARG.text, margin: 0 }}>{kvitto}</p>
@@ -78,33 +77,41 @@ function MaskinArk({ maskin, ar, arAdmin, namn, onStang, onAndrad }: {
         </div>
       )}
 
-      <div data-maskin-antal style={{ ...TYP.tal, color: FARG.text }}>{maskin.antal} {maskin.antal === 1 ? 'flytt' : 'flyttar'}</div>
-      <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>i {ar}</div>
-      {star && <div data-star-pa style={{ ...TYP.text, color: FARG.text, marginTop: AVSTAND.s }}>{star}</div>}
+      {/* Frågor som rubriker, svaret först i ord (Martin 2026-10-24). Arket ÄR ett kort: inga kort i kortet. */}
+      {var_ && (
+        <Sektion rubrik={`Var är ${maskin.namn} nu?`} kort={false}>
+          <div data-star-pa style={{ ...TYP.rubrik, color: FARG.text }}>{var_.plats}</div>
+          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{var_.sedan}</div>
+        </Sektion>
+      )}
+      <Sektion rubrik={maskin.extern ? 'Hur ofta flyttades de?' : 'Hur ofta flyttas den?'} kort={false}>
+        <div data-maskin-antal style={{ ...TYP.rubrik, color: FARG.text }}>{ofta.svar}</div>
+        {ofta.under && <div data-maskin-trakt style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{ofta.under}</div>}
+      </Sektion>
+      <Sektion rubrik="Hur lång är en flytt?" kort={false}>
+        <div data-maskin-snitt style={{ ...TYP.rubrik, ...TNUM, color: FARG.text }}>{lang.svar}</div>
+        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{lang.under}</div>
+      </Sektion>
 
-      <div data-maskin-snitt style={{ marginTop: AVSTAND.m }}>
-        <Rad rubrik="Lassat → lossat" hoger={s.tid.snitt != null ? fmtMinuter(s.tid.snitt) : '–'} under={snittUnder(s.tid, FLYTT, saknarTidText)} />
-        <Rad rubrik="Snitt-km" hoger={s.km.snitt != null ? km(s.km.snitt) : '–'} under={snittUnder(s.km, FLYTT, saknarKmText)} sista={!s.trakt} />
-        {s.trakt && <Rad rubrik="På en trakt" hoger={s.trakt.snitt != null ? fmtDagar(s.trakt.snitt) : '–'} under={snittUnder(s.trakt, MELLANRUM)} sista />}
-      </div>
-
-      <div style={{ ...TYP.micro, color: FARG.text2, margin: `${AVSTAND.l}px 0 ${AVSTAND.xs}px` }}>Flyttar</div>
-      <div data-maskin-flyttar>
-        {maskin.flyttar.map((f, i) => (
-          <FlyttRad key={f.id} f={f} visaMaskin={maskin.extern} sista={i === maskin.flyttar.length - 1}
-            onTryck={arAdmin ? () => { setKvitto(null); setKvittoFel(null); setRedigerar(f.id); } : undefined} />
-        ))}
-      </div>
-      {arAdmin && <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px 0 0` }}>Tryck på en flytt för att rätta eller stryka den.</p>}
+      <Sektion rubrik={maskin.extern ? 'Vart flyttades de?' : 'Vart har den flyttats?'} kort={false}
+        not={arAdmin ? 'Tryck på en flytt för att rätta eller stryka den.' : undefined}>
+        <div data-maskin-flyttar>
+          {maskin.flyttar.map((f, i) => (
+            <FlyttRad key={f.id} f={f} visaMaskin={maskin.extern} sista={i === maskin.flyttar.length - 1}
+              onTryck={arAdmin ? () => { setKvitto(null); setKvittoFel(null); setRedigerar(f.id); } : undefined} />
+          ))}
+        </div>
+      </Sektion>
     </Ark>
   );
 }
 
+/** "Till Bågskyttebanan RP J-Hus- 25" · "tis 6 okt · från Vällust RP M-R -25 · 1 h 15 min" · km till höger (som rundraden i Körningar). */
 function FlyttRad({ f, visaMaskin, sista, onTryck }: { f: Flytt; visaMaskin: boolean; sista: boolean; onTryck?: () => void }) {
   return (
-    <Rad rubrik={`${f.franNamn ?? 'Från saknas'} → ${f.tillNamn ?? 'Till saknas'}`}
-      under={[fmtDatum(f.lossad), visaMaskin ? f.maskinNamn : null].filter(Boolean).join(' · ')}
-      hoger={f.km != null ? km(f.km) : 'km saknas'} hogerUnder={f.min != null ? fmtMinuter(f.min) : 'tid saknas'}
+    <Rad rubrik={`Till ${f.tillNamn ?? 'okänd plats'}`}
+      under={[fmtDatum(f.lossad), `från ${f.franNamn ?? 'okänd plats'}`, f.min != null ? fmtMinuter(f.min) : 'tid saknas', visaMaskin ? f.maskinNamn : null].filter(Boolean).join(' · ')}
+      hoger={f.km != null ? km(f.km) : 'km saknas'}
       onTryck={onTryck} etikett={`Visa flytten ${f.maskinNamn}`} sista={sista} />
   );
 }
@@ -124,7 +131,7 @@ export default function MaskinerSektion({ ar, lage, onForsokIgen, arAdmin, namn,
 
   return (
     <div data-maskiner>
-      <Sektion rubrik="Maskiner">
+      <Sektion rubrik="Vilka maskiner flyttades?">
         {lage.lage === 'laddar' && <p role="status" style={{ ...TYP.text, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.l}px 0`, margin: 0 }}>Läser maskiner …</p>}
         {lage.lage === 'fel' && (
           <div style={{ textAlign: 'center', padding: `${AVSTAND.l}px 0` }}>

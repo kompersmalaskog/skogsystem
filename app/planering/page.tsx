@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, useContext } from 'r
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
+import { LjudSpelare } from '@/components/LjudSpelare'
 import { gpsGuardAccepts, haversineMeters } from '@/lib/gps-guard'
 import { signeraKartfil } from '@/lib/kartfiler'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
@@ -11945,8 +11946,6 @@ export default function PlannerPage() {
     aktiv: instruktionerAktiv,
     objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
     maskinId: besokMaskinId,
-    roll: besokMaskinId ? rollForMaskin(dimMaskiner, besokMaskinId) : null,
-    forareId: currentMedarbetare?.id ? String(currentMedarbetare.id) : null,
     testlage: !!testlage,
     ljudCtx: () => korvyAudioCtxRef.current,
   });
@@ -12834,11 +12833,11 @@ export default function PlannerPage() {
   // grenen, så förarlistan visades utan gul rand/Avsluta — och sekvensen kunde inte täcka objektlistan.
   const maskinLager = (
     <>
-      {/* === "ÖPPNA SOM MASKIN"-BANNER (gul rand, över allt) — får aldrig förväxlas med skarpt läge === */}
+      {/* === "ÖPPNA SOM MASKIN"-BANNER (neutral grå, över allt) — får aldrig förväxlas med skarpt läge. Inte orange: orange är hytten-kortets färg för ett besök. === */}
       {testlage && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9200,
-          background: '#f59e0b', color: '#1a1200', boxSizing: 'border-box', height: `calc(env(safe-area-inset-top, 0px) + ${TESTBANNER_HOJD_PX}px)`,
+          background: FARG.upphojt, color: FARG.text, boxSizing: 'border-box', height: `calc(env(safe-area-inset-top, 0px) + ${TESTBANNER_HOJD_PX}px)`,
           padding: 'calc(env(safe-area-inset-top, 0px) + 6px) 14px 6px',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
           fontSize: '13px', fontWeight: 800, letterSpacing: '0.3px', textAlign: 'center',
@@ -12847,22 +12846,22 @@ export default function PlannerPage() {
           <span>⚠ Visar som maskin: {startMaskinNamn || testlage.maskinId}<span data-testid="test-langtryck-tips" style={{ fontWeight: 600 }}> · håll fingret på kartan = flytta mig</span></span>
           {skotarLassAktiv && (
             <button type="button" data-testid="skotar-provkor" onClick={() => skotarLass.provkorLossning(skotarValtAvlagg)}
-              style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+              style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
               {skotarLass.oppen ? 'Provkör: kör ut ur zonen' : 'Provkör lossning'}
             </button>
           )}
           {skotarKorvy && (
             <button type="button" data-testid="skotar-provkor-morgonkort" onClick={skotarVader.provkorKort}
-              style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+              style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
               Visa morgonkort
             </button>
           )}
           <button type="button" data-testid="test-flytta-mig" aria-pressed={testFlyttaMig} onClick={() => setTestFlyttaMig((v) => !v)}
-            style={{ background: testFlyttaMig ? '#1a1200' : 'rgba(0,0,0,0.25)', color: testFlyttaMig ? '#f59e0b' : '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+            style={{ background: testFlyttaMig ? FARG.text : FARG.fyllning, color: testFlyttaMig ? FARG.bg : FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
             {testFlyttaMig ? 'Tryck på kartan' : 'Flytta mig hit'}
           </button>
           <button type="button" onClick={avslutaTestlage}
-            style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+            style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
             Avsluta
           </button>
         </div>
@@ -15420,7 +15419,7 @@ export default function PlannerPage() {
                     <div key={mm.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>{forfattarText(mm.namn, mm.skapad_at)}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <audio controls src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
+                        <LjudSpelare src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
                         {(arMitt(mm) || isAdminRiktig) && (
                           <button onClick={() => raderaYtaMedia(nyckel, mm)} aria-label="Ta bort"
                             style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: '15px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ff6961', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
@@ -16173,7 +16172,7 @@ export default function PlannerPage() {
               {/* Inspelat ljud (visas under knapparna) */}
               {marker.audioData && !isRecordingAudio && (
                 <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <audio controls src={marker.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
+                  <LjudSpelare src={marker.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
                   <button onClick={() => { if (marker.audioData) deleteAudioFromStorage(marker.audioData); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, audioData: undefined } : m)); }} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                 </div>
               )}
@@ -16227,7 +16226,7 @@ export default function PlannerPage() {
                                 >{isRecThis ? '⏹' : '🎤'}{isRecThis && <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                                 {note.audioData && !isRecThis && (
                                   <>
-                                    <audio controls src={note.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
+                                    <LjudSpelare src={note.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
                                     <button onClick={() => { if (note.audioData) deleteAudioFromStorage(note.audioData); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, audioData: undefined } : n) } : m)); }} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                                   </>
                                 )}
@@ -16242,7 +16241,7 @@ export default function PlannerPage() {
                           {/* Visa ljud (ej redigering) */}
                           {!isEditing && note.audioData && (
                             <div style={{ marginTop: '6px' }}>
-                              <audio controls src={note.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
+                              <LjudSpelare src={note.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
                             </div>
                           )}
                         </div>
@@ -16271,7 +16270,7 @@ export default function PlannerPage() {
                             >{isRecNew ? '⏹' : '🎤'}{isRecNew && <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                             {pendingAudio && !isRecNew && (
                               <>
-                                <audio controls src={pendingAudio} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
+                                <LjudSpelare src={pendingAudio} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
                                 <button onClick={() => { if (pendingAudio) deleteAudioFromStorage(pendingAudio); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === newId ? { ...n, audioData: undefined } : n) } : m)); }} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                               </>
                             )}
@@ -17721,7 +17720,7 @@ export default function PlannerPage() {
                   </div>
                   {hasAudio && !isRecThis && (
                     <div style={{ marginTop: '8px' }}>
-                      <audio controls src={editingMarker.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
+                      <LjudSpelare src={editingMarker.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
                     </div>
                   )}
                 </div>
@@ -19799,7 +19798,7 @@ export default function PlannerPage() {
               {/* Audio */}
               {cv.audioData && (
                 <div style={{ marginBottom: '10px' }}>
-                  <audio controls src={cv.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
+                  <LjudSpelare src={cv.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
                 </div>
               )}
               {/* Buttons */}

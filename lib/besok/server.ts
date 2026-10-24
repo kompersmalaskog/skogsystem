@@ -9,10 +9,10 @@ import { beslutaOrigo, lasVidaGrans, markeringsGranser, markeringsPunkter } from
 import { svgToLatLon } from '@/lib/kartkoordinater';
 import { hamtaAltNummer, hogarObjektIds } from '@/lib/objektNummer';
 import { idagStockholm } from '@/lib/grotvy/format';
-import { rensaObjektnamn } from '@/app/oversikt-v2/sms';
+import { besokNamn } from './namn';
 import { BESOK_MAX_PER_TIMME, BESOK_RING_M, MASKIN_FERSK_MIN, TOKEN_MIN_TECKEN } from './konstanter';
 import { arGiltigtToken } from './offentlig';
-import { beraknaFramsteg, framstegText, utforareText, type DagVolym } from './framsteg';
+import { KLART_CA_FORKLARING, beraknaFramsteg, framstegText, utforareText, type DagVolym } from './framsteg';
 import { arKlockslag, arRimligBesokstid, besokstid, type TidVal } from './tid';
 import type { MaskinRoll } from './sakerhet';
 
@@ -23,7 +23,7 @@ const FEL = (status: number, fel: string): Svar => ({ status, body: { ok: false,
 
 // ---- Länken ---------------------------------------------------------------------------------------------------------------------------------
 
-type ObjektRad = { id: string; namn: string; vo_nummer: string | null; status: string | null; bolag: string | null; lat: number | null; lng: number | null; kartbild_bounds: unknown; volym: number | null; dim_objekt_id: string | null };
+type ObjektRad = { id: string; namn: string; vo_nummer: string | null; status: string | null; bolag: string | null; lat: number | null; lng: number | null; kartbild_bounds: unknown; volym: number | null; dim_objekt_id: string | null; fastighetsbeteckning: string | null };
 
 export type LankUtfall = { ok: true; objekt: ObjektRad } | { ok: false; skal: 'okand' | 'avstangd' | 'avslutat' | 'fel'; meddelande?: string };
 
@@ -35,7 +35,7 @@ export async function slaUppLank(sb: Sb, token: string): Promise<LankUtfall> {
   if (l.error) return { ok: false, skal: 'fel', meddelande: l.error.message };
   if (!l.data) return { ok: false, skal: 'okand' };
   if (!(l.data as { aktiv: boolean }).aktiv) return { ok: false, skal: 'avstangd' };
-  const o = await sb.from('objekt').select('id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id').eq('id', (l.data as { objekt_id: string }).objekt_id).maybeSingle();
+  const o = await sb.from('objekt').select('id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id, fastighetsbeteckning').eq('id', (l.data as { objekt_id: string }).objekt_id).maybeSingle();
   if (o.error) return { ok: false, skal: 'fel', meddelande: o.error.message };
   if (!o.data) return { ok: false, skal: 'okand' };
   const objekt = o.data as ObjektRad;
@@ -170,9 +170,9 @@ export async function publikVy(sb: Sb, token: string, opt: { besokId?: string | 
     status: 200,
     body: {
       ok: true,
-      namn: rensaObjektnamn(o.namn, o.vo_nummer),
+      namn: besokNamn(o.namn, o.vo_nummer, o.fastighetsbeteckning),
       utforare: utforareText(o.bolag),
-      framsteg: { procent: tung.framsteg.procent, klartCa: tung.framsteg.klartCa, text: framstegText(tung.framsteg) },
+      framsteg: { procent: tung.framsteg.procent, klartCa: tung.framsteg.klartCa, text: framstegText(tung.framsteg), forklaring: tung.framsteg.klartCa ? KLART_CA_FORKLARING : null },
       gran: tung.gran,
       mitt: o.lat != null && o.lng != null ? { lat: o.lat, lng: o.lng } : null,
       maskiner,
