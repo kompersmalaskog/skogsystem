@@ -15,6 +15,7 @@ import { arGiltigtToken } from './offentlig';
 import { KLART_CA_FORKLARING, beraknaFramsteg, framstegText, utforareText, type DagVolym } from './framsteg';
 import { arKlockslag, arRimligBesokstid, besokstid, type TidVal } from './tid';
 import type { MaskinRoll } from './sakerhet';
+import { maskinEtikett, maskinerPaObjekt } from './maskinerPaBesok';
 
 type Sb = SupabaseClient;
 export type Svar = { status: number; body: Record<string, unknown> };
@@ -141,16 +142,30 @@ export async function maskinerPaTrakten(sb: Sb, objektId: string, nu: Date): Pro
 
 // ---- Markägarens egen anmälan ---------------------------------------------------------------------------------------------------------------
 
-export type PublikBesok = { id: string; besokstid: string; kvitteringar: { roll: MaskinRoll; tid: string }[] };
+/** En rad per maskin som ska ha sett besöket: etikett ("Skördaren Scorpion"), roll och när Uppfattat trycktes (null = ännu inte). Aldrig förare, aldrig maskin-id. */
+export type PublikBesokMaskin = { etikett: string; roll: MaskinRoll; tid: string | null };
+export type PublikBesok = { id: string; besokstid: string; kvitteringar: { roll: MaskinRoll; tid: string }[]; maskiner: PublikBesokMaskin[] };
 
 export async function minAnmalan(sb: Sb, objektId: string, besokId: string | null | undefined): Promise<PublikBesok | null> {
   if (!besokId || !/^[0-9a-f-]{36}$/i.test(besokId)) return null;
   const b = await sb.from('objekt_besok').select('id, besokstid').eq('id', besokId).eq('objekt_id', objektId).maybeSingle();
   if (b.error || !b.data) return null;
-  const k = await sb.from('objekt_besok_kvittens').select('roll, kvitterad_at').eq('besok_id', besokId);
-  const kv = !k.error && Array.isArray(k.data) ? (k.data as { roll: string | null; kvitterad_at: string }[]).filter((x) => x.roll === 'skordare' || x.roll === 'skotare').map((x) => ({ roll: x.roll as MaskinRoll, tid: x.kvitterad_at })) : [];
+  const k = await sb.from('objekt_besok_kvittens').select('roll, kvitterad_at, maskin_id').eq('besok_id', besokId);
+  const rader = !k.error && Array.isArray(k.data) ? (k.data as { roll: string | null; kvitterad_at: string; maskin_id: string }[]).filter((x) => x.roll === 'skordare' || x.roll === 'skotare') : [];
+  const kv = rader.map((x) => ({ roll: x.roll as MaskinRoll, tid: x.kvitterad_at }));
   const d = b.data as { id: string; besokstid: string };
-  return { id: d.id, besokstid: d.besokstid, kvitteringar: kv };
+
+  // En rad per maskin som ska ha sett besöket (tilldelad objektet eller arbetar där): "Föraren har inte sett dig än" tills Uppfattat, sedan "✓ <maskin> har sett att du kommer".
+  // Maskinen som kvitterat men inte hör till listan (t.ex. en admins test) läggs till som sedd. Går registret inte att läsa faller sidan tillbaka på raderna per kvittens.
+  let maskiner: PublikBesokMaskin[] = [];
+  try {
+    const pa = (await maskinerPaObjekt(sb, [objektId])).get(objektId) ?? [];
+    const sedd = new Map(rader.map((x) => [x.maskin_id, x]));
+    maskiner = pa.map((m) => ({ etikett: maskinEtikett(m), roll: m.roll, tid: sedd.get(m.maskinId)?.kvitterad_at ?? null }));
+    const med = new Set(pa.map((m) => m.maskinId));
+    for (const x of rader) if (!med.has(x.maskin_id)) maskiner.push({ etikett: maskinEtikett({ roll: x.roll as MaskinRoll, namn: null }), roll: x.roll as MaskinRoll, tid: x.kvitterad_at });
+  } catch { maskiner = []; }
+  return { id: d.id, besokstid: d.besokstid, kvitteringar: kv, maskiner };
 }
 
 // ---- GET /api/besok/<token> ---------------------------------------------------------------------------------------------------------------

@@ -11,6 +11,18 @@ export function kvitteringsRader(kv: Kvittens[]): string[] {
   return sorterade.map((k) => `✓ ${ROLL_ORD[k.roll]} har sett det ${klockslag(k.tid)}`);
 }
 
+export type MaskinRad = { etikett: string; roll: MaskinRoll; tid: string | null };
+
+export const EJ_SETT_TEXT = 'Föraren har inte sett dig än – gå inte in, ring oss';
+
+/** Besökssidan efter "Skicka": en rad per maskin som ska ha sett besöket. Sedd: "✓ Skördaren Scorpion har sett att du kommer" (grön). Inte sedd: en tydlig varning med maskinen utpekad när det finns flera. */
+export function maskinStatusRader(maskiner: readonly MaskinRad[]): { text: string; sett: boolean }[] {
+  const flera = maskiner.length > 1;
+  return [...maskiner]
+    .sort((a, b) => (a.tid && b.tid ? Date.parse(a.tid) - Date.parse(b.tid) : a.tid ? -1 : b.tid ? 1 : 0))   // sedda först (äldst först), de som inte sett i serverns ordning (skördare före skotare)
+    .map((m) => (m.tid ? { text: `✓ ${m.etikett} har sett att du kommer`, sett: true } : { text: flera ? `${m.etikett}: ${EJ_SETT_TEXT[0].toLowerCase()}${EJ_SETT_TEXT.slice(1)}` : EJ_SETT_TEXT, sett: false }));
+}
+
 export const VANTAR_TEXT = 'Skickat · väntar på föraren';
 
 /** Hyttens orange kort: "Besök: Anna Svensson kommer ca 14:30". */

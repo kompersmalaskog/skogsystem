@@ -196,3 +196,24 @@ export function testNotis(url: string): HyttNotis {
     data: { hytt: true, typ: 'test', url, test: true },
   };
 }
+
+// ── FRÅN APPENS STATE TILL NOTISENS INDATA ────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Det larmhooken visar (stort kort + "+"-raden), strukturellt — notisen känner inte till hooken. */
+export type LarmPost = { id: string; grupp: string; namn: string; typ?: string; kalla: string; avstandM: number | null; text: string | null };
+
+/**
+ * Bara Röd = Fara ger notis (kraftledning, el-ledning, varning, jakttorn, brant, ej framkomlig …). Natur, Kultur och Blött larmar i appen men ger ingen notis (spec: fara, besök, område).
+ * Yttexten "Du är inne i ytan …" är larmkortets egen och upprepas inte (regeln står redan i notisen); en markerings egen kommentar följer med.
+ */
+export function farorUrLarm(kort: LarmPost | null | undefined, fler: readonly LarmPost[] = []): FaraIn[] {
+  return [kort, ...fler].flatMap((l) => (l && l.grupp === 'fara'
+    ? [{ id: l.id, namn: l.namn, typ: l.typ, avstandM: l.kalla === 'yta' ? null : l.avstandM, text: l.kalla === 'yta' ? null : l.text }]
+    : []));
+}
+
+/** Instruktionskortet som väntar → områdesnotisen. Bara de osedda instruktionerna (det kortet visar). */
+export function omradeUrKort(k: { nyckel: string; namn: string; bricka?: string; typ?: string; instruktioner: readonly { text: string; hash: string }[]; fler: number } | null | undefined): OmradeIn | null {
+  if (!k || k.instruktioner.length === 0) return null;
+  return { nyckel: k.nyckel, namn: k.namn, bricka: k.bricka, typ: k.typ, instruktioner: k.instruktioner.map((x) => ({ text: x.text, hash: x.hash })), fler: k.fler };
+}

@@ -43,6 +43,8 @@ export interface InstruktionerUt {
   paminnelse: Paminnelse | null;
   /** En instruktion väntar på "Sett" (visas nu eller väntar på larm/lossning). Avläggsraden (målbilden) väntar tills den är kvitterad. */
   vantar: boolean;
+  /** Kortet som väntar på "Sett", också medan ett larm-, besöks- eller lossningskort har platsen (null = inget väntar). Notisen i hytten läser det. */
+  vantandeKort: InstruktionKortData | null;
   /** Alla instruktioner på trakten — raden "Instruktioner på trakten (N)" i genomgången. */
   paTrakten: InstruktionerPaTrakten;
   /** "✓ Sett" på kortet: kvitterar det kortet visar. */
@@ -112,7 +114,9 @@ export function useInstruktioner(inp: InstruktionerIn): InstruktionerUt {
 
   // Kön fylls bara när sett är läst (effekten ovan), så kortet behöver ingen egen spärr: det finns inget att visa innan dess.
   const kort = useMemo(() => (aktiv ? kortAttVisa(state, omraden, karta, inp.blockerad) : null), [aktiv, state, omraden, karta, inp.blockerad]);
-  const vantar = useMemo(() => (aktiv ? kortAttVisa(state, omraden, karta, false) != null : false), [aktiv, state, omraden, karta]);
+  // Kortet som VÄNTAR (oavsett om något annat kort har platsen): notisen i hytten (lib/hytt/notiser) behöver veta vad som väntar även medan ett larm- eller besökskort visas.
+  const vantandeKort = useMemo(() => (aktiv ? kortAttVisa(state, omraden, karta, false) : null), [aktiv, state, omraden, karta]);
+  const vantar = vantandeKort != null;
   // Påminnelsen räknas om när hela pillen blivit bricka: en timer till exakt dess slut (inget polling). Tiden läses färsk vid varje beräkning.
   const [tick, setTick] = useState(0);
   const paminnelse = useMemo(
@@ -165,5 +169,5 @@ export function useInstruktioner(inp: InstruktionerIn): InstruktionerUt {
     return ut;
   }, [aktiv, laddad, omraden, karta]);
 
-  return { kort, paminnelse, vantar, paTrakten, settKort, settOmraden, oseddaPer };
+  return { kort, paminnelse, vantar, vantandeKort, paTrakten, settKort, settOmraden, oseddaPer };
 }

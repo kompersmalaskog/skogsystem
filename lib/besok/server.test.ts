@@ -133,7 +133,7 @@ describe('markägarens egen anmälan', () => {
   };
   it('visar anmälan och vilka maskiner som sett den — utan maskin- eller förar-id', async () => {
     const r = await minAnmalan(varld({ tabeller }), OBJ, '11111111-1111-4111-8111-111111111111');
-    expect(r).toEqual({ id: '11111111-1111-4111-8111-111111111111', besokstid: min(-30), kvitteringar: [{ roll: 'skordare', tid: min(1) }] });
+    expect(r).toEqual({ id: '11111111-1111-4111-8111-111111111111', besokstid: min(-30), kvitteringar: [{ roll: 'skordare', tid: min(1) }], maskiner: [{ etikett: 'Skördaren', roll: 'skordare', tid: min(1) }] });
     expect(JSON.stringify(r)).not.toMatch(/M1|f1|Anna|070/);
   });
   it('en annan trakts anmälan, ett trasigt id eller inget id ger ingenting', async () => {
