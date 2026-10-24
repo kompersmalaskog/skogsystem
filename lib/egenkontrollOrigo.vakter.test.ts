@@ -105,6 +105,7 @@ describe('kartbild_bounds skrivs aldrig för att "lösa" objekt som saknar dem',
     'app/planering/page.tsx',
     'lib/egenkontroll.ts',
     'lib/egenkontrollOrigo.ts',
+    'lib/objektoversikt/lasKarta.ts',   // Objektöversiktens karta: läser bara kartbild_bounds (select) och ger det till beslutaOrigo — skriver aldrig
     'lib/besok/server.ts',   // läser bara kartbild_bounds (select) och ger det till beslutaOrigo — skriver aldrig
     'lib/kartkoordinater.ts',
     'lib/matning/punkter.ts',
