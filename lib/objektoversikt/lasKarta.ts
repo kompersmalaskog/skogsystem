@@ -12,7 +12,11 @@ import { beslutaOrigo, lasVidaGrans, markeringsGranser, markeringsPunkter, type 
 import type { Origo } from '@/lib/kartkoordinater';
 import { hyttsparRitadeLinjer } from '@/lib/sparJamning';
 import { hamtaAlla } from '@/lib/supabaseAlla';
-import { inomRuta, rutaRunt, senastText, sistaPunkt, type KartStam, type LngLat, type MaskinPlats } from './karta';
+import { optiTidUtcMs } from '@/lib/optiTid';
+import {
+  inomRuta, medOptiSpar, raknadeSkotarLass, rutaRunt, senastText, sistaPunkt,
+  type KartKommentarRad, type KartStam, type LngLat, type MaskinPlats, type SkotarLass, type SkotarSpar,
+} from './karta';
 
 export type KartMaskin = { maskin_id: string; namn: string; roll: 'skordare' | 'skotare' };
 
@@ -29,6 +33,10 @@ export type KartData = {
   maskiner: MaskinPlats[];
   /** Maskiner som jobbat på objektet men aldrig skickat en position (appen var inte igång i hytten). */
   utanPlats: string[];
+  /** Kommentarerna på planerarens markeringar (kartkommentar, nyckel marker:<id>). */
+  kommentarer: KartKommentarRad[];
+  /** Skotarens lass som räknas (appens + Opti före appen), med var den lastade. null = gick inte att läsa. */
+  skotarLass: SkotarLass[] | null;
   /** Det som inte gick att läsa, i ord. */
   fel: string[];
 };
@@ -56,6 +64,22 @@ export async function lasKartdata(
     sb.from('detalj_stam').select('id', { count: 'exact', head: true }).in('objekt_id', ids).is('latitude', null),
     sb.from('dim_tradslag').select('tradslag_id, namn'),
   ]);
+  const [kommSvar, appSvar, optiSvar] = await Promise.all([
+    sb.from('kartkommentar').select('yta_nyckel, text, skapad_at, medarbetare:skapad_av(namn)').eq('objekt_id', a.objektUuid).like('yta_nyckel', 'marker:%'),
+    sb.from('skotar_lass').select('maskin_id, datum, spar, skotar_lass_del(lossad_tid, skotar_lass_sortiment(m3_forare))').eq('objekt_id', a.objektUuid).neq('status', 'struket'),
+    hamtaAlla<{ maskin_id: string; datum: string; lossnings_tid: string | null; lastnings_tid: string | null; tid_ar_utc: boolean | null; volym_m3sub: number | null }>(
+      () => sb.from('fakt_lass').select('id, maskin_id, datum, lossnings_tid, lastnings_tid, tid_ar_utc, volym_m3sub').in('objekt_id', ids),
+      'id',
+    ),
+  ]);
+
+  // Kommentarerna på markeringarna
+  let kommentarer: KartKommentarRad[] = [];
+  if (kommSvar.error) fel.push('kommentarerna');
+  else kommentarer = ((kommSvar.data ?? []) as any[]).map(r => ({
+    yta_nyckel: String(r.yta_nyckel), text: String(r.text ?? ''), skapad_at: String(r.skapad_at ?? ''),
+    namn: (Array.isArray(r.medarbetare) ? r.medarbetare[0]?.namn : r.medarbetare?.namn) ?? null,
+  }));
 
   // Vidas traktgräns
   let vidaRingar: LngLat[][] = [];
@@ -98,6 +122,7 @@ export async function lasKartdata(
 
   // Körspåren
   const per: Record<'skordare' | 'skotare', LngLat[][]> = { skordare: [], skotare: [] };
+  const skotarSpar: SkotarSpar[] = [];
   const sparMaskiner = new Set<string>();
   if (sparSvar.error) fel.push('körspåren');
   else {
@@ -109,9 +134,33 @@ export async function lasKartdata(
         .filter(p => typeof p?.lat === 'number' && typeof p?.lng === 'number')
         .map(p => ({ lat: p.lat as number, lng: p.lng as number, tid: typeof p.tid === 'string' ? p.tid : '' }));
       for (const linje of hyttsparRitadeLinjer(punkter)) per[rad.roll].push(linje as LngLat[]);
+      // Skotarens rådata med tider (aldrig de utjämnade linjerna): Opti-lassens väg mellan två lossningar.
+      if (rad.roll === 'skotare' && rad.maskin_id) {
+        skotarSpar.push({ maskin: rad.maskin_id, punkter: punkter.map(p => ({ lng: p.lng, lat: p.lat, ms: Date.parse(p.tid) })).filter(p => Number.isFinite(p.ms)) });
+      }
     }
   }
   const spar = (['skordare', 'skotare'] as const).filter(r => per[r].length > 0).map(roll => ({ roll, linjer: per[roll] }));
+
+  // Skotarens lass. Går appens eller Opti-lassen inte att läsa finns inget skotat (aldrig en halv summa).
+  let skotarLass: SkotarLass[] | null = null;
+  if (appSvar.error || optiSvar.error || sparSvar.error) fel.push('skotarens lass');
+  else {
+    const app: SkotarLass[] = ((appSvar.data ?? []) as any[]).map(l => {
+      const delar = (l.skotar_lass_del ?? []) as any[];
+      const tider = delar.map(d => Date.parse(d.lossad_tid)).filter(Number.isFinite);
+      const m3 = delar.flatMap(d => (d.skotar_lass_sortiment ?? []) as any[]).reduce((s, r) => s + (Number(r.m3_forare) || 0), 0);
+      const spar = Array.isArray(l.spar)
+        ? (l.spar as { lat?: unknown; lng?: unknown }[]).filter(p => typeof p?.lat === 'number' && typeof p?.lng === 'number').map(p => [p.lng as number, p.lat as number] as LngLat)
+        : [];
+      return { maskin: String(l.maskin_id), datum: String(l.datum), tidMs: tider.length ? Math.min(...tider) : null, m3, app: true, spar: spar.length ? spar : null };
+    });
+    const opti: SkotarLass[] = optiSvar.data.map(l => ({
+      maskin: String(l.maskin_id), datum: String(l.datum), tidMs: optiTidUtcMs(l.lossnings_tid ?? l.lastnings_tid, l.tid_ar_utc),
+      m3: Number(l.volym_m3sub) || 0, app: false, spar: null,
+    }));
+    skotarLass = medOptiSpar(raknadeSkotarLass([...app, ...opti]), skotarSpar);
+  }
 
   // Maskinerna nu: senaste kända position (sista hyttspårspunkten, var den än är).
   const ruta = rutaRunt([
@@ -141,5 +190,5 @@ export async function lasKartdata(
   });
   if (maskinFel) fel.push('maskinernas position');
 
-  return { origo, origoText, markeringar: origo ? markeringar : [], vidaRingar, spar, stammar, utanPosition, maskiner, utanPlats, fel };
+  return { origo, origoText, markeringar: origo ? markeringar : [], vidaRingar, spar, stammar, utanPosition, maskiner, utanPlats, kommentarer, skotarLass, fel };
 }

@@ -2,7 +2,9 @@
 //
 //  - högarna (skördarens stammar klustrade, lib/produktionshogar — samma som planeringsvyn) som features,
 //  - "Hur mycket avverkades här?": stammarna inne i ett ritat område → m³fub, träd, trädslag, ha,
-//  - maskinernas senaste position och tiden i ord.
+//  - maskinernas senaste position och tiden i ord,
+//  - skotat i området (skotarens lass och var den lastade),
+//  - det som står på en markering (namn, kommentarer, foto).
 //
 // Volymen är stammarnas total_volym (m³sub = m³fub, detalj_stam). Stammar utan position kan inte ligga i ett område
 // och räknas inte — det sägs (`utanPosition`), aldrig tyst.
@@ -10,6 +12,9 @@
 import { klustraStammar, type HogStam } from '@/lib/produktionshogar';
 import { tradslagFarg, tradslagLabel } from '@/lib/tradslag';
 import { ringAreaM2 } from '@/lib/geoMat';
+import { SYMBOL_FORKLARING, linjeKort, ytaForklaring } from '@/lib/symboler';
+import { forfattarText, markerNyckel } from '@/lib/kartkommentar';
+import { markeringNamn } from '@/app/oversikt/markeringar';
 
 export type LngLat = [number, number];
 
@@ -129,12 +134,6 @@ export function hogFeatures(stammar: readonly KartStam[]): HogFeature[] {
     });
 }
 
-/** "Gran · 4,2 m³fub · 12 träd" — när man trycker på en hög. */
-export function hogText(p: { volym: number; trad: number; tradslag: string }): string {
-  const v = p.volym.toLocaleString('sv-SE', { maximumFractionDigits: 1 });
-  return `${p.tradslag} · ${v} m³fub · ${tal(p.trad)} träd`;
-}
-
 // ---------------------------------------------------------------------------
 // Maskinerna nu
 // ---------------------------------------------------------------------------
@@ -201,4 +200,151 @@ export type MaskinPlats = {
 export function maskinRad(m: MaskinPlats): { titel: string; under: string } {
   const plats = m.har ? 'Här' : 'På annan plats';
   return { titel: m.namn, under: m.nar === 'nu' ? `${plats} nu` : `${plats} · senast ${m.nar}` };
+}
+
+// --- Skotat i området --------------------------------------------------------------------------------------------------
+//
+// Skotaren rapporterar VAD den lossade, inte VAR den lastade. Var den lastade läses ur dess körspår mellan två lossningar:
+// appens lass bär spåret själva (skotar_lass.spar), Opti-lassen får skotarens hyttspår mellan förra lossningen och den här.
+// Lassets volym delas på området efter hur stor del av spårets punkter INNE I TRAKTEN som ligger i området; punkterna
+// närmast lossningen (avlägget) räknas inte, där kör maskinen bara. Det är en uppskattning — därför "ca" överallt.
+//
+// Samma regel som skotarläget mot dubbelräkning (lib/skotarLass/opti): ett Opti-lass räknas bara för tiden INNAN
+// maskinen började rapportera lass i appen.
+
+export type SkotarLass = {
+  maskin: string;
+  /** Lossningen (verkligt UTC-ögonblick), null = okänd. */
+  tidMs: number | null;
+  /** Maskinens lokala dag. */
+  datum: string;
+  m3: number;
+  /** true = rapporterat i appen, false = Opti-filen. */
+  app: boolean;
+  /** Appens eget spår sedan förra lossningen (null för Opti-lass). */
+  spar: LngLat[] | null;
+};
+
+/** En skotares körspår med tider (hyttspar), för att hitta Opti-lassens väg. */
+export type SkotarSpar = { maskin: string; punkter: { lng: number; lat: number; ms: number }[] };
+
+/** Punkter så här nära lossningen räknas inte: där kör maskinen till avlägget. */
+export const AVLAGG_RADIE_M = 50;
+/** Det första lasset i en följd har ingen förra lossning: spåret så här lång tid bakåt. */
+export const FORSTA_LASS_MS = 3 * 3600_000;
+
+const sthlmDag = (ms: number) => new Date(ms).toLocaleDateString('sv-SE', { timeZone: SV });
+
+/** Avstånd i meter (litet område: plan approximation räcker). */
+export function avstandM(a: LngLat, b: LngLat): number {
+  const ky = 111_320;
+  const kx = ky * Math.cos(((a[1] + b[1]) / 2) * Math.PI / 180);
+  return Math.hypot((a[0] - b[0]) * kx, (a[1] - b[1]) * ky);
+}
+
+/** Lassen som räknas: alla appens, och Opti-lassen före maskinens första app-lass. */
+export function raknadeSkotarLass(lass: readonly SkotarLass[]): SkotarLass[] {
+  const start = new Map<string, number>();
+  for (const l of lass) if (l.app && l.tidMs != null) start.set(l.maskin, Math.min(start.get(l.maskin) ?? Infinity, l.tidMs));
+  return lass.filter(l => {
+    if (l.app) return true;
+    const s = start.get(l.maskin);
+    if (s == null) return true;
+    if (l.tidMs != null) return l.tidMs < s;
+    return l.datum < sthlmDag(s);
+  });
+}
+
+/** Opti-lassens väg: skotarens punkter mellan förra lossningen (samma maskin) och den här. */
+export function medOptiSpar(lass: readonly SkotarLass[], spar: readonly SkotarSpar[]): SkotarLass[] {
+  const perMaskin = new Map<string, { lng: number; lat: number; ms: number }[]>();
+  for (const s of spar) perMaskin.set(s.maskin, [...(perMaskin.get(s.maskin) ?? []), ...s.punkter]);
+  const tider = new Map<string, number[]>();
+  for (const l of lass) if (l.tidMs != null) tider.set(l.maskin, [...(tider.get(l.maskin) ?? []), l.tidMs]);
+  for (const t of tider.values()) t.sort((a, b) => a - b);
+  return lass.map(l => {
+    if (l.app || l.tidMs == null) return l;
+    const t = tider.get(l.maskin) ?? [];
+    const forra = t.filter(x => x < l.tidMs!).pop();
+    const fran = forra ?? l.tidMs - FORSTA_LASS_MS;
+    const p = (perMaskin.get(l.maskin) ?? []).filter(q => q.ms > fran && q.ms <= l.tidMs!).sort((a, b) => a.ms - b.ms);
+    return { ...l, spar: p.length > 0 ? p.map(q => [q.lng, q.lat] as LngLat) : null };
+  });
+}
+
+export type Skotat = {
+  /** Skotat i området, m³fub (avrundat som skördat). */
+  m3: number;
+  /** Lass som inte gick att placera (inget spår i trakten). */
+  ejPlacerade: number;
+  ejPlaceradM3: number;
+};
+
+/** Hur mycket som skotats ur området. null = inget område (under tre hörn) eller inga lass alls. */
+export function skotatIOmradet(lass: readonly SkotarLass[], ring: readonly LngLat[], trakt: readonly LngLat[][]): Skotat | null {
+  if (ring.length < 3 || lass.length === 0) return null;
+  let m3 = 0, ejPlacerade = 0, ejPlaceradM3 = 0;
+  for (const l of lass) {
+    if (!(l.m3 > 0)) continue;
+    const spar = l.spar ?? [];
+    const slut = spar[spar.length - 1];
+    const lastning = spar.filter(p => !slut || avstandM(p, slut) > AVLAGG_RADIE_M)
+      .filter(p => trakt.length === 0 || trakt.some(r => inneIRing(p[0], p[1], r)));
+    if (lastning.length === 0) { ejPlacerade++; ejPlaceradM3 += l.m3; continue; }
+    const inne = lastning.filter(p => inneIRing(p[0], p[1], ring)).length;
+    m3 += l.m3 * inne / lastning.length;
+  }
+  return { m3: rundaM3(m3, m3), ejPlacerade, ejPlaceradM3: rundaM3(ejPlaceradM3, ejPlaceradM3) };
+}
+
+/** Raderna under "Skördat": skotat och kvar, i ord. Kvar bara när alla lass gick att placera. */
+export function skotatRader(skordatM3: number, s: Skotat | null): { skotat: string; kvar: string | null; not: string | null } | null {
+  if (!s) return null;
+  const skotat = s.m3 === 0 && s.ejPlacerade > 0 ? 'går inte att räkna' : `ca ${tal(s.m3)} m³fub`;
+  if (s.ejPlacerade > 0) {
+    const lass = s.ejPlacerade === 1 ? '1 lass' : `${tal(s.ejPlacerade)} lass`;
+    return { skotat, kvar: null, not: `${lass} (${tal(s.ejPlaceradM3)} m³fub) saknar körspår – därför visas inte vad som är kvar.` };
+  }
+  const kvar = Math.max(0, rundaM3(skordatM3 - s.m3, skordatM3));
+  return { skotat, kvar: `ca ${tal(kvar)} m³fub`, not: null };
+}
+
+// --- Tryck på en markering ---------------------------------------------------------------------------------------------
+
+export type MarkKommentar = { forfattare: string | null; text: string };
+export type MarkKort = {
+  namn: string;
+  /** Vad markeringen betyder, en mening (samma text som teckenförklaringen). */
+  forklaring: string;
+  kommentarer: MarkKommentar[];
+  foto: { photoPath: string | null; photoData: string | null; photoTs: number | null } | null;
+};
+export type KartKommentarRad = { yta_nyckel: string; text: string; namn: string | null; skapad_at: string };
+
+/** Det som står på en markering: namnet, kommentarerna (äldst först, den gamla kommentaren först av alla) och fotot. */
+export function markeringKort(data: unknown, rader: readonly KartKommentarRad[], nu: Date = new Date()): MarkKort {
+  const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
+  let forklaring = '';
+  if (str(d.type)) forklaring = SYMBOL_FORKLARING[str(d.type)] ?? '';
+  else if (str(d.zoneType)) forklaring = ytaForklaring(str(d.zoneType))?.forklaring ?? '';
+  else if (str(d.lineType)) forklaring = linjeKort(str(d.lineType)).forklaring;
+  const kommentarer: MarkKommentar[] = [];
+  const aldre = str(d.comment).trim();
+  if (aldre) kommentarer.push({ forfattare: null, text: aldre });
+  const id = d.id;
+  if (id != null) {
+    const nyckel = markerNyckel(String(id));
+    for (const r of [...rader].filter(r => r.yta_nyckel === nyckel && r.text.trim()).sort((a, b) => a.skapad_at.localeCompare(b.skapad_at))) {
+      kommentarer.push({ forfattare: forfattarText(r.namn, r.skapad_at, nu), text: r.text.trim() });
+    }
+  }
+  const photoPath = str(d.photoPath) || null;
+  const photoData = str(d.photoData) || null;
+  return {
+    namn: markeringNamn(d),
+    forklaring,
+    kommentarer,
+    foto: photoPath || photoData ? { photoPath, photoData, photoTs: typeof d.photoTs === 'number' ? d.photoTs : null } : null,
+  };
 }

@@ -6,8 +6,11 @@
 // vägar, symboler och ytor (samma ritregler som planeringen och egenkontrollen — lib/kartstil, lib/egenkontrollkarta),
 // Vidas traktgräns och maskinerna där de senast var. Varje sak går att tända och släcka (Lager).
 //
-// "Hur mycket avverkades här?": tryck runt ett område → m³fub, träd och ha inne i det, räknat på skördarens stammar
-// (lib/objektoversikt/karta: iOmradet). Sträcka går också att mäta. Inget sparas.
+// "Hur mycket avverkades här?": tryck runt ett område → skördat (skördarens stammar, iOmradet), skotat (skotarens lass och
+// var den lastade, skotatIOmradet) och kvar. Sträcka går också att mäta. Inget sparas.
+//
+// Tryck på en markering (symbol, linje, yta) → vad det är, vad som står skrivet på den och fotot. Högarna går inte att
+// trycka på — man ritar runt dem.
 //
 // Bara läsning: kartan ändrar ingenting i databasen.
 
@@ -32,7 +35,9 @@ import { rollFarg } from '@/lib/sparStil';
 import { arDubbeltryck, type TryckPunkt } from '@/lib/ritaPunkter';
 import { formatLength, pathMeters } from '@/lib/geoMat';
 import { lasKartdata, type KartData, type KartMaskin } from '@/lib/objektoversikt/lasKarta';
-import { hogFeatures, hogText, iOmradet, maskinRad, omradeSvar, omradeUnder, rutaRunt, type LngLat } from '@/lib/objektoversikt/karta';
+import { hogFeatures, iOmradet, markeringKort, maskinRad, omradeSvar, omradeUnder, rutaRunt, skotatIOmradet, skotatRader, type LngLat } from '@/lib/objektoversikt/karta';
+import { KommentarVisning } from '@/components/planering/KommentarRuta';
+import MarkeringFoto from '@/app/planering/MarkeringFoto';
 
 declare global { interface Window { maplibregl: any } }
 
@@ -142,7 +147,7 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
   const [helskarm, setHelskarm] = useState(false);
   const [mat, setMat] = useState<Mat>(null);
   const [tryck, setTryck] = useState<LngLat[]>([]);
-  const [valdHog, setValdHog] = useState<string | null>(null);
+  const [valdMark, setValdMark] = useState<number | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -201,7 +206,10 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
   const geo = useMemo(() => {
     const tom = { type: 'FeatureCollection', features: [] as any[] };
     if (!data) return null;
-    const mark = data.origo ? data.markeringar.map(m => kontextFeature(m.data, data.origo!)).filter(Boolean) : [];
+    // Varje feature bär sin plats i listan (i), så ett tryck hittar markeringen och det som står på den.
+    const mark = data.origo
+      ? data.markeringar.map((m, i) => { const f = kontextFeature(m.data, data.origo!); return f ? { ...f, properties: { ...f.properties, i } } : null; }).filter(Boolean)
+      : [];
     const backvag = data.origo ? data.markeringar.map(m => backvagFeatureUrData(m.data, data.origo!, undefined, false)).filter(Boolean) : [];
     const sparOf = (roll: 'skordare' | 'skotare') => ({ ...tom, features: sparFeatures(data.spar.filter(s => s.roll === roll).flatMap(s => s.linjer.map(l => l.map(([lng, lat]) => ({ lat, lng }))))) });
     return {
@@ -233,9 +241,13 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
         setTryck(t => [...t, [e.lngLat.lng, e.lngLat.lat]]);
         return;
       }
+      // En markering under fingret (22 px åt varje håll): symbol och pil före linje före yta.
       const r = 22;
-      const traffar = map.getLayer('oo-hogar') ? map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers: ['oo-hogar'] }) : [];
-      setValdHog(traffar[0] ? hogText(traffar[0].properties) : null);
+      const traffar = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]])
+        .filter((f: any) => f.source === KALLA && typeof f.properties?.i === 'number');
+      const rang = (f: any) => (f.properties.kind === 'symbol' || f.properties.kind === 'pil' ? 0 : f.properties.kind === 'linje' ? 1 : 2);
+      traffar.sort((a: any, b: any) => rang(a) - rang(b));
+      if (traffar[0]) setValdMark(traffar[0].properties.i);
     });
     return () => { try { map.remove(); } catch { /* */ } mapRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -344,7 +356,7 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
     try { mapRef.current?.flyTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 15), duration: 600 }); } catch { /* */ }
   }, []);
 
-  const borjaMata = (vad: Exclude<Mat, null>) => { setValdHog(null); setTryck([]); senasteTryck.current = null; setMat(vad); };
+  const borjaMata = (vad: Exclude<Mat, null>) => { setValdMark(null); setTryck([]); senasteTryck.current = null; setMat(vad); };
   const slutaMata = () => { setMat(null); setTryck([]); };
 
   const hogTradslag = useMemo(() => {
@@ -354,6 +366,8 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
   }, [geo]);
 
   const omrade = mat === 'yta' && data ? iOmradet(data.stammar, tryck) : null;
+  const skotat = omrade && data?.skotarLass ? skotatRader(omrade.m3, skotatIOmradet(data.skotarLass, tryck, data.vidaRingar)) : null;
+  const kort = valdMark != null && data?.markeringar[valdMark] ? markeringKort(data.markeringar[valdMark].data, data.kommentarer) : null;
   const langd = mat === 'linje' && tryck.length >= 2 ? pathMeters(tryck) : null;
 
   const finns: Record<Lager, boolean> = {
@@ -393,7 +407,7 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
           </div>
         </div>
 
-        {/* Under kartan: mätningen, eller den tryckta högen. */}
+        {/* Under kartan: mätningen, eller knappen som startar den. */}
         {mat ? (
           <div style={{ padding: AVSTAND.l, background: FARG.kort }} data-matning="">
             <Flikkontroll flikar={[['yta', 'Område'], ['linje', 'Sträcka']] as const} aktiv={mat} onVal={v => borjaMata(v)} />
@@ -405,7 +419,7 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
               )}
               {omrade && (
                 <div data-omrade="">
-                  <div style={{ ...TYP.meta, color: FARG.text2 }}>Avverkat i området</div>
+                  <div style={{ ...TYP.meta, color: FARG.text2 }}>Skördat i området</div>
                   <div style={{ ...TYP.tal }} data-omrade-svar="">{omradeSvar(omrade)}</div>
                   <div style={{ ...TYP.text, ...TNUM }}>{omradeUnder(omrade)}</div>
                   {omrade.tradslag.length > 0 && (
@@ -416,6 +430,13 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
                           {t.namn} {t.m3.toLocaleString('sv-SE')}
                         </span>
                       ))}
+                    </div>
+                  )}
+                  {skotat && (
+                    <div style={{ marginTop: AVSTAND.m, borderTop: `1px solid ${FARG.linje}` }} data-skotat="">
+                      <Summa namn="Skotat" varde={skotat.skotat} />
+                      {skotat.kvar && <Summa namn="Kvar" varde={skotat.kvar} />}
+                      {skotat.not && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{skotat.not}</div>}
                     </div>
                   )}
                   {(data?.utanPosition ?? 0) > 0 && (
@@ -447,16 +468,14 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
           </div>
         ) : (
           <div style={{ padding: AVSTAND.m, background: FARG.kort }}>
-            {valdHog
-              ? <div style={{ padding: `0 ${AVSTAND.xs}px ${AVSTAND.m}px`, ...TYP.text, ...TNUM }} data-vald-hog="">{valdHog}</div>
-              : lager.hogar && hogTradslag.length > 0 && (
+            {lager.hogar && hogTradslag.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: `${AVSTAND.xs}px ${AVSTAND.m}px`, padding: `0 ${AVSTAND.xs}px ${AVSTAND.m}px`, ...TYP.meta, color: FARG.text2 }} data-forklaring-hogar="">
                   {hogTradslag.map(t => (
                     <span key={t.namn} style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs }}>
                       <span aria-hidden="true" style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, background: t.farg }} />{t.namn}
                     </span>
                   ))}
-                  <span>· Prickarna är skördarens högar. Tryck på en.</span>
+                  <span>· Prickarna är skördarens högar.</span>
                 </div>
               )}
             <button type="button" onClick={() => borjaMata('yta')} data-kartknapp="mat"
@@ -499,6 +518,22 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
         </p>
       )}
 
+      {kort && (
+        <Ark rubrik={kort.namn} stang="Klar" onStang={() => setValdMark(null)}>
+          <div data-markering-kort="" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
+            {kort.forklaring && <p style={{ margin: 0, ...TYP.text, color: FARG.text2 }}>{kort.forklaring}</p>}
+            {kort.kommentarer.map((k, i) => <KommentarVisning key={i} forfattare={k.forfattare} text={k.text} />)}
+            {kort.foto && (
+              <MarkeringFoto photoPath={kort.foto.photoPath} photoData={kort.foto.photoData} photoTs={kort.foto.photoTs}
+                alt={kort.namn} style={{ width: '100%', borderRadius: RADIE.kort, display: 'block' }} />
+            )}
+            {kort.kommentarer.length === 0 && !kort.foto && (
+              <p style={{ margin: 0, ...TYP.text, color: FARG.text2 }} data-inget-skrivet="">Inget skrivet och inget foto.</p>
+            )}
+          </div>
+        </Ark>
+      )}
+
       {lagerOppen && (
         <Ark rubrik="Visa på kartan" stang="Klar" onStang={() => setLagerOppen(false)}>
           <div style={{ marginBottom: AVSTAND.l }}>
@@ -512,6 +547,15 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
         </Ark>
       )}
     </section>
+  );
+}
+
+/** En rad under det skördade: "Skotat   ca 280 m³fub". */
+function Summa({ namn, varde }: { namn: string; varde: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.m, paddingTop: AVSTAND.s, ...TYP.text, ...TNUM }}>
+      <span style={{ color: FARG.text2 }}>{namn}</span><span>{varde}</span>
+    </div>
   );
 }
 
