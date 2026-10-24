@@ -14,7 +14,7 @@
 
 ## Redigering: Behöver dig + appen fyller i det säkra — 2026-10-23
 **Byggt (gren `redigering-behover-dig`):** "Behöver dig" överst i /redigering med förslaget förvalt och ett ark som tar en sak i taget; fält som inte gäller räknas inte som saknade; härledning av typ, avtalsform och bolag ur trakten, namnet, skördarens fil och objekt med samma namn (säkert = två källor, ingen emot); cronen `/api/redigering/fyll-sakra` som skriver det säkra. Se CLAUDE.md-raden `/redigering`.
-**Kvar för Martin:** (1) kör migrationen `20261023175500_redigering_skriv_auto.sql` (provad lokalt i Postgres 16, inte i prod), (2) kör `/api/redigering/fyll-sakra?torr=1` inloggad som admin och titta på listan innan cronen får skriva, (3) bestäm om ett privat jobb någonsin ska ha avtalsform (i dag: nej, `faltGaller`).
+**Kvar för Martin:** (1) ~~kör migrationen~~ `20261024161533_redigering_skriv_auto.sql` är körd i prod 2026-10-24 (tillsammans med `20261024161546`–`161658_avslut_ur_maskindata_*`; torrkörningen gav skördning klar på Bågskyttebanan 13 okt, Mölleryd 21 okt och Ris över väg 19 maj, ingen skotning; pg_cron-jobbet `avslut_ur_maskindata` minut 25 är aktivt), (2) kör `/api/redigering/fyll-sakra?torr=1` inloggad som admin och titta på listan innan cronen får skriva, (3) bestäm om ett privat jobb någonsin ska ha avtalsform (i dag: nej, `faltGaller`).
 **Observation:** Vällust RP M-R -25 (11251428) står som avtalsform Au fast namnet säger RP — appen ändrar det inte (ifyllt fält rörs aldrig), men det är värt en titt.
 
 ## Kalibreringsdata: dubbletter borta, kurvan oundersökt — 2026-10-22

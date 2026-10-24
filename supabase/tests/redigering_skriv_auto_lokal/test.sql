@@ -1,5 +1,5 @@
 -- Körs efter stub.sql och migrationen. Varje kontroll raisar vid fel; "OK" skrivs sist.
--- psql -v ON_ERROR_STOP=1 -f stub.sql -f ../../migrations/20261023175500_redigering_skriv_auto.sql -f test.sql
+-- psql -v ON_ERROR_STOP=1 -f stub.sql -f ../../migrations/20261024161533_redigering_skriv_auto.sql -f test.sql
 \set ON_ERROR_STOP on
 do $$
 declare n int; r record;
@@ -62,5 +62,5 @@ begin
 end $$;
 
 -- 9. Migrationen går att köra igen.
-\i supabase/migrations/20261023175500_redigering_skriv_auto.sql
+\i supabase/migrations/20261024161533_redigering_skriv_auto.sql
 select 'OK' as resultat;

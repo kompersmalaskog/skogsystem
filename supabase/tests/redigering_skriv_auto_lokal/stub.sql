@@ -1,4 +1,4 @@
--- Minimal databas för att köra migrationen 20261023175500_redigering_skriv_auto.sql lokalt.
+-- Minimal databas för att köra migrationen 20261024161533_redigering_skriv_auto.sql lokalt.
 -- Rensa-triggern är prod-versionen (läst 2026-10-23) så att migrationens ersättning provas mot det som står där.
 do $$ begin
   create role anon; exception when duplicate_object then null; end $$;

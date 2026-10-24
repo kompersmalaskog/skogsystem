@@ -97,7 +97,7 @@ describe('ObjektOversikt', () => {
     expect(under).toHaveBeenCalledWith('filer');
     expect(text()).toContain('Skördning klar 14 okt?');
     await klick([...document.querySelectorAll('[data-avslut-forslag] button')].find(b => b.textContent === 'Godkänn')!);
-    expect(avslut).toHaveBeenCalledWith('harvester', { skordning_avslutad: '2026-10-14', skordning_avslutad_auto: true });
+    expect(avslut).toHaveBeenCalledWith('harvester', { skordning_avslutad: '2026-10-14', skordning_avslutad_auto: true, skordning_ej_klar: false, skordning_auto_skal: null });
     expect(document.querySelector('[data-avslut="Skördning"]')!.textContent).toContain('Klar 14 okt');
     // Mer: undersidorna öppnas från samma ark — inget "Mer om objektet" längre.
     expect(document.querySelector('[data-mer]')).toBeNull();
@@ -251,8 +251,36 @@ describe('ObjektOversikt — ett ark för allt (2026-10-24)', () => {
     await klick(document.querySelector('[data-avslut="Skördning"]'));
     expect((document.querySelector('[data-avslut-datum]') as HTMLInputElement).value).toBe('2026-10-14');
     await klick(document.querySelector('[data-avslut-inte]'));
-    expect(avslut).toHaveBeenCalledWith('harvester', { skordning_avslutad: null, skordning_avslutad_auto: false });
+    expect(avslut).toHaveBeenCalledWith('harvester', { skordning_avslutad: null, skordning_avslutad_auto: false, skordning_ej_klar: true, skordning_auto_skal: null });
     expect(document.querySelector('[data-avslut="Skördning"]')!.textContent).toContain('Inte än');
+    expect(document.querySelector('[data-avslut="Skördning"]')!.textContent).toContain('Du sa inte klar');
+  });
+
+  it('automatikens klar visar varför, och människan kan ta över (2026-10-24)', async () => {
+    const avslut = vi.fn(async () => true);
+    const skal = 'Giant körde vidare till Skälviken 22 okt';
+    // Mölleryd: datumet ligger på skördarens ANDRA rad — klar-läget läses över hela objektet.
+    const annan = { ...SKALVIKEN, objekt_id: 'annan', skordning_avslutad: '2026-10-21', skordning_avslutad_auto: true, skordning_auto_skal: skal };
+    montera(<Vy spara={async () => true} extra={{ direktSparaAvslut: avslut, gruppRader: [SKALVIKEN, annan] }} />);
+    const rad = document.querySelector('[data-avslut="Skördning"]')!;
+    expect(rad.getAttribute('data-avslut-lage')).toBe('auto');
+    expect(rad.textContent).toContain('Klar 21 okt');
+    expect(rad.textContent).toContain(`Automatiskt · ${skal}`);
+    await klick(rad);
+    expect(document.querySelector('[data-avslut-text]')!.textContent).toBe(`Appen satte klar: ${skal}.`);
+    expect(document.querySelector('[data-avslut-appen]')).toBeNull(); // appen avgör redan
+    await klick(document.querySelector('[data-avslut-spara]'));
+    expect(avslut).toHaveBeenCalledWith('harvester', { skordning_avslutad: '2026-10-21', skordning_avslutad_auto: false, skordning_ej_klar: false, skordning_auto_skal: null });
+  });
+
+  it('"Inte klar än" går att ångra med "Låt appen avgöra"', async () => {
+    const avslut = vi.fn(async () => true);
+    montera(<Vy spara={async () => true} start={{ ...SKALVIKEN, skordning_ej_klar: true }} extra={{ direktSparaAvslut: avslut }} />);
+    await klick(document.querySelector('[data-avslut="Skördning"]'));
+    expect(document.querySelector('[data-avslut-inte]')).toBeNull();
+    expect(document.querySelector('[data-avslut-text]')!.textContent).toContain('Appen sätter inget förrän du väljer');
+    await klick(document.querySelector('[data-avslut-appen]'));
+    expect(avslut).toHaveBeenCalledWith('harvester', { skordning_avslutad: null, skordning_avslutad_auto: false, skordning_ej_klar: false, skordning_auto_skal: null });
   });
 
   it('egenskaperna: maskinens fält till maskinens rader, gemensamma till hela gruppen', async () => {

@@ -6,7 +6,7 @@
 //
 // `?torr=1` skriver ingenting och svarar med vad som SKULLE fyllas — kör den först.
 // Ett fel för ett objekt stoppar aldrig de andra; varje skrivning och varje fel loggas.
-// Saknas funktionen (migrationen 20261023175500 inte körd) svarar rutten 503 och skriver ingenting.
+// Saknas funktionen (migrationen 20261024161533 inte körd) svarar rutten 503 och skriver ingenting.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -55,8 +55,8 @@ async function kor(torr: boolean) {
     if (error) {
       // Funktionen saknas: migrationen är inte körd. Stanna, skriv inget mer, säg det.
       if (error.code === 'PGRST202' || error.code === '42883') {
-        console.error('[redigering/fyll-sakra] redigering_skriv_auto saknas — kör migration 20261023175500');
-        return NextResponse.json({ ok: false, fel: 'Databasfunktionen redigering_skriv_auto saknas (migration 20261023175500).' }, { status: 503 });
+        console.error('[redigering/fyll-sakra] redigering_skriv_auto saknas — kör migration 20261024161533');
+        return NextResponse.json({ ok: false, fel: 'Databasfunktionen redigering_skriv_auto saknas (migration 20261024161533).' }, { status: 503 });
       }
       console.error('[redigering/fyll-sakra]', p.namn, p.falt, error.message);
       fel.push({ ...p, fel: error.message });
