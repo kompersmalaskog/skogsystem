@@ -294,15 +294,15 @@ const hamtaInventarierad: HamtaInventarie = async (radId) => {
   return { rad: { id: d.id, antal: d.antal, min_antal: d.min_antal, bestalld_tid: d.bestalld_tid, tva_lador: !!d.tva_lador, reserv_oppnad_tid: d.reserv_oppnad_tid ?? null, artikel_namn: a.namn, sitter_pa: a.sitter_pa ?? null, enhet: a.enhet ?? null, plats_namn: p.namn } };
 };
 
-// Objektet + om SMS:et till markägaren redan öppnats, för besökspåminnelsen. `rad: null` = finns inte; `fel` = kunde inte läsas.
+// Objektet + om SMS:et till markägaren är BEKRÄFTAT skickat (handelse = 'skickad'; att knappen öppnats räknas inte), för besökspåminnelsen. `rad: null` = finns inte; `fel` = kunde inte läsas.
 const hamtaBesokObjekt: HamtaBesokObjekt = async (objektId) => {
   const { data, error } = await supabase.from("objekt").select("id, namn, status").eq("id", objektId).maybeSingle();
   if (error) return { rad: null, fel: error.message };
   if (!data) return { rad: null };
-  const s = await supabase.from("objekt_besok_sms").select("id", { count: "exact", head: true }).eq("objekt_id", objektId);
+  const s = await supabase.from("objekt_besok_sms").select("id", { count: "exact", head: true }).eq("objekt_id", objektId).eq("handelse", "skickad");
   if (s.error) return { rad: null, fel: s.error.message };
   const d = data as any;
-  return { rad: { id: d.id, namn: d.namn, status: d.status ?? null, sms_oppnat: (s.count ?? 0) > 0 } };
+  return { rad: { id: d.id, namn: d.namn, status: d.status ?? null, sms_skickat: (s.count ?? 0) > 0 } };
 };
 
 const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];

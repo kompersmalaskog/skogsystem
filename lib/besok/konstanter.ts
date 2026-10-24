@@ -24,11 +24,17 @@ export const BESOK_MAX_PER_TIMME = 20;
 /** En anmälan får ligga högst så här långt fram (timmar). */
 export const BESOK_MAX_FRAMAT_H = 36;
 
-/** Skotningen antas vara klar så här många arbetsdagar efter skördningen när den egna takten inte går att mäta (bara för "klart ca"). */
-export const SKOTNING_EFTER_DAGAR = 2;
-
-/** Antal arbetsdagar bakåt som takten räknas på. */
+/** Antal dagar med produktion som takten räknas på. "Klart ca" visas bara när det finns så här många dagar för varje del som återstår (färre = ingen dag sägs). */
 export const TAKT_DAGAR = 5;
+
+/** "Klart ca" – villkor för att prognosen håller (lib/besok/framsteg). Faller något villkor visas bara "% klart".
+ *  TAKT_STABIL: varje av de senaste dagarna ligger inom ±så här stor andel av snittet. SENASTE_DAG_MAX: senaste produktionsdagen får vara högst så här många kalenderdagar gammal.
+ *  HORISONT_MAX: högst så här många arbetsdagar kvar – längre än så är en gissning. */
+export const PROGNOS = { TAKT_STABIL: 0.5, SENASTE_DAG_MAX: 3, HORISONT_MAX: 15 } as const;
+
+/** Företagets nummer. Står som sista rad i SMS:et när planeraren som skickar saknar eget nummer (medarbetare.telefon). SKA FYLLAS I – tomt = ingen nummerrad, och planerarkortet säger det.
+ *  Format som det ska stå i SMS:et, t.ex. "0470-123 45". */
+export const FORETAG_TELEFON = '';
 
 /** Länken är en slumpad token av minst så här många tecken (databasen kräver detsamma). */
 export const TOKEN_MIN_TECKEN = 32;
