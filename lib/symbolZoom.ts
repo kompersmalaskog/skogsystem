@@ -26,9 +26,9 @@ export const SYMBOL_LAGER: readonly string[] = [
   'markers-layer', 'markers-hit',            // symboler (avlägg, högstubbe, fara …)
   'arrows-layer', 'arrows-hit',              // pilar
   'trakt-punkt-circle', 'trakt-punkt-label', // Vidas punkter (avlägg, larm) och deras etiketter
-  'trakt-hansyn-label', 'trakt-ovrigt-label', 'trakt-nb-label', 'trakt-raa-label', 'yta-nr-label', 'yta-nr-hit', 'zone-label', 'line-mainroad-label',
-  'hogar-circle', 'hogar-cluster-label', 'hogar-hit',   // produktionshögar
-  'grot-circle', 'grot-label',
+  'trakt-hansyn-label', 'trakt-ovrigt-label', 'trakt-nb-label', 'trakt-raa-label', 'yta-nr-label', 'yta-nr-hit', 'zone-label',
+  'hogar-circle', 'hogar-hit',   // produktionshögar
+  'grot-circle',
   'larm-pin', 'larm-pin-hit',
   'trail-footprints',
 ];
