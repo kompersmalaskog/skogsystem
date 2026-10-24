@@ -5,6 +5,9 @@ import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import { LjudSpelare } from '@/components/LjudSpelare'
 import { gpsGuardAccepts, haversineMeters } from '@/lib/gps-guard'
+import { arEfterLucka, arPulspunkt, tunnaOsynkade } from '@/lib/hyttsparPuls'
+import { stromRakna } from '@/lib/gpsStrom'
+import { gpsSaknas } from '@/lib/gpsSaknas'
 import { signeraKartfil } from '@/lib/kartfiler'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import DokumentChips, { harDokument } from '@/components/DokumentChips'
@@ -122,6 +125,7 @@ import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/Korvy
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
 import HyttNotiserKort from '../../components/planering/HyttNotiserKort'
+import GpsStromMatning from '../../components/planering/GpsStromMatning'
 import { hogarSynliga, vaxlaSkotarHogar } from '../../lib/skotarHogar'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { INFO_PANEL_MASKIN_BREDD_PX, PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
@@ -347,7 +351,7 @@ const HYTTSPAR_MAX_RESUME_M = 1500;           // + hopp längre än så = annan 
 
 // HYTTSPÅR: RDP-gallring av ett körspår ({lat,lng,tid}) — perp-avstånd i meter via lokal planprojektion.
 // Håller den SPARADE arrayen liten över ett helt skift (billiga skrivningar); behåller tid + ändpunkter.
-function rdpThin(pts: { lat: number; lng: number; tid: string }[], epsM: number): { lat: number; lng: number; tid: string }[] {
+function rdpThin<T extends { lat: number; lng: number; tid: string }>(pts: T[], epsM: number): T[] {
   if (pts.length < 3) return pts;
   const rad = Math.PI / 180, R = 6371000, cosLat = Math.cos(pts[0].lat * rad);
   const X = (p: { lat: number; lng: number }) => p.lng * rad * R * cosLat;
@@ -682,6 +686,7 @@ const TESTBANNER_HOJD_PX = 36;
 const fornyaSessionVida = skapaFornyare(() => supabase.auth.refreshSession())
 
 export default function PlannerPage() {
+  stromRakna('renderingar');   // mätare för Inställningar › GPS-källa › Mät GPS-strömmen (lib/gpsStrom)
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
   // Öppet dokument i in-app PDF-läsvyn (signerad url + titel), null = stängd
@@ -3006,6 +3011,9 @@ export default function PlannerPage() {
   // GPS-KÄLLA (lib/gpsKalla): Web Serial (maskindator) eller geolocation (telefon). gpsFixFarsk=false →
   // fix tappad (serial: ingen giltig RMC på 5 s) → pricken dämpas, "Ingen GPS-fix", inga punkter loggas.
   const [gpsFixFarsk, setGpsFixFarsk] = useState(true);
+  // "GPS saknas": ingen giltig fix på över en minut medan körvyn är öppen (lib/gpsSaknas). Ingen text alls med bra fix.
+  const senasteGiltigFixRef = useRef<number | null>(null);
+  const [gpsSaknasNu, setGpsSaknasNu] = useState(false);
   const [gpsKallaTyp, setGpsKallaTyp] = useState<'serial' | 'geolocation' | 'ingen'>('ingen');
   const [serialGpsAktiv, setSerialGpsAktiv] = useState<boolean>(() => serialGpsVald());   // användaren har valt serial-GPS
   const [valjerPort, setValjerPort] = useState(false);   // portval pågår (knapp i inställningar)
@@ -3316,6 +3324,9 @@ export default function PlannerPage() {
       if (fix.giltig && fix.lat != null && fix.lng != null) {
         if (!testlageAktivRef.current) setCurrentPosition({ lat: fix.lat, lon: fix.lng });   // testläget: positionen flyttas för hand (Flytta mig hit)
         if (!testlageAktivRef.current) setGpsPosition({ lat: fix.lat, lng: fix.lng });
+        stromRakna('positioner');
+        senasteGiltigFixRef.current = Date.now();   // "GPS saknas"-raden: tid sedan sista giltiga fix
+        setGpsSaknasNu(false);   // GPS tillbaka → raden bort direkt (setState till samma värde ger ingen omrendering)
         setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
         // GPS-KURSEN (NMEA VTG/RMC) matar körvyns rotation när kompassen saknas (maskindator).
         // Utan detta stod kartan norr-upp på PC (deviceorientation finns inte där).
@@ -3860,6 +3871,15 @@ export default function PlannerPage() {
 
   // === KÖRVY (3D-förarläge, MapLibre custom camera) ===
   const [korvyActive, setKorvyActive] = useState(false);
+  // "GPS saknas" (lib/gpsSaknas): kollas var 5:e sekund medan körvyn är öppen; raden försvinner vid nästa giltiga fix (gpsSaknasNu nollas direkt i GPS-hanteraren).
+  const korvyOppnadMsRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!korvyActive) { korvyOppnadMsRef.current = null; setGpsSaknasNu(false); return; }
+    korvyOppnadMsRef.current = Date.now();
+    const kolla = () => setGpsSaknasNu(!testlageAktivRef.current && gpsSaknas(Date.now(), senasteGiltigFixRef.current, korvyOppnadMsRef.current));
+    const t = setInterval(kolla, 5000);
+    return () => clearInterval(t);
+  }, [korvyActive]);
 
   // === KLAR MED TRAKTEN? — planerarens färdigplanering (lib/klarTrakt, lib/klarFalt, components/planering/KlarMedTrakten) ===
   // Appen räknar vad som är kvar ur det som redan finns (avlägg på kartan, bärighet, maskinval, prognos …) + svaren på "Har du …" (nya kolumner,
@@ -4070,7 +4090,7 @@ export default function PlannerPage() {
   // RDP innan spar. Eget spår ritas direkt (MapLibre-lager). Andras spår = steg 2 (uppdatera-tryck).
   const hyttRoll = korvyForceRoll ?? minRoll;   // effektiv roll: admin-override trumfar tilldelning
   const hyttsparRowIdRef = useRef<string | null>(null);
-  const hyttsparPointsRef = useRef<{ lat: number; lng: number; tid: string }[]>([]);
+  const hyttsparPointsRef = useRef<{ lat: number; lng: number; tid: string; lucka?: boolean }[]>([]);
   const hyttsparLastFixRef = useRef<{ lat: number; lon: number; ts: number } | null>(null);
   const hyttsparDirtyRef = useRef(false);
   const hyttsparSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -4120,7 +4140,7 @@ export default function PlannerPage() {
     if (consumed > 0) {
       const osynkade = raw.slice(hyttsparSyncedRef.current);
       const ankar = hyttsparSyncedRef.current > 0 ? raw[hyttsparSyncedRef.current - 1] : null;
-      const tunnad = ankar ? rdpThin([ankar, ...osynkade], 3).slice(1) : rdpThin(osynkade, 3);
+      const tunnad = tunnaOsynkade(ankar, osynkade, (pts) => rdpThin(pts, 3));   // aldrig över en lucka: den märkta punkten blir kvar
       if (tunnad.length > 0) {
         try {
           const { error } = await supabase.rpc('hyttspar_append', { p_id: id, p_punkter: tunnad });
@@ -4152,7 +4172,7 @@ export default function PlannerPage() {
       if (raw.length - hyttsparSyncedRef.current > 0) {
         const osynkade = raw.slice(hyttsparSyncedRef.current);
         const ankar = hyttsparSyncedRef.current > 0 ? raw[hyttsparSyncedRef.current - 1] : null;
-        const tunnad = ankar ? rdpThin([ankar, ...osynkade], 3).slice(1) : rdpThin(osynkade, 3);
+        const tunnad = tunnaOsynkade(ankar, osynkade, (pts) => rdpThin(pts, 3));   // aldrig över en lucka: den märkta punkten blir kvar
         if (tunnad.length > 0) { try { await supabase.rpc('hyttspar_append', { p_id: gamlaId, p_punkter: tunnad }); } catch (e) { console.error('[Hyttspår] dagsbyte-append:', e); } }
       }
       try { await supabase.from('hyttspar').update({ status: 'completed', avslutad_at: avslutadAt, uppdaterad_at: new Date().toISOString() }).eq('id', gamlaId); }
@@ -4165,9 +4185,10 @@ export default function PlannerPage() {
       if (befintlig) {
         const bas = Array.isArray(befintlig.points) ? befintlig.points : [];
         hyttsparRowIdRef.current = befintlig.id;
-        hyttsparPointsRef.current = [...bas, forstaPunkt];
+        const forstaMarkerad = bas.length > 0 ? { ...forstaPunkt, lucka: true } : forstaPunkt;   // spåret återupptas: tiden däremellan har ingen data
+        hyttsparPointsRef.current = [...bas, forstaMarkerad];
         hyttsparSyncedRef.current = bas.length;   // basen redan lagrad; forstaPunkt appendas
-        try { await supabase.rpc('hyttspar_append', { p_id: befintlig.id, p_punkter: [forstaPunkt] }); hyttsparSyncedRef.current = hyttsparPointsRef.current.length; } catch (e) { console.error('[Hyttspår] dagsbyte-resume-append:', e); }
+        try { await supabase.rpc('hyttspar_append', { p_id: befintlig.id, p_punkter: [forstaMarkerad] }); hyttsparSyncedRef.current = hyttsparPointsRef.current.length; } catch (e) { console.error('[Hyttspår] dagsbyte-resume-append:', e); }
         await supabase.from('hyttspar').update({ status: 'recording', uppdaterad_at: new Date().toISOString() }).eq('id', befintlig.id);
       } else {
         hyttsparPointsRef.current = [forstaPunkt];
@@ -4195,10 +4216,11 @@ export default function PlannerPage() {
       const { data: befintlig } = await filtreraHyttsparRad(supabase.from('hyttspar').select('id, points') as any, ctx, datum).maybeSingle();
       if (befintlig) {
         const bas = Array.isArray(befintlig.points) ? befintlig.points : [];
-        hyttsparPointsRef.current = [...bas, forstaPunkt];
+        const forstaMarkerad = bas.length > 0 ? { ...forstaPunkt, lucka: true } : forstaPunkt;   // spåret återupptas: tiden däremellan har ingen data
+        hyttsparPointsRef.current = [...bas, forstaMarkerad];
         hyttsparRowIdRef.current = befintlig.id;
         hyttsparSyncedRef.current = bas.length;   // basen redan lagrad; forstaPunkt appendas
-        try { await supabase.rpc('hyttspar_append', { p_id: befintlig.id, p_punkter: [forstaPunkt] }); hyttsparSyncedRef.current = hyttsparPointsRef.current.length; } catch (e) { console.error('[Hyttspår] första-punkt-resume-append:', e); }
+        try { await supabase.rpc('hyttspar_append', { p_id: befintlig.id, p_punkter: [forstaMarkerad] }); hyttsparSyncedRef.current = hyttsparPointsRef.current.length; } catch (e) { console.error('[Hyttspår] första-punkt-resume-append:', e); }
         await supabase.from('hyttspar').update({ status: 'recording', uppdaterad_at: new Date().toISOString() }).eq('id', befintlig.id);
       } else {
         hyttsparPointsRef.current = [forstaPunkt];
@@ -4327,7 +4349,8 @@ export default function PlannerPage() {
     // ts = VERKLIG tid (datorns klocka + uppmätt avvikelse mot servern, lib/serverKlocka): maskindatorns klocka kan gå fel (Giant 2026-10-08, ca 4 min före)
     // och punktens tid avgör vilken dag/timme spåret hör till. Allt nedströms (glappvakt, dagsbyte, punktens tid-sträng) går via cand.ts.
     const cand = { lat: pos.lat, lon: pos.lon, ts: serverNu(), accuracy: gpsAccuracy ?? 999 };
-    if (!gpsGuardAccepts(cand, hyttsparLastFixRef.current)) return;
+    // Stillastående: vakten släpper punkter närmare än 2 m, så en maskin som lastar gav tystnad i spåret. Var 60:e s läggs en puls-punkt på samma plats (lib/hyttsparPuls).
+    if (!gpsGuardAccepts(cand, hyttsparLastFixRef.current) && !arPulspunkt(cand, hyttsparLastFixRef.current)) return;
     // AVSLUTS-SKYDD: GPS-vakten släpper in en punkt efter ett långt glapp (stor Δt → låg hastighet,
     // gps-guard rad 48-49). Men glapp = loggningen tystnade (skärmlås/bakgrund). En punkt som dyker upp
     // LÅNGT bort efter ett sådant glapp (hemresan) får aldrig ritas in som kontinuerligt arbete →
@@ -4358,8 +4381,10 @@ export default function PlannerPage() {
       skapaHyttsparRadVidForstaPunkt(cand).finally(() => { hyttsparSkaparRef.current = false; });
       return;
     }
+    // Över 90 s utan en enda accepterad punkt (eller första punkten efter att spåret återupptagits) = lucka i datan: punkten märks, så linjen inte dras tvärs över.
+    const efterLucka = arEfterLucka(hyttsparLastFixRef.current, cand.ts, hyttsparPointsRef.current.length > 0);
     hyttsparLastFixRef.current = { lat: cand.lat, lon: cand.lon, ts: cand.ts };
-    hyttsparPointsRef.current = [...hyttsparPointsRef.current, { lat: cand.lat, lng: cand.lon, tid: new Date(cand.ts).toISOString() }];
+    hyttsparPointsRef.current = [...hyttsparPointsRef.current, { lat: cand.lat, lng: cand.lon, tid: new Date(cand.ts).toISOString(), ...(efterLucka ? { lucka: true } : {}) }];
     hyttsparDirtyRef.current = true;
     uppdateraHyttsparLager();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -11923,6 +11948,7 @@ export default function PlannerPage() {
     vida: klarVidaPunkter,
     egna: skotarEgnaAvlagg,
     hamtaVagar: skotarHamtaVagar,
+    hamtaHyttspar: () => hyttsparPointsRef.current,
     skapaEgetAvlagg: (lat, lng, nummer, via) => skotarSkapaAvlagg(lat, lng, nummer, via),
     flyttaEgetAvlagg: skotarFlyttaAvlagg,
     omlasning: skordarKopplingNr,
@@ -15534,6 +15560,13 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* "GPS saknas" — ingen giltig fix på över en minut. Syns ALDRIG med bra fix (ren skärm); serial-bannern ovan har företräde. */}
+      {gpsSaknasNu && korvyActive && !startOverlayAktiv && !(serialGpsAktiv && !gpsFixFarsk) && (
+        <div data-testid="gps-saknas" style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(28,28,30,0.92)', color: '#8e8e93', fontSize: '13px', fontWeight: 600, padding: '8px 14px', borderRadius: '18px', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+          GPS saknas – spåret loggas inte
+        </div>
+      )}
+
       {/* === ANTAL-PROMPT vid utsättning (evighetsträd/naturhörna/högstubbe) === */}
       {antalPrompt && (() => {
         const m = markers.find(mm => String(mm.id) === antalPrompt.markerId);
@@ -17295,6 +17328,7 @@ export default function PlannerPage() {
                   </div>
                 )}
                 {/* Notiser i hytten (Windows-notis när appen inte är framme) — bara maskindatorn, som GPS-källa-kortet. */}
+                {webSerialStott && <GpsStromMatning />}
                 {webSerialStott && <HyttNotiserKort />}
                 {/* Lägen */}
                 <div style={{

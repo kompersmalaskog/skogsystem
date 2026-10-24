@@ -16,7 +16,8 @@
 // rollerna. (Skilt från #526:s avsluts-skydd, som nekar det stora hem-hoppet vid inmatning; detta är
 // render-/härlednings-sidan.)
 
-export interface HyttPunkt { lat: number; lng: number; tid: string }
+/** `lucka`: första punkten efter en lucka i loggningen (över 90 s utan en enda accepterad punkt, lib/hyttsparPuls) — linjen dras aldrig tvärs över den. */
+export interface HyttPunkt { lat: number; lng: number; tid: string; lucka?: boolean }
 
 // > 200 m mellan två efterföljande punkter = maskinen har flyttat sig utan att logga (signalförlust/
 // app stängd mitt i förflyttning) → dela i nytt segment så ingen rak fantom-brygga dras. Satt tydligt
@@ -64,7 +65,7 @@ export function segmenteraHyttspar(points: HyttPunkt[], maxGapM: number = HYTTSP
     if (cur.length === 0) { cur = [p]; continue; }
     const prev = cur[cur.length - 1];
     const avst = haversineM(prev.lat, prev.lng, p.lat, p.lng);
-    if (Number.isFinite(avst) && avst > maxGapM) { segs.push(cur); cur = [p]; }
+    if (p.lucka || (Number.isFinite(avst) && avst > maxGapM)) { segs.push(cur); cur = [p]; }
     else cur.push(p);
   }
   if (cur.length) segs.push(cur);
