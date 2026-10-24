@@ -188,3 +188,32 @@ export function specialTecken(obj: { special?: boolean | null; avtalsform?: stri
   if (ord.includes('VF') || ord.some(o => o.startsWith('STORM') || o.startsWith('VINDF'))) return 'Namnet säger vindfälle eller storm.';
   return null;
 }
+
+export interface SkotatIndata {
+  skordat: number;
+  /** Skotat enligt lassen (maskinens filer). */
+  skotat: number;
+  /** Skotad volym satt för hand (färdigskotat) — 0 när ingen. */
+  manuell: number;
+  skordningAvslutad?: string | null;
+  skotningAvslutad?: string | null;
+  /** Markägaren eller en inlejd skotare skotar — inte vår volym. */
+  annanSkotar?: boolean;
+  risjobb?: boolean;
+}
+
+/**
+ * Skotat ska vara det skördaren avverkat (Martin 2026-10-24: "9 av 10 är det vad skördaren kört som man skotat").
+ * När skördningen eller skotningen är klar och lassen säger mindre föreslår arket att sätta skotat till skördat —
+ * ett tryck, aldrig av sig själv (en beräknad volym lagras inte som en mätning utan att någon sagt ja).
+ * 'satt' = redan satt för hand. null = inget att säga.
+ */
+export function skotatLage(x: SkotatIndata): { typ: 'forslag'; skotat: number; skordat: number } | { typ: 'satt'; varde: number } | null {
+  if (x.annanSkotar || x.risjobb) return null;
+  if (x.manuell > 0) return { typ: 'satt', varde: Math.round(x.manuell) };
+  const skordat = Math.round(x.skordat);
+  const skotat = Math.round(x.skotat);
+  if (skordat <= 0 || skotat >= skordat) return null;
+  if (!x.skordningAvslutad && !x.skotningAvslutad) return null;
+  return { typ: 'forslag', skotat, skordat };
+}

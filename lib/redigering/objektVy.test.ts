@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { objektLage, metaRad, kallaText, uppgiftRader, saknadeUtanForslag, maskinRader, kortDatum, specialTecken } from './objektVy';
+import { objektLage, metaRad, kallaText, uppgiftRader, saknadeUtanForslag, maskinRader, kortDatum, specialTecken, skotatLage } from './objektVy';
 
 const IDAG = new Date('2026-10-23T12:00:00');
 // sv-SE skriver tusental med hårt mellanslag.
@@ -95,5 +95,21 @@ describe('småsaker', () => {
     expect(specialTecken({ object_name: 'Stensjömåla VF', special: true })).toBeNull();
     expect(specialTecken({ object_name: 'Mölleryd RP' })).toBeNull();
     expect(specialTecken({ object_name: 'Björsamåla special vid hus mm' })).toBe('Namnet säger special.');
+  });
+});
+
+describe('skotatLage — skotat ska vara det skördaren avverkat', () => {
+  const bas = { skordat: 31.4, skotat: 0, manuell: 0, skordningAvslutad: '2026-10-14' };
+  it('förslag när skördningen är klar och lassen säger mindre', () => {
+    expect(skotatLage(bas)).toEqual({ typ: 'forslag', skotat: 0, skordat: 31 });
+  });
+  it('inget medan skördningen pågår, när det stämmer, eller när någon annan skotar', () => {
+    expect(skotatLage({ ...bas, skordningAvslutad: null })).toBeNull();
+    expect(skotatLage({ ...bas, skotat: 31 })).toBeNull();
+    expect(skotatLage({ ...bas, annanSkotar: true })).toBeNull();
+    expect(skotatLage({ ...bas, risjobb: true })).toBeNull();
+  });
+  it('satt för hand visas som det är', () => {
+    expect(skotatLage({ ...bas, manuell: 31 })).toEqual({ typ: 'satt', varde: 31 });
   });
 });

@@ -13,13 +13,15 @@ import Sektion from '@/components/design/Sektion';
 import Rad from '@/components/design/Rad';
 import Ark from '@/components/design/Ark';
 import Ikon from '@/components/design/Ikon';
+import Flikkontroll from '@/components/design/Flikkontroll';
 import { AVTALSFORMER } from '@/lib/trakt/avtalsform';
 import { harled, type HarledRad, type HarlettFalt } from '@/lib/redigering/harledning';
-import { AVTALSFORM_ORD, HUVUDTYP_VAL, FRAGA, patchForSvar, varforText } from '@/lib/redigering/behoverDig';
+import { AVTALSFORM_ORD, HUVUDTYP_VAL, FRAGA, SPECIAL_SVAR, patchForSvar, varforText } from '@/lib/redigering/behoverDig';
+import { arRisjobb } from '@/lib/objekt/typ';
 import { faltGaller } from '@/lib/redigering/faltGaller';
 import { traktTyp } from '@/lib/redigering/fyllSakra';
 import {
-  objektLage, metaRad, specialTecken, uppgiftRader, saknadeUtanForslag, maskinRader, avslutVarfor, kortDatum,
+  objektLage, skotatLage, metaRad, specialTecken, uppgiftRader, saknadeUtanForslag, maskinRader, avslutVarfor, kortDatum,
   type AvslutForslag, type MaskinFilRad, type UppgiftNyckel,
 } from '@/lib/redigering/objektVy';
 
@@ -47,6 +49,12 @@ export interface ObjektOversiktProps {
   /** Öppna en av det gamla arkets undersidor ('filer', 'skotare' …) eller hela "Mer om objektet" (med ett fält att visa). */
   oppnaFiler: () => void;
   oppnaMer: (mal?: MerMal) => void;
+  /** Öppna skotarsidan (fördelning, filfri skotare, ta bort en satt volym). */
+  oppnaSkotare: () => void;
+  /** Sätt skotad volym (färdigskotat) — samma skrivning som det gamla arkets knapp. */
+  sattSkotat: (volym: number) => Promise<boolean>;
+  /** Ta bort objektet ur listor och statistik (exkludera). Stänger arket när det lyckats. */
+  taBort: () => Promise<boolean>;
 }
 
 const VAL_FALT: HarlettFalt[] = ['huvudtyp', 'avtalsform', 'bolag'];
@@ -56,6 +64,7 @@ export default function ObjektOversikt(p: ObjektOversiktProps) {
   const { obj, objektRad } = p;
   const [valFalt, setValFalt] = useState<HarlettFalt | null>(null);
   const [sparar, setSparar] = useState<string | null>(null);
+  const [fragaTaBort, setFragaTaBort] = useState(false);
 
   const lage = objektLage({
     skordat: p.skordat, skotat: p.skotat,
@@ -83,7 +92,7 @@ export default function ObjektOversikt(p: ObjektOversiktProps) {
     return ok;
   }
 
-  const valVarden = (f: HarlettFalt): string[] => f === 'huvudtyp' ? [...HUVUDTYP_VAL] : f === 'avtalsform' ? [...AVTALSFORMER] : p.bolagVal;
+  const valVarden = (f: HarlettFalt): string[] => f === 'huvudtyp' ? [...HUVUDTYP_VAL] : f === 'avtalsform' ? [...AVTALSFORMER, SPECIAL_SVAR] : p.bolagVal;
   const valEtikett = (f: HarlettFalt, v: string) => (f === 'avtalsform' ? AVTALSFORM_ORD[v] ?? v : v);
 
   // Typbyte när en åtgärd redan står kräver det gamla arkets bekräftelse (åtgärden töms) — dit i stället.
@@ -97,6 +106,17 @@ export default function ObjektOversikt(p: ObjektOversiktProps) {
   const maskiner = maskinRader(rader, p.skordat, p.skotat);
   const visaSkordning = obj.extern_skordning !== true;
   const visaSkotning = !(obj.egen_skotning === true || obj._extern_skotning === true);
+
+  const skotatNu = skotatLage({
+    skordat: p.skordat, skotat: p.skotat, manuell: Number(obj.skotad_volym_manuell) || 0,
+    skordningAvslutad: obj.skordning_avslutad, skotningAvslutad: obj.skotning_avslutad,
+    annanSkotar: !visaSkotning, risjobb: arRisjobb(obj),
+  });
+  const sattSkotat = async (volym: number) => {
+    setSparar('skotat');
+    await p.sattSkotat(volym);
+    setSparar(null);
+  };
 
   const godkannAvslut = async (f: AvslutForslag) => {
     setSparar(f.field);
@@ -184,7 +204,23 @@ export default function ObjektOversikt(p: ObjektOversiktProps) {
           )}
           {visaSkotning && (
             <AvslutRad etikett="Skotning" datum={obj.skotning_avslutad} forslag={p.skotForslag} upptagen={sparar === 'skotning_avslutad'}
-              sista onGodkann={godkannAvslut} onTryck={() => p.oppnaMer('avslut')} />
+              sista={!skotatNu} onGodkann={godkannAvslut} onTryck={() => p.oppnaMer('avslut')} />
+          )}
+          {skotatNu?.typ === 'forslag' && (
+            <div data-skotat-forslag="" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.m}px 0` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ ...TYP.listtitel, ...TNUM }}>Skotat {skotatNu.skotat.toLocaleString('sv-SE')} av {skotatNu.skordat.toLocaleString('sv-SE')} m³</div>
+                <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Skotaren kör nästan alltid det skördaren avverkat.</div>
+              </div>
+              <button type="button" disabled={sparar === 'skotat'} onClick={() => sattSkotat(skotatNu.skordat)}
+                style={{ ...KNAPP.sekundar, width: 'auto', padding: `0 ${AVSTAND.l}px`, flexShrink: 0, ...TNUM, ...(sparar === 'skotat' ? INAKTIV : {}) }}>
+                {sparar === 'skotat' ? 'Sparar …' : `Sätt till ${skotatNu.skordat.toLocaleString('sv-SE')} m³`}
+              </button>
+            </div>
+          )}
+          {skotatNu?.typ === 'satt' && (
+            <Rad titel="Skotat" under="Satt för hand" sista attr={{ 'data-skotat-satt': '' }} onTryck={p.oppnaSkotare}
+              hoger={<span style={{ fontWeight: 400, color: FARG.text2, ...TNUM }}>{skotatNu.varde.toLocaleString('sv-SE')} m³</span>} />
           )}
         </Sektion>
       )}
@@ -206,15 +242,33 @@ export default function ObjektOversikt(p: ObjektOversiktProps) {
           )}
       </Sektion>
 
-      <Sektion rubrik="Mer" inset>
-        <Rad titel="Mer om objektet" under="Trakt, tidplan, band, dokument, pris, egenskaper, statistik" sista
-          attr={{ 'data-mer': '' }} onTryck={() => p.oppnaMer(null)} />
+      <Sektion rubrik="Hur får vi betalt?" inset not="Undantag och ackordgrund finns under Mer om objektet.">
+        <div style={{ padding: `${AVSTAND.m}px 0` }} data-betalning="">
+          <Flikkontroll flikar={[['ackord', 'Ackord'], ['timpeng', 'Timpeng']] as const}
+            aktiv={obj.timpeng === true ? 'timpeng' : 'ackord'}
+            onVal={v => { const t = v === 'timpeng'; if (t !== (obj.timpeng === true)) spara('timpeng', { timpeng: t }); }} />
+        </div>
       </Sektion>
+
+      <Sektion rubrik="Mer" inset>
+        <Rad titel="Mer om objektet" under="Trakt, tidplan, band, dokument, undantag, egenskaper, statistik"
+          attr={{ 'data-mer': '' }} onTryck={() => p.oppnaMer(null)} />
+        <Rad titel={<span style={{ color: FARG.rod }}>Ta bort objektet</span>} pil={false} sista
+          attr={{ 'data-ta-bort': '' }} onTryck={() => setFragaTaBort(true)} />
+      </Sektion>
+
+      {fragaTaBort && typeof document !== 'undefined' && createPortal(
+        <div><style>{designCss}</style>
+          <TaBortArk namn={obj.object_name || (obj.vo_nummer ? `VO ${obj.vo_nummer}` : 'objektet')}
+            onStang={() => setFragaTaBort(false)} onTaBort={p.taBort} />
+        </div>,
+        document.body,
+      )}
 
       {valFalt && typeof document !== 'undefined' && createPortal(
         <div><style>{designCss}</style>
           <ValArk rubrik={FRAGA[valFalt]} varden={valVarden(valFalt)} etikett={v => valEtikett(valFalt, v)}
-            hoger={valFalt === 'avtalsform' ? v => v : undefined}
+            hoger={valFalt === 'avtalsform' ? v => (v === SPECIAL_SVAR ? '' : v) : undefined}
             nu={String(obj[valFalt] ?? '').trim() || harled(valFalt, obj, p.alla, trakt)?.varde || null}
             onStang={() => setValFalt(null)}
             onSpara={async v => { const ok = await spara(valFalt, patchForSvar(valFalt, v)); if (ok) setValFalt(null); return ok; }} />
@@ -318,6 +372,29 @@ function ValArk({ rubrik, varden, etikett, hoger, nu, onStang, onSpara }: {
             </span>} />
         ))}
       </Sektion>
+    </Ark>
+  );
+}
+
+/** Fråga innan objektet tas bort. Det tas bort ur listor och statistik — maskinernas filer rörs aldrig. */
+function TaBortArk({ namn, onStang, onTaBort }: { namn: string; onStang: () => void; onTaBort: () => Promise<boolean> }) {
+  const [sparar, setSparar] = useState(false);
+  const [fel, setFel] = useState(false);
+  const fot: ReactNode = (
+    <>
+      {fel && <p role="alert" style={{ margin: 0, ...TYP.meta, color: FARG.rod }}>Det gick inte att ta bort. Försök igen.</p>}
+      <button type="button" disabled={sparar} data-ta-bort-bekrafta=""
+        onClick={async () => { setSparar(true); setFel(false); const ok = await onTaBort(); setSparar(false); if (!ok) setFel(true); }}
+        style={{ ...KNAPP.primar, background: FARG.rod, color: FARG.text, ...(sparar ? INAKTIV : {}) }}>
+        {sparar ? 'Tar bort …' : 'Ta bort'}
+      </button>
+    </>
+  );
+  return (
+    <Ark rubrik="Ta bort objektet" onStang={onStang} fot={fot}>
+      <p style={{ margin: 0, ...TYP.titel }}>{namn}</p>
+      <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.text }}>Objektet försvinner ur listorna och räknas inte i statistiken.</p>
+      <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.text, color: FARG.text2 }}>Maskinernas filer finns kvar. Du kan ta tillbaka det under Exkluderade längst ner i listan.</p>
     </Ark>
   );
 }

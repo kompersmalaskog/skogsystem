@@ -36,7 +36,7 @@ function Vy({ start = SKALVIKEN, spara, extra = {} }: { start?: any; spara: (p: 
       filRader={[{ maskinId: 'G', modell: 'Giant', typ: 'skordare', antalFiler: 6, senasteData: '2026-10-14' }]} filStatus="ok"
       skordForslag={null} skotForslag={null}
       direktSpara={spara} direktSparaAvslut={async () => true}
-      oppnaFiler={() => {}} oppnaMer={() => {}} {...extra} />
+      oppnaFiler={() => {}} oppnaMer={() => {}} oppnaSkotare={() => {}} sattSkotat={async () => true} taBort={async () => true} {...extra} />
   );
 }
 
@@ -114,6 +114,44 @@ describe('ObjektOversikt', () => {
     await klick(document.querySelector('[data-spara]'));
     expect(spara).toHaveBeenCalledWith({ huvudtyp: 'Gallring', risskotning: false });
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+});
+
+describe('ObjektOversikt — betalning, skotat och ta bort (2026-10-24)', () => {
+  it('Ackord eller Timpeng sparas direkt', async () => {
+    const spara = vi.fn(async () => true);
+    montera(<Vy spara={spara} />);
+    const flik = (t: string) => [...document.querySelectorAll('[data-betalning] [role="tab"]')].find(b => b.textContent === t)!;
+    expect(flik('Ackord').getAttribute('aria-selected')).toBe('true');
+    await klick(flik('Timpeng'));
+    expect(spara).toHaveBeenCalledWith({ timpeng: true });
+    expect(flik('Timpeng').getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('skördningen klar och lassen säger mindre: ett tryck sätter skotat till skördat', async () => {
+    const satt = vi.fn(async () => true);
+    montera(<Vy spara={async () => true} start={{ ...SKALVIKEN, skordning_avslutad: '2026-10-14' }} extra={{ skordat: 31, skotat: 0, sattSkotat: satt }} />);
+    expect(document.querySelector('[data-skotat-forslag]')!.textContent).toContain('Skotat 0 av 31 m³');
+    await klick([...document.querySelectorAll('[data-skotat-forslag] button')].find(b => b.textContent === 'Sätt till 31 m³')!);
+    expect(satt).toHaveBeenCalledWith(31);
+  });
+
+  it('pågående skördning: inget förslag; satt för hand visas som rad', () => {
+    montera(<Vy spara={async () => true} extra={{ skordat: 31, skotat: 0 }} />);
+    expect(document.querySelector('[data-skotat-forslag]')).toBeNull();
+    act(() => root!.unmount()); root = null; el.remove();
+    montera(<Vy spara={async () => true} start={{ ...SKALVIKEN, skordning_avslutad: '2026-10-14', skotad_volym_manuell: 31 }} extra={{ skordat: 31, skotat: 0 }} />);
+    expect(document.querySelector('[data-skotat-satt]')!.textContent).toContain('31 m³');
+  });
+
+  it('Ta bort frågar först och tar bort först när man bekräftar', async () => {
+    const taBort = vi.fn(async () => true);
+    montera(<Vy spara={async () => true} extra={{ taBort }} />);
+    await klick(document.querySelector('[data-ta-bort]'));
+    expect(taBort).not.toHaveBeenCalled();
+    expect(text()).toContain('Maskinernas filer finns kvar');
+    await klick(document.querySelector('[data-ta-bort-bekrafta]'));
+    expect(taBort).toHaveBeenCalled();
   });
 });
 

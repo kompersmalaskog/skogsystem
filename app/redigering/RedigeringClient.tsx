@@ -1896,6 +1896,91 @@ function SubSkotning({ obj, set }: any) {
   )
 }
 
+
+// Färdigskotat: skotad volym = skördad (på risjobb: riset som kördes ut). EN funktion för det gamla arkets knapp och
+// översiktens "Sätt skotat till …" — samma skrivningar och samma skydd mot fördelningen per skotare.
+async function sparaFardigskotat(obj: any, syskon: any[] | null | undefined, varde: number | null): Promise<{ ok: boolean; message: string; patch?: any; skotarIds: string[] }> {
+  const arRisjobb = obj.risskotning === true || arGrotHuvudtyp(obj.huvudtyp)
+  const skotarIds = raderForMaskinslag(syskon || [obj], 'forwarder', obj.objekt_id)
+  const idagDatum = new Date().toISOString().slice(0, 10)
+  const fel = (message: string) => ({ ok: false, message, skotarIds })
+  // #1-FIX (defer till fördelning): en per-maskin-fördelning
+  // (skotare_objekt_manuell, maskin_id SATT) ÄR den skotade volymen.
+  // Färdigskotat-knappen får ALDRIG radera/klubba den — det var buggen som
+  // skapade spök-NULL-rader (volym_m3=avverkat, maskin_id NULL). Finns en
+  // fördelning och vi vill SÄTTA volym → deferra, rör inget.
+  if (varde !== null && !arRisjobb) {
+    const { data: perMaskin } = await supabase.from('skotare_objekt_manuell')
+      .select('id').in('objekt_id', skotarIds).not('maskin_id', 'is', null).is('datum_fran', null).limit(1)
+    if ((perMaskin || []).length > 0) {
+      return fel('Det finns redan en fördelning per skotare ovan — den räknas som skotad volym. Redigera den i "Fördelning per skotare"; den här knappen skriver inte över den.')
+    }
+  }
+  // På risjobb är detta ENDA klart-handlingen: den sätter både den
+  // mätta volymen och avslutsdatumet — och tänder grot-automatiken.
+  // TODO(#334): TILLFÄLLIG dubbel-skrivning till dim_objekt — tas bort i städ-PR.
+  const patch: any = { skotad_volym_manuell: varde }
+  if (arRisjobb) patch.skotning_avslutad = varde == null ? null : idagDatum
+  const r = await direktPatchDimObjekt(skotarIds, patch)
+  if (!r.ok) { return fel(r.message) }
+  if (obj.tilldelad_skotare) {
+    // TILLDELAD SKOTARE (t.ex. filfri JD810E) → färdigskotat = per-maskin-raden
+    // får volymen (volym_egen_skotning), G15 behålls. Aldrig objekt-nivå-rad.
+    const rp = await sparaPerMaskinSkotning(skotarIds, obj.tilldelad_skotare, { egen: varde })
+    if (!rp.ok) { return fel(rp.message) }
+  } else {
+  // Spegla till skotare_objekt_manuell (primär läskälla sedan DEL 0).
+  // UI-inmatning skriver om objektets manuella data i sin helhet — DELETE utan
+  // maskin_id-filter tar även maskinspecifika rader så att prioritetsregeln
+  // inte döljer det nya värdet.
+  // Läs g15_timmar FÖRE raderingen — bevara alltid, oavsett om volym sätts eller nollas.
+  // Ta NULL-maskin-rad om möjligt; annars maskin-specifik (migrationsdata).
+  // "Ta bort färdigskotat" rör aldrig G15-timmar.
+  const { data: befG15 } = await supabase.from('skotare_objekt_manuell')
+    .select('objekt_id, maskin_id, g15_timmar').in('objekt_id', skotarIds)
+  const g15Map = new Map<string, number | null>()
+  for (const id of skotarIds as string[]) {
+    const rows = (befG15 || []).filter((r: any) => r.objekt_id === id)
+    const nullRad = rows.find((r: any) => r.maskin_id === null)
+    const g15 = nullRad?.g15_timmar
+      ?? rows.find((r: any) => (r.g15_timmar ?? 0) > 0)?.g15_timmar
+      ?? null
+    g15Map.set(id, g15 != null ? Number(g15) : null)
+  }
+  // #1-FIX: radera BARA objekt-nivå-raden (maskin_id NULL) — aldrig
+  // per-maskin-fördelningen. Utan maskin_id-filtret klubbades fördelningen.
+  const { error: delErr2 } = await supabase
+    .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds).is('maskin_id', null)
+  if (delErr2) { return fel('Skotarvolym (rensning): ' + delErr2.message) }
+  if (varde === null) {
+    // Volym nollad — återinsert bara om g15 fanns; annars radera rent.
+    const medG15 = (skotarIds as string[])
+      .map(id => ({ objekt_id: id, maskin_id: null as null, volym_m3: null as null, g15_timmar: g15Map.get(id) ?? null }))
+      .filter(r => (r.g15_timmar ?? 0) > 0)
+    if (medG15.length > 0) {
+      const { error: insG15Err } = await supabase.from('skotare_objekt_manuell').insert(medG15)
+      if (insG15Err) { return fel('G15-bevaring: ' + insG15Err.message) }
+    }
+  } else {
+    const { error: insErr } = await supabase.from('skotare_objekt_manuell').insert(
+      (skotarIds as string[]).map(id => ({
+        objekt_id: id, maskin_id: null as null, volym_m3: Number(varde), g15_timmar: g15Map.get(id) ?? null,
+      }))
+    )
+    if (insErr) { return fel('Skotarvolym (ny tabell): ' + insErr.message) }
+  }
+  } // slut: ingen tilldelad skotare (legacy objekt-nivå)
+  if (arRisjobb) {
+    // Automatiken körs EFTER att markeringen landat. Misslyckas den
+    // visas felet — en halvkörd avbockning tigs aldrig ihjäl.
+    const a = varde == null
+      ? await angraGrotHamtadAutomatik(obj.objekt_id)
+      : await grotHamtadAutomatik(obj.objekt_id, idagDatum)
+    if (!a.ok) { return fel(a.message) }
+  }
+  return { ok: true, message: '', patch, skotarIds }
+}
+
 // UNDERSIDA: Skotare — skotad volym/färdigskotat (direktsparas), egenskaper,
 // avslut. Färdigskotat-knappen skriver direkt till DB (ärlig sparning med
 // radräkning) och speglas i snapshotet via onRaderUppdaterade så den inte
@@ -2081,87 +2166,12 @@ function SubSkotare({ obj, set, info, skordatTotal, skotatTotal, gruppSkotningAv
           // ut); ett risjobb skördar inget, så skördad stamvolym är alltid 0
           // och gråade tidigare ut knappen — automatiken hade ingen tändning.
           const volymAttSatta = Math.round(Number(arRisjobb ? skotatTotal : skordatTotal) || 0)
-          const skotarIds = raderForMaskinslag(syskon || [obj], 'forwarder', obj.objekt_id)
-          const idagDatum = new Date().toISOString().slice(0, 10)
           const satt = async (varde: number | null) => {
             setFardigskotat({ sparar: true, fel: '' })
-            // #1-FIX (defer till fördelning): en per-maskin-fördelning
-            // (skotare_objekt_manuell, maskin_id SATT) ÄR den skotade volymen.
-            // Färdigskotat-knappen får ALDRIG radera/klubba den — det var buggen som
-            // skapade spök-NULL-rader (volym_m3=avverkat, maskin_id NULL). Finns en
-            // fördelning och vi vill SÄTTA volym → deferra, rör inget.
-            if (varde !== null && !arRisjobb) {
-              const { data: perMaskin } = await supabase.from('skotare_objekt_manuell')
-                .select('id').in('objekt_id', skotarIds).not('maskin_id', 'is', null).is('datum_fran', null).limit(1)
-              if ((perMaskin || []).length > 0) {
-                setFardigskotat({ sparar: false, fel: 'Det finns redan en fördelning per skotare ovan — den räknas som skotad volym. Redigera den i "Fördelning per skotare"; den här knappen skriver inte över den.' })
-                return
-              }
-            }
-            // På risjobb är detta ENDA klart-handlingen: den sätter både den
-            // mätta volymen och avslutsdatumet — och tänder grot-automatiken.
-            // TODO(#334): TILLFÄLLIG dubbel-skrivning till dim_objekt — tas bort i städ-PR.
-            const patch: any = { skotad_volym_manuell: varde }
-            if (arRisjobb) patch.skotning_avslutad = varde == null ? null : idagDatum
-            const r = await direktPatchDimObjekt(skotarIds, patch)
+            const r = await sparaFardigskotat(obj, syskon, varde)
             if (!r.ok) { setFardigskotat({ sparar: false, fel: r.message }); return }
-            if (obj.tilldelad_skotare) {
-              // TILLDELAD SKOTARE (t.ex. filfri JD810E) → färdigskotat = per-maskin-raden
-              // får volymen (volym_egen_skotning), G15 behålls. Aldrig objekt-nivå-rad.
-              const rp = await sparaPerMaskinSkotning(skotarIds, obj.tilldelad_skotare, { egen: varde })
-              if (!rp.ok) { setFardigskotat({ sparar: false, fel: rp.message }); return }
-            } else {
-            // Spegla till skotare_objekt_manuell (primär läskälla sedan DEL 0).
-            // UI-inmatning skriver om objektets manuella data i sin helhet — DELETE utan
-            // maskin_id-filter tar även maskinspecifika rader så att prioritetsregeln
-            // inte döljer det nya värdet.
-            // Läs g15_timmar FÖRE raderingen — bevara alltid, oavsett om volym sätts eller nollas.
-            // Ta NULL-maskin-rad om möjligt; annars maskin-specifik (migrationsdata).
-            // "Ta bort färdigskotat" rör aldrig G15-timmar.
-            const { data: befG15 } = await supabase.from('skotare_objekt_manuell')
-              .select('objekt_id, maskin_id, g15_timmar').in('objekt_id', skotarIds)
-            const g15Map = new Map<string, number | null>()
-            for (const id of skotarIds as string[]) {
-              const rows = (befG15 || []).filter((r: any) => r.objekt_id === id)
-              const nullRad = rows.find((r: any) => r.maskin_id === null)
-              const g15 = nullRad?.g15_timmar
-                ?? rows.find((r: any) => (r.g15_timmar ?? 0) > 0)?.g15_timmar
-                ?? null
-              g15Map.set(id, g15 != null ? Number(g15) : null)
-            }
-            // #1-FIX: radera BARA objekt-nivå-raden (maskin_id NULL) — aldrig
-            // per-maskin-fördelningen. Utan maskin_id-filtret klubbades fördelningen.
-            const { error: delErr2 } = await supabase
-              .from('skotare_objekt_manuell').delete().in('objekt_id', skotarIds).is('maskin_id', null)
-            if (delErr2) { setFardigskotat({ sparar: false, fel: 'Skotarvolym (rensning): ' + delErr2.message }); return }
-            if (varde === null) {
-              // Volym nollad — återinsert bara om g15 fanns; annars radera rent.
-              const medG15 = (skotarIds as string[])
-                .map(id => ({ objekt_id: id, maskin_id: null as null, volym_m3: null as null, g15_timmar: g15Map.get(id) ?? null }))
-                .filter(r => (r.g15_timmar ?? 0) > 0)
-              if (medG15.length > 0) {
-                const { error: insG15Err } = await supabase.from('skotare_objekt_manuell').insert(medG15)
-                if (insG15Err) { setFardigskotat({ sparar: false, fel: 'G15-bevaring: ' + insG15Err.message }); return }
-              }
-            } else {
-              const { error: insErr } = await supabase.from('skotare_objekt_manuell').insert(
-                (skotarIds as string[]).map(id => ({
-                  objekt_id: id, maskin_id: null as null, volym_m3: Number(varde), g15_timmar: g15Map.get(id) ?? null,
-                }))
-              )
-              if (insErr) { setFardigskotat({ sparar: false, fel: 'Skotarvolym (ny tabell): ' + insErr.message }); return }
-            }
-            } // slut: ingen tilldelad skotare (legacy objekt-nivå)
-            if (arRisjobb) {
-              // Automatiken körs EFTER att markeringen landat. Misslyckas den
-              // visas felet — en halvkörd avbockning tigs aldrig ihjäl.
-              const a = varde == null
-                ? await angraGrotHamtadAutomatik(obj.objekt_id)
-                : await grotHamtadAutomatik(obj.objekt_id, idagDatum)
-              if (!a.ok) { setFardigskotat({ sparar: false, fel: a.message }); return }
-            }
-            set({ ...obj, ...patch })
-            if (onRaderUppdaterade) onRaderUppdaterade(skotarIds, patch)
+            set({ ...obj, ...r.patch })
+            if (onRaderUppdaterade) onRaderUppdaterade(r.skotarIds, r.patch)
             setFardigskotat({ sparar: false, fel: '' })
           }
           return (
@@ -3365,6 +3375,15 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
             skordForslag={skordForslag} skotForslag={skotForslag}
             direktSpara={direktSpara} direktSparaAvslut={direktSparaAvslut}
             oppnaFiler={() => oppnaUnder(null)('filer')} oppnaMer={oppnaMer}
+            oppnaSkotare={() => oppnaUnder(null)('skotare')}
+            sattSkotat={async (volym: number) => {
+              const r = await sparaFardigskotat(valtObjekt, syskon, volym)
+              if (!r.ok) { setSaveError(r.message || 'Kunde inte spara'); setTimeout(() => setSaveError(''), 6000); return false }
+              setValtObjekt((prev: any) => ({ ...prev, ...r.patch }))
+              raderUppdaterade(r.skotarIds, r.patch)
+              return true
+            }}
+            taBort={async () => { const ok = await direktSpara({ exkludera: true }); if (ok) onClose(); return ok }}
           />
         )}
         {valtObjekt && subpage === 'mer' && (
