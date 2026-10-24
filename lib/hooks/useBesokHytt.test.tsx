@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Besöken i hytten: ALLT går via serverrutterna /api/besok/hytt och /api/besok/hytt/kvittera (hytten läser aldrig tabellerna). Hooken skickar bara VILKET besök och VILKEN maskin –
-// roll, förare och tid avgörs av servern. Spelar ETT ljud per nytt besök; "Stäng av när du ser hen" kvitterar och stänger av ringen för besöket.
+// roll, förare och tid avgörs av servern. Spelar ETT ljud per nytt besök. Ringen går inte att stänga av (Martin 2026-10-24).
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -78,7 +78,7 @@ describe('useBesokHytt – via servern', () => {
     expect(post.url).toBe('/api/besok/hytt/kvittera');
     expect(post.body).toEqual({ besok_id: 'a', maskin_id: 'M1' });
     expect(ref.ut!.vantar).toEqual([]);
-    expect(ref.ut!.ringBesok).toHaveLength(1);   // ringen ligger kvar efter Uppfattat
+    expect(ref.ut!.aktiva).toHaveLength(1);   // besöket är fortfarande aktivt (och därmed ringen) efter Uppfattat
   });
   it('testläget (admin i "Visar som maskin") ber om det – både vid läsning och kvittens; servern avgör om det gäller', async () => {
     server.besok = [b('a', 30)];
@@ -87,27 +87,14 @@ describe('useBesokHytt – via servern', () => {
     await act(async () => { await ref.ut!.kvittera('a'); });
     expect(server.anrop.find((x) => x.metod === 'POST')!.body).toEqual({ besok_id: 'a', maskin_id: 'M1', testlage: true });
   });
-  it('"Stäng av när du ser hen": kvitterar och stänger av ringen för just det besöket – och minns det', async () => {
-    server.besok = [b('a', 30), b('c', 40)];
-    const ref = await montera();
-    await act(async () => { await ref.ut!.stangAv('a'); });
-    expect(server.anrop.some((x) => x.metod === 'POST' && x.body.besok_id === 'a')).toBe(true);
-    expect(ref.ut!.ringBesok.map((x) => x.id)).toEqual(['c']);
-    expect(ref.ut!.aktiva).toHaveLength(2);
-    // efter omladdning (nytt montage) är ringen för 'a' fortfarande av, 'c' har sin
-    act(() => { rot!.unmount(); }); ruta!.remove();
-    const ref2 = await montera();
-    expect(ref2.ut!.ringBesok.map((x) => x.id)).toEqual(['c']);
-  });
-  it('stängs inte av om kvittensen inte kunde sparas', async () => {
+  it('det finns ingen funktion som stänger av ringen — hooken ger inga ringBesok/stangAv och inget minne av ett sådant val', async () => {
     server.besok = [b('a', 30)];
     const ref = await montera();
-    server.postStatus = 503;
-    let ok = true;
-    await act(async () => { ok = await ref.ut!.stangAv('a'); });
-    expect(ok).toBe(false);
-    expect(ref.ut!.ringBesok).toHaveLength(1);
-    expect(ref.ut!.fel).toContain('Kunde inte spara');
+    expect((ref.ut as Record<string, unknown>).stangAv).toBeUndefined();
+    expect((ref.ut as Record<string, unknown>).ringBesok).toBeUndefined();
+    await act(async () => { await ref.ut!.kvittera('a'); });
+    expect(localStorage.getItem('besok_ring_av_v1')).toBeNull();
+    expect(ref.ut!.aktiva).toHaveLength(1);
   });
   it('403 (maskinen är inte kopplad till objektet): inga besök, ingen ring, inget kort', async () => {
     server.status = 403;

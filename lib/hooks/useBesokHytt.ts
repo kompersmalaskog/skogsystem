@@ -12,11 +12,6 @@ import { spelaLarmLjud } from '@/lib/larm/ljud';
 
 type LasSvar = { ok?: boolean; besok?: HyttBesok[]; kvitterade?: string[] };
 
-// Ringen kan stängas av för ett besök ("Stäng av när du ser hen"). Minnet är per enhet och per besök; ett nytt besök får alltid sin ring.
-const RING_AV_NYCKEL = 'besok_ring_av_v1';
-const lasRingAv = (): string[] => { try { const j = JSON.parse(localStorage.getItem(RING_AV_NYCKEL) ?? '[]'); return Array.isArray(j) ? j.filter((x) => typeof x === 'string') : []; } catch { return []; } };
-const sparaRingAv = (ids: string[]) => { try { localStorage.setItem(RING_AV_NYCKEL, JSON.stringify(ids.slice(-50))); } catch { /* minnet är en bekvämlighet */ } };
-
 export function useBesokHytt(a: {
   aktiv: boolean;
   objektId: string | null;
@@ -30,7 +25,6 @@ export function useBesokHytt(a: {
   const [sparar, setSparar] = useState<string | null>(null);
   const [fel, setFel] = useState<string | null>(null);
   const sett = useRef<Set<string>>(new Set());
-  const [ringAv, setRingAv] = useState<string[]>(() => lasRingAv());
   const ljudRef = useRef(a.ljudCtx);
   ljudRef.current = a.ljudCtx;
   const maskinRef = useRef(a.maskinId);
@@ -92,17 +86,7 @@ export function useBesokHytt(a: {
     }
   }, []);
 
-  /** Tryck på "Stäng av när du ser hen": räknas som Uppfattat (sparas på servern) OCH stänger av 70 m-ringen för det besöket på den här enheten. */
-  const stangAv = useCallback(async (besokId: string): Promise<boolean> => {
-    const ok = await kvittera(besokId);
-    if (!ok) return false;
-    setRingAv((p) => { const n = p.includes(besokId) ? p : [...p, besokId]; sparaRingAv(n); return n; });
-    return true;
-  }, [kvittera]);
-
   const aktiva = useMemo(() => aktivaBesok(besok), [besok]);
-  /** Besöken som ska ge en ring runt maskinen: aktiva, utom de föraren stängt av. */
-  const ringBesok = useMemo(() => aktiva.filter((x) => !ringAv.includes(x.id)), [aktiva, ringAv]);
   const vantar = useMemo(() => ejKvitterade(aktiva, kvitt, a.maskinId), [aktiva, kvitt, a.maskinId]);
-  return { aktiva, ringBesok, vantar, kvittera, stangAv, sparar, fel };
+  return { aktiva, vantar, kvittera, sparar, fel };
 }

@@ -353,12 +353,11 @@ describe('traktens namn på besökssidan', () => {
 });
 
 describe('maskinernas färg på besökskartan', () => {
-  it('skördaren är gul, skotaren grön – med appens egna färgvärden', async () => {
+  it('skördaren är lila, skotaren grön – appens rollfärger, samma som överallt (Martin 2026-10-24)', async () => {
     const { BESOK_MASKINFARG } = await import('./farg');
-    const { FARG } = await import('@/lib/design/tokens');
-    const { ROLLFARG_SKOTARE } = await import('@/lib/sparStil');
-    expect(BESOK_MASKINFARG.skordare).toBe(FARG.gul);
-    expect(BESOK_MASKINFARG.skordare.toLowerCase()).toBe('#ffd60a');
+    const { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } = await import('@/lib/sparStil');
+    expect(BESOK_MASKINFARG.skordare).toBe(ROLLFARG_SKORDARE);
+    expect(BESOK_MASKINFARG.skordare.toLowerCase()).toBe('#bf5af2');
     expect(BESOK_MASKINFARG.skotare).toBe(ROLLFARG_SKOTARE);
     expect(BESOK_MASKINFARG.skordare).not.toBe(BESOK_MASKINFARG.skotare);
   });

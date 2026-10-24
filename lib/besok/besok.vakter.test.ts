@@ -106,7 +106,7 @@ describe('planeringsvyn: besöken syns bara där de ska', () => {
     expect(page).toContain("id: 'larm-besok-ring-fyll'");
     expect(page).toContain("id: 'larm-besok-ring-linje'");
     expect(page).toContain('circlePolygon(pos.lat, pos.lon, HYTT_RING_M, 64)');
-    expect(page).toContain('besokHytt.ringBesok.length > 0');   // ringen följer ringBesok (utan de föraren stängt av)
+    expect(page).toContain('besokHytt.aktiva.length > 0');   // ringen ligger kvar så länge något besök är aktivt — föraren kan inte stänga av den
   });
   it('Uppfattat sparas på riktigt också i testläget (märkt testlage) — kvittenser sparas inte "torrt" här', () => {
     expect(page).toMatch(/testlage: !!testlage,\s*\n\s*ljudCtx/);
@@ -239,7 +239,7 @@ describe('uppstramning: besökssidan', () => {
     expect(server).toContain('besokNamn(o.namn, o.vo_nummer, o.fastighetsbeteckning)');
     expect(server).not.toContain('rensaObjektnamn');
   });
-  it('kartan färgar maskinerna ur BESOK_MASKINFARG (skördare gul)', () => {
+  it('kartan färgar maskinerna ur BESOK_MASKINFARG (skördare lila)', () => {
     const k = las('components/besok/BesokKarta.tsx');
     expect(k).toContain('BESOK_MASKINFARG[m.roll]');
     expect(k).not.toContain('ROLLFARG_SKORDARE');

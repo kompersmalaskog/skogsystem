@@ -181,9 +181,9 @@ describe('besökssidan', () => {
 
 describe('hyttens orange kort', () => {
   const b = { id: 'b1', namn: 'Anna Svensson', telefon: '070-123 45 67', besokstid: '2026-10-22T12:30:00Z' };
-  it('"Besök: <namn> kommer ca 14:30", knappen "Ring Anna" bredvid Uppfattat (båda ≥ 56 px), raden "Stäng av när du ser hen", +N till', async () => {
-    const f = vi.fn(); const av = vi.fn();
-    await visa(<BesokKortHytt top="12px" besok={b} fler={2} sparar={false} fel={null} onUppfattat={f} onStangAv={av} />);
+  it('"Besök: <namn> kommer ca 14:30", knappen "Ring Anna" bredvid Uppfattat (båda ≥ 56 px), textraden "Stäng av när du ser hen" (ingen knapp), +N till', async () => {
+    const f = vi.fn();
+    await visa(<BesokKortHytt top="12px" besok={b} fler={2} sparar={false} fel={null} onUppfattat={f} />);
     expect(q('besok-kort-rubrik')!.textContent).toMatch(/^Besök: Anna Svensson kommer (ca \d\d:\d\d|nu)$/);
     const ring = q('besok-kort-ring') as HTMLAnchorElement;
     expect(ring.tagName).toBe('A');
@@ -197,23 +197,24 @@ describe('hyttens orange kort', () => {
     expect(ring.parentElement).toBe(q('besok-kort-uppfattat')!.parentElement);
     expect(ring.nextElementSibling).toBe(q('besok-kort-uppfattat'));
     expect(q('besok-kort-stang-av')!.textContent).toBe('Stäng av när du ser hen');
+    expect(q('besok-kort-stang-av')!.tagName).toBe('DIV');   // en textrad, inte en knapp
+    expect(el!.querySelectorAll('button, a')).toHaveLength(2);   // kortet har bara två knappar: Ring och Uppfattat
     expect(q('besok-kort')!.style.background).toBe('rgb(255, 159, 10)');
     await tryck(q('besok-kort-uppfattat'));
-    expect(f).toHaveBeenCalledTimes(1); expect(av).not.toHaveBeenCalled();
+    expect(f).toHaveBeenCalledTimes(1);
     await tryck(q('besok-kort-stang-av'));
-    expect(av).toHaveBeenCalledTimes(1); expect(f).toHaveBeenCalledTimes(1);
+    expect(f).toHaveBeenCalledTimes(1);   // ett tryck på textraden gör ingenting
   });
   it('en lång knapptext kortas – knappen växer aldrig ur kortet', async () => {
-    await visa(<BesokKortHytt top="12px" besok={{ ...b, namn: 'Maximiliane-Alexandra von Sjöstedt' }} fler={0} sparar={false} fel={null} onUppfattat={() => {}} onStangAv={() => {}} />);
+    await visa(<BesokKortHytt top="12px" besok={{ ...b, namn: 'Maximiliane-Alexandra von Sjöstedt' }} fler={0} sparar={false} fel={null} onUppfattat={() => {}} />);
     const ring = q('besok-kort-ring') as HTMLElement;
     expect(ring.textContent).toBe('Ring Maximiliane-Alexandra');
     expect(ring.style.overflow).toBe('hidden');
     expect(ring.style.textOverflow).toBe('ellipsis');
   });
-  it('medan det sparas: båda knapparna som sparar är avstängda och säger det; fel visas', async () => {
-    await visa(<BesokKortHytt top="12px" besok={b} fler={0} sparar fel="Kunde inte spara — försök igen." onUppfattat={() => {}} onStangAv={() => {}} />);
+  it('medan det sparas: Uppfattat är avstängt och säger det; fel visas', async () => {
+    await visa(<BesokKortHytt top="12px" besok={b} fler={0} sparar fel="Kunde inte spara — försök igen." onUppfattat={() => {}} />);
     expect((q('besok-kort-uppfattat') as HTMLButtonElement).disabled).toBe(true);
-    expect((q('besok-kort-stang-av') as HTMLButtonElement).disabled).toBe(true);
     expect(q('besok-kort-uppfattat')!.textContent).toBe('Sparar …');
     expect(el!.textContent).toContain('Kunde inte spara');
     expect(q('besok-kort-fler')).toBeNull();

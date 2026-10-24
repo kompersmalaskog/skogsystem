@@ -135,7 +135,7 @@ const M = [
   ["traktens namn är Vidas internnamn", "besokNamn(o.namn, o.vo_nummer, o.fastighetsbeteckning)", "o.namn", SERV],
   ["ledande koder i namnet klipps inte", "while (i < tokens.length && arKod(tokens[i])) i++;", "", NAMN],
   ["fastighetsbeteckningen används inte som reserv", "return f || 'Trakten';", "return 'Trakten';", NAMN],
-  ["skördarens prick är lila igen", "skordare: FARG.gul", "skordare: '#bf5af2'", FARGF],
+  ["skördarens prick är gul igen", "skordare: ROLLFARG_SKORDARE", "skordare: '#ffd60a'", FARGF],
   ["företagets nummer används inte", "(a.avsandareTelefon ?? '').trim() || (a.foretagTelefon === undefined ? FORETAG_TELEFON : (a.foretagTelefon ?? '')).trim()", "(a.avsandareTelefon ?? '').trim()", SMS],
   ["en iPad i skrivbordsläge ses som dator", "|| (/Macintosh/i.test(userAgent) && maxTouchPoints > 1)", "", SMS],
 
@@ -154,12 +154,8 @@ const M = [
   // ── hytten: via servern ──
   ["klienten skickar sin egen roll", "body: JSON.stringify({ besok_id: besokId, maskin_id: maskin, ...(testRef.current", "body: JSON.stringify({ besok_id: besokId, maskin_id: maskin, roll: 'skordare', ...(testRef.current", HOOK],
   ["testläget ber inte om testläge", "${testRef.current ? '&test=1' : ''}", "", HOOK],
-  ["stäng av stänger inte ringen", "setRingAv((p) => { const n = p.includes(besokId) ? p : [...p, besokId]; sparaRingAv(n); return n; });", "setRingAv((p) => p);", HOOK],
-  ["stäng av kvitterar inte", "const ok = await kvittera(besokId);\n    if (!ok) return false;", "const ok = true;\n    if (!ok) return false;", HOOK],
-  ["ringen följer inte avstängningen", "aktiva.filter((x) => !ringAv.includes(x.id))", "aktiva", HOOK],
   ["kopplingsfel (403) rensar inte besöken", "if (r.status === 403) { setBesok([]); setKvitt([]); setFel(null); return; }", "if (r.status === 403) { return; }", HOOK],
   ["Ring-knappen ringer ingenstans", "href={`tel:${besok.telefon.replace(/[^\\d+]/g, '')}`} aria-label", "href=\"#\" aria-label", KORT],
-  ["'Stäng av' är bara Uppfattat", "onClick={onStangAv}", "onClick={onUppfattat}", KORT],
   ["knapparna i hytten krymper till 40 px", "export const BESOK_KORT_MIN_KNAPP_PX = 56;", "export const BESOK_KORT_MIN_KNAPP_PX = 40;", KORT],
   ["bannern 'Visar som maskin' är orange igen", "background: FARG.upphojt, color: FARG.text, boxSizing", "background: '#f59e0b', color: '#1a1200', boxSizing", SIDA],
 

@@ -69,7 +69,7 @@ export type SmsIndata = {
 
 /** Numret på sista raden: avsändarens eget, annars företagets. Tomt = ingen rad (planerarkortet säger det). */
 export const smsNummer = (a: Pick<SmsIndata, 'avsandareTelefon' | 'foretagTelefon'>): string =>
-  (a.avsandareTelefon ?? '').trim() || (a.foretagTelefon === undefined ? FORETAG_TELEFON : (a.foretagTelefon ?? '')).trim();
+  (a.avsandareTelefon ?? '').trim();
 
 /** Telefon/surfplatta (kan öppna Meddelanden med en sms:-länk) eller dator? En iPad som utger sig för att vara en Mac räknas som surfplatta. */
 export function arMobil(userAgent: string, maxTouchPoints: number = 0): boolean {

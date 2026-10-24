@@ -1,10 +1,10 @@
 'use client';
 
-// Besökskortet i hytten: ORANGE, högst upp — "Besök: Anna Svensson kommer ca 14:30", knapparna "Ring Anna" och "Uppfattat" (båda ≥ 56 px) och raden "Stäng av när du ser hen".
+// Besökskortet i hytten: ORANGE, högst upp — "Besök: Anna Svensson kommer ca 14:30", knapparna "Ring Anna" och "Uppfattat" (båda ≥ 56 px) och textraden "Stäng av när du ser hen".
 // Ligger kvar tills Uppfattat. Flera besök: det tidigaste visas, resten som "+N till". Ett ljud (hooken). Larm (fara) går före — det avgör sidan.
 
 import React from 'react';
-import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, RADIE, TYP } from '@/lib/design/tokens';
 import { besokRubrik } from '@/lib/besok/status';
 import { kommerText } from '@/lib/besok/tid';
 import type { HyttBesok } from '@/lib/besok/hytt';
@@ -23,8 +23,8 @@ const KNAPP_STIL: React.CSSProperties = {
   fontFamily: 'inherit', textDecoration: 'none', touchAction: 'manipulation', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 
-export default function BesokKortHytt({ besok, fler, sparar, fel, onUppfattat, onStangAv, top }: {
-  besok: HyttBesok; fler: number; sparar: boolean; fel: string | null; onUppfattat: () => void; onStangAv: () => void; top: string;
+export default function BesokKortHytt({ besok, fler, sparar, fel, onUppfattat, top }: {
+  besok: HyttBesok; fler: number; sparar: boolean; fel: string | null; onUppfattat: () => void; top: string;
 }) {
   return (
     <div data-testid="besok-kort" role="alert" style={{ position: 'fixed', left: AVSTAND.m, right: AVSTAND.m, top, zIndex: 130, maxWidth: 520, margin: '0 auto', background: FARG.orange, color: FARG.bg, borderRadius: RADIE.kort, padding: AVSTAND.l }}>
@@ -36,11 +36,8 @@ export default function BesokKortHytt({ besok, fler, sparar, fel, onUppfattat, o
           {sparar ? 'Sparar …' : 'Uppfattat'}
         </button>
       </div>
-      {/* Uppfattat räcker för att kortet försvinner; ringen runt maskinen ligger kvar. Den här raden stänger av även ringen – tryck när du ser hen. */}
-      <button type="button" data-testid="besok-kort-stang-av" onClick={onStangAv} disabled={sparar}
-        style={{ display: 'block', width: '100%', minHeight: TRAFFYTA.min, marginTop: AVSTAND.s, border: 'none', background: 'transparent', color: FARG.bg, ...TYP.text, textDecoration: 'underline', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation', opacity: sparar ? 0.6 : 1 }}>
-        Stäng av när du ser hen
-      </button>
+      {/* En TEXTRAD, ingen knapp (Martin 2026-10-24): säger vad föraren ska göra när hen ser besökaren. Kortet har bara två knappar: Ring och Uppfattat. */}
+      <div data-testid="besok-kort-stang-av" style={{ ...TYP.text, marginTop: AVSTAND.s }}>Stäng av när du ser hen</div>
       {fel && <div role="status" style={{ ...TYP.meta, marginTop: AVSTAND.s }}>{fel}</div>}
       {fler > 0 && <div data-testid="besok-kort-fler" style={{ ...TYP.meta, marginTop: AVSTAND.s }}>+{fler} besök till</div>}
     </div>

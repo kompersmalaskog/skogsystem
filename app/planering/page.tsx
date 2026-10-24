@@ -11959,13 +11959,13 @@ export default function PlannerPage() {
       if (!map.getSource('larm-besok-ring-source')) map.addSource('larm-besok-ring-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       if (!map.getLayer('larm-besok-ring-fyll')) map.addLayer({ id: 'larm-besok-ring-fyll', type: 'fill', source: 'larm-besok-ring-source', paint: { 'fill-color': FARG.rod, 'fill-opacity': 0.1 } });
       if (!map.getLayer('larm-besok-ring-linje')) map.addLayer({ id: 'larm-besok-ring-linje', type: 'line', source: 'larm-besok-ring-source', paint: { 'line-color': FARG.rod, 'line-width': 3, 'line-dasharray': [2, 1.5] } });
-      const visa = instruktionerAktiv && besokHytt.ringBesok.length > 0 && pos && pos.lat != null && pos.lon != null;
+      const visa = instruktionerAktiv && besokHytt.aktiva.length > 0 && pos && pos.lat != null && pos.lon != null;
       (map.getSource('larm-besok-ring-source') as any)?.setData(visa
         ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: circlePolygon(pos.lat, pos.lon, HYTT_RING_M, 64) } }] }
         : { type: 'FeatureCollection', features: [] });
     } catch (e) { console.error('[Besök] ring:', e); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, instruktionerAktiv, besokHytt.ringBesok.length, mapLibreReady]);
+  }, [currentPosition, instruktionerAktiv, besokHytt.aktiva.length, mapLibreReady]);
 
   const inst = useInstruktioner({
     aktiv: instruktionerAktiv,
@@ -14142,7 +14142,6 @@ export default function PlannerPage() {
           sparar={besokHytt.sparar === besokHytt.vantar[0].id}
           fel={besokHytt.fel}
           onUppfattat={() => { void besokHytt.kvittera(besokHytt.vantar[0].id); }}
-          onStangAv={() => { void besokHytt.stangAv(besokHytt.vantar[0].id); }}
         />
       )}
       {korvyActive && inst.kort && (
