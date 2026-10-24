@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { LjudSpelare } from '@/components/LjudSpelare'
 
 interface FeedbackItem {
   id: string
@@ -394,7 +395,7 @@ export default function ForbattringsforslagPage() {
 
               {audioUrl && !isRecording && (
                 <div className="fb-audio-player">
-                  <audio controls src={audioUrl} />
+                  <LjudSpelare src={audioUrl} />
                   <button className="fb-audio-remove" onClick={removeAudio}>✕</button>
                 </div>
               )}
@@ -437,7 +438,7 @@ export default function ForbattringsforslagPage() {
                         <path d="M5 10a7 7 0 0 0 14 0" />
                         <line x1="12" y1="17" x2="12" y2="21" />
                       </svg>
-                      <audio controls src={item.audio_url} />
+                      <LjudSpelare src={item.audio_url} />
                     </div>
                   )}
                 </div>

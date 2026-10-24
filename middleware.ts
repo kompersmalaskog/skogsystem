@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { loginSok, NASTA_PARAM, sakerNasta } from './lib/loginNasta';
+import { arOffentligBesokSokvag } from './lib/besok/offentlig';
 
 // ─────────────────────────────────────────────────────────────
 // /api/* är STÄNGT som default. Kartläggning 2026-09: 30 av 79 rutter saknade
@@ -63,6 +64,14 @@ function cookieHarGiltigSession(request: NextRequest): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  // BESÖKSSIDAN för markägaren (/besok/<token> + /api/besok/<token>/…): öppen utan inloggning, men BARA de adresserna och bara med en lång slumpad token i sökvägen
+  // (lib/besok/offentlig). Läser och skriver via serverrutter med exakt de fält sidan visar. Aldrig indexerad.
+  if (arOffentligBesokSokvag(request.nextUrl.pathname)) {
+    const oppen = NextResponse.next({ request });
+    oppen.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    return oppen;
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(

@@ -8,12 +8,13 @@ import { useCallback, useState } from 'react';
 import type { KontrollResponse } from '@/app/api/kalibrering/kontroll/route';
 import type { KalibArk } from '@/components/kalibrering/arkTyper';
 import { useArkStack } from '@/lib/hooks/useArkStack';
+import type { RutaVal } from '@/lib/kalibrering/grovlek';
 import type { ArtSnitt } from '@/lib/kalibrering/rapport';
 import type { CalDag } from '@/lib/kalibrering/typer';
 
 async function hamtaKontroll(filnamn: string): Promise<KontrollResponse | null> {
   try {
-    const res = await fetch(`/api/kalibrering/kontroll?filnamn=${encodeURIComponent(filnamn)}&key=skogsystem-debug`);
+    const res = await fetch(`/api/kalibrering/kontroll?filnamn=${encodeURIComponent(filnamn)}`);
     if (!res.ok) {
       console.error(`fetchKontroll: HTTP ${res.status}`);
       return null;
@@ -49,12 +50,13 @@ export function useKalibreringArk(speciesData: Record<string, ArtSnitt>) {
   const oppnaPlan = useCallback((data: KontrollResponse, stamNummer: number) => lagg({ typ: 'plan', data, stamNummer }), [lagg]);
   const oppnaStock = useCallback((data: KontrollResponse, stockId: number) => lagg({ typ: 'stock', data, stockId }), [lagg]);
   const oppnaArt = useCallback((art: string) => { if (speciesData[art]) lagg({ typ: 'art', art }); }, [lagg, speciesData]);
+  const oppnaRuta = useCallback((ruta: RutaVal) => lagg({ typ: 'ruta', ruta }), [lagg]);
   const oppnaDag = useCallback((dag: CalDag, ersattStapel = false) => (ersattStapel ? ersatt({ typ: 'dag', dag }) : lagg({ typ: 'dag', dag })), [lagg, ersatt]);
   const oppnaAtgard = useCallback((id: string) => lagg({ typ: 'atgard', id }), [lagg]);
   const oppnaNyAtgard = useCallback(() => lagg({ typ: 'ny_atgard' }), [lagg]);
   const oppnaHjalp = useCallback(() => lagg({ typ: 'hjalp' }), [lagg]);
 
-  return { ...stapel, laddarKontroll, oppnaKontroll, oppnaStam, oppnaPlan, oppnaStock, oppnaArt, oppnaDag, oppnaAtgard, oppnaNyAtgard, oppnaHjalp };
+  return { ...stapel, laddarKontroll, oppnaKontroll, oppnaStam, oppnaPlan, oppnaStock, oppnaArt, oppnaRuta, oppnaDag, oppnaAtgard, oppnaNyAtgard, oppnaHjalp };
 }
 
 export type KalibreringArk = ReturnType<typeof useKalibreringArk>;

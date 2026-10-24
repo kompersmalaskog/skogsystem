@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -32,12 +33,13 @@ function addDagar(dagar: number) {
 }
 
 export async function POST(req: NextRequest) {
+  const url = new URL(req.url);
   const secret = process.env.AVTAL_NOTIFY_SECRET;
   const auth = req.headers.get("authorization") || "";
-  const url = new URL(req.url);
-  const manuellKey = url.searchParams.get("key") === "skogsystem-debug";
-  if (!manuellKey && (!secret || auth !== `Bearer ${secret}`)) {
-    return NextResponse.json({ ok: false, error: "Obehörig" }, { status: 401 });
+  // Bearer-hemligheten (pg_cron) ELLER en inloggad admin (manuell körning). Ingen nyckel i URL:en.
+  if (!secret || auth !== `Bearer ${secret}`) {
+    const vakt = await kravRoll(ADMIN_ROLLER);
+    if (!vakt.ok) return vakt.res;
   }
 
   const supabase = createClient(

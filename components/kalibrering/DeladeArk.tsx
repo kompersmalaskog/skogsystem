@@ -19,6 +19,7 @@ import KontrollInnehall from './KontrollInnehall';
 import KontrollPanel, { type BladLage } from './KontrollPanel';
 import NyAtgardArk from './NyAtgardArk';
 import PlanArk from './PlanArk';
+import RutaArk from './RutaArk';
 import StamArk from './StamArk';
 import { StockArk } from './StockArk';
 import SvajStang from './SvajStang';
@@ -39,11 +40,12 @@ export default function DeladeArk({ ark, d, bladLage, visaBlad }: { ark: Kalibre
       {top && post && !arBladPost(post) && (
         post.typ === 'ny_atgard' ? <NyAtgardArk d={d} onStang={ark.stang} /> : (
           <SvajStang onStang={ark.stang}>
-            <Ark key={`${post.typ}:${arkRubrik(post)}`} rubrik={arkRubrik(post)} onStang={ark.stang} stang={post.typ === 'hjalp' || post.typ === 'art' || post.typ === 'atgard' ? 'Klar' : 'Avbryt'}>
+            <Ark key={`${post.typ}:${arkRubrik(post)}`} rubrik={arkRubrik(post)} onStang={ark.stang} stang={post.typ === 'hjalp' || post.typ === 'art' || post.typ === 'atgard' || post.typ === 'ruta' ? 'Klar' : 'Avbryt'}>
               {post.typ === 'art' && d.speciesData[post.art] && (
                 <ArtArk art={post.art} data={d.speciesData[post.art]} kontroller={d.filteredKalib} onKontroll={fil => ark.oppnaKontroll(fil)}
                   tr={d.trRader.find(t => t.tradslag.toLowerCase() === post.art) ?? null} trData={d.trData} />
               )}
+              {post.typ === 'ruta' && <RutaArk ruta={post.ruta} kalib={d.filteredKalib} tider={d.tider} onKontroll={fil => ark.oppnaKontroll(fil)} />}
               {post.typ === 'atgard' && (() => {
                 const rad = atgardRader(d.bedomning).find(r => r.id === post.id);
                 return rad ? <AtgardArk rad={rad} /> : <Meta>Åtgärden finns inte längre.</Meta>;

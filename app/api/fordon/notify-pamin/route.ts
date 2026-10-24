@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 import { createClient } from "@supabase/supabase-js";
 import { KONTROLLTYPER, type Kontrolltypnyckel } from "@/lib/kontrolltyper";
 
@@ -34,14 +35,15 @@ function addDagar(dagar: number) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = req.headers.get("authorization") || "";
   const url = new URL(req.url);
-  const manuellKey = url.searchParams.get("key") === "skogsystem-debug";
+  const auth = req.headers.get("authorization") || "";
   // CRON_SECRET = Vercel-cron (samma mönster som fortnox/sync-*); FORDON_NOTIFY_SECRET = manuell/pg_cron.
   const godkand = [process.env.CRON_SECRET, process.env.FORDON_NOTIFY_SECRET]
     .some((s) => s && auth === `Bearer ${s}`);
-  if (!manuellKey && !godkand) {
-    return NextResponse.json({ ok: false, error: "Obehörig" }, { status: 401 });
+  if (!godkand) {
+    // Manuell körning: bara en inloggad admin. Ingen nyckel i URL:en.
+    const vakt = await kravRoll(ADMIN_ROLLER);
+    if (!vakt.ok) return vakt.res;
   }
 
   const supabase = createClient(
