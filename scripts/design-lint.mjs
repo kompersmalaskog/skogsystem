@@ -44,6 +44,9 @@ export const SKARPA = [
   "app/gallring/page.tsx",
   "app/gallring/layout.tsx",
   "app/gallring/[vo]/page.tsx",
+  // Starta jobb (2026-10-24): omgjord på tokens och components/design, noll literaler.
+  "app/starta-jobb/page.tsx",
+  "app/starta-jobb/delar.tsx",
   "components/arbetsrapport/Arbetsrapport.tsx", // piloten (dagsvyn) — nya literaler fäller
   // Admin (2026-10): flyttat till tokens, noll literaler. components/admin/ui.tsx är byggstenarna.
   "components/admin/ui.tsx",

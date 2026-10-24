@@ -1,40 +1,46 @@
 'use client';
-// Delar av Starta jobb-sidan — bara utseende och små lokala tillstånd. All data och alla skrivningar bor i page.tsx.
-// Alla mått/färger ur lib/design/tokens (inga nya literaler). Färg bär aldrig ensam: varje läge har också ord.
+// Delar av Starta jobb — bara utseende och små lokala tillstånd. All data och alla skrivningar bor i page.tsx.
+// Byggt på components/design (Sektion, Rad, Falt, Flikkontroll, Ark) som Arbetsrapporten och markägarvyn — inga egna kort,
+// flikar eller fält. Mått och färger ur lib/design/tokens. Färg bär aldrig ensam: varje läge har också ord.
 
 import React, { useState } from 'react';
-import { AVSTAND, FARG, KNAPP, INAKTIV, KORT, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
-import { JOBBTYPER, URSPRUNG_VAL, avstandText, jobbTypLabel, type JobbTyp, type JobbUrsprung, type VirkesobjektRad } from '@/lib/startaJobb';
+import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
+import Flikkontroll from '@/components/design/Flikkontroll';
+import Rad from '@/components/design/Rad';
+import Sektion from '@/components/design/Sektion';
+import { JOBBTYPER, URSPRUNG_VAL, avstandText, type JobbTyp, type JobbUrsprung, type VirkesobjektRad } from '@/lib/startaJobb';
+import { maskinRader, type Forvantat, type MaskinSpar } from '@/lib/startaJobbLage';
+import type { JobbVy } from '@/lib/startaJobbLista';
 import type { PlatsTraff } from '@/lib/platsSok';
 import PlatsKarta, { type KartPlats } from '@/components/starta/PlatsKarta';
 
+/** Sökfältets form (Falts fyllning och radie) för fält som inte har en etikett ovanför — sökfält. */
 export const falt: React.CSSProperties = {
-  width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min, padding: `${AVSTAND.m}px ${AVSTAND.l}px`,
-  borderRadius: RADIE.rad, border: 'none', background: FARG.kort, color: FARG.text, outline: 'none', fontFamily: 'inherit', ...TYP.text,
+  width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`,
+  borderRadius: RADIE.rad, border: 'none', background: FARG.fyllning, color: FARG.text, outline: 'none', fontFamily: 'inherit', ...TYP.text,
 };
 
-/** Gruppens rubrik (versaler, grå) + innehåll. */
-export function Grupp({ rubrik, valfri, children }: { rubrik: string; valfri?: boolean; children: React.ReactNode }) {
+/** Formulärgrupp: etikett (TYP.meta, text2) över fritt innehåll — Falts form, för val som inte är textfält. */
+export function FaltEtikett({ etikett, stod, children }: { etikett: string; stod?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section style={{ marginTop: AVSTAND.sektion }}>
-      <div style={{ ...TYP.micro, color: FARG.text2, marginBottom: AVSTAND.s }}>{rubrik}{valfri ? ' · valfritt' : ''}</div>
+    <div style={{ marginBottom: AVSTAND.l }}>
+      <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>{etikett}</div>
       {children}
-    </section>
+      {stod != null && <div style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px 0 0 ${AVSTAND.xs}px` }}>{stod}</div>}
+    </div>
   );
 }
 
-/** Ett val bland få: vald = inverterad (vit på svart som primärknappen), ej vald = fylld grå. Radiogrupp för skärmläsare. */
-export function Val<T extends string>({ varden, valt, onVal, kolumner = 2 }: {
-  varden: { varde: T; label: string }[]; valt: T | null; onVal: (v: T) => void; kolumner?: number;
-}) {
+/** Typ: fyra val med hela orden (2 × 2 — "Slutavverkning" ryms inte i en fyrdelad flikkontroll på telefon). Vald = Flikkontrollens fyllning. */
+export function TypVal({ valt, onVal }: { valt: JobbTyp; onVal: (t: JobbTyp) => void }) {
   return (
-    <div role="radiogroup" style={{ display: 'grid', gridTemplateColumns: `repeat(${kolumner}, 1fr)`, gap: AVSTAND.s }}>
-      {varden.map((v) => {
-        const aktiv = v.varde === valt;
+    <div role="radiogroup" aria-label="Typ" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: AVSTAND.xs, background: FARG.linje, borderRadius: RADIE.rad, padding: AVSTAND.xs }}>
+      {JOBBTYPER.map((t) => {
+        const aktiv = t.typ === valt;
         return (
-          <button key={v.varde} type="button" role="radio" aria-checked={aktiv} data-testid={`val-${v.varde}`} onClick={() => onVal(v.varde)}
-            style={{ ...KNAPP.sekundar, ...(aktiv ? { background: FARG.text, color: FARG.bg } : null) }}>
-            {v.label}
+          <button key={t.typ} type="button" role="radio" aria-checked={aktiv} data-testid={`val-${t.typ}`} onClick={() => onVal(t.typ)}
+            style={{ minHeight: TRAFFYTA.min, border: 'none', borderRadius: RADIE.rad, background: aktiv ? FARG.fyllning : 'transparent', color: aktiv ? FARG.text : FARG.text2, ...TYP.meta, fontWeight: aktiv ? VIKT.halvfet : VIKT.normal, fontFamily: 'inherit', cursor: 'pointer' }}>
+            {t.label}
           </button>
         );
       })}
@@ -42,56 +48,38 @@ export function Val<T extends string>({ varden, valt, onVal, kolumner = 2 }: {
   );
 }
 
-export const TypVal = ({ valt, onVal }: { valt: JobbTyp | null; onVal: (t: JobbTyp) => void }) =>
-  <Val varden={JOBBTYPER.map((t) => ({ varde: t.typ, label: t.label }))} valt={valt} onVal={onVal} />;
+export const UrsprungVal = ({ valt, onVal }: { valt: JobbUrsprung; onVal: (u: JobbUrsprung) => void }) =>
+  <Flikkontroll flikar={URSPRUNG_VAL.map((u) => [u.varde, u.label] as const)} aktiv={valt} onVal={onVal} />;
 
-export function UrsprungVal({ valt, onVal }: { valt: JobbUrsprung; onVal: (u: JobbUrsprung) => void }) {
-  const hjalp = URSPRUNG_VAL.find((u) => u.varde === valt)?.hjalp;
-  return (
-    <>
-      <Val varden={URSPRUNG_VAL.map((u) => ({ varde: u.varde, label: u.label }))} valt={valt} onVal={onVal} />
-      {hjalp && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>{hjalp}</div>}
-    </>
-  );
-}
+export const SkotningVal = ({ egen, onVal }: { egen: boolean; onVal: (egen: boolean) => void }) =>
+  <Flikkontroll flikar={[['vi', 'Vi skotar'], ['egen', 'Egen skotning']] as const} aktiv={egen ? 'egen' : 'vi'} onVal={(v) => onVal(v === 'egen')} />;
 
 /** GROT: välj virkesobjektet på samma trakt. Närmaste står överst och är märkt — men inget väljs förrän man trycker. */
 export function HorTill({ alternativ, valt, onVal, harPosition }: {
   alternativ: (VirkesobjektRad & { avstandM: number | null })[]; valt: string | null; onVal: (id: string | null) => void; harPosition: boolean;
 }) {
-  const rad = (id: string | null, titel: string, meta: string) => {
-    const aktiv = valt === id;
-    return (
-      <button key={id ?? 'inget'} type="button" role="radio" aria-checked={aktiv} data-testid={`hortill-${id ?? 'inget'}`} onClick={() => onVal(id)}
-        style={{ ...KNAPP.sekundar, justifyContent: 'space-between', textAlign: 'left', ...(aktiv ? { background: FARG.text, color: FARG.bg } : null) }}>
-        <span>{titel}</span>
-        <span style={{ ...TYP.meta, opacity: 0.7 }}>{meta}</span>
-      </button>
-    );
-  };
+  const bock = (aktiv: boolean) => (aktiv ? 'Vald' : undefined);
   return (
-    <div role="radiogroup" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-      {rad(null, 'Inget', '')}
-      {alternativ.map((o, i) => rad(o.id, o.namn || 'Objekt', [i === 0 && o.avstandM != null ? 'Närmaste' : '', avstandText(o.avstandM)].filter(Boolean).join(' · ')))}
-      {alternativ.length === 0 && <div style={{ ...TYP.meta, color: FARG.text2 }}>{harPosition ? 'Inga virkesobjekt med plats hittades.' : 'Sätt en position så visas det närmaste virkesobjektet först.'}</div>}
-      <div style={{ ...TYP.meta, color: FARG.text2 }}>Då visas virkesobjektets traktgräns, ytor, anteckningar och skördarens spår även på GROT-jobbet.</div>
+    <div role="radiogroup" aria-label="Hör till objekt" style={{ background: FARG.fyllning, borderRadius: RADIE.rad, padding: `0 ${AVSTAND.l}px` }}>
+      <Rad titel="Inget" hoger={bock(valt === null)} onTryck={() => onVal(null)} pil={false} sista={alternativ.length === 0} attr={{ 'data-testid': 'hortill-inget', role: 'radio', 'aria-checked': String(valt === null) }} />
+      {alternativ.map((o, i) => (
+        <Rad key={o.id} titel={o.namn || 'Objekt'} under={[i === 0 && o.avstandM != null ? 'Närmaste' : '', avstandText(o.avstandM), o.vo_nummer || ''].filter(Boolean).join(' · ')}
+          hoger={bock(valt === o.id)} onTryck={() => onVal(o.id)} pil={false} sista={i === alternativ.length - 1}
+          attr={{ 'data-testid': `hortill-${o.id}`, role: 'radio', 'aria-checked': String(valt === o.id) }} />
+      ))}
+      {alternativ.length === 0 && <div style={{ ...TYP.meta, color: FARG.text2, padding: `0 0 ${AVSTAND.m}px` }}>{harPosition ? 'Inga virkesobjekt med plats hittades i närheten.' : 'Sätt en position så visas det närmaste virkesobjektet först.'}</div>}
     </div>
   );
 }
 
-export type PlatsLage = 'karta' | 'sok' | 'har';
-
-/** Position på telefon/dator: peka på kartan (standard), sök fastighet/ort, eller "Här". Går att lämna tomt. */
-export function PlatsVal({ plats, platsText, onPlats, onSok, onHar, startKarta, sokStatus }: {
+/** Position på telefon/dator: sök fastighet/ort ovanför kartan, peka på kartan, eller "Använd min position". Krävs. */
+export function PlatsVal({ plats, platsText, onPlats, onSok, onHar }: {
   plats: KartPlats | null;
   platsText: string | null;
   onPlats: (p: KartPlats | null, text: string | null) => void;
   onSok: (q: string) => Promise<{ traffar: PlatsTraff[] } | { fel: string }>;
   onHar: () => Promise<{ plats: KartPlats; noggrannhetM: number | null } | { fel: string }>;
-  startKarta?: KartPlats | null;
-  sokStatus?: string | null;
 }) {
-  const [lage, setLage] = useState<PlatsLage>('karta');
   const [q, setQ] = useState('');
   const [sokar, setSokar] = useState(false);
   const [traffar, setTraffar] = useState<PlatsTraff[] | null>(null);
@@ -112,70 +100,84 @@ export function PlatsVal({ plats, platsText, onPlats, onSok, onHar, startKarta, 
     const r = await onHar();
     setHaerBusy(false);
     if ('fel' in r) { setMeddelande(r.fel); return; }
-    onPlats(r.plats, `Enhetens position${r.noggrannhetM != null ? ` (±${Math.round(r.noggrannhetM)} m)` : ''}`);
+    onPlats(r.plats, `Min position${r.noggrannhetM != null ? ` (±${Math.round(r.noggrannhetM)} m)` : ''}`);
   };
 
   return (
     <div>
-      <Val<PlatsLage> varden={[{ varde: 'karta', label: 'Peka på kartan' }, { varde: 'sok', label: 'Sök fastighet' }, { varde: 'har', label: 'Här' }]} valt={lage} onVal={(l) => { setLage(l); setMeddelande(null); }} kolumner={3} />
-      <div style={{ marginTop: AVSTAND.m }}>
-        {lage === 'karta' && <PlatsKarta plats={plats} start={startKarta} onVal={(p) => onPlats(p, 'Från kartan')} />}
-        {lage === 'sok' && (
-          <div>
-            <div style={{ display: 'flex', gap: AVSTAND.s }}>
-              <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void sok(); }}
-                placeholder="Fastighet, by eller adress" aria-label="Sök fastighet" style={{ ...falt, flex: 1 }} />
-              <button type="button" data-testid="sok-knapp" onClick={() => void sok()} style={{ ...KNAPP.sekundar, width: 'auto', ...(sokar ? INAKTIV : null) }}>{sokar ? 'Söker …' : 'Sök'}</button>
-            </div>
-            {sokStatus && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>{sokStatus}</div>}
-            {traffar && traffar.length > 0 && (
-              <div style={{ marginTop: AVSTAND.s, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-                {traffar.map((t, i) => (
-                  <button key={`${t.etikett}-${i}`} type="button" data-testid={`sok-traff-${i}`} onClick={() => { onPlats({ lat: t.lat, lng: t.lng }, t.etikett); setLage('karta'); setTraffar(null); }}
-                    style={{ ...KNAPP.sekundar, justifyContent: 'flex-start', textAlign: 'left' }}>{t.etikett}</button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {lage === 'har' && (
-          <div>
-            <button type="button" onClick={() => void har()} style={{ ...KNAPP.sekundar, ...(haerBusy ? INAKTIV : null) }}>{haerBusy ? 'Hämtar position …' : 'Använd enhetens position'}</button>
-            <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>Bara om du står på platsen — annars blir jobbet fel placerat.</div>
-          </div>
-        )}
-        {meddelande && <div role="status" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>{meddelande}</div>}
+      <div style={{ display: 'flex', gap: AVSTAND.s }}>
+        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void sok(); }}
+          placeholder="Sök fastighet eller ort" aria-label="Sök fastighet eller ort" style={{ ...falt, flex: 1 }} />
+        <button type="button" data-testid="sok-knapp" onClick={() => void sok()} style={{ ...KNAPP.sekundar, width: 'auto', ...(sokar ? INAKTIV : null) }}>{sokar ? 'Söker …' : 'Sök'}</button>
       </div>
-      <div data-testid="vald-plats" style={{ ...TYP.meta, color: plats ? FARG.text : FARG.text2, marginTop: AVSTAND.m, display: 'flex', justifyContent: 'space-between', gap: AVSTAND.s, alignItems: 'center' }}>
-        <span>{plats ? `Position: ${plats.lat.toFixed(4)}, ${plats.lng.toFixed(4)}${platsText ? ` · ${platsText}` : ''}` : 'Ingen position vald — jobbet skapas utan.'}</span>
-        {plats && <button type="button" onClick={() => onPlats(null, null)} style={KNAPP.tertiar}>Ta bort</button>}
+      {traffar && traffar.length > 0 && (
+        <div style={{ marginTop: AVSTAND.s, background: FARG.fyllning, borderRadius: RADIE.rad, padding: `0 ${AVSTAND.l}px` }}>
+          {traffar.map((t, i) => (
+            <Rad key={`${t.etikett}-${i}`} titel={t.etikett} sista={i === traffar.length - 1} attr={{ 'data-testid': `sok-traff-${i}` }}
+              onTryck={() => { onPlats({ lat: t.lat, lng: t.lng }, t.etikett); setTraffar(null); }} />
+          ))}
+        </div>
+      )}
+      <div style={{ marginTop: AVSTAND.s }}>
+        <PlatsKarta plats={plats} onVal={(p) => onPlats(p, 'Vald på kartan')} />
       </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.xs }}>
+        <span data-testid="vald-plats" style={{ ...TYP.meta, color: FARG.text2, paddingLeft: AVSTAND.xs }}>
+          {plats ? (platsText || 'Position vald') : 'Peka på kartan där jobbet är'}
+        </span>
+        <button type="button" onClick={() => void har()} style={{ ...KNAPP.tertiar, ...(haerBusy ? INAKTIV : null) }}>{haerBusy ? 'Hämtar …' : 'Använd min position'}</button>
+      </div>
+      {meddelande && <div role="status" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs, paddingLeft: AVSTAND.xs }}>{meddelande}</div>}
     </div>
   );
 }
 
-/** Förslaget "P-1018 har fått Vida-objekt X — slå ihop?". Ja/Nej; ingenting flyttas förrän Ja. */
-export function ForslagKort({ text, orsak, upptagen, onJa, onNej, kompakt }: {
-  text: string; orsak: 'hyttspar' | 'position'; upptagen: boolean; onJa: () => void; onNej: () => void; kompakt?: boolean;
+/** Förslaget "P-1018 har fått Vida-objekt X — slå ihop?". Slå ihop / Inte samma; ingenting flyttas förrän man trycker. */
+export function ForslagKort({ text, orsak, upptagen, onJa, onNej }: {
+  text: string; orsak: 'hyttspar' | 'position'; upptagen: boolean; onJa: () => void; onNej: () => void;
 }) {
   return (
-    <div data-testid="sla-ihop-forslag" style={{ ...(kompakt ? { marginTop: AVSTAND.m, paddingTop: AVSTAND.m, borderTop: `1px solid ${FARG.linje}` } : KORT) }}>
-      <div style={{ ...TYP.listtitel }}>{text}</div>
-      <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
-        {orsak === 'hyttspar' ? 'Jobbets hyttspår ligger inom objektets traktgräns.' : 'Jobbets plats ligger inom objektets traktgräns.'}
-        {' '}Ja flyttar hyttspår, markeringar, anteckningar, media och tilldelning och tar bort jobbet.
+    <Sektion rubrik="Vida har levererat">
+      <div data-testid="sla-ihop-forslag" style={{ padding: `${AVSTAND.m}px 0` }}>
+        <div style={TYP.listtitel}>{text}</div>
+        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
+          {orsak === 'hyttspar' ? 'Jobbets hyttspår ligger inom objektets traktgräns.' : 'Jobbets plats ligger inom objektets traktgräns.'}
+          {' '}Slå ihop flyttar hyttspår, markeringar, anteckningar, media och tilldelning och tar bort jobbet.
+        </div>
+        <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.m, ...(upptagen ? INAKTIV : null) }}>
+          <button type="button" data-testid="sla-ihop-ja" onClick={onJa} style={{ ...KNAPP.primar, flex: 1 }}>{upptagen ? 'Slår ihop …' : 'Slå ihop'}</button>
+          <button type="button" data-testid="sla-ihop-nej" onClick={onNej} style={{ ...KNAPP.sekundar, flex: 1 }}>Inte samma</button>
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.m, ...(upptagen ? INAKTIV : null) }}>
-        <button type="button" data-testid="sla-ihop-ja" onClick={onJa} style={{ ...KNAPP.primar, width: 'auto', flex: 1 }}>{upptagen ? 'Slår ihop …' : 'Slå ihop'}</button>
-        <button type="button" data-testid="sla-ihop-nej" onClick={onNej} style={{ ...KNAPP.sekundar, width: 'auto' }}>Nej</button>
-      </div>
-    </div>
+    </Sektion>
   );
 }
 
-/** Chip med ord (aldrig bara färg). */
-export function Marke({ text }: { text: string }) {
-  return <span style={{ ...TYP.micro, color: FARG.text2, background: FARG.fyllning, borderRadius: RADIE.rad, padding: `${AVSTAND.xs}px ${AVSTAND.s}px` }}>{text}</span>;
+/** Raden under jobbets namn: läget i ord. "Startad — ingen maskin har skickat data" är orange (det är fel); resten text2. */
+export function LageUnder({ jobb }: { jobb: Pick<JobbVy, 'lage' | 'lageText'> }) {
+  return <span data-lage={jobb.lage} style={jobb.lage === 'ingen_data' ? { color: FARG.orange } : undefined}>{jobb.lageText}</span>;
 }
 
-export const typText = (typ: string | null | undefined) => jobbTypLabel(typ);
+/** En lista med jobb i ett kort: namn, läget i ord under, VO-numret till höger. */
+export function JobbRader({ jobb, onValj, dampad }: { jobb: JobbVy[]; onValj: (j: JobbVy) => void; dampad?: boolean }) {
+  return (
+    <>
+      {jobb.map((j, i) => (
+        <Rad key={j.nyckel} titel={j.namn} under={<LageUnder jobb={j} />} hoger={j.vo} dampad={dampad} sista={i === jobb.length - 1}
+          onTryck={() => onValj(j)} attr={{ 'data-testid': `jobb-${j.vo}` }} />
+      ))}
+    </>
+  );
+}
+
+/** Raderna under "Maskiner" i jobbets vy. */
+export function MaskinSektion({ forvantat, maskiner, idagAr }: { forvantat: Forvantat; maskiner: MaskinSpar[]; idagAr: number }) {
+  const rader = maskinRader(forvantat, maskiner, idagAr);
+  return (
+    <Sektion rubrik={forvantat === 'en_maskin' ? 'Maskin' : 'Maskiner'}>
+      {rader.map((r, i) => (
+        <Rad key={`${r.titel}-${i}`} titel={r.titel} under={r.under} dampad={r.saknas} sista={i === rader.length - 1} />
+      ))}
+    </Sektion>
+  );
+}
