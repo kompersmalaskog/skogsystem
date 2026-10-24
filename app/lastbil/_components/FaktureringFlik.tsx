@@ -6,7 +6,7 @@ import GodkandKvitto from './GodkandKvitto';
 import FlyttSheet from './FlyttSheet';
 import { fmtDatum } from './nu';
 import { periodKort, type Period } from './period';
-import { kmAndringsText, kundAndringsText, sorteraUnderlag, underlagStatus, type UnderlagRad, type UnderlagStatus } from './fakturerbart';
+import { kmAndringsText, sorteraUnderlag, underlagStatus, type UnderlagRad, type UnderlagStatus } from './fakturerbart';
 import { angraGodkannande, godkannFlytt, sparaTraillertid } from './godkann';
 import TidArk from './TidArk';
 import { fakturerasPaTid, useTraillertid, type TidLage } from './useTraillertid';
@@ -14,11 +14,12 @@ import { fmtTid, minFranTimmar, timmarForFaktura, type TidForslag } from '@/lib/
 import type { FakturerbartStatus } from './useFakturerbart';
 import { useUnderlagNamn, type Namnkartor } from './useUnderlagNamn';
 
+/** Grupperna är FRÅGOR (Martin 2026-10-24: så att ett barn förstår) — rubriken säger vad listan under svarar på. */
 const GRUPP: { id: UnderlagStatus; rubrik: string }[] = [
-  { id: 'att_godkanna', rubrik: 'Att godkänna' },
-  { id: 'hos', rubrik: 'Hos faktureringen' },
-  { id: 'fakturerad', rubrik: 'Fakturerade' },
-  { id: 'struken', rubrik: 'Strukna' },
+  { id: 'att_godkanna', rubrik: 'Vad ska du godkänna?' },
+  { id: 'hos', rubrik: 'Vad väntar på faktura?' },
+  { id: 'fakturerad', rubrik: 'Vad är fakturerat?' },
+  { id: 'struken', rubrik: 'Vad är struket?' },
 ];
 
 function Status({ text, alert }: { text: string; alert?: boolean }) {
@@ -36,11 +37,15 @@ function Fel({ text, onForsokIgen }: { text: string; onForsokIgen: () => void })
 
 const maskinNamn = (r: UnderlagRad, n: Namnkartor) => (r.maskin ? (n.maskin.get(r.maskin) ?? r.maskin) : 'Maskin saknas i datan');
 
-/** Raden under maskinnamnet: var den flyttades, eller att platsen saknas — aldrig tyst tomt. */
-function strackaText(r: UnderlagRad, n: Namnkartor): string {
-  const plats = (o: string | null, p: string | null) => (o && n.objekt.get(o)) || (p && n.plats.get(p)) || null;
-  const fran = plats(r.fran_objekt_id, r.fran_plats_id), till = plats(r.till_objekt_id, r.till_plats_id);
-  return `${fran ?? 'okänd plats'} → ${till ?? 'okänd plats'}`;
+const platsNamn = (o: string | null, p: string | null, n: Namnkartor) => (o && n.objekt.get(o)) || (p && n.plats.get(p)) || null;
+
+/** Rad 1 — vad som hände, i ord: "Elefant 26 till Bågskyttebanan RP J-Hus- 25" (som rundraden i Körningar). */
+const vadText = (r: UnderlagRad, n: Namnkartor) => `${maskinNamn(r, n)} till ${platsNamn(r.till_objekt_id, r.till_plats_id, n) ?? 'okänd plats'}`;
+
+/** Rad 2 — när, varifrån och åt vem: "mån 12 okt · från Östra-Hoka 1:7 A-C -25 · Vida". */
+function narText(r: UnderlagRad, n: Namnkartor): string {
+  const fran = platsNamn(r.fran_objekt_id, r.fran_plats_id, n);
+  return [r.datum ? fmtDatum(r.datum) : 'datum saknas i datan', fran ? `från ${fran}` : 'från okänd plats', r.kund ?? 'kund saknas'].join(' · ');
 }
 
 /** "Fakturerad tis 6 okt", "Struken tis 6 okt · dubblett". */
@@ -73,17 +78,13 @@ function tidText(r: UnderlagRad, st: UnderlagStatus, f: TidForslag | null | unde
 
 const kmText = (r: UnderlagRad) => (r.km != null ? `${Math.round(r.km).toLocaleString('sv-SE')} km` : '–');
 
+/** Raden i ord. Kundens ändringsspår ("tillagd, saknades i datan") står i arket, inte här — raden säger bara vem som betalar. */
 function Uppgifter({ r, n, st }: { r: UnderlagRad; n: Namnkartor; st: UnderlagStatus }) {
   const stamp = stampel(r, st);
-  const kundText = kundAndringsText(r);
   return (
     <>
-      <div style={{ ...TYP.listtitel, color: FARG.text }}>{maskinNamn(r, n)}</div>
-      <div style={{ ...TYP.meta, color: FARG.text2 }}>{strackaText(r, n)}</div>
-      <div style={{ ...TYP.meta, color: FARG.text2 }}>
-        {r.datum ? fmtDatum(r.datum) : 'datum saknas i datan'}{r.kund ? ` · Kund: ${r.kund}` : ''}
-      </div>
-      {kundText && <div style={{ ...TYP.meta, color: FARG.orange }}>Kund {kundText}</div>}
+      <div data-underlag-vad style={{ ...TYP.listtitel, color: FARG.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{vadText(r, n)}</div>
+      <div data-underlag-nar style={{ ...TYP.meta, color: FARG.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{narText(r, n)}</div>
       {stamp && <div style={{ ...TYP.meta, color: stamp.farg }}>{stamp.text}</div>}
     </>
   );
@@ -208,10 +209,6 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
-      <p style={{ ...TYP.meta, color: FARG.text2, margin: 0, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
-        <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.text }}>bolt</span>
-        En flytt som avslutas fakturerbar hamnar under Att godkänna. Stämmer den: Godkänn. Stämmer något inte: tryck på raden och rätta eller stryk.
-      </p>
 
       {fel && <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>{fel}</p>}
 
@@ -224,7 +221,7 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
         </section>
       ) : grupper.map(g => (
         <section key={g.id} aria-label={g.rubrik}>
-          <div style={{ ...TYP.micro, color: g.id === 'att_godkanna' ? FARG.orange : FARG.text2, margin: `0 0 ${AVSTAND.xs}px` }}>{g.rubrik} · {g.rader.length}</div>
+          <h3 style={{ ...TYP.micro, color: g.id === 'att_godkanna' ? FARG.orange : FARG.text2, margin: `0 0 ${AVSTAND.xs}px` }}>{g.rubrik}</h3>
           <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
             {g.rader.map((r, i) => (
               <KvittoRad key={r.id} r={r} st={g.id} n={n} sista={i === g.rader.length - 1}
