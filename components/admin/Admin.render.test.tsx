@@ -4224,7 +4224,8 @@ describe("Lön → Dagar: svaret först", () => {
     expect(blad("Bara avvikelser").length).toBe(0); // förvalt = inget val att göra
     expect(text()).not.toContain("tis 1 september");
     expect(text()).toContain("lör 5 september");
-    expect(text()).not.toContain("Summering"); // listan är svaret och har ingen summering under sig
+    expect(text()).not.toContain("Summering"); // den gamla summeringen längst ner finns inte längre ...
+    expect(cont.querySelector("[data-lonekvot-tabell]")).not.toBeNull(); // ... sammanställningen står överst och visas ändå
   });
 
   it("'Visa alla' öppnar alla dagar, med summeringen, och 'Bara avvikelser' tar tillbaka filtret", async () => {
@@ -4232,7 +4233,7 @@ describe("Lön → Dagar: svaret först", () => {
     await klick("Visa alla 4");
     expect(text()).toContain("1 förare · 4 rader · 3 med avvikelse");
     expect(text()).toContain("tis 1 september");
-    expect(text()).toContain("Summering September 2026");
+    expect(text()).not.toContain("Summering"); // ingen summering längst ner: tabellen överst är densamma i båda lägena
     await klick("Bara avvikelser");
     expect(text()).toContain("3 dagar med avvikelse");
     expect(text()).not.toContain("tis 1 september");
@@ -4282,6 +4283,144 @@ describe("Lön → Dagar: svaret först", () => {
     expect(text()).toContain(INFO);
     expect((text().match(/Inget stopp över 15 min/g) || []).length).toBe(1);
     expect(text()).not.toContain("ingen rast");
+  });
+
+  // ── Lönekvot per förare överst (2026-10-23) ──
+  const fil = (min: number) => ({ min, kalla: "fil", maskinens_min: min });
+  const filDag = (datum: string, maskin: number, over: Record<string, any> = {}) => dag(datum, { maskintid: fil(maskin), ...over });
+  const FEM = ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-07"];
+  const tva = (a: any[], b: any[]) => { g.__salary = { ...SALARY, medarbetare: [forare(a), { ...forare(b, "Bo Ek"), medarbetare_id: "m2" }] }; };
+  const tabell = () => cont.querySelector("[data-lonekvot-tabell]") as HTMLElement;
+  const radFor = (id: string) => tabell().querySelector(`[data-kvot-rad="${id}"]`) as HTMLElement;
+  const alla = () => tabell().querySelector("[data-kvot-alla]") as HTMLElement;
+
+  it("lönekvoten står överst och syns i det filtrerade läget — en rad per förare, 'Alla' sist, Betalt · Maskin · Lönekvot", async () => {
+    tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
+    await monter("flik=lon&underflik=dagar");
+    expect(text()).toContain("dagar med avvikelse");
+    const t = tabell();
+    expect(t.textContent).toContain("Betalt");
+    expect(t.textContent).toContain("Maskin");
+    expect(t.textContent).toContain("Lönekvot");
+    // Ordningen: tabellen före avvikelseraden och före dagarna.
+    expect(cont.innerHTML.indexOf("data-lonekvot-tabell")).toBeLessThan(cont.innerHTML.indexOf("dagar med avvikelse"));
+    // Anna: 5 × 540 min betalt (45 tim), 5 × 270 maskin (22 tim 30 min) = 50 %. Bo: 5 × 360 = 67 %.
+    expect(radFor("m1").textContent).toContain("45 tim");
+    expect(radFor("m1").textContent).toContain("22 tim 30 min");
+    expect(radFor("m1").querySelector("[data-kvot-varde]")!.textContent).toBe("50 %");
+    expect(radFor("m2").querySelector("[data-kvot-varde]")!.textContent).toBe("67 %");
+    // Alla = summan av minuterna, inte snittet av procenten: (1350 + 1800) / 5400 = 58 %.
+    expect(alla().querySelector("[data-kvot-varde]")!.textContent).toBe("58 %");
+    expect(alla().textContent).toContain("90 tim");
+    expect(Array.from(t.querySelectorAll("[data-kvot-rad], [data-kvot-alla]")).map(e => e.getAttribute("data-kvot-rad") || "alla")).toEqual(["m1", "m2", "alla"]);
+  });
+
+  it("samma tabell i 'Visa alla' — inte en andra summering och inte en annan siffra", async () => {
+    tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
+    await monter("flik=lon&underflik=dagar");
+    const fore = tabell().textContent;
+    await klick("Visa alla 10");
+    expect(tabell().textContent).toBe(fore);
+    expect(cont.querySelectorAll("[data-lonekvot-tabell]").length).toBe(1);
+  });
+
+  it("utan maskinfiler: '–' i Maskin och Lönekvot, aldrig 0 %; under 5 fildagar: 'för få dagar'", async () => {
+    tva(FEM.map(d => dag(d, { maskintid: { min: 0, kalla: "ingen_fil", maskinens_min: 0 } })), FEM.slice(0, 3).map(d => filDag(d, 300)));
+    await monter("flik=lon&underflik=dagar");
+    expect(radFor("m1").querySelector("[data-kvot-varde]")!.textContent).toBe("–");
+    expect(radFor("m1").textContent).not.toContain("0 %");
+    expect(radFor("m1").textContent).toContain("45 tim"); // betald tid finns ändå
+    expect(radFor("m2").querySelector("[data-kvot-varde]")!.textContent).toBe("för få dagar");
+    expect(tabell().textContent).toContain("kräver minst 5 dagar med maskinfiler (3 hittills)");
+  });
+
+  it("ingen maskin i hela månaden: Alla visar '–' och förklaringen om G15 står inte (inget att förklara)", async () => {
+    g.__salary = { ...SALARY, medarbetare: [forare(FEM.map(d => dag(d, { maskintid: { min: 0, kalla: "ingen_maskin", maskinens_min: 0 } })))] };
+    await monter("flik=lon&underflik=dagar");
+    expect(alla().querySelector("[data-kvot-varde]")!.textContent).toBe("–");
+    expect(tabell().textContent).not.toContain("Mäter verksamheten");
+  });
+
+  it("tryck på en rad öppnar Förare · Månad för den föraren och månaden (löneperioden = arbetsmånad + 1)", async () => {
+    tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
+    await monter("flik=lon&underflik=dagar");
+    expect(document.body.querySelector("[data-forare-manad]")).toBeNull();
+    await act(async () => { radFor("m2").dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    expect(window.location.search).toContain("underflik=underlag");
+    expect(window.location.search).toContain("period=2026-10");
+    expect(window.location.search).toContain("forare=m2");
+    expect(document.body.querySelector('[data-forare-manad="m2"]')).not.toBeNull();
+    // Samma tal i arket som i tabellen: 67 %.
+    expect(document.body.querySelector("[data-lonekvot]")!.textContent).toContain("67 %");
+  });
+
+  const stangArk = async () => {
+    await act(async () => { (Array.from(document.body.querySelectorAll("[data-forare-manad] button")).find(b => b.textContent === "Stäng") as HTMLElement).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+  };
+
+  it("tillbaka från Förare · Månad landar i Dagar på samma månad (Dagar september → Stefan → tillbaka → Dagar september)", async () => {
+    tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
+    await monter("flik=lon&underflik=dagar");
+    expect(text()).toContain("September · lön i oktober");
+    await act(async () => { radFor("m2").dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    expect(document.body.querySelector('[data-forare-manad="m2"]')).not.toBeNull();
+    await stangArk();
+    expect(document.body.querySelector("[data-forare-manad]")).toBeNull();
+    expect(window.location.search).toContain("underflik=dagar");
+    expect(window.location.search).toContain("dagoff=-1");
+    expect(window.location.search).not.toContain("forare=");
+    expect(tabell()).not.toBeNull();
+    expect(text()).toContain("September · lön i oktober");
+  });
+
+  it("tillbaka landar på månaden man kom ifrån även när den inte är standardperioden (Dagar augusti → Stefan → tillbaka → Dagar augusti)", async () => {
+    tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
+    await monter("flik=lon&underflik=dagar");
+    await act(async () => { (cont.querySelector('[aria-label="Föregående period"]') as HTMLElement).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    expect(text()).toContain("Augusti · lön i september");
+    await act(async () => { radFor("m2").dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    expect(document.body.querySelector('[data-forare-manad="m2"]')).not.toBeNull();
+    await stangArk();
+    expect(window.location.search).toContain("underflik=dagar");
+    expect(window.location.search).toContain("dagoff=-2");
+    expect(text()).toContain("Augusti · lön i september");
+    expect(text()).not.toContain("September · lön i oktober");
+  });
+
+  it("tillbaka bevarar också filtret ('visa alla') och månaden", async () => {
+    tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
+    await monter("flik=lon&underflik=dagar&dagper=M&dagoff=-1&avv=0");
+    await act(async () => { radFor("m1").dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    await stangArk();
+    expect(window.location.search).toContain("underflik=dagar");
+    expect(window.location.search).toContain("avv=0");
+    expect(window.location.search).toContain("dagoff=-1");
+  });
+
+  it("'Alla' är ingen länk, och kvartal/år (ingen enskild månad) och en månad vars underlag inte går att öppna har inga tryckbara rader", async () => {
+    tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
+    await monter("flik=lon&underflik=dagar");
+    expect(alla().tagName).toBe("DIV");
+    expect(radFor("m1").tagName).toBe("BUTTON");
+    await klick("Kvartal");
+    expect(tabell().querySelector("button")).toBeNull();
+    // Innevarande månad (oktober, löneperiod november ligger i framtiden): ingen Förare · Månad att öppna.
+    await monter("flik=lon&underflik=dagar&dagper=M&dagoff=0");
+    expect(tabell()).not.toBeNull();
+    expect(tabell().querySelector("button")).toBeNull();
+  });
+
+  it("filen 'förare' utan dagar finns inte i tabellen och en tom månad visar inget tomt skal", async () => {
+    g.__salary = { ...SALARY, medarbetare: [forare([])] };
+    await monter("flik=lon&underflik=dagar");
+    expect(cont.querySelector("[data-lonekvot-tabell]")).toBeNull();
+    expect(text()).toContain("Inga arbetsdagar registrerade");
   });
 
   it("rast noll på ett kort pass (under sex timmar) eller med rast: ingen rad om stopp", async () => {

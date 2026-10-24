@@ -11,7 +11,7 @@ export const KLASS_FARG: Record<string, string> = {
   '<150': DELFARG[0], '150-199': FARG.gron, '200-249': FARG.gul, '250-299': FARG.orange, '300+': FARG.rod,
 };
 /** Åtgärdsmarkörens linje: åtgärd = vit, reparation = orange, kalibrering = grå. */
-const MARKOR_FARG: Record<DiagMarkor['kalla'], string> = { atgard: FARG.text, reparation: FARG.orange, kalibrering: FARG.text3 };
+export const MARKOR_FARG: Record<DiagMarkor['kalla'], string> = { atgard: FARG.text, reparation: FARG.orange, kalibrering: FARG.text3 };
 
 type Props = {
   manader: string[];
@@ -90,7 +90,7 @@ export default function TidsDiagram({ manader, series, yMax, kravLinje, kravBand
         })}
         {serieEl}
         {manader.map((m, i) => (i % step === 0 || i === manader.length - 1
-          ? <text key={m} x={xFor(i)} y={H - 6} {...etikett} textAnchor="middle">{fmtX(m)}</text>
+          ? <text key={m} x={xFor(i)} y={H - 6} {...etikett} textAnchor={i === manader.length - 1 && manader.length > 1 ? 'end' : 'middle'}>{fmtX(m)}</text>
           : null))}
       </svg>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: AVSTAND.m, marginTop: AVSTAND.s }}>

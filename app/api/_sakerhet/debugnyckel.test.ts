@@ -35,6 +35,7 @@ import { GET as kalKalender } from "@/app/api/kalibrering/kalender/route";
 import { GET as kalObjekt } from "@/app/api/kalibrering/objekt/route";
 import { GET as kalKontroll } from "@/app/api/kalibrering/kontroll/route";
 import { GET as kalBedomning } from "@/app/api/kalibrering/bedomning/route";
+import { GET as kalKontroller } from "@/app/api/kalibrering/kontroller/route";
 
 const med = (vem: keyof typeof SESSION) => { g.__session = SESSION[vem]; };
 const anrop = (path: string, method = "GET") =>
@@ -103,6 +104,7 @@ const KALIBRERING: Array<[string, (r: any) => Promise<Response>, string]> = [
   ["objekt", kalObjekt as any, "/api/kalibrering/objekt"],
   ["kontroll", kalKontroll as any, "/api/kalibrering/kontroll?filnamn=x"],
   ["bedomning", kalBedomning as any, "/api/kalibrering/bedomning?maskin_id=R64101"],
+  ["kontroller", kalKontroller as any, "/api/kalibrering/kontroller?maskin_id=R64101"],
 ];
 describe.each(KALIBRERING)("kalibrering/%s", (_namn, handler, path) => {
   it("utloggad nekas — även med den gamla nyckeln", async () => {

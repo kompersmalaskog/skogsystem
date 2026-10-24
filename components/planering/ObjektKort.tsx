@@ -15,6 +15,7 @@ import BrandriskRad from './BrandriskRad';
 import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
 import { KommentarVisning } from './KommentarRuta';
 import { SettKnapp } from './InstruktionKort';
+import BesokPlanerare, { type BesokPlanerareProps } from '../besok/BesokPlanerare';
 
 export interface KortLarm {
   satt: boolean;
@@ -57,6 +58,8 @@ export interface ObjektKortProps {
   planering?: { rader: SammanfattningRad[]; oplanerad: boolean; gamla: string } | null;
   klarRad?: { chip: { text: string; ton: 'orange' | 'gron' | 'neutral' } | null } | null;
   onKlar?: () => void;
+  /** Besök på trakten (planerarens kort): SMS till markägaren, besökslänken och loggen. null/saknas = visas inte (förare, maskinläget). */
+  besok?: BesokPlanerareProps | null;
   /** Skotarläget: vädret de närmaste dagarna (bara här — inget väder på kartan). Sist på kortet. */
   vader?: React.ReactNode;
 }
@@ -158,6 +161,9 @@ export default function ObjektKort(p: ObjektKortProps) {
             ))}
           </div>
         )}
+
+        {/* BESÖK PÅ TRAKTEN — bara planeraren: SMS till markägaren, länken till besökssidan och loggen över anmälningar */}
+        {p.besok && <BesokPlanerare {...p.besok} />}
 
         {/* UPPDRAGET: På trakten · Brandrisk · Dokument · Larmkoordinat */}
         <Gruppkort testid="kort-uppdrag">

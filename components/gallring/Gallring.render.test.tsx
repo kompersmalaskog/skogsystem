@@ -9,6 +9,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { GallringDetalj, GallringRad } from '@/lib/gallring';
 import type { PerHaLast as PerHa } from '@/lib/gallring';
 import { beraknaGallradYta, type StamPos } from '@/lib/gallradYta';
+import { beraknaPerHa, perHaForDel } from '@/lib/gallringPerHa';
+import { foreslaDelning, type DelningSvar } from '@/lib/gallringDelar';
+import sandasen from '@/lib/__fixtures__/sandasen_gallring_2026-10-22.json';
 
 let sokvag = '/gallring';
 vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: any) => createElement('a', { href, ...rest }, children) }));
@@ -17,15 +20,19 @@ vi.mock('next/navigation', () => ({ usePathname: () => sokvag }));
 const hamtaGallringar = vi.fn<() => Promise<GallringRad[]>>();
 const hamtaGallring = vi.fn<(vo: string) => Promise<GallringDetalj | null>>();
 const hamtaPerHa = vi.fn<(d: GallringRad) => Promise<PerHa>>();
-const sparaYtaSvar = vi.fn<(vo: string, nyckel: string, svar: string | null) => Promise<void>>();
+const sparaYtaSvar = vi.fn<(vo: string, nyckel: string, svar: string | null, ritad?: unknown) => Promise<void>>();
 vi.mock('@/lib/gallring', async (orig) => ({
   ...(await orig<typeof import('@/lib/gallring')>()),
   aktuelltAr: () => 2026,
   hamtaGallringar: () => hamtaGallringar(),
   hamtaGallring: (vo: string) => hamtaGallring(vo),
   hamtaPerHa: (d: GallringRad) => hamtaPerHa(d),
-  sparaYtaSvar: (vo: string, nyckel: string, svar: string | null) => sparaYtaSvar(vo, nyckel, svar),
+  sparaYtaSvar: (vo: string, nyckel: string, svar: string | null, ritad?: unknown) => (ritad ? sparaYtaSvar(vo, nyckel, svar, ritad) : sparaYtaSvar(vo, nyckel, svar)),
 }));
+
+// Laserdatan (Skogsstyrelsen) nås aldrig från testet: rutorna kommer härifrån.
+const hamtaLaserRutor = vi.fn<(p: [number, number][]) => Promise<{ g: number | null; dag: number | null }[]>>();
+vi.mock('@/lib/laserGrundyta', () => ({ hamtaLaserRutor: (p: [number, number][]) => hamtaLaserRutor(p) }));
 
 import GallringRam from './GallringRam';
 import Trakt from './Trakt';
@@ -46,7 +53,7 @@ afterEach(async () => {
   if (root) await act(async () => { root!.unmount(); });
   host?.remove(); root = null; host = null;
   document.body.innerHTML = '';
-  hamtaGallringar.mockReset(); hamtaGallring.mockReset(); hamtaPerHa.mockReset(); sparaYtaSvar.mockReset();
+  hamtaGallringar.mockReset(); hamtaGallring.mockReset(); hamtaPerHa.mockReset(); sparaYtaSvar.mockReset(); hamtaLaserRutor.mockReset();
   sokvag = '/gallring';
 });
 
@@ -135,10 +142,14 @@ const DETALJ: GallringDetalj = {
 const PER_HA: PerHa = {
   lage: 'ok', arealHa: 8.834, vidaHa: 8.834, yta: null, svarSparas: true, volymPerHa: 22.4, stammarPerHa: 347.2, grundytaPerHa: 4.2, andelUtanfor: 0.284,
   stickvag: { lage: 'ok', andel: 0.24, avstandM: 16.7, roller: ['skordare', 'skotare'] },
+  delning: null, delarPerHa: null,
 };
 
 describe('trakten', () => {
-  beforeEach(() => { hamtaPerHa.mockResolvedValue(PER_HA); });
+  beforeEach(() => {
+    hamtaPerHa.mockResolvedValue(PER_HA);
+    hamtaLaserRutor.mockResolvedValue([]);
+  });
 
   it('svaret först, status i ord, maskinens namn och ingen kvittoknapp medan den pågår', async () => {
     hamtaGallring.mockResolvedValue(DETALJ);
@@ -282,6 +293,87 @@ describe('trakten', () => {
     expect(JSON.parse(window.localStorage.getItem('gallring_karta_lager_v1')!)).toEqual({ flygfoto: false, stammar: true });
   });
 
+  it('kvar efter gallringen: före − uttaget = kvar, går att räkna med det som står, och spannet syns', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const yta = ytaMedBitUtanfor();
+    hamtaPerHa.mockResolvedValue({ ...PER_HA, arealHa: yta.gallradHa, vidaHa: yta.vidaHa, yta, grundytaPerHa: 7.24 });
+    // Skannat 2022-10-12, exakt 4 år före skördarens första dag (DETALJ.dagar: 2026-10-12).
+    const dag = Math.floor(Date.parse('2022-10-12T00:00:00Z') / 86_400_000);
+    hamtaLaserRutor.mockResolvedValue(Array.from({ length: 20 }, () => ({ g: 22, d: 15, dag })));
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    await act(async () => { await Promise.resolve(); });
+    // Provpunkterna ligger i den gallrade ytan.
+    const punkter = hamtaLaserRutor.mock.calls[0][0];
+    expect(punkter.length).toBeGreaterThan(0);
+    expect(punkter.every(([lng, lat]) => yta.innehaller(lng, lat))).toBe(true);
+
+    const kort = h.querySelector('[data-kvar="ok"]') as HTMLElement;
+    const t = kort.textContent!.replace(/\u00a0/g, ' ');
+    // 22 × 1,03^4 = 24,76 → 24,8; uttag 7,24 → 7,2; kvar = 24,8 − 7,2 = 17,6 — det som står går att räkna.
+    // (Det oavrundade 24,76 − 7,24 = 17,52 skulle visas 17,5 och inte gå ihop med raderna ovanför.)
+    expect(t).toContain('före ca 24,8');
+    expect(t).toContain('uttaget 7,2');
+    expect(t).toContain('ca 17,6 m²/ha');
+    expect(t).toMatch(/troligen 16–19/);
+    expect(t).toContain('skannad 2022');
+    // Stammar kvar står FÖRST: 22 / (π/4 · 0,15²) = 1 244,9 → före ca 1 240; uttaget 347 (PER_HA); kvar 1 240 − 347 = 893.
+    // Antalet stammar räknas aldrig upp — det är laserns tal vid skanningen.
+    const rader = kort.querySelectorAll('[data-kvar-stammar], [data-kvar-tal]');
+    expect(rader[0].getAttribute('data-kvar-stammar')).toBe('893');
+    expect(t).toContain('före ca 1 240 · uttaget 347');
+    expect(t).toContain('ca 893 st/ha');
+    expect(h.textContent).toContain('uppräknad 4 år med ca 3 % tillväxt per år (2–4 % ger spannet)');
+    expect(h.textContent).toContain('hellre för få än för många');
+    // Skanningsåret står en gång (i raden), inte också i noten.
+    expect(h.textContent!.split('2022').length - 1).toBe(1);
+    // Uttaget heter uttaget — "333 st/ha" ska aldrig gå att läsa som det som står kvar.
+    expect(h.textContent).toContain('Uttagna stammar');
+    expect(h.textContent).toContain('Uttagen grundyta');
+    expect(h.textContent).toContain('Uttaget mätte skördaren');
+  });
+
+  it('kvar: läsfel är ett fel med Försök igen, och utan underlag sägs varför — aldrig ett tal', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const yta = ytaMedBitUtanfor();
+    hamtaPerHa.mockResolvedValue({ ...PER_HA, arealHa: yta.gallradHa, vidaHa: yta.vidaHa, yta, grundytaPerHa: 7 });
+    const dagFore = Math.floor(Date.parse('2021-06-01T00:00:00Z') / 86_400_000);
+    hamtaLaserRutor.mockRejectedValueOnce(new Error('Skogsstyrelsen svarade inte i tid.'))
+      .mockResolvedValueOnce(Array.from({ length: 10 }, () => ({ g: 20, dag: dagFore })));
+    let h = await montera(createElement(Trakt, { vo: '11183108' }));
+    await act(async () => { await Promise.resolve(); });
+    const fel = h.querySelector('[data-kvar-fel]') as HTMLElement;
+    expect(fel.textContent).toContain('Kunde inte hämta laserdatan');
+    expect(h.querySelector('[data-kvar-tal]')).toBeNull();
+    await act(async () => { (fel.querySelector('button') as HTMLElement).click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(h.querySelector('[data-kvar="ok"]')).not.toBeNull();
+
+    const fall: [{ g: number | null; dag: number | null }[], string, string][] = [
+      [Array.from({ length: 10 }, () => ({ g: null, dag: null })), 'saknas', 'ingen laserdata'],
+      [Array.from({ length: 10 }, () => ({ g: 12, dag: dagFore + 2000 })), 'skannad-efter', 'efter att skördaren började'],
+      [Array.from({ length: 10 }, () => ({ g: 3, dag: dagFore })), 'stammer-inte', 'tog ut mer än'],
+    ];
+    for (const [rutor, lage, text] of fall) {
+      if (root) await act(async () => { root!.unmount(); });
+      document.body.innerHTML = '';
+      hamtaLaserRutor.mockResolvedValue(rutor);
+      h = await montera(createElement(Trakt, { vo: '11183108' }));
+      await act(async () => { await Promise.resolve(); });
+      const el = h.querySelector(`[data-kvar="${lage}"]`) as HTMLElement;
+      expect(el, lage).not.toBeNull();
+      expect(el.textContent).toContain(text);
+      expect(h.querySelector('[data-kvar-tal]')).toBeNull();
+    }
+  });
+
+  it('kvar visas inte utan stampositioner (ingen gallrad yta) — och laserdatan hämtas inte', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    await act(async () => { await Promise.resolve(); });
+    expect(h.querySelector('[data-kvar]')).toBeNull();
+    expect(hamtaLaserRutor).not.toHaveBeenCalled();
+  });
+
   it('ett svar sparas och talen läses om; utan tabellen sparas inget och det sägs', async () => {
     hamtaGallring.mockResolvedValue(DETALJ);
     const yta = ytaMedBitUtanfor();
@@ -313,7 +405,7 @@ describe('trakten', () => {
 
   it('utan traktgräns inget per hektar, och ett läsfel är ett fel med Försök igen', async () => {
     hamtaGallring.mockResolvedValue(DETALJ);
-    hamtaPerHa.mockResolvedValue({ lage: 'ingen-grans', svarSparas: true });
+    hamtaPerHa.mockResolvedValue({ lage: 'ingen-grans', svarSparas: true, delning: null, delarPerHa: null });
     let h = await montera(createElement(Trakt, { vo: '11183108' }));
     expect(h.querySelector('[data-perha-ingen-grans]')).not.toBeNull();
     expect(h.textContent).not.toContain('/ha');
@@ -336,5 +428,85 @@ describe('trakten', () => {
     h = await montera(createElement(Trakt, { vo: 'x' }));
     expect(h.textContent).toContain('Kunde inte läsa trakten');
     expect(h.querySelector('a[href="/gallring"]')).not.toBeNull();
+  });
+});
+
+// Sandåsen ur prod, räknad av de riktiga modulerna: väster första gallring, öster andra.
+function sandasenPerHa(svar: DelningSvar | null = null): PerHa {
+  const [lo, la] = sandasen.origo as [number, number];
+  const stamrader = (sandasen.stammar_dlat_dlng_dbh as number[][]).map(([a, b, d], i) => ({ id: i, lat: la + a * 1e-5, lng: lo + b * 1e-5, dbhMm: d }));
+  const p = beraknaPerHa({ ringar: sandasen.ringar as [number, number][][], volymM3fub: 295.7, stammar: stamrader.length, stamrader, spar: [] });
+  if (p.lage !== 'ok' || !p.yta) throw new Error('ingen yta');
+  const delning = foreslaDelning(p.yta, stamrader, svar);
+  const delarPerHa = delning?.delar
+    ? delning.delar.map((d) => perHaForDel({ volymM3fub: 295.7, stammar: stamrader.length, stamrader }, p.arealHa, d.andelYta, d.stammar)) as any
+    : null;
+  return { ...p, svarSparas: true, delning, delarPerHa };
+}
+
+describe('första och andra gallring', () => {
+  it('appens förslag står som en rad, siffrorna gäller första gallringen och växeln byter till andra', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const per = sandasenPerHa();
+    hamtaPerHa.mockResolvedValue(per);
+    hamtaLaserRutor.mockResolvedValue([]);
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    const rad = h.querySelector('[data-delning]')!;
+    expect(rad.getAttribute('data-delning')).toBe('forslag');
+    expect(rad.textContent).toContain('Första och andra gallring');
+    expect(rad.textContent).toContain('Väster första, öster andra · appens förslag');
+    const [f, a] = per.lage === 'ok' ? per.delarPerHa! : [null, null];
+    const uttag = () => Number(h.querySelector('[data-uttag-stammar]')!.getAttribute('data-uttag-stammar'));
+    expect(uttag()).toBe(Math.round(f!.stammarPerHa));
+    expect(h.querySelector('[data-del-yta]')!.getAttribute('data-del-yta')).toBe('forsta');
+    expect(h.textContent).toContain('Hur mycket står kvar? · Första gallring');
+    const flikar = Array.from(h.querySelectorAll('[role="tab"]')) as HTMLButtonElement[];
+    expect(flikar.map((b) => b.textContent)).toEqual(['Första gallring', 'Andra gallring']);
+    await act(async () => { flikar[1].click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(uttag()).toBe(Math.round(a!.stammarPerHa));
+    expect(uttag()).toBeLessThan(Math.round(f!.stammarPerHa));
+    expect(h.querySelector('[data-del-yta]')!.getAttribute('data-del-yta')).toBe('andra');
+    expect(h.textContent).toContain('Hur mycket står kvar? · Andra gallring');
+    // Laserdatan läses bara inom delen: punkterna för andra gallringen ligger i öster.
+    const sista = hamtaLaserRutor.mock.calls.at(-1)![0];
+    expect(sista.every(([lng]) => lng > 14.609)).toBe(true);
+  });
+
+  it('arket: förslaget i en mening, och ett svar sparas på nyckeln delning', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    hamtaPerHa.mockResolvedValue(sandasenPerHa());
+    hamtaLaserRutor.mockResolvedValue([]);
+    sparaYtaSvar.mockResolvedValue(undefined);
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    const rad = h.querySelector('[data-delning]') as HTMLElement;
+    await act(async () => { rad.click(); });
+    const ark = document.querySelector('[role="dialog"]')!;
+    expect(ark.querySelector('[data-delning-forslag]')!.textContent).toBe('Väster var första gallring, öster andra.');
+    expect(ark.querySelector('[data-delning-del="forsta"]')!.textContent).toMatch(/Första gallring · \d,\d ha · median 9,\d cm/);
+    hamtaPerHa.mockResolvedValue(sandasenPerHa('stammer'));
+    await act(async () => { (ark.querySelector('[data-delning-svar="stammer"]') as HTMLElement).click(); });
+    expect(sparaYtaSvar).toHaveBeenCalledWith('11183108', 'delning', 'stammer');
+    expect(h.querySelector('[data-delning]')!.textContent).toContain('Du har svarat: väster första, öster andra');
+  });
+
+  it('svaret "en gallring": ingen växel, siffrorna gäller hela trakten', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const per = sandasenPerHa('en');
+    hamtaPerHa.mockResolvedValue(per);
+    hamtaLaserRutor.mockResolvedValue([]);
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    expect(h.querySelector('[data-delning]')!.getAttribute('data-delning')).toBe('en');
+    expect(h.querySelector('[role="tab"]')).toBeNull();
+    expect(Number(h.querySelector('[data-uttag-stammar]')!.getAttribute('data-uttag-stammar'))).toBe(Math.round(per.lage === 'ok' ? per.stammarPerHa : 0));
+    expect(h.textContent).not.toContain('· Första gallring');
+  });
+
+  it('en trakt utan två gallringar har ingen rad och ingen växel', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    hamtaPerHa.mockResolvedValue(PER_HA);
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    expect(h.querySelector('[data-delning]')).toBeNull();
+    expect(h.querySelector('[role="tab"]')).toBeNull();
   });
 });

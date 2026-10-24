@@ -75,6 +75,7 @@ vi.mock('../../maskinvy', () => ({ default: () => React.createElement('div', { '
 vi.mock('../../skotare', () => ({ default: () => React.createElement('div', { 'data-vy': 'gamla-skotare' }) }))
 
 import MaskinvyPage from './page'
+import { COMBO_IDS } from './OversiktShared'
 
 let rot: HTMLDivElement; let r: ReturnType<typeof createRoot>
 const lugn = async () => { for (let i = 0; i < 10; i++) await act(async () => { await Promise.resolve() }) }
@@ -107,7 +108,7 @@ describe('sidolistan på stor skärm', () => {
     expect(sida()).not.toBeNull()
     expect(document.body.hasAttribute('data-mv-sidolista')).toBe(true)
     const skordare = Array.from(document.querySelectorAll('[data-sido-grupp="skordare"] [data-sido-rad]')).map(e => e.getAttribute('data-sido-rad'))
-    expect(skordare).toEqual([SCORPION, 'R64428', 'R64101+R64428'])      // R64101 är avslutad → "Tidigare"; kombon har en aktiv maskin kvar
+    expect(skordare).toEqual([SCORPION, 'R64428'])                        // R64101 är avslutad → "Tidigare"; summan "Alla skördare" är ingen maskinrad
     const skotare = Array.from(document.querySelectorAll('[data-sido-grupp="skotare"] [data-sido-rad]')).map(e => e.getAttribute('data-sido-rad'))
     expect(skotare).toEqual([WISENT])
   })
@@ -116,7 +117,7 @@ describe('sidolistan på stor skärm', () => {
     await montera()
     const sc = rad(SCORPION)!
     expect(sc.getAttribute('data-sido-niva')).toBe('aktiv')
-    expect(sc.textContent).toContain('Ponsse Scorpion')
+    expect(sc.textContent).toContain('Scorpion')
     expect(sc.textContent).toContain('Aktiv nu')
     expect(sc.textContent).toContain('142 m³ · 12,3 m³/G15h')            // 142 m³ / 11,5 G15-timmar (36 000 + 3 600 + 1 800 s)
     const wi = rad(WISENT)!
@@ -144,7 +145,7 @@ describe('sidolistan på stor skärm', () => {
     expect(rad(SCORPION)!.getAttribute('aria-current')).toBeNull()
     await tryck(rad('R64428'))
     expect(vy()).toBe('skordare-idag')
-    expect(document.querySelector('[data-vy]')?.textContent).toBe('Rottne H8E -26')
+    expect(document.querySelector('[data-vy]')?.textContent).toBe('H8E -26')
   })
 
   it('en vy som fliken saknar (Kapacitet finns bara hos skördaren) faller tillbaka på Översikt — inte ett nav utan vald knapp', async () => {
@@ -199,6 +200,57 @@ describe('sidolistan på stor skärm', () => {
   })
 })
 
+describe('Alla skördare — summaraden', () => {
+  const summa = () => document.querySelector('[data-sido-summa]') as HTMLElement | null
+  const AV = 'ALLA_SKORDARE'
+
+  it('ligger överst i skördargruppen, utan statusprick, skild från maskinraderna — och är ingen maskinrad', async () => {
+    await montera()
+    const grupp = document.querySelector('[data-sido-grupp="skordare"]')!
+    expect(grupp.children[1]).toBe(summa())                               // [0] är rubriken
+    expect(summa()!.textContent).toContain('Alla skördare')
+    expect(summa()!.hasAttribute('data-sido-niva')).toBe(false)
+    expect(summa()!.hasAttribute('data-sido-rad')).toBe(false)
+    expect(summa()!.querySelectorAll('[aria-hidden]').length).toBe(0)     // ingen prick
+    expect(document.querySelector('[data-sido-grupp="skotare"] [data-sido-summa]')).toBeNull()
+    expect(document.body.textContent).not.toContain('(båda)')             // den gamla kombon är borta ur listan
+  })
+
+  it('summerar dagens siffror för de aktiva skördarna: ett tal, inte två', async () => {
+    await montera()
+    expect(summa()!.textContent).toContain('1 av 2 körde idag')           // Scorpion körde; H8E -26 har ingen data
+    expect(summa()!.textContent).toContain('142 m³ · 12,3 m³/G15h')
+  })
+
+  it('läses de avslutade inte och räknas de inte med i summan; summan hämtar inget själv', async () => {
+    await montera()
+    expect(data.anrop.some(a => a.includes('R64101'))).toBe(false)
+    expect(data.anrop.some(a => a.length > 1)).toBe(false)               // ingen fråga på alla tre samtidigt
+  })
+
+  it('en skördare som inte går att läsa gör summan till "Kunde inte läsas" — aldrig en delsumma', async () => {
+    data.fel.add('R64428')
+    await montera()
+    expect(summa()!.textContent).toContain('Kunde inte läsas')
+    expect(summa()!.textContent).not.toContain('142 m³')
+    expect(rad(SCORPION)!.getAttribute('data-sido-niva')).toBe('aktiv')
+  })
+
+  it('ett tryck väljer alla skördare: fliken byts, vyn står kvar, raden syns vald och vyn får alla tre maskinerna', async () => {
+    await montera('/maskinvy?ny=1&vy=idag')
+    await tryck(rad(WISENT))
+    expect(vy()).toBe('skotare-idag')
+    await tryck(summa())
+    expect(vy()).toBe('skordare-idag')
+    expect(document.querySelector('[data-vy]')?.textContent).toBe('Alla skördare')
+    expect(summa()!.getAttribute('aria-current')).toBe('true')
+    expect(rad(SCORPION)!.getAttribute('aria-current')).toBeNull()
+    expect([...COMBO_IDS[AV]].sort()).toEqual([SCORPION, 'R64101', 'R64428'].sort())
+    await tryck(rad(SCORPION))
+    expect(summa()!.getAttribute('aria-current')).toBeNull()
+  })
+})
+
 describe('Tidigare — avslutade maskiner', () => {
   const tidigareKnapp = () => document.querySelector('[data-sido-tidigare] button[aria-expanded]') as HTMLElement | null
   const tidigareRader = () => Array.from(document.querySelectorAll('[data-sido-tidigare] [data-sido-rad]')).map(e => e.getAttribute('data-sido-rad'))
@@ -222,7 +274,7 @@ describe('Tidigare — avslutade maskiner', () => {
     await tryck(tidigareKnapp())
     expect(tidigareKnapp()!.getAttribute('aria-expanded')).toBe('true')
     expect(tidigareRader()).toEqual(['R64101', 'A110148'])
-    expect(rad('R64101')!.textContent).toBe('Rottne H8E -23')
+    expect(rad('R64101')!.textContent).toBe('H8E -23')
     expect(rad('A110148')!.textContent).toBe('Elefant AF')
     expect(rad('R64101')!.hasAttribute('data-sido-niva')).toBe(false)
     expect(document.querySelectorAll('[data-sido-tidigare] [aria-hidden]').length).toBe(1)   // bara pilen i rubrikknappen
@@ -242,7 +294,7 @@ describe('Tidigare — avslutade maskiner', () => {
     expect(rad('A110148')!.getAttribute('aria-current')).toBe('true')
     await tryck(rad('R64101'))
     expect(vy()).toBe('skordare-idag')
-    expect(document.querySelector('[data-vy]')?.textContent).toBe('Rottne H8E -23')
+    expect(document.querySelector('[data-vy]')?.textContent).toBe('H8E -23')
     expect(rad('R64101')!.getAttribute('aria-current')).toBe('true')
     expect(rad('A110148')!.getAttribute('aria-current')).toBeNull()
   })

@@ -6,26 +6,25 @@
  */
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
+import { hamtaEnhetMaskin } from '@/lib/enhetMaskin';
 import { maskinNamn, maskinKortNamn } from '@/lib/kalibrering/ordlista';
-import { diagnos } from '@/lib/kalibrering/diagnos';
 import { filtreradSammanfattning } from '@/lib/kalibrering/kalender';
 import { idagManad } from '@/lib/kalibrering/datum';
-import { aktivaMaskinIds, artSnitt, effektivMaskin, filtreraKalib, heroFilnamnFor, heroMaskinId, rapportBedomning, rapportDom, rapportSnitt, rapportSedan, tradslagRader } from '@/lib/kalibrering/rapport';
-import { senasteSumma } from '@/lib/kalibrering/kontroll';
+import { startMaskin } from '@/lib/kalibrering/laget';
+import { aktivaMaskinIds, artSnitt, filtreraKalib, rapportSnitt, rapportSedan, tradslagRader } from '@/lib/kalibrering/rapport';
 import {
-  STOCK_SELECT, type AlleMaskin, type BedomningResp, type CalResponse, type DetaljKontrollStock, type DiagnosResp, type FaktKalibrering,
-  type KalibHistorik, type ObjektData, type TradslagData,
+  type AlleMaskin, type BedomningResp, type CalResponse, type DiagnosResp, type FaktKalibrering,
+  type KontrollTid, type ObjektData, type TradslagData,
 } from '@/lib/kalibrering/typer';
 
-export type Flik = 'today' | 'trend' | 'objekt' | 'calendar' | 'report';
+/** De fyra flikarna: Läget (är vi godkända?), Över tid (blir det bättre?), Kontroller (vad mättes?), Objekt (slå upp en trakt). */
+export type Flik = 'laget' | 'tid' | 'kontroller' | 'objekt';
 
 export function useKalibreringData(activeTab: Flik) {
   const [loading, setLoading] = useState(true);
   const [allKalib, setAllKalib] = useState<FaktKalibrering[]>([]);
-  const [stockMap, setStockMap] = useState<Record<string, DetaljKontrollStock[]>>({});
-  const [, setHistorik] = useState<KalibHistorik[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [partialError, setPartialError] = useState<string | null>(null);
 
   // === Kalender-fliken: egen state + lazy fetch på tab-byte/manad-byte ===
   const [calManad, setCalManad] = useState<string>(idagManad);
@@ -33,18 +32,30 @@ export function useKalibreringData(activeTab: Flik) {
   const [calLoading, setCalLoading] = useState(false);
   const [calError, setCalError] = useState<string | null>(null);
 
-  // Globalt maskinfilter — persistent över flikar
-  const [selectedMaskinId, setSelectedMaskinId] = useState<string | 'all'>('all');
+  // Vilken maskin vyn visar — alltid EN (en sammanslagen bedömning av flera maskiner är ingen Vida-bedömning). null = föraren har inte valt:
+  // då gäller datorns maskin, förarens egen, annars senaste kontrollens (startMaskin).
+  const [valdMaskin, setValdMaskin] = useState<string | null>(null);
   const [alleMaskiner, setAlleMaskiner] = useState<AlleMaskin[]>([]);
+  const { medarbetare } = useCurrentMedarbetare();
+  const [enhetMaskin, setEnhetMaskin] = useState<string | null>(null);
+  useEffect(() => { setEnhetMaskin(hamtaEnhetMaskin()); }, []); // läses efter montering — localStorage finns inte på servern
 
   // Profilbedömning per maskin (90-dagarsfönster) — cachas per maskin_id.
   const [bedomningMap, setBedomningMap] = useState<Record<string, BedomningResp>>({});
   // Diagnos-underlag per maskin (klasser, planområden, markörer).
   const [diagnosMap, setDiagnosMap] = useState<Record<string, DiagnosResp>>({});
+  // Läsfel per maskin — ett fel är ett fel med "Försök igen", aldrig en evig "Läser…".
+  const [bedomningFelMap, setBedomningFelMap] = useState<Record<string, string>>({});
+  const [diagnosFelMap, setDiagnosFelMap] = useState<Record<string, string>>({});
+  const [tradslagFelMap, setTradslagFelMap] = useState<Record<string, string>>({});
+  const [objektFel, setObjektFel] = useState<string | null>(null);
   // Objekt-fliken (maskinoberoende)
   const [objektData, setObjektData] = useState<ObjektData | null>(null);
-  // Rapport per-trädslag (per maskin, all-time) — träff%/syst/std mot maskinens profil.
+  // Per-trädslag (per maskin) — träff%/syst/std mot maskinens profil.
   const [tradslagMap, setTradslagMap] = useState<Record<string, TradslagData>>({});
+  // Kontrollernas mättid och urval (per maskin) — Kontroller-listan. Läses när fliken öppnas.
+  const [tiderMap, setTiderMap] = useState<Record<string, Record<string, KontrollTid>>>({});
+  const [tiderFel, setTiderFel] = useState<string | null>(null);
   const [nyMarkorDatum, setNyMarkorDatum] = useState('');
   const [nyMarkorText, setNyMarkorText] = useState('');
   const [markorSparar, setMarkorSparar] = useState(false);
@@ -64,64 +75,65 @@ export function useKalibreringData(activeTab: Flik) {
     return () => { cancelled = true; };
   }, []);
 
-  const effektiv: string | 'all' = effektivMaskin(selectedMaskinId, alleMaskiner);
+  // Aktiva maskiner: sålda döljs från väljaren. Historiken finns kvar i DB.
+  const aktivaIds = useMemo(() => aktivaMaskinIds(alleMaskiner), [alleMaskiner]);
+  const arAktiv = useCallback(
+    (mid: string) => aktivaIds.length === 0 || aktivaIds.includes(mid),
+    [aktivaIds],
+  );
+  const aktivaMaskiner = useMemo(() => alleMaskiner.filter(m => arAktiv(m.maskin_id)), [alleMaskiner, arAktiv]);
 
-  const filterLabel = useMemo(() => {
-    if (effektiv === 'all') return 'Alla maskiner';
-    const m = alleMaskiner.find(x => x.maskin_id === effektiv);
-    return maskinNamn(m ?? { maskin_id: effektiv });
-  }, [effektiv, alleMaskiner]);
+  // Maskinen vyn visar: förarens val om det fortfarande går (maskinen finns och är aktiv), annars startmaskinen. Aldrig "alla".
+  const effektiv: string | null = useMemo(() => {
+    const giltigt = valdMaskin && arAktiv(valdMaskin) && (alleMaskiner.length === 0 || alleMaskiner.some(m => m.maskin_id === valdMaskin));
+    return giltigt ? valdMaskin : startMaskin({ enhet: enhetMaskin, egen: medarbetare?.maskin_id ?? null, maskiner: alleMaskiner, arAktiv, allKalib });
+  }, [valdMaskin, enhetMaskin, medarbetare, alleMaskiner, arAktiv, allKalib]);
+
   // Namn för ett id var som helst i vyn — aldrig råa id:n i UI:t.
   const maskinNamnFor = (id: string | null | undefined): string =>
     id ? maskinNamn(alleMaskiner.find(x => x.maskin_id === id) ?? { maskin_id: id }) : '—';
   const maskinKortNamnFor = (id: string | null | undefined): string =>
     id ? maskinKortNamn(alleMaskiner.find(x => x.maskin_id === id) ?? { maskin_id: id }) : '—';
 
-  // Aktiva maskiner: sålda döljs från väljare + 'alla'-aggregat. Historiken finns kvar i DB.
-  const aktivaIds = useMemo(() => aktivaMaskinIds(alleMaskiner), [alleMaskiner]);
-  const arAktiv = useCallback(
-    (mid: string) => aktivaIds.length === 0 || aktivaIds.includes(mid),
-    [aktivaIds],
-  );
-  // Senaste-fliken bedöms alltid per maskin.
-  const heroMaskin = useMemo<string | null>(() => heroMaskinId(effektiv, allKalib, arAktiv), [effektiv, allKalib, arAktiv]);
-  const heroFilnamn = useMemo<string | null>(() => heroFilnamnFor(heroMaskin, allKalib), [heroMaskin, allKalib]);
-  const bedomning = heroMaskin ? (bedomningMap[heroMaskin] ?? null) : null;
-  const diagnosData = heroMaskin ? (diagnosMap[heroMaskin] ?? null) : null;
-  const verdikt = diagnos(diagnosData);
-  const heroMaskinObj = heroMaskin ? alleMaskiner.find(m => m.maskin_id === heroMaskin) : undefined;
-  const heroNamn = heroMaskin ? maskinNamn(heroMaskinObj ?? { maskin_id: heroMaskin }) : '';
+  const bedomning = effektiv ? (bedomningMap[effektiv] ?? null) : null;
+  const diagnosData = effektiv ? (diagnosMap[effektiv] ?? null) : null;
+  const heroNamn = effektiv ? maskinNamnFor(effektiv) : '';
+  // Är bedömningen eller diagnosen för den här maskinen på väg? (Skiljer "läser" från "kunde inte läsa".)
+  const bedomningFel = effektiv ? bedomningFelMap[effektiv] ?? null : null;
 
   // Hämta diagnos-underlag (klasser, planområden, markörer) för vald maskin.
   const laddaDiagnos = useCallback((maskin: string, force = false) => {
     if (!maskin) return;
-    if (!force && diagnosMap[maskin]) return;
+    if (!force && (diagnosMap[maskin] || diagnosFelMap[maskin])) return;
     fetch(`/api/kalibrering/diagnos?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: DiagnosResp & { ok?: boolean }) => {
-        if (!data?.ok) return;
+        if (!data?.ok) throw new Error('svar utan diagnos');
         setDiagnosMap(prev => ({ ...prev, [maskin]: data }));
       })
-      .catch(() => { /* tyst — förarvyn faller tillbaka på "läser diagnos" */ });
-  }, [diagnosMap]);
+      .catch(() => setDiagnosFelMap(prev => ({ ...prev, [maskin]: 'Kurvorna kunde inte läsas.' })));
+  }, [diagnosMap, diagnosFelMap]);
 
   // Spara en åtgärdsmarkör (förare: "höjde trycket till 400 mm").
-  const sparaMarkor = useCallback(async () => {
-    if (!heroMaskin || !nyMarkorDatum || !nyMarkorText.trim()) return;
+  // Returnerar true när åtgärden sparats (arket stängs då); false lämnar arket öppet med det som skrivits.
+  const sparaMarkor = useCallback(async (): Promise<boolean> => {
+    if (!effektiv || !nyMarkorDatum || !nyMarkorText.trim()) return false;
+    const maskin = effektiv;
     setMarkorSparar(true);
     const { error } = await supabase.from('kalibrering_atgard').insert({
-      maskin_id: heroMaskin, datum: nyMarkorDatum, text: nyMarkorText.trim(),
+      maskin_id: maskin, datum: nyMarkorDatum, text: nyMarkorText.trim(),
     });
     setMarkorSparar(false);
-    if (!error) {
-      setNyMarkorText(''); setNyMarkorDatum('');
-      laddaDiagnos(heroMaskin, true); // ladda om så markören syns direkt
-    }
-  }, [heroMaskin, nyMarkorDatum, nyMarkorText, laddaDiagnos]);
+    if (error) return false;
+    setNyMarkorText(''); setNyMarkorDatum('');
+    laddaDiagnos(maskin, true); // diagrammens linjer
+    setBedomningMap(prev => { const { [maskin]: _borta, ...rest } = prev; return rest; }); // åtgärdsraderna (före → efter) läses om
+    return true;
+  }, [effektiv, nyMarkorDatum, nyMarkorText, laddaDiagnos]);
 
-  // Sammanfattning omberäknad efter filter
+  // Sammanfattning omberäknad efter maskin
   const filteredSammanfattning = useMemo(
-    () => (calData ? filtreradSammanfattning(calData, effektiv) : null),
+    () => (calData && effektiv ? filtreradSammanfattning(calData, effektiv) : null),
     [calData, effektiv],
   );
 
@@ -134,8 +146,9 @@ export function useKalibreringData(activeTab: Flik) {
     setCalManad(allKalib[0].datum.slice(0, 7)); // "YYYY-MM"
   }, [allKalib]);
 
+  // === Kontroller: kalendermånaden hämtas när fliken öppnas
   useEffect(() => {
-    if (activeTab !== 'calendar') return;
+    if (activeTab !== 'kontroller') return;
     if (calData?.manad === calManad && !calError) return; // har redan datan
     let cancelled = false;
     setCalLoading(true);
@@ -147,40 +160,59 @@ export function useKalibreringData(activeTab: Flik) {
     return () => { cancelled = true; };
   }, [activeTab, calManad, calData, calError]);
 
-  // === Objekt-fliken: lazy fetch (maskinoberoende, en gång)
+  // === Kontroller: mättid och urval per kontroll (en maskin åt gången)
   useEffect(() => {
-    if (activeTab !== 'objekt' || objektData) return;
+    if (activeTab !== 'kontroller' || !effektiv || tiderMap[effektiv] || tiderFel) return;
+    const maskin = effektiv;
+    let cancelled = false;
+    fetch(`/api/kalibrering/kontroller?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: { ok?: boolean; tider?: Record<string, KontrollTid> }) => {
+        if (cancelled) return;
+        if (!data?.ok || !data.tider) throw new Error('svar utan tider');
+        setTiderMap(prev => ({ ...prev, [maskin]: data.tider as Record<string, KontrollTid> }));
+      })
+      .catch(() => { if (!cancelled) setTiderFel('Klockslag och urval kunde inte läsas.'); });
+    return () => { cancelled = true; };
+  }, [activeTab, effektiv, tiderMap, tiderFel]);
+  // Byter man maskin börjar felet om från noll.
+  useEffect(() => { setTiderFel(null); }, [effektiv]);
+
+  // === Objekt: lazy fetch (maskinoberoende, en gång)
+  useEffect(() => {
+    if (activeTab !== 'objekt' || objektData || objektFel) return;
     let cancelled = false;
     fetch('/api/kalibrering/objekt', { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: { ok?: boolean } & ObjektData) => {
-        if (cancelled || !data?.ok) return;
+        if (cancelled) return;
+        if (!data?.ok) throw new Error('svar utan objekt');
         setObjektData({ objekt: data.objekt, maskiner: data.maskiner });
       })
-      .catch(() => { /* tyst — objekt-fliken visar "kunde inte ladda" */ });
+      .catch(() => { if (!cancelled) setObjektFel('Objekten kunde inte läsas.'); });
     return () => { cancelled = true; };
-  }, [activeTab, objektData]);
+  }, [activeTab, objektData, objektFel]);
 
-  // === Rapport per-trädslag: lazy fetch per maskin (bara när EN maskin är vald)
+  // === Läget: per trädslag, lazy per maskin
   useEffect(() => {
-    if (activeTab !== 'report' || effektiv === 'all' || tradslagMap[effektiv]) return;
+    if (activeTab !== 'laget' || !effektiv || tradslagMap[effektiv] || tradslagFelMap[effektiv]) return;
     const maskin = effektiv;
     let cancelled = false;
-    // dagar=90 → samma rullande fönster som hjälten/bedomning. Ett fönster i hela rapporten.
+    // dagar=90 → samma rullande fönster som bedomning. Ett fönster i hela Läget.
     fetch(`/api/kalibrering/tradslag?maskin_id=${encodeURIComponent(maskin)}&dagar=90`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: { ok?: boolean } & TradslagData) => {
-        if (cancelled || !data?.ok) return;
+        if (cancelled) return;
+        if (!data?.ok) throw new Error('svar utan trädslag');
         setTradslagMap(prev => ({ ...prev, [maskin]: { profil: data.profil, trosklar: data.trosklar, tradslag: data.tradslag } }));
       })
-      .catch(() => { /* tyst — tabellen faller tillbaka på snitt */ });
+      .catch(() => { if (!cancelled) setTradslagFelMap(prev => ({ ...prev, [maskin]: 'Trädslagen kunde inte läsas.' })); });
     return () => { cancelled = true; };
-  }, [activeTab, effektiv, tradslagMap]);
+  }, [activeTab, effektiv, tradslagMap, tradslagFelMap]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setFetchError(null);
-    setPartialError(null);
     try {
       const { data: kalibRows, error: kalibErr } = await supabase
         .from('fakt_kalibrering')
@@ -196,39 +228,6 @@ export function useKalibreringData(activeTab: Flik) {
       if (!kalibRows || kalibRows.length === 0) { setLoading(false); return; }
 
       setAllKalib(kalibRows);
-
-      // stockMap används BARA för Senaste-kortet (latestStockar). Hämta därför bara senaste kontrollens stockar via
-      // filnamn — komplett och billigt. (Tidigare hämtades ALLA rader utan pagination → PostgREST kapade vid 1000 av
-      // 4160 → senaste kontrollen undercountades.)
-      const latestFilnamn = kalibRows[0].filnamn;
-      const { data: stockRows, error: stockErr } = await supabase
-        .from('detalj_kontroll_stock')
-        .select(STOCK_SELECT)
-        .eq('filnamn', latestFilnamn)
-        .order('stock_nummer', { ascending: true });
-
-      if (stockErr) {
-        console.error('detalj_kontroll_stock error:', stockErr);
-        setPartialError('Vissa data kunde inte laddas');
-      }
-
-      const sMap: Record<string, DetaljKontrollStock[]> = {};
-      (stockRows || []).forEach((s: DetaljKontrollStock) => {
-        if (!sMap[s.filnamn]) sMap[s.filnamn] = [];
-        sMap[s.filnamn].push(s);
-      });
-      setStockMap(sMap);
-
-      const { data: histRows, error: histErr } = await supabase
-        .from('fakt_kalibrering_historik')
-        .select('*')
-        .order('datum', { ascending: false });
-
-      if (histErr) {
-        console.error('fakt_kalibrering_historik error:', histErr);
-        setPartialError('Vissa data kunde inte laddas');
-      }
-      setHistorik(histRows || []);
     } catch (err) {
       console.error('Fetch error:', err);
       setFetchError('Kunde inte ladda kontrolldata. Dra ner för att uppdatera.');
@@ -239,66 +238,54 @@ export function useKalibreringData(activeTab: Flik) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Hämta profilbedömning (90-dagarsfönster) för den maskin Senaste-fliken visar.
+  // Profilbedömning (90-dagarsfönster) för vald maskin — domen, Vidas krav och åtgärderna bygger på den.
   useEffect(() => {
-    if (!heroMaskin || bedomningMap[heroMaskin]) return;
+    if (!effektiv || bedomningMap[effektiv] || bedomningFelMap[effektiv]) return;
+    const maskin = effektiv;
     let cancelled = false;
-    fetch(`/api/kalibrering/bedomning?maskin_id=${encodeURIComponent(heroMaskin)}`, { cache: 'no-store' })
+    fetch(`/api/kalibrering/bedomning?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: BedomningResp & { ok?: boolean }) => {
-        if (cancelled || !data?.ok) return;
-        setBedomningMap(prev => (prev[heroMaskin] ? prev : { ...prev, [heroMaskin]: data }));
+        if (cancelled) return;
+        if (!data?.ok) throw new Error('svar utan bedömning');
+        setBedomningMap(prev => (prev[maskin] ? prev : { ...prev, [maskin]: data }));
       })
-      .catch(() => { /* tyst — hjälten faller tillbaka på "inget underlag" */ });
+      .catch(() => { if (!cancelled) setBedomningFelMap(prev => ({ ...prev, [maskin]: 'Läget kunde inte läsas.' })); });
     return () => { cancelled = true; };
-  }, [heroMaskin, bedomningMap]);
+  }, [effektiv, bedomningMap, bedomningFelMap]);
 
-  useEffect(() => { if (heroMaskin) laddaDiagnos(heroMaskin); }, [heroMaskin, laddaDiagnos]);
+  useEffect(() => { if (effektiv) laddaDiagnos(effektiv); }, [effektiv, laddaDiagnos]);
 
-  // Senaste kontrollens stockar för vald maskin (kan skilja sig från globalt senaste när man filtrerar per maskin —
-  // stockMap laddar annars bara den globala).
-  useEffect(() => {
-    if (!heroFilnamn || stockMap[heroFilnamn]) return;
-    let cancelled = false;
-    supabase
-      .from('detalj_kontroll_stock')
-      .select(STOCK_SELECT)
-      .eq('filnamn', heroFilnamn)
-      .order('stock_nummer', { ascending: true })
-      .then(({ data }) => {
-        if (cancelled || !data) return;
-        setStockMap(prev => (prev[heroFilnamn] ? prev : { ...prev, [heroFilnamn]: data as unknown as DetaljKontrollStock[] }));
-      });
-    return () => { cancelled = true; };
-  }, [heroFilnamn, stockMap]);
+  /** Försök igen efter ett läsfel: nollar felen för vald maskin, och effekterna ovan hämtar om. */
+  const forsokIgen = useCallback(() => {
+    if (!effektiv) return;
+    const maskin = effektiv;
+    setBedomningFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
+    setDiagnosFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
+    setTradslagFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
+    setObjektFel(null);
+    setTiderFel(null);
+  }, [effektiv]);
 
   // === Härlett ===
-  // Senaste-fliken använder ALLTID hela datasetet (oberoende av filter)
-  const latestKalib = heroFilnamn ? (allKalib.find(k => k.filnamn === heroFilnamn) ?? null) : (allKalib[0] ?? null);
-  const latestStockar = latestKalib ? (stockMap[latestKalib.filnamn] || []).sort((a, b) => a.stock_nummer - b.stock_nummer) : [];
-  const { totalLen: totalLatestLen, utanfor: latestUtanfor } = senasteSumma(latestStockar);
-
-  // Filtrerade datakällor — Rapport räknar på dessa
-  const filteredKalib = filtreraKalib(allKalib, effektiv, arAktiv);
+  // Urvalet för vald maskin (aldrig flera maskiner ihop)
+  const filteredKalib = effektiv ? filtreraKalib(allKalib, effektiv, arAktiv) : [];
   const speciesData = artSnitt(filteredKalib);
-  const { totalStockar, avgLen: avgLenReport, avgDia: avgDiaReport } = rapportSnitt(filteredKalib);
-
-  const reportBed = rapportBedomning(effektiv, bedomning);
-  const trData = effektiv !== 'all' ? (tradslagMap[effektiv] ?? null) : null;
+  const { totalStockar } = rapportSnitt(filteredKalib);
+  const trData = effektiv ? (tradslagMap[effektiv] ?? null) : null;
   const trRader = tradslagRader(trData);
   const reportSedan = rapportSedan(filteredKalib);
-  const { diaBed: reportDiaBed, lenBed: reportLenBed, inomTolerans: verdictWithinTolerance } = rapportDom(reportBed, avgLenReport, avgDiaReport);
+  const tider = effektiv ? (tiderMap[effektiv] ?? null) : null;
 
   return {
-    loading, fetchError, partialError, fetchData, allKalib,
-    alleMaskiner, selectedMaskinId, setSelectedMaskinId, effektiv, filterLabel, maskinNamnFor, maskinKortNamnFor, arAktiv,
-    heroMaskin, heroNamn, bedomning, diagnosData, verdikt,
+    loading, fetchError, fetchData, allKalib,
+    alleMaskiner, aktivaMaskiner, valdMaskin, setValdMaskin, effektiv, maskinNamnFor, maskinKortNamnFor, arAktiv,
+    heroNamn, bedomning, bedomningFel, diagnosData, diagnosFel: effektiv ? diagnosFelMap[effektiv] ?? null : null, forsokIgen,
     nyMarkorDatum, setNyMarkorDatum, nyMarkorText, setNyMarkorText, markorSparar, sparaMarkor,
     calManad, setCalManad, calData, calLoading, calError, filteredSammanfattning,
-    objektData, trData, trRader,
-    latestKalib, latestStockar, totalLatestLen, latestUtanfor,
-    filteredKalib, speciesData, totalStockar, avgLenReport, avgDiaReport,
-    reportBed, reportDiaBed, reportLenBed, verdictWithinTolerance, reportSedan,
+    objektData, objektFel, trData, trRader, tradslagFel: effektiv ? tradslagFelMap[effektiv] ?? null : null,
+    tider, tiderFel,
+    filteredKalib, speciesData, totalStockar, reportSedan,
   };
 }
 

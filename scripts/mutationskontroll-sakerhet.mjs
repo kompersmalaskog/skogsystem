@@ -16,6 +16,7 @@ const R = {
   kObjekt: "app/api/kalibrering/objekt/route.ts",
   kKontroll: "app/api/kalibrering/kontroll/route.ts",
   kBedomning: "app/api/kalibrering/bedomning/route.ts",
+  kKontroller: "app/api/kalibrering/kontroller/route.ts",
   personal: "app/api/personal/route.ts",
   personalId: "app/api/personal/[id]/route.ts",
   certPost: "app/api/personal/[id]/certifikat/route.ts",
@@ -52,7 +53,7 @@ const M = [
   ["sync-invoices: alla är admin", "return (await kravRoll(ADMIN_ROLLER)).ok;", "return true;", R.syncI],
   ["sync-vouchers: service-klienten skapas före kontrollen", "  const start = Date.now();\n\n  if (!(await kontrolleraAdmin(req))) {", "  const start = Date.now();\n  serverSupabase();\n\n  if (!(await kontrolleraAdmin(req))) {", R.syncV],
   kal("tradslag", R.kTradslag), kal("diagnos", R.kDiagnos), kal("kalender", R.kKalender),
-  kal("objekt", R.kObjekt), kal("kontroll", R.kKontroll), kal("bedomning", R.kBedomning),
+  kal("objekt", R.kObjekt), kal("kontroll", R.kKontroll), kal("bedomning", R.kBedomning), kal("kontroller", R.kKontroller),
   ["debug-nyckeln i en kommentar (strängen får inte komma tillbaka)", "// Diagnostik över en förares dag", "// " + "skogsystem" + "-debug: Diagnostik över en förares dag", R.appState],
   ["en route jämför ?key= mot en bokstavlig sträng", VAKT_INL, 'if (url.searchParams.get("key") !== "hemlig") return new NextResponse("nej", { status: 401 });\n  ' + VAKT_INL, R.kObjekt],
 

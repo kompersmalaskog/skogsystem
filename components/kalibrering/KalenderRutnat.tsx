@@ -1,16 +1,13 @@
 'use client';
-// Kalender: en månad i taget, varje produktionsdag med sin status (lämnad / saknas / varning). Ett tryck på en dag öppnar dagen.
-// Månaden hämtas när fliken öppnas (useKalibreringData); här ritas den. Innehåll och siffror är den gamla flikens.
-import Manadsvaljare from '@/components/design/Manadsvaljare';
+// Kalenderrutnätet: en månad, varje produktionsdag med sin status (lämnad / saknas / varning). Ett tryck på en dag öppnar dagen. Flyttat ur gamla
+// Kalender-fliken, oförändrat i innehåll; månaden hämtas av useKalibreringData när Kontroller öppnas.
 import Svarsrad from '@/components/design/Svarsrad';
-import Tillstand from '@/components/design/Tillstand';
 import { AVSTAND, FARG, KORT, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
-import type { KalibreringArk } from '@/lib/hooks/useKalibreringArk';
 import type { KalibreringData } from '@/lib/hooks/useKalibreringData';
-import { idagStr, manadNamn, stegManad } from '@/lib/kalibrering/datum';
+import { idagStr, manadNamn } from '@/lib/kalibrering/datum';
 import { aggregeraDagFiltrerat, dagstatusText, legendRader, tommaCeller } from '@/lib/kalibrering/kalender';
-import type { CalDagstatus } from '@/lib/kalibrering/typer';
-import { DelFel, Info, Lugn, Status, TalGrid } from './delar';
+import type { CalDag, CalDagstatus } from '@/lib/kalibrering/typer';
+import { Lugn, Status, TalGrid } from './delar';
 
 const VECKODAGAR = ['M', 'T', 'O', 'T', 'F', 'L', 'S'];
 const tona = (farg: string) => `color-mix(in srgb, ${farg} 16%, transparent)`;
@@ -18,15 +15,15 @@ const tona = (farg: string) => `color-mix(in srgb, ${farg} 16%, transparent)`;
 const YTA: Record<CalDagstatus, string> = { komplett: tona(FARG.gron), saknas: tona(FARG.rod), varning: tona(FARG.rod), inaktiv: 'transparent' };
 const LEGEND_FARG: Record<string, string> = { komplett: FARG.gron, saknas: FARG.rod, varning: FARG.rod };
 
-function Rutnat({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
-  const { calData, filteredSammanfattning: sf } = d;
-  if (!calData || !sf) return null;
+export default function KalenderRutnat({ d, onDag, valdDag }: { d: KalibreringData; onDag: (dag: CalDag) => void; valdDag?: string | null }) {
+  const { calData, filteredSammanfattning: sf, effektiv } = d;
+  if (!calData || !sf || !effektiv) return null;
   const idag = idagStr();
   const { leadingEmpty, trailingEmpty } = tommaCeller(calData);
-  const legend = legendRader(calData, d.effektiv);
+  const legend = legendRader(calData, effektiv);
   return (
     <>
-      <div style={{ marginBottom: AVSTAND.xl }}>
+      <div style={{ marginBottom: AVSTAND.l }}>
         {sf.produktionsdagar === 0 ? (
           <Svarsrad rubrik="Inga kontroller den här månaden" rad="Bläddra ‹ › till en månad med produktion." fri />
         ) : (
@@ -52,16 +49,17 @@ function Rutnat({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: AVSTAND.xs }}>
           {Array.from({ length: leadingEmpty }).map((_, i) => <div key={`l${i}`} />)}
           {calData.dagar.map(dag => {
-            const status = aggregeraDagFiltrerat(dag, d.effektiv);
+            const status = aggregeraDagFiltrerat(dag, effektiv);
             const klickbar = status !== 'inaktiv';
             const dagNr = parseInt(dag.datum.slice(-2), 10);
+            const vald = valdDag === dag.datum;
             return (
-              <button key={dag.datum} type="button" disabled={!klickbar} onClick={() => ark.oppnaDag(dag)} aria-label={`${dagNr}, ${dagstatusText(status)}`}
+              <button key={dag.datum} type="button" disabled={!klickbar} onClick={() => onDag(dag)} aria-label={`${dagNr}, ${dagstatusText(status)}`} aria-pressed={vald}
                 style={{
                   aspectRatio: '1', minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, fontFamily: 'inherit',
                   background: YTA[status], borderRadius: RADIE.knapp, cursor: klickbar ? 'pointer' : 'default',
                   border: status === 'varning' ? `2px solid ${FARG.rod}` : 'none',
-                  boxShadow: dag.datum === idag ? `inset 0 0 0 2px ${FARG.text}` : 'none',
+                  boxShadow: vald ? `inset 0 0 0 2px ${FARG.bla}` : dag.datum === idag ? `inset 0 0 0 2px ${FARG.text}` : 'none',
                   color: status === 'inaktiv' ? FARG.text2 : FARG.text, ...TYP.text, ...TNUM,
                 }}>
                 {dagNr}
@@ -80,7 +78,7 @@ function Rutnat({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
   );
 }
 
-function Skelett() {
+export function KalenderSkelett() {
   return (
     <>
       <div style={{ ...KORT, marginBottom: AVSTAND.xl, minHeight: TRAFFYTA.primar * 2 }} />
@@ -89,25 +87,6 @@ function Skelett() {
           {Array.from({ length: 35 }).map((_, i) => <div key={i} style={{ aspectRatio: '1', minHeight: TRAFFYTA.min, background: FARG.tonad, borderRadius: RADIE.knapp }} />)}
         </div>
       </div>
-    </>
-  );
-}
-
-export default function KalenderFlik({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
-  return (
-    <>
-      {d.partialError && <DelFel text={d.partialError} />}
-      <div style={{ marginBottom: AVSTAND.l }}>
-        <Manadsvaljare etikett={manadNamn(d.calManad)} onBakat={() => d.setCalManad(stegManad(d.calManad, -1))} onFramat={() => d.setCalManad(stegManad(d.calManad, 1))} />
-      </div>
-
-      {d.calError && !d.calLoading && (
-        <div style={{ marginBottom: AVSTAND.l }}><Info ikon="error" titel="Kunde inte ladda kalendern">{d.calError}</Info></div>
-      )}
-
-      <Tillstand nyckel={d.calLoading ? 'laddar' : 'klar'}>
-        {d.calLoading ? <Skelett /> : <Rutnat d={d} ark={ark} />}
-      </Tillstand>
     </>
   );
 }

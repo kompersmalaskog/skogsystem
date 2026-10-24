@@ -23,6 +23,10 @@ import { anvandObjektLista, anvandObjektListaUtanObjekt } from '../../lib/objekt
 import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
 import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/ObjektInfo'
+import { type BesokPlanerareProps } from '../../components/besok/BesokPlanerare'
+import BesokKortHytt from '../../components/besok/BesokKortHytt'
+import { useBesokHytt } from '../../lib/hooks/useBesokHytt'
+import { HYTT_RING_M } from '../../lib/besok/konstanter'
 import { arBasvag as arBasvagMark, svTal, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, grotRad, framstegRad, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll, type OmKommentar } from '../../lib/objektKort'
 import { arInstruktionsText } from '../../lib/instruktioner/instruktioner'
 import PanelErrorBoundary from './panel-error-boundary'
@@ -3990,6 +3994,19 @@ export default function PlannerPage() {
     };
   }, [klarGranskaAvlagg, mapLibreReady, klarVidaPunkter]);
   useEffect(() => { if (klarAterBasvag && !isDrawMode) { setKlarAterBasvag(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); } }, [klarAterBasvag, isDrawMode]);
+  // BESÖK PÅ TRAKTEN: påminnelsen "<Trakt> startar i morgon – skicka till markägaren?" länkar till /planering?objekt=<id>&besok=sms. Då öppnas ⓘ-kortet med SMS-raden i fokus (en tryckning till öppnar Meddelanden —
+  // en sms:-länk måste öppnas av ett riktigt tryck, aldrig av sidan själv). Parametern tas bort direkt.
+  const [besokFokus, setBesokFokus] = useState(false);
+  useEffect(() => {
+    if (!valtObjekt?.id) return;
+    try {
+      const u = new URL(window.location.href);
+      if (u.searchParams.get('besok') !== 'sms') return;
+      setBesokFokus(true); setInfoStartVy('kort'); setTraktOversiktOpen(true);
+      u.searchParams.delete('besok');
+      window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch { /* */ }
+  }, [valtObjekt?.id]);
   // Avläggsläget avbröts på annat sätt (plusdockan, ett annat verktyg): då ska ett senare avlägg inte öppna kortet.
   useEffect(() => { if (klarAterAvlagg && selectedSymbol == null && !traktOversiktOpen) setKlarAterAvlagg(false); }, [klarAterAvlagg, selectedSymbol, traktOversiktOpen]);
   // Nya objektlistan OVANPÅ ett valt objekt (ark/panel) bara i planeringsvyn — aldrig maskinläge, /maskin eller körvy (lib/objektVal.anvandObjektLista).
@@ -11922,6 +11939,37 @@ export default function PlannerPage() {
   // Lossningsflödet (skotarläget) har företräde: lossningskortet, Ändra-arket, "Nytt avlägg här?" och Kvar/Färdigskotad/Väntar-arken (lib/instruktioner/ordning).
   const lossningVisas = skotarLassAktiv && (!!skotarLass.kort || !!skotarLass.andra || !!skotarLass.nyttAvlagg || skotarKvarOppet || skotarFardigOppet || skotarVantarOppet);
   const instruktionerAktiv = korvyActive && (maskinlage || !!maskinSomParam);
+  // BESÖK PÅ TRAKTEN (maskinläget, alla maskiner på trakten): ett orange kort högst upp tills föraren tryckt Uppfattat, ett ljud, och en 70 m-ring runt maskinen medan besöket är aktivt.
+  // Fara-larm (och alla larmkort) och lossningsflödet går före kortet — det kommer tillbaka när de är borta. Instruktionskortet väntar på besökskortet.
+  const besokMaskinId = testlage?.maskinId ?? enhetMaskinId ?? null;
+  const besokHytt = useBesokHytt({
+    aktiv: instruktionerAktiv,
+    objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
+    maskinId: besokMaskinId,
+    roll: besokMaskinId ? rollForMaskin(dimMaskiner, besokMaskinId) : null,
+    forareId: currentMedarbetare?.id ? String(currentMedarbetare.id) : null,
+    testlage: !!testlage,
+    ljudCtx: () => korvyAudioCtxRef.current,
+  });
+  const besokKortSynligt = besokHytt.vantar.length > 0 && !larm.kort && !lossningVisas;
+  // === BESÖK: 70 m-ring runt maskinen medan ett besök är aktivt (till besökstid + 2 h) ===
+  // Egen källa och egna lager (prefixet larm- hör till körvyns whitelist). Ritas för skördare och skotare, i körvy/maskinläge. Rött + streckat: en gräns att hålla utanför, inte en färg som bär ensam.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const pos = currentPosition as any;
+    try {
+      if (!map.getSource('larm-besok-ring-source')) map.addSource('larm-besok-ring-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      if (!map.getLayer('larm-besok-ring-fyll')) map.addLayer({ id: 'larm-besok-ring-fyll', type: 'fill', source: 'larm-besok-ring-source', paint: { 'fill-color': FARG.rod, 'fill-opacity': 0.1 } });
+      if (!map.getLayer('larm-besok-ring-linje')) map.addLayer({ id: 'larm-besok-ring-linje', type: 'line', source: 'larm-besok-ring-source', paint: { 'line-color': FARG.rod, 'line-width': 3, 'line-dasharray': [2, 1.5] } });
+      const visa = instruktionerAktiv && besokHytt.aktiva.length > 0 && pos && pos.lat != null && pos.lon != null;
+      (map.getSource('larm-besok-ring-source') as any)?.setData(visa
+        ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: circlePolygon(pos.lat, pos.lon, HYTT_RING_M, 64) } }] }
+        : { type: 'FeatureCollection', features: [] });
+    } catch (e) { console.error('[Besök] ring:', e); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPosition, instruktionerAktiv, besokHytt.aktiva.length, mapLibreReady]);
+
   const inst = useInstruktioner({
     aktiv: instruktionerAktiv,
     pos: korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null,
@@ -11934,8 +11982,8 @@ export default function PlannerPage() {
     objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id) } : null,
     db: supabase,
-    blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' || larm.fler.some((x) => x.grupp === 'fara') }), lossningVisas }),
-    blockeradPaminnelse: !!larm.kort || lossningVisas,   // larm och lossningskort går före påminnelsen: den göms medan något av dem visas och kommer tillbaka efteråt
+    blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' || larm.fler.some((x) => x.grupp === 'fara') }), lossningVisas }) || besokKortSynligt,
+    blockeradPaminnelse: !!larm.kort || lossningVisas || besokKortSynligt,   // larm och lossningskort går före påminnelsen: den göms medan något av dem visas och kommer tillbaka efteråt
     torr: !!testlage,
   });
   // Påminnelsens hela instruktion stängs när påminnelsen försvinner (kört ut, larm/lossning visas): kommer man tillbaka börjar den som pill/bricka igen.
@@ -13630,6 +13678,13 @@ export default function PlannerPage() {
             brand: Number.isFinite(Number(valtObjekt.lat)) && Number.isFinite(Number(valtObjekt.lng)) && valtObjekt.lat != null && valtObjekt.lng != null ? { lat: Number(valtObjekt.lat), lng: Number(valtObjekt.lng) } : null,
             onBrand: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
             klarRad: klarGaller ? { chip: klarChip } : null,
+            // Besök på trakten: bara planeraren (riktig admin) i planeringsläget — aldrig i maskinen eller för en förare.
+            besok: kortRoll === 'planerare' && isAdminRiktig && !maskinlage && !maskinSomParam && valtObjekt.id ? {
+              objektId: String(valtObjekt.id), status: valtObjekt.status ?? null,
+              markagare: valtObjekt.markagare ?? null, markagareTel: valtObjekt.markagare_tel ?? null, fastighet: valtObjekt.fastighetsbeteckning ?? null,
+              planeradStart: valtObjekt.planerad_start ?? null, faktiskStart: valtObjekt.faktisk_start ?? null, pagaendeStartad: valtObjekt.pagaende_startad_timestamp ?? null,
+              fokusSms: besokFokus,
+            } satisfies BesokPlanerareProps : null,
             dokument: harDok ? {
               antal: dokAntal,
               chips: (
@@ -14079,6 +14134,17 @@ export default function PlannerPage() {
           roll={malbildRoll}
           onVisaMalbild={setLarmMalbildOppen}
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
+        />
+      )}
+      {/* BESÖK PÅ TRAKTEN — orange kort högst upp i hytten tills Uppfattat (hooken useBesokHytt). Larm och lossningsflödet går före. */}
+      {instruktionerAktiv && besokKortSynligt && (
+        <BesokKortHytt
+          top={instruktionTop}
+          besok={besokHytt.vantar[0]}
+          fler={besokHytt.vantar.length - 1}
+          sparar={besokHytt.sparar === besokHytt.vantar[0].id}
+          fel={besokHytt.fel}
+          onUppfattat={() => { void besokHytt.kvittera(besokHytt.vantar[0].id); }}
         />
       )}
       {korvyActive && inst.kort && (
