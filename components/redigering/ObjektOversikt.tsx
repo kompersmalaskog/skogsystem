@@ -22,6 +22,7 @@ import { AVTALSFORM_ORD, HUVUDTYP_VAL, FRAGA, SPECIAL_SVAR, patchForSvar, varfor
 import { arRisjobb } from '@/lib/objekt/typ';
 import { faltGaller } from '@/lib/redigering/faltGaller';
 import { traktTyp } from '@/lib/redigering/fyllSakra';
+import { avslutLage, avslutPatch, avslutUnder, type AvslutLage } from '@/lib/redigering/avslut';
 import {
   objektLage, skotatLage, metaRad, specialTecken, uppgiftRader, saknadeUtanForslag, maskinRader, avslutVarfor, kortDatum,
   type AvslutForslag, type MaskinFilRad, type UppgiftNyckel,
@@ -76,6 +77,8 @@ export interface ObjektOversiktProps {
   sattSkotat: (volym: number) => Promise<boolean>;
   /** Ta bort objektet ur listor och statistik (exkludera). Stänger arket när det lyckats. */
   taBort: () => Promise<boolean>;
+  /** Objektets alla rader (samma objekt under flera nummer). Klar-läget läses över alla. Utelämnat = bara obj. */
+  gruppRader?: any[];
 }
 
 const VAL_FALT: HarlettFalt[] = ['huvudtyp', 'avtalsform', 'bolag'];
@@ -91,9 +94,15 @@ export default function ObjektOversikt(p: ObjektOversiktProps) {
   const [sparar, setSparar] = useState<string | null>(null);
   const [fragaTaBort, setFragaTaBort] = useState(false);
 
+  const grupp = p.gruppRader && p.gruppRader.length ? p.gruppRader : [obj];
+  const skordLage = avslutLage(grupp, 'harvester');
+  const skotLage = avslutLage(grupp, 'forwarder');
+  const skordDatum = 'datum' in skordLage ? skordLage.datum : null;
+  const skotDatum = 'datum' in skotLage ? skotLage.datum : null;
+
   const lage = objektLage({
     skordat: p.skordat, skotat: p.skotat,
-    skordningAvslutad: obj.skordning_avslutad, skotningAvslutad: obj.skotning_avslutad,
+    skordningAvslutad: skordDatum, skotningAvslutad: skotDatum,
     status: objektRad?.status ?? null,
     externSkordning: obj.extern_skordning === true,
     annanSkotar: obj.egen_skotning === true || obj._extern_skotning === true,
@@ -145,7 +154,7 @@ export default function ObjektOversikt(p: ObjektOversiktProps) {
 
   const skotatNu = skotatLage({
     skordat: p.skordat, skotat: p.skotat, manuell: Number(obj.skotad_volym_manuell) || 0,
-    skordningAvslutad: obj.skordning_avslutad, skotningAvslutad: obj.skotning_avslutad,
+    skordningAvslutad: skordDatum, skotningAvslutad: skotDatum,
     annanSkotar: !visaSkotning, risjobb: arRisjobb(obj),
   });
   const sattSkotat = async (volym: number) => {
@@ -156,7 +165,7 @@ export default function ObjektOversikt(p: ObjektOversiktProps) {
 
   const godkannAvslut = async (f: AvslutForslag) => {
     setSparar(f.field);
-    const patch = { [f.field]: f.datum, [f.autoField]: true };
+    const patch = avslutPatch(f.maskinTyp, { godkann: f.datum });
     const fore = obj;
     p.set({ ...obj, ...patch });
     const ok = await p.direktSparaAvslut(f.maskinTyp, patch);
@@ -235,11 +244,11 @@ export default function ObjektOversikt(p: ObjektOversiktProps) {
       {(visaSkordning || visaSkotning) && (
         <Sektion rubrik="Är det klart?" inset>
           {visaSkordning && (
-            <AvslutRad etikett="Skördning" datum={obj.skordning_avslutad} forslag={p.skordForslag} upptagen={sparar === 'skordning_avslutad'}
+            <AvslutRad etikett="Skördning" lage={skordLage} forslag={p.skordForslag} upptagen={sparar === 'skordning_avslutad'}
               sista={!visaSkotning} onGodkann={godkannAvslut} onTryck={() => setAvslutTyp('harvester')} />
           )}
           {visaSkotning && (
-            <AvslutRad etikett="Skotning" datum={obj.skotning_avslutad} forslag={p.skotForslag} upptagen={sparar === 'skotning_avslutad'}
+            <AvslutRad etikett="Skotning" lage={skotLage} forslag={p.skotForslag} upptagen={sparar === 'skotning_avslutad'}
               sista={!skotatNu} onGodkann={godkannAvslut} onTryck={() => setAvslutTyp('forwarder')} />
           )}
           {skotatNu?.typ === 'forslag' && (
@@ -339,11 +348,10 @@ export default function ObjektOversikt(p: ObjektOversiktProps) {
       {avslutTyp && typeof document !== 'undefined' && createPortal(
         <div><style>{designCss}</style>
           <AvslutArk etikett={avslutTyp === 'harvester' ? 'Skördning' : 'Skotning'}
-            datum={avslutTyp === 'harvester' ? obj.skordning_avslutad : obj.skotning_avslutad}
+            lage={avslutTyp === 'harvester' ? skordLage : skotLage}
             onStang={() => setAvslutTyp(null)}
-            onSpara={async datum => {
-              const falt = avslutTyp === 'harvester' ? 'skordning_avslutad' : 'skotning_avslutad';
-              const patch = { [falt]: datum, [`${falt}_auto`]: false };
+            onSpara={async val => {
+              const patch = avslutPatch(avslutTyp, val);
               const fore = obj;
               p.set({ ...obj, ...patch });
               const ok = await p.direktSparaAvslut(avslutTyp, patch);
@@ -398,13 +406,15 @@ export default function ObjektOversikt(p: ObjektOversiktProps) {
   );
 }
 
-function AvslutRad({ etikett, datum, forslag, upptagen, sista, onGodkann, onTryck }: {
-  etikett: string; datum?: string | null; forslag: AvslutForslag | null; upptagen: boolean; sista?: boolean;
+function AvslutRad({ etikett, lage, forslag, upptagen, sista, onGodkann, onTryck }: {
+  etikett: string; lage: AvslutLage; forslag: AvslutForslag | null; upptagen: boolean; sista?: boolean;
   onGodkann: (f: AvslutForslag) => void; onTryck: () => void;
 }) {
-  if (datum || !forslag) {
-    return <Rad titel={etikett} hoger={<span style={{ fontWeight: 400, color: FARG.text2 }}>{datum ? `Klar ${kortDatum(datum)}` : 'Inte än'}</span>}
-      sista={sista} onTryck={onTryck} attr={{ 'data-avslut': etikett }} />;
+  const datum = 'datum' in lage ? lage.datum : null;
+  if (datum || lage.lage === 'ej_klar' || !forslag) {
+    return <Rad titel={etikett} under={avslutUnder(lage) ?? undefined}
+      hoger={<span style={{ fontWeight: 400, color: FARG.text2 }}>{datum ? `Klar ${kortDatum(datum)}` : 'Inte än'}</span>}
+      sista={sista} onTryck={onTryck} attr={{ 'data-avslut': etikett, 'data-avslut-lage': lage.lage }} />;
   }
   return (
     <div data-avslut={etikett} data-avslut-forslag="" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.m}px 0`, borderBottom: sista ? 'none' : `1px solid ${FARG.linje}` }}>
@@ -578,26 +588,43 @@ function TextArk({ falt, varde, onStang, onSpara }: { falt: TextFalt; varde: str
   );
 }
 
-/** Sätt eller ta bort ett avslutsdatum. Ett satt datum skriver aldrig över av maskinens förslag (`_auto` = false). */
-function AvslutArk({ etikett, datum, onStang, onSpara }: {
-  etikett: string; datum: string | null | undefined; onStang: () => void; onSpara: (d: string | null) => Promise<boolean>;
+/**
+ * Sätt klar, säg "Inte klar än", eller låt appen avgöra. Appen sätter klar av sig själv när maskinen kört vidare till
+ * ett annat objekt — men människans val går alltid före och rörs aldrig av automatiken.
+ */
+function AvslutArk({ etikett, lage, onStang, onSpara }: {
+  etikett: string; lage: AvslutLage;
+  onStang: () => void; onSpara: (val: { klar: string } | 'inte' | 'appen') => Promise<boolean>;
 }) {
+  const datum = 'datum' in lage ? lage.datum : null;
   const [dag, setDag] = useState(String(datum ?? '').slice(0, 10) || new Date().toISOString().slice(0, 10));
   const [sparar, setSparar] = useState(false);
   const [fel, setFel] = useState(false);
-  const kor = async (d: string | null) => { setSparar(true); setFel(false); const ok = await onSpara(d); setSparar(false); if (!ok) setFel(true); };
+  const kor = async (val: { klar: string } | 'inte' | 'appen') => { setSparar(true); setFel(false); const ok = await onSpara(val); setSparar(false); if (!ok) setFel(true); };
+  const handVal = lage.lage === 'hand' || lage.lage === 'ej_klar';
   const fot: ReactNode = (
     <>
       {fel && <p role="alert" style={{ margin: 0, ...TYP.meta, color: FARG.rod }}>Kunde inte spara. Försök igen.</p>}
-      <button type="button" disabled={!dag || sparar} data-avslut-spara="" onClick={() => kor(dag)}
+      <button type="button" disabled={!dag || sparar} data-avslut-spara="" onClick={() => kor({ klar: dag })}
         style={{ ...KNAPP.primar, ...TNUM, ...(!dag || sparar ? INAKTIV : {}) }}>{sparar ? 'Sparar …' : `Klar ${kortDatum(dag)}`}</button>
-      {datum && (
-        <button type="button" disabled={sparar} data-avslut-inte="" onClick={() => kor(null)} style={{ ...KNAPP.sekundar }}>Inte klar än</button>
+      {lage.lage !== 'ej_klar' && (
+        <button type="button" disabled={sparar} data-avslut-inte="" onClick={() => kor('inte')} style={{ ...KNAPP.sekundar }}>Inte klar än</button>
+      )}
+      {handVal && (
+        <button type="button" disabled={sparar} data-avslut-appen="" onClick={() => kor('appen')} style={{ ...KNAPP.sekundar }}>Låt appen avgöra</button>
       )}
     </>
   );
+  const text = lage.lage === 'auto'
+    ? `Appen satte klar: ${lage.skal}.`
+    : lage.lage === 'ej_klar'
+      ? 'Du har sagt att den inte är klar. Appen sätter inget förrän du väljer.'
+      : lage.lage === 'hand'
+        ? 'Du har satt datumet. Appen ändrar det aldrig.'
+        : 'Appen sätter klar av sig själv när maskinen kört vidare till ett annat objekt.';
   return (
     <Ark rubrik={`När blev ${etikett.toLowerCase()} klar?`} onStang={onStang} fot={fot}>
+      <p data-avslut-text="" style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.text, color: FARG.text2 }}>{text}</p>
       <input type="date" value={dag} onChange={e => setDag(e.target.value)} data-avslut-datum=""
         style={{ width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.primar, padding: `0 ${AVSTAND.l}px`, background: FARG.upphojt, border: 'none', borderRadius: RADIE.rad, color: FARG.text, ...TYP.text, fontFamily: 'inherit', colorScheme: 'dark' }} />
     </Ark>
