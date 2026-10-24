@@ -11,7 +11,7 @@ import type { VantarLage } from './useVantar';
 import type { Pamminnelse } from './vantar';
 
 /**
- * Fakturasidan — en EGEN sida (bara admin) som raden "Fakturering · oktober  36 km ›" på huvudsidan öppnar, med tillbaka-pil.
+ * Fakturasidan — en EGEN sida (bara admin) som raden "89 km i oktober ›" under "Vad ska faktureras?" på huvudsidan öppnar, med tillbaka-pil.
  * Uppifrån: tillbaka-pilen, rubriken, periodväljaren "‹ Oktober 2026 ›" (bara månader — ingen Månad | År-växel; egen, men EN period för hela Lastbilen), summan med uppdelningen
  * hos faktureringen / fakturerade / strukna (`Remsa`: samma läsning som listan, så de aldrig kan skilja), en rad om det som
  * väntar i en ANNAN period, och kvittot (`FaktureringFlik`: Att godkänna, Hos faktureringen, Fakturerade, Strukna).
@@ -34,15 +34,18 @@ export default function FaktureringSida({ period, onPeriod, status, namn, vantar
       <div style={{ marginBottom: AVSTAND.l }}>
         <Periodval period={period} onPeriod={p => p.typ === 'man' && onPeriod(p)} />
       </div>
-      <div style={{ marginBottom: AVSTAND.m }}>
-        <Remsa etikett={periodKort(period)} status={status} onForsokIgen={onForsokIgen} />
-      </div>
-      {visaVantar && (
-        <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0, marginBottom: AVSTAND.m }}>
-          <VantarRad lage={vantar} pamminnelse={pamminnelse} onOppna={onOppnaVantande} onForsokIgen={onVantarForsokIgen} sista />
-        </div>
-      )}
-      <FaktureringFlik period={period} status={status} namn={namn} onForsokIgen={onForsokIgen} onAndrad={onAndrad} />
+      {/* Sidan börjar med det DU ska göra (FaktureringFlik); summan och det som väntar i en annan period står under. */}
+      <FaktureringFlik period={period} status={status} namn={namn} onForsokIgen={onForsokIgen} onAndrad={onAndrad}
+        summa={(
+          <>
+            <Remsa etikett={periodKort(period)} status={status} onForsokIgen={onForsokIgen} />
+            {visaVantar && (
+              <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
+                <VantarRad lage={vantar} pamminnelse={pamminnelse} onOppna={onOppnaVantande} onForsokIgen={onVantarForsokIgen} sista />
+              </div>
+            )}
+          </>
+        )} />
     </div>
   );
 }

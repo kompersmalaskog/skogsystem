@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fmtAlder, fmtDatum, fmtKlocka, fmtSedan, kontaktRadArk, lageRad, lampaRubrik, matareText, senasteKorning, serviceRad, sistSedd, tankDelar, type LastbilData, type Runda } from './nu';
+import { fmtAlder, fmtDatum, fmtKlocka, fmtSedan, fmtDatumLang, kontaktRadArk, lageSvar, lampaRubrik, matareText, senasteKorning, serviceRad, sistSedd, tankDelar, tankOrd, tankSvar, type LastbilData, type Runda } from './nu';
 
 // Formen på /api/lastbil med värdena ur prod 2026-10-13 07:06 UTC (bilen stilla på LBC):
 // diesel 62 %, AdBlue 71,2 %, räckvidd 270 km, inga lampor, mätare 301 128 km, service saknas i avläsningen.
@@ -19,32 +19,48 @@ const PARKERAD: LastbilData = {
 const NU = new Date('2026-10-13T09:00:00Z');   // 11:00 svensk tid, samma dag
 const med = (d: Partial<LastbilData>): LastbilData => ({ ...PARKERAD, ...d });
 
-describe('läget i ord + sedan när', () => {
-  it('parkerad: "Parkerad vid <plats> · sedan <klockslag>" idag, annars bara datum — EN tid', () => {
-    expect(lageRad(PARKERAD, NU)).toBe('Parkerad vid LBC · sedan 09:06');
-    expect(lageRad(med({ parkerad: { plats: 'Kompersmåla', sedan: '2026-10-13T13:02:00Z' } }), NU)).toBe('Parkerad vid Kompersmåla · sedan 15:02');
-    expect(lageRad(med({ parkerad: { plats: 'LBC', sedan: '2026-10-12T07:06:59Z' } }), NU)).toBe('Parkerad vid LBC · sedan 12 okt');
-    expect(lageRad(med({ parkerad: { plats: 'LBC', sedan: '2026-10-09T07:06:59Z' } }), NU)).toBe('Parkerad vid LBC · sedan 9 okt');
+describe('läget i ord: svaret på "Var är bilen?" — rubrik + EN rad under', () => {
+  const svar = (d: LastbilData) => lageSvar(d, NU);
+  it('parkerad: "Står vid <plats>" och "Sedan <tid>" i ord — klockslag idag, igår, veckodag inom en vecka, annars datum', () => {
+    expect(svar(PARKERAD)).toEqual({ rubrik: 'Står vid LBC', under: 'Sedan 09:06' });
+    expect(svar(med({ parkerad: { plats: 'Kompersmåla', sedan: '2026-10-13T13:02:00Z' } }))).toEqual({ rubrik: 'Står vid Kompersmåla', under: 'Sedan 15:02' });
+    expect(svar(med({ parkerad: { plats: 'LBC', sedan: '2026-10-12T07:06:59Z' } })).under).toBe('Sedan igår');
+    expect(svar(med({ parkerad: { plats: 'LBC', sedan: '2026-10-09T07:06:59Z' } })).under).toBe('Sedan i fredags');
+    expect(svar(med({ parkerad: { plats: 'LBC', sedan: null } }))).toEqual({ rubrik: 'Står vid LBC', under: '' });
   });
 
-  it('kör nu: maskin på flaket, rundans km och avfärd', () => {
+  it('kör nu: maskin på flaket, rundans km och avfärd under', () => {
     const o = { id: 'x', starttid: '2026-10-13T04:41:00Z', live_km: 34, maskin: { namn: 'Giant', lage: 'flaket' as const }, pa_vag_hem: false, km_kvar: null };
-    expect(lageRad(med({ parkerad: null, oppen_runda: o }), NU)).toBe('Kör nu · Giant på flaket · 34 km · avfärd 06:41');
-    expect(lageRad(med({ parkerad: null, oppen_runda: { ...o, maskin: { namn: 'Giant', lage: 'lossad' } } }), NU)).toBe('Kör nu · Giant lossad · 34 km · avfärd 06:41');
+    expect(svar(med({ parkerad: null, oppen_runda: o }))).toEqual({ rubrik: 'Kör nu', under: 'Giant på flaket · 34 km · avfärd 06:41' });
+    expect(svar(med({ parkerad: null, oppen_runda: { ...o, maskin: { namn: 'Giant', lage: 'lossad' } } })).under).toBe('Giant lossad · 34 km · avfärd 06:41');
   });
 
   it('på väg hem: km kvar; utan km kvar rundans km', () => {
     const o = { id: 'x', starttid: '2026-10-13T04:41:00Z', live_km: 80, maskin: { namn: 'Giant', lage: 'lossad' as const }, pa_vag_hem: true, km_kvar: 12 };
-    expect(lageRad(med({ parkerad: null, oppen_runda: o }), NU)).toBe('På väg hem · ungefär 12 km kvar · avfärd 06:41');
-    expect(lageRad(med({ parkerad: null, oppen_runda: { ...o, km_kvar: null } }), NU)).toBe('På väg hem · 80 km · avfärd 06:41');
+    expect(svar(med({ parkerad: null, oppen_runda: o }))).toEqual({ rubrik: 'På väg hem', under: 'ungefär 12 km kvar · avfärd 06:41' });
+    expect(svar(med({ parkerad: null, oppen_runda: { ...o, km_kvar: null } })).under).toBe('80 km · avfärd 06:41');
   });
 
   it('övrig körning utan maskin; saknade km och avfärd utelämnas — inget "–" och ingen nolla', () => {
-    expect(lageRad(med({ parkerad: null, oppen_runda: { id: 'x', starttid: null, live_km: null, maskin: null, pa_vag_hem: false, km_kvar: null } }), NU)).toBe('Kör nu · Övrig körning');
+    expect(svar(med({ parkerad: null, oppen_runda: { id: 'x', starttid: null, live_km: null, maskin: null, pa_vag_hem: false, km_kvar: null } }))).toEqual({ rubrik: 'Kör nu', under: 'Övrig körning' });
   });
 
   it('varken parkerad eller kör: säger att ingen runda pågår (gissar inte var den står)', () => {
-    expect(lageRad(med({ parkerad: null, namn: 'R450' }), NU)).toBe('Ingen runda pågår');
+    expect(svar(med({ parkerad: null, namn: 'R450' }))).toEqual({ rubrik: 'Ingen runda pågår', under: '' });
+  });
+});
+
+describe('tanken i EN mening', () => {
+  it('"Tanken räcker 270 km"; kort räckvidd säger det i orden och blir orange; saknad räckvidd sägs, aldrig 0', () => {
+    expect(tankSvar(PARKERAD)).toEqual({ text: 'Tanken räcker 270 km', niva: 'ok' });
+    expect(tankSvar(med({ tank: { diesel_pct: 20, adblue_pct: 71, rackvidd_km: 95 } }))).toEqual({ text: 'Tanken räcker bara 95 km – tanka snart', niva: 'orange' });
+    expect(tankSvar(med({ tank: { diesel_pct: 20, adblue_pct: 71, rackvidd_km: 150 } })).niva).toBe('ok');   // 150 är inte under 150
+    expect(tankSvar(med({ tank: null }))).toEqual({ text: 'Räckvidd saknas i datan', niva: 'dampad' });
+  });
+  it('diesel och AdBlue står bara när de är låga eller saknas — räckvidden har redan sin mening', () => {
+    expect(tankOrd(PARKERAD)).toEqual([]);
+    expect(tankOrd(med({ tank: { diesel_pct: 14, adblue_pct: 18, rackvidd_km: 95 } })).map(d => d.ord)).toEqual(['Diesel låg – tanka nu', 'AdBlue låg – fyll på']);
+    expect(tankOrd(med({ tank: { diesel_pct: null, adblue_pct: 71, rackvidd_km: null } })).map(d => d.ord)).toEqual(['Diesel saknas i datan']);
   });
 });
 
@@ -164,11 +180,18 @@ describe('tider (Stockholm, aldrig enhetens zon)', () => {
     expect(fmtKlocka('2026-10-12T09:30:00Z')).toBe('11:30');
     expect(fmtDatum('2026-10-12T09:30:00Z')).toBe('mån 12 okt');
     expect(fmtDatum(null)).toBe('—');
+    expect(fmtDatumLang('2026-10-22T09:30:00Z')).toBe('torsdag 22 okt');
+    expect(fmtDatumLang('2026-10-12T22:30:00Z')).toBe('tisdag 13 okt');           // svensk dag, inte UTC
   });
   it('sedan-texter', () => {
     const nu = new Date('2026-10-13T09:00:00Z');
     expect(fmtSedan('2026-10-13T07:06:59Z', nu)).toBe('sedan 09:06');
-    expect(fmtSedan('2026-10-12T07:06:59Z', nu)).toBe('sedan 12 okt');
+    expect(fmtSedan('2026-10-12T07:06:59Z', nu)).toBe('sedan igår');            // måndag, nu är tisdag
+    expect(fmtSedan('2026-10-12T21:59:00Z', nu)).toBe('sedan igår');             // 23:59 svensk tid den 12:e
+    expect(fmtSedan('2026-10-09T07:06:59Z', nu)).toBe('sedan i fredags');
+    expect(fmtSedan('2026-10-07T07:06:59Z', nu)).toBe('sedan i onsdags');       // 6 dagar: fortfarande veckodagen
+    expect(fmtSedan('2026-10-06T07:06:59Z', nu)).toBe('sedan 6 okt');           // 7 dagar: datumet (i tisdags vore tvetydigt)
+    expect(fmtSedan('2026-10-12T22:30:00Z', nu)).toBe('sedan 00:30');           // 00:30 svensk tid den 13:e = idag
     expect(fmtSedan('2026-09-28T06:53:39Z', nu)).toBe('sedan 28 sep');
     expect(fmtSedan(null, nu)).toBe('');
   });

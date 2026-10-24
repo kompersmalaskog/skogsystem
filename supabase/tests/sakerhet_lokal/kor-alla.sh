@@ -4,7 +4,7 @@
 # Avslutar med 1 om något prov faller.
 set -uo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
-MIGRATIONER="${MIGRATIONER:-20261023120000_audio_bucket_privat.sql 20261023152043_medarbetare_skydda_kolumner.sql 20261023160000_revoke_truncate_trigger_references.sql}"
+MIGRATIONER="${MIGRATIONER:-20261023120000_audio_bucket_privat.sql 20261023152043_medarbetare_skydda_kolumner.sql 20261024100816_revoke_truncate_trigger_references.sql}"
 fel=0
 bash "$DIR/run.sh" $MIGRATIONER >/dev/null 2>&1 || { echo "migrationerna gick inte att applicera"; exit 1; }
 for t in test_audio test_medarbetare test_grants; do

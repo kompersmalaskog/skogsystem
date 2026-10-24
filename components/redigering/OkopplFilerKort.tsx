@@ -31,12 +31,12 @@ interface Data { filer: HprFilRad[]; objekt: ObjektNamnRad[]; alias: AltNummerRa
 const tabellSaknasFel = (e: any) => !!e && (e.code === 'PGRST205' || e.code === '42P01' || /does not exist|schema cache/i.test(String(e.message ?? '')));
 const kolumnSaknasFel = (e: any) => !!e && (e.code === '42703' || /column .* does not exist|could not find .* column/i.test(String(e.message ?? '')));
 
-export default function OkopplFilerKort({ maskiner = {} }: { maskiner?: Record<string, string> }) {
+export default function OkopplFilerKort({ maskiner = {}, startOppen = false }: { maskiner?: Record<string, string>; startOppen?: boolean }) {
   const [status, setStatus] = useState<Status>('laddar');
   const [data, setData] = useState<Data>({ filer: [], objekt: [], alias: [], ignorerade: new Set() });
   const [tabellSaknas, setTabellSaknas] = useState(false);          // objekt_alt_nummer
   const [ignorTabellSaknas, setIgnorTabellSaknas] = useState(false); // hpr_ignorerad
-  const [oppen, setOppen] = useState(false);
+  const [oppen, setOppen] = useState(startOppen);
   const [visaIgnorerade, setVisaIgnorerade] = useState(false);
   const [valjerFor, setValjerFor] = useState<string | null>(null);   // nyckel/filnamn på jobbet vars väljare är öppen
   const [sok, setSok] = useState('');

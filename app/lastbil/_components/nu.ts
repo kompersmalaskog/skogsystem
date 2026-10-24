@@ -1,4 +1,4 @@
-// Kortet "Bilen nu": vad lastbilen gör just nu, härlett ur /api/lastbil. Rena funktioner — all text byggs här
+// Kortet "Var är bilen?" (förut "Bilen nu"): vad lastbilen gör just nu, härlett ur /api/lastbil. Rena funktioner — all text byggs här
 // så den går att testa, och så vyn bara ritar. Stockholmstid genomgående (servern kör UTC).
 //
 // Tillstånd syns, de räknas aldrig ut (skillen): läget står i ord, en tänd varningslampa TAR ÖVER rubriken,
@@ -69,17 +69,52 @@ function fmtDagManad(iso: string): string {
   return d ? `${d.dag} ${MANAD[d.man - 1]}` : '';
 }
 
-/** "sedan 13:16" om det är idag, annars bara datumet: "sedan 12 okt". EN tid — aldrig datum och klockslag tillsammans i rubriken. */
-export function fmtSedan(iso: string | null, nu: Date = new Date()): string {
-  if (!iso) return '';
-  return arIdag(iso, nu) ? `sedan ${fmtKlocka(iso)}` : `sedan ${fmtDagManad(iso)}`;
+const DAG_LANG = ['söndag', 'måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag'];
+
+/** Veckodagen (0 = söndag) för ett datum i Stockholmstid. */
+function veckodag(iso: string): number | null {
+  const d = sthlmDelar(new Date(iso));
+  return d ? new Date(Date.UTC(d.ar, d.man - 1, d.dag)).getUTCDay() : null;
 }
 
-/** Läget i ord + sedan när. "Kör nu · Giant på flaket · 34 km · avfärd 06:41", "Parkerad vid Kompersmåla · sedan 15:02" (idag) eller "… · sedan 12 okt" (annan dag). */
-export function lageRad(data: LastbilData, nu: Date = new Date()): string {
+/** "torsdag 22 okt" i Stockholmstid — veckodagen utskriven, för rundraden. */
+export function fmtDatumLang(iso: string | null): string {
+  if (!iso) return '—';
+  const d = sthlmDelar(new Date(iso));
+  if (!d) return '—';
+  return `${DAG_LANG[veckodag(iso)!]} ${d.dag} ${MANAD[d.man - 1]}`;
+}
+
+/** Hela svenska kalenderdagar mellan `iso` och `nu` (0 = samma dag). null = okänd. */
+function kalenderdagarSedan(iso: string, nu: Date): number | null {
+  const d = sthlmDelar(new Date(iso)), n = sthlmDelar(nu);
+  if (!d || !n) return null;
+  return Math.round((Date.UTC(n.ar, n.man - 1, n.dag) - Date.UTC(d.ar, d.man - 1, d.dag)) / 86400000);
+}
+
+/**
+ * EN tid, i ord när det går: "sedan 13:16" (idag), "sedan igår", "sedan i torsdags" (2–6 dagar sedan), annars "sedan 12 okt".
+ * Aldrig datum och klockslag tillsammans.
+ */
+export function fmtSedan(iso: string | null, nu: Date = new Date()): string {
+  if (!iso) return '';
+  if (arIdag(iso, nu)) return `sedan ${fmtKlocka(iso)}`;
+  const dagar = kalenderdagarSedan(iso, nu);
+  if (dagar === 1) return 'sedan igår';
+  if (dagar != null && dagar >= 2 && dagar <= 6) return `sedan i ${DAG_LANG[veckodag(iso)!]}s`;
+  return `sedan ${fmtDagManad(iso)}`;
+}
+
+/**
+ * Svaret på "Var är bilen?": en rubrik i ord och EN rad under.
+ *   Kör:   "Kör nu" + "Giant på flaket · 34 km · avfärd 06:41"
+ *   Hem:   "På väg hem" + "ungefär 12 km kvar · avfärd 06:41"
+ *   Står:  "Står vid LBC" + "Sedan i torsdags"
+ */
+export function lageSvar(data: LastbilData, nu: Date = new Date()): { rubrik: string; under: string } {
   const o = data.oppen_runda;
   if (o) {
-    const delar: string[] = [o.pa_vag_hem ? 'På väg hem' : 'Kör nu'];
+    const delar: string[] = [];
     if (o.pa_vag_hem) {
       if (o.km_kvar != null) delar.push(`ungefär ${o.km_kvar} km kvar`);
       else if (o.live_km != null) delar.push(`${o.live_km} km`);
@@ -88,10 +123,13 @@ export function lageRad(data: LastbilData, nu: Date = new Date()): string {
       if (o.live_km != null) delar.push(`${o.live_km} km`);
     }
     if (o.starttid) delar.push(`avfärd ${fmtKlocka(o.starttid)}`);
-    return delar.join(' · ');
+    return { rubrik: o.pa_vag_hem ? 'På väg hem' : 'Kör nu', under: delar.join(' · ') };
   }
-  if (data.parkerad) return [`Parkerad vid ${data.parkerad.plats}`, fmtSedan(data.parkerad.sedan, nu)].filter(Boolean).join(' · ');
-  return 'Ingen runda pågår';
+  if (data.parkerad) {
+    const sedan = fmtSedan(data.parkerad.sedan, nu);
+    return { rubrik: `Står vid ${data.parkerad.plats}`, under: sedan ? sedan[0].toUpperCase() + sedan.slice(1) : '' };
+  }
+  return { rubrik: 'Ingen runda pågår', under: '' };
 }
 
 /** En tänd varningslampa tar över rubriken (röd, med orden "lyser" och "Kontrollera bilen" — färgen förstärker bara). */
@@ -123,6 +161,22 @@ export function tankDelar(data: LastbilData): TankDel[] {
     : r < GRANS.rackviddOrange ? { text: `${r.toLocaleString('sv-SE')} km kvar`, niva: 'orange', ord: 'Räckvidd kort – tanka snart' }
     : { text: `${r.toLocaleString('sv-SE')} km kvar`, niva: 'ok', ord: null };
   return [diesel, adblue, rackvidd];
+}
+
+/**
+ * Tanken i ETT svar: "Tanken räcker 540 km". Kort räckvidd säger det i orden ("Tanken räcker bara 95 km – tanka snart", orange).
+ * Diesel och AdBlue står bara när de gäller (`tankOrd`): låga eller saknade. Saknas räckvidden säger raden det, aldrig 0.
+ */
+export function tankSvar(data: LastbilData): { text: string; niva: TankDel['niva'] } {
+  const r = data.tank?.rackvidd_km;
+  if (r == null) return { text: 'Räckvidd saknas i datan', niva: 'dampad' };
+  const km = r.toLocaleString('sv-SE');
+  return r < GRANS.rackviddOrange ? { text: `Tanken räcker bara ${km} km – tanka snart`, niva: 'orange' } : { text: `Tanken räcker ${km} km`, niva: 'ok' };
+}
+
+/** Raderna under tanksvaret: bara diesel och AdBlue som är låga eller saknas ("Diesel låg – tanka nu", "AdBlue saknas i datan"). */
+export function tankOrd(data: LastbilData): TankDel[] {
+  return tankDelar(data).slice(0, 2).filter(d => d.ord);
 }
 
 /** Service visas BARA när det är under 1 000 km kvar (annars ingen rad). Saknas värdet visas inget — vi påstår ingenting. */

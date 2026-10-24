@@ -151,12 +151,12 @@ export type GrovlekResp = { ok: true; maskin_id: string; tolerans: number; rader
 
 // === Greppet (/api/kalibrering/grepp) ===
 /**
- * Maskinens egna stamprofiler, alla stammar, summerade per månad, trädslag och grovlek. `kvar` > 0 = några objekt är inte omräknade än (tabellen är en cache som
- * räknas om objekt för objekt när underlaget ändrats) — klienten frågar igen tills det är 0. `tillganglig: false` = migrationen är inte körd.
+ * Maskinens egna stamprofiler, alla stammar, summerade per månad, trädslag och grovlek. `kvar` > 0 = några objekt ligger efter (tabellen är en cache som cron-jobbet
+ * räknar om objekt för objekt när importen läst in nya stammar; läsningen räknar aldrig) — vyn säger "Räknas om". `tillganglig: false` = migrationen är inte körd.
  */
 export type GreppResp = {
   ok: true; maskin_id: string; tillganglig: boolean; orsak?: 'migration';
-  rader: GreppRad[]; kvar: number; fel: string[]; stammarTotalt: number; stammarRaknade: number;
+  rader: GreppRad[]; kvar: number; stammarTotalt: number; stammarRaknade: number;
 };
 
 // === Objekt (/api/kalibrering/objekt) ===

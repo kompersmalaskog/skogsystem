@@ -3,7 +3,7 @@
  *
  * Underlaget är maskinens avsmalningskurva (detalj_stam_diameter, en punkt var 10:e cm) — ingen klave, inga kontrollstammar. Definitionen av "står still" är
  * stamvyns (lib/kalibrering/grepp.ts): diametern är lika eller större än föregående punkt, över en sträcka på minst GREPP_MIN_CM. Räkningen görs i databasen
- * (migration 20261023180000, kalibrering_grepp_rakna) — tio miljoner punkter går inte att hämta till en skärm — och landar här som en rad per månad, trädslag
+ * (migration 20261024093226, kalibrering_grepp_rakna) — tio miljoner punkter går inte att hämta till en skärm — och landar här som en rad per månad, trädslag
  * och grovlek (stammens brösthöjdsdiameter).
  *
  * EN STAM RÄKNAS EN GÅNG PER RUTA: varje stam ger sin egen andel (still / steg) och rutans värde är medelvärdet över stammarna. Det är alltså inte andelen av
