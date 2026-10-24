@@ -7,9 +7,9 @@ INSERT INTO fakt_kalibrering_historik (datum, maskin_id, tradslag, orsak, dia_ju
 INSERT INTO fakt_kalibrering_historik (datum, maskin_id, tradslag, orsak, beskrivning, langd_justering_mm, position_cm, typ, filnamn) VALUES
  ('2026-08-03', 'R64428', 'Gran', 'Repair of measurement system', 'ny slang', -4, 550, 'langd', 'a.hqc');
 
-\i ../../migrations/20261023090000_kalibrering_historik_rot_och_omkalibrering.sql
+\i ../../migrations/20261024093123_kalibrering_historik_rot_och_omkalibrering.sql
 -- Körs om utan fel (IF NOT EXISTS)
-\i ../../migrations/20261023090000_kalibrering_historik_rot_och_omkalibrering.sql
+\i ../../migrations/20261024093123_kalibrering_historik_rot_och_omkalibrering.sql
 
 DO $$
 DECLARE n int; r record;

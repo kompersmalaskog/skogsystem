@@ -51,7 +51,7 @@ describe('vanliga justeringar', () => {
 
 describe('migrationen och koden är överens', () => {
   const sql = readFileSync(
-    join(__dirname, '../../supabase/migrations/20261023090000_kalibrering_historik_rot_och_omkalibrering.sql'),
+    join(__dirname, '../../supabase/migrations/20261024093123_kalibrering_historik_rot_och_omkalibrering.sql'),
     'utf8',
   );
   it('samma orsaks-literal i generated column och i TypeScript', () => {

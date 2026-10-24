@@ -4,7 +4,7 @@
  * En rad vars orsak är "Repair of measurement system" är en OMKALIBRERING efter reparation av mätsystemet — maskinen
  * mättes in på nytt. Dess `dia_justering_mm`/`langd_justering_mm` är inte en justering i mm: R64428:s diameterrad (56 vid
  * position 50) betyder inte "+56 mm". Databasen märker raderna (`omkalibrering`, generated column i migrationen
- * 20261023…_kalibrering_historik_rot_och_omkalibrering); den här filen är den enda vägen i appen från en rad till text.
+ * 20261024093123_kalibrering_historik_rot_och_omkalibrering); den här filen är den enda vägen i appen från en rad till text.
  * En vy som visar en justering går genom `justeringsText`/`justering`, aldrig rått ur kolumnerna
  * (`historik.vakt.test.ts` larmar annars).
  */

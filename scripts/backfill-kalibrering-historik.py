@@ -19,7 +19,7 @@ två filer olika om samma block (annat rotvärde eller annan beskrivning) rörs 
 En saknad justering är okänd (NULL), aldrig 0.
 
 Kräver NEXT_PUBLIC_SUPABASE_URL (eller SUPABASE_URL) och SUPABASE_SERVICE_ROLE_KEY i miljön — samma som importen.
-Migrationen 20261023…_kalibrering_historik_rot_och_omkalibrering ska vara körd först (kolumnen langd_justering_rot_mm).
+Migrationen 20261024093123_kalibrering_historik_rot_och_omkalibrering ska vara körd först (kolumnen langd_justering_rot_mm).
 Exit 1 om något block är en konflikt eller en fil inte gick att läsa; exit 2 om inga .hqc-filer hittades.
 """
 import importlib.util, os, sys, tempfile
