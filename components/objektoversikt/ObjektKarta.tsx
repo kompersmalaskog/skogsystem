@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { AVSTAND, FARG, KNAPP, KORT, RADIE, TNUM, TRAFFYTA, TYP, underTopbar } from '@/lib/design/tokens';
+import { AVSTAND, FARG, KNAPP, KORT, RADIE, RORELSE, TNUM, TRAFFYTA, TYP, medSafeBotten, underTopbar } from '@/lib/design/tokens';
 import Ikon from '@/components/design/Ikon';
 import Rad from '@/components/design/Rad';
 import Ark from '@/components/design/Ark';
@@ -402,10 +402,21 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
               Hämtar kartan …
             </div>
           )}
-          <div style={{ position: 'absolute', right: AVSTAND.s, top: AVSTAND.s, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-            <RundKnapp ikon="layers" text="Lager" onClick={() => setLagerOppen(true)} attr="lager" />
+          <div style={{ position: 'absolute', right: AVSTAND.s, top: AVSTAND.s }}>
             <RundKnapp ikon={helskarm ? 'close_fullscreen' : 'open_in_full'} text={helskarm ? 'Mindre karta' : 'Större karta'} onClick={() => setHelskarm(h => !h)} attr="helskarm" />
           </div>
+          {/* Plus nere till höger, som i planeringen: öppnar lagren. Vrids till × medan arket är öppet. */}
+          <button type="button" onClick={() => setLagerOppen(o => !o)} data-kartknapp="lager"
+            aria-label={lagerOppen ? 'Stäng lager' : 'Lager'} aria-expanded={lagerOppen} title="Lager"
+            style={{
+              position: 'absolute', right: AVSTAND.s, bottom: helskarm ? medSafeBotten(AVSTAND.s) : AVSTAND.s,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', width: TRAFFYTA.min, height: TRAFFYTA.min, padding: 0,
+              borderRadius: RADIE.cirkel, border: `1px solid ${FARG.linje}`, background: FARG.kort, color: FARG.text, cursor: 'pointer',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
+              transition: `transform ${RORELSE.byte}ms ${RORELSE.kurva}`, transform: lagerOppen ? 'rotate(45deg)' : 'rotate(0deg)',
+            }}>
+            <Ikon namn="add" farg="inherit" />
+          </button>
         </div>
 
         {/* Under kartan: mätningen, eller knappen som startar den. */}
