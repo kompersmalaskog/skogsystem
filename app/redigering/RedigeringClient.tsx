@@ -2787,7 +2787,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
   // Körs EFTER lyckad save; ett fel visas — en halvkörd avbockning tigs aldrig ihjäl.
   // Klar gäller HELA objektet (alla dess rader, samma som automatiken i databasen skriver) — Mölleryd har
   // skördarens och skotarens rader under två nummer, och ett "Inte klar än" på bara den ena raden lämnade
-  // automatikens datum kvar på den andra. Saknas avslutskolumnerna (migration 20261024111000) sparas
+  // automatikens datum kvar på den andra. Saknas avslutskolumnerna (migration 20261024161546) sparas
   // utan dem.
   async function direktSparaAvslut(typ: 'harvester' | 'forwarder', patch: Record<string, any>): Promise<boolean> {
     if (!valtObjekt) return false

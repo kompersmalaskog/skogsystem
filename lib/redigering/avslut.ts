@@ -2,7 +2,7 @@
 // om det inte skulle funka").
 //
 // Databasen sätter klar varje timme när maskinen har kört vidare till ett annat objekt (avslut_ur_maskindata,
-// migration 20261024111000–111030). Då står skälet i *_auto_skal ("Giant körde vidare till Skälviken 22 okt").
+// migration 20261024161546–161658). Då står skälet i *_auto_skal ("Giant körde vidare till Skälviken 22 okt").
 // En människa går alltid före: ett datum utan skäl, eller "Inte klar än" (*_ej_klar), rör automatiken aldrig.
 // "Låt appen avgöra" tar bort människans val så automatiken får bestämma igen.
 

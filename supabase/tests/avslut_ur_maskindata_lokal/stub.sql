@@ -1,4 +1,4 @@
--- Minimal databas för att köra migrationerna 20261024111000–111030 (avslut ur maskindata) lokalt.
+-- Minimal databas för att köra migrationerna 20261024161546–161658 (avslut ur maskindata) lokalt.
 -- Kolumnerna är de som funktionerna läser, med prod-namn (läst 2026-10-24).
 do $$ begin create role anon; exception when duplicate_object then null; end $$;
 do $$ begin create role authenticated; exception when duplicate_object then null; end $$;

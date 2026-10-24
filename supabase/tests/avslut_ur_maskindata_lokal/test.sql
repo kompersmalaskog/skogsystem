@@ -1,8 +1,8 @@
 -- Provar avslut_ur_maskindata mot en lokal Postgres. Kör (från repo-roten):
 --   createdb av && psql av -v ON_ERROR_STOP=1 -f supabase/tests/avslut_ur_maskindata_lokal/stub.sql \
---     -f supabase/migrations/20261024111000_avslut_ur_maskindata_1_kolumner.sql \
---     -f supabase/migrations/20261024111010_avslut_ur_maskindata_2_berakna.sql \
---     -f supabase/migrations/20261024111020_avslut_ur_maskindata_3_satt.sql \
+--     -f supabase/migrations/20261024161546_avslut_ur_maskindata_1_kolumner.sql \
+--     -f supabase/migrations/20261024161621_avslut_ur_maskindata_2_berakna.sql \
+--     -f supabase/migrations/20261024161643_avslut_ur_maskindata_3_satt.sql \
 --     -f supabase/tests/avslut_ur_maskindata_lokal/test.sql
 -- Faller med ett felmeddelande som säger vilken kontroll som inte höll. Sista raden är "ALLA KONTROLLER OK".
 \set ON_ERROR_STOP 1
