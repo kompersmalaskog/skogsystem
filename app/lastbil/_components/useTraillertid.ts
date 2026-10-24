@@ -4,12 +4,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry } from '@/lib/supabaseRetry';
 import { FLYTT_TIMDEBITERING_KM } from '@/lib/faktura/radbyggare';
-import { traillertid, type TidBen, type TidForslag } from '@/lib/flytt/traillertid';
+import { minFranTimmar, traillertid, type TidBen, type TidForslag } from '@/lib/flytt/traillertid';
 import type { UnderlagRad } from './fakturerbart';
 
 /** En flytt över 3 mil faktureras på tid (artikel 3) — samma gräns som radbyggaren, på underlagets km. */
 export const fakturerasPaTid = (r: Pick<UnderlagRad, 'km' | 'status'>): boolean =>
   r.status !== 'struken' && r.km != null && Number(r.km) > FLYTT_TIMDEBITERING_KM;
+
+/** Radens sparade tid i hela minuter, eller null (inte sparad). */
+export const sparadMin = (r: Pick<UnderlagRad, 'traillertimmar'>): number | null =>
+  (r.traillertimmar != null && Number(r.traillertimmar) > 0 ? minFranTimmar(Number(r.traillertimmar)) : null);
 
 export type TidLage =
   | { lage: 'laddar' }

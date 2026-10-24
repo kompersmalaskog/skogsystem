@@ -12,8 +12,8 @@ import { angraGodkannande, godkannFlytt, sparaTraillertid } from './godkann';
 import TidArk from './TidArk';
 import GodkannArk from './GodkannArk';
 import { fmtKlocka } from './nu';
-import { fakturerasPaTid, useTraillertid, type TidLage } from './useTraillertid';
-import { fmtTid, minFranTimmar, timmarForFaktura, type TidForslag } from '@/lib/flytt/traillertid';
+import { fakturerasPaTid, sparadMin, useTraillertid, type TidLage } from './useTraillertid';
+import { fmtTid, timmarForFaktura, type TidForslag } from '@/lib/flytt/traillertid';
 import type { FakturerbartStatus } from './useFakturerbart';
 import { useUnderlagNamn, type Namnkartor } from './useUnderlagNamn';
 
@@ -58,9 +58,6 @@ function stampel(r: UnderlagRad, st: UnderlagStatus): { text: string; farg: stri
   return null;
 }
 
-/** Raden sparad tid i hela minuter, eller null. */
-const sparadMin = (r: UnderlagRad): number | null => (r.traillertimmar != null && Number(r.traillertimmar) > 0 ? minFranTimmar(Number(r.traillertimmar)) : null);
-
 /** Förslaget för raden: undefined = läses, null = läsfel. */
 const forslagFor = (r: UnderlagRad, t: TidLage): TidForslag | null | undefined =>
   t.lage === 'klar' ? t.forslag.get(r.id) : t.lage === 'fel' ? null : undefined;
@@ -85,22 +82,25 @@ const antalFlyttar = (n: number) => `${n} ${n === 1 ? 'flytt' : 'flyttar'}`;
 const kmText = (r: UnderlagRad) => (r.km != null ? `${Math.round(r.km).toLocaleString('sv-SE')} km` : '–');
 
 /** Raden i ord. Kundens ändringsspår ("tillagd, saknades i datan") står i arket, inte här — raden säger bara vem som betalar. */
-function Uppgifter({ r, n, st }: { r: UnderlagRad; n: Namnkartor; st: UnderlagStatus }) {
+function Uppgifter({ r, n, st, tid }: { r: UnderlagRad; n: Namnkartor; st: UnderlagStatus; tid: { text: string; farg: string; varning: string | null } | null }) {
   const stamp = stampel(r, st);
   return (
     <>
       <div data-underlag-vad style={{ ...TYP.listtitel, color: FARG.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{vadText(r, n)}</div>
       <div data-underlag-nar style={{ ...TYP.meta, color: FARG.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{narText(r, n)}</div>
+      {/* Tiden är TEXT på kortet, ingen egen knapp: hela kortet öppnar flyttens ark, där tiden går att ändra. */}
+      {tid && <div data-tid={r.id} style={{ ...TYP.meta, ...TNUM, color: tid.farg }}>{tid.text}</div>}
+      {tid?.varning && <div data-tid-varning style={{ ...TYP.meta, color: FARG.orange }}>{tid.varning}</div>}
       {stamp && <div style={{ ...TYP.meta, color: stamp.farg }}>{stamp.text}</div>}
     </>
   );
 }
 
-function KvittoRad({ r, st, n, sista, sparar, tid, onGodkann, onOppna, onOppnaTid }: {
+function KvittoRad({ r, st, n, sista, sparar, tid, onGodkann, onOppna }: {
   r: UnderlagRad; st: UnderlagStatus; n: Namnkartor; sista: boolean; sparar: boolean;
   /** Tidraden (bara flyttar över 3 mil), annars null. */
   tid: { text: string; farg: string; varning: string | null } | null;
-  onGodkann: (r: UnderlagRad) => void; onOppna: (r: UnderlagRad) => void; onOppnaTid: (r: UnderlagRad) => void;
+  onGodkann: (r: UnderlagRad) => void; onOppna: (r: UnderlagRad) => void;
 }) {
   const struken = st === 'struken';
   const attGodkanna = st === 'att_godkanna';
@@ -112,19 +112,8 @@ function KvittoRad({ r, st, n, sista, sparar, tid, onGodkann, onOppna, onOppnaTi
       <div style={{ flex: 1, minWidth: 0 }}>
       <button type="button" onClick={() => onOppna(r)} aria-label={`Visa flytten ${maskinNamn(r, n)}`}
         style={{ width: '100%', background: 'none', border: 'none', padding: 0, textAlign: 'left', color: FARG.text, font: 'inherit', cursor: 'pointer' }}>
-        <Uppgifter r={r} n={n} st={st} />
+        <Uppgifter r={r} n={n} st={st} tid={tid} />
       </button>
-      {/* Tiden (flytt över 3 mil) är en egen rad med eget tryck: den öppnar "Tid att fakturera", inte flyttens ark. */}
-      {tid && (
-        <button type="button" data-tid={r.id} onClick={() => onOppnaTid(r)} aria-label={`Tid att fakturera för ${maskinNamn(r, n)}`}
-          style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, width: '100%', minHeight: TRAFFYTA.min, padding: 0, background: 'none', border: 'none', textAlign: 'left', font: 'inherit', cursor: 'pointer' }}>
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ ...TYP.meta, ...TNUM, color: tid.farg, display: 'block' }}>{tid.text}</span>
-            {tid.varning && <span data-tid-varning style={{ ...TYP.meta, color: FARG.orange, display: 'block' }}>{tid.varning}</span>}
-          </span>
-          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.text, color: FARG.text3 }}>chevron_right</span>
-        </button>
-      )}
       </div>
       <div style={{ textAlign: 'right', ...TNUM, minWidth: TRAFFYTA.min, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: AVSTAND.xs }}>
         <div style={{ ...TYP.listtitel, color: struken ? FARG.text2 : FARG.text, textDecoration: struken ? 'line-through' : 'none' }}>{kmText(r)}</div>
@@ -173,7 +162,6 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
   const [fel, setFel] = useState<string | null>(null);
   const [kvitto, setKvitto] = useState<{ id: string; text: string; angra?: boolean; tidSparad?: boolean } | null>(null);
   const [oppnad, setOppnad] = useState<UnderlagRad | null>(null);
-  const [tidOppen, setTidOppen] = useState<UnderlagRad | null>(null);
   const tid = useTraillertid(rader);
 
   // ── Vad ska du göra? Flyttar att godkänna (äldsta först) och godkända flyttar över 3 mil som saknar tid. ──
@@ -286,7 +274,7 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
               <KvittoRad key={r.id} r={r} st={g.id} n={n} sista={i === g.rader.length - 1}
                 sparar={sparar === r.id} onGodkann={rad => godkann(rad, n)}
                 tid={fakturerasPaTid(r) ? tidText(r, g.id, forslagFor(r, tid.lage)) : null}
-                onOppna={rad => setOppnad(rad)} onOppnaTid={rad => setTidOppen(rad)} />
+                onOppna={rad => setOppnad(rad)} />
             ))}
           </div>
         </section>
@@ -297,17 +285,6 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
           onKlar={text => { setOppnad(null); setKvitto({ id: oppnad.id, text, }); }}
           onDelvis={melding => { setOppnad(null); setFel(melding); }}
           onAndrad={onAndrad} />
-      )}
-      {tidOppen && (
-        <TidArk key={tidOppen.id} maskin={maskinNamn(tidOppen, n)} forslag={forslagFor(tidOppen, tid.lage) ?? null}
-          sparadMin={sparadMin(tidOppen)} last={underlagStatus(tidOppen) === 'fakturerad'}
-          onStang={() => setTidOppen(null)}
-          onSpara={async min => {
-            const svar = await sparaTraillertid(tidOppen.id, timmarForFaktura(min));
-            if (svar.ok) { setTidOppen(null); setKvitto({ id: tidOppen.id, text: `Tiden sparad · ${maskinNamn(tidOppen, n)} · ${fmtTid(min)}` }); onAndrad(); }
-            else if (svar.utdaterad) onAndrad();
-            return svar;
-          }} />
       )}
       {ga && gaSteg && gaRad && gaSteg.typ === 'godkann' && (() => {
         const r = gaRad, f = forslagFor(r, tid.lage), sparad = sparadMin(r);

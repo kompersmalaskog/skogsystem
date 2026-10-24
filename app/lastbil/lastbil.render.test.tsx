@@ -1737,7 +1737,8 @@ describe("Flytten (sheet): låsta flyttar och historik", () => {
     await oppnaS("u8", "Giant");                                     // u8 är godkänd (backfill)
     expect(dlg()!.textContent).toContain("Giant");
     expect(dlg()!.textContent).toContain("Vällust RP M-R -25");
-    expect(dlg()!.querySelectorAll("button[aria-label*=':']")).toHaveLength(0);   // inga rader att trycka på
+    // inga rader att trycka på — utom Tid: tiden är en fakturauppgift och går att ställa in tills flytten är fakturerad
+    expect(Array.from(dlg()!.querySelectorAll("button[aria-label*=':']")).map(b => b.getAttribute("aria-label")!.split(":")[0])).toEqual(["Tid"]);
     expect(dlg()!.querySelector("input, textarea")).toBeNull();
     expect(knapp(/^Spara/, dlg()!)).toBeUndefined();
     expect(knapp(/^Stryk flytten/, dlg()!)).toBeUndefined();
@@ -2146,7 +2147,7 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
     expect(knapp(/Visa flytten Giant/, arkEl()).textContent).toContain("Låst · godkänd för fakturering");
     await klicka(knapp(/Visa flytten Giant/, arkEl()));
     expect(dlg()!.querySelector("[data-last]")!.textContent).toContain("Godkänd — lämna tillbaka till Att godkänna för att ändra");
-    expect(dlg()!.querySelectorAll("button[aria-label*=':']")).toHaveLength(0);
+    expect(Array.from(dlg()!.querySelectorAll("button[aria-label*=':']")).map(b => b.getAttribute("aria-label")!.split(":")[0])).toEqual(["Tid"]);
     expect(knapp(/^Spara/, dlg()!)).toBeUndefined();
     await klicka(knapp(/^Lämna tillbaka till Att godkänna$/, dlg()!));
     expect(mock.skrivningar[0].varden).toEqual({ godkand_tid: null, godkand_av: null });
@@ -3223,15 +3224,22 @@ describe("Tid att fakturera (flytt över 3 mil): appen föreslår tiden ur runda
   it("en godkänd flytt utan tid säger det i orange, med förslaget i ord — aldrig decimaler", async () => {
     medLossning();
     await oppnaFakturering();
-    expect(tidRad("u8")!.textContent).toBe("Tid saknas · förslag 4 h 3 minchevron_right");
-    expect(tidRad("u7")!.textContent).toBe("Tid saknas · förslag 4 h 11 minchevron_right");
+    expect(tidRad("u8")!.textContent).toBe("Tid saknas · förslag 4 h 3 min");
+    expect(tidRad("u7")!.textContent).toBe("Tid saknas · förslag 4 h 11 min");
     expect(text()).not.toMatch(/\d,\d\d h|\d\.\d\d/);
+    // ETT kort = ETT tryck: tiden är text inne i radens knapp, ingen egen knapp med egen pil
+    expect(tidRad("u8")!.tagName).toBe("DIV");
+    expect(tidRad("u8")!.closest("button")!.getAttribute("aria-label")).toBe("Visa flytten Giant");
   });
 
-  it("arket: tiden stor, var den kommer ifrån i ord, ±15 min/±1 h, tillbaka till förslaget — Spara skriver timmar med två decimaler", async () => {
+  it("kortet öppnar flyttens ark; raden Tid under FAKTURA öppnar tidsvyn (stor tid, var den kommer ifrån, ±15 min/±1 h) — Spara skriver timmar med två decimaler och tar dig tillbaka", async () => {
     medLossning();
     await oppnaFakturering();
-    await klicka(tidRad("u8")!);
+    await oppnaS("u8", "Giant");
+    expect(dlg()!.getAttribute("aria-label")).toMatch(/^Giant · /);
+    expect(valRad("Tid")!.getAttribute("aria-label")).toBe("Tid: Saknas");
+    expect(valRad("Tid")!.parentElement!.textContent).toContain("Förslag 4 h 3 min — tryck för att spara");
+    await klicka(valRad("Tid")!);
     expect(dlg()!.getAttribute("aria-label")).toBe("Tid att fakturera");
     expect(dlg()!.querySelector("[data-tid-tal]")!.textContent).toBe("4 h 3 min");
     expect(dlg()!.querySelector("[data-tid-varifran]")!.textContent).toBe("Från 15:52 – bilen åkteTill 19:55 – bilen var tillbaka");
@@ -3240,16 +3248,17 @@ describe("Tid att fakturera (flytt över 3 mil): appen föreslår tiden ur runda
     expect(knapp(/Tillbaka till appens förslag \(4 h 3 min\)/, dlg()!)).toBeTruthy();
     await klicka(dlg()!.querySelector("[data-tid-spara]") as HTMLElement);
     expect(mock.skrivningar.at(-1)).toEqual({ tabell: "fakturaunderlag_flytt", varden: { traillertimmar: 4.3 } });
-    expect(dlg()).toBeNull();
-    await vantaTills(() => tidRad("u8")?.textContent === "Tid 4 h 18 minchevron_right");
-    expect(tidRad("u8")!.textContent).toBe("Tid 4 h 18 minchevron_right");
+    expect(dlg()!.getAttribute("aria-label")).toMatch(/^Giant · /);                 // tillbaka i flyttens ark
+    expect(valRad("Tid")!.getAttribute("aria-label")).toBe("Tid: 4 h 18 min");
+    await vantaTills(() => tidRad("u8")?.textContent === "Tid 4 h 18 min");
+    expect(tidRad("u8")!.textContent).toBe("Tid 4 h 18 min");
   });
 
   it("Godkänn sparar förslaget med samma tryck, och Ångra tar bort både godkännandet och tiden", async () => {
     medLossning();
     mock.extraUnderlag = [U("og-t", "2026-10-06", 53, "PONS20SDJAA270231", "o-vallust", "o-bagskytte", { ...OGODKAND, flytt_id: "b1" })];
     await oppnaFakturering();
-    expect(tidRad("og-t")!.textContent).toBe("Tid 4 h 3 min · sparas när du godkännerchevron_right");
+    expect(tidRad("og-t")!.textContent).toBe("Tid 4 h 3 min · sparas när du godkänner");
     const rad = document.querySelector('[data-underlag="og-t"]') as HTMLElement;
     await klicka(knapp(/^Godkänn$/, rad));
     const godk = mock.skrivningar.at(-1)!;
@@ -3262,8 +3271,10 @@ describe("Tid att fakturera (flytt över 3 mil): appen föreslår tiden ur runda
 
   it("utan lossningstid, eller om rundan inte går att läsa, säger raden varför — och arket låter dig ställa in tiden själv", async () => {
     await oppnaFakturering();                                                       // fixturens flyttar saknar lossningstid
-    expect(tidRad("u8")!.textContent).toBe("Tid saknas · en flytt i rundan saknar lossningstidchevron_right");
-    await klicka(tidRad("u8")!);
+    expect(tidRad("u8")!.textContent).toBe("Tid saknas · en flytt i rundan saknar lossningstid");
+    await oppnaS("u8", "Giant");
+    expect(valRad("Tid")!.parentElement!.textContent).toContain("En flytt i rundan saknar lossningstid — ställ in tiden själv");
+    await klicka(valRad("Tid")!);
     expect(dlg()!.querySelector("[data-tid-saknas]")!.textContent).toContain("Ställ in den själv");
     expect(dlg()!.querySelector("[data-tid-tal]")!.textContent).toBe("Ingen tid");
     expect((dlg()!.querySelector("[data-tid-spara]") as HTMLButtonElement).disabled).toBe(true);
@@ -3273,7 +3284,7 @@ describe("Tid att fakturera (flytt över 3 mil): appen föreslår tiden ur runda
     await act(async () => { rot?.unmount(); }); rot = null;
     mock.rundorFel = true;
     await oppnaFakturering();
-    expect(tidRad("u8")!.textContent).toBe("Tid saknas · kunde inte läsa rundanchevron_right");
+    expect(tidRad("u8")!.textContent).toBe("Tid saknas · kunde inte läsa rundan");
   });
 
   it("en flytt under 3 mil har ingen tidrad (den har fast pris)", async () => {
