@@ -19,9 +19,10 @@ describe('hyttspår utan luckor — kopplingen i sidan', () => {
     expect(sida).toContain('hamtaHyttspar: () => hyttsparPointsRef.current')
     expect(hook).toContain('sparUrHyttspar(')
   })
-  it('"GPS saknas" visas bara via gpsSaknas() och göms för serial-bannern', () => {
+  it('"GPS saknas" visas bara via gpsSaknas() — och den gamla 5 s-bannern finns inte', () => {
     expect(sida).toContain('gpsSaknas(Date.now(), senasteGiltigFixRef.current')
-    expect(sida).toMatch(/gpsSaknasNu && korvyActive && !startOverlayAktiv && !\(serialGpsAktiv && !gpsFixFarsk\)/)
+    expect(sida).toContain('gpsSaknasNu && korvyActive && !startOverlayAktiv && (')
+    expect(sida).not.toContain('Ingen GPS-fix')   // EN regel: ingen GPS-text förrän "GPS saknas" efter 60 s
   })
   it('källan strypt till en fix per sekund i serial-loopen', () => {
     expect(kalla).toContain('skaNotifiera(strypState, fix, nuMs)')

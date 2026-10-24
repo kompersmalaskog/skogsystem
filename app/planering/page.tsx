@@ -3009,7 +3009,7 @@ export default function PlannerPage() {
   // precis som "Aktivera kompass". På iOS standalone gejtar detta det passiva mount-anropet nedan.
   const [platsAktiverad, setPlatsAktiverad] = useState<boolean>(() => { try { return typeof localStorage !== 'undefined' && localStorage.getItem('gps-aktiverad') === '1'; } catch { return false; } });
   // GPS-KÄLLA (lib/gpsKalla): Web Serial (maskindator) eller geolocation (telefon). gpsFixFarsk=false →
-  // fix tappad (serial: ingen giltig RMC på 5 s) → pricken dämpas, "Ingen GPS-fix", inga punkter loggas.
+  // fix tappad (serial: ingen giltig RMC på 5 s) → pricken dämpas och inga punkter loggas. Ingen text förrän "GPS saknas" (60 s, lib/gpsSaknas).
   const [gpsFixFarsk, setGpsFixFarsk] = useState(true);
   // "GPS saknas": ingen giltig fix på över en minut medan körvyn är öppen (lib/gpsSaknas). Ingen text alls med bra fix.
   const senasteGiltigFixRef = useRef<number | null>(null);
@@ -12951,13 +12951,13 @@ export default function PlannerPage() {
         if (radNu) startRadSenasteRef.current = radNu;
         const radText = radNu ?? startRadSenasteRef.current;   // behåll texten medan raden tonar ut
         const radVisa = radNu != null;
-        const radIngenFix = radText === 'Ingen GPS-fix';
+        const radIngenFix = radText === 'GPS saknas';
         return (
           <>
             {/* HELSVART täckskikt (ingen logga, ingen text): opakt medan kartan laddar, tonar sedan ut så kartan
                 "tonar upp ur svart". */}
             <StartSvartSkarm synlig={startCoverSynlig(startFasNu)} namn={startMaskinNamn || maskinSomParam} kartaFinns={!!valtObjekt} />
-            {/* Nedre rad: "Söker GPS" (utzoomad utan fix) → "Ingen GPS-fix" (efter 30 s, står kvar) och
+            {/* Nedre rad: "Söker GPS" (utzoomad utan fix) → "GPS saknas" (efter 60 s, står kvar) och
                 "<objekt> – N m³ kvar" FÖRST när kameran landat (tonar bort efter 5 s). */}
             {radText && (
               <div style={{
@@ -15553,15 +15553,8 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* "Ingen GPS-fix" — serial-GPS (maskindator) har tappat fix (rule 4). Pricken är redan dämpad. */}
-      {serialGpsAktiv && !gpsFixFarsk && korvyActive && !startOverlayAktiv && (
-        <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(255,159,10,0.92)', color: '#000', fontSize: '13px', fontWeight: 600, padding: '8px 14px', borderRadius: '18px', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-          {gpsFordrojdMs != null ? `GPS-data är fördröjd (${formateraFordrojning(gpsFordrojdMs)})` : 'Ingen GPS-fix'}
-        </div>
-      )}
-
-      {/* "GPS saknas" — ingen giltig fix på över en minut. Syns ALDRIG med bra fix (ren skärm); serial-bannern ovan har företräde. */}
-      {gpsSaknasNu && korvyActive && !startOverlayAktiv && !(serialGpsAktiv && !gpsFixFarsk) && (
+      {/* "GPS saknas" — ENDA GPS-texten på skärmen: ingen giltig fix på över en minut (lib/gpsSaknas). Syns aldrig med bra fix (ren skärm). */}
+      {gpsSaknasNu && korvyActive && !startOverlayAktiv && (
         <div data-testid="gps-saknas" style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(28,28,30,0.92)', color: '#8e8e93', fontSize: '13px', fontWeight: 600, padding: '8px 14px', borderRadius: '18px', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
           GPS saknas – spåret loggas inte
         </div>

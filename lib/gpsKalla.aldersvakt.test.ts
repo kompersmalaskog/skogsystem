@@ -147,8 +147,9 @@ describe("formateraFordrojning — texten bredvid 'GPS-data är fördröjd'", ()
 // Vakt mot att UI-kopplingen i planeringsvyn försvinner (sidan är 24 000 rader och körs inte i enhetstester)
 describe("planeringsvyn visar fördröjd GPS-data och erbjuder baudrate-val", () => {
   const src = readFileSync(new URL("../app/planering/page.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-  it("bannern säger 'GPS-data är fördröjd' (med hur mycket) i st.f. 'Ingen GPS-fix' när åldersvakten slagit till", () => {
-    expect(src).toContain("`GPS-data är fördröjd (${formateraFordrojning(gpsFordrojdMs)})` : 'Ingen GPS-fix'");
+  it("ingen GPS-text på kartytan förutom \"GPS saknas\" (60 s): den gamla bannern \"Ingen GPS-fix\"/\"GPS-data är fördröjd\" efter 5 s finns inte", () => {
+    expect(src).not.toContain("Ingen GPS-fix");
+    expect(src).not.toMatch(/serialGpsAktiv && !gpsFixFarsk && korvyActive/);
     expect(src).toContain("setGpsFordrojdMs(fix.fordrojd ? (fix.nmeaAlderMs ?? 0) : null);");
   });
   it("en giltig fix nollar fördröjd-läget", () => {
