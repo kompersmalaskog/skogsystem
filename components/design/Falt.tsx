@@ -17,8 +17,8 @@ type Props = {
   stod?: ReactNode;
   autoFocus?: boolean;
   name?: string;
-  /** `date` ger systemets datumväljare (YYYY-MM-DD); annars vanlig text. */
-  typ?: 'text' | 'date';
+  /** `date` ger systemets datumväljare (YYYY-MM-DD), `time` klockväljaren (HH:MM), `tel` telefontangentbordet; annars vanlig text. */
+  typ?: 'text' | 'date' | 'time' | 'tel';
 };
 
 export default function Falt({ etikett, value, onChange, placeholder, inputMode = 'text', enhet, stod, autoFocus, name, typ = 'text' }: Props) {
