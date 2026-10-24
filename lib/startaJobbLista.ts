@@ -193,7 +193,7 @@ export type JobbListaSvar = { ok: true; jobb: JobbVy[]; varningar: string[] } | 
 /** Läser allt listan behöver. Planeringsraderna måste gå att läsa (annars fel). Ett fel i maskindatan gör listan till ett fel —
  *  aldrig "Ledig" på ett nummer som kanske är taget. */
 export async function lasJobbLista(supabase: SupabaseClient, idagAr: number): Promise<JobbListaSvar> {
-  // egen_skotning finns först efter migrationen 20261024120000 — utan den läses listan ändå, utan kolumnen.
+  // egen_skotning finns först efter migrationen 20261024121848 — utan den läses listan ändå, utan kolumnen.
   let objR: { data: any[] | null; error: { message: string } | null } = await supabase.from('objekt').select(OBJ_KOL + ', egen_skotning').like('vo_nummer', 'P-%');
   if (objR.error && /egen_skotning/.test(objR.error.message || '')) objR = await supabase.from('objekt').select(OBJ_KOL).like('vo_nummer', 'P-%');
   if (objR.error) return { ok: false, fel: `Jobben kunde inte läsas: ${objR.error.message}` };
