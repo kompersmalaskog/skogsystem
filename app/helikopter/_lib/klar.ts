@@ -14,7 +14,7 @@
 //    tal som Klar med trakten föreslår) och märks `uppskattad`; maskinens datum blir då "ca". GROT/energiklippning har inget förslag.
 //  · GROT (bara skotning) och energiklippning ligger i maskinens kö som alla andra trakter (version 2 av RPC:n, migration 20261023181540) —
 //    de räknas aldrig mot beställningen men flyttar klar-datumet.
-//  · PROGNOSEN FÖLJER TRAKTEN (2026-10-24, version 3 av RPC:n, migration 20261024100000): har maskinen lagt ≥ 4 G15-timmar på trakten räknas
+//  · PROGNOSEN FÖLJER TRAKTEN (2026-10-24, version 3 av RPC:n, migration 20261024093656): har maskinen lagt ≥ 4 G15-timmar på trakten räknas
 //    resten på hur fort det faktiskt gått där, viktat mot prognosen (`medFoljandePrognos`, lib/prognosFoljer) — trakten märks `foljer`.
 // Inga imports av React eller Supabase.
 import { TYP_NAMN, klararTyp } from './berakningar'

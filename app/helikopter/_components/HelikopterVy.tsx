@@ -4,7 +4,7 @@
 //
 // Uppifrån: månaden (‹ Oktober 2026 ›, arbetsdagar kvar) · svaret i EN mening i vanliga ord · fyra kort i ett rutnät:
 //   SKOTAT (ett tal per spår) · GÖR DETTA (högst tre rader, resten bakom "N saker till") · NÄR BLIR MASKINERNA KLARA? (namn + datum) ·
-//   MER (Skördat, Maskiner, Takt, Veckor, Per bolag, Tidigare månader, Månadsfacit) · DIN MASKIN (förare) · ONSDAGSNOTIS (admin).
+//   MER (Skördat, Maskiner, Takt, Träffsäkerhet, Veckor, Per bolag, Tidigare månader, Månadsfacit) · DIN MASKIN (förare) · ONSDAGSNOTIS (admin).
 // Allt som står på sidan räknas i _lib/kort.ts (ren vymodell); den här filen hämtar och ritar.
 // Klar-datumen räknas i appen (klar.ts raknaAlla) på RPC:ns underlag + G15-förslaget för trakter utan prognos (medUppskattadPrognos) + prognosen som följer trakten (medFoljandePrognos),
 // så sidan och flyttförslaget räknar på samma tal.
@@ -55,6 +55,7 @@ import EjTilldeladeSheet from './EjTilldeladeSheet'
 import MotBestallningSheet from './MotBestallningSheet'
 import BolagSheet from './BolagSheet'
 import SkordatSheet from './SkordatSheet'
+import TraffsakerhetSheet from './TraffsakerhetSheet'
 
 /** Från denna bredd står månaderna som sidokolumn. Samma som markägarrapporten. */
 export const SIDOKOLUMN_FRAN_PX = 1100
@@ -79,7 +80,7 @@ const css = `
 }
 `
 
-type Ark = 'maskiner' | 'maskiner_manad' | 'utan' | 'ej' | 'best' | 'skordat' | 'historik' | 'alla' | 'flytt' | 'veckor' | 'bolagval' | `bolag:${Typ}` | `maskin:${string}`
+type Ark = 'maskiner' | 'maskiner_manad' | 'traffsakerhet' | 'utan' | 'ej' | 'best' | 'skordat' | 'historik' | 'alla' | 'flytt' | 'veckor' | 'bolagval' | `bolag:${Typ}` | `maskin:${string}`
 
 export default function HelikopterVy() {
   const sp = useSearchParams()
@@ -342,6 +343,7 @@ export default function HelikopterVy() {
                         <RadLank text="Skördat" onClick={() => setArk('skordat')} />
                         <RadLank text="Maskiner" smakprov="m³fub i månaden" onClick={() => setArk('maskiner_manad')} />
                         <RadLank text="Takt och stopp" onClick={() => setArk('maskiner')} />
+                        <RadLank text="Träffsäkerhet" smakprov="prognos mot utfall" onClick={() => setArk('traffsakerhet')} />
                         <RadLank text="Veckor" onClick={() => setArk('veckor')} />
                         <RadLank text="Per bolag" onClick={() => setArk('bolagval')} />
                         {status === 'avslutad' && <RadLank text="Månadsfacit" smakprov="dela som A4" href={facitHref(ar, manad)} />}
@@ -353,6 +355,7 @@ export default function HelikopterVy() {
                   </div>
 
                   <SkordatSheet open={ark === 'skordat'} onClose={stang} spar={spar} status={status} />
+                  <TraffsakerhetSheet open={ark === 'traffsakerhet'} onClose={stang} />
                   <MaskinerManadSheet open={ark === 'maskiner_manad'} onClose={stang} maskiner={maskinerManad?.nyckel === nyckel ? maskinerManad.rader : null} fel={maskinerFel} onRetry={() => { setMaskinerManad(null); setVersion(v => v + 1) }} manadNamn={manadNamn} manuella={manuella} />
                   {/* Veckor och Per bolag: ett spår i taget — valet i ett litet ark så Mer inte blir en lång lista. */}
                   {(ark === 'veckor' || ark === 'bolagval') && (

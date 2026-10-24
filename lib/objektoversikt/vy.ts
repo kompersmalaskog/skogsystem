@@ -87,6 +87,8 @@ export interface VyRad {
   under?: string | null;
   /** En andra rad under (t.ex. maskinerna). */
   under2?: string | null;
+  /** Appens frysta prognos mot utfallet (bara skördaren/skotaren, bara när en finns). */
+  facit?: string | null;
   /** Under-raden är en avvikelse (orange). Ordet står alltid i texten — färgen förstärker bara. */
   varning?: boolean;
   hoger: string;
@@ -141,6 +143,22 @@ export function prognosText(faktiskMin: number, prognosTim: number | undefined, 
   if (diff >= 0 && tim === 0) return { text: `${p} – nådd nu`, varning: false };
   if (diff < 0) return { text: `${p} – ${tim} tim kvar enligt prognosen`, varning: false };
   return { text: `${p} – redan ${tim} tim över`, varning };
+}
+
+/**
+ * "Appens prognos 48 tim – appen låg närmast" / "– planeraren låg närmast" / "– lika nära som planerarens". Bara när appen
+ * har en fryst prognos; på en pågående trakt eller utan planerarens prognos står bara talet. Närmast = minsta avstånd i
+ * timmar till utfallet; under en halvtimmes skillnad är det lika.
+ */
+export function appPrognosRad(faktiskMin: number, planTim: number | undefined, appTim: number | undefined, klar: boolean): string | null {
+  if (appTim == null) return null;
+  const a = `Appens prognos ${decimal(appTim, appTim % 1 ? 1 : 0)} tim`;
+  if (!klar || planTim == null) return a;
+  const f = faktiskMin / 60;
+  const dApp = Math.abs(f - appTim);
+  const dPlan = Math.abs(f - planTim);
+  if (Math.abs(dApp - dPlan) < 0.5) return `${a} – lika nära som planerarens`;
+  return `${a} – ${dApp < dPlan ? 'appen' : 'planeraren'} låg närmast`;
 }
 
 function maskinRad(s: Sammanstallning, roll: Roll): string | null {
@@ -287,8 +305,9 @@ export function byggObjektVy(s: Sammanstallning, prod: Produktion, maskinNamn: (
       tidRader.push({ nyckel: roll, titel: ROLL_NAMN[roll], under: s.prognos[roll] != null ? `Prognos ${decimal(s.prognos[roll]!, s.prognos[roll]! % 1 ? 1 : 0)} tim – ingen tid än` : 'Ingen tid än', hoger: '–', dampad: true, farg: TID_FARG[roll] });
       continue;
     }
-    const p = prognosText(min, s.prognos[roll], rollKlar(s, roll));
-    tidRader.push({ nyckel: roll, titel: ROLL_NAMN[roll], under: p.text, varning: p.varning, under2: maskinRad(s, roll), hoger: timmar(min), farg: TID_FARG[roll] });
+    const klar = rollKlar(s, roll);
+    const p = prognosText(min, s.prognos[roll], klar);
+    tidRader.push({ nyckel: roll, titel: ROLL_NAMN[roll], under: p.text, varning: p.varning, under2: maskinRad(s, roll), facit: appPrognosRad(min, s.prognos[roll], s.appPrognos[roll], klar), hoger: timmar(min), farg: TID_FARG[roll] });
   }
   const antal = s.flyttar.length;
   const utanTid = s.flyttar.filter(f => f.min == null).length;

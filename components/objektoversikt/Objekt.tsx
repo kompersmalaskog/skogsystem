@@ -141,10 +141,12 @@ function Rader({ rader }: { rader: VyRad[] }) {
   return (
     <>
       {rader.map((r, i) => {
-        const under: ReactNode = (r.under || r.under2) ? (
+        const under: ReactNode = (r.under || r.under2 || r.facit) ? (
           <>
             {r.under && <span style={r.varning ? { color: FARG.orange } : undefined}>{r.under}</span>}
-            {r.under && r.under2 && <br />}
+            {r.under && r.facit && <br />}
+            {r.facit}
+            {(r.under || r.facit) && r.under2 && <br />}
             {r.under2}
           </>
         ) : undefined;

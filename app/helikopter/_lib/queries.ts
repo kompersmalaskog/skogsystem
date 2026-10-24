@@ -12,6 +12,7 @@ import { lasHistorik, lasManadsfacit, type Historik, type Manadsfacit } from './
 import { normStopp, normTakt } from './maskinData'
 import { lasKlar, type KlarData, type KlarRoll } from './klar'
 import type { UtfallRad } from '@/lib/g15Forslag'
+import type { FacitRad } from './traffsakerhet'
 
 export type Typ = 'slutavverkning' | 'gallring'
 
@@ -508,6 +509,21 @@ export async function hamtaPrognosUtfall(): Promise<Svar<UtfallRad[]>> {
     data: r.data.map((x: any): UtfallRad => ({
       typ: x.typ ?? null, volymObjekt: talEllerNull(x.volym_objekt), skordadM3: talEllerNull(x.skordad_m3), stammar: talEllerNull(x.stammar),
       skordareG15: talEllerNull(x.skordare_g15), skotareG15: talEllerNull(x.skotare_g15),
+    })),
+    error: null,
+  }
+}
+
+/** Facit per avslutad trakt (RPC prognos_facit): blev, planerarens och appens prognos — underlaget för Träffsäkerhet (_lib/traffsakerhet.ts). Ett fel är ett fel, aldrig en tom lista. */
+export async function hamtaPrognosFacit(): Promise<Svar<FacitRad[]>> {
+  const r = await rpc<any[]>('prognos_facit', {})
+  if (r.error) return { data: null, error: r.error }
+  if (!Array.isArray(r.data)) return { data: null, error: 'prognos_facit gav ett oväntat svar' }
+  return {
+    data: r.data.map((x: any): FacitRad => ({
+      objekt_id: String(x.objekt_id), namn: String(x.namn ?? 'Objekt'), typ: x.typ ?? null, klart: x.klart ?? null,
+      skordare_g15: talEllerNull(x.skordare_g15), skotare_g15: talEllerNull(x.skotare_g15),
+      manuell_prognos: x.manuell_prognos ?? null, app_prognos: x.app_prognos ?? null,
     })),
     error: null,
   }
