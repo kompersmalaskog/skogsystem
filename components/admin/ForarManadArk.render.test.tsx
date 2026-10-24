@@ -115,6 +115,28 @@ describe("ForarManadArk — Stefan september 2026", () => {
     expect(text()).toContain("1 sep · Hem → Stänkelsmåla 2025 · 113 km beräknad · → 6 mil");
   });
 
+  it("Lönekvot är en rad i arket, också för en förare utan maskinfiler ('–', aldrig 0 %)", async () => {
+    const { m } = await stefanUnderlag();
+    const mm = { ...m, dagar: m.dagar.map((d: any) => ({ ...d, maskintid: { min: 0, kalla: "ingen_fil", maskinens_min: 0 } })) };   // maskin som inte skickar filer (810E)
+    await act(async () => { r.render(<ForarManadArk m={mm} arbetsManad="2026-09" onStang={vi.fn()} />); });
+    await flush();
+    const rad = q("[data-lonekvot]")!;
+    expect(rad.textContent).toContain("Lönekvot");
+    expect(rad.textContent).toContain("Inga dagar med maskinfiler");
+    expect(rad.textContent).toContain("–");
+    expect(rad.textContent).not.toContain("0 %");
+  });
+
+  it("Lönekvot med maskinfiler: samma procent och förklaring som Dagar visar för samma dagar", async () => {
+    const { m } = await stefanUnderlag();
+    const mm = { ...m, dagar: m.dagar.map((d: any) => ({ ...d, maskintid: { min: Math.round(((d.arbetad_min || 0) + (d.extra_min || 0)) * 0.75), kalla: "fil", maskinens_min: 0 } })) };
+    await act(async () => { r.render(<ForarManadArk m={mm} arbetsManad="2026-09" onStang={vi.fn()} />); });
+    await flush();
+    const rad = q("[data-lonekvot]")!;
+    expect(rad.textContent).toContain("75 %");
+    expect(rad.textContent).toContain("med maskinfiler");
+  });
+
   it("Stäng", async () => {
     const { stang } = await montera();
     await act(async () => { (Array.from(document.body.querySelectorAll("button")).find(b => b.textContent === "Stäng") as HTMLButtonElement).click(); });

@@ -1,13 +1,13 @@
 "use client";
 // Årsövertid (Admin → Lön → Löneunderlag): EN fråga — hur nära taket (250 tim/år) är varje förare?
 // En rad per förare: namn till vänster, "74,5 av 250 tim" till höger, tunn stapel under. Grå normalt, orange över
-// (tak − 50), röd över taket; noll visas dämpad. Talen är månadsregeln (samma som lönen, sedan 2026-10-19; utjämningsmånader som
+// (tak − 50), röd över taket; noll visas dämpad. Alla förare har en rad. Talen är månadsregeln (samma som lönen, sedan 2026-10-19; utjämningsmånader som
 // avtalets genomsnitt, Skogsavtalet §5 mom 2). Allt förklarande ligger bakom länken "Så räknas det".
 // Uppbyggnaden är ren (lib/admin/arsovertidVy): samma funktion ger Översiktens rad vid 200 tim.
 import React, { useState } from "react";
 import { AVSTAND, FARG, KNAPP, RADIE, TNUM, TYP } from "@/lib/design/tokens";
 import { Kort } from "./ui";
-import { arsovertidRader, manadRad, narmarTaket, overlapparManad, timmarText, unikaUtjamningar, utjamningsRad, type ArsovertidSvar, type Niva } from "@/lib/admin/arsovertidVy";
+import { arsovertidRader, manadRad, overlapparManad, timmarText, unikaUtjamningar, utjamningsRad, type ArsovertidSvar, type Niva } from "@/lib/admin/arsovertidVy";
 
 const FARG_PER_NIVA: Record<Niva, string> = { noll: FARG.text3, lugn: FARG.text2, varning: FARG.orange, over: FARG.rod };
 
@@ -24,22 +24,18 @@ export default function ArsovertidKort({ svar, manad }: { svar: ArsovertidSvar; 
     );
   }
 
-  const alla = arsovertidRader(svar);
-  const rader = narmarTaket(alla);
-  const hogst = alla.length > 0 ? alla[0] : null; // sorterad på timmar, störst först
+  // Alla förare, störst först (noll dämpad). En gräns som gömde dem under halvvägs svarade inte på frågan "hur nära taket är var och en?".
+  const rader = arsovertidRader(svar);
   const utjamning = unikaUtjamningar(svar.utjamning).filter(u => !manad || overlapparManad(u, manad));
-  const manaderPerForare = (svar.medarbetare || []).map(m => ({ m, rad: manadRad(m.per_manad) })).filter(x => x.rad);
+  const manaderPerForare = (svar.medarbetare || []).filter(m => m.foretagsledare !== true).map(m => ({ m, rad: manadRad(m.per_manad) })).filter(x => x.rad);
 
   return (
     <Kort style={{ marginBottom: AVSTAND.m }}>
       <div data-arsovertid-kort>
       {rubrik}
 
-      {alla.length === 0 && (
+      {rader.length === 0 && (
         <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Ingen förare har registrerad arbetstid i år än.</p>
-      )}
-      {alla.length > 0 && rader.length === 0 && hogst && (
-        <p data-arsovertid-ingen style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>{hogst.timmar > 0 ? `Ingen närmar sig taket · högst ${timmarText(hogst.timmar)} av ${hogst.tak} tim` : "Ingen närmar sig taket · ingen övertid än"}</p>
       )}
       {rader.map((r, i) => (
         <div key={r.id} data-arsovertid-rad data-niva={r.niva}

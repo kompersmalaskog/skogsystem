@@ -10,6 +10,7 @@
 //
 // Datum skrivs på ETT sätt här: "11 aug".
 import { helglonSkalText } from "@/lib/lonesystem/helglon";
+import { forarStatus, type ForarStatus } from "@/lib/lonesystem/forarGodkannande";
 import { unikaUtjamningar, utjamningsRad } from "@/lib/admin/arsovertidVy";
 
 const MAN_KORT = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
@@ -22,13 +23,33 @@ export type Mal =
   | { typ: "personer" }
   | { typ: "lonearter" };
 
-export type VyRad = { id: string; text: string; mal?: Mal; knapp?: string };
+/** Minutskillnad mot maskinen (föraren bekräftade en annan tid än maskinens) visas först från den här gränsen — en skillnad på några minuter är brus. */
+export const SYNK_VISA_FRAN_MIN = 15;
+export const synkVisas = (diffMin: number) => Math.abs(diffMin) >= SYNK_VISA_FRAN_MIN;
+
+/**
+ * En punkt under "Att kolla". `kvitterad` finns bara när admin tryckt "Ser rätt ut" och raden är oförändrad sedan dess (samma id och
+ * samma text) — ändras värdet i raden gäller kvitteringen inte längre.
+ */
+export type VyRad = { id: string; text: string; mal?: Mal; knapp?: string; kvitterad?: true };
+
+/** En sparad kvittering (tabellen lon_kvittering) för förarens arbetsmånad. */
+export type Kvittering = { medarbetare_id: string; punkt: string; text: string };
+
+/** Det som har en riktig åtgärd (maskin utan typ ger ingen premie; obekräftade dagar) går inte att kvittera bort. */
+export const arKvitterbar = (id: string) => !id.startsWith("typ-") && id !== "obekr";
 
 export type ForarKort = {
   id: string;
   namn: string;
   ledare: boolean;
   status: string;
+  /** Väntar på föraren / Godkänd av föraren / Skickad. Null för en företagsledare (lönen ligger utanför appen). */
+  forarStatus: ForarStatus | null;
+  /** Godkännandet nollställdes av en ändring i månaden: texten att visa under namnet. */
+  andrad: { at: string; datum: string | null; text: string } | null;
+  /** Månaden är redan skickad till Fortnox och ändrades efteråt: texten att visa (det ska rättas i nästa lön). Bara på en skickad månad. */
+  andradEfterSkickat: { at: string; dagar: string[]; text: string } | null;
   /** Anställningsnumret saknas: går inte att skicka. */
   saknarAnstNr: boolean;
   helglon: string[];
@@ -56,13 +77,37 @@ function franvaroRad(v: string): string | null {
   return `${ord} ${nar} · ingen löneart i Fortnox, lägg in för hand`;
 }
 
-export function byggForarKort(m: any, oenighet: any[] = []): ForarKort {
+/** Så många dagar skrivs ut på kortet; resten blir "och N till". */
+export const ANDRAD_SKICKAT_MAX_DAGAR = 3;
+
+/** "Ändrad efter att den skickats · 10 sep" — med de dagar som ändrats (de tre första), eller bara meningen om inga dagar är kända. */
+export function andradEfterSkickatText(dagar: string[]): string {
+  const bas = "Ändrad efter att den skickats";
+  if (dagar.length === 0) return bas;
+  const rest = dagar.length - ANDRAD_SKICKAT_MAX_DAGAR;
+  return `${bas} · ${dagar.slice(0, ANDRAD_SKICKAT_MAX_DAGAR).map(dagText).join(", ")}${rest > 0 ? ` och ${rest} till` : ""}`;
+}
+
+export function byggForarKort(m: any, oenighet: any[] = [], kvitteringar: Kvittering[] = []): ForarKort {
   const ledare = m.foretagsledare === true;
-  const kort: ForarKort = { id: m.medarbetare_id, namn: m.namn, ledare, status: m.status, saknarAnstNr: !ledare && !m.anstallningsnummer, helglon: [], kolla: [], info: [] };
+  const andr = !ledare && m.andrad_efter_godkannande?.at ? m.andrad_efter_godkannande as { at: string; datum: string | null } : null;
+  // Bara en månad som ÄR skickad kan vara "ändrad efter att den skickats" (annars gäller "ändrad efter godkännandet" ovan).
+  const efterSkickat = !ledare && m.status === "skickat" && m.andrad_efter_skickat?.at ? m.andrad_efter_skickat as { at: string; dagar?: string[] } : null;
+  const kort: ForarKort = {
+    id: m.medarbetare_id, namn: m.namn, ledare, status: m.status, forarStatus: forarStatus({ status: m.status, godkannande: m.godkannande, foretagsledare: ledare }),
+    andrad: andr ? { at: andr.at, datum: andr.datum ?? null, text: andr.datum ? `Ändrad efter godkännandet · ${dagText(andr.datum)}` : "Ändrad efter godkännandet" } : null,
+    andradEfterSkickat: efterSkickat ? { at: efterSkickat.at, dagar: efterSkickat.dagar ?? [], text: andradEfterSkickatText(efterSkickat.dagar ?? []) } : null,
+    saknarAnstNr: !ledare && !m.anstallningsnummer, helglon: [], kolla: [], info: [],
+  };
   if (ledare) return kort;
 
   const dagar: Mal = { typ: "dagar" };
-  const kolla = (id: string, text: string, mal?: Mal, knapp?: string) => kort.kolla.push({ id, text, mal, knapp });
+  const kvitterade = new Set(kvitteringar.filter(k => k.medarbetare_id === m.medarbetare_id).map(k => `${k.punkt}\u0000${k.text}`));
+  const kolla = (id: string, text: string, mal?: Mal, knapp?: string) => {
+    const rad: VyRad = { id, text, mal, knapp };
+    if (arKvitterbar(id) && kvitterade.has(`${id}\u0000${text}`)) rad.kvitterad = true;
+    kort.kolla.push(rad);
+  };
   const info = (id: string, text: string) => kort.info.push({ id, text });
 
   for (const h of m.helglon?.dagar || []) {
@@ -84,13 +129,14 @@ export function byggForarKort(m: any, oenighet: any[] = []): ForarKort {
     kolla(`rast-${r.datum}`, `${dagText(r.datum)}: rast ${r.rast_min} min${stopp}`, dagar, "Se dagen");
   }
   for (const k of m.kortpass || []) kolla(`kort-${k.datum}`, `${dagText(k.datum)}: kortpass ${k.minuter} min · räknas inte som arbetsdag`, dagar, "Se dagen");
-  (m.synk || []).forEach((s: any, i: number) => kolla(`synk-${i}`, `${dagText(s.datum)}: ${s.diff_min} min skiljer mot maskinen (du sa ${s.bekraftat}, maskinen ${s.maskinen})`, dagar, "Se dagen"));
-  (m.ledighetskollision || []).forEach((k: any, i: number) => kolla(`led-${i}`, `${dagText(k.datum)}: godkänd ledighet (${k.typ}) och ${fmtMin(k.arbetad_min)} arbete`, dagar, "Se dagen"));
+  // Id:t följer DATUMET (inte ordningen i listan): en kvittering ska inte hoppa till en annan dag när listan ändras.
+  (m.synk || []).filter((s: any) => synkVisas(s.diff_min)).forEach((s: any) => kolla(`synk-${s.datum}`, `${dagText(s.datum)}: ${s.diff_min} min skiljer mot maskinen (du sa ${s.bekraftat}, maskinen ${s.maskinen})`, dagar, "Se dagen"));
+  (m.ledighetskollision || []).forEach((k: any, i: number) => kolla(`led-${k.datum}${i > 0 && m.ledighetskollision[i - 1]?.datum === k.datum ? `-${i}` : ""}`, `${dagText(k.datum)}: godkänd ledighet (${k.typ}) och ${fmtMin(k.arbetad_min)} arbete`, dagar, "Se dagen"));
   if ((m.obekraftade || 0) > 0) kolla("obekr", `${m.obekraftade} obekräftad${m.obekraftade === 1 ? "" : "e"} arbetsdag${m.obekraftade === 1 ? "" : "ar"}`, dagar, "Se dagarna");
   (m.byten || []).forEach((b: any, i: number) => {
     const text = `Bytesdag: ${dagText(b.ledig)} ersätter ${b.ersatterNamn} ${dagText(b.ersatter)}`
       + (b.ledigArbetad ? " — men den lediga dagen har arbete" : !b.ersatterArbetad ? " — men ingen arbetstid den röda dagen" : "");
-    if (b.ledigArbetad || !b.ersatterArbetad) kolla(`byte-${i}`, text, dagar, "Se dagen"); else info(`byte-${i}`, text);
+    if (b.ledigArbetad || !b.ersatterArbetad) kolla(`byte-${b.ledig}`, text, dagar, "Se dagen"); else info(`byte-${i}`, text);
   });
 
   // Hemskickad: betald tid (timlön + premie), ingen frånvaro. Antalet timmar per förare och månad — det Admin ska kunna se.
@@ -120,7 +166,7 @@ export function saknarAnstallningsdatum(medarbetare: any[]): { id: string; namn:
     .map(m => ({ id: m.medarbetare_id, namn: m.namn }));
 }
 
-/** Antal saker att kolla: varje kolla-rad, och en för anställningsdatum (hur många som än saknar det) och en för koder att koppla. */
+/** Antal saker att kolla: varje kolla-rad som inte är kvitterad, och en för anställningsdatum (hur många som än saknar det) och en för koder att koppla. */
 export function antalAttKolla(kort: ForarKort[], saknarDatum: number, kodRad: boolean): number {
-  return kort.reduce((n, k) => n + k.kolla.length + (k.saknarAnstNr ? 1 : 0), 0) + (saknarDatum > 0 ? 1 : 0) + (kodRad ? 1 : 0);
+  return kort.reduce((n, k) => n + k.kolla.filter(r => !r.kvitterad).length + (k.saknarAnstNr ? 1 : 0), 0) + (saknarDatum > 0 ? 1 : 0) + (kodRad ? 1 : 0);
 }

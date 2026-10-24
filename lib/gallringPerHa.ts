@@ -19,10 +19,12 @@
 // vägarna bredare än 4 m i rastret. Betet och Sandåsen gav 24–25 %, alltså ca 16–17 m mellan vägarna, där normalt är
 // 18–20 % och ca 20 m. Talet visas som "ca". En kalibrering mot EN trakt där avståndet mätts med måttband räcker.
 //
-// "Kvar efter gallring" (grundyta före ur Skogsstyrelsens laserdata) är INTE byggt — se STATUS/CLAUDE.md.
+// "Kvar efter gallring" (grundyta före ur Skogsstyrelsens laserdata, uppräknad) räknas i lib/laserKvar.ts på samma
+// gallrade yta och samma uttag som här.
 
 import { avverkadAreaM2, type Punkt } from './avverkadAreal';
 import { punktIPolygon } from './skotat';
+import { beraknaGallradYta, type GallradYta, type UtanforSvar, type EjGallratSvar } from './gallradYta';
 
 /** Stickvägens bredd i meter — bufferten runt spåret är halva. */
 export const STICKVAG_BREDD_M = 4;
@@ -55,7 +57,10 @@ export function ringarYtaM2(ringar: Punkt[][]): number {
   return yta;
 }
 
-export type StamPunkt = { lat: number; lng: number; dbhMm: number | null };
+export type StamPunkt = { id?: number | string; lat: number; lng: number; dbhMm: number | null };
+
+/** Stammarnas positioner måste täcka så stor del av MOM-uttaget innan ogallrad mark letas upp. */
+export const TACKNING_FOR_EJ_GALLRAT = 0.9;
 
 export type StickvagSvar =
   | { lage: 'ok'; andel: number; avstandM: number; roller: string[] }
@@ -66,12 +71,17 @@ export type PerHa =
   | { lage: 'ingen-grans' }
   | {
       lage: 'ok';
+      /** Arealen uttaget räknas på: den gallrade ytan när stammarna har positioner, annars Vidas gräns. */
       arealHa: number;
+      /** Vidas traktgräns i hektar (oförändrad, visas bredvid). */
+      vidaHa: number;
+      /** Den gallrade ytan — null utan stampositioner. */
+      yta: GallradYta | null;
       volymPerHa: number;
       stammarPerHa: number;
       /** null när inga stammar har diameter. */
       grundytaPerHa: number | null;
-      /** Andel av stamraderna med position som står utanför gränsen. null = inga positioner. */
+      /** Andel av stamraderna med position som INTE räknas (utanför gränsen och inte gallring). null = inga positioner. */
       andelUtanfor: number | null;
       stickvag: StickvagSvar;
     };
@@ -83,19 +93,24 @@ export type PerHaIndata = {
   stammar: number;
   stamrader: StamPunkt[];
   spar: { roll: string; linjer: Punkt[][] }[];
+  svarUtanfor?: Record<string, UtanforSvar>;
+  svarEjGallrat?: Record<string, EjGallratSvar>;
 };
 
-function inne(p: StamPunkt, ringar: Punkt[][]): boolean {
+function inne(p: { lat: number; lng: number }, ringar: Punkt[][]): boolean {
   return ringar.some((r) => punktIPolygon([p.lng, p.lat], r));
 }
 
 const grundyta = (dbhMm: number) => (Math.PI * dbhMm * dbhMm) / 4 / 1e6;
 
-export function stickvag(spar: PerHaIndata['spar'], ringar: Punkt[][], arealM2: number): StickvagSvar {
+export function stickvag(
+  spar: PerHaIndata['spar'], ringar: Punkt[][], arealM2: number,
+  inne?: (lng: number, lat: number) => boolean,
+): StickvagSvar {
   const medLinjer = spar.filter((s) => s.linjer.some((l) => l.length >= 2));
   if (medLinjer.length === 0 || !(arealM2 > 0)) return { lage: 'inget-spar' };
   const vagM2 = avverkadAreaM2(medLinjer.flatMap((s) => s.linjer), {
-    ringar, bufferM: STICKVAG_BREDD_M / 2, cellM: STICKVAG_RUTA_M,
+    ringar, inne, bufferM: STICKVAG_BREDD_M / 2, cellM: STICKVAG_RUTA_M,
   });
   const andel = vagM2 / arealM2;
   const roller = Array.from(new Set(medLinjer.map((s) => s.roll))).sort();
@@ -105,39 +120,100 @@ export function stickvag(spar: PerHaIndata['spar'], ringar: Punkt[][], arealM2: 
 
 export function beraknaPerHa(ind: PerHaIndata): PerHa {
   const ringar = ind.ringar.filter((r) => r.length >= 3);
-  const arealM2 = ringarYtaM2(ringar);
-  if (ringar.length === 0 || !(arealM2 > 0)) return { lage: 'ingen-grans' };
-  const arealHa = arealM2 / 10000;
+  const vidaM2 = ringarYtaM2(ringar);
+  if (ringar.length === 0 || !(vidaM2 > 0)) return { lage: 'ingen-grans' };
 
-  const med = ind.stamrader.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
-  let antalInne = 0;
+  const med = ind.stamrader
+    .map((p, i) => ({ ...p, id: p.id ?? i }))
+    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+
+  // Den gallrade ytan: bara när stammarna har positioner. Ogallrad mark letas bara när positionerna täcker uttaget.
+  const tackning = ind.stammar > 0 ? med.length / ind.stammar : 0;
+  const yta = med.length > 0
+    ? beraknaGallradYta({
+        ringar, stammar: med,
+        svarUtanfor: ind.svarUtanfor, svarEjGallrat: ind.svarEjGallrat,
+        hittaEjGallrat: tackning >= TACKNING_FOR_EJ_GALLRAT,
+      })
+    : null;
+  const raknas = (p: { id: number | string; lat: number; lng: number }) =>
+    yta ? yta.raknade.has(p.id) : inne(p, ringar);
+
+  // Ytan räknas i samma rutor som Vidas gräns, så "gallrat" och "Vidas gräns" går att jämföra rakt av.
+  const skala = yta && yta.vidaHa > 0 ? vidaM2 / 10000 / yta.vidaHa : 1;
+  const arealHa = yta ? yta.gallradHa * skala : vidaM2 / 10000;
+  if (!(arealHa > 0)) return { lage: 'ingen-grans' };
+
+  let antalRaknade = 0;
   let gAlla = 0;
-  let gInne = 0;
+  let gRaknade = 0;
   let medDiameter = 0;
   for (const p of med) {
-    const i = inne(p, ringar);
-    if (i) antalInne++;
+    const r = raknas(p);
+    if (r) antalRaknade++;
     const d = Number(p.dbhMm);
     if (Number.isFinite(d) && d > 0) {
       medDiameter++;
       gAlla += grundyta(d);
-      if (i) gInne += grundyta(d);
+      if (r) gRaknade += grundyta(d);
     }
   }
 
   // Utan positioner vet vi inget om vad som står utanför: hela uttaget räknas på trakten.
-  const andelInneAntal = med.length > 0 ? antalInne / med.length : 1;
-  const andelInneYta = gAlla > 0 ? gInne / gAlla : andelInneAntal;
+  const andelAntal = med.length > 0 ? antalRaknade / med.length : 1;
+  const andelYta = gAlla > 0 ? gRaknade / gAlla : andelAntal;
   // Luckor i detalj_stam: skala upp den mätta grundytan till MOM:s antal stammar (aldrig ned).
   const luckfaktor = medDiameter > 0 ? Math.max(1, ind.stammar / medDiameter) : 1;
 
   return {
     lage: 'ok',
     arealHa,
-    volymPerHa: (ind.volymM3fub * andelInneYta) / arealHa,
-    stammarPerHa: (ind.stammar * andelInneAntal) / arealHa,
-    grundytaPerHa: medDiameter > 0 ? (gInne * luckfaktor) / arealHa : null,
-    andelUtanfor: med.length > 0 ? 1 - andelInneAntal : null,
-    stickvag: stickvag(ind.spar, ringar, arealM2),
+    vidaHa: vidaM2 / 10000,
+    yta,
+    volymPerHa: (ind.volymM3fub * andelYta) / arealHa,
+    stammarPerHa: (ind.stammar * andelAntal) / arealHa,
+    grundytaPerHa: medDiameter > 0 ? (gRaknade * luckfaktor) / arealHa : null,
+    andelUtanfor: med.length > 0 ? 1 - andelAntal : null,
+    // Stickvägarna räknas på den gallrade ytan — också vägarna i en bit som gallrats utanför gränsen.
+    stickvag: yta
+      ? stickvag(ind.spar, ringar, yta.gallradM2 * skala, yta.innehaller)
+      : stickvag(ind.spar, ringar, vidaM2),
+  };
+}
+
+/** Uttaget per hektar för EN del av den gallrade ytan (första eller andra gallring, lib/gallringDelar.ts), med samma
+ *  regler som hela trakten: volymen fördelas på grundytan, antalet på stammarna, luckorna i detalj_stam skalas upp
+ *  som ovan. Delarnas arealer summerar till arealHa och delarnas uttag till hela traktens. */
+export type PerHaDel = { arealHa: number; volymPerHa: number; stammarPerHa: number; grundytaPerHa: number | null };
+
+export function perHaForDel(
+  ind: Pick<PerHaIndata, 'volymM3fub' | 'stammar' | 'stamrader'>,
+  arealHa: number,
+  andelYta: number,
+  delStammar: Set<number | string>,
+): PerHaDel {
+  const med = ind.stamrader
+    .map((p, i) => ({ ...p, id: p.id ?? i }))
+    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+  let antal = 0, gAlla = 0, gDel = 0, medDiameter = 0;
+  for (const p of med) {
+    const i = delStammar.has(p.id);
+    if (i) antal++;
+    const d = Number(p.dbhMm);
+    if (Number.isFinite(d) && d > 0) {
+      medDiameter++;
+      gAlla += grundyta(d);
+      if (i) gDel += grundyta(d);
+    }
+  }
+  const andelAntal = med.length > 0 ? antal / med.length : 0;
+  const andelG = gAlla > 0 ? gDel / gAlla : andelAntal;
+  const luckfaktor = medDiameter > 0 ? Math.max(1, ind.stammar / medDiameter) : 1;
+  const ha = arealHa * andelYta;
+  return {
+    arealHa: ha,
+    volymPerHa: ha > 0 ? (ind.volymM3fub * andelG) / ha : 0,
+    stammarPerHa: ha > 0 ? (ind.stammar * andelAntal) / ha : 0,
+    grundytaPerHa: medDiameter > 0 && ha > 0 ? (gDel * luckfaktor) / ha : null,
   };
 }

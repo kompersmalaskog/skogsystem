@@ -1,5 +1,5 @@
 "use client";
-// Arbetstid (Admin → Översikt): förare som närmar sig eller har passerat en av lagens sex gränser (lib/arbetstidsgranser).
+// Arbetstid (Admin → Översikt, i arket bakom raden "N förare nära arbetstidsgränsen"): förare som närmar sig eller har passerat en av lagens sex gränser (lib/arbetstidsgranser).
 // EN fråga: vem behöver jag titta på? En rad per förare med en mening om den värsta gränsen. Tryck på raden → de sex gränserna
 // med mätvärde, stapel och "Varför?" (paragrafen). Gul från 90 % av gränsen, röd över den. Färgen förstärker alltid ett ord
 // ("Nära gränsen" / "Över gränsen") och en mening med talet i — den bär aldrig ensam.
@@ -61,13 +61,13 @@ function GransRad({ g, forareId, sista }: { g: Gransstatus; forareId: string; si
   );
 }
 
-export default function ArbetstidKort({ forare, varningar }: { forare: ArbetstidForare[]; varningar: string[] }) {
+export default function ArbetstidKort({ forare, varningar, utanRubrik }: { forare: ArbetstidForare[]; varningar: string[]; /** Kortet ligger i ett ark som redan heter Arbetstid. */ utanRubrik?: boolean }) {
   const [oppen, setOppen] = useState<string | null>(null);
   if (forare.length === 0 && varningar.length === 0) return null;
 
   return (
     <div data-arbetstid-kort>
-      <Sektion orange={forare.some(f => f.varsta === "rod" && !f.foretagsledare)}>Arbetstid</Sektion>
+      {!utanRubrik && <Sektion orange={forare.some(f => f.varsta === "rod" && !f.foretagsledare)}>Arbetstid</Sektion>}
       {forare.length > 0 && (
         <Lista>
           {forare.map((f, i) => {

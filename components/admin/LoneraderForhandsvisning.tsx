@@ -5,8 +5,9 @@
 import React, { useState } from "react";
 import { AVSTAND, FARG, TNUM, TYP } from "@/lib/design/tokens";
 import ManadRubrik from "@/components/design/ManadRubrik";
-import { fmtMangd, loneartInfo, type Loneartkopplingar } from "@/lib/lonesystem/loneart";
+import { enhetForMangd, fmtMangd, loneartInfo, type Loneartkopplingar } from "@/lib/lonesystem/loneart";
 import { antalBlockerande, type BlockerandeLoneart } from "@/lib/lonesystem/loneartSaknas";
+import { arSandbar } from "@/lib/lonesystem/forarGodkannande";
 import { Bekrafta, Kort, Lank, Lista, Primar, Rad, Sheet, Stod, Tertiar } from "./ui";
 
 export type VisadLonerad = { loneart: string; mangd: string; kod: string | null; status: string };
@@ -17,7 +18,7 @@ export function lonerader(m: any): VisadLonerad[] {
   return (m?.rader || []).map((r: any) => ({ loneart: r.loneart, mangd: String(r.Number), kod: r.SalaryCode, status: "skickas" }));
 }
 
-const mangdText = (r: VisadLonerad) => `${fmtMangd(r.mangd)} ${loneartInfo(r.loneart)?.enhet ?? ""}`.trim();
+const mangdText = (r: VisadLonerad) => `${fmtMangd(r.mangd)} ${enhetForMangd(loneartInfo(r.loneart)?.enhet ?? "", r.mangd)}`.trim();
 
 export function LoneradLista({ rader }: { rader: VisadLonerad[]; kopplingar?: Loneartkopplingar }) {
   if (rader.length === 0) return <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga lönerader denna period.</p>;
@@ -58,7 +59,7 @@ export function SaknasKort({ blockerande, onKoppla }: { blockerande: Blockerande
         </p>
         <Lista style={{ background: "transparent", padding: 0 }}>
           {blockerande.map((b, i) => (
-            <Rad key={b.loneart} rubrik={b.label} detalj={b.forare.map(f => `${f.namn} ${fmtMangd(f.mangd)} ${b.enhet}`).join(", ")} sista={i === blockerande.length - 1} />
+            <Rad key={b.loneart} rubrik={b.label} detalj={b.forare.map(f => `${f.namn} ${fmtMangd(f.mangd)} ${enhetForMangd(b.enhet, f.mangd)}`).join(", ")} sista={i === blockerande.length - 1} />
           ))}
         </Lista>
         <Primar onClick={onKoppla} style={{ marginTop: AVSTAND.m }}>Koppla koder</Primar>
@@ -83,29 +84,34 @@ export function SkickaDialog({ arbetsManad, data, blockerande, skickar, onKoppla
   onStang: () => void;
 }) {
   const [steg, setSteg] = useState<"val" | "bekrafta">("val");
-  const medarbetare: any[] = data.medarbetare || [];
-  // Företagsledare har inga lönerader (lönen ligger utanför appen): de räknas inte bland de som skickas, men står kvar med noten.
-  const antalLon = medarbetare.filter(m => !m.foretagsledare).length;
-  const harVarningar = medarbetare.filter(m => !m.foretagsledare).some(m => m.varningar?.length > 0);
+  // Företagsledare har inga lönerader (lönen ligger utanför appen) och står inte i listan. Förarens godkännande styr: bara de som godkänt skickas,
+  // de som väntar står kvar utan att skickas (Martin 2026-10-21).
+  const medarbetare: any[] = (data.medarbetare || []).filter((m: any) => !m.foretagsledare);
+  const skickas = medarbetare.filter(m => arSandbar(m) && m.anstallningsnummer);
+  const vantar = medarbetare.filter(m => m.status !== "skickat" && !arSandbar(m));
+  const antalLon = skickas.length;
+  const radAntal = skickas.reduce((n, m) => n + (m.rader?.length ?? 0), 0);
+  const harVarningar = skickas.some(m => m.varningar?.length > 0);
   const spard = blockerande.length > 0;
-  const utan = blockerande.flatMap(b => b.forare.map(f => `${b.label} ${fmtMangd(f.mangd)} ${b.enhet} (${f.namn})`));
+  const utan = blockerande.flatMap(b => b.forare.map(f => `${b.label} ${fmtMangd(f.mangd)} ${enhetForMangd(b.enhet, f.mangd)} (${f.namn})`));
 
   return (
-    <Sheet titel="Skicka till Fortnox?" vyNyckel={steg} onStang={onStang} attr={{ "data-skicka-dialog": "" }}
+    <Sheet titel={`Skicka ${antalLon} till Fortnox?`} vyNyckel={steg} onStang={onStang} attr={{ "data-skicka-dialog": "" }}
       vanster={<Lank smal onClick={onStang}>Avbryt</Lank>}>
       {/* Steg 2 handlar bara om det som uteblir: förarlistan vore bara scroll före varningen. */}
       {steg === "val" && (
         <>
           <Stod farg={FARG.text} style={{ marginTop: 0, ...TYP.listtitel }}><ManadRubrik arbetsManad={arbetsManad} /></Stod>
-          <Stod style={{ marginTop: 0 }}>{antalLon} förare · {data.totalt_rader} lönerader</Stod>
+          <Stod style={{ marginTop: 0 }}>{antalLon} förare · {radAntal} lönerader</Stod>
+          {vantar.length > 0 && <Stod attr={{ "data-vantar-dialog": "" }}>{vantar.length} väntar på föraren och skickas inte.</Stod>}
           {harVarningar && <Stod farg={FARG.orange}>Det finns saker att kolla — granska innan du skickar.</Stod>}
 
           <Lista style={{ marginTop: AVSTAND.m }}>
-            {medarbetare.map((m, i) => m.foretagsledare ? (
-              <Rad key={i} rubrik={m.namn} detalj="Företagsledare – lön utanför appen" sista={i === medarbetare.length - 1} />
-            ) : (
+            {medarbetare.map((m, i) => (
               <Rad key={i} rubrik={m.namn} hoger={`${m.rader.length} rader`}
-                detalj={m.status === "skickat" ? <span style={{ color: FARG.gron }}>Redan skickat</span> : !m.anstallningsnummer ? <span style={{ color: FARG.rod }}>Saknar anst.nr</span> : undefined}
+                detalj={m.status === "skickat" ? <span style={{ color: FARG.gron }}>Redan skickat</span>
+                  : !arSandbar(m) ? <span style={{ color: FARG.text2 }}>Väntar på föraren – skickas inte</span>
+                  : !m.anstallningsnummer ? <span style={{ color: FARG.rod }}>Saknar anst.nr</span> : undefined}
                 sista={i === medarbetare.length - 1} />
             ))}
           </Lista>
@@ -114,7 +120,7 @@ export function SkickaDialog({ arbetsManad, data, blockerande, skickar, onKoppla
 
       <div style={{ marginTop: steg === "val" ? AVSTAND.l : 0 }}>
         {!spard && (
-          <Primar onClick={() => onSkicka(false)} disabled={skickar}>{skickar ? "Skickar…" : "Skicka till Fortnox"}</Primar>
+          <Primar onClick={() => onSkicka(false)} disabled={skickar}>{skickar ? "Skickar…" : `Skicka ${antalLon} till Fortnox`}</Primar>
         )}
 
         {spard && steg === "val" && (

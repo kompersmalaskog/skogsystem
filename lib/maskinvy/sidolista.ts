@@ -112,3 +112,28 @@ export function sidoRad(
   }
   return { niva: s.niva, status, siffror }
 }
+
+/** Summaraden "Alla skördare": ingen prick (den är ingen maskin), bara vad alla aktiva skördare gjort tillsammans idag. */
+export type SidoSumma = { status: string; siffror: string | null }
+
+/**
+ * `svar` = svaren för de AKTIVA skördarna (avslutade körde inte idag och läses inte). Ett tal som inte går att läsa är ett fel som
+ * sägs — en delsumma skrivs aldrig som om den vore hela. m³/G15h är SUM/SUM över dem som körde, och visas bara när alla som körde
+ * har G15-tid (annars blåses kvoten upp av volym utan tid).
+ */
+export function summaRad(svar: (SidoData | 'fel' | 'laser' | null | undefined)[], nuMs: number): SidoSumma {
+  if (svar.length === 0) return { status: 'Inga aktiva skördare', siffror: null }
+  if (svar.some(d => d === 'fel')) return { status: 'Kunde inte läsas', siffror: null }
+  if (svar.some(d => d === 'laser' || d === undefined)) return { status: 'Läser …', siffror: null }
+  const idagNu = stockholmDag(nuMs)
+  const korde = svar.filter((d): d is SidoData => !!d && d !== 'fel' && d !== 'laser' && d.signalDatum === idagNu && !!d.idag)
+  if (korde.length === 0) return { status: 'Ingen körning idag', siffror: null }
+  const volym = korde.reduce((s, d) => s + (d.idag as SidoIdag).volym, 0)
+  const tidFinns = korde.every(d => ((d.idag as SidoIdag).g15Sek ?? 0) > 0)
+  const delar = [fmtVolym(volym)]
+  if (tidFinns && volym > 0) {
+    const g15 = korde.reduce((s, d) => s + ((d.idag as SidoIdag).g15Sek as number), 0)
+    delar.push(`${fmt(volym / (g15 / 3600), 1)} m³/G15h`)
+  }
+  return { status: `${korde.length} av ${svar.length} körde idag`, siffror: delar.join(' · ') }
+}

@@ -50,6 +50,11 @@ describe("oppnaFragor: bara det som fortfarande är öppet", () => {
     expect(rubriker).not.toMatch(/helglön/i);
     expect(oppnaFragor.some(f => /Röd vardag/.test(f.rubrik))).toBe(false);
   });
+  it("det Martin beslutat (2026-10-21) står inte kvar: övertid räknas per kalendermånad, så 16-veckorsperioder och schema är inte längre en fråga", () => {
+    expect(rubriker).not.toMatch(/Beräkningsperiod|schema/i);
+    for (const f of oppnaFragor) expect(`${f.rubrik} ${f.text}`).not.toMatch(/16-veckors|16 veckor/i);
+    expect(oppnaFragor.length).toBe(5);
+  });
   it("inga tekniska ord i texterna", () => {
     for (const f of oppnaFragor) expect(`${f.rubrik} ${f.text}`).not.toMatch(/lib\/|dry_run|\bEN rad\b|_/);
   });

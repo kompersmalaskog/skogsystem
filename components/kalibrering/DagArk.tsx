@@ -13,12 +13,12 @@ import { Lugn, Meta, Status } from './delar';
 /** Dagens status som prick + ord: grön = lämnad, röd = saknas/varning, grå = inaktiv. */
 const STATUS_FARG: Record<CalDagstatus, string> = { komplett: FARG.gron, saknas: FARG.rod, varning: FARG.rod, inaktiv: FARG.text3 };
 
-export default function DagArk({ dag, allKalib, onKontroll }: { dag: CalDag; allKalib: FaktKalibrering[]; onKontroll: (filnamn: string) => void }) {
+export default function DagArk({ dag, maskinId, allKalib, onKontroll }: { dag: CalDag; /** Bara den maskin vyn visar — dagen för andra maskiner hör inte hit. */ maskinId: string | null; allKalib: FaktKalibrering[]; onKontroll: (filnamn: string) => void }) {
   return (
     <>
       <Meta>{dagstatusText(dag.status)}</Meta>
       <div style={{ marginTop: AVSTAND.l }}>
-        {dag.maskiner.map(m => {
+        {dag.maskiner.filter(m => !maskinId || m.maskin_id === maskinId).map(m => {
           const inaktiv = m.status === 'inaktiv';
           return (
             <Sektion key={m.maskin_id} rubrik={maskinNamn(m)}>

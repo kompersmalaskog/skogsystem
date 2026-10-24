@@ -12,6 +12,7 @@ import { PAMINNELSE_TYP, paminnelseMeddelande } from "@/lib/grotvy/paminnelse";
 import { arLedighetNotis, byggLedighetNotis, flushUrval, type HamtaRad } from "@/lib/ledighet/notis";
 import { LASS_MASKIN, arLassNotis, byggLassNotis, type HamtaLass } from "@/lib/lastbil/lass/notis";
 import { EGENKONTROLL_STICKPROV, arStickprovNotis, byggStickprovNotis, type HamtaStickprov } from "@/lib/egenkontrollStickprovNotis";
+import { LON_NOTIS_TYPER, arLonNotis, byggLonNotis, lasLonRadMotDb } from "@/lib/lonesystem/granskaNotis";
 import { INVENTARIE_UNDER_MIN, arInventarieNotis, byggInventarieNotis, type HamtaInventarie } from "@/lib/inventarier/notis";
 import { arBesokPaminnelse, byggBesokNotis, type HamtaBesokObjekt } from "@/lib/besok/paminnelse";
 import { koaBesokPaminnelser } from "@/lib/besok/paminnelse-ko";
@@ -87,8 +88,8 @@ async function flush() {
     .select("*")
     // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
-    // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts).
-    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN]))
+    // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts), liksom lönenotiserna (lib/lonesystem/granskaNotis.ts).
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, ...LON_NOTIS_TYPER]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -161,12 +162,15 @@ async function flush() {
       // Lass: samma regler (färsk text, redan besvarat/för gammalt → hoppas över, läsfel → oskickad).
       let ledighetMeddelande: Awaited<ReturnType<typeof byggMeddelande>> | null = null;
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
+      // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arBesokPaminnelse(n.typ)) {
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ)) {
         const u = arBesokPaminnelse(n.typ) ? await byggBesokNotis(n, hamtaBesokObjekt)
           : arInventarieNotis(n.typ) ? await byggInventarieNotis(n, hamtaInventarierad)
           : arStickprovNotis(n.typ) ? await byggStickprovNotis(n, hamtaStickprovrad)
-          : arLassNotis(n.typ) ? await byggLassNotis(n, hamtaLassrad) : await byggLedighetNotis(n, hamtaLedighetsrad);
+          : arLassNotis(n.typ) ? await byggLassNotis(n, hamtaLassrad)
+          : arLonNotis(n.typ) ? await byggLonNotis(n, lasLonRadMotDb(supabase))
+          : await byggLedighetNotis(n, hamtaLedighetsrad);
         if (u.typ === "uppskjut") { uppskjutna++; continue; }
         if (u.typ === "hoppa_over") {
           await supabase.from("notis_kö").update({ skickad_at: new Date().toISOString(), fel_meddelande: u.orsak }).eq("id", n.id);
