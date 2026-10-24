@@ -3,7 +3,10 @@
 // Martins krav (2026-10-24): "man ser om ett VO är förbrukat/använt och det syns tydligt". Läget står i TEXT på varje rad och
 // räknas aldrig ut av den som läser (skillen: tillstånd syns, det räknas aldrig ut).
 //
-//   klar        objektet avslutat                                           → raden dämpas, under "Klara"
+//   klar        objektet avslutat, ELLER skotningen avslutad på ett kopplat  → raden dämpas, under "Klara"
+//               maskinobjekt (dim_objekt.skotning_avslutad — samma fält som "Avsluta objekt" och Färdigskotad sätter),
+//               ELLER skördningen avslutad när ingen skotare väntas (GROT/energi, egen skotning). Martin 2026-10-24:
+//               P-1012/1013/1015/1023 var klara men stod som pågående eftersom bara objekt.status lästes.
 //   tagen       någon maskin har skickat data på numret (maskinobjekt) eller → "Tagen · H8E -26 · sedan 23 okt"
 //               loggat hyttspår på jobbet (JD810E skickar inga filer)
 //   ingen_data  jobbet är startat (pågående) men ingen maskin har något      → orange: något gick snett vid inknappningen
@@ -74,10 +77,18 @@ export function slaIhopMaskiner(lista: readonly MaskinSpar[]): MaskinSpar[] {
 export interface LageIndata {
   status: string | null | undefined;
   maskiner: readonly MaskinSpar[];
+  /** Något kopplat maskinobjekt har skotning_avslutad satt. */
+  skotningAvslutad?: boolean;
+  /** Något kopplat maskinobjekt har skordning_avslutad satt. */
+  skordningAvslutad?: boolean;
+  /** Vilka maskiner jobbet väntar data från (avgör om skördningens avslut räcker). */
+  forvantat?: Forvantat;
 }
 
 export function voLage(i: LageIndata): VoLage {
   if (i.status === 'avslutat') return 'klar';
+  if (i.skotningAvslutad) return 'klar';
+  if (i.skordningAvslutad && i.forvantat && i.forvantat !== 'skordare_och_skotare') return 'klar';
   if (i.maskiner.length > 0) return 'tagen';
   if (i.status === 'pagaende' || i.status === 'skotning') return 'ingen_data';
   return 'ledig';

@@ -18,6 +18,15 @@ describe('voLage — läget står i text och räknas aldrig ut av läsaren', () 
     expect(voLage({ status: 'pagaende', maskiner: [] })).toBe('ingen_data');
     expect(voLage({ status: 'skotning', maskiner: [] })).toBe('ingen_data');
   });
+  it('skotningen avslutad på ett maskinobjekt gör numret klart (fast status inte är avslutat)', () => {
+    expect(voLage({ status: 'pagaende', maskiner: [wisent], skotningAvslutad: true })).toBe('klar');
+  });
+  it('skördningen avslutad gör klart bara när ingen skotare väntas', () => {
+    expect(voLage({ status: 'pagaende', maskiner: [giant], skordningAvslutad: true, forvantat: 'skordare_och_skotare' })).toBe('tagen');
+    expect(voLage({ status: 'pagaende', maskiner: [giant], skordningAvslutad: true, forvantat: 'bara_skordare' })).toBe('klar');
+    expect(voLage({ status: 'pagaende', maskiner: [wisent], skordningAvslutad: true, forvantat: 'en_maskin' })).toBe('klar');
+    expect(voLage({ status: 'pagaende', maskiner: [giant], skordningAvslutad: true })).toBe('tagen');
+  });
   it('annars ledigt', () => {
     expect(voLage({ status: 'planerad', maskiner: [] })).toBe('ledig');
     expect(voLage({ status: 'oplanerad', maskiner: [] })).toBe('ledig');

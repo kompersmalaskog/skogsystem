@@ -36,6 +36,8 @@ export interface DimRadIn {
   start_date?: string | null;
   egen_skotning?: boolean | null;
   huvudtyp?: string | null;
+  skordning_avslutad?: string | null;
+  skotning_avslutad?: string | null;
 }
 
 export interface MaskinIn { maskin_id: string; visningsnamn?: string | null; modell?: string | null; maskin_typ?: string | null }
@@ -79,6 +81,12 @@ const typAvHuvudtyp = (h: string | null | undefined): string | null => {
   return t.includes('gallr') ? 'gallring' : t.includes('slut') ? 'slutavverkning' : null;
 };
 
+/** Har något av maskinobjekten skotningen resp. skördningen avslutad? */
+const avslut = (dims: readonly DimRadIn[]) => ({
+  skotningAvslutad: dims.some((d) => !!d.skotning_avslutad),
+  skordningAvslutad: dims.some((d) => !!d.skordning_avslutad),
+});
+
 export function byggJobbVyer(i: JobbIndataLista): JobbVy[] {
   const maskinPer = new Map(i.maskiner.map((m) => [m.maskin_id, m]));
   const namnFor = (id: string) => { const m = maskinPer.get(id); return m?.visningsnamn || m?.modell || id; };
@@ -121,13 +129,15 @@ export function byggJobbVyer(i: JobbIndataLista): JobbVy[] {
     for (const s of sparPer.get(o.id) ?? []) {
       if (s.maskin_id) maskiner.push({ maskinId: s.maskin_id, namn: namnFor(s.maskin_id), roll: rollFor(s.maskin_id, s.roll), forsta: s.datum ?? null });
     }
-    const egen = o.egen_skotning === true || Array.from(dims.values()).some((d) => d.egen_skotning === true);
-    const lage = voLage({ status: o.status, maskiner });
+    const dimLista = Array.from(dims.values());
+    const egen = o.egen_skotning === true || dimLista.some((d) => d.egen_skotning === true);
+    const fv = forvantat(o.typ, egen);
+    const lage = voLage({ status: o.status, maskiner, forvantat: fv, ...avslut(dimLista) });
     ut.push({
       nyckel: 'obj-' + o.id, jobbId: o.id, namn: o.namn || 'Namnlöst objekt', vo,
       typ: o.typ ?? null, ursprung: o.ursprung ?? null, status: o.status ?? null,
       markagare: o.markagare ?? null, bolag: o.bolag ?? null, egenSkotning: egen, horTillId: o.hor_till_objekt_id ?? null,
-      lage, lageText: lageText(lage, maskiner, i.idagAr), maskiner, forvantat: forvantat(o.typ, egen), rad: o,
+      lage, lageText: lageText(lage, maskiner, i.idagAr), maskiner, forvantat: fv, rad: o,
     });
   }
 
@@ -138,7 +148,7 @@ export function byggJobbVyer(i: JobbIndataLista): JobbVy[] {
     const forst = dims[0];
     const typ = typAvHuvudtyp(forst.huvudtyp);
     const egen = dims.some((d) => d.egen_skotning === true);
-    const lage = voLage({ status: null, maskiner });
+    const lage = voLage({ status: null, maskiner, forvantat: forvantat(typ, egen), ...avslut(dims) });
     ut.push({
       nyckel: 'dim-' + forst.objekt_id, jobbId: null, namn: forst.object_name || 'Namnlöst objekt', vo,
       typ, ursprung: null, status: null, markagare: forst.skogsagare ?? null, bolag: forst.bolag ?? null, egenSkotning: egen, horTillId: null,
@@ -189,7 +199,7 @@ export async function lasJobbLista(supabase: SupabaseClient, idagAr: number): Pr
   const ids = objekt.map((o) => o.id);
 
   const [dimVoR, altR, sparR, maskR] = await Promise.all([
-    supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, skogsagare, bolag, maskin_id, start_date, egen_skotning, huvudtyp').like('vo_nummer', 'P-%'),
+    supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, skogsagare, bolag, maskin_id, start_date, egen_skotning, huvudtyp, skordning_avslutad, skotning_avslutad').like('vo_nummer', 'P-%'),
     ids.length ? supabase.from('objekt_alt_nummer').select('objekt_id, nummer, maskin_id').in('objekt_id', ids) : Promise.resolve({ data: [], error: null }),
     ids.length ? supabase.from('hyttspar').select('objekt_id, maskin_id, roll, datum').in('objekt_id', ids) : Promise.resolve({ data: [], error: null }),
     supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ'),
@@ -204,7 +214,7 @@ export async function lasJobbLista(supabase: SupabaseClient, idagAr: number): Pr
   for (const o of objekt) for (const id of dimIdsForJobb({ vo: o.vo_nummer || '', dimObjektId: o.dim_objekt_id, alt: altPer.get(o.id) ?? [] })) kopplade.add(id);
   let dimKopplade: DimRadIn[] = [];
   if (kopplade.size) {
-    const r = await supabase.from('dim_objekt').select('objekt_id, maskin_id, start_date, egen_skotning').in('objekt_id', Array.from(kopplade));
+    const r = await supabase.from('dim_objekt').select('objekt_id, maskin_id, start_date, egen_skotning, skordning_avslutad, skotning_avslutad').in('objekt_id', Array.from(kopplade));
     if (r.error) return { ok: false, fel: `Kunde inte läsa om numren är inknappade: ${r.error.message}` };
     dimKopplade = (r.data || []) as DimRadIn[];
   }

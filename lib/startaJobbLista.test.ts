@@ -80,6 +80,40 @@ describe('byggJobbVyer — läget på riktiga P-nummer', () => {
   });
 });
 
+describe('facit prod 2026-10-24 (Martin: "några är klara, bara Trolleboda är aktivt")', () => {
+  // Maskinobjektens avslutsdatum ur prod: skotningen avslutad på P-1023 (880808, 13 okt), P-1012/1013/1015 (21 jul);
+  // P-1024 är avslutat; P-1025 Trolleboda har inget avslut.
+  const prodIndata = (): JobbIndataLista => {
+    const i = bas();
+    i.dimMedVo = [
+      { objekt_id: 'PONS20SDJAA270231_132', vo_nummer: 'P-1024', maskin_id: 'PONS20SDJAA270231', start_date: '2026-10-05', skordning_avslutad: '2026-10-06' },
+      { objekt_id: '85845', vo_nummer: 'P-1012', maskin_id: 'R64101', start_date: '2026-02-04', skordning_avslutad: '2026-03-12', skotning_avslutad: '2026-07-21' },
+      { objekt_id: 'A030353_149', vo_nummer: 'P-1012', maskin_id: 'A030353', start_date: '2026-03-13', skordning_avslutad: '2026-03-12', skotning_avslutad: '2026-03-19' },
+      { objekt_id: 'A030353_134', vo_nummer: 'P-1015', maskin_id: 'A030353', start_date: '2026-01-14', skotning_avslutad: '2026-07-21' },
+      { objekt_id: 'R64428_53', vo_nummer: 'P-1025', maskin_id: 'R64428', start_date: '2026-10-23' },
+    ];
+    i.dimKopplade = [
+      { objekt_id: '880808', maskin_id: 'A030353', start_date: '2026-10-06', skotning_avslutad: '2026-10-13' },
+      { objekt_id: 'R64428_53', maskin_id: 'R64428', start_date: '2026-10-23' },
+    ];
+    return i;
+  };
+  it('bara P-1025 pågår; P-1023, P-1012, P-1015 och P-1024 är klara; P-1017 ledig', () => {
+    const g = grupperaJobb(byggJobbVyer(prodIndata()));
+    expect(g.pagaende.map((j) => j.vo)).toEqual(['P-1025']);
+    expect(g.lediga.map((j) => j.vo)).toEqual(['P-1017']);
+    expect(g.klara.map((j) => j.vo).sort()).toEqual(['P-1012', 'P-1015', 'P-1023', 'P-1024']);
+  });
+  it('skördningen avslutad räcker INTE när en skotare väntas', () => {
+    const i = prodIndata();
+    i.dimKopplade = i.dimKopplade.map((d) => (d.objekt_id === 'R64428_53' ? { ...d, skordning_avslutad: '2026-10-24' } : d));
+    i.dimMedVo = i.dimMedVo.map((d) => (d.objekt_id === 'R64428_53' ? { ...d, skordning_avslutad: '2026-10-24' } : d));
+    expect(per('P-1025', i).lage).toBe('tagen');
+    (i.objekt[0] as any).egen_skotning = true;
+    expect(per('P-1025', i).lage).toBe('klar');
+  });
+});
+
 describe('grupperaJobb och sok', () => {
   it('pågående (taget + startat utan data), lediga, klara — nyast först', () => {
     const g = grupperaJobb(byggJobbVyer(bas()));
