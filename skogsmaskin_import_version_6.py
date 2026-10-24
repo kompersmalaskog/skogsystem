@@ -5805,7 +5805,7 @@ def komplettera_saknat_vader(max_antal: int = 25, skriv: bool = True, http=None,
                     punkt = valj_vaderpunkt(stockar, rad.get('datum'))
                     if punkt is None and not stockar and befintligt:
                         # Ren upprepning i en ackumulerande fil: alla stockar låg redan i en tidigare fil och
-                        # finns bara kvar där (detalj_kontroll_stock_matning_unik). Raden har väder sedan förut —
+                        # finns bara kvar där (detalj_kontroll_stock_fysisk_unik). Raden har väder sedan förut —
                         # det lämnas som det är, och det är inget fel.
                         rapport['saknar_stockar'] += 1
                         continue
@@ -5868,9 +5868,12 @@ def komplettera_saknat_vader(max_antal: int = 25, skriv: bool = True, http=None,
     return rapport
 
 
-# Nyckeln i unika indexet detalj_kontroll_stock_matning_unik (migration 20261022091100): samma
-# maskin, skördetid, stam, stock och mättider = samma fysiska mätning, oavsett vilken HQC-fil den kom i.
-KONTROLL_STOCK_NYCKEL = ['maskin_id', 'harvest_date', 'stam_nummer', 'stock_nummer',
+# Nyckeln i unika indexet detalj_kontroll_stock_fysisk_unik (migration 20261024180037): samma maskin, skördetid,
+# stocknummer och mättider = samma FYSISKA mätning, oavsett vilken HQC-fil den kom i. stam_nummer ingår INTE:
+# maskinen numrerar om stammarna i varje kumulativ fil, så samma stock står under olika stam_nummer
+# (harvest_date är det som identifierar stammen). Förra nyckeln hade med stam_nummer och släppte igenom
+# 410 kopior.
+KONTROLL_STOCK_NYCKEL = ['maskin_id', 'harvest_date', 'stock_nummer',
                          'machine_measurement_date', 'operator_measurement_date']
 
 
@@ -5933,7 +5936,7 @@ def save_hqc_to_supabase(data: Dict) -> bool:
 
         if data.get('kontroll_stockar'):
             # Ackumulerande HQC-filer upprepar alla tidigare stockar. EN rad per fysisk mätning
-            # (index detalj_kontroll_stock_matning_unik): det som redan finns hoppas över, bara det
+            # (index detalj_kontroll_stock_fysisk_unik): det som redan finns hoppas över, bara det
             # nya läggs till. 'ignore', inte 'merge' — en upprepad stock ska aldrig skriva över den
             # äldsta kopian (vars kontroll_datum är dagen mätningen först exporterades).
             if upsert_data(

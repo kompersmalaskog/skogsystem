@@ -121,10 +121,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // === 4) Kalibreringar i spannet, för Harvester-maskiner — paginerad ===
+  // === 4) Kontroller i spannet, för Harvester-maskiner — paginerad ===
+  // Kontroller = de med minst en egen stock (kalibrering_kontroller). En omexport — en fil vars stockar alla redan låg i en
+  // tidigare ackumulerande fil — är ingen kontroll och gör aldrig en dag "komplett".
   const kalibRes = await fetchAllRows((from, to) =>
     supabase
-      .from("fakt_kalibrering")
+      .rpc("kalibrering_kontroller")
       .select("id, datum, maskin_id, status, tradslag, filnamn")
       .gte("datum", startDatum)
       .lt("datum", slutDatum)
@@ -132,10 +134,10 @@ export async function GET(req: NextRequest) {
       .order("datum", { ascending: true })
       .order("maskin_id", { ascending: true })
       .order("id", { ascending: true })
-      .range(from, to)
+      .range(from, to) as unknown as PromiseLike<{ data: KalibRow[] | null; error: any }>  // rpc utan genererade typer: svaret är en lista
   );
   if (kalibRes.error) {
-    return NextResponse.json({ ok: false, error: `fakt_kalibrering: ${kalibRes.error.message}` }, { status: 500 });
+    return NextResponse.json({ ok: false, error: `kalibrering_kontroller: ${kalibRes.error.message}` }, { status: 500 });
   }
   const kalibRows = kalibRes.data as KalibRow[];
 
