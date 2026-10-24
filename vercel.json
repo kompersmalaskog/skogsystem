@@ -43,6 +43,10 @@
       "schedule": "0 5 * * *"
     },
     {
+      "path": "/api/redigering/fyll-sakra",
+      "schedule": "23 * * * *"
+    },
+    {
       "path": "/api/lon/notis",
       "schedule": "7 * * * *"
     },
