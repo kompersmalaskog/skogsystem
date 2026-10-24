@@ -336,6 +336,16 @@ def safe_int(val, default=0) -> int:
     except:
         return default
 
+def mm_eller_none(elem):
+    """Heltal ur ett element, eller None när elementet saknas eller är tomt/ogiltigt. safe_int ger 0 för saknat — men en
+    saknad justering är okänd, inte 0 mm."""
+    if elem is None or not (elem.text or '').strip():
+        return None
+    try:
+        return int(float(elem.text.strip()))
+    except ValueError:
+        return None
+
 def nullif_empty(s):
     """Konvertera tom eller whitespace-sträng till None. Behåller andra värden oförändrade."""
     if s is None:
@@ -3095,6 +3105,8 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
                 'orsak': reason,
                 'beskrivning': desc,
                 'langd_justering_mm': adjustment,
+                # Rotstockens längdjustering. Står den inte i blocket är den NULL, aldrig 0 (0 vore ett mått).
+                'langd_justering_rot_mm': mm_eller_none(find_element(length_cal, 'LengthCalibrationAdjustmentButtLog', ns)),
                 'dia_justering_mm': None,
                 'position_cm': position,
                 'filnamn': filnamn
@@ -3105,6 +3117,7 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
             sp_id = get_text(dia_cal, 'SpeciesGroupUserID', ns)
             cal_date = parse_datetime(get_text(dia_cal, 'CalibrationDate', ns))
             reason = get_text(dia_cal, 'DiameterCalibrationReason', ns)
+            desc = get_text(dia_cal, 'DiameterCalibrationDescription', ns)
             
             adj_elem = find_element(dia_cal, 'DiameterCalibrationAdjustment', ns)
             adjustment = safe_int(adj_elem.text) if adj_elem is not None else 0
@@ -3116,8 +3129,9 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
                 'typ': 'diameter',
                 'tradslag': sp_id.replace('SE1_', '') if sp_id else '',
                 'orsak': reason,
-                'beskrivning': None,
+                'beskrivning': nullif_empty(desc),
                 'langd_justering_mm': None,
+                'langd_justering_rot_mm': None,
                 'dia_justering_mm': adjustment,
                 'position_cm': position,
                 'filnamn': filnamn
