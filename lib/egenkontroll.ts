@@ -28,11 +28,17 @@
 // aterupplivas av en andring som kom efter.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Stickprov } from './egenkontrollStickprov';
 import { svgToLatLon, type Origo } from './kartkoordinater';
 import { beslutaOrigo, lasVidaGrans, markeringsPunkter, type VidaGrans } from './egenkontrollOrigo';
 import { lottaProvytor, PROVYTA_RADIE_M, type LatLng } from './provytor';
 import { hyttsparRitadeLinjer } from './sparJamning';
 import { hamtaVader, type Arbetsfonster, type VaderSnapshot } from './egenkontrollvader';
+import {
+  NOTERING_ETIKETT_MAX, arAvsikt, kartaKoordinaterGiltiga, klamEtikett, rensaEtikett, verktygTillForm,
+  type EtikettRuta, type Notering, type NoteringAvsikt, type NoteringVerktyg,
+} from './egenkontrollNotering';
+import { fotoAnkare, fotoKoordinaterGiltiga } from './egenkontrollFotoEtikett';
 import {
   OBSERVATION_ORDNING, OBSERVATION_RUBRIK, arObservationTon, arObservationTyp, delaObservationer,
   giltigPosition, type ObservationTon, type ObservationTyp,
@@ -488,7 +494,7 @@ export async function generateEgenkontroll(
   // supabase-js inte harleda radtypen och allt nedan blir GenericStringError.
   const { data: objektRad, error: objektFel } = await klient
     .from('objekt')
-    .select('id, namn, typ, areal, vo_nummer, kartbild_bounds, avslutad_timestamp, faktisk_slut, lat, lng, dim_objekt_id, skordare_band, skordare_band_par, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_extra_vagn, barighet, terrang, skordare_maskin, skotare_maskin')
+    .select('id, namn, typ, areal, vo_nummer, kartbild_bounds, lat, lng, dim_objekt_id, skordare_band, skordare_band_par, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_extra_vagn, barighet, terrang, skordare_maskin, skotare_maskin')
     .eq('id', objektId)
     .maybeSingle();
 
@@ -511,6 +517,11 @@ export async function generateEgenkontroll(
   if (befintlig) {
     return { egenkontroll: befintlig, nyskapad: false, antalPunkter: 0, antalPlanpunkter: 0, antalUtforandepunkter: 0, antalMatningspunkter: 0, antalProvytor: 0 };
   }
+
+  // --- 2b. Stubbehandling? -----------------------------------------------
+  // LAS FORE RUNDAN SKAPAS: ett lasfel avbryter har, innan nagot skrivits - aldrig
+  // en tyst "ingen punkt" som ser ut som ett beslut. Se stubbehandlingKravs.
+  const medStubbe = await stubbehandlingKravs(klient, objekt);
 
   // --- 3. Skapa rundan ---------------------------------------------------
   const { data: skapad, error: skapaFel } = await klient
@@ -545,9 +556,8 @@ export async function generateEgenkontroll(
   let antal: { plan: number; utforande: number; matning: number; provytor: number };
   try {
     antal = await skapaPunkter(
-      klient, skapad.id, objektId, objektTyp,
+      klient, skapad.id, objektId, objektTyp, medStubbe,
       objekt as {
-        avslutad_timestamp?: string | null; faktisk_slut?: string | null;
         areal?: number | null; kartbild_bounds?: unknown; lat?: number | null; lng?: number | null; vo_nummer?: string | null;
       },
     );
@@ -843,42 +853,62 @@ export async function kompletteraRunda(
 /** Godkand tackningsgrad pa stubbehandling. Skrivs ut i vyn - inget att minnas. */
 export const KRAVNIVA_STUBBEHANDLING = 85;
 
-/** Behandlingssasong: maj till och med september. */
-const STUBBE_MANAD_FRAN = 5;
-const STUBBE_MANAD_TILL = 9;
-
 /**
- * Ska objektet fa stubbehandlingspunkten?
+ * Ska objektet fa stubbehandlingspunkten? JA om och bara om dim_objekt.stubbbehandling = true.
  *
- * SASONGSVILLKORET AR BYGGT. Stubbehandling mot rotrota kravs under
- * behandlingssasong; avslutas trakten utanfor maj-september skapas punkten
- * inte alls.
+ * FALTET AR KALLAN, SASONGEN AR INTE. Det forra villkoret - avslutsdatum i maj-september - lade punkten pa
+ * slutavverkningar (7 av 9 i prod), dar vi inte stubbehandlar, och missade stubbehandlade gallringar vars
+ * skordning avslutades utanfor sasongen (Toftasa, Hossjomala: oktober och april). Faltet kommer fran
+ * bokningen. Ingen sasong, ingen reserv, ingen gissning.
  *
- * TRADSLAGSVILLKORET AR AVSIKTLIGT UTELAMNAT - INTE GLOMT. Kravet galler gran
- * och tall, men tradslag ligger i hpr_stammar och nas via dim_objekt_id, som ar
- * NULL pa SAMTLIGA objekt i egenkontroll-listan (verifierat 2026-08-21, 12 av
- * 12). Ett villkor som inte gar att utvardera far inte byggas som om det gick -
- * da hade punkten tyst uteblivit pa alla objekt. Lagg till det HAR nar
- * dim_objekt_id ar ifylld.
+ * UPPSLAGET, i ordning (samma som lib/redigering/objektRouter.ts):
+ *   1. objekt.dim_objekt_id -> dim_objekt.objekt_id. EN rad: dess varde gar. Fler an en: oklart -> ingen punkt.
+ *   2. Saknas id:t, eller pekar det pa en rad som inte finns: objekt.vo_nummer -> dim_objekt.vo_nummer, och bara
+ *      vid EXAKT EN traff. Noll eller tva traffar ger ingen punkt (Jatsbygd har tva dim_objekt-rader pa samma
+ *      vo-nummer).
+ *   3. Faltet ar annat an true (false, null) -> ingen punkt.
+ *
+ * DETTA AR ETT PLASTER. Grundfelet ar att objekt.dim_objekt_id saknas pa 15 av 16 pagaende rundor, vilket aven
+ * blockerar vadret och gran/tall-villkoret. Den riktiga fixen ar att fylla dim_objekt_id (egen uppgift, se
+ * STATUS.md); da kan vo_nummer-steget tas bort. Utan steg 2 hade bara 1 av de 13 stubbehandlade objekten fatt
+ * sin punkt.
+ *
+ * TRADSLAGSVILLKORET (gran och tall) AR FORTFARANDE AVSIKTLIGT UTELAMNAT: tradslag ligger i hpr_stammar och nas
+ * via dim_objekt_id, som saknas. Lagg till det nar dim_objekt_id ar ifylld.
+ *
+ * Ett LASFEL kastar: det far aldrig bli en tyst "ingen punkt". Anropas fore att rundan skapas.
  */
-export function harStubbehandling(objekt: {
-  avslutad_timestamp?: string | null;
-  faktisk_slut?: string | null;
-}): boolean {
-  const iso = objekt.avslutad_timestamp ?? objekt.faktisk_slut;
-  if (!iso) return false;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return false;
-  const manad = d.getMonth() + 1;
-  return manad >= STUBBE_MANAD_FRAN && manad <= STUBBE_MANAD_TILL;
+export async function stubbehandlingKravs(
+  klient: SupabaseClient,
+  objekt: { dim_objekt_id?: unknown; vo_nummer?: unknown },
+): Promise<boolean> {
+  const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const las = async (kolumn: 'objekt_id' | 'vo_nummer', varde: string) => {
+    const { data, error } = await klient
+      .from('dim_objekt')
+      .select('objekt_id, stubbbehandling')
+      .eq(kolumn, varde);
+    if (error) throw new Error(`Kunde inte läsa stubbehandling ur dim_objekt: ${error.message}`);
+    return (data ?? []) as unknown as { objekt_id: string; stubbbehandling: boolean | null }[];
+  };
+
+  const dimId = text(objekt.dim_objekt_id);
+  if (dimId) {
+    const rader = await las('objekt_id', dimId);
+    if (rader.length === 1) return rader[0].stubbbehandling === true;
+    if (rader.length > 1) return false;
+    // 0 rader: id:t pekar pa ingenting - prova vo-numret.
+  }
+
+  const vo = text(objekt.vo_nummer);
+  if (!vo) return false;
+  const rader = await las('vo_nummer', vo);
+  return rader.length === 1 && rader[0].stubbbehandling === true;
 }
 
 /** Matningspunkterna. I dag bara stubbehandling; provytor kommer senare. */
-function byggMatningsrader(objekt: {
-  avslutad_timestamp?: string | null;
-  faktisk_slut?: string | null;
-}) {
-  if (!harStubbehandling(objekt)) return [];
+function byggMatningsrader(medStubbe: boolean) {
+  if (!medStubbe) return [];
   return [{
     del: 'matning',
     kalla: 'fast',
@@ -906,14 +936,14 @@ async function skapaPunkter(
   egenkontrollId: string,
   objektId: string,
   objektTyp: ObjektTyp,
+  medStubbe: boolean,
   objekt: {
-    avslutad_timestamp?: string | null; faktisk_slut?: string | null;
     areal?: number | null; kartbild_bounds?: unknown; lat?: number | null; lng?: number | null; vo_nummer?: string | null;
   },
 ): Promise<{ plan: number; utforande: number; matning: number; provytor: number }> {
   const planrader = await byggPlanrader(klient, objektId);
   const utforanderader = byggUtforanderader(objektTyp);
-  const matningsrader = byggMatningsrader(objekt);
+  const matningsrader = byggMatningsrader(medStubbe);
 
   const rader = [...planrader, ...utforanderader, ...matningsrader].map((r, i) => ({
     ...r,
@@ -1003,6 +1033,13 @@ export type VantandeRad = {
    */
   antalSaknade: number;
   klarDatum: string | null;
+  /** Objektets plats (null = saknas, aldrig 0) — listans avstånd och bilknapp. */
+  lat: number | null;
+  lng: number | null;
+  /** objekt.typ ('gallring' | 'slutavverkning' | annat) — bara de två första har en runda att starta. */
+  typ: string | null;
+  /** Hektar, ur objektet. null = saknas. */
+  areal: number | null;
 };
 
 export type VantandeOversikt = {
@@ -1044,7 +1081,7 @@ export async function hamtaVantande(
 
   const { data: objektRader, error: objektFel } = await klient
     .from('objekt')
-    .select('id, namn, avslutad_timestamp, faktisk_slut')
+    .select('id, namn, avslutad_timestamp, faktisk_slut, lat, lng, typ, areal')
     .eq('status', 'avslutat')
     .order('id', { ascending: true });
 
@@ -1055,6 +1092,10 @@ export async function hamtaVantande(
     namn: string | null;
     avslutad_timestamp: string | null;
     faktisk_slut: string | null;
+    lat?: number | null;
+    lng?: number | null;
+    typ?: string | null;
+    areal?: number | null;
   }[];
 
   const medDatum = alla.flatMap((o) => {
@@ -1110,6 +1151,10 @@ export async function hamtaVantande(
       antalAvvikelser: egna.filter((p) => p.status === 'avvikelse').length,
       antalBattre: egna.filter((p) => p.status === 'battre').length,
       klarDatum: runda?.klar ?? null,
+      lat: o.lat ?? null,
+      lng: o.lng ?? null,
+      typ: o.typ ?? null,
+      areal: o.areal ?? null,
     };
   });
 
@@ -1126,6 +1171,21 @@ export async function hamtaVantande(
     antalVantande: rader.filter((r) => r.rundstatus !== 'klar').length,
     antalUtanDatum,
   };
+}
+
+/**
+ * Månadens stickprov (migrationerna egenkontroll_stickprov_1…5b). RPC:n DRAR vid första anropet i en ny månad och läser annars den sparade
+ * raden — samma funktion som /api/notis/flush anropar, så vilken som kommer först drar och den andra får samma rad.
+ *
+ * null = ingen dragning finns att visa (före första dragningsmånaden, 2026-11-01). Ett fel KASTAS: listan ska säga "kunde inte läsa
+ * stickprovet" med Försök igen, aldrig låtsas att det inte finns något stickprov.
+ */
+export async function hamtaStickprov(options: KlientOptions = {}): Promise<Stickprov | null> {
+  const { klient } = await kravSession(options);
+  const { data, error } = await klient.rpc('egenkontroll_stickprov');
+  if (error) throw new Error(`Kunde inte läsa månadens stickprov: ${error.message}`);
+  if (data == null) return null;
+  return data as Stickprov;
 }
 
 /** Objektets kartuppgifter. bounds kravs for att placera MARKERINGAR, inte position. */
@@ -1859,6 +1919,193 @@ export async function taBortObservation(id: string, options: KlientOptions = {})
 }
 
 // ---------------------------------------------------------------------------
+// Noteringar - ord pa en karta (och, i PR 9b, pa ett foto)
+// ---------------------------------------------------------------------------
+//
+// Tabellen egenkontroll_notering (migration 20261021074334/-41). Observation = en bedomning som raknas i rapportens tal;
+// notering = ord pa en bild eller karta som forklarar vad man tittar pa (lib/egenkontrollNotering.ts). En notering raknas aldrig.
+//
+// TOM ETIKETT = DELETE, ALDRIG UPDATE. Databasen avvisar en tom etikett (notering_har_innehall, 23514); en notering vars text
+// raderats bort finns inte langre. andraNotering gor darfor en DELETE nar texten blir tom - annars blir det ett felmeddelande
+// i skogen i stallet for att etiketten forsvinner.
+//
+// LASET: en klar runda ar last av triggern egenkontroll_notering_last (INSERT, UPDATE och DELETE). Kontrollerna har ger bara beskedet.
+
+const SESSION_SAKNAS_NOTERING = 'Du är inte inloggad längre. Logga in igen — ingenting har sparats.';
+
+function noteringFel(error: { message?: string; code?: string } | null, grund: string): Error {
+  const m = error?.message ?? '';
+  if (/avslutad/i.test(m)) return new Error('Rundan är avslutad och går inte att ändra.');
+  if (error?.code === '23514') return new Error('Noteringen kunde inte sparas — kontrollera texten och platsen.');
+  return new Error(`${grund}: ${m || 'okänt fel'}`);
+}
+
+/** Raden som en Notering. Koordinaterna ar jsonb - en rad vars koordinater inte ar par av tal hoppas inte over tyst, den kastar. */
+function tillNotering(rad: unknown): Notering {
+  const r = rad as Record<string, unknown>;
+  const k = r.koordinater;
+  const par = Array.isArray(k) && k.every((c) => Array.isArray(c) && c.length === 2 && typeof c[0] === 'number' && typeof c[1] === 'number');
+  if (!par) throw new Error('En notering har koordinater som inte går att läsa. Ladda om sidan.');
+  return {
+    ...(r as object),
+    koordinater: k as [number, number][],
+    pil: r.pil === true,
+    etikett_dx: typeof r.etikett_dx === 'number' ? r.etikett_dx : null,
+    etikett_dy: typeof r.etikett_dy === 'number' ? r.etikett_dy : null,
+  } as Notering;
+}
+
+/** Rundans noteringar, aldst forst (skapad, id) - ordningen ar stabil mellan laddningar. Ett lasfel ar ett fel, aldrig "inga noteringar". */
+export async function hamtaNoteringar(egenkontrollId: string, options: KlientOptions = {}): Promise<Notering[]> {
+  const { klient } = await kravSession(options);
+  const { data, error } = await klient
+    .from('egenkontroll_notering')
+    .select('*')
+    .eq('egenkontroll_id', egenkontrollId)
+    .order('skapad', { ascending: true })
+    .order('id', { ascending: true });
+  if (error) throw new Error(`Kunde inte läsa noteringarna: ${error.message}`);
+  return (data ?? []).map(tillNotering);
+}
+
+/** Vagrar om noteringens runda ar klar (som kravOppenRunda, men for en notering). */
+async function kravOppenNotering(klient: SupabaseClient, id: string): Promise<void> {
+  const { data, error } = await klient
+    .from('egenkontroll_notering')
+    .select('egenkontroll:egenkontroll_id (status)')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw new Error(`Kunde inte läsa noteringen: ${error.message}`);
+  if (!data) throw new Error('Noteringen hittades inte — den kan redan vara borttagen. Ladda om sidan.');
+  const status = (data as { egenkontroll?: { status?: string } }).egenkontroll?.status;
+  if (status === 'klar') throw new Error('Rundan är avslutad och går inte att ändra.');
+}
+
+export type NoteringInmatning = {
+  /** Skapat av ANROPAREN: ett omforsok efter ett avbrutet svar skriver da samma rad igen i stallet for en andra. */
+  id: string;
+  egenkontrollId: string;
+  verktyg: NoteringVerktyg;
+  etikett: string;
+  avsikt: NoteringAvsikt;
+  /** Kartan: [[lng, lat], ...] exakt som ritat. Ett foto (9b): [[u, v], ...] 0..1 i den lagrade bildens egna koordinater. */
+  koordinater: [number, number][];
+  /**
+   * Sätts för en notering PÅ ETT FOTO (9b); utelämnat = en notering på kartan. `bildHojd` = bildens höjd / bredd, `dx`/`dy` etikettens
+   * förskjutning från ankaret i bildbredder och `ruta` etikettens ruta på DEN YTA som placerade den — förskjutningen klämms här, vid
+   * sparningen, med samma funktion som renderar (klamEtikett): det sparade är det som visas.
+   */
+  foto?: { fotoId: string; bildHojd: number; dx: number; dy: number; ruta: EtikettRuta };
+};
+
+/** Etikettens forskjutning pa ett foto, klamd (klamEtikett) mot ytans ruta: det som skrivs ar det som visas. */
+function fotoForskjutningRad(
+  typ: 'punkt' | 'linje', koordinater: [number, number][], f: NonNullable<NoteringInmatning['foto']>,
+): { etikett_dx: number; etikett_dy: number } {
+  const a = fotoAnkare({ typ, punkter: koordinater }, f.bildHojd);
+  if (!a) throw new Error('Platsen på bilden saknas — rita om noteringen.');
+  const k = klamEtikett({ u: a.x, v: a.y / f.bildHojd, bildHojd: f.bildHojd, dx: f.dx, dy: f.dy, ruta: f.ruta });
+  return { etikett_dx: k.dx, etikett_dy: k.dy };
+}
+
+/** Skapar en notering pa kartan (eller, med `foto`, pa ett foto). INSERT, en gang. Laser tillbaka VARDET: det som star i databasen ar det som visas. */
+export async function skapaNotering(i: NoteringInmatning, options: KlientOptions = {}): Promise<Notering> {
+  const etikett = rensaEtikett(i.etikett);
+  if (etikett === '') throw new Error('Skriv vad noteringen ska säga.');
+  if (etikett.length > NOTERING_ETIKETT_MAX) throw new Error(`Texten är för lång (högst ${NOTERING_ETIKETT_MAX} tecken).`);
+  if (!arAvsikt(i.avsikt)) throw new Error('Välj om det blev så här eller skulle ha gjorts så här.');
+  const { typ, pil } = verktygTillForm(i.verktyg);
+  const iFoto = i.foto ?? null;
+  if (iFoto) {
+    if (!fotoKoordinaterGiltiga(typ, i.koordinater)) throw new Error('Platsen på bilden saknas — rita om noteringen.');
+    if (!(iFoto.bildHojd > 0) || !iFoto.fotoId) throw new Error('Bilden gick inte att läsa — stäng den och öppna den igen.');
+  } else if (!kartaKoordinaterGiltiga(typ, i.koordinater)) throw new Error('Platsen på kartan saknas — rita om noteringen.');
+
+  const { klient } = await kravSession(options, SESSION_SAKNAS_NOTERING);
+  await kravOppenRundaId(klient, i.egenkontrollId);
+
+  const { data, error } = await klient
+    .from('egenkontroll_notering')
+    .insert({
+      id: i.id, egenkontroll_id: i.egenkontrollId, underlag: iFoto ? 'foto' : 'karta', typ, pil, etikett, avsikt: i.avsikt, koordinater: i.koordinater,
+      ...(iFoto ? { foto_id: iFoto.fotoId, ...fotoForskjutningRad(typ, i.koordinater, iFoto) } : {}),
+    })
+    .select('*')
+    .maybeSingle();
+
+  if (error && error.code === '23505') {
+    // Samma id finns redan: forra forsoket skrev raden men svaret kom aldrig fram. Det ar samma notering, inte en andra.
+    const { data: finns } = await klient.from('egenkontroll_notering').select('*').eq('id', i.id).maybeSingle();
+    if (finns && (finns as { egenkontroll_id?: string }).egenkontroll_id === i.egenkontrollId) return tillNotering(finns);
+  }
+  if (error) throw noteringFel(error, 'Noteringen kunde inte sparas');
+  if (!data) throw new Error('Noteringen sparades inte — raden kunde inte läsas tillbaka.');
+  const sparad = tillNotering(data);
+  if (sparad.etikett !== etikett || sparad.avsikt !== i.avsikt || sparad.typ !== typ || sparad.pil !== pil) {
+    throw new Error('Noteringen sparades inte som väntat. Ladda om sidan.');
+  }
+  return sparad;
+}
+
+/** Etikettens plats pa ett foto (9b): ankaret, bildens form och etikettens matta ruta - allt som behovs for att klamma. */
+export type NoteringForskjutning = { u: number; v: number; bildHojd: number; dx: number; dy: number; ruta: EtikettRuta };
+
+/**
+ * Andrar texten och avsikten (och, pa ett foto, etikettens forskjutning). UPDATE, bara pa en rad som finns.
+ *
+ * TOM TEXT = DELETE (returnerar null). Forskjutningen KLAMS HAR, vid sparningen, med samma funktion som renderar
+ * (klamEtikett): det sparade ar det som visas. Tabellen tillater +-2 bildbredder; en etikett utanfor bilden far aldrig sparas.
+ */
+export async function andraNotering(
+  id: string,
+  nytt: { etikett: string; avsikt: NoteringAvsikt; forskjutning?: NoteringForskjutning },
+  options: KlientOptions = {},
+): Promise<Notering | null> {
+  const etikett = rensaEtikett(nytt.etikett);
+  if (etikett === '') {
+    await taBortNotering(id, options);
+    return null;
+  }
+  if (etikett.length > NOTERING_ETIKETT_MAX) throw new Error(`Texten är för lång (högst ${NOTERING_ETIKETT_MAX} tecken).`);
+  if (!arAvsikt(nytt.avsikt)) throw new Error('Välj om det blev så här eller skulle ha gjorts så här.');
+
+  const { klient } = await kravSession(options, SESSION_SAKNAS_NOTERING);
+  await kravOppenNotering(klient, id);
+
+  const skriv: Record<string, unknown> = { etikett, avsikt: nytt.avsikt };
+  if (nytt.forskjutning) {
+    const f = nytt.forskjutning;
+    const k = klamEtikett({ u: f.u, v: f.v, bildHojd: f.bildHojd, dx: f.dx, dy: f.dy, ruta: f.ruta });
+    skriv.etikett_dx = k.dx;
+    skriv.etikett_dy = k.dy;
+  }
+  const { data, error } = await klient
+    .from('egenkontroll_notering')
+    .update(skriv)
+    .eq('id', id)
+    .select('*')
+    .maybeSingle();
+  if (error) throw noteringFel(error, 'Ändringen kunde inte sparas');
+  if (!data) throw new Error('Ändringen sparades inte — noteringen hittades inte. Ladda om sidan.');
+  const sparad = tillNotering(data);
+  if (sparad.etikett !== etikett || sparad.avsikt !== nytt.avsikt) throw new Error('Ändringen sparades inte som väntat. Ladda om sidan.');
+  return sparad;
+}
+
+/** Tar bort en notering medan rundan ar oppen. Kraver att EN rad forsvann - noll rader ar ett fel, inte en lyckad borttagning. */
+export async function taBortNotering(id: string, options: KlientOptions = {}): Promise<void> {
+  const { klient } = await kravSession(options, SESSION_SAKNAS_NOTERING);
+  await kravOppenNotering(klient, id);
+  const { data, error } = await klient
+    .from('egenkontroll_notering')
+    .delete()
+    .eq('id', id)
+    .select('id');
+  if (error) throw noteringFel(error, 'Noteringen kunde inte tas bort');
+  if (!data || data.length !== 1) throw new Error('Noteringen hittades inte — den kan redan vara borttagen. Ladda om sidan.');
+}
+
+// ---------------------------------------------------------------------------
 // Stubbehandling
 // ---------------------------------------------------------------------------
 
@@ -2144,7 +2391,7 @@ export async function hamtaStammoln(
 export async function hamtaHyttspar(
   objektId: string,
   options: KlientOptions = {},
-): Promise<{ roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[]> {
+): Promise<{ roll: 'skordare' | 'skotare'; linjer: LatLng[][]; /** Antal sparade dagar (rader) spåret byggs av - för lagermenyns "5 dagar". */ dagar: number }[]> {
   const { klient } = await kravSession(options);
   const { data, error } = await klient
     .from('hyttspar')
@@ -2155,19 +2402,23 @@ export async function hamtaHyttspar(
   if (error) throw new Error(`Kunde inte läsa hyttsparet: ${error.message}`);
 
   const per: Record<'skordare' | 'skotare', LatLng[][]> = { skordare: [], skotare: [] };
+  const dagar: Record<'skordare' | 'skotare', number> = { skordare: 0, skotare: 0 };
   for (const rad of (data ?? []) as unknown as { roll: string; points: unknown }[]) {
     if (rad.roll !== 'skordare' && rad.roll !== 'skotare') continue;
     if (!Array.isArray(rad.points)) continue;
     const punkter = (rad.points as { lat?: unknown; lng?: unknown; tid?: unknown }[])
       .filter((p) => typeof p?.lat === 'number' && typeof p?.lng === 'number')
       .map((p) => ({ lat: p.lat as number, lng: p.lng as number, tid: typeof p.tid === 'string' ? p.tid : '' }));
+    let gavLinje = false;
     for (const linje of hyttsparRitadeLinjer(punkter)) {
       per[rad.roll].push(linje.map(([lng, lat]) => ({ lat, lng })));
+      gavLinje = true;
     }
+    if (gavLinje) dagar[rad.roll] += 1;
   }
   return (['skordare', 'skotare'] as const)
     .filter((roll) => per[roll].length > 0)
-    .map((roll) => ({ roll, linjer: per[roll] }));
+    .map((roll) => ({ roll, linjer: per[roll], dagar: dagar[roll] }));
 }
 
 /** Provytorna for en runda, i nummerordning. */

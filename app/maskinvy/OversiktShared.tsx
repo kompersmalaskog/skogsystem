@@ -1,4 +1,5 @@
 'use client'
+import { VIKT, TYP, RADIE, AVSTAND, FARG, FONT, DELFARG } from '@/lib/design/tokens'
 
 // ─────────────────────────────────────────────────────────────
 // Delad mellan OversiktNy och OperatorDeepView (och kommande djupvyer)
@@ -10,28 +11,21 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { slaIhopOperatorer, type OperatorKoppling } from '@/lib/maskinvy/operatorer'
 import { translateKategori } from '@/lib/avbrott-kategorier'
 import { G15_GRANS_SEK, tuProcent, TU_BRANSCHSNITT, arOklassatAvbrott } from '@/lib/g15'
 
 // ─────────────────────────────────────────────────────────────
 // iOS systemfärger (exakt) + bas-tokens
 // ─────────────────────────────────────────────────────────────
-export const C = {
-  bg:       '#000000',
-  card:     '#1c1c1e',
-  divider:  '#2c2c2e',
-  green:    '#30d158',
-  red:      '#ff453a',
-  orange:   '#ff9f0a',
-  blue:     '#0a84ff',
-  purple:   '#5e5ce6',
-  yellow:   '#ffd60a',
-  text:     '#ffffff',
-  muted:    '#8e8e93',
-  dim:      '#48484a',
-}
+// Färger och typsnitt kommer från lib/design/tokens (PR 1, 2026-10-21). Flyttserien (lila) finns i tokens bara som
+// DELFARG[4] (#5e5ce6) — samma värde som maskinvyn alltid använt för "Flytt"/"Korta pauser".
+export const FLYTT_FARG = DELFARG[4]
 
-export const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif'
+/** En token-färg med genomskinlighet (staplar, markeringar, tonade ytor) — samma färg som tokens, bara tunnare. */
+export function tint(farg: string, procent: number): string {
+  return `color-mix(in srgb, ${farg} ${procent}%, transparent)`
+}
 
 // ─────────────────────────────────────────────────────────────
 // Formatter — svensk locale, komma som decimaltecken
@@ -92,17 +86,22 @@ export function calcDelta(current: number | null, previous: number | null, lower
 export type Maskin = { id: string; namn: string }
 export type Period = 'V' | 'M' | 'K' | 'Å'
 
-// Namn = dim_maskin.visningsnamn (Martin äger dem i DB). Rottne-årsmodellerna
-// skiljs på -23 (R64101, gammal, körde t.o.m. 2026-03-11) och -26 (R64428, ny,
-// från 2026-03-12) i stället för det tvetydiga "(ny)/(gammal)".
-export const MASKINER: Maskin[] = [
-  { id: 'PONS20SDJAA270231', namn: 'Ponsse Scorpion' },
-  { id: 'R64428',            namn: 'Rottne H8E -26' },
-  { id: 'R64101',            namn: 'Rottne H8E -23' },
-  { id: 'R64101+R64428',     namn: 'Rottne H8E (båda)' },
+// Namn = modellnamn utan märke, samma stil som skotarna (Wisent, Elefant 26, 810E): Scorpion, H8E -26, H8E -23. Rottne-årsmodellerna
+// skiljs på -23 (R64101, gammal, körde t.o.m. 2026-03-11) och -26 (R64428, ny, från 2026-03-12) i stället för "(ny)/(gammal)".
+export const ALLA_SKORDARE_ID = 'ALLA_SKORDARE'
+const SKORDARE_ENSKILDA: Maskin[] = [
+  { id: 'PONS20SDJAA270231', namn: 'Scorpion' },
+  { id: 'R64428',            namn: 'H8E -26' },
+  { id: 'R64101',            namn: 'H8E -23' },
 ]
+// "Alla skördare" är ingen maskin utan en summa över alla tre (också den avslutade H8E -23, så helår och historik stämmer). Den
+// ersätter den gamla kombon "Rottne H8E (båda)", som såg ut som en tredje skördare och bara räknade H8E.
+export const MASKINER: Maskin[] = [...SKORDARE_ENSKILDA, { id: ALLA_SKORDARE_ID, namn: 'Alla skördare' }]
 
-export const COMBO_IDS: Record<string, string[]> = { 'R64101+R64428': ['R64101', 'R64428'] }
+export const COMBO_IDS: Record<string, string[]> = {
+  'R64101+R64428': ['R64101', 'R64428'],
+  [ALLA_SKORDARE_ID]: SKORDARE_ENSKILDA.map(m => m.id),
+}
 const MONTHS = ['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December']
 const MON_ABBR = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec']
 
@@ -206,6 +205,24 @@ export function getPrevDateRange(
 export type Operator = {
   id: string; namn: string;
   g15h: number; volym: number; stammar: number; dagar: number; prod: number | null;
+  /** Alla operator_id som hör till personen — kortet är en rad per person (lib/maskinvy/operatorer). */
+  ids?: string[]
+  /** Distinkta produktionsdatum, så ihopslagna id:n inte dubbelräknar en dag. */
+  datum?: string[]
+}
+
+/**
+ * operator_id → medarbetare_id ur operator_medarbetare (läsbar för alla inloggade).
+ * Går det inte att läsa faller ihopslagningen tillbaka på normaliserat namn.
+ */
+export async function hamtaOperatorKoppling(): Promise<OperatorKoppling> {
+  try {
+    const { data, error } = await supabase.from('operator_medarbetare').select('operator_id, medarbetare_id')
+    if (error || !data) return new Map()
+    return new Map((data as Array<{ operator_id: string; medarbetare_id: string }>).map(r => [r.operator_id, r.medarbetare_id]))
+  } catch {
+    return new Map()
+  }
 }
 
 export type AvbrottKat = { kategori: string; sek: number; antal: number }
@@ -259,9 +276,10 @@ const MASKINVY_RPC: Record<string, string> = {
 
 export async function fetchAll(
   table: string, sel: string, ids: string[], start: string, end: string,
-  operatorId?: string,
+  operatorId?: string | string[],
 ): Promise<any[]> {
   const rpcName = MASKINVY_RPC[table]
+  const opIds = operatorId === undefined ? null : Array.isArray(operatorId) ? operatorId : [operatorId]
   const PAGE = 1000
   let rows: any[] = []
   let off = 0
@@ -276,7 +294,7 @@ export async function fetchAll(
       if (batch.length < PAGE) break
       off += PAGE
     }
-    if (operatorId) rows = rows.filter(r => r.operator_id === operatorId)
+    if (opIds) rows = rows.filter(r => opIds.includes(r.operator_id))
     return rows
   }
   // Övriga tabeller — direkt SELECT med pagination.
@@ -285,7 +303,7 @@ export async function fetchAll(
       .select(sel)
       .in('maskin_id', ids)
       .gte('datum', start).lte('datum', end)
-    if (operatorId) q = q.eq('operator_id', operatorId)
+    if (opIds) q = q.in('operator_id', opIds)
     const { data } = await q.range(off, off + PAGE - 1)
     const batch: any[] = data || []
     rows = rows.concat(batch)
@@ -300,17 +318,18 @@ export async function fetchAll(
  * Prod och tid hämtas separat och aggregeras separat — aldrig cross-joinade.
  */
 export async function fetchData(
-  maskinId: string, start: string, end: string, operatorId?: string,
+  maskinId: string, start: string, end: string, operatorId?: string | string[],
 ): Promise<Data> {
   const ids = COMBO_IDS[maskinId] || [maskinId]
 
-  const [prodRows, tidRows, avbrRows, opRes] = await Promise.all([
+  const [prodRows, tidRows, avbrRows, opRes, koppling] = await Promise.all([
     fetchAll('fakt_produktion', 'datum, volym_m3sub, stammar, operator_id', ids, start, end, operatorId),
     fetchAll('fakt_tid', 'operator_id, processing_sek, terrain_sek, other_work_sek, kort_stopp_sek, rast_sek, bransle_liter, tomgang_sek, engine_time_sek', ids, start, end, operatorId),
     fetchAll('fakt_avbrott', 'kategori_kod, langd_sek', ids, start, end, operatorId),
     operatorId
       ? Promise.resolve({ data: [] as Array<{ operator_id: string; operator_namn: string }> })
       : supabase.from('dim_operator').select('operator_id, operator_namn').in('maskin_id', ids),
+    operatorId ? Promise.resolve(new Map<string, string>()) : hamtaOperatorKoppling(),
   ])
 
   const opNames: Record<string, string> = {}
@@ -390,7 +409,7 @@ export async function fetchData(
   // Operatörer — filter: måste ha producerat något (volym > 0 || stammar > 0)
   // Det filtrerar bort "Service Service" som har g15h > 0 men 0 produktion.
   const allOpIds = new Set<string>([...Object.keys(prodByOp), ...Object.keys(tidByOp)])
-  const operatorer: Operator[] = Array.from(allOpIds).map(id => {
+  const operatorerPerId: Operator[] = Array.from(allOpIds).map(id => {
     const p = prodByOp[id] || { vol: 0, st: 0, dagar: new Set<string>() }
     const t = tidByOp[id]  || { proc: 0, terr: 0, ow: 0 }
     const opG15h = (t.proc + t.terr + t.ow) / 3600
@@ -402,10 +421,13 @@ export async function fetchData(
       stammar: p.st,
       dagar: p.dagar.size,
       prod: opG15h > 0 ? p.vol / opG15h : null,
+      ids: [id],
+      datum: Array.from(p.dagar),
     }
   })
   .filter(o => o.volym > 0 || o.stammar > 0)
-  .sort((a, b) => a.namn.localeCompare(b.namn, 'sv'))
+  // En rad per PERSON: flera operator_id för samma förare slås ihop (summerat, vägd produktivitet).
+  const operatorer = slaIhopOperatorer(operatorerPerId, koppling)
 
   return {
     volym, stammar, g15h, produktivitet, medelstam,
@@ -440,7 +462,7 @@ export type PeriodKpi = {
 const MIN_DAYS_PER_PERIOD = 2
 
 export async function fetchSeries(
-  maskinId: string, period: Period, offset: number, operatorId?: string,
+  maskinId: string, period: Period, offset: number, operatorId?: string | string[],
 ): Promise<PeriodKpi[]> {
   const ids = COMBO_IDS[maskinId] || [maskinId]
 
@@ -535,11 +557,11 @@ export function DeltaBadge({
   const d = calcDelta(current, previous, lowerIsBetter)
   const fontSize = size === 'md' ? 13 : 11
   if (d === null) {
-    return <span style={{ fontSize, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>—</span>
+    return <span style={{ fontSize, color: FARG.text3, fontVariantNumeric: 'tabular-nums' }}>—</span>
   }
-  const color = d.direction === 'up' ? C.green : d.direction === 'down' ? C.red : C.muted
+  const color = d.direction === 'up' ? FARG.gron : d.direction === 'down' ? FARG.rod : FARG.text2
   return (
-    <span style={{ fontSize, fontWeight: 500, color, fontVariantNumeric: 'tabular-nums' }}>
+    <span style={{ fontSize, fontWeight: VIKT.halvfet, color, fontVariantNumeric: 'tabular-nums' }}>
       {fmtSvDelta(d.pct)}
     </span>
   )
@@ -636,7 +658,7 @@ export function HeroChart({ values }: { values: (number | null)[] }) {
   return (
     <div ref={ref} style={{ width: '100%', height: 60 }}>
       {w > 0 && (
-        <Sparkline values={values} width={w} height={60} color={C.green} fillOpacity={0.12} lastDot />
+        <Sparkline values={values} width={w} height={60} color={FARG.gron} fillOpacity={0.12} lastDot />
       )}
     </div>
   )
@@ -644,8 +666,8 @@ export function HeroChart({ values }: { values: (number | null)[] }) {
 
 export function MiniTrend({ values }: { values: (number | null)[] }) {
   const validCount = values.filter(v => v !== null && isFinite(v as number)).length
-  if (validCount < 2) return <span style={{ fontSize: 10, color: C.dim }}>—</span>
-  return <Sparkline values={values} width={80} height={22} color="#636366" />
+  if (validCount < 2) return <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text3 }}>—</span>
+  return <Sparkline values={values} width={80} height={22} color={FARG.text3} />
 }
 
 // AndelBadge — visar förarens del av maskinens total. Neutral färg
@@ -659,11 +681,11 @@ export function AndelBadge({
 }) {
   const fontSize = size === 'md' ? 13 : 11
   if (part === null || total === null || !isFinite(part) || !isFinite(total) || total === 0) {
-    return <span style={{ fontSize, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>—</span>
+    return <span style={{ fontSize, color: FARG.text3, fontVariantNumeric: 'tabular-nums' }}>—</span>
   }
   const pct = Math.round(part / total * 100)
   return (
-    <span style={{ fontSize, fontWeight: 500, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+    <span style={{ fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, fontVariantNumeric: 'tabular-nums' }}>
       {pct} %
     </span>
   )
@@ -681,12 +703,12 @@ export function MachineRefBadge({
 }) {
   const fontSize = size === 'md' ? 13 : 11
   if (value === null || !isFinite(value)) {
-    return <span style={{ fontSize, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>—</span>
+    return <span style={{ fontSize, color: FARG.text3, fontVariantNumeric: 'tabular-nums' }}>—</span>
   }
   return (
-    <span style={{ fontSize, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+    <span style={{ fontSize, color: FARG.text2, fontVariantNumeric: 'tabular-nums' }}>
       <span style={{ marginRight: 4 }}>Maskin</span>
-      <span style={{ color: C.text, fontWeight: 500 }}>{fmtSv(value, dec)}</span>
+      <span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{fmtSv(value, dec)}</span>
     </span>
   )
 }
@@ -730,45 +752,45 @@ export function HeroCard({
   const trendValid  = trendValues.filter(v => v !== null && isFinite(v as number)).length
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: '22px 22px 18px', marginBottom: 14 }}>
-      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 12, letterSpacing: -0.1 }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.xl}px ${AVSTAND.xl}px ${AVSTAND.l}px`, marginBottom: AVSTAND.l }}>
+      <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, marginBottom: 12, letterSpacing: -0.1 }}>
         {label}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <div style={{
-          fontSize: 40, fontWeight: 600, letterSpacing: -1.2,
-          color: C.text, lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+          fontSize: TYP.tal.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -1.2,
+          color: FARG.text, lineHeight: 1, fontVariantNumeric: 'tabular-nums',
         }}>
           {loading ? '—' : (value !== null ? fmtSv(value, dec) : '—')}
         </div>
-        <div style={{ fontSize: 14, color: C.muted }}>{unit}</div>
+        <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>{unit}</div>
       </div>
 
       {comparison ? (
         <div style={{
-          marginTop: 12, fontSize: 12, color: C.muted,
+          marginTop: 12, fontSize: TYP.meta.fontSize, color: FARG.text2,
           display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 0,
         }}>
           {loading ? (
-            <span style={{ color: C.dim }}>—</span>
+            <span style={{ color: FARG.text3 }}>—</span>
           ) : (
             <>
-              <span style={{ color: C.muted }}>{comparison.selfLabel ?? 'Förare'}{' '}</span>
-              <span style={{ color: C.text, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ color: FARG.text2 }}>{comparison.selfLabel ?? 'Förare'}{' '}</span>
+              <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, fontVariantNumeric: 'tabular-nums' }}>
                 {comparison.selfValue !== null ? fmtSv(comparison.selfValue, dec) : '—'}
               </span>
               {comparison.selfTime !== null && (
-                <span style={{ color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ color: FARG.text2, fontVariantNumeric: 'tabular-nums' }}>
                   {' '}· {fmtTid(comparison.selfTime * 3600)}
                 </span>
               )}
-              <span style={{ color: C.muted, margin: '0 10px' }}>·</span>
-              <span style={{ color: C.muted }}>{comparison.compareLabel ?? 'Maskinen'}{' '}</span>
-              <span style={{ color: C.text, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ color: FARG.text2, margin: `0 ${AVSTAND.m}px` }}>·</span>
+              <span style={{ color: FARG.text2 }}>{comparison.compareLabel ?? 'Maskinen'}{' '}</span>
+              <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, fontVariantNumeric: 'tabular-nums' }}>
                 {comparison.compareValue !== null ? fmtSv(comparison.compareValue, dec) : '—'}
               </span>
               {comparison.compareTime !== null && (
-                <span style={{ color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ color: FARG.text2, fontVariantNumeric: 'tabular-nums' }}>
                   {' '}· {fmtTid(comparison.compareTime * 3600)}
                 </span>
               )}
@@ -776,26 +798,26 @@ export function HeroCard({
           )}
         </div>
       ) : (
-        <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: AVSTAND.s }}>
           {loading
-            ? <span style={{ fontSize: 13, color: C.dim }}>—</span>
+            ? <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text3 }}>—</span>
             : <DeltaBadge current={value} previous={prev} lowerIsBetter={lowerIsBetter} size="md" />}
-          <span style={{ fontSize: 11, color: C.muted }}>{referenceLabel}</span>
+          <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2 }}>{referenceLabel}</span>
         </div>
       )}
 
       <div style={{ marginTop: 16, height: 60 }}>
         {loading ? (
           <div style={{
-            height: 60, borderRadius: 8, background: 'rgba(255,255,255,0.025)',
+            height: 60, borderRadius: RADIE.rad, background: FARG.tonad,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: C.muted, fontSize: 11,
+            color: FARG.text2, fontSize: TYP.micro.fontSize,
           }}>—</div>
         ) : trendValid < 2 ? (
           <div style={{
-            height: 60, borderRadius: 8, background: 'rgba(255,255,255,0.025)',
+            height: 60, borderRadius: RADIE.rad, background: FARG.tonad,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: C.muted, fontSize: 11,
+            color: FARG.text2, fontSize: TYP.micro.fontSize,
           }}>För lite trenddata</div>
         ) : (
           <HeroChart values={trendValues} />
@@ -871,11 +893,11 @@ export function KpiList({
   ]
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden', marginBottom: AVSTAND.l }}>
       {subtitle && (
         <div style={{
-          fontSize: 11, color: C.muted, padding: '14px 16px 0',
-          letterSpacing: 0.2, fontWeight: 500,
+          fontSize: TYP.micro.fontSize, color: FARG.text2, padding: `${AVSTAND.l}px ${AVSTAND.l}px 0`,
+          letterSpacing: 0.2, fontWeight: VIKT.halvfet,
         }}>
           {subtitle}
         </div>
@@ -894,7 +916,7 @@ export function KpiList({
         // Volym-raden är klickbar när onVolymClick ges. Övriga chevroner döljs i det läget.
         const isVolym = r.metric === 'volym'
         const isClickable = isVolym && !!onVolymClick
-        const chevronColor = onVolymClick && !isVolym ? 'transparent' : C.dim
+        const chevronColor = onVolymClick && !isVolym ? 'transparent' : FARG.text3
         return (
           <button
             key={r.label}
@@ -903,29 +925,29 @@ export function KpiList({
             style={{
               display: 'grid',
               gridTemplateColumns: `1fr auto ${cmpCol} 80px 14px`,
-              gap: 14, alignItems: 'center',
-              padding: '14px 16px',
-              borderTop: i > 0 ? `0.5px solid ${C.divider}` : 'none',
+              gap: AVSTAND.l, alignItems: 'center',
+              padding: `${AVSTAND.l}px ${AVSTAND.l}px`,
+              borderTop: i > 0 ? `0.5px solid ${FARG.linje}` : 'none',
               background: 'transparent', border: 'none', width: '100%',
-              color: C.text, fontFamily: FONT,
+              color: FARG.text, fontFamily: FONT,
               cursor: isClickable ? 'pointer' : 'default',
               textAlign: 'left',
             }}
           >
-            <div style={{ fontSize: 15, color: C.text }}>
+            <div style={{ fontSize: TYP.text.fontSize, color: FARG.text }}>
               {r.label}
-              {r.hint && <div style={{ fontSize: 11, color: C.muted, marginTop: 4, whiteSpace: 'nowrap' }}>{r.hint}</div>}
-              {r.hint2 && <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{r.hint2}</div>}
+              {r.hint && <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: 4, whiteSpace: 'nowrap' }}>{r.hint}</div>}
+              {r.hint2 && <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.xs }}>{r.hint2}</div>}
             </div>
-            <div style={{ fontSize: r.mutedDisplay ? 13 : 16, fontWeight: r.mutedDisplay ? 400 : 500, color: r.mutedDisplay ? C.muted : r.varna && !loading ? C.orange : C.text, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+            <div style={{ fontSize: r.mutedDisplay ? 13 : 16, fontWeight: r.mutedDisplay ? VIKT.normal : VIKT.halvfet, color: r.mutedDisplay ? FARG.text2 : r.varna && !loading ? FARG.orange : FARG.text, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
               {loading ? '—' : r.display ?? (r.cur !== null ? fmtSv(r.cur, r.dec) : '—')}
               {!(!loading && r.display) && (
-                <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>{r.unit}</span>
+                <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginLeft: 4, fontWeight: VIKT.normal }}>{r.unit}</span>
               )}
             </div>
             <div style={{ textAlign: 'right' }}>
               {loading
-                ? <span style={{ fontSize: 11, color: C.dim }}>—</span>
+                ? <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text3 }}>—</span>
                 : showAndel
                   ? <AndelBadge part={r.cur} total={r.prev} size="sm" />
                   : showMachineRef
@@ -934,10 +956,10 @@ export function KpiList({
             </div>
             <div style={{ height: 22, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
               {loading
-                ? <span style={{ fontSize: 10, color: C.dim }}>—</span>
+                ? <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text3 }}>—</span>
                 : <MiniTrend values={trendValues} />}
             </div>
-            <div style={{ color: chevronColor, fontSize: 16, textAlign: 'right' }}>›</div>
+            <div style={{ color: chevronColor, fontSize: TYP.text.fontSize, textAlign: 'right' }}>›</div>
           </button>
         )
       })}
@@ -950,22 +972,22 @@ export function KpiList({
 // ─────────────────────────────────────────────────────────────
 export function TimeDistribution({ data, loading }: { data: Data | null; loading: boolean }) {
   const segments = [
-    { key: 'proc', label: 'Process',     color: C.green  },
-    { key: 'terr', label: 'Kör',         color: C.blue   },
-    { key: 'kort', label: 'Korta pauser', color: C.purple },
-    { key: 'avbr', label: 'Avbrott',     color: C.red    },
-    { key: 'rast', label: 'Rast',        color: C.muted  },
+    { key: 'proc', label: 'Process',     color: FARG.gron  },
+    { key: 'terr', label: 'Kör',         color: FARG.bla   },
+    { key: 'kort', label: 'Korta pauser', color: FLYTT_FARG },
+    { key: 'avbr', label: 'Avbrott',     color: FARG.rod    },
+    { key: 'rast', label: 'Rast',        color: FARG.text2  },
   ] as const
 
   const values = data ? { proc: data.proc, terr: data.terr, kort: data.kort, avbr: data.avbr, rast: data.rast } : null
   const total = values ? Object.values(values).reduce((s, x) => s + x, 0) : 0
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: 18, marginBottom: 14 }}>
-      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 14 }}>Tidsfördelning</div>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: AVSTAND.l, marginBottom: AVSTAND.l }}>
+      <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, marginBottom: AVSTAND.l }}>Tidsfördelning</div>
       <div style={{
-        display: 'flex', height: 14, borderRadius: 4, overflow: 'hidden',
-        background: 'rgba(255,255,255,0.04)', gap: 2,
+        display: 'flex', height: 14, borderRadius: RADIE.stapel, overflow: 'hidden',
+        background: FARG.tonad, gap: AVSTAND.xs,
       }}>
         {(!loading && values && total > 0) && segments.map(s => {
           const pct = (values[s.key] as number) / total * 100
@@ -973,18 +995,18 @@ export function TimeDistribution({ data, loading }: { data: Data | null; loading
           return <div key={s.key} style={{ flex: pct, background: s.color }} />
         })}
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 14 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: AVSTAND.l, marginTop: AVSTAND.l }}>
         {segments.map(s => {
           const v = values ? (values[s.key] as number) : 0
           const pct = total > 0 ? Math.round(v / total * 100) : null
           return (
-            <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
-              <span style={{ color: C.muted }}>{s.label}</span>
-              <span style={{ color: C.text, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+            <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, fontSize: TYP.meta.fontSize }}>
+              <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: s.color }} />
+              <span style={{ color: FARG.text2 }}>{s.label}</span>
+              <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, fontVariantNumeric: 'tabular-nums' }}>
                 {loading || pct === null ? '—' : `${pct}%`}
               </span>
-              <span style={{ color: C.muted, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ color: FARG.text2, fontSize: TYP.micro.fontSize, fontVariantNumeric: 'tabular-nums' }}>
                 · {loading || !values ? '—' : fmtTid(v)}
               </span>
             </div>
@@ -1000,14 +1022,14 @@ export function TimeDistribution({ data, loading }: { data: Data | null; loading
 // ─────────────────────────────────────────────────────────────
 export function AvbrottCard({ data, loading }: { data: Data | null; loading: boolean }) {
   return (
-    <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
-      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, padding: '18px 16px 10px' }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden', marginBottom: AVSTAND.l }}>
+      <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px` }}>
         Avbrott
       </div>
       {loading ? (
-        <div style={{ color: C.muted, fontSize: 13, padding: '0 16px 18px' }}>Laddar…</div>
+        <div style={{ color: FARG.text2, fontSize: TYP.meta.fontSize, padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>Laddar…</div>
       ) : !data || data.avbrottPerKat.length === 0 ? (
-        <div style={{ color: C.muted, fontSize: 13, padding: '0 16px 18px' }}>
+        <div style={{ color: FARG.text2, fontSize: TYP.meta.fontSize, padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
           Inga avbrott registrerade
         </div>
       ) : data.avbrottPerKat.map((k, i) => (
@@ -1016,17 +1038,17 @@ export function AvbrottCard({ data, loading }: { data: Data | null; loading: boo
           style={{
             display: 'grid',
             gridTemplateColumns: '8px 1fr auto auto',
-            gap: 10, alignItems: 'center',
+            gap: AVSTAND.m, alignItems: 'center',
             padding: '12px 16px',
-            borderTop: `0.5px solid ${C.divider}`,
+            borderTop: `0.5px solid ${FARG.linje}`,
           }}
         >
-          <div style={{ width: 8, height: 8, borderRadius: 2, background: C.red, opacity: 0.7 }} />
-          <div style={{ fontSize: 14, color: C.text }}>{translateKategori(k.kategori)}</div>
-          <div style={{ fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: FARG.rod, opacity: 0.7 }} />
+          <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text }}>{translateKategori(k.kategori)}</div>
+          <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, fontVariantNumeric: 'tabular-nums' }}>
             {k.antal} {k.antal === 1 ? 'gång' : 'ggr'}
           </div>
-          <div style={{ fontSize: 14, fontWeight: 500, color: C.text, fontVariantNumeric: 'tabular-nums', minWidth: 70, textAlign: 'right' }}>
+          <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, fontVariantNumeric: 'tabular-nums', minWidth: 70, textAlign: 'right' }}>
             {fmtTid(k.sek)}
           </div>
         </div>
@@ -1054,17 +1076,17 @@ export function VolymBadge({ harManuell }: { harManuell: boolean }) {
   if (harManuell) {
     return (
       <span style={{
-        fontSize: 10, fontWeight: 500, color: C.blue,
-        background: 'rgba(10,132,255,0.12)', borderRadius: 4,
-        padding: '1px 6px', letterSpacing: 0.1,
+        fontSize: TYP.micro.fontSize, fontWeight: VIKT.halvfet, color: FARG.bla,
+        background: tint(FARG.bla, 12), borderRadius: RADIE.stapel,
+        padding: `0 ${AVSTAND.s}px`, letterSpacing: 0.1,
       }}>manuell</span>
     )
   }
   return (
     <span style={{
-      fontSize: 10, fontWeight: 400, color: C.muted,
-      background: 'rgba(255,255,255,0.06)', borderRadius: 4,
-      padding: '1px 6px', letterSpacing: 0.1,
+      fontSize: TYP.micro.fontSize, fontWeight: VIKT.normal, color: FARG.text2,
+      background: FARG.linje, borderRadius: RADIE.stapel,
+      padding: `0 ${AVSTAND.s}px`, letterSpacing: 0.1,
     }}>preliminär</span>
   )
 }
@@ -1075,14 +1097,14 @@ export function OperatorList({ operatorer, loading, onSelect }: {
   onSelect?: (op: Operator) => void
 }) {
   return (
-    <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
-      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, padding: '18px 16px 10px' }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden', marginBottom: AVSTAND.l }}>
+      <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px` }}>
         Operatörer
       </div>
       {loading ? (
-        <div style={{ color: C.muted, fontSize: 13, padding: '0 16px 18px' }}>Laddar…</div>
+        <div style={{ color: FARG.text2, fontSize: TYP.meta.fontSize, padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>Laddar…</div>
       ) : operatorer.length === 0 ? (
-        <div style={{ color: C.muted, fontSize: 13, padding: '0 16px 18px' }}>
+        <div style={{ color: FARG.text2, fontSize: TYP.meta.fontSize, padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
           Inga operatörer för perioden
         </div>
       ) : operatorer.map(o => (
@@ -1095,31 +1117,31 @@ export function OperatorList({ operatorer, loading, onSelect }: {
             gridTemplateColumns: '36px 1fr auto 14px',
             gap: 12, alignItems: 'center',
             padding: '12px 16px',
-            borderTop: `0.5px solid ${C.divider}`,
+            borderTop: `0.5px solid ${FARG.linje}`,
             background: 'transparent', border: 'none', width: '100%',
-            color: C.text, fontFamily: FONT,
+            color: FARG.text, fontFamily: FONT,
             cursor: onSelect ? 'pointer' : 'default', textAlign: 'left',
           }}
         >
           <div style={{
-            width: 36, height: 36, borderRadius: 18,
-            background: 'rgba(255,255,255,0.08)',
+            width: 36, height: 36, borderRadius: RADIE.sheet,
+            background: FARG.linje,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 12, fontWeight: 500, color: C.text,
+            fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
           }}>{initials(o.namn)}</div>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>{o.namn}</div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+            <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text }}>{o.namn}</div>
+            <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.xs, fontVariantNumeric: 'tabular-nums' }}>
               {fmtSv(o.dagar, 0)} {o.dagar === 1 ? 'dag' : 'dagar'} · {fmtSv(o.volym, 0)} m³
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 15, fontWeight: 500, color: C.text, fontVariantNumeric: 'tabular-nums' }}>
+            <div style={{ fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, fontVariantNumeric: 'tabular-nums' }}>
               {o.prod !== null ? fmtSv(o.prod, 1) : '—'}
             </div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>m³/G15h</div>
+            <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2 }}>m³/G15h</div>
           </div>
-          <div style={{ color: C.dim, fontSize: 16, textAlign: 'right' }}>›</div>
+          <div style={{ color: FARG.text3, fontSize: TYP.text.fontSize, textAlign: 'right' }}>›</div>
         </button>
       ))}
     </div>

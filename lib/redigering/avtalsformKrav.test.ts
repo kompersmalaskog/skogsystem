@@ -8,6 +8,11 @@ describe('Redigering varnar för avtalsform på slutavverkning och för åtgärd
     expect(saknarAvtalsformEllerAtgard({ huvudtyp: 'Slutavverkning', atgard: 'Föryngring', avtalsform: null }))
       .toEqual({ key: 'avtalsform', text: 'Saknar avtalsform', target: 'avtalsform-section' });
   });
+  it('privat slutavverkning utan avtalsform -> ingen varning (ett privat jobb har ingen avtalsform)', () => {
+    expect(saknarAvtalsformEllerAtgard({ huvudtyp: 'Slutavverkning', atgard: null, avtalsform: null, bolag: 'Privat' })).toBeNull();
+    expect(saknarAvtalsformEllerAtgard({ huvudtyp: 'Slutavverkning', atgard: null, avtalsform: null, bolag: 'ATA' }))
+      .toEqual({ key: 'avtalsform', text: 'Saknar avtalsform', target: 'avtalsform-section' });
+  });
   it('slutavverkning med avtalsform men utan åtgärd -> ingen varning (åtgärd är valfri där)', () => {
     expect(saknarAvtalsformEllerAtgard({ huvudtyp: 'Slutavverkning', atgard: null, avtalsform: 'Rp' })).toBeNull();
   });
@@ -35,5 +40,11 @@ describe('källvakt: Redigering och matchningsvyn använder samma regel', () => 
     const match = las('app/redigering/hooks/useMatchning.ts');
     expect(match).toContain('kravAvtalsform(d)');
     expect(match).toContain('medAvtalsformSvar');
+  });
+});
+
+describe('special-objekt', () => {
+  it('saknar aldrig avtalsform', () => {
+    expect(saknarAvtalsformEllerAtgard({ huvudtyp: 'Slutavverkning', atgard: null, avtalsform: null, special: true } as any)).toBeNull();
   });
 });

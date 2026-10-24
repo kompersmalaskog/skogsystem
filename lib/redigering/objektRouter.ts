@@ -37,6 +37,13 @@ export const FALT_RUTT: Record<string, FaltRutt> = {
   // ── dim_objekt-only ──
   huvudtyp:            { dim: 'huvudtyp' },
   exkludera:           { dim: 'exkludera' },
+  // Ackord eller timpeng (dim_objekt.timpeng är enda källan) — sätts direkt i objektets ark.
+  timpeng:             { dim: 'timpeng' },
+  // Special-objekt (migration 20261021164434_dim_objekt_special): vindfällor, stormskadat. Skild från exkludera.
+  // Sparas direkt (direktSpara), aldrig via batch-listorna — utan migrationen skulle ett batch-skriv med kolumnen
+  // fälla ALL objektsparning. Slås flaggan av nollas skälet i samma UPDATE (CHECK special OR skäl IS NULL).
+  special:             { dim: 'special' },
+  special_skal:        { dim: 'special_skal' },
   // Etapp 1c — fält som drogs upp ur undersidorna. Maskinspecifika (stubbe/
   // extra_vagn/klippning/avslut) skrivs av ANROPAREN mot rätt maskinslags rader
   // via ref.dimObjektIds — routern vet inget om harvester/forwarder-splitten.

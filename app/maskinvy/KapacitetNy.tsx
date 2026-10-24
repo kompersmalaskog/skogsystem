@@ -1,9 +1,11 @@
 'use client'
-import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, TYP, AVSTAND, VIKT, RADIE, medSafeBotten, FARG, FONT, kolumnRot } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { medAvtalsformEllerUtan } from '@/lib/avtalsformKolumn'
+import { forstaSkal, hamtaSpecialObjekt } from '@/lib/maskinvy/specialObjekt'
+import { ObjektNamn } from './SpecialBadge'
 import { g15Sek } from '@/lib/g15'
 import {
   bedomObjekt, kapacitetSnitt, kapacitetKlarsprak, behovText, kapacitetKategori, arExtern, arVindfalle,
@@ -11,7 +13,9 @@ import {
   KATEGORI_LABEL, UTESLUTNING_LABEL,
   type KapacitetKategori, type KapacitetObjekt, type KapacitetObjektIn, type Uteslutning,
 } from '@/lib/kapacitet'
-import { C, FONT, MASKINER, COMBO_IDS, getPeriodRange, type Maskin, type Period } from './OversiktShared'
+import {
+  MASKINER, COMBO_IDS, getPeriodRange, type Maskin, type Period, tint,
+} from './OversiktShared'
 
 // ─────────────────────────────────────────────────────────────
 // Kapacitet-vyn (?ny=1&vy=kapacitet) — hur många skotare skördaren
@@ -67,7 +71,7 @@ function maskinTyp(m: any): 'skordare' | 'skotare' | 'okand' {
  * R64101 + R64428) fördelas skotartiden efter skördarnas andel av skördartiden,
  * annars får varje skördare hela skotningen och kvoten blåses upp.
  */
-async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
+async function hamtaObjekt(maskinId: string): Promise<{ objekt: KapacitetObjekt[]; special: Map<string, string | null> }> {
   const egna = new Set(COMBO_IDS[maskinId] || [maskinId])
 
   // fakt_tid och fakt_produktion har OPERATÖRS-RLS (förare ser bara egna rader).
@@ -81,7 +85,7 @@ async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
   const allaMaskinIds = dimMaskin.map(m => m.maskin_id)
   const egnaIds = Array.from(egna)
 
-  const [dimObjekt, tidRader, manuellRader, prodRader] = await Promise.all([
+  const [dimObjekt, tidRader, manuellRader, prodRader, specialRader] = await Promise.all([
     // avtalsform (VF/Bark = vindfälle) finns först efter migrationen 20261014125836 — medAvtalsformEllerUtan kör om utan kolumnen om den saknas.
     medAvtalsformEllerUtan((med) => hamtaAlla<DimObjektRad>(() => supabase.from('dim_objekt').select(`objekt_id, vo_nummer, object_name, huvudtyp, atgard,${med ? ' avtalsform,' : ''} risskotning, extern_skordning, ovrigt_info, skotning_avslutad, skotning_avslutad_auto`).order('objekt_id'))),
     hamtaAlla<{ objekt_id: string | null; maskin_id: string; processing_sek: number | null; terrain_sek: number | null; other_work_sek: number | null }>(
@@ -90,6 +94,8 @@ async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
     // Skördarens EGEN volym per objekt (rimlighetsvakten jämför den med skotartiden på samma VO).
     hamtaAlla<{ objekt_id: string | null; volym_m3sub: number | null }>(
       () => supabase.rpc('maskindata_produktion', { p_maskin_ids: egnaIds, p_datum_start: null, p_datum_slut: null })),
+    // Special-flaggan (dim_objekt.special) är bara en markering för badgen — ändrar ingen beräkning här.
+    hamtaSpecialObjekt(),
   ])
 
   const typAv = new Map<string, 'skordare' | 'skotare' | 'okand'>()
@@ -99,9 +105,11 @@ async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
   const gruppAv = new Map<string, string>()
   type Meta = { namn: string; kategori: KapacitetKategori | null; extern: boolean; skotningAvslutad: string | null }
   const meta = new Map<string, Meta>()
+  const specialGrupp = new Map<string, string | null>()        // VO-grupp → skäl, för special-objekt
   for (const o of dimObjekt) {
     const g = o.vo_nummer ? `VO:${o.vo_nummer}` : `OBJ:${o.objekt_id}`
     gruppAv.set(o.objekt_id, g)
+    if (specialRader.has(o.objekt_id)) specialGrupp.set(g, forstaSkal(specialGrupp.get(g), specialRader.get(o.objekt_id)))
     const m = meta.get(g) || { namn: o.object_name || g, kategori: null, extern: false, skotningAvslutad: null }
     if (o.huvudtyp || arVindfalle(o.atgard, o.avtalsform)) m.kategori = kapacitetKategori(o) ?? m.kategori
     if (arExtern(o)) m.extern = true
@@ -149,7 +157,7 @@ async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
     }
     ut.push(bedomObjekt(rad))
   }
-  return ut
+  return { objekt: ut, special: specialGrupp }
 }
 
 // ── Hinkar ───────────────────────────────────────────────────
@@ -205,6 +213,7 @@ export default function KapacitetNy({ maskin, onMaskinChange }: {
   const [period, setPeriod] = useState<Period>('K')
   const [offset, setOffset] = useState(0)
   const [alla, setAlla] = useState<KapacitetObjekt[] | null>(null)
+  const [specialGrupp, setSpecialGrupp] = useState<Map<string, string | null>>(new Map())
   const [fel, setFel] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [maskinOpen, setMaskinOpen] = useState(false)
@@ -216,7 +225,7 @@ export default function KapacitetNy({ maskin, onMaskinChange }: {
     let cancelled = false
     setLoading(true); setFel(null); setAlla(null); setKategori(null)
     hamtaObjekt(maskin.id)
-      .then(d => { if (!cancelled) { setAlla(d); setLoading(false) } })
+      .then(d => { if (!cancelled) { setAlla(d.objekt); setSpecialGrupp(d.special); setLoading(false) } })
       .catch(e => { if (!cancelled) { setFel(e?.message || 'Kunde inte läsa maskindata'); setLoading(false) } })
     return () => { cancelled = true }
   }, [maskin.id])
@@ -261,27 +270,28 @@ export default function KapacitetNy({ maskin, onMaskinChange }: {
   return (
     <div style={{
       position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0,
-      overflow: 'auto', background: C.bg, color: C.text,
+      overflow: 'auto', background: FARG.bg, color: FARG.text,
       fontFamily: FONT, fontFeatureSettings: '"tnum"',
     }}>
       {/* ── Sticky header: maskin + period-nav + V/M/K/Å ── */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 5, background: C.bg, borderBottom: `0.5px solid ${C.divider}` }}>
-        <div style={{ padding: '14px 16px', textAlign: 'center', position: 'relative' }}>
+      <div style={{ position: 'sticky', top: 0, zIndex: 5, background: FARG.bg, borderBottom: `0.5px solid ${FARG.linje}` }}>
+        <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.l}px`, textAlign: 'center', position: 'relative' }}>
           <button
+            className="mv-maskinval"
             onClick={() => setMaskinOpen(o => !o)}
             aria-expanded={maskinOpen}
-            style={{ background: 'transparent', border: 'none', color: C.text, fontFamily: FONT, fontSize: 15, fontWeight: 600, letterSpacing: -0.3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, padding: 0, minHeight: 44 }}
+            style={{ background: 'transparent', border: 'none', color: FARG.text, fontFamily: FONT, fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -0.3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s, padding: 0, minHeight: 44 }}
           >
             {maskin.namn}
-            <span style={{ color: C.muted, fontSize: 11 }}>▾</span>
+            <span className="mv-maskinval-pil" style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
           </button>
           {maskinOpen && (
-            <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', background: C.card, borderRadius: 12, marginTop: 6, minWidth: 260, overflow: 'hidden', zIndex: 100, boxShadow: '0 8px 28px rgba(0,0,0,0.6)' }}>
+            <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', background: FARG.kort, borderRadius: RADIE.kort, marginTop: AVSTAND.s, minWidth: 260, overflow: 'hidden', zIndex: 100, boxShadow: '0 8px 28px rgba(0,0,0,0.6)' }}>
               {MASKINER.map(m => (
                 <button
                   key={m.id}
                   onClick={() => { onMaskinChange(m); setMaskinOpen(false) }}
-                  style={{ display: 'block', width: '100%', padding: '12px 16px', background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent', border: 'none', color: C.text, fontFamily: FONT, fontSize: 14, cursor: 'pointer', textAlign: 'left', minHeight: 44 }}
+                  style={{ display: 'block', width: '100%', padding: '12px 16px', background: m.id === maskin.id ? FARG.linje : 'transparent', border: 'none', color: FARG.text, fontFamily: FONT, fontSize: TYP.meta.fontSize, cursor: 'pointer', textAlign: 'left', minHeight: 44 }}
                 >{m.namn}</button>
               ))}
             </div>
@@ -290,80 +300,80 @@ export default function KapacitetNy({ maskin, onMaskinChange }: {
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '12px 0 4px' }}>
           <button onClick={() => setOffset(o => o - 1)} aria-label="Föregående period"
-            style={{ width: 44, height: 44, border: 'none', background: 'transparent', color: C.muted, fontSize: 22, cursor: 'pointer', fontFamily: FONT }}>‹</button>
-          <div style={{ minWidth: 180, textAlign: 'center', fontSize: 16, fontWeight: 600, color: C.text, letterSpacing: -0.3 }}>{label}</div>
+            style={{ width: 44, height: 44, border: 'none', background: 'transparent', color: FARG.text2, fontSize: TYP.rubrik.fontSize, cursor: 'pointer', fontFamily: FONT }}>‹</button>
+          <div style={{ minWidth: 180, textAlign: 'center', fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, letterSpacing: -0.3 }}>{label}</div>
           <button onClick={() => setOffset(o => Math.min(o + 1, 0))} disabled={offset >= 0} aria-label="Nästa period"
-            style={{ width: 44, height: 44, border: 'none', background: 'transparent', color: offset >= 0 ? C.dim : C.muted, fontSize: 22, cursor: offset >= 0 ? 'default' : 'pointer', fontFamily: FONT }}>›</button>
+            style={{ width: 44, height: 44, border: 'none', background: 'transparent', color: offset >= 0 ? FARG.text3 : FARG.text2, fontSize: TYP.rubrik.fontSize, cursor: offset >= 0 ? 'default' : 'pointer', fontFamily: FONT }}>›</button>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 16px 10px' }}>
-          <div style={{ display: 'inline-flex', background: 'rgba(120,120,128,0.16)', borderRadius: 10, padding: 2 }}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: `${AVSTAND.xs}px ${AVSTAND.l}px ${AVSTAND.m}px` }}>
+          <div style={{ display: 'inline-flex', background: FARG.linje, borderRadius: RADIE.kort, padding: AVSTAND.xs }}>
             {(['V', 'M', 'K', 'Å'] as Period[]).map(p => (
               <button key={p} onClick={() => { setPeriod(p); setOffset(0) }}
-                style={{ minWidth: 58, padding: '7px 18px', border: 'none', borderRadius: 8, background: period === p ? '#3a3a3c' : 'transparent', color: period === p ? C.text : C.muted, fontSize: 13, fontWeight: period === p ? 600 : 500, fontFamily: FONT, cursor: 'pointer', minHeight: 36 }}
+                style={{ minWidth: 58, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, border: 'none', borderRadius: RADIE.rad, background: period === p ? FARG.fyllning : 'transparent', color: period === p ? FARG.text : FARG.text2, fontSize: TYP.meta.fontSize, fontWeight: period === p ? VIKT.halvfet : VIKT.halvfet, fontFamily: FONT, cursor: 'pointer', minHeight: 36 }}
               >{p}</button>
             ))}
           </div>
         </div>
-        <div style={{ textAlign: 'center', fontSize: 11, color: C.dim, padding: '0 16px 12px' }}>
+        <div style={{ textAlign: 'center', fontSize: TYP.micro.fontSize, color: FARG.text3, padding: '0 16px 12px' }}>
           Per dag visas inte — skotningen släpar efter skörden, så dagsvärden blir brus.
         </div>
       </div>
 
       {/* ── Innehåll ── */}
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '14px 16px 80px' }}>
+      <div style={{ ...kolumnRot('smal'), padding: `${AVSTAND.l}px ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
         {/* Kategori — vindfälle aldrig inblandat i de andras snitt */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
-          <div style={{ display: 'inline-flex', background: 'rgba(120,120,128,0.16)', borderRadius: 10, padding: 2 }}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: AVSTAND.l }}>
+          <div style={{ display: 'inline-flex', background: FARG.linje, borderRadius: RADIE.kort, padding: AVSTAND.xs }}>
             {KATEGORIER.map(k => (
               <button key={k} onClick={() => setKategori(k)}
-                style={{ padding: '7px 14px', border: 'none', borderRadius: 8, background: kat === k ? '#3a3a3c' : 'transparent', color: kat === k ? C.text : C.muted, fontSize: 13, fontWeight: kat === k ? 600 : 500, fontFamily: FONT, cursor: 'pointer', minHeight: 36 }}
+                style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px`, border: 'none', borderRadius: RADIE.rad, background: kat === k ? FARG.fyllning : 'transparent', color: kat === k ? FARG.text : FARG.text2, fontSize: TYP.meta.fontSize, fontWeight: kat === k ? VIKT.halvfet : VIKT.halvfet, fontFamily: FONT, cursor: 'pointer', minHeight: 36 }}
               >{KATEGORI_LABEL[k]}</button>
             ))}
           </div>
         </div>
 
         {/* Huvudkort — ETT tal per vy */}
-        <div style={{ background: C.card, borderRadius: 14, padding: '16px 18px 14px', marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 8 }}>
+        <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.l}px`, marginBottom: 12 }}>
+          <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: VIKT.fet, marginBottom: 8 }}>
             {KATEGORI_LABEL[kat]} · {label}
           </div>
           {loading ? (
-            <div style={{ fontSize: 14, color: C.muted }}>Läser maskindata …</div>
+            <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Läser maskindata …</div>
           ) : fel ? (
-            <div style={{ fontSize: 14, color: C.muted }}>Kunde inte läsa maskindata — ladda om sidan.</div>
+            <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Kunde inte läsa maskindata — ladda om sidan.</div>
           ) : snitt.kvot === null || snitt.antal < MIN_OBJEKT_FOR_SNITT ? (
             <>
-              <div style={{ fontSize: 20, fontWeight: 600, color: C.muted, letterSpacing: -0.3 }}>För få färdiga objekt</div>
-              <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
+              <div style={{ fontSize: TYP.rubrik.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, letterSpacing: -0.3 }}>För få färdiga objekt</div>
+              <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, marginTop: AVSTAND.s }}>
                 {snitt.antal === 0 ? 'Inget objekt i kategorin blev färdigskotat i perioden.' : `${snitt.antal} färdigt objekt — behöver minst ${MIN_OBJEKT_FOR_SNITT} för ett behov.`}
               </div>
             </>
           ) : (
             <>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', opacity: palitlig ? 1 : 0.55 }}>
-                <span style={{ fontSize: 34, fontWeight: 700, letterSpacing: -0.8, lineHeight: 1, color: C.text }}>{behovText(snitt.kvot).tal}</span>
-                <span style={{ fontSize: 16, fontWeight: 600, color: C.text, letterSpacing: -0.2 }}>skotare bakom skördaren</span>
+                <span style={{ fontSize: TYP.tal.fontSize, fontWeight: VIKT.fet, letterSpacing: -0.8, lineHeight: 1, color: FARG.text }}>{behovText(snitt.kvot).tal}</span>
+                <span style={{ fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, letterSpacing: -0.2 }}>skotare bakom skördaren</span>
               </div>
-              <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
+              <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, marginTop: AVSTAND.s }}>
                 Behöver {behovText(snitt.kvot).tal} skotare · {kapacitetKlarsprak(snitt.kvot).stod} · {snitt.antal} färdiga objekt
               </div>
               {!palitlig && (
-                <div style={{ fontSize: 12, color: C.orange, marginTop: 8, fontWeight: 600 }}>
+                <div style={{ fontSize: TYP.meta.fontSize, color: FARG.orange, marginTop: 8, fontWeight: VIKT.halvfet }}>
                   Ej pålitlig data — uppbyggnad före {KAPACITET_PALITLIG_FRAN.slice(0, 4)}
                 </div>
               )}
             </>
           )}
           {!loading && !fel && manuella.length > 0 && (
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 10, paddingTop: 10, borderTop: `0.5px solid ${C.divider}` }}>
+            <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, marginTop: AVSTAND.m, paddingTop: AVSTAND.m, borderTop: `0.5px solid ${FARG.linje}` }}>
               + {manuella.length} objekt med manuellt rapporterad skotartid
               {snittMan.kvot !== null ? ` · behöver ${kapacitetKlarsprak(snittMan.kvot).tal} skotare` : ''}
               {' '}— räknas inte in i talet ovan
             </div>
           )}
           {!loading && !fel && uteslutna.length > 0 && (
-            <div style={{ fontSize: 12, color: C.dim, marginTop: 8 }}>
+            <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text3, marginTop: 8 }}>
               Räknas inte: {uteslutna.map(([u, n]) => `${n} ${UTESLUTNING_LABEL[u]}`).join(' · ')}
             </div>
           )}
@@ -376,15 +386,15 @@ export default function KapacitetNy({ maskin, onMaskinChange }: {
 
         {/* Objekten bakom talet */}
         {!loading && !fel && maskinmatta.length > 0 && (
-          <div style={{ background: C.card, borderRadius: 14, padding: '14px 18px 8px', marginTop: 12 }}>
-            <div style={{ fontSize: 11, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 6 }}>Färdiga objekt i perioden</div>
+          <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.s}px`, marginTop: 12 }}>
+            <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: VIKT.fet, marginBottom: AVSTAND.s }}>Färdiga objekt i perioden</div>
             {maskinmatta
               .slice()
               .sort((a, b) => (b.skotningAvslutad || '').localeCompare(a.skotningAvslutad || ''))
               .map(o => (
-                <div key={o.grupp} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, padding: '8px 0', borderTop: `0.5px solid ${C.divider}` }}>
-                  <span style={{ fontSize: 14, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.namn}</span>
-                  <span style={{ fontSize: 12, color: C.muted, whiteSpace: 'nowrap' }}>
+                <div key={o.grupp} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: AVSTAND.m, padding: '8px 0', borderTop: `0.5px solid ${FARG.linje}` }}>
+                  <span style={{ ...TYP.meta, color: FARG.text, minWidth: 0 }}><ObjektNamn namn={o.namn} special={specialGrupp.has(o.grupp)} skal={specialGrupp.get(o.grupp)} /></span>
+                  <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, whiteSpace: 'nowrap' }}>
                     {o.skotningAvslutad?.slice(5)} · {kapacitetKlarsprak(o.kvot!).tal} skotare
                   </span>
                 </div>
@@ -409,31 +419,31 @@ function Staplar({ hinkar, objekt, period, palitlig }: { hinkar: Hink[]; objekt:
   const max = Math.max(2, ...varden.map(v => v.kvot ?? 0))
   const H = 120
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: '14px 18px 12px' }}>
-      <div style={{ fontSize: 11, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 10 }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px` }}>
+      <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: VIKT.fet, marginBottom: AVSTAND.m }}>
         {period === 'V' ? 'Veckan' : period === 'M' ? 'Per vecka' : 'Per månad'} · färdiga objekt
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: H + 34 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: AVSTAND.s, height: H + 34 }}>
         {varden.map(v => {
           const hojd = v.kvot !== null ? Math.max(4, (v.kvot / max) * H) : 0
           return (
             <div key={v.hink.key} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: v.kvot !== null ? C.text : C.dim, marginBottom: 4, opacity: palitlig ? 1 : 0.55 }}>
+              <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: v.kvot !== null ? FARG.text : FARG.text3, marginBottom: 4, opacity: palitlig ? 1 : 0.55 }}>
                 {v.kvot !== null ? kapacitetKlarsprak(v.kvot).tal : '–'}
               </div>
               <div style={{
-                width: '100%', maxWidth: 40, height: v.kvot !== null ? hojd : 4, borderRadius: 4,
-                background: v.kvot !== null ? 'rgba(255,255,255,0.78)' : 'transparent',
-                border: v.kvot !== null ? 'none' : `1px dashed ${C.dim}`,
+                width: '100%', maxWidth: 40, height: v.kvot !== null ? hojd : 4, borderRadius: RADIE.stapel,
+                background: v.kvot !== null ? tint(FARG.text, 78) : 'transparent',
+                border: v.kvot !== null ? 'none' : `1px dashed ${FARG.text3}`,
                 opacity: palitlig ? 1 : 0.55,
               }} />
-              <div style={{ fontSize: 11, color: C.muted, marginTop: 6, whiteSpace: 'nowrap' }}>{v.hink.label}</div>
+              <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.s, whiteSpace: 'nowrap' }}>{v.hink.label}</div>
             </div>
           )
         })}
       </div>
       {varden.some(v => v.kvot === null) && (
-        <div style={{ fontSize: 11, color: C.dim, marginTop: 8 }}>– = för få färdiga objekt (under {MIN_OBJEKT_FOR_HINK})</div>
+        <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text3, marginTop: 8 }}>– = för få färdiga objekt (under {MIN_OBJEKT_FOR_HINK})</div>
       )}
     </div>
   )

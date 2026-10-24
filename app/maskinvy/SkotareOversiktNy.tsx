@@ -1,20 +1,24 @@
 'use client'
-import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, AVSTAND, RADIE, TYP, VIKT, medSafeBotten, FARG, FONT, kolumnRot, overgang } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
-  C, FONT, getPeriodRange, getPrevDateRange, fetchAll,
-  fmtSv, DeltaBadge, Sparkline, OperatorList, initials, VolymBadge,
-  type Period, type Operator,
+  getPeriodRange, getPrevDateRange, fetchAll, fmtSv, DeltaBadge, Sparkline, OperatorList, initials, VolymBadge, hamtaOperatorKoppling, type Period, type Operator, FLYTT_FARG, tint,
 } from './OversiktShared'
 import {
   hämtaManuellRader, harManuellData, fetchAllTimeLassTid, byggVolymPerDag, sumPerDag,
   type ManuellRad, type LassRad, type TidRad,
 } from '@/lib/maskinvy/skotarvolym'
 import { FLYTT_KATEGORI } from '../../lib/avbrott-kategorier'
+import { slaIhopOperatorer } from '@/lib/maskinvy/operatorer'
+import { KLASSER, getKlassIdx } from '@/lib/maskinvy/jamforelse'
+import {
+  skotningsavstandM, snittSkotningsavstandM, SKOTNINGSAVSTAND_ETIKETT, SKOTNINGSAVSTAND_UNDERTEXT,
+} from '@/lib/skotningsavstand'
 import { G15_GRANS_SEK, tuProcent, TU_BRANSCHSNITT, arOklassatAvbrott } from '@/lib/g15'
 import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
+import { LivestatusKort } from './Livestatus'
 
 // ─────────────────────────────────────────────────────────────
 // SkotareOversiktNy — Översikt för skotare bakom ?ny=1.
@@ -30,13 +34,10 @@ import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 // Maskinlistan är dynamisk — se useMaskinvyMaskiner (dim_maskin, bekräftad + data).
 
 // ── Avståndklasser ───────────────────────────────────────────
-// Baserade på korstracka_m per lass i fakt_lass.
-const DIST_KLASSER = [
-  { label: '<500 m',    min: 0,    max: 500,       farg: C.blue                     },
-  { label: '500–1000',  min: 500,  max: 1000,      farg: 'rgba(10,132,255,0.70)'    },
-  { label: '1000–2000', min: 1000, max: 2000,      farg: 'rgba(10,132,255,0.42)'    },
-  { label: '2000+',     min: 2000, max: Infinity,  farg: 'rgba(10,132,255,0.22)'    },
-] as const
+// Samma ackordsklasser som Jämförelse (lib/maskinvy/jamforelse), på SKOTNINGSAVSTÅND
+// (enkel väg) — inte på rå körsträcka (korstracka_m är tur och retur).
+const KLASS_FARG = [FARG.bla, tint(FARG.bla, 72), tint(FARG.bla, 52), tint(FARG.bla, 36), tint(FARG.bla, 22)]
+const DIST_KLASSER = KLASSER.map((k, i) => ({ label: k.label, farg: KLASS_FARG[i] }))
 
 // ── Typer ─────────────────────────────────────────────────────
 type DistKlass = { label: string; farg: string; antal: number; andel: number }
@@ -119,9 +120,7 @@ async function fetchSkotareData(
     totalDist += dist
     if (r.datum) dagSet.add(r.datum)
     // Klassificera avstånd i rätt klass (söker bakifrån för att hitta min-tröskeln)
-    for (let i = DIST_KLASSER.length - 1; i >= 0; i--) {
-      if (dist >= DIST_KLASSER[i].min) { klassCounts[i]++; break }
-    }
+    klassCounts[getKlassIdx(skotningsavstandM(dist))]++
   }
 
   const lass = lassRows.length
@@ -157,7 +156,7 @@ async function fetchSkotareData(
     volym,
     lass,
     snittLass:    lass > 0  ? volym / lass        : null,
-    snittSträcka: lass > 0  ? totalDist / lass    : null,
+    snittSträcka: snittSkotningsavstandM(totalDist, lass),
     g15h,
     lassPerG15h:  g15h > 0  ? lass / g15h         : null,
     dagar: dagSet.size,
@@ -206,10 +205,11 @@ async function fetchSkotareOperatorer(
 ): Promise<Operator[]> {
   const ids = [maskinId]
 
-  const [lassRows, tidRows, opRes] = await Promise.all([
+  const [lassRows, tidRows, opRes, koppling] = await Promise.all([
     fetchAll('fakt_lass', 'datum, volym_m3sub, operator_id', ids, start, end),
     fetchAll('fakt_tid',  'datum, operator_id, processing_sek, terrain_sek, other_work_sek', ids, start, end),
     supabase.from('dim_operator').select('operator_id, operator_namn').in('maskin_id', ids),
+    hamtaOperatorKoppling(),
   ])
 
   // Namn-lookup
@@ -241,7 +241,7 @@ async function fetchSkotareOperatorer(
 
   // Slå ihop, beräkna m³/G15h, filtrera och sortera alfabetiskt
   const allIds = new Set([...Object.keys(lassByOp), ...Object.keys(tidByOp)])
-  return Array.from(allIds)
+  const perId = Array.from(allIds)
     .map(id => {
       const l = lassByOp[id] || { volym: 0, dagar: new Set<string>() }
       const t = tidByOp[id]  || { proc: 0, terr: 0, ow: 0 }
@@ -254,10 +254,13 @@ async function fetchSkotareOperatorer(
         stammar: 0,                               // skotare har inga stammar
         dagar:   l.dagar.size,
         prod:    g15h > 0 ? l.volym / g15h : null, // m³/G15h, viktat
+        ids:     [id],
+        datum:   Array.from(l.dagar),
       } satisfies Operator
     })
     .filter(o => o.volym > 0)                     // skippa perioder utan lass
-    .sort((a, b) => a.namn.localeCompare(b.namn, 'sv'))
+  // En rad per PERSON (Max Karlsson hade två operator_id → två rader).
+  return slaIhopOperatorer(perId, koppling)
 }
 
 // ── Djupvydata per operatör ────────────────────────────────────
@@ -265,7 +268,7 @@ async function fetchSkotareOperatorer(
 // filtrerar sedan på operator_id i JS. Aldrig join mot varandra.
 
 async function fetchSkotareOpDeep(
-  maskinId: string, opId: string, start: string, end: string,
+  maskinId: string, opIds: string[], start: string, end: string,
 ): Promise<SkotareOpData> {
   const ids = [maskinId]
   const [lassRows, tidRows, avbrottRows] = await Promise.all([
@@ -274,9 +277,10 @@ async function fetchSkotareOpDeep(
     fetchAll('fakt_avbrott', 'operator_id, kategori_kod, langd_sek', ids, start, end),
   ])
 
-  const lassOp    = (lassRows    as any[]).filter(r => r.operator_id === opId)
-  const tidOp     = (tidRows     as any[]).filter(r => r.operator_id === opId)
-  const avbrottOp = (avbrottRows as any[]).filter(r => r.operator_id === opId)
+  // Personen kan ha flera operator_id — djupvyn visar alla tillsammans.
+  const lassOp    = (lassRows    as any[]).filter(r => opIds.includes(r.operator_id))
+  const tidOp     = (tidRows     as any[]).filter(r => opIds.includes(r.operator_id))
+  const avbrottOp = (avbrottRows as any[]).filter(r => opIds.includes(r.operator_id))
 
   let volym = 0, totalDist = 0
   const dagSet = new Set<string>()
@@ -286,9 +290,7 @@ async function fetchSkotareOpDeep(
     const dist = r.korstracka_m || 0
     totalDist += dist
     if (r.datum) dagSet.add(r.datum)
-    for (let i = DIST_KLASSER.length - 1; i >= 0; i--) {
-      if (dist >= DIST_KLASSER[i].min) { klassCounts[i]++; break }
-    }
+    klassCounts[getKlassIdx(skotningsavstandM(dist))]++
   }
   const lass = lassOp.length
 
@@ -310,7 +312,7 @@ async function fetchSkotareOpDeep(
   return {
     lass, volym,
     snittLass:    lass > 0 ? volym / lass     : null,
-    snittSträcka: lass > 0 ? totalDist / lass : null,
+    snittSträcka: snittSkotningsavstandM(totalDist, lass),
     g15h,
     prod: g15h > 0 ? volym / g15h : null,
     dagar: dagSet.size,
@@ -354,21 +356,6 @@ async function fetchSkotareSerie(
   }))
 }
 
-// ── Elephant King-not ─────────────────────────────────────────
-// Visas i operatörslistan OCH i djupvyn för A110148.
-function EkDisclaimer() {
-  return (
-    <div style={{
-      background: 'rgba(255,159,10,0.10)',
-      border: '0.5px solid rgba(255,159,10,0.30)',
-      borderRadius: 10, padding: '10px 14px', marginBottom: 14,
-      fontSize: 12, color: '#ff9f0a', lineHeight: 1.5,
-    }}>
-      Volym/lass registreras inte komplett än – m³/G15h blir korrekt när registreringen är igång.
-    </div>
-  )
-}
-
 // ── Hero-kort ─────────────────────────────────────────────────
 // Separerat från skördarens HeroCard eftersom trendvärdet är
 // volym (m³), inte produktivitet (m³/G15h).
@@ -399,49 +386,49 @@ function SkotareHero({
   const trendValid  = trendValues.filter(v => v !== null && isFinite(v as number)).length
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: '22px 22px 18px', marginBottom: 14 }}>
-      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 12, letterSpacing: -0.1 }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.xl}px ${AVSTAND.xl}px ${AVSTAND.l}px`, marginBottom: AVSTAND.l }}>
+      <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, marginBottom: 12, letterSpacing: -0.1 }}>
         Utkört
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <div style={{
-            fontSize: 40, fontWeight: 600, letterSpacing: -1.2,
-            color: C.text, lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+            fontSize: TYP.tal.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -1.2,
+            color: FARG.text, lineHeight: 1, fontVariantNumeric: 'tabular-nums',
           }}>
             {loading ? '—' : value !== null ? fmtSv(value, 0) : '—'}
           </div>
-          <div style={{ fontSize: 14, color: C.muted }}>m³sub</div>
+          <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>m³sub</div>
         </div>
         {!loading && <VolymBadge harManuell={harManuell} />}
       </div>
 
-      <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+      <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: AVSTAND.s }}>
         {loading
-          ? <span style={{ fontSize: 13, color: C.dim }}>—</span>
+          ? <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text3 }}>—</span>
           : <DeltaBadge current={value} previous={prev} size="md" />}
-        <span style={{ fontSize: 11, color: C.muted }}>{refLabel}</span>
+        <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2 }}>{refLabel}</span>
       </div>
 
       <div style={{ marginTop: 16, height: 60 }} ref={chartRef}>
         {loading ? (
           <div style={{
-            height: 60, borderRadius: 8, background: 'rgba(255,255,255,0.025)',
+            height: 60, borderRadius: RADIE.rad, background: FARG.tonad,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: C.muted, fontSize: 11,
+            color: FARG.text2, fontSize: TYP.micro.fontSize,
           }}>—</div>
         ) : trendValid < 2 ? (
           <div style={{
-            height: 60, borderRadius: 8, background: 'rgba(255,255,255,0.025)',
+            height: 60, borderRadius: RADIE.rad, background: FARG.tonad,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: C.muted, fontSize: 11,
+            color: FARG.text2, fontSize: TYP.micro.fontSize,
           }}>För lite trenddata</div>
         ) : (
           w > 0 && (
             <Sparkline
               values={trendValues}
               width={w} height={60}
-              color={C.blue} fillOpacity={0.12} lastDot
+              color={FARG.bla} fillOpacity={0.12} lastDot
             />
           )
         )}
@@ -483,7 +470,7 @@ function SkotareKpiList({
   const rows: Row[] = [
     { label: 'Lass',         val: data?.lass          ?? null, prevVal: prev?.lass          ?? null, unit: 'st',      dec: 0 },
     { label: 'Snittlass',    val: data?.snittLass      ?? null, prevVal: prev?.snittLass      ?? null, unit: 'm³/lass', dec: 1 },
-    { label: 'Snittsträcka', val: data?.snittSträcka   ?? null, prevVal: prev?.snittSträcka   ?? null, unit: 'm',       dec: 0 },
+    { label: SKOTNINGSAVSTAND_ETIKETT, val: data?.snittSträcka   ?? null, prevVal: prev?.snittSträcka   ?? null, unit: 'm',       dec: 0, hint: SKOTNINGSAVSTAND_UNDERTEXT },
     { label: 'Lass/G15h',    val: data?.lassPerG15h    ?? null, prevVal: prev?.lassPerG15h    ?? null, unit: 'st/G15h', dec: 1 },
     { label: 'G15-tid',      val: data && data.g15h > 0 ? data.g15h : null, prevVal: prev && prev.g15h > 0 ? prev.g15h : null, unit: 'h', dec: 1 },
     { label: 'Korta stopp',  val: kortAndel(data),              prevVal: kortAndel(prev),              unit: '%',       dec: 1, lowerIsBetter: true, display: kortDisplay, muted: kortSaknas, hint: kortSaknas ? undefined : 'mikropauser · % av motortid' },
@@ -491,38 +478,38 @@ function SkotareKpiList({
   ]
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden', marginBottom: AVSTAND.l }}>
       {rows.map((r, i) => (
         <div
           key={r.label}
           style={{
             display: 'grid',
             gridTemplateColumns: '1fr auto 56px',
-            gap: 14, alignItems: 'center',
-            padding: '14px 16px',
-            borderTop: i > 0 ? `0.5px solid ${C.divider}` : 'none',
+            gap: AVSTAND.l, alignItems: 'center',
+            padding: `${AVSTAND.l}px ${AVSTAND.l}px`,
+            borderTop: i > 0 ? `0.5px solid ${FARG.linje}` : 'none',
           }}
         >
-          <div style={{ fontSize: 15, color: C.text }}>
+          <div style={{ fontSize: TYP.text.fontSize, color: FARG.text }}>
             {r.label}
-            {r.hint && <div style={{ fontSize: 11, color: C.muted, marginTop: 4, whiteSpace: 'nowrap' }}>{r.hint}</div>}
-            {r.hint2 && <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{r.hint2}</div>}
+            {r.hint && <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: 4, whiteSpace: 'nowrap' }}>{r.hint}</div>}
+            {r.hint2 && <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.xs }}>{r.hint2}</div>}
           </div>
           <div style={{
-            fontSize: r.muted ? 13 : 16, fontWeight: r.muted ? 400 : 500,
-            color: r.muted ? C.muted : r.varna && !loading ? C.orange : C.text,
+            fontSize: r.muted ? 13 : 16, fontWeight: r.muted ? VIKT.normal : VIKT.halvfet,
+            color: r.muted ? FARG.text2 : r.varna && !loading ? FARG.orange : FARG.text,
             fontVariantNumeric: 'tabular-nums', textAlign: 'right',
           }}>
             {loading ? '—' : r.display ?? (r.val !== null ? fmtSv(r.val, r.dec) : '—')}
             {!(!loading && r.display) && (
-              <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>
+              <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginLeft: 4, fontWeight: VIKT.normal }}>
                 {r.unit}
               </span>
             )}
           </div>
           <div style={{ textAlign: 'right' }}>
             {loading || r.muted
-              ? <span style={{ fontSize: 11, color: C.dim }}>—</span>
+              ? <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text3 }}>—</span>
               : <DeltaBadge current={r.val} previous={r.prevVal} lowerIsBetter={r.lowerIsBetter ?? false} size="sm" />}
           </div>
         </div>
@@ -544,22 +531,22 @@ function SkotareTidsfordelning({
   loading: boolean
 }) {
   const segments = [
-    { key: 'proc'  as const, label: 'Processing',     color: C.green  },
-    { key: 'terr'  as const, label: 'Terrängkörning', color: C.blue   },
-    { key: 'avbr'  as const, label: 'Avbrott',        color: C.red    },
-    { key: 'flytt' as const, label: 'Flytt',          color: C.purple },
+    { key: 'proc'  as const, label: 'Processing',     color: FARG.gron  },
+    { key: 'terr'  as const, label: 'Terrängkörning', color: FARG.bla   },
+    { key: 'avbr'  as const, label: 'Avbrott',        color: FARG.rod    },
+    { key: 'flytt' as const, label: 'Flytt',          color: FLYTT_FARG },
   ]
   const total = data ? data.proc + data.terr + data.avbr + data.flytt : 0
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: 18, marginBottom: 14 }}>
-      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 14 }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: AVSTAND.l, marginBottom: AVSTAND.l }}>
+      <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, marginBottom: AVSTAND.l }}>
         Tidsfördelning
       </div>
       {/* Staplad proportionsstapel */}
       <div style={{
-        display: 'flex', height: 14, borderRadius: 4, overflow: 'hidden',
-        background: 'rgba(255,255,255,0.04)', gap: 2,
+        display: 'flex', height: 14, borderRadius: RADIE.stapel, overflow: 'hidden',
+        background: FARG.tonad, gap: AVSTAND.xs,
       }}>
         {(!loading && data && total > 0) && segments.map(s => {
           const pct = data[s.key] / total * 100
@@ -568,18 +555,18 @@ function SkotareTidsfordelning({
         })}
       </div>
       {/* Legend */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 14 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: AVSTAND.l, marginTop: AVSTAND.l }}>
         {segments.map(s => {
           const v = data ? data[s.key] : 0
           const pct = total > 0 ? Math.round(v / total * 100) : null
           return (
-            <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
-              <span style={{ color: C.muted }}>{s.label}</span>
-              <span style={{ color: C.text, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+            <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, fontSize: TYP.meta.fontSize }}>
+              <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: s.color }} />
+              <span style={{ color: FARG.text2 }}>{s.label}</span>
+              <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, fontVariantNumeric: 'tabular-nums' }}>
                 {loading || pct === null ? '—' : `${pct}%`}
               </span>
-              <span style={{ color: C.muted, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ color: FARG.text2, fontSize: TYP.micro.fontSize, fontVariantNumeric: 'tabular-nums' }}>
                 · {loading || !data ? '—' : fmtTid(v)}
               </span>
             </div>
@@ -590,7 +577,7 @@ function SkotareTidsfordelning({
   )
 }
 
-// ── Körsträcka per lass ───────────────────────────────────────
+// ── Skotningsavstånd per lass (enkel väg) ─────────────────────
 // Staplad proportionsstapel + legend, liknande SkotareTidsfordelning.
 // Accepterar SkotareData och SkotareOpData (båda har lass + distKlasser).
 function DistKlasserKort({
@@ -603,15 +590,16 @@ function DistKlasserKort({
   const harData = !loading && data && data.lass > 0
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: 18, marginBottom: 14 }}>
-      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 14 }}>
-        Körsträcka per lass
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: AVSTAND.l, marginBottom: AVSTAND.l }}>
+      <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, marginBottom: AVSTAND.l }}>
+        {SKOTNINGSAVSTAND_ETIKETT} per lass
+        <span style={{ fontWeight: VIKT.normal, marginLeft: AVSTAND.xs }}>· {SKOTNINGSAVSTAND_UNDERTEXT}</span>
       </div>
 
       {/* Staplad proportionsstapel */}
       <div style={{
-        display: 'flex', height: 14, borderRadius: 4, overflow: 'hidden',
-        background: 'rgba(255,255,255,0.04)', gap: 2, marginBottom: 14,
+        display: 'flex', height: 14, borderRadius: RADIE.stapel, overflow: 'hidden',
+        background: FARG.tonad, gap: AVSTAND.xs, marginBottom: AVSTAND.l,
       }}>
         {harData && klasser.map((k, i) => {
           if (k.andel < 0.005) return null
@@ -620,15 +608,15 @@ function DistKlasserKort({
       </div>
 
       {/* Legend: en rad per klass */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: AVSTAND.l }}>
         {klasser.map((k, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-            <div style={{ width: 8, height: 8, borderRadius: 2, background: k.farg }} />
-            <span style={{ color: C.muted }}>{k.label}</span>
-            <span style={{ color: C.text, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, fontSize: TYP.meta.fontSize }}>
+            <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: k.farg }} />
+            <span style={{ color: FARG.text2 }}>{k.label}</span>
+            <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, fontVariantNumeric: 'tabular-nums' }}>
               {harData ? `${Math.round(k.andel * 100)}%` : '—'}
             </span>
-            <span style={{ color: C.muted, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ color: FARG.text2, fontSize: TYP.micro.fontSize, fontVariantNumeric: 'tabular-nums' }}>
               · {harData ? `${k.antal} lass` : '—'}
             </span>
           </div>
@@ -644,7 +632,6 @@ function DistKlasserKort({
 //
 // Visar per förare: utkört m³, lass, m³/G15h, snittlass,
 // snittsträcka, tidsfördelning, avståndsprofil.
-// EK-disclaimer visas för A110148.
 function SkotareOperatorDeepView({
   maskin, period, offset, periodLabel, operator, onClose,
 }: {
@@ -684,111 +671,107 @@ function SkotareOperatorDeepView({
     let cancelled = false
     setLoading(true)
     const { start, end } = getPeriodRange(period, offset)
-    fetchSkotareOpDeep(maskin.id, operator.id, start, end)
+    fetchSkotareOpDeep(maskin.id, operator.ids ?? [operator.id], start, end)
       .then(d => { if (!cancelled) { setData(d); setLoading(false) } })
       .catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [maskin.id, period, offset, operator.id])
-
-  const isEK = maskin.id === 'A110148'
+  }, [maskin.id, period, offset, operator.id, operator.ids?.join(',')])
 
   const kpiRows = [
     { label: 'Utkört',       val: data?.volym       ?? null, unit: 'm³sub',   dec: 0 },
     { label: 'Lass',         val: data?.lass         ?? null, unit: 'st',      dec: 0 },
     { label: 'm³/G15h',      val: data?.prod         ?? null, unit: 'm³/G15h', dec: 1 },
     { label: 'Snittlass',    val: data?.snittLass    ?? null, unit: 'm³/lass', dec: 1 },
-    { label: 'Snittsträcka', val: data?.snittSträcka ?? null, unit: 'm',       dec: 0 },
+    { label: SKOTNINGSAVSTAND_ETIKETT, val: data?.snittSträcka ?? null, unit: 'm enkel väg', dec: 0 },
   ]
 
   return (
     <div
       role="dialog"
+      className="mv-djup"
       aria-label={`Förare: ${operator.namn}`}
       style={{
         position: 'fixed', top: 'calc(56px + env(safe-area-inset-top))', left: 0, right: 0, bottom: 0,
-        overflow: 'auto', background: C.bg, color: C.text,
+        overflow: 'auto', background: FARG.bg, color: FARG.text,
         fontFamily: FONT, fontFeatureSettings: '"tnum"',
         transform: shown ? 'translateX(0)' : 'translateX(100%)',
-        transition: 'transform 280ms cubic-bezier(0.32, 0.72, 0, 1)',
+        transition: overgang('transform'),
         zIndex: 200,
       }}
     >
       {/* Sticky topbar: tillbaka-knapp */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 5,
-        background: C.bg, borderBottom: `0.5px solid ${C.divider}`,
-        padding: '10px 12px',
+        background: FARG.bg, borderBottom: `0.5px solid ${FARG.linje}`,
+        padding: `${AVSTAND.m}px ${AVSTAND.m}px`,
       }}>
         <button
           onClick={handleClose}
           style={{
             background: 'transparent', border: 'none',
-            color: C.blue, fontFamily: FONT,
-            fontSize: 16, fontWeight: 400, letterSpacing: -0.2,
+            color: FARG.bla, fontFamily: FONT,
+            fontSize: TYP.text.fontSize, fontWeight: VIKT.normal, letterSpacing: -0.2,
             cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
-            gap: 2, padding: '6px 8px', minHeight: 36,
+            gap: AVSTAND.xs, padding: `${AVSTAND.s}px ${AVSTAND.s}px`, minHeight: 36,
           }}
           aria-label="Tillbaka till Översikt"
         >
-          <span style={{ fontSize: 22, lineHeight: 1, marginRight: 2 }}>‹</span>
+          <span style={{ fontSize: TYP.rubrik.fontSize, lineHeight: 1, marginRight: AVSTAND.xs }}>‹</span>
           Översikt
         </button>
       </div>
 
       {/* Header: avatar + namn + meta */}
       <div style={{
-        maxWidth: 720, margin: '0 auto', padding: '20px 16px 8px',
-        display: 'flex', alignItems: 'center', gap: 14,
+        ...kolumnRot('smal'), padding: `${AVSTAND.xl}px ${AVSTAND.l}px ${AVSTAND.s}px`,
+        display: 'flex', alignItems: 'center', gap: AVSTAND.l,
       }}>
         <div style={{
-          width: 52, height: 52, borderRadius: 26,
-          background: 'rgba(255,255,255,0.08)',
+          width: 52, height: 52, borderRadius: RADIE.sheet,
+          background: FARG.linje,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 17, fontWeight: 600, color: C.text, flexShrink: 0,
+          fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, flexShrink: 0,
         }}>
           {initials(operator.namn)}
         </div>
         <div style={{ minWidth: 0 }}>
           <div style={{
-            fontSize: 22, fontWeight: 600, color: C.text,
+            fontSize: TYP.rubrik.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
             letterSpacing: -0.4, lineHeight: 1.15,
           }}>
             {operator.namn}
           </div>
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
             {periodLabel}
-            <span style={{ color: C.muted }}> · </span>
+            <span style={{ color: FARG.text2 }}> · </span>
             {loading ? '—' : `${fmtSv(data?.g15h ?? 0, 0)} G15h`}
-            <span style={{ color: C.muted }}> · </span>
+            <span style={{ color: FARG.text2 }}> · </span>
             {loading ? '—' : `${data?.dagar ?? 0} ${(data?.dagar ?? 0) === 1 ? 'dag' : 'dagar'}`}
           </div>
         </div>
       </div>
 
       {/* Innehåll */}
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '8px 16px 80px' }}>
-        {/* EK-disclaimer — bara för Elephant King */}
-        {isEK && <EkDisclaimer />}
-
+      <div style={{ ...kolumnRot('smal'), padding: `${AVSTAND.s}px ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
         {/* KPI-lista */}
-        <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
+        <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden', marginBottom: AVSTAND.l }}>
           {kpiRows.map((r, i) => (
             <div
               key={r.label}
               style={{
                 display: 'grid', gridTemplateColumns: '1fr auto',
-                gap: 14, alignItems: 'center',
-                padding: '14px 16px',
-                borderTop: i > 0 ? `0.5px solid ${C.divider}` : 'none',
+                gap: AVSTAND.l, alignItems: 'center',
+                padding: `${AVSTAND.l}px ${AVSTAND.l}px`,
+                borderTop: i > 0 ? `0.5px solid ${FARG.linje}` : 'none',
               }}
             >
-              <div style={{ fontSize: 15, color: C.text }}>{r.label}</div>
+              <div style={{ fontSize: TYP.text.fontSize, color: FARG.text }}>{r.label}</div>
               <div style={{
-                fontSize: 16, fontWeight: 500, color: C.text,
+                fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
                 fontVariantNumeric: 'tabular-nums', textAlign: 'right',
               }}>
                 {loading ? '—' : r.val !== null ? fmtSv(r.val, r.dec) : '—'}
-                <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>
+                <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginLeft: 4, fontWeight: VIKT.normal }}>
                   {r.unit}
                 </span>
               </div>
@@ -900,35 +883,36 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
   return (
     <div style={{
       position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0,
-      overflow: 'auto', background: C.bg, color: C.text,
+      overflow: 'auto', background: FARG.bg, color: FARG.text,
       fontFamily: FONT, fontFeatureSettings: '"tnum"',
       zIndex: deepOperator ? 200 : undefined,
     }}>
       {/* ── Sticky header ── */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 5,
-        background: C.bg, borderBottom: `0.5px solid ${C.divider}`,
+        background: FARG.bg, borderBottom: `0.5px solid ${FARG.linje}`,
       }}>
         {/* Maskin-dropdown */}
-        <div style={{ padding: '14px 16px', textAlign: 'center', position: 'relative' }}>
+        <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.l}px`, textAlign: 'center', position: 'relative' }}>
           <button
+            className="mv-maskinval"
             onClick={() => setMaskinOpen(o => !o)}
             aria-expanded={maskinOpen}
             style={{
-              background: 'transparent', border: 'none', color: C.text,
-              fontFamily: FONT, fontSize: 15, fontWeight: 600, letterSpacing: -0.3,
-              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'transparent', border: 'none', color: FARG.text,
+              fontFamily: FONT, fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -0.3,
+              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s,
               padding: 0,
             }}
           >
             {maskin.namn}
-            <span style={{ color: C.muted, fontSize: 11 }}>▾</span>
+            <span className="mv-maskinval-pil" style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
           </button>
 
           {maskinOpen && (
             <div style={{
               position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
-              background: C.card, borderRadius: 12, marginTop: 6,
+              background: FARG.kort, borderRadius: RADIE.kort, marginTop: AVSTAND.s,
               minWidth: 260, overflow: 'hidden', zIndex: 100,
               boxShadow: '0 8px 28px rgba(0,0,0,0.6)',
             }}>
@@ -938,9 +922,9 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
                   onClick={() => { onMaskinChange(m); setMaskinOpen(false) }}
                   style={{
                     display: 'block', width: '100%', padding: '12px 16px',
-                    background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent',
-                    border: 'none', color: C.text, fontFamily: FONT,
-                    fontSize: 14, cursor: 'pointer', textAlign: 'left',
+                    background: m.id === maskin.id ? FARG.linje : 'transparent',
+                    border: 'none', color: FARG.text, fontFamily: FONT,
+                    fontSize: TYP.meta.fontSize, cursor: 'pointer', textAlign: 'left',
                   }}
                 >{m.namn}</button>
               ))}
@@ -958,12 +942,12 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
             aria-label="Föregående period"
             style={{
               width: 44, height: 44, border: 'none', background: 'transparent',
-              color: C.muted, fontSize: 22, cursor: 'pointer', fontFamily: FONT,
+              color: FARG.text2, fontSize: TYP.rubrik.fontSize, cursor: 'pointer', fontFamily: FONT,
             }}
           >‹</button>
           <div style={{
             minWidth: 180, textAlign: 'center',
-            fontSize: 16, fontWeight: 600, color: C.text, letterSpacing: -0.3,
+            fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, letterSpacing: -0.3,
           }}>{label}</div>
           <button
             onClick={() => setOffset(o => Math.min(o + 1, 0))}
@@ -971,27 +955,27 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
             aria-label="Nästa period"
             style={{
               width: 44, height: 44, border: 'none', background: 'transparent',
-              color: offset >= 0 ? C.dim : C.muted, fontSize: 22,
+              color: offset >= 0 ? FARG.text3 : FARG.text2, fontSize: TYP.rubrik.fontSize,
               cursor: offset >= 0 ? 'default' : 'pointer', fontFamily: FONT,
             }}
           >›</button>
         </div>
 
         {/* V/M/K/Å segmented control */}
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 16px 18px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: `${AVSTAND.xs}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>
           <div style={{
-            display: 'inline-flex', background: 'rgba(120,120,128,0.16)',
-            borderRadius: 10, padding: 2,
+            display: 'inline-flex', background: FARG.linje,
+            borderRadius: RADIE.kort, padding: AVSTAND.xs,
           }}>
             {(['V', 'M', 'K', 'Å'] as Period[]).map(p => (
               <button
                 key={p}
                 onClick={() => { setPeriod(p); setOffset(0) }}
                 style={{
-                  minWidth: 58, padding: '7px 18px', border: 'none', borderRadius: 8,
-                  background: period === p ? '#3a3a3c' : 'transparent',
-                  color: period === p ? C.text : C.muted,
-                  fontSize: 13, fontWeight: period === p ? 600 : 500,
+                  minWidth: 58, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, border: 'none', borderRadius: RADIE.rad,
+                  background: period === p ? FARG.fyllning : 'transparent',
+                  color: period === p ? FARG.text : FARG.text2,
+                  fontSize: TYP.meta.fontSize, fontWeight: period === p ? VIKT.halvfet : VIKT.halvfet,
                   fontFamily: FONT, cursor: 'pointer',
                 }}
               >{p}</button>
@@ -1001,7 +985,9 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
       </div>
 
       {/* ── Innehåll ── */}
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 16px 80px' }}>
+      <div style={{ ...kolumnRot('smal'), padding: `0 ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
+        {/* Livestatus (senaste lossning) + maskinhälsa (senaste fil) — alltid nu, oberoende av vald period. */}
+        <LivestatusKort maskin={maskin} roll="skotare" />
         <SkotareHero
           value={data?.volym ?? null}
           prev={prevData?.volym ?? null}

@@ -36,7 +36,6 @@ const adminApps = [
   { href: '/planering', label: 'Planering', icon: 'event_note' },
   { href: '/objekt', label: 'Objekt', icon: 'layers' },
   { href: '/redigering', label: 'Objektdetaljer', icon: 'edit' },
-  { href: '/bestallningar', label: 'Beställningar', icon: 'shopping_cart' },
   { href: '/ledighet', label: 'Ledighet', icon: 'beach_access' },
   { href: '/utbildning', label: 'Utbildning', icon: 'school' },
   { href: '/forbattringsforslag', label: 'Feedback', icon: 'feedback' },
@@ -117,7 +116,8 @@ function NyStartsida({ roll, data }: { roll: Roll; data: StartsidaData }) {
   const { besked } = useDatahalsa()
   return (
     <Startsida roll={roll} marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null, lass: data.vantandeLass, godkann: data.vantandeGodkannande }}
-      datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna} />
+      datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna}
+      konto={data.konto} onLoggaUt={data.loggaUt} />
   )
 }
 

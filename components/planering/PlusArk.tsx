@@ -41,6 +41,8 @@ export interface PlusPostVy {
   dockFarg?: string;
   dockRing?: string;
   dockGlyf?: React.ReactNode;
+  /** symbolen som på kartan (form + färg + glyf), ritad i given storlek. Går före dockFarg/dockRing/dockGlyf när den finns. */
+  dockSymbol?: (px: number) => React.ReactNode;
 }
 
 export interface SymbolKategori { id: string; rubrik: string; poster: PlusPostVy[] }
@@ -123,6 +125,7 @@ function Brytare({ pa }: { pa: boolean }) {
 
 /** Symbolens cirkel: samma färg och glyf som på kartan (och i dockan). */
 function Cirkel({ p, px = CIRKEL_PX }: { p: PlusPostVy; px?: number }) {
+  if (p.dockSymbol) return <span aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: px, height: px }}>{p.dockSymbol(px)}</span>;
   return (
     <span aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: px, height: px, borderRadius: RADIE.cirkel, boxSizing: 'border-box',
       background: p.dockFarg ?? FARG.upphojt, boxShadow: `0 0 0 ${AVSTAND.xs / 2}px ${p.dockRing ?? FARG.fyllning}` }}>

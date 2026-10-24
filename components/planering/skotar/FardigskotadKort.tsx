@@ -11,8 +11,10 @@ import { sortimentDelar } from '@/lib/skotarLass/sortiment';
 import { KVAR_SYNLIGA } from '@/lib/skotarLass/kvar';
 import { arkPanel, arkRam, knappPrimar, knappStor, meta } from './stil';
 
-export function FardigskotadKort({ kontroll, klar, onKarta, onBekrafta, onAvbryt }: {
+export function FardigskotadKort({ kontroll, klar, ingetSkordat = false, onKarta, onBekrafta, onAvbryt }: {
   kontroll: FardigKontroll | null;
+  /** Skördaren är läst men har inget skördat på trakten: det finns inget att färdigskota. */
+  ingetSkordat?: boolean;
   /** Redan färdigskotad. */
   klar: boolean;
   onKarta: () => void;
@@ -35,7 +37,9 @@ export function FardigskotadKort({ kontroll, klar, onKarta, onBekrafta, onAvbryt
         ) : !kontroll ? (
           <>
             <div style={{ ...TYP.rubrik }}>Färdigskotad?</div>
-            <div style={{ ...meta, marginTop: AVSTAND.s }}>Skördaren är inte läst än — vi kan inte räkna kvar. Försök igen när du har täckning.</div>
+            <div data-testid="fardigskotad-inget" style={{ ...meta, marginTop: AVSTAND.s }}>
+              {ingetSkordat ? 'Skördaren har inte skördat något på trakten än — det finns inget att färdigskota.' : 'Skördaren är inte läst än — vi kan inte räkna kvar. Försök igen när du har täckning.'}
+            </div>
             <button type="button" onClick={onAvbryt} style={{ ...knappStor, width: '100%', marginTop: AVSTAND.l }}>Stäng</button>
           </>
         ) : fraga ? (

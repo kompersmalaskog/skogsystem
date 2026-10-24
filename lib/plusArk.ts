@@ -21,6 +21,8 @@ export const arFlikId = (x: unknown): x is FlikId => typeof x === 'string' && (F
 export type PlusLage = 'ark' | 'panel';
 export const PANEL_MIN_BREDD_PX = 900;
 export const PANEL_BREDD_PX = 380;
+/** ⓘ-panelen i MASKINLÄGET (maskindatorn, 1280×800 och 1024×640): bredare än standardpanelen, som korten (larm- och instruktionskortet), så direktivet går att läsa med blicken tillbaka i arbetet. */
+export const INFO_PANEL_MASKIN_BREDD_PX = 420;
 export const plusLage = (fonsterBredd: number): PlusLage => (fonsterBredd >= PANEL_MIN_BREDD_PX ? 'panel' : 'ark');
 
 // ── Arkets två lägen ──

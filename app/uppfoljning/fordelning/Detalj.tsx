@@ -1,163 +1,179 @@
 'use client';
 
 /**
- * Detalj.tsx — läge 3: den låsta ordningen 1) Vältorna 2) Ansvarskortet
- * 3) Guiden 4) Detaljmatrisen (hopfälld). Designkontraktet styr: m³ är
- * valutan, gråa staplar (färg hör inte hemma i vältorna), tystnad när bra.
+ * Detalj.tsx — en trakts aptering, för EN produkt (2026-10-21, Martin: "som Apple, lite text").
+ *
+ * Frågan sidan svarar på: har maskinen apterat mot beställningen? Därför räknas
+ * allt på MASKINENS egna kap (CuttingReason Automatic). När föraren kortar för att
+ * trädet är krokigt eller har fel är det rätt aptering — det står som en neutral
+ * rad, aldrig som en miss, och aldrig ordet "fel virke".
+ *
+ * Ordning: 1) ett tal (i beställd längd) med m³ utanför och förarens kortningar,
+ * 2) högst en mening, 3) per längd (kapat minus beställt, åt två håll från mitten),
+ * 4) två rader som fälls ut på plats: Per diameter · När föraren kortar.
+ * Färg förstärker bara — tecknet och ordet står alltid i texten.
  */
 
 import React, { useState } from 'react';
-import type { ObjektVy, ProduktVy, MatrisRuta } from './types';
+import { AVSTAND, FARG, IKON, KORT, RADIE, TNUM, TYP, overgang } from '@/lib/design/tokens';
+import Sektion from '@/components/design/Sektion';
+import Rad from '@/components/design/Rad';
+import Ikon from '@/components/design/Ikon';
+import type { ObjektVy, ProduktVy } from './types';
+import { m3 } from './oversikt';
 
-const GREY = '#8e8e93';
-const GREY2 = '#636366';
-const CARD = '#1c1c1e';
-const SEP = 'rgba(255,255,255,0.08)';
-const WARN = '#ff9f0a';
-const RED = '#ff453a';
-const YELLOW = '#ffd60a';
-const ff = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Inter',system-ui,sans-serif";
+/** Under så här många m³ från beställt räknas en längd som träff (samma gräns som matrisen). */
+export const TRAFF_M3 = 3;
 
-const kommatal = (n: number) => n.toString().replace('.', ',');
+const tecken = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : '0');
 
-/* ── 1. Vältorna — träffar vi längderna? ── */
-function Vältorna({ p }: { p: ProduktVy }) {
-  const max = Math.max(1, ...p.vältor.map((v) => Math.max(v.actualM3, v.orderedM3)));
-  return (
-    <section style={{ background: CARD, borderRadius: 12, padding: 16, marginBottom: 12 }}>
-      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 2 }}>Träffar vi längderna?</div>
-      <div style={{ fontSize: 13, color: GREY, marginBottom: 16 }}>Kapat mot beställt, per längd</div>
-      {p.vältor.map((v) => {
-        const bredd = (v.actualM3 / max) * 100;
-        const streck = (v.orderedM3 / max) * 100;
-        return (
-          <div key={v.lenLower} style={{ marginBottom: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5 }}>
-              <span style={{ color: '#fff', fontWeight: 600 }}>{v.lenLower} cm</span>
-              <span style={{ color: GREY }}>{v.actualM3} m³ <span style={{ color: GREY2 }}>(best. {v.orderedM3})</span></span>
-            </div>
-            <div style={{ position: 'relative', height: 12, background: 'rgba(255,255,255,0.05)', borderRadius: 6 }}>
-              <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${bredd}%`, background: '#8e8e93', borderRadius: 6 }} />
-              <div style={{ position: 'absolute', left: `${streck}%`, top: -2, bottom: -2, width: 2, background: '#fff', opacity: 0.9 }} title={`beställt ${v.orderedM3} m³`} />
-            </div>
-          </div>
-        );
-      })}
-      {p.vältorTwist && (
-        <div style={{ fontSize: 13, color: WARN, marginTop: 12, lineHeight: 1.5, paddingTop: 12, borderTop: `1px solid ${SEP}` }}>
-          {p.vältorTwist}
-        </div>
-      )}
-    </section>
-  );
+/** "13 av 100 stockar kortade av föraren" — andelen manuella kap, avrundad till hela av 100. */
+export function forarRad(p: Pick<ProduktVy, 'forcedCutSharePct'>): string {
+  const n = Math.min(100, Math.max(0, Math.round(p.forcedCutSharePct)));
+  return `${n} av 100 stockar kortade av föraren`;
 }
 
-/* ── 2. Ansvarskortet — 100 prickar ── */
-function Ansvarskortet({ p }: { p: ProduktVy }) {
-  const N = Math.min(100, Math.round((p.forcedCutSharePct / 100) * 100));
-  const prickar = Array.from({ length: 100 }, (_, i) => i < N);
+/* ── 1. Talet ── */
+function Talet({ p }: { p: ProduktVy }) {
+  if (p.gradeAutomatic == null) {
+    return (
+      <section style={{ ...KORT, marginBottom: AVSTAND.xl }} data-detalj-tal>
+        <div style={{ ...TYP.text, color: FARG.text2 }}>Maskinen har inte kapat något på egen hand i den här produkten — inget att bedöma.</div>
+        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>{forarRad(p)}</div>
+      </section>
+    );
+  }
   return (
-    <section style={{ background: CARD, borderRadius: 12, padding: 16, marginBottom: 12 }}>
-      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Vem valde kapet?</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(20, 1fr)', gap: 4, maxWidth: 320, marginBottom: 14 }}>
-        {prickar.map((gul, i) => (
-          <div key={i} style={{ aspectRatio: '1', borderRadius: '50%', background: gul ? YELLOW : 'rgba(255,255,255,0.13)' }} />
-        ))}
+    <section style={{ ...KORT, marginBottom: AVSTAND.xl }} data-detalj-tal>
+      <div style={{ ...TYP.meta, color: FARG.text2 }}>Rätt längd</div>
+      <div style={{ ...TYP.tal, marginTop: AVSTAND.s }}>{Math.round(p.gradeAutomatic)} %</div>
+      <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.s }}>
+        {m3(p.utanforM3 ?? 0)} utanför · av maskinens {m3(p.volymAutoM3)}
       </div>
-      <div style={{ fontSize: 13, color: GREY, lineHeight: 1.5 }}>
-        Av 100 timmerstockar kapade du <span style={{ color: '#fff', fontWeight: 600 }}>{N}</span> själv — när trädet hade fel.
-        Resten fördelade maskinen, som träffade{' '}
-        <span style={{ color: '#fff', fontWeight: 600 }}>{p.gradeAutomatic != null ? kommatal(p.gradeAutomatic) : '–'} %</span> på egen hand.
-      </div>
+      <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.xs }} data-forare>{forarRad(p)}</div>
     </section>
   );
 }
 
-/* ── 3. Guiden — vid fel på trädet ── */
-function Guiden({ p }: { p: ProduktVy }) {
-  if (!p.guide.klen && !p.guide.grov) return null;
+/* ── 3. Per längd — kapat minus beställt, åt två håll från mitten ── */
+function PerLangd({ p }: { p: ProduktVy }) {
+  const rader = p.vältor.map((v) => ({ len: v.lenLower, diff: v.actualM3 - v.orderedM3 }));
+  if (!rader.length) return null;
+  const max = Math.max(1, ...rader.map((r) => Math.abs(r.diff)));
   return (
-    <section style={{ background: CARD, borderRadius: 12, padding: 16, marginBottom: 12 }}>
-      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>Vid fel på trädet</div>
-      {p.guide.klen && <div style={{ fontSize: 14, color: '#fff', lineHeight: 1.5, marginBottom: 8 }}>{p.guide.klen}</div>}
-      {p.guide.grov && <div style={{ fontSize: 14, color: '#fff', lineHeight: 1.5, marginBottom: 8 }}>{p.guide.grov}</div>}
-      <div style={{ fontSize: 12, color: GREY2, marginTop: 6 }}>Riktning, inte regel — kvaliteten bestämmer alltid.</div>
-    </section>
+    <Sektion rubrik="Per längd" not="Kapat minus beställt, maskinens egna kap.">
+      <div style={{ padding: `${AVSTAND.s}px 0` }}>
+        {rader.map((r) => {
+          const traff = Math.abs(r.diff) < TRAFF_M3;
+          const bredd = traff ? 0 : (Math.abs(r.diff) / max) * 50;
+          const farg = traff ? FARG.text3 : r.diff < 0 ? FARG.rod : FARG.orange;
+          return (
+            <div key={r.len} data-langd={r.len}
+              style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TYP.listtitel.fontSize + AVSTAND.l }}>
+              <span style={{ ...TYP.meta, ...TNUM, color: FARG.text, width: AVSTAND.xxl * 2, flexShrink: 0 }}>{r.len} cm</span>
+              <div style={{ flex: 1, position: 'relative', height: AVSTAND.s, background: FARG.tonad, borderRadius: RADIE.stapel }}>
+                <div style={{ position: 'absolute', left: '50%', top: -AVSTAND.xs, bottom: -AVSTAND.xs, width: 1, background: FARG.text3 }} />
+                {!traff && (
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, width: `${bredd}%`, background: farg, borderRadius: RADIE.stapel,
+                    ...(r.diff < 0 ? { right: '50%' } : { left: '50%' }) }} />
+                )}
+              </div>
+              <span style={{ ...TYP.meta, ...TNUM, color: traff ? FARG.text2 : FARG.text, width: AVSTAND.xxl * 2, textAlign: 'right', flexShrink: 0 }}>
+                {traff ? 'träff' : `${tecken(r.diff)} m³`}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </Sektion>
   );
 }
 
-/* ── 4. Detaljmatrisen — hopfälld ── */
-function Detaljmatris({ p }: { p: ProduktVy }) {
-  const [öppen, setÖppen] = useState(false);
-  // Bara längdklasser som har mål eller utfall — vältorna (computeLengthPiles)
-  // är redan filtrerade på (actualM3 > 0 || orderedM3 > 0), så tomma klasser
-  // (338/398/458 …) faller bort och rubrikcellen (t.ex. 340/548) trängs inte ut.
+/* ── 4a. Per diameter — matrisen, bara rutorna som sticker ut ── */
+function PerDiameter({ p }: { p: ProduktVy }) {
   const längder = Array.from(new Set(p.vältor.map((v) => v.lenLower))).sort((a, b) => a - b);
   const diametrar = Array.from(new Set(p.matris.map((m) => m.diaLower))).sort((a, b) => a - b);
   const cell = (d: number, l: number) => p.matris.find((m) => m.diaLower === d && m.lenLower === l);
-  const klent = diametrar.filter((d) => d < 310);
-  const grovt = diametrar.filter((d) => d >= 310);
-
-  const rad = (d: number) => (
-    <tr key={d}>
-      <td style={{ padding: '4px 8px', fontSize: 12, color: GREY, whiteSpace: 'nowrap', position: 'sticky', left: 0, background: CARD }}>{d} mm</td>
-      {längder.map((l) => {
-        const c = cell(d, l);
-        const visa = c && c.farga;
-        return (
-          <td key={l} style={{ padding: '4px 6px', textAlign: 'center', fontSize: 12, fontWeight: 700,
-            color: visa ? (c!.deviationM3 < 0 ? RED : WARN) : 'transparent' }}>
-            {visa ? (c!.deviationM3 > 0 ? `+${c!.deviationM3}` : c!.deviationM3) : ''}
-          </td>
-        );
-      })}
-    </tr>
-  );
-
+  if (!längder.length || !diametrar.length) return <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.s}px 0 ${AVSTAND.m}px` }}>Ingen diameter att visa.</div>;
+  const th = { ...TYP.meta, ...TNUM, color: FARG.text3, fontWeight: TYP.meta.fontWeight, padding: `${AVSTAND.xs}px ${AVSTAND.xs}px` } as const;
   return (
-    <section style={{ background: CARD, borderRadius: 12, padding: 16, marginBottom: 12 }}>
-      <button onClick={() => setÖppen(!öppen)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-        <span style={{ transform: öppen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', color: GREY }}>›</span>
-        {öppen ? 'Dölj detaljmatris' : 'Visa detaljmatris'}
-      </button>
-      {öppen && (
-        <div style={{ marginTop: 14 }}>
-          <div style={{ display: 'flex', gap: 16, marginBottom: 12, fontSize: 12, color: GREY }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: RED }} /> saknas</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: WARN }} /> för mycket</span>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-              <thead>
-                <tr>
-                  <th style={{ position: 'sticky', left: 0, background: CARD }}></th>
-                  {längder.map((l) => <th key={l} style={{ padding: '4px 6px', fontSize: 11, color: GREY2, fontWeight: 500 }}>{l}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {klent.length > 0 && <tr><td colSpan={längder.length + 1} style={{ padding: '8px 8px 4px', fontSize: 11, color: GREY2, fontWeight: 600 }}>KLENT (&lt; 310 mm)</td></tr>}
-                {klent.map(rad)}
-                {grovt.length > 0 && <tr><td colSpan={längder.length + 1} style={{ padding: '8px 8px 4px', fontSize: 11, color: GREY2, fontWeight: 600 }}>GROVT (≥ 310 mm)</td></tr>}
-                {grovt.map(rad)}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ fontSize: 12, color: GREY, marginTop: 12, lineHeight: 1.5 }}>
-            −9 betyder: här saknas 9 m³. Tomt = på beställningen.
-          </div>
-        </div>
-      )}
-    </section>
+    <div style={{ padding: `${AVSTAND.s}px 0 ${AVSTAND.m}px` }} data-matris>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, position: 'sticky', left: 0, background: FARG.kort }} />
+              {längder.map((l) => <th key={l} style={th}>{l}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {diametrar.map((d) => (
+              <tr key={d}>
+                <td style={{ ...th, color: FARG.text2, whiteSpace: 'nowrap', position: 'sticky', left: 0, background: FARG.kort, textAlign: 'left' }}>{d} mm</td>
+                {längder.map((l) => {
+                  const c = cell(d, l);
+                  const visa = c?.farga;
+                  return (
+                    <td key={l} style={{ ...TYP.meta, ...TNUM, textAlign: 'center', padding: `${AVSTAND.xs}px`, color: visa ? (c!.deviationM3 < 0 ? FARG.rod : FARG.orange) : FARG.text3 }}>
+                      {visa ? tecken(c!.deviationM3) : '·'}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>m³ från beställt. · = på beställningen.</div>
+    </div>
   );
 }
 
-export default function Detalj({ vy, produkt }: { vy: ObjektVy; produkt: ProduktVy }) {
+/* ── 4b. När föraren kortar — alla stockar inräknat, och vilken längd vältan saknar ── */
+function NarForarenKortar({ p }: { p: ProduktVy }) {
+  return (
+    <div style={{ padding: `${AVSTAND.s}px 0 ${AVSTAND.m}px` }} data-forare-kortar>
+      <div style={{ ...TYP.text, ...TNUM }}>
+        Alla stockar inräknat: {p.gradePct == null ? '–' : `${Math.round(p.gradePct)} %`} rätt längd
+      </div>
+      {(p.guide.klen || p.guide.grov) && (
+        <>
+          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.m }}>Längden vältan saknar mest:</div>
+          {p.guide.klen && <div style={{ ...TYP.text, ...TNUM, marginTop: AVSTAND.xs }}>{p.guide.klen}</div>}
+          {p.guide.grov && <div style={{ ...TYP.text, ...TNUM, marginTop: AVSTAND.xs }}>{p.guide.grov}</div>}
+          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>Riktning, inte regel — kvaliteten bestämmer.</div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function FallUtRad({ titel, oppen, onTryck, sista, id, children }: { titel: string; oppen: boolean; onTryck: () => void; sista?: boolean; id: string; children: React.ReactNode }) {
+  return (
+    <>
+      <Rad titel={titel} onTryck={onTryck} pil={false} sista={sista && !oppen} attr={{ 'data-fall-ut': id, 'aria-expanded': String(oppen) }}
+        hoger={<span style={{ display: 'inline-flex', transform: oppen ? 'rotate(90deg)' : undefined, transition: overgang('transform') }}><Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} /></span>} />
+      {oppen && children}
+    </>
+  );
+}
+
+export default function Detalj({ produkt: p }: { vy: ObjektVy; produkt: ProduktVy }) {
+  const [oppen, setOppen] = useState<'diameter' | 'forare' | null>(null);
+  const vaxla = (k: 'diameter' | 'forare') => setOppen((o) => (o === k ? null : k));
   return (
     <div>
-      <Vältorna p={produkt} />
-      <Ansvarskortet p={produkt} />
-      <Guiden p={produkt} />
-      <Detaljmatris p={produkt} />
+      <Talet p={p} />
+      {p.mening && <p style={{ ...TYP.text, margin: `0 0 ${AVSTAND.xl}px` }} data-mening>{p.mening}.</p>}
+      <PerLangd p={p} />
+      <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
+        <FallUtRad id="diameter" titel="Per diameter" oppen={oppen === 'diameter'} onTryck={() => vaxla('diameter')}>
+          <PerDiameter p={p} />
+        </FallUtRad>
+        <FallUtRad id="forare" titel="När föraren kortar" oppen={oppen === 'forare'} onTryck={() => vaxla('forare')} sista>
+          <NarForarenKortar p={p} />
+        </FallUtRad>
+      </div>
     </div>
   );
 }

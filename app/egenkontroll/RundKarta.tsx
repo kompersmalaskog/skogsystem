@@ -36,10 +36,15 @@ import {
   provytaLagerIdn, valdLinjeFilter, valdSymbolFilter,
 } from '@/lib/egenkontrollkarta';
 import { backvagFeatureUrData, backvagLager, klassaPunkt } from '@/lib/egenkontrollkarta';
+import {
+  BACKVAG_LAGER_ID, BACKVAG_OPACITET, SPAR_KALLA, VIDA_GRANS_KALLA,
+  planVagLager, planVagLagerIdn, sparFeatures, sparLager, sparLagerIdn, vidaGransFeatures, vidaGransLager, vidaGransLagerIdn,
+} from '@/lib/egenkontrollkarta';
 import { IKON_PIXELRATIO, provytaBildNamn, ritaProvytaIkon } from '@/lib/provytaIkon';
 import { OBS_PIXELRATIO, observationBildNamn, ritaObservationIkon } from '@/lib/observationIkon';
 import { OBSERVATION_TONER } from '@/lib/egenkontrollObservation';
 import type { ProvytaStatus } from '@/lib/provytor';
+import { snedstreckBild, snedstreckId, SNEDSTRECK_GRUPPER } from '@/lib/ytaStil';
 import { PIL_STIL, backvagIkonNamn, ritaBackvagStreck, ritaNummerIkon, ritaPilIkon } from '@/lib/kartstil';
 import { BACKVAG_STRECK_FARGER } from '@/lib/backvag';
 import {
@@ -50,6 +55,14 @@ import { canvasToMapLibreImage, loadMarkerImageForMaplibre, markerIconDefs } fro
 import { T } from '@/lib/listTema';
 import { AVSTAND, FARG, KOLUMN, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import type { EgenkontrollPunkt, EgenkontrollProvyta } from '@/lib/egenkontroll';
+import {
+  NOTERING_KALLA, RITNING_KALLA, noteringBilder, noteringEtikettLager, noteringFeatures, noteringLagerIdn, noteringLinjeLager,
+  ritningFeatures, ritningLager,
+} from '@/lib/egenkontrollNoteringKarta';
+import { NOTERING_PIL_PIXELRATIO, ritaNoteringPilspets, ritaNoteringsEtikett } from '@/lib/egenkontrollNoteringBild';
+import { ETIKETT_PIXELRATIO } from '@/lib/figurEtikettBild';
+import type { Notering, NoteringVerktyg } from '@/lib/egenkontrollNotering';
+import type { LngLat } from '@/lib/ritaPunkter';
 import type { LatLng } from '@/lib/provytor';
 
 declare global {
@@ -70,6 +83,34 @@ type Geo = { type: 'FeatureCollection'; features: any[] };
 const TOM: Geo = { type: 'FeatureCollection', features: [] };
 /** Stabil tom lista: en ny [] vid varje rendering skulle starta om varje effekt som beror pa den. */
 const INGA_OBSERVATIONER: EgenkontrollPunkt[] = [];
+const INGET_SPAR: { roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[] = [];
+const INGA_RINGAR: [number, number][][] = [];
+const INGA_NOTERINGAR: Notering[] = [];
+
+/**
+ * Noteringarnas bilder: pillen per unik text och avsikt, och pilspetsarna. Anropas aven nar noteringarna andras - en ny text behover sin bild
+ * FORE datan, annars ritas ingen etikett. En bild som inte gar att rita far aldrig falla kartan (just den etiketten syns inte, och det larmas).
+ */
+function sakraNoteringBilder(map: any, noteringar: Notering[]): void {
+  const { etiketter, pilar } = noteringBilder(noteringar);
+  for (const e of etiketter) {
+    if (map.hasImage(e.id)) continue;
+    try {
+      const r = ritaNoteringsEtikett(e.etikett, e.avsikt);
+      if (r) map.addImage(e.id, r.bild, { pixelRatio: ETIKETT_PIXELRATIO });
+      else console.error('[egenkontroll] noteringens etikett kunde inte ritas:', e.id);
+    } catch (err) { console.error('[egenkontroll] noteringens etikett kunde inte laggas till:', e.id, err); }
+  }
+  for (const pil of pilar) {
+    if (map.hasImage(pil.id)) continue;
+    try {
+      const c = ritaNoteringPilspets(pil.avsikt);
+      const bild = c ? canvasToMapLibreImage(c) : null;
+      if (bild) map.addImage(pil.id, bild, { pixelRatio: NOTERING_PIL_PIXELRATIO });
+      else console.error('[egenkontroll] pilspetsen kunde inte ritas:', pil.id);
+    } catch (err) { console.error('[egenkontroll] pilspetsen kunde inte laggas till:', pil.id, err); }
+  }
+}
 
 /**
  * Bilderna lagren refererar: symbolerna (lib/marker-icons.ts - samma som
@@ -104,6 +145,9 @@ async function laggTillBilder(map: any, nummer: number[]): Promise<void> {
     const namn = backvagIkonNamn(f);
     if (map.hasImage(namn)) continue;
     try { const bild = canvasToMapLibreImage(ritaBackvagStreck(f)); if (bild) map.addImage(namn, bild); } catch { /* ett streck som saknas ska inte falla kartan */ }
+  }
+  for (const grupp of SNEDSTRECK_GRUPPER) {
+    if (!map.hasImage(snedstreckId(grupp))) { try { map.addImage(snedstreckId(grupp), snedstreckBild(grupp)); } catch { /* en streckning som saknas ska inte falla kartan */ } }
   }
   sakraNummerBilder(map, nummer);
   sakraProvytaBilder(map);
@@ -182,12 +226,16 @@ export default function RundKarta({
   kontext,
   provytor,
   observationer = INGA_OBSERVATIONER,
+  noteringar = INGA_NOTERINGAR,
   valdPunktId,
   onPosition,
   position,
   onValjPunkt,
   onValjProvyta,
   onValjObservation,
+  onValjNotering,
+  rita = null,
+  onRitaTryck,
   hojd = HOJD_INLINE,
   centreraPa,
   kartPadding,
@@ -196,6 +244,8 @@ export default function RundKarta({
   baskarta = BASKARTA_DEFAULT,
   overlays,
   egnaVarden,
+  spar = INGET_SPAR,
+  vidaRingar = INGA_RINGAR,
 }: {
   objekt: KartObjektData | null;
   /**
@@ -230,6 +280,17 @@ export default function RundKarta({
   onValjProvyta?: (nummer: number) => void;
   /** Tryck pa en observation (id) - oppnar den for andring. */
   onValjObservation?: (id: string) => void;
+  /** Noteringarna pa kartan (ord och streck besiktaren ritat). Ligger OVANPA planens vagar och hyttsparet; ritas av lib/egenkontrollNoteringKarta. */
+  noteringar?: Notering[];
+  /** Tryck pa en notering (id) - oppnar den for andring. Utelamnad = inte tryckbar (klar runda). */
+  onValjNotering?: (id: string) => void;
+  /**
+   * Satt = man RITAR: varje tryck pa kartan blir ett tryck i ritningen (onRitaTryck) och markerar ingenting. `tryck` ar det som tryckts hittills
+   * och ritas som en linje med en punkt per tryck. null = vanligt lage.
+   */
+  rita?: { verktyg: NoteringVerktyg; tryck: LngLat[] } | null;
+  /** Ett tryck i ritlaget: platsen, tiden (ms) och skarmpixlarna - sidan filtrerar dubbelhandelser (arDubbeltryck). */
+  onRitaTryck?: (plats: LngLat, tid: number, px: { x: number; y: number }) => void;
   /** 180 i rundvyn, '100%' i helskarm. Ett lage i taget ar monterat. */
   hojd?: number | string;
   /** Ga-vyn centrerar pa ytan. Rundvyns Centrera-knapp skickar ett NYTT objekt vid varje tryck - effekten kors da pa nytt. */
@@ -250,8 +311,14 @@ export default function RundKarta({
   baskarta?: BaskartaId;
   /** WMS-lager + vidaKartbild. Delas med planeringsvyn via mapLayers_v4. */
   overlays?: MapLayers;
-  /** Egenkontrollens egna lager: punkter, provytor, stammar. */
+  /** Egenkontrollens egna lager: punkter, provytor, stammar, planens vagar i full styrka, hyttspar, Vidas traktgrans (lib/egenkontrollLager). */
   egnaVarden?: Record<string, boolean>;
+  /**
+   * Hyttsparet per roll (utjamnat for RITNING) och Vidas traktgrans (yttre ringar). Sidan hamtar dem forst nar nagon ber om dem (menyn oppnas,
+   * Basvag-brickan markeras, ett lager ar tant) och skickar dem hit; utan data (eller utan att lagret ar tant) ritas ingenting. Aldrig tom ruta.
+   */
+  spar?: { roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[];
+  vidaRingar?: [number, number][][];
 }) {
   // Lases i map.on('load') som kor asynkront - da ar props ur forsta rendret
   // inte langre sanningen. Ref:en ger det som galler NAR lagret laggs pa.
@@ -295,6 +362,14 @@ export default function RundKarta({
   onValjProvytaRef.current = onValjProvyta;
   const onValjObservationRef = useRef(onValjObservation);
   onValjObservationRef.current = onValjObservation;
+  const onValjNoteringRef = useRef(onValjNotering);
+  onValjNoteringRef.current = onValjNotering;
+  const onRitaTryckRef = useRef(onRitaTryck);
+  onRitaTryckRef.current = onRitaTryck;
+  const ritaAktivRef = useRef(rita !== null);
+  ritaAktivRef.current = rita !== null;
+  const noteringarRef = useRef(noteringar);
+  noteringarRef.current = noteringar;
   const styrdPosition = position !== undefined;
 
   // --- Geometrierna ---------------------------------------------------------
@@ -372,6 +447,10 @@ export default function RundKarta({
     [observationer],
   );
 
+  /** Noteringarna och ritningen medan man ritar. Egna kallor, egna lager (ek-n-, ek-r-) - aldrig i punktgeometrin. */
+  const noteringGeo = useMemo<Geo>(() => ({ type: 'FeatureCollection', features: noteringFeatures(noteringar) }), [noteringar]);
+  const ritningGeo = useMemo<Geo>(() => ({ type: 'FeatureCollection', features: ritningFeatures(rita?.tryck ?? []) }), [rita]);
+
   /** Stammolnet. Sma, graa, ej tryckbara - underlag, inte innehall. */
   const stamGeo = useMemo<Geo>(() => ({
     type: 'FeatureCollection',
@@ -380,6 +459,13 @@ export default function RundKarta({
       geometry: { type: 'Point', coordinates: [s2.lng, s2.lat] },
     })),
   }), [stammar]);
+
+  /** Hyttsparet per roll (WGS84, ingen konvertering) och Vidas traktgrans. Tomma tills sidan ger dem. */
+  const sparGeo = useMemo(() => ({
+    skordare: { type: 'FeatureCollection', features: sparFeatures(spar.filter((s2) => s2.roll === 'skordare').flatMap((s2) => s2.linjer)) } as Geo,
+    skotare: { type: 'FeatureCollection', features: sparFeatures(spar.filter((s2) => s2.roll === 'skotare').flatMap((s2) => s2.linjer)) } as Geo,
+  }), [spar]);
+  const vidaGeo = useMemo<Geo>(() => ({ type: 'FeatureCollection', features: vidaGransFeatures(vidaRingar) }), [vidaRingar]);
 
   /** Avvikelsernas EGNA positioner - redan WGS84, ingen konvertering. */
   const avvikelseGeo = useMemo<Geo>(() => ({
@@ -466,10 +552,17 @@ export default function RundKarta({
     // orientering och ska inte ga att trycka pa. Lager som ar slackta ger inga
     // traffar, sa en punkt man tagit bort ur kartan gar inte heller att tryck pa.
     map.on('click', (e: any) => {
-      if (!onValjPunktRef.current && !onValjProvytaRef.current && !onValjObservationRef.current) return;
+      // RITAR man blir trycket en punkt i ritningen och markerar ingenting.
+      if (ritaAktivRef.current) {
+        onRitaTryckRef.current?.([e.lngLat.lng, e.lngLat.lat], Date.now(), { x: e.point.x, y: e.point.y });
+        return;
+      }
+      if (!onValjPunktRef.current && !onValjProvytaRef.current && !onValjObservationRef.current && !onValjNoteringRef.current) return;
+      const noteringIdn = noteringLagerIdn();
       const lagerIdn = ((map.getStyle()?.layers ?? []) as { id: string }[])
         .map((l) => l.id)
-        .filter((id) => id.startsWith('ek-p-') || provytaLagerIdn().includes(id) || observationLagerIdn().includes(id));
+        .filter((id) => id.startsWith('ek-p-') || provytaLagerIdn().includes(id) || observationLagerIdn().includes(id)
+          || (onValjNoteringRef.current !== undefined && noteringIdn.includes(id)));
       if (lagerIdn.length === 0) return;
       const r = TRAFF_RADIE_PX;
       const traffar = map.queryRenderedFeatures(
@@ -487,6 +580,7 @@ export default function RundKarta({
       if (!traff) return;
       if (traff.kind === 'provyta') onValjProvytaRef.current?.(Number(traff.id));
       else if (traff.kind === 'observation') onValjObservationRef.current?.(traff.id);
+      else if (traff.kind === 'notering') onValjNoteringRef.current?.(traff.id);
       else onValjPunktRef.current?.(traff.id);
     });
 
@@ -559,6 +653,10 @@ export default function RundKarta({
         },
       });
 
+      // VIDAS TRAKTGRANS ovanpa stammolnet, under allt annat: underlag att jamfora mot. Slackt tills menyn tander det.
+      map.addSource(VIDA_GRANS_KALLA, { type: 'geojson', data: vidaGeo });
+      for (const spec of vidaGransLager()) laggTillLager(map, spec);
+
       // BILDERNA FORE LAGREN: symboler, pilar och basvagsnummer.
       await laggTillBilder(map, nummerRef.current);
       // Kartan kan ha tagits bort medan bilderna laddades (komponenten
@@ -570,11 +668,27 @@ export default function RundKarta({
       map.addSource(KONTEXT_KALLA, { type: 'geojson', data: kontextGeo });
       for (const spec of kontextLager()) laggTillLager(map, spec);
 
+      // PLANENS VAGAR I FULL STYRKA: samma kalla som kontexten, ritas ovanpa den nedtonade. Slackt tills menyn tander dem.
+      for (const spec of planVagLager()) laggTillLager(map, spec);
+
       // KONTROLLPUNKTERNA over: typens eget utseende, med status som en ring
       // eller ett band RUNT - obesvarad har ingen. Se lib/kartstil.ts.
       map.addSource(KONTROLL_KALLA, { type: 'geojson', data: punktGeo });
       map.addSource(NUMMER_KALLA, { type: 'geojson', data: nummerGeo });
       for (const spec of kontrollLager()) laggTillLager(map, spec);
+
+      // HYTTSPAR: over alla linjer men FORE kontrollpunkternas nummer och symboler - ett spar man tryckt fram doljer aldrig en punkt.
+      // Slackta tills menyn (eller knappen i Basvag-brickans rad) tander dem.
+      for (const roll of ['skordare', 'skotare'] as const) {
+        map.addSource(SPAR_KALLA[roll], { type: 'geojson', data: sparGeo[roll] });
+        for (const spec of sparLager(roll)) laggTillLager(map, spec, 'ek-p-nummer');
+      }
+
+      // NOTERINGARNA: linjer, punkter och pilspetsar over planens vagar och hyttsparet (8a) men FORE kontrollpunkternas nummer och symboler -
+      // en rattelse ligger over det uppmatta, och doljer aldrig vilken punkt det galler. Etiketterna lagger sig overst, nedan.
+      sakraNoteringBilder(map, noteringarRef.current);
+      map.addSource(NOTERING_KALLA, { type: 'geojson', data: noteringGeo });
+      for (const spec of noteringLinjeLager()) laggTillLager(map, spec, 'ek-p-nummer');
 
       // BACKVAG: tvarstrecket i hinderanden, over linjerna.
       map.addSource(BACKVAG_KALLA, { type: 'geojson', data: backvagGeo });
@@ -598,6 +712,11 @@ export default function RundKarta({
       // doljas av en kontrollpunkt som hamnar pa samma plats.
       map.addSource(OBSERVATION_KALLA, { type: 'geojson', data: observationGeo });
       for (const spec of observationLager()) laggTillLager(map, spec);
+
+      // ETIKETTERNA overst (de ska kunna lasas), och sedan ritningen medan man ritar. Din position ligger over allt.
+      for (const spec of noteringEtikettLager()) laggTillLager(map, spec);
+      map.addSource(RITNING_KALLA, { type: 'geojson', data: ritningGeo });
+      for (const spec of ritningLager()) laggTillLager(map, spec);
 
       map.addSource('ek-jag', { type: 'geojson', data: TOM });
       map.addLayer({
@@ -656,8 +775,14 @@ export default function RundKarta({
     map.getSource('ek-avvikelser')?.setData(avvikelseGeo);
     map.getSource(PROVYTA_KALLA)?.setData(provyteGeo);
     map.getSource(OBSERVATION_KALLA)?.setData(observationGeo);
+    sakraNoteringBilder(map, noteringar);           // en ny text behover sin bild FORE datan
+    map.getSource(NOTERING_KALLA)?.setData(noteringGeo);
+    map.getSource(RITNING_KALLA)?.setData(ritningGeo);
     map.getSource('ek-stammar')?.setData(stamGeo);
-  }, [punktGeo, nummerGeo, kontextGeo, backvagGeo, kontroll.nummer, avvikelseGeo, provyteGeo, observationGeo, stamGeo, laddad]);
+    map.getSource(SPAR_KALLA.skordare)?.setData(sparGeo.skordare);
+    map.getSource(SPAR_KALLA.skotare)?.setData(sparGeo.skotare);
+    map.getSource(VIDA_GRANS_KALLA)?.setData(vidaGeo);
+  }, [punktGeo, nummerGeo, kontextGeo, backvagGeo, kontroll.nummer, avvikelseGeo, provyteGeo, observationGeo, noteringar, noteringGeo, ritningGeo, stamGeo, sparGeo, vidaGeo, laddad]);
 
   // --- Bakgrundskartan ------------------------------------------------------
   // Alla fyra ligger redan i stilen; vi tander en och slacker de andra. Att
@@ -705,7 +830,31 @@ export default function RundKarta({
     for (const id of provytaLagerIdn()) satt(id, ytorPa);
     const observationerPa = egnaVarden.ekObservationer !== false;
     for (const id of observationLagerIdn()) satt(id, observationerPa);
+    const noteringarPa = egnaVarden.ekNoteringar !== false;
+    for (const id of noteringLagerIdn()) satt(id, noteringarPa);
+
+    // Underlagen ar AV tills nagon tander dem (=== true, inte !== false): standarden lagger inget nytt pa kartan.
+    const planPa = egnaVarden.ekPlanVagar === true;
+    for (const id of planVagLagerIdn()) satt(id, planPa);
+    // Lyfts planens vagar lyfts tvarstrecken med (opacitet 1); annars ar kontextens nedtonade, som forut.
+    if (map.getLayer(BACKVAG_LAGER_ID)) map.setPaintProperty(BACKVAG_LAGER_ID, 'icon-opacity', planPa ? 1 : BACKVAG_OPACITET);
+    for (const roll of ['skordare', 'skotare'] as const) {
+      const nyckel = roll === 'skordare' ? 'ekSparSkordare' : 'ekSparSkotare';
+      for (const id of sparLagerIdn(roll)) satt(id, egnaVarden[nyckel] === true);
+    }
+    for (const id of vidaGransLagerIdn()) satt(id, egnaVarden.ekVidaGrans === true);
   }, [egnaVarden, laddad]);
+
+  // RITAR man: hårkors som pekare (som planeringens ritlage), annars MapLibres egen.
+  const ritar = rita !== null;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !laddad) return;
+    const cont = map.getCanvasContainer();
+    if (ritar) cont.style.setProperty('cursor', 'crosshair', 'important');
+    else cont.style.removeProperty('cursor');
+    return () => { cont.style.removeProperty('cursor'); };
+  }, [ritar, laddad]);
 
   // Strombrytaren tander/slacker lagret utan att rita om kartan.
   useEffect(() => {

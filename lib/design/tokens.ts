@@ -43,7 +43,7 @@ export const TAL_FONT: CSSProperties = {
 export const VIKT = { normal: 400, halvfet: 600, fet: 700 } as const;
 
 /**
- * Sex typsteg. `tal` är skärmens huvudsiffra (skillen: "ett tal per vy"),
+ * Sju typsteg (`kommentar` 19 är tillagt för kartkortets kommentarer). `tal` är skärmens huvudsiffra (skillen: "ett tal per vy"),
  * `titel` är vyns rubrik eller tillstånd, `rubrik` sektioner, `text` brödtext
  * och listrader (`listtitel` för radens namn), `meta` sekundär rad, `micro`
  * versala sektionsetiketter.
@@ -53,13 +53,15 @@ export const TYP = {
   titel:     { fontSize: 30, fontWeight: VIKT.fet,     letterSpacing: "-0.8px", lineHeight: 1.05 },
   rubrik:    { fontSize: 20, fontWeight: VIKT.fet,     letterSpacing: "-0.3px", lineHeight: 1.2 },
   text:      { fontSize: 17, fontWeight: VIKT.normal,  letterSpacing: "-0.2px", lineHeight: 1.3 },
+  /** Instruktioner som föraren ska läsa med blicken tillbaka i arbetet (kommentarer på kartkortet): ett steg över `text`. */
+  kommentar: { fontSize: 19, fontWeight: VIKT.normal,  letterSpacing: "-0.2px", lineHeight: 1.3 },
   listtitel: { fontSize: 17, fontWeight: VIKT.halvfet, letterSpacing: "-0.2px", lineHeight: 1.3 },
   meta:      { fontSize: 13, fontWeight: VIKT.normal,  lineHeight: 1.3 },
   micro:     { fontSize: 11, fontWeight: VIKT.halvfet, letterSpacing: "0.06em", textTransform: "uppercase" as const, lineHeight: 1.2 },
 } satisfies Record<string, CSSProperties>;
 
 /** Tillåtna textstorlekar — används av design-lint. */
-export const TYP_STORLEKAR = [32, 30, 20, 17, 13, 11] as const;
+export const TYP_STORLEKAR = [32, 30, 20, 19, 17, 13, 11] as const;
 
 // ---------------------------------------------------------------------------
 // Avstånd och form
@@ -195,6 +197,8 @@ export const FARG = {
   bla:      "#0a84ff",
   gron:     "#30d158",
   orange:   "#ff9f0a",
+  /** Ett steg allvarligare än orange, för kategorier som måste kunna skiljas från orange bredvid (Avbrott: Störning → Reparation). */
+  orangeMork: "#cc6600",
   rod:      "#ff453a",
   /** Bara kalenderns markeringar (synk-avvikelse, rättad dag). Aldrig en fjärde larmfärg i text. */
   gul:      "#ffd60a",

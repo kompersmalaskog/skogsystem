@@ -5,7 +5,7 @@
 // "obesvarat" och det enda som kräver något; ett besvarat står kvar, grått, med svaret.
 // 0 h-brott (för lite underlag, inte ett verkligt brott) filtreras bort med arTroligtVilobrott.
 import { supabase } from "@/lib/supabase";
-import { analyseraVilobrott, medPerioddagSpann, arTroligtVilobrott, type Vilobrott, type VilaTrosklar } from "@/lib/vilobrott";
+import { analyseraVilobrott, medPerioddagSpann, arTroligtVilobrott, vilobrottDagar, type Vilobrott, type VilobrottDagar, type VilaTrosklar } from "@/lib/vilobrott";
 import { hamtaGiltigtAvtal, vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { vilaSvarText } from "@/lib/dagFragor";
 import { ymdLokal } from "@/lib/datumLokal";
@@ -15,9 +15,11 @@ export type VilobrottRad = Vilobrott & {
   namn: string;
   /** Förarens svar i klartext ("Planerat enligt avtal"). Null = obesvarat. */
   svar: string | null;
+  /** Dagarna brottet gäller (passen, vilan och var den ligger). Null = brottet gick inte att peka ut i underlaget; då visas bara beskrivningen. */
+  dagar: VilobrottDagar | null;
 };
 
-type Medarbetare = { id: string; namn: string | null };
+type Medarbetare = { id: string; namn: string | null; /** Företagsledare / delägare: arbetstidslagen gäller inte, de får inga vilobrott. */ foretagsledare?: boolean | null };
 type Dag = { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null };
 type Svar = { medarbetare_id: string; datum: string; typ: string; besvarat_av_forare: boolean | null; orsak: string | null; orsak_fritext: string | null };
 
@@ -35,6 +37,8 @@ export function beraknaVilobrottLista(indata: {
 }): VilobrottRad[] {
   const { medarbetare, arbetsdagar, perioder, svar, trosklar, nu } = indata;
   const namnMap = new Map(medarbetare.map(m => [m.id, m.namn || m.id.slice(0, 8)]));
+  // Företagsledare (medarbetare.foretagsledare, samma flagga som tar bort deras lönerader) analyseras inte alls: ATL gäller inte företagsledande ställning.
+  const ledare = new Set(medarbetare.filter(m => m.foretagsledare === true).map(m => m.id));
   const dagPerMed = new Map<string, Dag[]>();
   for (const d of arbetsdagar) {
     if (!d.medarbetare_id) continue;
@@ -54,10 +58,12 @@ export function beraknaVilobrottLista(indata: {
 
   const ut: VilobrottRad[] = [];
   dagPerMed.forEach((dagar, medId) => {
-    const brott = analyseraVilobrott(medPerioddagSpann(dagar, perPerMed.get(medId) || []), trosklar, nu);
+    if (ledare.has(medId)) return;
+    const spann = medPerioddagSpann(dagar, perPerMed.get(medId) || []);
+    const brott = analyseraVilobrott(spann, trosklar, nu);
     for (const b of brott.filter(arTroligtVilobrott)) {
       const r = svarMap.get(nyckel(medId, b.datum, b.typ));
-      ut.push({ ...b, medarbetare_id: medId, namn: namnMap.get(medId) || medId.slice(0, 8), svar: r ? vilaSvarText(r.orsak, r.orsak_fritext) : null });
+      ut.push({ ...b, medarbetare_id: medId, namn: namnMap.get(medId) || medId.slice(0, 8), svar: r ? vilaSvarText(r.orsak, r.orsak_fritext) : null, dagar: vilobrottDagar(b, spann, trosklar, nu) });
     }
   });
   return ut.sort((a, b) => b.datum.localeCompare(a.datum));
@@ -67,7 +73,7 @@ export function beraknaVilobrottLista(indata: {
 export async function laddaVilobrottLista(idag: Date = new Date()): Promise<VilobrottRad[]> {
   const fran = ymdLokal(new Date(idag.getFullYear(), idag.getMonth() - 3, 1));
   const [medRes, arbRes, perRes, svarRes, avtal] = await Promise.all([
-    supabase.from("medarbetare").select("id, namn").order("namn"),
+    supabase.from("medarbetare").select("id, namn, foretagsledare").order("namn"),
     supabase.from("arbetsdag").select("medarbetare_id, datum, start_tid, slut_tid").gte("datum", fran).order("datum"),
     // Perioddagarna: arbetstidslagen gäller all arbetstid, inte bara maskintid.
     supabase.from("extra_tid").select("medarbetare_id, datum, start_tid, slut_tid").gte("datum", fran).not("slut_tid", "is", null),

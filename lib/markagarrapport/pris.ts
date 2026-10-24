@@ -28,6 +28,24 @@ export function harledGrupp(
   return null;
 }
 
+/**
+ * Virkets grupp för VISNING (Vad blev virket?, Mer): som harledGrupp, men känner också igen prefix som "Talltimmer:",
+ * "Tall Timmer:", "Klentimmer:" och "kubb:" — de hamnade förut under Övrigt ("blir ved och flis").
+ * Värderingen (vardering.ts) använder fortfarande harledGrupp, så rötans värde är orört.
+ */
+export function virkesGrupp(namn: string | null | undefined): string {
+  const g = harledGrupp(namn, null);
+  if (g) return g;
+  const prefix = (namn ?? '').split(':')[0].toLowerCase();
+  if (!namn?.includes(':')) return 'Övrigt';
+  if (prefix.includes('klentim')) return 'Klentimmer';
+  if (prefix.includes('timmer')) return 'Timmer';
+  if (prefix.includes('kubb')) return 'Kubb';
+  if (prefix.includes('massa')) return 'Massa';
+  if (prefix.includes('energi')) return 'Energi';
+  return 'Övrigt';
+}
+
 export interface PrismatrisRow {
   langd_min_cm: number;
   dia_min_mm: number;

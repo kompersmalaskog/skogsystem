@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 const ROT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // --- Tillåtna värden (speglar lib/design/tokens.ts) -----------------------
-const TYP_STORLEKAR = new Set([32, 30, 20, 17, 13, 11]);
+const TYP_STORLEKAR = new Set([32, 30, 20, 19, 17, 13, 11]);
 const VIKTER = new Set([400, 600, 700]);
 const AVSTAND = new Set([0, 4, 8, 12, 16, 24, 32]);
 const RADIER = new Set([4, 10, 12, 16]); // 4 = RADIE.stapel (diagramstaplar)
@@ -33,6 +33,21 @@ const ALFA = new Set(["0.04", "0.08", "0.1", "0.10"]); // rgba(255,255,255,x) so
 
 /** Filer som är rättade mot tokens. Nya literaler här är fel, inte skuld. */
 export const SKARPA = [
+  // Redigering · Behöver dig (2026-10-23): byggd på tokens och components/design, noll literaler.
+  "components/redigering/BehoverDig.tsx",
+  "components/redigering/ObjektOversikt.tsx",
+  "components/redigering/ObjektLista.tsx",
+  // Gallring (2026-10-22): omgjord på tokens och components/design, noll literaler.
+  "components/gallring/GallringRam.tsx",
+  "components/gallring/GallringLista.tsx",
+  "components/gallring/Trakt.tsx",
+  "components/gallring/GallradYtaArk.tsx",
+  "components/gallring/GallradYtaKarta.tsx",
+  "components/gallring/KvarEfter.tsx",
+  "components/gallring/DelningArk.tsx",
+  "app/gallring/page.tsx",
+  "app/gallring/layout.tsx",
+  "app/gallring/[vo]/page.tsx",
   "components/arbetsrapport/Arbetsrapport.tsx", // piloten (dagsvyn) — nya literaler fäller
   // Admin (2026-10): flyttat till tokens, noll literaler. components/admin/ui.tsx är byggstenarna.
   "components/admin/ui.tsx",
@@ -57,10 +72,14 @@ export const SKARPA = [
   "app/egenkontroll/RundKommentarSheet.tsx",    // rundans kommentar (A4-rapporten) — tokens från början
   "app/egenkontroll/RapportDela.tsx",            // Rapport till Vida — tokens från början
   // Rundvyns ram (PR 4, 2026-10): tokens från början, noll literaler.
+  // Listan (PR 5, 2026-10-20): tokens från början, noll literaler.
+  "app/egenkontroll/page.tsx",
+  "app/egenkontroll/ListDelar.tsx",
   "app/egenkontroll/Bricka.tsx",
   "app/egenkontroll/BrickaRad.tsx",
   "app/egenkontroll/RundDock.tsx",
   "app/egenkontroll/RundArk.tsx",
+  "app/egenkontroll/FotoNoteringYta.tsx",       // fotoytan (PR 9b): tokens från början, noll literaler
   "components/design/KartHuvud.tsx",
   "components/design/KartKnapp.tsx",
   "app/ekonomi/delade/mall.tsx",                // ekonomins delade mall — tokenstädad
@@ -81,6 +100,90 @@ export const SKARPA = [
   "app/ledighet/_components/SchemaVy.tsx",
   "app/ledighet/_components/ValjKalender.tsx",
   "app/ledighet/_components/delar.tsx",
+  // Objekt + beställning i EN vy (2026-10-19): tokens från början, noll literaler.
+  "app/objekt/page.tsx",
+  "app/objekt/[id]/page.tsx",
+  "app/objekt/_components/ObjektVy.tsx",
+  "app/objekt/_components/BestallningArk.tsx",
+  "app/objekt/_components/ManuellArk.tsx",
+  "app/objekt/_components/FilenGavVy.tsx",
+  "app/objekt/_components/AndraObjektArk.tsx",
+  "app/objekt/_components/StamplingslangdArk.tsx",
+  "app/objekt/_components/BolagValjare.tsx",
+  "components/design/Rad.tsx",
+  "components/design/Falt.tsx",
+  "components/design/TalRad.tsx",
+  "components/design/Manadsvaljare.tsx",
+  // Maskinvyn ?ny=1 (PR 1, 2026-10-21): kläd om mot tokens, noll literaler. Jamforelse.tsx och MaskinLogg.tsx (delas med den äldre vyn) ligger kvar utanför.
+  "app/maskinvy/OversiktNy.tsx",
+  "app/maskinvy/OversiktShared.tsx",
+  "app/maskinvy/IdagNy.tsx",
+  "app/maskinvy/ProduktionNy.tsx",
+  "app/maskinvy/AvbrottNy.tsx",
+  "app/maskinvy/KapacitetNy.tsx",
+  "app/maskinvy/TradslagKort.tsx",
+  "app/maskinvy/FlertradKort.tsx",
+  "app/maskinvy/OperatorDeepView.tsx",
+  "app/maskinvy/VolymDeepView.tsx",
+  "app/maskinvy/SkotareOversiktNy.tsx",
+  "app/maskinvy/SkotareProduktionNy.tsx",
+  "app/maskinvy/SkotareAvbrottNy.tsx",
+  "app/maskinvy/SkotareIdagNy.tsx",
+  "app/maskinvy/SkotareJamforelseNy.tsx",
+  "app/maskinvy/SpecialBadge.tsx",
+  "app/maskinvy/SortimentKort.tsx",
+  "app/maskinvy/Livestatus.tsx",
+  "app/maskinvy/DagensObjekt.tsx",
+  "app/maskinvy/Sidolista.tsx",
+  "app/maskinvy/page.tsx",
+  // Inventarier (2026-10-21): tokens från början, noll literaler.
+  "components/inventarier/InventarierStart.tsx",
+  "components/inventarier/PlatsSida.tsx",
+  "components/inventarier/RadArk.tsx",
+  "components/inventarier/BestallArk.tsx",
+  "components/inventarier/LaggTillArk.tsx",
+  "components/inventarier/NyPlatsArk.tsx",
+  "components/inventarier/Kvitto.tsx",
+  "components/inventarier/delar.tsx",
+  "components/inventarier/Skanning.tsx",
+  "components/inventarier/Etiketter.tsx",
+  // Serviceloggen (2026-10-21): tokens från början, noll literaler.
+  "components/servicelogg/ServiceVy.tsx",
+  "components/servicelogg/HjulValjare.tsx",
+  // Kalibrering (2026-10): delad upp i en komponent per flik, byggd på tokens och components/design — noll literaler.
+  "components/kalibrering/ArtArk.tsx",
+  "components/kalibrering/DagArk.tsx",
+  "components/kalibrering/DeladeArk.tsx",
+  "components/kalibrering/HjalpArk.tsx",
+  "components/kalibrering/ObjektFlik.tsx",
+  "components/kalibrering/AtgardArk.tsx",
+  "components/kalibrering/KalenderRutnat.tsx",
+  "components/kalibrering/KontrollInnehall.tsx",
+  "components/kalibrering/KontrollPanel.tsx",
+  "components/kalibrering/KontrollerFlik.tsx",
+  "components/kalibrering/LagetFlik.tsx",
+  "components/kalibrering/MaskinMeny.tsx",
+  "components/kalibrering/NyAtgardArk.tsx",
+  "components/kalibrering/OverTidFlik.tsx",
+  "components/kalibrering/Procentrad.tsx",
+  "components/kalibrering/Rutnat.tsx",
+  "components/kalibrering/GrovlekVinkel.tsx",
+  "components/kalibrering/GreppVinkel.tsx",
+  "components/kalibrering/RutaArk.tsx",
+  "components/kalibrering/Rubrik.tsx",
+  "components/kalibrering/StabilitetTabell.tsx",
+  "components/kalibrering/TraffText.tsx",
+  "components/design/Bottenmeny.tsx",
+  "components/kalibrering/Skarmar.tsx",
+  "components/kalibrering/PlanArk.tsx",
+  "components/kalibrering/StamArk.tsx",
+  "components/kalibrering/StamAvvikelse.tsx",
+  "components/kalibrering/StockArk.tsx",
+  "components/kalibrering/SvajStang.tsx",
+  "components/kalibrering/TidsDiagram.tsx",
+  "components/kalibrering/delar.tsx",
+  "components/kalibrering/diagram.tsx",
+  "app/kalibrering/page.tsx",
 ];
 
 // --- Regler ---------------------------------------------------------------

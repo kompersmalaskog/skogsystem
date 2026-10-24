@@ -53,7 +53,7 @@ describe('import-trakt använder varningen och skriver aldrig härledda bounds (
     expect(route).toContain("import { kartbildVarning } from '@/lib/trakt/kartbildVarning';");
     expect(route).toContain('kartbildVarning({ envz: !!envz, harJpg: !!jpgEntry, kartbild_url, kartbild_bounds, fel: kartbildFel })');
     expect(route).toContain('if (kartbildVarningText) varningar.push(kartbildVarningText);');
-    expect(route.indexOf('kartbildVarningText')).toBeLessThan(route.indexOf('import_varningar: varningar.length > 0'));
+    expect(route.indexOf('kartbildVarningText')).toBeLessThan(route.indexOf('import_varningar: klassaVarningar(varningar)'));
   });
 
   it('varje väg där bilden eller bounds uteblir sätter en orsak: upload, georeferens, saknad JGW, undantag', () => {

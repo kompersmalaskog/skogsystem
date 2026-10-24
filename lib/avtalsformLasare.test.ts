@@ -74,9 +74,8 @@ describe('källvakt: vyerna använder avtalsform och faller tillbaka utan kolumn
     expect(red).toContain('medAvtalsformSvar((med) => supabase.from(\'objekt\')');
     expect(red).toContain("'avtalsform'");   // GEMENSAMMA_FALT
   });
-  it('/objekt skriver avtalsform bara när kolumnen finns (ett okänt fält fäller annars varje sparning)', () => {
-    const o = las('app/objekt/page.tsx');
-    expect(o).toContain("'avtalsform' in o");
-    expect(o).toContain('...(avtalsformKolumn || form.avtalsform ? { avtalsform: form.avtalsform || null } : {})');
+  it('/objekt skriver inte avtalsform alls (formuläret är borta 2026-10-19; avtalsform redigeras i Redigering, som har fallbacken)', () => {
+    const o = ['lib/objekt/data.ts', 'app/objekt/_components/ObjektVy.tsx', 'app/objekt/_components/ManuellArk.tsx', 'app/objekt/_components/FilenGavVy.tsx'].map(las).join('\n');
+    expect(o).not.toMatch(/avtalsform\s*:/);
   });
 });

@@ -9,7 +9,11 @@
 // bestams av traktgransen och stammolnet (kartExtent): det ar dem kartan handlar om.
 
 import type { PDFFont, PDFPage } from 'pdf-lib';
-import type { RapportModell, LatLng } from './egenkontrollRapport';
+import type { RapportModell, LatLng, KartNotering } from './egenkontrollRapport';
+import { arMedIRapport } from './egenkontrollNotering';
+import { placeraEtiketter, type EtikettPost, type Rektangel } from './egenkontrollEtikettPlats';
+import { bryt } from './omTraktenEtikettBild';
+import { FORM_PATH, GLYF_LINJE_BREDD, GLYF_PLACERING, FORM_KANT_BREDD, SYMBOL_VIEWBOX, symbolDef } from './symboler';
 import {
   HYTTSPAR_FARG, STAMMOLN_FARG, TRAKTGRANS_FARG, markeringsStil,
   type KartMarkering,
@@ -22,6 +26,8 @@ export type KartLager = {
   stammar: LatLng[];
   hyttspar?: RapportModell['karta']['hyttspar'];
   markeringar?: KartMarkering[];
+  /** Noteringarna (PR 9a): ord pa kartan. Linjer/punkter over planens vagar och hyttsparet, etiketterna overst. */
+  noteringar?: KartNotering[];
   pinnar: { nr: number; rubrik: string; plats: LatLng }[];
 };
 
@@ -36,6 +42,7 @@ export function kartExtent(l: KartLager): LatLng[] {
   return [
     ...l.pinnar.map((p) => p.plats),
     ...(l.hyttspar ?? []).flatMap((h) => h.linjer.flat()),
+    ...(l.noteringar ?? []).filter(arMedIRapport).flatMap((n) => n.punkter),
     ...(l.markeringar ?? []).flatMap((m) => (m.slag === 'symbol' ? [m.plats] : m.punkter)),
   ];
 }
@@ -113,7 +120,8 @@ export function ritaKarta(
   for (const m of l.markeringar ?? []) {
     if (m.slag !== 'zon' || m.punkter.length < 3) continue;
     const st = markeringsStil('zon', m.typ); if (!st) continue;
-    sida.drawSvgPath(bana(m.punkter, true), { ...SVG, color: hex(lib, st.farg), opacity: 0.16, borderColor: hex(lib, st.farg), borderWidth: st.bredd, borderOpacity: 0.9, ...(st.streck ? { borderDashArray: st.streck } : {}) });
+    sida.drawSvgPath(bana(m.punkter, true), { ...SVG, color: hex(lib, st.farg), opacity: st.snedstreck ? 0.08 : 0.16, borderColor: hex(lib, st.farg), borderWidth: st.bredd, borderOpacity: 0.9, ...(st.streck ? { borderDashArray: st.streck } : {}) });
+    if (st.snedstreck) ritaSnedstreck(lib, sida, m.punkter.map(ap), st.farg);
   }
 
   // 1. Traktgrans (streckad) - ritas ovanpa ytorna men under stammarna, sa den syns men aldrig doljer monstret.
@@ -142,6 +150,9 @@ export function ritaKarta(
   for (const m of l.markeringar ?? []) {
     if (m.slag !== 'linje' || m.punkter.length < 2) continue;
     const st = markeringsStil('linje', m.typ); if (!st) continue;
+    if (st.ledning) { ritaKraftledning(lib, sida, m.punkter.map(ap), st.farg, st.bredd); continue; }
+    // Stenmur: KRAFTIG mörk kant under gruppens färg (som på kartan) — ingen andra nyans.
+    if (m.typ === 'stonewall') sida.drawSvgPath(bana(m.punkter, false), { ...SVG, borderColor: lib.rgb(0.05, 0.05, 0.05), borderWidth: st.bredd + 2.2 });
     sida.drawSvgPath(bana(m.punkter, false), { ...SVG, borderColor: hex(lib, st.farg), borderWidth: st.bredd, ...(st.streck ? { borderDashArray: st.streck } : {}) });
     if (m.backvag) {
       const strack = backvagStreckPt(m.punkter.map(ap), m.backvag);
@@ -152,8 +163,8 @@ export function ritaKarta(
   for (const m of l.markeringar ?? []) {
     if (m.slag !== 'symbol') continue;
     const st = markeringsStil('symbol', m.typ); if (!st) continue;
-    const a = ap(m.plats), d = 3.4;
-    sida.drawSvgPath(`M ${a.x} ${a.y - d} L ${a.x + d} ${a.y} L ${a.x} ${a.y + d} L ${a.x - d} ${a.y} Z`, { ...SVG, color: grå(255), borderColor: hex(lib, st.farg), borderWidth: 1.3 });
+    const a = ap(m.plats), d = 4.6;
+    ritaSymbol(lib, sida, m.typ, a, d * 2);
     if (opts.etiketter !== false) {
       const text = san(st.etikett), bredd = fonter.normal.widthOfTextAtSize(text, 6.5);
       const rect = { x0: a.x + d + 2, x1: a.x + d + 2 + bredd, y0: a.y - 4, y1: a.y + 4 };
@@ -165,12 +176,25 @@ export function ritaKarta(
     }
   }
 
+  // 4b. NOTERINGARNA: linjer, punkter och pilspetsar over planens vagar och hyttsparet, under kontrollpunkterna (som i appen).
+  // Skyddsnät: modellen släpper bara blev hit, men ritaren ritar aldrig en skulle-notering även om någon skickar in en (arMedIRapport).
+  const noteringar = (l.noteringar ?? []).filter(arMedIRapport);
+  for (const n of noteringar) ritaNoteringForm(lib, sida, SVG, n, ap);
+
   // 5. Kontrollpunkterna, numrerade, overst.
   for (const p of l.pinnar) {
     const a = ap(p.plats);
     sida.drawCircle({ x: a.x, y: SIDHOJD - a.y, size: 8.5, color: grå(17), borderColor: grå(255), borderWidth: 1 });
     const t = String(p.nr);
     sida.drawText(t, { x: a.x - fonter.fet.widthOfTextAtSize(t, 9) / 2, y: SIDHOJD - a.y - 3.2, size: 9, font: fonter.fet, color: grå(255) });
+  }
+
+  // 6. ETIKETTERNA overst: de ska kunna lasas. Placeras utan att doldja varandra, en kontrollpunkt eller en notering (planeraNoteringsEtiketter).
+  const maler = (t: string) => fonter.normal.widthOfTextAtSize(san(t), ETIKETT_STORLEK);
+  const etiketter = planeraNoteringsEtiketter(noteringar, l.pinnar.map((p) => ap(p.plats)), ap, maler, { x0: ruta.x + 2, y0: ruta.top + 2, x1: ruta.x + ruta.b - 2, y1: ruta.top + ruta.h - 2 });
+  for (const n of noteringar) {
+    const e = etiketter.get(n.id);
+    if (e) ritaNoteringsEtikett(lib, sida, SVG, fonter, e.rader, e.ruta, san);
   }
   sida.pushOperators(lib.popGraphicsState());
 
@@ -212,6 +236,204 @@ function ritaTvarstreck(lib: PdfLib, sida: PDFPage, SVG: { x: number; y: number 
   sida.drawSvgPath(bana, { ...SVG, borderColor: farg, borderWidth: inre, borderLineCap: lib.LineCapStyle.Butt });
 }
 
+// ---------------------------------------------------------------------------
+// Noteringar i rapportens karta (PR 9a)
+// ---------------------------------------------------------------------------
+//
+// Rapporten tar BARA "sa har blev det" (Martin 2026-10-21, arMedIRapport): en HELDRAGEN morklinje med en FYLLD punkt och en morkfylld etikett
+// med vit text. "Skulle" ritas aldrig har — en rattelse ovanpa hyttsparet ar ett daterat och positionsbestamt medgivande till kunden.
+
+const BLEV_FARG = '#111111';
+const NOTERING_PUNKT_R = 3.4;
+const ETIKETT_STORLEK = 8.5;
+const ETIKETT_PAD = 3.2;
+const ETIKETT_MAX_BREDD = 140;
+const ETIKETT_MAX_RADER = 3;
+
+/** Ankaret: punkten, eller mitt pa linjen (langs den, inte mellan hornen). null = inget att rita. */
+function noteringsAnkare(n: KartNotering, ap: (p: LatLng) => { x: number; y: number }): { x: number; y: number } | null {
+  if (n.punkter.length === 0) return null;
+  if (n.typ === 'punkt' || n.punkter.length === 1) return ap(n.punkter[0]);
+  const pts = n.punkter.map(ap);
+  let tot = 0;
+  for (let i = 1; i < pts.length; i++) tot += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  let kvar = tot / 2;
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    if (kvar <= d && d > 0) { const t = kvar / d; return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * t, y: pts[i - 1].y + (pts[i].y - pts[i - 1].y) * t }; }
+    kvar -= d;
+  }
+  return pts[pts.length - 1];
+}
+
+/**
+ * Var varje notering far sin etikett: aldrig ovanpa en annan etikett, en kontrollpunkts pinne, en notering (dess ankare eller linje) -
+ * utom nar det inte finns nagot fritt lage. Rent (taget ur ritaKarta sa att det gar att prova utan en PDF).
+ */
+export function planeraNoteringsEtiketter(
+  noteringar: KartNotering[],
+  pinnar: { x: number; y: number }[],
+  ap: (p: LatLng) => { x: number; y: number },
+  mat: (t: string) => number,
+  yta: Rektangel,
+): Map<string, { ruta: Rektangel; rader: string[] }> {
+  const ut = new Map<string, { ruta: Rektangel; rader: string[] }>();
+  if (noteringar.length === 0) return ut;
+  const hinder: Rektangel[] = pinnar.map((a) => ({ x0: a.x - 9, y0: a.y - 9, x1: a.x + 9, y1: a.y + 9 }));
+  for (const n of noteringar) {
+    const a = noteringsAnkare(n, ap);
+    if (a) hinder.push({ x0: a.x - NOTERING_PUNKT_R - 1, y0: a.y - NOTERING_PUNKT_R - 1, x1: a.x + NOTERING_PUNKT_R + 1, y1: a.y + NOTERING_PUNKT_R + 1 });
+    // Linjerna ar hinder for ALLA etiketter: en etikett som ligger over en pil doljer var den slutar (provat: "Overfart stenmur" doljde "Drivnings" pilspets).
+    if (n.typ === 'linje') hinder.push(...linjeHinder(n.punkter.map(ap)));
+  }
+  const matt = noteringar.map((n) => etikettMatt(n, mat));
+  const poster: EtikettPost[] = [];
+  noteringar.forEach((n, i) => {
+    const a = noteringsAnkare(n, ap);
+    const m = matt[i];
+    if (a && m) poster.push({ id: n.id, ankare: a, bredd: m.bredd, hojd: m.hojd });
+  });
+  const plats = placeraEtiketter(poster, hinder, yta);
+  noteringar.forEach((n, i) => {
+    const r = plats.get(n.id), m = matt[i];
+    if (r && m) ut.set(n.id, { ruta: r, rader: m.rader });
+  });
+  return ut;
+}
+
+/** Rektanglar (5 x 5 pt) tata langs en linje: en etikett far inte ligga ovanpa den. Ett glest satt av punkter skulle lata en etikett glida mellan dem. */
+export function linjeHinder(pts: { x: number; y: number }[]): Rektangel[] {
+  const ut: Rektangel[] = [];
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    const steg = Math.max(1, Math.ceil(d / 5));
+    for (let k = 0; k <= steg; k++) {
+      const x = pts[i - 1].x + ((pts[i].x - pts[i - 1].x) * k) / steg, y = pts[i - 1].y + ((pts[i].y - pts[i - 1].y) * k) / steg;
+      ut.push({ x0: x - 2.5, y0: y - 2.5, x1: x + 2.5, y1: y + 2.5 });
+    }
+  }
+  return ut;
+}
+
+function etikettMatt(n: KartNotering, mat: (t: string) => number): { rader: string[]; bredd: number; hojd: number } | null {
+  const rader = bryt(n.etikett, mat, ETIKETT_MAX_BREDD - ETIKETT_PAD * 2, ETIKETT_MAX_RADER);
+  if (rader.length === 0) return null;
+  return { rader, bredd: Math.ceil(Math.max(...rader.map(mat))) + ETIKETT_PAD * 2, hojd: rader.length * ETIKETT_STORLEK * 1.25 + ETIKETT_PAD * 2 };
+}
+
+/** Linjen/punkten/pilspetsen. Vit kant under allt: syns pa den ljusgra kartytan och over stammolnets prickar. */
+function ritaNoteringForm(
+  lib: PdfLib, sida: PDFPage, SVG: { x: number; y: number }, n: KartNotering, ap: (p: LatLng) => { x: number; y: number },
+): void {
+  const farg = hex(lib, BLEV_FARG);
+  const vit = lib.rgb(1, 1, 1);
+  const pts = n.punkter.map(ap);
+  if (n.typ === 'punkt' || pts.length < 2) {
+    const a = pts[0];
+    if (!a) return;
+    const ring = `M ${(a.x + NOTERING_PUNKT_R).toFixed(2)} ${a.y.toFixed(2)} A ${NOTERING_PUNKT_R} ${NOTERING_PUNKT_R} 0 1 0 ${(a.x - NOTERING_PUNKT_R).toFixed(2)} ${a.y.toFixed(2)} A ${NOTERING_PUNKT_R} ${NOTERING_PUNKT_R} 0 1 0 ${(a.x + NOTERING_PUNKT_R).toFixed(2)} ${a.y.toFixed(2)} Z`;
+    sida.drawSvgPath(ring, { ...SVG, color: farg, borderColor: vit, borderWidth: 1.2 });
+    return;
+  }
+  const bana = pts.map((q, i) => `${i === 0 ? 'M' : 'L'} ${q.x.toFixed(2)} ${q.y.toFixed(2)}`).join(' ');
+  sida.drawSvgPath(bana, { ...SVG, borderColor: vit, borderWidth: 3.6, borderOpacity: 0.9 });                  // heldragen vit kant
+  sida.drawSvgPath(bana, { ...SVG, borderColor: farg, borderWidth: 1.6 });
+  if (n.pil) {
+    // Pilspets i slutet: tva korta streck bakat fran sista punkten, mot riktningen pa sista delstrackan.
+    let a = pts[pts.length - 1], g = pts[pts.length - 2];
+    for (let i = pts.length - 2; i >= 0; i--) { g = pts[i]; if (Math.hypot(a.x - g.x, a.y - g.y) > 0.5) break; }
+    const L = Math.hypot(a.x - g.x, a.y - g.y);
+    if (L > 0) {
+      const dx = (a.x - g.x) / L, dy = (a.y - g.y) / L, lang = 9, bred = 4.6;
+      const bx = a.x - dx * lang, by = a.y - dy * lang;
+      const spets = `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} L ${(bx - dy * bred).toFixed(2)} ${(by + dx * bred).toFixed(2)} L ${(bx + dy * bred).toFixed(2)} ${(by - dx * bred).toFixed(2)} Z`;
+      sida.drawSvgPath(spets, { ...SVG, color: farg, borderColor: vit, borderWidth: 1 });
+    }
+  }
+}
+
+function ritaNoteringsEtikett(
+  lib: PdfLib, sida: PDFPage, SVG: { x: number; y: number }, fonter: { normal: PDFFont },
+  rader: string[], r: Rektangel, san: (s: string) => string,
+): void {
+  const farg = hex(lib, BLEV_FARG);
+  const b = r.x1 - r.x0, h = r.y1 - r.y0, k = 2.2;
+  const bana = `M ${r.x0 + k} ${r.y0} L ${r.x1 - k} ${r.y0} Q ${r.x1} ${r.y0} ${r.x1} ${r.y0 + k} L ${r.x1} ${r.y1 - k} Q ${r.x1} ${r.y1} ${r.x1 - k} ${r.y1} L ${r.x0 + k} ${r.y1} Q ${r.x0} ${r.y1} ${r.x0} ${r.y1 - k} L ${r.x0} ${r.y0 + k} Q ${r.x0} ${r.y0} ${r.x0 + k} ${r.y0} Z`;
+  sida.drawSvgPath(bana, { ...SVG, color: farg, borderColor: lib.rgb(1, 1, 1), borderWidth: 0.8 });
+  void b; void h;
+  rader.forEach((rad, i) => {
+    sida.drawText(san(rad), {
+      x: r.x0 + ETIKETT_PAD, y: SIDHOJD - (r.y0 + ETIKETT_PAD + ETIKETT_STORLEK * 0.92 + i * ETIKETT_STORLEK * 1.25),
+      size: ETIKETT_STORLEK, font: fonter.normal, color: lib.rgb(1, 1, 1),
+    });
+  });
+}
+
+/** Punkter längs en polylinje (sidans pt) var `steg:e pt` med riktning (enhetsvektor) — första efter halva steget, så stolparna ligger jämnt fördelade. */
+export function punkterLangsLinje(pts: { x: number; y: number }[], steg: number): { x: number; y: number; dx: number; dy: number }[] {
+  const ut: { x: number; y: number; dx: number; dy: number }[] = [];
+  let kvar = steg / 2;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const L = Math.hypot(b.x - a.x, b.y - a.y);
+    if (L === 0) continue;
+    const dx = (b.x - a.x) / L, dy = (b.y - a.y) / L;
+    let t = kvar;
+    while (t <= L) { ut.push({ x: a.x + dx * t, y: a.y + dy * t, dx, dy }); t += steg; }
+    kvar = t - L;
+  }
+  return ut;
+}
+
+/**
+ * KRAFTLEDNINGEN i rapporten, som i appen (lib/kartstil kraftledningLager): gruppens röd med mörk kant, korta stolpar vinkelräta mot linjen och farosymbolen
+ * (triangel med blixt, ur symbolkällan) upprepad längs linjen. `pts` = sidans pt, toppbaserade. Avstånden är i pt (kartans 40 resp. 250 px motsvaras av
+ * ungefär 14 resp. 90 pt på en A4).
+ */
+export function ritaKraftledning(
+  lib: PdfLib, sida: PDFPage, pts: { x: number; y: number }[], farg: string, bredd: number,
+  val: { stolpeAvstand?: number; symbolAvstand?: number; symbolStorlek?: number } = {},
+): void {
+  if (pts.length < 2) return;
+  const SVG = { x: 0, y: SIDHOJD } as const;
+  const bana = `M ${pts.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' L ')}`;
+  sida.drawSvgPath(bana, { ...SVG, borderColor: lib.rgb(0.07, 0.07, 0.07), borderWidth: bredd + 1.6, borderLineCap: lib.LineCapStyle.Round });
+  sida.drawSvgPath(bana, { ...SVG, borderColor: hex(lib, farg), borderWidth: bredd, borderLineCap: lib.LineCapStyle.Round });
+  const halv = Math.max(3.2, bredd * 2.6);
+  for (const p of punkterLangsLinje(pts, val.stolpeAvstand ?? 14)) {
+    const nx = -p.dy, ny = p.dx;   // vinkelrätt mot linjen
+    ritaTvarstreck(lib, sida, SVG, [p.x - nx * halv, p.y - ny * halv, p.x + nx * halv, p.y + ny * halv], hex(lib, farg), bredd);
+  }
+  for (const p of punkterLangsLinje(pts, val.symbolAvstand ?? 90)) ritaSymbol(lib, sida, 'powerline', { x: p.x, y: p.y }, val.symbolStorlek ?? 9);
+}
+
+/** Symbolen i PDF:en: SAMMA form, kant och glyf som på kartan (lib/symboler) — vektor, så den är skarp i alla storlekar. `a` = mittpunkt, toppbaserad sidkoordinat. */
+export function ritaSymbol(lib: PdfLib, sida: PDFPage, typ: string, a: { x: number; y: number }, storlek: number): void {
+  const d = symbolDef(typ);
+  const sc = storlek / SYMBOL_VIEWBOX, h = SYMBOL_VIEWBOX / 2;
+  const ox = a.x - h * sc, oy = SIDHOJD - (a.y - h * sc);
+  sida.drawSvgPath(FORM_PATH[d.form], { x: ox, y: oy, scale: sc, color: hex(lib, d.farg), borderColor: lib.rgb(1, 1, 1), borderWidth: Math.max(0.6, FORM_KANT_BREDD * sc), borderLineCap: lib.LineCapStyle.Round });
+  const g = GLYF_PLACERING[d.form];
+  sida.drawSvgPath(d.glyf, { x: ox + g.x * sc, y: oy - g.y * sc, scale: sc * g.skala, borderColor: lib.rgb(1, 1, 1), borderWidth: GLYF_LINJE_BREDD * sc * g.skala, borderLineCap: lib.LineCapStyle.Round });
+}
+
+/** Snedstreckning (45°) i gruppens färg inuti en yta — ytor man inte får köra in i. Klipps mot ytans ring; `ring` är toppbaserade sidkoordinater. */
+export function ritaSnedstreck(lib: PdfLib, sida: PDFPage, ring: { x: number; y: number }[], farg: string, avstand = 4.5, tjocklek = 0.9): void {
+  if (ring.length < 3) return;
+  const xs = ring.map((p) => p.x), ys = ring.map((p) => p.y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const ops = [lib.pushGraphicsState(), lib.moveTo(ring[0].x, SIDHOJD - ring[0].y)];
+  for (const p of ring.slice(1)) ops.push(lib.lineTo(p.x, SIDHOJD - p.y));
+  ops.push(lib.closePath(), lib.clip(), lib.endPath());
+  sida.pushOperators(...ops);
+  const c = hex(lib, farg);
+  for (let k = x0 - (y1 - y0); k <= x1; k += avstand) {
+    sida.drawLine({ start: { x: k, y: SIDHOJD - y1 }, end: { x: k + (y1 - y0), y: SIDHOJD - y0 }, thickness: tjocklek, color: c, opacity: 0.9 });
+  }
+  sida.pushOperators(lib.popGraphicsState());
+}
+
+
 /** En rad (eller flera) med teckenforklaring: ett litet prov per lager + dess namn. Returnerar hojden som anvandes. */
 export function ritaTeckenforklaring(
   lib: PdfLib,
@@ -237,11 +459,19 @@ export function ritaTeckenforklaring(
       sida.drawSvgPath(`M ${cx} ${mid} L ${cx + PROV - 5} ${mid}`, { ...SVG, borderColor: grå(90), borderWidth: 1.2 });
       for (const s of backvagStreckPt([{ x: cx, y: mid }, { x: cx + PROV - 5, y: mid }], 'slut', 3.4, 2)!) ritaTvarstreck(lib, sida, SVG, s, grå(90), 1.2);
     }
+    else if (p.nyckel === 'notering:blev') {          // heldragen morklinje + fylld punkt
+      sida.drawSvgPath(`M ${cx} ${mid} L ${cx + PROV} ${mid}`, { ...SVG, borderColor: hex(lib, BLEV_FARG), borderWidth: 1.6 });
+      sida.drawCircle({ x: cx + PROV / 2, y: SIDHOJD - mid, size: 2.4, color: hex(lib, BLEV_FARG), borderColor: grå(255), borderWidth: 0.8 });
+    }
     else if (p.nyckel === 'kontrollpunkt') sida.drawCircle({ x: cx + PROV / 2, y: SIDHOJD - mid, size: 3.6, color: grå(17) });
     else if (slag === 'linje' || slag === 'zon' || slag === 'symbol') {
       const st = markeringsStil(slag, typ);
-      if (st && slag === 'symbol') sida.drawSvgPath(`M ${cx + PROV / 2} ${mid - 3} L ${cx + PROV / 2 + 3} ${mid} L ${cx + PROV / 2} ${mid + 3} L ${cx + PROV / 2 - 3} ${mid} Z`, { ...SVG, color: grå(255), borderColor: hex(lib, st.farg), borderWidth: 1.1 });
-      else if (st && slag === 'zon') sida.drawSvgPath(`M ${cx} ${mid - 3} L ${cx + PROV} ${mid - 3} L ${cx + PROV} ${mid + 3} L ${cx} ${mid + 3} Z`, { ...SVG, color: hex(lib, st.farg), opacity: 0.16, borderColor: hex(lib, st.farg), borderWidth: 0.9, ...(st.streck ? { borderDashArray: st.streck } : {}) });
+      if (st && slag === 'symbol') ritaSymbol(lib, sida, typ, { x: cx + PROV / 2, y: mid }, 9);
+      else if (st && slag === 'zon') {
+        sida.drawSvgPath(`M ${cx} ${mid - 3} L ${cx + PROV} ${mid - 3} L ${cx + PROV} ${mid + 3} L ${cx} ${mid + 3} Z`, { ...SVG, color: hex(lib, st.farg), opacity: st.snedstreck ? 0.08 : 0.16, borderColor: hex(lib, st.farg), borderWidth: 0.9, ...(st.streck ? { borderDashArray: st.streck } : {}) });
+        if (st.snedstreck) ritaSnedstreck(lib, sida, [{ x: cx, y: mid - 3 }, { x: cx + PROV, y: mid - 3 }, { x: cx + PROV, y: mid + 3 }, { x: cx, y: mid + 3 }], st.farg, 3, 0.7);
+      }
+      else if (st?.ledning) ritaKraftledning(lib, sida, [{ x: cx, y: mid }, { x: cx + PROV, y: mid }], st.farg, 1.1, { stolpeAvstand: 5, symbolAvstand: PROV, symbolStorlek: 6.5 });
       else if (st) sida.drawSvgPath(`M ${cx} ${mid} L ${cx + PROV} ${mid}`, { ...SVG, borderColor: hex(lib, st.farg), borderWidth: Math.min(st.bredd, 2.2), ...(st.streck ? { borderDashArray: st.streck } : {}) });
     }
     sida.drawText(text, { x: cx + PROV + 4, y: SIDHOJD - cy - STORLEK * 0.78 - 0.5, size: STORLEK, font: fonter.normal, color: grå(70) });

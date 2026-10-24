@@ -38,6 +38,7 @@ vi.mock('@/lib/egenkontrollRapportIndata', async (orig) => {
   return { ...verklig, byggRapportIndata: (a: any) => { sistaIndata = a; return verklig.byggRapportIndata(a); } };
 });
 vi.mock('next/navigation', () => ({ useParams: () => ({ objektId: 'ob1' }) }));
+vi.mock('@/lib/hooks/useVagavstand', () => ({ useVagavstand: () => ({}) }));   // vägavståndet hämtas från OSRM; ett test når aldrig nätet
 vi.mock('@/lib/egenkontroll', async (orig) => {
   const verklig = await orig<typeof import('@/lib/egenkontroll')>();
   return {
@@ -51,7 +52,10 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
     hamtaHyttspar: (id: string) => hamtaHyttspar(id),
     hamtaFoton: async () => [],
     hamtaProvytor: async () => [],
+    hamtaNoteringar: async () => [],
     hamtaKontextmarkeringar: async () => [],
+    // Vidas traktgräns: sidan frågar alltid (objektet har här kartbild_bounds, så svaret avgör inte origot). Ett RIKTIGT svar i stället för ett läsfel via den riktiga klienten.
+    hamtaVidaGrans: async () => ({ typ: 'ok' as const, gran: [[56.0, 14.0], [56.1, 14.1]] }),
     hamtaAvverkadeStammar: async () => [],
   };
 });

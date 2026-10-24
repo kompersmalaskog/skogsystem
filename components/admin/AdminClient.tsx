@@ -8,6 +8,7 @@ import { AVSTAND, FARG, FONT, LAYOUT, RADIE, TRAFFYTA, TYP, designCss, medSafeBo
 import { Ikon, Markering, Titel, MAXBREDD_ADMIN } from "./ui";
 import { AdminNavProvider, FLIKAR, lasNav, useAdminNav } from "./nav";
 import { useAttGora } from "./useAttGora";
+import { antalKraver } from "@/lib/admin/attGora";
 import Oversikt from "./Oversikt";
 import MedarbetareFlik from "./MedarbetareFlik";
 import MaskinerFlik from "./MaskinerFlik";
@@ -52,8 +53,8 @@ export default function AdminClient({ currentUser }: { currentUser: Anvandare })
 function Skal({ currentUser }: { currentUser: Anvandare }) {
   const { nav, gaTill } = useAdminNav();
   const att = useAttGora();
-  // Menyns siffra: sakerna plus förare som passerat en arbetstidsgräns (lag, inte rekommendation). Gula räknas inte, och inte heller delägare (arbetstidslagen gäller inte).
-  const antal = att.laddar ? 0 : att.saker.length + att.arbetstid.filter(f => f.varsta === "rod" && !f.foretagsledare).length;
+  // Menyns siffra = det som kräver åtgärd NU (samma tal som Översiktens rubrik). Arbetstid är EN rad och räknas bara när någon är ÖVER en gräns; gul "nära gränsen" syns men räknas inte. Delägare ingår aldrig.
+  const antal = att.laddar ? 0 : antalKraver(att.saker);
   const aktiv = FLIKAR.find(f => f.key === nav.flik) || FLIKAR[0];
   const nyMedarbetare = nav.flik === "medarbetare" && !!nav.params.ny;
 

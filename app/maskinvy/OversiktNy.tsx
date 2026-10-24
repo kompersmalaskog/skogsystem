@@ -1,17 +1,16 @@
 'use client'
-import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, AVSTAND, TYP, VIKT, RADIE, medSafeBotten, FARG, FONT, kolumnRot } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useEffect, useState } from 'react'
 import {
-  C, FONT, MASKINER, getPeriodRange, getPrevDateRange,
-  fetchData, fetchSeries,
-  HeroCard, KpiList, TimeDistribution, OperatorList,
-  type Maskin, type Period, type Data, type Operator, type PeriodKpi,
+  MASKINER, getPeriodRange, getPrevDateRange, fetchData, fetchSeries, HeroCard, KpiList, TimeDistribution, OperatorList, type Maskin, type Period, type Data, type Operator, type PeriodKpi,
 } from './OversiktShared'
 import OperatorDeepView from './OperatorDeepView'
 import VolymDeepView from './VolymDeepView'
 import FlertradKort from './FlertradKort'
 import TradslagKort from './TradslagKort'
+import SortimentKort from './SortimentKort'
+import { LivestatusKort } from './Livestatus'
 
 export default function OversiktNy({ maskin, onMaskinChange }: {
   maskin: Maskin
@@ -68,7 +67,7 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
   return (
     <div style={{
       position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0,
-      overflow: 'auto', background: C.bg, color: C.text,
+      overflow: 'auto', background: FARG.bg, color: FARG.text,
       fontFamily: FONT, fontFeatureSettings: '"tnum"',
       // Lyft z-index när djupvy är öppen — annars hamnar djupvyns z-index:200
       // INUTI denna stacking context och kan inte täcka bars (z-index:60 i root).
@@ -77,28 +76,29 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
       {/* ── Sticky header: topbar + period-nav + V/M/K/Å ── */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 5,
-        background: C.bg,
-        borderBottom: `0.5px solid ${C.divider}`,
+        background: FARG.bg,
+        borderBottom: `0.5px solid ${FARG.linje}`,
       }}>
         {/* Topbar: maskinnamn centrerat */}
-        <div style={{ padding: '14px 16px', textAlign: 'center', position: 'relative' }}>
+        <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.l}px`, textAlign: 'center', position: 'relative' }}>
           <button
+            className="mv-maskinval"
             onClick={() => setMaskinOpen(o => !o)}
             aria-expanded={maskinOpen}
             style={{
-              background: 'transparent', border: 'none', color: C.text,
-              fontFamily: FONT, fontSize: 15, fontWeight: 600, letterSpacing: -0.3,
-              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'transparent', border: 'none', color: FARG.text,
+              fontFamily: FONT, fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -0.3,
+              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s,
               padding: 0,
             }}
           >
             {maskin.namn}
-            <span style={{ color: C.muted, fontSize: 11 }}>▾</span>
+            <span className="mv-maskinval-pil" style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
           </button>
           {maskinOpen && (
             <div style={{
               position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
-              background: C.card, borderRadius: 12, marginTop: 6,
+              background: FARG.kort, borderRadius: RADIE.kort, marginTop: AVSTAND.s,
               minWidth: 260, overflow: 'hidden', zIndex: 100,
               boxShadow: '0 8px 28px rgba(0,0,0,0.6)',
             }}>
@@ -108,9 +108,9 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
                   onClick={() => { onMaskinChange(m); setMaskinOpen(false) }}
                   style={{
                     display: 'block', width: '100%', padding: '12px 16px',
-                    background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent',
-                    border: 'none', color: C.text, fontFamily: FONT,
-                    fontSize: 14, cursor: 'pointer', textAlign: 'left',
+                    background: m.id === maskin.id ? FARG.linje : 'transparent',
+                    border: 'none', color: FARG.text, fontFamily: FONT,
+                    fontSize: TYP.meta.fontSize, cursor: 'pointer', textAlign: 'left',
                   }}
                 >{m.namn}</button>
               ))}
@@ -128,12 +128,12 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
             aria-label="Föregående period"
             style={{
               width: 44, height: 44, border: 'none', background: 'transparent',
-              color: C.muted, fontSize: 22, cursor: 'pointer', fontFamily: FONT,
+              color: FARG.text2, fontSize: TYP.rubrik.fontSize, cursor: 'pointer', fontFamily: FONT,
             }}
           >‹</button>
           <div style={{
             minWidth: 180, textAlign: 'center',
-            fontSize: 16, fontWeight: 600, color: C.text, letterSpacing: -0.3,
+            fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, letterSpacing: -0.3,
           }}>{label}</div>
           <button
             onClick={() => setOffset(o => Math.min(o + 1, 0))}
@@ -141,27 +141,27 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
             aria-label="Nästa period"
             style={{
               width: 44, height: 44, border: 'none', background: 'transparent',
-              color: offset >= 0 ? C.dim : C.muted, fontSize: 22,
+              color: offset >= 0 ? FARG.text3 : FARG.text2, fontSize: TYP.rubrik.fontSize,
               cursor: offset >= 0 ? 'default' : 'pointer', fontFamily: FONT,
             }}
           >›</button>
         </div>
 
         {/* V/M/K/Å segmented control */}
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 16px 18px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: `${AVSTAND.xs}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>
           <div style={{
-            display: 'inline-flex', background: 'rgba(120,120,128,0.16)',
-            borderRadius: 10, padding: 2,
+            display: 'inline-flex', background: FARG.linje,
+            borderRadius: RADIE.kort, padding: AVSTAND.xs,
           }}>
             {(['V', 'M', 'K', 'Å'] as Period[]).map(p => (
               <button
                 key={p}
                 onClick={() => { setPeriod(p); setOffset(0) }}
                 style={{
-                  minWidth: 58, padding: '7px 18px', border: 'none', borderRadius: 8,
-                  background: period === p ? '#3a3a3c' : 'transparent',
-                  color: period === p ? C.text : C.muted,
-                  fontSize: 13, fontWeight: period === p ? 600 : 500,
+                  minWidth: 58, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, border: 'none', borderRadius: RADIE.rad,
+                  background: period === p ? FARG.fyllning : 'transparent',
+                  color: period === p ? FARG.text : FARG.text2,
+                  fontSize: TYP.meta.fontSize, fontWeight: period === p ? VIKT.halvfet : VIKT.halvfet,
                   fontFamily: FONT, cursor: 'pointer',
                 }}
               >{p}</button>
@@ -171,7 +171,9 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
       </div>
 
       {/* Innehåll */}
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 16px 80px' }}>
+      <div style={{ ...kolumnRot('smal'), padding: `0 ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
+        {/* Livestatus (när maskinen senast såg något) + maskinhälsa (när senaste fil kom) — alltid nu, oberoende av vald period. */}
+        <LivestatusKort maskin={maskin} roll="skordare" />
         <HeroCard
           label="Produktivitet"
           unit="m³/G15h"
@@ -187,6 +189,8 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
         <FlertradKort maskin={maskin} period={period} offset={offset} />
         {/* Trädslag per period — via maskindata_produktion (tradslag_id sedan 20260912), lib/tradslag-normaliserat. */}
         <TradslagKort maskin={maskin} period={period} offset={offset} />
+        {/* Sortiment per period — fakt_sortiment, gruppen ur vy_sortiment_klass (lib/maskinvy/sortiment). */}
+        <SortimentKort maskin={maskin} period={period} offset={offset} produktionsvolym={data?.volym ?? null} />
         <TimeDistribution data={data} loading={loading} />
         <OperatorList
           operatorer={data?.operatorer ?? []}

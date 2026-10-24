@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { kravKundRuta, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassTidText, redanText, saknasForSvar, tolkaSvar, type LassRad } from './lass';
+import { kravKundRuta, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassSamtidigaRader, lassRuttVy, lassTidText, lassViktText, LASS_KOLUMNER, redanText, saknasForSvar, tolkaSvar, type LassRad } from './lass';
 import { lasLassId } from './url';
 
 const rad = (o: Partial<LassRad> = {}): LassRad => ({
@@ -22,6 +22,37 @@ describe('texter', () => {
   it('sträckan är "cirka" när bilen inte stod stilla i båda ändar — och "saknas" när den inte går att räkna', () => {
     expect(lassKmText(rad({ bevis: { km_osaker: true } }))).toBe('cirka 45,7 km');
     expect(lassKmText(rad({ km: null }))).toBe('sträcka saknas');
+  });
+  it('lastvikten i hela ton; saknas den står ingenting (aldrig "0 t" eller "–")', () => {
+    expect(lassViktText(rad({ lastvikt_kg: 25_400 }))).toBe('last 25 t');
+    expect(lassViktText(rad({ lastvikt_kg: 25_600 }))).toBe('last 26 t');
+    expect(lassViktText(rad({ lastvikt_kg: null }))).toBeNull();
+    expect(lassViktText(rad())).toBeNull();
+    expect(lassViktText(rad({ lastvikt_kg: 0 }))).toBeNull();
+  });
+  it('vikten läses ur databasen (kolumnlistan har lastvikt_kg)', () => {
+    expect(LASS_KOLUMNER.split(', ')).toContain('lastvikt_kg');
+  });
+  it('rutten med platsernas säkerhet: osäker plats = "nära X" + de andra under; säker = namnet; inget inom 8 km = "okänd plats"', () => {
+    const M = (6371000 * Math.PI) / 180;
+    const at = (namn: string, m: number) => ({ namn, lat: 56.2 + m / M, lng: 14.9 });
+    const lossning = { lossning_lat: 56.2, lossning_lng: 14.9 };
+    const lassning = { lassning_lat: 56.3, lassning_lng: 14.9 };
+    const kand = [at('Intaget gallring', 608), at('Åbogen', 673), at('Sandåsen', 1000), { namn: 'Spåramåla RP 2025', lat: 56.3 + 40 / M, lng: 14.9 }];
+    // 3 aug: Från säker (Spåramåla 40 m), Till osäker (tre trakter 608–1000 m)
+    const v = lassRuttVy(rad({ fran_namn: 'Spåramåla RP 2025', till_namn: 'Intaget gallring', ...lassning, ...lossning }), kand);
+    expect(v.rutt).toBe('Spåramåla RP 2025 → nära Intaget gallring');
+    expect(v.andra).toEqual([{ sida: 'Till', text: 'även Åbogen 673 m, Sandåsen 1 km' }]);
+    // inget inom 8 km på Till
+    expect(lassRuttVy(rad({ fran_namn: 'Spåramåla RP 2025', till_namn: 'Intaget gallring', ...lassning, lossning_lat: 57.5, lossning_lng: 14.9 }), kand).rutt)
+      .toBe('Spåramåla RP 2025 → okänd plats');
+    // trakterna inte lästa (än, eller läsfel) eller positionen saknas: de sparade namnen som förut
+    expect(lassRuttVy(rad({ ...lassning, ...lossning }), null).rutt).toBe('Östra-Hoka 1:7 → Bågskyttebanan RP');
+    expect(lassRuttVy(rad({ lassning_lat: null, lassning_lng: null, lossning_lat: null, lossning_lng: null }), kand).rutt).toBe('Östra-Hoka 1:7 → Bågskyttebanan RP');
+    expect(lassRuttVy(rad(), kand).andra).toEqual([]);
+  });
+  it('kolumnlistan har positionerna', () => {
+    for (const k of ['lassning_lat', 'lassning_lng', 'lossning_lat', 'lossning_lng']) expect(LASS_KOLUMNER.split(', ')).toContain(k);
   });
   it('förslaget: hur säkert + skälen; ingen förslagsmaskin = ingen rad', () => {
     expect(lassForslagText(rad())).toBe('Troligen · Skotade Östra-Hoka 12 okt');
@@ -86,5 +117,25 @@ describe('lasLassId — länken i notisen', () => {
     expect(lasLassId('?lass=<script>')).toBeNull();
     expect(lasLassId('?lass=')).toBeNull();
     expect(lasLassId('')).toBeNull();
+  });
+});
+
+describe('lassSamtidigaRader — "En flytt med X finns samma tid"', () => {
+  const namn = (id: string) => ({ A030353: 'Wisent', R64428: 'H8E -23' } as Record<string, string>)[id] ?? null;
+  const flytt = (o = {}) => ({ flytt_id: 'f1', maskin_id: 'R64428', extern_maskin: null, avbruten: false, skal: 'annan_plats' as const, ...o });
+  it('en rad per flytt, med maskinens visningsnamn', () => {
+    expect(lassSamtidigaRader(rad({ bevis: { flytt_samma_tid: [flytt(), flytt({ flytt_id: 'f2', maskin_id: 'A030353' })] } }), namn))
+      .toEqual(['En flytt med H8E -23 finns samma tid', 'En flytt med Wisent finns samma tid']);
+  });
+  it('avbruten flytt säger det; maskin som inte är vår visar namnet den skrevs med; okänt namn blir "en maskin", aldrig ett maskin_id', () => {
+    expect(lassSamtidigaRader(rad({ bevis: { flytt_samma_tid: [flytt({ avbruten: true, skal: 'avbruten' })] } }), namn)).toEqual(['En avbruten flytt med H8E -23 finns samma tid']);
+    expect(lassSamtidigaRader(rad({ bevis: { flytt_samma_tid: [flytt({ maskin_id: null, extern_maskin: 'Ponsse X' })] } }), namn)).toEqual(['En flytt med Ponsse X finns samma tid']);
+    expect(lassSamtidigaRader(rad({ bevis: { flytt_samma_tid: [flytt({ maskin_id: 'OKAND_1' })] } }), namn)).toEqual(['En flytt med en maskin finns samma tid']);
+  });
+  it('inget bevis, ingen lista eller skräp i jsonb-kolumnen → inga rader, ingen krasch', () => {
+    expect(lassSamtidigaRader(rad({ bevis: null }), namn)).toEqual([]);
+    expect(lassSamtidigaRader(rad({ bevis: { km_osaker: false } }), namn)).toEqual([]);
+    expect(lassSamtidigaRader(rad({ bevis: { flytt_samma_tid: 'x' as any } }), namn)).toEqual([]);
+    expect(lassSamtidigaRader(rad({ bevis: { flytt_samma_tid: [null, 5, {}] as any } }), namn)).toEqual([]);
   });
 });

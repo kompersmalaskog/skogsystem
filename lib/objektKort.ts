@@ -18,27 +18,25 @@ export function objektRad(o: { typ?: string | null; avtalsform?: string | null; 
 
 // ── Knapprad efter roll ──────────────────────────────────────────────────────────────────────────────────────────────
 
-export type KortKnappId = 'kor-hit' | 'korvy' | 'skotning' | 'utkort' | 'mer';
+export type KortKnappId = 'kor-hit' | 'korvy' | 'skotning' | 'utkort';
 export interface KortKnapp { id: KortKnappId; etikett: string }
 export type KortRoll = 'planerare' | 'forare';
 
 /**
- * Planerare: Kör hit · Mer. ("Inför maskin" kommer i en egen PR och visas först då — en knapp som inte finns får inte ligga där.)
- * Förare: Körvy · Skotning · Utkört · Mer. Körvy-knappen försvinner medan körvyn redan är igång (Avsluta körvy ligger i Mer). En skördarförare har
+ * Planerare: Kör hit. ("Inför maskin" kommer i en egen PR och visas först då — en knapp som inte finns får inte ligga där.)
+ * Förare: Körvy · Skotning · Utkört. "Mer" är INTE en knapp här: den är en rad längst ner i uppdraget (ObjektKort), eftersom den inte är det viktigaste på kortet. Körvy-knappen försvinner medan körvyn redan är igång (Avsluta körvy ligger i Mer). En skördarförare har
  * ingen skotning att öppna eller markera utkört: Skotning och Utkört visas för skotare och när maskinen inte är känd.
  */
 export function kortKnappar(o: { roll: KortRoll; harKoordinat: boolean; korvyAktiv: boolean; maskinSlag: 'skordare' | 'skotare' | null; utanSkotning?: boolean }): KortKnapp[] {
   if (o.roll === 'planerare') {
     return [
       ...(o.harKoordinat ? [{ id: 'kor-hit' as const, etikett: 'Kör hit' }] : []),
-      { id: 'mer', etikett: 'Mer' },
     ];
   }
   return [
     ...(o.korvyAktiv ? [] : [{ id: 'korvy' as const, etikett: 'Körvy' }]),
     // utanSkotning = skotarläget med lassrapportering i appen: det gamla skotningsverktyget (Skotning: sortiment och högar, Utkört: rita yta → Skotningsuttag) förvirrar där och visas inte.
     ...(o.maskinSlag === 'skordare' || o.utanSkotning ? [] : [{ id: 'skotning' as const, etikett: 'Skotning' }, { id: 'utkort' as const, etikett: 'Utkört' }]),
-    { id: 'mer', etikett: 'Mer' },
   ];
 }
 
@@ -100,19 +98,20 @@ export function tillForaren(o: { forardirektiv?: string | null; vida?: string | 
   return ut;
 }
 
-/** Kortet visar högst tre rader per text. Texten behöver "Läs allt ›" när den inte ryms: för lång, eller fler än tre rader. */
-export const KORT_RADER = 3;
-const TECKEN_PER_RAD = 38;
-export function behoverLasAllt(text: string): boolean {
-  const t = String(text ?? '').trim();
-  if (!t) return false;
-  const rader = t.split(/\r?\n/).reduce((s, r) => s + Math.max(1, Math.ceil(r.length / TECKEN_PER_RAD)), 0);
-  return rader > KORT_RADER;
-}
-
 // ── Markeringar: "På trakten" och "Om trakten" ──────────────────────────────────────────────────────────────────────
 
 export type MarkeringsSlag = 'symbol' | 'linje' | 'zon';
+/** En kommentar på en markering/yta i Om trakten (samma uppgifter som kartkortets kommentarrader). */
+export interface OmKommentar {
+  id: string;
+  text: string;
+  /** "Martin · i går 16:20"; null = äldre kommentar utan författare */
+  forfattare: string | null;
+  vantar?: boolean;
+  /** Vidas text (blå "Vida · traktdirektiv") */
+  vida?: boolean;
+}
+
 export interface KartMarkering {
   id: string;
   slag: MarkeringsSlag;
@@ -120,6 +119,8 @@ export interface KartMarkering {
   /** visningsnamn i singular ("Högstubbe") */
   namn: string;
   comment: string;
+  /** Kommentarerna som rutor (kartkommentar + äldre fältet + Vidas text) — samma komponent som kartkortet. Saknas = bara `comment` (visas som äldre kommentar). */
+  kommentarer?: OmKommentar[];
   photoPath?: string | null;
   photoData?: string | null;
   photoTs?: number | null;
@@ -142,7 +143,7 @@ export interface KartMarkering {
   ordning: number;
 }
 
-export const harText = (m: Pick<KartMarkering, 'comment'>): boolean => !!m.comment.trim();
+export const harText = (m: Pick<KartMarkering, 'comment'> & { kommentarer?: readonly unknown[] }): boolean => !!m.comment.trim() || (m.kommentarer?.length ?? 0) > 0;
 export const harFoto = (m: Pick<KartMarkering, 'photoPath' | 'photoData' | 'fotoVantar'>): boolean => !!(m.photoPath || m.photoData || m.fotoVantar);
 /** Med kommentar eller foto ("med text" i kortets rad På trakten). */
 export const harInnehall = (m: KartMarkering): boolean => harText(m) || harFoto(m);
@@ -332,3 +333,29 @@ export function brandKlassText(klass: number): string {
   return ({ 1: 'Mycket liten', 2: 'Liten', 3: 'Måttlig', 4: 'Stor', 5: 'Mycket stor', 6: 'Extrem' } as Record<number, string>)[klass] ?? '';
 }
 
+
+
+// ── ⓘ-panelen för föraren i maskinläget ("så att ett barn förstår direkt", Martin 2026-10-22) ──────────────────────────────────────────────────────────
+
+/**
+ * GROT-raden: bara när trakten har GROT. Skördaren lägger riset i högar, skotaren kör inte på rishögarna. Okänd maskin (ingen roll) eller GROT nej/okänt → ingen rad: hellre ingen rad än fel
+ * besked till fel maskin.
+ */
+export function grotRad(grot: boolean | null | undefined, maskinSlag: 'skordare' | 'skotare' | null): string | null {
+  if (grot !== true) return null;
+  if (maskinSlag === 'skordare') return 'GROT tas ut – lägg riset i högar';
+  if (maskinSlag === 'skotare') return 'GROT tas ut – kör inte på rishögarna';
+  return null;
+}
+
+/**
+ * Raden under traktens namn: "Slutavverkning · 2,5 av 5,2 ha klart" när avverkad areal är känd, annars "Slutavverkning · 5,2 ha". Andelen (0..1, högst 1) styr den gröna stapeln — null när
+ * ingenting är mätt (inget skördarspår): då ritas ingen stapel, aldrig en tom som ser ut som "0 % klart".
+ */
+export function framstegRad(o: { typ: string; arealHa: number | null; klartHa: number | null }): { text: string; andel: number | null } {
+  const typ = o.typ.trim();
+  const del = (t: string) => [typ, t].filter(Boolean).join(' · ');
+  if (o.arealHa == null || !(o.arealHa > 0)) return { text: del(''), andel: null };
+  if (o.klartHa == null || !Number.isFinite(o.klartHa)) return { text: del(`${svTal(o.arealHa, 1)} ha`), andel: null };
+  return { text: del(`${svTal(o.klartHa, 1)} av ${svTal(o.arealHa, 1)} ha klart`), andel: Math.max(0, Math.min(1, o.klartHa / o.arealHa)) };
+}

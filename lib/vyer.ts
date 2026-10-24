@@ -52,20 +52,20 @@ export const VYER: Vy[] = [
   { id: 'gallring', namn: 'Gallring', href: '/gallring', ikon: 'forest', grupp: 'produktion' },
   { id: 'helikopter', namn: 'Helikopter', href: '/helikopter', ikon: 'flight', grupp: 'produktion', sokord: ['beställt', 'prognos'] },
   { id: 'helikopter-v2', namn: 'Helikopter v2', href: '/helikopter-v2', ikon: 'helicopter', grupp: 'produktion' },
-  { id: 'bestallningar', namn: 'Beställningar', href: '/bestallningar', ikon: 'shopping_cart', grupp: 'produktion', sokord: ['order'] },
   { id: 'affarsuppfoljning', namn: 'Affärsuppföljning', href: '/affarsuppfoljning', ikon: 'business_center', grupp: 'produktion', sokord: ['affär'] },
 
   // Maskiner
   { id: 'maskinvy', namn: 'Maskinvy', href: '/maskinvy', ikon: 'visibility', grupp: 'maskiner' },
   { id: 'maskinvy-2', namn: 'Maskinvy 2', href: '/maskinvy?ny=1', ikon: 'new_releases', grupp: 'maskiner' },
   { id: 'kalibrering', namn: 'Kalibrering', href: '/kalibrering', ikon: 'straighten', grupp: 'maskiner', sokord: ['kontrollmätning', 'hqc'] },
+  { id: 'inventarier', namn: 'Inventarier', href: '/inventarier', ikon: 'inventory_2', grupp: 'maskiner', sokord: ['lager', 'sågkedja', 'beställa', 'verktyg', 'bil', 'depåskåp', 'slang'] },
   { id: 'servicelogg', namn: 'Servicelogg', href: '/maskin-service', ikon: 'build', grupp: 'maskiner', sokord: ['service'] },
   { id: 'lastbilen', namn: 'Lastbilen', href: '/lastbil', ikon: 'pin_drop', grupp: 'maskiner', marke: 'lass', sokord: ['flytt', 'maskinflytt', 'hämta maskin', 'körningar', 'fakturering', 'flyttlogg'] },
   { id: 'kontroller', namn: 'Kontroller', href: '/kontroller', ikon: 'fact_check', grupp: 'maskiner', sokord: ['besiktning', 'försäkring'] },
 
   // Objekt
   { id: 'planering', namn: 'Planering', href: '/planering', ikon: 'event_note', grupp: 'objekt', sokord: ['karta', 'trakt'] },
-  { id: 'objekt', namn: 'Objekt', href: '/objekt', ikon: 'layers', grupp: 'objekt', sokord: ['trakt', 'vo'] },
+  { id: 'objekt', namn: 'Objekt', href: '/objekt', ikon: 'layers', grupp: 'objekt', sokord: ['trakt', 'vo', 'beställning', 'order'] },
   { id: 'objektdetaljer', namn: 'Objektdetaljer', href: '/redigering', ikon: 'edit', grupp: 'objekt', sokord: ['redigering'] },
   { id: 'starta-jobb', namn: 'Starta jobb', href: '/starta-jobb', ikon: 'power_settings_new', grupp: 'objekt' },
   { id: 'egenkontroll', namn: 'Egenkontroll', href: '/egenkontroll', ikon: 'fact_check', grupp: 'objekt', marke: 'egenkontroll' },
@@ -82,6 +82,7 @@ export const VYER: Vy[] = [
 
   // Admin — bara för admin
   { id: 'ekonomi', namn: 'Ekonomi', href: '/ekonomi', ikon: 'payments', grupp: 'admin', bara: 'admin', sokord: ['faktura', 'resultat'] },
+  { id: 'objektoversikt', namn: 'Objektöversikt', href: '/admin/objektoversikt', ikon: 'timer', grupp: 'admin', bara: 'admin', sokord: ['tid', 'objekt', 'prognos'] },
   { id: 'markagarrapport', namn: 'Markägarrapport', href: '/admin/markagarrapport', ikon: 'summarize', grupp: 'admin', bara: 'admin' },
   { id: 'admin', namn: 'Admin', href: '/admin', ikon: 'shield', grupp: 'admin', bara: 'admin', sokord: ['lön', 'medarbetare'] },
 
@@ -94,7 +95,7 @@ export const VYER: Vy[] = [
 
 /** Förinställda favoriter per roll (tills var och en kan ändra sina — nästa PR). Max 8. */
 export const STANDARD_FAVORITER: Record<Roll, string[]> = {
-  admin: ['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'bestallningar', 'ekonomi'],
+  admin: ['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'ekonomi'],
   forare: ['planera', 'planering', 'ledighet', 'lastbilen', 'kalibrering', 'servicelogg', 'uppfoljning', 'utbildning'],
 }
 

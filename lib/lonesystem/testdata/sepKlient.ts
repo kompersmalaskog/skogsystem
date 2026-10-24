@@ -35,6 +35,8 @@ export function sepTabeller(mappning = PROD_MAPPNING, ledare: string[] = []): Re
     medarbetare_lonesystem: f.anstnr.map((medarbetare_id: string, i: number) => ({ medarbetare_id, anstallningsnummer: String(1001 + i) })),
     gs_avtal: [{ ...f.gs_avtal, giltigt_fran: "2025-04-01" }],
     fortnox_export_logg: [],
+    // Förarens godkännande av månaden (period = ARBETSmånad). Tom: ingen har godkänt.
+    loneunderlag: [],
     utjamningsperiod: [],
     vilobrott: [],
     arbetsdag_objekt: [],

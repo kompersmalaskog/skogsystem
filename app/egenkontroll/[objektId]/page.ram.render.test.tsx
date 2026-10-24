@@ -46,6 +46,7 @@ const angraForstaSvaret = vi.fn(async (id: string, _del: string, _svar: string) 
 let positionen: any = { status: 'ok', position: { lat: 56.0501, lng: 14.0502, noggrannhet: 6 }, skal: null, senasteNoggrannhet: 6, forsokIgen: () => {} };
 
 vi.mock('next/navigation', () => ({ useParams: () => ({ objektId: 'ob1' }) }));
+vi.mock('@/lib/hooks/useVagavstand', () => ({ useVagavstand: () => ({}) }));   // vägavståndet hämtas från OSRM; ett test når aldrig nätet
 vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: any) => createElement('a', { href, ...rest }, children) }));
 vi.mock('@/lib/egenkontroll', async (orig) => {
   const verklig = await orig<typeof import('@/lib/egenkontroll')>();
@@ -58,6 +59,7 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
     avslutaRunda: () => avslutaRunda(),
     hamtaFoton: async () => foton,
     hamtaProvytor: async () => [],
+    hamtaNoteringar: async () => [],
     hamtaKontextmarkeringar: async () => [],
     hamtaVidaGrans: async () => ({ typ: 'saknas' }),
     hamtaAvverkadeStammar: async () => [],
@@ -638,8 +640,10 @@ describe('en avslutad runda är helt läsbar och låst', () => {
     expect(svaraPaPunkt).not.toHaveBeenCalled();
   });
 
+  // SVARSKNAPPARNA är avstängda. Fotomininatyrerna (data-foto-index, PR 9b) är det inte: de öppnar bilden för att TITTA på den och på noteringarna —
+  // ytan har ingen Rita-knapp på en avslutad runda (page.foto.render.test.tsx).
   const allaAvstangda = (r: Element) => {
-    const b = Array.from(r.querySelectorAll('button'));
+    const b = Array.from(r.querySelectorAll('button:not([data-foto-index])')) as HTMLButtonElement[];
     expect(b.length).toBeGreaterThan(0);
     for (const k of b) expect(k.disabled, `knappen ${k.getAttribute('data-svar')} är avstängd`).toBe(true);
   };

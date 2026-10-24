@@ -1,7 +1,6 @@
 // PLUS-DOCKAN: plusknappen expanderar åt vänster till en mörk docka nere till höger (körvyn OCH planeringen — samma komponent).
 //
-//   • SEX symbolknappar, sedan ett avdelarstreck, "Alla" och ×. Dockan fylls BARA med symboler: Högstubbe och Evighetsträd finns i
-//     pillen (körvyn) och mätverktygen, Rita och lagren finns i Alla — de hör inte hemma i dockan. MAX_FASTA = 6.
+//   • SEX symbolknappar, sedan ett avdelarstreck, "Alla" och ×. Dockan fylls BARA med symboler: mätverktygen, Rita och lagren finns i Alla — de hör inte hemma i dockan. MAX_FASTA = 6.
 //   • FASTA först (föraren höll fingret på en symbol → "Fast i dockan"), resten fylls AUTOMATISKT efter mest använt.
 //   • Håll fingret på en AUTOMATISK symbol i dockan → "Fast i dockan". Max sex fasta. Vägen tillbaka är Återställ längst ner i Redigera
 //     (alla platser automatiska igen) — en väg räcker; det finns inget "Lossa" per symbol.
@@ -27,16 +26,16 @@ export const MAT_IDS: readonly MatId[] = ['strackan', 'yta'];
 export const RITA_NAMN: Readonly<Record<RitaId, string>> = { linje: 'Rita linje', yta: 'Rita yta' };
 export const MAT_NAMN: Readonly<Record<MatId, string>> = { strackan: 'Mät sträcka', yta: 'Mät yta' };
 
-/** Symboler som redan har en egen knapp i pillen (körvyn) — de fyller aldrig en plats i dockan. De finns kvar i Alla. */
-export const PILL_SYMBOLER: readonly string[] = ['highstump', 'eternitytree'];
+/** Symboler som aldrig fyller en plats i dockan. Tom sedan symbolrevisionen: Evighetsträd och Högstubbe är bland de mest använda och ligger först i dockan (pillen i körvyn har dem också). */
+export const PILL_SYMBOLER: readonly string[] = [];
 
-/** Dockan innan något är använt: dessa sex symboler, i den här ordningen (och som tiebreak mellan lika många användningar). */
+/** Dockan innan något är använt: mest använda först — Evighetsträd, Varning, Högstubbe, Kulturlämning, Avlägg, Manuell fällning. */
 export const STANDARD_ORDNING: readonly PlusPost[] = [
-  { typ: 'symbol', id: 'wet' },
-  { typ: 'symbol', id: 'steep' },
+  { typ: 'symbol', id: 'eternitytree' },
+  { typ: 'symbol', id: 'warning' },
+  { typ: 'symbol', id: 'highstump' },
   { typ: 'symbol', id: 'culturemonument' },
   { typ: 'symbol', id: 'landing' },
-  { typ: 'symbol', id: 'windfall' },
   { typ: 'symbol', id: 'manualfelling' },
 ];
 
@@ -74,6 +73,10 @@ export function nyckelTillPost(nyckel: string): PlusPost | null {
   return giltigPost(p) ? (p as PlusPost) : null;
 }
 
+/** Lantmäteri-lagret hade en egen rad i Lager-menyn; nu finns EN rad för fastighetsgränser. Användningsräkningen för den gamla flyttas till den nya (annars tappas den tyst). */
+const GAMMALT_GRANSLAGER = 'lager:fastighetsgranser';
+const NYTT_GRANSLAGER = 'lager:fastighetsgrans';
+
 /** Tolka sparad JSON. Trasigt, fel form eller okända poster ger aldrig ett fel — de kastas tyst bort. */
 export function tolkaPlusRad(raw: string | null | undefined): PlusRadState {
   if (!raw) return tomtPlusRad();
@@ -96,7 +99,7 @@ export function tolkaPlusRad(raw: string | null | undefined): PlusRadState {
       .map(([k, v]) => [k, Math.floor(v as number)] as [string, number])
       .sort((a, b) => b[1] - a[1])
       .slice(0, MAX_ANV_NYCKLAR);
-    for (const [k, v] of poster) anv[k] = v;
+    for (const [k, v] of poster) anv[k === GAMMALT_GRANSLAGER ? NYTT_GRANSLAGER : k] = (anv[k === GAMMALT_GRANSLAGER ? NYTT_GRANSLAGER : k] || 0) + v;
   }
   return { fasta, anv };
 }

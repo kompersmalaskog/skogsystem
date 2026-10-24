@@ -1,9 +1,12 @@
 'use client'
+import { AVSTAND, FARG, FONT, RADIE, RORELSE, TYP, VIKT, underTopbar } from '@/lib/design/tokens'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { MASKINER, type Maskin } from './OversiktShared'
 import { useMaskinvyMaskiner } from './useMaskinvyMaskiner'
+import Sidolista from './Sidolista'
+import { SIDOLISTA_BREDD, SIDOLISTA_MIN_SKARM, type SidoRoll } from '@/lib/maskinvy/sidolista'
 import Maskinvy from '../../maskinvy'
 import SkotareVy from '../../skotare'
 import MaskinLogg from './MaskinLogg'
@@ -51,7 +54,7 @@ export default function MaskinvyPage() {
   const [maskinSkordare, setMaskinSkordare] = useState<Maskin>(MASKINER[0])
   // Skotarlistan är dynamisk (dim_maskin, bekräftad + data) — ny maskin syns
   // automatiskt. Default = första i listan när den laddats.
-  const { maskiner: skotareMaskiner } = useMaskinvyMaskiner('skotare')
+  const { maskiner: skotareMaskiner, laddar: skotareLaddar } = useMaskinvyMaskiner('skotare')
   const [maskinSkotare, setMaskinSkotare] = useState<SkotareMaskin | null>(null)
   useEffect(() => {
     if (!maskinSkotare && skotareMaskiner.length > 0) setMaskinSkotare(skotareMaskiner[0])
@@ -67,6 +70,28 @@ export default function MaskinvyPage() {
   // Vy-navet visas när vi är i nya vyn på Skördare- eller Skotare-fliken.
   const showVyNav = ny && (mode === 'skordare' || mode === 'skotare')
 
+  // Sidolistan (stor skärm): maskinvalet som en lista till vänster i stället för rullgardinen i varje vy. Bara i nya vyn och
+  // inte i Jämförelse (som jämför maskinerna och inte har något maskinval). Under SIDOLISTA_MIN_SKARM gäller rullgardinen som förut.
+  const [bred, setBred] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia(`(min-width: ${SIDOLISTA_MIN_SKARM}px)`)
+    const uppdatera = () => setBred(mq.matches)
+    uppdatera()
+    mq.addEventListener('change', uppdatera)
+    return () => mq.removeEventListener('change', uppdatera)
+  }, [])
+  const visaSidolista = ny && bred && mode !== 'jamforelse'
+  useEffect(() => {
+    if (!visaSidolista) return
+    document.body.setAttribute('data-mv-sidolista', '')
+    return () => document.body.removeAttribute('data-mv-sidolista')
+  }, [visaSidolista])
+  const sidoMaskiner = useMemo(() => [
+    ...MASKINER.map(m => ({ id: m.id, namn: m.namn, roll: 'skordare' as SidoRoll })),
+    ...skotareMaskiner.map(m => ({ id: m.id, namn: m.namn, roll: 'skotare' as SidoRoll })),
+  ], [skotareMaskiner])
+
   // Vilka vy-knappar ska visas i navet?
   const vyNavList = mode === 'skotare' ? SKOTARE_NY_VYER : NY_VYER
 
@@ -78,6 +103,27 @@ export default function MaskinvyPage() {
     if (newVy) url.searchParams.set('vy', newVy)
     else      url.searchParams.delete('vy')
     history.replaceState({}, '', url.toString())
+  }
+
+  // Byte av flik (Skördare / Skotare / Jämförelse). Skördarens Kapacitet finns inte hos skotaren (och tvärtom Jämförelse):
+  // står vyn kvar på en vy som den nya fliken saknar blir navet utan vald knapp och Översikt visas — då går vi till Översikt.
+  const valjMode = (nytt: Mode) => {
+    setMode(nytt)
+    if (nytt === 'jamforelse') return
+    const lista = nytt === 'skotare' ? SKOTARE_NY_VYER : NY_VYER
+    if (!lista.some(v => v.key === vy)) handleVyChange('')
+  }
+
+  // Ett tryck i sidolistan: välj maskinen och byt till dess flik. Vyn (Idag, Produktion …) står kvar när fliken har den.
+  const valjFranSidolista = (roll: SidoRoll, id: string) => {
+    if (roll === 'skordare') {
+      const m = MASKINER.find(x => x.id === id)
+      if (m) setMaskinSkordare(m)
+    } else {
+      const m = skotareMaskiner.find(x => x.id === id)
+      if (m) setMaskinSkotare(m)
+    }
+    valjMode(roll)
   }
 
   // Dölj TopBar-hemknappen i ny-vyn — vi visar egen bakåtpil + kryss istället.
@@ -104,19 +150,19 @@ export default function MaskinvyPage() {
             }}
             style={{
               position: 'fixed',
-              left: 12,
-              top: 'calc(env(safe-area-inset-top) + 10px)',
+              left: AVSTAND.m,
+              top: `calc(env(safe-area-inset-top) + ${AVSTAND.s}px)`,
               width: 36,
               height: 36,
-              borderRadius: 10,
-              background: 'rgba(255,255,255,0.08)',
+              borderRadius: RADIE.kort,
+              background: FARG.linje,
               border: 'none',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              color: 'rgba(255,255,255,0.75)',
-              fontSize: 22,
+              color: FARG.text,
+              fontSize: TYP.rubrik.fontSize,
               lineHeight: 1,
               zIndex: 1001,
               WebkitTapHighlightColor: 'transparent',
@@ -129,18 +175,18 @@ export default function MaskinvyPage() {
             href="/"
             style={{
               position: 'fixed',
-              right: 12,
-              top: 'calc(env(safe-area-inset-top) + 10px)',
+              right: AVSTAND.m,
+              top: `calc(env(safe-area-inset-top) + ${AVSTAND.s}px)`,
               width: 36,
               height: 36,
-              borderRadius: 10,
-              background: 'rgba(255,255,255,0.08)',
+              borderRadius: RADIE.kort,
+              background: FARG.linje,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               textDecoration: 'none',
-              color: 'rgba(255,255,255,0.75)',
-              fontSize: 16,
+              color: FARG.text,
+              fontSize: TYP.text.fontSize,
               lineHeight: 1,
               zIndex: 1001,
               WebkitTapHighlightColor: 'transparent',
@@ -156,18 +202,18 @@ export default function MaskinvyPage() {
       <style>{`
         .mv-toggle-bar {
           position: fixed;
-          top: calc(56px + env(safe-area-inset-top));
+          top: ${underTopbar()};
           left: 0;
           right: 0;
           height: 52px;
-          background: rgba(17,17,16,0.85);
+          background: color-mix(in srgb, ${FARG.bg} 85%, transparent);
           backdrop-filter: saturate(180%) blur(24px);
           -webkit-backdrop-filter: saturate(180%) blur(24px);
-          border-bottom: 0.5px solid rgba(255,255,255,0.08);
+          border-bottom: 0.5px solid ${FARG.linje};
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 0 16px;
+          padding: 0 ${AVSTAND.l}px;
           z-index: 60;
         }
         .mv-seg {
@@ -175,21 +221,22 @@ export default function MaskinvyPage() {
           display: grid;
           grid-template-columns: repeat(3, minmax(96px, 140px));
           gap: 0;
-          background: rgba(120,120,128,0.16);
-          border-radius: 10px;
-          padding: 2px;
+          background: ${FARG.linje};
+          border-radius: ${RADIE.rad}px;
+          padding: ${AVSTAND.xs}px;
           height: 44px;
           width: 100%;
           max-width: 440px;
+          box-sizing: border-box;
         }
         .mv-seg-ind {
           position: absolute;
-          top: 2px;
-          bottom: 2px;
-          width: calc((100% - 4px) / 3);
-          background: #2c2c2a;
-          border-radius: 7px;
-          transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1);
+          top: ${AVSTAND.xs}px;
+          bottom: ${AVSTAND.xs}px;
+          width: calc((100% - ${2 * AVSTAND.xs}px) / 3);
+          background: ${FARG.fyllning};
+          border-radius: ${RADIE.rad}px;
+          transition: transform ${RORELSE.byte}ms ${RORELSE.kurva};
           pointer-events: none;
         }
         .mv-seg-btn {
@@ -197,68 +244,78 @@ export default function MaskinvyPage() {
           z-index: 1;
           border: none;
           background: transparent;
-          border-radius: 7px;
-          font-family: 'Geist', system-ui, sans-serif;
-          font-size: 13px;
-          font-weight: 500;
-          color: #8e8e93;
+          border-radius: ${RADIE.rad}px;
+          font-family: ${FONT};
+          font-size: ${TYP.meta.fontSize}px;
+          font-weight: ${VIKT.normal};
+          color: ${FARG.text2};
           cursor: pointer;
           letter-spacing: -0.2px;
-          transition: color 200ms ease, transform 120ms ease;
+          transition: color ${RORELSE.byte}ms ${RORELSE.kurva}, transform ${RORELSE.tryck}ms ${RORELSE.kurva};
           padding: 0;
         }
-        .mv-seg-btn.active { color: #ffffff; font-weight: 600; }
+        .mv-seg-btn.active { color: ${FARG.text}; font-weight: ${VIKT.halvfet}; }
         .mv-seg-btn:active { transform: scale(0.97); }
 
         /* ── Vy-nav (Översikt | Produktion | ...) ─────────────────── */
         .mv-vy-bar {
           position: fixed;
-          top: calc(108px + env(safe-area-inset-top));
+          top: ${underTopbar(52)};
           left: 0;
           right: 0;
           height: 44px;
-          background: rgba(0,0,0,0.78);
+          background: color-mix(in srgb, ${FARG.bg} 85%, transparent);
           backdrop-filter: saturate(180%) blur(24px);
           -webkit-backdrop-filter: saturate(180%) blur(24px);
-          border-bottom: 0.5px solid rgba(255,255,255,0.06);
+          border-bottom: 0.5px solid ${FARG.linje};
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 0 16px;
+          padding: 0 ${AVSTAND.l}px;
           z-index: 60;
         }
         .mv-vy-seg {
           display: inline-flex;
-          background: rgba(120,120,128,0.16);
-          border-radius: 9px;
-          padding: 2px;
-          height: 34px;
+          background: ${FARG.linje};
+          border-radius: ${RADIE.rad}px;
+          padding: ${AVSTAND.xs}px;
+          height: 38px;
+          box-sizing: border-box;
         }
         .mv-vy-btn {
           min-width: 110px;
-          padding: 0 16px;
+          padding: 0 ${AVSTAND.l}px;
           height: 30px;
           border: none;
-          border-radius: 7px;
+          border-radius: ${RADIE.rad}px;
           background: transparent;
-          color: #8e8e93;
-          font-family: 'Geist', system-ui, sans-serif;
-          font-size: 13px;
-          font-weight: 500;
+          color: ${FARG.text2};
+          font-family: ${FONT};
+          font-size: ${TYP.meta.fontSize}px;
+          font-weight: ${VIKT.normal};
           letter-spacing: -0.2px;
           cursor: pointer;
-          transition: color 200ms ease, background 200ms ease, transform 120ms ease;
+          transition: color ${RORELSE.byte}ms ${RORELSE.kurva}, background ${RORELSE.byte}ms ${RORELSE.kurva}, transform ${RORELSE.tryck}ms ${RORELSE.kurva};
         }
         .mv-vy-btn.active {
-          background: #3a3a3c;
-          color: #ffffff;
-          font-weight: 600;
+          background: ${FARG.fyllning};
+          color: ${FARG.text};
+          font-weight: ${VIKT.halvfet};
         }
         .mv-vy-btn:active { transform: scale(0.97); }
 
         /* Push wrapped content below the toggle bar(s) */
-        .mv-wrapper > div { top: calc(108px + env(safe-area-inset-top)) !important; }
-        .mv-wrapper.with-vy-nav > div { top: calc(152px + env(safe-area-inset-top)) !important; }
+        .mv-wrapper > div { top: ${underTopbar(52)} !important; }
+        .mv-wrapper.with-vy-nav > div { top: ${underTopbar(96)} !important; }
+
+        /* ── Sidolistan står: allt flyttas höger om den, rullgardinen i vyerna blir bara ett namn ──
+           Attributet sätts på body bara medan listan renderas (stor skärm, nya vyn, inte Jämförelse). */
+        body[data-mv-sidolista] .mv-toggle-bar,
+        body[data-mv-sidolista] .mv-vy-bar { left: ${SIDOLISTA_BREDD}px; }
+        body[data-mv-sidolista] .mv-wrapper > div,
+        body[data-mv-sidolista] .mv-djup { left: ${SIDOLISTA_BREDD}px !important; }
+        body[data-mv-sidolista] .mv-maskinval { pointer-events: none; cursor: default; }
+        body[data-mv-sidolista] .mv-maskinval-pil { display: none; }
       `}</style>
 
       <div className="mv-toggle-bar">
@@ -267,9 +324,9 @@ export default function MaskinvyPage() {
             className="mv-seg-ind"
             style={{ transform: `translateX(${mode === 'skordare' ? 0 : mode === 'skotare' ? 100 : 200}%)` }}
           />
-          <button role="tab" aria-selected={mode === 'skordare'} className={`mv-seg-btn${mode === 'skordare' ? ' active' : ''}`} onClick={() => setMode('skordare')}>Skördare</button>
-          <button role="tab" aria-selected={mode === 'skotare'} className={`mv-seg-btn${mode === 'skotare' ? ' active' : ''}`} onClick={() => setMode('skotare')}>Skotare</button>
-          <button role="tab" aria-selected={mode === 'jamforelse'} className={`mv-seg-btn${mode === 'jamforelse' ? ' active' : ''}`} onClick={() => setMode('jamforelse')}>Jämförelse</button>
+          <button role="tab" aria-selected={mode === 'skordare'} className={`mv-seg-btn${mode === 'skordare' ? ' active' : ''}`} onClick={() => valjMode('skordare')}>Skördare</button>
+          <button role="tab" aria-selected={mode === 'skotare'} className={`mv-seg-btn${mode === 'skotare' ? ' active' : ''}`} onClick={() => valjMode('skotare')}>Skotare</button>
+          <button role="tab" aria-selected={mode === 'jamforelse'} className={`mv-seg-btn${mode === 'jamforelse' ? ' active' : ''}`} onClick={() => valjMode('jamforelse')}>Jämförelse</button>
         </div>
       </div>
 
@@ -291,6 +348,16 @@ export default function MaskinvyPage() {
         </div>
       )}
 
+      {visaSidolista && (
+        <Sidolista
+          maskiner={sidoMaskiner}
+          skotareLaddar={skotareLaddar}
+          valdRoll={mode === 'skordare' || mode === 'skotare' ? mode : null}
+          valdId={mode === 'skordare' ? maskinSkordare.id : mode === 'skotare' ? (maskinSkotare?.id ?? null) : null}
+          onVal={valjFranSidolista}
+        />
+      )}
+
       {mode === 'jamforelse' ? (
         <Jamforelse />
       ) : (
@@ -306,7 +373,7 @@ export default function MaskinvyPage() {
                   : <Maskinvy />)
               : (ny
                   ? (vy === 'jamforelse' ? <SkotareJamforelseNy />
-                     : !maskinSkotare ? <div style={{ padding: 24, color: 'rgba(255,255,255,0.45)', fontSize: 14 }}>Laddar maskiner …</div>
+                     : !maskinSkotare ? <div style={{ padding: AVSTAND.xl, color: FARG.text2, fontSize: TYP.meta.fontSize }}>Laddar maskiner …</div>
                      : vy === 'produktion'  ? <SkotareProduktionNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
                      : vy === 'avbrott'   ? <SkotareAvbrottNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
                      : vy === 'idag'      ? <SkotareIdagNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />

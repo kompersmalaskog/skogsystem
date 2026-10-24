@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { kravInloggad } from "@/lib/auth/server";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
+import { hamtaMarkorer } from "@/lib/kalibrering/markorer.server";
 
 /**
- * GET /api/kalibrering/diagnos?key=skogsystem-debug&maskin_id=X
+ * GET /api/kalibrering/diagnos?maskin_id=X
  *
  * Diagnos-underlag för kalibreringsvyn: rådata per DIAMETERKLASS över det
  * rullande 90-dagarsfönstret, plus planområdesandel (tryckmätaren) och
@@ -31,7 +33,6 @@ import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpu
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEBUG_KEY = "skogsystem-debug";
 const FONSTER_DAGAR = 90;
 
 const KLASS_DEF = [
@@ -105,7 +106,8 @@ function popStd(vals: number[], mean: number): number {
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  if (url.searchParams.get("key") !== DEBUG_KEY) return new NextResponse("Ogiltig nyckel", { status: 401 });
+  const vakt = await kravInloggad();
+  if (!vakt.ok) return vakt.res;
   const maskinId = url.searchParams.get("maskin_id");
   if (!maskinId) return NextResponse.json({ ok: false, error: "maskin_id krävs" }, { status: 400 });
 
@@ -264,20 +266,8 @@ export async function GET(req: NextRequest) {
     .map(([manad, v]) => ({ manad, share: v.tot > 0 ? r1((100 * v.plan) / v.tot) : 0, n: v.tot }))
     .sort((a, b) => a.manad.localeCompare(b.manad));
 
-  // === Markörer: historik (reparation/kalibrering) + åtgärder (förare) ===
-  const markorer: Markor[] = [];
-  const { data: hist } = await supabase
-    .from("fakt_kalibrering_historik").select("datum,orsak")
-    .eq("maskin_id", maskinId).order("datum", { ascending: true }); // hela historiken — markörer i Trend spänner allt
-  for (const h of hist ?? []) {
-    const orsak = String(h.orsak ?? "");
-    if (/repair/i.test(orsak)) markorer.push({ datum: String(h.datum).slice(0, 10), kalla: "reparation", text: "Reparation av mätsystem" });
-  }
-  const { data: atg } = await supabase
-    .from("kalibrering_atgard").select("datum,text")
-    .eq("maskin_id", maskinId).order("datum", { ascending: true });
-  for (const a of atg ?? []) markorer.push({ datum: String(a.datum).slice(0, 10), kalla: "atgard", text: String(a.text ?? "") });
-  markorer.sort((a, b) => a.datum.localeCompare(b.datum));
+  // === Markörer: historik (reparation) + åtgärder (förare) — samma källa som före/efter i bedomning ===
+  const markorer: Markor[] = await hamtaMarkorer(supabase, maskinId);
 
   return NextResponse.json({
     ok: true, maskin_id: maskinId, profil, golvDia,

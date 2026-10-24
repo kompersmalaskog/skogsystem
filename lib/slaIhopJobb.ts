@@ -24,6 +24,7 @@ export const FLYTTA_TABELLER: readonly (readonly [string, string])[] = [
   ['objekt_yta_anteckning', 'objekt_id'],
   ['objekt_yta_media', 'objekt_id'],
   ['korvy_kvittens', 'objekt_id'],
+  ['korvy_kvittens_forare', 'objekt_id'],
   ['avlagg_assessments', 'objekt_id'],
   ['tma_assessments', 'objekt_id'],
   ['brand_brandvakt', 'objekt_id'],

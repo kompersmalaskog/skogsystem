@@ -35,7 +35,7 @@
  */
 
 import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
-import { loneartInfo, type LoneartKey, type Loneartskoder } from "./loneart";
+import { loneartInfo, enhetForMangd, type LoneartKey, type Loneartskoder } from "./loneart";
 import { rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag, hemskickadMinuter } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
 import { helglonIManad, helglonDagar as helglonDagarArsLista, helglonSkalText, HELGLON_TIMMAR, type HelglonDag, type FranvaroPost } from "./helglon";
@@ -211,6 +211,19 @@ export type ExportSammanfattning = {
   // Bytesdagar (inarbetad, §5 mom 4) som rör arbetsmånaden — den lediga dagen
   // ELLER den röda dagen ligger i månaden. Upplysning, ingen lönerad.
   byten: ByteRad[];
+  /** Vad arbetad tid består av, i hela minuter (Admin → Förare · Månad). Samma poster som totalH nedan summerar; inget räknas om i vyn. */
+  arbetat: ArbetatDelar;
+};
+
+export type ArbetatDelar = {
+  /** Maskintid på arbetsdagar (arbetsdag.arbetad_min). */
+  maskin_min: number;
+  /** All extra tid (extra_tid), också på kortpass och dagar utan maskinpass. */
+  extra_min: number;
+  /** Maskinminuter på dagar under arbetsdagströskeln (betald tid, ingen arbetsdag). */
+  kortpass_min: number;
+  /** Hemskickad fyllnad (8 tim minus arbetat). */
+  hemskickad_min: number;
 };
 
 function isoVecka(d: Date): number {
@@ -273,12 +286,12 @@ export function beräknaExport(
     if (!kod) {
       if (info.valfri) {
         lonerader.push({ loneart, mangd, kod: null, beskrivning, status: "valfri_utan_kod" });
-        varningar.push(`${info.label} (${Number(mangd)} ${info.enhet}) skickas inte: ingen kod är kopplad (frivillig). Koppla en kod under Lön → Lönearter om den ska med.`);
+        varningar.push(`${info.label} (${Number(mangd)} ${enhetForMangd(info.enhet, mangd)}) skickas inte: ingen kod är kopplad (frivillig). Koppla en kod under Lön → Lönearter om den ska med.`);
         return;
       }
       if (!saknadeKoder.includes(loneart)) saknadeKoder.push(loneart);
       lonerader.push({ loneart, mangd, kod: null, beskrivning, status: "saknar_kod" });
-      varningar.push(`Löneart saknas för ${info.label} (${Number(mangd)} ${info.enhet}): koppla en kod under Lön → Lönearter. Raden skickas inte.`);
+      varningar.push(`Löneart saknas för ${info.label} (${Number(mangd)} ${enhetForMangd(info.enhet, mangd)}): koppla en kod under Lön → Lönearter. Raden skickas inte.`);
       return;
     }
     rader.push({ EmployeeId: eid, loneart, SalaryCode: kod, Number: mangd, Date: loneperiodStart, beskrivning });
@@ -568,7 +581,7 @@ export function beräknaExport(
   for (const d of produktionsDagar) veckor.add(isoVecka(new Date(d.datum)));
   const vältVeckor = veckor.size;
   if (vältVeckor > 0) {
-    laggRad("valtlappar", vältVeckor.toFixed(0), `Vältlappar: ${vältVeckor} veckor`);
+    laggRad("valtlappar", vältVeckor.toFixed(0), `Vältlappar: ${vältVeckor} ${vältVeckor === 1 ? "vecka" : "veckor"}`);
   }
 
   // ── 5. RESEERSÄTTNING: påbörjade mil över gränsen ──
@@ -669,5 +682,11 @@ export function beräknaExport(
     deldagar,
     hemskickad,
     hemskickad_h: hemskickadH,
+    arbetat: {
+      maskin_min: produktionsDagar.reduce((a, d) => a + (d.arbetad_min || 0), 0),
+      extra_min: extraTid.reduce((a, e) => a + (e?.minuter || 0), 0),
+      kortpass_min: Math.round(kortpassH * 60),
+      hemskickad_min: hemMinTotalt,
+    },
   };
 }

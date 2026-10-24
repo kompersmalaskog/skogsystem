@@ -20,8 +20,8 @@ describe('dockan: sex symbolknappar (+ Alla och ×)', () => {
     expect(MAX_FASTA).toBe(6);
     expect(STANDARD_ORDNING).toHaveLength(MAX_FASTA);
   });
-  it('innan något är använt: standarddockan (Fuktig mark, Brant, Kulturminne, Avlägg, Vindfälle, Manuell fällning)', () => {
-    expect(nycklar(tomtPlusRad())).toEqual(['symbol:wet', 'symbol:steep', 'symbol:culturemonument', 'symbol:landing', 'symbol:windfall', 'symbol:manualfelling']);
+  it('innan något är använt: standarddockan (Evighetsträd, Varning, Högstubbe, Kulturlämning, Avlägg, Manuell fällning)', () => {
+    expect(nycklar(tomtPlusRad())).toEqual(['symbol:eternitytree', 'symbol:warning', 'symbol:highstump', 'symbol:culturemonument', 'symbol:landing', 'symbol:manualfelling']);
   });
   it('KODBEVIS: dockan innehåller BARA symboler — aldrig mätverktyg, Rita eller lager', () => {
     let s = tomtPlusRad();
@@ -31,21 +31,19 @@ describe('dockan: sex symbolknappar (+ Alla och ×)', () => {
     expect(beraknaRad(s).every((r) => r.post.typ === 'symbol')).toBe(true);
     expect(nycklar(s)).toEqual(nycklar(tomtPlusRad()));   // hur ofta de än används ändras dockan inte
   });
-  it('KODBEVIS: Högstubbe och Evighetsträd hamnar aldrig i dockan (pillen har dem) — hur ofta de än används', () => {
-    expect(PILL_SYMBOLER).toEqual(['highstump', 'eternitytree']);
-    let s = anvand(tomtPlusRad(), sym('highstump'), 99);
-    s = anvand(s, sym('eternitytree'), 99);
-    expect(nycklar(s)).toEqual(nycklar(tomtPlusRad()));
-    expect(fastaPost(s, sym('highstump'))).toEqual({ ok: false, skal: 'ej-symbol' });
-    expect(arDockPost(sym('highstump'))).toBe(false);
+  it('KODBEVIS: Högstubbe och Evighetsträd är de mest använda och ligger FÖRST i dockan (inget undantag för pillen längre)', () => {
+    expect(PILL_SYMBOLER).toEqual([]);
+    expect(nycklar(tomtPlusRad()).slice(0, 3)).toEqual(['symbol:eternitytree', 'symbol:warning', 'symbol:highstump']);
+    expect(arDockPost(sym('highstump'))).toBe(true);
     expect(arDockPost(sym('landing'))).toBe(true);
+    expect(arDockPost(lager('wetlands'))).toBe(false);
   });
 });
 
 describe('sortering: fasta först, resten efter mest använt', () => {
   it('KODBEVIS: mest använt först — en ofta använd symbol tar en automatisk plats och trycker ut den sista standardsymbolen', () => {
     const s = anvand(tomtPlusRad(), sym('brashpile'), 9);
-    expect(nycklar(s)).toEqual(['symbol:brashpile', 'symbol:wet', 'symbol:steep', 'symbol:culturemonument', 'symbol:landing', 'symbol:windfall']);
+    expect(nycklar(s)).toEqual(['symbol:brashpile', 'symbol:eternitytree', 'symbol:warning', 'symbol:highstump', 'symbol:culturemonument', 'symbol:landing']);
   });
   it('lika många användningar → standardordningen; okända (icke-standard) efter standardposterna', () => {
     let s = anvand(tomtPlusRad(), sym('road'), 1);
@@ -146,9 +144,15 @@ describe('sparas per maskin och överlever omstart', () => {
     expect(plusRadNyckel(null)).toBe(plusRadNyckel(''));
     expect(plusRadNyckel(undefined)).toContain(':ingen');
   });
-  it('en äldre sparad rad (lager/Rita/mät som fasta, Högstubbe) kastas tyst — bara symboler blir kvar', () => {
+  it('fastighetsgränser: användningen av den borttagna Lantmäteri-raden flyttas till den enda raden (inget tappas, inget dubbleras)', () => {
+    const s = tolkaPlusRad(JSON.stringify({ fasta: [], anv: { 'lager:fastighetsgranser': 3, 'lager:fastighetsgrans': 2, 'symbol:highstump': 5 } }));
+    expect(s.anv['lager:fastighetsgrans']).toBe(5);
+    expect(s.anv['lager:fastighetsgranser']).toBeUndefined();
+    expect(s.anv['symbol:highstump']).toBe(5);
+  });
+  it('en äldre sparad rad (lager/Rita/mät som fasta) kastas tyst — bara symboler blir kvar', () => {
     const gammal = JSON.stringify({
-      fasta: [lager('wetlands'), { typ: 'rita', id: 'linje' }, { typ: 'matning', id: 'yta' }, sym('highstump'), sym('bridge'), sym('eternitytree'), sym('ditch')],
+      fasta: [lager('wetlands'), { typ: 'rita', id: 'linje' }, { typ: 'matning', id: 'yta' }, sym('bridge'), sym('ditch')],
       anv: { 'matning:strackan': 12, 'symbol:highstump': 30, 'symbol:landing': 2 },
     });
     const s = tolkaPlusRad(gammal);
@@ -157,7 +161,6 @@ describe('sparas per maskin och överlever omstart', () => {
     expect(s.anv['matning:strackan']).toBe(12);
     expect(nycklar(s).slice(0, 2)).toEqual(['symbol:bridge', 'symbol:ditch']);
     expect(nycklar(s)).not.toContain('matning:strackan');
-    expect(nycklar(s)).not.toContain('symbol:highstump');
   });
   it('trasig JSON / fel form / okända poster / dubbletter / överskott → rensas tyst, aldrig ett fel', () => {
     for (const trasig of ['{', 'inte json', 'null', '42', '[]']) expect(tolkaPlusRad(trasig)).toEqual(tomtPlusRad());

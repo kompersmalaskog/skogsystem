@@ -19,6 +19,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseHpr, type HprValidation } from "./hpr-parser";
 import { computeDistribution } from "./fordelning";
 import { hamtaObjektData } from "./objekt-data";
+import { raknaOchSparaVy } from "./vy-lager";
 
 export interface ImportOpts {
   sourceName: string;
@@ -247,6 +248,18 @@ export async function importeraHpr(
     }
   }
 
+  // 7. Apteringsvyn räknas HÄR, när filen kommer — inte när någon öppnar vyn
+  //    (lib/hpr/vy-lager). Stockarna finns redan i minnet. Ett fel här får
+  //    aldrig fälla importen: kortet blir då inaktuellt och vyn räknar om det
+  //    via /api/fordelning/berakna.
+  let vyRaknad = true;
+  try {
+    await raknaOchSparaVy(supabase, objectKey, objektData);
+  } catch (e) {
+    vyRaknad = false;
+    console.error("[import-fordelning] kunde inte räkna apteringsvyn", objectKey, e);
+  }
+
   await cleanup();
   return {
     httpStatus: 200,
@@ -257,6 +270,7 @@ export async function importeraHpr(
       reopened,
       validation: parsed.validation,
       summaries,
+      vyRaknad,
     },
   };
 }

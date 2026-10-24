@@ -4,8 +4,8 @@ import { useState } from 'react';
 import Ark from '@/components/design/Ark';
 import Sektion from '@/components/design/Sektion';
 import LastbilKarta from '@/components/LastbilKarta';
-import { AVSTAND, FARG, KNAPP, KORT, TNUM, TYP, VIKT } from '@/lib/design/tokens';
-import { kontaktRadArk, lageRad, lampaRubrik, matareText, serviceRad, sistSedd, tankDelar, type TankDel } from './nu';
+import { AVSTAND, FARG, KNAPP, KORT, TNUM, TYP } from '@/lib/design/tokens';
+import { kontaktRadArk, lageSvar, lampaRubrik, matareText, serviceRad, sistSedd, tankOrd, tankSvar, type TankDel } from './nu';
 import type { NuLage } from './useLastbilNu';
 
 const NIVA_FARG: Record<TankDel['niva'], string> = { ok: FARG.text, orange: FARG.orange, rod: FARG.rod, dampad: FARG.text2 };
@@ -17,10 +17,12 @@ function Status({ text, rollAlert }: { text: string; rollAlert?: boolean }) {
 }
 
 /**
- * "Bilen nu": ETT kort med bara det som behövs nu (omtaget 2026-10-19, Lastbilen är en sida utan flikar).
- *   Alltid:      läget i ord + sedan när, och EN tankrad (Diesel · AdBlue · km kvar, orden bredvid siffran).
- *   Bara när det gäller: en tänd varningslampa tar över rubriken, service under 1 000 km kvar, "Ingen kontakt sedan …" när senaste kontakt är äldre än 1 h.
- *   Länken "Visa var den står" längst ner öppnar kartarket — där bor också mätare och motortimmar.
+ * "Var är bilen?" — svaret först, i ord (omtag 2026-10-23, Martin: "så lätt att ett barn förstår"):
+ *   Rubriken är svaret ("Står vid LBC", "Kör nu", "På väg hem") med EN rad under ("Sedan i torsdags", "Giant på flaket · 34 km · avfärd 06:41").
+ *   Sedan tanken i EN mening: "Tanken räcker 540 km". Diesel och AdBlue står bara när de är låga eller saknas.
+ *   Bara när det gäller: en tänd varningslampa tar över (röd), service under 1 000 km kvar, och "Ingen kontakt sedan …" — bara medan bilen KÖR
+ *   (en parkerad bil som inte hörts av står där den stod; kartarket säger alltid när den senast hördes).
+ *   Länken "Visa var den står" öppnar kartarket — där bor också mätare och motortimmar.
  * Läsfel är ett fel med "Försök igen"; saknade värden står som "saknas i datan", aldrig 0.
  */
 export default function BilenNuKort({ lage, onForsokIgen }: { lage: NuLage; onForsokIgen: () => void }) {
@@ -48,35 +50,28 @@ export default function BilenNuKort({ lage, onForsokIgen }: { lage: NuLage; onFo
     }
     const lampa = lampaRubrik(data);
     const service = serviceRad(data);
-    const sedd = sistSedd(data);
-    const tank = tankDelar(data);
     const oppen = !!data.oppen_runda;
+    const sedd = oppen ? sistSedd(data) : null;
+    const svar = lageSvar(data);
+    const tank = tankSvar(data);
     return (
       <>
         {lage.uppdateringsFel && (
           <p role="status" style={{ ...TYP.meta, color: FARG.orange, margin: `0 0 ${AVSTAND.s}px` }}>Kunde inte uppdatera. Visar det senast lästa.</p>
         )}
         {lampa && (
-          <div data-lampa style={{ marginBottom: AVSTAND.s }}>
+          <div data-lampa style={{ marginBottom: AVSTAND.m }}>
             <div style={{ ...TYP.rubrik, color: FARG.rod }}>{lampa.rubrik}</div>
             <div style={{ ...TYP.meta, color: FARG.text2 }}>{lampa.under}</div>
           </div>
         )}
-        <div data-lage style={{ ...TYP.listtitel, color: FARG.text, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+        <div data-lage style={{ ...TYP.rubrik, color: FARG.text, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
           {oppen && <span className="puls" aria-hidden style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: '50%', background: FARG.text, flex: 'none' }} />}
-          <span>{lageRad(data)}</span>
+          <span>{svar.rubrik}</span>
         </div>
-        {/* EN rad, alltid: tre värden bredvid varandra i den mindre storleken (TYP.meta) — hellre mindre text än radbrytning. Uppmätt i Chromium på 390 px
-            (kortets innerbredd 326 px): "Diesel 100 % · AdBlue 100 % · 540 km kvar" tar 294 px ("Räckvidd 540 km" tog 324 px och rymdes inte på 360 px). Ryms inte: "1 540 km kvar" vid full tank (305 px) eller 360 px med fulla tankar. Orden ("tanka snart" …) står på egna rader under, bara när de gäller. */}
-        <div data-tank style={{ ...TYP.meta, fontWeight: VIKT.halvfet, ...TNUM, color: FARG.text, marginTop: AVSTAND.xs, display: 'flex', flexWrap: 'nowrap', whiteSpace: 'nowrap', columnGap: AVSTAND.s }}>
-          {tank.map((d, i) => (
-            <span key={i} style={{ display: 'flex', columnGap: AVSTAND.s }}>
-              {i > 0 && <span aria-hidden style={{ color: FARG.text3 }}>·</span>}
-              <span data-niva={d.niva} style={{ color: NIVA_FARG[d.niva] }}>{d.text}</span>
-            </span>
-          ))}
-        </div>
-        {tank.filter(d => d.ord).map((d, i) => (
+        {svar.under && <div data-lage-under style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.xs }}>{svar.under}</div>}
+        <div data-tank data-niva={tank.niva} style={{ ...TYP.text, ...TNUM, color: NIVA_FARG[tank.niva], marginTop: AVSTAND.m }}>{tank.text}</div>
+        {tankOrd(data).map((d, i) => (
           <div key={i} data-tank-ord={d.niva} style={{ ...TYP.meta, color: NIVA_FARG[d.niva], marginTop: AVSTAND.xs }}>{d.ord}</div>
         ))}
         {service && <div data-service style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.xs }}>{service}</div>}
@@ -95,7 +90,7 @@ export default function BilenNuKort({ lage, onForsokIgen }: { lage: NuLage; onFo
   const matare = data ? matareText(data) : null;
   return (
     <>
-      <Sektion rubrik="Bilen nu" kort={false}>
+      <Sektion rubrik="Var är bilen?" kort={false}>
         <div style={KORT}>{innehall}</div>
       </Sektion>
       {platsArk && data?.position && matare && (

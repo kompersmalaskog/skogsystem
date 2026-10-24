@@ -40,17 +40,23 @@ export type VolymPerDagResult = {
 }
 
 // ── Paginering ─────────────────────────────────────────────────
-// PostgREST 1000-raders standardgräns kräver manuell paginering.
-async function rpcPaginerat(rpcNamn: string, params: object): Promise<any[]> {
-  const sid = 1000
-  let alla: any[] = []
-  let fran = 0
-  while (true) {
-    const { data, error } = await (supabase.rpc(rpcNamn, params) as any).range(fran, fran + sid - 1)
-    if (error || !data || data.length === 0) break
-    alla = alla.concat(data)
-    if (data.length < sid) break
-    fran += sid
+// PostgREST 1000-raders standardgräns kräver manuell paginering (.range()). Gäller BÅDE
+// maskindata_lass och maskindata_tid: tid-RPC:n anropades förut utan .range() och kapades tyst
+// vid 1 000 rader — viktunderlaget för manuell fördelning blev då ofullständigt utan att något syntes.
+//
+// Ett fel kastas. Förut bröt loopen och returnerade det som hunnit läsas, vilket såg ut som en
+// komplett lista men var en delsumma; anroparna fångar felet (`.catch(() => null)`) och faller då
+// tillbaka på rå volym med märket "preliminär" — synligt, i stället för en tyst felräkning.
+export const RPC_SIDSTORLEK = 1000
+
+export async function rpcPaginerat<T = any>(rpcNamn: string, params: object): Promise<T[]> {
+  const alla: T[] = []
+  for (let fran = 0; ; fran += RPC_SIDSTORLEK) {
+    const { data, error } = await (supabase.rpc(rpcNamn, params) as any).range(fran, fran + RPC_SIDSTORLEK - 1)
+    if (error) throw new Error(`${rpcNamn}: ${error.message ?? String(error)}`)
+    const sida = (data ?? []) as T[]
+    alla.push(...sida)
+    if (sida.length < RPC_SIDSTORLEK) break
   }
   return alla
 }
@@ -79,14 +85,11 @@ export async function fetchAllTimeLassTid(maskinIds: string[]): Promise<{
   tidRows:  TidRad[]
 }> {
   const params = { p_maskin_ids: maskinIds }
-  const [lassRows, tidRes] = await Promise.all([
-    rpcPaginerat('maskindata_lass', params) as Promise<LassRad[]>,
-    supabase.rpc('maskindata_tid', params),
+  const [lassRows, tidRows] = await Promise.all([
+    rpcPaginerat<LassRad>('maskindata_lass', params),
+    rpcPaginerat<TidRad>('maskindata_tid', params),
   ])
-  return {
-    lassRows,
-    tidRows: (tidRes.data ?? []) as TidRad[],
-  }
+  return { lassRows, tidRows }
 }
 
 // ── Fördelning ─────────────────────────────────────────────────

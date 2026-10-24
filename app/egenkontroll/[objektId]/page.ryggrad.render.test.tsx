@@ -35,6 +35,7 @@ const hamtaRunda = vi.fn(async () => lasningar[Math.min(hamtaRunda.mock.calls.le
 const kompletteraRunda = vi.fn(async (_id: string) => ({ tillagda: ['naturhansyn_utforande', 'grotuttag'] }));
 
 vi.mock('next/navigation', () => ({ useParams: () => ({ objektId: 'ob1' }) }));
+vi.mock('@/lib/hooks/useVagavstand', () => ({ useVagavstand: () => ({}) }));   // vägavståndet hämtas från OSRM; ett test når aldrig nätet
 vi.mock('@/lib/egenkontroll', async (orig) => {
   const verklig = await orig<typeof import('@/lib/egenkontroll')>();
   return {
@@ -43,7 +44,13 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
     kompletteraRunda: (id: string) => kompletteraRunda(id),
     hamtaFoton: async () => [],
     hamtaProvytor: async () => [],
+    hamtaNoteringar: async () => [],
     hamtaKontextmarkeringar: async () => [],
+    // Vidas traktgräns: sidan frågar alltid (objektet har här kartbild_bounds, så svaret avgör inte origot). Ett RIKTIGT svar i stället för ett läsfel via den riktiga klienten.
+    hamtaVidaGrans: async () => ({ typ: 'ok' as const, gran: [[56.0, 14.0], [56.1, 14.1]] }),
+    // Avslutad runda: rapportens kartlager. Riktiga svar, aldrig anropet mot den riktiga klienten (ingen session i testet).
+    hamtaStammoln: async () => ({ punkter: [{ lat: 56.05, lng: 14.05 }], antal: 1 }),
+    hamtaHyttspar: async () => [],
     hamtaAvverkadeStammar: async () => [],
   };
 });

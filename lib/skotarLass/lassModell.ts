@@ -3,16 +3,14 @@
 // Principen: appen gör det den säkert vet, föraren bara det bara han vet. Normalfallet är noll tryck:
 //   • samma sortiment som förra lasset (föraren ändrar bara det som skiljer),
 //   • närmaste avlägg,
-//   • bekräftar sig själv när linjen fyllts (App-nivå, 10 s).
-// Det som INTE får bekräfta sig självt: första lasset på trakten, två avlägg nära varandra, inget avlägg, tomt lass.
+//   • bekräftar sig själv när lossningen tog slut (maskinen stod still ≥ 5 min och körde sedan ut ur zonen — lossning.ts, hooken). Ingen timer.
+// Det som INTE får bekräfta sig självt: första lasset på trakten, två avlägg nära varandra, inget avlägg, tomt lass, en kort lossning.
 import { lokaltDatumStockholm } from '../hyttspar';
 import { avlaggRubrik } from './avlagg';
 import { sortimentDelar } from './sortiment';
 import type { Avlagg, Lass, LassDel, SortimentRad, SparPunkt, VagTid } from './typer';
 import type { AvlaggTraff } from './avlagg';
 import type { LossningsTyp } from './lossning';
-
-export const AUTO_BEKRAFTA_MS = 10_000;
 
 const nyId = (): string => {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
@@ -38,11 +36,17 @@ export const lassTotalM3 = (l: Pick<Lass, 'delar'>): number => l.delar.reduce((s
 
 const kopieraRader = (rader: readonly SortimentRad[]): SortimentRad[] => rader.map((r) => ({ nyckel: r.nyckel, namn: r.namn, m3: heltM3(r.m3) }));
 
-/** Lassens nummer: nästa efter maskinens högsta på trakten (struket räknas inte bort — numret återanvänds aldrig). */
+/**
+ * Lassens nummer = antal lass som räknas (bekräftade + väntande, aldrig strukna) för maskinen på trakten + 1. Ett struket lass tar inte ett nummer
+ * med sig: strök föraren lass 3 heter nästa lass 3 igen (Martin, Bågskyttebanan 2026-10-20: "Lass 3" fast ett lass strukits). Strök han ett lass
+ * mitt i raden, och numret räknat så redan är taget av ett lass som räknas, hoppas det över — två lass som räknas heter aldrig lika.
+ */
 export function nastaLassNummer(lass: readonly Lass[], maskinId: string, objektId: string): number {
-  let max = 0;
-  for (const l of lass) if (l.maskinId === maskinId && l.objektId === objektId) max = Math.max(max, l.lassNummer);
-  return max + 1;
+  const raknas = lass.filter((l) => l.maskinId === maskinId && l.objektId === objektId && l.status !== 'struket');
+  const tagna = new Set(raknas.map((l) => l.lassNummer));
+  let nr = raknas.length + 1;
+  while (tagna.has(nr)) nr += 1;
+  return nr;
 }
 
 /** Maskinens senaste (icke-strukna) lass på trakten — "förra lasset" som nästa lass fylls i efter. */
@@ -198,9 +202,9 @@ export function lassRubrikRad(l: Pick<Lass, 'lassNummer' | 'delar'>, del: Pick<L
 // ── Ett lass som väntat sedan appen stängdes ──────────────────────────────────────────────────────────────────────────
 
 /**
- * Ett förslag som aldrig hann bekräfta sig (appen stängdes inom 10 s) bekräftas vid nästa start — det var ju ifyllt som förra lasset,
- * och föraren hade inte ändrat. Ett lass som väntar på föraren ligger kvar och visas igen.
+ * Ett förslag vars lossning aldrig tog slut (appen stängdes eller kraschade mitt i lossningen) bekräftar inte sig självt: vi vet inte hur länge maskinen stod och
+ * om den lämnade avlägget. Det väntar på föraren ("N lass väntar på dig"). Ett lass som redan väntar eller är bekräftat rörs inte.
  */
-export function bekraftaForslagVidStart(l: Lass, nu: number): Lass {
-  return l.status === 'foreslaget' && kanBekrafta(l) ? bekrafta(l, 'auto', nu) : l;
+export function forslagTillVantande(l: Lass, nu: number): Lass {
+  return l.status === 'foreslaget' ? { ...l, status: 'vantar_forare', andrad: new Date(nu).toISOString() } : l;
 }

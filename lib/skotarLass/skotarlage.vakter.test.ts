@@ -10,6 +10,54 @@ const page = las('app/planering/page.tsx');
 // Migrationen är körd i prod i tio delar (+ sex delar 6a–6f för Färdigskotad med Opti) (Supabase-MCP:n hänger på stora funktionstexter): alla skotar_lass_*-filer i ordning.
 const migrationer = (): string => readdirSync(join(rot, 'supabase/migrations')).filter((f) => /^\d+_skotar_lass_.*\.sql$/.test(f)).sort().map((f) => las(`supabase/migrations/${f}`)).join('\n');
 
+describe('avläggsupptäckten (Daniel, Mölleryd 2026-10-20)', () => {
+  const hook = las('lib/hooks/useSkotarLass.ts');
+  const detektor = las('lib/skotarLass/lossning.ts');
+  it('lasset bekräftar sig aldrig av en timer: ingen AUTO_BEKRAFTA_MS, och den enda timern i hooken är kvittot som försvinner', () => {
+    expect(hook).not.toContain('AUTO_BEKRAFTA');
+    expect(las('lib/skotarLass/lassModell.ts')).not.toContain('AUTO_BEKRAFTA');
+    expect(hook.match(/window\.setTimeout\(/g)).toHaveLength(1);
+    expect(hook).toMatch(/fas !== 'klar'\) return;\s*const t = window\.setTimeout/);
+  });
+  it('INGEN självbekräftelse (Martin 2026-10-20): appen vet att han lossar, aldrig vad — bekräftat blir bara det föraren svarat Stämmer/Klar på', () => {
+    expect(hook).not.toMatch(/bekrafta\([^)]*'auto'/);
+    expect(hook).not.toContain('sjalvbekrafta');
+    expect(detektor).not.toMatch(/sjalvbekrafta|SJALVBEKRAFTA/i);
+    // bekräftelse finns på exakt två ställen: Klar i Ändra och Stämmer — båda som 'forare'
+    expect(hook.match(/bekrafta\(/g)).toHaveLength(2);
+    expect(hook.match(/bekrafta\([^)]*'forare'/g)).toHaveLength(2);
+  });
+  it('en omladdning mitt i en lossning bekräftar inget (förslaget väntar på föraren)', () => {
+    expect(hook).toContain('forslagTillVantande(l, nu)');
+    expect(hook).not.toContain('bekraftaForslagVidStart');
+  });
+  it('Lossa här och "väntar på dig" finns bara i skotarläget och ligger ovanför kortet nertill', () => {
+    const bit = page.slice(page.indexOf('SKOTARLÄGE: lassrapportering. Allt nedan finns bara'));
+    expect(bit).toMatch(/<SkotarNedreRad antalVantar=\{sl\.vantarPaDig\.length\} lossar=\{!!sl\.oppen\} vidLossaHar=\{sl\.lossaHar\}/);
+    expect(bit).toContain('<VantarPaDigArk');
+    expect(page.match(/<SkotarNedreRad/g)).toHaveLength(1);
+    expect(las('components/planering/skotar/LossaHar.tsx')).toContain("querySelector('[data-nertill-kort]')");
+    for (const f of ['LossningsKort', 'LossaHar']) expect(las(`components/planering/skotar/${f}.tsx`)).toContain('data-nertill-kort');
+  });
+  it('värdena Martin beslutade 2026-10-20: 3 min stilla, zon 50 m, 25 m ruta, spärr efter förra lossningen', () => {
+    expect(detektor).toMatch(/STILLA_S: 180,/);
+    expect(detektor).toMatch(/STILLA_UTBREDNING_M: 25,/);
+    expect(detektor).toMatch(/CYKEL_S: 600,/);
+    expect(las('lib/skotarLass/avlagg.ts')).toMatch(/RADIE_M: 50,/);
+  });
+  it('Lossa här: bara avlägg märkta skapadViaLossaHar flyttas, och bara av hookens effekt (aldrig Vidas, planerarens eller handsatta)', () => {
+    expect(page).toMatch(/if \(via === 'lossa_har'\) m\.skapadViaLossaHar = true;/);
+    expect(page).toMatch(/m\.isMarker && m\.type === 'landing' && m\.skapadViaLossaHar && String\(m\.id\) === markerId/);
+    expect(page.match(/skapadViaLossaHar/g)).toHaveLength(4);   // sätts, läses till egna avlägg, flytt-spärren (en gång i kommentar/filter)
+    expect(hook).toMatch(/if \(!aktiv \|\| torr\) return;\s*for \(const a of avlagg\)/);
+    expect(hook).toContain('detRef.current.oppen?.avlaggId === a.id');
+    expect(las('lib/skotarLass/lossaHar.ts')).toMatch(/if \(a\.kalla !== 'egen' \|\| !a\.viaLossaHar\) return null;/);
+  });
+  it('detektorn rör aldrig fakt_lass och har inga timers (ren funktion)', () => {
+    expect(detektor).not.toMatch(/setTimeout|setInterval|Date\.now|fakt_lass|supabase/);
+  });
+});
+
 describe('skotarläget i planeringsvyn', () => {
   it('allt är av utanför skotarkörvyn: aktiv kräver skotarKorvy och en vald maskin', () => {
     expect(page).toMatch(/const skotarLassAktiv = skotarKorvy && !!valtObjekt\?\.id && !!skotarMaskinId;/);
@@ -42,7 +90,7 @@ describe('skotarläget i planeringsvyn', () => {
     expect(page).not.toContain('bytObjekt');
     expect(page).toContain('onNamn={() => setTraktOversiktOpen(o => !o)}');
     // ⓘ uppe till höger (rund mörk knapp 44 px, öppnar objektinfon/väder) måste finnas i skotarkörvyn — och bara EN: på platshållarens plats, aldrig en andra bredvid pillen.
-    expect(page).toContain('{objektListaVal || skotarKorvy ? (');
+    expect(page).toContain('{objektListaVal || skotarKorvy || instruktionerAktiv ? (');   // + skördarens maskinläge: samma ⓘ, EN knapp
     expect(page.match(/data-testid="objektinfo-knapp"/g)).toHaveLength(1);
     const knapp = page.slice(page.indexOf('data-testid="objektinfo-knapp"'), page.indexOf('data-testid="objektinfo-knapp"') + 1400);
     expect(knapp).toContain('aria-label="Objektinfo"');
@@ -69,7 +117,7 @@ describe('skotarläget i planeringsvyn', () => {
   });
   it('kvar kräver Opti-lassen (skotat före appens start) och räknar aldrig en trakt med avslutad skotning', () => {
     const hook = las('lib/hooks/useSkotarLass.ts');
-    expect(hook).toMatch(/skordat && opti && skotningAvslutad !== true \? beraknaKvar\(skordat, lass, opti\)/);
+    expect(hook).toMatch(/skordat && opti && skotningAvslutad !== true && harSkordat\(skordat\) \? beraknaKvar\(skordat, lass, opti\)/);   // och inget skördat alls ger ingen Kvar (aldrig \"Kvar ~0 m³\")
     expect(hook).toContain('lasOptiLass(vo, ids)');
     const ko = las('lib/skotarLass/koKopplad.ts');
     expect(ko).toContain(".from('fakt_lass').select(");
@@ -92,7 +140,9 @@ describe('skotarläget i planeringsvyn', () => {
     expect(page).toMatch(/\{skotarLassAktiv && \(\(\) => \{\s*const sl = skotarLass;/);
   });
   it('Vidas avläggskort behåller sitt innehåll: skotat-sektionen läggs OVANPÅ, typKalla och rader finns kvar', () => {
-    expect(page).toMatch(/traktInfo\.kategori === 'punkt' && traktInfo\.nr && valtObjekt[\s\S]{0,900}\{typKalla\}<\/div>/);
+    // Kortet är KartKort (lib/kartKort.vakter.test.ts): typ · källa går som `kalla`, skotat-sektionen är det första i kortets innehåll och Vidas rader ligger kvar under den.
+    expect(page).toMatch(/<KartKort\s+key=\{nyckel \|\| traktInfo\.rubrik\}[\s\S]{0,1800}kalla=\{\[typKalla, \.\.\.kontext\]/);
+    expect(page).toMatch(/onStang=\{stangTraktKort\}\s*>\s*(?:\{\/\*[^*]*\*\/\}\s*)?\{skotarLassAktiv && traktInfo\.kategori === 'punkt' && traktInfo\.nr && valtObjekt/);
     expect(page).toContain('{traktInfo.rader.map((r, i) => (');
   });
 });
@@ -135,7 +185,7 @@ describe('datamodellen', () => {
     expect(ko).toContain("rpc('skotar_farduskotat', { p_objekt: objektId, p_opti: opti })");
     const hook = las('lib/hooks/useSkotarLass.ts');
     expect(hook).toContain('optiForAvslut(skordat, opti, lassRef.current)');
-    expect(hook).toMatch(/if \(!objektId \|\| !skordat \|\| !opti\) return;/);   // utan läst Opti skickas inget
+    expect(hook).toMatch(/if \(!objektId \|\| !skordat \|\| !opti \|\| !harSkordat\(skordat\)\) return;/);   // utan läst Opti, eller utan något skördat, skickas inget
   });
   it('skalat värde lagras aldrig på lassraden: ingen kolumn för det i tabellerna', () => {
     const sql = migrationer();

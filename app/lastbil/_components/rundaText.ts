@@ -1,7 +1,7 @@
 // All text om en runda — rad i listan och ark delar den, så samma runda säger samma sak överallt.
 // Ordet bär alltid betydelsen; färgen förstärker bara (skillen: färg är aldrig ensam bärare).
 
-import { fmtDatum, fmtKlocka } from './nu';
+import { fmtDatum, fmtDatumLang, fmtKlocka } from './nu';
 import type { Ben, Runda } from './rundor';
 
 export type Farg = 'orange' | 'gron' | 'dampad';
@@ -15,21 +15,39 @@ export function rundaRubrik(r: Runda): string {
   return 'Övrig körning';
 }
 
-/** Raden under rubriken: var det gick, eller vad som saknas. Tom sträng för vanlig övrig körning — rubriken "Övrig körning" säger allt. */
-export function rundaUnder(r: Runda): string {
-  if (r.flytt) {
-    if (r.ben.length === 1) return `${r.ben[0].fran ? r.ben[0].fran + ' → ' : '→ '}${r.ben[0].till ?? 'okänd plats'}`;
-    return `${r.ben.length} flyttar`;
-  }
-  if (r.avbruten) return r.forare ? `Förare: ${r.forare} · avbröts` : 'Avbröts';
-  if (r.tom) return 'Bilen rörde sig aldrig';
-  return '';   // Övrig körning: rubriken räcker (förare och "ingen flytt kopplad" hör till arket, inte raden)
-}
-
 /** "mån 12 okt · 11:30" (svensk tid). En runda utan giltig tid säger det. */
 export function rundaTidRad(r: Runda): string {
   const kl = r.giltig || r.pagar ? fmtKlocka(r.start) : 'okänd tid';
   return `${fmtDatum(r.start)} · ${kl}`;
+}
+
+/** "A", "A och B", "A, B och C" — samma maskin två gånger står en gång. */
+function uppraknat(namn: string[]): string {
+  const unika = namn.filter((n, i) => namn.indexOf(n) === i);
+  return unika.length <= 1 ? (unika[0] ?? '') : `${unika.slice(0, -1).join(', ')} och ${unika[unika.length - 1]}`;
+}
+
+/**
+ * Rundradens första rad — vad som hände, i ord: "Wisent till LBC", "Elefant 26, 810E och Wisent", "Övrig körning".
+ * En flytt utan känt mål säger "till okänd plats".
+ */
+export function rundaRadTitel(r: Runda): string {
+  if (r.flytt) {
+    if (r.ben.length === 1) return `${r.ben[0].maskin} till ${r.ben[0].till ?? 'okänd plats'}`;
+    return uppraknat(r.ben.map(b => b.maskin));
+  }
+  return rundaRubrik(r);
+}
+
+/** Rundradens andra rad — när och varifrån: "torsdag 22 okt · från Vällust", "måndag 12 okt · 3 flyttar". Klockslaget står i arket. */
+export function rundaRadUnder(r: Runda): string {
+  const delar = [fmtDatumLang(r.start)];
+  if (r.flytt) {
+    if (r.ben.length === 1) { if (r.ben[0].fran) delar.push(`från ${r.ben[0].fran}`); }
+    else delar.push(`${r.ben.length} flyttar`);
+  } else if (r.avbruten) delar.push(r.forare ? `${r.forare} avbröt` : 'avbröts');
+  else if (r.tom) delar.push('bilen rörde sig aldrig');
+  return delar.join(' · ');
 }
 
 export function rundaMarkningar(r: Runda): Markning[] {

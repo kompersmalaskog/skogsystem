@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { arsovertidRader, arsovertidNiva, timmarText, utjamningsRad, unikaUtjamningar, narmarTaket, overlapparManad, manadRad, VISA_FRAN_ANDEL, VARNING_UNDER_TAK_H, type ArsovertidSvar } from "./arsovertidVy";
+import { arsovertidRader, arsovertidNiva, timmarText, utjamningsRad, unikaUtjamningar, overlapparManad, manadRad, VARNING_UNDER_TAK_H, type ArsovertidSvar } from "./arsovertidVy";
 
 // Svaret från /api/lon/arsovertid så som det ser ut i prod 2026-10-09 (skrivskyddad torrkörning av beraknaArsovertid mot
 // prod-data): alla modellernas tal per förare. Vyn visar BARA lagkontrollens tal, månadsregeln (`manad`, samma som lönen sedan
@@ -125,23 +125,21 @@ describe("unikaUtjamningar: EN rad per period, inte en per förare", () => {
   });
 });
 
-describe("narmarTaket: bara de som kommit halvvägs", () => {
-  it("prod idag: Stefan 74,5 av 250 (30 %) är inte halvvägs — ingen rad syns, 'ingen närmar sig taket'", () => {
-    expect(narmarTaket(arsovertidRader(PROD_IDAG))).toEqual([]);
+describe("alla förare får en rad (Martin 2026-10-21) — utom företagsledare, för ATL gäller inte dem", () => {
+  it("prod idag: sju rader, Stefan först och övriga 0 — ingen gräns gömmer någon", () => {
+    expect(arsovertidRader(PROD_IDAG).map(r => r.id)).toEqual(["s", "d", "j", "m", "x", "oc", "o"]);
   });
-  it("exakt halvvägs räknas med; strax under gör det inte", () => {
-    const svar = (t: number): ArsovertidSvar => ({ ok: true, tak: 250, medarbetare: [{ medarbetare_id: "a", namn: "A", timmar: 0, modeller: { manad: t, genomsnitt: 999, vardagar: 0, dagar: 0, vecka: 0 } }] });
-    expect(VISA_FRAN_ANDEL).toBe(0.5);
-    expect(narmarTaket(arsovertidRader(svar(125))).map(r => r.id)).toEqual(["a"]);
-    expect(narmarTaket(arsovertidRader(svar(124.9))).map(r => r.id)).toEqual([]);
+  it("en förare med 124,9 av 250 (under halvvägs) får också en rad", () => {
+    const svar: ArsovertidSvar = { ok: true, tak: 250, medarbetare: [{ medarbetare_id: "a", namn: "A", timmar: 0, modeller: M(124.9, 0, 0, 0) }] };
+    expect(arsovertidRader(svar).map(r => [r.id, r.timmar])).toEqual([["a", 124.9]]);
   });
-  it("de som närmar sig taket och de som passerat behålls, störst först", () => {
+  it("företagsledare (flaggan från servern) är inte med; bara exakt true undantar", () => {
     const svar: ArsovertidSvar = { ok: true, tak: 250, medarbetare: [
-      { medarbetare_id: "a", namn: "A", timmar: 0, modeller: { manad: 130, genomsnitt: 999, vardagar: 0, dagar: 0, vecka: 0 } },
-      { medarbetare_id: "b", namn: "B", timmar: 0, modeller: { manad: 260, genomsnitt: 999, vardagar: 0, dagar: 0, vecka: 0 } },
-      { medarbetare_id: "c", namn: "C", timmar: 0, modeller: { manad: 0, genomsnitt: 999, vardagar: 0, dagar: 0, vecka: 0 } },
+      { medarbetare_id: "l", namn: "Ledare", timmar: 0, modeller: M(5, 0, 0, 0), foretagsledare: true },
+      { medarbetare_id: "a", namn: "A", timmar: 0, modeller: M(0, 0, 0, 0), foretagsledare: false },
+      { medarbetare_id: "b", namn: "B", timmar: 0, modeller: M(0, 0, 0, 0) },
     ] };
-    expect(narmarTaket(arsovertidRader(svar)).map(r => r.id)).toEqual(["b", "a"]);
+    expect(arsovertidRader(svar).map(r => r.id)).toEqual(["a", "b"]);
   });
 });
 

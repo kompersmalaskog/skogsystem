@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { FLIKAR } from './plusArk';
+import { SYMBOL_NAMN } from './larm/grupper';
+import { MENY_KATEGORIER, UR_MENYN } from './symboler';
 
 // Vakt för plusarkets ommöblering ("Alla" → Symboler · Ytor · Spårning · Lager). Ommöbleringen får inte tappa eller lägga till något:
 // samma symbolkategorier, samma lager i samma grupper och ordning som den gamla Lager-menyn, och varje val som "Fler val" hade.
@@ -16,36 +18,46 @@ const mellan = (src: string, fran: string, till: string): string => {
 };
 
 describe('Symboler: samma kategorier, namn och ordning som appen alltid haft', () => {
-  const kat = mellan(page, 'const symbolCategories = [', 'const markerTypes');
-  const namn = Array.from(kat.matchAll(/^\s{6}name: '([^']+)'/gm)).map((m) => m[1]);
-  const symboler = Array.from(kat.matchAll(/\{ id: '([a-z]+)', name: '([^']+)' \}/g)).map((m) => `${m[1]}=${m[2]}`);
+  const kat = mellan(page, 'const symbolCategories = ', 'const markerTypes');
+  const namn = MENY_KATEGORIER.map((k) => k.namn);
+  // Namnen kommer ur SYMBOL_NAMN (lib/larm/grupper, EN källa för menyn, kartans etikett och larmkortet); id:t ska peka på sitt eget namn.
+  // Menyn byggs ur lib/symboler (MENY_KATEGORIER) och namnen ur SYMBOL_NAMN — sidan har ingen egen lista.
+  const symboler = MENY_KATEGORIER.flatMap((k) => k.symboler).map((id) => `${id}=${SYMBOL_NAMN[id]}`);
+  it('sidan bygger menyn ur MENY_KATEGORIER och SYMBOL_NAMN, inga egna id eller namn', () => {
+    expect(kat).toContain('MENY_KATEGORIER.map');
+    expect(kat).toContain('name: SYMBOL_NAMN[id]');
+    expect(kat).not.toMatch(/\{ id: '/);
+  });
 
   it('de sex kategorierna i den ordning appen har dem', () => {
     expect(namn).toEqual(['Naturvård', 'Kultur', 'Avverkning', 'Infrastruktur', 'Terräng', 'Övrigt']);
   });
-  it('20 symboler med samma id och namn, i samma ordning', () => {
+  it('19 symboler i menyn: Jakttorn, Markkabel och Grind in; Kulturstubbe (slogs ihop), Dike, Stig och Brant ut — alla fyra ritas ändå', () => {
     expect(symboler).toEqual([
       'eternitytree=Evighetsträd', 'naturecorner=Naturhörna',
-      'culturemonument=Kulturminne', 'culturestump=Kulturstubbe',
+      'culturemonument=Kulturlämning',
       'highstump=Högstubbe', 'landing=Avlägg', 'brashpile=Rishög', 'windfall=Vindfälle', 'manualfelling=Manuell fällning', 'felloutside=Träd att avverka',
-      'powerline=El-ledning', 'road=Väg', 'turningpoint=Vändplats',
-      'ditch=Dike', 'bridge=Bro', 'corduroy=Kavling', 'wet=Fuktig mark', 'steep=Brant', 'trail=Stig / Led',
+      'powerline=El-ledning', 'huntingtower=Jakttorn', 'groundcable=Markkabel', 'road=Väg', 'turningpoint=Vändplats', 'gate=Grind',
+      'bridge=Bro', 'corduroy=Kavling', 'wet=Fuktig mark',
       'warning=Varning',
     ]);
+    for (const t of UR_MENYN) expect(kat, t).not.toContain(t);
+    expect(page).toContain('...UR_MENYN.map((id) => ({ id, name: SYMBOL_NAMN[id] }))');   // namnen finns kvar för gamla markeringar
   });
   it('arket bygger Symboler direkt ur symbolCategories (inga egna grupper) med symbolens riktiga färg', () => {
     expect(page).toContain('const byggSymbolKategorier = (): SymbolKategori[] => symbolCategories.map((k) => ({');
     expect(page).toContain('id: k.name, rubrik: k.name,');
     expect(page).toContain('poster: k.symbols.map((s) => postVy({ typ: \'symbol\', id: s.id }, arFastNu({ typ: \'symbol\', id: s.id }))),');
     expect(page).toContain('dockFarg: getIconDef(p.id).bg');
+    expect(page).toContain('dockSymbol: (px: number) => <SymbolIkon typ={p.id} storlek={px} />');   // dockan ritar samma form och glyf som kartan
   });
 });
 
 describe('Lager: samma grupper i samma ordning som den gamla Lager-menyn', () => {
   const lager = mellan(page, 'const byggLager = (): LagerGrupp[] => {', 'const byggPlusRad = ');
-  it('grupperna kommer i ordningen Bakgrundskarta, Kompass, Overlay, WMS-grupperna, SMHI, Dina markeringar, Produktionsdata, Zontyper, Linjetyper, Varningsinställningar', () => {
+  it('grupperna kommer i ordningen Bakgrundskarta, Kompass, Overlay, WMS-grupperna, SMHI, Dina markeringar, Produktionsdata, Zontyper, Linjetyper', () => {
     const ordning = Array.from(lager.matchAll(/g\.push\(\{\s*id: [`']([^`'$]+)/g)).map((m) => m[1]);
-    expect(ordning).toEqual(['bakgrundskarta', 'kompass', 'overlay', 'wms-', 'smhi', 'markeringar', 'produktionsdata', 'zontyper', 'linjetyper', 'skotad-trakt', 'varning']);   // 'skotad-trakt' = skotarens rad "Trakten färdigskotad" (bara skotare, lib/skotarLass)
+    expect(ordning).toEqual(['bakgrundskarta', 'kompass', 'overlay', 'wms-', 'smhi', 'markeringar', 'produktionsdata', 'zontyper', 'linjetyper', 'skotad-trakt']);   // 'skotad-trakt' = skotarens rad "Trakten färdigskotad" (bara skotare, lib/skotarLass)
     // WMS-grupperna kommer ur samma lista som förut (lib/mapLayers), i dess ordning
     expect(lager).toContain('for (const grp of wmsLayerGroups) {');
   });
@@ -62,7 +74,7 @@ describe('Lager: samma grupper i samma ordning som den gamla Lager-menyn', () =>
     const p = mellan(lager, "id: 'produktionsdata'", "if (visibleLayers.zones)");
     for (const s of ["'Avverkade stammar'", "'GROT (grenar & toppar)'", "'Mitt spår'", "'Skördarens spår' : 'Skotarens spår'", "sla('produktionshogar')", "sla('grothogar')", "sla('mittSpar')", "sla('andrasSpar')"]) expect(p, s).toContain(s);
   });
-  it('Dina markeringar, Zontyper, Linjetyper och Varningsinställningar skriver samma state som den gamla menyn', () => {
+  it('Dina markeringar, Zontyper och Linjetyper skriver samma state som den gamla menyn', () => {
     expect(lager).toContain("[['symbols', 'Symboler'], ['lines', 'Linjer'], ['zones', 'Zoner'], ['arrows', 'Pilar']]");
     expect(lager).toContain('setVisibleLayers((prev) => ({ ...prev, [id]: !prev[id] }))');
     expect(lager).toContain('setVisibleZones((prev) => ({ ...prev, [z.id]: prev[z.id] === false }))');
@@ -70,7 +82,7 @@ describe('Lager: samma grupper i samma ordning som den gamla Lager-menyn', () =>
     expect(lager).toContain('setVisibleLines((prev) => ({ ...prev, [l.id]: prev[l.id] === false }))');
     expect(lager).toContain('if (visibleLayers.zones) {');
     expect(lager).toContain('if (visibleLayers.lines) {');
-    expect(lager).toContain('setWarningMenuOpen(true)');
+    expect(lager).not.toContain('setWarningMenuOpen');   // varningsavstånd som enhetsinställning är borttaget (färgspråk och larm): typen avgör, lib/larm
   });
   it('Kompass visar ingen "Av"-text', () => {
     const k = mellan(lager, "id: 'kompass',", "g.push({ id: 'overlay'");
@@ -86,7 +98,7 @@ describe('Lager: samma grupper i samma ordning som den gamla Lager-menyn', () =>
 describe('Ytor och Spårning: inga flikar — Ytor ligger i objektinfon (Om trakten) som förut, spårens reglage bara i Lager', () => {
   it('YTOR-listan räknas som före PR:en och ritas i Om trakten — och arket vet inget om ytor', () => {
     expect(page).toContain('// === YTOR — en rad per NUMRERAD yta (Vidas hänsynsytor + traktdel-bitar + egna områden), i');
-    expect(page).toContain("ytor.push({ nr, typ: 'hansyn', typLabel: 'Hänsynsyta'");
+    expect(page).toContain("ytor.push({ nr, typ: arOvrigt ? 'ovrigt' : 'hansyn', typLabel: arOvrigt ? 'Övrigt' : 'Hänsynsyta'");   // Vidas TYP 71 (Övrigt) är en egen rad, aldrig hänsyn
     expect(page).toContain("ytor.push({ nr, typ: 'traktdel', typLabel: 'Traktdel'");
     expect(page).toContain("ytor.push({ nr, typ: 'omrade', typLabel: 'Eget område'");
     expect(page).toContain('ytor.sort((a, b) => a.nr - b.nr);');

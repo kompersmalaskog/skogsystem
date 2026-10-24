@@ -14,11 +14,12 @@ import { pathTillGeoJson, svgTillGeoJson, type Origo } from './kartkoordinater';
 import {
   IKON_STORLEK, LINJE_KANT_BREDD, LINJE_STIL, PIL_STIL,
   ikonRadie, linjeLager, nummerLager, pilLager, statusLinjeLager, statusRingLager,
-  symbolLager, zonFyllLager, zonKantLager, zoomKurva,
+  symbolLager, zonFyllLager, zonKantLager, zonSnedstreckLager, zoomKurva,
 } from './kartstil';
 import { markerIconDefs } from './marker-icons';
 import { arBasvagFarg } from './basvag';
-import { backvagFeature } from './backvag';
+import { backvagFeature, VAG_LINJETYPER } from './backvag';
+import { sparStil, type SparRoll } from './sparStil';
 import { backvagStreckLager } from './kartstil';
 import { ZONE_COLORS } from './zone-colors';
 import { avstandM, provytaStatus, type ProvytaStatus } from './provytor';
@@ -313,6 +314,7 @@ export function kontextLager(): any[] {
   const ikon = { opacitet: 0.45, breddFaktor: 0.7 };
   return [
     ...zonFyllLager(KONTEXT_KALLA, 'ek-k', null, linje),
+    ...zonSnedstreckLager(KONTEXT_KALLA, 'ek-k', null, linje),
     ...zonKantLager(KONTEXT_KALLA, 'ek-k', null, linje),
     ...linjeLager(KONTEXT_KALLA, 'ek-k', null, linje, { utom: [TRAKTGRANS_TYP] }),
     ...linjeLager(KONTEXT_KALLA, 'ek-k', null, undefined, { endast: [TRAKTGRANS_TYP] }),
@@ -334,6 +336,7 @@ export function kontextLager(): any[] {
 export function kontrollLager(): any[] {
   return [
     ...zonFyllLager(KONTROLL_KALLA, 'ek-p', null),
+    ...zonSnedstreckLager(KONTROLL_KALLA, 'ek-p', null),
     {
       id: VALD_LINJE_ID, type: 'line', source: KONTROLL_KALLA,
       filter: valdLinjeFilter(''),
@@ -467,9 +470,13 @@ export function backvagFeatureUrData(data: unknown, origo: Origo, typ?: string, 
   return f ? { ...f, properties: { ...f.properties, dim } } : null;
 }
 
+/** Tvarstrecken: kontrollpunkternas fullstarka, kontextens nedtonade. Nar planens vagar lyfts (PLAN_VAG) lyfts strecken med (opacitet 1). */
+export const BACKVAG_OPACITET: any[] = ['case', ['==', ['get', 'dim'], true], 0.45, 1];
+export const BACKVAG_LAGER_ID = 'ek-backvag';
+
 /** Lagret: kontrollpunkternas streck fullstarka, kontextens nedtonade. Ligger over linjerna. */
 export function backvagLager(): any[] {
-  return [backvagStreckLager(BACKVAG_KALLA, 'ek', null, ['case', ['==', ['get', 'dim'], true], 0.45, 1])];
+  return [backvagStreckLager(BACKVAG_KALLA, 'ek', null, BACKVAG_OPACITET)];
 }
 /** Lagrets id ar kontrakt mot tryckhanteraren i RundKarta och lagermenyn - byt det aldrig utan att soka efter det. */
 export const OBSERVATION_LAGER_ID = 'ek-observation';
@@ -530,4 +537,104 @@ export function observationLager(): any[] {
 /** Bildnamnen lagret refererar - for testet som kontrollerar att varje ton har en bild. */
 export function observationBildNamnAlla(): string[] {
   return (['bra', 'battre', 'avvikelse'] as const).map(observationBildNamn);
+}
+
+
+// ---------------------------------------------------------------------------
+// Lager som tands i menyn (PR 8a): planens vagar i full styrka, hyttspar, Vidas traktgrans
+//
+// ALLA STARTAR SLACKTA (layout.visibility 'none') - standarden lagger inget nytt pa kartan. RundKarta tander dem ur egnaVarden.
+// Lagrens id:n ar kontrakt mot RundKarta och lagermenyn.
+// ---------------------------------------------------------------------------
+
+const slackt = (spec: any): any => ({ ...spec, layout: { ...(spec.layout ?? {}), visibility: 'none' } });
+
+/** Prefixet far inte borja pa "ek-p-": tryckhanteraren fragar alla lager som gor det efter kontrollpunkter, och planens vagar ska inte ga att trycka pa. */
+export const PLAN_VAG_PREFIX = 'ek-plan';
+
+/**
+ * PLANENS VAGAR I FULL STYRKA: basvag och stickvagar ur samma kalla som kontexten (KONTEXT_KALLA - utan dem som redan ar kontrollpunkter), men utan
+ * nedtoning: samma typfarg, bredd och kant som i planeringsvyn. Ritas OVANPA den nedtonade kontexten, som star kvar under (den kan inte sta
+ * i vagen: samma linje, full styrka ovanpa). Ar inte tryckbara - orientering, inte innehall.
+ */
+export function planVagLager(): any[] {
+  return linjeLager(KONTEXT_KALLA, PLAN_VAG_PREFIX, null, undefined, { endast: VAG_LINJETYPER }).map(slackt);
+}
+export function planVagLagerIdn(): string[] {
+  return planVagLager().map((l) => l.id as string);
+}
+
+export const SPAR_KALLA: Record<SparRoll, string> = { skordare: 'ek-spar-skordare', skotare: 'ek-spar-skotare' };
+export const SPAR_LAGER_ID: Record<SparRoll, string> = { skordare: 'ek-spar-skordare', skotare: 'ek-spar-skotare' };
+export const SPAR_KANT_LAGER_ID: Record<SparRoll, string> = { skordare: 'ek-spar-skordare-kant', skotare: 'ek-spar-skotare-kant' };
+
+/** Hyttsparets linjer (utjamnade for RITNING - lib/sparJamning - aldrig for berakning) -> features, en per linje. */
+export function sparFeatures(linjer: { lat: number; lng: number }[][]): Feature[] {
+  return linjer
+    .filter((l) => l.length >= 2)
+    .map((l) => ({
+      type: 'Feature' as const, properties: {},
+      geometry: { type: 'LineString', coordinates: l.map((p) => [p.lng, p.lat] as Koord) },
+    }));
+}
+
+/**
+ * Hyttsparet for en roll: ljus kant + linje i rollens farg, samma stil som resten av appen (lib/sparStil: skordare lila 3 px full farg, skotare gron).
+ * SKOTARENS LINJE AR STRECKAD: farg ar aldrig ensam (samma som A4-rapporten: skordare heldragen, skotare streckad). Ligger OVER alla linjer men UNDER
+ * symbolerna (RundKarta lagger den fore kontrollpunkternas nummer och symboler), sa en kontrollpunkt aldrig doljs av ett spar man tryckt fram.
+ */
+export function sparLager(roll: SparRoll): any[] {
+  const st = sparStil(roll, 'plan');
+  const streckad = roll === 'skotare';
+  return [
+    slackt({
+      id: SPAR_KANT_LAGER_ID[roll], type: 'line', source: SPAR_KALLA[roll],
+      layout: { 'line-cap': streckad ? 'butt' : 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#ffffff', 'line-width': st.casingBredd, 'line-opacity': st.casingOpacitet },
+    }),
+    slackt({
+      id: SPAR_LAGER_ID[roll], type: 'line', source: SPAR_KALLA[roll],
+      layout: { 'line-cap': streckad ? 'butt' : 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': st.farg, 'line-width': st.linjeBredd, 'line-opacity': st.linjeOpacitet,
+        ...(streckad ? { 'line-dasharray': [2, 1.5] } : {}),
+      },
+    }),
+  ];
+}
+export function sparLagerIdn(roll: SparRoll): string[] {
+  return sparLager(roll).map((l) => l.id as string);
+}
+
+export const VIDA_GRANS_KALLA = 'ek-vida-grans';
+export const VIDA_GRANS_LAGER_ID = 'ek-vida-grans';
+export const VIDA_GRANS_KANT_LAGER_ID = 'ek-vida-grans-kant';
+
+/** Vidas traktgrans (L_TRAKTDEL, yttre ringar) som linjer. Ringar med under tre punkter ar ingen yta. */
+export function vidaGransFeatures(ringar: [number, number][][]): Feature[] {
+  return ringar
+    .filter((r) => r.length >= 3)
+    .map((r) => ({ type: 'Feature' as const, properties: {}, geometry: { type: 'LineString', coordinates: r } }));
+}
+
+/**
+ * Vidas traktgrans: vit streckad linje med morkt skugga - skild fran var EGEN traktgrans (rod/gul randig, ritad av planeraren), sa att de tva
+ * kan ligga bredvid varandra och man ser vilken som ar Vidas. Underst bland linjerna: det ar underlag att jamfora mot.
+ */
+export function vidaGransLager(): any[] {
+  return [
+    slackt({
+      id: VIDA_GRANS_KANT_LAGER_ID, type: 'line', source: VIDA_GRANS_KALLA,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': 'rgba(0,0,0,0.55)', 'line-width': 4.5 },
+    }),
+    slackt({
+      id: VIDA_GRANS_LAGER_ID, type: 'line', source: VIDA_GRANS_KALLA,
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      paint: { 'line-color': '#ffffff', 'line-width': 2, 'line-dasharray': [3, 2] },
+    }),
+  ];
+}
+export function vidaGransLagerIdn(): string[] {
+  return vidaGransLager().map((l) => l.id as string);
 }

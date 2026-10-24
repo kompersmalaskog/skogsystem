@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { kravRoll, ADMIN_ROLLER } from '@/lib/auth/server';
 
-// Enkel debug-nyckel. INTE för produktionsanvändning — bypass:ar appens
-// vanliga auth. Byt / roadmappa bort när extern diagnostik inte behövs längre.
+// Diagnostik över en förares dag (arbetsdag, extra tid, avtal). Bara inloggad admin — ingen nyckel någonstans.
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const DEBUG_KEY = 'skogsystem-debug';
 
 function idag() {
   return new Date().toISOString().split('T')[0];
@@ -22,10 +20,8 @@ function datumFörDagarSedan(dagar: number) {
 export async function GET(req: NextRequest) {
   try {
   const url = new URL(req.url);
-  const key = url.searchParams.get('key');
-  if (key !== DEBUG_KEY) {
-    return NextResponse.json({ ok: false, error: 'Ogiltig nyckel' }, { status: 401 });
-  }
+  const vakt = await kravRoll(ADMIN_ROLLER);
+  if (!vakt.ok) return vakt.res;
 
   const id = url.searchParams.get('id');
   const namn = url.searchParams.get('namn');

@@ -12,6 +12,55 @@
 - Markägarrapport-algoritm verifierad mot
   Husjönäs 2026-05-06
 
+## Redigering: Behöver dig + appen fyller i det säkra — 2026-10-23
+**Byggt (gren `redigering-behover-dig`):** "Behöver dig" överst i /redigering med förslaget förvalt och ett ark som tar en sak i taget; fält som inte gäller räknas inte som saknade; härledning av typ, avtalsform och bolag ur trakten, namnet, skördarens fil och objekt med samma namn (säkert = två källor, ingen emot); cronen `/api/redigering/fyll-sakra` som skriver det säkra. Se CLAUDE.md-raden `/redigering`.
+**Kvar för Martin:** (1) kör migrationen `20261023175500_redigering_skriv_auto.sql` (provad lokalt i Postgres 16, inte i prod), (2) kör `/api/redigering/fyll-sakra?torr=1` inloggad som admin och titta på listan innan cronen får skriva, (3) bestäm om ett privat jobb någonsin ska ha avtalsform (i dag: nej, `faltGaller`).
+**Observation:** Vällust RP M-R -25 (11251428) står som avtalsform Au fast namnet säger RP — appen ändrar det inte (ifyllt fält rörs aldrig), men det är värt en titt.
+
+## Kalibreringsdata: dubbletter borta, kurvan oundersökt — 2026-10-22
+**Dubbletter i `detalj_kontroll_stock` (körd i prod 2026-10-22, migrationerna `20261022091051_kontroll_stock_dubbletter_1_rensa` och `…091100_…_2_unikt_index`).** Ackumulerande HQC-filer (Scorpionen, Rottne på Rössmåla) upprepar alla tidigare stockar och nyckeln `(filnamn, stam_nummer, stock_nummer)` släppte igenom varje kopia: **881 av 2 632 rader var samma mätning igen** (506 grupper, störst 9 kopior). "Samma mätning" = samma maskin, skördetid, stam, stock och mättider (maskin + operatör); i alla grupper var längder, toppdiametrar, volymer, positioner och mättider identiska — bara filnamn och `kontroll_datum` skilde. Den äldsta kopian (lägsta id) behölls. Efter: **1 751 stockar** (−881), **4 574 mätpunkter** (−2 334, cascade). Unikt index `detalj_kontroll_stock_matning_unik` på `(maskin_id, harvest_date, stam_nummer, stock_nummer, machine_measurement_date, operator_measurement_date) NULLS NOT DISTINCT` (195 stockar saknar operatörsmättid). **Importen** skriver stockarna mot den nyckeln med ignore-duplicates (`KONTROLL_STOCK_NYCKEL`, `save_hqc_to_supabase`): bara det nya läggs till, en upprepad stock skriver aldrig över den äldsta kopian, och mätpunkter för redan importerade stockar loggas som info i stället för varning. **Deploy:** `deploy_import.ps1` på importdatorn — en HQC-fil som kommer före deployen med den gamla koden stöter på indexet (23505) och importeras inte förrän den nya koden ligger där. **Rössmåla:** fem stockar på samma stam stod med objekt 11077137 i äldsta filen och 11240372 i alla senare; 11077137 har ingen produktion, inga stammar och ingen `objekt`-rad, och stammen ligger 0 m från en avverkad stam under 11240372 (ingen av de två har traktgräns i `objekt_geometri`) → **11240372**. **Effekt:** Scorpionens 90-dagarsvärden oförändrade (diameter n 1 113, träff 77,00 %, syst +0,81, std 4,07; längd n 285, träff 93,68 %, syst +0,09, std 1,36). Scorpionen jan–jun (alla kontroller, 1 jan–30 jun): diameter n 6 199 → 3 670, träff 71,11 → 73,49 %, syst +0,49 → +0,25, std 4,54 → 4,34; längd n 1 636 → 976, träff 95,78 → 95,59 %, syst +0,04 → +0,09, std 1,20 → 1,22. **R64428 ändras i 90-dagarsfönstret** (kopior i Rössmåla-filerna aug–okt): diameter n 840 → 496, träff 89,17 → 89,11 %, syst −0,85 → −0,82; längd n 222 → 132, träff 98,20 → 96,97 % — runt 40 % av dess mått var återanvända mätningar (larmgrinden kräver 150 diametermått). **Kvar:** två kontroller (Inger Åslund 31 maj, Spåramåla 26 feb) är rena upprepningar och har inga egna stockrader; de har väder sedan förut och väderkompletteringen/`--jamfor` lämnar dem tyst (`saknar_stockar`). Tester: `scripts/test_kontroll_dubbletter.py`, `supabase/tests/kontroll_dubbletter_lokal/kor.sh`.
+
+**Maskinens kalibreringskurva — OUNDERSÖKT.** `fakt_kalibrering_historik` har en diameterpunkt per ändring (alla Giant på position 50 cm) och parsern läser bara det FÖRSTA `…CalibrationAdjustment` per block (`find_element`); unika nyckeln `(datum, maskin_id, tradslag, typ)` skulle också hindra flera punkter. HQC-filerna ligger inte i molnmiljön, så vad de innehåller är inte känt. Kör `py scripts\inspektera-hqc-kalibrering.py <mapp med .hqc> ` på importdatorn (läser bara) och skicka `hqc-kalibrering.txt`; först därefter ändras parser, nyckel (`position_cm`) och historiken läses in på nytt. Flaggat: R64428 har en diameterändring på +56 mm vid position 50.
+
+## Kalibrering › Över tid: Per grovlek och Greppet — 2026-10-23
+**Byggt och i drift.** Migrationen `supabase/migrations/20261024093226_kalibrering_grepp_over_tid.sql` kördes i prod 2026-10-24 (Martins uppdrag) och cachen fylldes för Scorpionen (25 objekt), R64101 (13) och R64428 (24); Scorpion 2026 stämmer mot den oberoende SQL-körningen (92 rader, 40 207 stammar, 5 726 949 steg, 1 423 864 still). Läsning: alla inloggade, räknar aldrig; omräkning: cron `/api/cron/kalibrering-grepp` var 30:e minut (se CLAUDE.md).
+
+**Kontroll mot Martins förväntade tal (Scorpionen 2026):**
+- *Per grovlek:* 300+ sämst i de flesta månader ✓. Tall efter 18 juli ~63 % träff och +3 mm ✓, gran ~79 % ✓. "Oktober sämre i alla klasser" stämmer för 4 av 5 klasser i Alla, och mycket av det är trädslagsmix (mer tall i oktober) — välj ett trädslag så syns det.
+- *Greppet:* björk ~43,9/42,5 % ✓. **Tall och gran avviker** (mina tal: gran 19,5 → 22,3 %, tall 28,9 → 36,1 % sep → okt, mot förväntat gran 13 → 17, tall 22 → 27). Orsak: definitionen — jag räknar "står still" som ≥ 30 cm (stamvyns `GREPP_MIN_CM`), förväntade talen ser ut att komma från > 30 cm. Förändringen (riktningen, och färgen som bygger på den) är densamma. Ändra gränsen i `GREPP_MIN_CM` + `v_min_cm` i funktionen (höj `v_version`) om ni vill ha > 30.
+- **Serien börjar i januari och hoppar till 18 juli** (Scorpionen har inga kontroller däremellan), så "första rutan" i Greppet är januari — en baslinje som ligger långt från resten. Vill man ha en närmare bas: byt `forstaRuta` i `greppTid.ts` till en vald månad.
+- **Dubblettrensningen från 2026-10-22 var inte komplett:** 325 stockar (22 %) delar fortfarande fysisk identitet men har olika `operator_measurement_date`/`machine_measurement_date`. `lib/kalibrering/grovlek.ts` dedupar på `harvest_date|stock_nummer|machine_measurement_date|operator_measurement_date` (lägsta id) — samma sak bör göras i databasen (unikt index täcker det inte). Egen fråga.
+- **Stammens identitet är `harvest_date`**, inte `stam_nummer`: den numreras om i varje kumulativ HQC-fil och dubbelräknade stammar när jag först nyckla på den.
+
+## Väder vid skörd (fakt_kalibrering.weather_at_harvest) — 2026-10-21
+**Orsak:** importen har aldrig skrivit vädret. Alla 176 rader med väder har `fetched_at` 2026-05-20 16:43–17:08
+(två sekunder per rad, 3–6 dygn efter att raderna skapades 11 mars–18 maj): en ENGÅNGSKÖRNING utanför repot som
+täckte kontroller t.o.m. 15 maj. Inget i `skogsmaskin_import_version_6.py`, `import_hpr.py` eller `app/` skrev kolumnen,
+så varje kontroll efter det blev utan väder utan att något fallerade. Det "slutade" aldrig — det var aldrig automatiskt.
+**Ändring:** importen hämtar nu vädret (`lagg_pa_vader`, ERA5-arkivet, ingen prognos) vid HQC-import, och
+`komplettera_saknat_vader` fyller i äldre kontroller som väntat på ERA5 (arkivet ligger ca 5 dygn efter) eller vars
+hämtning föll, max 25 per import. Ett väderfel stoppar aldrig importen: loggas + `import_fel` (felkod `VADER_SAKNAS`,
+syns i datahälsan). Rader som redan har väder rörs aldrig (`weather_at_harvest=is.null` vid läsning och PATCH).
+Kön rör sig alltid framåt: kontroller utan användbar position eller som Open-Meteo avvisar (4xx) skrivs till `import_fel` som
+`VADER_PERMANENT` och hoppas över därefter; taket (25) räknar bara riktiga nätanrop. Första nätverksfelet (timeout, 5xx, 429)
+avbryter kompletteringen för den importen och loggas en gång.
+**Vilken stam som väljs (Martin 2026-10-21, `valj_vaderpunkt`):** Scorpionens HQC-filer är ackumulerande (en fil innehåller ofta
+stammar från tidigare kontroller), så "tidigaste stammen i filen" gav 34 av 330 kontroller väder från mer än ett dygn före
+sitt eget datum (Hössjömåla id 1238/1245/1297 fick alla 8 april). Regel: bland stammarna vars skördedatum (LOKAL tid) är
+kontrollens datum (`fakt_kalibrering.datum`) den tidigaste som har GPS; finns ingen sådan, den SENASTE stammen i filen med GPS.
+Samma funktion i importen, kompletteringen och backfill-skriptet. Mätt mot prod 2026-10-21 (läsande SQL): gamla regeln 34 av 330
+mer än ett dygn före, nya 14 av 330 — de 14 har ingen stam på kontrollens dag (filen exporterades efter mätningen, 13 av dem har
+en enda skördedag) och får den senaste stammen. 299 kontroller har stam på dagen, 31 använder reserven, 77 byter stam. Kvarvarande
+tveksamhet: 4 kontroller (id 1281, 1214, 1217, 9823) har stammar samma dag mer än 5 km isär (1281: 39 km, Äskebäck 09:06 och en annan
+plats 16:43) — datumregeln väljer den tidigaste. Id 1281:s sparade väder (16:43) kommer från engångskörningen i maj, inte från importen.
+Backfill: `python scripts/backfill-kontroll-vader.py` (torrkörning) / `--skriv`. `--skriv-over` (bara skriptet, aldrig importen)
+hämtar om väder även för rader som har det, med rätt UTC-tid; gamla värden sparas först i en säkerhetskopia (`--aterstall FIL`
+lägger tillbaka dem). Test: `python scripts/test_vader_vid_skord.py` (47 tester, 13 + 11 mutanter dödade) och `python scripts/test_backfill_jamfor.py` (14).
+**Läget 2026-10-21 före backfill:** 176 av 328 har väder; alla 152 utan har användbar GPS-position och skördetid; 3
+(från 19 okt) är yngre än 6 dygn och fylls i av importen när ERA5 är klart.
+**Gamla rader:** de 176 har `harvest_time` med svensk väggklocka stämplad som UTC (1–2 h fel); beslut Martin 2026-10-21: hämta
+om dem med rätt tid via `--skriv-over`. Vilken timme de gamla värdena hämtades för är inte verifierat. Hämtningen mot open-meteo har inte körts i den här sessionen (hosten blockerad av sessionens nätverkspolicy).
+
 ## Markägarrapport — verifierade siffror
 Husjönäs (objekt_id 11124938, slutavverkning):
 - Stammar: 1 349
@@ -25,6 +74,12 @@ Husjönäs (objekt_id 11124938, slutavverkning):
 Förväntade siffror i originalprompten
 (375 461 / −16 640 / +2 240) var överslag,
 inte DB-verifierade. Felsök inte mot dem.
+
+## Markägarrapport — omtag 2026-10-21
+Rapporten omgjord så att ett barn förstår och på appens design (tokens, `Sektion`, `Rad`, `Ark`); tre storlekar (telefon, iPad, dator med listan bredvid). Se CLAUDE.md, raden `/admin/markagarrapport`.
+- Husjönäs i nya vyn: 433 163 kr · 678 m³ · 1 349 träd; virket 56/20/22/2 %; 924 granar, 359 tallar, 66 löv; "3 av 4 granar var friska" (235 av 924); rötan kostade −26 382 kr (visades inte förut), föraren sparade +2 597 kr.
+- **Kvar att göra:** Dela som PDF (egen PR). Volymen per sortimentgrupp i nya vyn är aggregate.ts:s fördelning — kontrollerad mot `detalj_stock` i prod (Timmer 378,8 · Kubb 138,6 · Massa 146,8 · Energi 12,4 · Övrigt 1,8), inte mot en körning av aggregate.ts.
+- **Data:** Husjönäs saknar `objekt.areal`, därför ingen yta i rapporten.
 
 ## Markägarrapport — framtida tillägg
 
@@ -176,6 +231,29 @@ Följden: normkurvan räknas om. Gallring n 679 → 681 (a 3,7590 → 3,7615, b 
 **Förväntat och verifierat:** slutavverkningskurvan helt oförändrad (n 893, a 3,947795, b 0,676473; alla fyra kurvrader identiska på alla decimaler: Hästhagen var redan utanför området och de tre andra är maskinstandard med 2–3 h, som aldrig ingick i kurvan); gallring oförändrad. Hash per maskin och åtgärd i `vy_hist_maskin_ar` före och efter: 82 av 88 kombinationer bit för bit lika (alla gallringsgrupper och alla maskiner utom tre); de som skiljer är Komatsu 941 (slutavverkning och "(ingen)" ändras, ny grupp special), Komatsu 941 AptMan (samma) och Rottne H8E Logmax (slutavverkning försvinner, special tillkommer, "(ingen)" ändras). Slutavverkningens `viktat_index` på de åtta kontrollerade raderna med minst 200 h oförändrat (88,2, 104,6, 90,1 …). Special har inget index (ingen kurva), så de fyra får inget index och ingen flagga: `utanfor_normalomrade` är noll i `vy_hist_objekt_index` och `vy_hist_objekt_lista`. Oskar har ingen slutavverkning kvar (jämförelsen 27 → 26 rader).
 **Normalområdet 0,10–1,5 ligger kvar som skyddsnät** för slutavverkning: nästa objekt med liten medelstam och många timmar drar inte kurvan, och märks "utanför normalområdet" tills det är klassat.
 
+## NOTERINGAR PÅ KARTAN — PR 9a (2026-10-21)
+
+**PR 9 ersätter och innehåller 8b** ("Bättre så"): ETT verktyg (Martin 2026-10-21). 9a = tabell, lås, karta, rapportens sida 1; 9b = foton (helskärmsyta, etiketter på bilden, bilagan, storleken i PDF:en). Datamodellen, reglerna och "Observation eller notering?" står i CLAUDE.md (`egenkontroll_notering`).
+
+- **Migrationerna är körda** (`20261021074334_egenkontroll_notering_1_tabell`, `…074341_…_2_las`; filerna byte-identiska med prod, md5 kontrollerad). Martin strök kolumnen `symbol` (ingen av 9a/9b använder den; läggs till med en additiv `ALTER` den dag symboler behövs) — `notering_har_innehall` är bara `btrim(etikett) <> ''`.
+- **Provat:** lokal Postgres 16 (`supabase/tests/egenkontroll_notering_lokal/`, 34 rader, låstriggern borttagen = 8 röda, DELETE olåst = 3 röda), fejkad klient (`lib/egenkontrollNotering.db.test.ts`), hela sidan i jsdom (`page.notering.render.test.tsx`), PDF-sidan (text ur riktig PDF med `unpdf`, bild med `pdftoppm`) och **riktig Chromium + MapLibre** (ett tryck = exakt en punkt: de sparade koordinaterna är `===` de som kartans klickhändelser gav; lagerordningen; etiketten renderas; Ta bort = `delete`).
+- **Ej provat:** riktig iPhone/PWA (tryck med finger/handske, tangentbordet över arket), riktig produktionsdata i rapporten (sida 1 renderad mot syntetiska noteringar på ett syntetiskt stammoln).
+- **Öppen punkt (Martin 2026-10-21, EJ BYGGD): fem knappar i sidokolumnen** (Notera här, Rita, Lager, Centrera, Visa hyttspåret). Martin avfärdade ett plus vid tre knappar och hade rätt; vid fem har han inte bestämt sig. **Beslutet tas när han sett fem knappar på en riktig skärm** — bygg ingen omdisposition före det. Det som mättes (riktig Chromium): Notera här + Rita + Lager i en rad ryms på 390 px (sidopadding 12 under 400 px; Notera här 139, Rita 85, Lager 100 px) och 375 px (just: 3 px över), på 360 px bara med Rita som enbart ikon, och på 320 px ligger Lager vid skärmkanten. `KartKnapp` fick två valfria egenskaper (`smalt`, `ordSmalt`) och `whiteSpace: nowrap` för det (utan nowrap bröts "Notera här" i två rader på 360 px).
+- **Beslutat (Martin 2026-10-21): rapporten till Vida tar bara avsikt = `blev`.** 9a mergades med "skulle" i PDF:en (specen sa det); rättat direkt efter i en egen liten PR: `arMedIRapport` i modellen och ritaren, ingen "skulle"-rad i teckenförklaringen, test på riktig PDF-text. Ingen kryssruta för enskilda noteringar byggd (oanvänt verktyg). Se CLAUDE.md.
+- **9b BYGGD (2026-10-21) — se CLAUDE.md, `egenkontroll_notering`:** fotoyta med Punkt · Linje · Pil, förifylld etikett, dra på plats, bilagan i layout E (ett foto per sida, 496 × 662 pt). **Etikettstorlek: 3,2 % av fotots uppritade bredd i PDF:en (15,9 pt); skärmen max(13 px, 3,2 % av visad bredd); PDF-etiketten är aldrig större än skärmetiketten (räknat i test).** Martin valde 3,2 % medvetet över min mätning 2,8 % (osymmetriskt fel); den ursprungliga 5,5 %-startpunkten ersattes av mätningen mot stand-ins på 1200 × 1600 i den nya rutan. **Inte provat:** riktig iPhone/PWA, riktiga foton i bilagan (Martin bedömer motivet på en riktig bilaga).
+- Rapportens kartetikett är 8,5 pt (provad mot ett syntetiskt stammoln); den justeras när Martin sett en riktig rapport.
+
+## EGENKONTROLLEN UTAN FLIKRAD (2026-10-20)
+
+Martin ville bort med flikraden (Hem, Översikt, Planering, Objekt, Mer) i egenkontrollen, med skälet att dockan och flikraden slåss om botten. **Skälet stämde inte:** rundvyn har aldrig haft flikraden (ingen `BottomNav`, ingen `TopBar`, bara `KartHuvud` och arket). Bara LISTAN (`app/egenkontroll/page.tsx`, fyra lägen) renderade den. Mätt i riktig Chromium 390 × 760 (safe-area 0): flikraden 81 px, understa brickraden 704–748 — en flikrad i rundvyn hade täckt hela understa raden och 17 px av nästa (på iPhone ~105 px och ungefär 11 px av raden ovanför). Beslutet togs på ett annat skäl: flikraden är undantaget i appen (den delade `BottomNav` renderas nu bara av Gallring) och egenkontrollen ska följa mönstret (Utbildning tog bort sin 2026-10-19).
+
+- Listan: `<BottomNav />` borta i alla fyra lägen; `BOTTEN_LUFT` 128 px → `medSafeBotten(AVSTAND.xl)` (24 px på dator, 8 + safe-area på iPhone).
+- Hem från rundan är TVÅ tryck (pil → lista → hus), avsiktligt, inget hus i `KartHuvud`.
+- `TopBar`: hemknappens träffyta 36 → 44 px (`TRAFFYTA.min`), synliga rutan oförändrad (pixelidentisk header mot main i riktig Chromium, vänsterkant 12 px).
+- Vakter (mutationskontrollerade, 10 av 10): `app/egenkontroll/flikrad.vakter.test.ts`, `page.lista.render.test.tsx` (inget `bottennav` i laddning, huvudlista, underlista, fel), `components/TopBar.egenkontroll.render.test.tsx`.
+- `TopBar.tsx` har två literaler som design-lint räknar som nya (`rgba(255,255,255,0.7)` på hemikonens färg och `borderRadius: 6` på ikonbilden). De är INTE tokeniserade med flit: ingen token har exakt det värdet (`FARG.text2` är `#8e8e93`, inte vit 70 %; `RADIE` har 4, 10, 12 och 16, inte 6), och att byta till närmaste token ändrar hur den globala hemknappen ser ut på varje sida. Värdena är oförändrade (raderna flyttades bara in i den inre rutan), så lintens "nya" är samma literaler som förut. De tokeniseras när hemknappens utseende får en egen designändring — då ska värdena in i `FARG`/`RADIE` på riktigt, inte närmast.
+- **Ej provat:** riktig iPhone/PWA (safe-area), tryckytan med riktigt finger.
+
 ## KARTANS ORIGO I EGENKONTROLLEN OCH PROVYTOR UTAN LOTTNING (2026-10-19)
 
 **Felet:** egenkontrollen läste planeringens markeringar (x/y relativt ett origo) bara om objektet hade `kartbild_bounds`. Planeringen räknar origot med `objektStartKamera`: kartbildens mitt på zoom 15, annars objektets lat/lng på zoom 16. Alla 23 objekt som kom in via Vidas envz-leverans (6 aug och framåt) saknar bounds, så de blev blinda i rundan — trots att planeringen ritar dem rätt. Nio av tjugo öppna rundor låg i det läget, och de tre gallringarna bland dem fick inga provytor.
@@ -222,22 +300,33 @@ Provytorna lottas en gång av avsikt (det finns ingen funktion som lottar om). P
 
 **Ångra** (efter en körning, per runda): `delete from egenkontroll_provyta where egenkontroll_id = '<runda>';` — ytorna har inga beroenden än så länge de är omätta; mätta ytor och deras foton är en egen sak (`egenkontroll_foto.provyta_id`).
 
+## Kommentarer och foton på kartan — ytfoto-policyerna körda (2026-10-20)
+PR #864: kommentarer är nu en rad per kommentar med namn och tid (`kartkommentar`, migrationerna `20261020164116` och `20261020164138`, körda i prod). Förare får kommentera och fota Vidas objekt.
+Storage-policyerna för bucketen `ytfoto` (alla inloggade får ladda upp; radera = den som laddade upp filen eller admin) är **körda 2026-10-20 av Martin via Storage › Policies** — SQL-editorn gav "must be owner of table objects". Verifierat i `pg_policies`. Namnen är kvar (`ytfoto_skapa_admin`, `ytfoto_radera_admin`, inte omdöpta). `supabase/manuell/ytfoto_bucket_policyer.sql` beskriver läget — kör den INTE igen. Rollback: sätt `with check (bucket_id = 'ytfoto' and ar_admin())` resp. `using (bucket_id = 'ytfoto' and ar_admin())` på de två policyerna.
+
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)
 - Bottomnav ändrad: "Min tid" borta,
   "Löneunderlag" istället — verifiera
 
 ## Nästa
+- **Smarta förslag efter data — skotarläget (Martin 2026-10-20, EJ BYGGD, bygg inte nu):** när det finns 1–2 veckors bekräftade lass + spår: räkna i efterhand hur ofta olika förslag hade varit rätt — (1) "Samma som förra", (2) förarens mönster på trakten, (3) högarna han passerade under lastningen (skördarens stammar längs lastspåret). Byt bara förslag om en metod är rätt minst 8 av 10. Se CLAUDE.md "Framtida förbättringar".
+- **Avläggszon som sträcka längs vägen (skotarläget, version 2 efter testveckan; Martin 2026-10-20, EJ BYGGD):** se CLAUDE.md "Avläggszon som sträcka längs vägen". Cirkel 50 m gäller tills dess. "Lossa här" lägger avlägget mitt på stoppet och flyttar det mot snittet efter ≥ 3 bekräftade lass (bara Lossa här-avlägg), #863.
 - **Egenkontroll, öppna punkter efter A4-rapporten (#830, 2026-10-19):**
   1. `PdfForhandsvisning` ligger i `app/helikopter/_components/` men används nu också av egenkontrollens `RapportDela` (generell, tar en `skapa`-funktion). Flytten till `components/` görs av **helikopterns ägare**, inte av egenkontrollspåret (en vy ägs av ett spår). Tills dess importeras den därifrån.
   2. ~~Låstrigger på `egenkontroll`~~ **KLAR 2026-10-19** (Martin körde migrationen via MCP, provad i transaktion med rollback; filen `20261019140826_egenkontroll_las_nar_klar.sql` är byte-identisk med `schema_migrations`, md5 `b2bea962…`, 1 099 byte). De tre gamla rundorna (Åbogen, Järnemåla, Spåramåla) avslutades i efterhand samma dag. Ångra för triggern: `drop trigger` hänger i Supabase-MCP:n (60 s) — ta bort den i ett eget anrop utanför MCP:n, eller använd escapen `app.egenkontroll_tillat_andring` per transaktion.
   3. **Unikt index på `egenkontroll_punkt (egenkontroll_id, punkt_typ) WHERE kalla = 'fast'`** (öppen punkt, ej byggd, 2026-10-19): idag skyddar bara det partiella indexet på `(egenkontroll_id, ordning)` mot dubbletter av en fast punkt (två enheter som lägger till samma saknade punkt samtidigt räknar samma `max+1`, så en av dem får 23505). Ett eget index på slugen vore ett skydd som inte hänger på ordningstalet. Noll dubbletter idag (kontrollerat). Migration som Martin kör — inte nu.
 - **Rundvyns ram (PR 4, 2026-10-19):** brickor i en docka, ark med tre lägen (sänkt = gå, dock = svara, hel = rundan; **regeln: ett läge får finnas bara om dess jobb går att säga med ett ord — ett fjärde som inte går att beskriva byggs inte**), kartan som hela vyn (se CLAUDE.md "Rundvyns ram"). PR 4 levererades med två lägen (dock och hel) och CLAUDE.md sa "två" medan denna rad sa "tre"; 4b gör det tre, och regeln står nu på båda ställena. Öppna punkter: (1) Den döda koden är borttagen (7b, se nedan): `UtforandeSerie.tsx`, `lib/egenkontrollSerie.ts` och flödesfunktionerna med sina tester. (2) `PunktKort`/`SvarsKnapp` är borta; planpunkternas "Foto · Not" öppnar samma foto-formulär som utförandet. (3) Centrera-knappen (delad med planeringen) ligger vid skärmkanten på bred skärm medan resten ligger i arkets kolumn. (4) Inte provat på riktig iPhone/PWA. (5) **PR 7 delas upp (Martin 2026-10-19) i fyra PR:ar, en sorts arbete var:** 7a tokenskuld (resten av `page.tsx`: `MatningsKort`, avslutsdialogen m.fl.), 7b död kod (klar, egen PR), 7c Centrera-knappen (delad med planeringen; egen `right`-prop och rätt plats i arkets kolumn på bred skärm — rör en delad komponent, så den ägs av sin egen PR), 7d kartlagen + ritlagret. ("Bättre så" och lägena Kontroll·Utfall·Bättre så hör INTE till PR 7 — det är en funktion, inte skuld: se PR 8 nedan.) Inget av det byggs före ett nytt besked. (6) **CHECK `status_och_besvarad_hanger_ihop` på `egenkontroll_punkt`** (migration `20261019155208`, körd 2026-10-19; ångra-kommando: `alter table egenkontroll_punkt drop constraint status_och_besvarad_hanger_ihop;` — kör det via `apply_migration`).
 - **Hel-läget listar inte punkterna (Martin 2026-10-19, rättning i #837).** Utförandepunkterna bor i dockan och planpunkterna på kartan; hel har namn och åtgärd, plats för vägbeskrivningen (PR 5), förutsättningar, kommentar, mätningar, observationer och avslut. Undantag: planpunkter utan plats på kartan (se CLAUDE.md, Rundvyns ram). Hel följer sitt innehåll (min dock + 200 px, max skärmen minus huvudet). Raden för en avslutad runda har en maxhöjd (`RAD_MAX_DVH`, 30 % av skärmen) och scrollar sitt innehåll inom sig: mätt 390 × 760 med 2 295 tecken och tre foton blir dockan 506 px (rullområdet 228 px av 786), och sista fotot nås genom scroll.
-- **PR 4b — sänkt läge, fast rad, innehåll i raden (Martin 2026-10-19; byggd, väntar på merge).** (1) **Sänkt** = bara greppet (40 px på 390 × 760, kartan 656 px); tryck på greppet/huvudets namn går vidare ett läge varje gång (sänkt → dock → hel → sänkt), drag fungerar åt båda hållen och flyttar minst ett läge över tröskeln; inget byter läge av sig självt utom att en symbol på kartan lyfter sänkt → dock (hel ligger nu kvar vid ett symboltryck — förut sänktes den till dock). (2) **Mätt FÖRE bygget i Chromium:** vid första markeringen hoppade brickorna +61 px och radens knappar 61 px (layout direkt, `transform` animerad efter); andra trycket rörde ingenting. Åtgärd: knappraden har fast plats och är avstängd utan markering, transformen räknas om i samma bildruta som layouten och animationen körs bara vid lägesbyte/släppt drag. **Efter: 0 px för alla brickor och radens knappar** (första trycket, andra trycket, punkt med långt innehåll). Dockvakten smalnades till SAMMA bricka / SAMMA radknapp (en annan bricka går igenom direkt) + en spärr mot tryck på en bricka som håller på att sparas. (3) **Raden är en komponent för pågående runda, låst runda och inget markerat**: typ, kommentar och foton syns ovanför knapparna också medan rundan pågår; på en låst runda är knapparna avstängda (AVSTEG 7/7 vändes: förut inga knappar). (4) **Kartan har minst 300 px i dock på 390 × 760** (mellan huvud och arkets överkant; 365 px med tom rad, 308–312 px med innehåll): innehållsfältet växer med innehållet upp till `--rad-max` (57 px på 390 × 760) och scrollar därefter — `RAD_MAX_DVH` (30 %) är bara ett tak. Brickorna är redan 44 px (lagligt golv); 60 px skulle ge dock ~395 px. **Tolkningen "300 px karta" är mellan huvud och ark — räknas hela kartytan ovanför arket (under det flytande huvudet) blir fältets tak ~121 px; konstanten `KARTA_MIN_PX` och `radFaltMax` är det enda som ändras.** Inte verifierat på riktig iPhone/PWA (finger, handske, safe-area).
-- **ÖPPEN PUNKT — ordningsberoende test: `app/egenkontroll/[objektId]/page.origo.render.test.tsx` (utreds FÖRE PR 5, Martin 2026-10-19).** Testet "Betet gallring (envz, inga bounds): vyn väntar på Vidas traktgräns och öppnar sedan KARTAN …" **faller vid ensam körning** (`npx vitest run <filen>`, 3 av 3 körningar) men går grönt när `app/egenkontroll` eller hela sviten körs. **Inte nytt:** det faller ensamt också på ren `origin/main` (`a28435fa`, kontrollerat 2026-10-19 i en egen worktree) och på `58c13549` före ändringarna i #837. **Varför det är en öppen punkt och inte en fotnot:** hela bevisföringen i egenkontrollen är mutationstester som körs genom sviten; en fil som bara går grön efter att andra filer körts har ett läckande tillstånd eller ett beroende av körordning, och då kan en mutant överleva (eller dö av fel skäl) utan att någon ser det. **Orsaken är inte utredd** — den ska hittas och åtgärdas (eller testet isoleras) innan PR 5 byggs, och mutationskontrollerna för filen ska köras om efteråt.
+- **PR 4b — sänkt läge, fast rad, innehåll i raden (Martin 2026-10-19; mergad som #846).** (1) **Sänkt** = bara greppet (40 px på 390 × 760, kartan 656 px); tryck på greppet/huvudets namn går vidare ett läge varje gång (sänkt → dock → hel → sänkt), drag fungerar åt båda hållen och flyttar minst ett läge över tröskeln; inget byter läge av sig självt utom att en symbol på kartan lyfter sänkt → dock (hel ligger nu kvar vid ett symboltryck — förut sänktes den till dock). (2) **Mätt FÖRE bygget i Chromium:** vid första markeringen hoppade brickorna +61 px och radens knappar 61 px (layout direkt, `transform` animerad efter); andra trycket rörde ingenting. Åtgärd: knappraden har fast plats och är avstängd utan markering, transformen räknas om i samma bildruta som layouten och animationen körs bara vid lägesbyte/släppt drag. **Efter: 0 px för alla brickor och radens knappar** (första trycket, andra trycket, punkt med långt innehåll). Dockvakten smalnades till SAMMA bricka / SAMMA radknapp (en annan bricka går igenom direkt) + en spärr mot tryck på en bricka som håller på att sparas. (3) **Raden är en komponent för pågående runda, låst runda och inget markerat**: typ, kommentar och foton syns ovanför knapparna också medan rundan pågår; på en låst runda är knapparna avstängda (AVSTEG 7/7 vändes: förut inga knappar). (4) **Kartan har minst 300 px i dock på 390 × 760** (mellan huvud och arkets överkant; 365 px med tom rad, 308–312 px med innehåll): innehållsfältet växer med innehållet upp till `--rad-max` (57 px på 390 × 760) och scrollar därefter — `RAD_MAX_DVH` (30 %) är bara ett tak. Brickorna är redan 44 px (lagligt golv); 60 px skulle ge dock ~395 px. **Beslut Martin 2026-10-20: "300 px karta" är kartan MELLAN huvudet och arket — `KARTA_MIN_PX` står kvar på 300.** Den är den användbara kartan, och ett 121 px-fält löser inte en lång anteckning bättre än 57 px. Blir ett besvär med ett långt svar i fältet löses det genom att läsa i hel, inte genom att ta pixlar från kartan. Inte verifierat på riktig iPhone/PWA (finger, handske, safe-area).
+- **STÄNGD 2026-10-20 — origo-testet var inget ordningsberoende utan en tidsrace (`app/egenkontroll/[objektId]/page.origo.render.test.tsx`).** Testet "Betet gallring …" föll vid ensam körning (3 av 3) men inte i mappen/sviten. **Orsak:** filen var den enda av sidtesterna som inte mockade `kompletteraRunda`; testrundorna har bara planpunkter, så sidan kompletterar dem vid öppningen och anropet gick mot den RIKTIGA Supabase-klienten (`kravSession` → `await import('./supabase')` → "Du är inte inloggad längre"). Första anropet i en kall process tog 62–77 ms (modulladdningen), alla senare 0–2 ms, och testet väntade bara ETT `setTimeout(0)` (`stilla()`) efter att Vida svarat — den första testen kollade kartan innan sidan hunnit klart. Bevis: ett extra `stilla()` gav 2 av 3 gröna; med en annan sidtestfil bredvid blev filen grön 3 av 3 i alla fyra kombinationerna. **Åtgärd:** (1) `kompletteraRunda` mockas som i de andra sidtesterna, (2) FIXEN: testerna väntar på ett VILLKOR (`vantaTills`: kartan finns, startknappen finns, sidan har frågat efter Vida) med en förklarande timeout i stället för ett fast antal tick — utan mocken ensam vinner villkorsväntan 6 av 6, med båda 10 av 10 ensamma. Mutationsbatteriet `mut_origo.py` kördes om efteråt, se PR-texten.
+- **STÄNGD 2026-10-20 (#850 + vakten) — testfiler som nådde den RIKTIGA Supabase-klienten.** Sonden över hela sviten (393 filer) hittade fyra sidtester som gick förbi sin mock (`page.origo` via `kompletteraRunda`, `page.kommentar`/`observation`/`ryggrad` via `hamtaVidaGrans`, `hamtaStammoln`, `hamtaHyttspar`): utan session svarar klienten "inte inloggad", appkoden fångar felet och tar läsfelsvägen, testet blir grönt men prövar en annan väg än den det påstår (och en kall modulladdning gjorde origo-testet till en tidsrace, #849). De tre filerna mockas nu (#850) och blev gröna direkt — de berodde aldrig på datan (felsvar i mockarna ger också grönt). **Vakten (`vitest.setup.ts` → `lib/testStod/supabaseVakt.ts`, test `lib/testStod/supabaseVakt.test.ts`):** `@/lib/supabase` byts i VARJE testfil mot en klient som aldrig skapas på riktigt; varje användning (`from`, `rpc`, `auth` …) registreras och kastar, och en `afterEach` fäller testet om något registrerats — också när appkoden fångat felet — med egenskapen och var i koden. En testfils egen `vi.mock('@/lib/supabase', …)` går före (53 filer har en). Bevis: de tre filerna FÖRE #850 mot vakten = 40 av 40 röda med pekare till `hamtaVidaGrans`/`hamtaStammoln`; hela sviten 6 785 gröna med vakten på; en underkörning med samma setup prövar att ett test som fångar felet ändå faller; mutationskontroll 10 av 10 (`python`-skriptet ligger i PR-texten). **Följd:** de 14 filer som bara laddade modulen skapar inte längre en klient, så de behöver inga Supabase-variabler (CI-jobbets platshållare behövs ändå för prod-testerna och routerna som skapar en egen klient). Vill ett test medvetet nå en klient mockar det den själv. **ÖPPEN PUNKT kvar:** direkta `createClient`/`createBrowserClient`-anrop i testfiler och i kod som testet laddar (`lib/notis.flush.test.ts` skapar medvetet en klient mot prod och hoppas över i CI via `lib/testProdEnv.ts`; routrar som skapar en egen klient mockas av sina tester) täcks inte av vakten — sonden såg inget oavsiktligt fall, men en stängning kräver en opt-in för de medvetna prod-testerna och är en egen ändring.
 - **Egenkontrollen, ordningen härifrån (Martin 2026-10-19):** (1) Martin testar #837 på telefonen i previewn och mergar själv. (2) **7b död kod** först — `lib/egenkontrollSerie.ts` och de flöden sidan inte längre använder; liten PR, egen branch (byggd 2026-10-19 på `egenkontroll-dod-kod`; `avslutaStatus` bor nu i `lib/egenkontrollAvsluta.ts`). **Dubbeltrycksskyddet fanns bara i den döda serien (`TUMSKYDD_MS`) och dockan hade inget eget — den fick `DOCK_SKYDD_MS` (350 ms) i samma PR (#841).** Sedan **PR 4b** (byggd 2026-10-19 på `egenkontroll-4b-lagen`: sänkt läge, fast rad som visar innehållet, vakten smalnad till samma tryckyta, arket animerar bara vid lägesbyte — se nästa punkt). (3) **Utred det ordningsberoende origo-testet (se nästa punkt) — FÖRE PR 5.** (3b) **PR 5** (stickprovet + vägbeskrivning), utreds först när 7b är mergad. (4) **PR 6** (Vidas elva betygsrubriker). (5) **PR 8** sist, när Martin gått en runda i den nya ramen. 7a (tokenskuld), 7c (Centrera) och 7d (kartlagen + ritlagret) har ingen plats i ordningen än. Inget byggs före Martins besked att föregående är mergad.
-- **PR 8 — "Bättre så" och lägena Kontroll · Utfall · Bättre så (EJ BYGGD; riktningen beslutad av Martin 2026-10-19, inte en spec).** En funktion, inte skuld, och därför inte en del av PR 7. Idén: besiktaren ritar en skiss över hur något skulle ha gjorts bättre (t.ex. hur basvägen borde dragits) och rundan får tre lägen — Kontroll (dagens), Utfall och Bättre så. Frågan "vad läser ritningen?" är besvarad:
+- **PR 5 — månadens stickprov + vägbeskrivning (UTREDD 2026-10-20, beslut Martin; migrationerna `20261020093115`–`20261020093202_egenkontroll_stickprov_1…4` KÖRDA i prod 2026-10-20, `20261020094713_…_5a_ankare_forsok` och `20261020094743_…_5b_dra_med_granne` också körda; prod-provkörning 100 dragningar på oktobers 6 kandidater, rullat tillbaka: 100/100 gav tre objekt, spridning 14,8 km, 0 ensamma).** Klusterurval: kandidater = FÖREGÅENDE månads avslutade objekt (gallring/slutavverkning). **Ankare = den FÖRSTA kandidaten i fro-ordning (`md5(fro || ':' || id)`, stigande) som har minst en granne inom 15 km fågelväg** (regel version 2, del 5; version 1 tog kandidat `md5(fro)` mod n och gav i torrkörningen mot oktober ett ensamt objekt i 2 av 10 dragningar — en halv förmiddag i bilen för ett objekt). Har ingen kandidat en granne dras den första i fro-ordning ensam. Grannar = de närmaste inom 15 km, högst två. **Närheten slår antalet:** `min(3, det som ligger samlat)`, aldrig "fyll upp till tre"; en tunn månad drar det som finns. `ankare_forsok` sparar hur många ankare som prövades (1 = första duger; inget kluster = antalet kandidater). **Känd blind fläck, medvetet ingen regel för den:** ett objekt som ligger för sig självt dras aldrig så länge ett kluster finns (oktober: Toftåsa, Bågskyttebanan och Betet gallring kan inte dras) — det syns i datan (kandidater månad efter månad utan att dras) men ingen åtgärd byggs förrän Martin säger till. Ankare utan koordinat dras bara när inget kluster finns (då ensamt, `ankare_utan_plats`). Dragningen låses (trigger, ingen skrivväg i appen), sparar `fro` + frusen kandidatlista så ankaret kan räknas om utan databasen (stegen står i `lib/egenkontrollStickprov.ts`). Dras vid första läsning i en ny månad (appen ELLER `/api/notis/flush`, Vercel-cron var 5:e min) — ingen pg_cron. **Första dragning november 2026** (konstant `c_forsta` i del 4). Arealen viktar inte; den visas på raden. Typgrupper = `objekt.typ` (`dim_objekt.atgard` bär inte datan: 9 av 31 avslutade får en åtgärd via #812-uppslaget och alla sex gallringar är "Första gallring"). **GROT och energiklippning står utanför dragningen tills det finns avslutade objekt av typen OCH en utförandekatalog för den** (`ObjektTyp` är bara gallring | slutavverkning, `utforandeKatalog` har inget för dem; idag finns inget avslutat GROT-objekt, bara ett pågående). Historikraderna ("Oktober: 2 av 3 gjorda") byggs INTE förrän det finns en bakad månad. Filerna i `supabase/migrations/` är byte-identiska med det som kördes i prod (md5-jämförelse); regelbeskrivningen står i 5a/5b, och omräkningen steg för steg i `lib/egenkontrollStickprov.ts`. Lokalt test: `supabase/tests/egenkontroll_stickprov_lokal/`.
+- **PR 5 appdelen (byggd 2026-10-20 på `egenkontroll-pr5-stickprov`, #854).** Listan (`app/egenkontroll/page.tsx` + `ListDelar.tsx`): beslutskort, "Den här månaden", Påbörjade (N) ›, Klara (N) ›, "Starta på ett annat objekt ›" (längst väntat först) — beslut Martin 2026-10-20, se CLAUDE.md. Vägbeskrivning i rundans hel-läge. OSRM-koden flyttad oförändrad till `lib/hooks/useVagavstand.ts` (ObjektLista.test + .karta.test, 83 tester, orörda och gröna). Notisen "Månadens stickprov" i `/api/notis/flush`. **Release före 1 november (annars dras stickprovet först vid första öppningen av listan och pushen uteblir den första månaden — inget går sönder).** **Beslut Martin 2026-10-20 (efter förhandsgranskningen):** listan hämtar EN position (`useEnPosition`, lägre noggrannhet), inte en bevakning; raden "GROT och energiklippning går inte att starta" är borttagen (en rad som varje gång pekar på något man inte kan göra är brus — GROT och energiklippning tas med i listan och dragningen först när det finns avslutade objekt av typen OCH en utförandekatalog för den). Öppna punkter: ingen riktig-telefon-körning (position, OSRM mot det publika API:t, bilknappen i en installerad PWA); **en "Granska"-knapp för stickprovet byggs INTE** — omräkningen (`raknaOmDragning`/`stammerDragningen`) finns som kod och test, och den dag Vida frågar går den att visa därifrån.
+- **PR 8a — kartlagen i rundvyn (byggd 2026-10-20 på `egenkontroll-pr8a-lager`; beslut Martin 2026-10-20 på utredningen).** PR 8 delades: **8a = lagren** (denna), **8b = "Bättre så"-ritandet**, som väntar tills Martin gått en runda i den nya ramen. Inget annat ändrades i rundvyn. **Fyra beslut:** (1) standarden lägger inget nytt på kartan — den nedtonade kontexten (diken, stickvägar, basvägar som inte är kontrollpunkter) ritas som den alltid gjort och raden "Basväg och stickvägar (plan)" LYFTER vägarna till full styrka, den tar inte fram dem; (2) **ingen automatik** — inget lager tänds eller släcks av sig självt, och knappen "Visa hyttspåret" skriver SAMMA värden som menyn (ett tillfälligt lyft hade gjort att menyraden står på "av" medan lagret är på: menyn ljuger); (3) valet sparas **per enhet** i `localStorage` (`egenkontroll_lager_v1`), inte per objekt, och tomt/trasigt/avstängt minne ger standarden (vyn beror aldrig på det; en kallstart sparar inget); (4) vår egen `boundary`-linje rörs inte (den enda linjen ingen stänger av). **Avsteg från det Martin godkände, och varför:** knappen "Visa hyttspåret" bor **inte i radens knappar** utan som en kartknapp i sidokolumnen ovanför Centrera (bara när en basväg är markerad). En sjätte knapp i raden, eller en knapp i rubrikraden, hade antingen krävt att dockan växer när Basväg-punkten markeras (brickorna hoppar då under fingret — felet 4b rättade) eller en träffyta under 44 px; kartknappen finns dessutom när arket är sänkt, då raden är dold. **Ingen migration** (datan finns i `planering_markeringar` och `hyttspar`). Se CLAUDE.md, "Rundvyns kartlager (PR 8a)". **Öppna punkter:** (a) inte provat på riktig telefon (iOS laddar om PWA:n när man kommer tillbaka från Kartor — valet i `localStorage` är byggt för det men det är inte provat där); (b) ett sparat "tänt" val för en roll som saknas på ett objekt ligger kvar och tänder rollens spår på nästa objekt som har det — det är avsikten (arbetssätt per enhet), men det är också det som kan förvåna; (c) hyttsparet ritas utjämnat (`hamtaHyttspar` → `hyttsparRitadeLinjer`, bara ritning) och mäter ingenting — "följde basvägen?" avgörs fortfarande av ögat; (d) `GaTillYta` (provytans gå-vy) skickar inga spår och ingen Vida-gräns, så där syns bara planens lyfta vägar om de är tända.
+- **Tomma egenkontrollrundor raderas (Martin 2026-10-20; SQL i `docs/data-korrigeringar/2026-10-20_tomma_egenkontrollrundor.sql`, körs av Martin).** 11 pågående rundor utan ett enda svar, foto, provyta, observation eller kommentar (158 genererade punkter) — Aramo, Bjällerhult, Brokamåla, Bromåla, Hålabäck au, Hålabäck gallring, Hallaslätt, Östra-Hoka, Räveboda gallring, Stänkelsmåla, Toftåsa. De 8 pågående med svar (Rävemåla 25, Ulfsnäs 22, Krokshult 12, Jätsbygd 4, Akelius 3, Betet AU 2, Hössjömåla 2, Betet gallring 1) och de 5 klara rörs inte. Ångra: tillbaka ur säkerhetstabellerna `egenkontroll_tomma_rundor_20261020` / `…_punkter_20261020` (kommandot står i filen). **Hålabäck gallrings väntande omlottning av provytor är därmed överflödig** (ny runda ger nya provytor med dagens origo). Betet gallring (1 svar, 0 provytor) står kvar och väntar på Martins besked.
+- **PR 8 — "Bättre så" ... ERSATT 2026-10-21 av PR 9 (noteringar; 9a byggd, 9b kvar): ETT verktyg, se "NOTERINGAR PÅ KARTAN" ovan.** Texten nedan är den ursprungliga riktningen (2026-10-19) och gäller INTE längre i samma form (Martin vill ha båda avsikterna i bilagan till Vida). — **PR 8 — "Bättre så" och lägena Kontroll · Utfall · Bättre så (EJ BYGGD — det här är PR 8b; lagren byggdes som 8a, se ovan; riktningen beslutad av Martin 2026-10-19, inte en spec).** En funktion, inte skuld, och därför inte en del av PR 7. Idén: besiktaren ritar en skiss över hur något skulle ha gjorts bättre (t.ex. hur basvägen borde dragits) och rundan får tre lägen — Kontroll (dagens), Utfall och Bättre så. Frågan "vad läser ritningen?" är besvarad:
   - **Inte Vida.** Skisser går inte till Vida och hör inte hemma i rapporten som bilaga. En "så här skulle vi gjort" till en kund är ett skriftligt medgivande, och då ritas det försiktigare. Verktyget är internt.
   - **Markeringen sparas på objektet** (`planering_markeringar`, egen kategori) — men objektet är inte mottagaren. En gallring återkommer efter 8–12 år och en slutavverkning aldrig, så som återkoppling till nästa planering av SAMMA objekt läser den ingen.
   - **Mottagaren är planeringen av NÄSTA objekt.** Lärdomen handlar om marktypen, inte om objektet. Mekanismen: när en ny planering öppnas visar appen själv "N Bättre så-skisser från närliggande objekt med samma åtgärd". **Pushad, inte hämtad** — ett bibliotek man ska söka i öppnas aldrig.
@@ -1485,6 +1574,359 @@ Facit att stamma av mot finns hogre upp i filen:
 Husjonas (objekt_id 11124938) = 1 349 stammar,
 678 m3sub, 433 163 kr.
 
+## STUBBEHANDLINGSPUNKTEN STYRS AV dim_objekt.stubbbehandling (2026-10-17)
+
+**Regeln före:** egenkontrollen lade till mätpunkten Stubbehandling om objektets avslutsdatum låg i maj–september, oavsett om det var gallring
+eller slutavverkning (`harStubbehandling` i `lib/egenkontroll.ts`). I prod satt 7 av 9 punkter på slutavverkningar, där vi inte stubbehandlar.
+**Regeln nu:** punkten skapas om och bara om `dim_objekt.stubbbehandling = true`. Ingen säsong, ingen reserv. Objektet nås via
+`objekt.dim_objekt_id`; saknas den söks `dim_objekt.vo_nummer = objekt.vo_nummer` och bara **exakt en träff** gäller (noll eller två träffar ger ingen
+punkt). Samma ordning som `lib/redigering/objektRouter.ts`. Ett läsfel avbryter rundstarten innan något skrivits.
+
+**DETTA ÄR ETT PLÅSTER.** Grundfelet är att `objekt.dim_objekt_id` saknas på 15 av 16 pågående rundor (bara Hössjömåla Gallring 25 har den).
+Det blockerar också **vädret** (1 av 16 rundor har väder `ok`, 9 har `saknar_skotdatum`, 6 startades före väderfunktionen) och
+**gran/tall-villkoret** på stubbehandling (trädslag nås via `dim_objekt_id` → `hpr_stammar`). Den riktiga fixen (C) är att fylla
+`objekt.dim_objekt_id`; det rör ett tiotal läsare (arbetsrapport, maskinflytt, helikopter, import, Redigering › Matchning) och är en **egen uppgift**,
+inte en del av den här PR:en. Vo-nummer-uppslaget kan tas bort när C är gjord.
+
+**Redigerings-hintet** "Säsong: skördningen avslutades … stubbehandling bör vara ja" (`RedigeringClient.tsx`) är borttaget helt: säsongen är fel grund
+oavsett typ (Toftåsa och Hössjömåla är stubbehandlade med skördningen avslutad i oktober respektive april). Fältet kommer från bokningen.
+
+### Rensning i prod — KÖRD 2026-10-20 (SQL 3 och SQL 4); ny omgång SQL 5 (fyra punkter) FÖRESLAGEN, EJ KÖRD (körs av Martin via MCP; Claude kör ingen DELETE)
+
+**Utfall, läst ur prod 2026-10-21:** SQL 3 och SQL 4 kördes av Martin 2026-10-20. De sex obesvarade punkterna är borta. Rävemåla AU 2026 har 25 punkter, 0 obesvarade,
+ingen stubbehandlingspunkt; dess punkt (`c2cb0347-…`) och fotorad (`70af7a5b-…`) är borta. Ulfsnäs AU 2026 har 22 punkter, 0 obesvarade och ingen
+stubbehandlingspunkt — den går att avsluta. De tre gallringarna (Hålabäck gallring 2026, Hössjömåla Gallring 25, Räveboda gallring 2026) har rätt punkt och rörs inte.
+**Bildfilen i bucketen finns kvar** (`fotofil_finns = 1` 2026-10-21) — den togs inte bort i Storage; den står i filistan under SQL 5 nedan.
+
+**Felet fortsatte ändå medan #812 låg omergad** (rundor startade 2026-10-19 och 2026-10-20 på gammal kod gav nya punkter på slutavverkningar) — se SQL 5 nedan.
+Blocken härunder (förkontroll, SQL 3, SQL 4, efterkontroll) är **KÖRDA och står kvar som historik: kör dem inte igen** (alla skydd är desamma, men raderna är redan borta).
+
+```sql
+-- (KÖRD, historik) FÖRKONTROLL (bara läsning). Ska ge: sex_traffar = 6, ravemala_ok = true, fotofil_finns = 1.
+select
+  (select count(*) from egenkontroll_punkt p
+     join egenkontroll e on e.id = p.egenkontroll_id
+     join objekt o on o.id = e.objekt_id
+    where p.id = any(array[
+    'e3bc450a-555b-4bd2-b3a8-1c54ca725449',
+    '35a00dc6-4f2b-4b81-8e4f-dc087b7531d8',
+    '0df6f127-a3d9-4e72-805c-48c41f000ddf',
+    'ba374f18-e1dc-45dc-85f7-87c243570484',
+    'd31aa450-1170-4407-a4bb-286ac966a816',
+    '14f40c18-23b3-4e25-9a0b-a4df254a7a2e'
+  ]::uuid[])
+      and p.kalla = 'fast' and p.punkt_typ = 'stubbehandling' and p.status is null and p.varde_bekraftat is null
+      and not exists (select 1 from egenkontroll_foto f where f.punkt_id = p.id)
+      and e.status = 'pagaende' and o.typ = 'slutavverkning') as sex_traffar,
+  exists (select 1 from egenkontroll_punkt
+           where id = 'c2cb0347-54d9-4f6d-ac25-ed670a02b4fc' and egenkontroll_id = 'bed3e66d-1f02-4be5-99fb-9970ce51adee'
+             and kalla = 'fast' and punkt_typ = 'stubbehandling' and status = 'ok' and varde_bekraftat = 85
+             and besvarad = '2026-10-17T16:26:38.624+00:00'::timestamptz) as ravemala_ok,
+  (select count(*) from storage.objects where bucket_id = 'egenkontroll-foto' and name = 'bed3e66d-1f02-4be5-99fb-9970ce51adee/c2cb0347-54d9-4f6d-ac25-ed670a02b4fc-1792254396234.jpg') as fotofil_finns;
+```
+
+```sql
+-- KÖRD 2026-10-20. SQL 3: de sex OBESVARADE stubbehandlingspunkterna på slutavverkningar (inga foton, inget värde).
+-- EN transaktion (DO-block): stämmer inte antalet exakt 6 rullas ALLT tillbaka.
+do $$
+declare
+  forvantade constant uuid[] := array[
+    'e3bc450a-555b-4bd2-b3a8-1c54ca725449',
+    '35a00dc6-4f2b-4b81-8e4f-dc087b7531d8',
+    '0df6f127-a3d9-4e72-805c-48c41f000ddf',
+    'ba374f18-e1dc-45dc-85f7-87c243570484',
+    'd31aa450-1170-4407-a4bb-286ac966a816',
+    '14f40c18-23b3-4e25-9a0b-a4df254a7a2e'
+  ]::uuid[];
+  n int;
+begin
+  delete from egenkontroll_punkt p
+   using egenkontroll e, objekt o
+   where p.id = any(forvantade)
+     and e.id = p.egenkontroll_id
+     and o.id = e.objekt_id
+     and p.kalla = 'fast'                    -- skydd 1: fast punkt, ingen markering
+     and p.punkt_typ = 'stubbehandling'      -- skydd 2: bara stubbehandling
+     and p.status is null                    -- skydd 3: obesvarad
+     and p.varde_bekraftat is null           -- skydd 4: inget mätvärde
+     and not exists (select 1 from egenkontroll_foto f where f.punkt_id = p.id)  -- skydd 5: inga foton
+     and e.status = 'pagaende'               -- extra: aldrig en avslutad runda
+     and o.typ = 'slutavverkning';           -- extra: aldrig en gallring
+  get diagnostics n = row_count;
+  if n <> 6 then
+    raise exception 'Väntade att radera exakt 6 punkter men raderade %. Allt rullas tillbaka.', n;
+  end if;
+end $$;
+```
+
+```sql
+-- KÖRD 2026-10-20. SQL 4: Rävemåla AU 2026 — Martins egen testmätning (85 %, foto 16:26:37, punkt 16:26:38, fotot utan position).
+-- Raderar punkten och fotoraden. FILEN i bucketen tas bort separat (se STATUS.md): SQL kan inte radera storage.objects.
+-- EN transaktion (DO-block): avviker NÅGOT från det som granskats rullas ALLT tillbaka.
+do $$
+declare
+  p    constant uuid := 'c2cb0347-54d9-4f6d-ac25-ed670a02b4fc';
+  foto constant uuid := '70af7a5b-8b71-404f-9ce4-f21ddede64ba';
+  n int;
+begin
+  if not exists (select 1 from egenkontroll_punkt
+                  where id = p and egenkontroll_id = 'bed3e66d-1f02-4be5-99fb-9970ce51adee'
+                    and kalla = 'fast' and punkt_typ = 'stubbehandling'
+                    and status = 'ok' and varde_bekraftat = 85
+                    and besvarad = '2026-10-17T16:26:38.624+00:00'::timestamptz) then
+    raise exception 'Punkten är inte längre exakt den som granskats. Inget raderat.';
+  end if;
+  if not exists (select 1 from egenkontroll e where e.id = 'bed3e66d-1f02-4be5-99fb-9970ce51adee' and e.status = 'pagaende') then
+    raise exception 'Rundan är inte längre pågående. Inget raderat.';
+  end if;
+  if (select count(*) from egenkontroll_foto where punkt_id = p) <> 1
+     or not exists (select 1 from egenkontroll_foto
+                     where id = foto and punkt_id = p and tackningsgrad = 85
+                       and lat is null and lng is null
+                       and sokvag = 'bed3e66d-1f02-4be5-99fb-9970ce51adee/c2cb0347-54d9-4f6d-ac25-ed670a02b4fc-1792254396234.jpg') then
+    raise exception 'Fotoraden är inte längre exakt den som granskats. Inget raderat.';
+  end if;
+
+  delete from egenkontroll_foto where id = foto;
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'Väntade 1 fotorad, raderade %. Allt rullas tillbaka.', n; end if;
+
+  delete from egenkontroll_punkt where id = p;
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'Väntade 1 punkt, raderade %. Allt rullas tillbaka.', n; end if;
+end $$;
+```
+
+**Filen i bucketen — FINNS KVAR 2026-10-21** (raden och punkten är borta, filen är en föräldralös fil som ingen länkar till; `egenkontroll-foto`, 287 776 byte, `storage.objects.id` 69bc8e02-edc7-44f6-a827-65deaf7cf2b0):
+
+    bed3e66d-1f02-4be5-99fb-9970ce51adee/c2cb0347-54d9-4f6d-ac25-ed670a02b4fc-1792254396234.jpg
+
+**Den går INTE att ta bort med SQL.** Triggern `protect_objects_delete` (BEFORE DELETE på `storage.objects` → `storage.protect_delete()`) stoppar
+direkta DELETE, och en radering av raden skulle ändå lämna själva filen kvar. Ta bort den via Storage API: Supabase › Storage › `egenkontroll-foto` ›
+mappen `bed3e66d-…` › filen › Delete. Bucketens policy tillåter radering eftersom rundan är pågående. Raden är redan borta, så filen kan tas bort när som helst; kontrollera med `select count(*) from storage.objects where bucket_id = 'egenkontroll-foto' and name = '<sökvägen ovan>'` att den är 0. Vill man ha en kopia av bilden: ladda ner den
+innan.
+
+```sql
+-- (KÖRD, historik) EFTERKONTROLL (bara läsning), efter SQL 3, SQL 4 och att filen tagits bort i Storage.
+-- Ska ge: kvar_pa_slutavverkning = 0, ravemala_punkt = 0, ravemala_fotorad = 0, fotofil_finns = 0,
+--         gallringarna_kvar = 2 (Hössjömåla och Hålabäck gallring 2026 — dem rör vi inte).
+select
+  (select count(*) from egenkontroll_punkt p join egenkontroll e on e.id = p.egenkontroll_id join objekt o on o.id = e.objekt_id
+    where p.punkt_typ = 'stubbehandling' and o.typ = 'slutavverkning') as kvar_pa_slutavverkning,
+  (select count(*) from egenkontroll_punkt where id = 'c2cb0347-54d9-4f6d-ac25-ed670a02b4fc') as ravemala_punkt,
+  (select count(*) from egenkontroll_foto where id = '70af7a5b-8b71-404f-9ce4-f21ddede64ba') as ravemala_fotorad,
+  (select count(*) from storage.objects where bucket_id = 'egenkontroll-foto' and name = 'bed3e66d-1f02-4be5-99fb-9970ce51adee/c2cb0347-54d9-4f6d-ac25-ed670a02b4fc-1792254396234.jpg') as fotofil_finns,
+  (select count(*) from egenkontroll_punkt p join egenkontroll e on e.id = p.egenkontroll_id join objekt o on o.id = e.objekt_id
+    where p.punkt_typ = 'stubbehandling' and o.typ = 'gallring') as gallringarna_kvar;
+```
+
+### Ångra
+
+Återskapar raderna exakt (bevisat före körning: `jsonb_populate_recordset` ger tillbaka samma jsonb som de levande raderna, md5 av underlagsfilerna
+81481d0e…, 58c1617c…, e2b207f7…). **Bildfilen återskapas inte** när den väl är borttagen — ladda ner den först om den ska kunna återställas.
+
+```sql
+-- ÅNGRA (återskapar raderna exakt som de var; filen i bucketen återskapas INTE, se nedan).
+-- De sex obesvarade punkterna:
+insert into egenkontroll_punkt
+select * from jsonb_populate_recordset(null::egenkontroll_punkt, $json$[{"id":"e3bc450a-555b-4bd2-b3a8-1c54ca725449","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":17,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"b44fe8e3-07e0-4ccc-8807-908ed3f8a95e","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"35a00dc6-4f2b-4b81-8e4f-dc087b7531d8","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":12,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"0ba79da8-d3c6-4458-a13f-41b3c357fa08","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"0df6f127-a3d9-4e72-805c-48c41f000ddf","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":14,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"334a3f8d-40c6-423a-a0f9-24627069fa12","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"ba374f18-e1dc-45dc-85f7-87c243570484","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":10,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"a5148685-ca02-4989-904f-e7db2da70692","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"d31aa450-1170-4407-a4bb-286ac966a816","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":15,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"813b7267-3058-4852-b800-7fbab18880fd","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"14f40c18-23b3-4e25-9a0b-a4df254a7a2e","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":23,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"d276eb57-4133-4d16-a6e7-93ad9f319cf4","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null}]$json$::jsonb);
+
+-- Rävemåla: punkten FÖRST, sedan fotoraden (fotoraden pekar på punkten):
+insert into egenkontroll_punkt
+select * from jsonb_populate_recordset(null::egenkontroll_punkt, $json$[{"id":"c2cb0347-54d9-4f6d-ac25-ed670a02b4fc","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":"ok","ordning":26,"besvarad":"2026-10-17T16:26:38.624+00:00","kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"bed3e66d-1f02-4be5-99fb-9970ce51adee","varde_bekraftat":85,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null}]$json$::jsonb);
+insert into egenkontroll_foto
+select * from jsonb_populate_recordset(null::egenkontroll_foto, $json$[{"id":"70af7a5b-8b71-404f-9ce4-f21ddede64ba","lat":null,"lng":null,"tagen":"2026-10-17T16:26:37.926+00:00","skapad":"2026-10-17T16:26:38.037692+00:00","sokvag":"bed3e66d-1f02-4be5-99fb-9970ce51adee/c2cb0347-54d9-4f6d-ac25-ed670a02b4fc-1792254396234.jpg","punkt_id":"c2cb0347-54d9-4f6d-ac25-ed670a02b4fc","provyta_id":null,"tackningsgrad":85,"egenkontroll_id":"bed3e66d-1f02-4be5-99fb-9970ce51adee"}]$json$::jsonb);
+```
+
+### SQL 5 — fyra felaktiga stubbehandlingspunkter på slutavverkningar (2026-10-21) — EJ KÖRD (körs av Martin via MCP; Claude kör ingen DELETE)
+
+Läst ur prod 2026-10-21: 7 stubbehandlingspunkter, varav **4 på slutavverkningar** — alla skapade av den gamla säsongsregeln efter att SQL 3 körts. **Alla fyra ska bort** (Martin 2026-10-21):
+punkten sitter på en slutavverkning, där vi inte stubbehandlar, så ett svar på den är ett svar på en fråga som aldrig skulle ha ställts.
+
+| Runda | Startad (UTC) | Läge | Del |
+|---|---|---|---|
+| Aramo Marcus AU 2026 | 2026-10-19 08:35 | obesvarad, inga foton | A |
+| Kämpamåla AU 2026 | 2026-10-20 16:09 | obesvarad, inga foton | A |
+| Stänkelsmåla 2025 | 2026-10-20 08:18 | obesvarad, inga foton | A |
+| Krokshult AU 2026 | 2026-10-19 08:35 | **besvarad** (ok, 85 %, 1 foto, 2026-10-19 08:36:47) | **B — egna skydd** |
+
+De tre på gallring (Hålabäck gallring 2026, Hössjömåla Gallring 25, Räveboda gallring 2026) är rätt och rörs inte.
+Krokshult-rundans övriga 11 punkter (varav en med eget foto, Risning av basväg) rörs inte.
+
+**ORDNINGEN ÄR VIKTIG:**
+1. **`production` förs fram först.** Den ligger 24 commits efter `main` (2026-10-21) och saknar #812, så nya felaktiga punkter skapas tills dess.
+2. **SEDAN SQL 5.** Körs den före kommer punkterna tillbaka (varje ny runda på en slutavverkning får punkten igen).
+3. **Därefter de 11 tomma rundorna** (`docs/data-korrigeringar/2026-10-20_tomma_egenkontrollrundor.sql`; ej körd, säkerhetstabellerna finns inte 2026-10-21). Aramo och Stänkelsmåla står på båda listorna:
+   raderas rundorna först hittar del A bara 1 av 3 och SQL 5 rullar tillbaka utan att röra något — då ska del A bara ha de punkter som finns kvar; efter SQL 5 raderas Aramo och Stänkelsmåla ändå med sina rundor, så ordningen spelar ingen roll för dem.
+
+**Om Krokshults svar (Martin avgjorde det på typen, inte på tidsstämplarna):** 85 är reglagets startvärde (`StubbeSheet`: `useState(KRAVNIVA_STUBBEHANDLING)`), `tagen` stämplas av koden vid sparandet
+(`sparaStubbe`, `new Date()`), så de 0,24 s mellan foto och svar är sparsekvensen och bevisar inget om reglaget; rundan startades av Martin 08:35:55 och de 10 utförandepunkterna besvarades 08:36:14–08:36:34 med 1–3 s emellan.
+Det avgör ingenting — skälet är att punkten aldrig skulle ha funnits.
+
+**Skydd (provade lokalt 2026-10-21 mot en tom Postgres 16 med stubbtabeller och samma FK-regler som prod — ON DELETE CASCADE foto → punkt och notering → foto):** ett lyckat fall (5 → 1 stubbehandlingspunkt, gallringen och Krokshult-rundans övriga punkt och foto orörda, säkerhetskopior 4 + 1 rader, RLS på)
+och sju felfall där ALLT rullas tillbaka (inga säkerhetstabeller kvar heller): SQL:en körd en andra gång, Krokshult med annat värde, notering på Krokshult-fotot, en obesvarad med foto, en obesvarad som fått svar, Krokshult-rundan avslutad, Krokshult-fotot med annan sökväg, en av de tre på en gallring. Ångra från säkerhetstabellerna gav tillbaka exakt det ursprungliga (6 punkter, 2 foton). Mot prod är bara förkontrollen körd (bara läsning).
+
+```sql
+-- FÖRKONTROLL (bara läsning). Ska ge: tre_traffar = 3, krokshult_ok = true, stubbe_pa_slutavverkning_nu = 4, gallringarna = 3,
+--   sakerhetstabeller = 0, foto_filer_i_bucketen = 2.
+select
+  (select count(*) from egenkontroll_punkt p join egenkontroll e on e.id = p.egenkontroll_id join objekt o on o.id = e.objekt_id
+    where p.id = any(array[
+      '06a52d26-1fa8-4594-b58b-757e9c7ffe51',   -- Aramo Marcus AU 2026
+      '18e7f7af-d1ae-492f-9d25-d3a01e743949',   -- Kämpamåla AU 2026
+      '69415d37-7bb9-4e43-b08a-bbe2a4c18df3'    -- Stänkelsmåla 2025
+    ]::uuid[])
+      and p.kalla = 'fast' and p.punkt_typ = 'stubbehandling' and p.status is null and p.varde_bekraftat is null and p.besvarad is null
+      and not exists (select 1 from egenkontroll_foto f where f.punkt_id = p.id)
+      and e.status = 'pagaende' and o.typ = 'slutavverkning') as tre_traffar,
+  exists (select 1 from egenkontroll_punkt p join egenkontroll e on e.id = p.egenkontroll_id join objekt o on o.id = e.objekt_id
+           where p.id = '4ab25e0b-41c7-453c-8e18-b178c5170b56' and p.egenkontroll_id = '646c410e-d81a-48a7-b293-b7ec9b01ee9d'
+             and p.kalla = 'fast' and p.punkt_typ = 'stubbehandling' and p.status = 'ok' and p.varde_bekraftat = 85
+             and p.besvarad = '2026-10-19T08:36:47.349+00:00'::timestamptz and e.status = 'pagaende' and o.typ = 'slutavverkning'
+             and (select count(*) from egenkontroll_foto f where f.punkt_id = p.id) = 1
+             and not exists (select 1 from egenkontroll_notering n where n.foto_id = 'fb7f5284-2f11-4e5d-b570-d6f9b76dac36')) as krokshult_ok,
+  (select count(*) from egenkontroll_punkt p join egenkontroll e on e.id = p.egenkontroll_id join objekt o on o.id = e.objekt_id
+    where p.punkt_typ = 'stubbehandling' and o.typ = 'slutavverkning') as stubbe_pa_slutavverkning_nu,
+  (select count(*) from egenkontroll_punkt p join egenkontroll e on e.id = p.egenkontroll_id join objekt o on o.id = e.objekt_id
+    where p.punkt_typ = 'stubbehandling' and o.typ = 'gallring') as gallringarna,
+  (select count(*) from information_schema.tables where table_name in ('egenkontroll_stubbe_punkter_20261021','egenkontroll_stubbe_foton_20261021')) as sakerhetstabeller,
+  (select count(*) from storage.objects where bucket_id = 'egenkontroll-foto' and name in (
+     '646c410e-d81a-48a7-b293-b7ec9b01ee9d/4ab25e0b-41c7-453c-8e18-b178c5170b56-1792399006660.jpg',
+     'bed3e66d-1f02-4be5-99fb-9970ce51adee/c2cb0347-54d9-4f6d-ac25-ed670a02b4fc-1792254396234.jpg')) as foto_filer_i_bucketen;
+```
+
+```sql
+-- SQL 5: de FYRA stubbehandlingspunkterna på slutavverkningar (Martin 2026-10-21: "där vi inte stubbehandlar").
+--   DEL A  tre OBESVARADE punkter (Aramo Marcus, Kämpamåla, Stänkelsmåla): inga foton, inget värde.
+--   DEL B  Krokshult AU 2026: BESVARAD (ok, 85 %, 1 foto) — egna skydd, delar inga villkor med del A.
+-- EN transaktion (DO-block): avviker något från det som granskats rullas ALLT tillbaka, också del A om del B faller (och tvärtom).
+-- Säkerhetskopia FÖRE raderingen i två tabeller (RLS på, inga policyer = otillgängliga via API:et): alla fyra punkterna och Krokshults fotorad.
+-- Bildfilerna i bucketen går inte att ta bort med SQL — se listan under blocket.
+do $$
+declare
+  obesvarade constant uuid[] := array[
+    '06a52d26-1fa8-4594-b58b-757e9c7ffe51',   -- Aramo Marcus AU 2026
+    '18e7f7af-d1ae-492f-9d25-d3a01e743949',   -- Kämpamåla AU 2026
+    '69415d37-7bb9-4e43-b08a-bbe2a4c18df3'    -- Stänkelsmåla 2025
+  ]::uuid[];
+  k_punkt  constant uuid := '4ab25e0b-41c7-453c-8e18-b178c5170b56';   -- Krokshult AU 2026, stubbehandling
+  k_runda  constant uuid := '646c410e-d81a-48a7-b293-b7ec9b01ee9d';
+  k_foto   constant uuid := 'fb7f5284-2f11-4e5d-b570-d6f9b76dac36';
+  k_sokvag constant text := '646c410e-d81a-48a7-b293-b7ec9b01ee9d/4ab25e0b-41c7-453c-8e18-b178c5170b56-1792399006660.jpg';
+  n int;
+begin
+  -- Säkerhetskopia först. Finns tabellerna redan (blocket har körts förut) faller CREATE och allt rullas tillbaka.
+  create table egenkontroll_stubbe_punkter_20261021 as
+    select p.* from egenkontroll_punkt p where p.id = any (obesvarade || k_punkt);
+  select count(*) into n from egenkontroll_stubbe_punkter_20261021;
+  if n <> 4 then raise exception 'Säkerhetskopian fick % punkter, väntade 4. Inget raderat.', n; end if;
+
+  create table egenkontroll_stubbe_foton_20261021 as
+    select f.* from egenkontroll_foto f where f.id = k_foto;
+  select count(*) into n from egenkontroll_stubbe_foton_20261021;
+  if n <> 1 then raise exception 'Säkerhetskopian fick % fotorader, väntade 1. Inget raderat.', n; end if;
+
+  alter table egenkontroll_stubbe_punkter_20261021 enable row level security;
+  alter table egenkontroll_stubbe_foton_20261021  enable row level security;
+
+  -- DEL A: tre obesvarade.
+  delete from egenkontroll_punkt p
+   using egenkontroll e, objekt o
+   where p.id = any (obesvarade)
+     and e.id = p.egenkontroll_id
+     and o.id = e.objekt_id
+     and p.kalla = 'fast'                    -- skydd 1: fast punkt, ingen markering
+     and p.punkt_typ = 'stubbehandling'      -- skydd 2: bara stubbehandling
+     and p.status is null                    -- skydd 3: obesvarad
+     and p.varde_bekraftat is null           -- skydd 4: inget mätvärde
+     and p.besvarad is null                  -- skydd 4b: ingen besvarad-tidpunkt
+     and not exists (select 1 from egenkontroll_foto f where f.punkt_id = p.id)  -- skydd 5: inga foton
+     and e.status = 'pagaende'               -- extra: aldrig en avslutad runda
+     and o.typ = 'slutavverkning';           -- extra: aldrig en gallring
+  get diagnostics n = row_count;
+  if n <> 3 then raise exception 'Del A: väntade att radera exakt 3 punkter men raderade %. Allt rullas tillbaka.', n; end if;
+
+  -- DEL B: Krokshult. Allt som granskats kontrolleras om i raderingsögonblicket.
+  if not exists (select 1 from egenkontroll_punkt
+                  where id = k_punkt and egenkontroll_id = k_runda and del = 'matning' and kalla = 'fast'
+                    and punkt_typ = 'stubbehandling' and rubrik = 'Stubbehandling'
+                    and status = 'ok' and varde_bekraftat = 85
+                    and besvarad = '2026-10-19T08:36:47.349+00:00'::timestamptz) then
+    raise exception 'Del B: Krokshult-punkten är inte längre exakt den som granskats. Inget raderat.';
+  end if;
+  if not exists (select 1 from egenkontroll e join objekt o on o.id = e.objekt_id
+                  where e.id = k_runda and e.status = 'pagaende' and o.typ = 'slutavverkning') then
+    raise exception 'Del B: Krokshult-rundan är inte längre en pågående slutavverkning. Inget raderat.';
+  end if;
+  if (select count(*) from egenkontroll_foto where punkt_id = k_punkt) <> 1
+     or not exists (select 1 from egenkontroll_foto
+                     where id = k_foto and punkt_id = k_punkt and egenkontroll_id = k_runda and provyta_id is null
+                       and tackningsgrad = 85 and lat is null and lng is null and sokvag = k_sokvag) then
+    raise exception 'Del B: fotoraden är inte längre exakt den som granskats. Inget raderat.';
+  end if;
+  if (select count(*) from egenkontroll_foto where sokvag = k_sokvag) <> 1 then
+    raise exception 'Del B: någon annan fotorad pekar på samma fil. Inget raderat.';
+  end if;
+  if exists (select 1 from egenkontroll_notering where foto_id = k_foto) then
+    raise exception 'Del B: det finns en notering på fotot (den skulle följa med via ON DELETE CASCADE). Inget raderat.';
+  end if;
+
+  delete from egenkontroll_foto where id = k_foto and punkt_id = k_punkt;
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'Del B: väntade 1 fotorad, raderade %. Allt rullas tillbaka.', n; end if;
+
+  delete from egenkontroll_punkt where id = k_punkt;
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'Del B: väntade 1 punkt, raderade %. Allt rullas tillbaka.', n; end if;
+
+  raise notice 'SQL 5: raderade 3 obesvarade punkter + Krokshult (1 punkt, 1 fotorad). Säkerhetskopior i egenkontroll_stubbe_punkter_20261021 / egenkontroll_stubbe_foton_20261021.';
+end $$;
+```
+
+```sql
+-- EFTERKONTROLL (bara läsning). Ska ge: tre_borta = 0, krokshult_punkt = 0, krokshult_fotorad = 0, stubbe_pa_slutavverkning = 0,
+--   gallringarna_kvar = 3, krokshult_runda_punkter = 11, backup_punkter = 4, backup_foton = 1.
+select
+  (select count(*) from egenkontroll_punkt where id = any(array['06a52d26-1fa8-4594-b58b-757e9c7ffe51','18e7f7af-d1ae-492f-9d25-d3a01e743949','69415d37-7bb9-4e43-b08a-bbe2a4c18df3']::uuid[])) as tre_borta,
+  (select count(*) from egenkontroll_punkt where id = '4ab25e0b-41c7-453c-8e18-b178c5170b56') as krokshult_punkt,
+  (select count(*) from egenkontroll_foto where id = 'fb7f5284-2f11-4e5d-b570-d6f9b76dac36') as krokshult_fotorad,
+  (select count(*) from egenkontroll_punkt p join egenkontroll e on e.id = p.egenkontroll_id join objekt o on o.id = e.objekt_id
+    where p.punkt_typ = 'stubbehandling' and o.typ = 'slutavverkning') as stubbe_pa_slutavverkning,
+  (select count(*) from egenkontroll_punkt p join egenkontroll e on e.id = p.egenkontroll_id join objekt o on o.id = e.objekt_id
+    where p.punkt_typ = 'stubbehandling' and o.typ = 'gallring') as gallringarna_kvar,
+  (select count(*) from egenkontroll_punkt where egenkontroll_id = '646c410e-d81a-48a7-b293-b7ec9b01ee9d') as krokshult_runda_punkter,
+  (select count(*) from egenkontroll_stubbe_punkter_20261021) as backup_punkter,
+  (select count(*) from egenkontroll_stubbe_foton_20261021) as backup_foton;
+```
+
+**Bildfilerna i bucketen — SQL kan inte ta bort dem** (`protect_objects_delete` på `storage.objects`; en DELETE av raden skulle ändå lämna själva filen kvar). Ta bort dem via Supabase › Storage › `egenkontroll-foto`
+**efter** SQL 5 (raderna först, så att ingenting pekar på en saknad fil). Vill du ha kopior: ladda ner dem först.
+
+| Fil (`egenkontroll-foto`) | Storage-id | Byte | Varifrån |
+|---|---|---|---|
+| `646c410e-d81a-48a7-b293-b7ec9b01ee9d/4ab25e0b-41c7-453c-8e18-b178c5170b56-1792399006660.jpg` | `154fe988-24ce-42a6-b321-ab05fbb9de6b` | 233 585 | Krokshult — blir föräldralös när SQL 5 tagit fotoraden `fb7f5284-…` |
+| `bed3e66d-1f02-4be5-99fb-9970ce51adee/c2cb0347-54d9-4f6d-ac25-ed670a02b4fc-1792254396234.jpg` | `69bc8e02-edc7-44f6-a827-65deaf7cf2b0` | 287 776 | Rävemåla — **föräldralös sedan SQL 4 (2026-10-20)**: fotoraden och punkten är borta, filen ligger kvar |
+
+Kontroll efteråt (bara läsning, ska ge 0): samma `foto_filer_i_bucketen`-räkning som i förkontrollen. Krokshult-rundans andra foto (Risning av basväg, `d215585d-…`) rörs inte.
+
+```sql
+-- ÅNGRA SQL 5 (provat lokalt: ger tillbaka exakt det ursprungliga). Punkterna FÖRST, sedan fotoraden (fotoraden pekar på punkten).
+-- Fungerar så länge säkerhetstabellerna finns kvar. Bildfilen återskapas inte när den väl är borttagen i Storage — ladda ner den först om den ska kunna återställas.
+begin;
+insert into egenkontroll_punkt select * from egenkontroll_stubbe_punkter_20261021;
+insert into egenkontroll_foto  select * from egenkontroll_stubbe_foton_20261021;
+commit;
+```
+
+```sql
+-- ÅNGRA SQL 5 UTAN säkerhetstabellerna (om de tagits bort): samma rader ur de granskade värdena (md5 av de tre obesvarade raderna 3896d65c…;
+-- Krokshult-punkten och fotoraden bevisade lika med de levande raderna via jsonb_populate_recordset 2026-10-21).
+insert into egenkontroll_punkt
+select * from jsonb_populate_recordset(null::egenkontroll_punkt, $json$[{"id":"06a52d26-1fa8-4594-b58b-757e9c7ffe51","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":12,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"66995a97-3fb3-4b14-b407-a778d20951c5","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"18e7f7af-d1ae-492f-9d25-d3a01e743949","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":30,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"c9a84f5f-5015-4e3f-a472-b71866c2afb7","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"69415d37-7bb9-4e43-b08a-bbe2a4c18df3","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":28,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"671d6cef-2bd8-4484-8a93-4ddaaf0d9f9a","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"4ab25e0b-41c7-453c-8e18-b178c5170b56","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":"ok","ordning":12,"besvarad":"2026-10-19T08:36:47.349+00:00","kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"646c410e-d81a-48a7-b293-b7ec9b01ee9d","varde_bekraftat":85,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null}]$json$::jsonb);
+insert into egenkontroll_foto
+select * from jsonb_populate_recordset(null::egenkontroll_foto, $json$[{"id":"fb7f5284-2f11-4e5d-b570-d6f9b76dac36","lat":null,"lng":null,"tagen":"2026-10-19T08:36:47.112+00:00","skapad":"2026-10-19T08:36:47.209797+00:00","sokvag":"646c410e-d81a-48a7-b293-b7ec9b01ee9d/4ab25e0b-41c7-453c-8e18-b178c5170b56-1792399006660.jpg","punkt_id":"4ab25e0b-41c7-453c-8e18-b178c5170b56","provyta_id":null,"tackningsgrad":85,"egenkontroll_id":"646c410e-d81a-48a7-b293-b7ec9b01ee9d"}]$json$::jsonb);
+```
+
 ## SAKNAS — LOGG OVER UTFARDADE MARKAGARRAPPORTER
 
 Det finns ingen registrering av vilka markagarrapporter
@@ -1539,3 +1981,18 @@ Uppdatera denna fil vid varje commit.
 
 ### 2026-10-19 — Kroksjömåla-dubbletter (objekt_id `11155842`)
 Rester från när appen byggdes upp. Raderat direkt i prod med Martins godkännande, i en sats: 12 `fakt_lass` (153 m³sob, alla exakta kopior av lass under annat objekt_id: samma maskin, datum, lass_nummer, lossningstid, volym och fil), 40 `fakt_lass_sortiment` (alla med exakt tvilling under det riktiga objektet `11251460`), 10 `fakt_skotning_status` och 1 `dim_objekt`. Efteråt: noll rader kvar under `11155842`, `11251460` oförändrat (25 lass). **Ångra:** `docs/data-korrigeringar/2026-10-19_kroksjomala_11155842_angra.sql` (INSERT-satser med radernas exakta innehåll, en transaktion).
+
+### 2026-10-20 — Max objekt (Ljuvadal / Vällust, P-1024) kopplat till skördarens och skotarens maskinobjekt
+Godkänt av Martin 2026-10-20 (i samband med releasen av #860). Två rader direkt i prod, objekt `e073caa4-23d4-4894-a96d-7387fbfa4a11`:
+```sql
+update objekt set dim_objekt_id = 'PONS20SDJAA270231_132' where id = 'e073caa4-23d4-4894-a96d-7387fbfa4a11' and dim_objekt_id is null;
+insert into objekt_alt_nummer (objekt_id, nummer, maskin_id, kalla) values ('e073caa4-23d4-4894-a96d-7387fbfa4a11', 'k185', 'A030353', 'manuell');
+```
+(Aliaset `k132` för Giant låg redan, skapat av Martin 06:51.) Läst tillbaka efteråt: `dim_objekt_id` = `PONS20SDJAA270231_132`, alias `k132/PONS20SDJAA270231` + `k185/A030353`, 644 stammar och 122,4 m³ skördat under Giants nyckel, 4 Opti-lass / 52,5 m³ under `A030353_185`.
+
+Ångra:
+```sql
+update objekt set dim_objekt_id = null where id = 'e073caa4-23d4-4894-a96d-7387fbfa4a11';
+delete from objekt_alt_nummer where objekt_id = 'e073caa4-23d4-4894-a96d-7387fbfa4a11' and nummer = 'k185' and maskin_id = 'A030353';
+```
+(`delete` via Supabase-MCP kan hänga i 60 s — kör i SQL-editorn.) Samma koppling görs framöver av kortet "Skördaren har kört här … Koppla" (RPC `koppla_skordarobjekt`); P-1012 har samma mönster och får förslaget när någon öppnar det.

@@ -137,3 +137,21 @@ describe('strackaNotis — det mätta står bara när det skiljer sig från det 
     expect(strackaNotis(null, null)).toBe('km saknas i datan');
   });
 });
+
+describe('Var kommer flyttens km ifrån? (mätare eller räknad väg)', () => {
+  it('mätaren mellan lastad och lossad, en decimal; saknad eller orimlig mätning är null', async () => {
+    const { matarKm } = await import('./fakturerbart');
+    expect(matarKm(299_480_800, 299_516_200)).toBe(35.4);
+    expect(matarKm(null, 299_516_200)).toBeNull();
+    expect(matarKm(299_516_200, 299_516_200)).toBeNull();          // stod still: ingen flytt att mäta
+    expect(matarKm(1_000, 300_000)).toBeNull();                     // 299 km: orimligt för en flytt
+  });
+
+  it('säger ingenting när km ÄR mätarens; annars att den är räknad och vad mätaren säger (Giant 10 aug: 5 mot 11,0)', async () => {
+    const { kmKallaText } = await import('./fakturerbart');
+    expect(kmKallaText(35.4, 299_480_800, 299_516_200)).toBeNull();
+    expect(kmKallaText(5, 300_000_000, 300_011_000)).toBe('Räknad väg — bilens mätare säger 11 km');
+    expect(kmKallaText(53, null, null)).toBe('Räknad väg — bilens mätare saknas');
+    expect(kmKallaText(null, null, null)).toBeNull();
+  });
+});

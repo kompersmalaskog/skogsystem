@@ -34,16 +34,15 @@
 //
 // ── VAD SOM MEDVETET SAKNAS ───────────────────────────────────────────────
 //
-// Stickvägsandel, gallringskvot och skattat kvarvarande bestånd finns inte här
-// och ska inte läggas till. Alla tre bygger på att stickvägsträden
-// representerar beståndet före gallring. Verifierat på Hålabäck att det inte
-// håller för beståndsgående drivning: maskinen kör inne i beståndet, och de
-// träd metoden skulle klassa som stickvägsträd är klenare och står längre från
-// maskinen än övriga. En siffra som bygger på ett falskt antagande är värre än
-// ingen siffra.
+// Gallringskvot och kvarvarande bestånd skattat ur STICKVÄGSTRÄDEN finns inte
+// här och ska inte läggas till: de bygger på att stickvägsträden representerar
+// beståndet före gallring. Verifierat på Hålabäck att det inte håller för
+// beståndsgående drivning (maskinen kör inne i beståndet, och de träd metoden
+// skulle klassa som stickvägsträd är klenare och står längre från maskinen).
 //
-// Areal skattas ALDRIG ur rutnät eller körspår. Finns ingen uppmätt areal visas
-// antal stammar utan per-hektar-tal.
+// Stickvägsandelen MÄTS i stället ur maskinernas GPS-spår, och per hektar räknas
+// på Vidas traktgräns — se lib/gallringPerHa.ts (2026-10-22). Areal skattas
+// aldrig ur rutnät eller körspår.
 
 import { supabase } from './supabase';
 import { fetchAllRows } from './ekonomi/period';
@@ -51,6 +50,12 @@ import { harledTyp } from './objekt/typ';
 // Trädslagens namn och färger bor i lib/tradslag.ts — EN palett för hela
 // appen. Gallringsvyn definierar inga egna.
 import { tradslagLabel } from './tradslag';
+import { DIM_MASKIN_NAMN_KOLUMNER, maskinNamnMap, type MaskinNamnKalla } from './maskinNamn';
+import { beraknaPerHa, perHaForDel, type PerHa, type PerHaDel } from './gallringPerHa';
+import type { UtanforSvar, EjGallratSvar } from './gallradYta';
+import { DELNING_NYCKEL, foreslaDelning, giltigRing, type Delning, type DelningSvar, type RitadDelning } from './gallringDelar';
+import { traktgransRingar, type TraktGeometriFC } from './objektPlats';
+import { hyttsparTillLinjer, type HyttPunkt } from './hyttspar';
 
 // ---------------------------------------------------------------------------
 // Typer
@@ -245,13 +250,17 @@ async function hamtaArealer(): Promise<Map<string, number>> {
 }
 
 async function hamtaNamnkartor() {
-  const [tradslag, operatorer] = await Promise.all([
+  const [tradslag, operatorer, maskiner] = await Promise.all([
     supabase.from('dim_tradslag').select('tradslag_id, namn'),
     supabase.from('dim_operator').select('operator_id, operator_namn'),
+    supabase.from('dim_maskin').select(DIM_MASKIN_NAMN_KOLUMNER),
   ]);
   kasta('trädslag', tradslag.error);
   kasta('förare', operatorer.error);
+  kasta('maskiner', maskiner.error);
   return {
+    // Maskinens namn ur dim_maskin ("Rottne H8E -26"), aldrig maskin_id ("R64428").
+    maskiner: maskinNamnMap(maskiner.data as MaskinNamnKalla[] | null),
     tradslag: new Map((tradslag.data ?? []).map((t) => [t.tradslag_id, t.namn as string | null])),
     operatorer: new Map(
       (operatorer.data ?? []).map((o) => [o.operator_id, o.operator_namn as string | null]),
@@ -323,7 +332,11 @@ function unikt(varden: (string | null | undefined)[]): string[] {
 function byggRader(
   objekt: DimObjektRad[],
   prod: ProdRad[],
-  namn: { tradslag: Map<string, string | null>; operatorer: Map<string, string | null> },
+  namn: {
+    tradslag: Map<string, string | null>;
+    operatorer: Map<string, string | null>;
+    maskiner: Record<string, string>;
+  },
   arealer: Map<string, number>,
 ): GallringRad[] {
   // Gruppera på VO — ett fysiskt objekt kan ligga som flera dim_objekt-rader
@@ -381,7 +394,7 @@ function byggRader(
       // Maskin och förare läses ur produktionen, inte ur dim_objekt.maskin_id —
       // det fältet pekar på flera gallringsobjekt ut en skotare (A030353), och
       // den som körde uttaget är den som faktiskt står på raderna.
-      maskiner: unikt(p.map((r) => r.maskin_id)),
+      maskiner: unikt(p.map((r) => (r.maskin_id ? namn.maskiner[r.maskin_id] || r.maskin_id : null))),
       forare: unikt(p.map((r) => (r.operator_id ? namn.operatorer.get(r.operator_id) : null))),
       forstaDatum: sorteradeDatum[0] ?? null,
       sistaDatum: sorteradeDatum[sorteradeDatum.length - 1] ?? null,
@@ -464,6 +477,106 @@ export async function hamtaGallring(vo: string): Promise<GallringDetalj | null> 
     sortiment,
     dagar: Array.from(perDag.values()).sort((a, b) => a.datum.localeCompare(b.datum)),
   };
+}
+
+/** Per hektar och stickvägar (lib/gallringPerHa.ts). Egen läsning efter att trakten visats: traktgränsen,
+ *  maskinernas GPS-spår och varje stams position. Ett läsfel kastas — "inget spår" och "kunde inte läsa" är
+ *  olika svar. objekt_geometri har RLS: en utgången session ger tomma rader, och då står "traktgräns saknas". */
+export type PerHaLast = PerHa & {
+  /** false = tabellen gallring_yta_svar finns inte än (migrationen ej körd): förslagen visas, svaren sparas inte. */
+  svarSparas: boolean;
+  /** Första och andra gallring i samma trakt (lib/gallringDelar.ts). null = en gallring, eller inga positioner. */
+  delning: Delning | null;
+  /** Uttaget per hektar för delarna som gäller (efter svaret), i samma ordning som delning.delar. */
+  delarPerHa: [PerHaDel, PerHaDel] | null;
+};
+
+const saknasTabell = (e: { code?: string } | null) => !!e && (e.code === 'PGRST205' || e.code === '42P01');
+
+export async function hamtaPerHa(rad: GallringRad): Promise<PerHaLast> {
+  const obj = await supabase.from('objekt').select('id').eq('vo_nummer', rad.vo);
+  kasta('objekt', obj.error);
+  const ids = (obj.data ?? []).map((o) => o.id as string);
+
+  const [geo, spar, stammar, svar] = await Promise.all([
+    ids.length ? supabase.from('objekt_geometri').select('geometri').in('objekt_id', ids) : Promise.resolve({ data: [], error: null }),
+    ids.length ? supabase.from('hyttspar').select('roll, points').in('objekt_id', ids) : Promise.resolve({ data: [], error: null }),
+    rad.objektIds.length
+      ? (fetchAllRows((from, to) =>
+          supabase
+            .from('detalj_stam')
+            .select('id, latitude, longitude, dbh_mm')
+            .in('objekt_id', rad.objektIds)
+            .order('objekt_id')
+            .order('id')
+            .range(from, to),
+        ) as Promise<{ id: number; latitude: number | null; longitude: number | null; dbh_mm: number | null }[]>)
+      : Promise.resolve([]),
+    // '*': kolumnen geometri (ritad gräns) finns först efter migrationen 20261023143310 — en namngiven kolumn som
+    // saknas skulle fälla hela läsningen.
+    supabase.from('gallring_yta_svar').select('*').eq('vo', rad.vo),
+  ]);
+  kasta('traktgräns', geo.error);
+  kasta('GPS-spår', spar.error);
+  const svarSparas = !saknasTabell(svar.error);
+  if (svarSparas) kasta('svar', svar.error);
+
+  const svarUtanfor: Record<string, UtanforSvar> = {};
+  const svarEjGallrat: Record<string, EjGallratSvar> = {};
+  let svarDelning: DelningSvar | null = null;
+  let ritad: RitadDelning | null = null;
+  for (const r of (svarSparas ? svar.data ?? [] : []) as { nyckel: string; svar: string; geometri?: unknown }[]) {
+    if (r.nyckel.startsWith('u:')) svarUtanfor[r.nyckel] = r.svar as UtanforSvar;
+    else if (r.nyckel.startsWith('e:')) svarEjGallrat[r.nyckel] = r.svar as EjGallratSvar;
+    else if (r.nyckel === DELNING_NYCKEL) {
+      svarDelning = r.svar as DelningSvar;
+      const g = r.geometri as { del?: unknown; ring?: unknown } | null | undefined;
+      if (g && (g.del === 'forsta' || g.del === 'andra') && giltigRing(g.ring)) ritad = { del: g.del, ring: g.ring };
+    }
+  }
+
+  const stamrader = stammar.map((s) => ({ id: s.id, lat: Number(s.latitude), lng: Number(s.longitude), dbhMm: s.dbh_mm }));
+  const perHa = beraknaPerHa({
+    ringar: (geo.data ?? []).flatMap((g) => traktgransRingar(g.geometri as TraktGeometriFC)),
+    volymM3fub: rad.volymM3fub,
+    stammar: rad.stammar,
+    stamrader,
+    spar: (spar.data ?? []).map((s) => ({
+      roll: String(s.roll),
+      linjer: hyttsparTillLinjer(Array.isArray(s.points) ? (s.points as HyttPunkt[]) : []),
+    })),
+    svarUtanfor,
+    svarEjGallrat,
+  });
+  const delning = perHa.lage === 'ok' && perHa.yta
+    ? foreslaDelning(perHa.yta, stamrader.filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng)), svarDelning, ritad)
+    : null;
+  const delarPerHa = perHa.lage === 'ok' && delning?.delar
+    ? delning.delar.map((d) => perHaForDel({ volymM3fub: rad.volymM3fub, stammar: rad.stammar, stamrader }, perHa.arealHa, d.andelYta, d.stammar)) as [PerHaDel, PerHaDel]
+    : null;
+  return { ...perHa, svarSparas, delning, delarPerHa };
+}
+
+/** Sparar (eller tar bort, svar null) ett svar om en bit. Servern sätter vem och när. Kastar vid fel. */
+export async function sparaYtaSvar(
+  vo: string, nyckel: string, svar: UtanforSvar | EjGallratSvar | DelningSvar | null, ritad?: RitadDelning,
+): Promise<void> {
+  if (svar === null) {
+    const { error } = await supabase.from('gallring_yta_svar').delete().eq('vo', vo).eq('nyckel', nyckel);
+    kasta('svar', error);
+    return;
+  }
+  const { data, error } = await supabase
+    .from('gallring_yta_svar')
+    // geometri skickas bara med en ritning: utan migrationen finns inte kolumnen, och de andra svaren ska ändå gå.
+    .upsert(ritad ? { vo, nyckel, svar, geometri: ritad } : { vo, nyckel, svar }, { onConflict: 'vo,nyckel' })
+    .select('svar');
+  // 23514: databasen känner inte till svaret än (migrationen för första/andra gallring är inte körd).
+  if (error?.code === '23514' || error?.code === 'PGRST204' || error?.code === '42703') {
+    throw new Error('Svaret kan inte sparas förrän databasen uppdaterats.');
+  }
+  kasta('svar', error);
+  if (!data || data.length === 0 || data[0].svar !== svar) throw new Error('Svaret sparades inte.');
 }
 
 /** Sortiment per objekt-total ur fakt_sortiment. Datumfilter vore fel

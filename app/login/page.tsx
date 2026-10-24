@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { NASTA_PARAM, sakerNasta } from '@/lib/loginNasta';
 
 const ff = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text',system-ui,sans-serif";
 
@@ -25,7 +26,8 @@ export default function LoginPage() {
     }
 
     await new Promise(resolve => setTimeout(resolve, 500));
-    window.location.replace('/');
+    // Tillbaka dit man skulle (middleware lägger ?nasta=), annars startsidan. Bara sökvägar inom appen (lib/loginNasta.ts).
+    window.location.replace(sakerNasta(new URL(window.location.href).searchParams.get(NASTA_PARAM)) ?? '/');
   };
 
   return (

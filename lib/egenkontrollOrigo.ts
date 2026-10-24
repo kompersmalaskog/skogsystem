@@ -43,6 +43,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { objektStartKamera, traktGrans, type Gran } from './objektFlyg';
+import { traktgransRingar } from './objektPlats';
 import { svgToLatLon, type Origo } from './kartkoordinater';
 
 export type Punkt = { x: number; y: number };
@@ -52,7 +53,8 @@ export type VidaGrans =
   | { typ: 'laddar' }
   | { typ: 'saknas' }
   | { typ: 'fel'; meddelande?: string }
-  | { typ: 'ok'; gran: Gran };
+  // ringar: traktgränsens yttre ringar ([lng,lat][]), för lagret "Vidas traktgräns" i lagermenyn (PR 8a). Origobeslutet läser bara `gran`.
+  | { typ: 'ok'; gran: Gran; ringar?: [number, number][][] };
 
 export type OrigoSkal =
   | 'saknar_position'   // varken kartbild_bounds eller lat/lng
@@ -292,5 +294,5 @@ export async function lasVidaGrans(klient: SupabaseClient, objektId: string): Pr
   const rader = (data ?? []) as { geometri?: { features?: unknown[] } | null }[];
   const features = rader.flatMap((r) => (Array.isArray(r?.geometri?.features) ? (r.geometri!.features as unknown[]) : []));
   const gran = traktGrans({ features });
-  return gran ? { typ: 'ok', gran } : { typ: 'saknas' };
+  return gran ? { typ: 'ok', gran, ringar: traktgransRingar({ features: features as never }) } : { typ: 'saknas' };
 }

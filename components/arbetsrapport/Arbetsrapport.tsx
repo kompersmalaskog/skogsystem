@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, useCallback, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
+import { escapeHtml } from "@/lib/html";
 import { anledningGiltig, ANLEDNING_MIN_TECKEN } from "@/lib/redigeraAnledning";
 import { maskinVisningsnamn, maskinNamnMap as byggMaskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
 import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
@@ -666,6 +667,19 @@ export default function Arbetsrapport() {
   const [lönStatusPerPeriod, setLönStatusPerPeriod] = useState<Record<string,string>>({});
   const [lönBekräfta, setLönBekräfta] = useState(false);
   const [lönOffset, setLönOffset] = useState(0);
+  // Djuplänk från lönenotisen (lib/lonesystem/granskaNotis): /arbetsrapport?steg=lon&manad=2026-09 öppnar Lön på just den månaden. Utan länken händer
+  // ingenting (morgonvyn är kvar). Bara de tolv senaste månaderna som Lön-fliken själv kan bläddra till.
+  useEffect(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get("steg") !== "lon") return;
+      const m = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(p.get("manad") || "");
+      const nu = new Date();
+      const offset = m ? (Number(m[1]) - nu.getFullYear()) * 12 + (Number(m[2]) - 1 - nu.getMonth()) : 0;
+      setLönOffset(offset <= 0 && offset >= -12 ? offset : 0);
+      setSteg("lön");
+    } catch { /* ingen djuplänk */ }
+  }, []);
   const [lönVy, setLönVy] = useState<'översikt'|'detaljer'>('översikt');
   const [obRetroÖppen, setObRetroÖppen] = useState(false); // tysta retroaktiv-raden i månadsvyn
   const [sparatToast, setSparatToast] = useState(false);
@@ -4404,7 +4418,10 @@ export default function Arbetsrapport() {
 
             // Export. Dygnsvila listas per viloperiod (status från DB-brott).
             // Veckovila listas per DB-brott (rullande fönster) — inte per ISO-vecka.
+            const medarbetareForeUtskrift = medarbetare;
             const exportPDF = () => {
+              // Utskriften är HTML i ett eget fönster (samma ursprung som appen): namnet escapas, så raden nedan kan lämnas orörd.
+              const medarbetare = { namn: escapeHtml(medarbetareForeUtskrift?.namn) };
               const fVH=(h:number)=>{const hh=Math.floor(h);const mm=Math.round((h-hh)*60);return mm>0?`${hh}h ${mm}min`:`${hh}h`;};
               const fDe=(d:string)=>{const dt=new Date(d);return `${dagNamn[dt.getDay()].slice(0,3)} ${dt.getDate()} ${månNamn2[dt.getMonth()]}`;};
               let html=`<html><head><title>Viloperioder</title><style>body{font-family:Inter,system-ui,sans-serif;padding:32px;font-size:13px;color:#222}h1{font-size:18px;margin-bottom:4px}h2{font-size:14px;margin-top:24px;color:#666}table{width:100%;border-collapse:collapse;margin-top:8px}th{text-align:left;padding:8px 12px;background:#f5f5f5;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#666;border-bottom:1px solid #ddd}td{padding:8px 12px;border-bottom:1px solid #eee}.warn{color:#d32f2f;font-weight:600}.ok{color:#2e7d32}</style></head><body>`;
@@ -4413,7 +4430,7 @@ export default function Arbetsrapport() {
               for(const r of [...filtVila].reverse()){
                 const b = brottForRad(r);
                 const ok = !b;
-                html+=`<tr><td>${fDe(r.slutDatum)} ${r.slutTid}</td><td>${fDe(r.startDatum)} ${r.startTid}</td><td>${fVH(r.vila)}</td><td>${r.anledning||'—'}</td><td class="${ok?'ok':'warn'}">${ok?'OK':`⚠ Under ${krav_h}h`}</td></tr>`;
+                html+=`<tr><td>${fDe(r.slutDatum)} ${r.slutTid}</td><td>${fDe(r.startDatum)} ${r.startTid}</td><td>${fVH(r.vila)}</td><td>${escapeHtml(r.anledning)||'—'}</td><td class="${ok?'ok':'warn'}">${ok?'OK':`⚠ Under ${krav_h}h`}</td></tr>`;
               }
               html+=`</table>`;
               html+=`<h2>Veckovila — rullande ${trosklar?.veckovila_fonster_dagar ?? 7}-dagarsfönster</h2>`;
@@ -4422,7 +4439,7 @@ export default function Arbetsrapport() {
               } else {
                 html+=`<table><tr><th>Startdatum</th><th>Vila</th><th>Krav</th><th>Beskrivning</th><th>Status</th></tr>`;
                 for(const b of dbVeck){
-                  html+=`<tr><td>${fDe(b.datum)}</td><td>${fVH(Number(b.vila_h))}</td><td>${fVH(Number(b.krav_h))}</td><td>${b.beskrivning||'—'}</td><td class="warn">⚠ Under ${Number(b.krav_h)}h</td></tr>`;
+                  html+=`<tr><td>${fDe(b.datum)}</td><td>${fVH(Number(b.vila_h))}</td><td>${fVH(Number(b.krav_h))}</td><td>${escapeHtml(b.beskrivning)||'—'}</td><td class="warn">⚠ Under ${Number(b.krav_h)}h</td></tr>`;
                 }
                 html+=`</table>`;
               }
@@ -5190,7 +5207,7 @@ export default function Arbetsrapport() {
                           <span style={{ ...TYP.meta, ...TNUM, color:FARG.text3, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)}</span>
                         </span>
                       ) : (
-                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)} <span style={{ ...TYP.meta, color:FARG.text2 }}>{loneartEnhetText(r.loneart)}</span></span>
+                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)} <span style={{ ...TYP.meta, color:FARG.text2 }}>{loneartEnhetText(r.loneart, r.Number)}</span></span>
                       )}
                     </div>
                     );

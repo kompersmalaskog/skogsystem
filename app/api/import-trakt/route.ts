@@ -12,6 +12,8 @@ import { packaGeometri, bboxCentrum } from '@/lib/trakt/geometri';
 import { kopplaHyttsparTillObjekt } from '@/lib/hyttsparKoppling';
 import { klassificeraDokument } from '@/lib/trakt/dokument';
 import { kartbildVarning } from '@/lib/trakt/kartbildVarning';
+import { klassaVarningar, VOLYM_BEHALLEN_NYCKEL } from '@/lib/trakt/varningar';
+import { orimligVolymText } from '@/lib/trakt/rimlighet';
 import { byggOmimportPatch, hittaBefintligtObjekt, importVardenForNyttObjekt, SKYDDADE_VID_OMIMPORT, type BefintligtObjekt } from '@/lib/trakt/befintligt';
 // loggaImportFel (flyttad hit ur routen: loggar i import_fel, läses av /datahalsa — se kommentaren där) + skrivning som tål att
 // objekt.import_varningar inte går att skriva.
@@ -228,6 +230,11 @@ export async function POST(request: NextRequest) {
     };
     const falt = envzUttag ? mergeFalt(tdRecord, envzUttag.falt) : tdRecord;
 
+    // Rimlighet: volym mot areal (m³fub/ha). Flaggar bara — talet rättas aldrig här (lib/trakt/rimlighet.ts). Vyn härleder samma fråga
+    // live, så en volym som rättas efteråt släcker den utan omimport.
+    const orimligVolym = orimligVolymText(falt.typ, falt.volym, falt.areal);
+    if (orimligVolym) varningar.push(orimligVolym);
+
     // Geometri (envz) + kartpin. Pin = bbox-centrum för traktgränsen; nödlösning = larmkoordinat.
     let geoFeatures: any[] = [];
     let lat: number | null = null;
@@ -390,7 +397,7 @@ export async function POST(request: NextRequest) {
       oversiktskarta_url,                                      // _ÖK.pdf (egen typ)
       valtlapp_url,
       ovriga_dokument: ovriga_dokument.length > 0 ? ovriga_dokument : null,
-      import_varningar: varningar.length > 0 ? varningar : null,
+      import_varningar: klassaVarningar(varningar),                 // {nyckel, sort, text}: bara `fraga` visas för en människa (lib/trakt/varningar.ts)
       ar,
       manad,
       ordning: 1,
@@ -456,7 +463,13 @@ export async function POST(request: NextRequest) {
         varningar.push(`Omimport: lät dina ändringar ligga kvar i ${behollna.join(', ')} (leveransen hade ett annat värde).`);
       }
       patch.import_varden = importVarden;
-      patch.import_varningar = varningar.length > 0 ? varningar : null;       // varningar refreshas alltid
+      // En volym som någon rättat för hand ligger kvar (byggOmimportPatch), men filens avvikande tal försvinner inte tyst: det blir en fråga.
+      const rader = klassaVarningar(varningar);
+      const filVolym = Number(data.volym);
+      if (behollna.includes('volym') && Number.isFinite(filVolym) && filVolym > 0) {
+        rader.push({ nyckel: VOLYM_BEHALLEN_NYCKEL, sort: 'fraga', text: `Filen har ${filVolym} m³fub men volymen är rättad för hand — den rättade volymen behölls.`, varde: filVolym });
+      }
+      patch.import_varningar = rader;                                         // varningar refreshas alltid; [] = kontrollerat, inget hittat (aldrig null)
 
       const skrivUpd = await skrivObjektTolerantMotVarningskolumn<any>(patch, (p) =>
         supabase.from('objekt').update(p).eq('id', befintlig!.id).select().single());

@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
-import { C, FONT, COMBO_IDS, fmtSv, getPeriodRange, type Maskin, type Period } from './OversiktShared'
+import { RADIE, TYP, VIKT, AVSTAND, FARG, FONT } from '@/lib/design/tokens'
+import {
+  COMBO_IDS, fmtSv, getPeriodRange, type Maskin, type Period, tint,
+} from './OversiktShared'
 
 // ─────────────────────────────────────────────────────────────
 // FlertradKort — flerträd per period i skördarens Översikt.
@@ -117,42 +120,60 @@ export default function FlertradKort({ maskin, period, offset }: { maskin: Maski
   const ejMatt = !loading && !fel && total.alla > 0 && total.matta === 0
   const delvis = !loading && !fel && total.matta > 0 && total.matta < total.alla
   const tomt = !loading && !fel && total.alla === 0
+  // Mätt men inga flerträd alls: ett fullhöjdskort med "0 %" och en tom graf säger bara det en rad
+  // kan säga. Kortet växer först när det finns något att visa.
+  const ingenFlertrad = !loading && !fel && total.matta > 0 && total.bunt === 0
 
-  const rubrik: CSSProperties ={ fontSize: 11, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }
-  const badge: CSSProperties ={ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: C.muted, border: `1px solid ${C.divider}`, borderRadius: 5, padding: '1px 5px', marginLeft: 8 }
+  const rubrik: CSSProperties ={ fontSize: TYP.micro.fontSize, color: FARG.text2, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: VIKT.fet }
+  const badge: CSSProperties ={ fontSize: TYP.micro.fontSize, fontWeight: VIKT.fet, textTransform: 'uppercase', letterSpacing: '0.04em', color: FARG.text2, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.stapel, padding: `0 ${AVSTAND.xs}px`, marginLeft: 8 }
+
+  if (ingenFlertrad) {
+    return (
+      <div
+        data-flertrad-tomt
+        style={{
+          background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, marginBottom: 12, fontFamily: FONT,
+          display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap',
+        }}
+      >
+        <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Flerträd: inget denna period</span>
+        <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text3, fontVariantNumeric: 'tabular-nums' }}>0 av {fmtSv(total.matta)} mätta stammar</span>
+      </div>
+    )
+  }
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: '14px 18px 12px', marginBottom: 12, fontFamily: FONT }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px`, marginBottom: 12, fontFamily: FONT }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
         <span style={rubrik}>Flerträd</span>
         <span style={badge}>HPR</span>
       </div>
 
       {loading ? (
-        <div style={{ fontSize: 14, color: C.muted }}>Läser stammar …</div>
+        <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Läser stammar …</div>
       ) : fel ? (
-        <div style={{ fontSize: 14, color: C.muted }}>Kunde inte läsa flerträd — ladda om sidan.</div>
+        <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Kunde inte läsa flerträd — ladda om sidan.</div>
       ) : tomt ? (
-        <div style={{ fontSize: 14, color: C.muted }}>Inga stammar i perioden.</div>
+        <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Inga stammar i perioden.</div>
       ) : ejMatt ? (
         <>
-          <div style={{ fontSize: 20, fontWeight: 600, color: C.muted, letterSpacing: -0.3 }}>ej mätt</div>
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
+          <div style={{ fontSize: TYP.rubrik.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, letterSpacing: -0.3 }}>ej mätt</div>
+          <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, marginTop: AVSTAND.s }}>
             {fmtSv(total.alla)} stammar importerade före {FLERTRAD_MATT_SEDAN} — flerträd fångades inte då. Omimport av HPR-filerna ger historiken.
           </div>
         </>
       ) : (
         <>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: -0.6, lineHeight: 1, color: C.text, fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ fontSize: TYP.titel.fontSize, fontWeight: VIKT.fet, letterSpacing: -0.6, lineHeight: 1, color: FARG.text, fontVariantNumeric: 'tabular-nums' }}>
               {fmtSv(pct, 0)} %
             </span>
-            <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>flerträd</span>
+            <span style={{ fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text }}>flerträd</span>
             {stPerGrepp !== null && (
-              <span style={{ fontSize: 15, color: C.muted }}>· {fmtSv(stPerGrepp, 1)} stammar/grepp</span>
+              <span style={{ fontSize: TYP.text.fontSize, color: FARG.text2 }}>· {fmtSv(stPerGrepp, 1)} stammar/grepp</span>
             )}
           </div>
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, marginTop: AVSTAND.s, fontVariantNumeric: 'tabular-nums' }}>
             {fmtSv(total.bunt)} av {fmtSv(total.matta)} mätta stammar i bunt · {fmtSv(total.grepp)} grepp
             {delvis ? ` · ${fmtSv(total.alla - total.matta)} stammar omätta (importerade före ${FLERTRAD_MATT_SEDAN})` : ''}
           </div>
@@ -175,27 +196,27 @@ function Staplar({ rader, period }: { rader: { hink: Hink; summa: Summa; pct: nu
   const tat = rader.length > 14
   const nagonEjMatt = rader.some(r => r.pct === null && r.summa.alla > 0)
   return (
-    <div style={{ marginTop: 14 }}>
-      <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>
+    <div style={{ marginTop: AVSTAND.l }}>
+      <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginBottom: 8 }}>
         {period === 'V' || period === 'M' ? 'Per dag' : period === 'K' ? 'Per vecka' : 'Per månad'}
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: tat ? 2 : 6, height: H + 34 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: tat ? AVSTAND.xs : AVSTAND.s, height: H + 34 }}>
         {rader.map(r => {
           const ejMatt = r.pct === null && r.summa.alla > 0
           const hojd = r.pct !== null ? Math.max(3, (r.pct / max) * H) : 0
           return (
             <div key={r.hink.key} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
               {!tat && (
-                <div style={{ fontSize: 11, fontWeight: 600, color: r.pct !== null ? C.text : C.dim, marginBottom: 4, whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: TYP.micro.fontSize, fontWeight: VIKT.halvfet, color: r.pct !== null ? FARG.text : FARG.text3, marginBottom: 4, whiteSpace: 'nowrap' }}>
                   {r.pct !== null ? `${fmtSv(r.pct, 0)} %` : ejMatt ? 'ej mätt' : ''}
                 </div>
               )}
               <div style={{
-                width: '100%', maxWidth: 36, height: r.pct !== null ? hojd : ejMatt ? 3 : 0, borderRadius: 3,
-                background: r.pct !== null ? 'rgba(255,255,255,0.78)' : 'transparent',
-                border: ejMatt ? `1px dashed ${C.dim}` : 'none',
+                width: '100%', maxWidth: 36, height: r.pct !== null ? hojd : ejMatt ? 3 : 0, borderRadius: RADIE.stapel,
+                background: r.pct !== null ? tint(FARG.text, 78) : 'transparent',
+                border: ejMatt ? `1px dashed ${FARG.text3}` : 'none',
               }} />
-              <div style={{ fontSize: 10, color: C.muted, marginTop: 6, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+              <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.s, whiteSpace: 'nowrap', overflow: 'hidden' }}>
                 {tat && Number(r.hink.label) % 5 !== 1 && period === 'M' ? '' : r.hink.label}
               </div>
             </div>
@@ -203,7 +224,7 @@ function Staplar({ rader, period }: { rader: { hink: Hink; summa: Summa; pct: nu
         })}
       </div>
       {nagonEjMatt && (
-        <div style={{ fontSize: 11, color: C.dim, marginTop: 6 }}>streckad = stammar finns men flerträd inte mätt (importerat före {FLERTRAD_MATT_SEDAN})</div>
+        <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text3, marginTop: AVSTAND.s }}>streckad = stammar finns men flerträd inte mätt (importerat före {FLERTRAD_MATT_SEDAN})</div>
       )}
     </div>
   )

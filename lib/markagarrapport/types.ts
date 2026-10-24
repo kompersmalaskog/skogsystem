@@ -42,6 +42,10 @@ export interface MarkagarRapport {
     bmav_count: number;
     avkap_count: number;
     grade9_count: number;
+    /** Antal granar på objektet (nämnaren i pct_av_gran). */
+    gran_stammar: number;
+    /** Granar med röta (Bmav + avkap; täljaren i pct_av_gran). */
+    gran_med_rot: number;
     pct_av_gran: number;
     rotpaverkad_volym_m3: number;
     rotpaverkad_pct: number;

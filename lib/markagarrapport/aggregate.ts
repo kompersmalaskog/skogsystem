@@ -23,6 +23,7 @@ import {
   loadPrismatris,
   getPrisForStock,
   harledGrupp,
+  virkesGrupp,
   type DetaljStockRow,
 } from './pris';
 import { bmavForlust, avkapRaddat, klassificeraAvkap } from './vardering';
@@ -148,7 +149,8 @@ export async function aggregateMarkagarRapport(
     .from('hpr_stammar')
     .select('hpr_fil_id, stam_nummer, tradslag, dbh, lat, lng, total_volym, sortiment, bio_energy_adaption')
     .in('hpr_fil_id', hprFilerIds)
-    .order('id')  // unik tiebreaker — .range() kräver total ordning
+    // Ordning som följer indexet (hpr_fil_id, stam_nummer) med id som unik tiebreaker — se detalj_stock nedan.
+    .order('hpr_fil_id').order('stam_nummer').order('id')
     .range(from, to)
   );
 
@@ -175,7 +177,10 @@ export async function aggregateMarkagarRapport(
       .not('stem_key', 'is', null)
       .not('log_key', 'is', null);
     if (filnamnFilter) q = q.in('filnamn', filnamnFilter);
-    return q.order('id').range(from, to);
+    // ALDRIG bara .order('id'): då går Postgres längs primärnyckeln genom hela tabellen och filtrerar på objektet,
+    // och för ett objekt vars rader ligger sent (Akelius Tåget, 19 631 stockar) tar första sidan över statement
+    // timeout — sidan kraschade (2026-10-21). (filnamn, id) följer indexet (objekt_id, filnamn): 6 ms i stället.
+    return q.order('filnamn').order('id').range(from, to);
   });
   if (stocksRaw.length === 0) return { status: 'ingen_data', reason: 'ingen_detalj_stock' };
 
@@ -194,7 +199,7 @@ export async function aggregateMarkagarRapport(
       .select('stam_key, dbh_mm, latitude, longitude, tradslag_id, stem_grade, stubbbehandling, manuell_frikap, tidpunkt, tid_ar_utc, filnamn, maskin_id')
       .eq('objekt_id', objektIdText);
     if (filnamnFilter) q = q.in('filnamn', filnamnFilter);
-    return q.order('id').range(from, to);
+    return q.order('filnamn').order('id').range(from, to);  // som detalj_stock ovan
   });
 
   // 6. Sortiment + grupp (per maskin)
@@ -488,7 +493,7 @@ export async function aggregateMarkagarRapport(
   const fordelningTotalVarde = sortimentArr.reduce((s, r) => s + r.varde_kr, 0);
   const fordelningAcc = new Map<string, { volym: number; varde: number }>();
   for (const r of sortimentArr) {
-    const grupp = harledGrupp(r.namn, null) ?? 'Övrigt';
+    const grupp = virkesGrupp(r.namn);
     const a = fordelningAcc.get(grupp) ?? { volym: 0, varde: 0 };
     a.volym += r.volym_m3sub;
     a.varde += r.varde_kr;
@@ -615,6 +620,8 @@ export async function aggregateMarkagarRapport(
       bmav_count: bmavCount,
       avkap_count: avkapCount,
       grade9_count: grade9Count,
+      gran_stammar: granStammar,
+      gran_med_rot: bmavCount + avkapCount,
       pct_av_gran: granStammar > 0
         ? ((bmavCount + avkapCount) / granStammar) * 100
         : 0,

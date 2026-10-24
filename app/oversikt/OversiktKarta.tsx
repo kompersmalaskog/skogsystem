@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { TALL_FARG } from '@/lib/tradslag';
 import { supabase } from '@/lib/supabase';
+import { escapeHtml } from '@/lib/html';
 import { motion } from 'framer-motion';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
 import { ff } from './oversikt-styles';
@@ -9,7 +11,7 @@ import { formatVolym, pc, getMaskinTyp, grotDeadlineDays, skotarTillstand, type 
 import { maskinVisningsnamn } from '@/lib/maskinNamn';
 import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
 import {
-  FARA_SUBTYPER, HANSYN_SUBTYPER, SUB_LABEL, prettifySub, markeringSub, classifyMarkering,
+  FARA_SUBTYPER, HANSYN_SUBTYPER, markeringNamn, markeringSub, classifyMarkering,
   type MarkLevel, type FaraNiva,
 } from './markeringar';
 import SkotarRad from './SkotarRad';
@@ -231,7 +233,7 @@ function ObjCard({ obj, warnings, farorStatus = 'ok', koPlats, devicePos, skotar
 
   const statBox: React.CSSProperties = { flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` };
   const chip: React.CSSProperties = { ...T.caption, color: C.t1, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm };
-  const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#66BB6A', 'Tall': '#FFA726', 'Björk': '#FFF176', 'Ek': '#A1887F', 'Bok': '#BCAAA4', 'Contorta': '#FF8A65' };
+  const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#66BB6A', 'Tall': TALL_FARG, 'Björk': '#FFF176', 'Ek': '#A1887F', 'Bok': '#BCAAA4', 'Contorta': '#FF8A65' };
   const Sec = ({ label }: { label: string }) => (
     <div style={{ ...T.label, marginBottom: SP.sm }}>{label}</div>
   );
@@ -657,7 +659,7 @@ function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rank
 
 /* ── Build GROT diamond marker — egen brun/orange/röd symbol, DEADLINE-styrd ──
    Brun = ingen/avlägsen deadline · orange = närmar sig · röd = nära/passerad. */
-function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: () => void): HTMLDivElement {
+export function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: () => void): HTMLDivElement {
   const info = grotDeadlineInfo(obj.grot_deadline);
   const clr = info.color;
   const sz = isSelected ? 24 : 20;
@@ -679,7 +681,7 @@ function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: ()
   if (info.label) {
     const badge = document.createElement('div');
     badge.style.cssText = `position:absolute;bottom:${hitSize / 2 + sz / 2 + 3}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap;background:${clr};padding:2px 7px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.5)`;
-    badge.innerHTML = `<span style="font-size:11px;font-weight:800;color:#fff;font-family:${ff}">${info.label}</span>`;
+    badge.innerHTML = `<span style="font-size:11px;font-weight:800;color:#fff;font-family:${ff}">${escapeHtml(info.label)}</span>`;
     w.appendChild(badge);
   }
 
@@ -687,7 +689,7 @@ function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: ()
   const lbl = document.createElement('div');
   lbl.className = 'ovk-lbl';
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + sz / 2 + 4}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap`;
-  lbl.innerHTML = `<div style="font-size:11px;font-weight:600;color:#fff;font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
+  lbl.innerHTML = `<div style="font-size:11px;font-weight:600;color:#fff;font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${escapeHtml(obj.namn)}</div>`;
   w.appendChild(lbl);
 
   w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
@@ -698,7 +700,9 @@ function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: ()
    Vit rundad fyrkant + kugghjul + puls, namn + färskhet under. Färskhet dämpad grå;
    gammal position = orange (varsamhet), aldrig röd (rött = fara). Egen markör — ritas
    aldrig mer på "första objektet i kön". */
-function buildMaskinMarkerEl(namn: string, farskhet: string | null, gammal: boolean, onClick: () => void): HTMLDivElement {
+export function buildMaskinMarkerEl(namn: string, farskhetRaa: string | null, gammal: boolean, onClick: () => void): HTMLDivElement {
+  // Färskhetstexten går in i en innerHTML-mall nedan: escapa den här så mallraden kan vara orörd.
+  const farskhet = farskhetRaa ? escapeHtml(farskhetRaa) : null;
   const dotSize = 34, hitSize = 40;
   const w = document.createElement('div');
   w.className = 'ovk-maskin-marker';
@@ -713,7 +717,7 @@ function buildMaskinMarkerEl(namn: string, farskhet: string | null, gammal: bool
   const lbl = document.createElement('div');
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + dotSize / 2 + 4}px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap`;
   const frisk = farskhet ? `<div style="font-size:10.5px;font-weight:600;color:${gammal ? C.orange : 'rgba(255,255,255,0.6)'};font-family:${ff};margin-top:2px">${farskhet}</div>` : '';
-  lbl.innerHTML = `<div style="font-size:13px;font-weight:600;color:#fff;font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${namn}</div>${frisk}`;
+  lbl.innerHTML = `<div style="font-size:13px;font-weight:600;color:#fff;font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${escapeHtml(namn)}</div>${frisk}`;
   w.appendChild(lbl);
   w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
   return w;
@@ -768,7 +772,7 @@ function markerStatusColor(status: string): string {
 /* ── Build a MapLibre marker DOM element — form=objekt/maskin, shape=typ ──
    Färg = status (markerStatusColor) och FYLLER markören. Endast aktiva pulserar.
    Okänd/oplanerad → ofylld kontur (filtreras aldrig bort, Beslut 5). */
-function buildMarkerEl(
+export function buildMarkerEl(
   form: 'circle' | 'machine',
   shape: 'circle' | 'square',
   status: string,
@@ -862,7 +866,7 @@ function buildMarkerEl(
     sublabels.forEach(s => {
       const ch = document.createElement('div');
       ch.style.cssText = `background:rgba(0,0,0,.85);padding:3px 8px;border-radius:6px`;
-      ch.innerHTML = `<span style="font-size:11px;font-weight:600;color:#fff;font-family:${ff}">${s}</span>`;
+      ch.innerHTML = `<span style="font-size:11px;font-weight:600;color:#fff;font-family:${ff}">${escapeHtml(s)}</span>`;
       md.appendChild(ch);
     });
     w.appendChild(md);
@@ -874,7 +878,7 @@ function buildMarkerEl(
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + dotSize / 2 + 4}px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap`;
   const clr = (isDone && !skotarAktiv && !skotarVantar) ? '#8e8e93' : '#fff';
   const volLabel = volym ? ` (${Math.round(volym)} m³)` : '';
-  lbl.innerHTML = `<div style="font-size:13px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${label}${volLabel}</div>`;
+  lbl.innerHTML = `<div style="font-size:13px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${escapeHtml(label)}${escapeHtml(volLabel)}</div>`;
   w.appendChild(lbl);
 
   w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
@@ -1081,7 +1085,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       if (!m.objekt_id) continue;
       const level = classifyMarkering(m.data);   // fara | hansyn | ovrigt (aldrig bortfiltrerad)
       const subRaw = markeringSub(m.data);
-      const label = subRaw ? (SUB_LABEL[subRaw] || prettifySub(subRaw)) : 'Markering';
+      const label = subRaw ? markeringNamn(m.data) : 'Markering';
       // Planerarens beskrivning ligger i data.comment (planering_markeringar).
       const comment = typeof m.data?.comment === 'string' && m.data.comment.trim() ? m.data.comment.trim() : undefined;
       if (!map[m.objekt_id]) map[m.objekt_id] = { level: null, items: [] };

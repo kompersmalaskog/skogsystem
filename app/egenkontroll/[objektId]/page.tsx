@@ -49,6 +49,7 @@ import {
   hamtaKontextmarkeringar,
   hamtaVidaGrans,
   hamtaProvytor,
+  hamtaNoteringar,
   hamtaAvverkadeStammar,
   hamtaStammoln,
   hamtaHyttspar,
@@ -68,12 +69,23 @@ import RundKarta from '../RundKarta';
 import StubbeSheet from '../StubbeSheet';
 import ProvytaSheet from '../ProvytaSheet';
 import ObservationSheet from '../ObservationSheet';
+import NoteringSheet from '../NoteringSheet';
+import FotoNoteringYta from '../FotoNoteringYta';
+import RitaRad from '../RitaRad';
+import { arDubbeltryck, type LngLat, type TryckPunkt } from '@/lib/ritaPunkter';
+import { ritningTillKoordinater, type Notering, type NoteringVerktyg } from '@/lib/egenkontrollNotering';
 import ObservationLista, { observationAntalText } from '../ObservationLista';
 import ProvyteLista, { type MinPosition } from '../ProvyteLista';
 import Forutsattningar from '../Forutsattningar';
-import KartLagerMeny, { type EgetLager } from '@/components/KartLagerMeny';
+import KartLagerMeny from '@/components/KartLagerMeny';
 import { BASKARTOR, BASKARTA_DEFAULT, type BaskartaId } from '@/lib/mapLayers';
 import { useMapLayers, useStringSetting } from '@/lib/hooks/useMapLayers';
+import { useEgenkontrollLager } from '@/lib/hooks/useEgenkontrollLager';
+import {
+  arBasvagPunkt, lagerRader, raknaPlanVagar, sparKnapp, sparLasningUr, tillampaSparKnapp,
+  type LagerIndata, type SparLasning,
+} from '@/lib/egenkontrollLager';
+import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 import ProvyteSammanstallning from '../ProvyteSammanstallning';
 import RundKommentarSheet, { KOMMENTAR_FALT, KOMMENTAR_PLATSHALLARE } from '../RundKommentarSheet';
 import RapportDela from '../RapportDela';
@@ -112,6 +124,10 @@ import {
   positionSkalText,
 } from '@/lib/egenkontrollFlode';
 import { useLevandePosition, type LevandePosition } from '../useMinPosition';
+import { Bil } from '../ListDelar';
+import { useVagavstand } from '@/lib/hooks/useVagavstand';
+import { harKoordinat, startaNavigering } from '@/lib/navigera';
+import { fagelKm, kmText } from '@/lib/objektVal';
 import { GUL, statusEtikett } from '../svar';
 import { avslutaStatus } from '@/lib/egenkontrollAvsluta';
 
@@ -120,19 +136,6 @@ import { avslutaStatus } from '@/lib/egenkontrollAvsluta';
 function avstandText(m: number): string {
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
 }
-
-// Egenkontrollens egna lager i kartmenyn.
-//
-// TRE TOGGLAR, INTE FEM. "Din position" har ingen: den ar ankaret, och den som
-// rakar slacka sig sjalv i skogen vinner ingenting pa det. Avvikelser har inget
-// eget lager heller - de AR kontrollpunkter med en status, och tva strombrytare
-// for samma punkt skulle gora att den kan vara bade tand och slackt.
-const EGNA_LAGER: EgetLager[] = [
-  { id: 'ekPunkter', namn: 'Kontrollpunkter', beskrivning: 'Punkterna ur planen, fargade efter svar' },
-  { id: 'ekProvytor', namn: 'Provytor', beskrivning: 'Lottade ytor, matta och omatta' },
-  { id: 'ekObservationer', namn: 'Observationer', beskrivning: 'Det du själv noterat ute på rundan' },
-  { id: 'ekStammar', namn: 'Avverkade stammar', beskrivning: '' },
-];
 
 /** Stammolnets rad sager sitt eget tillstand - tomt far inte betyda tva saker. */
 function stamBeskrivning(stammar: LatLng[] | null, fel: boolean): string {
@@ -315,6 +318,10 @@ export default function EgenkontrollRundaPage() {
   // Signerade URL:er per punkt. Misslyckad signering ger INGEN post - kortet
   // visar da ingen miniatyr i stallet for en trasig bildikon.
   const [fotoPerPunkt, setFotoPerPunkt] = useState<Record<string, string[]>>({});
+  // Samma foton med sitt id, i SAMMA ordning (index i raden = index här): fotoytan (9b) behöver id:t - noteringarna hänger på fotot.
+  const [fotoMeta, setFotoMeta] = useState<Record<string, { id: string; url: string }[]>>({});
+  // Fotot som är öppnat i helskärm (PR 9b). Namnet sparas när det öppnas: titeln och den förifyllda texten ändras inte medan bilden står uppe.
+  const [fotoYta, setFotoYta] = useState<{ punktId: string; index: number; rubrik: string } | null>(null);
   // Fotoraderna som de ar (sokvag, punkt, tackningsgrad) - rapportens bilaga behover dem, kortet bara URL:erna.
   const [fotoRader, setFotoRader] = useState<EgenkontrollFoto[]>([]);
   const [sheet, setSheet] = useState<{ lage: SheetLage; punkt: EgenkontrollPunkt } | null>(null);
@@ -333,6 +340,14 @@ export default function EgenkontrollRundaPage() {
   // DIN POSITION, levande. Sidan ager bevakningen och delar ut den - kartan,
   // kortet och listan ska aldrig kunna vara oense om var man ar.
   const pos = useLevandePosition();
+  // Vägbeskrivningen i hel-läget (PR 5): samma navigering och samma vägavstånd som listan och objektlistan i planeringen.
+  const vagLat = pos.position?.lat ?? null;
+  const vagLng = pos.position?.lng ?? null;
+  const vagPos = useMemo(() => (vagLat != null && vagLng != null ? { lat: vagLat, lng: vagLng } : null), [vagLat, vagLng]);
+  const kartLat = vy?.kartObjekt.lat ?? null;
+  const kartLng = vy?.kartObjekt.lng ?? null;
+  const vagObjekt = useMemo(() => (harKoordinat({ lat: kartLat, lng: kartLng }) ? [{ id: objektId, lat: kartLat, lng: kartLng }] : []), [objektId, kartLat, kartLng]);
+  const vagKm = useVagavstand({ aktiv: true, pos: vagPos, objekt: vagObjekt, urval: () => true })[objektId] ?? null;
   const minPosition: MinPosition = pos.position;
 
   // ARKETS LAGE och det MARKERADE: val man gjort pa skarmen - ingenting harleds, ingenting lagras.
@@ -359,12 +374,21 @@ export default function EgenkontrollRundaPage() {
   );
   const [lagerMeny, setLagerMeny] = useState(false);
 
-  // Egenkontrollens egna lager. Punkter och provytor ar PA som default - de ar
-  // vad rundan handlar om. Stammolnet ar av: det ar 12 000 prickar som ska
-  // tandas nar man vill se var det ar kort, inte ligga och skrapa.
-  const [egnaVarden, setEgnaVarden] = useState<Record<string, boolean>>({
-    ekPunkter: true, ekProvytor: true, ekObservationer: true, ekStammar: false,
-  });
+  // NOTERINGAR (PR 9a): ord pa kartan. `rita` = man ritar (verktyg null = har inte valt an); `noteringSheet` = formularet (ny efter ritandet,
+  // andra efter ett tryck pa en notering). Avbryter man formularet efter en ny ritning ligger ritningen kvar - en linje man dragit forsvinner inte.
+  const [noteringar, setNoteringar] = useState<Notering[]>([]);
+  const [noteringarFel, setNoteringarFel] = useState(false);   // rapporten ska saga att noteringarna inte gick att lasa, aldrig utelamna dem tyst
+  const [rita, setRita] = useState<{ verktyg: NoteringVerktyg | null; tryck: LngLat[] } | null>(null);
+  const [noteringSheet, setNoteringSheet] = useState<
+    { lage: 'ny'; verktyg: NoteringVerktyg; koordinater: [number, number][] } | { lage: 'andra'; notering: Notering } | null
+  >(null);
+  const senasteRitaTryck = useRef<TryckPunkt | null>(null);
+
+  // Egenkontrollens egna lager (lib/egenkontrollLager). Punkter, provytor och observationer ar PA som default - de ar vad rundan handlar om.
+  // Underlagen (planens vagar i full styrka, hyttspar, Vidas traktgrans, stammoln) ar AV: det ar tillagg man tander nar man vill se dem,
+  // inte nagot som ligger och skrapar. Valet SPARAS PER ENHET (hooken) och galler medan man gar - ett svar, en ny bricka eller ett byte
+  // av arklage ror det aldrig. Tomt/trasigt/avstangt minne = standarden.
+  const [egnaVarden, setEgnaVarden] = useEgenkontrollLager();
   const visaStammar = egnaVarden.ekStammar === true;
   const [gaTill, setGaTill] = useState<EgenkontrollProvyta | null>(null);
   // Stammarna hamtas EN gang och bara nar lagret slas pa i menyn.
@@ -484,7 +508,7 @@ export default function EgenkontrollRundaPage() {
   const laddaTillbehor = useCallback(async (omlasning = false) => {
     const mitt = ++tillbehorLopnr.current;
     const galler = () => mitt === tillbehorLopnr.current;
-    if (!rundaId) { setFotoPerPunkt({}); setFotoRader([]); setProvytor([]); setYtorLasta(false); return; }
+    if (!rundaId) { setFotoPerPunkt({}); setFotoMeta({}); setFotoRader([]); setProvytor([]); setNoteringar([]); setYtorLasta(false); return; }
     let miste = false;
     try {
       const ytor = await hamtaProvytor(rundaId);
@@ -498,20 +522,32 @@ export default function EgenkontrollRundaPage() {
       const foton = await hamtaFoton(rundaId);
       const par = await Promise.all(
         foton.map(async (f: EgenkontrollFoto) => ({
+          id: f.id,
           punktId: f.punkt_id,
           url: await signeraFoto(f.sokvag),
         })),
       );
       if (!galler()) return;
       const karta: Record<string, string[]> = {};
+      const meta: Record<string, { id: string; url: string }[]> = {};
       for (const p of par) {
         if (!p.punktId || !p.url) continue; // osignerbar bild hoppas over tyst i kortet
         (karta[p.punktId] ??= []).push(p.url);
+        (meta[p.punktId] ??= []).push({ id: p.id, url: p.url });
       }
       setFotoPerPunkt(karta);
+      setFotoMeta(meta);
       setFotoRader(foton);
     } catch {
-      if (galler()) { if (omlasning) miste = true; else { setFotoPerPunkt({}); setFotoRader([]); } }
+      if (galler()) { if (omlasning) miste = true; else { setFotoPerPunkt({}); setFotoMeta({}); setFotoRader([]); } }
+    }
+    try {
+      const nt = await hamtaNoteringar(rundaId);
+      if (galler()) { setNoteringar(nt); setNoteringarFel(false); }
+    } catch {
+      if (galler()) setNoteringarFel(true);
+      // Ett lasfel ar ett fel, aldrig "inga noteringar": kartan skulle annars se ut som att det man ritat forsvunnit.
+      if (galler()) setSparFel(omlasning ? 'Ändringen sparades, men noteringarna kunde inte läsas om. Ladda om sidan.' : 'Noteringarna kunde inte läsas — de syns inte på kartan just nu. Ladda om sidan.');
     }
     if (miste && galler()) {
       setSparFel('Ändringen sparades, men provytor eller bilder kunde inte läsas om. Ladda om sidan.');
@@ -683,6 +719,40 @@ export default function EgenkontrollRundaPage() {
   // --- BRICKORNA OCH DET MARKERADE ------------------------------------------
   const brickor = useMemo(() => byggBrickor(vy?.punkter ?? []), [vy?.punkter]);
   const markerad = markeradId ? allaPunkter.find((p) => p.id === markeradId) ?? null : null;
+
+  // --- LAGREN (PR 8a): hyttspar, planens vagar, Vidas traktgrans --------------------------------------------------------------------------
+  // Hyttsparet hamtas forst nar nagon ber om det: menyn oppnas, Basvag-brickan markeras eller ett sparlager ar tant (sparat val). Ett helt
+  // objekts hyttspar ar inget man hamtar i onodan. Ett fel ar ett fel ("kunde inte lasas"), aldrig "inget spar", och menyn forsoker igen nar den
+  // oppnas nasta gang. Lasningen horer till ett OBJEKT: byter man objekt galler den inte langre.
+  const [sparState, setSparState] = useState<{ objektId: string; lasning: SparLasning; data: { roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[] } | null>(null);
+  const spar: SparLasning | null = sparState && sparState.objektId === objektId ? sparState.lasning : null;
+  const sparData = useMemo(() => (sparState && sparState.objektId === objektId ? sparState.data : []), [sparState, objektId]);
+  const basvagMarkerad = arBasvagPunkt(markerad?.punkt_typ);
+  const sparBegard = lagerMeny || basvagMarkerad || egnaVarden.ekSparSkordare === true || egnaVarden.ekSparSkotare === true;
+  useEffect(() => {
+    if (!sparBegard || spar !== null) return;
+    const for_ = objektId;
+    setSparState({ objektId: for_, lasning: { typ: 'laddar' }, data: [] });
+    hamtaHyttspar(for_)
+      .then((rader) => setSparState((nu) => (nu && nu.objektId === for_ ? { objektId: for_, lasning: sparLasningUr(rader), data: rader } : nu)))
+      .catch(() => setSparState((nu) => (nu && nu.objektId === for_ ? { objektId: for_, lasning: { typ: 'fel' }, data: [] } : nu)));
+  }, [sparBegard, spar, objektId]);
+  /** Menyn oppnas: ett tidigare misslyckat forsok gors om (spar nollas -> effekten ovan hamtar igen). */
+  const oppnaLagerMeny = () => {
+    if (spar?.typ === 'fel') setSparState(null);
+    setLagerMeny(true);
+  };
+
+  const planVagar = useMemo(() => raknaPlanVagar(kontext, vy?.punkter ?? []), [kontext, vy?.punkter]);
+  const vidaRingar = useMemo(() => (vida.typ === 'ok' ? vida.ringar ?? [] : []), [vida]);
+  const lagerIndata = useMemo<LagerIndata>(() => ({
+    origoOk: !!origo, kontextStatus, planVagar, spar, vida,
+    stammarText: stamBeskrivning(stammar, stamFel),
+    rollFarg: { skordare: ROLLFARG_SKORDARE, skotare: ROLLFARG_SKOTARE },
+  }), [origo, kontextStatus, planVagar, spar, vida, stammar, stamFel]);
+  const lagerRaderLista = useMemo(() => lagerRader(lagerIndata), [lagerIndata]);
+  // Knappen "Visa hyttspåret" (Basvag-brickan): skriver SAMMA varden som menyn, sa menyn aldrig star pa "av" medan lagret ar pa.
+  const sparKnappen = basvagMarkerad ? sparKnapp(lagerIndata, egnaVarden) : null;
   // ETT tal i huvudet: allt som aterstar (punkter OCH provytor), samma som avslutsknappen raknar.
   const kvarTotalt = avsl.kvarPunkter + avsl.kvarProvytor;
   // Kartan ar hela vyn nar rundan finns och ar inladdad - ocksa utan koordinater (da tom bakgrund + en forklarande rad, brickorna fungerar anda).
@@ -728,9 +798,10 @@ export default function EgenkontrollRundaPage() {
       stammar: rapportKartdata.stammar,
       antalStammar: rapportKartdata.antalStammar,
       hyttspar: rapportKartdata.hyttspar,
+      noteringar: noteringarFel ? null : noteringar,
       areal: vy.kartObjekt.areal ?? null,
     }));
-  }, [vy, fotoRader, provytor, origo, kontext, kontextStatus, rapportKartdata]);
+  }, [vy, fotoRader, provytor, origo, kontext, kontextStatus, rapportKartdata, noteringar, noteringarFel]);
 
   // ANGRA star i ANGRA_MS - och forsvinner om svaret hunnit andras med raden (da vore Angra att skriva over ett annat svar).
   useEffect(() => {
@@ -799,6 +870,32 @@ export default function EgenkontrollRundaPage() {
     setObservationSheet({ lage: 'ny', start: pos.status === 'ok' ? pos.position : null });
   };
 
+  // RITA (PR 9a). Rita-knappen tander lagret Noteringar om det ar slackt: man ser annars inte det man ritar. Det ar det enda lager som tands av ett
+  // verktyg - planens vagar och hyttsparet (underlagen) tands aldrig av sig sjalva.
+  const startaRita = () => {
+    setSparFel(null);
+    if (egnaVarden.ekNoteringar === false) setEgnaVarden((prev) => ({ ...prev, ekNoteringar: true }));
+    senasteRitaTryck.current = null;
+    setRita({ verktyg: null, tryck: [] });
+  };
+  const ritaTryck = (plats: LngLat, tid: number, px: { x: number; y: number }) => {
+    if (!rita || rita.verktyg === null || noteringSheet) return;
+    const nytt: TryckPunkt = { x: px.x, y: px.y, tid };
+    if (arDubbeltryck(senasteRitaTryck.current, nytt)) return;   // samma tryck igen (dubbelhandelse), aldrig tva horn
+    senasteRitaTryck.current = nytt;
+    if (rita.verktyg === 'punkt') {
+      const k = ritningTillKoordinater('punkt', [plats]);
+      if (k) setNoteringSheet({ lage: 'ny', verktyg: 'punkt', koordinater: k });
+      return;
+    }
+    setRita({ ...rita, tryck: [...rita.tryck, plats] });
+  };
+  const ritaKlar = () => {
+    if (!rita || rita.verktyg === null || rita.verktyg === 'punkt') return;
+    const k = ritningTillKoordinater(rita.verktyg, rita.tryck);
+    if (k) setNoteringSheet({ lage: 'ny', verktyg: rita.verktyg, koordinater: k });
+  };
+
   // PLANPUNKTER UTAN PLATS PA KARTAN: de enda planpunkter som far en rad i arket. Alla andra markeras pa kartan och besvaras i raden i dockan -
   // en punkt har EN vag in, aldrig tva. Utan en betrodd kartplacering (t.ex. objekt vars traktgrans saknas, se lib/egenkontrollOrigo.ts) finns
   // ingen symbol att trycka pa, och da vore punkten omojlig att besvara och rundan omojlig att avsluta. Avslutad runda: ingen lista.
@@ -826,8 +923,24 @@ export default function EgenkontrollRundaPage() {
         </p>
       </div>
 
-      {/* VAGBESKRIVNINGEN: PR 5 lagger in den har, direkt under namn och atgard (innan forutsattningarna). Ingenting ritas till dess -
-          ett tomt kort ar en tom rad. */}
+      {/* VAGBESKRIVNINGEN (PR 5): direkt under namn och atgard, innan forutsattningarna. Samma navigering (lib/navigera) som listans bilknapp och
+          objektinfons Vagbeskrivning. Avstandet ar vagavstand nar det kommit, annars fagelvag med ~, utan position inget - men knappen star kvar
+          (kartappen vet var du ar). Saknar objektet plats ritas ingen knapp. */}
+      {harKoordinat({ lat: kartLat, lng: kartLng }) && (() => {
+        const avst = vagKm != null ? kmText(vagKm) : vagPos ? kmText(fagelKm(vagPos.lat, vagPos.lng, kartLat as number, kartLng as number), true) : '';
+        return (
+          <button
+            type="button"
+            data-testid="vagbeskrivning"
+            aria-label={`Vägbeskrivning till ${vy.objektNamn}${avst ? `, ${avst}` : ''}`}
+            onClick={() => startaNavigering({ lat: kartLat, lng: kartLng })}
+            style={{ ...KNAPP.sekundar, marginTop: AVSTAND.m, justifyContent: 'space-between' }}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.inuti }}><Bil />Vägbeskrivning</span>
+            {avst && <span style={{ color: FARG.text2 }}>{avst}</span>}
+          </button>
+        );
+      })()}
 
       {kompletteringSaknas > 0 && !rundanKlar && (
         <div role="status" style={{ ...TYP.meta, color: FARG.orange, margin: `${AVSTAND.s}px 0 0` }}>
@@ -996,7 +1109,17 @@ export default function EgenkontrollRundaPage() {
               baskarta={baskarta}
               overlays={overlays}
               egnaVarden={egnaVarden}
+              spar={sparData}
+              vidaRingar={vidaRingar}
               position={pos.position}
+              noteringar={noteringar}
+              rita={rita && rita.verktyg !== null && !noteringSheet ? { verktyg: rita.verktyg, tryck: rita.tryck } : null}
+              onRitaTryck={ritaTryck}
+              // En notering oppnas for andring bara medan rundan ar oppen och man inte ritar - en klar runda ar last.
+              onValjNotering={rundanKlar || rita ? undefined : (id) => {
+                const n = noteringar.find((q) => q.id === id);
+                if (n) setNoteringSheet({ lage: 'andra', notering: n });
+              }}
               onValjPunkt={markeraPunkt}
               onValjProvyta={(nr) => {
                 const y = provytor.find((q) => q.nummer === nr);
@@ -1041,11 +1164,28 @@ export default function EgenkontrollRundaPage() {
             <>
               {/* Notera har (vanster), Lager (hoger) och kvittot ligger i SAMMA kolumn som huvudet och arket (max KOLUMN.ark, centrerad) -
                   pa en bred skarm sprids de annars till var sin kant. Centrera ar den delade knappen och ligger vid skarmkanten, som i planeringen. */}
-              <div style={kolumnStil(sidoBottom(0))}>
-                {!rundanKlar ? (
-                  <div style={{ pointerEvents: 'auto' }}><KartKnapp ikon="add_location_alt" etikett="Notera här" onClick={noteraHar} stor /></div>
-                ) : <span />}
-                <div style={{ pointerEvents: 'auto' }}><KartKnapp ikon="layers" etikett="Lager" ariaLabel="Kartlager" onClick={() => setLagerMeny(true)} /></div>
+              <div style={{ ...kolumnStil(sidoBottom(0)), columnGap: AVSTAND.s }}>
+                {rita ? (
+                  // MEDAN MAN RITAR ersatter EN rad knapparna (ett lage i taget, en uppsattning knappar).
+                  <RitaRad
+                    verktyg={rita.verktyg}
+                    antalTryck={rita.tryck.length}
+                    onVal={(v) => { senasteRitaTryck.current = null; setRita({ verktyg: v, tryck: [] }); }}
+                    onAngra={() => setRita((r) => (r ? { ...r, tryck: r.tryck.slice(0, -1) } : r))}
+                    onKlar={ritaKlar}
+                    onAvbryt={() => setRita(null)}
+                  />
+                ) : (
+                  <>
+                    {!rundanKlar ? (
+                      <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'flex-end', gap: AVSTAND.s }}>
+                        <KartKnapp ikon="add_location_alt" etikett="Notera här" onClick={noteraHar} stor smalt />
+                        <KartKnapp ikon="edit" etikett="Rita" onClick={startaRita} ordSmalt />
+                      </div>
+                    ) : <span />}
+                    <div style={{ pointerEvents: 'auto' }}><KartKnapp ikon="layers" etikett="Lager" ariaLabel="Kartlager" onClick={oppnaLagerMeny} smalt /></div>
+                  </>
+                )}
               </div>
               <CentreraKnapp
                 synlig={pos.position != null}
@@ -1053,6 +1193,30 @@ export default function EgenkontrollRundaPage() {
                 onTryck={() => { if (pos.position) setCentreraPa({ lat: pos.position.lat, lng: pos.position.lng }); }}
                 bottom={sidoBottom(TRAFFYTA.primar + AVSTAND.s)}
               />
+              {/* "Visa hyttspåret": syns BARA när en basväg är markerad, ovanför Centrera i högerkanten - utanför dockan, sa dockan aldrig
+                  vaxer nar man markerar (inget tryckbart far flytta sig under fingret) och knappen finns aven nar arket ar sankt. Skriver SAMMA varden
+                  som lagermenyn. Ar spåret redan tant star "Dölj hyttspåret"; finns inget står en dampad rad som sager det. */}
+              {sparKnappen && (
+                <div style={{ ...kolumnStil(sidoBottom(2 * (TRAFFYTA.primar + AVSTAND.s))), justifyContent: 'flex-end' }}>
+                  {sparKnappen.typ === 'ingen' ? (
+                    <div
+                      role="status"
+                      data-testid="spar-knapp-ingen"
+                      style={{ pointerEvents: 'auto', padding: `${AVSTAND.s}px ${AVSTAND.l}px`, borderRadius: RADIE.knapp, background: FARG.kort, color: FARG.text2, ...TYP.meta }}
+                    >
+                      {sparKnappen.etikett}
+                    </div>
+                  ) : (
+                    <div style={{ pointerEvents: 'auto' }} data-testid="spar-knapp" data-lage={sparKnappen.typ}>
+                      <KartKnapp
+                        ikon="route"
+                        etikett={sparKnappen.etikett}
+                        onClick={() => setEgnaVarden((prev) => tillampaSparKnapp(lagerIndata, prev))}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
               {angra && (
                 <div style={kolumnStil(sidoBottom(TRAFFYTA.primar + AVSTAND.s))}>
                   <div
@@ -1096,6 +1260,7 @@ export default function EgenkontrollRundaPage() {
                     onSvara={radSvarar}
                     onAvvikelse={() => { if (markerad) setSheet({ lage: 'avvikelse', punkt: markerad }); }}
                     onFotoNot={() => { if (markerad) setSheet({ lage: 'foto', punkt: markerad }); }}
+                    onOppnaFoto={(i) => { if (markerad) setFotoYta({ punktId: markerad.id, index: i, rubrik: markerad.rubrik }); }}
                   />
                 }
               />
@@ -1150,11 +1315,7 @@ export default function EgenkontrollRundaPage() {
           setMapType={setBaskarta}
           overlays={overlays}
           setOverlays={setOverlays}
-          egnaLager={EGNA_LAGER.map((l) =>
-            l.id === 'ekStammar'
-              ? { ...l, beskrivning: stamBeskrivning(stammar, stamFel) }
-              : l,
-          )}
+          egnaLager={lagerRaderLista}
           egnaVarden={egnaVarden}
           setEgnaVarden={setEgnaVarden}
         />
@@ -1224,6 +1385,45 @@ export default function EgenkontrollRundaPage() {
             onStang={() => setObservationSheet(null)}
             onSparad={() => { setObservationSheet(null); ladda({ tyst: true }); laddaTillbehor(true); }}
           />
+        )}
+
+        {/* FOTOYTAN (PR 9b): ett foto i helskärm med ord pa bilden. Ligger under noteringsarket (Ark ar z-index 1600, ytan 1500). */}
+        {fotoYta && vy?.egenkontroll && (fotoMeta[fotoYta.punktId]?.length ?? 0) > 0 && (
+          <FotoNoteringYta
+            key={fotoYta.punktId}
+            egenkontrollId={vy.egenkontroll.id}
+            foton={fotoMeta[fotoYta.punktId]}
+            start={fotoYta.index}
+            rubrik={fotoYta.rubrik}
+            noteringar={noteringar}
+            noteringarFel={noteringarFel}
+            last={rundanKlar}
+            onStang={() => setFotoYta(null)}
+            onAndrad={() => laddaTillbehor(true)}
+          />
+        )}
+
+        {/* NOTERING: ORD PA KARTAN. Ny efter ritandet (platsen ar satt), andra efter ett tryck pa en notering. */}
+        {noteringSheet && vy?.egenkontroll && (
+          noteringSheet.lage === 'ny' ? (
+            <NoteringSheet
+              key="ny"
+              lage="ny"
+              egenkontrollId={vy.egenkontroll.id}
+              verktyg={noteringSheet.verktyg}
+              koordinater={noteringSheet.koordinater}
+              onStang={() => setNoteringSheet(null)}
+              onSparad={() => { setNoteringSheet(null); setRita(null); laddaTillbehor(true); }}
+            />
+          ) : (
+            <NoteringSheet
+              key={noteringSheet.notering.id}
+              lage="andra"
+              notering={noteringSheet.notering}
+              onStang={() => setNoteringSheet(null)}
+              onSparad={() => { setNoteringSheet(null); laddaTillbehor(true); }}
+            />
+          )
         )}
 
         {/* APP-EGEN DIALOG - aldrig confirm(). Den blockeras tyst i inbaddade
