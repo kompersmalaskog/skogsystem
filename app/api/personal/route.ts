@@ -1,32 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { autentisera, svar401, svar404Medarbetare } from "@/lib/auth/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-async function autentisera(): Promise<{ user: any; roll: string | null }> {
-  const cookieStore = await cookies();
-  const authClient = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll(); },
-        setAll(cs) { cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options)); },
-      },
-    },
-  );
-  const { data: { user } } = await authClient.auth.getUser();
-  if (!user?.email) return { user: null, roll: null };
-  const { data: med } = await authClient
-    .from("medarbetare")
-    .select("roll")
-    .eq("epost", user.email)
-    .maybeSingle();
-  return { user, roll: med?.roll || null };
-}
 
 function supaService() {
   return createClient(
@@ -35,23 +12,33 @@ function supaService() {
   );
 }
 
+/**
+ * GET /api/personal — personalregistret med hemadress, anhörig och friskvårdsbudget (läses med service-nyckeln, som
+ * går förbi RLS). Admin får alla aktiva; en förare får BARA sig själv (sin egen rad och sina egna certifikat) — aldrig
+ * en kollegas adress, närstående eller budget. Rollen kommer ur sessionen, aldrig ur anropet.
+ */
 export async function GET() {
-  const { user } = await autentisera();
-  if (!user) return NextResponse.json({ ok: false, error: "Ej inloggad" }, { status: 401 });
+  const sess = await autentisera();
+  if (!sess.user) return svar401();
+  const arAdmin = sess.roll === "admin";
+  if (!arAdmin && !sess.medarbetareId) return svar404Medarbetare();
 
   const supabase = supaService();
-  const [medRes, certRes] = await Promise.all([
-    supabase
-      .from("medarbetare")
-      .select("id, namn, roll, epost, telefon, hemadress, maskin_id, friskvard_budget_total, friskvard_budget_anvant, anhorig_namn, anhorig_telefon, anhorig_relation, aktiv")
-      .eq("aktiv", true)
-      .order("namn"),
-    supabase
-      .from("medarbetare_certifikat")
-      .select("*")
-      .eq("aktiv", true)
-      .order("utgar_datum", { ascending: true, nullsFirst: false }),
-  ]);
+  let medFraga = supabase
+    .from("medarbetare")
+    .select("id, namn, roll, epost, telefon, hemadress, maskin_id, friskvard_budget_total, friskvard_budget_anvant, anhorig_namn, anhorig_telefon, anhorig_relation, aktiv")
+    .eq("aktiv", true)
+    .order("namn");
+  let certFraga = supabase
+    .from("medarbetare_certifikat")
+    .select("*")
+    .eq("aktiv", true)
+    .order("utgar_datum", { ascending: true, nullsFirst: false });
+  if (!arAdmin) {
+    medFraga = medFraga.eq("id", sess.medarbetareId!);
+    certFraga = certFraga.eq("medarbetare_id", sess.medarbetareId!);
+  }
+  const [medRes, certRes] = await Promise.all([medFraga, certFraga]);
 
   if (medRes.error) return NextResponse.json({ ok: false, error: medRes.error.message }, { status: 500 });
   if (certRes.error) return NextResponse.json({ ok: false, error: certRes.error.message }, { status: 500 });

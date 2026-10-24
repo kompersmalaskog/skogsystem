@@ -7,7 +7,8 @@
 import { loneartInfo } from "@/lib/lonesystem/loneart";
 import { minText, dagAvvikelser, kmUppdelning } from "@/lib/lonesystem/forarText";
 import { ordinarieText } from "@/lib/lonesystem/manadsordinarie";
-import { dagText } from "@/lib/admin/loneunderlagVy";
+import { dagText, synkVisas } from "@/lib/admin/loneunderlagVy";
+import { kvotDetalj, kvotMaskinText, kvotVarde, summeraKvot } from "@/lib/admin/lonekvot";
 import type { ExtraPost } from "@/lib/lonesystem/loneunderlag";
 
 const DAG = ["sön", "mån", "tis", "ons", "tor", "fre", "lör"];
@@ -40,6 +41,9 @@ export type VyDag = {
   extra: VyExtra[];
 };
 
+/** Lönekvot: samma uppställning och samma tal som Dagar (lib/admin/lonekvot) — maskinens G15 under förarens inloggning mot betald tid. */
+export type VyLonekvot = { varde: string; maskin: string; detalj: string };
+
 export type ForarManadVy = {
   namn: string;
   foretagsledare: boolean;
@@ -55,6 +59,7 @@ export type ForarManadVy = {
     extra: VyExtra[];
   };
   lonerader: VyLonerad[];
+  lonekvot: VyLonekvot;
   km: VyKm;
   dagar: VyDag[];
 };
@@ -175,7 +180,7 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
     ...((m.hemskickad || []) as any[]).map(h => [h.datum, { typ: "hemskickad", fran_tid: h.fran_tid, till_tid: null }] as [string, any]),
   ]);
   const ledig = new Map<string, string>(((m.ledighetskollision || []) as any[]).map(x => [x.datum, x.typ]));
-  const synk = new Map<string, number>(((m.synk || []) as any[]).map(s => [s.datum, s.diff_min]));
+  const synk = new Map<string, number>(((m.synk || []) as any[]).filter(s => synkVisas(s.diff_min)).map(s => [s.datum, s.diff_min]));
   const dagar: VyDag[] = dagarRå.map(d => {
     const min = Math.round((d.arbetad_min || 0) + (d.extra_min || 0));
     const avv = dagAvvikelser(d, {
@@ -213,6 +218,9 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
     };
   });
 
+  // Lönekvoten ur SAMMA dagar och samma regler som Dagar: betald tid = maskintid vid maskinen + extra tid, utan avrundning per dag.
+  const kvot = summeraKvot(dagarRå.map(d => ({ min: (d.arbetad_min || 0) + (d.extra_min || 0), maskintid: d.maskintid })));
+
   return {
     namn: m.namn,
     foretagsledare: m.foretagsledare === true,
@@ -227,6 +235,7 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
       extra,
     },
     lonerader,
+    lonekvot: { varde: kvotVarde(kvot), maskin: kvotMaskinText(kvot), detalj: kvotDetalj(kvot) },
     km,
     dagar,
   };

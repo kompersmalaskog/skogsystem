@@ -1,66 +1,99 @@
 'use client';
-// Kalibrering — skalet. Sidan äger bara det som flikarna delar: datan (useKalibreringData), vilken flik som visas, vilka ark som är öppna
-// och de val som ska överleva ett flikbyte. Varje flik är en egen komponent i components/kalibrering; arken ligger samlade i DeladeArk.
-// Räknandet bor i lib/kalibrering. Utseendet är designsystemets (lib/design/tokens + components/design) — ingen egen CSS.
+// Kalibrering — skalet. Fyra flikar i en bottenmeny, som i Arbetsrapport: Läget (är vi godkända?), Över tid (blir det bättre?), Kontroller (vad mättes?),
+// Objekt (slå upp en trakt). Sidan äger det flikarna delar: datan (useKalibreringData), vald flik, de val som ska överleva ett flikbyte och stapeln av
+// blad/ark. Räknandet bor i lib/kalibrering; utseendet är designsystemets (lib/design/tokens + components/design).
+//
+// Maskinen är alltid EN (förarens egen som start; "Giant ▾" i rubriken byter) — det finns ingen sammanslagen bedömning av flera maskiner.
+// Bredd: telefon = en kolumn och blad nerifrån; från 760 px (iPad stående) är Kontroller och Objekt lista till vänster och detalj till höger (som Mail).
 import { useState } from 'react';
-import Flikkontroll from '@/components/design/Flikkontroll';
+import Bottenmeny, { bottenmenyPadding, type BottenmenyPost } from '@/components/design/Bottenmeny';
+import Svarsrad from '@/components/design/Svarsrad';
 import Tillstand from '@/components/design/Tillstand';
 import VyKolumn from '@/components/design/VyKolumn';
-import DeladeArk from '@/components/kalibrering/DeladeArk';
-import KalenderFlik from '@/components/kalibrering/KalenderFlik';
-import MaskinFilter from '@/components/kalibrering/MaskinFilter';
-import ObjektFlik from '@/components/kalibrering/ObjektFlik';
-import RapportFlik from '@/components/kalibrering/RapportFlik';
-import SenasteFlik from '@/components/kalibrering/SenasteFlik';
+import DeladeArk, { Blad } from '@/components/kalibrering/DeladeArk';
+import KontrollerFlik from '@/components/kalibrering/KontrollerFlik';
+import LagetFlik from '@/components/kalibrering/LagetFlik';
+import ObjektFlik, { ObjektDetalj } from '@/components/kalibrering/ObjektFlik';
+import OverTidFlik from '@/components/kalibrering/OverTidFlik';
 import { FelSkarm, LaddarSkarm, TomSkarm } from '@/components/kalibrering/Skarmar';
-import TrendFlik from '@/components/kalibrering/TrendFlik';
-import { AVSTAND, designCss, FARG, LAYOUT, medSafeBotten, ROT_MIN_HOJD, VY_ROT } from '@/lib/design/tokens';
+import { arBladPost } from '@/components/kalibrering/arkTyper';
+import { kalibreringCss, MASTER_DETAIL_FRAN_PX } from '@/components/kalibrering/kalibreringCss';
+import { designCss, FARG, KORT, ROT_MIN_HOJD, VY_ROT, AVSTAND, LAYOUT } from '@/lib/design/tokens';
 import { useKalibreringArk } from '@/lib/hooks/useKalibreringArk';
 import { useKalibreringData, type Flik } from '@/lib/hooks/useKalibreringData';
 import { useKalibreringVy } from '@/lib/hooks/useKalibreringVy';
+import { useMatchMedia } from '@/lib/hooks/useMatchMedia';
 
-const FLIKAR: readonly (readonly [Flik, string])[] = [['today', 'Senaste'], ['trend', 'Trend'], ['objekt', 'Objekt'], ['calendar', 'Kalender'], ['report', 'Rapport']];
+const FLIKAR: readonly BottenmenyPost<Flik>[] = [
+  { id: 'laget', etikett: 'Läget', ikon: 'speed' },
+  { id: 'tid', etikett: 'Över tid', ikon: 'show_chart' },
+  { id: 'kontroller', etikett: 'Kontroller', ikon: 'checklist' },
+  { id: 'objekt', etikett: 'Objekt', ikon: 'forest' },
+];
 
 export default function KalibreringPage() {
-  const [aktivFlik, setAktivFlik] = useState<Flik>('today');
-  const d = useKalibreringData(aktivFlik);
+  const [flik, setFlik] = useState<Flik>('laget');
+  const d = useKalibreringData(flik);
   const v = useKalibreringVy();
   const ark = useKalibreringArk(d.speciesData);
-  const [hjalpOpen, setHjalpOpen] = useState(false); // "Vad betyder talen?" bakom frågan i Läget
-  const [maskinOpen, setMaskinOpen] = useState(false);
+  const bred = useMatchMedia(`(min-width: ${MASTER_DETAIL_FRAN_PX}px)`);
 
   if (d.loading) return <LaddarSkarm />;
   if (d.fetchError && d.allKalib.length === 0) return <FelSkarm text={d.fetchError} onForsok={d.fetchData} />;
   if (d.allKalib.length === 0) return <TomSkarm />;
 
-  return (
-    <div style={{ ...VY_ROT, minHeight: ROT_MIN_HOJD, paddingBottom: medSafeBotten(AVSTAND.xl) }}>
-      <style>{designCss}</style>
-      {/* Flikraden följer med när man scrollar, precis under toppfältet. */}
-      <div style={{ position: 'sticky', top: LAYOUT.topbar, zIndex: 10, background: FARG.bg, padding: `${AVSTAND.m}px 0` }}>
-        <VyKolumn>
-          <Flikkontroll flikar={FLIKAR} aktiv={aktivFlik} onVal={setAktivFlik} />
-        </VyKolumn>
-      </div>
+  // Kontroller och Objekt har lista + detalj bredvid varandra från 760 px; Läget är en smal kolumn, Över tid en bred.
+  const delad = bred && (flik === 'kontroller' || flik === 'objekt');
+  const kolumn = flik === 'laget' ? 'smal' : flik === 'tid' || delad ? 'bred' : 'smal';
+  const valjFlik = (f: Flik) => {
+    if (f === flik) return;
+    ark.stang(); // ett blad eller ark hör till fliken det öppnades i
+    setFlik(f);
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0 });
+  };
 
-      <VyKolumn>
-        {/* Maskinfiltret gäller alla flikar UTOM Objekt (som är maskinoberoende — filtret är objektet). */}
-        {aktivFlik !== 'objekt' && (
-          <div style={{ marginBottom: AVSTAND.l }}>
-            <MaskinFilter etikett={d.filterLabel} onTryck={() => { ark.stang(); setMaskinOpen(true); }} />
+  const post = ark.oversta?.post;
+  const detaljPlats = (
+    <div className="kal-md-detalj">
+      {bred && flik === 'kontroller' && (
+        post && arBladPost(post) ? <Blad ark={ark} d={d} lage="panel" /> : (
+          <div style={{ ...KORT, position: 'sticky', top: `calc(${LAYOUT.topbar} + ${AVSTAND.l}px)` }}>
+            <Svarsrad rubrik="Välj en kontroll" rad="Tryck på en rad i listan, eller på en dag i kalendern." fri />
           </div>
-        )}
+        )
+      )}
+      {bred && flik === 'objekt' && (
+        <div style={{ ...KORT, position: 'sticky', top: `calc(${LAYOUT.topbar} + ${AVSTAND.l}px)` }}>
+          {v.valtObjekt && d.objektData ? <ObjektDetalj d={d} valt={v.valtObjekt} /> : <Svarsrad rubrik="Välj en trakt" rad="Tryck på ett objekt i listan." fri />}
+        </div>
+      )}
+    </div>
+  );
 
-        <Tillstand nyckel={aktivFlik}>
-          {aktivFlik === 'today' && <SenasteFlik d={d} v={v} ark={ark} />}
-          {aktivFlik === 'trend' && <TrendFlik d={d} v={v} onHjalp={() => setHjalpOpen(true)} />}
-          {aktivFlik === 'objekt' && <ObjektFlik d={d} v={v} />}
-          {aktivFlik === 'calendar' && <KalenderFlik d={d} ark={ark} />}
-          {aktivFlik === 'report' && <RapportFlik d={d} ark={ark} />}
+  return (
+    <div style={{ ...VY_ROT, minHeight: ROT_MIN_HOJD, paddingBottom: bottenmenyPadding(), background: FARG.bg }}>
+      <style>{designCss + kalibreringCss}</style>
+      <VyKolumn bredd={kolumn}>
+        <Tillstand nyckel={flik}>
+          {flik === 'laget' && <LagetFlik d={d} ark={ark} />}
+          {flik === 'tid' && <OverTidFlik d={d} v={v} ark={ark} />}
+          {flik === 'kontroller' && (
+            <div className="kal-md">
+              <div className="kal-md-lista"><KontrollerFlik d={d} ark={ark} /></div>
+              {detaljPlats}
+            </div>
+          )}
+          {flik === 'objekt' && (
+            <div className="kal-md">
+              <div className="kal-md-lista"><ObjektFlik d={d} v={v} bred={delad} /></div>
+              {detaljPlats}
+            </div>
+          )}
         </Tillstand>
       </VyKolumn>
 
-      <DeladeArk ark={ark} d={d} hjalpOpen={hjalpOpen} onStangHjalp={() => setHjalpOpen(false)} maskinOpen={maskinOpen} onStangMaskin={() => setMaskinOpen(false)} />
+      <DeladeArk ark={ark} d={d} bladLage="blad" visaBlad={!(bred && flik === 'kontroller')} />
+      <Bottenmeny poster={FLIKAR} aktiv={flik} onVal={valjFlik} etikett="Kalibrering" />
     </div>
   );
 }

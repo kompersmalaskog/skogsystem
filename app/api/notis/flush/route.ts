@@ -12,7 +12,10 @@ import { PAMINNELSE_TYP, paminnelseMeddelande } from "@/lib/grotvy/paminnelse";
 import { arLedighetNotis, byggLedighetNotis, flushUrval, type HamtaRad } from "@/lib/ledighet/notis";
 import { LASS_MASKIN, arLassNotis, byggLassNotis, type HamtaLass } from "@/lib/lastbil/lass/notis";
 import { EGENKONTROLL_STICKPROV, arStickprovNotis, byggStickprovNotis, type HamtaStickprov } from "@/lib/egenkontrollStickprovNotis";
+import { LON_NOTIS_TYPER, arLonNotis, byggLonNotis, lasLonRadMotDb } from "@/lib/lonesystem/granskaNotis";
 import { INVENTARIE_UNDER_MIN, arInventarieNotis, byggInventarieNotis, type HamtaInventarie } from "@/lib/inventarier/notis";
+import { arBesokPaminnelse, byggBesokNotis, type HamtaBesokObjekt } from "@/lib/besok/paminnelse";
+import { koaBesokPaminnelser } from "@/lib/besok/paminnelse-ko";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -71,14 +74,22 @@ async function flush() {
     console.error("[notis/flush] egenkontroll_stickprov:", e);
   }
 
+  // Besöket på trakten: "<Trakt> startar i morgon/i dag – skicka till markägaren?" köas här (dagen före planerad start, eller när första maskinen startar), en gång per tillfälle. Ett fel stoppar aldrig kön.
+  try {
+    const bp = await koaBesokPaminnelser(supabase);
+    if (!bp.ok) console.error("[notis/flush] besökspåminnelse:", bp.fel);
+  } catch (e) {
+    console.error("[notis/flush] besökspåminnelse:", e);
+  }
+
   const nu = new Date().toISOString();
   const { data: pendingRader, error } = await supabase
     .from("notis_kö")
     .select("*")
     // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
-    // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts).
-    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN]))
+    // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts), liksom lönenotiserna (lib/lonesystem/granskaNotis.ts).
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, ...LON_NOTIS_TYPER]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -151,11 +162,15 @@ async function flush() {
       // Lass: samma regler (färsk text, redan besvarat/för gammalt → hoppas över, läsfel → oskickad).
       let ledighetMeddelande: Awaited<ReturnType<typeof byggMeddelande>> | null = null;
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
+      // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ)) {
-        const u = arInventarieNotis(n.typ) ? await byggInventarieNotis(n, hamtaInventarierad)
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ)) {
+        const u = arBesokPaminnelse(n.typ) ? await byggBesokNotis(n, hamtaBesokObjekt)
+          : arInventarieNotis(n.typ) ? await byggInventarieNotis(n, hamtaInventarierad)
           : arStickprovNotis(n.typ) ? await byggStickprovNotis(n, hamtaStickprovrad)
-          : arLassNotis(n.typ) ? await byggLassNotis(n, hamtaLassrad) : await byggLedighetNotis(n, hamtaLedighetsrad);
+          : arLassNotis(n.typ) ? await byggLassNotis(n, hamtaLassrad)
+          : arLonNotis(n.typ) ? await byggLonNotis(n, lasLonRadMotDb(supabase))
+          : await byggLedighetNotis(n, hamtaLedighetsrad);
         if (u.typ === "uppskjut") { uppskjutna++; continue; }
         if (u.typ === "hoppa_over") {
           await supabase.from("notis_kö").update({ skickad_at: new Date().toISOString(), fel_meddelande: u.orsak }).eq("id", n.id);
@@ -277,6 +292,17 @@ const hamtaInventarierad: HamtaInventarie = async (radId) => {
   const p = Array.isArray(d.plats) ? d.plats[0] : d.plats;
   if (!a || !p) return { rad: null };
   return { rad: { id: d.id, antal: d.antal, min_antal: d.min_antal, bestalld_tid: d.bestalld_tid, tva_lador: !!d.tva_lador, reserv_oppnad_tid: d.reserv_oppnad_tid ?? null, artikel_namn: a.namn, sitter_pa: a.sitter_pa ?? null, enhet: a.enhet ?? null, plats_namn: p.namn } };
+};
+
+// Objektet + om SMS:et till markägaren redan öppnats, för besökspåminnelsen. `rad: null` = finns inte; `fel` = kunde inte läsas.
+const hamtaBesokObjekt: HamtaBesokObjekt = async (objektId) => {
+  const { data, error } = await supabase.from("objekt").select("id, namn, status").eq("id", objektId).maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const s = await supabase.from("objekt_besok_sms").select("id", { count: "exact", head: true }).eq("objekt_id", objektId);
+  if (s.error) return { rad: null, fel: s.error.message };
+  const d = data as any;
+  return { rad: { id: d.id, namn: d.namn, status: d.status ?? null, sms_oppnat: (s.count ?? 0) > 0 } };
 };
 
 const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];

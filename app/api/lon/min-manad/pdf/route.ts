@@ -123,7 +123,7 @@ async function ritaPdf(arbetsmanad: string, m: LoneunderlagBerikad | null): Prom
       högerText(huvud, kolMangd, 10, bold);
       högerText(`(${fmtMangd(r.Number)})`, kolMangd - bredd(huvud, 10, bold) - 6, 9, font, grå);
     } else {
-      högerText(`${fmtMangd(r.Number)} ${loneartEnhetText(r.loneart)}`, kolMangd, 10, bold);
+      högerText(`${fmtMangd(r.Number)} ${loneartEnhetText(r.loneart, r.Number)}`, kolMangd, 10, bold);
     }
     rad(16);
   }

@@ -35,7 +35,7 @@
  */
 
 import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
-import { loneartInfo, type LoneartKey, type Loneartskoder } from "./loneart";
+import { loneartInfo, enhetForMangd, type LoneartKey, type Loneartskoder } from "./loneart";
 import { rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag, hemskickadMinuter } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
 import { helglonIManad, helglonDagar as helglonDagarArsLista, helglonSkalText, HELGLON_TIMMAR, type HelglonDag, type FranvaroPost } from "./helglon";
@@ -286,12 +286,12 @@ export function beräknaExport(
     if (!kod) {
       if (info.valfri) {
         lonerader.push({ loneart, mangd, kod: null, beskrivning, status: "valfri_utan_kod" });
-        varningar.push(`${info.label} (${Number(mangd)} ${info.enhet}) skickas inte: ingen kod är kopplad (frivillig). Koppla en kod under Lön → Lönearter om den ska med.`);
+        varningar.push(`${info.label} (${Number(mangd)} ${enhetForMangd(info.enhet, mangd)}) skickas inte: ingen kod är kopplad (frivillig). Koppla en kod under Lön → Lönearter om den ska med.`);
         return;
       }
       if (!saknadeKoder.includes(loneart)) saknadeKoder.push(loneart);
       lonerader.push({ loneart, mangd, kod: null, beskrivning, status: "saknar_kod" });
-      varningar.push(`Löneart saknas för ${info.label} (${Number(mangd)} ${info.enhet}): koppla en kod under Lön → Lönearter. Raden skickas inte.`);
+      varningar.push(`Löneart saknas för ${info.label} (${Number(mangd)} ${enhetForMangd(info.enhet, mangd)}): koppla en kod under Lön → Lönearter. Raden skickas inte.`);
       return;
     }
     rader.push({ EmployeeId: eid, loneart, SalaryCode: kod, Number: mangd, Date: loneperiodStart, beskrivning });
@@ -581,7 +581,7 @@ export function beräknaExport(
   for (const d of produktionsDagar) veckor.add(isoVecka(new Date(d.datum)));
   const vältVeckor = veckor.size;
   if (vältVeckor > 0) {
-    laggRad("valtlappar", vältVeckor.toFixed(0), `Vältlappar: ${vältVeckor} veckor`);
+    laggRad("valtlappar", vältVeckor.toFixed(0), `Vältlappar: ${vältVeckor} ${vältVeckor === 1 ? "vecka" : "veckor"}`);
   }
 
   // ── 5. RESEERSÄTTNING: påbörjade mil över gränsen ──

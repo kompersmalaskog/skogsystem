@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import { stefanUnderlag, MASKIN } from "@/lib/lonesystem/testdata/stefanSep";
 import { byggForarManad, tidMedDecimal, kmKallaText } from "@/lib/admin/forarManadVy";
 import { getRödaDagar } from "@/lib/roda-dagar";
+import { summeraKvot, kvotVarde, kvotDetalj } from "@/lib/admin/lonekvot";
 
 async function stefan(andra?: (d: any) => any, extraTillagg: any[] = []) {
   const { m } = await stefanUnderlag(andra, extraTillagg);
@@ -148,5 +149,41 @@ describe("Förare · Månad — Stefan september 2026", () => {
   it("tidMedDecimal skriver tim:min med decimalen i parentes", () => {
     expect(tidMedDecimal(2530, 42.17)).toBe("42 tim 10 min (42,17)");
     expect(tidMedDecimal(0)).toBe("0 min (0,00)");
+  });
+
+  it("lönekvoten: samma summa som Dagar (lib/admin/lonekvot) — viktad över dagar med maskinfiler, 'för få dagar' under 5, '–' utan filer", async () => {
+    const { m } = await stefan();
+    const med = (fn: (d: any, i: number) => any) => ({ ...m, dagar: m.dagar.map((d: any, i: number) => ({ ...d, maskintid: fn(d, i) })) });
+    const bygg = (mm: any) => byggForarManad(mm, { rodaDagar: getRödaDagar(2026), maskinNamn: {} });
+    // Alla dagar med filmaskin, maskintiden hälften av betald tid → 50 %.
+    const a = bygg(med(d => ({ min: Math.round(((d.arbetad_min || 0) + (d.extra_min || 0)) / 2), kalla: "fil", maskinens_min: 0 })));
+    expect(a.lonekvot.varde).toBe("50 %");
+    expect(a.lonekvot.maskin).not.toBe("–");
+    // Facit mot lib: samma indata genom summeraKvot ger samma text.
+    const s = summeraKvot(m.dagar.map((d: any) => ({ min: (d.arbetad_min || 0) + (d.extra_min || 0), maskintid: { min: Math.round(((d.arbetad_min || 0) + (d.extra_min || 0)) / 2), kalla: "fil" as const } })));
+    expect(a.lonekvot.varde).toBe(kvotVarde(s));
+    expect(a.lonekvot.detalj).toBe(kvotDetalj(s));
+    // Bara fyra fildagar → "för få dagar", aldrig en procent.
+    const b = bygg(med((d, i) => (i < 4 ? { min: 100, kalla: "fil", maskinens_min: 100 } : { min: 0, kalla: "ingen_fil", maskinens_min: 0 })));
+    expect(b.lonekvot.varde).toBe("för få dagar");
+    // Inga filer alls → "–", inte "0 %".
+    const c = bygg(med(() => ({ min: 0, kalla: "ingen_fil", maskinens_min: 0 })));
+    expect(c.lonekvot.varde).toBe("–");
+    expect(c.lonekvot.maskin).toBe("–");
+    expect(c.lonekvot.detalj).toBe("Inga dagar med maskinfiler");
+  });
+});
+
+describe("minutskillnad mot maskinen visas bara från 15 min (Martin 2026-10-21)", () => {
+  const dagen = async (diff_min: number) => {
+    const { m } = await stefan();
+    const vy = byggForarManad({ ...m, synk: [{ medarbetare_id: m.medarbetare_id, datum: "2026-09-02", diff_min, bekraftat: "05:54", maskinen: "06:04" }] }, { rodaDagar: getRödaDagar(2026), maskinNamn: { [MASKIN]: "Giant" } });
+    return vy.dagar.find(x => x.datum === "2026-09-02")!;
+  };
+  it("14 min syns inte på dagen, 15 gör det", async () => {
+    expect((await dagen(14)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(false);
+    expect((await dagen(-14)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(false);
+    expect((await dagen(15)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(true);
+    expect((await dagen(-20)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(true);
   });
 });

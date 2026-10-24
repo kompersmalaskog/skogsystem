@@ -51,7 +51,7 @@ describe('inget skriver markeringar direkt mot nätet — allt går via det loka
 
 describe('kön körs oberoende av planeringsvyn och synliggörs diskret', () => {
   it('global startare i layouten: nät tillbaka, appen synlig, jämna mellanrum — och ett varv per hämtning', () => {
-    expect(las('../app/layout.tsx')).toContain('<MarkeringSynkStartare />');
+    expect(las('../components/AppRamverk.tsx')).toContain('<MarkeringSynkStartare />');
     expect(ko).toContain("window.addEventListener('online', online)");
     expect(ko).toContain("document.addEventListener('visibilitychange', synlig)");
     expect(ko).toContain('window.setInterval(tick, 20_000)');

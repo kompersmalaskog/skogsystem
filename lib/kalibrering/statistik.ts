@@ -1,7 +1,7 @@
 /**
  * Kravprofilens tre diametertal ur en lista avvikelser (maskin − operatör):
- *   träffprocent   — andel INOM ±tolerans          (Vida: "Träffar den rätt?")
- *   systematisk    — medelavvikelse, med tecken     (Vida: "Går den rakt?")
+ *   träffprocent   — andel INOM ±tolerans          (Vida: "Träffar diametern rätt?")
+ *   systematisk    — medelavvikelse, med tecken     (Vida: "Drar den åt ett håll?")
  *   standardavv    — populationens std (÷N)         (Vida: "Flaxar den?")
  * plus grov_avvikelse — andel ÖVER grovTolerans (Biometria).
  *

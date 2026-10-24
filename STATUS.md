@@ -17,6 +17,16 @@
 
 **Maskinens kalibreringskurva — OUNDERSÖKT.** `fakt_kalibrering_historik` har en diameterpunkt per ändring (alla Giant på position 50 cm) och parsern läser bara det FÖRSTA `…CalibrationAdjustment` per block (`find_element`); unika nyckeln `(datum, maskin_id, tradslag, typ)` skulle också hindra flera punkter. HQC-filerna ligger inte i molnmiljön, så vad de innehåller är inte känt. Kör `py scripts\inspektera-hqc-kalibrering.py <mapp med .hqc> ` på importdatorn (läser bara) och skicka `hqc-kalibrering.txt`; först därefter ändras parser, nyckel (`position_cm`) och historiken läses in på nytt. Flaggat: R64428 har en diameterändring på +56 mm vid position 50.
 
+## Kalibrering › Över tid: Per grovlek och Greppet — 2026-10-23
+**Byggt, migrationen EJ körd.** `supabase/migrations/20261023180000_kalibrering_grepp_over_tid.sql` körs av Martin före release; utan den säger Greppet "inte aktiverat än" (Per grovlek fungerar utan migration). Provad mot en oberoende SQL-körning: 39 rader, 0 skillnader.
+
+**Kontroll mot Martins förväntade tal (Scorpionen 2026):**
+- *Per grovlek:* 300+ sämst i de flesta månader ✓. Tall efter 18 juli ~63 % träff och +3 mm ✓, gran ~79 % ✓. "Oktober sämre i alla klasser" stämmer för 4 av 5 klasser i Alla, och mycket av det är trädslagsmix (mer tall i oktober) — välj ett trädslag så syns det.
+- *Greppet:* björk ~43,9/42,5 % ✓. **Tall och gran avviker** (mina tal: gran 19,5 → 22,3 %, tall 28,9 → 36,1 % sep → okt, mot förväntat gran 13 → 17, tall 22 → 27). Orsak: definitionen — jag räknar "står still" som ≥ 30 cm (stamvyns `GREPP_MIN_CM`), förväntade talen ser ut att komma från > 30 cm. Förändringen (riktningen, och färgen som bygger på den) är densamma. Ändra gränsen i `GREPP_MIN_CM` + `v_min_cm` i funktionen (höj `v_version`) om ni vill ha > 30.
+- **Serien börjar i januari och hoppar till 18 juli** (Scorpionen har inga kontroller däremellan), så "första rutan" i Greppet är januari — en baslinje som ligger långt från resten. Vill man ha en närmare bas: byt `forstaRuta` i `greppTid.ts` till en vald månad.
+- **Dubblettrensningen från 2026-10-22 var inte komplett:** 325 stockar (22 %) delar fortfarande fysisk identitet men har olika `operator_measurement_date`/`machine_measurement_date`. `lib/kalibrering/grovlek.ts` dedupar på `harvest_date|stock_nummer|machine_measurement_date|operator_measurement_date` (lägsta id) — samma sak bör göras i databasen (unikt index täcker det inte). Egen fråga.
+- **Stammens identitet är `harvest_date`**, inte `stam_nummer`: den numreras om i varje kumulativ HQC-fil och dubbelräknade stammar när jag först nyckla på den.
+
 ## Väder vid skörd (fakt_kalibrering.weather_at_harvest) — 2026-10-21
 **Orsak:** importen har aldrig skrivit vädret. Alla 176 rader med väder har `fetched_at` 2026-05-20 16:43–17:08
 (två sekunder per rad, 3–6 dygn efter att raderna skapades 11 mars–18 maj): en ENGÅNGSKÖRNING utanför repot som
