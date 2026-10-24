@@ -1,16 +1,21 @@
 'use client';
-// Objektöversikten för ETT objekt — svaret först ("Hur lång tid tog objektet?"), sedan frågor i vanliga ord.
+// Objektöversikten för ETT objekt, så att ett barn förstår (Martin 2026-10-24). Samma innehåll och ordning på telefon,
+// iPad och dator — bara uppställningen skiljer:
+//  1. svaret: "Det tog 158 timmar", prognosen i ord och EN mening om varför,
+//  2. Vem gjorde vad? — en stapel och en rad per del (raden fälls ut till maskinerna eller flyttarna),
+//  3. Hur mycket virke? — mot prognosen och trädslagen,
+//  4. tre rader som fälls ut på plats, en åt gången: Dag för dag, Vad skulle göras?, Fler siffror.
 // All text och alla tal kommer ur byggObjektVy (lib/objektoversikt/vy.ts); här ritas bara. PDF:en ritas ur samma vymodell.
 //
-// Bredd: objektet är en container (container queries) som markägarrapporten — en kolumn på telefon, två från 640 px
-// objektbredd, tre från 960 px.
+// Bredd: objektet är en container (container queries) — en kolumn på telefon, frågorna sida vid sida från 640 px och
+// tre i rad från 960 px objektbredd. Platserna flödar i ordning (ingen grid-template-areas: React escapar citattecken
+// i en <style> vid serverrendering).
 import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { AVSTAND, FARG, KNAPP, KOLUMN, RADIE, TNUM, TRAFFYTA, TYP, overgang } from '@/lib/design/tokens';
-import Sektion from '@/components/design/Sektion';
+import { AVSTAND, FARG, KNAPP, KOLUMN, KORT, RADIE, TNUM, TRAFFYTA, TYP, overgang } from '@/lib/design/tokens';
 import Rad from '@/components/design/Rad';
 import Ikon from '@/components/design/Ikon';
-import type { ObjektVy, Stapel as StapelDag, VyRad } from '@/lib/objektoversikt/vy';
+import type { ObjektVy, Stapel as StapelDag, VemRad, VyRad } from '@/lib/objektoversikt/vy';
 import { timmar } from '@/lib/objektoversikt/vy';
 import type { Stapeldel } from '@/lib/markagarrapport/vy';
 import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning';
@@ -20,26 +25,19 @@ export const TRE_KOLUMNER_PX = 960;
 
 const css = `
 .oo-objekt { container-type: inline-size; max-width: ${KOLUMN.bred + 2 * AVSTAND.sidmarginal}px; margin: 0 auto; box-sizing: border-box; padding: ${AVSTAND.xl}px ${AVSTAND.sidmarginal}px ${AVSTAND.xxl * 2}px; }
+.oo-svar { max-width: ${KOLUMN.smal}px; }
 .oo-rutnat { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: ${AVSTAND.xl}px; align-items: start; }
-/* Platserna sätts med rad/kolumn, inte grid-template-areas: React escapar citattecken i en <style> vid serverrendering. */
-@container (min-width: ${TVA_KOLUMNER_PX}px) {
-  .oo-rutnat { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .oo-a-tid { grid-column: 1; grid-row: 1; } .oo-a-plan { grid-column: 2; grid-row: 1; }
-  .oo-a-flytt { grid-column: 1; grid-row: 2; } .oo-a-blev { grid-column: 2; grid-row: 2; }
-  .oo-med-kvar .oo-a-kvar { grid-column: 1; grid-row: 1; } .oo-med-kvar .oo-a-tid { grid-row: 2; }
-  .oo-med-kvar .oo-a-plan { grid-row: 1 / span 2; } .oo-med-kvar .oo-a-flytt { grid-row: 3; } .oo-med-kvar .oo-a-blev { grid-row: 3; }
-}
-@container (min-width: ${TRE_KOLUMNER_PX}px) {
-  .oo-rutnat { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .oo-a-tid { grid-column: 1; grid-row: 1 / span 2; } .oo-a-flytt { grid-column: 2; grid-row: 1; }
-  .oo-a-blev { grid-column: 2; grid-row: 2; } .oo-a-plan { grid-column: 3; grid-row: 1 / span 2; }
-  .oo-med-kvar .oo-a-kvar { grid-column: 1; grid-row: 1; } .oo-med-kvar .oo-a-tid { grid-row: 2 / span 2; }
-  .oo-med-kvar .oo-a-flytt { grid-row: 1; } .oo-med-kvar .oo-a-blev { grid-row: 2; } .oo-med-kvar .oo-a-plan { grid-row: 1 / span 3; }
-}
+@container (min-width: ${TVA_KOLUMNER_PX}px) { .oo-rutnat { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (min-width: ${TRE_KOLUMNER_PX}px) { .oo-rutnat { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 `;
+
+type Oppen = 'dag' | 'plan' | 'fler' | null;
 
 export default function Objekt({ vy }: { vy: ObjektVy }) {
   const [pdfOppen, setPdfOppen] = useState(false);
+  const [mer, setMer] = useState<Oppen>(null);
+  const vaxla = (k: Exclude<Oppen, null>) => () => setMer(m => (m === k ? null : k));
+
   return (
     <div className="oo-objekt" data-objekt-vy="">
       <style>{css}</style>
@@ -50,58 +48,82 @@ export default function Objekt({ vy }: { vy: ObjektVy }) {
         Alla objekt
       </Link>
 
-      <header style={{ marginBottom: AVSTAND.xxl }} data-svar="">
-        <h1 style={{ margin: 0, ...TYP.rubrik }}>{vy.namn}</h1>
-        <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>{vy.meta}</p>
-        <p style={{ margin: `${AVSTAND.l}px 0 0`, ...TYP.text, color: FARG.text2 }}>{vy.fraga}</p>
-        <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.tal }}>{vy.svar}</p>
-        {vy.underSvar && <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.text, ...TNUM }}>{vy.underSvar}</p>}
-        <button type="button" onClick={() => setPdfOppen(true)} data-pdf=""
-          style={{ ...KNAPP.primar, display: 'inline-flex', width: 'auto', marginTop: AVSTAND.xl, gap: AVSTAND.s }}>
-          <Ikon namn="ios_share" farg="inherit" />
-          Dela som PDF
-        </button>
+      <header className="oo-svar" style={{ marginBottom: AVSTAND.xxl }} data-svar="">
+        <h1 style={{ margin: 0, ...TYP.titel }}>{vy.namn}</h1>
+        <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.text, color: FARG.text2 }}>{vy.meta}</p>
+        <p style={{ margin: `${AVSTAND.xl}px 0 0`, ...TYP.text, color: FARG.text2 }}>{vy.fraga}</p>
+        <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.tal }} data-svar-tal="">{vy.svar}</p>
+        {vy.plan && (
+          <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.text, ...TNUM }} data-plan="">
+            {vy.plan.text}
+            {vy.plan.avvikelse && (
+              <><br /><span style={{ fontWeight: TYP.listtitel.fontWeight, color: vy.plan.varning ? FARG.orange : FARG.text }}>{vy.plan.avvikelse}</span></>
+            )}
+          </p>
+        )}
+        {vy.forklaring && (
+          <p style={{ margin: `${AVSTAND.l}px 0 0`, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, background: FARG.upphojt, borderRadius: RADIE.kort, ...TYP.text }} data-forklaring="">
+            {vy.forklaring}
+          </p>
+        )}
       </header>
 
-      <div className={`oo-rutnat${vy.kvar ? ' oo-med-kvar' : ''}`}>
+      <div className="oo-rutnat">
         {vy.kvar && (
-          <div className="oo-a-kvar">
-            <Sektion rubrik="Vad är kvar?" inset><Rader rader={vy.kvar} /></Sektion>
-          </div>
+          <Fraga rubrik="Vad är kvar?">
+            <Rader rader={vy.kvar} />
+          </Fraga>
         )}
-        <div className="oo-a-tid">
-          <Sektion rubrik="Vart gick tiden?" not={vy.tid.not ?? undefined} inset>
-            {vy.tid.staplar.length > 0 && <Graf staplar={vy.tid.staplar} rubrik={vy.tid.stapelRubrik} />}
-            <Rader rader={vy.tid.rader} />
-          </Sektion>
-        </div>
-        {vy.flyttar && (
-          <div className="oo-a-flytt">
-            <Sektion rubrik="Hur kom maskinerna hit?" not="Tiden är från att maskinen lastades tills den lossades." inset>
-              <Rader rader={vy.flyttar} />
-            </Sektion>
-          </div>
+
+        {vy.vem && (
+          <Fraga rubrik="Vem gjorde vad?">
+            {vy.vem.stapel.length > 0 && <Stapel delar={vy.vem.stapel} etikett={vy.vem.rader.map(r => `${r.titel} ${r.hoger}`).join(', ')} />}
+            <VemRader rader={vy.vem.rader} />
+          </Fraga>
         )}
-        {vy.blev && (
-          <div className="oo-a-blev">
-            <Sektion rubrik="Vad blev det?" inset>
-              {vy.trad && (
-                <div data-trad="">
-                  <Stapel delar={vy.trad.stapel} etikett={vy.trad.rader.map(r => `${r.titel} ${r.hogerUnder}`).join(', ')} />
-                  <Rader rader={vy.trad.rader} />
-                  <div style={{ borderBottom: `1px solid ${FARG.linje}` }} />
-                </div>
-              )}
-              <Rader rader={vy.blev} />
-            </Sektion>
-          </div>
+
+        {vy.virke && (
+          <Fraga rubrik="Hur mycket virke?">
+            <div style={{ padding: `${AVSTAND.m}px 0 0` }} data-virke="">
+              <div style={{ ...TYP.titel, ...TNUM }}>{vy.virke.svar}</div>
+              {vy.virke.under && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{vy.virke.under}</div>}
+            </div>
+            {vy.virke.stapel && <Stapel delar={vy.virke.stapel} etikett={vy.virke.rader.map(r => `${r.titel} ${r.hoger}`).join(', ')} />}
+            <Rader rader={vy.virke.rader} />
+            {vy.virke.rader.length === 0 && <div style={{ height: AVSTAND.m }} />}
+          </Fraga>
         )}
-        {vy.uppdraget && (
-          <div className="oo-a-plan">
-            <Sektion rubrik="Vad skulle göras?" not="Enligt planeringen." inset><Rader rader={vy.uppdraget} /></Sektion>
-          </div>
-        )}
+
+        <Fraga rubrik="Mer om objektet">
+          <UtRad titel="Dag för dag" oppen={mer === 'dag'} onTryck={vaxla('dag')} nyckel="dag" sista={!vy.uppdraget && !vy.fler && mer !== 'dag'} />
+          {mer === 'dag' && (
+            <Inne sista={!vy.uppdraget && !vy.fler}>
+              {vy.dagar.staplar.length > 0
+                ? <Graf staplar={vy.dagar.staplar} rubrik={vy.dagar.rubrik} />
+                : <p style={{ margin: `${AVSTAND.s}px 0`, ...TYP.meta, color: FARG.text2 }}>Ingen tid från maskinerna än.</p>}
+              {vy.dagar.not && <p style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.meta, color: FARG.text2 }}>{vy.dagar.not}</p>}
+            </Inne>
+          )}
+          {vy.uppdraget && (
+            <>
+              <UtRad titel="Vad skulle göras?" oppen={mer === 'plan'} onTryck={vaxla('plan')} nyckel="plan" sista={!vy.fler && mer !== 'plan'} />
+              {mer === 'plan' && <Inne sista={!vy.fler}><Rader rader={vy.uppdraget} /></Inne>}
+            </>
+          )}
+          {vy.fler && (
+            <>
+              <UtRad titel="Fler siffror" oppen={mer === 'fler'} onTryck={vaxla('fler')} nyckel="fler" sista={mer !== 'fler'} />
+              {mer === 'fler' && <Inne sista><Rader rader={vy.fler} /></Inne>}
+            </>
+          )}
+        </Fraga>
       </div>
+
+      <button type="button" onClick={() => setPdfOppen(true)} data-pdf=""
+        style={{ ...KNAPP.primar, display: 'flex', width: '100%', maxWidth: KOLUMN.smal, margin: `${AVSTAND.s}px 0 0`, gap: AVSTAND.s }}>
+        <Ikon namn="ios_share" farg="inherit" />
+        Dela som PDF
+      </button>
 
       {pdfOppen && (
         <PdfForhandsvisning
@@ -118,6 +140,16 @@ export default function Objekt({ vy }: { vy: ObjektVy }) {
   );
 }
 
+/** En fråga: rubriken i vanliga ord över ett kort. */
+function Fraga({ rubrik, children }: { rubrik: string; children: ReactNode }) {
+  return (
+    <section aria-label={rubrik} style={{ marginBottom: AVSTAND.xxl }}>
+      <h2 style={{ margin: `0 0 ${AVSTAND.s}px ${AVSTAND.xs}px`, ...TYP.rubrik }}>{rubrik}</h2>
+      <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>{children}</div>
+    </section>
+  );
+}
+
 function Prick({ farg, kontur }: { farg: string; kontur?: string | null }) {
   return (
     <span aria-hidden="true" style={{
@@ -127,45 +159,118 @@ function Prick({ farg, kontur }: { farg: string; kontur?: string | null }) {
   );
 }
 
-/** En stapel som visar delarna av en helhet (samma som markägarrapporten). Färgen bär aldrig ensam: raderna under har ordet och talet. */
+/** En stapel som visar delarna av en helhet. Färgen bär aldrig ensam: raderna under har ordet och talet. */
 function Stapel({ delar, etikett }: { delar: Stapeldel[]; etikett: string }) {
   return (
     <div role="img" aria-label={etikett}
-      style={{ display: 'flex', gap: AVSTAND.xs, height: AVSTAND.l, borderRadius: RADIE.stapel, overflow: 'hidden', margin: `${AVSTAND.l}px 0 ${AVSTAND.xs}px`, outline: `1px solid ${FARG.linje}` }}>
+      style={{ display: 'flex', gap: AVSTAND.xs / 2, height: AVSTAND.m, borderRadius: RADIE.stapel, overflow: 'hidden', margin: `${AVSTAND.l}px 0 ${AVSTAND.xs}px` }}>
       {delar.map(d => <div key={d.nyckel} style={{ flex: `${d.andel} 1 0`, minWidth: AVSTAND.xs, background: d.farg }} />)}
     </div>
   );
 }
 
+function titelMedPrick(r: VyRad): ReactNode {
+  return r.farg ? (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.m }}>
+      <Prick farg={r.farg} kontur={r.kontur} />{r.titel}
+    </span>
+  ) : r.titel;
+}
+
+function underText(r: VyRad): ReactNode {
+  if (!r.under && !r.under2) return undefined;
+  const u = (
+    <>
+      {r.under && <span style={r.varning ? { color: FARG.orange } : undefined}>{r.under}</span>}
+      {r.under && r.under2 && <br />}
+      {r.under2}
+    </>
+  );
+  return r.farg ? <span style={{ display: 'block', paddingLeft: AVSTAND.m + AVSTAND.m }}>{u}</span> : u;
+}
+
 function Rader({ rader }: { rader: VyRad[] }) {
   return (
     <>
+      {rader.map((r, i) => (
+        <Rad
+          key={r.nyckel}
+          titel={titelMedPrick(r)}
+          under={underText(r)}
+          hoger={r.hoger || undefined}
+          hogerUnder={r.hogerUnder ?? undefined}
+          dampad={r.dampad}
+          sista={i === rader.length - 1}
+          attr={{ 'data-rad': r.nyckel }}
+        />
+      ))}
+    </>
+  );
+}
+
+/** Vem gjorde vad? — en rad per del; har raden detaljer fälls de ut på plats (en åt gången). */
+function VemRader({ rader }: { rader: VemRad[] }) {
+  const [oppen, setOppen] = useState<string | null>(null);
+  return (
+    <>
       {rader.map((r, i) => {
-        const under: ReactNode = (r.under || r.under2) ? (
-          <>
-            {r.under && <span style={r.varning ? { color: FARG.orange } : undefined}>{r.under}</span>}
-            {r.under && r.under2 && <br />}
-            {r.under2}
-          </>
-        ) : undefined;
+        const sista = i === rader.length - 1;
+        const kanOppnas = r.detaljer.length > 0;
+        const ar = oppen === r.nyckel;
         return (
-          <Rad
-            key={r.nyckel}
-            titel={r.farg ? (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.m }}>
-                <Prick farg={r.farg} kontur={r.kontur} />{r.titel}
-              </span>
-            ) : r.titel}
-            under={r.farg && under ? <span style={{ display: 'block', paddingLeft: AVSTAND.m + AVSTAND.m }}>{under}</span> : under}
-            hoger={r.hoger || undefined}
-            hogerUnder={r.hogerUnder ?? undefined}
-            dampad={r.dampad}
-            sista={i === rader.length - 1}
-            attr={{ 'data-rad': r.nyckel }}
-          />
+          <div key={r.nyckel}>
+            <Rad
+              titel={titelMedPrick(r)}
+              under={underText(r)}
+              hoger={r.hoger || undefined}
+              hogerUnder={r.hogerUnder ?? undefined}
+              onTryck={kanOppnas ? () => setOppen(ar ? null : r.nyckel) : undefined}
+              pil={kanOppnas}
+              sista={sista && !ar}
+              attr={kanOppnas ? { 'data-rad': r.nyckel, 'aria-expanded': String(ar) } : { 'data-rad': r.nyckel }}
+            />
+            {ar && <Inne sista={sista}><Smala rader={r.detaljer} /></Inne>}
+          </div>
         );
       })}
     </>
+  );
+}
+
+/** Detaljerna under en utfälld rad: indragna, mindre text, ingen egen linje mellan. */
+function Smala({ rader }: { rader: VyRad[] }) {
+  return (
+    <>
+      {rader.map(r => (
+        <div key={r.nyckel} data-detalj={r.nyckel}
+          style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.m, padding: `${AVSTAND.xs}px 0 ${AVSTAND.xs}px ${AVSTAND.xl}px`, ...TYP.text }}>
+          <span style={{ minWidth: 0 }}>
+            {r.titel}
+            {r.under && <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{r.under}</span>}
+          </span>
+          <span style={{ ...TNUM, whiteSpace: 'nowrap', textAlign: 'right' }}>
+            {r.hoger}
+            {r.hogerUnder && <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{r.hogerUnder}</span>}
+          </span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function UtRad({ titel, oppen, onTryck, nyckel, sista }: { titel: string; oppen: boolean; onTryck: () => void; nyckel: string; sista: boolean }) {
+  return (
+    <Rad titel={titel} onTryck={onTryck} pil sista={sista}
+      attr={{ 'data-mer': nyckel, 'aria-expanded': String(oppen) }} />
+  );
+}
+
+/** Det som fälls ut under en rad: en linje under (utom sist i kortet). */
+function Inne({ sista, children }: { sista: boolean; children: ReactNode }) {
+  return (
+    <div style={{ padding: `${AVSTAND.xs}px 0 ${AVSTAND.m}px`, borderBottom: sista ? 'none' : `1px solid ${FARG.linje}` }}>
+      {children}
+    </div>
   );
 }
 
@@ -174,7 +279,7 @@ const STAPEL_H = 96;   // grafens höjd — ett layoutmått för ytan, inte ett 
 const TOM_H = 2;       // en tom dag är ett tunt streck: dagen finns, den var tom
 const DAMPAD = 0.4;
 
-/** Timmar per dag (eller vecka) som Min tids staplar: vita, dämpade utom den valda; tryck på en stapel visar den. */
+/** Timmar per dag (eller vecka): staplade i delarnas färger, dämpade utom den valda; tryck på en stapel visar den. */
 function Graf({ staplar, rubrik }: { staplar: StapelDag[]; rubrik: string }) {
   const max = Math.max(...staplar.map(s => s.min), 1);
   const forval = (() => { for (let i = staplar.length - 1; i >= 0; i--) if (staplar[i].min > 0) return i; return staplar.length - 1; })();
@@ -182,9 +287,8 @@ function Graf({ staplar, rubrik }: { staplar: StapelDag[]; rubrik: string }) {
   const v = staplar[Math.min(vald, staplar.length - 1)];
   const visaEtikett = (i: number) => staplar.length <= 16 || i === vald || i % 3 === 0;
   return (
-    <div style={{ padding: `${AVSTAND.l}px 0 ${AVSTAND.m}px`, borderBottom: `1px solid ${FARG.linje}` }} data-graf="">
-      <p style={{ margin: 0, ...TYP.micro, color: FARG.text2 }}>{rubrik}</p>
-      <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.listtitel, ...TNUM }} data-graf-vald="">
+    <div style={{ padding: `${AVSTAND.s}px 0 ${AVSTAND.s}px` }} data-graf="">
+      <p style={{ margin: 0, ...TYP.listtitel, ...TNUM }} data-graf-vald="">
         {v.lang} · {v.min > 0 ? timmar(v.min) : 'ingen tid'}
       </p>
       {/* Vad dagen gick till, i staplarnas färger — en rad som alltid tar plats så grafen inte hoppar. */}
@@ -202,7 +306,6 @@ function Graf({ staplar, rubrik }: { staplar: StapelDag[]; rubrik: string }) {
             style={{ flex: '1 1 0', minWidth: 0, minHeight: TRAFFYTA.min, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 0, margin: 0, border: 'none', background: 'none', cursor: 'pointer', color: FARG.text, font: 'inherit' }}>
             <span style={{ width: '100%', height: STAPEL_H, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
               {s.min > 0 ? (
-                // Delarna staplade nerifrån (skördare, skotare, flytt …), i delens färg.
                 <span style={{
                   width: '70%', height: Math.max(TOM_H * 2, (s.min / max) * STAPEL_H), display: 'flex', flexDirection: 'column-reverse',
                   borderRadius: `${RADIE.stapel}px ${RADIE.stapel}px 0 0`, overflow: 'hidden',

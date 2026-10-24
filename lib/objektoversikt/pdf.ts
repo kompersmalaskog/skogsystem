@@ -66,8 +66,15 @@ export async function skapaObjektPdf(vy: ObjektVy, datum: string = new Date().to
   y += STEG.text + 6;
   text(vy.svar, MARG, y, STEG.tal, fet, F.text);
   y += STEG.tal + 8;
-  if (vy.underSvar) { text(vy.underSvar, MARG, y, STEG.text + 2, normal, F.text); y += STEG.text + 2; }
-  y += 22;
+  if (vy.plan) {
+    text(vy.plan.text, MARG, y, STEG.text + 2, normal, F.text); y += STEG.text + 6;
+    if (vy.plan.avvikelse) { text(vy.plan.avvikelse, MARG, y, STEG.text + 2, fet, vy.plan.varning ? F.orange : F.text); y += STEG.text + 6; }
+  }
+  if (vy.forklaring) {
+    y += 4;
+    for (const r of bryt(vy.forklaring, STEG.text + 1, normal, B * 0.75)) { text(r, MARG, y, STEG.text + 1, normal, F.text); y += STEG.text + 5; }
+  }
+  y += 18;
 
   // ── En sektion: rubriken till vänster, raderna till höger ─────────────────
   const X = MARG + RUBRIK_B;
@@ -150,16 +157,12 @@ export async function skapaObjektPdf(vy: ObjektVy, datum: string = new Date().to
     };
   };
 
-  if (vy.kvar) sektion('Vad är kvar?', vy.kvar);
-  sektion('Vart gick tiden?', vy.tid.rader, vy.tid.staplar.length > 1 ? graf(vy.tid.staplar) : undefined);
-  if (vy.tid.not) { text(vy.tid.not, X, y - 6, STEG.micro, normal, F.sek); y += STEG.micro + 4; }
-  if (vy.flyttar) sektion('Hur kom maskinerna hit?', vy.flyttar);
-  // Trädslagen: en stapel i trädslagens färger över raderna (som markägarrapporten), sedan resten av "Vad blev det?".
-  const tradStapel = vy.trad ? {
+  // En stapel i delarnas färger över raderna (samma som sidan).
+  const stapelFore = (delar: { andel: number; farg: string }[] | null | undefined) => (delar && delar.length ? {
     h: 22,
     rita: () => {
       let x = X;
-      for (const d of vy.trad!.stapel) {
+      for (const d of delar) {
         const w = d.andel * W;
         if (w <= 0) continue;
         sida.drawRectangle({ x, y: A4.h - (y + 6 + 10), width: w, height: 10, color: c(d.farg) });
@@ -168,9 +171,27 @@ export async function skapaObjektPdf(vy: ObjektVy, datum: string = new Date().to
       sida.drawRectangle({ x: X, y: A4.h - (y + 6 + 10), width: W, height: 10, borderColor: F.linje, borderWidth: 0.5 });
       y += 22;
     },
-  } : undefined;
-  if (vy.blev || vy.trad) sektion('Vad blev det?', [...(vy.trad?.rader ?? []), ...(vy.blev ?? [])], tradStapel);
+  } : undefined);
+
+  if (vy.kvar) sektion('Vad är kvar?', vy.kvar);
+  // På papperet är allt utfällt: detaljerna (maskinerna, flyttarna) står som en rad under raden.
+  if (vy.vem) {
+    const rader: VyRad[] = vy.vem.rader.map(r => ({
+      ...r,
+      under2: r.detaljer.length ? r.detaljer.map(d => `${d.titel} ${d.hoger}`).join(' · ') : null,
+    }));
+    sektion('Vem gjorde vad?', rader, stapelFore(vy.vem.stapel));
+  }
+  if (vy.virke) {
+    const forsta: VyRad = { nyckel: 'virke', titel: 'Skördat', under: vy.virke.under, hoger: vy.virke.svar };
+    sektion('Hur mycket virke?', [forsta, ...vy.virke.rader], stapelFore(vy.virke.stapel));
+  }
+  if (vy.dagar.staplar.length > 1) {
+    sektion('Dag för dag', [], graf(vy.dagar.staplar));
+    if (vy.dagar.not) { text(vy.dagar.not, X, y - 6, STEG.micro, normal, F.sek); y += STEG.micro + 4; }
+  }
   if (vy.uppdraget) sektion('Vad skulle göras?', vy.uppdraget);
+  if (vy.fler) sektion('Fler siffror', vy.fler);
 
   sidor.forEach((s, i) => {
     const t = sanera(`Kompersmåla Skog · Objektöversikt ${vy.namn}${sidor.length > 1 ? ` · sida ${i + 1} av ${sidor.length}` : ''}`);

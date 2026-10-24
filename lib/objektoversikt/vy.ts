@@ -1,8 +1,8 @@
 // Objektöversiktens vymodell — ALL text och alla tal som sidan och PDF:en visar. Sidan och PDF:en ritar bara, så de
 // kan aldrig säga olika saker (samma mönster som markägarrapporten).
 //
-// Texten förklarar sig själv (Martin 2026-10-22: "skriv det då jag fattar inget av det"): inte "48,8/56" utan
-// "Prognos 56 tim – blev 7 tim kortare".
+// Texten förklarar sig själv så att ett barn förstår (Martin 2026-10-22 och 2026-10-24): svaret i hela timmar, prognosen
+// i ord ("28 timmar mer än prognosen") och EN mening om varför. Ordet är prognos, aldrig plan.
 
 import { TID_DELAR, dagSumma, type DagDelar, type Produktion, type Roll, type Sammanstallning, type ObjektRad, type TidDel } from './berakna';
 import { heltal, procentSomSummerar, type Stapeldel } from '@/lib/markagarrapport/vy';
@@ -101,21 +101,35 @@ export interface VyRad {
 /** En stapel = en dag (eller vecka); delarna staplas i TID_DELAR-ordning, nerifrån. */
 export interface Stapel { nyckel: string; etikett: string; lang: string; min: number; delar: { nyckel: TidDel; min: number; farg: string }[] }
 
+/** En rad som kan fällas ut: under den står detaljerna (maskinerna under Skotaren, flyttarna under Flytt). */
+export interface VemRad extends VyRad { detaljer: VyRad[] }
+
+/**
+ * Sidan och PDF:en i samma ordning, så att ett barn förstår (Martin 2026-10-24):
+ *  1. svaret: hur lång tid det tog, mot prognosen, och EN mening om varför,
+ *  2. Vem gjorde vad? (en stapel, en rad per del — rader utan tid finns inte),
+ *  3. Hur mycket virke? (mot prognosen, trädslagen),
+ *  4. resten bakom tre rader: Dag för dag, Vad skulle göras?, Fler siffror.
+ */
 export interface ObjektVy {
   id: string;
   namn: string;
   filnamn: string;
   meta: string;
+  /** "Det tog" / "Hittills har det tagit". */
   fraga: string;
+  /** "158 timmar". */
   svar: string;
-  underSvar: string | null;
-  tid: { rader: VyRad[]; staplar: Stapel[]; stapelRubrik: string; not: string | null };
-  flyttar: VyRad[] | null;
-  blev: VyRad[] | null;
-  /** Vilka träd det blev: andel av skördad volym per trädslag. */
-  trad: { stapel: Stapeldel[]; rader: VyRad[] } | null;
+  /** Prognosen i ord. `avvikelse` är orange när den är mer än 10 % över. */
+  plan: { text: string; avvikelse: string | null; varning: boolean } | null;
+  /** EN mening om varför — den största avvikelsen först. */
+  forklaring: string | null;
   kvar: VyRad[] | null;
+  vem: { stapel: Stapeldel[]; rader: VemRad[] } | null;
+  virke: { svar: string; under: string | null; stapel: Stapeldel[] | null; rader: VyRad[] } | null;
+  dagar: { staplar: Stapel[]; rubrik: string; not: string | null };
   uppdraget: VyRad[] | null;
+  fler: VyRad[] | null;
 }
 
 const ROLL_NAMN: Record<Roll, string> = { skordare: 'Skördaren', skotare: 'Skotaren' };
@@ -141,25 +155,6 @@ export function prognosText(faktiskMin: number, prognosTim: number | undefined, 
   if (diff >= 0 && tim === 0) return { text: `${p} – nådd nu`, varning: false };
   if (diff < 0) return { text: `${p} – ${tim} tim kvar enligt prognosen`, varning: false };
   return { text: `${p} – redan ${tim} tim över`, varning };
-}
-
-function maskinRad(s: Sammanstallning, roll: Roll): string | null {
-  const m = s.maskiner.filter(x => x.roll === roll);
-  if (m.length === 0) return null;
-  if (m.length === 1) {
-    const x = m[0];
-    return x.manuell ? `${x.namn} · inskrivet för hand` : `${x.namn} · ${x.dagar} ${x.dagar === 1 ? 'dag' : 'dagar'}`;
-  }
-  return m.map(x => `${x.namn} ${timmar(x.min)}`).join(' · ');
-}
-
-function extraRad(nyckel: string, titel: string, poster: Sammanstallning['planering'], tomText: string): VyRad {
-  const min = poster.reduce((t, p) => t + p.min, 0);
-  if (min <= 0) return { nyckel, titel, under: tomText, hoger: '–', dampad: true };
-  const personer = [...new Set(poster.map(p => p.person).filter((x): x is string => !!x))];
-  const dagar = new Set(poster.map(p => p.datum)).size;
-  const under = [personer.join(', ') || null, `${dagar} ${dagar === 1 ? 'dag' : 'dagar'}`].filter(Boolean).join(' · ');
-  return { nyckel, titel, under, hoger: timmar(min) };
 }
 
 function delarAv(d: DagDelar): Stapel['delar'] {
@@ -205,7 +200,7 @@ export function staplar(perDag: Map<string, DagDelar>): { staplar: Stapel[]; rub
 }
 
 /** Trädslagen i skördad volym: stapel + en rad per trädslag (m³ och andel; andelarna summerar till 100). */
-export function tradVy(prod: Produktion): ObjektVy['trad'] {
+export function tradVy(prod: Produktion): { stapel: Stapeldel[]; rader: VyRad[] } | null {
   const lista = prod.tradslag.filter(t => t.volym >= 0.5);
   if (lista.length === 0) return null;
   const pct = procentSomSummerar(lista.map(t => t.volym));
@@ -237,12 +232,12 @@ function forsta<T>(...v: (T | null | undefined | false | '')[]): T | null {
 export function uppdragRader(o: ObjektRad, maskinNamn: (id: string) => string): VyRad[] {
   const r: VyRad[] = [];
   if ((o.volym ?? 0) > 0 || (o.areal ?? 0) > 0) {
-    r.push({ nyckel: 'volym', titel: 'Volym', under: (o.areal ?? 0) > 0 ? `på ${decimal(o.areal!, 1)} ha` : null, hoger: (o.volym ?? 0) > 0 ? `${heltal(o.volym!)} m³` : '–' });
+    r.push({ nyckel: 'volym', titel: 'Virke', under: (o.areal ?? 0) > 0 ? `på ${decimal(o.areal!, 1)} ha` : null, hoger: (o.volym ?? 0) > 0 ? `${heltal(o.volym!)} m³` : '–' });
   }
   const forut = [o.barighet ? BARIGHET[o.barighet] ?? o.barighet : null, o.terrang ? TERRANG[o.terrang] ?? o.terrang : null, o.skotningsavstand ? SKOTNINGSAVSTAND[o.skotningsavstand] ?? o.skotningsavstand : null].filter(Boolean) as string[];
   if (forut.length) {
     const t = forut.join(' · ');
-    r.push({ nyckel: 'forutsattningar', titel: 'Förutsättningar', under: t.charAt(0).toUpperCase() + t.slice(1), hoger: '' });
+    r.push({ nyckel: 'forutsattningar', titel: 'Marken', under: t.charAt(0).toUpperCase() + t.slice(1), hoger: '' });
   }
   const namn = [o.skordare_maskin_id ? maskinNamn(o.skordare_maskin_id) : null, o.skotare_maskin_id ? maskinNamn(o.skotare_maskin_id) : null].filter(Boolean) as string[];
   const band = o.skordare_band && o.skotare_band ? 'Band på skördare och skotare'
@@ -252,11 +247,11 @@ export function uppdragRader(o: ObjektRad, maskinNamn: (id: string) => string): 
     const u = utrustning.join(' · ');
     r.push({ nyckel: 'maskiner', titel: 'Maskinerna', under: namn.length ? namn.join(' och ') : (u.charAt(0).toUpperCase() + u.slice(1)), under2: namn.length && u ? u.charAt(0).toUpperCase() + u.slice(1) : null, hoger: '' });
   }
-  if (o.skordare_manuell_fallning) r.push({ nyckel: 'manuell', titel: 'Manuell fällning', under: o.skordare_manuell_fallning_text?.trim() || null, hoger: 'Ja' });
-  if (o.grot) r.push({ nyckel: 'grot', titel: 'GROT', under: 'Riset tas ut', hoger: 'Ja' });
+  if (o.skordare_manuell_fallning) r.push({ nyckel: 'manuell', titel: 'Fälla för hand', under: o.skordare_manuell_fallning_text?.trim() || null, hoger: 'Ja' });
+  if (o.grot) r.push({ nyckel: 'grot', titel: 'GROT', under: 'Riset ska tas ut', hoger: 'Ja' });
   const cert = arCertifierad(o.cert);
   if (cert) r.push({ nyckel: 'cert', titel: 'Certifiering', hoger: cert });
-  if (o.anteckningar?.trim()) r.push({ nyckel: 'vida', titel: 'Vidas direktiv', under: o.anteckningar.trim(), hoger: '' });
+  if (o.anteckningar?.trim()) r.push({ nyckel: 'vida', titel: 'Från Vida', under: o.anteckningar.trim(), hoger: '' });
   const tanka = forsta<string>(o.forardirektiv?.trim(), o.info_anteckningar?.trim());
   if (tanka) r.push({ nyckel: 'tanka', titel: 'Att tänka på', under: tanka, hoger: '' });
   if (o.markagare_ska_ha_ved) r.push({ nyckel: 'ved', titel: 'Ved till markägaren', under: o.markagare_ved_text?.trim() || null, hoger: 'Ja' });
@@ -265,6 +260,148 @@ export function uppdragRader(o: ObjektRad, maskinNamn: (id: string) => string): 
 
 const UPPGIFT_NAMN = { skordning: 'Skördning', skotning: 'Skotning', grot: 'GROT' } as const;
 
+/** "158 timmar", "1 timme", "46 min" — hela timmar i svaret, aldrig minuter bredvid. */
+export function heltimmar(min: number): string {
+  const m = Math.max(0, Math.round(min));
+  if (m < 60) return `${m} min`;
+  const h = Math.round(m / 60);
+  return `${heltal(h)} ${h === 1 ? 'timme' : 'timmar'}`;
+}
+
+function timOrd(h: number): string {
+  return `${heltal(h)} ${h === 1 ? 'timme' : 'timmar'}`;
+}
+
+/** De roller som räknas i planen: skördaren (inte på en GROT-trakt utan skördartid) och skotaren. */
+function roller(s: Sammanstallning): Roll[] {
+  return (['skordare', 'skotare'] as const).filter(r => !(r === 'skordare' && s.objekt.typ === 'grot' && s.rollMin.skordare === 0));
+}
+
+/**
+ * Prognosen i ord. Bara när varje roll som räknas har en prognos (annars vore summan för liten). Jämförs med maskinernas
+ * tid (skördare + skotare): flytt och planering har ingen prognos.
+ */
+export function planText(s: Sammanstallning): ObjektVy['plan'] {
+  const r = roller(s);
+  if (r.length === 0 || r.some(x => s.prognos[x] == null)) return null;
+  const planTim = r.reduce((t, x) => t + s.prognos[x]!, 0);
+  if (planTim <= 0) return null;
+  const maskinTim = r.reduce((t, x) => t + s.rollMin[x], 0) / 60;
+  const diff = Math.round(maskinTim - planTim);
+  const text = `Prognos för maskinerna: ${timOrd(Math.round(planTim))}.`;
+  const varning = maskinTim > planTim * (1 + OVER_PROGNOS_ANDEL);
+  if (s.grupp !== 'avslutad') {
+    if (diff < 0) return { text, avvikelse: `${timOrd(-diff)} kvar enligt prognosen.`, varning: false };
+    if (diff === 0) return { text, avvikelse: 'Prognosen är nådd.', varning: false };
+    return { text, avvikelse: `Redan ${timOrd(diff)} över prognosen.`, varning };
+  }
+  if (diff === 0) return { text, avvikelse: 'Det blev som prognosen.', varning: false };
+  return { text, avvikelse: `${timOrd(Math.abs(diff))} ${diff > 0 ? 'mer' : 'mindre'} än prognosen.`, varning };
+}
+
+/** EN mening om varför: per roll som avvek minst en timme, den största först. */
+export function forklaringText(s: Sammanstallning): string | null {
+  const delar: { diff: number; text: string }[] = [];
+  for (const r of roller(s)) {
+    const p = s.prognos[r];
+    if (p == null || s.rollMin[r] <= 0) continue;
+    const diff = Math.round(s.rollMin[r] / 60 - p);
+    if (diff === 0) continue;
+    const klar = rollKlar(s, r);
+    const vem = ROLL_NAMN[r];
+    if (diff > 0) delar.push({ diff, text: klar ? `${vem} behövde ${timOrd(diff)} mer än prognosen.` : `${vem} har redan gått ${timOrd(diff)} över prognosen.` });
+    else if (klar) delar.push({ diff, text: `${vem} var klar ${timOrd(-diff)} tidigare.` });
+  }
+  if (delar.length === 0) return null;
+  return delar.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)).map(d => d.text).join(' ');
+}
+
+function maskinDetaljer(s: Sammanstallning, roll: Roll): VyRad[] {
+  return s.maskiner.filter(x => x.roll === roll).map(x => ({
+    nyckel: `maskin-${x.maskin_id}`,
+    titel: x.namn,
+    under: x.manuell ? 'inskrivet för hand' : `${x.dagar} ${x.dagar === 1 ? 'dag' : 'dagar'}`,
+    hoger: timmar(x.min),
+  }));
+}
+
+function flyttDetaljer(s: Sammanstallning): VyRad[] {
+  const r: VyRad[] = s.flyttar.map(f => ({
+    nyckel: f.id,
+    titel: `${f.maskin}${f.fran ? ` från ${f.fran}` : ''}`,
+    under: [f.fran ? null : 'varifrån saknas', kortDatum(f.datum), f.km != null ? `${heltal(f.km)} km` : null].filter(Boolean).join(' · '),
+    hoger: f.min != null ? timmar(f.min) : '–',
+    hogerUnder: f.min == null ? 'tid saknas' : null,
+  }));
+  if (s.flytthjalpMin > 0) r.push({ nyckel: 'flytthjalp', titel: 'Hjälp att flytta', under: 'inskriven tid', hoger: timmar(s.flytthjalpMin) });
+  return r;
+}
+
+function extraVem(nyckel: TidDel, titel: string, poster: Sammanstallning['planering']): VemRad | null {
+  const min = poster.reduce((t, p) => t + p.min, 0);
+  if (min <= 0) return null;
+  const personer = [...new Set(poster.map(p => p.person).filter((x): x is string => !!x))];
+  const dagar = new Set(poster.map(p => p.datum)).size;
+  const under = [personer.join(', ') || null, `${dagar} ${dagar === 1 ? 'dag' : 'dagar'}`].filter(Boolean).join(' · ');
+  return { nyckel, titel, under, hoger: timmar(min), farg: TID_FARG[nyckel], detaljer: [] };
+}
+
+export function vemVy(s: Sammanstallning): ObjektVy['vem'] {
+  const rader: VemRad[] = [];
+  for (const roll of roller(s)) {
+    const min = s.rollMin[roll];
+    if (min <= 0) continue;
+    const p = s.prognos[roll];
+    const over = p != null && min / 60 > p * (1 + OVER_PROGNOS_ANDEL);
+    rader.push({
+      nyckel: roll, titel: ROLL_NAMN[roll],
+      under: p != null ? `prognos ${timOrd(Math.round(p))}` : 'ingen prognos',
+      varning: over, hoger: timmar(min), farg: TID_FARG[roll], detaljer: maskinDetaljer(s, roll),
+    });
+  }
+  if (s.flyttMin > 0 || s.flyttar.length > 0) {
+    const n = new Set(s.flyttar.map(f => f.maskin)).size;
+    rader.push({
+      nyckel: 'flytt', titel: 'Flytt hit',
+      under: n ? `${n} ${n === 1 ? 'maskin kördes' : 'maskiner kördes'} hit` : 'hjälp att flytta',
+      hoger: s.flyttMin > 0 ? timmar(s.flyttMin) : '–', farg: TID_FARG.flytt, detaljer: flyttDetaljer(s),
+    });
+  }
+  for (const r of [extraVem('planering', 'Planering', s.planering), extraVem('manuellt', 'Manuellt arbete', s.manuellt), extraVem('annat', 'Annat arbete', s.annat)]) {
+    if (r) rader.push(r);
+  }
+  if (rader.length === 0) return null;
+  const min: Partial<Record<TidDel, number>> = {
+    skordare: s.rollMin.skordare, skotare: s.rollMin.skotare, flytt: s.flyttMin,
+    planering: s.planering.reduce((t, p) => t + p.min, 0), manuellt: s.manuellt.reduce((t, p) => t + p.min, 0), annat: s.annat.reduce((t, p) => t + p.min, 0),
+  };
+  const total = TID_DELAR.reduce((t, k) => t + (min[k] ?? 0), 0);
+  const stapel: Stapeldel[] = total > 0
+    ? TID_DELAR.filter(k => (min[k] ?? 0) > 0).map(k => ({ nyckel: k, andel: min[k]! / total, farg: TID_FARG[k] }))
+    : [];
+  return { stapel, rader };
+}
+
+export function virkeVy(o: ObjektRad, prod: Produktion): ObjektVy['virke'] {
+  if (prod.volym < 0.5) return null;
+  const trad = tradVy(prod);
+  return {
+    svar: `${heltal(prod.volym)} m³`,
+    under: (o.volym ?? 0) > 0 ? `prognos ${heltal(o.volym!)} m³` : null,
+    stapel: trad?.stapel ?? null,
+    rader: trad?.rader ?? [],
+  };
+}
+
+export function flerVy(s: Sammanstallning, prod: Produktion): VyRad[] | null {
+  const r: VyRad[] = [];
+  if (prod.stammar > 0) r.push({ nyckel: 'trad', titel: 'Träd', hoger: heltal(prod.stammar) });
+  if (prod.stammar > 0 && prod.volym >= 0.5) r.push({ nyckel: 'pertrad', titel: 'Virke per träd', under: 'medelstam', hoger: `${decimal(prod.volym / prod.stammar, 2)} m³` });
+  if (prod.volym >= 0.5 && s.totalMin >= 60) r.push({ nyckel: 'pertimme', titel: 'Virke per timme', under: 'all tid på objektet', hoger: `${decimal(prod.volym / (s.totalMin / 60))} m³` });
+  if (s.bransle > 0) r.push({ nyckel: 'diesel', titel: 'Diesel', under: prod.volym >= 0.5 ? `${decimal(s.bransle / prod.volym)} liter per m³` : null, hoger: `${heltal(s.bransle)} liter` });
+  return r.length ? r : null;
+}
+
 export function byggObjektVy(s: Sammanstallning, prod: Produktion, maskinNamn: (id: string) => string): ObjektVy {
   const o = s.objekt;
   const namn = o.namn?.trim() || o.vo_nummer || 'Objekt';
@@ -272,65 +409,9 @@ export function byggObjektVy(s: Sammanstallning, prod: Produktion, maskinNamn: (
   const lage = s.grupp === 'avslutad' ? (s.klart ? `klart ${kortDatum(s.klart)}` : 'klart')
     : s.grupp === 'planerad' ? 'planerat' : s.skotningKvar ? 'skotning kvar' : 'pågår';
   const meta = [typ === 'Typ okänd' ? null : typ, o.bolag?.trim() || null, lage].filter(Boolean).join(' · ');
-  const fraga = s.grupp === 'avslutad' ? 'Hur lång tid tog objektet?' : s.grupp === 'planerad' ? 'Hur lång tid har det tagit?' : 'Hur lång tid har det tagit hittills?';
-  const svar = s.totalMin > 0 ? tidText(s.totalMin) : 'Ingen tid än';
-  const underSvar = prod.volym >= 0.5
-    ? `${heltal(prod.volym)} m³ skördat${s.totalMin >= 60 ? ` – ${decimal(prod.volym / (s.totalMin / 60))} m³ per timme` : ''}`
-    : null;
+  const fraga = s.totalMin <= 0 ? 'Det har inte tagit någon tid än' : s.grupp === 'avslutad' ? 'Det tog' : 'Hittills har det tagit';
+  const svar = s.totalMin > 0 ? heltimmar(s.totalMin) : 'Ingen tid';
 
-  // ── Vart gick tiden? ─────────────────────────────────────────────────────
-  const tidRader: VyRad[] = [];
-  for (const roll of ['skordare', 'skotare'] as const) {
-    const min = s.rollMin[roll];
-    if (roll === 'skordare' && o.typ === 'grot' && min === 0) continue;
-    if (min <= 0) {
-      tidRader.push({ nyckel: roll, titel: ROLL_NAMN[roll], under: s.prognos[roll] != null ? `Prognos ${decimal(s.prognos[roll]!, s.prognos[roll]! % 1 ? 1 : 0)} tim – ingen tid än` : 'Ingen tid än', hoger: '–', dampad: true, farg: TID_FARG[roll] });
-      continue;
-    }
-    const p = prognosText(min, s.prognos[roll], rollKlar(s, roll));
-    tidRader.push({ nyckel: roll, titel: ROLL_NAMN[roll], under: p.text, varning: p.varning, under2: maskinRad(s, roll), hoger: timmar(min), farg: TID_FARG[roll] });
-  }
-  const antal = s.flyttar.length;
-  const utanTid = s.flyttar.filter(f => f.min == null).length;
-  if (s.flyttMin > 0 || antal > 0) {
-    const delar = [antal ? `${antal} ${antal === 1 ? 'flytt' : 'flyttar'} hit` : null, s.flytthjalpMin > 0 ? `${timmar(s.flytthjalpMin)} flytthjälp` : null, utanTid ? `${utanTid} saknar tid` : null].filter(Boolean);
-    tidRader.push({ nyckel: 'flytt', titel: 'Flytt', under: delar.join(' · '), hoger: s.flyttMin > 0 ? timmar(s.flyttMin) : '–', farg: TID_FARG.flytt });
-  } else {
-    tidRader.push({ nyckel: 'flytt', titel: 'Flytt', under: 'Ingen flytt registrerad', hoger: '–', dampad: true, farg: TID_FARG.flytt });
-  }
-  tidRader.push({ ...extraRad('planering', 'Planering', s.planering, 'Ingen tid inskriven'), farg: TID_FARG.planering });
-  tidRader.push({ ...extraRad('manuellt', 'Manuellt arbete', s.manuellt, 'Ingen tid inskriven'), farg: TID_FARG.manuellt });
-  if (s.annat.length) tidRader.push({ ...extraRad('annat', 'Annat arbete', s.annat, ''), farg: TID_FARG.annat });
-  const st = staplar(s.perDag);
-  const manuell = s.maskiner.some(m => m.manuell);
-
-  // ── Hur kom maskinerna hit? ──────────────────────────────────────────────
-  const flyttRader: VyRad[] = s.flyttar.map(f => ({
-    nyckel: f.id,
-    titel: f.maskin,
-    under: [f.fran ? `Från ${f.fran}` : 'Varifrån saknas', kortDatum(f.datum), f.km != null ? `${heltal(f.km)} km` : null].filter(Boolean).join(' · '),
-    hoger: f.min != null ? timmar(f.min) : '–',
-    hogerUnder: f.min == null ? 'tid saknas' : null,
-    farg: f.roll ? TID_FARG[f.roll] : FARG.text3,
-  }));
-  const flyttade = new Set(s.flyttar.map(f => f.maskin));
-  for (const m of s.maskiner) {
-    if (flyttade.has(m.namn)) continue;
-    flyttRader.push({ nyckel: `utan-${m.maskin_id}`, titel: m.namn, under: 'Ingen flytt registrerad', hoger: '–', dampad: true, farg: TID_FARG[m.roll] });
-  }
-
-  // ── Vad blev det? ────────────────────────────────────────────────────────
-  const blev: VyRad[] = [];
-  if (prod.volym >= 0.5) {
-    blev.push({ nyckel: 'volym', titel: 'Skördat', under: (o.volym ?? 0) > 0 ? `Prognos ${heltal(o.volym!)} m³` : null, hoger: `${heltal(prod.volym)} m³` });
-    if (prod.stammar > 0) {
-      blev.push({ nyckel: 'stammar', titel: 'Stammar', hoger: heltal(prod.stammar) });
-      blev.push({ nyckel: 'medelstam', titel: 'Medelstam', under: 'm³ per träd', hoger: `${decimal(prod.volym / prod.stammar, 2)} m³` });
-    }
-    if (s.bransle > 0) blev.push({ nyckel: 'bransle', titel: 'Bränsle', under: 'skördare och skotare', hoger: `${decimal(s.bransle / prod.volym)} l/m³`, hogerUnder: `${heltal(s.bransle)} liter` });
-  }
-
-  // ── Vad är kvar? (bara pågående) ─────────────────────────────────────────
   const kvar = s.grupp === 'pagar' && s.uppgifter.length
     ? s.uppgifter.map(u => ({
         nyckel: u.id,
@@ -341,6 +422,8 @@ export function byggObjektVy(s: Sammanstallning, prod: Produktion, maskinNamn: (
       }))
     : null;
 
+  const st = staplar(s.perDag);
+  const manuell = s.maskiner.some(m => m.manuell);
   const uppdraget = uppdragRader(o, maskinNamn);
   return {
     id: o.id,
@@ -349,13 +432,14 @@ export function byggObjektVy(s: Sammanstallning, prod: Produktion, maskinNamn: (
     meta,
     fraga,
     svar,
-    underSvar,
-    tid: { rader: tidRader, staplar: st.staplar, stapelRubrik: st.rubrik, not: manuell ? 'Tid som skrivits in för hand syns inte i staplarna.' : null },
-    flyttar: flyttRader.length ? flyttRader : null,
-    blev: blev.length ? blev : null,
-    trad: prod.volym >= 0.5 ? tradVy(prod) : null,
+    plan: s.totalMin > 0 ? planText(s) : null,
+    forklaring: forklaringText(s),
     kvar,
+    vem: vemVy(s),
+    virke: virkeVy(o, prod),
+    dagar: { staplar: st.staplar, rubrik: st.rubrik, not: manuell ? 'Tid som skrivits in för hand syns inte här.' : null },
     uppdraget: uppdraget.length ? uppdraget : null,
+    fler: flerVy(s, prod),
   };
 }
 
