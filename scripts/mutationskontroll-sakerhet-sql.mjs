@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 
 const AUDIO = "supabase/migrations/20261023120000_audio_bucket_privat.sql";
 const MED = "supabase/migrations/20261023152043_medarbetare_skydda_kolumner.sql";
-const GRANTS = "supabase/migrations/20261023160000_revoke_truncate_trigger_references.sql";
+const GRANTS = "supabase/migrations/20261024100816_revoke_truncate_trigger_references.sql";
 
 const M = [
   ["audio: bucketen förblir publik", "set public = false,", "set public = true,", AUDIO],
