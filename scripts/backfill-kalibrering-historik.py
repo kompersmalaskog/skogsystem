@@ -20,7 +20,7 @@ En saknad justering är okänd (NULL), aldrig 0.
 
 Kräver NEXT_PUBLIC_SUPABASE_URL (eller SUPABASE_URL) och SUPABASE_SERVICE_ROLE_KEY i miljön — samma som importen.
 Migrationen 20261024093123_kalibrering_historik_rot_och_omkalibrering ska vara körd först (kolumnen langd_justering_rot_mm).
-Exit 1 om något block är en konflikt eller en fil inte gick att läsa; exit 2 om inga .hqc-filer hittades.
+Exit 1 om något block är en konflikt eller en fil inte gick att läsa; exit 2 om inga .hqc-filer hittades eller Supabase inte går att nå.
 """
 import importlib.util, os, sys, tempfile
 from collections import defaultdict
@@ -182,6 +182,11 @@ def main(argv=None):
         print(f"Inga .hqc-filer under {sokvag}")
         return 2
     m = ladda_import()
+    # Modulen laddar nyckeln ur .env.local men fyller headrarna först i init_supabase() — utan det är varje databasläsning
+    # ett 401 "No API key found" (så gick första körningen). Samma anrop som backfill-kontroll-vader.py.
+    if not m.init_supabase():
+        print("FEL: kunde inte ansluta till Supabase — kontrollera NEXT_PUBLIC_SUPABASE_URL och SUPABASE_SERVICE_ROLE_KEY i .env.local")
+        return 2
     block, konflikter, fel_filer = samla(m, filer)
     res = kor(m, block, skriv)
     rader = []
