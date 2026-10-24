@@ -30,7 +30,7 @@ import { prisPerM3 } from '@/lib/ekonomi/prisPerM3';
 import { medForestlink } from '@/lib/ekonomi/forestlink';
 import {
   EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad,
-  Laddar, FelRuta, Tomt, BARNSTEN,
+  Laddar, FelRuta, Tomt, BARNSTEN, MAXBREDD_BRED,
 } from './delade/mall';
 
 // Intäkt per arbetstyp — vad kör vi in och på vilken sorts jobb. Byggd med
@@ -500,7 +500,7 @@ export default function EkonomiClient() {
   const sumTimmarUtanPris = maskiner.reduce((s, m) => s + m.timmarUtanPris, 0);
 
   return (
-    <EkonomiSida>
+    <EkonomiSida maxBredd={MAXBREDD_BRED}>
       {/* Periodväxlare — vyns översta rad; titeln bor i TopBar. (i) öppnar förklaringen. */}
       <Periodvaxlare
         perioder={['D', 'V', 'M', 'K', 'A']}
@@ -543,10 +543,10 @@ export default function EkonomiClient() {
           {(ackordUtanPrislista || sumTimmarUtanPris > 0) && (
             <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 16, padding: '0 8px', lineHeight: 1.6, textAlign: 'center' }}>
               {ackordUtanPrislista && (
-                <div>Ackordprislista saknas — ackordintäkten kan inte beräknas och visas som 0 kr. Lägg upp priser i Inställningar.</div>
+                <div>Ackordprislista saknas — ackordintäkten kan inte beräknas och visas som 0 kr. Lägg upp priser under Priser.</div>
               )}
               {sumTimmarUtanPris > 0 && (
-                <div>{sumTimmarUtanPris.toFixed(1).replace('.', ',')} h timpeng saknar timpris och ingår inte i intäkten. Sätt timpris i Inställningar.</div>
+                <div>{sumTimmarUtanPris.toFixed(1).replace('.', ',')} h timpeng saknar timpris och ingår inte i intäkten. Sätt timpris under Priser.</div>
               )}
             </div>
           )}
@@ -692,7 +692,7 @@ export default function EkonomiClient() {
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 }}>Ackord</div>
-                Skördad volym × skördarpris och skotad volym × skotarpris, uppslaget per närmaste medelstam i prislistan, plus trakt-, sortiment- och skotningsavståndstillägg. Terräng- och flyttersättning ingår inte ännu.
+                Skördad volym × skördarpris och skotad volym × skotarpris, uppslaget per närmaste medelstam i prislistan, plus trakt-, sortiment-, skotningsavstånds-, terräng- och kvalitetssäkringstillägg. Flyttersättning ingår inte.
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 4 }}>Timpeng</div>

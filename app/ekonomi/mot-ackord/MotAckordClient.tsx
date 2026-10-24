@@ -282,7 +282,7 @@ export default function MotAckordClient() {
                 <div style={{ ...talCell, fontWeight: VIKT.halvfet, color: diffColor(tabell.summa.totalt) }}>{fmtDiff(tabell.summa.totalt)}</div>
               </div>
               <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.s }}>
-                Skillnaden på summaraden är volymvägd (Totalt ÷ volym). Klicka på ett objekt för ackordgrund och detaljer.
+                Skillnaden på summaraden är Totalt delat med volymen. Klicka på ett objekt för ackordgrund och detaljer.
               </div>
 
               {/* Per maskin — kollapsad sektion med liten tabell i samma stil.
@@ -298,8 +298,8 @@ export default function MotAckordClient() {
                     <div style={{ ...maskinGrid, marginTop: AVSTAND.m, marginBottom: AVSTAND.s }}>
                       <div style={{ ...rubrikCell, textAlign: 'left' }}>Maskin</div>
                       <div style={rubrikCell}>G15-tim</div>
-                      <div style={rubrikCell}>Timpeng kr/tim</div>
                       <div style={rubrikCell}>Ackord kr/tim</div>
+                      <div style={rubrikCell}>Timpeng kr/tim</div>
                       <div style={rubrikCell}>Skillnad kr/tim</div>
                     </div>
                     {maskinRader.map(r => {
@@ -311,8 +311,8 @@ export default function MotAckordClient() {
                             {r.m.timmar < OSAKER_TIM && <span style={{ color: FARG.text3 }}> *</span>}
                           </div>
                           <div style={talCell}>{fmtTim(r.m.timmar)}</div>
-                          <div style={talCell}>{r.tim ?? '—'}</div>
                           <div style={talCell}>{r.ack ?? '—'}</div>
+                          <div style={talCell}>{r.tim ?? '—'}</div>
                           <div style={{ ...talCell, color: r.tim != null ? diffColor(r.skillnad) : FARG.text2 }}>
                             {r.tim != null ? fmtDiff(r.skillnad) : '—'}
                           </div>

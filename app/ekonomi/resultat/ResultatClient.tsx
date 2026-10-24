@@ -535,7 +535,7 @@ export default function ResultatClient() {
                       <div key={q.kvartal} style={{ textAlign: 'center' }}>
                         <div style={{ height: AVSTAND.xxl * 3, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: AVSTAND.xs }}>
                           {!tomt && <div style={{ width: AVSTAND.xl, height: Math.max(hInt, 1), background: FARG.text2, borderRadius: RADIE.stapel }} />}
-                          {!tomt && <div style={{ width: AVSTAND.xl, height: Math.max(hKost, 1), background: FARG.fyllning, borderRadius: RADIE.stapel }} />}
+                          {!tomt && <div style={{ width: AVSTAND.xl, height: Math.max(hKost, 1), background: FARG.text3, borderRadius: RADIE.stapel }} />}
                         </div>
                         <div style={{ ...TYP.meta, fontWeight: aktivt ? VIKT.halvfet : VIKT.normal, color: aktivt ? FARG.text : FARG.text2, marginTop: AVSTAND.s }}>
                           Q{q.kvartal}
@@ -555,7 +555,7 @@ export default function ResultatClient() {
                 <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.l, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: AVSTAND.s }}>
                   <span style={{ width: AVSTAND.s, height: AVSTAND.s, background: FARG.text2, borderRadius: RADIE.stapel, display: 'inline-block' }} />
                   intäkt
-                  <span style={{ width: AVSTAND.s, height: AVSTAND.s, background: FARG.fyllning, borderRadius: RADIE.stapel, display: 'inline-block', marginLeft: AVSTAND.m }} />
+                  <span style={{ width: AVSTAND.s, height: AVSTAND.s, background: FARG.text3, borderRadius: RADIE.stapel, display: 'inline-block', marginLeft: AVSTAND.m }} />
                   kostnad
                 </div>
               </Lista>
@@ -661,7 +661,7 @@ export default function ResultatClient() {
               </div>
               <div>
                 <div style={{ ...sheetH, color: FARG.orange }}>Verklig värdeminskning — kalkyl</div>
-                Bokförd avskrivning (78xx) är skattestyrd och bokas vid bokslut — en maskin kan stå nedskriven till nästan noll fast den är värd miljoner. Värdeminskningen här är vår egen kalkyl med maskinsäljarens modell: kr per G15-timme (sätts per maskin i Inställningar) × maskinens faktiskt körda G15-timmar i perioden. Självjusterande — mer körning betyder mer slitage, en stillastående maskin kostar inget. Sålda maskiner bär ingen värdeminskning framåt. Skulle bokförd avskrivning dyka upp i en period varnar vyn — de två mäter samma sak och får aldrig räknas ihop.
+                Bokförd avskrivning (78xx) är skattestyrd och bokas vid bokslut — en maskin kan stå nedskriven till nästan noll fast den är värd miljoner. Värdeminskningen här är vår egen kalkyl med maskinsäljarens modell: kr per G15-timme (sätts per maskin under Priser) × maskinens faktiskt körda G15-timmar i perioden. Självjusterande — mer körning betyder mer slitage, en stillastående maskin kostar inget. Sålda maskiner bär ingen värdeminskning framåt. Skulle bokförd avskrivning dyka upp i en period varnar vyn — de två mäter samma sak och får aldrig räknas ihop.
               </div>
             </div>
             {/* Stäng = avbryter → KNAPP.lank (skillen: blå text bara för navigerar/avbryter) */}

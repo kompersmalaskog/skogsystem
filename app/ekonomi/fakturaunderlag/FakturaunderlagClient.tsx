@@ -27,6 +27,7 @@ import {
   FARG, TYP, AVSTAND, RADIE, TRAFFYTA, VY_ROT, KORT, FONT, TAL_FONT,
 } from '@/lib/design/tokens';
 import { delaHalften, type Tillaggspost } from '@/lib/ekonomi/prisPerM3';
+import { MAXBREDD_BRED } from '../delade/mall';
 
 type Rad = {
   radnr: number; artikelnr: string | null; benamning: string;
@@ -100,7 +101,7 @@ export default function FakturaunderlagClient() {
 
   // 120 = frigång för den fasta bottennavigationen, samma som
   // app/ekonomi/delade/mall.tsx. Fysiskt mått, inte en designtoken.
-  const rot: React.CSSProperties = { ...VY_ROT, paddingBottom: 120, maxWidth: 1280, margin: '0 auto' };
+  const rot: React.CSSProperties = { ...VY_ROT, paddingBottom: 120, maxWidth: MAXBREDD_BRED, margin: '0 auto' };
 
   if (oppen) {
     return (
@@ -113,8 +114,8 @@ export default function FakturaunderlagClient() {
 
   return (
     <div style={rot}>
-      <h1 style={{ ...TYP.titel, margin: `${AVSTAND.xl}px 0 0` }}>Fakturaunderlag</h1>
-      <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>
+      {/* Rubriken bor i toppfältet, som i ekonomins övriga flikar. */}
+      <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xl}px 0 0` }}>
         Ingenting sparas och ingenting skickas till Fortnox förrän du granskat.
       </p>
 
@@ -166,7 +167,7 @@ export default function FakturaunderlagClient() {
               saknad prissats syns först när trakten öppnas — det ska stå,
               inte antydas. */}
           <p style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.xl }}>
-            {oversikt.antal} trakter, lästa på {oversikt.ms} ms. Listan kontrollerar kund,
+            {oversikt.antal} trakter. Listan kontrollerar kund,
             kontraktsnummer och traillertimmar — priserna räknas när du öppnar en trakt.
           </p>
         </>

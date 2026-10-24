@@ -266,3 +266,14 @@ export const avstandSnapshot = (a: { grundavstand_m: Num; kr_per_100m: Num }) =>
   JSON.stringify([numOrNull(a.grundavstand_m), numOrNull(a.kr_per_100m)]);
 export const sortSnapshot = (s: { grundantal: Num; kr_per_extra_sortiment: Num }) =>
   JSON.stringify([numOrNull(s.grundantal), numOrNull(s.kr_per_extra_sortiment)]);
+
+// Grundpriset: Totalt läses av fakturaunderlaget (prisPerM3), skördar- och
+// skotarpriset av allt annat. Går de inte ihop fakturerar vi ett annat pris
+// än det maskinerna räknas på — utan att något syns. Jämförs på hela ören.
+// null = raden går ihop (eller är inte ifylld än — det fångas av sparkontrollen).
+export function grundprisSumma(r: { pris_total: Num; pris_skordare: Num; pris_skotare: Num }): number | null {
+  if (r.pris_total === '' || r.pris_skordare === '' || r.pris_skotare === '') return null;
+  const ore = (n: number) => Math.round(Number(n) * 100);
+  const summa = ore(r.pris_skordare) + ore(r.pris_skotare);
+  return summa === ore(r.pris_total) ? null : summa / 100;
+}
