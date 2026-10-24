@@ -191,7 +191,7 @@ describe('två lägen: GÖRA och SE (jobb 1)', () => {
     expect(lager).toContain("'icon-image': 'marker-landing'");
     expect(lager).not.toContain('avlagg-icon');
     expect(page).not.toContain("map.addImage('avlagg-icon'");
-    expect(page).toContain("['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']");    // etiketten är fortfarande Vidas nummer
+    expect(page).toContain("['coalesce', ['get', 'EXTRA_LABE'], ['get', 'LOPNR'], '']");    // etiketten är bara Vidas nummer (Kartan lugnare: inte beskrivningen FLBESKR)
     expect(page).toContain("vidaAvlagg: klarVidaAvlagg, vidaAvlaggBekraftat: klarVidaBekraftat, basvagTexter: klarBasvagTexterTop,");
     expect(page).toContain('onBekraftaVidaAvlagg: () => { void klarHook.spara({ vidaAvlagg: { nummer: klarVidaAvlagg,');
     // bekräftelsen sparas i har_du_svar och skriver aldrig bort de sex svaren (hooken ger nuvarande fält till kolumnbyggaren)

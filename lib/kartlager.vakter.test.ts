@@ -44,7 +44,7 @@ describe('kartlagret per användare: planeringssidan', () => {
   });
   it('stilens baslager startar synliga efter det valda lagret (ingen blixt av fel lager före kartan är redo)', () => {
     for (const rad of [
-      "{ id: 'osm-layer', type: 'raster' as const, source: 'osm', layout: { visibility: (mapType === 'osm' ? 'visible' : 'none')",
+      "{ id: 'osm-layer', type: 'raster' as const, source: 'osm', paint: kartBasPaint('osm'), layout: { visibility: (mapType === 'osm' ? 'visible' : 'none')",
       "layout: { visibility: (mapType === 'satellite' ? 'visible' : 'none')",
       "layout: { visibility: (mapType === 'lantmateriet' ? 'visible' : 'none')",
       "layout: { visibility: (mapType === 'terrain' ? 'visible' : 'none')",

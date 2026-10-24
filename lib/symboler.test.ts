@@ -156,7 +156,7 @@ describe('inga kopior av glyfer, former och färger', () => {
     expect(GROT_FARG).toBe('#8B5E3C');
     const t = lasa('app/planering/page.tsx');
     expect(t.match(/#8B5E3C/gi) ?? []).toHaveLength(0);
-    const grot = t.slice(t.indexOf("id: 'grot-circle'"), t.indexOf("id: 'grot-label'"));
+    const grot = t.slice(t.indexOf("id: 'grot-circle'"), t.indexOf('// === Trakt-geometri (envz'));
     expect(grot).toContain('GROT_FARG');
     expect(grot).not.toContain('#f59e0b');
   });
