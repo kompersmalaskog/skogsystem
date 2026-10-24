@@ -664,11 +664,6 @@ const KRAV_FALT = [
 
 // "12 maj" ur "YYYY-MM-DD" — fasta namn, ingen locale-överraskning
 const MANADER_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
-function fmtKortDatum(ymd: any) {
-  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (!m) return ymd || ''
-  return `${parseInt(m[3], 10)} ${MANADER_KORT[parseInt(m[2], 10) - 1] || m[2]}`
-}
 
 // "2 av 4 klart — Bolag och åtgärd saknas" (första ordet versalt, resten gemena)
 function progressText(saknas: any[], total: number = KRAV_FALT.length) {
@@ -1859,14 +1854,7 @@ function ObjektRedigeringInner() {
   const [hprFiler, setHprFiler] = useState<any[]>([])
   const [hprStatus, setHprStatus] = useState<'laddar' | 'fel' | 'ok'>('laddar')
   const [maskinTyper, setMaskinTyper] = useState<Record<string, string | null>>({})
-  const [skapaJobb, setSkapaJobb] = useState<any>(null)
-  const [skapar, setSkapar] = useState(false)
   const [visaSmajobb, setVisaSmajobb] = useState(false)
-  const [oppetKopplaJobb, setOppetKopplaJobb] = useState<string | null>(null) // larmrad med expanderad kandidatlista
-  const [kopplaVal, setKopplaVal] = useState<any>(null) // { jobb, kandidat } -> ConfirmDialog
-  const [kopplar, setKopplar] = useState(false)
-  const [avslutVal, setAvslutVal] = useState<any>(null) // { g, forslag } -> ConfirmDialog (massverkan från kort)
-  const [avslutar, setAvslutar] = useState(false)
   // Berikning (volym, senaste aktivitet, maskintyp) per objekt_id
   const matchning = useMatchning()
   // Fildata per objekt (kortprickar + Filer-undersidan)
@@ -2066,75 +2054,6 @@ function ObjektRedigeringInner() {
   // med jobbets VO försvinner larmet av sig självt (samma vo-koppling som
   // resten av systemet använder)
   const okopplade = analyseraOkopplade(hprFiler, objekt)
-
-  // Skapa objekt från ett okopplat maskinjobb: namn + VO förifyllda, sedan
-  // rakt in i sheetens "Måste fyllas i". objekt_id = VO (maskinens
-  // objektnummer) — samma id som importen använder när MOM-flödet så
-  // småningom skriver raden, så de mergar istället för att dubblera.
-  // Ärlig sparning: insert utan returnerad rad = fel, aldrig tyst succé.
-  async function skapaObjektFranJobb() {
-    if (!skapaJobb || skapar) return
-    setSkapar(true)
-    setSaveError('')
-    const rad = {
-      objekt_id: skapaJobb.vo,
-      vo_nummer: skapaJobb.vo,
-      object_name: skapaJobb.namn || null,
-      maskin_id: skapaJobb.maskinId,
-    }
-    const { data, error: err } = await supabase.from('dim_objekt').insert(rad).select('*')
-    if (err || !data || data.length === 0) {
-      setSaveError('Kunde inte skapa objektet — inget sparades')
-      setTimeout(() => setSaveError(''), 6000)
-    } else {
-      const ny = { ...data[0], maskin_typ: maskinTyper[skapaJobb.maskinId] || null }
-      setObjekt((prev: any[]) => [...prev, ny])
-      setSkapaJobb(null)
-      setRedigerObj(ny)
-    }
-    setSkapar(false)
-  }
-
-  // Godkänn ett avslutsförslag (massverkan från kortet, via ConfirmDialog).
-  // ALDRIG autoskriv — detta körs bara på Martins tryck + bekräftelse.
-  // Direktskrivning till maskinslagets rader i gruppen, källmärkt auto=true,
-  // med #222-värdeverifiering. Speglas i lokal state.
-  async function godkannAvslut() {
-    if (!avslutVal || avslutar) return
-    const { g, forslag } = avslutVal
-    setAvslutar(true)
-    setSaveError('')
-    const ids = raderForMaskinslag(g.rader, forslag.maskinTyp, g.rep.objekt_id)
-    const patch = { [forslag.field]: forslag.datum, [forslag.autoField]: true }
-    const r = await direktPatchDimObjekt(ids, patch)
-    if (r.ok) {
-      setObjekt((prev: any[]) => prev.map((o: any) => ids.includes(o.objekt_id) ? { ...o, ...patch } : o))
-      setAvslutVal(null)
-    } else {
-      setSaveError(r.message || 'Kunde inte markera avslutad')
-      setTimeout(() => setSaveError(''), 6000)
-    }
-    setAvslutar(false)
-  }
-
-  // Koppla maskinjobbet till ett BEFINTLIGT objekt: ny syskonrad i målets
-  // VO-grupp med objekt_id = maskinens jobbnummer (så framtida import mergar
-  // dit) och målets vo_nummer + gemensamma fält (multi-rad-modellens
-  // invariant: gemensamt är lika över gruppen). Filerna syns därefter i
-  // objektets Filer-undersida via VO-grupp-mergen. Ärlig sparning.
-  async function kopplaJobbTillBefintligt() {
-    if (!kopplaVal || kopplar) return
-    setKopplar(true)
-    setSaveError('')
-    const { jobb, kandidat } = kopplaVal
-    const ny = await kopplaJobbKarna(jobb, kandidat.objekt)
-    if (ny) {
-      setKopplaVal(null)
-      setOppetKopplaJobb(null)
-      setRedigerObj(ny) // öppna gruppen — Filer-undersidan visar nu jobbets filer
-    }
-    setKopplar(false)
-  }
 
   // Själva kopplingen (delas av larmraden och Behöver dig-arket). null = inget sparades (felet visas).
   async function kopplaJobbKarna(jobb: any, mal: any): Promise<any | null> {
@@ -2371,33 +2290,6 @@ function ObjektRedigeringInner() {
         listAtgarder={listAtgarder}
         onClose={() => setRedigerObj(null)}
       />
-      <ConfirmDialog
-        open={!!kopplaVal}
-        title="Koppla till befintligt objekt?"
-        message={kopplaVal ? `"${kopplaVal.jobb.namn || 'Namnlöst jobb'}" (VO ${kopplaVal.jobb.vo}, ${kopplaVal.jobb.stammar.toLocaleString('sv-SE')} stammar) kopplas till "${kopplaVal.kandidat.objekt.object_name}" (VO ${kopplaVal.kandidat.objekt.vo_nummer}). Maskindatans filer hamnar under objektets Filer.` : ''}
-        confirmLabel={kopplar ? 'Kopplar …' : 'Koppla'}
-        cancelLabel="Avbryt"
-        onConfirm={kopplaJobbTillBefintligt}
-        onCancel={() => setKopplaVal(null)}
-      />
-      <ConfirmDialog
-        open={!!skapaJobb}
-        title="Skapa objekt från maskindata?"
-        message={skapaJobb ? `${skapaJobb.namn || 'Namnlöst jobb'} · VO ${skapaJobb.vo} — objektet skapas med namn och VO förifyllt, resten fyller du i direkt.` : ''}
-        confirmLabel={skapar ? 'Skapar …' : 'Skapa objekt'}
-        cancelLabel="Avbryt"
-        onConfirm={skapaObjektFranJobb}
-        onCancel={() => setSkapaJobb(null)}
-      />
-      <ConfirmDialog
-        open={!!avslutVal}
-        title="Markera avslutad?"
-        message={avslutVal ? `${capFirst(avslutVal.forslag.label)} för "${avslutVal.g.rep.object_name || avslutVal.g.rep.vo_nummer}" markeras avslutad ${fmtKortDatum(avslutVal.forslag.datum)} — ${avslutVal.forslag.kalla === 'maskindata' ? 'datum ur maskindata' : `ingen data på ${avslutVal.forslag.dagar} dagar`}. Sätts som auto-bekräftat och går att ändra i sheeten.` : ''}
-        confirmLabel={avslutar ? 'Sparar …' : 'Markera avslutad'}
-        cancelLabel="Avbryt"
-        onConfirm={godkannAvslut}
-        onCancel={() => setAvslutVal(null)}
-      />
       {saveError && (
         <div style={styles.saveErrorToast} role="alert">{saveError}</div>
       )}
@@ -2408,94 +2300,14 @@ function ObjektRedigeringInner() {
 
 const styles: Record<string, CSSProperties> = {
   container: { position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0, background: FARG.bg, fontFamily: FONT, color: FARG.text, padding: `${AVSTAND.l}px ${AVSTAND.sidmarginal}px ${AVSTAND.xxl * 3}px`, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' },
-  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
-  headerCenter: { textAlign: 'center', flex: 1 },
-  backBtn: { width: 48, height: 48, borderRadius: 24, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: 24, cursor: 'pointer', transition: 'all 0.2s ease' },
-  titel: { fontSize: 32, fontWeight: 700 },
-  subtitel: { fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
-  sectionHeader: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 },
-  sectionTitel: { fontSize: 18, fontWeight: 600, flex: 1 },
-  sectionCount: { fontSize: 14, fontWeight: 600, color: '#FF9F0A', background: 'rgba(255,159,10,0.15)', padding: '4px 12px', borderRadius: 12 },
-  // Listfilter-piller (Att åtgärda / Pågående)
-  filterToggleBar: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' },
-  filterToggleBtn: { minHeight: 40, padding: '0 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', transition: 'all 0.15s ease' },
-  filterToggleBtnActive: { background: 'rgba(173,198,255,0.12)', borderColor: 'rgba(173,198,255,0.35)', color: '#adc6ff' },
-  subsectionLabel: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.2px', marginTop: 20, marginBottom: 10 },
-  validationWarning: { margin: '12px 16px 4px', padding: '10px 14px', borderRadius: 12, background: 'rgba(255,159,10,0.08)', border: '1px solid rgba(255,159,10,0.25)', color: 'rgba(255,200,120,0.95)', fontSize: 13, lineHeight: 1.4 },
   saveErrorToast: { position: 'fixed', bottom: AVSTAND.xxl * 4, left: '50%', transform: 'translateX(-50%)', background: FARG.upphojt, color: FARG.rod, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.knapp, ...TYP.meta, fontFamily: 'inherit', zIndex: 250, animation: `fadeIn ${RORELSE.byte}ms ease`, maxWidth: '90%', textAlign: 'center' },
-  iosGroupWrap: { marginBottom: 24 },
-  iosGroupTitle: { fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.2px', padding: '0 4px', marginBottom: 8 },
-  iosGroupCard: { background: '#1c1c1e', borderRadius: 14, overflow: 'hidden' },
-  iosDivider: { height: 0.5, background: 'rgba(255,255,255,0.08)', marginLeft: 16 },
-  chipInputBoxEmbedded: { padding: '14px 16px 16px' },
   // Rad i "Måste fyllas i"/"Mer om objektet" — iOS Settings-stil
   kravRad: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', minHeight: 56, cursor: 'pointer', transition: 'background 0.15s ease' },
-  kravVarde: { fontSize: 15, color: 'rgba(255,255,255,0.55)', textAlign: 'right', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  kravValj: { fontSize: 15, fontWeight: 600, color: '#FF9F0A', flexShrink: 0 },
   navSummary: { fontSize: 14, color: 'rgba(255,255,255,0.5)', textAlign: 'right', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   navSummaryWarn: { color: '#FF9F0A', fontWeight: 600 },
   navPil: { fontSize: 20, color: 'rgba(255,255,255,0.25)', flexShrink: 0, lineHeight: 1 },
-  // ✕/‹ i sheetens header
-  sheetNavBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, borderRadius: 18, border: 'none', background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', fontSize: 16, fontFamily: 'inherit', cursor: 'pointer', flexShrink: 0, padding: 0 },
-  // "Klar" på undersidor — går bara tillbaka, sparar inget (Spara bor på översikten)
-  klarBtn: { width: '100%', padding: '18px', borderRadius: 16, border: '1px solid rgba(173,198,255,0.4)', background: 'rgba(173,198,255,0.12)', color: '#adc6ff', fontSize: 17, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' },
-  kostnadRad: { margin: '-14px 4px 24px', fontSize: 13, color: 'rgba(255,255,255,0.65)', fontVariantNumeric: 'tabular-nums' },
-  // Larm: maskindata utan objekt — orange vänsterkant, överst i listan
-  larmBox: { borderLeft: '3px solid #FF9F0A', border: '1px solid rgba(255,159,10,0.2)', background: 'rgba(255,159,10,0.05)', borderRadius: 14, marginBottom: 16, overflow: 'hidden' },
-  larmHeader: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', fontSize: 14, fontWeight: 600, color: 'rgba(255,200,120,0.95)' },
-  larmIkon: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 10, background: 'rgba(255,159,10,0.2)', color: '#FF9F0A', fontSize: 13, fontWeight: 700, flexShrink: 0 },
-  larmRad: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' },
-  skapaBtn: { flexShrink: 0, minHeight: 44, padding: '0 16px', borderRadius: 12, border: '1px solid rgba(173,198,255,0.4)', background: 'rgba(173,198,255,0.12)', color: '#adc6ff', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' },
-  // Avslutsförslag på Pågående-kortet: godkänn med en tapp (ConfirmDialog i föräldern)
-  forslagBtn: { display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 44, padding: '8px 14px', borderRadius: 12, border: '1px solid rgba(48,209,88,0.35)', background: 'rgba(48,209,88,0.10)', color: '#8ee6a4', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' },
-  forslagKalla: { flexShrink: 0, fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.4)' },
-  // Kandidatlista under larmrad — koppla till befintligt objekt
-  kandidatLista: { padding: '10px 16px 14px', borderTop: '1px solid rgba(255,159,10,0.12)', background: 'rgba(0,0,0,0.15)' },
-  kandidatRubrik: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px', marginBottom: 8 },
-  kandidatRad: { display: 'flex', alignItems: 'baseline', gap: 10, width: '100%', minHeight: 48, padding: '8px 12px', marginBottom: 6, borderRadius: 12, border: '1px solid rgba(173,198,255,0.25)', background: 'rgba(173,198,255,0.07)', color: '#fff', fontSize: 14, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer' },
-  kandidatSkapaNytt: { display: 'block', width: '100%', minHeight: 40, padding: '8px 12px', borderRadius: 10, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.45)', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' },
-  // Småjobb utan VO (k-nummer) — nedtonat, inget larm, ingen åtgärd
-  smajobbWrap: { marginBottom: 20, fontSize: 13, color: 'rgba(255,255,255,0.45)' },
-  smajobbToggle: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', minHeight: 40, padding: '8px 4px', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' },
-  smajobbRad: { display: 'flex', alignItems: 'baseline', gap: 10, padding: '6px 4px 6px 12px', fontSize: 12, color: 'rgba(255,255,255,0.4)' },
-  // Direkt-redigerbart fält i iOS Settings-stil: label vänster, input höger
-  directRowStandalone: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', minHeight: 56, gap: 14, marginBottom: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, transition: 'border-color 0.18s ease' },
-  directRowEmbedded: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', minHeight: 56, gap: 14, transition: 'background 0.18s ease' },
   directRowLabel: { fontSize: 15, fontWeight: 500, color: 'rgba(255,255,255,0.85)', flexShrink: 0 },
-  directRowInput: { background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 17, fontFamily: 'inherit', textAlign: 'right', flex: 1, minWidth: 0, padding: 0, WebkitAppearance: 'none' },
-  machineEndInfo: { marginTop: 12, padding: '14px 16px', borderRadius: 14, background: 'rgba(173,198,255,0.06)', border: '1px solid rgba(173,198,255,0.2)' },
-  machineEndLabel: { fontSize: 11, fontWeight: 600, color: 'rgba(173,198,255,0.7)', letterSpacing: '0.2px', marginBottom: 4 },
-  machineEndValue: { fontSize: 15, fontWeight: 500, color: '#fff', fontVariantNumeric: 'tabular-nums', marginBottom: 12 },
-  machineEndFixBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 56, padding: '0 18px', borderRadius: 12, border: '1px solid rgba(173,198,255,0.35)', background: 'rgba(173,198,255,0.12)', color: '#adc6ff', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', width: '100%', boxSizing: 'border-box' },
-  machineEndDone: { fontSize: 13, color: 'rgba(255,255,255,0.55)', fontStyle: 'italic' },
-  quickFixBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 56, marginTop: 8, padding: '0 18px', borderRadius: 12, background: 'rgba(255,159,10,0.10)', border: '1px solid rgba(255,159,10,0.30)', color: 'rgba(255,200,120,0.95)', fontSize: 14, fontWeight: 600, fontFamily: 'inherit' },
-  quickFixMessage: { marginTop: 8, padding: '10px 14px', borderRadius: 12, fontSize: 13, lineHeight: 1.4 },
-  quickFixMessageOk: { background: 'rgba(173,198,255,0.08)', border: '1px solid rgba(173,198,255,0.25)', color: 'rgba(173,198,255,0.95)' },
-  quickFixMessageError: { background: 'rgba(255,159,10,0.08)', border: '1px solid rgba(255,159,10,0.25)', color: 'rgba(255,200,120,0.95)' },
-  kortBadges: { display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: 12, color: 'rgba(255,200,120,0.95)' },
-  kortBadge: { display: 'inline-flex', alignItems: 'center', gap: 6 },
-  kortBadgeMore: { color: 'rgba(255,255,255,0.45)' },
-  allaDone: { display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 60, color: '#adc6ff', fontSize: 17, fontWeight: 600 },
-  allaDoneCheck: { fontSize: 48, marginBottom: 16, filter: 'drop-shadow(0 0 20px rgba(173,198,255,0.5))' },
-  lista: { display: 'flex', flexDirection: 'column', gap: 12 },
-  kort: { background: 'rgba(255,255,255,0.03)', borderRadius: 20, border: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer' },
-  kortInner: { padding: '18px 20px' },
-  kortTop: { display: 'flex', alignItems: 'center' },
-  kortNamn: { fontSize: 17, fontWeight: 600, marginBottom: 4 },
-  kortVo: { fontSize: 13, color: 'rgba(255,255,255,0.4)' },
-  kortPil: { fontSize: 24, color: 'rgba(255,255,255,0.2)', marginLeft: 12 },
-  kortInfo: { fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 12 },
-  kortMeta: { fontSize: 13, color: 'rgba(255,255,255,0.35)', marginTop: 4 },
 
-  searchFilterPanel: { background: 'rgba(255,255,255,0.03)', borderRadius: 20, border: '1px solid rgba(255,255,255,0.06)', padding: '20px', marginBottom: 24, animation: 'fadeIn 0.3s ease' },
-  searchBox: { display: 'flex', alignItems: 'center', gap: 12, background: 'rgba(255,255,255,0.04)', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)', padding: '14px 18px', marginBottom: 20 },
-  searchInput: { flex: 1, background: 'none', border: 'none', color: '#fff', fontSize: 16, outline: 'none' },
-  searchClear: { width: 24, height: 24, borderRadius: 12, background: 'rgba(255,255,255,0.1)', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 11, cursor: 'pointer' },
-  filterSection: { marginBottom: 16 },
-  filterLabel: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px', marginBottom: 10 },
-  filterChips: { display: 'flex', flexWrap: 'wrap', gap: 8 },
-  clearFiltersBtn: { width: '100%', padding: '12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: 500, cursor: 'pointer', marginTop: 8 },
-  emptyState: { textAlign: 'center', padding: 40, color: 'rgba(255,255,255,0.4)', fontSize: 15 },
 
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100 },
   sheet: { position: 'fixed', bottom: 0, left: 0, right: 0, background: FARG.kort, borderRadius: `${RADIE.sheet}px ${RADIE.sheet}px 0 0`, zIndex: 101, maxHeight: '92vh', display: 'flex', flexDirection: 'column', fontFamily: FONT, color: FARG.text },
@@ -2506,20 +2318,8 @@ const styles: Record<string, CSSProperties> = {
   scrollFade: { position: 'absolute', top: AVSTAND.xxl * 2, left: 0, right: 0, height: AVSTAND.xl, background: `linear-gradient(to bottom, ${FARG.kort}, transparent)`, zIndex: 1, pointerEvents: 'none', transition: `opacity ${RORELSE.tryck}ms ease` },
   sheetContent: { flex: 1, overflowY: 'auto', padding: `${AVSTAND.s}px ${AVSTAND.l}px ${medSafeBotten(AVSTAND.xl)}` },
   sheetFooter: { padding: `${AVSTAND.m}px ${AVSTAND.l}px ${medSafeBotten(AVSTAND.l)}` },
-  saveBtn: { width: '100%', padding: '18px', borderRadius: 16, border: 'none', background: '#adc6ff', color: '#000', fontSize: 17, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s ease' },
-  progressHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)' },
-  progressText: { fontSize: 14, color: 'rgba(255,255,255,0.6)' },
-  chipInputBox: { marginBottom: 20 },
-  chipInputHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  chipInputLabel: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px' },
-  chipSelected: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 14, background: 'rgba(173,198,255,0.15)', border: '1px solid rgba(173,198,255,0.3)', marginBottom: 10, fontSize: 16, fontWeight: 500, color: '#fff' },
-  chipClear: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 16, cursor: 'pointer', padding: 4 },
-  chipInput: { width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 10, transition: 'border-color 0.2s ease' },
-  chipGrid: { display: 'flex', flexWrap: 'wrap', gap: 8 },
   chip: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 12, border: '1px solid', fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s ease' },
   chipDelete: { background: 'rgba(255,69,58,0.18)', border: 'none', color: '#FF453A', fontSize: 14, width: 32, height: 32, borderRadius: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  chipNew: { padding: '10px 14px', borderRadius: 12, border: '1px dashed rgba(173,198,255,0.4)', background: 'rgba(173,198,255,0.08)', color: '#adc6ff', fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s ease' },
-  switchList: { display: 'flex', flexDirection: 'column', gap: 8 },
   switchRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 14, border: '1px solid', cursor: 'pointer', transition: 'all 0.2s ease' },
   switchLeft: { display: 'flex', alignItems: 'center', gap: 14 },
   switch: { width: 50, height: 30, borderRadius: 15, padding: 3, transition: 'all 0.2s ease' },
