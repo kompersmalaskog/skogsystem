@@ -16,6 +16,8 @@ import { LON_NOTIS_TYPER, arLonNotis, byggLonNotis, lasLonRadMotDb } from "@/lib
 import { INVENTARIE_UNDER_MIN, arInventarieNotis, byggInventarieNotis, type HamtaInventarie } from "@/lib/inventarier/notis";
 import { arBesokPaminnelse, byggBesokNotis, type HamtaBesokObjekt } from "@/lib/besok/paminnelse";
 import { koaBesokPaminnelser } from "@/lib/besok/paminnelse-ko";
+import { arGodkannNotis, byggGodkannNotis } from "@/lib/lastbil/godkannNotis";
+import { koaGodkannPaminnelse, lasVantandeUnderlag } from "@/lib/lastbil/godkannKo";
 import { arBesokEjSett, byggEjSettNotis, type HamtaEjSett } from "@/lib/besok/ejsett";
 import { koaBesokEjSett } from "@/lib/besok/ejsett-ko";
 import { maskinEtikett } from "@/lib/besok/maskinerPaBesok";
@@ -92,6 +94,14 @@ async function flush() {
     if (!es.ok) console.error("[notis/flush] besök ej sett:", es.fel);
   } catch (e) {
     console.error("[notis/flush] besök ej sett:", e);
+  }
+
+  // Lastbilen: "N flyttar väntar på godkännande" — måndagar från 07:00, bara när något väntar (lib/lastbil/godkannNotis). Ett fel stoppar aldrig kön.
+  try {
+    const gk = await koaGodkannPaminnelse(supabase);
+    if (!gk.ok) console.error("[notis/flush] godkänn-påminnelse:", gk.fel);
+  } catch (e) {
+    console.error("[notis/flush] godkänn-påminnelse:", e);
   }
 
   const nu = new Date().toISOString();
@@ -176,8 +186,9 @@ async function flush() {
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
       // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ)) {
-        const u = arBesokEjSett(n.typ) ? await byggEjSettNotis(n, hamtaEjSett)
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ)) {
+        const u = arGodkannNotis(n.typ) ? await byggGodkannNotis(n, () => lasVantandeUnderlag(supabase))
+          : arBesokEjSett(n.typ) ? await byggEjSettNotis(n, hamtaEjSett)
           : arBesokPaminnelse(n.typ) ? await byggBesokNotis(n, hamtaBesokObjekt)
           : arInventarieNotis(n.typ) ? await byggInventarieNotis(n, hamtaInventarierad)
           : arStickprovNotis(n.typ) ? await byggStickprovNotis(n, hamtaStickprovrad)
