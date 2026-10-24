@@ -39,6 +39,7 @@ export const SKARPA = [
   "components/redigering/ObjektLista.tsx",
   "components/redigering/Undersidor.tsx",
   "app/redigering/SkotareFordelning.tsx",
+  "app/redigering/RedigeringClient.tsx",
   // Gallring (2026-10-22): omgjord på tokens och components/design, noll literaler.
   "components/gallring/GallringRam.tsx",
   "components/gallring/GallringLista.tsx",
