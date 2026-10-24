@@ -43,6 +43,7 @@ import { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { medAbortRetry, medTimeoutRetry } from '@/lib/supabaseRetry';
 import { SIDA, TAL, TEXT, SEKUNDAR, LINJE, stor, Tillbakarad, Stort, Kontroll, Rad, Rader, Stycken } from '@/components/Ytform';
 import { SORTIMENTFARG } from '@/lib/design/tokens';
 
@@ -160,9 +161,9 @@ function Innehall() {
   const hamta = useCallback(async () => {
     setLaddar(true);
     setFel(null);
-    const { data, error } = await supabase.rpc('sortimentsutfall_manad', {
+    const { data, error } = await medTimeoutRetry(() => medAbortRetry(() => supabase.rpc('sortimentsutfall_manad', {
       p_manad: `${manad}-01`, p_atgard: atgard, p_bolag: bolag,
-    });
+    })));
     // Tomt får aldrig betyda två saker: ett fel är ett fel, inte noll m³.
     if (error) { setFel(error.message); setData(null); }
     else setData(data as Utfall);

@@ -17,7 +17,8 @@ import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
-import { SIDA, GUL, GRON, DAMPAD, MUTED, nf0, nf1, nf2, manadNamn, manadEtikett, stor, stegaManad, nuManad, kortObjekt,
+import { AVSTAND, FARG, KORT, RADIE, TYP } from '@/lib/design/tokens';
+import { SIDA, GUL, GRON, DAMPAD, MUTED, LINJE, nf0, nf1, nf2, manadNamn, manadEtikett, stor, stegaManad, nuManad, kortObjekt,
          Rubrikrad, Stort, Tillstand, Kontroll, Rad, Rader, Laddar, Fel } from '@/components/Ytform';
 
 type ObjektRad = {
@@ -67,6 +68,8 @@ function Innehall() {
 
   const valjManad = (m: string) => { setManad(m); router.replace(`/affarsuppfoljning/kvalitet?manad=${m}`, { scroll: false }); };
   const mal = data?.mal_m ?? 4.6;
+  // En trakt med noll kubik i månaden (avrundat) säger inget om längden — den visas inte.
+  const synliga = (data?.objekt ?? []).filter(o => Math.round(o.m3fub) > 0);
 
   const valtaKontroll = (
     <Kontroll text={valta.toLowerCase()} value={valta} onChange={v => setValta(v as typeof VALTOR[number])} label="Välta">
@@ -93,25 +96,30 @@ function Innehall() {
       {!laddar && !fel && data && (
         <>
           {data.medellangd_m != null ? (
-            <Stort tal={nf2(data.medellangd_m)} enhet="m" ordrad={`medellängd ${valta.toLowerCase()}massaved`}>
-              {data.antal_under_mal > 0
-                ? <Tillstand farg={GUL}>{data.antal_under_mal} av {data.antal_objekt} objekt under {nf1(mal)} m</Tillstand>
-                : <Tillstand farg={GRON}>alla {data.antal_objekt} objekt når {nf1(mal)} m</Tillstand>}
+            <Stort tal={nf2(data.medellangd_m)} enhet="m" ordrad={`medellängd på ${valta.toLowerCase()}massaveden · Vida vill ha ${nf1(mal)} m`}>
+              {/* Stapeln mot målet: man ser utan att räkna om det fattas. Färgen förstärker meningen under, aldrig ensam. */}
+              <div aria-hidden style={{ height: AVSTAND.xs, borderRadius: RADIE.stapel, background: FARG.linje, marginTop: AVSTAND.m }}>
+                <div style={{ height: '100%', borderRadius: RADIE.stapel, width: `${Math.min(100, (100 * data.medellangd_m) / mal)}%`,
+                              background: data.medellangd_m < mal ? GUL : GRON }} />
+              </div>
+              {data.medellangd_m < mal
+                ? <Tillstand farg={GUL}>Massaveden är för kort · {data.antal_under_mal} av {data.antal_objekt} trakter under {nf1(mal)} m</Tillstand>
+                : <Tillstand farg={GRON}>Massaveden håller måttet{data.antal_under_mal > 0 ? ` · ${data.antal_under_mal} av ${data.antal_objekt} trakter under` : ''}</Tillstand>}
               {valtaKontroll}
             </Stort>
           ) : (
-            <div style={{ padding: '10px 16px 0' }}>
-              <div style={{ fontSize: 13, lineHeight: 1.6 }}>Ingen {valta.toLowerCase()}massaved i {manadEtikett(manad)}.</div>
+            <div style={{ ...KORT, margin: `${AVSTAND.m}px ${AVSTAND.l}px 0` }}>
+              <div style={{ ...TYP.meta, color: FARG.text2 }}>Ingen {valta.toLowerCase()}massaved i {manadEtikett(manad)}.</div>
               {valtaKontroll}
             </div>
           )}
 
-          {(data.objekt.length > 0 || data.utan_bolag.length > 0) && (
-            <Rader>
-              {data.objekt.map(o => rad(o, false))}
+          {(synliga.length > 0 || data.utan_bolag.length > 0) && (
+            <Rader rubrik="Kortast först">
+              {synliga.map(o => rad(o, false))}
               {data.utan_bolag.length > 0 && (
                 <>
-                  <div style={{ ...MUTED, padding: '14px 0 6px' }}>Räknas inte in i talet ovan</div>
+                  <div style={{ ...MUTED, padding: `${AVSTAND.m}px 0 ${AVSTAND.xs}px`, borderTop: LINJE }}>Saknar bolag — räknas inte in i talet</div>
                   {data.utan_bolag.map(o => rad(o, true))}
                 </>
               )}
@@ -119,6 +127,11 @@ function Innehall() {
           )}
         </>
       )}
+
+      {/* Rotposterna: trakterna vi köpt på rot, mot det vanliga vid samma medelstam. Gäller inte månaden ovan. */}
+      <Rader>
+        <Rad text="Rotposter" sub="Blev det som det brukar vid samma medelstam?" href="/affarsuppfoljning/rotposter" />
+      </Rader>
     </div>
   );
 }
