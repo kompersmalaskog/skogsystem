@@ -50,7 +50,7 @@ describe('greppAndelStam — regeln för EN stam, samma som databasen och stamvy
     }
   });
   it('databasen räknar med samma gräns som koden (migrationen bär GREPP_MIN_CM)', () => {
-    const sql = fs.readFileSync(path.join(__dirname, '../../supabase/migrations/20261023180000_kalibrering_grepp_over_tid.sql'), 'utf8');
+    const sql = fs.readFileSync(path.join(__dirname, '../../supabase/migrations/20261024093226_kalibrering_grepp_over_tid.sql'), 'utf8');
     expect(sql).toContain(`v_min_cm  CONSTANT integer := ${GREPP_MIN_CM};`);
     expect(sql).toContain(`v_version CONSTANT integer := ${GREPP_VERSION};`);
     expect(sql).toContain(`r.version = ${GREPP_VERSION}`);

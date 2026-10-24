@@ -54,8 +54,7 @@ export function useKalibreringData(activeTab: Flik) {
   const [grovlekFelMap, setGrovlekFelMap] = useState<Record<string, string>>({});
   const [greppMap, setGreppMap] = useState<Record<string, GreppResp>>({});
   const [greppFelMap, setGreppFelMap] = useState<Record<string, string>>({});
-  const greppPagar = useRef<Set<string>>(new Set()); // maskiner vars Grepp-hämtning (flera varv) pågår
-  const greppForsok = useRef<Record<string, number>>({}); // hur många hämtningsomgångar per maskin — en omgång som inte blir klar ska inte börja om för alltid
+  const greppPagar = useRef<Set<string>>(new Set()); // maskiner vars Grepp-hämtning pågår
   // Objekt-fliken (maskinoberoende)
   const [objektData, setObjektData] = useState<ObjektData | null>(null);
   // Per-trädslag (per maskin) — träff%/syst/std mot maskinens profil.
@@ -133,23 +132,18 @@ export function useKalibreringData(activeTab: Flik) {
       .catch(() => setGrovlekFelMap(prev => ({ ...prev, [maskin]: 'Grovlekarna kunde inte läsas.' })));
   }, [grovlekMap, grovlekFelMap]);
 
-  // Greppet: servern räknar om objekt för objekt när underlaget ändrats och säger hur många som är kvar (`kvar`). Det som redan är räknat visas under tiden;
-  // vi frågar igen tills inget är kvar (högst ett antal varv — ett objekt som aldrig blir klart stoppar inte vyn).
+  // Greppet: servern läser bara cachen (cron-jobbet räknar om efter importen). `kvar` > 0 = några objekt ligger efter; vyn säger "Räknas om" och det som
+  // redan är räknat visas. Vi frågar en gång per maskin — siffrorna kompletteras nästa gång vyn öppnas, ingen väntar på dem.
   const laddaGrepp = useCallback(async (maskin: string) => {
     if (!maskin || greppPagar.current.has(maskin)) return;
-    if (greppFelMap[maskin] || (greppMap[maskin] && greppMap[maskin].kvar === 0)) return;
-    if ((greppForsok.current[maskin] ?? 0) >= 3) return;
-    greppForsok.current[maskin] = (greppForsok.current[maskin] ?? 0) + 1;
+    if (greppFelMap[maskin] || greppMap[maskin]) return;
     greppPagar.current.add(maskin);
     try {
-      for (let varv = 0; varv < 25; varv++) {
-        const r = await fetch(`/api/kalibrering/grepp?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = await r.json() as GreppResp;
-        if (!data?.ok) throw new Error('svar utan grepp');
-        setGreppMap(prev => ({ ...prev, [maskin]: data }));
-        if (!data.tillganglig || data.kvar === 0) break;
-      }
+      const r = await fetch(`/api/kalibrering/grepp?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json() as GreppResp;
+      if (!data?.ok) throw new Error('svar utan grepp');
+      setGreppMap(prev => ({ ...prev, [maskin]: data }));
     } catch {
       setGreppFelMap(prev => ({ ...prev, [maskin]: 'Greppet kunde inte läsas.' }));
     } finally {
@@ -308,7 +302,6 @@ export function useKalibreringData(activeTab: Flik) {
     setTradslagFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setGrovlekFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setGreppFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
-    greppForsok.current[maskin] = 0;
     setObjektFel(null);
     setTiderFel(null);
   }, [effektiv]);

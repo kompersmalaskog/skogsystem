@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { ADMIN_ROLLER, kravRoll } from "@/lib/auth/server";
+import { kravInloggad } from "@/lib/auth/server";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
 import { byggGrovlekRader, type StockRad } from "@/lib/kalibrering/grovlek";
 import type { GrovlekResp } from "@/lib/kalibrering/typer";
 
 /**
  * GET /api/kalibrering/grovlek?maskin_id=X
- * Kräver inloggad admin (kravRoll) — ingen nyckel i adressen.
+ * Alla inloggade (kravInloggad) — förarna ska se det här också. Ingen nyckel i adressen.
  *
  * Underlaget till Över tid › Per grovlek: en rad per STAM, månad och grovlek (operatörens diameter) med trädslag, kontroll och träff mot klaven. Hela historiken
  * för EN maskin. Rutnätet (period, trädslag, färg) räknas i klienten (lib/kalibrering/grovlek) av de här raderna — servern bara hämtar och grupperar.
@@ -37,7 +37,7 @@ async function fetchAllRows<T>(
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const vakt = await kravRoll(ADMIN_ROLLER);
+  const vakt = await kravInloggad();
   if (!vakt.ok) return vakt.res;
   const maskinId = url.searchParams.get("maskin_id");
   if (!maskinId) return NextResponse.json({ ok: false, error: "maskin_id krävs" }, { status: 400 });

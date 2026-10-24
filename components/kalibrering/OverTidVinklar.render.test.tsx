@@ -21,7 +21,7 @@ const raderP: GreppRad[] = (grepp.rader as (string | number)[][]).map(r => ({ ma
 const trosklar: KravRow[] = [{ variabel: 'diameter', metrik: 'traffprocent', riktning: 'hog_bra', tolerans: 4, mal: 85, golv: 75, enhet: '%', larm_min_matt: 150 }];
 
 const grovlekData = (over: Partial<GrovlekResp> = {}): GrovlekResp => ({ ok: true, maskin_id: 'M', tolerans: 4, rader: raderG, ...over });
-const greppData = (over: Partial<GreppResp> = {}): GreppResp => ({ ok: true, maskin_id: 'M', tillganglig: true, rader: raderP, kvar: 0, fel: [], stammarTotalt: 100, stammarRaknade: 100, ...over });
+const greppData = (over: Partial<GreppResp> = {}): GreppResp => ({ ok: true, maskin_id: 'M', tillganglig: true, rader: raderP, kvar: 0, stammarTotalt: 100, stammarRaknade: 100, ...over });
 const oppnaRuta = vi.fn<(r: RutaVal) => void>();
 const forsokIgen = vi.fn();
 const d = (over: Record<string, unknown> = {}) => ({ grovlekData: grovlekData(), grovlekFel: null, greppData: greppData(), greppFel: null, bedomning: { profil: 'VIDA', trosklar }, forsokIgen, ...over }) as any;
@@ -136,14 +136,14 @@ describe('Greppet', () => {
 
   it('en omräkning som pågår säger det, och det som redan är räknat visas', () => {
     const h = montera(createElement(GreppVinkel, { d: d({ greppData: greppData({ kvar: 4, rader: raderP.filter(r => r.manad >= '2026-09') }) }), v: vy() }));
-    expect(h.textContent).toContain('Räknar om 4 objekt');
+    expect(h.textContent).toContain('Räknas om');
+    expect(h.textContent).toContain('4 objekt ligger efter');
     expect(h.textContent).toContain('09/26');
     expect(h.textContent).not.toContain('08/26');
   });
 
-  it('objekt som inte gick att räkna och stammar utan trädslag eller tid sägs, siffrorna förblir synliga', () => {
-    const h = montera(createElement(GreppVinkel, { d: d({ greppData: greppData({ fel: ['363'], stammarTotalt: 700, stammarRaknade: 600 }) }), v: vy() }));
-    expect(h.textContent).toContain('1 objekt gick inte att räkna just nu');
+  it('stammar utan trädslag eller tid sägs, siffrorna förblir synliga', () => {
+    const h = montera(createElement(GreppVinkel, { d: d({ greppData: greppData({ stammarTotalt: 700, stammarRaknade: 600 }) }), v: vy() }));
     expect(h.textContent).toMatch(/600 av 700 stammar ingår/);
   });
 

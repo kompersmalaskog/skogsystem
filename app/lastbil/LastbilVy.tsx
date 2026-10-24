@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
-import { AVSTAND, FARG, FONT, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TYP, VY_ROT, designCss } from '@/lib/design/tokens';
+import { AVSTAND, FARG, FONT, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, TYP, VY_ROT, designCss } from '@/lib/design/tokens';
 import VyKolumn from '@/components/design/VyKolumn';
 import HamtaFlode from './_components/hamta/HamtaFlode';
 import { lasHamtaUrl } from './_components/hamta/flode';
@@ -16,6 +16,7 @@ import Korningar from './_components/Korningar';
 import { senasteKorning } from './_components/nu';
 import RundaArk from './_components/RundaArk';
 import Ark from '@/components/design/Ark';
+import Sektion from '@/components/design/Sektion';
 import UppfoljningSida from './_components/UppfoljningSida';
 import { periodNu, type Manad, type Period } from './_components/period';
 import { pamminnelse, type Pamminnelse } from './_components/vantar';
@@ -33,16 +34,30 @@ import { useVikt } from './_components/useVikt';
 /**
  * Lastbilen — EN sida utan flikar (omtaget 2026-10-19). Uppifrån, och i den ordningen alltid:
  *   1. "Hämta en maskin" / "Fortsätt hämta X" direkt under titeln — flyttar sig aldrig.
- *   2. Kortet "Bilen nu": läget, tankraden, och bara det som gäller nu (lampa, service, senast sedd).
- *   3. "Att göra" (bara admin): lass som saknar maskin, flyttar som väntar på godkännande, och raden
- *      "Fakturering · <månad>  36 km ›" som öppnar fakturasidan (en egen sida med tillbaka-pil).
- *   4. Körningar: månadsväljaren, månadens sammanfattning (körd km, rundor · liter · l/mil, Flyttrundor / Övrig körning) och rundorna;
- *      längst ner raden "Uppföljning ›" som öppnar årets sida (egen sida, "‹ Lastbilen" tillbaka).
- * Förare ser 1, 2 och 4 — inget "Att göra", ingen fakturering. Pengatalet (fakturerbart-summan) står inte längre i en sticky remsa:
- * det är talet på raden "Fakturering" och överst på fakturasidan, och byter värde bara när PERIODEN byts.
+ * Varje kort är en FRÅGA med svaret först, i ord (omtag 2026-10-23, Martin: "så lätt att ett barn förstår"):
+ *   2. "Var är bilen?": "Står vid LBC · Sedan igår", "Tanken räcker 540 km", och bara det som gäller nu (lampa, låg diesel, service, ingen kontakt under körning).
+ *   3. "Vad behöver du göra?" (bara admin, bara när något väntar): lass som saknar maskin, flyttar som väntar på godkännande.
+ *      "Vad ska faktureras?" (bara admin): "89 km i oktober ›", som öppnar fakturasidan (en egen sida med tillbaka-pil).
+ *   4. "Vad har bilen gjort?": månadsväljaren, svaret "Flyttat maskiner 5 gånger" med körda km under, och rundorna ("Wisent till LBC");
+ *      längst ner raden "Uppföljning ›" som öppnar årets sida (egen sida, "‹ Lastbilen" tillbaka) — där bor förbrukningen.
+ * Förare ser 1, 2 och 4 — ingen fakturering. Pengatalet (fakturerbart-summan) är talet i "Vad ska faktureras?" och överst på
+ * fakturasidan, och byter värde bara när PERIODEN byts.
  * Gamla länkar: ?flik=fakturering → fakturasidan (en förare får huvudsidan); ?flik=korningar och ?flik=nu → huvudsidan.
  * "Hämta en maskin" ersätter förarflödet /maskinflytt: kartappen gör navigeringen, Lassa och Lassat av är frivilliga.
  */
+/** Huvudsidans bredd (container) från vilken den delas i två kolumner: iPad liggande och dator. */
+export const TVA_KOLUMNER_PX = 900;
+
+// Under TVA_KOLUMNER_PX: en kolumn, högst KOLUMN.smal bred, exakt som förut. Över: vänster 38 % sticky, höger resten.
+const HUVUD_CSS = `
+.lb-huvud-ram { container-type: inline-size; }
+.lb-huvud { max-width: ${KOLUMN.smal}px; margin: 0 auto; }
+@container (min-width: ${TVA_KOLUMNER_PX}px) {
+  .lb-huvud { max-width: none; display: grid; grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); column-gap: ${AVSTAND.xxl}px; align-items: start; }
+  .lb-vanster { position: sticky; top: calc(${LAYOUT.topbar} + ${AVSTAND.s}px); }
+}
+`;
+
 export default function LastbilVy() {
   const { medarbetare, loading } = useCurrentMedarbetare();
   const arAdmin = medarbetare?.roll === 'admin';
@@ -132,18 +147,18 @@ export default function LastbilVy() {
     oppnaFakturering();
   }, [oppnaFakturering]);
 
-  // Rubriken "Att göra" står bara när något väntar (lass eller flyttar) eller en läsning föll; Fakturering ensam står utan rubrik.
+  // "Vad behöver du göra?" finns bara när något väntar (lass eller flyttar) eller en läsning av dem föll — aldrig ett tomt kort.
   const harAttGora = saknar.lage.lage === 'fel' || (saknar.lage.lage === 'klar' && saknar.lage.rader.length > 0)
     || vantar.lage.lage === 'fel' || paminn != null;
 
-  // Bilens senaste avslutade körning (ur Bilen nu): tomtexten i en tom månad öppnar den rundans ark.
+  // Bilens senaste avslutade körning (ur Var är bilen?-datan): tomtexten i en tom månad öppnar den rundans ark.
   const senasteRunda = nu.lage.lage === 'klar' ? senasteKorning(nu.lage.data.rundor) : null;
   const senaste = senasteRunda?.starttid ? { id: senasteRunda.id, start: senasteRunda.starttid } : null;
 
   return (
     <div style={{ ...VY_ROT, minHeight: ROT_MIN_HOJD, fontFamily: FONT, WebkitFontSmoothing: 'antialiased', paddingBottom: AVSTAND.xxl }}>
-      <style>{designCss}{KOLUMN_CSS}</style>
-      <VyKolumn>
+      <style>{designCss}{KOLUMN_CSS}{HUVUD_CSS}</style>
+      <VyKolumn bredd={!loading && !hamtar && sida === 'huvud' ? 'bred' : 'smal'}>
         {loading ? (
           <p role="status" style={{ color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xl}px 0`, margin: 0 }}>Läser …</p>
         ) : hamtar ? (
@@ -157,23 +172,38 @@ export default function LastbilVy() {
             vantar={vantar.lage} pamminnelse={paminn} onOppnaVantande={oppnaVantande} onVantarForsokIgen={vantar.forsokIgen}
             onTillbaka={tillHuvudsidan} onForsokIgen={fakt.forsokIgen} onAndrad={efterAndring} />
         ) : (
-          <div style={{ paddingTop: AVSTAND.s }}>
-            <div style={{ marginBottom: AVSTAND.xl }}>
-              <HamtaKnapp forareId={medarbetare?.id ?? null} aktiv={!loading && !hamtar} onStart={startaHamta} />
-              {kvitto && (
-                <p role="status" data-lass-kvitto style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px ${AVSTAND.xs}px 0` }}>{kvitto}</p>
-              )}
+          // Huvudsidan: en kolumn på telefon och iPad stående (samma ordning som förut). Från TVA_KOLUMNER_PX (iPad liggande,
+          // dator) två kolumner: vänster det man GÖR (Hämta, Var är bilen?, Vad behöver du göra?, Vad ska faktureras?) — sticky så den står kvar — och höger det man
+          // LÄSER (Körningar), som scrollar. Ingen mätning i JS: container query, inget hopp vid första renderingen.
+          <div className="lb-huvud-ram" data-lastbil-huvud="">
+            <div className="lb-huvud" style={{ paddingTop: AVSTAND.s }}>
+              <div className="lb-vanster" data-lastbil-vanster="">
+                <div style={{ marginBottom: AVSTAND.xl }}>
+                  <HamtaKnapp forareId={medarbetare?.id ?? null} aktiv={!loading && !hamtar} onStart={startaHamta} />
+                  {kvitto && (
+                    <p role="status" data-lass-kvitto style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px ${AVSTAND.xs}px 0` }}>{kvitto}</p>
+                  )}
+                </div>
+                <BilenNuKort lage={nu.lage} onForsokIgen={nu.forsokIgen} />
+                {arAdmin && (
+                  <>
+                    {harAttGora && (
+                      <AttGoraKort>
+                        <SaknarMaskinRad lage={saknar.lage} onOppna={setValtLass} onForsokIgen={saknar.forsokIgen} />
+                        <VantarRad lage={vantar.lage} pamminnelse={paminn} onOppna={oppnaVantande} onForsokIgen={vantar.forsokIgen} />
+                      </AttGoraKort>
+                    )}
+                    <Sektion rubrik="Vad ska faktureras?">
+                      <FaktureringRad period={period} status={fakt.status} onOppna={oppnaFakturering} onForsokIgen={fakt.forsokIgen} />
+                    </Sektion>
+                  </>
+                )}
+              </div>
+              <div className="lb-hoger" data-lastbil-hoger="">
+                <Korningar period={period} onPeriod={setPeriod} lage={rundor.lage} onForsokIgen={rundor.forsokIgen} onOppnaAr={oppnaAr}
+                  onOppna={r => setValdRunda({ id: r.id, start: r.start })} senaste={senaste} onOppnaSenaste={setValdRunda} />
+              </div>
             </div>
-            <BilenNuKort lage={nu.lage} onForsokIgen={nu.forsokIgen} />
-            {arAdmin && (
-              <AttGoraKort medRubrik={harAttGora}>
-                <SaknarMaskinRad lage={saknar.lage} onOppna={setValtLass} onForsokIgen={saknar.forsokIgen} />
-                <VantarRad lage={vantar.lage} pamminnelse={paminn} onOppna={oppnaVantande} onForsokIgen={vantar.forsokIgen} />
-                <FaktureringRad period={period} status={fakt.status} onOppna={oppnaFakturering} onForsokIgen={fakt.forsokIgen} />
-              </AttGoraKort>
-            )}
-            <Korningar period={period} onPeriod={setPeriod} lage={rundor.lage} onForsokIgen={rundor.forsokIgen} onOppnaAr={oppnaAr}
-              onOppna={r => setValdRunda({ id: r.id, start: r.start })} senaste={senaste} onOppnaSenaste={setValdRunda} />
           </div>
         )}
       </VyKolumn>
