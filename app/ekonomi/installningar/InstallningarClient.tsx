@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, CSSProperties } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import EkonomiBottomNav from '../EkonomiBottomNav';
+import { MAXBREDD_BRED } from '../delade/mall';
 
 // PRISERNA ÄR UTBRUTNA till /ekonomi/prislista (steg 1 av 3). Kvar här:
 // Fortnox-mappning (maskin ↔ kostnadsställe, omappade CC, omappade
@@ -247,9 +248,10 @@ export default function InstallningarClient() {
       <style>{`
         .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
       `}</style>
+      <div style={{ maxWidth: MAXBREDD_BRED, margin: '0 auto' }}>
 
       <div style={s.header}>
-        <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Mappningar &amp; synk</div>
+        {/* Rubriken bor i toppfältet, som i ekonomins övriga flikar. */}
         <div style={s.dateNote as CSSProperties}>
           Fortnox-mappning och datamappning. Priserna är flyttade till <Link href="/ekonomi/prislista" style={{ textDecoration: 'underline', color: 'inherit' }}>Prislistan</Link>.
         </div>
@@ -321,7 +323,7 @@ export default function InstallningarClient() {
                 </div>
               );
             })}
-            {maskinOptLista.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Inga maskiner i dim_maskin.</div>}
+            {maskinOptLista.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Inga maskiner i maskinregistret.</div>}
           </div>
 
           {/* Omappade kostnadsställen från Fortnox */}
@@ -488,6 +490,7 @@ export default function InstallningarClient() {
 
         </div>
       )}
+      </div>
       <EkonomiBottomNav />
     </div>
   );

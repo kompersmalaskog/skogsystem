@@ -217,7 +217,7 @@ export default function PerKlassClient() {
                 <div style={{ ...talCell, fontWeight: VIKT.halvfet, color: diffColor(tabell.summa.totalt) }}>{fmtDiff(tabell.summa.totalt)}</div>
               </div>
               <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.s }}>
-                Skillnaden på summaraden är volymvägd (Totalt ÷ volym).
+                Skillnaden på summaraden är Totalt delat med volymen.
                 {harOsakra && <> * Få timmar ({'<'} {OSAKER_TIM} G15-h) — osäkert underlag.</>}
               </div>
             </>
