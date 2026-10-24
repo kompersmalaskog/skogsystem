@@ -15,6 +15,8 @@ export interface FaltObjekt {
   huvudtyp?: string | null;
   bolag?: string | null;
   risskotning?: boolean | null;
+  /** Special-objekt (vindfälle, storm, special vid hus …): har ingen avtalsform att fråga om. */
+  special?: boolean | null;
 }
 
 /** Bolaget säger att jobbet är privat (ingen virkesköpare). Skiftläge och mellanslag spelar ingen roll. */
@@ -29,7 +31,7 @@ export function faltGaller(falt: FaltSomKanSakna, obj: FaltObjekt | null | undef
     case 'atgard':
       return !arRisjobb(obj) && obj.huvudtyp === 'Gallring';
     case 'avtalsform':
-      return !arRisjobb(obj) && obj.huvudtyp === 'Slutavverkning' && !arPrivat(obj.bolag);
+      return !arRisjobb(obj) && obj.huvudtyp === 'Slutavverkning' && !arPrivat(obj.bolag) && obj.special !== true;
     case 'inkopare':
       return !arPrivat(obj.bolag);
   }

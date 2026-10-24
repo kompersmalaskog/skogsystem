@@ -30,6 +30,7 @@ export interface HarledRad {
   avtalsform?: string | null;
   bolag?: string | null;
   cutting_method?: string | null;
+  special?: boolean | null;
 }
 
 /** Det trakten (Vidas leverans) säger, när den finns kopplad. */

@@ -20,8 +20,10 @@ export function kravAvtalsform(obj: KravObjekt | null | undefined): boolean {
 export interface SaknarVarning { key: 'avtalsform' | 'atgard'; text: string; target: string }
 
 /** Varningen för det som saknas (avtalsform ELLER åtgärd), eller null. Anropas inte för risjobb (de har varken huvudtyp eller åtgärd). */
-export function saknarAvtalsformEllerAtgard(obj: KravObjekt & { bolag?: string | null }): SaknarVarning | null {
+export function saknarAvtalsformEllerAtgard(obj: KravObjekt & { bolag?: string | null; special?: boolean | null }): SaknarVarning | null {
   if (kravAvtalsform(obj)) {
+    // Ett special-objekt (vindfälle, storm, special vid hus) har ingen avtalsform att fråga om — Martin 2026-10-24.
+    if (obj.special === true) return null;
     // Ett privat jobb har ingen avtalsform (faltGaller) — och åtgärd är valfri på slutavverkning. Inget saknas.
     if (arPrivat(obj.bolag)) return null;
     return obj.avtalsform ? null : { key: 'avtalsform', text: 'Saknar avtalsform', target: 'avtalsform-section' };

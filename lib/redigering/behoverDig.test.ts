@@ -40,8 +40,8 @@ describe('byggSaker', () => {
     expect(s.typ === 'falt' && varforText(s.forslag)).toBe('Inget i datan säger det, så du får välja.');
   });
 
-  it('valen för avtalsform är appens fyra', () => {
-    expect(saker[0].typ === 'falt' && saker[0].val).toEqual(['Au', 'Rp', 'LRK', 'VF/Bark']);
+  it('valen för avtalsform är appens fyra och Special', () => {
+    expect(saker[0].typ === 'falt' && saker[0].val).toEqual(['Au', 'Rp', 'LRK', 'VF/Bark', 'Special']);
   });
 });
 
@@ -57,5 +57,32 @@ describe('varforText', () => {
   it('flera källor och en som säger emot', () => {
     expect(varforText({ falt: 'huvudtyp', varde: 'Gallring', kallor: ['trakten', 'namnet'], saker: false, emot: [{ varde: 'Slutavverkning', kallor: ['skördarens fil'] }] }))
       .toBe('Trakten och namnet säger samma sak. Men skördarens fil säger Slutavverkning.');
+  });
+});
+
+describe('Special som svar på avtalsformen (Björsamåla special vid hus mm, 2026-10-24)', () => {
+  const BJORSAMALA = rad('11270001', 'Björsamåla special vid hus mm', '11270001', { huvudtyp: 'Slutavverkning', bolag: 'Vida' });
+  const saker = byggSaker({ grupper: [grupp(BJORSAMALA, ['avtalsform'])], alla: [BJORSAMALA], filJobb: [], bolagVal: [] });
+
+  it('Special finns bland valen och föreslås när namnet säger special', () => {
+    const s = saker[0];
+    expect(s.typ === 'falt' && s.val).toContain('Special');
+    expect(forslagKort(s)).toBe('Special?');
+    expect(s.typ === 'falt' && s.forslag?.saker).toBe(false);
+  });
+
+  it('Special sparas som flaggan, aldrig som en avtalsform', () => {
+    expect(patchForSvar('avtalsform', 'Special')).toEqual({ special: true });
+    expect(patchForSvar('avtalsform', 'Rp')).toEqual({ avtalsform: 'Rp' });
+  });
+
+  it('ett special-objekt frågas aldrig om avtalsform', () => {
+    const s2 = byggSaker({ grupper: [grupp({ ...BJORSAMALA, special: true }, ['avtalsform'])], alla: [BJORSAMALA], filJobb: [], bolagVal: [] });
+    expect(s2).toEqual([]);
+  });
+
+  it('utan "special" i namnet föreslås inte Special', () => {
+    const s3 = byggSaker({ grupper: [grupp(rad('1', 'Ryd', '1', { huvudtyp: 'Slutavverkning', bolag: 'Vida' }), ['avtalsform'])], alla: [], filJobb: [], bolagVal: [] });
+    expect(forslagKort(s3[0])).toBe('Välj');
   });
 });

@@ -42,3 +42,9 @@ describe('källvakt: Redigering och matchningsvyn använder samma regel', () => 
     expect(match).toContain('medAvtalsformSvar');
   });
 });
+
+describe('special-objekt', () => {
+  it('saknar aldrig avtalsform', () => {
+    expect(saknarAvtalsformEllerAtgard({ huvudtyp: 'Slutavverkning', atgard: null, avtalsform: null, special: true } as any)).toBeNull();
+  });
+});

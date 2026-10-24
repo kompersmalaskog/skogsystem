@@ -34,3 +34,10 @@ describe('faltGaller — ett fält som inte gäller visas inte och räknas aldri
     expect(arPrivat(null)).toBe(false);
   });
 });
+
+describe('special-objekt', () => {
+  it('har ingen avtalsform att fråga om', () => {
+    expect(faltGaller('avtalsform', { huvudtyp: 'Slutavverkning', bolag: 'Vida', special: true })).toBe(false);
+    expect(faltGaller('avtalsform', { huvudtyp: 'Slutavverkning', bolag: 'Vida', special: false })).toBe(true);
+  });
+});

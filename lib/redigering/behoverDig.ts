@@ -7,10 +7,16 @@
 // objektet (markägare, namn, avslut …) — de kan inte besvaras i arket.
 
 import { AVTALSFORMER } from '@/lib/trakt/avtalsform';
-import { harled, kallorText, type Harledning, type HarledRad, type HarlettFalt } from './harledning';
+import { harled, kallorText, namnOrd, type Harledning, type HarledRad, type HarlettFalt } from './harledning';
 import { faltGaller } from './faltGaller';
 
 export const HUVUDTYP_VAL = ['Slutavverkning', 'Gallring', 'Grot'] as const;
+
+/**
+ * Svaret "Special" på frågan om avtalsform (Martin 2026-10-24, "Björsamåla special vid hus mm"): objektet har ingen
+ * avtalsform — det är ett special-objekt. Sparas som `dim_objekt.special = true`, aldrig som en avtalsform.
+ */
+export const SPECIAL_SVAR = 'Special';
 
 /** Avtalsformens kortform → det man säger. */
 export const AVTALSFORM_ORD: Record<string, string> = {
@@ -87,8 +93,12 @@ export function byggSaker(input: { grupper: BehoverGrupp[]; alla: HarledRad[]; f
       const f = FALT_FRAN_VARNING[v.key];
       if (f) {
         if (f === 'avtalsform' && !faltGaller('avtalsform', g.rep)) continue;
-        const forslag = harled(f, g.rep, input.alla);
-        const val = f === 'huvudtyp' ? [...HUVUDTYP_VAL] : f === 'avtalsform' ? [...AVTALSFORMER] : input.bolagVal;
+        let forslag = harled(f, g.rep, input.alla);
+        // Namnet säger "special" och inget annat säger något: föreslå Special (aldrig säkert — ett förslag att trycka på).
+        if (f === 'avtalsform' && forslag?.varde == null && (forslag?.emot.length ?? 0) === 0 && namnOrd(g.rep.object_name).includes('SPECIAL')) {
+          forslag = { falt: f, varde: SPECIAL_SVAR, kallor: ['namnet'], saker: false, emot: [] };
+        }
+        const val = f === 'huvudtyp' ? [...HUVUDTYP_VAL] : f === 'avtalsform' ? [...AVTALSFORMER, SPECIAL_SVAR] : input.bolagVal;
         falt.push({ typ: 'falt', nyckel: `${g.nyckel}:${f}`, grupp: g, falt: f, namn: sakNamn(g.rep), under: underFalt(f, forslag), forslag, val });
       } else {
         oppna.push({ typ: 'oppna', nyckel: `${g.nyckel}:${v.key}`, grupp: g, namn: sakNamn(g.rep), under: v.text });
@@ -116,6 +126,7 @@ function underFalt(f: HarlettFalt, forslag: Harledning | null): string {
 
 /** Patchen ett svar ger. Grot är både en typ och risskotning-flaggan — de synkas alltid (lib/objekt/typ.ts). */
 export function patchForSvar(falt: HarlettFalt, varde: string): Record<string, string | boolean> {
+  if (falt === 'avtalsform' && varde === SPECIAL_SVAR) return { special: true };
   if (falt === 'huvudtyp') return { huvudtyp: varde, risskotning: varde === 'Grot' };
   return { [falt]: varde };
 }

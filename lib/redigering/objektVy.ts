@@ -184,6 +184,7 @@ export function specialTecken(obj: { special?: boolean | null; avtalsform?: stri
   if (obj.special === true) return null;
   if (String(obj.avtalsform ?? '').trim() === 'VF/Bark') return 'Avtalsformen är vindfälle.';
   const ord = String(obj.object_name ?? '').toUpperCase().split(/[^A-ZÅÄÖ0-9]+/);
+  if (ord.includes('SPECIAL')) return 'Namnet säger special.';
   if (ord.includes('VF') || ord.some(o => o.startsWith('STORM') || o.startsWith('VINDF'))) return 'Namnet säger vindfälle eller storm.';
   return null;
 }

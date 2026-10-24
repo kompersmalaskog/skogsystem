@@ -31,7 +31,7 @@ async function kor(torr: boolean) {
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
   const [dimRes, objRes] = await Promise.all([
-    db.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, avtalsform, bolag, cutting_method, exkludera, risskotning'),
+    db.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, avtalsform, bolag, cutting_method, exkludera, risskotning, special'),
     db.from('objekt').select('vo_nummer, typ, avtalsform, bolag').not('vo_nummer', 'is', null),
   ]);
   // Ett läsfel är ett fel — aldrig en planering på halva datan.

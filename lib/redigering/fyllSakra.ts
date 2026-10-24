@@ -39,7 +39,7 @@ export function planeraSakra(rader: FyllRad[], trakt: Map<string, TraktUppgifter
   const aktiva = rader.filter(r => r.exkludera !== true);
   const ut: Fyllning[] = [];
   for (const grupp of grupperaVo(aktiva)) {
-    const rep: FyllRad = { ...(grupp.find(r => !tomt(r.object_name)) ?? grupp[0]) };
+    const rep: FyllRad = { ...(grupp.find(r => !tomt(r.object_name)) ?? grupp[0]), special: grupp.some(r => r.special === true) };
     const vo = rep.vo_nummer ? String(rep.vo_nummer).trim() : null;
     const t = vo ? trakt.get(vo) : undefined;
     for (const falt of ['huvudtyp', 'avtalsform', 'bolag'] as HarlettFalt[]) {

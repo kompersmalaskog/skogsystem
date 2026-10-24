@@ -12,7 +12,7 @@ import Ark from '@/components/design/Ark';
 import Ikon from '@/components/design/Ikon';
 import Svarsrad from '@/components/design/Svarsrad';
 import {
-  AVTALSFORM_ORD, FRAGA, forslagKort, varforText,
+  AVTALSFORM_ORD, FRAGA, SPECIAL_SVAR, forslagKort, varforText,
   type Sak, type BehoverGrupp, type FilJobb,
 } from '@/lib/redigering/behoverDig';
 
@@ -172,7 +172,9 @@ function SakArk({ sak, plats, onStang, onKlar, onSparaFalt, onKoppla, onSkapaNyt
         )}
         <Sektion rubrik="Välj" kort={false}>
           {sak.val.map((v, i) => (
-            <ValRad key={v} titel={etikett(sak, v)} hoger={sak.falt === 'avtalsform' ? v : undefined}
+            <ValRad key={v} titel={etikett(sak, v)}
+              under={v === SPECIAL_SVAR ? 'Vindfälle, storm eller annat som inte går att jämföra' : undefined}
+              hoger={sak.falt === 'avtalsform' && v !== SPECIAL_SVAR ? v : undefined}
               vald={valt === v} onValj={() => setValt(v)} sista={i === sak.val.length - 1} />
           ))}
         </Sektion>

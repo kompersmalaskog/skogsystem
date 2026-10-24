@@ -99,6 +99,16 @@ describe('Behöver dig', () => {
     expect(document.querySelector('[role=dialog]')!.getAttribute('aria-label')).toBe('1 av 3');
   });
 
+  it('Special går att välja som svar på avtalsformen och sparas som Special', async () => {
+    const spara = rendera();
+    await klick(document.querySelector('[data-sak="11271860:avtalsform"]') as HTMLElement);
+    const sp = [...document.querySelectorAll('[role=radio]')].find(r => r.textContent?.startsWith('Special')) as HTMLElement;
+    expect(sp.textContent).toContain('Vindfälle, storm eller annat som inte går att jämföra');
+    await klick(sp);
+    await klick(knapp('Spara Special och ta nästa'));
+    expect(spara).toHaveBeenCalledWith('11271860:avtalsform', 'Special');
+  });
+
   it('utan något att göra: en lugn svarsrad, ingen knapp', () => {
     el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el);
     act(() => root!.render(<BehoverDig saker={[]} antalObjekt={133} onSparaFalt={async () => true} onKoppla={async () => true} onSkapaNytt={() => {}} onOppnaObjekt={() => {}} />));

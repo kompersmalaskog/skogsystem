@@ -94,5 +94,6 @@ describe('småsaker', () => {
     expect(specialTecken({ object_name: 'Stormfällt Ryd' })).toMatch(/storm/);
     expect(specialTecken({ object_name: 'Stensjömåla VF', special: true })).toBeNull();
     expect(specialTecken({ object_name: 'Mölleryd RP' })).toBeNull();
+    expect(specialTecken({ object_name: 'Björsamåla special vid hus mm' })).toBe('Namnet säger special.');
   });
 });
