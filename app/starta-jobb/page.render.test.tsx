@@ -14,19 +14,28 @@ const h = vi.hoisted(() => ({
   data: {} as Record<string, any[]>,
   fel: {} as Record<string, { message: string } | undefined>,
   rpc: vi.fn(),
+  roll: 'admin' as 'admin' | 'forare',
+  uppdateringar: [] as { tabell: string; payload: any }[],
 }));
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: (tabell: string) => {
       const filter: ((r: any) => boolean)[] = [];
-      const svar = () => (h.fel[tabell] ? { data: null, error: h.fel[tabell] } : { data: (h.data[tabell] ?? []).filter((r) => filter.every((f) => f(r))), error: null });
+      let andring: any = null;
+      const svar = () => {
+        if (h.fel[tabell]) return { data: null, error: h.fel[tabell] };
+        const rader = (h.data[tabell] ?? []).filter((r) => filter.every((f) => f(r)));
+        if (andring) { h.uppdateringar.push({ tabell, payload: andring }); for (const r of rader) Object.assign(r, andring); }
+        return { data: rader, error: null };
+      };
       const b: any = {
-        select: () => b, order: () => b, limit: () => b, eq: () => b, is: () => b, not: () => b,
+        select: () => b, order: () => b, limit: () => b, is: () => b, not: () => b,
+        eq: (kol: string, v: any) => { if (andring) filter.push((r) => r[kol] === v); return b; },
         or: (uttryck: string) => { if (uttryck.includes('vo_nummer.is.null')) filter.push((r) => !r.vo_nummer); return b; },
         like: (kol: string, m: string) => { const p = m.replace('%', ''); filter.push((r) => String(r[kol] ?? '').startsWith(p)); return b; },
         in: (kol: string, v: any[]) => { filter.push((r) => v.includes(r[kol])); return b; },
-        update: () => b, insert: () => b,
+        update: (p: any) => { andring = p; return b; }, insert: () => b,
         maybeSingle: () => Promise.resolve({ data: null, error: null }),
         then: (res: any, rej: any) => Promise.resolve(svar()).then(res, rej),
       };
@@ -38,6 +47,7 @@ vi.mock('@/lib/supabase', () => ({
 vi.mock('@/components/starta/PlatsKarta', () => ({ default: () => <div data-testid="karta" />, KARTA_START: { lat: 56.4, lng: 14.7 } }));
 vi.mock('@/lib/enhetMaskin', () => ({ hamtaEnhetMaskin: () => null }));
 vi.mock('@/lib/gpsKalla', () => ({ hamtaEnGpsFix: () => Promise.resolve(null) }));
+vi.mock('@/lib/CurrentMedarbetareContext', () => ({ useCurrentMedarbetare: () => ({ medarbetare: { id: 'm1', namn: 'Martin', roll: h.roll, maskin_id: null, partner_user_id: null }, loading: false }) }));
 
 import StartaJobbPage from './page';
 
@@ -45,6 +55,7 @@ function prod() {
   h.data = {
     objekt: [
       { id: 'o25', namn: 'Görgen Gustafsson Trolleboda', vo_nummer: 'P-1025', typ: 'slutavverkning', status: 'pagaende', ursprung: 'privat', egen_skotning: true },
+      { id: 'o26', namn: 'Kompersmåla gallring', vo_nummer: 'P-1026', typ: 'gallring', status: 'pagaende', ursprung: 'privat', egen_skotning: false },
       { id: 'o23', namn: 'Kroksjömåla Grot', vo_nummer: 'P-1023', typ: 'grot', status: 'pagaende', ursprung: 'privat', dim_objekt_id: '880808' },
       { id: 'o22', namn: 'Utan data', vo_nummer: 'P-1022', typ: 'gallring', status: 'pagaende', ursprung: 'privat' },
       { id: 'o17', namn: 'Kompersmåla väggata', vo_nummer: 'P-1017', typ: null, status: 'oplanerad', ursprung: null },
@@ -53,6 +64,7 @@ function prod() {
     dim_objekt: [
       { objekt_id: '880808', vo_nummer: '880808', maskin_id: 'A030353', start_date: '2026-10-06 15:08:41' },
       { objekt_id: 'R64428_53', vo_nummer: 'P-1025', maskin_id: 'R64428', start_date: '2026-10-23 10:36:00' },
+      { objekt_id: 'R64428_60', vo_nummer: 'P-1026', maskin_id: 'R64428', start_date: '2026-10-24 07:00:00', egen_skotning: false },
       { objekt_id: 'X_1', vo_nummer: null, object_name: 'Maskinens jobb', maskin_id: 'R64428', start_date: '2026-10-22' },
     ],
     objekt_alt_nummer: [],
@@ -63,6 +75,8 @@ function prod() {
     ],
   };
   h.fel = {};
+  h.roll = 'admin';
+  h.uppdateringar = [];
 }
 
 let container: HTMLDivElement;
@@ -161,5 +175,41 @@ describe('maskinobjekt utan VO', () => {
     expect(h.rpc).not.toHaveBeenCalled();
     expect(text()).toContain('Det går inte att ångra');
     expect(knappMedText('Ge VO-nummer')).not.toBeNull();
+  });
+});
+
+describe('ändra skotningen på ett jobb (Martin 2026-10-24: Trolleboda är egen skotning)', () => {
+  it('admin: ett tryck på Egen skotning sparar på maskinobjektet OCH jobbet, och vyn visar det', async () => {
+    await montera();
+    await tryck(q('[data-testid="jobb-P-1026"]'));
+    expect(q('[data-testid="skotning-rad"]')!.textContent).toContain('Vi skotar');
+    expect(text()).toContain('Ingen skotare har skickat data än');
+    await tryck(q('[data-testid="skotning-rad"]'));
+    await tryck(q('[data-testid="skotning-egen"]'));
+    await vanta(() => !q('[data-testid="skotning-egen"]'));
+    expect(h.uppdateringar.map((u) => u.tabell)).toEqual(['dim_objekt', 'objekt']);
+    expect(h.data.dim_objekt.find((d) => d.objekt_id === 'R64428_60')!.egen_skotning).toBe(true);
+    expect(h.data.objekt.find((o) => o.id === 'o26')!.egen_skotning).toBe(true);
+    await vanta(() => (q('[data-testid="skotning-rad"]')?.textContent ?? '').includes('Egen skotning'));
+    expect(q('[data-testid="skotning-rad"]')!.textContent).toContain('Egen skotning');
+    expect(text()).toContain('Egen skotning — inga filer väntas');
+  });
+  it('ett fel sägs och arket står kvar — aldrig ett tyst sparat', async () => {
+    await montera();
+    await tryck(q('[data-testid="jobb-P-1026"]'));
+    h.fel.dim_objekt = { message: 'permission denied' };
+    await tryck(q('[data-testid="skotning-rad"]'));
+    await tryck(q('[data-testid="skotning-egen"]'));
+    await vanta(() => !!q('[data-testid="skotning-fel"]'));
+    expect(q('[data-testid="skotning-fel"]')!.textContent).toContain('permission denied');
+    expect(h.data.objekt.find((o) => o.id === 'o26')!.egen_skotning).toBe(false);
+  });
+  it('förare: ser skotningen men kan inte ändra den', async () => {
+    h.roll = 'forare';
+    await montera();
+    await tryck(q('[data-testid="jobb-P-1026"]'));
+    const rad = q('[data-testid="skotning-rad"]')!;
+    expect(rad.textContent).toContain('Vi skotar');
+    expect(rad.tagName).not.toBe('BUTTON');
   });
 });

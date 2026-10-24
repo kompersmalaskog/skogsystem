@@ -61,6 +61,8 @@ export interface JobbVy {
   lageText: string;
   maskiner: MaskinSpar[];
   forvantat: Forvantat;
+  /** dim_objekt.objekt_id för maskinobjekten som hör till numret (där skotningen också sparas) */
+  dimIds: string[];
   rad: ObjektRadIn | null;
 }
 
@@ -137,7 +139,7 @@ export function byggJobbVyer(i: JobbIndataLista): JobbVy[] {
       nyckel: 'obj-' + o.id, jobbId: o.id, namn: o.namn || 'Namnlöst objekt', vo,
       typ: o.typ ?? null, ursprung: o.ursprung ?? null, status: o.status ?? null,
       markagare: o.markagare ?? null, bolag: o.bolag ?? null, egenSkotning: egen, horTillId: o.hor_till_objekt_id ?? null,
-      lage, lageText: lageText(lage, maskiner, i.idagAr), maskiner, forvantat: fv, rad: o,
+      lage, lageText: lageText(lage, maskiner, i.idagAr), maskiner, forvantat: fv, dimIds: dimLista.map((d) => d.objekt_id), rad: o,
     });
   }
 
@@ -152,7 +154,7 @@ export function byggJobbVyer(i: JobbIndataLista): JobbVy[] {
     ut.push({
       nyckel: 'dim-' + forst.objekt_id, jobbId: null, namn: forst.object_name || 'Namnlöst objekt', vo,
       typ, ursprung: null, status: null, markagare: forst.skogsagare ?? null, bolag: forst.bolag ?? null, egenSkotning: egen, horTillId: null,
-      lage, lageText: lageText(lage, maskiner, i.idagAr), maskiner, forvantat: forvantat(typ, egen), rad: null,
+      lage, lageText: lageText(lage, maskiner, i.idagAr), maskiner, forvantat: forvantat(typ, egen), dimIds: dims.map((d) => d.objekt_id), rad: null,
     });
   }
   return ut;

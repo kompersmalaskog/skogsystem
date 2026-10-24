@@ -32,6 +32,8 @@ import {
 } from '@/lib/startaJobb';
 import { inknappningsText, kanHaEgenSkotning } from '@/lib/startaJobbLage';
 import { grupperaJobb, lasJobbLista, sokJobb, type JobbVy } from '@/lib/startaJobbLista';
+import { sparaSkotning } from '@/lib/startaJobbSkotning';
+import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import {
   arVantaVidaJobb, arVidaObjekt, forslagText, hittaSlaIhopForslag, type JobbForSla, type SlaIhopForslag, type SparPunkt, type VidaObjektForSla,
 } from '@/lib/vidaSammanslagning';
@@ -57,7 +59,7 @@ interface DimObjekt {
 }
 
 type Forslag = SlaIhopForslag & { jobb: JobbForSla; vida: { id: string; namn: string | null; vo_nummer: string | null } };
-type ArkLage = null | 'nytt' | 'maskinobjekt' | { bekrafta: DimObjekt };
+type ArkLage = null | 'nytt' | 'maskinobjekt' | 'skotning' | { bekrafta: DimObjekt };
 
 const MASKIN_GPS_MS = 15000;
 const GRANS_KM = 30;
@@ -93,6 +95,8 @@ const css = `
 
 export default function StartaJobbPage() {
   const idagAr = new Date().getFullYear();
+  const { medarbetare } = useCurrentMedarbetare();
+  const arAdmin = medarbetare?.roll === 'admin';
 
   // ── Data ──
   const [jobb, setJobb] = useState<JobbVy[]>([]);
@@ -124,6 +128,8 @@ export default function StartaJobbPage() {
   const [saving, setSaving] = useState(false);
   const [fel, setFel] = useState('');
   const [varning, setVarning] = useState<string | null>(null);
+  const [skotningSparar, setSkotningSparar] = useState(false);
+  const [skotningFel, setSkotningFel] = useState('');
 
   // ── Maskindator ──
   const [maskin, setMaskin] = useState<{ id: string; namn: string; roll: JobbRoll | null } | null>(null);
@@ -292,6 +298,19 @@ export default function StartaJobbPage() {
   };
 
   const formularKlart = !!namn.trim() && !!position;
+
+  // Ändra skotningen på ett befintligt jobb (bara admin). Ett tryck på ett val sparar; arket stängs först när det är sparat.
+  const andraSkotning = async (j: JobbVy, egen: boolean) => {
+    if (skotningSparar) return;
+    if (egen === j.egenSkotning) { setArk(null); return; }
+    setSkotningFel('');
+    setSkotningSparar(true);
+    const r = await sparaSkotning(supabase as any, { jobbId: j.jobbId, dimIds: j.dimIds }, egen);
+    setSkotningSparar(false);
+    if (!r.ok) { setSkotningFel(r.fel); return; }
+    setArk(null);
+    await ladda();
+  };
 
   const skapa = async () => {
     if (saving) return;
@@ -492,7 +511,6 @@ export default function StartaJobbPage() {
     const fakta: [string, string][] = [
       ['Typ', j.typ ? jobbTypLabel(j.typ) : 'Okänd typ'],
       ...(vidaText ? [['Vida', vidaText] as [string, string]] : []),
-      ...(kanHaEgenSkotning(j.typ) ? [['Skotning', j.egenSkotning ? 'Egen skotning' : 'Vi skotar'] as [string, string]] : []),
       ...(horTillNamn ? [['Hör till', horTillNamn] as [string, string]] : []),
       ...(j.markagare ? [['Markägare', j.markagare] as [string, string]] : []),
     ];
@@ -515,7 +533,12 @@ export default function StartaJobbPage() {
         <MaskinSektion forvantat={j.forvantat} maskiner={j.maskiner} idagAr={idagAr} />
 
         <Sektion rubrik="Jobbet" not={j.jobbId ? 'Inköpare, åtgärd och egenskaper fylls i via Redigering.' : 'Bara ett maskinobjekt — ingen planeringsrad finns.'}>
-          {fakta.map(([k, v], i) => <Rad key={k} titel={k} hoger={v} sista={i === fakta.length - 1} />)}
+          {fakta.map(([k, v], i) => <Rad key={k} titel={k} hoger={v} sista={i === fakta.length - 1 && !kanHaEgenSkotning(j.typ)} />)}
+          {kanHaEgenSkotning(j.typ) && (
+            <Rad titel="Skotning" hoger={j.egenSkotning ? 'Egen skotning' : 'Vi skotar'} sista
+              onTryck={arAdmin ? () => { setSkotningFel(''); setArk('skotning'); } : undefined}
+              attr={{ 'data-testid': 'skotning-rad' }} />
+          )}
         </Sektion>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
@@ -614,6 +637,29 @@ export default function StartaJobbPage() {
     </Ark>
   );
 
+  // ── Ark: skotning på ett befintligt jobb (bara admin) — ett tryck på ett val sparar ──
+  const skotningArk = ark === 'skotning' && valtJobb && (() => {
+    const j = valtJobb;
+    const val = (egen: boolean, titel: string, under: string, sista: boolean) => (
+      <Rad titel={titel} under={under} hoger={j.egenSkotning === egen ? 'Vald' : undefined} pil={false} sista={sista}
+        onTryck={() => void andraSkotning(j, egen)}
+        attr={{ 'data-testid': egen ? 'skotning-egen' : 'skotning-vi', role: 'radio', 'aria-checked': String(j.egenSkotning === egen) }} />
+    );
+    return (
+      <Ark rubrik="Skotning" onStang={() => setArk(null)}>
+        <div style={skotningSparar ? INAKTIV : undefined}>
+          <Sektion rubrik={j.namn} kort={false}
+            not={j.dimIds.length ? 'Sparas på jobbet och på maskinobjekten, så Översikten och Redigering visar samma sak.' : 'Ingen maskin har skickat data än — valet följer med när den gör det.'}>
+            {val(false, 'Vi skotar', 'Numret knappas in i skördaren och skotaren', false)}
+            {val(true, 'Egen skotning', 'Markägaren skotar själv — inga filer från skotaren', true)}
+          </Sektion>
+        </div>
+        {skotningSparar && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.m }}>Sparar …</div>}
+        {skotningFel && <div role="alert" data-testid="skotning-fel" style={{ ...TYP.meta, color: FARG.rod, marginTop: AVSTAND.m }}>{skotningFel}</div>}
+      </Ark>
+    );
+  })();
+
   return (
     // Typsnittet inline: FONT har citattecken och fungerar inte i en serverrenderad <style>.
     <div className={`sj-ram ${valtJobb ? 'sj-jobb-vy' : 'sj-lista-vy'}`} style={{ fontFamily: FONT, paddingBottom: medSafeBotten(0) }} data-starta-jobb="">
@@ -623,6 +669,7 @@ export default function StartaJobbPage() {
       {nyttJobbArk}
       {maskinobjektArk}
       {bekraftaArk}
+      {skotningArk}
     </div>
   );
 }
