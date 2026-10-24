@@ -59,7 +59,11 @@ export interface Lass {
   datum: string;
   delar: LassDel[];
   status: LassStatus;
-  bekraftadAv: 'auto' | 'forare' | null;
+  /**
+   * Vem som sa ja. 'forare' = föraren trycka Stämmer/Klar. 'planerare' = en planerare har granskat och bekräftat ett lass (se granskning.ts).
+   * 'auto' = den GAMLA självbekräftelsen (före 2026-10-21): LÄSES bara från databasen, skrivs aldrig mer — och räknas inte som skotat (lassModell.raknasSomSkotat).
+   */
+  bekraftadAv: 'auto' | 'forare' | 'planerare' | null;
   bekraftadTid: string | null;
   /** Spårdelen sedan förra lossningen (tunnad). Används för "kvar per väg" i nästa steg. */
   sparPunkter: SparPunkt[];

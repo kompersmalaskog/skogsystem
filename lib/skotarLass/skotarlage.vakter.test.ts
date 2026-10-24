@@ -162,7 +162,8 @@ describe('datamodellen', () => {
     const sql = migrationer();
     expect(sql).not.toMatch(/\bdrop\s+table\b/i);
     expect(sql).not.toMatch(/\balter\s+table\s+(?!if exists skotar_)(?!skotar_)/i);
-    const upd = sql.match(/^\s*update\s+\w+/gim) ?? [];
+    // skotar_lass* får uppdateras (granskningen, 20261024120000, ändrar lassens egen status); allt annat som uppdateras ska vara dim_objekt.
+    const upd = (sql.match(/^\s*update\s+\w+/gim) ?? []).filter((u) => !/^\s*update\s+skotar_lass\b/i.test(u));
     // Två gånger: den ursprungliga skotar_farduskotat(uuid) (3b) och ersättaren skotar_farduskotat(uuid, jsonb) (6d) — samma urval, båda bara där fältet är NULL.
     expect(upd.map((u) => u.trim().toLowerCase().replace(/\s+/g, ' '))).toEqual(['update dim_objekt', 'update dim_objekt']);
     expect(sql.match(/skotning_avslutad is null/g)).toHaveLength(2);
@@ -191,5 +192,26 @@ describe('datamodellen', () => {
     const sql = migrationer();
     const tabeller = sql.slice(0, sql.indexOf('alter table skotar_lass enable'));
     expect(tabeller).not.toMatch(/m3_skalat/);
+  });
+});
+
+describe('gamla självbekräftade lass (bekraftad_av = auto) — granskningen 2026-10-24', () => {
+  const granskning = las('supabase/migrations/20261024120000_skotar_lass_granskning.sql');
+  it('granskningen rör bara skotar_lass*: aldrig dim_objekt, objekt eller Opti-tabellerna', () => {
+    expect(granskning).not.toMatch(/\b(update|insert\s+into|delete\s+from)\s+(dim_objekt|objekt|fakt_lass|fakt_sortiment)\b/i);
+    expect(granskning).not.toMatch(/\bdelete\s+from\s+skotar_lass/i);   // inget raderas — struket är en status
+    expect(granskning).not.toMatch(/\bdrop\s+table\b/i);
+  });
+  it('allt som räknar appens lass som skotat lämnar auto utanför (vyn, Färdigskotad, admin-jämförelsen) — och loggen skrivs av funktionen, aldrig av en klient', () => {
+    expect(granskning.match(/bekraftad_av is distinct from 'auto'/g)!.length).toBeGreaterThanOrEqual(4);
+    expect(granskning).toMatch(/revoke all on skotar_lass_granskning from public, anon, authenticated;\s*grant select on skotar_lass_granskning to authenticated;/);
+    expect(granskning).not.toMatch(/create policy skotar_lass_granskning_(ins|upd|del)/);
+    expect(granskning).toMatch(/if not ar_admin\(\) then raise exception/);
+  });
+  it('planerarens granskning är admin-vy: appens förarvyer importerar den inte', () => {
+    for (const f of [...readdirSync(join(rot, 'lib/skotarLass')).filter((x) => /\.tsx?$/.test(x) && !/\.test\./.test(x)).map((x) => `lib/skotarLass/${x}`), 'lib/hooks/useSkotarLass.ts', 'app/planering/page.tsx']) {
+      if (f.endsWith('granskaKopplad.ts')) continue;
+      expect(las(f), f).not.toMatch(/granskaKopplad|ObekraftadeLass/);
+    }
   });
 });

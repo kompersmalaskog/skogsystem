@@ -48,7 +48,7 @@ describe('lass', () => {
   });
   it('ett tomt lass går inte att bekräfta', () => {
     expect(kanBekrafta(nyttLass(null))).toBe(false);
-    expect(bekrafta(nyttLass(null), 'auto', NU).status).toBe('vantar_forare');
+    expect(bekrafta(nyttLass(null), 'forare', NU).status).toBe('vantar_forare');
   });
   it('+ och − ändrar 1 m³; rad på 0 försvinner; ny rad läggs till', () => {
     let l = nyttLass(bekraftatMed([R('tall', 2)], 1), 2);

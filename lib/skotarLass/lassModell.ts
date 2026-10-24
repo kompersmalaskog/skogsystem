@@ -166,11 +166,21 @@ export function kanBekrafta(l: Lass): boolean {
   return l.delar.length > 0 && l.delar.every((d) => !!d.avlaggId) && lassTotalM3(l) > 0;
 }
 
-export function bekrafta(l: Lass, av: 'auto' | 'forare', nu: number): Lass {
-  if (!kanBekrafta(l)) return l;
+/**
+ * Bara FÖRAREN bekräftar ett lass i appen (Stämmer / Klar i Ändra). Typen släpper inte igenom 'auto': appen vet att maskinen lossar, aldrig vad (Martin 2026-10-20).
+ * En planerare bekräftar i stället via granskningen (granskning.ts → skotar_lass_granska), som loggar före/efter.
+ */
+export function bekrafta(l: Lass, av: 'forare', nu: number): Lass {
+  if (av !== 'forare' || !kanBekrafta(l)) return l;   // typen stoppar 'auto' vid bygget, den här raden stoppar det vid körning
   const iso = new Date(nu).toISOString();
   return { ...l, status: 'bekraftat', bekraftadAv: av, bekraftadTid: iso, andrad: iso };
 }
+
+/** Ett lass den gamla självbekräftelsen satte på (före 2026-10-21) och som ingen människa har sagt ja till. Strukna räknas inte hit. */
+export const arObekraftatGammalt = (l: Pick<Lass, 'status' | 'bekraftadAv'>): boolean => l.status !== 'struket' && l.bekraftadAv === 'auto';
+
+/** Räknas lasset som skotat (kvar, klar-dag, skotat hit, Färdigskotad)? Aldrig struket, aldrig det gamla obekräftade — förrän en planerare granskat det. */
+export const raknasSomSkotat = (l: Pick<Lass, 'status' | 'bekraftadAv'>): boolean => l.status !== 'struket' && l.bekraftadAv !== 'auto';
 
 export function stryk(l: Lass, nu: number): Lass {
   return stampla({ ...l, status: 'struket' }, nu);
