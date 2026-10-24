@@ -33,4 +33,3 @@ export const kundKallaText = (f: KundForslag): string =>
 
 /** Kravet när flytten faktureras: någon kund måste vara vald. */
 export const KUND_KRAV_TEXT = 'Välj kund — den här flytten faktureras';
-export const kundKravUppfyllt = (faktureras: boolean, kund: string | null | undefined): boolean => !faktureras || rent(kund) !== '';
