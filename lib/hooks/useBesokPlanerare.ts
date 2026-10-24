@@ -28,7 +28,7 @@ const saknasTabell = (m?: string | null) => /does not exist|schema cache|PGRST20
 const SMS_KOLUMNER = 'id, oppnad_av, oppnad_at, mottagare_namn, mottagare_nummer';
 const saknasHandelse = (m?: string | null) => /handelse/i.test(m ?? '');
 
-/** SMS-loggen. Före migrationen 20261023190000 finns inte kolumnen `handelse`: då läses raderna utan den och räknas som 'oppnad' (alltså aldrig som skickade). */
+/** SMS-loggen. Före migrationen 20261024091516 finns inte kolumnen `handelse`: då läses raderna utan den och räknas som 'oppnad' (alltså aldrig som skickade). */
 async function lasSms(id: string): Promise<{ data: SmsRad[] | null; error: { message: string } | null }> {
   const fraga = (kol: string) => supabase.from('objekt_besok_sms').select(kol).eq('objekt_id', id).order('oppnad_at', { ascending: false }).limit(50);
   const a = await fraga(`${SMS_KOLUMNER}, handelse`);

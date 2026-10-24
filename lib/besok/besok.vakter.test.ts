@@ -146,7 +146,7 @@ describe('påminnelsen i flush', () => {
 
 // ---- Uppstramning 2026-10-23 -----------------------------------------------------------------------------------------------------------------
 
-const migration2 = las('supabase/migrations/20261023190000_besok_uppstramning.sql');
+const migration2 = las('supabase/migrations/20261024091516_besok_uppstramning.sql');
 
 describe('uppstramning: databasen – läsning bara för admin, kvittens bara från servern, SMS-logg bara admin', () => {
   it('besök, kvittenser och SMS-logg läses bara av admin (inte alla inloggade)', () => {
