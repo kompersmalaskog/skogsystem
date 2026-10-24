@@ -13,6 +13,7 @@ const SINK = /\.innerHTML\s*=\s*`[^`]*\$\{|\.setHTML\(|document\.write\(|dangero
 /** Filer där sinken är säker utan escapeHtml — med skäl. */
 const TILLATNA: Record<string, string> = {
   "components/admin/VilobrottUnderflik.tsx": "skriver html från lib/admin/vilobrottPdf.ts, som har en egen escape() över varje namn och fritext",
+  "components/besok/BesokKarta.tsx": "markörens text är ROLL_NAMN (lib/besok/sakerhet.ts), en fast tabell med 'Skördare'/'Skotare' — ingen användartext",
   "components/malbild/Malbild.tsx": "svg byggd ur egna konstanter (ingen användartext)",
   "components/inventarier/EtikettUtskrift.tsx": "QR-svg genererad av QR-biblioteket ur ett id",
 };
