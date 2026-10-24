@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { loginSok, NASTA_PARAM, sakerNasta } from './lib/loginNasta';
+import { arOffentligBesokSokvag } from './lib/besok/offentlig';
 
 // ─────────────────────────────────────────────────────────────
 // /api/* är STÄNGT som default. Kartläggning 2026-09: 30 av 79 rutter saknade
@@ -63,6 +64,14 @@ function cookieHarGiltigSession(request: NextRequest): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  // BESÖKSSIDAN för markägaren (/besok/<token> + /api/besok/<token>/…): öppen utan inloggning, men BARA de adresserna och bara med en lång slumpad token i sökvägen
+  // (lib/besok/offentlig). Läser och skriver via serverrutter med exakt de fält sidan visar. Aldrig indexerad.
+  if (arOffentligBesokSokvag(request.nextUrl.pathname)) {
+    const oppen = NextResponse.next({ request });
+    oppen.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    return oppen;
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -105,6 +114,9 @@ export async function middleware(request: NextRequest) {
     authTimeout = true;
   }
   const isLoginPage = pathname === '/login';
+  // /valkommen: den inbjudna kommer från mailet utan session (token i adressens #-del, som servern aldrig ser) och väljer
+  // lösenord där. Sidan visar inget och läser inget — den kallar bara supabase.auth.updateUser.
+  const arOppenSida = isLoginPage || pathname === '/valkommen';
   const isAuthCallback = pathname.startsWith('/api/auth/');
   const isApiRoute = pathname.startsWith('/api/');
 
@@ -114,7 +126,7 @@ export async function middleware(request: NextRequest) {
       if (bearerMatchar(request, 'CRON_SECRET') || bearerMatchar(request, 'IMPORT_SECRET')) return supabaseResponse;
       return NextResponse.json({ ok: false, error: 'Auth svarar inte — försök igen' }, { status: 503 });
     }
-    if (isLoginPage || cookieHarGiltigSession(request)) return supabaseResponse;
+    if (arOppenSida || cookieHarGiltigSession(request)) return supabaseResponse;
     const url = request.nextUrl.clone();
     const tillbaka = loginSok(pathname, request.nextUrl.search);
     url.pathname = '/login';
@@ -131,7 +143,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Not logged in and not on login page → redirect to login
-  if (!user && !isLoginPage) {
+  if (!user && !arOppenSida) {
     const url = request.nextUrl.clone();
     // Adressen man skulle till följer med, så inloggningen kan gå dit (lib/loginNasta.ts).
     url.search = loginSok(pathname, request.nextUrl.search);

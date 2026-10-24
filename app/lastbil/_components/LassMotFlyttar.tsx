@@ -21,7 +21,7 @@ export default function LassMotFlyttar({ rader, flyttarFel, onValjManad }: {
   if (rader.length === 0) return null;
   return (
     <div data-lass-mot-flyttar>
-      <Sektion rubrik="Lass och flyttar">
+      <Sektion rubrik="Saknas det lass?">
         {rader.map((r, i) => {
           const sista = i === rader.length - 1;
           const stil = { ...RAD, minHeight: TRAFFYTA.min, padding: `${AVSTAND.m}px 0`, ...(sista ? { borderBottom: 'none' } : {}) };

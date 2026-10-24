@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import Sektion from '@/components/design/Sektion';
-import { AVSTAND, FARG, IKON, KNAPP, KORT, RAD, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, IKON, KNAPP, RAD, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 
 /** Radens grundstil i "Att göra": 44 px, linje under (utom sista raden), hela raden är trycket. */
 export const ATT_GORA_RAD = { ...RAD, width: '100%', minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0` } as const;
@@ -37,17 +37,19 @@ export function FelRad({ text, onForsokIgen, sista, attr }: { text: string; onFo
   );
 }
 
+/** Sista raden i kortet har ingen linje under — raderna vet inte själva vilken som blir sist (en rad finns bara när den har något). */
+const ATT_GORA_CSS = `.lb-att-gora > :last-child { border-bottom: none !important; }`;
+
 /**
- * "Att göra" — bara admin. Rubriken "Att göra" står BARA när det finns lass som saknar maskin eller flyttar som väntar på
- * godkännande (eller när en läsning av dem föll — raden säger då vad som inte gick att läsa). Är raden "Fakturering · <månad>  36 km ›"
- * ensam finns ingen rubrik: raden står själv, den är en länk och behöver ingen etikett. Fakturerings-raden finns alltid för admin
- * (summan är en läst nolla eller ett tal), så kortet finns alltid för admin och aldrig för en förare.
+ * "Vad behöver du göra?" — bara admin, och bara när något väntar: lass som saknar maskin eller flyttar som väntar på godkännande
+ * (eller när en läsning av dem föll — raden säger då vad som inte gick att läsa). Inget väntar → inget kort alls.
+ * Faktureringen är en egen fråga ("Vad ska faktureras?") under, inte en rad här.
  */
-export default function AttGoraKort({ children, medRubrik }: { children: ReactNode; medRubrik: boolean }) {
-  if (medRubrik) return <Sektion rubrik="Att göra">{children}</Sektion>;
+export default function AttGoraKort({ children }: { children: ReactNode }) {
   return (
-    <section data-att-gora-ensam style={{ marginBottom: AVSTAND.xl }}>
-      <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>{children}</div>
-    </section>
+    <>
+      <style>{ATT_GORA_CSS}</style>
+      <Sektion rubrik="Vad behöver du göra?" className="lb-att-gora">{children}</Sektion>
+    </>
   );
 }

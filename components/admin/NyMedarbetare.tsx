@@ -133,36 +133,75 @@ function Knappar({ children, tillbaka, onAvbryt, avbrytText }: { children: React
 function Steg1({ person, onKlar, onAvbryt }: { person: Medarbetare | null; onKlar: (id: string) => void; onAvbryt: () => void }) {
   const [namn, setNamn] = useState(person?.namn || "");
   const [epost, setEpost] = useState(person?.epost || "");
+  const [telefon, setTelefon] = useState("");
   const [roll, setRoll] = useState(person?.roll || "forare");
   const [sparar, setSparar] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  // En NY person skapas av servern (POST /api/personal/bjud-in): raden OCH inbjudan, i ett svep. Webbläsaren har ingen
+  // nyckel som kan skapa ett konto — inloggningen skapas aldrig härifrån.
+  const bjudIn = async (): Promise<string | null> => {
+    const r = await fetch("/api/personal/bjud-in", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ namn, epost, telefon, roll }),
+    }).catch(() => null);
+    const j = await r?.json().catch(() => ({}));
+    if (!r || !r.ok || !j?.ok || !j.id) { setFel(j?.error || "Det gick inte att nå servern. Försök igen."); return null; }
+    return j.id as string;
+  };
 
   const spara = async () => {
     if (!namn.trim()) { setFel("Namn krävs."); return; }
     setSparar(true); setFel(null);
+    if (!person) {
+      const id = await bjudIn();
+      setSparar(false);
+      if (id) onKlar(id);
+      return;
+    }
     const fält = { namn: namn.trim(), epost: epost.trim() || null, roll };
     // .select() visar vilka rader som faktiskt skrevs: 0 rader utan fel = RLS stoppade den tyst.
-    const r = person
-      ? await supabase.from("medarbetare").update(fält).eq("id", person.id).select("id")
-      : await supabase.from("medarbetare").insert(fält).select("id");
+    const r = await supabase.from("medarbetare").update(fält).eq("id", person.id).select("id");
     setSparar(false);
     if (r.error) { setFel(r.error.message); return; }
     const id: string | undefined = (r.data as any[])?.[0]?.id;
-    if (!id) { setFel(IGEN_RAD.replace("Ändringen", person ? "Ändringen" : "Personen")); return; }
+    if (!id) { setFel(IGEN_RAD); return; }
     onKlar(id);
   };
+
+  // Personen finns men har ingen inloggning (länken i mailet gäller en begränsad tid): skicka en ny.
+  const skickaIgen = async () => {
+    if (!person) return;
+    setSparar(true); setFel(null); setInfo(null);
+    const id = await bjudIn();
+    setSparar(false);
+    if (id) setInfo("Ny inbjudan är skickad.");
+  };
+
+  const epostHint = !person
+    ? "Personen får ett mail med en länk och väljer själv sitt lösenord."
+    : person.user_id
+      ? "Inloggning kopplad."
+      : "Ingen inloggning än. Skicka en inbjudan så väljer personen sitt lösenord.";
 
   return (
     <>
       <Kort>
         <Falt label="Namn" value={namn} onChange={setNamn} placeholder="För- och efternamn" />
-        <Falt label="E-post" value={epost} onChange={setEpost} placeholder="namn@exempel.se" type="email"
-          hint={person?.user_id ? "Inloggning kopplad." : "Kopplas automatiskt till ett inloggningskonto när ett konto med samma e-post finns. Utan koppling kommer personen inte in i appen."} />
+        <Falt label="E-post" value={epost} onChange={setEpost} placeholder="namn@exempel.se" type="email" hint={epostHint} />
+        {!person && <Falt label="Telefon" value={telefon} onChange={setTelefon} placeholder="070-123 45 67" type="tel" />}
         <Val label="Roll" value={roll} onChange={setRoll} options={ROLLER} />
       </Kort>
       {fel && <Besked>{fel}</Besked>}
+      {info && <Besked slag="ok">{info}</Besked>}
       <Knappar onAvbryt={onAvbryt} avbrytText={person ? "Avbryt, fortsätt senare" : "Avbryt"}>
-        <Primar onClick={spara} disabled={sparar || !namn.trim()}>{sparar ? "Sparar…" : "Spara och fortsätt"}</Primar>
+        {person && !person.user_id && person.epost && (
+          <Sekundar onClick={skickaIgen} disabled={sparar}>Skicka inbjudan igen</Sekundar>
+        )}
+        <Primar onClick={spara} disabled={sparar || !namn.trim() || (!person && !epost.trim())}>
+          {sparar ? "Sparar…" : person ? "Spara och fortsätt" : "Bjud in och fortsätt"}
+        </Primar>
       </Knappar>
     </>
   );

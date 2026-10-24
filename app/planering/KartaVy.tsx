@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { signeraKartfil } from '@/lib/kartfiler';
 import { objektHuvudtyp } from '@/lib/objektPlats';
 import { typLabel } from '@/lib/objekt/typ';
+import { escapeHtml } from '@/lib/html';
 
 interface KartaVyProps {
   objekt: any;
@@ -107,7 +108,7 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
         el.style.cssText = 'width:20px;height:20px;background:#7cba3f;border:2px solid #fff;border-radius:50%;box-shadow:0 0 10px rgba(124,186,63,0.6);';
         new maplibregl.Marker({ element: el })
           .setLngLat([objekt.lng, objekt.lat])
-          .setPopup(new maplibregl.Popup({ offset: 10 }).setHTML(`<b>${objekt.namn}</b><br>${objekt.volym || 0} m³`))
+          .setPopup(new maplibregl.Popup({ offset: 10 }).setHTML(`<b>${escapeHtml(objekt.namn)}</b><br>${escapeHtml(objekt.volym || 0)} m³`))
           .addTo(map);
       }
 

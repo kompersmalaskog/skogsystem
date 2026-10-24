@@ -14,6 +14,12 @@ import { LASS_MASKIN, arLassNotis, byggLassNotis, type HamtaLass } from "@/lib/l
 import { EGENKONTROLL_STICKPROV, arStickprovNotis, byggStickprovNotis, type HamtaStickprov } from "@/lib/egenkontrollStickprovNotis";
 import { LON_NOTIS_TYPER, arLonNotis, byggLonNotis, lasLonRadMotDb } from "@/lib/lonesystem/granskaNotis";
 import { INVENTARIE_UNDER_MIN, arInventarieNotis, byggInventarieNotis, type HamtaInventarie } from "@/lib/inventarier/notis";
+import { arBesokPaminnelse, byggBesokNotis, type HamtaBesokObjekt } from "@/lib/besok/paminnelse";
+import { koaBesokPaminnelser } from "@/lib/besok/paminnelse-ko";
+import { arBesokEjSett, byggEjSettNotis, type HamtaEjSett } from "@/lib/besok/ejsett";
+import { koaBesokEjSett } from "@/lib/besok/ejsett-ko";
+import { maskinEtikett } from "@/lib/besok/maskinerPaBesok";
+import { rollAvMaskintyp } from "@/lib/maskindatorStart";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -70,6 +76,22 @@ async function flush() {
     if (stickprovFel) console.error("[notis/flush] egenkontroll_stickprov:", stickprovFel.message);
   } catch (e) {
     console.error("[notis/flush] egenkontroll_stickprov:", e);
+  }
+
+  // Besöket på trakten: "<Trakt> startar i morgon/i dag – skicka till markägaren?" köas här (dagen före planerad start, eller när första maskinen startar), en gång per tillfälle. Ett fel stoppar aldrig kön.
+  try {
+    const bp = await koaBesokPaminnelser(supabase);
+    if (!bp.ok) console.error("[notis/flush] besökspåminnelse:", bp.fel);
+  } catch (e) {
+    console.error("[notis/flush] besökspåminnelse:", e);
+  }
+
+  // Besöket på trakten: en maskin som inte tryckt Uppfattat 10 minuter efter anmälan → push till planeringen. Samma regler och samma fel-hantering som påminnelsen ovan.
+  try {
+    const es = await koaBesokEjSett(supabase);
+    if (!es.ok) console.error("[notis/flush] besök ej sett:", es.fel);
+  } catch (e) {
+    console.error("[notis/flush] besök ej sett:", e);
   }
 
   const nu = new Date().toISOString();
@@ -154,8 +176,10 @@ async function flush() {
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
       // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ)) {
-        const u = arInventarieNotis(n.typ) ? await byggInventarieNotis(n, hamtaInventarierad)
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ)) {
+        const u = arBesokEjSett(n.typ) ? await byggEjSettNotis(n, hamtaEjSett)
+          : arBesokPaminnelse(n.typ) ? await byggBesokNotis(n, hamtaBesokObjekt)
+          : arInventarieNotis(n.typ) ? await byggInventarieNotis(n, hamtaInventarierad)
           : arStickprovNotis(n.typ) ? await byggStickprovNotis(n, hamtaStickprovrad)
           : arLassNotis(n.typ) ? await byggLassNotis(n, hamtaLassrad)
           : arLonNotis(n.typ) ? await byggLonNotis(n, lasLonRadMotDb(supabase))
@@ -281,6 +305,43 @@ const hamtaInventarierad: HamtaInventarie = async (radId) => {
   const p = Array.isArray(d.plats) ? d.plats[0] : d.plats;
   if (!a || !p) return { rad: null };
   return { rad: { id: d.id, antal: d.antal, min_antal: d.min_antal, bestalld_tid: d.bestalld_tid, tva_lador: !!d.tva_lador, reserv_oppnad_tid: d.reserv_oppnad_tid ?? null, artikel_namn: a.namn, sitter_pa: a.sitter_pa ?? null, enhet: a.enhet ?? null, plats_namn: p.namn } };
+};
+
+// Objektet + om SMS:et till markägaren är BEKRÄFTAT skickat (handelse = 'skickad'; att knappen öppnats räknas inte), för besökspåminnelsen. `rad: null` = finns inte; `fel` = kunde inte läsas.
+const hamtaBesokObjekt: HamtaBesokObjekt = async (objektId) => {
+  const { data, error } = await supabase.from("objekt").select("id, namn, status").eq("id", objektId).maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const s = await supabase.from("objekt_besok_sms").select("id", { count: "exact", head: true }).eq("objekt_id", objektId).eq("handelse", "skickad");
+  if (s.error) return { rad: null, fel: s.error.message };
+  const d = data as any;
+  return { rad: { id: d.id, namn: d.namn, status: d.status ?? null, sms_skickat: (s.count ?? 0) > 0 } };
+};
+
+// Besöket + objektet + maskinens namn + om maskinen redan tryckt Uppfattat, för "maskinen har inte sett besöket". `rad: null` = finns inte; `fel` = kunde inte läsas (raden lämnas oskickad).
+const hamtaEjSett: HamtaEjSett = async (besokId, maskinId) => {
+  const b = await supabase.from("objekt_besok").select("id, namn, besokstid, objekt_id").eq("id", besokId).maybeSingle();
+  if (b.error) return { rad: null, fel: b.error.message };
+  if (!b.data) return { rad: null };
+  const bd = b.data as any;
+  const [o, k, m] = await Promise.all([
+    supabase.from("objekt").select("id, namn, status").eq("id", bd.objekt_id).maybeSingle(),
+    supabase.from("objekt_besok_kvittens").select("besok_id", { count: "exact", head: true }).eq("besok_id", besokId).eq("maskin_id", maskinId),
+    supabase.from("dim_maskin").select("visningsnamn, maskin_typ").eq("maskin_id", maskinId).maybeSingle(),
+  ]);
+  if (o.error) return { rad: null, fel: o.error.message };
+  if (k.error) return { rad: null, fel: k.error.message };
+  if (m.error) return { rad: null, fel: m.error.message };
+  const md = m.data as any;
+  const roll = rollAvMaskintyp(md?.maskin_typ);
+  return {
+    rad: {
+      besok: { id: bd.id, namn: bd.namn, besokstid: bd.besokstid, objekt_id: bd.objekt_id },
+      objekt: o.data ? { id: (o.data as any).id, namn: (o.data as any).namn, status: (o.data as any).status ?? null } : null,
+      maskinNamn: roll ? maskinEtikett({ roll, namn: md?.visningsnamn ?? null }) : (md?.visningsnamn ?? null),
+      sett: (k.count ?? 0) > 0,
+    },
+  };
 };
 
 const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];

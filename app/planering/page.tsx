@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, useContext } from 'r
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
+import { LjudSpelare } from '@/components/LjudSpelare'
 import { gpsGuardAccepts, haversineMeters } from '@/lib/gps-guard'
 import { signeraKartfil } from '@/lib/kartfiler'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
@@ -22,6 +23,12 @@ import { anvandObjektLista, anvandObjektListaUtanObjekt } from '../../lib/objekt
 import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
 import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/ObjektInfo'
+import { type BesokPlanerareProps } from '../../components/besok/BesokPlanerare'
+import BesokKortHytt from '../../components/besok/BesokKortHytt'
+import { useBesokHytt } from '../../lib/hooks/useBesokHytt'
+import { useHyttNotiser, useHyttNotiserPa } from '../../lib/hooks/useHyttNotiser'
+import { farorUrLarm, omradeUrKort } from '../../lib/hytt/notiser'
+import { HYTT_RING_M } from '../../lib/besok/konstanter'
 import { arBasvag as arBasvagMark, svTal, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, grotRad, framstegRad, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll, type OmKommentar } from '../../lib/objektKort'
 import { arInstruktionsText } from '../../lib/instruktioner/instruktioner'
 import PanelErrorBoundary from './panel-error-boundary'
@@ -114,6 +121,7 @@ import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } fro
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
+import HyttNotiserKort from '../../components/planering/HyttNotiserKort'
 import { hogarSynliga, vaxlaSkotarHogar } from '../../lib/skotarHogar'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { INFO_PANEL_MASKIN_BREDD_PX, PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
@@ -3989,6 +3997,19 @@ export default function PlannerPage() {
     };
   }, [klarGranskaAvlagg, mapLibreReady, klarVidaPunkter]);
   useEffect(() => { if (klarAterBasvag && !isDrawMode) { setKlarAterBasvag(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); } }, [klarAterBasvag, isDrawMode]);
+  // BESÖK PÅ TRAKTEN: påminnelsen "<Trakt> startar i morgon – skicka till markägaren?" länkar till /planering?objekt=<id>&besok=sms. Då öppnas ⓘ-kortet med SMS-raden i fokus (en tryckning till öppnar Meddelanden —
+  // en sms:-länk måste öppnas av ett riktigt tryck, aldrig av sidan själv). Parametern tas bort direkt.
+  const [besokFokus, setBesokFokus] = useState(false);
+  useEffect(() => {
+    if (!valtObjekt?.id) return;
+    try {
+      const u = new URL(window.location.href);
+      if (u.searchParams.get('besok') !== 'sms') return;
+      setBesokFokus(true); setInfoStartVy('kort'); setTraktOversiktOpen(true);
+      u.searchParams.delete('besok');
+      window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch { /* */ }
+  }, [valtObjekt?.id]);
   // Avläggsläget avbröts på annat sätt (plusdockan, ett annat verktyg): då ska ett senare avlägg inte öppna kortet.
   useEffect(() => { if (klarAterAvlagg && selectedSymbol == null && !traktOversiktOpen) setKlarAterAvlagg(false); }, [klarAterAvlagg, selectedSymbol, traktOversiktOpen]);
   // Nya objektlistan OVANPÅ ett valt objekt (ark/panel) bara i planeringsvyn — aldrig maskinläge, /maskin eller körvy (lib/objektVal.anvandObjektLista).
@@ -11921,6 +11942,38 @@ export default function PlannerPage() {
   // Lossningsflödet (skotarläget) har företräde: lossningskortet, Ändra-arket, "Nytt avlägg här?" och Kvar/Färdigskotad/Väntar-arken (lib/instruktioner/ordning).
   const lossningVisas = skotarLassAktiv && (!!skotarLass.kort || !!skotarLass.andra || !!skotarLass.nyttAvlagg || skotarKvarOppet || skotarFardigOppet || skotarVantarOppet);
   const instruktionerAktiv = korvyActive && (maskinlage || !!maskinSomParam);
+  // BESÖK PÅ TRAKTEN (maskinläget, alla maskiner på trakten): ett orange kort högst upp tills föraren tryckt Uppfattat, ett ljud, och en 70 m-ring runt maskinen medan besöket är aktivt.
+  // Fara-larm (och alla larmkort) och lossningsflödet går före kortet — det kommer tillbaka när de är borta. Instruktionskortet väntar på besökskortet.
+  const besokMaskinId = testlage?.maskinId ?? enhetMaskinId ?? null;
+  // Notiser i hytten (Windows-notis när appen inte är framme): enhetsbrytaren i Inställningar, AV från början.
+  const hyttNotiserPa = useHyttNotiserPa();
+  const besokHytt = useBesokHytt({
+    aktiv: instruktionerAktiv,
+    objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
+    maskinId: besokMaskinId,
+    testlage: !!testlage,
+    ljudCtx: () => korvyAudioCtxRef.current,
+    bakgrund: hyttNotiserPa,
+  });
+  const besokKortSynligt = besokHytt.vantar.length > 0 && !larm.kort && !lossningVisas;
+  // === BESÖK: 70 m-ring runt maskinen medan ett besök är aktivt (till besökstid + 2 h) ===
+  // Egen källa och egna lager (prefixet larm- hör till körvyns whitelist). Ritas för skördare och skotare, i körvy/maskinläge. Rött + streckat: en gräns att hålla utanför, inte en färg som bär ensam.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const pos = currentPosition as any;
+    try {
+      if (!map.getSource('larm-besok-ring-source')) map.addSource('larm-besok-ring-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      if (!map.getLayer('larm-besok-ring-fyll')) map.addLayer({ id: 'larm-besok-ring-fyll', type: 'fill', source: 'larm-besok-ring-source', paint: { 'fill-color': FARG.rod, 'fill-opacity': 0.1 } });
+      if (!map.getLayer('larm-besok-ring-linje')) map.addLayer({ id: 'larm-besok-ring-linje', type: 'line', source: 'larm-besok-ring-source', paint: { 'line-color': FARG.rod, 'line-width': 3, 'line-dasharray': [2, 1.5] } });
+      const visa = instruktionerAktiv && besokHytt.aktiva.length > 0 && pos && pos.lat != null && pos.lon != null;
+      (map.getSource('larm-besok-ring-source') as any)?.setData(visa
+        ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: circlePolygon(pos.lat, pos.lon, HYTT_RING_M, 64) } }] }
+        : { type: 'FeatureCollection', features: [] });
+    } catch (e) { console.error('[Besök] ring:', e); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPosition, instruktionerAktiv, besokHytt.aktiva.length, mapLibreReady]);
+
   const inst = useInstruktioner({
     aktiv: instruktionerAktiv,
     pos: korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null,
@@ -11933,9 +11986,20 @@ export default function PlannerPage() {
     objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id) } : null,
     db: supabase,
-    blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' || larm.fler.some((x) => x.grupp === 'fara') }), lossningVisas }),
-    blockeradPaminnelse: !!larm.kort || lossningVisas,   // larm och lossningskort går före påminnelsen: den göms medan något av dem visas och kommer tillbaka efteråt
+    blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' || larm.fler.some((x) => x.grupp === 'fara') }), lossningVisas }) || besokKortSynligt,
+    blockeradPaminnelse: !!larm.kort || lossningVisas || besokKortSynligt,   // larm och lossningskort går före påminnelsen: den göms medan något av dem visas och kommer tillbaka efteråt
     torr: !!testlage,
+  });
+  // NOTISER I HYTTEN: fara, besök och område som Windows-notis när fönstret inte är framme (synligt OCH valt). Ett tillägg — korten i appen fungerar som förut. Passiv när brytaren är av.
+  useHyttNotiser({
+    aktiv: instruktionerAktiv && hyttNotiserPa,
+    roll: skotarKorvy ? 'skotare' : 'skordare',
+    trakt: valtObjekt?.namn ?? '',
+    maskinId: besokMaskinId,
+    test: !!testlage,
+    fara: farorUrLarm(larm.kort, larm.fler),
+    besok: besokHytt.vantar,
+    omrade: omradeUrKort(inst.vantandeKort),
   });
   // Påminnelsens hela instruktion stängs när påminnelsen försvinner (kört ut, larm/lossning visas): kommer man tillbaka börjar den som pill/bricka igen.
   useEffect(() => { if (!inst.paminnelse) setPaminnelseOppen(null); }, [inst.paminnelse]);
@@ -12786,11 +12850,11 @@ export default function PlannerPage() {
   // grenen, så förarlistan visades utan gul rand/Avsluta — och sekvensen kunde inte täcka objektlistan.
   const maskinLager = (
     <>
-      {/* === "ÖPPNA SOM MASKIN"-BANNER (gul rand, över allt) — får aldrig förväxlas med skarpt läge === */}
+      {/* === "ÖPPNA SOM MASKIN"-BANNER (neutral grå, över allt) — får aldrig förväxlas med skarpt läge. Inte orange: orange är hytten-kortets färg för ett besök. === */}
       {testlage && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9200,
-          background: '#f59e0b', color: '#1a1200', boxSizing: 'border-box', height: `calc(env(safe-area-inset-top, 0px) + ${TESTBANNER_HOJD_PX}px)`,
+          background: FARG.upphojt, color: FARG.text, boxSizing: 'border-box', height: `calc(env(safe-area-inset-top, 0px) + ${TESTBANNER_HOJD_PX}px)`,
           padding: 'calc(env(safe-area-inset-top, 0px) + 6px) 14px 6px',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
           fontSize: '13px', fontWeight: 800, letterSpacing: '0.3px', textAlign: 'center',
@@ -12799,22 +12863,22 @@ export default function PlannerPage() {
           <span>⚠ Visar som maskin: {startMaskinNamn || testlage.maskinId}<span data-testid="test-langtryck-tips" style={{ fontWeight: 600 }}> · håll fingret på kartan = flytta mig</span></span>
           {skotarLassAktiv && (
             <button type="button" data-testid="skotar-provkor" onClick={() => skotarLass.provkorLossning(skotarValtAvlagg)}
-              style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+              style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
               {skotarLass.oppen ? 'Provkör: kör ut ur zonen' : 'Provkör lossning'}
             </button>
           )}
           {skotarKorvy && (
             <button type="button" data-testid="skotar-provkor-morgonkort" onClick={skotarVader.provkorKort}
-              style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+              style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
               Visa morgonkort
             </button>
           )}
           <button type="button" data-testid="test-flytta-mig" aria-pressed={testFlyttaMig} onClick={() => setTestFlyttaMig((v) => !v)}
-            style={{ background: testFlyttaMig ? '#1a1200' : 'rgba(0,0,0,0.25)', color: testFlyttaMig ? '#f59e0b' : '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+            style={{ background: testFlyttaMig ? FARG.text : FARG.fyllning, color: testFlyttaMig ? FARG.bg : FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
             {testFlyttaMig ? 'Tryck på kartan' : 'Flytta mig hit'}
           </button>
           <button type="button" onClick={avslutaTestlage}
-            style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+            style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
             Avsluta
           </button>
         </div>
@@ -13629,6 +13693,13 @@ export default function PlannerPage() {
             brand: Number.isFinite(Number(valtObjekt.lat)) && Number.isFinite(Number(valtObjekt.lng)) && valtObjekt.lat != null && valtObjekt.lng != null ? { lat: Number(valtObjekt.lat), lng: Number(valtObjekt.lng) } : null,
             onBrand: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
             klarRad: klarGaller ? { chip: klarChip } : null,
+            // Besök på trakten: bara planeraren (riktig admin) i planeringsläget — aldrig i maskinen eller för en förare.
+            besok: kortRoll === 'planerare' && isAdminRiktig && !maskinlage && !maskinSomParam && valtObjekt.id ? {
+              objektId: String(valtObjekt.id), status: valtObjekt.status ?? null,
+              markagare: valtObjekt.markagare ?? null, markagareTel: valtObjekt.markagare_tel ?? null, fastighet: valtObjekt.fastighetsbeteckning ?? null,
+              planeradStart: valtObjekt.planerad_start ?? null, faktiskStart: valtObjekt.faktisk_start ?? null, pagaendeStartad: valtObjekt.pagaende_startad_timestamp ?? null,
+              fokusSms: besokFokus,
+            } satisfies BesokPlanerareProps : null,
             dokument: harDok ? {
               antal: dokAntal,
               chips: (
@@ -14078,6 +14149,17 @@ export default function PlannerPage() {
           roll={malbildRoll}
           onVisaMalbild={setLarmMalbildOppen}
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
+        />
+      )}
+      {/* BESÖK PÅ TRAKTEN — orange kort högst upp i hytten tills Uppfattat (hooken useBesokHytt). Larm och lossningsflödet går före. */}
+      {instruktionerAktiv && besokKortSynligt && (
+        <BesokKortHytt
+          top={instruktionTop}
+          besok={besokHytt.vantar[0]}
+          fler={besokHytt.vantar.length - 1}
+          sparar={besokHytt.sparar === besokHytt.vantar[0].id}
+          fel={besokHytt.fel}
+          onUppfattat={() => { void besokHytt.kvittera(besokHytt.vantar[0].id); }}
         />
       )}
       {korvyActive && inst.kort && (
@@ -15354,7 +15436,7 @@ export default function PlannerPage() {
                     <div key={mm.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>{forfattarText(mm.namn, mm.skapad_at)}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <audio controls src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
+                        <LjudSpelare src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
                         {(arMitt(mm) || isAdminRiktig) && (
                           <button onClick={() => raderaYtaMedia(nyckel, mm)} aria-label="Ta bort"
                             style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: '15px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ff6961', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
@@ -16107,7 +16189,7 @@ export default function PlannerPage() {
               {/* Inspelat ljud (visas under knapparna) */}
               {marker.audioData && !isRecordingAudio && (
                 <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <audio controls src={marker.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
+                  <LjudSpelare src={marker.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
                   <button onClick={() => { if (marker.audioData) deleteAudioFromStorage(marker.audioData); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, audioData: undefined } : m)); }} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                 </div>
               )}
@@ -16161,7 +16243,7 @@ export default function PlannerPage() {
                                 >{isRecThis ? '⏹' : '🎤'}{isRecThis && <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                                 {note.audioData && !isRecThis && (
                                   <>
-                                    <audio controls src={note.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
+                                    <LjudSpelare src={note.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
                                     <button onClick={() => { if (note.audioData) deleteAudioFromStorage(note.audioData); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, audioData: undefined } : n) } : m)); }} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                                   </>
                                 )}
@@ -16176,7 +16258,7 @@ export default function PlannerPage() {
                           {/* Visa ljud (ej redigering) */}
                           {!isEditing && note.audioData && (
                             <div style={{ marginTop: '6px' }}>
-                              <audio controls src={note.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
+                              <LjudSpelare src={note.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
                             </div>
                           )}
                         </div>
@@ -16205,7 +16287,7 @@ export default function PlannerPage() {
                             >{isRecNew ? '⏹' : '🎤'}{isRecNew && <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                             {pendingAudio && !isRecNew && (
                               <>
-                                <audio controls src={pendingAudio} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
+                                <LjudSpelare src={pendingAudio} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
                                 <button onClick={() => { if (pendingAudio) deleteAudioFromStorage(pendingAudio); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === newId ? { ...n, audioData: undefined } : n) } : m)); }} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                               </>
                             )}
@@ -17212,6 +17294,8 @@ export default function PlannerPage() {
                     )}
                   </div>
                 )}
+                {/* Notiser i hytten (Windows-notis när appen inte är framme) — bara maskindatorn, som GPS-källa-kortet. */}
+                {webSerialStott && <HyttNotiserKort />}
                 {/* Lägen */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
@@ -17655,7 +17739,7 @@ export default function PlannerPage() {
                   </div>
                   {hasAudio && !isRecThis && (
                     <div style={{ marginTop: '8px' }}>
-                      <audio controls src={editingMarker.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
+                      <LjudSpelare src={editingMarker.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
                     </div>
                   )}
                 </div>
@@ -19733,7 +19817,7 @@ export default function PlannerPage() {
               {/* Audio */}
               {cv.audioData && (
                 <div style={{ marginBottom: '10px' }}>
-                  <audio controls src={cv.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
+                  <LjudSpelare src={cv.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
                 </div>
               )}
               {/* Buttons */}
