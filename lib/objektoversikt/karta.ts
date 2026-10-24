@@ -348,3 +348,24 @@ export function markeringKort(data: unknown, rader: readonly KartKommentarRad[],
     foto: photoPath || photoData ? { photoPath, photoData, photoTs: typeof d.photoTs === 'number' ? d.photoTs : null } : null,
   };
 }
+
+// --- Hela trakten ------------------------------------------------------------------------------------------------------
+
+export type TraktSiffror = { skordat: string; skotat: string | null; kvar: string | null };
+
+/**
+ * Siffrorna under kartan, utan att man ritar: skördat (stammarna med position), skotat (lassen som räknas, oavsett var
+ * de lastades) och kvar. null = går inte att säga (skotarens lass kunde inte läsas). Inga lass = "inga lass än".
+ */
+export function traktSiffror(stammar: readonly KartStam[], lass: readonly SkotarLass[] | null): TraktSiffror {
+  const s = stammar.reduce((a, x) => a + (x.volym || 0), 0);
+  const skordatM3 = rundaM3(s, s);
+  const skordat = `${tal(skordatM3)} m³fub`;
+  if (lass == null) return { skordat, skotat: null, kvar: null };
+  const raknade = lass.filter(l => l.m3 > 0);
+  if (raknade.length === 0) return { skordat, skotat: 'inga lass än', kvar: null };
+  const k = raknade.reduce((a, l) => a + l.m3, 0);
+  const skotatM3 = rundaM3(k, k);
+  const kvarM3 = Math.max(0, rundaM3(skordatM3 - skotatM3, skordatM3));
+  return { skordat, skotat: `${tal(skotatM3)} m³fub`, kvar: `ca ${tal(kvarM3)} m³fub` };
+}

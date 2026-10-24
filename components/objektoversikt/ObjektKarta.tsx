@@ -35,7 +35,7 @@ import { rollFarg } from '@/lib/sparStil';
 import { arDubbeltryck, type TryckPunkt } from '@/lib/ritaPunkter';
 import { formatLength, pathMeters } from '@/lib/geoMat';
 import { lasKartdata, type KartData, type KartMaskin } from '@/lib/objektoversikt/lasKarta';
-import { hogFeatures, iOmradet, markeringKort, maskinRad, omradeSvar, omradeUnder, rutaRunt, skotatIOmradet, skotatRader, type LngLat } from '@/lib/objektoversikt/karta';
+import { hogFeatures, iOmradet, markeringKort, maskinRad, omradeSvar, omradeUnder, rutaRunt, skotatIOmradet, skotatRader, traktSiffror, type LngLat } from '@/lib/objektoversikt/karta';
 import { KommentarVisning } from '@/components/planering/KommentarRuta';
 import MarkeringFoto from '@/app/planering/MarkeringFoto';
 
@@ -367,6 +367,7 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
 
   const omrade = mat === 'yta' && data ? iOmradet(data.stammar, tryck) : null;
   const skotat = omrade && data?.skotarLass ? skotatRader(omrade.m3, skotatIOmradet(data.skotarLass, tryck, data.vidaRingar)) : null;
+  const hela = data ? traktSiffror(data.stammar, data.skotarLass) : null;
   const kort = valdMark != null && data?.markeringar[valdMark] ? markeringKort(data.markeringar[valdMark].data, data.kommentarer) : null;
   const langd = mat === 'linje' && tryck.length >= 2 ? pathMeters(tryck) : null;
 
@@ -468,6 +469,13 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
           </div>
         ) : (
           <div style={{ padding: AVSTAND.m, background: FARG.kort }}>
+            {hela && (data?.stammar.length ?? 0) > 0 && (
+              <div style={{ padding: `0 ${AVSTAND.xs}px ${AVSTAND.m}px` }} data-hela-trakten="">
+                <Summa namn="Skördat" varde={hela.skordat} />
+                {hela.skotat && <Summa namn="Skotat" varde={hela.skotat} />}
+                {hela.kvar && <Summa namn="Kvar" varde={hela.kvar} />}
+              </div>
+            )}
             {lager.hogar && hogTradslag.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: `${AVSTAND.xs}px ${AVSTAND.m}px`, padding: `0 ${AVSTAND.xs}px ${AVSTAND.m}px`, ...TYP.meta, color: FARG.text2 }} data-forklaring-hogar="">
                   {hogTradslag.map(t => (
@@ -475,7 +483,7 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
                       <span aria-hidden="true" style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, background: t.farg }} />{t.namn}
                     </span>
                   ))}
-                  <span>· Prickarna är skördarens högar.</span>
+                  <span>· Prickarna är skördarens högar. Rita runt ett område för att se det där.</span>
                 </div>
               )}
             <button type="button" onClick={() => borjaMata('yta')} data-kartknapp="mat"

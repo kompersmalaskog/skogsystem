@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hogFeatures, inneIRing, markeringKort, medOptiSpar, raknadeSkotarLass, skotatIOmradet, skotatRader, type SkotarLass, iOmradet, inomRuta, maskinRad, omradeSvar, omradeUnder, rundaM3, rutaRunt, senastText, sistaPunkt, type KartStam, type LngLat } from './karta';
+import { hogFeatures, inneIRing, markeringKort, medOptiSpar, raknadeSkotarLass, skotatIOmradet, skotatRader, traktSiffror, type SkotarLass, iOmradet, inomRuta, maskinRad, omradeSvar, omradeUnder, rundaM3, rutaRunt, senastText, sistaPunkt, type KartStam, type LngLat } from './karta';
 import { klustraStammar } from '@/lib/produktionshogar';
 
 // En kvadrat ~111 m × ~62 m vid 56° N.
@@ -178,5 +178,17 @@ describe('tryck på en markering', () => {
     expect(k.namn).toBe('Stenmur');
     expect(k.kommentarer).toEqual([]);
     expect(k.foto).toBeNull();
+  });
+});
+
+describe('hela trakten under kartan', () => {
+  const st: KartStam[] = [{ lat: 56, lng: 15, volym: 700.4, tradslag: 'Gran' }, { lat: 56, lng: 15, volym: 700.5, tradslag: 'Tall' }];
+  const l = (m3: number): SkotarLass => ({ maskin: 'S', tidMs: 1, datum: '2026-10-20', m3, app: false, spar: null });
+  it('skördat, skotat och kvar', () => {
+    expect(traktSiffror(st, [l(650), l(640)])).toEqual({ skordat: '1 401 m³fub'.replace(' ', '\u00a0'), skotat: '1 290 m³fub'.replace(' ', '\u00a0'), kvar: 'ca 111 m³fub' });
+  });
+  it('inga lass och läsfel', () => {
+    expect(traktSiffror(st, []).skotat).toBe('inga lass än');
+    expect(traktSiffror(st, null)).toEqual({ skordat: expect.any(String), skotat: null, kvar: null });
   });
 });
