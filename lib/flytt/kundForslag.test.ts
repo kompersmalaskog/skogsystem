@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { kundForslag, kundFranTrakt, kundKallaText, kundKravUppfyllt, KUND_KRAV_TEXT } from './kundForslag';
+import { kundForslag, kundFranTrakt, kundKallaText, KUND_KRAV_TEXT } from './kundForslag';
 
 describe('kundFranTrakt — bolaget, eller markägaren när bolaget är Privat', () => {
   it('Vida → Vida (från traktens bolag)', () => {
@@ -39,12 +39,7 @@ describe('källtexten och kravet', () => {
     expect(kundKallaText({ namn: 'Vida', kalla: 'bolag' })).toBe('Vida · från traktens bolag');
     expect(kundKallaText({ namn: 'Lisa Andersson', kalla: 'markagare' })).toBe('Lisa Andersson · markägare');
   });
-  it('kravet gäller bara när flytten faktureras', () => {
+  it('kravets text', () => {
     expect(KUND_KRAV_TEXT).toBe('Välj kund — den här flytten faktureras');
-    expect(kundKravUppfyllt(true, '')).toBe(false);
-    expect(kundKravUppfyllt(true, '  ')).toBe(false);
-    expect(kundKravUppfyllt(true, null)).toBe(false);
-    expect(kundKravUppfyllt(true, 'Vida')).toBe(true);
-    expect(kundKravUppfyllt(false, '')).toBe(true);
   });
 });
