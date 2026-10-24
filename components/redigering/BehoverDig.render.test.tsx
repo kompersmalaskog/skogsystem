@@ -139,6 +139,25 @@ describe('Behöver dig', () => {
     expect(ignorera).toHaveBeenCalledWith(fil.jobb);
   });
 
+  it('ett maskinobjekt utan trakt (ersätter vyn Matchning): frågan säger trakt, och mängden står på raden', async () => {
+    const koppla = vi.fn(async () => true);
+    const [sak] = byggSaker({ grupper: [], alla: [], bolagVal: [], filJobb: [{
+      nyckel: 'mo:11299001', namn: 'Hult Au', vo: '11299001', stammar: 0, datum: '2026-10-20', maskinNamn: 'Elefant 26',
+      mangd: '120 m³ skotat', slag: 'maskinobjekt', kandidater: [{ objekt_id: 'h', vo_nummer: '11299002', object_name: 'Hult Au' }],
+    }] });
+    expect(sak.under).toBe('Elefant 26 · 20 okt · 120 m³ skotat · ingen trakt');
+    el = document.createElement('div'); document.body.appendChild(el);
+    root = createRoot(el);
+    act(() => root!.render(<BehoverDig saker={[sak]} antalObjekt={10} onSparaFalt={async () => true} onKoppla={koppla} onIgnorera={async () => true}
+      sokObjekt={() => []} onOppnaObjekt={() => {}} />));
+    await klick(document.querySelector('[data-sak="fil:mo:11299001"]') as HTMLElement);
+    const ark = document.querySelector('[role=dialog]')!.textContent!;
+    expect(ark).toContain('Vilken trakt hör det till?');
+    expect(ark).toContain('Inget jobb för oss – ta bort');
+    await klick(knapp('Koppla till Hult Au'));
+    expect(koppla).toHaveBeenCalled();
+  });
+
   it('flera saker på samma objekt: EN rad, frågan först och sist det man rättar i objektet', async () => {
     const MOLLERYD = rad('11166477', 'Mölleryd RP J-Hus -25', { huvudtyp: 'Slutavverkning', bolag: 'Vida', cutting_method: 'ClearCutting' });
     const saker = byggSaker({ grupper: [{ nyckel: 'M', rep: MOLLERYD, ids: [MOLLERYD.objekt_id], varningar: [

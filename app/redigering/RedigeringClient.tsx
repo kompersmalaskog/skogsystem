@@ -8,7 +8,6 @@ import { hamtaRisKandidater, hamtaKopplingar, sparaKopplingar, grotHamtadAutomat
 import { hamtaAckordgrundAuto, type AckordgrundAuto } from '@/lib/ekonomi/ackordgrund'
 import { useMatchning } from './hooks/useMatchning'
 import { useFildata, filStatus, slaIhopFildata, harExternSkotning, harExternSkordning, skordareForvantasEj, skotareForvantasEj } from './hooks/useFildata'
-import MatchningsVy from './MatchningsVy'
 import SkotareFordelning from './SkotareFordelning'
 import { arRisjobb, arGrotHuvudtyp } from '@/lib/objekt/typ'
 import { sparaFalt, resolveObjektRad, FALT_RUTT } from '@/lib/redigering/objektRouter'
@@ -22,12 +21,15 @@ import Ark from '@/components/design/Ark'
 import { useFilerUtanObjekt } from '@/lib/hooks/useFilerUtanObjekt'
 import { delaFilJobb, kandidaterFor, sokObjekt as sokPlanObjekt } from '@/lib/redigering/filerUtanObjekt'
 import { okopplatJobb, altNummerAttSkriva, ignoreradNyckel, nummerbyten, type OkopplatJobb } from '@/lib/objektNummer'
-import BehoverDig from '@/components/redigering/BehoverDig'
+import BehoverDig, { EnFragaArk } from '@/components/redigering/BehoverDig'
+import Sektion from '@/components/design/Sektion'
+import Rad from '@/components/design/Rad'
 import ObjektOversikt from '@/components/redigering/ObjektOversikt'
 import ObjektLista from '@/components/redigering/ObjektLista'
 import type { ListGrupp } from '@/lib/redigering/listaVy'
 import { voGruppKarta, medVoGrupp } from '@/lib/redigering/voGrupp'
 import { byggSaker, patchForSvar, type BehoverGrupp, type FilJobb, type Sak } from '@/lib/redigering/behoverDig'
+import { delaMaskinobjekt, altNummerForMaskinobjekt, mangdText, maskinText, type MaskinobjektRad } from '@/lib/redigering/maskinobjektUtanTrakt'
 import PdfLasare from '@/app/planering/PdfLasare'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
@@ -3270,8 +3272,8 @@ function ObjektRedigeringInner() {
   const [redigerObj, setRedigerObj] = useState<any>(null)
   const [saveError, setSaveError] = useState('')
   const [visaAllaObjekt, setVisaAllaObjekt] = useState(false)
-  const [visaMatchning, setVisaMatchning] = useState(false)
   const [visaGamlaFiler, setVisaGamlaFiler] = useState(false)
+  const [aldreMo, setAldreMo] = useState<MaskinobjektRad | null>(null)
   // Maskinfiler utan objekt (lib/redigering/filerUtanObjekt.ts): de senaste 30 dagarna är frågor i Behöver dig, äldre
   // ligger tyst bakom en rad längst ner i listan.
   const filerUO = useFilerUtanObjekt()
@@ -3600,16 +3602,35 @@ function ObjektRedigeringInner() {
     ? delaFilJobb(okopplatJobb(filerUO.data.filer, filerUO.data.objekt, filerUO.data.alias), filerUO.data.ignorerade, new Date())
     : { aktuella: [] as OkopplatJobb[], tysta: 0 }
   const filByten = filerUO.status === 'ok' ? nummerbyten(filerUO.data.alias, filerUO.data.objekt).length : 0
+  // Maskinobjekt utan trakt (ersätter vyn Matchning, lib/redigering/maskinobjektUtanTrakt.ts): kört de senaste 30
+  // dagarna = en fråga här; äldre ligger tyst under "Äldre maskinfiler". Kräver extra numren lästa — annars kan en
+  // kopplad trakt (Mölleryd) se okopplad ut, och då frågar vi hellre inte alls.
+  const moDelning = filerUO.status === 'ok' && matchning.status === 'ok'
+    ? delaMaskinobjekt(
+        matchning.omatchadeMaskin as MaskinobjektRad[],
+        filerUO.data.alias,
+        new Set(okopplatJobb(filerUO.data.filer, filerUO.data.objekt, filerUO.data.alias).map(j => String(j.ident ?? '').trim()).filter(Boolean)),
+        new Date(),
+      )
+    : { aktuella: [] as MaskinobjektRad[], tysta: [] as MaskinobjektRad[] }
+  const moSomFraga = (m: MaskinobjektRad): FilJobb & { _mo: MaskinobjektRad } => ({
+    nyckel: `mo:${m.objektId}`, namn: m.namn, vo: String(m.voNummer ?? ''), stammar: 0, datum: m.senasteAktivitet,
+    maskinNamn: maskinText(m), mangd: mangdText(m), slag: 'maskinobjekt',
+    kandidater: filerUO.status === 'ok'
+      ? kandidaterFor({ namn: m.namn }, filerUO.data.objekt).map(o => ({ objekt_id: o.id, vo_nummer: o.vo_nummer, object_name: o.namn }))
+      : [],
+    _mo: m,
+  })
   const saker = byggSaker({
     grupper: behoverGrupper,
     alla: objekt,
     bolagVal: bolag,
-    filJobb: filDelning.aktuella.map((j: OkopplatJobb) => ({
+    filJobb: ([] as FilJobb[]).concat(filDelning.aktuella.map((j: OkopplatJobb) => ({
       nyckel: j.nyckel ?? j.filnamn, namn: j.namn, vo: j.ident ?? '', stammar: j.stammar, datum: j.datum,
       maskinNamn: (j.maskin && maskiner[j.maskin]) || j.maskin || 'Maskin',
       kandidater: kandidaterFor(j, filerUO.data.objekt).map(o => ({ objekt_id: o.id, vo_nummer: o.vo_nummer, object_name: o.namn })),
       _jobb: j,
-    } as FilJobb & { _jobb: OkopplatJobb })),
+    } as FilJobb & { _jobb: OkopplatJobb })), moDelning.aktuella.map(moSomFraga)),
   })
 
   async function sparaSvar(sak: Extract<Sak, { typ: 'falt' }>, varde: string): Promise<boolean> {
@@ -3622,6 +3643,18 @@ function ObjektRedigeringInner() {
   // Koppla = filens nummer blir ett extra nummer på objektet (samma som importen gör vid namnträff). Räknas som gjort
   // först när filen är borta ur listan vid omläsning.
   async function kopplaSvar(jobb: FilJobb, kandidat: { objekt_id: string }): Promise<boolean> {
+    const mo: MaskinobjektRad | undefined = (jobb as any)._mo
+    if (mo) {
+      // Maskinobjektets nummer blir ett extra nummer på trakten — objekt.dim_objekt_id rörs aldrig (den kan bara peka på
+      // ett maskinobjekt, och en trakt har ofta två: skördarens och skotarens). Gjort först när numret finns vid omläsning.
+      const rad = altNummerForMaskinobjekt(mo, kandidat.objekt_id)
+      if (!rad) return false
+      const { data: skrivet, error } = await supabase.from('objekt_alt_nummer').insert(rad).select('id')
+      if (error || !skrivet || skrivet.length === 0) return false
+      const ny = await filerUO.ladda()
+      matchning.uppdatera()
+      return !!ny && ny.alias.some(a => String(a.nummer).trim() === rad.nummer && !a.maskin_id)
+    }
     const j: OkopplatJobb | undefined = (jobb as any)._jobb
     const rad = j ? altNummerAttSkriva(j, kandidat.objekt_id) : null
     if (!j || !rad) return false
@@ -3631,6 +3664,14 @@ function ObjektRedigeringInner() {
     return !!ny && !okopplatJobb(ny.filer, ny.objekt, ny.alias).some(x => (x.nyckel ?? x.filnamn) === (j.nyckel ?? j.filnamn))
   }
   async function ignoreraSvar(jobb: FilJobb): Promise<boolean> {
+    const mo: MaskinobjektRad | undefined = (jobb as any)._mo
+    if (mo) {
+      // Inget jobb för oss: döljs i listor och statistik (samma flagga som Ta bort objektet, går att ångra under Exkluderade).
+      const { data, error } = await supabase.from('dim_objekt').update({ exkludera: true }).eq('objekt_id', mo.objektId).select('objekt_id')
+      if (error || !data || data.length === 0) return false
+      matchning.uppdatera()
+      return true
+    }
     const j: OkopplatJobb | undefined = (jobb as any)._jobb
     if (!j) return false
     const { data: skrivet, error } = await supabase.from('hpr_ignorerad').insert({ nyckel: ignoreradNyckel(j) }).select('nyckel')
@@ -3687,10 +3728,6 @@ function ObjektRedigeringInner() {
     )
   }
 
-  if (visaMatchning) {
-    return <MatchningsVy matchning={matchning} onBack={() => setVisaMatchning(false)} />
-  }
-
   if (visaAllaObjekt) {
     return <AllaObjektVy objekt={objekt} setObjekt={setObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} maskiner={maskiner} kortInfo={kortInfo} fildata={fildata} listAtgarder={listAtgarder} onBack={() => setVisaAllaObjekt(false)} />
   }
@@ -3723,9 +3760,7 @@ function ObjektRedigeringInner() {
         grupper={aktivaGrupper.map(tillListGrupp)}
         exkluderade={exkluderadeGrupper.map(tillListGrupp)}
         onOppna={(nyckel: string) => { const g = allaGrupper.find(x => x.nyckel === nyckel); if (g) openObjekt(g.rep) }}
-        onMatchning={() => setVisaMatchning(true)}
-        matchningUtan={matchning.status === 'ok' ? matchning.omatchadeMaskin.length : null}
-        aldreFiler={filDelning.tysta + filByten > 0 ? { antal: filDelning.tysta, byten: filByten } : null}
+        aldreFiler={filDelning.tysta + filByten + moDelning.tysta.length > 0 ? { antal: filDelning.tysta, byten: filByten, maskinobjekt: moDelning.tysta.length } : null}
         onAldreFiler={() => setVisaGamlaFiler(true)}
       />
       {visaGamlaFiler && (
@@ -3733,8 +3768,27 @@ function ObjektRedigeringInner() {
           <p style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.text, color: FARG.text2 }}>
             Filer från jobb som är klara i skogen och aldrig kopplades till ett objekt. Inget behöver göras – koppla eller ignorera om du vill.
           </p>
-          <OkopplFilerKort maskiner={maskiner} startOppen />
+          {filDelning.tysta + filByten > 0 && <OkopplFilerKort maskiner={maskiner} startOppen />}
+          {moDelning.tysta.length > 0 && (
+            <Sektion rubrik="Maskinobjekt utan trakt" kort={false}
+              not="Maskinens objekt som aldrig knöts till en trakt. Nästan alla är avslutade jobb från innan planeringen fanns.">
+              {moDelning.tysta.map((m, i) => (
+                <Rad key={m.objektId} titel={(m.namn ?? '').trim() || (m.voNummer ? `VO ${m.voNummer}` : 'Namnlöst')}
+                  under={[maskinText(m), m.senasteAktivitet ? `senast ${m.senasteAktivitet}` : null, mangdText(m)].filter(Boolean).join(' · ')}
+                  attr={{ 'data-aldre-mo': m.objektId }} sista={i === moDelning.tysta.length - 1}
+                  onTryck={() => setAldreMo(m)} />
+              ))}
+            </Sektion>
+          )}
         </Ark>
+      )}
+      {aldreMo && (
+        <EnFragaArk
+          sak={{ typ: 'fil', nyckel: `mo:${aldreMo.objektId}`, jobb: moSomFraga(aldreMo), namn: aldreMo.namn || `VO ${aldreMo.voNummer}`, under: [maskinText(aldreMo), mangdText(aldreMo)].filter(Boolean).join(' · ') }}
+          onStang={() => setAldreMo(null)}
+          onKoppla={kopplaSvar} onIgnorera={ignoreraSvar}
+          sokObjekt={(q: string) => sokPlanObjekt(filerUO.data.objekt, q).map(o => ({ objekt_id: o.id, vo_nummer: o.vo_nummer, object_name: o.namn }))}
+        />
       )}
 
       </div>

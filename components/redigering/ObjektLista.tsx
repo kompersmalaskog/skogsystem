@@ -1,7 +1,7 @@
 'use client';
 // Redigeringens objektlista under "Behöver dig" (Martin 2026-10-23: per månad, per gallring/slutavverkning, som skissen).
 // Hitta ett objekt (sök + typ) · Pågår · Skotning kvar · senaste månaden öppen · Tidigare (en rad per månad, fälls ut på
-// plats) · Matchning och Exkluderade sist. All text ur lib/redigering/listaVy.ts.
+// plats) · Äldre maskinfiler och Exkluderade sist. All text ur lib/redigering/listaVy.ts.
 
 import { useMemo, useState } from 'react';
 import { AVSTAND, FARG, IKON, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
@@ -15,15 +15,12 @@ export interface ObjektListaProps {
   grupper: ListGrupp[];
   exkluderade: ListGrupp[];
   onOppna: (nyckel: string) => void;
-  onMatchning: () => void;
-  /** Maskinobjekt utan planering (matchningens första tal); null medan det läses eller när det inte gick. */
-  matchningUtan: number | null;
-  /** Äldre maskinfiler utan objekt (jobb som är klara i skogen) och nummerbyten importen gjort; null = inga. */
-  aldreFiler?: { antal: number; byten: number } | null;
+  /** Äldre maskinfiler och maskinobjekt utan trakt (jobb som är klara i skogen) och nummerbyten importen gjort; null = inga. */
+  aldreFiler?: { antal: number; byten: number; maskinobjekt?: number } | null;
   onAldreFiler?: () => void;
 }
 
-export default function ObjektLista({ grupper, exkluderade, onOppna, onMatchning, matchningUtan, aldreFiler, onAldreFiler }: ObjektListaProps) {
+export default function ObjektLista({ grupper, exkluderade, onOppna, aldreFiler, onAldreFiler }: ObjektListaProps) {
   const [typ, setTyp] = useState<TypFilter>('alla');
   const [sok, setSok] = useState('');
   const [oppna, setOppna] = useState<Set<string>>(new Set());
@@ -96,13 +93,15 @@ export default function ObjektLista({ grupper, exkluderade, onOppna, onMatchning
         </Sektion>
       )}
 
+      {((aldreFiler && onAldreFiler) || exklSynliga.length > 0) && (
       <Sektion rubrik="Övrigt" inset>
-        <Rad titel="Matchning" under="Maskinobjekt mot planerade objekt" onTryck={onMatchning}
-          hoger={matchningUtan != null && matchningUtan > 0 ? <span style={{ fontWeight: 400, color: FARG.orange }}>{matchningUtan} utan planering</span> : undefined}
-          sista={exklSynliga.length === 0 && !aldreFiler} />
         {aldreFiler && onAldreFiler && (
           <Rad titel="Äldre maskinfiler" attr={{ 'data-aldre-filer': '' }} sista={exklSynliga.length === 0} onTryck={onAldreFiler}
-            under={[aldreFiler.antal > 0 ? `${aldreFiler.antal} utan objekt` : null, aldreFiler.byten > 0 ? `${aldreFiler.byten} bytte nummer` : null].filter(Boolean).join(' · ')} />
+            under={[
+              aldreFiler.antal > 0 ? `${aldreFiler.antal} filer utan objekt` : null,
+              (aldreFiler.maskinobjekt ?? 0) > 0 ? `${aldreFiler.maskinobjekt} maskinobjekt utan trakt` : null,
+              aldreFiler.byten > 0 ? `${aldreFiler.byten} bytte nummer` : null,
+            ].filter(Boolean).join(' · ')} />
         )}
         {exklSynliga.length > 0 && (
           <Rad titel="Exkluderade" under="Döljs i statistiken" pil={false} sista={!visaExkl} onTryck={() => setVisaExkl(v => !v)}
@@ -119,6 +118,7 @@ export default function ObjektLista({ grupper, exkluderade, onOppna, onMatchning
           </div>
         ))}
       </Sektion>
+      )}
     </div>
   );
 }

@@ -170,7 +170,7 @@ describe('ObjektLista', () => {
 
   it('Pågår, senaste månaden öppen, äldre månader fälls ut, typ och sök', async () => {
     const oppna = vi.fn();
-    montera(<ObjektLista grupper={GRUPPER} exkluderade={[g('Test', {})]} onOppna={oppna} onMatchning={() => {}} matchningUtan={2} />);
+    montera(<ObjektLista grupper={GRUPPER} exkluderade={[g('Test', {})]} onOppna={oppna} aldreFiler={{ antal: 3, byten: 0, maskinobjekt: 75 }} onAldreFiler={() => {}} />);
     expect(text()).toContain('Pågår');
     expect(text()).toContain('Oktober 2026');
     expect(document.querySelector('[data-rad="Rössmåla"]')).toBeNull(); // september är hopfälld
@@ -192,7 +192,9 @@ describe('ObjektLista', () => {
     });
     expect(document.querySelector('[data-rad="Tjuvön"]')).not.toBeNull();
     expect(document.querySelector('[data-rad="Åbogen"]')).toBeNull();
-    expect(text()).toContain('2 utan planering');
+    // Matchning finns inte längre; de gamla maskinobjekten ligger tyst under Äldre maskinfiler.
+    expect(text()).not.toContain('Matchning');
+    expect(document.querySelector('[data-aldre-filer]')!.textContent).toContain('3 filer utan objekt · 75 maskinobjekt utan trakt');
   });
 });
 

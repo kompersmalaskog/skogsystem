@@ -51,6 +51,10 @@ export interface FilJobb {
   /** Senaste filens dag ("2026-10-23"). */
   datum?: string | null;
   kandidater: { objekt_id: string; vo_nummer: string | null; object_name: string | null; skogsagare?: string | null }[];
+  /** 'maskinobjekt' = maskinens objekt utan trakt (ingen fil-nyckel): frågan och knapparna säger trakt i stället för fil. */
+  slag?: 'fil' | 'maskinobjekt';
+  /** "300 m³ skotat" — visas i stället för stammar när den finns. */
+  mangd?: string | null;
 }
 
 export type Sak =
@@ -117,7 +121,7 @@ export function byggSaker(input: { grupper: BehoverGrupp[]; alla: HarledRad[]; f
   const filer: Sak[] = input.filJobb.map(j => ({
     typ: 'fil' as const, nyckel: `fil:${j.nyckel}`, jobb: j,
     namn: j.namn || `VO ${j.vo}`,
-    under: [j.maskinNamn, filDag(j.datum), j.stammar > 0 ? `${j.stammar.toLocaleString('sv-SE')} stammar` : null, 'inget objekt'].filter(Boolean).join(' · '),
+    under: [j.maskinNamn, filDag(j.datum), j.mangd ?? (j.stammar > 0 ? `${j.stammar.toLocaleString('sv-SE')} stammar` : null), j.slag === 'maskinobjekt' ? 'ingen trakt' : 'inget objekt'].filter(Boolean).join(' · '),
   }));
 
   // Ett objekt = en rad. Har objektet bara en sak står den som förut; flera blir en objektrad.

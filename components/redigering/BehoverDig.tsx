@@ -199,6 +199,7 @@ function SakArk({ sak, plats, onStang, onKlar, onSparaFalt, onKoppla, onIgnorera
     const traffar = sokObjekt(sok).filter(k => !jobb.kandidater.some(x => x.objekt_id === k.objekt_id));
     const alla = [...jobb.kandidater, ...traffar];
     const valdKandidat = alla.find(k => k.objekt_id === valt) ?? null;
+    const mo = jobb.slag === 'maskinobjekt';
     const fot = (
       <>
         {felRad}
@@ -208,7 +209,7 @@ function SakArk({ sak, plats, onStang, onKlar, onSparaFalt, onKoppla, onIgnorera
         </button>
         <button type="button" disabled={sparar} onClick={() => kor(() => onIgnorera(jobb))}
           style={{ ...KNAPP.tertiar, alignSelf: 'center' }} data-ignorera="">
-          Hör inte till något objekt
+          {mo ? 'Inget jobb för oss – ta bort' : 'Hör inte till något objekt'}
         </button>
         {hoppa}
       </>
@@ -217,9 +218,11 @@ function SakArk({ sak, plats, onStang, onKlar, onSparaFalt, onKoppla, onIgnorera
       <Ark rubrik={plats} onStang={onStang} fot={fot}>
         {huvud(
           sak.under,
-          'Vilket objekt hör filen till?',
-          jobb.namn ?? 'Namnlös fil',
-          jobb.kandidater.length > 0 ? 'Namnet i filen liknar det här objektet mest.' : 'Inget objekt har ett namn som liknar filens. Sök fram det nedan.',
+          mo ? 'Vilken trakt hör det till?' : 'Vilket objekt hör filen till?',
+          jobb.namn ?? (mo ? 'Namnlöst maskinobjekt' : 'Namnlös fil'),
+          jobb.kandidater.length > 0
+            ? (mo ? 'Maskinens namn liknar den här trakten mest.' : 'Namnet i filen liknar det här objektet mest.')
+            : (mo ? 'Ingen trakt har ett namn som liknar maskinens. Sök fram den nedan.' : 'Inget objekt har ett namn som liknar filens. Sök fram det nedan.'),
         )}
         {jobb.kandidater.length > 0 && (
           <Sektion rubrik="Troligast" kort={false}>
@@ -231,7 +234,7 @@ function SakArk({ sak, plats, onStang, onKlar, onSparaFalt, onKoppla, onIgnorera
           </Sektion>
         )}
         <Sektion rubrik={jobb.kandidater.length > 0 ? 'Något annat objekt?' : 'Sök objekt'} kort={false}
-          not="Filen ändras inte. Den knyts till objektet, så skotaren ser högarna.">
+          not={mo ? 'Numret blir ett extra nummer på trakten, så produktionen syns där. Inget skrivs över.' : 'Filen ändras inte. Den knyts till objektet, så skotaren ser högarna.'}>
           <input value={sok} onChange={e => setSok(e.target.value)} placeholder="Namn eller VO-nummer" data-sok-objekt=""
             style={{ width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, borderRadius: RADIE.knapp, border: 'none', background: FARG.upphojt, color: FARG.text, ...TYP.text, fontFamily: 'inherit', outline: 'none' }} />
           {traffar.map((k, i) => (
@@ -294,5 +297,17 @@ function ObjektSakArk({ sak, plats, onStang, onKlar, onSparaFalt, onOppnaObjekt 
         {sak.ovrigt.map((t, i) => <Rad key={t} titel={t} pil={false} sista={i === sak.ovrigt.length - 1} />)}
       </Sektion>
     </Ark>
+  );
+}
+
+/** En enda fil- eller maskinobjekt-fråga i samma ark som Behöver dig (används från "Äldre maskinfiler"). */
+export function EnFragaArk({ sak, onStang, onKoppla, onIgnorera, sokObjekt }: {
+  sak: Extract<Sak, { typ: 'fil' }>; onStang: () => void;
+  onKoppla: BehoverDigProps['onKoppla']; onIgnorera: BehoverDigProps['onIgnorera']; sokObjekt: BehoverDigProps['sokObjekt'];
+}) {
+  return (
+    <SakArk sak={sak} plats={sak.jobb.slag === 'maskinobjekt' ? 'Maskinobjekt' : 'Maskinfil'} onStang={onStang}
+      onKlar={() => onStang()} onSparaFalt={async () => false} onKoppla={onKoppla} onIgnorera={onIgnorera}
+      sokObjekt={sokObjekt} onOppnaObjekt={() => onStang()} />
   );
 }
