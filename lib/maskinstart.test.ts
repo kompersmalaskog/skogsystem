@@ -157,11 +157,11 @@ describe('startCoverSynlig / startOverlaySynlig / startKameraLas', () => {
 describe('startRadText', () => {
   const ctx = (p: Partial<Parameters<typeof startRadText>[1]>) => ({ posMs: null, kartaRedoMs: 1000, nuMs: 1000, objekt: null, ...p });
 
-  it('utzoomad utan fix: "Söker GPS", sedan "Ingen GPS-fix" (står kvar)', () => {
+  it('utzoomad utan fix: "Söker GPS", sedan "GPS saknas" efter 60 s (står kvar)', () => {
     expect(startRadText('oversikt', ctx({ nuMs: 5000 }))).toBe('Söker GPS');
     expect(startRadText('oversikt', ctx({ nuMs: 1000 + FIX_TIMEOUT_MS - 1 }))).toBe('Söker GPS');
-    expect(startRadText('oversikt', ctx({ nuMs: 1000 + FIX_TIMEOUT_MS }))).toBe('Ingen GPS-fix');
-    expect(startRadText('oversikt', ctx({ nuMs: 1000 + FIX_TIMEOUT_MS * 3 }))).toBe('Ingen GPS-fix');
+    expect(startRadText('oversikt', ctx({ nuMs: 1000 + FIX_TIMEOUT_MS }))).toBe('GPS saknas');
+    expect(startRadText('oversikt', ctx({ nuMs: 1000 + FIX_TIMEOUT_MS * 3 }))).toBe('GPS saknas');
   });
   it('fix finns → ingen rad i översikten (flygningen startar strax)', () => {
     expect(startRadText('oversikt', ctx({ posMs: 900 }))).toBeNull();
