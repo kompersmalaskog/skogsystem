@@ -52,8 +52,8 @@ describe('sidan', () => {
     expect(sida).toContain("(m.arrowType || 'drivedirection') === 'drivedirection'");
     expect(sida).toContain('rader.length === 0 && !korForslagNej && gamla.length > 0');
   });
-  it('Körriktning går inte längre att placera (bara Fällriktning); befintliga pilar ritas som förut', () => {
-    expect(sida).toContain("arrowTypes.filter((t) => t.id !== 'drivedirection').map(type => (");
+  it('Körriktning går inte längre att placera (bara Fällriktning = träd, och Kör upp och backa); befintliga pilar ritas som förut', () => {
+    expect(sida).toContain("arrowTypes.filter((t) => t.id === TRAD_TYP || t.id === KORUPP_TYP).map(type => (");
     expect(sida).toContain("{ id: 'drivedirection', name: 'Körriktning', color: LEGEND.vatten },");
   });
   it('ingången är EN ruta i Rita & mät; läget avslutas av avslutaPagaendeLage och vid objektbyte', () => {

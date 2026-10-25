@@ -167,6 +167,11 @@ import { useKartlager } from '../../lib/hooks/useKartlager'
 import { KARTLAGER_LAGER_ID } from '../../lib/kartlager'
 import { kartBasPaint } from '../../lib/kartBas'
 import { korBredd, korFarg, korEgenskap, korPunkter, korPunktLager, korSkenLager, KOR_OPACITET, KOR_INTE_KLAR, KOR_KALLA, KOR_PIL_BILD, KOR_PIL_FARG } from '../../lib/korordningKarta'
+import { TRAD_TYP, TRAD_KALLA, TRAD_BILD, TRAD_BILD_VALD, TRAD_BILD_MATT, TRAD_LAGER, arFallTrad, arGammalFallpil, ritaTradBild, tradLager, tradData, tradPosUr, synligaTrad, foreslaTrad, vinkelFranPunkt, type TradPos } from '../../lib/fallTrad'
+import { useTvaTryck } from '../../lib/hooks/useTvaTryck'
+import { TVATRYCK_KALLA, tvaTryckData, tvaTryckLager, type TvaStart } from '../../lib/tvaTryck'
+import { installeraRitlageSparr, tillatIRitlage } from '../../lib/ritlageSparr'
+import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_KANT_LAGER, KORUPP_TRAFF_LAGER, arKorUpp, korUppUr, korUppData, korUppLager, ritaSpetsBild, synligaKorUpp, nyKorUpp, KORUPP_SKAL, korUppText, type KorUppPos, type Skal, type SnappVag } from '../../lib/korUpp'
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
 import { KLART_FARG, KLART_LINJE_OPACITET, KLART_YTA_FYLLNING, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_FYLLNING_LAGER, KLART_KANT_LAGER, KLART_LINJELAGER, KLART_TONAS_BORT, INGA_YTOR, arObjektKlart, skotadeYtor } from '../../lib/kartKlart'
@@ -433,6 +438,10 @@ interface Marker {
   lng?: number;
   lat?: number;
   angle?: number;
+  lng2?: number;         // kör upp och backa (vit dubbelpil): slutpunkten (startpunkten är lng/lat)
+  lat2?: number;
+  skal?: string;         // kör upp och backa: inget | blott | brant | stenigt | annat
+  vagId?: string | number;   // kör upp och backa: vägen pilen börjar på
   path?: Point[];
   nummer?: number;      // basväg (mainRoad): automatiskt löpnummer — stabilt, återanvänds aldrig
   farg?: BasvagFarg;     // basväg (mainRoad): röd/gul/blå — heldragen i färgen. Saknas = ritas som förut (blå med gula streck)
@@ -868,6 +877,7 @@ export default function PlannerPage() {
   const korLageRef = useRef(false);
   korLageRef.current = korLage;
   const [korForslagNej, setKorForslagNej] = useState(false);     // planeraren sa "Inte nu" till förslaget ur de gamla körriktningspilarna (gäller tills trakten byts)
+  const ritlageSparrRef = useRef(false);                     // NÅGOT ritläge är på (rita, placera, pil, träd, mät …): all annan kart-tryckning är avstängd tills det är klart (lib/ritlageSparr)
   const ritlageRef = useRef(false);                          // Rita linje/Rita yta pågår (typ vald): ett tryck är en PUNKT — inget Vida-ytkort ska öppnas
 
   // Markeringar: lokalt först, kö mot servern, hämtning som sammanfogas med det som väntar (lib/hooks/useMarkeringarSynk — laddning, hämta om, spara, radera,
@@ -1415,6 +1425,7 @@ export default function PlannerPage() {
   // Callback när MapLibre-kartan är laddad och redo
   const handleMapReady = useCallback((map: any) => {
     mapInstanceRef.current = map;
+    installeraRitlageSparr(map, () => ritlageSparrRef.current);   // ritläget stänger av all annan tryckning (lib/ritlageSparr) — före alla andra click-lyssnare
     markeraStart('kartaLaddad');
     // TESTFLIKEN: logga varje kamerarörelse (kodbevis för "vad tog över kameran?") i konsolen + window.__KAMERA.
     if (testlageAktivRef.current) { try { installeraKameraLogg(map, { fas: () => startFasRef.current }); } catch { /* */ } }
@@ -1605,6 +1616,16 @@ export default function PlannerPage() {
       map.addLayer(korSkenLager('lines-source'), forstaVagLagerId(map.getStyle().layers.map((l: any) => l.id)));
       for (const l of korPunktLager()) map.addLayer(l);
     } catch (e) { console.error('[MapLibre] körordning error:', e); }
+
+    // === Fällträd (liggande träd = fällriktning) och kör upp och backa (vit dubbelpil). Prefix 'line-' → med i körvyns whitelist. Bilderna har pixelRatio 2 (skarpa). ===
+    try {
+      for (const k of [TRAD_KALLA, KORUPP_KALLA, TVATRYCK_KALLA]) if (!map.getSource(k)) map.addSource(k, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      const laggBild = (namn: string, canvas: HTMLCanvasElement, pixelRatio: number) => { if (map.hasImage(namn)) return; const b = canvasToMapLibreImage(canvas); if (b) map.addImage(namn, b, { pixelRatio }); };
+      laggBild(TRAD_BILD, ritaTradBild(false), TRAD_BILD_MATT.pixelRatio);
+      laggBild(TRAD_BILD_VALD, ritaTradBild(true), TRAD_BILD_MATT.pixelRatio);
+      laggBild(KORUPP_SPETS_BILD, ritaSpetsBild(), KORUPP_SPETS_MATT.pixelRatio);
+      for (const l of [...korUppLager(), ...tradLager(), ...tvaTryckLager()]) if (!map.getLayer(l.id)) map.addLayer(l);
+    } catch (e) { console.error('[MapLibre] fällträd/kör upp error:', e); }
 
     // === Fotspår-ikon för stig/led (symbol-placement: 'line') ===
     {
@@ -5226,6 +5247,8 @@ export default function PlannerPage() {
     // Symbol/pil-tap (drag borttaget — tap öppnar kort, nyp/pan går rakt till kartan)
     map.on('click', 'markers-hit', handleMarkerFeatureClick);
     map.on('click', 'arrows-hit', handleMarkerFeatureClick);
+    map.on('click', TRAD_LAGER, handleMarkerFeatureClick);
+    map.on('click', KORUPP_TRAFF_LAGER, handleMarkerFeatureClick);
     map.on('mouseenter', 'markers-hit', handleEnter);
     map.on('mouseleave', 'markers-hit', handleLeave);
     map.on('mouseenter', 'arrows-hit', handleEnter);
@@ -5241,6 +5264,8 @@ export default function PlannerPage() {
       map.off('mouseleave', 'hogar-cluster', handleLeave);
       map.off('click', 'markers-hit', handleMarkerFeatureClick);
       map.off('click', 'arrows-hit', handleMarkerFeatureClick);
+      map.off('click', TRAD_LAGER, handleMarkerFeatureClick);
+      map.off('click', KORUPP_TRAFF_LAGER, handleMarkerFeatureClick);
       map.off('mouseenter', 'markers-hit', handleEnter);
       map.off('mouseleave', 'markers-hit', handleLeave);
       map.off('mouseenter', 'arrows-hit', handleEnter);
@@ -5806,7 +5831,7 @@ export default function PlannerPage() {
     }
 
     // --- Symbol/pil-placering via MapLibre click ---
-    const onClick = (e: any) => {
+    const onClick = tillatIRitlage((e: any) => {
       if (larmPlacering) {
         const { lat, lng } = e.lngLat;
         setInfoLarmLat(lat.toFixed(6));
@@ -5829,6 +5854,7 @@ export default function PlannerPage() {
           return;
         }
 
+        if (isArrowMode && (arrowType === KORUPP_TYP || arrowType === TRAD_TYP)) return;   // kör upp och fällträd sätts med TVÅ tryck (useTvaTryck): start och slut
         if (isArrowMode && arrowType) {
           saveToHistory([...markers]);
           const arrowLL = svgToLatLon(svgPos.x, svgPos.y);
@@ -5857,7 +5883,7 @@ export default function PlannerPage() {
         return;
       }
       // Klick-till-punkt hanteras inte här längre — hanteras i onPointerUp som fallback
-    };
+    });
 
     // --- Freehand drawing via DOM events ---
     let lastScreenX = 0;
@@ -6005,7 +6031,7 @@ export default function PlannerPage() {
     const onMouseUpRita = (e: MouseEvent) => { if (arEmuleradMus(Date.now(), senasteTouchRef.current)) return; onPointerUp(e); };
 
     // Dubbelklick → avsluta ritning (stäng polygon-typer)
-    const onDblClick = (e: any) => {
+    const onDblClick = tillatIRitlage((e: any) => {
       if (!isDrawingMode) return;
       e.preventDefault();
       if (currentDrawCoords.length >= 2) {
@@ -6015,7 +6041,7 @@ export default function PlannerPage() {
         if (isDrawMode) finishLineFromCoords(finalCoords);
         if (isZoneMode) finishZoneFromCoords(finalCoords);
       }
-    };
+    });
 
     // Under ritning: disable double-click zoom
     if (isDrawingMode) {
@@ -7767,6 +7793,21 @@ export default function PlannerPage() {
           <path d="M12 6 L20 12 L12 18" />
         </svg>
       ),
+      // Liggande träd: stubbe, stam, krona (fällriktning)
+      [TRAD_TYP]: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="5" cy="19" r="2.2" />
+          <line x1="6.6" y1="17.4" x2="12" y2="12" />
+          <path d="M12 12 L14 5 M12 12 L19 10 M13 14 L20 13 M11 10 L12 4" />
+        </svg>
+      ),
+      // Vit dubbelpil: kör upp och backa
+      [KORUPP_TYP]: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <path d="M7 9 L12 4 L17 9 M7 15 L12 20 L17 15" />
+        </svg>
+      ),
     };
     return icons[iconId] || (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5">
@@ -7848,7 +7889,11 @@ export default function PlannerPage() {
   const GALLRING_KANT: Record<string, string> = { tall: '#a8531a', gran: '#0f6b4d', lov: '#4d4b45' };
   const gallringKantFarg = (tradslag?: string | null) => GALLRING_KANT[tradslag || ''] || GALLRING_SAKNAT;
 
+  // Fällriktning är ett LIGGANDE TRÄD (TRAD_TYP) och kör upp och backa en VIT DUBBELPIL (KORUPP_TYP). De gamla gröna fällpilarna och körriktningspilarna ritas som förut tills de görs om
+  // (träd: förslag i Fällriktning-läget · körordning: förslag i Körordning) — men går inte längre att placera.
   const arrowTypes = [
+    { id: TRAD_TYP, name: 'Fällriktning', color: LEGEND.naturvard },
+    { id: KORUPP_TYP, name: 'Kör upp och backa', color: FARG.text },
     { id: 'fellingdirection', name: 'Fällriktning', color: LEGEND.naturvard },
     { id: 'drivedirection', name: 'Körriktning', color: LEGEND.vatten },
   ];
@@ -8545,7 +8590,7 @@ export default function PlannerPage() {
     const src = map.getSource('arrows-source') as any;
     if (!src) return;
     if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte pilar på fel plats
-    const arrows = visibleLayers.arrows ? markers.filter((m: any) => m.isArrow) : [];
+    const arrows = visibleLayers.arrows ? markers.filter((m: any) => m.isArrow && !arFallTrad(m) && !arKorUpp(m)) : [];   // trädet och kör upp-pilen har egna källor (nedan)
     const features = arrows.map((m: any) => {
       // Dual-format: geo-sparad pil (nya) → använd lng/lat direkt; gammal pil → konvertera x/y via
       // svgToLatLon (samma origo-metod som symboler; returnerar {lat, LON}). Ingen pil försvinner.
@@ -8559,6 +8604,93 @@ export default function PlannerPage() {
     });
     src.setData({ type: 'FeatureCollection', features });
   }, [markers, mapLibreReady, mapCenter, visibleLayers.arrows, objektSaknarPosition]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // FÄLLTRÄD och KÖR UPP OCH BACKA → egna källor. Planeringen ser alla (träden med handtag att vrida i). Körvyn: bara SKÖRDAREN, bara det som ligger nära maskinen — trädet när någon del av det
+  // ligger i fällningscirkeln (30 m), kör upp-pilen inom KORUPP_SYNLIG_M. Skotaren ser inga. De gamla gröna pilarna föreslås bli träd (spöken med svagare färg) medan planeraren är i Fällriktning-läget.
+  const [tradForslagNej, setTradForslagNej] = useState(false);   // "Inte nu" till förslaget (gäller tills trakten byts)
+  useEffect(() => { setTradForslagNej(false); }, [valtObjekt?.id]);
+  const tradForslag = useMemo(
+    () => (isArrowMode && arrowType === TRAD_TYP && !tradForslagNej && !korvyActive ? foreslaTrad(markers as any[], svgToLatLon) : null),
+    [isArrowMode, arrowType, tradForslagNej, korvyActive, markers], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const korUppPilarRef = useRef<KorUppPos[]>([]);
+  const tradRitadeRef = useRef<any[]>([]);   // träden som ritas just nu (utan förhandsvisningens spöke)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const tsrc = map.getSource(TRAD_KALLA) as any;
+    const ksrc = map.getSource(KORUPP_KALLA) as any;
+    if (!tsrc || !ksrc) return;
+    const tom = { type: 'FeatureCollection', features: [] };
+    if (objektSaknarPosition || !visibleLayers.arrows) { tsrc.setData(tom); ksrc.setData(tom); korUppPilarRef.current = []; return; }
+    const lage = !korvyActive ? 'planering' : skotarKorvy ? 'skotare' : 'skordare';
+    const pos = korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null;
+    const trad = (markers as any[]).filter(arFallTrad).map((m) => tradPosUr(m, svgToLatLon)).filter((t): t is TradPos => !!t);
+    const synliga = synligaTrad(trad, lage, pos);
+    const ritade = tradData(synliga, { valdId: lage === 'planering' && markerMenuOpen != null ? String(markerMenuOpen) : null });   // den vita ringen: bara trädet vars kort är öppet
+    const spoken = tradForslag ? tradData(tradForslag.trad.map((t) => ({ id: `forslag:${t.id}`, stubbe: { lat: t.lat, lon: t.lng }, vinkel: t.angle })), { forslag: true }) : null;
+    const tradFeatures = spoken ? [...ritade.features, ...spoken.features] : ritade.features;
+    tradRitadeRef.current = tradFeatures;
+    tsrc.setData({ type: 'FeatureCollection', features: tradFeatures });
+    const pilar = (markers as any[]).filter(arKorUpp).map(korUppUr).filter((k): k is KorUppPos => !!k);
+    korUppPilarRef.current = pilar;
+    ksrc.setData(korUppData(synligaKorUpp(pilar, lage, pos)));
+  }, [markers, mapLibreReady, mapCenter, visibleLayers.arrows, objektSaknarPosition, korvyActive, skotarKorvy, korvyEffectivePos?.lat, korvyEffectivePos?.lon, tradForslag, markerMenuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // TVÅ TRYCK (lib/tvaTryck): kör upp-pilen och fällträdet sätts med två tryck — första = start (pilen snäpper till närmaste väg) respektive stubben, andra = slut respektive åt vilket håll trädet
+  // faller. En tunn förhandsvisning (linje, och för trädet ett spöke) visas mellan trycken. Ritläget stänger av all annan tryckning (lib/ritlageSparr) tills man trycker Klar (✓) eller Avbryt (×) — flera träd/pilar i rad.
+  // Träden har ingen gest på kartan efteråt: de vrids i kortet, som de gamla pilarna.
+  const [tvaStart, setTvaStart] = useState<TvaStart | null>(null);
+  const tvaStartRef = useRef<TvaStart | null>(null);
+  const senastKorUppRef = useRef<any>(null);
+  tvaStartRef.current = tvaStart;
+  const korUppVagarRef = useRef<SnappVag[]>([]);
+  korUppVagarRef.current = korVagar.map((v) => ({ id: v.id, coords: v.coords }));
+  const tvaSlag = isArrowMode && !korvyActive ? (arrowType === KORUPP_TYP ? 'korupp' : arrowType === TRAD_TYP ? 'trad' : null) : null;
+  useEffect(() => { if (!tvaSlag) { setTvaStart(null); senastKorUppRef.current = null; } }, [tvaSlag]);   // läget slut (Klar, Avbryt, annat läge): ingen pil väntar på sitt skäl-kort
+  useTvaTryck(mapInstanceRef.current, mapLibreReady, {
+    slag: tvaSlag,
+    vagarRef: korUppVagarRef,
+    onStart: (st) => {
+      setTvaStart(st);
+      const kalla = mapInstanceRef.current?.getSource(TVATRYCK_KALLA) as any;
+      kalla?.setData(tvaTryckData(st ? st.start : null, null));
+    },
+    onForhandsvisning: (f) => {
+      const map = mapInstanceRef.current;
+      const kalla = map?.getSource(TVATRYCK_KALLA) as any;
+      const tsrc = map?.getSource(TRAD_KALLA) as any;
+      if (kalla) kalla.setData(tvaTryckData(f ? f.start : tvaStartRef.current?.start ?? null, f ? f.slut : null));
+      // trädet: ett svagt spökträd visar hur det kommer att ligga
+      if (tsrc) {
+        const spok = f && f.slag === 'trad' ? tradData([{ id: 'forhandsvisning', stubbe: f.start, vinkel: vinkelFranPunkt(f.start, f.slut) }], { forslag: true }).features : [];
+        tsrc.setData({ type: 'FeatureCollection', features: [...tradRitadeRef.current, ...spok] });
+      }
+    },
+    onKlart: (k) => {
+      saveToHistory([...markers]);
+      if (k.slag === 'korupp') {
+        const ny = nyKorUpp(k.start, k.slut, k.vagId);
+        if (!ny) return;
+        setMarkers((prev: any[]) => [...prev, ny]);
+        senastKorUppRef.current = ny.id;   // läget ligger kvar (flera i rad); kortet med skälen öppnas när man trycker Klar
+        return;
+      }
+      const xy = latLonToSvg(k.stubbe.lat, k.stubbe.lon);
+      const nytt = { id: Date.now(), isArrow: true, arrowType: TRAD_TYP, x: xy.x, y: xy.y, lng: k.stubbe.lon, lat: k.stubbe.lat, rotation: k.vinkel, angle: k.vinkel };
+      setMarkers((prev: any[]) => [...prev, nytt]);   // läget ligger kvar: nästa tryck är en ny stubbe
+    },
+  });
+  // Klar (✓): avsluta läget. Kör upp: kortet med skälen öppnas för den senast satta pilen (ett tryck, som förut).
+  const avslutaTvaTryck = () => {
+    const id = senastKorUppRef.current;
+    const kor = arrowType === KORUPP_TYP;
+    senastKorUppRef.current = null;
+    setTvaStart(null);
+    (mapInstanceRef.current?.getSource(TVATRYCK_KALLA) as any)?.setData(tvaTryckData(null, null));
+    setIsArrowMode(false); setArrowType(null);
+    if (kor && id != null) setMarkerMenuOpen(id);
+  };
 
   // === KÖRVY (3D-förarvy) effekter ===
   // Helper: bearing från (lat1,lon1) → (lat2,lon2), 0-360°
@@ -12442,6 +12574,7 @@ export default function PlannerPage() {
   // RITA LINJE/YTA + PIL + NYTT OMRÅDE: samma rad längst ner som placera och mät — vad som pågår, hur långt man kommit, och ↩ ✓ ×.
   const ritListSynlig = (isDrawMode || isZoneMode) && !plusRadOppen && !menuOpen && !figur;
   const pilListSynlig = isArrowMode && !!arrowType && !plusRadOppen && !menuOpen && !figur;
+  const tradForslagAktivt = arrowType === TRAD_TYP && !!tradForslag && tradForslag.trad.length > 0;   // gröna fällpilar att föreslå som träd
   const omradeListSynlig = omradeRitning && !plusRadOppen && !menuOpen && !figur;
   // Telefonen: "Visa ›" stängde arket — raden nertill säger vad som är framhävt och tar tillbaka listan ("‹ Om trakten"). Bred skärm: panelen ligger kvar, ingen rad.
   const framhavListSynlig = !!framhavdMarkering && framhavdLageRef.current === 'ark' && !traktOversiktOpen && !plusRadOppen && !menuOpen && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig;
@@ -12478,6 +12611,8 @@ export default function PlannerPage() {
   // Objektlistan öppen: objekten som prickar på kartan, tryck på en prick = raden, kartan i övrigt fri att använda (listan stängs med ×, Esc, drag ned), stängd utan val = kartan tillbaka.
   // Bara planeringsvyn (objektListaVal) — maskinläget, /maskin och körvyn öppnar aldrig listan och rörs inte. Pågår ett kartläge (rita, mät, placera
   // symbol …) tar kartan trycken som förut: ingen prickkarta då, listan är det gamla arket med fångsten över kartan.
+  ritlageSparrRef.current = isDrawMode || isZoneMode || isArrowMode || measureMode || measureAreaMode || omradeRitning || skotningDrawing || hornEditActive
+    || larmPlacering || risaMarkMode || !!selectedSymbol || !!figur;
   const kartLageIgang = isDrawMode || isZoneMode || isArrowMode || measureMode || measureAreaMode || omradeRitning || skotningDrawing || hornEditActive
     || larmPlacering || risaMarkMode || !!selectedSymbol || !!figur || plusRadOppen;
   const objektKartaTryck = objektListaVal && mapLibreReady && !kartLageIgang;
@@ -12718,7 +12853,7 @@ export default function PlannerPage() {
     const TRYCK_RADIE_PX = 28;     // ett finger träffar inte exakt — samma storleksordning som en tryckyta
     const DUBBELTRYCK_MS = 700;
     let sistaPaSista = 0;
-    const onClick = (e: any) => {
+    const onClick = tillatIRitlage((e: any) => {
       const ll = e?.lngLat;
       if (!ll) return;
       const geo = measureGeoRef.current;
@@ -12732,7 +12867,7 @@ export default function PlannerPage() {
       }
       sistaPaSista = 0;
       setMeasureGeo(prev => [...prev, [ll.lng, ll.lat]]);
-    };
+    });
     map.on('click', onClick);
     map.doubleClickZoom.disable(); // dubbeltryck ska inte zooma mitt i en mätning
     return () => {
@@ -12755,11 +12890,11 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || !risaMarkMode) return;
-    const onClick = (e: any) => {
+    const onClick = tillatIRitlage((e: any) => {
       const ll = e?.lngLat;
       if (!ll) return;
       setRisaTaps(prev => (prev.length >= 2 ? prev : [...prev, [ll.lng, ll.lat] as [number, number]]));
-    };
+    });
     map.on('click', onClick);
     map.doubleClickZoom.disable();
     return () => {
@@ -14489,12 +14624,32 @@ export default function PlannerPage() {
         );
       })()}
       {/* PIL: samma rad som placera symbol */}
+      {/* EN rad (pil-list). De gamla gröna fällpilarna föreslås bli träd: Godkänn skapar träden och först DÅ tas pilarna bort. */}
       {pilListSynlig && (
         <KorvyNertillList
           testid="pil-list"
           smal={smalSkarm}
-          text={`Tryck där ${arrowTypes.find((t) => t.id === arrowType)?.name ?? 'pilen'} ska stå`}
-          knappar={[AVBRYT_KNAPP(() => { setIsArrowMode(false); setArrowType(null); }, 'pil-avbryt')]}
+          stapla={tradForslagAktivt}
+          text={tradForslagAktivt
+            ? `Göra om ${tradForslag!.trad.length === 1 ? 'den gröna pilen' : `de ${tradForslag!.trad.length} gröna pilarna`} till ${tradForslag!.trad.length === 1 ? 'ett träd' : 'träd'}?`
+            : arrowType === KORUPP_TYP ? (tvaStart ? 'Tryck hur långt in du ska köra' : 'Tryck där vägen börjar') : arrowType === TRAD_TYP ? (tvaStart ? 'Tryck åt vilket håll trädet faller' : 'Tryck där trädet stod') : `Tryck där ${arrowTypes.find((t) => t.id === arrowType)?.name ?? 'pilen'} ska stå`}
+          knappar={tradForslagAktivt ? [
+            { etikett: 'Inte nu', onClick: () => setTradForslagNej(true), testid: 'trad-forslag-nej' },
+            { etikett: 'Godkänn', primar: true, testid: 'trad-forslag-ja', onClick: () => {
+              const fs = tradForslag!;
+              saveToHistory([...markers]);
+              const nya = fs.trad.map((t) => { const xy = latLonToSvg(t.lat, t.lng); return { id: t.id, isArrow: true, arrowType: TRAD_TYP, x: xy.x, y: xy.y, lng: t.lng, lat: t.lat, rotation: t.angle, angle: t.angle }; });
+              const bort = new Set(fs.pilIdn);
+              const bortMarkorer = (markersRef.current as any[]).filter((m) => bort.has(String(m.id)));
+              setMarkers((prev: any[]) => [...prev.filter((m) => !bort.has(String(m.id))), ...nya]);
+              bortMarkorer.forEach((m) => deleteMarkerFromDb(m.id));
+              setIsArrowMode(false); setArrowType(null);
+            } },
+          ] : [
+            ...(tvaSlag ? [{ etikett: '✓', aria: 'Klar', onClick: avslutaTvaTryck, gron: true, testid: 'pil-klar' }] : []),
+            ...(tvaStart ? [{ etikett: 'Ny start', onClick: () => { setTvaStart(null); (mapInstanceRef.current?.getSource(TVATRYCK_KALLA) as any)?.setData(tvaTryckData(null, null)); }, testid: 'pil-ny-start' }] : []),
+            AVBRYT_KNAPP(() => { setIsArrowMode(false); setArrowType(null); }, 'pil-avbryt'),
+          ]}
         />
       )}
       {/* KÖRORDNING (planerare): listan med vägarna i ordning, Börja om / Klar — kartan är fri att trycka på medan den står */}
@@ -16249,7 +16404,23 @@ export default function PlannerPage() {
 
             {/* Pil-rotation: ratt + ⟲/⟳ I KORTET (rör aldrig kartan). Skriver 'angle' → live på
                 kartan + omedelbar DB-upsert vid commit. Ersätter det gamla dra-på-kartan-sättet. */}
-            {marker.isArrow && (
+            {/* Kör upp och backa: skälet med ETT tryck. Ordet står vid pilen på kartan och i instruktionskortet vid inkörning. */}
+            {arKorUpp(marker) && (
+              <div data-testid="korupp-skal" style={{ display: 'flex', flexWrap: 'wrap', gap: AVSTAND.s, marginTop: AVSTAND.l }}>
+                {KORUPP_SKAL.map((k) => {
+                  const vald = ((marker as any).skal ?? 'inget') === k.id;
+                  return (
+                    <button key={k.id} type="button" data-testid={`korupp-skal-${k.id}`} aria-pressed={vald}
+                      onClick={() => { const ny = { ...(marker as any), skal: k.id }; setMarkers((prev: any[]) => prev.map((m) => (m.id === marker.id ? ny : m))); saveMarkerToDb(ny); }}
+                      style={{ minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, border: 'none', borderRadius: RADIE.knapp, background: vald ? FARG.text : FARG.upphojt, color: vald ? FARG.bg : FARG.text, fontFamily: 'inherit', ...TYP.listtitel, cursor: 'pointer', touchAction: 'manipulation' }}>
+                      {k.namn}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {/* Rattens kort: de gamla pilarna OCH fällträden vrids här (samma gest). Kör upp och backa har ingen riktning att vrida — den ritas. */}
+            {marker.isArrow && !arKorUpp(marker) && (
               <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                 <div style={{ fontSize: '13px', color: '#8e8e93', textAlign: 'center', marginBottom: '12px' }}>Vrid pilen dit den ska peka</div>
                 <ArrowRotationControl
@@ -16977,7 +17148,7 @@ export default function PlannerPage() {
                     gridTemplateColumns: 'repeat(2, 1fr)',
                     gap: '12px',
                   }}>
-                    {arrowTypes.filter((t) => t.id !== 'drivedirection').map(type => (
+                    {arrowTypes.filter((t) => t.id === TRAD_TYP || t.id === KORUPP_TYP).map(type => (
                       <div
                         key={type.id}
                         onClick={() => {
