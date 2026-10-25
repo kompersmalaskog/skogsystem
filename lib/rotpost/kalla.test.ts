@@ -31,3 +31,19 @@ describe('stämplingslängdens källa', () => {
     expect(stamplingsKalla({})).toBeNull()
   })
 })
+
+import { attLasa } from './kalla'
+
+describe('vilka stämplingslängder som läses automatiskt', () => {
+  const o = (vo: string, namn: string, extra: object) => ({ vo_nummer: vo, namn, avtalsform: null, ...extra })
+  const objekt = [
+    o('3', 'Skälviken RP J-Hus -25', { stamplingslangd_url: 's.pdf' }),
+    o('1', 'Mölleryd RP J-Hus -25', { ovriga_dokument: [{ namn: 'Mölleryd.pdf', path: 'm.pdf' }] }),
+    o('2', 'Sandåsen gallring 2025', { ovriga_dokument: [{ namn: 'sandåsengallring.pdf', path: 'g.pdf' }] }),
+    o('4', 'Bågskyttebanan RP J-Hus- 25', { stamplingslangd_url: 'b.pdf' }),
+    o('5', 'Hallaslätt AU 2026', {}),
+  ]
+  it('igenkänd alltid, gissad bara på rotpost, inte de som redan har en rapport', () => {
+    expect(attLasa(objekt, new Map(), new Set(['4']))).toEqual(['1', '3'])
+  })
+})

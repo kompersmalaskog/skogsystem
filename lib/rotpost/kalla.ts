@@ -27,3 +27,24 @@ export function stamplingsKalla(o: { stamplingslangd_url?: string | null; ovriga
     d.path && /\.pdf$/i.test(d.path) && !RE_KARTA_ELLER_TD.test((d.namn ?? '').normalize('NFC')));
   return kandidater.length === 1 ? { path: kandidater[0].path as string, gissad: true } : null;
 }
+
+export type ObjektMedDokument = {
+  vo_nummer: string | null; namn: string | null; avtalsform: string | null;
+  stamplingslangd_url?: string | null; ovriga_dokument?: Dokument[] | null;
+};
+
+/** Trakterna vars stämplingslängd ska läsas automatiskt: har en stämplingslängd och ingen rapport än (oavsett status — en
+ *  misslyckad läsning görs om med knappen, aldrig av sig själv, så ingen läsning kostar om och om igen). En GISSAD stämplingslängd
+ *  (ensam inskannad PDF) läses bara på en rotpost — på en gallring är en ensam PDF något annat. Äldst VO-nummer först. */
+export function attLasa(objekt: ObjektMedDokument[], dimAvtalsform: Map<string, string | null>, harRapport: Set<string>): string[] {
+  const ut: string[] = [];
+  for (const o of objekt) {
+    const id = o.vo_nummer;
+    if (!id || harRapport.has(id)) continue;
+    const k = stamplingsKalla(o);
+    if (!k) continue;
+    if (k.gissad && !arRotpost({ namn: o.namn, avtalsform: o.avtalsform, dimAvtalsform: dimAvtalsform.get(id) })) continue;
+    ut.push(id);
+  }
+  return ut.sort();
+}

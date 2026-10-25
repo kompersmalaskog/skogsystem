@@ -89,11 +89,11 @@ export default function StamplingDel({ r }: { r: Rotpost }) {
       <div style={{ ...TYP.listtitel }}>Stämplingslängden är inte läst</div>
       <div style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
         {lage.typ === 'laser' ? 'Läser… det kan ta en minut. Stäng inte sidan.'
-          : lage.gissad ? 'Den är inskannad. Läs den så ser du hur väl stämplingen stämde – är det fel fil säger läsningen det.'
-          : 'Läs den så ser du hur väl stämplingen stämde.'}
+          : lage.gissad ? 'Den är inskannad och läses av sig själv inom en timme. Är det fel fil säger läsningen det.'
+          : 'Den läses av sig själv inom en timme. Vill du se den nu, tryck här.'}
       </div>
       <button onClick={las} disabled={lage.typ === 'laser'} style={{ ...KNAPP.primar, opacity: lage.typ === 'laser' ? 0.5 : 1 }}>
-        {lage.typ === 'laser' ? 'Läser…' : 'Läs stämplingslängden'}
+        {lage.typ === 'laser' ? 'Läser…' : 'Läs nu'}
       </button>
     </div>
   );
