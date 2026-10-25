@@ -3,6 +3,8 @@
  * Formerna speglar tabellerna och /api/kalibrering/*-svaren; vyn och räknarna delar dem här.
  */
 import type { GreppRad } from './greppTid';
+import type { PunktBesked } from './forslag';
+import type { GreppSteg, Kort } from './forslagKort';
 import type { GrovlekRad } from './grovlek';
 import type { VariabelStat } from './statistik';
 
@@ -108,7 +110,7 @@ export type AtgardEffekt = {
   kalibreringarEfter: string[];
 };
 /** En rad i Åtgärder: en markör (förarens åtgärd eller en reparation av mätsystemet) med träffen före och efter. `efter` räknas fram till nästa markör. */
-export type AtgardPost = AtgardEffekt & { kalla: 'atgard' | 'reparation' };
+export type AtgardPost = AtgardEffekt & { kalla: 'atgard' | 'reparation' | 'kalibrering' };
 export type BedomningResp = {
   ok: true; maskin_id: string; profil: string | null;
   fonster: { fran: string; till: string; dagar: number } | null;
@@ -190,3 +192,18 @@ export type CalMaskin = {
 export type CalDag = { datum: string; veckodag: number; status: CalDagstatus; maskiner: CalMaskin[] };
 export type CalSammanfattning = { produktionsdagar: number; kompletta: number; saknas: number; varningar: number; okand_huvudtyp_dagar: number };
 export type CalResponse = { manad: string; dagar: CalDag[]; sammanfattning: CalSammanfattning };
+
+// === Justeringsförslag (/api/kalibrering/forslag) ===
+/**
+ * Kortet "Gör så här" (`kort`: ETT nästa steg i en ordning appen håller själv) och detaljen bakom det: besked per trädslag och punkt på diameterkurvan.
+ * `senasteAndring` = den senaste ändringen som flyttat fönstret (förslagen räknas på stammar klavade efter den). `greppLast` = false när greppet inte gick att
+ * läsa (cachen saknas eller läsfel): kortet kan då inte säga "inget att göra" om knivar och valsar, och vyn säger det.
+ */
+export type ForslagResp = {
+  ok: true; maskin_id: string; idag: string;
+  kort: Kort; punkter: PunktBesked[]; grepp: GreppSteg[];
+  greppLast: boolean;
+  senasteAndring: { datum: string; slag: 'tryck' | 'byte' | 'omkalibrering' | 'kurva' | 'kalibrering' } | null;
+  /** Stammar som räknats (alla trädslag och grovlekar, efter fönstret). */
+  stammar: number;
+};

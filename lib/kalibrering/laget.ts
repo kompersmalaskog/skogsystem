@@ -219,7 +219,7 @@ export const atgardRader = (b: BedomningResp | null): AtgardRad[] => {
     const t = dom?.traff;
     const riktning = t ? t.riktning : null;
     rader.push({
-      id, post, datumText: fmtDagMan(post.datum), titel: post.text || (post.kalla === 'reparation' ? 'Reparation av mätsystem' : 'Åtgärd'),
+      id, post, datumText: fmtDagMan(post.datum), titel: post.text || (post.kalla === 'reparation' ? 'Reparation av mätsystem' : post.kalla === 'kalibrering' ? 'Kalibrering' : 'Åtgärd'),
       dom,
       riktning,
       hoger: t && t.fore != null && t.efter != null ? `${t.fore} % → ${t.efter} %` : 'För tidigt',

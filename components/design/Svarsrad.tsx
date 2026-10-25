@@ -13,15 +13,17 @@ type Props = {
   varning?: string | null
   /** En hel mening i `rad` (inte fakta åtskilda av " · "): bryts där den vill i stället för vid varje punkt. */
   fri?: boolean
+  /** Rubriken som vyns tillstånd/uppmaning (TYP.titel, 30) i stället för en svarsrad (TYP.rubrik, 20): "Kolla knivar och valsar". Alltid text, aldrig dämpad. */
+  stor?: boolean
 }
 
-export default function Svarsrad({ rubrik, rad, avvikelse, varning, fri }: Props) {
+export default function Svarsrad({ rubrik, rad, avvikelse, varning, fri, stor }: Props) {
   const indrag = avvikelse ? IKON.rad + AVSTAND.inuti : 0 // ikonen + glappet, så andra raden linjerar med rubriken
   return (
     <section style={{ margin: `${AVSTAND.s}px 0 ${AVSTAND.xl}px` }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.inuti }}>
         {avvikelse && <Ikon namn="warning" farg={FARG.orange} />}
-        <h2 style={{ margin: 0, ...TYP.rubrik, color: avvikelse ? FARG.text : FARG.text2 }}>{rubrik}</h2>
+        <h2 style={{ margin: 0, ...(stor ? TYP.titel : TYP.rubrik), color: avvikelse || stor ? FARG.text : FARG.text2 }}>{rubrik}</h2>
       </div>
       {/* Radbrytning bara mellan delarna (" · ") — aldrig mitt i "behöver 29/dag, kör 0". */}
       {rad && (
