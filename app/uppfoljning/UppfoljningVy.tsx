@@ -8,7 +8,7 @@ import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
 import type { SkotareMaskinStat } from './lib/transform';
-import { FARG, TYP, AVSTAND, RADIE, TNUM, VIKT, kolumnRot } from '@/lib/design/tokens';
+import { FARG, TYP, AVSTAND, RADIE, TNUM, VIKT, kolumnRot, overgang } from '@/lib/design/tokens';
 import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -664,6 +664,36 @@ function Collapse({ title, varde, children, defaultOpen = false }: { title: stri
   );
 }
 
+// ── "Hur gick det?" — ETT tryck till djupet ────────────────────────────────
+// Apple-sättet: objektet svarar på EN fråga (hero) + maskinerna. Allt djup —
+// produktivitet, trädslag, tid, avbrott, tidslinje — ligger bakom EN rad, inte
+// åtta separata collapses på skärmen samtidigt. Stängd: en lugn rad med vad som
+// finns där inne. Öppen: raden blir rubrik och sektionerna veck ut sig under.
+function HurGickDet({ undertext, children }: { undertext: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: AVSTAND.xxl }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: '20px 24px', background: V6_CARD, border: 'none', borderRadius: open ? '14px 14px 0 0' : 14, color: '#fff', fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}
+      >
+        <span style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.3px' }}>Hur gick det?</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minWidth: 0 }}>
+          {!open && <span style={{ ...TYP.meta, color: V6_GREY, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{undertext}</span>}
+          <svg width="13" height="13" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: overgang('transform'), flexShrink: 0 }}>
+            <polyline points="4 2 8 6 4 10" />
+          </svg>
+        </span>
+      </button>
+      {open && (
+        <div style={{ background: V6_CARD, borderRadius: '0 0 14px 14px', overflow: 'hidden' }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Produktivitet ─────────────────────────────────────────────────────────
 // rows: [värde, enhet, manuellt?]. manuellt=true → "manuellt"-badge (G15-taltet
 // kommer ur skotning_g15_manuell, inte mätt maskintid — samma ärlighetsregel som
@@ -1253,9 +1283,24 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
     return sum > 0 ? `${sum.toFixed(1).replace('.', ',')} h` : null;
   })();
 
+  // Undertext till "Hur gick det?" — vad som väntar bakom tryck, i ord. Tar de
+  // tre första som finns, så raden aldrig blir lång. Finns inget djup alls
+  // (harDjup=false) visas ingen rad.
+  const hurDelar: string[] = [];
+  if (!risjobb && visaSkotare) hurDelar.push('skotare');
+  if (!risjobb && hasProduktivitet) hurDelar.push('produktivitet');
+  if (!risjobb && hasProdPerDag) hurDelar.push('per dag');
+  if (!risjobb && hasTradslagSort) hurDelar.push('trädslag');
+  if (hasTidDiesel) hurDelar.push('tid & diesel');
+  if (hasAvbrott) hurDelar.push('avbrott');
+  if (tidslinjeVarde != null) hurDelar.push('tidslinje');
+  if (data.externSkotning) hurDelar.push('extern skotning');
+  const harDjup = hurDelar.length > 0;
+  const hurUndertext = hurDelar.slice(0, 3).join(' · ');
+
   return (
     <div style={{ minHeight: '100%', background: V6_BG, color: '#fff', fontFamily: V6_FF, WebkitFontSmoothing: 'antialiased' }}>
-      <div style={kolumnRot('smal')}>
+      <div className="uf-detalj-kolumn" style={kolumnRot('smal')}>
       <Nav onBack={onBack} />
       <Headline data={data} />
       <Svaret data={data} />
@@ -1275,30 +1320,32 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
         </>
       )}
 
-      <div style={{ marginTop: 8 }}>
-        {!risjobb && visaSkotare && (
-          <Collapse title="Skotare på objektet" varde={skotareVarde} defaultOpen>
-            <SkotarePaObjektet data={data} />
-          </Collapse>
-        )}
-        {!risjobb && hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={visadData} /></Collapse>}
-        {!risjobb && hasProdPerDag && <Collapse title="Produktion per dag" varde={perDagVarde}><ProdPerDag data={visadData} /></Collapse>}
-        {!risjobb && hasTradslagSort && (
-          <Collapse title="Trädslag & sortiment" varde={tradslagVarde}>
-            <Tradslag tradslag={data.tradslag} />
-            <Sortiment sortiment={data.sortiment} />
-          </Collapse>
-        )}
-        {hasTidDiesel && (
-          <Collapse title="Tid & diesel" varde={tidDieselVarde}>
-            <Tid data={visadData} />
-            <Diesel data={visadData} />
-          </Collapse>
-        )}
-        {hasAvbrott && <Collapse title="Avbrott" varde={avbrottVarde}><Avbrott data={data} /></Collapse>}
-        {tidslinjeVarde != null && <Collapse title="Tidslinje" varde={`${tidslinjeVarde} dagar`}><Tidslinje data={data} /></Collapse>}
-        {data.externSkotning && <Collapse title="Extern skotning" varde={data.externForetag || null}><Extern data={data} /></Collapse>}
-      </div>
+      {harDjup && (
+        <HurGickDet undertext={hurUndertext}>
+          {!risjobb && visaSkotare && (
+            <Collapse title="Skotare på objektet" varde={skotareVarde} defaultOpen>
+              <SkotarePaObjektet data={data} />
+            </Collapse>
+          )}
+          {!risjobb && hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={visadData} /></Collapse>}
+          {!risjobb && hasProdPerDag && <Collapse title="Produktion per dag" varde={perDagVarde}><ProdPerDag data={visadData} /></Collapse>}
+          {!risjobb && hasTradslagSort && (
+            <Collapse title="Trädslag & sortiment" varde={tradslagVarde}>
+              <Tradslag tradslag={data.tradslag} />
+              <Sortiment sortiment={data.sortiment} />
+            </Collapse>
+          )}
+          {hasTidDiesel && (
+            <Collapse title="Tid & diesel" varde={tidDieselVarde}>
+              <Tid data={visadData} />
+              <Diesel data={visadData} />
+            </Collapse>
+          )}
+          {hasAvbrott && <Collapse title="Avbrott" varde={avbrottVarde}><Avbrott data={data} /></Collapse>}
+          {tidslinjeVarde != null && <Collapse title="Tidslinje" varde={`${tidslinjeVarde} dagar`}><Tidslinje data={data} /></Collapse>}
+          {data.externSkotning && <Collapse title="Extern skotning" varde={data.externForetag || null}><Extern data={data} /></Collapse>}
+        </HurGickDet>
+      )}
       <div style={{ height: 60 }} />
       </div>
     </div>
