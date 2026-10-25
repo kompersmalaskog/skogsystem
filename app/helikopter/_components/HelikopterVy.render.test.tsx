@@ -90,7 +90,7 @@ describe('/helikopter — en sida', () => {
     await monter()
     expect(text()).toContain('Oktober 2026')
     expect(text()).toContain('10 arbetsdagar kvar')
-    expect(cont.querySelector('main h2')?.textContent).toBe('Vi hinner inte med beställningen')
+    expect(cont.querySelector('main h2')?.textContent).toBe(`Slutavverkning fattas ${fmt(1000)}`)
     const skotat = sektion('Skotat')!
     // Det stora talet är SKOTAT HITTILLS, prognosen står som "Landar på N" under (2026-10-24: 726 lästes som skotat när skotat var 561).
     expect(skotat.querySelector('[data-tal="gallring"]')?.textContent).toBe(fmt(800))

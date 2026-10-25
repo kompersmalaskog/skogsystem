@@ -80,7 +80,18 @@ export function sidSvar(kort: SparKortVy[], status: ManadStatus): SidSvar {
   if (status === 'kommande') return { rubrik: 'Månaden har inte börjat', avvikelse: false }
   const medBest = kort.filter(k => k.av != null)
   if (medBest.length === 0) return { rubrik: 'Ingen beställning inlagd', avvikelse: false }
-  if (medBest.some(k => k.lage === 'fattas')) return { rubrik: status === 'avslutad' ? 'Vi hann inte med beställningen' : 'Vi hinner inte med beställningen', avvikelse: true }
+  const fattas = medBest.filter(k => k.lage === 'fattas')
+  if (fattas.length > 0) {
+    // Säg VILKET spår som fattas och hur mycket (Martin 2026-10-25: "vilken är det som inte gör det?").
+    // Första spåret med stor bokstav, nästa med liten: "Slutavverkning fattas 356 · gallring 38".
+    const ord = status === 'avslutad' ? 'fattades' : 'fattas'
+    const delar = fattas.map((k, i) => {
+      const brist = fmt((k.av ?? 0) - (k.landar ?? k.tal))
+      const namn = i === 0 ? k.namn : k.namn.toLowerCase()
+      return i === 0 ? `${namn} ${ord} ${brist}` : `${namn} ${brist}`
+    })
+    return { rubrik: delar.join(' · '), avvikelse: true }
+  }
   const utan = medBest.filter(k => k.lage === 'inga_trakter')
   if (utan.length > 0) return { rubrik: `${utan.map(k => k.namn).join(' och ')} har inga trakter`, avvikelse: false }
   if (medBest.some(k => k.lage === 'hittills')) return { rubrik: `För tidigt för prognos – kommer dag ${PROGNOS_FRAN_ARBETSDAG}`, avvikelse: false }

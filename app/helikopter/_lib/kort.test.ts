@@ -68,9 +68,11 @@ describe('sparKort — talet är ALLTID skotat hittills, prognosen står i `land
 
 describe('sidSvar — EN mening i vanliga ord', () => {
   const k = (spar: typeof gallOk[], status: 'pagaende' | 'avslutad' | 'kommande' = 'pagaende', n = 3) => spar.map(s => sparKort(s, status, n))
-  it('fattas går först, med varningsikon', () => {
-    expect(sidSvar(k([gallOkt, slutOkt]), 'pagaende')).toEqual({ rubrik: 'Vi hinner inte med beställningen', avvikelse: true })
-    expect(sidSvar(k([gallOk, slutOkt]), 'pagaende')).toEqual({ rubrik: 'Vi hinner inte med beställningen', avvikelse: true })
+  it('fattas går först, med varningsikon — och säger VILKET spår och hur mycket', () => {
+    // gallring landar 714 av 1 000 (fattas 286), slutavverkning 4 103 av 5 000 (fattas 897)
+    expect(sidSvar(k([gallOkt, slutOkt]), 'pagaende')).toEqual({ rubrik: 'Gallring fattas 286 · slutavverkning 897', avvikelse: true })
+    expect(sidSvar(k([gallOk, slutOkt]), 'pagaende')).toEqual({ rubrik: 'Slutavverkning fattas 897', avvikelse: true })
+    expect(sidSvar(k([slutOkt, gallOk]), 'pagaende').rubrik).toBe('Slutavverkning fattas 897')
   })
   it('allt hinner', () => {
     expect(sidSvar(k([gallOk]), 'pagaende')).toEqual({ rubrik: 'Vi hinner med beställningen', avvikelse: false })
@@ -89,7 +91,7 @@ describe('sidSvar — EN mening i vanliga ord', () => {
     const utan = raknaSpar(rad('gallring', { bestallt: 0 }), okt)
     expect(sidSvar(k([utan]), 'pagaende').rubrik).toBe('Ingen beställning inlagd')
     expect(sidSvar(k([gallOk], 'kommande'), 'kommande').rubrik).toBe('Månaden har inte börjat')
-    expect(sidSvar(k([gallOkt], 'avslutad'), 'avslutad')).toEqual({ rubrik: 'Vi hann inte med beställningen', avvikelse: true })
+    expect(sidSvar(k([gallOkt], 'avslutad'), 'avslutad')).toEqual({ rubrik: 'Gallring fattades 286', avvikelse: true })
     const natt = raknaSpar(rad('gallring', { bestallt: 1000, skotat: 1000 }), okt)
     expect(sidSvar(k([natt], 'avslutad'), 'avslutad')).toEqual({ rubrik: 'Beställningen blev klar', avvikelse: false })
     const framme = raknaSpar(rad('gallring', { bestallt: 1000, skordat: 1100, skotat: 1000, takt_skordat: 10, takt_skotat: 10, ingaende_oskotat: 0 }), okt)
