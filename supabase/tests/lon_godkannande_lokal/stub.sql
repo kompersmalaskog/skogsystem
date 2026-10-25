@@ -31,7 +31,7 @@ create unique index notis_ko_dedup_nyckel_unik on "notis_kö" (typ, mottagare_id
 grant usage on schema auth to authenticated, anon;
 grant select on medarbetare to authenticated;
 
--- För 20261025140000_lon_franvaro_nollstaller_godkannande.sql
+-- För 20261025144440_lon_franvaro_nollstaller_godkannande.sql
 create table ledighet_ansokningar (
   id uuid primary key default gen_random_uuid(), anvandare_id text, typ text, startdatum date, slutdatum date, status text, kommentar text,
   skapad_av text, skapad_at timestamptz default now(), medarbetare_id uuid, ersatter_datum date, kalla text, fran_tid time, till_tid time, beslutad_at timestamptz

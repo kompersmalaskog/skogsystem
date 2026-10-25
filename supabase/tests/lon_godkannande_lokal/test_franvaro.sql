@@ -1,4 +1,4 @@
--- Ändrad frånvaro nollställer förarens godkännande (migrationen 20261025140000). Körs efter test.sql eller fristående efter migrationerna.
+-- Ändrad frånvaro nollställer förarens godkännande (migrationen 20261025144440). Körs efter test.sql eller fristående efter migrationerna.
 -- Varje rad ska säga true. Slutar med antalet rader som INTE är true (ska vara 0).
 create temp table fresultat (vad text, ok boolean);
 create function fforvanta(p_vad text, p_sql text) returns void language plpgsql as $$

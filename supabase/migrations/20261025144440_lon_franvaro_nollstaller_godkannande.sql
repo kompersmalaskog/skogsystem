@@ -79,6 +79,6 @@ REVOKE ALL ON FUNCTION public.ledighet_nollstall_manader(uuid, text, date, date)
 -- select tgname from pg_trigger where tgname = 'trg_ledighet_nollstall_godkannande' and not tgisinternal;  -- 1 rad
 --
 -- ── Rollback ─────────────────────────────────────────────────────────────────────────────────────────────
--- (kör DROP utanför Supabase-MCP:n — den hänger på destruktiva satser)
--- DROP TRIGGER IF EXISTS trg_ledighet_nollstall_godkannande ON public.ledighet_ansokningar;
--- DROP FUNCTION IF EXISTS public.ledighet_nollstall_godkannande(), public.ledighet_nollstall_manader(uuid, text, date, date);
+-- Ta bort triggern trg_ledighet_nollstall_godkannande på public.ledighet_ansokningar och funktionerna
+-- public.ledighet_nollstall_godkannande() och public.ledighet_nollstall_manader(uuid, text, date, date).
+-- Kör det i SQL-editorn, inte via Supabase-MCP:n (den hänger på destruktiva satser).
