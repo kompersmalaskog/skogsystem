@@ -145,7 +145,7 @@ import { LINJE_TRAFF_PX, narmasteLinje, linjeAtgard, VIDA_LINJE_TRAFFLAGER, EGNA
 import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
 import { ritaEtikett, etikettBildId, ETIKETT_PIXELRATIO } from '../../lib/figurEtikettBild'
-import { FARG, FONT, DELFARG, TYP, RADIE, AVSTAND, IKON, TRAFFYTA } from '../../lib/design/tokens'
+import { FARG, FONT, DELFARG, TYP, RADIE, AVSTAND, IKON, TRAFFYTA, KNAPP } from '../../lib/design/tokens'
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { stegaAvstamning, NYTT_AVSTAMNINGSMINNE, type AvstamningsMinne } from '../../lib/objektAvstamning'
 import { hamtaKandidatSvar, startaKandidatLaddning } from '../../lib/objektKandidater'
@@ -171,6 +171,8 @@ import { TRAD_TYP, TRAD_KALLA, TRAD_BILD, TRAD_BILD_VALD, TRAD_BILD_MATT, TRAD_L
 import { useTvaTryck } from '../../lib/hooks/useTvaTryck'
 import { TVATRYCK_KALLA, tvaTryckData, tvaTryckLager, type TvaStart } from '../../lib/tvaTryck'
 import { installeraRitlageSparr, tillatIRitlage } from '../../lib/ritlageSparr'
+import { useLinjeRedigering, laggLinjeRedigeringLager } from '../../lib/hooks/useLinjeRedigering'
+import { LinjeRedList, type RedVal } from '../../components/planering/LinjeRedList'
 import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_KANT_LAGER, KORUPP_TRAFF_LAGER, arKorUpp, korUppUr, korUppData, korUppLager, ritaSpetsBild, synligaKorUpp, nyKorUpp, KORUPP_SKAL, korUppText, type KorUppPos, type Skal, type SnappVag } from '../../lib/korUpp'
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
@@ -1626,6 +1628,9 @@ export default function PlannerPage() {
       laggBild(KORUPP_SPETS_BILD, ritaSpetsBild(), KORUPP_SPETS_MATT.pixelRatio);
       for (const l of [...korUppLager(), ...tradLager(), ...tvaTryckLager()]) if (!map.getLayer(l.id)) map.addLayer(l);
     } catch (e) { console.error('[MapLibre] fällträd/kör upp error:', e); }
+
+    // === Redigera linjer (sudda, förläng, koppla ihop): ändhandtag, spöken (dolda delar av Vidas linjer) och förhandsvisningen medan man drar. Prefix 'line-linjered-'. ===
+    try { laggLinjeRedigeringLager(map); } catch (e) { console.error('[MapLibre] redigera linjer error:', e); }
 
     // === Fotspår-ikon för stig/led (symbol-placement: 'line') ===
     {
@@ -7940,6 +7945,15 @@ export default function PlannerPage() {
     return { lat, lon };
   };
 
+  // REDIGERA LINJER (Martin 2026-10-25, skiss 47–48): sudda, förläng och koppla ihop — vägar och alla ritade linjer; Vidas linjer kan döljas (aldrig ändras). Se lib/hooks/useLinjeRedigering.
+  const linjeRed = useLinjeRedigering({
+    map: mapInstanceRef.current, klar: mapLibreReady, markers, markersRef: markersRef as any, setMarkers: setMarkers as any, deleteMarker: deleteMarkerFromDb,
+    svgToLatLon, latLonToSvg, visibleLines, traktGeo, objektId: valtObjekt?.id ? String(valtObjekt.id) : null, db: supabase as any, mergeChecked: mergeCheckedIdsRef,
+  });
+  const [redAterEfterRit, setRedAterEfterRit] = useState(false);   // "Rita" ur Redigera linjer: när ritningen är klar eller avbruten är man tillbaka i redigeringen
+  // Rita ur Redigera linjer: ritningen är en vanlig ritning; när den är klar eller avbruten (isDrawMode av och typlistan stängd) är man tillbaka i redigeringen.
+  useEffect(() => { if (redAterEfterRit && !isDrawMode && !menuOpen) { setRedAterEfterRit(false); linjeRed.oppna('sudda'); } }, [redAterEfterRit, isDrawMode, menuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Konvertera SVG-koordinater till skärmkoordinater via MapLibre-projektion
   const svgToScreen = (x: number, y: number): { x: number, y: number } | null => {
     const map = mapInstanceRef.current;
@@ -12394,6 +12408,8 @@ export default function PlannerPage() {
       { id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta') },
       // Eget område (ersätter "Spara som › Yta"): samma markering — traktgräns med nummer. Ritmekaniken = tryck hörn, stäng på första hörnet.
       { id: 'omrade', titel: 'Nytt område', ikon: 'omrade', onTryck: () => { stangPlus(); avslutaPagaendeLage(); const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 }); } },
+      // Redigera linjer: sudda, förläng, koppla ihop (planeringen — hytten har ingen redigering av linjer). Listen nertill har Rita · Sudda · Förläng · Koppla ihop, Ångra och ✓ Klar.
+      ...(korvyActive ? [] : [{ id: 'redigera', titel: 'Redigera linjer', ikon: 'redigera' as const, onTryck: () => { stangPlus(); avslutaPagaendeLage(); linjeRed.oppna('sudda'); const map = mapInstanceRef.current; if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 }); } }]),
       { id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('arrows'); setMenuOpen(true); } },
       // Körordning: vägarna i den ordning de ska köras (lib/korordning). Ersätter de handplacerade körriktningspilarna.
       { id: 'korordning', titel: 'Körordning', ikon: 'korordning', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setKorForslagNej(false); setKorLage(true); } },
@@ -12548,6 +12564,7 @@ export default function PlannerPage() {
     if (isArrowMode) { setIsArrowMode(false); setArrowType(null); }
     if (omradeRitning) setOmradeRitning(false);
     if (korLage) setKorLage(false);
+    if (linjeRed.aktiv) linjeRed.stang();
   };
 
   // ── PLUSRADENS TRYCK ──
@@ -12604,7 +12621,7 @@ export default function PlannerPage() {
   const ritFramsteg = isZoneMode || nRit < 2 ? punktText(nRit) : geoFormatLength(geoPathMeters(currentDrawCoords));
   langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !menuOpen && !selectedSymbol && !figur && !prickValt
     && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode && !omradeRitning && !skotningDrawing && !hornEditActive && !larmPlacering
-    && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode && !objektListaOppen;
+    && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode && !linjeRed.aktiv && !objektListaOppen;
   // Testläget: håll fingret flyttar testpositionen (kopplaLangtryckFlytt) — plusdockan öppnas med plusknappen.
   if (testlage) langtryckTillatenRef.current = false;
 
@@ -12612,9 +12629,9 @@ export default function PlannerPage() {
   // Bara planeringsvyn (objektListaVal) — maskinläget, /maskin och körvyn öppnar aldrig listan och rörs inte. Pågår ett kartläge (rita, mät, placera
   // symbol …) tar kartan trycken som förut: ingen prickkarta då, listan är det gamla arket med fångsten över kartan.
   ritlageSparrRef.current = isDrawMode || isZoneMode || isArrowMode || measureMode || measureAreaMode || omradeRitning || skotningDrawing || hornEditActive
-    || larmPlacering || risaMarkMode || !!selectedSymbol || !!figur;
+    || larmPlacering || risaMarkMode || !!selectedSymbol || !!figur || linjeRed.aktiv;
   const kartLageIgang = isDrawMode || isZoneMode || isArrowMode || measureMode || measureAreaMode || omradeRitning || skotningDrawing || hornEditActive
-    || larmPlacering || risaMarkMode || !!selectedSymbol || !!figur || plusRadOppen;
+    || larmPlacering || risaMarkMode || !!selectedSymbol || !!figur || plusRadOppen || linjeRed.aktiv;
   const objektKartaTryck = objektListaVal && mapLibreReady && !kartLageIgang;
   const { markeraVal: markeraListVal } = useObjektPrickar({
     map: objektKartaTryck ? mapInstanceRef.current : null,
@@ -14691,6 +14708,20 @@ export default function PlannerPage() {
           />
         );
       })()}
+      {/* REDIGERA LINJER: EN list — Rita · Sudda · Förläng · Koppla ihop, Ångra, ✓ Klar. Rita lämnar över till den vanliga ritningen och kommer tillbaka hit när den är klar. */}
+      {linjeRed.aktiv && linjeRed.lage && !plusRadOppen && !menuOpen && (
+        <LinjeRedList
+          lage={linjeRed.lage}
+          smal={smalSkarm}
+          kanAngra={linjeRed.kanAngra}
+          onAngra={linjeRed.angra}
+          onKlar={linjeRed.stang}
+          onVal={(v: RedVal) => {
+            if (v === 'rita') { linjeRed.stang(); setRedAterEfterRit(true); byggRita().find((r) => r.id === 'linje')?.onTryck(); return; }   // samma ruta och samma typlista som Rita linje
+            linjeRed.setLage(v);
+          }}
+        />
+      )}
       {/* RITA LINJE/YTA: EN rad längst ner — typen och hur långt man kommit ("Basväg · 120 m", "Ej framkomlig · 4 punkter") — och ↩ ✓ × */}
       {ritListSynlig && (klarAterBasvag ? (
         /* Basväg ur Klar med trakten?: samma list som avlägg — "‹ Klar med trakten?" först (avbryter ritningen och öppnar kortet i samma steg), sedan ↩ ✓; ✓ öppnar kortet igen */
@@ -15622,6 +15653,13 @@ export default function PlannerPage() {
                   <AvlaggSkotatSektion nummer={visaAvlaggNummer(traktInfo.nr)} objektNamn={valtObjekt.namn} kalla="vida"
                     stat={skotatTillAvlagg(skotarLass.lass, `vida:${visaAvlaggNummer(traktInfo.nr)}`, skotarLass.avslut?.faktorer)} />
                 )}
+            {/* Vidas linje med dolda delar (suddade i Redigera linjer): Vidas data är orörd — en knapp tar tillbaka originalet. */}
+            {traktInfo.kategori === 'linje' && nyckel && linjeRed.dolt[nyckel]?.length ? (
+              <button type="button" data-testid="visa-vidas-original" onClick={() => { linjeRed.visaVidaOriginal(nyckel); stangTraktKort(); }} className="press-dim"
+                style={{ ...KNAPP.sekundar, width: '100%', marginBottom: AVSTAND.l }}>
+                Visa Vidas original
+              </button>
+            ) : null}
                 {/* Källans egen text (Vida/SKS/RAÄ) */}
                 {traktInfo.rader.length > 0 && (
                   <div style={{ marginBottom: '18px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
