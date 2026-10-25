@@ -57,6 +57,25 @@ async function hämtaVägKm(fLat: number, fLng: number, tLat: number, tLng: numb
   }
 }
 
+// Sidomeny på stor skärm (Del 2, 2026-10-25, Martin: "skulle det inte vara annorlunda på datorn?"):
+// från SIDOMENY_FRAN_PX blir flikraden en meny till vänster under toppfältet, som Mail/Inställningar
+// på iPad. Samma knappar, samma ordning; innehållet flyttas åt höger med body:has(.ar-nav).
+// Selektorerna har inga citattecken (React escapar dem i <style>). Telefon och iPad stående orörda.
+const SIDOMENY_FRAN_PX = 1000;
+const SIDOMENY_BREDD_PX = 220;
+const SIDOMENY_CSS = `@media (min-width: ${SIDOMENY_FRAN_PX}px) {
+  body:has(.ar-nav) { padding-left: ${SIDOMENY_BREDD_PX}px; }
+  .ar-nav { top: ${LAYOUT.topbar} !important; bottom: 0 !important; width: ${SIDOMENY_BREDD_PX}px !important;
+    flex-direction: column !important; justify-content: flex-start !important; align-items: stretch !important;
+    gap: ${AVSTAND.xs}px; padding: ${AVSTAND.l}px ${AVSTAND.m}px !important; border-radius: 0 !important;
+    background: ${FARG.bg} !important; border-right: 1px solid ${FARG.linje}; }
+  .ar-nav-knapp { flex-direction: row !important; justify-content: flex-start !important; width: 100% !important;
+    height: ${TRAFFYTA.min}px !important; gap: ${AVSTAND.m}px; padding: 0 ${AVSTAND.m}px !important; border-radius: ${RADIE.rad}px !important; }
+  .ar-nav-knapp .material-symbols-outlined { margin-bottom: 0 !important; }
+  .ar-nav-knapp[aria-current=page] { background: ${FARG.upphojt} !important; }
+  .ar-nav-text { font-size: ${TYP.listtitel.fontSize}px !important; }
+}`;
+
 const css = `
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(14px); }
@@ -107,6 +126,7 @@ const css = `
   * { scrollbar-width: none; -ms-overflow-style: none; }
   ${KOLUMN_CSS}
   .valj-rad { min-height: ${TRAFFYTA.min}px; }
+  ${SIDOMENY_CSS}
 `;
 
 const C = {
@@ -153,6 +173,7 @@ const bottom: CSSProperties = { paddingBottom:36, display:"flex", flexDirection:
 // `SCROLL_BOTTOM` som paddingBottom så sista innehållet inte skärs av navet.
 // Layoutmått (inte avstånd): navet + hemindikatorns zon på iPhone.
 const NAV_HEIGHT = 80;
+
 const SCROLL_BOTTOM = `calc(${NAV_HEIGHT + 40}px + env(safe-area-inset-bottom))`;
 
 const btn = {
@@ -296,7 +317,7 @@ const secHead: CSSProperties = { margin:"0 0 10px",...TYPE.micro,color:"#8e8e93"
 
 function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => void }) {
   return (
-    <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:`${AVSTAND.m}px max(${AVSTAND.l}px, calc((100% - ${KOLUMN.smal}px) / 2)) ${medSafeBotten(AVSTAND.xl)}`,background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
+    <nav className="ar-nav" aria-label="Arbetsrapport" style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:`${AVSTAND.m}px max(${AVSTAND.l}px, calc((100% - ${KOLUMN.smal}px) / 2)) ${medSafeBotten(AVSTAND.xl)}`,background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
       {[
         {icon:"today",key:"morgon",label:"Dag"},
         {icon:"calendar_month",key:"kalender",label:"Kalender"},
@@ -306,9 +327,9 @@ function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => v
         {icon:"bar_chart",key:"mintid",label:"Min tid"},
         {icon:"settings",key:"inst",label:"Inställningar"},
       ].map(n=>(
-        <button key={n.key} onClick={()=>onNav(n.key)} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:aktiv===n.key?"#0a84ff":"#8e8e93",background:"none",border:"none",cursor:"pointer",fontFamily:"'Inter',sans-serif",borderRadius:12,height:48,width:64,padding:0 }}>
+        <button key={n.key} className="ar-nav-knapp" aria-current={aktiv===n.key?"page":undefined} onClick={()=>onNav(n.key)} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:aktiv===n.key?"#0a84ff":"#8e8e93",background:"none",border:"none",cursor:"pointer",fontFamily:"'Inter',sans-serif",borderRadius:12,height:48,width:64,padding:0 }}>
           <span className="material-symbols-outlined" style={{ fontSize:22,marginBottom:2,fontVariationSettings:aktiv===n.key?"'FILL' 1":"'FILL' 0" }}>{n.icon}</span>
-          <span style={{ fontSize:10,fontWeight:aktiv===n.key?600:500 }}>{n.label}</span>
+          <span className="ar-nav-text" style={{ fontSize:10,fontWeight:aktiv===n.key?600:500 }}>{n.label}</span>
         </button>
       ))}
     </nav>
