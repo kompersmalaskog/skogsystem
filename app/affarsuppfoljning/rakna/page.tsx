@@ -85,7 +85,7 @@ function Innehall() {
                 farg={r.status === 'stammer' ? GRON : r.status === 'avviker' ? GUL : undefined}
                 hoger={r.datum ?? new Date(r.skapad).toLocaleDateString('sv-SE')}
                 sub={[r.forrattare, r.total_volym_m3sk != null ? `${nf0(r.total_volym_m3sk)} m³sk` : null].filter(Boolean).join(' · ') || undefined}
-                href={`${STAMPLING}?vy=pdf&id=${r.id}&kor=1`} />
+                href={r.objekt_id && r.status === 'stammer' ? `/affarsuppfoljning/objekt/${encodeURIComponent(r.objekt_id)}` : `${STAMPLING}?vy=pdf&id=${r.id}&kor=1`} />
             ))}
           </Rader>
         </>

@@ -180,13 +180,6 @@ function Innehall() {
     return m;
   }, [data]);
 
-  // Status får aldrig härledas ur volym — färgen förstärker bara texten.
-  // "Ej markerad" betyder att ingen status finns; frånvaro visas som frånvaro.
-  const statusFarg: Record<string, string> = {
-    'Skotat':           'rgba(90,255,140,0.9)',
-    'Skotning pågår':   'rgba(91,143,255,0.9)',
-    'Avverkning pågår': 'rgba(255,179,64,0.9)',
-  };
 
   const harVolym = (data?.total_volym ?? 0) > 0;
   const atgarder = data ? atgarderFor(data, manad) : [];
@@ -353,22 +346,10 @@ function Innehall() {
               {visaObjekt && (
                 <div style={{ paddingBottom: 12 }}>
                   {data.objekt.map(o => (
-                    <div key={o.nyckel} style={{ padding: '10px 0', borderTop: LINJE }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
-                        <span style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{o.namn || o.nyckel}</div>
-                          <div style={MUTED}>
-                            {o.vo_nummer ? `VO ${o.vo_nummer}` : 'VO saknas'}
-                            {o.status !== 'Ej markerad' && (
-                              <> · <span style={{ color: statusFarg[o.status] ?? SEKUNDAR, fontWeight: 600 }}>{o.status}</span>
-                                {o.status_datum && <> {String(o.status_datum).slice(0, 10)}</>}</>
-                            )}
-                            {o.saknar_atgard && ' · åtgärd ej angiven'}
-                          </div>
-                        </span>
-                        <Volym m3={o.volym} />
-                      </div>
-                    </div>
+                    <Rad key={o.nyckel} text={o.namn || o.nyckel} tal={`${nf(o.volym, 0)} m³`}
+                      sub={[o.status !== 'Ej markerad' ? `${o.status}${o.status_datum ? ` ${String(o.status_datum).slice(0, 10)}` : ''}` : null,
+                            o.saknar_atgard ? 'åtgärd ej angiven' : null].filter(Boolean).join(' · ') || undefined}
+                      href={`/affarsuppfoljning/objekt/${encodeURIComponent(o.vo_nummer && /^[0-9]+$/.test(o.vo_nummer) ? o.vo_nummer : o.nyckel)}`} />
                   ))}
                 </div>
               )}

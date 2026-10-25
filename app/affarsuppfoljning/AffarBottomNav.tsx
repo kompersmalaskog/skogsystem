@@ -1,13 +1,13 @@
 'use client';
 
-// AFFÄRSUPPFÖLJNINGENS FLIKRAD — tre flikar längst ner, på varje sida under /affarsuppfoljning:
-//   Räkna      vad ger det?          /affarsuppfoljning/rakna (och stämplingslängd, medelstam) — först, hemkortet öppnar hit
-//   Översikt   hur går året?         /affarsuppfoljning (och månadsskärmen)
-//   Kvalitet   kör vi bra?           /affarsuppfoljning/kvalitet (och objektskärmen)
+// AFFÄRSUPPFÖLJNINGENS FLIKRAD — tre flikar längst ner, en fråga var (2026-10-25):
+//   Räkna      vad ger en trakt jag ska köpa?   /affarsuppfoljning/rakna (och stämplingslängd, medelstam) — hemkortet öppnar hit
+//   Året       hur mycket har vi levererat?     /affarsuppfoljning (och månaden, massavedens längd)
+//   Trakter    hur gick det på en trakt?        /affarsuppfoljning/trakter (och traktsidan med allt om trakten)
 //
 // SAMMA bottenrad som arbetsrapporten (BottomNavBar i components/arbetsrapport/Arbetsrapport.tsx): halvgenomskinlig och
 // suddig, rundade övre hörn, ikonerna i appens kolumn, blå för vald flik. Den globala BottomNav monteras inte här.
-// Objektskärmen räknas till Kvalitet, oavsett var man kom ifrån.
+// Traktsidan räknas till Trakter, oavsett var man kom ifrån.
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -19,10 +19,10 @@ type Flik = { href: string; ikon: string; etikett: string; match: (p: string) =>
 export const FLIKAR: Flik[] = [
   { href: '/affarsuppfoljning/rakna', ikon: 'calculate', etikett: 'Räkna',
     match: p => p.startsWith('/affarsuppfoljning/rakna') || p.startsWith('/affarsuppfoljning/stampling') || p.startsWith('/affarsuppfoljning/medelstam') },
-  { href: '/affarsuppfoljning', ikon: 'insights', etikett: 'Översikt',
-    match: p => p === '/affarsuppfoljning' || p.startsWith('/affarsuppfoljning/manad') },
-  { href: '/affarsuppfoljning/kvalitet', ikon: 'verified', etikett: 'Kvalitet',
-    match: p => p.startsWith('/affarsuppfoljning/kvalitet') || p.startsWith('/affarsuppfoljning/objekt') || p.startsWith('/affarsuppfoljning/rotposter') },
+  { href: '/affarsuppfoljning', ikon: 'insights', etikett: 'Året',
+    match: p => p === '/affarsuppfoljning' || p.startsWith('/affarsuppfoljning/manad') || p.startsWith('/affarsuppfoljning/kvalitet') },
+  { href: '/affarsuppfoljning/trakter', ikon: 'forest', etikett: 'Trakter',
+    match: p => p.startsWith('/affarsuppfoljning/trakter') || p.startsWith('/affarsuppfoljning/objekt') || p.startsWith('/affarsuppfoljning/rotposter') },
 ];
 
 export default function AffarBottomNav() {

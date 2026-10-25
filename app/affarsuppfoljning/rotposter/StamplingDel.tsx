@@ -123,6 +123,7 @@ export default function StamplingDel({ r }: { r: Rotpost }) {
         ))}
         <Rad text="Totalt" tal={`${nf0(r.volym)} m³`} hoger={`stämplat ${nf0(p.vol)} · ${pct(tot)}`} />
         <Rad text="Träd" tal={nf0(r.stammar)} hoger={`stämplat ${nf0(j.trad + j.utanforModellen)}`} />
+        <Rad text="Stämplingslängden" sub="Trädslag, klasser och rötan" href={`/affarsuppfoljning/stampling?vy=pdf&id=${lage.rapport.id}&kor=1`} />
       </Rader>
       {mening && <div style={{ margin: `0 ${AVSTAND.l}px` }}><Mening>{mening}</Mening></div>}
       <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.s}px ${AVSTAND.l}px 0` }}>

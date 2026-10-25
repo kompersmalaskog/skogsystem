@@ -35,3 +35,21 @@ describe('rotposter', () => {
     expect(r[1].rota).toBeNull()
   })
 })
+
+import { trakter, perManad } from './uppfoljning'
+
+describe('trakter', () => {
+  const g = (id: string, ms: number, forsta: string): Objekt => ({ ...obj(id, ms, 20, forsta), typ: 'Gallring' })
+  const t = trakter([...alla, g('g1', 0.1, '2026-08-03'), g('g2', 0.1, '2026-08-04'), g('g3', 0.1, '2026-08-05'), g('g4', 0.1, '2026-07-01')], new Set(['rp']))
+  it('alla trakter med, rotposten märkt', () => {
+    expect(t).toHaveLength(10)
+    expect(t.find(x => x.id === 'rp')!.rotpost).toBe(true)
+    expect(t.find(x => x.id === 'a')!.rotpost).toBe(false)
+  })
+  it('gallring jämförs bara med gallring', () => {
+    expect(t.find(x => x.id === 'g1')!.jamfordaTrakter).toBe(3)
+  })
+  it('per månad, nyast först', () => {
+    expect(perManad(t).map(x => x.manad)).toEqual(['2026-09', '2026-08', '2026-07', '2026-05', '2026-03'])
+  })
+})

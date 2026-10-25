@@ -180,6 +180,7 @@ export default function StartsidaVy({ d, ar, aren, idag, vy, sortiment, gaTill }
       )}
 
       <Rader>
+        <Rad text="Massavedens längd" sub="Håller vi Vidas 4,6 m?" href="/affarsuppfoljning/kvalitet" />
         <Rad text="Så räknas" href={`${arUrl}&vy=sa-raknas`} dampad />
       </Rader>
     </div>

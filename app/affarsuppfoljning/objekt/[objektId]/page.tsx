@@ -1,11 +1,10 @@
 'use client';
 
-// OBJEKTSKÄRMEN — ETT objekt och dess undernivåer, byggda mot Martins förlagor. Det finns EN objektskärm: man kommer hit från
-// Kvalitet (/affarsuppfoljning/kvalitet) eller från en månad/ett år, och ser samma sak. Undersidor: /bitar (bitarna) och /rotkap
-// (längre rotkap). Gamla adresser (/massaved/<id>, /rotkap?objekt=) omdirigeras hit i next.config.js.
-// Samma form på varje skärm (components/Ytform.tsx). Vilken skärm som visas styrs av
-// ?vy= i länken, så att bakåtknappen och delade länkar fungerar:
-//   (ingen)          objektet: "Ulfsnäs AU ⌄", 4,03 m, medellängd
+// TRAKTSIDAN och MASSAVEDENS NIVÅER. Utan ?vy= visas traktsidan (TraktVy.tsx: allt om trakten på ett ställe — dit leder Trakter,
+// Kvalitet, månaden och Räkna). Med ?vy= visas massavedens nivåer nedan. Undersidor: /bitar (bitarna) och /rotkap (längre rotkap).
+// Gamla adresser (/massaved/<id>, /rotkap?objekt=, /affarsuppfoljning/rotposter?id=) leder hit.
+// Vilken nivå som visas styrs av ?vy= i länken, så att bakåtknappen och delade länkar fungerar:
+//   vy=massaved      massaveden: "Ulfsnäs AU ⌄", 4,03 m, medellängd
 //                    barrmassaved, under Vidas önskade 4,6 m, augusti ⌄,
 //                    179,8 m³fub · 1 589 bitar, sedan raderna
 //   vy=tre-m         3 m-stockar: 26 %, Utan dem, Rötan fortsatte, Visa bitarna
@@ -28,8 +27,9 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 import { SIDA, GUL, GRON, TEXT, DAMPAD, nf0, nf1, nf2, manadNamn, manadEtikett, stor, kortObjekt,
-         Rubrikrad, Tillbakarad, Stort, Tillstand, Damp, Kontroll, Mening, Rad, Rader, Stycken, Laddar, Fel } from '@/components/Ytform';
+         Rubrik, Tillbakarad, Stort, Tillstand, Damp, Kontroll, Mening, Rad, Rader, Stycken, Laddar, Fel } from '@/components/Ytform';
 import { sortimentEtiketter } from '@/lib/massaved/sortimentnamn';
+import TraktVy from './TraktVy';
 
 type Tradslag = { namn: string; m3fub: number; medellangd_m: number; sagbar_m3: number };
 type Valta = { valta: string; m3fub: number; medellangd_m: number; antal_tradslag: number; tradslag: Tradslag[] };
@@ -54,7 +54,6 @@ type Niva2 = {
   hemved_m3: number;
   massa_utan_sagbar_stock_m3: number; massa_utan_sagbar_stock_st: number;
 };
-type ObjektIManad = { objekt_id: string; namn: string | null };
 type Rotkap = { stammar: number; grupp2_stammar: number };
 
 /** Sortimentets korta, unika namn ("Kubb: Alvesta305_V3" → "Kubb Alvesta 305"). Hela maskinnamnet står i Så räknas. Regeln bor i
@@ -76,7 +75,6 @@ function Innehall() {
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<{ kod: string; text: string } | null>(null);
   const [rotkap, setRotkap] = useState<Rotkap | null>(null);
-  const [andra, setAndra] = useState<ObjektIManad[]>([]);
 
   const hamta = useCallback(async () => {
     setLaddar(true); setFel(null);
@@ -100,27 +98,9 @@ function Innehall() {
       .then(({ data }) => setRotkap((data as Rotkap | null) ?? null));
   }, [objektId]);
 
-  // Väljaren i rubrikraden: månadens övriga objekt, båda vältorna. Anropen
-  // tar 10–20 s och fylls på efter att sidan visats.
-  const pickerManad = manad ?? (d?.manader?.length ? d.manader[d.manader.length - 1] : null);
-  useEffect(() => {
-    if (!pickerManad) return;
-    Promise.all(['Barr', 'Björk'].map(v => supabase.rpc('massaved_niva1', { p_manad: `${pickerManad}-01`, p_valta: v })))
-      .then(res => {
-        const sedda = new Set<string>(); const ut: ObjektIManad[] = [];
-        for (const r of res) {
-          const lista = (r.data as { objekt?: ObjektIManad[]; utan_bolag?: ObjektIManad[] } | null);
-          for (const o of [...(lista?.objekt ?? []), ...(lista?.utan_bolag ?? [])]) {
-            if (!sedda.has(o.objekt_id)) { sedda.add(o.objekt_id); ut.push(o); }
-          }
-        }
-        setAndra(ut);
-      })
-      .catch(() => setAndra([]));
-  }, [pickerManad]);
 
   const namn = kortObjekt(d?.namn ?? objektId);
-  const periodOrd = manad ? manadNamn(manad) : 'hela objektet';
+  const periodOrd = manad ? manadNamn(manad) : 'hela trakten';
   const bas = `/affarsuppfoljning/objekt/${encodeURIComponent(objektId)}`;
   const url = (q: Record<string, string | null | undefined>) => {
     const p = new URLSearchParams();
@@ -129,13 +109,14 @@ function Innehall() {
     return `${bas}?${p.toString()}`;
   };
   const go = (v: string, s?: string) => router.push(url({ vy: v, sort: s }));
-  const objektUrl = url({});
+  const objektUrl = url({ vy: 'massaved' });
+  const traktUrl = bas;
   const rotkapUrl = `${bas}/rotkap`;
   const bitarUrl = `${bas}/bitar`;
   const har = `${namn} · ${periodOrd}`;
 
   if (laddar) return <div style={SIDA}><Laddar vad={namn} /></div>;
-  if (fel) return <div style={SIDA}><Fel rubrik="Objektet kunde inte hämtas" fel={fel} igen={hamta} /></div>;
+  if (fel) return <div style={SIDA}><Fel rubrik="Massaveden kunde inte hämtas" fel={fel} igen={hamta} /></div>;
   if (!d) return <div style={SIDA} />;
 
   const onskad = d.onskad_medellangd_m;
@@ -147,32 +128,23 @@ function Innehall() {
   const under = d.medellangd_m != null && d.medellangd_m < onskad;
   const periodKontroll = (
     <Kontroll text={periodOrd} value={manad ?? 'alla'} label="Period"
-      onChange={m => router.replace(`${bas}?manad=${m}`, { scroll: false })}>
+      onChange={m => router.replace(`${bas}?vy=massaved&manad=${m}`, { scroll: false })}>
       {d.manader.map(m => <option key={m} value={m}>{stor(manadEtikett(m))}</option>)}
-      <option value="alla">Hela objektet</option>
+      <option value="alla">Hela trakten</option>
     </Kontroll>
   );
 
-  // ── Objektet ──────────────────────────────────────────────────────────
-  if (!vy) {
+  // ── Massaveden ────────────────────────────────────────────────────────
+  if (vy === 'massaved') {
     return (
       <div style={SIDA}>
-        <Rubrikrad text={namn} value={objektId} label="Objekt"
-          onChange={id => id === '__alla'
-            ? router.push(`/affarsuppfoljning/kvalitet?manad=${pickerManad ?? ''}`)
-            : router.push(`/affarsuppfoljning/objekt/${encodeURIComponent(id)}?manad=${manad ?? 'alla'}`)}>
-          <option value="__alla">Alla objekt{pickerManad ? ` i ${manadEtikett(pickerManad)}` : ''}</option>
-          <option value={objektId}>{namn}</option>
-          {andra.filter(o => o.objekt_id !== objektId).map(o => (
-            <option key={o.objekt_id} value={o.objekt_id}>{kortObjekt(o.namn ?? o.objekt_id)}</option>
-          ))}
-        </Rubrikrad>
+        <Tillbakarad href={traktUrl} text={namn} />
+        <Rubrik>Massaveden</Rubrik>
 
         {d.medellangd_m == null ? (
-          <div style={{ padding: '10px 16px 0', fontSize: 13, lineHeight: 1.6 }}>
-            Ingen massaved på {namn}{manad ? ` i ${manadEtikett(manad)}` : ''}.
+          <Stort tal="–" ordrad={`ingen massaved${manad ? ` i ${manadEtikett(manad)}` : ''}`}>
             {d.manader.length > 0 && periodKontroll}
-          </div>
+          </Stort>
         ) : (
           <>
             <Stort tal={nf2(d.medellangd_m)} enhet="m" ordrad={`medellängd ${valtaOrd}`}>
@@ -190,7 +162,6 @@ function Innehall() {
               )}
               <Rad text="Längdfördelning" tal={`${nf0(overMal)} %`} farg={GRON} onClick={() => go('langd')} />
               <Rad text="Trädslag och avkap" onClick={() => go('tradslag')} />
-              <Rad text="Längre rotkap" href={rotkapUrl} />
               <Rad text="Så räknas" onClick={() => go('rakning')} />
             </Rader>
           </>
@@ -400,10 +371,18 @@ function Innehall() {
   return <div style={SIDA}><Tillbakarad href={objektUrl} text={har} /><Stycken>Den här skärmen finns inte.</Stycken></div>;
 }
 
-export default function MassavedObjekt() {
+/** Utan ?vy= är det traktsidan (TraktVy.tsx); alla ?vy= är massavedens nivåer. */
+function Val() {
+  const params = useParams();
+  const sp = useSearchParams();
+  if (!sp.get('vy')) return <TraktVy objektId={decodeURIComponent(String(params.objektId))} />;
+  return <Innehall />;
+}
+
+export default function TraktSida() {
   return (
     <Suspense fallback={<div style={SIDA} />}>
-      <Innehall />
+      <Val />
     </Suspense>
   );
 }

@@ -1,12 +1,12 @@
 'use client';
 
-// KVALITET — "kör vi bra?" Affärsuppföljningens tredje flik: massavedens längd för Vida, månad för månad, objekten sämst
+// MASSAVEDENS LÄNGD — en sida under Året (raden "Massavedens längd" i Översikten; var fliken Kvalitet till 2026-10-25): massavedens längd för Vida, månad för månad, objekten sämst
 // först (massaved_niva1 är redan filtrerad på bolag = 'Vida' och sorterad på lägst medellängd). Byggd mot förlagan:
 // "Augusti ⌄", medellängden stor, "medellängd barrmassaved", i gult
 // "9 av 14 objekt under 4,6 m", "barr ⌄", sedan en rad per objekt med
 // medellängden intill namnet i färg och kubiken längst ut.
 //
-// Ett tryck på ett objekt öppnar OBJEKTSKÄRMEN (/affarsuppfoljning/objekt/<id>) — samma skärm oavsett om man kommer hit eller
+// Ett tryck på ett objekt öppnar traktens massaved (/affarsuppfoljning/objekt/<id>?vy=massaved) — samma skärm oavsett om man kommer hit eller
 // från en månad. Därifrån: 3 m-stockar, sågbar dimension, längre rotkap.
 //
 // Månaden följer MED i länken så objektskärmen öppnar på samma tal som raden.
@@ -19,7 +19,7 @@ import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 import { AVSTAND, FARG, KORT, RADIE, TYP } from '@/lib/design/tokens';
 import { SIDA, GUL, GRON, DAMPAD, MUTED, LINJE, nf0, nf1, nf2, manadNamn, manadEtikett, stor, stegaManad, nuManad, kortObjekt,
-         Rubrikrad, Stort, Tillstand, Kontroll, Rad, Rader, Laddar, Fel } from '@/components/Ytform';
+         Rubrikrad, Tillbakarad, Stort, Tillstand, Kontroll, Rad, Rader, Laddar, Fel } from '@/components/Ytform';
 
 type ObjektRad = {
   objekt_id: string; namn: string | null; status: string;
@@ -78,7 +78,7 @@ function Innehall() {
   );
 
   const rad = (o: ObjektRad, gra: boolean) => (
-    <Rad key={o.objekt_id} href={`/affarsuppfoljning/objekt/${encodeURIComponent(o.objekt_id)}?manad=${manad}`}
+    <Rad key={o.objekt_id} href={`/affarsuppfoljning/objekt/${encodeURIComponent(o.objekt_id)}?vy=massaved&manad=${manad}`}
       text={kortObjekt(o.namn ?? o.objekt_id)} dampad={gra}
       tal={nf2(o.medellangd_m)} farg={gra ? DAMPAD : o.medellangd_m < mal ? GUL : GRON}
       hoger={`${nf0(o.m3fub)} m³`} />
@@ -86,6 +86,7 @@ function Innehall() {
 
   return (
     <div style={SIDA}>
+      <Tillbakarad href="/affarsuppfoljning" text="Året" />
       <Rubrikrad text={stor(manadNamn(manad))} value={manad} onChange={valjManad} label="Månad">
         {manadLista().map(m => <option key={m} value={m}>{stor(manadEtikett(m))}</option>)}
       </Rubrikrad>
@@ -128,10 +129,6 @@ function Innehall() {
         </>
       )}
 
-      {/* Rotposterna: trakterna vi köpt på rot, mot det vanliga vid samma medelstam. Gäller inte månaden ovan. */}
-      <Rader>
-        <Rad text="Rotposter" sub="Blev det som det brukar vid samma medelstam?" href="/affarsuppfoljning/rotposter" />
-      </Rader>
     </div>
   );
 }
