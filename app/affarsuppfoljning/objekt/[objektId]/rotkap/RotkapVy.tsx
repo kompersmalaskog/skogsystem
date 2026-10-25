@@ -31,8 +31,10 @@
 // rad(k) − rad(3,0), aldrig lagrad — så kan ett tal aldrig motsäga sin
 // referens.
 
-import { useState } from 'react';
-import { SIDA, TAL, SEKUNDAR, TEXT, GRON, LINJE, nf, nf0, Tillbakarad, Stort, Damp, Kontroll, Rad, Rader, Stycken } from '@/components/Ytform';
+import { useEffect, useState } from 'react';
+import { AVSTAND, FARG, KORT, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
+import StamBild from './StamBild';
+import { SIDA, SEKUNDAR, TEXT, LINJE, nf, nf0, Tillbakarad, Rad, Rader, Stycken, Etikett } from '@/components/Ytform';
 
 export type Validering = {
   n: number; dia_median_mm: number; dia_p10: number; dia_p90: number;
@@ -49,7 +51,8 @@ export type SimRad = {
   stockar_antal: number; serier_antal: number; beraknad: string;
 };
 
-export const KAPLANGDER = [320, 340, 360, 380] as const;
+/** Längderna berakna_rotkap.py räknar (utöver referensen 300). Sidan läser dem ur raderna — en äldre körning kan ha färre. */
+export const KAPLANGDER = [310, 320, 330, 340, 350, 360, 370, 380] as const;
 export const REFERENS = 300;
 /** Färre stammar än så är brus, inte ett tal. En enskild stam ger mellan
  *  −309 och +81 liter, var femte exakt noll (797 stammar, fyra objekt).
@@ -64,6 +67,11 @@ export const VALIDERING_VOL_PCT = 2;
 const tecken = (n: number, d = 2) =>
   Math.abs(n) < 0.5 * Math.pow(10, -d) ? nf(0, d) : (n < 0 ? '−' : '+') + nf(Math.abs(n), d);
 const meter = (cm: number) => nf(cm / 100, 1);
+/** Liter som hinkar (10 l), så talet går att se framför sig: " – ungefär 3 hinkar". Under en hink: inget. */
+export const hinkar = (liter: number) => {
+  const h = Math.round(liter / 10);
+  return h < 1 ? '' : ` – ungefär ${h === 1 ? 'en hink' : `${h} hinkar`}`;
+};
 /** Maskinen sätter Vidas ordernummer först i namnet. Det är inte namnet. */
 export const utanPrefix = (namn: string) => namn.replace(/^\d{4,}\s+/, '');
 
@@ -152,6 +160,16 @@ export function Atgardsruta({ atg }: { atg: Atgard[] }) {
   );
 }
 
+/**
+ * Längderna att jämföra med referensen: de som faktiskt är simulerade för objektet (sim_rotkap), kortast först.
+ * Läses ur raderna, inte ur KAPLANGDER — simuleringen kan räkna fler steg (3,1–3,8 m) än en äldre körning gjorde.
+ * Ingen filtrering mot prislistan: den räknar en stock till närmaste längdklass UNDER, så en rotbit på 3,2 m är
+ * tillåten massaved och hamnar i klassen 3,0 m.
+ */
+export function simuleradeLangder(rader: SimRad[], objektId: string | null): number[] {
+  return [...new Set(rader.filter(r => r.objekt_id === objektId && r.kaplangd_cm > REFERENS).map(r => r.kaplangd_cm))].sort((a, b) => a - b);
+}
+
 export default function RotkapVy({ rader, valt, kaplangd, onKaplangd, vy, onSaRaknas, objektHref, rotkapHref }: {
   rader: SimRad[]; valt: string | null; kaplangd: number;
   onKaplangd: (cm: number) => void;
@@ -160,51 +178,26 @@ export default function RotkapVy({ rader, valt, kaplangd, onKaplangd, vy, onSaRa
   /** Objektskärmen (tillbakaraden) och den här vyns egen adress (tillbaka från Så räknas). */
   objektHref: string; rotkapHref: string;
 }) {
-  const [visaVar, setVisaVar] = useState(false);
+  const val = simuleradeLangder(rader, valt);
+  // Ett val som inte är simulerat för objektet byts mot första som är det.
+  useEffect(() => { if (val.length > 0 && !val.includes(kaplangd)) onKaplangd(val[0]); }, [val.join(','), kaplangd]);   // eslint-disable-line react-hooks/exhaustive-deps
   const lista = objektLista(rader);
   const obj = lista.find(o => o.objekt_id === valt) ?? null;
   const ref = obj?.ref ?? null;
-  const rad = obj ? rader.find(r => r.objekt_id === obj.objekt_id && r.kaplangd_cm === kaplangd) ?? null : null;
+  const rad = obj && val.includes(kaplangd) ? rader.find(r => r.objekt_id === obj.objekt_id && r.kaplangd_cm === kaplangd) ?? null : null;
+
   const skift = kaplangd - REFERENS;
 
   // Skillnaderna — räknas här, lagras aldrig.
-  const dT = ref && rad ? rad.timmer_m3 - ref.timmer_m3 : 0;
   const dK = ref && rad ? rad.kubb_m3 - ref.kubb_m3 : 0;
   const dM = ref && rad ? rad.massa_m3 - ref.massa_m3 : 0;
   const dR = ref && rad ? rad.rest_m3 - ref.rest_m3 : 0;
   const d1 = ref && rad ? rad.grupp1_timmer_m3 - ref.grupp1_timmer_m3 : 0;
   const d2 = ref && rad ? rad.grupp2_timmer_m3 - ref.grupp2_timmer_m3 : 0;
-  const pct = ref && ref.timmer_m3 > 0 ? (100 * dT) / ref.timmer_m3 : 0;
-  const lPerStam = ref && ref.stammar > 0 ? (1000 * dT) / ref.stammar : 0;
   const medRotkap = ref ? ref.stammar + ref.utan_sagstock + ref.utan_kurva : 0;
-  const ord = Math.abs(dT) < 0.005 ? 'timret oförändrat' : dT < 0 ? 'förlorat timmer' : 'vunnet timmer';
-  const maxGrupp = Math.max(Math.abs(d1), Math.abs(d2), 1e-9);
   const v = ref?.validering ?? null;
   const beraknad = ref ? new Date(ref.beraknad).toLocaleDateString('sv-SE') : null;
   const atg = ref ? atgarder(ref) : [];
-
-  const stapel = (d: number) => (
-    <div style={{ height: 2, borderRadius: 1, background: 'rgba(255,255,255,0.05)', marginTop: 8 }}>
-      <div style={{ height: '100%', borderRadius: 1, width: `${(Math.abs(d) / maxGrupp) * 100}%`,
-                    background: Math.abs(d) < 0.005 ? 'rgba(255,255,255,0.14)' : d < 0 ? ROD : GRON }} />
-    </div>
-  );
-  const grupp = (namn: string, st: number, d: number, not?: React.ReactNode) => (
-    <div style={{ padding: '12px 0', borderTop: LINJE }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
-        <span>
-          <div style={{ fontSize: 13 }}>{namn}</div>
-          <div style={LITEN}>{nf0(st)} stammar</div>
-        </span>
-        <span style={{ flexShrink: 0 }}>
-          <span style={{ ...TAL, fontSize: 20 }}>{tecken(d)}</span>
-          <span style={{ ...LITEN, marginLeft: 3 }}>m³</span>
-        </span>
-      </div>
-      {stapel(d)}
-      {not && <div style={{ ...LITEN, marginTop: 6, lineHeight: 1.55 }}>{not}</div>}
-    </div>
-  );
 
   // ── Så räknas: allt som förklarar talet bor här, en nivå in ──────────────────────────────────────
   if (vy === 'sa-raknas' && obj && obj.valjbar && ref && rad) {
@@ -212,6 +205,16 @@ export default function RotkapVy({ rader, valt, kaplangd, onKaplangd, vy, onSaRa
     return (
       <div style={SIDA}>
         <Tillbakarad href={rotkapHref} text={obj.namn} />
+        {/* Vart timret tar vägen — i barnspråk först, talen under. Volymen försvinner inte, den byter sortiment. */}
+        <Rader rubrik={`Vart timret tar vägen vid ${meter(kaplangd)} m`}>
+          <Rad text="Blir massaved" sub="Den längre rotbiten." tal={`${tecken(dM)} m³`} />
+          <Rad text="Blir kubb" sub="Timret börjar högre upp där stammen är smalare. Ibland blir toppstocken för klen för timmer." tal={`${tecken(dK)} m³`} />
+          <Rad text="Toppen" sub="Biten längst ut som inte blir något sortiment ändras lite." tal={`${tecken(dR)} m³`} />
+        </Rader>
+        <Rader rubrik="Vilka stammar">
+          <Rad text="Rötan slutade i rotbiten" sub={`${nf0(ref.grupp1_stammar)} stammar · säkert tal`} tal={`${tecken(d1)} m³`} />
+          <Rad text="Rötan gick längre" sub={`${nf0(ref.grupp2_stammar)} stammar · högst så mycket`} tal={`${tecken(d2)} m³`} />
+        </Rader>
         <Stycken>
           <p style={para}>
             Samma stammar apteras en gång till med rotbiten förlängd till {meter(kaplangd)} m, mot
@@ -281,53 +284,79 @@ export default function RotkapVy({ rader, valt, kaplangd, onKaplangd, vy, onSaRa
         </div>
       )}
 
-      {obj && obj.valjbar && ref && rad && (
-        <>
-          {/* 2. Talet. 3. Ordraden — en färg. Etiketten bär skillnaden mot resten av
-              appen: det här talet har ingen maskin mätt. 4. Skalan — procenten säger
-              om det är mycket, litern per stam gör objekt jämförbara. 5. Kontrollraden
-              som text. 6. Underlaget: saknade kurvor är inget fel att åtgärda —
-              stammar avverkade före 2026-07-18 får aldrig någon. */}
-          <Stort tal={tecken(dT)} enhet="m³" ordrad={<>{ord}<span style={{ color: SEKUNDAR }}> · räknat, inte mätt</span></>}>
-            <Damp>{tecken(pct, 1)} % av timret · {tecken(lPerStam, 0)} l per stam</Damp>
-            <Kontroll text={`kaplängd ${meter(kaplangd)} m`} value={String(kaplangd)}
-              onChange={v => onKaplangd(Number(v))} label="Kaplängd">
-              {KAPLANGDER.map(cm => <option key={cm} value={cm}>{meter(cm)} m i stället för {meter(REFERENS)}</option>)}
-            </Kontroll>
-            <div style={{ ...LITEN, marginTop: 2 }}>
-              byggt på {nf0(ref.stammar)}{medRotkap > ref.stammar ? ` av ${nf0(medRotkap)}` : ''} stammar
+      {obj && obj.valjbar && ref && rad && (() => {
+        // En rad per simulerad längd: hur mycket timmer som går förlorat mot 3,0 m. Stapeln är längd mot den största förlusten.
+        const lista = val.map(k => {
+          const r = rader.find(x => x.objekt_id === obj.objekt_id && x.kaplangd_cm === k);
+          return { k, d: r ? r.timmer_m3 - ref.timmer_m3 : 0 };
+        });
+        const storst = Math.max(...lista.map(x => Math.abs(x.d)), 1e-9);
+        return (
+          <>
+            {/* 1. Frågan. 2. SVARET för vald längd, stort, i liter per stam och andel av timret. 3. Alla längder (tryck = välj).
+                4. Bilden som förklarar varför. 5. Underlaget i en rad. */}
+            <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px 0` }}>
+              <h1 style={{ ...TYP.titel, margin: 0, color: FARG.text }}>Längre rotbit</h1>
+              <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xs }}>Vad kostar det om föraren kapar av en längre bit för att bli av med rötan?</div>
             </div>
-          </Stort>
 
-          {/* 7. Skriker bara när något går att göra. Annars finns rutan inte. */}
-          <Atgardsruta atg={atg} />
-
-          {/* 8. Nivåraderna. 9. Luften hamnar under dem. */}
-          <Rader>
-            <Rad text="Var förlusten sitter" onClick={() => setVisaVar(x => !x)} oppen={visaVar} />
-            {visaVar && (
-              <div style={{ paddingBottom: 14 }}>
-                {[['Kubb', dK], ['Massaved', dM], ['Toppen utan sortiment', dR]].map(([namn, d]) => (
-                  <div key={namn as string}
-                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-                             padding: '9px 0', borderTop: LINJE }}>
-                    <span style={{ fontSize: 13 }}>{namn as string}</span>
-                    <span>
-                      <span style={{ ...TAL, fontSize: 17 }}>{tecken(d as number)}</span>
-                      <span style={{ ...LITEN, marginLeft: 3 }}>m³</span>
-                    </span>
+            {(() => {
+              const d = rad.timmer_m3 - ref.timmer_m3;
+              const literPerStam = ref.stammar > 0 ? (1000 * -d) / ref.stammar : 0;
+              return (
+                <div style={{ ...KORT, margin: `${AVSTAND.l}px ${AVSTAND.l}px 0` }}>
+                  <div style={{ ...TYP.meta, color: FARG.text2 }}>Om föraren kapar {meter(kaplangd)} m i stället för {meter(REFERENS)} m</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, marginTop: AVSTAND.xs }}>
+                    <span style={{ ...TYP.tal, ...TNUM, color: FARG.text }}>{tecken(d, 1)}</span>
+                    <span style={{ ...TYP.text, color: FARG.text2 }}>m³ timmer</span>
                   </div>
-                ))}
-                {grupp('Över rotbiten', ref.grupp1_stammar, d1)}
-                {/* Den enda meningen: talet är ett tak, annars läses det som ett mätt tal. Resten bor i Så räknas. */}
-                {grupp('Rötan fortsatte', ref.grupp2_stammar, d2, ref.grupp2_stammar === 0 ? 'Inga stammar med flera massabitar före timret.' : 'Talet är ett tak.')}
-              </div>
-            )}
+                  <div style={{ ...TYP.text, color: FARG.text, marginTop: AVSTAND.s }}>
+                    Det är {nf0(Math.max(0, literPerStam))} liter timmer per stam{hinkar(literPerStam)}.
+                  </div>
+                  <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
+                    Den biten blir massaved i stället. Gäller de {nf0(ref.stammar)} stammar som hade röta.
+                  </div>
+                </div>
+              );
+            })()}
 
-            <Rad text="Så räknas" onClick={onSaRaknas} />
-          </Rader>
-        </>
-      )}
+            <Rader rubrik="Ju längre bit, desto mer timmer försvinner">
+              {lista.map(({ k, d }) => (
+                <button key={k} onClick={() => onKaplangd(k)} aria-pressed={k === kaplangd}
+                  aria-label={`Rotbit ${meter(k)} meter: ${tecken(d, 1)} kubik timmer`}
+                  style={{ display: 'grid', gridTemplateColumns: '64px 1fr 96px', alignItems: 'center', gap: AVSTAND.m, width: '100%',
+                           minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0`, background: 'none', border: 'none',
+                           borderTop: LINJE, fontFamily: 'inherit', color: FARG.text, cursor: 'pointer', textAlign: 'left' }}>
+                  <span style={{ ...TYP.listtitel, ...TNUM, color: k === kaplangd ? FARG.text : FARG.text2 }}>{meter(k)} m</span>
+                  <span style={{ height: AVSTAND.s, borderRadius: RADIE.stapel, background: FARG.linje }}>
+                    <span style={{ display: 'block', height: '100%', borderRadius: RADIE.stapel, width: `${(Math.abs(d) / storst) * 100}%`,
+                                   background: k === kaplangd ? FARG.text : FARG.text3 }} />
+                  </span>
+                  <span style={{ ...TYP.listtitel, ...TNUM, textAlign: 'right', color: k === kaplangd ? FARG.text : FARG.text2 }}>
+                    {tecken(d, 1)} m³
+                  </span>
+                </button>
+              ))}
+            </Rader>
+
+            <Etikett>Varför</Etikett>
+            <div style={{ ...KORT, margin: `0 ${AVSTAND.l}px` }}>
+              <StamBild referensCm={REFERENS} kaplangdCm={kaplangd} />
+            </div>
+
+            <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.s}px ${AVSTAND.l}px 0` }}>
+              Räknat, inte mätt: samma stammar apterade om med längre rotbit.
+            </div>
+
+            {/* Skriker bara när något går att göra. Annars finns rutan inte. */}
+            <Atgardsruta atg={atg} />
+
+            <Rader>
+              <Rad text="Så räknas" onClick={onSaRaknas} />
+            </Rader>
+          </>
+        );
+      })()}
     </div>
   );
 }

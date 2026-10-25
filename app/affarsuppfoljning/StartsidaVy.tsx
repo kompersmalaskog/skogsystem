@@ -1,112 +1,75 @@
 'use client';
 
-// AFFÄRSUPPFÖLJNINGENS STARTSIDA — "hur går året".
-//
-// Samma form som massaved, stämplingsvyn och medelstam (components/Ytform.tsx): rubrikrad med väljare överst,
-// talet stort och vänsterställt, ordrad, dämpad rad, rader med › längst ner. Före: bara en månadsväljare. Nu:
-//   1. rubrikrad: år ⌄ och åtgärd ⌄ och bolag ⌄ (bolagsfiltret: alla bolag eller bara Vida)
-//   2. talet: avverkat hittills i år, m³fub. Ordraden säger VAD talet är: "avverkat" när det är allt,
-//      "levererat till Vida" bara när filtret står på Vida. Dämpad rad: snitt per hel månad och antal objekt.
-//   3. månadsstaplar för hela året; pågående månad streckad; tryck på en stapel öppnar månaden (ersätter
-//      månadsväljaren)
-//   4. årets sortimentsfördelning, i ljushetsskalan (mörkast = mest värt, se skogsystem-design-skillen)
-//   5. rader: senast avslutade månad, Räkna på post, Massavedens längd (dagens medellängd), Längre rotkap, Så räknas
-//      Texten på ytan är tal och korta etiketter. Hur det räknas bor en nivå in (?vy=sa-raknas).
-//
-// ALLT HÄR LÄSER FÖRBERÄKNADE TABELLER (utfall_manad, dim_objekt) — aldrig stockdata live. All räkning bor i
-// lib/affarsuppfoljning/ar.ts; den här filen visar bara. Hemved ingår inte i något tal (går till markägaren).
+// AFFÄRSUPPFÖLJNINGENS ÖVERSIKT — "hur går året för Vida?" Samma byggstenar som arbetsrapporten (Min tid): stor rubrik med
+// väljare, talet i ett kort, staplarna, en etikett ovanför varje kort och rader med ›. Så enkelt att ett barn förstår:
+//   1. "2026 ⌄"
+//   2. kortet: 44 732 m³ · "till Vida i år" · antal objekt
+//   3. PER MÅNAD: staplar som i Min tid — tryck på en månad, raden ovanför säger månaden och volymen, tryck på den öppnar månaden
+//   4. VAD DET BLEV: grantimmer, talltimmer, kubb, massaved, energi och övrigt, löv — kubik, inga procent
+//   5. ett tryck på ett sågbart sortiment visar vart det gick (industrierna), ett tryck på Löv visar vad lövet blev
+// Totalen är summan av de avrundade raderna (skillen: "Summan är summan av det som visas").
 
-import { useMemo } from 'react';
-import Link from 'next/link';
-import { Calendar, Calculator, Ruler, Info } from 'lucide-react';
-import { SIDA, DAMPAD, SEKUNDAR, TEXT, LINJE, GUL, GRON, nf0, nf1, nf2, stor,
-         Tillbakarad, Stort, Rad, Rader, Stycken, Pil } from '@/components/Ytform';
-import { Sortimentstapel, TeckenforklaringMedAndel } from '@/components/Sortimentstapel';
-import { heltalTill100, type Andelar } from '@/lib/medelstam/berakna';
-import {
-  ATGARDER, BOLAGEN, byggAr, arLista, senastAvslutadManad, massavedLangd, manadsNamn, manadsnyckel,
-  type Atgard, type Bolag, type ManadRad, type ObjektInfo,
-} from '@/lib/affarsuppfoljning/ar';
+import { useMemo, useState } from 'react';
+import Ikon from '@/components/design/Ikon';
+import { AVSTAND, FARG, IKON, KORT, RADIE, SORTIMENTFARG, TNUM, TRAFFYTA, TYP, VIKT, overgang } from '@/lib/design/tokens';
+import { SIDA, nf0, stor, manadNamn, Rubrikrad, Tillbakarad, Stort, Damp, Rad, Rader, Etikett, Stycken } from '@/components/Ytform';
 
 export const BAS = '/affarsuppfoljning';
-export type Vy = 'ar' | 'sa-raknas';
+export type Vy = 'ar' | 'sortiment' | 'sa-raknas';
 
-export type Props = {
-  rader: ManadRad[];
-  objekt: Map<string, ObjektInfo>;
-  massaMal: number;                 // önskad medellängd, m (kravprofil)
-  uppdaterad: string | null;        // senaste beräkning ur utfall_manad
-  idag: Date;
-  ar: number; atgard: Atgard; bolag: Bolag; vy: Vy;
-  byt: (q: { ar?: number; atgard?: Atgard; bolag?: Bolag }) => void;
-  gaTill: (href: string) => void;
+type Industri = { namn: string; andel: number; volym: number; ar_industri: boolean };
+type SortRad = { namn: string; andel: number; volym: number; nyckel: string; sagbart?: boolean; industrier?: Industri[] };
+export type Oversikt = {
+  ar: number; manad: string | null; bolag: string;
+  barr: { andel: number; volym: number; rader: SortRad[] };
+  lov: { andel: number; volym: number; rader: SortRad[] };
+  objekt: { namn: string; volym: number; objekt_id: string; vo_nummer: string | null }[];
+  manader: { manad: string; volym: number }[];
+  total_volym: number; antal_objekt: number;
 };
 
-const OVERLAY = { position: 'absolute' as const, inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', fontSize: 16 };
-
-/** En väljare som ser ut som text: osynlig native-<select> ovanpå, så iOS-plockaren öppnas. */
-function Valjare({ text, value, onChange, label, children, fet }: {
-  text: string; value: string; onChange: (v: string) => void; label: string; children: React.ReactNode; fet?: boolean;
-}) {
-  return (
-    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', minHeight: 44 }}>
-      <span style={{ fontSize: fet ? 15 : 13, fontWeight: fet ? 600 : 400, color: fet ? TEXT : DAMPAD, whiteSpace: 'nowrap' }}>{text}</span>
-      <Pil storlek={fet ? 14 : 13} vanster={fet ? 7 : 6} />
-      <select value={value} onChange={e => onChange(e.target.value)} aria-label={label} style={OVERLAY}>{children}</select>
-    </span>
-  );
+const PRICK: Record<string, string> = {
+  grantimmer: SORTIMENTFARG.timmer, talltimmer: SORTIMENTFARG.timmer, kubb: SORTIMENTFARG.kubb,
+  massaved: SORTIMENTFARG.massa, energi: SORTIMENTFARG.ovrigt,
+};
+const r0 = (v: number) => Math.round(v);
+/** Hela procent som summerar till 100 (största resten), så raderna går att räkna ihop. */
+function hela(volymer: number[]): number[] {
+  const sum = volymer.reduce((a, b) => a + b, 0);
+  if (sum <= 0) return volymer.map(() => 0);
+  const exakt = volymer.map(v => (100 * v) / sum);
+  const ut = exakt.map(Math.floor);
+  let kvar = 100 - ut.reduce((a, b) => a + b, 0);
+  exakt.map((e, i) => [e - Math.floor(e), i] as const).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (kvar-- > 0) ut[i]++; });
+  return ut;
 }
+/** Ett objekt per trakt: ett numeriskt VO slår ihop skördarens och skotarens rad (samma regel som månadssidan). */
+const antalTrakter = (o: Oversikt['objekt']) => new Set(o.map(x => (x.vo_nummer && /^[0-9]+$/.test(x.vo_nummer) ? x.vo_nummer : x.objekt_id))).size;
 
-const BOLAG_TEXT: Record<Bolag, string> = { Alla: 'alla bolag', Vida: 'bara Vida' };
-const ATGARD_TEXT: Record<Atgard, string> = { Allt: 'alla åtgärder', Slutavverkning: 'slutavverkning', Gallring: 'gallring', Grot: 'GROT' };
-const STAPELHOJD = 110;
-const DAMP = { marginTop: 2, fontSize: 13, color: DAMPAD, lineHeight: 1.5 } as const;
+const STAPEL_H = 120;   // grafens höjd — ett layoutmått, som i Min tid (TimmarGraf)
+const DAMPAD = 0.22;
 
-/** En rad med ikon, som i förlagan: ikon · rubrik med underrad · värde · ›. Ikonen är dekor (aria-hidden) — ordet bär. */
-function Post({ ikon, text, sub, hoger, farg, href, onClick }: {
-  ikon: React.ReactNode; text: string; sub?: string; hoger?: string; farg?: string; href?: string; onClick?: () => void;
-}) {
-  const inre = (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-      <span aria-hidden style={{ color: SEKUNDAR, display: 'flex', flexShrink: 0 }}>{ikon}</span>
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: 'block', fontSize: 15, fontWeight: 600, color: TEXT }}>{text}</span>
-        {sub && <span style={{ display: 'block', fontSize: 12, color: DAMPAD, marginTop: 2, lineHeight: 1.4 }}>{sub}</span>}
-      </span>
-      {hoger != null && <span style={{ flexShrink: 0, fontSize: 13, fontWeight: farg ? 600 : 400, color: farg ?? DAMPAD }}>{hoger}</span>}
-      <span aria-hidden style={{ color: DAMPAD, fontSize: 18, lineHeight: 1, flexShrink: 0 }}>›</span>
-    </span>
-  );
-  const stil = { display: 'block', width: '100%', boxSizing: 'border-box' as const, borderTop: LINJE, padding: '14px 0', minHeight: 44,
-                 textDecoration: 'none', color: TEXT, textAlign: 'left' as const, fontFamily: 'inherit', background: 'none', cursor: 'pointer' };
-  if (href) return <Link href={href} style={stil}>{inre}</Link>;
-  // Inte `border: 'none'`: i en inline-stil nollar förkortningen borderTop som redan är satt, och raden tappar sin skiljelinje.
-  return <button onClick={onClick} style={{ ...stil, borderLeft: 'none', borderRight: 'none', borderBottom: 'none' }}>{inre}</button>;
-}
-
-/** Tolv månader. Tryck öppnar månaden. Pågående månad streckad, framtiden tom. `markerad` = senast avslutade månad (fet bokstav). */
-function Manadsstaplar({ manader, ar, markerad, onVal }: { manader: ReturnType<typeof byggAr>['manader']; ar: number; markerad: string | null; onVal: (manad: string) => void }) {
+/** Månadsstaplarna — Min tids form: vald månad vit, övriga samma vita dämpade, ingen axel. */
+function Staplar({ manader, vald, valj, framtid }: { manader: Oversikt['manader']; vald: string; valj: (m: string) => void; framtid: (m: string) => boolean }) {
   const max = Math.max(1, ...manader.map(m => m.volym));
   return (
-    <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
+    <div style={{ display: 'flex', gap: AVSTAND.xs }}>
       {manader.map(m => {
-        const h = m.volym > 0 ? Math.max(3, Math.round((m.volym / max) * STAPELHOJD)) : 0;
-        const kanTryckas = m.volym > 0;
+        const kommande = framtid(m.manad);
+        const markerad = m.manad === vald;
+        const h = m.volym > 0 ? Math.max(4, (m.volym / max) * STAPEL_H) : 2;
         return (
-          <button key={m.manad} disabled={!kanTryckas} onClick={() => onVal(m.manad)}
-            aria-label={`${stor(manadsNamn(m.manad))} ${ar}: ${nf0(m.volym)} m³fub${m.pagaende ? ', pågående månad' : ''}`}
-            style={{ flex: 1, minWidth: 0, padding: 0, border: 'none', background: 'none', fontFamily: 'inherit', color: 'inherit',
-                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end',
-                     cursor: kanTryckas ? 'pointer' : 'default', minHeight: STAPELHOJD + 40 }}>
-            <span style={{ fontSize: 11, color: m.pagaende ? TEXT : DAMPAD, marginBottom: 4, whiteSpace: 'nowrap', visibility: m.volym > 0 ? 'visible' : 'hidden' }}>
-              {Math.round(m.volym)}
-            </span>
-            <span style={{ width: '100%', height: h, boxSizing: 'border-box', borderRadius: '4px 4px 0 0',
-                           background: m.pagaende ? 'transparent' : DAMPAD,
-                           border: m.pagaende ? `1px dashed ${TEXT}` : 'none', borderBottom: 'none' }} />
-            <span style={{ fontSize: 11, marginTop: 6, color: m.manad === markerad ? TEXT : SEKUNDAR, fontWeight: m.manad === markerad ? 700 : 400,
-                           borderTop: LINJE, width: '100%', paddingTop: 4, textAlign: 'center' }}>
-              {stor(manadsNamn(m.manad)).charAt(0)}
+          <button key={m.manad} disabled={kommande} onClick={() => valj(m.manad)} aria-pressed={markerad}
+            aria-label={`${manadNamn(m.manad)}: ${kommande ? 'kommande' : `${nf0(m.volym)} kubik`}`}
+            style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'none', border: 'none',
+                     padding: 0, fontFamily: 'inherit', color: 'inherit', cursor: kommande ? 'default' : 'pointer', minHeight: TRAFFYTA.min }}>
+            <div style={{ width: '100%', height: STAPEL_H, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+              {!kommande && <div style={{ width: '56%', height: h, background: FARG.text, opacity: markerad ? 1 : DAMPAD,
+                                          borderRadius: `${RADIE.stapel}px ${RADIE.stapel}px 0 0`, transition: overgang('opacity') }} />}
+            </div>
+            <span style={{ ...TYP.meta, marginTop: AVSTAND.s, color: markerad ? FARG.text : kommande ? FARG.text3 : FARG.text2,
+                           fontWeight: markerad ? VIKT.halvfet : VIKT.normal }}>
+              {manadNamn(m.manad).charAt(0).toUpperCase()}
             </span>
           </button>
         );
@@ -115,112 +78,111 @@ function Manadsstaplar({ manader, ar, markerad, onVal }: { manader: ReturnType<t
   );
 }
 
-export default function StartsidaVy({ rader, objekt, massaMal, uppdaterad, idag, ar, atgard, bolag, vy, byt, gaTill }: Props) {
-  const svar = useMemo(() => byggAr(rader, objekt, { ar, atgard, bolag, idag }), [rader, objekt, ar, atgard, bolag, idag]);
-  const aren = useMemo(() => arLista(rader, idag), [rader, idag]);
-  const senast = useMemo(() => senastAvslutadManad(rader, objekt, atgard, bolag, idag), [rader, objekt, atgard, bolag, idag]);
-  const langd = useMemo(() => massavedLangd(rader, objekt, idag), [rader, objekt, idag]);
+export default function StartsidaVy({ d, ar, aren, idag, vy, sortiment, gaTill }: {
+  d: Oversikt; ar: number; aren: number[]; idag: Date; vy: Vy; sortiment: string | null;
+  gaTill: (href: string, ersatt?: boolean) => void;
+}) {
   const nuAr = idag.getFullYear();
-  const nu = manadsnyckel(idag);
+  const nuManad = `${nuAr}-${String(idag.getMonth() + 1).padStart(2, '0')}`;
+  const iAr = ar === nuAr ? 'i år' : `under ${ar}`;
+  const arUrl = `${BAS}?ar=${ar}`;
 
-  const manadUrl = (manad: string) => `${BAS}/manad?manad=${manad}&atgard=${atgard}&bolag=${bolag}`;
+  // Raderna, avrundade — totalen är deras summa.
+  const barr = d.barr.rader.map(x => ({ ...x, v: r0(x.volym) }));
+  const lovV = d.lov.rader.reduce((a, x) => a + r0(x.volym), 0);
+  const total = barr.reduce((a, x) => a + x.v, 0) + lovV;
+  const trakter = useMemo(() => antalTrakter(d.objekt), [d.objekt]);
 
-  // ── Så räknas: allt som förklarar talet bor här, en nivå in ──────────────
+  const senastMedVolym = [...d.manader].reverse().find(m => m.volym > 0 && m.manad <= nuManad)?.manad ?? d.manader[0]?.manad ?? '';
+  const [vald, setVald] = useState(ar === nuAr ? nuManad : senastMedVolym);
+  const valdRad = d.manader.find(m => m.manad === vald);
+  const manadUrl = (m: string) => `${BAS}/manad?manad=${m}&atgard=Allt&bolag=Vida`;
+
+  // ── Så räknas ───────────────────────────────────────────────────────────
   if (vy === 'sa-raknas') {
     return (
       <div style={SIDA}>
-        <Tillbakarad href={`${BAS}?ar=${ar}&atgard=${atgard}&bolag=${bolag}`} text={String(ar)} />
+        <Tillbakarad href={arUrl} text={String(ar)} />
         <Stycken>
-          <p style={{ margin: '0 0 8px' }}>
-            Förberäknat efter import (utfall_manad){uppdaterad ? `, uppdaterat ${new Date(uppdaterad).toLocaleDateString('sv-SE')}` : ''} — ingen stockdata läses vid anrop.
-          </p>
-          <p style={{ margin: '0 0 8px' }}>
-            Volymerna är m³fub, skördarmätt under bark. Hemved ingår inte i något tal: det är virke som går till markägaren.
-          </p>
-          <p style={{ margin: '0 0 8px' }}>
-            Kubb räknar klentimmer. Övrigt är energived, avkap och oklassat. Alla åtgärder = slutavverkning och gallring (och objekt utan angiven åtgärd); GROT är ett eget val.
-          </p>
-          <p style={{ margin: 0 }}>
-            Snittet per hel månad räknas från årets första månad med volym till senast avslutade; pågående månad ({manadsNamn(nu)}) är inte med.
-            Objekt räknas på samma sätt som på månadssidan: skördarens och skotarens rad för samma trakt är ett objekt.
-          </p>
+          <p style={{ margin: `0 0 ${AVSTAND.s}px` }}>Bara Vidas trakter, alla åtgärder. Volymen är kubikmeter fast under bark, mätt av skördaren.</p>
+          <p style={{ margin: `0 0 ${AVSTAND.s}px` }}>Hemved räknas inte — den går till markägaren, inte till Vida.</p>
+          <p style={{ margin: `0 0 ${AVSTAND.s}px` }}>Kubb räknar klentimmer. Energi och övrigt är energived, avkap och det som inte har ett sortiment.</p>
+          <p style={{ margin: 0 }}>Talet läses direkt ur stockarna varje gång sidan öppnas, så det är alltid aktuellt.</p>
         </Stycken>
       </div>
     );
   }
 
-  // ── Året ──────────────────────────────────────────────────────────────
-  const ordrad = `${bolag === 'Vida' ? 'levererat till Vida' : 'avverkat'}${ar === nuAr ? ' hittills i år' : ` under ${ar}`}`;
-  const harVolym = svar.total > 0;
-  const f = svar.fordelning;
-  const fAndel: Andelar | null = harVolym
-    ? { timmer: (100 * f.timmer) / svar.total, kubb: (100 * f.kubb) / svar.total, massa: (100 * f.massa) / svar.total, ovrigt: (100 * f.ovrigt) / svar.total }
-    : null;
-  const fHela = fAndel ? heltalTill100(fAndel) : null;
-  const massaFarg = langd == null ? undefined : langd.medellangd < massaMal ? GUL : GRON;
+  // ── Ett sortiment öppnat: vart det gick, eller vad lövet blev ────────────
+  if (vy === 'sortiment') {
+    const arLov = sortiment === 'lov';
+    const rad = barr.find(x => x.nyckel === sortiment);
+    const delar = arLov
+      ? d.lov.rader.map(x => ({ namn: x.namn, v: r0(x.volym) })).filter(x => x.v > 0)
+      : (rad?.industrier ?? []).map(x => ({ namn: x.namn, v: r0(x.volym) })).filter(x => x.v > 0);
+    const summa = delar.reduce((a, x) => a + x.v, 0);
+    const pct = hela(delar.map(x => x.v));
+    const namn = arLov ? 'Löv' : rad?.namn ?? 'Sortimentet';
+    return (
+      <div style={SIDA}>
+        <Tillbakarad href={arUrl} text={String(ar)} />
+        <Stort tal={nf0(summa)} enhet="m³" ordrad={`${namn.toLowerCase()} till Vida ${iAr}`} />
+        {delar.length > 0 ? (
+          <Rader rubrik={arLov ? 'Vad lövet blev' : 'Vart det gick'}>
+            {delar.map((x, i) => <Rad key={x.namn} text={x.namn} tal={`${nf0(x.v)} m³`} hoger={`${pct[i]} %`} />)}
+          </Rader>
+        ) : (
+          <div style={{ ...KORT, margin: `${AVSTAND.m}px ${AVSTAND.l}px 0`, ...TYP.meta, color: FARG.text2 }}>
+            {arLov ? 'Inget löv till Vida' : 'Det här sortimentet har ingen industri i datan'} {iAr}.
+          </div>
+        )}
+      </div>
+    );
+  }
 
+  // ── Året ────────────────────────────────────────────────────────────────
   return (
     <div style={SIDA}>
-      {/* 1. Rubrikrad: året till vänster, bolag och åtgärd till höger. Allt är väljare; ingen av dem är en knapp. */}
-      <div style={{ margin: '10px 16px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', columnGap: 16 }}>
-        <Valjare fet text={String(ar)} value={String(ar)} label="År" onChange={v => byt({ ar: Number(v) })}>
-          {aren.map(a => <option key={a} value={a}>{a}</option>)}
-        </Valjare>
-        <span style={{ display: 'flex', alignItems: 'center', columnGap: 16 }}>
-          <Valjare text={BOLAG_TEXT[bolag]} value={bolag} label="Bolag" onChange={v => byt({ bolag: v as Bolag })}>
-            {BOLAGEN.map(b => <option key={b} value={b}>{stor(BOLAG_TEXT[b])}</option>)}
-          </Valjare>
-          <Valjare text={ATGARD_TEXT[atgard]} value={atgard} label="Åtgärd" onChange={v => byt({ atgard: v as Atgard })}>
-            {ATGARDER.map(a => <option key={a} value={a}>{stor(ATGARD_TEXT[a])}</option>)}
-          </Valjare>
-        </span>
-      </div>
+      <Rubrikrad text={String(ar)} value={String(ar)} label="År" onChange={v => gaTill(`${BAS}?ar=${v}`, true)}>
+        {aren.map(a => <option key={a} value={a}>{a}</option>)}
+      </Rubrikrad>
 
-      {/* 2. Talet och ordraden */}
-      <Stort tal={nf0(svar.total)} enhet="m³fub" ordrad={<span style={{ display: 'block', marginTop: 6, fontSize: 14, fontWeight: 600 }}>{ordrad}</span>}>
-        {harVolym ? (
-          <div style={DAMP}>
-            {svar.snittPerHelManad != null
-              ? `${nf0(svar.snittPerHelManad)} per månad · `
-              : ''}
-            {nf0(svar.antalObjekt)} objekt
-          </div>
-        ) : (
-          <div style={DAMP}>Inget {bolag === 'Vida' ? 'levererat till Vida' : 'avverkat'} {ar === nuAr ? 'än i år' : `under ${ar}`} med de här valen.</div>
-        )}
+      <Stort tal={nf0(total)} enhet="m³" ordrad={`till Vida ${iAr}`}>
+        {total > 0 && <Damp>{trakter} {trakter === 1 ? 'trakt' : 'trakter'}</Damp>}
       </Stort>
 
-      {/* 3. Månadsstaplar */}
-      <div style={{ margin: '0 16px' }}>
-        <Manadsstaplar manader={svar.manader} ar={ar} markerad={senast?.manad ?? null} onVal={m => gaTill(manadUrl(m))} />
-      </div>
+      {total > 0 && (
+        <>
+          <Etikett>Per månad</Etikett>
+          <div style={{ ...KORT, margin: `0 ${AVSTAND.l}px` }}>
+            {/* Vald månad i klartext — tryck öppnar månaden. Samma höjd oavsett val, så staplarna står still. */}
+            <button onClick={() => valdRad && valdRad.volym > 0 && gaTill(manadUrl(vald))} disabled={!valdRad || valdRad.volym <= 0}
+              style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', minHeight: TRAFFYTA.min,
+                       background: 'none', border: 'none', padding: 0, marginBottom: AVSTAND.s, fontFamily: 'inherit', color: FARG.text,
+                       cursor: valdRad && valdRad.volym > 0 ? 'pointer' : 'default', textAlign: 'left' }}>
+              <span style={{ ...TYP.listtitel }}>{vald ? stor(manadNamn(vald)) : ''}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...TYP.listtitel, ...TNUM }}>
+                {valdRad ? `${nf0(valdRad.volym)} m³` : ''}
+                {valdRad && valdRad.volym > 0 && <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />}
+              </span>
+            </button>
+            <Staplar manader={d.manader} vald={vald} valj={setVald} framtid={m => m > nuManad} />
+          </div>
 
-      {/* 4. Vad det blev: årets sortimentsfördelning */}
-      {fAndel && fHela && (
-        <div style={{ margin: '0 16px' }}>
-          <Sortimentstapel andel={fAndel} hela={fHela} luft={22} />
-          <TeckenforklaringMedAndel hela={fHela} />
-        </div>
+          <Rader rubrik="Vad det blev">
+            {barr.filter(x => x.v > 0).map(x => (
+              <Rad key={x.nyckel} text={x.namn} prick={PRICK[x.nyckel]} tal={`${nf0(x.v)} m³`}
+                href={x.sagbart && (x.industrier?.length ?? 0) > 0 ? `${arUrl}&s=${x.nyckel}` : undefined} />
+            ))}
+            {lovV > 0 && <Rad text="Löv" tal={`${nf0(lovV)} m³`} href={`${arUrl}&s=lov`} />}
+          </Rader>
+        </>
       )}
 
-      {/* 5. Rader */}
       <Rader>
-        {senast && (
-          <Post ikon={<Calendar size={16} strokeWidth={1.75} />}
-            text={`${stor(manadsNamn(senast.manad))}${senast.manad.slice(0, 4) === String(nuAr) ? '' : ` ${senast.manad.slice(0, 4)}`}`}
-            hoger={`${nf0(senast.volym)} m³`} onClick={() => gaTill(manadUrl(senast.manad))} />
-        )}
-        <Post ikon={<Calculator size={16} strokeWidth={1.75} />} text="Räkna på post" href="/affarsuppfoljning/rakna" />
-        <Post ikon={<Ruler size={16} strokeWidth={1.75} />} text="Massavedens längd" farg={massaFarg}
-          hoger={langd ? nf2(langd.medellangd) : '–'}
-          sub={langd
-            ? `mål ${nf1(massaMal)} m${langd.aktuell ? '' : ` · ${manadsNamn(langd.manad)}`}`
-            : 'ingen barrmassaved registrerad än'}
-          href="/affarsuppfoljning/kvalitet" />
-        <Post ikon={<Info size={16} strokeWidth={1.75} />} text="Så räknas"
-          onClick={() => gaTill(`${BAS}?ar=${ar}&atgard=${atgard}&bolag=${bolag}&vy=sa-raknas`)} />
+        <Rad text="Massavedens längd" sub="Håller vi Vidas 4,6 m?" href="/affarsuppfoljning/kvalitet" />
+        <Rad text="Så räknas" href={`${arUrl}&vy=sa-raknas`} dampad />
       </Rader>
-
     </div>
   );
 }

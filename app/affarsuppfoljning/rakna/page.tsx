@@ -1,8 +1,9 @@
 'use client';
 
-// RÄKNA — "vad ska jag bjuda?" Affärsuppföljningens andra flik.
+// RÄKNA — "vad ska jag bjuda?" Affärsuppföljningens FÖRSTA flik (och hemkortets mål, 2026-10-23).
 //
-// Ett stort val överst: ladda upp stämplingslängden (PDF). Ett tryck öppnar filväljaren, rapporten läses och kontrolleras, och
+// Överst "Vad ger det?" (VadGerDet.tsx): en rad per medelstam, vad varje sortiment blir — med traktens volym i kubik.
+// Under det: ladda upp stämplingslängden (PDF). Ett tryck öppnar filväljaren, rapporten läses och kontrolleras, och
 // stämplingssidan tar vid (?vy=pdf&id=…&kor=1: stämmer allt räknar den direkt, annars visar den vad som avviker).
 // Under: "Bara medelstam" (utan stämplingslängd), "Mata in" (längden för hand — reserv) och de sparade posterna, senaste först.
 //
@@ -12,11 +13,13 @@
 
 import { useEffect, useRef, useState, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
-import { SIDA, TAL, DAMPAD, GUL, GRON, LINJE, nf0, Rad, Rader, Damp } from '@/components/Ytform';
+import { AVSTAND, FARG, IKON, KNAPP, KORT, TYP } from '@/lib/design/tokens';
+import Ikon from '@/components/design/Ikon';
+import { SIDA, GUL, GRON, nf0, Rad, Rader, Rubrik, Damp } from '@/components/Ytform';
 import { laddaUppOchLas, listaRapporter, type Rapport } from '@/lib/stampling/pdf/klient';
+import VadGerDet from './VadGerDet';
 
 const STAMPLING = '/affarsuppfoljning/stampling';
-const ROD = 'rgba(255,120,110,0.95)';
 const STATUS_ORD: Record<string, string> = { stammer: 'stämmer', avviker: 'åtgärd behövs', fel: 'misslyckades', lasning: 'läses', uppladdad: 'ej läst' };
 
 function Innehall() {
@@ -40,8 +43,8 @@ function Innehall() {
   if (fas !== 'vilar') {
     return (
       <div style={SIDA}>
-        <div style={{ padding: '24px 16px', lineHeight: 1.6 }}>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>{fas === 'laddar-upp' ? 'Laddar upp rapporten…' : 'Läser rapporten…'}</div>
+        <div style={{ ...KORT, margin: `${AVSTAND.l}px ${AVSTAND.l}px 0` }}>
+          <div style={{ ...TYP.listtitel }}>{fas === 'laddar-upp' ? 'Laddar upp rapporten…' : 'Läser rapporten…'}</div>
           <Damp>{fas === 'laser' ? 'Kan ta en minut — stäng inte sidan.' : 'Filen skickas till lagringen.'}</Damp>
         </div>
       </div>
@@ -50,42 +53,39 @@ function Innehall() {
 
   return (
     <div style={SIDA}>
-      {/* 1. Det stora valet. Ett tryck öppnar filväljaren (kan inte ske efter en navigering — webbläsaren kräver ett tryck). */}
+      <Rubrik>Räkna</Rubrik>
+      <VadGerDet />
+      {/* 1. Det stora valet: skärmens EN handling (KNAPP.primar). Ett tryck öppnar filväljaren (kan inte ske efter en navigering —
+          webbläsaren kräver ett tryck). */}
       <input ref={valjFil} type="file" accept="application/pdf,.pdf" hidden onChange={e => valdFil(e.target.files?.[0])} />
-      <div style={{ padding: '14px 16px 0' }}>
-        <button onClick={() => valjFil.current?.click()}
-          style={{ ...TAL, display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-                   minHeight: 88, padding: 0, background: 'none', border: 'none', borderBottom: LINJE, color: 'inherit',
-                   fontSize: 30, lineHeight: 1.15, fontWeight: 500, textAlign: 'left', cursor: 'pointer' }}>
-          <span>Ladda upp<br />stämplingslängd</span>
-          <span style={{ color: DAMPAD, fontSize: 20 }}>›</span>
+      <div style={{ margin: `${AVSTAND.xl}px ${AVSTAND.l}px 0` }}>
+        <button onClick={() => valjFil.current?.click()} style={KNAPP.primar}>
+          <Ikon namn="upload_file" storlek={IKON.rad} farg="inherit" />Ladda upp stämplingslängd
         </button>
       </div>
 
       {fel && (
-        <div role="alert" style={{ margin: '14px 16px 0', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,120,110,0.35)', background: 'rgba(255,120,110,0.06)' }}>
-          <div style={{ fontSize: 13, lineHeight: 1.5, color: ROD }}>{fel}</div>
-          <div style={{ marginTop: 6, fontSize: 12, color: DAMPAD }}>Försök igen, eller mata in stämplingslängden.</div>
+        <div role="alert" style={{ ...KORT, margin: `${AVSTAND.m}px ${AVSTAND.l}px 0` }}>
+          <div style={{ ...TYP.meta, color: FARG.rod }}>{fel}</div>
+          <div style={{ marginTop: AVSTAND.xs, ...TYP.meta, color: FARG.text2 }}>Försök igen, eller mata in stämplingslängden.</div>
         </div>
       )}
 
       {/* 2. De två andra vägarna in. */}
       <Rader>
-        <Rad text="Bara medelstam" href="/affarsuppfoljning/medelstam" />
-        <Rad text="Mata in" href={`${STAMPLING}?vy=langd`} dampad />
+        <Rad text="Mata in för hand" href={`${STAMPLING}?vy=langd`} dampad />
       </Rader>
 
       {/* 3. Sparade poster, senaste först. */}
       {lista && lista.length > 0 && (
         <>
-          <div style={{ margin: '24px 16px 0', fontSize: 13, fontWeight: 600 }}>Sparade poster</div>
-          <Rader>
+          <Rader rubrik="Sparade">
             {lista.map(r => (
               <Rad key={r.id} text={r.namn ?? r.filnamn} tal={STATUS_ORD[r.status]}
                 farg={r.status === 'stammer' ? GRON : r.status === 'avviker' ? GUL : undefined}
                 hoger={r.datum ?? new Date(r.skapad).toLocaleDateString('sv-SE')}
                 sub={[r.forrattare, r.total_volym_m3sk != null ? `${nf0(r.total_volym_m3sk)} m³sk` : null].filter(Boolean).join(' · ') || undefined}
-                href={`${STAMPLING}?vy=pdf&id=${r.id}&kor=1`} />
+                href={r.objekt_id && r.status === 'stammer' ? `/affarsuppfoljning/objekt/${encodeURIComponent(r.objekt_id)}` : `${STAMPLING}?vy=pdf&id=${r.id}&kor=1`} />
             ))}
           </Rader>
         </>

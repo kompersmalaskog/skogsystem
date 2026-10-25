@@ -48,8 +48,10 @@ En vy ska kunna läsas på en sekund, med blicken tillbaka i arbetet.
   - **Maskinvyns förarlista** (maskinläge): på **Här / Pågående / Planerade / Avslutade**
     (position + status), inte VO. "Här" = GPS-positionen ligger i objektets traktgräns.
     **Avslutade** grupperas i sin tur på **objekttyp** (Slutavverkning / Gallring / Grot).
-- Tabbar används när samma data ses ur olika vinklar
-  (Beställning / Kapacitet / Utfall), inte som navigation.
+- **Bottenflikar** är för de få huvuddelarna i en vy (Arbetsrapport: Dag / Kalender / Lön / Min tid;
+  Affärsuppföljning: Översikt / Räkna / Kvalitet). **Segmentkontroller** (`Flikkontroll`) är för samma
+  data ur olika vinklar (Beställning / Kapacitet / Utfall). Blanda inte: en segmentkontroll är aldrig
+  navigation, och en bottenrad är aldrig ett filter.
 
 ## Interaktion
 
