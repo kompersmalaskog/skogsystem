@@ -55,9 +55,8 @@ export function useKalibreringArk(speciesData: Record<string, ArtSnitt>) {
   const oppnaAtgard = useCallback((id: string) => lagg({ typ: 'atgard', id }), [lagg]);
   const oppnaNyAtgard = useCallback(() => lagg({ typ: 'ny_atgard' }), [lagg]);
   const oppnaHjalp = useCallback(() => lagg({ typ: 'hjalp' }), [lagg]);
-  const oppnaForslag = useCallback(() => lagg({ typ: 'forslag' }), [lagg]);
 
-  return { ...stapel, laddarKontroll, oppnaKontroll, oppnaStam, oppnaPlan, oppnaStock, oppnaArt, oppnaRuta, oppnaDag, oppnaAtgard, oppnaNyAtgard, oppnaHjalp, oppnaForslag };
+  return { ...stapel, laddarKontroll, oppnaKontroll, oppnaStam, oppnaPlan, oppnaStock, oppnaArt, oppnaRuta, oppnaDag, oppnaAtgard, oppnaNyAtgard, oppnaHjalp };
 }
 
 export type KalibreringArk = ReturnType<typeof useKalibreringArk>;
