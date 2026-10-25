@@ -86,10 +86,11 @@ export default function StamplingDel({ r }: { r: Rotpost }) {
   );
   if (lage.typ === 'olast' || lage.typ === 'laser') return (
     <div style={{ ...KORT, margin: `${AVSTAND.l}px ${AVSTAND.l}px 0` }}>
-      <div style={{ ...TYP.listtitel }}>Stämplingslängden från Vida är inte läst</div>
+      <div style={{ ...TYP.listtitel }}>Stämplingslängden är inte läst</div>
       <div style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
-        {lage.typ === 'laser' ? 'Läser stämplingslängden… det kan ta en minut. Stäng inte sidan.'
-          : 'Läs den så ser du vad stämplingen sa mot vad skördaren fick ut.'}
+        {lage.typ === 'laser' ? 'Läser… det kan ta en minut. Stäng inte sidan.'
+          : lage.gissad ? 'Den är inskannad. Läs den så ser du hur väl stämplingen stämde – är det fel fil säger läsningen det.'
+          : 'Läs den så ser du hur väl stämplingen stämde.'}
       </div>
       <button onClick={las} disabled={lage.typ === 'laser'} style={{ ...KNAPP.primar, opacity: lage.typ === 'laser' ? 0.5 : 1 }}>
         {lage.typ === 'laser' ? 'Läser…' : 'Läs stämplingslängden'}
