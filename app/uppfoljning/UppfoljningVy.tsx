@@ -8,6 +8,7 @@ import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
 import type { SkotareMaskinStat } from './lib/transform';
+import { FARG, TYP, AVSTAND, RADIE, TNUM, VIKT, kolumnRot } from '@/lib/design/tokens';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -245,6 +246,77 @@ function StatusRad({ data }: { data: UppfoljningData }) {
       {s.kvarOkant && (
         <span style={{ fontSize: 15, color: V6_WARN, fontWeight: 500 }}>· skördardata saknas</span>
       )}
+    </section>
+  );
+}
+
+// ── Svaret: EN fråga överst, ett tal (skillen: "ett tal per vy") ──────────
+// Virke på backen = skördat − skotat (avrundade delar, summeras sedan). Stapeln
+// visar hur mycket som är hemma, statusraden läget i ord (samma uppfoljningStatus
+// som listan). Klart objekt byter fråga — ingen stor nolla. Saknas skördardata
+// (risjobb, OneDrive-lucka) faller den tillbaka på den rena statusraden, aldrig
+// ett påhittat på-backen-tal. Grot-raden hör till ett senare steg (grot_hamtad
+// finns inte i datan än). På tokens — resten av vyn migreras separat.
+function Svaret({ data }: { data: UppfoljningData }) {
+  const s = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
+  const klart = s.k === 'done';
+  const visSkordat = Math.round(data.skordat);
+  const visSkotat = Math.round(data.skotat);
+  const harBacken = visSkordat > 0;
+  if (!harBacken) return <StatusRad data={data} />;
+
+  const paBacken = Math.max(0, visSkordat - visSkotat);
+  const andel = Math.min(100, Math.round((visSkotat / visSkordat) * 100));
+  const sv = (n: number) => n.toLocaleString('sv-SE');
+
+  // "Klart om ~N dgr": virke på backen delat med skotarens snitt/dag (ur
+  // lassPerDag, inte en enskild dag). Skattning → alltid "~". Inte klart objekt,
+  // något kvar, och en takt att räkna på — annars ingen rad.
+  const stDagar = (data.lassPerDag || []).filter(d => typeof d.m3 === 'number' && (d.m3 || 0) > 0);
+  const stSnitt = stDagar.length > 0 ? stDagar.reduce((a, b) => a + (b.m3 || 0), 0) / stDagar.length : 0;
+  const klartOm = (!klart && paBacken > 0 && stSnitt > 0) ? Math.max(1, Math.round(paBacken / stSnitt)) : null;
+
+  return (
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: AVSTAND.l }}>
+        <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.xs }}>
+          {klart ? 'Är allt utkört?' : 'Hur mycket är kvar att köra ut?'}
+        </div>
+        {klart ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+            <span style={{ ...TYP.tal }}>Klart</span>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="11" fill={FARG.gron} />
+              <path d="M7 12.5l3.2 3.2L17 9" stroke={FARG.bg} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+        ) : (
+          <div style={{ ...TYP.tal }}>
+            {sv(paBacken)}
+            <span style={{ ...TYP.text, color: FARG.text2, marginLeft: AVSTAND.xs }}>m³ på backen</span>
+          </div>
+        )}
+        <div style={{ height: 10, borderRadius: RADIE.stapel, background: FARG.upphojt, overflow: 'hidden', margin: `${AVSTAND.m}px 0 ${AVSTAND.s}px` }}>
+          <div style={{ width: `${andel}%`, height: '100%', background: FARG.gron, borderRadius: RADIE.stapel }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', ...TYP.meta, color: FARG.text2, ...TNUM }}>
+          <span>{sv(visSkotat)} av {sv(visSkordat)} m³ hemma</span>
+          <span>{andel} %</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.l, ...TYP.listtitel }}>
+          <span style={{ width: 11, height: 11, borderRadius: RADIE.cirkel, background: STATUS_FARG[s.k], flexShrink: 0 }} />
+          <span>{s.t}</span>
+          {s.dagar != null && (
+            <span style={{ ...TYP.text, color: FARG.text2, ...TNUM }}>· {klart ? `${s.dagar} dagar` : `dag ${s.dagar}`}</span>
+          )}
+        </div>
+        {klartOm != null && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.s, ...TYP.text, color: FARG.text2 }}>
+            <span style={{ width: 9, height: 9, borderRadius: RADIE.cirkel, background: FARG.text3, flexShrink: 0 }} />
+            <span>Klart om <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>~{klartOm}</span> dagar</span>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -1179,9 +1251,10 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
 
   return (
     <div style={{ minHeight: '100%', background: V6_BG, color: '#fff', fontFamily: V6_FF, WebkitFontSmoothing: 'antialiased' }}>
+      <div style={kolumnRot('smal')}>
       <Nav onBack={onBack} />
       <Headline data={data} />
-      <StatusRad data={data} />
+      <Svaret data={data} />
       <AvvikelseZon avvikelser={data.avvikelser} />
       {/* Ett objekts vy speglar vad objektet ÄR. Risjobb: rapporterad
           grotvolym + källhyggen, inga virkessektioner. Virkesjobb: som förut,
@@ -1223,6 +1296,7 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
         {data.externSkotning && <Collapse title="Extern skotning" varde={data.externForetag || null}><Extern data={data} /></Collapse>}
       </div>
       <div style={{ height: 60 }} />
+      </div>
     </div>
   );
 }
