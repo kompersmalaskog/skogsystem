@@ -53,3 +53,30 @@ describe('trakter', () => {
     expect(perManad(t).map(x => x.manad)).toEqual(['2026-09', '2026-08', '2026-07', '2026-05', '2026-03'])
   })
 })
+
+import { skordningsLage, grupperTrakter, traktSub, type Trakt as T2 } from './uppfoljning'
+
+describe('skördningens läge', () => {
+  it('datum = klar, utan datum = pågår, "inte klar än" går före datumet, ingen rad = okänt', () => {
+    expect(skordningsLage({ skordning_avslutad: '2026-10-13', skordning_ej_klar: false })).toEqual({ lage: 'klar', datum: '2026-10-13' })
+    expect(skordningsLage({ skordning_avslutad: null, skordning_ej_klar: false })).toEqual({ lage: 'pagar' })
+    expect(skordningsLage({ skordning_avslutad: '2026-10-13', skordning_ej_klar: true })).toEqual({ lage: 'pagar' })
+    expect(skordningsLage(undefined)).toEqual({ lage: 'okand' })
+  })
+  const tr = (id: string, forsta: string, s: T2['skordning']): T2 => ({
+    id, namn: id, typ: 'Slutavverkning', forsta, volym: 1, stammar: 1, medelstam: 1, rotpost: true,
+    andel: { timmer: 0, kubb: 0, massa: 0, ovrigt: 0 }, m3: { timmer: 0, kubb: 0, massa: 0, ovrigt: 0 }, vanligt: null, jamfordaTrakter: 0, rota: null, skordning: s,
+  })
+  it('de som skördas står överst under en egen rubrik, resten per månad', () => {
+    const g = grupperTrakter([tr('mol', '2026-10-19', { lage: 'klar', datum: '2026-10-21' }), tr('ska', '2026-10-22', { lage: 'pagar' }), tr('bsk', '2026-09-30', { lage: 'okand' })])
+    expect(g.map(x => [x.rubrik, x.trakter.map(t => t.id)])).toEqual([['pagar', ['ska']], ['2026-10', ['mol']], ['2026-09', ['bsk']]])
+  })
+  it('ingen pågående: ingen tom rubrik', () => {
+    expect(grupperTrakter([tr('mol', '2026-10-19', { lage: 'klar', datum: '2026-10-21' })]).map(x => x.rubrik)).toEqual(['2026-10'])
+  })
+  it('raden under namnet', () => {
+    expect(traktSub(tr('a', '2026-10-01', { lage: 'pagar' }))).toBe('Slutavverkning · Rotpost · Skördas')
+    expect(traktSub(tr('a', '2026-10-01', { lage: 'klar', datum: '2026-10-21' }))).toBe('Slutavverkning · Rotpost · Klar 21 okt')
+    expect(traktSub(tr('a', '2026-10-01', { lage: 'okand' }))).toBe('Slutavverkning · Rotpost')
+  })
+})

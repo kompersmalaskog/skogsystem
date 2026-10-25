@@ -2,7 +2,8 @@
 
 // TRAKTSIDAN — allt om EN trakt på ett ställe (2026-10-25). Förut fanns samma trakt på fyra sidor (Kvalitet → objektet, Rotposter →
 // rotposten, Räkna → stämplingen, månaden → objektlistan); nu leder alla hit. Uppifrån, en fråga per kort:
-//   1. Hur mycket?          kubiken stort, typ · rotpost · när, stammar och medelstam
+//   1. Hur mycket?          kubiken stort ("skördat hittills" medan skördaren är kvar), typ · rotpost · Skördas / Klar 13 okt,
+//                           stammar och medelstam
 //   2. Vad blev det?        timmer, kubb, massaved, övrigt — m³ och procent, "vanligt X %" när det finns trakter att jämföra med,
 //                           och EN mening om timret
 //   3. Massaveden           medellängden mot Vidas 4,6 m → ?vy=massaved (3 m-stockar, längder, sågbart, trädslag)
@@ -21,7 +22,7 @@ import { SIDA, GUL, GRON, nf, nf0, nf1, nf2, manadEtikett, kortObjekt,
 import { SORTIMENT_NAMN } from '@/lib/medelstam/berakna';
 import type { LasFel } from '@/lib/medelstam/las';
 import { lasTrakter } from '@/lib/rotpost/las';
-import { skillnad, SORTIMENT, type Trakt } from '@/lib/rotpost/uppfoljning';
+import { skillnad, traktSub, SORTIMENT, type Trakt } from '@/lib/rotpost/uppfoljning';
 import { rotaFor, type Rota, type RotkapRad } from '@/lib/rotpost/rota';
 import StamplingDel from '../../rotposter/StamplingDel';
 
@@ -88,8 +89,8 @@ export default function TraktVy({ objektId }: { objektId: string }) {
 
       {t ? (
         <>
-          <Stort tal={nf0(t.volym)} enhet="m³" ordrad="skördat">
-            <Damp>{[t.typ, t.rotpost ? 'Rotpost' : null, t.forsta ? `från ${manadEtikett(t.forsta.slice(0, 7))}` : null].filter(Boolean).join(' · ')}</Damp>
+          <Stort tal={nf0(t.volym)} enhet="m³" ordrad={t.skordning.lage === 'pagar' ? 'skördat hittills' : 'skördat'}>
+            <Damp>{[traktSub(t), t.skordning.lage === 'okand' && t.forsta ? `från ${manadEtikett(t.forsta.slice(0, 7))}` : null].filter(Boolean).join(' · ')}</Damp>
             <Damp>{nf0(t.stammar)} träd · medelstam {nf(t.medelstam, 2)} m³</Damp>
           </Stort>
 

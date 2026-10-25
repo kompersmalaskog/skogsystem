@@ -37,16 +37,23 @@ describe('stämplingen mot skördaren', () => {
   })
 })
 
-import { narmastMening } from './stampling'
+import { utfallMening, hurLangt } from './stampling'
 
-describe('vems prognos låg närmast', () => {
-  it('appen närmare (Jeppshoka-fallet: Vida lovade mycket mer)', () => {
-    expect(narmastMening({ blev: 1000, app: 1050, vida: 1490 }, true)).toBe('Appen låg närmare än Vidas kalkyl på timret.')
-  })
-  it('Vida närmare', () => expect(narmastMening({ blev: 1000, app: 800, vida: 980 }, true)).toBe('Vidas kalkyl låg närmast på timret.'))
-  it('lika nära', () => expect(narmastMening({ blev: 1000, app: 1050, vida: 960 }, true)).toBe('Vidas kalkyl och appen låg lika nära på timret.'))
-  it('inte avverkad eller ingen kalkyl: ingen mening', () => {
-    expect(narmastMening({ blev: 1000, app: 1050, vida: 960 }, false)).toBeNull()
-    expect(narmastMening({ blev: 1000, app: 1050, vida: null }, true)).toBeNull()
-  })
+describe('det som blev mot det väntade', () => {
+  // Bågskyttebanan i prod 2026-10-25: blev 1 643, väntat 1 418; skördat 1 614 träd, stämplat 1 482 (1 481 barr + 1 torr).
+  it('fler träd än stämplat: totalen och per träd', () =>
+    expect(utfallMening({ blev: 1643, vantat: 1418, skordadeTrad: 1614, stamplatTrad: 1482, vantatTrad: 1481 }))
+      .toBe('Det blev 16 % mer än väntat. Räknat per träd 6 % mer: 132 fler träd skördades än det stämplades.'))
+  it('lika många träd: bara totalen', () =>
+    expect(utfallMening({ blev: 900, vantat: 1000, skordadeTrad: 1000, stamplatTrad: 1000, vantatTrad: 1000 })).toBe('Det blev 10 % mindre än väntat.'))
+  it('inom 3 % är som väntat', () =>
+    expect(utfallMening({ blev: 1020, vantat: 1000, skordadeTrad: 900, stamplatTrad: 1000, vantatTrad: 1000 })).toBe('Det blev som väntat.'))
+  it('väntat noll ger ingen mening', () =>
+    expect(utfallMening({ blev: 10, vantat: 0, skordadeTrad: 1, stamplatTrad: 0, vantatTrad: 0 })).toBeNull())
+})
+
+describe('hur långt skördaren kommit', () => {
+  it('hela procent', () => expect(hurLangt(1050, 1600)).toBe(66))
+  it('över väntat', () => expect(hurLangt(1700, 1600)).toBe(106))
+  it('väntat noll', () => expect(hurLangt(10, 0)).toBeNull())
 })

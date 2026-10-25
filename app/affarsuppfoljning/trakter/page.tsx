@@ -1,11 +1,13 @@
 'use client';
 
 // TRAKTER — "hur gick det på en trakt?" Affärsuppföljningens tredje flik (2026-10-25, ersätter Kvalitet och Rotposter som egna ställen).
-// En rad per avverkad trakt (Vidas slutavverkningar och gallringar), nyast först, grupperad på månaden avverkningen började.
+// En rad per avverkad trakt (Vidas slutavverkningar och gallringar), nyast först. Överst "Skördas nu" (skördaren är inte klar —
+// dim_objekt.skordning_avslutad, som appen sätter själv när maskinen gått vidare), sedan resten grupperade på månaden avverkningen
+// började. En pågående trakt måste synas som pågående: annars ser en halvskördad trakt ut som en dålig affär.
 // Växeln Alla | Rotposter visar bara trakterna köpta på rot. Ett tryck öppnar TRAKTSIDAN (/affarsuppfoljning/objekt/<id>), där allt
 // om trakten står: vad det blev, massavedens längd, rötan och stämplingen.
 //
-// Raden: namnet, under det typen (och "Rotpost"), till höger kubiken. Inget annat — talen bor på traktsidan.
+// Raden: namnet, under det typen (och "Rotpost") och "Skördas" eller "Klar 21 okt", till höger kubiken (hittills, när den skördas).
 // Adressen bär växeln: ?visa=rot.
 
 import { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
@@ -15,7 +17,7 @@ import Flikkontroll from '@/components/design/Flikkontroll';
 import { SIDA, nf0, stor, manadEtikett, kortObjekt, Rubrik, Rad, Rader, Laddar, Fel } from '@/components/Ytform';
 import type { LasFel } from '@/lib/medelstam/las';
 import { lasTrakter } from '@/lib/rotpost/las';
-import { perManad, type Trakt } from '@/lib/rotpost/uppfoljning';
+import { grupperTrakter, traktSub, type Trakt } from '@/lib/rotpost/uppfoljning';
 
 const BAS = '/affarsuppfoljning/trakter';
 type Visa = 'alla' | 'rot';
@@ -37,7 +39,7 @@ function Innehall() {
   useEffect(() => { hamta(); }, [hamta]);
 
   const synliga = useMemo(() => (lista ?? []).filter(t => visa === 'alla' || t.rotpost), [lista, visa]);
-  const grupper = useMemo(() => perManad(synliga), [synliga]);
+  const grupper = useMemo(() => grupperTrakter(synliga), [synliga]);
 
   return (
     <div style={SIDA}>
@@ -53,9 +55,9 @@ function Innehall() {
         <Rader><Rad text={visa === 'rot' ? 'Ingen rotpost har skördats än' : 'Inga trakter än'} dampad /></Rader>
       )}
       {grupper.map(g => (
-        <Rader key={g.manad} rubrik={g.manad ? stor(manadEtikett(g.manad)) : 'Utan datum'}>
+        <Rader key={g.rubrik} rubrik={g.rubrik === 'pagar' ? 'Skördas nu' : g.rubrik ? stor(manadEtikett(g.rubrik)) : 'Utan datum'}>
           {g.trakter.map(t => (
-            <Rad key={t.id} text={kortObjekt(t.namn)} sub={t.rotpost ? `${t.typ} · Rotpost` : t.typ}
+            <Rad key={t.id} text={kortObjekt(t.namn)} sub={traktSub(t)}
               tal={`${nf0(t.volym)} m³`} href={traktHref(t.id)} />
           ))}
         </Rader>

@@ -46,16 +46,24 @@ export function procentMot(faktiskt: number, prognos: number): number | null {
   return prognos > 0 ? Math.round((100 * (faktiskt - prognos)) / prognos) : null;
 }
 
-export type Prognoser = { blev: number; app: number | null; vida: number | null };
+/** EN mening om det som blev mot det väntade, för en färdigskördad trakt. Väntat = stämplingslängdens barrträd räknade mot vår
+ *  avverkade skog (m³fub). Skördades fler träd än det stämplades (löv eller torra som inte var med, träd utanför stämplingen) blir
+ *  volymen större än väntat utan att modellen räknat fel — då sägs också skillnaden räknat per träd, och hur många träd det gäller.
+ *  Inom ±3 % är det "som väntat". null när väntat är noll. */
+export function utfallMening(a: { blev: number; vantat: number; skordadeTrad: number; stamplatTrad: number; vantatTrad: number }): string | null {
+  const tot = procentMot(a.blev, a.vantat);
+  if (tot == null) return null;
+  const ord = (p: number) => (Math.abs(p) <= 3 ? 'som väntat' : `${Math.abs(p)} % ${p > 0 ? 'mer' : 'mindre'} än väntat`);
+  const forst = `Det blev ${ord(tot)}.`;
+  const extra = a.skordadeTrad - a.stamplatTrad;
+  if (extra <= 0 || a.skordadeTrad <= 0 || a.vantatTrad <= 0) return forst;
+  const perTrad = procentMot(a.blev / a.skordadeTrad, a.vantat / a.vantatTrad);
+  if (perTrad == null) return forst;
+  const tal = new Intl.NumberFormat('sv-SE').format(extra);
+  return `${forst} Räknat per träd ${Math.abs(perTrad) <= 3 ? 'som väntat' : `${Math.abs(perTrad)} % ${perTrad > 0 ? 'mer' : 'mindre'}`}: ${tal} fler träd skördades än det stämplades.`;
+}
 
-/** Vems prognos för timret låg närmast det som blev — EN mening, eller null när det inte går att säga.
- *  Inom 3 % av det som blev räknas båda som träff; skiljer de mindre än 2 procentenheter är det "lika nära". */
-export function narmastMening(timmer: Prognoser, avverkad: boolean): string | null {
-  if (!avverkad || timmer.blev <= 0) return null;
-  const fel = (x: number | null) => (x == null ? null : Math.abs(x - timmer.blev) / timmer.blev);
-  const a = fel(timmer.app), v = fel(timmer.vida);
-  if (v == null) return null;
-  if (a == null) return v <= 0.03 ? 'Vidas kalkyl träffade timret.' : `Vidas kalkyl ${timmer.vida! > timmer.blev ? 'lovade' : 'räknade med'} ${Math.round(100 * v)} % ${timmer.vida! > timmer.blev ? 'mer' : 'mindre'} timmer än det blev.`;
-  if (Math.abs(a - v) < 0.02) return 'Vidas kalkyl och appen låg lika nära på timret.';
-  return v < a ? 'Vidas kalkyl låg närmast på timret.' : 'Appen låg närmare än Vidas kalkyl på timret.';
+/** Hur långt skördaren kommit på en trakt som skördas: skördat hittills mot väntat, hela procent. null när väntat är noll. */
+export function hurLangt(skordat: number, vantat: number): number | null {
+  return vantat > 0 ? Math.round((100 * skordat) / vantat) : null;
 }

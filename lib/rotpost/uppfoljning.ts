@@ -6,6 +6,7 @@
 // rötajustering: rötan står som ett eget tal bredvid, så en rötig trakt syns som rötig och inte som "dåligt apterad".
 // Inga pengar (Martin 2026-10-23).
 
+import { dagMan } from '@/lib/gallringVy';
 import { SORTIMENT, andelarAv, delaUrval, heltalTill100, utfall, MIN_OBJEKT, type Andelar, type Objekt, type Sortiment, type Typ } from '@/lib/medelstam/berakna';
 
 export type Trakt = {
@@ -29,7 +30,19 @@ export type Trakt = {
   jamfordaTrakter: number;
   /** Andel stammar över 20 cm med röta i rotändan; null när det inte är mätt. */
   rota: number | null;
+  /** Skördas trakten fortfarande, eller är skördaren klar? Ur dim_objekt (lasTrakter); 'okand' när det inte gått att läsa. */
+  skordning: Skordning;
 };
+
+/** Skördningens läge. Appen sätter skördningen klar själv när maskinen gått vidare (dim_objekt.skordning_avslutad,
+ *  avslut_ur_maskindata); en människa kan säga "Inte klar än" (skordning_ej_klar), och det går före datumet. */
+export type Skordning = { lage: 'pagar' } | { lage: 'klar'; datum: string } | { lage: 'okand' };
+
+export function skordningsLage(d: { skordning_avslutad?: string | null; skordning_ej_klar?: boolean | null } | undefined): Skordning {
+  if (!d) return { lage: 'okand' };
+  if (d.skordning_ej_klar) return { lage: 'pagar' };
+  return d.skordning_avslutad ? { lage: 'klar', datum: d.skordning_avslutad.slice(0, 10) } : { lage: 'pagar' };
+}
 /** En rotpost är en trakt med rotpost = true (namnet finns kvar för rotpostsidornas kod). */
 export type Rotpost = Trakt;
 
@@ -54,6 +67,7 @@ export function trakter(alla: Objekt[], rpIds: Set<string>): Trakt[] {
         vanligt: !u.forFa && u.andel ? heltalTill100(u.andel) : null,
         jamfordaTrakter: u.n,
         rota: o.rot20,
+        skordning: { lage: 'okand' } as Skordning,
       };
     })
     // Nyast först (första avverkningsdag), saknat datum sist.
@@ -80,6 +94,19 @@ export function perManad(t: Trakt[]): { manad: string; trakter: Trakt[] }[] {
   }
   return [...g.entries()].sort((a, b) => (a[0] === '' ? 1 : b[0] === '' ? -1 : b[0].localeCompare(a[0])))
     .map(([manad, trakter]) => ({ manad, trakter }));
+}
+
+/** Listans grupper: de som skördas nu överst under EN rubrik, sedan resten per månad som perManad. */
+export function grupperTrakter(t: Trakt[]): { rubrik: 'pagar' | string; trakter: Trakt[] }[] {
+  const pagar = t.filter(x => x.skordning.lage === 'pagar');
+  const ovriga = perManad(t.filter(x => x.skordning.lage !== 'pagar')).map(g => ({ rubrik: g.manad, trakter: g.trakter }));
+  return pagar.length ? [{ rubrik: 'pagar', trakter: pagar }, ...ovriga] : ovriga;
+}
+
+/** Raden under traktens namn: typ · Rotpost · Skördas / Klar 21 okt. Okänt läge står inte alls (vi påstår inget). */
+export function traktSub(t: Trakt): string {
+  const lage = t.skordning.lage === 'pagar' ? 'Skördas' : t.skordning.lage === 'klar' ? `Klar ${dagMan(t.skordning.datum)}` : null;
+  return [t.typ, t.rotpost ? 'Rotpost' : null, lage].filter(Boolean).join(' · ');
 }
 
 export { SORTIMENT, MIN_OBJEKT };
