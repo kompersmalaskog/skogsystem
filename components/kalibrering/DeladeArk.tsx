@@ -14,7 +14,6 @@ import type { Detent } from '@/lib/plusArk';
 import ArtArk from './ArtArk';
 import AtgardArk from './AtgardArk';
 import DagArk from './DagArk';
-import ForslagArk from './ForslagArk';
 import HjalpArk from './HjalpArk';
 import KontrollInnehall from './KontrollInnehall';
 import KontrollPanel, { type BladLage } from './KontrollPanel';
@@ -41,7 +40,7 @@ export default function DeladeArk({ ark, d, bladLage, visaBlad }: { ark: Kalibre
       {top && post && !arBladPost(post) && (
         post.typ === 'ny_atgard' ? <NyAtgardArk d={d} onStang={ark.stang} /> : (
           <SvajStang onStang={ark.stang}>
-            <Ark key={`${post.typ}:${arkRubrik(post)}`} rubrik={arkRubrik(post)} onStang={ark.stang} stang={post.typ === 'hjalp' || post.typ === 'art' || post.typ === 'atgard' || post.typ === 'ruta' || post.typ === 'forslag' ? 'Klar' : 'Avbryt'}>
+            <Ark key={`${post.typ}:${arkRubrik(post)}`} rubrik={arkRubrik(post)} onStang={ark.stang} stang={post.typ === 'hjalp' || post.typ === 'art' || post.typ === 'atgard' || post.typ === 'ruta' ? 'Klar' : 'Avbryt'}>
               {post.typ === 'art' && d.speciesData[post.art] && (
                 <ArtArk art={post.art} data={d.speciesData[post.art]} kontroller={d.filteredKalib} onKontroll={fil => ark.oppnaKontroll(fil)}
                   tr={d.trRader.find(t => t.tradslag.toLowerCase() === post.art) ?? null} trData={d.trData} />
@@ -52,7 +51,6 @@ export default function DeladeArk({ ark, d, bladLage, visaBlad }: { ark: Kalibre
                 return rad ? <AtgardArk rad={rad} /> : <Meta>Åtgärden finns inte längre.</Meta>;
               })()}
               {post.typ === 'hjalp' && <HjalpArk bedomning={d.bedomning} />}
-              {post.typ === 'forslag' && (d.forslag ? <ForslagArk f={d.forslag} /> : <Meta>Förslagen finns inte längre.</Meta>)}
             </Ark>
           </SvajStang>
         )

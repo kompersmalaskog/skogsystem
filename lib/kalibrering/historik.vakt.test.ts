@@ -15,10 +15,7 @@ const TILLATNA = new Set([
   'lib/kalibrering/typer.ts',
   // Justeringsförslagens tester bygger historikrader av kolumnerna (fixturen är en prod-körning); regeln om vad en rad ÄR bor i historik.ts.
   'lib/kalibrering/forslag.test.ts',
-  'lib/kalibrering/forslagKort.test.ts',
   'lib/kalibrering/forslagMarkorer.test.ts',
-  'components/kalibrering/GorSaHar.render.test.tsx',
-  'app/api/kalibrering/forslag/route.test.ts',
 ]);
 
 function filer(dir: string, ut: string[] = []): string[] {

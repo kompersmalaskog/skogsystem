@@ -73,16 +73,32 @@ describe('huvudet', () => {
   it('dag, klockslag (svensk tid), trädslag, urval, stockar, väder och vem som mätte', () => {
     const h = kontrollHuvud(resp(fem(() => ({}))));
     expect(h.dagTid).toBe('ons 21 okt · 16:13');
-    expect(h.rad).toBe('Gran · Förvald · 5 stockar');
-    expect(h.vader).toBe('−3 °C, frost, uppehåll');
-    expect(h.matare).toBe('Mätt av Martin');
+    expect(h.fakta).toEqual([
+      { etikett: 'Förare', varde: 'Martin', saknas: false },
+      { etikett: 'Stammen', varde: 'Förvald', saknas: false },
+      { etikett: 'Väder', varde: '−3 °C, frost, uppehåll', saknas: false },
+      { etikett: 'Trädslag', varde: 'Gran · 5 stockar', saknas: false },
+    ]);
   });
-  it('väder och mätare som saknas säger det eller tiger', () => {
-    const h = kontrollHuvud(resp(fem(() => ({ measurer_name: null })), { weather_at_harvest: null }));
-    expect(h).toMatchObject({ vader: 'Väder saknas', vaderSaknas: true, matare: null });
+  it('vind står bara när vädret har den, i hela m/s', () => {
+    const h = kontrollHuvud(resp(fem(() => ({})), { weather_at_harvest: { temperature_c: 13.3, precipitation_mm: 0, snowfall_cm: 0, wind_speed_ms: 7.1, is_freezing: false } }));
+    expect(h.fakta.map(f => f.etikett)).toEqual(['Förare', 'Stammen', 'Väder', 'Vind', 'Trädslag']);
+    expect(h.fakta[3]).toEqual({ etikett: 'Vind', varde: '7 m/s', saknas: false });
+  });
+  it('väder, förare och urval som saknas säger det — aldrig en gissning', () => {
+    const h = kontrollHuvud(resp(fem(() => ({ measurer_name: null, stem_selection: null })), { weather_at_harvest: null }), '2026-11-02');
+    expect(h.fakta.slice(0, 3)).toEqual([
+      { etikett: 'Förare', varde: 'Saknas i filen', saknas: true },
+      { etikett: 'Stammen', varde: 'Saknas i filen', saknas: true },
+      { etikett: 'Väder', varde: 'Saknas', saknas: true },
+    ]);
+  });
+  it('ung kontroll: vädret kommer, det saknas inte', () => {
+    const h = kontrollHuvud(resp(fem(() => ({})), { weather_at_harvest: null }), '2026-10-23');
+    expect(h.fakta[2]).toEqual({ etikett: 'Väder', varde: 'Kommer om några dagar', saknas: true });
   });
   it('slumpstam', () => {
-    expect(kontrollHuvud(resp(fem(() => ({ stem_selection: 'Randomly selected stem' })))).rad).toBe('Gran · Slumpstam · 5 stockar');
+    expect(kontrollHuvud(resp(fem(() => ({ stem_selection: 'Randomly selected stem' })))).fakta[1].varde).toBe('Slumpstam');
   });
   it('utan mättid: filens datum utan klockslag', () => {
     expect(kontrollHuvud(resp(fem(() => ({ operator_measurement_date: null })))).dagTid).toBe('ons 21 okt');

@@ -3,8 +3,6 @@
  * Formerna speglar tabellerna och /api/kalibrering/*-svaren; vyn och räknarna delar dem här.
  */
 import type { GreppRad } from './greppTid';
-import type { PunktBesked } from './forslag';
-import type { GreppSteg, Kort } from './forslagKort';
 import type { GrovlekRad } from './grovlek';
 import type { VariabelStat } from './statistik';
 
@@ -127,6 +125,8 @@ export type KontrollTid = {
   sista: { dag: string; klockslag: string } | null;
   /** Filens urvalstexter ur HQC (stem_selection), utan dubbletter. */
   urval: string[];
+  /** Vem som klavade (HQC `measurer_name`, första som finns i filen). null när filen inte säger. */
+  matare: string | null;
 };
 
 // === Diagnos (/api/kalibrering/diagnos) ===
@@ -193,17 +193,3 @@ export type CalDag = { datum: string; veckodag: number; status: CalDagstatus; ma
 export type CalSammanfattning = { produktionsdagar: number; kompletta: number; saknas: number; varningar: number; okand_huvudtyp_dagar: number };
 export type CalResponse = { manad: string; dagar: CalDag[]; sammanfattning: CalSammanfattning };
 
-// === Justeringsförslag (/api/kalibrering/forslag) ===
-/**
- * Kortet "Gör så här" (`kort`: ETT nästa steg i en ordning appen håller själv) och detaljen bakom det: besked per trädslag och punkt på diameterkurvan.
- * `senasteAndring` = den senaste ändringen som flyttat fönstret (förslagen räknas på stammar klavade efter den). `greppLast` = false när greppet inte gick att
- * läsa (cachen saknas eller läsfel): kortet kan då inte säga "inget att göra" om knivar och valsar, och vyn säger det.
- */
-export type ForslagResp = {
-  ok: true; maskin_id: string; idag: string;
-  kort: Kort; punkter: PunktBesked[]; grepp: GreppSteg[];
-  greppLast: boolean;
-  senasteAndring: { datum: string; slag: 'tryck' | 'byte' | 'omkalibrering' | 'kurva' | 'kalibrering' } | null;
-  /** Stammar som räknats (alla trädslag och grovlekar, efter fönstret). */
-  stammar: number;
-};

@@ -11,37 +11,44 @@
  */
 import type { KontrollResponse, StockRow } from '@/app/api/kalibrering/kontroll/route';
 import { type ToneToken } from './bedomning';
-import { dagMedVeckodag, mattTid, urvalText, vaderKort } from './kontrollLista';
+import { dagMedVeckodag, mattTid, urvalText, vaderKort, vaderUtanText } from './kontrollLista';
+import { idagStr } from './datum';
 import { dec, fmtAvvikelse } from './format';
 import { kontrollSumma, stockFordelning, stockRadVarde } from './kontroll';
 import { cap, stockText } from './text';
 
 // === Huvudet ===
+/** En rad i kontrollens huvud: etikett till vänster, värde till höger. `saknas` = värdet finns inte i datan (dämpat, aldrig gissat). */
+export type FaktaRad = { etikett: string; varde: string; saknas: boolean };
 export type KontrollHuvud = {
   /** "ons 21 okt · 14:13" — när stammen klavades (svensk tid). */
   dagTid: string;
-  /** "Gran · Förvald · 5 stockar" */
-  rad: string;
-  /** Vädret kort, eller "Väder saknas". */
-  vader: string;
-  vaderSaknas: boolean;
-  /** "Mätt av Martin" — bara när filen anger vem. */
-  matare: string | null;
+  /** Förare, Stammen (förvald/slumpstam), Väder, Vind (bara när den finns), Trädslag — alltid i den ordningen. */
+  fakta: FaktaRad[];
 };
 
-export const kontrollHuvud = (data: KontrollResponse): KontrollHuvud => {
+/** Vinden i hela m/s. null när vädret saknar vind. */
+export const vindText = (ms: number | null | undefined): string | null => (ms == null ? null : `${Math.round(ms)} m/s`);
+
+export const kontrollHuvud = (data: KontrollResponse, idag: string = idagStr()): KontrollHuvud => {
   const k = data.kontroll;
   const tid = mattTid(data.stockar);
   const dag = tid.sista?.dag ?? k.datum.slice(0, 10);
   const urval = urvalText(Array.from(new Set(data.stockar.map(s => s.stem_selection).filter((x): x is string => !!x))));
   const vader = vaderKort(k.weather_at_harvest);
-  const matare = data.stockar.find(s => s.measurer_name)?.measurer_name ?? null;
+  const vind = vindText(k.weather_at_harvest?.wind_speed_ms);
+  const matare = data.stockar.find(s => s.measurer_name?.trim())?.measurer_name?.trim() ?? null;
+  const rad = (etikett: string, varde: string | null, saknas = 'Saknas i filen'): FaktaRad =>
+    ({ etikett, varde: varde ?? saknas, saknas: varde == null });
   return {
     dagTid: `${dagMedVeckodag(dag)}${tid.sista ? ` · ${tid.sista.klockslag}` : ''}`,
-    rad: [cap(k.tradslag ?? ''), urval, stockText(k.antal_kontrollstockar ?? data.stockar.length)].filter((x): x is string => !!x).join(' · '),
-    vader: vader ?? 'Väder saknas',
-    vaderSaknas: vader == null,
-    matare: matare ? `Mätt av ${matare}` : null,
+    fakta: [
+      rad('Förare', matare),
+      rad('Stammen', urval),
+      rad('Väder', vader, vaderUtanText(dag, idag) === 'Väder saknas' ? 'Saknas' : 'Kommer om några dagar'),
+      ...(vind ? [rad('Vind', vind)] : []),
+      rad('Trädslag', [cap(k.tradslag ?? ''), stockText(k.antal_kontrollstockar ?? data.stockar.length)].filter(Boolean).join(' · ') || null),
+    ],
   };
 };
 

@@ -18,6 +18,7 @@ import { fmtKrav } from '@/lib/kalibrering/format';
 import { MATT } from '@/lib/kalibrering/ordlista';
 import type { DiagnosResp } from '@/lib/kalibrering/typer';
 import { Fyll, Lugn, Meta, Prick, Status } from './delar';
+import AtgarderSektion from './AtgarderSektion';
 import GreppVinkel from './GreppVinkel';
 import GrovlekVinkel from './GrovlekVinkel';
 import Procentrad from './Procentrad';
@@ -159,6 +160,8 @@ export default function OverTidFlik({ d, v, ark }: { d: KalibreringData; v: Kali
           {v.tidMatt === 'grepp' && <GreppVinkel d={d} v={v} />}
         </Tillstand>
       )}
+      {/* Åtgärderna under kurvorna: där syns om de hjälpte. Kräver Läget-bedömningen (före → efter räknas där). */}
+      {d.bedomning && <AtgarderSektion d={d} ark={ark} />}
     </>
   );
 }
