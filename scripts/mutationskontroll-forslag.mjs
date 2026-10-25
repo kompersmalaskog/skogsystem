@@ -70,6 +70,14 @@ const mutationer = [
   ["Klart sparar bytet", "case 'kolla': return [svar === 'bytte' ? BYTE_TEXT : KONTROLL_TEXT];", "case 'kolla': return [BYTE_TEXT];", C],
   ["Jag har ändrat sparar inget på Ändra-steget", "case 'kurva': return steg.punkter.map(p => kurvaText(p.tradslag, p.punkt, p.andringMm));", "case 'kurva': return [];", C],
   ["tryckknappen sparar kurvmarkörer", "case 'tryck': return [TRYCK_TEXT];", "case 'tryck': return [];", C],
+  // ── samma greppsignal på flera maskiner ──
+  ["en annan månad räknas som samma", "x.tradslag === g.tradslag && x.manad === g.manad", "x.tradslag === g.tradslag", K],
+  ["ett annat trädslag räknas som samma", "x.tradslag === g.tradslag && x.manad === g.manad", "x.manad === g.manad", K],
+  ["\"Samma på\" visas utan att någon annan har det", "const med = grepp.filter(g => (g.samma?.length ?? 0) > 0);", "const med = grepp;", K],
+  ["orsaken i raden saknas", "const ORSAK = 'troligen kyla och bark, inte din maskin.';", "const ORSAK = '';", K],
+  ["raden kommer inte med i kortet", "...(samma ? [samma] : [])", "", K],
+  ["rutten läser inte de andra skördarna", "      grepp = markeraSamma(grepp, andra);", "", R],
+  ["rutten räknar den egna maskinen som en annan", "if (m.maskin_id === maskinId) continue;", "", R],
   // ── Åtgärder: kalibreringar bryter inte efter-perioden för förarens åtgärd ──
   ["en kalibrering avgränsar förarens åtgärds efter-period", "(m.kalla === 'kalibrering' || x.kalla !== 'kalibrering')", "true", A],
 ];

@@ -11,9 +11,11 @@ vi.mock('@/lib/auth/server', () => ({
 }));
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
-    rpc: async (namn: string) => {
+    rpc: async (namn: string, args?: { p_maskin?: string }) => {
       if (g.__rpcFel?.[namn]) return { data: null, error: g.__rpcFel[namn] };
-      return { data: g.__rpc?.[namn] ?? [], error: null };
+      const perMaskin = g.__rpcMaskin?.[args?.p_maskin ?? '']?.[namn];
+      // Standardsvaret gäller maskinen som frågas om (M1); en annan maskin har bara det testet ger den.
+      return { data: perMaskin ?? (args?.p_maskin === 'M1' ? g.__rpc?.[namn] : undefined) ?? [], error: null };
     },
     from: (tabell: string) => {
       const b: any = {
@@ -40,13 +42,14 @@ function stammar(n: number, fel: number, dag = dagSv(-2)) {
 }
 
 beforeEach(() => {
-  g.__inloggad = true; g.__rpcFel = {}; g.__tabellFel = {};
+  g.__inloggad = true; g.__rpcFel = {}; g.__tabellFel = {}; g.__rpcMaskin = {};
   g.__tabeller = {
     fakt_kalibrering: [{ filnamn: 'f1.hqc', tradslag: 'TALL' }],
     detalj_kontroll_stock: stammar(12, 5),
     detalj_kontroll_stock_matpunkt: [],
     kalibrering_atgard: [],
     fakt_kalibrering_historik: [],
+    dim_maskin: [{ maskin_id: 'M1', visningsnamn: 'Scorpion' }, { maskin_id: 'M2', visningsnamn: 'H8E -26' }, { maskin_id: 'M3', visningsnamn: null }],
   };
   g.__rpc = {
     kalibrering_grepp_status: [{ objekt_id: 'o', antal_stammar: 10, antal_raknade: 10, aktuell: true }],
@@ -99,6 +102,43 @@ describe('GET /api/kalibrering/forslag', () => {
     g.__tabeller.kalibrering_atgard = [{ datum: dagSv(0), text: 'Kollat knivar och valsar – allt såg bra ut' }];
     j = await (await anrop()).json();
     expect(j.kort.steg.map((s: any) => s.id)).toEqual(['kurva:Tall']);
+  });
+
+  describe('samma ökning på en annan skördare samma månad', () => {
+    const nu = dagSv(0).slice(0, 7);
+    const forra = new Date(new Date(`${nu}-01T00:00:00Z`).getTime() - 86400000).toISOString().slice(0, 7);
+    const m = (manad: string, andel: number) => ({ manad, tradslag: 'TALL', klass: '200-249', stammar: 100, steg: 1000, still: 300, summa_andel: andel });
+    const stigit = [m(forra, 20), m(nu, 30)];
+    const status = [{ objekt_id: 'o', antal_stammar: 10, antal_raknade: 10, aktuell: true }];
+    it('båda har ökat: kortet bär namnet på den andra maskinen', async () => {
+      g.__rpc.kalibrering_grepp_sammanstall = stigit;
+      g.__rpcMaskin = { M2: { kalibrering_grepp_status: status, kalibrering_grepp_sammanstall: stigit } };
+      const j = await (await anrop()).json();
+      expect(j.grepp[0].samma).toEqual(['H8E -26']);
+    });
+    it('den egna maskinen räknas aldrig som "samma", och en maskin utan namn heter sitt id', async () => {
+      g.__rpc.kalibrering_grepp_sammanstall = stigit;
+      g.__rpcMaskin = { M3: { kalibrering_grepp_status: status, kalibrering_grepp_sammanstall: stigit } };
+      const j = await (await anrop()).json();
+      expect(j.grepp[0].samma).toEqual(['M3']);
+    });
+    it('bara den här maskinen har ökat: ingen "samma"', async () => {
+      g.__rpc.kalibrering_grepp_sammanstall = stigit;
+      g.__rpcMaskin = { M2: { kalibrering_grepp_status: status, kalibrering_grepp_sammanstall: [m(forra, 20), m(nu, 21)] } };
+      const j = await (await anrop()).json();
+      expect(j.grepp).toHaveLength(1);
+      expect(j.grepp[0].samma).toBeUndefined();
+    });
+    it('kan de andra inte läsas står kortet som förut — aldrig ett fel, aldrig en gissad "samma"', async () => {
+      g.__rpc.kalibrering_grepp_sammanstall = stigit;
+      g.__tabellFel.dim_maskin = { message: 'boom' };
+      const r = await anrop();
+      expect(r.status).toBe(200);
+      const j = await r.json();
+      expect(j.grepp).toHaveLength(1);
+      expect(j.grepp[0].samma).toBeUndefined();
+      expect(j.kort.steg.map((s: any) => s.id)).toEqual(['kolla', 'kurva:Tall']);
+    });
   });
 
   it('en kalibrering av tallens diameter ur historiken (värde ≠ 0) börjar fönstret dagen efter', async () => {

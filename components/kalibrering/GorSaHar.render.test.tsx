@@ -74,6 +74,12 @@ describe('Gör så här — Kolla', () => {
     await flush();
     expect(sparaForslagMarkor).toHaveBeenLastCalledWith([BYTE_TEXT]);
   });
+  it('samma ökning på en annan skördare: raden "Samma på … – troligen kyla och bark, inte din maskin." står i kortet', () => {
+    const h = montera(createElement(GorSaHar, { d: d({ forslag: resp({ grepp: [{ ...grepp1, samma: ['H8E -26'] }] }) }), ark }));
+    expect(txt(h).replace(/\u00a0/g, ' ')).toContain('Samma på H8E -26 – troligen kyla och bark, inte din maskin.');
+    const utan = montera(createElement(GorSaHar, { d: d({ forslag: resp({ grepp: [grepp1] }) }), ark }));
+    expect(txt(utan)).not.toContain('Samma på');
+  });
   it('bara EN primär knapp (vit, full bredd) på skärmen', () => {
     const h = montera(createElement(GorSaHar, { d: d({ forslag: resp({ grepp: [grepp1] }) }), ark }));
     const primara = Array.from(h.querySelectorAll('button')).filter(b => b.style.background === 'rgb(255, 255, 255)' || b.style.background === '#ffffff');

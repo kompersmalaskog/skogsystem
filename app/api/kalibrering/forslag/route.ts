@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { kravInloggad } from "@/lib/auth/server";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
 import { byggForslagStammar, FORSLAG, punktBesked } from "@/lib/kalibrering/forslag";
-import { byggKort, greppSteg } from "@/lib/kalibrering/forslagKort";
+import { byggKort, greppSteg, markeraSamma, type GreppSteg } from "@/lib/kalibrering/forslagKort";
 import { andringarUr, tolkaMarkor } from "@/lib/kalibrering/forslagMarkorer";
 import { lasRader, lasStatus } from "@/lib/kalibrering/greppServer";
 import { HISTORIK_MARKOR_KOLUMNER, type HistorikMarkorRad } from "@/lib/kalibrering/historik";
@@ -36,6 +36,20 @@ async function fetchAllRows<T>(
 
 const dagSverige = (): string => new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Stockholm" });
 const minusDagar = (datum: string, n: number): string => new Date(new Date(`${datum}T00:00:00Z`).getTime() - n * 86400000).toISOString().slice(0, 10);
+
+/** De andra skördarnas greppsteg (ur deras cache), med namnet förarna läser dem under. En maskin vars cache inte går att läsa räknas inte med. */
+async function andraSkordare(supabase: SupabaseClient, maskinId: string, idag: string): Promise<{ namn: string; steg: GreppSteg[] }[]> {
+  const { data, error } = await supabase.from("dim_maskin").select("maskin_id,visningsnamn").eq("maskin_typ", "Harvester").order("maskin_id");
+  if (error) throw new Error(`dim_maskin: ${error.message}`);
+  const ut: { namn: string; steg: GreppSteg[] }[] = [];
+  for (const m of (data ?? []) as { maskin_id: string; visningsnamn: string | null }[]) {
+    if (m.maskin_id === maskinId) continue;
+    const rader = await lasRader(supabase, m.maskin_id);
+    if (!rader.ok) continue;
+    ut.push({ namn: m.visningsnamn?.trim() || m.maskin_id, steg: greppSteg(rader.rader, idag) });
+  }
+  return ut;
+}
 
 export async function GET(req: NextRequest) {
   const vakt = await kravInloggad();
@@ -89,6 +103,16 @@ export async function GET(req: NextRequest) {
   if (status.ok) {
     const rader = await lasRader(supabase, maskinId);
     if (rader.ok) { greppLast = true; grepp = greppSteg(rader.rader, idag); }
+  }
+  // Syns samma ökning på de andra skördarna samma månad är det sannolikt väder och trädslag, inte den här maskinen — kortet säger det. Ett TILLÄGG: går något
+  // inte att läsa hos de andra står kortet som förut (aldrig ett fel, aldrig en gissad "samma").
+  if (grepp.length > 0) {
+    try {
+      const andra = await andraSkordare(supabase, maskinId, idag);
+      grepp = markeraSamma(grepp, andra);
+    } catch (e) {
+      console.error("forslag: de andra skördarnas grepp gick inte att läsa:", e);
+    }
   }
 
   const punkter = punktBesked({ stammar, andringar, idag });
