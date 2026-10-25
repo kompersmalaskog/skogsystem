@@ -8,6 +8,8 @@ import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
 import type { SkotareMaskinStat } from './lib/transform';
+import { FARG, TYP, AVSTAND, RADIE, TNUM, VIKT, kolumnRot } from '@/lib/design/tokens';
+import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -138,15 +140,18 @@ export interface UppfoljningData {
 }
 
 // ── Design tokens ─────────────────────────────────────────────────────────
-const V6_GREY = '#8e8e93';
-const V6_GREY2 = '#636366';
-const V6_CARD = '#141416';
-const V6_SEP = 'rgba(255,255,255,0.06)';
-const V6_SK = '#a8d582';
-const V6_ST = '#f0b24c';
-const V6_WARN = '#ff9f0a';
-const V6_DONE = '#30d158';
-const V6_BG = '#000';
+// Paletten är appens tokens (FARG) och rollfärgerna ur lib/sparStil — skördare
+// lila, skotare grön, som maskinvyn/objektöversikten/kartan. Namnen V6_* behålls
+// så resten av filen inte behöver röras; bara värdena pekar nu på EN källa.
+const V6_GREY = FARG.text2;
+const V6_GREY2 = FARG.text3;
+const V6_CARD = FARG.kort;
+const V6_SEP = FARG.linje;
+const V6_SK = ROLLFARG_SKORDARE;
+const V6_ST = ROLLFARG_SKOTARE;
+const V6_WARN = FARG.orange;
+const V6_DONE = FARG.gron;
+const V6_BG = FARG.bg;
 const V6_FF = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Inter',system-ui,sans-serif";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -214,7 +219,7 @@ function Headline({ data }: { data: UppfoljningData }) {
       {parts.length > 0 && (
         <div style={{ fontSize: 13, color: V6_GREY, fontWeight: 500 }}>{parts.join(' · ')}</div>
       )}
-      <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.8px', margin: '4px 0 0', lineHeight: 1.05 }}>
+      <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', margin: '4px 0 0', lineHeight: 1.2 }}>
         {data.objektNamn}
       </h1>
     </section>
@@ -245,6 +250,77 @@ function StatusRad({ data }: { data: UppfoljningData }) {
       {s.kvarOkant && (
         <span style={{ fontSize: 15, color: V6_WARN, fontWeight: 500 }}>· skördardata saknas</span>
       )}
+    </section>
+  );
+}
+
+// ── Svaret: EN fråga överst, ett tal (skillen: "ett tal per vy") ──────────
+// Virke på backen = skördat − skotat (avrundade delar, summeras sedan). Stapeln
+// visar hur mycket som är hemma, statusraden läget i ord (samma uppfoljningStatus
+// som listan). Klart objekt byter fråga — ingen stor nolla. Saknas skördardata
+// (risjobb, OneDrive-lucka) faller den tillbaka på den rena statusraden, aldrig
+// ett påhittat på-backen-tal. Grot-raden hör till ett senare steg (grot_hamtad
+// finns inte i datan än). På tokens — resten av vyn migreras separat.
+function Svaret({ data }: { data: UppfoljningData }) {
+  const s = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
+  const klart = s.k === 'done';
+  const visSkordat = Math.round(data.skordat);
+  const visSkotat = Math.round(data.skotat);
+  const harBacken = visSkordat > 0;
+  if (!harBacken) return <StatusRad data={data} />;
+
+  const paBacken = Math.max(0, visSkordat - visSkotat);
+  const andel = Math.min(100, Math.round((visSkotat / visSkordat) * 100));
+  const sv = (n: number) => n.toLocaleString('sv-SE');
+
+  // "Klart om ~N dgr": virke på backen delat med skotarens snitt/dag (ur
+  // lassPerDag, inte en enskild dag). Skattning → alltid "~". Inte klart objekt,
+  // något kvar, och en takt att räkna på — annars ingen rad.
+  const stDagar = (data.lassPerDag || []).filter(d => typeof d.m3 === 'number' && (d.m3 || 0) > 0);
+  const stSnitt = stDagar.length > 0 ? stDagar.reduce((a, b) => a + (b.m3 || 0), 0) / stDagar.length : 0;
+  const klartOm = (!klart && paBacken > 0 && stSnitt > 0) ? Math.max(1, Math.round(paBacken / stSnitt)) : null;
+
+  return (
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: AVSTAND.l }}>
+        <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.xs }}>
+          {klart ? 'Är allt utkört?' : 'Hur mycket är kvar att köra ut?'}
+        </div>
+        {klart ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+            <span style={{ ...TYP.tal }}>Klart</span>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="11" fill={FARG.gron} />
+              <path d="M7 12.5l3.2 3.2L17 9" stroke={FARG.bg} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+        ) : (
+          <div style={{ ...TYP.tal }}>
+            {sv(paBacken)}
+            <span style={{ ...TYP.text, color: FARG.text2, marginLeft: AVSTAND.xs }}>m³ på backen</span>
+          </div>
+        )}
+        <div style={{ height: 10, borderRadius: RADIE.stapel, background: FARG.upphojt, overflow: 'hidden', margin: `${AVSTAND.m}px 0 ${AVSTAND.s}px` }}>
+          <div style={{ width: `${andel}%`, height: '100%', background: FARG.gron, borderRadius: RADIE.stapel }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', ...TYP.meta, color: FARG.text2, ...TNUM }}>
+          <span>{sv(visSkotat)} av {sv(visSkordat)} m³ hemma</span>
+          <span>{andel} %</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.l, ...TYP.listtitel }}>
+          <span style={{ width: 11, height: 11, borderRadius: RADIE.cirkel, background: STATUS_FARG[s.k], flexShrink: 0 }} />
+          <span>{s.t}</span>
+          {s.dagar != null && (
+            <span style={{ ...TYP.text, color: FARG.text2, ...TNUM }}>· {klart ? `${s.dagar} dagar` : `dag ${s.dagar}`}</span>
+          )}
+        </div>
+        {klartOm != null && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.s, ...TYP.text, color: FARG.text2 }}>
+            <span style={{ width: 9, height: 9, borderRadius: RADIE.cirkel, background: FARG.text3, flexShrink: 0 }} />
+            <span>Klart om <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>~{klartOm}</span> dagar</span>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -281,12 +357,12 @@ function MaskinCell({
   return (
     <div style={{ background: V6_CARD, borderRadius: 16, padding: '16px 16px 14px', minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-        <span style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+        <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
         <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, minWidth: 0 }}>
-        <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.8px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{primary}</span>
-        <span style={{ fontSize: 14, color: V6_GREY, fontWeight: 500 }}>{primaryUnit}</span>
+        <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' }}>{primary}</span>
+        <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 600 }}>{primaryUnit}</span>
       </div>
       <div style={{ fontSize: 11, color: V6_GREY, marginTop: 4, fontWeight: 500, minHeight: 14 }}>{primaryLabel}</div>
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: 3, fontVariantNumeric: 'tabular-nums' }}>
@@ -315,7 +391,7 @@ function RisRubrik({ data }: { data: UppfoljningData }) {
     <section style={{ padding: '0 24px 20px' }}>
       <div style={{ background: V6_CARD, borderRadius: 16, padding: '16px 18px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_ST }} />
+          <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST }} />
           <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Ris hämtat</span>
         </div>
         {harVol ? (
@@ -470,7 +546,7 @@ function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
             display: 'flex', alignItems: 'flex-start', gap: 10, padding: '14px 16px',
             borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none',
           }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_ST, flexShrink: 0, marginTop: 6 }} />
+            <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST, flexShrink: 0, marginTop: AVSTAND.xs }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 14, color: '#fff', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.namn}</span>
@@ -544,7 +620,7 @@ function Tidslinje({ data }: { data: UppfoljningData }) {
             return (
               <div key={i}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: t.color }} />
+                  <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: t.color }} />
                   <span style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{t.label}</span>
                   <span style={{ fontSize: 11, color: V6_GREY, fontVariantNumeric: 'tabular-nums', marginLeft: 'auto' }}>
                     {fmtISO(t.start)} → {t.active ? 'pågår' : fmtISO(t.end)}
@@ -598,7 +674,7 @@ function ProdKort({ color, label, rows }: { color: string; label: string; rows: 
   return (
     <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-        <span style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+        <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
         <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
@@ -716,7 +792,7 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
       {hasSk && (
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_SK, alignSelf: 'center' }} />
+            <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_SK, alignSelf: 'center' }} />
             <span style={{ fontSize: 13, fontWeight: 600 }}>Skördare</span>
             <span style={{ fontSize: 11, color: V6_GREY, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
               Snitt {Math.round(skSnitt)} m³/dag · {Math.round(skTotal)} m³
@@ -728,7 +804,7 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
       {hasSt && (
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_ST, alignSelf: 'center' }} />
+            <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST, alignSelf: 'center' }} />
             <span style={{ fontSize: 13, fontWeight: 600 }}>Skotare</span>
             <span style={{ fontSize: 11, color: V6_GREY, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
               Snitt {Math.round(stSnitt)} m³/dag · {stTotalLass} lass · {Math.round(stTotal)} m³
@@ -759,7 +835,7 @@ function Tradslag({ tradslag }: { tradslag: { namn: string; pct: number }[] }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {tradslag.map((t, i) => (
             <div key={t.namn} style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: tradslagFarg(t.namn, i), flexShrink: 0, alignSelf: 'center' }} />
+              <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: tradslagFarg(t.namn, i), flexShrink: 0, alignSelf: 'center' }} />
               <span style={{ flex: 1, fontSize: 14, color: '#fff' }}>{t.namn}</span>
               <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{t.pct}%</span>
             </div>
@@ -809,7 +885,7 @@ function TidKort({ label, color, rows }: { label: string; color: string; rows: [
   return (
     <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-        <span style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+        <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
         <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -885,14 +961,14 @@ function Diesel({ data }: { data: UppfoljningData }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
           <div>
             <span style={{ color: V6_GREY }}>
-              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: V6_SK, marginRight: 5 }} />
+              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: RADIE.cirkel, background: V6_SK, marginRight: AVSTAND.xs }} />
               Skördare
             </span>
             <span style={{ marginLeft: 6, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{skL} L</span>
           </div>
           <div>
             <span style={{ color: V6_GREY }}>
-              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: V6_ST, marginRight: 5 }} />
+              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: RADIE.cirkel, background: V6_ST, marginRight: AVSTAND.xs }} />
               Skotare
             </span>
             <span style={{ marginLeft: 6, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{stL} L</span>
@@ -909,7 +985,7 @@ function AvbrottKort({ label, color, items, totalt }: { label: string; color: st
     <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
         <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
-          <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: color, marginRight: 6, verticalAlign: 'middle' }} />
+          <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: RADIE.cirkel, background: color, marginRight: AVSTAND.xs, verticalAlign: 'middle' }} />
           {label}
         </span>
         <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{totalt}</span>
@@ -1179,9 +1255,10 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
 
   return (
     <div style={{ minHeight: '100%', background: V6_BG, color: '#fff', fontFamily: V6_FF, WebkitFontSmoothing: 'antialiased' }}>
+      <div style={kolumnRot('smal')}>
       <Nav onBack={onBack} />
       <Headline data={data} />
-      <StatusRad data={data} />
+      <Svaret data={data} />
       <AvvikelseZon avvikelser={data.avvikelser} />
       {/* Ett objekts vy speglar vad objektet ÄR. Risjobb: rapporterad
           grotvolym + källhyggen, inga virkessektioner. Virkesjobb: som förut,
@@ -1223,6 +1300,7 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
         {data.externSkotning && <Collapse title="Extern skotning" varde={data.externForetag || null}><Extern data={data} /></Collapse>}
       </div>
       <div style={{ height: 60 }} />
+      </div>
     </div>
   );
 }
