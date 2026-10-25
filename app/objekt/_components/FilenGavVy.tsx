@@ -224,7 +224,7 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
         {bladOppna && blad.map((b, i) => <Rad key={b.path} titel={`Blad ${i + 1} av ${blad.length}`} dampad onTryck={() => oppna(b.path)} />)}
 
         {/* Stämplingslängd visas när den finns. Att den saknas är normaltillståndet (4 av 42 slutavverkningar har en) och är ingen information. */}
-        {stampFil && <Rad titel="Stämplingslängd (PDF)" under="Finns" onTryck={() => oppna(stampFil.path)} />}
+        {stampFil?.path && <Rad titel="Stämplingslängd (PDF)" under="Finns" onTryck={() => oppna(stampFil.path)} />}
         {o.valtlapp_url && <Rad titel="Vältlappar" under="Finns" onTryck={() => oppna(o.valtlapp_url)} />}
 
         <Rad titel="Hänsyn" pil={false}

@@ -83,11 +83,13 @@ type StamplingsUnderlag = {
  * PDF:en som är stämplingslängden, eller null. Importen filar den i `stamplingslangd_url`; på äldre objekt ligger den kvar som den enda
  * oidentifierade PDF:en under "övrigt" (Mölleryd), och på en rotpost är det samma sak. Flera oidentifierade PDF:er = vi vet inte vilken.
  */
-export function stamplingslangdFil(o: StamplingsUnderlag): { namn: string | null; path: string } | null {
+export function stamplingslangdFil(o: StamplingsUnderlag): { namn: string | null; path: string | null } | null {
   if (o.stamplingslangd_url) return { namn: null, path: o.stamplingslangd_url };
   if (!arRotpost(o)) return null;
   const okanda = fragor(o.import_varningar, o);
-  if (okanda.length !== 1 || !okanda[0].path) return null;
+  if (okanda.length !== 1) return null;
+  // `path` kan vara null: listvyn läser inte objektets dokument, så filen är känd ur varningen men inte var den ligger. Filen ÄR ändå
+  // stämplingslängden — bara knappen "Öppna filen" uteblir där.
   return { namn: okanda[0].fil, path: okanda[0].path };
 }
 
@@ -102,8 +104,11 @@ export function stamplingslangdLage(o: StamplingsUnderlag & { stamplingslangd_vo
  */
 export function oppnaFragor(o: StamplingsUnderlag): Fraga[] {
   const alla = fragor(o.import_varningar, o);
-  if (!arRotpost(o) || alla.length !== 1) return alla;
-  return [];
+  const fil = stamplingslangdFil(o);
+  if (!fil) return alla;
+  // Bara frågan om stämplingslängdens EGEN fil faller. Hittades stämplingslängden på suffix och det ändå ligger en oidentifierad PDF i
+  // leveransen är den en riktig gåta, och den frågan står kvar.
+  return alla.filter(f => !(fil.path != null && f.path === fil.path) && !(fil.namn != null && f.fil === fil.namn));
 }
 
 export interface VolymUnderlag {

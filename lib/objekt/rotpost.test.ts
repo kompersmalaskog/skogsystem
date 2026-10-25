@@ -109,6 +109,17 @@ describe('frågan "stämplingslängd saknas"', () => {
     expect(oppnaFragor(o as any)).toEqual([]);
   });
 
+  it('stämplingslängd på suffix + en annan oidentifierad PDF: den andra är en riktig gåta och frågas om', () => {
+    const o = {
+      avtalsform: 'Rp',
+      stamplingslangd_url: '886465_stamplingslangd.pdf',
+      import_varningar: [{ nyckel: 'okand_pdf:Annat.pdf', sort: 'fraga', text: 'x', fil: 'Annat.pdf' }],
+      ovriga_dokument: [{ namn: 'Annat.pdf', path: 'ov.pdf' }],
+    };
+    expect(oppnaFragor(o as any).map(f => f.fil)).toEqual(['Annat.pdf']);
+    expect(stamplingslangdFil(o)).toEqual({ namn: null, path: '886465_stamplingslangd.pdf' });
+  });
+
   it('rotpost helt utan PDF: larmet säger att den saknas i leveransen', () => {
     const f = fraga({ avtalsform: 'Rp' });
     expect(f[0].text).toContain('ingen i leveransen från Vida');
