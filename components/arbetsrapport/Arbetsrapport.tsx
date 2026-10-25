@@ -7,6 +7,7 @@ import { maskinVisningsnamn, maskinNamnMap as byggMaskinNamnMap, DIM_MASKIN_NAMN
 import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL, RADERA_FEL } from "@/lib/supabase-save";
 import { extraMinPerDag, arbetadTidInklExtra, schemaTimmar } from "@/lib/arbetstid";
 import TimmarGraf, { type GrafDag, type GrafManad } from "./TimmarGraf";
+import { byggVecka } from "@/lib/arbetsrapport/veckanDag";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { ymdLokal } from "@/lib/datumLokal";
@@ -60,6 +61,24 @@ async function hämtaVägKm(fLat: number, fLng: number, tLat: number, tLng: numb
     return null;
   }
 }
+
+// TVÅ KOLUMNER i Dag på stor skärm (2026-10-25, efter Martins skiss). Samma mönster som Lastbilen:
+// en container; under DAG_TVA_KOLUMNER_PX en kolumn på högst KOLUMN.smal i exakt dagens ordning (telefon och iPad
+// stående orörda); från DAG_TVA_KOLUMNER_PX vänster 38 % = det man GÖR (dagens pass, extra arbete, frånvaro), sticky
+// under toppfältet, och höger 62 % = det man LÄSER (det som väntar, veckan). Platserna med grid-column/grid-row —
+// inga citattecken i <style> (React escapar dem vid serverrendering). Veckan finns bara i två-kolumnsläget.
+export const DAG_TVA_KOLUMNER_PX = 900;
+export const DAG_KOLUMN_CSS = `
+.ar-dag-ram { container-type: inline-size; }
+.ar-dag { max-width: ${KOLUMN.smal}px; margin: 0 auto; }
+.ar-bara-bred { display: none; }
+@container (min-width: ${DAG_TVA_KOLUMNER_PX}px) {
+  .ar-dag { max-width: none; display: grid; grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); grid-template-rows: auto 1fr; column-gap: ${AVSTAND.xxl}px; align-items: start; }
+  .ar-dag-gor { grid-column: 1; grid-row: 1 / span 2; position: sticky; top: calc(${LAYOUT.topbar} + ${AVSTAND.s}px); }
+  .ar-dag-fixa { grid-column: 2; grid-row: 1; }
+  .ar-dag-las { grid-column: 2; grid-row: 2; }
+  .ar-bara-bred { display: block; }
+}`;
 
 // Sidomeny på stor skärm (Del 2, 2026-10-25, Martin: "skulle det inte vara annorlunda på datorn?"):
 // från SIDOMENY_FRAN_PX blir flikraden en meny till vänster under toppfältet, som Mail/Inställningar
@@ -3667,16 +3686,54 @@ export default function Arbetsrapport() {
       </button>
     );
 
+    /* VECKAN (högra kolumnen på stor skärm). Årets rader går före de senaste 60 dagarna (en vecka runt nyår);
+       dagens rad tar det vyn visar just nu. Tryck öppnar dagen i Redigera; hela veckan och månaden finns i Min tid. */
+    const veckaDagar = new Map<string, any>();
+    for (const r of historik || []) if (r?.datum) veckaDagar.set(r.datum, r);
+    for (const r of årsData || []) if (r?.datum) veckaDagar.set(r.datum, r);
+    veckaDagar.set(idagKey, { datum: idagKey, arbetad_min: idagArb?.slut_tid ? arbMin : (veckaDagar.get(idagKey)?.arbetad_min || 0), bekraftad: !!idagArb?.bekraftad });
+    const vecka = byggVecka(new Date(), [...veckaDagar.values()], extraTidData || []);
+    const veckanKort = (
+      <section>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:AVSTAND.s, margin:`0 0 ${AVSTAND.s}px` }}>
+          <p style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Veckan</p>
+          <p style={{ margin:0, ...TYP.listtitel, ...TNUM, color:FARG.text }}>{fmt(vecka.totalMin)}</p>
+        </div>
+        <div style={{ ...KORT, paddingTop:AVSTAND.xs, paddingBottom:AVSTAND.xs }}>
+          {vecka.rader.map((r, i) => {
+            const sista = i === vecka.rader.length - 1;
+            const status = r.framtid ? "" : r.idag && !r.bekraftad ? "idag" : r.bekraftad ? "bekräftad" : r.min > 0 ? "väntar" : "";
+            return (
+              <button key={r.datum} data-vecka-dag={r.datum} disabled={r.framtid} onClick={()=>{ if (r.idag) return; öppnaRedigera(r.datum); }}
+                style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, height:"auto", padding:`${AVSTAND.s}px 0`, textAlign:"left", borderBottom: sista ? "none" : `1px solid ${FARG.linje}`, cursor: r.framtid || r.idag ? "default" : "pointer" }}>
+                <span style={{ ...TYP.listtitel, color: r.framtid ? FARG.text3 : FARG.text }}>{r.dag}{r.idag ? " · idag" : ""}</span>
+                <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
+                  {status && <span style={{ ...TYP.meta, color: status === "väntar" ? FARG.orange : FARG.text2 }}>{status}</span>}
+                  <span style={{ ...TYP.listtitel, ...TNUM, color: r.framtid ? FARG.text3 : FARG.text }}>{r.framtid ? "–" : fmt(r.min)}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.s }}>
+          <button onClick={()=>setSteg("mintid")} style={KNAPP.tertiar}>Månaden och året i Min tid</button>
+        </div>
+      </section>
+    );
+
     return (
-    <div style={{ minHeight:ROT_MIN_HOJD,...kolumnRot(), background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
-      <style>{css}{designCss}</style>{timerBanner}
+    <div style={{ minHeight:ROT_MIN_HOJD,...kolumnRot("bred"), background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
+      <style>{css}{designCss}{DAG_KOLUMN_CSS}</style>{timerBanner}
 
       {/* Ingen egen rubrikrad: den satt på top:0 BAKOM appens toppfält (PR 518) —
           osynlig, 64 px tomrum. Toppfältet säger redan "Arbetsrapport". */}
       <main style={{ paddingTop:AVSTAND.xl, paddingBottom:SCROLL_BOTTOM, paddingLeft:AVSTAND.sidmarginal, paddingRight:AVSTAND.sidmarginal, flex:1, width:"100%", boxSizing:"border-box" }}>
 
-        {/* VAD SOM VÄNTAR — ovanför hälsningen, bara när något finns. */}
+        <div className="ar-dag-ram" data-dag-ram=""><div className="ar-dag">
+        {/* VAD SOM VÄNTAR — ovanför hälsningen, bara när något finns. På stor skärm: överst i högra kolumnen. */}
         {vantarRader.length > 0 && (
+          <div className="ar-dag-fixa" data-dag-fixa="">
+          <p className="ar-bara-bred" style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.rubrik, color:FARG.text }}>Att fixa</p>
           <section className="tona-in" style={{ ...KORT, paddingTop:AVSTAND.xs, paddingBottom:AVSTAND.xs, marginBottom:AVSTAND.l }}>
             {vantarRader.map((r, i) => (
               <button key={r.nyckel} onClick={r.onClick}
@@ -3689,8 +3746,10 @@ export default function Arbetsrapport() {
               </button>
             ))}
           </section>
+          </div>
         )}
 
+        <div className="ar-dag-gor" data-dag-gor="">
         {/* Timer-varningar: 3h-påminnelse (orange) och 12h-varning (röd) */}
         {pagaendeAktiviteter.map(p => {
           const sek = sekDiff(p.start_tid);
@@ -3815,6 +3874,13 @@ export default function Arbetsrapport() {
           </section>
           );
         })()}
+        </div>
+
+        {/* VECKAN — bara i två-kolumnsläget (stor skärm), i högra kolumnen. Ingen månadssumma: den räknas bara av lönen (Min tid). */}
+        <div className="ar-dag-las ar-bara-bred" data-dag-las="">
+          {veckanKort}
+        </div>
+        </div></div>
 
         {/* Objektväljare — sheet */}
         {visaObjektVäljare&&(
