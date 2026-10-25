@@ -36,3 +36,17 @@ describe('stämplingen mot skördaren', () => {
     expect(procentMot(5, 0)).toBeNull()
   })
 })
+
+import { narmastMening } from './stampling'
+
+describe('vems prognos låg närmast', () => {
+  it('appen närmare (Jeppshoka-fallet: Vida lovade mycket mer)', () => {
+    expect(narmastMening({ blev: 1000, app: 1050, vida: 1490 }, true)).toBe('Appen låg närmare än Vidas kalkyl på timret.')
+  })
+  it('Vida närmare', () => expect(narmastMening({ blev: 1000, app: 800, vida: 980 }, true)).toBe('Vidas kalkyl låg närmast på timret.'))
+  it('lika nära', () => expect(narmastMening({ blev: 1000, app: 1050, vida: 960 }, true)).toBe('Vidas kalkyl och appen låg lika nära på timret.'))
+  it('inte avverkad eller ingen kalkyl: ingen mening', () => {
+    expect(narmastMening({ blev: 1000, app: 1050, vida: 960 }, false)).toBeNull()
+    expect(narmastMening({ blev: 1000, app: 1050, vida: null }, true)).toBeNull()
+  })
+})

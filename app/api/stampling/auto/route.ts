@@ -6,11 +6,13 @@
 // (då kostar den om och om igen); knappen på traktsidan finns för det. En gissad (inskannad) stämplingslängd läses bara på en rotpost.
 //
 // En inloggad admin kan anropa rutten i webbläsaren: då är det en TORRKÖRNING (listar vad som skulle läsas) om inte ?skarp=1.
+// ?utbyte=1 (bara admin, för hand): läser om redan lästa rapporter för att ta ut Vidas utbyteskalkyl (lasUtbyteskalkyl) —
+// högst PER_KORNING per anrop; inga andra tal i läsningen ändras. Cron gör det aldrig (det kostar en läsning per rapport).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ADMIN_ROLLER, kravRoll } from '@/lib/auth/server';
 import { attLasa, type ObjektMedDokument } from '@/lib/rotpost/kalla';
-import { lasRapport, skapaForObjekt } from '@/lib/stampling/pdf/franObjekt';
+import { lasRapport, lasUtbyteskalkyl, skapaForObjekt } from '@/lib/stampling/pdf/franObjekt';
 import { adminKlient, MAX_LASNINGAR_PER_TIMME } from '@/lib/stampling/pdf/server';
 
 export const runtime = 'nodejs';
@@ -27,8 +29,24 @@ async function kor(req: NextRequest) {
     const vakt = await kravRoll(ADMIN_ROLLER);
     if (!vakt.ok) return vakt.res;
   }
-  const skarp = arCron || new URL(req.url).searchParams.get('skarp') === '1';
+  const sp = new URL(req.url).searchParams;
+  const skarp = arCron || sp.get('skarp') === '1';
   const admin = adminKlient();
+
+  if (!arCron && sp.get('utbyte') === '1') {
+    const { data, error } = await admin.from('stamplings_rapport').select('id,objekt_id,namn,las').in('status', ['stammer', 'avviker'])
+      .order('skapad', { ascending: true });
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    const kvar = ((data ?? []) as { id: string; objekt_id: string | null; namn: string | null; las: unknown }[])
+      .filter(r => r.las && typeof r.las === 'object' && !('utbyteskalkyl' in (r.las as object)));
+    if (!skarp) return NextResponse.json({ ok: true, lage: 'torrkörning — inget lästes', attLasaOm: kvar.map(r => r.objekt_id ?? r.namn ?? r.id) });
+    const resultat: { rapport: string; utbyteskalkyl?: unknown; fel?: string }[] = [];
+    for (const r of kvar.slice(0, PER_KORNING)) {
+      const u = await lasUtbyteskalkyl(admin, r.id);
+      resultat.push(u.ok ? { rapport: r.objekt_id ?? r.namn ?? r.id, utbyteskalkyl: u.v.utbyteskalkyl } : { rapport: r.objekt_id ?? r.id, fel: u.error });
+    }
+    return NextResponse.json({ ok: true, lage: 'skarp', lasta: resultat, kvarEfter: kvar.length - resultat.length });
+  }
 
   const [o, d, r] = await Promise.all([
     admin.from('objekt').select('vo_nummer,namn,avtalsform,stamplingslangd_url,ovriga_dokument').not('vo_nummer', 'is', null),
