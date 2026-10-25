@@ -17,7 +17,8 @@
 //
 // Allt som kräver nät eller databas ligger i ./sett och lib/hooks/useInstruktioner. Här finns bara reglerna, så de går att prova utan någon av dem.
 
-import { arInnePolygon, avstandPunktM, type LatLon } from '../larm/geo';
+import { arInnePolygon, avstandPunktM, avstandTillLinjeM, type LatLon } from '../larm/geo';
+import { arKorUpp, korUppText, korUppUr } from '../korUpp';
 import { VIDA, ytaDef } from '../larm/grupper';
 import { innehallHash } from '../larm/larm';
 import { vidaSlag } from '../larm/objekt';
@@ -30,7 +31,7 @@ import { forstaPunkt, rensaVidaNamn, type BrickaGrupp } from '../ytaNamn';
 export const INNE_M = 30;
 export const UT_MARGINAL_M = 10;
 
-export type InstruktionKalla = 'vida' | 'egen' | 'aldre';
+export type InstruktionKalla = 'vida' | 'egen' | 'aldre' | 'planering';
 
 export interface Instruktion {
   /** Stabil referens för "sett": `vida:<nyckel>` (Vidas text), kommentarens id (kartkommentar) eller `aldre:<nyckel>`. */
@@ -42,6 +43,8 @@ export interface Instruktion {
   /** "Martin · i går 16:20"; null för Vidas text och äldre kommentarer (de har ingen författare). */
   forfattare: string | null;
   vantar: boolean;
+  /** Källan i rutans överkant när ingen författare finns (planeringens egna: "Planerare"). */
+  etikett?: string;
   /** Vidas traktdirektiv (löptext utan radbrytningar): delas i numrerade punkter vid meningsslut. Aldrig sant för en egen kommentar eller en ytas ATGARD. */
   meningar?: boolean;
 }
@@ -96,7 +99,7 @@ function vidaNarvaro(g: any, pos: LatLon | null): Narvaro {
   return { slag: 'avstand', avstandM: null };
 }
 
-function ordning(i: Instruktion): number { return i.kalla === 'vida' ? 0 : i.kalla === 'aldre' ? 1 : 2; }
+function ordning(i: Instruktion): number { return i.kalla === 'vida' ? 0 : i.kalla === 'aldre' ? 1 : i.kalla === 'planering' ? 2 : 3; }
 
 /** Vidas text först, sedan våra kommentarer i den ordning de skrevs (äldre kommentarer före nya). */
 export const sorteraInstruktioner = (l: readonly Instruktion[]): Instruktion[] => {
@@ -198,6 +201,18 @@ export function samlaOmraden(i: SamlaIn): InstruktionOmrade[] {
   });
 
   for (const m of i.markers) {
+    // KÖR UPP OCH BACKA (vit dubbelpil): planerarens pil är en instruktion i sig — skälet och "kör upp mot gränsen och backa tillbaka". Maskinen kör "in" när den är nära pilen.
+    if (arKorUpp(m)) {
+      const k = korUppUr(m);
+      if (!k) continue;
+      const text = korUppText(k.skal);
+      ut.push({
+        nyckel: `korupp:${m.id}`, namn: 'Kör upp och backa', avlagg: false,
+        narvaro: { slag: 'avstand', avstandM: i.pos ? avstandTillLinjeM(i.pos, [k.start, k.slut]) : null },
+        instruktioner: [{ ref: `korupp:${m.id}`, text, hash: hashText(text), kalla: 'planering', etikett: 'Planerare', forfattare: null, vantar: false }],
+      });
+      continue;
+    }
     const nyckel = m.lineType === 'boundary' ? `omrade:${m.id}` : markerNyckel(m.id);
     const lista = egnaInstruktioner(i.kommentarer, i.objektId, nyckel, m.comment, i.nu);
     if (!lista.length) continue;
