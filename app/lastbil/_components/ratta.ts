@@ -6,7 +6,6 @@
 // Funktionerna kastar på läsfel/lås/regelbrott med ett svenskt felmeddelande som visas som det är.
 
 import { supabase } from '@/lib/supabase';
-import { fakturerbarEffektiv } from '@/lib/flytt/fakturerbar';
 
 export type UnderlagAtgard = 'ingen' | 'skapat' | 'uppdaterat' | 'struket' | 'aterstallt';
 export type PositionAtgard = 'ingen' | 'flyttad' | 'raderad' | 'osaker' | 'hittades_inte' | 'ej_hanterad';
@@ -92,8 +91,6 @@ export function andradeFalt(fore: Falt, nu: Falt): Andringar {
 /** Kunduppdrag kräver kund (CHECK i databasen) — sägs innan man sparar, inte efter ett fel. */
 export const kravKund = (typ: string, kund: string | null): boolean => typ !== 'kunduppdrag' || !!(kund ?? '').trim();
 
-/** Fakturerbar efter rättningen — samma regel som databasen (lib/flytt/fakturerbar.ts), manuellt val före regeln. */
-export const fakturerbarEfter = (typ: string, km: number | null, manuell: boolean | null = null): boolean => fakturerbarEffektiv(typ, km, manuell);
 
 /** Meningarna som står i kvittot efter en lyckad rättning (vad som faktiskt hände, ur databasens svar). */
 export function rattaKvitto(res: RattaResultat, slag: 'rattning' | 'stryk'): string[] {

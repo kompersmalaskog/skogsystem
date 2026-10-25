@@ -145,6 +145,8 @@ export type Maskinrad = {
 export type Flyttrad = {
   id: string;
   datum: string;
+  /** Maskinens NAMN ("Giant"), aldrig maskin_id — hämtaren slår upp det i
+   *  dim_maskin. En annans maskin står med den fritext flytten skrevs med. */
   maskin: string;
   km: number | null;
   /**

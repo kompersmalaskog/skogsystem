@@ -108,7 +108,7 @@ export type AtgardEffekt = {
   kalibreringarEfter: string[];
 };
 /** En rad i Åtgärder: en markör (förarens åtgärd eller en reparation av mätsystemet) med träffen före och efter. `efter` räknas fram till nästa markör. */
-export type AtgardPost = AtgardEffekt & { kalla: 'atgard' | 'reparation' };
+export type AtgardPost = AtgardEffekt & { kalla: 'atgard' | 'reparation' | 'kalibrering' };
 export type BedomningResp = {
   ok: true; maskin_id: string; profil: string | null;
   fonster: { fran: string; till: string; dagar: number } | null;
@@ -125,6 +125,8 @@ export type KontrollTid = {
   sista: { dag: string; klockslag: string } | null;
   /** Filens urvalstexter ur HQC (stem_selection), utan dubbletter. */
   urval: string[];
+  /** Vem som klavade (HQC `measurer_name`, första som finns i filen). null när filen inte säger. */
+  matare: string | null;
 };
 
 // === Diagnos (/api/kalibrering/diagnos) ===
@@ -190,3 +192,4 @@ export type CalMaskin = {
 export type CalDag = { datum: string; veckodag: number; status: CalDagstatus; maskiner: CalMaskin[] };
 export type CalSammanfattning = { produktionsdagar: number; kompletta: number; saknas: number; varningar: number; okand_huvudtyp_dagar: number };
 export type CalResponse = { manad: string; dagar: CalDag[]; sammanfattning: CalSammanfattning };
+

@@ -1,9 +1,11 @@
 // Objektets ark i Redigering — all text och alla tal på översikten, ren logik (Martin 2026-10-23: "som markägarrapporten",
 // "lätt för hjärnan"). Komponenten (components/redigering/ObjektOversikt.tsx) ritar bara det som byggs här.
 //
-// Svaret först: var står objektet (Pågår / Skotning kvar / Klart / Inte påbörjat) i ett ord, och en mening med talen.
-// Sedan frågor: Vad saknas? · Stämmer uppgifterna? (varifrån varje värde kom) · Vad har maskinerna skickat? · Är det klart?
-// · Vem kör? · Hur får vi betalt? · Mer (undersidor, egenskaper, dokument, VO-nummer) — ett enda ark per objekt.
+// Tre delar (Martin 2026-10-24: "så lätt att ett barn förstår det direkt"):
+// 1. Svaret: var står objektet (Pågår / Skotning kvar / Klart / Inte påbörjat), en mening med talen och när maskinerna senast skickade.
+// 2. Gör det här: bara det som väntar på en människa. Inget att göra = en rad som säger det.
+// 3. Om objektet: EN lista med uppgifterna, klart-datumen, vem som kör, betalning och special — ett tryck ändrar.
+// Sist Mer (undersidor, egenskaper, dokument, VO-nummer, ta bort) — ett enda ark per objekt.
 
 import { AVTALSFORM_ORD } from './behoverDig';
 import { faltGaller, arPrivat } from './faltGaller';
@@ -163,6 +165,15 @@ export function maskinRader(rader: MaskinFilRad[], skordat: number, skotat: numb
       : r.typ === 'skotare' && perTyp('skotare') === 1 && skotat > 0 ? m3(skotat) : null;
     return { id: r.maskinId, titel: r.modell || r.maskinId, under: `${r.typ === 'skordare' ? 'Skördare' : r.typ === 'skotare' ? 'Skotare' : 'Maskin'} · ${filer}${datum}`, hoger: vol };
   });
+}
+
+/**
+ * Raden i svaret om maskinernas filer: "Senast från Giant 14 okt · Wisent 21 okt". Nyast först. null när inget kommit.
+ */
+export function senastFran(rader: readonly MaskinFilRad[]): string | null {
+  const med = rader.filter(r => r.senasteData).sort((a, b) => String(b.senasteData).localeCompare(String(a.senasteData)));
+  if (!med.length) return null;
+  return `Senast från ${med.map(r => `${r.modell || r.maskinId} ${kortDatum(r.senasteData)}`).join(' · ')}`;
 }
 
 export interface AvslutForslag { field: string; autoField: string; label: string; maskinTyp: 'harvester' | 'forwarder'; datum: string; kalla: 'maskindata' | 'stale'; dagar?: number }

@@ -58,6 +58,12 @@ export const FALT_RUTT: Record<string, FaltRutt> = {
   klippning:               { dim: 'klippning' },
   skordning_avslutad_auto: { dim: 'skordning_avslutad_auto' },
   skotning_avslutad_auto:  { dim: 'skotning_avslutad_auto' },
+  // Avslut ur maskindata (migration 20261024161546): människans "Inte klar än" och automatikens skäl.
+  // Skrivs bara av avslutsarket; saknas kolumnerna sparar arket utan dem (lib/redigering/avslut.ts).
+  skordning_ej_klar:       { dim: 'skordning_ej_klar' },
+  skotning_ej_klar:        { dim: 'skotning_ej_klar' },
+  skordning_auto_skal:     { dim: 'skordning_auto_skal' },
+  skotning_auto_skal:      { dim: 'skotning_auto_skal' },
   terrang_kr_manuell:  { dim: 'terrang_kr_manuell' },
   skotavstand_manuell: { dim: 'skotavstand_manuell' },
   tilldelad_skotare:   { dim: 'tilldelad_skotare' },
@@ -66,6 +72,19 @@ export const FALT_RUTT: Record<string, FaltRutt> = {
   extern_skordning:    { dim: 'extern_skordning' },
   egen_skotning:       { dim: 'egen_skotning' },
   risskotning:         { dim: 'risskotning' },
+  // Undersidorna under Mer (2026-10-24) sparar direkt, som resten av arket. Maskinspecifika (G15, ovrigt_info)
+  // skrivs av anroparen mot rätt maskinslags rader (direktSparaMaskin), som batch-sparningen gjorde.
+  timpeng_undantag_timmar_skordare: { dim: 'timpeng_undantag_timmar_skordare' },
+  timpeng_undantag_timmar_skotare:  { dim: 'timpeng_undantag_timmar_skotare' },
+  timpeng_undantag_volym:           { dim: 'timpeng_undantag_volym' },
+  timpeng_undantag_dra_skordare:    { dim: 'timpeng_undantag_dra_skordare' },
+  timpeng_undantag_dra_skotare:     { dim: 'timpeng_undantag_dra_skotare' },
+  medelstam_manuell:                { dim: 'medelstam_manuell' },
+  sortiment_grupper_manuell:        { dim: 'sortiment_grupper_manuell' },
+  skordning_g15_manuell:            { dim: 'skordning_g15_manuell' },
+  skotning_g15_manuell:             { dim: 'skotning_g15_manuell' },
+  // Extern (inlejd) skotare bor som JSON i ovrigt_info på skotarens rader (lib/redigering/externSkotning.ts).
+  ovrigt_info:                      { dim: 'ovrigt_info' },
 
   // ── objekt-only (planering) ──
   status:                     { objekt: 'status' },

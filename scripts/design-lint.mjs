@@ -33,10 +33,24 @@ const ALFA = new Set(["0.04", "0.08", "0.1", "0.10"]); // rgba(255,255,255,x) so
 
 /** Filer som är rättade mot tokens. Nya literaler här är fel, inte skuld. */
 export const SKARPA = [
+  // Faktureringsvyn (2026-10-24): omgjord mot design.md — ram som markägarvyn, egen
+  // adress per trakt, rena vymodeller och components/design. Noll literaler.
+  "components/faktura/FakturaRam.tsx",
+  "components/faktura/FakturaLista.tsx",
+  "components/faktura/TraktKlient.tsx",
+  "components/faktura/KontraktsGenomgang.tsx",
+  "components/faktura/GranskningArk.tsx",
+  "components/faktura/Lasfel.tsx",
+  "app/ekonomi/fakturaunderlag/layout.tsx",
+  "app/ekonomi/fakturaunderlag/page.tsx",
+  "app/ekonomi/fakturaunderlag/[vo]/page.tsx",
   // Redigering · Behöver dig (2026-10-23): byggd på tokens och components/design, noll literaler.
   "components/redigering/BehoverDig.tsx",
   "components/redigering/ObjektOversikt.tsx",
   "components/redigering/ObjektLista.tsx",
+  "components/redigering/Undersidor.tsx",
+  "app/redigering/SkotareFordelning.tsx",
+  "app/redigering/RedigeringClient.tsx",
   // Gallring (2026-10-22): omgjord på tokens och components/design, noll literaler.
   "components/gallring/GallringRam.tsx",
   "components/gallring/GallringLista.tsx",
@@ -166,6 +180,7 @@ export const SKARPA = [
   "components/kalibrering/KontrollPanel.tsx",
   "components/kalibrering/KontrollerFlik.tsx",
   "components/kalibrering/LagetFlik.tsx",
+  "components/kalibrering/AtgarderSektion.tsx",
   "components/kalibrering/MaskinMeny.tsx",
   "components/kalibrering/NyAtgardArk.tsx",
   "components/kalibrering/OverTidFlik.tsx",
@@ -173,6 +188,7 @@ export const SKARPA = [
   "components/kalibrering/Rutnat.tsx",
   "components/kalibrering/GrovlekVinkel.tsx",
   "components/kalibrering/GreppVinkel.tsx",
+  "components/design/Svarsrad.tsx",
   "components/kalibrering/RutaArk.tsx",
   "components/kalibrering/Rubrik.tsx",
   "components/kalibrering/StabilitetTabell.tsx",
@@ -270,7 +286,8 @@ const bas = alla ? basRef : mergeBas(basRef);
 
 let filer;
 if (alla) {
-  filer = git("ls-files app components").split("\n").filter((f) => VY_FIL.test(f) && !UNDANTAG.test(f));
+  // existsSync: ls-files läser indexet, så en RADERAD men ännu inte stagad fil står kvar där.
+  filer = git("ls-files app components").split("\n").filter((f) => VY_FIL.test(f) && !UNDANTAG.test(f) && existsSync(path.join(ROT, f)));
 } else {
   let andrade = "";
   try { andrade = git(`diff --name-only ${bas} -- app components`); } catch { andrade = ""; }

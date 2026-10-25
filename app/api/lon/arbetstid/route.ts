@@ -96,7 +96,13 @@ export async function GET(_req: NextRequest) {
       if (!flyttPerMed.has(id)) flyttPerMed.set(id, []);
       flyttPerMed.get(id)!.push({ starttid: r.starttid, sluttid: r.sluttid, total_tid_min: r.total_tid_min });
     }
-    if (oplacerade > 0) varningar.push(`${oplacerade} ${oplacerade === 1 ? "flyttdag kunde" : "flyttdagar kunde"} inte kopplas till en förare (saknar medarbetare och namnet matchar ingen) och ingår inte.`);
+    // Bara företagsledare har kört lastbilen (alla flyttdagar med känd förare är deras): en flyttdag utan förare kan då bara
+    // vara deras, och arbetstidslagen gäller inte dem — varningen vore brus utan åtgärd (prod 2026-10-25: 22 rundor som
+    // cron-jobbet skapat utan förare, Martin 12 och Joacim 11 med). Kör en anställd förare lastbilen visas varningen igen.
+    const ledare = new Set(((medRes.data || []) as any[]).filter(m => m.foretagsledare === true).map(m => m.id));
+    const kandaForare = [...flyttPerMed.keys()];
+    const baraLedareKor = kandaForare.length > 0 && kandaForare.every(id => ledare.has(id));
+    if (oplacerade > 0 && !baraLedareKor) varningar.push(`${oplacerade} ${oplacerade === 1 ? "flyttdag kunde" : "flyttdagar kunde"} inte kopplas till en förare (saknar medarbetare och namnet matchar ingen) och ingår inte.`);
 
     const forare = (medRes.data || []).map((m: any) => {
       const sina = dagar.filter(d => d.medarbetare_id === m.id);

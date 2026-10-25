@@ -31,6 +31,8 @@ describe('byggSaker', () => {
 
   it('maskinens avslut blir korta frågor på objektraden', () => {
     expect(kortText('Maskinen rapporterar skördning avslutad — ej markerad')).toBe('Skördning klar?');
+    // Varningen skrivs nu redan som fråga vid källan; den ska stå oförändrad.
+    expect(kortText('Skotning klar?')).toBe('Skotning klar?');
     expect(kortText('Saknar markägare')).toBe('Saknar markägare');
   });
 

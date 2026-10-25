@@ -43,33 +43,62 @@ const namn = (id: string) => fixtur.maskiner.find(m => m.maskin_id === id)?.visn
 const vy = byggObjektVy(sammanstall(objekt, u), summeraProduktion(objekt, u, fixtur.produktion), namn);
 
 describe('Objektet', () => {
-  it('svaret står först, sedan frågorna i ordning', async () => {
+  it('svaret står först: maskinernas tid, prognosen i ord och en förklaring', async () => {
     const h = await montera(createElement(Objekt, { vy }));
     const svar = h.querySelector('[data-svar]')!.textContent ?? '';
-    expect(svar).toContain('Hur lång tid tog objektet?');
-    expect(svar).toContain('157 tim 33 min');
-    expect(svar).toContain('1 401 m³ skördat – 8,9 m³ per timme');
+    expect(svar).toContain('Maskinerna körde');
+    expect(h.querySelector('[data-svar-tal]')!.textContent).toBe('156 h 4 min');
+    expect(h.querySelector('[data-plan]')!.textContent).toContain('Prognos för maskinerna: 128 h.');
+    expect(h.querySelector('[data-plan]')!.textContent).toContain('28 h 4 min mer än prognosen.');
+    expect(h.querySelector('[data-forklaring]')!.textContent).toBe('Skotaren behövde 35 h 17 min mer än prognosen. Skördaren var klar 7 h 13 min tidigare.');
     const rubriker = Array.from(h.querySelectorAll('section')).map(s => s.getAttribute('aria-label'));
-    expect(rubriker).toEqual(['Vart gick tiden?', 'Hur kom maskinerna hit?', 'Vad blev det?', 'Vad skulle göras?']);
+    expect(rubriker).toEqual(['Vem gjorde vad?', 'Hur mycket virke?', 'Mer om objektet']);
+    const synligt = h.cloneNode(true) as HTMLElement;
+    synligt.querySelectorAll('style').forEach(x => x.remove());
+    expect(synligt.textContent).not.toMatch(/planera|\bG15|l\/m³|medelstam/i);
   });
 
-  it('prognosen står i ord, och skotarens överdrag är orange', async () => {
+  it('avvikelsen är orange när det blev mer än 10 % över prognosen', async () => {
     const h = await montera(createElement(Objekt, { vy }));
-    const skotare = h.querySelector('[data-rad="skotare"]')!;
-    expect(skotare.textContent).toContain('Prognos 72 tim – blev 35 tim längre');
-    const orange = Array.from(skotare.querySelectorAll('span')).filter(s => s.textContent?.startsWith('Prognos')).pop();
+    const orange = Array.from(h.querySelectorAll('[data-plan] span')).find(x => x.textContent?.includes('28 h 4 min mer'));
     expect(orange?.getAttribute('style')).toContain('rgb(255, 159, 10)');
-    const skordare = h.querySelector('[data-rad="skordare"]')!;
-    expect(Array.from(skordare.querySelectorAll('span')).filter(s => s.textContent?.startsWith('Prognos')).pop()?.getAttribute('style')).toBeFalsy();
   });
 
-  it('grafen: senaste dagen vald, tryck byter dag', async () => {
+  it('vem gjorde vad: skotaren fälls ut på plats och visar maskinerna, en rad åt gången', async () => {
     const h = await montera(createElement(Objekt, { vy }));
-    expect(h.querySelector('[data-graf-vald]')!.textContent).toBe('fre 21 aug · 5,2 tim');
+    const skotare = h.querySelector('[data-rad="skotare"]') as HTMLElement;
+    expect(skotare.textContent).toContain('prognos 72 h');
+    expect(h.querySelector('[data-detalj]')).toBeNull();
+    await act(async () => { skotare.click(); });
+    expect(skotare.getAttribute('aria-expanded')).toBe('true');
+    expect(Array.from(h.querySelectorAll('[data-detalj]')).map(d => d.textContent)).toEqual([
+      expect.stringContaining('Wisent'), expect.stringContaining('Elefant 26'),
+    ]);
+    await act(async () => { (h.querySelector('[data-rad="flytt"]') as HTMLElement).click(); });
+    expect(skotare.getAttribute('aria-expanded')).toBe('false');
+    expect(h.querySelector('[data-detalj]')!.textContent).toContain('Giant från Åbogen RP 2026');
+  });
+
+  it('virket: svaret och prognosen', async () => {
+    const h = await montera(createElement(Objekt, { vy }));
+    const v = h.querySelector('section[aria-label="Hur mycket virke?"]')!.textContent ?? '';
+    expect(v).toContain('1 401 m³');
+    expect(v).toContain('prognos 1 738 m³');
+    expect(v).toContain('Gran');
+  });
+
+  it('dag för dag ligger bakom en rad; senaste dagen vald, tryck byter dag', async () => {
+    const h = await montera(createElement(Objekt, { vy }));
+    expect(h.querySelector('[data-graf]')).toBeNull();
+    await act(async () => { (h.querySelector('[data-mer="dag"]') as HTMLElement).click(); });
+    expect(h.querySelector('[data-graf-vald]')!.textContent).toBe('fre 21 aug · 5 h 10 min');
     const forsta = h.querySelector('[data-graf] button') as HTMLButtonElement;
     await act(async () => { forsta.click(); });
-    expect(h.querySelector('[data-graf-vald]')!.textContent).toBe('mån 3 aug · 3,6 tim');
+    expect(h.querySelector('[data-graf-vald]')!.textContent).toBe('mån 3 aug · 3 h 38 min');
     expect(forsta.getAttribute('aria-pressed')).toBe('true');
+    await act(async () => { (h.querySelector('[data-mer="fler"]') as HTMLElement).click(); });
+    expect(h.querySelector('[data-graf]')).toBeNull();
+    expect(h.textContent).toContain('2 262 liter');
   });
 
   it('Dela som PDF öppnar förhandsvisningen', async () => {
@@ -82,7 +111,7 @@ describe('Objektet', () => {
     const s = sammanstall(objekt, { ...u, dim: u.dim.map(d => ({ ...d, skotning_avslutad: null })) });
     const h = await montera(createElement(Objekt, { vy: byggObjektVy(s, { volym: 0, stammar: 0, tradslag: [] }, namn) }));
     expect(h.querySelector('section')!.getAttribute('aria-label')).toBe('Vad är kvar?');
-    expect(h.querySelector('[data-svar]')!.textContent).toContain('Hur lång tid har det tagit hittills?');
+    expect(h.querySelector('[data-svar]')!.textContent).toContain('Maskinerna har kört');
   });
 });
 
@@ -97,7 +126,7 @@ describe('Listan', () => {
     const vald = h.querySelector('[aria-current="page"]')!;
     expect(vald.getAttribute('href')).toBe(`/admin/objektoversikt/${objekt.id}`);
     expect(vald.textContent).toContain('Slutavverkning · 21 aug');
-    expect(vald.textContent).toContain('158 tim');
+    expect(vald.textContent).toContain('156 h 4 min');
     const sok = h.querySelector('input[type="search"]') as HTMLInputElement;
     await act(async () => {
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;

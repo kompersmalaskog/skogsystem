@@ -92,7 +92,9 @@ describe('vakt: alla som AVGÖR fakturerbar använder fakturerbarEffektiv', () =
   });
   it('förarflödet (Lämnat) och rättningen räknar med fakturerbarEffektiv', () => {
     expect(readFileSync(join(ROT, 'app/lastbil/_components/hamta/dagSkriv.ts'), 'utf8')).toMatch(/fakturerbarEffektiv\(typ, flyttKm, null\)/);
-    expect(readFileSync(join(ROT, 'app/lastbil/_components/ratta.ts'), 'utf8')).toMatch(/fakturerbarEffektiv\(typ, km, manuell\)/);
+    // Rättningen: sheeten och förhandsbeskedet (ratta.ts hade en egen kopia som ingen anropade — borttagen 2026-10-24).
+    expect(readFileSync(join(ROT, 'app/lastbil/_components/FlyttSheet.tsx'), 'utf8')).toMatch(/fakturerbarEffektiv\(f\.typ, matt, f\.manuell\)/);
+    expect(readFileSync(join(ROT, 'lib/flytt/forhandsbesked.ts'), 'utf8')).toMatch(/fakturerbarEffektiv\(ny\.typ, fore\.km, ny\.manuell\)/);
   });
 });
 

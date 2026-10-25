@@ -83,14 +83,23 @@ describe('stickvägar ur GPS-spåret', () => {
   });
 
   it('samma väg körd två gånger räknas en gång, och spår utanför gränsen räknas inte', () => {
-    const en = stickvag([{ roll: 'skordare', linjer: [10, 30, 50, 70, 90].map(vag) }], KVADRAT, 10000);
+    const en = stickvag([{ roll: 'skotare', linjer: [10, 30, 50, 70, 90].map(vag) }], KVADRAT, 10000);
     const tva = stickvag([
-      { roll: 'skordare', linjer: [10, 30, 50, 70, 90].map(vag) },
+      { roll: 'skotare', linjer: [10, 30, 50, 70, 90].map(vag) },
       { roll: 'skotare', linjer: [...[10, 30, 50, 70, 90].map(vag), [g(150, 0), g(150, 100)]] },
     ], KVADRAT, 10000);
     if (en.lage !== 'ok' || tva.lage !== 'ok') throw new Error('inte ok');
     expect(tva.andel).toBeCloseTo(en.andel, 5);
-    expect(tva.roller).toEqual(['skordare', 'skotare']);
+  });
+
+  it('bara skotarens spår räknas — skördaren kör också inne i beståndet (Trestensdal: 34 %, 12 m isär)', () => {
+    // Skördaren kör stickvägarna 20 m isär OCH en väg mitt emellan inne i beståndet.
+    const skordare = { roll: 'skordare', linjer: [10, 20, 30, 40, 50, 60, 70, 80, 90].map(vag) };
+    expect(stickvag([skordare], KVADRAT, 10000).lage).toBe('inget-spar');
+    const sv = stickvag([skordare, { roll: 'skotare', linjer: [10, 30, 50, 70, 90].map(vag) }], KVADRAT, 10000);
+    if (sv.lage !== 'ok') throw new Error(sv.lage);
+    expect(sv.avstandM).toBeGreaterThan(19); // skotarens 20 m, inte skördarens 10 m
+    expect(sv.roller).toEqual(['skotare']);
   });
 
   it('ett spår som bara täcker en del av trakten ger inget tal', () => {
