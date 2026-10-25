@@ -10,7 +10,7 @@ import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
 import { enhetForMangd, fmtMangd } from "@/lib/lonesystem/loneart";
 import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
 import { kodRadAttGora, oppnaFragor } from "@/lib/lonesystem/attTaMed";
-import { arbetsManadText } from "@/lib/lonesystem/lonemanad";
+import { arbetsManadText, arPagaendeArbetsManad, manadNamn, senasteLoneperiod, svenskIdag } from "@/lib/lonesystem/lonemanad";
 import ManadRubrik from "@/components/design/ManadRubrik";
 import { byggForarKort, saknarAnstallningsdatum, antalAttKolla, type ForarKort, type Kvittering, type Mal, type VyRad } from "@/lib/admin/loneunderlagVy";
 import { arSandbar } from "@/lib/lonesystem/forarGodkannande";
@@ -141,9 +141,15 @@ function periodOffset(period: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-/** En period som står i adressen (?period=2026-09) gäller om den är en riktig månad som inte ligger i framtiden. */
+/** Senaste löneperiod som går att öppna: den pågående arbetsmånadens (granskas, skickas aldrig). */
+function periodMax(): string {
+  return senasteLoneperiod(svenskIdag());
+}
+
+/** En period som står i adressen (?period=2026-09) gäller om den är en riktig månad t.o.m. den pågående arbetsmånadens.
+ *  Utan period i adressen öppnas förra arbetsmånaden — den som ska skickas. */
 function periodUrAdress(p: string | undefined): string {
-  return p && /^\d{4}-(0[1-9]|1[0-2])$/.test(p) && p <= periodNu() ? p : periodNu();
+  return p && /^\d{4}-(0[1-9]|1[0-2])$/.test(p) && p <= periodMax() ? p : periodNu();
 }
 
 function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
@@ -171,6 +177,8 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
   // löneperiod; det som SYNS är arbetsmånaden ("Augusti") med utbetalningen i liten text (lib/lonesystem/lonemanad).
   // Allt som visas under en löneperiod gäller ARBETSMÅNADEN, så "maskinstart senare" läser den, inte löneperiodens egen månad.
   const arbetsManad = periodOffset(period, -1);
+  // Den pågående arbetsmånaden går att öppna (hur ligger förarna till?) men inte skicka eller påminna om.
+  const pagaende = arPagaendeArbetsManad(arbetsManad, svenskIdag());
 
   useEffect(() => {
     let cancelled = false;
@@ -335,8 +343,8 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
           <Ikon namn="chevron_left" farg={FARG.text} />
         </button>
         <div style={{ ...TYP.listtitel, color: FARG.text, textAlign: "center" }}><ManadRubrik arbetsManad={arbetsManad} /></div>
-        <button onClick={() => valjPeriod(periodOffset(period, 1))} disabled={period >= periodNu()} aria-label="Nästa månad"
-          style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, color: FARG.text, opacity: period >= periodNu() ? 0.4 : 1, cursor: period >= periodNu() ? "default" : "pointer" }}>
+        <button onClick={() => valjPeriod(periodOffset(period, 1))} disabled={period >= periodMax()} aria-label="Nästa månad"
+          style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, color: FARG.text, opacity: period >= periodMax() ? 0.4 : 1, cursor: period >= periodMax() ? "default" : "pointer" }}>
           <Ikon namn="chevron_right" farg={FARG.text} />
         </button>
       </Card>
@@ -345,6 +353,7 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
       <FortnoxExportSektion
         period={period}
         arbetsManad={arbetsManad}
+        pagaende={pagaende}
         fortnoxData={fortnoxData}
         fortnoxLaddar={fortnoxLaddar}
         onFörhandsgranska={async () => {
@@ -375,7 +384,7 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
       {/* Förare · Månad: varför blev lönen, övertiden och milen som de blev. Förarens id står i adressen (?forare=…). */}
       {(() => {
         const m = fortnoxData?.ok ? (fortnoxData.medarbetare || []).find((x: any) => x.medarbetare_id === nav.params.forare) : null;
-        return m ? <ForarManadArk m={m} arbetsManad={arbetsManad} dag={nav.params.dag} onSkickaUtanGodkannande={skickaUtanGodkannande} onStang={() => {
+        return m ? <ForarManadArk m={m} arbetsManad={arbetsManad} dag={nav.params.dag} pagaende={pagaende} onSkickaUtanGodkannande={pagaende ? undefined : skickaUtanGodkannande} onStang={() => {
           // Kom man från Dagar (dagper i adressen) går man tillbaka dit, på samma period och månad och med samma filter.
           if (nav.params.dagper) gaTill({ flik: "lon", underflik: "dagar", params: { dagper: nav.params.dagper, dagoff: nav.params.dagoff ?? "0", avv: nav.params.avv ?? "1" } });
           else { sattParam("forare", null); sattParam("dag", null); }
@@ -446,11 +455,12 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
 /* ─── FORTNOX EXPORT SEKTION ─── */
 
 function FortnoxExportSektion({
-  period, arbetsManad, fortnoxData, fortnoxLaddar, onFörhandsgranska, onSkicka, onMal, onForare, exportResultat,
+  period, arbetsManad, pagaende, fortnoxData, fortnoxLaddar, onFörhandsgranska, onSkicka, onMal, onForare, exportResultat,
   kvitteringar, kvittFel, onKvittera, onAngraKvittering, paminnStatus, onPaminn,
 }: {
   period: string;
   arbetsManad: string;
+  pagaende: boolean;
   fortnoxData: any;
   fortnoxLaddar: boolean;
   onFörhandsgranska: () => void;
@@ -502,7 +512,8 @@ function FortnoxExportSektion({
   const sandbara = lonMedarbetare.filter((m: any) => arSandbar(m) && m.anstallningsnummer);
   const vantar = lonMedarbetare.filter((m: any) => m.status !== "skickat" && !arSandbar(m));
   const kanInteSkicka = sandbara.length === 0;
-  const rubrik = allaSkickade ? "Skickat till Fortnox"
+  const rubrik = pagaende ? `${manadNamn(arbetsManad)} pågår`
+    : allaSkickade ? "Skickat till Fortnox"
     : antal > 0 ? `${antal} ${antal === 1 ? "sak" : "saker"} att kolla`
     : vantar.length > 0 ? (sandbara.length === 0 ? "Ingen har godkänt än" : `${sandbara.length} av ${lonMedarbetare.length} har godkänt`)
     : "Klart att skicka";
@@ -536,17 +547,20 @@ function FortnoxExportSektion({
       )}
 
       {/* SVARET: är det klart att skicka? Med röda rader är svaret kortet "Kan inte skickas än" (en primärknapp: Koppla koder). */}
-      <SaknasKort blockerande={blockerande} onKoppla={() => onMal({ typ: "lonearter" })} />
-      {blockerande.length === 0 && (
+      {!pagaende && <SaknasKort blockerande={blockerande} onKoppla={() => onMal({ typ: "lonearter" })} />}
+      {(pagaende || blockerande.length === 0) && (
         <div data-svar="">
           <Svarsrad
             rubrik={rubrik}
-            avvikelse={!allaSkickade && antal > 0}
-            rad={`${lonMedarbetare.length} förare · ${fortnoxData.totalt_rader} lönerader${vantar.length > 0 && !allaSkickade ? ` · ${vantar.length} väntar på föraren` : ""}`} />
+            avvikelse={!pagaende && !allaSkickade && antal > 0}
+            rad={pagaende
+              ? `Hittills · ${lonMedarbetare.length} förare · skickas när månaden är slut`
+              : `${lonMedarbetare.length} förare · ${fortnoxData.totalt_rader} lönerader${vantar.length > 0 && !allaSkickade ? ` · ${vantar.length} väntar på föraren` : ""}`} />
         </div>
       )}
-      {/* EN knapp: underlaget läses om av sig självt (byte av månad, tillbaka till fliken) — ingen Uppdatera bredvid. */}
-      <div style={{ marginBottom: AVSTAND.m }}>
+      {/* EN knapp: underlaget läses om av sig självt (byte av månad, tillbaka till fliken) — ingen Uppdatera bredvid.
+          Den pågående månaden har ingen knapp: den kan inte skickas förrän den är slut (servern vägrar också). */}
+      {!pagaende && <div style={{ marginBottom: AVSTAND.m }}>
         <button
           data-skicka=""
           onClick={onSkicka}
@@ -554,7 +568,7 @@ function FortnoxExportSektion({
           style={{ ...(blockerande.length > 0 ? btnSecondary : btnPrimary), width: "100%", opacity: kanInteSkicka ? 0.4 : 1 }}
         >{sandbara.length > 0 ? `Skicka ${sandbara.length} till Fortnox` : "Ingen att skicka"}</button>
         {!allaSkickade && <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2, textAlign: "center" }}>Bara förare som godkänt skickas.</p>}
-      </div>
+      </div>}
       {kvittFel && <p style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.meta, color: FARG.rod }}>{kvittFel}</p>}
 
       {/* Det som gäller alla förare på en gång: EN rad var, med knappen bredvid. De långa avtalsfrågorna ligger under Avtal → Öppna frågor. */}
@@ -590,7 +604,7 @@ function FortnoxExportSektion({
                 <span style={{ ...TYP.listtitel, fontWeight: 600, color: FARG.text }}>{m.namn}</span>
                 <Ikon namn="chevron_right" farg={FARG.text3} />
               </div>
-              <StatusRad k={k} paminn={paminnStatus[m.medarbetare_id]} onPaminn={() => onPaminn(m.medarbetare_id)} />
+              {!pagaende && <StatusRad k={k} paminn={paminnStatus[m.medarbetare_id]} onPaminn={() => onPaminn(m.medarbetare_id)} />}
               {k.saknarAnstNr && (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.s, marginBottom: AVSTAND.s }}>
                   <span style={{ ...TYP.meta, color: FARG.rod }}>Anställningsnummer saknas — går inte att skicka</span>

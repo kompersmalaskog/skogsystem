@@ -7,7 +7,7 @@
  *  - Premielönen är frivillig: saknad kod hoppar över raden men stoppar inte.
  *  - Förhandsvisningen bär samma blockerande lista som sändningen använder, så de aldrig kan säga olika.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { beräknaExport } from "@/lib/lonesystem/loneberakning";
 import { PROD_KODER } from "@/lib/lonesystem/testKoder";
 import type { Loneartskoder } from "@/lib/lonesystem/loneart";
@@ -42,7 +42,10 @@ function satt(resultat: ReturnType<typeof forare>[], arbetsperiod = "2026-12") {
 }
 const anropa = (body: any) => POST({ json: async () => body } as any);
 
-beforeEach(() => { g.__nekad = false; g.__skickat = []; g.__logg = []; g.__klientSkapad = 0; });
+// Testerna skickar löneperiod januari 2027 = arbetsmånad december 2026. Klockan står i februari 2027, så december är en
+// AVSLUTAD månad (en pågående månad går aldrig att skicka — se "den pågående månaden" nedan).
+beforeEach(() => { g.__nekad = false; g.__skickat = []; g.__logg = []; g.__klientSkapad = 0; vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2027-02-10T10:00:00Z")); });
+afterEach(() => { vi.useRealTimers(); });
 
 // December 2026: tre röda vardagar utan arbete = 24 tim helglön. PROD_KODER har ingen helglönekod.
 const DEC = [dag("2026-12-01", 480)];
@@ -331,5 +334,33 @@ describe("förarens godkännande", () => {
       satt([forare("Anna", "7", KODER, DEC, "utkast", "2027-01", "vantar")]);
       expect((await anropa({ period: "2027-01", medarbetare_ids: ["id-Anna"], skicka_utan_godkannande: true })).status).toBe(403);
     });
+  });
+});
+
+
+describe("den pågående månaden", () => {
+  it("går att förhandsvisa men aldrig skicka: 409 innan Fortnox-klienten ens skapas, och inget loggas", async () => {
+    satt([forare("Anna", "1", PROD_KODER, DEC)]);
+    vi.setSystemTime(new Date("2026-12-20T10:00:00Z"));   // december pågår
+    expect((await anropa({ period: "2027-01", dry_run: true })).status).toBe(200);
+    const r = await anropa({ period: "2027-01", skicka_utan_saknade: true });
+    expect(r.status).toBe(409);
+    expect((await r.json()).meddelande).toContain("inte slut");
+    expect(g.__klientSkapad).toBe(0);
+    expect(g.__skickat).toEqual([]);
+    expect(g.__logg).toEqual([]);
+  });
+  it("gäller också en enskild förare utan godkännande", async () => {
+    satt([forare("Anna", "1", PROD_KODER, DEC, "utkast", "2027-01", "vantar")]);
+    vi.setSystemTime(new Date("2026-12-20T10:00:00Z"));
+    expect((await anropa({ period: "2027-01", medarbetare_ids: ["id-Anna"], skicka_utan_godkannande: true })).status).toBe(409);
+    expect(g.__skickat).toEqual([]);
+  });
+  it("månaden räknas i svensk tid: 31 december kl 23:30 i Sverige pågår december fortfarande, 1 januari 00:30 är den slut", async () => {
+    satt([forare("Anna", "1", PROD_KODER, DEC)]);
+    vi.setSystemTime(new Date("2026-12-31T22:30:00Z"));   // 23:30 svensk tid
+    expect((await anropa({ period: "2027-01", skicka_utan_saknade: true })).status).toBe(409);
+    vi.setSystemTime(new Date("2026-12-31T23:30:00Z"));   // 00:30 den 1 januari
+    expect((await anropa({ period: "2027-01", skicka_utan_saknade: true })).status).toBe(200);
   });
 });

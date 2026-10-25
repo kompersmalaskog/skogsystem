@@ -685,7 +685,7 @@ describe("Översikt = att-göra-lista", () => {
       expect(manad.querySelector('[data-dag="2026-09-29"] [data-dag-detalj]')).toBeNull();
     });
 
-    it("pågående månad: Förare · Månad finns inte än — länken byts mot en rad som säger det, aldrig en död länk", async () => {
+    it("pågående månad: 'Se hela månaden' öppnar Förare · Månad för oktober (löneperiod november) — granskas, skickas inte", async () => {
       mangaSaker();
       g.__db.arbetsdag = [
         { medarbetare_id: "m1", datum: "2026-10-05", start_tid: "05:00:00", slut_tid: "20:30:00", bekraftad: true },
@@ -694,11 +694,13 @@ describe("Översikt = att-göra-lista", () => {
       await monter("flik=oversikt");
       await klickRad("Vilobrott");
       expect(document.body.querySelector('[data-vila-pass="2026-10-05"]')).not.toBeNull();
-      expect(blad("Se hela månaden ›").length).toBe(0);
-      // ingen förklarande text i stället: länken är bara borta
-      expect(document.body.querySelector("[data-vila-manad-ej]")).toBeNull();
-      expect(text()).not.toContain("Förare · Månad öppnas");
-      expect(ark()!.textContent).toContain("Obesvarat");   // arket visar ändå dagarna och status
+      await klick("Se hela månaden ›");
+      expect(window.location.search).toContain("period=2026-11");
+      expect(window.location.search).toContain("forare=m1");
+      const manad = document.body.querySelector("[data-forare-manad]")!;
+      expect(manad).not.toBeNull();
+      expect(manad.textContent).toContain("Övertid hittills");
+      expect(manad.querySelector("[data-godkannande]")).toBeNull();
     });
 
     it("pågående månad: tidigare månad har länken kvar — det är innevarande månad som saknar den", async () => {
@@ -2333,6 +2335,22 @@ describe("Löneunderlag", () => {
     expect(t).not.toMatch(/betalas|25 oktober/);
     expect(t).not.toContain("Löneperiod");
     expect(t).not.toContain("arbetstid");
+  });
+
+  it("pågående månad (oktober, löneperiod november): går att öppna, men ingen Skicka, ingen Påminn och inget 'väntar på föraren'", async () => {
+    g.__salary = { ...SALARY, medarbetare: [{ ...SALARY.medarbetare[0], godkannande: "vantar", status: "utkast" }] };
+    await monter("flik=lon&period=2026-11");
+    expect(cont.querySelector("[data-arbetsmanad]")!.textContent).toMatch(/^Oktober( 2026)?$/);
+    expect(cont.querySelector("[data-svar]")!.textContent).toContain("Oktober pågår");
+    expect(cont.querySelector("[data-svar]")!.textContent).toContain("skickas när månaden är slut");
+    expect(cont.querySelector("[data-skicka]")).toBeNull();
+    expect(blad("Påminn").length).toBe(0);
+    expect(cont.querySelector("[data-forare-status]")).toBeNull();
+    // en månad längre fram går inte: adressen faller tillbaka på förra arbetsmånaden
+    await act(async () => { root.unmount(); }); cont.remove();
+    await monter("flik=lon&period=2026-12");
+    expect(cont.querySelector("[data-arbetsmanad]")!.textContent).toMatch(/^September( 2026)?$/);
+    expect(cont.querySelector('[aria-label="Nästa månad"]')).not.toBeNull();
   });
 
   it("'Maskinstart senare än angiven' gäller ARBETSMÅNADEN (september) — samma som granskningen under löneperiod oktober", async () => {
@@ -4496,10 +4514,11 @@ describe("Lön → Dagar: svaret först", () => {
     expect(radFor("m1").tagName).toBe("BUTTON");
     await klick("Kvartal");
     expect(tabell().querySelector("button")).toBeNull();
-    // Innevarande månad (oktober, löneperiod november ligger i framtiden): ingen Förare · Månad att öppna.
+    // Innevarande månad (oktober) pågår men går att öppna: raden leder till Förare · Månad under löneperiod november.
     await monter("flik=lon&underflik=dagar&dagper=M&dagoff=0");
-    expect(tabell()).not.toBeNull();
-    expect(tabell().querySelector("button")).toBeNull();
+    expect(radFor("m1").tagName).toBe("BUTTON");
+    await act(async () => { radFor("m1").click(); });
+    expect(window.location.search).toContain("period=2026-11");
   });
 
   it("filen 'förare' utan dagar finns inte i tabellen och en tom månad visar inget tomt skal", async () => {
