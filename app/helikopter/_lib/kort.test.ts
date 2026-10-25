@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { raknaSpar, planeratPerTyp, type PlaneratResultat } from './berakningar'
 import { fmt, fmtDag } from './format'
-import { gorDetta, klarRader, traktUnder, manuellaUtanLass, sidSvar, sparKort, GOR_SYNLIGA, type GorIndata } from './kort'
+import { gorDetta, klarRader, traktUnder, manuellaUtanLass, sidSvar, sparKort, egenSkotningVy, EGEN_SKOTNING_NOT, GOR_SYNLIGA, type GorIndata } from './kort'
 import { lasKlar, medUppskattadPrognos, raknaAlla, type KlarData } from './klar'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import fixtur from './__fixtures__/klar_2026-10-17.json'
@@ -225,5 +225,29 @@ describe('traktUnder — raden under trakten i Klar-arket', () => {
     expect(traktUnder({ uppskattad: true })).toBe('Prognos räknad på liknande trakter')
     expect(traktUnder({ uppskattad: true, foljer: { restPlanH: 10, skillnad: 0.12, utfortH: 8 } })).toBe('Följer takten på trakten · 12 % fortare än prognosen')
     expect(traktUnder({ foljer: { restPlanH: null, skillnad: null, utfortH: 8 } })).toBe('Följer takten på trakten')
+  })
+})
+
+describe('egenSkotningVy — en egen rubrik, inget annat (Martin 2026-10-25)', () => {
+  // Prod oktober 2026: Trestensdal (Vida) och Trolleboda (privat P-VO) har egen skotning; Trestensdal är 178,4 m³fub skördat.
+  const rader = [
+    { objekt_id: '11124748', namn: 'Trestensdal gallring 2025.', vo_nummer: '11124748', typ: 'gallring', bolag: 'Vida', skordat: 178.4, senast_datum: '2026-10-10' },
+    { objekt_id: 'R64428_53', namn: 'Görgen Gustafsson Trolleboda', vo_nummer: 'P-1025', typ: 'gallring', bolag: 'Privat', skordat: 30.5, senast_datum: '2026-10-23' },
+  ]
+  it('en rad per objekt: kortnamn, typ · bolag, skördat i m³fub', () => {
+    const vy = egenSkotningVy(rader)
+    expect(vy.map(r => r.namn)).toEqual(['Trestensdal gallring', 'Görgen Gustafsson Trolleboda'])
+    expect(vy[0].under).toBe('Gallring · Vida')
+    expect(vy[0].tal).toBe(`${fmt(178.4)} m³fub`)
+    expect(vy[1].under).toBe('Gallring · Privat')
+    expect(vy[1].tal).toBe('31 m³fub')
+  })
+  it('noll skördat visas inte; saknad typ och bolag sägs, aldrig gissas', () => {
+    expect(egenSkotningVy([{ ...rader[0], skordat: 0 }])).toEqual([])
+    expect(egenSkotningVy([{ ...rader[0], typ: null, bolag: null }])[0].under).toBe('typ saknas')
+    expect(egenSkotningVy([{ ...rader[0], typ: null }])[0].under).toBe('Vida')
+  })
+  it('noten säger att det inte räknas mot beställningen', () => {
+    expect(EGEN_SKOTNING_NOT).toContain('räknas inte mot beställningen')
   })
 })

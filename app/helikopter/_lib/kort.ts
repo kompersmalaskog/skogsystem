@@ -9,7 +9,7 @@
 //   · NÄR BLIR MASKINERNA KLARA?: namn + datum, inget mer. Trakterna visas när man trycker. Datumet räknas i appen (klar.ts raknaAlla)
 //     på RPC:ns underlag, så att en trakt utan prognos kan få G15-förslaget ("ca 5 nov").
 // Inga ·-kedjor, inga traktlistor, inga förklaringsrader med åtta fakta.
-import type { Maskin, MaskinStopp, PlaneringObjekt, Typ, UtanTypRad, Arbetsdagar } from './queries'
+import type { Maskin, MaskinStopp, PlaneringObjekt, Typ, UtanTypRad, Arbetsdagar, EgenSkotningRad } from './queries'
 import { KLAR_TYP_NAMN, arVirke, bastaFlytt, bestamdNamn, senasteKlar, type FlyttForslag, type KlarData, type KlarTrakt, type MaskinPlan } from './klar'
 import { skillnadText } from '@/lib/prognosFoljer'
 import {
@@ -281,3 +281,30 @@ export function flyttText2(f: FlyttForslag, planer: Record<string, MaskinPlan>):
     ],
   }
 }
+
+// ---------- EGEN SKOTNING (Martin 2026-10-25: "bara en egen rubrik, inget annat") ----------
+// Markägaren skotar själv: inga lass kommer, så skördat i månaden är talet. Räknas ALDRIG mot beställningen, takten
+// eller prognosen — rubriken finns för att den som läser Skotat ska veta att virket inte saknas, vi kör det bara inte.
+export type EgenSkotningVy = {
+  objekt_id: string
+  /** "Trestensdal gallring" — kortNamn, aldrig ett id. */
+  namn: string
+  /** "Gallring · Vida" (typ och bolag som finns; saknas båda: "typ saknas"). */
+  under: string
+  /** "178 m³fub" — skördat i månaden. */
+  tal: string
+}
+
+export function egenSkotningVy(rader: EgenSkotningRad[]): EgenSkotningVy[] {
+  return rader
+    .filter(r => r.skordat > 0)
+    .map(r => {
+      const typ = r.typ && (r.typ in TYP_NAMN) ? TYP_NAMN[r.typ as Typ] : r.typ ? r.typ.charAt(0).toUpperCase() + r.typ.slice(1) : null
+      const delar = [typ, r.bolag].filter((x): x is string => !!x)
+      // Prod: "Trestensdal gallring 2025." — punkten sist hindrar kortNamn från att släppa årsstumpen.
+      return { objekt_id: r.objekt_id, namn: kortNamn(r.namn?.replace(/[.\s]+$/, '')), under: delar.length > 0 ? delar.join(' · ') : 'typ saknas', tal: `${fmt(r.skordat)} m³fub` }
+    })
+}
+
+/** Noten under rubriken: EN mening, samma oavsett antal. */
+export const EGEN_SKOTNING_NOT = 'Markägaren skotar själv · räknas inte mot beställningen'
