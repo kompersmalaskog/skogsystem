@@ -4,8 +4,10 @@
 //   • Skotad yta  = polygonerna föraren ritat med "Markera utkört" (skotning_uttag.polygon_coords) → grå yta med tunn grå kant.
 //   • Klar trakt  = objekt.status 'avslutat' (förr även 'klar') → trakten ritas lugnt: vägarna och maskinspåren (avverkad/skotad yta) i grått.
 //
-// Det finns INGEN status per väg ("Väg klar? Klar / Inte än" är inte byggt än, se CLAUDE.md, skotarläge del 1) — när den kommer är det HÄR den kopplas in
-// (`arObjektKlart` / en egen funktion för en enskild väg), och kartan behöver inte ändras. Fara, larm, fällningscirkel och handplacerade pilar rörs aldrig av detta.
+//   • Klar väg    = en väg i KÖRORDNINGEN som maskinen kört (`korKlar` på vägens markering, lib/korordning) → vägen ritas grå, samma grå och samma styrka som en klar trakt
+//                   (lib/korordningKarta: `korFarg`, `KOR_OPACITET`). Den blir grå av sig själv, ingen knapp.
+//
+// Fara, larm och fällningscirkel rörs aldrig av detta.
 import { FARG } from './design/tokens';
 
 /** Grått för det som är klart: appens sekundära textgrå (inte en ny färg). */
@@ -19,6 +21,9 @@ export const KLART_YTA_KANT_OPACITET = 0.55;
 export const KLART_KALLA = 'klart-yta-source';
 export const KLART_FYLLNING_LAGER = 'klart-yta-fill';
 export const KLART_KANT_LAGER = 'klart-yta-line';
+
+/** En väg är klar när maskinen kört den: `korKlar` är då tiden den blev körd. */
+export const arVagKlar = (korKlar: unknown): boolean => typeof korKlar === 'string' && korKlar.length > 0;
 
 /** Trakten är klar när den är avslutad. (`klar` är det gamla värdet som kan finnas kvar i äldre data.) */
 export const arObjektKlart = (status: string | null | undefined): boolean => status === 'avslutat' || status === 'klar';

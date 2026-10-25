@@ -139,7 +139,7 @@ describe('linjetyperna (lineTypeDefs)', () => {
     expect(k).toContain(sammanfoga(`...(lt.dashed ? { 'line-dasharray': ${a(STRECK_DASHED)} } : {})`));
     expect(k).toContain(sammanfoga(`...(!lt.striped && !lt.dashed ? { 'line-dasharray': ${a(STRECK_VANLIG)} } : {})`));
     // Randad: basvägen (blå/gul) har lika långa streck med PLATTA ändar (BASVAG_STRECK_*); övriga randade linjer är oförändrade [2, 2] med rundade ändar.
-    expect(k).toContain(sammanfoga(`paint: { 'line-color': lt.color2, 'line-width': lw, 'line-dasharray': isMainRoad ? [...BASVAG_STRECK_DASH] : ${a(STRECK_RANDAD)} }`));
+    expect(k).toContain(sammanfoga(`paint: { 'line-color': lt.color2, 'line-width': (isMainRoad ? korBredd(lw) : lw) as any, 'line-dasharray': isMainRoad ? [...BASVAG_STRECK_DASH] : ${a(STRECK_RANDAD)} }`));
     expect([...BASVAG_STRECK_DASH]).toEqual([...STRECK_RANDAD]);
   });
 

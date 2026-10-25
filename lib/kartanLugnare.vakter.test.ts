@@ -62,7 +62,7 @@ describe('vägarna: snitselfärg med mörk kant', () => {
     for (const t of ['mainRoad', 'boundary', 'ditch', 'nature', 'trail', 'stonewall', 'powerline']) expect(arStickvag(t)).toBe(false);
   });
   it('vägens färg (röd/gul/blå, blå med gula streck) ändras inte av något i den här ändringen', () => {
-    expect(sida).toContain("'line-color': isMainRoad ? (BASVAG_FARG_UTTRYCK as any) : lt.color");
+    expect(sida).toContain("korFarg(isMainRoad ? (BASVAG_FARG_UTTRYCK as any) : lt.color)");
   });
 });
 
