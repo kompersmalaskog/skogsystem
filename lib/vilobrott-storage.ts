@@ -238,7 +238,9 @@ export async function analyseraOchSpara(
   // Endast obesvarade artefakter (besvarat_av_forare = false) tas bort.
   const attRadera = befintliga
     .filter((b) => !nyaMap.has(nyckel(b.typ, b.datum)))
-    .filter((b) => !b.besvarat_av_forare);
+    .filter((b) => !b.besvarat_av_forare)
+    // Admin har markerat brottet hanterat (lib/admin/vilobrottHanterat): också det är revisionsspår — raderas aldrig.
+    .filter((b) => !b.kvitterad_tid);
   for (const b of attRadera) {
     const { error } = await supabase.from("vilobrott").delete().eq("id", b.id);
     if (error) throw new Error(`Delete vilobrott (${b.typ} ${b.datum}): ${error.message}`);

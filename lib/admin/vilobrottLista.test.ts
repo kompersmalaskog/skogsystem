@@ -88,3 +88,26 @@ describe("Företagsledare får inga vilobrott (ATL gäller inte företagsledande
   });
 });
 
+
+describe("admins 'hanterat' läggs på brottet, skilt från förarens svar", () => {
+  const MED_ADMIN = [...MED, { id: "a", namn: "Martin Lindqvist" }];
+  const med = (svar: any[]) => beraknaVilobrottLista({ medarbetare: MED_ADMIN, arbetsdagar: underlag(), perioder: [], svar, trosklar: TROSKLAR, nu: NU });
+  const forsta = lista(NU)[0];
+
+  it("kvitterat men obesvarat: hanterat finns, svaret är fortfarande null (admin svarar aldrig åt föraren)", () => {
+    const b = med([{ medarbetare_id: forsta.medarbetare_id, datum: forsta.datum, typ: forsta.typ, besvarat_av_forare: false, orsak: null, orsak_fritext: null,
+      kvitterad_tid: "2026-10-14T08:00:00Z", kvitterad_av_chef: "a", kvitterad_anteckning: " Kompledigt 3 h " }])
+      .find(x => x.datum === forsta.datum && x.typ === forsta.typ)!;
+    expect(b.svar).toBeNull();
+    expect(b.hanterat).toEqual({ tid: "2026-10-14T08:00:00Z", av: "Martin Lindqvist", anteckning: "Kompledigt 3 h" });
+  });
+
+  it("utan kvittering är hanterat null; okänd person heter 'okänd'", () => {
+    expect(lista(NU).every(b => b.hanterat === null)).toBe(true);
+    const b = med([{ medarbetare_id: forsta.medarbetare_id, datum: forsta.datum, typ: forsta.typ, besvarat_av_forare: true, orsak: "annat", orsak_fritext: "storm",
+      kvitterad_tid: "2026-10-14T08:00:00Z", kvitterad_av_chef: "borta", kvitterad_anteckning: null }])
+      .find(x => x.datum === forsta.datum && x.typ === forsta.typ)!;
+    expect(b.svar).not.toBeNull();
+    expect(b.hanterat?.av).toBe("okänd");
+  });
+});

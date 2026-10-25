@@ -100,6 +100,13 @@ describe("stadaVilobrott (vid öppning: bara radera, aldrig skapa)", () => {
     expect(kvar()).toEqual(["dygnsvila|2026-09-28"]);
   });
 
+  it("ett brott som ADMIN markerat hanterat raderas aldrig (revisionsspår), även obesvarat och utan data", async () => {
+    g.__db.vilobrott = [brott({ typ: "dygnsvila", datum: "2026-09-28", vila_h: 8, krav_h: 11, kvitterad_tid: "2026-10-01T08:00:00Z", kvitterad_anteckning: "Kompledigt" })];
+    await stadaVilobrott(MED);
+    expect(kvar()).toEqual(["dygnsvila|2026-09-28"]);
+    expect(skrivna("delete").length).toBe(0);
+  });
+
   it("skapar INGA nya brott och uppdaterar inga siffror (städläge)", async () => {
     g.__db.arbetsdag = [pass("2026-09-28", "12:00:00", "22:00:00"), pass("2026-09-29", "04:00:00", "10:00:00")]; // ger ett nytt dygnsvilebrott
     await stadaVilobrott(MED);

@@ -17,11 +17,25 @@ export type VilobrottRad = Vilobrott & {
   svar: string | null;
   /** Dagarna brottet gäller (passen, vilan och var den ligger). Null = brottet gick inte att peka ut i underlaget; då visas bara beskrivningen. */
   dagar: VilobrottDagar | null;
+  /** Admins egen markering att brottet är hanterat (t.ex. kompensationsledighet). Skild från förarens svar: admin svarar aldrig åt föraren. */
+  hanterat: Hanterat | null;
+};
+
+export type Hanterat = {
+  /** När (satt av databasen). */
+  tid: string;
+  /** Vem, i klartext (förnamn efternamn ur medarbetare). "okänd" när personen inte finns kvar. */
+  av: string;
+  anteckning: string | null;
 };
 
 type Medarbetare = { id: string; namn: string | null; /** Företagsledare / delägare: arbetstidslagen gäller inte, de får inga vilobrott. */ foretagsledare?: boolean | null };
 type Dag = { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null };
-type Svar = { medarbetare_id: string; datum: string; typ: string; besvarat_av_forare: boolean | null; orsak: string | null; orsak_fritext: string | null };
+type Svar = {
+  medarbetare_id: string; datum: string; typ: string; besvarat_av_forare: boolean | null; orsak: string | null; orsak_fritext: string | null;
+  /** Admins kvittering (migration 20261025180000). Saknas kolumnerna läses raden utan dem. */
+  kvitterad_tid?: string | null; kvitterad_av_chef?: string | null; kvitterad_anteckning?: string | null;
+};
 
 const nyckel = (medId: string, datum: string, typ: string) => `${medId}|${datum}|${typ}`;
 
@@ -54,7 +68,16 @@ export function beraknaVilobrottLista(indata: {
   // Medarbetare som BARA har perioder (ingen arbetsdag-rad i fönstret) ska också analyseras.
   for (const medId of Array.from(perPerMed.keys())) if (!dagPerMed.has(medId)) dagPerMed.set(medId, []);
   const svarMap = new Map<string, Svar>();
-  for (const r of svar) if (r.besvarat_av_forare) svarMap.set(nyckel(r.medarbetare_id, r.datum, r.typ), r);
+  const hanteratMap = new Map<string, Hanterat>();
+  for (const r of svar) {
+    const k = nyckel(r.medarbetare_id, r.datum, r.typ);
+    if (r.besvarat_av_forare) svarMap.set(k, r);
+    if (r.kvitterad_tid) hanteratMap.set(k, {
+      tid: r.kvitterad_tid,
+      av: (r.kvitterad_av_chef && namnMap.get(r.kvitterad_av_chef)) || "okänd",
+      anteckning: r.kvitterad_anteckning?.trim() || null,
+    });
+  }
 
   const ut: VilobrottRad[] = [];
   dagPerMed.forEach((dagar, medId) => {
@@ -63,10 +86,20 @@ export function beraknaVilobrottLista(indata: {
     const brott = analyseraVilobrott(spann, trosklar, nu);
     for (const b of brott.filter(arTroligtVilobrott)) {
       const r = svarMap.get(nyckel(medId, b.datum, b.typ));
-      ut.push({ ...b, medarbetare_id: medId, namn: namnMap.get(medId) || medId.slice(0, 8), svar: r ? vilaSvarText(r.orsak, r.orsak_fritext) : null, dagar: vilobrottDagar(b, spann, trosklar, nu) });
+      ut.push({ ...b, medarbetare_id: medId, namn: namnMap.get(medId) || medId.slice(0, 8), svar: r ? vilaSvarText(r.orsak, r.orsak_fritext) : null, dagar: vilobrottDagar(b, spann, trosklar, nu), hanterat: hanteratMap.get(nyckel(medId, b.datum, b.typ)) ?? null });
     }
   });
   return ut.sort((a, b) => b.datum.localeCompare(a.datum));
+}
+
+const SVAR_KOLUMNER = "medarbetare_id, datum, typ, besvarat_av_forare, orsak, orsak_fritext";
+/** Förarens svar + admins kvittering. Saknas kvitteringskolumnen (migration 20261025180000 ej körd) läses svaren utan den — aldrig ett fel i listan. */
+async function lasSvar(fran: string) {
+  const res = await supabase.from("vilobrott").select(`${SVAR_KOLUMNER}, kvitterad_tid, kvitterad_av_chef, kvitterad_anteckning`).gte("datum", fran);
+  if (res.error && /42703|PGRST204|kvitterad_anteckning/.test(`${res.error.code ?? ""} ${res.error.message ?? ""}`)) {
+    return supabase.from("vilobrott").select(SVAR_KOLUMNER).gte("datum", fran);
+  }
+  return res;
 }
 
 /** Läser underlaget (senaste tre månaderna) och räknar. Kastar vid läsfel: ett fel är aldrig "inga brott". */
@@ -77,8 +110,8 @@ export async function laddaVilobrottLista(idag: Date = new Date()): Promise<Vilo
     supabase.from("arbetsdag").select("medarbetare_id, datum, start_tid, slut_tid").gte("datum", fran).order("datum"),
     // Perioddagarna: arbetstidslagen gäller all arbetstid, inte bara maskintid.
     supabase.from("extra_tid").select("medarbetare_id, datum, start_tid, slut_tid").gte("datum", fran).not("slut_tid", "is", null),
-    // Förarens svar, så ett besvarat brott aldrig står som obesvarat här när det är besvarat hos föraren.
-    supabase.from("vilobrott").select("medarbetare_id, datum, typ, besvarat_av_forare, orsak, orsak_fritext").gte("datum", fran),
+    // Förarens svar, så ett besvarat brott aldrig står som obesvarat här när det är besvarat hos föraren, och admins "hanterat".
+    lasSvar(fran),
     hamtaGiltigtAvtal(idag),
   ]);
   if (medRes.error) throw medRes.error;
