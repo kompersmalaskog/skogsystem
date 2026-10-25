@@ -166,6 +166,9 @@ import { hamtaPrognos, narmasteSteg } from '../../lib/smhi-prognos'
 import { useKartlager } from '../../lib/hooks/useKartlager'
 import { KARTLAGER_LAGER_ID } from '../../lib/kartlager'
 import { kartBasPaint } from '../../lib/kartBas'
+import { korBredd, korFarg, korEgenskap, korPunkter, korPunktLager, korSkenLager, KOR_OPACITET, KOR_INTE_KLAR, KOR_KALLA, KOR_PIL_BILD, KOR_PIL_FARG } from '../../lib/korordningKarta'
+import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
+import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
 import { KLART_FARG, KLART_LINJE_OPACITET, KLART_YTA_FYLLNING, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_FYLLNING_LAGER, KLART_KANT_LAGER, KLART_LINJELAGER, KLART_TONAS_BORT, INGA_YTOR, arObjektKlart, skotadeYtor } from '../../lib/kartKlart'
 import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
 import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
@@ -433,6 +436,9 @@ interface Marker {
   path?: Point[];
   nummer?: number;      // basväg (mainRoad): automatiskt löpnummer — stabilt, återanvänds aldrig
   farg?: BasvagFarg;     // basväg (mainRoad): röd/gul/blå — heldragen i färgen. Saknas = ritas som förut (blå med gula streck)
+  ordning?: number;      // väg (basväg/stickväg): plats i KÖRORDNINGEN (1, 2, 3 …). Saknas = vägen ingår inte (lib/korordning)
+  riktningBak?: boolean; // väg i körordningen: körs från ritningens slut mot början. Saknas = ritriktningen
+  korKlar?: string;      // väg i körordningen: ISO-tid då maskinen körde vägen. Saknas = inte körd
   risaPath?: Point[];   // basväg: delsträcka (SVG-punkter) som ska risas — ritas blå + geofence i körvy
   comment?: string;
   antal?: number; // miljöhänsyn: bara eternitytree/highstump — hur många träd/stubbar punkten representerar
@@ -858,6 +864,10 @@ export default function PlannerPage() {
   const sparPagarRef = useRef(false);
   const upptagenRef = useRef(false);
   const oppnaVidaLinjeRef = useRef<((props: any) => void) | null>(null);   // öppnar kortet för en tryckt Vida-linje (sätts av trakt-kort-effekten; används av linje-trycket)
+  const [korLage, setKorLage] = useState(false);              // Körordning (planerare): tryck vägarna i den ordning de ska köras → 1, 2, 3
+  const korLageRef = useRef(false);
+  korLageRef.current = korLage;
+  const [korForslagNej, setKorForslagNej] = useState(false);     // planeraren sa "Inte nu" till förslaget ur de gamla körriktningspilarna (gäller tills trakten byts)
   const ritlageRef = useRef(false);                          // Rita linje/Rita yta pågår (typ vald): ett tryck är en PUNKT — inget Vida-ytkort ska öppnas
 
   // Markeringar: lokalt först, kö mot servern, hämtning som sammanfogas med det som väntar (lib/hooks/useMarkeringarSynk — laddning, hämta om, spara, radera,
@@ -1540,25 +1550,27 @@ export default function PlannerPage() {
       // Mörk kant bakom varje linje. Vägarna (basväg och stickväg) behåller sin snitselfärg (röd/gul/blå, blå med gula streck) och får samma kraftiga mörka kant som
       // traktgräns och stig, så de syns mot det nedtonade fotot (Kartan lugnare). VAG_KANT_FARG bor i lib/kartstil.
       const casingColor = (isBoundary || isMainRoad || isTrail || arStickvag(lt.id)) ? VAG_KANT_FARG : 'rgba(0,0,0,0.5)';
+      // Körordning: en väg i ordningen ritas tunnare (nästa, kommande) eller grå och svagare (körd) — property `kor` på featuren (lib/korordningKarta).
+      const arVag = isMainRoad || arStickvag(lt.id);
       map.addLayer({
         id: `line-${lt.id}-casing`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
-        paint: { 'line-color': casingColor, 'line-width': cwLw },
+        paint: { 'line-color': casingColor, 'line-width': (arVag ? korBredd(cwLw) : cwLw) as any },
         layout: { 'line-cap': 'round', 'line-join': 'miter' }
       });
       map.addLayer({
         id: `line-${lt.id}-base`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
-        paint: { 'line-color': isMainRoad ? (BASVAG_FARG_UTTRYCK as any) : lt.color, 'line-width': lw, ...(lt.dashed ? { 'line-dasharray': [3, 2] } : {}), ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [2.5, 1.5] } : {}) },
+        paint: { 'line-color': arVag ? korFarg(isMainRoad ? (BASVAG_FARG_UTTRYCK as any) : lt.color) : (isMainRoad ? (BASVAG_FARG_UTTRYCK as any) : lt.color), 'line-width': (arVag ? korBredd(lw) : lw) as any, ...(arVag ? { 'line-opacity': KOR_OPACITET } : {}), ...(lt.dashed ? { 'line-dasharray': [3, 2] } : {}), ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [2.5, 1.5] } : {}) },
         layout: { 'line-cap': 'round', 'line-join': 'miter' }
       });
       if (lt.striped && lt.color2) {
         map.addLayer({
           id: `line-${lt.id}-stripe`, type: 'line', source: 'lines-source',
           // Basväg MED färg är heldragen i färgen: de gula strecken ritas bara på basväg utan färg (allt som ritades före färgvalet).
-          filter: isMainRoad ? ['all', ['==', ['get', 'lineType'], lt.id], BASVAG_UTAN_FARG as any] : ['==', ['get', 'lineType'], lt.id],
+          filter: isMainRoad ? ['all', ['==', ['get', 'lineType'], lt.id], BASVAG_UTAN_FARG as any, KOR_INTE_KLAR] : ['==', ['get', 'lineType'], lt.id],
           // Blå/gul basväg: platta ändar + lika långa streck = hälften blått, hälften gult (kartstil.ts BASVAG_STRECK_*). Övriga randade linjer som förut.
-          paint: { 'line-color': lt.color2, 'line-width': lw, 'line-dasharray': isMainRoad ? [...BASVAG_STRECK_DASH] : [2, 2] },
+          paint: { 'line-color': lt.color2, 'line-width': (isMainRoad ? korBredd(lw) : lw) as any, 'line-dasharray': isMainRoad ? [...BASVAG_STRECK_DASH] : [2, 2] },
           layout: isMainRoad ? { ...BASVAG_STRECK_LAYOUT } as any : { 'line-cap': 'round', 'line-join': 'miter' }
         });
       }
@@ -1585,6 +1597,14 @@ export default function PlannerPage() {
       }
       map.addLayer(backvagStreckLager('backvag-source', 'line'));
     } catch (e) { console.error('[MapLibre] line-backvag error:', e); }
+
+    // === Körordning: skenet under vägarna (nu) + pilar, siffra och "m kvar" i EN punktkälla. Prefix 'line-' → med i körvyns whitelist; klipps inte på zoom (SYMBOL_UNDANTAG). ===
+    try {
+      if (!map.getSource(KOR_KALLA)) map.addSource(KOR_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      if (!map.hasImage(KOR_PIL_BILD)) { const b = canvasToMapLibreImage(ritaPilIkon(KOR_PIL_FARG)); if (b) map.addImage(KOR_PIL_BILD, b); }
+      map.addLayer(korSkenLager('lines-source'), forstaVagLagerId(map.getStyle().layers.map((l: any) => l.id)));
+      for (const l of korPunktLager()) map.addLayer(l);
+    } catch (e) { console.error('[MapLibre] körordning error:', e); }
 
     // === Fotspår-ikon för stig/led (symbol-placement: 'line') ===
     {
@@ -6969,6 +6989,26 @@ export default function PlannerPage() {
       // Prioritet (lib/klickPrioritet): larm > ytnummer > punkt > LINJE > yta. Ligger trycket på något
       // högre (symbol/pil/hög/ytnummer) → avstå. Linjen träffas lätt av misstag längs hela sträckningen.
       if (vinnandeKategoriForKarta(map, e.point) !== 'linje') return;
+      // KÖRORDNING (planerare): tryck på en egen väg = nästa siffra; tryck på en vägs ände = vänd riktningen. Inget kort öppnas.
+      if (korLageRef.current) {
+        const egna = map.getLayer(EGNA_LINJER_TRAFFLAGER) ? map.queryRenderedFeatures(e.point, { layers: [EGNA_LINJER_TRAFFLAGER] }) : [];
+        const kor = narmasteLinje(
+          { x: e.point.x, y: e.point.y },
+          egna.filter((f: any) => korVagar.some((v) => v.id === String(f.properties?.id))).map((f: any) => ({ geometri: f.geometry, data: f })),
+          (lng, lat) => map.project([lng, lat]),
+        );
+        if (!kor) return;
+        const id = String((kor.kandidat.data as any).properties.id);
+        const v = korVagar.find((x) => x.id === id);
+        if (!v) return;
+        const ANDE_PX = 32;
+        const pa = (c: KorLngLat) => { const q = map.project(c); return Math.hypot(q.x - e.point.x, q.y - e.point.y); };
+        const dStart = pa(v.coords[0]), dSlut = pa(v.coords[v.coords.length - 1]);
+        const ande = Math.min(dStart, dSlut) <= ANDE_PX ? (dStart <= dSlut ? 'start' : 'slut') : null;
+        tillampaKor(tryckPaVag(korVagar, id, ande));
+        if (navigator.vibrate) navigator.vibrate(15);
+        return;
+      }
       const lager = [EGNA_LINJER_TRAFFLAGER, VIDA_LINJE_TRAFFLAGER].filter((l) => map.getLayer(l));
       const traffar = lager.length ? map.queryRenderedFeatures(e.point, { layers: lager }) : [];
       const vald = narmasteLinje(
@@ -7876,6 +7916,24 @@ export default function PlannerPage() {
 
   // === MapLibre: GeoJSON sync useEffects (placerade här, EFTER alla state-deklarationer, för att undvika TDZ) ===
 
+  // Vägarna i KÖRORDNINGEN (lib/korordning): varje väg (basväg/stickväg) med sin plats i ordningen, sin riktning och om den är körd. Geometrin är [lng, lat].
+  const korVagar = useMemo<KorVag[]>(() => (markers as any[])
+    .filter((m) => m.isLine && arVagTyp(m.lineType) && m.path && m.path.length > 1)
+    .map((m) => korVagUr(m, m.path.map((p: any) => { const ll = svgToLatLon(p.x, p.y); return [ll.lon, ll.lat] as KorLngLat; }))),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [markers, mapCenter, mapZoom]);
+  // Sparar körordningens ändringar på vägarnas markeringar (tre fält i JSONB — ingen migration). null tar bort fältet.
+  const tillampaKor = (patchar: KorPatchar) => {
+    const nya = new Map<string, any>();
+    for (const m of markersRef.current as any[]) { const pt = patchar[String(m.id)]; if (pt) nya.set(String(m.id), medKor(m, pt)); }
+    if (nya.size === 0) return;
+    setMarkers((prev: any[]) => prev.map((m) => nya.get(String(m.id)) ?? m));
+    nya.forEach((m) => saveMarkerToDb(m));
+  };
+
+  // Ett annat objekt: Körordning-läget stängs och ett nej till förslaget gäller inte längre.
+  useEffect(() => { setKorLage(false); setKorForslagNej(false); }, [valtObjekt?.id]);
+
   // 1) Synka linjer → MapLibre lines-source
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -7887,6 +7945,7 @@ export default function PlannerPage() {
       const features: any[] = [];
       const backvagFeatures: any[] = [];
       const korvyPos = korvyActive ? (currentPosition as any) : null;
+      const korStatus = statusPerVag(korVagar);
       markers
         .filter((m: any) => m.isLine && m.path && m.path.length > 1 && String(m.id) !== String(redigeraGransId))   // dölj gränsen som redigeras (ritas som preview i st.)
         .forEach((m: any) => {
@@ -7904,7 +7963,7 @@ export default function PlannerPage() {
         }
         features.push({
           type: 'Feature',
-          properties: { lineType: m.lineType, id: m.id, nearby, ...(m.lineType === 'mainRoad' && m.farg ? { farg: m.farg } : {}) },
+          properties: { lineType: m.lineType, id: m.id, nearby, ...(m.lineType === 'mainRoad' && m.farg ? { farg: m.farg } : {}), ...(arVagTyp(m.lineType) ? korEgenskap(korvyActive || korStatus.get(String(m.id)) === 'klar' ? korStatus.get(String(m.id)) : undefined) : {}) },
           geometry: { type: 'LineString', coordinates: coords },
         });
         // Backväg: dubbla tvärstreck i hinderänden (egen källa, vägens linje rörs inte).
@@ -7928,7 +7987,7 @@ export default function PlannerPage() {
         console.log('[MapLibre] lines-source synced:', features.length, 'features', types);
       }
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, visibleLines, korvyActive, currentPosition, objektSaknarPosition, redigeraGransId]);
+  }, [markers, mapLibreReady, mapCenter, visibleLines, korvyActive, currentPosition, objektSaknarPosition, redigeraGransId, korVagar]);
 
   // 1b) Basväg-NUMRERING: varje mainRoad utan `nummer` får ett stabilt löpnummer i skapelseordning
   // (via id). Backfill av de befintliga + nytt när en basväg ritas. Numret sparas på markören (JSONB)
@@ -8092,6 +8151,58 @@ export default function PlannerPage() {
     if (c && c.lat != null && c.lon != null) return { lat: c.lat, lon: c.lon };
     return null;
   }, [currentPosition]);
+
+  // === KÖRORDNING på kartan (lib/korordning, lib/korordningKarta) ===
+  // Planeringen: siffra och fast pil på varje väg som ingår. Körvyn: bara NU (vita pilar som glider lugnt i körriktningen + "85 m kvar") och NÄSTA (siffran).
+  const korTackningRef = useRef<{ id: string; nyckel: string; t: Tackning; prev: KorLngLat | null } | null>(null);
+  const korTackning = (v: KorVag): Tackning => {
+    const nyckel = `${v.coords.length}:${v.coords[0]}:${v.coords[v.coords.length - 1]}`;
+    const cur = korTackningRef.current;
+    if (cur && cur.id === v.id && cur.nyckel === nyckel) return cur.t;
+    const t = nyTackning(v.coords);
+    korTackningRef.current = { id: v.id, nyckel, t, prev: null };
+    return t;
+  };
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource(KOR_KALLA) as any;
+    if (!src) return;
+    const lage = korvyActive ? 'korvy' : 'planering';
+    const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const nu = korvyActive ? ordnade(korVagar).find((v) => !v.klar) : undefined;
+    const rita = (tMs: number) => {
+      const tackning = nu ? korTackning(nu) : null;
+      try { src.setData(objektSaknarPosition ? { type: 'FeatureCollection', features: [] } : korPunkter({ vagar: korVagar, lage, tMs, statisk: minskad, tackning })); } catch { /* källan är på väg bort */ }
+    };
+    const t0 = Date.now();
+    rita(0);
+    if (!korvyActive || !nu || minskad) return;
+    const t = setInterval(() => rita(Date.now() - t0), 200);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [korVagar, korvyActive, mapLibreReady, objektSaknarPosition, korvyEffectivePos]);
+
+  // Vägen blir grå av sig själv när maskinen kört den (ingen knapp): varje GPS-punkt läggs på nu-vägen; när det som återstår är litet sparas `korKlar` på vägen.
+  // Aldrig i testläget (admin som maskin: ingenting sparas). Täckningen finns bara i minnet — laddas appen om börjar nu-vägen om, men en körd väg förblir körd.
+  useEffect(() => {
+    if (!korvyActive || testlageAktivRef.current || !korvyEffectivePos) return;
+    const nu = ordnade(korVagar).find((v) => !v.klar);
+    if (!nu) return;
+    const t = korTackning(nu);
+    const cur = korTackningRef.current!;
+    const fix: KorLngLat = [korvyEffectivePos.lon, korvyEffectivePos.lat];
+    laggTillFix(t, cur.prev, fix);
+    cur.prev = fix;
+    const st = tackningStatus(t);
+    if (!st.klar || !t.tackt.some(Boolean)) return;
+    const m = markersRef.current.find((x) => String(x.id) === nu.id);
+    if (!m || m.korKlar) return;
+    const nytt = medKor(m, { korKlar: new Date().toISOString() });
+    setMarkers((prev: any[]) => prev.map((x) => (String(x.id) === nu.id ? nytt : x)));
+    saveMarkerToDb(nytt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [korvyEffectivePos, korvyActive]);
 
   // === Maskindator-startsekvens: faser + sidoeffekter (svart → översikt → EN flyTo → landat) ===
   const startIn = startSekvensStart != null
@@ -12152,6 +12263,8 @@ export default function PlannerPage() {
       // Eget område (ersätter "Spara som › Yta"): samma markering — traktgräns med nummer. Ritmekaniken = tryck hörn, stäng på första hörnet.
       { id: 'omrade', titel: 'Nytt område', ikon: 'omrade', onTryck: () => { stangPlus(); avslutaPagaendeLage(); const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 }); } },
       { id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('arrows'); setMenuOpen(true); } },
+      // Körordning: vägarna i den ordning de ska köras (lib/korordning). Ersätter de handplacerade körriktningspilarna.
+      { id: 'korordning', titel: 'Körordning', ikon: 'korordning', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setKorForslagNej(false); setKorLage(true); } },
       { id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan') },
       { id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta') },
       { id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); } },
@@ -12302,6 +12415,7 @@ export default function PlannerPage() {
     if (selectedSymbol) setSelectedSymbol(null);
     if (isArrowMode) { setIsArrowMode(false); setArrowType(null); }
     if (omradeRitning) setOmradeRitning(false);
+    if (korLage) setKorLage(false);
   };
 
   // ── PLUSRADENS TRYCK ──
@@ -14383,6 +14497,45 @@ export default function PlannerPage() {
           knappar={[AVBRYT_KNAPP(() => { setIsArrowMode(false); setArrowType(null); }, 'pil-avbryt')]}
         />
       )}
+      {/* KÖRORDNING (planerare): listan med vägarna i ordning, Börja om / Klar — kartan är fri att trycka på medan den står */}
+      {korLage && (() => {
+        const korRad = (v: KorVag, ordning: number): KorRad => {
+          const m = (markers as any[]).find((x) => String(x.id) === v.id);
+          const l = geoFormatLength(geoPathMeters(v.coords));
+          if (m?.lineType === 'mainRoad') return { id: v.id, ordning, farg: basvagFargHex(m.farg), namn: basvagNamn(m.farg), langd: l };
+          const lt = lineTypes.find((t) => t.id === m?.lineType);
+          return { id: v.id, ordning, farg: lt?.color ?? FARG.text2, namn: lt?.name ?? 'Väg', langd: l };
+        };
+        const rader = ordnade(korVagar).map((v) => korRad(v, v.ordning as number));
+        const gamla = (markers as any[]).filter((m) => m.isArrow && (m.arrowType || 'drivedirection') === 'drivedirection').map((m) => {
+          const ll = (m.lng != null && m.lat != null) ? { lon: m.lng, lat: m.lat } : svgToLatLon(m.x, m.y);
+          return { id: String(m.id), lng: ll.lon, lat: ll.lat, vinkel: m.angle ?? m.rotation ?? 0 };
+        });
+        const ritord = (id: string) => { const m = (markers as any[]).find((x) => String(x.id) === id); return typeof m?.nummer === 'number' ? m.nummer : Number(m?.id) || 0; };
+        const fs = rader.length === 0 && !korForslagNej && gamla.length > 0 ? foreslaOrdning(korVagar, gamla, ritord) : null;
+        const forslag = fs && fs.rader.length > 0 ? { rader: fs.rader.map((r) => korRad(korVagar.find((v) => v.id === r.id)!, r.ordning)), pilar: fs.pilIdn.length } : null;
+        return (
+          <KorordningPanel
+            rader={rader}
+            forslag={forslag}
+            smal={smalSkarm}
+            onKlar={() => setKorLage(false)}
+            onBorjaOm={() => visaBekraftelse('Ta bort alla siffror och börja om?', () => tillampaKor(borjaOm(korVagar)))}
+            onInteNu={() => setKorForslagNej(true)}
+            onGodkann={() => {
+              if (!fs) return;
+              const patchar: KorPatchar = {};
+              for (const r of fs.rader) patchar[r.id] = { ordning: r.ordning, riktningBak: r.bak ? true : null };
+              tillampaKor(patchar);
+              // Först nu försvinner de gamla körriktningspilarna — de som förslaget bygger på. Pilar som inte ligger vid någon väg ligger kvar.
+              const bort = new Set(fs.pilIdn);
+              const bortMarkorer = (markersRef.current as any[]).filter((m) => bort.has(String(m.id)));
+              setMarkers((prev: any[]) => prev.filter((m) => !bort.has(String(m.id))));
+              bortMarkorer.forEach((m) => deleteMarkerFromDb(m.id));
+            }}
+          />
+        );
+      })()}
       {/* RITA LINJE/YTA: EN rad längst ner — typen och hur långt man kommit ("Basväg · 120 m", "Ej framkomlig · 4 punkter") — och ↩ ✓ × */}
       {ritListSynlig && (klarAterBasvag ? (
         /* Basväg ur Klar med trakten?: samma list som avlägg — "‹ Klar med trakten?" först (avbryter ritningen och öppnar kortet i samma steg), sedan ↩ ✓; ✓ öppnar kortet igen */
@@ -16824,7 +16977,7 @@ export default function PlannerPage() {
                     gridTemplateColumns: 'repeat(2, 1fr)',
                     gap: '12px',
                   }}>
-                    {arrowTypes.map(type => (
+                    {arrowTypes.filter((t) => t.id !== 'drivedirection').map(type => (
                       <div
                         key={type.id}
                         onClick={() => {
