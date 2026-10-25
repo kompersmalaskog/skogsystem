@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { VAPID_PUBLIC_KEY, VAPID_SUBJECT, VAPID_SAKNAS, vapidPrivatNyckel } from "@/lib/push/vapid";
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
@@ -53,12 +54,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-webpush.setVapidDetails(
-  "mailto:info@kompersmalskog.se",
-  "BGe21_FkdZWkOiaLTWE2GXADsaA08uC2eRGglHIyJ85rL35YkrkUY1L3jTJ7fGvAQlDRjJsH3AMMeX62B63hr34",
-  process.env.VAPID_PRIVATE_KEY || "DUop3YJnWfPGbNF2KGz8elhEpkVRoivHzM3Xt-Y5_fA"
-);
-
 // Vercel cron skickar Authorization: Bearer $CRON_SECRET automatiskt. Manuell
 // körning kräver admin-session. (Var helt öppen — vem som helst kunde tömma kön.)
 async function tillaten(req: NextRequest): Promise<NextResponse | null> {
@@ -71,6 +66,14 @@ export async function GET(req: NextRequest) { return (await tillaten(req)) ?? fl
 export async function POST(req: NextRequest) { return (await tillaten(req)) ?? flush(); }
 
 async function flush() {
+  // Den privata nyckeln finns bara i miljön. Saknas den: säg det och lämna kön orörd (inget skickas, inget märks som skickat).
+  const vapidPrivat = vapidPrivatNyckel();
+  if (!vapidPrivat) {
+    console.error("[notis/flush]", VAPID_SAKNAS);
+    return NextResponse.json({ ok: false, error: VAPID_SAKNAS }, { status: 500 });
+  }
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, vapidPrivat);
+
   // Månadens stickprov för egenkontrollen: dras av databasen vid första anropet i en ny månad (annars no-op). Cronen går var 5:e minut, så
   // dragningen och pushen sker utan att någon öppnat appen — och oberoende av pg_cron. Ett fel här får aldrig stoppa resten av kön.
   try {
