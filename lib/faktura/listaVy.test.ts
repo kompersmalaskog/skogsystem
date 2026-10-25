@@ -262,19 +262,52 @@ describe('byggListVy — faktureringens högar', () => {
 
   it('fyra högar i faktureringens ordning, och en trakt ligger i exakt en', () => {
     expect(vy.hogar.map(h => h.nyckel)).toEqual([
-      'att_fakturera', 'okant_lage', 'fakturerat', 'slutredovisat',
+      'att_fakturera', 'okant_lage', 'fakturerat', 'klart',
     ])
     const vo = vy.hogar.flatMap(h => h.grupper.flatMap(g => g.rader.map(r => r.vo)))
     expect(new Set(vo).size).toBe(vo.length)
   })
 
-  it('facit: 2 att fakturera, 1 går inte att se, 5+2 slutredovisade', () => {
+  it('facit: 2 att fakturera, 1 går inte att se, 10 klara, 22 väntar', () => {
     expect(antal(hog(vy, 'att_fakturera'))).toBe(2)
     expect(antal(hog(vy, 'okant_lage'))).toBe(1)
-    expect(antal(hog(vy, 'slutredovisat'))).toBe(7)   // 5 klara + 2 pågående
-    // De fakturerade: 19 klara (24 minus de 5 slutredovisade) + 2 pågående + 4
-    // med traillertimmar = 25.
-    expect(antal(hog(vy, 'fakturerat'))).toBe(25)
+    // Klart = 7 slutredovisade (5 klara + 2 pågående) + 3 fakturerade
+    // timpengstrakter (Älmehult, Krokshult, Bjällerhult).
+    expect(antal(hog(vy, 'klart'))).toBe(10)
+    // Väntar = fakturerade ACKORDStrakter: 16 klara + 2 pågående + 4 med
+    // traillertimmar. De tre timpengstrakterna ligger inte här.
+    expect(antal(hog(vy, 'fakturerat'))).toBe(22)
+  })
+
+  it('TIMPENG SLUTREDOVISAS INTE — fakturan gör trakten klar', () => {
+    // Martin 2026-10-25. I prod låg 14 av de 21 "väntar på slutredovisning"
+    // på timpeng och var i själva verket färdiga.
+    const namn = (n: Hog['nyckel']) =>
+      hog(vy, n)!.grupper.flatMap(g => g.rader.map(r => r.titel))
+    for (const t of ['Älmehult gallring 2026', 'Krokshult AU 2026', 'Bjällerhult au + ga']) {
+      expect(namn('klart')).toContain(t)
+      expect(namn('fakturerat')).not.toContain(t)
+    }
+    // Raden säger att den är fakturerad, inte slutredovisad.
+    const alm = hog(vy, 'klart')!.grupper.flatMap(g => g.rader)
+      .find(r => r.titel.startsWith('Älmehult'))!
+    expect(alm.under).toMatch(/^Faktura 20261\d\d · 21 sep$/)
+  })
+
+  it('en timpengstrakt som ÄNDÅ fått en slutredovisning säger det — datan går före', () => {
+    // Jätsbygd au 2026 i prod: timpeng med artikel 7 på fakturan.
+    const r = [rad({ vo_nummer: 'j', namn: 'Jätsbygd au 2026', avtalsform: 'timpeng' })]
+    const vy2 = byggListVy(r, null, byggFakturaLage(
+      [{ vo_nummer: 'j', kontraktsnummer: '973431' }],
+      [
+        { document_number: 2026145, invoice_date: '2026-08-31', article_number: '8', description: 'Kontraktsnr 973431' },
+        { document_number: 2026165, invoice_date: '2026-09-23', article_number: '8', description: 'Kontraktsnr 973431' },
+        { document_number: 2026165, invoice_date: '2026-09-23', article_number: '7', description: 'Slutredovisning' },
+      ],
+    ))
+    expect(vy2.hogar.map(h => h.nyckel)).toEqual(['klart'])
+    expect(hog(vy2, 'klart')!.grupper[0].rader[0].under)
+      .toBe('Slutredovisat 23 sep · faktura 2026165')
   })
 
   it('en trakt utan kontraktsnummer gissas aldrig som ofakturerad — raden säger varför', () => {
@@ -294,9 +327,10 @@ describe('byggListVy — faktureringens högar', () => {
     expect(h.grupper[0].rader[0].under).toMatch(/^Faktura 20261\d\d · 21 sep$/)
   })
 
-  it('slutredovisat säger slutredovisningens datum och faktura, inte den första fakturans', () => {
-    const h = hog(vy, 'slutredovisat')!
-    expect(h.grupper.map(g => g.rubrik)).toEqual(['Oktober 2026'])
+  it('klart säger slutredovisningens datum och faktura, inte den första fakturans', () => {
+    const h = hog(vy, 'klart')!
+    // Slutredovisningarna i oktober, de fakturerade timpengstrakterna i september.
+    expect(h.grupper.map(g => g.rubrik)).toEqual(['Oktober 2026', 'September 2026'])
     expect(h.grupper[0].rader[0].under).toMatch(/^Slutredovisat 19 okt · faktura 20261\d\d$/)
   })
 

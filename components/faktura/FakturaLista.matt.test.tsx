@@ -72,11 +72,11 @@ const RADER: OversiktsRad[] = [
   rad({ vo_nummer: '11225601', namn: 'Östra-Hoka 17 A-C -25', avrakningsdatum: '2026-10-12', volym_m3fub: 1204 }),
   rad({ vo_nummer: '11106406', namn: 'Anders Ingemarsson RP ATA', avrakningsdatum: '2026-02-18', volym_m3fub: 833 }),
   rad({ vo_nummer: '11271849', namn: 'Bågskyttebanan RP J-Hus- 25', avrakningsdatum: '2026-10-19', volym_m3fub: 1687, g15h: 76.6 }),
-  rad({ vo_nummer: '11208196', namn: '400763 Akelius Tåget SA -26', avrakningsdatum: '2026-09-21', volym_m3fub: 2187 }),
+  rad({ vo_nummer: '11208196', namn: '400763 Akelius Tåget SA -26', avtalsform: 'timpeng', avrakningsdatum: '2026-09-21', volym_m3fub: 2187, g15h: 94.2 }),
   rad({ vo_nummer: '11226833', namn: 'Brokamåla 15 V-H avd 20 -25', avrakningsdatum: '2026-07-31', volym_m3fub: 2187 }),
   rad({ vo_nummer: '11256873', namn: 'Älmehult gallring 2026', avtalsform: 'timpeng', avrakningsdatum: '2026-10-07', volym_m3fub: 88, g15h: 16.1 }),
   rad({ vo_nummer: '11217222', namn: 'Tjuvön AU 2026', tillstand: 'atgard', hinder_typ: 'traillertimmar', hinder: 'Traillerflytt utan ifyllda timmar', avrakningsdatum: '2026-08-06', volym_m3fub: 1511 }),
-  rad({ vo_nummer: '11124748', namn: 'Trestensdal gallring 2025.', tillstand: 'pagar', avrakningsdatum: null, volym_m3fub: 612 }),
+  rad({ vo_nummer: '11124748', namn: 'Trestensdal gallring 2025.', tillstand: 'pagar', avtalsform: 'timpeng', avrakningsdatum: null, volym_m3fub: 612, g15h: 31.4 }),
   ...Array.from({ length: 12 }, (_, k) => rad({
     vo_nummer: `p${k}`, namn: `Pågår ${k}`, tillstand: 'pagar', avrakningsdatum: null,
   })),
@@ -180,7 +180,7 @@ describe(`Faktureringslistan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER
         expect(r.sma, `${s.namn}: träffytor under ${TRAFFYTA.min} px — ${JSON.stringify(r.sma)}`).toEqual([]);
         expect(r.utanfor, `${s.namn}: text utanför kolumnen — ${JSON.stringify(r.utanfor)}`).toEqual([]);
         expect(r.stora, `${s.namn}: antal 32-px-tal`).toBe(s.w >= SIDOKOLUMN_FRAN_PX ? 0 : 1);
-        expect(r.hogar).toEqual(['att_fakturera', 'okant_lage', 'fakturerat', 'slutredovisat']);
+        expect(r.hogar).toEqual(['att_fakturera', 'okant_lage', 'fakturerat', 'klart']);
         if (skriv) {
           fs.mkdirSync(skriv, { recursive: true });
           await p.screenshot({ path: path.join(skriv, `lista-${s.w}.png`), fullPage: true });

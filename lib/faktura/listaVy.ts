@@ -79,7 +79,7 @@ export type ManadsGrupp = { rubrik: string; rader: TraktRad[] }
 
 /** En hög i faktureringens ordning. En tom hög finns inte. */
 export type Hog = {
-  nyckel: 'att_fakturera' | 'okant_lage' | 'fakturerat' | 'slutredovisat' | 'klara'
+  nyckel: 'att_fakturera' | 'okant_lage' | 'fakturerat' | 'klart' | 'klara'
   /** Frågan den svarar på. */
   rubrik: string
   /** En rad som säger vad högen är — EN gång, inte på varje rad. */
@@ -181,8 +181,23 @@ export function byggListVy(
     ? klaraRader.filter(r => lagetFor(r.vo_nummer) === 'ofakturerat')
     : klaraRader
   const okantRader = faktura ? klaraRader.filter(r => lagetFor(r.vo_nummer) === 'okant') : []
-  const fakturatRader = faktura ? rader.filter(r => lagetFor(r.vo_nummer) === 'fakturerat') : []
-  const slutredRader = faktura ? rader.filter(r => lagetFor(r.vo_nummer) === 'slutredovisat') : []
+
+  // TIMPENG SLUTREDOVISAS INTE — den är klar så fort fakturan gått (Martin
+  // 2026-10-25). Slutredovisningen hör till ackordet, där Vidas avräkning
+  // avgör volym och pris. 14 av de 21 "väntar på slutredovisning" var
+  // timpengtrakter som i själva verket var färdiga.
+  //
+  // Avtalsformen avgör alltså vad fakturan BETYDER, och det beslutet bor här,
+  // inte i fakturaLage: den filen säger bara vad som står på fakturan.
+  const klartRader = faktura
+    ? rader.filter(r => {
+        const l = lagetFor(r.vo_nummer)
+        return l === 'slutredovisat' || (l === 'fakturerat' && r.avtalsform === 'timpeng')
+      })
+    : []
+  const vantarSlutredRader = faktura
+    ? rader.filter(r => lagetFor(r.vo_nummer) === 'fakturerat' && r.avtalsform !== 'timpeng')
+    : []
 
   // ── Svaret ───────────────────────────────────────────────────────────────
   // Talet är antalet rader i "Att fakturera" — summan är summan av det som
@@ -315,9 +330,9 @@ export function byggListVy(
     lagg(hogar, {
       nyckel: 'fakturerat',
       rubrik: 'Vad väntar på slutredovisning?',
-      under: 'Fakturan är skickad. Slutredovisningen saknas på den.',
+      under: 'Ackord. Fakturan är skickad, slutredovisningen saknas på den.',
       varning: false,
-      grupper: gruppera(fakturatRader.map(r => {
+      grupper: gruppera(vantarSlutredRader.map(r => {
         const f = senasteFakturan(faktura[r.vo_nummer])
         return {
           datum: f?.datum ?? null,
@@ -327,19 +342,23 @@ export function byggListVy(
     })
 
     lagg(hogar, {
-      nyckel: 'slutredovisat',
-      rubrik: 'Vad är slutredovisat?',
-      under: 'Slutredovisningen ligger på fakturan — ingenting mer att fakturera.',
+      nyckel: 'klart',
+      rubrik: 'Vad är klart?',
+      under: 'Timpeng är klart när fakturan gått. Ackord när slutredovisningen ligger på den.',
       varning: false,
-      grupper: gruppera(slutredRader.map(r => {
+      // Datumet är den dag trakten blev klar: slutredovisningens när det finns
+      // en, annars fakturans. En timpengstrakt som ändå fått en
+      // slutredovisning (Jätsbygd au 2026 i prod) säger det — datan går före.
+      grupper: gruppera(klartRader.map(r => {
         const s = slutredovisningen(faktura[r.vo_nummer])
         const datum = kortDatum(s?.datum ?? null)
         return {
-          datum: s?.datum ?? null,
+          datum: s?.datum ?? senasteFakturan(faktura[r.vo_nummer])?.datum ?? null,
           rad: {
             ...traktRad(r),
-            under: [datum ? `Slutredovisat ${datum}` : 'Slutredovisat', s ? `faktura ${s.nummer}` : null]
-              .filter(Boolean).join(' · '),
+            under: s
+              ? [datum ? `Slutredovisat ${datum}` : 'Slutredovisat', `faktura ${s.nummer}`].join(' · ')
+              : fakturaText(faktura[r.vo_nummer]),
           },
         }
       }), 'Utan fakturadatum'),
@@ -380,7 +399,7 @@ export function byggListVy(
   // fyra pågående trakter i prod 2026-10-25 var fakturerade, två av dem
   // slutredovisade.
   const iArbete = new Set(arbeteVantar.map(r => r.vo))
-  const iFaktura = new Set([...fakturatRader, ...slutredRader].map(r => r.vo_nummer))
+  const iFaktura = new Set([...vantarSlutredRader, ...klartRader].map(r => r.vo_nummer))
   const vantande = rader.filter(
     r => (r.tillstand === 'pagar' || r.tillstand === 'ej_paborjad')
       && !iArbete.has(r.vo_nummer) && !iFaktura.has(r.vo_nummer),

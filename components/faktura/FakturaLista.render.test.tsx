@@ -178,10 +178,10 @@ describe('FakturaLista — faktureringens högar', () => {
     const ut = rita(rader, null, faktura);
     const hogar = Array.from(ut.querySelectorAll('[data-hog]'));
     expect(hogar.map(h => h.getAttribute('data-hog')))
-      .toEqual(['att_fakturera', 'okant_lage', 'fakturerat', 'slutredovisat']);
+      .toEqual(['att_fakturera', 'okant_lage', 'fakturerat', 'klart']);
     expect(hogar.map(h => h.querySelector('h2')!.textContent)).toEqual([
       'Vad är klart att fakturera?', 'Vad går inte att se?',
-      'Vad väntar på slutredovisning?', 'Vad är slutredovisat?',
+      'Vad väntar på slutredovisning?', 'Vad är klart?',
     ]);
   });
 
@@ -204,7 +204,7 @@ describe('FakturaLista — faktureringens högar', () => {
 
   it('slutredovisat säger slutredovisningens datum och faktura', () => {
     const ut = rita(rader, null, faktura);
-    const hog = ut.querySelector('[data-hog="slutredovisat"]')!;
+    const hog = ut.querySelector('[data-hog="klart"]')!;
     expect(text(hog)).toContain('Rävemåla AU 2026');
     expect(text(hog)).toContain('Slutredovisat 19 okt · faktura 2026183');
   });
