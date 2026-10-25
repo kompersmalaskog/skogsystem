@@ -12550,6 +12550,7 @@ export default function PlannerPage() {
   // RITA LINJE/YTA + PIL + NYTT OMRÅDE: samma rad längst ner som placera och mät — vad som pågår, hur långt man kommit, och ↩ ✓ ×.
   const ritListSynlig = (isDrawMode || isZoneMode) && !plusRadOppen && !menuOpen && !figur;
   const pilListSynlig = isArrowMode && !!arrowType && !plusRadOppen && !menuOpen && !figur;
+  const tradForslagAktivt = arrowType === TRAD_TYP && !!tradForslag && tradForslag.trad.length > 0;   // gröna fällpilar att föreslå som träd
   const omradeListSynlig = omradeRitning && !plusRadOppen && !menuOpen && !figur;
   // Telefonen: "Visa ›" stängde arket — raden nertill säger vad som är framhävt och tar tillbaka listan ("‹ Om trakten"). Bred skärm: panelen ligger kvar, ingen rad.
   const framhavListSynlig = !!framhavdMarkering && framhavdLageRef.current === 'ark' && !traktOversiktOpen && !plusRadOppen && !menuOpen && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig;
@@ -14597,17 +14598,19 @@ export default function PlannerPage() {
         );
       })()}
       {/* PIL: samma rad som placera symbol */}
-      {pilListSynlig && (arrowType === TRAD_TYP && tradForslag && tradForslag.trad.length > 0 ? (
-        /* De gamla gröna fällpilarna föreslås bli träd. Godkänns förslaget skapas träden och först DÅ tas pilarna bort. */
+      {/* EN rad (pil-list). De gamla gröna fällpilarna föreslås bli träd: Godkänn skapar träden och först DÅ tas pilarna bort. */}
+      {pilListSynlig && (
         <KorvyNertillList
-          testid="trad-forslag"
+          testid="pil-list"
           smal={smalSkarm}
-          stapla
-          text={`Göra om ${tradForslag.trad.length === 1 ? 'den gröna pilen' : `de ${tradForslag.trad.length} gröna pilarna`} till ${tradForslag.trad.length === 1 ? 'ett träd' : 'träd'}?`}
-          knappar={[
+          stapla={tradForslagAktivt}
+          text={tradForslagAktivt
+            ? `Göra om ${tradForslag!.trad.length === 1 ? 'den gröna pilen' : `de ${tradForslag!.trad.length} gröna pilarna`} till ${tradForslag!.trad.length === 1 ? 'ett träd' : 'träd'}?`
+            : arrowType === KORUPP_TYP ? 'Dra från vägen mot gränsen' : arrowType === TRAD_TYP ? 'Tryck där trädet ska stå – dra sedan i toppen för att vrida' : `Tryck där ${arrowTypes.find((t) => t.id === arrowType)?.name ?? 'pilen'} ska stå`}
+          knappar={tradForslagAktivt ? [
             { etikett: 'Inte nu', onClick: () => setTradForslagNej(true), testid: 'trad-forslag-nej' },
             { etikett: 'Godkänn', primar: true, testid: 'trad-forslag-ja', onClick: () => {
-              const fs = tradForslag;
+              const fs = tradForslag!;
               saveToHistory([...markers]);
               const nya = fs.trad.map((t) => { const xy = latLonToSvg(t.lat, t.lng); return { id: t.id, isArrow: true, arrowType: TRAD_TYP, x: xy.x, y: xy.y, lng: t.lng, lat: t.lat, rotation: t.angle, angle: t.angle }; });
               const bort = new Set(fs.pilIdn);
@@ -14616,16 +14619,9 @@ export default function PlannerPage() {
               bortMarkorer.forEach((m) => deleteMarkerFromDb(m.id));
               setIsArrowMode(false); setArrowType(null);
             } },
-          ]}
+          ] : [AVBRYT_KNAPP(() => { setIsArrowMode(false); setArrowType(null); }, 'pil-avbryt')]}
         />
-      ) : (
-        <KorvyNertillList
-          testid="pil-list"
-          smal={smalSkarm}
-          text={arrowType === KORUPP_TYP ? 'Dra från vägen mot gränsen' : arrowType === TRAD_TYP ? 'Tryck där trädet ska stå – dra sedan i toppen för att vrida' : `Tryck där ${arrowTypes.find((t) => t.id === arrowType)?.name ?? 'pilen'} ska stå`}
-          knappar={[AVBRYT_KNAPP(() => { setIsArrowMode(false); setArrowType(null); }, 'pil-avbryt')]}
-        />
-      ))}
+      )}
       {/* KÖRORDNING (planerare): listan med vägarna i ordning, Börja om / Klar — kartan är fri att trycka på medan den står */}
       {korLage && (() => {
         const korRad = (v: KorVag, ordning: number): KorRad => {
