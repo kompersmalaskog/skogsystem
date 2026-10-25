@@ -55,9 +55,10 @@ async function oppna(param: Param, fn: (pg: any, b: any) => Promise<void>): Prom
       add(L.TRAD_BILD, L.ritaTradBild(false), 2); add(L.TRAD_BILD_VALD, L.ritaTradBild(true), 2); add(L.KORUPP_SPETS_BILD, L.ritaSpetsBild(), 2);
       map.addSource(L.TRAD_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       map.addSource(L.KORUPP_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addSource(L.TVATRYCK_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       map.addSource('vagar', { type: 'geojson', data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [[14.9985, 57.0004], [15.0015, 57.0004]] } }, { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [[15.0, 57.0004], [15.0, 56.9992]] } }] } });
       map.addLayer({ id: 'vag', type: 'line', source: 'vagar', paint: { 'line-color': '#ff453a', 'line-width': 5 } });
-      for (const l of [...L.korUppLager(), ...L.tradLager()]) map.addLayer(l);
+      for (const l of [...L.korUppLager(), ...L.tradLager(), ...L.tvaTryckLager()]) map.addLayer(l);
       const ll = (lon: number, lat: number) => ({ lon, lat });
       const w = window as any;
       w.map = map; w.L = L;
@@ -82,8 +83,15 @@ async function oppna(param: Param, fn: (pg: any, b: any) => Promise<void>): Prom
         w.handelser = [];
         w.stang = L.kopplaTvaTryck(map, slag, () => ({
           slag, vagarRef: { current: [{ id: 'v1', coords: [[14.9985, 57.0004], [15.0015, 57.0004]] }, { id: 'v2', coords: [[15.0, 57.0004], [15.0, 56.9992]] }] },
-          onStart: (st: any) => { w.handelser.push({ typ: 'start', st }); },
-          onForhandsvisning: (f: any) => { w.handelser.push({ typ: 'forhands', f }); },
+          // som sidan: startpunkten + den tunna linjen (och för trädet ett spöke) ritas av samma lib
+          onStart: (st: any) => { w.handelser.push({ typ: 'start', st }); w.startNu = st; w.tvaData = L.tvaTryckData(st ? st.start : null, null); map.getSource(L.TVATRYCK_KALLA).setData(w.tvaData); },
+          onForhandsvisning: (f: any) => {
+            w.handelser.push({ typ: 'forhands', f });
+            w.tvaData = L.tvaTryckData(f ? f.start : (w.startNu ? w.startNu.start : null), f ? f.slut : null);
+            map.getSource(L.TVATRYCK_KALLA).setData(w.tvaData);
+            const spok = f && f.slag === 'trad' ? L.tradData([{ id: 'forhandsvisning', stubbe: f.start, vinkel: L.vinkelFranPunkt(f.start, f.slut) }], { forslag: true }).features : [];
+            map.getSource(L.TRAD_KALLA).setData({ type: 'FeatureCollection', features: [...L.tradData(w.trad, { valdId: w.vald }).features, ...spok] });
+          },
           onKlart: (k: any) => { w.handelser.push({ typ: 'klart', k }); },
         }));
       };
@@ -317,6 +325,44 @@ describe.skipIf(!CHROMIUM)('Ritläget stänger av all annan tryckning — riktig
       });
     }, 120000);
   }
+
+  it('FÖRHANDSVISNINGEN är tunn och syns: en startprick och en 2 px linje från starten till pekaren (mus)', async () => {
+    await oppna({ zoom: 17, pitch: 0, bearing: 0 }, async (pg) => {
+      await pg.evaluate(() => { const w = window as any; w.koppla('korupp'); w.ritlage = true; });
+      const v = await skarm(pg, 14.9996, 57.0004);
+      await tryckMus(pg, v.x, v.y + 12);                 // start (snäpper till vägen)
+      await pg.mouse.move(v.x, v.y - 120, { steps: 5 }); // pekaren 120 px norr om vägen
+      await taPixlar(pg);
+      const m = await pg.evaluate(([x, y]: number[]) => {
+        const w = window as any; const { cv, data, dpr } = w.__px;
+        const vit = (px: number, py: number) => { const i = (Math.round(py * dpr) * cv.width + Math.round(px * dpr)) * 4; return data[i] > 235 && data[i + 1] > 235 && data[i + 2] > 235; };
+        // linjen: bredd i px på halva vägen mellan starten (på vägen, y) och pekaren (y - 120)
+        let run = 0, basta = 0;
+        for (let xx = x - 15; xx <= x + 15; xx += 1 / dpr) { if (vit(xx, y - 60)) { run++; basta = Math.max(basta, run); } else run = 0; }
+        // startpricken: vita pixlar i en ruta runt starten
+        let prick = 0; for (let yy = y - 8; yy <= y + 8; yy++) for (let xx = x - 8; xx <= x + 8; xx++) if (vit(xx, yy)) prick++;
+        return { bredd: basta / dpr, prick };
+      }, [v.x, v.y]);
+      expect(m.bredd, JSON.stringify(m)).toBeGreaterThanOrEqual(1); expect(m.bredd, JSON.stringify(m)).toBeLessThanOrEqual(3);
+      expect(m.prick, 'en startprick syns').toBeGreaterThan(30);
+      await skriv(pg, 'tvatryck_forhandsvisning_korupp');
+    });
+  }, 120000);
+
+  it('FÖRHANDSVISNING (träd): ett svagt spökträd åt det håll pekaren pekar, och ingen förhandsvisning kvar efter andra trycket', async () => {
+    await oppna({ zoom: 17, pitch: 0, bearing: 0 }, async (pg) => {
+      await pg.evaluate(() => { const w = window as any; w.trad = []; w.koppla('trad'); w.ritlage = true; w.ritaOm(); });
+      await tryckMus(pg, 450, 400);
+      await pg.mouse.move(560, 330, { steps: 5 });
+      await skriv(pg, 'tvatryck_forhandsvisning_trad');
+      await taPixlar(pg);
+      const gron = await pg.evaluate(() => { const w = window as any; const { cv, data } = w.__px; let n = 0; for (let i = 0; i < data.length; i += 4) if (data[i + 1] > data[i] + 20 && data[i + 1] > data[i + 2] + 10 && data[i + 1] > 90) n++; return n; });
+      expect(gron, 'spökträdet syns (gröna pixlar)').toBeGreaterThan(100);
+      await pg.mouse.down(); await pg.mouse.up();
+      expect(await pg.evaluate(() => (window as any).handelser.filter((e: any) => e.typ === 'klart').length)).toBe(1);
+      expect(await pg.evaluate(() => (window as any).tvaData.features.length)).toBe(0);
+    });
+  }, 120000);
 
   it('FINGER: två snabba tryck tätt efter varandra (som när man sätter en kort pil) blir start och slut — inte ett dubbeltryck som zoomar bort det andra', async () => {
     await oppna({ zoom: 17, pitch: 0, bearing: 0, touch: true }, async (pg, ctx) => {
