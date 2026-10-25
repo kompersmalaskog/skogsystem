@@ -337,6 +337,19 @@ describe.skipIf(!CHROMIUM)('Ritläget stänger av all annan tryckning — riktig
     });
   }, 120000);
 
+  it('efter ett färdigt par börjar nästa tryck på en NY start (inte ännu ett slut)', async () => {
+    await oppna({ zoom: 17, pitch: 0, bearing: 0 }, async (pg) => {
+      await pg.evaluate(() => { const w = window as any; w.koppla('trad'); w.ritlage = true; });
+      await tryckMus(pg, 300, 300); await tryckMus(pg, 420, 300);
+      expect(await pg.evaluate(() => (window as any).handelser.filter((e: any) => e.typ === 'klart').length)).toBe(1);
+      await pg.evaluate(() => { (window as any).handelser.length = 0; });
+      await tryckMus(pg, 500, 350);
+      const ev = await pg.evaluate(() => (window as any).handelser);
+      expect(ev.filter((e: any) => e.typ === 'klart')).toHaveLength(0);
+      expect(ev.filter((e: any) => e.typ === 'start' && e.st)).toHaveLength(1);
+    });
+  }, 120000);
+
   it('ett tryck på en symbol i ritläget öppnar den inte — det blir bara första trycket (start)', async () => {
     await oppna({ zoom: 17, pitch: 0, bearing: 0 }, async (pg) => {
       await pg.evaluate(() => { const w = window as any; w.koppla('trad'); w.ritlage = true; });
