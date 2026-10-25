@@ -26,7 +26,7 @@ type Lage =
   | { typ: 'saknas' }                                   // ingen stämplingslängd på trakten
   | { typ: 'olast'; gissad: boolean }                   // finns från Vida, inte läst
   | { typ: 'avviker'; rapport: Rapport }                // läst men kontrollen stämmer inte
-  | { typ: 'klar'; rapport: Rapport; celler: Cell[]; meta: Meta };
+  | { typ: 'klar'; rapport: Rapport; celler: Cell[]; meta: Meta; avverkad: boolean };
 
 async function lasModell(): Promise<{ celler: Cell[]; meta: Meta } | null> {
   const [k, m] = await Promise.all([
@@ -49,10 +49,15 @@ export default function StamplingDel({ r }: { r: Rotpost }) {
 
   const visaRapport = useCallback(async (rapport: Rapport) => {
     if (rapport.status !== 'stammer' || !rapport.lasning) { setLage({ typ: 'avviker', rapport }); return; }
-    const modell = await lasModell();
+    const [modell, d] = await Promise.all([
+      lasModell(),
+      medAbortRetry(() => supabase.from('dim_objekt').select('skordning_avslutad').eq('objekt_id', r.id).limit(1).maybeSingle()),
+    ]);
     if (!modell) { setLage({ typ: 'fel', text: 'Prognosmodellen kunde inte läsas.' }); return; }
-    setLage({ typ: 'klar', rapport, ...modell });
-  }, []);
+    // Inte färdigavverkad: skördarens tal är bara en del av trakten och jämförelsen blir fel. Okänt (läsfel) räknas som klar.
+    const avverkad = d.error ? true : !!(d.data as { skordning_avslutad?: string | null } | null)?.skordning_avslutad;
+    setLage({ typ: 'klar', rapport, ...modell, avverkad });
+  }, [r.id]);
 
   const hamta = useCallback(async () => {
     setLage({ typ: 'laddar' });
@@ -112,7 +117,8 @@ export default function StamplingDel({ r }: { r: Rotpost }) {
   ];
   const tot = procentMot(r.volym, p.vol);
   const timmerPrognosPct = p.vol > 0 ? Math.round((100 * p.timmer) / p.vol) : null;
-  const mening = tot == null ? null
+  const mening = !lage.avverkad ? 'Trakten är inte färdigavverkad än, så skördaren har bara en del av den. Jämför när skördningen är klar.'
+    : tot == null ? null
     : `Stämplingen var ${Math.abs(tot) <= 3 ? 'rätt på volymen' : tot > 0 ? `${tot} % för låg på volymen` : `${-tot} % för hög på volymen`}`
       + (timmerPrognosPct != null ? `, ${Math.abs(timmerPrognosPct - r.andel.timmer) <= 3 ? 'och rätt på timmerandelen' : `och sa ${timmerPrognosPct} % timmer mot ${r.andel.timmer} %`}.` : '.');
 
@@ -120,9 +126,9 @@ export default function StamplingDel({ r }: { r: Rotpost }) {
     <>
       <Rader rubrik="Stämplingen mot skördaren">
         {rader.map(([namn, fakt, prog]) => (
-          <Rad key={namn} text={namn} tal={`${nf0(fakt)} m³`} hoger={`stämplat ${nf0(prog)} · ${pct(procentMot(fakt, prog))}`} />
+          <Rad key={namn} text={namn} tal={`${nf0(fakt)} m³`} hoger={lage.avverkad ? `stämplat ${nf0(prog)} · ${pct(procentMot(fakt, prog))}` : `stämplat ${nf0(prog)}`} />
         ))}
-        <Rad text="Totalt" tal={`${nf0(r.volym)} m³`} hoger={`stämplat ${nf0(p.vol)} · ${pct(tot)}`} />
+        <Rad text="Totalt" tal={`${nf0(r.volym)} m³`} hoger={lage.avverkad ? `stämplat ${nf0(p.vol)} · ${pct(tot)}` : `stämplat ${nf0(p.vol)}`} />
         <Rad text="Träd" tal={nf0(r.stammar)} hoger={`stämplat ${nf0(j.trad + j.utanforModellen)}`} />
         <Rad text="Stämplingslängden" sub="Trädslag, klasser och rötan" href={`/affarsuppfoljning/stampling?vy=pdf&id=${lage.rapport.id}&kor=1`} />
       </Rader>
