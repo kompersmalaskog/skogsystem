@@ -251,8 +251,10 @@ export function useKalibreringData(activeTab: Flik) {
     setLoading(true);
     setFetchError(null);
     try {
+      // Kontroller = de som har minst en EGEN stock (kalibrering_kontroller). En fil vars stockar alla redan låg i en
+      // tidigare ackumulerande fil är en omexport, inte en kontroll; raden finns kvar i fakt_kalibrering men visas inte.
       const { data: kalibRows, error: kalibErr } = await supabase
-        .from('fakt_kalibrering')
+        .rpc('kalibrering_kontroller')
         .select('*')
         .order('datum', { ascending: false });
 

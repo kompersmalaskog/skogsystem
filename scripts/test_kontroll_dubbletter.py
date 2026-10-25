@@ -6,8 +6,10 @@ Ingen nätverksåtkomst: Supabase är fejkat. Databasens sida (rensningen och un
 Postgres: sh supabase/tests/kontroll_dubbletter_lokal/kor.sh
 
 Bakgrund: Scorpionen exporterar HQC-filer som upprepar alla tidigare kontrollstockar. Nyckeln (filnamn, stam_nummer,
-stock_nummer) släppte igenom varje kopia, så 881 av 2 632 rader var samma mätning igen. Importen skriver nu mot
-detalj_kontroll_stock_matning_unik med ignore-duplicates: det som redan finns hoppas över, bara det nya läggs till.
+stock_nummer) släppte igenom varje kopia, så 881 av 2 632 rader var samma mätning igen. Den nyckel som togs fram då hade
+med stam_nummer — men maskinen numrerar om stammarna i varje kumulativ fil, så ytterligare 410 rader var samma fysiska
+mätning under ett annat stam_nummer. Importen skriver nu mot detalj_kontroll_stock_fysisk_unik (maskin, skördetid,
+stocknummer, mättider — inte stam_nummer) med ignore-duplicates: det som redan finns hoppas över, bara det nya läggs till.
 """
 import os, sys, unittest
 from datetime import date, datetime
@@ -70,20 +72,31 @@ class SparaHqc(unittest.TestCase):
         M.requests = Fejk({(1, 1): 10})
         self.assertTrue(M.save_hqc_to_supabase(self.data([stockrad(1, 1)])))
         (tabell, rader, nyckel, konflikt), = self.stock_anrop()
-        self.assertEqual(nyckel, ['maskin_id', 'harvest_date', 'stam_nummer', 'stock_nummer',
+        self.assertEqual(nyckel, ['maskin_id', 'harvest_date', 'stock_nummer',
                                   'machine_measurement_date', 'operator_measurement_date'])
+        self.assertNotIn('stam_nummer', nyckel)                   # maskinen numrerar om stammarna i varje fil
         self.assertEqual(konflikt, 'ignore')                      # en upprepad stock får aldrig skriva över den äldsta kopian
         for kolumn in nyckel:                                     # varje nyckelkolumn finns på raderna som skickas
             self.assertIn(kolumn, rader[0])
 
     def test_nyckeln_ar_samma_som_i_databasens_index(self):
         migr = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'supabase', 'migrations')
-        fil = next(f for f in os.listdir(migr) if f.endswith('kontroll_stock_dubbletter_2_unikt_index.sql'))
+        fil = next(f for f in os.listdir(migr) if f.endswith('kontroll_stock_fysisk_2_unikt_index.sql'))
         with open(os.path.join(migr, fil), encoding='utf-8') as f:
             sql = ' '.join(f.read().split())
-        self.assertIn('detalj_kontroll_stock_matning_unik', sql)
+        self.assertIn('detalj_kontroll_stock_fysisk_unik', sql)
         self.assertIn('NULLS NOT DISTINCT', sql)
         self.assertIn('(' + ', '.join(M.KONTROLL_STOCK_NYCKEL) + ')', sql)
+
+    def test_en_omnumrerad_kopia_ar_samma_stock(self):
+        # Samma stock (samma skördetid, stocknummer och mättider) men stam 7 i stället för 1 → samma nyckel → hoppas över av databasen
+        a, b = stockrad(1, 1), stockrad(7, 1)
+        self.assertNotEqual(a['stam_nummer'], b['stam_nummer'])
+        nyckel = lambda r: tuple(r[k] for k in M.KONTROLL_STOCK_NYCKEL)
+        self.assertEqual(nyckel(a), nyckel(b))
+        self.assertNotEqual(nyckel(a), nyckel(stockrad(1, 2)))                   # annan stock på samma stam är en annan stock
+        self.assertNotEqual(nyckel(a), nyckel(stockrad(1, 1, harvest=datetime(2026, 1, 16, 9))))  # annan stam (skördetid)
+        self.assertNotEqual(nyckel(a), nyckel(stockrad(1, 1, op_tid=datetime(2026, 1, 25, 7))))   # riktig omkontroll
 
     def test_matpunkter_for_redan_importerade_stockar_ar_inget_fel(self):
         # Filen har stam 1 stock 1 (finns redan under en tidigare fil → inget id här) och stam 2 stock 1 (ny, id 11)
