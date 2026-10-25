@@ -105,7 +105,7 @@ describe('riktiga läsningar (claude-opus-5-5, 2026-10-04)', () => {
   });
 });
 
-import { parsaLasning as parsa2, utbyteVolymer, UTDATA_SCHEMA } from './rapport'
+import { parsaLasning as parsa2, utbyteVolymer } from './rapport'
 
 describe('utbyteskalkylen', () => {
   const bas = { post: {}, tradslag: [{ namn: 'Tall', klasser: [{ diameter_cm: 30, antal: 1, volym_m3sk: 1 }] }], sammanfattning: [], osakerheter: [] }
