@@ -97,15 +97,17 @@ function arbetsdagarI(start: string, end: string, roda: Record<string, string>):
   return { totalt, hittills };
 }
 
-/** Tid i en smal tabellcell: "128 tim 10 min" bryts mellan tim och min i stället för mitt i en del. Texten är minText. */
+/** Tid i en tabellcell: tim:min på EN rad ("218:10") — förut bröts "218 tim / 10 min" på två rader och tabellen blev dubbelt så hög (Martin 2026-10-25). */
+export function tidKort(min: number): string {
+  const m = Math.max(0, Math.round(min || 0));
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+}
 function TidCell({ min }: { min: number }) {
-  const m = Math.round(min || 0);
-  const delar = m < 60 ? [`${m} min`] : m % 60 ? [`${Math.floor(m / 60)} tim`, `${m % 60} min`] : [`${Math.floor(m / 60)} tim`];
-  return <>{delar.map((t, i) => <React.Fragment key={i}>{i > 0 && " "}<span style={{ display: "inline-block" }}>{t}</span></React.Fragment>)}</>;
+  return <span style={{ whiteSpace: "nowrap" }}>{tidKort(min)}</span>;
 }
 
 /** Tabellens kolumner: förare, betalt, maskin, lönekvot (+ en pil när raden går att öppna). */
-const KOL_BREDD = { betalt: 56, maskin: 56, kvot: 64 } as const;
+const KOL_BREDD = { betalt: 60, maskin: 60, kvot: 64 } as const;
 const kolumner = (oppnabar: boolean) => `minmax(0, 1fr) ${KOL_BREDD.betalt}px ${KOL_BREDD.maskin}px ${KOL_BREDD.kvot}px${oppnabar ? ` ${IKON.text}px` : ""}`;
 
 export default function DagarUnderflik() {
@@ -205,7 +207,10 @@ export default function DagarUnderflik() {
   // som dagar. (Km visas inte här: tabellen svarar på lönekvoten; milen finns i Förare · Månad.) Lönekvoten räknas bara över dagar där maskinen skickar filer (lib/admin/lonekvot).
   const summa = useMemo(() => {
     const perForare = new Map<string, { id: string; namn: string; obekr: number; kvot: KvotSumma }>();
+    // Företagsledare har ingen lön i appen (inga lönerader) — de står inte i sammanställningen, samma som i Löneunderlag.
+    const ledare = new Set((data?.medarbetare || []).filter((m: any) => m.foretagsledare === true).map((m: any) => m.medarbetare_id));
     for (const r of rader) {
+      if (ledare.has(r.id)) continue;
       const s = perForare.get(r.id) || { id: r.id, namn: r.namn, obekr: 0, kvot: tomKvot() };
       if (!r.d.bekraftad) s.obekr++;
       laggTillDag(s.kvot, r.min, r.d.maskintid);
@@ -217,7 +222,7 @@ export default function DagarUnderflik() {
       kvot: summaAvKvot(lista.map(f => f.kvot)),
       obekr: lista.reduce((t, f) => t + f.obekr, 0),
     };
-  }, [rader]);
+  }, [rader, data]);
   // Förare · Månad finns för arbetsmånader vars löneunderlag går att läsa (löneperioden, arbetsmånad + 1, är inte i framtiden) och
   // bara för EN månad — en rad över ett kvartal eller ett år har ingen enskild månad att öppna.
   const manadAttOppna = period === "M" && loneperiodFor(range.start.slice(0, 7)) <= idagISO().slice(0, 7);
@@ -330,7 +335,7 @@ export default function DagarUnderflik() {
               </div>
               {summa.kvot.kvotDagar > 0 && (
                 <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text3 }}>
-                  Lönekvot = maskinens G15 under förarens inloggning delat med betald tid, över dagar med maskinfiler. Mäter verksamheten, inte föraren.
+                  Tid i tim:min. Lönekvot = maskinens G15 under förarens inloggning delat med betald tid, över dagar med maskinfiler. Mäter verksamheten, inte föraren.
                 </p>
               )}
             </div>

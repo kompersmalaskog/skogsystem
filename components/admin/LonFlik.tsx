@@ -2,7 +2,7 @@
 import React, { useState, useEffect, type CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
-import { AVSTAND, FARG, RADIE, TYP, KNAPP, TRAFFYTA } from "@/lib/design/tokens";
+import { AVSTAND, FARG, RADIE, TYP, KNAPP, TRAFFYTA, VIKT } from "@/lib/design/tokens";
 import { Kort, Ikon, Lista, Rad, Lank } from "./ui";
 import { StatusRad, AttKolla } from "./ForarKortDelar";
 import { useAdminNav } from "./nav";
@@ -48,35 +48,77 @@ const UNDERFLIKAR: { key: Underflik; label: string }[] = [
   { key: "vila",     label: "Vilobrott" },
 ];
 
+// Två flikar är det man gör varje månad. Resten ställer man in sällan (eller slår upp) och ligger som rader
+// under "Mer" längst ner — samma adresser som förut (?underflik=lonearter …), så länkar och notiser hittar dit (Martin 2026-10-25).
+const FLIKRAD: Underflik[] = ["underlag", "dagar"];
+const MER: Underflik[] = ["vila", "lonearter", "system", "atk"];
+const MER_UNDERTEXT: Partial<Record<Underflik, string>> = {
+  vila: "Alla förares vilobrott",
+  lonearter: "Koder till Fortnox",
+  system: "Kopplingen till Fortnox",
+  atk: "Förarnas val i maj",
+};
+
 export default function LonFlik({ currentUser }: { currentUser: CurrentUser }) {
   // Underfliken står i adressen (?underflik=…): en omladdning stannar på samma ställe.
   const { nav, sattUnderflik } = useAdminNav();
   const aktiv: Underflik = UNDERFLIKAR.some(u => u.key === nav.underflik) ? (nav.underflik as Underflik) : "underlag";
+  const iFlikrad = FLIKRAD.includes(aktiv);
   return (
     <>
-      <UnderflikTabs aktiv={aktiv} onValj={sattUnderflik} />
+      {iFlikrad
+        ? <UnderflikTabs aktiv={aktiv} onValj={sattUnderflik} />
+        : <TillbakaTillLon etikett={UNDERFLIKAR.find(u => u.key === aktiv)!.label} onTillbaka={() => sattUnderflik(null)} />}
       {aktiv === "underlag" && <Loneunderlag currentUser={currentUser} />}
       {aktiv === "dagar"    && <DagarUnderflik />}
       {aktiv === "lonearter" && <LonearterUnderflik />}
       {aktiv === "system"   && <LonesystemUnderflik />}
       {aktiv === "atk"      && <AtkUnderflik currentUser={currentUser} />}
       {aktiv === "vila"     && <VilobrottUnderflik />}
+      {iFlikrad && <MerRader onValj={sattUnderflik} />}
     </>
   );
 }
 
-/** Flikraden bryter aldrig rad: i telefon rullar den i sidled i stället. */
+/** Löneunderlag | Dagar — en segmentväljare som i resten av appen. */
 function UnderflikTabs({ aktiv, onValj }: { aktiv: Underflik; onValj: (k: Underflik) => void }) {
   return (
-    <div role="tablist" style={{ display: "flex", gap: AVSTAND.xs, marginBottom: AVSTAND.sektion, overflowX: "auto", scrollbarWidth: "none" }}>
-      {UNDERFLIKAR.map(t => (
+    <div role="tablist" style={{ display: "flex", maxWidth: 360, background: FARG.linje, borderRadius: RADIE.rad, padding: AVSTAND.xs, marginBottom: AVSTAND.sektion }}>
+      {UNDERFLIKAR.filter(t => FLIKRAD.includes(t.key)).map(t => (
         <button key={t.key} role="tab" aria-selected={aktiv === t.key} onClick={() => onValj(t.key)} style={{
-          flex: "0 0 auto", minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, whiteSpace: "nowrap",
-          background: aktiv === t.key ? FARG.fyllning : "transparent", border: "none", borderRadius: RADIE.knapp,
-          color: aktiv === t.key ? FARG.text : FARG.text2, ...TYP.listtitel, fontSize: TYP.meta.fontSize,
+          flex: 1, minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, whiteSpace: "nowrap",
+          background: aktiv === t.key ? FARG.fyllning : "transparent", border: "none", borderRadius: RADIE.rad,
+          color: aktiv === t.key ? FARG.text : FARG.text2, ...TYP.meta, fontWeight: aktiv === t.key ? VIKT.halvfet : VIKT.normal,
           cursor: "pointer", fontFamily: "inherit",
         }}>{t.label}</button>
       ))}
+    </div>
+  );
+}
+
+/** I en sällan-sida: "‹ Lön" tillbaka och sidans namn, i stället för flikraden. */
+function TillbakaTillLon({ etikett, onTillbaka }: { etikett: string; onTillbaka: () => void }) {
+  return (
+    <div data-tillbaka-lon="" style={{ marginBottom: AVSTAND.sektion }}>
+      <button type="button" onClick={onTillbaka} style={{ ...KNAPP.tertiar, display: "inline-flex", alignItems: "center", gap: AVSTAND.xs, padding: 0, minHeight: TRAFFYTA.min }}>
+        <Ikon namn="chevron_left" farg={FARG.bla} /> Lön
+      </button>
+      <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.rubrik, color: FARG.text }}>{etikett}</p>
+    </div>
+  );
+}
+
+/** Det man rör sällan: rader längst ner, en tryckning bort. */
+function MerRader({ onValj }: { onValj: (k: Underflik) => void }) {
+  const rader = UNDERFLIKAR.filter(t => MER.includes(t.key)).sort((a, b) => MER.indexOf(a.key) - MER.indexOf(b.key));
+  return (
+    <div data-lon-mer="" style={{ marginTop: AVSTAND.sektion }}>
+      <p style={{ ...TYP.micro, color: FARG.text2, margin: `0 0 ${AVSTAND.s}px` }}>Mer</p>
+      <Lista>
+        {rader.map((t, i) => (
+          <Rad key={t.key} attr={{ "data-lon-mer-rad": t.key }} rubrik={t.label} detalj={MER_UNDERTEXT[t.key]} chevron onClick={() => onValj(t.key)} sista={i === rader.length - 1} />
+        ))}
+      </Lista>
     </div>
   );
 }
@@ -225,6 +267,21 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
       }
     })();
     return () => { cancelled = true; };
+  }, [period]);
+
+  // Ingen Uppdatera-knapp: underlaget läses om av sig självt när man kommer tillbaka till fliken (en förare kan ha godkänt
+  // under tiden). Tyst — inget "Beräknar…", och högst en gång i halvminuten.
+  useEffect(() => {
+    let senast = Date.now();
+    const omLas = () => {
+      if (document.visibilityState !== "visible" || Date.now() - senast < 30_000) return;
+      senast = Date.now();
+      fetch("/api/fortnox/salary-export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ period, dry_run: true }) })
+        .then(r => r.json()).then(j => { if (j?.ok) setFortnoxData(j); }).catch(() => { /* ett tyst omläsningsfel ändrar inget som visas */ });
+    };
+    window.addEventListener("focus", omLas);
+    document.addEventListener("visibilitychange", omLas);
+    return () => { window.removeEventListener("focus", omLas); document.removeEventListener("visibilitychange", omLas); };
   }, [period]);
 
   const laddaOmDryRun = async () => {
@@ -488,15 +545,15 @@ function FortnoxExportSektion({
             rad={`${lonMedarbetare.length} förare · ${fortnoxData.totalt_rader} lönerader${vantar.length > 0 && !allaSkickade ? ` · ${vantar.length} väntar på föraren` : ""}`} />
         </div>
       )}
-      <div style={{ display: "flex", gap: AVSTAND.s, marginBottom: AVSTAND.m }}>
-        <button onClick={onFörhandsgranska} disabled={fortnoxLaddar} style={{ ...btnSecondary, flex: 1, opacity: fortnoxLaddar ? 0.5 : 1 }}>
-          {fortnoxLaddar ? "Beräknar…" : "Uppdatera"}
-        </button>
+      {/* EN knapp: underlaget läses om av sig självt (byte av månad, tillbaka till fliken) — ingen Uppdatera bredvid. */}
+      <div style={{ marginBottom: AVSTAND.m }}>
         <button
+          data-skicka=""
           onClick={onSkicka}
           disabled={kanInteSkicka}
-          style={{ ...(blockerande.length > 0 ? btnSecondary : btnPrimary), flex: 1, opacity: kanInteSkicka ? 0.4 : 1 }}
+          style={{ ...(blockerande.length > 0 ? btnSecondary : btnPrimary), width: "100%", opacity: kanInteSkicka ? 0.4 : 1 }}
         >{sandbara.length > 0 ? `Skicka ${sandbara.length} till Fortnox` : "Ingen att skicka"}</button>
+        {!allaSkickade && <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2, textAlign: "center" }}>Bara förare som godkänt skickas.</p>}
       </div>
       {kvittFel && <p style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.meta, color: FARG.rod }}>{kvittFel}</p>}
 
