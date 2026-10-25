@@ -128,6 +128,16 @@ export function skordareDagarFore(oskotat: number, taktSkotat: number | null): n
   return Math.round(Math.max(0, oskotat) / taktSkotat)
 }
 
+/**
+ * Det som ligger kvar att skota JUST NU = det som låg oskotat vid månadens start + skördat i månaden − skotat i månaden.
+ * `SparLage.oskotat` är bara månadens skördat − skotat och blir negativt så fort skotaren tar av ingående lager
+ * (okt 2026: gallring 599 − 962 = −363 fast 64 m³fub låg kvar). Det talet ska aldrig visas som "oskotat"; visa det här.
+ * Aldrig under 0 (skotat mer än vad som fanns är ett datafel, inte ett negativt lager).
+ */
+export function oskotatKvar(s: Pick<SparLage, 'ingaendeOskotat' | 'skordat' | 'skotat'>): number {
+  return Math.max(0, s.ingaendeOskotat + s.skordat - s.skotat)
+}
+
 /** Allt om ett spår som Läge/Uppföljning behöver, räknat en gång. */
 export type SparLage = {
   typ: Typ

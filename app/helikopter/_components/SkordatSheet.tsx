@@ -1,10 +1,11 @@
 'use client'
 
-// Arket "Skördat" (ur Mer): skördaren per spår — hittills av beställt med stapel, var det landar, och oskotat just nu.
+// Arket "Skördat" (ur Mer): skördaren per spår — hittills av beställt med stapel, var det landar, och vad som ligger kvar att skota
+// just nu (ingående + skördat − skotat, `oskotatKvar` — aldrig månadens skördat − skotat, som blir negativt när skotaren tar av lagret).
 // Sidan visar bara skotat (det som räknas mot beställningen); skördat ligger här ett tryck bort.
 import { Sheet } from '@/components/Sheet'
 import Sektion from '@/components/design/Sektion'
-import { TYP_NAMN, landarRoller, type ManadStatus, type SparLage } from '../_lib/berakningar'
+import { TYP_NAMN, landarRoller, oskotatKvar, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { fmt } from '../_lib/format'
 import { ListRad } from './Lista'
 
@@ -17,7 +18,7 @@ export default function SkordatSheet({ open, onClose, spar, status }: { open: bo
           const roller = status === 'pagaende' ? landarRoller(s) : null
           const under = [
             roller ? `Landar ${fmt(roller[0].landar)}` : null,
-            `Oskotat ${fmt(s.oskotat)}`,
+            `Kvar att skota ${fmt(oskotatKvar(s))}`,
           ].filter(Boolean).join(' · ')
           return (
             <ListRad
