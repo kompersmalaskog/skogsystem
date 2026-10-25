@@ -215,7 +215,7 @@ function Headline({ data }: { data: UppfoljningData }) {
       {parts.length > 0 && (
         <div style={{ fontSize: 13, color: V6_GREY, fontWeight: 500 }}>{parts.join(' · ')}</div>
       )}
-      <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.8px', margin: '4px 0 0', lineHeight: 1.05 }}>
+      <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', margin: '4px 0 0', lineHeight: 1.2 }}>
         {data.objektNamn}
       </h1>
     </section>
@@ -357,8 +357,8 @@ function MaskinCell({
         <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, minWidth: 0 }}>
-        <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.8px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{primary}</span>
-        <span style={{ fontSize: 14, color: V6_GREY, fontWeight: 500 }}>{primaryUnit}</span>
+        <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' }}>{primary}</span>
+        <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 600 }}>{primaryUnit}</span>
       </div>
       <div style={{ fontSize: 11, color: V6_GREY, marginTop: 4, fontWeight: 500, minHeight: 14 }}>{primaryLabel}</div>
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: 3, fontVariantNumeric: 'tabular-nums' }}>
