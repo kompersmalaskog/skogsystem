@@ -21,6 +21,8 @@ import {
 } from '@/lib/ekonomi/acord';
 import { kostnadsstalleFor, harKrockandeKostnadsstalle } from '@/lib/ekonomi/kostnadsstalle';
 import { medForestlink } from '@/lib/ekonomi/forestlink';
+import { raknaSortiment, type Sortimentsrakning } from '@/lib/ekonomi/sortimentAntal';
+import { maskinVisningsnamn, maskinNamnMap } from '@/lib/maskinNamn';
 import type { VoUnderlag, Maskinrad } from '@/lib/faktura/radbyggare';
 
 type SB = { from: (t: string) => any };
@@ -28,11 +30,36 @@ type SB = { from: (t: string) => any };
 /** Saker som inte är fel på en RAD men som granskningen måste visa. */
 export type Underlagsnot = { niva: 'varning' | 'info'; text: string };
 
+/**
+ * Underlaget BAKOM talen, så granskningen kan visa varför priset blev som det
+ * blev utan att räkna om något själv. Rent tillägg: inget här påverkar en rad
+ * eller ett pris, och tas fältet bort räknas fakturan exakt likadant.
+ */
+export type Granskningsunderlag = {
+  sortiment: {
+    /** Appens räkning med båda listorna (lib/ekonomi/sortimentAntal). */
+    rakning: Sortimentsrakning;
+    /** Antalet priset faktiskt räknades på — manuellt när det är satt. */
+    anvant: number;
+    /** true = någon har satt antalet själv (dim_objekt.sortiment_grupper_manuell). */
+    manuellt: boolean;
+    /** Prislistans villkor. null = ingen sats gäller uppslagsdagen. */
+    grundantal: number | null;
+    krPerExtra: number | null;
+    giltigFran: string | null;
+  };
+  /** Traktens m³fub — nämnaren i varje kr/m³fub-tillägg. */
+  volym: number;
+  /** Dagen prislistan slogs upp på (avräkningsdagen, annars idag). */
+  prisdatum: string;
+};
+
 export type HamtatUnderlag = {
   underlag: VoUnderlag;
   noter: Underlagsnot[];
   /** dim_objekt-id:n som ingår — spårbarhet i granskningen. */
   objektIds: string[];
+  granskning: Granskningsunderlag;
 };
 
 const sum = (rader: any[], f: string) =>
@@ -100,14 +127,14 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
       .select('datum, korstracka_m, volym_m3sub').in('objekt_id', objektIds)
       .order('datum').order('id').range(f, t)),
     fetchAllRows((f, t) => sb.from('fakt_sortiment')
-      .select('sortiment_id').in('objekt_id', objektIds)
+      .select('sortiment_id, volym_m3sub').in('objekt_id', objektIds)
       .order('sortiment_id').order('id').range(f, t)),
   ]);
 
   // ── Register och prislistor ────────────────────────────────────────────
   const [maskinRes, kstRes, timprisRes, acordRes, traktRes, sortConfRes, ovrigtRes, avstRes,
-         grupperRes, bolagRes, objektRes] = await Promise.all([
-    sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, forestlink'),
+         klassRes, bolagRes, objektRes] = await Promise.all([
+    sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, tillverkare, maskin_typ, forestlink'),
     sb.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod, giltig_fran, giltig_till'),
     sb.from('maskin_timpris').select('maskin_id, timpris, giltig_fran, giltig_till'),
     sb.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -115,12 +142,15 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     sb.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till'),
     sb.from('acord_ovrigt').select('nyckel, varde, giltig_fran, giltig_till'),
     sb.from('acord_skotningsavstand').select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till'),
-    sb.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
+    // vy_sortiment_klass, ALDRIG dim_sortiment_grupp: den tabellen fylls av
+    // ingen trigger och saknar rad för 68 av 304 sortiment. Se
+    // lib/ekonomi/sortimentAntal.
+    sb.from('vy_sortiment_klass').select('sortiment_id, namn, kundkod'),
     sb.from('bolag').select('namn, fortnox_kundnr'),
     sb.from('objekt').select('id, vo_nummer, kontraktsnummer').eq('vo_nummer', voNummer),
   ]);
   for (const r of [maskinRes, kstRes, timprisRes, acordRes, traktRes, sortConfRes,
-                   ovrigtRes, avstRes, grupperRes, bolagRes, objektRes]) {
+                   ovrigtRes, avstRes, klassRes, bolagRes, objektRes]) {
     if (r.error) throw new Error('Kunde inte läsa register: ' + r.error.message);
   }
 
@@ -137,16 +167,24 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     noter.push({ niva: 'varning', text: 'Ingen stamdata — medelstammen kan inte räknas fram.' });
   }
 
-  const gruppMap = new Map<string, string | null>(
-    (grupperRes.data || []).map((g: any) => [g.sortiment_id, g.grupp]));
-  const grupperAuto = new Set(
-    sort.map((s: any) => gruppMap.get(s.sortiment_id)).filter(Boolean) as string[]).size;
+  // ANTAL SORTIMENT — regeln bor i lib/ekonomi/sortimentAntal (kundkod som
+  // identitet, kvalitetsklasser ihop, avkap och stammar utan sortiment bort).
+  // Räkningen bär båda listorna så granskningen kan visa vad talet är byggt av.
+  const klassMap = new Map<string, { namn: string | null; kundkod: string | null }>(
+    (klassRes.data || []).map((g: any) => [g.sortiment_id, { namn: g.namn, kundkod: g.kundkod }]));
+  const sortimentsrakning = raknaSortiment(sort.map((s: any) => ({
+    sortiment_id: s.sortiment_id,
+    namn: klassMap.get(s.sortiment_id)?.namn ?? null,
+    kundkod: klassMap.get(s.sortiment_id)?.kundkod ?? null,
+    volym_m3sub: s.volym_m3sub,
+  })));
   const sortimentgrupper = huvud.sortiment_grupper_manuell != null
-    ? Number(huvud.sortiment_grupper_manuell) : grupperAuto;
+    ? Number(huvud.sortiment_grupper_manuell) : sortimentsrakning.antal;
 
   const acordList = giltiga(acordRes.data);
   const traktKr = traktTillagg(volym, giltiga(traktRes.data) as any).krPerM3;
-  const sortKr = sortimentTillagg(sortimentgrupper, giltiga(sortConfRes.data)[0] as any);
+  const sortConf = giltiga(sortConfRes.data)[0] as any ?? null;
+  const sortKr = sortimentTillagg(sortimentgrupper, sortConf);
   const kvalitetRad = giltiga(ovrigtRes.data).find((r: any) => r.nyckel === 'kvalitetssakring');
   const kvalitetKr = kvalitetRad ? Number(kvalitetRad.varde) || 0 : 0;
   if (!kvalitetRad) noter.push({ niva: 'varning', text: `Ingen kvalitetssäkringssats gäller ${uppslag}.` });
@@ -203,9 +241,11 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
       p.maskin_id === maskinId && isValidOn(dag, p.giltig_fran, p.giltig_till));
     maskiner.push({
       maskin_id: maskinId,
-      // visningsnamn är namnet Vida ser. modell är en reserv, inte ett val:
-      // saknas visningsnamn ska det synas som ett tomt fält i registret.
-      namn: dm?.visningsnamn || dm?.modell || maskinId,
+      // visningsnamn är namnet Vida ser, och maskinVisningsnamn är appens ENDA
+      // regel för det (lib/maskinNamn): visningsnamn → tillverkare + modell ur
+      // filen → maskin_id. Modellen är en reserv, inte ett val — saknas
+      // visningsnamn ska det synas som ett tomt fält i registret.
+      namn: dm ? maskinVisningsnamn(dm) : maskinId,
       roll,
       kostnadsstalle: kst,
       g15h: sek / 3600,
@@ -267,8 +307,17 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
       for (const o of fo || []) if (o.namn) franNamn.set(String(o.id), o.namn);
     }
 
+    // Maskinens NAMN, inte dess chassinummer. fakturaunderlag_flytt.maskin bär
+    // maskin_id (PONS20SDJAA270231), och fakturan ska säga Giant — samma namn
+    // som resten av appen, via dim_maskin.visningsnamn. Alla fem id:n i datan
+    // 2026-10-25 går att slå upp. En flytt med NÅGON ANNANS maskin bär fritext
+    // i samma fält (maskin_flytt.extern_maskin) och finns inte i registret —
+    // då står texten kvar som den skrevs, aldrig ett id vi hittat på.
+    const namnPerMaskinId = maskinNamnMap(maskinRes.data || []);
+    const maskinNamn = (v: string) => namnPerMaskinId[v] || v;
+
     flyttar = (fl || []).map((f: any) => ({
-      id: f.id, datum: f.datum, maskin: f.maskin,
+      id: f.id, datum: f.datum, maskin: maskinNamn(String(f.maskin ?? '')),
       km: f.km == null ? null : Number(f.km),
       traillertimmar: f.traillertimmar == null ? null : Number(f.traillertimmar),
       franNamn: f.fran_objekt_id ? (franNamn.get(String(f.fran_objekt_id)) ?? null) : null,
@@ -340,5 +389,18 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     manuellaPoster: [],
   };
 
-  return { underlag, noter, objektIds };
+  const granskning: Granskningsunderlag = {
+    sortiment: {
+      rakning: sortimentsrakning,
+      anvant: sortimentgrupper,
+      manuellt: huvud.sortiment_grupper_manuell != null,
+      grundantal: sortConf ? Number(sortConf.grundantal) : null,
+      krPerExtra: sortConf ? Number(sortConf.kr_per_extra_sortiment) : null,
+      giltigFran: sortConf?.giltig_fran ?? null,
+    },
+    volym,
+    prisdatum: uppslag,
+  };
+
+  return { underlag, noter, objektIds, granskning };
 }

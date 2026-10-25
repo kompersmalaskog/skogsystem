@@ -109,9 +109,10 @@ describe("Kolumnen: tokens", () => {
 });
 
 describe("Kolumnen: varje vys rot är kolumnen", () => {
-  it("Dag: 672 px", async () => {
+  it("Dag: bred rot 1152 px, innehållet i en container som håller 640 px tills två kolumner ryms", async () => {
     await montera();
-    expect(px(rotStil()?.maxWidth)).toBe(672);
+    expect(px(rotStil()?.maxWidth)).toBe(1152);
+    expect(behallare!.querySelector(".ar-dag-ram .ar-dag")).not.toBeNull();
     expect(rotStil()?.marginLeft).toBe("auto");
     expect(rotStil()?.marginRight).toBe("auto");
   });
@@ -141,7 +142,7 @@ describe("Kolumnen: källvakter (rötter, nav, ark)", () => {
   it("ingen rot har kvar 100vh; alla går via ROT_MIN_HOJD + kolumnRot", () => {
     expect(kalla).not.toMatch(/minHeight\s*:\s*"100vh"/);
     expect((kalla.match(/minHeight:ROT_MIN_HOJD,\.\.\.kolumnRot\(/g) || []).length).toBe(7);   // shell + 6 rötter
-    expect((kalla.match(/kolumnRot\("bred"\)/g) || []).length).toBe(1);                         // bara Kalender
+    expect((kalla.match(/kolumnRot\("bred"\)/g) || []).length).toBe(2);                         // Kalender och Dag (två kolumner)
   });
   it("bottennavets flikar ligger i kolumnen: bakgrunden full bredd, paddingen räknas ur KOLUMN.smal", () => {
     const nav = kalla.slice(kalla.indexOf("function BottomNavBar"), kalla.indexOf("function BottomNavBar") + 900);

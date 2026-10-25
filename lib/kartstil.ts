@@ -60,6 +60,11 @@ export const LEGEND = {
 export const BASVAG_FARG_UTTRYCK: any[] = ['match', ['get', 'farg'], 'red', LEGEND.fara, 'yellow', LEGEND.gul, 'blue', LEGEND.vatten, LEGEND.vatten];
 export const BASVAG_UTAN_FARG: any[] = ['!', ['has', 'farg']];
 
+/** Den mörka kanten bakom en väg (basväg, stickväg) och traktgräns/stig. Vägarna behåller sin snitselfärg; kanten får dem att synas mot ett foto (Kartan lugnare). */
+export const VAG_KANT_FARG = 'rgba(0,0,0,0.9)';
+/** Stickvägarna (sideRoadRed/Yellow/Blue) — vägtyper utöver basvägen som ska ha samma kraftiga kant. */
+export const arStickvag = (lineType: string): boolean => lineType.startsWith('sideRoad');
+
 /**
  * Blå/gul basväg = snitselband i fält: LIKA långa blå och gula streck. Det gula strecket ritas ovanpå en heldragen blå linje med dasharray [2, 2] (enheter av linjebredden),
  * och med PLATTA ändar blir det exakt hälften gult och hälften blått. Med rundade ändar växer varje streck med en halv linjebredd åt båda håll och äter luckorna:
@@ -249,7 +254,7 @@ export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim
     }
 
     const grans = lt.id === 'boundary';
-    const stark = grans || lt.id === 'mainRoad' || lt.id === 'trail';
+    const stark = grans || lt.id === 'mainRoad' || lt.id === 'trail' || arStickvag(lt.id);   // vägarna (basväg + stickväg) har samma kraftiga mörka kant som planeringsvyn (Kartan lugnare)
     const bredd = grans ? LINJE_BREDD_GRANS : LINJE_BREDD;
     const kant = grans ? LINJE_KANT_BREDD_GRANS : LINJE_KANT_BREDD;
 
@@ -647,3 +652,6 @@ export function ritaStolpeIkon(farg: string = FARG_FARA, px = 40): HTMLCanvasEle
   ctx.fillRect(x0 + (tjock - inre) / 2, y0 + 2 * s, inre, langd - 4 * s);
   return c;
 }
+
+/** Vidas basväg (en linje i leveransen som inte är kraftledning) ritas brun när Vida inte gett en egen färg — samma som planeringsvyns trakt-basvag-line. */
+export const VIDA_BASVAG_FARG = '#a16207';

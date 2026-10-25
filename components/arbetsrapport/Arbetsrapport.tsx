@@ -4,9 +4,10 @@ import { supabase } from "@/lib/supabase";
 import { escapeHtml } from "@/lib/html";
 import { anledningGiltig, ANLEDNING_MIN_TECKEN } from "@/lib/redigeraAnledning";
 import { maskinVisningsnamn, maskinNamnMap as byggMaskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
-import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
+import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL, RADERA_FEL } from "@/lib/supabase-save";
 import { extraMinPerDag, arbetadTidInklExtra, schemaTimmar } from "@/lib/arbetstid";
 import TimmarGraf, { type GrafDag, type GrafManad } from "./TimmarGraf";
+import { byggVecka } from "@/lib/arbetsrapport/veckanDag";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { ymdLokal } from "@/lib/datumLokal";
@@ -26,6 +27,9 @@ import { delaKorning, korningDelarText } from "@/lib/arbetsdagKorning";
 import { tidsFragor, VILA_ORSAKER, vilaSvarText, arDagensVilobrott, type VilaOrsak } from "@/lib/dagFragor";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, omanalyseraVilobrott, raknaOmVilobrottEfterAndring, stadaVilobrott, type VilobrottRad } from "@/lib/vilobrott-storage";
+import { arAutomatiskFlytt, flyttBortaRad } from "@/lib/flyttRad";
+import { arFlyttloggsRad } from "@/lib/flyttloggRad";
+import SvepRad from "./SvepRad";
 import { harOppenPeriod as harOppenPeriodPaDag, harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { brandriskUtanRad } from "@/lib/lonesystem/brandriskRader";
@@ -33,6 +37,7 @@ import { minTidArsovertid } from "@/lib/lonesystem/minTidArsovertid";
 import { loneartInfo, loneartEnhetText, fmtMangd } from "@/lib/lonesystem/loneart";
 import ManadRubrik from "@/components/design/ManadRubrik";
 import { attTittaPa, dagAvvikelser, datumLang, minText, timMin, kmUppdelning } from "@/lib/lonesystem/forarText";
+import { enhetText } from "@/lib/pushEnhet";
 import PdfLasare from "@/app/planering/PdfLasare";
 // Designvärden — EN källa (lib/design/tokens.ts). Dagsvyn är piloten: den
 // importerar härifrån och skriver inga egna literaler. Övriga flikar (Min tid,
@@ -41,6 +46,7 @@ import PdfLasare from "@/app/planering/PdfLasare";
 import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, RAD, INAKTIV, TRAFFYTA, RORELSE, designCss, LAYOUT, medSafeBotten, KOLUMN, kolumnRot, ROT_MIN_HOJD, KOLUMN_CSS } from "@/lib/design/tokens";
 import Tillstand from "@/components/design/Tillstand";
 import { useRaknaUppVarde } from "@/lib/design/raknaUpp";
+import { vapidPublikSomBytes } from "@/lib/push/vapid";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -55,6 +61,43 @@ async function hämtaVägKm(fLat: number, fLng: number, tLat: number, tLng: numb
     return null;
   }
 }
+
+// TVÅ KOLUMNER i Dag på stor skärm (2026-10-25, efter Martins skiss). Samma mönster som Lastbilen:
+// en container; under DAG_TVA_KOLUMNER_PX en kolumn på högst KOLUMN.smal i exakt dagens ordning (telefon och iPad
+// stående orörda); från DAG_TVA_KOLUMNER_PX vänster 38 % = det man GÖR (dagens pass, extra arbete, frånvaro), sticky
+// under toppfältet, och höger 62 % = det man LÄSER (det som väntar, veckan). Platserna med grid-column/grid-row —
+// inga citattecken i <style> (React escapar dem vid serverrendering). Veckan finns bara i två-kolumnsläget.
+export const DAG_TVA_KOLUMNER_PX = 900;
+export const DAG_KOLUMN_CSS = `
+.ar-dag-ram { container-type: inline-size; }
+.ar-dag { max-width: ${KOLUMN.smal}px; margin: 0 auto; }
+.ar-bara-bred { display: none; }
+@container (min-width: ${DAG_TVA_KOLUMNER_PX}px) {
+  .ar-dag { max-width: none; display: grid; grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); grid-template-rows: auto 1fr; column-gap: ${AVSTAND.xxl}px; align-items: start; }
+  .ar-dag-gor { grid-column: 1; grid-row: 1 / span 2; position: sticky; top: calc(${LAYOUT.topbar} + ${AVSTAND.s}px); }
+  .ar-dag-fixa { grid-column: 2; grid-row: 1; }
+  .ar-dag-las { grid-column: 2; grid-row: 2; }
+  .ar-bara-bred { display: block; }
+}`;
+
+// Sidomeny på stor skärm (Del 2, 2026-10-25, Martin: "skulle det inte vara annorlunda på datorn?"):
+// från SIDOMENY_FRAN_PX blir flikraden en meny till vänster under toppfältet, som Mail/Inställningar
+// på iPad. Samma knappar, samma ordning; innehållet flyttas åt höger med body:has(.ar-nav).
+// Selektorerna har inga citattecken (React escapar dem i <style>). Telefon och iPad stående orörda.
+const SIDOMENY_FRAN_PX = 1000;
+const SIDOMENY_BREDD_PX = 220;
+const SIDOMENY_CSS = `@media (min-width: ${SIDOMENY_FRAN_PX}px) {
+  body:has(.ar-nav) { padding-left: ${SIDOMENY_BREDD_PX}px; }
+  .ar-nav { top: ${LAYOUT.topbar} !important; bottom: 0 !important; width: ${SIDOMENY_BREDD_PX}px !important;
+    flex-direction: column !important; justify-content: flex-start !important; align-items: stretch !important;
+    gap: ${AVSTAND.xs}px; padding: ${AVSTAND.l}px ${AVSTAND.m}px !important; border-radius: 0 !important;
+    background: ${FARG.bg} !important; border-right: 1px solid ${FARG.linje}; }
+  .ar-nav-knapp { flex-direction: row !important; justify-content: flex-start !important; width: 100% !important;
+    height: ${TRAFFYTA.min}px !important; gap: ${AVSTAND.m}px; padding: 0 ${AVSTAND.m}px !important; border-radius: ${RADIE.rad}px !important; }
+  .ar-nav-knapp .material-symbols-outlined { margin-bottom: 0 !important; }
+  .ar-nav-knapp[aria-current=page] { background: ${FARG.upphojt} !important; }
+  .ar-nav-text { font-size: ${TYP.listtitel.fontSize}px !important; }
+}`;
 
 const css = `
   @keyframes fadeUp {
@@ -106,6 +149,7 @@ const css = `
   * { scrollbar-width: none; -ms-overflow-style: none; }
   ${KOLUMN_CSS}
   .valj-rad { min-height: ${TRAFFYTA.min}px; }
+  ${SIDOMENY_CSS}
 `;
 
 const C = {
@@ -152,6 +196,7 @@ const bottom: CSSProperties = { paddingBottom:36, display:"flex", flexDirection:
 // `SCROLL_BOTTOM` som paddingBottom så sista innehållet inte skärs av navet.
 // Layoutmått (inte avstånd): navet + hemindikatorns zon på iPhone.
 const NAV_HEIGHT = 80;
+
 const SCROLL_BOTTOM = `calc(${NAV_HEIGHT + 40}px + env(safe-area-inset-bottom))`;
 
 const btn = {
@@ -295,7 +340,7 @@ const secHead: CSSProperties = { margin:"0 0 10px",...TYPE.micro,color:"#8e8e93"
 
 function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => void }) {
   return (
-    <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:`${AVSTAND.m}px max(${AVSTAND.l}px, calc((100% - ${KOLUMN.smal}px) / 2)) ${medSafeBotten(AVSTAND.xl)}`,background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
+    <nav className="ar-nav" aria-label="Arbetsrapport" style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:`${AVSTAND.m}px max(${AVSTAND.l}px, calc((100% - ${KOLUMN.smal}px) / 2)) ${medSafeBotten(AVSTAND.xl)}`,background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
       {[
         {icon:"today",key:"morgon",label:"Dag"},
         {icon:"calendar_month",key:"kalender",label:"Kalender"},
@@ -305,9 +350,9 @@ function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => v
         {icon:"bar_chart",key:"mintid",label:"Min tid"},
         {icon:"settings",key:"inst",label:"Inställningar"},
       ].map(n=>(
-        <button key={n.key} onClick={()=>onNav(n.key)} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:aktiv===n.key?"#0a84ff":"#8e8e93",background:"none",border:"none",cursor:"pointer",fontFamily:"'Inter',sans-serif",borderRadius:12,height:48,width:64,padding:0 }}>
+        <button key={n.key} className="ar-nav-knapp" aria-current={aktiv===n.key?"page":undefined} onClick={()=>onNav(n.key)} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:aktiv===n.key?"#0a84ff":"#8e8e93",background:"none",border:"none",cursor:"pointer",fontFamily:FONT,borderRadius:12,height:48,width:64,padding:0 }}>
           <span className="material-symbols-outlined" style={{ fontSize:22,marginBottom:2,fontVariationSettings:aktiv===n.key?"'FILL' 1":"'FILL' 0" }}>{n.icon}</span>
-          <span style={{ fontSize:10,fontWeight:aktiv===n.key?600:500 }}>{n.label}</span>
+          <span className="ar-nav-text" style={{ fontSize:TYP.micro.fontSize,fontWeight:aktiv===n.key?600:500 }}>{n.label}</span>
         </button>
       ))}
     </nav>
@@ -785,6 +830,10 @@ export default function Arbetsrapport() {
   // Dagsegment — tid MÄRKT inom en inloggad dag (brandvakt, markägare), redan
   // betald, annoteras bara för fakturering. SKILD från extra_tid (som lönen adderar).
   const [dagSegment, setDagSegment] = useState<any[]>([]);
+  // Maskinflytt som egen rad (synken skapar den ur GPS-spåret, kalla 'flytt'): dagens rader visas i Dag och Kväll.
+  const [idagFlytt, setIdagFlytt] = useState<any[]>([]);
+  const [flyttVersion, setFlyttVersion] = useState(0);
+  const [flyttFel, setFlyttFel] = useState<string | null>(null);
   const [segÖppen, setSegÖppen] = useState(false);
   const [segForm, setSegForm] = useState<null | { start: string; slut: string; typ: AktivitetTyp; deb: boolean; kommentar: string; fromSynk?: boolean; fromTidigarelagd?: boolean }>(null);
   const [segFel, setSegFel] = useState<string | null>(null);
@@ -916,6 +965,10 @@ export default function Arbetsrapport() {
   // periodVilobrott = brott inom Vila-flikens valda period. null = laddar, [] = inga brott.
   const [aktuellaVilobrott, setAktuellaVilobrott] = useState<VilobrottRad[]>([]);
   const [periodVilobrott, setPeriodVilobrott] = useState<VilobrottRad[] | null>(null);
+  // Företagsledare (Martin, Joacim) omfattas inte av ATL:s vilokrav — ingen vilofråga, inga
+  // gula vilorader och inga brott i Min tid › Vila (samma undantag som admin, Martin 2026-10-25).
+  const arForetagsledare = medarbetare?.foretagsledare === true;
+  const synligaVilobrott = arForetagsledare ? [] : aktuellaVilobrott;
   // Inline-expansion av rödramat kort i Vila-fliken — visar orsak/kompensation.
   const [vilaKortExpanded, setVilaKortExpanded] = useState<string | null>(null);
   // Orsaks-flöde när föraren bekräftar dagen med obesvarade brott. Kön fryses
@@ -1138,6 +1191,18 @@ export default function Arbetsrapport() {
       finally { setKmRäknar(false); }
     })();
   }, [steg, medarbetare?.id, dagData]);
+
+  // Dagens flyttrader (arbetsdag_segment, kalla 'flytt') till Dag och Kväll. Läsfel = ingen rad (en flytt är information,
+  // aldrig ett skäl att stoppa dagen); laddas om när dagen eller en rad ändrats.
+  useEffect(() => {
+    if (!medarbetare?.id) { setIdagFlytt([]); return; }
+    let levande = true;
+    const idagKey = new Date().toISOString().split('T')[0];
+    supabase.from('arbetsdag_segment').select('*')
+      .eq('medarbetare_id', medarbetare.id).eq('datum', idagKey).in('kalla', ['flytt', 'flyttlogg']).order('start_tid', { ascending: true })
+      .then(({ data, error }: any) => { if (levande) setIdagFlytt(error ? [] : (data || []).filter(arAutomatiskFlytt)); });
+    return () => { levande = false; };
+  }, [medarbetare?.id, dagData, flyttVersion]);
 
   // Hämta km-kedja för en specifik dag när kalenderns redigera-vy öppnas.
   // /api/km-chain bygger hem → obj1 → obj2 → ... → hem från arbetsdag-raderna
@@ -1630,7 +1695,7 @@ export default function Arbetsrapport() {
   //   eftersom det baseras på klockslag-nu, inte på en specifik arbetsdag.
   const vilaVarningar: {typ:'röd'|'orange';text:string}[] = [];
 
-  for (const b of aktuellaVilobrott) {
+  for (const b of synligaVilobrott) {
     if (b.besvarat_av_forare) continue;
     if (b.typ === 'dygnsvila') {
       vilaVarningar.push({
@@ -1932,7 +1997,7 @@ export default function Arbetsrapport() {
         return;
       }
     }
-    if (medarbetare?.id && trosklar) {
+    if (medarbetare?.id && trosklar && !arForetagsledare) {
       const fromDt = new Date(datum + "T00:00:00"); fromDt.setDate(fromDt.getDate() - 7);
       const fromIso = franGolv(ymdLokal(fromDt));
       const toIso = datum;
@@ -2280,7 +2345,7 @@ export default function Arbetsrapport() {
     const fore = new Date(datum + 'T00:00:00'); fore.setDate(fore.getDate() - 1);
     const foreKey = ymdLokal(fore);
     const datumKortK = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return `${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`; };
-    for (const b of aktuellaVilobrott
+    for (const b of synligaVilobrott
       .filter(b => arDagensVilobrott(b, datum) && (!b.besvarat_av_forare || besvaradeFragor[`${datum}|vila-${b.id}`]))
       .sort((a, c) => a.datum.localeCompare(c.datum))) {
       const nar = b.typ === 'veckovila' ? `vecka ${isoVecka(new Date(b.datum + 'T00:00:00')).vecka}` : (b.datum === foreKey ? '' : datumKortK(b.datum));
@@ -2380,7 +2445,7 @@ export default function Arbetsrapport() {
       </>);
     }
     if (svarSheet.typ === 'vila') {
-      const b = aktuellaVilobrott.find(x => x.id === svarSheet.id);
+      const b = synligaVilobrott.find(x => x.id === svarSheet.id);
       if (!b) return null;
       const klart = !!svarOrsak && (svarOrsak !== 'annat' || svarFritext.trim().length > 0);
       return ark(<>
@@ -2524,6 +2589,29 @@ export default function Arbetsrapport() {
     setPeriodFel(null);
     setPeriodForm({ lage: 'redigera', tabell: 'extra', datum: rad.datum, rad, varden: periodVardenFran(rad), pass: passFor(rad.datum) });
   };
+  /**
+   * Gravsten för en automatisk flyttrad som föraren tar bort eller flyttar på: utan den skapar nästa synk (var 5:e minut)
+   * raden igen. Skrivs FÖRE borttagningen/ändringen — faller den ändras inget, så raden aldrig kommer tillbaka. 23505 = redan skriven.
+   */
+  const skrivFlyttBorta = async (rad: any): Promise<boolean> => {
+    const grav = flyttBortaRad(rad);
+    if (!grav) return true;
+    const { error } = await supabase.from('arbetsdag_flytt_borta').insert(grav);
+    if (error && (error as any).code !== '23505') { console.error('[flytt] gravsten kunde inte skrivas', error); return false; }
+    return true;
+  };
+  /** Svep → Ta bort på en rad från flyttloggen: gravsten med flyttens id FÖRE borttagningen; faller den ändras inget. */
+  const taBortFlyttloggsRad = async (sg: any) => {
+    setFlyttFel(null);
+    if (!(await skrivFlyttBorta(sg))) { setFlyttFel(RADERA_FEL); return; }
+    const res = await raderaVerifierat(supabase, "arbetsdag_segment", { id: sg.id });
+    if (!res.ok) { setFlyttFel(res.fel); return; }
+    setIdagFlytt(l => l.filter((x: any) => x.id !== sg.id));
+    setDagSegment(d => d.filter((x: any) => x.id !== sg.id));
+    setFlyttVersion(n => n + 1);
+  };
+  /** Öppna en flyttrad ur Dag/Kväll: segmenten för dagen läses in först så överlappskontrollen vet vad som finns. */
+  const oppnaFlyttRad = (sg: any) => { void laddaDagSegment(sg.datum); oppnaSegmentRedigera(sg); };
   /** Öppna ett befintligt segment (period inom passet) — samma formulär, UPDATE mot arbetsdag_segment. */
   const oppnaSegmentRedigera = (sg: any) => {
     setPeriodFel(null);
@@ -2610,8 +2698,15 @@ export default function Arbetsrapport() {
           start_tid: v.start, slut_tid: v.slut,
           aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb, kommentar: v.kommentar.trim() || null,
         };
+        // En GPS-flytt som får ny tid: den ursprungliga tiden får en gravsten, annars skapar synken om den. (En rad från flyttloggen känns
+        // igen på flyttens id, inte på tiden — den behöver ingen gravsten för en ändrad tid.)
+        const ny5 = (t: string) => (t || '').slice(0, 5);
+        if (periodForm.rad.kalla === 'flytt' && (ny5(periodForm.rad.start_tid) !== ny5(v.start) || ny5(periodForm.rad.slut_tid) !== ny5(v.slut))) {
+          if (!(await skrivFlyttBorta(periodForm.rad))) { setPeriodFel(SPARA_FEL); return; }
+        }
         const res = await uppdateraVerifierat(supabase, "arbetsdag_segment", payload, { id: periodForm.rad.id }, "*");
         if (!res.ok) { setPeriodFel(/23P01|overlap/i.test(res.fel) ? 'Perioden överlappar en du redan märkt.' : res.fel); return; }
+        setFlyttVersion(n => n + 1);
         const sparad = res.rows[0] || { ...periodForm.rad, ...payload };
         setDagSegment(d => d.map((x: any) => x.id === sparad.id ? sparad : x).sort((x: any, y: any) => (x.start_tid || '').localeCompare(y.start_tid || '')));
         const avvik = sparatSkiljerSig(v, sparad);
@@ -2767,8 +2862,10 @@ export default function Arbetsrapport() {
     const datum: string = periodForm.rad.datum;
     if (periodForm.tabell === 'segment') {
       // Segment finns bara med pass — skalraden berörs aldrig.
+      if (!(await skrivFlyttBorta(periodForm.rad))) { setPeriodFel(RADERA_FEL); return; } // automatisk flytt: gravsten FÖRE borttagningen
       const res = await raderaVerifierat(supabase, "arbetsdag_segment", { id });
       if (!res.ok) { setPeriodFel(res.fel); return; }
+      setFlyttVersion(n => n + 1);
       setDagSegment(d => d.filter((x: any) => x.id !== id));
       stangPeriodForm();
       return;
@@ -3284,6 +3381,35 @@ export default function Arbetsrapport() {
                 })()}
               </div>
             )}
+            {/* FLYTT: en egen rad per maskinflytt (synken hittar den i GPS-spåret: ≥ 30 min och ≥ 2 km mellan två objekt). Tiden
+                ligger INOM passet och är redan betald — raden märker den, den lägger inte till något. Går att ändra och ta bort
+                som vilken rad som helst (periodformuläret); en borttagen flytt skapas inte om (gravsten). Texten är byggd av
+                radens egna fält: aktivitet, klockslag, trakter och km, aldrig en siffra som inte står på raden. */}
+            {harMaskinPass && idagFlytt.length > 0 && (
+              <div style={linjeUnder(true)}>
+                {idagFlytt.map((sg: any) => {
+                  const klock = `${(sg.start_tid||'').slice(0,5)}–${(sg.slut_tid||'').slice(0,5)}`;
+                  const rad = (
+                    <div onClick={arFlyttloggsRad(sg) ? undefined : ()=>oppnaFlyttRad(sg)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, cursor:"pointer" }}>
+                      <div style={{ minWidth:0 }}>
+                        <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{aktLabel(sg.aktivitet_typ)}</p>
+                        <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>{klock}{sg.kommentar ? ` · ${sg.kommentar}` : ''}</p>
+                        <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>{arFlyttloggsRad(sg) ? 'Från flyttloggen · ' : ''}räknas som arbetstid</p>
+                      </div>
+                      <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, flexShrink:0 }}>
+                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{fmt(periodMin((sg.start_tid||'').slice(0,5), (sg.slut_tid||'').slice(0,5)))}</span>
+                        <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3 }}>chevron_right</span>
+                      </div>
+                    </div>
+                  );
+                  // En flytt ur flyttloggen tas bort med ett svep (föraren var inte med); GPS-raden öppnas bara med tryck.
+                  return arFlyttloggsRad(sg)
+                    ? <SvepRad key={sg.id} onTryck={()=>oppnaFlyttRad(sg)} onTaBort={()=>taBortFlyttloggsRad(sg)}>{rad}</SvepRad>
+                    : <div key={sg.id}>{rad}</div>;
+                })}
+                {flyttFel && <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.orange }}>{flyttFel}</p>}
+              </div>
+            )}
             {/* PERIODDAG: EN rad per period — det man skriver under (Martin
                 2026-09-28: "innan jag bekräftar vill man se vad man gjort så det
                 inte blir fel"). Trakt och tid på första raden; aktivitet, klockslag
@@ -3509,7 +3635,7 @@ export default function Arbetsrapport() {
     // brott: dygnsvilan från i natt syns först när dagens start finns.
     // På kvällen är DAGENS vilobrott rader i "Saker att svara på" (ovanför Stämmer); äldre
     // obesvarade står kvar här som en separat påminnelse som aldrig blockerar Stämmer.
-    const vilobrottObesvarade = aktuellaVilobrott.filter(b => !b.besvarat_av_forare && b.datum >= fran30 && !(kvällsLäge && arDagensVilobrott(b, idagKey)));
+    const vilobrottObesvarade = synligaVilobrott.filter(b => !b.besvarat_av_forare && b.datum >= fran30 && !(kvällsLäge && arDagensVilobrott(b, idagKey)));
     type VantarRad = { nyckel: string; text: string; farg: string; onClick: () => void };
     const vantarRader: VantarRad[] = [];
     for (const b of vilobrottObesvarade) {
@@ -3560,16 +3686,54 @@ export default function Arbetsrapport() {
       </button>
     );
 
+    /* VECKAN (högra kolumnen på stor skärm). Årets rader går före de senaste 60 dagarna (en vecka runt nyår);
+       dagens rad tar det vyn visar just nu. Tryck öppnar dagen i Redigera; hela veckan och månaden finns i Min tid. */
+    const veckaDagar = new Map<string, any>();
+    for (const r of historik || []) if (r?.datum) veckaDagar.set(r.datum, r);
+    for (const r of årsData || []) if (r?.datum) veckaDagar.set(r.datum, r);
+    veckaDagar.set(idagKey, { datum: idagKey, arbetad_min: idagArb?.slut_tid ? arbMin : (veckaDagar.get(idagKey)?.arbetad_min || 0), bekraftad: !!idagArb?.bekraftad });
+    const vecka = byggVecka(new Date(), [...veckaDagar.values()], extraTidData || []);
+    const veckanKort = (
+      <section>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:AVSTAND.s, margin:`0 0 ${AVSTAND.s}px` }}>
+          <p style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Veckan</p>
+          <p style={{ margin:0, ...TYP.listtitel, ...TNUM, color:FARG.text }}>{fmt(vecka.totalMin)}</p>
+        </div>
+        <div style={{ ...KORT, paddingTop:AVSTAND.xs, paddingBottom:AVSTAND.xs }}>
+          {vecka.rader.map((r, i) => {
+            const sista = i === vecka.rader.length - 1;
+            const status = r.framtid ? "" : r.idag && !r.bekraftad ? "idag" : r.bekraftad ? "bekräftad" : r.min > 0 ? "väntar" : "";
+            return (
+              <button key={r.datum} data-vecka-dag={r.datum} disabled={r.framtid} onClick={()=>{ if (r.idag) return; öppnaRedigera(r.datum); }}
+                style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, height:"auto", padding:`${AVSTAND.s}px 0`, textAlign:"left", borderBottom: sista ? "none" : `1px solid ${FARG.linje}`, cursor: r.framtid || r.idag ? "default" : "pointer" }}>
+                <span style={{ ...TYP.listtitel, color: r.framtid ? FARG.text3 : FARG.text }}>{r.dag}{r.idag ? " · idag" : ""}</span>
+                <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
+                  {status && <span style={{ ...TYP.meta, color: status === "väntar" ? FARG.orange : FARG.text2 }}>{status}</span>}
+                  <span style={{ ...TYP.listtitel, ...TNUM, color: r.framtid ? FARG.text3 : FARG.text }}>{r.framtid ? "–" : fmt(r.min)}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.s }}>
+          <button onClick={()=>setSteg("mintid")} style={KNAPP.tertiar}>Månaden och året i Min tid</button>
+        </div>
+      </section>
+    );
+
     return (
-    <div style={{ minHeight:ROT_MIN_HOJD,...kolumnRot(), background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
-      <style>{css}{designCss}</style>{timerBanner}
+    <div style={{ minHeight:ROT_MIN_HOJD,...kolumnRot("bred"), background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
+      <style>{css}{designCss}{DAG_KOLUMN_CSS}</style>{timerBanner}
 
       {/* Ingen egen rubrikrad: den satt på top:0 BAKOM appens toppfält (PR 518) —
           osynlig, 64 px tomrum. Toppfältet säger redan "Arbetsrapport". */}
       <main style={{ paddingTop:AVSTAND.xl, paddingBottom:SCROLL_BOTTOM, paddingLeft:AVSTAND.sidmarginal, paddingRight:AVSTAND.sidmarginal, flex:1, width:"100%", boxSizing:"border-box" }}>
 
-        {/* VAD SOM VÄNTAR — ovanför hälsningen, bara när något finns. */}
+        <div className="ar-dag-ram" data-dag-ram=""><div className="ar-dag">
+        {/* VAD SOM VÄNTAR — ovanför hälsningen, bara när något finns. På stor skärm: överst i högra kolumnen. */}
         {vantarRader.length > 0 && (
+          <div className="ar-dag-fixa" data-dag-fixa="">
+          <p className="ar-bara-bred" style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.rubrik, color:FARG.text }}>Att fixa</p>
           <section className="tona-in" style={{ ...KORT, paddingTop:AVSTAND.xs, paddingBottom:AVSTAND.xs, marginBottom:AVSTAND.l }}>
             {vantarRader.map((r, i) => (
               <button key={r.nyckel} onClick={r.onClick}
@@ -3582,8 +3746,10 @@ export default function Arbetsrapport() {
               </button>
             ))}
           </section>
+          </div>
         )}
 
+        <div className="ar-dag-gor" data-dag-gor="">
         {/* Timer-varningar: 3h-påminnelse (orange) och 12h-varning (röd) */}
         {pagaendeAktiviteter.map(p => {
           const sek = sekDiff(p.start_tid);
@@ -3628,7 +3794,8 @@ export default function Arbetsrapport() {
         ) : kvällsLäge ? null : (
           // På kvällen finns ingen Extra arbete-ruta: mer tid läggs till via Något fel? → Mer arbete.
           <div style={{ marginTop:AVSTAND.m }}>
-            {kortKnapp(arbeteUtanMaskin ? 'Arbete' : 'Extra arbete', arbeteUtanMaskin ? 'Planering, restid, manuellt' : 'Reservdelar, service, brandkontroll', async ()=>{
+            {/* Kortet STARTAR tiden nu; länken under lägger in tid i efterhand. Två olika saker — undertexten säger vilken. */}
+            {kortKnapp(arbeteUtanMaskin ? 'Starta arbete' : 'Starta extra arbete', arbeteUtanMaskin ? 'Tiden räknas från nu · planering, restid, manuellt' : 'Tiden räknas från nu · reservdelar, service, brandkontroll', async ()=>{
               const startTid = nuKlock();
               // Trycket kan vara dagens första händelse — skalraden skapas här.
               const arbetsdagId = await sakerstallArbetsdagRad(idagKey);
@@ -3651,7 +3818,7 @@ export default function Arbetsrapport() {
             <div style={{ display:"flex", justifyContent:"center" }}>
               <button onClick={()=>oppnaPeriodNy(idagKey)} style={KNAPP.tertiar}>
                 <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>schedule</span>
-                {arbeteUtanMaskin ? 'Lägg till arbete' : 'Lägg till i efterhand'}
+                Lägg till i efterhand
               </button>
             </div>
           </div>
@@ -3707,6 +3874,13 @@ export default function Arbetsrapport() {
           </section>
           );
         })()}
+        </div>
+
+        {/* VECKAN — bara i två-kolumnsläget (stor skärm), i högra kolumnen. Ingen månadssumma: den räknas bara av lönen (Min tid). */}
+        <div className="ar-dag-las ar-bara-bred" data-dag-las="">
+          {veckanKort}
+        </div>
+        </div></div>
 
         {/* Objektväljare — sheet */}
         {visaObjektVäljare&&(
@@ -4392,7 +4566,7 @@ export default function Arbetsrapport() {
               : vilaPeriod==='år'
                 ? `${nu5.getFullYear()}-12-31`
                 : nu5.toISOString().slice(0,10);
-            const dbBrottIPeriod = (periodVilobrott || []).filter(b => b.datum >= periodFrom && b.datum <= periodTo);
+            const dbBrottIPeriod = (arForetagsledare ? [] : (periodVilobrott || [])).filter(b => b.datum >= periodFrom && b.datum <= periodTo);
             const dbDygn = dbBrottIPeriod.filter(b => b.typ === 'dygnsvila');
             const dbVeck = dbBrottIPeriod.filter(b => b.typ === 'veckovila');
             // Matcha en allVila-rad (visning) mot ett dygnsvila-brott (DB).
@@ -4930,7 +5104,7 @@ export default function Arbetsrapport() {
             </div>
           </header>
 
-          <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px` }}>
+          <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${SCROLL_BOTTOM}` }}>
 
             {/* Brandrisk-retroraden bor numera i Sammanställningens "Saknas"-block. */}
 
@@ -5119,7 +5293,7 @@ export default function Arbetsrapport() {
           </div>
         </header>
 
-        <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px` }}>
+        <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${SCROLL_BOTTOM}` }}>
 
           {/* TIDSSPECIFIKATION — exakt det som går till lönen, ur SAMMA beräkning som
               Fortnox-exporten (/api/lon/min-manad). MÄNGDER, aldrig kronor: föraren
@@ -5431,10 +5605,8 @@ export default function Arbetsrapport() {
     return (
     <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}>
-        <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <BackBtn onClick={()=>setSteg("morgon")}/>
-          <h1 style={{ margin:0,...TYPE.h1 }}>Inställningar</h1>
-        </div>
+        {/* En flik i bottenmenyn: ingen tillbaka-pil (iOS har ingen på en flik). */}
+        <h1 style={{ margin:0,...TYPE.h1 }}>Inställningar</h1>
       </div>
       <div style={{ flex:1,paddingTop:16,paddingBottom:SCROLL_BOTTOM,overflowY:"auto" }}>
         <Label>Hemadress</Label>
@@ -5453,8 +5625,8 @@ export default function Arbetsrapport() {
         <Label>Maskin</Label>
         <Card style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
           <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:600 }}>{maskinNamn || 'Okänd maskin'}</p>
-            <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{medarbetare?.maskin_id || ''} · hämtas från MOM</p>
+            <p style={{ margin:0,...TYP.listtitel,color:FARG.text }}>{maskinNamn || 'Ingen maskin än'}</p>
+            <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>Väljs automatiskt när du loggar in i maskinen</p>
           </div>
           <div style={{ width:8,height:8,borderRadius:"50%",background:C.green }}/>
         </Card>
@@ -5481,12 +5653,7 @@ export default function Arbetsrapport() {
                 if (!sub) {
                   const perm = await Notification.requestPermission();
                   if (perm !== "granted") return;
-                  const vapid = "BGe21_FkdZWkOiaLTWE2GXADsaA08uC2eRGglHIyJ85rL35YkrkUY1L3jTJ7fGvAQlDRjJsH3AMMeX62B63hr34";
-                  const base64 = (vapid + "=".repeat((4 - vapid.length % 4) % 4)).replace(/-/g,'+').replace(/_/g,'/');
-                  const raw = window.atob(base64);
-                  const appKey = new Uint8Array(raw.length);
-                  for (let i = 0; i < raw.length; i++) appKey[i] = raw.charCodeAt(i);
-                  sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey });
+                  sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidPublikSomBytes() });
                 }
                 const deviceName = (navigator.userAgent || '').slice(0, 120);
                 await fetch('/api/push/subscribe', {
@@ -5581,7 +5748,7 @@ export default function Arbetsrapport() {
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
                 <div>
                   <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Push-notiser</p>
-                  <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{pushOn ? (pushEnhetsNamn ? `Aktiverad · ${pushEnhetsNamn.slice(0,40)}` : 'Aktiverad') : 'Avstängd'}</p>
+                  <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>{pushOn ? (pushEnhetsNamn ? `På · ${enhetText(pushEnhetsNamn)}` : 'På') : 'Av'}</p>
                 </div>
                 <Toggle on={pushOn} onChange={togglePush}/>
               </div>
@@ -6354,7 +6521,10 @@ export default function Arbetsrapport() {
                       {/* Objektet syns på raden — utan det skrev man under en perioddag i blindo. */}
                       {p.objektId && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>{objektLista.find(o=>o.id===p.objektId)?.namn || p.objektId}</span>}
                       {p.kind==='extra' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.gron,...TNUM }}>+{fmt(p.minuter)}</span>}
-                      {(()=>{ const f = faktureringsEtikett(p.typ, !!p.deb, !!p.objektId); return <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:f.varna?FARG.orange:FARG.text2 }}>{f.text}</span>; })()}
+                      {/* En automatisk flytt faktureras aldrig härifrån (lastbilsflödet äger flyttfakturan): den räknas som arbetstid. */}
+                      {p.kind==='segment' && (p.kalla==='flytt' || p.kalla==='flyttlogg')
+                        ? <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>{p.kalla==='flyttlogg' ? 'Från flyttloggen · ' : ''}räknas som arbetstid</span>
+                        : (()=>{ const f = faktureringsEtikett(p.typ, !!p.deb, !!p.objektId); return <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:f.varna?FARG.orange:FARG.text2 }}>{f.text}</span>; })()}
                       {p.kind==='segment' && p.kalla==='synk' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>via maskinavvikelse</span>}
                       <div style={{ ...TYP.meta, color: p.oppen ? FARG.orange : FARG.text2, ...TNUM }}>{p.oppen ? `${p.start} – sluttid saknas · fyll i eller ta bort` : `${p.start}–${p.slut}${p.kind==='extra' ? ' · läggs till' : ''}`}{p.kommentar?` · ${p.kommentar}`:''}</div>
                     </div>

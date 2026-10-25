@@ -20,6 +20,7 @@ export const OVRIGA_ETIKETTER: Record<string, string> = {
   boundary: 'Traktgräns', mainRoad: 'Basväg', nature: 'Naturvärde', stickvag: 'Stickväg',
   sideRoadRed: 'Stickväg', sideRoadYellow: 'Stickväg', sideRoadBlue: 'Stickväg',
   fellingdirection: 'Fällriktning', drivedirection: 'Körriktning',
+  fellingtree: 'Fällriktning', koruppbacka: 'Kör upp och backa',   // liggande träd resp. vit dubbelpil
 };
 
 /** Namnet på en markering, avgjort av VAD den är (symbol, yta eller linje) — `wet` är Fuktig mark som symbol men Blött som yta. */

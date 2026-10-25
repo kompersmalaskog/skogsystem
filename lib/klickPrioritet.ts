@@ -23,7 +23,7 @@ export const KLICK_LAGER: { kategori: KlickKategori; lager: string[] }[] = [
   { kategori: 'yta-nr', lager: ['yta-nr-hit'] },
   {
     kategori: 'punkt',
-    lager: ['hogar-hit', 'hogar-cluster', 'grot-circle', 'markers-hit', 'arrows-hit', 'trakt-punkt-circle', 'trakt-raa-point'],
+    lager: ['hogar-hit', 'hogar-cluster', 'grot-circle', 'markers-hit', 'arrows-hit', 'line-fall-trad', 'line-korupp-traff', 'trakt-punkt-circle', 'trakt-raa-point'],
   },
   {
     kategori: 'linje',

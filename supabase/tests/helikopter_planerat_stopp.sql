@@ -20,8 +20,15 @@
 --             inget oförklarat, men med i maskinens rapportdagar (så "inga lass registrerade" kan slå)
 --   R64428  Oskar har DELDAG 14 (atk 12:00–) utan fil → oförklarat · registrerat stopp 25–26 (stopp + stopp_maskin) → registrerat
 --   Elefant Daniel ledig 26–27 (framåt: inga filer än) → planerat, inte arbetsdag kvar
+--   HÄVT STOPP (migration 20261025165356): Max ledig 15–22 men Wisent har filer 15, 18, 19 (någon annan kör) →
+--           20 (idag), 21, 22 är ARBETSDAGAR, inte planerat; Daniels 26–27 (ingen fil i stoppet) är fortfarande planerat
+--   EGEN SKOTNING (samma migration): testobjektet 11083733 är egen skotning i prod sedan 2026-10 och sätts till false i
+--           transaktionen; ett syntetiskt objekt TEST_EGEN (egen_skotning) får 999 m³ skördat av Giant 19 mars och
+--           ska varken synas i Giants takt (80/dag) eller i spårets skördat/ingående/oskotat_objekt; en fil på den gör
+--           ändå dagen körd
 
 -- ── Data ────────────────────────────────────────────────────────────────────
+UPDATE dim_objekt SET egen_skotning = false WHERE objekt_id = '11083733';
 INSERT INTO fakt_produktion (datum, maskin_id, objekt_id, volym_m3sub, monitoring_start)
 SELECT d::date, 'PONS20SDJAA270231', '11083733', 100, d::timestamptz
 FROM unnest(ARRAY['2024-03-01','2024-03-04','2024-03-05','2024-03-06','2024-03-07','2024-03-08','2024-03-14','2024-03-19']::date[]) d;
@@ -45,6 +52,7 @@ FROM (VALUES
   ('Joacim',  '2024-03-18', '2024-03-18', 'godkänd'),
   ('Max',     '2024-03-13', '2024-03-13', 'godkänd'),
   ('Max',     '2024-03-06', '2024-03-06', 'väntar'),
+  ('Max',     '2024-03-15', '2024-03-22', 'godkänd'),
   ('Daniel',  '2024-03-26', '2024-03-27', 'godkänd'),
   ('Oscar',   '2024-03-04', '2024-03-04', 'godkänd')
 ) AS v(fornamn, fran, till, status)
@@ -86,7 +94,11 @@ FROM (VALUES
   ('registrerat stopp (stopp_maskin) gäller som förut → registrerat','R64428',           '2024-03-25', 'registrerat/registrerat:semesterstopp'),
   ('framåt + ledig förare → planerat stopp, inte arbetsdag',        'A130743',           '2024-03-26', 'planerat/ledig:Daniel'),
   ('framåt utan ledighet → arbetsdag',                              'A130743',           '2024-03-25', 'arbetsdag'),
-  ('idag utan fil och utan ledighet → arbetsdag, inte oförklarat',  'PONS20SDJAA270231', '2024-03-20', 'arbetsdag')
+  ('idag utan fil och utan ledighet → arbetsdag, inte oförklarat',  'PONS20SDJAA270231', '2024-03-20', 'arbetsdag'),
+  ('hävt stopp: fil 15 mars mitt i Max ledighet 15–22 → körd',      'A030353',           '2024-03-15', 'kord'),
+  ('hävt stopp: idag (20 mars) i samma ledighet → arbetsdag, inte planerat', 'A030353',  '2024-03-20', 'arbetsdag'),
+  ('hävt stopp: resten av ledigheten (22 mars) → arbetsdag',        'A030353',           '2024-03-22', 'arbetsdag'),
+  ('en fil FÖRE stoppet häver inget (Elefant fil 19, ledig 26–27)', 'A130743',           '2024-03-27', 'planerat/ledig:Daniel')
 ) AS v(namn, maskin, dag, forvantat);
 
 -- helikopter_ny_arbetsdagar: per maskin = körda + oförklarade (gångna) + arbetsdagar kvar; global rad räknas som förut
@@ -162,6 +174,28 @@ SELECT 'spår: takt_skordat 104, takt_skotat 156,8 (Wisent 50 + 810E 46,75 + Ele
        (SELECT ROW(s.takt_skordat, s.takt_skotat, s.oskotat_forandring_per_dag, s.takt_dagar)::text
           FROM helikopter_ny_spar(2024, 3, '2024-03-20') s WHERE s.typ = 'slutavverkning' AND s.bas = 'totalt')
        = '(104.0,156.8,-52.8,5)';
+
+-- egen skotning räknas aldrig mot beställningen: spåret (skördat, takt, ingående, oskotat_objekt) och Giants takt är
+-- desamma före och efter att TEST_EGEN fått 999 m³ i mars och 500 m³ i februari
+CREATE TEMP TABLE fore AS
+SELECT s.skordat, s.takt_skordat, s.ingaende_oskotat, s.oskotat_objekt,
+       (SELECT t.takt FROM helikopter_ny_takt(2024, 3, '2024-03-20') t WHERE t.typ = 'slutavverkning' AND t.bas = 'totalt' AND t.maskin_id = 'PONS20SDJAA270231') AS giant_takt
+FROM helikopter_ny_spar(2024, 3, '2024-03-20') s WHERE s.typ = 'slutavverkning' AND s.bas = 'totalt';
+INSERT INTO dim_objekt (objekt_id, object_name, huvudtyp, bolag, egen_skotning) VALUES ('TEST_EGEN', 'Testtrakt egen skotning', 'Slutavverkning', 'Vida', true);
+INSERT INTO fakt_produktion (datum, maskin_id, objekt_id, volym_m3sub, monitoring_start) VALUES ('2024-03-19', 'PONS20SDJAA270231', 'TEST_EGEN', 999, '2024-03-19'::timestamptz);
+INSERT INTO fakt_produktion (datum, maskin_id, objekt_id, volym_m3sub, monitoring_start) VALUES ('2024-02-19', 'PONS20SDJAA270231', 'TEST_EGEN', 500, '2024-02-19'::timestamptz);
+INSERT INTO kontroll
+SELECT 'egen skotning: TEST_EGEN (999 m³ 19 mars + 500 m³ i februari) ändrar varken spårets skördat, takt, ingående, oskotat_objekt eller Giants takt',
+       (SELECT ROW(s.skordat, s.takt_skordat, s.ingaende_oskotat, s.oskotat_objekt::text,
+                   (SELECT t.takt FROM helikopter_ny_takt(2024, 3, '2024-03-20') t WHERE t.typ = 'slutavverkning' AND t.bas = 'totalt' AND t.maskin_id = 'PONS20SDJAA270231'))::text
+          FROM helikopter_ny_spar(2024, 3, '2024-03-20') s WHERE s.typ = 'slutavverkning' AND s.bas = 'totalt')
+       = (SELECT ROW(f.skordat, f.takt_skordat, f.ingaende_oskotat, f.oskotat_objekt::text, f.giant_takt)::text FROM fore f)
+       AND NOT EXISTS (SELECT 1 FROM helikopter_ny_spar(2024, 3, '2024-03-20') s WHERE s.oskotat_objekt::text LIKE '%Testtrakt egen skotning%');
+-- …men en fil på egen-skotning-trakten gör ÄNDÅ dagen körd (maskinen jobbade — egen skotning gäller volymen, inte dagen)
+INSERT INTO fakt_produktion (datum, maskin_id, objekt_id, volym_m3sub, monitoring_start) VALUES ('2024-03-21', 'PONS20SDJAA270231', 'TEST_EGEN', 10, '2024-03-21'::timestamptz);
+INSERT INTO kontroll
+SELECT 'egen skotning: en fil 21 mars på TEST_EGEN gör dagen körd (volymen räknas inte, dagen gör det)',
+       (SELECT md.status FROM helikopter_ny_maskindag(2024, 3, '2024-03-20') md WHERE md.maskin_id = 'PONS20SDJAA270231' AND md.datum = '2024-03-21') = 'kord';
 
 -- helikopter_ny_maskin (maskinlistan, veckoläget, notisen): manuell maskin = samma regel som helikopter_ny_takt; auto-maskiner oförändrade (5-dagarsfönstret)
 INSERT INTO kontroll

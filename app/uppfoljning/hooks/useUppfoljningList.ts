@@ -75,7 +75,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade, skotareManuellRes, faktLassRows] = await Promise.all([
           supabase.from('dim_objekt').select('*'),
           supabase.from('dim_maskin').select('*'),
-          supabase.from('objekt').select('vo_nummer, markagare, areal, typ'),
+          supabase.from('objekt').select('vo_nummer, markagare, areal, typ, skotare_maskin_id'),
           supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub, stammar, sista_datum, maskin_ids'),
           supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub, antal_lass, sista_datum, maskin_ids'),
           supabase.from('grot_koppling').select('risjobb_objekt_id, avverknings_objekt_id'),
@@ -122,10 +122,13 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           mm.set(mid, (mm.get(mid) || 0) + (Number(r.volym_m3sub) || 0));
         }
 
-        const objektInfo = new Map<string, { agare: string; areal: number; typ: string }>();
+        const objektInfo = new Map<string, { agare: string; areal: number; typ: string; plSkotare: string | null }>();
         objektTbl.forEach(o => {
           if (o.vo_nummer) {
-            objektInfo.set(o.vo_nummer, { agare: o.markagare || '', areal: o.areal || 0, typ: o.typ || '' });
+            // skotare_maskin_id = planerarens tilldelade skotare (objekt-tabellen,
+            // Martins planering). dim_objekt.tilldelad_skotare är ofta tom (Skälviken),
+            // så den här är den som visar "Elefant 26" innan första lasset.
+            objektInfo.set(o.vo_nummer, { agare: o.markagare || '', areal: o.areal || 0, typ: o.typ || '', plSkotare: o.skotare_maskin_id || null });
           }
         });
 
@@ -330,15 +333,16 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           // SKOTARGRUPPERING — BARA maskinnamn, aldrig förarnamn, och ALDRIG
           // dim_objekt.maskin_id (den är SKÖRDAREN).
           //  1. Lassdata (vy_uppf_lass_per_objekt) = hård data, vinner alltid.
-          //  2. dim_objekt.tilldelad_skotare = Martins planering, grupperar
-          //     objektet redan innan första lasset.
+          //  2. Planering = tilldelad skotare, grupperar objektet redan innan
+          //     första lasset: dim_objekt.tilldelad_skotare om satt, annars
+          //     objekt.skotare_maskin_id (planerarens fält — det Skälviken har).
           //  3. Annars null → "Ej tilldelad". Gissa aldrig.
           let lassMaskinId: string | null = null;
           for (const e of skotareEntries) {
             const mid = lassMaskinMap.get(e.objekt_id);
             if (mid) { lassMaskinId = mid; break; }
           }
-          const tilldeladId = entries.map((e: any) => e.tilldelad_skotare).find(Boolean) || null;
+          const tilldeladId = entries.map((e: any) => e.tilldelad_skotare).find(Boolean) || info?.plSkotare || null;
           const namnFranLass = lassMaskinId ? maskinVisningsnamn(maskinMap.get(lassMaskinId)) : '';
           const namnFranTilldelning = tilldeladId ? maskinVisningsnamn(maskinMap.get(tilldeladId)) : '';
           const skotareKalla: 'lass' | 'tilldelad' | null =

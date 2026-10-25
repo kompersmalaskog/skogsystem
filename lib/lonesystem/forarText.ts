@@ -157,10 +157,17 @@ export function attTittaPa(spec: any): TittaPost[] {
       text: `För kort för att räknas som arbetsdag. Ser det ut som en felinloggning — säg till Martin, så tar han bort dagen.`,
     });
   }
+  // Sjuktimmar (8 tim per sjuk vardag) går till lönen när lönearten har en kod; annan frånvaro har ingen löneart än.
+  const sjukGar = ((spec?.lonerader || []) as { loneart: string; status: string }[]).some(l => l.loneart === "sjuktimmar" && l.status === "skickas");
+  const sjukSlut = sjukGar ? "Går till lönen." : "Går inte till lönen än — lönearten är inte inställd. Säg till Martin.";
+  const sjukDagar = new Map(((spec?.sjuk?.dagar || []) as { datum: string; timmar: number }[]).map(d => [d.datum, d.timmar]));
   for (const dd of (spec?.deldagar || []) as any[]) {
+    const sjuk = String(dd.typ).toLowerCase() === "sjuk";
     ut.push({
       nyckel: `dd${dd.datum}`, datum: dd.datum, rubrik: datumLang(dd.datum), hoger: deldagText(dd),
-      text: `${deldagRubrik(dd.typ)}, ${Number(dd.timmar).toLocaleString("sv-SE")} tim frånvaro. ${EJ_BESTAMD}`,
+      text: sjuk
+        ? `${deldagRubrik(dd.typ)}, ${Number(sjukDagar.get(dd.datum) ?? dd.timmar).toLocaleString("sv-SE")} tim sjuktimmar (8 tim minus det du jobbade). ${sjukSlut}`
+        : `${deldagRubrik(dd.typ)}, ${Number(dd.timmar).toLocaleString("sv-SE")} tim frånvaro. ${EJ_BESTAMD}`,
     });
   }
   // Hemskickad: betald tid, ingen frånvaro. En post per dag så föraren ser vad som betalas — och kan säga till om det är fel.
@@ -172,9 +179,16 @@ export function attTittaPa(spec: any): TittaPost[] {
   }
   for (const f of (spec?.franvaro || []) as { typ: string; dagar: number; datum: string[] }[]) {
     const ord = arFranvaroTyp(f.typ) ? FRANVARO_TYP_RUBRIK[f.typ] : f.typ;
+    let text = EJ_BESTAMD;
+    if (f.typ === "sjuk") {
+      const vardagar = f.datum.filter(d => sjukDagar.has(d)).length;
+      text = vardagar > 0
+        ? `8 tim för varje vardag: ${vardagar * 8} tim sjuktimmar${vardagar < f.dagar ? " (helger och röda dagar räknas inte)" : ""}. ${sjukSlut}`
+        : "Helger och röda dagar räknas inte som sjuktimmar.";
+    }
     ut.push({
       nyckel: `fr${f.typ}`, datum: f.datum[0] || "", rubrik: datumSpann(f.datum), hoger: `${ord}, ${f.dagar} ${f.dagar === 1 ? "dag" : "dagar"}`,
-      text: EJ_BESTAMD,
+      text,
     });
   }
   // Helglönen: EN post per röd vardag, med orsaken — varför dagen gav eller inte gav helglön (Min månad). Går till lönen när lönearten
@@ -187,9 +201,9 @@ export function attTittaPa(spec: any): TittaPost[] {
   if (varn.some(v => /^Ingen helglön skickas/.test(v))) {
     ut.push({ nyckel: "hlmaskin", datum: "", rubrik: "Helglön", hoger: "saknas", text: "Du har ingen maskintid den här månaden och ingen maskin på din rad i registret, så helglönen kan inte läggas till. Säg till Martin." });
   }
-  // Övriga lönearter som har ett antal men saknar kod: raden går inte till lönen. Helglönen har sina dagsposter ovan.
+  // Övriga lönearter som har ett antal men saknar kod: raden går inte till lönen. Helglönen och sjuktimmarna har sina dagsposter ovan.
   // Frivilliga (premien) är ingen sak för föraren.
-  for (const l of lonerader.filter(l => l.status === "saknar_kod" && !l.loneart.startsWith("helglon"))) {
+  for (const l of lonerader.filter(l => l.status === "saknar_kod" && !l.loneart.startsWith("helglon") && l.loneart !== "sjuktimmar")) {
     const info = loneartInfo(l.loneart);
     ut.push({ nyckel: `lk-${l.loneart}`, datum: "", rubrik: info?.label ?? "Lönerad", hoger: "inte inställd", text: "Går inte till lönen än — lönearten är inte inställd. Säg till Martin." });
   }

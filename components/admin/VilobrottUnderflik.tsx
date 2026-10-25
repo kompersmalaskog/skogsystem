@@ -4,6 +4,8 @@ import { AVSTAND, FARG, TYP, TNUM } from "@/lib/design/tokens";
 import { laddaVilobrottLista, type VilobrottRad } from "@/lib/admin/vilobrottLista";
 import { Sektion, Stod, Kort, Lista, Rad, Sekundar, Tertiar, Fel, Laddar, Etikett } from "./ui";
 import { byggPdfHtml } from "@/lib/admin/vilobrottPdf";
+import { hanteratText } from "@/lib/admin/vilobrottHanterat";
+import VilobrottHanteratArk from "./VilobrottHanteratArk";
 
 // Vilobrott: brotten räknas om ur arbetsdag + extra_tid (de senaste tre månaderna) och förarens svar läggs på
 // (lib/admin/vilobrottLista, samma lista som Översikten bygger sin rad på). Rött/orange bara för obesvarat.
@@ -14,6 +16,10 @@ export default function VilobrottUnderflik() {
   const [fel, setFel] = useState<string | null>(null);
   const [omgang, setOmgang] = useState(0);
   const [visaMetod, setVisaMetod] = useState(false);
+  // Brottet vars ark är öppet (nyckel, så arket följer med när listan läses om efter en sparning).
+  const [valt, setValt] = useState<string | null>(null);
+  const brottNyckel = (b: VilobrottRad) => `${b.medarbetare_id}|${b.typ}|${b.datum}`;
+  const valtBrott = valt ? allaBrott.find(b => brottNyckel(b) === valt) ?? null : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -88,10 +94,11 @@ export default function VilobrottUnderflik() {
                     : <Etikett>alla besvarade</Etikett>}
                 </div>
                 {g.brott.map((b, i) => (
-                  <Rad key={i} sista={i === g.brott.length - 1} dampad={!!b.svar}
+                  <Rad key={brottNyckel(b)} sista={i === g.brott.length - 1} dampad={!!b.svar}
+                    attr={{ "data-vilobrott-rad": `${b.typ}-${b.datum}` }} chevron onClick={() => setValt(brottNyckel(b))}
                     rubrik={<>{b.typ === "dygnsvila" ? "Dygnsvila" : "Veckovila"} <span style={{ ...TYP.meta, color: FARG.text2, fontWeight: 400 }}>v.{b.vecka} {b.år}</span></>}
                     rubrikFarg={FARG.orange}
-                    detalj={<>{b.beskrivning}{b.svar && <><br />Besvarat: {b.svar}</>}</>} />
+                    detalj={<>{b.beskrivning}{b.svar && <><br />Besvarat: {b.svar}</>}{b.hanterat && <><br />{hanteratText(b.hanterat)}{b.hanterat.anteckning ? `: ${b.hanterat.anteckning}` : ""}</>}</>} />
                 ))}
               </Lista>
             </div>
@@ -104,6 +111,7 @@ export default function VilobrottUnderflik() {
           {pdfFel && <Stod farg={FARG.rod}>{pdfFel}</Stod>}
         </>
       )}
+      {valtBrott && <VilobrottHanteratArk key={valt!} brott={valtBrott} onStang={() => setValt(null)} onAndrat={() => setOmgang(n => n + 1)} />}
     </>
   );
 }

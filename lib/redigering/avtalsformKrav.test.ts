@@ -33,10 +33,10 @@ describe('Redigering varnar för avtalsform på slutavverkning och för åtgärd
 
 describe('källvakt: Redigering och matchningsvyn använder samma regel', () => {
   const las = (p: string) => readFileSync(resolve(__dirname, '../..', p), 'utf8');
-  it('getWarnings, kravlistan och matchningens "saknas" går via avtalsformKrav', () => {
+  it('getWarnings och matchningens "saknas" går via avtalsformKrav', () => {
+    // Den gamla kravlistan (kravFaltFor) användes inte längre och togs bort 2026-10-24.
     const red = las('app/redigering/RedigeringClient.tsx');
     expect(red).toContain('saknarAvtalsformEllerAtgard(obj)');
-    expect(red).toContain("kravAvtalsform(obj)) return KRAV_FALT.map(f => f.key === 'atgard'");
     const match = las('app/redigering/hooks/useMatchning.ts');
     expect(match).toContain('kravAvtalsform(d)');
     expect(match).toContain('medAvtalsformSvar');

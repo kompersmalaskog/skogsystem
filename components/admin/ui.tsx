@@ -2,10 +2,10 @@
 // Admins byggstenar — ur lib/design/tokens, samma känsla som arbetsrapporten: kort utan ram, tysta
 // grå rader, små versala rubriker. Orange bara för det som kräver handling, grått för det som stämmer.
 // Ersätter den gamla components/admin/design.tsx (egen palett, egna mått).
-import React, { useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import React, { createContext, useContext, useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
-  TYP, TNUM, AVSTAND, RADIE, FARG, FONT, KNAPP, INAKTIV, KORT, TRAFFYTA, RORELSE, LAYOUT,
+  TYP, TNUM, AVSTAND, RADIE, FARG, FONT, KNAPP, INAKTIV, KORT, TRAFFYTA, RORELSE, LAYOUT, medSafeBotten,
 } from "@/lib/design/tokens";
 import Ikon from "@/components/design/Ikon";
 
@@ -37,10 +37,19 @@ export function Stod({ children, farg = FARG.text2, style, attr }: { children: R
 
 // ── Ytor ────────────────────────────────────────────────────────────────
 
+/**
+ * Ett ark ÄR ett kort (FARG.kort). Ett kort eller en lista inne i arket i samma färg syns inte: raderna såg ut att sväva
+ * med en indragning utan kant (Förare · Månad, Vilobrott, Öppna frågor). Inne i ett ark lyfts ytorna ett steg (FARG.upphojt),
+ * som iOS grupperade listor i ett ark. Sheet sätter värdet; Kort, Lista och Besked läser det.
+ */
+const IArk = createContext(false);
+const ytaFarg = (iArk: boolean) => (iArk ? FARG.upphojt : FARG.kort);
+
 /** Kort med innehåll på fri yta. */
 export function Kort({ children, style, onClick }: { children: ReactNode; style?: CSSProperties; onClick?: () => void }) {
+  const iArk = useContext(IArk);
   return (
-    <div onClick={onClick} style={{ ...KORT, cursor: onClick ? "pointer" : "default", ...style }}>
+    <div onClick={onClick} style={{ ...KORT, background: ytaFarg(iArk), cursor: onClick ? "pointer" : "default", ...style }}>
       {children}
     </div>
   );
@@ -48,8 +57,9 @@ export function Kort({ children, style, onClick }: { children: ReactNode; style?
 
 /** Lista: ett kort där raderna delar linjer. Sidmarginal i kortet, ingen ram. */
 export function Lista({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+  const iArk = useContext(IArk);
   return (
-    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `0 ${AVSTAND.sidmarginal}px`, ...style }}>
+    <div data-lista="" style={{ background: ytaFarg(iArk), borderRadius: RADIE.kort, padding: `0 ${AVSTAND.sidmarginal}px`, ...style }}>
       {children}
     </div>
   );
@@ -238,7 +248,8 @@ export function Fel({ children, onForsok }: { children: ReactNode; onForsok?: ()
 /** Besked under ett formulär: fel (rött) eller en bekräftelse (grönt). */
 export function Besked({ children, slag = "fel" }: { children: ReactNode; slag?: "fel" | "ok" | "info" }) {
   const farg = slag === "fel" ? FARG.rod : slag === "ok" ? FARG.gron : FARG.text2;
-  return <div role={slag === "fel" ? "alert" : "status"} style={{ marginTop: AVSTAND.l, padding: AVSTAND.m, background: FARG.kort, borderRadius: RADIE.rad, ...TYP.meta, color: farg }}>{children}</div>;
+  const iArk = useContext(IArk);
+  return <div role={slag === "fel" ? "alert" : "status"} style={{ marginTop: AVSTAND.l, padding: AVSTAND.m, background: ytaFarg(iArk), borderRadius: RADIE.rad, ...TYP.meta, color: farg }}>{children}</div>;
 }
 
 export function Tomt({ children }: { children: ReactNode }) {
@@ -262,9 +273,22 @@ export function Bekrafta({ text, ja, nej = "Avbryt", onJa, onNej, upptagen }: {
 
 /** Arkets höjd är FAST, inte innehållets: på telefon nästan hela fönstret under toppfältet, på dator högst 85 %. dvh följer adressfältet; vh är reserv. */
 const ARK_UTRYMME = `${LAYOUT.topbar} - ${2 * AVSTAND.l}px`;
+/** Under ARK_TELEFON_PX är arket ett iOS-ark: fäst i nederkanten, hela bredden, rundat bara upptill, med grepp — dra ned stänger. */
+export const ARK_TELEFON_PX = 760;
+/** Så långt (px) greppet ska dras ned för att arket ska stängas. */
+export const ARK_DRA_STANG_PX = 96;
 const arkCss = `
   .ark-dialog { height: calc(100vh - ${ARK_UTRYMME}); height: calc(100dvh - ${ARK_UTRYMME}); }
-  @media (min-width: 760px) { .ark-dialog { height: min(85vh, calc(100vh - ${ARK_UTRYMME})); height: min(85dvh, calc(100dvh - ${ARK_UTRYMME})); } }
+  .ark-grepp { display: none; }
+  @media (max-width: ${ARK_TELEFON_PX - 1}px) {
+    .ark-overlay { align-items: flex-end !important; padding: calc(${LAYOUT.topbar} + ${AVSTAND.l}px) 0 0 !important; }
+    .ark-dialog { height: calc(100vh - ${LAYOUT.topbar} - ${AVSTAND.l}px); height: calc(100dvh - ${LAYOUT.topbar} - ${AVSTAND.l}px);
+      max-width: none !important; border-radius: ${RADIE.sheet}px ${RADIE.sheet}px 0 0 !important;
+      padding-top: 0 !important; padding-bottom: ${medSafeBotten(AVSTAND.l)} !important; }
+    .ark-grepp { display: flex; justify-content: center; padding: ${AVSTAND.s}px 0 ${AVSTAND.m}px; touch-action: none; cursor: grab; }
+    .ark-rubrik { touch-action: none; }
+  }
+  @media (min-width: ${ARK_TELEFON_PX}px) { .ark-dialog { height: min(85vh, calc(100vh - ${ARK_UTRYMME})); height: min(85dvh, calc(100dvh - ${ARK_UTRYMME})); } }
 `;
 
 /**
@@ -280,6 +304,37 @@ export function Sheet({ titel, vanster, hoger, onStang, children, attr, overlayA
   const dialogRef = useRef<HTMLDivElement>(null);
   const bytte = useRef(0);
   useLayoutEffect(() => { bytte.current = Date.now(); }, [vyNyckel]);
+
+  // Esc stänger, som tryck utanför.
+  const stangRef = useRef(onStang); stangRef.current = onStang;
+  useEffect(() => {
+    const t = (e: KeyboardEvent) => { if (e.key === "Escape") stangRef.current(); };
+    document.addEventListener("keydown", t);
+    return () => document.removeEventListener("keydown", t);
+  }, []);
+
+  // Dra ned greppet eller rubriken (telefon): arket följer fingret, släpps det längre än ARK_DRA_STANG_PX stängs det, annars fjädrar det tillbaka.
+  const dra = useRef<{ y: number; id: number } | null>(null);
+  const draStart = (e: React.PointerEvent) => {
+    if (window.innerWidth >= ARK_TELEFON_PX || (e.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+    dra.current = { y: e.clientY, id: e.pointerId };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+  const draFlytt = (e: React.PointerEvent) => {
+    const d = dra.current; const el = dialogRef.current;
+    if (!d || d.id !== e.pointerId || !el) return;
+    const dy = Math.max(0, e.clientY - d.y);
+    el.style.transition = "none"; el.style.transform = `translateY(${dy}px)`;
+  };
+  const draSlut = (e: React.PointerEvent) => {
+    const d = dra.current; const el = dialogRef.current;
+    if (!d || d.id !== e.pointerId) return;
+    dra.current = null;
+    const dy = Math.max(0, e.clientY - d.y);
+    if (dy > ARK_DRA_STANG_PX) { onStang(); return; }
+    if (el) { el.style.transition = `transform ${RORELSE.byte}ms ${RORELSE.kurva}`; el.style.transform = ""; }
+  };
+  const draProps = { onPointerDown: draStart, onPointerMove: draFlytt, onPointerUp: draSlut, onPointerCancel: draSlut };
 
   // Medan arket är öppet finns resten av sidan (sidomenyn, bottenmenyn, innehållet) inte: inert tar bort den ur tab-ordningen,
   // ur tillgänglighetsträdet och från tryck. Fokus flyttas in i dialogen och tillbaka till knappen som öppnade den när arket stängs.
@@ -313,7 +368,7 @@ export function Sheet({ titel, vanster, hoger, onStang, children, attr, overlayA
   }, []);
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div ref={overlayRef} data-ark-overlay="" onClick={onStang} className="tona-opacity" {...overlayAttr}
+    <div ref={overlayRef} data-ark-overlay="" onClick={onStang} className="tona-opacity ark-overlay" {...overlayAttr}
       // Andra trycket i ett dubbelklick (detail > 1) strax efter att arket öppnats eller bytt innehåll sväljs, OAVSETT var det landar. Arket byter
       // höjd när innehållet byts (förarlistan är lägre än formuläret) och centreras om, så andra trycket hamnar på det nya innehållet
       // (Förare → en förare vald; ‹ Ny period → Avbryt) eller UTANFÖR dialogen, på bakgrunden, som stänger arket. Mätt i Chrome: 13 ms mellan trycken.
@@ -325,12 +380,15 @@ export function Sheet({ titel, vanster, hoger, onStang, children, attr, overlayA
       <style>{arkCss}</style>
       <div ref={dialogRef} tabIndex={-1} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" className="sheet-upp ark-dialog" {...attr}
         style={{ outline: "none", background: FARG.kort, color: FARG.text, fontFamily: FONT, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 520, display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box", colorScheme: "dark" }}>
-        <div data-ark-rubrik style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: AVSTAND.s, margin: `0 0 ${AVSTAND.l}px`, flexShrink: 0 }}>
+        <div className="ark-grepp" data-ark-grepp="" aria-hidden="true" {...draProps}>
+          <div style={{ width: 36, height: AVSTAND.xs, borderRadius: RADIE.rad, background: FARG.fyllning }} />
+        </div>
+        <div data-ark-rubrik className="ark-rubrik" {...draProps} style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: AVSTAND.s, margin: `0 0 ${AVSTAND.l}px`, flexShrink: 0 }}>
           <div style={{ justifySelf: "start" }}>{vanster}</div>
           <p style={{ margin: 0, ...TYP.listtitel, color: FARG.text, textAlign: "center" }}>{titel}</p>
           <div style={{ justifySelf: "end" }}>{hoger}</div>
         </div>
-        <div data-ark-innehall style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain" }}>{children}</div>
+        <div data-ark-innehall style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain" }}><IArk.Provider value={true}>{children}</IArk.Provider></div>
       </div>
     </div>,
     document.body,

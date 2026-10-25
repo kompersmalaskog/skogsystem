@@ -476,11 +476,14 @@ function ValjRad({ etikett, varde, val, tom = 'Välj', sista, onValj }: {
   );
 }
 
-function Brytare({ pa, etikett, upptagen, onByt }: { pa: boolean; etikett: string; upptagen?: boolean; onByt: (v: boolean) => void }) {
+export function Brytare({ pa, etikett, upptagen, onByt }: { pa: boolean; etikett: string; upptagen?: boolean; onByt: (v: boolean) => void }) {
   return (
     <button type="button" role="switch" aria-checked={pa} aria-label={etikett} disabled={upptagen} onClick={() => onByt(!pa)}
-      style={{ width: TRAFFYTA.primar + AVSTAND.s, height: AVSTAND.xxl, borderRadius: AVSTAND.xl, border: 'none', cursor: 'pointer', flexShrink: 0, position: 'relative', background: pa ? FARG.gron : FARG.upphojt, transition: `background ${RORELSE.tryck}ms ${RORELSE.kurva}`, ...(upptagen ? INAKTIV : {}) }}>
-      <span style={{ position: 'absolute', top: AVSTAND.xs, left: pa ? AVSTAND.xl + AVSTAND.xs : AVSTAND.xs, width: AVSTAND.xl, height: AVSTAND.xl, borderRadius: RADIE.cirkel, background: FARG.text, transition: `left ${RORELSE.tryck}ms ${RORELSE.kurva}` }} />
+      style={{ width: TRAFFYTA.primar + AVSTAND.s, height: TRAFFYTA.min, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', ...(upptagen ? INAKTIV : {}) }}>
+      {/* Tryckytan är 44 px hög; själva brytaren som syns är 32 px. */}
+      <span data-brytare-spar="" style={{ position: 'relative', display: 'block', width: '100%', height: AVSTAND.xxl, borderRadius: AVSTAND.xl, background: pa ? FARG.gron : FARG.upphojt, transition: `background ${RORELSE.tryck}ms ${RORELSE.kurva}` }}>
+        <span style={{ position: 'absolute', top: AVSTAND.xs, left: pa ? AVSTAND.xl + AVSTAND.xs : AVSTAND.xs, width: AVSTAND.xl, height: AVSTAND.xl, borderRadius: RADIE.cirkel, background: FARG.text, transition: `left ${RORELSE.tryck}ms ${RORELSE.kurva}` }} />
+      </span>
     </button>
   );
 }

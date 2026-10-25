@@ -47,7 +47,7 @@ export interface PlusPostVy {
 
 export interface SymbolKategori { id: string; rubrik: string; poster: PlusPostVy[] }
 
-export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps' | 'omrade' | 'pilar' | 'stickvag';
+export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps' | 'omrade' | 'pilar' | 'stickvag' | 'korordning' | 'redigera';
 /** En stor ruta i Rita & mät. Vad ett tryck gör avgör sidan (samma flöden som förut). */
 export interface RitaKort { id: string; titel: string; ikon: RitaIkonId; onTryck: () => void }
 
@@ -108,7 +108,9 @@ function RitaIkon({ id }: { id: RitaIkonId }) {
       {id === 'matyta' && <><path d="M6 6 H34 V34 H6 Z" {...linje} strokeDasharray="4 4" /><path d="M14 20 H26" {...linje} /></>}
       {id === 'gps' && <><circle cx="20" cy="20" r="5" {...linje} /><circle cx="20" cy="20" r="13" {...linje} /><path d="M20 3 V8 M20 32 V37 M3 20 H8 M32 20 H37" {...linje} /></>}
       {id === 'omrade' && <><path d="M6 10 L30 6 L35 30 L10 34 Z" {...linje} strokeDasharray="4 4" /><path d="M20 14 V26 M14 20 H26" {...linje} /></>}
+      {id === 'redigera' && <><path d="M5 30 L16 20 L22 26 L35 10" {...linje} strokeDasharray="1 5" /><path d="M5 30 L13 22.5" {...linje} /><path d="M26 22 L35 10" {...linje} /></>}
       {id === 'pilar' && <path d="M7 33 L32 8 M32 8 H19 M32 8 V21" {...linje} />}
+      {id === 'korordning' && <><path d="M6 33 L18 21 L26 27 L34 9" {...linje} /><path d="M34 9 H25 M34 9 V18" {...linje} /></>}
       {id === 'stickvag' && <><path d="M20 35 V5" {...linje} /><path d="M20 28 L8 22 M20 18 L32 12 M20 10 L9 5" {...linje} strokeDasharray="4 4" /></>}
     </svg>
   );

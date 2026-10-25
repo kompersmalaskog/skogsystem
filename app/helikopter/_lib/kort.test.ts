@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { raknaSpar, planeratPerTyp, type PlaneratResultat } from './berakningar'
 import { fmt, fmtDag } from './format'
-import { gorDetta, klarRader, manuellaUtanLass, sidSvar, sparKort, GOR_SYNLIGA, type GorIndata } from './kort'
+import { gorDetta, klarRader, traktUnder, manuellaUtanLass, sidSvar, sparKort, egenSkotningVy, EGEN_SKOTNING_NOT, GOR_SYNLIGA, type GorIndata } from './kort'
 import { lasKlar, medUppskattadPrognos, raknaAlla, type KlarData } from './klar'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import fixtur from './__fixtures__/klar_2026-10-17.json'
@@ -68,9 +68,11 @@ describe('sparKort — talet är ALLTID skotat hittills, prognosen står i `land
 
 describe('sidSvar — EN mening i vanliga ord', () => {
   const k = (spar: typeof gallOk[], status: 'pagaende' | 'avslutad' | 'kommande' = 'pagaende', n = 3) => spar.map(s => sparKort(s, status, n))
-  it('fattas går först, med varningsikon', () => {
-    expect(sidSvar(k([gallOkt, slutOkt]), 'pagaende')).toEqual({ rubrik: 'Vi hinner inte med beställningen', avvikelse: true })
-    expect(sidSvar(k([gallOk, slutOkt]), 'pagaende')).toEqual({ rubrik: 'Vi hinner inte med beställningen', avvikelse: true })
+  it('fattas går först, med varningsikon — och säger VILKET spår och hur mycket', () => {
+    // gallring landar 714 av 1 000 (fattas 286), slutavverkning 4 103 av 5 000 (fattas 897)
+    expect(sidSvar(k([gallOkt, slutOkt]), 'pagaende')).toEqual({ rubrik: 'Gallring fattas 286 · slutavverkning 897', avvikelse: true })
+    expect(sidSvar(k([gallOk, slutOkt]), 'pagaende')).toEqual({ rubrik: 'Slutavverkning fattas 897', avvikelse: true })
+    expect(sidSvar(k([slutOkt, gallOk]), 'pagaende').rubrik).toBe('Slutavverkning fattas 897')
   })
   it('allt hinner', () => {
     expect(sidSvar(k([gallOk]), 'pagaende')).toEqual({ rubrik: 'Vi hinner med beställningen', avvikelse: false })
@@ -89,7 +91,7 @@ describe('sidSvar — EN mening i vanliga ord', () => {
     const utan = raknaSpar(rad('gallring', { bestallt: 0 }), okt)
     expect(sidSvar(k([utan]), 'pagaende').rubrik).toBe('Ingen beställning inlagd')
     expect(sidSvar(k([gallOk], 'kommande'), 'kommande').rubrik).toBe('Månaden har inte börjat')
-    expect(sidSvar(k([gallOkt], 'avslutad'), 'avslutad')).toEqual({ rubrik: 'Vi hann inte med beställningen', avvikelse: true })
+    expect(sidSvar(k([gallOkt], 'avslutad'), 'avslutad')).toEqual({ rubrik: 'Gallring fattades 286', avvikelse: true })
     const natt = raknaSpar(rad('gallring', { bestallt: 1000, skotat: 1000 }), okt)
     expect(sidSvar(k([natt], 'avslutad'), 'avslutad')).toEqual({ rubrik: 'Beställningen blev klar', avvikelse: false })
     const framme = raknaSpar(rad('gallring', { bestallt: 1000, skordat: 1100, skotat: 1000, takt_skordat: 10, takt_skotat: 10, ingaende_oskotat: 0 }), okt)
@@ -216,5 +218,38 @@ describe('medUppskattadPrognos — en trakt utan prognos får G15-förslaget, da
     expect(medUppskattadPrognos(d, null)).toBe(d)
     const grot: KlarData = { ...d, trakter: [{ ...d.trakter[0], typ: 'grot', timmar: null, saknar_prognos: true }] }
     expect(medUppskattadPrognos(grot, utfall).trakter[0].uppskattad).toBeUndefined()
+  })
+})
+
+describe('traktUnder — raden under trakten i Klar-arket', () => {
+  it('följer takten går före "räknat på liknande trakter", och säger hur mycket', () => {
+    expect(traktUnder({})).toBeNull()
+    expect(traktUnder({ uppskattad: true })).toBe('Prognos räknad på liknande trakter')
+    expect(traktUnder({ uppskattad: true, foljer: { restPlanH: 10, skillnad: 0.12, utfortH: 8 } })).toBe('Följer takten på trakten · 12 % fortare än prognosen')
+    expect(traktUnder({ foljer: { restPlanH: null, skillnad: null, utfortH: 8 } })).toBe('Följer takten på trakten')
+  })
+})
+
+describe('egenSkotningVy — en egen rubrik, inget annat (Martin 2026-10-25)', () => {
+  // Prod oktober 2026: Trestensdal (Vida) och Trolleboda (privat P-VO) har egen skotning; Trestensdal är 178,4 m³fub skördat.
+  const rader = [
+    { objekt_id: '11124748', namn: 'Trestensdal gallring 2025.', vo_nummer: '11124748', typ: 'gallring', bolag: 'Vida', skordat: 178.4, senast_datum: '2026-10-10' },
+    { objekt_id: 'R64428_53', namn: 'Görgen Gustafsson Trolleboda', vo_nummer: 'P-1025', typ: 'gallring', bolag: 'Privat', skordat: 30.5, senast_datum: '2026-10-23' },
+  ]
+  it('en rad per objekt: kortnamn, typ · bolag, skördat i m³fub', () => {
+    const vy = egenSkotningVy(rader)
+    expect(vy.map(r => r.namn)).toEqual(['Trestensdal gallring', 'Görgen Gustafsson Trolleboda'])
+    expect(vy[0].under).toBe('Gallring · Vida')
+    expect(vy[0].tal).toBe(`${fmt(178.4)} m³fub`)
+    expect(vy[1].under).toBe('Gallring · Privat')
+    expect(vy[1].tal).toBe('31 m³fub')
+  })
+  it('noll skördat visas inte; saknad typ och bolag sägs, aldrig gissas', () => {
+    expect(egenSkotningVy([{ ...rader[0], skordat: 0 }])).toEqual([])
+    expect(egenSkotningVy([{ ...rader[0], typ: null, bolag: null }])[0].under).toBe('typ saknas')
+    expect(egenSkotningVy([{ ...rader[0], typ: null }])[0].under).toBe('Vida')
+  })
+  it('noten säger att det inte räknas mot beställningen', () => {
+    expect(EGEN_SKOTNING_NOT).toContain('räknas inte mot beställningen')
   })
 })

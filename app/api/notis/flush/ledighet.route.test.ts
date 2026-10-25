@@ -74,6 +74,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 process.env.CRON_SECRET = "hemlig";
+process.env.VAPID_PRIVATE_KEY = "fake-test-nyckel";
 process.env.NEXT_PUBLIC_SUPABASE_URL = "http://fake";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "fake";
 
@@ -288,5 +289,20 @@ describe("flush — åldersregeln: en hög som väntat på release skickas aldri
     const res = await kor();
     expect(res).toMatchObject({ skippade: 1, uppskjutna: 0 });
     expect(koRad("k1").skickad_at).toBeTruthy();
+  });
+});
+
+describe("flush — utan privat VAPID-nyckel", () => {
+  it("säger det, skickar ingenting och rör inte kön", async () => {
+    koa("k1", "ledighet_ansokan", MARTIN);
+    const fore = process.env.VAPID_PRIVATE_KEY;
+    delete process.env.VAPID_PRIVATE_KEY;
+    try {
+      const r = await GET(new NextRequest("http://x/api/notis/flush", { headers: { authorization: "Bearer hemlig" } }));
+      expect(r.status).toBe(500);
+      expect(await r.json()).toMatchObject({ ok: false, error: expect.stringMatching(/VAPID_PRIVATE_KEY saknas/) });
+      expect(h.skickat).toHaveLength(0);
+      expect(koRad("k1").skickad_at ?? null).toBeNull();
+    } finally { process.env.VAPID_PRIVATE_KEY = fore; }
   });
 });

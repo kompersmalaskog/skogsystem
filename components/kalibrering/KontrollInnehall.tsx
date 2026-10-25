@@ -1,16 +1,15 @@
 'use client';
 // KONTROLLEN — innehållet i bladet. Två lägen i samma vy, som Apple Kartor:
-//   HALVT:  datum, klockslag, trädslag, slumpstam/förvald och väder överst; svaret i klartext som rubrik ("Diametern mäter för grovt");
+//   HALVT:  dag och klockslag överst, sedan raderna Förare, Stammen (slumpstam/förvald), Väder, Vind, Trädslag; svaret i klartext som rubrik ("Diametern mäter för grovt");
 //           längd och diameter mätta på SAMMA sätt ("5 av 5 rätt", snittet dämpat bredvid); en rad om att en stam säger lite.
 //   HELT:   (dra uppåt) stockarna rot → topp, en grupp per stam. Varje rad har sortiment och längd i klartext och BÅDA avvikelserna med etikett
 //           ("längd −2 cm · dia +10 mm"); stammen och stocken öppnas i samma blad.
 // Räknandet bor i lib/kalibrering/kontrollSvar (talen är de gamla: stockFordelning, kontrollSumma, stockRadVarde).
 import type { KontrollResponse } from '@/app/api/kalibrering/kontroll/route';
-import Ikon from '@/components/design/Ikon';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import Svarsrad from '@/components/design/Svarsrad';
-import { AVSTAND, FARG, IKON, TNUM, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens';
 import { avvikelseTon, tolFranProfil } from '@/lib/kalibrering/bedomning';
 import { fmtAvvikelse, fmtKrav } from '@/lib/kalibrering/format';
 import { kontrollSumma, stockFordelning, swarmX, swarmY } from '@/lib/kalibrering/kontroll';
@@ -52,14 +51,17 @@ export default function KontrollInnehall({ data, bedomning, halv, onVisaStockar,
 
   return (
     <>
-      {/* Överst: när, vad, hur stammen valdes och vädret */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }} data-kontroll-huvud="">
+      {/* Överst: när — sedan vem, hur stammen valdes, vädret och vad, som rader etikett/värde (som Inställningar i iOS) */}
+      <div data-kontroll-huvud="">
         <div style={{ ...TYP.listtitel, color: FARG.text, ...TNUM }}>{huvud.dagTid}</div>
-        <Meta>{huvud.rad}</Meta>
-        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.meta, color: huvud.vaderSaknas ? FARG.text3 : FARG.text2 }}>
-          <Ikon namn="thermostat" storlek={IKON.text} farg="inherit" /><span>{huvud.vader}</span>
+        <div style={{ marginTop: AVSTAND.m }}>
+          <Sektion rubrik="Om kontrollen">
+            {huvud.fakta.map((f, i) => (
+              <Rad key={f.etikett} sista={i === huvud.fakta.length - 1} pil={false} titel={f.etikett} attr={{ 'data-fakta': f.etikett }}
+                hoger={<span style={{ color: f.saknas ? FARG.text3 : FARG.text, ...TNUM }}>{f.varde}</span>} />
+            ))}
+          </Sektion>
         </div>
-        {huvud.matare && <Meta>{huvud.matare}</Meta>}
       </div>
 
       {/* Svaret i klartext */}

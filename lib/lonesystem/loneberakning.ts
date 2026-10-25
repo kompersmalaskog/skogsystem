@@ -38,6 +38,7 @@ import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
 import { loneartInfo, enhetForMangd, type LoneartKey, type Loneartskoder } from "./loneart";
 import { rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag, hemskickadMinuter } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
+import { raknaSjuktimmar, type Sjuktimmar } from "./sjuktimmar";
 import { helglonIManad, helglonDagar as helglonDagarArsLista, helglonSkalText, HELGLON_TIMMAR, type HelglonDag, type FranvaroPost } from "./helglon";
 import { brandriskSumma, minTillTimmar, type BrandriskSumma } from "../ob";
 import { manadensOrdinarie, overlapparUtjamning, utjamningOrdinarie, ordinarieText, type OrdinarieResultat } from "./manadsordinarie";
@@ -196,6 +197,9 @@ export type ExportSammanfattning = {
   // ordinarie, aldrig övertid. `hemskickad_h` = summan i timmar (två decimaler), det Admin ser per förare och månad.
   hemskickad: HemskickadRad[];
   hemskickad_h: number;
+  // Sjuktimmar (lib/lonesystem/sjuktimmar, Martin 2026-10-25): 8 tim per sjuk vardag (deldag: 8 minus arbetat), röda dagar och helger räknas
+  // inte. Blir lönerad `sjuktimmar`; karens och sjuklönens procent räknas i Fortnox.
+  sjuk: Sjuktimmar;
   // Dagar under arbetsdagströskeln (lib/arbetsdagRegler): betald tid som inte är
   // en arbetsdag. Visas i granskningen — oftast inloggningar på annans maskin.
   kortpass: { datum: string; minuter: number; km_totalt: number }[];
@@ -454,6 +458,13 @@ export function beräknaExport(
     });
   const ordinarie = ordinarieRes.timmar; // timmar
 
+  // ── SJUKTIMMAR (lib/lonesystem/sjuktimmar) — 8 tim per sjuk vardag, deldag = dagens frånvarotimmar ──
+  const sjuk: Sjuktimmar = raknaSjuktimmar({
+    heldagar: franvaroPerTyp.get("sjuk") || [],
+    deldagar,
+    rodaDagar: Object.keys(helglonDagarArsLista(helglonNamn, Number(arbperiod.slice(0, 4)))).filter(d => d.startsWith(arbperiod)),
+  });
+
   // Räkna obekräftade
   let obekraftade = 0;
 
@@ -618,11 +629,13 @@ export function beräknaExport(
     }
   }
   for (const dd of deldagar) {
+    if (dd.typ === "sjuk") continue; // sjuk deldag är en lönerad (sjuktimmar) — ingen varning om att lönearten saknas
     const nar = dd.fran_tid ? `från ${dd.fran_tid}` : `till ${dd.till_tid}`;
     const arb = Math.round(dd.arbetad_min / 6) / 10;
     varningar.push(`Deldag (${dd.typ}) ${dd.datum} ${nar}: ${dd.timmar} tim frånvaro (arbetade ${arb} tim, räknat mot ${dd.schema_timmar} tim/dag — ANTAGANDE tills schema beslutats, §12 mom 3 anm 2). Dagen är arbetsdag. Löneart ej fastställd; läggs INTE som lönerad.`);
   }
   for (const f of franvaro) {
+    if (f.typ === "sjuk") continue; // sjuk är en lönerad (sjuktimmar)
     const spann = f.datum.length > 1 ? `${f.datum[0]}…${f.datum[f.datum.length - 1]}` : f.datum[0];
     varningar.push(`Frånvaro (${f.typ}): ${f.dagar} dag(ar) ${spann} — löneart för Fortnox ej fastställd; läggs INTE som lönerad, sätt manuellt innan sändning.`);
   }
@@ -643,6 +656,12 @@ export function beräknaExport(
     } else {
       varningar.push(`Ingen helglön skickas: ${helglonTimmar} tim kan inte räknas — ingen maskintid i månaden och ingen maskin på medarbetarraden, så maskintypen (skördare/skotare) går inte att avgöra. Sätt förarens maskin i admin.`);
     }
+  }
+
+  // ── SJUKTIMMAR — en rad per månad ──
+  if (sjuk.timmar > 0) {
+    const hel = sjuk.dagar.filter(d => !d.del).length, del = sjuk.dagar.length - hel;
+    laggRad("sjuktimmar", sjuk.timmar.toFixed(2), `Sjuktimmar: ${sjuk.timmar}h (${hel > 0 ? `${hel} sjuk${hel === 1 ? " vardag" : "a vardagar"} × 8h` : ""}${hel > 0 && del > 0 ? " + " : ""}${del > 0 ? `${del} deldag${del === 1 ? "" : "ar"}` : ""})`);
   }
 
   // ── BRANDRISK-OB (lib/ob, Skogsavtalet § 8 mom 1) ──
@@ -682,6 +701,7 @@ export function beräknaExport(
     deldagar,
     hemskickad,
     hemskickad_h: hemskickadH,
+    sjuk: foretagsledare ? { dagar: [], timmar: 0 } : sjuk,
     arbetat: {
       maskin_min: produktionsDagar.reduce((a, d) => a + (d.arbetad_min || 0), 0),
       extra_min: extraTid.reduce((a, e) => a + (e?.minuter || 0), 0),

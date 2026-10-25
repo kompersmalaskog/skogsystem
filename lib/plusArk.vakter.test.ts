@@ -128,12 +128,12 @@ describe('Ytor och Spårning: inga flikar — Ytor ligger i objektinfon (Om trak
   });
 });
 
-describe('Rita & mät: ÅTTA rutor — alla ritverktyg (och Snitsla stickvägar), inga dubbletter, och ingen annanstans', () => {
+describe('Rita & mät: NIO rutor — alla ritverktyg (Körordning och Snitsla stickvägar), inga dubbletter, och ingen annanstans', () => {
   const rita = mellan(page, 'const byggRita = ', '// Spårens förhandsfärg');
   const tryck = mellan(page, 'const trycktPlusPost = ', 'const placeraListSynlig');
-  it('åtta rutor i den här ordningen: Rita linje, Rita yta, Nytt område (alla), Pilar, Mät sträcka, Mät yta, Spåra med GPS, Snitsla stickvägar (förut Gallring i objektinfons meny) — EN Spåra med GPS, ingen egen "Spåra basväg"', () => {
+  it('nio rutor i den här ordningen: Rita linje, Rita yta, Nytt område (alla), Pilar, Körordning, Mät sträcka, Mät yta, Spåra med GPS, Snitsla stickvägar (förut Gallring i objektinfons meny) — EN Spåra med GPS, ingen egen "Spåra basväg"', () => {
     const ids = Array.from(rita.matchAll(/\{ id: '([a-z]+)', titel:/g)).map((m) => m[1]);
-    expect(ids).toEqual(['linje', 'yta', 'omrade', 'pilar', 'strackan', 'matyta', 'gps', 'stickvagar']);
+    expect(ids).toEqual(['linje', 'yta', 'omrade', 'redigera', 'pilar', 'korordning', 'strackan', 'matyta', 'gps', 'stickvagar']);
     expect(rita).not.toContain('Spåra basväg');
     expect(page).not.toContain("subMenu === 'gps-basvag'");
     expect(rita).toContain("setActiveCategory('gallring'); setMenuOpen(true);");   // samma Gallring-ark som förut
@@ -143,7 +143,7 @@ describe('Rita & mät: ÅTTA rutor — alla ritverktyg (och Snitsla stickvägar)
   it('INGA dubbletter: rutorna Linjer, Zoner och Mätning finns inte (de gjorde samma sak som Rita linje, Rita yta och Mät sträcka/Mät yta)', () => {
     for (const s of ["titel: 'Linjer'", "titel: 'Zoner'", "titel: 'Mätning'", "id: 'linjer'", "id: 'zoner'", "id: 'matning'", 'oppnaMeny', "setActiveCategory('measure')"]) expect(rita, s).not.toContain(s);
     const ark = las('../components/planering/PlusArk.tsx');
-    expect(ark).toContain("export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps' | 'omrade' | 'pilar' | 'stickvag';");
+    expect(ark).toContain("export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps' | 'omrade' | 'pilar' | 'stickvag' | 'korordning' | 'redigera';");
   });
   it('rutorna startar sina verktyg: Pilar öppnar pil-menyn, Nytt område samma ritläge, Mät sträcka/yta samma figur, Spåra med GPS samma undermeny', () => {
     for (const s of [

@@ -87,12 +87,12 @@ describe('inget överst, inga dubbletter', () => {
 describe('ett läge i taget', () => {
   it('ett verktyg som väljs avslutar det som pågår (placera, rita, pil, mät, Nytt område) — annars skulle två rader visas', () => {
     const f = mellan(page, 'const avslutaPagaendeLage = () => {', '  // ── PLUSRADENS TRYCK ──');
-    for (const s of ['avslutaFigur()', 'cancelDrawing()', 'setSelectedSymbol(null)', 'setIsArrowMode(false)', 'setOmradeRitning(false)']) expect(f, s).toContain(s);
+    for (const s of ['avslutaFigur()', 'cancelDrawing()', 'setSelectedSymbol(null)', 'setIsArrowMode(false)', 'setOmradeRitning(false)', 'setKorLage(false)']) expect(f, s).toContain(s);
     const tryck = mellan(page, 'const trycktPlusPost = ', 'const placeraListSynlig');
     expect(tryck).toContain('avslutaPagaendeLage();');
     expect(tryck).not.toContain('if (figur) avslutaFigur();');
     const rita = mellan(page, 'const byggRita = ', '// Spårens förhandsfärg');
-    expect(antal(rita, 'avslutaPagaendeLage();')).toBe(4);   // Nytt område, Pilar, Spåra med GPS, Snitsla stickvägar (Rita linje/yta och Mät går via trycktPlusPost)
+    expect(antal(rita, 'avslutaPagaendeLage();')).toBe(6);   // Nytt område, Redigera linjer, Pilar, Körordning, Spåra med GPS, Snitsla stickvägar (Rita linje/yta och Mät går via trycktPlusPost)
   });
   it('raderna döljs medan plusdockan eller en meny är öppen — samma regel som placera', () => {
     for (const s of [

@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { kapaSyntetiskaSkift } from '@/lib/skiftKapning';
 import { rastMinFranSek } from '@/lib/rastMin';
 import { normaliseraSkiftTider } from '@/lib/optiTid';
+import { skapaFlyttRader } from '@/lib/flyttSynk';
+import { skapaFlyttloggsRader } from '@/lib/flyttloggSynk';
 
 // SERVICE-ROLLEN, inte anon: routen är server-side och läser/skriver RLS-låsta
 // tabeller (operator_medarbetare, fakt_skift, arbetsdag). Med anon-nyckeln såg
@@ -486,6 +488,41 @@ export async function POST(req: NextRequest) {
           // Logga men fail-not — arbetsdag är redan skapad.
           console.warn('arbetsdag_objekt-insert fel:', ojErr.message);
         }
+      }
+    }
+
+    // 7d. Lastbilsflytt ur flyttloggen (maskin_flytt) ger förarens flyttrad (beslut Martin 2026-10-19). Hos den förare som hade
+    // maskinen, tid lastning → avlastning, märkt "Från flyttloggen" (kalla 'flyttlogg'); ett SEGMENT inom förarens redan betalda
+    // dag, så lönen är oförändrad. Ingen rad efter ordinarie arbetstid (17:00), på helg eller röd dag, eller på en bekräftad dag.
+    // Ett steg för sig FÖRE GPS-steget: loggen är facit, och en GPS-rad på samma flytt ersätts. Alla dagar (också bekräftade) går
+    // med, för att avgöra vem som hade maskinen; bara obekräftade får en rad. Fail-soft som GPS-steget (lib/flyttloggSynk.ts).
+    if (inserted && inserted.length > 0) {
+      try {
+        const loggDagar = Object.values(dagMap).map(agg => ({
+          medarbetare_id: agg.medarbetare_id, datum: agg.datum, maskin_id: agg.maskin_id || null,
+          start_tid: `${hhmm(agg.earliestStart)}:00`, slut_tid: `${hhmm(agg.latestEnd)}:00`,
+          skyddad: skyddade.has(`${agg.medarbetare_id}_${agg.datum}`),
+        }));
+        const logg = await skapaFlyttloggsRader(supabase, loggDagar);
+        if (logg.skippade) console.warn(`flyttlogg: steget hoppades över (${logg.skippade})`);
+      } catch (e: any) {
+        console.warn('flyttlogg: steget föll, synken fortsätter:', e?.message || e);
+      }
+    }
+
+    // 7e. Maskinflytt som egen rad (beslut Martin 2026-10-19). `inserted` är precis de dagar synken själv bygger — bekräftade
+    // och redigerade dagar är redan bortfiltrerade (steg 3), så de rörs aldrig. Raden skrivs som ett SEGMENT (märkt tid inom
+    // den redan betalda dagen): lönen läser aldrig segment, så arbetad_min är oförändrad. Regeln (≥ 30 min och ≥ 2 km, klippt
+    // mot förarens pass) bor i lib/flyttRad.ts. Förfilter: bara dagar med produktion på minst två objekt i fakt_tid — en
+    // flytt mellan två objekt syns som arbete på båda, och det sparar ett GPS-anrop per vanlig dag. Fail-soft: migrationen
+    // körs efter koden, och en flytt får aldrig stoppa synken.
+    if (inserted && inserted.length > 0) {
+      try {
+        const flyttDagar = inserted.filter((ad: any) => (objektListaMap[`${ad.medarbetare_id}_${ad.datum}`]?.length || 0) >= 2);
+        const flytt = await skapaFlyttRader(supabase, flyttDagar as any);
+        if (flytt.skippade) console.warn(`flytt: steget hoppades över (${flytt.skippade})`);
+      } catch (e: any) {
+        console.warn('flytt: steget föll, synken fortsätter:', e?.message || e);
       }
     }
 

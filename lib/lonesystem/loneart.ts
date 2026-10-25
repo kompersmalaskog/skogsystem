@@ -43,6 +43,10 @@ export const LONEARTER = [
   { key: "brandrisk_ob",         label: "Brandrisk – OB",         enhet: "tim",    enhetText: "tim",           valfri: false,
     grupp: "Tillägg",
     forklaring: "Alla beordrade timmar vid brandrisk, vardagsmorgon: från start till 06:30. En rad, företagets praxis (över avtalets minimum, §8 mom 1)." },
+  // Sjuktimmar (Martin 2026-10-25): 8 tim per sjuk vardag, deldag = 8 minus arbetat. Karens och sjuklönens procent räknas i Fortnox.
+  { key: "sjuktimmar",         label: "Sjuktimmar",         enhet: "tim",    enhetText: "tim",           valfri: false,
+    grupp: "Frånvaro",
+    forklaring: "8 timmar för varje sjuk vardag. En dag du jobbade en del av: 8 minus det du jobbade. Karensavdrag och sjuklön räknas i Fortnox." },
 ] as const;
 
 export type LoneartKey = (typeof LONEARTER)[number]["key"];

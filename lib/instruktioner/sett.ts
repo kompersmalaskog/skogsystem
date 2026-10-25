@@ -1,4 +1,4 @@
-// Förarens "sett" per kommentar: tabellen kommentar_sett_forare (migration 20261021170000, tiden sätts av servern) med en lokal kopia på enheten.
+// Förarens "sett" per kommentar: tabellen kommentar_sett_forare (migration 20261024102940, tiden sätts av servern) med en lokal kopia på enheten.
 //
 // Den lokala kopian är inte bara en cache: den gör att "sett" fungerar utan täckning och innan tabellen finns i databasen (saknas den, PGRST205, gäller enhetens
 // kopia). Servern och enheten slås ihop per kommentar — den nyaste vinner. Det enhetens kopia har och servern saknar skickas när det går.

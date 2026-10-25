@@ -70,7 +70,7 @@ function Skal({ currentUser }: { currentUser: Anvandare }) {
 
       <aside className="adm-meny" aria-label="Admin">
         {FLIKAR.map(f => {
-          const vald = nav.flik === f.key && !nyMedarbetare;
+          const vald = nav.flik === f.key;
           return (
             <button key={f.key} type="button" className="adm-post" onClick={() => gaTill({ flik: f.key })} aria-current={vald ? "page" : undefined} style={postStil(vald)}>
               <Ikon namn={f.ikon} farg={vald ? FARG.text : FARG.text2} fylld={vald} />
@@ -79,12 +79,8 @@ function Skal({ currentUser }: { currentUser: Anvandare }) {
             </button>
           );
         })}
-        <div style={{ height: 1, background: FARG.linje, margin: `${AVSTAND.m}px 0` }} />
-        <button type="button" className="adm-post" onClick={() => gaTill({ flik: "medarbetare", params: { ny: "1" } })} aria-current={nyMedarbetare ? "page" : undefined}
-          style={{ ...postStil(nyMedarbetare), color: FARG.text }}>
-          <Ikon namn="add" farg={FARG.text} />
-          <span>Ny medarbetare</span>
-        </button>
+        {/* "Ny medarbetare" bor bara i Medarbetare (+ Lägg till) — samma ställe på telefon och dator (Martin 2026-10-25). */}
+        {currentUser.roll === "admin" && <div style={{ height: 1, background: FARG.linje, margin: `${AVSTAND.m}px 0` }} />}
         {currentUser.roll === "admin" && (
           <a href="/admin/historik" className="adm-post" style={{ ...postStil(false), textDecoration: "none", boxSizing: "border-box" }}>
             <Ikon namn="history" farg={FARG.text2} />

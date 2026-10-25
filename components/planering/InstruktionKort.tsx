@@ -23,7 +23,7 @@ export const GRIND_KORT_HOJD_PX = 52 + 2 * AVSTAND.m;
 export function InstruktionRuta({ i, sedd = false }: { i: Instruktion; sedd?: boolean }) {
   return (
     <div data-testid="instruktion-ruta" data-kalla={i.kalla} data-sedd={sedd ? 'ja' : 'nej'} style={{ opacity: sedd ? 0.6 : 1 }}>
-      <KommentarVisning vida={i.kalla === 'vida'} forfattare={i.forfattare} vantar={i.vantar} text={i.text} meningar={!!i.meningar} />
+      <KommentarVisning vida={i.kalla === 'vida'} forfattare={i.forfattare} etikett={i.etikett} vantar={i.vantar} text={i.text} meningar={!!i.meningar} />
     </div>
   );
 }

@@ -18,12 +18,26 @@ describe('markörerna', () => {
   it('dubbletter slås ihop (en reparation loggas för både längd och diameter), äldst först', () => {
     expect(unikaMarkorer([atg('2026-07-18'), rep('2026-03-07'), rep('2026-03-07')]).map(m => m.datum)).toEqual(['2026-03-07', '2026-07-18']);
   });
-  it('en markör av annan sort (kalibrering) har ingen före/efter att räkna', () => {
-    expect(unikaMarkorer([{ datum: '2026-05-01', kalla: 'kalibrering', text: 'x' }])).toEqual([]);
+  it('en kalibrering ur historiken är en markör med egen före/efter (sorten behålls)', () => {
+    expect(unikaMarkorer([{ datum: '2026-05-01', kalla: 'kalibrering', text: 'Diameterkalibrering tall' }])).toEqual([{ datum: '2026-05-01', kalla: 'kalibrering', text: 'Diameterkalibrering tall' }]);
   });
   it('tidigaste "före" = 90 dagar före äldsta markören', () => {
     expect(tidigasteFore([atg('2026-07-18'), rep('2026-03-07')])).toBe('2025-12-07');
     expect(tidigasteFore([])).toBeNull();
+  });
+});
+
+describe('automatiska kalibreringsmarkörer bryter inte förarens åtgärd', () => {
+  const kal = (datum: string): Markor => ({ datum, kalla: 'kalibrering', text: 'Diameterkalibrering tall' });
+  // 30 dagar före (30 mått) och en kalibrering efter 4 dagar: åtgärdens efter-period ska fortfarande vara allt till nästa ÅTGÄRD, inte till kalibreringen.
+  const punkter = [...dagar('2026-06-18', 30, 1, 1), ...dagar('2026-07-18', 40, 1, 1)];
+  it('förarens åtgärd: efter slutar vid nästa åtgärd eller reparation, inte vid en kalibrering', () => {
+    const poster = atgardPoster({ markorer: [atg('2026-07-18'), kal('2026-07-22')], punkter, tolTraff: 4, tolGrov: null, kalibreringar: [] });
+    expect(poster.find(p => p.kalla === 'atgard')).toMatchObject({ nEfter: 40, forTidigt: false });
+  });
+  it('en kalibrering slutar vid nästa markör av vilket slag som helst', () => {
+    const poster = atgardPoster({ markorer: [atg('2026-07-01'), kal('2026-07-10'), kal('2026-07-20')], punkter: dagar('2026-07-01', 40, 1, 1), tolTraff: 4, tolGrov: null, kalibreringar: [] });
+    expect(poster.find(p => p.datum === '2026-07-10')?.nEfter).toBe(10);
   });
 });
 

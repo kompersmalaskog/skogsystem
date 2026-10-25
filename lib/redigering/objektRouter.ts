@@ -72,6 +72,19 @@ export const FALT_RUTT: Record<string, FaltRutt> = {
   extern_skordning:    { dim: 'extern_skordning' },
   egen_skotning:       { dim: 'egen_skotning' },
   risskotning:         { dim: 'risskotning' },
+  // Undersidorna under Mer (2026-10-24) sparar direkt, som resten av arket. Maskinspecifika (G15, ovrigt_info)
+  // skrivs av anroparen mot rätt maskinslags rader (direktSparaMaskin), som batch-sparningen gjorde.
+  timpeng_undantag_timmar_skordare: { dim: 'timpeng_undantag_timmar_skordare' },
+  timpeng_undantag_timmar_skotare:  { dim: 'timpeng_undantag_timmar_skotare' },
+  timpeng_undantag_volym:           { dim: 'timpeng_undantag_volym' },
+  timpeng_undantag_dra_skordare:    { dim: 'timpeng_undantag_dra_skordare' },
+  timpeng_undantag_dra_skotare:     { dim: 'timpeng_undantag_dra_skotare' },
+  medelstam_manuell:                { dim: 'medelstam_manuell' },
+  sortiment_grupper_manuell:        { dim: 'sortiment_grupper_manuell' },
+  skordning_g15_manuell:            { dim: 'skordning_g15_manuell' },
+  skotning_g15_manuell:             { dim: 'skotning_g15_manuell' },
+  // Extern (inlejd) skotare bor som JSON i ovrigt_info på skotarens rader (lib/redigering/externSkotning.ts).
+  ovrigt_info:                      { dim: 'ovrigt_info' },
 
   // ── objekt-only (planering) ──
   status:                     { objekt: 'status' },

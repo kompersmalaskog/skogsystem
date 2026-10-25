@@ -4,9 +4,9 @@
 //
 // Uppifrån: månaden (‹ Oktober 2026 ›, arbetsdagar kvar) · svaret i EN mening i vanliga ord · fyra kort i ett rutnät:
 //   SKOTAT (ett tal per spår) · GÖR DETTA (högst tre rader, resten bakom "N saker till") · NÄR BLIR MASKINERNA KLARA? (namn + datum) ·
-//   MER (Skördat, Maskiner, Takt, Veckor, Per bolag, Tidigare månader, Månadsfacit) · DIN MASKIN (förare) · ONSDAGSNOTIS (admin).
+//   MER (Skördat, Maskiner, Takt, Träffsäkerhet, Veckor, Per bolag, Månadsplan (pågående/kommande), Tidigare månader, Månadsfacit (avslutad)) · DIN MASKIN (förare) · ONSDAGSNOTIS (admin).
 // Allt som står på sidan räknas i _lib/kort.ts (ren vymodell); den här filen hämtar och ritar.
-// Klar-datumen räknas i appen (klar.ts raknaAlla) på RPC:ns underlag + G15-förslaget för trakter utan prognos (medUppskattadPrognos),
+// Klar-datumen räknas i appen (klar.ts raknaAlla) på RPC:ns underlag + G15-förslaget för trakter utan prognos (medUppskattadPrognos) + prognosen som följer trakten (medFoljandePrognos),
 // så sidan och flyttförslaget räknar på samma tal.
 //
 // Bredd: korten ligger i ett rutnät med CONTAINER QUERIES (sidans egen bredd): 1 kolumn, 2 från 640 px, 3 från 960 px.
@@ -33,10 +33,11 @@ import {
 } from '../_lib/queries'
 import { TYPER, TYP_NAMN, globalaArbetsdagar, kapacitetsMaskiner, manadStatus, maskinNamn, planeratPerTyp, raknaSpar, valjBas, type PlaneratResultat, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, manadRubrik, relativTid } from '../_lib/format'
-import { gorDetta, klarRader, sidSvar, sparKort, type GorRad, type KlarRad } from '../_lib/kort'
-import { bastaFlytt, medUppskattadPrognos, raknaAlla, type FlyttForslag } from '../_lib/klar'
+import { egenSkotningVy, gorDetta, klarRader, sidSvar, sparKort, type GorRad, type KlarRad } from '../_lib/kort'
+import { bastaFlytt, medFoljandePrognos, medUppskattadPrognos, raknaAlla, type FlyttForslag } from '../_lib/klar'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
+import { planHref } from '../_lib/manadsplan'
 import { useKlar } from '../_lib/useKlar'
 import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar } from './Tillstand'
@@ -44,6 +45,7 @@ import { HK_CSS } from './Lista'
 import { PanelContext, type PanelPost } from './PanelVal'
 import SkotatSektion from './SkotatSektion'
 import GorDettaSektion from './GorDettaSektion'
+import EgenSkotningSektion from './EgenSkotningSektion'
 import KlarSektion from './KlarSektion'
 import { AllaSakerSheet, FlyttSheet, MaskinTrakterSheet } from './GorSheets'
 import { DinMaskinSektion, MaskinerManadSheet, VeckoNotisSektion } from './MaskinSektion'
@@ -55,6 +57,7 @@ import EjTilldeladeSheet from './EjTilldeladeSheet'
 import MotBestallningSheet from './MotBestallningSheet'
 import BolagSheet from './BolagSheet'
 import SkordatSheet from './SkordatSheet'
+import TraffsakerhetSheet from './TraffsakerhetSheet'
 
 /** Från denna bredd står månaderna som sidokolumn. Samma som markägarrapporten. */
 export const SIDOKOLUMN_FRAN_PX = 1100
@@ -79,7 +82,7 @@ const css = `
 }
 `
 
-type Ark = 'maskiner' | 'maskiner_manad' | 'utan' | 'ej' | 'best' | 'skordat' | 'historik' | 'alla' | 'flytt' | 'veckor' | 'bolagval' | `bolag:${Typ}` | `maskin:${string}`
+type Ark = 'maskiner' | 'maskiner_manad' | 'traffsakerhet' | 'utan' | 'ej' | 'best' | 'skordat' | 'historik' | 'alla' | 'flytt' | 'veckor' | 'bolagval' | `bolag:${Typ}` | `maskin:${string}`
 
 export default function HelikopterVy() {
   const sp = useSearchParams()
@@ -218,7 +221,8 @@ export default function HelikopterVy() {
 
   const klar = useKlar(ar, manad, idag, status !== 'avslutad')
   // Underlaget med uppskattade prognoser, och planerna (klar-datum per maskin) räknade ur det — SAMMA räkning som flyttförslaget.
-  const klarData = useMemo(() => (klar.data ? medUppskattadPrognos(klar.data, utfall) : null), [klar.data, utfall])
+  // G15-förslag för trakter utan prognos, sedan den FÖLJANDE prognosen för trakter maskinen redan kört på (lib/prognosFoljer) — i den ordningen.
+  const klarData = useMemo(() => (klar.data ? medFoljandePrognos(medUppskattadPrognos(klar.data, utfall)) : null), [klar.data, utfall])
   const planer = useMemo(() => (klarData ? raknaAlla(klarData) : null), [klarData])
   const flytt = useMemo<FlyttForslag | null>(() => (klarData && status !== 'avslutad' ? bastaFlytt(klarData) : null), [klarData, status])
 
@@ -331,6 +335,7 @@ export default function HelikopterVy() {
                   <Svarsrad rubrik={svar.rubrik} avvikelse={svar.avvikelse} />
                   <div className="hk-rutnat">
                     <SkotatSektion kort={kort} />
+                    <EgenSkotningSektion rader={manadsdata.egenSkotning == null ? null : egenSkotningVy(manadsdata.egenSkotning)} onRetry={() => setVersion(v => v + 1)} />
                     <GorDettaSektion rader={gor} onOppna={oppnaGor} onAlla={() => setArk('alla')} />
                     {status !== 'avslutad' && (
                       <KlarSektion rader={klarVy} fel={klar.fel} laddar={klar.laddar} sistaArbetsdag={klar.data?.sista_arbetsdag ?? null} onRetry={() => void klar.ladda()} onOppna={r => setArk(`maskin:${r.maskin_id}`)} />
@@ -341,8 +346,10 @@ export default function HelikopterVy() {
                         <RadLank text="Skördat" onClick={() => setArk('skordat')} />
                         <RadLank text="Maskiner" smakprov="m³fub i månaden" onClick={() => setArk('maskiner_manad')} />
                         <RadLank text="Takt och stopp" onClick={() => setArk('maskiner')} />
+                        <RadLank text="Träffsäkerhet" smakprov="prognos mot utfall" onClick={() => setArk('traffsakerhet')} />
                         <RadLank text="Veckor" onClick={() => setArk('veckor')} />
                         <RadLank text="Per bolag" onClick={() => setArk('bolagval')} />
+                        {status !== 'avslutad' && <RadLank text="Månadsplan" smakprov="dela som A4" href={planHref(ar, manad)} />}
                         {status === 'avslutad' && <RadLank text="Månadsfacit" smakprov="dela som A4" href={facitHref(ar, manad)} />}
                         {/* Från 1100 px står månaderna i sidokolumnen; under det nås de här. */}
                         {fonsterBredd < SIDOKOLUMN_FRAN_PX && <RadLank text="Tidigare månader" onClick={() => setArk('historik')} />}
@@ -352,6 +359,7 @@ export default function HelikopterVy() {
                   </div>
 
                   <SkordatSheet open={ark === 'skordat'} onClose={stang} spar={spar} status={status} />
+                  <TraffsakerhetSheet open={ark === 'traffsakerhet'} onClose={stang} />
                   <MaskinerManadSheet open={ark === 'maskiner_manad'} onClose={stang} maskiner={maskinerManad?.nyckel === nyckel ? maskinerManad.rader : null} fel={maskinerFel} onRetry={() => { setMaskinerManad(null); setVersion(v => v + 1) }} manadNamn={manadNamn} manuella={manuella} />
                   {/* Veckor och Per bolag: ett spår i taget — valet i ett litet ark så Mer inte blir en lång lista. */}
                   {(ark === 'veckor' || ark === 'bolagval') && (

@@ -12,6 +12,7 @@ import { packaGeometri, bboxCentrum } from '@/lib/trakt/geometri';
 import { kopplaHyttsparTillObjekt } from '@/lib/hyttsparKoppling';
 import { klassificeraDokument } from '@/lib/trakt/dokument';
 import { kartbildVarning } from '@/lib/trakt/kartbildVarning';
+import { appPrognosText, frysAppPrognos } from '@/lib/prognos/appPrognos';
 import { klassaVarningar, VOLYM_BEHALLEN_NYCKEL } from '@/lib/trakt/varningar';
 import { orimligVolymText } from '@/lib/trakt/rimlighet';
 import { byggOmimportPatch, hittaBefintligtObjekt, importVardenForNyttObjekt, SKYDDADE_VID_OMIMPORT, type BefintligtObjekt } from '@/lib/trakt/befintligt';
@@ -538,6 +539,19 @@ export async function POST(request: NextRequest) {
         else if (kopplat.kopplade > 0) varningar.push(`${kopplat.kopplade} hyttspår utan objekt kopplades till objektet (traktgränsen täcker dem).`);
       } catch (e: any) {
         await loggaImportFel(service, sokvag, 'HYTTSPAR_KOPPLING', e?.message ?? String(e));
+      }
+    }
+
+    // APPENS PROGNOS fryses nu, innan någon maskin börjat (lib/prognos/appPrognos): samma G15-förslag som Klar med trakten, skrivet EN gång till
+    // objekt.app_prognos så att utfallet senare kan mätas mot både planerarens och appens tal. Best-effort efter skrivningen: ett fel loggas synligt
+    // (import_fel) men fäller aldrig importen; en redan fryst trakt (omimport) eller en trakt maskinen kört på lämnas orörd.
+    if (saved?.id) {
+      try {
+        const frys = await frysAppPrognos(service, saved.id, { kalla: 'import' });
+        if (frys.status === 'fryst') varningar.push(appPrognosText(frys.prognos));
+        else if (frys.status === 'fel') await loggaImportFel(service, sokvag, 'APP_PROGNOS', frys.fel);
+      } catch (e: any) {
+        await loggaImportFel(service, sokvag, 'APP_PROGNOS', e?.message ?? String(e));
       }
     }
 

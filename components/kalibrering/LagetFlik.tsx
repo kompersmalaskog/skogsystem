@@ -1,20 +1,18 @@
 'use client';
-// LÄGET — "Är vi godkända och vad ska jag göra?" Överst profil och fönster i liten text, domen som rubrik och träffprocenten som skärmens enda stora tal.
-// Det stora talet är det mått som AVGÖR domen (fäller längden: längdens träff, annars diameterns); det andra måttet står som en rad under.
-// Under det: Vidas krav (diameterns tre rader + längden), Per trädslag, Åtgärder. Ersätter Senaste-förarvyn, "Visa siffrorna", "Så ligger du till" och Rapport.
-// Domen bygger alltid på det rullande fönstret (90 dagar), aldrig på en enda dag. Räknandet bor i lib/kalibrering/laget.
-import Ikon from '@/components/design/Ikon';
+// LÄGET — "Är vi godkända?" Så enkelt att den läses på tre sekunder: svaret, Vidas krav (sämst först) och trädslagen. Inget annat.
+// Appen visar läget; maskinen (Opti) föreslår kalibreringen. Kortet "Gör så här", det stora talet och åtgärderna är borta härifrån (2026-10-25,
+// Martin: "plocka bort det … bygg så man kan kolla på datan, sen säger maskinen vad du ska göra"). Åtgärderna bor i Över tid, under kurvorna.
+// Domen bygger alltid på det rullande fönstret (90 dagar), aldrig på en enda dag. Räknandet bor i lib/kalibrering/laget — siffrorna är desamma som förut.
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import Svarsrad from '@/components/design/Svarsrad';
 import Tillstand from '@/components/design/Tillstand';
-import { AVSTAND, FARG, IKON, KNAPP, TNUM, TYP } from '@/lib/design/tokens';
+import { FARG, KNAPP, TYP } from '@/lib/design/tokens';
 import type { KalibreringArk } from '@/lib/hooks/useKalibreringArk';
 import type { KalibreringData } from '@/lib/hooks/useKalibreringData';
-import { fmtAntal } from '@/lib/kalibrering/format';
-import { andraRad, atgardRader, fonsterText, kalibreringsDom, kravRader, stortTal } from '@/lib/kalibrering/laget';
+import { fonsterKort, kalibreringsDom, kravRader, kravSorterade } from '@/lib/kalibrering/laget';
 import { cap } from '@/lib/kalibrering/text';
-import { Fyll, Lugn, Meta, Status, TonVarde } from './delar';
+import { Fyll, Lugn, TonVarde } from './delar';
 import Rubrik from './Rubrik';
 import TraffText from './TraffText';
 
@@ -34,11 +32,8 @@ export default function LagetFlik({ d, ark }: { d: KalibreringData; ark: Kalibre
   return (
     <>
       <Rubrik d={d}>
-        {b && <div style={{ ...TYP.meta, color: FARG.text2 }}>{fonsterText(b)}</div>}
+        {b && <div style={{ ...TYP.meta, color: FARG.text2 }}>{fonsterKort(b)}</div>}
       </Rubrik>
-
-      {/* Plats för "Justeringsförslag" — kommer i en senare ändring, bygg inte här. */}
-
       <Tillstand nyckel={b ? 'klar' : d.bedomningFel ? 'fel' : 'laddar'}>
         {!b ? <Laddar d={d} text="Läser läget…" /> : <Innehall d={d} ark={ark} />}
       </Tillstand>
@@ -49,53 +44,24 @@ export default function LagetFlik({ d, ark }: { d: KalibreringData; ark: Kalibre
 function Innehall({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
   const b = d.bedomning!;
   const dom = kalibreringsDom(b);
-  const tal = stortTal(b);
-  const andra = andraRad(b);
-  const krav = kravRader(b);
-  const atgarder = atgardRader(b);
+  const krav = kravSorterade(kravRader(b));
   const harProfil = dom.status !== 'ingen_profil';
 
   return (
     <>
       <Svarsrad rubrik={dom.titel} rad={dom.rad} fri avvikelse={dom.avvikelse} />
 
-      {/* Skärmens ENDA stora tal. */}
-      <div style={{ margin: `0 0 ${AVSTAND.xl}px` }}>
-        <div style={{ ...TYP.tal, color: tal.tyst ? FARG.text2 : FARG.text }}>
-          <TonVarde ton={tal.ton}>{tal.varde}</TonVarde>
-        </div>
-        <Meta style={{ marginTop: AVSTAND.xs }}>{tal.etikett}</Meta>
-        {andra && <div style={{ marginTop: AVSTAND.s }}><TonVarde ton={andra.ton} dampadOk style={TYP.meta}>{andra.text}</TonVarde></div>}
-      </div>
-
+      {/* Ett tryck på en rad: vad måttet betyder och vad Vida kräver. */}
       {harProfil && (
         <Sektion rubrik="Vidas krav">
           {krav.map((r, i) => (
-            <Rad key={r.key} sista={i === krav.length - 1} titel={r.fraga}
-              under={r.ord ? `${r.term} · ${r.ord}` : r.term}
-              hoger={<TonVarde ton={r.ton} dampadOk>{r.varde}</TonVarde>} hogerUnder={r.krav || undefined} />
+            <Rad key={r.key} sista={i === krav.length - 1} titel={r.kort} onTryck={ark.oppnaHjalp}
+              hoger={<TonVarde ton={r.ton} dampadOk>{r.varde}</TonVarde>} hogerUnder={r.ord ?? undefined} />
           ))}
-          <Rad sista titel="Vad betyder talen?" onTryck={ark.oppnaHjalp} />
         </Sektion>
       )}
 
       <PerTradslag d={d} ark={ark} />
-
-      <Sektion rubrik="Åtgärder" not="Vad som gjorts, och hur träffen var 90 dagar före och efter.">
-        {atgarder.map(r => (
-          <Rad key={r.id} onTryck={() => ark.oppnaAtgard(r.id)} titel={r.titel} under={r.datumText}
-            hoger={r.hoger} hogerUnder={r.riktning ? <Status farg={r.riktning === 'battre' ? FARG.gron : r.riktning === 'samre' ? FARG.rod : FARG.text3} ord={r.hogerUnder} /> : r.hogerUnder} />
-        ))}
-        {atgarder.length === 0 && <Fyll><Meta>Inga åtgärder markerade ännu.</Meta></Fyll>}
-        <Rad sista pil={false} onTryck={ark.oppnaNyAtgard}
-          titel={<span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}><Ikon namn="add" storlek={IKON.rad} farg={FARG.text} /><span>Lägg till åtgärd</span></span>} />
-      </Sektion>
-
-      {d.filteredKalib.length > 0 && (
-        <div style={TNUM}>
-          <Meta>{fmtAntal(d.filteredKalib.length)} kontroller · {fmtAntal(d.totalStockar)} stockar · sedan {d.reportSedan}</Meta>
-        </div>
-      )}
     </>
   );
 }
@@ -103,7 +69,7 @@ function Innehall({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
 function PerTradslag({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
   const { trData, trRader } = d;
   return (
-    <Sektion rubrik="Per trädslag" not={trRader.length > 0 ? 'Längd bedöms bara på träffprocent — stocken kapas, den driver inte gradvis. Klaven mäter hela cm.' : undefined}>
+    <Sektion rubrik="Per trädslag">
       {d.tradslagFel ? (
         <Fyll><Lugn ikon="error" marginTop={0}>{d.tradslagFel}</Lugn></Fyll>
       ) : !trData ? (
@@ -113,8 +79,8 @@ function PerTradslag({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
       ) : (
         trRader.map((t, i) => (
           <Rad key={t.tradslag} sista={i === trRader.length - 1} onTryck={() => ark.oppnaArt(t.tradslag.toLowerCase())} titel={cap(t.tradslag)}
-            under={<>{`Längd `}<TraffText stat={t.langd} variabel="langd" trosklar={trData.trosklar} />{` · n ${t.diameter.n}`}</>}
-            hoger={<TraffText stat={t.diameter} variabel="diameter" trosklar={trData.trosklar} />} hogerUnder="diameter" />
+            under={<>{'Längden '}<TraffText stat={t.langd} variabel="langd" trosklar={trData.trosklar} /></>}
+            hoger={<TraffText stat={t.diameter} variabel="diameter" trosklar={trData.trosklar} />} hogerUnder="diametern" />
         ))
       )}
     </Sektion>

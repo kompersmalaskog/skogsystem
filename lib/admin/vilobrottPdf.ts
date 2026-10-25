@@ -1,6 +1,7 @@
 // Utskriften "för Arbetsmiljöverket": ett fristående HTML-dokument (ljust, för papper) som öppnas i ett eget
 // fönster och skrivs ut. Hör inte till admins mörka gränssnitt, därför ligger det här och inte i vyn.
 import type { VilobrottRad } from "@/lib/admin/vilobrottLista";
+import { hanteratText } from "@/lib/admin/vilobrottHanterat";
 
 export function byggPdfHtml(brott: VilobrottRad[]): string {
   const idag = new Date().toLocaleDateString("sv-SE");
@@ -12,7 +13,7 @@ export function byggPdfHtml(brott: VilobrottRad[]): string {
   const sektioner = Array.from(grupperat.entries()).map(([namn, lista]: [string, VilobrottRad[]]) => `
     <h3>${escape(namn)} (${lista.length} brott)</h3>
     <table>
-      <thead><tr><th>Datum</th><th>Vecka</th><th>Typ</th><th>Vila</th><th>Krav</th><th>Beskrivning</th><th>Förarens svar</th></tr></thead>
+      <thead><tr><th>Datum</th><th>Vecka</th><th>Typ</th><th>Vila</th><th>Krav</th><th>Beskrivning</th><th>Förarens svar</th><th>Hanterat</th></tr></thead>
       <tbody>
         ${lista.map(b => `
           <tr>
@@ -23,6 +24,7 @@ export function byggPdfHtml(brott: VilobrottRad[]): string {
             <td>${b.krav_h} h</td>
             <td>${escape(b.beskrivning)}</td>
             <td>${b.svar ? escape(b.svar) : "Obesvarat"}</td>
+            <td>${b.hanterat ? escape(`${hanteratText(b.hanterat)}${b.hanterat.anteckning ? `: ${b.hanterat.anteckning}` : ""}`) : "–"}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -54,6 +56,7 @@ export function byggPdfHtml(brott: VilobrottRad[]): string {
     Dygnsvila bruten ${brott.filter(b => b.typ === "dygnsvila").length} gånger.
     Veckovila bruten ${brott.filter(b => b.typ === "veckovila").length} gånger.
     Obesvarade av föraren: ${brott.filter(b => !b.svar).length}.
+    Hanterade av arbetsgivaren: ${brott.filter(b => b.hanterat).length}.
   </div>
   ${sektioner}
 </body>
