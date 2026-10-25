@@ -1,14 +1,23 @@
 'use client';
 
-import { useEffect, useState, useCallback, CSSProperties } from 'react';
-import Link from 'next/link';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import EkonomiBottomNav from '../EkonomiBottomNav';
+import { EkonomiSida, Laddar, MAXBREDD_BRED } from '../delade/mall';
+import { SvarHuvud } from '../delade/svar';
+import Sektion from '@/components/design/Sektion';
+import Rad from '@/components/design/Rad';
+import Ark from '@/components/design/Ark';
+import Falt from '@/components/design/Falt';
+import { AVSTAND, FARG, KNAPP, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
+import { synkSvar, type SynkStatus } from '@/lib/ekonomi/synkSvar';
 
 // PRISERNA ÄR UTBRUTNA till /ekonomi/prislista (steg 1 av 3). Kvar här:
 // Fortnox-mappning (maskin ↔ kostnadsställe, omappade CC, omappade
-// fakturarader, synkstatus) och datamappning (sortimentgrupper) — de får
-// egna vyer i steg 2/3.
+// fakturarader, synkstatus) och datamappning (sortimentgrupper).
+//
+// Barnregeln (2026-10-25): första skärmen svarar på EN fråga — "Hämtas
+// siffrorna från Fortnox?" — och visar det som behöver kopplas som rader.
+// Ett tryck öppnar ETT ämne (?del=), som Inställningar i iOS.
 
 type Mappning = { id: string; maskin_id: string; kostnadsstalle_kod: string };
 type FortnoxCc = { kod: string; namn?: string; aktiv?: boolean; har_trafik?: boolean };
@@ -35,47 +44,19 @@ type SortGruppRad = {
 };
 const SORT_GRUPPER = ['Timmer', 'Klentimmer', 'Kubb', 'Massa', 'Energi', 'Övrigt'] as const;
 
-// Ett synk-segment: "verifikat 4 aug" dämpat, eller i bärnsten med ålder
-// när senaste lyckade körningen är äldre än 3 dygn (död synk ska synas).
-const SYNK_LARM_DYGN = 3;
-function synkDel(label: string, iso: string | null) {
-  if (!iso) return <span style={{ color: 'rgba(240,178,76,0.85)' }}>{label} aldrig</span>;
-  const dygn = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
-  const datum = new Date(iso).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
-  if (dygn > SYNK_LARM_DYGN) {
-    return <span style={{ color: 'rgba(240,178,76,0.85)' }}>{label} {datum} — {dygn} dygn sedan</span>;
-  }
-  return <span>{label} {datum}</span>;
-}
 
-// ── Styles ── (modulnivå: statiska, inga state-beroenden)
-const s: Record<string, CSSProperties> = {
-  page: { background: '#111110', minHeight: '100vh', paddingTop: 16, paddingBottom: 130, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" },
-  header: { padding: '16px 16px 0' },
-  sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 28, padding: '0 4px' },
-  sectionBlurb: { fontSize: 11, color: '#7a7a72', padding: '0 4px', marginBottom: 10, marginTop: -4 },
-  card: { background: '#1a1a18', borderRadius: 14, padding: 16 },
-  input: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '8px 10px', color: '#e8e8e4', fontSize: 13, fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box' },
-  btnDark: { background: '#000', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, padding: '8px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' },
-  btnGhost: { background: 'rgba(255,255,255,0.03)', color: '#bfcab9', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 10, padding: '10px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', width: '100%', marginTop: 10 },
-  btnRemove: { background: 'transparent', color: '#7a7a72', border: 'none', cursor: 'pointer', padding: '4px 8px', fontSize: 18, lineHeight: 1 },
-  pill: { display: 'inline-block', fontSize: 10, color: '#7a7a72', padding: '2px 8px', background: 'rgba(255,255,255,0.04)', borderRadius: 999, fontWeight: 600, letterSpacing: 0.3 },
-  th: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.6, color: '#7a7a72', textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid rgba(255,255,255,0.07)' },
-  tdCell: { padding: '6px 6px' },
-  inputNum: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
-  saveRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, gap: 12 },
-  dateNote: { fontSize: 11, color: '#7a7a72' },
+type Del = 'ccUtan' | 'fakturor' | 'cc' | 'sort';
+const DEL: Record<Del, { titel: string; forklaring: string }> = {
+  ccUtan: { titel: 'Kostnadsställen utan maskin', forklaring: 'Kostnadsställen i Fortnox som ingen maskin har. Koppla dem till en maskin — eller låt dem vara om de är egna, som lastbil och trailer.' },
+  fakturor: { titel: 'Fakturor utan skog', forklaring: 'Fakturor där appen inte hittade vilken skog de hör till. Välj skog — valet står kvar när Fortnox hämtas igen.' },
+  cc: { titel: 'Kostnadsställen per maskin', forklaring: 'En maskin kan ha flera kostnadsställen i Fortnox, till exempel ett för intäkter och ett för kostnader.' },
+  sort: { titel: 'Virkets sorter', forklaring: 'Varje sortiment hör till en grupp som ackordet räknar med. Välj Räknas inte för avkap och test. Det du väljer skrivs inte över av appen.' },
 };
-
-// Fortnox-synkstatus (fortnox_sync_state via /api/fortnox/sync-status).
-// 'fel' = kunde inte läsas — visas, aldrig tyst (en död statusläsning är
-// samma blindhet som larmet ska bota).
-type SynkStatus = {
-  last_success_at: string | null;
-  invoice_last_sync_at: string | null;
-  last_status: string | null;   // 'ok' | 'pågår' | 'fel' | 'avbruten' (härlett)
-} | 'fel' | null;
-
+const arDel = (v: string | null): Del | null => (v && v in DEL ? (v as Del) : null);
+const SORT_FILTER = [
+  { id: 'Ej manuella', text: 'Valda av appen' }, { id: 'Alla', text: 'Alla' }, { id: 'Exkluderade', text: 'Räknas inte' },
+  ...SORT_GRUPPER.map(g => ({ id: g, text: g })),
+];
 export default function InstallningarClient() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState('');
@@ -103,14 +84,17 @@ export default function InstallningarClient() {
   const [fortnoxCc, setFortnoxCc] = useState<FortnoxCc[]>([]);
   const [omappadeCc, setOmappadeCc] = useState<FortnoxCc[]>([]);
   const [savingCcMap, setSavingCcMap] = useState(false);
-  // Per-omappad: vald maskin i dropdown innan tryck på Spara
-  const [omappadVal, setOmappadVal] = useState<Record<string, string>>({});
+  // Vilken sak som är öppen i ett ark, och sökordet i skog-arket.
+  const [valt, setValt] = useState<{ typ: 'cc' | 'ccUtan' | 'faktura' | 'sort'; id: string } | null>(null);
+  const [sok, setSok] = useState('');
   const [omappade, setOmappade] = useState<OmappadFaktura[]>([]);
   const [objektVal, setObjektVal] = useState<ObjektVal[]>([]);
   const [savingMap, setSavingMap] = useState<number | null>(null);
   const [sortGruppRader, setSortGruppRader] = useState<SortGruppRad[]>([]);
   const [savingSortGrupp, setSavingSortGrupp] = useState<string | null>(null);
   const [sortGruppFilter, setSortGruppFilter] = useState<string>('Ej manuella');
+  // Ett läsfel är ett fel — aldrig "alla är kopplade".
+  const [lasFel, setLasFel] = useState<{ cc: boolean; fakturor: boolean; sort: boolean }>({ cc: false, fakturor: false, sort: false });
 
   const flashMsg = (text: string) => {
     setMsg(text);
@@ -132,16 +116,19 @@ export default function InstallningarClient() {
     ]);
     // Kostnadsställe-mappning (flera CC per maskin tillåtna) — hämtas via
     // dedikerat API som även returnerar omappade CC och Fortnox-listan.
+    let ccFel = true;
     try {
       const mapResp = await fetch('/api/fortnox/mappning', { cache: 'no-store' });
       const mapBody = await mapResp.json();
       if (mapResp.ok && mapBody.ok) {
+        ccFel = false;
         setMappningar(mapBody.mappningar || []);
         setMaskinOptLista(mapBody.maskiner || []);
         setFortnoxCc(mapBody.fortnox_kostnadsstallen || []);
         setOmappadeCc(mapBody.omappade || []);
       }
-    } catch { /* behåll tidigare state vid fel */ }
+    } catch { /* ccFel står kvar */ }
+    setLasFel({ cc: ccFel, fakturor: !!omappadRes.error, sort: !!sortGruppRes.error });
 
     setOmappade((omappadRes.data || []).map((r: any) => ({
       id: r.id,
@@ -177,12 +164,10 @@ export default function InstallningarClient() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // ── Manuell fakturarads-mappning ──
-  const updateOmappad = (idx: number, objekt_id: string) => {
-    setOmappade(prev => prev.map((r, i) => i === idx ? { ...r, valt_objekt_id: objekt_id } : r));
-  };
-  const saveOmappad = async (idx: number) => {
-    const row = omappade[idx];
-    if (!row.valt_objekt_id) { flashMsg('Välj objekt först'); return; }
+  // Ett tryck på en skog i arket kopplar fakturan (inget extra Spara-steg).
+  const saveOmappad = async (idx: number, objekt_id: string) => {
+    const row = { ...omappade[idx], valt_objekt_id: objekt_id };
+    if (!row.valt_objekt_id) { flashMsg('Välj skog först'); return; }
     setSavingMap(row.id);
     const { error } = await supabase
       .from('fortnox_invoice_rows')
@@ -192,15 +177,13 @@ export default function InstallningarClient() {
     if (error) { flashMsg(`Fel: ${error.message}`); return; }
     // Ta bort raden lokalt (den är nu mappad)
     setOmappade(prev => prev.filter((_, i) => i !== idx));
-    flashMsg(`Mappad: faktura ${row.document_number} → ${objektVal.find(o => o.objekt_id === row.valt_objekt_id)?.label || row.valt_objekt_id}`);
+    flashMsg(`Faktura ${row.document_number} hör nu till ${objektVal.find(o => o.objekt_id === row.valt_objekt_id)?.label || row.valt_objekt_id}`);
   };
 
   // ── Sortiment-grupp-mappning ──
-  const updateSortGrupp = (idx: number, grupp: string | null) => {
-    setSortGruppRader(prev => prev.map((r, i) => i === idx ? { ...r, grupp, dirty: true } : r));
-  };
-  const saveSortGrupp = async (idx: number) => {
-    const row = sortGruppRader[idx];
+  // Ett tryck på en grupp i arket sparar den.
+  const saveSortGrupp = async (idx: number, grupp: string | null) => {
+    const row = { ...sortGruppRader[idx], grupp };
     setSavingSortGrupp(row.sortiment_id);
     const { error } = await supabase.from('dim_sortiment_grupp')
       .upsert({
@@ -212,9 +195,9 @@ export default function InstallningarClient() {
     setSavingSortGrupp(null);
     if (error) { flashMsg(`Fel: ${error.message}`); return; }
     setSortGruppRader(prev => prev.map((r, i) => i === idx
-      ? { ...r, grupp_manuell: true, dirty: false }
+      ? { ...r, grupp, grupp_manuell: true, dirty: false }
       : r));
-    flashMsg(`Sparad: ${row.namn || row.sortiment_id} → ${row.grupp || '(exkluderad)'}`);
+    flashMsg(row.grupp ? `${row.namn || row.sortiment_id} räknas som ${row.grupp}` : `${row.namn || row.sortiment_id} räknas inte`);
   };
 
   // ── Kostnadsställe-mappning (flera CC per maskin) ──
@@ -228,8 +211,8 @@ export default function InstallningarClient() {
     const body = await r.json();
     setSavingCcMap(false);
     if (!r.ok || !body.ok) { flashMsg(`Fel: ${body.error || r.status}`); return; }
-    flashMsg(`Mappning tillagd: ${kod} → ${maskin_id}`);
-    setOmappadVal(prev => { const n = { ...prev }; delete n[kod]; return n; });
+    const m = maskinOptLista.find(x => x.maskin_id === maskin_id);
+    flashMsg(`${kod} kopplad till ${m ? maskinNamn(m) : maskin_id}`);
     await fetchData();
   };
   const taBortMappning = async (id: string) => {
@@ -238,257 +221,230 @@ export default function InstallningarClient() {
     const body = await r.json();
     setSavingCcMap(false);
     if (!r.ok || !body.ok) { flashMsg(`Fel: ${body.error || r.status}`); return; }
-    flashMsg('Mappning avslutad — historiken bevaras');
+    flashMsg('Kopplingen är borttagen. Det som redan bokförts står kvar.');
     await fetchData();
   };
 
-  return (
-    <div style={s.page}>
-      <style>{`
-        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
-      `}</style>
+  const [del, setDel] = useState<Del | null>(() => (typeof window === 'undefined' ? null : arDel(new URLSearchParams(window.location.search).get('del'))));
+  useEffect(() => {
+    const p = () => setDel(arDel(new URLSearchParams(window.location.search).get('del')));
+    window.addEventListener('popstate', p);
+    return () => window.removeEventListener('popstate', p);
+  }, []);
+  const valjDel = (d: Del | null) => {
+    const u = new URL(window.location.href);
+    if (d) u.searchParams.set('del', d); else u.searchParams.delete('del');
+    if (d) window.history.pushState(null, '', u); else window.history.replaceState(null, '', u);
+    setDel(d);
+    window.scrollTo(0, 0);
+  };
 
-      <div style={s.header}>
-        <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Mappningar &amp; synk</div>
-        <div style={s.dateNote as CSSProperties}>
-          Fortnox-mappning och datamappning. Priserna är flyttade till <Link href="/ekonomi/prislista" style={{ textDecoration: 'underline', color: 'inherit' }}>Prislistan</Link>.
-        </div>
-        {/* Synk-status — en död Fortnox-synk ska synas HÄR, inte upptäckas
-            efter månader. Äldre än 3 dygn → bärnsten. */}
-        {synk && (
-          <div style={{ fontSize: 11, marginTop: 6, color: '#7a7a72' }}>
-            {synk === 'fel' ? (
-              <>Fortnox-synk: status kunde inte läsas</>
-            ) : (
+  const svar = synkSvar(synk, new Date());
+  const antal: Record<Del, number> = {
+    ccUtan: omappadeCc.length, fakturor: omappade.length, cc: maskinOptLista.length, sort: sortGruppRader.length,
+  };
+  const ejManuella = sortGruppRader.filter(r => !r.grupp_manuell).length;
+  const felPa: Record<Del, boolean> = { ccUtan: lasFel.cc, cc: lasFel.cc, fakturor: lasFel.fakturor, sort: lasFel.sort };
+  const underText: Record<Del, string> = {
+    ccUtan: lasFel.cc ? 'Kunde inte läsas' : omappadeCc.length ? `${omappadeCc.length} att koppla` : 'Alla har en maskin',
+    fakturor: lasFel.fakturor ? 'Kunde inte läsas' : omappade.length ? `${omappade.length} att koppla` : 'Alla har en skog',
+    cc: lasFel.cc ? 'Kunde inte läsas' : `${antal.cc} ${antal.cc === 1 ? 'maskin' : 'maskiner'}`,
+    sort: lasFel.sort ? 'Kunde inte läsas' : `${antal.sort} sortiment${ejManuella ? ` · ${ejManuella} valda av appen` : ''}`,
+  };
+  const msgFel = msg.startsWith('Fel');
+
+  return (
+    <EkonomiSida maxBredd={MAXBREDD_BRED}>
+      <div style={{ padding: `0 ${AVSTAND.sidmarginal}px` }}>
+        {msg && (
+          <p role="status" style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: msgFel ? FARG.rod : FARG.gron }}>{msg}</p>
+        )}
+
+        {loading && <Laddar />}
+
+        {!loading && !del && (
+          <>
+            <SvarHuvud fraga="Hämtas siffrorna från Fortnox?" svar={svar.svar} under={svar.under} vantar={svar.vantar} />
+            <Sektion rubrik="Att koppla">
+              {(['ccUtan', 'fakturor'] as Del[]).map((k, i) => (
+                <Rad key={k} titel={DEL[k].titel} under={underText[k]} onTryck={() => valjDel(k)} pil sista={i === 1} attr={{ 'data-del': k }}
+                  hoger={!felPa[k] && antal[k] > 0 ? <span style={{ ...TYP.meta, ...TNUM, color: FARG.orange }}>{antal[k]}</span> : undefined} />
+              ))}
+            </Sektion>
+            <Sektion rubrik="Inställningar">
+              {(['cc', 'sort'] as Del[]).map((k, i) => (
+                <Rad key={k} titel={DEL[k].titel} under={underText[k]} onTryck={() => valjDel(k)} pil sista={i === 1} attr={{ 'data-del': k }} />
+              ))}
+            </Sektion>
+          </>
+        )}
+
+        {!loading && del && (
+          <div style={{ marginTop: AVSTAND.l }}>
+            <button type="button" onClick={() => valjDel(null)} style={{ ...KNAPP.tertiar, padding: 0, minHeight: TRAFFYTA.min }}>‹ Inställningar</button>
+            <h1 style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.titel, color: FARG.text }}>{DEL[del].titel}</h1>
+            <p style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.l}px`, ...TYP.meta, color: FARG.text2 }}>{DEL[del].forklaring}</p>
+            {felPa[del] && (
+              <p role="alert" style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.text, color: FARG.rod }}>
+                Kunde inte läsa det här just nu. <button type="button" onClick={fetchData} style={{ ...KNAPP.tertiar, padding: 0, minHeight: TRAFFYTA.min }}>Försök igen</button>
+              </p>
+            )}
+
+            {/* Barnregeln: en rad per sak, ett tryck öppnar ETT ark med frågan
+                ("Vilken maskin?"), och ett tryck på svaret sparar. Inga
+                rullgardiner och ingen Spara-knapp per rad. */}
+            {del === 'cc' && (
+              <Sektion rubrik="Maskiner" not="Nya kopplingar görs under Kostnadsställen utan maskin.">
+                {!felPa.cc && maskinOptLista.length === 0 && <Rad titel="Inga maskiner i maskinregistret" sista dampad />}
+                {maskinOptLista.map((m, idx) => {
+                  const kopplade = mappningar.filter(x => x.maskin_id === m.maskin_id);
+                  return (
+                    <Rad key={m.maskin_id} attr={{ 'data-val-rad': m.maskin_id }} titel={maskinNamn(m)}
+                      under={kopplade.length ? kopplade.map(k => k.kostnadsstalle_kod).join(', ') : 'Inget kostnadsställe'}
+                      hoger={kopplade.length ? `${kopplade.length} st` : undefined}
+                      sista={idx === maskinOptLista.length - 1}
+                      onTryck={kopplade.length ? () => setValt({ typ: 'cc', id: m.maskin_id }) : undefined} />
+                  );
+                })}
+              </Sektion>
+            )}
+
+            {del === 'ccUtan' && (
+              <Sektion rubrik="Kostnadsställen">
+                {!felPa.ccUtan && omappadeCc.length === 0 && <Rad titel="Alla kostnadsställen har en maskin" sista dampad />}
+                {omappadeCc.map((cc, idx) => (
+                  <Rad key={cc.kod} attr={{ 'data-val-rad': cc.kod }} titel={`${cc.kod}${cc.namn ? ` · ${cc.namn}` : ''}`}
+                    under={<span style={{ color: cc.har_trafik ? FARG.orange : FARG.text2 }}>{cc.har_trafik ? 'Har siffror i Fortnox' : 'Inga siffror än'}{cc.aktiv === false ? ' · inaktivt i Fortnox' : ''}</span>}
+                    hoger="Välj maskin" sista={idx === omappadeCc.length - 1}
+                    onTryck={savingCcMap ? undefined : () => setValt({ typ: 'ccUtan', id: cc.kod })} />
+                ))}
+              </Sektion>
+            )}
+
+            {del === 'fakturor' && (
+              <Sektion rubrik="Fakturor">
+                {!felPa.fakturor && omappade.length === 0 && <Rad titel="Alla fakturor har en skog" sista dampad />}
+                {omappade.map((r, idx) => (
+                  <Rad key={r.id} attr={{ 'data-val-rad': String(r.id) }} titel={`Faktura ${r.document_number}`}
+                    under={[r.invoice_date, r.description].filter(Boolean).join(' · ') || 'Ingen text på fakturan'}
+                    hoger={r.total != null ? `${Math.round(r.total).toLocaleString('sv-SE')} kr` : undefined}
+                    sista={idx === omappade.length - 1}
+                    onTryck={savingMap != null ? undefined : () => { setSok(''); setValt({ typ: 'faktura', id: String(r.id) }); }} />
+                ))}
+              </Sektion>
+            )}
+
+            {del === 'sort' && (
               <>
-                Fortnox senast synkad: {synkDel('verifikat', synk.last_success_at)} · {synkDel('fakturor', synk.invoice_last_sync_at)}
-                {/* Krashad/avbruten körning ska synas, inte gömmas bakom ett gammalt ok-datum */}
-                {synk.last_status && synk.last_status !== 'ok' && synk.last_status !== 'pågår' && (
-                  <span style={{ color: 'rgba(240,178,76,0.85)' }}> · senaste körning: {synk.last_status}</span>
-                )}
+                <div style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap', marginBottom: AVSTAND.m }}>
+                  {SORT_FILTER.map(f => (
+                    <button key={f.id} type="button" aria-pressed={sortGruppFilter === f.id} onClick={() => setSortGruppFilter(f.id)}
+                      style={{ ...TYP.meta, minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, borderRadius: RADIE.rad, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        background: sortGruppFilter === f.id ? FARG.text : FARG.fyllning, color: sortGruppFilter === f.id ? FARG.bg : FARG.text }}>
+                      {f.text}
+                    </button>
+                  ))}
+                </div>
+                {(() => {
+                  const filtered = sortGruppRader.filter(r => {
+                    if (sortGruppFilter === 'Alla') return true;
+                    if (sortGruppFilter === 'Ej manuella') return !r.grupp_manuell;
+                    if (sortGruppFilter === 'Exkluderade') return r.grupp == null;
+                    return r.grupp === sortGruppFilter;
+                  });
+                  return (
+                    <Sektion rubrik="Sortiment" not={`Visar ${filtered.length} av ${sortGruppRader.length} sortiment.`}>
+                      {!felPa.sort && filtered.length === 0 && <Rad titel="Inga sortiment här" sista dampad />}
+                      {filtered.map((r, i) => (
+                        <Rad key={r.sortiment_id} attr={{ 'data-val-rad': r.sortiment_id }} titel={r.namn || 'Utan namn'}
+                          under={r.grupp_manuell ? 'Vald av dig' : 'Vald av appen'}
+                          hoger={r.grupp ?? 'Räknas inte'} sista={i === filtered.length - 1}
+                          onTryck={savingSortGrupp ? undefined : () => setValt({ typ: 'sort', id: r.sortiment_id })} />
+                      ))}
+                    </Sektion>
+                  );
+                })()}
               </>
             )}
-          </div>
-        )}
-      </div>
 
-      {msg && (
-        <div style={{ margin: '12px 16px 0', padding: '10px 14px', background: 'rgba(90,255,140,0.1)', border: '1px solid rgba(90,255,140,0.3)', color: 'rgba(90,255,140,0.95)', borderRadius: 10, fontSize: 12 }}>
-          {msg}
-        </div>
-      )}
+            {valt?.typ === 'ccUtan' && (() => {
+              const cc = omappadeCc.find(c => c.kod === valt.id);
+              if (!cc) return null;
+              return (
+                <Ark rubrik={`Vilken maskin är ${cc.kod}?`} onStang={() => setValt(null)}>
+                  {cc.namn && <p style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.meta, color: FARG.text2 }}>I Fortnox heter det {cc.namn}.</p>}
+                  <Sektion rubrik="Maskiner">
+                    {maskinOptLista.map((m, i) => (
+                      <Rad key={m.maskin_id} titel={maskinNamn(m)} sista={i === maskinOptLista.length - 1}
+                        onTryck={savingCcMap ? undefined : () => { setValt(null); läggTillMappning(m.maskin_id, cc.kod); }} />
+                    ))}
+                  </Sektion>
+                </Ark>
+              );
+            })()}
 
-      {loading && <div style={{ textAlign: 'center', padding: 40, color: '#7a7a72' }}>Laddar...</div>}
-
-      {!loading && (
-        <div style={{ padding: '0 16px' }}>
-
-          {/* Kostnadsställe per maskin — stöder flera CC per maskin */}
-          <div style={s.sectionTitle as CSSProperties}>Kostnadsställe per maskin (Fortnox)</div>
-          <div style={s.sectionBlurb as CSSProperties}>Flera kostnadsställen kan kopplas till samma maskin — används när Fortnox har skilda CC för intäkter och kostnader (t.ex. Scorpion Gigant med både SCO och M13).</div>
-          <div style={s.card}>
-            {maskinOptLista.map((m, idx) => {
+            {valt?.typ === 'cc' && (() => {
+              const m = maskinOptLista.find(x => x.maskin_id === valt.id);
+              if (!m) return null;
               const kopplade = mappningar.filter(x => x.maskin_id === m.maskin_id);
               return (
-                <div key={m.maskin_id} style={{ padding: '12px 0', borderBottom: idx < maskinOptLista.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{maskinNamn(m)}</div>
-                      <div style={{ fontSize: 10, color: '#7a7a72', fontFamily: 'ui-monospace, monospace', marginTop: 2 }}>{m.maskin_id}</div>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
-                      {kopplade.length === 0 && (
-                        <span style={{ fontSize: 11, color: '#7a7a72', fontStyle: 'italic' as const }}>inga kostnadsställen</span>
-                      )}
-                      {kopplade.map(k => {
-                        const cc = fortnoxCc.find(c => c.kod === k.kostnadsstalle_kod);
-                        return (
-                          <span key={k.id}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, padding: '4px 6px 4px 10px', background: 'rgba(173,198,255,0.08)', border: '1px solid rgba(173,198,255,0.2)', borderRadius: 999, color: '#adc6ff' }}
-                            title={cc?.namn || ''}>
-                            <span style={{ fontWeight: 600 }}>{k.kostnadsstalle_kod}</span>
-                            {cc?.namn && <span style={{ color: '#7a7a72' }}>{cc.namn}</span>}
-                            <button
-                              onClick={() => taBortMappning(k.id)}
-                              disabled={savingCcMap}
-                              style={{ background: 'transparent', border: 'none', color: '#7a7a72', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0, marginLeft: 2 }}
-                              aria-label="Ta bort mappning">×</button>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            {maskinOptLista.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Inga maskiner i dim_maskin.</div>}
-          </div>
-
-          {/* Omappade kostnadsställen från Fortnox */}
-          <div style={s.sectionTitle as CSSProperties}>Omappade kostnadsställen</div>
-          <div style={s.sectionBlurb as CSSProperties}>
-            Kostnadsställen i Fortnox som inte är kopplade till någon maskin. Välj maskin och tryck Koppla — eller lämna som ”egna kostnadsobjekt” (t.ex. M8 Lastbil, TRA Trailer).
-          </div>
-          <div style={s.card}>
-            {omappadeCc.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Alla kostnadsställen är mappade.</div>}
-            {omappadeCc.map((cc, idx) => (
-              <div key={cc.kod} style={{ padding: '12px 0', borderBottom: idx < omappadeCc.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.6fr auto', gap: 8, alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>
-                      {cc.kod}
-                      {cc.aktiv === false && <span style={{ marginLeft: 6, fontSize: 10, color: '#7a7a72' }}>(inaktiv)</span>}
-                      {cc.har_trafik && <span style={{ marginLeft: 6, fontSize: 10, color: 'rgba(255,179,64,0.95)' }}>• data finns</span>}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>{cc.namn || '—'}</div>
-                  </div>
-                  <select
-                    style={{ ...s.input, fontSize: 12 } as CSSProperties}
-                    value={omappadVal[cc.kod] || ''}
-                    onChange={e => setOmappadVal(prev => ({ ...prev, [cc.kod]: e.target.value }))}>
-                    <option value="">Välj maskin…</option>
-                    {maskinOptLista.map(m => (
-                      <option key={m.maskin_id} value={m.maskin_id}>{maskinNamn(m)}</option>
+                <Ark rubrik={maskinNamn(m)} onStang={() => setValt(null)} stang="Klar">
+                  <Sektion rubrik="Kostnadsställen" not="Tar du bort en koppling står det som redan bokförts kvar.">
+                    {kopplade.length === 0 && <Rad titel="Inget kostnadsställe" sista dampad />}
+                    {kopplade.map((k, i) => (
+                      <Rad key={k.id} titel={k.kostnadsstalle_kod} under={fortnoxCc.find(c => c.kod === k.kostnadsstalle_kod)?.namn || undefined}
+                        sista={i === kopplade.length - 1}
+                        hoger={<button type="button" disabled={savingCcMap} onClick={() => taBortMappning(k.id)} style={KNAPP.destruktiv}>Ta bort</button>} />
                     ))}
-                  </select>
-                  <button
-                    style={{ ...s.btnDark, opacity: !omappadVal[cc.kod] || savingCcMap ? 0.4 : 1 } as CSSProperties}
-                    disabled={!omappadVal[cc.kod] || savingCcMap}
-                    onClick={() => läggTillMappning(omappadVal[cc.kod], cc.kod)}>
-                    Koppla
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Omappade fakturarader */}
-          <div style={s.sectionTitle as CSSProperties}>Omappade fakturarader</div>
-          <div style={s.sectionBlurb as CSSProperties}>
-            Rader där VO-regex inte hittade matchande objekt. Välj objekt manuellt — detta bevaras över framtida synkar.
-          </div>
-          <div style={s.card}>
-            {omappade.length === 0 && (
-              <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>
-                Inga omappade rader. Kör <code style={{ fontFamily: 'inherit', color: '#bfcab9' }}>POST /api/fortnox/sync-invoices?full=1</code> för första synkningen.
-              </div>
-            )}
-            {omappade.map((r, idx) => {
-              const isSaving = savingMap === r.id;
-              return (
-                <div key={r.id} style={{ padding: '12px 0', borderBottom: idx < omappade.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>Faktura {r.document_number}</div>
-                    <div style={{ fontSize: 10, color: '#7a7a72', fontVariantNumeric: 'tabular-nums' }}>
-                      {r.invoice_date || '—'} · {r.total != null ? Math.round(r.total).toLocaleString('sv-SE') : '—'} kr
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 12, color: '#bfcab9', marginBottom: 8, fontStyle: 'italic' }}>
-                    {r.description || '(ingen beskrivning)'}
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
-                    <select
-                      value={r.valt_objekt_id}
-                      onChange={e => updateOmappad(idx, e.target.value)}
-                      style={{
-                        background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: 8, padding: '8px 10px', color: '#e8e8e4', fontSize: 13,
-                        fontFamily: 'inherit', outline: 'none', width: '100%',
-                      }}>
-                      <option value="">— Välj objekt —</option>
-                      {objektVal.map(o => <option key={o.objekt_id} value={o.objekt_id}>{o.label}</option>)}
-                    </select>
-                    <button
-                      style={{ ...s.btnDark, opacity: isSaving || !r.valt_objekt_id ? 0.6 : 1 } as CSSProperties}
-                      disabled={isSaving || !r.valt_objekt_id}
-                      onClick={() => saveOmappad(idx)}>
-                      {isSaving ? 'Sparar...' : 'Mappa'}
-                    </button>
-                  </div>
-                </div>
+                  </Sektion>
+                </Ark>
               );
-            })}
-          </div>
+            })()}
 
-          {/* Sortiment-grupp-mappning */}
-          <div style={s.sectionTitle as CSSProperties}>Sortimentgrupp-mappning</div>
-          <div style={s.sectionBlurb as CSSProperties}>
-            Varje sortiment-id får en grupp som räknas i acord (Timmer/Klentimmer/Kubb/Massa/Energi/Övrigt).
-            Välj "Exkluderat" för Avkap, test och fallback. Manuell ändring skyddas från framtida auto-seed.
-          </div>
-          <div style={{ ...s.card, padding: 14 } as CSSProperties}>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-              {['Alla', 'Ej manuella', 'Exkluderade', 'Timmer', 'Klentimmer', 'Kubb', 'Massa', 'Energi', 'Övrigt'].map(f => (
-                <button key={f}
-                  style={{
-                    ...s.periodBtn,
-                    ...(sortGruppFilter === f ? s.periodBtnActive : {}),
-                  } as CSSProperties}
-                  onClick={() => setSortGruppFilter(f)}>
-                  {f}
-                </button>
-              ))}
-            </div>
-            {(() => {
-              const filtered = sortGruppRader.filter(r => {
-                if (sortGruppFilter === 'Alla') return true;
-                if (sortGruppFilter === 'Ej manuella') return !r.grupp_manuell;
-                if (sortGruppFilter === 'Exkluderade') return r.grupp == null;
-                return r.grupp === sortGruppFilter;
-              });
-              if (filtered.length === 0) {
-                return <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0', textAlign: 'center' }}>Inga rader i filtret.</div>;
-              }
+            {valt?.typ === 'faktura' && (() => {
+              const idx = omappade.findIndex(r => String(r.id) === valt.id);
+              if (idx < 0) return null;
+              const r = omappade[idx];
+              const ord = sok.trim().toLowerCase().split(/\s+/).filter(Boolean);
+              const traffar = objektVal.filter(o => ord.every(w => o.label.toLowerCase().includes(w)));
               return (
-                <div>
-                  <div style={{ fontSize: 10, color: '#7a7a72', marginBottom: 8 }}>Visar {filtered.length} av {sortGruppRader.length} sortiment.</div>
-                  {filtered.map(r => {
-                    const idx = sortGruppRader.findIndex(x => x.sortiment_id === r.sortiment_id);
-                    const isSaving = savingSortGrupp === r.sortiment_id;
-                    return (
-                      <div key={r.sortiment_id} style={{
-                        padding: '8px 0',
-                        borderBottom: '1px solid rgba(255,255,255,0.04)',
-                        display: 'grid', gridTemplateColumns: '1fr 140px auto', gap: 8, alignItems: 'center',
-                      }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {r.namn || <span style={{ color: '#7a7a72', fontStyle: 'italic' }}>(tom)</span>}
-                          </div>
-                          <div style={{ fontSize: 9, color: '#7a7a72', fontFamily: 'ui-monospace, monospace', marginTop: 1 }}>
-                            {r.sortiment_id}
-                            {r.grupp_manuell && <span style={{ marginLeft: 6, color: 'rgba(173,198,255,0.7)' }}>● manuell</span>}
-                          </div>
-                        </div>
-                        <select
-                          value={r.grupp ?? ''}
-                          onChange={e => updateSortGrupp(idx, e.target.value || null)}
-                          style={{
-                            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
-                            borderRadius: 8, padding: '6px 8px', color: '#e8e8e4', fontSize: 12,
-                            fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box',
-                          }}>
-                          <option value="">Exkluderat</option>
-                          {SORT_GRUPPER.map(g => <option key={g} value={g}>{g}</option>)}
-                        </select>
-                        <button
-                          style={{ ...s.btnDark, padding: '6px 10px', fontSize: 11, opacity: isSaving || !r.dirty ? 0.4 : 1 } as CSSProperties}
-                          disabled={isSaving || !r.dirty}
-                          onClick={() => saveSortGrupp(idx)}>
-                          {isSaving ? '…' : 'Spara'}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
+                <Ark rubrik="Vilken skog?" onStang={() => setValt(null)}>
+                  <p style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.meta, color: FARG.text2 }}>
+                    Faktura {r.document_number}{r.description ? ` · ${r.description}` : ''}
+                  </p>
+                  <Falt etikett="Sök skog" value={sok} onChange={setSok} placeholder="namn eller VO-nummer" autoFocus />
+                  <Sektion rubrik={ord.length ? `${traffar.length} träffar` : 'Alla skogar'}>
+                    {traffar.length === 0 && <Rad titel="Ingen skog heter så" sista dampad />}
+                    {traffar.slice(0, 50).map((o, i, l) => (
+                      <Rad key={o.objekt_id} titel={o.label} sista={i === l.length - 1}
+                        onTryck={() => { setValt(null); saveOmappad(idx, o.objekt_id); }} />
+                    ))}
+                  </Sektion>
+                  {traffar.length > 50 && <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Visar 50 av {traffar.length}. Skriv mer för att hitta rätt.</p>}
+                </Ark>
+              );
+            })()}
+
+            {valt?.typ === 'sort' && (() => {
+              const idx = sortGruppRader.findIndex(r => r.sortiment_id === valt.id);
+              if (idx < 0) return null;
+              const r = sortGruppRader[idx];
+              const val: (string | null)[] = [...SORT_GRUPPER, null];
+              return (
+                <Ark rubrik={r.namn || 'Utan namn'} onStang={() => setValt(null)}>
+                  <Sektion rubrik="Vilken sort är det?" not="Det du väljer skrivs inte över av appen.">
+                    {val.map((g, i) => (
+                      <Rad key={g ?? 'ingen'} titel={g ?? 'Räknas inte'} sista={i === val.length - 1}
+                        hoger={r.grupp === g ? '✓' : undefined}
+                        onTryck={() => { setValt(null); saveSortGrupp(idx, g); }} />
+                    ))}
+                  </Sektion>
+                </Ark>
               );
             })()}
           </div>
-
-
-        </div>
-      )}
-      <EkonomiBottomNav />
-    </div>
+        )}
+      </div>
+    </EkonomiSida>
   );
 }

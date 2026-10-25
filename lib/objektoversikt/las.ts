@@ -11,7 +11,7 @@ export const OBJEKT_KOLUMNER = [
   'avslutad_timestamp', 'pagaende_startad_timestamp', 'barighet', 'terrang', 'skotningsavstand', 'skordare_band', 'skotare_band',
   'skotare_extra_vagn', 'skotare_lastreder_breddat', 'transport_trailer_in', 'skordare_manuell_fallning',
   'skordare_manuell_fallning_text', 'cert', 'anteckningar', 'forardirektiv', 'info_anteckningar', 'markagare_ska_ha_ved',
-  'markagare_ved_text', 'grot', 'grot_status', 'skordare_maskin_id', 'skotare_maskin_id', 'medelstam',
+  'markagare_ved_text', 'grot', 'grot_status', 'skordare_maskin_id', 'skotare_maskin_id', 'medelstam', 'app_prognos',
 ].join(', ');
 
 export type LasSvar = { underlag: Underlag; fel: null } | { underlag: null; fel: string };

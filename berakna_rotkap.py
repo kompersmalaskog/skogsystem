@@ -20,7 +20,7 @@ Vad som räknas, för varje objekt som har en diameterserie:
   Grupp 2      FLERA massabitar i rad — rötan gick längre. Sågstocken börjar
                där kedjan slutar. Förlängningen ryms i senare bitars slack
                ner till 300 cm; det som inte ryms skjuter kedjan uppåt.
-  Fem rader    300 (som kördes), 320, 340, 360, 380. Volymerna är absoluta;
+  Nio rader    300 (som kördes), 310, 320 … 380 i steg om 10 cm. Volymerna är absoluta;
                skärmen räknar rad(k) − rad(300).
 
 Varje maskin på objektet räknas för sig — egen barkfunktion ur dess ob/ub-
@@ -35,7 +35,9 @@ import os, sys, io, json, math, time, collections, importlib.util, datetime
 import requests
 
 HAR = os.path.dirname(os.path.abspath(__file__))
-KAPLANGDER = (300, 320, 340, 360, 380)
+# Steg om 10 cm upp till 380 (Martin 2026-10-23: "flera längder upp till 3,7 med olika steg"). Den LÄNGSTA styr vilka
+# stammar som ryms (langsta nedan) — den är oförändrad 380, så urvalet och de redan räknade raderna står kvar.
+KAPLANGDER = (300, 310, 320, 330, 340, 350, 360, 370, 380)
 ROT_MIN, ROT_MAX = 300, 314
 MASSA_MIN = 300          # manuell 3 m-massa får kapas ner till 300
 BARK_MIN_N, BARK_MIN_R2 = 50, 0.95
@@ -229,7 +231,7 @@ def kor_objekt(objekt_id, par):
             dub, V, END = kurva
             grupp = 1 if len(kedja) == 1 else 2
             slack = sum(max(0, c - MASSA_MIN) for c in kedja[1:])
-            # Samma stam i alla fem raderna, eller i ingen — annars kan en rad
+            # Samma stam i alla raderna, eller i ingen — annars kan en rad
             # inte jämföras med sin referens.
             langsta = (kedja[0] if grupp == 1 else sum(kedja)) + (KAPLANGDER[-1] - 300)
             if langsta > END:

@@ -18,7 +18,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   zonKantLager,
-  IKON_STORLEK, STRECK_DASHED, STRECK_RANDAD, STRECK_STENMUR, STRECK_VANLIG, KANT_SVART_MJUK, KANT_SVART_STARK, LEGEND, LINJE_BREDD, LINJE_BREDD_GRANS,
+  IKON_STORLEK, STRECK_DASHED, STRECK_RANDAD, STRECK_STENMUR, STRECK_VANLIG, KANT_SVART_MJUK, KANT_SVART_STARK, VAG_KANT_FARG, LEGEND, LINJE_BREDD, LINJE_BREDD_GRANS,
   LINJE_KANT_BREDD, LINJE_KANT_BREDD_GRANS, LINJE_STIL, NUMMER_FONT_PX, NUMMER_STORLEK, PIL_STIL,
   STENMUR_BREDD, STENMUR_FARG, STENMUR_KANT_EXTRA, ZON_BREDD, ZON_FYLLNING_OPACITET, ZON_KANT_BREDD, ZON_KANT_FARG,
   ritaPilIkon, zoomKurva,
@@ -115,7 +115,7 @@ describe('linjetyperna (lineTypeDefs)', () => {
     expect(stopp(lwDelar[0], 'lw/grans')).toEqual(LINJE_BREDD_GRANS.map((s) => [...s]));
     expect(stopp(lwDelar[1], 'lw/annan')).toEqual(LINJE_BREDD.map((s) => [...s]));
 
-    const cw = mellan(KALLA, /const cwLw = isBoundary/, /\/\/ Svart casing/, 'cwLw');
+    const cw = mellan(KALLA, /const cwLw = isBoundary/, /\/\/ Mörk kant bakom varje linje/, 'cwLw');
     const delar = cw.split(/\n\s*:\s*/);
     expect(delar.length).toBe(2);
     expect(stopp(delar[0], 'cwLw/grans')).toEqual(LINJE_KANT_BREDD_GRANS.map((s) => [...s]));
@@ -124,9 +124,10 @@ describe('linjetyperna (lineTypeDefs)', () => {
 
   it('kantfarg: stark for gräns, basväg och stig, mjuk for resten', () => {
     expect(sammanfoga(KALLA)).toContain(
-      sammanfoga("const casingColor = (isBoundary || isMainRoad || isTrail) ? 'rgba(0,0,0,0.9)' : 'rgba(0,0,0,0.5)'"),
+      sammanfoga("const casingColor = (isBoundary || isMainRoad || isTrail || arStickvag(lt.id)) ? VAG_KANT_FARG : 'rgba(0,0,0,0.5)'"),
     );
     expect(KANT_SVART_STARK).toBe('rgba(0,0,0,0.9)');
+    expect(VAG_KANT_FARG).toBe(KANT_SVART_STARK);   // planeringens vägkant och egenkontrollens är samma färg
     expect(KANT_SVART_MJUK).toBe('rgba(0,0,0,0.5)');
   });
 
@@ -138,7 +139,7 @@ describe('linjetyperna (lineTypeDefs)', () => {
     expect(k).toContain(sammanfoga(`...(lt.dashed ? { 'line-dasharray': ${a(STRECK_DASHED)} } : {})`));
     expect(k).toContain(sammanfoga(`...(!lt.striped && !lt.dashed ? { 'line-dasharray': ${a(STRECK_VANLIG)} } : {})`));
     // Randad: basvägen (blå/gul) har lika långa streck med PLATTA ändar (BASVAG_STRECK_*); övriga randade linjer är oförändrade [2, 2] med rundade ändar.
-    expect(k).toContain(sammanfoga(`paint: { 'line-color': lt.color2, 'line-width': lw, 'line-dasharray': isMainRoad ? [...BASVAG_STRECK_DASH] : ${a(STRECK_RANDAD)} }`));
+    expect(k).toContain(sammanfoga(`paint: { 'line-color': lt.color2, 'line-width': (isMainRoad ? korBredd(lw) : lw) as any, 'line-dasharray': isMainRoad ? [...BASVAG_STRECK_DASH] : ${a(STRECK_RANDAD)} }`));
     expect([...BASVAG_STRECK_DASH]).toEqual([...STRECK_RANDAD]);
   });
 
@@ -239,15 +240,12 @@ describe('symboler och pilar', () => {
 });
 
 describe('basvagsnumret', () => {
-  it('ikonstorleken motsvarar planeringens textstorlek 11/14/17 px', () => {
-    const block = mellan(KALLA, /id: 'line-mainroad-label'/, /'symbol-placement'/, 'basvagsetikett');
-    const text = stopp(block.slice(block.indexOf("'text-size'")), 'text-size');
-    expect(NUMMER_STORLEK.map(([z, s]) => [z, Math.round(s * NUMMER_FONT_PX)])).toEqual(text);
+  it('ikonstorleken motsvarar textstorleken 11/14/17 px (planeringen skriver ingen fast vägetikett längre — egenkontrollens ikon behåller de gamla måtten)', () => {
+    expect(NUMMER_STORLEK.map(([z, s]) => [z, Math.round(s * NUMMER_FONT_PX)])).toEqual([[12, 11], [15, 14], [17, 17]]);
   });
 
-  it('planeringen skriver fortfarande basvagens nummer i etiketten', () => {
-    // Ritas som ikon har, men det ar samma uppgift: numret ur markorens `nummer`.
-    expect(KALLA).toContain("m.lineType === 'mainRoad' && typeof m.nummer === 'number'");
+  it('planeringen har INGEN fast vägetikett: nummer och längd visas först vid tryck (Kartan lugnare)', () => {
+    expect(KALLA).not.toContain("id: 'line-mainroad-label'");
   });
 });
 

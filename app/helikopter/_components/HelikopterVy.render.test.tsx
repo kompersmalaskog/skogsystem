@@ -14,7 +14,7 @@ import { fmt } from '../_lib/format'
 
 const q = vi.hoisted(() => ({
   hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaManuellaMaskiner: vi.fn(), hamtaSenasteLass: vi.fn(), hamtaMaskinLage: vi.fn(),
-  hamtaMaskiner: vi.fn(), hamtaMaskinTakter: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), skickaVeckoNotis: vi.fn(), params: '', replace: vi.fn(),
+  hamtaMaskiner: vi.fn(), hamtaMaskinTakter: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaPrognosFacit: vi.fn(async () => ({ data: [], error: null })), tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), skickaVeckoNotis: vi.fn(), params: '', replace: vi.fn(),
 }))
 vi.mock('../_lib/queries', () => q)
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(q.params), useRouter: () => ({ replace: q.replace }) }))
@@ -46,7 +46,7 @@ const manadsdata = (x: Record<string, unknown> = {}) => ({
   arbetsdagar: [okt],
   planering: [objekt('1', 'gallring', 1000), objekt('2', 'slutavverkning', 5000)],
   stopp: [], bestallningar: [{ typ: 'gallring', bolag: 'Vida', volym: 1000 }, { typ: 'slutavverkning', bolag: 'Vida', volym: 5000 }],
-  utanTyp: [], takter: null, maskinStopp: [], rapportdagar: null, ...x,
+  utanTyp: [], takter: null, maskinStopp: [], rapportdagar: null, egenSkotning: [], ...x,
 })
 const fast = {
   maskiner: [{ maskin_id: 'PONS', modell: 'Scorpion', visningsnamn: 'Giant', maskin_typ: 'Harvester', klarar_typ: 'slutavverkning', extramaskin: false, aktiv_till: null }],
@@ -90,7 +90,7 @@ describe('/helikopter — en sida', () => {
     await monter()
     expect(text()).toContain('Oktober 2026')
     expect(text()).toContain('10 arbetsdagar kvar')
-    expect(cont.querySelector('main h2')?.textContent).toBe('Vi hinner inte med beställningen')
+    expect(cont.querySelector('main h2')?.textContent).toBe(`Slutavverkning fattas ${fmt(1000)}`)
     const skotat = sektion('Skotat')!
     // Det stora talet är SKOTAT HITTILLS, prognosen står som "Landar på N" under (2026-10-24: 726 lästes som skotat när skotat var 561).
     expect(skotat.querySelector('[data-tal="gallring"]')?.textContent).toBe(fmt(800))
@@ -141,6 +141,32 @@ describe('/helikopter — en sida', () => {
     expect(sektion('När blir maskinerna klara?')!.textContent).toContain('Kunde inte räkna')
     await act(async () => { rad.click() })
     expect(cont.querySelector('[role="dialog"]')).not.toBeNull()
+  })
+
+  it('Egen skotning: en egen rubrik med en rad per objekt, räknas inte i Skotat; inget kort utan objekt; ett läsfel är ett fel', async () => {
+    const egen = [{ objekt_id: '11124748', namn: 'Trestensdal gallring 2025.', vo_nummer: '11124748', typ: 'gallring', bolag: 'Vida', skordat: 178.4, senast_datum: '2026-10-10' }]
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ egenSkotning: egen }), error: null })
+    await monter()
+    const s = sektion('Egen skotning')!
+    expect(s).not.toBeNull()
+    expect(s.querySelectorAll('[data-egen-skotning]').length).toBe(1)
+    expect(s.textContent).toContain('Trestensdal gallring')
+    expect(s.textContent).toContain(`${fmt(178.4)} m³fub`)
+    expect(s.textContent).toContain('Gallring · Vida')
+    expect(s.textContent).toContain('räknas inte mot beställningen')
+    // Skotat-talet är orört: 800, inte 800 + 178.
+    expect(sektion('Skotat')!.querySelector('[data-tal="gallring"]')?.textContent).toBe(fmt(800))
+    expect(sektion('Skotat')!.querySelector('[data-landar="gallring"]')?.textContent).toBe(`Landar på ${fmt(1020)}`)
+    await act(async () => { root?.unmount() }); cont.remove()
+
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ egenSkotning: [] }), error: null })
+    await monter()
+    expect(sektion('Egen skotning')).toBeNull()
+    await act(async () => { root?.unmount() }); cont.remove()
+
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ egenSkotning: null }), error: null })
+    await monter()
+    expect(sektion('Egen skotning')?.textContent).toContain('Kunde inte läsa egen skotning')
   })
 
   it('ett fel i månadsdatan är ett fel med Försök igen — aldrig tomma kort', async () => {

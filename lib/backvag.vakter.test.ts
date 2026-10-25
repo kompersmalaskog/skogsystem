@@ -19,8 +19,8 @@ describe('backväg: planeringssidan', () => {
     expect(m[1]).toContain("'line-'");
     expect(backvagStreckLager('backvag-source', 'line').id).toBe('line-backvag');
     // vägens linjelager: samma uttryck som före backväg (färg ur farg, gula streck bara utan färg)
-    expect(page).toContain("'line-color': isMainRoad ? (BASVAG_FARG_UTTRYCK as any) : lt.color");
-    expect(page).toContain("filter: isMainRoad ? ['all', ['==', ['get', 'lineType'], lt.id], BASVAG_UTAN_FARG as any]");
+    expect(page).toContain("korFarg(isMainRoad ? (BASVAG_FARG_UTTRYCK as any) : lt.color)");
+    expect(page).toContain("filter: isMainRoad ? ['all', ['==', ['get', 'lineType'], lt.id], BASVAG_UTAN_FARG as any, KOR_INTE_KLAR]");
   });
   it('lagret är ett symbollager som inte klipps på zoom (en del av linjen, inte en symbol att gömma) och alla fyra ikonerna registreras', () => {
     expect(SYMBOL_UNDANTAG).toContain('line-backvag');

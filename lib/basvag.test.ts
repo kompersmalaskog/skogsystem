@@ -99,8 +99,8 @@ describe('sidans koppling (page.tsx kan inte monteras i test — källvakt)', ()
   const las = (rel: string) => readFileSync(resolve(__dirname, rel), 'utf8');
 
   it('basvägen är EN typ med färgfält: lagren färgas ur `farg`, de gula strecken bara på basväg utan färg, och featuren bär färgen', () => {
-    expect(page).toContain("'line-color': isMainRoad ? (BASVAG_FARG_UTTRYCK as any) : lt.color");
-    expect(page).toContain("filter: isMainRoad ? ['all', ['==', ['get', 'lineType'], lt.id], BASVAG_UTAN_FARG as any]");
+    expect(page).toContain("korFarg(isMainRoad ? (BASVAG_FARG_UTTRYCK as any) : lt.color)");
+    expect(page).toContain("filter: isMainRoad ? ['all', ['==', ['get', 'lineType'], lt.id], BASVAG_UTAN_FARG as any, KOR_INTE_KLAR]");
     expect(page).toContain("...(m.lineType === 'mainRoad' && m.farg ? { farg: m.farg } : {})");
     expect(page).toContain("{ id: 'mainRoad', color: LEGEND.vatten, color2: LEGEND.gul, striped: true },");   // lineTypeDefs oförändrad: ingen ny typ bredvid
     expect(page).not.toContain("id: 'mainRoadRed'");

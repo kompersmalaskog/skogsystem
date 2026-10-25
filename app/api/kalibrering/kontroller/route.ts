@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   for (let offset = 0; ; offset += PAGE) {
     const { data, error } = await supabase
       .from("detalj_kontroll_stock")
-      .select("filnamn,stem_selection,operator_measurement_date,tid_ar_utc")
+      .select("filnamn,stem_selection,operator_measurement_date,tid_ar_utc,measurer_name")
       .eq("maskin_id", maskinId)
       .order("id", { ascending: true })
       .range(offset, offset + PAGE - 1);

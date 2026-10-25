@@ -1,0 +1,9 @@
+{
+  "kalla": "prod 2026-10-25 (read-only): planering_markeringar, objekt 'Arvidstorp RP J-Hus -25', typ pil, arrowType fellingdirection. Vägarna ligger i korordning_arvidstorp_2026-10-25.json.",
+  "objekt": { "lat": 56.2880371767867, "lng": 15.3635007818307 },
+  "pilar": [
+    { "id": 1792494945655, "arrowType": "fellingdirection", "lng": 15.361831784248352, "lat": 56.28813153080833, "angle": 135 },
+    { "id": 1792494956216, "arrowType": "fellingdirection", "lng": 15.361713767051697, "lat": 56.28791418423475, "angle": 135 },
+    { "id": 1792924380559, "arrowType": "fellingdirection", "lng": 15.363081693649292, "lat": 56.287821886000955, "angle": 315 }
+  ]
+}
