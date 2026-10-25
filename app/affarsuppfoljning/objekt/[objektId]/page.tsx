@@ -28,6 +28,7 @@ import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 import { SIDA, GUL, GRON, TEXT, DAMPAD, nf0, nf1, nf2, manadNamn, manadEtikett, stor, kortObjekt,
          Rubrik, Tillbakarad, Stort, Tillstand, Damp, Kontroll, Mening, Rad, Rader, Stycken, Laddar, Fel } from '@/components/Ytform';
+import { AVSTAND, FARG, RADIE } from '@/lib/design/tokens';
 import { sortimentEtiketter } from '@/lib/massaved/sortimentnamn';
 import TraktVy from './TraktVy';
 
@@ -113,10 +114,10 @@ function Innehall() {
   const traktUrl = bas;
   const rotkapUrl = `${bas}/rotkap`;
   const bitarUrl = `${bas}/bitar`;
-  const har = `${namn} · ${periodOrd}`;
+  const har = 'Massaveden';
 
-  if (laddar) return <div style={SIDA}><Laddar vad={namn} /></div>;
-  if (fel) return <div style={SIDA}><Fel rubrik="Massaveden kunde inte hämtas" fel={fel} igen={hamta} /></div>;
+  if (laddar) return <div style={SIDA}><Tillbakarad href={bas} text={namn} /><Laddar vad="massaveden" /></div>;
+  if (fel) return <div style={SIDA}><Tillbakarad href={bas} text={namn} /><Fel rubrik="Massaveden kunde inte hämtas" fel={fel} igen={hamta} /></div>;
   if (!d) return <div style={SIDA} />;
 
   const onskad = d.onskad_medellangd_m;
@@ -147,22 +148,31 @@ function Innehall() {
           </Stort>
         ) : (
           <>
-            <Stort tal={nf2(d.medellangd_m)} enhet="m" ordrad={`medellängd ${valtaOrd}`}>
-              <Tillstand farg={under ? GUL : GRON}>{under ? 'under' : 'når'} Vidas önskade {nf1(onskad)} m</Tillstand>
+            <Stort tal={nf2(d.medellangd_m)} enhet="m" ordrad={`lång i snitt · Vida vill ha ${nf1(onskad)} m`}>
+              {/* Stapeln mot Vidas mått: man ser utan att räkna om det fattas. Färgen förstärker meningen, aldrig ensam. */}
+              <div aria-hidden style={{ height: AVSTAND.xs, borderRadius: RADIE.stapel, background: FARG.linje, marginTop: AVSTAND.m }}>
+                <div style={{ height: '100%', borderRadius: RADIE.stapel, width: `${Math.min(100, (100 * d.medellangd_m) / onskad)}%`,
+                              background: under ? GUL : GRON }} />
+              </div>
+              <Tillstand farg={under ? GUL : GRON}>
+                {under ? `${nf2(onskad - d.medellangd_m)} m för kort` : 'Håller Vidas mått'}
+              </Tillstand>
+              <Damp>{nf0(d.total_m3fub)} m³ {valtaOrd}</Damp>
               {periodKontroll}
-              <Damp>{nf1(d.total_m3fub)} m³fub · {nf0(bitar)} bitar</Damp>
             </Stort>
 
-            <Rader>
+            <Rader rubrik="Varför">
+              <Rad text="Hur långa bitarna är" sub={`${nf0(overMal)} % är ${nf1(onskad)} m eller längre`} onClick={() => go('langd')} />
               {d.tre_m_stock.st > 0 && (
-                <Rad text="3 m-stockar" tal={`${nf0(d.tre_m_stock.andel ?? 0)} %`} farg={GUL} onClick={() => go('tre-m')} />
+                <Rad text="Korta rotbitar" sub={`${nf0(d.tre_m_stock.andel ?? 0)} % är 3 m-bitar som kapats för röta`} onClick={() => go('tre-m')} />
               )}
               {d.sagbar.sortiment.length > 0 && (
-                <Rad text="Sågbar dimension" tal={`${nf0(d.sagbar.andel ?? 0)} %`} onClick={() => go('sagbar')} />
+                <Rad text="Kunde ha blivit timmer eller kubb" sub={`${nf0(d.sagbar.andel ?? 0)} % hade passat ett sågbart sortiment`} onClick={() => go('sagbar')} />
               )}
-              <Rad text="Längdfördelning" tal={`${nf0(overMal)} %`} farg={GRON} onClick={() => go('langd')} />
-              <Rad text="Trädslag och avkap" onClick={() => go('tradslag')} />
-              <Rad text="Så räknas" onClick={() => go('rakning')} />
+              <Rad text="Per trädslag" onClick={() => go('tradslag')} />
+            </Rader>
+            <Rader>
+              <Rad text="Så räknas" onClick={() => go('rakning')} dampad />
             </Rader>
           </>
         )}
@@ -176,9 +186,9 @@ function Innehall() {
     return (
       <div style={SIDA}>
         <Tillbakarad href={objektUrl} text={har} />
-        <Stort tal={nf0(t.andel ?? 0)} enhet="%" ordrad="av volymen är 3 m-stockar">
+        <Stort tal={nf0(t.andel ?? 0)} enhet="%" ordrad="av massaveden är korta rotbitar">
           <Damp>{nf0(t.st)} st · {nf1(t.m3fub)} m³fub</Damp>
-          <Mening>Kapade till 3 m för att ta bort röta.</Mening>
+          <Mening>Bitar på 3 m som maskinen kapat längst ner på stammen för att få bort röta.</Mening>
         </Stort>
         <Rader>
           {t.medellangd_utan_m3 != null && <Rad text="Utan dem" tal={`${nf2(t.medellangd_utan_m3)} m`} farg={GRON} />}
@@ -196,7 +206,7 @@ function Innehall() {
     return (
       <div style={SIDA}>
         <Tillbakarad href={objektUrl} text={har} />
-        <Stort tal={nf0(overMal)} enhet="%" ordrad={`når Vidas önskade ${nf1(onskad)} m`}>
+        <Stort tal={nf0(overMal)} enhet="%" ordrad={`är ${nf1(onskad)} m eller längre`}>
           <Damp>{nf1(d.total_m3fub)} m³fub · {nf0(bitar)} bitar</Damp>
         </Stort>
         <Rader>
@@ -218,7 +228,7 @@ function Innehall() {
     return (
       <div style={SIDA}>
         <Tillbakarad href={objektUrl} text={har} />
-        <Stort tal={nf0(s.andel ?? 0)} enhet="%" ordrad="hade rymts i ett sågbart sortiment">
+        <Stort tal={nf0(s.andel ?? 0)} enhet="%" ordrad="hade passat som timmer eller kubb">
           <Damp>{nf1(s.m3fub)} m³fub</Damp>
         </Stort>
         <Rader>
