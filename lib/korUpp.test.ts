@@ -108,6 +108,13 @@ describe('data till kartan', () => {
     expect(l.every((x) => x.id.startsWith('line-'))).toBe(true);
     expect(l[0].paint['line-width']).toBeGreaterThanOrEqual(36);
     expect(l[2].paint['line-color']).toBe('#ffffff');   // vit dubbelpil
+    // Skäl-ordet: på pilens mittpunkt (ingen förskjutning), rakt mot skärmen, versaler och tjock mörk kant.
+    const ord = l[4];
+    expect(ord.layout['text-anchor']).toBe('center');
+    expect(ord.layout['text-offset']).toEqual([0, 0]);
+    expect(ord.layout['text-rotation-alignment']).toBe('viewport');
+    expect(ord.layout['text-transform']).toBe('uppercase');
+    expect(ord.paint['text-halo-width']).toBeGreaterThanOrEqual(3);
   });
 });
 

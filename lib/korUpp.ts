@@ -148,7 +148,8 @@ export function korUppLager(kalla = KORUPP_KALLA): any[] {
     { id: KORUPP_SPETS_LAGER, type: 'symbol', source: kalla, filter: ['==', ['get', 'slag'], 'spets'],
       layout: { 'icon-image': KORUPP_SPETS_BILD, 'icon-size': KORUPP_SPETS_STORLEK, 'icon-rotate': ['get', 'riktning'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'viewport', 'icon-anchor': 'center', 'icon-allow-overlap': true, 'icon-ignore-placement': true } },
     { id: KORUPP_ORD_LAGER, type: 'symbol', source: kalla, filter: ['==', ['get', 'slag'], 'ord'],
-      layout: { 'text-field': ['get', 'text'], 'text-size': 15, 'text-font': ['Open Sans Bold', 'Open Sans Semibold', 'Open Sans Regular'], 'text-offset': [0, -1.1], 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-rotation-alignment': 'viewport', 'text-pitch-alignment': 'viewport' },
-      paint: { 'text-color': FARG.text, 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 2 } },
+      layout: { 'text-field': ['get', 'text'], 'text-transform': 'uppercase', 'text-size': 15, 'text-font': ['Open Sans Bold', 'Open Sans Semibold', 'Open Sans Regular'], 'text-anchor': 'center', 'text-offset': [0, 0], 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-rotation-alignment': 'viewport', 'text-pitch-alignment': 'viewport' },
+      // Mitt på pilen (pilens egen mittpunkt), rak text oavsett pilens riktning, tjock mörk kant så den syns mot både fotot och den vita linjen.
+      paint: { 'text-color': FARG.text, 'text-halo-color': 'rgba(0,0,0,0.95)', 'text-halo-width': 3 } },
   ];
 }
