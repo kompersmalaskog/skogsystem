@@ -1,6 +1,6 @@
 // Vad som skotats till ett avlägg — för avläggskortet ("skotat hit 412 m³", per sortiment, antal lass, senast).
 // Räknas ur lassen på trakten; ett lass med flera delar bidrar med varje del till sitt avlägg. Efter Färdigskotad följer volymerna skalningen.
-import { heltM3 } from './lassModell';
+import { heltM3, raknasSomSkotat } from './lassModell';
 import { sortimentNyckel } from './sortiment';
 import type { Lass } from './typer';
 
@@ -17,7 +17,7 @@ export function skotatTillAvlagg(lass: readonly Lass[], avlaggId: string, faktor
   const lassMedDel = new Set<string>();
   let senast: string | null = null;
   for (const l of lass) {
-    if (l.status === 'struket') continue;
+    if (!raknasSomSkotat(l)) continue;
     for (const d of l.delar) {
       if (d.avlaggId !== avlaggId) continue;
       lassMedDel.add(l.id);

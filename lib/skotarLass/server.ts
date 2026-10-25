@@ -38,7 +38,7 @@ export function lassFranServer(r: any): Lass | null {
     id: r.id, objektId: r.objekt_id, voNummer: r.vo_nummer ?? null, maskinId: String(r.maskin_id), medarbetareId: r.medarbetare_id ?? null,
     lassNummer: Number(r.lass_nummer), datum: String(r.datum).slice(0, 10), delar,
     status: STATUS.includes(r.status) ? r.status : 'bekraftat',
-    bekraftadAv: r.bekraftad_av === 'auto' || r.bekraftad_av === 'forare' ? r.bekraftad_av : null,
+    bekraftadAv: r.bekraftad_av === 'auto' || r.bekraftad_av === 'forare' || r.bekraftad_av === 'planerare' ? r.bekraftad_av : null,
     bekraftadTid: r.bekraftad_tid ? new Date(r.bekraftad_tid).toISOString() : null,
     sparPunkter: Array.isArray(r.spar) ? r.spar : [], vagar: Array.isArray(r.vagar) ? r.vagar : [],
     skapad: new Date(r.skapad).toISOString(), andrad: new Date(r.andrad).toISOString(),

@@ -12,6 +12,7 @@
 //   4. ingen kod/klass → vilket sortiment som helst, mest kvar först
 // Volym som inte får plats (skotat mer än skördat i sin grupp) blir överskott och räknas aldrig som minus någonstans.
 import { OKLASSAT_NYCKEL, type SkordatSortiment } from './sortiment';
+import { raknasSomSkotat } from './lassModell';
 import type { Lass } from './typer';
 
 export interface OptiRad { namn: string; kundkod: string | null; m3: number }
@@ -32,11 +33,11 @@ export interface OptiLass {
 const tomMs = (iso: string) => Date.parse(iso);
 const sthlmDag = (ms: number): string => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm' }).format(new Date(ms));
 
-/** Maskinens första icke-struken app-lass på trakten (lossningstiden, ms). Maskiner utan app-lass finns inte i svaret. */
+/** Maskinens första app-lass på trakten som RÄKNAS (inte struket, inte det gamla obekräftade; lossningstiden, ms). Maskiner utan sådant lass finns inte i svaret — då räknas Opti hela vägen. */
 export function appStartPerMaskin(lass: readonly Lass[]): Map<string, number> {
   const per = new Map<string, number>();
   for (const l of lass) {
-    if (l.status === 'struket') continue;
+    if (!raknasSomSkotat(l)) continue;
     for (const d of l.delar) {
       const t = tomMs(d.lossadTid);
       if (!Number.isFinite(t)) continue;
