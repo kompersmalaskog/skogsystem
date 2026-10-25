@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { Sheet } from '@/components/Sheet'
 import { AVSTAND, FARG, KNAPP, TYP } from '@/lib/design/tokens'
-import { TYP_NAMN, maskinNamn, maskinRoll, stoppSynligt, stoppUtanNamn, type ManadStatus, type SparLage } from '../_lib/berakningar'
+import { TYP_NAMN, maskinNamn, maskinRoll, oskotatKvar, stoppSynligt, stoppUtanNamn, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { dagarText, fmt, kortNamn } from '../_lib/format'
 import { hamtaMaskinTakter, type Maskin, type MaskinLage, type MaskinStopp } from '../_lib/queries'
 import { ListRad } from './Lista'
@@ -43,7 +43,7 @@ export default function MaskinerSheet({ open, onClose, spar, status, maskiner, i
           <Sektion className="hk-grupp" key={s.typ} rubrik={TYP_NAMN[s.typ]} kort={false}>
             <ListRad namn="Skördat" tal={fmt(s.skordat)} under={s.taktSkordat != null ? `${fmt(s.taktSkordat)}/dag` : undefined} />
             <ListRad namn="Skotat" tal={fmt(s.skotat)} under={s.taktSkotat != null ? `${fmt(s.taktSkotat)}/dag` : undefined} />
-            {rad && <ListRad namn="Oskotat" tal={fmt(Math.max(s.oskotat, 0))} under={rad} />}
+            {rad && <ListRad namn="Kvar att skota" tal={fmt(oskotatKvar(s))} under={rad} />}
           </Sektion>
         )
       })}

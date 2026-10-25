@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  planIdag, behovPerDag, dagarEfter, prognosSkotat, klartDatum, oskotatStatus, skordareDagarFore,
+  planIdag, behovPerDag, dagarEfter, prognosSkotat, klartDatum, oskotatStatus, skordareDagarFore, oskotatKvar,
   harPrognos, planeratPerTyp, belaggning, timmarForTyp, atgardForTyp, atgardForMaskin, raknaSpar, manadStatus, valjBas,
   OSKOTAT_I_TAKT_M3_PER_DAG,
 } from './berakningar'
@@ -52,6 +52,11 @@ describe('läge', () => {
     expect(skordareDagarFore(220, 55)).toBe(4)
     expect(skordareDagarFore(-50, 55)).toBe(0)
     expect(skordareDagarFore(220, null)).toBeNull()
+  })
+  it('kvar att skota = ingående + skördat − skotat, aldrig negativt (okt 2026: gallring 427 + 599 − 962 = 64, inte −363)', () => {
+    expect(oskotatKvar({ ingaendeOskotat: 427, skordat: 599, skotat: 962 })).toBe(64)
+    expect(oskotatKvar({ ingaendeOskotat: 1527, skordat: 4135, skotat: 4290 })).toBe(1372)
+    expect(oskotatKvar({ ingaendeOskotat: 0, skordat: 100, skotat: 150 })).toBe(0)
   })
   it('prognos från arbetsdag 4 (tre gångna dagar)', () => {
     expect(harPrognos(2)).toBe(false)
