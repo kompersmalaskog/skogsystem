@@ -1255,7 +1255,7 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
 
   return (
     <div style={{ minHeight: '100%', background: V6_BG, color: '#fff', fontFamily: V6_FF, WebkitFontSmoothing: 'antialiased' }}>
-      <div style={kolumnRot('smal')}>
+      <div className="uf-detalj-kolumn" style={kolumnRot('smal')}>
       <Nav onBack={onBack} />
       <Headline data={data} />
       <Svaret data={data} />

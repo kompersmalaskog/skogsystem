@@ -9,7 +9,7 @@
 // Vad som syns styrs av CSS (ingen JS-mätning, inget hopp vid första rendering).
 import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
-import { FARG, FONT, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, designCss } from '@/lib/design/tokens';
+import { AVSTAND, FARG, FONT, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, designCss } from '@/lib/design/tokens';
 import UppfoljningSidolista from './UppfoljningSidolista';
 
 const FRAN_PX = 1100;
@@ -27,6 +27,9 @@ const css = `
     display: block; width: ${BREDD_PX}px; flex-shrink: 0; border-right: 1px solid ${FARG.linje};
     position: sticky; top: ${LAYOUT.topbar}; height: ${ROT_MIN_HOJD}; overflow-y: auto;
   }
+  /* Objektet ligger tätt intill listan (som Mail), inte centrerat och svävande
+     i den breda ytan. Övergrep på kolumnRots inline-marginaler (därav !important). */
+  .uf-detalj-vy .uf-detalj-kolumn { margin-left: ${AVSTAND.xl}px !important; margin-right: auto !important; }
 }
 `;
 
