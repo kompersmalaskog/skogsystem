@@ -9,7 +9,7 @@
 //   · NÄR BLIR MASKINERNA KLARA?: namn + datum, inget mer. Trakterna visas när man trycker. Datumet räknas i appen (klar.ts raknaAlla)
 //     på RPC:ns underlag, så att en trakt utan prognos kan få G15-förslaget ("ca 5 nov").
 // Inga ·-kedjor, inga traktlistor, inga förklaringsrader med åtta fakta.
-import type { Maskin, MaskinStopp, PlaneringObjekt, Typ, UtanTypRad, Arbetsdagar } from './queries'
+import type { Maskin, MaskinStopp, PlaneringObjekt, Typ, UtanTypRad, Arbetsdagar, EgenSkotningRad } from './queries'
 import { KLAR_TYP_NAMN, arVirke, bastaFlytt, bestamdNamn, senasteKlar, type FlyttForslag, type KlarData, type KlarTrakt, type MaskinPlan } from './klar'
 import { skillnadText } from '@/lib/prognosFoljer'
 import {
@@ -80,7 +80,18 @@ export function sidSvar(kort: SparKortVy[], status: ManadStatus): SidSvar {
   if (status === 'kommande') return { rubrik: 'Månaden har inte börjat', avvikelse: false }
   const medBest = kort.filter(k => k.av != null)
   if (medBest.length === 0) return { rubrik: 'Ingen beställning inlagd', avvikelse: false }
-  if (medBest.some(k => k.lage === 'fattas')) return { rubrik: status === 'avslutad' ? 'Vi hann inte med beställningen' : 'Vi hinner inte med beställningen', avvikelse: true }
+  const fattas = medBest.filter(k => k.lage === 'fattas')
+  if (fattas.length > 0) {
+    // Säg VILKET spår som fattas och hur mycket (Martin 2026-10-25: "vilken är det som inte gör det?").
+    // Första spåret med stor bokstav, nästa med liten: "Slutavverkning fattas 356 · gallring 38".
+    const ord = status === 'avslutad' ? 'fattades' : 'fattas'
+    const delar = fattas.map((k, i) => {
+      const brist = fmt((k.av ?? 0) - (k.landar ?? k.tal))
+      const namn = i === 0 ? k.namn : k.namn.toLowerCase()
+      return i === 0 ? `${namn} ${ord} ${brist}` : `${namn} ${brist}`
+    })
+    return { rubrik: delar.join(' · '), avvikelse: true }
+  }
   const utan = medBest.filter(k => k.lage === 'inga_trakter')
   if (utan.length > 0) return { rubrik: `${utan.map(k => k.namn).join(' och ')} har inga trakter`, avvikelse: false }
   if (medBest.some(k => k.lage === 'hittills')) return { rubrik: `För tidigt för prognos – kommer dag ${PROGNOS_FRAN_ARBETSDAG}`, avvikelse: false }
@@ -281,3 +292,30 @@ export function flyttText2(f: FlyttForslag, planer: Record<string, MaskinPlan>):
     ],
   }
 }
+
+// ---------- EGEN SKOTNING (Martin 2026-10-25: "bara en egen rubrik, inget annat") ----------
+// Markägaren skotar själv: inga lass kommer, så skördat i månaden är talet. Räknas ALDRIG mot beställningen, takten
+// eller prognosen — rubriken finns för att den som läser Skotat ska veta att virket inte saknas, vi kör det bara inte.
+export type EgenSkotningVy = {
+  objekt_id: string
+  /** "Trestensdal gallring" — kortNamn, aldrig ett id. */
+  namn: string
+  /** "Gallring · Vida" (typ och bolag som finns; saknas båda: "typ saknas"). */
+  under: string
+  /** "178 m³fub" — skördat i månaden. */
+  tal: string
+}
+
+export function egenSkotningVy(rader: EgenSkotningRad[]): EgenSkotningVy[] {
+  return rader
+    .filter(r => r.skordat > 0)
+    .map(r => {
+      const typ = r.typ && (r.typ in TYP_NAMN) ? TYP_NAMN[r.typ as Typ] : r.typ ? r.typ.charAt(0).toUpperCase() + r.typ.slice(1) : null
+      const delar = [typ, r.bolag].filter((x): x is string => !!x)
+      // Prod: "Trestensdal gallring 2025." — punkten sist hindrar kortNamn från att släppa årsstumpen.
+      return { objekt_id: r.objekt_id, namn: kortNamn(r.namn?.replace(/[.\s]+$/, '')), under: delar.length > 0 ? delar.join(' · ') : 'typ saknas', tal: `${fmt(r.skordat)} m³fub` }
+    })
+}
+
+/** Noten under rubriken: EN mening, samma oavsett antal. */
+export const EGEN_SKOTNING_NOT = 'Markägaren skotar själv · räknas inte mot beställningen'

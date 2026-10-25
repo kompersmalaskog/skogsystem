@@ -33,7 +33,7 @@ import {
 } from '../_lib/queries'
 import { TYPER, TYP_NAMN, globalaArbetsdagar, kapacitetsMaskiner, manadStatus, maskinNamn, planeratPerTyp, raknaSpar, valjBas, type PlaneratResultat, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, manadRubrik, relativTid } from '../_lib/format'
-import { gorDetta, klarRader, sidSvar, sparKort, type GorRad, type KlarRad } from '../_lib/kort'
+import { egenSkotningVy, gorDetta, klarRader, sidSvar, sparKort, type GorRad, type KlarRad } from '../_lib/kort'
 import { bastaFlytt, medFoljandePrognos, medUppskattadPrognos, raknaAlla, type FlyttForslag } from '../_lib/klar'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
@@ -44,6 +44,7 @@ import { HK_CSS } from './Lista'
 import { PanelContext, type PanelPost } from './PanelVal'
 import SkotatSektion from './SkotatSektion'
 import GorDettaSektion from './GorDettaSektion'
+import EgenSkotningSektion from './EgenSkotningSektion'
 import KlarSektion from './KlarSektion'
 import { AllaSakerSheet, FlyttSheet, MaskinTrakterSheet } from './GorSheets'
 import { DinMaskinSektion, MaskinerManadSheet, VeckoNotisSektion } from './MaskinSektion'
@@ -333,6 +334,7 @@ export default function HelikopterVy() {
                   <Svarsrad rubrik={svar.rubrik} avvikelse={svar.avvikelse} />
                   <div className="hk-rutnat">
                     <SkotatSektion kort={kort} />
+                    <EgenSkotningSektion rader={manadsdata.egenSkotning == null ? null : egenSkotningVy(manadsdata.egenSkotning)} onRetry={() => setVersion(v => v + 1)} />
                     <GorDettaSektion rader={gor} onOppna={oppnaGor} onAlla={() => setArk('alla')} />
                     {status !== 'avslutad' && (
                       <KlarSektion rader={klarVy} fel={klar.fel} laddar={klar.laddar} sistaArbetsdag={klar.data?.sista_arbetsdag ?? null} onRetry={() => void klar.ladda()} onOppna={r => setArk(`maskin:${r.maskin_id}`)} />

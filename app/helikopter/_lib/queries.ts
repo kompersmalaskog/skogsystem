@@ -179,6 +179,17 @@ export type UtanTypRad = {
   objekt_uuid: string | null
 }
 
+/** Egen skotning (helikopter_ny_egen_skotning): markägaren skotar själv, inga lass kommer — skördat i månaden är talet. Visas bara, räknas aldrig. */
+export type EgenSkotningRad = {
+  objekt_id: string
+  namn: string | null
+  vo_nummer: string | null
+  typ: string | null
+  bolag: string | null
+  skordat: number
+  senast_datum: string | null
+}
+
 export type VeckaRad = {
   isovecka: number
   iso_ar: number
@@ -266,6 +277,8 @@ function normVecka(r: any): VeckaRad {
 /** utanTyp = null när RPC:n inte gick att läsa — raden visar då ett fel, aldrig "inget". */
 export type Manadsdata = {
   spar: SparRad[]; arbetsdagar: Arbetsdagar[]; planering: PlaneringObjekt[]; stopp: StoppRad[]; bestallningar: BestallningRad[]; utanTyp: UtanTypRad[] | null
+  /** Egen skotning (helikopter_ny_egen_skotning). null = kunde inte läsas: rubriken säger det, aldrig "ingen egen skotning". */
+  egenSkotning: EgenSkotningRad[] | null
   /** Takt per maskin (helikopter_ny_takt). null = kunde inte läsas (eller migrationen inte körd): prognosen räknas då som förut på spårets takt. */
   takter: MaskinTakt[] | null
   /** Stopp per maskin (helikopter_ny_stopp). null = kunde inte läsas: inga stopptexter och ingen varning, Planering visar bara registrerade stopp. */
@@ -279,7 +292,7 @@ export async function hamtaManadsdata(ar: number, manad: number, idag: string): 
   const forsta = `${ar}-${String(manad).padStart(2, '0')}-01`
   const sista = new Date(ar, manad, 0)
   const sistaIso = `${sista.getFullYear()}-${String(sista.getMonth() + 1).padStart(2, '0')}-${String(sista.getDate()).padStart(2, '0')}`
-  const [spar, dagar, plan, stopp, stoppMaskin, best, utan, takt, maskinStopp, rapport] = await Promise.all([
+  const [spar, dagar, plan, stopp, stoppMaskin, best, utan, takt, maskinStopp, rapport, egen] = await Promise.all([
     rpc<any[]>('helikopter_ny_spar', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_arbetsdagar', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_planering', { p_ar: ar, p_manad: manad }),
@@ -290,6 +303,7 @@ export async function hamtaManadsdata(ar: number, manad: number, idag: string): 
     rpc<any[]>('helikopter_ny_takt', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_stopp', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_rapportdagar', { p_ar: ar, p_manad: manad, p_idag: idag }),
+    rpc<any[]>('helikopter_ny_egen_skotning', { p_ar: ar, p_manad: manad }),
   ])
   // utan typ-RPC:n är ett komplement: fel där fäller inte hela fliken utan syns på sin egen rad.
   if (utan.error != null) console.error('[helikopter] helikopter_ny_utan_typ', utan.error)
@@ -297,6 +311,7 @@ export async function hamtaManadsdata(ar: number, manad: number, idag: string): 
   if (takt.error != null) console.error('[helikopter] helikopter_ny_takt', takt.error)
   if (maskinStopp.error != null) console.error('[helikopter] helikopter_ny_stopp', maskinStopp.error)
   if (rapport.error != null) console.error('[helikopter] helikopter_ny_rapportdagar', rapport.error)
+  if (egen.error != null) console.error('[helikopter] helikopter_ny_egen_skotning', egen.error)
   const fel = spar.error ?? dagar.error ?? plan.error ?? (stopp.error ? felText(stopp.error) : null) ?? (stoppMaskin.error ? felText(stoppMaskin.error) : null) ?? (best.error ? felText(best.error) : null)
   if (fel) { if (stopp.error || stoppMaskin.error || best.error) console.error('[helikopter] stopp/bestallningar', stopp.error ?? stoppMaskin.error ?? best.error); return { data: null, error: fel } }
   const maskinerPerStopp = new Map<string, string[]>()
@@ -316,6 +331,10 @@ export async function hamtaManadsdata(ar: number, manad: number, idag: string): 
       utanTyp: utan.error != null ? null : (utan.data ?? []).map((u: any): UtanTypRad => ({
         objekt_id: String(u.objekt_id), namn: u.namn ?? null, vo_nummer: u.vo_nummer ?? null, huvudtyp: u.huvudtyp ?? null, bolag: u.bolag ?? null,
         skordat: tal(u.skordat), skotat: tal(u.skotat), volym: tal(u.volym), senast_datum: u.senast_datum ?? null, objekt_uuid: u.objekt_uuid ?? null,
+      })),
+      egenSkotning: egen.error != null ? null : (egen.data ?? []).map((e: any): EgenSkotningRad => ({
+        objekt_id: String(e.objekt_id), namn: e.namn ?? null, vo_nummer: e.vo_nummer ?? null, typ: e.typ ?? null, bolag: e.bolag ?? null,
+        skordat: tal(e.skordat), senast_datum: e.senast_datum ?? null,
       })),
     },
     error: null,
