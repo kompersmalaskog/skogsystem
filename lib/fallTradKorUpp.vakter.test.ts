@@ -1,6 +1,6 @@
 // Vakter för fällträd och kör upp och backa (2026-10-25): det som inte får glida tillbaka — läser sidan och lib-filerna, ingen karta.
 //   • Ingen migration: båda lagras som pil-markeringar (typ 'pil' — planering_markeringar har en CHECK som bara tillåter symbol/linje/zon/pil).
-//   • Bara skördaren ser träden och bara i fällningscirkeln; skotaren inga. Kör upp-pilen nära skördaren och skotaren (80 m). Redigering (vrida, rita) bara i planeringen.
+//   • Bara skördaren ser träden och bara i fällningscirkeln; skotaren inga. Kör upp-pilen nära skördaren och skotaren (80 m). Att rita kör upp-pilen bara i planeringen. Trädet vrids i kortet (som de gamla pilarna), inte med en gest på kartan.
 //   • Gamla gröna pilar försvinner först när planeraren godkänt förslaget. Körvyns whitelist, klippning på zoom och klickprioritet känner de nya lagren.
 //   • EN ny fast text på kartan: ordet vid kör upp-pilen (skälet). Trädet har ingen text.
 import fs from 'node:fs';
@@ -30,10 +30,12 @@ describe('vad som syns var', () => {
     expect(sida).toContain('const synliga = synligaTrad(trad, lage, pos);');
     expect(sida).toContain('ksrc.setData(korUppData(synligaKorUpp(pilar, lage, pos)));');
   });
-  it('handtaget går bara att dra i planeringen — körvyn rör aldrig ett träd', () => {
-    expect(sida).toContain('redigerbara: !korvyActive && !!valtObjekt?.id,');
-    expect(sida).toContain("tradSynligaRef.current = lage === 'planering' ? synliga : [];");
-    expect(sida).toContain("{ redigera: lage === 'planering' }");
+  it('den vita ringen sitter bara på trädet vars kort är öppet, och bara i planeringen', () => {
+    expect(sida).toContain("valdId: lage === 'planering' && markerMenuOpen != null ? String(markerMenuOpen) : null");
+  });
+  it('träden har ingen gest på kartan: ingen vridning genom drag, inget handtag', () => {
+    for (const f of ['lib/fallTradGester.ts', 'lib/hooks/useFallOchKorUpp.ts', 'lib/fallTrad.ts']) expect(las(f), f).not.toMatch(/onVrid|redigerbara|arPaHandtag|handtagPunkt|HANDTAG/);
+    expect(sida).not.toMatch(/onVrid|redigerbara:/);
   });
   it('de gamla pilarnas lager får aldrig trädet eller kör upp-pilen (annars saknas bilden arrow-fellingtree)', () => {
     expect(sida).toContain('m.isArrow && !arFallTrad(m) && !arKorUpp(m)');
@@ -52,7 +54,7 @@ describe('förslaget ur de gröna pilarna', () => {
     expect(nej).not.toContain('setMarkers');
   });
   it('förslaget syns som spöken med svagare färg innan godkännandet (inte som riktiga träd)', () => {
-    expect(sida).toContain('{ redigera: false, forslag: true }');
+    expect(sida).toContain('{ forslag: true }');
   });
 });
 
@@ -77,9 +79,16 @@ describe('menyn och kartan känner de nya sorterna', () => {
     expect(sida).toContain("map.on('click', TRAD_LAGER, handleMarkerFeatureClick);");
     expect(sida).toContain("map.on('click', KORUPP_TRAFF_LAGER, handleMarkerFeatureClick);");
   });
-  it('kortet för trädet har ingen ratt (handtaget sitter på kartan); kör upp-pilens kort har skälen', () => {
-    expect(sida).toContain('{marker.isArrow && !arFallTrad(marker) && !arKorUpp(marker) && (');
+  it('trädet vrids i kortet med SAMMA ratt som de gamla pilarna; kör upp-pilen har ingen ratt (den ritas) men skälen', () => {
+    expect(sida).toContain('{marker.isArrow && !arKorUpp(marker) && (');
+    expect(sida).toContain('<ArrowRotationControl');
     expect(sida).toContain('data-testid="korupp-skal"');
+  });
+});
+
+describe('fast storlek på skärmen', () => {
+  it('kör upp-pilen har samma tjocklek och spets vid varje zoom: inga zoomuttryck i lagren', () => {
+    for (const l of korUppLager().filter((x) => x.id !== 'line-korupp-ord')) expect(JSON.stringify(l.paint ?? {}) + JSON.stringify(l.layout ?? {}), l.id).not.toContain('"zoom"');
   });
 });
 

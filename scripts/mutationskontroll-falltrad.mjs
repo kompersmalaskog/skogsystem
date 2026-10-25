@@ -26,9 +26,13 @@ const M = [
   // ── trädet: vinklar och storlek ──
   ["fram: norr och öst byter plats", "lat: p.lat + (meter * Math.cos(r)) / 111320", "lat: p.lat + (meter * Math.sin(r)) / 111320", TRAD],
   ["vinkeln räknas från öst, inte norr", "Math.atan2(dx, dy)", "Math.atan2(dy, dx)", TRAD],
-  ["trädet är dubbelt så långt som det ska", "TRAD_LANGD_M / (TRAD_TOPP_PX", "(TRAD_LANGD_M * 2) / (TRAD_TOPP_PX", TRAD],
+  ["trädet är dubbelt så stort på skärmen", "export const TRAD_SKARM_LANGD_PX = 76;", "export const TRAD_SKARM_LANGD_PX = 150;", TRAD],
+  ["trädets storlek följer zoomen igen", "'icon-size': TRAD_STORLEK,", "'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.05, 20, 3],", TRAD],
+  ["trädet ritas platt mot marken (krymper med lutningen)", "'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'viewport',\n      'icon-anchor': 'bottom'", "'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map',\n      'icon-anchor': 'bottom'", TRAD],
+  ["kronan blir randig igen", "ctx.lineJoin = 'round'; ctx.lineWidth = 1.5; ctx.strokeStyle = '#0f3d1f'; ctx.stroke();\n  // Stubbe", "ctx.lineJoin = 'round'; ctx.lineWidth = 1.5; ctx.strokeStyle = '#0f3d1f'; ctx.stroke(); ctx.strokeStyle = '#43b068'; ctx.lineWidth = 3; for (let y = topp + 10; y < stamTopp; y += 6) { ctx.beginPath(); ctx.moveTo(sx - 20, y); ctx.lineTo(sx + 20, y); ctx.stroke(); }\n  // Stubbe", TRAD],
+  ["varje träd har den vita ringen", "vald: opt.valdId != null && opt.valdId === t.id", "vald: true", TRAD],
+  ["alla träd får ringen när något är valt", "vald: opt.valdId != null && opt.valdId === t.id", "vald: opt.valdId != null", TRAD],
   ["stubben sitter inte på trädets plats (offset borta)", "'icon-anchor': 'bottom', 'icon-offset': [0, TRAD_BILD_MATT.pad],", "'icon-anchor': 'bottom',", TRAD],
-  ["handtaget träffas på 60 px", "export const TRAD_HANDTAG_TRAFF_PX = 30;", "export const TRAD_HANDTAG_TRAFF_PX = 60;", TRAD],
   // ── förslaget ur de gamla pilarna ──
   ["körriktningspilar föreslås också bli träd", "m.arrowType === 'fellingdirection';", "(m.arrowType === 'fellingdirection' || m.arrowType === 'drivedirection');", TRAD],
   ["trädet får inte pilens riktning", "angle: p.vinkel, fran: p.id", "angle: 0, fran: p.id", TRAD],
@@ -38,18 +42,17 @@ const M = [
   ["starten snäpper till vägar 100 px bort", "export const KORUPP_SNAPP_PX = 32;", "export const KORUPP_SNAPP_PX = 100;", UPP],
   ["skördaren ser pilar 500 m bort", "export const KORUPP_SYNLIG_M = 80;", "export const KORUPP_SYNLIG_M = 500;", UPP],
   ["skotaren ser alla kör upp-pilar (ingen 80 m)", "if (!pos) return [];\n  return pilar.filter((p) => avstandTillLinjeM(pos, [p.start, p.slut]) <= radieM)", "if (!pos || lage === 'skotare') return pilar.filter(() => true);\n  return pilar.filter((p) => avstandTillLinjeM(pos, [p.start, p.slut]) <= radieM)", UPP],
+  ["kör upp-linjen följer zoomen igen", "'line-width': KORUPP_LINJE_PX }", "'line-width': ['interpolate', ['linear'], ['zoom'], 13, 1, 19, 12] }", UPP],
   ["båda spetsarna pekar åt samma håll", "riktning: (riktning + 180) % 360", "riktning", UPP],
   ["texten på kortet nämner inte skälet", "return ord ? `${ord} – kör upp mot gränsen och backa tillbaka` :", "return ord ? 'Kör upp mot gränsen och backa tillbaka' :", UPP],
   // ── gesterna ──
   ["ett tryck nära en väg räknas som pil (längden mäts från vägen)", "korUppLangdM({ start: r.fingret, slut: r.slut })", "korUppLangdM({ start: r.start, slut: r.slut })", GEST],
   ["kartan panorerar medan pilen dras", "fingret: llFran(p), vagId: snapp ? snapp.id : null, slut: llFran(p) };\n      map.dragPan.disable();", "fingret: llFran(p), vagId: snapp ? snapp.id : null, slut: llFran(p) };", GEST],
-  ["träden går att vrida även i körvyn", "if (!nu.redigerbara) return;", "", GEST],
-  ["kartan panorerar medan trädet vrids", "vrid = { id: t.id, stubbe: t.stubbe, senaste: t.vinkel }; map.dragPan.disable(); return;", "vrid = { id: t.id, stubbe: t.stubbe, senaste: t.vinkel }; return;", GEST],
-  ["släppet sparar aldrig vinkeln", "map.dragPan.enable(); hamta().onVrid(v.id, v.senaste, true);", "map.dragPan.enable();", GEST],
   // ── sidan ──
   ["de gamla pilarnas lager får trädet", "m.isArrow && !arFallTrad(m) && !arKorUpp(m)) : [];", "m.isArrow) : [];", SIDA],
   ["skotaren får samma läge som skördaren", "const lage = !korvyActive ? 'planering' : skotarKorvy ? 'skotare' : 'skordare';", "const lage = !korvyActive ? 'planering' : 'skordare';", SIDA],
-  ["körvyn kan vrida träd", "redigerbara: !korvyActive && !!valtObjekt?.id,", "redigerbara: !!valtObjekt?.id,", SIDA],
+  ["ringen sitter kvar på trädet i körvyn", "valdId: lage === 'planering' && markerMenuOpen != null ? String(markerMenuOpen) : null", "valdId: markerMenuOpen != null ? String(markerMenuOpen) : null", SIDA],
+  ["trädets kort saknar rattet", "{marker.isArrow && !arKorUpp(marker) && (", "{marker.isArrow && !arFallTrad(marker) && !arKorUpp(marker) && (", SIDA],
   ["Godkänn glömmer att ta bort de gamla pilarna", "bortMarkorer.forEach((m) => deleteMarkerFromDb(m.id));\n              setIsArrowMode(false); setArrowType(null);\n            } },", "setIsArrowMode(false); setArrowType(null);\n            } },", SIDA],
   ["ett tryck i kör upp-läget lägger en pil", "if (isArrowMode && arrowType === KORUPP_TYP) return;   // kör upp och backa DRAS från vägen (useFallOchKorUpp) — ett tryck gör ingenting\n", "", SIDA],
   // ── instruktionskortet ──

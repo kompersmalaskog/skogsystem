@@ -1,11 +1,11 @@
-// Fällträdet: markens skala, vad som syns var, vinklar och förslaget ur de gamla gröna pilarna. Pixlar och riktiga fingrar prövas i lib/fallTradKorUpp.hytt.test.ts (Chromium).
+// Fällträdet: fast storlek på skärmen, vad som syns var, vinklar och förslaget ur de gamla gröna pilarna. Pixlar och riktiga fingrar prövas i lib/fallTradKorUpp.hytt.test.ts (Chromium).
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { expression } from '@maplibre/maplibre-gl-style-spec';
 import {
-  TRAD_HANDTAG_M, TRAD_LANGD_M, TRAD_SYNLIG_M, TRAD_STORLEK_UTTRYCK, TRAD_TOPP_PX, TRAD_TYP, arFallTrad, arGammalFallpil, arPaHandtag, foreslaTrad, fram, handtagPunkt,
-  synligaTrad, tradData, tradLinje, tradPosUr, tradStorlek, vinkelFranPunkt, type TradPos,
+  TRAD_LANGD_M, TRAD_SKARM_LANGD_PX, TRAD_STORLEK, TRAD_SYNLIG_M, TRAD_TOPP_PX, TRAD_TYP, arFallTrad, arGammalFallpil, foreslaTrad, fram,
+  synligaTrad, tradData, tradLager, tradLinje, tradPosUr, vinkelFranPunkt, type TradPos,
 } from './fallTrad';
 import { FALLNING_M } from './larm/fallning';
 import { avstandPunktM, avstandTillLinjeM } from './larm/geo';
@@ -16,20 +16,28 @@ const origo = { lat: 57, lon: 15 };
 const pilar = fixtur.pilar.map((p: any) => ({ isArrow: true, ...p }));
 const trad = (id: string, stubbe = origo, vinkel = 0): TradPos => ({ id, stubbe, vinkel });
 
-describe('trädets storlek följer marken', () => {
-  it('uttrycket (exponentiell, bas 2) ger exakt samma storlek som tradStorlek vid varje zoom', () => {
-    const e = expression.createExpression(TRAD_STORLEK_UTTRYCK as any, { type: 'number', 'property-type': 'data-constant', expression: { interpolated: true, parameters: ['zoom'] } } as any);
-    if (e.result !== 'success') throw new Error(JSON.stringify(e.value));
-    for (const z of [10, 12.5, 14, 15, 16, 17, 18, 19.7, 20]) expect(e.value.evaluate({ zoom: z } as any)).toBeCloseTo(tradStorlek(z), 5);
+describe('trädets storlek: FAST på skärmen', () => {
+  const lager = tradLager()[0];
+  it('icon-size är ett tal — inget uttryck som beror på zoom, så trädet är lika stort vid varje zoom', () => {
+    expect(typeof lager.layout['icon-size']).toBe('number');
+    expect(JSON.stringify(lager)).not.toContain('"zoom"');
   });
-  it('bilden är TRAD_LANGD_M (28 m) lång på marken vid varje zoom: px per meter × bildens topp-avstånd', () => {
-    const mpp = (z: number) => (40075016.686 / 512 / 2 ** z) * Math.cos((57 * Math.PI) / 180);
-    for (const z of [13, 15, 17, 19]) expect(TRAD_TOPP_PX * tradStorlek(z) * mpp(z)).toBeCloseTo(TRAD_LANGD_M, 3);
+  it('stubbe → topp är TRAD_SKARM_LANGD_PX (76 px) på skärmen: ca två symboler hög (en symbol är 64 px × 0,5–0,6 = 32–38 px)', () => {
+    expect(TRAD_TOPP_PX * TRAD_STORLEK).toBeCloseTo(TRAD_SKARM_LANGD_PX, 5);
+    const symbol = 64 * 0.6;
+    expect(TRAD_SKARM_LANGD_PX / symbol).toBeGreaterThanOrEqual(1.8);
+    expect(TRAD_SKARM_LANGD_PX / symbol).toBeLessThanOrEqual(2.4);
   });
-  it('handtaget ligger bortom kronans topp, i samma skala', () => {
-    expect(TRAD_HANDTAG_M).toBeGreaterThan(TRAD_LANGD_M);
-    const t = trad('a', origo, 90);
-    expect(avstandPunktM(t.stubbe, handtagPunkt(t))).toBeCloseTo(TRAD_HANDTAG_M, 1);
+  it('ritas mot skärmen (viewport) så fast storlek gäller också när kartan lutas; vrids med kartan', () => {
+    expect(lager.layout['icon-pitch-alignment']).toBe('viewport');
+    expect(lager.layout['icon-rotation-alignment']).toBe('map');
+  });
+  it('den vita ringen väljs bara av egenskapen "vald" — aldrig annars', () => {
+    expect(JSON.stringify(lager.layout['icon-image'])).toContain('"vald"');
+    const f = tradData([trad('a'), trad('b')], { valdId: 'b' }).features.map((x) => x.properties.vald);
+    expect(f).toEqual([false, true]);
+    expect(tradData([trad('a')]).features[0].properties.vald).toBe(false);
+    expect(tradData([trad('a')], { valdId: null }).features[0].properties.vald).toBe(false);
   });
 });
 
@@ -47,17 +55,6 @@ describe('vinklar', () => {
     expect(vinkelFranPunkt(origo, { lat: 56.999, lon: 15 })).toBe(180);
     expect(vinkelFranPunkt(origo, { lat: 57, lon: 14.999 })).toBe(270);
     for (const [dy, dx] of [[1, 1], [-1, 1], [-1, -1], [1, -1], [0.0001, -1]]) { const v = vinkelFranPunkt(origo, { lat: 57 + dy / 1000, lon: 15 + dx / 1000 }); expect(Number.isInteger(v) && v >= 0 && v < 360).toBe(true); }
-  });
-});
-
-describe('handtaget', () => {
-  const proj = (ll: { lat: number; lon: number }) => ({ x: (ll.lon - 15) * 1e5, y: -(ll.lat - 57) * 1e5 });
-  it('träffas inom 30 px, inte längre bort', () => {
-    const t = trad('a', origo, 40);
-    const h = proj(handtagPunkt(t));
-    expect(arPaHandtag({ x: h.x + 29, y: h.y }, t, proj)).toBe(true);
-    expect(arPaHandtag({ x: h.x + 31, y: h.y }, t, proj)).toBe(false);
-    expect(arPaHandtag(proj(origo), t, proj)).toBe(false);   // stubben är inget handtag
   });
 });
 
@@ -88,12 +85,12 @@ describe('vad som syns var — maskinen', () => {
 });
 
 describe('data till kartan', () => {
-  it('en punkt per träd med vinkel, handtag (bara planeringen) och förslag-flagga', () => {
-    const fc = tradData([trad('a', origo, 45)], { redigera: true });
+  it('en punkt per träd med vinkel, vald-flagga och förslag-flagga', () => {
+    const fc = tradData([trad('a', origo, 45)], { valdId: 'a' });
     expect(fc.features).toHaveLength(1);
-    expect(fc.features[0].properties).toEqual({ id: 'a', rotation: 45, redigera: true, forslag: false });
+    expect(fc.features[0].properties).toEqual({ id: 'a', rotation: 45, vald: true, forslag: false });
     expect(fc.features[0].geometry.coordinates).toEqual([15, 57]);
-    expect(tradData([trad('a')], { redigera: false, forslag: true }).features[0].properties).toMatchObject({ redigera: false, forslag: true });
+    expect(tradData([trad('a')], { forslag: true }).features[0].properties).toMatchObject({ vald: false, forslag: true });
   });
 });
 

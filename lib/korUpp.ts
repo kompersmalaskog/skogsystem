@@ -116,7 +116,10 @@ export function korUppData(pilar: readonly KorUppPos[]) {
 
 // ── Bilden och lagren ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 export const KORUPP_SPETS_MATT = { w: 36, h: 44, pixelRatio: 2 } as const;
-const SPETS_STORLEK: any[] = ['interpolate', ['linear'], ['zoom'], 13, 0.55, 17, 0.9];
+/** FAST STORLEK PÅ SKÄRMEN (Martin 2026-10-25), samma regel som fällträdet: pilens tjocklek och spets är desamma vid varje zoom. Längden är sträckan planeraren ritade (den följer marken). */
+export const KORUPP_SPETS_STORLEK = 0.75;
+export const KORUPP_LINJE_PX = 4;
+export const KORUPP_KANT_PX = 8;
 
 /** Pilspetsen, vit med mörk kant. Spetsen sitter i bildens mitt och kroppen går nedåt — rotationen sker runt spetsen, så den hamnar exakt på pilens ände. */
 export function ritaSpetsBild(): HTMLCanvasElement {
@@ -139,11 +142,11 @@ export function korUppLager(kalla = KORUPP_KALLA): any[] {
     // Osynlig träffyta (36 px): en tunn linje går inte att träffa med ett finger.
     { id: KORUPP_TRAFF_LAGER, type: 'line', source: kalla, filter: ['==', ['get', 'slag'], 'linje'], paint: { 'line-color': 'rgba(0,0,0,0)', 'line-width': 36 }, layout: { 'line-cap': 'round', 'line-join': 'round' } },
     { id: KORUPP_KANT_LAGER, type: 'line', source: kalla, filter: ['==', ['get', 'slag'], 'linje'],
-      paint: { 'line-color': 'rgba(0,0,0,0.85)', 'line-width': ['interpolate', ['linear'], ['zoom'], 13, 5, 17, 9] }, layout: { 'line-cap': 'butt', 'line-join': 'round' } },
+      paint: { 'line-color': 'rgba(0,0,0,0.85)', 'line-width': KORUPP_KANT_PX }, layout: { 'line-cap': 'butt', 'line-join': 'round' } },
     { id: KORUPP_LINJE_LAGER, type: 'line', source: kalla, filter: ['==', ['get', 'slag'], 'linje'],
-      paint: { 'line-color': FARG.text, 'line-width': ['interpolate', ['linear'], ['zoom'], 13, 2.5, 17, 5] }, layout: { 'line-cap': 'butt', 'line-join': 'round' } },
+      paint: { 'line-color': FARG.text, 'line-width': KORUPP_LINJE_PX }, layout: { 'line-cap': 'butt', 'line-join': 'round' } },
     { id: KORUPP_SPETS_LAGER, type: 'symbol', source: kalla, filter: ['==', ['get', 'slag'], 'spets'],
-      layout: { 'icon-image': KORUPP_SPETS_BILD, 'icon-size': SPETS_STORLEK, 'icon-rotate': ['get', 'riktning'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-anchor': 'center', 'icon-allow-overlap': true, 'icon-ignore-placement': true } },
+      layout: { 'icon-image': KORUPP_SPETS_BILD, 'icon-size': KORUPP_SPETS_STORLEK, 'icon-rotate': ['get', 'riktning'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'viewport', 'icon-anchor': 'center', 'icon-allow-overlap': true, 'icon-ignore-placement': true } },
     { id: KORUPP_ORD_LAGER, type: 'symbol', source: kalla, filter: ['==', ['get', 'slag'], 'ord'],
       layout: { 'text-field': ['get', 'text'], 'text-size': 15, 'text-font': ['Open Sans Bold', 'Open Sans Semibold', 'Open Sans Regular'], 'text-offset': [0, -1.1], 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-rotation-alignment': 'viewport', 'text-pitch-alignment': 'viewport' },
       paint: { 'text-color': FARG.text, 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 2 } },
