@@ -79,10 +79,11 @@ describe('vad som syns var — maskinen', () => {
     expect(synligaKorUpp([pil('a', 'inget', fram(origo, 0, 79), fram(origo, 0, 120))], 'skordare', origo)).toHaveLength(1);
     expect(synligaKorUpp([pil('a', 'inget', fram(origo, 0, 81), fram(origo, 0, 120))], 'skordare', origo)).toHaveLength(0);
   });
-  it('utan position ser skördaren inga; skotaren ser aldrig några', () => {
+  it('utan position ser varken skördaren eller skotaren några; skotaren ser de nära (samma 80 m)', () => {
     expect(synligaKorUpp([nara], 'skordare', null)).toEqual([]);
-    expect(synligaKorUpp([nara], 'skotare', origo)).toEqual([]);
-    expect(synligaKorUpp([pil('pa-maskinen')], 'skotare', origo)).toEqual([]);
+    expect(synligaKorUpp([nara], 'skotare', null)).toEqual([]);
+    expect(synligaKorUpp([nara, langt], 'skotare', origo).map((p) => p.id)).toEqual(['nara']);
+    expect(synligaKorUpp([pil('pa-maskinen')], 'skotare', origo)).toHaveLength(1);
   });
 });
 

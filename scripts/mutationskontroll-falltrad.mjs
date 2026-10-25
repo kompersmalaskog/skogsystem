@@ -37,7 +37,7 @@ const M = [
   ["en pil på 1 m räknas som pil", "export const KORUPP_MIN_M = 8;", "export const KORUPP_MIN_M = 1;", UPP],
   ["starten snäpper till vägar 100 px bort", "export const KORUPP_SNAPP_PX = 32;", "export const KORUPP_SNAPP_PX = 100;", UPP],
   ["skördaren ser pilar 500 m bort", "export const KORUPP_SYNLIG_M = 80;", "export const KORUPP_SYNLIG_M = 500;", UPP],
-  ["skotaren ser kör upp-pilar", "if (lage === 'skotare' || !pos) return [];\n  return pilar.filter", "if (!pos) return [];\n  return pilar.filter", UPP],
+  ["skotaren ser alla kör upp-pilar (ingen 80 m)", "if (!pos) return [];\n  return pilar.filter((p) => avstandTillLinjeM(pos, [p.start, p.slut]) <= radieM)", "if (!pos || lage === 'skotare') return pilar.filter(() => true);\n  return pilar.filter((p) => avstandTillLinjeM(pos, [p.start, p.slut]) <= radieM)", UPP],
   ["båda spetsarna pekar åt samma håll", "riktning: (riktning + 180) % 360", "riktning", UPP],
   ["texten på kortet nämner inte skälet", "return ord ? `${ord} – kör upp mot gränsen och backa tillbaka` :", "return ord ? 'Kör upp mot gränsen och backa tillbaka' :", UPP],
   // ── gesterna ──

@@ -1,6 +1,6 @@
 // Vakter för fällträd och kör upp och backa (2026-10-25): det som inte får glida tillbaka — läser sidan och lib-filerna, ingen karta.
 //   • Ingen migration: båda lagras som pil-markeringar (typ 'pil' — planering_markeringar har en CHECK som bara tillåter symbol/linje/zon/pil).
-//   • Bara skördaren ser träden och bara i fällningscirkeln; skotaren inga. Kör upp-pilen bara nära skördaren. Redigering (vrida, rita) bara i planeringen.
+//   • Bara skördaren ser träden och bara i fällningscirkeln; skotaren inga. Kör upp-pilen nära skördaren och skotaren (80 m). Redigering (vrida, rita) bara i planeringen.
 //   • Gamla gröna pilar försvinner först när planeraren godkänt förslaget. Körvyns whitelist, klippning på zoom och klickprioritet känner de nya lagren.
 //   • EN ny fast text på kartan: ordet vid kör upp-pilen (skälet). Trädet har ingen text.
 import fs from 'node:fs';
@@ -25,7 +25,7 @@ describe('lagring: ingen migration', () => {
 });
 
 describe('vad som syns var', () => {
-  it('sidan väljer läge: planering = alla, körvy skotare = inga, körvy skördare = bara nära', () => {
+  it('sidan väljer läge: planering = alla, körvy skotare/skördare = kör upp bara nära (träd bara skördaren)', () => {
     expect(sida).toContain("const lage = !korvyActive ? 'planering' : skotarKorvy ? 'skotare' : 'skordare';");
     expect(sida).toContain('const synliga = synligaTrad(trad, lage, pos);');
     expect(sida).toContain('ksrc.setData(korUppData(synligaKorUpp(pilar, lage, pos)));');

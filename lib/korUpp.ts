@@ -89,12 +89,12 @@ export function snappaTillVag(
 }
 
 // ── Vad som syns ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-/** 'planering': alla. 'skordare': bara de nära maskinen. 'skotare': inga. */
+/** 'planering': alla. 'skordare' och 'skotare': bara de nära maskinen (80 m). */
 export type KorUppLage = 'planering' | 'skordare' | 'skotare';
 
 export function synligaKorUpp(pilar: readonly KorUppPos[], lage: KorUppLage, pos: LatLon | null, radieM = KORUPP_SYNLIG_M): KorUppPos[] {
   if (lage === 'planering') return [...pilar];
-  if (lage === 'skotare' || !pos) return [];
+  if (!pos) return [];
   return pilar.filter((p) => avstandTillLinjeM(pos, [p.start, p.slut]) <= radieM);
 }
 
