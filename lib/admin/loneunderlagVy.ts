@@ -145,7 +145,12 @@ export function byggForarKort(m: any, oenighet: any[] = [], kvitteringar: Kvitte
     const h = Number(m.hemskickad_h || 0).toLocaleString("sv-SE");
     info("hemskickad", `Hemskickad ${h} tim · ${hem.length} ${hem.length === 1 ? "dag" : "dagar"} (${hem.map(x => dagText(x.datum)).join(", ")}) – betalas som timlön`);
   }
-  (m.deldagar || []).forEach((dd: any, i: number) =>
+  // Sjuktimmar: en rad med summan och dagarna (lönerad `sjuktimmar`; heldagar på helg/röd dag räknas inte).
+  const sjuk = (m.sjuk?.dagar || []) as { datum: string; timmar: number; del: boolean }[];
+  if (sjuk.length > 0) {
+    info("sjuk", `Sjuk ${Number(m.sjuk.timmar).toLocaleString("sv-SE")} tim · ${sjuk.length} ${sjuk.length === 1 ? "dag" : "dagar"} (${sjuk.map(d => dagText(d.datum) + (d.del ? ` ${Number(d.timmar).toLocaleString("sv-SE")} tim` : "")).join(", ")}) – 8 tim per sjuk vardag`);
+  }
+  (m.deldagar || []).filter((dd: any) => String(dd.typ).toLowerCase() !== "sjuk").forEach((dd: any, i: number) =>
     info(`deldag-${i}`, `Deldag ${dagText(dd.datum)}: ${dd.typ} ${dd.fran_tid ? `från ${dd.fran_tid}` : `till ${dd.till_tid}`} · ${Number(dd.timmar).toLocaleString("sv-SE")} tim frånvaro, arbetade ${tim(dd.arbetad_min)} tim`));
   unikaUtjamningar(m.utjamning).forEach((u, i) => info(`utj-${i}`, utjamningsRad(u)));
   if ((m.ob?.obesvarade || 0) > 0) info("ob-obesvarad", `${m.ob.obesvarade} tidig start väntar på förarens brandrisk-svar`);

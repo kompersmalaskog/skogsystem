@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { LONEARTER, loneartskoder, loneartkopplingar, loneartInfo, loneartEnhetText, enhetForMangd, fmtMangd } from "./loneart";
 
 describe("lönearterna är EN lista", () => {
-  it("tio lönearter i exportens ordning, och varje har etikett, enhet och förklaring", () => {
+  it("elva lönearter i exportens ordning, och varje har etikett, enhet och förklaring", () => {
     expect(LONEARTER.map(l => l.key)).toEqual([
       "timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare",
-      "brandrisk_ob",
+      "brandrisk_ob", "sjuktimmar",
     ]);
     for (const l of LONEARTER) {
       expect(l.label.length).toBeGreaterThan(2);

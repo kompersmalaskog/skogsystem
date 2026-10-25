@@ -38,6 +38,9 @@ const FACIT = FACIT_RAD.split(EN_VECKA_FORE).join(EN_VECKA_EFTER);
 const facit = JSON.parse(FACIT) as Record<string, any>;
 
 const arBrandrisk = (key: string) => key.startsWith("brandrisk");
+// Sjuktimmar (2026-10-25): ny löneart, tom kod i prod-mappningen → en saknad kod (Joacims sjukdag 19 aug). Ett tillägg som OB.
+const arSjuk = (key: string) => key === "sjuktimmar";
+const arTillagg = (key: string) => arBrandrisk(key) || arSjuk(key);
 
 /**
  * En rad i svaret utan de tillägg som inte fanns förut — resten ska vara oförändrat. Tilläggen är brandrisk-OB (2026-10-15): fältet
@@ -45,7 +48,7 @@ const arBrandrisk = (key: string) => key.startsWith("brandrisk");
  * `foretagsledare` och `helglon.anstallningsdatumSaknas` — och hemskickad (2026-10-17): fälten `hemskickad` och `hemskickad_h`, som MÅSTE vara
  * tomma för de här månaderna (ingen hemskickad rad finns i underlaget; testet nedan kräver det). Inget annat tas bort.
  */
-function utanTilläggRad({ lonerader, brandrisk, foretagsledare, hemskickad, hemskickad_h, ordinarie, arbetat, extra_poster, godkannande, godkand_tid, andrad_efter_godkannande, andrad_efter_skickat, ...r }: any) {
+function utanTilläggRad({ lonerader, brandrisk, sjuk, foretagsledare, hemskickad, hemskickad_h, ordinarie, arbetat, extra_poster, godkannande, godkand_tid, andrad_efter_godkannande, andrad_efter_skickat, ...r }: any) {
   // Förarens godkännande (2026-10-21, loneunderlag.status) styr bara VEM som skickas, aldrig vad som skickas: en ren avläsning, inget i lönen.
   expect(["godkand", "vantar"]).toContain(godkannande);
   // Förarens månad (Admin, 2026-10-20): `arbetat` (vad arbetad tid består av), `extra_poster` och på varje dag km-källa/ben/rutt är RENA
@@ -60,8 +63,8 @@ function utanTilläggRad({ lonerader, brandrisk, foretagsledare, hemskickad, hem
     ...r,
     ...(dagar_ ? { dagar: dagar_ } : {}),
     helglon: r.helglon ? helglon : r.helglon,
-    saknade_loneartskoder: r.saknade_loneartskoder.filter((k: string) => !arBrandrisk(k)),
-    varningar: r.varningar.filter((v: string) => !/^Löneart saknas för Brandrisk – /.test(v)),
+    saknade_loneartskoder: r.saknade_loneartskoder.filter((k: string) => !arTillagg(k)),
+    varningar: r.varningar.filter((v: string) => !/^Löneart saknas för (Brandrisk – |Sjuktimmar )/.test(v)),
   };
 }
 /** Det nya svaret utan de tillägg som inte fanns förut. */
@@ -95,7 +98,9 @@ const PERIODER = [
 // ── DE ENDA ÄNDRINGARNA mot den gamla koden: månadens ordinarie (2026-10-19) ──
 // `fore` är det facit (gamla koden) säger och som testet KRÄVER att facit säger; `efter` är det den nya koden ska ge. En rad som tas bort har efter null.
 type RadAndring = { fore: [string, string]; efter: [string, string] | null };   // [Number, beskrivning]
-type Andring = { period: string; id: string; namn: string; skal: string; rader?: Record<string, RadAndring>; falt?: Record<string, [number, number]>; varning?: [number, string, string] };
+type Andring = { period: string; id: string; namn: string; skal: string; rader?: Record<string, RadAndring>; falt?: Record<string, [number, number]>; varning?: [number, string, string]; bort?: string[] };
+// Sjuktimmar (2026-10-25): sjukdagen är en lönerad (sjuktimmar) i stället för en varning om att lönearten saknas.
+const SJUK_FORE = "Frånvaro (sjuk): 1 dag(ar) 2026-08-19 — löneart för Fortnox ej fastställd; läggs INTE som lönerad, sätt manuellt innan sändning.";
 const KORTPASS_FORE = "Kortpass (under 60 min): 2026-08-10 29 min — betald tid men ingen arbetsdag: ingen ×8 i övertidsbasen, ingen vältlappsvecka, ingen reseersättning. Ta bort dagen om den är en felinloggning.";
 const KORTPASS_EFTER = "Kortpass (under 60 min): 2026-08-10 29 min — betald tid (räknas som arbetad tid mot månadens ordinarie) men ingen arbetsdag: ingen vältlappsvecka, ingen reseersättning. Ta bort dagen om den är en felinloggning.";
 const ANDRINGAR: Andring[] = [
@@ -114,7 +119,7 @@ const ANDRINGAR: Andring[] = [
     },
     falt: { ordinarie_h: [160, 168], timlon_h: [160, 168], premielon_skotare_h: [160, 168], overtid_h: [31.03, 23.03] } },
   { period: "2026-09", id: "m2", namn: "Joacim, augusti (företagsledare — inga rader i exporten)", skal: "bara ordinarie_h (0 → 160: augusti 21 vardagar − sjukdagen 19 aug) och kortpass-varningens text; raderna är desamma",
-    falt: { ordinarie_h: [0, 160] }, varning: [0, KORTPASS_FORE, KORTPASS_EFTER] },
+    falt: { ordinarie_h: [0, 160] }, varning: [0, KORTPASS_FORE, KORTPASS_EFTER], bort: [SJUK_FORE] },
   { period: "2026-09", id: "m3", namn: "Martin, augusti (företagsledare — inga rader i exporten)", skal: "bara ordinarie_h (64 → 168); 57,4 tim arbetade är timlön både förut och nu",
     falt: { ordinarie_h: [64, 168] } },
   { period: "2026-10", id: "m3", namn: "Martin, september (företagsledare — inga rader i exporten)", skal: "bara ordinarie_h (160 → 176)",
@@ -150,6 +155,11 @@ function medOrdinarieAndringar(): Record<string, any> {
         expect(r.varningar[i], `${a.namn} varning före`).toBe(fore);
         r.varningar[i] = efter;
       }
+      for (const v of a.bort ?? []) {
+        const i = r.varningar.indexOf(v);
+        expect(i, `${a.namn}: varningen finns i facit`).toBeGreaterThanOrEqual(0);
+        r.varningar.splice(i, 1);
+      }
     }
     if (a.rader && Object.values(a.rader).some(c => c.efter === null)) {
       ut[a.period].totalt_rader -= Object.values(a.rader).filter(c => c.efter === null).length;
@@ -173,8 +183,8 @@ describe.each(PERIODER)("$namn", ({ period }) => {
       expect(r.namn).toBe(gammal.namn);
       expect(r.rader).toEqual(gammal.rader);
       // brandrisk-OB har tom kod som standard: den syns som en saknad kod, aldrig som en rad — allt annat är som förut
-      expect(r.saknade_loneartskoder.filter((k: string) => !arBrandrisk(k))).toEqual([]);
-      const ovriga = r.lonerader.filter((l: any) => !arBrandrisk(l.loneart));
+      expect(r.saknade_loneartskoder.filter((k: string) => !arTillagg(k))).toEqual([]);
+      const ovriga = r.lonerader.filter((l: any) => !arTillagg(l.loneart));
       // förhandsvisningens övriga rader är exakt de som skickas: ingen röd, ingen frivillig utan kod
       expect(ovriga.map((l: any) => l.status)).toEqual(ovriga.map(() => "skickas"));
       expect(ovriga.map((l: any) => [l.loneart, l.kod, l.mangd])).toEqual(r.rader.map((x: any) => [x.loneart, x.SalaryCode, x.Number]));
@@ -213,7 +223,7 @@ describe("brandrisk-OB läggs BARA till (beslut 2026-10-15): EN ny rad per föra
       if (ob > 0) forvantat.push(["brandrisk_ob", "9001", (ob / 60).toFixed(2)]);
       expect(nya).toEqual(forvantat);
       if (forvantat.length) antalMedOb++;
-      expect(r.saknade_loneartskoder).toEqual([]);
+      expect(r.saknade_loneartskoder.filter((k: string) => !arSjuk(k))).toEqual([]);
     });
     // augusti har beordrade brandriskmorgnar hos flera förare; september har inga — då är OB-raderna noll och exporten oförändrad
     if (period === "2026-09") expect(antalMedOb).toBeGreaterThanOrEqual(4);
@@ -328,7 +338,7 @@ describe("kontroll av jämförelsen själv: den SER en ändring", () => {
     const nytt = await beraknaLoneunderlag(sepKlient(utanPremie), { period: "2026-10" });
     nytt.resultat.forEach((r, i) => {
       expect(r.rader).toEqual(nyttFacit["2026-10"].resultat[i].rader.filter((x: any) => !x.loneart.startsWith("premielon")));
-      expect(r.saknade_loneartskoder.filter((k: string) => !arBrandrisk(k))).toEqual([]);
+      expect(r.saknade_loneartskoder.filter((k: string) => !arTillagg(k))).toEqual([]);
     });
   });
 
@@ -347,3 +357,27 @@ describe("'1 vecka' (Martin 2026-10-21): den enda textändringen i alla rader", 
   });
 });
 
+
+describe("sjuktimmar läggs BARA till (beslut 2026-10-25): Joacims sjukdag 19 aug blir 8 tim, inget annat ändras", () => {
+  const MED_SJUKKOD = [...PROD_MAPPNING, { intern_typ: "sjuktimmar", extern_kod: "9002", beskrivning: "Sjuktimmar" }];
+  it.each(PERIODER)("$namn: med kod är raderna = de gamla + exakt sjukraden", async ({ period }) => {
+    const nytt = await beraknaLoneunderlag(sepKlient(MED_SJUKKOD), { period });
+    nytt.resultat.forEach((r, i) => {
+      expect(r.rader.filter((x: any) => !arSjuk(x.loneart))).toEqual(nyttFacit[period].resultat[i].rader);
+      const nya = r.rader.filter((x: any) => arSjuk(x.loneart)).map((x: any) => [r.medarbetare_id, x.SalaryCode, x.Number]);
+      expect(nya).toEqual(period === "2026-09" && r.medarbetare_id === "m2" ? [["m2", "9002", "8.00"]] : []);
+    });
+  });
+  it("utan kod: Joacims sjuktimmar är en saknad kod (8 tim), ingen rad skickas", async () => {
+    const nytt = await beraknaLoneunderlag(sepKlient(), { period: "2026-09" });
+    const j = nytt.resultat.find(r => r.medarbetare_id === "m2")!;
+    expect(j.sjuk).toEqual({ dagar: [{ datum: "2026-08-19", timmar: 8, del: false }], timmar: 8 });
+    expect(j.lonerader.filter((l: any) => arSjuk(l.loneart)).map((l: any) => [l.mangd, l.status])).toEqual([["8.00", "saknar_kod"]]);
+    expect(j.rader.some((x: any) => arSjuk(x.loneart))).toBe(false);
+  });
+  it("med företagsledarflaggan: Joacim får inga sjuktimmar", async () => {
+    const nytt = await beraknaLoneunderlag(sepKlient(MED_SJUKKOD, FIXTUR_FORETAGSLEDARE), { period: "2026-09" });
+    const j = nytt.resultat.find(r => r.medarbetare_id === "m2")!;
+    expect([j.rader, j.lonerader, j.sjuk.timmar]).toEqual([[], [], 0]);
+  });
+});

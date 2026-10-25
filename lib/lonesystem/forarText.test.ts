@@ -47,7 +47,7 @@ describe("Att titta på — inga paragrafer, inga systemord", () => {
     expect(poster.map(p => p.rubrik)).toEqual(["17 september", "29 september"]);
     expect(poster[0].hoger).toBe("1 min");
     expect(poster[1].hoger).toBe("jobbade till 12:03, sedan sjuk");
-    expect(poster[1].text).toContain("0,6 tim frånvaro");
+    expect(poster[1].text).toContain("0,6 tim sjuktimmar");
   });
   it("inga tekniska ord i förarens text", () => {
     const allt = poster.map(p => `${p.rubrik} ${p.hoger} ${p.text}`).join(" ");

@@ -136,8 +136,8 @@ describe("hemskickad är ingen frånvaro", () => {
     expect(u.deldagar.map(d => d.typ)).toEqual(["sjuk"]);
     expect(u.franvaro).toEqual([]);
     expect(u.varningar.some(v => /Deldag \(hemskickad\)/.test(v))).toBe(false);
-    expect(u.varningar.some(v => /Deldag \(sjuk\)/.test(v))).toBe(true);
-    // Sjukdagen fylls INTE upp: den är frånvaro utan lön tills löneart är fastställd.
+    // Sjukdagen är sjuktimmar (2026-10-25, 8 minus arbetat = 3 tim), aldrig timlön: den fylls INTE upp som hemskickad.
+    expect(u.sjuk.timmar).toBe(3);
     expect(u.timlon_h).toBe(8 + 5);
   });
 
