@@ -192,6 +192,8 @@ describe("gravsten och märkning för UI:t", () => {
     expect(arAutomatiskFlytt(rad)).toBe(true);
     expect(arAutomatiskFlytt({ ...rad, kalla: "forare" })).toBe(false);
     expect(arAutomatiskFlytt({ ...rad, kalla: "synk" })).toBe(false);
+    expect(arAutomatiskFlytt({ ...rad, kalla: "flyttlogg" })).toBe(true); // lastbilsflytten ur flyttloggen är också synkens egen rad
+    expect(flyttBortaRad({ ...rad, kalla: "flyttlogg", flytt_id: "mf-1" })).toEqual({ medarbetare_id: MED, datum: DATUM, start_tid: "12:30:00", slut_tid: "13:50:00", flytt_id: "mf-1" });
     expect(arAutomatiskFlytt(null)).toBe(false);
     expect(flyttBortaRad(rad)).toEqual({ medarbetare_id: MED, datum: DATUM, start_tid: "12:30:00", slut_tid: "13:50:00" });
     expect(flyttBortaRad({ ...rad, kalla: "forare" })).toBeNull();
