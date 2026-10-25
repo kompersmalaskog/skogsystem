@@ -39,6 +39,7 @@ export const SKARPA = [
   "components/faktura/FakturaLista.tsx",
   "components/faktura/TraktKlient.tsx",
   "components/faktura/KontraktsGenomgang.tsx",
+  "components/faktura/GranskningArk.tsx",
   "components/faktura/Lasfel.tsx",
   "app/ekonomi/fakturaunderlag/layout.tsx",
   "app/ekonomi/fakturaunderlag/page.tsx",

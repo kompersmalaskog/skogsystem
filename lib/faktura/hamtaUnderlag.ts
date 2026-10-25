@@ -21,7 +21,8 @@ import {
 } from '@/lib/ekonomi/acord';
 import { kostnadsstalleFor, harKrockandeKostnadsstalle } from '@/lib/ekonomi/kostnadsstalle';
 import { medForestlink } from '@/lib/ekonomi/forestlink';
-import { raknaSortiment } from '@/lib/ekonomi/sortimentAntal';
+import { raknaSortiment, type Sortimentsrakning } from '@/lib/ekonomi/sortimentAntal';
+import { maskinVisningsnamn, maskinNamnMap } from '@/lib/maskinNamn';
 import type { VoUnderlag, Maskinrad } from '@/lib/faktura/radbyggare';
 
 type SB = { from: (t: string) => any };
@@ -29,11 +30,36 @@ type SB = { from: (t: string) => any };
 /** Saker som inte är fel på en RAD men som granskningen måste visa. */
 export type Underlagsnot = { niva: 'varning' | 'info'; text: string };
 
+/**
+ * Underlaget BAKOM talen, så granskningen kan visa varför priset blev som det
+ * blev utan att räkna om något själv. Rent tillägg: inget här påverkar en rad
+ * eller ett pris, och tas fältet bort räknas fakturan exakt likadant.
+ */
+export type Granskningsunderlag = {
+  sortiment: {
+    /** Appens räkning med båda listorna (lib/ekonomi/sortimentAntal). */
+    rakning: Sortimentsrakning;
+    /** Antalet priset faktiskt räknades på — manuellt när det är satt. */
+    anvant: number;
+    /** true = någon har satt antalet själv (dim_objekt.sortiment_grupper_manuell). */
+    manuellt: boolean;
+    /** Prislistans villkor. null = ingen sats gäller uppslagsdagen. */
+    grundantal: number | null;
+    krPerExtra: number | null;
+    giltigFran: string | null;
+  };
+  /** Traktens m³fub — nämnaren i varje kr/m³fub-tillägg. */
+  volym: number;
+  /** Dagen prislistan slogs upp på (avräkningsdagen, annars idag). */
+  prisdatum: string;
+};
+
 export type HamtatUnderlag = {
   underlag: VoUnderlag;
   noter: Underlagsnot[];
   /** dim_objekt-id:n som ingår — spårbarhet i granskningen. */
   objektIds: string[];
+  granskning: Granskningsunderlag;
 };
 
 const sum = (rader: any[], f: string) =>
@@ -108,7 +134,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
   // ── Register och prislistor ────────────────────────────────────────────
   const [maskinRes, kstRes, timprisRes, acordRes, traktRes, sortConfRes, ovrigtRes, avstRes,
          klassRes, bolagRes, objektRes] = await Promise.all([
-    sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, forestlink'),
+    sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, tillverkare, maskin_typ, forestlink'),
     sb.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod, giltig_fran, giltig_till'),
     sb.from('maskin_timpris').select('maskin_id, timpris, giltig_fran, giltig_till'),
     sb.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
@@ -157,7 +183,8 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
 
   const acordList = giltiga(acordRes.data);
   const traktKr = traktTillagg(volym, giltiga(traktRes.data) as any).krPerM3;
-  const sortKr = sortimentTillagg(sortimentgrupper, giltiga(sortConfRes.data)[0] as any);
+  const sortConf = giltiga(sortConfRes.data)[0] as any ?? null;
+  const sortKr = sortimentTillagg(sortimentgrupper, sortConf);
   const kvalitetRad = giltiga(ovrigtRes.data).find((r: any) => r.nyckel === 'kvalitetssakring');
   const kvalitetKr = kvalitetRad ? Number(kvalitetRad.varde) || 0 : 0;
   if (!kvalitetRad) noter.push({ niva: 'varning', text: `Ingen kvalitetssäkringssats gäller ${uppslag}.` });
@@ -214,9 +241,11 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
       p.maskin_id === maskinId && isValidOn(dag, p.giltig_fran, p.giltig_till));
     maskiner.push({
       maskin_id: maskinId,
-      // visningsnamn är namnet Vida ser. modell är en reserv, inte ett val:
-      // saknas visningsnamn ska det synas som ett tomt fält i registret.
-      namn: dm?.visningsnamn || dm?.modell || maskinId,
+      // visningsnamn är namnet Vida ser, och maskinVisningsnamn är appens ENDA
+      // regel för det (lib/maskinNamn): visningsnamn → tillverkare + modell ur
+      // filen → maskin_id. Modellen är en reserv, inte ett val — saknas
+      // visningsnamn ska det synas som ett tomt fält i registret.
+      namn: dm ? maskinVisningsnamn(dm) : maskinId,
       roll,
       kostnadsstalle: kst,
       g15h: sek / 3600,
@@ -278,8 +307,17 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
       for (const o of fo || []) if (o.namn) franNamn.set(String(o.id), o.namn);
     }
 
+    // Maskinens NAMN, inte dess chassinummer. fakturaunderlag_flytt.maskin bär
+    // maskin_id (PONS20SDJAA270231), och fakturan ska säga Giant — samma namn
+    // som resten av appen, via dim_maskin.visningsnamn. Alla fem id:n i datan
+    // 2026-10-25 går att slå upp. En flytt med NÅGON ANNANS maskin bär fritext
+    // i samma fält (maskin_flytt.extern_maskin) och finns inte i registret —
+    // då står texten kvar som den skrevs, aldrig ett id vi hittat på.
+    const namnPerMaskinId = maskinNamnMap(maskinRes.data || []);
+    const maskinNamn = (v: string) => namnPerMaskinId[v] || v;
+
     flyttar = (fl || []).map((f: any) => ({
-      id: f.id, datum: f.datum, maskin: f.maskin,
+      id: f.id, datum: f.datum, maskin: maskinNamn(String(f.maskin ?? '')),
       km: f.km == null ? null : Number(f.km),
       traillertimmar: f.traillertimmar == null ? null : Number(f.traillertimmar),
       franNamn: f.fran_objekt_id ? (franNamn.get(String(f.fran_objekt_id)) ?? null) : null,
@@ -351,5 +389,18 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     manuellaPoster: [],
   };
 
-  return { underlag, noter, objektIds };
+  const granskning: Granskningsunderlag = {
+    sortiment: {
+      rakning: sortimentsrakning,
+      anvant: sortimentgrupper,
+      manuellt: huvud.sortiment_grupper_manuell != null,
+      grundantal: sortConf ? Number(sortConf.grundantal) : null,
+      krPerExtra: sortConf ? Number(sortConf.kr_per_extra_sortiment) : null,
+      giltigFran: sortConf?.giltig_fran ?? null,
+    },
+    volym,
+    prisdatum: uppslag,
+  };
+
+  return { underlag, noter, objektIds, granskning };
 }

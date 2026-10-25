@@ -17,8 +17,10 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
-import { byggMaskinkort, pottMening, rollFor, type MaskinRad } from '@/lib/faktura/traktVy';
+import { byggMaskinkort, pottMening, type MaskinRad } from '@/lib/faktura/traktVy';
 import type { ManuelltArbete } from '@/lib/faktura/lasManuellt';
+import type { Granskningsunderlag } from '@/lib/faktura/hamtaUnderlag';
+import GranskningArk, { type Vy } from '@/components/faktura/GranskningArk';
 import { fordelaTillagg, type Tillaggspost } from '@/lib/ekonomi/prisPerM3';
 import {
   AVSTAND, FARG, INAKTIV, KNAPP, KOLUMN, KORT, RADIE, TAL_FONT, TYP, TRAFFYTA,
@@ -37,8 +39,10 @@ type Rader = MaskinRad & {
 type Detalj = {
   vo_nummer: string; objektnamn: string; bolag: string | null
   avtalsform: string; avrakningsdatum: string | null
+  objekt_ids: string[]
   rader: Rader[]; noter: { niva: string; text: string }[]; hinder: string[]
   summa_kant: number; rader_utan_pris: number
+  granskning: Granskningsunderlag | null
 }
 
 const nr = (n: number, dec = 0) =>
@@ -105,15 +109,19 @@ export default function TraktKlient({ vo, manuellt }: { vo: string; manuellt: Ma
         <p style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xl }}>Bygger raderna för {vo}…</p>
       )}
 
-      {detalj && <Innehall d={detalj} manuellt={manuellt} />}
+      {detalj && <Innehall d={detalj} manuellt={manuellt} omlasning={hamta} />}
     </div>
   );
 }
 
-function Innehall({ d, manuellt }: { d: Detalj; manuellt: ManuelltArbete | null }) {
+function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArbete | null; omlasning: () => void }) {
+  const [granskning, setGranskning] = useState<Vy | null>(null);
   const maskinRader = d.rader.filter(r => ['1', '2', '11', '12'].includes(r.artikelnr ?? ''));
   const ovriga = d.rader.filter(r => !maskinRader.includes(r) && r.antal !== 0);
   const skordarrad = maskinRader.find(r => r.artikelnr === '1');
+  // Sortimentstillägget går helt till skotaren, så det är skotarens rad som
+  // bär avståndstillägget och som ändras när antalet sortiment ändras.
+  const skotarrad = maskinRader.find(r => r.artikelnr === '2');
   const poster: Tillaggspost[] = skordarrad?.tillaggsposter ?? [];
   const forslag = poster.length > 0 ? fordelaTillagg(poster) : null;
   const pott = pottMening(poster, forslag, skordarrad?.delar_andel ?? null);
@@ -188,14 +196,24 @@ function Innehall({ d, manuellt }: { d: Detalj; manuellt: ManuelltArbete | null 
         <p style={{ margin: `0 0 ${AVSTAND.xl}px ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text2 }}>{pott}</p>
       )}
 
-      {prislista && (
+      {d.granskning && (
         <Sektion rubrik="Priset">
+          {prislista && (
+            <Rad
+              titel="Hur räknades priset?"
+              under={`Medelstam ${kr2(prislista.medelstam)} → prisklass ${kr2(prislista.klass)}`}
+              hoger={<span style={TAL_FONT}>{kr2(prislista.total)}</span>}
+              hogerUnder="kr/m³fub"
+              onTryck={() => setGranskning('pris')}
+            />
+          )}
           <Rad
             sista
-            titel="Hur räknades priset?"
-            under={`Medelstam ${kr2(prislista.medelstam)} → prisklass ${kr2(prislista.klass)} ger ${kr2(prislista.total)} kr/m³fub`}
-            hoger={<span style={TAL_FONT}>{kr2(prislista.total)}</span>}
-            hogerUnder="kr/m³fub"
+            titel="Vilka sortiment räknas?"
+            under={sortimentUnder(d.granskning)}
+            hoger={<span style={TAL_FONT}>{d.granskning.sortiment.anvant}</span>}
+            hogerUnder="st"
+            onTryck={() => setGranskning('sortiment')}
           />
         </Sektion>
       )}
@@ -252,6 +270,43 @@ function Innehall({ d, manuellt }: { d: Detalj; manuellt: ManuelltArbete | null 
       <p style={{ margin: `${AVSTAND.s}px 0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text3 }}>
         Granskning och sändning är inte byggt än — vyn räknar bara fram raderna.
       </p>
+
+      {granskning && d.granskning && (
+        <GranskningArk
+          vy={granskning}
+          onVy={setGranskning}
+          sortiment={{
+            g: d.granskning.sortiment,
+            volym: d.granskning.volym,
+            sortKr: poster.find(x => x.etikett === 'Sortiment')?.belopp ?? null,
+          }}
+          pris={{
+            prislista,
+            tillaggsposter: skordarrad?.tillaggsposter ?? null,
+            avstandKr: skotarrad?.delar_avstand ?? null,
+            volym: d.granskning.volym,
+            prisdatum: d.granskning.prisdatum,
+            sortiment: d.granskning.sortiment,
+          }}
+          summa={d.summa_kant}
+          skotarAntal={skotarrad?.antal ?? null}
+          skotarPris={skotarrad?.a_pris_beraknat ?? null}
+          dimObjektIds={d.objekt_ids}
+          voNummer={d.vo_nummer}
+          onSparat={omlasning}
+        />
+      )}
     </>
   );
+}
+
+/** Raden i trakten: hur många, och om någon satt talet själv. */
+function sortimentUnder(g: Granskningsunderlag): string {
+  const s = g.sortiment;
+  if (s.manuellt) return `Satt för hand · appen räknar ${s.rakning.antal}`;
+  if (s.grundantal == null) return 'Ingen sats i prislistan';
+  const extra = s.anvant - s.grundantal;
+  return extra > 0
+    ? `${extra} över de ${s.grundantal} som ingår`
+    : `${s.grundantal} ingår i priset`;
 }
