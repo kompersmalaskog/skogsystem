@@ -1,9 +1,9 @@
 // KÖRORDNING (Planeringsvyn, 2026-10-25; skiss 50–51 i "Skotarvyn – skiss"). Planeraren trycker vägarna i den ordning de ska köras → 1, 2, 3 … Riktningen är ritriktningen;
 // ett tryck på vägens ände vänder den. Appen ritar pilarna. Föraren ser EN väg i taget:
 //
-//   nu        lyser, vita pilar glider på vägen i körriktningen, "85 m kvar" på vägen
-//   nästa     siffran, full färg men tunnare linje
-//   kommande  (efter nästa) full färg, tunnare linje, ingen siffra — inget nytt, bara det som blir över
+//   nu        tjock, lyser, vita pilar glider på vägen i körriktningen, "85 m kvar" på vägen
+//   nästa     bara siffran (linjen som vanligt — inga tunna linjer)
+//   kommande  (efter nästa) som en vanlig väg, ingen siffra
 //   klar      grå (kartKlart.ts) — blir grå av sig själv när maskinen kört vägen, ingen knapp
 //
 // Statusen SPARAS som tre fält på vägens markering (JSONB som `farg` och `backvag` — ingen migration):

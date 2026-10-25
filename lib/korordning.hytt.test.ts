@@ -1,6 +1,6 @@
 // @vitest-environment node
 // KÖRORDNING I RIKTIG CHROMIUM + MAPLIBRE (2026-10-25). Vägarna ritas med samma lagerspecar som planeringsvyn (korBredd/korFarg ur lib/korordningKarta, bredderna och
-// färgerna ur page.tsx) och mäts i pixlar: nästa/kommande ska vara tunnare än nu, en körd väg grå, nu ska ha vita pilar på vägen och skenet under. Arvidstorp RP J-Hus -25 (prod
+// färgerna ur page.tsx) och mäts i pixlar: bara nu ska vara tjockare (alla andra som vanligt), en körd väg grå, nu ska ha vita pilar på vägen och skenet under. Arvidstorp RP J-Hus -25 (prod
 // 2026-10-25, fixtur) ritas som före (de gamla körriktningspilarna) och efter (körordning). Ingen flygfotobakgrund (nätverket nås inte härifrån): mörkgrön platta.
 // jsdom kan inte rita en karta, därför Chromium; finns ingen hoppas mätningen över. KOR_SKRIV=<mapp> sparar skärmbilderna.
 import { createRequire } from 'node:module';
@@ -105,14 +105,14 @@ const MATFALL: Vag[] = [
 const MATPUNKTER = MATFALL.map((v) => ({ id: v.id, punkt: [15.0004, v.coords[0][1]] as [number, number] }));
 
 describe.skipIf(!CHROMIUM)('Körordning — riktig Chromium + MapLibre, pixlar', () => {
-  it('nästa och kommande är tunnare än nu (≈ 60 %), en väg utan siffra är orörd (= nu), en körd väg är grå', async () => {
+  it('bara nu är tjock — nästa, kommande och en väg utan siffra ritas lika som vanligt (inga tunna linjer), en körd väg är grå', async () => {
     const m = await rita({ vagar: MATFALL, lage: 'korvy', kor: true, center: [15.0015, 57.0008], zoom: 16.6, mata: MATPUNKTER, skriv: process.env.KOR_SKRIV, namn: 'matfall' });
     const t = (id: string) => m.matt[id].tjocklek;
     // "nu" mäts med skenet (det lyser, alltså bredare); vägen själv är lika bred som en väg utan siffra — det visar jämförelsen utan sken i sista testet
-    expect(t('nasta')).toBeLessThan(t('utan') * 0.8);
-    expect(t('kommande')).toBeLessThan(t('utan') * 0.8);
-    expect(Math.abs(t('nasta') - t('kommande'))).toBeLessThan(1.5);
-    expect(t('nu')).toBeGreaterThan(t('utan'));
+    expect(Math.abs(t('nasta') - t('utan'))).toBeLessThan(1.5);
+    expect(Math.abs(t('kommande') - t('utan'))).toBeLessThan(1.5);
+    expect(Math.abs(t('klar') - t('utan'))).toBeLessThan(1.5);
+    expect(t('nu')).toBeGreaterThan(t('utan') * 1.4);
     const [r, g, b] = m.matt.klar.farg;
     expect(Math.abs(r - g) < 40 && Math.abs(g - b) < 40, `klar väg ska vara grå, blev ${m.matt.klar.farg}`).toBe(true);
     const nu = m.matt.nu.farg;
@@ -138,7 +138,7 @@ describe.skipIf(!CHROMIUM)('Arvidstorp RP J-Hus -25 — före och efter (prod 20
   const fs2 = foreslaOrdning(kv, fix.pilar, (id) => fix.vagar.find((v: any) => v.id === id)?.nummer ?? 0);
   const center: [number, number] = [fix.objekt.lng, fix.objekt.lat];
   const medOrdning = (klaraAntal: number): Vag[] => vagar.map((v) => { const r = fs2.rader.find((x) => x.id === v.id); return r ? { ...v, ordning: r.ordning, bak: r.bak, klar: r.ordning <= klaraAntal } : v; });
-  it('före: de gamla pilarna; efter: planeringen (siffror + pilar) och körvyn (nu lyser, nästa tunn, körd grå)', async () => {
+  it('före: de gamla pilarna; efter: planeringen (siffror + pilar) och körvyn (nu tjock och lyser, nästa bara en siffra, körd grå)', async () => {
     const skriv = process.env.KOR_SKRIV;
     await rita({ vagar, lage: 'planering', kor: false, gamlaPilar: true, center, zoom: 16.2, skriv, namn: 'arvidstorp-fore' });
     await rita({ vagar: medOrdning(0), lage: 'planering', kor: true, center, zoom: 16.2, skriv, namn: 'arvidstorp-efter-planering' });

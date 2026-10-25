@@ -32,7 +32,7 @@ describe('sidan', () => {
     for (const s of ['korBredd(cwLw)', 'korFarg(', 'KOR_OPACITET', 'KOR_INTE_KLAR', 'korBredd(lw)']) expect(lager, s).toContain(s);
     expect(lager).toContain('arVag ?');
   });
-  it('planeringen visar ordningen (siffra, pil) och bara körda vägar grå — status som tunn/sken är körvyns', () => {
+  it('planeringen visar ordningen (siffra, pil) och bara körda vägar grå — status som tjock/sken är körvyns', () => {
     expect(sida).toContain("korEgenskap(korvyActive || korStatus.get(String(m.id)) === 'klar' ? korStatus.get(String(m.id)) : undefined)");
   });
   it('en körd väg sparas bara utanför testläget, och aldrig utan att något täckts', () => {

@@ -14,14 +14,16 @@ const utvardera = (uttryck: any, typ: 'number' | 'color', kor: string | undefine
 
 describe('uttrycken är giltiga MapLibre-uttryck', () => {
   it('bredd, färg, styrka och filter', () => {
+    // bara nu är tjockare; nästa, kommande, körd och en väg utan siffra ritas som vanligt (inga tunna linjer)
     expect(utvardera(korBredd(LW), 'number', undefined)).toBe(6);
-    expect(utvardera(korBredd(LW), 'number', 'nu')).toBe(6);
-    expect(utvardera(korBredd(LW), 'number', 'nasta')).toBeCloseTo(3.6);
-    expect(utvardera(korBredd(LW), 'number', 'kommande')).toBeCloseTo(3.6);
+    expect(utvardera(korBredd(LW), 'number', 'nu')).toBeCloseTo(9);
+    expect(utvardera(korBredd(LW), 'number', 'nasta')).toBe(6);
+    expect(utvardera(korBredd(LW), 'number', 'kommande')).toBe(6);
     expect(utvardera(korBredd(LW), 'number', 'klar')).toBe(6);
     // interpolationen mellan stoppen består (zoom 14 = mitt emellan 4 och 6)
     expect(utvardera(korBredd(LW), 'number', undefined, 14)).toBe(5);
-    expect(utvardera(korBredd(LW), 'number', 'nasta', 14)).toBeCloseTo(3);
+    expect(utvardera(korBredd(LW), 'number', 'nu', 14)).toBeCloseTo(7.5);
+    expect(utvardera(korBredd(LW), 'number', 'nasta', 14)).toBe(5);
   });
   it('en körd väg är grå och svagare, andra rörs inte', () => {
     expect(utvardera(korFarg('#3b82f6'), 'color', undefined).toString()).toBe('rgba(59,130,246,1)');

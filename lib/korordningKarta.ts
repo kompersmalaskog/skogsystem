@@ -2,8 +2,8 @@
 //
 // Vägen själv ritas av de vanliga väglagren. Körordningen lägger bara till det som följer av statusen (property `kor` på vägens feature):
 //   klar               → vägen ritas grå (kartKlart.ts: samma grå och samma styrka som en klar trakt), basvägens gula streck tonas bort
-//   nästa, kommande    → samma färg men tunnare linje
-//   nu                 → ett vitt sken under vägen (lyser) + vita pilar PÅ vägen + "85 m kvar"
+//   nästa              → bara siffran (linjen ritas som vanligt — inga tunna linjer)
+//   nu                 → tjockare linje + ett vitt sken under vägen (lyser) + vita pilar PÅ vägen + "85 m kvar"
 // Pilarna, siffran och "m kvar" är punkter i EN källa (kor-source) med property `slag`. Allt är 'line-'-lager, så de följer med in i körvyn (KEEP_PREFIX).
 import { FARG, TYP } from './design/tokens';
 import { KLART_FARG, KLART_LINJE_OPACITET } from './kartKlart';
@@ -18,16 +18,16 @@ export const KOR_KVAR_LAGER = 'line-kor-kvar';
 /** Alla symbollager (de ska stå i SYMBOL_UNDANTAG: de är en del av vägen och klipps inte på zoom). */
 export const KOR_SYMBOLLAGER: readonly string[] = [KOR_PIL_LAGER, KOR_SIFFRA_LAGER, KOR_KVAR_LAGER];
 
-/** Nästa och kommande väg ritas så här mycket tunnare. */
-export const KOR_TUNN = 0.6;
+/** Bara nu-vägen ritas tjockare (så här mycket); alla andra vägar — nästa, kommande, utan siffra — ritas som vanligt. */
+export const KOR_TJOCK = 1.5;
 export const KOR_SKEN_FARG = '#ffffff';
 export const KOR_SKEN_OPACITET = 0.3;
 
 const arKor = (...s: KorStatus[]) => ['in', ['get', 'kor'], ['literal', s]] as any;
 
-/** Linjebredden (ett zoom-uttryck) i full styrka för nu och i tunn för nästa/kommande. Uttryck utan zoom-interpolering får faktorn rakt på. */
+/** Linjebredden (ett zoom-uttryck): tjockare för nu, oförändrad för alla andra. Uttryck utan zoom-interpolering får faktorn rakt på. */
 export function korBredd(uttryck: any): any {
-  const faktor = ['case', arKor('nasta', 'kommande'), KOR_TUNN, 1];
+  const faktor = ['case', arKor('nu'), KOR_TJOCK, 1];
   if (Array.isArray(uttryck) && uttryck[0] === 'interpolate') {
     const ut = [...uttryck];
     for (let i = 4; i < ut.length; i += 2) ut[i] = ['*', ut[i], faktor];
