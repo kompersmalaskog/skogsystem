@@ -40,8 +40,6 @@ describe('markeringen', () => {
   });
   it('en pil utan väg har ingen vagId; en kortare än 8 m blir ingen pil', () => {
     expect('vagId' in nyKorUpp(origo, fram(origo, 0, 20), null)!).toBe(false);
-    expect(nyKorUpp(origo, fram(origo, 0, 20), null)!.skal).toBe('inget');
-    expect(nyKorUpp(origo, fram(origo, 0, 20), null, 9, 'brant')!.skal).toBe('brant');
     expect(KORUPP_MIN_M).toBe(8);
     expect(nyKorUpp(origo, fram(origo, 0, 7.5), null)).toBeNull();
     expect(nyKorUpp(origo, fram(origo, 0, 8.5), null)).not.toBeNull();

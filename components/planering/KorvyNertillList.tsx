@@ -27,9 +27,7 @@ export interface NertillKnapp {
   aria?: string;
 }
 
-export interface NertillVal { id: string; etikett: string; vald: boolean; onClick: () => void; testid: string }
-
-export function KorvyNertillList({ text, knappar, testid, smal, z = 600, stapla = false, val }: {
+export function KorvyNertillList({ text, knappar, testid, smal, z = 600, stapla = false }: {
   text: React.ReactNode;
   knappar: NertillKnapp[];
   testid: string;
@@ -41,8 +39,6 @@ export function KorvyNertillList({ text, knappar, testid, smal, z = 600, stapla 
    * knappen (vägen tillbaka) som en smal rad längst ner. Raden är då högre än 72 px.
    */
   stapla?: boolean;
-  /** Ett val med ett tryck (t.ex. skäl): en rad knappar OVANFÖR listen, den valda fylld. Raden ändrar inte listen under den. */
-  val?: NertillVal[];
 }) {
   if (stapla) {
     const [tillbaka, ...svar] = knappar;
@@ -89,18 +85,6 @@ export function KorvyNertillList({ text, knappar, testid, smal, z = 600, stapla 
         bottom: smal ? `calc(${PLUS_OVER_PX}px + env(safe-area-inset-bottom, 0px))` : medSafeBotten(AVSTAND.l + AVSTAND.xs),
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s, width: '100%', maxWidth: 560, pointerEvents: 'none' }}>
-      {val && val.length > 0 && (
-        <div data-testid={`${testid}-val`} role="group" style={{ pointerEvents: 'auto', display: 'flex', gap: AVSTAND.xs, padding: AVSTAND.xs, background: FARG.kort, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.sheet }}>
-          {val.map((v) => (
-            <button key={v.id} type="button" data-testid={v.testid} aria-pressed={v.vald} onClick={v.onClick} className="press-dim"
-              style={{ flex: '1 1 0', minWidth: 0, height: 44, padding: `0 ${AVSTAND.xs}px`, border: 'none', borderRadius: RADIE.knapp, fontFamily: 'inherit', ...TYP.listtitel, cursor: 'pointer',
-                background: v.vald ? FARG.text : FARG.fyllning, color: v.vald ? FARG.bg : FARG.text }}>
-              {v.etikett}
-            </button>
-          ))}
-        </div>
-      )}
       <div
         role="status"
         style={{
@@ -136,7 +120,6 @@ export function KorvyNertillList({ text, knappar, testid, smal, z = 600, stapla 
             {k.etikett}
           </button>
         ))}
-      </div>
       </div>
     </div>
   );
