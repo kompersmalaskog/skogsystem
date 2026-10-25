@@ -1,7 +1,7 @@
 -- Lastbilsflytt ger förarens flyttrad (beslut Martin 2026-10-19).
 --
 -- *** LEVERERAD SOM FIL — KÖRS AV MARTIN (apply_migration), INTE AV KODEN. Körs FÖRE att production förs fram. ***
--- *** BYGGER PÅ 20261019150000_flytt_som_egen_rad.sql (GPS-flytten, PR #832): kör den FÖRST. Den här filen avbryter annars. ***
+-- *** BYGGER PÅ 20261025160000_flytt_som_egen_rad.sql (GPS-flytten, PR #832): kör den FÖRST. Den här filen avbryter annars. ***
 -- Efter körningen: hämta versionen prod stämplade och döp om filen till den (CLAUDE.md, Deploy-flöde punkt 5).
 -- Koden är byggd för att vänta: utan migrationen skapas ingen flyttloggsrad och synken stannar aldrig (lib/flyttloggSynk.ts).
 --
@@ -18,7 +18,7 @@
 
 do $$ begin
   if to_regclass('arbetsdag_flytt_borta') is null then
-    raise exception 'Kör 20261019150000_flytt_som_egen_rad.sql (GPS-flytten) FÖRST: arbetsdag_flytt_borta saknas.';
+    raise exception 'Kör 20261025160000_flytt_som_egen_rad.sql (GPS-flytten) FÖRST: arbetsdag_flytt_borta saknas.';
   end if;
 end $$;
 
