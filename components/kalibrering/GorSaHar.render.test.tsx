@@ -57,7 +57,7 @@ describe('Gör så här — Kolla', () => {
     // Kolla först; kurvorna för tall och gran väntar bakom den: tre steg.
     const h = montera(createElement(GorSaHar, { d: d({ forslag: f }), ark }));
     expect(txt(h)).toContain('Kolla knivar och valsar');
-    expect(txt(h)).toContain('Greppet har släppt oftare på tall i oktober.');
+    expect(txt(h)).toContain('Greppet om tall har blivit sämre.');
     expect(h.querySelector('[data-testid=steg-av]')!.textContent).toBe('Steg 1 av 3');
     expect(h.querySelectorAll('[data-streck]')).toHaveLength(3);
     expect(h.querySelectorAll('[data-streck=fylld]')).toHaveLength(1);
@@ -74,11 +74,12 @@ describe('Gör så här — Kolla', () => {
     await flush();
     expect(sparaForslagMarkor).toHaveBeenLastCalledWith([BYTE_TEXT]);
   });
-  it('samma ökning på en annan skördare: raden "Samma på … – troligen kyla och bark, inte din maskin." står i kortet', () => {
+  it('samma ökning på en annan skördare: raden "Samma på … – troligen kylan." står som egen dämpad rad i kortet', () => {
     const h = montera(createElement(GorSaHar, { d: d({ forslag: resp({ grepp: [{ ...grepp1, samma: ['H8E -26'] }] }) }), ark }));
-    expect(txt(h).replace(/\u00a0/g, ' ')).toContain('Samma på H8E -26 – troligen kyla och bark, inte din maskin.');
+    expect(h.querySelector('[data-testid=kolla-notering]')!.textContent!.replace(/\u00a0/g, ' ')).toBe('Samma på H8E -26 – troligen kylan.');
     const utan = montera(createElement(GorSaHar, { d: d({ forslag: resp({ grepp: [grepp1] }) }), ark }));
     expect(txt(utan)).not.toContain('Samma på');
+    expect(utan.querySelector('[data-testid=kolla-notering]')).toBeNull();
   });
   it('bara EN primär knapp (vit, full bredd) på skärmen', () => {
     const h = montera(createElement(GorSaHar, { d: d({ forslag: resp({ grepp: [grepp1] }) }), ark }));
@@ -207,7 +208,7 @@ describe('Scorpionen genom hela kedjan — kortet och detaljen', () => {
   it('kortet: Kolla knivar och valsar, med tallens grepp som orsak', () => {
     const h = montera(createElement(GorSaHar, { d: d({ forslag: f }), ark }));
     expect(txt(h)).toContain('Kolla knivar och valsar');
-    expect(txt(h)).toContain('Greppet har släppt oftare på tall i oktober.');
+    expect(txt(h)).toContain('Greppet om tall har blivit sämre.');
     expect(knappar(h)).toEqual(['Klart, allt såg bra ut', 'Bytte något', 'Justeringsförslag per punkt']);
   });
 

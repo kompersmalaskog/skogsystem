@@ -64,23 +64,29 @@ describe('samma greppsignal på flera maskiner — "inte din maskin"', () => {
     const r = markeraSamma([tall], [{ namn: 'Scorpion', steg: [tall] }, { namn: 'H8E -26', steg: [tall] }, { namn: 'H8E -23', steg: [gran] }]);
     expect(r[0].samma).toEqual(['H8E -26', 'Scorpion']);
   });
-  it('raden under: ett trädslag → "Samma på X – troligen kyla och bark, inte din maskin."', () => {
-    expect(sammaText(markeraSamma([tall], [{ namn: 'H8E -26', steg: [tall] }]))).toBe('Samma på H8E -26 – troligen kyla och bark, inte din maskin.');
-    expect(sammaText(markeraSamma([tall], [{ namn: 'A', steg: [tall] }, { namn: 'B', steg: [tall] }]))).toBe('Samma på A och B – troligen kyla och bark, inte din maskin.');
+  it('raden under: ett trädslag → "Samma på X – troligen kylan."', () => {
+    expect(sammaText(markeraSamma([tall], [{ namn: 'H8E -26', steg: [tall] }]))).toBe('Samma på H8E -26 – troligen kylan.');
+    expect(sammaText(markeraSamma([tall], [{ namn: 'A', steg: [tall] }, { namn: 'B', steg: [tall] }]))).toBe('Samma på A och B – troligen kylan.');
   });
   it('ingen rad när bara den här maskinen har ökat', () => {
     expect(sammaText([tall])).toBeNull();
     expect(sammaText([])).toBeNull();
   });
   it('två trädslag där bara ett är samma: raden säger vilket, så den inte påstår för mycket', () => {
-    expect(sammaText(markeraSamma([tall, gran], [{ namn: 'H8E -26', steg: [tall] }]))).toBe('Samma på H8E -26 för tall – troligen kyla och bark, inte din maskin.');
+    expect(sammaText(markeraSamma([tall, gran], [{ namn: 'H8E -26', steg: [tall] }]))).toBe('Samma på H8E -26 för tall – troligen kylan.');
   });
-  it('kortets kolla-steg bär raden under greppsraden — och ingen rad utan "samma"', () => {
+  it('kortets kolla-steg: EN rad om varför, "Samma på …" som egen rad — och ingen rad utan "samma"', () => {
     const med = byggKort({ grepp: markeraSamma([tall], [{ namn: 'H8E -26', steg: [tall] }]), punkter: [], andringar: [], kollat: [], idag: IDAG });
-    const t = stegText(med.steg[0]).varfor.replace(/\u00a0/g, ' ');
-    expect(t).toContain('Samma på H8E -26 – troligen kyla och bark, inte din maskin.');
+    const t = stegText(med.steg[0]);
+    expect(t.varfor).toBe('Greppet om tall har blivit sämre.');
+    expect(t.notering).toBe('Samma på H8E -26 – troligen kylan.');
     const utan = byggKort({ grepp: [tall], punkter: [], andringar: [], kollat: [], idag: IDAG });
-    expect(stegText(utan.steg[0]).varfor).not.toContain('Samma på');
+    expect(stegText(utan.steg[0]).varfor).toBe('Greppet om tall har blivit sämre.');
+    expect(stegText(utan.steg[0]).notering).toBeUndefined();
+  });
+  it('flera trädslag: "Greppet om tall och gran har blivit sämre."', () => {
+    const k = byggKort({ grepp: [tall, gran], punkter: [], andringar: [], kollat: [], idag: IDAG });
+    expect(stegText(k.steg[0]).varfor).toBe('Greppet om tall och gran har blivit sämre.');
   });
   it('Scorpion + H8E -26: tall oktober +7,2 på båda → Scorpionens kort säger det', () => {
     const egen = greppSteg(grepp, IDAG);
@@ -166,7 +172,16 @@ describe('Scorpionen — kortets första steg', () => {
     expect(k.steg.map(s => s.slag)).toEqual(['kolla', 'tryck']);
     const t = tx(k.steg[0]);
     expect(t.rubrik).toBe('Kolla knivar och valsar');
-    expect(t.varfor).toBe('Greppet har släppt oftare på tall i oktober. Måtten hoppar också mellan stammar på gran 300+ mm.');
+    expect(t.varfor).toBe('Greppet om tall har blivit sämre.');
+  });
+  it('kolla-steget nämner aldrig spridningen när greppet är orsaken (den hör till Höj trycket och detaljarket)', () => {
+    const t = tx(byggKort({ punkter, grepp: g, andringar, kollat: [], idag: IDAG }).steg[0]);
+    expect(t.varfor).not.toMatch(/Måtten|gran|300/);
+  });
+  it('spridning som enda orsak: en kort rad utan trädslag och punkter', () => {
+    const k = byggKort({ punkter, grepp: [], andringar, kollat: [], idag: IDAG });
+    expect(k.steg[0].slag).toBe('kolla');
+    expect(tx(k.steg[0]).varfor).toBe('Måtten hoppar mellan stammar.');
   });
   it('efter "Klart, allt såg bra ut": Höj trycket (gran 300+ — båda, trycket först)', () => {
     const k = byggKort({ punkter, grepp: g, andringar, kollat: ['2026-10-25'], idag: '2026-10-25' });

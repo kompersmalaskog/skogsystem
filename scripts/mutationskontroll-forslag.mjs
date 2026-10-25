@@ -74,8 +74,9 @@ const mutationer = [
   ["en annan månad räknas som samma", "x.tradslag === g.tradslag && x.manad === g.manad", "x.tradslag === g.tradslag", K],
   ["ett annat trädslag räknas som samma", "x.tradslag === g.tradslag && x.manad === g.manad", "x.manad === g.manad", K],
   ["\"Samma på\" visas utan att någon annan har det", "const med = grepp.filter(g => (g.samma?.length ?? 0) > 0);", "const med = grepp;", K],
-  ["orsaken i raden saknas", "const ORSAK = 'troligen kyla och bark, inte din maskin.';", "const ORSAK = '';", K],
-  ["raden kommer inte med i kortet", "...(samma ? [samma] : [])", "", K],
+  ["orsaken i raden saknas", "const ORSAK = 'troligen kylan.';", "const ORSAK = '';", K],
+  ["raden kommer inte med i kortet", "notering: sammaText(s.grepp) ?? undefined", "notering: undefined", K],
+  ["spridningen nämns i Kolla-steget igen", "return { ikon: 'build', rubrik: 'Kolla knivar och valsar', varfor: `Greppet om", "return { ikon: 'build', rubrik: 'Kolla knivar och valsar', varfor: `Måtten hoppar. Greppet om", K],
   ["rutten läser inte de andra skördarna", "      grepp = markeraSamma(grepp, andra);", "", R],
   ["rutten räknar den egna maskinen som en annan", "if (m.maskin_id === maskinId) continue;", "", R],
   // ── Åtgärder: kalibreringar bryter inte efter-perioden för förarens åtgärd ──

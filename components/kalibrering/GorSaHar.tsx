@@ -102,8 +102,8 @@ export default function GorSaHar({ d, ark }: { d: KalibreringData; ark: Kalibrer
         <div style={{ marginTop: AVSTAND.xl }}>
           <Ikon namn={ikon} storlek={IKON.stor} farg={inget ? FARG.gron : FARG.text} />
         </div>
-        <Svarsrad stor fri rubrik={rubrik} rad={rad} varning={greppVarning} />
-
+        <Svarsrad stor fri rubrik={rubrik} varning={greppVarning}
+          rad={text?.notering ? <>{rad}<div data-testid="kolla-notering" style={{ ...TYP.meta, marginTop: AVSTAND.xs }}>{text.notering}</div></> : rad} />
         {steg?.slag === 'kurva' && text && (
           <Sektion rubrik="Ändra på kurvan">
             {text.rader.map((r, i) => {

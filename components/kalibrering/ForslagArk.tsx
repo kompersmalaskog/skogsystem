@@ -103,7 +103,7 @@ export default function ForslagArk({ f }: { f: ForslagResp }) {
         <Sektion rubrik="Greppet" kort={false}>
           {f.grepp.map((g, i) => (
             <Rad key={g.tradslag} sista={i === f.grepp.length - 1} pil={false} titel={g.tradslag}
-              under={g.samma?.length ? `Greppet släpper oftare än förra månaden. Samma på ${g.samma.join(' och ')} — troligen kyla och bark.` : 'Greppet släpper oftare än förra månaden — kolla knivar och valsar'} hoger={`${Math.round(g.fran)} → ${Math.round(g.till)} %`} />
+              under={g.samma?.length ? `Greppet släpper oftare än förra månaden. Samma på ${g.samma.join(' och ')} – troligen kylan.` : 'Greppet släpper oftare än förra månaden — kolla knivar och valsar'} hoger={`${Math.round(g.fran)} → ${Math.round(g.till)} %`} />
           ))}
         </Sektion>
       )}

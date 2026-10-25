@@ -74,7 +74,7 @@ export function markeraSamma(egna: GreppSteg[], andra: { namn: string; steg: Gre
 export function sammaText(grepp: GreppSteg[]): string | null {
   const med = grepp.filter(g => (g.samma?.length ?? 0) > 0);
   if (med.length === 0) return null;
-  const ORSAK = 'troligen kyla och bark, inte din maskin.';
+  const ORSAK = 'troligen kylan.';
   if (grepp.length === 1) return `Samma på ${lista(med[0].samma!)} – ${ORSAK}`;
   return `${med.map(g => `Samma på ${lista(g.samma!)} för ${artSmatt(g.tradslag)}`).join(', ')} – ${ORSAK}`;
 }
@@ -146,6 +146,8 @@ export type StegText = {
   rubrik: string;
   /** En rad under: varför. */
   varfor: string;
+  /** En dämpad rad till under den, bara när det finns något mer att säga ("Samma på H8E -26 – troligen kylan."). */
+  notering?: string;
   /** Punkterna som ska ändras ("150 mm −3"), för Ändra-steg. */
   rader: string[];
 };
@@ -165,17 +167,19 @@ const nb = (t: string): string => t.replace(/ mm\b/g, '\u00a0mm');
 
 export function stegText(s: Steg): StegText {
   const t = stegTextRå(s);
-  return { ...t, rubrik: nb(t.rubrik), varfor: nb(t.varfor), rader: t.rader.map(nb) };
+  return { ...t, rubrik: nb(t.rubrik), varfor: nb(t.varfor), ...(t.notering ? { notering: nb(t.notering) } : {}), rader: t.rader.map(nb) };
 }
 
 function stegTextRå(s: Steg): StegText {
   switch (s.slag) {
     case 'kolla': {
-      // En kort rad, inga tal (siffrorna står i detaljen): vad som såg konstigt ut.
-      const samma = sammaText(s.grepp);
-      const grepp = s.grepp.length > 0 ? [`Greppet har släppt oftare på ${lista(s.grepp.map(g => artSmatt(g.tradslag)))} i ${manadsOrd(s.grepp[0].manad)}.`, ...(samma ? [samma] : [])] : [];
-      const sprid = s.spridning.length > 0 ? [`Måtten hoppar ${grepp.length > 0 ? 'också ' : ''}mellan stammar på ${lista(s.spridning.map(p => `${artSmatt(p.tradslag)} ${p.punkt} mm`))}.`] : [];
-      return { ikon: 'build', rubrik: 'Kolla knivar och valsar', varfor: [...grepp, ...sprid].join(' '), rader: [] };
+      // EN rad om varför, högst en rad till (dämpad). Bara den viktigaste orsaken: greppet. Att måtten hoppar mellan stammar nämns inte här — det är
+      // ett eget steg (Höj trycket) längre fram i ordningen och står i detaljarket. Är spridningen den enda orsaken till att knivarna ska kollas
+      // står en kort rad utan trädslag och punkter.
+      if (s.grepp.length > 0) {
+        return { ikon: 'build', rubrik: 'Kolla knivar och valsar', varfor: `Greppet om ${lista(s.grepp.map(g => artSmatt(g.tradslag)))} har blivit sämre.`, notering: sammaText(s.grepp) ?? undefined, rader: [] };
+      }
+      return { ikon: 'build', rubrik: 'Kolla knivar och valsar', varfor: 'Måtten hoppar mellan stammar.', rader: [] };
     }
     case 'tryck':
       return {
