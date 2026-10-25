@@ -6,7 +6,7 @@
 // (lib/objektKarta tomKartaStil) läser härifrån; vakt: lib/kartBas.test.ts.
 //
 // Värdena är MapLibres raster-egenskaper (deterministiska per pixel), så ändringen går att mäta på vilken bild som helst (kartBas.hytt.test.ts).
-//   raster-brightness-max   vitt blir grått: 1 = oförändrat, 0,55 = ett vitt tile-pixelvärde blir 55 % ljust
+//   raster-brightness-max   vitt blir grått: 1 = oförändrat, 0,5 = ett vitt tile-pixelvärde blir 50 % ljust
 //   raster-saturation       −1 = helt grått, 0 = oförändrat
 //   raster-contrast         0 = oförändrat; ett lågt värde plattar ut bilden så den inte tävlar med linjerna
 import type { Kartlager } from './kartlager';
@@ -14,8 +14,8 @@ import type { Kartlager } from './kartlager';
 export type RasterPaint = Record<string, number>;
 
 export const KARTBAS_PAINT: Record<Kartlager, RasterPaint> = {
-  // Flygfoto (Lantmäteriets ortofoto). Mörkast: ortofotot har de ljusaste ytorna (åker, hygge, grusväg) — där försvinner en gul/vit linje annars.
-  satellite: { 'raster-brightness-max': 0.55, 'raster-contrast': 0.05, 'raster-saturation': -0.5 },
+  // Flygfoto (Lantmäteriets ortofoto): ungefär HALVA ljusstyrkan och avmättat (Martin 2026-10-25) så vägar, gräns och symboler lyser direkt. Mörkast: ortofotot har de ljusaste ytorna (åker, hygge, grusväg) — där försvinner en gul/vit linje annars.
+  satellite: { 'raster-brightness-max': 0.5, 'raster-contrast': 0.05, 'raster-saturation': -0.6 },
   // Karta (Lantmäteriet topowebb, redan ljus och tyst): ned i ljus och färg, ljus bakgrund bakom.
   lantmateriet: { 'raster-brightness-max': 0.72, 'raster-contrast': -0.06, 'raster-saturation': -0.6, 'raster-opacity': 0.9 },
   // Topokarta (LM full färg) och OpenStreetMap: förut orörda — nu samma nedtoning som Karta.

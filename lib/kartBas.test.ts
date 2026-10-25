@@ -25,6 +25,12 @@ describe('KARTBAS_PAINT — mörkare och gråare, alla lager', () => {
     const ljus = (l: (typeof KARTLAGER)[number]) => KARTBAS_PAINT[l]['raster-brightness-max'];
     for (const l of KARTLAGER) if (l !== 'satellite') expect(ljus('satellite')).toBeLessThan(ljus(l));
   });
+  it('Flygfotot har ungefär halva ljusstyrkan och är tydligt avmättat (Martin 2026-10-25)', () => {
+    const p = KARTBAS_PAINT.satellite;
+    expect(p['raster-brightness-max']).toBeGreaterThanOrEqual(0.45);
+    expect(p['raster-brightness-max']).toBeLessThanOrEqual(0.55);
+    expect(p['raster-saturation']).toBeLessThanOrEqual(-0.55);
+  });
   it('kartBasPaint ger en kopia (ingen kan ändra konstanten av misstag)', () => {
     const k = kartBasPaint('satellite'); k['raster-brightness-max'] = 1;
     expect(KARTBAS_PAINT.satellite['raster-brightness-max']).toBeLessThan(1);
