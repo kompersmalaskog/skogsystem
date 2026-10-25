@@ -102,6 +102,8 @@ export const SKARPA = [
   "app/ekonomi/delade/mall.tsx",                // ekonomins delade mall — tokenstädad
   "app/ekonomi/delade/tabell.ts",               // delad tabellmatte + cellstilar
   "app/ekonomi/delade/svar.tsx",                // svar först-delarna (fråga, svar, stapel) — tokens från början
+  "app/ekonomi/installningar/InstallningarClient.tsx", // svar först + ett ämne per skärm (2026-10-25)
+  "app/ekonomi/prislista/PrislistaClient.tsx",   // en rad per pris, ett pris per skärm (2026-10-25)
   "app/ekonomi/EkonomiBottomNav.tsx",           // ekonomins meny, fem flikar — tokens från början
   "app/ekonomi/mot-ackord/MotAckordClient.tsx", // Mot ackord — tokenstädad
   "app/ekonomi/resultat/ResultatClient.tsx",    // Resultat — tokenstädad

@@ -37,7 +37,9 @@ import {
   acordSnapshot, traktSnapshot, avstandSnapshot, sortSnapshot,
   sparaAllaSmutsiga, sparaSammanfattning, slaIhopEfterSpar, grundprisSumma,
 } from '@/lib/ekonomi/prislistaSpara';
-import { EkonomiSida, Lista, SektionsTitel, Laddar, MAXBREDD_BRED } from '../delade/mall';
+import { EkonomiSida, Lista, Laddar, MAXBREDD_BRED } from '../delade/mall';
+import Sektion from '@/components/design/Sektion';
+import Rad from '@/components/design/Rad';
 import { rubrikCell, talCell, gridRad } from '../delade/tabell';
 import { FARG, TYP, TAL_FONT, AVSTAND, RADIE, KNAPP, TRAFFYTA } from '@/lib/design/tokens';
 
@@ -49,7 +51,27 @@ type AvstandConfig = { id?: string; grundavstand_m: Num; kr_per_100m: Num; gilti
 type TraktRad = { id?: string; fran_m3fub: Num; till_m3fub: Num; tillagg_kr_per_m3fub: Num; giltig_fran: string | null };
 type SortConfig = { id?: string; grundantal: Num; kr_per_extra_sortiment: Num; giltig_fran: string | null };
 
-type Sektion = 'maskiner' | 'acord' | 'avstand' | 'trakt' | 'sort' | 'terrang' | 'ovrigt';
+type Del = 'maskiner' | 'acord' | 'avstand' | 'trakt' | 'sort' | 'terrang' | 'ovrigt';
+
+// Priserna i vanliga ord (barnregeln): en rad per pris på första skärmen,
+// ett tryck öppnar just det priset att ändra. Inga tabeller förrän man valt.
+export const DELAR: Record<Del, { titel: string; forklaring: string }> = {
+  acord: { titel: 'Grundpris per kubik', forklaring: 'Vad vi får per kubikmeter i slutavverkning. Grövre träd ger lägre pris per kubik.' },
+  maskiner: { titel: 'Timpris per maskin', forklaring: 'Vad varje maskin får per timme när vi jobbar på timpeng, och vad maskinen kostar i värdeminskning.' },
+  avstand: { titel: 'Långt att skota', forklaring: 'Extra betalt när skotaren kör längre än vanligt till vägen.' },
+  trakt: { titel: 'Liten trakt', forklaring: 'Extra betalt per kubik när trakten är liten.' },
+  sort: { titel: 'Många sortiment', forklaring: 'Extra betalt när virket ska delas i fler sorter än vanligt.' },
+  terrang: { titel: 'Svår terräng', forklaring: 'Extra betalt per kubik när marken är svår.' },
+  ovrigt: { titel: 'Övrigt', forklaring: 'Kvalitetssäkring, flytt, diesel och annat som läggs till.' },
+};
+export const DEL_GRUPPER: { rubrik: string; delar: Del[] }[] = [
+  { rubrik: 'Det vi får betalt', delar: ['acord', 'maskiner'] },
+  { rubrik: 'Tillägg', delar: ['avstand', 'trakt', 'sort', 'terrang', 'ovrigt'] },
+];
+const ARDEL = (v: string | null): Del | null => (v && v in DELAR ? (v as Del) : null);
+const tal = (v: Num) => String(v).replace('.', ',');
+const st = (n: number, en: string, flera: string) => `${n} ${n === 1 ? en : flera}`;
+
 
 // Förslag för formel-config när databasen saknar rad — visas som placeholder,
 // aldrig som ifyllt värde.
@@ -192,13 +214,27 @@ export default function PrislistaClient() {
   const [sortBas, setSortBas] = useState('');
   const [ovrigt, setOvrigt] = useState<OvrigtRad[]>([]);
 
-  const [sparar, setSparar] = useState<Partial<Record<Sektion, boolean>>>({});
-  const [sektionMsg, setSektionMsg] = useState<Partial<Record<Sektion, { text: string; fel: boolean }>>>({});
+  const [sparar, setSparar] = useState<Partial<Record<Del, boolean>>>({});
+  const [sektionMsg, setSektionMsg] = useState<Partial<Record<Del, { text: string; fel: boolean }>>>({});
   const [lamna, setLamna] = useState<{ href: string } | null>(null);
+  // Vilket pris som är öppet bor i adressen (?del=), så bakåtknappen tar en tillbaka till listan.
+  const [del, setDel] = useState<Del | null>(() => (typeof window === 'undefined' ? null : ARDEL(new URLSearchParams(window.location.search).get('del'))));
+  useEffect(() => {
+    const p = () => setDel(ARDEL(new URLSearchParams(window.location.search).get('del')));
+    window.addEventListener('popstate', p);
+    return () => window.removeEventListener('popstate', p);
+  }, []);
+  const valjDel = (d: Del | null) => {
+    const u = new URL(window.location.href);
+    if (d) u.searchParams.set('del', d); else u.searchParams.delete('del');
+    if (d) window.history.pushState(null, '', u); else window.history.replaceState(null, '', u);
+    setDel(d);
+    window.scrollTo(0, 0);
+  };
 
   // Bekräftelsen visas VID sparaknappen (där blicken är), inte bara högst upp.
   // Lyckat försvinner efter en stund; fel står kvar tills nästa spar.
-  const visaMsg = (sek: Sektion, text: string, fel: boolean) => {
+  const visaMsg = (sek: Del, text: string, fel: boolean) => {
     setSektionMsg(p => ({ ...p, [sek]: { text, fel } }));
     if (!fel) setTimeout(() => setSektionMsg(p => (p[sek]?.text === text ? { ...p, [sek]: undefined } : p)), 6000);
   };
@@ -230,6 +266,19 @@ export default function PrislistaClient() {
   const avstandSmutsig = avstandSnapshot(avstand) !== avstandBas;
   const sortSmutsig = sortSnapshot(sortiment) !== sortBas;
   const harOsparat = nMask + nTerr + nOvr > 0 || acordSmutsig || traktSmutsig || avstandSmutsig || sortSmutsig;
+  const smutsig: Record<Del, boolean> = {
+    acord: acordSmutsig, maskiner: nMask > 0, avstand: avstandSmutsig, trakt: traktSmutsig,
+    sort: sortSmutsig, terrang: nTerr > 0, ovrigt: nOvr > 0,
+  };
+  const sammanfattning: Record<Del, string> = {
+    acord: acord.length ? st(acord.length, 'klass', 'klasser') + ' efter trädens grovlek' : 'Inte satt',
+    maskiner: maskiner.length ? st(maskiner.length, 'maskin', 'maskiner') : 'Inga maskiner',
+    avstand: avstand.grundavstand_m !== '' && avstand.kr_per_100m !== '' ? `Över ${tal(avstand.grundavstand_m)} m: ${tal(avstand.kr_per_100m)} kr per 100 m` : 'Inte satt',
+    trakt: trakt.length ? st(trakt.length, 'storlek', 'storlekar') : 'Inte satt',
+    sort: sortiment.grundantal !== '' && sortiment.kr_per_extra_sortiment !== '' ? `Fler än ${tal(sortiment.grundantal)}: ${tal(sortiment.kr_per_extra_sortiment)} kr per extra sortiment` : 'Inte satt',
+    terrang: terrang.length ? st(terrang.length, 'sort', 'sorter') : 'Inte satt',
+    ovrigt: ovrigt.length ? st(ovrigt.length, 'post', 'poster') : 'Inget',
+  };
 
   // ── Varning vid lämnande av sidan med osparade ändringar ──
   // beforeunload fångar omladdning/stängning; klick på länkar (nav-flikarna är
@@ -259,7 +308,7 @@ export default function PrislistaClient() {
   }, [harOsparat]);
 
   // Kör ett spar-jobb för en sektion: låser sektionen, visar resultatet vid knappen.
-  const kor = async (sek: Sektion, jobb: () => Promise<{ text: string; fel: boolean }>) => {
+  const kor = async (sek: Del, jobb: () => Promise<{ text: string; fel: boolean }>) => {
     setSparar(p => ({ ...p, [sek]: true }));
     setSektionMsg(p => ({ ...p, [sek]: undefined }));
     try {
@@ -401,11 +450,11 @@ export default function PrislistaClient() {
     <span style={{ ...TYP.meta, color: FARG.text3 }}>Gäller från {formatDate(d)}</span>
   );
   // Bekräftelse/fel vid sparaknappen
-  const msgVid = (sek: Sektion) => sektionMsg[sek] && (
+  const msgVid = (sek: Del) => sektionMsg[sek] && (
     <span style={{ ...TYP.meta, color: sektionMsg[sek]!.fel ? FARG.rod : FARG.gron }}>{sektionMsg[sek]!.text}</span>
   );
   // Fot för sektioner med en rad per nyckel: EN knapp som sparar alla smutsiga rader
-  const sektionsFot = (sek: Sektion, antal: number, onSave: () => void) => (
+  const sektionsFot = (sek: Del, antal: number, onSave: () => void) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: AVSTAND.m, gap: AVSTAND.m }}>
       <span style={{ ...TYP.meta, color: antal > 0 ? FARG.orange : FARG.text3 }}>
         {antal > 0 ? `${antal} ${antal === 1 ? 'ändring ej sparad' : 'ändringar ej sparade'}` : 'Inga osparade ändringar'}
@@ -417,7 +466,7 @@ export default function PrislistaClient() {
     </div>
   );
   // Fot för hela uppsättningar: ny komplett version
-  const uppsattningsFot = (sek: Sektion, rows: { giltig_fran: string | null }[], smutsig: boolean, onSave: () => void) => (
+  const uppsattningsFot = (sek: Del, rows: { giltig_fran: string | null }[], smutsig: boolean, onSave: () => void) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: AVSTAND.m, gap: AVSTAND.m }}>
       <span style={{ ...TYP.meta, color: smutsig ? FARG.orange : FARG.text3 }}>
         {smutsig ? 'Ändrad — ej sparad'
@@ -441,10 +490,14 @@ export default function PrislistaClient() {
   return (
     <EkonomiSida maxBredd={MAXBREDD_BRED}>
       <div style={{ padding: `0 ${AVSTAND.sidmarginal}px` }}>
-        {/* Rubriken bor i toppfältet, som i ekonomins övriga flikar. */}
-        <div style={{ ...TYP.meta, color: FARG.text2 }}>
-          Ändringar skapar nya rader med dagens datum ({todayIso()}) — gamla priser bevaras och äldre produktion räknas med de priser som gällde då.
-        </div>
+        {/* En sak per skärm: listan över priserna, eller ETT pris att ändra (som Inställningar i iOS). */}
+        {del && (
+          <div style={{ marginTop: AVSTAND.l }}>
+            <button type="button" onClick={() => valjDel(null)} style={{ ...KNAPP.tertiar, padding: 0, minHeight: TRAFFYTA.min }}>‹ Priser</button>
+            <h1 style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.titel, color: FARG.text }}>{DELAR[del].titel}</h1>
+            <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>{DELAR[del].forklaring}</p>
+          </div>
+        )}
 
         {laddFel && (
           <div style={{ marginTop: AVSTAND.m, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, background: FARG.kort, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.rad, ...TYP.meta, color: FARG.rod }}>
@@ -454,12 +507,26 @@ export default function PrislistaClient() {
 
         {loading && <Laddar />}
 
-        {!loading && (
+        {!loading && !del && (
+          <div style={{ marginTop: AVSTAND.l }}>
+            {DEL_GRUPPER.map(g => (
+              <Sektion key={g.rubrik} rubrik={g.rubrik}>
+                {g.delar.map((k, i) => (
+                  <Rad key={k} titel={DELAR[k].titel} under={sammanfattning[k]} onTryck={() => valjDel(k)} pil
+                    sista={i === g.delar.length - 1} attr={{ 'data-del': k }}
+                    hoger={smutsig[k] ? <span style={{ ...TYP.meta, color: FARG.orange }}>Inte sparat</span> : undefined} />
+                ))}
+              </Sektion>
+            ))}
+          </div>
+        )}
+
+        {!loading && del && (
           <>
             {/* 1. GRUNDPRIS PER MEDELSTAM — det viktigaste, överst.
                 Totalt-kolumnen BEHÅLLS redigerbar: sparkontraktet skriver
                 pris_total och att härleda den vore att ändra sparlogiken. */}
-            <SektionsTitel>Grundpris per medelstam — kr/m³fub, slutavverkning</SektionsTitel>
+            {del === 'acord' && (<>
             <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
               <fieldset disabled={!!sparar.acord} style={FIELDSET}>
                 <div style={{ ...acordGrid, padding: `${AVSTAND.s}px 0` }}>
@@ -490,7 +557,8 @@ export default function PrislistaClient() {
             </Lista>
 
             {/* 2. MASKINPRISER (timpeng + värdeminskning + FL + såld) */}
-            <SektionsTitel>Maskinpriser</SektionsTitel>
+            </>)}
+            {del === 'maskiner' && (<>
             <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
               <fieldset disabled={!!sparar.maskiner} style={FIELDSET}>
                 <div style={{ ...maskGrid, padding: `${AVSTAND.s}px 0` }}>
@@ -569,7 +637,8 @@ export default function PrislistaClient() {
             </div>
 
             {/* 3. TILLÄGG */}
-            <SektionsTitel>Tillägg — skotavstånd</SektionsTitel>
+            </>)}
+            {del === 'avstand' && (<>
             <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
               <fieldset disabled={!!sparar.avstand} style={FIELDSET}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: AVSTAND.l, alignItems: 'end' }}>
@@ -594,7 +663,8 @@ export default function PrislistaClient() {
               </div>
             </Lista>
 
-            <SektionsTitel>Tillägg — traktstorlek</SektionsTitel>
+            </>)}
+            {del === 'trakt' && (<>
             <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
               <fieldset disabled={!!sparar.trakt} style={FIELDSET}>
                 <div style={{ ...traktGrid, padding: `${AVSTAND.s}px 0` }}>
@@ -617,7 +687,8 @@ export default function PrislistaClient() {
               {uppsattningsFot('trakt', trakt, traktSmutsig, sparaTrakt)}
             </Lista>
 
-            <SektionsTitel>Tillägg — sortiment</SektionsTitel>
+            </>)}
+            {del === 'sort' && (<>
             <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
               <fieldset disabled={!!sparar.sort} style={FIELDSET}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: AVSTAND.l, alignItems: 'end' }}>
@@ -642,7 +713,8 @@ export default function PrislistaClient() {
               </div>
             </Lista>
 
-            <SektionsTitel>Tillägg — terräng</SektionsTitel>
+            </>)}
+            {del === 'terrang' && (<>
             <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
               <fieldset disabled={!!sparar.terrang} style={FIELDSET}>
                 <div style={{ ...terrangGrid, padding: `${AVSTAND.s}px 0` }}>
@@ -670,7 +742,8 @@ export default function PrislistaClient() {
               {sektionsFot('terrang', nTerr, sparaTerrang)}
             </Lista>
 
-            <SektionsTitel>Tillägg — övrigt (kvalitetssäkring, flytt, diesel m.m.)</SektionsTitel>
+            </>)}
+            {del === 'ovrigt' && (<>
             <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
               <fieldset disabled={!!sparar.ovrigt} style={FIELDSET}>
                 <div style={{ ...ovrigtGrid, padding: `${AVSTAND.s}px 0` }}>
@@ -702,9 +775,12 @@ export default function PrislistaClient() {
               {sektionsFot('ovrigt', nOvr, sparaOvrigt)}
             </Lista>
 
-            <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.sektion, lineHeight: 1.6 }}>
-              Fortnox-mappning och datamappning ligger kvar under Inställningar.
-            </div>
+            </>)}
+            {del && (
+              <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.xl }}>
+                När du sparar gäller de nya priserna från i dag ({todayIso()}). Gamla priser sparas, och det som redan körts räknas med de priser som gällde då.
+              </div>
+            )}
           </>
         )}
       </div>
