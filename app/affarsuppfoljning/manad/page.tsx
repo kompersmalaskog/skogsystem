@@ -346,7 +346,7 @@ function Innehall() {
               {visaObjekt && (
                 <div style={{ paddingBottom: 12 }}>
                   {data.objekt.map(o => (
-                    <Rad key={o.nyckel} text={o.namn || o.nyckel} tal={`${nf(o.volym, 0)} m³`}
+                    <Rad key={o.nyckel} text={o.namn || o.nyckel} tal={`${nf(o.volym)} m³`}
                       sub={[o.status !== 'Ej markerad' ? `${o.status}${o.status_datum ? ` ${String(o.status_datum).slice(0, 10)}` : ''}` : null,
                             o.saknar_atgard ? 'åtgärd ej angiven' : null].filter(Boolean).join(' · ') || undefined}
                       href={`/affarsuppfoljning/objekt/${encodeURIComponent(o.vo_nummer && /^[0-9]+$/.test(o.vo_nummer) ? o.vo_nummer : o.nyckel)}`} />
