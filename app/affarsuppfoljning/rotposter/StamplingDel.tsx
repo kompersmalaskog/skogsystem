@@ -1,7 +1,12 @@
 'use client';
 
 // STÄMPLINGEN på en rotposts sida: vad stämplingslängden sa, mot vad skördaren fick ut.
-//   läst rapport för trakten  → tabellen (timmer, kubb, massaved, totalt, träd) och EN mening som sammanfattar
+//   läst rapport, skördas     → "Hur långt har skördaren kommit?": skördat hittills av väntat, en stapel. Ingen jämförelse —
+//                               en halvskördad trakt ser annars ut som en dålig affär.
+//   läst rapport, klar        → "Vad blev det, mot det väntade?" (timmer, kubb, massaved, totalt, träd) och EN mening
+//   Väntat = antalet stämplade träd per trädslag och diameterklass × vad samma grovlek gav på våra trakter (m³fub, skördarens
+//   mätning). Stämplingslängdens m³sk används aldrig. Vidas rotpostunderlag har ingen utbyteskalkyl (kontrollerat 2026-10-25,
+//   alla 11 sidor på Bågskyttebanan), så det finns ingen "Vida sa"-rad.
 //   olästa men finns från Vida → knappen "Läs stämplingslängden" (samma läsverktyg som Räkna, kostar en läsning)
 //   ingen stämplingslängd      → en dämpad rad
 // Prognosen räknas med stämplingssidans berakna() (lib/rotpost/stampling.ts). Ett fel är ett fel, aldrig "ingen".
@@ -13,8 +18,7 @@ import { AVSTAND, FARG, KNAPP, KORT, TYP } from '@/lib/design/tokens';
 import { nf0, Rad, Rader, Mening } from '@/components/Ytform';
 import type { Cell, Meta } from '@/lib/stampling/berakna';
 import { lasFranObjekt, rapportForObjekt, type Rapport } from '@/lib/stampling/pdf/klient';
-import { jamforStampling, narmastMening, procentMot } from '@/lib/rotpost/stampling';
-import { utbyteVolymer } from '@/lib/stampling/pdf/rapport';
+import { hurLangt, jamforStampling, utfallMening } from '@/lib/rotpost/stampling';
 import type { Rotpost } from '@/lib/rotpost/uppfoljning';
 import { stamplingsKalla } from '@/lib/rotpost/kalla';
 
@@ -26,7 +30,7 @@ type Lage =
   | { typ: 'saknas' }                                   // ingen stämplingslängd på trakten
   | { typ: 'olast'; gissad: boolean }                   // finns från Vida, inte läst
   | { typ: 'avviker'; rapport: Rapport }                // läst men kontrollen stämmer inte
-  | { typ: 'klar'; rapport: Rapport; celler: Cell[]; meta: Meta; avverkad: boolean };
+  | { typ: 'klar'; rapport: Rapport; celler: Cell[]; meta: Meta };
 
 async function lasModell(): Promise<{ celler: Cell[]; meta: Meta } | null> {
   const [k, m] = await Promise.all([
@@ -49,15 +53,10 @@ export default function StamplingDel({ r }: { r: Rotpost }) {
 
   const visaRapport = useCallback(async (rapport: Rapport) => {
     if (rapport.status !== 'stammer' || !rapport.lasning) { setLage({ typ: 'avviker', rapport }); return; }
-    const [modell, d] = await Promise.all([
-      lasModell(),
-      medAbortRetry(() => supabase.from('dim_objekt').select('skordning_avslutad').eq('objekt_id', r.id).limit(1).maybeSingle()),
-    ]);
+    const modell = await lasModell();
     if (!modell) { setLage({ typ: 'fel', text: 'Prognosmodellen kunde inte läsas.' }); return; }
-    // Inte färdigavverkad: skördarens tal är bara en del av trakten och jämförelsen blir fel. Okänt (läsfel) räknas som klar.
-    const avverkad = d.error ? true : !!(d.data as { skordning_avslutad?: string | null } | null)?.skordning_avslutad;
-    setLage({ typ: 'klar', rapport, ...modell, avverkad });
-  }, [r.id]);
+    setLage({ typ: 'klar', rapport, ...modell });
+  }, []);
 
   const hamta = useCallback(async () => {
     setLage({ typ: 'laddar' });
@@ -112,38 +111,52 @@ export default function StamplingDel({ r }: { r: Rotpost }) {
   // ── Läst: stämplingen mot skördaren ─────────────────────────────────────
   const j = jamforStampling(lage.rapport.lasning!, lage.celler, lage.meta);
   const p = j.prognos;
-  // Tre tal per sortiment: det som blev (skördaren), det Vida skrev i rapportens utbyteskalkyl och det appen räknar.
-  const kalkyl = lage.rapport.lasning!.utbyteskalkyl;
-  const vida = utbyteVolymer(kalkyl);
-  const rader: [string, number, number, number | null][] = [
-    ['Timmer', r.m3.timmer, p.timmer, vida?.timmer ?? null], ['Kubb', r.m3.kubb, p.kubb, vida?.kubb ?? null],
-    ['Massaved', r.m3.massa, p.massa, vida?.massa ?? null],
-  ];
-  const sa = (app: number, v: number | null) => [vida ? `Vida sa ${v == null ? '–' : nf0(v)}` : null, `appen sa ${nf0(app)}`].filter(Boolean).join(' · ');
-  const narmast = narmastMening({ blev: r.m3.timmer, app: p.timmer, vida: vida?.timmer ?? null }, lage.avverkad);
-  const tot = procentMot(r.volym, p.vol);
-  const mening = !lage.avverkad ? 'Trakten är inte färdigavverkad än, så skördaren har bara en del av den. Jämför när skördningen är klar.'
-    : narmast ?? (tot == null ? null : `Appen ${Math.abs(tot) <= 3 ? 'träffade volymen' : tot > 0 ? `räknade ${tot} % för lågt på volymen` : `räknade ${-tot} % för högt på volymen`}.`);
-  const kalkylRad = kalkyl === undefined ? 'Vidas kalkyl är inte utläst ur rapporten än.'
-    : kalkyl === null || !vida ? 'Rapporten har ingen utbyteskalkyl från Vida.' : null;
+  const stamplat = j.trad + j.utanforModellen;
+  const pdf = <Rad text="Stämplingslängden" sub="Trädslag, klasser och rötan" href={`/affarsuppfoljning/stampling?vy=pdf&id=${lage.rapport.id}&kor=1`} />;
+  const kalla = [j.forrattare, j.datum].filter(Boolean).join(' · ');
+  const not = (
+    <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.s}px ${AVSTAND.l}px 0` }}>
+      Väntat = antalet stämplade träd × vad samma grovlek gav på våra trakter. Allt i m³fub.
+      {j.utanforModellen > 0 ? ` ${nf0(j.utanforModellen)} stämplade träd (löv, torra) räknas inte i väntat.` : ''}
+      {kalla ? ` Stämplat av ${kalla}.` : ''}
+    </div>
+  );
 
+  // Skördas fortfarande: hur långt skördaren kommit, ingen jämförelse.
+  if (r.skordning.lage === 'pagar') {
+    const andel = hurLangt(r.volym, p.vol);
+    return (
+      <>
+        <Rader rubrik="Hur långt har skördaren kommit?">
+          <Rad text="Skördat hittills" tal={andel == null ? `${nf0(r.volym)} m³` : `${andel} %`}
+            sub={`${nf0(r.volym)} av väntade ${nf0(p.vol)} m³${andel != null && andel > 100 ? ' · mer än väntat redan' : ''}`}
+            stapel={andel == null ? undefined : { andel: Math.min(andel, 100), max: 100, farg: FARG.text }} />
+          <Rad text="Träd" tal={nf0(r.stammar)} sub={`av ${nf0(stamplat)} stämplade`} />
+          {pdf}
+        </Rader>
+        <div style={{ margin: `0 ${AVSTAND.l}px` }}><Mening>Jämförelsen med det väntade kommer när skördningen är klar.</Mening></div>
+        {not}
+      </>
+    );
+  }
+
+  // Klar (eller okänt läge, som räknas som klar): det som blev, och det väntade under.
+  const rader: [string, number, number][] = [['Timmer', r.m3.timmer, p.timmer], ['Kubb', r.m3.kubb, p.kubb], ['Massaved', r.m3.massa, p.massa]];
+  const extra = r.stammar - stamplat;
+  const mening = utfallMening({ blev: r.volym, vantat: p.vol, skordadeTrad: r.stammar, stamplatTrad: stamplat, vantatTrad: j.trad });
   return (
     <>
-      <Rader rubrik="Vad blev det, mot vad som sades?">
-        {rader.map(([namn, fakt, app, v]) => (
-          <Rad key={namn} text={namn} tal={`${nf0(fakt)} m³`} sub={sa(app, v)} />
+      <Rader rubrik="Vad blev det, mot det väntade?">
+        {rader.map(([namn, fakt, vantat]) => (
+          <Rad key={namn} text={namn} tal={`${nf0(fakt)} m³`} sub={`väntat ${nf0(vantat)}`} />
         ))}
-        <Rad text="Totalt" tal={`${nf0(r.volym)} m³`} sub={sa(p.vol, vida?.total ?? null)} />
-        <Rad text="Träd" tal={nf0(r.stammar)} sub={`stämplat ${nf0(j.trad + j.utanforModellen)}`} />
-        <Rad text="Stämplingslängden" sub="Trädslag, klasser och rötan" href={`/affarsuppfoljning/stampling?vy=pdf&id=${lage.rapport.id}&kor=1`} />
+        <Rad text="Totalt" tal={`${nf0(r.volym)} m³`} sub={`väntat ${nf0(p.vol)}`} />
+        <Rad text="Träd" tal={nf0(r.stammar)} sub={`stämplat ${nf0(stamplat)}`} />
+        {extra > 0 && <Rad text="Fler träd än stämplat" tal={nf0(extra)} sub="De ingår i det som blev, inte i det väntade" />}
+        {pdf}
       </Rader>
       {mening && <div style={{ margin: `0 ${AVSTAND.l}px` }}><Mening>{mening}</Mening></div>}
-      <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.s}px ${AVSTAND.l}px 0` }}>
-        {[j.forrattare, j.datum].filter(Boolean).join(' · ')}{j.forrattare || j.datum ? ' · ' : ''}
-        Vida sa = rapportens utbyteskalkyl. Appen sa = stämplingslängden räknad mot vår avverkade skog. Allt i m³fub.
-        {kalkylRad ? ` ${kalkylRad}` : ''}
-        {j.utanforModellen > 0 ? ` ${nf0(j.utanforModellen)} träd (löv, torra) räknas inte i prognosen.` : ''}
-      </div>
+      {not}
     </>
   );
 }

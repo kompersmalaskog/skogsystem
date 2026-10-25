@@ -6,6 +6,7 @@ const t = (timmer: number, vanligt: number | null): Trakt => ({
   id: 'x', namn: 'X', typ: 'Slutavverkning', forsta: '2026-09-01', volym: 1000, stammar: 1000, medelstam: 0.62, rotpost: false,
   andel: { timmer, kubb: 10, massa: 90 - timmer - 2, ovrigt: 2 }, m3: { timmer, kubb: 10, massa: 0, ovrigt: 0 },
   vanligt: vanligt == null ? null : { timmer: vanligt, kubb: 10, massa: 88 - vanligt, ovrigt: 2 }, jamfordaTrakter: 5, rota: null,
+  skordning: { lage: 'okand' },
 })
 
 describe('timrets mening', () => {
