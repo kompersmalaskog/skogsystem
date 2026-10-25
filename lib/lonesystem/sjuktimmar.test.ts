@@ -20,7 +20,7 @@ describe("raknaSjuktimmar", () => {
 });
 
 describe("lönemotorn: sjuktimmar", () => {
-  const dag = (datum: string, min: number) => ({ datum, arbetad_min: min, maskin_id: "M1", bekraftad: true, km_totalt: 0 });
+  const dag = (datum: string, min: number) => ({ datum, dagtyp: "normal", arbetad_min: min, maskin_id: "M1", bekraftad: true, km_totalt: 0 });
   const kor = (ledigheter: any[], koder: any = TEST_KODER) => beräknaExport("m1", "Test", "1", [dag("2026-10-01", 480), dag("2026-10-06", 270)], { M1: "skordare" }, "2026-11", [], ledigheter, 60, null, new Set(), 40, null, koder);
 
   it("heldag (vardagar) + deldag blir EN rad sjuktimmar", () => {
