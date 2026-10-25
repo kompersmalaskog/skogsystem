@@ -26,12 +26,44 @@ export type Post = {
 };
 /** Sammanfattande siffror per trädslag från första sidan / löptexten — används som reserv och som korskontroll. */
 export type Sammanfattning = { namn: string; antal: number | null; volym_m3sk: number | null };
+/** Rapportens EGEN utbyteskalkyl (Vidas prognos för vad posten ger), som den står tryckt. m³fub. null = rapporten har ingen.
+ *  Står bara procent tryckt räknas kubiken ur totalen (utbyteVolymer); AI:n räknar aldrig själv. */
+export type Utbyteskalkyl = {
+  total_m3fub: number | null;
+  timmer_m3fub: number | null; timmer_pct: number | null;
+  kubb_m3fub: number | null; kubb_pct: number | null;
+  massaved_m3fub: number | null; massaved_pct: number | null;
+};
 export type Lasning = {
   post: Post;
   tradslag: Tradslag[];
   sammanfattning: Sammanfattning[];
   osakerheter: string[];                 // AI:ns egna "den här siffran är svårläst" — visas, räknas inte
+  /** null = rapporten har ingen utbyteskalkyl; saknas fältet (undefined) är rapporten läst innan den lästes ut. */
+  utbyteskalkyl?: Utbyteskalkyl | null;
 };
+
+/** Utbyteskalkylens kubik per sortiment: tryckt m³fub i första hand, annars procent av totalen. null där inget står. */
+export function utbyteVolymer(u: Utbyteskalkyl | null | undefined): { total: number | null; timmer: number | null; kubb: number | null; massa: number | null } | null {
+  if (!u) return null;
+  const v = (m3: number | null, pct: number | null) => (m3 != null ? m3 : pct != null && u.total_m3fub != null ? (u.total_m3fub * pct) / 100 : null);
+  const timmer = v(u.timmer_m3fub, u.timmer_pct), kubb = v(u.kubb_m3fub, u.kubb_pct), massa = v(u.massaved_m3fub, u.massaved_pct);
+  const delar = [timmer, kubb, massa].filter((x): x is number => x != null);
+  const total = u.total_m3fub ?? (delar.length >= 2 ? delar.reduce((a, b) => a + b, 0) : null);
+  if (total == null && timmer == null && kubb == null && massa == null) return null;
+  return { total, timmer, kubb, massa };
+}
+
+/** Tolkar utbyteskalkylen i ett svar. Allt annat än ett objekt med minst ett tal → null. */
+export function parsaUtbyte(raw: unknown): Utbyteskalkyl | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const u: Utbyteskalkyl = {
+    total_m3fub: tal(o.total_m3fub), timmer_m3fub: tal(o.timmer_m3fub), timmer_pct: tal(o.timmer_pct),
+    kubb_m3fub: tal(o.kubb_m3fub), kubb_pct: tal(o.kubb_pct), massaved_m3fub: tal(o.massaved_m3fub), massaved_pct: tal(o.massaved_pct),
+  };
+  return Object.values(u).some(x => x != null) ? u : null;
+}
 
 export const TOM_POST: Post = { namn: null, fastighet: null, agare: null, forrattare: null, datum: null, total_volym_m3sk: null };
 
@@ -95,7 +127,10 @@ export function parsaLasning(raw: unknown): { lasning: Lasning; varningar: strin
     if (namn) sammanfattning.push({ namn, antal: tal(o.antal) == null ? null : Math.round(tal(o.antal) as number), volym_m3sk: tal(o.volym_m3sk) });
   }
   const osakerheter = (Array.isArray(r.osakerheter) ? r.osakerheter : []).filter((x): x is string => typeof x === 'string' && !!x.trim()).map(x => x.trim());
-  return { lasning: { post, tradslag, sammanfattning, osakerheter }, varningar };
+  // Utbyteskalkylen: med bara när svaret har nyckeln (äldre läsningar saknar den och ska fortsätta sakna den).
+  const lasning: Lasning = { post, tradslag, sammanfattning, osakerheter };
+  if ('utbyteskalkyl' in r) lasning.utbyteskalkyl = parsaUtbyte(r.utbyteskalkyl);
+  return { lasning, varningar };
 }
 
 // ── Schemat som AI:ns svar måste följa ───────────────────────────────────
@@ -181,8 +216,27 @@ const SCHEMA_DEF = {
         description: 'Varje siffra du inte kunde läsa med säkerhet: sida, trädslag, diameter och vad du tvekade om. Tom lista om allt var tydligt.',
         items: { type: 'string' },
       },
+      utbyteskalkyl: {
+        description: 'Rapportens EGEN utbyteskalkyl/utbytesberäkning för HELA posten (beräknat utfall av timmer, kubb och massaved), som den står tryckt. null om rapporten saknar en.',
+        anyOf: [
+          { type: 'null' },
+          {
+            type: 'object',
+            properties: {
+              total_m3fub: NULLBART('number', 'Postens totala volym i m3fub enligt utbyteskalkylen.'),
+              timmer_m3fub: NULLBART('number', 'Timmer (sågtimmer, alla trädslag) i m3fub som tryckt. null om bara procent anges.'),
+              timmer_pct: NULLBART('number', 'Timmer i procent som tryckt.'),
+              kubb_m3fub: NULLBART('number', 'Kubb/klentimmer i m3fub som tryckt.'),
+              kubb_pct: NULLBART('number', 'Kubb/klentimmer i procent som tryckt.'),
+              massaved_m3fub: NULLBART('number', 'Massaved i m3fub som tryckt.'),
+              massaved_pct: NULLBART('number', 'Massaved i procent som tryckt.'),
+            },
+            required: ['total_m3fub', 'timmer_m3fub', 'timmer_pct', 'kubb_m3fub', 'kubb_pct', 'massaved_m3fub', 'massaved_pct'],
+          },
+        ],
+      },
     },
-    required: ['post', 'tradslag', 'sammanfattning', 'osakerheter'],
+    required: ['post', 'tradslag', 'sammanfattning', 'osakerheter', 'utbyteskalkyl'],
   },
 } as const;
 
@@ -202,5 +256,6 @@ Så här gör du:
 - "post": postens namn, fastighet, markägare, stämplingsförrättare (förrättningsman), stämplingsdatum (ÅÅÅÅ-MM-DD) och rapportens totala volym i m3sk. null för det som inte finns.
 - Är en siffra svårläst (särskilt i inskannade sidor): skriv din bästa läsning och lägg en rad i "osakerheter" med sida, trädslag och diameter. Gissa aldrig tyst.
 - Dubbla spalter, vattenstämplar och handskrivna anteckningar: ta bara med det som är tryckt i tabellen.
+- "utbyteskalkyl": har rapporten en utbyteskalkyl / utbytesberäkning / beräknat utfall (hur mycket av posten som blir timmer, kubb/klentimmer och massaved), skriv postens TOTALA siffror som de står: m3fub och/eller procent per sortiment och total volym m3fub. Summera aldrig trädslag själv — står bara siffror per trädslag och ingen total, skriv null på totalen och lägg en rad i "osakerheter". Har rapporten ingen sådan kalkyl: null.
 
 Svara ENDAST med JSON enligt schemat — ingen text före eller efter.`;

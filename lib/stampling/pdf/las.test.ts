@@ -104,3 +104,27 @@ describe('riktiga läsningar (claude-opus-5-5, 2026-10-04)', () => {
     expect(rader(r.lasning)).toEqual(rader(parsaLasning(fixtur(`${namn}.json`)).lasning));
   });
 });
+
+import { parsaLasning as parsa2, utbyteVolymer } from './rapport'
+
+describe('utbyteskalkylen', () => {
+  const bas = { post: {}, tradslag: [{ namn: 'Tall', klasser: [{ diameter_cm: 30, antal: 1, volym_m3sk: 1 }] }], sammanfattning: [], osakerheter: [] }
+  it('äldre läsning utan nyckeln: fältet saknas (inte null)', () => {
+    expect('utbyteskalkyl' in parsa2(bas).lasning).toBe(false)
+  })
+  it('null = rapporten har ingen', () => {
+    expect(parsa2({ ...bas, utbyteskalkyl: null }).lasning.utbyteskalkyl).toBeNull()
+  })
+  it('procent räknas om till kubik ur totalen, tryckt kubik går före', () => {
+    const u = parsa2({ ...bas, utbyteskalkyl: { total_m3fub: 2677.1, timmer_pct: 86, massaved_pct: 14, timmer_m3fub: null, kubb_m3fub: null, kubb_pct: null, massaved_m3fub: 370 } }).lasning.utbyteskalkyl
+    const v = utbyteVolymer(u)!
+    expect(v.timmer).toBeCloseTo(2302.3, 1)
+    expect(v.massa).toBe(370)
+    expect(v.kubb).toBeNull()
+  })
+  it('schemat: varje objekt är stängt, också i anyOf', () => {
+    const u = (UTDATA_SCHEMA as any).properties.utbyteskalkyl.anyOf[1]
+    expect(u.additionalProperties).toBe(false)
+    expect((UTDATA_SCHEMA as any).required).toContain('utbyteskalkyl')
+  })
+})

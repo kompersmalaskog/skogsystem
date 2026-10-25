@@ -45,3 +45,21 @@ export function manadNamn(arbetsManad: string, nuAr: number = new Date().getFull
 export function manadRubrik(arbetsManad: string, nuAr?: number): string {
   return `${manadNamn(arbetsManad, nuAr)} · ${utbetalningText(arbetsManad)}`;
 }
+
+/**
+ * Den pågående arbetsmånaden (idag "2026-10-25" → "2026-10") går att ÖPPNA i Löneunderlag och Förare · Månad,
+ * men aldrig skicka: månaden är inte slut och förarna har inte godkänt den. `idag` är en svensk dag (YYYY-MM-DD).
+ */
+export function arPagaendeArbetsManad(arbetsManad: string, idag: string): boolean {
+  return arbetsManad >= idag.slice(0, 7);
+}
+
+/** Senaste löneperiod som går att öppna: den pågående arbetsmånadens ("2026-10-25" → "2026-11"). */
+export function senasteLoneperiod(idag: string): string {
+  return loneperiodForArbetsManad(idag.slice(0, 7));
+}
+
+/** Dagens datum i Sverige (YYYY-MM-DD), samma på servern (UTC) som i webbläsaren. */
+export function svenskIdag(nu: Date = new Date()): string {
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit" }).format(nu);
+}

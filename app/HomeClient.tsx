@@ -41,7 +41,7 @@ const adminApps = [
   { href: '/forbattringsforslag', label: 'Feedback', icon: 'feedback' },
   { href: '/helikopter', label: 'Helikopter', icon: 'flight' },
   { href: '/helikopter-v2', label: 'Helikopter v2', icon: 'helicopter' },
-  { href: '/affarsuppfoljning', label: 'Affärsuppföljning', icon: 'business_center' },
+  { href: '/affarsuppfoljning/rakna', label: 'Affärsuppföljning', icon: 'business_center' },
   { href: '/kontroller', label: 'Kontroller', icon: 'fact_check' },
   { href: '/lastbil', label: 'Lastbilen', icon: 'pin_drop' },
   { href: '/avtal', label: 'Avtal', icon: 'receipt_long' },

@@ -22,12 +22,11 @@ export type DatumPunkt = { datum: string; avvik: number };
 const dag = (s: string): string => String(s).slice(0, 10);
 const minusDagar = (datum: string, n: number): string => new Date(new Date(`${datum}T00:00:00Z`).getTime() - n * 86400000).toISOString().slice(0, 10);
 
-/** Markörerna utan dubbletter (samma datum, källa och text), äldst först. Bara åtgärder och reparationer har en före/efter att räkna. */
-export const unikaMarkorer = (markorer: Markor[]): (Markor & { kalla: 'atgard' | 'reparation' })[] => {
+/** Markörerna utan dubbletter (samma datum, källa och text), äldst först. */
+export const unikaMarkorer = (markorer: Markor[]): (Markor & { kalla: 'atgard' | 'reparation' | 'kalibrering' })[] => {
   const sedda = new Set<string>();
-  const ut: (Markor & { kalla: 'atgard' | 'reparation' })[] = [];
+  const ut: (Markor & { kalla: 'atgard' | 'reparation' | 'kalibrering' })[] = [];
   for (const m of markorer) {
-    if (m.kalla !== 'atgard' && m.kalla !== 'reparation') continue;
     const id = `${dag(m.datum)}|${m.kalla}|${m.text}`;
     if (sedda.has(id)) continue;
     sedda.add(id);
@@ -51,7 +50,9 @@ export const atgardPoster = (args: {
   const markorer = unikaMarkorer(args.markorer);
   const kalibreringar = Array.from(new Set(args.kalibreringar.map(dag))).sort();
   return markorer.map((m, i) => {
-    const nasta = markorer.slice(i + 1).find(x => x.datum > m.datum)?.datum ?? null;
+    // `efter` slutar vid nästa markör. En kalibrering ur historiken (automatisk, ofta flera i veckan) bryter dock aldrig "efter" för förarens åtgärd eller en
+    // reparation — annars skulle tryckändringen i juli få sin efter-period avskuren vid första kalibreringen. En kalibrering slutar vid nästa markör av vilket slag som helst.
+    const nasta = markorer.slice(i + 1).find(x => x.datum > m.datum && (m.kalla === 'kalibrering' || x.kalla !== 'kalibrering'))?.datum ?? null;
     const foreFran = minusDagar(m.datum, ATGARD_FONSTER_DAGAR);
     const foreAv = punkter.filter(p => dag(p.datum) >= foreFran && dag(p.datum) < m.datum).map(p => p.avvik);
     const efterAv = punkter.filter(p => dag(p.datum) >= m.datum && (nasta == null || dag(p.datum) < nasta)).map(p => p.avvik);

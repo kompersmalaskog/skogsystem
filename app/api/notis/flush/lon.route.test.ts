@@ -74,6 +74,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 process.env.CRON_SECRET = "hemlig";
+process.env.VAPID_PRIVATE_KEY = "fake-test-nyckel";
 process.env.NEXT_PUBLIC_SUPABASE_URL = "http://fake";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "fake";
 

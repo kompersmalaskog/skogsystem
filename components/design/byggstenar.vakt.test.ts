@@ -15,7 +15,9 @@ const NAMN = /\bfunction\s+(Sektion|Grupp|Ikon)\b/g
 const UNDANTAG: Record<string, string> = {
   'components/admin/ui.tsx:Sektion': 'bara en etikett (ingen kortbehållare), orange variant',
   'components/historik/delar.tsx:Sektion': 'etikett med maskinprick, innehållet ligger fritt under',
-  'app/ekonomi/fakturaunderlag/FakturaunderlagClient.tsx:Grupp': 'titel (TYP.meta) + rader + tomtext, egen palett — kan tas i en egen PR',
+  // Faktureringsvyns egna `function Grupp` är borta 2026-10-24: vyn använder
+  // components/design/Sektion. Listan får bara bli kortare — den här raden
+  // kommer inte tillbaka.
 }
 
 function filer(dir: string, ut: string[] = []): string[] {

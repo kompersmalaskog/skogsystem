@@ -150,6 +150,20 @@ describe("GET /api/lon/arbetstid", () => {
     expect(j.varningar.join(" ")).toContain("1 flyttdag kunde inte kopplas till en förare");
   });
 
+  it("bara företagsledare kör lastbilen: en flyttdag utan förare är deras och ger ingen varning (2026-10-25)", async () => {
+    g.__db.medarbetare = [{ id: "s", namn: "Stefan Karlsson" }, { id: "m", namn: "Martin Lindqvist", foretagsledare: true }];
+    g.__db.flyttdag = [
+      { medarbetare_id: "m", forare: "Martin Lindqvist", starttid: "2026-09-25T04:00:00Z", sluttid: null, total_tid_min: 300 },
+      { medarbetare_id: null, forare: null, starttid: "2026-09-26T04:00:00Z", sluttid: null, total_tid_min: 200 },
+    ];
+    const j = await (await anropa()).json();
+    expect(j.varningar.join(" ")).not.toContain("kunde inte kopplas");
+    // Kör en anställd förare lastbilen gäller varningen igen.
+    g.__db.flyttdag.push({ medarbetare_id: "s", forare: "Stefan Karlsson", starttid: "2026-09-27T04:00:00Z", sluttid: null, total_tid_min: 100 });
+    const j2 = await (await anropa()).json();
+    expect(j2.varningar.join(" ")).toContain("1 flyttdag kunde inte kopplas");
+  });
+
   it("tvetydigt namn (två medarbetare med samma namn) kopplas inte — det räknas som okopplat", async () => {
     g.__db.medarbetare = [{ id: "a", namn: "Anna Berg" }, { id: "b", namn: "Anna Berg" }];
     g.__db.arbetsdag = [dag("a", "2026-10-05"), dag("b", "2026-10-05")];
