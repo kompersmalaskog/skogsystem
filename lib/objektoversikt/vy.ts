@@ -262,6 +262,22 @@ export function maskinMin(s: Sammanstallning): number {
 function roller(s: Sammanstallning): Roll[] {
   return (['skordare', 'skotare'] as const).filter(r => !(r === 'skordare' && s.objekt.typ === 'grot' && s.rollMin.skordare === 0));
 }
+/**
+ * Appens frysta prognos (objekt.app_prognos, se Helikopter) i ord: "appen 48 h – appen låg närmast" /
+ * "– planeraren låg närmast" / "– lika nära som planerarens". Bara när appen har en fryst prognos (objekt äldre än
+ * 2026-10-24 har ingen — inget påhittat); på en pågående roll eller utan planerarens prognos står bara talet.
+ * Närmast = minsta avstånd i timmar till utfallet; under en halvtimmes skillnad är det lika.
+ */
+export function appPrognosRad(faktiskMin: number, planTim: number | undefined, appTim: number | undefined, klar: boolean): string | null {
+  if (appTim == null) return null;
+  const a = `appen ${tidText(appTim * 60)}`;
+  if (!klar || planTim == null) return a;
+  const f = faktiskMin / 60;
+  const dApp = Math.abs(f - appTim);
+  const dPlan = Math.abs(f - planTim);
+  if (Math.abs(dApp - dPlan) < 0.5) return `${a} – lika nära som planerarens`;
+  return `${a} – ${dApp < dPlan ? 'appen' : 'planeraren'} låg närmast`;
+}
 
 /**
  * Prognosen i ord. Bara när varje roll som räknas har en prognos (annars vore summan för liten). Jämförs med maskinernas
@@ -339,9 +355,10 @@ export function vemVy(s: Sammanstallning): ObjektVy['vem'] {
     if (min <= 0) continue;
     const p = s.prognos[roll];
     const over = p != null && min / 60 > p * (1 + OVER_PROGNOS_ANDEL);
+    const app = appPrognosRad(min, p, s.appPrognos[roll], rollKlar(s, roll));
     rader.push({
       nyckel: roll, titel: ROLL_NAMN[roll],
-      under: p != null ? `prognos ${tidText(p * 60)}` : 'ingen prognos',
+      under: [p != null ? `prognos ${tidText(p * 60)}` : 'ingen prognos', app].filter(Boolean).join(' · '),
       varning: over, hoger: timmar(min), farg: TID_FARG[roll], detaljer: maskinDetaljer(s, roll),
     });
   }

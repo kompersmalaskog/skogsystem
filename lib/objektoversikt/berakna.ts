@@ -36,6 +36,8 @@ export interface ObjektRad {
   volym: number | null;
   areal: number | null;
   manuell_prognos: unknown;
+  /** Appens prognos, fryst innan maskinen började (lib/prognos/appPrognos). Saknas på objekt äldre än 2026-10-24. */
+  app_prognos?: unknown;
   avslutad_timestamp: string | null;
   pagaende_startad_timestamp?: string | null;
   barighet?: string | null;
@@ -203,6 +205,8 @@ export interface Sammanstallning {
   perDag: Map<string, DagDelar>;
   bransle: number;
   prognos: Partial<Record<Roll, number>>;
+  /** Appens frysta prognos per roll (G15-tim); tom när ingen frysts. */
+  appPrognos: Partial<Record<Roll, number>>;
   uppgifter: Uppgift[];
 }
 
@@ -366,6 +370,7 @@ export function sammanstall(o: ObjektRad, u: Underlag): Sammanstallning {
     perDag,
     bransle: maskiner.reduce((s, m) => s + m.bransle, 0),
     prognos: lasPrognos(o.manuell_prognos),
+    appPrognos: lasPrognos(o.app_prognos),
     uppgifter,
   };
 }
