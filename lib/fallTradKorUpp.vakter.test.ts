@@ -10,6 +10,7 @@ import { SYMBOL_LAGER, SYMBOL_UNDANTAG } from './symbolZoom';
 import { KLICK_LAGER } from './klickPrioritet';
 import { korUppLager } from './korUpp';
 import { tradLager } from './fallTrad';
+import { tvaTryckLager } from './tvaTryck';
 
 const rot = process.cwd();
 const las = (p: string) => fs.readFileSync(path.join(rot, p), 'utf8');
@@ -18,7 +19,7 @@ const sida = las('app/planering/page.tsx');
 describe('lagring: ingen migration', () => {
   it('både trädet och kör upp-pilen är pil-markeringar: getMarkerTyp ger "pil" för allt med isArrow, och ingen annan typ skickas till databasen', () => {
     expect(sida).toMatch(/const getMarkerTyp = \(m: Marker\): string => \{[^}]*if \(m\.isArrow\) return 'pil';/);
-    for (const f of ['lib/fallTrad.ts', 'lib/korUpp.ts', 'lib/fallTradGester.ts', 'lib/hooks/useFallOchKorUpp.ts']) expect(las(f), f).not.toMatch(/typ:\s*'(trad|korupp|trädet)/);
+    for (const f of ['lib/fallTrad.ts', 'lib/korUpp.ts', 'lib/tvaTryck.ts', 'lib/hooks/useTvaTryck.ts']) expect(las(f), f).not.toMatch(/typ:\s*'(trad|korupp|trädet)/);
     expect(las('lib/fallTrad.ts')).toContain("export const TRAD_TYP = 'fellingtree'");
     expect(las('lib/korUpp.ts')).toContain("export const KORUPP_TYP = 'koruppbacka'");
   });
@@ -33,8 +34,8 @@ describe('vad som syns var', () => {
   it('den vita ringen sitter bara på trädet vars kort är öppet, och bara i planeringen', () => {
     expect(sida).toContain("valdId: lage === 'planering' && markerMenuOpen != null ? String(markerMenuOpen) : null");
   });
-  it('träden har ingen gest på kartan: ingen vridning genom drag, inget handtag', () => {
-    for (const f of ['lib/fallTradGester.ts', 'lib/hooks/useFallOchKorUpp.ts', 'lib/fallTrad.ts']) expect(las(f), f).not.toMatch(/onVrid|redigerbara|arPaHandtag|handtagPunkt|HANDTAG/);
+  it('träden har ingen gest på kartan: ingen vridning genom drag, inget handtag (stubbe och riktning sätts med två tryck)', () => {
+    for (const f of ['lib/tvaTryck.ts', 'lib/hooks/useTvaTryck.ts', 'lib/fallTrad.ts']) expect(las(f), f).not.toMatch(/onVrid|redigerbara|arPaHandtag|handtagPunkt|HANDTAG/);
     expect(sida).not.toMatch(/onVrid|redigerbara:/);
   });
   it('de gamla pilarnas lager får aldrig trädet eller kör upp-pilen (annars saknas bilden arrow-fellingtree)', () => {
@@ -64,13 +65,13 @@ describe('menyn och kartan känner de nya sorterna', () => {
     expect(sida).toContain("{ id: TRAD_TYP, name: 'Fällriktning', color: LEGEND.naturvard },");
     expect(sida).toContain("{ id: KORUPP_TYP, name: 'Kör upp och backa', color: FARG.text },");
   });
-  it('ett tryck gör inget i kör upp-läget (det dras), och trädet placeras med ett tryck', () => {
-    expect(sida).toContain('if (isArrowMode && arrowType === KORUPP_TYP) return;');
+  it('kör upp och träd sätts med TVÅ tryck (useTvaTryck): ritverktygets eget klick lägger ingen av dem', () => {
+    expect(sida).toContain('if (isArrowMode && (arrowType === KORUPP_TYP || arrowType === TRAD_TYP)) return;');
   });
   it('alla nya lager har prefixet line- (körvyns whitelist), och bilderna/lagren läggs i kartan vid start', () => {
-    for (const l of [...korUppLager(), ...tradLager()]) expect(l.id.startsWith('line-'), l.id).toBe(true);
+    for (const l of [...korUppLager(), ...tradLager(), ...tvaTryckLager()]) expect(l.id.startsWith('line-'), l.id).toBe(true);
     expect(sida).toContain("const KEEP_PREFIX = ['line-',");
-    expect(sida).toContain('for (const l of [...korUppLager(), ...tradLager()]) if (!map.getLayer(l.id)) map.addLayer(l);');
+    expect(sida).toContain('for (const l of [...korUppLager(), ...tradLager(), ...tvaTryckLager()]) if (!map.getLayer(l.id)) map.addLayer(l);');
   });
   it('symbollagren är klippta eller uttalade undantag; tryck på dem öppnar kortet (klickprioritet: punkt)', () => {
     for (const l of [...korUppLager(), ...tradLager()].filter((x) => x.type === 'symbol')) expect([...SYMBOL_LAGER, ...SYMBOL_UNDANTAG], l.id).toContain(l.id);

@@ -27,7 +27,7 @@ const MAPLIBRE = path.join(process.cwd(), 'node_modules/maplibre-gl/dist');
 function buntaLib(): string {
   const mapp = fs.mkdtempSync(path.join(os.tmpdir(), 'falltrad-'));
   const ingang = path.join(mapp, 'entry.ts');
-  fs.writeFileSync(ingang, ['fallTrad', 'korUpp', 'fallTradGester'].map((f) => `export * from ${JSON.stringify(path.join(process.cwd(), 'lib', f))};`).join('\n'));
+  fs.writeFileSync(ingang, ['fallTrad', 'korUpp', 'tvaTryck', 'ritlageSparr'].map((f) => `export * from ${JSON.stringify(path.join(process.cwd(), 'lib', f))};`).join('\n'));
   const ut = path.join(mapp, 'lib.js');
   const esbuild = createRequire(import.meta.url)('esbuild');
   esbuild.buildSync({ entryPoints: [ingang], bundle: true, format: 'iife', globalName: 'lib', outfile: ut, logLevel: 'error' });
@@ -67,13 +67,26 @@ async function oppna(param: Param, fn: (pg: any, b: any) => Promise<void>): Prom
       w.ritaOm = () => { map.getSource(L.TRAD_KALLA).setData(L.tradData(w.trad, { valdId: w.vald })); map.getSource(L.KORUPP_KALLA).setData(L.korUppData(w.pilar)); };
       w.ritaOm();
       w.handelser = [];
-      w.lage = { korUppRita: false };
-      w.stang = L.kopplaFallOchKorUppGester(map, () => ({
-        map, klar: true, korUppRita: w.lage.korUppRita,
-        vagarRef: { current: [{ id: 'v1', coords: [[14.9985, 57.0004], [15.0015, 57.0004]] }, { id: 'v2', coords: [[15.0, 57.0004], [15.0, 56.9992]] }] },
-        onForhandsvisning: (pil: any) => { w.handelser.push({ typ: 'forhands', pil }); },
-        onKorUpp: (pil: any) => { w.handelser.push({ typ: 'korupp', pil }); },
-      }));
+      // RITLÄGES-SPÄRREN: en "symbol" (en cirkel på kartan) och en vanlig kartlyssnare räknar tryck; spärren ska tysta dem medan ritläget är på
+      w.ritlage = false;
+      L.installeraRitlageSparr(map, () => w.ritlage);
+      w.sond = { symbol: 0, karta: 0, tillaten: 0 };
+      map.addSource('sond', { type: 'geojson', data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [14.9996, 56.9993] } }] } });
+      map.addLayer({ id: 'sond-cirkel', type: 'circle', source: 'sond', paint: { 'circle-radius': 16, 'circle-color': '#ff9f0a' } });
+      map.on('click', 'sond-cirkel', () => { w.sond.symbol++; });
+      map.on('click', () => { w.sond.karta++; });
+      w.handelser = [];
+      // TVÅ TRYCK: kopplar läget (som sidans useTvaTryck) och loggar vad som händer
+      w.koppla = (slag: string) => {
+        if (w.stang) w.stang();
+        w.handelser = [];
+        w.stang = L.kopplaTvaTryck(map, slag, () => ({
+          slag, vagarRef: { current: [{ id: 'v1', coords: [[14.9985, 57.0004], [15.0015, 57.0004]] }, { id: 'v2', coords: [[15.0, 57.0004], [15.0, 56.9992]] }] },
+          onStart: (st: any) => { w.handelser.push({ typ: 'start', st }); },
+          onForhandsvisning: (f: any) => { w.handelser.push({ typ: 'forhands', f }); },
+          onKlart: (k: any) => { w.handelser.push({ typ: 'klart', k }); },
+        }));
+      };
       await new Promise((r) => { map.once('idle', r); map.triggerRepaint(); });
     }, param);
     await fn(pg, ctx);
@@ -209,7 +222,172 @@ describe.skipIf(!CHROMIUM)('Fällträd — riktig Chromium + MapLibre', () => {
   }, 120000);
 });
 
-describe.skipIf(!CHROMIUM)('Kör upp och backa — riktig Chromium + MapLibre', () => {
+describe.skipIf(!CHROMIUM)('Ritläget stänger av all annan tryckning — riktig Chromium + MapLibre', () => {
+  const tryckMus = async (pg: any, x: number, y: number) => { await pg.mouse.move(x, y); await pg.mouse.down(); await pg.mouse.up(); };
+  const tryckFinger = async (cdp: any, x: number, y: number) => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await new Promise((r) => setTimeout(r, 650));   // två snabba tryck i följd är ett dubbeltryck (zoom) för MapLibre — här vill vi ha två skilda tryck
+  };
+  const sond = (pg: any) => pg.evaluate(() => ({ ...(window as any).sond }));
+
+  for (const [namn, finger] of [['mus', false], ['finger', true]] as const) {
+    it(`${namn}: utan ritläge öppnar trycket symbolen och kartan som vanligt; MED ritläge gör ingen annan lyssnare något (symbol, kartan) — bara de märkta som ritläge körs`, async () => {
+      await oppna({ zoom: 17, pitch: 0, bearing: 0, touch: finger }, async (pg, ctx) => {
+        const cdp = finger ? await ctx.newCDPSession(pg) : null;
+        const tryck = (x: number, y: number) => (finger ? tryckFinger(cdp, x, y) : tryckMus(pg, x, y));
+        await pg.evaluate(() => { const w = window as any; w.map.on('click', w.L.tillatIRitlage(() => { w.sond.tillaten++; })); });
+        const p = await skarm(pg, 14.9996, 56.9993);
+        await tryck(p.x, p.y);
+        expect(await sond(pg)).toMatchObject({ symbol: 1, karta: 1, tillaten: 1 });
+        await pg.evaluate(() => { (window as any).ritlage = true; });
+        await tryck(p.x, p.y); await tryck(p.x + 120, p.y - 80);
+        expect(await sond(pg), 'i ritläge: symbolen och kartlyssnaren är tysta, ritlägets egen lyssnare körs').toMatchObject({ symbol: 1, karta: 1, tillaten: 3 });
+        await pg.evaluate(() => { (window as any).ritlage = false; });
+        await tryck(p.x, p.y);
+        expect(await sond(pg), 'ritläget slut: allt fungerar igen').toMatchObject({ symbol: 2, karta: 2, tillaten: 4 });
+      });
+    }, 120000);
+  }
+
+  it('map.off tar bort den inslagna lyssnaren (ingen läcka): en lyssnare som avregistrerats körs aldrig mer', async () => {
+    await oppna({ zoom: 17, pitch: 0, bearing: 0 }, async (pg) => {
+      await pg.evaluate(() => { const w = window as any; w.extra = 0; w.fn = () => { w.extra++; }; w.map.on('click', w.fn); w.map.on('click', 'sond-cirkel', w.fn); w.map.off('click', w.fn); w.map.off('click', 'sond-cirkel', w.fn); });
+      const p = await skarm(pg, 14.9996, 56.9993);
+      await tryckMus(pg, p.x, p.y);
+      expect(await pg.evaluate(() => (window as any).extra)).toBe(0);
+    });
+  }, 120000);
+
+  for (const [namn, finger] of [['mus', false], ['finger', true]] as const) {
+    it(`KÖR UPP, ${namn}: första trycket = start (snäpper till närmaste väg), förhandsvisning mellan trycken, andra trycket = slut — och inget annat reagerar på trycken`, async () => {
+      await oppna({ zoom: 17, pitch: 0, bearing: 0, touch: finger }, async (pg, ctx) => {
+        const cdp = finger ? await ctx.newCDPSession(pg) : null;
+        await pg.evaluate(() => { const w = window as any; w.koppla('korupp'); w.ritlage = true; });
+        const v = await skarm(pg, 14.9996, 57.0004);   // väg 1
+        // start 12 px under vägen
+        if (finger) await tryckFinger(cdp, v.x, v.y + 12); else await tryckMus(pg, v.x, v.y + 12);
+        let ev = await pg.evaluate(() => (window as any).handelser);
+        expect(ev.filter((e: any) => e.typ === 'start' && e.st).length).toBe(1);
+        const start = ev.find((e: any) => e.typ === 'start' && e.st).st;
+        expect(start.vagId).toBe('v1');
+        expect(Math.abs(start.start.lat - 57.0004), 'starten ligger PÅ vägen, inte där fingret sattes').toBeLessThan(0.000003);
+        // förhandsvisningen mellan trycken: mus = pekaren rör sig, finger = fingret är nere
+        await pg.evaluate(() => { (window as any).handelser.length = 0; });
+        if (finger) {
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: v.x, y: v.y - 100, id: 1 }] });
+        } else await pg.mouse.move(v.x, v.y - 100, { steps: 4 });
+        ev = await pg.evaluate(() => (window as any).handelser);
+        const forh = ev.filter((e: any) => e.typ === 'forhands' && e.f);
+        expect(forh.length, JSON.stringify(ev)).toBeGreaterThan(0);
+        expect(forh[forh.length - 1].f.start.lat).toBeCloseTo(start.start.lat, 6);
+        expect(forh[forh.length - 1].f.slut.lat).toBeGreaterThan(start.start.lat);
+        await skriv(pg, `tvatryck_korupp_${namn}`);
+        if (finger) await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        else { await pg.mouse.down(); await pg.mouse.up(); }
+        ev = await pg.evaluate(() => (window as any).handelser);
+        const klart = ev.filter((e: any) => e.typ === 'klart');
+        expect(klart.length, JSON.stringify(ev)).toBe(1);
+        expect(klart[0].k).toMatchObject({ slag: 'korupp', vagId: 'v1' });
+        const lang = await pg.evaluate((k: any) => (window as any).L.korUppLangdM(k), klart[0].k);
+        expect(lang).toBeGreaterThan(20);
+        // och ingen annan lyssnare fick något av de två trycken
+        expect(await sond(pg)).toMatchObject({ symbol: 0, karta: 0 });
+      });
+    }, 120000);
+
+    it(`FÄLLTRÄD, ${namn}: första trycket = stubben, andra = åt vilket håll det faller (vinkeln följer kartans riktning, även med vriden karta)`, async () => {
+      await oppna({ zoom: 16.5, pitch: 0, bearing: 30, touch: finger }, async (pg, ctx) => {
+        const cdp = finger ? await ctx.newCDPSession(pg) : null;
+        const tryck = (x: number, y: number) => (finger ? tryckFinger(cdp, x, y) : tryckMus(pg, x, y));
+        await pg.evaluate(() => { const w = window as any; w.koppla('trad'); w.ritlage = true; });
+        const s = { x: 380, y: 300 };
+        await tryck(s.x, s.y);
+        let ev = await pg.evaluate(() => (window as any).handelser);
+        expect(ev.filter((e: any) => e.typ === 'start' && e.st).length).toBe(1);
+        const slut = { x: s.x + 90, y: s.y };    // rakt åt höger på skärmen
+        await tryck(slut.x, slut.y);
+        ev = await pg.evaluate(() => (window as any).handelser);
+        const klart = ev.filter((e: any) => e.typ === 'klart');
+        expect(klart.length, JSON.stringify(ev)).toBe(1);
+        const forvantat = await pg.evaluate(([x0, y0, x1, y1]: number[]) => { const w = window as any; const a = w.map.unproject([x0, y0]), b = w.map.unproject([x1, y1]); return w.L.vinkelFranPunkt({ lat: a.lat, lon: a.lng }, { lat: b.lat, lon: b.lng }); }, [s.x, s.y, slut.x, slut.y]);
+        expect(Math.abs(((klart[0].k.vinkel - forvantat + 540) % 360) - 180)).toBeLessThan(3);
+        expect(klart[0].k.vinkel, 'rakt åt höger på en karta vriden 30° är inte öster').not.toBe(90);
+        expect(await sond(pg)).toMatchObject({ symbol: 0, karta: 0 });
+      });
+    }, 120000);
+  }
+
+  it('FINGER: två snabba tryck tätt efter varandra (som när man sätter en kort pil) blir start och slut — inte ett dubbeltryck som zoomar bort det andra', async () => {
+    await oppna({ zoom: 17, pitch: 0, bearing: 0, touch: true }, async (pg, ctx) => {
+      const cdp = await ctx.newCDPSession(pg);
+      await pg.evaluate(() => { const w = window as any; w.koppla('korupp'); w.ritlage = true; });
+      const zoomFore = await pg.evaluate(() => (window as any).map.getZoom());
+      const tryck = async (x: number, y: number) => {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      };
+      await tryck(600, 300); await tryck(640, 300);    // 40 px (ca 13 m) isär, utan paus
+      await new Promise((r) => setTimeout(r, 700));
+      expect(await pg.evaluate(() => (window as any).handelser.filter((e: any) => e.typ === 'klart').length)).toBe(1);
+      expect(await pg.evaluate(() => (window as any).map.getZoom())).toBeCloseTo(zoomFore, 3);
+      // läget avslutat: dubbeltrycks-zoomen är på igen
+      await pg.evaluate(() => { const w = window as any; w.stang(); w.stang = null; });
+      expect(await pg.evaluate(() => (window as any).map.doubleClickZoom.isEnabled())).toBe(true);
+    });
+  }, 120000);
+
+  it('ett tryck på en symbol i ritläget öppnar den inte — det blir bara första trycket (start)', async () => {
+    await oppna({ zoom: 17, pitch: 0, bearing: 0 }, async (pg) => {
+      await pg.evaluate(() => { const w = window as any; w.koppla('trad'); w.ritlage = true; });
+      const p = await skarm(pg, 14.9996, 56.9993);
+      await tryckMus(pg, p.x, p.y);
+      expect(await sond(pg)).toMatchObject({ symbol: 0, karta: 0 });
+      const ev = await pg.evaluate(() => (window as any).handelser);
+      expect(ev.filter((e: any) => e.typ === 'start' && e.st).length).toBe(1);
+    });
+  }, 120000);
+
+  it('andra trycket för nära starten börjar om (ny start) — ingen pil, inget träd', async () => {
+    await oppna({ zoom: 17, pitch: 0, bearing: 0 }, async (pg) => {
+      await pg.evaluate(() => { const w = window as any; w.koppla('trad'); w.ritlage = true; });
+      await tryckMus(pg, 300, 300);
+      await tryckMus(pg, 303, 301);   // ~1 m bort på zoom 17
+      const ev = await pg.evaluate(() => (window as any).handelser);
+      expect(ev.filter((e: any) => e.typ === 'klart')).toHaveLength(0);
+      expect(ev.filter((e: any) => e.typ === 'start' && e.st)).toHaveLength(2);
+    });
+  }, 120000);
+
+  it('kartan går att flytta mellan trycken (ett drag är en panorering): starten ligger kvar och nästa tryck blir slutet', async () => {
+    await oppna({ zoom: 17, pitch: 0, bearing: 0 }, async (pg) => {
+      await pg.evaluate(() => { const w = window as any; w.koppla('trad'); w.ritlage = true; });
+      await tryckMus(pg, 300, 300);
+      const fore = await pg.evaluate(() => (window as any).map.getCenter());
+      await pg.mouse.move(500, 400); await pg.mouse.down(); await pg.mouse.move(560, 440, { steps: 5 }); await pg.mouse.up();
+      const efter = await pg.evaluate(() => (window as any).map.getCenter());
+      expect(Math.abs(efter.lng - fore.lng) + Math.abs(efter.lat - fore.lat)).toBeGreaterThan(1e-5);
+      expect(await pg.evaluate(() => (window as any).handelser.filter((e: any) => e.typ === 'klart').length)).toBe(0);
+      await tryckMus(pg, 450, 250);
+      expect(await pg.evaluate(() => (window as any).handelser.filter((e: any) => e.typ === 'klart').length)).toBe(1);
+    });
+  }, 120000);
+
+  it('avkopplas läget (Avbryt/Klar) görs starten ogjord och inga fler tryck lyssnas på', async () => {
+    await oppna({ zoom: 17, pitch: 0, bearing: 0 }, async (pg) => {
+      await pg.evaluate(() => { const w = window as any; w.koppla('korupp'); w.ritlage = true; });
+      await tryckMus(pg, 300, 300);
+      await pg.evaluate(() => { const w = window as any; w.stang(); w.stang = null; });
+      const ev = await pg.evaluate(() => (window as any).handelser);
+      expect(ev[ev.length - 1]).toMatchObject({ typ: 'start', st: null });
+      await pg.evaluate(() => { (window as any).handelser.length = 0; });
+      await tryckMus(pg, 400, 300); await tryckMus(pg, 500, 300);
+      expect(await pg.evaluate(() => (window as any).handelser)).toEqual([]);
+    });
+  }, 120000);
+});
+
+describe.skipIf(!CHROMIUM)('Kör upp-pilens storlek — riktig Chromium + MapLibre', () => {
   it('pilen ritas med spets i båda ändar och ordet (Brant) bara när skälet inte är Inget', async () => {
     await oppna({ zoom: 16.3, pitch: 0, bearing: 0 }, async (pg) => {
       await skriv(pg, 'korupp_ritad');
@@ -245,44 +423,4 @@ describe.skipIf(!CHROMIUM)('Kör upp och backa — riktig Chromium + MapLibre', 
     expect(Math.max(...tjock) - Math.min(...tjock)).toBeLessThanOrEqual(1);
   }, 240000);
 
-  it('ett drag från vägen mot gränsen blir en pil som BÖRJAR PÅ närmaste väg; kartan panorerar inte; ett kort drag blir ingen pil', async () => {
-    await oppna({ zoom: 17, pitch: 0, bearing: 0 }, async (pg) => {
-      await pg.evaluate(() => { (window as any).lage.korUppRita = true; });
-      // start 12 px från väg 1 (ligger vid lat 57.0004), drag rakt norrut
-      const v = await skarm(pg, 14.9996, 57.0004);
-      const centerFore = await pg.evaluate(() => (window as any).map.getCenter());
-      await pg.mouse.move(v.x, v.y + 12); await pg.mouse.down();
-      await pg.mouse.move(v.x, v.y - 60, { steps: 6 });
-      await skriv(pg, 'korupp_dras');
-      await pg.mouse.move(v.x, v.y - 140, { steps: 6 });
-      await pg.mouse.up();
-      const ev = await pg.evaluate(() => (window as any).handelser);
-      expect(ev.filter((e: any) => e.typ === 'forhands' && e.pil).length).toBeGreaterThan(3);
-      expect(ev[ev.length - 1]).toMatchObject({ typ: 'korupp' });
-      const pil = ev[ev.length - 1].pil;
-      expect(pil.vagId).toBe('v1');
-      // starten ligger PÅ vägen (lat 57.0004), inte där fingret sattes
-      expect(Math.abs(pil.start.lat - 57.0004)).toBeLessThan(0.000003);
-      const lang = await pg.evaluate((p: any) => (window as any).L.korUppLangdM(p), pil);
-      expect(lang).toBeGreaterThan(20);
-      const centerEfter = await pg.evaluate(() => (window as any).map.getCenter());
-      expect(centerEfter.lng).toBeCloseTo(centerFore.lng, 6); expect(centerEfter.lat).toBeCloseTo(centerFore.lat, 6);
-      // ett drag på 3 px är ett tryck, inte en pil
-      await pg.evaluate(() => { (window as any).handelser.length = 0; });
-      await pg.mouse.move(v.x + 100, v.y + 100); await pg.mouse.down(); await pg.mouse.move(v.x + 103, v.y + 100); await pg.mouse.up();
-      const efter = await pg.evaluate(() => (window as any).handelser);
-      expect(efter.filter((e: any) => e.typ === 'korupp'), JSON.stringify(efter)).toHaveLength(0);
-    });
-  }, 120000);
-
-  it('en pil som börjar långt från alla vägar får ingen väg (vagId null) — starten ligger där fingret sattes', async () => {
-    await oppna({ zoom: 17, pitch: 0, bearing: 0 }, async (pg) => {
-      await pg.evaluate(() => { (window as any).lage.korUppRita = true; });
-      await pg.mouse.move(150, 560); await pg.mouse.down(); await pg.mouse.move(250, 470, { steps: 5 }); await pg.mouse.up();
-      const ev = await pg.evaluate(() => (window as any).handelser);
-      const pil = ev[ev.length - 1].pil;
-      expect(ev[ev.length - 1].typ).toBe('korupp');
-      expect(pil.vagId).toBeNull();
-    });
-  }, 120000);
 });

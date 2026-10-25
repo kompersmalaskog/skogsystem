@@ -6,7 +6,8 @@ import { kor } from "./mutationsmotor.mjs";
 
 const TRAD = "lib/fallTrad.ts";
 const UPP = "lib/korUpp.ts";
-const GEST = "lib/fallTradGester.ts";
+const TVA = "lib/tvaTryck.ts";
+const SPARR = "lib/ritlageSparr.ts";
 const SIDA = "app/planering/page.tsx";
 const INSTR = "lib/instruktioner/instruktioner.ts";
 
@@ -15,6 +16,8 @@ const TESTER = [
   "lib/korUpp.test.ts",
   "lib/fallTradKorUpp.vakter.test.ts",
   "lib/fallTradKorUpp.hytt.test.ts",
+  "lib/ritlageSparr.test.ts",
+  "lib/ritlageSparr.vakter.test.ts",
 ];
 
 const M = [
@@ -45,22 +48,39 @@ const M = [
   ["kör upp-linjen följer zoomen igen", "'line-width': KORUPP_LINJE_PX }", "'line-width': ['interpolate', ['linear'], ['zoom'], 13, 1, 19, 12] }", UPP],
   ["båda spetsarna pekar åt samma håll", "riktning: (riktning + 180) % 360", "riktning", UPP],
   ["texten på kortet nämner inte skälet", "return ord ? `${ord} – kör upp mot gränsen och backa tillbaka` :", "return ord ? 'Kör upp mot gränsen och backa tillbaka' :", UPP],
-  // ── gesterna ──
-  ["ett tryck nära en väg räknas som pil (längden mäts från vägen)", "korUppLangdM({ start: r.fingret, slut: r.slut })", "korUppLangdM({ start: r.start, slut: r.slut })", GEST],
-  ["kartan panorerar medan pilen dras", "fingret: llFran(p), vagId: snapp ? snapp.id : null, slut: llFran(p) };\n      map.dragPan.disable();", "fingret: llFran(p), vagId: snapp ? snapp.id : null, slut: llFran(p) };", GEST],
+  // ── två tryck (lib/tvaTryck) ──
+  ["andra trycket nära starten räknas som slut (träd)", "export const TRAD_MIN_M = 2;", "export const TRAD_MIN_M = 0;", TVA],
+  ["starten snäpper aldrig till en väg", "if (snapp) { pos = snapp.punkt; vagId = snapp.id; }", "", TVA],
+  ["ingen förhandsvisning mellan trycken", "if (start && e?.lngLat) hamta().onForhandsvisning({ slag, start: start.start, slut: llFran(e) });", "", TVA],
+  ["fingret ger ingen förhandsvisning", "  map.on('touchstart', visa);\n", "", TVA],
+  ["två snabba fingertryck zoomar i stället (dubbeltrycks-zoomen kvar)", "  map.doubleClickZoom?.disable();\n", "", TVA],
+  ["trädets riktning räknas från slutet mot stubben", "vinkel: vinkelFranPunkt(s.start, slut)", "vinkel: vinkelFranPunkt(slut, s.start)", TVA],
+  ["pilen glömmer vilken väg den börjar på", "slut, vagId: s.vagId", "slut, vagId: null", TVA],
+  ["starten ligger kvar efter andra trycket", "    const s = start;\n    start = null;", "    const s = start;", TVA],
+  ["tvåtrycks-lyssnaren är inte märkt (spärren tystar den)", "const onKlick = tillatIRitlage((e: any) => {", "const onKlick = ((e: any) => {", TVA],
+  // ── ritläges-spärren ──
+  ["spärren är alltid av", "if (arAktivt()) return undefined;", "", SPARR],
+  ["märkta lyssnare slås in och tystas också", "if (typeof fn !== 'function' || arTillatenIRitlage(fn)) return fn;", "if (typeof fn !== 'function') return fn;", SPARR],
+  ["lagerlyssnare slås inte in", "return typeof a === 'function' ? [slaIn(a), b] : [a, slaIn(b)];", "return typeof a === 'function' ? [slaIn(a), b] : [a, b];", SPARR],
+  ["dubbelklick spärras inte", "new Set(['click', 'dblclick'])", "new Set(['click'])", SPARR],
+  ["off hittar inte den inslagna lyssnaren", "  map.off = function (this: unknown, typ: any, a?: any, b?: any) {\n    const [x, y] = ompaketera(typ, a, b);", "  map.off = function (this: unknown, typ: any, a?: any, b?: any) {\n    const [x, y] = [a, b];", SPARR],
+  ["spärren läggs aldrig på kartan", "installeraRitlageSparr(map, () => ritlageSparrRef.current);", "", SIDA],
+  ["pilläget räknas inte som ritläge", "ritlageSparrRef.current = isDrawMode || isZoneMode || isArrowMode ||", "ritlageSparrRef.current = isDrawMode || isZoneMode ||", SIDA],
+  ["plusdockan räknas som ritläge (kan inte stängas med ett tryck)", "    || larmPlacering || risaMarkMode || !!selectedSymbol || !!figur;\n  const kartLageIgang", "    || larmPlacering || risaMarkMode || !!selectedSymbol || !!figur || plusRadOppen;\n  const kartLageIgang", SIDA],
+  ["mätningens klick är inte märkt (tystas i mätläget)", "const onClick = tillatIRitlage((e: any) => {\n      const ll = e?.lngLat;\n      if (!ll) return;\n      const geo", "const onClick = ((e: any) => {\n      const ll = e?.lngLat;\n      if (!ll) return;\n      const geo", SIDA],
+  ["symbol-/larmplaceringens klick är inte märkt", "const onClick = tillatIRitlage((e: any) => {\n      if (larmPlacering) {", "const onClick = ((e: any) => {\n      if (larmPlacering) {", SIDA],
   // ── sidan ──
   ["de gamla pilarnas lager får trädet", "m.isArrow && !arFallTrad(m) && !arKorUpp(m)) : [];", "m.isArrow) : [];", SIDA],
   ["skotaren får samma läge som skördaren", "const lage = !korvyActive ? 'planering' : skotarKorvy ? 'skotare' : 'skordare';", "const lage = !korvyActive ? 'planering' : 'skordare';", SIDA],
   ["ringen sitter kvar på trädet i körvyn", "valdId: lage === 'planering' && markerMenuOpen != null ? String(markerMenuOpen) : null", "valdId: markerMenuOpen != null ? String(markerMenuOpen) : null", SIDA],
   ["trädets kort saknar rattet", "{marker.isArrow && !arKorUpp(marker) && (", "{marker.isArrow && !arFallTrad(marker) && !arKorUpp(marker) && (", SIDA],
   ["Godkänn glömmer att ta bort de gamla pilarna", "bortMarkorer.forEach((m) => deleteMarkerFromDb(m.id));\n              setIsArrowMode(false); setArrowType(null);\n            } },", "setIsArrowMode(false); setArrowType(null);\n            } },", SIDA],
-  ["ett tryck i kör upp-läget lägger en pil", "if (isArrowMode && arrowType === KORUPP_TYP) return;   // kör upp och backa DRAS från vägen (useFallOchKorUpp) — ett tryck gör ingenting\n", "", SIDA],
   // ── instruktionskortet ──
   ["kör upp-pilen ger ingen instruktion", "if (arKorUpp(m)) {\n      const k = korUppUr(m);\n      if (!k) continue;", "if (false as boolean) {\n      const k = korUppUr(m)!;\n      if (!k) continue;", INSTR],
 ];
 
 kor({
-  filer: [TRAD, UPP, GEST, SIDA, INSTR],
+  filer: [TRAD, UPP, TVA, SPARR, SIDA, INSTR],
   tester: TESTER,
   standardFil: TRAD,
   mutationer: M,
