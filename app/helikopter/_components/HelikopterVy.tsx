@@ -4,7 +4,7 @@
 //
 // Uppifrån: månaden (‹ Oktober 2026 ›, arbetsdagar kvar) · svaret i EN mening i vanliga ord · fyra kort i ett rutnät:
 //   SKOTAT (ett tal per spår) · GÖR DETTA (högst tre rader, resten bakom "N saker till") · NÄR BLIR MASKINERNA KLARA? (namn + datum) ·
-//   MER (Skördat, Maskiner, Takt, Träffsäkerhet, Veckor, Per bolag, Tidigare månader, Månadsfacit) · DIN MASKIN (förare) · ONSDAGSNOTIS (admin).
+//   MER (Skördat, Maskiner, Takt, Träffsäkerhet, Veckor, Per bolag, Månadsplan (pågående/kommande), Tidigare månader, Månadsfacit (avslutad)) · DIN MASKIN (förare) · ONSDAGSNOTIS (admin).
 // Allt som står på sidan räknas i _lib/kort.ts (ren vymodell); den här filen hämtar och ritar.
 // Klar-datumen räknas i appen (klar.ts raknaAlla) på RPC:ns underlag + G15-förslaget för trakter utan prognos (medUppskattadPrognos) + prognosen som följer trakten (medFoljandePrognos),
 // så sidan och flyttförslaget räknar på samma tal.
@@ -37,6 +37,7 @@ import { egenSkotningVy, gorDetta, klarRader, sidSvar, sparKort, type GorRad, ty
 import { bastaFlytt, medFoljandePrognos, medUppskattadPrognos, raknaAlla, type FlyttForslag } from '../_lib/klar'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
+import { planHref } from '../_lib/manadsplan'
 import { useKlar } from '../_lib/useKlar'
 import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar } from './Tillstand'
@@ -348,6 +349,7 @@ export default function HelikopterVy() {
                         <RadLank text="Träffsäkerhet" smakprov="prognos mot utfall" onClick={() => setArk('traffsakerhet')} />
                         <RadLank text="Veckor" onClick={() => setArk('veckor')} />
                         <RadLank text="Per bolag" onClick={() => setArk('bolagval')} />
+                        {status !== 'avslutad' && <RadLank text="Månadsplan" smakprov="dela som A4" href={planHref(ar, manad)} />}
                         {status === 'avslutad' && <RadLank text="Månadsfacit" smakprov="dela som A4" href={facitHref(ar, manad)} />}
                         {/* Från 1100 px står månaderna i sidokolumnen; under det nås de här. */}
                         {fonsterBredd < SIDOKOLUMN_FRAN_PX && <RadLank text="Tidigare månader" onClick={() => setArk('historik')} />}

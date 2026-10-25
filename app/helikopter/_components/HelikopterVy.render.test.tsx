@@ -111,6 +111,10 @@ describe('/helikopter — en sida', () => {
     expect(sektion('Skördare')).toBeNull()
     // Mer-raderna och admin-notisen.
     expect(sektion('Mer')!.textContent).toContain('Veckor')
+    // Pågående månad: Månadsplan (A4) finns, Månadsfacit inte (en halv månad är inget facit).
+    const plan = Array.from(sektion('Mer')!.querySelectorAll('a')).find(a => a.textContent?.includes('Månadsplan'))
+    expect(plan?.getAttribute('href')).toBe('/helikopter/manadsplan?ar=2026&manad=10')
+    expect(sektion('Mer')!.textContent).not.toContain('Månadsfacit')
     expect(sektion('Onsdagsnotis')).not.toBeNull()
   })
 
