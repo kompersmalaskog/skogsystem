@@ -61,7 +61,7 @@ describe('ingen självbekräftelse (bekraftad_av = auto)', () => {
       expect(s).not.toMatch(/\bupdate\s+skotar_lass\s+set\b[^;]*\bbekraftad_av\s*=\s*'auto'/i);
       expect(s).not.toMatch(/\bbekraftad_av\s*:=\s*'auto'/i);
     }
-    const g = readFileSync(join(dir, '20261024120000_skotar_lass_granskning.sql'), 'utf8');
+    const g = readFileSync(join(dir, '20261025184152_skotar_lass_granskning.sql'), 'utf8');
     expect(g).toMatch(/create or replace trigger skotar_lass_ingen_auto before insert or update on skotar_lass/);
     expect(g).toMatch(/new\.bekraftad_av := null;/);
     expect(g).toMatch(/check \(bekraftad_av in \('auto', 'forare', 'planerare'\)\)/);

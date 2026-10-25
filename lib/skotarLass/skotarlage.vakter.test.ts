@@ -162,7 +162,7 @@ describe('datamodellen', () => {
     const sql = migrationer();
     expect(sql).not.toMatch(/\bdrop\s+table\b/i);
     expect(sql).not.toMatch(/\balter\s+table\s+(?!if exists skotar_)(?!skotar_)/i);
-    // skotar_lass* får uppdateras (granskningen, 20261024120000, ändrar lassens egen status); allt annat som uppdateras ska vara dim_objekt.
+    // skotar_lass* får uppdateras (granskningen, 20261025184152, ändrar lassens egen status); allt annat som uppdateras ska vara dim_objekt.
     const upd = (sql.match(/^\s*update\s+\w+/gim) ?? []).filter((u) => !/^\s*update\s+skotar_lass\b/i.test(u));
     // Två gånger: den ursprungliga skotar_farduskotat(uuid) (3b) och ersättaren skotar_farduskotat(uuid, jsonb) (6d) — samma urval, båda bara där fältet är NULL.
     expect(upd.map((u) => u.trim().toLowerCase().replace(/\s+/g, ' '))).toEqual(['update dim_objekt', 'update dim_objekt']);
@@ -196,7 +196,7 @@ describe('datamodellen', () => {
 });
 
 describe('gamla självbekräftade lass (bekraftad_av = auto) — granskningen 2026-10-24', () => {
-  const granskning = las('supabase/migrations/20261024120000_skotar_lass_granskning.sql');
+  const granskning = las('supabase/migrations/20261025184152_skotar_lass_granskning.sql');
   it('granskningen rör bara skotar_lass*: aldrig dim_objekt, objekt eller Opti-tabellerna', () => {
     expect(granskning).not.toMatch(/\b(update|insert\s+into|delete\s+from)\s+(dim_objekt|objekt|fakt_lass|fakt_sortiment)\b/i);
     expect(granskning).not.toMatch(/\bdelete\s+from\s+skotar_lass/i);   // inget raderas — struket är en status
