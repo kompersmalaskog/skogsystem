@@ -2,7 +2,8 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { Sheet, ARK_DRA_STANG_PX } from "./ui";
+import { Sheet, Lista, Kort, ARK_DRA_STANG_PX } from "./ui";
+import { FARG } from "@/lib/design/tokens";
 
 let root: Root | null = null; let cont: HTMLDivElement | null = null;
 async function visa(onStang: () => void) {
@@ -39,5 +40,14 @@ describe("admin-arket som iOS-ark", () => {
     Object.defineProperty(window, "innerWidth", { value: 1280, configurable: true });
     const stang = vi.fn(); await visa(stang);
     await dra(document.querySelector("[data-ark-rubrik]")!, 300); expect(stang).not.toHaveBeenCalled();
+  });
+  it("en lista och ett kort INNE i arket lyfts ett steg (FARG.upphojt) — i arkets egen färg syntes de inte; utanför är de som förut", async () => {
+    const rgb = (hex: string) => { const n = parseInt(hex.slice(1), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+    cont = document.createElement("div"); document.body.appendChild(cont); root = createRoot(cont);
+    await act(async () => { root!.render(<><Lista><span data-ute="">ute</span></Lista><Sheet titel="Anna" onStang={() => {}}><Lista><span data-inne="">inne</span></Lista><Kort><span data-kort="">k</span></Kort></Sheet></>); });
+    const bg = (sel: string) => (document.querySelector(sel)!.parentElement as HTMLElement).style.background;
+    expect(bg("[data-inne]")).toBe(rgb(FARG.upphojt));
+    expect(bg("[data-kort]")).toBe(rgb(FARG.upphojt));
+    expect(bg("[data-ute]")).toBe(rgb(FARG.kort));
   });
 });
