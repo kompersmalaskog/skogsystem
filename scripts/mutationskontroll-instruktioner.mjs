@@ -12,7 +12,7 @@ const HOOK = "lib/hooks/useInstruktioner.ts";
 const KORT = "components/planering/InstruktionKort.tsx";
 const OBJ = "components/planering/ObjektKort.tsx";
 const SIDA = "app/planering/page.tsx";
-const SQL = "supabase/migrations/20261021170000_kommentar_sett_forare.sql";
+const SQL = "supabase/migrations/20261024102940_kommentar_sett_forare.sql";
 const ORD = "lib/instruktioner/ordning.ts";
 const TESTPOS = "lib/testPosition.ts";
 

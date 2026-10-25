@@ -117,7 +117,7 @@ describe('inget ljud', () => {
 });
 
 describe('migrationen är additiv', () => {
-  const sql = las('supabase/migrations/20261021170000_kommentar_sett_forare.sql').replace(/--.*$/gm, '');
+  const sql = las('supabase/migrations/20261024102940_kommentar_sett_forare.sql').replace(/--.*$/gm, '');
   it('skapar en ny tabell och rör inget befintligt', () => {
     expect(sql).toMatch(/create table if not exists public\.kommentar_sett_forare/i);
     expect(sql).not.toMatch(/\bdrop\b/i);
