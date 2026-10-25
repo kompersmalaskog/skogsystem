@@ -1,11 +1,10 @@
 'use client';
 
-// Prislista — EGEN vy i A4-tabellstil för dator (utbruten ur Inställningar;
-// Fortnox-mappning och datamappning ligger kvar i /ekonomi/installningar).
-//
-// BARA PRISER: grundpris per medelstam överst (det viktigaste), sedan
-// maskinpriser, sedan tilläggen. Rubriker i små dämpade versaler, talceller
-// högerställda i TAL_FONT, luft i stället för Excel-linjer.
+// Priser (barnregeln, 2026-10-25): första skärmen är en rad per pris i vanliga
+// ord. Ett tryck öppnar ETT pris, som också är rader ("Medelstam 0,25 · 122 kr"),
+// och ett tryck på en rad öppnar ETT ark med stora fält. Inga tabeller, inga
+// kolumnrubriker, inga × i raderna. EN spara-knapp per pris, och bara när något
+// är ändrat. Totalt räknas som skördare + skotare medan man skriver.
 //
 // SPARANDET — "man ska aldrig tro att något är sparat som inte är det":
 // - EN knapp per sektion ("Spara ändringar") sparar ALLA smutsiga rader i
@@ -23,10 +22,10 @@
 // Versionskontraktet är orört (lib/ekonomi/prisversion + uppdateraVerifierat);
 // all spar-orkestrering bor i lib/ekonomi/prislistaSpara (ren, testad).
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { saveAllBracket, saveFormelConfig, todayIso } from '@/lib/ekonomi/prisversion';
+import { saveAllBracket, saveFormelConfig } from '@/lib/ekonomi/prisversion';
 import { VARDEMINSKNING_FORVAL_SKORDARE, VARDEMINSKNING_FORVAL_SKOTARE } from '@/lib/ekonomi/vardeminskning';
 import { FORESTLINK_KR_PER_TIM } from '@/lib/ekonomi/forestlink';
 import {
@@ -37,11 +36,12 @@ import {
   acordSnapshot, traktSnapshot, avstandSnapshot, sortSnapshot,
   sparaAllaSmutsiga, sparaSammanfattning, slaIhopEfterSpar, grundprisSumma,
 } from '@/lib/ekonomi/prislistaSpara';
-import { EkonomiSida, Lista, Laddar, MAXBREDD_BRED } from '../delade/mall';
+import { EkonomiSida, Laddar, MAXBREDD_BRED } from '../delade/mall';
 import Sektion from '@/components/design/Sektion';
 import Rad from '@/components/design/Rad';
-import { rubrikCell, talCell, gridRad } from '../delade/tabell';
-import { FARG, TYP, TAL_FONT, AVSTAND, RADIE, KNAPP, TRAFFYTA } from '@/lib/design/tokens';
+import Ark from '@/components/design/Ark';
+import Falt from '@/components/design/Falt';
+import { FARG, TYP, TNUM, AVSTAND, RADIE, KNAPP, TRAFFYTA } from '@/lib/design/tokens';
 
 type AcordRad = {
   id?: string; medelstam: Num; pris_total: Num; pris_skordare: Num; pris_skotare: Num;
@@ -78,44 +78,48 @@ const st = (n: number, en: string, flera: string) => `${n} ${n === 1 ? en : fler
 const FORSLAG_AVSTAND = { grundavstand_m: 200, kr_per_100m: 4 };
 const FORSLAG_SORT = { grundantal: 6, kr_per_extra_sortiment: 2 };
 
-function formatDate(iso: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('sv-SE');
+const datumText = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+const krText = (v: Num) => (v === '' ? '–' : `${tal(v)} kr`);
+const traktTitel = (r: TraktRad) => (r.fran_m3fub === '' ? 'Ny storlek'
+  : r.till_m3fub === '' ? `Över ${tal(r.fran_m3fub)} kubik` : `${tal(r.fran_m3fub)}–${tal(r.till_m3fub)} kubik`);
+
+// Tal i ett vanligt textfält: decimalkomma går att skriva ("0,25") utan att
+// fältet hoppar. Texten bor i fältet, talet skickas vidare först när det går
+// att läsa. MODULNIVÅ: en komponent definierad i vyn remountas varje render
+// och tappar fokus efter varje siffra (inköpsår-buggen, #358).
+const lasTal = (s: string): Num | null => {
+  const x = s.replace(/\s/g, '').replace(',', '.');
+  if (x === '') return '';
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+};
+function TalFalt({ etikett, value, onChange, enhet, placeholder, stod, autoFocus }: {
+  etikett: string; value: Num; onChange: (v: Num) => void; enhet?: string; placeholder?: string; stod?: ReactNode; autoFocus?: boolean;
+}) {
+  const [text, setText] = useState(value === '' ? '' : tal(value));
+  useEffect(() => { if (lasTal(text) !== value) setText(value === '' ? '' : tal(value)); }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Falt etikett={etikett} value={text} inputMode="decimal" enhet={enhet} placeholder={placeholder} stod={stod} autoFocus={autoFocus}
+      onChange={s => { setText(s); const n = lasTal(s); if (n !== null) onChange(n); }} />
+  );
 }
 
-// Tabellkolumner (A4-grid, luft — inga cellinjer)
-const ACORD_KOLUMNER = 'minmax(0, 1fr) repeat(3, minmax(0, 1fr)) minmax(0, 0.3fr)';
-const MASKIN_KOLUMNER = 'minmax(0, 1.2fr) minmax(0, 1.4fr) repeat(2, minmax(0, 1fr)) minmax(0, 1.2fr) minmax(0, 0.9fr)';
-const TRAKT_KOLUMNER = 'repeat(3, minmax(0, 1fr)) minmax(0, 0.3fr)';
-const TERRANG_KOLUMNER = 'minmax(0, 1.6fr) minmax(0, 1fr)';
-const OVRIGT_KOLUMNER = 'minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 0.8fr) minmax(0, 0.6fr)';
-
-// Sektionens innehåll låses medan ett spar pågår — en ändring som skrivs
-// under pågående spar skulle annars försvinna i omladdningen.
-const FIELDSET = { border: 'none', margin: 0, padding: 0, minWidth: 0 } as const;
-
-// Redigerbara fält — tokeniserade. MODULNIVÅ, inte inne i komponenten: en
-// inline-definierad komponent får ny typreferens varje render → React
-// remountar inputen på varje tangenttryck och fokus tappas efter varje
-// siffra (inköpsår-buggen, fixad i #358). Stabil referens är kravet.
-const inputStil = {
-  background: FARG.fyllning, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.rad,
-  padding: `${AVSTAND.s}px ${AVSTAND.m}px`, color: FARG.text, ...TYP.meta,
-  fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box' as const,
-};
-const NumInput = ({ value, onChange, step, placeholder }: { value: Num; onChange: (v: Num) => void; step?: string; placeholder?: string }) => (
-  <input
-    style={{ ...inputStil, ...TAL_FONT, textAlign: 'right' }}
-    type="number" step={step || '1'} inputMode={step ? 'decimal' : 'numeric'}
-    value={value}
-    onChange={e => onChange(e.target.value === '' ? '' : Number(e.target.value))}
-    placeholder={placeholder}
-  />
-);
-const TextInput = ({ value, onChange, placeholder, disabled }: { value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean }) => (
-  <input style={{ ...inputStil, opacity: disabled ? 0.5 : 1 }} value={value} disabled={disabled}
-    onChange={e => onChange(e.target.value)} placeholder={placeholder} />
-);
+// Av/på som en rad (iOS-brytare): ordet står alltid, färgen förstärker bara.
+function Val({ titel, under, pa, onAndra }: { titel: string; under?: string; pa: boolean; onAndra: (v: boolean) => void }) {
+  return (
+    <button type="button" role="switch" aria-checked={pa} onClick={() => onAndra(!pa)}
+      style={{ display: 'flex', width: '100%', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.min, marginBottom: AVSTAND.l,
+        background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', ...TYP.text, color: FARG.text }}>{titel}</span>
+        {under && <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{under}</span>}
+      </span>
+      <span aria-hidden style={{ width: 52, height: 32, borderRadius: RADIE.cirkel, background: pa ? FARG.gron : FARG.fyllning, position: 'relative', flexShrink: 0 }}>
+        <span style={{ position: 'absolute', top: 2, left: pa ? 22 : 2, width: 28, height: 28, borderRadius: RADIE.cirkel, background: FARG.text }} />
+      </span>
+    </button>
+  );
+}
 
 // Lokalt rad-id (React-nyckel och identitet för misslyckade rader över omladdning)
 let lidRaknare = 0;
@@ -410,12 +414,12 @@ export default function PrislistaClient() {
 
   // ── Redigering (rör bara lokalt state) ──
   const updateMaskin = (lid: string, p: Partial<MaskinRad>) => setMaskiner(prev => prev.map(m => m.lid === lid ? { ...m, ...p, fel: undefined } : m));
-  const addMaskin = () => setMaskiner(prev => [...prev, {
-    lid: nyLid(), maskin_id: '', maskin_namn: '', timpris: '',
+  const addMaskin = () => { const lid = nyLid(); setMaskiner(prev => [...prev, {
+    lid, maskin_id: '', maskin_namn: '', timpris: '',
     vardeminskning_kr_per_g15h: '', forslagVm: VARDEMINSKNING_FORVAL_SKORDARE,
     sald: false, sald_datum: '', forestlink: true, dimFinns: true,
     giltig_fran: null, isNew: true, basTp: '', basDim: '',
-  }]);
+  }]); return lid; };
   const taBortNyMaskin = (lid: string) => setMaskiner(prev => prev.filter(m => m.lid !== lid));
 
   const updateAcord = (idx: number, p: Partial<AcordRad>) => setAcord(prev => prev.map((a, i) => i === idx ? { ...a, ...p } : a));
@@ -427,65 +431,165 @@ export default function PrislistaClient() {
   const addTrakt = () => setTrakt(prev => [...prev, { fran_m3fub: '', till_m3fub: '', tillagg_kr_per_m3fub: '', giltig_fran: null }]);
 
   const updateTerrang = (lid: string, p: Partial<TerrangRad>) => setTerrang(prev => prev.map(a => a.lid === lid ? { ...a, ...p, fel: undefined } : a));
-  const addTerrang = () => setTerrang(prev => [...prev, { lid: nyLid(), namn: '', tillagg_kr_per_m3fub: '', giltig_fran: null, isNew: true, bas: '' }]);
+  const addTerrang = () => { const lid = nyLid(); setTerrang(prev => [...prev, { lid, namn: '', tillagg_kr_per_m3fub: '', giltig_fran: null, isNew: true, bas: '' }]); return lid; };
   const taBortNyTerrang = (lid: string) => setTerrang(prev => prev.filter(a => a.lid !== lid));
 
   const updateOvrigt = (lid: string, p: Partial<OvrigtRad>) => setOvrigt(prev => prev.map(a => a.lid === lid ? { ...a, ...p, fel: undefined } : a));
-  const addOvrigt = () => setOvrigt(prev => [...prev, { lid: nyLid(), nyckel: '', beskrivning: '', varde: '', enhet: '', giltig_fran: null, isNew: true, bas: '' }]);
+  const addOvrigt = () => { const lid = nyLid(); setOvrigt(prev => [...prev, { lid, nyckel: '', beskrivning: '', varde: '', enhet: '', giltig_fran: null, isNew: true, bas: '' }]); return lid; };
   const taBortNyOvrigt = (lid: string) => setOvrigt(prev => prev.filter(a => a.lid !== lid));
 
-  // ── Delade småstilar ──
-  const sparaKnapp = (saving: boolean, onClick: () => void, text: string, disabled = false) => (
-    <button style={{ ...KNAPP.sekundar, opacity: saving || disabled ? 0.6 : 1, whiteSpace: 'nowrap' }} disabled={saving || disabled} onClick={onClick}>
-      {saving ? 'Sparar…' : text}
-    </button>
+  // ── Ändra ETT pris i ett ark (barnregeln: en sak åt gången, stora fält) ──
+  const [ark, setArk] = useState<{ del: Del; nyckel: string } | null>(null);
+  const oppna = (d: Del, nyckel: string) => setArk({ del: d, nyckel });
+  // Medan en del sparas går raderna inte att öppna: en ändring under pågående
+  // spar skulle försvinna i omladdningen (samma regel som det låsta formuläret förut).
+  const lasbar = (d: Del, f: () => void) => (sparar[d] ? undefined : f);
+  // Ett nytt pris som stängs helt tomt tas bort igen — annars stoppar en tom rad sparandet.
+  const stangArk = () => {
+    if (ark) {
+      const { del: d, nyckel } = ark;
+      if (d === 'acord') { const a = acord[Number(nyckel)]; if (a && !a.id && a.medelstam === '' && a.pris_skordare === '' && a.pris_skotare === '' && a.pris_total === '') removeAcord(Number(nyckel)); }
+      if (d === 'trakt') { const r = trakt[Number(nyckel)]; if (r && !r.id && r.fran_m3fub === '' && r.till_m3fub === '' && r.tillagg_kr_per_m3fub === '') removeTrakt(Number(nyckel)); }
+      if (d === 'maskiner') { const m = maskiner.find(x => x.lid === nyckel); if (m?.isNew && !m.maskin_id.trim() && !m.maskin_namn.trim() && m.timpris === '') taBortNyMaskin(nyckel); }
+      if (d === 'terrang') { const r = terrang.find(x => x.lid === nyckel); if (r?.isNew && !r.namn.trim() && r.tillagg_kr_per_m3fub === '') taBortNyTerrang(nyckel); }
+      if (d === 'ovrigt') { const r = ovrigt.find(x => x.lid === nyckel); if (r?.isNew && !r.nyckel.trim() && !r.beskrivning.trim() && r.varde === '') taBortNyOvrigt(nyckel); }
+    }
+    setArk(null);
+  };
+  const giltigSedan = (d: Del): string | null => (
+    d === 'acord' ? acord[0]?.giltig_fran ?? null
+      : d === 'trakt' ? trakt[0]?.giltig_fran ?? null
+        : d === 'avstand' ? avstand.giltig_fran
+          : d === 'sort' ? sortiment.giltig_fran : null
   );
-  const laggTillKnapp = (text: string, onClick: () => void) => (
-    <button style={{ ...KNAPP.tertiar, width: '100%' }} onClick={onClick}>+ {text}</button>
-  );
-  const tabortKnapp = (onClick: () => void) => (
-    <button aria-label="Ta bort rad" style={{ background: 'none', border: 'none', color: FARG.text3, cursor: 'pointer', ...TYP.text, minHeight: TRAFFYTA.min, padding: 0 }} onClick={onClick}>×</button>
-  );
-  const gallerFran = (d: string | null) => (
-    <span style={{ ...TYP.meta, color: FARG.text3 }}>Gäller från {formatDate(d)}</span>
-  );
-  // Bekräftelse/fel vid sparaknappen
-  const msgVid = (sek: Del) => sektionMsg[sek] && (
-    <span style={{ ...TYP.meta, color: sektionMsg[sek]!.fel ? FARG.rod : FARG.gron }}>{sektionMsg[sek]!.text}</span>
-  );
-  // Fot för sektioner med en rad per nyckel: EN knapp som sparar alla smutsiga rader
-  const sektionsFot = (sek: Del, antal: number, onSave: () => void) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: AVSTAND.m, gap: AVSTAND.m }}>
-      <span style={{ ...TYP.meta, color: antal > 0 ? FARG.orange : FARG.text3 }}>
-        {antal > 0 ? `${antal} ${antal === 1 ? 'ändring ej sparad' : 'ändringar ej sparade'}` : 'Inga osparade ändringar'}
-      </span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
-        {msgVid(sek)}
-        {sparaKnapp(!!sparar[sek], onSave, antal > 0 ? `Spara ändringar (${antal})` : 'Spara ändringar', antal === 0)}
-      </div>
-    </div>
-  );
-  // Fot för hela uppsättningar: ny komplett version
-  const uppsattningsFot = (sek: Del, rows: { giltig_fran: string | null }[], smutsig: boolean, onSave: () => void) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: AVSTAND.m, gap: AVSTAND.m }}>
-      <span style={{ ...TYP.meta, color: smutsig ? FARG.orange : FARG.text3 }}>
-        {smutsig ? 'Ändrad — ej sparad'
-          : rows.length > 0 && rows[0].giltig_fran ? `Nuvarande uppsättning gäller från ${formatDate(rows[0].giltig_fran)}` : 'Ingen aktiv uppsättning'}
-      </span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
-        {msgVid(sek)}
-        {sparaKnapp(!!sparar[sek], onSave, 'Spara alla (ny uppsättning)', !smutsig)}
-      </div>
-    </div>
-  );
-  const felRad = (fel?: string) => fel ? <span style={{ ...TYP.meta, color: FARG.rod }}>Ej sparad: {fel}</span> : null;
+  const SPARA: Record<Del, () => void> = {
+    acord: sparaAcord, maskiner: sparaMaskiner, avstand: sparaAvstand, trakt: sparaTrakt,
+    sort: sparaSort, terrang: sparaTerrang, ovrigt: sparaOvrigt,
+  };
 
-  const acordGrid = gridRad(ACORD_KOLUMNER);
-  const maskGrid = gridRad(MASKIN_KOLUMNER);
-  const traktGrid = gridRad(TRAKT_KOLUMNER);
-  const terrangGrid = gridRad(TERRANG_KOLUMNER);
-  const ovrigtGrid = gridRad(OVRIGT_KOLUMNER);
-  const formelEtikett = { ...TYP.micro, color: FARG.text3, marginBottom: AVSTAND.xs } as const;
+  const klar = <button type="button" style={KNAPP.primar} onClick={stangArk}>Klar</button>;
+  const taBort = (text: string, f: () => void) => (
+    <button type="button" style={{ ...KNAPP.destruktiv, alignSelf: 'center' }} onClick={() => { f(); setArk(null); }}>{text}</button>
+  );
+  const fotText = (text: ReactNode, farg: string = FARG.text2) => <p style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.meta, color: farg }}>{text}</p>;
+
+  const renderArk = () => {
+    if (!ark) return null;
+    const { del: d, nyckel } = ark;
+
+    if (d === 'acord') {
+      const idx = Number(nyckel); const a = acord[idx];
+      if (!a) return null;
+      // Totalt följer skördare + skotare (fakturan räknar på Totalt; sparandet kräver att de stämmer).
+      const satt = (p: Partial<AcordRad>) => {
+        const n = { ...a, ...p };
+        updateAcord(idx, n.pris_skordare !== '' && n.pris_skotare !== ''
+          ? { ...p, pris_total: (Math.round(Number(n.pris_skordare) * 100) + Math.round(Number(n.pris_skotare) * 100)) / 100 } : p);
+      };
+      const summa = grundprisSumma(a);
+      return (
+        <Ark rubrik={a.medelstam === '' ? 'Ny klass' : `Medelstam ${tal(a.medelstam)}`} onStang={stangArk}
+          fot={<>{klar}{taBort('Ta bort klassen', () => removeAcord(idx))}</>}>
+          <TalFalt etikett="Medelstam" enhet="m³ per träd" value={a.medelstam} onChange={v => updateAcord(idx, { medelstam: v })} autoFocus={a.medelstam === ''} />
+          <TalFalt etikett="Skördaren får" enhet="kr per kubik" value={a.pris_skordare} onChange={v => satt({ pris_skordare: v })} />
+          <TalFalt etikett="Skotaren får" enhet="kr per kubik" value={a.pris_skotare} onChange={v => satt({ pris_skotare: v })} />
+          {summa == null
+            ? fotText(<>Totalt <span style={{ color: FARG.text, ...TNUM }}>{krText(a.pris_total)}</span> per kubik</>)
+            : (<>
+              {fotText(`Totalt är ${tal(a.pris_total)} kr, men skördare + skotare blir ${tal(summa)} kr. Fakturan räknar på totalt.`, FARG.orange)}
+              <button type="button" style={{ ...KNAPP.sekundar, marginBottom: AVSTAND.l }} onClick={() => updateAcord(idx, { pris_total: summa })}>Använd {tal(summa)} kr</button>
+            </>)}
+        </Ark>
+      );
+    }
+
+    if (d === 'maskiner') {
+      const m = maskiner.find(x => x.lid === nyckel);
+      if (!m) return null;
+      const u = (p: Partial<MaskinRad>) => updateMaskin(m.lid, p);
+      const kanSattaDim = m.dimFinns || !!m.isNew;
+      return (
+        <Ark rubrik={m.maskin_namn || m.maskin_id || 'Ny maskin'} onStang={stangArk}
+          fot={<>{klar}{m.isNew && taBort('Ta bort maskinen', () => taBortNyMaskin(m.lid))}</>}>
+          {m.isNew && <Falt etikett="Maskin-ID" value={m.maskin_id} onChange={v => u({ maskin_id: v })} stod="Samma som i maskinregistret." autoFocus />}
+          <Falt etikett="Namn" value={m.maskin_namn} onChange={v => u({ maskin_namn: v })} />
+          <TalFalt etikett="Timpris" enhet="kr per timme" value={m.timpris} onChange={v => u({ timpris: v })}
+            stod={m.forestlink && kanSattaDim && m.timpris !== '' ? `Med ForestLink blir det ${tal(Number(m.timpris) + FORESTLINK_KR_PER_TIM)} kr per timme.` : undefined} />
+          {kanSattaDim ? (<>
+            <TalFalt etikett="Värdeminskning" enhet="kr per G15-timme" value={m.vardeminskning_kr_per_g15h} placeholder={`förslag ${m.forslagVm}`}
+              onChange={v => u({ vardeminskning_kr_per_g15h: v })}
+              stod={m.vardeminskning_kr_per_g15h === ''
+                ? <span style={{ color: FARG.orange }}>Inte satt – räknas inte.</span>
+                : 'Skördare brukar ligga på 300–500, skotare på 250–350.'} />
+            {m.vardeminskning_kr_per_g15h === '' && (
+              <button type="button" style={{ ...KNAPP.sekundar, marginBottom: AVSTAND.l }} onClick={() => u({ vardeminskning_kr_per_g15h: m.forslagVm })}>Använd förslaget {m.forslagVm}</button>
+            )}
+            <Val titel="ForestLink" under={`+${FORESTLINK_KR_PER_TIM} kr per timme på timpeng`} pa={m.forestlink} onAndra={v => u({ forestlink: v })} />
+            <Val titel="Såld" under="En såld maskin räknar ingen värdeminskning framåt" pa={m.sald} onAndra={v => u({ sald: v })} />
+            {m.sald && <Falt etikett="Såld datum" typ="date" value={m.sald_datum} onChange={v => u({ sald_datum: v })} />}
+          </>) : fotText('Maskinen finns inte i maskinregistret. Värdeminskning, ForestLink och såld kan inte sättas.', FARG.orange)}
+          {m.giltig_fran && fotText(`Priset gäller sedan ${datumText(m.giltig_fran)}.`)}
+          {m.fel && fotText(`Inte sparad: ${m.fel}`, FARG.rod)}
+        </Ark>
+      );
+    }
+
+    if (d === 'avstand') return (
+      <Ark rubrik="Långt att skota" onStang={stangArk} fot={klar}>
+        <TalFalt etikett="Ingen extra betalning upp till" enhet="meter" value={avstand.grundavstand_m} placeholder={`förslag ${FORSLAG_AVSTAND.grundavstand_m}`}
+          onChange={v => setAvstand(p => ({ ...p, grundavstand_m: v }))} />
+        <TalFalt etikett="Sedan, för varje påbörjad 100 m" enhet="kr per kubik" value={avstand.kr_per_100m} placeholder={`förslag ${tal(FORSLAG_AVSTAND.kr_per_100m)}`}
+          onChange={v => setAvstand(p => ({ ...p, kr_per_100m: v }))} />
+      </Ark>
+    );
+
+    if (d === 'sort') return (
+      <Ark rubrik="Många sortiment" onStang={stangArk} fot={klar}>
+        <TalFalt etikett="Ingår utan extra betalning" enhet="sortiment" value={sortiment.grundantal} placeholder={`förslag ${FORSLAG_SORT.grundantal}`}
+          onChange={v => setSortiment(p => ({ ...p, grundantal: v }))} />
+        <TalFalt etikett="För varje sortiment därutöver" enhet="kr per kubik" value={sortiment.kr_per_extra_sortiment} placeholder={`förslag ${tal(FORSLAG_SORT.kr_per_extra_sortiment)}`}
+          onChange={v => setSortiment(p => ({ ...p, kr_per_extra_sortiment: v }))} />
+      </Ark>
+    );
+
+    if (d === 'trakt') {
+      const idx = Number(nyckel); const r = trakt[idx];
+      if (!r) return null;
+      return (
+        <Ark rubrik={traktTitel(r)} onStang={stangArk} fot={<>{klar}{taBort('Ta bort storleken', () => removeTrakt(idx))}</>}>
+          <TalFalt etikett="Från" enhet="kubik" value={r.fran_m3fub} onChange={v => updateTrakt(idx, { fran_m3fub: v })} autoFocus={r.fran_m3fub === ''} />
+          <TalFalt etikett="Till" enhet="kubik" value={r.till_m3fub} onChange={v => updateTrakt(idx, { till_m3fub: v })} stod="Tomt = ingen övre gräns." />
+          <TalFalt etikett="Tillägg" enhet="kr per kubik" value={r.tillagg_kr_per_m3fub} onChange={v => updateTrakt(idx, { tillagg_kr_per_m3fub: v })} />
+        </Ark>
+      );
+    }
+
+    if (d === 'terrang') {
+      const r = terrang.find(x => x.lid === nyckel);
+      if (!r) return null;
+      return (
+        <Ark rubrik={r.namn || 'Ny terräng'} onStang={stangArk} fot={<>{klar}{r.isNew && taBort('Ta bort', () => taBortNyTerrang(r.lid))}</>}>
+          {r.isNew && <Falt etikett="Namn" value={r.namn} onChange={v => updateTerrang(r.lid, { namn: v })} autoFocus />}
+          <TalFalt etikett="Tillägg" enhet="kr per kubik" value={r.tillagg_kr_per_m3fub} onChange={v => updateTerrang(r.lid, { tillagg_kr_per_m3fub: v })} />
+          {r.giltig_fran && fotText(`Gäller sedan ${datumText(r.giltig_fran)}.`)}
+          {r.fel && fotText(`Inte sparad: ${r.fel}`, FARG.rod)}
+        </Ark>
+      );
+    }
+
+    const r = ovrigt.find(x => x.lid === nyckel);
+    if (!r) return null;
+    return (
+      <Ark rubrik={r.beskrivning || r.nyckel || 'Ny post'} onStang={stangArk} fot={<>{klar}{r.isNew && taBort('Ta bort', () => taBortNyOvrigt(r.lid))}</>}>
+        {r.isNew && <Falt etikett="Kod" value={r.nyckel} onChange={v => updateOvrigt(r.lid, { nyckel: v })} stod="Ett kort namn som appen känner igen, till exempel diesel." autoFocus />}
+        <Falt etikett="Vad är det?" value={r.beskrivning} onChange={v => updateOvrigt(r.lid, { beskrivning: v })} />
+        <TalFalt etikett="Värde" value={r.varde} onChange={v => updateOvrigt(r.lid, { varde: v })} />
+        <Falt etikett="Enhet" value={r.enhet} onChange={v => updateOvrigt(r.lid, { enhet: v })} placeholder="till exempel kr per kubik" />
+        {r.giltig_fran && fotText(`Gäller sedan ${datumText(r.giltig_fran)}.`)}
+        {r.fel && fotText(`Inte sparad: ${r.fel}`, FARG.rod)}
+      </Ark>
+    );
+  };
 
   return (
     <EkonomiSida maxBredd={MAXBREDD_BRED}>
@@ -522,267 +626,115 @@ export default function PrislistaClient() {
         )}
 
         {!loading && del && (
-          <>
-            {/* 1. GRUNDPRIS PER MEDELSTAM — det viktigaste, överst.
-                Totalt-kolumnen BEHÅLLS redigerbar: sparkontraktet skriver
-                pris_total och att härleda den vore att ändra sparlogiken. */}
-            {del === 'acord' && (<>
-            <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
-              <fieldset disabled={!!sparar.acord} style={FIELDSET}>
-                <div style={{ ...acordGrid, padding: `${AVSTAND.s}px 0` }}>
-                  <div style={{ ...rubrikCell, textAlign: 'left' }}>Medelstam</div>
-                  <div style={rubrikCell}>Skördare</div>
-                  <div style={rubrikCell}>Skotare</div>
-                  <div style={rubrikCell}>Totalt</div>
-                  <div />
-                </div>
-                {acord.map((a, idx) => (
-                  <div key={a.id || `ny-${idx}`} style={{ ...acordGrid, padding: `${AVSTAND.s}px 0` }}>
-                    <NumInput value={a.medelstam} onChange={v => updateAcord(idx, { medelstam: v })} step="0.01" />
-                    <NumInput value={a.pris_skordare} onChange={v => updateAcord(idx, { pris_skordare: v })} />
-                    <NumInput value={a.pris_skotare} onChange={v => updateAcord(idx, { pris_skotare: v })} />
-                    <NumInput value={a.pris_total} onChange={v => updateAcord(idx, { pris_total: v })} />
-                    <div style={{ textAlign: 'right' }}>{tabortKnapp(() => removeAcord(idx))}</div>
-                    {grundprisSumma(a) != null && (
-                      <div style={{ gridColumn: '1 / -1', ...TYP.meta, color: FARG.orange }}>
-                        Skördare + skotare blir {String(grundprisSumma(a)).replace('.', ',')}, men Totalt är {String(a.pris_total).replace('.', ',')}. Fakturan räknar på Totalt.
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {acord.length === 0 && <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Ingen aktiv uppsättning.</div>}
-                {laggTillKnapp('Lägg till medelstam-rad', addAcord)}
-              </fieldset>
-              {uppsattningsFot('acord', acord, acordSmutsig, sparaAcord)}
-            </Lista>
-
-            {/* 2. MASKINPRISER (timpeng + värdeminskning + FL + såld) */}
-            </>)}
-            {del === 'maskiner' && (<>
-            <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
-              <fieldset disabled={!!sparar.maskiner} style={FIELDSET}>
-                <div style={{ ...maskGrid, padding: `${AVSTAND.s}px 0` }}>
-                  <div style={{ ...rubrikCell, textAlign: 'left' }}>Maskin-ID</div>
-                  <div style={{ ...rubrikCell, textAlign: 'left' }}>Namn</div>
-                  <div style={rubrikCell}>Timpris kr/tim</div>
-                  <div style={rubrikCell}>Värdem. kr/G15h</div>
-                  <div style={{ ...rubrikCell, textAlign: 'left' }}>FL</div>
-                  <div style={{ ...rubrikCell, textAlign: 'left' }}>Såld</div>
-                </div>
-                {maskiner.map(m => {
-                  const andrad = !m.isNew && arMaskinSmutsig(m);
-                  const kanSattaDim = m.dimFinns || !!m.isNew;
+          <div style={{ marginTop: AVSTAND.l }}>
+            {/* Barnregeln i ändra-läget: en rad per pris i vanliga ord, ett tryck öppnar
+                ETT ark med stora fält. Inga kolumnrubriker, inga × i raderna, och EN
+                spara-knapp som bara finns när något är ändrat. Spar-logiken är orörd. */}
+            {del === 'acord' && (
+              <Sektion rubrik="Pris per kubik" not="Medelstam är hur mycket virke ett träd har i snitt, i kubikmeter. Grövre träd ger lägre pris per kubik.">
+                {acord.map((a, idx) => {
+                  const fel = grundprisSumma(a) != null;
                   return (
-                    <div key={m.lid} style={{ padding: `${AVSTAND.s}px 0` }}>
-                      <div style={maskGrid}>
-                        <TextInput value={m.maskin_id} onChange={v => updateMaskin(m.lid, { maskin_id: v })} placeholder="Maskin-ID" disabled={!m.isNew} />
-                        <TextInput value={m.maskin_namn} onChange={v => updateMaskin(m.lid, { maskin_namn: v })} placeholder="Namn" />
-                        <NumInput value={m.timpris} onChange={v => updateMaskin(m.lid, { timpris: v })} placeholder="kr/tim" />
-                        {kanSattaDim ? (
-                          <>
-                            {/* NULL = tomt fält; förslaget är en placeholder, inte ett värde */}
-                            <NumInput value={m.vardeminskning_kr_per_g15h} onChange={v => updateMaskin(m.lid, { vardeminskning_kr_per_g15h: v })} placeholder={`förslag ${m.forslagVm}`} />
-                            {/* ForestLink: ibockad = +FORESTLINK_KR_PER_TIM kr/tim på timpeng */}
-                            <label style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.meta, color: FARG.text2, cursor: 'pointer', minHeight: TRAFFYTA.min }}>
-                              <input type="checkbox" checked={m.forestlink} onChange={e => updateMaskin(m.lid, { forestlink: e.target.checked })} />
-                              {m.forestlink ? `+${FORESTLINK_KR_PER_TIM} kr/tim` : 'ingen FL'}
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.meta, color: m.sald ? FARG.orange : FARG.text2, cursor: 'pointer' }}>
-                              <input type="checkbox" checked={m.sald} onChange={e => updateMaskin(m.lid, { sald: e.target.checked })} />
-                              Såld
-                            </label>
-                          </>
-                        ) : (
-                          <div style={{ gridColumn: 'span 3', ...TYP.meta, color: FARG.orange }}>
-                            Maskinen finns inte i maskinregistret — värdeminskning, FL och såld kan inte sättas
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: AVSTAND.m, marginTop: AVSTAND.xs }}>
-                        {gallerFran(m.giltig_fran)}
-                        {m.timpris !== '' && m.forestlink && kanSattaDim && (
-                          <span style={{ ...TYP.meta, color: FARG.text3 }}>
-                            effektivt timpeng-pris {(Number(m.timpris) + FORESTLINK_KR_PER_TIM).toLocaleString('sv-SE')} kr/tim
-                          </span>
-                        )}
-                        {kanSattaDim && m.vardeminskning_kr_per_g15h === '' && (
-                          <>
-                            <span style={{ ...TYP.meta, color: FARG.orange }}>Värdeminskning ej satt — räknas inte</span>
-                            <button style={{ ...KNAPP.tertiar, ...TYP.meta }} onClick={() => updateMaskin(m.lid, { vardeminskning_kr_per_g15h: m.forslagVm })}>
-                              Använd förslag {m.forslagVm}
-                            </button>
-                          </>
-                        )}
-                        {m.sald && kanSattaDim && (
-                          <input type="date" value={m.sald_datum} onChange={e => updateMaskin(m.lid, { sald_datum: e.target.value })}
-                            style={{ ...inputStil, width: 'auto' }} />
-                        )}
-                        {m.isNew && <span style={{ ...TYP.meta, color: FARG.orange }}>Ny — ej sparad</span>}
-                        {andrad && <span style={{ ...TYP.meta, color: FARG.orange }}>Ändrad — ej sparad</span>}
-                        {felRad(m.fel)}
-                        {m.isNew && (
-                          <button style={{ ...KNAPP.tertiar, ...TYP.meta }} onClick={() => taBortNyMaskin(m.lid)}>Ta bort raden</button>
-                        )}
-                      </div>
-                    </div>
+                    <Rad key={a.id || `ny-${idx}`} attr={{ 'data-pris-rad': String(idx) }}
+                      titel={a.medelstam === '' ? 'Ny klass' : `Medelstam ${tal(a.medelstam)}`}
+                      under={<>Skördare {a.pris_skordare === '' ? '–' : tal(a.pris_skordare)} · skotare {a.pris_skotare === '' ? '–' : tal(a.pris_skotare)}{fel && <span style={{ color: FARG.orange }}> · totalt stämmer inte</span>}</>}
+                      hoger={krText(a.pris_total)} onTryck={lasbar('acord', () => oppna('acord', String(idx)))} />
                   );
                 })}
-                {maskiner.length === 0 && <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Inga aktiva maskinpriser.</div>}
-                {laggTillKnapp('Lägg till maskin', addMaskin)}
-              </fieldset>
-              {sektionsFot('maskiner', nMask, sparaMaskiner)}
-            </Lista>
-            <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.s }}>
-              Värdeminskning: skördare ~300–500 · skotare ~250–350 kr/G15-tim (Ponsse, första 4000 h) — förslaget används aldrig tyst; tomt fält = ingen värdeminskning räknas. Såld maskin bär ingen värdeminskning framåt.
-            </div>
-
-            {/* 3. TILLÄGG */}
-            </>)}
-            {del === 'avstand' && (<>
-            <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
-              <fieldset disabled={!!sparar.avstand} style={FIELDSET}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: AVSTAND.l, alignItems: 'end' }}>
-                  <div>
-                    <div style={formelEtikett}>Grundavstånd m — under detta: inget tillägg</div>
-                    <NumInput value={avstand.grundavstand_m} onChange={v => setAvstand(prev => ({ ...prev, grundavstand_m: v }))} placeholder={`förslag ${FORSLAG_AVSTAND.grundavstand_m}`} />
-                  </div>
-                  <div>
-                    <div style={formelEtikett}>Tillägg per påbörjad 100 m — kr/m³fub</div>
-                    <NumInput value={avstand.kr_per_100m} onChange={v => setAvstand(prev => ({ ...prev, kr_per_100m: v }))} step="0.01" placeholder={`förslag ${FORSLAG_AVSTAND.kr_per_100m}`} />
-                  </div>
-                </div>
-              </fieldset>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: AVSTAND.s, gap: AVSTAND.m }}>
-                {avstand.giltig_fran === null
-                  ? <span style={{ ...TYP.meta, color: FARG.orange }}>Ej satt — inget skotavståndstillägg räknas</span>
-                  : <span style={{ ...TYP.meta, color: avstandSmutsig ? FARG.orange : FARG.text3 }}>{avstandSmutsig ? 'Ändrad — ej sparad' : `Gäller från ${formatDate(avstand.giltig_fran)}`}</span>}
-                <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
-                  {msgVid('avstand')}
-                  {sparaKnapp(!!sparar.avstand, sparaAvstand, 'Spara', !avstandSmutsig)}
-                </div>
-              </div>
-            </Lista>
-
-            </>)}
-            {del === 'trakt' && (<>
-            <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
-              <fieldset disabled={!!sparar.trakt} style={FIELDSET}>
-                <div style={{ ...traktGrid, padding: `${AVSTAND.s}px 0` }}>
-                  <div style={rubrikCell}>Från m³fub</div>
-                  <div style={rubrikCell}>Till m³fub (tom = ∞)</div>
-                  <div style={rubrikCell}>Tillägg kr/m³fub</div>
-                  <div />
-                </div>
-                {trakt.map((r, idx) => (
-                  <div key={r.id || `ny-${idx}`} style={{ ...traktGrid, padding: `${AVSTAND.s}px 0` }}>
-                    <NumInput value={r.fran_m3fub} onChange={v => updateTrakt(idx, { fran_m3fub: v })} />
-                    <NumInput value={r.till_m3fub} onChange={v => updateTrakt(idx, { till_m3fub: v })} />
-                    <NumInput value={r.tillagg_kr_per_m3fub} onChange={v => updateTrakt(idx, { tillagg_kr_per_m3fub: v })} step="0.01" />
-                    <div style={{ textAlign: 'right' }}>{tabortKnapp(() => removeTrakt(idx))}</div>
-                  </div>
-                ))}
-                {trakt.length === 0 && <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Inga rader.</div>}
-                {laggTillKnapp('Lägg till traktstorlek-rad', addTrakt)}
-              </fieldset>
-              {uppsattningsFot('trakt', trakt, traktSmutsig, sparaTrakt)}
-            </Lista>
-
-            </>)}
-            {del === 'sort' && (<>
-            <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
-              <fieldset disabled={!!sparar.sort} style={FIELDSET}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: AVSTAND.l, alignItems: 'end' }}>
-                  <div>
-                    <div style={formelEtikett}>Grundantal sortiment — under detta: inget tillägg</div>
-                    <NumInput value={sortiment.grundantal} onChange={v => setSortiment(prev => ({ ...prev, grundantal: v }))} placeholder={`förslag ${FORSLAG_SORT.grundantal}`} />
-                  </div>
-                  <div>
-                    <div style={formelEtikett}>Tillägg per extra sortiment — kr/m³fub</div>
-                    <NumInput value={sortiment.kr_per_extra_sortiment} onChange={v => setSortiment(prev => ({ ...prev, kr_per_extra_sortiment: v }))} step="0.01" placeholder={`förslag ${FORSLAG_SORT.kr_per_extra_sortiment}`} />
-                  </div>
-                </div>
-              </fieldset>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: AVSTAND.s, gap: AVSTAND.m }}>
-                {sortiment.giltig_fran === null
-                  ? <span style={{ ...TYP.meta, color: FARG.orange }}>Ej satt — inget sortimenttillägg räknas</span>
-                  : <span style={{ ...TYP.meta, color: sortSmutsig ? FARG.orange : FARG.text3 }}>{sortSmutsig ? 'Ändrad — ej sparad' : `Gäller från ${formatDate(sortiment.giltig_fran)}`}</span>}
-                <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
-                  {msgVid('sort')}
-                  {sparaKnapp(!!sparar.sort, sparaSort, 'Spara', !sortSmutsig)}
-                </div>
-              </div>
-            </Lista>
-
-            </>)}
-            {del === 'terrang' && (<>
-            <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
-              <fieldset disabled={!!sparar.terrang} style={FIELDSET}>
-                <div style={{ ...terrangGrid, padding: `${AVSTAND.s}px 0` }}>
-                  <div style={{ ...rubrikCell, textAlign: 'left' }}>Kategori</div>
-                  <div style={rubrikCell}>Tillägg kr/m³fub</div>
-                </div>
-                {terrang.map(r => (
-                  <div key={r.lid} style={{ padding: `${AVSTAND.s}px 0` }}>
-                    <div style={terrangGrid}>
-                      <TextInput value={r.namn} onChange={v => updateTerrang(r.lid, { namn: v })} placeholder="Terrängnamn" disabled={!r.isNew} />
-                      <NumInput value={r.tillagg_kr_per_m3fub} onChange={v => updateTerrang(r.lid, { tillagg_kr_per_m3fub: v })} step="0.01" placeholder="kr/m³fub" />
-                    </div>
-                    <div style={{ marginTop: AVSTAND.xs, display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: AVSTAND.m }}>
-                      {gallerFran(r.giltig_fran)}
-                      {r.isNew && <span style={{ ...TYP.meta, color: FARG.orange }}>Ny — ej sparad</span>}
-                      {!r.isNew && arTerrangSmutsig(r) && <span style={{ ...TYP.meta, color: FARG.orange }}>Ändrad — ej sparad</span>}
-                      {felRad(r.fel)}
-                      {r.isNew && <button style={{ ...KNAPP.tertiar, ...TYP.meta }} onClick={() => taBortNyTerrang(r.lid)}>Ta bort raden</button>}
-                    </div>
-                  </div>
-                ))}
-                {terrang.length === 0 && <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Inga terräng-kategorier.</div>}
-                {laggTillKnapp('Lägg till terräng-kategori', addTerrang)}
-              </fieldset>
-              {sektionsFot('terrang', nTerr, sparaTerrang)}
-            </Lista>
-
-            </>)}
-            {del === 'ovrigt' && (<>
-            <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
-              <fieldset disabled={!!sparar.ovrigt} style={FIELDSET}>
-                <div style={{ ...ovrigtGrid, padding: `${AVSTAND.s}px 0` }}>
-                  <div style={{ ...rubrikCell, textAlign: 'left' }}>Kod</div>
-                  <div style={{ ...rubrikCell, textAlign: 'left' }}>Beskrivning</div>
-                  <div style={rubrikCell}>Värde</div>
-                  <div style={{ ...rubrikCell, textAlign: 'left' }}>Enhet</div>
-                </div>
-                {ovrigt.map(r => (
-                  <div key={r.lid} style={{ padding: `${AVSTAND.s}px 0` }}>
-                    <div style={ovrigtGrid}>
-                      <TextInput value={r.nyckel} onChange={v => updateOvrigt(r.lid, { nyckel: v })} placeholder="kod, t.ex. diesel" disabled={!r.isNew} />
-                      <TextInput value={r.beskrivning} onChange={v => updateOvrigt(r.lid, { beskrivning: v })} placeholder="Beskrivning" />
-                      <NumInput value={r.varde} onChange={v => updateOvrigt(r.lid, { varde: v })} step="0.01" placeholder="Värde" />
-                      <TextInput value={r.enhet} onChange={v => updateOvrigt(r.lid, { enhet: v })} placeholder="Enhet" />
-                    </div>
-                    <div style={{ marginTop: AVSTAND.xs, display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: AVSTAND.m }}>
-                      {gallerFran(r.giltig_fran)}
-                      {r.isNew && <span style={{ ...TYP.meta, color: FARG.orange }}>Ny — ej sparad</span>}
-                      {!r.isNew && arOvrigtSmutsig(r) && <span style={{ ...TYP.meta, color: FARG.orange }}>Ändrad — ej sparad</span>}
-                      {felRad(r.fel)}
-                      {r.isNew && <button style={{ ...KNAPP.tertiar, ...TYP.meta }} onClick={() => taBortNyOvrigt(r.lid)}>Ta bort raden</button>}
-                    </div>
-                  </div>
-                ))}
-                {ovrigt.length === 0 && <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Inga poster.</div>}
-                {laggTillKnapp('Lägg till övrig post', addOvrigt)}
-              </fieldset>
-              {sektionsFot('ovrigt', nOvr, sparaOvrigt)}
-            </Lista>
-
-            </>)}
-            {del && (
-              <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.xl }}>
-                När du sparar gäller de nya priserna från i dag ({todayIso()}). Gamla priser sparas, och det som redan körts räknas med de priser som gällde då.
-              </div>
+                <Rad titel="Lägg till klass" sista onTryck={lasbar('acord', () => { addAcord(); oppna('acord', String(acord.length)); })} />
+              </Sektion>
             )}
-          </>
+
+            {del === 'maskiner' && (
+              <Sektion rubrik="Maskiner" not="Tryck på en maskin för att ändra timpris, värdeminskning, ForestLink eller såld.">
+                {maskiner.map(m => (
+                  <Rad key={m.lid} attr={{ 'data-pris-rad': m.lid }}
+                    titel={m.maskin_namn || m.maskin_id || 'Ny maskin'}
+                    under={<>i timmen{m.forestlink && m.dimFinns ? ' · ForestLink' : ''}{m.sald ? ' · såld' : ''}
+                      {m.dimFinns && m.vardeminskning_kr_per_g15h === '' && <span style={{ color: FARG.orange }}> · värdeminskning saknas</span>}
+                      {(m.isNew || arMaskinSmutsig(m)) && <span style={{ color: FARG.orange }}> · inte sparat</span>}
+                      {m.fel && <span style={{ color: FARG.rod }}> · {m.fel}</span>}</>}
+                    hoger={krText(m.timpris)} onTryck={lasbar('maskiner', () => oppna('maskiner', m.lid))} />
+                ))}
+                <Rad titel="Lägg till maskin" sista onTryck={lasbar('maskiner', () => oppna('maskiner', addMaskin()))} />
+              </Sektion>
+            )}
+
+            {del === 'avstand' && (
+              <Sektion rubrik="Så räknas det" not="Avståndet är hur långt skotaren kör virket till vägen.">
+                <Rad attr={{ 'data-pris-rad': 'grund' }} titel="Ingen extra betalning upp till"
+                  under={avstand.grundavstand_m === '' ? <span style={{ color: FARG.orange }}>Inte satt</span> : undefined}
+                  hoger={avstand.grundavstand_m === '' ? '–' : `${tal(avstand.grundavstand_m)} m`} onTryck={lasbar('avstand', () => oppna('avstand', 'config'))} />
+                <Rad titel="Sedan, för varje påbörjad 100 m" sista under="per kubik"
+                  hoger={avstand.kr_per_100m === '' ? '–' : `+${tal(avstand.kr_per_100m)} kr`} onTryck={lasbar('avstand', () => oppna('avstand', 'config'))} />
+              </Sektion>
+            )}
+
+            {del === 'trakt' && (
+              <Sektion rubrik="Tillägg efter traktens storlek" not="Storleken är hur mycket virke hela trakten ger, i kubikmeter.">
+                {trakt.map((r, idx) => (
+                  <Rad key={r.id || `ny-${idx}`} attr={{ 'data-pris-rad': String(idx) }}
+                    titel={traktTitel(r)} under="per kubik"
+                    hoger={r.tillagg_kr_per_m3fub === '' ? '–' : `+${tal(r.tillagg_kr_per_m3fub)} kr`}
+                    onTryck={lasbar('trakt', () => oppna('trakt', String(idx)))} />
+                ))}
+                <Rad titel="Lägg till storlek" sista onTryck={lasbar('trakt', () => { addTrakt(); oppna('trakt', String(trakt.length)); })} />
+              </Sektion>
+            )}
+
+            {del === 'sort' && (
+              <Sektion rubrik="Så räknas det" not="Ett sortiment är en sort virke, till exempel timmer eller massaved.">
+                <Rad attr={{ 'data-pris-rad': 'grund' }} titel="Ingår utan extra betalning"
+                  under={sortiment.grundantal === '' ? <span style={{ color: FARG.orange }}>Inte satt</span> : undefined}
+                  hoger={sortiment.grundantal === '' ? '–' : st(Number(sortiment.grundantal), 'sortiment', 'sortiment')} onTryck={lasbar('sort', () => oppna('sort', 'config'))} />
+                <Rad titel="För varje sortiment därutöver" sista under="per kubik"
+                  hoger={sortiment.kr_per_extra_sortiment === '' ? '–' : `+${tal(sortiment.kr_per_extra_sortiment)} kr`} onTryck={lasbar('sort', () => oppna('sort', 'config'))} />
+              </Sektion>
+            )}
+
+            {del === 'terrang' && (
+              <Sektion rubrik="Tillägg efter terräng">
+                {terrang.map(r => (
+                  <Rad key={r.lid} attr={{ 'data-pris-rad': r.lid }} titel={r.namn || 'Ny terräng'}
+                    under={<>per kubik{(r.isNew || arTerrangSmutsig(r)) && <span style={{ color: FARG.orange }}> · inte sparat</span>}{r.fel && <span style={{ color: FARG.rod }}> · {r.fel}</span>}</>}
+                    hoger={r.tillagg_kr_per_m3fub === '' ? '–' : `+${tal(r.tillagg_kr_per_m3fub)} kr`}
+                    onTryck={lasbar('terrang', () => oppna('terrang', r.lid))} />
+                ))}
+                <Rad titel="Lägg till terräng" sista onTryck={lasbar('terrang', () => oppna('terrang', addTerrang()))} />
+              </Sektion>
+            )}
+
+            {del === 'ovrigt' && (
+              <Sektion rubrik="Övriga poster">
+                {ovrigt.map(r => (
+                  <Rad key={r.lid} attr={{ 'data-pris-rad': r.lid }} titel={r.beskrivning || r.nyckel || 'Ny post'}
+                    under={<>{r.enhet || 'ingen enhet'}{(r.isNew || arOvrigtSmutsig(r)) && <span style={{ color: FARG.orange }}> · inte sparat</span>}{r.fel && <span style={{ color: FARG.rod }}> · {r.fel}</span>}</>}
+                    hoger={r.varde === '' ? '–' : tal(r.varde)}
+                    onTryck={lasbar('ovrigt', () => oppna('ovrigt', r.lid))} />
+                ))}
+                <Rad titel="Lägg till post" sista onTryck={lasbar('ovrigt', () => oppna('ovrigt', addOvrigt()))} />
+              </Sektion>
+            )}
+
+            {/* EN spara-knapp per skärm, och bara när något är ändrat. */}
+            <div style={{ marginTop: AVSTAND.l }}>
+              {smutsig[del]
+                ? <p style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>Ändrat – inte sparat. Sparar du gäller de nya priserna från i dag. Det som redan körts räknas med de gamla.</p>
+                : giltigSedan(del) && <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Gäller sedan {datumText(giltigSedan(del))}</p>}
+              {sektionMsg[del] && (
+                <p data-spar-svar="" style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: sektionMsg[del]!.fel ? FARG.rod : FARG.gron }}>{sektionMsg[del]!.text}</p>
+              )}
+              {smutsig[del] && (
+                <button type="button" style={{ ...KNAPP.primar, marginTop: AVSTAND.m, opacity: sparar[del] ? 0.6 : 1 }}
+                  disabled={!!sparar[del]} onClick={SPARA[del]}>
+                  {sparar[del] ? 'Sparar…' : 'Spara'}
+                </button>
+              )}
+            </div>
+          </div>
         )}
+
+        {ark && renderArk()}
       </div>
 
       {/* Lämna sidan med osparade ändringar — APP-EGEN dialog, alltid i DOM:en

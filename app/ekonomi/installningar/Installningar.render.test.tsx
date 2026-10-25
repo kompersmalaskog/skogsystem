@@ -89,6 +89,32 @@ describe('Inställningar', () => {
   });
 });
 
+describe('Inställningar · ett tryck på svaret sparar', () => {
+  it('faktura utan skog: arket frågar "Vilken skog?", ett tryck kopplar', async () => {
+    window.history.replaceState(null, '', '/ekonomi/installningar?del=fakturor');
+    await montera(InstallningarClient);
+    expect(document.querySelectorAll('select').length).toBe(0);
+    await tryck(document.querySelector('[data-val-rad="1"]')!);
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain('Vilken skog?');
+    await tryck([...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent?.includes('Kvarnen'))!);
+    for (let i = 0; i < 3; i++) await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(text()).toContain('Faktura 4711 hör nu till Kvarnen');
+    expect(text()).toContain('Alla fakturor har en skog');
+  });
+
+  it('kostnadsställe utan maskin: arket frågar vilken maskin, ett tryck kopplar', async () => {
+    window.history.replaceState(null, '', '/ekonomi/installningar?del=ccUtan');
+    await montera(InstallningarClient);
+    await tryck(document.querySelector('[data-val-rad="M8"]')!);
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain('Vilken maskin är M8?');
+    await tryck([...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent?.includes('Giant'))!);
+    for (let i = 0; i < 3; i++) await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    const post = (fetch as any).mock.calls.find((c: any[]) => c[1]?.method === 'POST');
+    expect(JSON.parse(post[1].body)).toEqual({ maskin_id: 'GIANT', kostnadsstalle_kod: 'M8' });
+  });
+});
+
 describe('Priser', () => {
   it('en rad per pris, inga tabeller förrän man valt', async () => {
     window.history.replaceState(null, '', '/ekonomi/prislista');
@@ -98,21 +124,52 @@ describe('Priser', () => {
     expect(text()).toContain('Över 300 m: 4 kr per 100 m');
     expect(document.querySelectorAll('input').length).toBe(0);
     await tryck(document.querySelector('[data-del="acord"]')!);
-    expect(document.querySelectorAll('input').length).toBeGreaterThan(0);
     expect(text()).toContain('‹ Priser');
+    // Ändra-läget är också rader: inga fält, inga kolumnrubriker, ingen spara-knapp förrän något ändrats.
+    expect(document.querySelectorAll('input').length).toBe(0);
+    expect(document.querySelectorAll('[data-pris-rad]').length).toBeGreaterThan(0);
+    expect([...document.querySelectorAll('button')].some(b => b.textContent === 'Spara')).toBe(false);
+    await tryck(document.querySelector('[data-pris-rad="0"]')!);
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.querySelectorAll('[role="dialog"] input').length).toBeGreaterThan(0);
   });
 
   it('ändrat men inte sparat syns på raden i listan', async () => {
     window.history.replaceState(null, '', '/ekonomi/prislista?del=acord');
     await montera(PrislistaClient);
-    const inp = document.querySelector('input')!;
+    await tryck(document.querySelector('[data-pris-rad="0"]')!);
+    const inp = document.querySelector('[role="dialog"] input')!;
     await act(async () => {
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
       set.call(inp, '0.3');
       inp.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    await tryck([...document.querySelectorAll('button')].find(b => b.textContent === 'Klar')!);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    // Nu, och bara nu, finns EN spara-knapp och texten säger att det inte är sparat.
+    expect([...document.querySelectorAll('button')].filter(b => b.textContent === 'Spara').length).toBe(1);
+    expect(text()).toContain('Ändrat – inte sparat');
     await tryck([...document.querySelectorAll('button')].find(b => b.textContent === '‹ Priser')!);
     expect(document.querySelector('[data-del="acord"]')!.textContent).toContain('Inte sparat');
     expect(document.querySelector('[data-del="maskiner"]')!.textContent).not.toContain('Inte sparat');
+  });
+
+  it('totalt följer skördare + skotare, och decimalkomma går att skriva', async () => {
+    window.history.replaceState(null, '', '/ekonomi/prislista?del=acord');
+    await montera(PrislistaClient);
+    expect(document.querySelector('[data-pris-rad="0"]')!.textContent).toContain('Medelstam 0,25');
+    await tryck(document.querySelector('[data-pris-rad="0"]')!);
+    const falt = [...document.querySelectorAll('[role="dialog"] input')] as HTMLInputElement[];
+    const skriv = async (inp: HTMLInputElement, v: string) => act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(inp, v);
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await skriv(falt[1], '40');
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain('Totalt 65 kr per kubik');
+    await skriv(falt[0], '0,3');
+    expect(falt[0].value).toBe('0,3');
+    await tryck([...document.querySelectorAll('button')].find(b => b.textContent === 'Klar')!);
+    expect(document.querySelector('[data-pris-rad="0"]')!.textContent).toContain('Medelstam 0,3');
+    expect(document.querySelector('[data-pris-rad="0"]')!.textContent).toContain('65 kr');
   });
 });
