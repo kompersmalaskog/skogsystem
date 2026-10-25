@@ -1,47 +1,7 @@
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import type { Viewport } from "next";
-import PerKlassClient from "./PerKlassClient";
 
-export const metadata = { title: "Ekonomi · Per klass" };
-export const dynamic = "force-dynamic";
-
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  maximumScale: 1,
-};
-
-export default async function Page() {
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll(); },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user?.email) redirect("/login");
-
-  const { data: medarbetare } = await supabase
-    .from("medarbetare")
-    .select("id, namn, roll")
-    .eq("epost", user.email)
-    .single();
-
-  if (!medarbetare || (medarbetare.roll !== "admin")) {
-    redirect("/arbetsrapport");
-  }
-
-  return <PerKlassClient />;
+// Per klass är inte en egen flik längre: den är växeln "Klass" i Ackord
+// (samma data ur en annan vinkel). Gamla länkar och bokmärken landar där.
+export default function Page() {
+  redirect("/ekonomi/mot-ackord?vy=klass");
 }

@@ -3,7 +3,7 @@ import {
   maskinRadFranDb, arMaskinSmutsig, sparaMaskinRad, sparaAllaSmutsiga, sparaSammanfattning,
   slaIhopEfterSpar, rebaseMaskin, timprisDel,
   terrangSnapshot, arTerrangSmutsig, sparaTerrangRad, ovrigtSnapshot, arOvrigtSmutsig,
-  acordSnapshot, avstandSnapshot, type MaskinRad,
+  acordSnapshot, avstandSnapshot, grundprisSumma, type MaskinRad,
 } from './prislistaSpara'
 
 // Prislistan: "man ska aldrig tro att något är sparat som inte är det".
@@ -222,5 +222,20 @@ describe('terräng och övrigt — samma mönster', () => {
     o.bas = ovrigtSnapshot(o)
     expect(arOvrigtSmutsig({ ...o, varde: 9 })).toBe(true)
     expect(arOvrigtSmutsig({ ...o, varde: 8 })).toBe(false)
+  })
+})
+
+describe('grundprisSumma — Totalt måste vara skördare + skotare', () => {
+  it('går ihop: null', () => {
+    expect(grundprisSumma({ pris_total: 101, pris_skordare: 57, pris_skotare: 44 })).toBeNull()
+  })
+  it('går ihop med decimaler (inga flyttalsfel)', () => {
+    expect(grundprisSumma({ pris_total: 100.3, pris_skordare: 56.1, pris_skotare: 44.2 })).toBeNull()
+  })
+  it('går inte ihop: summan av delarna', () => {
+    expect(grundprisSumma({ pris_total: 101, pris_skordare: 58, pris_skotare: 44 })).toBe(102)
+  })
+  it('ej ifylld: null (sparkontrollen tar den)', () => {
+    expect(grundprisSumma({ pris_total: '', pris_skordare: 58, pris_skotare: 44 })).toBeNull()
   })
 })
