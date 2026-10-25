@@ -90,26 +90,41 @@ export default function FakturaLista({ vy }: { vy: ListVy }) {
         </>
       )}
 
-      {vy.klara.length > 0 && (
-        <h2 style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.rubrik, color: FARG.text }}>
-          Vad är klart att fakturera?
-        </h2>
-      )}
-      {vy.klara.map(grupp => (
-        <Sektion key={grupp.rubrik} rubrik={grupp.rubrik}>
-          {grupp.rader.map((r, i) => (
-            <Rad
-              key={r.vo}
-              titel={r.titel}
-              under={r.under}
-              hoger={<span style={TAL_FONT}>{r.hoger}</span>}
-              hogerUnder={r.hogerUnder}
-              href={`${BAS}/${encodeURIComponent(r.vo)}`}
-              sista={i === grupp.rader.length - 1}
-              attr={valtVo === r.vo ? { 'data-vald': '' } : undefined}
-            />
+      {/* Faktureringens högar: Att fakturera · Går inte att se · Väntar på
+          slutredovisning · Slutredovisat. Varje hög är en fråga med sitt svar
+          under, och en tom hög ritas aldrig (byggListVy lägger inte in den). */}
+      {vy.hogar.map(hog => (
+        <div key={hog.nyckel} data-hog={hog.nyckel}>
+          <h2 style={{ margin: `0 0 ${hog.under ? AVSTAND.xs : AVSTAND.m}px`, ...TYP.rubrik, color: FARG.text }}>
+            {hog.rubrik}
+          </h2>
+          {hog.under && (
+            <p style={{
+              display: 'flex', gap: AVSTAND.s, alignItems: 'baseline',
+              margin: `0 0 ${AVSTAND.m}px ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text2,
+            }}>
+              {/* EN prick för hela högen — alla rader i den är samma sak. */}
+              {hog.varning && <Prick />}
+              <span>{hog.under}</span>
+            </p>
+          )}
+          {hog.grupper.map(grupp => (
+            <Sektion key={grupp.rubrik} rubrik={grupp.rubrik}>
+              {grupp.rader.map((r, i) => (
+                <Rad
+                  key={r.vo}
+                  titel={r.titel}
+                  under={r.under}
+                  hoger={<span style={TAL_FONT}>{r.hoger}</span>}
+                  hogerUnder={r.hogerUnder}
+                  href={`${BAS}/${encodeURIComponent(r.vo)}`}
+                  sista={i === grupp.rader.length - 1}
+                  attr={valtVo === r.vo ? { 'data-vald': '' } : undefined}
+                />
+              ))}
+            </Sektion>
           ))}
-        </Sektion>
+        </div>
       ))}
 
       {vy.arbeteVantar.length > 0 && (

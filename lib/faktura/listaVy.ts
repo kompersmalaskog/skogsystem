@@ -16,6 +16,22 @@
 //     "Vad ska du göra?" — de finns i datan men radbyggaren prissätter ur
 //     fakt_tid, så de är inte med i priset än.
 // Talen summeras aldrig över högarna: en trakt räknas EN gång, i en grupp.
+//
+// VARFÖR HÖGARNA FÖLJER FAKTURAN OCH INTE MASKINERNA (2026-10-25):
+// tillstand='klar' betyder att maskinerna är klara, inte att något återstår att
+// fakturera. Av de 23 "klara" i prod var 20 redan fakturerade och fem
+// slutredovisade — talet överst var alltså fel, och det som faktiskt återstod
+// (två trakter) låg begravt i en hög på 23. Högarna läser därför VÅRA skickade
+// fakturor (lib/faktura/fakturaLage.ts): Att fakturera · Går inte att se ·
+// Fakturerat · Slutredovisat. En trakt vi hunnit fakturera visas i sin
+// fakturahög även om maskinerna står som pågående — fakturan är skickad, vad
+// maskinavslutet än säger. "Vad ska du göra?" rörs inte: saknar trakten något
+// saknar den det fortfarande.
+
+import {
+  type FakturaLage, type TraktFaktura, type Lage,
+  lageFor, senasteFakturan, slutredovisningen,
+} from './fakturaLage'
 
 export type OversiktsRad = {
   vo_nummer: string
@@ -61,6 +77,18 @@ export type AttGoraRad = {
 
 export type ManadsGrupp = { rubrik: string; rader: TraktRad[] }
 
+/** En hög i faktureringens ordning. En tom hög finns inte. */
+export type Hog = {
+  nyckel: 'att_fakturera' | 'okant_lage' | 'fakturerat' | 'slutredovisat' | 'klara'
+  /** Frågan den svarar på. */
+  rubrik: string
+  /** En rad som säger vad högen är — EN gång, inte på varje rad. */
+  under: string | null
+  /** Orange prick på den raden: något i högen kräver dig. EN prick, inte en per rad. */
+  varning: boolean
+  grupper: ManadsGrupp[]
+}
+
 /** En trakt i genomgången av kontraktsnummer — en i taget, i ordning. */
 export type KontraktsPost = {
   vo: string
@@ -73,7 +101,8 @@ export type KontraktsPost = {
 export type ListVy = {
   svar: { tal: string; text: string; under: string | null }
   attGora: AttGoraRad[]
-  klara: ManadsGrupp[]
+  /** Faktureringens högar, i ordning. Tomma högar finns inte. */
+  hogar: Hog[]
   /** Debiterbart arbete på trakter som inte går att fakturera än. */
   arbeteVantar: TraktRad[]
   vantar: { titel: string; under: string } | null
@@ -86,17 +115,27 @@ const MANADER = [
   'januari', 'februari', 'mars', 'april', 'maj', 'juni',
   'juli', 'augusti', 'september', 'oktober', 'november', 'december',
 ]
+const MANADER_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
 
 const nr = (n: number, dec = 0) =>
   n.toLocaleString('sv-SE', { minimumFractionDigits: dec, maximumFractionDigits: dec })
 
-/** "Oktober 2026" ur ett ISO-datum. Utan datum: en egen hög sist. */
-export function manadsRubrik(iso: string | null): string {
-  if (!iso) return 'Utan avräkningsdatum'
+/** "Oktober 2026" ur ett ISO-datum. Utan datum: en egen hög sist, med sitt skäl. */
+export function manadsRubrik(iso: string | null, utan = 'Utan avräkningsdatum'): string {
+  if (!iso) return utan
   const [ar, man] = iso.split('-')
   const namn = MANADER[Number(man) - 1]
-  if (!namn) return 'Utan avräkningsdatum'
+  if (!namn) return utan
   return `${namn[0].toUpperCase()}${namn.slice(1)} ${ar}`
+}
+
+/** "19 okt" — fakturadatum på en rad. Utan datum: null, aldrig ett påhittat. */
+export function kortDatum(iso: string | null): string | null {
+  if (!iso) return null
+  const [, man, dag] = iso.split('-')
+  const namn = MANADER_KORT[Number(man) - 1]
+  if (!namn || !dag) return null
+  return `${Number(dag)} ${namn}`
 }
 
 function traktRad(r: OversiktsRad, varning = false): TraktRad {
@@ -119,22 +158,50 @@ function traktRad(r: OversiktsRad, varning = false): TraktRad {
   }
 }
 
-export function byggListVy(rader: OversiktsRad[], utanTrakt: ArbeteUtanTrakt | null): ListVy {
+export function byggListVy(
+  rader: OversiktsRad[],
+  utanTrakt: ArbeteUtanTrakt | null,
+  /** null = fakturorna kunde inte läsas. Då faller listan tillbaka på EN hög, och säger varför. */
+  faktura: FakturaLage | null,
+): ListVy {
   const klaraRader = rader.filter(r => r.tillstand === 'klar')
+  const lagetFor = (vo: string): Lage => lageFor(faktura?.[vo])
   // "Kräver något av dig" = trakter där EN sak på trakten saknas och fylls i.
   // De 31 utan kundnummer räknas INTE hit: bolaget (Privat, Karl Hedin)
   // faktureras inte på vo-nummer, så det är ett beslut om bolaget — inte
   // fyrtiotre fält att fylla i. De har sin egen rad under "Vad ska du göra?".
   const kraverNagot = rader.filter(r => r.tillstand === 'atgard')
 
+  // ── Högarna: faktureringens ordning ──────────────────────────────────────
+  // Att fakturera och "går inte att se" gäller bara trakter maskinerna är klara
+  // med. Fakturerat och Slutredovisat gäller ALLA trakter med en faktura —
+  // fyra pågående och fyra i "kräver något av dig" var redan fakturerade i prod
+  // 2026-10-25, och de får inte stå kvar som ofakturerade.
+  const attFaktureraRader = faktura
+    ? klaraRader.filter(r => lagetFor(r.vo_nummer) === 'ofakturerat')
+    : klaraRader
+  const okantRader = faktura ? klaraRader.filter(r => lagetFor(r.vo_nummer) === 'okant') : []
+  const fakturatRader = faktura ? rader.filter(r => lagetFor(r.vo_nummer) === 'fakturerat') : []
+  const slutredRader = faktura ? rader.filter(r => lagetFor(r.vo_nummer) === 'slutredovisat') : []
+
   // ── Svaret ───────────────────────────────────────────────────────────────
-  const svar = {
-    tal: String(klaraRader.length),
-    text: klaraRader.length === 1 ? 'trakt klar att fakturera' : 'trakter klara att fakturera',
-    under: kraverNagot.length > 0
-      ? `${kraverNagot.length} ${kraverNagot.length === 1 ? 'trakt kräver' : 'trakter kräver'} något av dig`
-      : null,
-  }
+  // Talet är antalet rader i "Att fakturera" — summan är summan av det som
+  // visas. Trakter vi inte kan bedöma räknas inte in; de har sin egen hög.
+  const svar = faktura
+    ? {
+        tal: String(attFaktureraRader.length),
+        text: attFaktureraRader.length === 1 ? 'trakt att fakturera' : 'trakter att fakturera',
+        under: kraverNagot.length > 0
+          ? `${kraverNagot.length} ${kraverNagot.length === 1 ? 'trakt kräver' : 'trakter kräver'} något av dig`
+          : null,
+      }
+    : {
+        tal: String(klaraRader.length),
+        text: klaraRader.length === 1 ? 'trakt klar att fakturera' : 'trakter klara att fakturera',
+        under: kraverNagot.length > 0
+          ? `${kraverNagot.length} ${kraverNagot.length === 1 ? 'trakt kräver' : 'trakter kräver'} något av dig`
+          : null,
+      }
 
   // ── Vad ska du göra? ─────────────────────────────────────────────────────
   const attGora: AttGoraRad[] = []
@@ -154,10 +221,21 @@ export function byggListVy(rader: OversiktsRad[], utanTrakt: ArbeteUtanTrakt | n
 
   const utanTimmar = kraverNagot.filter(r => r.hinder_typ === 'traillertimmar')
   if (utanTimmar.length > 0) {
+    // Alla fyra i prod 2026-10-25 var redan fakturerade. Att fylla i tiden
+    // ändrar då ingen faktura som ska skickas — det ska stå på raden, annars
+    // görs arbetet i onödan.
+    const redan = utanTimmar.filter(r => {
+      const l = lagetFor(r.vo_nummer)
+      return l === 'fakturerat' || l === 'slutredovisat'
+    }).length
     attGora.push({
       nyckel: 'traillertimmar',
       titel: `${utanTimmar.length} saknar traillertimmar`,
-      under: 'Tiden för en flytt över 3 mil',
+      under: redan === 0
+        ? 'Tiden för en flytt över 3 mil'
+        : redan === utanTimmar.length
+          ? `Tiden för en flytt över 3 mil — ${redan === 1 ? 'den är redan fakturerad' : 'alla är redan fakturerade'}`
+          : `Tiden för en flytt över 3 mil — ${redan} av dem är redan fakturerade`,
       vo: utanTimmar.length === 1 ? utanTimmar[0].vo_nummer : undefined,
     })
   }
@@ -196,19 +274,88 @@ export function byggListVy(rader: OversiktsRad[], utanTrakt: ArbeteUtanTrakt | n
     })
   }
 
-  // ── Vad är klart att fakturera? ──────────────────────────────────────────
-  const grupper = new Map<string, TraktRad[]>()
-  const ordning: string[] = []
-  for (const r of [...klaraRader].sort(sorteraNyastForst)) {
-    const rubrik = manadsRubrik(r.avrakningsdatum)
-    if (!grupper.has(rubrik)) { grupper.set(rubrik, []); ordning.push(rubrik) }
-    grupper.get(rubrik)!.push(traktRad(r))
+  // ── Högarna ──────────────────────────────────────────────────────────────
+  const hogar: Hog[] = []
+
+  if (!faktura) {
+    // Fakturorna gick inte att läsa. Listan fungerar som förut och SÄGER att
+    // den inte kan se vad som redan är skickat — den påstår aldrig motsatsen.
+    lagg(hogar, {
+      nyckel: 'klara',
+      rubrik: 'Vad är klart att fakturera?',
+      under: 'Fakturorna i Fortnox kunde inte läsas — går inte att se vad som redan är skickat.',
+      varning: true,
+      grupper: gruppera(klaraRader.map(r => ({ datum: r.avrakningsdatum, rad: traktRad(r) }))),
+    })
+  } else {
+    lagg(hogar, {
+      nyckel: 'att_fakturera',
+      rubrik: 'Vad är klart att fakturera?',
+      under: null,
+      varning: false,
+      grupper: gruppera(attFaktureraRader.map(r => ({ datum: r.avrakningsdatum, rad: traktRad(r) }))),
+    })
+
+    // Pricken står på HÖGEN, inte på varje rad: alla rader här är samma sak,
+    // och en prick som upprepas på varje rad säger ingenting.
+    lagg(hogar, {
+      nyckel: 'okant_lage',
+      rubrik: 'Vad går inte att se?',
+      under: 'Utan kontraktsnummer går fakturan inte att hitta — därför vet vi inte om trakten är fakturerad.',
+      varning: true,
+      grupper: gruppera(okantRader.map(r => ({
+        datum: r.avrakningsdatum,
+        rad: { ...traktRad(r), under: 'Inget kontraktsnummer — går inte att se om den är fakturerad' },
+      }))),
+    })
+
+    // Fakturorna grupperas på FAKTURADATUM, inte avräkningsdatum: det är
+    // fakturan högen handlar om. Kunden står inte på raden — fakturanumret är
+    // det man letar efter här, och bolaget syns när trakten öppnas.
+    lagg(hogar, {
+      nyckel: 'fakturerat',
+      rubrik: 'Vad väntar på slutredovisning?',
+      under: 'Fakturan är skickad. Slutredovisningen saknas på den.',
+      varning: false,
+      grupper: gruppera(fakturatRader.map(r => {
+        const f = senasteFakturan(faktura[r.vo_nummer])
+        return {
+          datum: f?.datum ?? null,
+          rad: { ...traktRad(r), under: fakturaText(faktura[r.vo_nummer]) },
+        }
+      }), 'Utan fakturadatum'),
+    })
+
+    lagg(hogar, {
+      nyckel: 'slutredovisat',
+      rubrik: 'Vad är slutredovisat?',
+      under: 'Slutredovisningen ligger på fakturan — ingenting mer att fakturera.',
+      varning: false,
+      grupper: gruppera(slutredRader.map(r => {
+        const s = slutredovisningen(faktura[r.vo_nummer])
+        const datum = kortDatum(s?.datum ?? null)
+        return {
+          datum: s?.datum ?? null,
+          rad: {
+            ...traktRad(r),
+            under: [datum ? `Slutredovisat ${datum}` : 'Slutredovisat', s ? `faktura ${s.nummer}` : null]
+              .filter(Boolean).join(' · '),
+          },
+        }
+      }), 'Utan fakturadatum'),
+    })
   }
-  const klara: ManadsGrupp[] = ordning.map(rubrik => ({ rubrik, rader: grupper.get(rubrik)! }))
 
   // ── Debiterbart arbete som inte kan faktureras än ────────────────────────
   // Arbetet är gjort och debiterbart, men trakten är inte klar. Det ska SYNAS,
   // inte ligga i en dämpad hög.
+  //
+  // MEDVETET: en trakt som vi hunnit fakturera men som inte är klar kan stå
+  // både i sin fakturahög och här. Det är två olika saker — fakturan är
+  // skickad, och arbetet går ändå inte att fakturera än — och vi vet inte om
+  // arbetet låg med på den fakturan. Att dölja det ena vore att gissa. Inget
+  // sådant fall finns i prod 2026-10-25 (de tre trakterna med debiterbart
+  // arbete är ofakturerade).
   const arbeteVantar = rader
     .filter(r => r.debiterbart_arbete_tim > 0 && r.tillstand !== 'klar')
     .sort((a, b) => b.debiterbart_arbete_tim - a.debiterbart_arbete_tim)
@@ -229,9 +376,14 @@ export function byggListVy(rader: OversiktsRad[], utanTrakt: ArbeteUtanTrakt | n
 
   // ── Vad väntar? ──────────────────────────────────────────────────────────
   // En trakt med debiterbart arbete ligger i gruppen ovan och räknas inte här.
+  // En trakt vi redan fakturerat står i sin fakturahög och räknas inte heller —
+  // fyra pågående trakter i prod 2026-10-25 var fakturerade, två av dem
+  // slutredovisade.
   const iArbete = new Set(arbeteVantar.map(r => r.vo))
+  const iFaktura = new Set([...fakturatRader, ...slutredRader].map(r => r.vo_nummer))
   const vantande = rader.filter(
-    r => (r.tillstand === 'pagar' || r.tillstand === 'ej_paborjad') && !iArbete.has(r.vo_nummer),
+    r => (r.tillstand === 'pagar' || r.tillstand === 'ej_paborjad')
+      && !iArbete.has(r.vo_nummer) && !iFaktura.has(r.vo_nummer),
   )
   const pagar = vantande.filter(r => r.tillstand === 'pagar').length
   const ejPaborjad = vantande.filter(r => r.tillstand === 'ej_paborjad').length
@@ -257,20 +409,47 @@ export function byggListVy(rader: OversiktsRad[], utanTrakt: ArbeteUtanTrakt | n
   return {
     svar,
     attGora,
-    klara,
+    hogar,
     arbeteVantar,
     vantar,
     kontraktsKo,
-    fot: 'Listan kontrollerar kund, kontraktsnummer och traillertimmar. Priserna räknas när du öppnar en trakt.',
+    fot: faktura
+      ? 'Högarna följer fakturan i Fortnox, kopplad på kontraktsnumret. Priserna räknas när du öppnar en trakt.'
+      : 'Listan kontrollerar kund, kontraktsnummer och traillertimmar. Priserna räknas när du öppnar en trakt.',
   }
 }
 
-/** Nyast avräknad först; utan datum sist (namnet avgör inom samma dag). */
-function sorteraNyastForst(a: OversiktsRad, b: OversiktsRad): number {
-  if (a.avrakningsdatum !== b.avrakningsdatum) {
-    if (!a.avrakningsdatum) return 1
-    if (!b.avrakningsdatum) return -1
-    return a.avrakningsdatum < b.avrakningsdatum ? 1 : -1
+/** "Faktura 2026181 · 19 okt". Två fakturor skrivs båda — datumet är den senastes. */
+function fakturaText(f: TraktFaktura | undefined): string {
+  const nummer = (f?.fakturor ?? []).map(x => x.nummer).join(', ')
+  const datum = kortDatum(senasteFakturan(f)?.datum ?? null)
+  return [nummer ? `Faktura ${nummer}` : 'Faktura', datum].filter(Boolean).join(' · ')
+}
+
+/** En tom hög ritas aldrig. */
+function lagg(hogar: Hog[], hog: Hog): void {
+  if (hog.grupper.length > 0) hogar.push(hog)
+}
+
+/** Nyast först, utan datum sist; namnet avgör inom samma dag. */
+function gruppera(
+  poster: { datum: string | null; rad: TraktRad }[],
+  utanDatum = 'Utan avräkningsdatum',
+): ManadsGrupp[] {
+  const sorterad = [...poster].sort((a, b) => {
+    if (a.datum !== b.datum) {
+      if (!a.datum) return 1
+      if (!b.datum) return -1
+      return a.datum < b.datum ? 1 : -1
+    }
+    return a.rad.titel.localeCompare(b.rad.titel, 'sv')
+  })
+  const grupper = new Map<string, TraktRad[]>()
+  const ordning: string[] = []
+  for (const p of sorterad) {
+    const rubrik = manadsRubrik(p.datum, utanDatum)
+    if (!grupper.has(rubrik)) { grupper.set(rubrik, []); ordning.push(rubrik) }
+    grupper.get(rubrik)!.push(p.rad)
   }
-  return (a.namn ?? '').localeCompare(b.namn ?? '', 'sv')
+  return ordning.map(rubrik => ({ rubrik, rader: grupper.get(rubrik)! }))
 }

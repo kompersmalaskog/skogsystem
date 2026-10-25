@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { byggListVy, manadsRubrik, type OversiktsRad } from './listaVy'
+import { byggListVy, kortDatum, manadsRubrik, type Hog, type OversiktsRad } from './listaVy'
+import { byggFakturaLage, type FakturaLage } from './fakturaLage'
 
 // FACIT: prod 2026-10-24, läst ur faktura_oversikt() efter migrationen
 // 20261024_faktura_oversikt_allt_debiterbart.
@@ -90,27 +91,103 @@ function prodRader(): OversiktsRad[] {
   return r
 }
 
+// FACIT faktureringsläget, prod 2026-10-25 (fortnox_invoice_rows mot
+// objekt.kontraktsnummer): av de 23 klara trakterna var 20 fakturerade, varav 5
+// slutredovisade; 2 återstod att fakturera (Vällust, Östra-Hoka) och 1 saknade
+// kontraktsnummer (Anders Ingemarsson, feb 2026). Dessutom var 4 pågående och
+// 4 "saknar traillertimmar" redan fakturerade, 2 av dem slutredovisade.
+//
+// Här byggs läget ur RIKTIGA fakturarader genom byggFakturaLage, inte ur en
+// handskriven karta — då provas kopplingen "Kontraktsnr 968539" → trakt också.
+function prodFaktura(rader: OversiktsRad[]): FakturaLage {
+  const klara = rader.filter(r => r.tillstand === 'klar').map(r => r.vo_nummer)
+  const utanFaktura = klara.slice(0, 2)            // Vällust, Östra-Hoka
+  const utanKnr = klara.slice(2, 3)                // Anders Ingemarsson
+  const fakturerade = klara.slice(3)               // 24 i fixturen (20 i prod)
+  const slutred = new Set(fakturerade.slice(0, 5))
+  // Fyra pågående (två slutredovisade) och de fyra med traillertimmar.
+  const pagarFakt = ['p0', 'p1', 'p2', 'p3']
+  const pagarSlutred = new Set(['p1', 'p3'])
+  const timmarFakt = ['t0', 't1', 't2', 't3']
+
+  const objekt: { vo_nummer: string; kontraktsnummer: string | null }[] = []
+  const fakturaRader: {
+    document_number: number | null; invoice_date: string | null
+    article_number: string | null; description: string | null
+  }[] = []
+  let knr = 970000
+  let dok = 2026100
+
+  const lagg = (vo: string, slutredovisas: boolean) => {
+    const k = String(++knr)
+    objekt.push({ vo_nummer: vo, kontraktsnummer: k })
+    const d = ++dok
+    fakturaRader.push({ document_number: d, invoice_date: '2026-09-21', article_number: '8', description: `Kontraktsnr ${k}` })
+    fakturaRader.push({ document_number: d, invoice_date: '2026-09-21', article_number: '1', description: 'Skördning Gigant' })
+    if (slutredovisas) {
+      // Slutredovisningen ligger på en SENARE faktura, som i prod.
+      const d2 = ++dok
+      fakturaRader.push({ document_number: d2, invoice_date: '2026-10-19', article_number: '8', description: `Kontraktsnr ${k}` })
+      fakturaRader.push({ document_number: d2, invoice_date: '2026-10-19', article_number: '7', description: 'Slutredovisning' })
+    }
+  }
+
+  for (const vo of utanFaktura) objekt.push({ vo_nummer: vo, kontraktsnummer: String(++knr) })
+  for (const vo of utanKnr) objekt.push({ vo_nummer: vo, kontraktsnummer: null })
+  for (const vo of fakturerade) lagg(vo, slutred.has(vo))
+  for (const vo of pagarFakt) lagg(vo, pagarSlutred.has(vo))
+  for (const vo of timmarFakt) lagg(vo, false)
+  // Alla andra trakter finns som objektrader utan kontraktsnummer.
+  const kanda = new Set(objekt.map(o => o.vo_nummer))
+  for (const r of rader) if (!kanda.has(r.vo_nummer)) objekt.push({ vo_nummer: r.vo_nummer, kontraktsnummer: null })
+
+  return byggFakturaLage(objekt, fakturaRader)
+}
+
+const hog = (vy: { hogar: Hog[] }, nyckel: Hog['nyckel']): Hog | undefined =>
+  vy.hogar.find(h => h.nyckel === nyckel)
+const antal = (h: Hog | undefined) => (h?.grupper ?? []).reduce((s, g) => s + g.rader.length, 0)
+
 describe('byggListVy — svaret', () => {
-  it('ett tal: antal klara, och antalet som kräver något som rad under', () => {
-    const vy = byggListVy(prodRader(), { poster: 2, timmar: 2.93 })
-    // 23 klara + Bågskyttebanan + Älmehult + Krokshult + Bjällerhult = 27
-    expect(vy.svar.tal).toBe('27')
-    expect(vy.svar.text).toBe('trakter klara att fakturera')
+  it('ett tal: det som ÅTERSTÅR att fakturera, inte allt maskinerna är klara med', () => {
+    const rader = prodRader()
+    const vy = byggListVy(rader, { poster: 2, timmar: 2.93 }, prodFaktura(rader))
+    // 27 klara i fixturen, men bara 2 är ofakturerade. Talet 27 var felet:
+    // 20 av prods 23 "klara" var redan fakturerade.
+    expect(vy.svar.tal).toBe('2')
+    expect(vy.svar.text).toBe('trakter att fakturera')
     // atgard: 40 kontraktsnr + 4 traillertimmar + 4 skot = 48, som i prod.
     // De 31 utan kundnummer räknas inte hit — de har sin egen rad.
     expect(vy.svar.under).toBe('48 trakter kräver något av dig')
   })
 
+  it('talet är summan av raderna i "Att fakturera" — inget räknas som inte visas', () => {
+    const rader = prodRader()
+    const vy = byggListVy(rader, null, prodFaktura(rader))
+    expect(String(antal(hog(vy, 'att_fakturera')))).toBe(vy.svar.tal)
+  })
+
   it('en enda klar trakt skrivs i singular', () => {
-    const vy = byggListVy([rad({ vo_nummer: '1' })], null)
+    const r = [rad({ vo_nummer: '1' })]
+    const vy = byggListVy(r, null, byggFakturaLage([{ vo_nummer: '1', kontraktsnummer: '970001' }], []))
     expect(vy.svar.tal).toBe('1')
-    expect(vy.svar.text).toBe('trakt klar att fakturera')
+    expect(vy.svar.text).toBe('trakt att fakturera')
     expect(vy.svar.under).toBeNull()
+  })
+
+  it('utan läsbara fakturor står det gamla talet kvar — och högen säger varför', () => {
+    const rader = prodRader()
+    const vy = byggListVy(rader, null, null)
+    expect(vy.svar.tal).toBe('27')
+    expect(vy.svar.text).toBe('trakter klara att fakturera')
+    expect(vy.hogar.map(h => h.nyckel)).toEqual(['klara'])
+    expect(vy.hogar[0].under).toContain('kunde inte läsas')
   })
 })
 
 describe('byggListVy — vad ska du göra', () => {
-  const vy = byggListVy(prodRader(), { poster: 2, timmar: 2.93 })
+  const prod = prodRader()
+  const vy = byggListVy(prod, { poster: 2, timmar: 2.93 }, prodFaktura(prod))
   const rader = Object.fromEntries(vy.attGora.map(r => [r.nyckel, r]))
 
   it('kontraktsnummer: antalet och hur många som inte är upplagda', () => {
@@ -122,6 +199,15 @@ describe('byggListVy — vad ska du göra', () => {
     expect(rader.traillertimmar.titel).toBe('4 saknar traillertimmar')
     expect(rader.kund.titel).toBe('31 saknar kundnummer i Fortnox')
     expect(rader.kund.under).toContain('Karl Hedin och Privat')
+  })
+
+  it('traillertimmar säger när trakterna redan är fakturerade — tiden ändrar ingen faktura då', () => {
+    // Prod 2026-10-25: alla fyra var redan fakturerade.
+    expect(rader.traillertimmar.under).toBe('Tiden för en flytt över 3 mil — alla är redan fakturerade')
+    // Utan läsbara fakturor påstås ingenting om det.
+    const utan = byggListVy(prod, null, null)
+    const t = utan.attGora.find(r => r.nyckel === 'traillertimmar')!
+    expect(t.under).toBe('Tiden för en flytt över 3 mil')
   })
 
   it('de handinknappade skotartimmarna syns med sitt tal och sin orsak', () => {
@@ -136,27 +222,27 @@ describe('byggListVy — vad ska du göra', () => {
   })
 
   it('en hög som är tom ger ingen rad alls', () => {
-    const vy2 = byggListVy([rad({ vo_nummer: '1' })], null)
+    const vy2 = byggListVy([rad({ vo_nummer: '1' })], null, null)
     expect(vy2.attGora).toEqual([])
   })
 })
 
-describe('byggListVy — klara per månad', () => {
-  const vy = byggListVy(prodRader(), null)
+describe('byggListVy — utan läsbara fakturor: en hög per avräkningsmånad', () => {
+  const vy = byggListVy(prodRader(), null, null)
+  const klara = hog(vy, 'klara')!
 
   it('grupperas per avräkningsmånad, nyast först', () => {
-    expect(vy.klara.map(g => g.rubrik)).toEqual([
+    expect(klara.grupper.map(g => g.rubrik)).toEqual([
       'Oktober 2026', 'September 2026', 'Augusti 2026', 'Juli 2026', 'Februari 2026',
     ])
   })
 
   it('summan av gruppernas rader är antalet klara — en trakt räknas en gång', () => {
-    const antal = vy.klara.reduce((s, g) => s + g.rader.length, 0)
-    expect(String(antal)).toBe(vy.svar.tal)
+    expect(String(antal(klara))).toBe(vy.svar.tal)
   })
 
   it('raden bär båda talen: det som faktureras till höger, det andra under', () => {
-    const okt = vy.klara.find(g => g.rubrik === 'Oktober 2026')!
+    const okt = klara.grupper.find(g => g.rubrik === 'Oktober 2026')!
     const bag = okt.rader.find(r => r.titel.startsWith('Bågskyttebanan'))!
     expect(sp(bag.hoger)).toBe('1 687')
     expect(bag.hogerUnder).toBe('m³fub')
@@ -169,8 +255,81 @@ describe('byggListVy — klara per månad', () => {
   })
 })
 
+describe('byggListVy — faktureringens högar', () => {
+  const prod = prodRader()
+  const faktura = prodFaktura(prod)
+  const vy = byggListVy(prod, null, faktura)
+
+  it('fyra högar i faktureringens ordning, och en trakt ligger i exakt en', () => {
+    expect(vy.hogar.map(h => h.nyckel)).toEqual([
+      'att_fakturera', 'okant_lage', 'fakturerat', 'slutredovisat',
+    ])
+    const vo = vy.hogar.flatMap(h => h.grupper.flatMap(g => g.rader.map(r => r.vo)))
+    expect(new Set(vo).size).toBe(vo.length)
+  })
+
+  it('facit: 2 att fakturera, 1 går inte att se, 5+2 slutredovisade', () => {
+    expect(antal(hog(vy, 'att_fakturera'))).toBe(2)
+    expect(antal(hog(vy, 'okant_lage'))).toBe(1)
+    expect(antal(hog(vy, 'slutredovisat'))).toBe(7)   // 5 klara + 2 pågående
+    // De fakturerade: 19 klara (24 minus de 5 slutredovisade) + 2 pågående + 4
+    // med traillertimmar = 25.
+    expect(antal(hog(vy, 'fakturerat'))).toBe(25)
+  })
+
+  it('en trakt utan kontraktsnummer gissas aldrig som ofakturerad — raden säger varför', () => {
+    const h = hog(vy, 'okant_lage')!
+    const r = h.grupper[0].rader[0]
+    expect(r.under).toBe('Inget kontraktsnummer — går inte att se om den är fakturerad')
+    expect(h.under).toContain('Utan kontraktsnummer')
+    // Pricken står på högen, en gång — inte på varje rad.
+    expect(h.varning).toBe(true)
+    expect(h.grupper.flatMap(g => g.rader).some(x => x.varning)).toBe(false)
+    expect(hog(vy, 'fakturerat')!.varning).toBe(false)
+  })
+
+  it('fakturerat säger numret och datumet, grupperat på FAKTURAmånaden', () => {
+    const h = hog(vy, 'fakturerat')!
+    expect(h.grupper.map(g => g.rubrik)).toEqual(['September 2026'])
+    expect(h.grupper[0].rader[0].under).toMatch(/^Faktura 20261\d\d · 21 sep$/)
+  })
+
+  it('slutredovisat säger slutredovisningens datum och faktura, inte den första fakturans', () => {
+    const h = hog(vy, 'slutredovisat')!
+    expect(h.grupper.map(g => g.rubrik)).toEqual(['Oktober 2026'])
+    expect(h.grupper[0].rader[0].under).toMatch(/^Slutredovisat 19 okt · faktura 20261\d\d$/)
+  })
+
+  it('en fakturerad trakt räknas inte en andra gång under "Vad väntar?"', () => {
+    // 33 pågår i fixturen: Mölleryd ligger i arbetshögen och p0–p3 i sina
+    // fakturahögar. Utan fakturaläget hade de fyra stått kvar här.
+    expect(vy.vantar!.under).toBe('28 pågår · 2 inte påbörjade')
+    expect(byggListVy(prod, null, null).vantar!.under).toBe('32 pågår · 2 inte påbörjade')
+  })
+
+  it('en fakturerad trakt med debiterbart arbete står i BÅDA — det är två olika saker', () => {
+    // Fakturan är skickad, och arbetet går ändå inte att fakturera än. Vi vet
+    // inte om arbetet låg med på fakturan, så ingetdera döljs.
+    const r = [rad({ vo_nummer: 'x', namn: 'Mölleryd', tillstand: 'pagar', avrakningsdatum: null, debiterbart_arbete_tim: 1.57 })]
+    const vy2 = byggListVy(r, null, byggFakturaLage(
+      [{ vo_nummer: 'x', kontraktsnummer: '970001' }],
+      [{ document_number: 2026175, invoice_date: '2026-10-13', article_number: '8', description: 'Kontraktsnr 970001' }],
+    ))
+    expect(vy2.hogar.map(h => h.nyckel)).toEqual(['fakturerat'])
+    expect(vy2.arbeteVantar.map(x => x.vo)).toEqual(['x'])
+    // Men den räknas inte som "väntar" — den högen är de som inte syns någon annanstans.
+    expect(vy2.vantar).toBeNull()
+  })
+
+  it('en hög som är tom finns inte', () => {
+    const en = [rad({ vo_nummer: '1' })]
+    const vy2 = byggListVy(en, null, byggFakturaLage([{ vo_nummer: '1', kontraktsnummer: '970001' }], []))
+    expect(vy2.hogar.map(h => h.nyckel)).toEqual(['att_fakturera'])
+  })
+})
+
 describe('byggListVy — debiterbart arbete som inte kan faktureras än', () => {
-  const vy = byggListVy(prodRader(), null)
+  const vy = byggListVy(prodRader(), null, null)
 
   it('tar bara trakter som INTE är klara, störst först', () => {
     expect(vy.arbeteVantar.map(r => r.titel)).toEqual([
@@ -194,14 +353,14 @@ describe('byggListVy — debiterbart arbete som inte kan faktureras än', () => 
 
 describe('byggListVy — vad väntar', () => {
   it('räknar inte trakterna med debiterbart arbete en andra gång', () => {
-    const vy = byggListVy(prodRader(), null)
+    const vy = byggListVy(prodRader(), null, null)
     // 32 pågår + 2 ej påbörjade, utan Skälviken, Arvidstorp och Mölleryd
     expect(vy.vantar!.titel).toBe('34 trakter väntar')
     expect(vy.vantar!.under).toBe('32 pågår · 2 inte påbörjade')
   })
 
   it('inget som väntar ger ingen hög', () => {
-    expect(byggListVy([rad({ vo_nummer: '1' })], null).vantar).toBeNull()
+    expect(byggListVy([rad({ vo_nummer: '1' })], null, null).vantar).toBeNull()
   })
 })
 
