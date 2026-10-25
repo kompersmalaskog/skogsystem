@@ -11,7 +11,7 @@ import {
   LINJERED_FORHAND_KALLA, LINJERED_KALLA, andeHandtag, kopplaLinjeRedigering, linjeRedigeringLager, type RedIn, type RedLage, type RedLinje,
 } from '../linjeRedigeringKarta';
 import {
-  doljMer, doltSpoken, klippVidaGeometri, lasDolt, narmasteSpoke, skrivDolt, synligaDelar, vidaLinjer, visaOriginal, visaStracka, type DoltPerLinje,
+  doljMer, doltSpoken, klippVidaGeometri, lasDolt, narmasteSpoke, skrivDolt, sparaLokaltDolt, synligaDelar, vidaLinjer, visaOriginal, visaStracka, type DoltPerLinje,
 } from '../vidaDolt';
 
 export const VIDA_ID = 'vida:';
@@ -34,13 +34,26 @@ export interface LinjeRedIn {
   /** Vidas geometri för objektet (ouppklippt — larmen läser den). */
   traktGeo: { features?: any[] } | null;
   objektId: string | null;
+  /** Bara admin får dölja/ta tillbaka Vidas linjer (RLS på objekt_linje_dolt). */
+  arAdmin: boolean;
   db: { from: (t: string) => any };
   /** Id:n som skapas här ska aldrig tas för "nyritad väg nära en annan" av basvägs-sammanslagningsfrågan. */
   mergeChecked: { current: Set<string> };
 }
 
+export const VIDA_BARA_PLANERARE = 'Bara planeraren kan ändra Vidas linjer';
+export const DOLT_EJ_SPARAT = 'Kunde inte spara – försök igen';
+
 export function useLinjeRedigering(inp: LinjeRedIn) {
   const [lage, setLage] = useState<RedLage | null>(null);
+  const [meddelande, setMeddelande] = useState<string | null>(null);
+  const meddelandeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visaMeddelande = useCallback((t: string) => {
+    setMeddelande(t);
+    if (meddelandeTimer.current) clearTimeout(meddelandeTimer.current);
+    meddelandeTimer.current = setTimeout(() => setMeddelande(null), 4000);
+  }, []);
+  useEffect(() => () => { if (meddelandeTimer.current) clearTimeout(meddelandeTimer.current); }, []);
   const [dolt, setDolt] = useState<DoltPerLinje>({});
   const [historikN, setHistorikN] = useState(0);
   const historik = useRef<Steg[]>([]);
@@ -103,13 +116,23 @@ export function useLinjeRedigering(inp: LinjeRedIn) {
     res.tasBort.forEach((id) => inpRef.current.deleteMarker(id));
   };
 
+  /** Dölj/ta tillbaka på Vidas linjer. Icke-admin får inte (servern nekar): ingenting ändras och det sägs — aldrig ett tyst val som bara gäller på enheten. */
   const sattDolt = (efter: DoltPerLinje) => {
     const fore = doltRef.current;
     if (efter === fore) return;
+    if (!inpRef.current.arAdmin) { visaMeddelande(VIDA_BARA_PLANERARE); return; }
+    const oid = inpRef.current.objektId;
+    if (!oid) return;
     skjutHistorik();
     setDolt(efter);
     doltRef.current = efter;
-    if (inpRef.current.objektId) void skrivDolt(inpRef.current.db, inpRef.current.objektId, fore, efter);
+    skrivDolt(inpRef.current.db, oid, fore, efter).then((ok) => {
+      if (ok) return;
+      // Servern fick inte ändringen: tillbaka till det som gäller där, och säg det.
+      if (doltRef.current === efter) { setDolt(fore); doltRef.current = fore; historik.current.pop(); setHistorikN(historik.current.length); }
+      sparaLokaltDolt(oid, fore);
+      visaMeddelande(DOLT_EJ_SPARAT);
+    });
   };
 
   const onSudda = useCallback((id: string, iv: Array<[number, number]>) => {
@@ -147,12 +170,18 @@ export function useLinjeRedigering(inp: LinjeRedIn) {
     for (const m of nu) if (!tillbaka.has(String(m.id))) inpRef.current.deleteMarker(m.id);
     if (s.dolt !== doltRef.current) {
       const fore = doltRef.current;
+      const oid = inpRef.current.objektId;
       setDolt(s.dolt); doltRef.current = s.dolt;
-      if (inpRef.current.objektId) void skrivDolt(inpRef.current.db, inpRef.current.objektId, fore, s.dolt);
+      if (oid) skrivDolt(inpRef.current.db, oid, fore, s.dolt).then((ok) => {
+        if (ok) return;
+        if (doltRef.current === s.dolt) { setDolt(fore); doltRef.current = fore; }
+        sparaLokaltDolt(oid, fore);
+        visaMeddelande(DOLT_EJ_SPARAT);
+      });
     }
-  }, []);
+  }, [visaMeddelande]);
 
-  const oppna = useCallback((l: RedLage = 'sudda') => { historik.current = []; setHistorikN(0); setLage(l); }, []);
+  const oppna = useCallback((l: RedLage = 'sudda') => { historik.current = []; setHistorikN(0); setMeddelande(null); setLage(l); }, []);
   const stang = useCallback(() => { historik.current = []; setHistorikN(0); setLage(null); }, []);
 
   // Kartans version av Vidas geometri: de dolda delarna är borta (Vidas data rörs aldrig, larmen läser den ouppklippta).
@@ -185,7 +214,7 @@ export function useLinjeRedigering(inp: LinjeRedIn) {
     return kopplaLinjeRedigering(inp.map, () => redIn.current);
   }, [inp.map, inp.klar, !!lage]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { aktiv: lage !== null, lage, setLage, oppna, stang, angra, kanAngra: historikN > 0, dolt, visaVidaOriginal };
+  return { aktiv: lage !== null, lage, setLage, oppna, stang, angra, kanAngra: historikN > 0, dolt, visaVidaOriginal, meddelande };
 }
 
 /** Källor och lager läggs på kartan en gång (kallas där övriga lager skapas). */

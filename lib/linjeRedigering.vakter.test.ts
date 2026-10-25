@@ -38,7 +38,12 @@ describe('Redigera linjer — vakter', () => {
   });
   it('Ångra tar bort det som lades till och sparar tillbaka det som togs bort (både markeringar och dolt)', () => {
     expect(hook).toContain('inpRef.current.deleteMarker(m.id)');
-    expect(hook).toContain('skrivDolt(inpRef.current.db, inpRef.current.objektId, fore, s.dolt)');
+    expect(hook).toContain('skrivDolt(inpRef.current.db, oid, fore, s.dolt)');
+  });
+  it('Vidas linjer kan bara döljas av admin: sattDolt vägrar och säger det innan något skrivs, och sidan ger hooken rollen', () => {
+    expect(hook.indexOf('if (!inpRef.current.arAdmin)')).toBeGreaterThan(-1);
+    expect(hook.indexOf('if (!inpRef.current.arAdmin)')).toBeLessThan(hook.indexOf('skrivDolt(inpRef.current.db, oid, fore, efter)'));
+    expect(page).toContain('arAdmin: isAdminRiktig');
   });
   it('entrén finns bara i planeringen (inte körvyn) och listan har ingen annan knapp än de sex', () => {
     expect(page).toContain("...(korvyActive ? [] : [{ id: 'redigera', titel: 'Redigera linjer'");

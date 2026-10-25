@@ -30,6 +30,12 @@ describe('LinjeRedList', () => {
     expect(q('linjered-koppla').getAttribute('aria-pressed')).toBe('true');
     expect(q('linjered-sudda').getAttribute('aria-pressed')).toBe('false');
   });
+  it('ett meddelande ersätter tipset en stund (Vidas linjer är bara för planeraren)', () => {
+    visa(<LinjeRedList {...grund} lage="sudda" meddelande="Bara planeraren kan ändra Vidas linjer" />);
+    expect(q('linjered-tips').textContent).toBe('Bara planeraren kan ändra Vidas linjer');
+    visa(<LinjeRedList {...grund} lage="sudda" meddelande={null} />);
+    expect(q('linjered-tips').textContent).toBe(LINJERED_TIPS.sudda);
+  });
   it('knapparna anropar rätt sak; Ångra är avstängd när det inte finns något att ångra', () => {
     const onVal = vi.fn(), onAngra = vi.fn(), onKlar = vi.fn();
     visa(<LinjeRedList {...grund} onVal={onVal} onAngra={onAngra} onKlar={onKlar} lage="sudda" />);

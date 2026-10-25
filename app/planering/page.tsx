@@ -7948,7 +7948,7 @@ export default function PlannerPage() {
   // REDIGERA LINJER (Martin 2026-10-25, skiss 47–48): sudda, förläng och koppla ihop — vägar och alla ritade linjer; Vidas linjer kan döljas (aldrig ändras). Se lib/hooks/useLinjeRedigering.
   const linjeRed = useLinjeRedigering({
     map: mapInstanceRef.current, klar: mapLibreReady, markers, markersRef: markersRef as any, setMarkers: setMarkers as any, deleteMarker: deleteMarkerFromDb,
-    svgToLatLon, latLonToSvg, visibleLines, traktGeo, objektId: valtObjekt?.id ? String(valtObjekt.id) : null, db: supabase as any, mergeChecked: mergeCheckedIdsRef,
+    svgToLatLon, latLonToSvg, visibleLines, traktGeo, objektId: valtObjekt?.id ? String(valtObjekt.id) : null, arAdmin: isAdminRiktig, db: supabase as any, mergeChecked: mergeCheckedIdsRef,
   });
   const [redAterEfterRit, setRedAterEfterRit] = useState(false);   // "Rita" ur Redigera linjer: när ritningen är klar eller avbruten är man tillbaka i redigeringen
   // Rita ur Redigera linjer: ritningen är en vanlig ritning; när den är klar eller avbruten (isDrawMode av och typlistan stängd) är man tillbaka i redigeringen.
@@ -14716,6 +14716,7 @@ export default function PlannerPage() {
           kanAngra={linjeRed.kanAngra}
           onAngra={linjeRed.angra}
           onKlar={linjeRed.stang}
+          meddelande={linjeRed.meddelande}
           onVal={(v: RedVal) => {
             if (v === 'rita') { linjeRed.stang(); setRedAterEfterRit(true); byggRita().find((r) => r.id === 'linje')?.onTryck(); return; }   // samma ruta och samma typlista som Rita linje
             linjeRed.setLage(v);
@@ -15654,7 +15655,7 @@ export default function PlannerPage() {
                     stat={skotatTillAvlagg(skotarLass.lass, `vida:${visaAvlaggNummer(traktInfo.nr)}`, skotarLass.avslut?.faktorer)} />
                 )}
             {/* Vidas linje med dolda delar (suddade i Redigera linjer): Vidas data är orörd — en knapp tar tillbaka originalet. */}
-            {traktInfo.kategori === 'linje' && nyckel && linjeRed.dolt[nyckel]?.length ? (
+            {traktInfo.kategori === 'linje' && nyckel && isAdminRiktig && linjeRed.dolt[nyckel]?.length ? (
               <button type="button" data-testid="visa-vidas-original" onClick={() => { linjeRed.visaVidaOriginal(nyckel); stangTraktKort(); }} className="press-dim"
                 style={{ ...KNAPP.sekundar, width: '100%', marginBottom: AVSTAND.l }}>
                 Visa Vidas original

@@ -26,8 +26,10 @@ export const LINJERED_TIPS: Record<RedLage, string> = {
 const KNAPP_H = 48;
 const PLUS_OVER_PX = 20 + 44 + AVSTAND.s;   // samma som KorvyNertillList: plusknappens överkant + luft
 
-export function LinjeRedList({ lage, onVal, onAngra, kanAngra, onKlar, smal, testid = 'linjered-list' }: {
+export function LinjeRedList({ lage, onVal, onAngra, kanAngra, onKlar, smal, meddelande, testid = 'linjered-list' }: {
   lage: RedLage;
+  /** Kort besked som ersätter tipset en stund (t.ex. att Vidas linjer bara planeraren kan ändra). */
+  meddelande?: string | null;
   onVal: (v: RedVal) => void;
   onAngra: () => void;
   kanAngra: boolean;
@@ -50,7 +52,7 @@ export function LinjeRedList({ lage, onVal, onAngra, kanAngra, onKlar, smal, tes
           padding: AVSTAND.s, background: FARG.kort, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.sheet, color: FARG.text, fontFamily: 'inherit',
         }}
       >
-        <div data-testid="linjered-tips" style={{ padding: `${AVSTAND.xs}px ${AVSTAND.s}px 0`, ...TYP.listtitel }}>{LINJERED_TIPS[lage]}</div>
+        <div data-testid="linjered-tips" style={{ padding: `${AVSTAND.xs}px ${AVSTAND.s}px 0`, ...TYP.listtitel, color: meddelande ? FARG.orange : FARG.text }}>{meddelande || LINJERED_TIPS[lage]}</div>
         <div role="group" aria-label="Vad vill du göra med linjerna?" style={{ display: 'flex', gap: AVSTAND.xs }}>
           {LINJERED_VAL.map((v) => {
             const vald = v.id === lage;
