@@ -72,15 +72,22 @@ Månaden väljs med pilarna eller i adressen: `/admin?flik=lon&underflik=underla
 arbetstiden: `period=2026-10` är arbetstid **september 2026**, `period=2026-09` är arbetstid augusti 2026. Sidan skriver båda ("Löneperiod oktober
 2026 — arbetstid september 2026").
 
+## Sjuktimmar (2026-10-25)
+
+**8 timmar för varje sjuk vardag** (beslut Martin 2026-10-25), löneart `sjuktimmar` (`lib/lonesystem/sjuktimmar.ts`, en rad per månad):
+
+- Heldag sjuk: 8 tim per dag **måndag–fredag som inte är röd dag** — helger och röda dagar i sjukperioden räknas inte. "Arbete vinner":
+  en sjukrad på en dag med maskinpass är arbete.
+- Deldag sjuk (föraren åkte hem sjuk): dagens frånvarotimmar = 8 minus det som arbetats (samma tal som drar av månadens ordinarie).
+- Appen skickar bara **antalet timmar**. Karensavdrag och sjuklönens procent räknas i Fortnox på den löneart koden kopplas till —
+  **kontrollera i Fortnox att lönearten gör det** innan första skarpa sändningen.
+- Tom kod: raden är röd och stoppar en skarp sändning som alla vanliga lönearter.
+- Företagsledare får inga sjuktimmar.
+
 ## Lönearter som inte finns än (underlag saknas)
 
-Sjuktimmar, VAB-timmar och semesterdagar är **inte** byggda. Appen har inte underlaget för dem:
-
-- Frånvaron expanderas från start- till slutdatum över **alla kalenderdagar** (`beräknaExport`, "heldagsrader"). Semester fredag–måndag räknas som
-  4 dagar inklusive lördag och söndag (provat). En semesterdag i Fortnox är en arbetsdag; helger och röda dagar ska bort. Den räkningen finns inte.
-- Sjuk och VAB är **dagar** (heldag) eller en härledd deldag i timmar. Timmarna per dag är ett **antagande** (8 tim/dag mot `ordinarie_vecka_h`)
-  tills schemat är beslutat (§12 mom 3 anm 2), och frågan "levereras sjukfrånvaro i timmar och räknar Fortnox karens och 80 % själv?" ligger hos
-  löneansvarig (kortet "Att ta med löneansvarig" i förhandsvisningen).
+VAB-timmar och semesterdagar är **inte** byggda. Frånvaron expanderas från start- till slutdatum över **alla kalenderdagar**; en semesterdag
+i Fortnox är en arbetsdag och helger och röda dagar ska bort (sjuktimmarna gör det redan, `raknaSjuktimmar`).
 
 Traktamente byggs inte.
 

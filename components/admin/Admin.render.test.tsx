@@ -2306,7 +2306,7 @@ describe("Löneunderlag", () => {
     expect(blad("Skicka 1 till Fortnox").length).toBeGreaterThan(0);
   });
   it("allt kopplat och inget att kolla: svaret är 'Klart att skicka' — och en sak att kolla gör det till '1 sak att kolla'", async () => {
-    const kopplad = Object.fromEntries(["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare", "brandrisk_ob"].map(k => [k, { kod: "1", namn: "x" }]));
+    const kopplad = Object.fromEntries(["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare", "brandrisk_ob", "sjuktimmar"].map(k => [k, { kod: "1", namn: "x" }]));
     g.__salary = { ...SALARY, kopplingar: kopplad };
     await monter("flik=lon");
     expect(cont.querySelector("[data-svar]")!.textContent).toContain("Klart att skicka");
@@ -2692,7 +2692,7 @@ describe("Lönearter: vad i appen skickas som vilken löneart i Fortnox", () => 
   it("en egen flik under Lön, och listan är lönearterna i exportens ordning under två rubriker", async () => {
     await monter("flik=lon&underflik=lonearter");
     expect(blad("Lönearter").length).toBeGreaterThan(0);
-    expect(raderna()).toEqual(["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare", "brandrisk_ob"]);
+    expect(raderna()).toEqual(["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare", "brandrisk_ob", "sjuktimmar"]);
     expect(text()).toContain("Timlön och övertid");
     expect(text()).toContain("Tillägg");
   });
@@ -2746,7 +2746,7 @@ describe("Lönearter: vad i appen skickas som vilken löneart i Fortnox", () => 
     g.__db.lonesystem_artikelmappning = g.__db.lonesystem_artikelmappning.filter((r: any) => !r.intern_typ.startsWith("premielon"));
     await monter("flik=lon&underflik=lonearter");
     const banner = cont.querySelector("[data-lonearter-saknas]")!;
-    expect(banner.textContent).toMatch(/3 lönearter saknar kod: Helglön skördare, Helglön skotare, Brandrisk – OB/);   // OB-raden har tom kod som standard
+    expect(banner.textContent).toMatch(/4 lönearter saknar kod: Helglön skördare, Helglön skotare, Brandrisk – OB, Sjuktimmar/);   // OB-raden har tom kod som standard
     expect(banner.textContent).not.toContain("Premielön");
     expect(rad("premielon_skordare").textContent).toContain("Ej kopplad");
     expect(rad("premielon_skordare").textContent).toContain("Frivillig");
@@ -2756,6 +2756,7 @@ describe("Lönearter: vad i appen skickas som vilken löneart i Fortnox", () => 
     g.__db.lonesystem_artikelmappning.push({ id: "x8", lonesystem_id: "ls1", intern_typ: "helglon_skordare", extern_kod: "1461", beskrivning: "Helglön, timmar", skapad: "2026-10-15" });
     g.__db.lonesystem_artikelmappning.push({ id: "x9", lonesystem_id: "ls1", intern_typ: "helglon_skotare", extern_kod: "1462", beskrivning: "Helglön, timmar 2", skapad: "2026-10-15" });
     g.__db.lonesystem_artikelmappning.push({ id: "x10", lonesystem_id: "ls1", intern_typ: "brandrisk_ob", extern_kod: "147", beskrivning: "OB", skapad: "2026-10-15" });
+    g.__db.lonesystem_artikelmappning.push({ id: "x11", lonesystem_id: "ls1", intern_typ: "sjuktimmar", extern_kod: "9002", beskrivning: "Sjuk", skapad: "2026-10-25" });
     await monter("flik=lon&underflik=lonearter");
     expect(cont.querySelector("[data-lonearter-saknas]")).toBeNull();
   });
@@ -2786,7 +2787,7 @@ describe("Lönearter: vad i appen skickas som vilken löneart i Fortnox", () => 
     expect(rad("helglon_skordare").textContent).toContain("1461");
     expect(rad("helglon_skordare").textContent).toContain("Helglön, timmar");
     // skotarlönearten saknar fortfarande kod: bannern nämner bara den
-    expect(cont.querySelector("[data-lonearter-saknas]")!.textContent).toMatch(/2 lönearter saknar kod: Helglön skotare, Brandrisk – OB/);
+    expect(cont.querySelector("[data-lonearter-saknas]")!.textContent).toMatch(/3 lönearter saknar kod: Helglön skotare, Brandrisk – OB, Sjuktimmar/);
   });
 
   it("ändra en befintlig kod: samma rad uppdateras (ingen dubblett)", async () => {
@@ -3060,7 +3061,7 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
 
   describe("Att ta med löneansvarig: bara det som fortfarande är öppet", () => {
     const kopplad = (utom: string[] = []) => Object.fromEntries(
-      ["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare", "brandrisk_ob"]
+      ["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare", "brandrisk_ob", "sjuktimmar"]
         .filter(k => !utom.includes(k)).map(k => [k, { kod: "1", namn: "x" }]));
     const rader = () => Array.from(cont.querySelectorAll<HTMLElement>("[data-att-ta-med]"));
     const gor = () => rader().find(e => e.getAttribute("data-att-ta-med") === "gor");
@@ -4692,7 +4693,7 @@ describe("Granskningen: Lön → Lönearter", () => {
   it("lönearter som saknar kod: en rad med namnen, utan förklaring av hur exporten stoppar (den står i bekräftelsen)", async () => {
     await monter("flik=lon&underflik=lonearter");
     const t = cont.querySelector("[data-lonearter-saknas]")!.textContent!;
-    expect(t).toMatch(/lönearter saknar kod: Helglön skördare, Helglön skotare, Brandrisk – OB\./);
+    expect(t).toMatch(/lönearter saknar kod: Helglön skördare, Helglön skotare, Brandrisk – OB, Sjuktimmar\./);
     expect(t).not.toContain("stoppas exporten");
   });
 });
@@ -4799,7 +4800,7 @@ describe("Hemskickad i Admin", () => {
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 describe("Förarens godkännande i Löneunderlag", () => {
   /** Alla lönearter kopplade: ingen "Koppla koden"-rad som räknas som en sak att kolla. */
-  const ALLA_KOPPLADE = Object.fromEntries(["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare", "brandrisk_ob"].map(k => [k, { kod: "1", namn: "x" }]));
+  const ALLA_KOPPLADE = Object.fromEntries(["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare", "brandrisk_ob", "sjuktimmar"].map(k => [k, { kod: "1", namn: "x" }]));
   const fo = (id: string, namn: string, o: Record<string, any> = {}) => ({ ...SALARY.medarbetare[0], medarbetare_id: id, namn, ...o });
   const TRE = () => ({ ...SALARY, kopplingar: ALLA_KOPPLADE, medarbetare: [
     fo("m1", "Anna Berg"),                                                      // godkänd
