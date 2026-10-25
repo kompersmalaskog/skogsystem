@@ -22,7 +22,7 @@ export default async function Layout({ children }: { children: ReactNode }) {
 
   const lasning = await lasOversikt(sb);
   const lista = lasning.ok
-    ? <FakturaLista vy={byggListVy(lasning.rader, lasning.utanTrakt)} />
+    ? <FakturaLista vy={byggListVy(lasning.rader, lasning.utanTrakt, lasning.faktura)} />
     : <Lasfel titel="Kunde inte läsa underlagen" text={lasning.fel} />;
 
   return (

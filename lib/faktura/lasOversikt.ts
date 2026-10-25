@@ -7,9 +7,17 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { ArbeteUtanTrakt, OversiktsRad } from './listaVy';
+import { byggFakturaLage, type FakturaLage } from './fakturaLage';
 
 export type Lasning =
-  | { ok: true; rader: OversiktsRad[]; utanTrakt: ArbeteUtanTrakt | null; arAdmin: true }
+  | {
+      ok: true;
+      rader: OversiktsRad[];
+      utanTrakt: ArbeteUtanTrakt | null;
+      /** null = fakturorna gick inte att läsa; listan säger det i stället för att gissa. */
+      faktura: FakturaLage | null;
+      arAdmin: true;
+    }
   | { ok: false; fel: string };
 
 export async function serverKlient() {
@@ -54,5 +62,27 @@ export async function lasOversikt(sb: Awaited<ReturnType<typeof serverKlient>>):
     utanTrakt = { poster: lost.length, timmar: Math.round((minuter / 60) * 100) / 100 };
   }
 
-  return { ok: true, rader: (data ?? []) as OversiktsRad[], utanTrakt, arAdmin: true };
+  // Var i faktureringen varje trakt ligger — läst ur VÅRA skickade fakturor och
+  // kopplad på kontraktsnumret (lib/faktura/fakturaLage.ts). Två små läsningar:
+  // 69 objektrader och de 143 fakturarader som bär kontraktsnummer eller
+  // slutredovisning. Går någon av dem inte igenom blir läget null och listan
+  // säger att den inte kan se vad som är skickat — den gissar aldrig.
+  let faktura: FakturaLage | null = null;
+  const [objektRes, fakturaRes] = await Promise.all([
+    sb.from('objekt').select('vo_nummer, kontraktsnummer'),
+    sb.from('fortnox_invoice_rows')
+      .select('document_number, invoice_date, article_number, description')
+      .in('article_number', ['7', '8']),
+  ]);
+  // PostgREST kapar tyst vid sidgränsen. En halv läsning gör trakter till
+  // "går inte att se" utan att något säger varför — hellre ingen bedömning
+  // alls. 69 objektrader och 143 fakturarader i dag; taket är långt borta.
+  const SIDGRANS = 1000;
+  const helt = (r: { error: unknown; data: unknown[] | null }) =>
+    !r.error && !!r.data && r.data.length < SIDGRANS;
+  if (helt(objektRes) && helt(fakturaRes)) {
+    faktura = byggFakturaLage(objektRes.data!, fakturaRes.data!);
+  }
+
+  return { ok: true, rader: (data ?? []) as OversiktsRad[], utanTrakt, faktura, arAdmin: true };
 }

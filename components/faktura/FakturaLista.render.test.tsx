@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import FakturaLista from './FakturaLista';
 import { byggListVy, type OversiktsRad } from '@/lib/faktura/listaVy';
+import { byggFakturaLage, type FakturaLage } from '@/lib/faktura/fakturaLage';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -34,11 +35,19 @@ afterEach(() => {
   el = null;
 });
 
-function rita(rader: OversiktsRad[], utanTrakt: { poster: number; timmar: number } | null = null) {
+/**
+ * `faktura = null` är läget "fakturorna gick inte att läsa": listan ser ut som
+ * den gjorde före faktureringshögarna, så testerna nedan provar den formen.
+ */
+function rita(
+  rader: OversiktsRad[],
+  utanTrakt: { poster: number; timmar: number } | null = null,
+  faktura: FakturaLage | null = null,
+) {
   el = document.createElement('div');
   document.body.appendChild(el);
   root = createRoot(el);
-  act(() => { root!.render(<FakturaLista vy={byggListVy(rader, utanTrakt)} />); });
+  act(() => { root!.render(<FakturaLista vy={byggListVy(rader, utanTrakt, faktura)} />); });
   return el;
 }
 
@@ -138,5 +147,86 @@ describe('FakturaLista — raderna leder till trakten', () => {
   it('månadsrubriken står över kortet', () => {
     const ut = rita([rad({ vo_nummer: '1', avrakningsdatum: '2026-10-19' })]);
     expect(ut.querySelector('[aria-label="Oktober 2026"]')).not.toBeNull();
+  });
+});
+
+describe('FakturaLista — faktureringens högar', () => {
+  // Bågskyttebanan fakturerad, Rävemåla slutredovisad på en senare faktura,
+  // Vällust kvar att fakturera, Anders Ingemarsson utan kontraktsnummer.
+  const rader = [
+    rad({ vo_nummer: '11251428', namn: 'Vällust RP M-R -25', avrakningsdatum: '2026-10-20' }),
+    rad({ vo_nummer: '11271849', namn: 'Bågskyttebanan RP J-Hus- 25', avrakningsdatum: '2026-10-19', volym_m3fub: 1687 }),
+    rad({ vo_nummer: '11241031', namn: 'Rävemåla AU 2026', avrakningsdatum: '2026-09-14' }),
+    rad({ vo_nummer: '11106406', namn: 'Anders Ingemarsson RP ATA', avrakningsdatum: '2026-02-18' }),
+  ];
+  const faktura = byggFakturaLage(
+    [
+      { vo_nummer: '11251428', kontraktsnummer: '971710' },
+      { vo_nummer: '11271849', kontraktsnummer: '968539' },
+      { vo_nummer: '11241031', kontraktsnummer: '974073' },
+      { vo_nummer: '11106406', kontraktsnummer: null },
+    ],
+    [
+      { document_number: 2026181, invoice_date: '2026-10-19', article_number: '8', description: 'Kontraktsnr 968539' },
+      { document_number: 2026158, invoice_date: '2026-09-21', article_number: '8', description: 'Kontraktsnr 974073' },
+      { document_number: 2026183, invoice_date: '2026-10-19', article_number: '8', description: 'Kontraktsnr 974073' },
+      { document_number: 2026183, invoice_date: '2026-10-19', article_number: '7', description: 'Slutredovisning' },
+    ],
+  );
+
+  it('fyra frågor i faktureringens ordning, var och en med sitt svar under', () => {
+    const ut = rita(rader, null, faktura);
+    const hogar = Array.from(ut.querySelectorAll('[data-hog]'));
+    expect(hogar.map(h => h.getAttribute('data-hog')))
+      .toEqual(['att_fakturera', 'okant_lage', 'fakturerat', 'klart']);
+    expect(hogar.map(h => h.querySelector('h2')!.textContent)).toEqual([
+      'Vad är klart att fakturera?', 'Vad går inte att se?',
+      'Vad väntar på slutredovisning?', 'Vad är klart?',
+    ]);
+  });
+
+  it('det stora talet är de 1 som återstår, inte de 4 maskinerna är klara med', () => {
+    const ut = rita(rader, null, faktura);
+    const smal = ut.querySelector('.fa-bara-smal')!;
+    const tal = Array.from(smal.querySelectorAll('p')).find(p => p.style.fontSize === '32px')!;
+    expect(tal.textContent).toBe('1');
+    expect(text(smal)).toContain('trakt att fakturera');
+  });
+
+  it('en fakturerad trakt bär sitt fakturanummer och datum på raden', () => {
+    const ut = rita(rader, null, faktura);
+    const hog = ut.querySelector('[data-hog="fakturerat"]')!;
+    expect(text(hog)).toContain('Bågskyttebanan RP J-Hus- 25');
+    expect(text(hog)).toContain('Faktura 2026181 · 19 okt');
+    // Grupperad på fakturamånaden, inte avräkningsmånaden.
+    expect(hog.querySelector('[aria-label="Oktober 2026"]')).not.toBeNull();
+  });
+
+  it('slutredovisat säger slutredovisningens datum och faktura', () => {
+    const ut = rita(rader, null, faktura);
+    const hog = ut.querySelector('[data-hog="klart"]')!;
+    expect(text(hog)).toContain('Rävemåla AU 2026');
+    expect(text(hog)).toContain('Slutredovisat 19 okt · faktura 2026183');
+  });
+
+  it('trakten utan kontraktsnummer säger att läget inte går att se', () => {
+    const ut = rita(rader, null, faktura);
+    const hog = ut.querySelector('[data-hog="okant_lage"]')!;
+    expect(text(hog)).toContain('Anders Ingemarsson RP ATA');
+    expect(text(hog)).toContain('Inget kontraktsnummer — går inte att se om den är fakturerad');
+  });
+
+  it('varje trakt är en länk till sin egen adress, också i fakturahögarna', () => {
+    const ut = rita(rader, null, faktura);
+    for (const vo of ['11251428', '11271849', '11241031', '11106406']) {
+      expect(ut.querySelector(`a[href="/ekonomi/fakturaunderlag/${vo}"]`)).not.toBeNull();
+    }
+  });
+
+  it('en hög utan trakter ritas inte', () => {
+    const bara = [rader[1]];
+    const ut = rita(bara, null, faktura);
+    expect(Array.from(ut.querySelectorAll('[data-hog]')).map(h => h.getAttribute('data-hog')))
+      .toEqual(['fakturerat']);
   });
 });
