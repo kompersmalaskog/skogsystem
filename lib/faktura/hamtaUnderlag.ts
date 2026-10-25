@@ -21,7 +21,7 @@ import {
 } from '@/lib/ekonomi/acord';
 import { kostnadsstalleFor, harKrockandeKostnadsstalle } from '@/lib/ekonomi/kostnadsstalle';
 import { medForestlink } from '@/lib/ekonomi/forestlink';
-import { raknaSortiment } from '@/lib/ekonomi/sortimentAntal';
+import { raknaSortiment, type Sortimentsrakning } from '@/lib/ekonomi/sortimentAntal';
 import type { VoUnderlag, Maskinrad } from '@/lib/faktura/radbyggare';
 
 type SB = { from: (t: string) => any };
@@ -29,11 +29,36 @@ type SB = { from: (t: string) => any };
 /** Saker som inte är fel på en RAD men som granskningen måste visa. */
 export type Underlagsnot = { niva: 'varning' | 'info'; text: string };
 
+/**
+ * Underlaget BAKOM talen, så granskningen kan visa varför priset blev som det
+ * blev utan att räkna om något själv. Rent tillägg: inget här påverkar en rad
+ * eller ett pris, och tas fältet bort räknas fakturan exakt likadant.
+ */
+export type Granskningsunderlag = {
+  sortiment: {
+    /** Appens räkning med båda listorna (lib/ekonomi/sortimentAntal). */
+    rakning: Sortimentsrakning;
+    /** Antalet priset faktiskt räknades på — manuellt när det är satt. */
+    anvant: number;
+    /** true = någon har satt antalet själv (dim_objekt.sortiment_grupper_manuell). */
+    manuellt: boolean;
+    /** Prislistans villkor. null = ingen sats gäller uppslagsdagen. */
+    grundantal: number | null;
+    krPerExtra: number | null;
+    giltigFran: string | null;
+  };
+  /** Traktens m³fub — nämnaren i varje kr/m³fub-tillägg. */
+  volym: number;
+  /** Dagen prislistan slogs upp på (avräkningsdagen, annars idag). */
+  prisdatum: string;
+};
+
 export type HamtatUnderlag = {
   underlag: VoUnderlag;
   noter: Underlagsnot[];
   /** dim_objekt-id:n som ingår — spårbarhet i granskningen. */
   objektIds: string[];
+  granskning: Granskningsunderlag;
 };
 
 const sum = (rader: any[], f: string) =>
@@ -157,7 +182,8 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
 
   const acordList = giltiga(acordRes.data);
   const traktKr = traktTillagg(volym, giltiga(traktRes.data) as any).krPerM3;
-  const sortKr = sortimentTillagg(sortimentgrupper, giltiga(sortConfRes.data)[0] as any);
+  const sortConf = giltiga(sortConfRes.data)[0] as any ?? null;
+  const sortKr = sortimentTillagg(sortimentgrupper, sortConf);
   const kvalitetRad = giltiga(ovrigtRes.data).find((r: any) => r.nyckel === 'kvalitetssakring');
   const kvalitetKr = kvalitetRad ? Number(kvalitetRad.varde) || 0 : 0;
   if (!kvalitetRad) noter.push({ niva: 'varning', text: `Ingen kvalitetssäkringssats gäller ${uppslag}.` });
@@ -351,5 +377,18 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     manuellaPoster: [],
   };
 
-  return { underlag, noter, objektIds };
+  const granskning: Granskningsunderlag = {
+    sortiment: {
+      rakning: sortimentsrakning,
+      anvant: sortimentgrupper,
+      manuellt: huvud.sortiment_grupper_manuell != null,
+      grundantal: sortConf ? Number(sortConf.grundantal) : null,
+      krPerExtra: sortConf ? Number(sortConf.kr_per_extra_sortiment) : null,
+      giltigFran: sortConf?.giltig_fran ?? null,
+    },
+    volym,
+    prisdatum: uppslag,
+  };
+
+  return { underlag, noter, objektIds, granskning };
 }
