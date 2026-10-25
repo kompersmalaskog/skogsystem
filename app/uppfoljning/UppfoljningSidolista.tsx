@@ -10,11 +10,12 @@
 // skotare, mest överst, Ej tilldelad sist), och underst AVSLUTADE grupperat per
 // månad (hopfällt). Typ-totalerna räknas ur SAMMA "på backen"-mängd som
 // per-skotare, så de summerar ihop — ingen fristående siffra som kan avvika.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AVSTAND, FARG, RADIE, TNUM, TYP, overgang } from '@/lib/design/tokens';
 import { typLabel, arRisjobb } from '@/lib/objekt/typ';
 import { paBackenKvar } from '@/lib/skotat';
+import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT } from '@/lib/grot';
 import { type UppfoljningObjekt } from './lib/transform';
 import { useUppfoljningList, urlIdFor } from './hooks/useUppfoljningList';
 
@@ -33,7 +34,8 @@ function klartDatum(o: UppfoljningObjekt): string | null {
 }
 
 type Grupp = { namn: string | null; objs: UppfoljningObjekt[]; summa: number };
-type TypTotal = { label: string; summa: number; antal: number };
+// schablon=true → grot, ett UPPSKATTAT tal (≈, orange), aldrig mätt kvar.
+type TypTotal = { label: string; summa: number; antal: number; schablon?: boolean };
 type Manad = { key: string; label: string; objs: UppfoljningObjekt[] };
 
 export default function UppfoljningSidolista({ valt }: { valt: string | null }) {
@@ -41,6 +43,15 @@ export default function UppfoljningSidolista({ valt }: { valt: string | null }) 
   const { objekt, loading, error } = useUppfoljningList();
   const [sok, setSok] = useState('');
   const [visaAvslutade, setVisaAvslutade] = useState(false);
+  // Samma grot-uttagsfaktor som indexlistan (sessionStorage), så grot-kortets
+  // schablon aldrig visar en annan siffra än "Ris kvar på hygget" där.
+  const [grotFaktor, setGrotFaktor] = useState(GROT_UTTAGSFAKTOR_DEFAULT);
+  useEffect(() => {
+    try {
+      const gf = sessionStorage.getItem('uppfoljning:grotFaktor');
+      if (gf !== null) setGrotFaktor(klampaGrotFaktor(JSON.parse(gf)));
+    } catch { /* ingen sparad faktor → default */ }
+  }, []);
 
   const { typTotaler, grupper, manader, antalAvslutade } = useMemo(() => {
     const t = sok.trim().toLowerCase();
@@ -62,6 +73,16 @@ export default function UppfoljningSidolista({ valt }: { valt: string | null }) 
       row.antal += 1;
     }
     const typTotaler = Array.from(tm.values()).sort((a, b) => b.summa - a.summa);
+
+    // Grot — ett UPPSKATTAT tal, inte mätt kvar. Exakt indexlistans "Ris kvar"-
+    // urval (grotAnpassad, skördat > 0, inte hämtat) och samma Skogforsk-schablon
+    // (lib/grot), så korten summerar mot indexsidan. Läggs sist, efter virket,
+    // och märks som schablon i vyn. Finns inget ris → inget kort (aldrig "—").
+    const risObjekt = objekt.filter(o => traffar(o) && o.grotAnpassad && o.volymSkordare > 0 && !o.grotHamtad);
+    const risSumma = risObjekt.reduce((a, o) => a + (uppskattaGrotM3fub(o.volymSkordare, grotFaktor) || 0), 0);
+    if (risObjekt.length > 0 && risSumma > 0) {
+      typTotaler.push({ label: 'Grot', summa: risSumma, antal: risObjekt.length, schablon: true });
+    }
 
     // Per skotare — grupperat på tilldelad skotare.
     const m = new Map<string, UppfoljningObjekt[]>();
@@ -100,7 +121,7 @@ export default function UppfoljningSidolista({ valt }: { valt: string | null }) 
       .sort((a, b) => (a.key === 'okänt' ? 1 : b.key === 'okänt' ? -1 : b.key.localeCompare(a.key)));
 
     return { typTotaler, grupper, manader, antalAvslutade: avslutade.length };
-  }, [objekt, sok]);
+  }, [objekt, sok, grotFaktor]);
 
   const aktivFor = (o: UppfoljningObjekt) => valt != null && urlIdFor(o) === valt;
 
@@ -166,10 +187,11 @@ export default function UppfoljningSidolista({ valt }: { valt: string | null }) 
                   <div key={tt.label} style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.m}px ${AVSTAND.s}px` }}>
                     <div style={{ ...TYP.micro, color: FARG.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tt.label}</div>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, marginTop: AVSTAND.xs, ...TNUM }}>
-                      <span style={{ ...TYP.rubrik }}>{sv(tt.summa)}</span>
+                      {tt.schablon && <span style={{ ...TYP.meta, color: FARG.orange, fontWeight: 700 }}>≈</span>}
+                      <span style={{ ...TYP.rubrik, color: tt.schablon ? FARG.orange : FARG.text }}>{sv(tt.summa)}</span>
                       <span style={{ ...TYP.meta, color: FARG.text2 }}>m³</span>
                     </div>
-                    <div style={{ ...TYP.micro, color: FARG.text2, marginTop: AVSTAND.xs, textTransform: 'none', letterSpacing: 0 }}>{tt.antal} objekt</div>
+                    <div style={{ ...TYP.micro, color: FARG.text2, marginTop: AVSTAND.xs, textTransform: 'none', letterSpacing: 0 }}>{tt.schablon ? `schablon · ${tt.antal} obj` : `${tt.antal} objekt`}</div>
                   </div>
                 ))}
               </div>
