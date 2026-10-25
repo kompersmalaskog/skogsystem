@@ -55,16 +55,16 @@ export function ritaTradBild(vald: boolean): HTMLCanvasElement {
   const kron = (): Array<[number, number]> => {
     const pts: Array<[number, number]> = [];
     const botten = stamTopp + 10, hojd = botten - topp, tagg = 4;
-    const bredd = (t: number) => 24 * (1 - t) + 2;
+    const bredd = (t: number) => 27 * (1 - t) + 2;
     for (let i = 0; i <= tagg; i++) {            // vänster sida, nerifrån och upp: ut i grenspetsen, in till nästa nivå
       const t0 = i / (tagg + 1), t1 = (i + 0.5) / (tagg + 1);
       pts.push([sx - bredd(t0), botten - t0 * hojd]);
-      pts.push([sx - bredd(t1) * 0.55, botten - t1 * hojd]);
+      pts.push([sx - bredd(t1) * 0.68, botten - t1 * hojd]);
     }
     pts.push([sx, topp]);
     for (let i = tagg; i >= 0; i--) {            // höger sida, uppifrån och ner
       const t0 = i / (tagg + 1), t1 = (i + 0.5) / (tagg + 1);
-      pts.push([sx + bredd(t1) * 0.55, botten - t1 * hojd]);
+      pts.push([sx + bredd(t1) * 0.68, botten - t1 * hojd]);
       pts.push([sx + bredd(t0), botten - t0 * hojd]);
     }
     return pts;
