@@ -42,6 +42,7 @@ import PdfLasare from "@/app/planering/PdfLasare";
 import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, RAD, INAKTIV, TRAFFYTA, RORELSE, designCss, LAYOUT, medSafeBotten, KOLUMN, kolumnRot, ROT_MIN_HOJD, KOLUMN_CSS } from "@/lib/design/tokens";
 import Tillstand from "@/components/design/Tillstand";
 import { useRaknaUppVarde } from "@/lib/design/raknaUpp";
+import { vapidPublikSomBytes } from "@/lib/push/vapid";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -5506,12 +5507,7 @@ export default function Arbetsrapport() {
                 if (!sub) {
                   const perm = await Notification.requestPermission();
                   if (perm !== "granted") return;
-                  const vapid = "BGe21_FkdZWkOiaLTWE2GXADsaA08uC2eRGglHIyJ85rL35YkrkUY1L3jTJ7fGvAQlDRjJsH3AMMeX62B63hr34";
-                  const base64 = (vapid + "=".repeat((4 - vapid.length % 4) % 4)).replace(/-/g,'+').replace(/_/g,'/');
-                  const raw = window.atob(base64);
-                  const appKey = new Uint8Array(raw.length);
-                  for (let i = 0; i < raw.length; i++) appKey[i] = raw.charCodeAt(i);
-                  sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey });
+                  sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidPublikSomBytes() });
                 }
                 const deviceName = (navigator.userAgent || '').slice(0, 120);
                 await fetch('/api/push/subscribe', {
