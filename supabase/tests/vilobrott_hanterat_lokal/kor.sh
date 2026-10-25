@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Provar migrationen 20261025180000_vilobrott_hanterat.sql mot en lokal Postgres med riktiga roller och RLS.
+# Provar migrationen 20261025175928_vilobrott_hanterat.sql mot en lokal Postgres med riktiga roller och RLS.
 #   pg_ctlcluster 16 main start; su postgres -c "createdb vilobrott_test"; bash supabase/tests/vilobrott_hanterat_lokal/kor.sh
 # Avslutar med 1 om något prov faller. MIG=<fil> provar en annan (eller ingen: MIG=) migration — då ska proven falla.
 set -uo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"; ROT="$DIR/../.."
 DB="${DB:-vilobrott_test}"
-MIG="${MIG-20261025180000_vilobrott_hanterat.sql}"
+MIG="${MIG-20261025175928_vilobrott_hanterat.sql}"
 P() { su postgres -c "psql -X -q -v ON_ERROR_STOP=1 -d $DB" ; }
 su postgres -c "psql -X -q -d $DB" <<<"drop schema if exists test cascade; drop schema if exists storage cascade; drop schema if exists auth cascade; drop schema public cascade; create schema public;" >/dev/null 2>&1
 P < "$ROT/tests/sakerhet_lokal/stub.sql" >/dev/null || { echo "stub föll"; exit 1; }
