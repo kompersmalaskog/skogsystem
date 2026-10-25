@@ -34,7 +34,7 @@
 import { useEffect, useState } from 'react';
 import { AVSTAND, FARG, KORT, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import StamBild from './StamBild';
-import { SIDA, SEKUNDAR, TEXT, LINJE, nf, nf0, Tillbakarad, Rad, Rader, Stycken } from '@/components/Ytform';
+import { SIDA, SEKUNDAR, TEXT, LINJE, nf, nf0, Tillbakarad, Rad, Rader, Stycken, Etikett } from '@/components/Ytform';
 
 export type Validering = {
   n: number; dia_median_mm: number; dia_p10: number; dia_p90: number;
@@ -288,17 +288,35 @@ export default function RotkapVy({ rader, valt, kaplangd, onKaplangd, vy, onSaRa
         const storst = Math.max(...lista.map(x => Math.abs(x.d)), 1e-9);
         return (
           <>
-            {/* 1. Frågan som rubrik. 2. Bilden förklarar varför. 3. Svaret per längd. 4. Underlaget i en rad. */}
+            {/* 1. Frågan. 2. SVARET för vald längd, stort, i liter per stam och andel av timret. 3. Alla längder (tryck = välj).
+                4. Bilden som förklarar varför. 5. Underlaget i en rad. */}
             <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px 0` }}>
-              <h1 style={{ ...TYP.titel, margin: 0, color: FARG.text }}>Timmer du förlorar</h1>
-              <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xs }}>om rotbiten kapas längre än {meter(REFERENS)} m</div>
+              <h1 style={{ ...TYP.titel, margin: 0, color: FARG.text }}>Längre rotbit</h1>
+              <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xs }}>Hur mycket timmer förlorar du om föraren kapar rotbiten längre?</div>
             </div>
 
-            <div style={{ ...KORT, margin: `${AVSTAND.l}px ${AVSTAND.l}px 0` }}>
-              <StamBild referensCm={REFERENS} kaplangdCm={kaplangd} />
-            </div>
+            {(() => {
+              const d = rad.timmer_m3 - ref.timmer_m3;
+              const literPerStam = ref.stammar > 0 ? (1000 * -d) / ref.stammar : 0;
+              const andel = ref.timmer_m3 > 0 ? (100 * -d) / ref.timmer_m3 : 0;
+              return (
+                <div style={{ ...KORT, margin: `${AVSTAND.l}px ${AVSTAND.l}px 0` }}>
+                  <div style={{ ...TYP.meta, color: FARG.text2 }}>Rotbit {meter(kaplangd)} m i stället för {meter(REFERENS)} m</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, marginTop: AVSTAND.xs }}>
+                    <span style={{ ...TYP.tal, ...TNUM, color: FARG.text }}>{tecken(d, 1)}</span>
+                    <span style={{ ...TYP.text, color: FARG.text2 }}>m³ timmer</span>
+                  </div>
+                  <div style={{ ...TYP.text, color: FARG.text, marginTop: AVSTAND.s }}>
+                    {nf0(Math.max(0, literPerStam))} liter timmer per rötad stam · {nf(Math.max(0, andel), 1)} % av deras timmer
+                  </div>
+                  <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
+                    Timret blir massaved. Gäller de {nf0(ref.stammar)} stammar där föraren kapade bort röta.
+                  </div>
+                </div>
+              );
+            })()}
 
-            <Rader rubrik="Förlorat timmer per längd">
+            <Rader rubrik="Varje längd">
               {lista.map(({ k, d }) => (
                 <button key={k} onClick={() => onKaplangd(k)} aria-pressed={k === kaplangd}
                   aria-label={`Rotbit ${meter(k)} meter: ${tecken(d, 1)} kubik timmer`}
@@ -317,8 +335,13 @@ export default function RotkapVy({ rader, valt, kaplangd, onKaplangd, vy, onSaRa
               ))}
             </Rader>
 
+            <Etikett>Varför</Etikett>
+            <div style={{ ...KORT, margin: `0 ${AVSTAND.l}px` }}>
+              <StamBild referensCm={REFERENS} kaplangdCm={kaplangd} />
+            </div>
+
             <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.s}px ${AVSTAND.l}px 0` }}>
-              Räknat på {nf0(ref.stammar)} stammar, inte mätt. Tryck på en längd för att se den i bilden.
+              Räknat, inte mätt: samma stammar apterade om med längre rotbit.
             </div>
 
             {/* Skriker bara när något går att göra. Annars finns rutan inte. */}
