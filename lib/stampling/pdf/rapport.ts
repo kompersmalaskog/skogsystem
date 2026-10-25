@@ -57,7 +57,21 @@ export function utbyteVolymer(u: Utbyteskalkyl | null | undefined): { total: num
 /** Tolkar utbyteskalkylen i ett svar. Allt annat än ett objekt med minst ett tal → null. */
 export function parsaUtbyte(raw: unknown): Utbyteskalkyl | null {
   if (!raw || typeof raw !== 'object') return null;
-  const o = raw as Record<string, unknown>;
+  let o = raw as Record<string, unknown>;
+  // Schemats form: { finns, total_m3fub, sortiment: [{ sortiment, m3fub, pct }] }. Platt form (sparad) tas som den är.
+  if (Array.isArray(o.sortiment)) {
+    if (o.finns === false) return null;
+    const platt: Record<string, unknown> = { total_m3fub: o.total_m3fub };
+    for (const r of o.sortiment) {
+      if (!r || typeof r !== 'object') continue;
+      const rad = r as Record<string, unknown>;
+      const namn = rad.sortiment === 'timmer' || rad.sortiment === 'kubb' || rad.sortiment === 'massaved' ? rad.sortiment : null;
+      if (!namn || `${namn}_m3fub` in platt) continue;
+      platt[`${namn}_m3fub`] = rad.m3fub;
+      platt[`${namn}_pct`] = rad.pct;
+    }
+    o = platt;
+  }
   const u: Utbyteskalkyl = {
     total_m3fub: tal(o.total_m3fub), timmer_m3fub: tal(o.timmer_m3fub), timmer_pct: tal(o.timmer_pct),
     kubb_m3fub: tal(o.kubb_m3fub), kubb_pct: tal(o.kubb_pct), massaved_m3fub: tal(o.massaved_m3fub), massaved_pct: tal(o.massaved_pct),
@@ -216,24 +230,29 @@ const SCHEMA_DEF = {
         description: 'Varje siffra du inte kunde läsa med säkerhet: sida, trädslag, diameter och vad du tvekade om. Tom lista om allt var tydligt.',
         items: { type: 'string' },
       },
+      // EJ nullbart objekt och sortimenten som en lista: API:t tillåter högst 16 nullbara fält i hela schemat
+      // (2026-10-25 gav ett platt objekt med sju nullbara tal + anyOf 19 och anropet avvisades). Nu: 3.
       utbyteskalkyl: {
-        description: 'Rapportens EGEN utbyteskalkyl/utbytesberäkning för HELA posten (beräknat utfall av timmer, kubb och massaved), som den står tryckt. null om rapporten saknar en.',
-        anyOf: [
-          { type: 'null' },
-          {
-            type: 'object',
-            properties: {
-              total_m3fub: NULLBART('number', 'Postens totala volym i m3fub enligt utbyteskalkylen.'),
-              timmer_m3fub: NULLBART('number', 'Timmer (sågtimmer, alla trädslag) i m3fub som tryckt. null om bara procent anges.'),
-              timmer_pct: NULLBART('number', 'Timmer i procent som tryckt.'),
-              kubb_m3fub: NULLBART('number', 'Kubb/klentimmer i m3fub som tryckt.'),
-              kubb_pct: NULLBART('number', 'Kubb/klentimmer i procent som tryckt.'),
-              massaved_m3fub: NULLBART('number', 'Massaved i m3fub som tryckt.'),
-              massaved_pct: NULLBART('number', 'Massaved i procent som tryckt.'),
+        type: 'object',
+        description: 'Rapportens EGEN utbyteskalkyl/utbytesberäkning för HELA posten (beräknat utfall av timmer, kubb och massaved), som den står tryckt.',
+        properties: {
+          finns: { type: 'boolean', description: 'true om rapporten har en utbyteskalkyl, annars false (då är sortiment tom och total null).' },
+          total_m3fub: NULLBART('number', 'Postens totala volym i m3fub enligt utbyteskalkylen.'),
+          sortiment: {
+            type: 'array',
+            description: 'En rad per sortiment som kalkylen anger, för hela posten. Tom lista om rapporten saknar kalkyl.',
+            items: {
+              type: 'object',
+              properties: {
+                sortiment: { type: 'string', enum: ['timmer', 'kubb', 'massaved'], description: 'timmer = sågtimmer (alla trädslag), kubb = kubb/klentimmer, massaved = massaved.' },
+                m3fub: NULLBART('number', 'm3fub som tryckt. null om bara procent anges.'),
+                pct: NULLBART('number', 'Procent som tryckt. null om bara m3fub anges.'),
+              },
+              required: ['sortiment', 'm3fub', 'pct'],
             },
-            required: ['total_m3fub', 'timmer_m3fub', 'timmer_pct', 'kubb_m3fub', 'kubb_pct', 'massaved_m3fub', 'massaved_pct'],
           },
-        ],
+        },
+        required: ['finns', 'total_m3fub', 'sortiment'],
       },
     },
     required: ['post', 'tradslag', 'sammanfattning', 'osakerheter', 'utbyteskalkyl'],
@@ -256,6 +275,6 @@ Så här gör du:
 - "post": postens namn, fastighet, markägare, stämplingsförrättare (förrättningsman), stämplingsdatum (ÅÅÅÅ-MM-DD) och rapportens totala volym i m3sk. null för det som inte finns.
 - Är en siffra svårläst (särskilt i inskannade sidor): skriv din bästa läsning och lägg en rad i "osakerheter" med sida, trädslag och diameter. Gissa aldrig tyst.
 - Dubbla spalter, vattenstämplar och handskrivna anteckningar: ta bara med det som är tryckt i tabellen.
-- "utbyteskalkyl": har rapporten en utbyteskalkyl / utbytesberäkning / beräknat utfall (hur mycket av posten som blir timmer, kubb/klentimmer och massaved), skriv postens TOTALA siffror som de står: m3fub och/eller procent per sortiment och total volym m3fub. Summera aldrig trädslag själv — står bara siffror per trädslag och ingen total, skriv null på totalen och lägg en rad i "osakerheter". Har rapporten ingen sådan kalkyl: null.
+- "utbyteskalkyl": har rapporten en utbyteskalkyl / utbytesberäkning / beräknat utfall (hur mycket av posten som blir timmer, kubb/klentimmer och massaved), skriv postens TOTALA siffror som de står: en rad per sortiment med m3fub och/eller procent, och total volym m3fub. Summera aldrig trädslag själv — står bara siffror per trädslag och ingen total, skriv null på totalen och lägg en rad i "osakerheter". Har rapporten ingen sådan kalkyl: finns = false, total null och tom sortimentlista.
 
 Svara ENDAST med JSON enligt schemat — ingen text före eller efter.`;
