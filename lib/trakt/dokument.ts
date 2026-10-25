@@ -25,7 +25,7 @@ export interface DokumentKlass {
   oversiktskarta: KlassadPdf | null;    // _ÖK.pdf — egen typ, inte ett arbetsblad
   valtlapp: KlassadPdf | null;
   stamplingslangd: KlassadPdf | null;
-  stamplingslangdOsaker: boolean;
+  /** PDF:er som inget suffix känner igen. Stämplingslängden väljs ur dem av `valjStamplingslangd` — se nedan. */
   ovriga: KlassadPdf[];
   varningar: string[];
 }
@@ -40,7 +40,11 @@ const RE_TK_ORDNING = /_(\d+)_TK\.pdf$/i;   // fångar NN ur _NN_TK.pdf
 const RE_VALTLAPP = /valtlapp/i;
 const RE_STAMPL = /(stampl|stämpl)/i;  // ä = U+00E4
 
-export function klassificeraDokument(pdfer: KlassadPdf[], info?: string | null): DokumentKlass {
+/**
+ * Suffixklassning. Stämplingslängden avgörs INTE här: den kräver att man vet om trakten är en rotpost, och avtalsformen läses ur
+ * traktdirektivets text — som i sin tur kräver att TD-filen hittats av den här funktionen. Anropa `valjStamplingslangd` efteråt.
+ */
+export function klassificeraDokument(pdfer: KlassadPdf[]): DokumentKlass {
   const varningar: string[] = [];
   let traktdirektiv: KlassadPdf | null = null;
   let oversiktskarta: KlassadPdf | null = null;
@@ -74,23 +78,75 @@ export function klassificeraDokument(pdfer: KlassadPdf[], info?: string | null):
   // blad med samma nummer behåller sin inbördes encounter-ordning.
   traktkartor.sort((a, b) => a.ordning - b.ordning);
 
-  // Inskannad stämplingslängd utan VSOP-namnmönster (t.ex. "Mölleryd.pdf" från en Toshiba):
-  // exakt EN oidentifierad PDF OCH <Info> nämner stämplingslängd -> tolka som det men märk
-  // OSÄKER och be UI:t bekräfta. Fyrar ALDRIG när det finns flera okända PDF:er (t.ex. två
-  // snarlika namn "odensssvalahult gall.pdf" + "odenssvalahultga.pdf") — då gissar vi inte,
-  // båda hamnar i ovriga med originalnamnen och en varning per fil.
-  let stamplingslangdOsaker = false;
-  if (!stamplingslangd && ovriga.length === 1 && info && RE_STAMPL.test(info)) {
-    stamplingslangd = ovriga.pop() as KlassadPdf;
-    stamplingslangdOsaker = true;
-    varningar.push(`"${stamplingslangd.namn}" tolkad som stämplingslängd via Info — OSÄKER, bekräfta i UI:t.`);
-  } else if (!stamplingslangd && ovriga.length > 1 && info && RE_STAMPL.test(info)) {
-    varningar.push(`Info nämner stämplingslängd men ${ovriga.length} oidentifierade PDF:er finns — gissar inte, alla sparas som övrigt dokument.`);
+  return { traktdirektiv, traktkartor, oversiktskarta, valtlapp, stamplingslangd, ovriga, varningar };
+}
+
+// ---------------------------------------------------------------------------
+// Stämplingslängden — strukturen avgör, inte en fritextanteckning (Martin 2026-10-25)
+// ---------------------------------------------------------------------------
+// Vida märker ALDRIG stämplingslängden i filnamnet. Den kommer som en PDF döpt efter trakten ("Skälviken.pdf", "Mölleryd.pdf",
+// "Arvidstorp RP -25.pdf") medan traktdirektiv, traktkarta och vältlapp alla har suffix och filas rätt varje gång. Paketet går
+// alltså jämnt ut: det som blir över ÄR stämplingslängden.
+//
+// Förut krävdes att <Info> nämnde ordet stämplingslängd, och raden märktes "OSÄKER, bekräfta i UI:t". Prod 2026-10-25, alla sex
+// envz-rotposter:
+//     Arvidstorp RP  TD 1  TK 0  VÄLT 1  SL 1  övriga 0
+//     Bågskyttebanan TD 1  TK 1  VÄLT 1  SL 1  övriga 0
+//     Edestad RP     TD 1  TK 0  VÄLT 1  SL 1  övriga 0
+//     Skälviken RP   TD 1  TK 1  VÄLT 1  SL 1  övriga 0
+//     Vällust RP     TD 1  TK 0  VÄLT 1  SL 1  övriga 0
+//     Mölleryd RP    TD 1  TK 1  VÄLT 1  SL 0  övriga 1  ← "Mölleryd.pdf"
+// Mölleryd är inget undantag från regeln utan ett bevis på att regeln var fel: dess Info råkade inte nämna ordet, så PDF:en hamnade
+// under "övrigt" och objektvyn frågade om en fil som låg mitt framför användaren. Den frågan går inte att förstå, eftersom den handlar
+// om appens osäkerhet och inte om skogen.
+//
+// Nu: på en rotpost är den enda PDF:en utan känt suffix stämplingslängden. Ingen gissad-märkning, ingen fråga, ingen bekräftelseknapp.
+// Blir den någon gång fel märks det på att talen inte går ihop (lib/objekt/stamplingslangd.ts jämför mot Vidas volym) — en bättre vakt
+// än en fråga ingen förstår. Info-regeln ligger kvar som reserv för objekt som INTE är rotposter, där strukturen inte säger något.
+
+export type StamplingsKalla = 'suffix' | 'rotpost' | 'info' | null;
+
+export interface StamplingsVal {
+  stamplingslangd: KlassadPdf | null;
+  /** Det som är kvar efter att stämplingslängden plockats ur — sparas som övriga dokument. */
+  ovriga: KlassadPdf[];
+  kalla: StamplingsKalla;
+  varningar: string[];
+}
+
+/**
+ * Väljer stämplingslängden ur de oidentifierade PDF:erna och skriver varningarna för dem som blir kvar.
+ * `rotpost` kommer ur lib/objekt/rotpost.ts (avtalsform Rp, annars "RP" i namnet).
+ */
+export function valjStamplingslangd(
+  { stamplingslangd, ovriga, rotpost, info }:
+  { stamplingslangd: KlassadPdf | null; ovriga: KlassadPdf[]; rotpost: boolean; info?: string | null },
+): StamplingsVal {
+  const varningar: string[] = [];
+  const kvar = [...ovriga];
+  let vald = stamplingslangd;
+  let kalla: StamplingsKalla = vald ? 'suffix' : null;
+  const infoNamner = !!info && RE_STAMPL.test(info);
+
+  if (!vald && kvar.length === 1 && rotpost) {
+    vald = kvar.pop() as KlassadPdf;
+    kalla = 'rotpost';
+  } else if (!vald && kvar.length === 1 && infoNamner) {
+    // Inte en rotpost, men Info nämner en stämplingslängd. Strukturen säger inget här, så det är fortfarande en gissning.
+    vald = kvar.pop() as KlassadPdf;
+    kalla = 'info';
+    varningar.push(`"${vald.namn}" tolkad som stämplingslängd via Info — OSÄKER, bekräfta i UI:t.`);
+  } else if (!vald && kvar.length > 1 && (rotpost || infoNamner)) {
+    // Flera okända PDF:er (t.ex. "odensssvalahult gall.pdf" + "odenssvalahultga.pdf"): då gissar vi inte, alla sparas som övrigt.
+    varningar.push(`${kvar.length} oidentifierade PDF:er — gissar inte vilken som är stämplingslängden, alla sparas som övrigt dokument.`);
+  } else if (!vald && kvar.length === 0 && rotpost) {
+    // Ett larm med innehåll: paketet gick inte jämnt ut. Till skillnad från den gamla frågan säger det här något som faktiskt är fel.
+    varningar.push('Rotpost utan stämplingslängd: ingen PDF i leveransen gick att identifiera som en.');
   }
 
-  for (const o of ovriga) {
+  for (const o of kvar) {
     varningar.push(`PDF utan känt suffix: "${o.namn}" — sparad som övrigt dokument.`);
   }
 
-  return { traktdirektiv, traktkartor, oversiktskarta, valtlapp, stamplingslangd, stamplingslangdOsaker, ovriga, varningar };
+  return { stamplingslangd: vald, ovriga: kvar, kalla, varningar };
 }

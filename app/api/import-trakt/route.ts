@@ -10,7 +10,8 @@ import { parseTraktdirektivText } from '@/lib/trakt/td-parser';
 import { mergeFalt, executorGodkand, forvantadExecutorOrgnr } from '@/lib/trakt/merge';
 import { packaGeometri, bboxCentrum } from '@/lib/trakt/geometri';
 import { kopplaHyttsparTillObjekt } from '@/lib/hyttsparKoppling';
-import { klassificeraDokument } from '@/lib/trakt/dokument';
+import { klassificeraDokument, valjStamplingslangd } from '@/lib/trakt/dokument';
+import { arRotpost } from '@/lib/objekt/rotpost';
 import { kartbildVarning } from '@/lib/trakt/kartbildVarning';
 import { klassaVarningar, VOLYM_BEHALLEN_NYCKEL } from '@/lib/trakt/varningar';
 import { orimligVolymText } from '@/lib/trakt/rimlighet';
@@ -184,8 +185,8 @@ export async function POST(request: NextRequest) {
       varningar.push('envz saknar object-info.xml — bara TD-fält används.');
     }
 
-    // Klassificera dokument (suffix-regler, arrayer, ingen fallback).
-    const klass = klassificeraDokument(pdfer, envzUttag?.info);
+    // Klassificera dokument (suffix-regler, arrayer, ingen fallback). Stämplingslängden väljs längre ned, när avtalsformen är läst.
+    const klass = klassificeraDokument(pdfer);
     varningar.push(...klass.varningar);
     if (!klass.traktdirektiv) {
       return NextResponse.json({ error: 'Inget traktdirektiv (_TD.pdf) i filen — importen gissar inte.' }, { status: 400 });
@@ -229,6 +230,16 @@ export async function POST(request: NextRequest) {
       medelstam: td.medelstam,
     };
     const falt = envzUttag ? mergeFalt(tdRecord, envzUttag.falt) : tdRecord;
+
+    // Stämplingslängden: på en ROTPOST är den enda PDF:en utan känt suffix stämplingslängden (lib/trakt/dokument.ts). Avtalsformen finns
+    // först här — den läses ur traktdirektivets text, som i sin tur kräver att klassificeringen hittat TD-filen. Därför två steg.
+    const stamplingsVal = valjStamplingslangd({
+      stamplingslangd: klass.stamplingslangd,
+      ovriga: klass.ovriga,
+      rotpost: arRotpost({ avtalsform: falt.avtalsform, namn: falt.namn }),
+      info: envzUttag?.info,
+    });
+    varningar.push(...stamplingsVal.varningar);
 
     // Rimlighet: volym mot areal (m³fub/ha). Flaggar bara — talet rättas aldrig här (lib/trakt/rimlighet.ts). Vyn härleder samma fråga
     // live, så en volym som rättas efteråt släcker den utan omimport.
@@ -331,14 +342,14 @@ export async function POST(request: NextRequest) {
       ovrigaResultat,
     ] = await Promise.all([
       laddaUppPdf(klass.traktdirektiv.bytes, `${traktnr}_traktdirektiv.pdf`),
-      laddaUppPdf(klass.stamplingslangd?.bytes ?? null, `${traktnr}_stamplingslangd.pdf`),
+      laddaUppPdf(stamplingsVal.stamplingslangd?.bytes ?? null, `${traktnr}_stamplingslangd.pdf`),
       laddaUppPdf(klass.valtlapp?.bytes ?? null, `${traktnr}_valtlapp.pdf`),
       laddaUppPdf(klass.oversiktskarta?.bytes ?? null, `${traktnr}_oversiktskarta.pdf`),
       Promise.all(klass.traktkartor.map((tk, i) =>
         laddaUppPdf(tk.bytes, `${traktnr}_traktkarta_${i + 1}.pdf`)
           .then((path) => (path ? { namn: tk.namn, path, ordning: tk.ordning } : null)),
       )),
-      Promise.all(klass.ovriga.map((o, i) =>
+      Promise.all(stamplingsVal.ovriga.map((o, i) =>
         laddaUppPdf(o.bytes, `${traktnr}_ovrigt_${i}.pdf`)
           .then((path) => (path ? { namn: o.namn, path } : null)),
       )),

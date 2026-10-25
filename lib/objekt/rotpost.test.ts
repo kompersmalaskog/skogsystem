@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import namn from './__fixtures__/objektnamn_prod_2026-10-20.json';
 import { RP_I_NAMN, arRotpost } from './rotpost';
-import { oppnaFragor, stamplingslangdLage, volymFragor } from './filenGav';
+import { oppnaFragor, stamplingslangdFil, stamplingslangdLage, volymFragor } from './filenGav';
 import { saknas } from './tillstand';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -67,26 +67,26 @@ describe('frågan "stämplingslängd saknas"', () => {
     expect(fraga({ avtalsform: 'Rp', status: 'avslutat', import_varningar: GISSNING, stamplingslangd_url: 'sl.pdf' })).toEqual([]);
   });
 
-  it('en GISSAD PDF tystar inte frågan — Skälviken: URL finns, importen gissade, ingen har läst papperet', () => {
+  it('frågan gäller TALET, aldrig vilken PDF det är — och den säger inget om appens osäkerhet (Skälviken)', () => {
     const f = fraga({ avtalsform: 'Rp', stamplingslangd_url: 'sl.pdf', import_varningar: GISSNING });
     expect(f).toHaveLength(1);
-    expect(f[0].text).toContain('gissade');
-    expect(f[0].text).toContain('Skälviken.pdf');
-    expect(f[0]).toMatchObject({ fil: 'Skälviken.pdf', path: 'sl.pdf' });
+    expect(f[0].text).toContain('Vad står det för volym i stämplingslängden?');
+    expect(f[0]).toMatchObject({ path: 'sl.pdf' });
+    // Inga ord ur koden, och ingen fråga om filen.
+    for (const ord of ['gissa', 'OSÄKER', 'Info', 'bekräfta', 'identifierade']) expect(f[0].text, ord).not.toContain(ord);
   });
 
-  it('en PDF UTAN spår (ingen importlogg, null) är okontrollerad och ställer frågan — filnamnet bär ingen information (Åbogen)', () => {
-    // *_stamplingslangd.pdf är namnet importen SATTE vid sparandet, inte originalnamnet: det går inte att veta att någon identifierat filen.
+  it('en PDF utan importlogg (Åbogen) ger samma fråga som alla andra — hur den hamnade där är appens sak, inte förarens', () => {
     for (const import_varningar of [null, undefined, [], [{ nyckel: 'okand_pdf:Annan.pdf', sort: 'fraga', text: 'x', fil: 'Annan.pdf' }]]) {
       const f = fraga({ avtalsform: 'Rp', stamplingslangd_url: '890004_stamplingslangd.pdf', import_varningar });
       expect(f, JSON.stringify(import_varningar)).toHaveLength(1);
-      expect(f[0].text).toContain('inget säger hur den identifierades');
+      expect(f[0].text).toContain('Vad står det för volym i stämplingslängden?');
       expect(f[0]).toMatchObject({ path: '890004_stamplingslangd.pdf' });
     }
     expect(fraga({ avtalsform: 'Rp', status: 'avslutat', stamplingslangd_url: '890004_stamplingslangd.pdf', import_varningar: null })).toEqual([]);
   });
 
-  it('gissad PDF + inskrivet tal = bekräftad: ingen fråga, och gissningens PDF-fråga faller på en rotpost', () => {
+  it('inskrivet tal = bekräftad: ingen fråga, och PDF-frågan faller på en rotpost', () => {
     const o = { avtalsform: 'Rp', stamplingslangd_url: 'sl.pdf', stamplingslangd_volym: 1884, stamplingslangd_enhet: 'm3sk', import_varningar: GISSNING };
     expect(fraga(o)).toEqual([]);
     expect(oppnaFragor({ ...o, ovriga_dokument: null })).toEqual([]);
@@ -97,25 +97,65 @@ describe('frågan "stämplingslängd saknas"', () => {
     expect(volymFragor({ ...REN, ...tal, avtalsform: 'Au' } as any).map(f => f.nyckel)).not.toContain('stamplingslangd_avviker');
   });
 
-  it('en oidentifierad PDF nämns i frågan', () => {
-    const okand = [{ nyckel: 'okand_pdf:Mölleryd.pdf', sort: 'fraga', text: 'x', fil: 'Mölleryd.pdf' }];
-    expect(fraga({ avtalsform: 'Rp', import_varningar: okand })[0].text).toContain('kan det vara stämplingslängden?');
-    expect(fraga({ avtalsform: 'Rp' })[0].text).not.toContain('kan det vara');
+  // Mölleryd i prod 2026-10-25: PDF:en ligger under "övrigt" eftersom <Info> inte råkade nämna ordet. På en rotpost ÄR den stämplingslängden,
+  // utan omimport — och frågan blir EN, om talet, med filen att öppna.
+  it('äldre rotpost: den enda oidentifierade PDF:en räknas som stämplingslängden och går att öppna (Mölleryd)', () => {
+    const okand = [{ nyckel: 'okand_pdf:Mölleryd.pdf', sort: 'fraga', text: 'PDF utan känt suffix: "Mölleryd.pdf" — sparad som övrigt dokument.', fil: 'Mölleryd.pdf' }];
+    const o = { avtalsform: 'Rp', import_varningar: okand, ovriga_dokument: [{ namn: 'Mölleryd.pdf', path: '886465_ovrigt_0.pdf' }] };
+    const f = fraga(o);
+    expect(f).toHaveLength(1);
+    expect(f[0]).toMatchObject({ fil: 'Mölleryd.pdf', path: '886465_ovrigt_0.pdf' });
+    // Och frågan om filen ställs inte längre vid sidan av — en fråga, inte två.
+    expect(oppnaFragor(o as any)).toEqual([]);
+  });
+
+  it('stämplingslängd på suffix + en annan oidentifierad PDF: den andra är en riktig gåta och frågas om', () => {
+    const o = {
+      avtalsform: 'Rp',
+      stamplingslangd_url: '886465_stamplingslangd.pdf',
+      import_varningar: [{ nyckel: 'okand_pdf:Annat.pdf', sort: 'fraga', text: 'x', fil: 'Annat.pdf' }],
+      ovriga_dokument: [{ namn: 'Annat.pdf', path: 'ov.pdf' }],
+    };
+    expect(oppnaFragor(o as any).map(f => f.fil)).toEqual(['Annat.pdf']);
+    expect(stamplingslangdFil(o)).toEqual({ namn: null, path: '886465_stamplingslangd.pdf' });
+  });
+
+  it('rotpost helt utan PDF: larmet säger att den saknas i leveransen', () => {
+    const f = fraga({ avtalsform: 'Rp' });
+    expect(f[0].text).toContain('ingen i leveransen från Vida');
+  });
+
+  it('FLERA oidentifierade PDF:er: då vet vi inte vilken — frågorna om filerna står kvar', () => {
+    const tva = [
+      { nyckel: 'okand_pdf:a.pdf', sort: 'fraga', text: 'x', fil: 'a.pdf' },
+      { nyckel: 'okand_pdf:b.pdf', sort: 'fraga', text: 'x', fil: 'b.pdf' },
+    ];
+    const o = { avtalsform: 'Rp', import_varningar: tva, ovriga_dokument: [{ namn: 'a.pdf', path: 'a' }, { namn: 'b.pdf', path: 'b' }] };
+    expect(oppnaFragor(o as any)).toHaveLength(2);
+    // ...och frågan om talet säger sanningen: den saknas inte, vi vet bara inte vilken fil det är.
+    expect(fraga(o)[0].text).toContain('går inte att skilja åt');
+    expect(fraga(o)[0].text).not.toContain('ingen i leveransen');
   });
 });
 
 
 describe('stämplingslängdens läge', () => {
-  it('bekräftad = tal inskrivet; gissad = PDF + OSÄKER-rad; okontrollerad = PDF utan spår; saknas = inget', () => {
+  it('bekräftad = tal inskrivet; finns = en PDF; saknas = ingen', () => {
     expect(stamplingslangdLage({ stamplingslangd_volym: 1884 })).toBe('bekraftad');
     expect(stamplingslangdLage({ stamplingslangd_volym: 1884, stamplingslangd_url: 'x.pdf', import_varningar: GISSNING })).toBe('bekraftad');
-    expect(stamplingslangdLage({ stamplingslangd_url: 'x.pdf', import_varningar: GISSNING })).toBe('gissad');
-    expect(stamplingslangdLage({ stamplingslangd_url: 'x.pdf', import_varningar: [] })).toBe('okontrollerad');
-    expect(stamplingslangdLage({ stamplingslangd_url: 'x.pdf', import_varningar: null })).toBe('okontrollerad');
+    expect(stamplingslangdLage({ stamplingslangd_url: 'x.pdf', import_varningar: GISSNING })).toBe('finns');
+    expect(stamplingslangdLage({ stamplingslangd_url: 'x.pdf', import_varningar: [] })).toBe('finns');
+    expect(stamplingslangdLage({ stamplingslangd_url: 'x.pdf', import_varningar: null })).toBe('finns');
     expect(stamplingslangdLage({})).toBe('saknas');
     expect(stamplingslangdLage({ stamplingslangd_volym: 0 })).toBe('saknas');
     // En gissning vars PDF aldrig laddades upp är ingen PDF att visa.
     expect(stamplingslangdLage({ import_varningar: GISSNING })).toBe('saknas');
+    // Mölleryd: PDF:en ligger under "övrigt", men på en rotpost ÄR den stämplingslängden.
+    const molleryd = { avtalsform: 'Rp', import_varningar: [{ nyckel: 'okand_pdf:M.pdf', sort: 'fraga', text: 'x', fil: 'M.pdf' }], ovriga_dokument: [{ namn: 'M.pdf', path: 'ov.pdf' }] };
+    expect(stamplingslangdLage(molleryd)).toBe('finns');
+    expect(stamplingslangdFil(molleryd)).toEqual({ namn: 'M.pdf', path: 'ov.pdf' });
+    // Inte en rotpost: samma PDF är bara ett övrigt dokument.
+    expect(stamplingslangdLage({ ...molleryd, avtalsform: 'Au' })).toBe('saknas');
   });
 
   it('listraden räknar gissningen EN gång (inte både som PDF-fråga och som volymfråga) och en avslutad rotpost inte alls', () => {
