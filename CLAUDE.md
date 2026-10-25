@@ -463,6 +463,15 @@ Huvudvy för traktplanering (~11 000 rader). Innehåller:
 
 ---
 
+### Kartan lugnare (2026-10-24, planering + maskin; `lib/kartBas.ts`, `lib/kartKlart.ts`, vakt `lib/kartanLugnare.vakter.test.ts`)
+
+Mer att se på med mindre på kartan. Fem regler, ingen ny ruta, rad eller knapp (objektnamn, ⓘ och + som förut):
+1. **Bakgrunden tonas ner för ALLA fyra lager från EN källa, `KARTBAS_PAINT`** (Flygfoto ljus 50 % och mättnad −0,6 (ungefär halva ljusstyrkan, Martin 2026-10-25); Karta, Topokarta och OSM ljus 72 %, mättnad −0,55…−0,6; Topokarta och OSM var förut orörda). Planeringsvyns `mapStyleConfig` och kartan utan valt objekt (`tomKartaStil`) läser `kartBasPaint(lager)` — ingen egen kopia av siffrorna. Mätt i riktig MapLibre (`kartBas.hytt.test.ts`). **Egenkontrollens karta (`lib/mapLayers.ts` BASKARTOR) är med flit orörd** (ej beställd).
+2. **Klart blir grått, bara med status som FINNS** (`lib/kartKlart.ts`): *skotad yta* = de sparade `skotning_uttag.polygon_coords` ritas som grå yta UNDER allt (lagren `klart-yta-*`, prefixet `klart-` står i körvyns KEEP_PREFIX; läsfel = ingen yta); *klar trakt* = `objekt.status` `avslutat` → basvägar, stickvägar och maskinspår (`planspar-*`, avverkad/skotad yta) i appens grå (`FARG.text2`), basvägens gula streck tonas bort, kanten bakom vägarna rörs inte. **Det finns ingen status per väg** ("Väg klar? Klar / Inte än" är inte byggd, skotarläge PR 2) och ingen status per avverkad yta — när de kommer kopplas de in i `kartKlart.ts`, kartan behöver inte ändras. Skördarens spår greyas medvetet INTE på en pågående trakt (skotaren följer dem).
+3. **Fast text på kartan är bara namnet inne i ytor (zone-label, trakt-hansyn/ovrigt/nb/raa-label, yta-nr-label) och avläggets nummer** (`trakt-punkt-label` visar EXTRA_LABE/LOPNR, inte Vidas beskrivning). Borta: basvägens "3 · 140 m" (`line-mainroad-label`; nummer och längd står i markeringskortet), m³ på produktionskluster och GROT-högar (`hogar-cluster-label`, `grot-label`). Faran (`markers-korvy-label`), hörnnummer vid redigering och mätfiguren är verktyg/fara och rörs inte. Vakten läser page.tsx och kräver exakt den listan.
+4. **Vägarna behåller sin snitselfärg med mörk kant:** basväg, stickväg, traktgräns och stig har `VAG_KANT_FARG` (0,9 svart; stickvägen hade 0,5). Egenkontrollens linjer följer (`lib/kartstil` `linjeLager`).
+5. Larm, fällningscirkel, fara (alltid full styrka) och handplacerade pilar är orörda.
+
 ### Fokus på trakten — det som ligger utanför trakten ritas svagt (`lib/fokusTrakt.ts`, `lib/traktNara.ts`, 2026-10-22)
 
 Martin: "det börjar bli för mycket på kartan, svårt att veta vad man ska kolla på" (Hålabäck au 2025: tre nyckelbiotoper, tre fornlämningar, blå snedstreck och stora gröna ytor — de flesta utanför trakten och lika starka som hänsynen inne i den). **Bara utseendet, planering och maskin (samma kartlager):**

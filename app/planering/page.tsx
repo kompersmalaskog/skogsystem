@@ -140,7 +140,7 @@ import { basvagSammanfattning, basvagText, arBasvagFarg, BASVAG_FARGER, BASVAG_F
 import { BasvagFargVal } from '../../components/planering/BasvagFargVal'
 import { BackvagVal } from '../../components/planering/BackvagVal'
 import { arVagTyp, backvagFeature, lasBackvag, medBackvag, BACKVAG_FORVALD_ANDE, BACKVAG_STRECK_FARGER, type Backvag } from '../../lib/backvag'
-import { backvagIkonNamn, backvagStreckLager, ritaBackvagStreck, kraftledningLager, ritaStolpeIkon, KRAFTLEDNING_STOLPE_BILD, BASVAG_STRECK_DASH, BASVAG_STRECK_LAYOUT, BASVAG_SKEN_ID, basvagSkenLager, forstaVagLagerId } from '../../lib/kartstil'
+import { backvagIkonNamn, backvagStreckLager, ritaBackvagStreck, kraftledningLager, ritaStolpeIkon, KRAFTLEDNING_STOLPE_BILD, BASVAG_STRECK_DASH, BASVAG_STRECK_LAYOUT, VAG_KANT_FARG, arStickvag, BASVAG_SKEN_ID, basvagSkenLager, forstaVagLagerId } from '../../lib/kartstil'
 import { LINJE_TRAFF_PX, narmasteLinje, linjeAtgard, VIDA_LINJE_TRAFFLAGER, EGNA_LINJER_TRAFFLAGER } from '../../lib/linjeTryck'
 import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
@@ -165,6 +165,8 @@ import { useSkotarVader } from '../../lib/hooks/useSkotarVader'
 import { hamtaPrognos, narmasteSteg } from '../../lib/smhi-prognos'
 import { useKartlager } from '../../lib/hooks/useKartlager'
 import { KARTLAGER_LAGER_ID } from '../../lib/kartlager'
+import { kartBasPaint } from '../../lib/kartBas'
+import { KLART_FARG, KLART_LINJE_OPACITET, KLART_YTA_FYLLNING, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_FYLLNING_LAGER, KLART_KANT_LAGER, KLART_LINJELAGER, KLART_TONAS_BORT, INGA_YTOR, arObjektKlart, skotadeYtor } from '../../lib/kartKlart'
 import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
 import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
 import { avlaggFeatures, laggTillAvlaggslager, taBortAvlaggslager } from '../../lib/skotarLass/avlaggKarta'
@@ -1388,15 +1390,15 @@ export default function PlannerPage() {
       // smälter ihop bättre med både Karta och Topokarta (Lantmäteriet),
       // osm. Körvy 2D använder samma 'bg'-layer som fallback.
       { id: 'bg', type: 'background' as const, paint: { 'background-color': '#e8e8e8' } },
-      { id: 'osm-layer', type: 'raster' as const, source: 'osm', layout: { visibility: (mapType === 'osm' ? 'visible' : 'none') as 'visible' | 'none' } },
+      { id: 'osm-layer', type: 'raster' as const, source: 'osm', paint: kartBasPaint('osm'), layout: { visibility: (mapType === 'osm' ? 'visible' : 'none') as 'visible' | 'none' } },
       // Baslagrens initiala synlighet följer det valda kartlagret (mapType: sparad lokalt/på kontot, annars Flygfoto) → ingen blixt av fel lager före handleMapReady.
       // handleMapReady läser mapType för att sätta exakt visibility vid map-init —
       // initial-värdena här är fallback om handleMapReady av nån anledning inte kör.
-      { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 }, layout: { visibility: (mapType === 'satellite' ? 'visible' : 'none') as 'visible' | 'none' } },
+      { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: kartBasPaint('satellite'), layout: { visibility: (mapType === 'satellite' ? 'visible' : 'none') as 'visible' | 'none' } },
       // LM-baskartan är TYST: nedtonad topowebb + avmättnad/kontrast/opacitet så förarens egna
       // symboler, traktgränser, larmpin och GPS-prick DOMINERAR. Kartan = underlag, ej huvudsak.
-      { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: { 'raster-saturation': -0.45, 'raster-contrast': -0.06, 'raster-opacity': 0.9 }, layout: { visibility: (mapType === 'lantmateriet' ? 'visible' : 'none') as 'visible' | 'none' } },
-      { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', layout: { visibility: (mapType === 'terrain' ? 'visible' : 'none') as 'visible' | 'none' } },
+      { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: kartBasPaint('lantmateriet'), layout: { visibility: (mapType === 'lantmateriet' ? 'visible' : 'none') as 'visible' | 'none' } },
+      { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', paint: kartBasPaint('terrain'), layout: { visibility: (mapType === 'terrain' ? 'visible' : 'none') as 'visible' | 'none' } },
     ],
   });
 
@@ -1439,6 +1441,11 @@ export default function PlannerPage() {
     const ejGallring = ['!=', ['get', 'zoneType'], 'gallring'] as any; // casing/dash/outline för ALLA UTOM gallring
     const gallringLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['==', ['get', 'tradslag'], 'lov']] as any;
     const gallringEjLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['!=', ['get', 'tradslag'], 'lov']] as any;
+    // SKOTAD YTA = klart = grått (Kartan lugnare, lib/kartKlart): de sparade skotningsuttagens polygoner ligger UNDER alla ytor, vägar och symboler, svagt och grått.
+    // Prefixet 'klart-' står i körvyns KEEP_PREFIX. Datan läses av en egen effekt (skotning_uttag.polygon_coords); läsfel = ingen grå yta, aldrig en påhittad.
+    map.addSource(KLART_KALLA, { type: 'geojson', data: INGA_YTOR as any });
+    map.addLayer({ id: KLART_FYLLNING_LAGER, type: 'fill', source: KLART_KALLA, paint: { 'fill-color': KLART_FARG, 'fill-opacity': KLART_YTA_FYLLNING } });
+    map.addLayer({ id: KLART_KANT_LAGER, type: 'line', source: KLART_KALLA, paint: { 'line-color': KLART_FARG, 'line-width': 1.5, 'line-opacity': KLART_YTA_KANT_OPACITET }, layout: { 'line-join': 'round' } });
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(GALLRING_FILL_OPACITY, 0.2) } });
     // Ytor man inte får köra in i (Hänsyn, Fornlämning, Ej framkomlig) snedstreckas i gruppens färg; övriga är heldragna (lib/ytaStil).
     for (const grupp of SNEDSTRECK_GRUPPER) {
@@ -1530,8 +1537,9 @@ export default function PlannerPage() {
       const cwLw = isBoundary
         ? ['interpolate', ['linear'], ['zoom'], 5, 5, 8, 6, 11, 7, 13, 7, 15, 9, 17, 10]
         : ['interpolate', ['linear'], ['zoom'], 5, 4, 8, 4, 11, 5, 13, 6, 15, 8, 17, 9];
-      // Svart casing bakom varje linje — traktgräns/basväg/stig: helt svart för max kontrast
-      const casingColor = (isBoundary || isMainRoad || isTrail) ? 'rgba(0,0,0,0.9)' : 'rgba(0,0,0,0.5)';
+      // Mörk kant bakom varje linje. Vägarna (basväg och stickväg) behåller sin snitselfärg (röd/gul/blå, blå med gula streck) och får samma kraftiga mörka kant som
+      // traktgräns och stig, så de syns mot det nedtonade fotot (Kartan lugnare). VAG_KANT_FARG bor i lib/kartstil.
+      const casingColor = (isBoundary || isMainRoad || isTrail || arStickvag(lt.id)) ? VAG_KANT_FARG : 'rgba(0,0,0,0.5)';
       map.addLayer({
         id: `line-${lt.id}-casing`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
@@ -1564,20 +1572,8 @@ export default function PlannerPage() {
       paint: { 'line-color': '#3b82f6', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 2, 11, 3, 13, 4, 15, 6, 17, 7] as any },
       layout: { 'line-cap': 'round', 'line-join': 'miter' },
     });
-    // === Basväg-etikett: nummer (+ längd i planering) mitt på vägen (symbol-placement 'line-center'). ===
-    map.addLayer({
-      id: 'line-mainroad-label', type: 'symbol', source: 'lines-source',
-      filter: ['==', ['get', 'lineType'], 'mainRoad'],
-      layout: {
-        'text-field': ['get', 'label'],
-        'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'],
-        'text-size': ['interpolate', ['linear'], ['zoom'], 12, 11, 15, 14, 17, 17] as any,
-        'symbol-placement': 'line-center',
-        'text-allow-overlap': false,
-        'text-padding': 4,
-      },
-      paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 },
-    });
+    // Basvägen har INGEN fast etikett på kartan (Kartan lugnare, 2026-10-24): nummer och längd ("Basväg 3 röd · 640 m") visas först när man trycker på vägen (markeringskortet).
+    // Den fasta texten på kartan är bara namnet inne i ytor (HÄNSYN 3, RISA …) och avläggets nummer.
 
     // === Backväg: DUBBLA tvärstreck (‖) i hinderänden, i vägens egen färg med mörk kant. Vägen själv rörs inte. ===
     // Prefix 'line-' → med i körvyns KEEP_PREFIX-whitelist, syns alltså i körvyn och skotarläget. Klipps inte på zoom (SYMBOL_UNDANTAG): det är en del av linjen.
@@ -1771,20 +1767,7 @@ export default function PlannerPage() {
       },
       layout: { visibility: 'none' },
     });
-    map.addLayer({
-      id: 'hogar-cluster-label',
-      type: 'symbol',
-      source: 'hogar-source',
-      filter: ['has', 'point_count'],
-      layout: {
-        'text-field': ['concat', ['to-string', ['round', ['get', 'totalVolym']]], ' m\u00B3'],
-        'text-size': 12,
-        'text-font': ['Open Sans Bold'],
-        'text-allow-overlap': true,
-        visibility: 'none',
-      },
-      paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.6)', 'text-halo-width': 1 },
-    });
+    // Klustrens m³ skrivs inte ut på kartan (Kartan lugnare): en hög visar volymen när man trycker på den, ett kluster zoomar in.
     // Hitdetection-cirkel (osynlig, fast radie för klick — UNDER pie charts)
     map.addLayer({
       id: 'hogar-hit',
@@ -1844,24 +1827,6 @@ export default function PlannerPage() {
       },
       layout: { visibility: 'none' },
     });
-    map.addLayer({
-      id: 'grot-label',
-      type: 'symbol',
-      source: 'grot-source',
-      layout: {
-        'text-field': ['concat', ['to-string', ['round', ['get', 'volym']]], ''],
-        'text-size': ['interpolate', ['linear'], ['zoom'], 15, 0, 17, 10, 18, 13],
-        'text-font': ['Open Sans Bold'],
-        'text-allow-overlap': false,
-        visibility: 'none',
-      },
-      paint: {
-        'text-color': '#fff',
-        'text-halo-color': 'rgba(0,0,0,0.7)',
-        'text-halo-width': 1,
-      },
-    });
-
     // === Trakt-geometri (envz: objekt_geometri, GeoJSON i WGS84) ===
     // EN källa, filtrerade lager per _typ. Data pumpas in av effekten [valtObjekt?.id] nedan,
     // synlighet av toggle-effekten. Alla börjar 'none'. Lagren läggs sist -> ovanpå VIDA-
@@ -1923,7 +1888,7 @@ export default function PlannerPage() {
     map.addLayer({ id: 'trakt-punkt-circle', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'icon-image': 'marker-landing', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.15, 12, 0.2, 13, 0.3, 14, 0.4, 15, 0.5, 16, 0.6, 17, 0.75], 'icon-anchor': 'center', 'icon-allow-overlap': true, 'icon-ignore-placement': true, visibility: 'none' }, paint: { 'icon-opacity': fokusOpacitet(1) as any } });
     // Etikett UNDER avläggsmarkören (larmets "Larm" ligger OVANFÖR sin pin). Höjdseparation gör
     // att "01-1" och "Larm" aldrig krockar när avlägg och larm sammanfaller — de växer åt var sitt håll.
-    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: fokusEtikettFilter(['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]]) as any, layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 2.4], 'text-anchor': 'top', 'text-allow-overlap': true, 'text-optional': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
+    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: fokusEtikettFilter(['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]]) as any, layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'LOPNR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 2.4], 'text-anchor': 'top', 'text-allow-overlap': true, 'text-optional': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
 
     // === Nyckelbiotoper (SV_SKS_NYCKELBIOTOP_101, Skogsstyrelsen) — svag grön fyllning + STRECKAD kontur ===
     // Streckningen skiljer dem från traktdelens heldragna gröna kontur. Tappbara → gemensamt kort.
@@ -4877,7 +4842,6 @@ export default function PlannerPage() {
     if (map.getLayer('hogar-hit')) map.setLayoutProperty('hogar-hit', 'visibility', vis);
     if (map.getLayer('hogar-circle')) map.setLayoutProperty('hogar-circle', 'visibility', vis);
     if (map.getLayer('hogar-cluster')) map.setLayoutProperty('hogar-cluster', 'visibility', vis);
-    if (map.getLayer('hogar-cluster-label')) map.setLayoutProperty('hogar-cluster-label', 'visibility', vis);
   }, [hogarPa, mapLibreReady]);
 
   // === GROT-högar: Toggle visibility ===
@@ -4887,7 +4851,6 @@ export default function PlannerPage() {
     const vis = overlays.grothogar ? 'visible' : 'none';
     if (map.getLayer('grot-circle')) map.setLayoutProperty('grot-circle', 'visibility', vis);
     if (map.getLayer('grot-shadow')) map.setLayoutProperty('grot-shadow', 'visibility', vis);
-    if (map.getLayer('grot-label')) map.setLayoutProperty('grot-label', 'visibility', vis);
   }, [overlays.grothogar, mapLibreReady]);
 
   // === Trakt-geometri: hämta objekt_geometri, pumpa in + zooma till geometrins utsträckning ===
@@ -7939,15 +7902,9 @@ export default function PlannerPage() {
             if (d <= 200) { nearby = true; break; }
           }
         }
-        // Basväg: nummer + längd-etikett. Planering "2 · 340 m", körvy bara "2" (längden skulle göda
-        // hyttvyn). Längden räknas dynamiskt (samma haversine som mätverktyget) → rätt även efter redigering.
-        let label = '';
-        if (m.lineType === 'mainRoad' && typeof m.nummer === 'number') {
-          label = korvyActive ? String(m.nummer) : `${m.nummer} · ${formatLength(pathMeters(coords as [number, number][]))}`;
-        }
         features.push({
           type: 'Feature',
-          properties: { lineType: m.lineType, id: m.id, nearby, label, ...(m.lineType === 'mainRoad' && m.farg ? { farg: m.farg } : {}) },
+          properties: { lineType: m.lineType, id: m.id, nearby, ...(m.lineType === 'mainRoad' && m.farg ? { farg: m.farg } : {}) },
           geometry: { type: 'LineString', coordinates: coords },
         });
         // Backväg: dubbla tvärstreck i hinderänden (egen källa, vägens linje rörs inte).
@@ -8800,7 +8757,7 @@ export default function PlannerPage() {
       // effekten (som kör i planeringsläget); whitelisten släpper bara igenom dem så de inte döljs här.
       // 'measure-' + 'figur-etikett' = Mät/Rita-figuren (punkter, linje, yta, etikett). Utan dem döljs figuren i körvyn
       // (synlig i källan, osynlig på skärmen — testselens skärmbild avslöjade det).
-      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett', 'omtrakten-', 'skotar-avlagg-', 'larm-'];
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett', 'omtrakten-', 'skotar-avlagg-', 'larm-', 'klart-'];
       for (const l of allLayers) {
         // Fastighetsgränsen (Vidas rågång trakt-ragang-* och Lantmäteri-paret wms-layer-fastighetsgranser*) hör till lagret "Fastighetsgränser", inte till körvyns
         // whitelist: släckt lager = vanlig karta också i körvyn. Synligheten sätts av lagereffekterna, som inte rörs av att körvyn öppnas.
@@ -9549,7 +9506,7 @@ export default function PlannerPage() {
       'skotar-hogar-dots',
       'hyttspar-andras-casing', 'hyttspar-andras-line',
       'hyttspar-hist-casing', 'hyttspar-hist-line', 'hyttspar-egen-casing', 'hyttspar-egen-line',
-      'grot-shadow', 'grot-circle', 'grot-label', 'hogar-cluster', 'hogar-cluster-label', 'hogar-hit', 'hogar-circle',
+      'grot-shadow', 'grot-circle', 'hogar-cluster', 'hogar-hit', 'hogar-circle',
       'markers-layer', 'markers-prick', 'markers-hit', 'markers-korvy-label', 'arrows-layer', 'arrows-hit',
       'yta-nr-hit', 'yta-nr-label', 'trakt-punkt-circle', 'trakt-punkt-label',
     ];
@@ -9621,6 +9578,62 @@ export default function PlannerPage() {
     if (hyttRoll) { stila('hyttspar-egen', hyttRoll, 'egen'); stila('hyttspar-hist', hyttRoll, 'hist'); }
     if (andrasRoll) stila('hyttspar-andras', andrasRoll, 'andras');
   }, [hyttRoll, andrasRoll, mapLibreReady, korvyActive]);
+
+  // DET SOM ÄR KLART BLIR GRÅTT (Kartan lugnare, lib/kartKlart). Bara status som redan finns:
+  //  • skotad yta  = skotning_uttag.polygon_coords (Markera utkört) → grå yta under allt annat (data här, utseende i lagren klart-yta-*)
+  //  • klar trakt  = objekt.status 'avslutat' → vägarna och maskinspåren (avverkad/skotad yta) grå (effekten längre ned)
+  // Läsfel = ingen grå yta (kartan påstår aldrig något den inte vet). Fara, larm, fällningscirkel och pilar rörs aldrig.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource(KLART_KALLA) as any;
+    if (!src) return;
+    if (!valtObjekt?.id) { try { src.setData(INGA_YTOR); } catch { /* */ } return; }
+    let avbruten = false;
+    (async () => {
+      const { data, error } = await supabase.from('skotning_uttag').select('polygon_coords').eq('objekt_id', valtObjekt.id);
+      if (avbruten) return;
+      if (error) { console.error('[Klart] skotade ytor kunde inte läsas:', error); try { src.setData(INGA_YTOR); } catch { /* */ } return; }
+      try { src.setData(skotadeYtor(data as any)); } catch { /* */ }
+    })();
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id, mapLibreReady, skotningReload]);
+
+  const klartOrigRef = useRef<Record<string, { color: any; opacity: any }>>({});
+  const traktKlar = arObjektKlart(valtObjekt?.status);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const orig = klartOrigRef.current;
+    const tillampa = () => {
+      for (const id of KLART_LINJELAGER) {
+        try {
+          if (!map.getLayer(id)) continue;
+          if (traktKlar) {
+            if (!orig[id]) orig[id] = { color: map.getPaintProperty(id, 'line-color'), opacity: map.getPaintProperty(id, 'line-opacity') };
+            map.setPaintProperty(id, 'line-color', KLART_FARG);
+            map.setPaintProperty(id, 'line-opacity', KLART_LINJE_OPACITET);
+          } else if (orig[id]) {
+            map.setPaintProperty(id, 'line-color', orig[id].color);
+            map.setPaintProperty(id, 'line-opacity', orig[id].opacity ?? 1);
+            delete orig[id];
+          }
+        } catch { /* */ }
+      }
+      for (const id of KLART_TONAS_BORT) {
+        try {
+          if (!map.getLayer(id)) continue;
+          if (traktKlar) map.setPaintProperty(id, 'line-opacity', 0);
+          else map.setPaintProperty(id, 'line-opacity', 1);
+        } catch { /* */ }
+      }
+    };
+    tillampa();
+    // Maskinspårens lager skapas av en annan effekt; ritas de först efter den här, tas de med vid nästa vilopunkt.
+    const igen = () => { tillampa(); };
+    map.once('idle', igen);
+    return () => { map.off('idle', igen); };
+  }, [traktKlar, valtObjekt?.id, mapLibreReady, briefingMode]);
 
   // SKOTARKÖRVY (punkt 3): mata hög-prickarna. Varje redan-kvar-reducerad hög → punkt i sortiment-
   // färg (properties.color). Alla prickar lika stora — ingen aktiv-förstoring (borttagen).

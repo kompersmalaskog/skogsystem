@@ -9,6 +9,7 @@
 //             höger) täcker resten, så de räknas bort som padding.
 
 import type { Kartlager } from '@/lib/kartlager';
+import { kartBasPaint } from './kartBas';
 import { harKoordinat } from './navigera';
 import { PANEL_BREDD_PX, plusLage, type PlusLage } from './plusArk';
 import { AVSTAND, FARG } from './design/tokens';
@@ -202,10 +203,10 @@ export function tomKartaStil(lager: Kartlager) {
     osm: { type: 'raster' as const, tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 19, attribution: '&copy; OpenStreetMap' },
   };
   const bas =
-    lager === 'satellite' ? { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 } }
-    : lager === 'terrain' ? { id: 'terrain-layer', type: 'raster' as const, source: 'topographic' }
-    : lager === 'osm' ? { id: 'osm-layer', type: 'raster' as const, source: 'osm' }
-    : { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: { 'raster-saturation': -0.45, 'raster-contrast': -0.06, 'raster-opacity': 0.9 } };
+    lager === 'satellite' ? { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: kartBasPaint('satellite') }
+    : lager === 'terrain' ? { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', paint: kartBasPaint('terrain') }
+    : lager === 'osm' ? { id: 'osm-layer', type: 'raster' as const, source: 'osm', paint: kartBasPaint('osm') }
+    : { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: kartBasPaint('lantmateriet') };
   return {
     version: 8 as const,
     sources: { [bas.source]: kallor[bas.source as keyof typeof kallor] },
