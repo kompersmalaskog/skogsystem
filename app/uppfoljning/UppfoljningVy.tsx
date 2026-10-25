@@ -9,6 +9,7 @@ import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
 import type { SkotareMaskinStat } from './lib/transform';
 import { FARG, TYP, AVSTAND, RADIE, TNUM, VIKT, kolumnRot } from '@/lib/design/tokens';
+import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -139,15 +140,18 @@ export interface UppfoljningData {
 }
 
 // ── Design tokens ─────────────────────────────────────────────────────────
-const V6_GREY = '#8e8e93';
-const V6_GREY2 = '#636366';
-const V6_CARD = '#141416';
-const V6_SEP = 'rgba(255,255,255,0.06)';
-const V6_SK = '#a8d582';
-const V6_ST = '#f0b24c';
-const V6_WARN = '#ff9f0a';
-const V6_DONE = '#30d158';
-const V6_BG = '#000';
+// Paletten är appens tokens (FARG) och rollfärgerna ur lib/sparStil — skördare
+// lila, skotare grön, som maskinvyn/objektöversikten/kartan. Namnen V6_* behålls
+// så resten av filen inte behöver röras; bara värdena pekar nu på EN källa.
+const V6_GREY = FARG.text2;
+const V6_GREY2 = FARG.text3;
+const V6_CARD = FARG.kort;
+const V6_SEP = FARG.linje;
+const V6_SK = ROLLFARG_SKORDARE;
+const V6_ST = ROLLFARG_SKOTARE;
+const V6_WARN = FARG.orange;
+const V6_DONE = FARG.gron;
+const V6_BG = FARG.bg;
 const V6_FF = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Inter',system-ui,sans-serif";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -353,7 +357,7 @@ function MaskinCell({
   return (
     <div style={{ background: V6_CARD, borderRadius: 16, padding: '16px 16px 14px', minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-        <span style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+        <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
         <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, minWidth: 0 }}>
@@ -387,7 +391,7 @@ function RisRubrik({ data }: { data: UppfoljningData }) {
     <section style={{ padding: '0 24px 20px' }}>
       <div style={{ background: V6_CARD, borderRadius: 16, padding: '16px 18px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_ST }} />
+          <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST }} />
           <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Ris hämtat</span>
         </div>
         {harVol ? (
@@ -542,7 +546,7 @@ function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
             display: 'flex', alignItems: 'flex-start', gap: 10, padding: '14px 16px',
             borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none',
           }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_ST, flexShrink: 0, marginTop: 6 }} />
+            <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST, flexShrink: 0, marginTop: AVSTAND.xs }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 14, color: '#fff', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.namn}</span>
@@ -616,7 +620,7 @@ function Tidslinje({ data }: { data: UppfoljningData }) {
             return (
               <div key={i}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: t.color }} />
+                  <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: t.color }} />
                   <span style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{t.label}</span>
                   <span style={{ fontSize: 11, color: V6_GREY, fontVariantNumeric: 'tabular-nums', marginLeft: 'auto' }}>
                     {fmtISO(t.start)} → {t.active ? 'pågår' : fmtISO(t.end)}
@@ -670,7 +674,7 @@ function ProdKort({ color, label, rows }: { color: string; label: string; rows: 
   return (
     <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-        <span style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+        <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
         <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
@@ -788,7 +792,7 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
       {hasSk && (
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_SK, alignSelf: 'center' }} />
+            <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_SK, alignSelf: 'center' }} />
             <span style={{ fontSize: 13, fontWeight: 600 }}>Skördare</span>
             <span style={{ fontSize: 11, color: V6_GREY, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
               Snitt {Math.round(skSnitt)} m³/dag · {Math.round(skTotal)} m³
@@ -800,7 +804,7 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
       {hasSt && (
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_ST, alignSelf: 'center' }} />
+            <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST, alignSelf: 'center' }} />
             <span style={{ fontSize: 13, fontWeight: 600 }}>Skotare</span>
             <span style={{ fontSize: 11, color: V6_GREY, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
               Snitt {Math.round(stSnitt)} m³/dag · {stTotalLass} lass · {Math.round(stTotal)} m³
@@ -831,7 +835,7 @@ function Tradslag({ tradslag }: { tradslag: { namn: string; pct: number }[] }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {tradslag.map((t, i) => (
             <div key={t.namn} style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: tradslagFarg(t.namn, i), flexShrink: 0, alignSelf: 'center' }} />
+              <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: tradslagFarg(t.namn, i), flexShrink: 0, alignSelf: 'center' }} />
               <span style={{ flex: 1, fontSize: 14, color: '#fff' }}>{t.namn}</span>
               <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{t.pct}%</span>
             </div>
@@ -881,7 +885,7 @@ function TidKort({ label, color, rows }: { label: string; color: string; rows: [
   return (
     <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-        <span style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+        <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
         <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -957,14 +961,14 @@ function Diesel({ data }: { data: UppfoljningData }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
           <div>
             <span style={{ color: V6_GREY }}>
-              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: V6_SK, marginRight: 5 }} />
+              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: RADIE.cirkel, background: V6_SK, marginRight: AVSTAND.xs }} />
               Skördare
             </span>
             <span style={{ marginLeft: 6, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{skL} L</span>
           </div>
           <div>
             <span style={{ color: V6_GREY }}>
-              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: V6_ST, marginRight: 5 }} />
+              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: RADIE.cirkel, background: V6_ST, marginRight: AVSTAND.xs }} />
               Skotare
             </span>
             <span style={{ marginLeft: 6, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{stL} L</span>
@@ -981,7 +985,7 @@ function AvbrottKort({ label, color, items, totalt }: { label: string; color: st
     <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
         <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
-          <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: color, marginRight: 6, verticalAlign: 'middle' }} />
+          <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: RADIE.cirkel, background: color, marginRight: AVSTAND.xs, verticalAlign: 'middle' }} />
           {label}
         </span>
         <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{totalt}</span>
