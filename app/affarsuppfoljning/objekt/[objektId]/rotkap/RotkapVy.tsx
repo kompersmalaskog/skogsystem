@@ -67,6 +67,11 @@ export const VALIDERING_VOL_PCT = 2;
 const tecken = (n: number, d = 2) =>
   Math.abs(n) < 0.5 * Math.pow(10, -d) ? nf(0, d) : (n < 0 ? '−' : '+') + nf(Math.abs(n), d);
 const meter = (cm: number) => nf(cm / 100, 1);
+/** Liter som hinkar (10 l), så talet går att se framför sig: " – ungefär 3 hinkar". Under en hink: inget. */
+export const hinkar = (liter: number) => {
+  const h = Math.round(liter / 10);
+  return h < 1 ? '' : ` – ungefär ${h === 1 ? 'en hink' : `${h} hinkar`}`;
+};
 /** Maskinen sätter Vidas ordernummer först i namnet. Det är inte namnet. */
 export const utanPrefix = (namn: string) => namn.replace(/^\d{4,}\s+/, '');
 
@@ -292,31 +297,30 @@ export default function RotkapVy({ rader, valt, kaplangd, onKaplangd, vy, onSaRa
                 4. Bilden som förklarar varför. 5. Underlaget i en rad. */}
             <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px 0` }}>
               <h1 style={{ ...TYP.titel, margin: 0, color: FARG.text }}>Längre rotbit</h1>
-              <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xs }}>Hur mycket timmer förlorar du om föraren kapar rotbiten längre?</div>
+              <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xs }}>Vad kostar det om föraren kapar av en längre bit för att bli av med rötan?</div>
             </div>
 
             {(() => {
               const d = rad.timmer_m3 - ref.timmer_m3;
               const literPerStam = ref.stammar > 0 ? (1000 * -d) / ref.stammar : 0;
-              const andel = ref.timmer_m3 > 0 ? (100 * -d) / ref.timmer_m3 : 0;
               return (
                 <div style={{ ...KORT, margin: `${AVSTAND.l}px ${AVSTAND.l}px 0` }}>
-                  <div style={{ ...TYP.meta, color: FARG.text2 }}>Rotbit {meter(kaplangd)} m i stället för {meter(REFERENS)} m</div>
+                  <div style={{ ...TYP.meta, color: FARG.text2 }}>Om föraren kapar {meter(kaplangd)} m i stället för {meter(REFERENS)} m</div>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, marginTop: AVSTAND.xs }}>
                     <span style={{ ...TYP.tal, ...TNUM, color: FARG.text }}>{tecken(d, 1)}</span>
                     <span style={{ ...TYP.text, color: FARG.text2 }}>m³ timmer</span>
                   </div>
                   <div style={{ ...TYP.text, color: FARG.text, marginTop: AVSTAND.s }}>
-                    {nf0(Math.max(0, literPerStam))} liter timmer per rötad stam · {nf(Math.max(0, andel), 1)} % av deras timmer
+                    Det är {nf0(Math.max(0, literPerStam))} liter timmer per stam{hinkar(literPerStam)}.
                   </div>
                   <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
-                    Timret blir massaved. Gäller de {nf0(ref.stammar)} stammar där föraren kapade bort röta.
+                    Den biten blir massaved i stället. Gäller de {nf0(ref.stammar)} stammar som hade röta.
                   </div>
                 </div>
               );
             })()}
 
-            <Rader rubrik="Varje längd">
+            <Rader rubrik="Ju längre bit, desto mer timmer försvinner">
               {lista.map(({ k, d }) => (
                 <button key={k} onClick={() => onKaplangd(k)} aria-pressed={k === kaplangd}
                   aria-label={`Rotbit ${meter(k)} meter: ${tecken(d, 1)} kubik timmer`}
