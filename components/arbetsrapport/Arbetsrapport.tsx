@@ -4932,7 +4932,7 @@ export default function Arbetsrapport() {
             </div>
           </header>
 
-          <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px` }}>
+          <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${SCROLL_BOTTOM}` }}>
 
             {/* Brandrisk-retroraden bor numera i Sammanställningens "Saknas"-block. */}
 
@@ -5121,7 +5121,7 @@ export default function Arbetsrapport() {
           </div>
         </header>
 
-        <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px` }}>
+        <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${SCROLL_BOTTOM}` }}>
 
           {/* TIDSSPECIFIKATION — exakt det som går till lönen, ur SAMMA beräkning som
               Fortnox-exporten (/api/lon/min-manad). MÄNGDER, aldrig kronor: föraren
