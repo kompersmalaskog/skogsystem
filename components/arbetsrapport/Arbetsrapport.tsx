@@ -327,9 +327,9 @@ function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => v
         {icon:"bar_chart",key:"mintid",label:"Min tid"},
         {icon:"settings",key:"inst",label:"Inställningar"},
       ].map(n=>(
-        <button key={n.key} className="ar-nav-knapp" aria-current={aktiv===n.key?"page":undefined} onClick={()=>onNav(n.key)} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:aktiv===n.key?"#0a84ff":"#8e8e93",background:"none",border:"none",cursor:"pointer",fontFamily:"'Inter',sans-serif",borderRadius:12,height:48,width:64,padding:0 }}>
+        <button key={n.key} className="ar-nav-knapp" aria-current={aktiv===n.key?"page":undefined} onClick={()=>onNav(n.key)} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:aktiv===n.key?"#0a84ff":"#8e8e93",background:"none",border:"none",cursor:"pointer",fontFamily:FONT,borderRadius:12,height:48,width:64,padding:0 }}>
           <span className="material-symbols-outlined" style={{ fontSize:22,marginBottom:2,fontVariationSettings:aktiv===n.key?"'FILL' 1":"'FILL' 0" }}>{n.icon}</span>
-          <span className="ar-nav-text" style={{ fontSize:10,fontWeight:aktiv===n.key?600:500 }}>{n.label}</span>
+          <span className="ar-nav-text" style={{ fontSize:TYP.micro.fontSize,fontWeight:aktiv===n.key?600:500 }}>{n.label}</span>
         </button>
       ))}
     </nav>

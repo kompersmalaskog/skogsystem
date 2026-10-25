@@ -689,7 +689,7 @@ Appen skickar bara ANTAL (tim, veckor, mil) till Fortnox. **Koder bor ENDAST i `
 - **Min tid:** Vecka/År sitter inne i diagramkortet som en smal väljare (max 220 px), inte som en andra flikrad; en vecka utan timmar visar "Inget jobbat den här veckan än." (`TimmarGraf.tsx`).
 - **Inställningar** (en flik): ingen tillbaka-pil; maskinen "Väljs automatiskt när du loggar in i maskinen"; notiser "På · iPhone" (`lib/pushEnhet.ts` `enhetText`) — aldrig webbläsarens tekniska text.
 - **Medvetet inte ändrat:** Kalenderns bredare kolumn (`KOLUMN.bred`, beslut i granskningen 2026-10-14).
-- **Sidomeny på stor skärm (Del 2, 2026-10-25):** från 1000 px (`SIDOMENY_FRAN_PX`) blir Arbetsrapports flikrad en meny till vänster under toppfältet (220 px, vald rad `FARG.upphojt`); innehållet flyttas åt höger med `body:has(.ar-nav)`. Bara CSS i `SIDOMENY_CSS` — samma komponent (`BottomNavBar`), telefon och iPad stående orörda. Varje `<main>` i Lön har `SCROLL_BOTTOM` i botten (knappen låg förut bakom flikraden). Vakt: `Arbetsrapport.sidomeny.test.ts`. Ej byggt: två kolumner per vy (kräver att `Arbetsrapport.tsx` delas upp först).
+- **Sidomeny på stor skärm (Del 2, 2026-10-25):** från 1000 px (`SIDOMENY_FRAN_PX`) blir Arbetsrapports flikrad en meny till vänster under toppfältet (220 px, vald rad `FARG.upphojt`); innehållet flyttas åt höger med `body:has(.ar-nav)`. Bara CSS i `SIDOMENY_CSS` — samma komponent (`BottomNavBar`), telefon och iPad stående orörda (flikradens text 10 → 11 px, `TYP.micro`). Varje `<main>` i Lön har `SCROLL_BOTTOM` i botten (knappen låg förut bakom flikraden). Vakt: `Arbetsrapport.sidomeny.test.ts`. Ej byggt: två kolumner per vy (kräver att `Arbetsrapport.tsx` delas upp först).
 
 ### Månadsnamn och Admin utan onödiga ord (2026-10-17)
 
