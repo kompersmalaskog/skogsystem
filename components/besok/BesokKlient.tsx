@@ -14,7 +14,7 @@ import SkotarBild from './SkotarBild';
 import type { KartaData } from './BesokKarta';
 import { HUVUDREGEL, SKOTARARK_RUBRIK, SKOTARARK_TEXT, sakerhetsRader, type MaskinRoll } from '@/lib/besok/sakerhet';
 import { klockslag } from '@/lib/besok/tid';
-import { VANTAR_TEXT, kvitteringsRader } from '@/lib/besok/status';
+import { VANTAR_TEXT, kvitteringsRader, maskinStatusRader } from '@/lib/besok/status';
 import { PUBLIK_POLL_MS } from '@/lib/besok/konstanter';
 
 const BesokKarta = dynamic(() => import('./BesokKarta'), { ssr: false, loading: () => <div style={{ height: 340, borderRadius: RADIE.kort, background: FARG.kort }} /> });
@@ -23,7 +23,7 @@ type Vy = {
   ok: true;
   namn: string;
   utforare: string;
-  framsteg: { procent: number | null; klartCa: string | null; text: string | null };
+  framsteg: { procent: number | null; klartCa: string | null; text: string | null; forklaring?: string | null };
   gran: [number, number][][] | null;
   mitt: { lat: number; lng: number } | null;
   maskiner: { roll: MaskinRoll; lat: number; lng: number; tid: string }[];
@@ -32,7 +32,7 @@ type Vy = {
   harMotorsag: boolean;
   ringM: { skordare: number; skotare: number; motorsag: number };
   uppdaterad: string;
-  besok: { id: string; besokstid: string; kvitteringar: { roll: MaskinRoll; tid: string }[] } | null;
+  besok: { id: string; besokstid: string; kvitteringar: { roll: MaskinRoll; tid: string }[]; maskiner?: { etikett: string; roll: MaskinRoll; tid: string | null }[] } | null;
 };
 type Slut = { fel: string; status: number };
 
@@ -92,6 +92,7 @@ export default function BesokKlient({ token }: { token: string }) {
 
   const anmalan = vy.besok;
   const kv = anmalan ? kvitteringsRader(anmalan.kvitteringar) : [];
+  const maskinRader = anmalan?.maskiner?.length ? maskinStatusRader(anmalan.maskiner) : [];
 
   return (
     <div data-testid="besok-sida" style={{ ...VY_ROT, maxWidth: 560, margin: '0 auto', paddingBottom: medSafeBotten(96) }}>
@@ -101,6 +102,7 @@ export default function BesokKlient({ token }: { token: string }) {
         <h1 data-testid="besok-namn" style={{ margin: 0, ...TYP.titel }}>{vy.namn}</h1>
         <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{vy.utforare}</div>
         {vy.framsteg.text && <div data-testid="besok-framsteg" style={{ ...TYP.listtitel, marginTop: AVSTAND.m, ...TNUM }}>{vy.framsteg.text}</div>}
+        {vy.framsteg.klartCa && vy.framsteg.forklaring && <div data-testid="besok-framsteg-forklaring" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{vy.framsteg.forklaring}</div>}
         {vy.framsteg.procent != null && (
           <div aria-hidden="true" style={{ height: AVSTAND.xs, borderRadius: RADIE.stapel, background: FARG.fyllning, marginTop: AVSTAND.s, overflow: 'hidden' }}>
             <div style={{ width: `${vy.framsteg.procent}%`, height: '100%', background: FARG.text }} />
@@ -157,9 +159,17 @@ export default function BesokKlient({ token }: { token: string }) {
       {anmalan && (
         <section data-testid="besok-anmalan" style={{ ...KORT, marginTop: AVSTAND.xl }}>
           <div style={{ ...TYP.micro, color: FARG.text2 }}>Din anmälan · {klockslag(anmalan.besokstid)}</div>
-          {kv.length === 0
-            ? <div data-testid="besok-vantar" style={{ ...TYP.listtitel, marginTop: AVSTAND.s }}>{VANTAR_TEXT}</div>
-            : <div style={{ marginTop: AVSTAND.s, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>{kv.map((t) => <div key={t} data-testid="besok-kvittens" style={{ ...TYP.listtitel, color: FARG.gron }}>{t}</div>)}</div>}
+          {maskinRader.length > 0
+            ? (
+              <div data-testid="besok-maskinrader" style={{ marginTop: AVSTAND.s, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+                {maskinRader.map((r) => (
+                  <div key={r.text} data-testid={r.sett ? 'besok-kvittens' : 'besok-ej-sett'} style={{ ...TYP.listtitel, color: r.sett ? FARG.gron : FARG.orange }}>{r.text}</div>
+                ))}
+              </div>
+            )
+            : kv.length === 0
+              ? <div data-testid="besok-vantar" style={{ ...TYP.listtitel, marginTop: AVSTAND.s }}>{VANTAR_TEXT}</div>
+              : <div style={{ marginTop: AVSTAND.s, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>{kv.map((t) => <div key={t} data-testid="besok-kvittens" style={{ ...TYP.listtitel, color: FARG.gron }}>{t}</div>)}</div>}
         </section>
       )}
 

@@ -35,6 +35,14 @@ describe('byggObjektRad', () => {
     // aldrig via grot-flaggan
     expect(byggObjektRad({ ...bas, typ: 'grot' }, 'P-1', NU)).not.toHaveProperty('grot');
   });
+  it('egen skotning skrivs bara när den är sann och bara på slutavverkning/gallring (utan den skickas kolumnen aldrig)', () => {
+    expect(byggObjektRad({ ...bas, egenSkotning: true }, 'P-1', NU).egen_skotning).toBe(true);
+    expect(byggObjektRad({ ...bas, typ: 'gallring', egenSkotning: true }, 'P-1', NU).egen_skotning).toBe(true);
+    expect(byggObjektRad({ ...bas, egenSkotning: false }, 'P-1', NU)).not.toHaveProperty('egen_skotning');
+    expect(byggObjektRad(bas, 'P-1', NU)).not.toHaveProperty('egen_skotning');
+    expect(byggObjektRad({ ...bas, typ: 'grot', egenSkotning: true }, 'P-1', NU)).not.toHaveProperty('egen_skotning');
+    expect(byggObjektRad({ ...bas, typ: 'energiklippning', egenSkotning: true }, 'P-1', NU)).not.toHaveProperty('egen_skotning');
+  });
   it('hor_till_objekt_id följer bara med för GROT', () => {
     expect(byggObjektRad({ ...bas, typ: 'grot', horTillObjektId: 'v1' }, 'P-1', NU).hor_till_objekt_id).toBe('v1');
     expect(byggObjektRad({ ...bas, typ: 'energiklippning', horTillObjektId: 'v1' }, 'P-1', NU)).not.toHaveProperty('hor_till_objekt_id');

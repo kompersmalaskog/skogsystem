@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { serverSupabase } from '@/lib/lonesystem/server';
 import { kravRoll, ADMIN_ROLLER } from '@/lib/auth/server';
-import { hamtaVoUnderlag } from '@/lib/faktura/hamtaUnderlag';
+import { hamtaVoUnderlag, type Granskningsunderlag } from '@/lib/faktura/hamtaUnderlag';
 import { byggRader, garAttSkicka, type FakturaRad } from '@/lib/faktura/radbyggare';
 
 export const runtime = 'nodejs';
@@ -47,6 +47,8 @@ type Resultat = {
   /** Summa på de rader som HAR ett pris. Fortnox-rader saknas alltid här. */
   summa_kant: number;
   rader_utan_pris: number;
+  /** Underlaget bakom talen. null bara när VO:t inte gick att läsa. */
+  granskning: Granskningsunderlag | null;
   fel?: string;
 };
 
@@ -71,7 +73,7 @@ export async function POST(req: NextRequest) {
 
     for (const v of vo) {
       try {
-        const { underlag, noter, objektIds } = await hamtaVoUnderlag(sb as any, v);
+        const { underlag, noter, objektIds, granskning } = await hamtaVoUnderlag(sb as any, v);
         const rader = byggRader(underlag);
         const kan = garAttSkicka(underlag, rader);
         const medPris = rader.filter(r => (r.a_pris ?? r.a_pris_beraknat) != null && r.antal != null);
@@ -89,6 +91,7 @@ export async function POST(req: NextRequest) {
           gar_att_skicka: kan.ok,
           summa_kant: medPris.reduce((s, r) => s + (r.a_pris ?? r.a_pris_beraknat)! * r.antal!, 0),
           rader_utan_pris: rader.length - medPris.length,
+          granskning,
         });
       } catch (e: any) {
         // Ett VO som inte går att läsa får INTE tysta de andra, och det får
@@ -99,6 +102,7 @@ export async function POST(req: NextRequest) {
           avtalsform: 'ackord', avrakningsdatum: null, objekt_ids: [],
           rader: [], noter: [], hinder: [e?.message || String(e)],
           gar_att_skicka: false, summa_kant: 0, rader_utan_pris: 0,
+          granskning: null,
           fel: e?.message || String(e),
         });
       }

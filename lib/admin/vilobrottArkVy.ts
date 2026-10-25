@@ -108,7 +108,7 @@ export function loneperiodForDag(datum: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-/** Går månaden att öppna i Förare · Månad? Löneunderlaget finns för månader t.o.m. förra kalendermånaden (adressens period får inte ligga i framtiden). */
+/** Går månaden att öppna i Förare · Månad? Ja t.o.m. den pågående arbetsmånaden (granskas, skickas inte); en framtida månad nej. */
 export function manadenGarAttOppna(datum: string, idag: string): boolean {
-  return loneperiodForDag(datum) <= idag.slice(0, 7);
+  return datum.slice(0, 7) <= idag.slice(0, 7);
 }

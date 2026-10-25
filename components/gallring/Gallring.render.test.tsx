@@ -141,7 +141,7 @@ const DETALJ: GallringDetalj = {
 
 const PER_HA: PerHa = {
   lage: 'ok', arealHa: 8.834, vidaHa: 8.834, yta: null, svarSparas: true, volymPerHa: 22.4, stammarPerHa: 347.2, grundytaPerHa: 4.2, andelUtanfor: 0.284,
-  stickvag: { lage: 'ok', andel: 0.24, avstandM: 16.7, roller: ['skordare', 'skotare'] },
+  stickvag: { lage: 'ok', andel: 0.24, avstandM: 16.7, roller: ['skotare'] },
   delning: null, delarPerHa: null,
 };
 
@@ -189,16 +189,19 @@ describe('trakten', () => {
     expect(h.textContent!.replace(/\u00a0/g, ' ')).toContain('Bygger på 4 000 av 4 285 stammar');
   });
 
-  it('trädslag och dagar ligger bakom en rad som öppnar ett ark', async () => {
-    hamtaGallring.mockResolvedValue(DETALJ);
+  it('trädslagen ligger bakom en rad som öppnar ett ark — uttag per dag finns inte (Martin 2026-10-22)', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ); // två dagar
     const h = await montera(createElement(Trakt, { vo: '11183108' }));
     const mer = h.querySelector('[data-mer]') as HTMLButtonElement;
-    expect(mer.textContent).toContain('Trädslag och dagar');
+    expect(mer.textContent).toContain('Trädslag');
+    expect(mer.textContent).not.toContain('dagar');
     expect(mer.textContent).toContain('Gran 68 % · Tall 32 %');
+    expect(h.textContent).not.toContain('Uttag per dag');
     await act(async () => { mer.click(); });
     const ark = document.querySelector('[role="dialog"]')!;
     expect(ark.textContent).toContain('Vilka träd togs ut?');
-    expect(ark.textContent).toContain('mån 12 okt');
+    expect(ark.textContent).not.toContain('Uttag per dag');
+    expect(ark.textContent).not.toContain('mån 12 okt');
   });
 
   it('per hektar på Vidas traktgräns: rader, stammar utanför och stickvägarna i ord', async () => {
@@ -213,7 +216,8 @@ describe('trakten', () => {
     expect(t).toContain('ca 17 m isär');
     expect(t).toContain('8,8 ha enligt Vidas traktgräns.');
     expect(t).toContain('28 % av stammarna står utanför (väg in eller enstaka träd) och räknas inte per hektar.');
-    expect(t).toContain('skördarens och skotarens GPS-spår');
+    expect(t).toContain('Stickvägarna ur skotarens GPS-spår');
+    expect(t).not.toContain('skördarens');
     // Per hektar står på ETT ställe: inte också i huvudet (där kom det ur objekt.areal, som var fel på Sandåsen).
     expect(h.querySelector('[data-svar]')!.textContent).not.toContain('st/ha');
   });
@@ -224,7 +228,7 @@ describe('trakten', () => {
     const h = await montera(createElement(Trakt, { vo: '11183108' }));
     const rad = h.querySelector('[data-stickvag]')!;
     expect(rad.getAttribute('data-stickvag')).toBe('ofullstandigt');
-    expect(rad.textContent).toContain('GPS-spåret täcker bara en del av trakten');
+    expect(rad.textContent).toContain('Skotarens GPS-spår täcker bara en del av trakten');
     expect(rad.textContent).not.toContain('%');
     expect(h.textContent).not.toContain('utanför (väg');
   });

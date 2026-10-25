@@ -5,6 +5,7 @@
 // (components/design/Ark): trädslag, åtgärd, ny åtgärd, hjälp.
 import type { KontrollResponse } from '@/app/api/kalibrering/kontroll/route';
 import { dagrubrik } from '@/lib/kalibrering/datum';
+import type { RutaVal } from '@/lib/kalibrering/grovlek';
 import type { CalDag } from '@/lib/kalibrering/typer';
 
 export type KalibArk =
@@ -14,6 +15,7 @@ export type KalibArk =
   | { typ: 'stock'; data: KontrollResponse; stockId: number }
   | { typ: 'dag'; dag: CalDag }
   | { typ: 'art'; art: string }
+  | { typ: 'ruta'; ruta: RutaVal }
   | { typ: 'atgard'; id: string }
   | { typ: 'ny_atgard' }
   | { typ: 'hjalp' }
@@ -32,6 +34,7 @@ export function arkRubrik(a: KalibArk): string {
     case 'stock': return `Stock ${a.data.stockar.find(s => s.id === a.stockId)?.stock_nummer ?? ''}`.trim();
     case 'dag': return dagrubrik(a.dag.datum);
     case 'art': return artNamn(a.art);
+    case 'ruta': return a.ruta.rubrik;
     case 'atgard': return 'Åtgärd';
     case 'ny_atgard': return 'Lägg till åtgärd';
     case 'hjalp': return 'Vad betyder talen?';

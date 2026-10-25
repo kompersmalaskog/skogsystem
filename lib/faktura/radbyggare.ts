@@ -145,6 +145,8 @@ export type Maskinrad = {
 export type Flyttrad = {
   id: string;
   datum: string;
+  /** Maskinens NAMN ("Giant"), aldrig maskin_id — hämtaren slår upp det i
+   *  dim_maskin. En annans maskin står med den fritext flytten skrevs med. */
   maskin: string;
   km: number | null;
   /**
@@ -392,12 +394,14 @@ export function byggRader(u: VoUnderlag): FakturaRad[] {
   // utan "ska faktureras PÅ TID". Korta flyttar faktureras också, som
   // artikel 5.
   //
-  // ⚠️ TIMMARNA SKRIVS IN, DE HÄRLEDS INTE.
+  // ⚠️ TIMMARNA LÄSES UR FÄLTET, DE HÄRLEDS INTE HÄR.
   // Fakturan avser lastbilens rundresa från LBC och tillbaka — därför är
   // ingen historisk rad under två timmar. maskin_flytt.tid_flytt_min mäter
-  // MASKINENS förflyttning (33–98 min) och är fel källa. Var LBC ligger och
-  // hur en dag med flera flyttar delas upp är inte bestämt, så en härledning
-  // vore en gissning. Anroparen visar lastbilens dygnssummor bredvid fältet.
+  // MASKINENS förflyttning (33–98 min) och är fel källa.
+  // Sedan 2026-10-24 FÖRESLÅR Lastbilens fakturasida tiden (regel A i
+  // lib/flytt/traillertid.ts: rundan delas vid varje lossning, hemresan följer
+  // den sista flytten) och en människa sparar den — vid Godkänn eller i arket
+  // "Tid att fakturera". Radbyggaren läser bara det sparade värdet.
   for (const f of u.flyttar) {
     const km = Number(f.km) || 0;
 

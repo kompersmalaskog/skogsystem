@@ -1,28 +1,39 @@
 'use client';
 
-// STARTA JOBB — vyn för jobb UTAN Vida-objekt: privata jobb, och jobb där Vida inte levererat än.
-// Den ENDA födelsevägen för objekt (Martins beslut: /objekt-vyns eget skapande är borttaget och länkar hit).
+// STARTA JOBB — jobb UTAN Vida-objekt: privata jobb, och jobb där Vida inte levererat än. Den ENDA födelsevägen för objekt.
 //
-// Tre ingångar:
-//  1) NYTT JOBB: namn, typ (slutavverkning / gallring / GROT / energiklippning), Privat eller Väntar på Vida, valfri position.
-//     • Maskindator (enheten är bunden till en maskin): maskinens position tas automatiskt, maskinen tilldelas i rätt rollfält,
-//       status pågående, och körvyn öppnas direkt på det nya objektet (överlämning via lib/startaJobbOverlamning).
-//     • Telefon/dator: position är valfri — peka på kartan, sök fastighet/ort eller "Här" (bara om man står på platsen).
-//     • GROT: valfritt "Hör till objekt" (virkesobjektet på samma trakt; närmaste först).
-//  2) MASKINOBJEKT (i efterhand): dim_objekt utan VO → P-VO sätts på maskinraden (smal RPC — dim_objekt är skrivskyddat för förare) och en
-//     objekt-rad skapas med dim_objekt_id. ?objekt=<id> förväljer (matchningsvyns "Skapa").
-//  3) SLÅ IHOP MED VIDA (bara "Väntar på Vida"): när Vida levererat ett objekt vars traktgräns innehåller jobbets position eller hyttspår
-//     föreslås det överst och på jobbets rad. Ja flyttar allt till Vidas objekt och tar bort jobbet. Privata jobb frågas aldrig.
+// Omgjord 2026-10-24 (Martin: "samma design som i resten av appen, och man ser om ett VO är förbrukat/använt — tydligt"):
+//  • Byggd på components/design (Sektion, Rad, Falt, Flikkontroll, Ark) som Arbetsrapporten och markägarvyn. Inga egna kort/flikar.
+//  • Huvudvyn är LISTAN över P-VO grupperad på läge: Pågående (taget, eller startat utan data — orange), Lediga, Klara (hopfälld).
+//    Läget står i ord på varje rad ("Tagen · H8E -26 · sedan 23 okt"), räknat i lib/startaJobbLage + lib/startaJobbLista.
+//  • Ett tryck på ett jobb visar det: VO-numret stort, läget, maskinerna (och vilken roll som saknas), jobbets fakta, "Planera på kartan".
+//  • "Nytt jobb" och "Maskinobjekt utan VO" är ark. Att ge ett maskinobjekt VO kräver ett tryck till (det går inte att ångra).
+//  • Nytt jobb frågar: namn, typ, Vida, skotning (bara slutavverkning/gallring), hör till (bara GROT), position (KRÄVS — ett objekt
+//    utan lat/lng gör planerarens markeringar fel, se STATUS/CLAUDE om P-1016/P-1017). Markägare och bolag fylls i via Redigering.
+//  • Bredd: under 1100 px en sak per skärm; från 1100 px listan som sidokolumn och jobbet till höger (som Gallring och markägarrapporten).
 //
-// Ärlig sparning genomgående: insert/RPC läses tillbaka, fel visas i klartext, aldrig tyst retur. Alla läsfel visas (en lista som felade är inte
-// "tom"). Mått och färger ur lib/design/tokens.
+// Maskindatorn (enheten är bunden till en maskin): maskinens position tas automatiskt, maskinen tilldelas, status pågående och körvyn
+// öppnas direkt (överlämning via lib/startaJobbOverlamning) — oförändrat. Får den ingen GPS pekar man på kartan i stället.
+//
+// Ärlig sparning genomgående: insert/RPC läses tillbaka, fel visas i klartext, aldrig tyst retur. En lista som inte gick att läsa är aldrig
+// "tom", och en maskindata som inte gick att läsa visar aldrig "Ledig".
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { AVSTAND, FARG, INAKTIV, KNAPP, KORT, RADIE, TYP, VY_ROT, designCss, underTopbar, medSafeBotten } from '@/lib/design/tokens';
+import {
+  AVSTAND, FARG, FONT, INAKTIV, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, TYP, designCss, medSafeBotten,
+} from '@/lib/design/tokens';
+import Ark from '@/components/design/Ark';
+import Falt from '@/components/design/Falt';
+import Rad from '@/components/design/Rad';
+import Sektion from '@/components/design/Sektion';
 import {
   jobbTypLabel, narmasteVirkesobjekt, skapaJobb, valideraJobb, type JobbIndata, type JobbRoll, type JobbTyp, type JobbUrsprung, type VirkesobjektRad,
 } from '@/lib/startaJobb';
+import { inknappningsText, kanHaEgenSkotning } from '@/lib/startaJobbLage';
+import { grupperaJobb, lasJobbLista, sokJobb, type JobbVy } from '@/lib/startaJobbLista';
+import { sparaSkotning } from '@/lib/startaJobbSkotning';
+import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import {
   arVantaVidaJobb, arVidaObjekt, forslagText, hittaSlaIhopForslag, type JobbForSla, type SlaIhopForslag, type SparPunkt, type VidaObjektForSla,
 } from '@/lib/vidaSammanslagning';
@@ -34,7 +45,7 @@ import { rollAvMaskintyp } from '@/lib/maskindatorStart';
 import { hamtaEnGpsFix } from '@/lib/gpsKalla';
 import { haversineMeters } from '@/lib/gps-guard';
 import type { KartPlats } from '@/components/starta/PlatsKarta';
-import { falt, ForslagKort, Grupp, HorTill, Marke, PlatsVal, TypVal, UrsprungVal } from './delar';
+import { FaltEtikett, ForslagKort, HorTill, JobbRader, LageUnder, MaskinSektion, PlatsVal, SkotningVal, TypVal, UrsprungVal, falt } from './delar';
 
 interface DimObjekt {
   objekt_id: string;
@@ -43,58 +54,72 @@ interface DimObjekt {
   skogsagare: string | null;
   bolag: string | null;
   huvudtyp: string | null;
+  maskin_id?: string | null;
+  start_date?: string | null;
 }
 
-/** Jobb-raden ur objekt (P-VO). */
-interface JobbRad extends JobbForSla {
-  markagare?: string | null;
-  bolag?: string | null;
-  typ?: string | null;
-  status?: string | null;
-}
-
-interface TilldeladRad {
-  nyckel: string;
-  namn: string;
-  vo: string;
-  agare: string | null;
-  bolag: string | null;
-  typ: string | null;
-  ursprung: string | null;
-  jobbId: string | null;
-  status: string | null;
-}
-
-interface Resultat { namn: string; vo_nummer: string; ursprung: JobbUrsprung | null; varning: string | null }
-
-type Flik = 'nytt' | 'maskin' | 'tilldelade';
-type Forslag = SlaIhopForslag & { jobb: JobbRad; vida: { id: string; namn: string | null; vo_nummer: string | null } };
+type Forslag = SlaIhopForslag & { jobb: JobbForSla; vida: { id: string; namn: string | null; vo_nummer: string | null } };
+type ArkLage = null | 'nytt' | 'maskinobjekt' | 'skotning' | { bekrafta: DimObjekt };
 
 const MASKIN_GPS_MS = 15000;
 const GRANS_KM = 30;
+/** Från denna bredd står listan bredvid jobbet (samma som Gallring och markägarrapporten). */
+const SIDOKOLUMN_FRAN_PX = 1100;
+const SIDOKOLUMN_BREDD_PX = 360;
+/** Sökfältet visas när listan är längre än så. */
+const SOK_FRAN = 8;
 
 const startaFel = (e: any) => (e?.message ? String(e.message) : 'okänt fel');
 
+// Inga citattecken i CSS-strängen: React escapar dem i <style> vid serverrendering (CLAUDE.md, markägarrapporten).
+const css = `
+.sj-ram { display: flex; min-height: ${ROT_MIN_HOJD}; background: ${FARG.bg}; color: ${FARG.text}; }
+.sj-lista { width: 100%; box-sizing: border-box; padding: ${AVSTAND.xl}px ${AVSTAND.sidmarginal}px ${AVSTAND.xxl}px; }
+.sj-lista-inre { max-width: ${KOLUMN.smal}px; margin: 0 auto; }
+.sj-detalj { flex: 1; min-width: 0; box-sizing: border-box; padding: ${AVSTAND.l}px ${AVSTAND.sidmarginal}px ${AVSTAND.xxl}px; }
+.sj-detalj-inre { max-width: ${KOLUMN.smal}px; margin: 0 auto; }
+@media (max-width: ${SIDOKOLUMN_FRAN_PX - 1}px) {
+  .sj-lista-vy .sj-detalj { display: none; }
+  .sj-jobb-vy .sj-lista { display: none; }
+}
+@media (min-width: ${SIDOKOLUMN_FRAN_PX}px) {
+  .sj-lista {
+    width: ${SIDOKOLUMN_BREDD_PX}px; flex-shrink: 0; border-right: 1px solid ${FARG.linje};
+    position: sticky; top: ${LAYOUT.topbar}; height: ${ROT_MIN_HOJD}; overflow-y: auto;
+  }
+  .sj-lista-inre { max-width: none; }
+  .sj-detalj { padding-top: ${AVSTAND.xxl}px; }
+  .sj-bara-smal { display: none !important; }
+}
+`;
+
 export default function StartaJobbPage() {
+  const idagAr = new Date().getFullYear();
+  const { medarbetare } = useCurrentMedarbetare();
+  const arAdmin = medarbetare?.roll === 'admin';
+
   // ── Data ──
+  const [jobb, setJobb] = useState<JobbVy[]>([]);
   const [dimUtanVo, setDimUtanVo] = useState<DimObjekt[]>([]);
-  const [tilldelade, setTilldelade] = useState<TilldeladRad[]>([]);
-  const [jobb, setJobb] = useState<JobbRad[]>([]);
   const [virkes, setVirkes] = useState<(VirkesobjektRad & { kalla?: string | null })[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lasVarningar, setLasVarningar] = useState<string[]>([]);
-  const [flik, setFlik] = useState<Flik>('nytt');
+
+  // ── Navigering ──
+  const [valt, setValt] = useState<string | null>(null);        // JobbVy.nyckel
+  const [nyss, setNyss] = useState<string | null>(null);        // nyckeln på jobbet som just skapades (visar "Knappa in …" + Klar)
+  const [ark, setArk] = useState<ArkLage>(null);
   const [sok, setSok] = useState('');
-  const [forvalt, setForvalt] = useState<string | null>(null);   // ?objekt=<id>
+  const [sokMaskin, setSokMaskin] = useState('');
+  const [visaKlara, setVisaKlara] = useState(false);
 
   // ── Formulär ──
   const [namn, setNamn] = useState('');
   const [typ, setTyp] = useState<JobbTyp>('slutavverkning');
   const [ursprung, setUrsprung] = useState<JobbUrsprung>('vanta_vida');
+  const [egenSkotning, setEgenSkotning] = useState(false);
   const [horTill, setHorTill] = useState<string | null>(null);
-  const [markagare, setMarkagare] = useState('');
-  const [bolag, setBolag] = useState('');
   const [plats, setPlats] = useState<KartPlats | null>(null);
   const [platsText, setPlatsText] = useState<string | null>(null);
   const [namnForslag, setNamnForslag] = useState<string | null>(null);
@@ -102,8 +127,9 @@ export default function StartaJobbPage() {
   // ── Tillstånd ──
   const [saving, setSaving] = useState(false);
   const [fel, setFel] = useState('');
-  const [resultat, setResultat] = useState<Resultat | null>(null);
-  const [visaVo, setVisaVo] = useState<{ namn: string; vo: string } | null>(null);
+  const [varning, setVarning] = useState<string | null>(null);
+  const [skotningSparar, setSkotningSparar] = useState(false);
+  const [skotningFel, setSkotningFel] = useState('');
 
   // ── Maskindator ──
   const [maskin, setMaskin] = useState<{ id: string; namn: string; roll: JobbRoll | null } | null>(null);
@@ -116,60 +142,8 @@ export default function StartaJobbPage() {
   const [ihopKlart, setIhopKlart] = useState<string | null>(null);
 
   // ───────────────────────── Laddning ─────────────────────────
-  const ladda = useCallback(async () => {
-    try {
-      const [utanVo, dimTilldelade, objTilldelade, virkesR] = await Promise.all([
-        supabase.from('dim_objekt')
-          .select('objekt_id, object_name, vo_nummer, skogsagare, bolag, huvudtyp')
-          .or('vo_nummer.is.null,vo_nummer.eq.')
-          .order('object_name'),
-        supabase.from('dim_objekt')
-          .select('objekt_id, object_name, vo_nummer, skogsagare, bolag, huvudtyp')
-          .like('vo_nummer', 'P-%')
-          .order('object_name'),
-        supabase.from('objekt')
-          .select('id, namn, vo_nummer, markagare, bolag, typ, status, ursprung, lat, lng, created_at, sla_ihop_avvisade')
-          .like('vo_nummer', 'P-%'),
-        supabase.from('objekt')
-          .select('id, namn, vo_nummer, typ, status, lat, lng')
-          .in('typ', ['slutavverkning', 'gallring'])
-          .limit(500),
-      ]);
-      if (utanVo.error) { setError(`Databasfel: ${utanVo.error.message}`); setLoading(false); return; }
-      setDimUtanVo(utanVo.data || []);
-
-      // Läsfel visas — en lista som felade är inte "tom".
-      const varn: string[] = [];
-      if (dimTilldelade.error) varn.push(`Maskinobjekt med VO kunde inte läsas: ${dimTilldelade.error.message}`);
-      if (objTilldelade.error) varn.push(`Jobben kunde inte läsas: ${objTilldelade.error.message}`);
-      if (virkesR.error) varn.push(`Virkesobjekt (för GROT "hör till") kunde inte läsas: ${virkesR.error.message}`);
-      setLasVarningar(varn);
-      setVirkes(virkesR.data || []);
-
-      const jobbLista: JobbRad[] = (objTilldelade.data || []) as JobbRad[];
-      setJobb(jobbLista);
-
-      // Tilldelade = maskinobjekt med P-VO + jobb med P-VO, dedupe på VO (jobbraden bär mest information och vinner).
-      const rader = new Map<string, TilldeladRad>();
-      (dimTilldelade.data || []).forEach((o: any) => {
-        if (o.vo_nummer) rader.set(o.vo_nummer, { nyckel: 'dim-' + o.objekt_id, namn: o.object_name || 'Namnlöst objekt', vo: o.vo_nummer, agare: o.skogsagare, bolag: o.bolag, typ: null, ursprung: null, jobbId: null, status: null });
-      });
-      jobbLista.forEach((o) => {
-        if (o.vo_nummer) rader.set(o.vo_nummer, { nyckel: 'obj-' + o.id, namn: o.namn || 'Namnlöst objekt', vo: o.vo_nummer, agare: o.markagare ?? null, bolag: o.bolag ?? null, typ: o.typ ?? null, ursprung: o.ursprung ?? null, jobbId: o.id, status: o.status ?? null });
-      });
-      setTilldelade(Array.from(rader.values()).sort((a, b) => a.namn.localeCompare(b.namn, 'sv')));
-      setError(null);
-      setLoading(false);
-      void kontrolleraVida(jobbLista);
-    } catch (err: any) {
-      setError(`Nätverksfel: ${startaFel(err)}`);
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Har Vida levererat ett objekt över något av jobben som väntar? Läser Vida-objekt, deras traktgräns och jobbens hyttspår.
-  const kontrolleraVida = useCallback(async (jobbLista: JobbRad[]) => {
+  const kontrolleraVida = useCallback(async (jobbLista: JobbForSla[]) => {
     const vanta = jobbLista.filter(arVantaVidaJobb);
     if (vanta.length === 0) { setForslag([]); setForslagFel(null); return; }
     try {
@@ -221,14 +195,46 @@ export default function StartaJobbPage() {
     }
   }, []);
 
-  useEffect(() => {
-    // ?objekt=<id> läses utan useSearchParams (slipper Suspense-kravet)
+  const ladda = useCallback(async () => {
     try {
-      const id = new URLSearchParams(window.location.search).get('objekt');
-      if (id) { setForvalt(id); setFlik('maskin'); }
-    } catch { /* */ }
+      const [lista, utanVo, virkesR] = await Promise.all([
+        lasJobbLista(supabase as any, idagAr),
+        supabase.from('dim_objekt')
+          .select('objekt_id, object_name, vo_nummer, skogsagare, bolag, huvudtyp, maskin_id, start_date')
+          .or('vo_nummer.is.null,vo_nummer.eq.')
+          .order('object_name'),
+        supabase.from('objekt').select('id, namn, vo_nummer, typ, status, lat, lng').in('typ', ['slutavverkning', 'gallring']).limit(500),
+      ]);
+      if (!lista.ok) { setError(lista.fel); setLoading(false); return; }
+      const varn = [...lista.varningar];
+      if (utanVo.error) varn.push(`Maskinobjekt utan VO kunde inte läsas: ${utanVo.error.message}`);
+      if (virkesR.error) varn.push(`Virkesobjekt (för GROT "hör till") kunde inte läsas: ${virkesR.error.message}`);
+      setLasVarningar(varn);
+      setJobb(lista.jobb);
+      setDimUtanVo(utanVo.data || []);
+      setVirkes(virkesR.data || []);
+      setError(null);
+      setLoading(false);
+      void kontrolleraVida(lista.jobb.map((j) => j.rad).filter((r): r is NonNullable<typeof r> => !!r) as JobbForSla[]);
+    } catch (err: any) {
+      setError(`Nätverksfel: ${startaFel(err)}`);
+      setLoading(false);
+    }
+  }, [idagAr, kontrolleraVida]);
+
+  useEffect(() => {
+    // ?objekt=<id> (matchningsvyns "Skapa") öppnar bekräftelsen för det maskinobjektet när listan är läst.
     void ladda();
   }, [ladda]);
+
+  useEffect(() => {
+    let id: string | null = null;
+    try { id = new URLSearchParams(window.location.search).get('objekt'); } catch { /* */ }
+    if (!id || loading) return;
+    const o = dimUtanVo.find((d) => d.objekt_id === id);
+    if (o) setArk({ bekrafta: o });
+    try { const u = new URL(window.location.href); u.searchParams.delete('objekt'); window.history.replaceState(null, '', u.toString()); } catch { /* */ }
+  }, [loading, dimUtanVo]);
 
   // Maskindator? Enheten är bunden till en maskin → maskinens position och rollen ur maskinregistret.
   useEffect(() => {
@@ -250,71 +256,84 @@ export default function StartaJobbPage() {
     return () => { avbruten = true; };
   }, []);
 
+  // Positionen jobbet får: maskinens GPS på maskindatorn, annars den valda på kartan (också på maskindatorn när GPS saknas).
+  const maskinGpsOk = !!maskin && gps.status === 'ok';
+  const position: KartPlats | null = maskinGpsOk ? { lat: gps.lat!, lng: gps.lng! } : plats;
+
   // Närmaste ortnamn → förslag på jobbets namn (bara när namnet är tomt och en position finns).
-  const positionAttNamnaEfter = maskin ? (gps.status === 'ok' ? { lat: gps.lat!, lng: gps.lng! } : null) : plats;
   useEffect(() => {
     setNamnForslag(null);
-    if (!positionAttNamnaEfter || namn.trim()) return;
+    if (!position || namn.trim()) return;
     let avbruten = false;
     const t = setTimeout(async () => {
       try {
-        const r = await fetch(`/api/plats?lat=${positionAttNamnaEfter.lat}&lng=${positionAttNamnaEfter.lng}`);
+        const r = await fetch(`/api/plats?lat=${position.lat}&lng=${position.lng}`);
         const j = await r.json().catch(() => null);
         if (!avbruten && r.ok && j?.ok && j.ort?.namn) setNamnForslag(String(j.ort.namn));
       } catch { /* ett saknat förslag är inget fel */ }
     }, 600);
     return () => { avbruten = true; clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [positionAttNamnaEfter?.lat, positionAttNamnaEfter?.lng, namn === '']);
+  }, [position?.lat, position?.lng, namn === '']);
 
-  // ───────────────────────── Härledda listor ─────────────────────────
-  const horTillAlternativ = useMemo(() => narmasteVirkesobjekt(positionAttNamnaEfter, virkes, 6), [virkes, positionAttNamnaEfter?.lat, positionAttNamnaEfter?.lng]);   // eslint-disable-line react-hooks/exhaustive-deps
-
-  const maskinLista = useMemo(() => {
-    if (!sok.trim()) return dimUtanVo;
-    const t = sok.toLowerCase();
-    return dimUtanVo.filter((o) => (o.object_name || '').toLowerCase().includes(t) || (o.skogsagare || '').toLowerCase().includes(t) || (o.bolag || '').toLowerCase().includes(t));
-  }, [dimUtanVo, sok]);
-
-  const tilldeladeLista = useMemo(() => {
-    if (!sok.trim()) return tilldelade;
-    const t = sok.toLowerCase();
-    return tilldelade.filter((o) => o.namn.toLowerCase().includes(t) || (o.agare || '').toLowerCase().includes(t) || (o.bolag || '').toLowerCase().includes(t) || o.vo.toLowerCase().includes(t));
-  }, [tilldelade, sok]);
-
+  // ───────────────────────── Härledda ─────────────────────────
+  const horTillAlternativ = useMemo(() => narmasteVirkesobjekt(position, virkes, 6), [virkes, position?.lat, position?.lng]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const grupper = useMemo(() => grupperaJobb(sokJobb(jobb, sok)), [jobb, sok]);
+  const valtJobb = valt ? jobb.find((j) => j.nyckel === valt) ?? null : null;
   const forslagPerJobb = useMemo(() => new Map(forslag.map((f) => [f.jobbId, f])), [forslag]);
+  const forslagUtanValt = forslag.filter((f) => !valtJobb || f.jobbId !== valtJobb.jobbId);
+  const maskinLista = useMemo(() => {
+    const t = sokMaskin.trim().toLowerCase();
+    if (!t) return dimUtanVo;
+    return dimUtanVo.filter((o) => [o.object_name, o.skogsagare, o.bolag].some((v) => (v || '').toLowerCase().includes(t)));
+  }, [dimUtanVo, sokMaskin]);
+  const maskinNamn = useMemo(() => new Map(jobb.flatMap((j) => j.maskiner.map((m) => [m.maskinId, m.namn] as const))), [jobb]);
 
   // ───────────────────────── Åtgärder ─────────────────────────
-  const hamtaVo = async (): Promise<string | null> => {
-    const { data: vo, error: rpcErr } = await supabase.rpc('next_privat_vo');
-    if (rpcErr || !vo) {
-      setFel('Kunde inte hämta VO-nummer' + (rpcErr ? `: ${rpcErr.message}` : ' — inget svar från databasen'));
-      return null;
-    }
-    return vo as string;
+  const valj = (j: JobbVy) => { setValt(j.nyckel); setNyss(null); setFel(''); setVarning(null); try { window.scrollTo({ top: 0 }); } catch { /* jsdom */ } };
+  const tillListan = () => { setValt(null); setNyss(null); setVarning(null); };
+
+  const nollstallFormular = () => {
+    setNamn(''); setTyp('slutavverkning'); setUrsprung('vanta_vida'); setEgenSkotning(false); setHorTill(null); setPlats(null); setPlatsText(null);
+  };
+
+  const formularKlart = !!namn.trim() && !!position;
+
+  // Ändra skotningen på ett befintligt jobb (bara admin). Ett tryck på ett val sparar; arket stängs först när det är sparat.
+  const andraSkotning = async (j: JobbVy, egen: boolean) => {
+    if (skotningSparar) return;
+    if (egen === j.egenSkotning) { setArk(null); return; }
+    setSkotningFel('');
+    setSkotningSparar(true);
+    const r = await sparaSkotning(supabase as any, { jobbId: j.jobbId, dimIds: j.dimIds }, egen);
+    setSkotningSparar(false);
+    if (!r.ok) { setSkotningFel(r.fel); return; }
+    setArk(null);
+    await ladda();
   };
 
   const skapa = async () => {
     if (saving) return;
     setFel('');
-    const pos: KartPlats | null = maskin ? (gps.status === 'ok' ? { lat: gps.lat!, lng: gps.lng! } : null) : plats;
     const indata: JobbIndata = {
-      namn, typ, ursprung, lat: pos?.lat ?? null, lng: pos?.lng ?? null,
-      markagare, bolag, horTillObjektId: typ === 'grot' ? horTill : null,
+      namn, typ, ursprung, lat: position?.lat ?? null, lng: position?.lng ?? null,
+      horTillObjektId: typ === 'grot' ? horTill : null,
+      egenSkotning: kanHaEgenSkotning(typ) ? egenSkotning : false,
       maskin: maskin?.roll ? { maskinId: maskin.id, roll: maskin.roll } : null,
     };
+    if (!position) { setFel('Välj var jobbet är — peka på kartan eller sök fastigheten.'); return; }
     const v = valideraJobb(indata);
     if (!v.ok) { setFel(v.fel); return; }
     setSaving(true);
     const r = await skapaJobb(supabase as any, indata);
     if (!r.ok) {
-      setFel(r.fel + (r.voForbrukat ? ' (VO-numret är förbrukat — nästa jobb får nästa nummer.)' : ''));
+      const saknasKolumn = /egen_skotning/.test(r.fel);
+      setFel(r.fel + (saknasKolumn ? ' (Egen skotning kräver migrationen 20261024121848_objekt_egen_skotning — välj Vi skotar så länge.)' : '')
+        + (r.voForbrukat ? ' VO-numret är förbrukat — nästa jobb får nästa nummer.' : ''));
       setSaving(false);
       return;
     }
     const rad = r.rad;
-    setJobb((prev) => [rad, ...prev]);
-    setTilldelade((prev) => [{ nyckel: 'obj-' + rad.id, namn: rad.namn, vo: r.vo, agare: rad.markagare ?? null, bolag: rad.bolag ?? null, typ: rad.typ ?? null, ursprung: rad.ursprung ?? null, jobbId: rad.id, status: rad.status ?? null }, ...prev]);
 
     // Maskindator: körvyn öppnas direkt på det nya objektet.
     if (maskin?.roll) {
@@ -322,14 +341,17 @@ export default function StartaJobbPage() {
       // Spår som loggats utan objekt tills nu (skyddsnätet) kopplas hit (server, service-roll). Får aldrig stoppa starten.
       // keepalive: anropet ska hinna iväg trots att sidan byter till /planering direkt efter.
       try { void fetch('/api/hyttspar/koppla', { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ objektId: rad.id, maskinId: maskin.id }) }).catch(() => {}); } catch { /* */ }
-      try { skrivOverlamning(sessionStorage, { objektId: rad.id, roll: maskin.roll, besked: `${r.vo} — knappa in numret i båda maskinerna` }); } catch { /* */ }
+      try { skrivOverlamning(sessionStorage, { objektId: rad.id, roll: maskin.roll, besked: `${r.vo} — ${inknappningsText(typ === 'grot' || typ === 'energiklippning' ? 'en_maskin' : egenSkotning ? 'bara_skordare' : 'skordare_och_skotare').toLowerCase()}` }); } catch { /* */ }
       window.location.href = '/planering';
       return;
     }
-    setResultat({ namn: rad.namn, vo_nummer: r.vo, ursprung: indata.ursprung, varning: maskin && !maskin.roll ? 'Maskinen saknar typ i maskinregistret — jobbet skapades utan tilldelning och är inte startat.' : null });
-    setNamn(''); setMarkagare(''); setBolag(''); setPlats(null); setPlatsText(null); setHorTill(null);
+    setVarning(maskin && !maskin.roll ? 'Maskinen saknar typ i maskinregistret — jobbet skapades utan tilldelning och är inte startat.' : null);
+    setArk(null);
+    nollstallFormular();
     setSaving(false);
-    void kontrolleraVida([rad, ...jobb]);
+    await ladda();
+    setValt('obj-' + rad.id);
+    setNyss('obj-' + rad.id);
   };
 
   // Maskinobjekt (i efterhand): P-VO på dim-raden via den smala RPC:n + objekt-rad med dim_objekt_id.
@@ -337,8 +359,12 @@ export default function StartaJobbPage() {
     if (saving) return;
     setFel('');
     setSaving(true);
-    const vo = await hamtaVo();
-    if (!vo) { setSaving(false); return; }
+    const { data: vo, error: rpcErr } = await supabase.rpc('next_privat_vo');
+    if (rpcErr || !vo) {
+      setFel('Kunde inte hämta VO-nummer' + (rpcErr ? `: ${rpcErr.message}` : ' — inget svar från databasen'));
+      setSaving(false);
+      return;
+    }
 
     const { data: antal, error: dimErr } = await supabase.rpc('tilldela_vo_maskinobjekt', { p_dim_objekt_id: obj.objekt_id, p_vo: vo });
     if (dimErr) {
@@ -360,14 +386,14 @@ export default function StartaJobbPage() {
       ...(t ? { typ: t } : {}), dim_objekt_id: obj.objekt_id, kalla: 'starta-jobb', status: 'planerad',
     }).select('id');
     // Delvis misslyckande redovisas — VO:t är satt men planeringsraden saknas
-    const varning = (objErr || !objRows || objRows.length === 0)
-      ? 'OBS: VO-numret är satt på maskinobjektet, men planeringsraden kunde inte skapas — objektet syns inte i Objekt-vyn. Försök igen eller kontakta admin.'
-      : null;
-    setDimUtanVo((prev) => prev.filter((o) => o.objekt_id !== obj.objekt_id));
-    setTilldelade((prev) => [{ nyckel: 'dim-' + obj.objekt_id, namn: obj.object_name || 'Namnlöst objekt', vo, agare: obj.skogsagare, bolag: obj.bolag, typ: t, ursprung: null, jobbId: null, status: null }, ...prev]);
-    setResultat({ namn: obj.object_name || 'Namnlöst objekt', vo_nummer: vo, ursprung: null, varning });
-    setForvalt(null);
+    const delvis = objErr || !objRows || objRows.length === 0;
+    setVarning(delvis ? 'OBS: VO-numret är satt på maskinobjektet, men planeringsraden kunde inte skapas — objektet syns inte i Objekt-vyn. Försök igen eller kontakta admin.' : null);
+    setArk(null);
     setSaving(false);
+    await ladda();
+    const nyckel = delvis ? 'dim-' + obj.objekt_id : 'obj-' + objRows![0].id;
+    setValt(nyckel);
+    setNyss(nyckel);
   };
 
   const slaIhop = async (f: Forslag) => {
@@ -378,6 +404,7 @@ export default function StartaJobbPage() {
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) { setFel('Kunde inte slå ihop: ' + (j?.fel || `svar ${r.status}`) + ' Jobbet finns kvar.'); return; }
       setIhopKlart(sammanfattaIhop(j, f.jobb.vo_nummer || f.jobb.namn || 'Jobbet', f.vida.namn || f.vida.vo_nummer || 'Vida-objektet'));
+      tillListan();
       await ladda();
     } catch (e: any) {
       setFel('Kunde inte slå ihop: ' + startaFel(e) + ' Jobbet finns kvar.');
@@ -391,11 +418,10 @@ export default function StartaJobbPage() {
     const ny = Array.from(new Set([...(f.jobb.sla_ihop_avvisade || []), f.vidaId]));
     const { data, error: e } = await supabase.from('objekt').update({ sla_ihop_avvisade: ny }).eq('id', f.jobbId).select('id');
     if (e || !data || data.length === 0) { setFel('Kunde inte spara ditt nej — förslaget kommer tillbaka' + (e ? `: ${e.message}` : ' (raden träffades inte).')); return; }
-    setJobb((prev) => prev.map((j) => (j.id === f.jobbId ? { ...j, sla_ihop_avvisade: ny } : j)));
     setForslag((prev) => prev.filter((x) => x.jobbId !== f.jobbId));
   };
 
-  // Sök och "Här" (telefon/dator).
+  // Sök och "Använd min position" (telefon/dator).
   const sokPlats = async (q: string): Promise<{ traffar: any[] } | { fel: string }> => {
     try {
       const r = await fetch('/api/plats?q=' + encodeURIComponent(q));
@@ -410,203 +436,240 @@ export default function StartaJobbPage() {
     return { fel: 'Ingen position från enheten — peka på kartan i stället.' };
   };
 
-  // ───────────────────────── Vyer ─────────────────────────
-  const yta: React.CSSProperties = { position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0, background: FARG.bg, color: FARG.text, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: AVSTAND.sidmarginal, textAlign: 'center', fontFamily: 'inherit' };
+  // ───────────────────────── Delar av vyn ─────────────────────────
+  const meddelanden = (
+    <>
+      {fel && !ark && <div role="alert" data-testid="fel" style={{ ...TYP.meta, color: FARG.rod, marginBottom: AVSTAND.m }}>{fel}</div>}
+      {ihopKlart && <div role="status" data-testid="ihop-klart" style={{ ...TYP.meta, color: FARG.text, marginBottom: AVSTAND.m }}>{ihopKlart}</div>}
+      {lasVarningar.map((v) => <div key={v} role="status" style={{ ...TYP.meta, color: FARG.orange, marginBottom: AVSTAND.s }}>{v}</div>)}
+      {forslagFel && <div role="status" style={{ ...TYP.meta, color: FARG.orange, marginBottom: AVSTAND.s }}>{forslagFel}</div>}
+    </>
+  );
 
-  if (visaVo) {
+  const listan = (
+    <div className="sj-lista-inre">
+      <h1 style={{ margin: 0, ...TYP.titel }}>Starta jobb</h1>
+      <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px 0 ${AVSTAND.xl}px` }}>Privata jobb och jobb där Vida inte levererat än.</p>
+      {meddelanden}
+
+      {forslagUtanValt.map((f) => (
+        <ForslagKort key={f.jobbId} text={forslagText(f.jobb, f.vida)} orsak={f.orsak} upptagen={ihopBusy === f.jobbId} onJa={() => void slaIhop(f)} onNej={() => void avvisa(f)} />
+      ))}
+
+      <button type="button" data-testid="nytt-jobb" onClick={() => { setFel(''); setArk('nytt'); }} style={KNAPP.primar}>Nytt jobb</button>
+
+      {dimUtanVo.length > 0 && (
+        <div style={{ marginTop: AVSTAND.m }}>
+          <Sektion rubrik="Maskinobjekt" foljdAvLankar>
+            <Rad titel={`${dimUtanVo.length} ${dimUtanVo.length === 1 ? 'maskinobjekt saknar' : 'maskinobjekt saknar'} VO`} under="Data har kommit in utan VO-nummer" sista
+              onTryck={() => { setFel(''); setSokMaskin(''); setArk('maskinobjekt'); }} attr={{ 'data-testid': 'maskinobjekt-rad' }} />
+          </Sektion>
+        </div>
+      )}
+
+      {jobb.length > SOK_FRAN && (
+        <input type="search" value={sok} onChange={(e) => setSok(e.target.value)} placeholder="Sök jobb, VO eller maskin" aria-label="Sök jobb" style={{ ...falt, marginTop: AVSTAND.l }} />
+      )}
+
+      <div style={{ marginTop: AVSTAND.xl }}>
+        {error ? (
+          <div style={{ textAlign: 'center', padding: AVSTAND.xxl }}>
+            <div style={{ ...TYP.text, color: FARG.rod, marginBottom: AVSTAND.l }}>{error}</div>
+            <button type="button" onClick={() => { setLoading(true); setError(null); void ladda(); }} style={KNAPP.sekundar}>Försök igen</button>
+          </div>
+        ) : loading ? (
+          <div style={{ textAlign: 'center', padding: AVSTAND.xxl, color: FARG.text2, ...TYP.text }}>Läser jobben och om numren är inknappade …</div>
+        ) : jobb.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: AVSTAND.xxl, color: FARG.text2 }}>
+            <div style={TYP.text}>Inga jobb än</div>
+            <div style={{ ...TYP.meta, marginTop: AVSTAND.s }}>Nytt jobb ger ett P-nummer att knappa in i maskinerna.</div>
+          </div>
+        ) : (
+          <>
+            {grupper.pagaende.length > 0 && <Sektion rubrik="Pågående"><JobbRader jobb={grupper.pagaende} onValj={valj} /></Sektion>}
+            {grupper.lediga.length > 0 && <Sektion rubrik="Lediga" not="Inte inknappade i någon maskin än."><JobbRader jobb={grupper.lediga} onValj={valj} /></Sektion>}
+            {grupper.klara.length > 0 && (
+              visaKlara || sok.trim()
+                ? <Sektion rubrik="Klara" onRubrikTryck={() => setVisaKlara(false)} hoger="Dölj"><JobbRader jobb={grupper.klara} onValj={valj} dampad /></Sektion>
+                : <Sektion rubrik="Klara" kort={false} onRubrikTryck={() => setVisaKlara(true)} hoger={String(grupper.klara.length)}>{null}</Sektion>
+            )}
+            {sok.trim() && grupper.pagaende.length + grupper.lediga.length + grupper.klara.length === 0 && (
+              <div style={{ ...TYP.meta, color: FARG.text2, textAlign: 'center', padding: AVSTAND.xl }}>Inget jobb matchar ”{sok.trim()}”.</div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  const detaljen = valtJobb ? (() => {
+    const j = valtJobb;
+    const f = j.jobbId ? forslagPerJobb.get(j.jobbId) : undefined;
+    const arNyss = nyss === j.nyckel;
+    const vidaText = j.ursprung === 'vanta_vida' ? 'Väntar på Vida' : j.ursprung === 'privat' ? 'Privat jobb' : null;
+    const horTillNamn = j.horTillId ? (virkes.find((v) => v.id === j.horTillId)?.namn ?? 'Virkesobjekt') : null;
+    const fakta: [string, string][] = [
+      ['Typ', j.typ ? jobbTypLabel(j.typ) : 'Okänd typ'],
+      ...(vidaText ? [['Vida', vidaText] as [string, string]] : []),
+      ...(horTillNamn ? [['Hör till', horTillNamn] as [string, string]] : []),
+      ...(j.markagare ? [['Markägare', j.markagare] as [string, string]] : []),
+    ];
     return (
-      <div style={yta}><style>{designCss}</style>
-        <div style={{ ...TYP.meta, color: FARG.text2 }}>{visaVo.namn}</div>
-        <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.s }}>VO-nummer:</div>
-        <div data-testid="vo-nummer" style={{ ...TYP.tal, marginTop: AVSTAND.l }}>{visaVo.vo}</div>
-        <div style={{ width: '100%', maxWidth: 360, marginTop: AVSTAND.xxl }}>
-          <button type="button" onClick={() => setVisaVo(null)} style={KNAPP.primar}>Tillbaka</button>
+      <div className="sj-detalj-inre" data-testid="jobb-detalj">
+        <div className="sj-bara-smal" style={{ marginBottom: AVSTAND.s }}>
+          <button type="button" onClick={tillListan} style={KNAPP.lank}>‹ Starta jobb</button>
+        </div>
+        {meddelanden}
+        <div style={{ textAlign: 'center', padding: `${AVSTAND.l}px 0 ${AVSTAND.xl}px` }}>
+          <div style={{ ...TYP.meta, color: FARG.text2 }}>{j.namn}</div>
+          {arNyss && <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.s }}>{inknappningsText(j.forvantat)}</div>}
+          <div data-testid="vo-nummer" style={{ ...TYP.tal, marginTop: AVSTAND.m }}>{j.vo}</div>
+          <div data-testid="vo-lage" style={{ ...TYP.listtitel, marginTop: AVSTAND.m }}><LageUnder jobb={j} /></div>
+          {varning && <div style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.m }}>{varning}</div>}
+        </div>
+
+        {f && <ForslagKort text={forslagText(f.jobb, f.vida)} orsak={f.orsak} upptagen={ihopBusy === f.jobbId} onJa={() => void slaIhop(f)} onNej={() => void avvisa(f)} />}
+
+        <MaskinSektion forvantat={j.forvantat} maskiner={j.maskiner} idagAr={idagAr} />
+
+        <Sektion rubrik="Jobbet" not={j.jobbId ? 'Inköpare, åtgärd och egenskaper fylls i via Redigering.' : 'Bara ett maskinobjekt — ingen planeringsrad finns.'}>
+          {fakta.map(([k, v], i) => <Rad key={k} titel={k} hoger={v} sista={i === fakta.length - 1 && !kanHaEgenSkotning(j.typ)} />)}
+          {kanHaEgenSkotning(j.typ) && (
+            <Rad titel="Skotning" hoger={j.egenSkotning ? 'Egen skotning' : 'Vi skotar'} sista
+              onTryck={arAdmin ? () => { setSkotningFel(''); setArk('skotning'); } : undefined}
+              attr={{ 'data-testid': 'skotning-rad' }} />
+          )}
+        </Sektion>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+          {j.jobbId && <a href={`/planering?objekt=${encodeURIComponent(j.jobbId)}`} data-testid="planera" style={{ ...KNAPP.sekundar, textDecoration: 'none', boxSizing: 'border-box' }}>Planera på kartan</a>}
+          {arNyss && <button type="button" className="sj-bara-smal" data-testid="klar" onClick={tillListan} style={KNAPP.primar}>Klar</button>}
         </div>
       </div>
     );
-  }
+  })() : (
+    <div className="sj-detalj-inre" style={{ textAlign: 'center', padding: AVSTAND.xxl, color: FARG.text2 }}>
+      <div style={TYP.text}>Välj ett jobb</div>
+      <div style={{ ...TYP.meta, marginTop: AVSTAND.s }}>Där ser du om numret är inknappat och av vilken maskin.</div>
+    </div>
+  );
 
-  if (resultat) {
-    return (
-      <div style={yta}><style>{designCss}</style>
-        <div style={{ ...TYP.meta, color: FARG.text2 }}>{resultat.namn}</div>
-        <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.s, maxWidth: 360 }}>Mata in detta nummer i terminalen — i båda maskinerna:</div>
-        <div data-testid="vo-nummer" style={{ ...TYP.tal, marginTop: AVSTAND.l }}>{resultat.vo_nummer}</div>
-        {resultat.ursprung && (
-          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.l, maxWidth: 360 }}>
-            {resultat.ursprung === 'vanta_vida' ? 'Väntar på Vida — när Vida levererar objektet föreslår appen att slå ihop dem.' : 'Privat jobb — inget Vida-objekt kommer.'}
+  // ── Ark: Nytt jobb ──
+  const nyttJobbArk = ark === 'nytt' && (
+    <Ark rubrik="Nytt jobb" onStang={() => setArk(null)}
+      fot={
+        <>
+          {fel && <div role="alert" data-testid="fel" style={{ ...TYP.meta, color: FARG.rod }}>{fel}</div>}
+          <div style={saving || !formularKlart ? INAKTIV : undefined}>
+            <button type="button" data-testid="skapa" onClick={() => void skapa()} style={KNAPP.primar}>
+              {saving ? 'Skapar …' : maskin?.roll ? 'Starta jobb' : 'Skapa jobb & få VO'}
+            </button>
+          </div>
+          {!formularKlart && !saving && <div style={{ ...TYP.meta, color: FARG.text2, textAlign: 'center' }}>{!namn.trim() ? 'Skriv ett namn' : 'Välj var jobbet är'}</div>}
+        </>
+      }>
+      <Falt etikett="Namn" value={namn} onChange={setNamn} placeholder="t.ex. Husjönäs 3:1" name="namn"
+        stod={namnForslag && !namn.trim()
+          ? <button type="button" data-testid="namnforslag" onClick={() => setNamn(namnForslag)} style={{ ...KNAPP.tertiar, minHeight: 0 }}>Närmaste ort: <strong style={{ margin: `0 ${AVSTAND.xs}px`, color: FARG.text }}>{namnForslag}</strong> — använd</button>
+          : undefined} />
+      <FaltEtikett etikett="Typ"><TypVal valt={typ} onVal={(t) => { setTyp(t); if (t !== 'grot') setHorTill(null); }} /></FaltEtikett>
+      <FaltEtikett etikett="Vida"><UrsprungVal valt={ursprung} onVal={setUrsprung} /></FaltEtikett>
+      {kanHaEgenSkotning(typ) && (
+        <FaltEtikett etikett="Skotning" stod={egenSkotning ? 'Markägaren skotar själv — numret knappas bara in i skördaren.' : undefined}>
+          <SkotningVal egen={egenSkotning} onVal={setEgenSkotning} />
+        </FaltEtikett>
+      )}
+      {typ === 'grot' && (
+        <FaltEtikett etikett="Hör till objekt" stod="Då syns virkesobjektets traktgräns, ytor och skördarens spår på GROT-jobbet.">
+          <HorTill alternativ={horTillAlternativ} valt={horTill} onVal={setHorTill} harPosition={!!position} />
+        </FaltEtikett>
+      )}
+      <FaltEtikett etikett={maskin ? 'Maskin och position' : 'Position'}>
+        {maskin && (
+          <div data-testid="gps-status" style={{ ...TYP.meta, color: maskinGpsOk ? FARG.text : FARG.text2, marginBottom: AVSTAND.s }}>
+            {maskin.namn}{maskin.roll ? ` · ${maskin.roll === 'skordare' ? 'skördare' : 'skotare'}` : ''} · {gps.status === 'soker' ? 'väntar på GPS …' : maskinGpsOk ? `maskinens position${gps.noggrannhetM != null ? ` (±${Math.round(gps.noggrannhetM)} m)` : ''}` : 'ingen GPS — peka på kartan'}
           </div>
         )}
-        {resultat.varning && <div style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.l, maxWidth: 360 }}>{resultat.varning}</div>}
-        <div style={{ width: '100%', maxWidth: 360, marginTop: AVSTAND.xxl }}>
-          <button type="button" data-testid="resultat-klar" onClick={() => setResultat(null)} style={KNAPP.primar}>Klar</button>
-        </div>
-      </div>
-    );
-  }
+        {!maskinGpsOk && (!maskin || gps.status === 'ingen') && (
+          <PlatsVal plats={plats} platsText={platsText} onPlats={(p, t) => { setPlats(p); setPlatsText(t); }} onSok={sokPlats} onHar={harPlats} />
+        )}
+      </FaltEtikett>
+    </Ark>
+  );
 
-  const forvaltObjekt = forvalt ? dimUtanVo.find((o) => o.objekt_id === forvalt) : null;
-  const maskinLage = !!maskin;
-  const gpsText = gps.status === 'soker' ? 'Väntar på GPS …' : gps.status === 'ok' ? `Maskinens position hämtad${gps.noggrannhetM != null ? ` (±${Math.round(gps.noggrannhetM)} m)` : ''}` : 'Ingen GPS-position — jobbet skapas utan plats.';
+  // ── Ark: Maskinobjekt utan VO ──
+  const maskinobjektArk = ark === 'maskinobjekt' && (
+    <Ark rubrik="Maskinobjekt utan VO" onStang={() => setArk(null)} stang="Klar">
+      <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.m}px` }}>Maskindata som kommit in utan VO-nummer. Välj ett för att ge det ett P-nummer.</p>
+      {dimUtanVo.length > SOK_FRAN && <input type="search" value={sokMaskin} onChange={(e) => setSokMaskin(e.target.value)} placeholder="Sök objekt eller ägare" aria-label="Sök maskinobjekt" style={{ ...falt, marginBottom: AVSTAND.m }} />}
+      {maskinLista.length === 0 ? (
+        <div style={{ ...TYP.meta, color: FARG.text2, padding: AVSTAND.l, textAlign: 'center' }}>{dimUtanVo.length === 0 ? 'Alla maskinobjekt har VO-nummer.' : 'Inget matchar sökningen.'}</div>
+      ) : (
+        <Sektion rubrik={`${maskinLista.length} maskinobjekt`} kort={false}>
+          {maskinLista.map((o, i) => (
+            <Rad key={o.objekt_id} titel={o.object_name ? o.object_name : <span style={{ color: FARG.orange }}>Namnlöst objekt</span>}
+              under={[o.skogsagare || o.bolag || 'Okänd ägare', o.maskin_id ? maskinNamn.get(o.maskin_id) ?? o.maskin_id : null].filter(Boolean).join(' · ')}
+              sista={i === maskinLista.length - 1} onTryck={() => { setFel(''); setArk({ bekrafta: o }); }} attr={{ 'data-testid': `maskinobjekt-${o.objekt_id}` }} />
+          ))}
+        </Sektion>
+      )}
+    </Ark>
+  );
+
+  // ── Ark: bekräfta VO till ett maskinobjekt (går inte att ångra) ──
+  const bekrafta = ark && typeof ark === 'object' ? ark.bekrafta : null;
+  const bekraftaArk = bekrafta && (
+    <Ark rubrik="Maskinobjekt" onStang={() => setArk(dimUtanVo.length > 1 ? 'maskinobjekt' : null)}
+      fot={
+        <>
+          {fel && <div role="alert" data-testid="fel" style={{ ...TYP.meta, color: FARG.rod }}>{fel}</div>}
+          <div style={saving ? INAKTIV : undefined}>
+            <button type="button" data-testid="ge-vo" onClick={() => void tilldelaMaskinObjekt(bekrafta)} style={KNAPP.primar}>{saving ? 'Ger VO-nummer …' : 'Ge VO-nummer'}</button>
+          </div>
+        </>
+      }>
+      <Sektion rubrik="Objektet" kort={false} not="Objektet får nästa P-nummer. Det går inte att ångra.">
+        <Rad titel={bekrafta.object_name ? bekrafta.object_name : <span style={{ color: FARG.orange }}>Namnlöst objekt</span>}
+          under={bekrafta.object_name ? ([bekrafta.skogsagare, bekrafta.bolag].filter(Boolean).join(' · ') || 'Okänd ägare') : 'Namn saknas i maskinfilen'} />
+        {bekrafta.maskin_id && <Rad titel="Maskin" hoger={maskinNamn.get(bekrafta.maskin_id) ?? bekrafta.maskin_id} sista={!bekrafta.start_date} />}
+        {bekrafta.start_date && <Rad titel="Första data" hoger={String(bekrafta.start_date).slice(0, 10)} sista />}
+      </Sektion>
+    </Ark>
+  );
+
+  // ── Ark: skotning på ett befintligt jobb (bara admin) — ett tryck på ett val sparar ──
+  const skotningArk = ark === 'skotning' && valtJobb && (() => {
+    const j = valtJobb;
+    const val = (egen: boolean, titel: string, under: string, sista: boolean) => (
+      <Rad titel={titel} under={under} hoger={j.egenSkotning === egen ? 'Vald' : undefined} pil={false} sista={sista}
+        onTryck={() => void andraSkotning(j, egen)}
+        attr={{ 'data-testid': egen ? 'skotning-egen' : 'skotning-vi', role: 'radio', 'aria-checked': String(j.egenSkotning === egen) }} />
+    );
+    return (
+      <Ark rubrik="Skotning" onStang={() => setArk(null)}>
+        <div style={skotningSparar ? INAKTIV : undefined}>
+          <Sektion rubrik={j.namn} kort={false}
+            not={j.dimIds.length ? 'Sparas på jobbet och på maskinobjekten, så Översikten och Redigering visar samma sak.' : 'Ingen maskin har skickat data än — valet följer med när den gör det.'}>
+            {val(false, 'Vi skotar', 'Numret knappas in i skördaren och skotaren', false)}
+            {val(true, 'Egen skotning', 'Markägaren skotar själv — inga filer från skotaren', true)}
+          </Sektion>
+        </div>
+        {skotningSparar && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.m }}>Sparar …</div>}
+        {skotningFel && <div role="alert" data-testid="skotning-fel" style={{ ...TYP.meta, color: FARG.rod, marginTop: AVSTAND.m }}>{skotningFel}</div>}
+      </Ark>
+    );
+  })();
 
   return (
-    <div style={{ position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0, background: FARG.bg, color: FARG.text, fontFamily: 'inherit', overflowY: 'auto' }}>
-      <style>{designCss}</style>
-      <div style={{ ...VY_ROT, minHeight: 0, maxWidth: 640, margin: '0 auto', paddingTop: AVSTAND.xl, paddingBottom: medSafeBotten(120) }}>
-        <h1 style={{ margin: 0, ...TYP.titel }}>Starta jobb</h1>
-        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>För jobb utan Vida-objekt: privata jobb och jobb där Vida inte levererat än.</div>
-
-        {/* Förvalt maskinobjekt (?objekt=<id> — matchningsvyns "Skapa") */}
-        {forvaltObjekt && (
-          <div style={{ ...KORT, marginTop: AVSTAND.sektion }}>
-            <div style={{ ...TYP.micro, color: FARG.text2 }}>Valt maskinobjekt</div>
-            <div style={{ ...TYP.listtitel, marginTop: AVSTAND.xs, color: forvaltObjekt.object_name ? FARG.text : FARG.orange }}>{forvaltObjekt.object_name || 'Namnlöst objekt'}</div>
-            <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{[forvaltObjekt.skogsagare, forvaltObjekt.bolag].filter(Boolean).join(' · ') || 'Okänd ägare'}</div>
-            <div style={{ marginTop: AVSTAND.m, ...(saving ? INAKTIV : null) }}>
-              <button type="button" onClick={() => void tilldelaMaskinObjekt(forvaltObjekt)} style={KNAPP.primar}>{saving ? 'Skapar …' : 'Skapa objekt & få VO'}</button>
-            </div>
-          </div>
-        )}
-
-        {fel && <div role="alert" data-testid="fel" style={{ ...KORT, color: FARG.rod, marginTop: AVSTAND.sektion, ...TYP.meta }}>{fel}</div>}
-        {ihopKlart && <div role="status" data-testid="ihop-klart" style={{ ...KORT, marginTop: AVSTAND.sektion, ...TYP.meta }}>{ihopKlart}</div>}
-        {lasVarningar.map((v) => <div key={v} role="status" style={{ ...KORT, color: FARG.orange, marginTop: AVSTAND.s, ...TYP.meta }}>{v}</div>)}
-        {forslagFel && <div role="status" style={{ ...KORT, color: FARG.orange, marginTop: AVSTAND.s, ...TYP.meta }}>{forslagFel}</div>}
-
-        {/* Vida har levererat — överst */}
-        {forslag.length > 0 && (
-          <section style={{ marginTop: AVSTAND.sektion }} data-testid="forslag-overst">
-            <div style={{ ...TYP.micro, color: FARG.text2, marginBottom: AVSTAND.s }}>Vida har levererat</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-              {forslag.map((f) => (
-                <ForslagKort key={f.jobbId} text={forslagText(f.jobb, f.vida)} orsak={f.orsak} upptagen={ihopBusy === f.jobbId} onJa={() => void slaIhop(f)} onNej={() => void avvisa(f)} />
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Flikar */}
-        <div role="tablist" style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.sektion, flexWrap: 'wrap' }}>
-          {([['nytt', 'Nytt jobb'], ['maskin', `Maskinobjekt (${dimUtanVo.length})`], ['tilldelade', `Tilldelade (${tilldelade.length})`]] as [Flik, string][]).map(([k, label]) => (
-            <button key={k} type="button" role="tab" aria-selected={flik === k} data-testid={`flik-${k}`} onClick={() => setFlik(k)}
-              style={{ ...KNAPP.tertiar, padding: `0 ${AVSTAND.m}px`, borderRadius: RADIE.knapp, ...(flik === k ? { background: FARG.fyllning, color: FARG.text } : null) }}>{label}</button>
-          ))}
-        </div>
-
-        {flik !== 'nytt' && (
-          <input type="search" value={sok} onChange={(e) => setSok(e.target.value)} placeholder="Sök objekt, ägare …" aria-label="Sök" style={{ ...falt, marginTop: AVSTAND.m }} />
-        )}
-
-        <div style={{ marginTop: AVSTAND.l }}>
-          {error ? (
-            <div style={{ textAlign: 'center', padding: AVSTAND.xxl }}>
-              <div style={{ ...TYP.text, color: FARG.rod, marginBottom: AVSTAND.l }}>{error}</div>
-              <button type="button" onClick={() => window.location.reload()} style={KNAPP.sekundar}>Försök igen</button>
-            </div>
-          ) : loading ? (
-            <div style={{ textAlign: 'center', padding: AVSTAND.xxl, color: FARG.text2, ...TYP.text }}>Laddar jobb …</div>
-          ) : flik === 'nytt' ? (
-            /* ── Nytt jobb ── */
-            <div>
-              <Grupp rubrik="Namn">
-                <input value={namn} onChange={(e) => setNamn(e.target.value)} placeholder="Objektnamn (t.ex. Husjönäs 3:1 RP -26)" aria-label="Objektnamn" data-testid="falt-namn" style={falt} />
-                {namnForslag && !namn.trim() && (
-                  <button type="button" data-testid="namnforslag" onClick={() => setNamn(namnForslag)} style={{ ...KNAPP.tertiar, marginTop: AVSTAND.xs }}>Förslag på namn (närmaste ort): <strong style={{ marginLeft: AVSTAND.xs, color: FARG.text }}>{namnForslag}</strong>&nbsp;— använd</button>
-                )}
-              </Grupp>
-
-              <Grupp rubrik="Typ"><TypVal valt={typ} onVal={(t) => { setTyp(t); if (t !== 'grot') setHorTill(null); }} /></Grupp>
-
-              <Grupp rubrik="Vida"><UrsprungVal valt={ursprung} onVal={setUrsprung} /></Grupp>
-
-              {typ === 'grot' && (
-                <Grupp rubrik="Hör till objekt" valfri>
-                  <HorTill alternativ={horTillAlternativ} valt={horTill} onVal={setHorTill} harPosition={!!positionAttNamnaEfter} />
-                </Grupp>
-              )}
-
-              <Grupp rubrik={maskinLage ? 'Maskin och position' : 'Position'} valfri={!maskinLage}>
-                {maskinLage ? (
-                  <div style={KORT}>
-                    <div style={TYP.listtitel}>{maskin!.namn}{maskin!.roll ? ` · ${maskin!.roll === 'skordare' ? 'skördare' : 'skotare'}` : ''}</div>
-                    <div data-testid="gps-status" style={{ ...TYP.meta, color: gps.status === 'ok' ? FARG.text : FARG.text2, marginTop: AVSTAND.xs }}>{gpsText}</div>
-                    <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
-                      {maskin!.roll ? 'Jobbet startas direkt: maskinen tilldelas, status blir pågående och körvyn öppnas på objektet.' : 'Maskinen saknar typ i maskinregistret — jobbet skapas men startas inte.'}
-                    </div>
-                  </div>
-                ) : (
-                  <PlatsVal plats={plats} platsText={platsText} onPlats={(p, t) => { setPlats(p); setPlatsText(t); }} onSok={sokPlats} onHar={harPlats} />
-                )}
-              </Grupp>
-
-              <Grupp rubrik="Markägare och bolag" valfri>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-                  <input value={markagare} onChange={(e) => setMarkagare(e.target.value)} placeholder="Markägare" aria-label="Markägare" style={falt} />
-                  <input value={bolag} onChange={(e) => setBolag(e.target.value)} placeholder="Bolag" aria-label="Bolag" style={falt} />
-                </div>
-              </Grupp>
-
-              <div style={{ marginTop: AVSTAND.sektion, ...(saving || !namn.trim() ? INAKTIV : null) }}>
-                <button type="button" data-testid="skapa" onClick={() => void skapa()} style={KNAPP.primar}>
-                  {saving ? 'Skapar …' : maskinLage && maskin?.roll ? 'Starta jobb' : 'Skapa jobb & få VO'}
-                </button>
-              </div>
-              <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.m }}>
-                Jobbet hamnar i Objekt-vyn. Knappa in VO-numret i båda maskinerna — maskindatan kopplas ihop automatiskt när filerna kommer in. Resten (inköpare, åtgärd, egenskaper) fylls i via Redigering.
-              </div>
-            </div>
-          ) : flik === 'maskin' ? (
-            /* ── Maskinobjekt utan VO ── */
-            maskinLista.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: AVSTAND.xxl, color: FARG.text2 }}>
-                <div style={TYP.text}>Alla maskinobjekt har VO-nummer</div>
-                <div style={{ ...TYP.meta, marginTop: AVSTAND.s }}>Här dyker maskinobjekt upp som kommit in utan VO-nummer.</div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-                {maskinLista.map((obj) => (
-                  <button key={obj.objekt_id} type="button" onClick={() => void tilldelaMaskinObjekt(obj)} data-testid={`maskinobjekt-${obj.objekt_id}`}
-                    style={{ ...KORT, border: 'none', textAlign: 'left', cursor: 'pointer', color: FARG.text, fontFamily: 'inherit', ...(saving ? INAKTIV : null) }}>
-                    <div style={{ ...TYP.listtitel, color: obj.object_name ? FARG.text : FARG.orange }}>{obj.object_name || 'Namnlöst objekt'}</div>
-                    <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{[obj.skogsagare, obj.bolag].filter(Boolean).join(' · ') || 'Okänd ägare'}</div>
-                  </button>
-                ))}
-              </div>
-            )
-          ) : (
-            /* ── Tilldelade ── */
-            tilldeladeLista.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: AVSTAND.xxl, color: FARG.text2, ...TYP.text }}>Inga tilldelade objekt ännu</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-                {tilldeladeLista.map((o) => {
-                  const f = o.jobbId ? forslagPerJobb.get(o.jobbId) : undefined;
-                  return (
-                    <div key={o.nyckel} data-testid={`tilldelad-${o.vo}`} style={KORT}>
-                      <div role="button" tabIndex={0} onClick={() => setVisaVo({ namn: o.namn, vo: o.vo })} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setVisaVo({ namn: o.namn, vo: o.vo }); }} style={{ cursor: 'pointer' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.s, alignItems: 'baseline' }}>
-                          <div style={TYP.listtitel}>{o.namn}</div>
-                          <div style={TYP.rubrik}>{o.vo}</div>
-                        </div>
-                        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{[o.agare, o.bolag].filter(Boolean).join(' · ') || 'Okänd ägare'}</div>
-                        {(o.typ || o.ursprung) && (
-                          <div style={{ display: 'flex', gap: AVSTAND.xs, flexWrap: 'wrap', marginTop: AVSTAND.s }}>
-                            {o.typ && <Marke text={jobbTypLabel(o.typ)} />}
-                            {o.ursprung === 'vanta_vida' && <Marke text="Väntar på Vida" />}
-                            {o.ursprung === 'privat' && <Marke text="Privat" />}
-                            {o.status === 'pagaende' && <Marke text="Pågående" />}
-                          </div>
-                        )}
-                      </div>
-                      {f && <ForslagKort kompakt text={forslagText(f.jobb, f.vida)} orsak={f.orsak} upptagen={ihopBusy === f.jobbId} onJa={() => void slaIhop(f)} onNej={() => void avvisa(f)} />}
-                    </div>
-                  );
-                })}
-              </div>
-            )
-          )}
-        </div>
-      </div>
+    // Typsnittet inline: FONT har citattecken och fungerar inte i en serverrenderad <style>.
+    <div className={`sj-ram ${valtJobb ? 'sj-jobb-vy' : 'sj-lista-vy'}`} style={{ fontFamily: FONT, paddingBottom: medSafeBotten(0) }} data-starta-jobb="">
+      <style>{designCss + KOLUMN_CSS + css}</style>
+      <div className="sj-lista">{listan}</div>
+      <div className="sj-detalj">{detaljen}</div>
+      {nyttJobbArk}
+      {maskinobjektArk}
+      {bekraftaArk}
+      {skotningArk}
     </div>
   );
 }

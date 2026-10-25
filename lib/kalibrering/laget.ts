@@ -74,68 +74,14 @@ export const kalibreringsDom = (b: BedomningResp): Dom => {
   };
 };
 
-/** Överst i Läget, i liten text: profilen och fönstret domen bygger på. "Vida · 90 dagar · 23 jul – 21 okt". */
-export const fonsterText = (b: BedomningResp): string => {
-  const profil = b.profil ? profilNamn(b.profil) : 'Ingen kravprofil';
-  if (!b.fonster) return profil;
-  return `${profil} · ${b.fonster.dagar} dagar · ${fmtDagMan(b.fonster.fran)} – ${fmtDagMan(b.fonster.till)}`;
-};
-
-// === Det stora talet och måttet under det ===
-export type Mat = 'diameter' | 'langd';
-export type StortTal = { mat: Mat; varde: string; ton: ToneToken; etikett: string; tyst: boolean };
-
-/**
- * Skärmens enda stora tal är det mått som AVGÖR domen. Fäller längden (och bara längden) är det längdens träffprocent; i alla andra fall
- * diameterns — fäller båda eller ingen är diametern Vidas huvudmått. Annars visar skärmen "Under kravet" över ett tal som klarar kravet.
- */
-export const avgorandeMatt = (b: BedomningResp): Mat => {
-  const f = fallande(b);
-  return kalibreringsDom(b).status === 'under' && f.langd && !f.diameter ? 'langd' : 'diameter';
-};
-
-/** `tyst` = för få mått för en dom — talet står kvar men dämpat. */
-export const stortTal = (b: BedomningResp): StortTal => {
-  const mat = avgorandeMatt(b);
-  const stat = mat === 'langd' ? b.langd : b.diameter;
-  const bed = bedomProfil(stat, mat, b.trosklar);
-  const tol = stat?.tolerans;
-  const traff = bed.detaljer.find(d => d.metrik === 'traffprocent');
-  const etikett = mat === 'langd'
-    ? (tol != null ? `av längderna inom ±${fmtKrav(tol)} cm` : 'av längderna träffar rätt')
-    : (tol != null ? `av diametermätningarna träffar inom ±${fmtKrav(tol)} mm` : 'av diametermätningarna träffar rätt');
-  return {
-    mat,
-    varde: stat?.traffPct == null ? '–' : `${Math.round(stat.traffPct)} %`,
-    ton: bed.larmTyst || !traff ? 'ok' : PROFIL_TON[traff.status],
-    etikett,
-    tyst: bed.larmTyst,
-  };
-};
-
-export type MatRad = { varde: string; ton: ToneToken; text: string } | null;
-/** Ett mått i en rad: "Längd 94 % inom ±2 cm · 285 mått", "Diameter 77 % inom ±4 mm · 1113 mått". null när måttet saknar underlag. */
-export const matRad = (b: BedomningResp, mat: Mat): MatRad => {
-  const s = mat === 'langd' ? b.langd : b.diameter;
-  if (!s || s.traffPct == null) return null;
-  const bed = bedomProfil(s, mat, b.trosklar);
-  const traff = bed.detaljer.find(d => d.metrik === 'traffprocent');
-  const ton: ToneToken = bed.larmTyst || !traff ? 'ok' : PROFIL_TON[traff.status];
-  const enhet = mat === 'langd' ? 'cm' : 'mm';
-  const tol = s.tolerans != null ? ` inom ±${fmtKrav(s.tolerans)} ${enhet}` : '';
-  const varde = `${Math.round(s.traffPct)} %`;
-  return { varde, ton, text: `${mat === 'langd' ? 'Längd' : 'Diameter'} ${varde}${tol} · ${s.n} mått` };
-};
-
-/** Längden i en rad (som förut). Tonen är träffprocentens, inte längdens värsta mått — längd bedöms bara på träff. */
-export const langdRad = (b: BedomningResp): MatRad => matRad(b, 'langd');
-
-/** Raden under det stora talet: det andra måttet. Är längden stor står diametern här, annars längden. */
-export const andraRad = (b: BedomningResp): MatRad => matRad(b, avgorandeMatt(b) === 'langd' ? 'diameter' : 'langd');
+/** Överst i Läget, i liten text under maskinen: hur långt bakåt domen ser. "Senaste 90 dagarna". */
+export const fonsterKort = (b: BedomningResp): string => (b.fonster ? `Senaste ${b.fonster.dagar} dagarna` : 'Inga kontroller ännu');
 
 // === Vidas krav: tre diameterrader + längden ===
 export type KravRad = {
   key: MattKey | 'langd';
+  /** Raden i Läget, i vardagsord ("Längden", "Flaxar") — ordlistan styr orden. */
+  kort: string;
   /** Vardagsfrågan ur ordlistan ("Träffar diametern rätt?") — ordlistan styr orden. */
   fraga: string;
   term: string;
@@ -167,7 +113,7 @@ export const kravRader = (b: BedomningResp): KravRad[] => {
   };
   const gT = golvFor('traffprocent'), gS = golvFor('systematisk'), gStd = golvFor('standardavv');
   const rad = (key: MattKey, varde: string, krav: string): KravRad => ({
-    key, fraga: MATT[key].fraga, term: MATT[key].term, varde, ton: tonFor(key), ord: TON_ORD[tonFor(key)], krav,
+    key, kort: MATT[key].kort, fraga: MATT[key].fraga, term: MATT[key].term, varde, ton: tonFor(key), ord: TON_ORD[tonFor(key)], krav,
   });
   const rader: KravRad[] = [
     rad('traffprocent', stat?.traffPct == null ? '–' : `${Math.round(stat.traffPct)} %`, gT != null ? `krav ≥ ${fmtKrav(gT)} %` : ''),
@@ -180,12 +126,17 @@ export const kravRader = (b: BedomningResp): KravRad[] => {
     const traff = len.detaljer.find(x => x.metrik === 'traffprocent');
     const ton: ToneToken = len.larmTyst || !traff ? 'ok' : PROFIL_TON[traff.status];
     rader.push({
-      key: 'langd', fraga: LANGD_MATT.fraga, term: LANGD_MATT.term, ton, ord: TON_ORD[ton],
+      key: 'langd', kort: LANGD_MATT.kort, fraga: LANGD_MATT.fraga, term: LANGD_MATT.term, ton, ord: TON_ORD[ton],
       varde: b.langd?.traffPct == null ? '–' : `${Math.round(b.langd.traffPct)} %`, krav: `krav ≥ ${fmtKrav(Number(langdKrav.golv))} %`,
     });
   }
   return rader;
 };
+
+/** Sämst först: under kravet, under målet, sedan resten. Lika illa behåller ordningen (diametern före längden). */
+const TON_RANG: Record<ToneToken, number> = { hot: 0, hi: 1, cold: 2, ok: 3 };
+export const kravSorterade = (rader: KravRad[]): KravRad[] =>
+  rader.map((r, i) => ({ r, i })).sort((a, b) => TON_RANG[a.r.ton] - TON_RANG[b.r.ton] || a.i - b.i).map(x => x.r);
 
 // === Åtgärder: träff före → efter ===
 export type AtgardRad = {
@@ -219,7 +170,7 @@ export const atgardRader = (b: BedomningResp | null): AtgardRad[] => {
     const t = dom?.traff;
     const riktning = t ? t.riktning : null;
     rader.push({
-      id, post, datumText: fmtDagMan(post.datum), titel: post.text || (post.kalla === 'reparation' ? 'Reparation av mätsystem' : 'Åtgärd'),
+      id, post, datumText: fmtDagMan(post.datum), titel: post.text || (post.kalla === 'reparation' ? 'Reparation av mätsystem' : post.kalla === 'kalibrering' ? 'Kalibrering' : 'Åtgärd'),
       dom,
       riktning,
       hoger: t && t.fore != null && t.efter != null ? `${t.fore} % → ${t.efter} %` : 'För tidigt',

@@ -64,6 +64,8 @@ export interface UnderlagRad extends FaktureratRad {
   struken_tid: string | null;
   struken_anledning: string | null;
   godkand_av: string | null;
+  /** Timmar för artikel 3 (flytt över 3 mil). NULL = inte sparad än — appen visar då förslaget (regel A). */
+  traillertimmar?: number | null;
   // Redigering före fakturering (migration 20261015155630): originalet bevaras av databasen.
   km_original: number | null;      // värdet FÖRE första ändringen (NULL = saknades) — gäller bara om redigerad_tid är satt
   kund_original: string | null;
@@ -117,18 +119,6 @@ export function kmAndringsText(r: Pick<UnderlagRad, 'km' | 'km_original' | 'redi
   return `ändrad från ${fmtKm(r.km_original)}`;
 }
 
-/** Samma för kund: "ändrad från Vida" · "tillagd, saknades i datan" · "borttagen, var Vida". */
-export function kundAndringsText(r: Pick<UnderlagRad, 'kund' | 'kund_original' | 'redigerad_tid'>): string | null {
-  if (!kundAndrad(r)) return null;
-  const orig = kundNorm(r.kund_original);
-  if (orig == null) return 'tillagd, saknades i datan';
-  if (kundNorm(r.kund) == null) return `borttagen, var ${orig}`;
-  return `ändrad från ${orig}`;
-}
-
-/** Går raden att rätta? Före fakturering, så länge den inte är struken (databasen vägrar annars). */
-export const kanRedigeras = (r: FaktureratRad): boolean => r.status === 'aktiv' && !r.fakturerad_tid;
-
 /** Under kund-raden i sheeten: "Tillagd av Martin tor 15 okt" · "Ändrad från Vida" · null när den inte rörts. */
 export function kundNotis(r: Pick<UnderlagRad, 'kund' | 'kund_original' | 'redigerad_tid' | 'redigerad_av'>, datum: (iso: string) => string): string | null {
   if (!kundAndrad(r)) return null;
@@ -153,3 +143,27 @@ export const mattSkiljer = (km: number | null, matt: number | null): boolean =>
 
 /** "mätt 53" — eller att mätningen saknas. */
 export const mattText = (matt: number | null): string => (matt != null ? `mätt ${fmtKm(matt)}` : 'mätt saknas i datan');
+
+
+// ── Var kommer flyttens km ifrån? (2026-10-24) ─────────────────────────────────────────────────────────────────────
+// flytt_km är antingen bilens MÄTARE (lastad → lossad, `till_odometer_m − fran_odometer_m`) eller en RÄKNAD väg
+// (/api/routing: cache → ORS → fågelväg × 1,4 när ingen väg gick att räkna). Den räknade kallades "mätt" i sheeten.
+// Prod 2026-10-24: 5 flyttar där mätaren fanns men en räknad väg sparades (Giant 10 aug: 5 km mot mätarens 11,0).
+
+/** Bilens mätare mellan lastad och lossad, i km med en decimal — null när en mätning saknas eller är orimlig (≤ 0, > 250 km). */
+export function matarKm(franOdometerM: number | null, tillOdometerM: number | null): number | null {
+  if (franOdometerM == null || tillOdometerM == null) return null;
+  const d = tillOdometerM - franOdometerM;
+  return d > 0 && d <= 250_000 ? Math.round(d / 100) / 10 : null;
+}
+
+/**
+ * Raden under Sträcka i sheeten: null när km ÄR mätarens. Annars sägs det att km är räknad, och vad mätaren säger om den finns:
+ * "Räknad väg — bilens mätare säger 11 km" · "Räknad väg — bilens mätare saknas".
+ */
+export function kmKallaText(flyttKm: number | null, franOdometerM: number | null, tillOdometerM: number | null): string | null {
+  if (flyttKm == null) return null;
+  const m = matarKm(franOdometerM, tillOdometerM);
+  if (m != null && Math.abs(m - flyttKm) < 0.15) return null;
+  return m != null ? `Räknad väg — bilens mätare säger ${fmtKm(m)} km` : 'Räknad väg — bilens mätare saknas';
+}

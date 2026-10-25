@@ -1,6 +1,6 @@
 'use client';
 // KONTROLLER — "Vad mättes?" Kalendern och en lista, nyast först. Varje rad säger allt utan att man trycker: dag och klockslag (svensk tid), trädslag, antal
-// stammar och stockar, slumpstam eller förvald, och vädret. Ett tryck på en rad öppnar kontrollen (blad nerifrån på telefon, panel till höger på iPad/dator).
+// stammar och stockar och vem som klavade; sedan slumpstam eller förvald, och vädret. Ett tryck på en rad öppnar kontrollen (blad nerifrån på telefon, panel till höger på iPad/dator).
 import Manadsvaljare from '@/components/design/Manadsvaljare';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
@@ -46,7 +46,7 @@ export default function KontrollerFlik({ d, ark }: { d: KalibreringData; ark: Ka
             <Rad key={r.filnamn} sista={i === rader.length - 1}
               attr={{ 'data-kontroll-rad': r.filnamn, 'aria-current': r.filnamn === valdFil ? 'true' : 'false' }}
               titel={<span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}>{r.filnamn === valdFil && <Prick farg={FARG.text} />}<span>{r.rubrik}</span></span>}
-              under={<><div>{r.rad1}</div><div style={{ color: r.vaderSaknas ? FARG.text3 : FARG.text2 }}>{r.vader}</div></>}
+              under={<><div>{r.rad1}</div><div>{r.urval && <>{r.urval} · </>}<span style={{ color: r.vaderSaknas ? FARG.text3 : FARG.text2 }}>{r.vader}</span></div></>}
               onTryck={() => ark.oppnaKontroll(r.filnamn, true)} />
           ))}
         </Sektion>

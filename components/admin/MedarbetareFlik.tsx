@@ -151,9 +151,9 @@ function ListaVy({
         <>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m }}>
             <Sektion topp={0}>Medarbetare</Sektion>
-            <Lank onClick={onNy} style={{ marginBottom: AVSTAND.m }}>+ Ny</Lank>
+            <Lank onClick={onNy} style={{ marginBottom: AVSTAND.m }}>+ Lägg till</Lank>
           </div>
-          <Kort><Tomt>Inga medarbetare. Lägg till den första med + Ny.</Tomt></Kort>
+          <Kort><Tomt>Inga medarbetare. Lägg till den första med + Lägg till.</Tomt></Kort>
         </>
       ) : (
         // Grupper som i iOS Inställningar: rollen är rubriken, inte ett märke på varje rad.
@@ -164,7 +164,7 @@ function ListaVy({
             <React.Fragment key={roll}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m }}>
                 <Sektion topp={gi === 0 ? 0 : AVSTAND.sektion}>{GRUPP_RUBRIK[roll]} ({grupp.length})</Sektion>
-                {gi === 0 && <Lank onClick={onNy} style={{ marginBottom: AVSTAND.m }}>+ Ny</Lank>}
+                {gi === 0 && <Lank onClick={onNy} style={{ marginBottom: AVSTAND.m }}>+ Lägg till</Lank>}
               </div>
               <Lista>
                 {grupp.map((m, i) => {
@@ -179,7 +179,7 @@ function ListaVy({
                       rubrik={m.namn || "Namnlös"}
                       detalj={(maskinNamn.size > 0 || utanKoppling) ? <>
                         {Array.from(maskinNamn).join(", ")}
-                        {utanKoppling && <span style={{ color: FARG.orange }}>{maskinNamn.size > 0 ? " · " : ""}ingen koppling till maskinfilerna</span>}
+                        {utanKoppling && <span style={{ color: FARG.orange }}>{maskinNamn.size > 0 ? " · " : ""}saknar koppling till maskinen</span>}
                       </> : undefined} />
                   );
                 })}

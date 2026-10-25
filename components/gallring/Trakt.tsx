@@ -6,10 +6,10 @@
 //   Vad blev virket?        — fyra grupper i SORTIMENTFARG (mörkast = mest värt), aldrig maskinens koder
 //   Hur grovt gallrades det? — Dgv och diameterfördelningen
 //   Vilka träd togs ut?      — trädslagen
-//   Uttag per dag            — bara flerdagarstrakter
 // Bredd: trakten är en container (container queries). Under 640 px trakt-bredd ligger frågorna under varandra och
-// trädslag/dagar bakom EN rad som öppnar ett ark; från 640 px (iPad liggande med listan bredvid, dator) ligger alla
-// fyra i ett rutnät med två kolumner — där finns plats, så inget göms.
+// trädslagen bakom EN rad som öppnar ett ark; från 640 px (iPad liggande med listan bredvid, dator) ligger de i ett
+// rutnät med två kolumner — där finns plats, så inget göms.
+// "Uttag per dag" är borttaget (Martin 2026-10-22: inte intressant i den här uppföljningen).
 //
 // Här finns MEDVETET ingen gallringskvot eller kvarvarande bestånd skattat ur stickvägsträden — se lib/gallring.ts.
 import { useCallback, useEffect, useState } from 'react';
@@ -31,7 +31,7 @@ import {
   type PerHaLast,
   type GallringDetalj,
 } from '@/lib/gallring';
-import { dagarText, dagMan, procentSomSummerar, sortimentGrupper, traktSpann, veckodagDag } from '@/lib/gallringVy';
+import { dagarText, dagMan, procentSomSummerar, sortimentGrupper, traktSpann } from '@/lib/gallringVy';
 import { tradslagStil } from '@/lib/tradslag';
 import { UTANFOR_VISA_FRAN } from '@/lib/gallringPerHa';
 import GallradYtaArk from './GallradYtaArk';
@@ -111,7 +111,6 @@ function Innehall({ d }: { d: GallringDetalj }) {
   const [arkOppet, setArkOppet] = useState(false);
   const iAr = aktuelltAr();
   const medelstam = d.volymM3fub / Math.max(d.stammar, 1);
-  const flerDagar = d.dagar.length > 1;
   const status = d.skordningAvslutad ? `Klar ${dagMan(d.skordningAvslutad)}` : 'Pågår';
 
   return (
@@ -149,19 +148,17 @@ function Innehall({ d }: { d: GallringDetalj }) {
         <Virket d={d} />
         <Grovlek d={d} />
         <div className="gd-bred"><Tradslag d={d} /></div>
-        {flerDagar && <div className="gd-bred"><Dagar d={d} /></div>}
       </div>
 
-      {/* Smal: trädslag och dagar ett tryck bort — en sak per skärm. */}
+      {/* Smal: trädslagen ett tryck bort — en sak per skärm. */}
       <div className="gd-smal" style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `0 ${AVSTAND.l}px` }}>
-        <Rad titel={flerDagar ? 'Trädslag och dagar' : 'Trädslag'} under={tradslagKort(d)} onTryck={() => setArkOppet(true)} sista
+        <Rad titel="Trädslag" under={tradslagKort(d)} onTryck={() => setArkOppet(true)} sista
           attr={{ 'data-mer': '' }} />
       </div>
 
       {arkOppet && (
-        <Ark rubrik={flerDagar ? 'Trädslag och dagar' : 'Trädslag'} stang="Klar" onStang={() => setArkOppet(false)}>
+        <Ark rubrik="Trädslag" stang="Klar" onStang={() => setArkOppet(false)}>
           <Tradslag d={d} iArk />
-          {flerDagar && <Dagar d={d} iArk />}
         </Ark>
       )}
     </>
@@ -239,7 +236,8 @@ function PerHektar({ d }: { d: GallringDetalj }) {
   if (p.andelUtanfor !== null && p.andelUtanfor >= UTANFOR_VISA_FRAN) {
     notDelar.push(`${fmtPct(p.andelUtanfor)} av stammarna står utanför (väg in eller enstaka träd) och räknas inte per hektar.`);
   }
-  if (sv.lage === 'ok') notDelar.push(`Stickvägarna ur ${sv.roller.map(rollGenitiv).join(' och ')} GPS-spår, räknade 4 m breda.`);
+  // Stickvägarna räknas bara ur skotarens spår: skördaren kör också inne i beståndet (lib/gallringPerHa.ts).
+  if (sv.lage === 'ok') notDelar.push('Stickvägarna ur skotarens GPS-spår, räknade 4 m breda.');
 
   const ytaUnder = [
     `Vidas gräns ${fmtDecimal(p.vidaHa, 1)} ha`,
@@ -293,7 +291,7 @@ function PerHektar({ d }: { d: GallringDetalj }) {
             under={del ? 'Hela trakten' : undefined} attr={{ 'data-stickvag': 'ok' }} />
         ) : (
           <Rad titel="Stickvägar" hoger="–" sista attr={{ 'data-stickvag': sv.lage }}
-            under={sv.lage === 'inget-spar' ? 'Inget GPS-spår från maskinerna än' : 'GPS-spåret täcker bara en del av trakten'} />
+            under={sv.lage === 'inget-spar' ? 'Räknas ur skotarens GPS-spår – det finns inget' : 'Skotarens GPS-spår täcker bara en del av trakten'} />
         )}
       </div>
       {kartaOppen && yta && (
@@ -308,10 +306,6 @@ function PerHektar({ d }: { d: GallringDetalj }) {
     {kvar}
     </>
   );
-}
-
-function rollGenitiv(roll: string): string {
-  return roll === 'skordare' ? 'skördarens' : roll === 'skotare' ? 'skotarens' : `${roll}s`;
 }
 
 function Virket({ d }: { d: GallringDetalj }) {
@@ -392,17 +386,6 @@ function Tradslag({ d, iArk }: { d: GallringDetalj; iArk?: boolean }) {
         <Rad key={t.namn} titel={<MedPrick farg={delar[i].farg} kontur={delar[i].kontur}>{t.namn}</MedPrick>}
           under={<Indrag>{fmtAntal(t.stammar)} stammar</Indrag>}
           hoger={`${fmtVolym(t.volym)} m³`} hogerUnder={`${pct[i]} %`} sista={i === d.tradslag.length - 1} />
-      ))}
-    </Sektion>
-  );
-}
-
-function Dagar({ d, iArk }: { d: GallringDetalj; iArk?: boolean }) {
-  return (
-    <Sektion rubrik="Uttag per dag" kort={!iArk} inset={!iArk}>
-      {d.dagar.map((dag, i) => (
-        <Rad key={dag.datum} titel={veckodagDag(dag.datum)} hoger={`${fmtVolym(dag.volym)} m³`}
-          hogerUnder={`${fmtAntal(dag.stammar)} st`} sista={i === d.dagar.length - 1} />
       ))}
     </Sektion>
   );

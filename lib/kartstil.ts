@@ -647,3 +647,6 @@ export function ritaStolpeIkon(farg: string = FARG_FARA, px = 40): HTMLCanvasEle
   ctx.fillRect(x0 + (tjock - inre) / 2, y0 + 2 * s, inre, langd - 4 * s);
   return c;
 }
+
+/** Vidas basväg (en linje i leveransen som inte är kraftledning) ritas brun när Vida inte gett en egen färg — samma som planeringsvyns trakt-basvag-line. */
+export const VIDA_BASVAG_FARG = '#a16207';

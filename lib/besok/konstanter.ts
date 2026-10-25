@@ -24,11 +24,29 @@ export const BESOK_MAX_PER_TIMME = 20;
 /** En anmälan får ligga högst så här långt fram (timmar). */
 export const BESOK_MAX_FRAMAT_H = 36;
 
-/** Skotningen antas vara klar så här många arbetsdagar efter skördningen när den egna takten inte går att mäta (bara för "klart ca"). */
-export const SKOTNING_EFTER_DAGAR = 2;
-
-/** Antal arbetsdagar bakåt som takten räknas på. */
+/** Antal dagar med produktion som takten räknas på. "Klart ca" visas bara när det finns så här många dagar för varje del som återstår (färre = ingen dag sägs). */
 export const TAKT_DAGAR = 5;
+
+/** "Klart ca" – villkor för att prognosen håller (lib/besok/framsteg). Faller något villkor visas bara "% klart".
+ *  TAKT_STABIL: varje av de senaste dagarna ligger inom ±så här stor andel av snittet. SENASTE_DAG_MAX: senaste produktionsdagen får vara högst så här många kalenderdagar gammal.
+ *  HORISONT_MAX: högst så här många arbetsdagar kvar – längre än så är en gissning. */
+export const PROGNOS = { TAKT_STABIL: 0.5, SENASTE_DAG_MAX: 3, HORISONT_MAX: 15 } as const;
+
+/** Företagets nummer. Står som sista rad i SMS:et när planeraren som skickar saknar eget nummer (medarbetare.telefon). SKA FYLLAS I – tomt = ingen nummerrad, och planerarkortet säger det.
+ *  Format som det ska stå i SMS:et, t.ex. "0470-123 45". */
+export const FORETAG_TELEFON = '';
 
 /** Länken är en slumpad token av minst så här många tecken (databasen kräver detsamma). */
 export const TOKEN_MIN_TECKEN = 32;
+
+/** Hytten: ej kvitterat besök efter så här lång tid → EN ny notis med ljud (bara när appen inte är framme). */
+export const BESOK_NOTIS_PAMINNELSE_MIN = 5;
+
+/** Ej kvitterat efter så här lång tid → push till planeraren (admin): "<maskin> har inte sett besöket på <trakt>". Cronen går var 5:e minut, så den kommer inom 10–15 min. */
+export const BESOK_EJ_SETT_ADMIN_MIN = 10;
+
+/** Klockan för "inte sett" börjar tidigast så här många minuter före besökstiden: en anmälan för i morgon eftermiddag larmar inte i kväll. */
+export const BESOK_KLOCKA_FORE_MIN = 60;
+
+/** Maskiner som räknas som "på trakten" för besöket: tilldelade (skördare/skotare på objektet) eller med hyttspår på objektet inom så här många timmar. */
+export const BESOK_MASKIN_PA_TRAKTEN_H = 24;

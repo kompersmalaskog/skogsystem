@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { kravInloggad } from "@/lib/auth/server";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
 import { statistik } from "@/lib/kalibrering/statistik";
 
 /**
- * GET /api/kalibrering/objekt?key=skogsystem-debug
+ * GET /api/kalibrering/objekt
  *
  * Objekt-nivå kalibrering: när en kund ringer om en trakt ska man kunna slå
  * upp objektet och svara med underlag. MaskinOBEROENDE — man vet objektet,
@@ -20,8 +21,6 @@ import { statistik } from "@/lib/kalibrering/statistik";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const DEBUG_KEY = "skogsystem-debug";
-
 export type ObjektStat = {
   object_name: string;
   maskin_id: string | null;
@@ -66,7 +65,8 @@ const r1 = (x: number) => Math.round(x * 10) / 10;
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  if (url.searchParams.get("key") !== DEBUG_KEY) return new NextResponse("Ogiltig nyckel", { status: 401 });
+  const vakt = await kravInloggad();
+  if (!vakt.ok) return vakt.res;
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
   // filnamn → object_name + maskin_id, samt kontroll-datum (för period)

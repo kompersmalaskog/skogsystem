@@ -43,12 +43,24 @@
       "schedule": "0 5 * * *"
     },
     {
+      "path": "/api/redigering/fyll-sakra",
+      "schedule": "23 * * * *"
+    },
+    {
       "path": "/api/lon/notis",
       "schedule": "7 * * * *"
     },
     {
+      "path": "/api/cron/kalibrering-grepp",
+      "schedule": "10,40 * * * *"
+    },
+    {
       "path": "/api/cron/stada-markering-foton?torrkorning=1",
       "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/stampling/auto",
+      "schedule": "17 * * * *"
     }
   ]
 }

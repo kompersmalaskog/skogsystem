@@ -4,12 +4,12 @@
 // SMS:et skickas ALDRIG av appen — knappen öppnar telefonens Meddelanden med mottagare och text ifyllda; planeringen läser, ändrar och trycker själv på skicka.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AVSTAND, FARG, RADIE, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, KNAPP, RADIE, TYP } from '@/lib/design/tokens';
 import { Gruppkort, RadKnapp, Rubrik } from '@/components/planering/infoDelar';
 import { useBesokPlanerare } from '@/lib/hooks/useBesokPlanerare';
-import { besokSmsText, arIos, narOrd } from '@/lib/besok/sms';
+import { besokSmsText, arIos, arMobil, narOrd, smsNummer } from '@/lib/besok/sms';
 import { besoksUrl } from '@/lib/besok/offentlig';
-import { loggRader, smsStatusText } from '@/lib/besok/planerare';
+import { loggRader, smsLage } from '@/lib/besok/planerare';
 import { markagareFornamn } from '@/lib/besok/sms';
 import { telNummer } from '@/app/oversikt-v2/objekt-info';
 
@@ -28,6 +28,25 @@ export interface BesokPlanerareProps {
   navigera?: (href: string) => void;
   oppnaSida?: (url: string) => void;
   origin?: string;
+  /** Bara för test: tvinga mobil/dator. Standard: avgörs ur webbläsaren (`arMobil`). På dator öppnas ingen sms:-länk – texten kopieras. */
+  mobil?: boolean;
+  /** Bara för test: hur texten kopieras. Standard: urklipp (navigator.clipboard, annars en dold textruta). */
+  kopiera?: (text: string) => Promise<void>;
+  /** Bara för test: företagets nummer när avsändaren saknar eget. Standard: FORETAG_TELEFON. */
+  foretagTelefon?: string;
+}
+
+/** Kopierar till urklipp. Faller tillbaka på en dold textruta (äldre webbläsare, http). Kastar om inget fungerade. */
+export async function kopieraText(text: string): Promise<void> {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return; }
+  } catch { /* faller tillbaka */ }
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+  document.body.appendChild(ta); ta.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(ta);
+  if (!ok) throw new Error('kopiering misslyckades');
 }
 
 /** sms:-länk — med nummer om det finns, annars utan mottagare (planeraren skriver numret själv i Meddelanden). */
@@ -49,7 +68,9 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
   const rader = useMemo(() => loggRader(d.besok, d.kvittenser, { maskin: (id) => d.maskinNamn[id] ?? id, person: (id) => { const n = person(id); return n ? n.split(' ')[0] : null; } }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [d.besok, d.kvittenser, d.maskinNamn, d.personNamn]);
-  const smsStatus = smsStatusText(d.sms, person);
+  const lage = smsLage(d.sms, person);
+  const smsStatus = lage.text;
+  const mobil = p.mobil ?? (typeof navigator === 'undefined' ? true : arMobil(navigator.userAgent, navigator.maxTouchPoints));
 
   if (!d.migrering) {
     return (
@@ -64,19 +85,39 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
   const fornamnMark = markagareFornamn(p.markagare);
   const mottagare = [p.markagare?.trim() || null, p.markagareTel?.trim() || null].filter(Boolean).join(' · ');
 
-  function skicka() {
-    if (!d.lank) return;   // knappen anropar bara skicka() när lankKlar (länk på, trakten ej avslutad) — ENDA stället som avgör det
-    const lank = besoksUrl(p.origin ?? window.location.origin, d.lank.token);
-    const text = besokSmsText({
+  /** Texten som skickas/kopieras – samma för båda vägarna. */
+  function byggText(lank: string): string {
+    return besokSmsText({
       markagare: p.markagare, fastighet: p.fastighet,
       nar: narOrd({ planeradStart: p.planeradStart, faktiskStart: p.faktiskStart, pagaendeStartad: p.pagaendeStartad, status: p.status }),
-      lank, avsandareNamn: d.avsandare?.namn, avsandareTelefon: d.avsandare?.telefon,
+      lank, avsandareNamn: d.avsandare?.namn, avsandareTelefon: d.avsandare?.telefon, foretagTelefon: p.foretagTelefon,
     });
-    const href = smsLank(p.markagareTel, text, arIos(navigator.userAgent, navigator.maxTouchPoints));
-    // Loggen först (fire-and-forget: ett fel där får aldrig stoppa SMS:et), sedan Meddelanden — i samma tryck.
-    void d.loggaSms({ avsandareId: d.avsandare?.id ?? null, mottagareNamn: fornamnMark ?? (p.markagare?.trim() || null), mottagareNummer: telNummer(p.markagareTel) });
-    (p.navigera ?? ((h: string) => { window.location.href = h; }))(href);
   }
+  const loggInfo = () => ({ avsandareId: d.avsandare?.id ?? null, mottagareNamn: fornamnMark ?? (p.markagare?.trim() || null), mottagareNummer: telNummer(p.markagareTel) });
+
+  function skicka() {
+    if (!d.lank) return;   // knappen anropar bara skicka() när lankKlar (länk på, trakten ej avslutad) — ENDA stället som avgör det
+    setMeddelande(null);
+    const text = byggText(besoksUrl(p.origin ?? window.location.origin, d.lank.token));
+    if (mobil) {
+      // Loggen först (fire-and-forget: ett fel där får aldrig stoppa SMS:et), sedan Meddelanden — i samma tryck. "Öppnat" är INTE "skickat": kortet frågar efteråt.
+      void d.loggaSms({ ...loggInfo(), handelse: 'oppnad' });
+      (p.navigera ?? ((h: string) => { window.location.href = h; }))(smsLank(p.markagareTel, text, arIos(navigator.userAgent, navigator.maxTouchPoints)));
+      return;
+    }
+    // Dator: ingen sms:-länk (den öppnar inget användbart) — texten med länken kopieras, planeraren klistrar in den där hen skickar.
+    (p.kopiera ?? kopieraText)(text).then(
+      () => { void d.loggaSms({ ...loggInfo(), handelse: 'kopierad' }); setMeddelande(p.markagareTel ? `Kopierat — klistra in i ett SMS till ${p.markagareTel}.` : 'Kopierat — klistra in i ett SMS.'); },
+      () => setMeddelande('Kunde inte kopiera — försök igen.'),
+    );
+  }
+
+  function svara(skickat: boolean) {
+    void d.loggaSms({ ...loggInfo(), handelse: skickat ? 'skickad' : 'ej_skickad' });
+  }
+
+  // Inget nummer i SMS:et? Då står raden "Ring mig på …" bort — planeraren ska veta det innan hen skickar.
+  const saknarNummer = smsNummer({ avsandareTelefon: d.avsandare?.telefon, foretagTelefon: p.foretagTelefon }) === '';
 
   async function vaxlaLank() {
     if (!d.lank) return;
@@ -90,10 +131,24 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
       <Rubrik>Besök på trakten</Rubrik>
       <Gruppkort>
         <div ref={smsRef} style={p.fokusSms ? { outline: `2px solid ${FARG.text}`, outlineOffset: -2, borderRadius: RADIE.kort } : undefined}>
-          <RadKnapp forstaRad testid="kort-besok-sms" ikon="sms" etikett="Skicka till markägaren"
+          <RadKnapp forstaRad testid="kort-besok-sms" ikon={mobil ? 'sms' : 'content_copy'} etikett={mobil ? 'Skicka till markägaren' : 'Kopiera SMS-text och länk'}
             under={avslutat ? 'Trakten är avslutad' : !d.lank ? 'Förbereder länken …' : !d.lank.aktiv ? 'Länken är avstängd — slå på den först' : [mottagare || 'Markägare saknas', p.markagareTel ? null : 'nummer saknas — du skriver det själv', smsStatus].filter(Boolean).join(' · ')}
             onTryck={() => (lankKlar ? skicka() : setMeddelande(avslutat ? 'Trakten är avslutad.' : 'Länken är inte klar än.'))} />
         </div>
+        {lage.typ === 'obekraftad' && !avslutat && (
+          <div data-testid="kort-besok-sms-fraga" style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.m}px`, borderTop: `1px solid ${FARG.linje}` }}>
+            <div style={{ ...TYP.listtitel }}>Skickade du SMS:et?</div>
+            <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.s }}>
+              <button type="button" data-testid="kort-besok-sms-ja" style={{ ...KNAPP.sekundar, flex: 1 }} onClick={() => svara(true)}>Ja, skickat</button>
+              <button type="button" data-testid="kort-besok-sms-nej" style={{ ...KNAPP.sekundar, flex: 1 }} onClick={() => svara(false)}>Nej</button>
+            </div>
+          </div>
+        )}
+        {saknarNummer && lankKlar && (
+          <div data-testid="kort-besok-nummer-saknas" style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.m}px`, ...TYP.meta, color: FARG.orange, borderTop: `1px solid ${FARG.linje}` }}>
+            Inget nummer att ringa står i SMS:et — lägg in ditt nummer i Admin › Medarbetare.
+          </div>
+        )}
         <RadKnapp testid="kort-besok-sida" ikon="open_in_new" etikett="Visa som markägaren" under="Öppnar besökssidan"
           onTryck={() => { if (d.lank && !avslutat) { const url = besoksUrl(p.origin ?? window.location.origin, d.lank.token); (p.oppnaSida ?? ((u: string) => { window.open(u, '_blank', 'noopener'); }))(url); } }} />
         <RadKnapp testid="kort-besok-lank" ikon="link" etikett="Länk till markägaren" pil={false}

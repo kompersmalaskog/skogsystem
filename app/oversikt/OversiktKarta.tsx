@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { TALL_FARG } from '@/lib/tradslag';
 import { supabase } from '@/lib/supabase';
+import { escapeHtml } from '@/lib/html';
 import { motion } from 'framer-motion';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
 import { ff } from './oversikt-styles';
@@ -15,7 +16,7 @@ import {
 } from './markeringar';
 import SkotarRad from './SkotarRad';
 import { lastLista, lasFelOrsak } from './las-svar';
-import { LasFelRad, LASFEL_FARA, LASFEL_FARA_LADDAR, LASFEL_KO } from './LasFel';
+import { LasFelRad, LASFEL_FARA, LASFEL_FARA_LADDAR, LASFEL_KO, LASFEL_POS, LASFEL_POS_DELVIS } from './LasFel';
 import type { SkordAgg } from './page';
 import { foreslaNasta, type Kandidat, type MaskinLage, type AvstandKm } from '@/lib/nastaObjekt';
 // Maskinens RIKTIGA senaste position (flytt/produktion/GPS-fix, med ärlighets-spärrar) —
@@ -658,7 +659,7 @@ function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rank
 
 /* ── Build GROT diamond marker — egen brun/orange/röd symbol, DEADLINE-styrd ──
    Brun = ingen/avlägsen deadline · orange = närmar sig · röd = nära/passerad. */
-function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: () => void): HTMLDivElement {
+export function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: () => void): HTMLDivElement {
   const info = grotDeadlineInfo(obj.grot_deadline);
   const clr = info.color;
   const sz = isSelected ? 24 : 20;
@@ -680,7 +681,7 @@ function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: ()
   if (info.label) {
     const badge = document.createElement('div');
     badge.style.cssText = `position:absolute;bottom:${hitSize / 2 + sz / 2 + 3}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap;background:${clr};padding:2px 7px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.5)`;
-    badge.innerHTML = `<span style="font-size:11px;font-weight:800;color:#fff;font-family:${ff}">${info.label}</span>`;
+    badge.innerHTML = `<span style="font-size:11px;font-weight:800;color:#fff;font-family:${ff}">${escapeHtml(info.label)}</span>`;
     w.appendChild(badge);
   }
 
@@ -688,7 +689,7 @@ function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: ()
   const lbl = document.createElement('div');
   lbl.className = 'ovk-lbl';
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + sz / 2 + 4}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap`;
-  lbl.innerHTML = `<div style="font-size:11px;font-weight:600;color:#fff;font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
+  lbl.innerHTML = `<div style="font-size:11px;font-weight:600;color:#fff;font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${escapeHtml(obj.namn)}</div>`;
   w.appendChild(lbl);
 
   w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
@@ -699,7 +700,9 @@ function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: ()
    Vit rundad fyrkant + kugghjul + puls, namn + färskhet under. Färskhet dämpad grå;
    gammal position = orange (varsamhet), aldrig röd (rött = fara). Egen markör — ritas
    aldrig mer på "första objektet i kön". */
-function buildMaskinMarkerEl(namn: string, farskhet: string | null, gammal: boolean, onClick: () => void): HTMLDivElement {
+export function buildMaskinMarkerEl(namn: string, farskhetRaa: string | null, gammal: boolean, onClick: () => void): HTMLDivElement {
+  // Färskhetstexten går in i en innerHTML-mall nedan: escapa den här så mallraden kan vara orörd.
+  const farskhet = farskhetRaa ? escapeHtml(farskhetRaa) : null;
   const dotSize = 34, hitSize = 40;
   const w = document.createElement('div');
   w.className = 'ovk-maskin-marker';
@@ -714,7 +717,7 @@ function buildMaskinMarkerEl(namn: string, farskhet: string | null, gammal: bool
   const lbl = document.createElement('div');
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + dotSize / 2 + 4}px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap`;
   const frisk = farskhet ? `<div style="font-size:10.5px;font-weight:600;color:${gammal ? C.orange : 'rgba(255,255,255,0.6)'};font-family:${ff};margin-top:2px">${farskhet}</div>` : '';
-  lbl.innerHTML = `<div style="font-size:13px;font-weight:600;color:#fff;font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${namn}</div>${frisk}`;
+  lbl.innerHTML = `<div style="font-size:13px;font-weight:600;color:#fff;font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${escapeHtml(namn)}</div>${frisk}`;
   w.appendChild(lbl);
   w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
   return w;
@@ -769,7 +772,7 @@ function markerStatusColor(status: string): string {
 /* ── Build a MapLibre marker DOM element — form=objekt/maskin, shape=typ ──
    Färg = status (markerStatusColor) och FYLLER markören. Endast aktiva pulserar.
    Okänd/oplanerad → ofylld kontur (filtreras aldrig bort, Beslut 5). */
-function buildMarkerEl(
+export function buildMarkerEl(
   form: 'circle' | 'machine',
   shape: 'circle' | 'square',
   status: string,
@@ -863,7 +866,7 @@ function buildMarkerEl(
     sublabels.forEach(s => {
       const ch = document.createElement('div');
       ch.style.cssText = `background:rgba(0,0,0,.85);padding:3px 8px;border-radius:6px`;
-      ch.innerHTML = `<span style="font-size:11px;font-weight:600;color:#fff;font-family:${ff}">${s}</span>`;
+      ch.innerHTML = `<span style="font-size:11px;font-weight:600;color:#fff;font-family:${ff}">${escapeHtml(s)}</span>`;
       md.appendChild(ch);
     });
     w.appendChild(md);
@@ -875,7 +878,7 @@ function buildMarkerEl(
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + dotSize / 2 + 4}px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap`;
   const clr = (isDone && !skotarAktiv && !skotarVantar) ? '#8e8e93' : '#fff';
   const volLabel = volym ? ` (${Math.round(volym)} m³)` : '';
-  lbl.innerHTML = `<div style="font-size:13px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${label}${volLabel}</div>`;
+  lbl.innerHTML = `<div style="font-size:13px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${escapeHtml(label)}${escapeHtml(volLabel)}</div>`;
   w.appendChild(lbl);
 
   w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
@@ -939,16 +942,25 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
   // kugghjuls-markören OCH som origo när "Att köra" rankas på körväg.
   const [maskinPlatser, setMaskinPlatser] = useState<Map<string, PlatsForslag>>(new Map());
   const [platserLaddar, setPlatserLaddar] = useState(true);
+  // Ett läsfel på platserna är aldrig "ingen plats": 'fel' = ingen källa gick att läsa, 'delvis' = någon felade (platserna är då byggda på resten,
+  // en maskin kan stå på en äldre plats). Bannern säger det och har Försök igen (platserForsok läser om).
+  const [platsFel, setPlatsFel] = useState<'fel' | 'delvis' | null>(null);
+  const [platserForsok, setPlatserForsok] = useState(0);
   useEffect(() => {
     const ids = Array.from(new Set(maskiner.map(m => m.maskin_id).filter(Boolean))) as string[];
     if (!ids.length) return;
     let cancelled = false;
     setPlatserLaddar(true);
     hamtaSenastePlatser(ids)
-      .then(({ platser }) => { if (!cancelled) { setMaskinPlatser(platser); setPlatserLaddar(false); } })
-      .catch(() => { if (!cancelled) setPlatserLaddar(false); });
+      .then(({ platser, fel, delvisFel }) => {
+        if (cancelled) return;
+        if (fel) { console.error('[Översikt] position:', fel); setPlatsFel('fel'); }
+        else { setMaskinPlatser(platser); if (delvisFel) console.error('[Översikt] position: delfel', delvisFel); setPlatsFel(delvisFel ? 'delvis' : null); }
+        setPlatserLaddar(false);
+      })
+      .catch((e) => { if (!cancelled) { console.error('[Översikt] position: läsningen kastade', e); setPlatsFel('fel'); setPlatserLaddar(false); } });
     return () => { cancelled = true; };
-  }, [maskiner]);
+  }, [maskiner, platserForsok]);
 
   /* ── Self-fetch: berikade objekt + maskin_ko (live-källor) ── */
   const refetchObjekt = useCallback(async () => {
@@ -1726,10 +1738,11 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       )}
 
       {/* ── Läsfel: faror/hänsyn eller kö/maskiner gick inte att läsa — ALDRIG en tyst tom karta (se las-svar.ts) ── */}
-      {(markStatus === 'fel' || koFel) && (
+      {(markStatus === 'fel' || koFel || platsFel) && (
         <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: SP.lg, left: SP.lg, right: driverMode ? SP.lg : SP.lg + 44 + SP.md, zIndex: 16, display: 'flex', flexDirection: 'column', gap: SP.sm }}>
           {markStatus === 'fel' && <LasFelRad text={LASFEL_FARA} onForsok={laddaMarkeringar} />}
           {koFel && <LasFelRad text={LASFEL_KO} onForsok={laddaOmKo} />}
+          {platsFel && <LasFelRad text={platsFel === 'fel' ? LASFEL_POS : LASFEL_POS_DELVIS} onForsok={() => setPlatserForsok(n => n + 1)} />}
         </div>
       )}
 

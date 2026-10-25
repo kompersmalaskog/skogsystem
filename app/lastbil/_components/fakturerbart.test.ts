@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { arGodkand, kanRedigeras, kmAndrad, kmAndringsText, kundAndringsText, sorteraUnderlag, strackaNotis, summeraFakturerbart, underlagStatus, type FaktureratRad, type UnderlagRad } from './fakturerbart';
+import { arGodkand, kmAndrad, kmAndringsText, kundNotis, sorteraUnderlag, strackaNotis, summeraFakturerbart, underlagStatus, type FaktureratRad, type UnderlagRad } from './fakturerbart';
 
 // De åtta riktiga raderna i fakturaunderlag_flytt (prod 2026-10-15, efter backfill-godkännandet):
 // alla status 'aktiv', ingen fakturerad, alla godkända med skapad_tid.
@@ -94,7 +94,7 @@ describe('redigerade värden: märkningen följer av att värdet skiljer sig fr�
 
   it('aldrig redigerad (redigerad_tid NULL) märks aldrig — även om originalet är NULL', () => {
     expect(kmAndringsText(r({ redigerad_tid: null, km_original: null }))).toBeNull();
-    expect(kundAndringsText(r({ redigerad_tid: null, kund: 'Vida', kund_original: null }))).toBeNull();
+    expect(kundNotis(r({ redigerad_tid: null, kund: 'Vida', kund_original: null }), () => 'tor 15 okt')).toBeNull();
   });
 
   it('km: ändrad från, ifylld (saknades), borttagen — och ingenting när värdet är tillbaka vid originalet', () => {
@@ -107,19 +107,11 @@ describe('redigerade värden: märkningen följer av att värdet skiljer sig fr�
   });
 
   it('kund: tillagd när den saknades, ändrad från, borttagen; blanksteg och tomt är samma sak som saknas', () => {
-    expect(kundAndringsText(r({ kund: 'Vida', kund_original: null }))).toBe('tillagd, saknades i datan');
-    expect(kundAndringsText(r({ kund: 'Vida', kund_original: 'Skog AB' }))).toBe('ändrad från Skog AB');
-    expect(kundAndringsText(r({ kund: null, kund_original: 'Skog AB' }))).toBe('borttagen, var Skog AB');
-    expect(kundAndringsText(r({ kund: ' Vida ', kund_original: 'Vida' }))).toBeNull();
-    expect(kundAndringsText(r({ kund: '', kund_original: null }))).toBeNull();
-  });
-
-  it('kanRedigeras: före fakturering och inte struken', () => {
-    const f = (o: Record<string, unknown>) => ({ km: 1, status: 'aktiv', fakturerad_tid: null, godkand_tid: null, ...o }) as any;
-    expect(kanRedigeras(f({}))).toBe(true);
-    expect(kanRedigeras(f({ godkand_tid: 'x' }))).toBe(true);
-    expect(kanRedigeras(f({ godkand_tid: 'x', fakturerad_tid: 'y' }))).toBe(false);
-    expect(kanRedigeras(f({ status: 'struken' }))).toBe(false);
+    expect(kundNotis(r({ kund: 'Vida', kund_original: null, redigerad_av: 'Martin' }), () => 'tor 15 okt')).toBe('Tillagd av Martin tor 15 okt');
+    expect(kundNotis(r({ kund: 'Vida', kund_original: 'Skog AB' }), () => 'tor 15 okt')).toBe('Ändrad från Skog AB');
+    expect(kundNotis(r({ kund: null, kund_original: 'Skog AB' }), () => 'tor 15 okt')).toBe('Borttagen — var Skog AB');
+    expect(kundNotis(r({ kund: ' Vida ', kund_original: 'Vida' }), () => 'tor 15 okt')).toBeNull();
+    expect(kundNotis(r({ kund: '', kund_original: null }), () => 'tor 15 okt')).toBeNull();
   });
 });
 
@@ -135,5 +127,23 @@ describe('strackaNotis — det mätta står bara när det skiljer sig från det 
     expect(strackaNotis(44, null)).toBe('44 km · mätt saknas i datan');
     expect(strackaNotis(null, 53)).toBe('km saknas i datan · mätt 53');
     expect(strackaNotis(null, null)).toBe('km saknas i datan');
+  });
+});
+
+describe('Var kommer flyttens km ifrån? (mätare eller räknad väg)', () => {
+  it('mätaren mellan lastad och lossad, en decimal; saknad eller orimlig mätning är null', async () => {
+    const { matarKm } = await import('./fakturerbart');
+    expect(matarKm(299_480_800, 299_516_200)).toBe(35.4);
+    expect(matarKm(null, 299_516_200)).toBeNull();
+    expect(matarKm(299_516_200, 299_516_200)).toBeNull();          // stod still: ingen flytt att mäta
+    expect(matarKm(1_000, 300_000)).toBeNull();                     // 299 km: orimligt för en flytt
+  });
+
+  it('säger ingenting när km ÄR mätarens; annars att den är räknad och vad mätaren säger (Giant 10 aug: 5 mot 11,0)', async () => {
+    const { kmKallaText } = await import('./fakturerbart');
+    expect(kmKallaText(35.4, 299_480_800, 299_516_200)).toBeNull();
+    expect(kmKallaText(5, 300_000_000, 300_011_000)).toBe('Räknad väg — bilens mätare säger 11 km');
+    expect(kmKallaText(53, null, null)).toBe('Räknad väg — bilens mätare saknas');
+    expect(kmKallaText(null, null, null)).toBeNull();
   });
 });

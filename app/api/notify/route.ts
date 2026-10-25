@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { VAPID_PUBLIC_KEY, VAPID_SUBJECT, VAPID_SAKNAS, vapidPrivatNyckel } from '@/lib/push/vapid';
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
 import { kravRoll, ADMIN_ROLLER } from '@/lib/auth/server';
@@ -14,20 +15,17 @@ import { kravRoll, ADMIN_ROLLER } from '@/lib/auth/server';
  * Uppdaterar last_used vid lyckat utskick.
  */
 
-const VAPID_PUBLIC_KEY =
-  'BGe21_FkdZWkOiaLTWE2GXADsaA08uC2eRGglHIyJ85rL35YkrkUY1L3jTJ7fGvAQlDRjJsH3AMMeX62B63hr34';
-const VAPID_SUBJECT = 'mailto:info@kompersmalskog.se';
 
 export async function POST(req: NextRequest) {
   const vakt = await kravRoll(ADMIN_ROLLER);
   if (!vakt.ok) return vakt.res;
   try {
-    const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
+    const vapidPrivate = vapidPrivatNyckel();
     if (!vapidPrivate) {
       return NextResponse.json(
         {
           ok: false,
-          error: 'VAPID_PRIVATE_KEY saknas i env-vars — kan inte skicka push.',
+          error: VAPID_SAKNAS,
         },
         { status: 500 },
       );

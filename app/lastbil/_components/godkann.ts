@@ -23,18 +23,42 @@ async function skriv(bygg: () => PromiseLike<{ data: { id: string }[] | null; er
   }
 }
 
-/** Godkänn: sätter godkand_tid/godkand_av. Bara en aktiv, ogodkänd, ofakturerad rad. */
-export function godkannFlytt(id: string, av: string, nu: Date = new Date()): Promise<Skrivsvar> {
+/**
+ * Godkänn: sätter godkand_tid/godkand_av. Bara en aktiv, ogodkänd, ofakturerad rad.
+ * `traillertimmar` (en flytt över 3 mil som saknar tid): förslaget sparas med SAMMA tryck — den som godkänner
+ * flytten godkänner också tiden som står på raden. Skickas bara när raden saknar tid; en inskriven tid skrivs aldrig över.
+ */
+export function godkannFlytt(id: string, av: string, nu: Date = new Date(), traillertimmar?: number): Promise<Skrivsvar> {
+  const varden: Record<string, unknown> = { godkand_tid: nu.toISOString(), godkand_av: av };
+  if (traillertimmar !== undefined) {
+    if (!Number.isFinite(traillertimmar) || traillertimmar <= 0) return Promise.resolve({ ok: false, fel: 'Tiden måste vara mer än noll.' });
+    varden.traillertimmar = traillertimmar;
+  }
   return skriv(() => supabase.from('fakturaunderlag_flytt')
-    .update({ godkand_tid: nu.toISOString(), godkand_av: av })
+    .update(varden)
     .eq('id', id).eq('status', 'aktiv').is('godkand_tid', null).is('fakturerad_tid', null)
     .select('id') as any);
 }
 
-/** Ångra ett godkännande: tillbaka till "Att godkänna". Aldrig efter att flytten fakturerats. */
-export function angraGodkannande(id: string): Promise<Skrivsvar> {
+/**
+ * Spara traillertiden (timmar, två decimaler — appen visar dem aldrig så, se `fmtTid`). Går på en aktiv rad som inte är
+ * fakturerad, också en godkänd: tiden är en fakturauppgift, inte en rättning av flytten (databasens trigger rör inte spåret).
+ */
+export function sparaTraillertid(id: string, timmar: number): Promise<Skrivsvar> {
+  if (!Number.isFinite(timmar) || timmar <= 0) return Promise.resolve({ ok: false, fel: 'Tiden måste vara mer än noll.' });
   return skriv(() => supabase.from('fakturaunderlag_flytt')
-    .update({ godkand_tid: null, godkand_av: null })
+    .update({ traillertimmar: timmar })
+    .eq('id', id).eq('status', 'aktiv').is('fakturerad_tid', null)
+    .select('id') as any);
+}
+
+/**
+ * Ångra ett godkännande: tillbaka till "Att godkänna". Aldrig efter att flytten fakturerats.
+ * `rensaTid`: godkännandet sparade också traillertiden (förslaget) — då tas den bort med samma ångra, så raden är som förut.
+ */
+export function angraGodkannande(id: string, rensaTid = false): Promise<Skrivsvar> {
+  return skriv(() => supabase.from('fakturaunderlag_flytt')
+    .update(rensaTid ? { godkand_tid: null, godkand_av: null, traillertimmar: null } : { godkand_tid: null, godkand_av: null })
     .eq('id', id).eq('status', 'aktiv').is('fakturerad_tid', null).not('godkand_tid', 'is', null)
     .select('id') as any);
 }

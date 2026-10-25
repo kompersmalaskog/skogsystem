@@ -31,22 +31,25 @@ function metaRad(antal: number, diesel: Diesel | null): string {
   return delar.join(' · ');
 }
 
+/** Frågan över diagrammet — den byter med växeln, så rubriken alltid säger vad stapeln svarar på. */
+const FRAGA: Record<Lage, string> = {
+  forbrukning: 'Hur mycket diesel drog den?',
+  korstracka: 'Hur långt körde den med lass?',
+  betalt: 'Hur mycket fick vi betalt för?',
+};
+
 /**
  * Uppföljning: lastbilens år som en egen sida under Lastbilen (öppnas av raden "Uppföljning ›" längst ner i Körningar, eller direkt
  * via adressen). Uppifrån: tillbaka till Lastbilen · "‹ 2026 ›" · årets km stort och en dämpad rad (rundor · liter · l/mil) · EN växel
  * över ETT diagram · månadslistan, där ett tryck går till Körningar för månaden.
  * Den visar körning, inte fakturering. Lastbilen är en egen maskin i uppföljningen: l/mil och km blandas aldrig med maskinernas l/h.
  */
-export default function UppfoljningSida({ ar, onAr, fakt, vikt, maskiner, arAdmin, namn, onMaskinAndrad, lage, onForsokIgen, onTillbaka, onValjManad }: {
+export default function UppfoljningSida({ ar, onAr, fakt, vikt, maskiner, lage, onForsokIgen, onTillbaka, onValjManad }: {
   ar: number; onAr: (ar: number) => void;
   /** Årets körning delad på med lass / utan lass / okänd ur bilens vikt (Förbrukning, Körsträcka och jämförelsen i Betalt). */
   vikt: { lage: ViktLage; forsokIgen: () => void };
   /** Årets flyttar per maskin ("Maskiner" längst ner; också Y i "Lass kan saknas"). */
   maskiner: { lage: MaskinerLage; forsokIgen: () => void };
-  /** Bara admin kan öppna en flytt för att rätta den (sheeten "Flytten"). */
-  arAdmin: boolean; namn: string;
-  /** En flytt rättades i maskinens ark: läs om allt som kan ha ändrats. */
-  onMaskinAndrad: () => void;
   /** Årets fakturaunderlag (bara admin; null = förare, då finns inget Betalt-läge). */
   fakt: { status: FakturerbartStatus; forsokIgen: () => void } | null;
   lage: RundorLage; onForsokIgen: () => void; onTillbaka: () => void; onValjManad: (m: Manad) => void;
@@ -88,13 +91,14 @@ export default function UppfoljningSida({ ar, onAr, fakt, vikt, maskiner, arAdmi
       {rundor && summa && manader && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
           <section style={KORT} aria-label="Året">
-            <div style={{ ...TYP.micro, color: FARG.text2 }}>Körd {ar}</div>
+            <div style={{ ...TYP.micro, color: FARG.text2 }}>Hur långt körde bilen {ar}?</div>
             <div data-ars-km style={{ ...TYP.tal, color: FARG.text, marginTop: AVSTAND.xs }}>{matar ? `${matar.km.toLocaleString('sv-SE')} km` : '– km'}</div>
             <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.xs }}>
               {metaRad(summa.antal, matar && viktManader ? dieselAr(viktManader) : null)}{matar && matar.saknas.length > 0 ? ` · mätare saknas för ${matar.saknas.map(m => periodEtikett(m).split(' ')[0].toLowerCase()).join(', ')}` : ''}
             </div>
           </section>
 
+          <h3 data-fraga style={{ ...TYP.micro, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>{FRAGA[aktivt]}</h3>
           <Flikkontroll flikar={flikar} aktiv={aktivt} onVal={setValt} />
           <section style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }} aria-label="Diagram">
             {vikt.lage.lage === 'fel' ? (
@@ -132,6 +136,7 @@ export default function UppfoljningSida({ ar, onAr, fakt, vikt, maskiner, arAdmi
             <LassMotFlyttar rader={lassRader ?? []} flyttarFel={maskiner.lage.lage === 'fel'} onValjManad={onValjManad} />
           )}
 
+          <h3 style={{ ...TYP.micro, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>Hur gick varje månad?</h3>
           <section style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }} aria-label="Månader">
             {manader.map(({ m, s }, i) => {
               const v = viktManader?.find(x => x.m.ar === m.ar && x.m.man === m.man);
@@ -163,7 +168,7 @@ export default function UppfoljningSida({ ar, onAr, fakt, vikt, maskiner, arAdmi
       )}
       {/* Maskiner läser maskin_flytt själv: ett fel i rundorna ska inte ta bort den, och tvärtom. */}
       <div style={{ marginTop: AVSTAND.xl }}>
-        <MaskinerSektion ar={ar} lage={maskiner.lage} onForsokIgen={maskiner.forsokIgen} arAdmin={arAdmin} namn={namn} onAndrad={onMaskinAndrad} />
+        <MaskinerSektion ar={ar} lage={maskiner.lage} onForsokIgen={maskiner.forsokIgen} />
       </div>
     </div>
   );

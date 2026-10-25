@@ -77,11 +77,9 @@ export const aggregeraSprid = (
 };
 
 export type Serie = { klass: string; punkter: Map<string, { v: number; n: number }> };
-/** En serie per grovlek (klass) för Läget: träffprocent respektive planområden, aggregerade per valt tidssteg. */
+/** En serie per grovlek (klass) för Läget: träffprocent respektive spridning, aggregerade per valt tidssteg. */
 export const traffSerier = (kl: DiagKlass[], steg: LagetSteg): Serie[] =>
   kl.map(k => ({ klass: k.klass, punkter: aggregeraSteg(k.traffMonthly.map(m => ({ manad: m.manad, v: m.traffPct, n: m.n })), steg) }));
-export const platSerier = (kl: DiagKlass[], steg: LagetSteg): Serie[] =>
-  kl.map(k => ({ klass: k.klass, punkter: aggregeraSteg(k.plateauMonthly.map(m => ({ manad: m.manad, v: m.share, n: m.n })), steg) }));
 export const spridSerier = (kl: DiagKlass[], steg: LagetSteg): Serie[] =>
   kl.map(k => ({ klass: k.klass, punkter: aggregeraSprid(k.spridMonthly, steg) }));
 /** Perioderna (sorterade) där minst en serie har underlag ≥ GRIND_MIN — diagrammets x-axel. */

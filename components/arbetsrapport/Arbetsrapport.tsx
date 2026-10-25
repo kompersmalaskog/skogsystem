@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, useCallback, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
+import { escapeHtml } from "@/lib/html";
 import { anledningGiltig, ANLEDNING_MIN_TECKEN } from "@/lib/redigeraAnledning";
 import { maskinVisningsnamn, maskinNamnMap as byggMaskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
 import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
@@ -32,6 +33,7 @@ import { minTidArsovertid } from "@/lib/lonesystem/minTidArsovertid";
 import { loneartInfo, loneartEnhetText, fmtMangd } from "@/lib/lonesystem/loneart";
 import ManadRubrik from "@/components/design/ManadRubrik";
 import { attTittaPa, dagAvvikelser, datumLang, minText, timMin, kmUppdelning } from "@/lib/lonesystem/forarText";
+import { enhetText } from "@/lib/pushEnhet";
 import PdfLasare from "@/app/planering/PdfLasare";
 // Designvärden — EN källa (lib/design/tokens.ts). Dagsvyn är piloten: den
 // importerar härifrån och skriver inga egna literaler. Övriga flikar (Min tid,
@@ -40,6 +42,7 @@ import PdfLasare from "@/app/planering/PdfLasare";
 import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, RAD, INAKTIV, TRAFFYTA, RORELSE, designCss, LAYOUT, medSafeBotten, KOLUMN, kolumnRot, ROT_MIN_HOJD, KOLUMN_CSS } from "@/lib/design/tokens";
 import Tillstand from "@/components/design/Tillstand";
 import { useRaknaUppVarde } from "@/lib/design/raknaUpp";
+import { vapidPublikSomBytes } from "@/lib/push/vapid";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -54,6 +57,25 @@ async function hämtaVägKm(fLat: number, fLng: number, tLat: number, tLng: numb
     return null;
   }
 }
+
+// Sidomeny på stor skärm (Del 2, 2026-10-25, Martin: "skulle det inte vara annorlunda på datorn?"):
+// från SIDOMENY_FRAN_PX blir flikraden en meny till vänster under toppfältet, som Mail/Inställningar
+// på iPad. Samma knappar, samma ordning; innehållet flyttas åt höger med body:has(.ar-nav).
+// Selektorerna har inga citattecken (React escapar dem i <style>). Telefon och iPad stående orörda.
+const SIDOMENY_FRAN_PX = 1000;
+const SIDOMENY_BREDD_PX = 220;
+const SIDOMENY_CSS = `@media (min-width: ${SIDOMENY_FRAN_PX}px) {
+  body:has(.ar-nav) { padding-left: ${SIDOMENY_BREDD_PX}px; }
+  .ar-nav { top: ${LAYOUT.topbar} !important; bottom: 0 !important; width: ${SIDOMENY_BREDD_PX}px !important;
+    flex-direction: column !important; justify-content: flex-start !important; align-items: stretch !important;
+    gap: ${AVSTAND.xs}px; padding: ${AVSTAND.l}px ${AVSTAND.m}px !important; border-radius: 0 !important;
+    background: ${FARG.bg} !important; border-right: 1px solid ${FARG.linje}; }
+  .ar-nav-knapp { flex-direction: row !important; justify-content: flex-start !important; width: 100% !important;
+    height: ${TRAFFYTA.min}px !important; gap: ${AVSTAND.m}px; padding: 0 ${AVSTAND.m}px !important; border-radius: ${RADIE.rad}px !important; }
+  .ar-nav-knapp .material-symbols-outlined { margin-bottom: 0 !important; }
+  .ar-nav-knapp[aria-current=page] { background: ${FARG.upphojt} !important; }
+  .ar-nav-text { font-size: ${TYP.listtitel.fontSize}px !important; }
+}`;
 
 const css = `
   @keyframes fadeUp {
@@ -105,6 +127,7 @@ const css = `
   * { scrollbar-width: none; -ms-overflow-style: none; }
   ${KOLUMN_CSS}
   .valj-rad { min-height: ${TRAFFYTA.min}px; }
+  ${SIDOMENY_CSS}
 `;
 
 const C = {
@@ -151,6 +174,7 @@ const bottom: CSSProperties = { paddingBottom:36, display:"flex", flexDirection:
 // `SCROLL_BOTTOM` som paddingBottom så sista innehållet inte skärs av navet.
 // Layoutmått (inte avstånd): navet + hemindikatorns zon på iPhone.
 const NAV_HEIGHT = 80;
+
 const SCROLL_BOTTOM = `calc(${NAV_HEIGHT + 40}px + env(safe-area-inset-bottom))`;
 
 const btn = {
@@ -294,7 +318,7 @@ const secHead: CSSProperties = { margin:"0 0 10px",...TYPE.micro,color:"#8e8e93"
 
 function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => void }) {
   return (
-    <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:`${AVSTAND.m}px max(${AVSTAND.l}px, calc((100% - ${KOLUMN.smal}px) / 2)) ${medSafeBotten(AVSTAND.xl)}`,background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
+    <nav className="ar-nav" aria-label="Arbetsrapport" style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:`${AVSTAND.m}px max(${AVSTAND.l}px, calc((100% - ${KOLUMN.smal}px) / 2)) ${medSafeBotten(AVSTAND.xl)}`,background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
       {[
         {icon:"today",key:"morgon",label:"Dag"},
         {icon:"calendar_month",key:"kalender",label:"Kalender"},
@@ -304,9 +328,9 @@ function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => v
         {icon:"bar_chart",key:"mintid",label:"Min tid"},
         {icon:"settings",key:"inst",label:"Inställningar"},
       ].map(n=>(
-        <button key={n.key} onClick={()=>onNav(n.key)} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:aktiv===n.key?"#0a84ff":"#8e8e93",background:"none",border:"none",cursor:"pointer",fontFamily:"'Inter',sans-serif",borderRadius:12,height:48,width:64,padding:0 }}>
+        <button key={n.key} className="ar-nav-knapp" aria-current={aktiv===n.key?"page":undefined} onClick={()=>onNav(n.key)} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:aktiv===n.key?"#0a84ff":"#8e8e93",background:"none",border:"none",cursor:"pointer",fontFamily:FONT,borderRadius:12,height:48,width:64,padding:0 }}>
           <span className="material-symbols-outlined" style={{ fontSize:22,marginBottom:2,fontVariationSettings:aktiv===n.key?"'FILL' 1":"'FILL' 0" }}>{n.icon}</span>
-          <span style={{ fontSize:10,fontWeight:aktiv===n.key?600:500 }}>{n.label}</span>
+          <span className="ar-nav-text" style={{ fontSize:TYP.micro.fontSize,fontWeight:aktiv===n.key?600:500 }}>{n.label}</span>
         </button>
       ))}
     </nav>
@@ -915,6 +939,10 @@ export default function Arbetsrapport() {
   // periodVilobrott = brott inom Vila-flikens valda period. null = laddar, [] = inga brott.
   const [aktuellaVilobrott, setAktuellaVilobrott] = useState<VilobrottRad[]>([]);
   const [periodVilobrott, setPeriodVilobrott] = useState<VilobrottRad[] | null>(null);
+  // Företagsledare (Martin, Joacim) omfattas inte av ATL:s vilokrav — ingen vilofråga, inga
+  // gula vilorader och inga brott i Min tid › Vila (samma undantag som admin, Martin 2026-10-25).
+  const arForetagsledare = medarbetare?.foretagsledare === true;
+  const synligaVilobrott = arForetagsledare ? [] : aktuellaVilobrott;
   // Inline-expansion av rödramat kort i Vila-fliken — visar orsak/kompensation.
   const [vilaKortExpanded, setVilaKortExpanded] = useState<string | null>(null);
   // Orsaks-flöde när föraren bekräftar dagen med obesvarade brott. Kön fryses
@@ -1629,7 +1657,7 @@ export default function Arbetsrapport() {
   //   eftersom det baseras på klockslag-nu, inte på en specifik arbetsdag.
   const vilaVarningar: {typ:'röd'|'orange';text:string}[] = [];
 
-  for (const b of aktuellaVilobrott) {
+  for (const b of synligaVilobrott) {
     if (b.besvarat_av_forare) continue;
     if (b.typ === 'dygnsvila') {
       vilaVarningar.push({
@@ -1931,7 +1959,7 @@ export default function Arbetsrapport() {
         return;
       }
     }
-    if (medarbetare?.id && trosklar) {
+    if (medarbetare?.id && trosklar && !arForetagsledare) {
       const fromDt = new Date(datum + "T00:00:00"); fromDt.setDate(fromDt.getDate() - 7);
       const fromIso = franGolv(ymdLokal(fromDt));
       const toIso = datum;
@@ -2279,7 +2307,7 @@ export default function Arbetsrapport() {
     const fore = new Date(datum + 'T00:00:00'); fore.setDate(fore.getDate() - 1);
     const foreKey = ymdLokal(fore);
     const datumKortK = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return `${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`; };
-    for (const b of aktuellaVilobrott
+    for (const b of synligaVilobrott
       .filter(b => arDagensVilobrott(b, datum) && (!b.besvarat_av_forare || besvaradeFragor[`${datum}|vila-${b.id}`]))
       .sort((a, c) => a.datum.localeCompare(c.datum))) {
       const nar = b.typ === 'veckovila' ? `vecka ${isoVecka(new Date(b.datum + 'T00:00:00')).vecka}` : (b.datum === foreKey ? '' : datumKortK(b.datum));
@@ -2379,7 +2407,7 @@ export default function Arbetsrapport() {
       </>);
     }
     if (svarSheet.typ === 'vila') {
-      const b = aktuellaVilobrott.find(x => x.id === svarSheet.id);
+      const b = synligaVilobrott.find(x => x.id === svarSheet.id);
       if (!b) return null;
       const klart = !!svarOrsak && (svarOrsak !== 'annat' || svarFritext.trim().length > 0);
       return ark(<>
@@ -3508,7 +3536,7 @@ export default function Arbetsrapport() {
     // brott: dygnsvilan från i natt syns först när dagens start finns.
     // På kvällen är DAGENS vilobrott rader i "Saker att svara på" (ovanför Stämmer); äldre
     // obesvarade står kvar här som en separat påminnelse som aldrig blockerar Stämmer.
-    const vilobrottObesvarade = aktuellaVilobrott.filter(b => !b.besvarat_av_forare && b.datum >= fran30 && !(kvällsLäge && arDagensVilobrott(b, idagKey)));
+    const vilobrottObesvarade = synligaVilobrott.filter(b => !b.besvarat_av_forare && b.datum >= fran30 && !(kvällsLäge && arDagensVilobrott(b, idagKey)));
     type VantarRad = { nyckel: string; text: string; farg: string; onClick: () => void };
     const vantarRader: VantarRad[] = [];
     for (const b of vilobrottObesvarade) {
@@ -3627,7 +3655,8 @@ export default function Arbetsrapport() {
         ) : kvällsLäge ? null : (
           // På kvällen finns ingen Extra arbete-ruta: mer tid läggs till via Något fel? → Mer arbete.
           <div style={{ marginTop:AVSTAND.m }}>
-            {kortKnapp(arbeteUtanMaskin ? 'Arbete' : 'Extra arbete', arbeteUtanMaskin ? 'Planering, restid, manuellt' : 'Reservdelar, service, brandkontroll', async ()=>{
+            {/* Kortet STARTAR tiden nu; länken under lägger in tid i efterhand. Två olika saker — undertexten säger vilken. */}
+            {kortKnapp(arbeteUtanMaskin ? 'Starta arbete' : 'Starta extra arbete', arbeteUtanMaskin ? 'Tiden räknas från nu · planering, restid, manuellt' : 'Tiden räknas från nu · reservdelar, service, brandkontroll', async ()=>{
               const startTid = nuKlock();
               // Trycket kan vara dagens första händelse — skalraden skapas här.
               const arbetsdagId = await sakerstallArbetsdagRad(idagKey);
@@ -3650,7 +3679,7 @@ export default function Arbetsrapport() {
             <div style={{ display:"flex", justifyContent:"center" }}>
               <button onClick={()=>oppnaPeriodNy(idagKey)} style={KNAPP.tertiar}>
                 <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>schedule</span>
-                {arbeteUtanMaskin ? 'Lägg till arbete' : 'Lägg till i efterhand'}
+                Lägg till i efterhand
               </button>
             </div>
           </div>
@@ -4391,7 +4420,7 @@ export default function Arbetsrapport() {
               : vilaPeriod==='år'
                 ? `${nu5.getFullYear()}-12-31`
                 : nu5.toISOString().slice(0,10);
-            const dbBrottIPeriod = (periodVilobrott || []).filter(b => b.datum >= periodFrom && b.datum <= periodTo);
+            const dbBrottIPeriod = (arForetagsledare ? [] : (periodVilobrott || [])).filter(b => b.datum >= periodFrom && b.datum <= periodTo);
             const dbDygn = dbBrottIPeriod.filter(b => b.typ === 'dygnsvila');
             const dbVeck = dbBrottIPeriod.filter(b => b.typ === 'veckovila');
             // Matcha en allVila-rad (visning) mot ett dygnsvila-brott (DB).
@@ -4417,7 +4446,10 @@ export default function Arbetsrapport() {
 
             // Export. Dygnsvila listas per viloperiod (status från DB-brott).
             // Veckovila listas per DB-brott (rullande fönster) — inte per ISO-vecka.
+            const medarbetareForeUtskrift = medarbetare;
             const exportPDF = () => {
+              // Utskriften är HTML i ett eget fönster (samma ursprung som appen): namnet escapas, så raden nedan kan lämnas orörd.
+              const medarbetare = { namn: escapeHtml(medarbetareForeUtskrift?.namn) };
               const fVH=(h:number)=>{const hh=Math.floor(h);const mm=Math.round((h-hh)*60);return mm>0?`${hh}h ${mm}min`:`${hh}h`;};
               const fDe=(d:string)=>{const dt=new Date(d);return `${dagNamn[dt.getDay()].slice(0,3)} ${dt.getDate()} ${månNamn2[dt.getMonth()]}`;};
               let html=`<html><head><title>Viloperioder</title><style>body{font-family:Inter,system-ui,sans-serif;padding:32px;font-size:13px;color:#222}h1{font-size:18px;margin-bottom:4px}h2{font-size:14px;margin-top:24px;color:#666}table{width:100%;border-collapse:collapse;margin-top:8px}th{text-align:left;padding:8px 12px;background:#f5f5f5;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#666;border-bottom:1px solid #ddd}td{padding:8px 12px;border-bottom:1px solid #eee}.warn{color:#d32f2f;font-weight:600}.ok{color:#2e7d32}</style></head><body>`;
@@ -4426,7 +4458,7 @@ export default function Arbetsrapport() {
               for(const r of [...filtVila].reverse()){
                 const b = brottForRad(r);
                 const ok = !b;
-                html+=`<tr><td>${fDe(r.slutDatum)} ${r.slutTid}</td><td>${fDe(r.startDatum)} ${r.startTid}</td><td>${fVH(r.vila)}</td><td>${r.anledning||'—'}</td><td class="${ok?'ok':'warn'}">${ok?'OK':`⚠ Under ${krav_h}h`}</td></tr>`;
+                html+=`<tr><td>${fDe(r.slutDatum)} ${r.slutTid}</td><td>${fDe(r.startDatum)} ${r.startTid}</td><td>${fVH(r.vila)}</td><td>${escapeHtml(r.anledning)||'—'}</td><td class="${ok?'ok':'warn'}">${ok?'OK':`⚠ Under ${krav_h}h`}</td></tr>`;
               }
               html+=`</table>`;
               html+=`<h2>Veckovila — rullande ${trosklar?.veckovila_fonster_dagar ?? 7}-dagarsfönster</h2>`;
@@ -4435,7 +4467,7 @@ export default function Arbetsrapport() {
               } else {
                 html+=`<table><tr><th>Startdatum</th><th>Vila</th><th>Krav</th><th>Beskrivning</th><th>Status</th></tr>`;
                 for(const b of dbVeck){
-                  html+=`<tr><td>${fDe(b.datum)}</td><td>${fVH(Number(b.vila_h))}</td><td>${fVH(Number(b.krav_h))}</td><td>${b.beskrivning||'—'}</td><td class="warn">⚠ Under ${Number(b.krav_h)}h</td></tr>`;
+                  html+=`<tr><td>${fDe(b.datum)}</td><td>${fVH(Number(b.vila_h))}</td><td>${fVH(Number(b.krav_h))}</td><td>${escapeHtml(b.beskrivning)||'—'}</td><td class="warn">⚠ Under ${Number(b.krav_h)}h</td></tr>`;
                 }
                 html+=`</table>`;
               }
@@ -4926,7 +4958,7 @@ export default function Arbetsrapport() {
             </div>
           </header>
 
-          <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px` }}>
+          <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${SCROLL_BOTTOM}` }}>
 
             {/* Brandrisk-retroraden bor numera i Sammanställningens "Saknas"-block. */}
 
@@ -5115,7 +5147,7 @@ export default function Arbetsrapport() {
           </div>
         </header>
 
-        <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px` }}>
+        <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${SCROLL_BOTTOM}` }}>
 
           {/* TIDSSPECIFIKATION — exakt det som går till lönen, ur SAMMA beräkning som
               Fortnox-exporten (/api/lon/min-manad). MÄNGDER, aldrig kronor: föraren
@@ -5427,10 +5459,8 @@ export default function Arbetsrapport() {
     return (
     <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}>
-        <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <BackBtn onClick={()=>setSteg("morgon")}/>
-          <h1 style={{ margin:0,...TYPE.h1 }}>Inställningar</h1>
-        </div>
+        {/* En flik i bottenmenyn: ingen tillbaka-pil (iOS har ingen på en flik). */}
+        <h1 style={{ margin:0,...TYPE.h1 }}>Inställningar</h1>
       </div>
       <div style={{ flex:1,paddingTop:16,paddingBottom:SCROLL_BOTTOM,overflowY:"auto" }}>
         <Label>Hemadress</Label>
@@ -5449,8 +5479,8 @@ export default function Arbetsrapport() {
         <Label>Maskin</Label>
         <Card style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
           <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:600 }}>{maskinNamn || 'Okänd maskin'}</p>
-            <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{medarbetare?.maskin_id || ''} · hämtas från MOM</p>
+            <p style={{ margin:0,...TYP.listtitel,color:FARG.text }}>{maskinNamn || 'Ingen maskin än'}</p>
+            <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>Väljs automatiskt när du loggar in i maskinen</p>
           </div>
           <div style={{ width:8,height:8,borderRadius:"50%",background:C.green }}/>
         </Card>
@@ -5477,12 +5507,7 @@ export default function Arbetsrapport() {
                 if (!sub) {
                   const perm = await Notification.requestPermission();
                   if (perm !== "granted") return;
-                  const vapid = "BGe21_FkdZWkOiaLTWE2GXADsaA08uC2eRGglHIyJ85rL35YkrkUY1L3jTJ7fGvAQlDRjJsH3AMMeX62B63hr34";
-                  const base64 = (vapid + "=".repeat((4 - vapid.length % 4) % 4)).replace(/-/g,'+').replace(/_/g,'/');
-                  const raw = window.atob(base64);
-                  const appKey = new Uint8Array(raw.length);
-                  for (let i = 0; i < raw.length; i++) appKey[i] = raw.charCodeAt(i);
-                  sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey });
+                  sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidPublikSomBytes() });
                 }
                 const deviceName = (navigator.userAgent || '').slice(0, 120);
                 await fetch('/api/push/subscribe', {
@@ -5577,7 +5602,7 @@ export default function Arbetsrapport() {
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
                 <div>
                   <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Push-notiser</p>
-                  <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{pushOn ? (pushEnhetsNamn ? `Aktiverad · ${pushEnhetsNamn.slice(0,40)}` : 'Aktiverad') : 'Avstängd'}</p>
+                  <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>{pushOn ? (pushEnhetsNamn ? `På · ${enhetText(pushEnhetsNamn)}` : 'På') : 'Av'}</p>
                 </div>
                 <Toggle on={pushOn} onChange={togglePush}/>
               </div>

@@ -2,6 +2,8 @@
  * TYPER FÖR KALIBRERINGSVYN — flyttade ur app/kalibrering/page.tsx (2026-10), oförändrade.
  * Formerna speglar tabellerna och /api/kalibrering/*-svaren; vyn och räknarna delar dem här.
  */
+import type { GreppRad } from './greppTid';
+import type { GrovlekRad } from './grovlek';
 import type { VariabelStat } from './statistik';
 
 export type { VariabelStat };
@@ -76,9 +78,14 @@ export interface KalibHistorik {
   operator_id: string | null;
   tradslag: string;
   orsak: string;
-  beskrivning: string;
+  beskrivning: string | null;
   langd_justering_mm: number | null;
+  /** Rotstockens längdjustering (LengthCalibrationAdjustmentButtLog). null = filen sa inget, aldrig 0. */
+  langd_justering_rot_mm: number | null;
   dia_justering_mm: number | null;
+  /** true = omkalibrering efter reparation ("Repair of measurement system"): värdena är INTE en justering i mm. Visa via
+   *  lib/kalibrering/historik (justeringsText), aldrig rått. Saknas fältet (migrationen ej körd) avgör orsaken där. */
+  omkalibrering?: boolean;
   position_cm: number | null;
   filnamn: string;
   skapad_tid: string;
@@ -101,7 +108,7 @@ export type AtgardEffekt = {
   kalibreringarEfter: string[];
 };
 /** En rad i Åtgärder: en markör (förarens åtgärd eller en reparation av mätsystemet) med träffen före och efter. `efter` räknas fram till nästa markör. */
-export type AtgardPost = AtgardEffekt & { kalla: 'atgard' | 'reparation' };
+export type AtgardPost = AtgardEffekt & { kalla: 'atgard' | 'reparation' | 'kalibrering' };
 export type BedomningResp = {
   ok: true; maskin_id: string; profil: string | null;
   fonster: { fran: string; till: string; dagar: number } | null;
@@ -118,6 +125,8 @@ export type KontrollTid = {
   sista: { dag: string; klockslag: string } | null;
   /** Filens urvalstexter ur HQC (stem_selection), utan dubbletter. */
   urval: string[];
+  /** Vem som klavade (HQC `measurer_name`, första som finns i filen). null när filen inte säger. */
+  matare: string | null;
 };
 
 // === Diagnos (/api/kalibrering/diagnos) ===
@@ -141,6 +150,20 @@ export type DiagnosResp = {
   klasser: DiagKlass[];
   plateauMonthly: { manad: string; share: number; n: number }[];
   markorer: DiagMarkor[];
+};
+
+// === Per grovlek (/api/kalibrering/grovlek) ===
+/** En stam per månad och grovlek, med trädslag och kontroll — rutnätet räknas i klienten (lib/kalibrering/grovlek). `tolerans` = kravprofilens ±mm. */
+export type GrovlekResp = { ok: true; maskin_id: string; tolerans: number; rader: GrovlekRad[] };
+
+// === Greppet (/api/kalibrering/grepp) ===
+/**
+ * Maskinens egna stamprofiler, alla stammar, summerade per månad, trädslag och grovlek. `kvar` > 0 = några objekt ligger efter (tabellen är en cache som cron-jobbet
+ * räknar om objekt för objekt när importen läst in nya stammar; läsningen räknar aldrig) — vyn säger "Räknas om". `tillganglig: false` = migrationen är inte körd.
+ */
+export type GreppResp = {
+  ok: true; maskin_id: string; tillganglig: boolean; orsak?: 'migration';
+  rader: GreppRad[]; kvar: number; stammarTotalt: number; stammarRaknade: number;
 };
 
 // === Objekt (/api/kalibrering/objekt) ===
@@ -169,3 +192,4 @@ export type CalMaskin = {
 export type CalDag = { datum: string; veckodag: number; status: CalDagstatus; maskiner: CalMaskin[] };
 export type CalSammanfattning = { produktionsdagar: number; kompletta: number; saknas: number; varningar: number; okand_huvudtyp_dagar: number };
 export type CalResponse = { manad: string; dagar: CalDag[]; sammanfattning: CalSammanfattning };
+

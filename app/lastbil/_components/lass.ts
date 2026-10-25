@@ -5,7 +5,7 @@
 // fråga ("Vilken kund?"), och en maskin som inte följde bilen står inte som förslag.
 
 import { fakturerbarEffektiv } from '@/lib/flytt/fakturerbar';
-import { skalRad, type Kandidat, type Sakerhet } from '@/lib/lastbil/lass/maskin';
+import { skalRad, uteslutenText, type Kandidat, type Sakerhet } from '@/lib/lastbil/lass/maskin';
 import { kortNamn } from '@/lib/lastbil/lass/notis';
 import { bedomPlats, fmtPlatsAvstand, type PlatsBedomning, type PlatsPunkt } from '@/lib/lastbil/lass/platsGrad';
 import { samtidigaUrBevis, samtidigText, type SamtidigFlytt } from '@/lib/lastbil/lass/samtidig';
@@ -127,7 +127,7 @@ export function lassForslagText(r: Pick<LassRad, 'forslag_maskin_id' | 'sakerhet
 export function lassMaskinText(r: Pick<LassRad, 'kandidater'>, maskinId: string): string | null {
   const k = (r.kandidater ?? []).find(x => x.maskin_id === maskinId);
   if (!k) return null;
-  if (k.utesluten) return 'Följde inte bilen';
+  if (k.utesluten) return uteslutenText(k.skal);
   return skalRad(k.skal) || null;
 }
 

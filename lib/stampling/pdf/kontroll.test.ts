@@ -220,7 +220,7 @@ describe('parsaLasning', () => {
   });
   it('schemat kräver exakt det kontrollen behöver', () => {
     const s = UTDATA_SCHEMA as any;
-    expect(s.required).toEqual(['post', 'tradslag', 'sammanfattning', 'osakerheter']);
+    expect(s.required).toEqual(['post', 'tradslag', 'sammanfattning', 'osakerheter', 'utbyteskalkyl']);
     expect(s.properties.tradslag.items.required).toEqual(['namn', 'klasser', 'tryckt_antal', 'tryckt_volym_m3sk']);
   });
   it('schemat följer reglerna för strukturerade utdata: additionalProperties:false på varje objekt, inga min/max-villkor, alla required finns', () => {
@@ -238,6 +238,6 @@ describe('parsaLasning', () => {
       for (const [k, v] of Object.entries(n)) gå(v, `${stig}.${k}`);
     };
     gå(UTDATA_SCHEMA, 'schema');
-    expect(objekt).toBe(5);   // rot, post, trädslag, klass, sammanfattning
+    expect(objekt).toBe(6);   // rot, post, trädslag, klass, sammanfattning, utbyteskalkyl
   });
 });

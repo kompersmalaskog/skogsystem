@@ -14,7 +14,8 @@ export async function koaBesokPaminnelser(sb: SupabaseClient, nu: Date = new Dat
   if (objekt.length === 0) return { ok: true, kandidater: 0, koade: 0 };
 
   // Bara objekt som kan bli aktuella behöver sms-kontrollen; ett läsfel är ett fel (ingen påminnelse på gissning, inget "redan skickat" på gissning).
-  const s = await sb.from('objekt_besok_sms').select('objekt_id').in('objekt_id', objekt.map((x) => x.id));
+  // Bara BEKRÄFTAT skickade räknas (handelse = 'skickad'): att knappen trycktes eller texten kopierades tystar inte påminnelsen.
+  const s = await sb.from('objekt_besok_sms').select('objekt_id').eq('handelse', 'skickad').in('objekt_id', objekt.map((x) => x.id));
   if (s.error) return { ok: false, kandidater: 0, koade: 0, fel: `objekt_besok_sms: ${s.error.message}` };
   const harSms = new Set(((s.data ?? []) as { objekt_id: string }[]).map((x) => x.objekt_id));
 

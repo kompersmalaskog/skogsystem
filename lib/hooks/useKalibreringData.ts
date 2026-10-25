@@ -14,7 +14,7 @@ import { idagManad } from '@/lib/kalibrering/datum';
 import { startMaskin } from '@/lib/kalibrering/laget';
 import { aktivaMaskinIds, artSnitt, filtreraKalib, rapportSnitt, rapportSedan, tradslagRader } from '@/lib/kalibrering/rapport';
 import {
-  type AlleMaskin, type BedomningResp, type CalResponse, type DiagnosResp, type FaktKalibrering,
+  type AlleMaskin, type BedomningResp, type CalResponse, type DiagnosResp, type FaktKalibrering, type GreppResp, type GrovlekResp,
   type KontrollTid, type ObjektData, type TradslagData,
 } from '@/lib/kalibrering/typer';
 
@@ -49,6 +49,12 @@ export function useKalibreringData(activeTab: Flik) {
   const [diagnosFelMap, setDiagnosFelMap] = useState<Record<string, string>>({});
   const [tradslagFelMap, setTradslagFelMap] = useState<Record<string, string>>({});
   const [objektFel, setObjektFel] = useState<string | null>(null);
+  // Över tid › Per grovlek (stammar per månad och grovlek, kontrollerna) och Greppet (maskinens egna stamprofiler, alla stammar) — per maskin, hämtas när vinkeln öppnas.
+  const [grovlekMap, setGrovlekMap] = useState<Record<string, GrovlekResp>>({});
+  const [grovlekFelMap, setGrovlekFelMap] = useState<Record<string, string>>({});
+  const [greppMap, setGreppMap] = useState<Record<string, GreppResp>>({});
+  const [greppFelMap, setGreppFelMap] = useState<Record<string, string>>({});
+  const greppPagar = useRef<Set<string>>(new Set()); // maskiner vars Grepp-hämtning pågår
   // Objekt-fliken (maskinoberoende)
   const [objektData, setObjektData] = useState<ObjektData | null>(null);
   // Per-trädslag (per maskin) — träff%/syst/std mot maskinens profil.
@@ -105,7 +111,7 @@ export function useKalibreringData(activeTab: Flik) {
   const laddaDiagnos = useCallback((maskin: string, force = false) => {
     if (!maskin) return;
     if (!force && (diagnosMap[maskin] || diagnosFelMap[maskin])) return;
-    fetch(`/api/kalibrering/diagnos?key=skogsystem-debug&maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
+    fetch(`/api/kalibrering/diagnos?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: DiagnosResp & { ok?: boolean }) => {
         if (!data?.ok) throw new Error('svar utan diagnos');
@@ -113,6 +119,37 @@ export function useKalibreringData(activeTab: Flik) {
       })
       .catch(() => setDiagnosFelMap(prev => ({ ...prev, [maskin]: 'Kurvorna kunde inte läsas.' })));
   }, [diagnosMap, diagnosFelMap]);
+
+  // Per grovlek: hela historiken för maskinen, en gång.
+  const laddaGrovlek = useCallback((maskin: string) => {
+    if (!maskin || grovlekMap[maskin] || grovlekFelMap[maskin]) return;
+    fetch(`/api/kalibrering/grovlek?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: GrovlekResp) => {
+        if (!data?.ok) throw new Error('svar utan grovlek');
+        setGrovlekMap(prev => ({ ...prev, [maskin]: data }));
+      })
+      .catch(() => setGrovlekFelMap(prev => ({ ...prev, [maskin]: 'Grovlekarna kunde inte läsas.' })));
+  }, [grovlekMap, grovlekFelMap]);
+
+  // Greppet: servern läser bara cachen (cron-jobbet räknar om efter importen). `kvar` > 0 = några objekt ligger efter; vyn säger "Räknas om" och det som
+  // redan är räknat visas. Vi frågar en gång per maskin — siffrorna kompletteras nästa gång vyn öppnas, ingen väntar på dem.
+  const laddaGrepp = useCallback(async (maskin: string) => {
+    if (!maskin || greppPagar.current.has(maskin)) return;
+    if (greppFelMap[maskin] || greppMap[maskin]) return;
+    greppPagar.current.add(maskin);
+    try {
+      const r = await fetch(`/api/kalibrering/grepp?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json() as GreppResp;
+      if (!data?.ok) throw new Error('svar utan grepp');
+      setGreppMap(prev => ({ ...prev, [maskin]: data }));
+    } catch {
+      setGreppFelMap(prev => ({ ...prev, [maskin]: 'Greppet kunde inte läsas.' }));
+    } finally {
+      greppPagar.current.delete(maskin);
+    }
+  }, [greppMap, greppFelMap]);
 
   // Spara en åtgärdsmarkör (förare: "höjde trycket till 400 mm").
   // Returnerar true när åtgärden sparats (arket stängs då); false lämnar arket öppet med det som skrivits.
@@ -153,7 +190,7 @@ export function useKalibreringData(activeTab: Flik) {
     let cancelled = false;
     setCalLoading(true);
     setCalError(null);
-    fetch(`/api/kalibrering/kalender?manad=${calManad}&key=skogsystem-debug`, { cache: 'no-store' })
+    fetch(`/api/kalibrering/kalender?manad=${calManad}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: CalResponse) => { if (!cancelled) { setCalData(data); setCalLoading(false); } })
       .catch(err => { if (!cancelled) { setCalError(err?.message || 'Kunde inte ladda kalendern'); setCalLoading(false); } });
@@ -165,7 +202,7 @@ export function useKalibreringData(activeTab: Flik) {
     if (activeTab !== 'kontroller' || !effektiv || tiderMap[effektiv] || tiderFel) return;
     const maskin = effektiv;
     let cancelled = false;
-    fetch(`/api/kalibrering/kontroller?key=skogsystem-debug&maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
+    fetch(`/api/kalibrering/kontroller?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: { ok?: boolean; tider?: Record<string, KontrollTid> }) => {
         if (cancelled) return;
@@ -182,7 +219,7 @@ export function useKalibreringData(activeTab: Flik) {
   useEffect(() => {
     if (activeTab !== 'objekt' || objektData || objektFel) return;
     let cancelled = false;
-    fetch('/api/kalibrering/objekt?key=skogsystem-debug', { cache: 'no-store' })
+    fetch('/api/kalibrering/objekt', { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: { ok?: boolean } & ObjektData) => {
         if (cancelled) return;
@@ -199,7 +236,7 @@ export function useKalibreringData(activeTab: Flik) {
     const maskin = effektiv;
     let cancelled = false;
     // dagar=90 → samma rullande fönster som bedomning. Ett fönster i hela Läget.
-    fetch(`/api/kalibrering/tradslag?key=skogsystem-debug&maskin_id=${encodeURIComponent(maskin)}&dagar=90`, { cache: 'no-store' })
+    fetch(`/api/kalibrering/tradslag?maskin_id=${encodeURIComponent(maskin)}&dagar=90`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: { ok?: boolean } & TradslagData) => {
         if (cancelled) return;
@@ -243,7 +280,7 @@ export function useKalibreringData(activeTab: Flik) {
     if (!effektiv || bedomningMap[effektiv] || bedomningFelMap[effektiv]) return;
     const maskin = effektiv;
     let cancelled = false;
-    fetch(`/api/kalibrering/bedomning?key=skogsystem-debug&maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
+    fetch(`/api/kalibrering/bedomning?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((data: BedomningResp & { ok?: boolean }) => {
         if (cancelled) return;
@@ -263,6 +300,8 @@ export function useKalibreringData(activeTab: Flik) {
     setBedomningFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setDiagnosFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setTradslagFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
+    setGrovlekFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
+    setGreppFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setObjektFel(null);
     setTiderFel(null);
   }, [effektiv]);
@@ -285,6 +324,8 @@ export function useKalibreringData(activeTab: Flik) {
     calManad, setCalManad, calData, calLoading, calError, filteredSammanfattning,
     objektData, objektFel, trData, trRader, tradslagFel: effektiv ? tradslagFelMap[effektiv] ?? null : null,
     tider, tiderFel,
+    laddaGrovlek, grovlekData: effektiv ? grovlekMap[effektiv] ?? null : null, grovlekFel: effektiv ? grovlekFelMap[effektiv] ?? null : null,
+    laddaGrepp, greppData: effektiv ? greppMap[effektiv] ?? null : null, greppFel: effektiv ? greppFelMap[effektiv] ?? null : null,
     filteredKalib, speciesData, totalStockar, reportSedan,
   };
 }

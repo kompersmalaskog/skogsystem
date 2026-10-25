@@ -34,7 +34,7 @@ const skriv = async (inp: HTMLInputElement, v: string) => {
 const TOKEN = 'T'.repeat(40);
 const vy = (extra: Record<string, any> = {}) => ({
   ok: true, namn: 'Skälviken', utforare: 'Kompersmåla Skog åt Vida',
-  framsteg: { procent: 62, klartCa: 'fredag', text: '62 % klart · klart ca fredag' },
+  framsteg: { procent: 62, klartCa: 'fredag', text: '62 % klart · klart ca fredag', forklaring: 'Räknat på de senaste 5 dagarna med arbete. Ändras med vädret och maskinerna.' },
   gran: null, mitt: { lat: 56.35, lng: 15.05 },
   maskiner: [{ roll: 'skordare', lat: 56.35, lng: 15.05, tid: '2026-10-22T11:42:00Z' }, { roll: 'skotare', lat: 56.351, lng: 15.051, tid: '2026-10-22T11:40:00Z' }],
   roller: ['skordare', 'skotare'], motorsag: [], harMotorsag: true, ringM: { skordare: 70, skotare: 20, motorsag: 40 },
@@ -50,7 +50,7 @@ describe('besökssidan', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
       anrop.push({ url, init });
       if (url.includes('/anmal')) return svar(200, { ok: true, id: '11111111-1111-4111-8111-111111111111', besokstid: '2026-10-22T11:42:00Z' });
-      if (url.includes('besok=')) return svar(200, { ...nastaVy, besok: { id: '11111111-1111-4111-8111-111111111111', besokstid: '2026-10-22T11:42:00Z', kvitteringar: nastaVy.besok?.kvitteringar ?? [] } });
+      if (url.includes('besok=')) return svar(200, { ...nastaVy, besok: { id: '11111111-1111-4111-8111-111111111111', besokstid: '2026-10-22T11:42:00Z', kvitteringar: nastaVy.besok?.kvitteringar ?? [], ...(nastaVy.besok?.maskiner ? { maskiner: nastaVy.besok.maskiner } : {}) } });
       return svar(200, nastaVy);
     }));
   });
@@ -70,6 +70,17 @@ describe('besökssidan', () => {
     const alla = Array.from(el!.querySelectorAll('[data-testid]')).map((n) => n.getAttribute('data-testid'));
     expect(alla.indexOf('besok-huvudregel')).toBeLessThan(alla.indexOf('besok-har-just-nu'));
     expect(alla.indexOf('besok-har-just-nu')).toBeLessThan(alla.indexOf('karta-stub'));
+  });
+
+  it('"klart ca" står med en rad som säger hur den räknas – och utan "klart ca" står ingen förklaring', async () => {
+    await visa(<BesokKlient token={TOKEN} />);
+    expect(q('besok-framsteg-forklaring')!.textContent).toContain('senaste 5 dagarna');
+    act(() => { rot!.unmount(); }); el!.remove();
+    nastaVy = vy({ framsteg: { procent: 62, klartCa: null, text: '62 % klart', forklaring: null } });
+    await visa(<BesokKlient token={TOKEN} />);
+    expect(q('besok-framsteg')!.textContent).toBe('62 % klart');
+    expect(q('besok-framsteg-forklaring')).toBeNull();
+    expect(el!.textContent).not.toContain('klart ca');
   });
 
   it('"Här just nu": bara det som finns, max tre rader — och ingen annan säkerhetstext på sidan', async () => {
@@ -133,6 +144,27 @@ describe('besökssidan', () => {
     expect(q('besok-vantar')).toBeNull();
   });
 
+  it('anmälan: en rad per maskin — "Föraren har inte sett dig än – gå inte in, ring oss" tills Uppfattat, sedan "✓ <maskin> har sett att du kommer"', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    localStorage.setItem(`besok_anmalan_v1:${TOKEN}`, JSON.stringify({ id: '11111111-1111-4111-8111-111111111111' }));
+    const id = '11111111-1111-4111-8111-111111111111', tid = '2026-10-22T11:42:00Z';
+    nastaVy = vy({ besok: { id, besokstid: tid, kvitteringar: [], maskiner: [{ etikett: 'Skördaren Scorpion', roll: 'skordare', tid: null }, { etikett: 'Skotaren Wisent', roll: 'skotare', tid: null }] } });
+    await visa(<BesokKlient token={TOKEN} />);
+    const ejSett = () => Array.from(el!.querySelectorAll('[data-testid="besok-ej-sett"]')).map((n) => n.textContent);
+    expect(ejSett()).toEqual([
+      'Skördaren Scorpion: föraren har inte sett dig än – gå inte in, ring oss',
+      'Skotaren Wisent: föraren har inte sett dig än – gå inte in, ring oss',
+    ]);
+    expect(q('besok-vantar')).toBeNull();   // raderna per maskin ersätter den allmänna "väntar på föraren"
+    nastaVy = vy({ besok: { id, besokstid: tid, kvitteringar: [{ roll: 'skordare', tid: '2026-10-22T11:52:00Z' }], maskiner: [{ etikett: 'Skördaren Scorpion', roll: 'skordare', tid: '2026-10-22T11:52:00Z' }, { etikett: 'Skotaren Wisent', roll: 'skotare', tid: null }] } });
+    await act(async () => { vi.advanceTimersByTime(16000); for (let i = 0; i < 6; i++) await Promise.resolve(); });
+    vi.useRealTimers();
+    expect(Array.from(el!.querySelectorAll('[data-testid="besok-kvittens"]')).map((n) => n.textContent)).toEqual(['✓ Skördaren Scorpion har sett att du kommer']);
+    expect(ejSett()).toEqual(['Skotaren Wisent: föraren har inte sett dig än – gå inte in, ring oss']);
+    const text = el!.textContent ?? '';
+    expect(text).not.toMatch(/PONS20|A030353|R64428/);   // inga maskin-id
+  });
+
   it('"Välj tid" kräver ett klockslag', async () => {
     await visa(<BesokKlient token={TOKEN} />);
     await tryck(q('besok-kommer'));
@@ -170,18 +202,38 @@ describe('besökssidan', () => {
 
 describe('hyttens orange kort', () => {
   const b = { id: 'b1', namn: 'Anna Svensson', telefon: '070-123 45 67', besokstid: '2026-10-22T12:30:00Z' };
-  it('"Besök: <namn> kommer ca 14:30", telefon, Uppfattat ≥ 56 px, +N till', async () => {
+  it('"Besök: <namn> kommer ca 14:30", knappen "Ring Anna" bredvid Uppfattat (båda ≥ 56 px), textraden "Stäng av när du ser hen" (ingen knapp), +N till', async () => {
     const f = vi.fn();
     await visa(<BesokKortHytt top="12px" besok={b} fler={2} sparar={false} fel={null} onUppfattat={f} />);
     expect(q('besok-kort-rubrik')!.textContent).toMatch(/^Besök: Anna Svensson kommer (ca \d\d:\d\d|nu)$/);
-    expect(q('besok-kort-tel')!.getAttribute('href')).toBe('tel:0701234567');
+    const ring = q('besok-kort-ring') as HTMLAnchorElement;
+    expect(ring.tagName).toBe('A');
+    expect(ring.textContent).toBe('Ring Anna');
+    expect(ring.getAttribute('href')).toBe('tel:0701234567');
+    expect(q('besok-kort-tel')).toBeNull();   // numret är en knapp nu, inte en liten länk
     expect(q('besok-kort-fler')!.textContent).toBe('+2 besök till');
+    expect(parseInt(ring.style.minHeight)).toBeGreaterThanOrEqual(56);
     expect(parseInt((q('besok-kort-uppfattat') as HTMLElement).style.minHeight)).toBeGreaterThanOrEqual(56);
+    // bredvid varandra: samma rad, ring före Uppfattat
+    expect(ring.parentElement).toBe(q('besok-kort-uppfattat')!.parentElement);
+    expect(ring.nextElementSibling).toBe(q('besok-kort-uppfattat'));
+    expect(q('besok-kort-stang-av')!.textContent).toBe('Stäng av när du ser hen');
+    expect(q('besok-kort-stang-av')!.tagName).toBe('DIV');   // en textrad, inte en knapp
+    expect(el!.querySelectorAll('button, a')).toHaveLength(2);   // kortet har bara två knappar: Ring och Uppfattat
     expect(q('besok-kort')!.style.background).toBe('rgb(255, 159, 10)');
     await tryck(q('besok-kort-uppfattat'));
     expect(f).toHaveBeenCalledTimes(1);
+    await tryck(q('besok-kort-stang-av'));
+    expect(f).toHaveBeenCalledTimes(1);   // ett tryck på textraden gör ingenting
   });
-  it('medan det sparas: knappen är avstängd och säger det; fel visas', async () => {
+  it('en lång knapptext kortas – knappen växer aldrig ur kortet', async () => {
+    await visa(<BesokKortHytt top="12px" besok={{ ...b, namn: 'Maximiliane-Alexandra von Sjöstedt' }} fler={0} sparar={false} fel={null} onUppfattat={() => {}} />);
+    const ring = q('besok-kort-ring') as HTMLElement;
+    expect(ring.textContent).toBe('Ring Maximiliane-Alexandra');
+    expect(ring.style.overflow).toBe('hidden');
+    expect(ring.style.textOverflow).toBe('ellipsis');
+  });
+  it('medan det sparas: Uppfattat är avstängt och säger det; fel visas', async () => {
     await visa(<BesokKortHytt top="12px" besok={b} fler={0} sparar fel="Kunde inte spara — försök igen." onUppfattat={() => {}} />);
     expect((q('besok-kort-uppfattat') as HTMLButtonElement).disabled).toBe(true);
     expect(q('besok-kort-uppfattat')!.textContent).toBe('Sparar …');
@@ -200,6 +252,7 @@ describe('planerarens kort: Skicka till markägaren', () => {
     avsandare: { id: 'm1', namn: 'Martin Lindqvist', telefon: '070-111 22 33' }, sattAktiv: vi.fn(async () => null), loggaSms: vi.fn(async () => null), laddaOm: vi.fn(),
   });
   beforeEach(() => { hook.ut = grund(); vi.stubGlobal('navigator', { ...navigator, userAgent: 'iPhone', maxTouchPoints: 5 }); });
+  const sms = (handelse: string, tid = '2026-10-22T11:00:00Z') => ({ id: handelse, oppnad_av: 'm1', oppnad_at: tid, mottagare_namn: null, mottagare_nummer: null, handelse });
 
   it('öppnar Meddelanden med mottagare och text ifyllda, loggar öppnandet — skickar ingenting själv', async () => {
     const nav = vi.fn();
@@ -213,7 +266,7 @@ describe('planerarens kort: Skicka till markägaren', () => {
     expect(text).toContain(`https://app.test/besok/${TOKEN}`);
     expect(text).toContain('Hålabäck 1:13 i morgon');
     expect(text).toContain('Martin, Kompersmåla Skog\n070-111 22 33');
-    expect(hook.ut.loggaSms).toHaveBeenCalledWith({ avsandareId: 'm1', mottagareNamn: 'Kerstin', mottagareNummer: '0700038294' });
+    expect(hook.ut.loggaSms).toHaveBeenCalledWith({ avsandareId: 'm1', mottagareNamn: 'Kerstin', mottagareNummer: '0700038294', handelse: 'oppnad' });
   });
   it('saknas markägarens nummer: tomt mottagarfält och en rad som säger att planeraren skriver det själv', async () => {
     const nav = vi.fn();
@@ -240,10 +293,79 @@ describe('planerarens kort: Skicka till markägaren', () => {
     await tryck(q('kort-besok-sms'));
     expect(nav).not.toHaveBeenCalled();
   });
-  it('visar när SMS:et senast öppnades och av vem', async () => {
-    hook.ut = { ...grund(), sms: [{ id: 's', oppnad_av: 'm1', oppnad_at: '2026-10-22T11:00:00Z', mottagare_namn: null, mottagare_nummer: null }] };
+  it('visar när SMS:et senast öppnades och av vem – och att det INTE är bekräftat skickat', async () => {
+    hook.ut = { ...grund(), sms: [sms('oppnad')] };
     await visa(<BesokPlanerare {...props} />);
-    expect(q('kort-besok-sms')!.textContent).toContain('Öppnat 13:00 av Martin');
+    expect(q('kort-besok-sms')!.textContent).toContain('Öppnat 13:00 av Martin – inte bekräftat skickat');
+  });
+  it('efter att Meddelanden öppnats frågas "Skickade du SMS:et?" – Ja loggar skickad, Nej loggar ej_skickad', async () => {
+    hook.ut = { ...grund(), sms: [sms('oppnad')] };
+    await visa(<BesokPlanerare {...props} />);
+    expect(q('kort-besok-sms-fraga')!.textContent).toContain('Skickade du SMS:et?');
+    await tryck(q('kort-besok-sms-ja'));
+    expect(hook.ut.loggaSms).toHaveBeenLastCalledWith({ avsandareId: 'm1', mottagareNamn: 'Kerstin', mottagareNummer: '0700038294', handelse: 'skickad' });
+    await tryck(q('kort-besok-sms-nej'));
+    expect(hook.ut.loggaSms).toHaveBeenLastCalledWith({ avsandareId: 'm1', mottagareNamn: 'Kerstin', mottagareNummer: '0700038294', handelse: 'ej_skickad' });
+  });
+  it('frågan ligger kvar tills den är besvarad (även efter en omladdning – den härleds ur loggen) och försvinner när den är det', async () => {
+    hook.ut = { ...grund(), sms: [sms('kopierad')] };
+    await visa(<BesokPlanerare {...props} />);
+    expect(q('kort-besok-sms-fraga')).not.toBeNull();
+    act(() => { rot!.unmount(); }); el!.remove();
+    hook.ut = { ...grund(), sms: [sms('skickad', '2026-10-22T11:05:00Z'), sms('kopierad')] };
+    await visa(<BesokPlanerare {...props} />);
+    expect(q('kort-besok-sms-fraga')).toBeNull();
+    expect(q('kort-besok-sms')!.textContent).toContain('Skickat 13:05 av Martin');
+    act(() => { rot!.unmount(); }); el!.remove();
+    hook.ut = { ...grund(), sms: [sms('ej_skickad', '2026-10-22T11:05:00Z'), sms('oppnad')] };
+    await visa(<BesokPlanerare {...props} />);
+    expect(q('kort-besok-sms-fraga')).toBeNull();
+    expect(q('kort-besok-sms')!.textContent).toContain('Inte skickat');
+  });
+  it('ingen fråga när inget har öppnats, och inte för en avslutad trakt', async () => {
+    await visa(<BesokPlanerare {...props} />);
+    expect(q('kort-besok-sms-fraga')).toBeNull();
+    act(() => { rot!.unmount(); }); el!.remove();
+    hook.ut = { ...grund(), sms: [sms('oppnad')] };
+    await visa(<BesokPlanerare {...props} status="avslutat" />);
+    expect(q('kort-besok-sms-fraga')).toBeNull();
+  });
+  it('PÅ DATOR öppnas ingen sms:-länk: knappen heter "Kopiera SMS-text och länk", texten (med länken) kopieras och "kopierad" loggas', async () => {
+    const nav = vi.fn(); const kop = vi.fn(async (_t: string) => {});
+    await visa(<BesokPlanerare {...props} mobil={false} navigera={nav} kopiera={kop} origin="https://app.test" />);
+    expect(q('kort-besok-sms')!.textContent).toContain('Kopiera SMS-text och länk');
+    expect(q('kort-besok-sms')!.textContent).not.toContain('Skicka till markägaren');
+    await tryck(q('kort-besok-sms'));
+    expect(nav).not.toHaveBeenCalled();
+    expect(kop).toHaveBeenCalledTimes(1);
+    const text = kop.mock.calls[0][0] as string;
+    expect(text).toContain('Hej Kerstin!');
+    expect(text).toContain(`https://app.test/besok/${TOKEN}`);
+    expect(hook.ut.loggaSms).toHaveBeenCalledWith({ avsandareId: 'm1', mottagareNamn: 'Kerstin', mottagareNummer: '0700038294', handelse: 'kopierad' });
+    expect(q('kort-besok')!.textContent).toContain('Kopierat');
+  });
+  it('går kopieringen inte: inget loggas och planeraren får veta det', async () => {
+    const kop = vi.fn(async () => { throw new Error('nej'); });
+    await visa(<BesokPlanerare {...props} mobil={false} kopiera={kop} origin="https://app.test" />);
+    await tryck(q('kort-besok-sms'));
+    expect(hook.ut.loggaSms).not.toHaveBeenCalled();
+    expect(q('kort-besok')!.textContent).toContain('Kunde inte kopiera');
+  });
+  it('mobil/dator avgörs ur webbläsaren när inget är angivet', async () => {
+    vi.stubGlobal('navigator', { ...navigator, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', maxTouchPoints: 0 });
+    await visa(<BesokPlanerare {...props} />);
+    expect(q('kort-besok-sms')!.textContent).toContain('Kopiera SMS-text och länk');
+  });
+  it('saknar planeraren eget nummer används företagets i SMS:et; saknas båda står en rad som säger det INNAN man skickar', async () => {
+    const kop = vi.fn(async (_t: string) => {});
+    hook.ut = { ...grund(), avsandare: { id: 'm1', namn: 'Martin Lindqvist', telefon: null } };
+    await visa(<BesokPlanerare {...props} mobil={false} kopiera={kop} foretagTelefon="0470-12 345" origin="https://app.test" />);
+    expect(q('kort-besok-nummer-saknas')).toBeNull();
+    await tryck(q('kort-besok-sms'));
+    expect(kop.mock.calls[0][0].trimEnd().endsWith('0470-12 345')).toBe(true);
+    act(() => { rot!.unmount(); }); el!.remove();
+    await visa(<BesokPlanerare {...props} mobil={false} kopiera={kop} foretagTelefon="" origin="https://app.test" />);
+    expect(q('kort-besok-nummer-saknas')!.textContent).toContain('Admin › Medarbetare');
   });
   it('länken på/av och "Visa som markägaren"', async () => {
     const sida = vi.fn();

@@ -418,8 +418,14 @@ describe('lasVidaGrans', () => {
       'obj-1',
     );
     // ringar = traktgränsens yttre ring (PR 8a: lagret "Vidas traktgräns") - FASTIGHETEN räknas inte, som för rutan.
-    expect(r).toEqual({ typ: 'ok', gran: [[14.0, 56.0], [14.1, 56.1]], ringar: [[[14.0, 56.0], [14.1, 56.0], [14.1, 56.1], [14.0, 56.1], [14.0, 56.0]]] });
+    expect(r).toEqual({ typ: 'ok', gran: [[14.0, 56.0], [14.1, 56.1]], ringar: [[[14.0, 56.0], [14.1, 56.0], [14.1, 56.1], [14.0, 56.1], [14.0, 56.0]]], linjer: [] });
     expect(t).toEqual(['objekt_geometri']);
+  });
+
+  it('Vidas linjer (_typ linje: kraftledning, basväg) följer med i linjer — inga ytor', async () => {
+    const ledning = { type: 'Feature', properties: { _lager: 'L_TILLAGGSLINJER', _typ: 'linje', FLBESKR: 'Kraftledning' }, geometry: { type: 'LineString', coordinates: [[14.0, 56.0], [14.1, 56.1]] } };
+    const r = await lasVidaGrans(klient({ data: [{ geometri: { features: [fc('L_TRAKTDEL', [[[14.0, 56.0], [14.1, 56.0], [14.1, 56.1], [14.0, 56.0]]]), ledning] } }], error: null }), 'o');
+    expect(r.typ === 'ok' && r.linjer).toEqual([ledning]);
   });
 
   it('flera geometrirader läggs ihop till EN ruta', async () => {
@@ -430,6 +436,7 @@ describe('lasVidaGrans', () => {
     expect(r).toEqual({
       typ: 'ok', gran: [[14.0, 56.0], [14.3, 56.3]],
       ringar: [[[14.0, 56.0], [14.1, 56.0], [14.1, 56.1], [14.0, 56.0]], [[14.2, 56.2], [14.3, 56.2], [14.3, 56.3], [14.2, 56.2]]],
+      linjer: [],
     });
   });
 

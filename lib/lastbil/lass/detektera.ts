@@ -264,6 +264,3 @@ export function detekteraLass(rader: readonly LoggPunkt[], alt: DetektAlternativ
   return { lass, okandStart };
 }
 
-/** Meter mellan två punkter. */
-export const meterMellan = (lat1: number, lng1: number, lat2: number, lng2: number): number =>
-  Math.round(haversine(lat1, lng1, lat2, lng2) * 1000);

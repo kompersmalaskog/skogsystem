@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, useContext } from 'r
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
+import { LjudSpelare } from '@/components/LjudSpelare'
 import { gpsGuardAccepts, haversineMeters } from '@/lib/gps-guard'
 import { signeraKartfil } from '@/lib/kartfiler'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
@@ -25,6 +26,8 @@ import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/Obj
 import { type BesokPlanerareProps } from '../../components/besok/BesokPlanerare'
 import BesokKortHytt from '../../components/besok/BesokKortHytt'
 import { useBesokHytt } from '../../lib/hooks/useBesokHytt'
+import { useHyttNotiser, useHyttNotiserPa } from '../../lib/hooks/useHyttNotiser'
+import { farorUrLarm, omradeUrKort } from '../../lib/hytt/notiser'
 import { HYTT_RING_M } from '../../lib/besok/konstanter'
 import { arBasvag as arBasvagMark, svTal, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, grotRad, framstegRad, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll, type OmKommentar } from '../../lib/objektKort'
 import { arInstruktionsText } from '../../lib/instruktioner/instruktioner'
@@ -118,6 +121,7 @@ import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } fro
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
+import HyttNotiserKort from '../../components/planering/HyttNotiserKort'
 import { hogarSynliga, vaxlaSkotarHogar } from '../../lib/skotarHogar'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { INFO_PANEL_MASKIN_BREDD_PX, PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
@@ -155,6 +159,7 @@ import { StartSvartSkarm, MaskinSomFelSkarm, MaskinFelSkarm } from '../../compon
 import { VilkenMaskinSkarm } from '../../components/maskin/VilkenMaskinSkarm'
 import { typLabel } from '../../lib/objekt/typ'
 import { hamtaAltNummer, hogarObjektIds, nyckelHorTillObjekt } from '../../lib/objektNummer'
+import { klustraStammar } from '../../lib/produktionshogar'
 import { useSkotarLass } from '../../lib/hooks/useSkotarLass'
 import { useSkotarVader } from '../../lib/hooks/useSkotarVader'
 import { hamtaPrognos, narmasteSteg } from '../../lib/smhi-prognos'
@@ -5572,63 +5577,9 @@ export default function PlannerPage() {
           }));
         console.log(`[HOGAR] vo=${vo}, ${dedupStammar.length} stammar (detalj_stam, okapad)`);
 
-        // Klustra stammar inom ~10m radie
-        // 10m ≈ 0.00009 grader lat, 0.00016 grader lng vid 56°N
-        const CLUSTER_RAD_LAT = 0.00009;
-        const CLUSTER_RAD_LNG = 0.00016;
-        const used = new Uint8Array(dedupStammar.length);
-
-        for (let i = 0; i < dedupStammar.length; i++) {
-          if (used[i]) continue;
-          const s = dedupStammar[i];
-          if (!s.lat || !s.lng) continue;
-
-          const cluster = [i];
-          used[i] = 1;
-          let sumLat = s.lat, sumLng = s.lng;
-
-          for (let j = i + 1; j < dedupStammar.length; j++) {
-            if (used[j]) continue;
-            const t = dedupStammar[j];
-            if (!t.lat || !t.lng) continue;
-            if (Math.abs(t.lat - s.lat) < CLUSTER_RAD_LAT && Math.abs(t.lng - s.lng) < CLUSTER_RAD_LNG) {
-              cluster.push(j);
-              used[j] = 1;
-              sumLat += t.lat;
-              sumLng += t.lng;
-            }
-          }
-
-          // Centroid
-          const n = cluster.length;
-          const cLat = sumLat / n;
-          const cLng = sumLng / n;
-
-          // Summera volym och trädslag, räkna GROT-stammar, samla sortiment-volymer
-          let volym = 0;
-          const tradslagCount: Record<string, number> = {};
-          const sortimentVolym: Record<string, number> = {};
-          let datum = '';
-          let grotCount = 0;
-
-          for (const idx of cluster) {
-            const st = dedupStammar[idx];
-            const stVol = st.total_volym || 0;
-            volym += stVol;
-            const ts = st.tradslag || 'OKÄNT';
-            tradslagCount[ts] = (tradslagCount[ts] || 0) + 1;
-            if (st.sortiment) {
-              sortimentVolym[st.sortiment] = (sortimentVolym[st.sortiment] || 0) + stVol;
-            }
-            if (!datum && st.datum) {
-              datum = st.datum;
-            }
-            if (st.bio_energy_adaption) {
-              grotCount++;
-            }
-          }
-
-          byggHog(cLat, cLng, n, volym, tradslagCount, sortimentVolym, grotCount, datum);
+        // Klustra stammar inom ~10m radie (lib/produktionshogar: samma algoritm som Objektöversiktens karta)
+        for (const k of klustraStammar(dedupStammar)) {
+          byggHog(k.lat, k.lng, k.n, k.volym, k.tradslagCount, k.sortimentVolym, k.grotCount, k.datum);
         }
       }
 
@@ -11941,14 +11892,15 @@ export default function PlannerPage() {
   // BESÖK PÅ TRAKTEN (maskinläget, alla maskiner på trakten): ett orange kort högst upp tills föraren tryckt Uppfattat, ett ljud, och en 70 m-ring runt maskinen medan besöket är aktivt.
   // Fara-larm (och alla larmkort) och lossningsflödet går före kortet — det kommer tillbaka när de är borta. Instruktionskortet väntar på besökskortet.
   const besokMaskinId = testlage?.maskinId ?? enhetMaskinId ?? null;
+  // Notiser i hytten (Windows-notis när appen inte är framme): enhetsbrytaren i Inställningar, AV från början.
+  const hyttNotiserPa = useHyttNotiserPa();
   const besokHytt = useBesokHytt({
     aktiv: instruktionerAktiv,
     objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
     maskinId: besokMaskinId,
-    roll: besokMaskinId ? rollForMaskin(dimMaskiner, besokMaskinId) : null,
-    forareId: currentMedarbetare?.id ? String(currentMedarbetare.id) : null,
     testlage: !!testlage,
     ljudCtx: () => korvyAudioCtxRef.current,
+    bakgrund: hyttNotiserPa,
   });
   const besokKortSynligt = besokHytt.vantar.length > 0 && !larm.kort && !lossningVisas;
   // === BESÖK: 70 m-ring runt maskinen medan ett besök är aktivt (till besökstid + 2 h) ===
@@ -11984,6 +11936,17 @@ export default function PlannerPage() {
     blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' || larm.fler.some((x) => x.grupp === 'fara') }), lossningVisas }) || besokKortSynligt,
     blockeradPaminnelse: !!larm.kort || lossningVisas || besokKortSynligt,   // larm och lossningskort går före påminnelsen: den göms medan något av dem visas och kommer tillbaka efteråt
     torr: !!testlage,
+  });
+  // NOTISER I HYTTEN: fara, besök och område som Windows-notis när fönstret inte är framme (synligt OCH valt). Ett tillägg — korten i appen fungerar som förut. Passiv när brytaren är av.
+  useHyttNotiser({
+    aktiv: instruktionerAktiv && hyttNotiserPa,
+    roll: skotarKorvy ? 'skotare' : 'skordare',
+    trakt: valtObjekt?.namn ?? '',
+    maskinId: besokMaskinId,
+    test: !!testlage,
+    fara: farorUrLarm(larm.kort, larm.fler),
+    besok: besokHytt.vantar,
+    omrade: omradeUrKort(inst.vantandeKort),
   });
   // Påminnelsens hela instruktion stängs när påminnelsen försvinner (kört ut, larm/lossning visas): kommer man tillbaka börjar den som pill/bricka igen.
   useEffect(() => { if (!inst.paminnelse) setPaminnelseOppen(null); }, [inst.paminnelse]);
@@ -12834,11 +12797,11 @@ export default function PlannerPage() {
   // grenen, så förarlistan visades utan gul rand/Avsluta — och sekvensen kunde inte täcka objektlistan.
   const maskinLager = (
     <>
-      {/* === "ÖPPNA SOM MASKIN"-BANNER (gul rand, över allt) — får aldrig förväxlas med skarpt läge === */}
+      {/* === "ÖPPNA SOM MASKIN"-BANNER (neutral grå, över allt) — får aldrig förväxlas med skarpt läge. Inte orange: orange är hytten-kortets färg för ett besök. === */}
       {testlage && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9200,
-          background: '#f59e0b', color: '#1a1200', boxSizing: 'border-box', height: `calc(env(safe-area-inset-top, 0px) + ${TESTBANNER_HOJD_PX}px)`,
+          background: FARG.upphojt, color: FARG.text, boxSizing: 'border-box', height: `calc(env(safe-area-inset-top, 0px) + ${TESTBANNER_HOJD_PX}px)`,
           padding: 'calc(env(safe-area-inset-top, 0px) + 6px) 14px 6px',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
           fontSize: '13px', fontWeight: 800, letterSpacing: '0.3px', textAlign: 'center',
@@ -12847,22 +12810,22 @@ export default function PlannerPage() {
           <span>⚠ Visar som maskin: {startMaskinNamn || testlage.maskinId}<span data-testid="test-langtryck-tips" style={{ fontWeight: 600 }}> · håll fingret på kartan = flytta mig</span></span>
           {skotarLassAktiv && (
             <button type="button" data-testid="skotar-provkor" onClick={() => skotarLass.provkorLossning(skotarValtAvlagg)}
-              style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+              style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
               {skotarLass.oppen ? 'Provkör: kör ut ur zonen' : 'Provkör lossning'}
             </button>
           )}
           {skotarKorvy && (
             <button type="button" data-testid="skotar-provkor-morgonkort" onClick={skotarVader.provkorKort}
-              style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+              style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
               Visa morgonkort
             </button>
           )}
           <button type="button" data-testid="test-flytta-mig" aria-pressed={testFlyttaMig} onClick={() => setTestFlyttaMig((v) => !v)}
-            style={{ background: testFlyttaMig ? '#1a1200' : 'rgba(0,0,0,0.25)', color: testFlyttaMig ? '#f59e0b' : '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+            style={{ background: testFlyttaMig ? FARG.text : FARG.fyllning, color: testFlyttaMig ? FARG.bg : FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
             {testFlyttaMig ? 'Tryck på kartan' : 'Flytta mig hit'}
           </button>
           <button type="button" onClick={avslutaTestlage}
-            style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+            style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
             Avsluta
           </button>
         </div>
@@ -15420,7 +15383,7 @@ export default function PlannerPage() {
                     <div key={mm.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>{forfattarText(mm.namn, mm.skapad_at)}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <audio controls src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
+                        <LjudSpelare src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
                         {(arMitt(mm) || isAdminRiktig) && (
                           <button onClick={() => raderaYtaMedia(nyckel, mm)} aria-label="Ta bort"
                             style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: '15px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ff6961', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
@@ -16173,7 +16136,7 @@ export default function PlannerPage() {
               {/* Inspelat ljud (visas under knapparna) */}
               {marker.audioData && !isRecordingAudio && (
                 <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <audio controls src={marker.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
+                  <LjudSpelare src={marker.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
                   <button onClick={() => { if (marker.audioData) deleteAudioFromStorage(marker.audioData); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, audioData: undefined } : m)); }} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                 </div>
               )}
@@ -16227,7 +16190,7 @@ export default function PlannerPage() {
                                 >{isRecThis ? '⏹' : '🎤'}{isRecThis && <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                                 {note.audioData && !isRecThis && (
                                   <>
-                                    <audio controls src={note.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
+                                    <LjudSpelare src={note.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
                                     <button onClick={() => { if (note.audioData) deleteAudioFromStorage(note.audioData); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, audioData: undefined } : n) } : m)); }} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                                   </>
                                 )}
@@ -16242,7 +16205,7 @@ export default function PlannerPage() {
                           {/* Visa ljud (ej redigering) */}
                           {!isEditing && note.audioData && (
                             <div style={{ marginTop: '6px' }}>
-                              <audio controls src={note.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
+                              <LjudSpelare src={note.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
                             </div>
                           )}
                         </div>
@@ -16271,7 +16234,7 @@ export default function PlannerPage() {
                             >{isRecNew ? '⏹' : '🎤'}{isRecNew && <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                             {pendingAudio && !isRecNew && (
                               <>
-                                <audio controls src={pendingAudio} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
+                                <LjudSpelare src={pendingAudio} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
                                 <button onClick={() => { if (pendingAudio) deleteAudioFromStorage(pendingAudio); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === newId ? { ...n, audioData: undefined } : n) } : m)); }} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                               </>
                             )}
@@ -17278,6 +17241,8 @@ export default function PlannerPage() {
                     )}
                   </div>
                 )}
+                {/* Notiser i hytten (Windows-notis när appen inte är framme) — bara maskindatorn, som GPS-källa-kortet. */}
+                {webSerialStott && <HyttNotiserKort />}
                 {/* Lägen */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
@@ -17721,7 +17686,7 @@ export default function PlannerPage() {
                   </div>
                   {hasAudio && !isRecThis && (
                     <div style={{ marginTop: '8px' }}>
-                      <audio controls src={editingMarker.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
+                      <LjudSpelare src={editingMarker.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
                     </div>
                   )}
                 </div>
@@ -19799,7 +19764,7 @@ export default function PlannerPage() {
               {/* Audio */}
               {cv.audioData && (
                 <div style={{ marginBottom: '10px' }}>
-                  <audio controls src={cv.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
+                  <LjudSpelare src={cv.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
                 </div>
               )}
               {/* Buttons */}

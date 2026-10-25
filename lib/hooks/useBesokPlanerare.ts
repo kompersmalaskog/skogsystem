@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import type { BesokRad, KvittensRad, SmsRad } from '@/lib/besok/planerare';
+import type { BesokRad, KvittensRad, SmsHandelse, SmsRad } from '@/lib/besok/planerare';
 
 export type PlanerareState = {
   laddat: boolean;
@@ -25,6 +25,20 @@ export type PlanerareState = {
 const TOM: PlanerareState = { laddat: false, migrering: true, fel: null, lank: null, besok: [], kvittenser: [], sms: [], maskinNamn: {}, personNamn: {}, avsandare: null };
 const saknasTabell = (m?: string | null) => /does not exist|schema cache|PGRST205|42P01/i.test(m ?? '');
 
+const SMS_KOLUMNER = 'id, oppnad_av, oppnad_at, mottagare_namn, mottagare_nummer';
+const saknasHandelse = (m?: string | null) => /handelse/i.test(m ?? '');
+
+/** SMS-loggen. Före migrationen 20261024091516 finns inte kolumnen `handelse`: då läses raderna utan den och räknas som 'oppnad' (alltså aldrig som skickade). */
+async function lasSms(id: string): Promise<{ data: SmsRad[] | null; error: { message: string } | null }> {
+  const fraga = (kol: string) => supabase.from('objekt_besok_sms').select(kol).eq('objekt_id', id).order('oppnad_at', { ascending: false }).limit(50);
+  const a = await fraga(`${SMS_KOLUMNER}, handelse`);
+  if (!a.error) return { data: (a.data ?? []) as unknown as SmsRad[], error: null };
+  if (!saknasHandelse(a.error.message)) return { data: null, error: a.error };
+  const b = await fraga(SMS_KOLUMNER);
+  if (b.error) return { data: null, error: b.error };
+  return { data: ((b.data ?? []) as unknown as Omit<SmsRad, 'handelse'>[]).map((r) => ({ ...r, handelse: 'oppnad' as SmsHandelse })), error: null };
+}
+
 export function useBesokPlanerare({ objektId, aktiv, skapaLank }: { objektId: string | null; aktiv: boolean; skapaLank: boolean }) {
   const [s, setS] = useState<PlanerareState>(TOM);
   const objektRef = useRef(objektId);
@@ -38,7 +52,7 @@ export function useBesokPlanerare({ objektId, aktiv, skapaLank }: { objektId: st
     try {
       const [b, sm, mask, med, me] = await Promise.all([
         supabase.from('objekt_besok').select('id, namn, telefon, besokstid, skapad_at').eq('objekt_id', id).order('skapad_at', { ascending: false }).limit(100),
-        supabase.from('objekt_besok_sms').select('id, oppnad_av, oppnad_at, mottagare_namn, mottagare_nummer').eq('objekt_id', id).order('oppnad_at', { ascending: false }).limit(50),
+        lasSms(id),
         supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell'),
         supabase.from('medarbetare').select('id, namn'),
         supabase.auth.getUser().then(async ({ data }) => data.user?.id
@@ -69,7 +83,7 @@ export function useBesokPlanerare({ objektId, aktiv, skapaLank }: { objektId: st
       const jag = me.data as { id: string; namn: string | null; telefon: string | null } | null;
       setS((p) => ({
         laddat: true, migrering: true, fel: k.error ? k.error.message : null,
-        lank: lank ?? p.lank, besok, kvittenser: (k.data ?? []) as KvittensRad[], sms: (sm.data ?? []) as SmsRad[],
+        lank: lank ?? p.lank, besok, kvittenser: (k.data ?? []) as KvittensRad[], sms: sm.data ?? [],
         maskinNamn, personNamn, avsandare: jag ? { id: jag.id, namn: jag.namn, telefon: jag.telefon } : null,
       }));
     } catch (e) {
@@ -97,13 +111,18 @@ export function useBesokPlanerare({ objektId, aktiv, skapaLank }: { objektId: st
     return null;
   }, []);
 
-  /** Loggar att SMS:et öppnats (bevis + skälet att inte påminna igen). Anropas direkt efter att sms:-länken öppnats; ett fel stoppar aldrig SMS:et. */
-  const loggaSms = useCallback(async (a: { avsandareId: string | null; mottagareNamn: string | null; mottagareNummer: string | null }): Promise<string | null> => {
+  /** Loggar en händelse i SMS-loggen (bara admin får skriva). 'oppnad'/'kopierad' = knappen trycktes; 'skickad'/'ej_skickad' = planeraren svarade på frågan. Ett fel stoppar aldrig SMS:et. */
+  const loggaSms = useCallback(async (a: { avsandareId: string | null; mottagareNamn: string | null; mottagareNummer: string | null; handelse?: SmsHandelse }): Promise<string | null> => {
     const id = objektRef.current;
     if (!id) return 'Inget objekt';
-    const r = await supabase.from('objekt_besok_sms').insert({ objekt_id: id, oppnad_av: a.avsandareId, mottagare_namn: a.mottagareNamn, mottagare_nummer: a.mottagareNummer }).select('id, oppnad_av, oppnad_at, mottagare_namn, mottagare_nummer').single();
+    const handelse: SmsHandelse = a.handelse ?? 'oppnad';
+    const rad = { objekt_id: id, oppnad_av: a.avsandareId, mottagare_namn: a.mottagareNamn, mottagare_nummer: a.mottagareNummer };
+    let r = await supabase.from('objekt_besok_sms').insert({ ...rad, handelse }).select(`${SMS_KOLUMNER}, handelse`).single();
+    // Före migrationen finns ingen `handelse`: 'oppnad'/'kopierad' loggas ändå (utan kolumnen), men ett svar på frågan sparas aldrig – det vore en rad som ser ut som en öppning.
+    if (r.error && saknasHandelse(r.error.message) && (handelse === 'oppnad' || handelse === 'kopierad')) r = await supabase.from('objekt_besok_sms').insert(rad).select(SMS_KOLUMNER).single();
     if (r.error) return r.error.message;
-    setS((p) => ({ ...p, sms: [r.data as SmsRad, ...p.sms] }));
+    const ny = { handelse, ...(r.data as object) } as unknown as SmsRad;
+    setS((p) => ({ ...p, sms: [ny, ...p.sms] }));
     return null;
   }, []);
 

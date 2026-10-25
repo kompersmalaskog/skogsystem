@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { VAPID_PUBLIC_KEY, VAPID_SUBJECT, VAPID_SAKNAS, vapidPrivatNyckel } from "@/lib/push/vapid";
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
@@ -16,6 +17,12 @@ import { LON_NOTIS_TYPER, arLonNotis, byggLonNotis, lasLonRadMotDb } from "@/lib
 import { INVENTARIE_UNDER_MIN, arInventarieNotis, byggInventarieNotis, type HamtaInventarie } from "@/lib/inventarier/notis";
 import { arBesokPaminnelse, byggBesokNotis, type HamtaBesokObjekt } from "@/lib/besok/paminnelse";
 import { koaBesokPaminnelser } from "@/lib/besok/paminnelse-ko";
+import { arGodkannNotis, byggGodkannNotis } from "@/lib/lastbil/godkannNotis";
+import { koaGodkannPaminnelse, lasVantandeUnderlag } from "@/lib/lastbil/godkannKo";
+import { arBesokEjSett, byggEjSettNotis, type HamtaEjSett } from "@/lib/besok/ejsett";
+import { koaBesokEjSett } from "@/lib/besok/ejsett-ko";
+import { maskinEtikett } from "@/lib/besok/maskinerPaBesok";
+import { rollAvMaskintyp } from "@/lib/maskindatorStart";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -47,12 +54,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-webpush.setVapidDetails(
-  "mailto:info@kompersmalskog.se",
-  "BGe21_FkdZWkOiaLTWE2GXADsaA08uC2eRGglHIyJ85rL35YkrkUY1L3jTJ7fGvAQlDRjJsH3AMMeX62B63hr34",
-  process.env.VAPID_PRIVATE_KEY || "DUop3YJnWfPGbNF2KGz8elhEpkVRoivHzM3Xt-Y5_fA"
-);
-
 // Vercel cron skickar Authorization: Bearer $CRON_SECRET automatiskt. Manuell
 // körning kräver admin-session. (Var helt öppen — vem som helst kunde tömma kön.)
 async function tillaten(req: NextRequest): Promise<NextResponse | null> {
@@ -65,6 +66,14 @@ export async function GET(req: NextRequest) { return (await tillaten(req)) ?? fl
 export async function POST(req: NextRequest) { return (await tillaten(req)) ?? flush(); }
 
 async function flush() {
+  // Den privata nyckeln finns bara i miljön. Saknas den: säg det och lämna kön orörd (inget skickas, inget märks som skickat).
+  const vapidPrivat = vapidPrivatNyckel();
+  if (!vapidPrivat) {
+    console.error("[notis/flush]", VAPID_SAKNAS);
+    return NextResponse.json({ ok: false, error: VAPID_SAKNAS }, { status: 500 });
+  }
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, vapidPrivat);
+
   // Månadens stickprov för egenkontrollen: dras av databasen vid första anropet i en ny månad (annars no-op). Cronen går var 5:e minut, så
   // dragningen och pushen sker utan att någon öppnat appen — och oberoende av pg_cron. Ett fel här får aldrig stoppa resten av kön.
   try {
@@ -80,6 +89,22 @@ async function flush() {
     if (!bp.ok) console.error("[notis/flush] besökspåminnelse:", bp.fel);
   } catch (e) {
     console.error("[notis/flush] besökspåminnelse:", e);
+  }
+
+  // Besöket på trakten: en maskin som inte tryckt Uppfattat 10 minuter efter anmälan → push till planeringen. Samma regler och samma fel-hantering som påminnelsen ovan.
+  try {
+    const es = await koaBesokEjSett(supabase);
+    if (!es.ok) console.error("[notis/flush] besök ej sett:", es.fel);
+  } catch (e) {
+    console.error("[notis/flush] besök ej sett:", e);
+  }
+
+  // Lastbilen: "N flyttar väntar på godkännande" — måndagar från 07:00, bara när något väntar (lib/lastbil/godkannNotis). Ett fel stoppar aldrig kön.
+  try {
+    const gk = await koaGodkannPaminnelse(supabase);
+    if (!gk.ok) console.error("[notis/flush] godkänn-påminnelse:", gk.fel);
+  } catch (e) {
+    console.error("[notis/flush] godkänn-påminnelse:", e);
   }
 
   const nu = new Date().toISOString();
@@ -164,8 +189,10 @@ async function flush() {
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
       // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ)) {
-        const u = arBesokPaminnelse(n.typ) ? await byggBesokNotis(n, hamtaBesokObjekt)
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ)) {
+        const u = arGodkannNotis(n.typ) ? await byggGodkannNotis(n, () => lasVantandeUnderlag(supabase))
+          : arBesokEjSett(n.typ) ? await byggEjSettNotis(n, hamtaEjSett)
+          : arBesokPaminnelse(n.typ) ? await byggBesokNotis(n, hamtaBesokObjekt)
           : arInventarieNotis(n.typ) ? await byggInventarieNotis(n, hamtaInventarierad)
           : arStickprovNotis(n.typ) ? await byggStickprovNotis(n, hamtaStickprovrad)
           : arLassNotis(n.typ) ? await byggLassNotis(n, hamtaLassrad)
@@ -294,15 +321,41 @@ const hamtaInventarierad: HamtaInventarie = async (radId) => {
   return { rad: { id: d.id, antal: d.antal, min_antal: d.min_antal, bestalld_tid: d.bestalld_tid, tva_lador: !!d.tva_lador, reserv_oppnad_tid: d.reserv_oppnad_tid ?? null, artikel_namn: a.namn, sitter_pa: a.sitter_pa ?? null, enhet: a.enhet ?? null, plats_namn: p.namn } };
 };
 
-// Objektet + om SMS:et till markägaren redan öppnats, för besökspåminnelsen. `rad: null` = finns inte; `fel` = kunde inte läsas.
+// Objektet + om SMS:et till markägaren är BEKRÄFTAT skickat (handelse = 'skickad'; att knappen öppnats räknas inte), för besökspåminnelsen. `rad: null` = finns inte; `fel` = kunde inte läsas.
 const hamtaBesokObjekt: HamtaBesokObjekt = async (objektId) => {
   const { data, error } = await supabase.from("objekt").select("id, namn, status").eq("id", objektId).maybeSingle();
   if (error) return { rad: null, fel: error.message };
   if (!data) return { rad: null };
-  const s = await supabase.from("objekt_besok_sms").select("id", { count: "exact", head: true }).eq("objekt_id", objektId);
+  const s = await supabase.from("objekt_besok_sms").select("id", { count: "exact", head: true }).eq("objekt_id", objektId).eq("handelse", "skickad");
   if (s.error) return { rad: null, fel: s.error.message };
   const d = data as any;
-  return { rad: { id: d.id, namn: d.namn, status: d.status ?? null, sms_oppnat: (s.count ?? 0) > 0 } };
+  return { rad: { id: d.id, namn: d.namn, status: d.status ?? null, sms_skickat: (s.count ?? 0) > 0 } };
+};
+
+// Besöket + objektet + maskinens namn + om maskinen redan tryckt Uppfattat, för "maskinen har inte sett besöket". `rad: null` = finns inte; `fel` = kunde inte läsas (raden lämnas oskickad).
+const hamtaEjSett: HamtaEjSett = async (besokId, maskinId) => {
+  const b = await supabase.from("objekt_besok").select("id, namn, besokstid, objekt_id").eq("id", besokId).maybeSingle();
+  if (b.error) return { rad: null, fel: b.error.message };
+  if (!b.data) return { rad: null };
+  const bd = b.data as any;
+  const [o, k, m] = await Promise.all([
+    supabase.from("objekt").select("id, namn, status").eq("id", bd.objekt_id).maybeSingle(),
+    supabase.from("objekt_besok_kvittens").select("besok_id", { count: "exact", head: true }).eq("besok_id", besokId).eq("maskin_id", maskinId),
+    supabase.from("dim_maskin").select("visningsnamn, maskin_typ").eq("maskin_id", maskinId).maybeSingle(),
+  ]);
+  if (o.error) return { rad: null, fel: o.error.message };
+  if (k.error) return { rad: null, fel: k.error.message };
+  if (m.error) return { rad: null, fel: m.error.message };
+  const md = m.data as any;
+  const roll = rollAvMaskintyp(md?.maskin_typ);
+  return {
+    rad: {
+      besok: { id: bd.id, namn: bd.namn, besokstid: bd.besokstid, objekt_id: bd.objekt_id },
+      objekt: o.data ? { id: (o.data as any).id, namn: (o.data as any).namn, status: (o.data as any).status ?? null } : null,
+      maskinNamn: roll ? maskinEtikett({ roll, namn: md?.visningsnamn ?? null }) : (md?.visningsnamn ?? null),
+      sett: (k.count ?? 0) > 0,
+    },
+  };
 };
 
 const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];

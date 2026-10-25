@@ -2,6 +2,7 @@
 // kor.ts hämtar (RPC lastbil_maskin_foljer / lastbil_maskin_narvaro, fakt_lass, hyttspar, maskin_position); här räknas det.
 
 import { GPS, type MaskinBevis } from './maskin';
+import type { SkotarBevis } from './skotarpos';
 
 export interface FoljerRad { maskin_id: string; idx: number; dist_m: number }
 export interface NarvaroRad { maskin_id: string; tid: string | null; dist_m: number | null }
@@ -63,6 +64,7 @@ export function samlaBevis(i: {
   kedja: Pick<MaskinBevis, 'kedjaFran' | 'kedjaTill'>;
   paborjadFlytt: boolean;
   positionNara: boolean;
+  skotare?: SkotarBevis;
 }): MaskinBevis {
   const ank = i.ankomst?.find(r => r.maskin_id === i.maskin_id);
   const avg = i.avgang?.find(r => r.maskin_id === i.maskin_id);
@@ -74,5 +76,6 @@ export function samlaBevis(i: {
     ...i.kedja,
     paborjadFlytt: i.paborjadFlytt,
     positionNara: i.positionNara,
+    ...(i.skotare ? { skotare: i.skotare } : {}),
   };
 }

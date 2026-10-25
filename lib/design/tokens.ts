@@ -176,6 +176,14 @@ export const RADIE = {
 /** Träffyta. Skillen: minst 44 pt, maskinen skakar. Primärknappen 48. */
 export const TRAFFYTA = { min: 44, primar: 48 } as const;
 
+/**
+ * Ekonomisektionens fasta bottenrad (`app/ekonomi/EkonomiBottomNav.tsx`): 12 px över,
+ * 48 px knappar, `medSafeBotten(24)` under. Ett LAYOUTMÅTT — se LAYOUT ovan: det bor
+ * här med safe-area inräknad, aldrig som ett tal i en vy. Faktureringsvyns sidokolumn
+ * drar av det från sin höjd, annars hamnar listans sista rader under flikraden.
+ */
+export const EKONOMI_BOTTENRAD = `calc(${AVSTAND.m + TRAFFYTA.primar}px + ${medSafeBotten(AVSTAND.xl)})`;
+
 /** Ikonstorlek (Material Symbols): i löptext 18, i en rad 22, helskärmsbekräftelse 96. */
 export const IKON = { text: 18, rad: 22, stor: 96 } as const;
 

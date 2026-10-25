@@ -6,7 +6,7 @@ import { dagAvvikelser, minText, datumLang } from "@/lib/lonesystem/forarText";
 import { rastSaknas } from "@/lib/arbetsdagRegler";
 import ManadRubrik from "@/components/design/ManadRubrik";
 import { laggTillDag, pct, kvotMaskinText, kvotNot, kvotVarde, summaAvKvot, tomKvot, type KvotSumma, type Maskintid } from "@/lib/admin/lonekvot";
-import { TYP, IKON, AVSTAND, FARG, KNAPP, KORT, TRAFFYTA, TNUM, RORELSE, designCss } from "@/lib/design/tokens";
+import { TYP, IKON, AVSTAND, FARG, KNAPP, KORT, TRAFFYTA, TNUM, RORELSE, RADIE, VIKT, designCss } from "@/lib/design/tokens";
 import { getPeriodRange, type Period } from "@/app/maskinvy/OversiktShared";
 import { useAdminNav } from "./nav";
 import { Ikon, Sektion } from "./ui";
@@ -97,15 +97,18 @@ function arbetsdagarI(start: string, end: string, roda: Record<string, string>):
   return { totalt, hittills };
 }
 
-/** Tid i en smal tabellcell: "128 tim 10 min" bryts mellan tim och min i stället för mitt i en del. Texten är minText. */
+/** Tid i en tabellcell: tim:min på EN rad ("218:10") — förut bröts "218 tim / 10 min" på två rader och tabellen blev dubbelt så hög (Martin 2026-10-25). */
+export function tidKort(min: number): string {
+  const m = Math.max(0, Math.round(min || 0));
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+}
 function TidCell({ min }: { min: number }) {
-  const m = Math.round(min || 0);
-  const delar = m < 60 ? [`${m} min`] : m % 60 ? [`${Math.floor(m / 60)} tim`, `${m % 60} min`] : [`${Math.floor(m / 60)} tim`];
-  return <>{delar.map((t, i) => <React.Fragment key={i}>{i > 0 && " "}<span style={{ display: "inline-block" }}>{t}</span></React.Fragment>)}</>;
+  return <span style={{ whiteSpace: "nowrap" }}>{tidKort(min)}</span>;
 }
 
 /** Tabellens kolumner: förare, betalt, maskin, lönekvot (+ en pil när raden går att öppna). */
-const KOL_BREDD = { betalt: 56, maskin: 56, kvot: 64 } as const;
+// Kvot-kolumnen rymmer rubriken LÖNEKVOT (65 px i versaler): på 64 px gick den ihop med MASKIN bredvid.
+const KOL_BREDD = { betalt: 60, maskin: 60, kvot: 72 } as const;
 const kolumner = (oppnabar: boolean) => `minmax(0, 1fr) ${KOL_BREDD.betalt}px ${KOL_BREDD.maskin}px ${KOL_BREDD.kvot}px${oppnabar ? ` ${IKON.text}px` : ""}`;
 
 export default function DagarUnderflik() {
@@ -205,7 +208,10 @@ export default function DagarUnderflik() {
   // som dagar. (Km visas inte här: tabellen svarar på lönekvoten; milen finns i Förare · Månad.) Lönekvoten räknas bara över dagar där maskinen skickar filer (lib/admin/lonekvot).
   const summa = useMemo(() => {
     const perForare = new Map<string, { id: string; namn: string; obekr: number; kvot: KvotSumma }>();
+    // Företagsledare har ingen lön i appen (inga lönerader) — de står inte i sammanställningen, samma som i Löneunderlag.
+    const ledare = new Set((data?.medarbetare || []).filter((m: any) => m.foretagsledare === true).map((m: any) => m.medarbetare_id));
     for (const r of rader) {
+      if (ledare.has(r.id)) continue;
       const s = perForare.get(r.id) || { id: r.id, namn: r.namn, obekr: 0, kvot: tomKvot() };
       if (!r.d.bekraftad) s.obekr++;
       laggTillDag(s.kvot, r.min, r.d.maskintid);
@@ -217,10 +223,10 @@ export default function DagarUnderflik() {
       kvot: summaAvKvot(lista.map(f => f.kvot)),
       obekr: lista.reduce((t, f) => t + f.obekr, 0),
     };
-  }, [rader]);
-  // Förare · Månad finns för arbetsmånader vars löneunderlag går att läsa (löneperioden, arbetsmånad + 1, är inte i framtiden) och
+  }, [rader, data]);
+  // Förare · Månad finns för arbetsmånader t.o.m. den pågående (den granskas men skickas inte) och
   // bara för EN månad — en rad över ett kvartal eller ett år har ingen enskild månad att öppna.
-  const manadAttOppna = period === "M" && loneperiodFor(range.start.slice(0, 7)) <= idagISO().slice(0, 7);
+  const manadAttOppna = period === "M" && range.start.slice(0, 7) <= idagISO().slice(0, 7);
   // Dagarnas läge (period, månad, filter) följer med i adressen, så "tillbaka" från Förare · Månad landar i samma Dagar.
   const oppnaForare = (id: string) => gaTill({ flik: "lon", underflik: "underlag", params: {
     period: loneperiodFor(range.start.slice(0, 7)), forare: id,
@@ -234,10 +240,10 @@ export default function DagarUnderflik() {
           Samma mönster som maskinvyn: Månad / Kvartal / År + ‹ ›. Förvalt senaste
           avslutade period; en pågående period märks under rubriken. */}
       <div style={{ ...KORT, marginBottom: AVSTAND.l }}>
-        <div style={{ display: "flex", background: FARG.linje, borderRadius: 10, padding: AVSTAND.xs, marginBottom: AVSTAND.s }}>
+        <div style={{ display: "flex", background: FARG.linje, borderRadius: RADIE.rad, padding: AVSTAND.xs, marginBottom: AVSTAND.s }}>
           {PERIODER.map(p => (
             <button key={p.key} onClick={() => { setPeriod(p.key); setOffset(forvaltOffset(p.key)); }} aria-pressed={period === p.key}
-              style={{ flex: 1, minHeight: 36, border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", ...TYP.meta, background: period === p.key ? FARG.fyllning : "transparent", color: period === p.key ? FARG.text : FARG.text2 }}>
+              style={{ flex: 1, minHeight: TRAFFYTA.min, border: "none", borderRadius: RADIE.rad, cursor: "pointer", fontFamily: "inherit", ...TYP.meta, fontWeight: period === p.key ? VIKT.halvfet : VIKT.normal, background: period === p.key ? FARG.fyllning : "transparent", color: period === p.key ? FARG.text : FARG.text2 }}>
               {p.label}
             </button>
           ))}
@@ -285,7 +291,7 @@ export default function DagarUnderflik() {
             <div data-lonekvot-tabell="" style={{ marginBottom: AVSTAND.l }}>
               <Sektion topp={0}>{`Förare · ${periodLabel}${pagar ? " · pågår" : ""}`}</Sektion>
               <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
-                <div style={{ display: "grid", gridTemplateColumns: kolumner(manadAttOppna), columnGap: AVSTAND.xs, alignItems: "end", padding: `${AVSTAND.m}px 0 ${AVSTAND.xs}px`, borderBottom: `1px solid ${FARG.linje}`, ...TYP.micro, color: FARG.text2 }}>
+                <div style={{ display: "grid", gridTemplateColumns: kolumner(manadAttOppna), columnGap: AVSTAND.s, alignItems: "end", padding: `${AVSTAND.m}px 0 ${AVSTAND.xs}px`, borderBottom: `1px solid ${FARG.linje}`, ...TYP.micro, color: FARG.text2 }}>
                   <span>Förare</span><span style={{ textAlign: "right" }}>Betalt</span><span style={{ textAlign: "right" }}>Maskin</span><span style={{ textAlign: "right" }}>Lönekvot</span>
                   {manadAttOppna && <span />}
                 </div>
@@ -305,7 +311,7 @@ export default function DagarUnderflik() {
                       {manadAttOppna && <Ikon namn="chevron_right" farg={FARG.text3} />}
                     </>
                   );
-                  const rad: React.CSSProperties = { display: "grid", gridTemplateColumns: kolumner(manadAttOppna), columnGap: AVSTAND.xs, alignItems: "center", width: "100%", minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0`, background: "none", border: "none", fontFamily: "inherit", textAlign: "left", color: "inherit" };
+                  const rad: React.CSSProperties = { display: "grid", gridTemplateColumns: kolumner(manadAttOppna), columnGap: AVSTAND.s, alignItems: "center", width: "100%", minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0`, background: "none", border: "none", fontFamily: "inherit", textAlign: "left", color: "inherit" };
                   return (
                     <div key={f.id} style={{ borderBottom: `1px solid ${FARG.linje}` }}>
                       {manadAttOppna
@@ -315,7 +321,7 @@ export default function DagarUnderflik() {
                     </div>
                   );
                 })}
-                <div data-kvot-alla="" style={{ display: "grid", gridTemplateColumns: kolumner(manadAttOppna), columnGap: AVSTAND.xs, alignItems: "center", minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0` }}>
+                <div data-kvot-alla="" style={{ display: "grid", gridTemplateColumns: kolumner(manadAttOppna), columnGap: AVSTAND.s, alignItems: "center", minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0` }}>
                   <span style={{ minWidth: 0 }}>
                     <span style={{ display: "block", ...TYP.listtitel, color: FARG.text }}>Alla</span>
                     <span style={{ display: "block", ...TYP.meta, ...TNUM, color: FARG.text2 }}>
@@ -330,7 +336,7 @@ export default function DagarUnderflik() {
               </div>
               {summa.kvot.kvotDagar > 0 && (
                 <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text3 }}>
-                  Lönekvot = maskinens G15 under förarens inloggning delat med betald tid, över dagar med maskinfiler. Mäter verksamheten, inte föraren.
+                  Tid i tim:min. Lönekvot = maskinens G15 under förarens inloggning delat med betald tid, över dagar med maskinfiler. Mäter verksamheten, inte föraren.
                 </p>
               )}
             </div>

@@ -7,6 +7,7 @@
 //   • ursprung: 'privat' (ingen Vida kommer) | 'vanta_vida' (Vida levererar objektet senare → förslag att slå ihop, lib/vidaSammanslagning).
 //   • position (lat/lng) valfri på telefon/dator; på maskindator alltid maskinens position + maskinen tilldelad + pågående.
 //   • GROT: valfritt hor_till_objekt_id = virkesobjektet på samma trakt (visar dess traktgräns, ytor, anteckningar, skördarspår).
+//   • egen skotning (slutavverkning/gallring): objekt.egen_skotning = true — inga skotarfiler väntas (lib/startaJobbLage).
 //
 // Rena delar (byggObjektRad, validering) + EN tunn skrivning (skapaJobb) som LÄSER TILLBAKA raden den skapade — ett insert
 // utan returnerad rad är ett fel, aldrig en tyst succé. Testas i startaJobb.test.ts.
@@ -102,6 +103,9 @@ export interface JobbIndata {
   bolag?: string | null;
   /** GROT: virkesobjektet på samma trakt (objekt.id). Ignoreras för alla andra typer. */
   horTillObjektId?: string | null;
+  /** Säljaren/markägaren skotar själv → inga filer väntas från en skotare. Bara slutavverkning och gallring; ignoreras för GROT/energi.
+   *  Skrivs bara när den är sann (kolumnen objekt.egen_skotning, migration 20261024121848_objekt_egen_skotning.sql). */
+  egenSkotning?: boolean | null;
   /** Maskindator: maskinen som startar jobbet → tilldelas i rätt rollfält, status pågående. Utan maskin: ingen tilldelning (planerat jobb). */
   maskin?: { maskinId: string; roll: JobbRoll } | null;
 }
@@ -130,6 +134,7 @@ export function byggObjektRad(i: JobbIndata, vo: string, nu: string): Record<str
   if (atgard) rad.atgard = atgard;
   if (giltigPlats(i.lat, i.lng)) { rad.lat = Number(i.lat); rad.lng = Number(i.lng); }
   if (i.typ === 'grot' && i.horTillObjektId) rad.hor_till_objekt_id = i.horTillObjektId;
+  if (i.egenSkotning === true && (i.typ === 'slutavverkning' || i.typ === 'gallring')) rad.egen_skotning = true;
   if (i.maskin?.maskinId) {
     rad[i.maskin.roll === 'skordare' ? 'skordare_maskin_id' : 'skotare_maskin_id'] = i.maskin.maskinId;
     rad.status = 'pagaende';
