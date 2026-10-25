@@ -21,6 +21,7 @@ import {
 } from '@/lib/ekonomi/acord';
 import { kostnadsstalleFor, harKrockandeKostnadsstalle } from '@/lib/ekonomi/kostnadsstalle';
 import { medForestlink } from '@/lib/ekonomi/forestlink';
+import { raknaSortiment } from '@/lib/ekonomi/sortimentAntal';
 import type { VoUnderlag, Maskinrad } from '@/lib/faktura/radbyggare';
 
 type SB = { from: (t: string) => any };
@@ -100,13 +101,13 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
       .select('datum, korstracka_m, volym_m3sub').in('objekt_id', objektIds)
       .order('datum').order('id').range(f, t)),
     fetchAllRows((f, t) => sb.from('fakt_sortiment')
-      .select('sortiment_id').in('objekt_id', objektIds)
+      .select('sortiment_id, volym_m3sub').in('objekt_id', objektIds)
       .order('sortiment_id').order('id').range(f, t)),
   ]);
 
   // ── Register och prislistor ────────────────────────────────────────────
   const [maskinRes, kstRes, timprisRes, acordRes, traktRes, sortConfRes, ovrigtRes, avstRes,
-         grupperRes, bolagRes, objektRes] = await Promise.all([
+         klassRes, bolagRes, objektRes] = await Promise.all([
     sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, forestlink'),
     sb.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod, giltig_fran, giltig_till'),
     sb.from('maskin_timpris').select('maskin_id, timpris, giltig_fran, giltig_till'),
@@ -115,12 +116,15 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     sb.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till'),
     sb.from('acord_ovrigt').select('nyckel, varde, giltig_fran, giltig_till'),
     sb.from('acord_skotningsavstand').select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till'),
-    sb.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
+    // vy_sortiment_klass, ALDRIG dim_sortiment_grupp: den tabellen fylls av
+    // ingen trigger och saknar rad för 68 av 304 sortiment. Se
+    // lib/ekonomi/sortimentAntal.
+    sb.from('vy_sortiment_klass').select('sortiment_id, namn, kundkod'),
     sb.from('bolag').select('namn, fortnox_kundnr'),
     sb.from('objekt').select('id, vo_nummer, kontraktsnummer').eq('vo_nummer', voNummer),
   ]);
   for (const r of [maskinRes, kstRes, timprisRes, acordRes, traktRes, sortConfRes,
-                   ovrigtRes, avstRes, grupperRes, bolagRes, objektRes]) {
+                   ovrigtRes, avstRes, klassRes, bolagRes, objektRes]) {
     if (r.error) throw new Error('Kunde inte läsa register: ' + r.error.message);
   }
 
@@ -137,12 +141,19 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     noter.push({ niva: 'varning', text: 'Ingen stamdata — medelstammen kan inte räknas fram.' });
   }
 
-  const gruppMap = new Map<string, string | null>(
-    (grupperRes.data || []).map((g: any) => [g.sortiment_id, g.grupp]));
-  const grupperAuto = new Set(
-    sort.map((s: any) => gruppMap.get(s.sortiment_id)).filter(Boolean) as string[]).size;
+  // ANTAL SORTIMENT — regeln bor i lib/ekonomi/sortimentAntal (kundkod som
+  // identitet, kvalitetsklasser ihop, avkap och stammar utan sortiment bort).
+  // Räkningen bär båda listorna så granskningen kan visa vad talet är byggt av.
+  const klassMap = new Map<string, { namn: string | null; kundkod: string | null }>(
+    (klassRes.data || []).map((g: any) => [g.sortiment_id, { namn: g.namn, kundkod: g.kundkod }]));
+  const sortimentsrakning = raknaSortiment(sort.map((s: any) => ({
+    sortiment_id: s.sortiment_id,
+    namn: klassMap.get(s.sortiment_id)?.namn ?? null,
+    kundkod: klassMap.get(s.sortiment_id)?.kundkod ?? null,
+    volym_m3sub: s.volym_m3sub,
+  })));
   const sortimentgrupper = huvud.sortiment_grupper_manuell != null
-    ? Number(huvud.sortiment_grupper_manuell) : grupperAuto;
+    ? Number(huvud.sortiment_grupper_manuell) : sortimentsrakning.antal;
 
   const acordList = giltiga(acordRes.data);
   const traktKr = traktTillagg(volym, giltiga(traktRes.data) as any).krPerM3;
