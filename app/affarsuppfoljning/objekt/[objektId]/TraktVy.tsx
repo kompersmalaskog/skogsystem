@@ -6,7 +6,8 @@
 //   2. Vad blev det?        timmer, kubb, massaved, övrigt — m³ och procent, "vanligt X %" när det finns trakter att jämföra med,
 //                           och EN mening om timret
 //   3. Massaveden           medellängden mot Vidas 4,6 m → ?vy=massaved (3 m-stockar, längder, sågbart, trädslag)
-//   4. Röta                 granar med röta mot vår median, och timret man förlorar med längre rotbit (rotkap)
+//   4. Röta                 granar med röta mot vår median, hur ofta rötan kapades bort och hur ofta den fanns kvar efter första
+//                           biten (lib/rotpost/rota.ts), avkapet, och timret man förlorar med längre rotbit (rotkap)
 //   5. Stämplingen          bara rotposter: stämplingslängden mot skördaren (StamplingDel)
 // Varje del läses för sig och ett fel i en del fäller aldrig de andra. Ett fel är ett fel, aldrig noll.
 
@@ -21,9 +22,11 @@ import { SORTIMENT_NAMN } from '@/lib/medelstam/berakna';
 import type { LasFel } from '@/lib/medelstam/las';
 import { lasTrakter } from '@/lib/rotpost/las';
 import { skillnad, SORTIMENT, type Trakt } from '@/lib/rotpost/uppfoljning';
+import { rotaFor, type Rota, type RotkapRad } from '@/lib/rotpost/rota';
 import StamplingDel from '../../rotposter/StamplingDel';
 
-type Massaved = { namn: string | null; medellangd_m: number | null; onskad_medellangd_m: number; total_m3fub: number };
+type Massaved = { namn: string | null; medellangd_m: number | null; onskad_medellangd_m: number; total_m3fub: number;
+  avkap?: { st: number; m3fub: number; delar: { kap: string; st: number; m3fub: number }[] } };
 type Del<T> = { typ: 'laddar' } | { typ: 'fel' } | { typ: 'klar'; v: T };
 
 /** EN mening om timret mot det vanliga. Inom ±2 procentenheter är det "som vanligt". */
@@ -40,7 +43,7 @@ export default function TraktVy({ objektId }: { objektId: string }) {
   const [medianRota, setMedianRota] = useState<number | null>(null);
   const [fel, setFel] = useState<LasFel | null>(null);
   const [mv, setMv] = useState<Del<Massaved>>({ typ: 'laddar' });
-  const [rotkap, setRotkap] = useState(false);
+  const [rota, setRota] = useState<Rota | null>(null);
 
   const hamta = useCallback(async () => {
     setFel(null); setT(undefined);
@@ -57,11 +60,15 @@ export default function TraktVy({ objektId }: { objektId: string }) {
   }, [objektId]);
 
   useEffect(() => { hamta(); hamtaMassaved(); }, [hamta, hamtaMassaved]);
-  // Rotkapet är ett tillägg: finns ingen simulering finns bara ingen rad.
+  // Rotkapet är ett tillägg: finns ingen simulering (eller går den inte att läsa) finns bara inga rader om den.
+  // Alla trakters rad läses, så "vanligt" kan räknas (en rad per trakt, ett hundratal).
   useEffect(() => {
-    supabase.from('sim_rotkap').select('objekt_id').eq('objekt_id', objektId).eq('kaplangd_cm', 300).maybeSingle()
-      .then(({ data }) => setRotkap(!!data));
+    supabase.from('sim_rotkap').select('objekt_id,stammar_objekt,stammar,grupp2_stammar,utan_sagstock,utan_kurva').eq('kaplangd_cm', 300)
+      .then(({ data, error }) => setRota(error ? null : rotaFor(objektId, (data ?? []) as RotkapRad[])));
   }, [objektId]);
+  const rotkap = rota != null;
+  const avkap = mv.typ === 'klar' ? mv.v.avkap : undefined;
+  const pct = (v: number) => `${Math.round(100 * v)} %`;
 
   const bas = `/affarsuppfoljning/objekt/${encodeURIComponent(objektId)}`;
   const namn = kortObjekt(t?.namn ?? (mv.typ === 'klar' ? mv.v.namn : null) ?? objektId);
@@ -111,12 +118,23 @@ export default function TraktVy({ objektId }: { objektId: string }) {
         </Rader>
       )}
 
-      {((t && t.typ === 'Slutavverkning') || rotkap) && (
+      {((t && t.typ === 'Slutavverkning') || rotkap || (avkap && avkap.st > 0)) && (
         <Rader rubrik="Röta">
           {t && t.typ === 'Slutavverkning' && (t.rota != null
-            ? <Rad text="Granar med röta i rotändan" tal={`${Math.round(100 * t.rota)} %`}
-                hoger={medianRota != null ? `vanligt ${Math.round(100 * medianRota)} %` : undefined} />
+            ? <Rad text="Granar med röta i rotändan" tal={pct(t.rota)}
+                hoger={medianRota != null ? `vanligt ${pct(medianRota)}` : undefined} />
             : <Rad text="Rötan är inte mätt på trakten" dampad />)}
+          {rota && rota.medRotkap > 0 && (
+            <Rad text="Rötan kapades bort" sub={`${nf0(rota.medRotkap)} av ${nf0(rota.stammar)} stammar`} tal={pct(rota.medRotkap / Math.max(1, rota.stammar))} />
+          )}
+          {rota && rota.kvarAndel != null && (
+            <Rad text="Rötan fanns kvar efter första biten" sub={`${nf0(rota.kvar)} av ${nf0(rota.kvarAv)} stammar – maskinen kapade igen`}
+              tal={pct(rota.kvarAndel)} hoger={rota.kvarVanligt != null ? `vanligt ${pct(rota.kvarVanligt)}` : undefined} />
+          )}
+          {avkap && avkap.st > 0 && (
+            <Rad text="Avkap" sub={avkap.delar.filter(d => d.st > 0).map(d => `${d.kap}: ${nf0(d.st)} st`).join(' · ') || undefined}
+              tal={`${nf0(avkap.st)} st`} hoger={`${nf1(avkap.m3fub)} m³`} />
+          )}
           {rotkap && <Rad text="Timmer du förlorar med längre rotbit" href={`${bas}/rotkap`} />}
         </Rader>
       )}
