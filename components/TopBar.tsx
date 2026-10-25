@@ -38,6 +38,13 @@ const pageNames: Record<string, string> = {
   '/avtal': 'Avtal & Abonnemang',
   '/personal': 'Personal',
   '/om': 'Om appen',
+  // Ekonomin: toppfältet säger vilken flik man är på — ingen flik har en egen rubrik i sidan.
+  '/ekonomi': 'Ekonomi',
+  '/ekonomi/mot-ackord': 'Ackord',
+  '/ekonomi/resultat': 'Resultat',
+  '/ekonomi/fakturaunderlag': 'Fakturaunderlag',
+  '/ekonomi/prislista': 'Prislista',
+  '/ekonomi/installningar': 'Inställningar',
 }
 
 export default function TopBar() {

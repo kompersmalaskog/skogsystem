@@ -26,7 +26,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { saveAllBracket, saveFormelConfig, todayIso, yesterdayIso } from '@/lib/ekonomi/prisversion';
+import { saveAllBracket, saveFormelConfig, todayIso } from '@/lib/ekonomi/prisversion';
 import { VARDEMINSKNING_FORVAL_SKORDARE, VARDEMINSKNING_FORVAL_SKOTARE } from '@/lib/ekonomi/vardeminskning';
 import { FORESTLINK_KR_PER_TIM } from '@/lib/ekonomi/forestlink';
 import {
@@ -35,7 +35,7 @@ import {
   type TerrangRad, terrangSnapshot, arTerrangSmutsig, rebaseTerrang, sparaTerrangRad,
   type OvrigtRad, ovrigtSnapshot, arOvrigtSmutsig, rebaseOvrigt, sparaOvrigtRad,
   acordSnapshot, traktSnapshot, avstandSnapshot, sortSnapshot,
-  sparaAllaSmutsiga, sparaSammanfattning, slaIhopEfterSpar,
+  sparaAllaSmutsiga, sparaSammanfattning, slaIhopEfterSpar, grundprisSumma,
 } from '@/lib/ekonomi/prislistaSpara';
 import { EkonomiSida, Lista, SektionsTitel, Laddar, MAXBREDD_BRED } from '../delade/mall';
 import { rubrikCell, talCell, gridRad } from '../delade/tabell';
@@ -109,7 +109,7 @@ async function hamtaMaskiner(): Promise<{ rader: MaskinRad[]; fel: string }> {
     supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, vardeminskning_kr_per_g15h, sald, sald_datum, forestlink').order('visningsnamn', { nullsFirst: false }),
   ]);
   if (mRes.error) return { rader: [], fel: `Kunde inte läsa maskinpriser (maskin_timpris): ${mRes.error.message}` };
-  if (dimRes.error) return { rader: [], fel: `Kunde inte läsa maskindata (dim_maskin): ${dimRes.error.message}` };
+  if (dimRes.error) return { rader: [], fel: `Kunde inte läsa maskinregistret: ${dimRes.error.message}` };
   const dimMap: Record<string, any> = {};
   for (const d of (dimRes.data || [])) dimMap[d.maskin_id] = d;
   // NULL i databasen = tomt fält ("ej satt — räknas inte"); förslaget visas
@@ -307,6 +307,8 @@ export default function PrislistaClient() {
       if (r.medelstam === '' || r.pris_total === '' || r.pris_skordare === '' || r.pris_skotare === '') return { text: 'Alla grundpris-fält måste vara ifyllda', fel: true };
       if (Number(r.pris_total) <= 0 || Number(r.medelstam) <= 0) return { text: 'Pris och medelstam måste vara > 0', fel: true };
     }
+    // Totalt läses av fakturaunderlaget, rollpriserna av allt annat — de får inte glida isär.
+    if (acord.some(r => grundprisSumma(r) != null)) return { text: 'Totalt måste vara skördare + skotare — rätta de markerade raderna', fel: true };
     const err = await saveAllBracket(supabase, 'acord_priser', acord, r => ({
       medelstam: Number(r.medelstam), pris_total: Number(r.pris_total), pris_skordare: Number(r.pris_skordare), pris_skotare: Number(r.pris_skotare),
     }));
@@ -439,8 +441,8 @@ export default function PrislistaClient() {
   return (
     <EkonomiSida maxBredd={MAXBREDD_BRED}>
       <div style={{ padding: `0 ${AVSTAND.sidmarginal}px` }}>
-        <div style={TYP.titel}>Prislista</div>
-        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
+        {/* Rubriken bor i toppfältet, som i ekonomins övriga flikar. */}
+        <div style={{ ...TYP.meta, color: FARG.text2 }}>
           Ändringar skapar nya rader med dagens datum ({todayIso()}) — gamla priser bevaras och äldre produktion räknas med de priser som gällde då.
         </div>
 
@@ -474,6 +476,11 @@ export default function PrislistaClient() {
                     <NumInput value={a.pris_skotare} onChange={v => updateAcord(idx, { pris_skotare: v })} />
                     <NumInput value={a.pris_total} onChange={v => updateAcord(idx, { pris_total: v })} />
                     <div style={{ textAlign: 'right' }}>{tabortKnapp(() => removeAcord(idx))}</div>
+                    {grundprisSumma(a) != null && (
+                      <div style={{ gridColumn: '1 / -1', ...TYP.meta, color: FARG.orange }}>
+                        Skördare + skotare blir {String(grundprisSumma(a)).replace('.', ',')}, men Totalt är {String(a.pris_total).replace('.', ',')}. Fakturan räknar på Totalt.
+                      </div>
+                    )}
                   </div>
                 ))}
                 {acord.length === 0 && <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Ingen aktiv uppsättning.</div>}
@@ -519,7 +526,7 @@ export default function PrislistaClient() {
                           </>
                         ) : (
                           <div style={{ gridColumn: 'span 3', ...TYP.meta, color: FARG.orange }}>
-                            Maskinen saknas i dim_maskin — värdeminskning, FL och såld kan inte sättas
+                            Maskinen finns inte i maskinregistret — värdeminskning, FL och såld kan inte sättas
                           </div>
                         )}
                       </div>
@@ -542,7 +549,7 @@ export default function PrislistaClient() {
                           <input type="date" value={m.sald_datum} onChange={e => updateMaskin(m.lid, { sald_datum: e.target.value })}
                             style={{ ...inputStil, width: 'auto' }} />
                         )}
-                        {m.isNew && <span style={{ ...TYP.meta, color: FARG.gron }}>Ny — ej sparad</span>}
+                        {m.isNew && <span style={{ ...TYP.meta, color: FARG.orange }}>Ny — ej sparad</span>}
                         {andrad && <span style={{ ...TYP.meta, color: FARG.orange }}>Ändrad — ej sparad</span>}
                         {felRad(m.fel)}
                         {m.isNew && (
@@ -650,7 +657,7 @@ export default function PrislistaClient() {
                     </div>
                     <div style={{ marginTop: AVSTAND.xs, display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: AVSTAND.m }}>
                       {gallerFran(r.giltig_fran)}
-                      {r.isNew && <span style={{ ...TYP.meta, color: FARG.gron }}>Ny — ej sparad</span>}
+                      {r.isNew && <span style={{ ...TYP.meta, color: FARG.orange }}>Ny — ej sparad</span>}
                       {!r.isNew && arTerrangSmutsig(r) && <span style={{ ...TYP.meta, color: FARG.orange }}>Ändrad — ej sparad</span>}
                       {felRad(r.fel)}
                       {r.isNew && <button style={{ ...KNAPP.tertiar, ...TYP.meta }} onClick={() => taBortNyTerrang(r.lid)}>Ta bort raden</button>}
@@ -667,7 +674,7 @@ export default function PrislistaClient() {
             <Lista style={{ padding: `${AVSTAND.m}px ${AVSTAND.sidmarginal}px` }}>
               <fieldset disabled={!!sparar.ovrigt} style={FIELDSET}>
                 <div style={{ ...ovrigtGrid, padding: `${AVSTAND.s}px 0` }}>
-                  <div style={{ ...rubrikCell, textAlign: 'left' }}>Nyckel</div>
+                  <div style={{ ...rubrikCell, textAlign: 'left' }}>Kod</div>
                   <div style={{ ...rubrikCell, textAlign: 'left' }}>Beskrivning</div>
                   <div style={rubrikCell}>Värde</div>
                   <div style={{ ...rubrikCell, textAlign: 'left' }}>Enhet</div>
@@ -675,14 +682,14 @@ export default function PrislistaClient() {
                 {ovrigt.map(r => (
                   <div key={r.lid} style={{ padding: `${AVSTAND.s}px 0` }}>
                     <div style={ovrigtGrid}>
-                      <TextInput value={r.nyckel} onChange={v => updateOvrigt(r.lid, { nyckel: v })} placeholder="Nyckel" disabled={!r.isNew} />
+                      <TextInput value={r.nyckel} onChange={v => updateOvrigt(r.lid, { nyckel: v })} placeholder="kod, t.ex. diesel" disabled={!r.isNew} />
                       <TextInput value={r.beskrivning} onChange={v => updateOvrigt(r.lid, { beskrivning: v })} placeholder="Beskrivning" />
                       <NumInput value={r.varde} onChange={v => updateOvrigt(r.lid, { varde: v })} step="0.01" placeholder="Värde" />
                       <TextInput value={r.enhet} onChange={v => updateOvrigt(r.lid, { enhet: v })} placeholder="Enhet" />
                     </div>
                     <div style={{ marginTop: AVSTAND.xs, display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: AVSTAND.m }}>
                       {gallerFran(r.giltig_fran)}
-                      {r.isNew && <span style={{ ...TYP.meta, color: FARG.gron }}>Ny — ej sparad</span>}
+                      {r.isNew && <span style={{ ...TYP.meta, color: FARG.orange }}>Ny — ej sparad</span>}
                       {!r.isNew && arOvrigtSmutsig(r) && <span style={{ ...TYP.meta, color: FARG.orange }}>Ändrad — ej sparad</span>}
                       {felRad(r.fel)}
                       {r.isNew && <button style={{ ...KNAPP.tertiar, ...TYP.meta }} onClick={() => taBortNyOvrigt(r.lid)}>Ta bort raden</button>}
@@ -696,7 +703,6 @@ export default function PrislistaClient() {
             </Lista>
 
             <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.sektion, lineHeight: 1.6 }}>
-              Varje prisändring sparas som en ny rad med giltig_fran = {todayIso()}; den gamla raden får giltig_till = {yesterdayIso()} så historiken bevaras.
               Fortnox-mappning och datamappning ligger kvar under Inställningar.
             </div>
           </>
