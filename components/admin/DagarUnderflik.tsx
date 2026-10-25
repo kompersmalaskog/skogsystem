@@ -224,9 +224,9 @@ export default function DagarUnderflik() {
       obekr: lista.reduce((t, f) => t + f.obekr, 0),
     };
   }, [rader, data]);
-  // Förare · Månad finns för arbetsmånader vars löneunderlag går att läsa (löneperioden, arbetsmånad + 1, är inte i framtiden) och
+  // Förare · Månad finns för arbetsmånader t.o.m. den pågående (den granskas men skickas inte) och
   // bara för EN månad — en rad över ett kvartal eller ett år har ingen enskild månad att öppna.
-  const manadAttOppna = period === "M" && loneperiodFor(range.start.slice(0, 7)) <= idagISO().slice(0, 7);
+  const manadAttOppna = period === "M" && range.start.slice(0, 7) <= idagISO().slice(0, 7);
   // Dagarnas läge (period, månad, filter) följer med i adressen, så "tillbaka" från Förare · Månad landar i samma Dagar.
   const oppnaForare = (id: string) => gaTill({ flik: "lon", underflik: "underlag", params: {
     period: loneperiodFor(range.start.slice(0, 7)), forare: id,
