@@ -105,7 +105,7 @@ describe('riktiga läsningar (claude-opus-5-5, 2026-10-04)', () => {
   });
 });
 
-import { parsaLasning as parsa2, utbyteVolymer } from './rapport'
+import { parsaLasning as parsa2, utbyteVolymer, parsaUtbyte } from './rapport'
 
 describe('utbyteskalkylen', () => {
   const bas = { post: {}, tradslag: [{ namn: 'Tall', klasser: [{ diameter_cm: 30, antal: 1, volym_m3sk: 1 }] }], sammanfattning: [], osakerheter: [] }
@@ -122,9 +122,27 @@ describe('utbyteskalkylen', () => {
     expect(v.massa).toBe(370)
     expect(v.kubb).toBeNull()
   })
-  it('schemat: varje objekt är stängt, också i anyOf', () => {
-    const u = (UTDATA_SCHEMA as any).properties.utbyteskalkyl.anyOf[1]
+  it('schemat: utbyteskalkylen är stängd, också raderna', () => {
+    const u = (UTDATA_SCHEMA as any).properties.utbyteskalkyl
     expect(u.additionalProperties).toBe(false)
+    expect(u.properties.sortiment.items.additionalProperties).toBe(false)
     expect((UTDATA_SCHEMA as any).required).toContain('utbyteskalkyl')
+  })
+
+  // API:t avvisar ett schema med fler än 16 nullbara/union-fält (400, 2026-10-25: 19 stycken).
+  it('schemat har högst 16 nullbara fält — annars avvisar API:t anropet', () => {
+    const rakna = (n: any): number => {
+      if (!n || typeof n !== 'object') return 0
+      let c = Array.isArray(n.type) || n.anyOf ? 1 : 0
+      for (const v of Object.values(n)) c += rakna(v)
+      return c
+    }
+    expect(rakna(UTDATA_SCHEMA)).toBeLessThanOrEqual(16)
+  })
+
+  it('schemats form (finns + sortimentrader) blir samma platta kalkyl', () => {
+    expect(parsaUtbyte({ finns: false, total_m3fub: null, sortiment: [] })).toBeNull()
+    expect(parsaUtbyte({ finns: true, total_m3fub: 1000, sortiment: [{ sortiment: 'timmer', m3fub: 600, pct: 60 }, { sortiment: 'massaved', m3fub: null, pct: 30 }] }))
+      .toEqual({ total_m3fub: 1000, timmer_m3fub: 600, timmer_pct: 60, kubb_m3fub: null, kubb_pct: null, massaved_m3fub: null, massaved_pct: 30 })
   })
 })

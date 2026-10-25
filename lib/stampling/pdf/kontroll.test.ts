@@ -238,6 +238,6 @@ describe('parsaLasning', () => {
       for (const [k, v] of Object.entries(n)) gå(v, `${stig}.${k}`);
     };
     gå(UTDATA_SCHEMA, 'schema');
-    expect(objekt).toBe(6);   // rot, post, trädslag, klass, sammanfattning, utbyteskalkyl
+    expect(objekt).toBe(7);   // rot, post, trädslag, klass, sammanfattning, utbyteskalkyl, utbytesrad
   });
 });
