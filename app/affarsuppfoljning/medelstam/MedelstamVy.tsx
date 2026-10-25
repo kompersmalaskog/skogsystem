@@ -174,9 +174,10 @@ export type Props = {
   fran?: Vy;                      // skärmen man kom från till en undernivå (Så räknas, Utanför) — dit leder ‹
   gaTill: (vy: Vy, fran?: Vy) => void;
   start?: { typ?: Typ; ms?: string; rot?: string };   // för rendering utan lagring (verifiering)
+  msAdress?: string | null;       // ?ms=0,50 från Räknas tabell: öppna slutavverkning på just den medelstammen
 };
 
-export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fran, gaTill, start }: Props) {
+export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fran, gaTill, start, msAdress }: Props) {
   const [typ, setTyp] = useState<Typ>(start?.typ ?? 'Slutavverkning');
   const [msText, setMsText] = useState<Partial<Record<Typ, string>>>(start?.ms != null ? { [start.typ ?? 'Slutavverkning']: start.ms } : {});
   const [rotVal, setRotVal] = useState<string>(start?.rot ?? '');     // '' = medianen ur datan
@@ -188,9 +189,13 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fra
       if (l.typ && TYPER.includes(l.typ)) setTyp(l.typ);
       if (l.ms) setMsText(l.ms);
       if (typeof l.rot === 'string') setRotVal(l.rot);
+      if (msAdress && tolkaMedelstam(msAdress) != null) {
+        setTyp('Slutavverkning');
+        setMsText(t => ({ ...t, Slutavverkning: msAdress }));
+      }
     }
     setLaddatLokalt(true);
-  }, [start]);
+  }, [start, msAdress]);
   useEffect(() => { if (laddatLokalt && !start) sparaLokalt({ typ, ms: msText, rot: rotVal }); }, [typ, msText, rotVal, laddatLokalt, start]);
 
   const urval = useMemo(() => delaUrval(alla), [alla]);       // lövdominerade objekt ligger i urval.utanfor — redovisas, räknas inte

@@ -4,6 +4,7 @@ import { beraknaLoneunderlag } from "@/lib/lonesystem/loneunderlag";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
 import { arSandbar, vantandeForare } from "@/lib/lonesystem/forarGodkannande";
+import { arPagaendeArbetsManad, arbetsManadForLoneperiod, svenskIdag } from "@/lib/lonesystem/lonemanad";
 
 /**
  * POST /api/fortnox/salary-export
@@ -45,6 +46,11 @@ export async function POST(req: NextRequest) {
 
     if (!period || !/^\d{4}-\d{2}$/.test(period)) {
       return NextResponse.json({ ok: false, meddelande: "period krävs (YYYY-MM)." }, { status: 400 });
+    }
+
+    // Den pågående arbetsmånaden går att granska (dry_run) men aldrig skicka: månaden är inte slut.
+    if (!dryRun && arPagaendeArbetsManad(arbetsManadForLoneperiod(period), svenskIdag())) {
+      return NextResponse.json({ ok: false, meddelande: "Månaden är inte slut än och kan inte skickas till Fortnox." }, { status: 409 });
     }
 
     // Att hoppa över förarens godkännande gäller EN förare, vald uttryckligen — aldrig en hel månad på en gång.

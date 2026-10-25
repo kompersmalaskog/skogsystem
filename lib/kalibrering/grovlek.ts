@@ -45,9 +45,11 @@ export type StockRad = {
  * stocknummer och mättider är samma stock även när stamnumret skiljer sig (325 av Scorpionens 1 461 stockar var en sådan upprepning efter dubblettrensningen
  * 2026-10-22, som gick på stamnumret); den med lägst id behålls. Saknar filen trädslag hamnar stammen utan rad: vi gissar inte.
  */
-export function byggGrovlekRader(args: { stockar: StockRad[]; punkter: DiaPunkt[]; filTradslag: Map<string, string>; tolerans: number }): GrovlekRad[] {
-  const { stockar, punkter, filTradslag, tolerans } = args;
-  // Samma stock i flera filer: den äldsta (lägst id) gäller.
+/**
+ * Samma stock i flera filer räknas EN gång: samma skördetid, stocknummer och mättider är samma fysiska stock även när stamnumret skiljer sig
+ * (en ackumulerande HQC-fil numrerar om). Den med lägst id behålls. Delas med justeringsförslagen (forslag.ts) så att båda räknar likadant.
+ */
+export const fysiskaStockar = <T extends StockRad>(stockar: T[]): T[] => {
   const fysisk = new Map<string, number>();
   for (const s of stockar) {
     const k = `${s.harvest_date ?? s.filnamn}|${s.stock_nummer}|${s.machine_measurement_date}|${s.operator_measurement_date}`;
@@ -55,7 +57,15 @@ export function byggGrovlekRader(args: { stockar: StockRad[]; punkter: DiaPunkt[
     if (aldst == null || s.id < aldst) fysisk.set(k, s.id);
   }
   const behalls = new Set(fysisk.values());
-  const stock = new Map(stockar.filter(s => behalls.has(s.id)).map(s => [s.id, s]));
+  return stockar.filter(s => behalls.has(s.id));
+};
+
+/** Stammens identitet: skördetiden (`harvest_date`), inte stamnumret — det numreras om i varje kumulativ HQC-fil. Saknas skördetiden: fil + nummer. */
+export const stamNyckel = (s: Pick<StockRad, 'harvest_date' | 'filnamn' | 'stam_nummer'>): string => s.harvest_date ?? `${s.filnamn}|${s.stam_nummer}`;
+
+export function byggGrovlekRader(args: { stockar: StockRad[]; punkter: DiaPunkt[]; filTradslag: Map<string, string>; tolerans: number }): GrovlekRad[] {
+  const { stockar, punkter, filTradslag, tolerans } = args;
+  const stock = new Map(fysiskaStockar(stockar).map(s => [s.id, s]));
   const rader = new Map<string, GrovlekRad>();
   for (const p of punkter) {
     const s = stock.get(p.stockId);
@@ -65,7 +75,7 @@ export function byggGrovlekRader(args: { stockar: StockRad[]; punkter: DiaPunkt[
     const manad = s.kontroll_datum.slice(0, 7);
     const klass = grovlekKlass(p.operator_mm);
     const tradslag = tradslagLabel(tr);
-    const nyckel = `${s.harvest_date ?? `${s.filnamn}|${s.stam_nummer}`}|${manad}|${klass}`;
+    const nyckel = `${stamNyckel(s)}|${manad}|${klass}`;
     let r = rader.get(nyckel);
     if (!r) { r = { manad, tradslag, klass, filnamn: s.filnamn, n: 0, traff: 0, summa: 0 }; rader.set(nyckel, r); }
     r.n++; r.summa += p.avvik; if (Math.abs(p.avvik) <= tolerans) r.traff++;

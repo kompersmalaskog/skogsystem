@@ -14,7 +14,7 @@ export default function AtgardArk({ rad }: { rad: AtgardRad }) {
   const { post, dom } = rad;
   return (
     <>
-      <Meta>{`${post.kalla === 'reparation' ? 'Reparation' : 'Åtgärd'} · ${fmtDagMan(post.datum)}`}</Meta>
+      <Meta>{`${post.kalla === 'reparation' ? 'Reparation' : post.kalla === 'kalibrering' ? 'Kalibrering' : 'Åtgärd'} · ${fmtDagMan(post.datum)}`}</Meta>
       <div style={{ ...TYP.listtitel, color: FARG.text, margin: `${AVSTAND.xs}px 0 ${AVSTAND.l}px` }}>{rad.titel}</div>
 
       {!dom ? (
@@ -24,7 +24,7 @@ export default function AtgardArk({ rad }: { rad: AtgardRad }) {
         </Fyll>
       ) : (
         <>
-          <Sektion rubrik="90 dagar före → efter" not={post.kalla === 'atgard' ? 'Efter räknas till nästa åtgärd eller reparation.' : undefined}>
+          <Sektion rubrik="90 dagar före → efter" not={post.kalla === 'kalibrering' ? 'Efter räknas till nästa åtgärd, reparation eller kalibrering.' : post.kalla === 'atgard' ? 'Efter räknas till nästa åtgärd eller reparation.' : undefined}>
             {atgardDetalj(dom).map((f, i, alla) => (
               <Rad key={f.key} titel={f.fraga} sista={i === alla.length - 1} pil={false}
                 hoger={<span style={TNUM}>{f.fore} → <b style={{ fontWeight: TYP.rubrik.fontWeight }}>{f.efter}</b></span>}

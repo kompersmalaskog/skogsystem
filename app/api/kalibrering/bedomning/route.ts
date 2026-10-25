@@ -5,6 +5,7 @@ import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpu
 import { statistik, type VariabelStat } from "@/lib/kalibrering/statistik";
 import { atgardPoster, tidigasteFore, type DatumPunkt } from "@/lib/kalibrering/atgarder";
 import { hamtaMarkorer } from "@/lib/kalibrering/markorer.server";
+import { tolkaMarkor } from "@/lib/kalibrering/forslagMarkorer";
 import type { AtgardPost } from "@/lib/kalibrering/typer";
 
 /**
@@ -221,15 +222,18 @@ export async function GET(req: NextRequest) {
 
   // === 6) Hjälpte åtgärden? — före/efter senaste förar-markören ===
   let atgard: AtgardEffekt | null = null;
-  const { data: atgRows, error: atgErr } = await supabase
+  const { data: atgAlla, error: atgErr } = await supabase
     .from("kalibrering_atgard")
     .select("datum,text")
     .eq("maskin_id", maskinId)
     .order("datum", { ascending: false })
-    .limit(1);
+    .order("id", { ascending: false })
+    .limit(25);
   if (atgErr) {
     return NextResponse.json({ ok: false, error: `kalibrering_atgard: ${atgErr.message}` }, { status: 500 });
   }
+  // Förarens svar "Klart, allt såg bra ut" (Kolla-steget) sparas här också men är ingen åtgärd att mäta före/efter på.
+  const atgRows = (atgAlla ?? []).filter((a) => tolkaMarkor(String(a.text ?? "")).slag !== "kontroll");
   if (atgRows && atgRows.length > 0) {
     const bryt = String(atgRows[0].datum).slice(0, 10);
     const brytD = new Date(`${bryt}T00:00:00Z`);
@@ -297,7 +301,7 @@ export async function GET(req: NextRequest) {
   // Ett TILLÄGG: går något fel här loggas det och listan blir tom — domen och Vidas tal (ovan) ska aldrig falla för att åtgärdslistan inte gick att räkna.
   let atgarder: AtgardPost[] = [];
   try {
-    const markorer = await hamtaMarkorer(supabase, maskinId);
+    const markorer = await hamtaMarkorer(supabase, maskinId, { kalibreringar: true });
     const tidigast = tidigasteFore(markorer);
     if (tidigast) {
       type ListStock = { id: number; kontroll_datum: string; maskin_toppdia_mm: number | null; operator_toppdia_mm: number | null };

@@ -62,8 +62,9 @@ function DagRad({ d, oppen, onVal, sista }: { d: VyDag; oppen: boolean; onVal: (
   );
 }
 
-export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUtanGodkannande }: {
+export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUtanGodkannande, pagaende = false }: {
   m: any; arbetsManad: string;
+  /** Månaden är inte slut: övertiden är "hittills" och godkännandet är inte aktuellt än. */ pagaende?: boolean;
   /** Dagen som ska stå öppen när arket öppnas (från ett vilobrott i Översikten). */ dag?: string;
   onStang: () => void;
   /** Skickar EN förare till Fortnox trots att föraren inte godkänt månaden. Anropas först efter den extra bekräftelsen. */
@@ -126,13 +127,14 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
           <p data-foretagsledare="" style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.listtitel, color: FARG.text2 }}>Företagsledare – lön utanför appen</p>
         ) : (
           <>
-            <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.micro, color: FARG.text2 }}>Övertid</p>
+            <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.micro, color: FARG.text2 }}>{pagaende ? "Övertid hittills" : "Övertid"}</p>
             <p data-svar="" style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.tal, color: FARG.text, ...TNUM }}>{vy.overtid}</p>
+            {pagaende && <p data-pagaende="" style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Månaden pågår. Övertid räknas först när månadens timmar är fyllda.</p>}
           </>
         )}
       </div>
 
-      {status && (
+      {status && !pagaende && (
         <>
           <Sektion topp={AVSTAND.s}>Förarens godkännande</Sektion>
           <Lista>

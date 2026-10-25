@@ -3,7 +3,7 @@ import { fmt, fmtDag } from './format'
 import fixtur from './__fixtures__/klar_2026-10-17.json'
 import fixtur11 from './__fixtures__/klar_2026-11_fran_2026-10-17.json'
 import {
-  bastaFlytt, dagarSaknas, flyttText, klarSvar, lasKlar, maskinHoger, maskinUnderrad, otilldelade, raknaAlla, raknaMaskin, valForTrakt,
+  bastaFlytt, dagarSaknas, flyttText, klarSvar, lasKlar, maskinHoger, maskinUnderrad, medFoljandePrognos, otilldelade, raknaAlla, raknaMaskin, valForTrakt,
   type KlarData, type KlarMaskin, type KlarTrakt,
 } from './klar'
 
@@ -26,7 +26,7 @@ const maskin = (o: Partial<KlarMaskin> & { maskin_id: string }): KlarMaskin => (
 })
 const trakt = (o: Partial<KlarTrakt> & { objekt_id: string }): KlarTrakt => ({
   namn: o.objekt_id, typ: 'slutavverkning', roll: 'skotare', maskin_id: null, sortn: 1, ordning: 1, ar: 2026, manad: 11,
-  forra_manaden: false, volym: 500, timmar: 16, rest_volym: 500, saknar_prognos: false, ur_ko: false, medelstam: null, ...o,
+  forra_manaden: false, volym: 500, timmar: 16, rest_volym: 500, saknar_prognos: false, ur_ko: false, medelstam: null, prognos_h: 16, utfort_h: 0, utfort_volym: 0, ...o,
 })
 const data = (o: Partial<KlarData>): KlarData => ({
   ar: 2026, manad: 11, idag: '2026-10-17', start: '2026-11-02', sista_arbetsdag: '2026-11-30', har_bestallning: true,
@@ -241,6 +241,43 @@ describe('svarsraden (prioritet 1–5)', () => {
   it('fixturen (oktober): fem trakter saknar prognos', () => {
     const svar = klarSvar(prod(), null)
     expect(svar.rubrik).toBe('5 trakter saknar prognos')
+  })
+})
+
+describe('medFoljandePrognos — prognosen följer trakten', () => {
+  const m = maskin({ maskin_id: 'M', roll: 'skordare' })
+  it('för lite utfört: orört (prognosen gäller)', () => {
+    const d = data({ maskiner: [m], trakter: [trakt({ objekt_id: 'a', roll: 'skordare', maskin_id: 'M', volym: 1000, prognos_h: 40, timmar: 38, utfort_h: 2, utfort_volym: 50 })] })
+    const t = medFoljandePrognos(d).trakter[0]
+    expect(t.timmar).toBe(38)
+    expect(t.foljer).toBeUndefined()
+  })
+  it('går fortare än prognosen: resten krymper och trakten märks foljer', () => {
+    // 8 tim och 400 m³ (50 m³/tim mot prognosens 25): viktat 37,5 → kvar 600/37,5 = 16 (prognosen rakt av: 32)
+    const d = data({ maskiner: [m], trakter: [trakt({ objekt_id: 'a', roll: 'skordare', maskin_id: 'M', volym: 1000, prognos_h: 40, timmar: 32, utfort_h: 8, utfort_volym: 400 })] })
+    const t = medFoljandePrognos(d).trakter[0]
+    expect(t.timmar).toBe(16)
+    expect(t.foljer).toEqual({ restPlanH: 32, skillnad: 1, utfortH: 8 })
+    expect(t.saknar_prognos).toBe(false)
+  })
+  it('manuell maskin (810E) och GROT rörs inte', () => {
+    const man = maskin({ maskin_id: 'JD', manuell: true })
+    const d = data({ maskiner: [man, m], trakter: [
+      trakt({ objekt_id: 'a', maskin_id: 'JD', volym: 1000, prognos_h: 40, timmar: 32, utfort_h: 8, utfort_volym: 400 }),
+      trakt({ objekt_id: 'b', typ: 'grot', maskin_id: 'M', roll: 'skordare', volym: 1000, prognos_h: 40, timmar: 32, utfort_h: 8, utfort_volym: 400 }),
+    ] })
+    expect(medFoljandePrognos(d).trakter.map(t => t.timmar)).toEqual([32, 32])
+  })
+  it('utan prognos men med utfall: resten på den uppmätta takten, inget saknas längre', () => {
+    const d = data({ maskiner: [m], trakter: [trakt({ objekt_id: 'a', roll: 'skordare', maskin_id: 'M', volym: 1000, prognos_h: null, timmar: null, saknar_prognos: true, utfort_h: 10, utfort_volym: 300 })] })
+    const t = medFoljandePrognos(d).trakter[0]
+    expect(t.timmar).toBeCloseTo(23.33, 2)
+    expect(t.saknar_prognos).toBe(false)
+    expect(raknaAlla(medFoljandePrognos(d)).M.saknar).toBe(false)
+  })
+  it('fixturen ur prod (äldre RPC utan utfört) ändras inte alls', () => {
+    const d = prod()
+    expect(medFoljandePrognos(d)).toEqual(d)
   })
 })
 

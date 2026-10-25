@@ -70,7 +70,7 @@ function Innehall() {
   // läsrättigheten saknas (RLS ger tomt, aldrig fel). Båda sägs.
   if (!rader || rader.length === 0) return (
     <div style={SIDA}>
-      <Tillbakarad href={bas} text="Objektet" />
+      <Tillbakarad href={bas} text="Trakten" />
       <div style={{ ...MUTED, padding: '24px 16px', lineHeight: 1.7 }}>
         Ingen simulering finns för objektet.<br />
         Förberäkningen körs efter import (berakna_rotkap.py) — objekt utan stockar eller kurvor får ingen.

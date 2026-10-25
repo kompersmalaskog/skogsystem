@@ -7,7 +7,7 @@ const k = (o: Partial<FaktKalibrering> = {}): FaktKalibrering => ({
   langd_avvikelse_snitt_cm: 0, langd_avvikelse_min_cm: 0, langd_avvikelse_max_cm: 0, dia_avvikelse_snitt_mm: 0, dia_avvikelse_min_mm: 0, dia_avvikelse_max_mm: 0,
   status: 'OK', filnamn: 'a.hqc', skapad_tid: '2026-10-21T15:00:00Z', ...o,
 });
-const tid = (dag: string, klockslag: string, o: Partial<KontrollTid> = {}): KontrollTid => ({ forsta: { dag, klockslag }, sista: { dag, klockslag }, urval: ['Manually by operator selected stem'], ...o });
+const tid = (dag: string, klockslag: string, o: Partial<KontrollTid> = {}): KontrollTid => ({ forsta: { dag, klockslag }, sista: { dag, klockslag }, urval: ['Manually by operator selected stem'], matare: 'Stefan', ...o });
 
 describe('mättiden — Opti-tid med radens egen konvention, i svensk tid', () => {
   it('verkligt UTC (tid_ar_utc) i oktober är sommartid: 14:13Z = 16:13', () => {
@@ -65,16 +65,24 @@ describe('vädret kort', () => {
 });
 
 describe('raden i listan', () => {
-  it('allt synligt utan att trycka: dag, klockslag, trädslag, stammar, stockar, urval, väder', () => {
+  it('allt synligt utan att trycka: dag, klockslag, trädslag, stammar, stockar, förare — sedan urval och väder', () => {
     const r = kontrollRad(k({ weather_at_harvest: { temperature_c: -3, is_freezing: true, precipitation_mm: 0, snowfall_cm: 0 } }), tid('2026-10-21', '16:13'));
     expect(r.rubrik).toBe('ons 21 okt · 16:13');
-    expect(r.rad1).toBe('Gran · 1 stam · 5 stockar · Förvald');
+    expect(r.rad1).toBe('Gran · 1 stam · 5 stockar · Stefan');
+    expect(r.urval).toBe('Förvald');
     expect(r.vader).toBe('−3 °C, frost, uppehåll');
     expect(r.vaderSaknas).toBe(false);
   });
+  it('förare som filen inte anger: ingen gissning, raden står utan namn', () => {
+    expect(kontrollRad(k(), tid('2026-10-21', '16:13', { matare: null })).rad1).toBe('Gran · 1 stam · 5 stockar');
+  });
   it('väder som saknas säger det', () => {
-    const r = kontrollRad(k(), tid('2026-10-21', '16:13'));
+    const r = kontrollRad(k(), tid('2026-10-21', '16:13'), '2026-11-02');
     expect(r).toMatchObject({ vader: 'Väder saknas', vaderSaknas: true });
+  });
+  it('ung kontroll: vädret har inte kommit än (arkivet ligger 6 dygn efter) — det saknas inte', () => {
+    expect(kontrollRad(k(), tid('2026-10-21', '16:13'), '2026-10-26').vader).toBe('Väder kommer om några dagar');
+    expect(kontrollRad(k(), tid('2026-10-21', '16:13'), '2026-10-27').vader).toBe('Väder saknas');
   });
   it('tiden inte läst än: filens datum utan klockslag, raden visas ändå', () => {
     const r = kontrollRad(k(), undefined);
@@ -103,12 +111,12 @@ describe('månadens lista', () => {
 describe('tider för en hel maskin', () => {
   it('en post per fil: första/sista mätning och filens urval', () => {
     const t = kontrollTider([
-      { filnamn: 'a', stem_selection: 'Manually by operator selected stem', operator_measurement_date: '2026-10-12 13:38:16+00', tid_ar_utc: true },
-      { filnamn: 'a', stem_selection: 'Manually by operator selected stem', operator_measurement_date: '2026-10-14 12:20:25+00', tid_ar_utc: true },
+      { filnamn: 'a', stem_selection: 'Manually by operator selected stem', operator_measurement_date: '2026-10-12 13:38:16+00', tid_ar_utc: true, measurer_name: ' ' },
+      { filnamn: 'a', stem_selection: 'Manually by operator selected stem', operator_measurement_date: '2026-10-14 12:20:25+00', tid_ar_utc: true, measurer_name: 'Stefan' },
       { filnamn: 'b', stem_selection: 'Randomly selected stem', operator_measurement_date: null, tid_ar_utc: true },
     ]);
-    expect(t.a).toEqual({ forsta: { dag: '2026-10-12', klockslag: '15:38' }, sista: { dag: '2026-10-14', klockslag: '14:20' }, urval: ['Manually by operator selected stem'] });
-    expect(t.b).toEqual({ forsta: null, sista: null, urval: ['Randomly selected stem'] });
+    expect(t.a).toEqual({ forsta: { dag: '2026-10-12', klockslag: '15:38' }, sista: { dag: '2026-10-14', klockslag: '14:20' }, urval: ['Manually by operator selected stem'], matare: 'Stefan' });
+    expect(t.b).toEqual({ forsta: null, sista: null, urval: ['Randomly selected stem'], matare: null });
     expect(Object.keys(t)).toEqual(['a', 'b']);
   });
 });

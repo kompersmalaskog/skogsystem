@@ -1,5 +1,5 @@
 /**
- * KONTROLLER — "Vad mättes?" Raden i listan och kontrollens huvud: när den mättes (svensk tid), hur många stammar, hur stammen valdes och vädret.
+ * KONTROLLER — "Vad mättes?" Raden i listan och kontrollens huvud: när den mättes (svensk tid), hur många stammar, vem som klavade, hur stammen valdes och vädret.
  * Allt som står på raden är synligt utan att trycka.
  *
  * TIDEN är operatörens mätning (`operator_measurement_date`), inte filens datum: en HQC-fil är kumulativ och kan bära en stam som mättes dagen
@@ -7,7 +7,7 @@
  */
 import { optiLokalDag, optiLokalKlockslag, optiTidUtcMs } from '@/lib/optiTid';
 import { dec } from './format';
-import { fmtDagMan } from './datum';
+import { fmtDagMan, idagStr } from './datum';
 import { antalText, cap, stockText } from './text';
 import type { FaktKalibrering, KontrollTid, VaderJson } from './typer';
 
@@ -65,6 +65,19 @@ export const vaderKort = (w: VaderJson | undefined): string | null => {
   return delar.length > 0 ? delar.join(', ') : null;
 };
 
+/**
+ * Vädret hämtas ur Open-Meteos arkiv (ERA5), som ligger ca 5 dygn efter. Importen försöker inte förrän kontrollen är 6 dygn gammal
+ * (`VADER_ARKIV_FORDROJNING_DAGAR` i skogsmaskin_import_version_6.py — samma tal) och fyller sedan i det vid nästa import.
+ * Under den tiden SAKNAS vädret inte — det har inte kommit än, och raden säger det.
+ */
+export const VADER_FORDROJNING_DAGAR = 6;
+const dagarMellan = (fran: string, till: string): number =>
+  Math.round((Date.parse(`${till}T00:00:00Z`) - Date.parse(`${fran}T00:00:00Z`)) / 86_400_000);
+
+/** Texten när vädret inte finns: "Väder kommer om några dagar" för en ung kontroll, annars "Väder saknas". */
+export const vaderUtanText = (dag: string, idag: string): string =>
+  dagarMellan(dag, idag) < VADER_FORDROJNING_DAGAR ? 'Väder kommer om några dagar' : 'Väder saknas';
+
 // === Dag och klockslag ===
 /** "ons 21 okt" */
 export const dagMedVeckodag = (dag: string): string => {
@@ -77,9 +90,11 @@ export type KontrollRad = {
   filnamn: string;
   /** "ons 21 okt · 14:13" — mättiden; saknas den faller raden tillbaka på filens datum utan klockslag. */
   rubrik: string;
-  /** "Gran · 1 stam · 5 stockar · Förvald" */
+  /** "Gran · 1 stam · 5 stockar · Stefan" — vad som mättes och vem som klavade. */
   rad1: string;
-  /** Vädret kort, eller "Väder saknas". */
+  /** "Förvald" / "Slumpstam" — hur stammen valdes. null när filen inte säger. Står först på andra raden, före vädret. */
+  urval: string | null;
+  /** Vädret kort, eller "Väder saknas" / "Väder kommer om några dagar" (ung kontroll, arkivet ligger efter). */
   vader: string;
   vaderSaknas: boolean;
   /** Sorteringsnyckel: mättiden (svensk väggklocka) eller filens datum — nyast först. */
@@ -88,7 +103,7 @@ export type KontrollRad = {
 };
 
 /** En kontrollrad. `tid` kommer från /api/kalibrering/kontroller (kan saknas medan den läses eller om den föll — raden visas ändå). */
-export const kontrollRad = (k: FaktKalibrering, tid: KontrollTid | undefined): KontrollRad => {
+export const kontrollRad = (k: FaktKalibrering, tid: KontrollTid | undefined, idag: string = idagStr()): KontrollRad => {
   const sista = tid?.sista ?? null;
   const dag = sista?.dag ?? k.datum.slice(0, 10);
   const flera = tid?.forsta && sista && tid.forsta.dag !== sista.dag;
@@ -102,9 +117,10 @@ export const kontrollRad = (k: FaktKalibrering, tid: KontrollTid | undefined): K
       cap(k.tradslag ?? ''),
       flera && tid?.forsta ? `${stammar} (mätta ${fmtDagMan(tid.forsta.dag)}–${fmtDagMan(dag)})` : stammar,
       stockText(k.antal_kontrollstockar),
-      urval,
+      tid?.matare ?? null,
     ].filter((x): x is string => !!x).join(' · '),
-    vader: vader ?? 'Väder saknas',
+    urval,
+    vader: vader ?? vaderUtanText(dag, idag),
     vaderSaknas: vader == null,
     sort: sista ? `${sista.dag}T${sista.klockslag}` : `${dag}T00:00`,
     dag,
@@ -112,22 +128,29 @@ export const kontrollRad = (k: FaktKalibrering, tid: KontrollTid | undefined): K
 };
 
 /** Månadens kontroller, nyast först. `manad` = "2026-10" (kalenderns månad). */
-export const kontrollRader = (alla: FaktKalibrering[], tider: Record<string, KontrollTid> | null, manad: string): KontrollRad[] =>
+export const kontrollRader = (alla: FaktKalibrering[], tider: Record<string, KontrollTid> | null, manad: string, idag: string = idagStr()): KontrollRad[] =>
   alla
     .filter(k => k.datum.slice(0, 7) === manad)
-    .map(k => kontrollRad(k, tider?.[k.filnamn]))
+    .map(k => kontrollRad(k, tider?.[k.filnamn], idag))
     .sort((a, b) => b.sort.localeCompare(a.sort) || a.filnamn.localeCompare(b.filnamn));
 
 // === Tiderna för en hel maskins kontroller (rutten /api/kalibrering/kontroller) ===
-export type StockTidRad = { filnamn: string; stem_selection: string | null; operator_measurement_date: string | null; tid_ar_utc: boolean | null };
+export type StockTidRad = {
+  filnamn: string; stem_selection: string | null; operator_measurement_date: string | null; tid_ar_utc: boolean | null;
+  measurer_name?: string | null;
+};
 
-/** Mättid och urval per fil, ur stockraderna. Filer utan en enda tolkbar tid får ändå en post (urvalet kan finnas); filer utan stockar finns inte. */
+/** Mättid, urval och vem som klavade per fil, ur stockraderna. Filer utan en enda tolkbar tid får ändå en post (urvalet kan finnas); filer utan stockar finns inte. */
 export const kontrollTider = (rader: StockTidRad[]): Record<string, KontrollTid> => {
   const perFil = new Map<string, StockTidRad[]>();
   for (const r of rader) perFil.set(r.filnamn, [...(perFil.get(r.filnamn) ?? []), r]);
   const ut: Record<string, KontrollTid> = {};
   for (const [filnamn, lista] of perFil) {
-    ut[filnamn] = { ...mattTid(lista), urval: Array.from(new Set(lista.map(r => r.stem_selection).filter((x): x is string => !!x))) };
+    ut[filnamn] = {
+      ...mattTid(lista),
+      urval: Array.from(new Set(lista.map(r => r.stem_selection).filter((x): x is string => !!x))),
+      matare: lista.find(r => r.measurer_name?.trim())?.measurer_name?.trim() ?? null,
+    };
   }
   return ut;
 };

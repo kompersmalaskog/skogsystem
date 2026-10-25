@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fixtur from './__fixtures__/jatsbygd_2026.json';
 import { objektIds, sammanstall, summeraProduktion, type Underlag, type ObjektRad } from './berakna';
-import { byggObjektVy, grupperaPoster, listPost, prognosText, staplar, tidText, timmar } from './vy';
+import { appPrognosRad, byggObjektVy, grupperaPoster, listPost, prognosText, staplar, tidText, timmar } from './vy';
 
 const objekt = fixtur.objekt as ObjektRad;
 function underlag(over: Partial<Underlag> = {}): Underlag {
@@ -163,6 +163,26 @@ describe('regler', () => {
     expect(prognosText(70 * 60, 56, false)).toEqual({ text: 'Prognos 56 h – redan 14 h över', varning: true });
     expect(prognosText(60 * 60, 56, true).varning).toBe(false);   // 7 % över: inte orange
     expect(prognosText(60, undefined, true).text).toBe('Ingen prognos');
+  });
+
+  it('appens frysta prognos står på rollens rad efter planerarens — och säger vem som låg närmast', () => {
+    // Jätsbygd har ingen fryst prognos (äldre än 2026-10-24): inget påhittat.
+    const u = underlag();
+    const p = summeraProduktion(objekt, u, prod);
+    expect(byggObjektVy(sammanstall(objekt, u), p, namn).vem!.rader.find(r => r.nyckel === 'skordare')!.under).toBe('prognos 56 h');
+    const vy2 = byggObjektVy(sammanstall({ ...objekt, app_prognos: { skordare: 48, skotare: 90 } }, u), p, namn);
+    const r = Object.fromEntries(vy2.vem!.rader.map(x => [x.nyckel, x]));
+    expect(r.skordare.under).toBe('prognos 56 h · appen 48 h – appen låg närmast');      // blev 48,8: appen 48, planeraren 56
+    expect(r.skotare.under).toBe('prognos 72 h · appen 90 h – appen låg närmast');       // blev 107,3: appen 90 (17 ifrån), planeraren 72 (35 ifrån)
+  });
+
+  it('appPrognosRad', () => {
+    expect(appPrognosRad(50 * 60, 56, 48, true)).toBe('appen 48 h – appen låg närmast');
+    expect(appPrognosRad(54 * 60, 56, 48, true)).toBe('appen 48 h – planeraren låg närmast');
+    expect(appPrognosRad(52 * 60, 56, 48, true)).toBe('appen 48 h – lika nära som planerarens');
+    expect(appPrognosRad(30 * 60, 56, 48, false)).toBe('appen 48 h');
+    expect(appPrognosRad(30 * 60, undefined, 48.5, true)).toBe('appen 48 h 30 min');
+    expect(appPrognosRad(30 * 60, 56, undefined, true)).toBeNull();
   });
 
   it('trädslagen: stapel och rader med appens trädslagsfärger', () => {

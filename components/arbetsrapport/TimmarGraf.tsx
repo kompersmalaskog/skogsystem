@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { TYP, VIKT, AVSTAND, RADIE, FARG, TRAFFYTA, TNUM, overgang } from "@/lib/design/tokens";
+import { TYP, VIKT, AVSTAND, RADIE, FARG, TRAFFYTA, TNUM, KORT, overgang } from "@/lib/design/tokens";
 
 /**
  * Min tids staplar — Vecka (7 dagar) och År (12 månader).
@@ -40,7 +40,8 @@ const fmt = (h: number) => (Math.round(h * 10) / 10).toLocaleString("sv-SE");
 
 function Segment({ lage, satt }: { lage: "vecka" | "ar"; satt: (l: "vecka" | "ar") => void }) {
   return (
-    <div role="tablist" style={{ display: "flex", background: FARG.linje, borderRadius: RADIE.rad, padding: AVSTAND.xs, marginBottom: AVSTAND.l }}>
+    // Liten och inne i kortet: valet styr bara diagrammet — inte en andra flikrad under vyns egen (Martin 2026-10-25).
+    <div role="tablist" style={{ display: "flex", width: "100%", maxWidth: 220, margin: `0 auto ${AVSTAND.l}px`, background: FARG.linje, borderRadius: RADIE.rad, padding: AVSTAND.xs, boxSizing: "border-box" }}>
       {([["vecka", "Vecka"], ["ar", "År"]] as const).map(([k, l]) => (
         <button
           key={k}
@@ -108,11 +109,17 @@ export default function TimmarGraf({ vecka, ar }: { vecka: GrafDag[]; ar: GrafMa
   const veckaMax = Math.max(8, ...vecka.map(d => d.h));
   const arMax = Math.max(1, ...ar.map(m => Math.max(m.h, m.schemaH ?? 0)));
   const vald = ar[valdManad];
+  // En vecka utan en enda timme: en mening i stället för sju tomma streck (samma höjd, så kortet står still).
+  const tomVecka = vecka.length > 0 && vecka.every(d => !(d.h > 0));
 
   return (
-    <section style={{ marginBottom: AVSTAND.xl }}>
+    <section data-timmar-graf="" style={{ ...KORT, marginBottom: AVSTAND.xl }}>
       <Segment lage={lage} satt={setLage} />
-      {lage === "vecka" ? (
+      {lage === "vecka" && tomVecka ? (
+        <div data-tom-vecka="" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: STAPEL_H, ...TYP.meta, color: FARG.text2, textAlign: "center" }}>
+          Inget jobbat den här veckan än.
+        </div>
+      ) : lage === "vecka" ? (
         <div style={{ display: "flex", gap: AVSTAND.xs }}>
           {vecka.map(d => (
             <Kolumn key={d.datum} h={d.h} maxH={veckaMax} markerad={d.idag} visaTal etikett={d.etikett}
