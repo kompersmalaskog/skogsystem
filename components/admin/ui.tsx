@@ -2,7 +2,7 @@
 // Admins byggstenar — ur lib/design/tokens, samma känsla som arbetsrapporten: kort utan ram, tysta
 // grå rader, små versala rubriker. Orange bara för det som kräver handling, grått för det som stämmer.
 // Ersätter den gamla components/admin/design.tsx (egen palett, egna mått).
-import React, { useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import React, { createContext, useContext, useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   TYP, TNUM, AVSTAND, RADIE, FARG, FONT, KNAPP, INAKTIV, KORT, TRAFFYTA, RORELSE, LAYOUT, medSafeBotten,
@@ -37,10 +37,19 @@ export function Stod({ children, farg = FARG.text2, style, attr }: { children: R
 
 // ── Ytor ────────────────────────────────────────────────────────────────
 
+/**
+ * Ett ark ÄR ett kort (FARG.kort). Ett kort eller en lista inne i arket i samma färg syns inte: raderna såg ut att sväva
+ * med en indragning utan kant (Förare · Månad, Vilobrott, Öppna frågor). Inne i ett ark lyfts ytorna ett steg (FARG.upphojt),
+ * som iOS grupperade listor i ett ark. Sheet sätter värdet; Kort, Lista och Besked läser det.
+ */
+const IArk = createContext(false);
+const ytaFarg = (iArk: boolean) => (iArk ? FARG.upphojt : FARG.kort);
+
 /** Kort med innehåll på fri yta. */
 export function Kort({ children, style, onClick }: { children: ReactNode; style?: CSSProperties; onClick?: () => void }) {
+  const iArk = useContext(IArk);
   return (
-    <div onClick={onClick} style={{ ...KORT, cursor: onClick ? "pointer" : "default", ...style }}>
+    <div onClick={onClick} style={{ ...KORT, background: ytaFarg(iArk), cursor: onClick ? "pointer" : "default", ...style }}>
       {children}
     </div>
   );
@@ -48,8 +57,9 @@ export function Kort({ children, style, onClick }: { children: ReactNode; style?
 
 /** Lista: ett kort där raderna delar linjer. Sidmarginal i kortet, ingen ram. */
 export function Lista({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+  const iArk = useContext(IArk);
   return (
-    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `0 ${AVSTAND.sidmarginal}px`, ...style }}>
+    <div data-lista="" style={{ background: ytaFarg(iArk), borderRadius: RADIE.kort, padding: `0 ${AVSTAND.sidmarginal}px`, ...style }}>
       {children}
     </div>
   );
@@ -238,7 +248,8 @@ export function Fel({ children, onForsok }: { children: ReactNode; onForsok?: ()
 /** Besked under ett formulär: fel (rött) eller en bekräftelse (grönt). */
 export function Besked({ children, slag = "fel" }: { children: ReactNode; slag?: "fel" | "ok" | "info" }) {
   const farg = slag === "fel" ? FARG.rod : slag === "ok" ? FARG.gron : FARG.text2;
-  return <div role={slag === "fel" ? "alert" : "status"} style={{ marginTop: AVSTAND.l, padding: AVSTAND.m, background: FARG.kort, borderRadius: RADIE.rad, ...TYP.meta, color: farg }}>{children}</div>;
+  const iArk = useContext(IArk);
+  return <div role={slag === "fel" ? "alert" : "status"} style={{ marginTop: AVSTAND.l, padding: AVSTAND.m, background: ytaFarg(iArk), borderRadius: RADIE.rad, ...TYP.meta, color: farg }}>{children}</div>;
 }
 
 export function Tomt({ children }: { children: ReactNode }) {
@@ -377,7 +388,7 @@ export function Sheet({ titel, vanster, hoger, onStang, children, attr, overlayA
           <p style={{ margin: 0, ...TYP.listtitel, color: FARG.text, textAlign: "center" }}>{titel}</p>
           <div style={{ justifySelf: "end" }}>{hoger}</div>
         </div>
-        <div data-ark-innehall style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain" }}>{children}</div>
+        <div data-ark-innehall style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain" }}><IArk.Provider value={true}>{children}</IArk.Provider></div>
       </div>
     </div>,
     document.body,
