@@ -57,6 +57,18 @@ export function stamplingsText(j: Stamplingsjamforelse): string {
 /** Omräkningen i klartext, med faktorn: "× 0,83". */
 export const faktorText = (): string => `× ${M3SK_TILL_M3FUB.toLocaleString('sv-SE')}`;
 
+/**
+ * Domen i klartext medan talet skrivs: "Vida säger 1 734 m³fub. Stämmer bra." Den finns för att den som skriver in talet ska slippa
+ * räkna om m³sk i huvudet och själv bedöma om det stämmer — omräkningen och jämförelsen görs på skärmen. null när något tal saknas.
+ */
+export function domText(volym: unknown, j: Stamplingsjamforelse | null): { text: string; avviker: boolean } | null {
+  if (!j || j.avvikelse == null) return null;
+  const vida = `Vida säger ${sv(Number(volym))} m³fub.`;
+  return j.avviker
+    ? { text: `${vida} Skiljer ${Math.round(j.avvikelse * 100)} % — kontrollera.`, avviker: true }
+    : { text: `${vida} Stämmer bra.`, avviker: false };
+}
+
 /** Frågetexten när de två talen avviker, annars null. Båda talen och faktorn står i texten. */
 export function avvikelseText(volym: unknown, j: Stamplingsjamforelse | null): string | null {
   if (!j || !j.avviker || j.avvikelse == null) return null;

@@ -175,7 +175,7 @@ describe('Objekt + beställning — listan', () => {
     expect(rad('bagskytte')).toContain('2 frågor'); // orimlig volym per hektar + avvikande utfall (plan 3 495 mot utfall 1 687)
     expect(rad('skalviken')).not.toMatch(/orimlig|per hektar/); // 238 m³fub/ha är rimligt
     expect(rad('skalviken')).toContain('Planerad · 1 fråga');
-    expect(rad('molleryd')).toContain('Väntar på planering · 2 frågor'); // okänd PDF + rotpost utan identifierad stämplingslängd
+    expect(rad('molleryd')).toContain('Väntar på planering · 1 fråga'); // EN fråga: talet. PDF:en är stämplingslängden (rotpost, enda oidentifierade filen)
     expect(rad('molleryd')).toContain(nbsp('1 005'));
     expect(text()).not.toMatch(/saknar stämplingslängd|stämplingslängd osäker/); // saknad stämplingslängd är normaltillståndet, ingen varning
   });
@@ -184,7 +184,7 @@ describe('Objekt + beställning — listan', () => {
     await montera();
     const farg = (id: string, ord: string) => Array.from(behallare!.querySelector(`[data-objekt="${id}"]`)!.querySelectorAll('span')).find(x => (x.textContent ?? '').includes(ord))!.style.color;
     expect(farg('vashult', 'Väntar på planering')).toBe('rgb(142, 142, 147)'); // FARG.text2
-    expect(farg('molleryd', '2 frågor')).toBe('rgb(255, 159, 10)'); // FARG.orange
+    expect(farg('molleryd', '1 fråga')).toBe('rgb(255, 159, 10)'); // FARG.orange
     expect(farg('sandasen', 'Igång')).toBe('rgb(48, 209, 88)');
   });
 
@@ -376,10 +376,11 @@ describe('Objektvyn — vad filen gav oss', () => {
     const t = text();
     expect(t.indexOf('Fara')).toBeLessThan(t.indexOf('Fråga'));
     expect(t.indexOf('Fråga')).toBeLessThan(t.indexOf('Vad filen gav oss'));
-    // Gissad PDF på en rotpost = EN fråga (inte PDF-frågan + volymfrågan): importen gissade, ingen har läst papperet.
+    // EN fråga på en rotpost, och den handlar om TALET — aldrig om vilken PDF det är (appens arkivering är inte förarens problem).
     expect(behallare!.querySelectorAll('[data-fraga]')).toHaveLength(1);
-    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')!.textContent).toContain('Importen gissade att "Skälviken.pdf" är den, men ingen har bekräftat det');
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')!.textContent).toContain('Vad står det för volym i stämplingslängden?');
     expect(t).not.toContain('Är det här stämplingslängden?');
+    for (const ord of ['gissa', 'OSÄKER', 'bekräfta i UI']) expect(t, ord).not.toContain(ord);
     expect(knapp('Öppna filen')).toBeTruthy();
     expect(knapp('Ja, det stämmer')).toBeUndefined(); // en bekräftelse som försvinner vid nästa omimport är sämre än ingen knapp
     expect(t).toContain('1 blad');
@@ -423,12 +424,13 @@ describe('Objektvyn — vad filen gav oss', () => {
     expect(Array.from(behallare!.querySelectorAll('*')).some(e => (e as HTMLElement).style?.fontSize === '32px')).toBe(false);
   });
 
-  it('en okänd PDF är SAMMA fråga som den osäkra stämplingslängden (Mölleryd), med "Öppna filen" som enda knapp', async () => {
+  // Mölleryd i prod 2026-10-25: PDF:en ligger under "övrigt" bara för att <Info> inte råkade nämna ordet stämplingslängd. På en rotpost ÄR den
+  // enda oidentifierade PDF:en stämplingslängden — EN fråga, om talet, utan omimport.
+  it('Mölleryd: den enda oidentifierade PDF:en ÄR stämplingslängden — en fråga om talet, ingen fråga om filen', async () => {
     await monteraObjekt('molleryd');
-    expect(text()).toContain('Vad är Mölleryd.pdf? Filen hade inget namn vi känner igen');
-    // Mölleryd RP är en rotpost utan identifierad stämplingslängd: den frågan kommer ovanpå PDF-frågan, och pekar på den oidentifierade PDF:en.
-    expect(Array.from(behallare!.querySelectorAll('[data-fraga]')).map(e => e.getAttribute('data-fraga'))).toEqual(['stamplingslangd_saknas', 'okand_pdf:Mölleryd.pdf']);
-    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')!.textContent).toContain('kan det vara stämplingslängden?');
+    expect(Array.from(behallare!.querySelectorAll('[data-fraga]')).map(e => e.getAttribute('data-fraga'))).toEqual(['stamplingslangd_saknas']);
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')!.textContent).toContain('Vad står det för volym i stämplingslängden?');
+    expect(text()).not.toContain('Vad är Mölleryd.pdf?');
     expect(knapp('Öppna filen')).toBeTruthy();
     await klicka(knapp('Öppna filen'));
     expect(DB.signerade).toContain('kartbilder/886465_ovrigt_0.pdf');
@@ -596,12 +598,33 @@ describe('Volymen: rimlighet, enhet och stämplingslängdens tal', () => {
     expect(DB.skrivningar[0]).toMatchObject({ tabell: 'objekt', op: 'update', payload: { stamplingslangd_volym: 1884, stamplingslangd_enhet: 'm3sk' } });
   });
 
-  it('enheten har inget förval: utan val går det inte att spara', async () => {
+  // Enheten var förut ett val UTAN förval, och Spara satt grå tills den valdes — utan att säga varför. Noll av nio rotposter i prod hade ett
+  // sparat tal: man skrev talet, tryckte Spara och ingenting hände. Stämplingslängder ÄR i m³sk, förvalet syns och går att byta.
+  it('m³sk är förvalt och syns, så ett inskrivet tal går att spara direkt', async () => {
+    await monteraObjekt('bagskytte');
+    await klicka(behallare!.querySelector('[data-stamplingslangd-tal]'));
+    const valda = Array.from(behallare!.ownerDocument.querySelectorAll('[role="tab"][aria-selected="true"]'));
+    expect(valda.map(e => e.textContent)).toEqual(['m³sk']);
+    await skriv(behallare!.ownerDocument.querySelector<HTMLInputElement>('input[inputmode="decimal"]')!, '1884');
+    expect((knapp('Spara', true) as HTMLButtonElement).style.opacity).toBe('');
+  });
+
+  it('en tom ruta säger vad som fattas i stället för att lämna en grå knapp utan förklaring', async () => {
+    await monteraObjekt('bagskytte');
+    await klicka(behallare!.querySelector('[data-stamplingslangd-tal]'));
+    expect((knapp('Spara', true) as HTMLButtonElement).style.opacity).toBe('0.4');
+    expect(behallare!.ownerDocument.querySelector('[data-spara-varfor]')!.textContent).toContain('Skriv talet som står i stämplingslängden');
+  });
+
+  // Omräkningen och domen görs medan talet skrivs, så den som har papperet slipper räkna 20 % i huvudet och själv bedöma om det stämmer.
+  it('jämförelsen räknas live: Bågskyttebanans 1 884 m³sk mot Vidas 3 495 m³fub skiljer för mycket', async () => {
     await monteraObjekt('bagskytte');
     await klicka(behallare!.querySelector('[data-stamplingslangd-tal]'));
     await skriv(behallare!.ownerDocument.querySelector<HTMLInputElement>('input[inputmode="decimal"]')!, '1884');
-    expect((knapp('Spara', true) as HTMLButtonElement).style.opacity).toBe('0.4');
-    expect(behallare!.ownerDocument.querySelectorAll('[role="tab"][aria-selected="true"]')).toHaveLength(0);
+    const dom = behallare!.ownerDocument.querySelector('[data-stamplingslangd-dom]')!;
+    expect(dom.textContent).toContain(nbsp('1 884 m³sk ≈ 1 564 m³fub'));
+    expect(dom.textContent).toContain('Skiljer');
+    expect(dom.textContent).toContain('kontrollera');
   });
 
   it('inskrivet tal visas som "1 884 m³sk ≈ 1 564 m³fub", och avviker det mer än 15 % blir det en fråga med båda talen och faktorn', async () => {
@@ -756,23 +779,21 @@ describe('Stämplingslängd gäller bara en rotpost (avtalsformen avgör, inte t
     expect(behallare!.querySelector('[data-stamplingslangd-tal]')).toBeNull();
   });
 
-  it('Rp med en PDF UTAN spår (Åbogen-fallet: ingen importlogg) = okontrollerad: frågan ställs, raden säger det, aldrig "PDF i filen"', async () => {
+  it('Åbogen (PDF utan importlogg) får samma fråga som alla andra — hur filen hamnade där är appens sak', async () => {
     med('vashult', { avtalsform: 'Rp', stamplingslangd_url: '890004_stamplingslangd.pdf', import_varningar: null, kalla: 'traktdirektiv' });
     await monteraObjekt('vashult');
-    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')!.textContent).toContain('inget säger hur den identifierades');
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')!.textContent).toContain('Vad står det för volym i stämplingslängden?');
     const rad = behallare!.querySelector('[data-stamplingslangd-tal]')!;
-    expect(rad.textContent).toContain('ingen vet hur den identifierades');
-    expect(rad.textContent).not.toContain('PDF i filen');
-    expect(behallare!.querySelector('[data-stamplingslangd-okontrollerad]')!.textContent).toBe('okontrollerad');
-    expect(text()).toContain('Ej kontrollerad');
+    expect(rad.textContent).toContain('Skriv in talet som står i den');
+    for (const ord of ['okontrollerad', 'Gissad', 'identifierade']) expect(rad.textContent, ord).not.toContain(ord);
     await klicka(knapp('Öppna filen'));
     expect(DB.signerade).toContain('kartbilder/890004_stamplingslangd.pdf');
   });
 
-  it('Åbogen som AVSLUTAD: raden visar okontrollerad, men ingen fråga', async () => {
+  it('Åbogen som AVSLUTAD: raden finns kvar att fylla i, men ingen fråga', async () => {
     med('bagskytte', { stamplingslangd_url: '890004_stamplingslangd.pdf', import_varningar: null, kalla: 'traktdirektiv' });
     await monteraObjekt('bagskytte');
-    expect(behallare!.querySelector('[data-stamplingslangd-okontrollerad]')).toBeTruthy();
+    expect(behallare!.querySelector('[data-stamplingslangd-tal]')!.textContent).toContain('Skriv in talet för att kontrollera volymen');
     expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')).toBeNull();
   });
 
@@ -790,17 +811,17 @@ describe('Stämplingslängd gäller bara en rotpost (avtalsformen avgör, inte t
     expect(behallare!.querySelector('[data-importkontroll="okand"]')!.textContent).toContain('Inlagd för hand');
   });
 
-  it('Rp med en GISSAD PDF (OSÄKER) = frågan ställs och raden säger "gissad", inte "PDF i filen" (Skälviken)', async () => {
+  it('Skälviken: raden ber om talet och säger ingenting om appens osäkerhet', async () => {
     await monteraObjekt('skalviken');
     expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')).toBeTruthy();
     const rad = behallare!.querySelector('[data-stamplingslangd-tal]')!;
-    expect(rad.textContent).toContain('Gissad: PDF:en tolkades som stämplingslängd, ingen har bekräftat');
-    expect(rad.textContent).not.toContain('PDF i filen');
-    expect(behallare!.querySelector('[data-stamplingslangd-gissad]')!.textContent).toBe('gissad');
-    expect(text()).toContain('Gissad, ej bekräftad'); // dokumentraden säger inte "Finns"
+    expect(rad.textContent).toContain('Skriv in talet som står i den');
+    expect(behallare!.querySelector('[data-stamplingslangd-saknas]')).toBeNull();
+    expect(text()).not.toContain('Gissad, ej bekräftad');
+    expect(text()).toContain('Stämplingslängd (PDF)');
   });
 
-  it('listraden räknar Skälvikens gissade PDF som en fråga', async () => {
+  it('listraden räknar Skälvikens stämplingslängd som en fråga', async () => {
     await montera();
     expect(behallare!.querySelector('[data-objekt="skalviken"]')!.textContent).toContain('1 fråga');
   });
@@ -810,23 +831,25 @@ describe('Stämplingslängd gäller bara en rotpost (avtalsformen avgör, inte t
     await monteraObjekt('skalviken');
     expect(behallare!.querySelector('[data-fraga]')).toBeNull();
     expect(behallare!.querySelector('[data-stamplingslangd-tal]')!.textContent).toContain('Skriven av dig');
-    expect(behallare!.querySelector('[data-stamplingslangd-gissad]')).toBeNull();
+    expect(behallare!.querySelector('[data-stamplingslangd-saknas]')).toBeNull();
   });
 
   it('en AVSLUTAD rotpost: raden och fältet finns och går att fylla i, men stämplingslängden är ingen öppen fråga (Bågskyttebanan)', async () => {
     await monteraObjekt('bagskytte');
     const rad = behallare!.querySelector('[data-stamplingslangd-tal]')!;
     expect(rad).toBeTruthy();
-    expect(rad.textContent).toContain('Gissad'); // PDF:en är fortfarande en gissning, och det syns också efteråt
+    expect(rad.textContent).toContain('Skriv in talet för att kontrollera volymen'); // Bågskyttebanans fel hittades just så, efteråt
     expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')).toBeNull();
     await klicka(rad);
     expect(behallare!.ownerDocument.querySelector('input[inputmode="decimal"]')).toBeTruthy(); // talet kan skrivas in
   });
 
-  it('en avslutad rotpost utan PDF och utan tal: raden finns och säger varför man skriver in talet, men ingen fråga', async () => {
-    med('bagskytte', { stamplingslangd_url: null });
+  it('en avslutad rotpost utan PDF: raden säger att den saknas i leveransen, men ingen fråga', async () => {
+    med('bagskytte', { stamplingslangd_url: null, import_varningar: [] });
     await monteraObjekt('bagskytte');
-    expect(behallare!.querySelector('[data-stamplingslangd-tal]')!.textContent).toContain('Skriv in talet för att kontrollera volymen');
+    const rad = behallare!.querySelector('[data-stamplingslangd-tal]')!;
+    expect(rad.textContent).toContain('Ingen i leveransen från Vida');
+    expect(behallare!.querySelector('[data-stamplingslangd-saknas]')!.textContent).toBe('saknas'); // ordet står bredvid färgen
     expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')).toBeNull();
   });
 

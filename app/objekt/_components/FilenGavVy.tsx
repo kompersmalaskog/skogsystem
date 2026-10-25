@@ -12,7 +12,7 @@ import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TN
 import { supabase } from '@/lib/supabase';
 import { hamtaUtfall, rattaVolym } from '@/lib/objekt/data';
 import {
-  bladText, certText, fmtHa, geometriSammanfattning, noterat, oppnaFragor, stamplingslangdLage, traktkartor, volymFragor,
+  bladText, certText, fmtHa, geometriSammanfattning, noterat, oppnaFragor, stamplingslangdFil, stamplingslangdLage, traktkartor, volymFragor,
   type Fraga, type GeoSammanfattning, type VolymFraga,
 } from '@/lib/objekt/filenGav';
 import { arRotpost } from '@/lib/objekt/rotpost';
@@ -134,6 +134,8 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
   const stampJamf = rotpost ? jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet) : null;
   // Stämplingslängdens läge (lib/objekt/filenGav.ts): bara ett inskrivet tal är bekräftat; en PDF som importen gissat på är "gissad", aldrig "funnen".
   const stampLage = stamplingslangdLage(o);
+  // PDF:en som ÄR stämplingslängden. På äldre rotposter ligger den kvar under "övrigt" (Mölleryd) — den räknas som stämplingslängden utan omimport.
+  const stampFil = rotpost ? stamplingslangdFil(o) : (o.stamplingslangd_url ? { namn: null, path: o.stamplingslangd_url } : null);
   const avslutad = arAvslutat(o.status);
   const antalFr = fragorHar.length + volymFr.length;
   const noter = noterat(o.import_varningar);
@@ -200,12 +202,10 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
         {rotpost && (
           <Rad titel="Stämplingslängd" sista
             under={stampLage === 'bekraftad' ? 'Skriven av dig · tryck för att ändra'
-              : stampLage === 'gissad' ? 'Gissad: PDF:en tolkades som stämplingslängd, ingen har bekräftat · skriv in talet'
-                : stampLage === 'okontrollerad' ? 'PDF sparad, ingen vet hur den identifierades · skriv in talet'
-                  : avslutad ? 'Skriv in talet för att kontrollera volymen' : 'Skriv in talet från stämplingslängden'}
+              : stampLage === 'finns' ? (avslutad ? 'Skriv in talet för att kontrollera volymen' : 'Skriv in talet som står i den')
+                : 'Ingen i leveransen från Vida'}
             hoger={stampLage === 'bekraftad' ? (stampJamf ? stamplingsText(stampJamf) : undefined)
-              : stampLage === 'gissad' ? <span style={{ color: FARG.orange }} data-stamplingslangd-gissad="">gissad</span>
-                : stampLage === 'okontrollerad' ? <span style={{ color: FARG.orange }} data-stamplingslangd-okontrollerad="">okontrollerad</span> : undefined}
+              : stampLage === 'saknas' ? <span style={{ color: FARG.orange }} data-stamplingslangd-saknas="">saknas</span> : undefined}
             onTryck={onStampling} attr={{ 'data-stamplingslangd-tal': '' }} />
         )}
       </Sektion>
@@ -224,7 +224,7 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
         {bladOppna && blad.map((b, i) => <Rad key={b.path} titel={`Blad ${i + 1} av ${blad.length}`} dampad onTryck={() => oppna(b.path)} />)}
 
         {/* Stämplingslängd visas när den finns. Att den saknas är normaltillståndet (4 av 42 slutavverkningar har en) och är ingen information. */}
-        {o.stamplingslangd_url && <Rad titel="Stämplingslängd (PDF)" under={stampLage === 'gissad' ? 'Gissad, ej bekräftad' : stampLage === 'okontrollerad' ? 'Ej kontrollerad' : 'Finns'} onTryck={() => oppna(o.stamplingslangd_url)} />}
+        {stampFil && <Rad titel="Stämplingslängd (PDF)" under="Finns" onTryck={() => oppna(stampFil.path)} />}
         {o.valtlapp_url && <Rad titel="Vältlappar" under="Finns" onTryck={() => oppna(o.valtlapp_url)} />}
 
         <Rad titel="Hänsyn" pil={false}

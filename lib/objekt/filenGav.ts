@@ -32,7 +32,7 @@ export interface Fraga {
 }
 
 /** En fråga per fil. Dubbletter (samma fil nämnd av två regler) slås ihop. */
-export function fragor(varningar: unknown, dok: Pick<DokKolumner, 'stamplingslangd_url' | 'ovriga_dokument'>): Fraga[] {
+export function fragor(varningar: unknown, dok: { stamplingslangd_url?: string | null; ovriga_dokument?: { namn: string; path: string }[] | null }): Fraga[] {
   const sett = new Set<string>();
   const ut: Fraga[] = [];
   for (const v of tillVarningar(varningar)) {
@@ -53,44 +53,57 @@ export function fragor(varningar: unknown, dok: Pick<DokKolumner, 'stamplingslan
 // gäller de ÄVEN avslutade objekt: en avslutad trakts volym ingår i beställningens täckning, och ett fel tal där ger fel läge i alla månader.
 
 // ---------------------------------------------------------------------------
-// Stämplingslängdens tre lägen (Martin 2026-10-20)
+// Stämplingslängden (Martin 2026-10-25)
 // ---------------------------------------------------------------------------
-// En PDF som importen TOLKAT som stämplingslängd (ledtråd i Info, ingen igenkänd filnamn → "OSÄKER, bekräfta i UI:t") är en gissning, inte ett fynd.
-// Prod 2026-10-20: av nio rotposter har fem en stamplingslangd_url. Fyra (Arvidstorp, Bågskyttebanan, Skälviken, Vällust) kommer ur en sådan
-// gissning, ingen är bekräftad. Den femte, Åbogen, har import_varningar = null (kalla 'traktdirektiv', importerad innan kontrollerna fanns):
-// inget sägs om hur PDF:en identifierades, och filnamnet bär ingen information — *_stamplingslangd.pdf är namnet importen SATT vid sparandet,
-// inte originalnamnet. Att behandla en PDF utan spår som "funnen" tystade frågan på objekt där ingen människa läst papperet — och Bågskyttebanans
-// 3 495 m³ (rätt: 1 687) stod i prod sedan augusti just därför.
-//   bekraftad     = ett tal är inskrivet: en människa har läst stämplingslängden. Bara det tystar frågan.
-//   gissad        = en PDF finns men importen gissade vad den är ("OSÄKER, bekräfta i UI:t"), och ingen har bekräftat.
-//   okontrollerad = en PDF finns men inget sägs om hur den identifierades (ingen importlogg). Inte bekräftad, inte heller en känd gissning.
-//   saknas        = varken PDF eller tal.
-// Gissad och okontrollerad ställer frågan (utom på en avslutad trakt). Ett svar "ja, det stämmer" finns inte: det skulle skrivas över av nästa
-// omimport (CLAUDE.md). Talet är bekräftelsen.
-export type StamplingslangdLage = 'bekraftad' | 'gissad' | 'okontrollerad' | 'saknas';
+// Appen ska INTE fråga om sin egen arkivering. "Är den här PDF:en stämplingslängden?" går inte att förstå när man ser stämplingslängden ligga
+// i objektet: frågan handlar om appens osäkerhet, inte om skogen, och orden kom ur koden ("tolkad via Info", "OSÄKER, bekräfta i UI:t").
+//
+// Vida märker aldrig filen — den heter som trakten (Skälviken.pdf, Mölleryd.pdf) medan traktdirektiv, traktkarta och vältlapp har suffix och
+// filas rätt varje gång. Paketet går jämnt ut: på en rotpost ÄR den enda PDF:en utan känt suffix stämplingslängden (lib/trakt/dokument.ts).
+// Det gäller både nyimporterade objekt (importen filar den direkt) och äldre, där PDF:en ligger kvar under "övrigt" — den räknas som
+// stämplingslängden här, utan omimport.
+//
+//   bekraftad = ett tal är inskrivet: en människa har läst papperet. Bara det stänger frågan, och det är talet som fångar fel volymer —
+//               Bågskyttebanans 3 495 m³fub (rätt: 1 687) stod i prod sedan augusti tills stämplingslängdens 1 884 m³sk jämfördes med den.
+//   finns     = en PDF finns, men ingen har läst talet.
+//   saknas    = ingen PDF alls. Det är ett larm med innehåll: paketet gick inte jämnt ut.
+//
+// Ett svar "ja, det stämmer" finns inte och ska inte byggas: det skulle skrivas över av nästa omimport (CLAUDE.md). Talet är svaret.
+export type StamplingslangdLage = 'bekraftad' | 'finns' | 'saknas';
 
-export function stamplingslangdLage(o: {
-  stamplingslangd_url?: string | null;
-  stamplingslangd_volym?: number | null;
+type StamplingsUnderlag = {
+  avtalsform?: string | null;
+  namn?: string | null;
   import_varningar?: unknown;
-}): StamplingslangdLage {
-  if (o.stamplingslangd_volym != null && Number(o.stamplingslangd_volym) > 0) return 'bekraftad';
-  if (!o.stamplingslangd_url) return 'saknas';
-  return gissadPdf(o) ? 'gissad' : 'okontrollerad';
+  stamplingslangd_url?: string | null;
+  ovriga_dokument?: { namn: string; path: string }[] | null;
+};
+
+/**
+ * PDF:en som är stämplingslängden, eller null. Importen filar den i `stamplingslangd_url`; på äldre objekt ligger den kvar som den enda
+ * oidentifierade PDF:en under "övrigt" (Mölleryd), och på en rotpost är det samma sak. Flera oidentifierade PDF:er = vi vet inte vilken.
+ */
+export function stamplingslangdFil(o: StamplingsUnderlag): { namn: string | null; path: string } | null {
+  if (o.stamplingslangd_url) return { namn: null, path: o.stamplingslangd_url };
+  if (!arRotpost(o)) return null;
+  const okanda = fragor(o.import_varningar, o);
+  if (okanda.length !== 1 || !okanda[0].path) return null;
+  return { namn: okanda[0].fil, path: okanda[0].path };
 }
 
-/** Importen tolkade den filen som stämplingslängd på en ledtråd och sa själv att den var osäker. */
-function gissadPdf(o: { import_varningar?: unknown }) {
-  return fragor(o.import_varningar, { stamplingslangd_url: null, ovriga_dokument: null }).find(f => f.nannderStamplingslangd) ?? null;
+export function stamplingslangdLage(o: StamplingsUnderlag & { stamplingslangd_volym?: number | null }): StamplingslangdLage {
+  if (o.stamplingslangd_volym != null && Number(o.stamplingslangd_volym) > 0) return 'bekraftad';
+  return stamplingslangdFil(o) ? 'finns' : 'saknas';
 }
 
 /**
- * Frågorna om filer som ska visas: som `fragor`, men på en rotpost ersätts den gissade stämplingslängden av volymfrågan `stamplingslangd_saknas`
- * (samma fil, EN fråga i stället för två) — och är talet inskrivet är gissningen avgjord av en människa och frågan om PDF:en faller.
+ * Frågorna om filer som ska visas. På en rotpost med EN oidentifierad PDF är den filen stämplingslängden — ingen fråga ställs om den, och
+ * det som blir kvar är frågan om talet (`stamplingslangd_saknas` i `volymFragor`). Flera okända PDF:er frågas fortfarande om: då vet vi inte.
  */
-export function oppnaFragor(o: { avtalsform?: string | null; namn?: string | null; import_varningar?: unknown } & Pick<DokKolumner, 'stamplingslangd_url' | 'ovriga_dokument'>): Fraga[] {
+export function oppnaFragor(o: StamplingsUnderlag): Fraga[] {
   const alla = fragor(o.import_varningar, o);
-  return arRotpost(o) ? alla.filter(f => !f.nannderStamplingslangd) : alla;
+  if (!arRotpost(o) || alla.length !== 1) return alla;
+  return [];
 }
 
 export interface VolymUnderlag {
@@ -98,6 +111,8 @@ export interface VolymUnderlag {
   /** Rp = rotpost, Au = avverkningsuppdrag (lib/objekt/rotpost.ts). Fångas bara på nyimporterade objekt; annars avgör "RP" i namnet. */
   avtalsform?: string | null;
   stamplingslangd_url?: string | null;
+  /** Behövs för att hitta stämplingslängden på äldre objekt, där den ligger kvar som den enda oidentifierade PDF:en. */
+  ovriga_dokument?: { namn: string; path: string }[] | null;
   import_varningar?: unknown;
   typ: string | null;
   volym: number | null;
@@ -140,29 +155,23 @@ export function volymFragor(o: VolymUnderlag): VolymFraga[] {
     if (avviker) ut.push({ nyckel: 'stamplingslangd_avviker', text: avviker });
     // Frågan ställs inte på en avslutad trakt: stämplingslängden är en uppskattning före avverkning och en obesvarad fråga betyder inget efteråt.
     // Raden och fältet finns kvar (FilenGavVy) — Bågskyttebanans fel hittades just så, genom att talet jämfördes efteråt.
-    const lage = stamplingslangdLage(o);
-    if (!arAvslutat(o.status) && lage !== 'bekraftad') {
-      const gissad = lage === 'gissad' ? gissadPdf(o) : null;
-      const okanda = fragor(o.import_varningar, { stamplingslangd_url: null, ovriga_dokument: null }).length;
-      if (gissad) {
-        ut.push({
+    // EN fråga, och den går att svara på med papperet i handen. Appen frågar aldrig om vilken PDF det är — det är dess eget arkiveringsproblem.
+    if (!arAvslutat(o.status) && stamplingslangdLage(o) !== 'bekraftad') {
+      const fil = stamplingslangdFil(o);
+      ut.push(fil
+        ? {
           nyckel: 'stamplingslangd_saknas',
-          text: `Det här är en rotpost och ska ha en stämplingslängd. Importen gissade att "${gissad.fil}" är den, men ingen har bekräftat det. Öppna filen och skriv in talet.`,
-          fil: gissad.fil,
-          path: o.stamplingslangd_url ?? null,
-        });
-      } else if (lage === 'okontrollerad') {
-        ut.push({
+          text: 'Vad står det för volym i stämplingslängden? Skriv in talet, så kontrolleras Vidas volym mot det.',
+          ...(fil.namn ? { fil: fil.namn } : null),
+          path: fil.path,
+        }
+        : {
           nyckel: 'stamplingslangd_saknas',
-          text: 'Det här är en rotpost och ska ha en stämplingslängd. En PDF är sparad som den, men inget säger hur den identifierades och ingen har läst talet. Öppna filen och skriv in talet.',
-          path: o.stamplingslangd_url ?? null,
+          // Finns flera oidentifierade PDF:er VET vi inte vilken som är stämplingslängden — då är det inte sant att den saknas.
+          text: fragor(o.import_varningar, o).length > 1
+            ? 'Det här är en rotpost och ska ha en stämplingslängd. Flera PDF:er i leveransen går inte att skilja åt — öppna dem och skriv in talet ur rätt fil.'
+            : 'Det här är en rotpost och ska ha en stämplingslängd, men det finns ingen i leveransen från Vida. Skriv in talet när du har papperet.',
         });
-      } else {
-        ut.push({
-          nyckel: 'stamplingslangd_saknas',
-          text: `Det här är en rotpost — virket säljs på rot och ska ha en stämplingslängd, men ingen är identifierad.${okanda > 0 ? ' En PDF i filen är oidentifierad (se frågan om den): kan det vara stämplingslängden?' : ''} Skriv in talet när du har det.`,
-        });
-      }
     }
   }
   return ut;
