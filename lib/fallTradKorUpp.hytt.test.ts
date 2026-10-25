@@ -469,7 +469,8 @@ describe.skipIf(!CHROMIUM)('Kör upp-pilens storlek — riktig Chromium + MapLib
         const t = await pg.evaluate(() => {
           const w = window as any; const map = w.map; const { cv, data, dpr } = w.__px;
           const p = w.pilar[0]; const a = map.project([p.start.lon, p.start.lat]); const b = map.project([p.slut.lon, p.slut.lat]);
-          const y = Math.round(((a.y + b.y) / 2) * dpr);
+          // Mäts en fjärdedel in från starten, inte i mitten: där sitter skäl-ordet (rakt, med mörk kant) och skulle störa mätningen av linjen.
+          const y = Math.round((a.y + (b.y - a.y) * 0.25) * dpr);
           let run = 0, basta = 0;
           for (let x = Math.round((a.x - 20) * dpr); x < Math.round((a.x + 20) * dpr); x++) { const i = (y * cv.width + x) * 4; if (data[i] > 235 && data[i + 1] > 235 && data[i + 2] > 235) { run++; basta = Math.max(basta, run); } else run = 0; }
           return basta / dpr;
