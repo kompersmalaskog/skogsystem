@@ -45,3 +45,17 @@ export function jamforStampling(l: Lasning, celler: Cell[], meta: Meta): Stampli
 export function procentMot(faktiskt: number, prognos: number): number | null {
   return prognos > 0 ? Math.round((100 * (faktiskt - prognos)) / prognos) : null;
 }
+
+export type Prognoser = { blev: number; app: number | null; vida: number | null };
+
+/** Vems prognos för timret låg närmast det som blev — EN mening, eller null när det inte går att säga.
+ *  Inom 3 % av det som blev räknas båda som träff; skiljer de mindre än 2 procentenheter är det "lika nära". */
+export function narmastMening(timmer: Prognoser, avverkad: boolean): string | null {
+  if (!avverkad || timmer.blev <= 0) return null;
+  const fel = (x: number | null) => (x == null ? null : Math.abs(x - timmer.blev) / timmer.blev);
+  const a = fel(timmer.app), v = fel(timmer.vida);
+  if (v == null) return null;
+  if (a == null) return v <= 0.03 ? 'Vidas kalkyl träffade timret.' : `Vidas kalkyl ${timmer.vida! > timmer.blev ? 'lovade' : 'räknade med'} ${Math.round(100 * v)} % ${timmer.vida! > timmer.blev ? 'mer' : 'mindre'} timmer än det blev.`;
+  if (Math.abs(a - v) < 0.02) return 'Vidas kalkyl och appen låg lika nära på timret.';
+  return v < a ? 'Vidas kalkyl låg närmast på timret.' : 'Appen låg närmare än Vidas kalkyl på timret.';
+}

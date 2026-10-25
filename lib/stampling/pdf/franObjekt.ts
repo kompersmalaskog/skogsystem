@@ -72,3 +72,27 @@ export async function lasRapport(admin: SupabaseClient, id: string): Promise<Utf
     return misslyckad('okant', `Läsningen misslyckades: ${e?.message ?? String(e)}`, 500);
   }
 }
+
+/** Läser om en redan läst rapport för att ta ut BARA utbyteskalkylen (rapporter lästa innan den lästes ut). Allt annat i läsningen
+ *  — trädslagen, rättningen, kontrollen, statusen — rörs inte: talen man redan litar på får aldrig bytas ut av en ny läsning.
+ *  Kalkylen läggs i `las` och, finns en rättning, i `rattad` (det är den som gäller). Har rapporten redan nyckeln görs ingenting. */
+export async function lasUtbyteskalkyl(admin: SupabaseClient, id: string): Promise<Utfall<{ utbyteskalkyl: unknown }>> {
+  const { data, error } = await admin.from('stamplings_rapport').select('*').eq('id', id).maybeSingle();
+  if (error) return { ok: false, status: 500, kod: 'las', error: error.message };
+  const rad = data as RapportRad | null;
+  if (!rad?.las || typeof rad.las !== 'object') return { ok: false, status: 404, kod: 'saknas', error: 'Rapporten är inte läst.' };
+  if ('utbyteskalkyl' in (rad.las as object)) return { ok: true, v: { utbyteskalkyl: (rad.las as Record<string, unknown>).utbyteskalkyl } };
+  const { data: fil, error: e1 } = await admin.storage.from(BUCKET).download(rad.storage_path);
+  if (e1 || !fil) return { ok: false, status: 500, kod: 'fil', error: `Filen gick inte att hämta: ${e1?.message ?? 'okänt fel'}` };
+  try {
+    const svar = await lasStamplingsrapport(new Uint8Array(await fil.arrayBuffer()));
+    const u = svar.lasning.utbyteskalkyl ?? null;
+    const patch: Record<string, unknown> = { las: { ...(rad.las as object), utbyteskalkyl: u } };
+    if (rad.rattad && typeof rad.rattad === 'object') patch.rattad = { ...(rad.rattad as object), utbyteskalkyl: u };
+    const { error: e2 } = await admin.from('stamplings_rapport').update(patch).eq('id', id);
+    if (e2) return { ok: false, status: 500, kod: 'spara', error: e2.message };
+    return { ok: true, v: { utbyteskalkyl: u } };
+  } catch (e: any) {
+    return { ok: false, status: 502, kod: e instanceof LasFel ? e.kod : 'okant', error: e?.message ?? String(e) };
+  }
+}
