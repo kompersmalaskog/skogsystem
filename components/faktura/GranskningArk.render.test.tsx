@@ -101,6 +101,28 @@ describe('Sortiment-arket', () => {
     expect(txt()).toContain('4 374 kr på trakten');
   });
 
+  it('trädslaget står på raden när det är läst — namnet är ingen källa', async () => {
+    const svar = { ok: true, tradslag: { 'Massa: BmavFall_V3': [{ namn: 'Gran', volym: 250 }, { namn: 'Tall', volym: 153.2 }] } };
+    const gamla = globalThis.fetch;
+    (globalThis as any).fetch = () => Promise.resolve({ json: () => Promise.resolve(svar) });
+    try {
+      rita(props());
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(txt()).toContain('Gran 62 % · Tall 38 %');
+    } finally { (globalThis as any).fetch = gamla; }
+  });
+
+  it('medan trädslagen läses, och om de inte går att läsa, SÄGS det', async () => {
+    const gamla = globalThis.fetch;
+    (globalThis as any).fetch = () => Promise.reject(new Error('nät'));
+    try {
+      rita(props());
+      expect(txt()).toContain('Läser trädslag');
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(txt()).toContain('Trädslagen gick inte att läsa just nu.');
+    } finally { (globalThis as any).fetch = gamla; }
+  });
+
   it('båda listorna står, och det som inte räknas säger varför', () => {
     rita(props());
     const t = txt();

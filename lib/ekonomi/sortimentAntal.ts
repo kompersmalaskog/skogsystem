@@ -64,6 +64,9 @@ export type RaknatSortiment = {
   /** Alla namn som slagits ihop till det här sortimentet, största först.
    *  Fler än ett = kvalitetsklasser eller samma kundkod. */
   delar: string[];
+  /** sortiment_id:n raden är byggd av — nyckeln när granskningen slår upp
+   *  trädslag per sortiment. Två maskiner ger samma sortiment två id:n. */
+  ids: string[];
 };
 
 export type EjRaknatSkal = 'avkap' | 'utan_sortiment';
@@ -132,8 +135,9 @@ export function raknaSortiment(rader: SortimentRad[]): Sortimentsrakning {
     if (fanns) {
       fanns.volym += volym;
       if (!fanns.delar.includes(namn)) fanns.delar.push(namn);
+      if (!fanns.ids.includes(r.sortiment_id)) fanns.ids.push(r.sortiment_id);
     } else {
-      raknade.set(nyckel, { nyckel, namn, volym, delar: [namn] });
+      raknade.set(nyckel, { nyckel, namn, volym, delar: [namn], ids: [r.sortiment_id] });
     }
   }
 

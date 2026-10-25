@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  byggSortimentVy, byggPrisVy, byggRattaVy, snyggtNamn, datumIOrd, ord,
+  byggSortimentVy, byggPrisVy, byggRattaVy, snyggtNamn, datumIOrd, ord, heltalTill100,
 } from './granskningVy';
 import { raknaSortiment, type SortimentRad } from '@/lib/ekonomi/sortimentAntal';
 
@@ -73,8 +73,8 @@ describe('byggSortimentVy', () => {
       'Energi Engved3mGran', 'Massa BjörkmavFall', 'Massa HemvedFall',
     ]);
     expect(v.ejRaknade).toEqual([
-      { namn: 'Energi AvkapGran', under: 'Avkap är spill, inget du apterar mot', volym: 3.5 },
-      { namn: 'Unclassified', under: 'Maskinen skrev inget sortiment på dem', volym: 2.7 },
+      { namn: 'Energi AvkapGran', under: 'Avkap är spill, inget du apterar mot', volym: 3.5, tradslag: null },
+      { namn: 'Unclassified', under: 'Maskinen skrev inget sortiment på dem', volym: 2.7, tradslag: null },
     ]);
   });
 
@@ -197,5 +197,68 @@ describe('texthjälparna', () => {
   it('tal i ord upp till tolv, siffra därefter', () => {
     expect(ord(6, true)).toBe('Sex');
     expect(ord(13)).toBe('13');
+  });
+});
+
+describe('trädslag per sortiment', () => {
+  // Bågskyttebanan, som Martin hade uppe: namnet säger "Tall" på ett sortiment
+  // och ingenting på de andra. Trädslaget står i datan, inte i namnet.
+  const ART = {
+    'Timmer: Vislanda Tall_V3': [{ namn: 'Tall', volym: 980.2 }],
+    'Massa: BmavFall_V3': [{ namn: 'Gran', volym: 250.0 }, { namn: 'Tall', volym: 153.2 }],
+    'Kubb: Alvesta305_V3': [{ namn: 'Gran', volym: 346.5 }],
+  };
+
+  const vyMed = (tradslag: any) => byggSortimentVy({
+    g: sortiment(BROKAMALA), volym: 2186.79, sortKr: 0, tradslag,
+  });
+
+  it('ETT trädslag blir 100 %, flera blir hela procent som summerar till 100', () => {
+    const v = vyMed(ART);
+    const kubb = v.raknade.find(r => r.namn.includes('Alvesta305'))!;
+    expect(kubb.tradslag).toBe('Gran 100 %');
+    const massa = v.raknade.find(r => r.namn.includes('BmavFall'))!;
+    expect(massa.tradslag).toBe('Gran 62 % · Tall 38 %');
+  });
+
+  it('saknas trädslag för en stor del SÄGS det — andelarna ljuger aldrig', () => {
+    // Massan är 403,2 m³ men bara 100 m³ har känt trädslag.
+    const v = vyMed({ 'Massa: BmavFall_V3': [{ namn: 'Gran', volym: 100 }] });
+    const massa = v.raknade.find(r => r.namn.includes('BmavFall'))!;
+    expect(massa.tradslag).toBe('Gran 100 % · av 100,0 m³ med känt trädslag');
+  });
+
+  it('olästa trädslag ger null, aldrig "Okänt" och aldrig en tom text', () => {
+    expect(vyMed(null).raknade.every(r => r.tradslag === null)).toBe(true);
+    expect(vyMed({}).raknade.every(r => r.tradslag === null)).toBe(true);
+  });
+
+  it('ett sortiment under två id (två maskiner) slås ihop till EN uppdelning', () => {
+    const r = raknaSortiment([
+      { sortiment_id: 'R64428_100', namn: 'Massa: BmavFall_V3', kundkod: '100-1', volym_m3sub: 100 },
+      { sortiment_id: 'PONS_100', namn: 'Massa: BmavFall_V3', kundkod: '100-1', volym_m3sub: 100 },
+    ]);
+    const v = byggSortimentVy({
+      g: { rakning: r, anvant: r.antal, manuellt: false, ...SATS },
+      volym: 200, sortKr: 0,
+      tradslag: {
+        R64428_100: [{ namn: 'Gran', volym: 100 }],
+        PONS_100: [{ namn: 'Tall', volym: 100 }],
+      },
+    });
+    expect(v.raknade[0].tradslag).toBe('Gran 50 % · Tall 50 %');
+  });
+});
+
+describe('heltalTill100', () => {
+  it('summerar alltid till 100 och ger den största resten den extra enheten', () => {
+    expect(heltalTill100([1, 1, 1])).toEqual([34, 33, 33]);
+    expect(heltalTill100([99.6, 0.4]).reduce((s, v) => s + v, 0)).toBe(100);
+    expect(heltalTill100([99.6, 0.4])).toEqual([100, 0]);
+  });
+
+  it('inget att fördela ger nollor, aldrig NaN', () => {
+    expect(heltalTill100([])).toEqual([]);
+    expect(heltalTill100([0, 0])).toEqual([0, 0]);
   });
 });

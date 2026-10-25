@@ -24,6 +24,7 @@
 
 import { virkesGrupp } from '@/lib/markagarrapport/pris';
 import type { Granskningsunderlag } from '@/lib/faktura/hamtaUnderlag';
+import type { TradslagPerSortiment, TradslagsAndel } from '@/lib/faktura/lasTradslag';
 import type { Tillaggspost } from '@/lib/ekonomi/prisPerM3';
 
 const ORD = ['noll', 'ett', 'två', 'tre', 'fyra', 'fem', 'sex', 'sju', 'åtta',
@@ -73,6 +74,12 @@ export type SortimentRadVy = {
   /** Gruppordet under namnet ("Massaved"), eller skälet för det som inte räknas. */
   under: string;
   volym: number;
+  /**
+   * Trädslagen i sortimentet, störst först: "Gran 62 % · Tall 38 %".
+   * null = trädslagen är inte lästa (eller gick inte att läsa) — aldrig ett
+   * påhittat "Okänt", och aldrig en tom sträng som ser ut som inget virke.
+   */
+  tradslag: string | null;
 };
 
 export type SortimentVy = {
@@ -95,7 +102,56 @@ export type SortimentIndata = {
   volym: number;
   /** Sortimentstillägget i kr/m³fub ur prisraden. null = inget ackordspris. */
   sortKr: number | null;
+  /**
+   * Volym per trädslag och sortiment_id (lib/faktura/lasTradslag). null =
+   * inte läst än eller läsningen föll; raderna står då utan trädslag.
+   */
+  tradslag?: TradslagPerSortiment | null;
 };
+
+/**
+ * Trädslagen i ETT sortiment, i ord. Andelarna räknas på den volym som HAR
+ * trädslag, inte på sortimentets hela volym: stockar utan stam har inget
+ * trädslag i datan, och att räkna dem som en nämnare hade gjort alla andelar
+ * för låga utan att säga varför. Saknas en bit SÄGS det i stället.
+ */
+export function tradslagText(
+  andelar: TradslagsAndel[] | undefined, sortimentsvolym: number,
+): string | null {
+  if (!andelar || andelar.length === 0) return null;
+  const kand = andelar.reduce((s, a) => s + a.volym, 0);
+  if (kand <= 0) return null;
+  const delar = heltalTill100(andelar.map(a => a.volym))
+    .map((p, i) => `${andelar[i].namn} ${p} %`)
+    .filter((_, i) => andelar[i].volym > 0);
+  // Under 95 % av sortimentet har känt trädslag → säg det, annars ser en
+  // ofullständig uppdelning ut som hela sanningen.
+  const tackt = sortimentsvolym > 0 ? kand / sortimentsvolym : 1;
+  return tackt < 0.95
+    ? `${delar.join(' · ')} · av ${m3(kand)} m³ med känt trädslag`
+    : delar.join(' · ');
+}
+
+/**
+ * Hela procent som summerar till 100 (största resten). Ett sortiment som är
+ * 99,6 % gran ska stå som 100 %, inte 99 % + en rad som saknas.
+ */
+export function heltalTill100(varden: number[]): number[] {
+  const summa = varden.reduce((s, v) => s + v, 0);
+  if (summa <= 0) return varden.map(() => 0);
+  const exakt = varden.map(v => (v / summa) * 100);
+  const ned = exakt.map(Math.floor);
+  let kvar = 100 - ned.reduce((s, v) => s + v, 0);
+  const ordning = exakt
+    .map((v, i) => ({ i, rest: v - Math.floor(v) }))
+    .sort((a, b) => b.rest - a.rest);
+  for (const { i } of ordning) {
+    if (kvar <= 0) break;
+    ned[i] += 1;
+    kvar -= 1;
+  }
+  return ned;
+}
 
 const SKAL: Record<string, string> = {
   avkap: 'Avkap är spill, inget du apterar mot',
@@ -108,7 +164,19 @@ function gruppord(namn: string): string {
   return g === 'Massa' ? 'Massaved' : g === 'Energi' ? 'Energived' : g;
 }
 
-export function byggSortimentVy({ g, volym, sortKr }: SortimentIndata): SortimentVy {
+export function byggSortimentVy({ g, volym, sortKr, tradslag }: SortimentIndata): SortimentVy {
+  /** Slår ihop trädslagen för alla sortiment_id som raden är byggd av. */
+  const artPerRad = (ids: string[]): TradslagsAndel[] | undefined => {
+    if (!tradslag) return undefined;
+    const per = new Map<string, number>();
+    for (const id of ids) {
+      for (const a of tradslag[id] ?? []) per.set(a.namn, (per.get(a.namn) ?? 0) + a.volym);
+    }
+    return per.size
+      ? Array.from(per, ([namn, v]) => ({ namn, volym: v })).sort((a, b) => b.volym - a.volym)
+      : undefined;
+  };
+
   const antal = g.anvant;
   const grund = g.grundantal;
   const perExtra = g.krPerExtra;
@@ -160,11 +228,13 @@ export function byggSortimentVy({ g, volym, sortKr }: SortimentIndata): Sortimen
         ? `${gruppord(s.namn)} · räknas ihop med ${s.delar.slice(1).map(snyggtNamn).join(' och ')}`
         : gruppord(s.namn),
       volym: s.volym,
+      tradslag: tradslagText(artPerRad(s.ids), s.volym),
     })),
     ejRaknade: g.rakning.ejRaknade.map(s => ({
       namn: snyggtNamn(s.namn),
       under: SKAL[s.skal] ?? 'Räknas inte',
       volym: s.volym,
+      tradslag: null,
     })),
   };
 }

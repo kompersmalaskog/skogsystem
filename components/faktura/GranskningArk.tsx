@@ -13,7 +13,7 @@
 // precis som Redigering › Pris och ersättning › "Stämmer appens värden?".
 // Det finns alltså inte två ställen som kan skriva sortiment_grupper_manuell
 // olika — bara två ställen man kan trycka. Samma modell som sheeten "Flytten".
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Ark from '@/components/design/Ark';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
@@ -22,6 +22,7 @@ import {
   byggSortimentVy, byggPrisVy, byggRattaVy,
   type SortimentIndata, type PrisIndata,
 } from '@/lib/faktura/granskningVy';
+import type { TradslagPerSortiment } from '@/lib/faktura/lasTradslag';
 import {
   AVSTAND, FARG, INAKTIV, KNAPP, RADIE, TAL_FONT, TRAFFYTA, TYP,
 } from '@/lib/design/tokens';
@@ -61,16 +62,47 @@ function Svar({ tal, enhet, mening }: { tal: string; enhet?: string; mening: str
   );
 }
 
+/**
+ * Trädslagen per sortiment, hämtade FÖRST när granskningen öppnas: läsningen
+ * går över detalj_stock och detalj_stam, tusentals rader per trakt, och får
+ * aldrig ligga i vägen för priset. Hooken sitter i den komponent som är
+ * monterad så länge något ark är öppet, så ett byte mellan skärmarna inte
+ * hämtar om. HOOKS FÖRE ALLA TIDIGA RETURER.
+ */
+function useTradslag(objektIds: string[]) {
+  const [data, setData] = useState<TradslagPerSortiment | null>(null);
+  const [fel, setFel] = useState(false);
+  const nyckel = objektIds.join(',');
+
+  useEffect(() => {
+    let levande = true;
+    setData(null);
+    setFel(false);
+    if (!nyckel) return;
+    const q = objektIds.map(id => `objekt=${encodeURIComponent(id)}`).join('&');
+    fetch(`/api/faktura/tradslag?${q}`)
+      .then(r => r.json())
+      .then(j => { if (levande) { if (j?.ok) setData(j.tradslag); else setFel(true); } })
+      .catch(() => { if (levande) setFel(true); });
+    return () => { levande = false; };
+    // objektIds är en ny array varje rendering; nyckeln är innehållet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nyckel]);
+
+  return { data, fel };
+}
+
 export default function GranskningArk(p: GranskningProps) {
+  const art = useTradslag(p.dimObjektIds);
   if (p.vy === 'ratta') return <Ratta {...p} />;
   if (p.vy === 'pris') return <Pris {...p} />;
-  return <SortimentVyn {...p} />;
+  return <SortimentVyn {...p} art={art} />;
 }
 
 /* ════════════════════════════ Sortimenten ════════════════════════════ */
 
-function SortimentVyn(p: GranskningProps) {
-  const v = byggSortimentVy(p.sortiment);
+function SortimentVyn(p: GranskningProps & { art: { data: TradslagPerSortiment | null; fel: boolean } }) {
+  const v = byggSortimentVy({ ...p.sortiment, tradslag: p.art.data });
   return (
     <Ark rubrik="Sortiment" stang="Klar" onStang={() => p.onVy(null)}>
       <Svar tal={v.svar} enhet="sortiment" mening={v.mening} />
@@ -89,9 +121,12 @@ function SortimentVyn(p: GranskningProps) {
         </Sektion>
       )}
 
-      <Sektion rubrik="Det här räknas">
+      <Sektion rubrik="Det här räknas"
+        not={p.art.fel ? 'Trädslagen gick inte att läsa just nu.'
+          : p.art.data ? undefined : 'Läser trädslag…'}>
         {v.raknade.map((r, i) => (
-          <Rad key={r.namn} titel={r.namn} under={r.under} pil={false}
+          <Rad key={r.namn} titel={r.namn} pil={false}
+            under={[r.under, r.tradslag].filter(Boolean).join(' · ')}
             hoger={<span style={TAL_FONT}>{m3(r.volym)}</span>} hogerUnder="m³"
             sista={i === v.raknade.length - 1} />
         ))}
