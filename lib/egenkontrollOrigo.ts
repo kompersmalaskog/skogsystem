@@ -54,7 +54,8 @@ export type VidaGrans =
   | { typ: 'saknas' }
   | { typ: 'fel'; meddelande?: string }
   // ringar: traktgränsens yttre ringar ([lng,lat][]), för lagret "Vidas traktgräns" i lagermenyn (PR 8a). Origobeslutet läser bara `gran`.
-  | { typ: 'ok'; gran: Gran; ringar?: [number, number][][] };
+  // linjer: Vidas linjer (_typ 'linje': kraftledning, basväg) som GeoJSON-features, för Objektöversiktens karta.
+  | { typ: 'ok'; gran: Gran; ringar?: [number, number][][]; linjer?: unknown[] };
 
 export type OrigoSkal =
   | 'saknar_position'   // varken kartbild_bounds eller lat/lng
@@ -294,5 +295,6 @@ export async function lasVidaGrans(klient: SupabaseClient, objektId: string): Pr
   const rader = (data ?? []) as { geometri?: { features?: unknown[] } | null }[];
   const features = rader.flatMap((r) => (Array.isArray(r?.geometri?.features) ? (r.geometri!.features as unknown[]) : []));
   const gran = traktGrans({ features });
-  return gran ? { typ: 'ok', gran, ringar: traktgransRingar({ features: features as never }) } : { typ: 'saknas' };
+  const linjer = features.filter((f) => (f as { properties?: { _typ?: unknown } } | null)?.properties?._typ === 'linje');
+  return gran ? { typ: 'ok', gran, ringar: traktgransRingar({ features: features as never }), linjer } : { typ: 'saknas' };
 }
