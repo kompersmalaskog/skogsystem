@@ -28,7 +28,11 @@ import { stegManad } from './datum';
  */
 export const GREPP_STEG_PP = 6;
 
-export type GreppSteg = { tradslag: string; manad: string; forra: string; fran: number; till: number; pp: number };
+export type GreppSteg = {
+  tradslag: string; manad: string; forra: string; fran: number; till: number; pp: number;
+  /** Andra skördare med samma ökning samma månad (namn som förarna läser dem). Tom/saknas = bara den här maskinen. */
+  samma?: string[];
+};
 
 /**
  * Trädslag vars grepp stigit tydligt: senaste månaden mot månaden före, båda med nog stammar (GREPP_MIN_STAMMAR) och månaderna i följd. Bara en
@@ -52,6 +56,27 @@ export function greppSteg(rader: GreppRad[], idag: string): GreppSteg[] {
     ut.push({ tradslag: rad.etikett, manad: rutnat.perioder[i], forra: rutnat.perioder[i - 1], fran: forra.pct, till: nu.pct, pp });
   }
   return ut;
+}
+
+/**
+ * Samma signal på flera maskiner samma månad? Då är det sannolikt väder och trädslag (kyla, bark), inte slitage på den här maskinen — det ska föraren få veta.
+ * `andra` = de andra skördarnas egna greppsteg (`greppSteg` på deras cache). En maskin räknas när den har samma trädslag OCH samma månad över tröskeln.
+ * Rent: ingen maskin får en markering av sig själv, och de andras ordning bestämmer inte texten (namnen sorteras).
+ */
+export function markeraSamma(egna: GreppSteg[], andra: { namn: string; steg: GreppSteg[] }[]): GreppSteg[] {
+  return egna.map(g => {
+    const samma = andra.filter(a => a.steg.some(x => x.tradslag === g.tradslag && x.manad === g.manad)).map(a => a.namn).sort((a, b) => a.localeCompare(b, 'sv'));
+    return samma.length > 0 ? { ...g, samma } : g;
+  });
+}
+
+/** Raden under meningen när samma ökning syns på andra maskiner. null när den bara syns här. */
+export function sammaText(grepp: GreppSteg[]): string | null {
+  const med = grepp.filter(g => (g.samma?.length ?? 0) > 0);
+  if (med.length === 0) return null;
+  const ORSAK = 'troligen kyla och bark, inte din maskin.';
+  if (grepp.length === 1) return `Samma på ${lista(med[0].samma!)} – ${ORSAK}`;
+  return `${med.map(g => `Samma på ${lista(g.samma!)} för ${artSmatt(g.tradslag)}`).join(', ')} – ${ORSAK}`;
 }
 
 // === Stegen ===
@@ -147,7 +172,8 @@ function stegTextRå(s: Steg): StegText {
   switch (s.slag) {
     case 'kolla': {
       // En kort rad, inga tal (siffrorna står i detaljen): vad som såg konstigt ut.
-      const grepp = s.grepp.length > 0 ? [`Greppet har släppt oftare på ${lista(s.grepp.map(g => artSmatt(g.tradslag)))} i ${manadsOrd(s.grepp[0].manad)}.`] : [];
+      const samma = sammaText(s.grepp);
+      const grepp = s.grepp.length > 0 ? [`Greppet har släppt oftare på ${lista(s.grepp.map(g => artSmatt(g.tradslag)))} i ${manadsOrd(s.grepp[0].manad)}.`, ...(samma ? [samma] : [])] : [];
       const sprid = s.spridning.length > 0 ? [`Måtten hoppar ${grepp.length > 0 ? 'också ' : ''}mellan stammar på ${lista(s.spridning.map(p => `${artSmatt(p.tradslag)} ${p.punkt} mm`))}.`] : [];
       return { ikon: 'build', rubrik: 'Kolla knivar och valsar', varfor: [...grepp, ...sprid].join(' '), rader: [] };
     }

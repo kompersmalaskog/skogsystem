@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fx from './__fixtures__/scorpion_forslag_2026-10-24.json';
 import { punktBesked, type ForslagStam, type PunktBesked } from './forslag';
-import { byggKort, GREPP_STEG_PP, greppSteg, stegText, vantaText, INGET_RAD, INGET_RUBRIK, type Steg } from './forslagKort';
+import { byggKort, GREPP_STEG_PP, greppSteg, markeraSamma, sammaText, stegText, vantaText, INGET_RAD, INGET_RUBRIK, type Steg } from './forslagKort';
 import { BYTE_TEXT, KONTROLL_TEXT, TRYCK_TEXT, andringarUr, kurvaText } from './forslagMarkorer';
 import type { GreppRad } from './greppTid';
 
@@ -46,6 +46,50 @@ describe('greppSteg — när greppet stigit tydligt mot föregående månad', ()
     expect(r[0]).toMatchObject({ tradslag: 'Tall', manad: '2026-10', forra: '2026-09' });
     expect(r[0].fran).toBeCloseTo(28.9, 1);
     expect(r[0].till).toBeCloseTo(36.1, 1);
+  });
+});
+
+describe('samma greppsignal på flera maskiner — "inte din maskin"', () => {
+  const tall = { tradslag: 'Tall', manad: '2026-10', forra: '2026-09', fran: 29, till: 36, pp: 7 };
+  const gran = { ...tall, tradslag: 'Gran' };
+  it('samma trädslag och månad hos en annan skördare markeras med dess namn', () => {
+    expect(markeraSamma([tall], [{ namn: 'H8E -26', steg: [{ ...tall }] }])[0].samma).toEqual(['H8E -26']);
+  });
+  it('en annan månad eller ett annat trädslag är inte "samma"', () => {
+    expect(markeraSamma([tall], [{ namn: 'A', steg: [{ ...tall, manad: '2026-09' }] }])[0].samma).toBeUndefined();
+    expect(markeraSamma([tall], [{ namn: 'A', steg: [gran] }])[0].samma).toBeUndefined();
+    expect(markeraSamma([tall], [])[0].samma).toBeUndefined();
+  });
+  it('flera maskiner: alla som har samma, sorterade på namn', () => {
+    const r = markeraSamma([tall], [{ namn: 'Scorpion', steg: [tall] }, { namn: 'H8E -26', steg: [tall] }, { namn: 'H8E -23', steg: [gran] }]);
+    expect(r[0].samma).toEqual(['H8E -26', 'Scorpion']);
+  });
+  it('raden under: ett trädslag → "Samma på X – troligen kyla och bark, inte din maskin."', () => {
+    expect(sammaText(markeraSamma([tall], [{ namn: 'H8E -26', steg: [tall] }]))).toBe('Samma på H8E -26 – troligen kyla och bark, inte din maskin.');
+    expect(sammaText(markeraSamma([tall], [{ namn: 'A', steg: [tall] }, { namn: 'B', steg: [tall] }]))).toBe('Samma på A och B – troligen kyla och bark, inte din maskin.');
+  });
+  it('ingen rad när bara den här maskinen har ökat', () => {
+    expect(sammaText([tall])).toBeNull();
+    expect(sammaText([])).toBeNull();
+  });
+  it('två trädslag där bara ett är samma: raden säger vilket, så den inte påstår för mycket', () => {
+    expect(sammaText(markeraSamma([tall, gran], [{ namn: 'H8E -26', steg: [tall] }]))).toBe('Samma på H8E -26 för tall – troligen kyla och bark, inte din maskin.');
+  });
+  it('kortets kolla-steg bär raden under greppsraden — och ingen rad utan "samma"', () => {
+    const med = byggKort({ grepp: markeraSamma([tall], [{ namn: 'H8E -26', steg: [tall] }]), punkter: [], andringar: [], kollat: [], idag: IDAG });
+    const t = stegText(med.steg[0]).varfor.replace(/\u00a0/g, ' ');
+    expect(t).toContain('Samma på H8E -26 – troligen kyla och bark, inte din maskin.');
+    const utan = byggKort({ grepp: [tall], punkter: [], andringar: [], kollat: [], idag: IDAG });
+    expect(stegText(utan.steg[0]).varfor).not.toContain('Samma på');
+  });
+  it('Scorpion + H8E -26: tall oktober +7,2 på båda → Scorpionens kort säger det', () => {
+    const egen = greppSteg(grepp, IDAG);
+    const andra = greppSteg(
+      [{ manad: '2026-09', tradslag: 'TALL', klass: '200-249', stammar: 100, steg: 1000, still: 0, summaAndel: 37.5 }, { manad: '2026-10', tradslag: 'TALL', klass: '200-249', stammar: 100, steg: 1000, still: 0, summaAndel: 44.7 }],
+      IDAG,
+    );
+    expect(andra).toHaveLength(1);
+    expect(markeraSamma(egen, [{ namn: 'H8E -26', steg: andra }])[0].samma).toEqual(['H8E -26']);
   });
 });
 
