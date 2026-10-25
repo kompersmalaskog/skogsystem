@@ -87,6 +87,24 @@ describe('menyn och kartan känner de nya sorterna', () => {
   });
 });
 
+describe('läget ligger kvar tills Klar (Martin 2026-10-25: flera träd/pilar i rad, som Rita)', () => {
+  const klart = sida.slice(sida.indexOf('onKlart: (k) => {'), sida.indexOf('const avslutaTvaTryck'));
+  it('ett färdigt träd eller en färdig pil avslutar INTE läget: onKlart rör varken isArrowMode eller arrowType', () => {
+    expect(klart).toContain('setMarkers(');
+    expect(klart).not.toContain('setIsArrowMode');
+    expect(klart).not.toContain('setArrowType');
+    expect(klart).not.toContain('setMarkerMenuOpen');   // skäl-kortet öppnas först vid Klar, annars ligger det i vägen för nästa tryck
+  });
+  it('✓ Klar finns i pil-listan (grön, som Rita) och avslutar läget; × avbryter; kör upp-kortet med skälen öppnas för den senaste pilen vid Klar', () => {
+    expect(sida).toContain("{ etikett: '✓', aria: 'Klar', onClick: avslutaTvaTryck, gron: true, testid: 'pil-klar' }");
+    const fn = sida.slice(sida.indexOf('const avslutaTvaTryck'), sida.indexOf('// === KÖRVY (3D-förarvy) effekter ==='));
+    expect(fn).toContain('setIsArrowMode(false); setArrowType(null);');
+    expect(fn).toContain('setMarkerMenuOpen(id)');
+    expect(fn).toContain('tvaTryckData(null, null)');   // en pågående start/förhandsvisning kastas
+    expect(sida).toContain("'pil-avbryt'");
+  });
+});
+
 describe('fast storlek på skärmen', () => {
   it('kör upp-pilen har samma tjocklek och spets vid varje zoom: inga zoomuttryck i lagren', () => {
     for (const l of korUppLager().filter((x) => x.id !== 'line-korupp-ord')) expect(JSON.stringify(l.paint ?? {}) + JSON.stringify(l.layout ?? {}), l.id).not.toContain('"zoom"');

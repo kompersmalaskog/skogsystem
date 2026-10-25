@@ -8638,15 +8638,16 @@ export default function PlannerPage() {
   }, [markers, mapLibreReady, mapCenter, visibleLayers.arrows, objektSaknarPosition, korvyActive, skotarKorvy, korvyEffectivePos?.lat, korvyEffectivePos?.lon, tradForslag, markerMenuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // TVÅ TRYCK (lib/tvaTryck): kör upp-pilen och fällträdet sätts med två tryck — första = start (pilen snäpper till närmaste väg) respektive stubben, andra = slut respektive åt vilket håll trädet
-  // faller. En tunn förhandsvisning (linje, och för trädet ett spöke) visas mellan trycken. Ritläget stänger av all annan tryckning (lib/ritlageSparr) tills det är klart eller avbrutet (×).
+  // faller. En tunn förhandsvisning (linje, och för trädet ett spöke) visas mellan trycken. Ritläget stänger av all annan tryckning (lib/ritlageSparr) tills man trycker Klar (✓) eller Avbryt (×) — flera träd/pilar i rad.
   // Träden har ingen gest på kartan efteråt: de vrids i kortet, som de gamla pilarna.
   const [tvaStart, setTvaStart] = useState<TvaStart | null>(null);
   const tvaStartRef = useRef<TvaStart | null>(null);
+  const senastKorUppRef = useRef<any>(null);
   tvaStartRef.current = tvaStart;
   const korUppVagarRef = useRef<SnappVag[]>([]);
   korUppVagarRef.current = korVagar.map((v) => ({ id: v.id, coords: v.coords }));
   const tvaSlag = isArrowMode && !korvyActive ? (arrowType === KORUPP_TYP ? 'korupp' : arrowType === TRAD_TYP ? 'trad' : null) : null;
-  useEffect(() => { if (!tvaSlag) setTvaStart(null); }, [tvaSlag]);
+  useEffect(() => { if (!tvaSlag) { setTvaStart(null); senastKorUppRef.current = null; } }, [tvaSlag]);   // läget slut (Klar, Avbryt, annat läge): ingen pil väntar på sitt skäl-kort
   useTvaTryck(mapInstanceRef.current, mapLibreReady, {
     slag: tvaSlag,
     vagarRef: korUppVagarRef,
@@ -8672,16 +8673,24 @@ export default function PlannerPage() {
         const ny = nyKorUpp(k.start, k.slut, k.vagId);
         if (!ny) return;
         setMarkers((prev: any[]) => [...prev, ny]);
-        setIsArrowMode(false); setArrowType(null);
-        setMarkerMenuOpen(ny.id);   // kortet med skälen (ett tryck) öppnas direkt
+        senastKorUppRef.current = ny.id;   // läget ligger kvar (flera i rad); kortet med skälen öppnas när man trycker Klar
         return;
       }
       const xy = latLonToSvg(k.stubbe.lat, k.stubbe.lon);
       const nytt = { id: Date.now(), isArrow: true, arrowType: TRAD_TYP, x: xy.x, y: xy.y, lng: k.stubbe.lon, lat: k.stubbe.lat, rotation: k.vinkel, angle: k.vinkel };
-      setMarkers((prev: any[]) => [...prev, nytt]);
-      setIsArrowMode(false); setArrowType(null);
+      setMarkers((prev: any[]) => [...prev, nytt]);   // läget ligger kvar: nästa tryck är en ny stubbe
     },
   });
+  // Klar (✓): avsluta läget. Kör upp: kortet med skälen öppnas för den senast satta pilen (ett tryck, som förut).
+  const avslutaTvaTryck = () => {
+    const id = senastKorUppRef.current;
+    const kor = arrowType === KORUPP_TYP;
+    senastKorUppRef.current = null;
+    setTvaStart(null);
+    (mapInstanceRef.current?.getSource(TVATRYCK_KALLA) as any)?.setData(tvaTryckData(null, null));
+    setIsArrowMode(false); setArrowType(null);
+    if (kor && id != null) setMarkerMenuOpen(id);
+  };
 
   // === KÖRVY (3D-förarvy) effekter ===
   // Helper: bearing från (lat1,lon1) → (lat2,lon2), 0-360°
@@ -14637,6 +14646,7 @@ export default function PlannerPage() {
               setIsArrowMode(false); setArrowType(null);
             } },
           ] : [
+            ...(tvaSlag ? [{ etikett: '✓', aria: 'Klar', onClick: avslutaTvaTryck, gron: true, testid: 'pil-klar' }] : []),
             ...(tvaStart ? [{ etikett: 'Ny start', onClick: () => { setTvaStart(null); (mapInstanceRef.current?.getSource(TVATRYCK_KALLA) as any)?.setData(tvaTryckData(null, null)); }, testid: 'pil-ny-start' }] : []),
             AVBRYT_KNAPP(() => { setIsArrowMode(false); setArrowType(null); }, 'pil-avbryt'),
           ]}
