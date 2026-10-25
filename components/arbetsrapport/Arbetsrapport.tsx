@@ -938,6 +938,10 @@ export default function Arbetsrapport() {
   // periodVilobrott = brott inom Vila-flikens valda period. null = laddar, [] = inga brott.
   const [aktuellaVilobrott, setAktuellaVilobrott] = useState<VilobrottRad[]>([]);
   const [periodVilobrott, setPeriodVilobrott] = useState<VilobrottRad[] | null>(null);
+  // Företagsledare (Martin, Joacim) omfattas inte av ATL:s vilokrav — ingen vilofråga, inga
+  // gula vilorader och inga brott i Min tid › Vila (samma undantag som admin, Martin 2026-10-25).
+  const arForetagsledare = medarbetare?.foretagsledare === true;
+  const synligaVilobrott = arForetagsledare ? [] : aktuellaVilobrott;
   // Inline-expansion av rödramat kort i Vila-fliken — visar orsak/kompensation.
   const [vilaKortExpanded, setVilaKortExpanded] = useState<string | null>(null);
   // Orsaks-flöde när föraren bekräftar dagen med obesvarade brott. Kön fryses
@@ -1652,7 +1656,7 @@ export default function Arbetsrapport() {
   //   eftersom det baseras på klockslag-nu, inte på en specifik arbetsdag.
   const vilaVarningar: {typ:'röd'|'orange';text:string}[] = [];
 
-  for (const b of aktuellaVilobrott) {
+  for (const b of synligaVilobrott) {
     if (b.besvarat_av_forare) continue;
     if (b.typ === 'dygnsvila') {
       vilaVarningar.push({
@@ -1954,7 +1958,7 @@ export default function Arbetsrapport() {
         return;
       }
     }
-    if (medarbetare?.id && trosklar) {
+    if (medarbetare?.id && trosklar && !arForetagsledare) {
       const fromDt = new Date(datum + "T00:00:00"); fromDt.setDate(fromDt.getDate() - 7);
       const fromIso = franGolv(ymdLokal(fromDt));
       const toIso = datum;
@@ -2302,7 +2306,7 @@ export default function Arbetsrapport() {
     const fore = new Date(datum + 'T00:00:00'); fore.setDate(fore.getDate() - 1);
     const foreKey = ymdLokal(fore);
     const datumKortK = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return `${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`; };
-    for (const b of aktuellaVilobrott
+    for (const b of synligaVilobrott
       .filter(b => arDagensVilobrott(b, datum) && (!b.besvarat_av_forare || besvaradeFragor[`${datum}|vila-${b.id}`]))
       .sort((a, c) => a.datum.localeCompare(c.datum))) {
       const nar = b.typ === 'veckovila' ? `vecka ${isoVecka(new Date(b.datum + 'T00:00:00')).vecka}` : (b.datum === foreKey ? '' : datumKortK(b.datum));
@@ -2402,7 +2406,7 @@ export default function Arbetsrapport() {
       </>);
     }
     if (svarSheet.typ === 'vila') {
-      const b = aktuellaVilobrott.find(x => x.id === svarSheet.id);
+      const b = synligaVilobrott.find(x => x.id === svarSheet.id);
       if (!b) return null;
       const klart = !!svarOrsak && (svarOrsak !== 'annat' || svarFritext.trim().length > 0);
       return ark(<>
@@ -3531,7 +3535,7 @@ export default function Arbetsrapport() {
     // brott: dygnsvilan från i natt syns först när dagens start finns.
     // På kvällen är DAGENS vilobrott rader i "Saker att svara på" (ovanför Stämmer); äldre
     // obesvarade står kvar här som en separat påminnelse som aldrig blockerar Stämmer.
-    const vilobrottObesvarade = aktuellaVilobrott.filter(b => !b.besvarat_av_forare && b.datum >= fran30 && !(kvällsLäge && arDagensVilobrott(b, idagKey)));
+    const vilobrottObesvarade = synligaVilobrott.filter(b => !b.besvarat_av_forare && b.datum >= fran30 && !(kvällsLäge && arDagensVilobrott(b, idagKey)));
     type VantarRad = { nyckel: string; text: string; farg: string; onClick: () => void };
     const vantarRader: VantarRad[] = [];
     for (const b of vilobrottObesvarade) {
@@ -4415,7 +4419,7 @@ export default function Arbetsrapport() {
               : vilaPeriod==='år'
                 ? `${nu5.getFullYear()}-12-31`
                 : nu5.toISOString().slice(0,10);
-            const dbBrottIPeriod = (periodVilobrott || []).filter(b => b.datum >= periodFrom && b.datum <= periodTo);
+            const dbBrottIPeriod = (arForetagsledare ? [] : (periodVilobrott || [])).filter(b => b.datum >= periodFrom && b.datum <= periodTo);
             const dbDygn = dbBrottIPeriod.filter(b => b.typ === 'dygnsvila');
             const dbVeck = dbBrottIPeriod.filter(b => b.typ === 'veckovila');
             // Matcha en allVila-rad (visning) mot ett dygnsvila-brott (DB).
