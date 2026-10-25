@@ -17,7 +17,7 @@ const sida = las('app/planering/page.tsx');
 
 describe('lagring: ingen migration', () => {
   it('både trädet och kör upp-pilen är pil-markeringar: getMarkerTyp ger "pil" för allt med isArrow, och ingen annan typ skickas till databasen', () => {
-    expect(sida).toMatch(/const getMarkerTyp = \(m: Marker\): string => \{[^}]*if \(m\.isArrow\) return 'pil';/s);
+    expect(sida).toMatch(/const getMarkerTyp = \(m: Marker\): string => \{[^}]*if \(m\.isArrow\) return 'pil';/);
     for (const f of ['lib/fallTrad.ts', 'lib/korUpp.ts', 'lib/fallTradGester.ts', 'lib/hooks/useFallOchKorUpp.ts']) expect(las(f), f).not.toMatch(/typ:\s*'(trad|korupp|trädet)/);
     expect(las('lib/fallTrad.ts')).toContain("export const TRAD_TYP = 'fellingtree'");
     expect(las('lib/korUpp.ts')).toContain("export const KORUPP_TYP = 'koruppbacka'");
