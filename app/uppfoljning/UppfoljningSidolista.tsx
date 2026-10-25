@@ -5,13 +5,14 @@
 // Telefon och iPad stående ser den aldrig (ramen gömmer kolumnen < 1100 px);
 // indexlistan på /uppfoljning är orörd.
 //
-// Samma uppdelning som indexlistans "På backen · per maskin" (MaskinUppdelning):
-// grupperat på tilldelad skotare, varje maskin med sin summa "X m³ på backen",
-// objekten under med "kvar m³", skotare med mest överst, "Ej tilldelad" sist.
-// Därunder en "Klart"-grupp. Allt på tokens.
+// Menyn, som Martin ville ha den: överst hur mycket som ligger på backen
+// PER TYP (slutavverkning, gallring …), sen PER SKOTARE (grupperat på tilldelad
+// skotare, mest överst, Ej tilldelad sist), och underst AVSLUTADE grupperat per
+// månad (hopfällt). Typ-totalerna räknas ur SAMMA "på backen"-mängd som
+// per-skotare, så de summerar ihop — ingen fristående siffra som kan avvika.
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AVSTAND, FARG, RADIE, TNUM, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, RADIE, TNUM, TYP, overgang } from '@/lib/design/tokens';
 import { typLabel, arRisjobb } from '@/lib/objekt/typ';
 import { paBackenKvar } from '@/lib/skotat';
 import { type UppfoljningObjekt } from './lib/transform';
@@ -25,14 +26,23 @@ function kvarM3(o: UppfoljningObjekt): number {
   return paBackenKvar(o.volymSkordare, o.volymSkotare, o.egenSkotning === true);
 }
 
+// Avslutningsdatum — det senaste vi har (skotarens slut → skördarens slut →
+// sista avverkningsdag). Styr både sortering och vilken månad objektet hamnar i.
+function klartDatum(o: UppfoljningObjekt): string | null {
+  return o.skotareSlut || o.skordareSlut || o.sistaAvverkning || null;
+}
+
 type Grupp = { namn: string | null; objs: UppfoljningObjekt[]; summa: number };
+type TypTotal = { label: string; summa: number; antal: number };
+type Manad = { key: string; label: string; objs: UppfoljningObjekt[] };
 
 export default function UppfoljningSidolista({ valt }: { valt: string | null }) {
   const router = useRouter();
   const { objekt, loading, error } = useUppfoljningList();
   const [sok, setSok] = useState('');
+  const [visaAvslutade, setVisaAvslutade] = useState(false);
 
-  const { grupper, klart } = useMemo(() => {
+  const { typTotaler, grupper, manader, antalAvslutade } = useMemo(() => {
     const t = sok.trim().toLowerCase();
     const traffar = (o: UppfoljningObjekt) =>
       !t || o.namn.toLowerCase().includes(t) || (o.agare || '').toLowerCase().includes(t) || (o.vo_nummer || '').includes(t);
@@ -42,6 +52,18 @@ export default function UppfoljningSidolista({ valt }: { valt: string | null }) 
     const paBacken = objekt.filter(o =>
       traffar(o) && !o.skotningAvslutad && !o.externSkotning && !o.egenSkotning && !arRisjobb(o) && kvarM3(o) > 0);
 
+    // Per typ — ur SAMMA mängd, så totalerna summerar mot per-skotare nedan.
+    const tm = new Map<string, TypTotal>();
+    for (const o of paBacken) {
+      const label = o.typ ? typLabel(o.typ) : 'Okänd typ';
+      if (!tm.has(label)) tm.set(label, { label, summa: 0, antal: 0 });
+      const row = tm.get(label)!;
+      row.summa += kvarM3(o);
+      row.antal += 1;
+    }
+    const typTotaler = Array.from(tm.values()).sort((a, b) => b.summa - a.summa);
+
+    // Per skotare — grupperat på tilldelad skotare.
     const m = new Map<string, UppfoljningObjekt[]>();
     for (const o of paBacken) {
       const k = o.tilldeladSkotare || ' ej';
@@ -58,15 +80,32 @@ export default function UppfoljningSidolista({ valt }: { valt: string | null }) 
     // Mest på backen överst; Ej tilldelad alltid sist.
     grupper.sort((a, b) => (a.namn === null ? 1 : b.namn === null ? -1 : b.summa - a.summa));
 
-    const klart = objekt.filter(o => traffar(o) && o.skotningAvslutad);
-    return { grupper, klart };
+    // Avslutade per månad — nyast månad överst, nyast objekt överst i månaden.
+    const avslutade = objekt.filter(o => traffar(o) && o.skotningAvslutad);
+    const mm = new Map<string, UppfoljningObjekt[]>();
+    for (const o of avslutade) {
+      const d = klartDatum(o);
+      const key = d ? d.slice(0, 7) : 'okänt';
+      if (!mm.has(key)) mm.set(key, []);
+      mm.get(key)!.push(o);
+    }
+    const manader: Manad[] = Array.from(mm.entries())
+      .map(([key, objs]) => ({
+        key,
+        label: key === 'okänt'
+          ? 'Utan datum'
+          : new Date(key + '-01').toLocaleDateString('sv-SE', { month: 'long', year: 'numeric' }),
+        objs: objs.slice().sort((a, b) => (klartDatum(b) || '').localeCompare(klartDatum(a) || '')),
+      }))
+      .sort((a, b) => (a.key === 'okänt' ? 1 : b.key === 'okänt' ? -1 : b.key.localeCompare(a.key)));
+
+    return { typTotaler, grupper, manader, antalAvslutade: avslutade.length };
   }, [objekt, sok]);
 
   const aktivFor = (o: UppfoljningObjekt) => valt != null && urlIdFor(o) === valt;
 
-  const rad = (o: UppfoljningObjekt, visaKvar: boolean) => {
+  const rad = (o: UppfoljningObjekt, hoger: 'kvar' | 'volym') => {
     const aktiv = aktivFor(o);
-    const kvar = kvarM3(o);
     return (
       <button
         key={o.skordareObjektId || o.skotareObjektId || o.vo_nummer}
@@ -85,13 +124,16 @@ export default function UppfoljningSidolista({ valt }: { valt: string | null }) 
             {o.typ ? typLabel(o.typ) : '—'}
           </span>
         </span>
-        {visaKvar ? (
+        {hoger === 'kvar' ? (
           <span style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, flexShrink: 0, ...TNUM }}>
-            <span style={{ ...TYP.listtitel }}>{sv(kvar)}</span>
+            <span style={{ ...TYP.listtitel }}>{sv(kvarM3(o))}</span>
             <span style={{ ...TYP.meta, color: FARG.text2 }}>kvar m³</span>
           </span>
         ) : (
-          <span style={{ flexShrink: 0, ...TYP.meta, color: FARG.text2 }}>klar</span>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, flexShrink: 0, ...TNUM }}>
+            <span style={{ ...TYP.listtitel, color: FARG.text2 }}>{sv(o.volymSkordare)}</span>
+            <span style={{ ...TYP.meta, color: FARG.text2 }}>m³</span>
+          </span>
         )}
       </button>
     );
@@ -116,8 +158,26 @@ export default function UppfoljningSidolista({ valt }: { valt: string | null }) 
         <div style={{ ...TYP.meta, color: FARG.orange, padding: `${AVSTAND.s}px ${AVSTAND.m}px` }}>Kunde inte läsa listan.</div>
       ) : (
         <>
+          {typTotaler.length > 0 && (
+            <>
+              <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>På backen · per typ</div>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(typTotaler.length, 3)}, 1fr)`, gap: AVSTAND.s, margin: `0 ${AVSTAND.m}px ${AVSTAND.l}px` }}>
+                {typTotaler.map(tt => (
+                  <div key={tt.label} style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.m}px ${AVSTAND.s}px` }}>
+                    <div style={{ ...TYP.micro, color: FARG.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tt.label}</div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, marginTop: AVSTAND.xs, ...TNUM }}>
+                      <span style={{ ...TYP.rubrik }}>{sv(tt.summa)}</span>
+                      <span style={{ ...TYP.meta, color: FARG.text2 }}>m³</span>
+                    </div>
+                    <div style={{ ...TYP.micro, color: FARG.text2, marginTop: AVSTAND.xs, textTransform: 'none', letterSpacing: 0 }}>{tt.antal} objekt</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
           {grupper.length > 0 && (
-            <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>På backen · per maskin</div>
+            <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>Per skotare</div>
           )}
           {grupper.map(g => (
             <section key={g.namn || 'ej'} style={{ marginBottom: AVSTAND.l }}>
@@ -126,21 +186,38 @@ export default function UppfoljningSidolista({ valt }: { valt: string | null }) 
                 <span style={{ ...TYP.meta, color: FARG.text2, ...TNUM, flexShrink: 0 }}>{sv(g.summa)} m³ på backen</span>
               </div>
               <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
-                {g.objs.map(o => rad(o, true))}
+                {g.objs.map(o => rad(o, 'kvar'))}
               </div>
             </section>
           ))}
 
-          {klart.length > 0 && (
+          {antalAvslutade > 0 && (
             <section style={{ marginBottom: AVSTAND.l }}>
-              <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>Klart</div>
-              <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
-                {klart.map(o => rad(o, false))}
-              </div>
+              <button
+                onClick={() => setVisaAvslutade(v => !v)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.s, width: '100%',
+                  padding: `${AVSTAND.s}px ${AVSTAND.m}px`, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                <span style={{ ...TYP.micro, color: FARG.text2 }}>Avslutade ({antalAvslutade})</span>
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke={FARG.text2} strokeWidth="2" strokeLinecap="round"
+                  style={{ transform: visaAvslutade ? 'rotate(90deg)' : 'none', transition: overgang('transform') }}>
+                  <polyline points="4 2 8 6 4 10" />
+                </svg>
+              </button>
+              {visaAvslutade && manader.map(mn => (
+                <div key={mn.key} style={{ marginTop: AVSTAND.s }}>
+                  <div style={{ ...TYP.micro, color: FARG.text3, margin: `0 ${AVSTAND.m}px ${AVSTAND.xs}px`, textTransform: 'capitalize' }}>{mn.label}</div>
+                  <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
+                    {mn.objs.map(o => rad(o, 'volym'))}
+                  </div>
+                </div>
+              ))}
             </section>
           )}
 
-          {grupper.length === 0 && klart.length === 0 && (
+          {typTotaler.length === 0 && grupper.length === 0 && antalAvslutade === 0 && (
             <div style={{ ...TYP.meta, color: FARG.text3, padding: `${AVSTAND.s}px ${AVSTAND.m}px` }}>Inga objekt.</div>
           )}
         </>
