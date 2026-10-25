@@ -10,11 +10,11 @@ import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import { hamtaEnhetMaskin } from '@/lib/enhetMaskin';
 import { maskinNamn, maskinKortNamn } from '@/lib/kalibrering/ordlista';
 import { filtreradSammanfattning } from '@/lib/kalibrering/kalender';
-import { idagManad } from '@/lib/kalibrering/datum';
+import { idagManad, idagStr } from '@/lib/kalibrering/datum';
 import { startMaskin } from '@/lib/kalibrering/laget';
 import { aktivaMaskinIds, artSnitt, filtreraKalib, rapportSnitt, rapportSedan, tradslagRader } from '@/lib/kalibrering/rapport';
 import {
-  type AlleMaskin, type BedomningResp, type CalResponse, type DiagnosResp, type FaktKalibrering, type GreppResp, type GrovlekResp,
+  type AlleMaskin, type BedomningResp, type CalResponse, type DiagnosResp, type FaktKalibrering, type ForslagResp, type GreppResp, type GrovlekResp,
   type KontrollTid, type ObjektData, type TradslagData,
 } from '@/lib/kalibrering/typer';
 
@@ -55,6 +55,11 @@ export function useKalibreringData(activeTab: Flik) {
   const [greppMap, setGreppMap] = useState<Record<string, GreppResp>>({});
   const [greppFelMap, setGreppFelMap] = useState<Record<string, string>>({});
   const greppPagar = useRef<Set<string>>(new Set()); // maskiner vars Grepp-hämtning pågår
+  // Läget › "Gör så här": nästa steg och besked per punkt på kurvan — per maskin. Läses när Läget öppnas och efter varje svar på ett steg.
+  const [forslagMap, setForslagMap] = useState<Record<string, ForslagResp>>({});
+  const [forslagFelMap, setForslagFelMap] = useState<Record<string, string>>({});
+  const forslagPagar = useRef<Set<string>>(new Set());
+  const [forslagSparar, setForslagSparar] = useState(false);
   // Objekt-fliken (maskinoberoende)
   const [objektData, setObjektData] = useState<ObjektData | null>(null);
   // Per-trädslag (per maskin) — träff%/syst/std mot maskinens profil.
@@ -150,6 +155,43 @@ export function useKalibreringData(activeTab: Flik) {
       greppPagar.current.delete(maskin);
     }
   }, [greppMap, greppFelMap]);
+
+  // Justeringsförslagen. `force` hämtar om även när vi redan har ett svar (efter att föraren svarat på ett steg).
+  const laddaForslag = useCallback(async (maskin: string, force = false) => {
+    if (!maskin || forslagPagar.current.has(maskin)) return;
+    if (!force && (forslagMap[maskin] || forslagFelMap[maskin])) return;
+    forslagPagar.current.add(maskin);
+    try {
+      const r = await fetch(`/api/kalibrering/forslag?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json() as ForslagResp;
+      if (!data?.ok) throw new Error('svar utan förslag');
+      setForslagMap(prev => ({ ...prev, [maskin]: data }));
+      setForslagFelMap(prev => { const { [maskin]: _borta, ...rest } = prev; return rest; });
+    } catch {
+      setForslagFelMap(prev => ({ ...prev, [maskin]: 'Det som ska göras kunde inte läsas.' }));
+    } finally {
+      forslagPagar.current.delete(maskin);
+    }
+  }, [forslagMap, forslagFelMap]);
+
+  /**
+   * Svar på ett steg i "Gör så här": en åtgärdsmarkör per text i kalibrering_atgard (samma tabell och samma datum som "Lägg till åtgärd"). Markören ÄR svaret —
+   * nästa läsning av förslagen ser den och stegen flyttar sig. Returnerar true när allt sparats; false lämnar kortet kvar så föraren kan försöka igen.
+   */
+  const sparaForslagMarkor = useCallback(async (texter: string[]): Promise<boolean> => {
+    if (!effektiv || texter.length === 0) return false;
+    const maskin = effektiv;
+    setForslagSparar(true);
+    const datum = idagStr();
+    const { error } = await supabase.from('kalibrering_atgard').insert(texter.map(text => ({ maskin_id: maskin, datum, text })));
+    if (error) { setForslagSparar(false); return false; }
+    laddaDiagnos(maskin, true); // diagrammens linjer
+    setBedomningMap(prev => { const { [maskin]: _borta, ...rest } = prev; return rest; }); // åtgärdsraderna (före → efter) läses om
+    await laddaForslag(maskin, true);
+    setForslagSparar(false);
+    return true;
+  }, [effektiv, laddaDiagnos, laddaForslag]);
 
   // Spara en åtgärdsmarkör (förare: "höjde trycket till 400 mm").
   // Returnerar true när åtgärden sparats (arket stängs då); false lämnar arket öppet med det som skrivits.
@@ -292,6 +334,7 @@ export function useKalibreringData(activeTab: Flik) {
   }, [effektiv, bedomningMap, bedomningFelMap]);
 
   useEffect(() => { if (effektiv) laddaDiagnos(effektiv); }, [effektiv, laddaDiagnos]);
+  useEffect(() => { if (activeTab === 'laget' && effektiv) laddaForslag(effektiv); }, [activeTab, effektiv, laddaForslag]);
 
   /** Försök igen efter ett läsfel: nollar felen för vald maskin, och effekterna ovan hämtar om. */
   const forsokIgen = useCallback(() => {
@@ -302,6 +345,7 @@ export function useKalibreringData(activeTab: Flik) {
     setTradslagFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setGrovlekFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setGreppFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
+    setForslagFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setObjektFel(null);
     setTiderFel(null);
   }, [effektiv]);
@@ -321,6 +365,7 @@ export function useKalibreringData(activeTab: Flik) {
     alleMaskiner, aktivaMaskiner, valdMaskin, setValdMaskin, effektiv, maskinNamnFor, maskinKortNamnFor, arAktiv,
     heroNamn, bedomning, bedomningFel, diagnosData, diagnosFel: effektiv ? diagnosFelMap[effektiv] ?? null : null, forsokIgen,
     nyMarkorDatum, setNyMarkorDatum, nyMarkorText, setNyMarkorText, markorSparar, sparaMarkor,
+    forslag: effektiv ? forslagMap[effektiv] ?? null : null, forslagFel: effektiv ? forslagFelMap[effektiv] ?? null : null, forslagSparar, sparaForslagMarkor,
     calManad, setCalManad, calData, calLoading, calError, filteredSammanfattning,
     objektData, objektFel, trData, trRader, tradslagFel: effektiv ? tradslagFelMap[effektiv] ?? null : null,
     tider, tiderFel,

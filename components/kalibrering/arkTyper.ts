@@ -19,6 +19,7 @@ export type KalibArk =
   | { typ: 'atgard'; id: string }
   | { typ: 'ny_atgard' }
   | { typ: 'hjalp' }
+  | { typ: 'forslag' }
   | { typ: 'fel'; filnamn: string };
 
 /** Poster som ritas i bladet/panelen (kontrollens innehåll). */
@@ -38,6 +39,7 @@ export function arkRubrik(a: KalibArk): string {
     case 'atgard': return 'Åtgärd';
     case 'ny_atgard': return 'Lägg till åtgärd';
     case 'hjalp': return 'Vad betyder talen?';
+    case 'forslag': return 'Justeringsförslag';
     case 'fel': return 'Kunde inte ladda kontroll';
   }
 }

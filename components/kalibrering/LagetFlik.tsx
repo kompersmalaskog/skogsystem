@@ -15,6 +15,7 @@ import { fmtAntal } from '@/lib/kalibrering/format';
 import { andraRad, atgardRader, fonsterText, kalibreringsDom, kravRader, stortTal } from '@/lib/kalibrering/laget';
 import { cap } from '@/lib/kalibrering/text';
 import { Fyll, Lugn, Meta, Status, TonVarde } from './delar';
+import GorSaHar from './GorSaHar';
 import Rubrik from './Rubrik';
 import TraffText from './TraffText';
 
@@ -37,7 +38,8 @@ export default function LagetFlik({ d, ark }: { d: KalibreringData; ark: Kalibre
         {b && <div style={{ ...TYP.meta, color: FARG.text2 }}>{fonsterText(b)}</div>}
       </Rubrik>
 
-      {/* Plats för "Justeringsförslag" — kommer i en senare ändring, bygg inte här. */}
+      {/* HUVUDSAKEN: ETT nästa steg i maskinen. Domen och siffrorna nedanför är detaljen. */}
+      <GorSaHar d={d} ark={ark} />
 
       <Tillstand nyckel={b ? 'klar' : d.bedomningFel ? 'fel' : 'laddar'}>
         {!b ? <Laddar d={d} text="Läser läget…" /> : <Innehall d={d} ark={ark} />}

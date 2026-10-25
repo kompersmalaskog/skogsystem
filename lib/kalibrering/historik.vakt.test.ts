@@ -13,6 +13,12 @@ const TILLATNA = new Set([
   'lib/kalibrering/historik.test.ts',
   'lib/kalibrering/historik.vakt.test.ts',
   'lib/kalibrering/typer.ts',
+  // Justeringsförslagens tester bygger historikrader av kolumnerna (fixturen är en prod-körning); regeln om vad en rad ÄR bor i historik.ts.
+  'lib/kalibrering/forslag.test.ts',
+  'lib/kalibrering/forslagKort.test.ts',
+  'lib/kalibrering/forslagMarkorer.test.ts',
+  'components/kalibrering/GorSaHar.render.test.tsx',
+  'app/api/kalibrering/forslag/route.test.ts',
 ]);
 
 function filer(dir: string, ut: string[] = []): string[] {
@@ -37,7 +43,7 @@ describe('justeringskolumnerna läses bara via lib/kalibrering/historik', () => 
 
   it('reparationsmarkören (hamtaMarkorer, delad av diagnos och bedomning) tar regeln ur arOmkalibrering, inte ur en egen regex', () => {
     const src = readFileSync(join(ROT, 'lib/kalibrering/markorer.server.ts'), 'utf8');
-    expect(src).toContain('arOmkalibrering(');
+    expect(src).toMatch(/kalibreringsSlag\(|arOmkalibrering\(/); // kalibreringsSlag bygger på arOmkalibrering
     expect(src).not.toMatch(/\/repair\/i/);
   });
 });

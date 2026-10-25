@@ -33,6 +33,7 @@ import { minTidArsovertid } from "@/lib/lonesystem/minTidArsovertid";
 import { loneartInfo, loneartEnhetText, fmtMangd } from "@/lib/lonesystem/loneart";
 import ManadRubrik from "@/components/design/ManadRubrik";
 import { attTittaPa, dagAvvikelser, datumLang, minText, timMin, kmUppdelning } from "@/lib/lonesystem/forarText";
+import { enhetText } from "@/lib/pushEnhet";
 import PdfLasare from "@/app/planering/PdfLasare";
 // Designvärden — EN källa (lib/design/tokens.ts). Dagsvyn är piloten: den
 // importerar härifrån och skriver inga egna literaler. Övriga flikar (Min tid,
@@ -3628,7 +3629,8 @@ export default function Arbetsrapport() {
         ) : kvällsLäge ? null : (
           // På kvällen finns ingen Extra arbete-ruta: mer tid läggs till via Något fel? → Mer arbete.
           <div style={{ marginTop:AVSTAND.m }}>
-            {kortKnapp(arbeteUtanMaskin ? 'Arbete' : 'Extra arbete', arbeteUtanMaskin ? 'Planering, restid, manuellt' : 'Reservdelar, service, brandkontroll', async ()=>{
+            {/* Kortet STARTAR tiden nu; länken under lägger in tid i efterhand. Två olika saker — undertexten säger vilken. */}
+            {kortKnapp(arbeteUtanMaskin ? 'Starta arbete' : 'Starta extra arbete', arbeteUtanMaskin ? 'Tiden räknas från nu · planering, restid, manuellt' : 'Tiden räknas från nu · reservdelar, service, brandkontroll', async ()=>{
               const startTid = nuKlock();
               // Trycket kan vara dagens första händelse — skalraden skapas här.
               const arbetsdagId = await sakerstallArbetsdagRad(idagKey);
@@ -3651,7 +3653,7 @@ export default function Arbetsrapport() {
             <div style={{ display:"flex", justifyContent:"center" }}>
               <button onClick={()=>oppnaPeriodNy(idagKey)} style={KNAPP.tertiar}>
                 <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>schedule</span>
-                {arbeteUtanMaskin ? 'Lägg till arbete' : 'Lägg till i efterhand'}
+                Lägg till i efterhand
               </button>
             </div>
           </div>
@@ -4930,7 +4932,7 @@ export default function Arbetsrapport() {
             </div>
           </header>
 
-          <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px` }}>
+          <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${SCROLL_BOTTOM}` }}>
 
             {/* Brandrisk-retroraden bor numera i Sammanställningens "Saknas"-block. */}
 
@@ -5119,7 +5121,7 @@ export default function Arbetsrapport() {
           </div>
         </header>
 
-        <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px` }}>
+        <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${SCROLL_BOTTOM}` }}>
 
           {/* TIDSSPECIFIKATION — exakt det som går till lönen, ur SAMMA beräkning som
               Fortnox-exporten (/api/lon/min-manad). MÄNGDER, aldrig kronor: föraren
@@ -5431,10 +5433,8 @@ export default function Arbetsrapport() {
     return (
     <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}>
-        <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <BackBtn onClick={()=>setSteg("morgon")}/>
-          <h1 style={{ margin:0,...TYPE.h1 }}>Inställningar</h1>
-        </div>
+        {/* En flik i bottenmenyn: ingen tillbaka-pil (iOS har ingen på en flik). */}
+        <h1 style={{ margin:0,...TYPE.h1 }}>Inställningar</h1>
       </div>
       <div style={{ flex:1,paddingTop:16,paddingBottom:SCROLL_BOTTOM,overflowY:"auto" }}>
         <Label>Hemadress</Label>
@@ -5453,8 +5453,8 @@ export default function Arbetsrapport() {
         <Label>Maskin</Label>
         <Card style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
           <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:600 }}>{maskinNamn || 'Okänd maskin'}</p>
-            <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{medarbetare?.maskin_id || ''} · hämtas från MOM</p>
+            <p style={{ margin:0,...TYP.listtitel,color:FARG.text }}>{maskinNamn || 'Ingen maskin än'}</p>
+            <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>Väljs automatiskt när du loggar in i maskinen</p>
           </div>
           <div style={{ width:8,height:8,borderRadius:"50%",background:C.green }}/>
         </Card>
@@ -5581,7 +5581,7 @@ export default function Arbetsrapport() {
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
                 <div>
                   <p style={{ margin:0,...TYPE.bodyList,color:"#fff" }}>Push-notiser</p>
-                  <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{pushOn ? (pushEnhetsNamn ? `Aktiverad · ${pushEnhetsNamn.slice(0,40)}` : 'Aktiverad') : 'Avstängd'}</p>
+                  <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>{pushOn ? (pushEnhetsNamn ? `På · ${enhetText(pushEnhetsNamn)}` : 'På') : 'Av'}</p>
                 </div>
                 <Toggle on={pushOn} onChange={togglePush}/>
               </div>

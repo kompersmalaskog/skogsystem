@@ -49,3 +49,22 @@ export function justeringsText(rad: Rad): string {
   if (j.mm == null) return 'saknas i datan';
   return j.rotMm == null ? `${tecken(j.mm)} mm` : `${tecken(j.mm)} mm · rot ${tecken(j.rotMm)} mm`;
 }
+
+/** Kolumnerna som läsare av kalibreringarna som MARKÖRER och ÄNDRINGAR behöver (select-sträng). */
+export const HISTORIK_MARKOR_KOLUMNER = 'datum,orsak,typ,tradslag,dia_justering_mm,langd_justering_mm';
+
+export type HistorikMarkorRad = Rad & { datum: string; tradslag?: string | null };
+
+/**
+ * Vad en kalibrering i historiken är, för markörerna och justeringsförslagen:
+ *  - 'omkalibrering': efter reparation av mätsystemet (inget mm-tal alls),
+ *  - 'diameter': en diameterkalibrering med en riktig justering (värdet skilt från noll) — trädslagets kurva ändrades,
+ *  - 'langd': en längdkalibrering (rör inte diametern),
+ *  - null: en diameterkalibrering utan justering (noll) eller en rad utan värde — ingenting ändrades.
+ */
+export function kalibreringsSlag(rad: HistorikMarkorRad): 'omkalibrering' | 'diameter' | 'langd' | null {
+  if (arOmkalibrering(rad)) return 'omkalibrering';
+  if (rad.typ === 'diameter' && rad.dia_justering_mm != null && rad.dia_justering_mm !== 0) return 'diameter';
+  if (rad.typ === 'langd' && rad.langd_justering_mm != null) return 'langd';
+  return null;
+}
