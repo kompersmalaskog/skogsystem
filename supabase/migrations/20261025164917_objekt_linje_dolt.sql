@@ -3,7 +3,7 @@
 -- linjen pekas ut med samma stabila nyckel som kommentarer och foton (`linje:<hash>` ur lib/vidaNycklar) och sträckan anges i METER längs Vidas linje.
 --  - En rad per (objekt, linje). `intervall` = jsonb-lista av [från, till] i meter från linjens början, sorterade och utan överlapp. Ingen rad = inget dolt.
 --  - Att ta tillbaka det dolda = att ta bort raden (eller korta ner listan). Inget raderas ur Vidas data.
---  - Alla inloggade läser. Alla med en medarbetarrad får dölja och ta tillbaka (som kartkommentar: allt är synligt och går att ångra). Vem och när sätts av servern.
+--  - Alla inloggade läser. Bara admin får dölja och ta tillbaka (insert/update/delete, Martin 2026-10-25). Vem och när sätts av servern.
 --  - Traktgränsen och Vidas kraftledning går aldrig att dölja — det vaktas i appen (lib/vidaDolt.ts), inte här.
 
 create table if not exists public.objekt_linje_dolt (
@@ -36,9 +36,9 @@ create or replace trigger objekt_linje_dolt_tid
 
 alter table public.objekt_linje_dolt enable row level security;
 create policy objekt_linje_dolt_select on public.objekt_linje_dolt for select to authenticated using (true);
-create policy objekt_linje_dolt_insert on public.objekt_linje_dolt for insert to authenticated with check (public.korvy_min_medarbetare() is not null);
+create policy objekt_linje_dolt_insert on public.objekt_linje_dolt for insert to authenticated with check ((select public.ar_admin()));
 create policy objekt_linje_dolt_update on public.objekt_linje_dolt for update to authenticated
-  using (public.korvy_min_medarbetare() is not null) with check (public.korvy_min_medarbetare() is not null);
-create policy objekt_linje_dolt_delete on public.objekt_linje_dolt for delete to authenticated using (public.korvy_min_medarbetare() is not null);
+  using ((select public.ar_admin())) with check ((select public.ar_admin()));
+create policy objekt_linje_dolt_delete on public.objekt_linje_dolt for delete to authenticated using ((select public.ar_admin()));
 
 comment on table public.objekt_linje_dolt is 'Delar av Vidas linjer som dolts i appen (per objekt och linje, meter längs Vidas linje). Vidas egen geometri ändras aldrig.';

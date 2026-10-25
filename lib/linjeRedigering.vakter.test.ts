@@ -8,7 +8,7 @@ const page = las('app/planering/page.tsx');
 const hook = las('lib/hooks/useLinjeRedigering.ts');
 const dolt = las('lib/vidaDolt.ts');
 const utanKommentar = (t: string) => t.split('\n').filter((r) => !/^\s*(\/\/|--)/.test(r)).map((r) => r.replace(/\s(\/\/|--)\s.*$/, '')).join('\n');
-const migr = las('supabase/migrations/20261025170000_objekt_linje_dolt.sql');
+const migr = las('supabase/migrations/20261025164917_objekt_linje_dolt.sql');
 
 describe('Redigera linjer — vakter', () => {
   it('ritläget: medan redigeringen är på är all annan tryckning avstängd (spärren, kartläget och långtrycket)', () => {
@@ -45,10 +45,14 @@ describe('Redigera linjer — vakter', () => {
     const lista = las('components/planering/LinjeRedList.tsx');
     expect(lista.split('<button').length - 1).toBe(3);   // läges-knapparna (map), Ångra, Klar
   });
-  it('migrationen: RLS på, alla läser, bara medarbetare skriver, tid och författare sätts av servern', () => {
+  it('migrationen: RLS på, alla läser, bara admin skriver (insert, update, delete), tid och författare sätts av servern', () => {
     expect(migr).toContain('enable row level security');
     expect(migr).toContain('for select to authenticated using (true)');
-    expect(migr).toContain('public.korvy_min_medarbetare() is not null');
+    for (const op of ['insert', 'update', 'delete']) {
+      const rad = migr.split('\n').join(' ').match(new RegExp(`create policy objekt_linje_dolt_${op}[^;]*;`))?.[0] ?? '';
+      expect(rad).toContain('public.ar_admin()');
+      expect(rad).not.toContain('korvy_min_medarbetare() is not null');
+    }
     expect(migr).toContain('new.andrad_at := now();');
   });
 });

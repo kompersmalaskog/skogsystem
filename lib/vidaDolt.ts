@@ -1,5 +1,5 @@
 // VIDAS LINJER KAN SUDDAS — men Vidas data ändras aldrig (Martin 2026-10-25). Det som suddas sparas som DOLT per objekt och linje (tabellen objekt_linje_dolt, migration
-// 20261025170000) och läggs över Vidas geometri när kartan ritas. Sträckan anges i METER längs Vidas ursprungliga linje och linjen pekas ut med den stabila nyckeln
+// 20261025164917) och läggs över Vidas geometri när kartan ritas. Sträckan anges i METER längs Vidas ursprungliga linje och linjen pekas ut med den stabila nyckeln
 // (`linje:<hash>`, lib/vidaNycklar) — därför överlever det dolda en ny import från Vida (objekt_geometri skrivs över, det här rörs inte) och går alltid att ta tillbaka.
 //
 // Det som INTE går att sudda: traktgränsen (den ändras med "Justera gräns") och Vidas KRAFTLEDNING — larmen läser den ouppklippta geometrin, och en ledning som försvinner ur
