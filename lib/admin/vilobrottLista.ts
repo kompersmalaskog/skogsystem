@@ -33,7 +33,7 @@ type Medarbetare = { id: string; namn: string | null; /** Företagsledare / del�
 type Dag = { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null };
 type Svar = {
   medarbetare_id: string; datum: string; typ: string; besvarat_av_forare: boolean | null; orsak: string | null; orsak_fritext: string | null;
-  /** Admins kvittering (migration 20261025180000). Saknas kolumnerna läses raden utan dem. */
+  /** Admins kvittering (migration 20261025175928). Saknas kolumnerna läses raden utan dem. */
   kvitterad_tid?: string | null; kvitterad_av_chef?: string | null; kvitterad_anteckning?: string | null;
 };
 
@@ -93,7 +93,7 @@ export function beraknaVilobrottLista(indata: {
 }
 
 const SVAR_KOLUMNER = "medarbetare_id, datum, typ, besvarat_av_forare, orsak, orsak_fritext";
-/** Förarens svar + admins kvittering. Saknas kvitteringskolumnen (migration 20261025180000 ej körd) läses svaren utan den — aldrig ett fel i listan. */
+/** Förarens svar + admins kvittering. Saknas kvitteringskolumnen (migration 20261025175928 ej körd) läses svaren utan den — aldrig ett fel i listan. */
 async function lasSvar(fran: string) {
   const res = await supabase.from("vilobrott").select(`${SVAR_KOLUMNER}, kvitterad_tid, kvitterad_av_chef, kvitterad_anteckning`).gte("datum", fran);
   if (res.error && /42703|PGRST204|kvitterad_anteckning/.test(`${res.error.code ?? ""} ${res.error.message ?? ""}`)) {

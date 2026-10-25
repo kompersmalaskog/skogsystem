@@ -2,7 +2,7 @@
 //
 // Föraren svarar på varför vilan bröts (besvarat_av_forare, orsak) — det gör ALDRIG admin åt föraren. Admin markerar att brottet är
 // hanterat och skriver vad som gjordes ("kompensationsledighet 3 h 14 okt"). Vem och när sätts av databasen (trigger
-// a_vilobrott_kvittering, migration 20261025180000); spärren där gör också att bara admin kan sätta det.
+// a_vilobrott_kvittering, migration 20261025175928); spärren där gör också att bara admin kan sätta det.
 //
 // Listan (lib/admin/vilobrottLista) räknar om brotten ur arbetsdagarna, så ett brott kan sakna rad i tabellen när föraren inte öppnat
 // appen sedan. Då skapas raden här — med brottets siffror och obesvarad — och föraren får frågan som vanligt.
