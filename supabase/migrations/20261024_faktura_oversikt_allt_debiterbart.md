@@ -1,6 +1,6 @@
 # faktura_oversikt() — allt debiterbart, inte bara maskindata
 
-Motiveringen bakom `20261024173902_faktura_oversikt_allt_debiterbart.sql` (körd i
+Motiveringen bakom `20261024173902_20261024_faktura_oversikt_allt_debiterbart.sql` (körd i
 prod 2026-10-24). SQL-filen är byte-identisk med `schema_migrations.statements`
 och pekar hit; den här filen är `.md` så att Supabase-CLI:n aldrig försöker köra
 den.
