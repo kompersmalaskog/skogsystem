@@ -87,7 +87,8 @@ export const SKARPA = [
   "components/design/KartKnapp.tsx",
   "app/ekonomi/delade/mall.tsx",                // ekonomins delade mall — tokenstädad
   "app/ekonomi/delade/tabell.ts",               // delad tabellmatte + cellstilar
-  "app/ekonomi/per-klass/PerKlassClient.tsx",   // Per klass — tokenstädad
+  "app/ekonomi/delade/svar.tsx",                // svar först-delarna (fråga, svar, stapel) — tokens från början
+  "app/ekonomi/EkonomiBottomNav.tsx",           // ekonomins meny, fem flikar — tokens från början
   "app/ekonomi/mot-ackord/MotAckordClient.tsx", // Mot ackord — tokenstädad
   "app/ekonomi/resultat/ResultatClient.tsx",    // Resultat — tokenstädad
   "app/ekonomi/prislista/PrislistaClient.tsx",  // Prislista — tokenstädad

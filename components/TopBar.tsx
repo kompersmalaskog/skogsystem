@@ -40,8 +40,7 @@ const pageNames: Record<string, string> = {
   '/om': 'Om appen',
   // Ekonomin: toppfältet säger vilken flik man är på — ingen flik har en egen rubrik i sidan.
   '/ekonomi': 'Ekonomi',
-  '/ekonomi/per-klass': 'Per klass',
-  '/ekonomi/mot-ackord': 'Mot ackord',
+  '/ekonomi/mot-ackord': 'Ackord',
   '/ekonomi/resultat': 'Resultat',
   '/ekonomi/fakturaunderlag': 'Fakturaunderlag',
   '/ekonomi/prislista': 'Prislista',

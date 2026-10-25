@@ -1,51 +1,121 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { medSafeBotten } from '@/lib/design/tokens'; // hemindikatorn på iPhone
-type Tab = { href: string; icon: string; label: string; match: (p: string) => boolean };
+// Ekonomins meny — FEM flikar (iOS har högst fem): Översikt · Ackord ·
+// Resultat · Faktura · Mer. Priser och Inställningar öppnas sällan och
+// ligger under Mer. Per klass är inte en egen flik längre: det är samma
+// data som Ackord ur en annan vinkel (skillen: tabbar är vinklar av samma
+// data, inte navigation), så den är en växel inne i Ackord.
+//
+// Telefon och iPad: appens Bottenmeny längst ner (components/design).
+// Från 1100 px (dator, iPad liggande): samma val som en kolumn till
+// vänster, och sidans innehåll flyttas åt höger — som Mail. En komponent,
+// två lägen, valet görs med CSS så att ingenting blinkar vid laddning.
 
-const TABS: Tab[] = [
-  { href: '/ekonomi', icon: 'insights', label: 'Översikt', match: p => p === '/ekonomi' },
-  { href: '/ekonomi/per-klass', icon: 'layers', label: 'Per klass', match: p => p.startsWith('/ekonomi/per-klass') },
-  { href: '/ekonomi/mot-ackord', icon: 'balance', label: 'Mot ackord', match: p => p.startsWith('/ekonomi/mot-ackord') },
-  { href: '/ekonomi/resultat', icon: 'account_balance', label: 'Resultat', match: p => p.startsWith('/ekonomi/resultat') },
-  { href: '/ekonomi/fakturaunderlag', icon: 'receipt_long', label: 'Faktura', match: p => p.startsWith('/ekonomi/fakturaunderlag') },
-  { href: '/ekonomi/prislista', icon: 'sell', label: 'Priser', match: p => p.startsWith('/ekonomi/prislista') },
-  { href: '/ekonomi/installningar', icon: 'settings', label: 'Inst.', match: p => p.startsWith('/ekonomi/installningar') },
+import { useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import Bottenmeny, { type BottenmenyPost } from '@/components/design/Bottenmeny';
+import Ark from '@/components/design/Ark';
+import Rad from '@/components/design/Rad';
+import Ikon from '@/components/design/Ikon';
+import { AVSTAND, FARG, IKON, RADIE, TRAFFYTA, TYP, VIKT, underTopbar } from '@/lib/design/tokens';
+
+type Flik = 'oversikt' | 'ackord' | 'resultat' | 'faktura' | 'mer';
+
+export const EKONOMI_FLIKAR: readonly BottenmenyPost<Flik>[] = [
+  { id: 'oversikt', etikett: 'Översikt', ikon: 'insights' },
+  { id: 'ackord', etikett: 'Ackord', ikon: 'balance' },
+  { id: 'resultat', etikett: 'Resultat', ikon: 'account_balance' },
+  { id: 'faktura', etikett: 'Faktura', ikon: 'receipt_long' },
+  { id: 'mer', etikett: 'Mer', ikon: 'more_horiz' },
 ];
+
+const HREF: Record<Exclude<Flik, 'mer'>, string> = {
+  oversikt: '/ekonomi',
+  ackord: '/ekonomi/mot-ackord',
+  resultat: '/ekonomi/resultat',
+  faktura: '/ekonomi/fakturaunderlag',
+};
+
+/** Det som ligger under Mer. */
+export const MER_SIDOR = [
+  { href: '/ekonomi/prislista', titel: 'Priser', under: 'Vad vi får betalt per kubik och per timme' },
+  { href: '/ekonomi/installningar', titel: 'Inställningar', under: 'Kostnadsställen och synk med Fortnox' },
+] as const;
+
+/** Vilken flik en adress hör till. Okänd ekonomiadress = Översikt. */
+export function aktivFlik(pathname: string): Flik {
+  if (pathname.startsWith('/ekonomi/mot-ackord') || pathname.startsWith('/ekonomi/per-klass')) return 'ackord';
+  if (pathname.startsWith('/ekonomi/resultat')) return 'resultat';
+  if (pathname.startsWith('/ekonomi/fakturaunderlag')) return 'faktura';
+  if (MER_SIDOR.some(s => pathname.startsWith(s.href))) return 'mer';
+  return 'oversikt';
+}
+
+/** Sidokolumnens bredd från 1100 px. */
+export const SIDOMENY_BREDD = 240;
+export const SIDOMENY_FRAN_PX = 1100;
+
+// Inga citattecken i selektorerna: React escapar dem i <style> vid serverrendering.
+const CSS = `
+.ek-sidomeny{display:none}
+@media (min-width:${SIDOMENY_FRAN_PX}px){
+  .ek-bottenmeny{display:none}
+  .ek-sidomeny{display:block}
+  body{padding-left:${SIDOMENY_BREDD}px}
+}
+`;
 
 export default function EkonomiBottomNav() {
   const pathname = usePathname() || '';
+  const router = useRouter();
+  const [merOppen, setMerOppen] = useState(false);
+  const aktiv = aktivFlik(pathname);
+
+  const valj = (id: Flik) => {
+    if (id === 'mer') { setMerOppen(true); return; }
+    router.push(HREF[id]);
+  };
+
   return (
-    <nav style={{
-      position: 'fixed', bottom: 0, left: 0, width: '100%', zIndex: 50,
-      display: 'flex', justifyContent: 'space-around', alignItems: 'center',
-      padding: `12px 16px ${medSafeBotten(24)}`,
-      background: 'rgba(31,31,31,0.7)',
-      backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-      borderRadius: '16px 16px 0 0',
-      boxShadow: '0 -4px 20px rgba(0,0,0,0.5)',
-      fontFamily: "'Geist', system-ui, sans-serif",
-    }}>
-      {TABS.map(t => {
-        const active = t.match(pathname);
-        return (
-          <Link key={t.href} href={t.href} style={{ textDecoration: 'none', flex: 1, display: 'flex', justifyContent: 'center' }}>
-            <div style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              color: active ? '#adc6ff' : '#8b90a0',
-              borderRadius: 12, height: 48, minWidth: 56, padding: 0,
-            }}>
-              <span className="material-symbols-outlined" style={{
-                fontSize: 22, marginBottom: 2,
-                fontVariationSettings: active ? "'FILL' 1" : "'FILL' 0",
-              }}>{t.icon}</span>
-              <span style={{ fontSize: 10, fontWeight: active ? 600 : 500, whiteSpace: 'nowrap' }}>{t.label}</span>
-            </div>
-          </Link>
-        );
-      })}
-    </nav>
+    <>
+      <style>{CSS}</style>
+      <div className="ek-bottenmeny">
+        <Bottenmeny poster={EKONOMI_FLIKAR} aktiv={aktiv} onVal={valj} etikett="Ekonomi" />
+      </div>
+
+      <nav className="ek-sidomeny" aria-label="Ekonomi"
+        style={{
+          position: 'fixed', left: 0, top: underTopbar(), bottom: 0, width: SIDOMENY_BREDD, zIndex: 40,
+          boxSizing: 'border-box', padding: `${AVSTAND.l}px ${AVSTAND.s}px`, background: FARG.kort,
+          borderRight: `1px solid ${FARG.linje}`, overflowY: 'auto',
+        }}>
+        <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.s}px ${AVSTAND.s}px` }}>Ekonomi</div>
+        {[...EKONOMI_FLIKAR.filter(f => f.id !== 'mer').map(f => ({ id: f.id as Flik, href: HREF[f.id as Exclude<Flik, 'mer'>], titel: f.etikett, ikon: f.ikon })),
+          ...MER_SIDOR.map(s => ({ id: 'mer' as Flik, href: s.href, titel: s.titel, ikon: s.href.endsWith('prislista') ? 'sell' : 'settings' }))]
+          .map(p => {
+            const vald = p.id === 'mer' ? pathname.startsWith(p.href) : p.id === aktiv;
+            return (
+              <button key={p.href} type="button" aria-current={vald ? 'page' : undefined} onClick={() => router.push(p.href)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: AVSTAND.m, width: '100%', minHeight: TRAFFYTA.min,
+                  padding: `0 ${AVSTAND.s}px`, border: 'none', borderRadius: RADIE.rad, cursor: 'pointer', fontFamily: 'inherit',
+                  background: vald ? FARG.upphojt : 'transparent', color: vald ? FARG.bla : FARG.text,
+                  ...TYP.text, fontWeight: vald ? VIKT.halvfet : VIKT.normal, textAlign: 'left',
+                }}>
+                <Ikon namn={p.ikon} storlek={IKON.text} farg="inherit" fylld={vald} />
+                {p.titel}
+              </button>
+            );
+          })}
+      </nav>
+
+      {merOppen && (
+        <Ark rubrik="Mer" stang="Klar" onStang={() => setMerOppen(false)}>
+          {MER_SIDOR.map((s, i) => (
+            <Rad key={s.href} titel={s.titel} under={s.under} href={s.href} sista={i === MER_SIDOR.length - 1} />
+          ))}
+        </Ark>
+      )}
+    </>
   );
 }
