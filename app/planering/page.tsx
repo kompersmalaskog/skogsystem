@@ -5,6 +5,8 @@ import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import { LjudSpelare } from '@/components/LjudSpelare'
 import { gpsGuardAccepts, haversineMeters } from '@/lib/gps-guard'
+import { gpsSaknas } from '@/lib/gpsSaknas'
+import { hallSkarmenVakenIWebblasare } from '@/lib/skarmVaken'
 import { signeraKartfil } from '@/lib/kartfiler'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import DokumentChips, { harDokument } from '@/components/DokumentChips'
@@ -122,6 +124,8 @@ import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/Korvy
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
 import HyttNotiserKort from '../../components/planering/HyttNotiserKort'
+import EnhetMaskinKort from '../../components/planering/EnhetMaskinKort'
+import { maskinVal } from '../../lib/enhetMaskinKort'
 import { hogarSynliga, vaxlaSkotarHogar } from '../../lib/skotarHogar'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { INFO_PANEL_MASKIN_BREDD_PX, PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
@@ -760,42 +764,6 @@ export default function PlannerPage() {
     autoValjGjordRef.current = false;  // tillåt auto-välj köra igen för ny "förare"
   }, []);
 
-  // === WAKE LOCK — håll skärmen vaken när objekt är öppet ===
-  const screenWakeLockRef = useRef<any>(null);
-  useEffect(() => {
-    if (!valtObjekt) {
-      screenWakeLockRef.current?.release().catch(() => {});
-      screenWakeLockRef.current = null;
-      return;
-    }
-    let active = true;
-    // Wake Lock släpps AUTOMATISKT av webbläsaren så fort sidan blir dold (skärmen slocknar / appen
-    // bakgrundas). Utan om-begäran vid återkomst är låset borta för gott → skärmen kan slockna igen och
-    // GPS-loggningen tystnar (grundorsaken till det sena hopp-punkten i hyttspåret). Därför: begär om
-    // varje gång sidan blir synlig. iOS Safari 16.4+ stöder API:t; saknas det gör optional-chaining +
-    // try/catch detta till en tyst no-op (ingen krasch, ingen effekt) — det efterfrågade fallbacket.
-    const acquire = async () => {
-      if (!active || document.visibilityState !== 'visible' || screenWakeLockRef.current) return;
-      try {
-        const lock = await (navigator as any).wakeLock?.request('screen');
-        if (!lock) return;
-        if (active && document.visibilityState === 'visible') {
-          screenWakeLockRef.current = lock;
-          // Om webbläsaren släpper låset (dold sida) → nolla så nästa visibilitychange kan begära om.
-          lock.addEventListener?.('release', () => { screenWakeLockRef.current = null; });
-        } else { lock.release?.().catch(() => {}); }
-      } catch (_) { /* ej stött / nekat → tyst fallback */ }
-    };
-    acquire();
-    const onVisible = () => { if (document.visibilityState === 'visible') acquire(); };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      active = false;
-      document.removeEventListener('visibilitychange', onVisible);
-      screenWakeLockRef.current?.release().catch(() => {});
-      screenWakeLockRef.current = null;
-    };
-  }, [valtObjekt]);
 
   // === STATE ===
   const [markers, setMarkers] = useState<Marker[]>([]);
@@ -3016,8 +2984,11 @@ export default function PlannerPage() {
   // precis som "Aktivera kompass". På iOS standalone gejtar detta det passiva mount-anropet nedan.
   const [platsAktiverad, setPlatsAktiverad] = useState<boolean>(() => { try { return typeof localStorage !== 'undefined' && localStorage.getItem('gps-aktiverad') === '1'; } catch { return false; } });
   // GPS-KÄLLA (lib/gpsKalla): Web Serial (maskindator) eller geolocation (telefon). gpsFixFarsk=false →
-  // fix tappad (serial: ingen giltig RMC på 5 s) → pricken dämpas, "Ingen GPS-fix", inga punkter loggas.
+  // fix tappad (serial: ingen giltig RMC på 5 s) → pricken dämpas och inga punkter loggas. Ingen text förrän "GPS saknas" (60 s, lib/gpsSaknas).
   const [gpsFixFarsk, setGpsFixFarsk] = useState(true);
+  // "GPS saknas": ingen giltig fix på över en minut medan körvyn är öppen (lib/gpsSaknas). Ingen text alls med bra fix.
+  const senasteGiltigFixRef = useRef<number | null>(null);
+  const [gpsSaknasNu, setGpsSaknasNu] = useState(false);
   const [gpsKallaTyp, setGpsKallaTyp] = useState<'serial' | 'geolocation' | 'ingen'>('ingen');
   const [serialGpsAktiv, setSerialGpsAktiv] = useState<boolean>(() => serialGpsVald());   // användaren har valt serial-GPS
   const [valjerPort, setValjerPort] = useState(false);   // portval pågår (knapp i inställningar)
@@ -3328,6 +3299,8 @@ export default function PlannerPage() {
       if (fix.giltig && fix.lat != null && fix.lng != null) {
         if (!testlageAktivRef.current) setCurrentPosition({ lat: fix.lat, lon: fix.lng });   // testläget: positionen flyttas för hand (Flytta mig hit)
         if (!testlageAktivRef.current) setGpsPosition({ lat: fix.lat, lng: fix.lng });
+        senasteGiltigFixRef.current = Date.now();   // "GPS saknas"-raden: tid sedan sista giltiga fix
+        setGpsSaknasNu(false);   // GPS tillbaka → raden bort direkt (setState till samma värde ger ingen omrendering)
         setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
         // GPS-KURSEN (NMEA VTG/RMC) matar körvyns rotation när kompassen saknas (maskindator).
         // Utan detta stod kartan norr-upp på PC (deviceorientation finns inte där).
@@ -3337,7 +3310,7 @@ export default function PlannerPage() {
         setGpsFordrojdMs(null);
       } else if (!fix.giltig) {
         setGpsFixFarsk(false);   // fix tappad → dämpa; currentPosition rörs ej (inga punkter loggas)
-        // Åldersvakten (lib/gpsKalla): NMEA-tiden släpar > 30 s efter datorns klocka → "GPS-data är fördröjd" i st.f. "Ingen GPS-fix".
+        // Åldersvakten (lib/gpsKalla): NMEA-tiden släpar > 30 s efter datorns klocka → "GPS-data är fördröjd" (ingen text förrän "GPS saknas" efter 60 s).
         // En gammal kö ger giltig=false → hamnar här, så position/hyttspår rörs inte av den.
         setGpsFordrojdMs(fix.fordrojd ? (fix.nmeaAlderMs ?? 0) : null);
       }
@@ -3857,14 +3830,15 @@ export default function PlannerPage() {
   // Maskindatorn (serial-GPS) har ingen kompass → "Rotera kartan" ska vara PÅ som standard
   // så kartan följer GPS-kursen direkt. Slås på EN gång per serial-session; föraren kan
   // stänga av den efteråt (ref:en hindrar att den tänds igen). Telefon (ej serial): orörd.
+  // En iPad som är maskin (enhet_maskin_id, utan serial) beter sig som maskindatorn: hyttens kompass är opålitlig och maskinen vrider sig → GPS-kursen styr.
   const serialRotateAutoRef = useRef(false);
   useEffect(() => {
-    if (serialGpsAktiv || testlage) {
+    if (serialGpsAktiv || testlage || maskinlage) {
       if (!serialRotateAutoRef.current) { serialRotateAutoRef.current = true; setCompassMode(true); }
     } else {
       serialRotateAutoRef.current = false;
     }
-  }, [serialGpsAktiv, testlage]);
+  }, [serialGpsAktiv, testlage, maskinlage]);
   // Körvyns kompass-rotation (deviceorientation): 'av' = ej aktiverad, 'aktiv' = roterar,
   // 'nekad' = iOS-tillstånd nekat, 'saknas' = ingen sensor (t.ex. dator). Aldrig tyst död —
   // vid 'nekad'/'saknas' ligger kartan kvar i norr-upp (fungerar, roterar bara inte).
@@ -3872,6 +3846,21 @@ export default function PlannerPage() {
 
   // === KÖRVY (3D-förarläge, MapLibre custom camera) ===
   const [korvyActive, setKorvyActive] = useState(false);
+  // "GPS saknas" (lib/gpsSaknas): kollas var 5:e sekund medan körvyn är öppen; raden försvinner vid nästa giltiga fix (gpsSaknasNu nollas direkt i GPS-hanteraren).
+  // === WAKE LOCK — skärmen är vaken så länge körvyn (eller ett objekt) är öppen, och låset begärs om DIREKT när webbläsaren släpper det (lib/skarmVaken) ===
+  // iPad/telefon i hytten: Autolås slår annars till mitt i en lossning och GPS-loggningen tystnar. Saknas API:t är det en tyst no-op.
+  useEffect(() => {
+    if (!valtObjekt && !korvyActive) return;
+    return hallSkarmenVakenIWebblasare();
+  }, [!!valtObjekt, korvyActive]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const korvyOppnadMsRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!korvyActive) { korvyOppnadMsRef.current = null; setGpsSaknasNu(false); return; }
+    korvyOppnadMsRef.current = Date.now();
+    const kolla = () => setGpsSaknasNu(!testlageAktivRef.current && gpsSaknas(Date.now(), senasteGiltigFixRef.current, korvyOppnadMsRef.current));
+    const t = setInterval(kolla, 5000);
+    return () => clearInterval(t);
+  }, [korvyActive]);
 
   // === KLAR MED TRAKTEN? — planerarens färdigplanering (lib/klarTrakt, lib/klarFalt, components/planering/KlarMedTrakten) ===
   // Appen räknar vad som är kvar ur det som redan finns (avlägg på kartan, bärighet, maskinval, prognos …) + svaren på "Har du …" (nya kolumner,
@@ -8782,7 +8771,7 @@ export default function PlannerPage() {
   // Testfliken (/maskin?som=) har ingen kompass och ingen serial-GPS men EN utlagd position med körriktning → använd den som GPS-kurs.
   // Kompass-raden i Lager-menyn (korvyKompass 'aktiv') slår på kartrotation efter enhetens kompass.
   const kartRoterar = compassMode || korvyKompass === 'aktiv';
-  const korvyHeading: number = valjKorvyHeading({ serialAktiv: serialGpsAktiv || !!testlage, kompassAktiv: kartRoterar, gpsKurs: gpsHeading, deviceHeading });
+  const korvyHeading: number = valjKorvyHeading({ serialAktiv: serialGpsAktiv || !!testlage || maskinlage, kompassAktiv: kartRoterar, gpsKurs: gpsHeading, deviceHeading });
   // Kart-bearing: "Rotera kartan"-toggeln (compassMode) styr om kartan följer färdriktningen
   // (heading-up) eller ligger norr-upp. På maskindatorn ger den nu rotation via GPS-kursen.
   const kartBearing: number = kartRoterar ? korvyHeading : 0;
@@ -9303,7 +9292,7 @@ export default function PlannerPage() {
       try { map.moveLayer('gps-halo'); } catch {}
       try { map.moveLayer('gps-ring'); } catch {}
       try { map.moveLayer('gps-dot'); } catch {}
-      // Fix tappad (gpsFixFarsk=false) → DÄMPA pricken (rule 4: "Ingen GPS-fix"). Full opacitet vid färsk fix.
+      // Fix tappad (gpsFixFarsk=false) → DÄMPA pricken (ingen text). Full opacitet vid färsk fix.
       try {
         map.setPaintProperty('gps-halo', 'circle-opacity', gpsFixFarsk ? 0.22 : 0.06);
         map.setPaintProperty('gps-ring', 'circle-opacity', gpsFixFarsk ? 1 : 0.35);
@@ -13151,13 +13140,13 @@ export default function PlannerPage() {
         if (radNu) startRadSenasteRef.current = radNu;
         const radText = radNu ?? startRadSenasteRef.current;   // behåll texten medan raden tonar ut
         const radVisa = radNu != null;
-        const radIngenFix = radText === 'Ingen GPS-fix';
+        const radIngenFix = radText === 'GPS saknas';
         return (
           <>
             {/* HELSVART täckskikt (ingen logga, ingen text): opakt medan kartan laddar, tonar sedan ut så kartan
                 "tonar upp ur svart". */}
             <StartSvartSkarm synlig={startCoverSynlig(startFasNu)} namn={startMaskinNamn || maskinSomParam} kartaFinns={!!valtObjekt} />
-            {/* Nedre rad: "Söker GPS" (utzoomad utan fix) → "Ingen GPS-fix" (efter 30 s, står kvar) och
+            {/* Nedre rad: "Söker GPS" (utzoomad utan fix) → "GPS saknas" (efter 60 s, står kvar) och
                 "<objekt> – N m³ kvar" FÖRST när kameran landat (tonar bort efter 5 s). */}
             {radText && (
               <div style={{
@@ -15834,10 +15823,10 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* "Ingen GPS-fix" — serial-GPS (maskindator) har tappat fix (rule 4). Pricken är redan dämpad. */}
-      {serialGpsAktiv && !gpsFixFarsk && korvyActive && !startOverlayAktiv && (
-        <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(255,159,10,0.92)', color: '#000', fontSize: '13px', fontWeight: 600, padding: '8px 14px', borderRadius: '18px', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-          {gpsFordrojdMs != null ? `GPS-data är fördröjd (${formateraFordrojning(gpsFordrojdMs)})` : 'Ingen GPS-fix'}
+      {/* "GPS saknas" — ENDA GPS-texten på skärmen: ingen giltig fix på över en minut (lib/gpsSaknas). Syns aldrig med bra fix (ren skärm). */}
+      {gpsSaknasNu && korvyActive && !startOverlayAktiv && (
+        <div data-testid="gps-saknas" style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(28,28,30,0.92)', color: '#8e8e93', fontSize: '13px', fontWeight: 600, padding: '8px 14px', borderRadius: '18px', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+          GPS saknas – spåret loggas inte
         </div>
       )}
 
@@ -17532,6 +17521,18 @@ export default function PlannerPage() {
             {/* === INSTÄLLNINGAR === */}
             {activeCategory === 'settings' && (
               <div style={{ padding: '12px' }}>
+                {/* Den här enheten är maskin — iPad/surfplatta utan serial-GPS (lib/enhetMaskinKort). Bara admin sätter det; maskindatorn har sitt val i GPS-källa-kortet. */}
+                {!webSerialStott && isAdminRiktig && (
+                  <EnhetMaskinKort
+                    maskiner={maskinVal(dimMaskiner, idagISOStr)}
+                    valdId={enhetMaskinId}
+                    registerLaddar={dimMaskinerStatus === 'laddar'}
+                    installerad={arStandalone}
+                    plats={platsAktiverad || currentPosition ? 'ok' : gpsStatus?.kind === 'error' && gpsStatus.code === 1 ? 'nekad' : gpsStatus?.kind === 'searching' ? 'soker' : 'okand'}
+                    onVal={(id) => { valjEnhetMaskin(id); if (id && !platsAktiverad && !currentPosition) aktiveraPlats(); }}   // platsfrågan i SAMMA tryck (iOS kräver en gest)
+                    onStarta={() => window.location.assign('/planering')}
+                  />
+                )}
                 {/* GPS-källa — bara på maskindatorn (Web Serial-stöd). Telefonen använder inbyggd GPS automatiskt. */}
                 {webSerialStott && (
                   <div id="gps-kalla-kort" style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '16px 20px', marginBottom: '16px' }}>

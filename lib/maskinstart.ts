@@ -16,7 +16,7 @@ export const COVER_FADE_MS = 700;    // svart tonar ut (kartan "tonar upp")
 export const REVEAL_MS = 700;        // kartan syns utzoomad så här länge innan flygningen börjar (= fade-tiden)
 export const FLY_MS = 1500;          // EN mjuk flyTo ner till maskinen
 export const RAD_MS = 5000;          // objekt-raden står kvar så här länge efter landning
-export const FIX_TIMEOUT_MS = 30000; // utzoomad utan NÅGON position så här länge → "Ingen GPS-fix" (står kvar tills fix kommer)
+export const FIX_TIMEOUT_MS = 60000; // utzoomad utan NÅGON position så här länge → "GPS saknas" (samma 60 s som lib/gpsSaknas; står kvar tills fix kommer)
 
 export interface StartIn {
   startMs: number;                 // sekvensen startade
@@ -71,7 +71,7 @@ export function startKameraLas(fas: StartFas | null): boolean {
   return fas === 'svart' || fas === 'oversikt' || fas === 'flyger';
 }
 
-/** Nedre radens text. `oversikt` utan position: "Söker GPS" (→ "Ingen GPS-fix" efter FIX_TIMEOUT_MS, står kvar).
+/** Nedre radens text. `oversikt` utan position: "Söker GPS" (→ "GPS saknas" efter FIX_TIMEOUT_MS, står kvar).
  *  `landat`: "<objekt> – N m³ kvar". Alla andra faser: ingen rad (svart har ingen text alls). */
 export function startRadText(
   fas: StartFas,
@@ -80,7 +80,7 @@ export function startRadText(
   if (fas === 'oversikt') {
     if (ctx.posMs != null) return null;   // position finns → flygningen startar strax, ingen rad
     const vantat = ctx.kartaRedoMs != null ? ctx.nuMs - ctx.kartaRedoMs : 0;
-    return vantat >= FIX_TIMEOUT_MS ? 'Ingen GPS-fix' : 'Söker GPS';
+    return vantat >= FIX_TIMEOUT_MS ? 'GPS saknas' : 'Söker GPS';
   }
   if (fas === 'landat') {
     const namn = (ctx.objekt?.namn || '').trim() || 'Objekt';
