@@ -60,9 +60,9 @@ export function korUppUr(m: KorUppMarkering): KorUppPos | null {
 export const korUppLangdM = (k: Pick<KorUppPos, 'start' | 'slut'>): number => avstandTillLinjeM(k.start, [k.slut]);
 
 /** Pilens markering ur ett drag. Null när draget är för kort för att vara en pil. */
-export function nyKorUpp(start: LatLon, slut: LatLon, vagId: string | null, id: number = Date.now()): Required<Pick<KorUppMarkering, 'lng' | 'lat' | 'lng2' | 'lat2' | 'skal'>> & { id: number; isArrow: true; arrowType: string; vagId?: string } | null {
+export function nyKorUpp(start: LatLon, slut: LatLon, vagId: string | null, id: number = Date.now(), skal: Skal = 'inget'): Required<Pick<KorUppMarkering, 'lng' | 'lat' | 'lng2' | 'lat2' | 'skal'>> & { id: number; isArrow: true; arrowType: string; vagId?: string } | null {
   if (korUppLangdM({ start, slut }) < KORUPP_MIN_M) return null;
-  return { id, isArrow: true, arrowType: KORUPP_TYP, lng: start.lon, lat: start.lat, lng2: slut.lon, lat2: slut.lat, skal: 'inget', ...(vagId != null ? { vagId } : {}) };
+  return { id, isArrow: true, arrowType: KORUPP_TYP, lng: start.lon, lat: start.lat, lng2: slut.lon, lat2: slut.lat, skal, ...(vagId != null ? { vagId } : {}) };
 }
 
 // ── Starten på en väg ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

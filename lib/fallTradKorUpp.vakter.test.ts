@@ -95,13 +95,23 @@ describe('läget ligger kvar tills Klar (Martin 2026-10-25: flera träd/pilar i 
     expect(klart).not.toContain('setArrowType');
     expect(klart).not.toContain('setMarkerMenuOpen');   // skäl-kortet öppnas först vid Klar, annars ligger det i vägen för nästa tryck
   });
-  it('✓ Klar finns i pil-listan (grön, som Rita) och avslutar läget; × avbryter; kör upp-kortet med skälen öppnas för den senaste pilen vid Klar', () => {
+  it('✓ Klar finns i pil-listan (grön, som Rita) och avslutar läget utan att öppna något kort; × avbryter', () => {
     expect(sida).toContain("{ etikett: '✓', aria: 'Klar', onClick: avslutaTvaTryck, gron: true, testid: 'pil-klar' }");
     const fn = sida.slice(sida.indexOf('const avslutaTvaTryck'), sida.indexOf('// === KÖRVY (3D-förarvy) effekter ==='));
     expect(fn).toContain('setIsArrowMode(false); setArrowType(null);');
-    expect(fn).toContain('setMarkerMenuOpen(id)');
+    expect(fn).not.toContain('setMarkerMenuOpen');   // inget kort vid Klar: skälet är redan valt i listen
     expect(fn).toContain('tvaTryckData(null, null)');   // en pågående start/förhandsvisning kastas
     expect(sida).toContain("'pil-avbryt'");
+  });
+});
+
+describe('skäl i listen nertill (Martin 2026-10-25, skiss 60)', () => {
+  it('listen har en rad med alla skäl medan kör upp-läget är på, och valt skäl följer med varje ny pil', () => {
+    expect(sida).toContain("val={!tradForslagAktivt && tvaSlag === 'korupp' ? KORUPP_SKAL.map(");
+    expect(sida).toContain('nyKorUpp(k.start, k.slut, k.vagId, Date.now(), korUppSkalRef.current)');
+  });
+  it('skälet börjar om på Inget när läget slutar eller byts', () => {
+    expect(sida).toContain("if (tvaSlag !== 'korupp') setKorUppSkal('inget');");
   });
 });
 

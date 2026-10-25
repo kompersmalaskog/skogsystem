@@ -8642,12 +8642,15 @@ export default function PlannerPage() {
   // Träden har ingen gest på kartan efteråt: de vrids i kortet, som de gamla pilarna.
   const [tvaStart, setTvaStart] = useState<TvaStart | null>(null);
   const tvaStartRef = useRef<TvaStart | null>(null);
-  const senastKorUppRef = useRef<any>(null);
+  // Valt skäl i listen nertill: gäller varje kör upp-pil som sätts tills man byter (eller läget slutar). Pilens eget kort ändrar skälet efteråt som förut.
+  const [korUppSkal, setKorUppSkal] = useState<Skal>('inget');
+  const korUppSkalRef = useRef<Skal>('inget');
+  korUppSkalRef.current = korUppSkal;
   tvaStartRef.current = tvaStart;
   const korUppVagarRef = useRef<SnappVag[]>([]);
   korUppVagarRef.current = korVagar.map((v) => ({ id: v.id, coords: v.coords }));
   const tvaSlag = isArrowMode && !korvyActive ? (arrowType === KORUPP_TYP ? 'korupp' : arrowType === TRAD_TYP ? 'trad' : null) : null;
-  useEffect(() => { if (!tvaSlag) { setTvaStart(null); senastKorUppRef.current = null; } }, [tvaSlag]);   // läget slut (Klar, Avbryt, annat läge): ingen pil väntar på sitt skäl-kort
+  useEffect(() => { if (!tvaSlag) setTvaStart(null); if (tvaSlag !== 'korupp') setKorUppSkal('inget'); }, [tvaSlag]);   // läget slut (Klar, Avbryt, annat läge): inget halvsatt, och skälet börjar om på Inget
   useTvaTryck(mapInstanceRef.current, mapLibreReady, {
     slag: tvaSlag,
     vagarRef: korUppVagarRef,
@@ -8670,26 +8673,21 @@ export default function PlannerPage() {
     onKlart: (k) => {
       saveToHistory([...markers]);
       if (k.slag === 'korupp') {
-        const ny = nyKorUpp(k.start, k.slut, k.vagId);
+        const ny = nyKorUpp(k.start, k.slut, k.vagId, Date.now(), korUppSkalRef.current);
         if (!ny) return;
         setMarkers((prev: any[]) => [...prev, ny]);
-        senastKorUppRef.current = ny.id;   // läget ligger kvar (flera i rad); kortet med skälen öppnas när man trycker Klar
-        return;
+        return;   // läget ligger kvar (flera i rad); skälet kom ur listen nertill
       }
       const xy = latLonToSvg(k.stubbe.lat, k.stubbe.lon);
       const nytt = { id: Date.now(), isArrow: true, arrowType: TRAD_TYP, x: xy.x, y: xy.y, lng: k.stubbe.lon, lat: k.stubbe.lat, rotation: k.vinkel, angle: k.vinkel };
       setMarkers((prev: any[]) => [...prev, nytt]);   // läget ligger kvar: nästa tryck är en ny stubbe
     },
   });
-  // Klar (✓): avsluta läget. Kör upp: kortet med skälen öppnas för den senast satta pilen (ett tryck, som förut).
+  // Klar (✓): avsluta läget. Inget kort öppnas — skälet är redan valt i listen nertill, och en befintlig pil ändras genom tryck på den.
   const avslutaTvaTryck = () => {
-    const id = senastKorUppRef.current;
-    const kor = arrowType === KORUPP_TYP;
-    senastKorUppRef.current = null;
     setTvaStart(null);
     (mapInstanceRef.current?.getSource(TVATRYCK_KALLA) as any)?.setData(tvaTryckData(null, null));
     setIsArrowMode(false); setArrowType(null);
-    if (kor && id != null) setMarkerMenuOpen(id);
   };
 
   // === KÖRVY (3D-förarvy) effekter ===
@@ -14630,6 +14628,7 @@ export default function PlannerPage() {
           testid="pil-list"
           smal={smalSkarm}
           stapla={tradForslagAktivt}
+          val={!tradForslagAktivt && tvaSlag === 'korupp' ? KORUPP_SKAL.map((k) => ({ id: k.id, etikett: k.namn, vald: korUppSkal === k.id, onClick: () => setKorUppSkal(k.id), testid: `pil-skal-${k.id}` })) : undefined}
           text={tradForslagAktivt
             ? `Göra om ${tradForslag!.trad.length === 1 ? 'den gröna pilen' : `de ${tradForslag!.trad.length} gröna pilarna`} till ${tradForslag!.trad.length === 1 ? 'ett träd' : 'träd'}?`
             : arrowType === KORUPP_TYP ? (tvaStart ? 'Tryck hur långt in du ska köra' : 'Tryck där vägen börjar') : arrowType === TRAD_TYP ? (tvaStart ? 'Tryck åt vilket håll trädet faller' : 'Tryck där trädet stod') : `Tryck där ${arrowTypes.find((t) => t.id === arrowType)?.name ?? 'pilen'} ska stå`}
