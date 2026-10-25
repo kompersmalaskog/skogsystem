@@ -56,12 +56,14 @@ export const SIDOMENY_BREDD = 240;
 export const SIDOMENY_FRAN_PX = 1100;
 
 // Inga citattecken i selektorerna: React escapar dem i <style> vid serverrendering.
+// !important: rotlayoutens <body> har style={{padding:0}} inline, som annars vinner
+// och lägger sidomenyn OVANPÅ innehållet (Faktura-listan hamnade under menyn).
 const CSS = `
 .ek-sidomeny{display:none}
 @media (min-width:${SIDOMENY_FRAN_PX}px){
   .ek-bottenmeny{display:none}
   .ek-sidomeny{display:block}
-  body{padding-left:${SIDOMENY_BREDD}px}
+  body{padding-left:${SIDOMENY_BREDD}px !important}
 }
 `;
 
