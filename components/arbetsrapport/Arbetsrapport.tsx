@@ -84,10 +84,13 @@ export const DAG_KOLUMN_CSS = `
 // från SIDOMENY_FRAN_PX blir flikraden en meny till vänster under toppfältet, som Mail/Inställningar
 // på iPad. Samma knappar, samma ordning; innehållet flyttas åt höger med body:has(.ar-nav).
 // Selektorerna har inga citattecken (React escapar dem i <style>). Telefon och iPad stående orörda.
+// !important på body: rotlayouten sätter <body style={{padding:0}}> inline, och inline vinner över en vanlig regel.
+// Utan den flyttades innehållet ALDRIG — menyn låg ovanpå allt under ca 1 600 px (maskindatorn 1024 px: 204 px
+// överlapp; 2026-10-26, Martin). Samma fälla och samma lösning som i app/ekonomi/EkonomiBottomNav.tsx.
 const SIDOMENY_FRAN_PX = 1000;
 const SIDOMENY_BREDD_PX = 220;
 const SIDOMENY_CSS = `@media (min-width: ${SIDOMENY_FRAN_PX}px) {
-  body:has(.ar-nav) { padding-left: ${SIDOMENY_BREDD_PX}px; }
+  body:has(.ar-nav) { padding-left: ${SIDOMENY_BREDD_PX}px !important; }
   .ar-nav { top: ${LAYOUT.topbar} !important; bottom: 0 !important; width: ${SIDOMENY_BREDD_PX}px !important;
     flex-direction: column !important; justify-content: flex-start !important; align-items: stretch !important;
     gap: ${AVSTAND.xs}px; padding: ${AVSTAND.l}px ${AVSTAND.m}px !important; border-radius: 0 !important;
