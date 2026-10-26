@@ -364,15 +364,35 @@ function startaUnderliggande(highAccuracy: boolean): { stop(): void; stoppaOchVa
     let state = nyNmeaState();
     let pagaende: Promise<void> = Promise.resolve();
     let loggadFordrojd = false;
+    /** En körning i taget: connect-händelsen och reservtimern får aldrig starta en andra läsare på samma port. */
+    let korar = false;
+    /** connect kom medan en körning höll på att avslutas (porten tappad men loopen ännu inte ute): starta om direkt när den är klar. */
+    let omstart = false;
+    /** Snabba omförsök efter en connect-händelse: Windows kan annonsera porten strax innan den går att öppna. */
+    let snabbaForsok = 0;
     const kor = async () => {
+      if (avbryt.current || korar) return;
+      korar = true;
+      let oppnad = false;
+      try { oppnad = await korEn(); } finally { korar = false; }
       if (avbryt.current) return;
+      if (omstart) { omstart = false; pagaende = kor(); return; }
+      // Tappad → connect-händelsen (nedan) återansluter direkt utan timer; en timer i ett dolt Chrome-fönster stryps till ~60 s. Reservtimern (10 s) behövs bara om händelsen uteblir.
+      const vantaMs = !oppnad && snabbaForsok > 0 ? (snabbaForsok--, 1000) : 10000;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => { pagaende = kor(); }, vantaMs);
+    };
+    /** true = en port öppnades (och lästes tills den tappades). */
+    const korEn = async (): Promise<boolean> => {
+      let oppnad = false;
       let portar: any[] = [];
       try { portar = await (navigator as any).serial.getPorts(); } catch { portar = []; }
       for (const port of portar) {   // bara BEVILJADE portar (aldrig COM6/COM7 som aldrig beviljats oss)
-        if (avbryt.current) return;
+        if (avbryt.current) return oppnad;
         // Baudraten ur enhetens val (GPS-källa-kortet): fast val, eller den Auto hittade vid portvalet, annars 4800 som förut.
         try { await port.open({ baudRate: effektivBaud() }); } catch { continue; }   // upptagen/öppen → nästa
         aktivPort = port;
+        oppnad = true;
         let buffert = '';
         const dec = new TextDecoder();
         try {
@@ -404,12 +424,23 @@ function startaUnderliggande(highAccuracy: boolean): { stop(): void; stoppaOchVa
         aktivPort = null;
         break;
       }
-      if (!avbryt.current) retryTimer = setTimeout(() => { pagaende = kor(); }, 10000);   // tappad → försök igen var 10 s
+      return oppnad;
     };
+    // Porten kommer tillbaka (USB/brygga ansluts): återanslut DIREKT. Reservtimern ovan avbryts — den behövs bara om händelsen uteblir eller första open() misslyckas.
+    const serial = (navigator as any).serial;
+    const vidConnect = () => {
+      if (avbryt.current) return;
+      snabbaForsok = 3;
+      if (korar) { omstart = true; return; }
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+      pagaende = kor();
+    };
+    try { serial.addEventListener?.('connect', vidConnect); } catch { /* ingen händelse → reservtimern */ }
     pagaende = kor();
     const stop = () => {
       avbryt.current = true;
       if (retryTimer) clearTimeout(retryTimer);
+      try { serial.removeEventListener?.('connect', vidConnect); } catch { /* */ }
       // reader.cancel() väcker en blockerad read() → loopen avslutas och stänger porten själv (port.close() går inte medan läsaren håller den)
       if (aktivReader) { try { void aktivReader.cancel(); } catch { /* */ } }
     };

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { målMedarbetareId } from "@/lib/auth/server";
+import { arMaskinId } from "@/lib/besok/hyttserver";
 
 /**
  * POST /api/push/subscribe
@@ -13,7 +14,8 @@ import { målMedarbetareId } from "@/lib/auth/server";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { medarbetare_id: begart, subscription, device_name } = await req.json();
+    const kropp = await req.json();
+    const { medarbetare_id: begart, subscription, device_name, maskin_id: begartMaskin } = kropp;
     const mål = await målMedarbetareId(begart);
     if (!mål.ok) return mål.res;
     const medarbetare_id = mål.id;
@@ -52,6 +54,19 @@ export async function POST(req: NextRequest) {
     try {
       await supabase.from("push_subscriptions").update({ senast_oppnad: new Date().toISOString() }).eq("endpoint", subscription.endpoint);
     } catch { /* närvaron är en bonus, aldrig ett villkor */ }
+
+    // Maskindator: prenumerationen hör till MASKINEN (hyttnotiser, lib/hytt/maskinPush) och inte till den som råkar vara inloggad. En enhet som inte längre är maskin
+    // (maskin_id saknas) nollas, så förarens telefon aldrig får hyttnotiserna. Kolumnen kommer med migrationen 20261026180123 – saknas den får registreringen aldrig ett fel.
+    // maskin_id måste vara en riktig maskin i registret: ett påhittat id gör inget, men en prenumeration ska inte kunna utge sig för en maskin som inte finns.
+    // Bara när klienten uttryckligen skickar fältet (en äldre appversion som inte gör det rör inte kopplingen).
+    if (kropp && typeof kropp === "object" && "maskin_id" in kropp) try {
+      let maskinId: string | null = null;
+      if (arMaskinId(begartMaskin)) {
+        const d = await supabase.from("dim_maskin").select("maskin_id").eq("maskin_id", begartMaskin).maybeSingle();
+        if (d.data) maskinId = begartMaskin;
+      }
+      await supabase.from("push_subscriptions").update({ maskin_id: maskinId }).eq("endpoint", subscription.endpoint);
+    } catch { /* maskinkopplingen är en bonus tills migrationen är körd */ }
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {

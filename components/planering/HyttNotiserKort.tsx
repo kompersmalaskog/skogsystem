@@ -1,6 +1,6 @@
 'use client';
 // Notiser i hytten — kortet i Inställningar (bara maskindatorn). Svaret först: är maskinen redo? Sedan raderna som visar varför inte, knappen som skickar en testnotis,
-// och brytaren som tar STEG 2 (fara, besök, område) i bruk. Brytaren är AV tills en testnotis skickats OCH Uppfattat tryckts på den.
+// och brytaren för fara, besök och område. Brytaren är PÅ från start på en maskin (ingen ska behöva slå på den); testnotisen är kvar för den som vill se hur en notis ser ut.
 //
 // Testnotisen väntar TEST_FORDROJNING_S sekunder innan den skickas, så att föraren hinner byta till ett annat program — notisen är till för när appen INTE är framme.
 // Svaren från notisen (Uppfattat, Öppna kartan) kommer som meddelanden från service workern (public/sw.js) och sparas på enheten.
@@ -10,21 +10,23 @@ import Sektion from '@/components/design/Sektion';
 import Rad from '@/components/design/Rad';
 import Svarsrad from '@/components/design/Svarsrad';
 import { lasFonsterLage } from '@/lib/hytt/notisFonster';
+import { hamtaEnhetMaskin } from '@/lib/enhetMaskin';
 import { lasHyttNotiserPa, lasTestResultat, sparaHyttNotiserPa, sparaTestResultat, type TestResultat } from '@/lib/hytt/notisInstallning';
 import { arInstallerad, beOmBehorighet, notisStod, stangHyttNotiser, visaHyttNotis } from '@/lib/hytt/notisVisa';
 import { testNotis } from '@/lib/hytt/notiser';
-import { brytarenKanSlasPa, byggRapport, svarsrubrik, testRader, type RapportRad } from '@/lib/hytt/notisRapport';
+import { byggRapport, svarsrubrik, testRader, type RapportRad } from '@/lib/hytt/notisRapport';
 
 export const TEST_FORDROJNING_S = 10;
 
 const STATUS_ORD: Record<RapportRad['status'], string> = { ok: 'Ok', fixa: 'Fixa', kolla: 'Kolla själv' };
 
-async function swAktiv(): Promise<boolean> {
+async function swStatus(): Promise<{ aktiv: boolean; prenumeration: boolean }> {
   try {
-    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return false;
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return { aktiv: false, prenumeration: false };
     const reg = await navigator.serviceWorker.getRegistration();
-    return !!reg?.active;
-  } catch { return false; }
+    const sub = reg?.pushManager ? await reg.pushManager.getSubscription().catch(() => null) : null;
+    return { aktiv: !!reg?.active, prenumeration: !!sub };
+  } catch { return { aktiv: false, prenumeration: false }; }
 }
 
 export default function HyttNotiserKort() {
@@ -37,7 +39,8 @@ export default function HyttNotiserKort() {
 
   const lasRapport = useCallback(async () => {
     const s = notisStod();
-    setRapport(byggRapport({ stods: s.stods, installerad: arInstallerad(), behorighet: s.behorighet, swAktiv: await swAktiv() }));
+    const sw = await swStatus();
+    setRapport(byggRapport({ stods: s.stods, installerad: arInstallerad(), behorighet: s.behorighet, swAktiv: sw.aktiv, maskin: hamtaEnhetMaskin() != null, pushPrenumeration: sw.prenumeration }));
   }, []);
 
   useEffect(() => {
@@ -97,9 +100,8 @@ export default function HyttNotiserKort() {
   const { rubrik, avvikelse } = svarsrubrik(rapport);
   const behorighetFixa = rapport.find((r) => r.id === 'tillstand')?.status === 'fixa';
   const kanTilllata = notisStod().behorighet === 'default';
-  const kanTesta = rapport.every((r) => r.status !== 'fixa');
+  const kanTesta = rapport.filter((r) => r.id !== 'maskin' && r.id !== 'push').every((r) => r.status !== 'fixa');
   const rader = testRader(test);
-  const kanPa = brytarenKanSlasPa(test);
 
   return (
     <div data-testid="hytt-notiser-kort" style={{ marginBottom: AVSTAND.xl }}>
@@ -134,12 +136,12 @@ export default function HyttNotiserKort() {
       </Sektion>
 
       <Sektion rubrik="Använd i hytten"
-        not={kanPa ? 'Fara, besök och område ger notis när appen inte är framme. Appen fungerar som förut utan.' : 'Går att slå på när testnotisen kommit fram och du tryckt Uppfattat på den.'}>
+        not="Fara, besök och område ger notis när appen inte är framme. Besök kommer också när appen är minimerad. Appen fungerar som förut utan.">
         <Rad titel="Notiser i hytten" under={pa ? 'På – den här datorn' : 'Av'}
           hoger={
-            <button type="button" role="switch" aria-checked={pa} data-testid="hytt-brytare" disabled={!kanPa && !pa}
+            <button type="button" role="switch" aria-checked={pa} data-testid="hytt-brytare"
               onClick={() => andraPa(!pa)}
-              style={{ ...KNAPP.tertiar, color: pa ? FARG.gron : FARG.text2, opacity: !kanPa && !pa ? 0.4 : 1 }}>
+              style={{ ...KNAPP.tertiar, color: pa ? FARG.gron : FARG.text2 }}>
               {pa ? 'Stäng av' : 'Slå på'}
             </button>
           } sista />

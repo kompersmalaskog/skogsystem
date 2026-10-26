@@ -29,7 +29,12 @@ async function registrering(): Promise<ServiceWorkerRegistration | null> {
 export async function beOmBehorighet(): Promise<NotificationPermission | 'saknas'> {
   try {
     if (!('Notification' in window)) return 'saknas';
-    if (Notification.permission === 'default') return await Notification.requestPermission();
+    if (Notification.permission === 'default') {
+      const svar = await Notification.requestPermission();
+      // Svaret är nytt: push-registreringen (components/PushRegister) anmäler då enhetens prenumeration på maskinen.
+      try { window.dispatchEvent(new Event('hytt-notiser-andrad')); } catch { /* ingen window */ }
+      return svar;
+    }
     return Notification.permission;
   } catch { return 'saknas'; }
 }

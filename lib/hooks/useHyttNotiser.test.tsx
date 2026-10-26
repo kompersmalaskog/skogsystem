@@ -48,6 +48,27 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => { rot?.unmount(); }); rot = null; behallare?.remove(); vi.useRealTimers(); localStorage.clear(); });
 
+describe('useHyttNotiser — GPS saknas', () => {
+  it('fönstret dolt + GPS saknas → "GPS saknas – faror varnas inte" en gång; GPS tillbaka → stängs; nytt avbrott → en ny', async () => {
+    await rendera({ ...BAS });
+    await bytLage('hidden', false);
+    expect(visa).not.toHaveBeenCalled();
+    await rendera({ ...BAS, gpsSaknas: true });
+    expect(titlar()).toEqual(['GPS saknas – faror varnas inte']);
+    await rendera({ ...BAS, gpsSaknas: true, fara: [] });
+    expect(visa).toHaveBeenCalledTimes(1);
+    stang.mockClear();
+    await rendera({ ...BAS, gpsSaknas: false });
+    expect(stang).toHaveBeenCalledWith(['gps-saknas']);
+    await rendera({ ...BAS, gpsSaknas: true });
+    expect(visa).toHaveBeenCalledTimes(2);
+  });
+  it('appen framme: ingen GPS-notis (raden i appen räcker)', async () => {
+    await rendera({ ...BAS, gpsSaknas: true });
+    expect(visa).not.toHaveBeenCalled();
+  });
+});
+
 describe('useHyttNotiser — fönstret styr', () => {
   it('appen framme (synlig + vald): ingen notis för fara, besök eller område', async () => {
     await rendera({ ...BAS, fara: [LEDNING], besok: [BESOK], omrade: OMRADE });

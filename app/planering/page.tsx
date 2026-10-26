@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { LjudSpelare } from '@/components/LjudSpelare'
 import { gpsGuardAccepts, haversineMeters } from '@/lib/gps-guard'
 import { gpsSaknas } from '@/lib/gpsSaknas'
+import { useGpsSaknasLang } from '@/lib/hooks/useGpsSaknasLang'
 import { hallSkarmenVakenIWebblasare } from '@/lib/skarmVaken'
 import { signeraKartfil } from '@/lib/kartfiler'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
@@ -125,6 +126,7 @@ import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/Korvy
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
 import HyttNotiserKort from '../../components/planering/HyttNotiserKort'
+import HyttNotisTillat from '../../components/planering/HyttNotisTillat'
 import EnhetMaskinKort from '../../components/planering/EnhetMaskinKort'
 import { maskinVal } from '../../lib/enhetMaskinKort'
 import { hogarSynliga, vaxlaSkotarHogar } from '../../lib/skotarHogar'
@@ -2994,6 +2996,7 @@ export default function PlannerPage() {
   // "GPS saknas": ingen giltig fix på över en minut medan körvyn är öppen (lib/gpsSaknas). Ingen text alls med bra fix.
   const senasteGiltigFixRef = useRef<number | null>(null);
   const [gpsSaknasNu, setGpsSaknasNu] = useState(false);
+  const gpsLangVidFixRef = useRef<() => void>(() => {});
   const [gpsKallaTyp, setGpsKallaTyp] = useState<'serial' | 'geolocation' | 'ingen'>('ingen');
   const [serialGpsAktiv, setSerialGpsAktiv] = useState<boolean>(() => serialGpsVald());   // användaren har valt serial-GPS
   const [valjerPort, setValjerPort] = useState(false);   // portval pågår (knapp i inställningar)
@@ -3305,6 +3308,7 @@ export default function PlannerPage() {
         if (!testlageAktivRef.current) setCurrentPosition({ lat: fix.lat, lon: fix.lng });   // testläget: positionen flyttas för hand (Flytta mig hit)
         if (!testlageAktivRef.current) setGpsPosition({ lat: fix.lat, lng: fix.lng });
         senasteGiltigFixRef.current = Date.now();   // "GPS saknas"-raden: tid sedan sista giltiga fix
+        gpsLangVidFixRef.current();   // Windows-notisen "GPS saknas": nollar och armar 30 s-timern (lib/hooks/useGpsSaknasLang)
         setGpsSaknasNu(false);   // GPS tillbaka → raden bort direkt (setState till samma värde ger ingen omrendering)
         setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
         // GPS-KURSEN (NMEA VTG/RMC) matar körvyns rotation när kompassen saknas (maskindator).
@@ -12189,8 +12193,11 @@ export default function PlannerPage() {
     torr: !!testlage,
   });
   // NOTISER I HYTTEN: fara, besök och område som Windows-notis när fönstret inte är framme (synligt OCH valt). Ett tillägg — korten i appen fungerar som förut. Passiv när brytaren är av.
+  const gpsLang = useGpsSaknasLang(instruktionerAktiv && hyttNotiserPa && !testlage);
+  gpsLangVidFixRef.current = gpsLang.vidFix;
   useHyttNotiser({
     aktiv: instruktionerAktiv && hyttNotiserPa,
+    gpsSaknas: gpsLang.saknas,
     roll: skotarKorvy ? 'skotare' : 'skordare',
     trakt: valtObjekt?.namn ?? '',
     maskinId: besokMaskinId,
@@ -14371,6 +14378,8 @@ export default function PlannerPage() {
           onUppfattat={() => { void besokHytt.kvittera(besokHytt.vantar[0].id); }}
         />
       )}
+      {/* TILLÅT NOTISER: en gång vid start i maskinen, bara om Chrome inte frågat. Larm, besök och lossning går före. */}
+      <HyttNotisTillat aktiv={instruktionerAktiv && hyttNotiserPa} dolj={!!larm.kort || besokKortSynligt || lossningVisas || !!inst.kort} top={instruktionTop} />
       {korvyActive && inst.kort && (
         <InstruktionKortVy
           kort={inst.kort}

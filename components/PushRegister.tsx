@@ -2,6 +2,7 @@
 import { useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { vapidPublikSomBytes } from '@/lib/push/vapid';
+import { ENHET_MASKIN_ANDRAD, hamtaEnhetMaskin } from '@/lib/enhetMaskin';
 
 function deviceName(): string {
   if (typeof navigator === 'undefined') return '';
@@ -22,7 +23,12 @@ export default function PushRegister() {
         // Återanvänd existerande prenumeration om den finns, annars skapa ny
         let subscription = await reg.pushManager.getSubscription();
         if (!subscription) {
-          const permission = await Notification.requestPermission();
+          let permission = Notification.permission;
+          if (permission === 'default') {
+            // Maskindator: frågan ställs av kortet "Tillåt notiser" (ett riktigt tryck, en gång) – inte här utan tryck. Kortet säger till (hytt-notiser-andrad) när svaret kommit.
+            if (hamtaEnhetMaskin()) return;
+            permission = await Notification.requestPermission();
+          }
           if (permission !== 'granted') return;
           subscription = await reg.pushManager.subscribe({
             userVisibleOnly: true,
@@ -48,6 +54,8 @@ export default function PushRegister() {
             medarbetare_id: med.id,
             subscription: subscription.toJSON(),
             device_name: deviceName(),
+            // Maskindator: prenumerationen hör till MASKINEN (hyttnotiser går dit oavsett vem som är inloggad). Förarens telefon har ingen maskin → null.
+            maskin_id: hamtaEnhetMaskin(),
           }),
         });
       } catch (e) {
@@ -56,7 +64,12 @@ export default function PushRegister() {
     };
 
     // Delay to not block initial render
-    setTimeout(register, 3000);
+    const t = setTimeout(register, 3000);
+    // En enhet som görs till maskin (eller släpps) anmäler sig direkt på nytt, så maskinen står rätt utan att appen laddas om.
+    const omMaskinAndrad = () => { void register(); };
+    window.addEventListener(ENHET_MASKIN_ANDRAD, omMaskinAndrad);
+    window.addEventListener('hytt-notiser-andrad', omMaskinAndrad);   // tillståndet just givet i kortet eller i Inställningar → anmäl prenumerationen nu
+    return () => { clearTimeout(t); window.removeEventListener(ENHET_MASKIN_ANDRAD, omMaskinAndrad); window.removeEventListener('hytt-notiser-andrad', omMaskinAndrad); };
   }, []);
 
   return null;

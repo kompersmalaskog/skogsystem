@@ -55,7 +55,7 @@ export function useTraillertid(rader: UnderlagRad[] | null) {
         for (const b of bitar(dagIds)) {
           const [d, f] = await Promise.all([
             medAbortRetry(() => supabase.from('flyttdag').select('id, starttid, sluttid, auto_avslutad_av').in('id', b) as any),
-            medAbortRetry(() => supabase.from('maskin_flytt').select('id, flyttdag_id, sluttid, avbruten').in('flyttdag_id', b) as any),
+            medAbortRetry(() => supabase.from('maskin_flytt').select('id, flyttdag_id, starttid, sluttid, avbruten').in('flyttdag_id', b) as any),
           ]);
           if (d.error) throw d.error;
           if (f.error) throw f.error;
@@ -63,7 +63,7 @@ export function useTraillertid(rader: UnderlagRad[] | null) {
           for (const r of (f.data ?? []) as any[]) {
             if (r.avbruten) continue;
             const lista = ben.get(r.flyttdag_id) ?? [];
-            lista.push({ id: r.id, sluttid: r.sluttid });
+            lista.push({ id: r.id, sluttid: r.sluttid, starttid: r.starttid });
             ben.set(r.flyttdag_id, lista);
           }
         }

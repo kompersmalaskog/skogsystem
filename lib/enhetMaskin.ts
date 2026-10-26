@@ -26,7 +26,12 @@ export function sattEnhetMaskin(maskinId: string | null): void {
   } catch {
     /* ignore */
   }
+  // Sidan som anmäler enhetens push-prenumeration (components/PushRegister) och notisbrytarens standard lyssnar: en enhet som blir maskin ska anmäla sig på maskinen direkt.
+  try { window.dispatchEvent(new Event(ENHET_MASKIN_ANDRAD)); } catch { /* ingen window */ }
 }
+
+/** Händelsen som skickas i fönstret när enhetens maskin byts eller rensas. */
+export const ENHET_MASKIN_ANDRAD = 'enhet-maskin-andrad';
 
 /** Vilket maskin_id ska en hyttspår-rad märkas med?
  *  Enhetsvalet är AUKTORITATIVT (datorn vet sin maskin, oavsett roll). Saknas enhetsval faller vi
