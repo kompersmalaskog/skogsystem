@@ -8,7 +8,7 @@ import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
 import type { SkotareMaskinStat } from './lib/transform';
-import { FARG, TYP, AVSTAND, RADIE, TNUM, VIKT, kolumnRot, overgang } from '@/lib/design/tokens';
+import { FARG, TYP, AVSTAND, RADIE, TNUM, VIKT, KOLUMN, overgang } from '@/lib/design/tokens';
 import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -153,6 +153,32 @@ const V6_WARN = FARG.orange;
 const V6_DONE = FARG.gron;
 const V6_BG = FARG.bg;
 const V6_FF = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Inter',system-ui,sans-serif";
+
+// Objektet fyller bredden på stor skärm (container queries, som objektöversikten),
+// så det inte blir en smal kolumn + lång lista i ett hav av svart. Telefon: en
+// kolumn, hero + maskiner + "Hur gick det?"-tryck som förut. Bred: hero och
+// maskiner sida vid sida, och "Hur gick det?"-sektionerna som ett rutnät av kort
+// (alltid synliga, ingen tryck-rad). Inga citattecken i selektorer — React
+// escapar dem i en <style> vid SSR (CLAUDE.md-fallgropen); synlighet via klass.
+const OBJEKT_CSS = `
+.uf-objekt { container-type: inline-size; max-width: ${KOLUMN.bred + 2 * AVSTAND.sidmarginal}px; margin: 0 auto; box-sizing: border-box; padding: ${AVSTAND.xl}px ${AVSTAND.sidmarginal}px ${AVSTAND.xxl}px; }
+.uf-topp { display: grid; grid-template-columns: minmax(0, 1fr); gap: ${AVSTAND.xl}px; align-items: start; }
+.uf-hur-rubrik { display: none; }
+.uf-hur-sektioner { background: ${V6_CARD}; border-radius: 0 0 ${RADIE.knapp}px ${RADIE.knapp}px; overflow: hidden; }
+.uf-hur-sektioner.ar-stangd { display: none; }
+@container (min-width: 720px) {
+  .uf-topp { grid-template-columns: 1.1fr 1fr; }
+}
+@container (min-width: 640px) {
+  .uf-hur-knapp { display: none !important; }
+  .uf-hur-rubrik { display: block; }
+  .uf-hur-sektioner { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: ${AVSTAND.l}px; background: transparent; border-radius: 0; overflow: visible; align-items: start; }
+  .uf-hur-sektioner > div { background: ${V6_CARD}; border-radius: ${RADIE.knapp}px; border-top: none !important; overflow: hidden; }
+}
+@container (min-width: 960px) {
+  .uf-hur-sektioner { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+`;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function fmtISO(iso?: string | null): string {
@@ -670,12 +696,16 @@ function Collapse({ title, varde, children, defaultOpen = false }: { title: stri
 // åtta separata collapses på skärmen samtidigt. Stängd: en lugn rad med vad som
 // finns där inne. Öppen: raden blir rubrik och sektionerna veck ut sig under.
 function HurGickDet({ undertext, children }: { undertext: string; children: React.ReactNode }) {
+  // Smal skärm: tryck-raden (uf-hur-knapp) styr synligheten via ar-stangd.
+  // Bred skärm: knappen göms, rubriken visas, sektionerna är ett alltid-synligt
+  // rutnät (CSS i OBJEKT_CSS överstyr ar-stangd). Ingen JS-mätning.
   const [open, setOpen] = useState(false);
   return (
     <div style={{ marginTop: AVSTAND.xxl }}>
       <button
+        className="uf-hur-knapp"
         onClick={() => setOpen(!open)}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: '20px 24px', background: V6_CARD, border: 'none', borderRadius: open ? '14px 14px 0 0' : 14, color: '#fff', fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: '20px 24px', background: V6_CARD, border: 'none', borderRadius: open ? `${RADIE.knapp}px ${RADIE.knapp}px 0 0` : RADIE.knapp, color: '#fff', fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}
       >
         <span style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.3px' }}>Hur gick det?</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minWidth: 0 }}>
@@ -685,11 +715,10 @@ function HurGickDet({ undertext, children }: { undertext: string; children: Reac
           </svg>
         </span>
       </button>
-      {open && (
-        <div style={{ background: V6_CARD, borderRadius: '0 0 14px 14px', overflow: 'hidden' }}>
-          {children}
-        </div>
-      )}
+      <div className="uf-hur-rubrik" style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.3px', marginBottom: AVSTAND.l }}>Hur gick det?</div>
+      <div className={`uf-hur-sektioner${open ? '' : ' ar-stangd'}`}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -1300,25 +1329,31 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
 
   return (
     <div style={{ minHeight: '100%', background: V6_BG, color: '#fff', fontFamily: V6_FF, WebkitFontSmoothing: 'antialiased' }}>
-      <div className="uf-detalj-kolumn" style={kolumnRot('smal')}>
+      <style>{OBJEKT_CSS}</style>
+      <div className="uf-objekt">
       <Nav onBack={onBack} />
       <Headline data={data} />
-      <Svaret data={data} />
-      <AvvikelseZon avvikelser={data.avvikelser} />
-      {/* Ett objekts vy speglar vad objektet ÄR. Risjobb: rapporterad
-          grotvolym + källhyggen, inga virkessektioner. Virkesjobb: som förut,
-          inga grot-fält. arRisjobb gate:ar. */}
-      {risjobb ? (
-        <>
-          <RisRubrik data={data} />
-          <Kallhyggen objektId={data.objektId} />
-        </>
-      ) : (
-        <>
-          {visaSkotareVal && <SkotareVal maskiner={skM} vald={valdSkotare} onValj={setValdSkotare} />}
-          <Maskinkort data={visadData} skotareOmlastning={valdOml} />
-        </>
-      )}
+      {/* Topp: svaret (hero) + maskinerna. Smal skärm → staplat; bred skärm →
+          sida vid sida, så toppen fylls i stället för tomt till höger. */}
+      <div className="uf-topp">
+        <div>
+          <Svaret data={data} />
+          <AvvikelseZon avvikelser={data.avvikelser} />
+        </div>
+        {/* Ett objekts vy speglar vad objektet ÄR. Risjobb: rapporterad
+            grotvolym + källhyggen, inga virkessektioner. Virkesjobb: som förut. */}
+        {risjobb ? (
+          <div>
+            <RisRubrik data={data} />
+            <Kallhyggen objektId={data.objektId} />
+          </div>
+        ) : (
+          <div>
+            {visaSkotareVal && <SkotareVal maskiner={skM} vald={valdSkotare} onValj={setValdSkotare} />}
+            <Maskinkort data={visadData} skotareOmlastning={valdOml} />
+          </div>
+        )}
+      </div>
 
       {harDjup && (
         <HurGickDet undertext={hurUndertext}>
