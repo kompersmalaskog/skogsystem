@@ -72,3 +72,32 @@ describe('tiden i appen och på fakturan', () => {
     for (let m = 1; m <= 600; m++) expect(minFranTimmar(timmarForFaktura(m))).toBe(m);
   });
 });
+
+describe('lastning hemma: tiden börjar när flytten började, inte när bilen lämnade basen (Martin 2026-10-26)', () => {
+  // Wisent 26 okt (prod): bilen startad 11:54 vid LBC, lastad 12:08, rundan 12:09:58–13:40:08, lossad 12:57.
+  const r = runda('2026-10-26T11:09:58Z', '2026-10-26T12:40:08Z');
+  const ben: TidBen[] = [{ id: 'wisent', starttid: '2026-10-26T10:54:07Z', sluttid: '2026-10-26T11:57:41Z' }];
+
+  it('Wisent 26 okt: 11:54–13:40 = 1 h 46 min, inte rundans 1 h 30 min', () => {
+    expect(traillertid('wisent', r, ben)).toMatchObject({ lage: 'ok', min: 106, fran: '2026-10-26T10:54:07Z', lastningFore: true, medHem: true });
+  });
+  it('flytten började efter att bilen åkt (hämtad ute) → rundans start som förut', () => {
+    const ute: TidBen[] = [{ id: 'x', starttid: '2026-10-26T11:40:00Z', sluttid: '2026-10-26T11:57:41Z' }];
+    expect(traillertid('x', r, ute)).toMatchObject({ min: 90, fran: r.start, lastningFore: false });
+  });
+  it('mer än en timme före rundan är ingen lastning (flytt registrerad kvällen före) → rundans start', () => {
+    const kvall: TidBen[] = [{ id: 'x', starttid: '2026-10-26T09:00:00Z', sluttid: '2026-10-26T11:57:41Z' }];
+    expect(traillertid('x', r, kvall)).toMatchObject({ min: 90, fran: r.start, lastningFore: false });
+  });
+  it('bara den FÖRSTA flytten: en senare flytts tidiga starttid flyttar inte delningen', () => {
+    const tva: TidBen[] = [
+      { id: 'a', starttid: '2026-10-26T11:20:00Z', sluttid: '2026-10-26T11:30:00Z' },
+      { id: 'b', starttid: '2026-10-26T10:50:00Z', sluttid: '2026-10-26T12:00:00Z' },
+    ];
+    expect(traillertid('b', r, tva)).toMatchObject({ fran: '2026-10-26T11:30:00Z', lastningFore: false });
+    expect(traillertid('a', r, tva)).toMatchObject({ fran: r.start, lastningFore: false });
+  });
+  it('utan starttid som förut', () => {
+    expect(traillertid('x', r, [{ id: 'x', sluttid: '2026-10-26T11:57:41Z' }])).toMatchObject({ min: 90, lastningFore: false });
+  });
+});

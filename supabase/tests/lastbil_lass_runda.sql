@@ -1,4 +1,5 @@
--- SQL-test: automatisk flytt → bilens runda och starttid (migration 20261026183350_lastbil_auto_flytt_runda.sql ska vara körd).
+-- SQL-test: automatisk flytt → bilens runda och starttid (migrationerna 20261026183350_lastbil_auto_flytt_runda.sql och
+-- 20261026184907_lastbil_auto_flytt_starttid.sql ska vara körda).
 --
 -- Körs i EN transaktion som alltid rullas tillbaka (lokalt: psql -1 -f denna fil, eller hela filen via MCP execute_sql).
 -- Resultatet kommer som ett fel på sista raden: "TEST OK: N kontroller" eller "TEST FEL: …" — så rullas den tillbaka.
@@ -10,6 +11,8 @@
 --   glapp   lassning_fran 4 dagar före (bilen avstängd) → starttid = lastningen, underlagets datum = lastningsdagen
 --   fore    rundan slutade före lastningen → ingen runda
 --   tva     en runda pågick vid lastningen, nästa började före lossningen → den som pågick vid lastningen
+--   vaken   bilen avstängd i dagar, startad 14 min före lastningen (Wisent 26 okt) → starttid = när bilen startades
+--   tickar  bilen sände var 10:e minut hela timmen före (ingen start) → sista tomma punkten som förut
 CREATE TEMP TABLE kontroll (namn text, ok boolean);
 CREATE TEMP TABLE t (kod text PRIMARY KEY, lass uuid, dag uuid, dag2 uuid, vin text, t0 timestamptz, fran timestamptz);
 
@@ -17,7 +20,15 @@ INSERT INTO t (kod, lass, dag, dag2, vin, t0, fran)
 SELECT k, gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'TESTRUNDA_' || k,
        '2099-10-05 10:00+00'::timestamptz,
        CASE k WHEN 'glapp' THEN '2099-10-01 13:47+00'::timestamptz ELSE '2099-10-05 09:50+00'::timestamptz END
-FROM unnest(ARRAY['efter','ovrig','glapp','fore','tva']) k;
+FROM unnest(ARRAY['efter','ovrig','glapp','fore','tva','vaken','tickar']) k;
+
+-- Bilens logg: 'vaken' tyst sedan 4 dagar, startad t0 − 14 min, punkt vid lastningen; 'tickar' en punkt var 10:e min i 2 h.
+INSERT INTO lastbil_logg (vin, tidpunkt, lat, lng, odometer_m)
+SELECT vin, x, 56.46, 14.70, 1000000 FROM t,
+  unnest(ARRAY[t0 - interval '4 days', t0 - interval '14 minutes', t0 - interval '14 minutes' + interval '1 second', t0]) x
+WHERE kod = 'vaken';
+INSERT INTO lastbil_logg (vin, tidpunkt, lat, lng, odometer_m)
+SELECT vin, t0 - g * interval '10 minutes', 56.46, 14.70, 1000000 FROM t, generate_series(0, 12) g WHERE kod = 'tickar';
 
 INSERT INTO lastbil_lass (id, vin, forsta_lastad_tid, sista_lastad_tid, lassning_fran, lassning_tid, lassning_lat, lassning_lng, lassning_odometer_m,
                           lassning_plats_saker, lossning_tid, lossning_till, lossning_lat, lossning_lng, lossning_odometer_m, lossning_plats_saker,
@@ -63,6 +74,10 @@ BEGIN
     ELSIF r.kod = 'fore' THEN
       INSERT INTO kontroll VALUES ('fore: runda som slutade före lastningen kopplas inte', f.flyttdag_id IS NULL);
       INSERT INTO kontroll VALUES ('fore: den rundan rörs inte', v_status = 'ovrig_korning');
+    ELSIF r.kod = 'vaken' THEN
+      INSERT INTO kontroll VALUES ('vaken: starttid = när bilen startades (14 min före lastningen)', f.starttid = r.t0 - interval '14 minutes');
+    ELSIF r.kod = 'tickar' THEN
+      INSERT INTO kontroll VALUES ('tickar: ingen start inom timmen → sista tomma punkten', f.starttid = r.fran);
     ELSIF r.kod = 'tva' THEN
       INSERT INTO kontroll VALUES ('tva: rundan som pågick vid lastningen väljs', f.flyttdag_id = r.dag);
     END IF;
