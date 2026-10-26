@@ -40,7 +40,7 @@ export interface LassDel {
 /** Hur mycket maskinen stod på en väg sedan förra lossningen. `vag` är stråkets nyckel; `sek` tid, `andel` 0–1 av tiden på vägar. */
 export interface VagTid { vag: string; sek: number; andel: number }
 
-export interface SparPunkt { lat: number; lng: number; tid: string }
+export interface SparPunkt { lat: number; lng: number; tid: string; /** Första punkten efter en lucka i hyttspåret (ingen data dessförinnan). */ lucka?: true }
 
 export type LassStatus =
   | 'foreslaget'      // upptäckt och ifyllt som förra lasset; bekräftar sig självt när lossningen tog slut (stilla ≥ 5 min + utkörd ur zonen)

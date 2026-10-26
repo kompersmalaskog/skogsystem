@@ -330,6 +330,27 @@ describe('lass som väntar på föraren syns', () => {
   });
 });
 
+describe('lassets spår ur hyttspåret', () => {
+  const T0 = Date.parse('2026-10-19T08:00:00Z');
+  /** Hyttspåret: en punkt var 20:e sekund de senaste 10 minuterna, på väg mot avlägget (400 m → 20 m), som i prod där spåret är tätt och lassets egen inspelning var gles. */
+  const hyttspar = () => Array.from({ length: 31 }, (_, i) => ({ lat: BAS.lat + (400 - i * 12.7) * M, lng: BAS.lng, tid: new Date(T0 - 600_000 + i * 20_000).toISOString() }));
+
+  it('spåret byggs ur hyttspåret mellan förra lossningen (här: ingen) och denna', async () => {
+    await visa({ hamtaHyttspar: hyttspar });
+    await lossa(200);
+    expect(vy.lass).toHaveLength(1);
+    const p = vy.lass[0].sparPunkter;
+    expect(p.length).toBeGreaterThan(20);   // 31 punkter, 12,7 m isär, tunnade till minst 6 m
+    expect(Date.parse(p[0].tid)).toBeLessThanOrEqual(T0 - 560_000);
+  });
+  it('utan hyttspår faller det tillbaka på hookens egen buffert (som förut)', async () => {
+    await visa({ hamtaHyttspar: () => [] });
+    await lossa(200);
+    expect(vy.lass).toHaveLength(1);
+    expect(vy.lass[0].sparPunkter.length).toBeLessThanOrEqual(5);   // står still vid avlägget: bufferten ger bara ett par punkter
+  });
+});
+
 describe('nytt avlägg och tvetydighet', () => {
   it('stopp långt från avlägg och skördarspår → "Nytt avlägg här?"; Ja skapar ett eget avlägg och ett lass dit', async () => {
     const linje = [{ vag: 's0', linje: [{ lat: BAS.lat + 600 * M, lng: BAS.lng + 0.01 }, { lat: BAS.lat + 700 * M, lng: BAS.lng + 0.01 }] }];
