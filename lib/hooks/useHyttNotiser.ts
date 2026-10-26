@@ -27,6 +27,8 @@ export type HyttNotiserIn = {
   /** Besök den här maskinen inte kvitterat. */
   besok: BesokIn[];
   omrade: OmradeIn | null;
+  /** Ingen giltig GPS-position på över 30 s (useGpsSaknasLang). */
+  gpsSaknas?: boolean;
 };
 
 const nyckelFara = (f: FaraIn[]) => f.map((x) => x.id).sort().join('|');
@@ -95,7 +97,7 @@ export function useHyttNotiser(a: HyttNotiserIn): void {
     try { url = `${window.location.pathname}${window.location.search}`; } catch { /* */ }
     const ut = stegaNotiser(stateRef.current, {
       lage, nu: Date.now(), roll: i.roll, trakt: i.trakt, maskinId: i.maskinId, test: i.test, url,
-      fara: i.fara, besok: i.besok, omrade: i.omrade,
+      fara: i.fara, besok: i.besok, omrade: i.omrade, gpsSaknas: !!i.gpsSaknas,
     });
     stateRef.current = ut.state;
     if (ut.visa.length === 0 && ut.stang.length === 0 && !(ut.stangAlla && uppeRef.current)) return;
@@ -109,7 +111,7 @@ export function useHyttNotiser(a: HyttNotiserIn): void {
         for (const n of ut.visa) { if (await visaHyttNotis(n)) uppeRef.current = true; }
       } catch { /* en notis som inte kunde visas får aldrig fälla något */ }
     });
-  }, [a.aktiv, lage, fk, bk, ok, tick]);
+  }, [a.aktiv, lage, fk, bk, ok, tick, a.gpsSaknas]);
 }
 
 /** Enhetsbrytaren (Inställningar › Notiser i hytten). PÅ från början på en maskin, annars av; följer ändringar i samma fönster (egen händelse), i andra fönster (storage) och när enheten görs till maskin. */

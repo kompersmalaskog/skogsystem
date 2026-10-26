@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { besokNotis, faraNotis, faraRegel, farorUrLarm, omradeNotis, omradeNyckel, omradeUrKort, stegaNotiser, testNotis, TOMT_NOTISLAGE, type NotisIndata, type NotisState } from './notiser';
+import { besokNotis, faraNotis, gpsSaknasNotis, faraRegel, farorUrLarm, omradeNotis, omradeNyckel, omradeUrKort, stegaNotiser, testNotis, TOMT_NOTISLAGE, type NotisIndata, type NotisState } from './notiser';
 import { fonsterLage, lasFonsterLage } from './notisFonster';
 
 const NU = Date.parse('2026-10-24T10:00:00Z');
@@ -160,5 +160,41 @@ describe('ordning och framme-läget', () => {
   });
   it('testnotisen har knapparna och ligger kvar', () => {
     expect(testNotis('/planering')).toMatchObject({ typ: 'test', kvarTillTryck: true, tag: 'hytt-test' });
+  });
+});
+
+describe('GPS SAKNAS — röd, en gång per avbrott, bara när appen är borta', () => {
+  it('texten säger att skyddet är borta; röd ikon, ligger kvar, en knapp', () => {
+    expect(gpsSaknasNotis('/planering')).toMatchObject({
+      typ: 'gps', tag: 'gps-saknas', titel: 'GPS saknas – faror varnas inte', ikon: '/notis-fara.png', kvarTillTryck: true, renotify: false,
+      knappar: [{ action: 'visa', title: 'Öppna kartan' }],
+    });
+  });
+  it('borta + GPS saknas: EN notis, och inte en till medan avbrottet pågår', () => {
+    const a = steg(TOMT_NOTISLAGE, { gpsSaknas: true });
+    expect(a.visa.map((n) => n.typ)).toEqual(['gps']);
+    expect(steg(a.state, { gpsSaknas: true }).visa).toEqual([]);
+    expect(steg(a.state, { gpsSaknas: true, nu: min(10) }).visa).toEqual([]);
+  });
+  it('GPS tillbaka: notisen stängs; nästa avbrott ger en ny', () => {
+    const a = steg(TOMT_NOTISLAGE, { gpsSaknas: true });
+    const tillbaka = steg(a.state, { gpsSaknas: false });
+    expect(tillbaka.stang).toEqual(['gps-saknas']);
+    expect(tillbaka.visa).toEqual([]);
+    expect(steg(tillbaka.state, { gpsSaknas: true }).visa.map((n) => n.typ)).toEqual(['gps']);
+  });
+  it('appen framme: ingen notis; allt stängs; blir den borta mitt i avbrottet kommer notisen då', () => {
+    const framme = steg(TOMT_NOTISLAGE, { lage: 'framme', gpsSaknas: true });
+    expect(framme.visa).toEqual([]);
+    expect(framme.stangAlla).toBe(true);
+    expect(steg(framme.state, { lage: 'borta', gpsSaknas: true }).visa.map((n) => n.typ)).toEqual(['gps']);
+  });
+  it('GPS finns hela tiden: ingen notis alls (en gammal state utan gps-fältet kraschar inte)', () => {
+    expect(steg(TOMT_NOTISLAGE, { gpsSaknas: false }).visa).toEqual([]);
+    expect(steg(TOMT_NOTISLAGE, {}).visa).toEqual([]);
+  });
+  it('flera samtidigt: GPS-notisen skapas sist så att den hamnar överst', () => {
+    const u = steg(TOMT_NOTISLAGE, { fara: [LEDNING], besok: [BESOK], omrade: OMRADE, gpsSaknas: true });
+    expect(u.visa.map((n) => n.typ)).toEqual(['omrade', 'besok', 'fara', 'gps']);
   });
 });
