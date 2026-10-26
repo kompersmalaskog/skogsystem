@@ -120,7 +120,7 @@ export default function RundaArk({ runda, onStang, arAdmin = false, namn = 'admi
           return (
             <Rad key={b.id} rubrik={b.maskin}
               under={`${b.fran ?? 'Okänd plats'} → ${b.till ?? 'okänd plats'}${b.tomKm ? ` · tomkörning ${b.tomKm} km` : ''}`}
-              hoger={km(b.km)} hogerUnder={`${b.min != null ? fmtMinuter(b.min) + ' · ' : ''}${e.text}`}
+              hoger={km(b.km)} hogerUnder={`${b.min != null ? fmtMinuter(b.min) + ' på flaket · ' : ''}${e.text}`}
               markning={markning} markningFarg={st?.redigerad ? FARG.orange : FARG.text2}
               onTryck={arAdmin ? () => { setKvitto(null); setKvittoFel(null); setRedigerar(b.id); } : undefined}
               etikett={`Visa flytten ${b.maskin}`} />

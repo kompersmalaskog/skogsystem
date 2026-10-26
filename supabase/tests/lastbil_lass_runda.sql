@@ -1,5 +1,5 @@
 -- SQL-test: automatisk flytt → bilens runda och starttid (migrationerna 20261026183350_lastbil_auto_flytt_runda.sql och
--- 20261026184907_lastbil_auto_flytt_starttid.sql ska vara körda).
+-- 20261026184907_lastbil_auto_flytt_starttid.sql och 20261026191147_lastbil_auto_flytt_rundstart.sql ska vara körda).
 --
 -- Körs i EN transaktion som alltid rullas tillbaka (lokalt: psql -1 -f denna fil, eller hela filen via MCP execute_sql).
 -- Resultatet kommer som ett fel på sista raden: "TEST OK: N kontroller" eller "TEST FEL: …" — så rullas den tillbaka.
@@ -13,6 +13,8 @@
 --   tva     en runda pågick vid lastningen, nästa började före lossningen → den som pågick vid lastningen
 --   vaken   bilen avstängd i dagar, startad 14 min före lastningen (Wisent 26 okt) → starttid = när bilen startades
 --   tickar  bilen sände var 10:e minut hela timmen före (ingen start) → sista tomma punkten som förut
+--   rundstart  'vaken' och 'efter': automatisk runda som började efter lastningen flyttas till flyttens start;
+--              'kedja': en annan runda slutade efter lastningens start → rundan rörs inte; 'tva': pågick redan → rörs inte
 CREATE TEMP TABLE kontroll (namn text, ok boolean);
 CREATE TEMP TABLE t (kod text PRIMARY KEY, lass uuid, dag uuid, dag2 uuid, vin text, t0 timestamptz, fran timestamptz);
 
@@ -20,7 +22,7 @@ INSERT INTO t (kod, lass, dag, dag2, vin, t0, fran)
 SELECT k, gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'TESTRUNDA_' || k,
        '2099-10-05 10:00+00'::timestamptz,
        CASE k WHEN 'glapp' THEN '2099-10-01 13:47+00'::timestamptz ELSE '2099-10-05 09:50+00'::timestamptz END
-FROM unnest(ARRAY['efter','ovrig','glapp','fore','tva','vaken','tickar']) k;
+FROM unnest(ARRAY['efter','ovrig','glapp','fore','tva','vaken','tickar','kedja']) k;
 
 -- Bilens logg: 'vaken' tyst sedan 4 dagar, startad t0 − 14 min, punkt vid lastningen; 'tickar' en punkt var 10:e min i 2 h.
 INSERT INTO lastbil_logg (vin, tidpunkt, lat, lng, odometer_m)
@@ -40,7 +42,9 @@ FROM t;
 
 -- Rundorna
 INSERT INTO flyttdag (id, vin, starttid, sluttid, status, auto_skapad)
-SELECT dag, vin, t0 + interval '88 seconds', NULL, 'pagaende', true FROM t WHERE kod IN ('efter', 'glapp');
+SELECT dag, vin, t0 + interval '88 seconds', NULL, 'pagaende', true FROM t WHERE kod IN ('efter', 'glapp', 'vaken', 'kedja');
+INSERT INTO flyttdag (id, vin, starttid, sluttid, status, auto_skapad)
+SELECT dag2, vin, t0 - interval '2 hours', t0 - interval '5 minutes', 'avslutad', true FROM t WHERE kod = 'kedja';
 INSERT INTO flyttdag (id, vin, starttid, sluttid, status, auto_skapad)
 SELECT dag, vin, t0 + interval '2 minutes', t0 + interval '90 minutes', 'ovrig_korning', true FROM t WHERE kod = 'ovrig';
 INSERT INTO flyttdag (id, vin, starttid, sluttid, status, auto_skapad)
@@ -53,17 +57,18 @@ SELECT dag2, vin, t0 + interval '20 minutes', NULL, 'pagaende', true FROM t WHER
 SELECT set_config('request.jwt.claims', '{"role":"service_role"}', true);
 
 DO $k$
-DECLARE r record; v_ut jsonb; f maskin_flytt%rowtype; v_status text; v_datum date;
+DECLARE r record; v_ut jsonb; f maskin_flytt%rowtype; v_status text; v_datum date; v_rstart timestamptz;
 BEGIN
   FOR r IN SELECT * FROM t LOOP
     v_ut := skapa_flytt_ur_lass(r.lass, 'A030353', NULL, NULL, 'auto');
     SELECT * INTO f FROM maskin_flytt WHERE id = (v_ut->>'flytt_id')::uuid;
-    SELECT status INTO v_status FROM flyttdag WHERE id = r.dag;
+    SELECT status, starttid INTO v_status, v_rstart FROM flyttdag WHERE id = r.dag;
     SELECT datum INTO v_datum FROM fakturaunderlag_flytt WHERE flytt_id = f.id;
     IF r.kod = 'efter' THEN
       INSERT INTO kontroll VALUES ('efter: rundan som började efter lastningen kopplas', f.flyttdag_id = r.dag);
       INSERT INTO kontroll VALUES ('efter: starttid = sista tomma punkten (10 min före)', f.starttid = r.fran);
-      INSERT INTO kontroll VALUES ('efter: pågående runda rörs inte', v_status = 'pagaende');
+      INSERT INTO kontroll VALUES ('efter: pågående runda förblir pågående', v_status = 'pagaende');
+      INSERT INTO kontroll VALUES ('rundstart efter: rundan börjar vid flyttens start', v_rstart = r.fran);
     ELSIF r.kod = 'ovrig' THEN
       INSERT INTO kontroll VALUES ('ovrig: stängd runda kopplas', f.flyttdag_id = r.dag);
       INSERT INTO kontroll VALUES ('ovrig: övrig körning blir flyttrunda', v_status = 'avslutad');
@@ -76,10 +81,14 @@ BEGIN
       INSERT INTO kontroll VALUES ('fore: den rundan rörs inte', v_status = 'ovrig_korning');
     ELSIF r.kod = 'vaken' THEN
       INSERT INTO kontroll VALUES ('vaken: starttid = när bilen startades (14 min före lastningen)', f.starttid = r.t0 - interval '14 minutes');
+      INSERT INTO kontroll VALUES ('rundstart vaken: rundan börjar när bilen startades', v_rstart = r.t0 - interval '14 minutes');
+    ELSIF r.kod = 'kedja' THEN
+      INSERT INTO kontroll VALUES ('rundstart kedja: förra rundan slutade efter lastningens start → rundan rörs inte', v_rstart = r.t0 + interval '88 seconds' AND f.flyttdag_id = r.dag);
     ELSIF r.kod = 'tickar' THEN
       INSERT INTO kontroll VALUES ('tickar: ingen start inom timmen → sista tomma punkten', f.starttid = r.fran);
     ELSIF r.kod = 'tva' THEN
       INSERT INTO kontroll VALUES ('tva: rundan som pågick vid lastningen väljs', f.flyttdag_id = r.dag);
+      INSERT INTO kontroll VALUES ('rundstart tva: rundan som redan pågick rörs inte', v_rstart = r.t0 - interval '1 hour');
     END IF;
     INSERT INTO kontroll VALUES (r.kod || ': flytten skapad, 49 min lastad → lossad', (v_ut->>'skapad')::boolean AND f.tid_flytt_min = 49);
   END LOOP;
