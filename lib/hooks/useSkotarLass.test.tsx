@@ -41,6 +41,7 @@ vi.mock('@/lib/skotarLass/koKopplad', async () => {
     lasSkordat: async () => (sort.skordat === undefined ? SKORDAT_STANDARD : sort.skordat),
     lasObjektSortiment: async () => sort.objekt,
     lasSortimentHistorik: async () => sort.historik,
+    lasSortimentKlass: async () => false,
   };
 });
 
@@ -120,6 +121,48 @@ describe('appen frågar aldrig: ett lass börjar bara med ett tryck', () => {
     expect(await sparade()).toHaveLength(0);
     await act(async () => { vi.advanceTimersByTime(60_000); });
     expect(server.skickade).toHaveLength(0);
+  });
+  it('två avlägg inom zonen (Mölleryd: "2" och "01-2"): båda blir val, ingen gissning, och det valda avlägget får utkastet', async () => {
+    await visa({ vida: [{ nummer: '2', lat: BAS.lat, lng: BAS.lng }, { nummer: '01-2', lat: BAS.lat + 30 * M, lng: BAS.lng }] });
+    await stå(4, 4);
+    expect(vy.iZon?.tvetydigt).toBe(true);
+    expect(vy.lossaVal.map((a) => a.nummer)).toEqual(['2', '01-2']);   // närmast först
+    await act(async () => { vy.lossaVidAvlagg('vida:01-2'); });
+    expect(vy.andraLass?.delar[0].avlaggId).toBe('vida:01-2');   // inte det närmaste: föraren valde
+    expect(vy.lossaKnapp).toBeNull();
+  });
+  it('Klar sparar den inloggade medarbetaren på lasset (och skickar den till servern)', async () => {
+    await visa({ medarbetareId: 'm-klar' });
+    await vidAvlagg(4);
+    await act(async () => { vy.lossaVidAvlagg(); });
+    await act(async () => { vy.andraRad(1, { nyckel: 'tall', namn: 'Tall' }, +10); });
+    await act(async () => { vy.stangAndra(true); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    const s = await sparade();
+    expect(s).toHaveLength(1);
+    expect(s[0].medarbetareId).toBe('m-klar');
+    expect(s[0].bekraftadAv).toBe('forare');
+    expect(server.skickade.at(-1)?.medarbetareId).toBe('m-klar');
+  });
+  it('testläget: en position som skickas om var 3:e sekund håller knappen kvar i minuten, utan omskickning försvinner den efter 10 s', async () => {
+    const vid = { lat: BAS.lat, lon: BAS.lng };
+    position = { ...vid }; await visa(); await act(async () => { vi.advanceTimersByTime(1); });
+    expect(vy.lossaKnapp?.id).toBe('vida:2');
+    for (let i = 0; i < 20; i++) { await act(async () => { vi.advanceTimersByTime(3000); }); position = { ...vid }; await visa(); }
+    expect(vy.lossaKnapp?.id).toBe('vida:2');   // 60 s senare: fortfarande där
+    await act(async () => { vi.advanceTimersByTime(12_000); });
+    expect(vy.lossaKnapp).toBeNull();            // slutar omskicken → knappen går (ingen gammal position blir kvar)
+  });
+  it('ett id som inte är ett av alternativen gör ingenting', async () => {
+    await visa({ vida: [{ nummer: '2', lat: BAS.lat, lng: BAS.lng }, { nummer: '01-2', lat: BAS.lat + 30 * M, lng: BAS.lng }] });
+    await stå(4, 4);
+    await act(async () => { vy.lossaVidAvlagg('vida:99'); });
+    expect(vy.utkast).toBeNull();
+    expect(vy.lossaVal).toHaveLength(2);
+  });
+  it('ett ensamt avlägg ger EN knapp (lossaVal har bara det)', async () => {
+    await vidAvlagg(4);
+    expect(vy.lossaVal.map((a) => a.id)).toEqual(['vida:2']);
   });
   it('lång paus utanför alla avlägg (förr: "Nytt avlägg här?") frågar inte och ger ingen knapp', async () => {
     await visa({ vida: [] });

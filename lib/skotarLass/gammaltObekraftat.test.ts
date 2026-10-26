@@ -18,11 +18,12 @@ const S = (nyckel: string, m3: number) => ({ nyckel, namn: nyckel, m3, kundkoder
 const opti = (datum: string, iso: string, m3: number, maskinId = 'E1'): OptiLass => ({ maskinId, datum, lassNummer: 1, tidMs: Date.parse(iso), volymM3: m3, rader: [{ namn: 'Timmer', kundkod: null, m3 }] });
 
 describe('vad som räknas som skotat', () => {
-  it('struket och det gamla obekräftade räknas inte; förare, planerare och väntande lass räknas', () => {
+  it('bara Klar räknas: struket, automatiskt skapat och obesvarat (väntar på föraren) räknas aldrig; förare och planerare räknas', () => {
     expect(raknasSomSkotat(L('a', 1, 20))).toBe(false);                                           // auto
     expect(raknasSomSkotat(L('b', 1, 20, { bekraftadAv: 'forare' }))).toBe(true);
     expect(raknasSomSkotat(L('c', 1, 20, { bekraftadAv: 'planerare' }))).toBe(true);              // granskat av en planerare
-    expect(raknasSomSkotat(L('d', 1, 20, { bekraftadAv: null, status: 'vantar_forare' }))).toBe(true);
+    expect(raknasSomSkotat(L('d', 1, 20, { bekraftadAv: null, status: 'vantar_forare' }))).toBe(false);   // obesvarat: föraren har inte tryckt Klar
+    expect(raknasSomSkotat(L('d2', 1, 20, { bekraftadAv: null, status: 'foreslaget' }))).toBe(false);
     expect(raknasSomSkotat(L('e', 1, 20, { bekraftadAv: 'forare', status: 'struket' }))).toBe(false);
     expect(raknasSomSkotat(L('f', 1, 20, { status: 'struket' }))).toBe(false);
   });

@@ -52,9 +52,9 @@ describe('sortimentVal: kedjan skördat → objektets → senaste 12 månaderna'
 describe('"Lägg till": traktens egna sortiment, mest använda först', () => {
   const lassMed = (status: string, ...nycklar: string[]) => ({ status, delar: [{ rader: nycklar.map((nyckel) => ({ nyckel })) }] });
 
-  it('räknar användning på trakten: lass som räknas + Opti-lassens rader, aldrig strukna', () => {
+  it('räknar användning på trakten: bara Klar-tryckta lass + Opti-lassens rader, aldrig strukna eller obesvarade', () => {
     const per = traktAnvandning([lassMed('bekraftat', 'tall', 'massa'), lassMed('vantar_forare', 'tall'), lassMed('struket', 'massa', 'massa')], ['Tall', 'Massa']);
-    expect(per.get('tall')).toBe(3);
+    expect(per.get('tall')).toBe(2);   // obesvarat (vantar_forare) räknas inte
     expect(per.get('massa')).toBe(2);
   });
   it('skördat: mest använda på trakten först, inte störst skördat — och lika många: skördat störst först', () => {

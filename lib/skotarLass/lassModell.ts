@@ -39,7 +39,7 @@ const kopieraRader = (rader: readonly SortimentRad[]): SortimentRad[] => rader.m
  * mitt i raden, och numret räknat så redan är taget av ett lass som räknas, hoppas det över — två lass som räknas heter aldrig lika.
  */
 export function nastaLassNummer(lass: readonly Lass[], maskinId: string, objektId: string): number {
-  const raknas = lass.filter((l) => l.maskinId === maskinId && l.objektId === objektId && l.status !== 'struket');
+  const raknas = lass.filter((l) => l.maskinId === maskinId && l.objektId === objektId && raknasSomSkotat(l));
   const tagna = new Set(raknas.map((l) => l.lassNummer));
   let nr = raknas.length + 1;
   while (tagna.has(nr)) nr += 1;
@@ -159,8 +159,11 @@ export function bekrafta(l: Lass, av: 'forare', nu: number): Lass {
 /** Ett lass den gamla självbekräftelsen satte på (före 2026-10-21) och som ingen människa har sagt ja till. Strukna räknas inte hit. */
 export const arObekraftatGammalt = (l: Pick<Lass, 'status' | 'bekraftadAv'>): boolean => l.status !== 'struket' && l.bekraftadAv === 'auto';
 
-/** Räknas lasset som skotat (kvar, klar-dag, skotat hit, Färdigskotad)? Aldrig struket, aldrig det gamla obekräftade — förrän en planerare granskat det. */
-export const raknasSomSkotat = (l: Pick<Lass, 'status' | 'bekraftadAv'>): boolean => l.status !== 'struket' && l.bekraftadAv !== 'auto';
+/**
+ * Räknas lasset som skotat (kvar, klar-dag, skotat per avlägg, Färdigskotad)? BARA ett lass där en människa tryckt Klar (status bekräftat — föraren i appen, eller en planerare
+ * via granskningen). Obesvarade (väntar på föraren, förslag), strukna och det den gamla automatiken skapade (bekraftad_av 'auto') räknas aldrig (Martin 2026-10-26).
+ */
+export const raknasSomSkotat = (l: Pick<Lass, 'status' | 'bekraftadAv'>): boolean => l.status === 'bekraftat' && l.bekraftadAv !== 'auto';
 
 export function stryk(l: Lass, nu: number): Lass {
   return stampla({ ...l, status: 'struket' }, nu);

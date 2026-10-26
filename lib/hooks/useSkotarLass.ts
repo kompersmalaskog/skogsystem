@@ -24,7 +24,7 @@ import {
   type LassKontext,
 } from '@/lib/skotarLass/lassModell';
 import { beraknaKvar, harSkordat, idagText, kvarSammanfattning, skalningsfaktorer, type Kvar, type KvarSammanfattning } from '@/lib/skotarLass/kvar';
-import { hamtaLassKo, begarFardigskotad, lasAvslut, lasLassForObjekt, lasObjektSortiment, lasOptiLass, lasSkordat, lasSkotningAvslutad, lasSortimentHistorik, prenumereraLassKo, sparaLass } from '@/lib/skotarLass/koKopplad';
+import { hamtaLassKo, begarFardigskotad, lasAvslut, lasLassForObjekt, lasObjektSortiment, lasOptiLass, lasSkordat, lasSkotningAvslutad, lasSortimentHistorik, lasSortimentKlass, prenumereraLassKo, sparaLass } from '@/lib/skotarLass/koKopplad';
 import { optiForAvslut, type OptiLass } from '@/lib/skotarLass/opti';
 import type { Avslut } from '@/lib/skotarLass/server';
 import { tunnaSpar, vagTider, type RaFix, type VagLinje } from '@/lib/skotarLass/spar';
@@ -153,6 +153,15 @@ export function useSkotarLass(i: SkotarLassIn) {
     return () => { avbruten = true; };
   }, [aktiv, sortimentOm]);
 
+  // Sortimentens klartext ("Kubb · Alvesta") kommer ur sortimentstabellen; en omrendering när den är läst så namnen byts från reservtexten.
+  const [, setKlassVersion] = useState(0);
+  useEffect(() => {
+    if (!aktiv) return;
+    let avbruten = false;
+    void lasSortimentKlass().then((nytt) => { if (!avbruten && nytt) setKlassVersion((v) => v + 1); });
+    return () => { avbruten = true; };
+  }, [aktiv]);
+
   // Skördat och avslut: en gång per trakt (skördat ändras bara när nya filer kommer; avslut när föraren avslutar).
   useEffect(() => {
     if (!aktiv || !objekt?.id) return;
@@ -238,13 +247,16 @@ export function useSkotarLass(i: SkotarLassIn) {
   }, [kontext]);
 
   /** Knappen "Lossa · Avlägg 2": utkast vid avlägget maskinen står vid. */
-  const lossaVidAvlagg = useCallback(() => {
+  const lossaVidAvlagg = useCallback((avlaggId?: string) => {
     const z = iZonRef.current;
     const p = senastePosRef.current;
     if (!z || utkastRef.current) return;
+    // Ligger två avlägg nära varandra visar knappen båda och föraren väljer — appen gissar aldrig. Ett id som inte är en kandidat ignoreras.
+    const valt = avlaggId ? z.kandidater.find((k) => k.id === avlaggId) : z.avlagg;
+    if (!valt) return;
     registreratIZonRef.current = z.avlagg.id;
     setRegistreratVersion((v) => v + 1);
-    startaUtkast(z.avlagg, p ? { lat: p.lat, lng: p.lng } : { lat: z.avlagg.lat, lng: z.avlagg.lng });   // närmaste avlägg förvalt; två nära varandra → Byt avlägg i kortet
+    startaUtkast(valt, p ? { lat: p.lat, lng: p.lng } : { lat: valt.lat, lng: valt.lng });
   }, [startaUtkast]);
 
   // ── Föraren ──────────────────────────────────────────────────────────────────────────────────────────
@@ -260,7 +272,8 @@ export function useSkotarLass(i: SkotarLassIn) {
     if (andra && klar) {
       const l = hamtaLass(andra.lassId);
       if (!l || !kanBekrafta(l)) return;   // ett lass utan avlägg eller sortiment kan inte bekräftas: kortet står kvar
-      const b = bekrafta(l, 'forare', serverNu());
+      // Den inloggade som trycker Klar står på lasset (ett utkast skrivs först nu, så medarbetare_id på servern är den som registrerade).
+      const b = bekrafta({ ...l, medarbetareId: inRef.current.medarbetareId ?? l.medarbetareId }, 'forare', serverNu());
       if (utkastRef.current?.id === l.id) {
         utkastRef.current = null;
         setUtkast(null);
@@ -396,11 +409,17 @@ export function useSkotarLass(i: SkotarLassIn) {
     [iZon, utkast, registreratVersion],
   );
 
+  /** Avläggen knappen ska erbjuda: ett (det närmaste) eller, när två ligger nära varandra, båda — närmast först. */
+  const lossaVal = useMemo(
+    () => (lossaKnapp && iZon ? (iZon.tvetydigt ? iZon.kandidater : [lossaKnapp]) : []),
+    [lossaKnapp, iZon],
+  );
+
   /** Lasset i lasskortet: utkastet eller ett sparat lass. */
   const andraLass = andra ? hamtaLass(andra.lassId) : null;
 
   return {
-    provkorLossning, registreraLass, lossaVidAvlagg, lossaKnapp, iZon, utkast, andraLass,
+    provkorLossning, registreraLass, lossaVidAvlagg, lossaKnapp, lossaVal, iZon, utkast, andraLass,
     lass, avlagg, nyttAvlagg, andra, vantande, skordat, skordatLaddat, ingetSkordat, kvar, sammanfattning, idag, valbara, allaSortiment: sortimentval.alla, sortimentKalla: sortimentval.kalla, lasOmSortiment, avslut, skotningAvslutad,
     oppnaAndra, stangAndra, avbrytAndra, andraRad, valjAvlagg, strykLass, svaraNyttAvlagg, fardigskotad, laddaOm: ladda,
   };

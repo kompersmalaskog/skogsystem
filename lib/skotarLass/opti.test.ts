@@ -43,8 +43,10 @@ describe('övergången Opti → appen (ingen dubbelräkning)', () => {
     expect(beraknaKvar(skordat, [appLass('W', '2026-10-19T12:00:00Z', [['tall', 15]], 'struket')], ol).rader.find((r) => r.nyckel === 'tall')?.skotatOpti).toBe(60);
   });
   it('första app-lass = det tidigaste av maskinens lass (inte det senast skapade)', () => {
-    const m = appStartPerMaskin([appLass('W', '2026-10-19T14:00:00Z', [['tall', 1]], 'bekraftat', 2), appLass('W', '2026-10-19T10:00:00Z', [['tall', 1]], 'foreslaget', 1)]);
+    const m = appStartPerMaskin([appLass('W', '2026-10-19T14:00:00Z', [['tall', 1]], 'bekraftat', 2), appLass('W', '2026-10-19T10:00:00Z', [['tall', 1]], 'bekraftat', 1)]);
     expect(m.get('W')).toBe(T('2026-10-19T10:00:00Z'));
+    // ett obesvarat lass startar ingen övergång
+    expect(appStartPerMaskin([appLass('W', '2026-10-19T10:00:00Z', [['tall', 1]], 'vantar_forare', 1)]).size).toBe(0);
   });
   it('Opti-lass utan tid avgörs av dagen: före appens första dag räknas, samma dag inte', () => {
     const start = new Map([['W', T('2026-10-19T12:00:00Z')]]);

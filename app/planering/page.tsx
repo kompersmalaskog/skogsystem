@@ -191,6 +191,7 @@ import { NyttAvlaggKort } from '../../components/planering/skotar/NyttAvlaggKort
 import { AndraLassArk } from '../../components/planering/skotar/AndraLassArk'
 import { KvarArk } from '../../components/planering/skotar/KvarArk'
 import { LossaKnapp } from '../../components/planering/skotar/LossaKnapp'
+import { kalUtPunkt, nastaTestAvlagg } from '../../lib/skotarLass/testStall'
 import { MorgonKortVy, VaderLista } from '../../components/planering/skotar/VaderMorgon'
 import { AvlaggSkotatSektion } from '../../components/planering/skotar/AvlaggSkotatSektion'
 import { FardigskotadKort } from '../../components/planering/skotar/FardigskotadKort'
@@ -9124,6 +9125,7 @@ export default function PlannerPage() {
   // positionen i testläget (se `testlageAktivRef` vid varje setCurrentPosition), så den flyttas bara av trycket. Riktningen följer rörelsen (> 3 m).
   // Ingenting skrivs i databasen (hyttspår, kvittenser och lass är redan torra i testläget). Finns inte utanför testläget.
   const [testFlyttaMig, setTestFlyttaMig] = useState(false);
+  const [testHarPos, setTestHarPos] = useState(false);
   const testPosRef = useRef<{ lat: number; lon: number } | null>(null);
   const flyttaTestPosition = useCallback((lat: number, lon: number) => {
     const fran = testPosRef.current;
@@ -9136,8 +9138,16 @@ export default function PlannerPage() {
     setGpsFordrojdMs(null);
     setGpsFixAt(Date.now());
     setGpsStatus({ kind: 'ok', at: Date.now() });
+    setTestHarPos(true);
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (!testlage) { testPosRef.current = null; setTestFlyttaMig(false); } }, [testlage]);
+  useEffect(() => { if (!testlage) { testPosRef.current = null; setTestHarPos(false); setTestFlyttaMig(false); } }, [testlage]);
+  // Skotarläget kräver en FÄRSK fix (≤ 10 s) för att knappen "Lossa · Avlägg X" ska synas — en testposition som sattes en gång skulle försvinna efter tio sekunder.
+  // Medan en testposition finns skickas den därför om var tredje sekund (samma plats, ingen rörelse), så Martin ser knappen utan GPS tills han flyttar sig eller trycker Kör ut.
+  useEffect(() => {
+    if (!testlage || !testHarPos) return;
+    const iv = window.setInterval(() => { const p = testPosRef.current; if (p) flyttaTestPosition(p.lat, p.lon); }, 3000);
+    return () => window.clearInterval(iv);
+  }, [testlage, testHarPos, flyttaTestPosition]);
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || !testlage || !testFlyttaMig) return;
@@ -12204,6 +12214,7 @@ export default function PlannerPage() {
     if (lastNycklar.length && lastOsedda > 0) inst.settOmraden(lastNycklar);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastNyckelStr, lastOsedda]);
+  const [testStallVidAvlagg, setTestStallVidAvlagg] = useState<string | null>(null);   // testläget: avlägget maskinen "står" vid (testbannern)
   const [skotarValtAvlagg, setSkotarValtAvlagg] = useState<string | null>(null);   // avläggets id (vida:<nr> | egen:<id>) som kortet visar
   // Egna avlägg får sitt löpnummer en gång och behåller det (sparas på markeringen): ett raderat avlägg flyttar aldrig om de andra.
   useEffect(() => {
@@ -13064,6 +13075,28 @@ export default function PlannerPage() {
               Provkör lossning
             </button>
           )}
+          {skotarLassAktiv && (() => {
+            // Ställ maskinen vid ett avlägg (utan GPS): först det som är tryckt på kartan, annars nästa i listan för varje tryck. "Kör ut" flyttar den 200 m därifrån.
+            const lista = skotarLass.avlagg;
+            if (lista.length === 0) return null;
+            const nu = testStallVidAvlagg ? lista.find((a) => a.id === testStallVidAvlagg) ?? null : null;
+            const nasta = nastaTestAvlagg(lista, skotarValtAvlagg, testStallVidAvlagg)!;
+            const knappStil = { background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' } as const;
+            return (
+              <>
+                <button type="button" data-testid="test-stall-vid-avlagg" data-avlagg={nasta.id}
+                  onClick={() => { setTestStallVidAvlagg(nasta.id); flyttaTestPosition(nasta.lat, nasta.lng); }} style={knappStil}>
+                  Stå vid {nasta.nummer ? `avlägg ${nasta.nummer}` : 'avlägg'}
+                </button>
+                {nu && (
+                  <button type="button" data-testid="test-kor-ut"
+                    onClick={() => { const ut = kalUtPunkt(nu); setTestStallVidAvlagg(null); flyttaTestPosition(ut.lat, ut.lng); }} style={knappStil}>
+                    Kör ut
+                  </button>
+                )}
+              </>
+            );
+          })()}
           {skotarKorvy && (
             <button type="button" data-testid="skotar-provkor-morgonkort" onClick={skotarVader.provkorKort}
               style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -14280,7 +14313,7 @@ export default function PlannerPage() {
             {/* APPEN FRÅGAR ALDRIG: ett lass börjar bara med ett tryck. Knappen "Lossa · Avlägg 2" syns bara medan maskinen står i ett avläggs zon och försvinner när den kört därifrån.
                 Där inget avlägg finns: + › Registrera lass. */}
             {sl.lossaKnapp && !sl.andra && !sl.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && (
-              <LossaKnapp avlagg={sl.lossaKnapp} vidTryck={sl.lossaVidAvlagg} />
+              <LossaKnapp avlagg={sl.lossaKnapp} val={sl.lossaVal} vidTryck={sl.lossaVidAvlagg} />
             )}
             {sl.andra && andraLass && (
               <AndraLassArk

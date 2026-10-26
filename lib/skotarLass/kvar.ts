@@ -34,13 +34,13 @@ export interface Kvar {
   kvarTotal: number;
 }
 
-/** Struket och det gamla obekräftade (bekraftad_av 'auto') räknas aldrig som skotat. */
+/** Bara bekräftade lass räknas (lassModell.raknasSomSkotat): obesvarade, strukna och det gamla automatiska (bekraftad_av 'auto') aldrig. */
 const raknasMed = (l: Lass) => raknasSomSkotat(l);
 
 /** Finns det något skördat alls? Utan det finns inget att räkna kvar på: "Kvar ~0 m³" skulle säga att trakten är klar fast skördaren inte kommit dit. */
 export const harSkordat = (skordat: readonly SkordatSortiment[] | null | undefined): boolean => !!skordat && skordat.some((s) => s.m3 > 0);
 
-/** Förarens summa per sortiment över alla lass som räknas (inte struket, inte det gamla obekräftade). */
+/** Förarens summa per sortiment över alla lass som räknas (bara bekräftade). */
 export function skotatPerSortiment(lass: readonly Lass[]): Map<string, { namn: string; m3: number }> {
   const per = new Map<string, { namn: string; m3: number }>();
   for (const l of lass) {

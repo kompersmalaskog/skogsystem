@@ -56,12 +56,25 @@ describe('föraren registrerar själv — appen frågar aldrig (Martin 2026-10-2
   it('knappen "Lossa · Avlägg X" bor i LossaKnapp, ≥ 56 px, ovanför kortet nertill — och sidan visar den bara i zonen och när inget annat ligger nertill', () => {
     const knapp = las('components/planering/skotar/LossaKnapp.tsx');
     expect(knapp).toContain("querySelector('[data-nertill-kort]')");
-    expect(knapp).toContain('lossaText(avlagg)');
+    expect(knapp).toContain('lossaText(a)');
+    expect(knapp).toContain('val && val.length > 1 ? val : [avlagg]');   // två avlägg nära varandra: en knapp var, aldrig en gissning
     expect(las('components/planering/skotar/stil.ts')).toContain('export const TRYCK_PX = 56;');
     expect(las('components/planering/skotar/stil.ts')).toMatch(/knappPrimar: CSSProperties = \{ \.\.\.KNAPP\.primar, minHeight: TRYCK_PX/);
     expect(page.match(/<LossaKnapp/g)).toHaveLength(1);
-    expect(page).toMatch(/\{sl\.lossaKnapp && !sl\.andra && !sl\.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && \(\s*<LossaKnapp avlagg=\{sl\.lossaKnapp\} vidTryck=\{sl\.lossaVidAvlagg\} \/>/);
+    expect(page).toMatch(/\{sl\.lossaKnapp && !sl\.andra && !sl\.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && \(\s*<LossaKnapp avlagg=\{sl\.lossaKnapp\} val=\{sl\.lossaVal\} vidTryck=\{sl\.lossaVidAvlagg\} \/>/);
     expect(las('components/planering/skotar/NyttAvlaggKort.tsx')).toContain('data-nertill-kort');
+  });
+  it('testläget: knapparna "Stå vid avlägg X" / "Kör ut" i testbannern, och testpositionen skickas om var 3:e sekund så den färska-fix-regeln (10 s) håller', () => {
+    expect(page).toContain('data-testid="test-stall-vid-avlagg"');
+    expect(page).toContain('data-testid="test-kor-ut"');
+    expect(page).toMatch(/setInterval\(\(\) => \{ const p = testPosRef\.current; if \(p\) flyttaTestPosition\(p\.lat, p\.lon\); \}, 3000\)/);
+    expect(page).toContain('nastaTestAvlagg(lista, skotarValtAvlagg, testStallVidAvlagg)');
+  });
+  it('sortimentnamnen visas bara via klartext: lasskort, Kvar-listan, avläggskortet och Färdigskotad går genom SortimentNamn/sortimentDelar, aldrig rått .namn', () => {
+    for (const f of ['AndraLassArk', 'KvarArk', 'AvlaggSkotatSektion']) expect(las(`components/planering/skotar/${f}.tsx`), f).toContain('<SortimentNamn namn=');
+    expect(las('components/planering/skotar/FardigskotadKort.tsx')).toContain('sortimentDelar(r.namn)');
+    expect(las('components/planering/skotar/SortimentNamn.tsx')).toContain('sortimentDelar');
+    expect(las('lib/skotarLass/lassModell.ts')).toContain('sortimentDelar(r.namn).sortiment');
   });
   it('+ › Registrera lass finns i Trakten-gruppen (där inget avlägg finns) och är en vanlig knapp som stänger plusmenyn', () => {
     expect(page).toMatch(/\{ id: 'registrera-lass', namn: 'Registrera lass', [^}]*typ: 'knapp', onTryck: \(\) => \{ stangPlus\(\); skotarLass\.registreraLass\(\); \} \}/);

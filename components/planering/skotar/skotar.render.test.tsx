@@ -55,6 +55,18 @@ describe('LossaKnapp', () => {
     await tryck('lossa-knapp');
     expect(vidTryck).toHaveBeenCalledTimes(1);
   });
+  it('två avlägg nära varandra: båda erbjuds som val ("Lossa · Avlägg 2" / "Lossa · Avlägg 01-2"), valet skickas med och inget gissas', async () => {
+    const A012: Avlagg = { id: 'vida:01-2', nummer: '01-2', kalla: 'vida', lat: 56.6003, lng: 15.8 };
+    const vidTryck = vi.fn();
+    await visa(<LossaKnapp avlagg={A2} val={[A2, A012]} vidTryck={vidTryck} />);
+    expect(q('lossa-knapp')).toBeNull();   // ingen ensam "standardknapp" som gissar
+    expect(q('lossa-val-vida:2')?.textContent).toBe('Lossa · Avlägg 2');
+    expect(q('lossa-val-vida:01-2')?.textContent).toBe('Lossa · Avlägg 01-2');
+    for (const id of ['lossa-val-vida:2', 'lossa-val-vida:01-2']) expect(parseFloat((q(id) as HTMLElement).style.minHeight)).toBeGreaterThanOrEqual(56);
+    await tryck('lossa-val-vida:01-2');
+    expect(vidTryck).toHaveBeenCalledTimes(1);
+    expect(vidTryck).toHaveBeenCalledWith('vida:01-2');
+  });
   it('knappen gör inget av sig själv: inga anrop utan tryck, även efter lång tid', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] });
     try {
@@ -159,10 +171,11 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
   it('namnen i två nivåer: sortimentet vitt/semibold, mottagaren grå', async () => {
     await rendera({ valbara: [...valbara, { nyckel: 'k', namn: 'Timmer: Vislanda_195_1-2_V3', m3: 0 }] });
     const rad = (q('andra-rad-talltimmer') as HTMLElement).querySelectorAll('span span');
-    expect(rad[0].textContent).toBe('Timmer'); expect((rad[0] as HTMLElement).style.fontWeight).toBe('600');
-    expect(rad[1].textContent?.trim()).toBe('Tall');
+    expect(rad[0].textContent).toBe('Talltimmer'); expect((rad[0] as HTMLElement).style.fontWeight).toBe('600');   // klartext, aldrig "Tall_V3"
+    expect(rad).toHaveLength(1);                                                                                     // ingen mottagare känd → ingen grå rad
     const tillagg = (q('tillagg-k') as HTMLElement).textContent ?? '';
-    expect(tillagg).toContain('Timmer 195 1-2'); expect(tillagg).toContain('Vislanda');
+    expect(tillagg).toContain('Timmer'); expect(tillagg).toContain('Vislanda');
+    expect(tillagg).not.toMatch(/195|_V3|1-2/);
   });
 
   describe('håll in − / +', () => {
@@ -410,7 +423,7 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
       await visaKvar(beraknaKvar([{ nyckel: 'a', namn: 'Timmer: Vislanda_195_1-2_V3', m3: 50 }], []));
       const rad = q('kvar-rad-a') as HTMLElement;
       const delar = rad.querySelectorAll('span span');
-      expect(delar[0].textContent).toBe('Timmer 195 1-2');
+      expect(delar[0].textContent).toBe('Timmer');   // klartext: aldrig kodmärkena 195 / 1-2 / _V3
       expect(delar[1].textContent?.trim()).toBe('Vislanda');
       expect((delar[0] as HTMLElement).style.fontWeight).toBe('600');
       expect((delar[1] as HTMLElement).style.color).not.toBe((delar[0] as HTMLElement).style.color);
@@ -430,7 +443,7 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
       await visaKvar(beraknaKvar(skordat, [l]), [l]);
       await tryck('kvar-idag');
       expect(q('kvar-lass-rubrik')?.textContent).toBe('Lass 1 · 16:59 · Avlägg 01-2');
-      expect(q('kvar-lass-sortiment')?.textContent).toBe('Timmer: 10 m³ · Kubb: 5 m³ · Massa: 3 m³ · 18 m³ totalt');   // mängden skild från namnet: "Kubb 305: 17 m³", aldrig "305 17"
+      expect(q('kvar-lass-sortiment')?.textContent).toBe('Talltimmer: 10 m³ · Tallkubb: 5 m³ · Massaved björk: 3 m³ · 18 m³ totalt');   // mängden skild från namnet: "Kubb 305: 17 m³", aldrig "305 17"
     });
     it('allt innehåll är minst 17 px (bara små versaler-rubriker får vara 13 px)', async () => {
       const l = lass({ status: 'bekraftat' });
@@ -485,7 +498,7 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
     const onB = vi.fn(); const onK = vi.fn();
     await visa(<FardigskotadKort kontroll={stor} klar={false} onKarta={onK} onBekrafta={onB} onAvbryt={vi.fn()} />);
     expect(q('fardigskotad')?.getAttribute('data-fraga')).toBe('ja');
-    expect(q('fardigskotad-text')?.textContent).toMatch(/Enligt skördaren ~130 m³ kvar – Timmer ~90, Massa ~40/);
+    expect(q('fardigskotad-text')?.textContent).toMatch(/Enligt skördaren ~130 m³ kvar – Talltimmer ~90, Massaved gran ~40/);
     await tryck('fardigskotad-karta'); await tryck('fardigskotad-anda');
     expect(onK).toHaveBeenCalled(); expect(onB).toHaveBeenCalled();
     const litet = farduskotatKontroll(beraknaKvar([{ nyckel: 'talltimmer', namn: 'T', m3: 100 }], [lass({ status: 'bekraftat', delar: [{ ...lass().delar[0], rader: [{ nyckel: 'talltimmer', namn: 'T', m3: 99 }] }] })]));
