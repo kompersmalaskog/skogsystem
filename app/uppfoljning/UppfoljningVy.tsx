@@ -160,24 +160,35 @@ const V6_FF = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','
 // maskiner sida vid sida, och "Hur gick det?"-sektionerna som ett rutnät av kort
 // (alltid synliga, ingen tryck-rad). Inga citattecken i selektorer — React
 // escapar dem i en <style> vid SSR (CLAUDE.md-fallgropen); synlighet via klass.
+// Rutnäts-läget triggas av BÅDE container- och viewport-queries (belt &
+// suspenders): när sidokolumnen syns (viewport ≥ 1100) har objektet garanterat
+// plats, så media-queryn tvingar fram rutnätet även om en webbläsare inte skulle
+// ta container-queryn. Container-queryn täcker full-bredds-objektet (iPad,
+// telefon liggande) där ingen sidokolumn finns.
+// Samma brytpunkt som UppfoljningRam (sidokolumnen dyker upp vid 1100 px). När
+// den syns är objektets pane viewport − 360 ≥ 740 px, alltså gott om plats.
+const FRAN_BRED_PX = 1100;
+const TOPP_SIDA_VID_SIDA = `.uf-topp { grid-template-columns: 1.1fr 1fr; }`;
+const SEKTIONER_RUTNAT = `
+  .uf-hur-knapp { display: none !important; }
+  .uf-hur-rubrik { display: block; }
+  .uf-hur-sektioner { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: ${AVSTAND.l}px; background: transparent; border-radius: 0; overflow: visible; align-items: start; }
+  .uf-hur-sektioner > div { background: ${V6_CARD}; border-radius: ${RADIE.knapp}px; border-top: none !important; overflow: hidden; }
+`;
+const SEKTIONER_TRE = `.uf-hur-sektioner { grid-template-columns: repeat(3, minmax(0, 1fr)); }`;
+
 const OBJEKT_CSS = `
 .uf-objekt { container-type: inline-size; max-width: ${KOLUMN.bred + 2 * AVSTAND.sidmarginal}px; margin: 0 auto; box-sizing: border-box; padding: ${AVSTAND.xl}px ${AVSTAND.sidmarginal}px ${AVSTAND.xxl}px; }
 .uf-topp { display: grid; grid-template-columns: minmax(0, 1fr); gap: ${AVSTAND.xl}px; align-items: start; }
 .uf-hur-rubrik { display: none; }
 .uf-hur-sektioner { background: ${V6_CARD}; border-radius: 0 0 ${RADIE.knapp}px ${RADIE.knapp}px; overflow: hidden; }
 .uf-hur-sektioner.ar-stangd { display: none; }
-@container (min-width: 720px) {
-  .uf-topp { grid-template-columns: 1.1fr 1fr; }
-}
-@container (min-width: 640px) {
-  .uf-hur-knapp { display: none !important; }
-  .uf-hur-rubrik { display: block; }
-  .uf-hur-sektioner { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: ${AVSTAND.l}px; background: transparent; border-radius: 0; overflow: visible; align-items: start; }
-  .uf-hur-sektioner > div { background: ${V6_CARD}; border-radius: ${RADIE.knapp}px; border-top: none !important; overflow: hidden; }
-}
-@container (min-width: 960px) {
-  .uf-hur-sektioner { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
+@container (min-width: 560px) { ${TOPP_SIDA_VID_SIDA} }
+@media (min-width: ${FRAN_BRED_PX}px) { ${TOPP_SIDA_VID_SIDA} }
+@container (min-width: 500px) { ${SEKTIONER_RUTNAT} }
+@media (min-width: ${FRAN_BRED_PX}px) { ${SEKTIONER_RUTNAT} }
+@container (min-width: 820px) { ${SEKTIONER_TRE} }
+@media (min-width: 1500px) { ${SEKTIONER_TRE} }
 `;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
