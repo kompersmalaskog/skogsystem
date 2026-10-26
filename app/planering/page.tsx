@@ -14280,7 +14280,7 @@ export default function PlannerPage() {
             {/* APPEN FRÅGAR ALDRIG: ett lass börjar bara med ett tryck. Knappen "Lossa · Avlägg 2" syns bara medan maskinen står i ett avläggs zon och försvinner när den kört därifrån.
                 Där inget avlägg finns: + › Registrera lass. */}
             {sl.lossaKnapp && !sl.andra && !sl.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && (
-              <LossaKnapp avlagg={sl.lossaKnapp} onLossa={sl.lossaVidAvlagg} />
+              <LossaKnapp avlagg={sl.lossaKnapp} vidTryck={sl.lossaVidAvlagg} />
             )}
             {sl.andra && andraLass && (
               <AndraLassArk

@@ -25,14 +25,14 @@ function useNertillHojd(): number {
   return h;
 }
 
-export function LossaKnapp({ avlagg, onLossa }: { avlagg: Avlagg; onLossa: () => void }) {
+export function LossaKnapp({ avlagg, vidTryck }: { avlagg: Avlagg; vidTryck: () => void }) {
   const hojd = useNertillHojd();
   return (
     <div data-testid="skotar-nedre-rad" style={{
       position: 'fixed', left: AVSTAND.l, right: 96, zIndex: 215, display: 'flex',
       bottom: `calc(${medSafeBotten(AVSTAND.l)} + ${hojd > 0 ? hojd + AVSTAND.s : 0}px)`,
     }}>
-      <button type="button" data-testid="lossa-knapp" data-avlagg={avlagg.id} onClick={onLossa}
+      <button type="button" data-testid="lossa-knapp" data-avlagg={avlagg.id} onClick={vidTryck}
         style={{ ...knappPrimar, flex: '0 1 auto', maxWidth: '100%', paddingLeft: AVSTAND.xl, paddingRight: AVSTAND.xl, border: `1px solid ${FARG.linje}` }}>
         {lossaText(avlagg)}
       </button>

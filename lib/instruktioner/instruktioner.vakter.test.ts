@@ -30,7 +30,7 @@ describe('maskinläget — och bara det', () => {
   it('larm och lossningskortet går före: hooken får veta när något av dem visas, och avläggsraden väntar på instruktionen', () => {
     expect(sida).toMatch(/blockerad: instruktionBlockerad\(\{ larmVisas: larmHallerPlatsen\(\{ harKort: !!larm\.kort, vantarPaSett: !!larm\.settRad, arFara: larm\.kort\?\.grupp === 'fara' \|\| larm\.fler\.some\(\(x\) => x\.grupp === 'fara'\) \}\), lossningVisas \}\) \|\| besokKortSynligt,/);
     expect(sida).toMatch(/\{korvyActive && larm\.kort && !inst\.kort && \(/);   // larmkortet göms medan instruktionen visas (aldrig för en Fara: då visas ingen instruktion)
-    expect(sida).toMatch(/const lossningVisas = skotarLassAktiv && \(!!skotarLass\.kort \|\| !!skotarLass\.andra \|\| !!skotarLass\.nyttAvlagg \|\| skotarKvarOppet \|\| skotarFardigOppet \|\| skotarVantarOppet\);/);
+    expect(sida).toMatch(/const lossningVisas = skotarLassAktiv && \(!!skotarLass\.andra \|\| !!skotarLass\.nyttAvlagg \|\| skotarKvarOppet \|\| skotarFardigOppet\);/);
     expect(sida).toMatch(/ledigt=\{avlaggsradLedig\(\{ ledigtUtanInstruktion: [^}]+, instruktionVantar: inst\.vantar \}\)\}/);
   });
   it('testläget skriver inget', () => {

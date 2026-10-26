@@ -60,7 +60,7 @@ describe('föraren registrerar själv — appen frågar aldrig (Martin 2026-10-2
     expect(las('components/planering/skotar/stil.ts')).toContain('export const TRYCK_PX = 56;');
     expect(las('components/planering/skotar/stil.ts')).toMatch(/knappPrimar: CSSProperties = \{ \.\.\.KNAPP\.primar, minHeight: TRYCK_PX/);
     expect(page.match(/<LossaKnapp/g)).toHaveLength(1);
-    expect(page).toMatch(/\{sl\.lossaKnapp && !sl\.andra && !sl\.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && \(\s*<LossaKnapp avlagg=\{sl\.lossaKnapp\} onLossa=\{sl\.lossaVidAvlagg\} \/>/);
+    expect(page).toMatch(/\{sl\.lossaKnapp && !sl\.andra && !sl\.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && \(\s*<LossaKnapp avlagg=\{sl\.lossaKnapp\} vidTryck=\{sl\.lossaVidAvlagg\} \/>/);
     expect(las('components/planering/skotar/NyttAvlaggKort.tsx')).toContain('data-nertill-kort');
   });
   it('+ › Registrera lass finns i Trakten-gruppen (där inget avlägg finns) och är en vanlig knapp som stänger plusmenyn', () => {

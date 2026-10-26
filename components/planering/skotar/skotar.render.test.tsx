@@ -48,20 +48,20 @@ describe('NyttAvlaggKort', () => {
 describe('LossaKnapp', () => {
   const A2: Avlagg = { id: 'vida:2', nummer: '2', kalla: 'vida', lat: 56.6, lng: 15.8 };
   it('"Lossa · Avlägg 2" — en stor knapp (≥ 56 px) som ger ETT anrop per tryck', async () => {
-    const onLossa = vi.fn();
-    await visa(<LossaKnapp avlagg={A2} onLossa={onLossa} />);
+    const vidTryck = vi.fn();
+    await visa(<LossaKnapp avlagg={A2} vidTryck={vidTryck} />);
     expect(q('lossa-knapp')?.textContent).toBe('Lossa · Avlägg 2');
     expect(parseFloat((q('lossa-knapp') as HTMLElement).style.minHeight)).toBeGreaterThanOrEqual(56);
     await tryck('lossa-knapp');
-    expect(onLossa).toHaveBeenCalledTimes(1);
+    expect(vidTryck).toHaveBeenCalledTimes(1);
   });
   it('knappen gör inget av sig själv: inga anrop utan tryck, även efter lång tid', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] });
     try {
-      const onLossa = vi.fn();
-      await visa(<LossaKnapp avlagg={A2} onLossa={onLossa} />);
+      const vidTryck = vi.fn();
+      await visa(<LossaKnapp avlagg={A2} vidTryck={vidTryck} />);
       await act(async () => { vi.advanceTimersByTime(60 * 60_000); });
-      expect(onLossa).not.toHaveBeenCalled();
+      expect(vidTryck).not.toHaveBeenCalled();
     } finally { vi.useRealTimers(); }
   });
   it('ligger ovanför kortet nertill ("Nytt avlägg här?"), inte under det', async () => {
@@ -70,7 +70,7 @@ describe('LossaKnapp', () => {
     kort.getBoundingClientRect = () => ({ height: 120, width: 300, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) });
     document.body.appendChild(kort);
     try {
-      await visa(<LossaKnapp avlagg={A2} onLossa={vi.fn()} />);
+      await visa(<LossaKnapp avlagg={A2} vidTryck={vi.fn()} />);
       expect((q('skotar-nedre-rad') as HTMLElement).style.bottom).toContain('128px');   // kortets 120 px + 8 px luft
     } finally { kort.remove(); }
   });
@@ -457,7 +457,7 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
       return ut;
     };
     it('Lossa-knappen och Nytt avlägg-frågan', async () => {
-      await visa(<LossaKnapp avlagg={A2} onLossa={vi.fn()} />);
+      await visa(<LossaKnapp avlagg={A2} vidTryck={vi.fn()} />);
       expect(smaTexter()).toEqual([]);
       await visa(<NyttAvlaggKort fraga={{ lat: 1, lng: 1, ts: 1 }} nummer="3" onSvar={vi.fn()} />);
       expect(smaTexter()).toEqual([]);
