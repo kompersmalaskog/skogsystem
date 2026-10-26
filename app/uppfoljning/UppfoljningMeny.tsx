@@ -9,7 +9,7 @@
 // design-tokens. Så siffrorna är desamma som "innan", bara ny look.
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AVSTAND, FARG, RADIE, TNUM, TYP, kolumnRot, overgang } from '@/lib/design/tokens';
+import { AVSTAND, FARG, RADIE, TNUM, TYP, overgang } from '@/lib/design/tokens';
 import { typLabel, arRisjobb } from '@/lib/objekt/typ';
 import { paBackenKvar } from '@/lib/skotat';
 import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT, GROT_UTTAGSFAKTOR_MIN, GROT_UTTAGSFAKTOR_MAX } from '@/lib/grot';
@@ -62,7 +62,7 @@ type Vald = 'slutavverkning' | 'gallring' | 'ris' | null;
 type Grupp = { namn: string | null; objs: UppfoljningObjekt[]; summa: number };
 type Manad = { key: string; label: string; objs: UppfoljningObjekt[] };
 
-export default function UppfoljningMeny({ kompakt = false, valt = null }: { kompakt?: boolean; valt?: string | null }) {
+export default function UppfoljningMeny({ valt = null }: { valt?: string | null }) {
   const router = useRouter();
   const { objekt, loading, error } = useUppfoljningList();
 
@@ -226,9 +226,7 @@ export default function UppfoljningMeny({ kompakt = false, valt = null }: { komp
 
   const innehall = (
     <>
-      {!kompakt && (
-        <h1 style={{ ...TYP.titel, margin: `0 ${AVSTAND.m}px ${AVSTAND.m}px` }}>Uppföljning</h1>
-      )}
+      <h1 style={{ ...TYP.titel, margin: `0 ${AVSTAND.m}px ${AVSTAND.m}px` }}>Uppföljning</h1>
 
       <div style={{ padding: `0 ${AVSTAND.m}px ${AVSTAND.m}px` }}>
         <input
@@ -378,13 +376,8 @@ export default function UppfoljningMeny({ kompakt = false, valt = null }: { komp
     </>
   );
 
-  // Kompakt (sidokolumn) → bara innehållet; full (indexsidan) → centrerad kolumn.
-  if (kompakt) {
-    return <div style={{ padding: `${AVSTAND.m}px 0 ${AVSTAND.xxl}px` }}>{innehall}</div>;
-  }
-  return (
-    <div style={{ minHeight: '100%', background: FARG.bg }}>
-      <div style={{ ...kolumnRot('smal'), paddingTop: AVSTAND.l, paddingBottom: AVSTAND.xxl }}>{innehall}</div>
-    </div>
-  );
+  // Ramen (UppfoljningRam) styr bredd och padding: full bredd (centrerad, max
+  // smal kolumn) på smal skärm, 360 px sidokolumn på stor. Komponenten ritar
+  // bara innehållet.
+  return <>{innehall}</>;
 }

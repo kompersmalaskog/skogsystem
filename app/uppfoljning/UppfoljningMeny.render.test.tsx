@@ -40,10 +40,10 @@ let be: HTMLElement | null = null;
 beforeEach(() => { data = []; push.mockReset(); try { sessionStorage.clear(); } catch {} });
 afterEach(() => { act(() => { rot?.unmount(); }); be?.remove(); rot = null; be = null; });
 
-async function montera(kompakt = false) {
+async function montera() {
   be = document.createElement('div'); document.body.appendChild(be);
   rot = createRoot(be);
-  await act(async () => { rot!.render(<UppfoljningMeny kompakt={kompakt} />); });
+  await act(async () => { rot!.render(<UppfoljningMeny />); });
 }
 const text = () => be!.textContent || '';
 const knappMedText = (t: string) => Array.from(be!.querySelectorAll('button')).find(b => (b.textContent || '').includes(t));
