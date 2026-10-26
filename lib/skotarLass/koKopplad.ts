@@ -5,7 +5,7 @@ import { serverNu } from '@/lib/serverKlocka';
 import { hamtaAlla } from '@/lib/supabaseAlla';
 import { skapaIndexedDbKoLager, skapaLassKo, skapaMinnesKoLager, type SkotarLassKo } from './ko';
 import { avslutFranServer, lassFranServer, lassTillPayload, LASS_SELECT, type Avslut } from './server';
-import { skordatPerSortiment, sortimentNyckel, type HistorikSortiment, type SkordatSortiment } from './sortiment';
+import { sattSortimentKlass, skordatPerSortiment, sortimentNyckel, type HistorikSortiment, type SkordatSortiment } from './sortiment';
 import { optiTidUtcMs } from '@/lib/optiTid';
 import type { OptiLass } from './opti';
 import type { Lass } from './typer';
@@ -215,6 +215,25 @@ export async function lasSortimentHistorik(tvinga = false): Promise<HistorikSort
     return ny;
   }
   return sparad?.lista?.length ? sparad.lista : ny;
+}
+
+/**
+ * Sortimentstabellen för klartextnamn: namn → grupp och destination (vyn vy_sortiment_klass). Läses en gång per körning och fyller registret i lib/skotarLass/sortiment, så ALLA ställen som visar ett
+ * sortiment (lasskortet, kvar-listan, avläggskortet) säger samma sak. Ett läsfel lämnar registret som det är: namnet tolkas då ur texten (aldrig en kod).
+ */
+let sortimentKlassLast: Promise<boolean> | null = null;
+export function lasSortimentKlass(tvinga = false): Promise<boolean> {
+  if (sortimentKlassLast && !tvinga) return sortimentKlassLast;
+  sortimentKlassLast = (async () => {
+    try {
+      const { data, error } = await hamtaAlla<{ sortiment_id: string; namn: string | null; grupp: string | null; destination: string | null }>(
+        () => supabase.from('vy_sortiment_klass').select('sortiment_id, namn, grupp, destination') as any, 'sortiment_id');
+      if (error || !data.length) { sortimentKlassLast = null; return false; }
+      sattSortimentKlass(data);
+      return true;
+    } catch { sortimentKlassLast = null; return false; }
+  })();
+  return sortimentKlassLast;
 }
 
 /** Är skotningen redan avslutad på trakten (dim_objekt.skotning_avslutad satt, hur den än sattes)? null = kunde inte läsas. */

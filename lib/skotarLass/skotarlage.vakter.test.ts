@@ -10,51 +10,103 @@ const page = las('app/planering/page.tsx');
 // Migrationen är körd i prod i tio delar (+ sex delar 6a–6f för Färdigskotad med Opti) (Supabase-MCP:n hänger på stora funktionstexter): alla skotar_lass_*-filer i ordning.
 const migrationer = (): string => readdirSync(join(rot, 'supabase/migrations')).filter((f) => /^\d+_skotar_lass_.*\.sql$/.test(f)).sort().map((f) => las(`supabase/migrations/${f}`)).join('\n');
 
-describe('avläggsupptäckten (Daniel, Mölleryd 2026-10-20)', () => {
+describe('föraren registrerar själv — appen frågar aldrig (Martin 2026-10-26, Elefanten i Mölleryd: kortet kom upp 13 gånger, 2 var riktiga lass)', () => {
   const hook = las('lib/hooks/useSkotarLass.ts');
-  const detektor = las('lib/skotarLass/lossning.ts');
-  it('lasset bekräftar sig aldrig av en timer: ingen AUTO_BEKRAFTA_MS, och den enda timern i hooken är kvittot som försvinner', () => {
-    expect(hook).not.toContain('AUTO_BEKRAFTA');
-    expect(las('lib/skotarLass/lassModell.ts')).not.toContain('AUTO_BEKRAFTA');
-    expect(hook.match(/window\.setTimeout\(/g)).toHaveLength(1);
-    expect(hook).toMatch(/fas !== 'klar'\) return;\s*const t = window\.setTimeout/);
+  const zon = las('lib/skotarLass/zon.ts');
+  it('upptäckten är borta: ingen detektor, inga lossningshändelser, inget kort som kommer av sig självt', () => {
+    expect(() => las('lib/skotarLass/lossning.ts')).toThrow();
+    expect(() => las('components/planering/skotar/LossningsKort.tsx')).toThrow();
+    expect(() => las('components/planering/skotar/LossaHar.tsx')).toThrow();
+    for (const orsak of ['stegaDetektor', 'nyDetektor', 'lossningVidNyttAvlagg', 'hanteraHandelse', 'hanteraSlut', 'nytt_avlagg_fraga', 'vantarPaDig', 'forslagTillVantande']) expect(hook).not.toContain(orsak);
+    for (const orsak of ['LossningsKort', 'VantarPaDigArk', 'SkotarNedreRad', 'skotarVantarOppet', 'sl.kort', 'sl.vantarPaDig', 'sl.oppen']) expect(page).not.toContain(orsak);
   });
-  it('INGEN självbekräftelse (Martin 2026-10-20): appen vet att han lossar, aldrig vad — bekräftat blir bara det föraren svarat Stämmer/Klar på', () => {
+  it('INGA timers i hooken som bekräftar eller skapar något: de enda är zonens puls (2 s) och serverns omläsning (60 s)', () => {
+    expect(hook).not.toContain('AUTO_BEKRAFTA');
+    expect(hook.match(/window\.setTimeout\(/g)).toBeNull();
+    expect(hook.match(/window\.setInterval\(/g)).toHaveLength(2);
+    expect(hook).toMatch(/window\.setInterval\(raknaZon, 2000\)/);
+    expect(hook).toMatch(/window\.setInterval\(\(\) => \{ if \(document\.visibilityState === 'visible'\) void ladda\(\); \}, 60_000\)/);
+  });
+  it('zonen skapar ALDRIG ett lass: den sätter bara iZon (knappens mål); skapaLass anropas bara från startaUtkast, som bara ett tryck når', () => {
+    expect(zon).not.toMatch(/skapaLass|sparaLass|setTimeout|setInterval|Date\.now/);
+    expect(hook.match(/skapaLass\(/g)).toHaveLength(1);
+    const raknaZon = hook.slice(hook.indexOf('const raknaZon = useCallback'), hook.indexOf('useEffect(() => {\n    if (!aktiv || !objektId || !maskinId || !position) return;'));
+    expect(raknaZon).not.toMatch(/startaUtkast|skapaLass|spara\(|lossaVidAvlagg|registreraLass/);
+    // startaUtkast når man bara via de tre tryck: Lossa-knappen, + › Registrera lass (och Ja på frågan som den ställer) och testlägets Provkör
+    expect(hook.match(/startaUtkast\(/g)).toHaveLength(4);   // lossaVidAvlagg, provkorLossning, registreraLass och svaraNyttAvlagg (Ja på frågan registreraLass ställer)
+    for (const f of ['lossaVidAvlagg', 'provkorLossning', 'registreraLass', 'svaraNyttAvlagg']) expect(hook).toContain(`const ${f} = useCallback`);
+  });
+  it('INGEN självbekräftelse (Martin 2026-10-20): bekräftat blir bara det föraren svarat Klar på — som \'forare\', på exakt ett ställe', () => {
     expect(hook).not.toMatch(/bekrafta\([^)]*'auto'/);
     expect(hook).not.toContain('sjalvbekrafta');
-    expect(detektor).not.toMatch(/sjalvbekrafta|SJALVBEKRAFTA/i);
-    // bekräftelse finns på exakt två ställen: Klar i Ändra och Stämmer — båda som 'forare'
-    expect(hook.match(/bekrafta\(/g)).toHaveLength(2);
-    expect(hook.match(/bekrafta\([^)]*'forare'/g)).toHaveLength(2);
+    expect(hook.match(/bekrafta\(/g)).toHaveLength(1);
+    expect(hook.match(/bekrafta\([^)]*'forare'/g)).toHaveLength(1);
   });
-  it('en omladdning mitt i en lossning bekräftar inget (förslaget väntar på föraren)', () => {
-    expect(hook).toContain('forslagTillVantande(l, nu)');
-    expect(hook).not.toContain('bekraftaForslagVidStart');
+  it('lasset är ett UTKAST i minnet tills Klar: spara() skriver aldrig utkastet, och Avbryt/Ta bort kastar det', () => {
+    expect(hook).toMatch(/if \(utkastRef\.current\?\.id === l\.id\) \{ utkastRef\.current = l; setUtkast\(l\); return; \}/);
+    expect(hook).toMatch(/const avbrytAndra[\s\S]{0,260}utkastRef\.current\?\.id === andra\.lassId\) \{ utkastRef\.current = null; setUtkast\(null\)/);
+    expect(hook).toMatch(/const strykLass[\s\S]{0,160}utkastRef\.current\?\.id === lassId\) \{ utkastRef\.current = null; setUtkast\(null\)/);
+    // Klar utan avlägg eller sortiment sparar ingenting och lämnar kortet öppet
+    expect(hook).toMatch(/if \(!l \|\| !kanBekrafta\(l\)\) return;/);
   });
-  it('Lossa här och "väntar på dig" finns bara i skotarläget och ligger ovanför kortet nertill', () => {
-    const bit = page.slice(page.indexOf('SKOTARLÄGE: lassrapportering. Allt nedan finns bara'));
-    expect(bit).toMatch(/<SkotarNedreRad antalVantar=\{sl\.vantarPaDig\.length\} lossar=\{!!sl\.oppen\} vidLossaHar=\{sl\.lossaHar\}/);
-    expect(bit).toContain('<VantarPaDigArk');
-    expect(page.match(/<SkotarNedreRad/g)).toHaveLength(1);
-    expect(las('components/planering/skotar/LossaHar.tsx')).toContain("querySelector('[data-nertill-kort]')");
-    for (const f of ['LossningsKort', 'LossaHar']) expect(las(`components/planering/skotar/${f}.tsx`)).toContain('data-nertill-kort');
+  it('gamla obesvarade lass rörs inte: hooken skriver aldrig om ett lass som lästs från kön vid start', () => {
+    expect(hook).not.toMatch(/for \(const l of lokalt\)/);
+    expect(hook).toContain('Gamla lass rörs inte');
   });
-  it('värdena Martin beslutade 2026-10-20: 3 min stilla, zon 50 m, 25 m ruta, spärr efter förra lossningen', () => {
-    expect(detektor).toMatch(/STILLA_S: 180,/);
-    expect(detektor).toMatch(/STILLA_UTBREDNING_M: 25,/);
-    expect(detektor).toMatch(/CYKEL_S: 600,/);
+  it('knappen "Lossa · Avlägg X" bor i LossaKnapp, ≥ 56 px, ovanför kortet nertill — och sidan visar den bara i zonen och när inget annat ligger nertill', () => {
+    const knapp = las('components/planering/skotar/LossaKnapp.tsx');
+    expect(knapp).toContain("querySelector('[data-nertill-kort]')");
+    expect(knapp).toContain('lossaText(a)');
+    expect(knapp).toContain('val && val.length > 1 ? val : [avlagg]');   // två avlägg nära varandra: en knapp var, aldrig en gissning
+    expect(las('components/planering/skotar/stil.ts')).toContain('export const TRYCK_PX = 56;');
+    expect(las('components/planering/skotar/stil.ts')).toMatch(/knappPrimar: CSSProperties = \{ \.\.\.KNAPP\.primar, minHeight: TRYCK_PX/);
+    expect(page.match(/<LossaKnapp/g)).toHaveLength(1);
+    expect(page).toMatch(/\{sl\.lossaKnapp && !sl\.andra && !sl\.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && \(\s*<LossaKnapp avlagg=\{sl\.lossaKnapp\} val=\{sl\.lossaVal\} vidTryck=\{sl\.lossaVidAvlagg\} \/>/);
+    expect(las('components/planering/skotar/NyttAvlaggKort.tsx')).toContain('data-nertill-kort');
+  });
+  it('testläget: knapparna "Stå vid avlägg X" / "Kör ut" i testbannern, och testpositionen skickas om var 3:e sekund så den färska-fix-regeln (10 s) håller', () => {
+    expect(page).toContain('data-testid="test-stall-vid-avlagg"');
+    expect(page).toContain('data-testid="test-kor-ut"');
+    expect(page).toMatch(/setInterval\(\(\) => \{ const p = testPosRef\.current; if \(p\) flyttaTestPosition\(p\.lat, p\.lon\); \}, 3000\)/);
+    expect(page).toContain('nastaTestAvlagg(lista, skotarValtAvlagg, testStallVidAvlagg)');
+  });
+  it('sortimentnamnen visas bara via klartext: lasskort, Kvar-listan, avläggskortet och Färdigskotad går genom SortimentNamn/sortimentDelar, aldrig rått .namn', () => {
+    for (const f of ['AndraLassArk', 'KvarArk', 'AvlaggSkotatSektion']) expect(las(`components/planering/skotar/${f}.tsx`), f).toContain('<SortimentNamn namn=');
+    expect(las('components/planering/skotar/FardigskotadKort.tsx')).toContain('sortimentDelar(r.namn)');
+    expect(las('components/planering/skotar/SortimentNamn.tsx')).toContain('sortimentDelar');
+    expect(las('lib/skotarLass/lassModell.ts')).toContain('sortimentDelar(r.namn).sortiment');
+  });
+  it('− / + ger ETT steg per tryck: bara onClick med spärr, ingen pekarhändelse, ingen upprepning, ingen systemtangentbord-input i sifferplattan', () => {
+    const steg = las('components/planering/skotar/StegKnapp.tsx');
+    expect(steg).not.toMatch(/onPointer|onTouch|onMouse|setInterval|setTimeout/);
+    expect(steg).toContain('onClick={() => sparr(onSteg)}');
+    expect(steg).toContain('export const SPARR_MS = 250;');
+    expect(steg).not.toMatch(/<input|<textarea/);
+    const ark = las('components/planering/skotar/AndraLassArk.tsx');
+    expect(ark).not.toMatch(/HallKnapp|HALL\b|<input|onPointer/);
+    expect(ark.match(/<StegKnapp /g)).toHaveLength(2);
+  });
+  it('+ › Registrera lass finns i Trakten-gruppen (där inget avlägg finns) och är en vanlig knapp som stänger plusmenyn', () => {
+    expect(page).toMatch(/\{ id: 'registrera-lass', namn: 'Registrera lass', [^}]*typ: 'knapp', onTryck: \(\) => \{ stangPlus\(\); skotarLass\.registreraLass\(\); \} \}/);
+  });
+  it('zonen är DENSAMMA 50 m som upptäckten hade, in vid 50 och ut vid 60; en färsk fix (≤ 10 s) krävs', () => {
     expect(las('lib/skotarLass/avlagg.ts')).toMatch(/RADIE_M: 50,/);
+    expect(zon).toMatch(/FERSK_FIX_MS: 10_000,/);
+    expect(zon).toMatch(/UT_EXTRA_M: 10,/);
+    expect(zon).toContain('traffaAvlagg(pos, avlagg, AVLAGG.RADIE_M + (redanInne ? ZON.UT_EXTRA_M : 0))');
   });
-  it('Lossa här: bara avlägg märkta skapadViaLossaHar flyttas, och bara av hookens effekt (aldrig Vidas, planerarens eller handsatta)', () => {
+  it('Registrera lass: bara avlägg märkta skapadViaLossaHar flyttas, och bara av hookens effekt (aldrig Vidas, planerarens eller handsatta)', () => {
     expect(page).toMatch(/if \(via === 'lossa_har'\) m\.skapadViaLossaHar = true;/);
     expect(page).toMatch(/m\.isMarker && m\.type === 'landing' && m\.skapadViaLossaHar && String\(m\.id\) === markerId/);
     expect(page.match(/skapadViaLossaHar/g)).toHaveLength(4);   // sätts, läses till egna avlägg, flytt-spärren (en gång i kommentar/filter)
     expect(hook).toMatch(/if \(!aktiv \|\| torr\) return;\s*for \(const a of avlagg\)/);
-    expect(hook).toContain('detRef.current.oppen?.avlaggId === a.id');
+    expect(hook).toContain('iZonRef.current?.avlagg.id === a.id');
     expect(las('lib/skotarLass/lossaHar.ts')).toMatch(/if \(a\.kalla !== 'egen' \|\| !a\.viaLossaHar\) return null;/);
   });
-  it('detektorn rör aldrig fakt_lass och har inga timers (ren funktion)', () => {
-    expect(detektor).not.toMatch(/setTimeout|setInterval|Date\.now|fakt_lass|supabase/);
+  it('sortimentet står med namn och mängd skilda åt ("Kubb 305: 17 m³", aldrig "Kubb 305 17")', () => {
+    const modell = las('lib/skotarLass/lassModell.ts');
+    expect(modell).toContain("`${sortimentDelar(r.namn).sortiment}: ${heltM3(r.m3)} m³`");
+    expect(modell).toContain("`${visaNamn(r.namn)}: ${heltM3(r.m3)} m³`");
   });
 });
 

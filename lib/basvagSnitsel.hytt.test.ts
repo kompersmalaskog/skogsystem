@@ -127,7 +127,7 @@ describe('page.tsx ritar basvägen med de delade specarna', () => {
   });
   it('basvägens gula streck har platta ändar och lika långa streck (BASVAG_STRECK_*)', () => {
     expect(sida).toMatch(/isMainRoad \? \[\.\.\.BASVAG_STRECK_DASH\]/);
-    expect(sida).toMatch(/isMainRoad \? \{ \.\.\.BASVAG_STRECK_LAYOUT \}/);
+    expect(sida).toMatch(/isMainRoad \? \{ \.\.\.BASVAG_STRECK_LAYOUT[,\s}]/);   // + line-sort-key (nu-vägen överst, lib/lagerOrdning)
   });
   it('specarna: skenet är vitt och svagt, strecket butt med [2, 2]', () => {
     const s = basvagSkenLager('x');

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { traffaAvlagg } from './avlagg';
 import {
-  andraRad, bekrafta, forslagTillVantande, bytAvlagg, forraLass, foreslagnaRader, kanBekrafta, laggTillDel, lassRad, lassTitel,
+  andraRad, bekrafta, bytAvlagg, forraLass, foreslagnaRader, kanBekrafta, lassRad, lassTitel,
   lassTotalM3, nastaLassNummer, sattRad, skapaLass, stryk, type LassKontext,
 } from './lassModell';
 import { sortimentNyckel, sortimentVisning, skordatPerSortiment, valbaraSortiment, VED_MARKAGARE_NYCKEL } from './sortiment';
@@ -61,23 +61,14 @@ describe('lass', () => {
     expect(sattRad(l, 1, R('massa', 0), 7, NU).delar[0].rader[0].m3).toBe(7);
     expect(andraRad(l, 1, R('massa', 0), -99, NU).delar[0].rader).toHaveLength(0);
   });
-  it('del 2: eget avlägg, tomma rader, föraren måste fylla i; titeln säger "del 2"', () => {
-    const l = bekraftatMed([R('tall', 10)], 1);
-    const l2 = laggTillDel(l, { ts: NU + 60_000, lat: 56.601, lng: 15.8, traff: traffaAvlagg({ lat: 56.601, lng: 15.8 }, [A3]), nu: NU });
-    expect(l2.delar).toHaveLength(2);
-    expect(l2.delar[1].avlaggNummer).toBe('3');
-    expect(l2.status).toBe('vantar_forare');
-    expect(lassTitel(l2)).toBe('Lass 1 · del 2');
-    expect(lassTitel(l)).toBe('Lass 1');
-  });
-  it('nummer = antal lass som räknas (bekräftade + väntande) på maskinen och trakten + 1 — struket tar inget nummer med sig', () => {
+  it('nummer = antal lass som räknas (bara Klar-tryckta) på maskinen och trakten + 1 — struket tar inget nummer med sig', () => {
     const l1 = bekraftatMed([R('tall', 1)], 1);
     const l2 = stryk(bekraftatMed([R('tall', 1)], 2), NU);
     expect(nastaLassNummer([l1, l2], ctx.maskinId, 'o1')).toBe(2);   // lass 2 struket: nästa heter 2 igen (Bågskyttebanan: "Lass 3" fast ett strukits)
     expect(nastaLassNummer([l1, l2], 'annan', 'o1')).toBe(1);
     expect(nastaLassNummer([l1, l2], ctx.maskinId, 'annan-trakt')).toBe(1);
     const vantande = { ...bekraftatMed([R('tall', 1)], 2), status: 'vantar_forare' as const };
-    expect(nastaLassNummer([l1, vantande], ctx.maskinId, 'o1')).toBe(3);   // väntande räknas
+    expect(nastaLassNummer([l1, vantande], ctx.maskinId, 'o1')).toBe(2);   // obesvarat tar inget nummer
   });
   it('numret är ANTALET som räknas + 1 (inte högsta + 1): lass 1 och 4 som räknas ger 3', () => {
     const l1 = bekraftatMed([R('tall', 1)], 1);
@@ -96,18 +87,9 @@ describe('lass', () => {
     expect(forraLass([l1, l2], ctx.maskinId, 'o1')?.lassNummer).toBe(1);
     expect(foreslagnaRader(null)).toEqual([]);
   });
-  it('ett förslag vars lossning aldrig tog slut (appen stängdes) bekräftar inte sig självt utan väntar på föraren; väntande och bekräftade lass rörs inte', () => {
-    const forslag = nyttLass(bekraftatMed([R('tall', 4)], 1), 2);
-    expect(forslag.status).toBe('foreslaget');
-    expect(forslagTillVantande(forslag, NU).status).toBe('vantar_forare');
-    const vantar = nyttLass(null);
-    expect(forslagTillVantande(vantar, NU)).toBe(vantar);
-    const klar = bekraftatMed([R('tall', 4)], 1);
-    expect(forslagTillVantande(klar, NU)).toBe(klar);
-  });
   it('lasraden: avlägg, sortiment störst först, summa', () => {
     const l = bekraftatMed([R('a', 5), R('b', 10)], 1);
-    expect(lassRad(l.delar[0], (n) => n.toUpperCase())).toBe('Avlägg 2 · B 10 · A 5 · 15 m³');
+    expect(lassRad(l.delar[0], (n) => n.toUpperCase())).toBe('Avlägg 2 · B: 10 m³ · A: 5 m³ · 15 m³');
   });
 });
 
@@ -117,8 +99,8 @@ describe('sortiment', () => {
     expect(sortimentNyckel('Massa: HemvedFall_V3')).toBe(VED_MARKAGARE_NYCKEL);
   });
   it('visningsnamn: skördarens namn läsbart, versionsmärket bort', () => {
-    expect(sortimentVisning('Timmer: Vislanda_195_1-2_V3')).toBe('Timmer 195 1-2 · Vislanda');
-    expect(sortimentVisning('Massa: BmavFall_V3')).toBe('Massa · BmavFall');
+    expect(sortimentVisning('Timmer: Vislanda_195_1-2_V3')).toBe('Timmer · Vislanda');
+    expect(sortimentVisning('Massa: BmavFall_V3')).toBe('Massaved barr');   // aldrig koden BmavFall, och Bmav är barr
     expect(sortimentVisning('Massa: HemvedFall_V3')).toBe('Ved markägare');
   });
   it('skördat per sortiment grupperar på nyckel, tar bort noll', () => {

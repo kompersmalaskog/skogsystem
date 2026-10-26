@@ -42,8 +42,9 @@ import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaG15Forslag, forslagKalla, prestation, prestationVarning, snittTypOrd, type UtfallRad } from '../../lib/g15Forslag'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
+import { installeraLagerOrdning, symbolSortKey, VAG_SORT_KEY } from '../../lib/lagerOrdning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
-import { HYTTSPAR_CASING_COLOR, HYTTSPAR_LINE_WIDTH, HYTTSPAR_CASING_WIDTH, HYTTSPAR_HIST_LINE_WIDTH, HYTTSPAR_HIST_CASING_WIDTH, ROLLFARG_SKOTARE, ROLLFARG_SKORDARE, sparStil } from '../../lib/sparStil'
+import { HYTTSPAR_CASING_COLOR, dampatSpar, sparAlder } from '../../lib/sparStil'
 import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
 import { useKlarFalt } from '../../lib/hooks/useKlarFalt'
@@ -188,10 +189,11 @@ import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
 import { avlaggFeatures, laggTillAvlaggslager, taBortAvlaggslager } from '../../lib/skotarLass/avlaggKarta'
 import { farduskotatKontroll } from '../../lib/skotarLass/kvar'
 import type { VagLinje } from '../../lib/skotarLass/spar'
-import { LossningsKort, NyttAvlaggKort } from '../../components/planering/skotar/LossningsKort'
+import { NyttAvlaggKort } from '../../components/planering/skotar/NyttAvlaggKort'
 import { AndraLassArk } from '../../components/planering/skotar/AndraLassArk'
 import { KvarArk } from '../../components/planering/skotar/KvarArk'
-import { SkotarNedreRad, VantarPaDigArk } from '../../components/planering/skotar/LossaHar'
+import { LossaKnapp } from '../../components/planering/skotar/LossaKnapp'
+import { kalUtPunkt, nastaTestAvlagg } from '../../lib/skotarLass/testStall'
 import { MorgonKortVy, VaderLista } from '../../components/planering/skotar/VaderMorgon'
 import { AvlaggSkotatSektion } from '../../components/planering/skotar/AvlaggSkotatSektion'
 import { FardigskotadKort } from '../../components/planering/skotar/FardigskotadKort'
@@ -1397,6 +1399,7 @@ export default function PlannerPage() {
   // Callback när MapLibre-kartan är laddad och redo
   const handleMapReady = useCallback((map: any) => {
     mapInstanceRef.current = map;
+    installeraLagerOrdning(map);   // EN lagerordning för alla vyer (lib/lagerOrdning): bakgrund → ytor → hyttspår → traktgräns → vägar → linjer → symboler → etiketter → egen position
     installeraRitlageSparr(map, () => ritlageSparrRef.current);   // ritläget stänger av all annan tryckning (lib/ritlageSparr) — före alla andra click-lyssnare
     markeraStart('kartaLaddad');
     // TESTFLIKEN: logga varje kamerarörelse (kodbevis för "vad tog över kameran?") i konsolen + window.__KAMERA.
@@ -1539,13 +1542,13 @@ export default function PlannerPage() {
         id: `line-${lt.id}-casing`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
         paint: { 'line-color': casingColor, 'line-width': (arVag ? korBredd(cwLw) : cwLw) as any },
-        layout: { 'line-cap': 'round', 'line-join': 'miter' }
+        layout: { 'line-cap': 'round', 'line-join': 'miter', ...(arVag ? { 'line-sort-key': VAG_SORT_KEY } : {}) }   // nu-vägen överst bland vägarna av samma sort
       });
       map.addLayer({
         id: `line-${lt.id}-base`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
         paint: { 'line-color': arVag ? korFarg(isMainRoad ? (BASVAG_FARG_UTTRYCK as any) : lt.color) : (isMainRoad ? (BASVAG_FARG_UTTRYCK as any) : lt.color), 'line-width': (arVag ? korBredd(lw) : lw) as any, ...(arVag ? { 'line-opacity': KOR_OPACITET } : {}), ...(lt.dashed ? { 'line-dasharray': [3, 2] } : {}), ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [2.5, 1.5] } : {}) },
-        layout: { 'line-cap': 'round', 'line-join': 'miter' }
+        layout: { 'line-cap': 'round', 'line-join': 'miter', ...(arVag ? { 'line-sort-key': VAG_SORT_KEY } : {}) }
       });
       if (lt.striped && lt.color2) {
         map.addLayer({
@@ -1554,7 +1557,7 @@ export default function PlannerPage() {
           filter: isMainRoad ? ['all', ['==', ['get', 'lineType'], lt.id], BASVAG_UTAN_FARG as any, KOR_INTE_KLAR] : ['==', ['get', 'lineType'], lt.id],
           // Blå/gul basväg: platta ändar + lika långa streck = hälften blått, hälften gult (kartstil.ts BASVAG_STRECK_*). Övriga randade linjer som förut.
           paint: { 'line-color': lt.color2, 'line-width': (isMainRoad ? korBredd(lw) : lw) as any, 'line-dasharray': isMainRoad ? [...BASVAG_STRECK_DASH] : [2, 2] },
-          layout: isMainRoad ? { ...BASVAG_STRECK_LAYOUT } as any : { 'line-cap': 'round', 'line-join': 'miter' }
+          layout: (isMainRoad ? { ...BASVAG_STRECK_LAYOUT, 'line-sort-key': VAG_SORT_KEY } : { 'line-cap': 'round', 'line-join': 'miter' }) as any
         });
       }
     });
@@ -2056,7 +2059,9 @@ export default function PlannerPage() {
             'icon-rotation-alignment': 'viewport',
             'icon-anchor': 'center',
             'symbol-placement': 'point',
-            'symbol-z-order': 'source',
+            // Röd fara överst bland symbolerna (lib/lagerOrdning symbolSortKey): sort-key gäller bara med z-order 'auto'.
+            'symbol-z-order': 'auto',
+            'symbol-sort-key': symbolSortKey(Array.from(KORVY_FARO_TYPER)),
           },
           // Högstubbar/evighetsträd ritas i körvyn som små prickar (markers-prick nedan) — inte som symbol.
           filter: ['!=', ['get', 'prick'], true],
@@ -4312,8 +4317,8 @@ export default function PlannerPage() {
         if (avbruten) return;
         egetHistRef.current = (data || [])
           .filter((r: any) => r.objekt_id !== objektId || r.datum !== idag)   // dagens EGNA = fulla eget-lagret (live), ej dubbelritning
-          .flatMap((r: any) => hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : []))
-          .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
+          .flatMap((r: any) => hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : [])
+            .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { alder: sparAlder(r.datum, idag) } })));   // äldre dagar bleknar (alder = dagar sedan)
         setHyttsparBasVersion(v => v + 1);   // → redo-effekten ovan ritar historiken
       } catch (e) { console.error('[Hyttspår] eget-historik:', e); }
     })();
@@ -4471,19 +4476,20 @@ export default function PlannerPage() {
     setAndrasSparLaddar(true);
     try {
       const { data, error } = await supabase.from('hyttspar')
-        .select('points').eq('objekt_id', objektId).eq('roll', roll);
+        .select('datum, points').eq('objekt_id', objektId).eq('roll', roll);
       if (error) { console.error('[Hyttspår] andras-hämtning:', error.message); return; }
       // FANTOMLINJE-FIX (samma delade hjälpare som eget-spåret): varje rad delas dessutom i SEGMENT
       // vid interna tidsglapp (app stängd mitt i passet) → en LineString per segment, ingen rak brygga
       // över glappet. Förr: en LineString per rad (bryggade interna glapp — Martins fältfynd).
+      const idagIso = lokaltDatumStockholm(serverNu());
       const tillFeatures = (rader: any[] | null) => (rader || [])
-        .flatMap((r: any) => hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : []))
-        .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
+        .flatMap((r: any) => hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : [])
+          .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { alder: sparAlder(r.datum, idagIso) } })));
       const features = tillFeatures(data);
       // GROT-jobb (skotare) som hör till ett virkesobjekt: SKÖRDARENS spår på virkesobjektet visas också (som "den andres" spår).
       const horTillId: string | undefined = (valtObjekt as any)?.hor_till_objekt_id || undefined;
       if (horTillId && roll === 'skordare') {
-        const { data: pd, error: pe } = await supabase.from('hyttspar').select('points').eq('objekt_id', horTillId).eq('roll', 'skordare');
+        const { data: pd, error: pe } = await supabase.from('hyttspar').select('datum, points').eq('objekt_id', horTillId).eq('roll', 'skordare');
         if (pe) console.error('[Hyttspår] virkesobjektets skördarspår:', pe.message);
         else features.push(...tillFeatures(pd));
       }
@@ -9123,6 +9129,7 @@ export default function PlannerPage() {
   // positionen i testläget (se `testlageAktivRef` vid varje setCurrentPosition), så den flyttas bara av trycket. Riktningen följer rörelsen (> 3 m).
   // Ingenting skrivs i databasen (hyttspår, kvittenser och lass är redan torra i testläget). Finns inte utanför testläget.
   const [testFlyttaMig, setTestFlyttaMig] = useState(false);
+  const [testHarPos, setTestHarPos] = useState(false);
   const testPosRef = useRef<{ lat: number; lon: number } | null>(null);
   const flyttaTestPosition = useCallback((lat: number, lon: number) => {
     const fran = testPosRef.current;
@@ -9135,8 +9142,16 @@ export default function PlannerPage() {
     setGpsFordrojdMs(null);
     setGpsFixAt(Date.now());
     setGpsStatus({ kind: 'ok', at: Date.now() });
+    setTestHarPos(true);
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (!testlage) { testPosRef.current = null; setTestFlyttaMig(false); } }, [testlage]);
+  useEffect(() => { if (!testlage) { testPosRef.current = null; setTestHarPos(false); setTestFlyttaMig(false); } }, [testlage]);
+  // Skotarläget kräver en FÄRSK fix (≤ 10 s) för att knappen "Lossa · Avlägg X" ska synas — en testposition som sattes en gång skulle försvinna efter tio sekunder.
+  // Medan en testposition finns skickas den därför om var tredje sekund (samma plats, ingen rörelse), så Martin ser knappen utan GPS tills han flyttar sig eller trycker Kör ut.
+  useEffect(() => {
+    if (!testlage || !testHarPos) return;
+    const iv = window.setInterval(() => { const p = testPosRef.current; if (p) flyttaTestPosition(p.lat, p.lon); }, 3000);
+    return () => window.clearInterval(iv);
+  }, [testlage, testHarPos, flyttaTestPosition]);
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || !testlage || !testFlyttaMig) return;
@@ -9642,7 +9657,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-hist-casing', type: 'line', source: 'hyttspar-hist-source',
-          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.45, 'line-width': HYTTSPAR_HIST_CASING_WIDTH },
+          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0, 'line-width': dampatSpar('skotare', 'hist').bredd },   // ingen ljus kant: spåren är dämpade (lib/sparStil dampatSpar)
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] hist-casing:', e); }
@@ -9651,9 +9666,8 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-hist-line', type: 'line', source: 'hyttspar-hist-source',
-          // Eget spår (tidigare dagar): egen rollens färg (sätts av rollfärg-effekten), full opacitet;
-          // tidigare-dagar skiljs från idag via SMALARE bredd (HYTTSPAR_HIST_LINE_WIDTH), inte opacitet.
-          paint: { 'line-color': ROLLFARG_SKOTARE, 'line-opacity': 0.95, 'line-width': HYTTSPAR_HIST_LINE_WIDTH },
+          // Eget spår (tidigare dagar): rollens dämpade färg (sätts av rollfärg-effekten), bleknar med åldern (featurens `alder`).
+          paint: { 'line-color': dampatSpar('skotare', 'hist').farg, 'line-opacity': dampatSpar('skotare', 'hist').opacitet as any, 'line-width': dampatSpar('skotare', 'hist').bredd },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] hist-line:', e); }
@@ -9668,7 +9682,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-egen-casing', type: 'line', source: 'hyttspar-egen-source',
-          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.8, 'line-width': HYTTSPAR_CASING_WIDTH },
+          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0, 'line-width': dampatSpar('skotare', 'egen').bredd },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] casing:', e); }
@@ -9677,8 +9691,8 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-egen-line', type: 'line', source: 'hyttspar-egen-source',
-          // Eget spår (idag, live): egen rollens färg (sätts av rollfärg-effekten), FULL opacitet.
-          paint: { 'line-color': ROLLFARG_SKOTARE, 'line-opacity': 0.95, 'line-width': HYTTSPAR_LINE_WIDTH },
+          // Eget spår (idag, live): rollens dämpade färg (sätts av rollfärg-effekten), låg opacitet — många passeringar blir tätare, aldrig en klump.
+          paint: { 'line-color': dampatSpar('skotare', 'egen').farg, 'line-opacity': dampatSpar('skotare', 'egen').opacitet as any, 'line-width': dampatSpar('skotare', 'egen').bredd },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] line:', e); }
@@ -9693,9 +9707,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-andras-casing', type: 'line', source: 'hyttspar-andras-source',
-          // Casing dämpas ihop med den andres linje (0.5) så hela andras-spåret tonas ned coherent;
-          // vit casing-färg + bredd-formel oförändrade (bara opaciteten följer dämpningen).
-          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.5, 'line-width': HYTTSPAR_CASING_WIDTH },
+          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0, 'line-width': dampatSpar('skordare', 'andras').bredd },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] andras-casing:', e); }
@@ -9704,9 +9716,8 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-andras-line', type: 'line', source: 'hyttspar-andras-source',
-          // Den ANDRES roll: motpartens färg (sätts av rollfärg-effekten), DÄMPAD opacitet (0.55) så
-          // eget spår sticker ut. Färgen är absolut per roll — aldrig relativ till vem som kör.
-          paint: { 'line-color': ROLLFARG_SKORDARE, 'line-opacity': 0.55, 'line-width': HYTTSPAR_LINE_WIDTH },
+          // Den ANDRES roll: motpartens dämpade färg (sätts av rollfärg-effekten). Färgen är absolut per roll — aldrig relativ till vem som kör.
+          paint: { 'line-color': dampatSpar('skordare', 'andras').farg, 'line-opacity': dampatSpar('skordare', 'andras').opacitet as any, 'line-width': dampatSpar('skordare', 'andras').bredd },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] andras-line:', e); }
@@ -9717,7 +9728,7 @@ export default function PlannerPage() {
     // stil (ljus casing + zoom-interp-bredd) som körvyns lager; färg per roll (skotare grönt, skördare lila).
     for (const roll of ['skordare', 'skotare'] as const) {
       const src = `planspar-${roll}-source`;
-      const st = sparStil(roll, 'plan');
+      const st = dampatSpar(roll, 'plan');
       if (!map.getSource(src)) {
         try { map.addSource(src, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
         catch (e) { console.error(`[Planspår] ${roll}-source:`, e); }
@@ -9726,7 +9737,7 @@ export default function PlannerPage() {
         try {
           map.addLayer({
             id: `planspar-${roll}-casing`, type: 'line', source: src,
-            paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': st.casingOpacitet, 'line-width': st.casingBredd },
+            paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': st.casingOpacitet, 'line-width': st.bredd },
             layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
           });
         } catch (e) { console.error(`[Planspår] ${roll}-casing:`, e); }
@@ -9735,32 +9746,13 @@ export default function PlannerPage() {
         try {
           map.addLayer({
             id: `planspar-${roll}-line`, type: 'line', source: src,
-            paint: { 'line-color': st.farg, 'line-opacity': st.linjeOpacitet, 'line-width': st.linjeBredd },
+            paint: { 'line-color': st.farg, 'line-opacity': st.opacitet as any, 'line-width': st.bredd },
             layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
           });
         } catch (e) { console.error(`[Planspår] ${roll}-line:`, e); }
       }
     }
-    // Håll planspår-linjerna UNDER markörerna (men över raster/gränser/basvägar). skotare flyttas SIST →
-    // hamnar överst av de två (skotarspåret är fokus); casing under sin linje.
-    for (const roll of ['skordare', 'skotare'] as const) {
-      for (const suff of ['casing', 'line'] as const) {
-        try { if (map.getLayer(`planspar-${roll}-${suff}`) && map.getLayer('markers-layer')) map.moveLayer(`planspar-${roll}-${suff}`, 'markers-layer'); } catch { /* */ }
-      }
-    }
-    // === Körvyns z-ordning (nerifrån och upp) ===
-    // högprickar < andras hyttspår < eget hyttspår < produktionshögar/GROT < markörer/punkter/ytnummer.
-    // moveLayer(id) utan beforeId flyttar lagret ÖVERST → iterera nerifrån-och-upp så det sista hamnar högst.
-    // (GPS-pricken + larm flyttas överst separat varje tick → ligger kvar över allt.)
-    const KORVY_Z_ORDNING = [
-      'skotar-hogar-dots',
-      'hyttspar-andras-casing', 'hyttspar-andras-line',
-      'hyttspar-hist-casing', 'hyttspar-hist-line', 'hyttspar-egen-casing', 'hyttspar-egen-line',
-      'grot-shadow', 'grot-circle', 'hogar-cluster', 'hogar-hit', 'hogar-circle',
-      'markers-layer', 'markers-prick', 'markers-hit', 'markers-korvy-label', 'arrows-layer', 'arrows-hit',
-      'yta-nr-hit', 'yta-nr-label', 'trakt-punkt-circle', 'trakt-punkt-label',
-    ];
-    for (const id of KORVY_Z_ORDNING) { try { if (map.getLayer(id)) map.moveLayer(id); } catch { /* */ } }
+    // Lagrens ordning (hyttspår under traktgräns och vägar, symboler över vägarna …) läggs av lib/lagerOrdning — en tabell för alla vyer, inte moveLayer-anrop här och där.
     console.log('[Körvy] immersion-layers setup klar');
     // Källorna (hyttspar-hist/egen/andras) finns nu → rita om dem ur refarna. Annars missas data som hämtats INNAN kartan fanns
     // (redo-effekten, deklarerad före denna, kör i samma commit som mapLibreReady och ser då inga källor).
@@ -9779,15 +9771,16 @@ export default function PlannerPage() {
     let avbruten = false;
     (async () => {
       try {
-        const { data, error } = await supabase.from('hyttspar').select('roll, points').eq('objekt_id', objektId);
+        const { data, error } = await supabase.from('hyttspar').select('roll, datum, points').eq('objekt_id', objektId);
         if (avbruten) return;
         if (error) { console.error('[Planspår] hämtning:', error.message); return; }
         const perRoll: { skordare: any[]; skotare: any[] } = { skordare: [], skotare: [] };
+        const idagIso = lokaltDatumStockholm(serverNu());
         for (const r of (data || [])) {
           const roll = (r as any).roll === 'skotare' ? 'skotare' : (r as any).roll === 'skordare' ? 'skordare' : null;
           if (!roll) continue;
           for (const coords of hyttsparRitadeLinjer(Array.isArray((r as any).points) ? (r as any).points : [])) {
-            perRoll[roll].push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} });
+            perRoll[roll].push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { alder: sparAlder((r as any).datum, idagIso) } });
           }
         }
         for (const roll of ['skordare', 'skotare'] as const) {
@@ -9818,12 +9811,12 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const satt = (lager: string, prop: string, v: any) => { try { if (map.getLayer(lager)) map.setPaintProperty(lager, prop, v); } catch { /* */ } };
-    // Stilen per roll och lager ur lib/sparStil: SKÖRDAREN alltid jämn 3 px, full färg (även tidigare dagar och som "den andres" spår — skotaren
-    // följer stråken); SKOTAREN som förut (eget 0,95 / historik smalare / den andres 0,55).
+    // Stilen per roll och lager ur lib/sparStil (dampatSpar): tunna (2–3 px), en dämpad färg per roll, låg opacitet, ingen ljus kant; tidigare dagar bleknar med åldern.
+    // Skördarens spår är tydligare än skotarens (skotaren följer stråken) men ligger under basvägen (lib/lagerOrdning).
     const stila = (namn: string, roll: 'skordare' | 'skotare', art: 'egen' | 'hist' | 'andras') => {
-      const s = sparStil(roll, art);
-      satt(`${namn}-line`, 'line-color', s.farg); satt(`${namn}-line`, 'line-width', s.linjeBredd); satt(`${namn}-line`, 'line-opacity', s.linjeOpacitet);
-      satt(`${namn}-casing`, 'line-width', s.casingBredd); satt(`${namn}-casing`, 'line-opacity', s.casingOpacitet);
+      const s = dampatSpar(roll, art);
+      satt(`${namn}-line`, 'line-color', s.farg); satt(`${namn}-line`, 'line-width', s.bredd); satt(`${namn}-line`, 'line-opacity', s.opacitet);
+      satt(`${namn}-casing`, 'line-width', s.bredd); satt(`${namn}-casing`, 'line-opacity', s.casingOpacitet);
     };
     if (hyttRoll) { stila('hyttspar-egen', hyttRoll, 'egen'); stila('hyttspar-hist', hyttRoll, 'hist'); }
     if (andrasRoll) stila('hyttspar-andras', andrasRoll, 'andras');
@@ -12146,11 +12139,10 @@ export default function PlannerPage() {
   const skotarVader = useSkotarVader(skotarKorvy, skotarVaderPos, !!testlage);
   const [skotarKvarOppet, setSkotarKvarOppet] = useState(false);
   const [skotarFardigOppet, setSkotarFardigOppet] = useState(false);
-  const [skotarVantarOppet, setSkotarVantarOppet] = useState(false);
   // INSTRUKTIONER TILL FÖRAREN (bara maskinläget, lib/instruktioner): kommentarerna på ett område visas som ett kort när maskinen kör in, och "✓ Sett" sparas per kommentar och
   // förare. Larmet går först (kortet väntar medan ett larmkort visas). Planeringsvyn och förare utan maskin rörs inte: aktiv=false gör hooken helt passiv.
   // Lossningsflödet (skotarläget) har företräde: lossningskortet, Ändra-arket, "Nytt avlägg här?" och Kvar/Färdigskotad/Väntar-arken (lib/instruktioner/ordning).
-  const lossningVisas = skotarLassAktiv && (!!skotarLass.kort || !!skotarLass.andra || !!skotarLass.nyttAvlagg || skotarKvarOppet || skotarFardigOppet || skotarVantarOppet);
+  const lossningVisas = skotarLassAktiv && (!!skotarLass.andra || !!skotarLass.nyttAvlagg || skotarKvarOppet || skotarFardigOppet);
   const instruktionerAktiv = korvyActive && (maskinlage || !!maskinSomParam);
   // BESÖK PÅ TRAKTEN (maskinläget, alla maskiner på trakten): ett orange kort högst upp tills föraren tryckt Uppfattat, ett ljud, och en 70 m-ring runt maskinen medan besöket är aktivt.
   // Fara-larm (och alla larmkort) och lossningsflödet går före kortet — det kommer tillbaka när de är borta. Instruktionskortet väntar på besökskortet.
@@ -12229,6 +12221,7 @@ export default function PlannerPage() {
     if (lastNycklar.length && lastOsedda > 0) inst.settOmraden(lastNycklar);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastNyckelStr, lastOsedda]);
+  const [testStallVidAvlagg, setTestStallVidAvlagg] = useState<string | null>(null);   // testläget: avlägget maskinen "står" vid (testbannern)
   const [skotarValtAvlagg, setSkotarValtAvlagg] = useState<string | null>(null);   // avläggets id (vida:<nr> | egen:<id>) som kortet visar
   // Egna avlägg får sitt löpnummer en gång och behåller det (sparas på markeringen): ett raderat avlägg flyttar aldrig om de andra.
   useEffect(() => {
@@ -12417,10 +12410,10 @@ export default function PlannerPage() {
     ];
   };
 
-  // Spårens förhandsfärg = linjens riktiga färg på kartan (lib/sparStil), inte en egen.
+  // Spårens förhandsfärg = linjens riktiga färg på kartan (lib/sparStil dampatSpar), inte en egen.
   const sparFarg = (art: 'egen' | 'andras'): string => {
     const roll = art === 'egen' ? hyttRoll : andrasRoll;
-    return roll ? sparStil(roll, art).farg : art === 'egen' ? FARG.gron : FARG.text2;
+    return roll ? dampatSpar(roll, art).farg : art === 'egen' ? FARG.gron : FARG.text2;
   };
   // LAGER: samma grupper i samma ordning som den gamla Lager-menyn (Bakgrundskarta, Kompass, Overlay, WMS-grupperna, SMHI, Dina
   // markeringar, Produktionsdata, Zontyper, Linjetyper). Raderna skriver samma state som förut (overlays,
@@ -12476,7 +12469,7 @@ export default function PlannerPage() {
       });
     }
     if (skotarLassAktiv) {
-      g.push({ id: 'skotad-trakt', rubrik: 'Trakten', rader: [{ id: 'fardigskotad', namn: 'Trakten färdigskotad', under: skotarLass.avslut ? 'Redan avslutad' : 'Skotat sätts lika med skördat', typ: 'knapp', onTryck: () => { stangPlus(); setSkotarFardigOppet(true); } }] });
+      g.push({ id: 'skotad-trakt', rubrik: 'Trakten', rader: [{ id: 'registrera-lass', namn: 'Registrera lass', under: 'Där inget avlägg finns – lossar du vid ett avlägg trycker du på Lossa nere vid kartan', typ: 'knapp', onTryck: () => { stangPlus(); skotarLass.registreraLass(); } }, { id: 'fardigskotad', namn: 'Trakten färdigskotad', under: skotarLass.avslut ? 'Redan avslutad' : 'Skotat sätts lika med skördat', typ: 'knapp', onTryck: () => { stangPlus(); setSkotarFardigOppet(true); } }] });
     }
     return g;
   };
@@ -13086,9 +13079,31 @@ export default function PlannerPage() {
           {skotarLassAktiv && (
             <button type="button" data-testid="skotar-provkor" onClick={() => skotarLass.provkorLossning(skotarValtAvlagg)}
               style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
-              {skotarLass.oppen ? 'Provkör: kör ut ur zonen' : 'Provkör lossning'}
+              Provkör lossning
             </button>
           )}
+          {skotarLassAktiv && (() => {
+            // Ställ maskinen vid ett avlägg (utan GPS): först det som är tryckt på kartan, annars nästa i listan för varje tryck. "Kör ut" flyttar den 200 m därifrån.
+            const lista = skotarLass.avlagg;
+            if (lista.length === 0) return null;
+            const nu = testStallVidAvlagg ? lista.find((a) => a.id === testStallVidAvlagg) ?? null : null;
+            const nasta = nastaTestAvlagg(lista, skotarValtAvlagg, testStallVidAvlagg)!;
+            const knappStil = { background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' } as const;
+            return (
+              <>
+                <button type="button" data-testid="test-stall-vid-avlagg" data-avlagg={nasta.id}
+                  onClick={() => { setTestStallVidAvlagg(nasta.id); flyttaTestPosition(nasta.lat, nasta.lng); }} style={knappStil}>
+                  Stå vid {nasta.nummer ? `avlägg ${nasta.nummer}` : 'avlägg'}
+                </button>
+                {nu && (
+                  <button type="button" data-testid="test-kor-ut"
+                    onClick={() => { const ut = kalUtPunkt(nu); setTestStallVidAvlagg(null); flyttaTestPosition(ut.lat, ut.lng); }} style={knappStil}>
+                    Kör ut
+                  </button>
+                )}
+              </>
+            );
+          })()}
           {skotarKorvy && (
             <button type="button" data-testid="skotar-provkor-morgonkort" onClick={skotarVader.provkorKort}
               style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -14285,52 +14300,31 @@ export default function PlannerPage() {
       {skotarKorvy && skotarVader.kort && <MorgonKortVy kort={skotarVader.kort} onOk={skotarVader.stangKort} />}
       {skotarLassAktiv && (() => {
         const sl = skotarLass;
-        const lassMedId = (id: string) => sl.lass.find((l) => l.id === id) ?? null;
-        const kortLass = sl.kort ? lassMedId(sl.kort.lassId) : null;
-        const andraLass = sl.andra ? lassMedId(sl.andra.lassId) : null;
+        const andraLass = sl.andraLass;   // utkastet eller det sparade lass som lasskortet visar
         const dagens = sl.idag.lass;   // den egna maskinens lass i dag (kvar och Trakten: skotat X av Y gäller hela trakten)
         return (
           <>
-            {sl.kort && kortLass && !sl.andra && (
-              <LossningsKort
-                kort={sl.kort} lass={kortLass} avlagg={sl.avlagg}
-                onAndra={() => sl.oppnaAndra(kortLass.id, sl.kort!.delNr)}
-                onFyllI={() => sl.oppnaAndra(kortLass.id, sl.kort!.delNr)}
-                onStammer={() => sl.stammer(kortLass.id)}
-                onValjAvlagg={(a) => sl.valjAvlagg(kortLass.id, sl.kort!.delNr, a)}
-                onTaBort={() => sl.strykLass(kortLass.id)}
-              />
-            )}
-            {/* Målbilden för avlägget: en rad BREDVID lossningsflödet. Den visas FÖRE första lossningen — när maskinen kommer in i ett avläggs zon (samma 50 m som lossningsupptäckten)
-                och trakten inte har något lass än — och bara när inget lossningskort, ändra-ark eller annat ark ligger nertill. Lossningskortet vinner alltid platsen; första kortet
-                förbrukar målbilden på trakten. Därefter bara vid tryck på ett avlägg (KartKort). Lossningsflödet ovan är orört. */}
+            {/* Målbilden för avlägget: en rad BREDVID registreringen. Den visas FÖRE första lasset — när maskinen kommer in i ett avläggs zon (samma 50 m som knappen "Lossa") och trakten
+                inte har något lass än — och bara när inget lasskort eller annat ark ligger nertill. Lasskortet vinner alltid platsen; första gången det öppnas förbrukar det målbilden på trakten. */}
             <AvlaggForstaLasset
               objektId={valtObjekt?.id ?? ''} roll="skotare"
-              kortVisas={!!sl.kort}
-              ledigt={avlaggsradLedig({ ledigtUtanInstruktion: !sl.kort && !sl.andra && !sl.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet, instruktionVantar: inst.vantar })}
+              kortVisas={!!sl.andra}
+              ledigt={avlaggsradLedig({ ledigtUtanInstruktion: !sl.andra && !sl.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet, instruktionVantar: inst.vantar })}
               forstaLasset={!!valtObjekt?.id && !!skotarMaskinId && arForstaLassetPaTrakten(sl.lass, '', valtObjekt.id, skotarMaskinId)}
               position={currentPosition}
               avlagg={sl.avlagg}
             />
-            {!sl.kort && !sl.andra && sl.nyttAvlagg && (
+            {!sl.andra && sl.nyttAvlagg && (
               <NyttAvlaggKort fraga={sl.nyttAvlagg} nummer={nastaEgnaNummer(sl.avlagg)} onSvar={sl.svaraNyttAvlagg} />
             )}
-            {/* Reservknappen "Lossa här" och "N lass väntar på dig" är ALLTID på plats i skotarläget (ovanför kortet nertill). */}
-            {!sl.andra && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet && (
-              <SkotarNedreRad antalVantar={sl.vantarPaDig.length} lossar={!!sl.oppen} vidLossaHar={sl.lossaHar} onVisaVantar={() => setSkotarVantarOppet(true)} />
-            )}
-            {skotarVantarOppet && !sl.andra && (
-              <VantarPaDigArk
-                lass={sl.vantarPaDig}
-                onStammer={(l) => sl.stammer(l.id)}
-                onFyllI={(l) => { setSkotarVantarOppet(false); sl.oppnaAndra(l.id); }}
-                onStryk={(l) => sl.strykLass(l.id)}
-                onStang={() => setSkotarVantarOppet(false)}
-              />
+            {/* APPEN FRÅGAR ALDRIG: ett lass börjar bara med ett tryck. Knappen "Lossa · Avlägg 2" syns bara medan maskinen står i ett avläggs zon och försvinner när den kört därifrån.
+                Där inget avlägg finns: + › Registrera lass. */}
+            {sl.lossaKnapp && !sl.andra && !sl.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && (
+              <LossaKnapp avlagg={sl.lossaKnapp} val={sl.lossaVal} vidTryck={sl.lossaVidAvlagg} />
             )}
             {sl.andra && andraLass && (
               <AndraLassArk
-                lass={andraLass} delNr={sl.andra.delNr} avlagg={sl.avlagg} valbara={sl.valbara} alla={sl.allaSortiment} onLasOm={sl.lasOmSortiment}
+                lass={andraLass} delNr={sl.andra.delNr} utkast={sl.utkast?.id === andraLass.id} avlagg={sl.avlagg} valbara={sl.valbara} alla={sl.allaSortiment} onLasOm={sl.lasOmSortiment}
                 onRad={(rad, delta) => sl.andraRad(sl.andra!.delNr, rad, delta)}
                 onAvlagg={(a) => sl.valjAvlagg(andraLass.id, sl.andra!.delNr, a)}
                 onKlar={() => sl.stangAndra(true)}

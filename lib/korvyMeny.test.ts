@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
+import { lagerRang } from './lagerOrdning';
 
 // Vakt mot att körvyns nya meny/snabbtryck (pill, plusrad, placering, prickar, Mät/Rita, kvitto) kopplas bort eller läcker in i planeringsvyn.
 // planering/page.tsx är 23 000 rader och körs inte i enhetstester; beteendet är provat i den riktiga sidan (testsele, se PR) och
@@ -118,7 +119,10 @@ describe('prickar: högstubbe/evighetsträd i körvyn', () => {
     expect(page).toContain("filter: ['==', ['get', 'prick'], true],");
     expect(page).toContain("filter: ['!=', ['get', 'prick'], true],");
     expect(page).toContain("const prick = korvyActive && arPrick(m.type);");
-    expect(page).toContain("'markers-layer', 'markers-prick', 'markers-hit'");
+    // Lagerordningen läggs av lib/lagerOrdning (förut en moveLayer-lista i sidan): prickarna är symboler och ligger över vägar och linjer, under etiketterna.
+    expect(lagerRang({ id: 'markers-prick' })).toBe(lagerRang({ id: 'markers-layer' }));
+    expect(lagerRang({ id: 'markers-prick' })).toBeGreaterThan(lagerRang({ id: 'line-stonewall-base' }));
+    expect(lagerRang({ id: 'markers-prick' })).toBeLessThan(lagerRang({ id: 'markers-korvy-label' }));
   });
   it('lagret är På som standard och döljs av sitt eget reglage', () => {
     expect(page).toContain('if (korvyActive && arPrick(m.type) && !prickarSynliga(overlays)) return false;');
