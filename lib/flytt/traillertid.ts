@@ -9,6 +9,13 @@
 // Är en del en flytt som INTE faktureras på tid (under 3 mil, service) faktureras den delen inte på tid;
 // hemresan följer den sista flytten även då (Martin valde A framför att flytta den till en annan kund).
 //
+// LASTNING HEMMA (Martin 2026-10-26): rundan börjar när bilen LÄMNAR basen. Står maskinen vid basen lastas den
+// innan rundan börjar, och den tiden räknades inte (Wisent 26 okt: bilen startad 11:54, rundan 12:09). Därför
+// börjar den första flyttens tid vid flyttens egen starttid när den ligger FÖRE rundans start — för en
+// automatisk flytt är det när bilen startades före lastningen (skapa_flytt_ur_lass). Hämtas maskinen ute har
+// bilen redan åkt och rundans start gäller som förut. Högst LASTNING_FORE_MAX_MIN före rundan: en starttid
+// längre bak är inte en lastning (en flytt registrerad kvällen före, 10 aug), och då gäller rundans start.
+//
 // Tiden är ett FÖRSLAG. Den skrivs till fakturaunderlag_flytt.traillertimmar först när en människa
 // godkänner flytten eller trycker Spara i arket — aldrig tyst (rundans tider är bara så bra som förarens
 // tryck: glömd "Kör hem" ger för lång tid). Saknas något går förslaget inte att räkna och det sägs.
@@ -27,6 +34,8 @@ export interface TidRunda {
 export interface TidBen {
   id: string;                        // maskin_flytt.id
   sluttid: string | null;            // lossningen
+  /** När flytten började (maskin_flytt.starttid). Bara den FÖRSTA flyttens starttid används, och bara när den ligger före rundans start. */
+  starttid?: string | null;
 }
 
 export type TidForslag =
@@ -38,12 +47,17 @@ export type TidForslag =
       forst: boolean;
       /** true = sista flytten i rundan: tiden slutar när bilen är tillbaka. */
       medHem: boolean;
+      /** true = maskinen lastades innan bilen lämnade basen: tiden börjar vid flyttens start, inte rundans. */
+      lastningFore: boolean;
       varning: string | null;
     }
   | { lage: 'saknas'; orsak: string };
 
 /** Över så här många minuter säger arket "kolla tiden" (en flytt tar sällan mer; en glömd runda gör det). */
 export const LANG_TID_MIN = 6 * 60;
+
+/** Så långt före rundans start kan en lastning hemma börja och ändå räknas. */
+export const LASTNING_FORE_MAX_MIN = 60;
 
 const ms = (iso: string | null) => (iso ? Date.parse(iso) : NaN);
 
@@ -56,7 +70,10 @@ export function traillertid(flyttId: string, runda: TidRunda, ben: readonly TidB
   const ordnade = [...ben].sort((a, b) => ms(a.sluttid) - ms(b.sluttid));
   const i = ordnade.findIndex(b => b.id === flyttId);
   const sista = i === ordnade.length - 1;
-  const fran = i === 0 ? runda.start : ordnade[i - 1].sluttid!;
+  const egenStart = ms(ordnade[i].starttid ?? null);
+  const lastningFore = i === 0 && Number.isFinite(egenStart) && egenStart < ms(runda.start)
+    && ms(runda.start) - egenStart <= LASTNING_FORE_MAX_MIN * 60000;
+  const fran = lastningFore ? ordnade[i].starttid! : i === 0 ? runda.start : ordnade[i - 1].sluttid!;
   const till = sista ? runda.slut : ordnade[i].sluttid!;
   const min = Math.round((ms(till) - ms(fran)) / 60000);
   if (!Number.isFinite(min) || min <= 0) return { lage: 'saknas', orsak: 'Rundans tider går inte ihop' };
@@ -64,7 +81,7 @@ export function traillertid(flyttId: string, runda: TidRunda, ben: readonly TidB
   const varning = runda.autoAv === 'cron_sakerhetsnat'
     ? 'Rundan avslutades inte i appen – kolla tiden'
     : min > LANG_TID_MIN ? 'Över 6 timmar – kolla att rundan avslutades i tid' : null;
-  return { lage: 'ok', min, fran, till, forst: i === 0, medHem: sista, varning };
+  return { lage: 'ok', min, fran, till, forst: i === 0, medHem: sista, lastningFore, varning };
 }
 
 /** Minuter → timmar på fakturan, två decimaler (217 min → 3,62). Bara för fakturan och databasen. */
