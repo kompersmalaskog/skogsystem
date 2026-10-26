@@ -10,7 +10,7 @@
 import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { FARG, FONT, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, designCss } from '@/lib/design/tokens';
-import UppfoljningSidolista from './UppfoljningSidolista';
+import UppfoljningMeny from './UppfoljningMeny';
 
 const FRAN_PX = 1100;
 const BREDD_PX = 360;
@@ -46,7 +46,7 @@ export default function UppfoljningRam({ children }: { children: ReactNode }) {
       <style>{designCss + KOLUMN_CSS + css}</style>
       {arObjekt && (
         <aside className="uf-sida" aria-label="Alla objekt">
-          <UppfoljningSidolista valt={valt} />
+          <UppfoljningMeny kompakt valt={valt} />
         </aside>
       )}
       <main className="uf-innehall">{children}</main>
