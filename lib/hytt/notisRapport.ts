@@ -16,6 +16,10 @@ export type RapportIndata = {
   behorighet: NotificationPermission | 'saknas';
   /** En service worker är registrerad och aktiv. */
   swAktiv: boolean;
+  /** Enheten är markerad som maskin (enhet_maskin_id). Utelämnad = raden visas inte. */
+  maskin?: boolean;
+  /** Enheten har en push-prenumeration (servern kan väcka den när appen är minimerad eller stängd). Utelämnad = raden visas inte. */
+  pushPrenumeration?: boolean;
 };
 
 export function byggRapport(i: RapportIndata): RapportRad[] {
@@ -40,6 +44,17 @@ export function byggRapport(i: RapportIndata): RapportRad[] {
   rader.push(i.swAktiv
     ? { id: 'sw', rubrik: 'Bakgrundstjänsten är igång', status: 'ok', text: 'Ja' }
     : { id: 'sw', rubrik: 'Bakgrundstjänsten är igång', status: 'fixa', text: 'Nej – ladda om appen (Ctrl+R)' });
+
+  if (i.maskin != null) {
+    rader.push(i.maskin
+      ? { id: 'maskin', rubrik: 'Notiserna går till maskinen', status: 'ok', text: 'Ja – de kommer hit oavsett vem som är inloggad' }
+      : { id: 'maskin', rubrik: 'Notiserna går till maskinen', status: 'fixa', text: 'Nej – den här datorn är inte vald som maskin' });
+  }
+  if (i.pushPrenumeration != null) {
+    rader.push(i.pushPrenumeration
+      ? { id: 'push', rubrik: 'Besök når fram när appen är minimerad', status: 'ok', text: 'Ja – servern kan väcka den här datorn' }
+      : { id: 'push', rubrik: 'Besök når fram när appen är minimerad', status: 'fixa', text: 'Nej – tillåt notiser och ladda om appen (Ctrl+R)' });
+  }
 
   // Det här kan en webbsida inte läsa — föraren/Martin kontrollerar dem en gång på maskinen.
   rader.push({
@@ -72,9 +87,4 @@ export function testRader(r: TestResultat): string[] {
   ut.push(r.uppfattat != null ? `Uppfattat tryckt ${klock(r.uppfattat)}` : 'Uppfattat ej tryckt än');
   if (r.oppnad != null) ut.push(`Öppna kartan tryckt ${klock(r.oppnad)}`);
   return ut;
-}
-
-/** Brytaren för STEG 2 går att slå på när en testnotis skickats OCH Uppfattat tryckts på den (då vet vi att notis + knapp når fram). */
-export function brytarenKanSlasPa(r: TestResultat): boolean {
-  return r.skickad != null && r.uppfattat != null;
 }

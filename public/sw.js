@@ -1,6 +1,31 @@
 // Service Worker for push notifications
+// Server-push till MASKINEN (lib/hytt/maskinPush): payload.hyttNotis är samma notis som sidan skapar lokalt (samma tag, knappar och data), så en server-push och en lokal notis ersätter varandra.
+// Är appen framme (ett fönster som är synligt OCH har fokus) visas ingen notis – kortet i hytten räcker – utan sidan får veta att något hänt och läser besöken direkt.
+// Chrome tillåter en push utan notis bara när en sida är synlig, så villkoret måste vara exakt det: annars straffar Chrome oss med en generisk "webbplatsen uppdaterades"-notis.
+const HYTT_PUSH = 'hytt-push';
+
+async function hyttPush(n) {
+  let framme = false;
+  try {
+    const lista = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of lista) {
+      try { c.postMessage({ typ: HYTT_PUSH, tid: Date.now() }); } catch (_) { /* sidan läser om själv */ }
+      if (c.visibilityState === 'visible' && c.focused) framme = true;
+    }
+  } catch (_) { /* matchAll misslyckades – hellre en notis för mycket */ }
+  if (framme) return;
+  await self.registration.showNotification(n.titel || 'Kompersmåla Skog', {
+    body: n.text || '', icon: n.ikon || '/icon.png', badge: n.ikon || '/icon.png', tag: n.tag || 'hytt', renotify: !!n.renotify,
+    requireInteraction: n.kvarTillTryck !== false, silent: false, actions: Array.isArray(n.knappar) ? n.knappar : [], data: n.data || { hytt: true, url: '/' },
+  });
+}
+
 self.addEventListener('push', (event) => {
   const data = event.data ? event.data.json() : {};
+  if (data && data.hyttNotis && data.hyttNotis.data && data.hyttNotis.data.hytt) {
+    event.waitUntil(hyttPush(data.hyttNotis).catch(() => undefined));
+    return;
+  }
   const title = data.title || 'Kompersmåla Skog';
   const options = {
     body: data.body || '',

@@ -124,6 +124,7 @@ import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/Korvy
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
 import HyttNotiserKort from '../../components/planering/HyttNotiserKort'
+import HyttNotisTillat from '../../components/planering/HyttNotisTillat'
 import EnhetMaskinKort from '../../components/planering/EnhetMaskinKort'
 import { maskinVal } from '../../lib/enhetMaskinKort'
 import { hogarSynliga, vaxlaSkotarHogar } from '../../lib/skotarHogar'
@@ -14377,6 +14378,8 @@ export default function PlannerPage() {
           onUppfattat={() => { void besokHytt.kvittera(besokHytt.vantar[0].id); }}
         />
       )}
+      {/* TILLÅT NOTISER: en gång vid start i maskinen, bara om Chrome inte frågat. Larm, besök och lossning går före. */}
+      <HyttNotisTillat aktiv={instruktionerAktiv && hyttNotiserPa} dolj={!!larm.kort || besokKortSynligt || lossningVisas || !!inst.kort} top={instruktionTop} />
       {korvyActive && inst.kort && (
         <InstruktionKortVy
           kort={inst.kort}

@@ -85,8 +85,11 @@ describe('hooken är ett tillägg', () => {
   it('alla anrop mot notisvisandet är skyddade av try/catch, så ett fel aldrig fäller larmet, besökskortet eller sidan', () => {
     expect(hook).toContain('catch { /* en notis som inte kunde visas får aldrig fälla något */ }');
   });
-  it('brytaren är AV som standard och går inte att slå på utan ett lyckat test', () => {
-    expect(kort).toContain('disabled={!kanPa && !pa}');
-    expect(las('lib/hytt/notisInstallning.ts')).toContain("=== 'pa'");
+  it('brytaren är PÅ som standard på en maskin (enhet_maskin_id) och AV på övriga; ett uttryckligt val gäller före standarden; inget test krävs för att slå på den', () => {
+    expect(kort).not.toContain('kanPa');
+    expect(kort).not.toContain('disabled={!kanPa');
+    const inst = las('lib/hytt/notisInstallning.ts');
+    expect(inst).toContain('hamtaEnhetMaskin() != null');
+    expect(inst).toContain("v === 'pa' || v === 'av'");
   });
 });

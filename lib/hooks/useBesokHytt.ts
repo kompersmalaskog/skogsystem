@@ -70,6 +70,8 @@ export function useBesokHytt(a: {
     // "Uppfattat" tryckt i själva notisen (public/sw.js kvitterade direkt mot servern): läs om så kortet försvinner direkt, utan att vänta på nästa varv.
     const vidMeddelande = (e: MessageEvent) => {
       const d = e.data as { typ?: string; besokId?: string } | null;
+      // Server-push till maskinen (public/sw.js hyttPush): läs om direkt så kortet kommer utan att vänta på nästa varv.
+      if (d?.typ === 'hytt-push') { las(); return; }
       if (!d || d.typ !== 'hytt-uppfattat' || typeof d.besokId !== 'string') return;
       const maskin = maskinRef.current;
       if (maskin) setKvitt((p) => (p.some((x) => x.besok_id === d.besokId && x.maskin_id === maskin) ? p : [...p, { besok_id: d.besokId as string, maskin_id: maskin }]));

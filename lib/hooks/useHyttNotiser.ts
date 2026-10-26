@@ -4,13 +4,14 @@
 // Allt avgörande är rena funktioner (lib/hytt/notiser, lib/hytt/notisFonster); den här hooken bara läser fönstret, matar dem och visar resultatet. Den är ett TILLÄGG: larmkortet,
 // besökskortet och instruktionskortet i appen fungerar precis som förut, med eller utan notiser, och ett fel här får aldrig fälla något av dem (allt är tyst vid fel).
 //
-// Passiv (gör ingenting) när `aktiv` är false — enhetsbrytaren i Inställningar är AV från början, och maskinläget krävs.
+// Passiv (gör ingenting) när `aktiv` är false — enhetsbrytaren i Inställningar är PÅ från start på en maskin (lib/hytt/notisInstallning), och maskinläget krävs.
 
 import { useEffect, useRef, useState } from 'react';
 import { lasFonsterLage, type FonsterLage } from '@/lib/hytt/notisFonster';
 import { stegaNotiser, TOMT_NOTISLAGE, type BesokIn, type FaraIn, type NotisState, type OmradeIn, type Roll } from '@/lib/hytt/notiser';
 import { stangHyttNotiser, visaHyttNotis } from '@/lib/hytt/notisVisa';
 import { lasHyttNotiserPa } from '@/lib/hytt/notisInstallning';
+import { ENHET_MASKIN_ANDRAD } from '@/lib/enhetMaskin';
 
 /** Hur ofta klockan kontrolleras medan appen är borta och ett besök väntar (påminnelsen efter 5 min). Chrome kan strypa timers i ett dolt fönster – påminnelsen kan då dröja upp till en minut. */
 export const NOTIS_TICK_MS = 15000;
@@ -38,8 +39,8 @@ export function useHyttNotiser(a: HyttNotiserIn): void {
   const stateRef = useRef<NotisState>(TOMT_NOTISLAGE);
   const inRef = useRef(a);
   inRef.current = a;
-  /** Det finns notiser från hytten uppe som inte stängts än – bara då behöver "framme" stänga något. */
-  const uppeRef = useRef(false);
+  /** Det kan finnas notiser från hytten uppe som inte stängts än – bara då behöver "framme" stänga något. Börjar sant: en server-push (public/sw.js) kan ha lagt en notis medan appen var stängd. */
+  const uppeRef = useRef(true);
   /** Seriella anrop: en notis i taget i rätt ordning (Windows lägger den senast skapade överst). */
   const kedja = useRef<Promise<unknown>>(Promise.resolve());
 
@@ -58,6 +59,15 @@ export function useHyttNotiser(a: HyttNotiserIn): void {
       window.removeEventListener('blur', las);
       window.removeEventListener('pageshow', las);
     };
+  }, [a.aktiv]);
+
+  // Server-push till maskinen (lib/hytt/maskinPush) kan lägga en notis uppe utan att den här hooken skapat den – då ska "framme" stänga den också.
+  useEffect(() => {
+    if (!a.aktiv) return;
+    const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined;
+    const vid = (e: MessageEvent) => { if ((e.data as { typ?: string } | null)?.typ === 'hytt-push') { uppeRef.current = true; setTick((n) => n + 1); } };
+    sw?.addEventListener('message', vid);
+    return () => sw?.removeEventListener('message', vid);
   }, [a.aktiv]);
 
   // Klocka: påminnelsen efter 5 min kräver en omräkning även när inget annat ändras. Bara medan appen är borta och ett besök väntar.
@@ -100,7 +110,7 @@ export function useHyttNotiser(a: HyttNotiserIn): void {
   }, [a.aktiv, lage, fk, bk, ok, tick]);
 }
 
-/** Enhetsbrytaren (Inställningar › Notiser i hytten). AV från början; följer ändringar i samma fönster (egen händelse) och i andra fönster (storage). */
+/** Enhetsbrytaren (Inställningar › Notiser i hytten). PÅ från början på en maskin, annars av; följer ändringar i samma fönster (egen händelse), i andra fönster (storage) och när enheten görs till maskin. */
 export function useHyttNotiserPa(): boolean {
   const [pa, setPa] = useState(false);
   useEffect(() => {
@@ -108,7 +118,8 @@ export function useHyttNotiserPa(): boolean {
     las();
     window.addEventListener('hytt-notiser-andrad', las);
     window.addEventListener('storage', las);
-    return () => { window.removeEventListener('hytt-notiser-andrad', las); window.removeEventListener('storage', las); };
+    window.addEventListener(ENHET_MASKIN_ANDRAD, las);
+    return () => { window.removeEventListener('hytt-notiser-andrad', las); window.removeEventListener('storage', las); window.removeEventListener(ENHET_MASKIN_ANDRAD, las); };
   }, []);
   return pa;
 }
