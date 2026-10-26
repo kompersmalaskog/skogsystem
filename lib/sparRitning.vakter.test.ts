@@ -22,7 +22,7 @@ describe('RITNINGEN går genom utjämningen — på exakt de fyra ritställena',
   });
   it('importerna finns', () => {
     expect(page).toContain("import { hyttsparRitadeLinjer } from '../../lib/sparJamning'");
-    expect(page).toMatch(/import \{[^}]*\bsparStil\b[^}]*\} from '\.\.\/\.\.\/lib\/sparStil'/);
+    expect(page).toMatch(/import \{[^}]*\bdampatSpar\b[^}]*\} from '\.\.\/\.\.\/lib\/sparStil'/);
   });
 });
 
@@ -47,21 +47,28 @@ describe('SPARAD DATA och ANALYSER är RÅDATA', () => {
   });
 });
 
-describe('stilen: skördaren jämn 3 px full färg i alla lager, skotaren som förut', () => {
-  it('stilkonstanterna definieras inte längre i page.tsx (en källa: lib/sparStil)', () => {
+describe('stilen: dämpade spår (lib/sparStil dampatSpar), en källa för alla fyra lagergrupper', () => {
+  it('stilkonstanterna definieras inte i page.tsx (en källa: lib/sparStil) och sidan använder inte längre de gamla vita kanterna/neonfärgerna', () => {
     expect(page).not.toMatch(/const HYTTSPAR_LINE_WIDTH/);
     expect(page).not.toMatch(/const ROLLFARG_SKORDARE/);
     expect(page).not.toMatch(/const rollFarg\b/);
+    expect(page).not.toMatch(/HYTTSPAR_LINE_WIDTH|HYTTSPAR_HIST_LINE_WIDTH|HYTTSPAR_CASING_WIDTH|HYTTSPAR_HIST_CASING_WIDTH|ROLLFARG_SKOTARE|ROLLFARG_SKORDARE/);
   });
-  it('körvyns roll-effekt sätter färg, bredd och opacitet (+ casing) per lager ur sparStil — eget, historik och den andres', () => {
+  it('körvyns roll-effekt sätter färg, bredd och opacitet (+ casing) per lager ur dampatSpar — eget, historik och den andres', () => {
     expect(page).toContain("if (hyttRoll) { stila('hyttspar-egen', hyttRoll, 'egen'); stila('hyttspar-hist', hyttRoll, 'hist'); }");
     expect(page).toContain("if (andrasRoll) stila('hyttspar-andras', andrasRoll, 'andras');");
-    expect(page).toContain("satt(`${namn}-line`, 'line-color', s.farg); satt(`${namn}-line`, 'line-width', s.linjeBredd); satt(`${namn}-line`, 'line-opacity', s.linjeOpacitet);");
-    expect(page).toContain("satt(`${namn}-casing`, 'line-width', s.casingBredd); satt(`${namn}-casing`, 'line-opacity', s.casingOpacitet);");
+    expect(page).toContain("satt(`${namn}-line`, 'line-color', s.farg); satt(`${namn}-line`, 'line-width', s.bredd); satt(`${namn}-line`, 'line-opacity', s.opacitet);");
+    expect(page).toContain("satt(`${namn}-casing`, 'line-width', s.bredd); satt(`${namn}-casing`, 'line-opacity', s.casingOpacitet);");
   });
-  it('planeringsvyns lager skapas med stilen per roll (skördare 3 px full, skotare som förut)', () => {
-    expect(page).toContain("const st = sparStil(roll, 'plan');");
-    expect(page).toContain("'line-opacity': st.linjeOpacitet, 'line-width': st.linjeBredd");
-    expect(page).toContain("'line-opacity': st.casingOpacitet, 'line-width': st.casingBredd");
+  it('planeringsvyns lager skapas med stilen per roll', () => {
+    expect(page).toContain("const st = dampatSpar(roll, 'plan');");
+    expect(page).toContain("'line-opacity': st.opacitet as any, 'line-width': st.bredd");
+    expect(page).toContain("'line-opacity': st.casingOpacitet, 'line-width': st.bredd");
+  });
+  it('tidigare dagar bleknar: alla tre raderna som läses (historik, den andres, planering) skickar med datum och sätter featurens alder', () => {
+    expect(page.match(/properties: \{ alder: sparAlder\(/g)).toHaveLength(3);
+    expect(page).toContain(".select('datum, points').eq('objekt_id', objektId).eq('roll', roll)");
+    expect(page).toContain("select('datum, points').eq('objekt_id', horTillId).eq('roll', 'skordare')");
+    expect(page).toContain("select('roll, datum, points').eq('objekt_id', objektId)");
   });
 });
