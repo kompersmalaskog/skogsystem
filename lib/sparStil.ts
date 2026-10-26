@@ -88,22 +88,23 @@ export function sparAlder(datum: string | null | undefined, idagIso: string): nu
 
 /**
  * Stilen för en rolls spår i ett lager.
- *   skördare: 3 px, 0,6 (eget/planering: tidigare dagar blekna 0,6 → 0,15) — den andres (skotarens syn) 0,65: synligt men under basvägen
- *   skotare : 2 px, 0,5 (tidigare dagar 0,4 → 0,1) — den andres 0,4
+ *   skördare: 3 px, 0,6 (planering 0,6 → 0,2, historik 0,55 → 0,15 efter 14 dagar) — den andres (skotarens syn) 0,65 → 0,2: synligt men under basvägen
+ *   skotare : 2 px, 0,5 (planering 0,5 → 0,12, historik 0,4 → 0,1) — den andres 0,4 → 0,1
+ * Eget spår idag (live) är alltid dagens värde.
  */
 export function dampatSpar(roll: SparRoll, art: SparArt): DampatSpar {
   const farg = SPAR_DAMPAD_FARG[roll];
   if (roll === 'skordare') {
     switch (art) {
       case 'hist': return { farg, bredd: 3, opacitet: sparBlekning(0.55, 0.15), casingOpacitet: 0 };
-      case 'andras': return { farg, bredd: 3, opacitet: 0.65, casingOpacitet: 0 };
+      case 'andras': return { farg, bredd: 3, opacitet: sparBlekning(0.65, 0.2), casingOpacitet: 0 };
       case 'plan': return { farg, bredd: 3, opacitet: sparBlekning(0.6, 0.2), casingOpacitet: 0 };
       default: return { farg, bredd: 3, opacitet: 0.6, casingOpacitet: 0 };
     }
   }
   switch (art) {
     case 'hist': return { farg, bredd: 2, opacitet: sparBlekning(0.4, 0.1), casingOpacitet: 0 };
-    case 'andras': return { farg, bredd: 2, opacitet: 0.4, casingOpacitet: 0 };
+    case 'andras': return { farg, bredd: 2, opacitet: sparBlekning(0.4, 0.1), casingOpacitet: 0 };
     case 'plan': return { farg, bredd: 2, opacitet: sparBlekning(0.5, 0.12), casingOpacitet: 0 };
     default: return { farg, bredd: 2, opacitet: 0.5, casingOpacitet: 0 };
   }

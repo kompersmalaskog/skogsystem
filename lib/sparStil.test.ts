@@ -102,10 +102,10 @@ describe('dämpade spår: tunna, en dämpad färg, låg opacitet, ingen ljus kan
   });
   it('skördarens spår syns tydligare än skotarens (skotaren följer stråken)', () => {
     for (const art of ['egen', 'andras'] as const) expect(Math.max(...tal(dampatSpar('skordare', art).opacitet))).toBeGreaterThan(Math.max(...tal(dampatSpar('skotare', art).opacitet)));
-    expect(dampatSpar('skordare', 'andras').opacitet).toBeGreaterThanOrEqual(0.6);   // som den andres spår i skotarens vy
+    expect(Math.max(...tal(dampatSpar('skordare', 'andras').opacitet))).toBeGreaterThanOrEqual(0.6);   // som den andres spår i skotarens vy: dagens stråk syns tydligt
   });
-  it('tidigare dagar bleknar: planering och historik går från dagens värde ner till ett lägre efter 14 dagar; eget live-spår är dagens', () => {
-    for (const roll of ['skordare', 'skotare'] as const) for (const art of ['hist', 'plan'] as const) {
+  it('tidigare dagar bleknar: planering, historik och den andres spår går från dagens värde ner till ett lägre efter 14 dagar; eget live-spår är dagens', () => {
+    for (const roll of ['skordare', 'skotare'] as const) for (const art of ['hist', 'plan', 'andras'] as const) {
       const o = dampatSpar(roll, art).opacitet as any[];
       expect(o[0]).toBe('interpolate');
       expect(o[2]).toEqual(['coalesce', ['to-number', ['get', 'alder']], 0]);
