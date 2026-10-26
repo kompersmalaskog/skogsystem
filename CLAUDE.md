@@ -748,7 +748,7 @@ Maskindatorn kör appen som ett eget Chrome-fönster. Är föraren i ett annat p
 - **Tester:** `lib/hytt/{notiser,notisRapport,swHytt,hytt.vakter}.test.ts` (riktiga `public/sw.js` i sandbox), `lib/hooks/{useHyttNotiser,useBesokHytt}.test.tsx`, `components/planering/HyttNotiserKort.render.test.tsx`, `lib/besok/ejsett.test.ts`, `components/besok/Besok.render.test.tsx`. Mutationskontroll: `node scripts/mutationskontroll-hytt-notiser.mjs`.
 
 
-### Till maskinen, inte personen — och på från start (2026-10-26; `lib/hytt/maskinPush.ts`, `lib/hytt/tillatKort.ts`, `components/planering/HyttNotisTillat.tsx`, migration `20261026090000_push_subscriptions_maskin_id.sql` — **EJ körd, Martin kör före release**)
+### Till maskinen, inte personen — och på från start (2026-10-26; `lib/hytt/maskinPush.ts`, `lib/hytt/tillatKort.ts`, `components/planering/HyttNotisTillat.tsx`, migration `20261026180123_push_subscriptions_maskin_id.sql` — **körd i prod 2026-10-26** (version `20261026180123`), filen innehållsmässigt identisk med det som kördes)
 
 Martin körde Elefanten 26/10 och fick inga notiser: brytaren var av, `notis_kö` tom i tre dagar, och `push_subscriptions` är knutna till den som var INLOGGAD när enheten anmälde sig (Elefantens dator = "Daniel") — kör någon annan maskinen hamnar en person-push fel. Därför:
 

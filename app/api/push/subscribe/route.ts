@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     } catch { /* närvaron är en bonus, aldrig ett villkor */ }
 
     // Maskindator: prenumerationen hör till MASKINEN (hyttnotiser, lib/hytt/maskinPush) och inte till den som råkar vara inloggad. En enhet som inte längre är maskin
-    // (maskin_id saknas) nollas, så förarens telefon aldrig får hyttnotiserna. Kolumnen kommer med migrationen 20261026090000 – saknas den får registreringen aldrig ett fel.
+    // (maskin_id saknas) nollas, så förarens telefon aldrig får hyttnotiserna. Kolumnen kommer med migrationen 20261026180123 – saknas den får registreringen aldrig ett fel.
     // maskin_id måste vara en riktig maskin i registret: ett påhittat id gör inget, men en prenumeration ska inte kunna utge sig för en maskin som inte finns.
     // Bara när klienten uttryckligen skickar fältet (en äldre appversion som inte gör det rör inte kopplingen).
     if (kropp && typeof kropp === "object" && "maskin_id" in kropp) try {
