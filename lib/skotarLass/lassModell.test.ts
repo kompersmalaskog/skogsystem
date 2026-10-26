@@ -100,7 +100,7 @@ describe('sortiment', () => {
   });
   it('visningsnamn: skördarens namn läsbart, versionsmärket bort', () => {
     expect(sortimentVisning('Timmer: Vislanda_195_1-2_V3')).toBe('Timmer · Vislanda');
-    expect(sortimentVisning('Massa: BmavFall_V3')).toBe('Massaved björk');   // aldrig koden BmavFall
+    expect(sortimentVisning('Massa: BmavFall_V3')).toBe('Massaved barr');   // aldrig koden BmavFall, och Bmav är barr
     expect(sortimentVisning('Massa: HemvedFall_V3')).toBe('Ved markägare');
   });
   it('skördat per sortiment grupperar på nyckel, tar bort noll', () => {

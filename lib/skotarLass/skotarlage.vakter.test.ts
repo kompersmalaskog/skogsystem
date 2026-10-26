@@ -76,6 +76,16 @@ describe('föraren registrerar själv — appen frågar aldrig (Martin 2026-10-2
     expect(las('components/planering/skotar/SortimentNamn.tsx')).toContain('sortimentDelar');
     expect(las('lib/skotarLass/lassModell.ts')).toContain('sortimentDelar(r.namn).sortiment');
   });
+  it('− / + ger ETT steg per tryck: bara onClick med spärr, ingen pekarhändelse, ingen upprepning, ingen systemtangentbord-input i sifferplattan', () => {
+    const steg = las('components/planering/skotar/StegKnapp.tsx');
+    expect(steg).not.toMatch(/onPointer|onTouch|onMouse|setInterval|setTimeout/);
+    expect(steg).toContain('onClick={() => sparr(onSteg)}');
+    expect(steg).toContain('export const SPARR_MS = 250;');
+    expect(steg).not.toMatch(/<input|<textarea/);
+    const ark = las('components/planering/skotar/AndraLassArk.tsx');
+    expect(ark).not.toMatch(/HallKnapp|HALL\b|<input|onPointer/);
+    expect(ark.match(/<StegKnapp /g)).toHaveLength(2);
+  });
   it('+ › Registrera lass finns i Trakten-gruppen (där inget avlägg finns) och är en vanlig knapp som stänger plusmenyn', () => {
     expect(page).toMatch(/\{ id: 'registrera-lass', namn: 'Registrera lass', [^}]*typ: 'knapp', onTryck: \(\) => \{ stangPlus\(\); skotarLass\.registreraLass\(\); \} \}/);
   });

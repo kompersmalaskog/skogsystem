@@ -44,7 +44,9 @@ const ART_REGLER: ReadonlyArray<[RegExp, string]> = [
   [/alvesta\s*275/i, 'tall'],
   [/alvesta\s*305/i, 'gran'],
   [/övr?lov|övr?löv|ovrigt lov|övrigt löv|ovlov|övlöv/i, 'övrigt löv'],
-  [/björk|bjork|bjök|(^|[^a-zåäö])b(?=mav)/i, 'björk'],
+  // Bmav = BARRmassaved (Martin 2026-10-26: BmavFall 100-1 är barr, BjörkmavFall 104-1 är björk) — aldrig björk.
+  [/(^|[^a-zåäö])b(?=mav)/i, 'barr'],
+  [/björk|bjork|bjök/i, 'björk'],
   [/(^|[^a-zåäö])bok/i, 'bok'],
   [/(^|[^a-zåäö])ek(?![a-zåäö])|kärstimmerek/i, 'ek'],
   [/(^|[^a-zåäö])asp/i, 'asp'],

@@ -5,7 +5,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import React, { act } from 'react';
 import { NyttAvlaggKort } from './NyttAvlaggKort';
 import { LossaKnapp } from './LossaKnapp';
-import { AndraLassArk, HALL } from './AndraLassArk';
+import { AndraLassArk } from './AndraLassArk';
+import { SIFFRA_BREDD, SPARR_MS, TANGENT_SPARR_MS } from './StegKnapp';
 import { andraRad as andraRadModell } from '@/lib/skotarLass/lassModell';
 import { KvarArk } from './KvarArk';
 import { FardigskotadKort } from './FardigskotadKort';
@@ -178,86 +179,153 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
     expect(tillagg).not.toMatch(/195|_V3|1-2/);
   });
 
-  describe('håll in − / +', () => {
+  describe('ETT TRYCK = ETT STEG (Martin i Elefanten 26/10: + hoppade 1 → 3 eller 4)', () => {
     beforeEach(() => { vi.useFakeTimers(); });
     afterEach(() => { vi.useRealTimers(); });
-    it('ett steg direkt, upprepning medan man håller, stopp när man släpper', async () => {
+    const vanta = (ms: number) => act(async () => { vi.advanceTimersByTime(ms); });
+    const klick = (id: string) => act(async () => { (q(id) as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    // Händelserna en pekskärm skickar för ETT tryck: pointerdown, (tiden fingret ligger kvar), pointerup, pointerout/leave, click.
+    const pekskarmsTryck = async (id: string, hallMs: number) => {
+      const e = q(id) as HTMLElement;
+      await act(async () => { e.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })); });
+      await vanta(hallMs);
+      await act(async () => {
+        e.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true }));
+        e.dispatchEvent(new MouseEvent('pointerout', { bubbles: true }));
+        e.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+    };
+
+    it('ett tryck på pekskärmen (pointerdown → pointerup → pointerout → click) ger EXAKT ett steg — förut två (1 → 3)', async () => {
       const onRad = vi.fn();
       await rendera({ onRad });
-      await pekare('plus-talltimmer', 'pointerdown');
+      await pekskarmsTryck('plus-talltimmer', 80);
       expect(onRad).toHaveBeenCalledTimes(1);
-      await act(async () => { vi.advanceTimersByTime(HALL.START_MS - 50); });
-      expect(onRad).toHaveBeenCalledTimes(1);   // ännu ingen upprepning
-      await act(async () => { vi.advanceTimersByTime(50 + HALL.STEG_MS * 5); });
-      expect(onRad.mock.calls.length).toBeGreaterThanOrEqual(6);
-      expect(onRad.mock.calls.every((c) => c[1] === 1)).toBe(true);
-      await pekare('plus-talltimmer', 'pointerup');
-      const efter = onRad.mock.calls.length;
-      await act(async () => { vi.advanceTimersByTime(2000); });
-      expect(onRad).toHaveBeenCalledTimes(efter);
-      // webbläsaren skickar ett klick efter släppet — det får inte ge ett extra steg
-      await tryck('plus-talltimmer');
-      expect(onRad).toHaveBeenCalledTimes(efter);
+      expect(onRad.mock.calls[0][1]).toBe(1);
     });
-    it('tiderna: upprepningen börjar inom en halv sekund och blir snabbare ca 0,5 s senare', () => {
-      expect(HALL.START_MS).toBeLessThan(500);
-      expect(HALL.SNABB_EFTER_MS - HALL.START_MS).toBeGreaterThanOrEqual(400);
-      expect(HALL.SNABB_EFTER_MS - HALL.START_MS).toBeLessThanOrEqual(600);
-      expect(HALL.SNABB_STEG_MS).toBeLessThan(HALL.STEG_MS);
-    });
-    it('minus räknar neråt; efter ca 0,5 s av upprepning går det snabbare; avbrutet tryck stoppar', async () => {
+    it('ett långt tryck (tummen vilar 2 s i en skakande hytt) ger ETT steg — ingen håll-in-upprepning', async () => {
       const onRad = vi.fn();
       await rendera({ onRad });
-      await pekare('minus-talltimmer', 'pointerdown');
-      await act(async () => { vi.advanceTimersByTime(HALL.SNABB_EFTER_MS); });
-      const vid15 = onRad.mock.calls.length;
-      await act(async () => { vi.advanceTimersByTime(500); });
-      expect(onRad.mock.calls.length - vid15).toBeGreaterThanOrEqual(8);   // 50 ms-takt (långsam takt hade gett ~4)
-      expect(onRad.mock.calls.every((c) => c[1] === -1)).toBe(true);
-      await pekare('minus-talltimmer', 'pointercancel');
-      const stopp = onRad.mock.calls.length;
-      await act(async () => { vi.advanceTimersByTime(1000); });
-      expect(onRad).toHaveBeenCalledTimes(stopp);
+      await pekskarmsTryck('plus-talltimmer', 2000);
+      expect(onRad).toHaveBeenCalledTimes(1);
+      await pekskarmsTryck('minus-talltimmer', 600);
+      expect(onRad).toHaveBeenCalledTimes(2);
+      expect(onRad.mock.calls[1][1]).toBe(-1);
+    });
+    it('hålls fingret nere händer inget alls förrän klicket kommer (inget steg på nedtryck, inga timers)', async () => {
+      const onRad = vi.fn();
+      await rendera({ onRad });
+      await act(async () => { (q('plus-talltimmer') as HTMLElement).dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })); });
+      await vanta(5000);
+      expect(onRad).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+    it('snabba dubbeltryck (300 ms emellan) ger två steg', async () => {
+      const onRad = vi.fn();
+      await rendera({ onRad });
+      await klick('plus-talltimmer'); await vanta(300); await klick('plus-talltimmer');
+      expect(onRad).toHaveBeenCalledTimes(2);
+    });
+    it('simulerad studs: två klick inom 50 ms ger ETT steg; efter spärren (250 ms) räknas nästa tryck', async () => {
+      const onRad = vi.fn();
+      await rendera({ onRad });
+      await klick('plus-talltimmer'); await vanta(50); await klick('plus-talltimmer');
+      expect(onRad).toHaveBeenCalledTimes(1);
+      await vanta(SPARR_MS);
+      await klick('plus-talltimmer');
+      expect(onRad).toHaveBeenCalledTimes(2);
+    });
+    it('spärren gäller PER KNAPP: − direkt efter + räknas', async () => {
+      const onRad = vi.fn();
+      await rendera({ onRad });
+      await klick('plus-talltimmer'); await vanta(20); await klick('minus-talltimmer');
+      expect(onRad.mock.calls.map((c) => c[1])).toEqual([1, -1]);
+    });
+    it('tangentbord/hjälpmedel: en aktivering = ett steg', async () => {
+      const onRad = vi.fn();
+      await rendera({ onRad });
+      await klick('minus-talltimmer');
+      expect(onRad).toHaveBeenCalledTimes(1);
+    });
+    it('knapparna sitter still: siffran har FAST bredd (samma för 9 och 10, tabellsiffror), − och + är 56 px med avstånd emellan', async () => {
+      const mått = async (m3: number) => {
+        const l = lass(); l.delar[0].rader = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3 }];
+        await rendera({ lass: l });
+        const g = (id: string) => { const e = q(id) as HTMLElement; return { w: e.style.width, minW: e.style.minWidth, maxW: e.style.maxWidth, h: e.style.height, shrink: e.style.flexShrink, grow: e.style.flexGrow }; };
+        const rad = q('andra-rad-talltimmer') as HTMLElement;
+        return { minus: g('minus-talltimmer'), siffra: g('andra-siffra-talltimmer'), plus: g('plus-talltimmer'), gap: rad.style.gap, ordning: Array.from(rad.children).map((c) => (c as HTMLElement).dataset.testid ?? 'namn'), tabell: (q('andra-siffra-talltimmer') as HTMLElement).style.fontVariantNumeric };
+      };
+      const nio = await mått(9); const tio = await mått(10); const hundra = await mått(100); const tusen = await mått(1000);
+      expect(tio).toEqual(nio); expect(hundra).toEqual(nio); expect(tusen).toEqual(nio);
+      expect(nio.siffra.w).toBe(`${SIFFRA_BREDD}px`); expect(nio.siffra.minW).toBe(nio.siffra.w); expect(nio.siffra.maxW).toBe(nio.siffra.w);
+      expect(nio.siffra.shrink).toBe('0'); expect(nio.minus.shrink).toBe('0'); expect(nio.plus.shrink).toBe('0');
+      expect(nio.minus.w).toBe('56px'); expect(nio.plus.w).toBe('56px'); expect(nio.minus.h).toBe('56px');
+      expect(parseFloat(nio.gap)).toBeGreaterThanOrEqual(12);
+      expect(nio.ordning).toEqual(['namn', 'minus-talltimmer', 'andra-siffra-talltimmer', 'plus-talltimmer']);
+      expect(nio.tabell).toBe('tabular-nums');
     });
   });
 
-  describe('tryck på siffran skriver värdet direkt', () => {
-    const skriv = async (v: string) => {
-      const f = q('andra-siffra-talltimmer-falt') as HTMLInputElement;
-      await act(async () => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(f, v);
-        f.dispatchEvent(new Event('input', { bubbles: true }));
-      });
-      return f;
-    };
-    it('Enter sparar: skillnaden mot dagens värde skickas som ett steg', async () => {
+  describe('tryck på siffran öppnar en stor sifferknappsats (ersätter värdet, inget tangentbord från systemet)', () => {
+    const siffror = async (...tangenter: string[]) => { for (const t of tangenter) { await tryck(`siffer-${t}`); await act(async () => { await new Promise((r) => setTimeout(r, TANGENT_SPARR_MS + 10)); }); } };
+    it('platta med 0–9, radera och Klar, alla minst 56 px; inget input-fält (inget Windows-/iOS-tangentbord)', async () => {
+      await rendera();
+      await tryck('andra-siffra-talltimmer');
+      expect(q('siffer-platta')).not.toBeNull();
+      expect(div.querySelector('input, textarea')).toBeNull();
+      for (const t of ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'radera']) expect(px((q(`siffer-${t}`) as HTMLElement).style.height), t).toBeGreaterThanOrEqual(56);
+      expect(px((q('siffer-klar') as HTMLElement).style.minHeight)).toBeGreaterThanOrEqual(56);
+      expect(px((q('siffer-avbryt') as HTMLElement).style.height)).toBeGreaterThanOrEqual(56);
+    });
+    it('det man skriver ERSÄTTER värdet: dagens 10 visas dämpat, första siffran byter ut det; Klar skickar skillnaden som ETT steg', async () => {
       const onRad = vi.fn();
       await rendera({ onRad });
       await tryck('andra-siffra-talltimmer');
-      const f = await skriv('25');
-      expect(f.getAttribute('inputmode')).toBe('numeric');
-      await act(async () => { f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+      expect(q('siffer-visning')?.textContent).toContain('10');
+      expect(q('siffer-visning')?.getAttribute('data-ersatter')).toBe('ja');
+      await siffror('2', '5');
+      expect(q('siffer-visning')?.textContent).toContain('25');
+      expect(q('siffer-visning')?.textContent).not.toContain('1025');
+      await tryck('siffer-klar');
       expect(onRad).toHaveBeenCalledTimes(1);
       expect(onRad.mock.calls[0][1]).toBe(15);   // 25 − 10
-      expect(q('andra-siffra-talltimmer-falt')).toBeNull();
+      expect(q('siffer-platta')).toBeNull();
+      expect(q('andra-rad-talltimmer')).not.toBeNull();   // tillbaka i lasskortet
     });
-    it('bara siffror; tomt fält och Esc ändrar inget; 0 tar bort raden (delta = −värdet)', async () => {
+    it('radera tar bort sista siffran; max fyra siffror; 0 tar bort raden (delta = −värdet)', async () => {
       const onRad = vi.fn();
       await rendera({ onRad });
       await tryck('andra-siffra-talltimmer');
-      let f = await skriv('1a2b');
-      expect(f.value).toBe('12');
-      await skriv('');
-      await act(async () => { f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
-      expect(onRad).not.toHaveBeenCalled();
-      await tryck('andra-siffra-talltimmer');
-      f = await skriv('30');
-      await act(async () => { f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
-      expect(onRad).not.toHaveBeenCalled();
-      await tryck('andra-siffra-talltimmer');
-      await skriv('0');
-      await act(async () => { (q('andra-siffra-talltimmer-falt') as HTMLInputElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+      await siffror('1', '2', '3');
+      await tryck('siffer-radera');
+      expect(q('siffer-visning')?.textContent).toContain('12');
+      await siffror('3', '4', '5', '6');
+      expect(q('siffer-visning')?.textContent).toContain('1234');
+      expect(q('siffer-visning')?.textContent).not.toContain('12345');
+      await siffror('radera', 'radera', 'radera', 'radera', '0');
+      await tryck('siffer-klar');
       expect(onRad.mock.calls[0][1]).toBe(-10);
+    });
+    it('Klar utan att ha skrivit något och Avbryt ändrar inget', async () => {
+      const onRad = vi.fn();
+      await rendera({ onRad });
+      await tryck('andra-siffra-talltimmer'); await tryck('siffer-klar');
+      expect(onRad).not.toHaveBeenCalled(); expect(q('siffer-platta')).toBeNull();
+      await tryck('andra-siffra-talltimmer'); await siffror('3', '0'); await tryck('siffer-avbryt');
+      expect(onRad).not.toHaveBeenCalled(); expect(q('siffer-platta')).toBeNull(); expect(q('andra-rad-talltimmer')).not.toBeNull();
+    });
+    it('samma värde som förut ger inget steg', async () => {
+      const onRad = vi.fn();
+      await rendera({ onRad });
+      await tryck('andra-siffra-talltimmer'); await siffror('1', '0'); await tryck('siffer-klar');
+      expect(onRad).not.toHaveBeenCalled();
+    });
+    it('studs på en tangent (två klick inom 50 ms) ger EN siffra', async () => {
+      await rendera();
+      await tryck('andra-siffra-talltimmer');
+      await tryck('siffer-7'); await tryck('siffer-7');
+      expect(q('siffer-visning')?.textContent).toContain('7');
+      expect(q('siffer-visning')?.textContent).not.toContain('77');
     });
   });
 

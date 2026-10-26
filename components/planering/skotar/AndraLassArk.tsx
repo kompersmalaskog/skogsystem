@@ -4,98 +4,22 @@
 // Avbryt på ett nytt lass (utkast) kastar det — inget har sparats. För en stor pekskärm i en skakande hytt, utan handskar (mockupen).
 //   • Ett centrerat ark, ca 640 px brett (smal skärm: full bredd minus marginal). Avlägget överst med Byt ›, totalen uppe till höger, Avbryt / Klar nederst.
 //   • En rad per sortiment, minst 56 px hög: namn i två nivåer (sortimentet vitt, mottagaren grå) · [ − ] siffra [ + ], knapparna 56×56.
-//   • Håll in − / + räknar snabbt (upprepning). Tryck på siffran öppnar ett sifferfält där värdet skrivs direkt.
+//   • − / + ger ETT steg per tryck (ingen upprepning, spärr mot studs). Tryck på siffran öppnar en stor sifferknappsats (0–9, radera, Klar) som ersätter värdet.
 //   • Lägg till: ett rutnät (2–3 kolumner) med knappar ≥ 56 px; fler än 8 sortiment → de 8 vanligaste och en knapp "Fler ›".
 // Valen är traktens egna sortiment med skördarens namn. Raden på 0 försvinner.
 
-import React, { useEffect, useRef, useState } from 'react';
-import { AVSTAND, FARG, RADIE, TNUM, TYP } from '@/lib/design/tokens';
+import React, { useState } from 'react';
+import { AVSTAND, FARG, TYP } from '@/lib/design/tokens';
 import { avlaggRubrik } from '@/lib/skotarLass/avlagg';
 import { kanBekrafta, lassTitel, totalM3, heltM3 } from '@/lib/skotarLass/lassModell';
 import type { Avlagg, Lass, SortimentRad } from '@/lib/skotarLass/typer';
 import { arkPanel, arkRam, avdelare, knappPrimar, knappStor, meta, smaRubrik, TRYCK_PX } from './stil';
 import { SortimentNamn } from './SortimentNamn';
+import { SiffraKnapp, SifferPlatta, StegKnapp } from './StegKnapp';
 import { medSafeBotten } from '@/lib/design/tokens';
 
-/** Siffran mellan − och +: 24 px fet (ligger mellan stegen rubrik 20 och tal 32 i tokens — avsiktligt, läsbarhet i hytten). */
-const SIFFRA_PX = 24;
 /** Så många sortiment visas direkt under Lägg till; resten ligger bakom "Fler ›". */
 export const TILLAGG_SYNLIGA = 8;
-/** Håll in: första steget direkt, upprepning efter START_MS, och efter ytterligare ~0,5 s av upprepning (SNABB_EFTER_MS räknat från nedtryck) går det snabbare. */
-export const HALL = { START_MS: 350, STEG_MS: 120, SNABB_EFTER_MS: 850, SNABB_STEG_MS: 50 } as const;
-
-/** − / +: ett steg vid tryck, upprepning medan man håller. Pekarhändelser (inte klick) så att ett långt tryck aldrig blir ett enda steg. */
-function HallKnapp({ tecken, etikett, onSteg, testid }: { tecken: string; etikett: string; onSteg: () => void; testid: string }) {
-  const stegRef = useRef(onSteg);
-  stegRef.current = onSteg;
-  const tider = useRef<{ start: ReturnType<typeof setTimeout> | null; rep: ReturnType<typeof setInterval> | null; snabb: ReturnType<typeof setTimeout> | null }>({ start: null, rep: null, snabb: null });
-  const harPekat = useRef(false);   // pekaren har redan gett stegen — det efterföljande klicket får inte ge ett till
-
-  const stopp = () => {
-    const t = tider.current;
-    if (t.start) clearTimeout(t.start);
-    if (t.rep) clearInterval(t.rep);
-    if (t.snabb) clearTimeout(t.snabb);
-    t.start = t.rep = t.snabb = null;
-  };
-  useEffect(() => stopp, []);
-
-  const borja = (e: React.PointerEvent) => {
-    e.preventDefault();
-    stopp();
-    harPekat.current = true;
-    stegRef.current();
-    tider.current.start = setTimeout(() => {
-      tider.current.rep = setInterval(() => stegRef.current(), HALL.STEG_MS);
-      tider.current.snabb = setTimeout(() => {
-        if (tider.current.rep) clearInterval(tider.current.rep);
-        tider.current.rep = setInterval(() => stegRef.current(), HALL.SNABB_STEG_MS);
-      }, HALL.SNABB_EFTER_MS - HALL.START_MS);
-    }, HALL.START_MS);
-  };
-  const avbryt = () => { stopp(); harPekat.current = false; };
-
-  return (
-    <button type="button" aria-label={etikett} data-testid={testid}
-      onPointerDown={borja} onPointerUp={stopp} onPointerCancel={avbryt} onPointerLeave={avbryt} onBlur={stopp}
-      onContextMenu={(e) => e.preventDefault()}
-      onClick={() => { if (harPekat.current) { harPekat.current = false; return; } onSteg(); }}   // tangentbord / hjälpmedel: ett steg per aktivering
-      style={{ width: TRYCK_PX, height: TRYCK_PX, borderRadius: RADIE.knapp, border: 'none', background: FARG.fyllning, color: FARG.text, ...TYP.rubrik, fontSize: SIFFRA_PX, fontFamily: 'inherit', cursor: 'pointer', flexShrink: 0, touchAction: 'manipulation', userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}>
-      {tecken}
-    </button>
-  );
-}
-
-/** Siffran: tryck → sifferfält (bara siffror), Enter eller att lämna fältet sparar, Esc ångrar. */
-function Siffra({ varde, etikett, onSkriv, testid }: { varde: number; etikett: string; onSkriv: (n: number) => void; testid: string }) {
-  const [skriver, setSkriver] = useState(false);
-  const [text, setText] = useState('');
-  const klar = useRef(false);
-  const ram: React.CSSProperties = { width: 96, height: TRYCK_PX, textAlign: 'center', ...TYP.rubrik, fontSize: SIFFRA_PX, ...TNUM, color: FARG.text, fontFamily: 'inherit', flexShrink: 0 };
-  if (!skriver) {
-    return (
-      <button type="button" aria-label={`${etikett}: ${varde} m³. Tryck för att skriva värdet`} data-testid={testid} onClick={() => { klar.current = false; setText(String(varde)); setSkriver(true); }}
-        style={{ ...ram, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}>
-        {varde}<span style={{ ...TYP.text, color: FARG.text2 }}> m³</span>
-      </button>
-    );
-  }
-  const spara = () => {
-    if (klar.current) return;
-    klar.current = true;
-    const n = parseInt(text, 10);
-    if (Number.isFinite(n) && text !== '') onSkriv(n);
-    setSkriver(false);
-  };
-  return (
-    <input data-testid={`${testid}-falt`} aria-label={`${etikett}, m³`} type="text" inputMode="numeric" pattern="[0-9]*" autoFocus maxLength={4} value={text}
-      onFocus={(e) => e.currentTarget.select()}
-      onChange={(e) => setText(e.target.value.replace(/\D/g, ''))}
-      onBlur={spara}
-      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); spara(); } else if (e.key === 'Escape') { klar.current = true; setSkriver(false); } }}
-      style={{ ...ram, boxSizing: 'border-box', border: `2px solid ${FARG.text}`, borderRadius: RADIE.knapp, background: FARG.fyllning, padding: 0, outline: 'none' }} />
-  );
-}
 
 export function AndraLassArk({ lass, delNr, utkast, avlagg, valbara, alla, onLasOm, onRad, onAvlagg, onKlar, onAvbryt, onTaBort }: {
   lass: Lass;
@@ -118,6 +42,7 @@ export function AndraLassArk({ lass, delNr, utkast, avlagg, valbara, alla, onLas
   const [avlaggVal, setAvlaggVal] = useState(false);
   const [bekraftaBort, setBekraftaBort] = useState(false);
   const [fler, setFler] = useState(false);
+  const [skriver, setSkriver] = useState<SortimentRad | null>(null);   // raden vars värde skrivs på sifferknappsatsen
   const del = lass.delar.find((d) => d.delNr === delNr) ?? lass.delar[0];
   const rader = del.rader;
   const finns = new Set(rader.map((r) => r.nyckel));
@@ -130,6 +55,20 @@ export function AndraLassArk({ lass, delNr, utkast, avlagg, valbara, alla, onLas
   const listaSaknas = (alla ?? valbara).length === 0;
   const sum = totalM3(rader);
   const klarKan = kanBekrafta(lass);
+
+  // Sifferknappsatsen ersätter arkets innehåll (inget tangentbord från Windows/iOS): Klar skickar skillnaden mot dagens värde som ETT steg, Avbryt rör inget.
+  if (skriver) {
+    const rad = rader.find((r) => r.nyckel === skriver.nyckel) ?? skriver;
+    return (
+      <div style={{ ...arkRam, padding: `0 ${AVSTAND.m}px`, boxSizing: 'border-box' }}>
+        <div data-testid="andra-lass" style={{ ...arkPanel, maxWidth: 640, paddingBottom: medSafeBotten(AVSTAND.s) }}>
+          <SifferPlatta namn={rad.namn} varde={heltM3(rad.m3)}
+            onAvbryt={() => setSkriver(null)}
+            onKlar={(n) => { setSkriver(null); if (n != null) { const d = n - heltM3(rad.m3); if (d !== 0) onRad(rad, d); } }} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ ...arkRam, padding: `0 ${AVSTAND.m}px`, boxSizing: 'border-box' }}>
@@ -159,11 +98,11 @@ export function AndraLassArk({ lass, delNr, utkast, avlagg, valbara, alla, onLas
           <div style={avdelare} />
           {rader.length === 0 && !listaSaknas && <div style={{ ...meta, padding: `${AVSTAND.s}px 0` }}>Inga sortiment ännu — lägg till nedan.</div>}
           {rader.map((r) => (
-            <div key={r.nyckel} data-testid={`andra-rad-${r.nyckel}`} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRYCK_PX, marginBottom: AVSTAND.s }}>
+            <div key={r.nyckel} data-testid={`andra-rad-${r.nyckel}`} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRYCK_PX, marginBottom: AVSTAND.s }}>
               <div style={{ flex: 1, minWidth: 0 }}><SortimentNamn namn={r.namn} /></div>
-              <HallKnapp tecken="−" etikett={`Ett m³ mindre ${r.namn}`} testid={`minus-${r.nyckel}`} onSteg={() => onRad(r, -1)} />
-              <Siffra varde={heltM3(r.m3)} etikett={r.namn} testid={`andra-siffra-${r.nyckel}`} onSkriv={(n) => { const d = n - heltM3(r.m3); if (d !== 0) onRad(r, d); }} />
-              <HallKnapp tecken="+" etikett={`Ett m³ mer ${r.namn}`} testid={`plus-${r.nyckel}`} onSteg={() => onRad(r, +1)} />
+              <StegKnapp tecken="−" etikett={`Ett m³ mindre ${r.namn}`} testid={`minus-${r.nyckel}`} onSteg={() => onRad(r, -1)} />
+              <SiffraKnapp varde={heltM3(r.m3)} etikett={r.namn} testid={`andra-siffra-${r.nyckel}`} onOppna={() => setSkriver(r)} />
+              <StegKnapp tecken="+" etikett={`Ett m³ mer ${r.namn}`} testid={`plus-${r.nyckel}`} onSteg={() => onRad(r, +1)} />
             </div>
           ))}
 

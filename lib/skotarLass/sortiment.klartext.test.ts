@@ -11,7 +11,8 @@ describe('klartextNamn: ur texten när tabellen saknar namnet', () => {
     ['Timmer: Vislanda_195_1-2_V3', 'Timmer · Vislanda'],
     ['Timmer: Tall_V3', 'Talltimmer'],
     ['Kubb: Tall_V3', 'Tallkubb'],
-    ['Massa: BmavFall_V3', 'Massaved björk'],
+    ['Massa: BmavFall_V3', 'Massaved barr'],
+    ['Massa: BjörkmavFall_V3', 'Massaved björk'],
     ['Massa: Gran_V3', 'Massaved gran'],
     ['Ved markägare', 'Ved markägare'],
     ['Massa: HemvedFall_V3', 'Ved markägare'],
@@ -32,10 +33,10 @@ describe('sortimentVisning: grupp och destination ur sortimentstabellen', () => 
   it('"Talltimmer · Vislanda" och "Massaved björk"', () => {
     sattSortimentKlass([
       { namn: 'Timmer: Vislanda Tall_V3', grupp: 'Timmer', destination: 'Vislanda' },
-      { namn: 'Massa: BmavFall_V3', grupp: 'Massaved', destination: null },
+      { namn: 'Massa: BjörkmavFall_V3', grupp: 'Massaved', destination: null },
     ]);
     expect(sortimentVisning('Timmer: Vislanda Tall_V3')).toBe('Talltimmer · Vislanda');
-    expect(sortimentVisning('Massa: BmavFall_V3')).toBe('Massaved björk');
+    expect(sortimentVisning('Massa: BjörkmavFall_V3')).toBe('Massaved björk');
   });
   it('saknas destinationen visas gruppen ("Kubb"), aldrig koden', () => {
     sattSortimentKlass([{ namn: 'Kubb: 305', grupp: 'Kubb', destination: null }]);
@@ -51,7 +52,7 @@ describe('sortimentVisning: grupp och destination ur sortimentstabellen', () => 
   it('två nivåer ur samma namn: sortimentet och mottagaren', () => {
     sattSortimentKlass([{ namn: 'Kubb: Alvesta_305_V3', grupp: 'Kubb', destination: 'Alvesta' }]);
     expect(sortimentDelar('Kubb: Alvesta_305_V3')).toEqual({ sortiment: 'Kubb', mottagare: 'Alvesta' });
-    expect(sortimentDelar('Massa: BmavFall_V3')).toEqual({ sortiment: 'Massaved björk', mottagare: null });
+    expect(sortimentDelar('Massa: BjörkmavFall_V3')).toEqual({ sortiment: 'Massaved björk', mottagare: null });
   });
   it('inget namn i någon tillstånd innehåller kodmärken', () => {
     const namn = ['Timmer: Vislanda_195_1-2_V3', 'Kubb: Alvesta_305_V3', 'Massa: BmavFall_V3', 'Timmer: Tall_V3', 'Energi: Engved_509', 'Unclassified', 'Kubb: 305', 'Timmer: Vislanda_Tall_kort_V3'];
@@ -73,7 +74,7 @@ describe('prod-sortimenten: Alvesta-kubben och sortiment som annars får samma t
     for (const n of ['Alvesta305', 'Alvesta305_V3', 'Kubb: Alvesta305', 'Kubb: Alvesta305_V3']) expect(sortimentVisning(n), n).toBe('Grankubb · Alvesta');
   });
   it('trädslag först, sedan längd: samma text ger ett tillägg (3 m, 1,95 m, 4,94 m), aldrig koden', () => {
-    expect(sortimentVisning('Massa: BmavFall_V3')).toBe('Massaved björk');
+    expect(sortimentVisning('Massa: BmavFall_V3')).toBe('Massaved barr');
     expect(sortimentVisning('Massaved: Bjork mav3m')).toBe('Massaved björk 3 m');
     expect(sortimentVisning('Energi: EngvedFallGran_V3')).toBe('Energived gran');
     expect(sortimentVisning('Energi: Engved3mGran_V3')).toBe('Energived gran 3 m');
@@ -85,6 +86,15 @@ describe('prod-sortimenten: Alvesta-kubben och sortiment som annars får samma t
   });
   it('sortiment med eget namn heter det, inte bara "Timmer"', () => {
     for (const [n, t] of [['Timmer: Stamblock', 'Stamblock'], ['Timmer: Karbenning', 'Karbenning'], ['Timmer: Stödlängd_V3', 'Stödlängd · Vislanda'], ['Kortlängd', 'Kortlängd'], ['Timmer: KärstimmerEk_V3', 'Kärstimmer ek']]) expect(sortimentVisning(n), n).toBe(t);
+  });
+  it('Bmav = BARRmassaved, aldrig björk (Martin 2026-10-26: BmavFall 100-1 är barr, BjörkmavFall 104-1 är björk) — och inget annat sortiment utan björk i namnet blir björk', () => {
+    for (const r of PROD) {
+      const t = sortimentVisning(r.namn);
+      if (/bmav/i.test(r.namn) && !/bj[öo]rk/i.test(r.namn)) expect(t, r.namn).toMatch(/^Massaved barr/);
+      if (/björk/.test(t)) expect(r.namn, `${r.namn} → ${t}`).toMatch(/bj[öo]rk|bjök/i);
+    }
+    expect(sortimentVisning('BmavFall')).toBe('Massaved barr');
+    expect(sortimentVisning('Massa: BjörkmavFall')).toBe('Massaved björk');
   });
   it('Utan sortiment (Unclassified/Unspecified) får inget tillägg', () => {
     expect(sortimentVisning('Unspecified')).toBe('Utan sortiment');
