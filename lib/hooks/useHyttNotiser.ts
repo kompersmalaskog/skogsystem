@@ -79,10 +79,12 @@ export function useHyttNotiser(a: HyttNotiserIn): void {
   }, [a.aktiv, lage, harBesok]);
 
   // Av → rensa: brytaren stängd eller maskinläget lämnat. Notiser som ligger kvar stängs, minnet nollas.
+  // En enhet som aldrig varit aktiv (förarens telefon) har inget att rensa och ska inte röra notiserna alls.
+  const varAktivRef = useRef(false);
   useEffect(() => {
-    if (a.aktiv) return;
+    if (a.aktiv) { varAktivRef.current = true; return; }
     stateRef.current = TOMT_NOTISLAGE;
-    if (uppeRef.current) { uppeRef.current = false; void stangHyttNotiser(); }
+    if (varAktivRef.current && uppeRef.current) { uppeRef.current = false; void stangHyttNotiser(); }
   }, [a.aktiv]);
 
   const fk = nyckelFara(a.fara), bk = nyckelBesok(a.besok), ok = nyckelOmrade(a.omrade);
