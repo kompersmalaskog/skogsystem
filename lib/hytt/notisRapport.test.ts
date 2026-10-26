@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { antalAttFixa, brytarenKanSlasPa, byggRapport, svarsrubrik, testRader } from './notisRapport';
+import { antalAttFixa, byggRapport, svarsrubrik, testRader } from './notisRapport';
 
 const REDO = { stods: true, installerad: true, behorighet: 'granted' as const, swAktiv: true };
 const rad = (i: Parameters<typeof byggRapport>[0], id: string) => byggRapport(i).find((r) => r.id === id)!;
@@ -64,9 +64,16 @@ describe('notisrapport — testresultatet', () => {
     expect(rader[2]).toMatch(/^Öppna kartan tryckt /);
   });
 
-  it('brytaren går bara att slå på när testnotisen skickats OCH Uppfattat tryckts', () => {
-    expect(brytarenKanSlasPa({})).toBe(false);
-    expect(brytarenKanSlasPa({ skickad: 1 })).toBe(false);
-    expect(brytarenKanSlasPa({ skickad: 1, uppfattat: 2 })).toBe(true);
+  it('maskin- och push-raderna finns bara när de efterfrågas och säger exakt vad som saknas', () => {
+    const bas = { stods: true, installerad: true, behorighet: 'granted' as const, swAktiv: true };
+    expect(byggRapport(bas).map((r) => r.id)).not.toContain('maskin');
+    expect(byggRapport(bas).map((r) => r.id)).not.toContain('push');
+    const ok = byggRapport({ ...bas, maskin: true, pushPrenumeration: true });
+    expect(ok.find((r) => r.id === 'maskin')?.status).toBe('ok');
+    expect(ok.find((r) => r.id === 'push')?.status).toBe('ok');
+    const saknas = byggRapport({ ...bas, maskin: false, pushPrenumeration: false });
+    expect(saknas.find((r) => r.id === 'maskin')).toMatchObject({ status: 'fixa', text: expect.stringContaining('inte vald som maskin') });
+    expect(saknas.find((r) => r.id === 'push')).toMatchObject({ status: 'fixa', text: expect.stringContaining('Ctrl+R') });
+    expect(antalAttFixa(saknas)).toBe(2);
   });
 });

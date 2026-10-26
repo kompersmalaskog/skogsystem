@@ -10,12 +10,14 @@ const h = vi.hoisted(() => ({
   updates: [] as { varden: any; endpoint: string }[],
   updateSvar: { error: null as any },
   updateKastar: false,
+  maskiner: ['A130743'] as string[],
 }));
 
 vi.mock('@/lib/auth/server', () => ({ målMedarbetareId: async () => ({ ok: true, id: 'm-1' }) }));
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
-    from: () => ({
+    from: (tabell: string) => ({
+      select: () => ({ eq: (_k: string, id: string) => ({ maybeSingle: async () => ({ data: tabell === 'dim_maskin' && h.maskiner.includes(id) ? { maskin_id: id } : null, error: null }) }) }),
       upsert: async (rad: any) => { h.upserts.push(rad); return { error: null }; },
       update: (varden: any) => ({
         eq: async (_k: string, endpoint: string) => {
@@ -34,11 +36,11 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = 'fake';
 import { NextRequest } from 'next/server';
 import { POST } from './route';
 
-const anrop = () => POST(new NextRequest('http://x/api/push/subscribe', {
-  method: 'POST', body: JSON.stringify({ subscription: { endpoint: 'e-1' }, device_name: 'iPhone' }),
+const anrop = (extra: Record<string, unknown> = {}) => POST(new NextRequest('http://x/api/push/subscribe', {
+  method: 'POST', body: JSON.stringify({ subscription: { endpoint: 'e-1' }, device_name: 'iPhone', ...extra }),
 }));
 
-beforeEach(() => { h.upserts = []; h.updates = []; h.updateSvar = { error: null }; h.updateKastar = false; });
+beforeEach(() => { h.upserts = []; h.updates = []; h.updateSvar = { error: null }; h.updateKastar = false; h.maskiner = ['A130743']; });
 
 describe('/api/push/subscribe — närvaro', () => {
   it('registrerar prenumerationen och stämplar när appen öppnades (en separat skrivning på samma enhet)', async () => {
@@ -63,5 +65,43 @@ describe('/api/push/subscribe — närvaro', () => {
     h.updateKastar = true;
     const res = await anrop();
     expect(res.status).toBe(200);
+  });
+});
+
+
+describe('/api/push/subscribe — prenumerationen hör till MASKINEN på en maskindator', () => {
+  const maskinSkrivningar = () => h.updates.filter((u) => 'maskin_id' in u.varden);
+
+  it('maskindatorn skickar sin maskin → maskin_id sparas på prenumerationen (medarbetare_id är fortfarande den inloggade, men det är maskinen som styr hyttnotiserna)', async () => {
+    const res = await anrop({ maskin_id: 'A130743' });
+    expect(res.status).toBe(200);
+    expect(maskinSkrivningar()).toEqual([{ varden: { maskin_id: 'A130743' }, endpoint: 'e-1' }]);
+    expect(h.upserts[0]).not.toHaveProperty('maskin_id');   // upserten fungerar utan migrationen
+  });
+
+  it('förarens telefon (maskin_id null) nollar kopplingen – en enhet som slutat vara maskin får aldrig hyttnotiser', async () => {
+    await anrop({ maskin_id: null });
+    expect(maskinSkrivningar()).toEqual([{ varden: { maskin_id: null }, endpoint: 'e-1' }]);
+  });
+
+  it('en äldre appversion som inte skickar fältet rör inte kopplingen', async () => {
+    await anrop();
+    expect(maskinSkrivningar()).toEqual([]);
+  });
+
+  it('ett påhittat eller förvanskat maskin_id blir null (maskinen måste finnas i registret)', async () => {
+    await anrop({ maskin_id: 'FINNS-INTE' });
+    await anrop({ maskin_id: "x'; drop table push_subscriptions;--" });
+    await anrop({ maskin_id: 42 });
+    expect(maskinSkrivningar().map((u) => u.varden.maskin_id)).toEqual([null, null, null]);
+  });
+
+  it('kolumnen saknas (migrationen ej körd) eller nätfel → registreringen lyckas ändå', async () => {
+    h.updateSvar = { error: { message: 'column "maskin_id" does not exist' } };
+    expect((await anrop({ maskin_id: 'A130743' })).status).toBe(200);
+    h.updateKastar = true;
+    const res = await anrop({ maskin_id: 'A130743' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
   });
 });

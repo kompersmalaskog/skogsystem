@@ -1,5 +1,7 @@
-// Notiser i hytten: brytaren och testets resultat, per enhet (maskindatorn). Standard AV — steg 2 tas i bruk först när Martin testat testnotisen i skördaren
-// och slagit på brytaren i Inställningar. Minnet är en bekvämlighet: går localStorage inte att läsa gäller AV.
+// Notiser i hytten: brytaren och testets resultat, per enhet (maskindatorn). PÅ som standard på en enhet som är maskin (enhet_maskin_id) — ingen brytare ska behöva slås på
+// (Martin körde Elefanten 26/10 och fick inga notiser: brytaren var av). Ett uttryckligt val gäller före standarden: den som stängt av i Inställningar har det avstängt.
+// En enhet som inte är maskin har det av. Går localStorage inte att läsa gäller standarden.
+import { hamtaEnhetMaskin } from '@/lib/enhetMaskin';
 
 const PA_NYCKEL = 'hytt_notiser_v1';
 const TEST_NYCKEL = 'hytt_notis_test_v1';
@@ -15,8 +17,15 @@ export type TestResultat = {
   oppnad?: number;
 };
 
+/** Uttryckligt val: 'pa' | 'av', eller null när ingen rört brytaren. */
+export function lasHyttNotiserVal(): 'pa' | 'av' | null {
+  try { const v = localStorage.getItem(PA_NYCKEL); return v === 'pa' || v === 'av' ? v : null; } catch { return null; }
+}
+/** På? Valet först, annars standarden: på när enheten är en maskin. */
 export function lasHyttNotiserPa(): boolean {
-  try { return localStorage.getItem(PA_NYCKEL) === 'pa'; } catch { return false; }
+  const val = lasHyttNotiserVal();
+  if (val) return val === 'pa';
+  return hamtaEnhetMaskin() != null;
 }
 export function sparaHyttNotiserPa(pa: boolean): void {
   try { localStorage.setItem(PA_NYCKEL, pa ? 'pa' : 'av'); } catch { /* ingen lagring: förblir av */ }

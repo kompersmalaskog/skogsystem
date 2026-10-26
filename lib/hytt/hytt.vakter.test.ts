@@ -41,11 +41,17 @@ describe('notisens innehåll', () => {
     expect(visa).toContain('reg.showNotification');
     expect(visa).toContain('if (!d?.hytt) continue;');
   });
-  it('bara tre sorter ger notis i appens logik: fara, besök, område (+ test)', () => {
-    expect(notiser).toContain("export type NotisTyp = 'fara' | 'besok' | 'omrade' | 'test';");
+  it('bara fyra sorter ger notis i appens logik: fara, besök, område, GPS saknas (+ test)', () => {
+    expect(notiser).toContain("export type NotisTyp = 'fara' | 'besok' | 'omrade' | 'gps' | 'test';");
   });
-  it('ordningen är område, besök, fara: den senast skapade hamnar överst i Windows', () => {
-    expect(notiser).toContain("const RANG: Record<NotisTyp, number> = { omrade: 0, besok: 1, fara: 2, test: 3 };");
+  it('ordningen är område, besök, fara, GPS saknas: den senast skapade hamnar överst i Windows', () => {
+    expect(notiser).toContain("const RANG: Record<NotisTyp, number> = { omrade: 0, besok: 1, fara: 2, test: 3, gps: 4 };");
+  });
+  it('GPS-notisen: styrs av useGpsSaknasLang (30 s, ingen polling), aldrig i testläget, och nollas av varje giltig fix', () => {
+    expect(sida).toContain('useGpsSaknasLang(instruktionerAktiv && hyttNotiserPa && !testlage)');
+    expect(sida).toContain('gpsSaknas: gpsLang.saknas');
+    expect(sida).toContain('gpsLangVidFixRef.current();');
+    expect(kod(las('lib/hooks/useGpsSaknasLang.ts'))).not.toMatch(/setInterval/);
   });
 });
 
@@ -85,8 +91,11 @@ describe('hooken är ett tillägg', () => {
   it('alla anrop mot notisvisandet är skyddade av try/catch, så ett fel aldrig fäller larmet, besökskortet eller sidan', () => {
     expect(hook).toContain('catch { /* en notis som inte kunde visas får aldrig fälla något */ }');
   });
-  it('brytaren är AV som standard och går inte att slå på utan ett lyckat test', () => {
-    expect(kort).toContain('disabled={!kanPa && !pa}');
-    expect(las('lib/hytt/notisInstallning.ts')).toContain("=== 'pa'");
+  it('brytaren är PÅ som standard på en maskin (enhet_maskin_id) och AV på övriga; ett uttryckligt val gäller före standarden; inget test krävs för att slå på den', () => {
+    expect(kort).not.toContain('kanPa');
+    expect(kort).not.toContain('disabled={!kanPa');
+    const inst = las('lib/hytt/notisInstallning.ts');
+    expect(inst).toContain('hamtaEnhetMaskin() != null');
+    expect(inst).toContain("v === 'pa' || v === 'av'");
   });
 });

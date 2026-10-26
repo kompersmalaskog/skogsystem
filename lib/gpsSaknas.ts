@@ -8,3 +8,6 @@ export function gpsSaknas(nuMs: number, senastGiltigMs: number | null, oppnadMs:
   if (sedan == null) return false
   return nuMs - sedan > GPS_SAKNAS_MS
 }
+
+/** Windows-notisen "GPS saknas – faror varnas inte" (lib/hytt/notiser) kommer tidigare än raden i appen: skyddet är borta, föraren ska veta det fort. */
+export const GPS_SAKNAS_NOTIS_MS = 30_000

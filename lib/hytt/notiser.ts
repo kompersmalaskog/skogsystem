@@ -1,9 +1,10 @@
 // NOTISER I HYTTEN (Windows-notis via Chrome när appen inte är framme). Rena funktioner: vad en notis säger, vilka knappar den har och NÄR den kommer.
 // Appen känner bara sitt eget fönster (lib/hytt/notisFonster). Notisen är ett TILLÄGG: larmet, besökskortet och instruktionskortet i appen fungerar som förut.
 //
-// Tre sorter, i den här ordningen när flera kommer — fara, besök, område. Windows lägger den senast skapade överst, så de skapas i omvänd ordning (område, besök, fara):
+// Fyra sorter, i den här ordningen när flera kommer — GPS saknas, fara, besök, område. Windows lägger den senast skapade överst, så de skapas i omvänd ordning:
 //  FARA   (röd ikon)    "<Namn> <meter> m" + kortregeln/kommentaren. Ligger kvar tills föraren stänger den. EN notis per fara och inkörning.
 //  BESÖK  (orange ikon) "Besök: <namn> kommer <nu/ca hh:mm>" + "<trakt> · Stäng av när du ser hen". Knappar Uppfattat / Öppna kartan. Ny notis med ljud efter 5 min, en gång.
+//  GPS    (röd ikon)    "GPS saknas – faror varnas inte": ingen giltig position på över 30 s (porten borta eller tyst) medan appen inte är framme. EN gång per avbrott; stängs när GPS är tillbaka.
 //  OMRÅDE (neutral)     ytans namn + första punkten (+N till). Ett tryck öppnar instruktionskortet. EN notis per yta och text (samma Sett-hash som kortet).
 // Info (avlägg, ved, grind …) ger ingen notis.
 
@@ -12,12 +13,13 @@ import { kommerText } from '@/lib/besok/tid';
 import { kommentarPunkter } from '@/lib/kommentarPunkter';
 import type { FonsterLage } from './notisFonster';
 
-export type NotisTyp = 'fara' | 'besok' | 'omrade' | 'test';
+export type NotisTyp = 'fara' | 'besok' | 'omrade' | 'gps' | 'test';
 
 export const NOTIS_IKON: Record<NotisTyp, string> = {
   fara: '/notis-fara.png',
   besok: '/notis-besok.png',
   omrade: '/notis-omrade.png',
+  gps: '/notis-fara.png',   // röd, som faran: skyddet mot faror är borta
   test: '/notis-test.png',
 };
 
@@ -102,6 +104,17 @@ export function omradeNotis(o: OmradeIn, url: string): HyttNotis {
   };
 }
 
+// ── GPS SAKNAS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Utan position larmar ingenting (ledning, hänsynsyta, fällningscirkel) — föraren ska veta att skyddet är borta även när appen ligger i bakgrunden. */
+export function gpsSaknasNotis(url: string): HyttNotis {
+  return {
+    typ: 'gps', tag: 'gps-saknas', titel: 'GPS saknas – faror varnas inte', text: 'Larm för ledningar och ytor fungerar inte förrän positionen är tillbaka.', ikon: NOTIS_IKON.gps,
+    kvarTillTryck: true, renotify: false, knappar: [{ action: 'visa', title: 'Öppna kartan' }],
+    data: { hytt: true, typ: 'gps', url },
+  };
+}
+
 // ── NÄR ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export type NotisState = {
@@ -111,8 +124,10 @@ export type NotisState = {
   besok: Record<string, { visad: boolean; forst: number | null; paminnd: boolean }>;
   /** Områdesnycklar (med hash) som redan fått en notis. */
   omrade: Record<string, true>;
+  /** GPS-notisen visad under det pågående avbrottet. Nollas när GPS är tillbaka (nästa avbrott ger en ny notis). */
+  gps: boolean;
 };
-export const TOMT_NOTISLAGE: NotisState = { fara: {}, besok: {}, omrade: {} };
+export const TOMT_NOTISLAGE: NotisState = { fara: {}, besok: {}, omrade: {}, gps: false };
 
 export type NotisIndata = {
   lage: FonsterLage;
@@ -126,11 +141,13 @@ export type NotisIndata = {
   /** Besök den här maskinen inte kvitterat. */
   besok: BesokIn[];
   omrade: OmradeIn | null;
+  /** Ingen giltig GPS-position på över GPS_SAKNAS_NOTIS_MS (lib/gpsSaknas). */
+  gpsSaknas?: boolean;
 };
 
 export type NotisUtfall = { state: NotisState; visa: HyttNotis[]; stang: string[]; /** Appen är framme: stäng varje notis från hytten som ligger uppe. */ stangAlla: boolean };
 
-const RANG: Record<NotisTyp, number> = { omrade: 0, besok: 1, fara: 2, test: 3 };   // lägst först: det som skapas sist hamnar överst
+const RANG: Record<NotisTyp, number> = { omrade: 0, besok: 1, fara: 2, test: 3, gps: 4 };   // lägst först: det som skapas sist hamnar överst
 
 /**
  * Ett steg: givet fönsterläget och vad som väntar — vad ska visas, vad ska stängas. Anropas vid varje ändring (fönster, larm, besök, instruktion) och av en tickande klocka.
@@ -138,7 +155,7 @@ const RANG: Record<NotisTyp, number> = { omrade: 0, besok: 1, fara: 2, test: 3 }
  *  • borta: notis för det som väntar och inte redan fått sin.
  */
 export function stegaNotiser(prev: NotisState, i: NotisIndata): NotisUtfall {
-  const state: NotisState = { fara: { ...prev.fara }, besok: { ...prev.besok }, omrade: { ...prev.omrade } };
+  const state: NotisState = { fara: { ...prev.fara }, besok: { ...prev.besok }, omrade: { ...prev.omrade }, gps: prev.gps };
   const visa: HyttNotis[] = [];
   const stang: string[] = [];
   const borta = i.lage === 'borta';
@@ -178,6 +195,15 @@ export function stegaNotiser(prev: NotisState, i: NotisIndata): NotisUtfall {
   if (i.omrade) {
     const nyckel = omradeNyckel(i.omrade);
     if (borta && !state.omrade[nyckel]) { visa.push(omradeNotis(i.omrade, i.url)); state.omrade[nyckel] = true; }
+  }
+
+  // GPS SAKNAS: EN notis per avbrott. Kommer GPS tillbaka stängs den och nästa avbrott ger en ny. Är appen framme visas ingen (raden i appen räcker) och notisen stängs nedan.
+  if (!i.gpsSaknas) {
+    if (state.gps) stang.push('gps-saknas');
+    state.gps = false;
+  } else if (borta && !state.gps) {
+    visa.push(gpsSaknasNotis(i.url));
+    state.gps = true;
   }
 
   // Framme: ALLT som ligger uppe stängs (besök, fara och område, också sådant som inte längre väntar) — föraren har kommit till appen.
