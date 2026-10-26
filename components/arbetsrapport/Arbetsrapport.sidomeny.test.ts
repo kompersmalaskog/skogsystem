@@ -16,11 +16,17 @@ describe("Arbetsrapport: sidomeny på stor skärm", () => {
   it("bara inom media-frågan från 1000 px, och innehållet flyttas åt höger lika mycket som menyn är bred", () => {
     expect(block).toContain("const SIDOMENY_FRAN_PX = 1000;");
     expect(block).toContain("@media (min-width: ${SIDOMENY_FRAN_PX}px)");
-    expect(block).toContain("body:has(.ar-nav) { padding-left: ${SIDOMENY_BREDD_PX}px; }");
+    // !important: rotlayouten har <body style={{padding:0}}> inline, som annars vinner — då flyttades innehållet aldrig.
+    expect(block).toContain("body:has(.ar-nav) { padding-left: ${SIDOMENY_BREDD_PX}px !important; }");
     expect(block).toContain("width: ${SIDOMENY_BREDD_PX}px !important");
   });
   it("inga citattecken i selektorerna (React escapar dem i <style>)", () => {
     const css = block.slice(block.indexOf("@media"), block.lastIndexOf("`"));
     expect(css).not.toMatch(/["']/);
+  });
+
+  it("rotlayoutens <body> har padding inline — därför MÅSTE sidomenyns padding ha !important (annars ligger menyn ovanpå)", () => {
+    const layout = readFileSync("app/layout.tsx", "utf8");
+    if (/<body[^>]*style=\{\{[^}]*padding/.test(layout)) expect(block).toMatch(/padding-left: \$\{SIDOMENY_BREDD_PX\}px !important/);
   });
 });
