@@ -30,13 +30,13 @@ describe('målbilderna är kopplade i sidan', () => {
   it('"Vad betyder kartan" får maskintypen', () => {
     expect(sida).toMatch(/karta: \{ markeringar: markers, vida: vidaSlagIFeatures\(traktGeo\?\.features\), roll: malbildRoll \}/);
   });
-  it('skotarläget: avläggets målbild vid första lasset, utan att röra lossningskortet', () => {
+  it('skotarläget: avläggets målbild vid första lasset, utan att röra lasskortet', () => {
     expect(sida).toMatch(/<AvlaggForstaLasset[\s\S]{0,900}forstaLasset=\{[^}]*arForstaLassetPaTrakten\(sl\.lass, '', valtObjekt\.id, skotarMaskinId\)\}[\s\S]{0,120}position=\{currentPosition\}[\s\S]{0,60}avlagg=\{sl\.avlagg\}/);
-    // aldrig samtidigt som lossningskortet eller något annat nertill: raden får bara visas när allt det är borta
-    expect(sida).toMatch(/<AvlaggForstaLasset[\s\S]{0,500}kortVisas=\{!!sl\.kort\}[\s\S]{0,60}ledigt=\{avlaggsradLedig\(\{ ledigtUtanInstruktion: !sl\.kort && !sl\.andra && !sl\.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet, instruktionVantar: inst\.vantar \}\)\}/);   // + instruktionen väntar på Sett (lib/instruktioner/ordning): avläggsraden kommer efter den
+    // aldrig samtidigt som lasskortet eller något annat nertill: raden får bara visas när allt det är borta
+    expect(sida).toMatch(/<AvlaggForstaLasset[\s\S]{0,500}kortVisas=\{!!sl\.andra\}[\s\S]{0,60}ledigt=\{avlaggsradLedig\(\{ ledigtUtanInstruktion: !sl\.andra && !sl\.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet, instruktionVantar: inst\.vantar \}\)\}/);   // + instruktionen väntar på Sett (lib/instruktioner/ordning): avläggsraden kommer efter den
     // samma zon som lossningsupptäckten
     expect(las('components/malbild/AvlaggForstaLasset.tsx')).toMatch(/AVLAGG as LOSSNINGSZON, traffaAvlagg[^\n]*skotarLass\/avlagg/);
-    expect(las('components/planering/skotar/LossningsKort.tsx')).not.toMatch(/malbild/i);
+    expect(las('components/planering/skotar/LossaKnapp.tsx')).not.toMatch(/malbild/i);
   });
   it('maskintypen är enhetens maskin först, därefter admins val, därefter tilldelningen', () => {
     expect(sida).toMatch(/const malbildRoll: Maskinroll \| null = enhetRoll \?\? korvyForceRoll \?\? minRoll \?\? null;/);

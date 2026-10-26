@@ -1,16 +1,13 @@
 // Lassmodellen: skapa, förifyll, ändra och räkna på lass. Rena funktioner — inget I/O.
 //
-// Principen: appen gör det den säkert vet, föraren bara det bara han vet. Normalfallet är noll tryck:
-//   • samma sortiment som förra lasset (föraren ändrar bara det som skiljer),
-//   • närmaste avlägg,
-//   • bekräftar sig själv när lossningen tog slut (maskinen stod still ≥ 5 min och körde sedan ut ur zonen — lossning.ts, hooken). Ingen timer.
-// Det som INTE får bekräfta sig självt: första lasset på trakten, två avlägg nära varandra, inget avlägg, tomt lass, en kort lossning.
+// Principen (Martin 2026-10-26): föraren registrerar själv, appen frågar aldrig. Ett lass börjar med ett tryck (Lossa · Avlägg X, eller + › Registrera lass) och är ett
+// UTKAST tills Klar. Det appen gör är att fylla i det den säkert vet: samma sortiment som förra lasset (föraren ändrar bara det som skiljer) och närmaste avlägg.
+// Inget lass bekräftar sig självt — det finns ingen timer, ingen automatik (lassen från den gamla automatiken, bekraftad_av = 'auto', granskas av en planerare).
 import { lokaltDatumStockholm } from '../hyttspar';
 import { avlaggRubrik } from './avlagg';
 import { sortimentDelar } from './sortiment';
 import type { Avlagg, Lass, LassDel, SortimentRad, SparPunkt, VagTid } from './typer';
 import type { AvlaggTraff } from './avlagg';
-import type { LossningsTyp } from './lossning';
 
 const nyId = (): string => {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
@@ -117,23 +114,6 @@ export function skapaLass(i: NyttLassIn): Lass {
   return krav.behover ? { ...lass, status: 'vantar_forare' } : lass;
 }
 
-/** Samma last på ett andra avlägg: "Lass 7 · del 2", med egna sortiment (tomma — föraren fyller i hur lasset delades). */
-export function laggTillDel(l: Lass, i: { ts: number; lat: number; lng: number; traff: AvlaggTraff; nu: number }): Lass {
-  const avlagg = i.traff.tvetydigt ? null : i.traff.narmaste;
-  const delNr = l.delar.reduce((m, d) => Math.max(m, d.delNr), 0) + 1;
-  return {
-    ...l,
-    delar: [...l.delar, nyDel(delNr, i.ts, i.lat, i.lng, avlagg, [])],
-    // Det första lassets rader skulle nu delas mellan två avlägg — det kan bara föraren veta.
-    status: 'vantar_forare', bekraftadAv: null, bekraftadTid: null, andrad: new Date(i.nu).toISOString(),
-  };
-}
-
-/** Hur lossningen ska hanteras mot lasset som redan finns. */
-export function hanteraLossning(typ: LossningsTyp): 'nytt' | 'del' | 'ignorera' {
-  return typ === 'nytt_lass' ? 'nytt' : typ === 'ny_del' ? 'del' : 'ignorera';
-}
-
 // ── Ändra ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const stampla = (l: Lass, nu: number): Lass => ({ ...l, andrad: new Date(nu).toISOString() });
@@ -192,29 +172,20 @@ export function lassTitel(l: Pick<Lass, 'lassNummer' | 'delar'>, delNr?: number)
   return l.delar.length > 1 ? `Lass ${l.lassNummer} · del ${del}` : `Lass ${l.lassNummer}`;
 }
 
-/** "Avlägg 2 · Tallkubb 5 · Talltimmer 10 · 18 m³" (sortimenten störst först). */
+/** "Avlägg 2 · Tallkubb: 5 m³ · Talltimmer: 10 m³ · 15 m³" (sortimenten störst först; namn och mängd skilda åt så "Kubb 305: 17 m³" aldrig läses som "305 17"). */
 export function lassRad(del: Pick<LassDel, 'avlaggNummer' | 'rader'>, visaNamn: (namn: string) => string): string {
-  const delar = [...del.rader].sort((a, b) => b.m3 - a.m3).map((r) => `${visaNamn(r.namn)} ${heltM3(r.m3)}`);
+  const delar = [...del.rader].sort((a, b) => b.m3 - a.m3).map((r) => `${visaNamn(r.namn)}: ${heltM3(r.m3)} m³`);
   return [del.avlaggNummer ? avlaggRubrik({ nummer: del.avlaggNummer }) : 'Inget avlägg valt', ...delar, `${totalM3(del.rader)} m³`].join(' · ');
 }
 
-/** Sortimenten under lassets rubrikrad: "Timmer 195 1-2 10 · Kubb 5 · 18 m³" (störst först, utan mottagare — den står i Kvar-listan). */
+/** Sortimenten under lassets rubrikrad: "Timmer 195 1-2: 10 m³ · Kubb 305: 5 m³ · 15 m³ totalt" (störst först, utan mottagare — den står i Kvar-listan). Namn och mängd skiljs åt med kolon:
+ *  "Kubb 305 17" läses som en sifferrad — 305 är sortimentet (Alvesta 305), 17 är m³ (Martin, Elefanten 2026-10-26). */
 export function lassSortimentText(rader: readonly SortimentRad[]): string {
-  const delar = [...rader].sort((a, b) => b.m3 - a.m3).filter((r) => heltM3(r.m3) > 0).map((r) => `${sortimentDelar(r.namn).sortiment} ${heltM3(r.m3)}`);
-  return [...delar, `${totalM3(rader)} m³`].join(' · ');
+  const delar = [...rader].sort((a, b) => b.m3 - a.m3).filter((r) => heltM3(r.m3) > 0).map((r) => `${sortimentDelar(r.namn).sortiment}: ${heltM3(r.m3)} m³`);
+  return [...delar, `${totalM3(rader)} m³ totalt`].join(' · ');
 }
 
 /** Lassets rubrikrad: "Lass 1 · 16:59 · Avlägg 01-2" (klockslaget ges av anroparen så modellen slipper tidszonen). */
 export function lassRubrikRad(l: Pick<Lass, 'lassNummer' | 'delar'>, del: Pick<LassDel, 'delNr' | 'avlaggNummer'>, klockslag: string): string {
   return [lassTitel(l, del.delNr), klockslag, del.avlaggNummer ? avlaggRubrik({ nummer: del.avlaggNummer }) : 'Inget avlägg valt'].join(' · ');
-}
-
-// ── Ett lass som väntat sedan appen stängdes ──────────────────────────────────────────────────────────────────────────
-
-/**
- * Ett förslag vars lossning aldrig tog slut (appen stängdes eller kraschade mitt i lossningen) bekräftar inte sig självt: vi vet inte hur länge maskinen stod och
- * om den lämnade avlägget. Det väntar på föraren ("N lass väntar på dig"). Ett lass som redan väntar eller är bekräftat rörs inte.
- */
-export function forslagTillVantande(l: Lass, nu: number): Lass {
-  return l.status === 'foreslaget' ? { ...l, status: 'vantar_forare', andrad: new Date(nu).toISOString() } : l;
 }

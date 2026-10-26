@@ -3,8 +3,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import React, { act } from 'react';
-import { LossningsKort, NyttAvlaggKort, lossarTid } from './LossningsKort';
-import { SkotarNedreRad, VantarPaDigArk, vantarText } from './LossaHar';
+import { NyttAvlaggKort } from './NyttAvlaggKort';
+import { LossaKnapp } from './LossaKnapp';
 import { AndraLassArk, HALL } from './AndraLassArk';
 import { andraRad as andraRadModell } from '@/lib/skotarLass/lassModell';
 import { KvarArk } from './KvarArk';
@@ -34,92 +34,6 @@ const lass = (over: Partial<Lass> = {}): Lass => ({
   ...over,
 });
 
-describe('LossningsKort', () => {
-  const kortProps = { avlagg: [A2], onAndra: vi.fn(), onFyllI: vi.fn(), onStammer: vi.fn(), onValjAvlagg: vi.fn(), onTaBort: vi.fn() };
-  it('klar: kvitto med rubrik, sortiment störst först, summa och Ändra — ingen linje och ingen timer', async () => {
-    const onAndra = vi.fn();
-    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'klar', start: 1 }} lass={lass()} {...kortProps} onAndra={onAndra} />);
-    expect(q('lossningskort')?.textContent).toContain('Lass 7 lossat → Avlägg 2');
-    expect(q('lossningskort')?.textContent).toContain('18 m³');
-    expect(q('lossningskort')?.textContent).toMatch(/Timmer.*10.*Kubb.*5.*Massa.*3/);
-    expect(q('lossning-linje')).toBeNull();
-    await tryck('lossning-andra');
-    expect(onAndra).toHaveBeenCalledTimes(1);
-  });
-  it('lossar: "Lossar → Avlägg 2" med löpande tid som räknar varje sekund, Ändra och ingen lossning — ingen linje som fylls', async () => {
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
-    try {
-      vi.setSystemTime(new Date('2026-10-20T10:00:00Z'));
-      const start = Date.parse('2026-10-20T09:55:48Z');   // 4:12 sedan
-      await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'lossar', start }} lass={lass()} {...kortProps} />);
-      expect(q('lossningskort')?.textContent).toContain('Lossar → Avlägg 2');
-      expect(q('lossning-tid')?.textContent).toBe('4:12');
-      await act(async () => { vi.advanceTimersByTime(3000); });
-      expect(q('lossning-tid')?.textContent).toBe('4:15');
-      expect(q('lossning-linje')).toBeNull();
-    } finally { vi.useRealTimers(); }
-  });
-  it('lossar med förifyllning: "Samma som förra: …" + stor Stämmer (ett tryck), Ändra och "✕ Inget lass" — från första sekunden, ingen timer', async () => {
-    const onStammer = vi.fn(); const onAndra = vi.fn(); const onTaBort = vi.fn();
-    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'lossar', start: 1 }} lass={lass()} {...kortProps} onStammer={onStammer} onAndra={onAndra} onTaBort={onTaBort} />);
-    expect(q('lossning-fraga')?.textContent).toMatch(/^Samma som förra: Timmer.*10.*Kubb.*5.*Massa.*3.*18 m³$/);
-    expect(q('lossning-ta-bort')?.textContent).toContain('Inget lass');
-    await tryck('lossning-stammer'); await tryck('lossning-andra'); await tryck('lossning-ta-bort');
-    expect(onStammer).toHaveBeenCalledTimes(1); expect(onAndra).toHaveBeenCalledTimes(1); expect(onTaBort).toHaveBeenCalledTimes(1);
-    expect(q('lossning-fyll-i')).toBeNull();
-  });
-  it('har föraren ändrat sortimenten står det "Lastat:" — inte längre "Samma som förra"', async () => {
-    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'lossar', start: 1, andrad: true }} lass={lass()} {...kortProps} />);
-    expect(q('lossning-fraga')?.textContent).toMatch(/^Lastat: /);
-  });
-  it('kortet bekräftar ingenting av sig självt: inga anrop utan tryck, även efter lång tid', async () => {
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] });
-    try {
-      const onStammer = vi.fn(); const onAndra = vi.fn(); const onTaBort = vi.fn();
-      await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'lossar', start: Date.now() }} lass={lass()} {...kortProps} onStammer={onStammer} onAndra={onAndra} onTaBort={onTaBort} />);
-      await act(async () => { vi.advanceTimersByTime(30 * 60_000); });
-      expect(onStammer).not.toHaveBeenCalled(); expect(onAndra).not.toHaveBeenCalled(); expect(onTaBort).not.toHaveBeenCalled();
-      expect(q('lossning-stammer')).not.toBeNull();   // och står kvar
-    } finally { vi.useRealTimers(); }
-  });
-  it('lossarTid: m:ss', () => {
-    expect(lossarTid(0)).toBe('0:00');
-    expect(lossarTid(59_999)).toBe('0:59');
-    expect(lossarTid(61_000)).toBe('1:01');
-    expect(lossarTid(15 * 60_000 + 5_000)).toBe('15:05');
-    expect(lossarTid(-5)).toBe('0:00');
-  });
-  it('inget att förifylla (första lasset): stor knapp "Fyll i" i stället för Stämmer', async () => {
-    const onFyllI = vi.fn();
-    const tomt = lass({ status: 'vantar_forare' }); tomt.delar[0].rader = [];
-    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'lossar', start: 1 }} lass={tomt} avlagg={[A2]} onAndra={vi.fn()} onFyllI={onFyllI} onStammer={vi.fn()} onValjAvlagg={vi.fn()} onTaBort={vi.fn()} />);
-    expect(q('lossning-stammer')).toBeNull();
-    expect(q('lossning-fraga')?.textContent).toBe('Fyll i vad som lastades');
-    expect(q('lossning-andra')).toBeNull();   // Fyll i ÄR Ändra — ingen andra knapp med samma jobb
-    await tryck('lossning-fyll-i');
-    expect(onFyllI).toHaveBeenCalled();
-    expect(q('lossning-ta-bort')).not.toBeNull();
-  });
-  it('del 2 heter "Lass 7 · del 2"', async () => {
-    const l = lass(); l.delar.push({ delNr: 2, avlaggId: 'vida:3', avlaggNummer: '3', lossadTid: '2026-10-19T12:20:00.000Z', lat: 56.6001, lng: 15.8, rader: [] });
-    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 2, fas: 'lossar', start: 1 }} lass={l} avlagg={[A2, A3]} onAndra={vi.fn()} onFyllI={vi.fn()} onStammer={vi.fn()} onValjAvlagg={vi.fn()} onTaBort={vi.fn()} />);
-    expect(q('lossningskort')?.textContent).toContain('Lossar → Avlägg 3');
-    expect(q('lossningskort')?.textContent).toContain('Lass 7 · del 2');
-    expect(q('lossning-fraga')?.textContent).toBe('Samma last — fyll i hur den delades');
-  });
-  it('avlagg_val: stora knappar med möjliga avlägg', async () => {
-    const onValj = vi.fn();
-    const l = lass(); l.delar[0].avlaggId = null; l.delar[0].avlaggNummer = null;
-    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'avlagg_val', start: 1 }} lass={l} avlagg={[A2, A3]} onAndra={vi.fn()} onFyllI={vi.fn()} onStammer={vi.fn()} onValjAvlagg={onValj} onTaBort={vi.fn()} />);
-    await tryck('avlagg-val-3');
-    expect(onValj).toHaveBeenCalledWith(A3);
-  });
-  it('alla tryckytor är minst 56 px höga', async () => {
-    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'lossar', start: 1 }} lass={lass()} avlagg={[A2]} onAndra={vi.fn()} onFyllI={vi.fn()} onStammer={vi.fn()} onValjAvlagg={vi.fn()} onTaBort={vi.fn()} />);
-    for (const b of Array.from(div.querySelectorAll('button'))) expect(parseInt((b as HTMLElement).style.minHeight || '0', 10) >= 56 || parseInt((b as HTMLElement).style.minWidth || '0', 10) >= 56).toBe(true);
-  });
-});
-
 describe('NyttAvlaggKort', () => {
   it('Ja / Nej', async () => {
     const svar = vi.fn();
@@ -131,66 +45,34 @@ describe('NyttAvlaggKort', () => {
   });
 });
 
-describe('Lossa här och "N lass väntar på dig"', () => {
+describe('LossaKnapp', () => {
   const A2: Avlagg = { id: 'vida:2', nummer: '2', kalla: 'vida', lat: 56.6, lng: 15.8 };
-  const vantar = (nr: number, over: Partial<Lass> = {}): Lass => ({
-    id: `l${nr}`, objektId: 'o', voNummer: '555', maskinId: 'M', medarbetareId: null, lassNummer: nr, datum: '2026-10-20', status: 'vantar_forare', bekraftadAv: null, bekraftadTid: null,
-    sparPunkter: [], vagar: [], skapad: '2026-10-20T07:57:03.000Z', andrad: '2026-10-20T07:57:03.000Z',
-    delar: [{ delNr: 1, avlaggId: 'vida:1', avlaggNummer: '01-1', lossadTid: '2026-10-20T07:56:32.000Z', lat: 56.6, lng: 15.8, rader: [] }],
-    ...over,
-  });
-  void A2;
-
-  it('Lossa här finns alltid; raden om väntande lass bara när något väntar', async () => {
+  it('"Lossa · Avlägg 2" — en stor knapp (≥ 56 px) som ger ETT anrop per tryck', async () => {
     const onLossa = vi.fn();
-    await visa(<SkotarNedreRad antalVantar={0} lossar={false} vidLossaHar={onLossa} onVisaVantar={vi.fn()} />);
-    expect(q('lossa-har')?.textContent).toBe('Lossa här');
-    expect(q('lass-vantar')).toBeNull();
-    await tryck('lossa-har');
+    await visa(<LossaKnapp avlagg={A2} onLossa={onLossa} />);
+    expect(q('lossa-knapp')?.textContent).toBe('Lossa · Avlägg 2');
+    expect(parseFloat((q('lossa-knapp') as HTMLElement).style.minHeight)).toBeGreaterThanOrEqual(56);
+    await tryck('lossa-knapp');
     expect(onLossa).toHaveBeenCalledTimes(1);
-    await visa(<SkotarNedreRad antalVantar={2} lossar={false} vidLossaHar={onLossa} onVisaVantar={vi.fn()} />);
-    expect(q('lass-vantar')?.textContent).toContain('2 lass väntar på dig');
-    expect(vantarText(1)).toBe('1 lass väntar på dig');
   });
-  it('pågår en lossning är det kortet som har frågan: Lossa här göms (men raden om väntande lass står kvar)', async () => {
-    await visa(<SkotarNedreRad antalVantar={2} lossar vidLossaHar={vi.fn()} onVisaVantar={vi.fn()} />);
-    expect(q('lossa-har')).toBeNull();
-    expect(q('lass-vantar')).not.toBeNull();
+  it('knappen gör inget av sig själv: inga anrop utan tryck, även efter lång tid', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const onLossa = vi.fn();
+      await visa(<LossaKnapp avlagg={A2} onLossa={onLossa} />);
+      await act(async () => { vi.advanceTimersByTime(60 * 60_000); });
+      expect(onLossa).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
-  it('raden lägger sig ovanför kortet nertill, inte under det', async () => {
+  it('ligger ovanför kortet nertill ("Nytt avlägg här?"), inte under det', async () => {
     const kort = document.createElement('div');
     kort.setAttribute('data-nertill-kort', '');
-    kort.getBoundingClientRect = () => ({ height: 90 } as DOMRect);
+    kort.getBoundingClientRect = () => ({ height: 120, width: 300, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) });
     document.body.appendChild(kort);
     try {
-      await visa(<SkotarNedreRad antalVantar={0} lossar={false} vidLossaHar={vi.fn()} onVisaVantar={vi.fn()} />);
-      expect((q('skotar-nedre-rad') as HTMLElement).style.bottom).toContain('98px');
+      await visa(<LossaKnapp avlagg={A2} onLossa={vi.fn()} />);
+      expect((q('skotar-nedre-rad') as HTMLElement).style.bottom).toContain('128px');   // kortets 120 px + 8 px luft
     } finally { kort.remove(); }
-  });
-  it('ett lass som inte kan bekräftas (lass 2 från 09:57, tomt) har Fyll i och Stryk — aldrig Stämmer', async () => {
-    const onFyllI = vi.fn(); const onStryk = vi.fn();
-    await visa(<VantarPaDigArk lass={[vantar(2)]} onStammer={vi.fn()} onFyllI={onFyllI} onStryk={onStryk} onStang={vi.fn()} />);
-    expect(q('vantar-ark')?.textContent).toContain('1 lass väntar på dig');
-    expect(q('vantar-lass-2')?.textContent).toContain('Lass 2 · 09:56 · Avlägg 01-1');
-    expect(q('vantar-lass-2')?.textContent).toContain('Inte ifyllt');
-    expect(q('vantar-stammer-2')).toBeNull();
-    await tryck('vantar-fyll-i-2'); await tryck('vantar-stryk-2');
-    expect(onFyllI).toHaveBeenCalledTimes(1); expect(onStryk).toHaveBeenCalledTimes(1);
-  });
-  it('ett ifyllt lass som väntar (kort lossning) kan bekräftas med Stämmer', async () => {
-    const onStammer = vi.fn();
-    const l = vantar(5); l.delar[0].rader = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 20 }];
-    await visa(<VantarPaDigArk lass={[l]} onStammer={onStammer} onFyllI={vi.fn()} onStryk={vi.fn()} onStang={vi.fn()} />);
-    await tryck('vantar-stammer-5');
-    expect(onStammer).toHaveBeenCalledWith(l);
-    expect(q('vantar-fyll-i-5')).toBeNull();
-  });
-  it('alla tryckytor är minst 56 px', async () => {
-    await visa(<SkotarNedreRad antalVantar={3} lossar={false} vidLossaHar={vi.fn()} onVisaVantar={vi.fn()} />);
-    for (const b of Array.from(div.querySelectorAll('button'))) expect(parseInt((b as HTMLElement).style.minHeight || '0', 10)).toBeGreaterThanOrEqual(56);
-    const l = vantar(5); l.delar[0].rader = [{ nyckel: 'a', namn: 'A', m3: 5 }];
-    await visa(<VantarPaDigArk lass={[l, vantar(6)]} onStammer={vi.fn()} onFyllI={vi.fn()} onStryk={vi.fn()} onStang={vi.fn()} />);
-    for (const b of Array.from(div.querySelectorAll('button'))) expect(parseInt((b as HTMLElement).style.minHeight || '0', 10)).toBeGreaterThanOrEqual(56);
   });
 });
 
@@ -228,6 +110,11 @@ describe('AndraLassArk', () => {
     expect(onTaBort).not.toHaveBeenCalled();
     await tryck('andra-ta-bort-ja');
     expect(onTaBort).toHaveBeenCalled();
+  });
+  it('ett nytt lass (utkast) har ingen "ta bort lasset": Avbryt kastar det', async () => {
+    await rendera(lass(), { utkast: true });
+    expect(q('andra-ta-bort')).toBeNull();
+    expect(q('andra-avbryt')).not.toBeNull();
   });
   it('Avbryt och Klar', async () => {
     const onAvbryt = vi.fn(); const onKlar = vi.fn();
@@ -267,7 +154,7 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
     const siffra = q('andra-siffra-talltimmer') as HTMLElement;
     expect(px(siffra.style.fontSize)).toBeGreaterThanOrEqual(22); expect(px(siffra.style.fontSize)).toBeLessThanOrEqual(24);
     expect(siffra.style.fontWeight).toBe('700');
-    expect(siffra.textContent).toBe('10');
+    expect(siffra.textContent).toBe('10 m³');   // mängden har sin enhet: "Kubb 305" + "17 m³", aldrig "305 17"
   });
   it('namnen i två nivåer: sortimentet vitt/semibold, mottagaren grå', async () => {
     await rendera({ valbara: [...valbara, { nyckel: 'k', namn: 'Timmer: Vislanda_195_1-2_V3', m3: 0 }] });
@@ -386,7 +273,7 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
       const l = lass(); l.delar[0].rader = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 1 }];
       await visa(<Tillstand start={l} />);
       await tryck('minus-talltimmer'); await tryck('tillagg-talltimmer');
-      expect(q('andra-siffra-talltimmer')?.textContent).toBe('1');
+      expect(q('andra-siffra-talltimmer')?.textContent).toBe('1 m³');
     });
     it('trycken är minst 56 px: − och +, siffran, Lägg till-knapparna och Fler sortiment…', async () => {
       await visa(<Tillstand start={lass()} />);
@@ -543,7 +430,7 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
       await visaKvar(beraknaKvar(skordat, [l]), [l]);
       await tryck('kvar-idag');
       expect(q('kvar-lass-rubrik')?.textContent).toBe('Lass 1 · 16:59 · Avlägg 01-2');
-      expect(q('kvar-lass-sortiment')?.textContent).toBe('Timmer 10 · Kubb 5 · Massa 3 · 18 m³');
+      expect(q('kvar-lass-sortiment')?.textContent).toBe('Timmer: 10 m³ · Kubb: 5 m³ · Massa: 3 m³ · 18 m³ totalt');   // mängden skild från namnet: "Kubb 305: 17 m³", aldrig "305 17"
     });
     it('allt innehåll är minst 17 px (bara små versaler-rubriker får vara 13 px)', async () => {
       const l = lass({ status: 'bekraftat' });
@@ -569,11 +456,9 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
       });
       return ut;
     };
-    it('lasskortet (lossar, klar, välj avlägg) och Nytt avlägg-frågan', async () => {
-      for (const fas of ['lossar', 'klar', 'avlagg_val'] as const) {
-        await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas, start: 1 }} lass={lass()} avlagg={[A2, A3]} onAndra={vi.fn()} onFyllI={vi.fn()} onStammer={vi.fn()} onValjAvlagg={vi.fn()} onTaBort={vi.fn()} />);
-        expect(smaTexter(), fas).toEqual([]);
-      }
+    it('Lossa-knappen och Nytt avlägg-frågan', async () => {
+      await visa(<LossaKnapp avlagg={A2} onLossa={vi.fn()} />);
+      expect(smaTexter()).toEqual([]);
       await visa(<NyttAvlaggKort fraga={{ lat: 1, lng: 1, ts: 1 }} nummer="3" onSvar={vi.fn()} />);
       expect(smaTexter()).toEqual([]);
     });

@@ -186,10 +186,10 @@ import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
 import { avlaggFeatures, laggTillAvlaggslager, taBortAvlaggslager } from '../../lib/skotarLass/avlaggKarta'
 import { farduskotatKontroll } from '../../lib/skotarLass/kvar'
 import type { VagLinje } from '../../lib/skotarLass/spar'
-import { LossningsKort, NyttAvlaggKort } from '../../components/planering/skotar/LossningsKort'
+import { NyttAvlaggKort } from '../../components/planering/skotar/NyttAvlaggKort'
 import { AndraLassArk } from '../../components/planering/skotar/AndraLassArk'
 import { KvarArk } from '../../components/planering/skotar/KvarArk'
-import { SkotarNedreRad, VantarPaDigArk } from '../../components/planering/skotar/LossaHar'
+import { LossaKnapp } from '../../components/planering/skotar/LossaKnapp'
 import { MorgonKortVy, VaderLista } from '../../components/planering/skotar/VaderMorgon'
 import { AvlaggSkotatSektion } from '../../components/planering/skotar/AvlaggSkotatSektion'
 import { FardigskotadKort } from '../../components/planering/skotar/FardigskotadKort'
@@ -12142,11 +12142,10 @@ export default function PlannerPage() {
   const skotarVader = useSkotarVader(skotarKorvy, skotarVaderPos, !!testlage);
   const [skotarKvarOppet, setSkotarKvarOppet] = useState(false);
   const [skotarFardigOppet, setSkotarFardigOppet] = useState(false);
-  const [skotarVantarOppet, setSkotarVantarOppet] = useState(false);
   // INSTRUKTIONER TILL FÖRAREN (bara maskinläget, lib/instruktioner): kommentarerna på ett område visas som ett kort när maskinen kör in, och "✓ Sett" sparas per kommentar och
   // förare. Larmet går först (kortet väntar medan ett larmkort visas). Planeringsvyn och förare utan maskin rörs inte: aktiv=false gör hooken helt passiv.
   // Lossningsflödet (skotarläget) har företräde: lossningskortet, Ändra-arket, "Nytt avlägg här?" och Kvar/Färdigskotad/Väntar-arken (lib/instruktioner/ordning).
-  const lossningVisas = skotarLassAktiv && (!!skotarLass.kort || !!skotarLass.andra || !!skotarLass.nyttAvlagg || skotarKvarOppet || skotarFardigOppet || skotarVantarOppet);
+  const lossningVisas = skotarLassAktiv && (!!skotarLass.andra || !!skotarLass.nyttAvlagg || skotarKvarOppet || skotarFardigOppet);
   const instruktionerAktiv = korvyActive && (maskinlage || !!maskinSomParam);
   // BESÖK PÅ TRAKTEN (maskinläget, alla maskiner på trakten): ett orange kort högst upp tills föraren tryckt Uppfattat, ett ljud, och en 70 m-ring runt maskinen medan besöket är aktivt.
   // Fara-larm (och alla larmkort) och lossningsflödet går före kortet — det kommer tillbaka när de är borta. Instruktionskortet väntar på besökskortet.
@@ -12469,7 +12468,7 @@ export default function PlannerPage() {
       });
     }
     if (skotarLassAktiv) {
-      g.push({ id: 'skotad-trakt', rubrik: 'Trakten', rader: [{ id: 'fardigskotad', namn: 'Trakten färdigskotad', under: skotarLass.avslut ? 'Redan avslutad' : 'Skotat sätts lika med skördat', typ: 'knapp', onTryck: () => { stangPlus(); setSkotarFardigOppet(true); } }] });
+      g.push({ id: 'skotad-trakt', rubrik: 'Trakten', rader: [{ id: 'registrera-lass', namn: 'Registrera lass', under: 'Där inget avlägg finns – lossar du vid ett avlägg trycker du på Lossa nere vid kartan', typ: 'knapp', onTryck: () => { stangPlus(); skotarLass.registreraLass(); } }, { id: 'fardigskotad', namn: 'Trakten färdigskotad', under: skotarLass.avslut ? 'Redan avslutad' : 'Skotat sätts lika med skördat', typ: 'knapp', onTryck: () => { stangPlus(); setSkotarFardigOppet(true); } }] });
     }
     return g;
   };
@@ -13079,7 +13078,7 @@ export default function PlannerPage() {
           {skotarLassAktiv && (
             <button type="button" data-testid="skotar-provkor" onClick={() => skotarLass.provkorLossning(skotarValtAvlagg)}
               style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
-              {skotarLass.oppen ? 'Provkör: kör ut ur zonen' : 'Provkör lossning'}
+              Provkör lossning
             </button>
           )}
           {skotarKorvy && (
@@ -14278,52 +14277,31 @@ export default function PlannerPage() {
       {skotarKorvy && skotarVader.kort && <MorgonKortVy kort={skotarVader.kort} onOk={skotarVader.stangKort} />}
       {skotarLassAktiv && (() => {
         const sl = skotarLass;
-        const lassMedId = (id: string) => sl.lass.find((l) => l.id === id) ?? null;
-        const kortLass = sl.kort ? lassMedId(sl.kort.lassId) : null;
-        const andraLass = sl.andra ? lassMedId(sl.andra.lassId) : null;
+        const andraLass = sl.andraLass;   // utkastet eller det sparade lass som lasskortet visar
         const dagens = sl.idag.lass;   // den egna maskinens lass i dag (kvar och Trakten: skotat X av Y gäller hela trakten)
         return (
           <>
-            {sl.kort && kortLass && !sl.andra && (
-              <LossningsKort
-                kort={sl.kort} lass={kortLass} avlagg={sl.avlagg}
-                onAndra={() => sl.oppnaAndra(kortLass.id, sl.kort!.delNr)}
-                onFyllI={() => sl.oppnaAndra(kortLass.id, sl.kort!.delNr)}
-                onStammer={() => sl.stammer(kortLass.id)}
-                onValjAvlagg={(a) => sl.valjAvlagg(kortLass.id, sl.kort!.delNr, a)}
-                onTaBort={() => sl.strykLass(kortLass.id)}
-              />
-            )}
-            {/* Målbilden för avlägget: en rad BREDVID lossningsflödet. Den visas FÖRE första lossningen — när maskinen kommer in i ett avläggs zon (samma 50 m som lossningsupptäckten)
-                och trakten inte har något lass än — och bara när inget lossningskort, ändra-ark eller annat ark ligger nertill. Lossningskortet vinner alltid platsen; första kortet
-                förbrukar målbilden på trakten. Därefter bara vid tryck på ett avlägg (KartKort). Lossningsflödet ovan är orört. */}
+            {/* Målbilden för avlägget: en rad BREDVID registreringen. Den visas FÖRE första lasset — när maskinen kommer in i ett avläggs zon (samma 50 m som knappen "Lossa") och trakten
+                inte har något lass än — och bara när inget lasskort eller annat ark ligger nertill. Lasskortet vinner alltid platsen; första gången det öppnas förbrukar det målbilden på trakten. */}
             <AvlaggForstaLasset
               objektId={valtObjekt?.id ?? ''} roll="skotare"
-              kortVisas={!!sl.kort}
-              ledigt={avlaggsradLedig({ ledigtUtanInstruktion: !sl.kort && !sl.andra && !sl.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet, instruktionVantar: inst.vantar })}
+              kortVisas={!!sl.andra}
+              ledigt={avlaggsradLedig({ ledigtUtanInstruktion: !sl.andra && !sl.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet, instruktionVantar: inst.vantar })}
               forstaLasset={!!valtObjekt?.id && !!skotarMaskinId && arForstaLassetPaTrakten(sl.lass, '', valtObjekt.id, skotarMaskinId)}
               position={currentPosition}
               avlagg={sl.avlagg}
             />
-            {!sl.kort && !sl.andra && sl.nyttAvlagg && (
+            {!sl.andra && sl.nyttAvlagg && (
               <NyttAvlaggKort fraga={sl.nyttAvlagg} nummer={nastaEgnaNummer(sl.avlagg)} onSvar={sl.svaraNyttAvlagg} />
             )}
-            {/* Reservknappen "Lossa här" och "N lass väntar på dig" är ALLTID på plats i skotarläget (ovanför kortet nertill). */}
-            {!sl.andra && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet && (
-              <SkotarNedreRad antalVantar={sl.vantarPaDig.length} lossar={!!sl.oppen} vidLossaHar={sl.lossaHar} onVisaVantar={() => setSkotarVantarOppet(true)} />
-            )}
-            {skotarVantarOppet && !sl.andra && (
-              <VantarPaDigArk
-                lass={sl.vantarPaDig}
-                onStammer={(l) => sl.stammer(l.id)}
-                onFyllI={(l) => { setSkotarVantarOppet(false); sl.oppnaAndra(l.id); }}
-                onStryk={(l) => sl.strykLass(l.id)}
-                onStang={() => setSkotarVantarOppet(false)}
-              />
+            {/* APPEN FRÅGAR ALDRIG: ett lass börjar bara med ett tryck. Knappen "Lossa · Avlägg 2" syns bara medan maskinen står i ett avläggs zon och försvinner när den kört därifrån.
+                Där inget avlägg finns: + › Registrera lass. */}
+            {sl.lossaKnapp && !sl.andra && !sl.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && (
+              <LossaKnapp avlagg={sl.lossaKnapp} onLossa={sl.lossaVidAvlagg} />
             )}
             {sl.andra && andraLass && (
               <AndraLassArk
-                lass={andraLass} delNr={sl.andra.delNr} avlagg={sl.avlagg} valbara={sl.valbara} alla={sl.allaSortiment} onLasOm={sl.lasOmSortiment}
+                lass={andraLass} delNr={sl.andra.delNr} utkast={sl.utkast?.id === andraLass.id} avlagg={sl.avlagg} valbara={sl.valbara} alla={sl.allaSortiment} onLasOm={sl.lasOmSortiment}
                 onRad={(rad, delta) => sl.andraRad(sl.andra!.delNr, rad, delta)}
                 onAvlagg={(a) => sl.valjAvlagg(andraLass.id, sl.andra!.delNr, a)}
                 onKlar={() => sl.stangAndra(true)}

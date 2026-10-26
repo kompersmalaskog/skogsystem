@@ -1,6 +1,7 @@
 'use client';
 
-// ÄNDRA LASSET — för en stor pekskärm i en skakande hytt, utan handskar (mockupen).
+// LASSKORTET (Ändra) — registreringen börjar här: tryck på "Lossa · Avlägg 2" öppnar det med sortimenten ifyllda som förra lasset; − / + per m³, Klar sparar.
+// Avbryt på ett nytt lass (utkast) kastar det — inget har sparats. För en stor pekskärm i en skakande hytt, utan handskar (mockupen).
 //   • Ett centrerat ark, ca 640 px brett (smal skärm: full bredd minus marginal). Avlägget överst med Byt ›, totalen uppe till höger, Avbryt / Klar nederst.
 //   • En rad per sortiment, minst 56 px hög: namn i två nivåer (sortimentet vitt, mottagaren grå) · [ − ] siffra [ + ], knapparna 56×56.
 //   • Håll in − / + räknar snabbt (upprepning). Tryck på siffran öppnar ett sifferfält där värdet skrivs direkt.
@@ -70,12 +71,12 @@ function Siffra({ varde, etikett, onSkriv, testid }: { varde: number; etikett: s
   const [skriver, setSkriver] = useState(false);
   const [text, setText] = useState('');
   const klar = useRef(false);
-  const ram: React.CSSProperties = { width: 72, height: TRYCK_PX, textAlign: 'center', ...TYP.rubrik, fontSize: SIFFRA_PX, ...TNUM, color: FARG.text, fontFamily: 'inherit', flexShrink: 0 };
+  const ram: React.CSSProperties = { width: 96, height: TRYCK_PX, textAlign: 'center', ...TYP.rubrik, fontSize: SIFFRA_PX, ...TNUM, color: FARG.text, fontFamily: 'inherit', flexShrink: 0 };
   if (!skriver) {
     return (
       <button type="button" aria-label={`${etikett}: ${varde} m³. Tryck för att skriva värdet`} data-testid={testid} onClick={() => { klar.current = false; setText(String(varde)); setSkriver(true); }}
         style={{ ...ram, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}>
-        {varde}
+        {varde}<span style={{ ...TYP.text, color: FARG.text2 }}> m³</span>
       </button>
     );
   }
@@ -96,8 +97,10 @@ function Siffra({ varde, etikett, onSkriv, testid }: { varde: number; etikett: s
   );
 }
 
-export function AndraLassArk({ lass, delNr, avlagg, valbara, alla, onLasOm, onRad, onAvlagg, onKlar, onAvbryt, onTaBort }: {
+export function AndraLassArk({ lass, delNr, utkast, avlagg, valbara, alla, onLasOm, onRad, onAvlagg, onKlar, onAvbryt, onTaBort }: {
   lass: Lass;
+  /** Lasset är ett nytt utkast (inte sparat än): Avbryt kastar det, så "ta bort lasset" behövs inte. */
+  utkast?: boolean;
   delNr: number;
   avlagg: readonly Avlagg[];
   /** Traktens sortiment (skördarens namn, vanligaste först) + Ved markägare när trakten har det. */
@@ -196,16 +199,20 @@ export function AndraLassArk({ lass, delNr, avlagg, valbara, alla, onLasOm, onRa
             </>
           )}
 
-          <div style={avdelare} />
-          {bekraftaBort ? (
-            <div style={{ display: 'flex', gap: AVSTAND.s, alignItems: 'center', paddingBottom: AVSTAND.s }}>
-              <div style={{ flex: 1, ...meta }}>Ta bort hela lasset?</div>
-              <button type="button" data-testid="andra-ta-bort-ja" onClick={onTaBort} style={{ ...knappStor, color: FARG.rod }}>Ta bort</button>
-              <button type="button" onClick={() => setBekraftaBort(false)} style={knappStor}>Behåll</button>
-            </div>
-          ) : (
-            <button type="button" data-testid="andra-ta-bort" onClick={() => setBekraftaBort(true)}
-              style={{ ...knappStor, width: '100%', background: 'transparent', color: FARG.rod }}>Det var ingen lossning — ta bort lasset</button>
+          {!utkast && (
+            <>
+            <div style={avdelare} />
+            {bekraftaBort ? (
+              <div style={{ display: 'flex', gap: AVSTAND.s, alignItems: 'center', paddingBottom: AVSTAND.s }}>
+                <div style={{ flex: 1, ...meta }}>Ta bort hela lasset?</div>
+                <button type="button" data-testid="andra-ta-bort-ja" onClick={onTaBort} style={{ ...knappStor, color: FARG.rod }}>Ta bort</button>
+                <button type="button" onClick={() => setBekraftaBort(false)} style={knappStor}>Behåll</button>
+              </div>
+            ) : (
+              <button type="button" data-testid="andra-ta-bort" onClick={() => setBekraftaBort(true)}
+                style={{ ...knappStor, width: '100%', background: 'transparent', color: FARG.rod }}>Det var ingen lossning — ta bort lasset</button>
+            )}
+            </>
           )}
         </div>
 
