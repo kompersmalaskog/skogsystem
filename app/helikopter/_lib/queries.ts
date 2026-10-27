@@ -434,13 +434,15 @@ export async function hamtaManuellaMaskiner(): Promise<Set<string>> {
   }
 }
 
-/** Senaste lassdatum per maskin (fakt_lass), för "inga lass registrerade sedan …" i Läge. null = inga lass alls. */
+/** Senaste lassdatum per maskin, för "inga lass registrerade sedan …" i Läge. null = inga lass alls.
+ *  Läser vyn `helikopter_lass` (Opti OCH appens lass, 2026-10-27) — samma källa som resten av helikoptern, så ett lass
+ *  registrerat i appen räknas som registrerat. */
 export async function hamtaSenasteLass(maskinIds: string[]): Promise<Svar<Record<string, string | null>>> {
   try {
     const ut: Record<string, string | null> = {}
     for (const id of maskinIds) {
-      const { data, error } = await medAbortRetry(() => supabase.from('fakt_lass').select('datum').eq('maskin_id', id).order('datum', { ascending: false }).limit(1))
-      if (error) { console.error('[helikopter] fakt_lass senaste', error); return { data: null, error: felText(error) } }
+      const { data, error } = await medAbortRetry(() => supabase.from('helikopter_lass').select('datum').eq('maskin_id', id).order('datum', { ascending: false }).limit(1))
+      if (error) { console.error('[helikopter] helikopter_lass senaste', error); return { data: null, error: felText(error) } }
       ut[id] = (data as { datum: string }[])?.[0]?.datum ?? null
     }
     return { data: ut, error: null }
