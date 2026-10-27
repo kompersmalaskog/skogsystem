@@ -31,7 +31,7 @@ describe('kartlagret per användare: planeringssidan', () => {
     expect(page).not.toMatch(/^\s*lager: efter\(/m);
     expect(page).not.toContain('nastaBaskarta');
     // Den enda rutan som byter lager i körvyn är plusarkets Bakgrundskarta
-    expect(page).toContain("onTryck: () => setMapType(t.id) })),");
+    expect(page).toContain("onTryck: () => setMapType(t.id),");
     // Den gamla Fler val-menyns Karttyp-rad göms i körvyn
     expect(page).toMatch(/\{!korvyActive && <div\s+onClick=\{\(\) => \{\s+if \(mapType === 'lantmateriet'\) setMapType\('satellite'\)/);
     // Och ingen annan fil än plusarket/sidan skriver kartlagret
@@ -54,7 +54,7 @@ describe('kartlagret per användare: planeringssidan', () => {
     expect(page).toContain('<ObjektKartaTom kartlager={mapType}');
   });
   it('varje byte går genom setMapType (hookens välj) — Lager-listan och Karttyp-raden sparar därmed också', () => {
-    expect(page).toContain("onTryck: () => setMapType(t.id) })),");
+    expect(page).toContain("onTryck: () => setMapType(t.id),");
     expect(page).toContain("if (mapType === 'lantmateriet') setMapType('satellite');"); // gamla menyn (utanför körvyn)
   });
 });
