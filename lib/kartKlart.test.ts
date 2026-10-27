@@ -56,8 +56,11 @@ describe('utseendet', () => {
 describe('page.tsx — klart-kopplingen', () => {
   const sida = lasa('app/planering/page.tsx');
   it('lagren för skotad yta finns, ligger under zonerna och står i körvyns KEEP_PREFIX (prefixet klart-)', () => {
-    expect(sida.indexOf("id: KLART_FYLLNING_LAGER")).toBeGreaterThan(0);
-    expect(sida.indexOf("id: KLART_FYLLNING_LAGER")).toBeLessThan(sida.indexOf("id: 'zone-fill', type: 'fill'"));
+    expect(sida.indexOf("id: KLART_KANT_LAGER")).toBeGreaterThan(0);
+    expect(sida.indexOf("id: KLART_KANT_LAGER")).toBeLessThan(sida.indexOf("id: 'zone-fill', type: 'fill'"));
+    // ingen grå fyllning: fotot inne i trakten ska synas i full skärpa (Martin 2026-10-27)
+    expect(sida).not.toContain("KLART_FYLLNING_LAGER");
+    expect(sida).not.toMatch(/KLART_KALLA[^\n]*type: 'fill'/);
     expect(sida).toMatch(/KEEP_PREFIX = \[[^\]]*'klart-'\]/);
   });
   it('varje lager som greyas finns i sidan (väglagren byggs per linjetyp, maskinspåren som planspar-<roll>-line)', () => {

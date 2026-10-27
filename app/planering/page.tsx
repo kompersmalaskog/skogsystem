@@ -44,7 +44,7 @@ import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
 import { installeraLagerOrdning, symbolSortKey, VAG_SORT_KEY } from '../../lib/lagerOrdning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
-import { HYTTSPAR_CASING_COLOR, dampatSpar, sparAlder } from '../../lib/sparStil'
+import { dampatSpar, sparAlder } from '../../lib/sparStil'
 import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
 import { useKlarFalt } from '../../lib/hooks/useKlarFalt'
@@ -173,6 +173,9 @@ import { hamtaPrognos, narmasteSteg } from '../../lib/smhi-prognos'
 import { useKartlager } from '../../lib/hooks/useKartlager'
 import { KARTLAGER_LAGER_ID } from '../../lib/kartlager'
 import { kartBasPaint } from '../../lib/kartBas'
+import { useKartReglage } from '../../lib/hooks/useKartReglage'
+import { styrkaFor } from '../../lib/kartReglage'
+import { overlayReglage, bakgrundReglage, tillampaLagerOpacitet, nyttSkalaMinne } from '../../lib/lagerOpacitet'
 import { korBredd, korFarg, korEgenskap, korPunkter, korPunktLager, korSkenLager, KOR_OPACITET, KOR_INTE_KLAR, KOR_KALLA, KOR_PIL_BILD, KOR_PIL_FARG } from '../../lib/korordningKarta'
 import { TRAD_TYP, TRAD_KALLA, TRAD_BILD, TRAD_BILD_VALD, TRAD_BILD_MATT, TRAD_LAGER, arFallTrad, arGammalFallpil, ritaTradBild, tradLager, tradData, tradPosUr, synligaTrad, foreslaTrad, vinkelFranPunkt, type TradPos } from '../../lib/fallTrad'
 import { useTvaTryck } from '../../lib/hooks/useTvaTryck'
@@ -183,7 +186,8 @@ import { LinjeRedList, type RedVal } from '../../components/planering/LinjeRedLi
 import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_KANT_LAGER, KORUPP_TRAFF_LAGER, arKorUpp, korUppUr, korUppData, korUppLager, ritaSpetsBild, synligaKorUpp, nyKorUpp, KORUPP_SKAL, korUppText, type KorUppPos, type Skal, type SnappVag } from '../../lib/korUpp'
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
-import { KLART_FARG, KLART_LINJE_OPACITET, KLART_YTA_FYLLNING, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_FYLLNING_LAGER, KLART_KANT_LAGER, KLART_LINJELAGER, KLART_TONAS_BORT, INGA_YTOR, arObjektKlart, skotadeYtor } from '../../lib/kartKlart'
+import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner } from '../../lib/traktTon'
+import { KLART_FARG, KLART_LINJE_OPACITET, KLART_YTA_KANT_BREDD, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_KANT_LAGER, KLART_LINJELAGER, KLART_TONAS_BORT, INGA_YTOR, arObjektKlart, skotadeYtor } from '../../lib/kartKlart'
 import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
 import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
 import { avlaggFeatures, laggTillAvlaggslager, taBortAvlaggslager } from '../../lib/skotarLass/avlaggKarta'
@@ -1284,6 +1288,8 @@ export default function PlannerPage() {
   // (lib/kartlager.ts, lib/hooks/useKartlager.ts) och gäller överallt där den här kartan visas — planeringsvyn, körvyn, skotarläget, maskinläget.
   // (Förut 'lantmateriet' = Karta som standard, och körvyn hade en egen växel Karta/Topokarta som inte sparades.)
   const [mapType, setMapType] = useKartlager();
+  // Reglagen i + › Lager (Kartan tydligare): bakgrundens Dämpad ↔ Skarp per bakgrund och varje överläggs Kartan syns ↔ Bara lagret. Sparas per enhet (lib/kartReglage).
+  const kartReglage = useKartReglage();
   
   // Overlay-lager — persistas i localStorage via useMapLayers
   const [overlays, setOverlays] = useMapLayers();
@@ -1437,11 +1443,10 @@ export default function PlannerPage() {
     const ejGallring = ['!=', ['get', 'zoneType'], 'gallring'] as any; // casing/dash/outline för ALLA UTOM gallring
     const gallringLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['==', ['get', 'tradslag'], 'lov']] as any;
     const gallringEjLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['!=', ['get', 'tradslag'], 'lov']] as any;
-    // SKOTAD YTA = klart = grått (Kartan lugnare, lib/kartKlart): de sparade skotningsuttagens polygoner ligger UNDER alla ytor, vägar och symboler, svagt och grått.
+    // SKOTAD YTA = klart = grått (Kartan lugnare, lib/kartKlart): de sparade skotningsuttagens polygoner ritas som en tunn grå KANT under alla ytor, vägar och symboler — ingen fyllning, fotot inne i trakten gråas aldrig ner.
     // Prefixet 'klart-' står i körvyns KEEP_PREFIX. Datan läses av en egen effekt (skotning_uttag.polygon_coords); läsfel = ingen grå yta, aldrig en påhittad.
     map.addSource(KLART_KALLA, { type: 'geojson', data: INGA_YTOR as any });
-    map.addLayer({ id: KLART_FYLLNING_LAGER, type: 'fill', source: KLART_KALLA, paint: { 'fill-color': KLART_FARG, 'fill-opacity': KLART_YTA_FYLLNING } });
-    map.addLayer({ id: KLART_KANT_LAGER, type: 'line', source: KLART_KALLA, paint: { 'line-color': KLART_FARG, 'line-width': 1.5, 'line-opacity': KLART_YTA_KANT_OPACITET }, layout: { 'line-join': 'round' } });
+    map.addLayer({ id: KLART_KANT_LAGER, type: 'line', source: KLART_KALLA, paint: { 'line-color': KLART_FARG, 'line-width': KLART_YTA_KANT_BREDD, 'line-opacity': KLART_YTA_KANT_OPACITET }, layout: { 'line-join': 'round' } });
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(GALLRING_FILL_OPACITY, 0.2) } });
     // Ytor man inte får köra in i (Hänsyn, Fornlämning, Ej framkomlig) snedstreckas i gruppens färg; övriga är heldragna (lib/ytaStil).
     for (const grupp of SNEDSTRECK_GRUPPER) {
@@ -1870,6 +1875,10 @@ export default function PlannerPage() {
     // Traktgränsen OVANPÅ rågången: smal, med bara en tunn mörk kant (förut 3/5/8 px med en bred svart kant som täckte rågången under).
     const trTdW = TRAKTGRANS_BREDD as any;
     const trTdCasingW = TRAKTGRANS_KANT_BREDD as any;
+    // NEDTONING UTANFÖR TRAKTEN (lib/traktTon): lätt svart (25 %) över allt > 50 m från traktgränsen, så trakten är det ljusaste på kartan. Läggs precis över bakgrunden
+    // av lib/lagerOrdning. Ingen traktgräns = ingen yta = ingen nedtoning. Kopplingen till objektet är effekten [traktGeo] längre ned.
+    map.addSource(UTANFOR_TON_KALLA, { type: 'geojson', data: INGEN_TON as any });
+    map.addLayer({ id: UTANFOR_TON_LAGER, type: 'fill', source: UTANFOR_TON_KALLA, paint: { 'fill-color': UTANFOR_TON_FARG, 'fill-opacity': UTANFOR_TON_OPACITET, 'fill-antialias': false }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'traktdel-parts-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': 0.05 }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-gr-casing', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': TRAKTGRANS_KANT_FARG, 'line-width': trTdCasingW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.fara, 'line-width': trTdW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
@@ -5043,6 +5052,27 @@ export default function PlannerPage() {
     set('trakt-punkt-label', !!overlays.korFara);
   }, [overlays.hansyn, overlays.korFara, overlays.traktNyckelbiotop, overlays.traktLamning, mapLibreReady, geoTyper]);
 
+  // === Reglagen: bakgrundens styrka och överläggens opacitet (Kartan tydligare) ===
+  // Bakgrunden: styrkan ger paint ur lib/kartBas (EN källa). Alla fyra baslager får sitt värde så ett byte av bakgrund visar rätt direkt.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    for (const l of ['satellite', 'lantmateriet', 'terrain', 'osm'] as const) {
+      const id = KARTLAGER_LAGER_ID[l];
+      if (!map.getLayer(id)) continue;
+      const paint = kartBasPaint(l, styrkaFor(kartReglage.styrkor, l));
+      for (const [k, v] of Object.entries(paint)) { try { map.setPaintProperty(id, k, v); } catch { /* lagret inte klart */ } }
+    }
+  }, [kartReglage.styrkor, mapLibreReady]);
+  // Överläggen: bara de som fått ett eget värde rörs (utan val gäller lagrets eget). Gäller också när lagret är släckt — värdet följer lagret, inte om det är på.
+  // Efter trakt-effekten ovan så att ett ritat lager (hänsyn, rågång) har sitt egna värde innan faktorn läggs på.
+  const skalaMinneRef = useRef(nyttSkalaMinne());
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    tillampaLagerOpacitet(map, kartReglage.lagerOp, skalaMinneRef.current);
+  }, [kartReglage.lagerOp, overlays, mapLibreReady, valtObjekt?.id, korvyActive, traktGeoHamtadFor]);
+
   // === Traktdelarnas ENSKILDA delytor (per MultiPolygon-del) ===
   // Varje del = { partKey '<TRDEL_ID>:<idx>', tdKey, props, ring }. ALLA delar med ≥3 hörn tas med (Martin:
   // analysera alla bitar, ingen area-tröskel). Enda källan för rendering, analys, kort och Justera gräns.
@@ -5091,6 +5121,18 @@ export default function PlannerPage() {
       tonaInLager(map, TRAKTGRANS_LAGER);
     }
   }, [traktdelDelar, objektNumrering, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // NEDTONING UTANFÖR TRAKTEN: ytan räknas ur Vidas traktgräns (samma L_TRAKTDEL som Fokus på trakten) när objektets geometri är läst. Saknas gräns göms lagret. När Vidas egen
+  // fastighetsnedtoning är påslagen (lagret Fastighetsgränser + Vida-data) tonar den redan ned det som ligger utanför, och de två läggs inte ovanpå varandra.
+  const tonYta = useMemo(() => (traktGeoHamtadFor && valtObjekt?.id && traktGeoHamtadFor === valtObjekt.id ? byggTonYta(traktPolygoner(traktGeo)) : INGEN_TON), [traktGeo, traktGeoHamtadFor, valtObjekt?.id]);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource(UTANFOR_TON_KALLA) as any;
+    if (!src?.setData || !map.getLayer(UTANFOR_TON_LAGER)) return;
+    try { src.setData(tonYta as any); } catch { /* */ }
+    try { map.setLayoutProperty(UTANFOR_TON_LAGER, 'visibility', tonYta.features.length > 0 && !fastighetsSyn.vida ? 'visible' : 'none'); } catch { /* */ }
+  }, [tonYta, fastighetsSyn.vida, mapLibreReady]);
 
   // Justerade delar (en boundary-markör med fromVidaTd=<partKey> finns) döljs PER del.
   const justeradeTraktdelar = useMemo(
@@ -9657,7 +9699,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-hist-casing', type: 'line', source: 'hyttspar-hist-source',
-          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0, 'line-width': dampatSpar('skotare', 'hist').bredd },   // ingen ljus kant: spåren är dämpade (lib/sparStil dampatSpar)
+          paint: { 'line-color': dampatSpar('skotare', 'hist').kantFarg, 'line-opacity': dampatSpar('skotare', 'hist').kantOpacitet as any, 'line-width': dampatSpar('skotare', 'hist').kantBredd },   // smal mörk kant under spåret, som vägarna (lib/sparStil dampatSpar)
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] hist-casing:', e); }
@@ -9682,7 +9724,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-egen-casing', type: 'line', source: 'hyttspar-egen-source',
-          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0, 'line-width': dampatSpar('skotare', 'egen').bredd },
+          paint: { 'line-color': dampatSpar('skotare', 'egen').kantFarg, 'line-opacity': dampatSpar('skotare', 'egen').kantOpacitet as any, 'line-width': dampatSpar('skotare', 'egen').kantBredd },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] casing:', e); }
@@ -9707,7 +9749,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-andras-casing', type: 'line', source: 'hyttspar-andras-source',
-          paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0, 'line-width': dampatSpar('skordare', 'andras').bredd },
+          paint: { 'line-color': dampatSpar('skordare', 'andras').kantFarg, 'line-opacity': dampatSpar('skordare', 'andras').kantOpacitet as any, 'line-width': dampatSpar('skordare', 'andras').kantBredd },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] andras-casing:', e); }
@@ -9737,7 +9779,7 @@ export default function PlannerPage() {
         try {
           map.addLayer({
             id: `planspar-${roll}-casing`, type: 'line', source: src,
-            paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': st.casingOpacitet, 'line-width': st.bredd },
+            paint: { 'line-color': st.kantFarg, 'line-opacity': st.kantOpacitet as any, 'line-width': st.kantBredd },
             layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
           });
         } catch (e) { console.error(`[Planspår] ${roll}-casing:`, e); }
@@ -9811,12 +9853,12 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const satt = (lager: string, prop: string, v: any) => { try { if (map.getLayer(lager)) map.setPaintProperty(lager, prop, v); } catch { /* */ } };
-    // Stilen per roll och lager ur lib/sparStil (dampatSpar): tunna (2–3 px), en dämpad färg per roll, låg opacitet, ingen ljus kant; tidigare dagar bleknar med åldern.
+    // Stilen per roll och lager ur lib/sparStil (dampatSpar): 3 / 2,5 px, rollfärgerna, dagens ~0,9, smal mörk kant under; tidigare dagar bleknar med åldern (golv ~0,45).
     // Skördarens spår är tydligare än skotarens (skotaren följer stråken) men ligger under basvägen (lib/lagerOrdning).
     const stila = (namn: string, roll: 'skordare' | 'skotare', art: 'egen' | 'hist' | 'andras') => {
       const s = dampatSpar(roll, art);
       satt(`${namn}-line`, 'line-color', s.farg); satt(`${namn}-line`, 'line-width', s.bredd); satt(`${namn}-line`, 'line-opacity', s.opacitet);
-      satt(`${namn}-casing`, 'line-width', s.bredd); satt(`${namn}-casing`, 'line-opacity', s.casingOpacitet);
+      satt(`${namn}-casing`, 'line-color', s.kantFarg); satt(`${namn}-casing`, 'line-width', s.kantBredd); satt(`${namn}-casing`, 'line-opacity', s.kantOpacitet);
     };
     if (hyttRoll) { stila('hyttspar-egen', hyttRoll, 'egen'); stila('hyttspar-hist', hyttRoll, 'hist'); }
     if (andrasRoll) stila('hyttspar-andras', andrasRoll, 'andras');
@@ -12421,6 +12463,9 @@ export default function PlannerPage() {
   const byggLager = (): LagerGrupp[] => {
     const vaxel = (id: string, namn: string, under: string | undefined, pa: boolean, bild: string, onTryck: () => void): LagerRad => ({ id, namn, under, typ: 'vaxel', pa, bild, onTryck });
     const sla = (id: string) => () => setOverlays((prev: any) => ({ ...prev, [id]: !prev[id] }));
+    // Reglaget under ett påslaget överlägg: Kartan syns ↔ Bara lagret, 15–100 steg 5. Startvärde = lagrets eget; sparas per enhet och lager (lib/kartReglage, lib/lagerOpacitet).
+    // Produktionshögar, GROT, spår, markeringar och fara har inget reglage (de finns inte i tabellen).
+    const medOp = (rad: LagerRad): LagerRad => { const reglage = overlayReglage(rad.id, kartReglage.lagerOp, kartReglage.setLagerOp); return reglage ? { ...rad, reglage } : rad; };
     const g: LagerGrupp[] = [];
     g.push({
       id: 'bakgrundskarta', rubrik: 'Bakgrundskarta',
@@ -12429,7 +12474,9 @@ export default function PlannerPage() {
         { id: 'satellite', name: 'Flygfoto', desc: 'Lantmäteriet ortofoto 0,5 m' },
         { id: 'terrain', name: 'Topokarta', desc: 'Lantmäteriet — full färg' },
         { id: 'osm', name: 'OpenStreetMap', desc: 'Standardkarta' },
-      ] as const).map((t): LagerRad => ({ id: t.id, namn: t.name, under: t.desc, typ: 'val', pa: mapType === t.id, bild: lagerBild(t.id), onTryck: () => setMapType(t.id) })),
+      ] as const).map((t): LagerRad => ({ id: t.id, namn: t.name, under: t.desc, typ: 'val', pa: mapType === t.id, bild: lagerBild(t.id), onTryck: () => setMapType(t.id),
+        // Reglaget under vald bakgrund: Dämpad ↔ Skarp, per bakgrund och per enhet (lib/kartBas, lib/kartReglage).
+        reglage: bakgrundReglage(t.id, kartReglage.styrkor, kartReglage.setStyrka) })),
     });
     g.push({
       id: 'kompass',
@@ -12439,9 +12486,9 @@ export default function PlannerPage() {
           : korvyKompass === 'saknas' ? 'Ingen kompass på enheten' : undefined,
         korvyKompass === 'aktiv', lagerBild('kompass'), () => { if (korvyKompass === 'aktiv') stoppaKompass(); else aktiveraKompass(true); })],
     });
-    g.push({ id: 'overlay', rubrik: 'Overlay', rader: overlayLista.map((o) => vaxel(o.id, o.name, o.desc, lagerPa(o.id), lagerBild(o.id), () => { if (o.enabled) vaxlaLager(o.id); })) });
+    g.push({ id: 'overlay', rubrik: 'Overlay', rader: overlayLista.map((o) => medOp(vaxel(o.id, o.name, o.desc, lagerPa(o.id), lagerBild(o.id), () => { if (o.enabled) vaxlaLager(o.id); }))) });
     for (const grp of wmsLayerGroups) {
-      g.push({ id: `wms-${grp.group}`, rubrik: grp.group, rader: grp.layers.filter((l) => l.meny !== false).map((l) => vaxel(l.id, l.name, l.desc, !!(overlays as any)[l.id], lagerBild(l.id, l.color), sla(l.id))) });
+      g.push({ id: `wms-${grp.group}`, rubrik: grp.group, rader: grp.layers.filter((l) => l.meny !== false).map((l) => medOp(vaxel(l.id, l.name, l.desc, !!(overlays as any)[l.id], lagerBild(l.id, l.color), sla(l.id)))) });
     }
     g.push({ id: 'smhi', rubrik: 'SMHI', rader: [vaxel('brandrisk', 'Brandrisk', 'SMHI prognos, uppdateras dagligen', !!(overlays as any).brandrisk, lagerBild('brandrisk'), sla('brandrisk'))] });
     g.push({
@@ -13246,7 +13293,7 @@ export default function PlannerPage() {
         <>
           {visaListan ? (
             // Kartan med alla objekt som prickar och listan ovanpå (lib/objektKarta) — aldrig en svart tom yta. Listan går inte att stänga här.
-            <ObjektKartaTom kartlager={mapType} onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} maskin={listMaskin} />
+            <ObjektKartaTom kartlager={mapType} kartlagerStyrka={styrkaFor(kartReglage.styrkor, mapType)} onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} maskin={listMaskin} />
           ) : (
             <div data-testid="planering-utan-objekt" style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text2, fontFamily: FONT, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta }}>
               Hämtar objekt…

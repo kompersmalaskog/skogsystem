@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  dampatSpar, sparAlder, sparBlekning, SPAR_DAMPAD_FARG, SPAR_BLEKNA_DAGAR,
+  dampatSpar, sparAlder, sparBlekning, SPAR_DAMPAD_FARG, SPAR_BLEKNA_DAGAR, SPAR_KANT_FARG, SPAR_KANT_FRAN_ZOOM, SPAR_KANT_FULL_ZOOM,
   sparStil, rollFarg, ROLLFARG_SKORDARE, ROLLFARG_SKOTARE, HYTTSPAR_LINE_WIDTH, HYTTSPAR_CASING_WIDTH, HYTTSPAR_HIST_LINE_WIDTH, HYTTSPAR_HIST_CASING_WIDTH,
   SKORDARSPAR_LINJE_BREDD, SKORDARSPAR_LINJE_OPACITET, SKORDARSPAR_CASING_BREDD, SKORDARSPAR_CASING_OPACITET, type SparArt,
 } from './sparStil';
+import { VAG_KANT_FARG } from './kartstil';
 
 // SKÖRDARENS LINJE (Martin 2026-10-08): jämn bredd ~3 px, full färg, ALLA dagar — skotaren följer stråken. Skotarens linje oförändrad.
 const ARTER: SparArt[] = ['egen', 'hist', 'andras', 'plan'];
@@ -66,51 +67,73 @@ describe('rollfärger är absoluta', () => {
   });
 });
 
-// ── Dämpade spår på planeringskartan (Martin 2026-10-26) ──────────────────────────────────────────────────────────────────────────────────────────
-describe('dämpade spår: tunna, en dämpad färg, låg opacitet, ingen ljus kant, äldre dagar bleknar', () => {
+// ── Tydligare spår på planeringskartan (Martin 2026-10-27, efter de dämpade 2026-10-26) ────────────────────────────────────────────────────────────
+describe('spåren på planeringskartan: rollfärger, 3 / 2,5 px, dagens ~0,9, smal mörk kant, äldre dagar bleknar med högt golv', () => {
   const ARTER2: SparArt[] = ['egen', 'hist', 'andras', 'plan'];
   const tal = (o: number | any[]) => (typeof o === 'number' ? [o] : [o[4], o[6]] as number[]);   // interpolate: stopp-värdena
-  it('bredd 2–3 px i alla lager och för båda rollerna', () => {
-    for (const roll of ['skordare', 'skotare'] as const) for (const art of ARTER2) {
-      const s = dampatSpar(roll, art);
-      expect(s.bredd, `${roll} ${art}`).toBeGreaterThanOrEqual(2);
-      expect(s.bredd, `${roll} ${art}`).toBeLessThanOrEqual(3);
+  const full = (b: any[]) => b[b.length - 1] as number;   // bredden vid högsta zoomsteget (arbetsnivå)
+  const inre = (o: any[]) => o[o.length - 1] as number | any[];   // kantens opacitet utan zoomuttrycket runt
+  it('skördare 3 px och skotare 2,5 px på arbetsnivå (zoom 17) i alla lager — och tunnare på översiktsnivå', () => {
+    for (const art of ARTER2) {
+      expect(full(dampatSpar('skordare', art).bredd), `skördare ${art}`).toBe(3);
+      expect(full(dampatSpar('skotare', art).bredd), `skotare ${art}`).toBe(2.5);
+      for (const roll of ['skordare', 'skotare'] as const) {
+        const b = dampatSpar(roll, art).bredd;
+        expect(b.slice(0, 3)).toEqual(['interpolate', ['linear'], ['zoom']]);
+        expect(b[4], `${roll} ${art} tunnast på översiktsnivå`).toBe(1);
+        expect(b[4]).toBeLessThan(full(b));
+      }
     }
   });
-  it('EN dämpad färg per roll (samma i alla lager) och inte rollernas identitetsfärg — aldrig en neongrön linje', () => {
+  it('den mörka kanten finns inte på översiktsnivå (annars gråar många passeringar ner fotot) och kommer först nära', () => {
+    for (const roll of ['skordare', 'skotare'] as const) for (const art of ARTER2) {
+      const k = dampatSpar(roll, art).kantOpacitet;
+      expect(k.slice(0, 3)).toEqual(['interpolate', ['linear'], ['zoom']]);
+      expect(k[3]).toBe(SPAR_KANT_FRAN_ZOOM); expect(k[4], `${roll} ${art}`).toBe(0);
+      expect(k[5]).toBe(SPAR_KANT_FULL_ZOOM);
+      expect(SPAR_KANT_FRAN_ZOOM).toBeGreaterThanOrEqual(15);   // inte på översiktsnivå
+    }
+  });
+  it('rollfärgerna (ROLLFARG_*), samma i alla lager — inte de dämpade nyanserna', () => {
     for (const roll of ['skordare', 'skotare'] as const) {
       const farger = new Set(ARTER2.map((art) => dampatSpar(roll, art).farg));
       expect(farger.size).toBe(1);
-      expect([...farger][0]).toBe(SPAR_DAMPAD_FARG[roll]);
+      expect([...farger][0]).toBe(roll === 'skordare' ? ROLLFARG_SKORDARE : ROLLFARG_SKOTARE);
+      expect([...farger][0]).not.toBe(SPAR_DAMPAD_FARG[roll]);
     }
-    expect(SPAR_DAMPAD_FARG.skotare).not.toBe(ROLLFARG_SKOTARE);   // #34c759 är neon
-    expect(SPAR_DAMPAD_FARG.skordare).not.toBe(ROLLFARG_SKORDARE);
-    // identitetsfärgerna rörs inte: de används av Uppföljning, objektkartan och A4-rapporten
-    expect(ROLLFARG_SKOTARE).toBe('#34c759'); expect(ROLLFARG_SKORDARE).toBe('#bf5af2');
-    // dämpad = låg mättnad: inget färgkanal-spann över 80 av 255
-    for (const f of Object.values(SPAR_DAMPAD_FARG)) {
-      const [r, g, b] = [1, 3, 5].map((i) => parseInt(f.slice(i, i + 2), 16));
-      expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThanOrEqual(80);
-    }
+    expect(ROLLFARG_SKOTARE).toBe('#34c759'); expect(ROLLFARG_SKORDARE).toBe('#bf5af2');   // identitetsfärgerna är oförändrade
   });
-  it('låg opacitet — aldrig över 0,65 — så många passeringar blir naturligt tätare; ingen ljus kant', () => {
+  it('dagens spår ~0,9; äldre dagar bleknar men golvet är ~0,45 så en vecka gammalt spår fortfarande syns', () => {
+    for (const roll of ['skordare', 'skotare'] as const) for (const art of ARTER2) {
+      const o = dampatSpar(roll, art).opacitet;
+      const [idag, aldst] = tal(o);
+      expect(idag, `${roll} ${art} idag`).toBeGreaterThanOrEqual(0.85); expect(idag).toBeLessThanOrEqual(0.95);
+      if (typeof o !== 'number') { expect(aldst, `${roll} ${art} golv`).toBeGreaterThanOrEqual(0.4); expect(aldst).toBeLessThanOrEqual(0.5); }
+    }
+    expect(dampatSpar('skordare', 'egen').opacitet).toBe(0.9);   // eget live-spår: alltid dagens värde
+  });
+  it('smal mörk kant under, som vägarna: samma färg som VAG_KANT_FARG, linjen + 2 px, något svagare än linjen', () => {
+    expect(SPAR_KANT_FARG).toBe(VAG_KANT_FARG);
     for (const roll of ['skordare', 'skotare'] as const) for (const art of ARTER2) {
       const s = dampatSpar(roll, art);
-      for (const o of tal(s.opacitet)) { expect(o).toBeGreaterThan(0); expect(o).toBeLessThanOrEqual(0.65); }
-      expect(s.casingOpacitet).toBe(0);
+      expect(s.kantFarg).toBe(VAG_KANT_FARG);
+      expect(full(s.kantBredd)).toBe(full(s.bredd) + 2);
+      const [lin] = tal(s.opacitet), [kant] = tal(inre(s.kantOpacitet));
+      expect(kant, `${roll} ${art}`).toBeGreaterThan(0);
+      expect(kant).toBeLessThan(lin);
     }
   });
-  it('skördarens spår syns tydligare än skotarens (skotaren följer stråken)', () => {
-    for (const art of ['egen', 'andras'] as const) expect(Math.max(...tal(dampatSpar('skordare', art).opacitet))).toBeGreaterThan(Math.max(...tal(dampatSpar('skotare', art).opacitet)));
-    expect(Math.max(...tal(dampatSpar('skordare', 'andras').opacitet))).toBeGreaterThanOrEqual(0.6);   // som den andres spår i skotarens vy: dagens stråk syns tydligt
+  it('skördarens spår är minst lika tydligt som skotarens', () => {
+    for (const art of ARTER2) expect(Math.max(...tal(dampatSpar('skordare', art).opacitet))).toBeGreaterThanOrEqual(Math.max(...tal(dampatSpar('skotare', art).opacitet)));
   });
-  it('tidigare dagar bleknar: planering, historik och den andres spår går från dagens värde ner till ett lägre efter 14 dagar; eget live-spår är dagens', () => {
+  it('tidigare dagar bleknar: planering, historik och den andres spår går från dagens värde ner till ett lägre efter 14 dagar (kanten likaså); eget live-spår är dagens', () => {
     for (const roll of ['skordare', 'skotare'] as const) for (const art of ['hist', 'plan', 'andras'] as const) {
-      const o = dampatSpar(roll, art).opacitet as any[];
-      expect(o[0]).toBe('interpolate');
-      expect(o[2]).toEqual(['coalesce', ['to-number', ['get', 'alder']], 0]);
-      expect(o[3]).toBe(0); expect(o[5]).toBe(SPAR_BLEKNA_DAGAR);
-      expect(o[6]).toBeLessThan(o[4]);   // äldst < idag
+      for (const o of [dampatSpar(roll, art).opacitet, inre(dampatSpar(roll, art).kantOpacitet as any[])] as any[][]) {
+        expect(o[0]).toBe('interpolate');
+        expect(o[2]).toEqual(['coalesce', ['to-number', ['get', 'alder']], 0]);
+        expect(o[3]).toBe(0); expect(o[5]).toBe(SPAR_BLEKNA_DAGAR);
+        expect(o[6]).toBeLessThan(o[4]);   // äldst < idag
+      }
     }
     expect(SPAR_BLEKNA_DAGAR).toBe(14);
     expect(sparBlekning(0.6, 0.2)).toEqual(['interpolate', ['linear'], ['coalesce', ['to-number', ['get', 'alder']], 0], 0, 0.6, 14, 0.2]);

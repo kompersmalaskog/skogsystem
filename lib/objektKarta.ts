@@ -195,7 +195,7 @@ export function sakerstallPrickLager(map: any): { setData: (d: unknown) => void 
 // Samma Lantmäteriet-bas och samma nedtoning som planeringsvyns karta (page.tsx mapStyleConfig: källan 'lantmateriet' + lagret 'lm-layer').
 export const TOM_KARTA_START = { center: [14.70, 56.40] as [number, number], zoom: 8 };   // verksamhetens mitt (som listans reserv för avstånd)
 /** Baskartan för kartan utan valt objekt: samma källor och nedtoning som planeringsvyns mapStyleConfig, för det kartlager användaren valt (lib/kartlager). */
-export function tomKartaStil(lager: Kartlager) {
+export function tomKartaStil(lager: Kartlager, styrka?: number) {
   const kallor = {
     lantmateriet: { type: 'raster' as const, tiles: ['/api/forarkarta?z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 17, attribution: '&copy; Lantmäteriet' },
     satellite: { type: 'raster' as const, tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 18, attribution: '&copy; Lantmäteriet' },
@@ -203,10 +203,10 @@ export function tomKartaStil(lager: Kartlager) {
     osm: { type: 'raster' as const, tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 19, attribution: '&copy; OpenStreetMap' },
   };
   const bas =
-    lager === 'satellite' ? { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: kartBasPaint('satellite') }
-    : lager === 'terrain' ? { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', paint: kartBasPaint('terrain') }
-    : lager === 'osm' ? { id: 'osm-layer', type: 'raster' as const, source: 'osm', paint: kartBasPaint('osm') }
-    : { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: kartBasPaint('lantmateriet') };
+    lager === 'satellite' ? { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: kartBasPaint('satellite', styrka) }
+    : lager === 'terrain' ? { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', paint: kartBasPaint('terrain', styrka) }
+    : lager === 'osm' ? { id: 'osm-layer', type: 'raster' as const, source: 'osm', paint: kartBasPaint('osm', styrka) }
+    : { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: kartBasPaint('lantmateriet', styrka) };
   return {
     version: 8 as const,
     sources: { [bas.source]: kallor[bas.source as keyof typeof kallor] },

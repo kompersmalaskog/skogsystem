@@ -20,7 +20,7 @@
 // och arkets lägen bor i lib/plusArk (testade); dockans regler i lib/plusRad.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { AVSTAND, DELFARG, FARG, INAKTIV, KNAPP, RADIE, RORELSE, TNUM, TYP, medSafeBotten } from '@/lib/design/tokens';
+import { AVSTAND, DELFARG, FARG, INAKTIV, KNAPP, RADIE, RORELSE, TNUM, TRAFFYTA, TYP, medSafeBotten } from '@/lib/design/tokens';
 import {
   FLIKAR, arAndrad, dragHojd, flyttaPlats, laggTillPlats, ligger, platsUnderFinger, startaRedigering, taBortPlats, valjDetent,
   PANEL_BREDD_PX, type Detent, type FlikId, type PlusLage,
@@ -62,8 +62,12 @@ export interface LagerRad {
   pa?: boolean;
   /** liten förhandsbild: en CSS-bakgrund (gradient/färg) */
   bild?: string;
+  /** Ett reglage under raden (Kartan tydligare): visas bara när raden är påslagen/vald. Sparas per enhet av sidan. */
+  reglage?: LagerReglage;
   onTryck: () => void;
 }
+/** Reglaget under en lagerrad: ett värde mellan min och max (steg), med en ord-ände åt vardera hållet. Gäller direkt när man drar. */
+export interface LagerReglage { varde: number; min: number; max: number; steg: number; vanster: string; hoger: string; onAndra: (v: number) => void }
 export interface LagerGrupp { id: string; rubrik?: string; rader: LagerRad[] }
 
 export interface ArkData {
@@ -418,11 +422,12 @@ export function PlusArk({ data, flik, onFlik, bred: bredProp, lage = 'ark', oppe
   );
 
   // En rad i Lager: liten förhandsbild, namn (+ ev. under), strömbrytare / bock / pil till höger
-  const lagerRad = (r: LagerRad, sist: boolean, gid: string) => (
+  // Raden själv (knappen). Utan reglage är markupen EXAKT den gamla (kanten på knappen); med reglage bär omslaget kanten så att reglaget ligger innanför raden.
+  const lagerKnapp = (r: LagerRad, gid: string, kantUnder: boolean) => (
     <button key={r.id} type="button" data-testid={`plus-lager-${gid}-${r.id}`} data-pa={r.typ === 'knapp' ? undefined : r.pa ? '1' : '0'} data-typ={r.typ}
       role={r.typ === 'vaxel' ? 'switch' : undefined} aria-checked={r.typ === 'vaxel' ? !!r.pa : undefined}
       onClick={r.onTryck}
-      style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, width: '100%', minHeight: BILD_H + AVSTAND.l + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.m}px`, textAlign: 'left', border: 'none', borderBottom: sist ? 'none' : `1px solid ${FARG.linje}`, background: 'transparent',
+      style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, width: '100%', minHeight: BILD_H + AVSTAND.l + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.m}px`, textAlign: 'left', border: 'none', borderBottom: kantUnder ? `1px solid ${FARG.linje}` : 'none', background: 'transparent',
         color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', touchAction: 'manipulation' }}>
       {r.bild && <span aria-hidden="true" style={{ flexShrink: 0, width: BILD_B, height: BILD_H, borderRadius: RADIE.rad - AVSTAND.xs / 2, background: r.bild, boxShadow: `inset 0 0 0 1px ${FARG.linje}` }} />}
       <span style={{ flex: 1, minWidth: 0 }}>
@@ -434,6 +439,26 @@ export function PlusArk({ data, flik, onFlik, bred: bredProp, lage = 'ark', oppe
       {r.typ === 'knapp' && <Pil />}
     </button>
   );
+
+  // En rad i Lager: liten förhandsbild, namn (+ ev. under), strömbrytare / bock / pil till höger — och, när raden är på/vald och har ett reglage, reglaget under.
+  const lagerRad = (r: LagerRad, sist: boolean, gid: string) => {
+    if (!r.reglage || !r.pa || r.typ === 'knapp') return lagerKnapp(r, gid, !sist);
+    const rg = r.reglage;
+    return (
+      <div key={r.id} data-testid={`plus-lagerpost-${gid}-${r.id}`} style={{ borderBottom: sist ? 'none' : `1px solid ${FARG.linje}` }}>
+        {lagerKnapp(r, gid, false)}
+        <div data-testid={`plus-reglage-${gid}-${r.id}`} style={{ padding: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>
+          <input type="range" aria-label={`${r.namn}: ${rg.vanster} – ${rg.hoger}`} data-testid={`plus-reglage-input-${gid}-${r.id}`}
+            min={rg.min} max={rg.max} step={rg.steg} value={rg.varde}
+            onChange={(e) => rg.onAndra(Number(e.target.value))}
+            style={{ display: 'block', width: '100%', height: TRAFFYTA.min, margin: 0, accentColor: FARG.text, touchAction: 'pan-y', cursor: 'pointer' }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.m, ...TYP.meta, color: FARG.text2 }}>
+            <span>{rg.vanster}</span><span>{rg.hoger}</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const grupp = (g: LagerGrupp) => (
     <section key={g.id} data-testid={`plus-lagergrupp-${g.id}`}>

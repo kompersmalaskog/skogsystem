@@ -85,6 +85,9 @@ const REGLER: Regel[] = [
   [/^hyttspar-egen-/, RANG.hyttspar + 10 * D],
   [/^planspar-skotare-/, RANG.hyttspar + 10 * D],
 
+  // ── Nedtoningen utanför trakten: precis över bakgrunden (och WMS-underlagen), under ALLT annat — trakten och dess 50 m kant är orörda ───────────────────────────────
+  [/^trakt-utanfor-ton$/, RANG.bakgrund + 50 * D],
+
   // ── Ytor: zoner, hänsyn, nyckelbiotop, kultur, klart-grått, tillfälliga ytor ───────────────────────────────────────────
   [/^(zone-|zones-korvy-|klart-|trakt-(hansyn|ovrigt|nb|raa)-)/, RANG.ytor],
 

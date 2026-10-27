@@ -7,7 +7,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { KARTBAS_PAINT } from './kartBas';
+import { KARTBAS_PAINT, kartBasPaint } from './kartBas';
 import { KARTLAGER } from './kartlager';
 
 function chromium(): { launch: (o: object) => Promise<any> } | null {
@@ -47,18 +47,28 @@ async function mat(paint: Record<string, number> | null): Promise<{ vitt: number
 }
 const spridning = (p: number[]) => Math.max(...p) - Math.min(...p);
 
-describe.skipIf(!CHROMIUM)('KARTBAS_PAINT i riktig MapLibre — vitt blir grått, färg tappar färg', () => {
+describe.skipIf(!CHROMIUM)('kartBasPaint i riktig MapLibre — Dämpad (0) tonar ned, standard (85) är nästan orört, Skarp (100) är orört', () => {
   it('orört: vitt är vitt och röd är röd (mätningen har tänder)', async () => {
     const m = await mat(null);
     expect(Math.max(...m.vitt)).toBeGreaterThan(240);
     expect(spridning(m.rod)).toBeGreaterThan(120);
   }, 90000);
   for (const lager of KARTLAGER) {
-    it(`${lager}: ljusast ≤ 80 % och färgspridningen minst en tredjedel mindre`, async () => {
+    it(`${lager}: Dämpad — ljusast ≤ 80 % och färgspridningen minst en tredjedel mindre`, async () => {
       const ref = await mat(null);
-      const m = await mat(KARTBAS_PAINT[lager]);
+      const m = await mat(kartBasPaint(lager, 0));
       expect(Math.max(...m.vitt), `${lager} vitt blev ${m.vitt}`).toBeLessThanOrEqual(255 * 0.8);
       expect(spridning(m.rod), `${lager} röd blev ${m.rod}`).toBeLessThan(spridning(ref.rod) * (2 / 3));
+    }, 90000);
+  }
+  for (const lager of KARTLAGER) {
+    it(`${lager}: standard (85) behåller nästan all ljus och färg (≥ 85 %) — inte grått; Skarp (100) är orörd bild`, async () => {
+      const ref = await mat(null);
+      const std = await mat(KARTBAS_PAINT[lager]);
+      const skarp = await mat(kartBasPaint(lager, 100));
+      expect(Math.max(...std.vitt), `${lager} vitt blev ${std.vitt}`).toBeGreaterThanOrEqual(255 * 0.85);
+      expect(spridning(std.rod), `${lager} röd blev ${std.rod}`).toBeGreaterThanOrEqual(spridning(ref.rod) * 0.85);
+      expect(skarp.vitt).toEqual(ref.vitt); expect(skarp.rod).toEqual(ref.rod);
     }, 90000);
   }
 });

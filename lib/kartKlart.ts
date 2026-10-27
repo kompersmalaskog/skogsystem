@@ -1,7 +1,8 @@
 // DET SOM ÄR KLART BLIR GRÅTT (Kartan lugnare, 2026-10-24). Samma princip som resten av appen: status visas med STYRKA, inte med en egen färg — full färg är det som
 // är kvar, grått och svagare är det som är gjort. Det här är bara det som FINNS som status idag; ingen ny status hittas på:
 //
-//   • Skotad yta  = polygonerna föraren ritat med "Markera utkört" (skotning_uttag.polygon_coords) → grå yta med tunn grå kant.
+//   • Skotad yta  = polygonerna föraren ritat med "Markera utkört" (skotning_uttag.polygon_coords) → BARA en tunn grå kant, ingen fyllning (Martin 2026-10-27: inne i trakten ska
+//                   flygfotot synas i full skärpa — en grå yta gråar ner fotot och gör trakten mörkare än skogen utanför).
 //   • Klar trakt  = objekt.status 'avslutat' (förr även 'klar') → trakten ritas lugnt: vägarna och maskinspåren (avverkad/skotad yta) i grått.
 //
 //   • Klar väg    = en väg i KÖRORDNINGEN som maskinen kört (`korKlar` på vägens markering, lib/korordning) → vägen ritas grå, samma grå och samma styrka som en klar trakt
@@ -14,12 +15,11 @@ import { FARG } from './design/tokens';
 export const KLART_FARG = FARG.text2;
 /** Linjer (vägar, maskinspår) i grått: svagare än det som är kvar, men fortfarande läsbara — skotaren följer fortfarande spåren. */
 export const KLART_LINJE_OPACITET = 0.6;
-/** Skotad yta: tunn fyllning och kant. */
-export const KLART_YTA_FYLLNING = 0.16;
+/** Skotad yta: bara en tunn kant (ingen fyllning — fotot inne i trakten ska aldrig gråas ner). */
+export const KLART_YTA_KANT_BREDD = 1.5;
 export const KLART_YTA_KANT_OPACITET = 0.55;
 
 export const KLART_KALLA = 'klart-yta-source';
-export const KLART_FYLLNING_LAGER = 'klart-yta-fill';
 export const KLART_KANT_LAGER = 'klart-yta-line';
 
 /** En väg är klar när maskinen kört den: `korKlar` är då tiden den blev körd. */

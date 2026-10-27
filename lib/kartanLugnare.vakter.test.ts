@@ -71,8 +71,12 @@ describe('fara rörs aldrig av nedtoning eller grått', () => {
     for (const id of KLART_LINJELAGER) expect(id).not.toMatch(/powerline|kraftledning|larm|fall|markers|arrows|boundary/i);
   });
   it('bakgrunden tonas bara i rasterlagren (baskartan); inget markerings-, larm- eller fara-lager får raster-egenskaper från lib/kartBas', () => {
-    const rader = sida.split('\n').filter((r) => r.includes('kartBasPaint('));
+    const rader = sida.split('\n').filter((r) => r.includes('paint: kartBasPaint('));
     expect(rader.length).toBe(4);   // de fyra baslagren
     for (const r of rader) expect(r).toMatch(/type: 'raster'/);
+    // Det enda andra stället som läser kartBasPaint är reglage-effekten (Dämpad ↔ Skarp): den sätter paint på de fyra baslagren via KARTLAGER_LAGER_ID och inget annat lager.
+    const ovriga = sida.split('\n').filter((r) => r.includes('kartBasPaint(') && !r.includes('paint: kartBasPaint('));
+    expect(ovriga.filter((r) => !r.trim().startsWith('//')).length).toBe(1);
+    expect(sida).toMatch(/const paint = kartBasPaint\(l, styrkaFor\(kartReglage\.styrkor, l\)\);/);
   });
 });

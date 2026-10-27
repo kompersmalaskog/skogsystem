@@ -65,7 +65,7 @@ describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
     expect(page).toContain('const r = fastaPost(plusRadRef.current, post);');
   });
   it('lagerväxlarna i arkets Lager-flik använder SAMMA lista (overlayLista) och SAMMA växel (vaxlaLager) som förut', () => {
-    expect(page).toContain("overlayLista.map((o) => vaxel(o.id, o.name, o.desc, lagerPa(o.id), lagerBild(o.id), () => { if (o.enabled) vaxlaLager(o.id); }))");
+    expect(page).toContain("overlayLista.map((o) => medOp(vaxel(o.id, o.name, o.desc, lagerPa(o.id), lagerBild(o.id), () => { if (o.enabled) vaxlaLager(o.id); })))");
     expect(page).toContain("if (post.typ === 'lager') { vaxlaLager(post.id); noteraPlus(post); return; }");
   });
 });
