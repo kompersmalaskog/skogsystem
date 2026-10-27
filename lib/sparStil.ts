@@ -72,15 +72,30 @@ export const SPAR_KANT_EXTRA_PX = 2;
 
 export interface DampatSpar {
   farg: string;
-  /** Linjebredd i px (3 skördare, 2,5 skotare). */
-  bredd: number;
+  /** Linjebredd i px: ett uttryck på zoom som är tunt på översiktsnivå och 3 (skördare) / 2,5 (skotare) när man arbetar nära. */
+  bredd: any[];
   /** Ett tal, eller (för tidigare dagar) ett uttryck på featurens `alder`. */
   opacitet: number | any[];
-  /** Den mörka kanten under linjen: färg, bredd (linjen + 2 px) och opacitet (som linjens, något svagare). */
+  /** Den mörka kanten under linjen: färg, bredd (linjen + 2 px) och opacitet (som linjens, något svagare) — syns först när man zoomat in (SPAR_KANT_FRAN_ZOOM). */
   kantFarg: string;
-  kantBredd: number;
-  kantOpacitet: number | any[];
+  kantBredd: any[];
+  kantOpacitet: any[];
 }
+
+/**
+ * Tunna spår på översiktsnivå (Martin 2026-10-27: inne i trakten ska flygfotot synas i full skärpa). Spårens bredd är pixlar, inte meter — på översiktsnivå
+ * betyder en fast bredd att många passeringar tillsammans täcker trakten och gråar ner fotot, så linjen tunnas ut med zoom och den mörka kanten (som gör
+ * linjen läsbar mot ljus mark) kommer först när man är nära nog att se enskilda spår.
+ */
+export const SPAR_ZOOM_FRAN = 13;       // under så här: tunnast
+export const SPAR_ZOOM_TILL = 17;       // från så här: full bredd
+export const SPAR_KANT_FRAN_ZOOM = 15.5;   // under så här: ingen kant alls
+export const SPAR_KANT_FULL_ZOOM = 17;     // från så här: full kant
+const sparBredd = (full: number): any[] => ['interpolate', ['linear'], ['zoom'], SPAR_ZOOM_FRAN, 1, 15, Math.max(1, full - 0.5), SPAR_ZOOM_TILL, full];
+/** Kantens bredd: linjens + 2 px, på samma zoomsteg. */
+const sparKantBredd = (full: number): any[] => ['interpolate', ['linear'], ['zoom'], SPAR_ZOOM_FRAN, 1 + SPAR_KANT_EXTRA_PX, 15, Math.max(1, full - 0.5) + SPAR_KANT_EXTRA_PX, SPAR_ZOOM_TILL, full + SPAR_KANT_EXTRA_PX];
+/** Opaciteten på kanten: 0 på översiktsnivå, sedan upp till `op` (tal eller uttryck på `alder`). */
+const sparKantOp = (op: number | any[]): any[] => ['interpolate', ['linear'], ['zoom'], SPAR_KANT_FRAN_ZOOM, 0, SPAR_KANT_FULL_ZOOM, op];
 
 /** Opaciteten för ett spår som är `idag` (alder 0) och bleknar till `aldst` efter SPAR_BLEKNA_DAGAR dagar. Utan `alder` på featuren räknas den som dagens. */
 export function sparBlekning(idag: number, aldst: number): any[] {
@@ -102,8 +117,8 @@ export function sparAlder(datum: string | null | undefined, idagIso: string): nu
  */
 export function dampatSpar(roll: SparRoll, art: SparArt): DampatSpar {
   const farg = roll === 'skordare' ? ROLLFARG_SKORDARE : ROLLFARG_SKOTARE;
-  const bredd = roll === 'skordare' ? 3 : 2.5;
-  const ut = (opacitet: number | any[], kantOpacitet: number | any[]): DampatSpar => ({ farg, bredd, opacitet, kantFarg: SPAR_KANT_FARG, kantBredd: bredd + SPAR_KANT_EXTRA_PX, kantOpacitet });
+  const full = roll === 'skordare' ? 3 : 2.5;
+  const ut = (opacitet: number | any[], kantOpacitet: number | any[]): DampatSpar => ({ farg, bredd: sparBredd(full), opacitet, kantFarg: SPAR_KANT_FARG, kantBredd: sparKantBredd(full), kantOpacitet: sparKantOp(kantOpacitet) });
   const blek = (idag: number, aldst: number) => ut(sparBlekning(idag, aldst), sparBlekning(idag * 0.8, aldst * 0.8));
   switch (art) {
     case 'hist': return blek(0.85, 0.45);

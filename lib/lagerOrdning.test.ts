@@ -11,7 +11,7 @@ const rang = (id: string, type?: string) => lagerRang({ id, type });
 // Representanter för varje steg i Martins ordning, nerifrån och upp.
 const STEG: Array<[string, string[]]> = [
   ['bakgrund', ['bg', 'osm-layer', 'satellite-layer', 'lm-layer', 'terrain-layer', 'hillshade-korvy', 'lm-skuggning-layer', 'vida-layer', 'wms-layer-fastighetsgranser']],
-  ['ytor', ['zone-fill', 'zone-hatch-natur', 'zone-outline', 'klart-yta-fill', 'trakt-hansyn-fill', 'trakt-nb-fill', 'trakt-raa-fill']],
+  ['ytor', ['zone-fill', 'zone-hatch-natur', 'zone-outline', 'klart-yta-line', 'trakt-hansyn-fill', 'trakt-nb-fill', 'trakt-raa-fill']],
   ['hyttspår', ['hyttspar-hist-line', 'hyttspar-andras-line', 'hyttspar-egen-line', 'planspar-skordare-line', 'planspar-skotare-line']],
   ['traktgräns/rågång', ['line-boundary-base', 'line-boundary-stripe', 'trakt-gr-line', 'grans-fill', 'hornedit-base']],
   ['basvägar/stickvägar', ['line-mainRoad-casing', 'line-mainRoad-base', 'line-mainRoad-stripe', 'line-sideRoadRed-base', 'line-sideRoadBlue-base', 'trakt-basvag-line']],

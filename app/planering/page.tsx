@@ -186,7 +186,8 @@ import { LinjeRedList, type RedVal } from '../../components/planering/LinjeRedLi
 import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_KANT_LAGER, KORUPP_TRAFF_LAGER, arKorUpp, korUppUr, korUppData, korUppLager, ritaSpetsBild, synligaKorUpp, nyKorUpp, KORUPP_SKAL, korUppText, type KorUppPos, type Skal, type SnappVag } from '../../lib/korUpp'
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
-import { KLART_FARG, KLART_LINJE_OPACITET, KLART_YTA_FYLLNING, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_FYLLNING_LAGER, KLART_KANT_LAGER, KLART_LINJELAGER, KLART_TONAS_BORT, INGA_YTOR, arObjektKlart, skotadeYtor } from '../../lib/kartKlart'
+import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner } from '../../lib/traktTon'
+import { KLART_FARG, KLART_LINJE_OPACITET, KLART_YTA_KANT_BREDD, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_KANT_LAGER, KLART_LINJELAGER, KLART_TONAS_BORT, INGA_YTOR, arObjektKlart, skotadeYtor } from '../../lib/kartKlart'
 import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
 import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
 import { avlaggFeatures, laggTillAvlaggslager, taBortAvlaggslager } from '../../lib/skotarLass/avlaggKarta'
@@ -1442,11 +1443,10 @@ export default function PlannerPage() {
     const ejGallring = ['!=', ['get', 'zoneType'], 'gallring'] as any; // casing/dash/outline för ALLA UTOM gallring
     const gallringLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['==', ['get', 'tradslag'], 'lov']] as any;
     const gallringEjLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['!=', ['get', 'tradslag'], 'lov']] as any;
-    // SKOTAD YTA = klart = grått (Kartan lugnare, lib/kartKlart): de sparade skotningsuttagens polygoner ligger UNDER alla ytor, vägar och symboler, svagt och grått.
+    // SKOTAD YTA = klart = grått (Kartan lugnare, lib/kartKlart): de sparade skotningsuttagens polygoner ritas som en tunn grå KANT under alla ytor, vägar och symboler — ingen fyllning, fotot inne i trakten gråas aldrig ner.
     // Prefixet 'klart-' står i körvyns KEEP_PREFIX. Datan läses av en egen effekt (skotning_uttag.polygon_coords); läsfel = ingen grå yta, aldrig en påhittad.
     map.addSource(KLART_KALLA, { type: 'geojson', data: INGA_YTOR as any });
-    map.addLayer({ id: KLART_FYLLNING_LAGER, type: 'fill', source: KLART_KALLA, paint: { 'fill-color': KLART_FARG, 'fill-opacity': KLART_YTA_FYLLNING } });
-    map.addLayer({ id: KLART_KANT_LAGER, type: 'line', source: KLART_KALLA, paint: { 'line-color': KLART_FARG, 'line-width': 1.5, 'line-opacity': KLART_YTA_KANT_OPACITET }, layout: { 'line-join': 'round' } });
+    map.addLayer({ id: KLART_KANT_LAGER, type: 'line', source: KLART_KALLA, paint: { 'line-color': KLART_FARG, 'line-width': KLART_YTA_KANT_BREDD, 'line-opacity': KLART_YTA_KANT_OPACITET }, layout: { 'line-join': 'round' } });
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(GALLRING_FILL_OPACITY, 0.2) } });
     // Ytor man inte får köra in i (Hänsyn, Fornlämning, Ej framkomlig) snedstreckas i gruppens färg; övriga är heldragna (lib/ytaStil).
     for (const grupp of SNEDSTRECK_GRUPPER) {
@@ -1875,6 +1875,10 @@ export default function PlannerPage() {
     // Traktgränsen OVANPÅ rågången: smal, med bara en tunn mörk kant (förut 3/5/8 px med en bred svart kant som täckte rågången under).
     const trTdW = TRAKTGRANS_BREDD as any;
     const trTdCasingW = TRAKTGRANS_KANT_BREDD as any;
+    // NEDTONING UTANFÖR TRAKTEN (lib/traktTon): lätt svart (25 %) över allt > 50 m från traktgränsen, så trakten är det ljusaste på kartan. Läggs precis över bakgrunden
+    // av lib/lagerOrdning. Ingen traktgräns = ingen yta = ingen nedtoning. Kopplingen till objektet är effekten [traktGeo] längre ned.
+    map.addSource(UTANFOR_TON_KALLA, { type: 'geojson', data: INGEN_TON as any });
+    map.addLayer({ id: UTANFOR_TON_LAGER, type: 'fill', source: UTANFOR_TON_KALLA, paint: { 'fill-color': UTANFOR_TON_FARG, 'fill-opacity': UTANFOR_TON_OPACITET, 'fill-antialias': false }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'traktdel-parts-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': 0.05 }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-gr-casing', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': TRAKTGRANS_KANT_FARG, 'line-width': trTdCasingW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.fara, 'line-width': trTdW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
@@ -5117,6 +5121,18 @@ export default function PlannerPage() {
       tonaInLager(map, TRAKTGRANS_LAGER);
     }
   }, [traktdelDelar, objektNumrering, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // NEDTONING UTANFÖR TRAKTEN: ytan räknas ur Vidas traktgräns (samma L_TRAKTDEL som Fokus på trakten) när objektets geometri är läst. Saknas gräns göms lagret. När Vidas egen
+  // fastighetsnedtoning är påslagen (lagret Fastighetsgränser + Vida-data) tonar den redan ned det som ligger utanför, och de två läggs inte ovanpå varandra.
+  const tonYta = useMemo(() => (traktGeoHamtadFor && valtObjekt?.id && traktGeoHamtadFor === valtObjekt.id ? byggTonYta(traktPolygoner(traktGeo)) : INGEN_TON), [traktGeo, traktGeoHamtadFor, valtObjekt?.id]);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource(UTANFOR_TON_KALLA) as any;
+    if (!src?.setData || !map.getLayer(UTANFOR_TON_LAGER)) return;
+    try { src.setData(tonYta as any); } catch { /* */ }
+    try { map.setLayoutProperty(UTANFOR_TON_LAGER, 'visibility', tonYta.features.length > 0 && !fastighetsSyn.vida ? 'visible' : 'none'); } catch { /* */ }
+  }, [tonYta, fastighetsSyn.vida, mapLibreReady]);
 
   // Justerade delar (en boundary-markör med fromVidaTd=<partKey> finns) döljs PER del.
   const justeradeTraktdelar = useMemo(
