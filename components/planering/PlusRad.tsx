@@ -19,7 +19,7 @@ import type { FlikId } from '@/lib/plusArk';
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import { PlusArk, type ArkData, type PlusPostVy } from './PlusArk';
 
-export type { ArkData, PlusPostVy, SymbolKategori, RitaKort, RitaIkonId, LagerRad, LagerGrupp } from './PlusArk';
+export type { ArkData, PlusPostVy, SymbolKategori, RitaKort, RitaIkonId, LagerRad, LagerGrupp, LagerReglage } from './PlusArk';
 
 export interface HallSvar { ok: boolean; text: string }
 

@@ -55,23 +55,31 @@ export function sparStil(roll: SparRoll, art: SparArt): SparStil {
   }
 }
 
-// ── DÄMPADE SPÅR på planeringskartan (Martin 2026-10-26) ──────────────────────────────────────────────────────────────────────────────────────────────
-// Kartan är full av annat man inte får köra på eller fälla mot, och spåren är bara underlag. Tunna linjer (2–3 px), EN dämpad färg per roll, låg opacitet och ingen
-// ljus kant: många passeringar blir naturligt tätare (varje linje lägger till sin del), aldrig en neongrön klump. Äldre dagar bleknar med åldern (`alder`, dagar sedan
-// spåret kördes, sätts på featuren av den som läser raderna). Skördarens spår syns tydligare än skotarens — skotaren följer stråken — men ligger under basvägen
-// (lib/lagerOrdning). ROLLFARG_* ovan är rollernas IDENTITETSfärger (Uppföljning, objektkartan, A4-rapporten) och rörs inte: det här är bara hur spåret ritas på kartan.
+// ── SPÅREN PÅ PLANERINGSKARTAN (Martin 2026-10-26 dämpade, 2026-10-27 för svaga → tydligare) ─────────────────────────────────────────────────────────
+// Spåren är underlag, men de får inte bli grå och döda mot flygfotot: rollernas egna färger (ROLLFARG_*: skördare lila, skotare grön), 3 px skördare och 2,5 px skotare,
+// dagens spår med opacitet ~0,9, och en smal mörk kant under (som vägarna, VAG_KANT_FARG) så linjen bär mot både flygfoto och vit karta. Många passeringar blir ändå
+// tätare, inte klumpigare, eftersom linjen är tunn. Äldre dagar bleknar med åldern (`alder`, dagar sedan spåret kördes, sätts på featuren av den som läser raderna) men
+// golvet är högt (~0,45) så en vecka gammalt spår fortfarande syns. Lagerordningen är orörd: spår under vägar, linjer och symboler (lib/lagerOrdning).
+// ROLLFARG_* är rollernas identitetsfärger överallt (Uppföljning, objektkartan, A4-rapporten) — spåret använder dem nu också. `SPAR_DAMPAD_FARG` (de dämpade nyanserna från
+// 2026-10-26) används inte längre av kartan och finns kvar bara som referens i testet.
 export const SPAR_DAMPAD_FARG: Readonly<Record<SparRoll, string>> = { skordare: '#b093c9', skotare: '#7fae8d' };
 /** Efter så här många dagar har ett spår bleknat helt ner till sin lägsta opacitet. */
 export const SPAR_BLEKNA_DAGAR = 14;
+/** Den smala mörka kanten under spåret — samma som vägarnas (lib/kartstil VAG_KANT_FARG; testet håller dem lika). */
+export const SPAR_KANT_FARG = 'rgba(0,0,0,0.9)';
+/** Kanten sticker ut en pixel på vardera sidan om linjen. */
+export const SPAR_KANT_EXTRA_PX = 2;
 
 export interface DampatSpar {
   farg: string;
-  /** Linjebredd i px (2–3). */
+  /** Linjebredd i px (3 skördare, 2,5 skotare). */
   bredd: number;
   /** Ett tal, eller (för tidigare dagar) ett uttryck på featurens `alder`. */
   opacitet: number | any[];
-  /** Den ljusa kanten är borta: den gjorde varje spår till en vit-grön klump. */
-  casingOpacitet: 0;
+  /** Den mörka kanten under linjen: färg, bredd (linjen + 2 px) och opacitet (som linjens, något svagare). */
+  kantFarg: string;
+  kantBredd: number;
+  kantOpacitet: number | any[];
 }
 
 /** Opaciteten för ett spår som är `idag` (alder 0) och bleknar till `aldst` efter SPAR_BLEKNA_DAGAR dagar. Utan `alder` på featuren räknas den som dagens. */
@@ -88,24 +96,19 @@ export function sparAlder(datum: string | null | undefined, idagIso: string): nu
 
 /**
  * Stilen för en rolls spår i ett lager.
- *   skördare: 3 px, 0,6 (planering 0,6 → 0,2, historik 0,55 → 0,15 efter 14 dagar) — den andres (skotarens syn) 0,65 → 0,2: synligt men under basvägen
- *   skotare : 2 px, 0,5 (planering 0,5 → 0,12, historik 0,4 → 0,1) — den andres 0,4 → 0,1
- * Eget spår idag (live) är alltid dagens värde.
+ *   skördare: 3 px, dagens 0,9 (planering/den andres 0,9 → 0,45 efter 14 dagar, historik 0,85 → 0,45)
+ *   skotare : 2,5 px, samma värden
+ * Eget spår idag (live) är alltid dagens värde. Kanten är linjen + 2 px i VAG_KANT_FARG med 80 % av linjens opacitet.
  */
 export function dampatSpar(roll: SparRoll, art: SparArt): DampatSpar {
-  const farg = SPAR_DAMPAD_FARG[roll];
-  if (roll === 'skordare') {
-    switch (art) {
-      case 'hist': return { farg, bredd: 3, opacitet: sparBlekning(0.55, 0.15), casingOpacitet: 0 };
-      case 'andras': return { farg, bredd: 3, opacitet: sparBlekning(0.65, 0.2), casingOpacitet: 0 };
-      case 'plan': return { farg, bredd: 3, opacitet: sparBlekning(0.6, 0.2), casingOpacitet: 0 };
-      default: return { farg, bredd: 3, opacitet: 0.6, casingOpacitet: 0 };
-    }
-  }
+  const farg = roll === 'skordare' ? ROLLFARG_SKORDARE : ROLLFARG_SKOTARE;
+  const bredd = roll === 'skordare' ? 3 : 2.5;
+  const ut = (opacitet: number | any[], kantOpacitet: number | any[]): DampatSpar => ({ farg, bredd, opacitet, kantFarg: SPAR_KANT_FARG, kantBredd: bredd + SPAR_KANT_EXTRA_PX, kantOpacitet });
+  const blek = (idag: number, aldst: number) => ut(sparBlekning(idag, aldst), sparBlekning(idag * 0.8, aldst * 0.8));
   switch (art) {
-    case 'hist': return { farg, bredd: 2, opacitet: sparBlekning(0.4, 0.1), casingOpacitet: 0 };
-    case 'andras': return { farg, bredd: 2, opacitet: sparBlekning(0.4, 0.1), casingOpacitet: 0 };
-    case 'plan': return { farg, bredd: 2, opacitet: sparBlekning(0.5, 0.12), casingOpacitet: 0 };
-    default: return { farg, bredd: 2, opacitet: 0.5, casingOpacitet: 0 };
+    case 'hist': return blek(0.85, 0.45);
+    case 'andras':
+    case 'plan': return blek(0.9, 0.45);
+    default: return ut(0.9, 0.72);
   }
 }

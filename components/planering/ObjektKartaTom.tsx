@@ -18,11 +18,11 @@ import { FARG } from '@/lib/design/tokens';
 
 const MapLibreMap = dynamic(() => import('@/components/MapLibreMap'), { ssr: false });
 
-export default function ObjektKartaTom({ onValj, onNavigera, maskin, kartlager = STANDARD_KARTLAGER }: { onValj: (o: ListaObjekt) => void; onNavigera: (o: ListaObjekt) => void; maskin?: ObjektListaProps['maskin']; kartlager?: Kartlager }) {
+export default function ObjektKartaTom({ onValj, onNavigera, maskin, kartlager = STANDARD_KARTLAGER, kartlagerStyrka }: { onValj: (o: ListaObjekt) => void; onNavigera: (o: ListaObjekt) => void; maskin?: ObjektListaProps['maskin']; kartlager?: Kartlager; kartlagerStyrka?: number }) {
   const [karta, setKarta] = useState<any | null>(null);
   const [prickar, setPrickar] = useState<KartPrickar | null>(null);
   // Samma bakgrundskarta som planeringsvyn (användarens sparade kartlager). Kartan byggs om bara när lagret byts.
-  const stil = useMemo(() => tomKartaStil(kartlager), [kartlager]);
+  const stil = useMemo(() => tomKartaStil(kartlager, kartlagerStyrka), [kartlager, kartlagerStyrka]);
   useObjektPrickar({ map: karta, aktiv: true, prickar, aterstall: false });
   return (
     <>

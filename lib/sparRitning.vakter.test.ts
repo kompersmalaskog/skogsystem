@@ -58,12 +58,12 @@ describe('stilen: dämpade spår (lib/sparStil dampatSpar), en källa för alla 
     expect(page).toContain("if (hyttRoll) { stila('hyttspar-egen', hyttRoll, 'egen'); stila('hyttspar-hist', hyttRoll, 'hist'); }");
     expect(page).toContain("if (andrasRoll) stila('hyttspar-andras', andrasRoll, 'andras');");
     expect(page).toContain("satt(`${namn}-line`, 'line-color', s.farg); satt(`${namn}-line`, 'line-width', s.bredd); satt(`${namn}-line`, 'line-opacity', s.opacitet);");
-    expect(page).toContain("satt(`${namn}-casing`, 'line-width', s.bredd); satt(`${namn}-casing`, 'line-opacity', s.casingOpacitet);");
+    expect(page).toContain("satt(`${namn}-casing`, 'line-color', s.kantFarg); satt(`${namn}-casing`, 'line-width', s.kantBredd); satt(`${namn}-casing`, 'line-opacity', s.kantOpacitet);");
   });
   it('planeringsvyns lager skapas med stilen per roll', () => {
     expect(page).toContain("const st = dampatSpar(roll, 'plan');");
     expect(page).toContain("'line-opacity': st.opacitet as any, 'line-width': st.bredd");
-    expect(page).toContain("'line-opacity': st.casingOpacitet, 'line-width': st.bredd");
+    expect(page).toContain("'line-color': st.kantFarg, 'line-opacity': st.kantOpacitet as any, 'line-width': st.kantBredd");
   });
   it('tidigare dagar bleknar: alla tre raderna som läses (historik, den andres, planering) skickar med datum och sätter featurens alder', () => {
     expect(page.match(/properties: \{ alder: sparAlder\(/g)).toHaveLength(3);
