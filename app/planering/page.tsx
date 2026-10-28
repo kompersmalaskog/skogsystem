@@ -42,6 +42,7 @@ import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaG15Forslag, forslagKalla, prestation, prestationVarning, snittTypOrd, type UtfallRad } from '../../lib/g15Forslag'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
+import { strakFeatures } from '../../lib/strak'
 import { installeraLagerOrdning, symbolSortKey, VAG_SORT_KEY } from '../../lib/lagerOrdning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
 import { dampatSpar, sparAlder } from '../../lib/sparStil'
@@ -4324,10 +4325,10 @@ export default function PlannerPage() {
         const horTillId: string | undefined = (valtObjekt as any)?.hor_till_objekt_id || undefined;
         const { data } = await supabase.from('hyttspar').select('objekt_id, datum, points').in('objekt_id', horTillId && roll === 'skordare' ? [objektId, horTillId] : [objektId]).eq('roll', roll);
         if (avbruten) return;
-        egetHistRef.current = (data || [])
+        // STRÅK (lib/strak): alla tidigare dagar slås ihop till stråk — bara ritningen. alder = den nyaste dagen som ingår.
+        egetHistRef.current = strakFeatures((data || [])
           .filter((r: any) => r.objekt_id !== objektId || r.datum !== idag)   // dagens EGNA = fulla eget-lagret (live), ej dubbelritning
-          .flatMap((r: any) => hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : [])
-            .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { alder: sparAlder(r.datum, idag) } })));   // äldre dagar bleknar (alder = dagar sedan)
+          .map((r: any) => ({ linjer: hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : []), alder: sparAlder(r.datum, idag) })), roll);
         setHyttsparBasVersion(v => v + 1);   // → redo-effekten ovan ritar historiken
       } catch (e) { console.error('[Hyttspår] eget-historik:', e); }
     })();
@@ -4491,17 +4492,18 @@ export default function PlannerPage() {
       // vid interna tidsglapp (app stängd mitt i passet) → en LineString per segment, ingen rak brygga
       // över glappet. Förr: en LineString per rad (bryggade interna glapp — Martins fältfynd).
       const idagIso = lokaltDatumStockholm(serverNu());
-      const tillFeatures = (rader: any[] | null) => (rader || [])
-        .flatMap((r: any) => hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : [])
-          .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { alder: sparAlder(r.datum, idagIso) } })));
-      const features = tillFeatures(data);
+      const tillRader = (rader: any[] | null) => (rader || [])
+        .map((r: any) => ({ linjer: hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : []), alder: sparAlder(r.datum, idagIso) }));
+      const rader = tillRader(data);
       // GROT-jobb (skotare) som hör till ett virkesobjekt: SKÖRDARENS spår på virkesobjektet visas också (som "den andres" spår).
       const horTillId: string | undefined = (valtObjekt as any)?.hor_till_objekt_id || undefined;
       if (horTillId && roll === 'skordare') {
         const { data: pd, error: pe } = await supabase.from('hyttspar').select('datum, points').eq('objekt_id', horTillId).eq('roll', 'skordare');
         if (pe) console.error('[Hyttspår] virkesobjektets skördarspår:', pe.message);
-        else features.push(...tillFeatures(pd));
+        else rader.push(...tillRader(pd));
       }
+      // STRÅK (lib/strak): alla dagar ihop till stråk — bara ritningen.
+      const features = strakFeatures(rader, roll);
       andrasFeaturesRef.current = features;
       const src = mapInstanceRef.current?.getSource('hyttspar-andras-source') as any;
       if (src) src.setData({ type: 'FeatureCollection', features });
@@ -9816,15 +9818,15 @@ export default function PlannerPage() {
         const { data, error } = await supabase.from('hyttspar').select('roll, datum, points').eq('objekt_id', objektId);
         if (avbruten) return;
         if (error) { console.error('[Planspår] hämtning:', error.message); return; }
-        const perRoll: { skordare: any[]; skotare: any[] } = { skordare: [], skotare: [] };
+        const raderPerRoll: { skordare: any[]; skotare: any[] } = { skordare: [], skotare: [] };
         const idagIso = lokaltDatumStockholm(serverNu());
         for (const r of (data || [])) {
           const roll = (r as any).roll === 'skotare' ? 'skotare' : (r as any).roll === 'skordare' ? 'skordare' : null;
           if (!roll) continue;
-          for (const coords of hyttsparRitadeLinjer(Array.isArray((r as any).points) ? (r as any).points : [])) {
-            perRoll[roll].push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { alder: sparAlder((r as any).datum, idagIso) } });
-          }
+          raderPerRoll[roll].push({ linjer: hyttsparRitadeLinjer(Array.isArray((r as any).points) ? (r as any).points : []), alder: sparAlder((r as any).datum, idagIso) });
         }
+        // STRÅK (lib/strak): alla dagar per roll ihop till stråk — bara ritningen.
+        const perRoll = { skordare: strakFeatures(raderPerRoll.skordare, 'skordare'), skotare: strakFeatures(raderPerRoll.skotare, 'skotare') };
         for (const roll of ['skordare', 'skotare'] as const) {
           try { const s = map.getSource(`planspar-${roll}-source`) as any; if (s) s.setData({ type: 'FeatureCollection', features: perRoll[roll] }); } catch { /* */ }
         }
