@@ -7,7 +7,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { avstandTillLinjeM } from '../larm/geo';
 import { hamtaKvittens, medKvittens, sparaKvittens } from '../larm/kvittens';
 
-import { markeraSett, stegaLarm, TOMT_LARM, type KvittensKarta, type LarmKort, type LarmNasta, type LarmObjekt, type LarmRing, type LarmState } from '../larm/larm';
+import { markeraSett, stegaLarm, TOMT_LARM, type KvittensKarta, type LarmKort, type LarmNasta, type LarmObjekt, type LarmPassage, type LarmRing, type LarmState } from '../larm/larm';
+import { arPlaneradVag, avstandTillPlaneradVagM, stegaPaVag } from '../larm/passage';
 import { skaSpelaLjud, spelaLarmLjud, type SenastLjud } from '../larm/ljud';
 import type { Puls } from '../larm/pulsKarta';
 import { linjeObjekt, symbolObjekt, vidaObjekt, ytaObjekt } from '../larm/objekt';
@@ -51,19 +52,23 @@ export interface KorvyLarmUt {
   puls: Puls | null;
   settRad: { id: string; namn: string; farg: string } | null;
   ringar: RingMedGeometri[];
+  /** Maskinen står på en planerad väg inne i en förbjuden yta: den lilla raden "Passage genom Hänsyn 6" (inget kort, inget ljud). Se lib/larm/passage. */
+  passage: LarmPassage | null;
   kvittera: () => void;
 }
 
 const punkt = (ll: LL): [number, number] => [ll.lon, ll.lat];
 
 export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
-  const [ut, setUt] = useState<{ kort: LarmKort | null; fler: LarmNasta[]; puls: Puls | null; settRad: KorvyLarmUt['settRad']; ringar: RingMedGeometri[] }>({ kort: null, fler: [], puls: null, settRad: null, ringar: [] });
+  const [ut, setUt] = useState<{ kort: LarmKort | null; fler: LarmNasta[]; puls: Puls | null; settRad: KorvyLarmUt['settRad']; ringar: RingMedGeometri[]; passage: LarmPassage | null }>({ kort: null, fler: [], puls: null, settRad: null, ringar: [], passage: null });
   const senastLjudRef = useRef<SenastLjud | null>(null);
   // "Sett" ska ge nästa larm direkt, inte först vid nästa GPS-punkt.
   const [settVersion, setSettVersion] = useState(0);
   const stateRef = useRef<LarmState>(TOMT_LARM);
   const kvittRef = useRef<KvittensKarta>(new Map());
   const risaInneRef = useRef<Set<string>>(new Set());
+  // På planerad väg (basväg/stickväg), med hysteres: på vid 7 m, av vid 11 m (lib/larm/passage).
+  const paVagRef = useRef(false);
   const senastRef = useRef<{ objekt: Map<string, LarmObjekt> }>({ objekt: new Map() });
   const inpRef = useRef(inp);
   inpRef.current = inp;
@@ -88,13 +93,15 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
     if (!inp.aktiv || !inp.pos) {
       stateRef.current = TOMT_LARM;
       risaInneRef.current = new Set();
-      setUt((u) => (u.kort || u.settRad || u.ringar.length || u.puls ? { kort: null, fler: [], puls: null, settRad: null, ringar: [] } : u));
+      paVagRef.current = false;
+      setUt((u) => (u.kort || u.settRad || u.ringar.length || u.puls || u.passage ? { kort: null, fler: [], puls: null, settRad: null, ringar: [], passage: null } : u));
       return;
     }
     const pos = inp.pos;
     const objekt: LarmObjekt[] = [];
     const geom = new Map<string, Geometri>();
     const risaNu = new Set<string>();
+    const vagar: LL[][] = [];
 
     for (const m of inp.markers) {
       // Larmkortets kommentar: den senaste med namn ("Daniel: Stolpe lutar"); finns ingen ny kommentar gäller markeringens äldre kommentarfält.
@@ -106,6 +113,7 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
         geom.set(o.id, { type: 'Point', coordinates: punkt(ll) });
       } else if (m.isLine && m.path?.length > 1) {
         const ring = m.path.map((p: any) => inp.svgToLatLon(p.x, p.y));
+        if (arPlaneradVag(m.lineType)) vagar.push(ring);
         const o = linjeObjekt({ id: m.id, lineType: m.lineType, comment: kommentar, koordinater: ring }, pos);
         if (o) { objekt.push(o); geom.set(o.id, { type: 'LineString', coordinates: ring.map(punkt) }); }
         if (m.lineType === 'mainRoad' && m.risaPath?.length > 1) {
@@ -134,7 +142,8 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
     }
 
     senastRef.current = { objekt: new Map(objekt.map((o) => [o.id, o])) };
-    const r = stegaLarm({ objekt, kvitt: kvittRef.current, forareId: inp.forare?.id ?? null, state: stateRef.current });
+    paVagRef.current = stegaPaVag(paVagRef.current, avstandTillPlaneradVagM(pos, vagar));
+    const r = stegaLarm({ objekt, kvitt: kvittRef.current, forareId: inp.forare?.id ?? null, state: stateRef.current, paVag: paVagRef.current });
     stateRef.current = r.state;
     // Ett ljud per ny sak, men flera nya inom ~2 s ger bara ett (ett starkare får ersätta ett svagare).
     const nu = Date.now();
@@ -148,6 +157,7 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
       kort: r.kort, fler: r.fler, settRad: r.settRad,
       puls: r.kort && stor ? { id: r.kort.id, farg: r.kort.farg, geometri: stor } : null,
       ringar: r.ringar.map((x) => ({ ...x, geometri: geom.get(x.id) ?? null })),
+      passage: r.passage,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inp.aktiv, inp.pos?.lat, inp.pos?.lon, inp.markers, inp.vida, inp.kommentarer, inp.forare?.id, kvittVersion, settVersion]);
@@ -171,6 +181,6 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
     }).then((fel) => { if (fel) console.error('[Körvy larm] kvittens, sparning:', fel); });
   }, [ut.settRad]);
 
-  return { kort: ut.kort, fler: ut.fler, puls: ut.puls, settRad: ut.settRad, ringar: ut.ringar, kvittera };
+  return { kort: ut.kort, fler: ut.fler, puls: ut.puls, settRad: ut.settRad, ringar: ut.ringar, passage: ut.passage, kvittera };
 }
 
