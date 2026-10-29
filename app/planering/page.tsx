@@ -100,6 +100,7 @@ import { useKartkommentarer } from '../../lib/hooks/useKartkommentarer'
 import { useVidaAvverkas } from '../../lib/hooks/useVidaAvverkas'
 import { Brytare } from '../../components/redigering/ObjektOversikt'
 import { utanAvverkade, kanMarkeraAvverkas } from '../../lib/vidaAvverkas'
+import { kanStangaAvLarm, larmarInte, medLarmaInte, LARMA_INTE } from '../../lib/egenYtaLarm'
 import { forfattarText, kanAndraKommentar, kanRaderaKommentar, kortKommentarer, markerNyckel } from '../../lib/kartkommentar'
 import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring, linjeKort, vidaLinjeKort, traktKortBetydelse } from '../../lib/symboler'
 import { LarmIkon, SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
@@ -15779,10 +15780,10 @@ export default function PlannerPage() {
               <div data-testid="trakt-kort-avverkas" style={{ marginBottom: AVSTAND.l }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.min }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ ...TYP.listtitel, color: FARG.text }}>Avverkas – larma inte</div>
-                    <div style={{ ...TYP.meta, color: FARG.text2 }}>{avverkasPa ? 'Larmar inte när maskinen kör in. Ytan ritas som förut.' : 'Slå på om det avverkas inne i ytan.'}</div>
+                    <div style={{ ...TYP.listtitel, color: FARG.text }}>{LARMA_INTE.titel}</div>
+                    <div style={{ ...TYP.meta, color: FARG.text2 }}>{avverkasPa ? LARMA_INTE.pa : LARMA_INTE.av}</div>
                   </div>
-                  <Brytare pa={avverkasPa} etikett="Avverkas – larma inte" upptagen={vidaAvverkas.sparar === nyckel} onByt={(v) => { vidaAvverkas.satt(nyckel!, v); }} />
+                  <Brytare pa={avverkasPa} etikett={LARMA_INTE.titel} upptagen={vidaAvverkas.sparar === nyckel} onByt={(v) => { vidaAvverkas.satt(nyckel!, v); }} />
                 </div>
                 {vidaAvverkas.fel && <div style={{ ...TYP.meta, color: FARG.orange }}>{vidaAvverkas.fel}</div>}
               </div>
@@ -16204,7 +16205,7 @@ export default function PlannerPage() {
             )}
             namn={getMarkerName()}
             grupp={kortGrupp}
-            larmRegel={larmRegelText({ grupp: kortGrupp, typ: marker.isMarker ? marker.type : null, forbjuden: betydelse?.forbjuden })}
+            larmRegel={larmRegelText({ grupp: kortGrupp, typ: marker.isMarker ? marker.type : null, forbjuden: betydelse?.forbjuden, avverkas: larmarInte(marker) })}
             mening={betydelse?.mening ?? null}
             malbild={<MalbildRad nyckel={marker.isMarker ? malbildNyckel('symbol', marker.type) : marker.isZone ? malbildNyckel('yta', marker.zoneType) : marker.isLine ? malbildNyckel('linje', marker.lineType) : null} roll={malbildRoll} />}
             kommentarer={valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel: markerNyckel(marker.id), objektId: valtObjekt.id, aldreText: marker.comment, minId: currentMedarbetare?.id, arAdmin: isAdminRiktig }) : null}
@@ -16232,6 +16233,18 @@ export default function PlannerPage() {
                   objektNamn={valtObjekt.namn} kalla="egen"
                   stat={skotatTillAvlagg(skotarLass.lass, `egen:${marker.id}`, skotarLass.avslut?.faktorer)}
                 />
+              )}
+
+              {/* Egen yta (planeraren, planeringsläget): stäng av larmet när det avverkas inne i ytan. Instruktionen (kommentaren) och målbilden visas som förut. */}
+              {kanStangaAvLarm(marker) && objektListaVal && isAdminRiktig && (
+                <div data-testid="marker-kort-larma-inte" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.min, marginBottom: AVSTAND.l }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ ...TYP.listtitel, color: FARG.text }}>{LARMA_INTE.titel}</div>
+                    <div style={{ ...TYP.meta, color: FARG.text2 }}>{larmarInte(marker) ? LARMA_INTE.pa : LARMA_INTE.av}</div>
+                  </div>
+                  <Brytare pa={larmarInte(marker)} etikett={LARMA_INTE.titel}
+                    onByt={(v) => setMarkers((prev: any[]) => prev.map((m: any) => (String(m.id) === String(marker.id) ? medLarmaInte(m, v) : m)))} />
+                </div>
               )}
 
               {/* Gallringszon: valt huvudträdslag (färgar zonen) */}

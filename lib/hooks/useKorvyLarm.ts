@@ -12,6 +12,7 @@ import { arPlaneradVag, avstandTillPlaneradVagM, stegaPaVag } from '../larm/pass
 import { skaSpelaLjud, spelaLarmLjud, type SenastLjud } from '../larm/ljud';
 import type { Puls } from '../larm/pulsKarta';
 import { linjeObjekt, symbolObjekt, vidaObjekt, ytaObjekt } from '../larm/objekt';
+import { larmarInte } from '../egenYtaLarm';
 
 type LL = { lat: number; lon: number };
 type Geometri = { type: 'Point' | 'LineString' | 'Polygon' | 'MultiPolygon' | 'MultiLineString' | 'MultiPoint'; coordinates: any };
@@ -125,7 +126,7 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
           const y = ytaObjekt({ id, zoneType: 'wet', comment: '', ring: [] }, pos, inne);
           if (y) { objekt.push({ ...y, namn: 'Risa' }); geom.set(id, { type: 'LineString', coordinates: rp.map(punkt) }); }
         }
-      } else if (m.isZone && m.path?.length > 2) {
+      } else if (m.isZone && m.path?.length > 2 && !larmarInte(m)) {   // "Larma inte" (lib/egenYtaLarm): ytan larmar inte
         const ring: LL[] = m.path.map((p: any) => inp.svgToLatLon(p.x, p.y));
         const o = ytaObjekt({ id: m.id, zoneType: m.zoneType, comment: kommentar, ring }, pos);
         if (o) { objekt.push(o); geom.set(o.id, { type: 'Polygon', coordinates: [[...ring.map(punkt), punkt(ring[0])]] }); }
