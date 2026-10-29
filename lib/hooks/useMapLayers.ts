@@ -82,6 +82,9 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   mittSpar: true,               // eget hyttspår (hist + live)
   andrasSpar: true,             // andra maskinens hyttspår (skördare/skotare-motpart)
   rekonstrueradeStrak: true,    // skordarstrak-* + skotar-hogar-dots
+  // Planeringsvyns körspår per roll (lib/planSparLager). Default PÅ.
+  planSparSkordare: true,
+  planSparSkotare: true,
   // Trakt-geometri (envz-import). Default PÅ — finns geometri ska den synas. Knapparna är
   // datadrivna (visas bara när lagret faktiskt har data), så PÅ-default stör inte de 42
   // objekt som saknar geometri. korFara forcas dessutom PÅ när ett objekt öppnas (se

@@ -1,17 +1,18 @@
-// DET SOM ÄR KLART BLIR GRÅTT — bara status som redan finns (lib/kartKlart). Skotad yta = skotning_uttag-polygoner, klar trakt = objekt.status 'avslutat'.
+// DET SOM ÄR KLART BLIR GRÅTT — bara status som redan finns (lib/kartKlart). Skotad yta = skotning_uttag-polygoner, en avslutad trakt ritas i sina vanliga färger (Martin 2026-10-29).
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FARG } from './design/tokens';
-import { INGA_YTOR, KLART_FARG, KLART_LINJELAGER, KLART_LINJE_OPACITET, KLART_TONAS_BORT, arObjektKlart, skotadeYtor } from './kartKlart';
+import * as kartKlart from './kartKlart';
+import { INGA_YTOR, KLART_FARG, KLART_LINJE_OPACITET, skotadeYtor } from './kartKlart';
 
 const lasa = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
 
-describe('arObjektKlart', () => {
-  it('avslutat (och det gamla klar) är klart; allt annat är det inte — ingen ny status', () => {
-    expect(arObjektKlart('avslutat')).toBe(true);
-    expect(arObjektKlart('klar')).toBe(true);
-    for (const s of ['oplanerad', 'planerad', 'pagaende', 'skotning', 'skordning', null, undefined, '']) expect(arObjektKlart(s as any), String(s)).toBe(false);
+describe('en avslutad trakt gråas inte (Martin 2026-10-29)', () => {
+  it('det finns ingen regel som gör en hel trakt grå på status', () => {
+    expect('arObjektKlart' in kartKlart).toBe(false);
+    expect('KLART_LINJELAGER' in kartKlart).toBe(false);
+    expect('KLART_TONAS_BORT' in kartKlart).toBe(false);
   });
 });
 
@@ -63,24 +64,12 @@ describe('page.tsx — klart-kopplingen', () => {
     expect(sida).not.toMatch(/KLART_KALLA[^\n]*type: 'fill'/);
     expect(sida).toMatch(/KEEP_PREFIX = \[[^\]]*'klart-'\]/);
   });
-  it('varje lager som greyas finns i sidan (väglagren byggs per linjetyp, maskinspåren som planspar-<roll>-line)', () => {
-    for (const id of [...KLART_LINJELAGER, ...KLART_TONAS_BORT]) {
-      const m = /^line-(\w+)-(base|stripe)$/.exec(id);
-      if (m) expect(sida, id).toMatch(new RegExp(`id: '${m[1]}'`));
-      else expect(sida, id).toContain('planspar-${roll}-line');
-    }
-  });
-  it('en klar trakt styrs av objektets status via arObjektKlart — inte av en egen flagga', () => {
-    expect(sida).toContain('const traktKlar = arObjektKlart(valtObjekt?.status);');
+  it('planeringsvyn gråar aldrig vägar eller spår för att trakten är avslutad — basvägen behåller blå/gul', () => {
+    expect(sida).not.toMatch(/traktKlar/);
+    expect(sida).not.toMatch(/arObjektKlart/);
+    expect(sida).not.toMatch(/klartOrigRef/);
   });
   it('läsfel på de skotade ytorna ger INGA ytor (aldrig en påhittad)', () => {
     expect(sida).toMatch(/skotade ytor kunde inte läsas[^]{0,120}setData\(INGA_YTOR\)/);
-  });
-  it('briefingens återställning av linjeopacitet får inte lämna en klar trakt ofärgad: effekten körs om vid briefingMode', () => {
-    expect(sida).toMatch(/\[traktKlar, valtObjekt\?\.id, mapLibreReady, briefingMode\]/);
-  });
-  it('fara, larm, fällningscirkel och pilar rörs inte: de lager som greyas är bara väg- och maskinspårslager', () => {
-    for (const id of KLART_LINJELAGER) expect(id).toMatch(/^(line-(mainRoad|sideRoad(Red|Yellow|Blue))-base|planspar-(skordare|skotare)-line)$/);
-    for (const id of KLART_TONAS_BORT) expect(id).toBe('line-mainRoad-stripe');
   });
 });

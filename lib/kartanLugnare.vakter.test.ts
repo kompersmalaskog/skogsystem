@@ -5,7 +5,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { KLART_LINJELAGER } from './kartKlart';
 import { VAG_KANT_FARG, arStickvag } from './kartstil';
 import { SYMBOL_LAGER, SYMBOL_UNDANTAG } from './symbolZoom';
 
@@ -67,9 +66,6 @@ describe('vägarna: snitselfärg med mörk kant', () => {
 });
 
 describe('fara rörs aldrig av nedtoning eller grått', () => {
-  it('grått gäller bara väglagren och maskinspåren — inget fara-, larm-, fällnings- eller pillager', () => {
-    for (const id of KLART_LINJELAGER) expect(id).not.toMatch(/powerline|kraftledning|larm|fall|markers|arrows|boundary/i);
-  });
   it('bakgrunden tonas bara i rasterlagren (baskartan); inget markerings-, larm- eller fara-lager får raster-egenskaper från lib/kartBas', () => {
     const rader = sida.split('\n').filter((r) => r.includes('paint: kartBasPaint('));
     expect(rader.length).toBe(4);   // de fyra baslagren

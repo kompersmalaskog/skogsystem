@@ -3,7 +3,7 @@
 //
 //   • Skotad yta  = polygonerna föraren ritat med "Markera utkört" (skotning_uttag.polygon_coords) → BARA en tunn grå kant, ingen fyllning (Martin 2026-10-27: inne i trakten ska
 //                   flygfotot synas i full skärpa — en grå yta gråar ner fotot och gör trakten mörkare än skogen utanför).
-//   • Klar trakt  = objekt.status 'avslutat' (förr även 'klar') → trakten ritas lugnt: vägarna och maskinspåren (avverkad/skotad yta) i grått.
+//   • En AVSLUTAD trakt ritas i sina vanliga färger (Martin 2026-10-29: basvägen blå/gul, spåren lila/turkos) — en hel trakt i grått gick inte att läsa i efterhand.
 //
 //   • Klar väg    = en väg i KÖRORDNINGEN som maskinen kört (`korKlar` på vägens markering, lib/korordning) → vägen ritas grå, samma grå och samma styrka som en klar trakt
 //                   (lib/korordningKarta: `korFarg`, `KOR_OPACITET`). Den blir grå av sig själv, ingen knapp.
@@ -25,8 +25,6 @@ export const KLART_KANT_LAGER = 'klart-yta-line';
 /** En väg är klar när maskinen kört den: `korKlar` är då tiden den blev körd. */
 export const arVagKlar = (korKlar: unknown): boolean => typeof korKlar === 'string' && korKlar.length > 0;
 
-/** Trakten är klar när den är avslutad. (`klar` är det gamla värdet som kan finnas kvar i äldre data.) */
-export const arObjektKlart = (status: string | null | undefined): boolean => status === 'avslutat' || status === 'klar';
 
 type Par = [number, number];
 export interface YtaFeature { type: 'Feature'; properties: Record<string, never>; geometry: { type: 'Polygon'; coordinates: Par[][] } }
@@ -56,13 +54,6 @@ export function skotadeYtor(uttag: ReadonlyArray<{ polygon_coords?: unknown }> |
   return { type: 'FeatureCollection', features };
 }
 
-/** Vägar och maskinspår som ritas grå när trakten är klar (färg och styrka tas tillbaka när den inte längre är det). Kanten (casing) bakom vägarna rörs inte. */
-export const KLART_LINJELAGER: readonly string[] = [
-  'line-mainRoad-base', 'line-sideRoadRed-base', 'line-sideRoadYellow-base', 'line-sideRoadBlue-base',   // vägar (snitselfärg → grå)
-  'planspar-skordare-line', 'planspar-skotare-line',                                                      // avverkad och skotad yta = maskinernas spår
-];
-/** Lager som tonas bort helt när trakten är klar: basvägens gula streck (blå/gul väg blir en vanlig grå linje, inte grå och gul). */
-export const KLART_TONAS_BORT: readonly string[] = ['line-mainRoad-stripe'];
 
 /** Tomma ytor — kartans källa när det inte finns något skotat. */
 export const INGA_YTOR: YtaSamling = { type: 'FeatureCollection', features: [] };
