@@ -2,7 +2,7 @@
 //
 // Apple-Maps-look: färgad kärna + LJUS casing (vit) som lyfter linjen från busig bakgrund (raster, gränser, basvägar). Casing ~2,5 px bredare än linjen.
 // Zoom-interpolerad bredd (Martin: 2 px @ z13, 4 px @ z15, 6 px @ z17) med floors vid låg/hög zoom så bredden aldrig extrapolerar till noll/negativt.
-// ABSOLUTA rollfärger (Martin): skotare = grönt, skördare = lila — SAMMA i alla vyer, oberoende av vem som tittar.
+// ABSOLUTA rollfärger (Martin): skotare = turkos, skördare = lila — SAMMA i alla vyer, oberoende av vem som tittar.
 //
 // SKÖRDARENS LINJE (Martin 2026-10-08): jämn bredd ~3 px, full färg, ALLA dagar och i alla lager. Skotaren följer stråken — den måste vara lika tydlig
 // vare sig man ser den som eget spår (skördar-körvyn), tidigare dagar, den andres spår (skotar-körvyn, där den förut tonades ned till 55 %) eller i
@@ -15,7 +15,8 @@ export const HYTTSPAR_CASING_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 
 export const HYTTSPAR_HIST_LINE_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 1, 13, 1.5, 15, 3, 17, 4.5, 19, 6];
 export const HYTTSPAR_HIST_CASING_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 3, 13, 3.5, 15, 5, 17, 6.5, 19, 8];
 
-export const ROLLFARG_SKOTARE = '#34c759';
+// Skotaren turkos (Martin 2026-10-29): grönt krockade med granhögarna och hänsynsytornas gröna kant; turkos är ledig i kartans färgspråk.
+export const ROLLFARG_SKOTARE = '#64d2ff';
 export const ROLLFARG_SKORDARE = '#bf5af2';
 export const rollFarg = (roll: 'skordare' | 'skotare' | null | undefined): string =>
   roll === 'skotare' ? ROLLFARG_SKOTARE : ROLLFARG_SKORDARE;
@@ -56,7 +57,7 @@ export function sparStil(roll: SparRoll, art: SparArt): SparStil {
 }
 
 // ── SPÅREN PÅ PLANERINGSKARTAN (Martin 2026-10-26 dämpade, 2026-10-27 för svaga → tydligare) ─────────────────────────────────────────────────────────
-// Spåren är underlag, men de får inte bli grå och döda mot flygfotot: rollernas egna färger (ROLLFARG_*: skördare lila, skotare grön), 3 px skördare och 2,5 px skotare,
+// Spåren är underlag, men de får inte bli grå och döda mot flygfotot: rollernas egna färger (ROLLFARG_*: skördare lila, skotare turkos), 3 px skördare och 2,5 px skotare,
 // dagens spår med opacitet ~0,9, och en smal mörk kant under (som vägarna, VAG_KANT_FARG) så linjen bär mot både flygfoto och vit karta. Många passeringar blir ändå
 // tätare, inte klumpigare, eftersom linjen är tunn. Äldre dagar bleknar med åldern (`alder`, dagar sedan spåret kördes, sätts på featuren av den som läser raderna) men
 // golvet är högt (~0,45) så en vecka gammalt spår fortfarande syns. Lagerordningen är orörd: spår under vägar, linjer och symboler (lib/lagerOrdning).

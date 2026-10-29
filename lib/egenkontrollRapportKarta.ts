@@ -7,6 +7,7 @@
 
 import { FARG_FARA, FARG_NATUR, GRUPPER, linjeFarg, symbolFarg, ytaDef } from './larm/grupper';
 import { SYMBOL_TYPER, symbolDef, symbolDefTyp } from './symboler';
+import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from './sparStil';
 
 export type KartMarkering =
   /** `backvag` = vägen är en backväg (lib/backvag): dubbla tvärstreck ritas i den änden. Sätts bara på en väg (basväg, stickväg). */
@@ -85,5 +86,5 @@ export function markeringsStil(slag: KartMarkering['slag'], typ: string): Marker
 /** Stammolnets, traktgransens och hyttsparets fasta stilar. */
 export const STAMMOLN_FARG = '#d32f2f';
 export const TRAKTGRANS_FARG = '#111111';
-export const HYTTSPAR_FARG = { skordare: '#bf5af2', skotare: '#34c759' } as const;
+export const HYTTSPAR_FARG = { skordare: ROLLFARG_SKORDARE, skotare: ROLLFARG_SKOTARE } as const;
 export const HYTTSPAR_ETIKETT = { skordare: 'Skördarens spår', skotare: 'Skotarens spår' } as const;

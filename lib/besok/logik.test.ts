@@ -353,7 +353,7 @@ describe('traktens namn på besökssidan', () => {
 });
 
 describe('maskinernas färg på besökskartan', () => {
-  it('skördaren är lila, skotaren grön – appens rollfärger, samma som överallt (Martin 2026-10-24)', async () => {
+  it('skördaren är lila, skotaren turkos – appens rollfärger, samma som överallt (Martin 2026-10-24)', async () => {
     const { BESOK_MASKINFARG } = await import('./farg');
     const { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } = await import('@/lib/sparStil');
     expect(BESOK_MASKINFARG.skordare).toBe(ROLLFARG_SKORDARE);
