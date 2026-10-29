@@ -77,7 +77,9 @@ export const SYMBOL_NAMN: Readonly<Record<string, string>> = {
  * även när de är kvitterade (`forbjuden`).
  */
 export const LARM_REGEL_TEXT: Readonly<Record<LarmRegel, string>> = { alltid: 'Larmar alltid', tills_kvitterat: 'Larmar tills du kvitterat', aldrig: 'Larmar inte' };
-export function larmRegelText(o: { grupp: FargGrupp; typ?: string | null; forbjuden?: boolean }): string {
+/** `avverkas` = Vidas hänsynsyta som planeraren markerat "Avverkas – larma inte" (lib/vidaAvverkas). */
+export function larmRegelText(o: { grupp: FargGrupp; typ?: string | null; forbjuden?: boolean; avverkas?: boolean }): string {
+  if (o.avverkas) return `${LARM_REGEL_TEXT.aldrig} – avverkas`;
   if (o.typ && LARMFRIA_SYMBOLER.includes(o.typ)) return LARM_REGEL_TEXT.aldrig;
   if (o.forbjuden) return LARM_REGEL_TEXT.alltid;
   return LARM_REGEL_TEXT[GRUPPER[o.grupp].larm];

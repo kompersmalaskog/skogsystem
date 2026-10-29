@@ -33,9 +33,9 @@ describe('vidaYtaNamn — brickan är kartans etikett', () => {
     expect(vidaYtaNamn(yta('71', 4, 'Övrigt'))).toMatchObject({ bricka: 'Övrigt 4', typ: '', rubrik: 'Övrigt 4', grupp: 'ovrigt' });
     expect(vidaYtaNamn(yta('71', 5, 'Övrigt'))).toMatchObject({ bricka: 'Övrigt 5', rubrik: 'Övrigt 5' });
   });
-  it('brickan är EXAKT kartans etikett (VIDA_ETIKETT + LOPNR) i versaler — samma ord och nummer, alltid', () => {
+  it('brickan är EXAKT kartans etikett (VIDA_ETIKETT + LOPNR) — samma ord och nummer, alltid', () => {
     for (const [TYP, ord] of [['24', VIDA_ETIKETT.hansynsyta], ['8', VIDA_ETIKETT.hansynsyta], ['71', VIDA_ETIKETT.ovrigt]] as const) {
-      expect(vidaYtaNamn(yta(TYP, 7, 'x O'))!.bricka.toLocaleUpperCase('sv-SE')).toBe(`${ord} 7`);
+      expect(vidaYtaNamn(yta(TYP, 7, 'x O'))!.bricka).toBe(`${ord} 7`);
     }
   });
   it('en hänsynsyta utan beskrivning visar bara brickan; utan nummer bara ordet; "Övrigt" upprepas aldrig', () => {

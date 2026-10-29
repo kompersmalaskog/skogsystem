@@ -7,6 +7,7 @@
 
 import { FARG_FARA, FARG_NATUR, GRUPPER, linjeFarg, symbolFarg, ytaDef } from './larm/grupper';
 import { SYMBOL_TYPER, symbolDef, symbolDefTyp } from './symboler';
+import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from './sparStil';
 
 export type KartMarkering =
   /** `backvag` = vägen är en backväg (lib/backvag): dubbla tvärstreck ritas i den änden. Sätts bara på en väg (basväg, stickväg). */
@@ -32,7 +33,7 @@ const LINJER: Record<string, Omit<MarkeringStil, 'nyckel'>> = {
   mainRoad: { etikett: 'Basväg', farg: '#3b82f6', bredd: 2.2, streck: null },
   ditch: { etikett: 'Dike', farg: '#0e7490', bredd: 0.9, streck: [3, 2] },
   stonewall: { etikett: 'Stenmur', farg: linjeFarg('stonewall') ?? FARG_NATUR, bredd: 1.6, streck: [2, 1] },
-  nature: { etikett: 'Naturvård (linje)', farg: FARG_NATUR, bredd: 1.4, streck: [4, 2] },
+  nature: { etikett: 'Naturvård (linje)', farg: FARG_NATUR, bredd: 1, streck: null },   // tunn, heldragen grön som i appen (2026-10-28)
   trail: { etikett: 'Stig', farg: '#8e8e93', bredd: 0.9, streck: [2, 2] },
   // En egen ledning ritad som linje ser ut som Vidas Kraftledning: gruppens röd, kant, stolpar, farosymbol.
   powerline: { etikett: 'Kraftledning', farg: FARG_FARA, bredd: 1.6, streck: null, ledning: true },
@@ -85,5 +86,5 @@ export function markeringsStil(slag: KartMarkering['slag'], typ: string): Marker
 /** Stammolnets, traktgransens och hyttsparets fasta stilar. */
 export const STAMMOLN_FARG = '#d32f2f';
 export const TRAKTGRANS_FARG = '#111111';
-export const HYTTSPAR_FARG = { skordare: '#bf5af2', skotare: '#34c759' } as const;
+export const HYTTSPAR_FARG = { skordare: ROLLFARG_SKORDARE, skotare: ROLLFARG_SKOTARE } as const;
 export const HYTTSPAR_ETIKETT = { skordare: 'Skördarens spår', skotare: 'Skotarens spår' } as const;

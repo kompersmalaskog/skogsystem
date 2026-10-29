@@ -32,9 +32,10 @@ describe('ytor man inte får köra in i är snedstreckade i gruppens färg', () 
       expect(snedstreckId(g)).toBe(`snedstreck-${g}`);
     }
   });
-  it('namnet står i ytan i versaler (Blött heter RISA) och Vidas ytor har samma stil', () => {
-    expect(YTA_ETIKETT).toMatchObject({ wet: 'RISA', protected: 'HÄNSYN', noentry: 'EJ FRAMKOMLIG', fornlamning: 'FORNLÄMNING', culture: 'KULTURMILJÖ', steep: 'BRANT' });
-    expect(VIDA_ETIKETT).toEqual({ hansynsyta: 'HÄNSYN', nyckelbiotop: 'NYCKELBIOTOP', raa_yta: 'FORNLÄMNING', ovrigt: 'ÖVRIGT' });   // Vidas TYP 71 är ingen hänsyn: eget namn
+  it('namnet står i ytan i VANLIG text, inte versaler (Blött heter Risa) och Vidas ytor har samma stil (Martin 2026-10-28)', () => {
+    expect(YTA_ETIKETT).toMatchObject({ wet: 'Risa', protected: 'Hänsyn', noentry: 'Ej framkomlig', fornlamning: 'Fornlämning', culture: 'Kulturmiljö', steep: 'Brant' });
+    expect(VIDA_ETIKETT).toEqual({ hansynsyta: 'Hänsyn', nyckelbiotop: 'Nyckelbiotop', raa_yta: 'Fornlämning', ovrigt: 'Övrigt' });
+    for (const n of [...Object.values(YTA_ETIKETT), ...Object.values(VIDA_ETIKETT)]) expect(n, n).not.toBe(n.toLocaleUpperCase('sv-SE'));   // Vidas TYP 71 är ingen hänsyn: eget namn
   });
   it('egenkontrollens karta: ett snedstrecklager per grupp, filtrerat på de förbjudna zontyperna', () => {
     const lager = zonSnedstreckLager('kalla', 'ek-p', null);

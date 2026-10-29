@@ -16,7 +16,7 @@ export function rensaVidaNamn(s: string | null | undefined): string {
   return String(s ?? '').trim().replace(/\s+[OF]$/, '').trim();
 }
 
-/** "HÄNSYN" → "Hänsyn" (kartans etikett är versaler, brickan är vanlig text). */
+/** "HÄNSYN" → "Hänsyn" (kartans etikett är vanlig text sedan 2026-10-28; funktionen gör inget med den men skyddar mot versaler). */
 const gemener = (s: string): string => (s ? s.charAt(0) + s.slice(1).toLocaleLowerCase('sv-SE') : '');
 
 /** Brickans färg: gruppens (Natur grön, Kultur brun, Blött blå …) — Övrigt är vit/neutral som ytans kant på kartan. */

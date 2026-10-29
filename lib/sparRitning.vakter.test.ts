@@ -15,10 +15,13 @@ describe('RITNINGEN går genom utjämningen — på exakt de fyra ritställena',
     expect(live).toBeGreaterThan(0);
     expect(page.slice(live, live + 900)).toContain('hyttsparRitadeLinjer(hyttsparPointsRef.current as any)');   // live eget spår: hela dagens RÅA punkter in, utjämnad linje ut
     // tidigare dagar: dagens EGNA rad filtreras bort (GROT-jobb tar också virkesobjektets skördarspår — då är raden en annan objekt_id och behålls)
-    expect(page).toMatch(/\.filter\(\(r: any\) => r\.objekt_id !== objektId \|\| r\.datum !== idag\)[^\n]*\n\s*\.flatMap\(\(r: any\) => hyttsparRitadeLinjer\(/);
-    // den andres spår: EN delad hjälpare (tillFeatures) som ritar via den utjämnade vägen — egna rader och GROT-jobbets virkesobjekt-rader går igenom samma
-    expect(page).toMatch(/const tillFeatures = \(rader: any\[\] \| null\) => \(rader \|\| \[\]\)\n\s*\.flatMap\(\(r: any\) => hyttsparRitadeLinjer\(/);
-    expect(page).toMatch(/for \(const coords of hyttsparRitadeLinjer\(Array\.isArray\(\(r as any\)\.points\)/);
+    expect(page).toMatch(/\.filter\(\(r: any\) => r\.objekt_id !== objektId \|\| r\.datum !== idag\)[^\n]*\n\s*\.map\(\(r: any\) => \(\{ linjer: hyttsparRitadeLinjer\(/);
+    // den andres spår: EN delad hjälpare (tillRader) som ritar via den utjämnade vägen — egna rader och GROT-jobbets virkesobjekt-rader går igenom samma
+    expect(page).toMatch(/const tillRader = \(rader: any\[\] \| null\) => \(rader \|\| \[\]\)\n\s*\.map\(\(r: any\) => \(\{ linjer: hyttsparRitadeLinjer\(/);
+    expect(page).toMatch(/raderPerRoll\[roll\]\.push\(\{ linjer: hyttsparRitadeLinjer\(Array\.isArray\(\(r as any\)\.points\)/);
+    // STRÅK (lib/strak): historik, den andres och planeringens spår går alla genom strakFeatures — aldrig live-spåret
+    expect(page.match(/strakFeatures\(/g)!.length).toBe(4);
+    expect(page.slice(live, live + 900)).not.toContain('strakFeatures');
   });
   it('importerna finns', () => {
     expect(page).toContain("import { hyttsparRitadeLinjer } from '../../lib/sparJamning'");
@@ -66,7 +69,7 @@ describe('stilen: dämpade spår (lib/sparStil dampatSpar), en källa för alla 
     expect(page).toContain("'line-color': st.kantFarg, 'line-opacity': st.kantOpacitet as any, 'line-width': st.kantBredd");
   });
   it('tidigare dagar bleknar: alla tre raderna som läses (historik, den andres, planering) skickar med datum och sätter featurens alder', () => {
-    expect(page.match(/properties: \{ alder: sparAlder\(/g)).toHaveLength(3);
+    expect(page.match(/alder: sparAlder\(/g)).toHaveLength(3);   // raderna bär alder; strakFeatures sätter featurens alder = nyaste dagen (lib/strak)
     expect(page).toContain(".select('datum, points').eq('objekt_id', objektId).eq('roll', roll)");
     expect(page).toContain("select('datum, points').eq('objekt_id', horTillId).eq('roll', 'skordare')");
     expect(page).toContain("select('roll, datum, points').eq('objekt_id', objektId)");

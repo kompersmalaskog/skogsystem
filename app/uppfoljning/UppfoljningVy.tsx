@@ -141,7 +141,7 @@ export interface UppfoljningData {
 
 // ── Design tokens ─────────────────────────────────────────────────────────
 // Paletten är appens tokens (FARG) och rollfärgerna ur lib/sparStil — skördare
-// lila, skotare grön, som maskinvyn/objektöversikten/kartan. Namnen V6_* behålls
+// lila, skotare turkos, som maskinvyn/objektöversikten/kartan. Namnen V6_* behålls
 // så resten av filen inte behöver röras; bara värdena pekar nu på EN källa.
 const V6_GREY = FARG.text2;
 const V6_GREY2 = FARG.text3;

@@ -40,7 +40,7 @@ describe('skotarens spår är OFÖRÄNDRAT (bredd per zoom, eget 0,95, historik 
       const s = sparStil('skotare', art);
       expect(s.linjeBredd).toBe(HYTTSPAR_LINE_WIDTH); expect(s.linjeOpacitet).toBe(0.95);
       expect(s.casingBredd).toBe(HYTTSPAR_CASING_WIDTH); expect(s.casingOpacitet).toBe(0.8);
-      expect(s.farg).toBe('#34c759');
+      expect(s.farg).toBe('#64d2ff');
     }
   });
   it('historik: smalare bredd, 0,95, dämpad casing 0,45', () => {
@@ -59,11 +59,11 @@ describe('skotarens spår är OFÖRÄNDRAT (bredd per zoom, eget 0,95, historik 
 });
 
 describe('rollfärger är absoluta', () => {
-  it('skotare grönt, skördare lila; okänd/null → skördare (som förut)', () => {
+  it('skotare turkos, skördare lila; okänd/null → skördare (som förut)', () => {
     expect(rollFarg('skotare')).toBe(ROLLFARG_SKOTARE);
     expect(rollFarg('skordare')).toBe(ROLLFARG_SKORDARE);
     expect(rollFarg(null)).toBe(ROLLFARG_SKORDARE);
-    expect(ROLLFARG_SKOTARE).toBe('#34c759'); expect(ROLLFARG_SKORDARE).toBe('#bf5af2');
+    expect(ROLLFARG_SKOTARE).toBe('#64d2ff'); expect(ROLLFARG_SKORDARE).toBe('#bf5af2');
   });
 });
 
@@ -101,7 +101,7 @@ describe('spåren på planeringskartan: rollfärger, 3 / 2,5 px, dagens ~0,9, sm
       expect([...farger][0]).toBe(roll === 'skordare' ? ROLLFARG_SKORDARE : ROLLFARG_SKOTARE);
       expect([...farger][0]).not.toBe(SPAR_DAMPAD_FARG[roll]);
     }
-    expect(ROLLFARG_SKOTARE).toBe('#34c759'); expect(ROLLFARG_SKORDARE).toBe('#bf5af2');   // identitetsfärgerna är oförändrade
+    expect(ROLLFARG_SKOTARE).toBe('#64d2ff'); expect(ROLLFARG_SKORDARE).toBe('#bf5af2');   // identitetsfärgerna är oförändrade
   });
   it('dagens spår ~0,9; äldre dagar bleknar men golvet är ~0,45 så en vecka gammalt spår fortfarande syns', () => {
     for (const roll of ['skordare', 'skotare'] as const) for (const art of ARTER2) {
@@ -146,5 +146,19 @@ describe('spåren på planeringskartan: rollfärger, 3 / 2,5 px, dagens ~0,9, sm
     expect(sparAlder(null, '2026-10-26')).toBe(0);
     expect(sparAlder('skräp', '2026-10-26')).toBe(0);
     expect(sparAlder('2026-10-19T08:00:00Z', '2026-10-26')).toBe(7);
+  });
+});
+
+describe('skotarens rollfärg är turkos och krockar inte med kartans färgspråk (Martin 2026-10-29)', () => {
+  it('skiljer sig från natur-grön, granens grön och basvägens blå', async () => {
+    const { FARG_NATUR } = await import('./larm/grupper');
+    const { TRADSLAG_STIL } = await import('./tradslag');
+    const { LEGEND } = await import('./kartstil');
+    const rgb = (h: string) => [1, 3, 5].map((i) => parseInt(h.replace('#', '').padEnd(6, '0').slice(i - 1, i + 1), 16));
+    const avst = (a: string, b: string) => { const x = rgb(a), y = rgb(b); return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]); };
+    expect(ROLLFARG_SKOTARE.toLowerCase()).toBe('#64d2ff');
+    for (const annan of [FARG_NATUR, TRADSLAG_STIL.Gran.fyll, LEGEND.vatten, ROLLFARG_SKORDARE]) {
+      expect(avst(ROLLFARG_SKOTARE, annan)).toBeGreaterThan(80);
+    }
   });
 });

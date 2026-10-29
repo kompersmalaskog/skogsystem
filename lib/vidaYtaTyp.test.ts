@@ -70,7 +70,7 @@ describe('inget zonlarm, ingen fällningscirkel', () => {
   });
   it('Hålabäck: inne i Kant mot vatten (24) larmar som förut: förbjuden yta, Natur', () => {
     const u = stegaLarm({ objekt: vidaObjekt(FC, pos(0)), kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
-    expect(u.kort).toMatchObject({ namn: 'Hänsyn', forbjuden: true, grupp: 'natur' });
+    expect(u.kort).toMatchObject({ namn: expect.stringMatching(/^Hänsyn \d+$/), forbjuden: true, grupp: 'natur' });
   });
   it('fällningscirkeln räknar inte Övrigt som hänsyn (men 24 gör det)', () => {
     const svg = (x: number, y: number) => ({ lat: y, lon: x });
@@ -99,9 +99,9 @@ describe('kartan: Övrigt ritas i egna lager, hänsynslagren tar inte 71', () =>
     const gr = { type: 'Feature', geometry: K24.geometry, properties: { _typ: 'traktgräns', _lager: 'L_TRAKTDEL' } };
     expect([ritas(HANSYNSYTA_FILTER, gr), ritas(OVRIGT_YTA_FILTER, gr)]).toEqual([false, false]);
   });
-  it('etiketten är "ÖVRIGT", inte "HÄNSYN"', () => {
-    expect(VIDA_ETIKETT.ovrigt).toBe('ÖVRIGT');
-    expect(VIDA_ETIKETT.hansynsyta).toBe('HÄNSYN');
+  it('etiketten är "Övrigt", inte "Hänsyn"', () => {
+    expect(VIDA_ETIKETT.ovrigt).toBe('Övrigt');
+    expect(VIDA_ETIKETT.hansynsyta).toBe('Hänsyn');
   });
 });
 

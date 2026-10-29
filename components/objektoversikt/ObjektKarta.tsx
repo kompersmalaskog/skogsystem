@@ -1,7 +1,7 @@
 'use client';
 // Objektöversiktens karta: "Var körde maskinerna?" (Martin och kollegan 2026-10-24).
 //
-// Samma bild som planeringsvyn, utan att man skickas dit: körspår (skördare lila heldragen, skotare grön streckad),
+// Samma bild som planeringsvyn, utan att man skickas dit: körspår (skördare lila heldragen, skotare turkos streckad),
 // produktionshögar (skördarens stammar klustrade, samma algoritm som planeringen — lib/produktionshogar), planerarens
 // vägar, symboler och ytor (samma ritregler som planeringen och egenkontrollen — lib/kartstil, lib/egenkontrollkarta),
 // Vidas traktgräns och maskinerna där de senast var. Varje sak går att tända och släcka (Lager).
