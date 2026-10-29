@@ -92,7 +92,7 @@ async function mat(variant: Variant, zoomLage: 'fit' | 'oversikt', viewport: { w
         if (p.variant === 'fore') {   // #1014:s första version (fast pixelbredd, mörk kant överallt)
           const bredd = roll === 'skordare' ? 3 : 2.5;
           const bl = (a: number, b2: number) => ['interpolate', ['linear'], ['coalesce', ['to-number', ['get', 'alder']], 0], 0, a, 14, b2];
-          return { farg: roll === 'skordare' ? '#bf5af2' : '#34c759', bredd, op: bl(0.9, 0.45), kant: 'rgba(0,0,0,0.9)', kantB: bredd + 2, kantOp: bl(0.72, 0.36) };
+          return { farg: roll === 'skordare' ? '#bf5af2' : '#64d2ff', bredd, op: bl(0.9, 0.45), kant: 'rgba(0,0,0,0.9)', kantB: bredd + 2, kantOp: bl(0.72, 0.36) };
         }
         const d = L.dampatSpar(roll, 'plan');
         return { farg: d.farg, bredd: d.bredd, op: d.opacitet, kant: d.kantFarg, kantB: d.kantBredd, kantOp: d.kantOpacitet };

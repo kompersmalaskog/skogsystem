@@ -9767,7 +9767,7 @@ export default function PlannerPage() {
     // PLANERINGSVYNS hyttspår (EJ körvy): skotarens + skördarens riktiga körspår ritas i den vanliga
     // planeringskartan när objekt är valt. Egna lager (planspar-*) — matchar INTE körvyns 'hyttspar-'-
     // whitelist → döljs automatiskt i körvyn (som har egen egen/hist/andras-visning). Samma Apple-Maps-
-    // stil (ljus casing + zoom-interp-bredd) som körvyns lager; färg per roll (skotare grönt, skördare lila).
+    // stil (ljus casing + zoom-interp-bredd) som körvyns lager; färg per roll (skotare turkos, skördare lila).
     for (const roll of ['skordare', 'skotare'] as const) {
       const src = `planspar-${roll}-source`;
       const st = dampatSpar(roll, 'plan');
@@ -9802,7 +9802,7 @@ export default function PlannerPage() {
   }, [mapLibreReady]);
 
   // PLANERINGSVYNS hyttspår: hämta BÅDA rollernas riktiga körspår för objektet och rita i planeringskartan
-  // (skotare grönt, skördare lila). Segmenteras RUMSLIGT via delade hjälparen (inga fantomlinjer). Laddas
+  // (skotare turkos, skördare lila). Segmenteras RUMSLIGT via delade hjälparen (inga fantomlinjer). Laddas
   // när objekt byts; töms när inget objekt. Synlighet i separat effekt (dold i körvyn).
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -9847,7 +9847,7 @@ export default function PlannerPage() {
   }, [korvyActive, valtObjekt?.id, mapLibreReady]);
 
   // KÖRVYNS ABSOLUTA rollfärger: eget-spårets (egen + hist) färg = FÖRARENS roll, andras-spårets färg =
-  // MOTPARTENS roll — skotare grönt, skördare lila, SAMMA i båda körvyerna oberoende av vem som kör.
+  // MOTPARTENS roll — skotare turkos, skördare lila, SAMMA i båda körvyerna oberoende av vem som kör.
   // Eget/andras skiljs på OPACITET för SKOTAREN (egen/hist 0.95, andras 0.55), aldrig på färg. SKÖRDAREN är alltid full (sparStil).
   useEffect(() => {
     const map = mapInstanceRef.current;
