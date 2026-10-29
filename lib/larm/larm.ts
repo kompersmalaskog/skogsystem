@@ -5,7 +5,9 @@
 //                       verkan: Röd behandlas som okvitterad, ligger alltid överst och sjunker aldrig.
 //   Grön, Brun, Blå     larmar tills FÖRAREN kvitterat (samma innehåll). Efter det: inget ljud, inget kort, bara ring i gruppens färg när man är nära.
 //   Lila, Mörk          larmar aldrig.
-//   Förbjudna ytor      (Hänsyn, Nyckelbiotop, Fornlämning, Ej framkomlig) larmar ALLTID vid inkörning, även kvitterade.
+//   Förbjudna ytor      (Hänsyn, Nyckelbiotop, Fornlämning, Ej framkomlig) larmar ALLTID vid inkörning, även kvitterade —
+//                       UTOM när maskinen står på en planerad väg (basväg/stickväg) genom ytan: då inget kort och inget ljud, bara raden "Passage genom Hänsyn 6"
+//                       (lib/larm/passage). Av vägen men kvar i ytan → det riktiga larmet. Röd fara (Ej framkomlig) larmar alltid, väg eller inte.
 //
 //   Inom 40 m: symbolen och ringen lyser i gruppens färg, kort överst med namn och meter, ETT ljud.
 //   Inom 15 m, bara Röd: kortet pulserar och ett andra, tydligare ljud.
@@ -50,6 +52,8 @@ export interface LarmObjekt {
   typ?: string;
   /** Förarens egna prickar (pillräknaren) och symboler han själv just satt: larmar aldrig. */
   undantagen?: boolean;
+  /** Vidas tilläggsyta: brickan ur lib/ytaNamn ("Hänsyn 6") — samma namn som kartans etikett och instruktionskortet. Används i passageraden. */
+  bricka?: string;
 }
 
 export interface Kvittens { hash: string; forareId: string; tid?: string }
@@ -101,6 +105,9 @@ export type RingRoll = 'stor' | 'nasta' | 'ovrig';
 export interface LarmRing { id: string; kalla: LarmKalla; grupp: FargGrupp; farg: string; steg: Steg; kvitterad: boolean; roll: RingRoll }
 export type LarmLjud = 'nara' | 'mycket_nara';
 
+/** Den lilla raden "Passage genom Hänsyn 6": maskinen står på en planerad väg inne i en förbjuden yta. Inget kort, inget ljud. */
+export interface LarmPassage { id: string; namn: string; grupp: FargGrupp; farg: string }
+
 export interface LarmUtfall {
   state: LarmState;
   kort: LarmKort | null;
@@ -113,6 +120,8 @@ export interface LarmUtfall {
   ljud: LarmLjud | null;
   /** Mönster för telefonens vibration (maskindatorn vibrerar inte — ljudet måste räcka ensamt). */
   vibration: number[] | null;
+  /** Passage på planerad väg genom en förbjuden yta (den första): raden i stället för kortet. Null = ingen passage. */
+  passage: LarmPassage | null;
 }
 
 /** Hash av typ + kommentar (djb2 → base36). */
@@ -143,6 +152,13 @@ export function larmar(o: LarmObjekt, kvitterad: boolean): boolean {
 /** Visar objektet en ring i gruppens färg när man är nära? Alla larmgrupper, även kvitterade. */
 export function harRing(o: LarmObjekt): boolean {
   return !o.undantagen && (o.forbjuden === true || GRUPPER[o.grupp].larm !== 'aldrig');
+}
+
+/**
+ * Passage: en förbjuden yta (inte Röd fara) som maskinen är inne i medan den står på en planerad väg (`paVag`, lib/larm/passage). Ger raden i stället för kort och ljud.
+ */
+export function arPassage(o: LarmObjekt, paVag: boolean): boolean {
+  return paVag && o.kalla === 'yta' && !!o.forbjuden && !!o.inne && !arFara(o) && !o.undantagen;
 }
 
 /** Är objektet en Röd (Fara)? En fara kvitteras aldrig: ingen Sett-rad, ingen kvittens som räknas, den tystnar inte. Ej framkomlig (Röd och förbjuden) är också en fara. */
@@ -197,16 +213,22 @@ function kortText(o: LarmObjekt): string | null {
 const VIBRATION: Record<LarmLjud, number[]> = { nara: [30, 50, 30], mycket_nara: [80, 40, 80] };
 const VIBRATION_YTA = [100, 50, 100];
 
-export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensKarta; forareId: string | null; state: LarmState }): LarmUtfall {
+export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensKarta; forareId: string | null; state: LarmState; paVag?: boolean }): LarmUtfall {
   const nyaSteg: Record<string, Steg> = {};
   const nyaSett: Record<string, true> = {};
   const ringar: LarmRing[] = [];
   const aktiva: { o: LarmObjekt; steg: Steg; kvitterad: boolean; sett: boolean }[] = [];
   let ljud: LarmLjud | null = null;
   let vibration: number[] | null = null;
+  let passage: LarmPassage | null = null;
 
   for (const o of inp.objekt) {
     if (o.undantagen) continue;
+    // Passage på planerad väg: inget steg sparas (ytan räknas som "ute"), så kör maskinen av vägen kommer kortet och ljudet som vid en ny inkörning.
+    if (arPassage(o, !!inp.paVag)) {
+      passage = passage ?? { id: o.id, namn: o.bricka ?? o.namn, grupp: o.grupp, farg: GRUPPER[o.grupp].farg };
+      continue;
+    }
     const prev = inp.state.steg[o.id] ?? 'ute';
     const steg = nastaSteg(o, prev);
     if (steg === 'ute') continue;                         // lämnat radien: steg och "sett" glöms, så nästa närmande larmar igen
@@ -257,7 +279,7 @@ export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensK
   // Ringarnas roll: det stora kortets objekt pulserar; objektet i "+"-raden (bara när raden är en enda, namngiven) lyser utan puls; övriga som förut.
   const nastaId = fler.length === 1 ? fler[0].id : null;
   for (const r of ringar) r.roll = r.id === vinnare?.o.id ? 'stor' : r.id === nastaId ? 'nasta' : 'ovrig';
-  return { state: { steg: nyaSteg, sett: nyaSett }, kort, fler, settRad, ringar, ljud, vibration };
+  return { state: { steg: nyaSteg, sett: nyaSett }, kort, fler, settRad, ringar, ljud, vibration, passage };
 }
 
 /** Föraren tryckte "Sett": raden försvinner under den här passagen. Förbjudna ytor larmar ändå vidare. (Röd får aldrig Sett: `harSettRad` ger ingen rad, och stegaLarm bortser från ett sett på en Röd.) */

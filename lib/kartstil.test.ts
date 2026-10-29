@@ -102,6 +102,8 @@ describe('linjetyperna (lineTypeDefs)', () => {
       if (/dashed:\s*true/.test(rest)) o.dashed = true;
       if (/stonewall:\s*true/.test(rest)) o.stonewall = true;
       if (/kraftledning:\s*true/.test(rest)) o.kraftledning = true;
+      if (/solid:\s*true/.test(rest)) o.solid = true;
+      if (/tunn:\s*true/.test(rest)) o.tunn = true;
       return o;
     });
     expect(kalla.length).toBe(10);   // backRoad* (3) borttagna: backväg är en egenskap på vägen; + El-ledning som linje (powerline)
@@ -111,15 +113,17 @@ describe('linjetyperna (lineTypeDefs)', () => {
   it('linjebredder och kantbredder', () => {
     const lw = mellan(KALLA, /const lw = isBoundary/, /const cwLw/, 'lw');
     const lwDelar = lw.split(/\n\s*:\s*/);
-    expect(lwDelar.length).toBe(2);
+    expect(lwDelar.length).toBe(3);   // gräns · tunn (Naturvård) · övriga
     expect(stopp(lwDelar[0], 'lw/grans')).toEqual(LINJE_BREDD_GRANS.map((s) => [...s]));
-    expect(stopp(lwDelar[1], 'lw/annan')).toEqual(LINJE_BREDD.map((s) => [...s]));
+    expect(lwDelar[1]).toContain('NATURVARD_BREDD');
+    expect(stopp(lwDelar[2], 'lw/annan')).toEqual(LINJE_BREDD.map((s) => [...s]));
 
     const cw = mellan(KALLA, /const cwLw = isBoundary/, /\/\/ Mörk kant bakom varje linje/, 'cwLw');
     const delar = cw.split(/\n\s*:\s*/);
-    expect(delar.length).toBe(2);
+    expect(delar.length).toBe(3);
     expect(stopp(delar[0], 'cwLw/grans')).toEqual(LINJE_KANT_BREDD_GRANS.map((s) => [...s]));
-    expect(stopp(delar[1], 'cwLw/annan')).toEqual(LINJE_KANT_BREDD.map((s) => [...s]));
+    expect(delar[1]).toContain('NATURVARD_KANT_BREDD');
+    expect(stopp(delar[2], 'cwLw/annan')).toEqual(LINJE_KANT_BREDD.map((s) => [...s]));
   });
 
   it('kantfarg: stark for gräns, basväg och stig, mjuk for resten', () => {
@@ -137,7 +141,7 @@ describe('linjetyperna (lineTypeDefs)', () => {
     // annat an planeringens finns strangen inte dar. Bada riktningarna fangas.
     const a = (v: readonly number[]) => `[${v.join(', ')}]`;
     expect(k).toContain(sammanfoga(`...(lt.dashed ? { 'line-dasharray': ${a(STRECK_DASHED)} } : {})`));
-    expect(k).toContain(sammanfoga(`...(!lt.striped && !lt.dashed ? { 'line-dasharray': ${a(STRECK_VANLIG)} } : {})`));
+    expect(k).toContain(sammanfoga(`...(!lt.striped && !lt.dashed && !lt.solid ? { 'line-dasharray': ${a(STRECK_VANLIG)} } : {})`));
     // Randad: basvägen (blå/gul) har lika långa streck med PLATTA ändar (BASVAG_STRECK_*); övriga randade linjer är oförändrade [2, 2] med rundade ändar.
     expect(k).toContain(sammanfoga(`paint: { 'line-color': lt.color2, 'line-width': (isMainRoad ? korBredd(lw) : lw) as any, 'line-dasharray': isMainRoad ? [...BASVAG_STRECK_DASH] : ${a(STRECK_RANDAD)} }`));
     expect([...BASVAG_STRECK_DASH]).toEqual([...STRECK_RANDAD]);
@@ -149,7 +153,18 @@ describe('linjetyperna (lineTypeDefs)', () => {
     expect(streck('mainRoad').layout['line-cap']).toBe('butt');
     expect(streck('mainRoad').paint['line-dasharray']).toEqual([2, 2]);
     expect(streck('boundary').layout['line-cap']).toBe('round');
-    expect(streck('nature').layout['line-cap']).toBe('round');
+    expect(streck('boundary').paint['line-dasharray']).toEqual([2, 2]);
+  });
+
+  it('Naturvård är en tunn heldragen grön linje — inget rött streck (rött betyder fara, Martin 2026-10-28)', () => {
+    const lager = linjeLager('k', 'ek', null);
+    expect(lager.find((l: any) => l.id === 'ek-lin-nature-streck')).toBeUndefined();
+    const bas = lager.find((l: any) => l.id === 'ek-lin-nature');
+    expect(bas.paint['line-dasharray']).toBeUndefined();
+    expect(bas.paint['line-color']).toBe(LEGEND.naturvard);
+    const k = sammanfoga(KALLA);
+    expect(k).toContain(sammanfoga("{ id: 'nature', color: LEGEND.naturvard, solid: true, tunn: true }"));
+    expect(k).not.toMatch(/id: 'nature'[^}]*LEGEND\.fara/);
   });
 
   it('planeringen tonar ALDRIG ner traktgransen (undantaget som kontextlagret speglar)', () => {
@@ -299,12 +314,11 @@ describe('kraftledningen ser ut som en ledning (kraftledningLager)', () => {
     expect(l.layout['icon-rotation-alignment']).toBe('map');   // ikonens x-axel följer linjen; stapeln är lodrät i bilden → vinkelrät mot linjen
     expect(l.layout['icon-allow-overlap']).toBe(true);
   });
-  it('farosymbolen (röd triangel med blixt, ur symbolkällan) upprepad ungefär var 250:e px, upprätt', () => {
+  it('farosymbolen (röd triangel med blixt, ur symbolkällan) EN gång per ledningsbit, mitt på, upprätt (2026-10-28)', () => {
     const l = id('symbol');
-    expect(l.layout['symbol-placement']).toBe('line');
-    expect(KRAFTLEDNING_SYMBOL_AVSTAND_PX).toBe(250);
-    expect(l.layout['symbol-spacing'] * MAPLIBRE_SPACING_FAKTOR).toBeGreaterThan(245);
-    expect(l.layout['symbol-spacing'] * MAPLIBRE_SPACING_FAKTOR).toBeLessThan(255);
+    expect(l.layout['symbol-placement']).toBe('line-center');
+    expect(l.layout['symbol-spacing']).toBeUndefined();
+    expect(KRAFTLEDNING_SYMBOL_AVSTAND_PX).toBe(250);   // A4 upprepar fortfarande
     expect(l.layout['icon-image']).toBe('marker-powerline');
     expect(l.layout['icon-rotation-alignment']).toBe('viewport');
     expect(symbolDef('powerline')).toMatchObject({ form: 'triangel', farg: FARG_FARA });

@@ -1,5 +1,5 @@
 // KARTAN LUGNARE — vakter för det som inte får glida tillbaka (2026-10-24).
-//   • BARA ETT SLAGS FAST TEXT på kartan: namnet inne i ytor ("HÄNSYN 3") och avläggets nummer. Meterlängder på vägbitar visas först vid tryck.
+//   • BARA ETT SLAGS FAST TEXT på kartan: namnet inne i ytor ("Hänsyn 3") och avläggets nummer. Meterlängder på vägbitar visas först vid tryck.
 //   • Vägarna behåller sin snitselfärg med mörk kant.
 //   • Fara (Röd) är alltid i full styrka: det som tonas ner (bakgrund) och det som blir grått (klart) rör aldrig faran.
 import fs from 'node:fs';

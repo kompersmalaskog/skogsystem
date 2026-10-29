@@ -19,7 +19,7 @@ describe('samma namn på kartan och i listan', () => {
     expect(sida).toContain("'text-field': ['concat', VIDA_ETIKETT.hansynsyta, ' ', ['to-string', ['coalesce', ['get', 'LOPNR'], '']]]");
     expect(sida).toContain("'text-field': ['concat', VIDA_ETIKETT.ovrigt, ' ', ['to-string', ['coalesce', ['get', 'LOPNR'], '']]]");
     const h = vidaYtaNamn({ _lager: 'L_TILLAGGSYTOR', TYP: '24', LOPNR: 12, FLBESKR: 'x O' })!;
-    expect(h.bricka.toLocaleUpperCase('sv-SE')).toBe(`${VIDA_ETIKETT.hansynsyta} 12`);
+    expect(h.bricka).toBe(`${VIDA_ETIKETT.hansynsyta} 12`);
   });
   it('kartkortet (tryck på ytan) och Om traktens ytkort använder byggTraktKort — samma rubrik som listan och instruktionskortet', () => {
     expect(sida).toContain("kort = { ...kort, kalla: 'Vida', nr: '' };");

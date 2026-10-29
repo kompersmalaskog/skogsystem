@@ -42,19 +42,22 @@ export const SNEDSTRECK_GRUPPER: readonly FargGrupp[] = Array.from(new Set([
 export const FORBJUDNA_ZONTYPER = (grupp: FargGrupp): string[] =>
   Object.entries(YTA).filter(([, y]) => y.forbjuden && y.grupp === grupp).map(([typ]) => typ);
 
-/** Namnet som står i ytan (versaler, som RISA). Blött heter RISA — instruktionen på en blick. */
+/** Namnet som står i ytan, i VANLIG text ("Hänsyn", inte "HÄNSYN" — Martin 2026-10-28: versalerna skrek). Blött heter Risa — instruktionen på en blick. */
 export const YTA_ETIKETT: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(YTA).map(([typ, y]) => [typ, (typ === 'wet' ? 'RISA' : y.namn).toLocaleUpperCase('sv-SE')]),
+  Object.entries(YTA).map(([typ, y]) => [typ, typ === 'wet' ? 'Risa' : y.namn]),
 );
 
-/** Vidas ytor: namnet som står i ytan (samma versaler som våra egna). */
+/** Vidas ytor: namnet som står i ytan (samma vanliga text som våra egna). */
 export const VIDA_ETIKETT = {
-  hansynsyta: VIDA.hansynsyta.namn.toLocaleUpperCase('sv-SE'),
-  nyckelbiotop: VIDA.nyckelbiotop.namn.toLocaleUpperCase('sv-SE'),
-  raa_yta: VIDA.raa_yta.namn.toLocaleUpperCase('sv-SE'),
+  hansynsyta: VIDA.hansynsyta.namn,
+  nyckelbiotop: VIDA.nyckelbiotop.namn,
+  raa_yta: VIDA.raa_yta.namn,
   /** Vidas TYP 71 ("Övrigt"): ingen hänsyn, neutral etikett. */
-  ovrigt: 'ÖVRIGT',
+  ovrigt: 'Övrigt',
 } as const;
+
+/** Ytnamnets storlek (px) efter zoom — samma för alla ytor. Lugnare än förr (12/17/22 med versaler): namnet ska gå att läsa, inte skrika. */
+export const YTA_ETIKETT_STORLEK = ['interpolate', ['linear'], ['zoom'], 12, 11, 15, 14, 17, 17] as const;
 
 /** Etikettens stil: vit text, mörk kant — läsbar på flygfoto och på vit karta. Ingen andra nyans. */
 export const YTA_ETIKETT_STIL = {
