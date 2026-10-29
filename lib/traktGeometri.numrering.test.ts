@@ -75,3 +75,28 @@ describe('numreraObjekt — när får en yta en siffra på kartan?', () => {
     expect(n.visaGransNummer).toBe(true);
   });
 });
+
+describe('egna ritade ytor i nummerserien', () => {
+  const bit = (partKey: string, lat: number, lng: number) => ({ partKey, centroid: { lat, lng } });
+  it('fortsätter efter Vidas hänsyn och traktdelarna (Skälviken: Vida 3–7, en del = 8, egen Hänsyn = 9)', () => {
+    const n = numreraObjekt({ hansynLopnr: [3, 4, 5, 6, 7], bitar: [bit('a:0', 56.2, 14.9)], granser: [], zoner: [{ id: 1761000000000 }] });
+    expect(n.bitNr.get('a:0')).toBe(8);
+    expect(n.zonNr.get('1761000000000')).toBe(9);
+    expect(n.visaZonNummer).toBe(true);
+  });
+  it('nästa nya område hoppar över ytans nummer', () => {
+    const n = numreraObjekt({ hansynLopnr: [1], bitar: [], granser: [], zoner: [{ id: 5 }] });
+    expect(n.zonNr.get('5')).toBe(2);
+    expect(n.nastaGransNr).toBe(3);
+  });
+  it('en del och en ritad yta: ingen siffra på någon av dem (traktdelen får inte plötsligt en siffra)', () => {
+    const n = numreraObjekt({ hansynLopnr: [], bitar: [bit('a:0', 56.2, 14.9)], granser: [], zoner: [{ id: 5 }] });
+    expect(n.visaBitNummer).toBe(false);
+    expect(n.visaZonNummer).toBe(false);
+  });
+  it('stabil ordning på id', () => {
+    const a = numreraObjekt({ hansynLopnr: [1], bitar: [], granser: [], zoner: [{ id: 20 }, { id: 10 }] });
+    expect(a.zonNr.get('10')).toBe(2);
+    expect(a.zonNr.get('20')).toBe(3);
+  });
+});
