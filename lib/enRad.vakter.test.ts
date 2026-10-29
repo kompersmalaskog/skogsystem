@@ -120,7 +120,7 @@ describe('mät: Klar visar talet, inget sparas', () => {
 describe('Rita linje: Basväg är EN rad, stickvägar ritas inte här (de görs i Snitsla stickvägar)', () => {
   it('listan = linjetyperna utan traktgräns och stickväg: Basväg först (EN rad), sedan övriga; ingen "Stickväg" bland dem', () => {
     const lista = mellan(page, 'const ritaLinjeTyper = ', '  const oppnaBasvagSteg');
-    expect(lista).toContain("lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad'));");
+    expect(lista).toContain("lineTypes.filter(t => t.id !== 'boundary' && t.id !== 'nature' && !t.id.includes('sideRoad'));");
     expect(lista).not.toContain('Stickväg');
     expect(lista).not.toContain('medBasvagFarger');
     expect(page.split('typer={ritaLinjeTyper}').length - 1).toBe(2);   // Rita linje och Spåra med GPS visar samma lista
