@@ -123,6 +123,7 @@ import { CentreraKnapp } from '../../components/planering/CentreraKnapp'
 import { KorvyObjektPill, PILL_HOJD_PX } from '../../components/planering/KorvyObjektPill'
 import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
 import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } from '../../lib/borttagenKvitto'
+import { VagFargForslag } from '../../components/planering/VagFargForslag'
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
@@ -178,6 +179,7 @@ import { useKartReglage } from '../../lib/hooks/useKartReglage'
 import { styrkaFor } from '../../lib/kartReglage'
 import { overlayReglage, bakgrundReglage, tillampaLagerOpacitet, nyttSkalaMinne } from '../../lib/lagerOpacitet'
 import { korBredd, korFarg, korEgenskap, korPunkter, korPunktLager, korSkenLager, KOR_OPACITET, KOR_INTE_KLAR, KOR_KALLA, KOR_PIL_BILD, KOR_PIL_FARG } from '../../lib/korordningKarta'
+import { foreslaVagFarg, harVagForslag, forslagFargPerVag, tillampaVagForslag, VAGSYMBOL_SPOKE_OPACITET } from '../../lib/vagSymbolFarg'
 import { TRAD_TYP, TRAD_KALLA, TRAD_BILD, TRAD_BILD_VALD, TRAD_BILD_MATT, TRAD_LAGER, arFallTrad, arGammalFallpil, ritaTradBild, tradLager, tradData, tradPosUr, synligaTrad, foreslaTrad, vinkelFranPunkt, type TradPos } from '../../lib/fallTrad'
 import { useTvaTryck } from '../../lib/hooks/useTvaTryck'
 import { TVATRYCK_KALLA, tvaTryckData, tvaTryckLager, type TvaStart } from '../../lib/tvaTryck'
@@ -858,6 +860,8 @@ export default function PlannerPage() {
   const korLageRef = useRef(false);
   korLageRef.current = korLage;
   const [korForslagNej, setKorForslagNej] = useState(false);     // planeraren sa "Inte nu" till förslaget ur de gamla körriktningspilarna (gäller tills trakten byts)
+  const [vagForslagNej, setVagForslagNej] = useState(false);     // "Inte nu" till förslaget vägsymboler → vägfärg (lib/vagSymbolFarg; gäller tills trakten byts)
+  const [vagSpokeAktiv, setVagSpokeAktiv] = useState(false);     // förslaget står nertill just nu: vägarna ritas i föreslagen färg, symbolerna som spöken
   const ritlageSparrRef = useRef(false);                     // NÅGOT ritläge är på (rita, placera, pil, träd, mät …): all annan kart-tryckning är avstängd tills det är klart (lib/ritlageSparr)
   const ritlageRef = useRef(false);                          // Rita linje/Rita yta pågår (typ vald): ett tryck är en PUNKT — inget Vida-ytkort ska öppnas
 
@@ -8037,6 +8041,15 @@ export default function PlannerPage() {
     .map((m) => korVagUr(m, m.path.map((p: any) => { const ll = svgToLatLon(p.x, p.y); return [ll.lon, ll.lat] as KorLngLat; }))),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [markers, mapCenter, mapZoom]);
+  // VÄGSYMBOLER → VÄGFÄRG (lib/vagSymbolFarg, Martin 2026-10-28): på äldre trakter satte planeraren en "Röd väg"-symbol bredvid basvägen när vägen inte kunde ha färg.
+  // Bara planeringsvyn (inte körvy, maskinläge eller testläge). Godkänn ger vägarna färgen och tar bort exakt de symboler förslaget bygger på; inget försvinner utan Godkänn.
+  const vagForslag = useMemo(
+    () => (objektListaVal && valtObjekt && !vagForslagNej && !objektSaknarPosition ? foreslaVagFarg(markers as any[], svgToLatLon) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [objektListaVal, valtObjekt?.id, vagForslagNej, objektSaknarPosition, markers, mapCenter, mapZoom]);
+  const vagSpoke = vagSpokeAktiv && harVagForslag(vagForslag) ? vagForslag : null;   // syns på kartan bara medan frågan står nertill
+  const vagSpokeFarg = useMemo(() => forslagFargPerVag(vagSpoke), [vagSpoke]);
+  const vagSpokeSymboler = useMemo(() => new Set(vagSpoke?.symbolIdn ?? []), [vagSpoke]);
   // Sparar körordningens ändringar på vägarnas markeringar (tre fält i JSONB — ingen migration). null tar bort fältet.
   const tillampaKor = (patchar: KorPatchar) => {
     const nya = new Map<string, any>();
@@ -8048,6 +8061,7 @@ export default function PlannerPage() {
 
   // Ett annat objekt: Körordning-läget stängs och ett nej till förslaget gäller inte längre.
   useEffect(() => { setKorLage(false); setKorForslagNej(false); }, [valtObjekt?.id]);
+  useEffect(() => { setVagForslagNej(false); }, [valtObjekt?.id]);   // "Inte nu" till vägfärgsförslaget gäller tills trakten byts
 
   // 1) Synka linjer → MapLibre lines-source
   useEffect(() => {
@@ -8078,7 +8092,7 @@ export default function PlannerPage() {
         }
         features.push({
           type: 'Feature',
-          properties: { lineType: m.lineType, id: m.id, nearby, ...(m.lineType === 'mainRoad' && m.farg ? { farg: m.farg } : {}), ...(arVagTyp(m.lineType) ? korEgenskap(korvyActive || korStatus.get(String(m.id)) === 'klar' ? korStatus.get(String(m.id)) : undefined) : {}) },
+          properties: { lineType: m.lineType, id: m.id, nearby, ...(m.lineType === 'mainRoad' && m.farg ? { farg: m.farg } : {}), ...(m.lineType === 'mainRoad' && vagSpokeFarg.has(String(m.id)) ? { farg: vagSpokeFarg.get(String(m.id)) } : {}), ...(arVagTyp(m.lineType) ? korEgenskap(korvyActive || korStatus.get(String(m.id)) === 'klar' ? korStatus.get(String(m.id)) : undefined) : {}) },
           geometry: { type: 'LineString', coordinates: coords },
         });
         // Backväg: dubbla tvärstreck i hinderänden (egen källa, vägens linje rörs inte).
@@ -8102,7 +8116,7 @@ export default function PlannerPage() {
         console.log('[MapLibre] lines-source synced:', features.length, 'features', types);
       }
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, visibleLines, korvyActive, currentPosition, objektSaknarPosition, redigeraGransId, korVagar]);
+  }, [markers, mapLibreReady, mapCenter, visibleLines, korvyActive, currentPosition, objektSaknarPosition, redigeraGransId, korVagar, vagSpokeFarg]);
 
   // 1b) Basväg-NUMRERING: varje mainRoad utan `nummer` får ett stabilt löpnummer i skapelseordning
   // (via id). Backfill av de befintliga + nytt när en basväg ritas. Numret sparas på markören (JSONB)
@@ -8618,6 +8632,8 @@ export default function PlannerPage() {
         if (checklistMapView && briefingHighlightId) {
           opacity = m.id === briefingHighlightId ? 1 : 0.3;
         }
+        // Förslaget vägsymbol → vägfärg står nertill: symbolerna som tas bort vid Godkänn ritas som spöken.
+        if (vagSpokeSymboler.has(String(m.id))) opacity = VAGSYMBOL_SPOKE_OPACITET;
         // KÖRVY: symbolen TÄNDS UPP när den kommer nära — långt bort svagt/tyst, växer mot
         // full styrka inom fällningsradien. Så 20 symboler gör aldrig kartan rörig; bara det
         // nära syns starkt. withinRadius (≤40m) = akta-dig-nu (växer + ring + panel-badge).
@@ -8650,7 +8666,7 @@ export default function PlannerPage() {
   };
 
   // Synka vid dataändringar och proximity-tick
-  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyEffectivePos, overlays[PRICK_LAGER_ID]]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyEffectivePos, vagSpokeSymboler, overlays[PRICK_LAGER_ID]]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Synka pilar → arrows-source (geo-låst MapLibre-layer). x/y → lng/lat via svgToLatLon (samma
   // konvertering som symboler, origo-fix-medveten). Riktningen bärs av m.rotation → icon-rotate.
@@ -12685,6 +12701,10 @@ export default function PlannerPage() {
   const kartLageIgang = isDrawMode || isZoneMode || isArrowMode || measureMode || measureAreaMode || omradeRitning || skotningDrawing || hornEditActive
     || larmPlacering || risaMarkMode || !!selectedSymbol || !!figur || plusRadOppen || linjeRed.aktiv;
   const objektKartaTryck = objektListaVal && mapLibreReady && !kartLageIgang;
+  // Förslaget vägsymbol → vägfärg står nertill bara när inget annat pågår där (ritläge, meny, listor, körordning, framhävning …).
+  const vagForslagListSynlig = harVagForslag(vagForslag) && !kartLageIgang && !menuOpen && !objektListaOppen && !traktOversiktOpen && !framhavListSynlig
+    && !korLage && !klarGranskaAvlagg && markerMenuOpen == null && !briefingMode;
+  useEffect(() => { setVagSpokeAktiv(vagForslagListSynlig); }, [vagForslagListSynlig]);
   const { markeraVal: markeraListVal } = useObjektPrickar({
     map: objektKartaTryck ? mapInstanceRef.current : null,
     aktiv: objektKartaTryck && objektListaOppen,
@@ -14700,6 +14720,24 @@ export default function PlannerPage() {
           />
         );
       })()}
+      {/* VÄGSYMBOLER → VÄGFÄRG: de gamla "Röd väg"-symbolerna föreslås bli basvägens färg. Godkänn skriver färgen och tar FÖRST DÅ bort symbolerna (lib/vagSymbolFarg). */}
+      {vagForslagListSynlig && (
+        <VagFargForslag
+          forslag={vagForslag!}
+          smal={smalSkarm}
+          onInteNu={() => setVagForslagNej(true)}
+          onGodkann={() => {
+            saveToHistory([...markers]);
+            const { andrade, bortIdn } = tillampaVagForslag(markersRef.current as any[], vagForslag!);
+            const nya = new Map(andrade.map((m: any) => [String(m.id), m]));
+            const bort = new Set(bortIdn);
+            const bortMarkorer = (markersRef.current as any[]).filter((m) => bort.has(String(m.id)));
+            setMarkers((prev: any[]) => prev.filter((m) => !bort.has(String(m.id))).map((m) => nya.get(String(m.id)) ?? m));
+            nya.forEach((m) => saveMarkerToDb(m as any));   // vägarna med ny färg — via markeringskön (lib/hooks/useMarkeringarSynk)
+            bortMarkorer.forEach((m) => deleteMarkerFromDb(m.id));   // först nu försvinner symbolerna, och bara de förslaget bygger på
+          }}
+        />
+      )}
       {/* PIL: samma rad som placera symbol */}
       {/* EN rad (pil-list). De gamla gröna fällpilarna föreslås bli träd: Godkänn skapar träden och först DÅ tas pilarna bort. */}
       {pilListSynlig && (
