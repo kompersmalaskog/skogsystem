@@ -95,7 +95,7 @@ describe('lagring', () => {
 
 describe('kopplingen i planeringsvyn', () => {
   const sida = readFileSync('app/planering/page.tsx', 'utf8');
-  const mig = readFileSync('supabase/migrations/20261029060000_objekt_yta_avverkas.sql', 'utf8');
+  const mig = readFileSync('supabase/migrations/20261029055609_objekt_yta_avverkas.sql', 'utf8');
   it('larmet och fällningscirkeln läser den filtrerade samlingen, aldrig traktGeo direkt', () => {
     const larm = sida.slice(sida.indexOf('const larm = useKorvyLarm({'), sida.indexOf('const fall = useFallning({'));
     const fall = sida.slice(sida.indexOf('const fall = useFallning({'), sida.indexOf('const fall = useFallning({') + 400);
