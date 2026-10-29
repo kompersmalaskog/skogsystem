@@ -45,7 +45,7 @@ import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
 import { strakFeatures } from '../../lib/strak'
 import { installeraLagerOrdning, symbolSortKey, VAG_SORT_KEY } from '../../lib/lagerOrdning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
-import { dampatSpar, sparAlder, ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '../../lib/sparStil'
+import { dampatSpar, sparAlder } from '../../lib/sparStil'
 import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
 import { useKlarFalt } from '../../lib/hooks/useKlarFalt'
@@ -12522,7 +12522,7 @@ export default function PlannerPage() {
         ...(korvyActive ? [
           vaxel('mittSpar', 'Mitt spår', undefined, !!(overlays as any).mittSpar, sparYta(sparFarg('egen')), sla('mittSpar')),
           vaxel('andrasSpar', andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', undefined, !!(overlays as any).andrasSpar, sparYta(sparFarg('andras')), sla('andrasSpar')),
-        ] : PLANSPAR_LAGER.map((l) => vaxel(l.id, l.namn, undefined, planSparPa(overlays, l.roll), sparYta(l.roll === 'skordare' ? ROLLFARG_SKORDARE : ROLLFARG_SKOTARE),
+        ] : PLANSPAR_LAGER.map((l) => vaxel(l.id, l.namn, undefined, planSparPa(overlays, l.roll), sparYta(dampatSpar(l.roll, 'plan').farg),
           () => setOverlays((prev: any) => vaxlaPlanSpar(prev, l.roll))))),
       ],
     });
