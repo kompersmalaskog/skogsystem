@@ -55,5 +55,9 @@ describe('"Larma inte" på en egen yta', () => {
     expect(page).toContain('{kanStangaAvLarm(marker) && objektListaVal && isAdminRiktig && (');
     expect(page).toContain('avverkas: larmarInte(marker) })}');
     expect(page).toContain('medLarmaInte(m, v)');
+    // Samma text på Vidas hänsynsyta och egna ytor: båda brytarna läser LARMA_INTE, ingen egen text.
+    expect(page.split('etikett={LARMA_INTE.titel}').length - 1).toBe(2);
+    expect(page.split('LARMA_INTE.pa : LARMA_INTE.av').length - 1).toBe(2);
+    expect(page).not.toContain('Avverkas – larma inte</div>');
   });
 });

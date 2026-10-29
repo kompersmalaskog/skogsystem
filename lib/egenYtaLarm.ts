@@ -7,6 +7,13 @@
 
 import { ytaDef } from './larm/grupper';
 
+/** Brytarens text — SAMMA på Vidas hänsynsyta och på egna ytor (Martin 2026-10-29). */
+export const LARMA_INTE = {
+  titel: 'Larma inte',
+  pa: 'Larmar inte när maskinen kör in. Instruktionen och målbilden visas som förut.',
+  av: 'Slå på om det avverkas inne i ytan.',
+} as const;
+
 /** Kan ytan larma alls (och därmed stängas av)? Gallringszonen och okända typer larmar aldrig. */
 export const kanStangaAvLarm = (m: { isZone?: boolean; zoneType?: string } | null | undefined): boolean => !!m?.isZone && !!ytaDef(m.zoneType);
 
