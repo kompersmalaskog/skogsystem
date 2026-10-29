@@ -54,6 +54,31 @@ export function ritaGran(fyll: string, kant = '#0e1a12', px = 64): ImageData | n
   return g.getImageData(0, 0, px, px);
 }
 
+/** Skogen i 3D (steg 2): kronornas färg per klass, från mörkaste (ton 0) till ljusaste (ton 1) — varje träd får sin egen ton så skogen lever. */
+export const KRONA_FARG = {
+  ung: ['#4a7a44', '#6b9a5c'],
+  gallring: ['#2f6a3c', '#4d8a55'],
+  mogen: ['#22573a', '#3a7a4e'],
+} as const;
+/** Lutning (grader) där skogen ställer sig upp och trädsymbolerna försvinner. Under den: platt karta med träd. */
+export const LUTAD_PITCH = 20;
+/** MapLibre-uttrycket för kronans färg. */
+export const KRONA_FARG_UTTRYCK = ['interpolate', ['linear'], ['get', 't'],
+  0, ['match', ['get', 'k'], 'ung', KRONA_FARG.ung[0], 'gallring', KRONA_FARG.gallring[0], KRONA_FARG.mogen[0]],
+  1, ['match', ['get', 'k'], 'ung', KRONA_FARG.ung[1], 'gallring', KRONA_FARG.gallring[1], KRONA_FARG.mogen[1]]] as const;
+/** Terrängen när kartan lutas: backarna överdrivs lite så småländsk terräng syns. */
+export const TERRANG_OVERDRIFT = 1.4;
+
+/** Terrängskuggning (MapLibres hillshade på samma höjddata som 3D-terrängen): mörkt i skuggan, en aning ljust i solen, platt mark orörd. */
+export const RELIEF_KALLA = { type: 'raster-dem' as const, tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 15, encoding: 'terrarium' as const };
+export const RELIEF_PAINT = {
+  'hillshade-shadow-color': 'rgba(0,0,0,0.6)',
+  'hillshade-highlight-color': 'rgba(255,248,230,0.14)',
+  'hillshade-accent-color': 'rgba(0,0,0,0.3)',
+  'hillshade-exaggeration': 0.55,
+  'hillshade-illumination-direction': 315,
+} as const;
+
 export const TRAD_FARG = { ung: '#8cc084', gallring: '#6fae74', mogen: '#5a9a68' } as const;
 
 /** OpenFreeMap (OpenMapTiles-schemat, fri, ingen nyckel) — vatten, vägar och hus som platta vektorer. */
