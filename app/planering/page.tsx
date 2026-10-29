@@ -94,6 +94,9 @@ import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, GRUPPER, SYMBOL_GRUPP
 import { KartKort, KartKortNederst, KortAtgarder, KortKnapp, type KartKortFoto } from '../../components/planering/KartKort'
 import { TraktAnalysRad, type Kontroll } from '../../components/planering/TraktAnalysRad'
 import { useKartkommentarer } from '../../lib/hooks/useKartkommentarer'
+import { useVidaAvverkas } from '../../lib/hooks/useVidaAvverkas'
+import { Brytare } from '../../components/redigering/ObjektOversikt'
+import { utanAvverkade, kanMarkeraAvverkas } from '../../lib/vidaAvverkas'
 import { forfattarText, kanAndraKommentar, kanRaderaKommentar, kortKommentarer, markerNyckel } from '../../lib/kartkommentar'
 import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring, linjeKort, vidaLinjeKort, traktKortBetydelse } from '../../lib/symboler'
 import { LarmIkon, SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
@@ -9217,6 +9220,10 @@ export default function PlannerPage() {
     minNamn: currentMedarbetare?.namn ?? null,
     arAdmin: isAdminRiktig,
   });
+  // "AVVERKAS – LARMA INTE" (Martin 2026-10-29): Vidas hänsynsytor som planeraren markerat larmar inte och räknas inte i fällningscirkeln (lib/vidaAvverkas).
+  // Ytan ritas och instruktionen visas som förut — bara larmet tystnar. Går markeringarna inte att läsa larmar allt.
+  const vidaAvverkas = useVidaAvverkas(supabase, valtObjekt?.id, isAdminRiktig);
+  const vidaLarm = useMemo(() => utanAvverkade(traktGeo, vidaAvverkas.avverkas), [traktGeo, vidaAvverkas.avverkas]);
   const larm = useKorvyLarm({
     aktiv: korvyActive,
     pos: korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null,
@@ -9224,7 +9231,7 @@ export default function PlannerPage() {
     svgToLatLon,
     typNamn: (typ) => markerTypes.find((t) => t.id === typ)?.name || 'Markering',
     egna: korvyEgnaMarkorRef.current,
-    vida: traktGeo,
+    vida: vidaLarm,
     kommentarer: kk.larmKommentarer,   // senaste kommentaren med namn per objekt (Vidas objekt och egna markeringar): visas i larmkortet
     objektId: valtObjekt?.id ?? null,
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id), namn: currentMedarbetare.namn ?? null } : null,
@@ -9238,7 +9245,7 @@ export default function PlannerPage() {
     pos: korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null,
     markers,
     svgToLatLon,
-    vida: traktGeo,
+    vida: vidaLarm,
   });
   // FASTIGHETSGRÄNSEN i fällningscirkeln: ligger rågången inom 30 m (och inget skyddsvärt är det — det vinner alltid) blir cirkeln vit streckad och ett kort
   // högst upp säger "Fastighetsgräns 18 m – Fäll inte åt det hållet". Tyst. Hysteres 30/34 m så kortet inte blinkar vid gränsen.
@@ -15653,6 +15660,9 @@ export default function PlannerPage() {
         const media = nyckel ? (ytaMedia[nyckel] || []) : [];   // ljud + foto för ytan, i skapelseordning
         const isRecYta = isRecordingAudio && recordingYtaNyckel === nyckel;
         const bet = traktKortBetydelse(traktInfo);
+        // Hänsynsyta markerad "Avverkas – larma inte" (lib/vidaAvverkas): kortet säger att den inte larmar.
+        const kanAvverkas = traktInfo.kategori === 'hansyn' && kanMarkeraAvverkas(nyckel);
+        const avverkasPa = kanAvverkas && vidaAvverkas.avverkas.has(nyckel!);
         const ljudRader = media.filter((mm) => mm.typ === 'audio');
         const fotoRader: KartKortFoto[] = media.filter((mm) => mm.typ === 'foto').map((mm) => ({
           id: mm.id,
@@ -15670,7 +15680,7 @@ export default function PlannerPage() {
             // Vidas ATGARD på ett AVLÄGG är ett namn/en plats ("skbv betet", "byvägen"), aldrig en instruktion: den visas i namnraden ("Virkesavlägg · Vida: skbv betet"), inte som kommentar.
             namn={traktInfo.kategori === 'punkt' && traktInfo.vidaKommentar ? `${rubrikVisad} · Vida: ${traktInfo.vidaKommentar}` : rubrikVisad}
             grupp={bet.grupp}
-            larmRegel={larmRegelText({ grupp: bet.grupp, forbjuden: bet.forbjuden })}
+            larmRegel={avverkasPa ? 'Larmar inte – avverkas' : larmRegelText({ grupp: bet.grupp, forbjuden: bet.forbjuden })}
             mening={bet.forklaring}
             kalla={[typKalla, ...kontext].filter(Boolean).join(' · ')}
             vidaKommentar={traktInfo.kategori === 'punkt' ? undefined : traktInfo.vidaKommentar}
@@ -15693,6 +15703,19 @@ export default function PlannerPage() {
                   <AvlaggSkotatSektion nummer={visaAvlaggNummer(traktInfo.nr)} objektNamn={valtObjekt.namn} kalla="vida"
                     stat={skotatTillAvlagg(skotarLass.lass, `vida:${visaAvlaggNummer(traktInfo.nr)}`, skotarLass.avslut?.faktorer)} />
                 )}
+            {/* Planeraren (planeringsläget, admin): Vidas hänsynsyta där det avverkas larmar inte. Bara när markeringarna gick att läsa — en brytare som inte sparar vore värre än ingen. */}
+            {kanAvverkas && objektListaVal && isAdminRiktig && vidaAvverkas.tillganglig && (
+              <div data-testid="trakt-kort-avverkas" style={{ marginBottom: AVSTAND.l }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.min }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ ...TYP.listtitel, color: FARG.text }}>Avverkas – larma inte</div>
+                    <div style={{ ...TYP.meta, color: FARG.text2 }}>{avverkasPa ? 'Larmar inte när maskinen kör in. Ytan ritas som förut.' : 'Slå på om det avverkas inne i ytan.'}</div>
+                  </div>
+                  <Brytare pa={avverkasPa} etikett="Avverkas – larma inte" upptagen={vidaAvverkas.sparar === nyckel} onByt={(v) => { vidaAvverkas.satt(nyckel!, v); }} />
+                </div>
+                {vidaAvverkas.fel && <div style={{ ...TYP.meta, color: FARG.orange }}>{vidaAvverkas.fel}</div>}
+              </div>
+            )}
             {/* Vidas linje med dolda delar (suddade i Redigera linjer): Vidas data är orörd — en knapp tar tillbaka originalet. */}
             {traktInfo.kategori === 'linje' && nyckel && isAdminRiktig && linjeRed.dolt[nyckel]?.length ? (
               <button type="button" data-testid="visa-vidas-original" onClick={() => { linjeRed.visaVidaOriginal(nyckel); stangTraktKort(); }} className="press-dim"
