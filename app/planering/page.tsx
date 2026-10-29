@@ -196,7 +196,8 @@ import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
 import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner } from '../../lib/traktTon'
-import { KLART_FARG, KLART_LINJE_OPACITET, KLART_YTA_KANT_BREDD, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_KANT_LAGER, KLART_LINJELAGER, KLART_TONAS_BORT, INGA_YTOR, arObjektKlart, skotadeYtor } from '../../lib/kartKlart'
+import { PLANSPAR_LAGER, PLANSPAR_NYCKEL, planSparPa, vaxlaPlanSpar } from '../../lib/planSparLager'
+import { KLART_FARG, KLART_YTA_KANT_BREDD, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_KANT_LAGER, INGA_YTOR, skotadeYtor } from '../../lib/kartKlart'
 import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
 import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
 import { avlaggFeatures, laggTillAvlaggslager, taBortAvlaggslager } from '../../lib/skotarLass/avlaggKarta'
@@ -9886,13 +9887,13 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    const visa = !korvyActive && !!valtObjekt?.id;
     for (const roll of ['skordare', 'skotare'] as const) {
+      const visa = !korvyActive && !!valtObjekt?.id && planSparPa(overlays, roll);
       for (const suff of ['casing', 'line'] as const) {
         try { if (map.getLayer(`planspar-${roll}-${suff}`)) map.setLayoutProperty(`planspar-${roll}-${suff}`, 'visibility', visa ? 'visible' : 'none'); } catch { /* */ }
       }
     }
-  }, [korvyActive, valtObjekt?.id, mapLibreReady]);
+  }, [korvyActive, valtObjekt?.id, mapLibreReady, (overlays as any)[PLANSPAR_NYCKEL.skordare], (overlays as any)[PLANSPAR_NYCKEL.skotare]]);
 
   // KÖRVYNS ABSOLUTA rollfärger: eget-spårets (egen + hist) färg = FÖRARENS roll, andras-spårets färg =
   // MOTPARTENS roll — skotare turkos, skördare lila, SAMMA i båda körvyerna oberoende av vem som kör.
@@ -9914,7 +9915,6 @@ export default function PlannerPage() {
 
   // DET SOM ÄR KLART BLIR GRÅTT (Kartan lugnare, lib/kartKlart). Bara status som redan finns:
   //  • skotad yta  = skotning_uttag.polygon_coords (Markera utkört) → grå yta under allt annat (data här, utseende i lagren klart-yta-*)
-  //  • klar trakt  = objekt.status 'avslutat' → vägarna och maskinspåren (avverkad/skotad yta) grå (effekten längre ned)
   // Läsfel = ingen grå yta (kartan påstår aldrig något den inte vet). Fara, larm, fällningscirkel och pilar rörs aldrig.
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -9932,41 +9932,9 @@ export default function PlannerPage() {
     return () => { avbruten = true; };
   }, [valtObjekt?.id, mapLibreReady, skotningReload]);
 
-  const klartOrigRef = useRef<Record<string, { color: any; opacity: any }>>({});
-  const traktKlar = arObjektKlart(valtObjekt?.status);
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-    const orig = klartOrigRef.current;
-    const tillampa = () => {
-      for (const id of KLART_LINJELAGER) {
-        try {
-          if (!map.getLayer(id)) continue;
-          if (traktKlar) {
-            if (!orig[id]) orig[id] = { color: map.getPaintProperty(id, 'line-color'), opacity: map.getPaintProperty(id, 'line-opacity') };
-            map.setPaintProperty(id, 'line-color', KLART_FARG);
-            map.setPaintProperty(id, 'line-opacity', KLART_LINJE_OPACITET);
-          } else if (orig[id]) {
-            map.setPaintProperty(id, 'line-color', orig[id].color);
-            map.setPaintProperty(id, 'line-opacity', orig[id].opacity ?? 1);
-            delete orig[id];
-          }
-        } catch { /* */ }
-      }
-      for (const id of KLART_TONAS_BORT) {
-        try {
-          if (!map.getLayer(id)) continue;
-          if (traktKlar) map.setPaintProperty(id, 'line-opacity', 0);
-          else map.setPaintProperty(id, 'line-opacity', 1);
-        } catch { /* */ }
-      }
-    };
-    tillampa();
-    // Maskinspårens lager skapas av en annan effekt; ritas de först efter den här, tas de med vid nästa vilopunkt.
-    const igen = () => { tillampa(); };
-    map.once('idle', igen);
-    return () => { map.off('idle', igen); };
-  }, [traktKlar, valtObjekt?.id, mapLibreReady, briefingMode]);
+  // En AVSLUTAD trakt ritas i sina vanliga färger (Martin 2026-10-29): basvägen blå/gul, maskinspåren lila/turkos.
+  // Tidigare blev hela traktens vägar och spår grå ("klart = grått") — det gjorde efterhandsgranskningen omöjlig att läsa.
+  // Grått finns kvar för det som är klart på RIKTIGT per sak: skotad yta (kanten ovan) och en körd väg i körordningen.
 
   // SKOTARKÖRVY (punkt 3): mata hög-prickarna. Varje redan-kvar-reducerad hög → punkt i sortiment-
   // färg (properties.color). Alla prickar lika stora — ingen aktiv-förstoring (borttagen).
@@ -12549,8 +12517,13 @@ export default function PlannerPage() {
       rader: [
         vaxel('produktionshogar', 'Avverkade stammar', undefined, hogarPa, lagerBild('produktionshogar'), skotarKorvy ? () => setOverlays((prev: any) => vaxlaSkotarHogar(prev)) : sla('produktionshogar')),
         vaxel('grothogar', 'GROT (grenar & toppar)', undefined, !!(overlays as any).grothogar, lagerBild('grothogar'), sla('grothogar')),
-        vaxel('mittSpar', 'Mitt spår', undefined, !!(overlays as any).mittSpar, sparYta(sparFarg('egen')), sla('mittSpar')),
-        vaxel('andrasSpar', andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', undefined, !!(overlays as any).andrasSpar, sparYta(sparFarg('andras')), sla('andrasSpar')),
+        // Körvyn: maskinens eget spår + den andres (lagren hyttspar-*). Planeringen: båda rollernas spår (lagren planspar-*),
+        // PÅ från start — bara ett uttryckligt false släcker (Martin 2026-10-29: "vill kunna tända och släcka dom hela tiden").
+        ...(korvyActive ? [
+          vaxel('mittSpar', 'Mitt spår', undefined, !!(overlays as any).mittSpar, sparYta(sparFarg('egen')), sla('mittSpar')),
+          vaxel('andrasSpar', andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', undefined, !!(overlays as any).andrasSpar, sparYta(sparFarg('andras')), sla('andrasSpar')),
+        ] : PLANSPAR_LAGER.map((l) => vaxel(l.id, l.namn, undefined, planSparPa(overlays, l.roll), sparYta(dampatSpar(l.roll, 'plan').farg),
+          () => setOverlays((prev: any) => vaxlaPlanSpar(prev, l.roll))))),
       ],
     });
     if (visibleLayers.zones) {
