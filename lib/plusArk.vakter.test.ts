@@ -186,7 +186,8 @@ describe('Rita & mät: NIO rutor — alla ritverktyg (Körordning och Snitsla st
     // Rita linje OCH Spåra med GPS visar SAMMA lista (ritaLinjeTyper, se enRad.vakter.test.ts): Basväg som EN rad först, övriga linjetyper som förut
     expect(rit).toContain('typer={ritaLinjeTyper}');
     expect(gps).toContain('typer={ritaLinjeTyper}');
-    expect(page).toContain("const ritaLinjeTyper = lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad'));");
+    // Naturvård går inte längre att rita (Martin 2026-10-29, se naturvardRita.vakter.test.ts)
+    expect(page).toContain("const ritaLinjeTyper = lineTypes.filter(t => t.id !== 'boundary' && t.id !== 'nature' && !t.id.includes('sideRoad'));");
     expect(filter).toContain("lineTypes.filter(t => t.id !== 'boundary'");
     expect(rit).toContain('setDrawType(type.id);');
     expect(rit).toContain('setDrawFarg(null);');   // övriga linjetyper har ingen färg; Basväg startar via startaBasvagRita
