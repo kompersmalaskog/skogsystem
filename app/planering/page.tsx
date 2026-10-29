@@ -12633,7 +12633,9 @@ export default function PlannerPage() {
   const framhavListSynlig = !!framhavdMarkering && framhavdLageRef.current === 'ark' && !traktOversiktOpen && !plusRadOppen && !menuOpen && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig;
   const punktText = (n: number) => (n === 0 ? 'tryck på kartan' : `${n} punkt${n === 1 ? '' : 'er'}`);
   // Basväg är EN rad (färgen väljs när man trycker på den); övriga linjetyper som förut. Stickvägar ritas inte här — de görs i Snitsla stickvägar.
-  const ritaLinjeTyper = lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad'));
+  // Naturvård (grön/röd linje) går inte längre att rita (Martin 2026-10-29: grön/röd läses som varning; ett
+  // ringat område ritas som Hänsyn-yta, så trycket inne i ytan visar kommentaren). Gamla linjer ritas som förut.
+  const ritaLinjeTyper = lineTypes.filter(t => t.id !== 'boundary' && t.id !== 'nature' && !t.id.includes('sideRoad'));
   useEffect(() => { if (!menuOpen) setBasvagSteg(null); }, [menuOpen]);   // stängd meny: färgvalet fälls ihop till nästa gång
   const oppnaBasvagSteg = (steg: 'rita' | 'spara') => {
     if (basvagSteg === steg) { setBasvagSteg(null); return; }

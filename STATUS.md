@@ -2026,3 +2026,7 @@ update objekt set dim_objekt_id = null where id = 'e073caa4-23d4-4894-a96d-7387f
 delete from objekt_alt_nummer where objekt_id = 'e073caa4-23d4-4894-a96d-7387fbfa4a11' and nummer = 'k185' and maskin_id = 'A030353';
 ```
 (`delete` via Supabase-MCP kan hänga i 60 s — kör i SQL-editorn.) Samma koppling görs framöver av kortet "Skördaren har kört här … Koppla" (RPC `koppla_skordarobjekt`); P-1012 har samma mönster och får förslaget när någon öppnar det.
+
+## 2026-10-29 — Skälvikens Naturvård-ringar blev Hänsyn-ytor (datarättning, Martin godkände i chatten)
+Fem slutna Naturvård-linjer på Skälviken RP J-Hus -25 (objekt 84fa6474-0806-4f23-a017-df84e6e851e2, markeringar 1786449277687, 1786449301289, 1786449325870, 1786449351748, 1786449376394) gjordes om till `zoneType: 'protected'` (typ `zon`). Samma `data.id`, så kommentarerna i `kartkommentar` (`marker:<id>`) och den gamla `comment` följer med. Övriga 11 Naturvård-linjer i andra objekt är orörda.
+Ångra: `update planering_markeringar set typ='linje', data=(data - 'isZone' - 'zoneType') || '{"isLine":true,"lineType":"nature"}' where data->>'id' in ('1786449277687','1786449301289','1786449325870','1786449351748','1786449376394');`
