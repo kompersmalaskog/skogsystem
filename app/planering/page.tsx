@@ -15680,7 +15680,7 @@ export default function PlannerPage() {
             // Vidas ATGARD på ett AVLÄGG är ett namn/en plats ("skbv betet", "byvägen"), aldrig en instruktion: den visas i namnraden ("Virkesavlägg · Vida: skbv betet"), inte som kommentar.
             namn={traktInfo.kategori === 'punkt' && traktInfo.vidaKommentar ? `${rubrikVisad} · Vida: ${traktInfo.vidaKommentar}` : rubrikVisad}
             grupp={bet.grupp}
-            larmRegel={avverkasPa ? 'Larmar inte – avverkas' : larmRegelText({ grupp: bet.grupp, forbjuden: bet.forbjuden })}
+            larmRegel={larmRegelText({ grupp: bet.grupp, forbjuden: bet.forbjuden, avverkas: avverkasPa })}
             mening={bet.forklaring}
             kalla={[typKalla, ...kontext].filter(Boolean).join(' · ')}
             vidaKommentar={traktInfo.kategori === 'punkt' ? undefined : traktInfo.vidaKommentar}

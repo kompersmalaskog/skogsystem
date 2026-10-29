@@ -69,6 +69,14 @@ function fakeDb(rader: { objekt_id: string; nyckel: string }[], opt: { lasFel?: 
   };
 }
 
+describe('kortets larmregel', () => {
+  it('markerad yta säger "Larmar inte – avverkas", annars som förut', async () => {
+    const { larmRegelText } = await import('./larm/grupper');
+    expect(larmRegelText({ grupp: 'natur', forbjuden: true, avverkas: true })).toBe('Larmar inte – avverkas');
+    expect(larmRegelText({ grupp: 'natur', forbjuden: true })).toBe('Larmar alltid');
+  });
+});
+
 describe('lagring', () => {
   it('läsfel = null (då larmar allt), aldrig en tom mängd', async () => {
     expect(await lasAvverkas(fakeDb([], { lasFel: true }), 'o1')).toBeNull();
