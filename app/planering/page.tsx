@@ -78,6 +78,7 @@ import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData
 import { byggRagang, fastighetsFall, gransVidTryck, gransRubrik, FASTIGHET_KORT_MENING, FASTIGHET_FALL_M, type RagangModell } from '../../lib/fastighetsgrans'
 import { RAGANG_KALLOR, ragangKallor, ragangLager, lmGransLager, fastighetsSynlighet, tillampaFastighetsSynlighet, fastighetsCirkelPaint, forstaVektorLagerId, TRAKTGRANS_BREDD, TRAKTGRANS_KANT_BREDD, TRAKTGRANS_KANT_FARG } from '../../lib/fastighetsgransKarta'
 import { vidaEtikettPunkter, zonEtikettPunkter } from '../../lib/ytaEtikett'
+import { FARSKHET_GAMMAL_MIN, stampelSyns } from '../../lib/farskhet'
 import { FastighetsgransKortVy } from '../../components/planering/FastighetsgransKort'
 import { kopplaFlyttaMig, kopplaLangtryckFlytt } from '../../lib/testPosition'
 import { GrindKortVy, LarmKortVy, SettRad, larmMalbild } from '../../components/planering/LarmKort'
@@ -1162,12 +1163,12 @@ export default function PlannerPage() {
     const iv = setInterval(() => setFarskhetTick(t => t + 1), 30000);
     return () => clearInterval(iv);
   }, [valtObjekt?.id]);
-  // Uppdatera TYST (Martin 2026-10-28: ingen "Uppdaterad … Uppdatera"-ruta på kartan): är datan 5 min gammal hämtas den om i bakgrunden.
-  // Rutan syns bara när något är fel — datan förblev gammal (≥ 10 min, hämtningen lyckas inte) eller markeringar väntar på att nå servern.
+  // Gammal data hämtas om av sig själv medan sidan syns (som Mail) — stämpeln på kartan visas bara när det inte lyckas.
   useEffect(() => {
-    if (!valtObjekt?.id || markersUppdateradAt == null) return;
-    if (Date.now() - markersUppdateradAt >= 5 * 60000) refetchMarkers(false);
-  }, [farskhetTick]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!valtObjekt?.id || markersUppdateradAt == null || document.visibilityState !== 'visible') return;
+    if ((Date.now() - markersUppdateradAt) / 60000 >= FARSKHET_GAMMAL_MIN) refetchMarkers(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [farskhetTick]);
 
   // Numrera om: UPDATE-only av en befintlig rads data (ALDRIG upsert). En UPDATE på ett borttaget
   // marker_id träffar 0 rader → kan omöjligt återuppliva en raderad väg. Stänger kapplöpningen
@@ -1484,7 +1485,8 @@ export default function PlannerPage() {
       source: 'zones-etikett-source',
       filter: ['in', ['get', 'zoneType'], ['literal', Object.keys(YTA_ETIKETT)]],
       layout: {
-        'text-field': ['match', ['get', 'zoneType'], ...Object.entries(YTA_ETIKETT).flat(), ''],
+        'text-field': ['concat', ['match', ['get', 'zoneType'], ...Object.entries(YTA_ETIKETT).flat(), ''],
+          ['case', ['==', ['to-string', ['coalesce', ['get', 'nr'], '']], ''], '', ['concat', ' ', ['to-string', ['get', 'nr']]]]],
         'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'],
         'text-size': YTA_ETIKETT_STORLEK as any,
         'text-allow-overlap': true,
@@ -5119,7 +5121,9 @@ export default function PlannerPage() {
     const bitar = traktdelDelar.map(d => ({ partKey: d.partKey, centroid: ringCentroid(d.ringLngLat) }));
     // Egna områden + egenritade traktgränser = boundary-markörer. fromVidaTd-kopior ärver bitens nummer.
     const granser = markers.filter((m: any) => m.isLine && m.lineType === 'boundary').map((m: any) => ({ id: m.id, nummer: m.nummer, fromVidaTd: m.fromVidaTd }));
-    return numreraObjekt({ hansynLopnr, bitar, granser });
+    // Egna ritade ytor med etikett (gallringszonen har ingen) fortsätter serien: "HÄNSYN 9", aldrig ett namn utan nummer bredvid Vidas.
+    const zoner = markers.filter((m: any) => m.isZone && m.zoneType && m.zoneType !== 'gallring').map((m: any) => ({ id: m.id }));
+    return numreraObjekt({ hansynLopnr, bitar, granser, zoner });
   }, [traktGeo, traktdelDelar, markers]);
   const numreringRef = useRef(objektNumrering);
   useEffect(() => { numreringRef.current = objektNumrering; }, [objektNumrering]);
@@ -8203,6 +8207,8 @@ export default function PlannerPage() {
           type: 'Feature',
           properties: {
             zoneType: m.zoneType, id: m.id, color: farg,
+            // Ytans nummer i objektets serie (tom = visas utan nummer). Etiketten blir "HÄNSYN 9".
+            nr: (objektNumrering.visaZonNummer && objektNumrering.zonNr.get(String(m.id))) || '',
             // Gallring: heldragen kant i mörk trädslagsnyans (edgeColor); löv får BRED ram (tradslag='lov')
             // som bär den vita ytan. Övriga zoner saknar dessa → kanten tar 'color', normal bredd.
             ...(m.zoneType === 'gallring' ? { edgeColor: gallringKantFarg(m.tradslag), tradslag: m.tradslag || '' } : {}),
@@ -8213,7 +8219,7 @@ export default function PlannerPage() {
       src.setData({ type: 'FeatureCollection', features });
       (map.getSource('zones-etikett-source') as any)?.setData(zonEtikettPunkter(features));
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, visibleZones, objektSaknarPosition]);
+  }, [markers, mapLibreReady, mapCenter, visibleZones, objektSaknarPosition, objektNumrering]);
 
   // 2a) Egna områden / traktgränser → grans-source (polygon per boundary-markör = osynlig TAPPYTA). Snitseln
   // ritas av line-boundary-*; siffran ligger på yta-nr-source (nedan). Här bara ytan så hela området är tappbart.
@@ -14352,9 +14358,11 @@ export default function PlannerPage() {
           "Kartdata …") + den tysta pricken på +-knappen. Gul när datan är >10 min gammal. */}
       {valtObjekt && !briefingMode && !korvyActive && (() => {
         const alderMin = markersUppdateradAt != null ? (Date.now() - markersUppdateradAt) / 60000 : null;
-        const gammal = alderMin != null && alderMin >= 10;
+        const gammal = alderMin != null && alderMin >= FARSKHET_GAMMAL_MIN;
         const tid = markersUppdateradAt != null ? new Date(markersUppdateradAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : null;
-        if (!gammal && synkVantar === 0) return null;   // allt färskt och sparat → ingenting på kartan (uppdateras tyst ovan)
+        // REN SKÄRM: fast på kartan bara objektnamn, ⓘ och +. Stämpeln syns BARA när något är fel — datan är gammal
+        // (omhämtningen misslyckades) eller markeringar väntar på att nå servern. Färsk data säger ingenting.
+        if (!stampelSyns({ gammal, vantar: synkVantar })) return null;
         return (
           <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 110px)', left: 12, zIndex: 260,
             display: 'flex', alignItems: 'center', gap: 8, padding: '6px 7px 6px 11px', borderRadius: 13,
@@ -16144,7 +16152,7 @@ export default function PlannerPage() {
             if (marker.lineType === 'boundary') { const nr = objektNumrering.visaGransNummer ? objektNumrering.gransNr.get(String(marker.id)) : null; return nr != null ? `Område ${nr}` : 'Traktgräns'; }
             return lineTypes.find(t => t.id === marker.lineType)?.name || 'Linje';
           }
-          if (marker.isZone) return zoneTypes.find(t => t.id === marker.zoneType)?.name || 'Zon';
+          if (marker.isZone) { const namn = zoneTypes.find(t => t.id === marker.zoneType)?.name || 'Zon'; const nr = objektNumrering.visaZonNummer ? objektNumrering.zonNr.get(String(marker.id)) : null; return nr != null ? `${namn} ${nr}` : namn; }
           if (marker.isArrow) return arrowTypes.find(t => t.id === marker.arrowType)?.name || 'Pil';
           return 'Objekt';
         };
