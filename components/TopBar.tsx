@@ -85,6 +85,8 @@ export default function TopBar() {
   // Rundvyn (/egenkontroll/<objekt>) har ett eget huvud (KartHuvud: pil, objektnamn, antal kvar) — kartan ska ha hela skärmen och
   // "var är jag" ska stå på ETT ställe. Listan /egenkontroll (utan id) behåller toppfältet.
   if (pathname.startsWith('/egenkontroll/')) return null
+  // Den ritade kartan (steg 1) har eget huvud (KartHuvud) och hela skärmen.
+  if (pathname === '/karta-ritad') return null
 
   return (
     <header style={{
