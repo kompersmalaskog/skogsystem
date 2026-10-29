@@ -87,7 +87,7 @@ export function fallningKandidater(inp: FallningIn): FallningKandidat[] {
       if (!grupp) continue;
       const linje: LatLon[] = m.path.map((p: any) => inp.svgToLatLon(p.x, p.y));
       ut.push({ id: String(m.id), namn: LINJE_NAMN[m.lineType] ?? 'Linje', grupp, avstandM: avstandTillLinjeM(pos, linje), geometri: { type: 'LineString', coordinates: linje.map(punkt) } });
-    } else if (m.isZone && m.path?.length > 2) {
+    } else if (m.isZone && m.path?.length > 2 && m.larmaInte !== true) {   // "Larma inte" (lib/egenYtaLarm): räknas inte i fällningscirkeln
       const grupp = FALLNING_YTA[m.zoneType];
       if (!grupp) continue;
       const ring: LatLon[] = m.path.map((p: any) => inp.svgToLatLon(p.x, p.y));

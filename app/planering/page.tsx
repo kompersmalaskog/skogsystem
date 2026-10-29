@@ -100,6 +100,7 @@ import { useKartkommentarer } from '../../lib/hooks/useKartkommentarer'
 import { useVidaAvverkas } from '../../lib/hooks/useVidaAvverkas'
 import { Brytare } from '../../components/redigering/ObjektOversikt'
 import { utanAvverkade, kanMarkeraAvverkas } from '../../lib/vidaAvverkas'
+import { kanStangaAvLarm, larmarInte, medLarmaInte } from '../../lib/egenYtaLarm'
 import { forfattarText, kanAndraKommentar, kanRaderaKommentar, kortKommentarer, markerNyckel } from '../../lib/kartkommentar'
 import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring, linjeKort, vidaLinjeKort, traktKortBetydelse } from '../../lib/symboler'
 import { LarmIkon, SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
@@ -16204,7 +16205,7 @@ export default function PlannerPage() {
             )}
             namn={getMarkerName()}
             grupp={kortGrupp}
-            larmRegel={larmRegelText({ grupp: kortGrupp, typ: marker.isMarker ? marker.type : null, forbjuden: betydelse?.forbjuden })}
+            larmRegel={larmRegelText({ grupp: kortGrupp, typ: marker.isMarker ? marker.type : null, forbjuden: betydelse?.forbjuden, avverkas: larmarInte(marker) })}
             mening={betydelse?.mening ?? null}
             malbild={<MalbildRad nyckel={marker.isMarker ? malbildNyckel('symbol', marker.type) : marker.isZone ? malbildNyckel('yta', marker.zoneType) : marker.isLine ? malbildNyckel('linje', marker.lineType) : null} roll={malbildRoll} />}
             kommentarer={valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel: markerNyckel(marker.id), objektId: valtObjekt.id, aldreText: marker.comment, minId: currentMedarbetare?.id, arAdmin: isAdminRiktig }) : null}
@@ -16232,6 +16233,18 @@ export default function PlannerPage() {
                   objektNamn={valtObjekt.namn} kalla="egen"
                   stat={skotatTillAvlagg(skotarLass.lass, `egen:${marker.id}`, skotarLass.avslut?.faktorer)}
                 />
+              )}
+
+              {/* Egen yta (planeraren, planeringsläget): stäng av larmet när det avverkas inne i ytan. Instruktionen (kommentaren) och målbilden visas som förut. */}
+              {kanStangaAvLarm(marker) && objektListaVal && isAdminRiktig && (
+                <div data-testid="marker-kort-larma-inte" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.min, marginBottom: AVSTAND.l }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ ...TYP.listtitel, color: FARG.text }}>Larma inte</div>
+                    <div style={{ ...TYP.meta, color: FARG.text2 }}>{larmarInte(marker) ? 'Larmar inte när maskinen kör in. Instruktionen visas som förut.' : 'Slå på om det avverkas inne i ytan.'}</div>
+                  </div>
+                  <Brytare pa={larmarInte(marker)} etikett="Larma inte"
+                    onByt={(v) => setMarkers((prev: any[]) => prev.map((m: any) => (String(m.id) === String(marker.id) ? medLarmaInte(m, v) : m)))} />
+                </div>
               )}
 
               {/* Gallringszon: valt huvudträdslag (färgar zonen) */}
