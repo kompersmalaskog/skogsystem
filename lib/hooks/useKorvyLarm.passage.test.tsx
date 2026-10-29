@@ -77,7 +77,7 @@ describe('useKorvyLarm — passage på planerad väg genom en förbjuden yta', (
   it('av vägen (20 m) men kvar i ytan: det stora kortet och ljudet', async () => {
     const l = ljudCtx();
     mount(bas({ markers: [vag(20)], vida: vidaHansyn6, ljudCtx: () => l.ctx })); await tom();
-    expect(ut.kort).toMatchObject({ namn: 'Hänsyn', forbjuden: true });
+    expect(ut.kort).toMatchObject({ namn: 'Hänsyn 6', forbjuden: true });
     expect(ut.passage).toBeNull();
     expect(l.toner.length).toBeGreaterThan(0);
   });
