@@ -11,6 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { beslutaOrigo, lasVidaGrans, markeringsGranser, markeringsPunkter, type VidaGrans } from '@/lib/egenkontrollOrigo';
 import type { Origo } from '@/lib/kartkoordinater';
 import { hyttsparRitadeLinjer } from '@/lib/sparJamning';
+import { byggStrak } from '@/lib/strak';
 import { hamtaAlla } from '@/lib/supabaseAlla';
 import { optiTidUtcMs } from '@/lib/optiTid';
 import {
@@ -143,7 +144,8 @@ export async function lasKartdata(
       }
     }
   }
-  const spar = (['skordare', 'skotare'] as const).filter(r => per[r].length > 0).map(roll => ({ roll, linjer: per[roll] }));
+  // STRÅK (lib/strak): alla körningar per roll ihop till stråk — bara ritningen; skotarSpar (rådata) räknas som förut.
+  const spar = (['skordare', 'skotare'] as const).filter(r => per[r].length > 0).map(roll => ({ roll, linjer: byggStrak(per[roll], roll) as LngLat[][] }));
 
   // Skotarens lass. Går appens eller Opti-lassen inte att läsa finns inget skotat (aldrig en halv summa).
   let skotarLass: SkotarLass[] | null = null;
