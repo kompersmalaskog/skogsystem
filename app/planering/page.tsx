@@ -70,6 +70,7 @@ import { ytaRader } from '../../lib/ytaRader'
 import { rensaVidaNamn, brickaFarg } from '../../lib/ytaNamn'
 import { ytaGeo, ytaKameraPadding, YTA_PULS_MS, YTA_MAX_ZOOM } from '../../lib/ytaFlyg'
 import { YtaPaminnelseVy } from '../../components/planering/YtaPaminnelse'
+import { PassageRad } from '../../components/planering/PassageRad'
 import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
@@ -14460,6 +14461,10 @@ export default function PlannerPage() {
           utanSett={{ onStang: () => setPaminnelseOppen(null) }}
           top={instruktionTop}
         />
+      )}
+      {/* PASSAGE PÅ PLANERAD VÄG genom en förbjuden yta: inget larmkort, inget ljud, bara raden "Passage genom Hänsyn 6" (lib/larm/passage). Allt annat överst går före. */}
+      {korvyActive && larm.passage && !larm.kort && !inst.kort && !inst.paminnelse && !besokKortSynligt && !lossningVisas && (
+        <PassageRad passage={larm.passage} top={instruktionTop} />
       )}
       {korvyActive && grindKort && (
         <GrindKortVy

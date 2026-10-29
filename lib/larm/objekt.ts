@@ -6,6 +6,7 @@ import { LARMFRIA_SYMBOLER, LINJE_NAMN, VIDA, gruppForLinje, gruppForSymbol, yta
 import { innehallHash, type LarmObjekt } from './larm';
 import { vidaNycklar } from '../vidaNycklar';
 import { arHansynsyta } from '../vidaYtaTyp';
+import { vidaYtaNamn } from '../ytaNamn';
 
 /** Riktning i grader medurs från norr, från a till b. */
 export function bearingM(a: LatLon, b: LatLon): number {
@@ -111,7 +112,8 @@ export function vidaObjekt(fc: { features?: any[] } | null | undefined, pos: Lat
         if (!narRuta(pos, ringar[0] ?? [], marginM)) continue;
         if (arInnePolygon(pos, ringar)) { inne = true; break; }
       }
-      ut.push({ ...bas, kalla: 'yta', forbjuden: d.forbjuden, avstandM: null, inne });
+      const bricka = vidaYtaNamn(f.properties)?.bricka;   // "Hänsyn 6" — samma som kartans etikett och instruktionskortet (passageraden)
+      ut.push({ ...bas, kalla: 'yta', forbjuden: d.forbjuden, avstandM: null, inne, ...(bricka ? { bricka } : {}) });
     } else if (g.type === 'LineString' || g.type === 'MultiLineString') {
       const linjer: Pos[][] = g.type === 'LineString' ? [g.coordinates] : g.coordinates;
       let min = Infinity;
