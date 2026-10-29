@@ -69,6 +69,19 @@ export const KRONA_FARG_UTTRYCK = ['interpolate', ['linear'], ['get', 't'],
 /** Terrängen när kartan lutas: backarna överdrivs lite så småländsk terräng syns. */
 export const TERRANG_OVERDRIFT = 1.4;
 
+/** Himlen och diset när kartan lutas: horisonten tonar mot en dämpad kvällsblå i stället för att kartan slutar i svart (Apple-kartans djup). */
+export const HIMMEL = {
+  'sky-color': '#2a3a4f',
+  'horizon-color': '#56677a',
+  'fog-color': '#3c4b5a',
+  'sky-horizon-blend': 0.6,
+  'horizon-fog-blend': 0.7,
+  'fog-ground-blend': 0.55,
+  'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 10, 1, 16, 0.6],
+} as const;
+/** Solljuset på 3D-skogen: snett från sydväst och kartans riktning, så varje träd har en ljus och en mörk sida. */
+export const LJUS = { anchor: 'map' as const, color: '#fff6e0', intensity: 0.45, position: [1.4, 225, 35] as [number, number, number] };
+
 /** Terrängskuggning (MapLibres hillshade på samma höjddata som 3D-terrängen): mörkt i skuggan, en aning ljust i solen, platt mark orörd. */
 export const RELIEF_KALLA = { type: 'raster-dem' as const, tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 15, encoding: 'terrarium' as const };
 export const RELIEF_PAINT = {

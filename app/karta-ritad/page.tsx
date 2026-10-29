@@ -15,7 +15,8 @@ import KartHuvud from '@/components/design/KartHuvud';
 import { AVSTAND, FARG, LAYOUT, RADIE, TRAFFYTA, TYP, medSafeBotten } from '@/lib/design/tokens';
 import { avverkadeRutor, bildHorn, klasser, renderaSkog, skak, trad, type Rutnat } from '@/lib/ritadKarta/skog';
 import { kronor } from '@/lib/ritadKarta/kronor';
-import { BAKGRUND, KLASS_FARG, KRONA_FARG_UTTRYCK, LUTAD_PITCH, KLASS_NAMN, RELIEF_KALLA, RELIEF_PAINT, TERRANG_OVERDRIFT, TRAD_FARG, VEKTOR_KALLA, VEKTOR_LAGER, ritaGran } from '@/lib/ritadKarta/stil';
+import { fpsOrd, matFps, type FpsMatt } from '@/lib/ritadKarta/fps';
+import { BAKGRUND, HIMMEL, KLASS_FARG, KRONA_FARG_UTTRYCK, LJUS, LUTAD_PITCH, KLASS_NAMN, RELIEF_KALLA, RELIEF_PAINT, TERRANG_OVERDRIFT, TRAD_FARG, VEKTOR_KALLA, VEKTOR_LAGER, ritaGran } from '@/lib/ritadKarta/stil';
 
 const MapLibreMap = dynamic(() => import('@/components/MapLibreMap'), { ssr: false });
 
@@ -27,12 +28,17 @@ const STIL = {
     flygfoto: { type: 'raster' as const, tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 18, attribution: '&copy; Lantmäteriet' },
   },
   layers: [{ id: 'rk-bakgrund', type: 'background' as const, paint: { 'background-color': BAKGRUND } }],
+  sky: HIMMEL,
+  light: LJUS,
 };
 
 type Lage = { typ: 'laser' } | { typ: 'fel'; text: string } | { typ: 'klar'; rn: Rutnat; stammar: number };
 
 function RitadKarta() {
-  const objektId = useSearchParams().get('objekt');
+  const sp = useSearchParams();
+  const objektId = sp.get('objekt');
+  const visaFps = sp.get('fps') === '1';
+  const [fps, setFps] = useState<FpsMatt>(null);
   const [karta, setKarta] = useState<any | null>(null);
   const [namn, setNamn] = useState('');
   const [ringar, setRingar] = useState<[number, number][][] | null>(null);
@@ -155,6 +161,8 @@ function RitadKarta() {
   // Lutningen avgör läget: över LUTAD_PITCH står skogen upp och backarna överdrivs lite. Lutar man med två fingrar byter kartan själv.
   useEffect(() => {
     if (!karta) return;
+    // Brantare än planeringens 60° så horisonten och himlen syns.
+    karta.setMaxPitch?.(72);
     const kolla = () => setLutad(karta.getPitch() > LUTAD_PITCH);
     karta.on('pitch', kolla);
     kolla();
@@ -165,7 +173,17 @@ function RitadKarta() {
     const t = karta.getTerrain?.();
     if (t?.source) karta.setTerrain({ source: t.source, exaggeration: lutad ? TERRANG_OVERDRIFT : 1 });
   }, [karta, lutad]);
-  const vaxla3d = () => { if (karta) karta.easeTo({ pitch: lutad ? 0 : 60, duration: 800 }); };
+  // Mätaren (?fps=1): kartans egna bilder, läst var halvsekund.
+  useEffect(() => {
+    if (!karta || !visaFps) return;
+    const tider: number[] = [];
+    const bild = () => { tider.push(performance.now()); if (tider.length > 240) tider.splice(0, tider.length - 240); };
+    karta.on('render', bild);
+    const t = setInterval(() => setFps(matFps(tider, performance.now())), 500);
+    return () => { karta.off('render', bild); clearInterval(t); };
+  }, [karta, visaFps]);
+
+  const vaxla3d = () => { if (karta) karta.easeTo({ pitch: lutad ? 0 : 64, duration: 800 }); };
 
   const knapp = { ...TYP.listtitel, minHeight: TRAFFYTA.primar, padding: `0 ${AVSTAND.l}px`, borderRadius: RADIE.knapp, border: 'none', background: FARG.kort, color: FARG.text, cursor: 'pointer', fontFamily: 'inherit' } as const;
 
@@ -180,6 +198,11 @@ function RitadKarta() {
         <div style={{ position: 'absolute', left: AVSTAND.m, right: AVSTAND.m, top: '45%', textAlign: 'center' }}>
           <div style={{ ...TYP.listtitel, color: FARG.text }}>{lage.typ === 'laser' ? 'Ritar skogen …' : lage.text}</div>
           {lage.typ === 'fel' && ringar && <button type="button" onClick={hamtaLaser} style={{ ...knapp, marginTop: AVSTAND.m }}>Försök igen</button>}
+        </div>
+      )}
+      {visaFps && (
+        <div data-testid="ritad-fps" style={{ position: 'absolute', left: AVSTAND.m, top: `calc(${LAYOUT.safeTopp} + ${TRAFFYTA.primar + AVSTAND.l}px)`, background: FARG.kort, borderRadius: RADIE.kort, padding: AVSTAND.s, ...TYP.meta, color: FARG.text }}>
+          {fpsOrd(fps)}{ritat ? ` · ${ritat.kronor.length.toLocaleString('sv-SE')} 3D-delar` : ''}
         </div>
       )}
       {forklaring && (

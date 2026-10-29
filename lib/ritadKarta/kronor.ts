@@ -13,22 +13,33 @@ export type BlockKlass = 'ung' | 'gallring' | 'mogen';
 
 /** Kronans radie (m) per klass — mogen skog sluter krontaket (10 m rutor), ungskog står glesare. */
 export const KRONA_RADIE_M: Record<BlockKlass, number> = { ung: 2.8, gallring: 4.2, mogen: 5.4 };
-/** Kronan börjar på denna andel av höjden (resten är stam, som inte ritas). */
-export const KRONA_BAS = 0.35;
-export const KRONA_HORN = 7;
+/** Hörn per våning: fler hörn = rundare krona. */
+export const KRONA_HORN = 9;
 
 export type Krona = { klass: BlockKlass; hojd: number; bas: number; ton: number; ring: [number, number][] };
-/** Granens två våningar: den nedre bred upp till VANING_SKARV av höjden, den övre smal (VANING_SMAL av radien) till toppen. Det gör en pelare till en gran. */
-export const VANING_SKARV = 0.68;
-export const VANING_SMAL = 0.55;
-/** Över så här många rutor med skog ritas bara en våning (ritningen ska gå lika fort på en stor trakt). */
-export const MAX_TVA_VANINGAR = 40_000;
 
-/** Kronorna per ruta med skog (aldrig avverkat, hygge eller utan data): två våningar, eller en på ett mycket stort utsnitt. ton 0–1 = färgvariation per träd. */
+/**
+ * Granens våningar, nedifrån: [från andel av höjden, till andel, radie som andel]. Tre avsmalnande våningar gör en pelare till en gran.
+ * Den nedersta börjar en bit upp (stammen ritas inte), den översta är smal.
+ */
+export const VANINGAR: [number, number, number][] = [[0.32, 0.58, 1], [0.58, 0.8, 0.68], [0.8, 1, 0.38]];
+/**
+ * Hur många våningar som ritas efter hur mycket skog utsnittet har — så ritningen går lika fort på en stor trakt.
+ * Upp till 25 000 skogsrutor tre våningar, upp till 50 000 två (nedre och översta, sammanslagna), däröver en.
+ */
+export const VANINGAR_GRANS = { tre: 25_000, tva: 50_000 } as const;
+
+export function vaningarFor(skogsrutor: number): [number, number, number][] {
+  if (skogsrutor <= VANINGAR_GRANS.tre) return VANINGAR;
+  if (skogsrutor <= VANINGAR_GRANS.tva) return [[VANINGAR[0][0], VANINGAR[1][1], 1], [VANINGAR[1][1], 1, 0.5]];
+  return [[VANINGAR[0][0], 1, 1]];
+}
+
+/** Kronorna per ruta med skog (aldrig avverkat, hygge eller utan data), en post per våning. ton 0–1 = färgvariation per träd. */
 export function kronor(rn: Rutnat, avverkat: Set<number>, skakFn: (i: number, salt: number) => number): Krona[] {
   const kl = klasser(rn, avverkat);
   const skog = kl.reduce((n, c) => n + (c === 'ung' || c === 'gallring' || c === 'mogen' ? 1 : 0), 0);
-  const tva = skog <= MAX_TVA_VANINGAR;
+  const vaningar = vaningarFor(skog);
   const ut: Krona[] = [];
   const mangkant = (cx: number, cy: number, rad: number, vrid: number) => {
     const ring: [number, number][] = [];
@@ -49,11 +60,9 @@ export function kronor(rn: Rutnat, avverkat: Set<number>, skakFn: (i: number, sa
     const cy = rn.maxY - (r + 0.25 + 0.5 * skakFn(i, 6)) * RUTA_M;
     const vrid = skakFn(i, 7) * Math.PI * 2;
     const ton = Math.round(skakFn(i, 8) * 100) / 100;
-    const bas = d1(hojd * KRONA_BAS);
-    if (!tva) { ut.push({ klass: c, hojd, bas, ton, ring: mangkant(cx, cy, rad, vrid) }); continue; }
-    const skarv = d1(hojd * VANING_SKARV);
-    ut.push({ klass: c, hojd: skarv, bas, ton, ring: mangkant(cx, cy, rad, vrid) });
-    ut.push({ klass: c, hojd, bas: skarv, ton, ring: mangkant(cx, cy, rad * VANING_SMAL, vrid + Math.PI / KRONA_HORN) });
+    vaningar.forEach(([fran, till, rr], n) => {
+      ut.push({ klass: c, hojd: n === vaningar.length - 1 ? hojd : d1(hojd * till), bas: d1(hojd * fran), ton, ring: mangkant(cx, cy, rad * rr, vrid + n * Math.PI / KRONA_HORN) });
+    });
   }
   return ut;
 }
