@@ -89,8 +89,9 @@ export function basvagSkenLager(kalla: string): any {
     paint: {
       'line-color': BASVAG_SKEN_FARG,
       'line-opacity': BASVAG_SKEN_OPACITET,
-      'line-width': ['interpolate', ['linear'], ['zoom'], 14, 14, 17, 28, 19, 42],
-      'line-blur': 4,
+      // Smalare (2026-10-28, röran): ungefär dubbla vägbredden i stället för en bred vit väg — det ska bara lyfta fram vägen.
+      'line-width': ['interpolate', ['linear'], ['zoom'], 14, 8, 17, 16, 19, 22],
+      'line-blur': 3,
     },
     layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' },
   };
@@ -122,6 +123,11 @@ export const LINJE_BREDD: Stopp = [[5, 2], [8, 2], [11, 3], [13, 4], [15, 6], [1
 export const LINJE_BREDD_GRANS: Stopp = [[5, 3], [8, 4], [11, 5], [13, 5], [15, 7], [17, 8]];
 export const LINJE_KANT_BREDD: Stopp = [[5, 4], [8, 4], [11, 5], [13, 6], [15, 8], [17, 9]];
 export const LINJE_KANT_BREDD_GRANS: Stopp = [[5, 5], [8, 6], [11, 7], [13, 7], [15, 9], [17, 10]];
+/** Naturvård: tunn heldragen grön linje (Martin 2026-10-28) — ungefär halva vägarnas bredd, en smal mörk kant. */
+export const NATURVARD_BREDD_STOPP: Stopp = [[5, 1.5], [11, 2], [15, 3], [17, 3.5]];
+export const NATURVARD_KANT_STOPP: Stopp = [[5, 3], [11, 3.5], [15, 4.5], [17, 5]];
+export const NATURVARD_BREDD = zoomKurva(NATURVARD_BREDD_STOPP);
+export const NATURVARD_KANT_BREDD = zoomKurva(NATURVARD_KANT_STOPP);
 export const STENMUR_BREDD: Stopp = [[5, 3], [8, 4], [11, 5], [13, 6], [15, 7], [17, 9]];
 /** Stenmur = gruppens färg (Kultur, brun) med KRAFTIG mörk kant — ingen egen nyans. Kanten är bredare än muren med så här många px (2,5 px per sida). */
 export const STENMUR_FARG = FARG_STENMUR;
@@ -161,6 +167,10 @@ export type LinjeStil = {
   color2?: string;
   striped?: boolean;
   dashed?: boolean;
+  /** Heldragen (inget streck). */
+  solid?: boolean;
+  /** Tunn linje (NATURVARD_BREDD) i stället för vägarnas bredd. */
+  tunn?: boolean;
   stonewall?: boolean;
   /** El-ledning ritad som linje: ritas som en ledning (kraftledningLager) — samma utseende som Vidas Kraftledning. */
   kraftledning?: boolean;
@@ -172,7 +182,8 @@ export const LINJE_STIL: LinjeStil[] = [
   { id: 'sideRoadRed', color: LEGEND.fara },
   { id: 'sideRoadYellow', color: LEGEND.gul },
   { id: 'sideRoadBlue', color: LEGEND.vatten },
-  { id: 'nature', color: LEGEND.naturvard, color2: LEGEND.fara, striped: true },
+  // Naturvård: tunn, heldragen grön — ingen röd rand (rött betyder fara, Martin 2026-10-28).
+  { id: 'nature', color: LEGEND.naturvard, solid: true, tunn: true },
   { id: 'ditch', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
   { id: 'trail', color: LEGEND.vit, dashed: true },
   { id: 'stonewall', color: STENMUR_FARG, stonewall: true },
@@ -255,8 +266,8 @@ export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim
 
     const grans = lt.id === 'boundary';
     const stark = grans || lt.id === 'mainRoad' || lt.id === 'trail' || arStickvag(lt.id);   // vägarna (basväg + stickväg) har samma kraftiga mörka kant som planeringsvyn (Kartan lugnare)
-    const bredd = grans ? LINJE_BREDD_GRANS : LINJE_BREDD;
-    const kant = grans ? LINJE_KANT_BREDD_GRANS : LINJE_KANT_BREDD;
+    const bredd = grans ? LINJE_BREDD_GRANS : lt.tunn ? NATURVARD_BREDD_STOPP : LINJE_BREDD;
+    const kant = grans ? LINJE_KANT_BREDD_GRANS : lt.tunn ? NATURVARD_KANT_STOPP : LINJE_KANT_BREDD;
 
     if (!dim?.utanKant) {
       lager.push({
@@ -271,7 +282,7 @@ export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim
         'line-color': lt.id === 'mainRoad' ? BASVAG_FARG_UTTRYCK : lt.color,
         'line-width': zoomKurva(bredd, bf),
         ...(lt.dashed ? { 'line-dasharray': [...STRECK_DASHED] } : {}),
-        ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [...STRECK_VANLIG] } : {}),
+        ...(!lt.striped && !lt.dashed && !lt.solid ? { 'line-dasharray': [...STRECK_VANLIG] } : {}),
         ...op,
       },
       layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -476,7 +487,8 @@ export function backvagStreckLager(kalla: string, prefix: string, filter?: any[]
 
 // ---------------------------------------------------------------------------
 // KRAFTLEDNINGEN: ser ut som en ledning. Röd linje (gruppens röd) med mörk kant, korta STOLPAR (tvärstreck vinkelräta mot linjen) ungefär var 40:e px,
-// och farosymbolen (röd triangel med blixt, ur lib/symboler — bilden `marker-powerline`) upprepad ungefär var 250:e px. Vidas Kraftledning och en egen
+// och farosymbolen (röd triangel med blixt, ur lib/symboler — bilden `marker-powerline`) EN gång per ledningsbit på kartan (mitt på; 2026-10-28 — förut var 250:e px).
+// A4-rapporten upprepar fortfarande symbolen var 250:e px (KRAFTLEDNING_SYMBOL_AVSTAND_PX) — den har ingen kartruta att räkna mitten i. Vidas Kraftledning och en egen
 // ledning som linje ritas EXAKT likadant (samma funktion). Teckenförklaringen och A4 visar samma linje (VadBetyderKartan, egenkontrollRapportKartaPdf).
 // ---------------------------------------------------------------------------
 
@@ -523,7 +535,8 @@ export function kraftledningLager(kalla: string, prefix: string, filter: any[] |
     {
       id: `${prefix}-symbol`, type: 'symbol', ...bas, ...ikonOp,
       layout: {
-        ...vis, 'symbol-placement': 'line', 'symbol-spacing': KRAFTLEDNING_SYMBOL_SPACING, 'icon-image': KRAFTLEDNING_SYMBOL_BILD, 'icon-size': zoomKurva(KRAFTLEDNING_SYMBOL_STORLEK, bf),
+        // EN farosymbol per synlig ledningsbit (mitt på), inte en rad trianglar (Martin 2026-10-28: röran). Linjen och stolparna är kvar i full styrka.
+        ...vis, 'symbol-placement': 'line-center', 'icon-image': KRAFTLEDNING_SYMBOL_BILD, 'icon-size': zoomKurva(KRAFTLEDNING_SYMBOL_STORLEK, bf),
         'icon-rotation-alignment': 'viewport', 'icon-pitch-alignment': 'viewport', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
       },
     },
