@@ -103,7 +103,9 @@ export function vidaObjekt(fc: { features?: any[] } | null | undefined, pos: Lat
     const id = `vida:${lager}:${i}`;
     const nyckel = nycklar[i];
     const komm = ((nyckel && kommentarer[nyckel]) || '').trim();
-    const bas = { id, grupp: d.grupp, namn: d.namn, typ: slag, hash: innehallHash({ type: slag, comment: komm }), kommentar: (komm || null) as string | null };
+    // Vidas hänsynsyta heter som på kartan och i listan: "Hänsyn 6" (Vidas löpnummer, lib/ytaNamn) — inte bara "Hänsyn" (Martin 2026-10-29).
+    const namn = slag === 'hansynsyta' ? (vidaYtaNamn(f.properties)?.bricka ?? d.namn) : d.namn;
+    const bas = { id, grupp: d.grupp, namn, typ: slag, hash: innehallHash({ type: slag, comment: komm }), kommentar: (komm || null) as string | null };
     if (g.type === 'Polygon' || g.type === 'MultiPolygon') {
       const polys: Pos[][][] = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
       let inne = false;

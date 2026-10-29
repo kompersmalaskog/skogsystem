@@ -70,7 +70,7 @@ describe('inget zonlarm, ingen fällningscirkel', () => {
   });
   it('Hålabäck: inne i Kant mot vatten (24) larmar som förut: förbjuden yta, Natur', () => {
     const u = stegaLarm({ objekt: vidaObjekt(FC, pos(0)), kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
-    expect(u.kort).toMatchObject({ namn: 'Hänsyn', forbjuden: true, grupp: 'natur' });
+    expect(u.kort).toMatchObject({ namn: expect.stringMatching(/^Hänsyn \d+$/), forbjuden: true, grupp: 'natur' });
   });
   it('fällningscirkeln räknar inte Övrigt som hänsyn (men 24 gör det)', () => {
     const svg = (x: number, y: number) => ({ lat: y, lon: x });
