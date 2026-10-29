@@ -86,7 +86,7 @@ describe('Vidas lager', () => {
   const f = (props: any, geometry: any) => ({ type: 'Feature', properties: props, geometry });
   const FC = {
     features: [
-      f({ _typ: 'hänsynsyta', _lager: 'L_TILLAGGSYTOR' }, { type: 'Polygon', coordinates: [ruta(50)] }),                              // 0
+      f({ _typ: 'hänsynsyta', _lager: 'L_TILLAGGSYTOR', LOPNR: 6 }, { type: 'Polygon', coordinates: [ruta(50)] }),                              // 0
       f({ _typ: 'nyckelbiotop', _lager: 'SV_SKS_NYCKELBIOTOP_101' }, { type: 'Polygon', coordinates: [ruta(50)] }),                  // 1
       f({ _typ: 'fornlämning', _lager: 'L_RAA_POLY_101' }, { type: 'Polygon', coordinates: [ruta(50)] }),                            // 2
       f({ _typ: 'fornlämning', _lager: 'L_RAA_POINT_101' }, { type: 'Point', coordinates: c(0, 30) }),                               // 3
@@ -103,7 +103,7 @@ describe('Vidas lager', () => {
   it('Hänsyn och Nyckelbiotop är förbjudna ytor (Natur); RAÄ-yta är Fornlämning (Brun, förbjuden)', () => {
     const u = vidaObjekt(FC, O);
     const by = (i: number) => u.find((o) => o.id.endsWith(`:${i}`))!;
-    expect(by(0)).toMatchObject({ kalla: 'yta', grupp: 'natur', forbjuden: true, inne: true, namn: 'Hänsyn' });
+    expect(by(0)).toMatchObject({ kalla: 'yta', grupp: 'natur', forbjuden: true, inne: true, namn: 'Hänsyn 6' });
     expect(by(1)).toMatchObject({ kalla: 'yta', grupp: 'natur', forbjuden: true, inne: true, namn: 'Nyckelbiotop' });
     expect(by(2)).toMatchObject({ kalla: 'yta', grupp: 'kultur', forbjuden: true, inne: true, namn: 'Fornlämning' });
   });
