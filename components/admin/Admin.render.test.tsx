@@ -5096,3 +5096,43 @@ describe("Förarens godkännande i Löneunderlag", () => {
     });
   });
 });
+
+describe("Skyddsombud (arbetsmiljö, 2026-10-31)", () => {
+  const ombud = () => Array.from(cont.querySelectorAll<HTMLButtonElement>("[role=switch]")).find(b => b.getAttribute("aria-label") === "Skyddsombud");
+  const medUpdates = () => g.__skriv.filter((x: any) => x.tabell === "medarbetare" && x.op === "update");
+
+  it("förare: reglaget finns, är av och SPARAR DIREKT — skriver bara skyddsombud", async () => {
+    await monter("flik=medarbetare&person=m1");
+    const r = ombud()!;
+    expect(r).toBeTruthy();
+    expect(r.getAttribute("aria-checked")).toBe("false");
+    expect(text()).toContain("Väljs av förarna. Ser alla maskinkoller och åtgärder.");
+    await act(async () => { r.click(); });
+    await lugn();
+    expect(ombud()!.getAttribute("aria-checked")).toBe("true");
+    expect(medUpdates()).toHaveLength(1);
+    expect(medUpdates()[0].vals).toEqual({ skyddsombud: true });
+    expect(g.__db.medarbetare.find((m: any) => m.id === "m1").skyddsombud).toBe(true);
+  });
+
+  it("admin: inget reglage (skyddsombudet företräder de anställda)", async () => {
+    await monter("flik=medarbetare&person=m2");
+    expect(ombud()).toBeUndefined();
+  });
+
+  it("RLS stoppar skrivningen (0 rader): reglaget går tillbaka och felet sägs", async () => {
+    await monter("flik=medarbetare&person=m1");
+    g.__ingaRader = true;
+    await act(async () => { ombud()!.click(); });
+    await lugn();
+    g.__ingaRader = false;
+    expect(ombud()!.getAttribute("aria-checked")).toBe("false");
+    expect(text()).toContain("Skyddsombud sparades inte");
+  });
+
+  it("listan säger 'Skyddsombud' under förarens namn", async () => {
+    g.__db.medarbetare.find((m: any) => m.id === "m1").skyddsombud = true;
+    await monter("flik=medarbetare");
+    expect(text()).toContain("Skyddsombud");
+  });
+});
