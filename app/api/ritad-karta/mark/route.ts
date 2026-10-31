@@ -3,7 +3,7 @@ import { fromArrayBuffer } from 'geotiff';
 import sharp from 'sharp';
 import { kravInloggad } from '@/lib/auth/server';
 import { utsnittForRingar } from '@/lib/ritadKarta/skog';
-import { FUKT, LUTNING_SAKNAS, MARK_RUTA_M, SLU_STANDARD, fuktKodFranNamn, markUtsnitt, tillBase64 } from '@/lib/ritadKarta/mark';
+import { FUKT, LUTNING_SAKNAS, MARK_RUTA_M, fuktKodFranFarg, fuktKodFranNamn, markUtsnitt, tillBase64 } from '@/lib/ritadKarta/mark';
 
 // Ritad — blött, brant och terrängskuggning för samma utsnitt som skogen (trakten + 300 m). Se lib/ritadKarta/mark.ts.
 // In:  { ringar: [lng, lat][][] }
@@ -48,9 +48,24 @@ async function exportBand(service: string, u: U, auth: Record<string, string>, e
   return (await bild.readRasters()) as unknown as ArrayLike<number>[];
 }
 
-/** Markfuktighetens värde → vår kod, ur tjänstens egen attributtabell (aldrig en gissad numrering). */
+/** Markfuktigheten som tjänsten själv färgar den (samma bild som lagret Markfuktighet) → vår kod per ruta. */
+async function fuktUrFarg(u: U, auth: Record<string, string>): Promise<Uint8Array> {
+  const params = new URLSearchParams({
+    bbox: `${u.minX},${u.minY},${u.maxX},${u.maxY}`, bboxSR: '3006', imageSR: '3006', size: `${u.bredd},${u.hojd}`,
+    format: 'png32', transparent: 'true', interpolation: 'RSP_NearestNeighbor', f: 'image',
+  });
+  const r = await hamta(`${MARKFUKT}/exportImage?${params}`, auth);
+  if (!r.ok || !(r.headers.get('content-type') ?? '').includes('image')) throw new Error(`färgbild ${r.status}`);
+  const { data, info } = await sharp(Buffer.from(await r.arrayBuffer())).ensureAlpha()
+    .resize(u.bredd, u.hojd, { fit: 'fill', kernel: 'nearest' }).raw().toBuffer({ resolveWithObject: true });
+  const c = info.channels;
+  const ut = new Uint8Array(u.bredd * u.hojd);
+  for (let i = 0; i < ut.length; i++) ut[i] = fuktKodFranFarg(data[i * c], data[i * c + 1], data[i * c + 2], data[i * c + 3]);
+  return ut;
+}
+
+/** Reserv: markfuktighetens klassvärde → vår kod, ur tjänstens egen attributtabell (aldrig en gissad numrering). */
 async function fuktKoder(auth: Record<string, string>): Promise<Map<number, number>> {
-  // Faller den här används SLU:s standardnumrering (SLU_STANDARD), men bara på ett band där alla värden finns i den.
   const r = await hamta(`${MARKFUKT}/rasterAttributeTable?f=json`, auth);
   if (!r.ok) throw new Error(`attributtabell ${r.status}`);
   const j: any = await r.json();
@@ -123,14 +138,14 @@ export async function POST(req: NextRequest) {
   const n = m.bredd * m.hojd;
   const problem: string[] = [];
 
-  const [fuktSvar, lutSvar, skuggSvar] = await Promise.allSettled([
-    Promise.all([fuktKoder(auth).catch((e) => { console.error('[ritad-karta/mark] attributtabellen:', e); return SLU_STANDARD; }), exportBand(MARKFUKT, u, auth)]),
-    exportBand(LUTNING, u, auth),
-    skugga(u),
-  ]);
+  const [fargSvar, lutSvar, skuggSvar] = await Promise.allSettled([fuktUrFarg(u, auth), exportBand(LUTNING, u, auth), skugga(u)]);
 
-  const fukt = new Uint8Array(n);
-  if (fuktSvar.status === 'fulfilled') {
+  let fukt = new Uint8Array(n);
+  if (fargSvar.status === 'fulfilled') fukt = fargSvar.value as typeof fukt;
+  else {
+   console.error('[ritad-karta/mark] markfuktighet (färg):', fargSvar.reason);
+   const [fuktSvar] = await Promise.allSettled([Promise.all([fuktKoder(auth), exportBand(MARKFUKT, u, auth)])]);
+   if (fuktSvar.status === 'fulfilled') {
     const [koder, band] = fuktSvar.value;
     // Klassbandet = det band vars värden är attributtabellens (tjänsten kan ha fler band, t.ex. en sannolikhet).
     const v = band.find((b) => klassBand(b, koder));
@@ -139,9 +154,10 @@ export async function POST(req: NextRequest) {
       console.error('[ritad-karta/mark] markfuktighet: inget band med klassvärden', band.length, band.map((b) => { let mn = Infinity, mx = -Infinity; for (let i = 0; i < b.length; i++) { const x = b[i]; if (Number.isFinite(x)) { if (x < mn) mn = x; if (x > mx) mx = x; } } return [mn, mx]; }));
       problem.push('markfuktighet');
     }
-  } else {
+   } else {
     console.error('[ritad-karta/mark] markfuktighet:', fuktSvar.reason);
     problem.push('markfuktighet');
+   }
   }
 
   const lutning = new Uint8Array(n).fill(LUTNING_SAKNAS);

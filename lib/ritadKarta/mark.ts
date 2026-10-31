@@ -1,8 +1,8 @@
 // RITAD — BLÖTT OCH BRANT (Martin 2026-10-31: "det måste bli super tydligt för maskinförarna vad det är blött och backigt").
 //
 // Tre saker på marken, inget mer:
-//   • BLÖTT = blått, tre steg ur SLU:s markfuktighetskarta: frisk-fuktig (ljust blått — "det gröna är ju lite blött med", Martin 2026-10-31),
-//     fuktig (blått) och blöt (mörkt, starkt blått). Torr och frisk mark får INGEN färg — skogen syns som förut. Öppet vatten ritas av
+//   • BLÖTT = blått, tre steg ur SLU:s markfuktighetskarta, läst ur SAMMA bild som lagret Markfuktighet: grönt där → ljust blått ("det
+//     gröna är ju lite blött med", Martin 2026-10-31), turkos → blått, blått → starkt blått. Torr och frisk mark får INGEN färg — skogen syns som förut. Öppet vatten ritas av
 //     vattenlagret, inte här.
 //   • BACKIGT = skuggning: Lantmäteriets terrängskuggning ur 1 m-höjdmodellen, blandad in i skogsbilden (inte ett grått lager ovanpå).
 //   • BRANT = röda snedstreck från BRANT_GRAD (samma tecken som Brant-ytan i appen). 20–25° visas inte — annars blir kartan full av varningar.
@@ -30,10 +30,22 @@ export const FUKT_FARG: readonly (readonly [number, number, number, number])[] =
 ];
 
 /**
- * SLU:s markfuktighetskarta 2.0: 1 torr, 2 frisk, 3 frisk-fuktig, 4 fuktig, 5 blöt (samma numrering som lib/korbarhet.ts). Används bara när
- * tjänstens egen attributtabell inte går att läsa — och bara på ett band vars alla värden ligger i 1–6.
+ * Markfuktighet ur SAMMA bild som lagret Markfuktighet i appen (tjänstens egen färgsättning), så Ritad visar exakt det man ser där
+ * (Martin 2026-10-31: "det är mer med än vad din karta visar"). Färgskalan går brunt/gult (torrt, friskt) → grönt → turkos → blått.
+ * Grönt = lite blött, turkos = fuktigt, blått = blött. Grått, genomskinligt och okänd färg = ingen färg (aldrig en gissning åt det blöta hållet).
  */
-export const SLU_STANDARD = new Map<number, FuktKod>([[1, FUKT.ingen], [2, FUKT.ingen], [3, FUKT.lite], [4, FUKT.fuktig], [5, FUKT.blot], [6, FUKT.ingen]]);
+export function fuktKodFranFarg(r: number, g: number, b: number, a: number): FuktKod {
+  if (a < 128) return FUKT.ingen;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  if (max === 0 || (max - min) / max < 0.2) return FUKT.ingen;
+  const d = max - min;
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h *= 60; if (h < 0) h += 360;
+  if (h >= 85 && h < 150) return FUKT.lite;
+  if (h >= 150 && h < 195) return FUKT.fuktig;
+  if (h >= 195 && h <= 265) return FUKT.blot;
+  return FUKT.ingen;
+}
 
 /** Lutning saknas. */
 export const LUTNING_SAKNAS = 255;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BRANT_GRAD, BRANT_MIN_RUTOR, FUKT, FUKT_FARG, SLU_STANDARD, LUTNING_SAKNAS, brantYtor, franBase64, fuktKodFranNamn, markUtsnitt, tillBase64 } from './mark';
+import { BRANT_GRAD, BRANT_MIN_RUTOR, FUKT, FUKT_FARG, fuktKodFranFarg, LUTNING_SAKNAS, brantYtor, franBase64, fuktKodFranNamn, markUtsnitt, tillBase64 } from './mark';
 import { tillSweref } from './skog';
 
 describe('fuktKodFranNamn: frisk-fuktig, fuktig och blöt får tre blå steg', () => {
@@ -39,8 +39,16 @@ it('base64 tur och retur', () => {
   expect([...franBase64(tillBase64(b))]).toEqual([...b]);
 });
 
-it('SLU:s numrering: 3 frisk-fuktig, 4 fuktig, 5 blöt — torr och frisk utan färg', () => {
-  expect([1, 2, 3, 4, 5].map((v) => SLU_STANDARD.get(v))).toEqual([FUKT.ingen, FUKT.ingen, FUKT.lite, FUKT.fuktig, FUKT.blot]);
+describe('fuktKodFranFarg: samma färger som lagret Markfuktighet', () => {
+  it.each([
+    ['brunt (torrt)', [150, 80, 50, 255], FUKT.ingen],
+    ['gult (friskt)', [200, 190, 60, 255], FUKT.ingen],
+    ['grönt (lite blött)', [60, 160, 70, 255], FUKT.lite],
+    ['turkos (fuktigt)', [40, 180, 180, 255], FUKT.fuktig],
+    ['blått (blött)', [30, 90, 210, 255], FUKT.blot],
+    ['grått', [120, 125, 122, 255], FUKT.ingen],
+    ['genomskinligt blått', [30, 90, 210, 0], FUKT.ingen],
+  ] as const)('%s', (_n, [r, g, b, a], kod) => expect(fuktKodFranFarg(r, g, b, a)).toBe(kod));
 });
 it('ju blötare, desto starkare blått (aldrig grönt)', () => {
   const [, lite, fuktig, blot] = FUKT_FARG;
