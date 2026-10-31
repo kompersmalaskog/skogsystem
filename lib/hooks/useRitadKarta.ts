@@ -16,17 +16,19 @@ import { hamtaStammoln } from '@/lib/egenkontroll';
 import type { Rutnat } from '@/lib/ritadKarta/skog';
 import { omradeNyckel, valjOmrade, type Omrade, type OmradesKalla, type Ring } from '@/lib/ritadKarta/omrade';
 import { byggRitat, type Ritat } from '@/lib/ritadKarta/bygg';
-import { RITAD_DOLJ_FYLLNING, RITAD_ID, RITAD_KALLA, RITAD_LAGER, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
+import { BRANT_MONSTER, RITAD_DOLJ_FYLLNING, RITAD_ID, RITAD_KALLA, RITAD_LAGER, brantLager, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
+import { franBase64, type MarkRutnat } from '@/lib/ritadKarta/mark';
+import { snedstreckBild } from '@/lib/ytaStil';
 
 export type RitadStatus =
   | { typ: 'av' }
   | { typ: 'inget-objekt' }
   | { typ: 'laser' }
-  | { typ: 'klar'; ar: number | null; kalla: OmradesKalla }
+  | { typ: 'klar'; ar: number | null; kalla: OmradesKalla; saknas: string[] }
   | { typ: 'ingen-grans' }
   | { typ: 'fel'; text: string };
 
-type Svar = { typ: 'klar'; ritat: Ritat; ar: number | null; kalla: OmradesKalla } | { typ: 'ingen-grans' } | { typ: 'fel'; text: string };
+type Svar = { typ: 'klar'; ritat: Ritat; ar: number | null; kalla: OmradesKalla; saknas: string[] } | { typ: 'ingen-grans' } | { typ: 'fel'; text: string };
 type Objektfakta = { typ: 'ok'; vida: Ring[] | null; vo: string | null; slutavverkning: boolean } | { typ: 'fel'; text: string };
 
 // En gång per objekt och session: Vidas gräns och laserdatan ändras inte medan man kör. Ett fel cachas aldrig (nästa öppning försöker igen).
@@ -52,11 +54,36 @@ async function hamtaSkog(f: Extract<Objektfakta, { typ: 'ok' }>, omrade: Omrade)
   if (f.slutavverkning && f.vo) {
     try { stammar = (await hamtaStammoln(f.vo)).punkter; } catch { /* utan stammar ritas inget avverkat */ }
   }
-  const r = await fetch('/api/ritad-karta/laser', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ringar: omrade.ringar }) });
+  const kropp = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ringar: omrade.ringar }) };
+  const [r, mark] = await Promise.all([fetch('/api/ritad-karta/laser', kropp), hamtaMark(kropp)]);
   const j = await r.json().catch(() => ({}));
   if (!r.ok) return { typ: 'fel', text: (j as any)?.error || 'Kunde inte hämta laserdatan' };
   const rn = j as Rutnat;
-  return { typ: 'klar', ritat: byggRitat(rn, stammar), ar: rn.ar ?? null, kalla: omrade.kalla };
+  return { typ: 'klar', ritat: byggRitat(rn, stammar, mark.rutnat, mark.skugga), ar: rn.ar ?? null, kalla: omrade.kalla, saknas: mark.saknas };
+}
+
+/** Blött, brant och skuggning (lib/ritadKarta/mark.ts). Faller något ritas skogen ändå och `saknas` säger vad. */
+async function hamtaMark(kropp: RequestInit): Promise<{ rutnat: MarkRutnat | null; skugga: CanvasImageSource | null; saknas: string[] }> {
+  try {
+    const r = await fetch('/api/ritad-karta/mark', kropp);
+    if (!r.ok) return { rutnat: null, skugga: null, saknas: ['blött och brant'] };
+    const j: any = await r.json();
+    const rutnat: MarkRutnat = { minX: j.minX, maxY: j.maxY, bredd: j.bredd, hojd: j.hojd, rutaM: j.rutaM, fukt: franBase64(j.fukt), lutning: franBase64(j.lutning) };
+    let skugga: CanvasImageSource | null = null;
+    if (j.skugga) {
+      const im = new Image();
+      im.src = j.skugga;
+      try { await im.decode(); skugga = im; } catch { /* utan skuggning */ }
+    }
+    const saknas: string[] = [];
+    const fel: string[] = Array.isArray(j.fel) ? j.fel : [];
+    if (fel.includes('markfuktighet')) saknas.push('blött');
+    if (fel.includes('lutning')) saknas.push('brant');
+    if (!skugga) saknas.push('skuggning');
+    return { rutnat, skugga, saknas };
+  } catch {
+    return { rutnat: null, skugga: null, saknas: ['blött och brant'] };
+  }
 }
 
 function cachad<T extends { typ: string }>(cache: Map<string, Promise<T>>, nyckel: string, hamta: () => Promise<T>, vidFel: T): Promise<T> {
@@ -73,11 +100,15 @@ function cachad<T extends { typ: string }>(cache: Map<string, Promise<T>>, nycke
 function laggTillGrund(m: any) {
   for (const [id, k] of Object.entries(grundKallor())) if (!m.getSource(id)) m.addSource(id, k);
   for (const l of grundLager()) if (!m.getLayer(l.id)) m.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: 'none' } });
+  if (!m.hasImage?.(BRANT_MONSTER)) m.addImage?.(BRANT_MONSTER, snedstreckBild('fara'));
+  if (!m.getSource(RITAD_KALLA.brant)) m.addSource(RITAD_KALLA.brant, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  if (!m.getLayer(RITAD_ID.brant)) m.addLayer({ ...brantLager(), layout: { visibility: 'none' } });
 }
 
 function sattSkog(m: any, ritat: Ritat | null, paint: Record<string, number>) {
   if (m.getLayer(RITAD_ID.skog)) m.removeLayer(RITAD_ID.skog);
   if (m.getSource(RITAD_KALLA.skog)) m.removeSource(RITAD_KALLA.skog);
+  m.getSource(RITAD_KALLA.brant)?.setData(ritat ? ritat.brant : { type: 'FeatureCollection', features: [] });
   if (!ritat) return;
   m.addSource(RITAD_KALLA.skog, { type: 'image', url: ritat.url, coordinates: ritat.horn });
   m.addLayer({ id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog, paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0, ...paint }, layout: { visibility: 'none' } });
@@ -173,7 +204,7 @@ export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar
   if (!objektId) return { typ: 'inget-objekt' };
   if (laddar === objektId || !svar || svar.id !== objektId) return { typ: 'laser' };
   const s = svar.svar;
-  return s.typ === 'klar' ? { typ: 'klar', ar: s.ar, kalla: s.kalla } : s;
+  return s.typ === 'klar' ? { typ: 'klar', ar: s.ar, kalla: s.kalla, saknas: s.saknas } : s;
 }
 
 /** Raden under "Ritad" i + › Lager: vad som syns, i ord. */
@@ -181,10 +212,11 @@ export function ritadStatusText(s: RitadStatus): string {
   switch (s.typ) {
     case 'laser': return 'Ritar skogen …';
     case 'klar': {
-      const bas = s.ar ? `Skogen ur laserskanningen ${s.ar}` : 'Skogen ur laserskanningen';
-      if (s.kalla === 'egen') return `${bas} · runt din traktgräns`;
-      if (s.kalla === 'punkt') return `${bas} · 1 km runt objektet (ingen traktgräns)`;
-      return bas;
+      let t = s.ar ? `Skogen ur laserskanningen ${s.ar}` : 'Skogen ur laserskanningen';
+      if (s.kalla === 'egen') t += ' · runt din traktgräns';
+      if (s.kalla === 'punkt') t += ' · 1 km runt objektet (ingen traktgräns)';
+      if (s.saknas?.length) t += ` · ${s.saknas.join(', ')} kunde inte hämtas`;
+      return t;
     }
     case 'ingen-grans': return 'Objektet saknar traktgräns och position — bara vägar och vatten';
     case 'fel': return `${s.text} — bara vägar och vatten`;

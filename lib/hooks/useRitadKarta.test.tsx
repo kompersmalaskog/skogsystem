@@ -59,13 +59,18 @@ async function waitFor(f: () => void, ms = 2000) {
   }
 }
 
+let laserSvar: any, markSvar: any;
 beforeEach(() => {
   fetchMock.mockReset(); grans.mockReset();
-  fetchMock.mockResolvedValue({ ok: true, json: async () => ({ minX: 0, maxY: 0, bredd: 1, hojd: 1, hojdDm: [100], ar: 2021 }) });
+  laserSvar = { ok: true, json: async () => ({ minX: 0, maxY: 0, bredd: 1, hojd: 1, hojdDm: [100], ar: 2021 }) };
+  markSvar = { ok: true, json: async () => ({ minX: 0, maxY: 0, bredd: 2, hojd: 2, rutaM: 5, fukt: 'AAECAA==', lutning: 'AB4eHg==', skugga: null, fel: [] }) };
+  fetchMock.mockImplementation(async (url: string) => (String(url).includes('/mark') ? markSvar : laserSvar));
   grans.mockResolvedValue({ typ: 'ok', ringar: [[[15, 56], [15.01, 56], [15.01, 56.01], [15, 56]]] });
   vi.stubGlobal('fetch', fetchMock);
 });
 afterEach(() => vi.unstubAllGlobals());
+
+const laserAnrop = () => fetchMock.mock.calls.find((c: any[]) => String(c[0]).includes('/laser'))!;
 
 describe('useRitadKarta', () => {
   it('inget läggs till och inget hämtas förrän Ritad väljs', async () => {
@@ -91,7 +96,7 @@ describe('useRitadKarta', () => {
     const { result } = renderHook(() => useRitadKarta({ map: m, klar: true, vald: true, objektId: 'o2', skogPaint: PAINT }));
     await waitFor(() => expect(result.current.typ).toBe('klar'));
     await waitFor(() => expect(m.synlig.get(RITAD_ID.skog)).toBe('visible'));
-    expect(ritadStatusText(result.current)).toBe('Skogen ur laserskanningen 2021');
+    expect(ritadStatusText(result.current)).toMatch(/^Skogen ur laserskanningen 2021( ·|$)/);
   });
 
   it('kartan är platt överallt: ingen 3D-skog och inga trädsymboler, också när kartan lutas', async () => {
@@ -140,8 +145,8 @@ describe('useRitadKarta', () => {
     const m = fakeKarta();
     const { result } = renderHook(() => useRitadKarta({ map: m, klar: true, vald: true, objektId: 'o8', skogPaint: PAINT, egnaRingar: egen }));
     await waitFor(() => expect(result.current.typ).toBe('klar'));
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).ringar).toEqual(egen);
-    expect(ritadStatusText(result.current)).toBe('Skogen ur laserskanningen 2021 · runt din traktgräns');
+    expect(JSON.parse(laserAnrop()[1].body).ringar).toEqual(egen);
+    expect(ritadStatusText(result.current)).toMatch(/^Skogen ur laserskanningen 2021 · runt din traktgräns/);
   });
 
   it('ingen gräns alls men en punkt: en ruta runt objektets punkt, och raden säger det', async () => {
@@ -149,7 +154,7 @@ describe('useRitadKarta', () => {
     const m = fakeKarta();
     const { result } = renderHook(() => useRitadKarta({ map: m, klar: true, vald: true, objektId: 'o9', skogPaint: PAINT, egnaRingar: [], punkt: { lat: 56.9, lng: 15.2 } }));
     await waitFor(() => expect(result.current.typ).toBe('klar'));
-    const ring = JSON.parse(fetchMock.mock.calls[0][1].body).ringar[0];
+    const ring = JSON.parse(laserAnrop()[1].body).ringar[0];
     expect(ring).toHaveLength(5);
     expect(ritadStatusText(result.current)).toContain('1 km runt objektet');
   });
@@ -159,16 +164,28 @@ describe('useRitadKarta', () => {
     const egen = [[[16, 57], [16.01, 57], [16.01, 57.01], [16, 57]]] as any;
     const { result } = renderHook(() => useRitadKarta({ map: m, klar: true, vald: true, objektId: 'o10', skogPaint: PAINT, egnaRingar: egen }));
     await waitFor(() => expect(result.current.typ).toBe('klar'));
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).ringar[0][0]).toEqual([15, 56]);
-    expect(ritadStatusText(result.current)).toBe('Skogen ur laserskanningen 2021');
+    expect(JSON.parse(laserAnrop()[1].body).ringar[0][0]).toEqual([15, 56]);
+    expect(ritadStatusText(result.current)).toMatch(/^Skogen ur laserskanningen 2021( ·|$)/);
+  });
+
+  it('blött och brant hämtas med skogen; faller de ritas skogen ändå och raden säger vad som saknas', async () => {
+    markSvar = { ok: false, json: async () => ({ error: 'nej' }) };
+    const m = fakeKarta();
+    const { result } = renderHook(() => useRitadKarta({ map: m, klar: true, vald: true, objektId: 'o12', skogPaint: PAINT }));
+    await waitFor(() => expect(result.current.typ).toBe('klar'));
+    expect(fetchMock.mock.calls.some((c: any[]) => String(c[0]).includes('/api/ritad-karta/mark'))).toBe(true);
+    expect(ritadStatusText(result.current)).toBe('Skogen ur laserskanningen 2021 · blött och brant kunde inte hämtas');
+    expect(m.lager.has(RITAD_ID.brant)).toBe(true);
   });
 
   it('laserdatan kunde inte hämtas: felet sägs och nästa öppning försöker igen', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'Skogsstyrelsen svarar inte' }) });
+    const bra = laserSvar;
+    laserSvar = { ok: false, json: async () => ({ error: 'Skogsstyrelsen svarar inte' }) };
     const m = fakeKarta();
     const { result, unmount } = renderHook(() => useRitadKarta({ map: m, klar: true, vald: true, objektId: 'o7', skogPaint: PAINT }));
     await waitFor(() => expect(result.current.typ).toBe('fel'));
     expect(ritadStatusText(result.current)).toBe('Skogsstyrelsen svarar inte — bara vägar och vatten');
+    laserSvar = bra;
     unmount();
     const m2 = fakeKarta();
     const r2 = renderHook(() => useRitadKarta({ map: m2, klar: true, vald: true, objektId: 'o7', skogPaint: PAINT }));

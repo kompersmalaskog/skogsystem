@@ -11,20 +11,22 @@
 // Utseendet (färger, symboler, vektorlager) bor i lib/ritadKarta/stil.ts — samma som /karta-ritad.
 
 import { BAKGRUND, RELIEF_KALLA, RELIEF_PAINT, VEKTOR_KALLA, VEKTOR_LAGER } from './stil';
+import { snedstreckId } from '../ytaStil';
 
-export const RITAD_KALLA = { vektor: 'ritad-vektor', relief: 'ritad-relief', skog: 'ritad-skog' } as const;
+export const RITAD_KALLA = { vektor: 'ritad-vektor', relief: 'ritad-relief', skog: 'ritad-skog', brant: 'ritad-brant' } as const;
 
 export const RITAD_ID = {
   bakgrund: 'ritad-bakgrund',
   skog: 'ritad-skog',
   relief: 'ritad-relief',
+  brant: 'ritad-brant',
 } as const;
 
 /** Vatten, vägar och hus: stilens vektorlager med egna id:n (ritad-*) och egen källa. */
 export const RITAD_VEKTOR_LAGER = VEKTOR_LAGER.map((l) => ({ ...l, id: l.id.replace(/^rk-/, 'ritad-'), source: RITAD_KALLA.vektor }));
 
 /** Alla lager-id:n den ritade kartan använder, nerifrån och upp. */
-export const RITAD_LAGER: string[] = [RITAD_ID.bakgrund, RITAD_ID.skog, RITAD_ID.relief, ...RITAD_VEKTOR_LAGER.map((l) => l.id)];
+export const RITAD_LAGER: string[] = [RITAD_ID.bakgrund, RITAD_ID.skog, RITAD_ID.relief, ...RITAD_VEKTOR_LAGER.map((l) => l.id), RITAD_ID.brant];
 
 /** Lagren som alltid finns när Ritad är vald (inget objekt behövs). */
 export function grundLager(): any[] {
@@ -36,6 +38,10 @@ export function grundLager(): any[] {
 }
 
 export const grundKallor = () => ({ [RITAD_KALLA.vektor]: VEKTOR_KALLA, [RITAD_KALLA.relief]: RELIEF_KALLA });
+
+/** Brant mark (lib/ritadKarta/mark.ts): röda snedstreck — samma tecken som Brant-ytan i appen. Ligger under vägar och allt man planerar. */
+export const BRANT_MONSTER = snedstreckId('fara');
+export const brantLager = () => ({ id: RITAD_ID.brant, type: 'fill', source: RITAD_KALLA.brant, paint: { 'fill-pattern': BRANT_MONSTER, 'fill-opacity': 0.9 } });
 
 /**
  * Planeringens egna fyllningar som tonar trakten (röd 5 % över traktgränsen): på flygfoto syns de knappt, men på den ritade skogen gör de

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
-import { RITAD_ID, RITAD_KALLA, RITAD_LAGER, RITAD_VEKTOR_LAGER, grundKallor, grundLager, RITAD_DOLJ_FYLLNING, ritadSynlighet } from './lager';
+import { RITAD_ID, RITAD_KALLA, RITAD_LAGER, RITAD_VEKTOR_LAGER, grundKallor, grundLager, RITAD_DOLJ_FYLLNING, brantLager, ritadSynlighet } from './lager';
 import { harEgenRegel, lagerRang, RANG } from '../lagerOrdning';
 
 describe('ritadSynlighet', () => {
@@ -26,8 +26,8 @@ describe('lagren', () => {
   it('är giltiga enligt MapLibres stil-spec (ett fel här syns annars först i maskinen)', () => {
     const geo = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
     const stil = {
-      version: 8, sources: { ...grundKallor(), [RITAD_KALLA.skog]: { type: 'image', url: 'x.png', coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] } },
-      layers: [...grundLager(), { id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog }],
+      version: 8, sources: { ...grundKallor(), [RITAD_KALLA.brant]: geo, [RITAD_KALLA.skog]: { type: 'image', url: 'x.png', coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] } },
+      layers: [...grundLager(), { id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog }, brantLager()],
     };
     const fel = validateStyleMin(stil as any).map((f: any) => f.message).filter((m: string) => !/sprite|glyphs/i.test(m));
     expect(fel).toEqual([]);
