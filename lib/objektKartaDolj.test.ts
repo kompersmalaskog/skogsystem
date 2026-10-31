@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { arBehalld, skapaLagerDoljare } from './objektKartaDolj';
+import { RITAD_ID, RITAD_LAGER } from './ritadKarta/lager';
 
 function fakeKarta(lager: Record<string, string | undefined>) {
   const vis: Record<string, string | undefined> = { ...lager };
@@ -79,5 +80,14 @@ describe('göm det valda objektets markeringar medan listan är öppen', () => {
   it('en karta utan stil ger inga fel', () => {
     const k: any = { getStyle: () => { throw new Error('stilen är inte laddad'); } };
     expect(skapaLagerDoljare(k).dolj()).toBe(0);
+  });
+});
+
+describe('Ritad som bakgrund (Martin 2026-10-31: objektlistans karta blev tom)', () => {
+  it('grunden (botten, skuggning, vatten, vägar, hus) står kvar; skogen, blött och brant göms', () => {
+    const k = fakeKarta(Object.fromEntries(RITAD_LAGER.map((id) => [id, 'visible'])));
+    skapaLagerDoljare(k).dolj();
+    for (const id of [RITAD_ID.bakgrund, RITAD_ID.relief, 'ritad-vatten', 'ritad-vag', 'ritad-hus']) expect(k.vis[id]).toBe('visible');
+    for (const id of [RITAD_ID.skog, RITAD_ID.blottGles, RITAD_ID.blottTat, RITAD_ID.brant, RITAD_ID.brantLite]) expect(k.vis[id]).toBe('none');
   });
 });
