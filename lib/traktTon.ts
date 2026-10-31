@@ -9,11 +9,21 @@
 // nedtoning. Ren logik (ingen karta, ingen canvas): testas i node.
 import { FARG } from './design/tokens';
 import { NARA_TRAKT_M } from './traktNara';
+import { BAKGRUND as RITAD_BAKGRUND } from './ritadKarta/stil';
 
 /** Svart, genomskinlig: nedtoning är mörkare, aldrig en annan färg. */
 export const UTANFOR_TON_FARG = FARG.bg;
 /** Så mycket mörkare blir det utanför: 25 %. */
 export const UTANFOR_TON_OPACITET = 0.25;
+/**
+ * Med bakgrunden Ritad (en mörk ritad karta) syns 25 % svart knappt — utanför trakten ska ändå vara lugnt (Martin 2026-10-31, "som Tesla": bara det
+ * som gäller nu syns fullt). Där läggs den ritade kartans egen bakgrundsfärg till hälften över: skog och blött utanför blir grå och stilla.
+ */
+export const UTANFOR_TON_RITAD = { farg: RITAD_BAKGRUND, opacitet: 0.5 } as const;
+/** Nedtoningens färg och styrka för ett kartlager. */
+export const tonPaint = (kartlager: string) => kartlager === 'ritad'
+  ? { 'fill-color': UTANFOR_TON_RITAD.farg, 'fill-opacity': UTANFOR_TON_RITAD.opacitet }
+  : { 'fill-color': UTANFOR_TON_FARG, 'fill-opacity': UTANFOR_TON_OPACITET };
 /** Avståndet från traktgränsen där nedtoningen börjar (samma som Fokus på trakten). */
 export const UTANFOR_TON_AVSTAND_M = NARA_TRAKT_M;
 export const UTANFOR_TON_LAGER = 'trakt-utanfor-ton';
@@ -41,6 +51,19 @@ export function traktPolygoner(fc: { features?: any[] } | null | undefined): Ton
       const ringar = p.filter((r: unknown) => Array.isArray(r) && r.length >= 4 && (r as unknown[]).every(arPar)) as LL[][];
       if (ringar.length > 0) ut.push(ringar);
     }
+  }
+  return ut;
+}
+
+/** Vidas traktdelar om de finns, annars planerarens egna traktgränser (ringar i [lng, lat], öppna eller slutna). Martin 2026-10-31: väggatan har ingen Vida-gräns. */
+export function tonPolygonerMedEgna(vida: TonPolygon[], egna: readonly LL[][] | null | undefined): TonPolygon[] {
+  if (vida.length > 0) return vida;
+  const ut: TonPolygon[] = [];
+  for (const r of egna ?? []) {
+    const ok = (r ?? []).filter(arPar);
+    if (ok.length < 3) continue;
+    const f = ok[0], l = ok[ok.length - 1];
+    ut.push([f[0] === l[0] && f[1] === l[1] ? ok : [...ok, f]]);
   }
   return ut;
 }

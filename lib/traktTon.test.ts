@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { FARG } from './design/tokens';
 import { NARA_TRAKT_M } from './traktNara';
 import { lagerRang } from './lagerOrdning';
-import { INGEN_TON, UTANFOR_TON_AVSTAND_M, UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, arNedtonad, byggTonYta, traktPolygoner, type TonPolygon } from './traktTon';
+import { INGEN_TON, UTANFOR_TON_AVSTAND_M, UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, arNedtonad, byggTonYta, traktPolygoner, tonPolygonerMedEgna, type TonPolygon } from './traktTon';
 
 const fx = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'lib/__fixtures__/skalviken_2026-10-27.json'), 'utf8'));
 const SKALVIKEN: TonPolygon = [fx.trakt];
@@ -72,6 +72,22 @@ describe('traktPolygoner', () => {
     expect(traktPolygoner({ features: [] })).toEqual([]);
     expect(byggTonYta([])).toEqual(INGEN_TON);
     expect(byggTonYta(traktPolygoner({ features: [{ properties: { _lager: 'L_TILLAGGSYTOR' }, geometry: { type: 'Polygon', coordinates: [[[1, 1], [1, 2], [2, 2], [1, 1]]] } }] }))).toEqual(INGEN_TON);
+  });
+});
+
+describe('tonPolygonerMedEgna — egen traktgräns när Vida saknas', () => {
+  const vida: TonPolygon[] = [[[[15, 56], [15.001, 56], [15.001, 56.001], [15, 56]]]];
+  const egen = [[15.1, 56.1], [15.101, 56.1], [15.101, 56.101]];
+  it('Vidas gräns går före den egna', () => { expect(tonPolygonerMedEgna(vida, [egen])).toBe(vida); });
+  it('utan Vida används den egna, och ringen sluts', () => {
+    const r = tonPolygonerMedEgna([], [egen]);
+    expect(r).toHaveLength(1);
+    expect(r[0][0]).toEqual([...egen, egen[0]]);
+    expect(byggTonYta(r).features.length).toBe(1);
+  });
+  it('för korta eller trasiga ringar och ingen gräns alls ger ingen nedtoning', () => {
+    expect(tonPolygonerMedEgna([], [[[1, 1], [2, 2]], [[NaN, 1], [1, 1]]])).toEqual([]);
+    expect(tonPolygonerMedEgna([], null)).toEqual([]);
   });
 });
 
@@ -143,9 +159,9 @@ describe('page.tsx — kopplingen', () => {
     expect(sida).toMatch(/id: UTANFOR_TON_LAGER, type: 'fill', source: UTANFOR_TON_KALLA, paint: \{ 'fill-color': UTANFOR_TON_FARG, 'fill-opacity': UTANFOR_TON_OPACITET/);
     expect(sida).toMatch(/UTANFOR_TON_LAGER[^\n]*layout: \{ visibility: 'none' \}/);
   });
-  it('ytan räknas ur Vidas traktgräns när objektets geometri är läst — annars ingen nedtoning', () => {
-    expect(sida).toContain('byggTonYta(traktPolygoner(traktGeo))');
-    expect(sida).toMatch(/traktGeoHamtadFor === valtObjekt\.id \? byggTonYta\(traktPolygoner\(traktGeo\)\) : INGEN_TON/);
+  it('ytan räknas ur Vidas traktgräns (eller egen gräns) när objektets geometri är läst — annars ingen nedtoning', () => {
+    expect(sida).toContain('byggTonYta(tonPolygonerMedEgna(traktPolygoner(traktGeo), egna))');
+    expect(sida).toMatch(/traktGeoHamtadFor === valtObjekt\.id\)\) return INGEN_TON/);
   });
   it('lagret syns bara när det finns en yta och Vidas egen fastighetsnedtoning inte redan tonar ned det som ligger utanför (ingen dubbel nedtoning)', () => {
     expect(sida).toMatch(/tonYta\.features\.length > 0 && !fastighetsSyn\.vida \? 'visible' : 'none'/);

@@ -148,8 +148,41 @@ export function bildHorn(rn: Pick<Rutnat, 'minX' | 'maxY' | 'bredd' | 'hojd'>): 
 }
 
 const KLASSER: Klass[] = ['ingen', 'oppet', 'ung', 'gallring', 'mogen', 'avverkat'];
-/** Utjämningens bredd i rutor. 0,6 = kanten följer rutnätet men utan trappsteg. */
-export const UTJAMNING = 0.6;
+/** Utjämningens bredd i rutor. 0,85 = mjuka kurvor i stället för rutnätets trappsteg (Martin 2026-10-31: kanterna såg pixliga ut). */
+export const UTJAMNING = 0.85;
+/** Mindre fläckar än så här (rutor à 10 × 10 m = 0,1 ha) tar grannarnas klass: en ensam 10 m-ruta ungskog i mogen skog är brus, inget att se. */
+export const MIN_FLACK_RUTOR = 10;
+
+/**
+ * Små fläckar bort: varje sammanhängande fläck (fyra grannar) under `minRutor` får den klass som omger den mest. Klasserna i `fasta` (ingen data,
+ * avverkat) ändras aldrig och tar aldrig över något — det avverkade kommer ur stammarna och är inte brus. Ändrar `kl` på plats.
+ */
+export function slataKlasser(kl: Uint8Array, bredd: number, hojd: number, minRutor: number, fasta: number[]): void {
+  const fast = new Set(fasta);
+  const sedd = new Uint8Array(kl.length);
+  const ko: number[] = [];
+  for (let s = 0; s < kl.length; s++) {
+    if (sedd[s] || fast.has(kl[s])) continue;
+    const c = kl[s];
+    const flack: number[] = [];
+    const runt = new Map<number, number>();
+    ko.length = 0; ko.push(s); sedd[s] = 1;
+    while (ko.length) {
+      const i = ko.pop()!; flack.push(i);
+      const r = Math.floor(i / bredd), k = i % bredd;
+      for (const [rr, kk] of [[r - 1, k], [r + 1, k], [r, k - 1], [r, k + 1]]) {
+        if (rr < 0 || kk < 0 || rr >= hojd || kk >= bredd) continue;
+        const j = rr * bredd + kk;
+        if (kl[j] === c) { if (!sedd[j]) { sedd[j] = 1; ko.push(j); } }
+        else if (!fast.has(kl[j])) runt.set(kl[j], (runt.get(kl[j]) ?? 0) + 1);
+      }
+    }
+    if (flack.length >= minRutor || runt.size === 0) continue;
+    let bast = -1, n = -1;
+    for (const [k, v] of runt) if (v > n) { n = v; bast = k; }
+    for (const i of flack) kl[i] = bast;
+  }
+}
 /** Hur brett blandningsbandet vid en kant är (andel av rösterna). Litet = skarp men inte pixlig kant. */
 export const KANT_MJUK = 0.2;
 
@@ -160,12 +193,21 @@ export const KANT_MJUK = 0.2;
  * Ut: RGBA, rad 0 = norr, storlek (bredd × SKALA) × (hojd × SKALA).
  */
 export function renderaSkog(rn: Rutnat, avverkat: Set<number>, farg: Record<Klass, [number, number, number, number]>, skala = 6): { data: Uint8ClampedArray; bredd: number; hojd: number } {
-  const B = rn.bredd * skala, H = rn.hojd * skala;
-  const ut = new Uint8ClampedArray(B * H * 4);
   const kl = new Uint8Array(rn.bredd * rn.hojd);
   for (let i = 0; i < kl.length; i++) kl[i] = KLASSER.indexOf(avverkat.has(i) ? 'avverkat' : klassFor(rn.hojdDm[i]));
+  slataKlasser(kl, rn.bredd, rn.hojd, MIN_FLACK_RUTOR, [KLASSER.indexOf('ingen'), KLASSER.indexOf('avverkat')]);
+  return renderaKlasser(rn.bredd, rn.hojd, kl, KLASSER.map((k) => farg[k]), skala);
+}
+
+/**
+ * Samma mjuka rendering för vilket klassrutnät som helst (skogen, blöt mark): `kl` = index i `palett` per ruta, rad 0 = norr.
+ * Varje pixel får den klass som väger mest bland de närmaste 4 × 4 rutorna (gaussvikt); vid en kant blandas de två starkaste.
+ */
+export function renderaKlasser(bredd: number, hojd: number, kl: Uint8Array, palett: readonly (readonly [number, number, number, number])[], skala = 6): { data: Uint8ClampedArray; bredd: number; hojd: number } {
+  const B = bredd * skala, H = hojd * skala;
+  const ut = new Uint8ClampedArray(B * H * 4);
   const tva = 2 * UTJAMNING * UTJAMNING;
-  const rost = new Float64Array(KLASSER.length);
+  const rost = new Float64Array(palett.length);
   for (let py = 0; py < H; py++) {
     const fy = (py + 0.5) / skala - 0.5;
     const r0 = Math.floor(fy);
@@ -174,11 +216,11 @@ export function renderaSkog(rn: Rutnat, avverkat: Set<number>, farg: Record<Klas
       const k0 = Math.floor(fx);
       rost.fill(0);
       for (let r = r0 - 1; r <= r0 + 2; r++) {
-        if (r < 0 || r >= rn.hojd) continue;
+        if (r < 0 || r >= hojd) continue;
         for (let k = k0 - 1; k <= k0 + 2; k++) {
-          if (k < 0 || k >= rn.bredd) continue;
+          if (k < 0 || k >= bredd) continue;
           const dx = k - fx, dy = r - fy;
-          rost[kl[r * rn.bredd + k]] += Math.exp(-(dx * dx + dy * dy) / tva);
+          rost[kl[r * bredd + k]] += Math.exp(-(dx * dx + dy * dy) / tva);
         }
       }
       // Bäst och näst bäst: precis vid kanten blandas de två färgerna, så kanten blir kantutjämnad i stället för pixlig.
@@ -186,12 +228,12 @@ export function renderaSkog(rn: Rutnat, avverkat: Set<number>, farg: Record<Klas
       for (let j = 1; j < rost.length; j++) {
         if (rost[j] > rost[bast]) { nast = bast; bast = j; } else if (nast < 0 || rost[j] > rost[nast]) nast = j;
       }
-      const c1 = farg[KLASSER[bast]];
+      const c1 = palett[bast];
       const o = (py * B + px) * 4;
       const summa = rost[bast] + (nast >= 0 ? rost[nast] : 0);
       const t = nast < 0 || summa === 0 ? 1 : Math.min(1, ((rost[bast] - rost[nast]) / summa) / KANT_MJUK);
       const a = 0.5 + 0.5 * t;
-      const c2 = nast >= 0 ? farg[KLASSER[nast]] : c1;
+      const c2 = nast >= 0 ? palett[nast] : c1;
       for (let j = 0; j < 4; j++) ut[o + j] = Math.round(c1[j] * a + c2[j] * (1 - a));
     }
   }

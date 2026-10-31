@@ -85,12 +85,15 @@ export const LJUS = { anchor: 'map' as const, color: '#fff6e0', intensity: 0.45,
 
 /** Terrängskuggning (MapLibres hillshade på samma höjddata som 3D-terrängen): mörkt i skuggan, en aning ljust i solen, platt mark orörd. */
 export const RELIEF_KALLA = { type: 'raster-dem' as const, tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 15, encoding: 'terrarium' as const };
+// Ljus från fyra håll (Martin 2026-10-31: sluttningar mot solen blev platta med en enda sol): nordväst starkast, som en vanlig karta,
+// tre till fyller i.
 export const RELIEF_PAINT = {
-  'hillshade-shadow-color': 'rgba(0,0,0,0.6)',
-  'hillshade-highlight-color': 'rgba(255,248,230,0.14)',
-  'hillshade-accent-color': 'rgba(0,0,0,0.3)',
+  'hillshade-method': 'multidirectional',
+  'hillshade-illumination-direction': [225, 270, 315, 0],
+  'hillshade-illumination-altitude': [45, 45, 45, 45],
+  'hillshade-shadow-color': ['rgba(0,0,0,0.18)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.35)'],
+  'hillshade-highlight-color': ['rgba(255,248,230,0.03)', 'rgba(255,248,230,0.06)', 'rgba(255,248,230,0.1)', 'rgba(255,248,230,0.06)'],
   'hillshade-exaggeration': 0.55,
-  'hillshade-illumination-direction': 315,
 } as const;
 
 export const TRAD_FARG = { ung: '#8cc084', gallring: '#6fae74', mogen: '#5a9a68' } as const;
