@@ -182,7 +182,7 @@ import { useKartlager } from '../../lib/hooks/useKartlager'
 import { KARTLAGER_LAGER_ID, KARTLAGER_NAMN } from '../../lib/kartlager'
 import { kartBasPaint } from '../../lib/kartBas'
 import { useRitadKarta, ritadStatusText } from '../../lib/hooks/useRitadKarta'
-import { RITAD_KORVY_LAGER } from '../../lib/ritadKarta/lager'
+import { RITAD_LAGER } from '../../lib/ritadKarta/lager'
 import { useKartReglage } from '../../lib/hooks/useKartReglage'
 import { styrkaFor } from '../../lib/kartReglage'
 import { overlayReglage, bakgrundReglage, tillampaLagerOpacitet, nyttSkalaMinne } from '../../lib/lagerOpacitet'
@@ -9093,7 +9093,7 @@ export default function PlannerPage() {
       // Bas-karta: Karta (LM dämpad) eller Topokarta (LM full färg) — växlas i toggeln.
       const SHOW = new Set<string>([KARTLAGER_LAGER_ID[korvyBasKarta]]);
       // Ritad: hela den ritade kartan (grund, skog, träd) — aldrig 3D-kronorna i körvyn (lib/ritadKarta/lager). Synligheten sätts sedan av useRitadKarta.
-      if (korvyBasKarta === 'ritad') for (const id of RITAD_KORVY_LAGER) SHOW.add(id);
+      if (korvyBasKarta === 'ritad') for (const id of RITAD_LAGER) SHOW.add(id);
       // Våra ritade data + immersion-layers. 'zone-' (singular) = de PLATTA zon-lagren
       // (zone-fill/zone-outline/zone-label) — MÅSTE vara med annars döljs zonerna i körvy. Förr
       // visades zoner i körvy bara via 'zones-korvy-*-extrusion' (3D-pelaren, nu borttagen); utan
@@ -9163,7 +9163,7 @@ export default function PlannerPage() {
     return Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0) ? { lat, lng } : null;
   }, [valtObjekt?.lat, valtObjekt?.lng]);
   const ritadStatus = useRitadKarta({
-    map: mapLibreReady ? mapInstanceRef.current : null, klar: mapLibreReady, vald: mapType === 'ritad', korvy: korvyActive,
+    map: mapLibreReady ? mapInstanceRef.current : null, klar: mapLibreReady, vald: mapType === 'ritad',
     objektId: valtObjekt?.id ?? null, skogPaint: ritadSkogPaint, egnaRingar: ritadEgnaRingar, punkt: ritadPunkt,
   });
 

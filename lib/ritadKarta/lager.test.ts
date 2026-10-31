@@ -3,49 +3,28 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
-import { RITAD_ID, RITAD_KALLA, RITAD_KORVY_LAGER, RITAD_LAGER, RITAD_VEKTOR_LAGER, arLutad, grundKallor, grundLager, kronorLager, ritadSynlighet, tradLager } from './lager';
+import { RITAD_ID, RITAD_KALLA, RITAD_LAGER, RITAD_VEKTOR_LAGER, grundKallor, grundLager, ritadSynlighet, tradLager } from './lager';
 import { harEgenRegel, lagerRang, RANG } from '../lagerOrdning';
-import { LUTAD_PITCH } from './stil';
 
 describe('ritadSynlighet', () => {
   it('inget syns när Ritad inte är vald', () => {
-    for (const korvy of [true, false]) for (const lutad of [true, false]) {
-      const s = ritadSynlighet({ vald: false, korvy, lutad });
-      expect(Object.values(s).some(Boolean), `${korvy} ${lutad}`).toBe(false);
-    }
+    expect(Object.values(ritadSynlighet({ vald: false })).some(Boolean)).toBe(false);
   });
-  it('körvyn (maskinen) är ALLTID platt: aldrig 3D-kronor, alltid träden — också när kartan är lutad', () => {
-    for (const lutad of [true, false]) {
-      const s = ritadSynlighet({ vald: true, korvy: true, lutad });
-      expect(s[RITAD_ID.kronor]).toBe(false);
-      expect(s[RITAD_ID.trad]).toBe(true);
-      expect(s[RITAD_ID.skog]).toBe(true);
-      expect(s[RITAD_ID.bakgrund]).toBe(true);
-    }
+  it('vald: alla lager syns, och ingen av dem är 3D (skogen ligger under allt man planerar)', () => {
+    const s = ritadSynlighet({ vald: true });
+    expect(RITAD_LAGER.every((id) => s[id])).toBe(true);
+    expect(grundLager().concat(tradLager() as any).some((l: any) => l.type === 'fill-extrusion')).toBe(false);
+    expect(RITAD_LAGER.some((id) => /kronor/.test(id))).toBe(false);
   });
-  it('planeringen: platt = träd, lutad = skogen står upp (kronor) och träden göms', () => {
-    const platt = ritadSynlighet({ vald: true, korvy: false, lutad: false });
-    expect(platt[RITAD_ID.kronor]).toBe(false); expect(platt[RITAD_ID.trad]).toBe(true);
-    const lutad = ritadSynlighet({ vald: true, korvy: false, lutad: true });
-    expect(lutad[RITAD_ID.kronor]).toBe(true); expect(lutad[RITAD_ID.trad]).toBe(false);
-  });
-  it('körvyns whitelist släpper igenom allt utom kronorna', () => {
-    expect(RITAD_KORVY_LAGER).not.toContain(RITAD_ID.kronor);
-    expect(RITAD_KORVY_LAGER.length).toBe(RITAD_LAGER.length - 1);
-  });
-  it('lutad = över LUTAD_PITCH', () => {
-    expect(arLutad(LUTAD_PITCH)).toBe(false);
-    expect(arLutad(LUTAD_PITCH + 1)).toBe(true);
-    expect(arLutad(Number.NaN)).toBe(false);
-  });
+
 });
 
 describe('lagren', () => {
   it('är giltiga enligt MapLibres stil-spec (ett fel här syns annars först i maskinen)', () => {
     const geo = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
     const stil = {
-      version: 8, sources: { ...grundKallor(), [RITAD_KALLA.trad]: geo, [RITAD_KALLA.kronor]: geo, [RITAD_KALLA.skog]: { type: 'image', url: 'x.png', coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] } },
-      layers: [...grundLager(), { id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog }, kronorLager(), tradLager()],
+      version: 8, sources: { ...grundKallor(), [RITAD_KALLA.trad]: geo, [RITAD_KALLA.skog]: { type: 'image', url: 'x.png', coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] } },
+      layers: [...grundLager(), { id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog }, tradLager()],
     };
     const fel = validateStyleMin(stil as any).map((f: any) => f.message).filter((m: string) => !/sprite|glyphs/i.test(m));
     expect(fel).toEqual([]);
@@ -77,7 +56,7 @@ describe('page.tsx: Ritad är kopplad på ett ställe', () => {
     expect(page).toContain("{ id: 'ritad', name: 'Ritad', desc: ritadStatusText(ritadStatus) },");
   });
   it('körvyn släpper igenom den ritade kartan bara när Ritad är vald', () => {
-    expect(page).toContain("if (korvyBasKarta === 'ritad') for (const id of RITAD_KORVY_LAGER) SHOW.add(id);");
+    expect(page).toContain("if (korvyBasKarta === 'ritad') for (const id of RITAD_LAGER) SHOW.add(id);");
     expect(page).not.toMatch(/KEEP_PREFIX = \[[^\]]*'ritad-'/);
   });
   it('hooken anropas efter körvyns whitelist (dess synlighet ska sättas sist)', () => {

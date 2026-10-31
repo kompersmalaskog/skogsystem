@@ -7,7 +7,7 @@
 //   • Grunden (bakgrund, terrängskuggning, vatten, vägar, hus) läggs till direkt — också utan objekt.
 //   • Skogen hämtas per objekt en gång per session och läggs ovanpå. Området: Vidas traktgräns, annars planerarens egen, annars 1 km runt
 //     objektets punkt (lib/ritadKarta/omrade.ts). Faller laserdatan syns grunden ändå och raden i + › Lager säger varför. Aldrig en gissad skog.
-//   • Körvyn är platt (inga 3D-kronor); i planeringen står skogen upp när kartan lutas.
+//   • Kartan är platt överallt (inga 3D-kronor): skogen ligger under allt man planerar och kör efter.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -15,8 +15,8 @@ import { lasVidaGrans } from '@/lib/egenkontrollOrigo';
 import { hamtaStammoln } from '@/lib/egenkontroll';
 import type { Rutnat } from '@/lib/ritadKarta/skog';
 import { omradeNyckel, valjOmrade, type Omrade, type OmradesKalla, type Ring } from '@/lib/ritadKarta/omrade';
-import { byggRitat, kronorData, tradData, type Ritat } from '@/lib/ritadKarta/bygg';
-import { RITAD_ID, RITAD_KALLA, RITAD_LAGER, arLutad, grundKallor, grundLager, kronorLager, ritadSynlighet, tradLager } from '@/lib/ritadKarta/lager';
+import { byggRitat, tradData, type Ritat } from '@/lib/ritadKarta/bygg';
+import { RITAD_ID, RITAD_KALLA, RITAD_LAGER, grundKallor, grundLager, ritadSynlighet, tradLager } from '@/lib/ritadKarta/lager';
 import { TRAD_FARG, ritaGran } from '@/lib/ritadKarta/stil';
 
 export type RitadStatus =
@@ -77,8 +77,6 @@ function laggTillGrund(m: any) {
   for (const [k, f] of Object.entries(TRAD_FARG)) { const id = `rk-gran-${k}`; if (!m.hasImage?.(id)) { const im = ritaGran(f); if (im) m.addImage(id, im, { pixelRatio: 2 }); } }
   for (const l of grundLager()) if (!m.getLayer(l.id)) m.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: 'none' } });
   if (!m.getSource(RITAD_KALLA.trad)) m.addSource(RITAD_KALLA.trad, { type: 'geojson', data: tom });
-  if (!m.getSource(RITAD_KALLA.kronor)) m.addSource(RITAD_KALLA.kronor, { type: 'geojson', data: tom });
-  if (!m.getLayer(RITAD_ID.kronor)) m.addLayer({ ...kronorLager(), layout: { visibility: 'none' } });
   if (!m.getLayer(RITAD_ID.trad)) { const t = tradLager(); m.addLayer({ ...t, layout: { ...t.layout, visibility: 'none' } }); }
 }
 
@@ -86,14 +84,13 @@ function sattSkog(m: any, ritat: Ritat | null, paint: Record<string, number>) {
   if (m.getLayer(RITAD_ID.skog)) m.removeLayer(RITAD_ID.skog);
   if (m.getSource(RITAD_KALLA.skog)) m.removeSource(RITAD_KALLA.skog);
   m.getSource(RITAD_KALLA.trad)?.setData(ritat ? tradData(ritat) : tom);
-  m.getSource(RITAD_KALLA.kronor)?.setData(ritat ? kronorData(ritat) : tom);
   if (!ritat) return;
   m.addSource(RITAD_KALLA.skog, { type: 'image', url: ritat.url, coordinates: ritat.horn });
   m.addLayer({ id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog, paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0, ...paint }, layout: { visibility: 'none' } });
 }
 
-export function useRitadKarta({ map, klar, vald, korvy, objektId, skogPaint, egnaRingar, punkt }: {
-  map: any | null; klar: boolean; vald: boolean; korvy: boolean; objektId: string | null; skogPaint: Record<string, number>;
+export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar, punkt }: {
+  map: any | null; klar: boolean; vald: boolean; objektId: string | null; skogPaint: Record<string, number>;
   /** Traktgränser planeraren ritat själv ([lng, lat][]); används när Vida saknar traktgräns. */
   egnaRingar?: Ring[] | null;
   /** Objektets punkt; ruta runt den när ingen gräns finns. */
@@ -101,7 +98,6 @@ export function useRitadKarta({ map, klar, vald, korvy, objektId, skogPaint, egn
 }): RitadStatus {
   const [svar, setSvar] = useState<{ id: string; svar: Svar } | null>(null);
   const [laddar, setLaddar] = useState<string | null>(null);
-  const [lutad, setLutad] = useState(false);
   const [grundKlar, setGrundKlar] = useState(false);
   const ritatPaKartan = useRef<string | null>(null);
   const paintRef = useRef(skogPaint);
@@ -152,23 +148,14 @@ export function useRitadKarta({ map, klar, vald, korvy, objektId, skogPaint, egn
     for (const [k, v] of Object.entries(skogPaint)) { try { map.setPaintProperty(RITAD_ID.skog, k, v); } catch { /* */ } }
   }, [map, skogPaint, nyckel]);
 
-  // Lutningen (bara planeringen): skogen står upp över LUTAD_PITCH.
-  useEffect(() => {
-    if (!map || !vald || korvy) { setLutad(false); return; }
-    const kolla = () => setLutad(arLutad(map.getPitch?.() ?? 0));
-    map.on('pitch', kolla);
-    kolla();
-    return () => { map.off('pitch', kolla); };
-  }, [map, vald, korvy]);
-
   // Synligheten — körvyns whitelist släpper igenom RITAD_KORVY_LAGER (page.tsx), så den här effekten kan sätta allt.
   useEffect(() => {
     if (!map || !grundKlar) return;
-    const syn = ritadSynlighet({ vald, korvy, lutad });
+    const syn = ritadSynlighet({ vald });
     for (const id of RITAD_LAGER) {
       try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', syn[id] ? 'visible' : 'none'); } catch { /* */ }
     }
-  }, [map, grundKlar, vald, korvy, lutad, nyckel]);
+  }, [map, grundKlar, vald, nyckel]);
 
   if (!vald) return { typ: 'av' };
   if (!objektId) return { typ: 'inget-objekt' };
