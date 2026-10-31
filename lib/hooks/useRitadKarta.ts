@@ -77,7 +77,7 @@ async function hamtaMark(kropp: RequestInit): Promise<{ rutnat: MarkRutnat | nul
     }
     const saknas: string[] = [];
     const fel: string[] = Array.isArray(j.fel) ? j.fel : [];
-    if (fel.includes('markfuktighet')) saknas.push('blött');
+    if (fel.includes('markfuktighet')) saknas.push(j.fuktFel ? `blött (${j.fuktFel})` : 'blött');
     if (fel.includes('lutning')) saknas.push('brant');
     if (!skugga) saknas.push('skuggning');
     return { rutnat, skugga, saknas };

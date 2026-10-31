@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BLOTT_MIN_RUTOR, BRANT_GRAD, BRANT_MIN_RUTOR, FUKT, FUKT_GRANS, KLASS_VATTEN, LUTNING_SAKNAS, blottYtor, brantYtor, franBase64, fuktKod, markUtsnitt, tillBase64 } from './mark';
+import { BLOTT_MIN_RUTOR, BRANT_GRAD, BRANT_MIN_RUTOR, FUKT, FUKT_GRANS, KLASS_VATTEN, LUTNING_SAKNAS, tolkaFuktBand, blottYtor, brantYtor, franBase64, fuktKod, markUtsnitt, tillBase64 } from './mark';
 import { tillSweref } from './skog';
 
 describe('fuktKod: SLU:s sannolikhet för blöt mark → två steg', () => {
@@ -56,3 +56,21 @@ it('base64 tur och retur', () => {
   expect([...franBase64(tillBase64(b))]).toEqual([...b]);
 });
 
+
+describe('tolkaFuktBand: sannolikhet först, annars SLU:s klasser, annars fel', () => {
+  it('sannolikhet + klass', () => {
+    const t = tolkaFuktBand([[10, 60, 90, 90], [1, 2, 3, 4]]);
+    expect(t.kalla).toBe('sannolikhet'); expect([...t.koder]).toEqual([FUKT.ingen, FUKT.fuktig, FUKT.blot, FUKT.ingen]);
+  });
+  it('bara klassbandet: 2 = fuktig, 3 = blöt, 4 = vatten', () => {
+    const t = tolkaFuktBand([[1, 2, 3, 4, 255]]);
+    expect(t.kalla).toBe('klass'); expect([...t.koder]).toEqual([FUKT.ingen, FUKT.fuktig, FUKT.blot, FUKT.ingen, FUKT.ingen]);
+  });
+  it('klassbandet först, sannolikheten som band 2', () => {
+    expect(tolkaFuktBand([[1, 3], [20, 80]]).kalla).toBe('sannolikhet');
+  });
+  it('okänt innehåll är ett fel som säger vad banden var', () => {
+    expect(() => tolkaFuktBand([[300, 400, 500]])).toThrow(/okänt innehåll/);
+    expect(() => tolkaFuktBand([])).toThrow(/inga band/);
+  });
+});

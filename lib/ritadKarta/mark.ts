@@ -40,6 +40,45 @@ export function fuktKod(sannolikhet: number, klass?: number): FuktKod {
   return FUKT.ingen;
 }
 
+/** SLU:s klassband (dokumentationen och korbarhet-tiles säger samma sak): 1 torr–frisk, 2 frisk–fuktig, 3 fuktig–blöt, 4 öppet vatten. */
+export const KLASS_KOD: Readonly<Record<number, FuktKod>> = { 1: FUKT.ingen, 2: FUKT.fuktig, 3: FUKT.blot, 4: FUKT.ingen };
+
+type Band = ArrayLike<number>;
+function bandInfo(b: Band) {
+  let med = 0, over100 = 0, max = -Infinity, min = Infinity, heltal = true;
+  for (let i = 0; i < b.length; i++) {
+    const v = b[i];
+    if (!Number.isFinite(v) || v === 255 || v < 0) continue;
+    if (v > 100) { over100++; continue; }
+    med++; if (v > max) max = v; if (v < min) min = v; if (heltal && v !== Math.round(v)) heltal = false;
+  }
+  return { med, over100, max, min, heltal };
+}
+
+/**
+ * Tjänstens band → kod per ruta. Sannolikhetsbandet (värden upp till 100) går först; finns bara klassbandet (heltal 0–4) används det med
+ * `KLASS_KOD`. Annars ett fel som säger vad banden innehöll — aldrig en gissning.
+ */
+export function tolkaFuktBand(band: Band[]): { koder: Uint8Array; kalla: 'sannolikhet' | 'klass'; info: string } {
+  const infos = band.map(bandInfo);
+  const beskr = infos.map((x, i) => `band ${i + 1}: ${x.med ? `${x.min}–${x.max}` : 'tomt'}`).join(', ');
+  const pi = infos.findIndex((x) => x.med > 0 && x.max > 5 && x.over100 <= x.med * 0.01);
+  const ki = infos.findIndex((x) => x.med > 0 && x.heltal && x.min >= 0 && x.max <= 4 && x.max >= 1);
+  const n = band[0]?.length ?? 0;
+  const koder = new Uint8Array(n);
+  if (pi >= 0) {
+    const p = band[pi], k = ki >= 0 ? band[ki] : null;
+    for (let i = 0; i < n; i++) koder[i] = fuktKod(p[i], k ? Math.round(k[i]) : undefined);
+    return { koder, kalla: 'sannolikhet', info: beskr };
+  }
+  if (ki >= 0) {
+    const k = band[ki];
+    for (let i = 0; i < n; i++) koder[i] = KLASS_KOD[Math.round(k[i])] ?? FUKT.ingen;
+    return { koder, kalla: 'klass', info: beskr };
+  }
+  throw new Error(`okänt innehåll (${beskr || 'inga band'})`);
+}
+
 /** Lutning saknas. */
 export const LUTNING_SAKNAS = 255;
 

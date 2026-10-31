@@ -3,7 +3,7 @@ import { fromArrayBuffer } from 'geotiff';
 import sharp from 'sharp';
 import { kravInloggad } from '@/lib/auth/server';
 import { utsnittForRingar } from '@/lib/ritadKarta/skog';
-import { LUTNING_SAKNAS, MARK_RUTA_M, fuktKod, markUtsnitt, tillBase64 } from '@/lib/ritadKarta/mark';
+import { LUTNING_SAKNAS, MARK_RUTA_M, markUtsnitt, tillBase64, tolkaFuktBand } from '@/lib/ritadKarta/mark';
 
 // Ritad — blött, brant och terrängskuggning för samma utsnitt som skogen (trakten + 300 m). Se lib/ritadKarta/mark.ts.
 // In:  { ringar: [lng, lat][][] }
@@ -42,33 +42,18 @@ async function exportBand(service: string, u: U, auth: Record<string, string>, e
   });
   const r = await hamta(`${service}/exportImage?${params}`, auth);
   const typ = r.headers.get('content-type') ?? '';
-  if (!r.ok || !typ.includes('tif')) throw new Error(`${r.status} ${typ}`);
+  if (!r.ok || !typ.includes('tif')) throw new Error(`svar ${r.status}: ${(await r.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 80) || typ}`);
   const bild = await (await fromArrayBuffer(await r.arrayBuffer())).getImage();
   if (bild.getWidth() !== u.bredd || bild.getHeight() !== u.hojd) throw new Error('fel storlek');
   return (await bild.readRasters()) as unknown as ArrayLike<number>[];
 }
 
-/**
- * Markfuktighet per ruta ur SLU:s råa band: band 1 = sannolikhet för blöt mark 0–100, band 2 = klass (4 = öppet vatten). Ett band 1 som inte
- * ser ut som en sannolikhet (värden över 100 utöver ingen-data, eller bara 0–5 som en klassning) är ett fel, aldrig en gissning.
- */
+/** Markfuktighet per ruta ur SLU:s råa band (lib/ritadKarta/mark.ts `tolkaFuktBand`). */
 async function fukt(u: U, auth: Record<string, string>): Promise<{ koder: Uint8Array; fordelning: string }> {
-  const band = await exportBand(MARKFUKT, u, auth);
-  const p = band[0], k = band[1];
-  let med = 0, over100 = 0, max = 0;
-  for (let i = 0; i < p.length; i++) {
-    const v = p[i];
-    if (!Number.isFinite(v)) continue;
-    if (v > 100) { if (v !== 255) over100++; continue; }
-    med++; if (v > max) max = v;
-  }
-  if (med === 0) throw new Error('markfuktigheten saknar data här');
-  if (over100 > med * 0.01) throw new Error(`band 1 är ingen sannolikhet (${over100} värden över 100)`);
-  if (max <= 5) throw new Error(`band 1 ser ut som en klassning (högst ${max})`);
-  const koder = new Uint8Array(p.length);
+  const t = tolkaFuktBand(await exportBand(MARKFUKT, u, auth));
   const antal = [0, 0, 0];
-  for (let i = 0; i < p.length; i++) { koder[i] = fuktKod(p[i], k ? Math.round(k[i]) : undefined); antal[koder[i]]++; }
-  return { koder, fordelning: `${band.length} band, sannolikhet upp till ${max}, rutor ingen/fuktig/blöt ${antal.join('/')}` };
+  for (const k of t.koder) antal[k]++;
+  return { koder: t.koder, fordelning: `${t.kalla}; ${t.info}; rutor ingen/fuktig/blöt ${antal.join('/')}` };
 }
 
 /** Lantmäteriets terrängskuggning över utsnittet (EPSG:3006). Axelordningen prövas åt båda hållen; en enfärgad bild räknas som miss. */
@@ -120,8 +105,9 @@ export async function POST(req: NextRequest) {
   const [fuktSvar, lutSvar, skuggSvar] = await Promise.allSettled([fukt(u, auth), exportBand(LUTNING, u, auth), skugga(u)]);
 
   let fuktKoder = new Uint8Array(n);
+  let fuktFel: string | null = null;
   if (fuktSvar.status === 'fulfilled') { fuktKoder = fuktSvar.value.koder as typeof fuktKoder; console.log('[ritad-karta/mark] markfuktighet:', fuktSvar.value.fordelning); }
-  else { console.error('[ritad-karta/mark] markfuktighet:', fuktSvar.reason); problem.push('markfuktighet'); }
+  else { console.error('[ritad-karta/mark] markfuktighet:', fuktSvar.reason); problem.push('markfuktighet'); fuktFel = String((fuktSvar.reason as any)?.message ?? fuktSvar.reason).slice(0, 120); }
 
   const lutning = new Uint8Array(n).fill(LUTNING_SAKNAS);
   if (lutSvar.status === 'fulfilled') {
@@ -138,6 +124,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     minX: m.minX, maxY: m.maxY, bredd: m.bredd, hojd: m.hojd, rutaM: MARK_RUTA_M,
-    fukt: tillBase64(fuktKoder), lutning: tillBase64(lutning), skugga: skuggaUrl, fel: problem,
+    fukt: tillBase64(fuktKoder), lutning: tillBase64(lutning), skugga: skuggaUrl, fel: problem, fuktFel,
   });
 }
