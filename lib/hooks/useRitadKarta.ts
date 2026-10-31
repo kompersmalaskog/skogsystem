@@ -15,9 +15,8 @@ import { lasVidaGrans } from '@/lib/egenkontrollOrigo';
 import { hamtaStammoln } from '@/lib/egenkontroll';
 import type { Rutnat } from '@/lib/ritadKarta/skog';
 import { omradeNyckel, valjOmrade, type Omrade, type OmradesKalla, type Ring } from '@/lib/ritadKarta/omrade';
-import { byggRitat, tradData, type Ritat } from '@/lib/ritadKarta/bygg';
-import { RITAD_ID, RITAD_KALLA, RITAD_LAGER, grundKallor, grundLager, ritadSynlighet, tradLager } from '@/lib/ritadKarta/lager';
-import { TRAD_FARG, ritaGran } from '@/lib/ritadKarta/stil';
+import { byggRitat, type Ritat } from '@/lib/ritadKarta/bygg';
+import { RITAD_DOLJ_FYLLNING, RITAD_ID, RITAD_KALLA, RITAD_LAGER, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
 
 export type RitadStatus =
   | { typ: 'av' }
@@ -70,20 +69,15 @@ function cachad<T extends { typ: string }>(cache: Map<string, Promise<T>>, nycke
   return p;
 }
 
-const tom = { type: 'FeatureCollection' as const, features: [] as any[] };
 
 function laggTillGrund(m: any) {
   for (const [id, k] of Object.entries(grundKallor())) if (!m.getSource(id)) m.addSource(id, k);
-  for (const [k, f] of Object.entries(TRAD_FARG)) { const id = `rk-gran-${k}`; if (!m.hasImage?.(id)) { const im = ritaGran(f); if (im) m.addImage(id, im, { pixelRatio: 2 }); } }
   for (const l of grundLager()) if (!m.getLayer(l.id)) m.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: 'none' } });
-  if (!m.getSource(RITAD_KALLA.trad)) m.addSource(RITAD_KALLA.trad, { type: 'geojson', data: tom });
-  if (!m.getLayer(RITAD_ID.trad)) { const t = tradLager(); m.addLayer({ ...t, layout: { ...t.layout, visibility: 'none' } }); }
 }
 
 function sattSkog(m: any, ritat: Ritat | null, paint: Record<string, number>) {
   if (m.getLayer(RITAD_ID.skog)) m.removeLayer(RITAD_ID.skog);
   if (m.getSource(RITAD_KALLA.skog)) m.removeSource(RITAD_KALLA.skog);
-  m.getSource(RITAD_KALLA.trad)?.setData(ritat ? tradData(ritat) : tom);
   if (!ritat) return;
   m.addSource(RITAD_KALLA.skog, { type: 'image', url: ritat.url, coordinates: ritat.horn });
   m.addLayer({ id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog, paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0, ...paint }, layout: { visibility: 'none' } });
@@ -156,6 +150,24 @@ export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar
       try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', syn[id] ? 'visible' : 'none'); } catch { /* */ }
     }
   }, [map, grundKlar, vald, nyckel]);
+
+  // Planeringens röda tona över trakten släcks medan Ritad är vald (RITAD_DOLJ_FYLLNING); det ursprungliga värdet sätts tillbaka.
+  const fyllningRef = useRef<Map<string, unknown>>(new Map());
+  useEffect(() => {
+    if (!map || !klar) return;
+    for (const id of RITAD_DOLJ_FYLLNING) {
+      try {
+        if (!map.getLayer?.(id)) continue;
+        if (vald) {
+          if (!fyllningRef.current.has(id)) fyllningRef.current.set(id, map.getPaintProperty(id, 'fill-opacity'));
+          map.setPaintProperty(id, 'fill-opacity', 0);
+        } else if (fyllningRef.current.has(id)) {
+          map.setPaintProperty(id, 'fill-opacity', fyllningRef.current.get(id));
+          fyllningRef.current.delete(id);
+        }
+      } catch { /* lagret borta */ }
+    }
+  }, [map, klar, vald]);
 
   if (!vald) return { typ: 'av' };
   if (!objektId) return { typ: 'inget-objekt' };

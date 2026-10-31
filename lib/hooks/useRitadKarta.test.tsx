@@ -12,7 +12,6 @@ vi.mock('@/lib/egenkontrollOrigo', () => ({ lasVidaGrans: (...a: any[]) => grans
 vi.mock('@/lib/egenkontroll', () => ({ hamtaStammoln: async () => ({ punkter: [] }) }));
 vi.mock('@/lib/ritadKarta/bygg', () => ({
   byggRitat: () => ({ url: 'data:image/png;base64,AA', horn: [[0, 1], [1, 1], [1, 0], [0, 0]], trad: [], avverkade: 0, kronor: [] }),
-  tradData: () => ({ type: 'FeatureCollection', features: [] }),
 }));
 vi.mock('@/lib/ritadKarta/stil', async (orig) => ({ ...(await orig() as any), ritaGran: () => null }));
 
@@ -95,13 +94,25 @@ describe('useRitadKarta', () => {
     expect(ritadStatusText(result.current)).toBe('Skogen ur laserskanningen 2021');
   });
 
-  it('kartan är platt överallt: ingen 3D-skog läggs till, också när kartan lutas — träden syns', async () => {
+  it('kartan är platt överallt: ingen 3D-skog och inga trädsymboler, också när kartan lutas', async () => {
     const m = fakeKarta();
     renderHook(() => useRitadKarta({ map: m, klar: true, vald: true, objektId: 'o3', skogPaint: PAINT }));
     await waitFor(() => expect(m.synlig.get(RITAD_ID.skog)).toBe('visible'));
     act(() => m.satPitch(60));
     expect([...m.lager.values()].some((l) => l.type === 'fill-extrusion')).toBe(false);
-    expect(m.synlig.get(RITAD_ID.trad)).toBe('visible');
+    expect([...m.lager.values()].some((l) => l.type === 'symbol')).toBe(false);
+  });
+
+  it('traktgränsens röda tona släcks medan Ritad är vald och kommer tillbaka efteråt', async () => {
+    const m = fakeKarta() as any;
+    m.addLayer({ id: 'grans-fill', type: 'fill' });
+    const paint = new Map<string, unknown>([['grans-fill', 0.05]]);
+    m.getPaintProperty = (id: string) => paint.get(id);
+    m.setPaintProperty = (id: string, _p: string, v: unknown) => paint.set(id, v);
+    const { rerender } = renderHook((p: { vald: boolean }) => useRitadKarta({ map: m, klar: true, vald: p.vald, objektId: 'o11', skogPaint: PAINT }), { initialProps: { vald: true } });
+    await waitFor(() => expect(paint.get('grans-fill')).toBe(0));
+    rerender({ vald: false });
+    await waitFor(() => expect(paint.get('grans-fill')).toBe(0.05));
   });
 
   it('väljs ett annat kartlager göms allt igen', async () => {

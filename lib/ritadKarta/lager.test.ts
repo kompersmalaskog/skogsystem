@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
-import { RITAD_ID, RITAD_KALLA, RITAD_LAGER, RITAD_VEKTOR_LAGER, grundKallor, grundLager, ritadSynlighet, tradLager } from './lager';
+import { RITAD_ID, RITAD_KALLA, RITAD_LAGER, RITAD_VEKTOR_LAGER, grundKallor, grundLager, RITAD_DOLJ_FYLLNING, ritadSynlighet } from './lager';
 import { harEgenRegel, lagerRang, RANG } from '../lagerOrdning';
 
 describe('ritadSynlighet', () => {
@@ -13,8 +13,11 @@ describe('ritadSynlighet', () => {
   it('vald: alla lager syns, och ingen av dem är 3D (skogen ligger under allt man planerar)', () => {
     const s = ritadSynlighet({ vald: true });
     expect(RITAD_LAGER.every((id) => s[id])).toBe(true);
-    expect(grundLager().concat(tradLager() as any).some((l: any) => l.type === 'fill-extrusion')).toBe(false);
-    expect(RITAD_LAGER.some((id) => /kronor/.test(id))).toBe(false);
+    expect(grundLager().some((l: any) => l.type === 'fill-extrusion')).toBe(false);
+    expect(RITAD_LAGER.some((id) => /kronor|trad/.test(id))).toBe(false);
+  });
+  it('planeringens tona över trakten släcks (trakten ska vara ljusast)', () => {
+    expect([...RITAD_DOLJ_FYLLNING]).toEqual(['grans-fill', 'trakt-gr-fill']);
   });
 
 });
@@ -23,8 +26,8 @@ describe('lagren', () => {
   it('är giltiga enligt MapLibres stil-spec (ett fel här syns annars först i maskinen)', () => {
     const geo = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
     const stil = {
-      version: 8, sources: { ...grundKallor(), [RITAD_KALLA.trad]: geo, [RITAD_KALLA.skog]: { type: 'image', url: 'x.png', coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] } },
-      layers: [...grundLager(), { id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog }, tradLager()],
+      version: 8, sources: { ...grundKallor(), [RITAD_KALLA.skog]: { type: 'image', url: 'x.png', coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] } },
+      layers: [...grundLager(), { id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog }],
     };
     const fel = validateStyleMin(stil as any).map((f: any) => f.message).filter((m: string) => !/sprite|glyphs/i.test(m));
     expect(fel).toEqual([]);
@@ -43,7 +46,6 @@ describe('lagren', () => {
     }
     expect(lagerRang({ id: 'ritad-bakgrund' })).toBeGreaterThan(lagerRang({ id: 'satellite-layer' }));
     expect(lagerRang({ id: 'ritad-vag' })).toBeGreaterThan(lagerRang({ id: 'ritad-skog' }));
-    expect(lagerRang({ id: 'ritad-trad' })).toBeGreaterThan(lagerRang({ id: 'ritad-vag' }));
   });
   it('grunden har ingen text (fast text på kartan är bara ytnamn och avläggsnummer)', () => {
     for (const l of grundLager()) expect((l as any).layout?.['text-field'], l.id).toBeUndefined();
