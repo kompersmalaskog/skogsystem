@@ -63,6 +63,8 @@ export const VYER: Vy[] = [
   { id: 'lastbilen', namn: 'Lastbilen', href: '/lastbil', ikon: 'pin_drop', grupp: 'maskiner', marke: 'lass', sokord: ['flytt', 'maskinflytt', 'hämta maskin', 'körningar', 'fakturering', 'flyttlogg'] },
   // Maskinkollen = förarens skyddsrond en gång i månaden (arbetsmiljö, 2026-10-31). Märket = dags eller påbörjad.
   { id: 'maskinkoll', namn: 'Maskinkoll', href: '/maskinkoll', ikon: 'checklist', grupp: 'maskiner', marke: 'maskinkoll', sokord: ['skyddsrond', 'arbetsmiljö', 'säkerhet', 'brandsläckare'] },
+  // "Något är fel": föraren rapporterar ett fel på maskinen när som helst, med bild. Blir en åtgärd direkt.
+  { id: 'nagot-ar-fel', namn: 'Något är fel', href: '/maskinkoll?fel=1', ikon: 'report', grupp: 'maskiner', sokord: ['fel', 'trasig', 'läcker', 'rapportera', 'skada', 'arbetsmiljö'] },
   { id: 'kontroller', namn: 'Kontroller', href: '/kontroller', ikon: 'fact_check', grupp: 'maskiner', sokord: ['besiktning', 'försäkring'] },
 
   // Objekt

@@ -339,7 +339,7 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
   if (typeof gk === 'number' && gk > 0) uppgifter.push({ id: 'godkann', text: flyttarAttGodkannaText(gk), href: '/lastbil?flik=fakturering', farg: FARG.orange })
   // Maskinkollen (skyddsronden): förarens egen maskin, en gång i månaden.
   const mk = marken.maskinkoll
-  if (typeof mk === 'number' && mk > 0) uppgifter.push({ id: 'maskinkoll', text: 'Dags för maskinkoll · ca 3 min', href: '/maskinkoll', farg: FARG.orange })
+  if (typeof mk === 'number' && mk > 0) uppgifter.push({ id: 'maskinkoll', text: 'Dags för maskinkoll · ca 1 min', href: '/maskinkoll', farg: FARG.orange })
   // Datahälsan bor i Mer. Bara ett riktigt fel (röd: data tappas) står också här, så det aldrig missas.
   if (roll === 'admin' && datahalsa?.niva === 'rod') {
     uppgifter.push({ id: 'datahalsa', text: `Datahälsa: ${datahalsa.rubrik}`, href: '/datahalsa', farg: FARG.rod })

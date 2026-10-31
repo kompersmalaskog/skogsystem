@@ -2,7 +2,7 @@
 // Tabellerna (am_*) och reglerna i databasen: supabase/migrations/20261031162152_arbetsmiljo_maskinkoll.sql.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { arDags, fragorFor, GODKANNANDE_VERSION, type Fraga, type Svar } from './regler';
+import { arDags, deadlineFor, fragorFor, GODKANNANDE_VERSION, type Fraga, type Svar } from './regler';
 
 export type Maskin = { id: string; namn: string; typ: string | null };
 
@@ -36,7 +36,7 @@ export async function hamtaLage(sb: SupabaseClient, nu: Date = new Date()): Prom
 
   const [maskinRes, fragaRes, godkRes, pagRes, klarRes] = await Promise.all([
     sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ').eq('maskin_id', maskinId).maybeSingle(),
-    sb.from('am_fraga').select('id, kod, text, hjalptext, maskin_typ, foto_url, ordning').eq('aktiv', true),
+    sb.from('am_fraga').select('id, kod, text, hjalptext, maskin_typ, foto_url, ordning, stopp, foto_vid_ja').eq('aktiv', true),
     sb.from('am_uppgift_godkannande').select('id').eq('medarbetare_id', medarbetareId).eq('maskin_id', maskinId).eq('text_version', GODKANNANDE_VERSION).limit(1),
     sb.from('am_maskinkoll').select('id, am_svar(fraga_id, ok, foto_url, kommentar)').eq('maskin_id', maskinId).eq('medarbetare_id', medarbetareId).is('klar', null).order('startad', { ascending: false }).limit(1),
     sb.from('am_maskinkoll').select('klar').eq('maskin_id', maskinId).not('klar', 'is', null).order('klar', { ascending: false }).limit(1),
@@ -92,16 +92,37 @@ export async function sparaSvar(sb: SupabaseClient, kollId: string, fraga: Fraga
   return null;
 }
 
-/** Avslutar: kontrollfotot + klar. Databasen vägrar om något saknas; dess svenska meddelande visas som det är. */
-export async function avsluta(sb: SupabaseClient, kollId: string, vad: string, fotoUrl: string): Promise<Las<string>> {
+/** Avslutar: sätter klar. Databasen vägrar om något svar eller foto saknas; dess svenska meddelande visas som det är. */
+export async function avsluta(sb: SupabaseClient, kollId: string): Promise<Las<string>> {
   const klar = new Date().toISOString();
-  const { data, error } = await sb.from('am_maskinkoll')
-    .update({ kontrollfoto_vad: vad, kontrollfoto_url: fotoUrl, klar })
-    .eq('id', kollId).select('klar').single();
+  const { data, error } = await sb.from('am_maskinkoll').update({ klar }).eq('id', kollId).select('klar').single();
   if (error) {
     const m = error.message ?? '';
-    return { ok: false, fel: /Svara på alla|kontrollfotot|redan klar/.test(m) ? m : 'Kunde inte avsluta maskinkollen. Försök igen.' };
+    return { ok: false, fel: /Svara på alla|Ta bilderna|redan klar/.test(m) ? m : 'Kunde inte avsluta maskinkollen. Försök igen.' };
   }
   if (!data?.klar) return { ok: false, fel: 'Kunde inte avsluta maskinkollen. Försök igen.' };
   return { ok: true, data: data.klar as string };
+}
+
+/** "Något är fel": föraren rapporterar ett fel utan en koll runt omkring. Blir en öppen åtgärd direkt. */
+export async function rapporteraFel(
+  sb: SupabaseClient,
+  rad: { medarbetareId: string; maskinId: string; beskrivning: string; fotoUrl: string; stopp: boolean; id: string },
+  nu: Date = new Date(),
+): Promise<string | null> {
+  const beskrivning = rad.beskrivning.trim() || 'Fel rapporterat av föraren';
+  const { data, error } = await sb.from('am_atgard').insert({
+    id: rad.id,
+    kalla: 'forare',
+    rapporterad_av: rad.medarbetareId,
+    maskin_id: rad.maskinId,
+    beskrivning,
+    foto_url: rad.fotoUrl,
+    stopp: rad.stopp,
+    deadline: deadlineFor(rad.stopp, nu),
+  }).select('id').single();
+  // Ett omförsök efter ett svar som försvann: raden finns redan = sparat.
+  if (error && error.code === '23505') return null;
+  if (error || !data) return 'Kunde inte skicka. Försök igen.';
+  return null;
 }
