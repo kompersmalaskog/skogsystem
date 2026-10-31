@@ -197,7 +197,7 @@ import { LinjeRedList, type RedVal } from '../../components/planering/LinjeRedLi
 import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_KANT_LAGER, KORUPP_TRAFF_LAGER, arKorUpp, korUppUr, korUppData, korUppLager, ritaSpetsBild, synligaKorUpp, nyKorUpp, KORUPP_SKAL, korUppText, type KorUppPos, type Skal, type SnappVag } from '../../lib/korUpp'
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
-import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, tonPaint, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner } from '../../lib/traktTon'
+import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, tonPaint, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner, tonPolygonerMedEgna } from '../../lib/traktTon'
 import { PLANSPAR_LAGER, PLANSPAR_NYCKEL, planSparPa, vaxlaPlanSpar } from '../../lib/planSparLager'
 import { KLART_FARG, KLART_YTA_KANT_BREDD, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_KANT_LAGER, INGA_YTOR, skotadeYtor } from '../../lib/kartKlart'
 import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
@@ -5156,7 +5156,14 @@ export default function PlannerPage() {
 
   // NEDTONING UTANFÖR TRAKTEN: ytan räknas ur Vidas traktgräns (samma L_TRAKTDEL som Fokus på trakten) när objektets geometri är läst. Saknas gräns göms lagret. När Vidas egen
   // fastighetsnedtoning är påslagen (lagret Fastighetsgränser + Vida-data) tonar den redan ned det som ligger utanför, och de två läggs inte ovanpå varandra.
-  const tonYta = useMemo(() => (traktGeoHamtadFor && valtObjekt?.id && traktGeoHamtadFor === valtObjekt.id ? byggTonYta(traktPolygoner(traktGeo)) : INGEN_TON), [traktGeo, traktGeoHamtadFor, valtObjekt?.id]);
+  // Saknar objektet Vidas gräns används planerarens egna traktgränser (samma omräkning som svgToLatLon, som deklareras längre ned).
+  const tonYta = useMemo(() => {
+    if (!(traktGeoHamtadFor && valtObjekt?.id && traktGeoHamtadFor === valtObjekt.id)) return INGEN_TON;
+    const mLon = 111320 * Math.cos(mapCenter.lat * Math.PI / 180);
+    const egna = markers.filter((m: any) => m.isLine && m.lineType === 'boundary' && Array.isArray(m.path) && m.path.length > 2)
+      .map((m: any) => m.path.map((p: any) => [mapCenter.lng + (p.x * scale) / mLon, mapCenter.lat + (-p.y * scale) / 111320]));
+    return byggTonYta(tonPolygonerMedEgna(traktPolygoner(traktGeo), egna));
+  }, [traktGeo, traktGeoHamtadFor, valtObjekt?.id, markers, mapCenter, scale]);
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;

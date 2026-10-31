@@ -86,7 +86,7 @@ export const LJUS = { anchor: 'map' as const, color: '#fff6e0', intensity: 0.45,
 /** Terrängskuggning (MapLibres hillshade på samma höjddata som 3D-terrängen): mörkt i skuggan, en aning ljust i solen, platt mark orörd. */
 export const RELIEF_KALLA = { type: 'raster-dem' as const, tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 15, encoding: 'terrarium' as const };
 // Ljus från fyra håll (Martin 2026-10-31: sluttningar mot solen blev platta med en enda sol): nordväst starkast, som en vanlig karta,
-// tre till fyller i. Samma riktningar och vikter som höjdmodellens skuggning (lib/ritadKarta/hojd.ts LJUS_RIKTNINGAR).
+// tre till fyller i.
 export const RELIEF_PAINT = {
   'hillshade-method': 'multidirectional',
   'hillshade-illumination-direction': [225, 270, 315, 0],

@@ -17,7 +17,7 @@ export const UTANFOR_TON_FARG = FARG.bg;
 export const UTANFOR_TON_OPACITET = 0.25;
 /**
  * Med bakgrunden Ritad (en mörk ritad karta) syns 25 % svart knappt — utanför trakten ska ändå vara lugnt (Martin 2026-10-31, "som Tesla": bara det
- * som gäller nu syns fullt). Där läggs den ritade kartans egen bakgrundsfärg till hälften över: skog, blött och kurvor utanför blir grå och stilla.
+ * som gäller nu syns fullt). Där läggs den ritade kartans egen bakgrundsfärg till hälften över: skog och blött utanför blir grå och stilla.
  */
 export const UTANFOR_TON_RITAD = { farg: RITAD_BAKGRUND, opacitet: 0.5 } as const;
 /** Nedtoningens färg och styrka för ett kartlager. */
@@ -51,6 +51,19 @@ export function traktPolygoner(fc: { features?: any[] } | null | undefined): Ton
       const ringar = p.filter((r: unknown) => Array.isArray(r) && r.length >= 4 && (r as unknown[]).every(arPar)) as LL[][];
       if (ringar.length > 0) ut.push(ringar);
     }
+  }
+  return ut;
+}
+
+/** Vidas traktdelar om de finns, annars planerarens egna traktgränser (ringar i [lng, lat], öppna eller slutna). Martin 2026-10-31: väggatan har ingen Vida-gräns. */
+export function tonPolygonerMedEgna(vida: TonPolygon[], egna: readonly LL[][] | null | undefined): TonPolygon[] {
+  if (vida.length > 0) return vida;
+  const ut: TonPolygon[] = [];
+  for (const r of egna ?? []) {
+    const ok = (r ?? []).filter(arPar);
+    if (ok.length < 3) continue;
+    const f = ok[0], l = ok[ok.length - 1];
+    ut.push([f[0] === l[0] && f[1] === l[1] ? ok : [...ok, f]]);
   }
   return ut;
 }
