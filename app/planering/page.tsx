@@ -9150,9 +9150,21 @@ export default function PlannerPage() {
   // === RITAD: det femte kartlagret, ritat av appen ur laserdatan (lib/hooks/useRitadKarta) ===
   // Ligger EFTER körvyns whitelist så att dess synlighet sätts sist. Inget hämtas förrän Ritad väljs.
   const ritadSkogPaint = useMemo(() => kartBasPaint('ritad', styrkaFor(kartReglage.styrkor, 'ritad')), [kartReglage.styrkor]);
+  // Reserv när Vida saknar traktgräns (privata jobb): planerarens egna gränser i lng/lat, annars objektets punkt (lib/ritadKarta/omrade).
+  const ritadEgnaRingar = useMemo(() => {
+    if (mapType !== 'ritad' || objektSaknarPosition) return null;
+    return markers
+      .filter((m: any) => m.isLine && m.lineType === 'boundary' && Array.isArray(m.path) && m.path.length > 2)
+      .map((m: any) => m.path.map((p: any) => { const c = svgToLatLon(p.x, p.y); return [c.lon, c.lat] as [number, number]; }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapType, markers, mapCenter, scale, objektSaknarPosition]);
+  const ritadPunkt = useMemo(() => {
+    const lat = Number(valtObjekt?.lat), lng = Number(valtObjekt?.lng);
+    return Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0) ? { lat, lng } : null;
+  }, [valtObjekt?.lat, valtObjekt?.lng]);
   const ritadStatus = useRitadKarta({
     map: mapLibreReady ? mapInstanceRef.current : null, klar: mapLibreReady, vald: mapType === 'ritad', korvy: korvyActive,
-    objektId: valtObjekt?.id ?? null, skogPaint: ritadSkogPaint,
+    objektId: valtObjekt?.id ?? null, skogPaint: ritadSkogPaint, egnaRingar: ritadEgnaRingar, punkt: ritadPunkt,
   });
 
   // === KÖRVY: DEFERA skyddslagren — tänds en knapp EFTER öppning så basen (LM nedtonad) + symboler

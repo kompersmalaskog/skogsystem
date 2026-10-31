@@ -133,6 +133,35 @@ describe('useRitadKarta', () => {
     expect(ritadStatusText(result.current)).toContain('bara vägar och vatten');
   });
 
+  it('ingen Vida-gräns men en egen ritad: skogen ritas runt den egna gränsen', async () => {
+    grans.mockResolvedValue({ typ: 'saknas' });
+    const egen = [[[15, 56], [15.01, 56], [15.01, 56.01], [15, 56]]] as any;
+    const m = fakeKarta();
+    const { result } = renderHook(() => useRitadKarta({ map: m, klar: true, vald: true, korvy: false, objektId: 'o8', skogPaint: PAINT, egnaRingar: egen }));
+    await waitFor(() => expect(result.current.typ).toBe('klar'));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).ringar).toEqual(egen);
+    expect(ritadStatusText(result.current)).toBe('Skogen ur laserskanningen 2021 · runt din traktgräns');
+  });
+
+  it('ingen gräns alls men en punkt: en ruta runt objektets punkt, och raden säger det', async () => {
+    grans.mockResolvedValue({ typ: 'saknas' });
+    const m = fakeKarta();
+    const { result } = renderHook(() => useRitadKarta({ map: m, klar: true, vald: true, korvy: false, objektId: 'o9', skogPaint: PAINT, egnaRingar: [], punkt: { lat: 56.9, lng: 15.2 } }));
+    await waitFor(() => expect(result.current.typ).toBe('klar'));
+    const ring = JSON.parse(fetchMock.mock.calls[0][1].body).ringar[0];
+    expect(ring).toHaveLength(5);
+    expect(ritadStatusText(result.current)).toContain('1 km runt objektet');
+  });
+
+  it('Vidas gräns går före den egna', async () => {
+    const m = fakeKarta();
+    const egen = [[[16, 57], [16.01, 57], [16.01, 57.01], [16, 57]]] as any;
+    const { result } = renderHook(() => useRitadKarta({ map: m, klar: true, vald: true, korvy: false, objektId: 'o10', skogPaint: PAINT, egnaRingar: egen }));
+    await waitFor(() => expect(result.current.typ).toBe('klar'));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).ringar[0][0]).toEqual([15, 56]);
+    expect(ritadStatusText(result.current)).toBe('Skogen ur laserskanningen 2021');
+  });
+
   it('laserdatan kunde inte hämtas: felet sägs och nästa öppning försöker igen', async () => {
     fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'Skogsstyrelsen svarar inte' }) });
     const m = fakeKarta();
