@@ -70,7 +70,7 @@ describe('vyregistret', () => {
   it('sökning: namn före sökord, början av namnet först, tom fråga ger inget', () => {
     expect(sokVyer('admin', '')).toEqual([])
     expect(sokVyer('admin', 'semester').map(v => v.id)).toEqual(['ledighet'])
-    expect(sokVyer('admin', 'Maskin').map(v => v.id).slice(0, 3)).toEqual(['maskinvy', 'maskinvy-2', 'lastbilen'])
+    expect(sokVyer('admin', 'Maskin').map(v => v.id).slice(0, 3)).toEqual(['maskinvy', 'maskinvy-2', 'maskinkoll'])
     expect(sokVyer('admin', 'flytt').map(v => v.id)).toEqual(['lastbilen'])
     expect(sokVyer('admin', 'ÖVERSIKT').map(v => v.id)).toEqual(['oversikt', 'objektoversikt'])
   })
