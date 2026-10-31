@@ -27,7 +27,7 @@ describe('lagren', () => {
     const geo = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
     const stil = {
       version: 8, sources: { ...grundKallor(), [RITAD_KALLA.brant]: geo, [RITAD_KALLA.blott]: geo, [RITAD_KALLA.kurvor]: geo, [RITAD_KALLA.skog]: { type: 'image', url: 'x.png', coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] } },
-      layers: [...grundLager(), { id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog }, ...blottLager(), kurvLager(), brantLager()],
+      layers: [...grundLager(), { id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog }, ...blottLager(), kurvLager(), ...brantLager()],
     };
     const fel = validateStyleMin(stil as any).map((f: any) => f.message).filter((m: string) => !/sprite|glyphs/i.test(m));
     expect(fel).toEqual([]);
@@ -73,4 +73,16 @@ it('blött: vågräta streck, täta har dubbelt så många som glesa och samma r
   for (const y of gles) expect(tat).toContain(y);
   const b = blottMonsterBild(BLOTT_STRECK.gles);
   for (let x = 0; x < b.width; x++) expect(b.data[x * 4 + 3]).toBe(255);
+});
+
+describe('lite brant', () => {
+  it('samma röda som Brant-ytan men hälften så många streck', async () => {
+    const { brantLiteBild } = await import('./lager');
+    const { snedstreckBild } = await import('../ytaStil');
+    const lite = brantLiteBild(), tat = snedstreckBild('fara');
+    const andel = (b: { data: Uint8ClampedArray }) => { let n = 0; for (let i = 3; i < b.data.length; i += 4) if (b.data[i]) n++; return n / (b.data.length / 4); };
+    expect(andel(lite)).toBeCloseTo(andel(tat) / 2, 2);
+    const forsta = (b: { data: Uint8ClampedArray }) => { for (let i = 0; i < b.data.length; i += 4) if (b.data[i + 3]) return [...b.data.slice(i, i + 4)]; };
+    expect(forsta(lite)).toEqual(forsta(tat));
+  });
 });

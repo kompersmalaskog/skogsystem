@@ -16,7 +16,7 @@ import { hamtaStammoln } from '@/lib/egenkontroll';
 import type { Rutnat } from '@/lib/ritadKarta/skog';
 import { omradeNyckel, valjOmrade, type Omrade, type OmradesKalla, type Ring } from '@/lib/ritadKarta/omrade';
 import { byggRitat, type Ritat } from '@/lib/ritadKarta/bygg';
-import { BLOTT_MONSTER, BLOTT_STRECK, BRANT_MONSTER, RITAD_DOLJ_FYLLNING, blottLager, kurvLager, blottMonsterBild, RITAD_ID, RITAD_KALLA, RITAD_LAGER, brantLager, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
+import { BLOTT_MONSTER, BLOTT_STRECK, BRANT_MONSTER, BRANT_LITE_MONSTER, brantLiteBild, RITAD_DOLJ_FYLLNING, blottLager, kurvLager, blottMonsterBild, RITAD_ID, RITAD_KALLA, RITAD_LAGER, brantLager, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
 import { franBase64, type MarkRutnat } from '@/lib/ritadKarta/mark';
 import { snedstreckBild } from '@/lib/ytaStil';
 
@@ -124,7 +124,8 @@ function laggTillGrund(m: any) {
   for (const l of grundLager()) if (!m.getLayer(l.id)) m.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: 'none' } });
   if (!m.hasImage?.(BRANT_MONSTER)) m.addImage?.(BRANT_MONSTER, snedstreckBild('fara'));
   if (!m.getSource(RITAD_KALLA.brant)) m.addSource(RITAD_KALLA.brant, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  if (!m.getLayer(RITAD_ID.brant)) m.addLayer({ ...brantLager(), layout: { visibility: 'none' } });
+  if (!m.hasImage?.(BRANT_LITE_MONSTER)) m.addImage?.(BRANT_LITE_MONSTER, brantLiteBild());
+  for (const l of brantLager()) if (!m.getLayer(l.id)) m.addLayer({ ...l, layout: { visibility: 'none' } });
   if (!m.hasImage?.(BLOTT_MONSTER.gles)) m.addImage?.(BLOTT_MONSTER.gles, blottMonsterBild(BLOTT_STRECK.gles));
   if (!m.hasImage?.(BLOTT_MONSTER.tat)) m.addImage?.(BLOTT_MONSTER.tat, blottMonsterBild(BLOTT_STRECK.tat));
   if (!m.getSource(RITAD_KALLA.blott)) m.addSource(RITAD_KALLA.blott, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });

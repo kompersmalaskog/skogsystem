@@ -101,7 +101,7 @@ const REGLER: Regel[] = [
   [/^ritad-blott-(gles|tat)$/, RANG.bakgrund + 3.5 * D],
   [/^ritad-kurvor$/, RANG.bakgrund + 3.7 * D],
   [/^ritad-(vatten|vattendrag)$/, RANG.bakgrund + 4 * D],
-  [/^ritad-brant$/, RANG.bakgrund + 4.5 * D],
+  [/^ritad-brant(-lite)?$/, RANG.bakgrund + 4.5 * D],
   [/^ritad-hus$/, RANG.bakgrund + 5 * D],
   [/^ritad-vag(-kant)?$/, RANG.bakgrund + 6 * D],
   [/^ritad-kronor$/, RANG.bakgrund + 8 * D],

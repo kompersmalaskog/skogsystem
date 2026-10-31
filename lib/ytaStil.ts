@@ -8,6 +8,8 @@ import { OVRIGA_YTKODER } from './vidaYtaTyp';
 /** Snedstreckningens bildruta (px). Måste vara en multipel av periodens längd så mönstret går ihop i kanterna. */
 export const SNEDSTRECK_PX = 16;
 const PERIOD = 8;          // avstånd mellan streck (diagonalt, i x+y)
+/** Avståndet mellan strecken (i x+y) — för mönster som bygger vidare på Brant-mönstret (Ritads lite brant). */
+export const SNEDSTRECK_PERIOD = PERIOD;
 const STRECK = 3;          // strecktjocklek (i x+y; ≈ 2,1 px vinkelrätt)
 const STRECK_ALFA = 0.9;
 

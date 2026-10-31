@@ -11,7 +11,7 @@
 // Utseendet (färger, symboler, vektorlager) bor i lib/ritadKarta/stil.ts — samma som /karta-ritad.
 
 import { BAKGRUND, RELIEF_KALLA, RELIEF_PAINT, VEKTOR_KALLA, VEKTOR_LAGER } from './stil';
-import { snedstreckId } from '../ytaStil';
+import { SNEDSTRECK_PERIOD, snedstreckBild, snedstreckId } from '../ytaStil';
 
 export const RITAD_KALLA = { vektor: 'ritad-vektor', relief: 'ritad-relief', skog: 'ritad-skog', brant: 'ritad-brant', blott: 'ritad-blott', kurvor: 'ritad-kurvor' } as const;
 
@@ -20,6 +20,7 @@ export const RITAD_ID = {
   skog: 'ritad-skog',
   relief: 'ritad-relief',
   brant: 'ritad-brant',
+  brantLite: 'ritad-brant-lite',
   blottGles: 'ritad-blott-gles',
   blottTat: 'ritad-blott-tat',
   kurvor: 'ritad-kurvor',
@@ -29,7 +30,7 @@ export const RITAD_ID = {
 export const RITAD_VEKTOR_LAGER = VEKTOR_LAGER.map((l) => ({ ...l, id: l.id.replace(/^rk-/, 'ritad-'), source: RITAD_KALLA.vektor }));
 
 /** Alla lager-id:n den ritade kartan använder, nerifrån och upp. */
-export const RITAD_LAGER: string[] = [RITAD_ID.bakgrund, RITAD_ID.skog, RITAD_ID.relief, RITAD_ID.blottGles, RITAD_ID.blottTat, RITAD_ID.kurvor, ...RITAD_VEKTOR_LAGER.map((l) => l.id), RITAD_ID.brant];
+export const RITAD_LAGER: string[] = [RITAD_ID.bakgrund, RITAD_ID.skog, RITAD_ID.relief, RITAD_ID.blottGles, RITAD_ID.blottTat, RITAD_ID.kurvor, ...RITAD_VEKTOR_LAGER.map((l) => l.id), RITAD_ID.brantLite, RITAD_ID.brant];
 
 /** Lagren som alltid finns när Ritad är vald (inget objekt behövs). */
 export function grundLager(): any[] {
@@ -43,8 +44,25 @@ export function grundLager(): any[] {
 export const grundKallor = () => ({ [RITAD_KALLA.vektor]: VEKTOR_KALLA, [RITAD_KALLA.relief]: RELIEF_KALLA });
 
 /** Brant mark (lib/ritadKarta/mark.ts): röda snedstreck — samma tecken som Brant-ytan i appen. Ligger under vägar och allt man planerar. */
+/** Mycket brant = appens Brant-mönster (täta röda snedstreck); lite brant = samma röda men glesare (varannat streck). */
 export const BRANT_MONSTER = snedstreckId('fara');
-export const brantLager = () => ({ id: RITAD_ID.brant, type: 'fill', source: RITAD_KALLA.brant, paint: { 'fill-pattern': BRANT_MONSTER, 'fill-opacity': 0.9 } });
+export const BRANT_LITE_MONSTER = 'ritad-brant-lite';
+/** Glesa röda snedstreck: samma bild som Brant-ytan med vartannat streck borta (dubbelt så långt mellan strecken). */
+export function brantLiteBild(): { width: number; height: number; data: Uint8ClampedArray } {
+  const b = snedstreckBild('fara');
+  const data = new Uint8ClampedArray(b.data.length * 4);
+  const W = b.width * 2;
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    if ((x + y) % (2 * SNEDSTRECK_PERIOD) >= SNEDSTRECK_PERIOD) continue;
+    const s = ((y % b.height) * b.width + (x % b.width)) * 4, o = (y * W + x) * 4;
+    for (let j = 0; j < 4; j++) data[o + j] = b.data[s + j];
+  }
+  return { width: W, height: W, data };
+}
+export const brantLager = () => [
+  { id: RITAD_ID.brantLite, type: 'fill', source: RITAD_KALLA.brant, filter: ['==', ['get', 'k'], 'lite'], paint: { 'fill-pattern': BRANT_LITE_MONSTER, 'fill-opacity': 0.9 } },
+  { id: RITAD_ID.brant, type: 'fill', source: RITAD_KALLA.brant, filter: ['==', ['get', 'k'], 'mycket'], paint: { 'fill-pattern': BRANT_MONSTER, 'fill-opacity': 0.9 } },
+];
 
 /**
  * Blöt mark (lib/ritadKarta/mark.ts): blå vågräta streck som orienteringskartans myr — glesa = fuktigt, täta = blött (Martin 2026-10-31: "så lätt

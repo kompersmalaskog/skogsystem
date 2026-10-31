@@ -5,7 +5,9 @@
 //     fuktigt, täta = blött. Talet är SLU:s sannolikhet för blöt mark (band 1, 0–100) — aldrig färgerna i en bild och aldrig en gissad
 //     klassnumrering (två försök med det tappade allt grönt). Öppet vatten (band 2, klass 4) ritas av vattenlagret, inte här.
 //   • BACKIGT = skuggning: Lantmäteriets terrängskuggning ur 1 m-höjdmodellen, blandad in i skogsbilden (inte ett grått lager ovanpå).
-//   • BRANT = röda snedstreck från BRANT_GRAD (samma tecken som Brant-ytan i appen). 20–25° visas inte — annars blir kartan full av varningar.
+//   • BRANT = röda snedstreck i två nivåer (Martin 2026-10-31: "lite brant, mycket brant"): glesa = lite brant, täta = mycket brant — samma
+//     tanke som blött (glest = fuktigt, tätt = blött). Gränserna är Skogforsks terrängklasser för lutning: klass 4 från 33 % (≈ 18°), klass 5
+//     från 50 % (≈ 27°). Flackare än klass 4 visas inte — annars blir kartan full av varningar.
 //
 // Rena funktioner; hämtningen bor i app/api/ritad-karta/mark/route.ts, sammanfogningen i lib/ritadKarta/bygg.ts.
 
@@ -13,8 +15,8 @@ import { tillLngLat, type Utsnitt } from './skog';
 
 /** Rutstorlek för blött och brant (m). Finare än skogens 10 m — en blöt svacka är ofta smal. */
 export const MARK_RUTA_M = 5;
-/** Brant från (grader). */
-export const BRANT_GRAD = 25;
+/** Brant från (grader): lite brant = Skogforsks lutningsklass 4 (33 % ≈ 18°), mycket brant = klass 5 (50 % ≈ 27°). Ändras bara här. */
+export const BRANT_GRANS = { lite: 18, mycket: 27 } as const;
 /** Mindre sammanhängande brant än så här (rutor à 5 × 5 m) visas inte: en enstaka sten eller dikeskant är ingen brant. */
 export const BRANT_MIN_RUTOR = 8;
 
@@ -136,9 +138,16 @@ export function maskYtor(
   return ut;
 }
 
-/** Brant mark: rutor ≥ BRANT_GRAD, ytor under BRANT_MIN_RUTOR bort. */
+/**
+ * Brant mark i två nivåer: `k` = 'lite' (glesa snedstreck) eller 'mycket' (täta). Den lite branta ytan räknas med det mycket branta i sig (som
+ * blött), så en kort mycket brant kant i en lite brant sluttning inte försvinner; det mycket branta ritas ovanpå. Ytor under BRANT_MIN_RUTOR bort.
+ */
 export function brantYtor(m: Pick<MarkRutnat, 'minX' | 'maxY' | 'bredd' | 'hojd' | 'rutaM' | 'lutning'>): GeoJSON.FeatureCollection {
-  return { type: 'FeatureCollection', features: maskYtor(m, (i) => m.lutning[i] !== LUTNING_SAKNAS && m.lutning[i] >= BRANT_GRAD, BRANT_MIN_RUTOR) };
+  const minst = (g: number) => (i: number) => m.lutning[i] !== LUTNING_SAKNAS && m.lutning[i] >= g;
+  return { type: 'FeatureCollection', features: [
+    ...maskYtor(m, minst(BRANT_GRANS.lite), BRANT_MIN_RUTOR, { k: 'lite' }),
+    ...maskYtor(m, minst(BRANT_GRANS.mycket), BRANT_MIN_RUTOR, { k: 'mycket' }),
+  ] };
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BLOTT_MIN_RUTOR, BRANT_GRAD, BRANT_MIN_RUTOR, FUKT, FUKT_GRANS, KLASS_VATTEN, LUTNING_SAKNAS, tolkaFuktBand, blottYtor, brantYtor, franBase64, fuktKod, markUtsnitt, tillBase64 } from './mark';
+import { BLOTT_MIN_RUTOR, BRANT_GRANS, BRANT_MIN_RUTOR, FUKT, FUKT_GRANS, KLASS_VATTEN, LUTNING_SAKNAS, tolkaFuktBand, blottYtor, brantYtor, franBase64, fuktKod, markUtsnitt, tillBase64 } from './mark';
 import { tillSweref } from './skog';
 
 describe('fuktKod: SLU:s sannolikhet för blöt mark → två steg', () => {
@@ -29,13 +29,20 @@ describe('blottYtor', () => {
 describe('brantYtor', () => {
   const [x0, y0] = tillSweref(15, 56.5);
   const rn = (lut: number[], bredd: number) => ({ minX: Math.round(x0), maxY: Math.round(y0), bredd, hojd: lut.length / bredd, rutaM: 5, lutning: Uint8Array.from(lut) });
-  it('en sammanhängande brant yta blir rektanglar, en per rad', () => {
-    const b = 4, lut = new Array(16).fill(BRANT_GRAD);
-    const fc = brantYtor(rn(lut, b));
-    expect(fc.features).toHaveLength(4);
+  const k = (fc: GeoJSON.FeatureCollection, v: string) => fc.features.filter((f) => f.properties?.k === v).length;
+  it('lite brant: bara glesa streck; mycket brant: båda (det täta ritas ovanpå)', () => {
+    const lite = brantYtor(rn(new Array(16).fill(BRANT_GRANS.lite), 4));
+    expect(k(lite, 'lite')).toBe(4); expect(k(lite, 'mycket')).toBe(0);
+    const mycket = brantYtor(rn(new Array(16).fill(BRANT_GRANS.mycket), 4));
+    expect(k(mycket, 'lite')).toBe(4); expect(k(mycket, 'mycket')).toBe(4);
+    expect(k(brantYtor(rn(new Array(16).fill(BRANT_GRANS.mycket - 1), 4)), 'mycket')).toBe(0);
   });
-  it('under BRANT_GRAD visas inget, och saknad lutning är aldrig brant', () => {
-    expect(brantYtor(rn(new Array(16).fill(BRANT_GRAD - 1), 4)).features).toHaveLength(0);
+  it('gränserna är Skogforsks lutningsklasser 4 och 5 (33 % och 50 %)', () => {
+    expect(Math.round(Math.atan(0.33) * 180 / Math.PI)).toBe(BRANT_GRANS.lite);
+    expect(Math.round(Math.atan(0.5) * 180 / Math.PI)).toBe(BRANT_GRANS.mycket);
+  });
+  it('flackare än lite brant visas inte, och saknad lutning är aldrig brant', () => {
+    expect(brantYtor(rn(new Array(16).fill(BRANT_GRANS.lite - 1), 4)).features).toHaveLength(0);
     expect(brantYtor(rn(new Array(16).fill(LUTNING_SAKNAS), 4)).features).toHaveLength(0);
   });
   it('små brantfläckar (en sten, en dikeskant) tas bort', () => {
