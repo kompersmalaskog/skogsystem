@@ -48,7 +48,7 @@ export default function MedarbetareFlik() {
     try {
       const [medRes0, opMedRes, dimOpRes, maskinRes] = await Promise.all([
         supabase.from("medarbetare")
-          .select(`${MED_KOLUMNER}, foretagsledare`)
+          .select(`${MED_KOLUMNER}, foretagsledare, skyddsombud`)
           .order("namn"),
         supabase.from("operator_medarbetare").select("operator_id, medarbetare_id"),
         supabase.from("dim_operator").select("operator_id, operator_namn, operator_key, maskin_id"),
@@ -113,6 +113,7 @@ export default function MedarbetareFlik() {
         harForetagsledare={harForetagsledare}
         // Listan i minnet följer med: öppnas personen igen utan omladdning ska reglaget visa det som sparades.
         onForetagsledareSparad={(id, v) => setMedarbetare(lista => lista.map(x => x.id === id ? { ...x, foretagsledare: v } : x))}
+        onSkyddsombudSparad={(id, v) => setMedarbetare(lista => lista.map(x => x.id === id ? { ...x, skyddsombud: v } : x))}
         onKlar={() => { tillLista(); ladda(); }}
         onLadda={() => ladda()}
         onTillbaka={tillLista}
@@ -174,12 +175,14 @@ function ListaVy({
                   if (m.maskin_id) maskinNamn.add(maskiner[m.maskin_id] || m.maskin_id);
                   // En förare utan koppling till maskinfilerna får ingen tid till lönen: det är det enda som står på raden utöver maskinen.
                   const utanKoppling = m.roll === "forare" && ops.length === 0;
+                  const skyddsombud = m.roll === "forare" && m.skyddsombud === true;
                   return (
                     <Rad key={m.id} onClick={() => onValj(m.id)} chevron sista={i === grupp.length - 1}
                       rubrik={m.namn || "Namnlös"}
-                      detalj={(maskinNamn.size > 0 || utanKoppling) ? <>
+                      detalj={(maskinNamn.size > 0 || utanKoppling || skyddsombud) ? <>
                         {Array.from(maskinNamn).join(", ")}
-                        {utanKoppling && <span style={{ color: FARG.orange }}>{maskinNamn.size > 0 ? " · " : ""}saknar koppling till maskinen</span>}
+                        {skyddsombud && <>{maskinNamn.size > 0 ? " · " : ""}Skyddsombud</>}
+                        {utanKoppling && <span style={{ color: FARG.orange }}>{maskinNamn.size > 0 || skyddsombud ? " · " : ""}saknar koppling till maskinen</span>}
                       </> : undefined} />
                   );
                 })}
@@ -195,7 +198,7 @@ function ListaVy({
 /* ─── DETALJ ─── */
 
 function DetaljVy({
-  medarbetare, operatorer, maskiner, harForetagsledare, onForetagsledareSparad, onKlar, onLadda, onTillbaka,
+  medarbetare, operatorer, maskiner, harForetagsledare, onForetagsledareSparad, onSkyddsombudSparad, onKlar, onLadda, onTillbaka,
 }: {
   medarbetare: Medarbetare;
   operatorer: OperatorRad[];
@@ -204,6 +207,7 @@ function DetaljVy({
   harForetagsledare: boolean;
   /** Reglaget sparades (verifierat med .select()): uppdatera personen i listans minne. */
   onForetagsledareSparad: (id: string, varde: boolean) => void;
+  onSkyddsombudSparad: (id: string, varde: boolean) => void;
   onKlar: () => void;
   /** Ladda om och STANNA på personen (efter geokodning — se var adressen hamnade). */
   onLadda: () => void;
@@ -222,6 +226,9 @@ function DetaljVy({
   // Reglaget sparar SJÄLVT, direkt när det slås om (se valjForetagsledare) — det hör inte till formulärets "Spara ändringar".
   const [foretagsledare, setForetagsledare] = useState(medarbetare.foretagsledare === true);
   const [foretagsledareSparar, setForetagsledareSparar] = useState(false);
+  // Skyddsombud: samma mönster — sparas direkt när reglaget slås om.
+  const [skyddsombud, setSkyddsombud] = useState(medarbetare.skyddsombud === true);
+  const [skyddsombudSparar, setSkyddsombudSparar] = useState(false);
   const [sparar, setSparar] = useState(false);
   const [sparFel, setSparFel] = useState<string | null>(null);
   const [taBortLäge, setTaBortLäge] = useState(false);
@@ -275,6 +282,22 @@ function DetaljVy({
       return;
     }
     onForetagsledareSparad(medarbetare.id, nytt);
+  };
+
+  /** Skyddsombud sparas direkt, verifierat som Företagsledare. Väljs av förarna — admin registrerar bara vem det blev. */
+  const valjSkyddsombud = async (nytt: boolean) => {
+    const fore = skyddsombud;
+    setSkyddsombud(nytt);
+    setSkyddsombudSparar(true);
+    setSparFel(null);
+    const { data: skrivet, error } = await supabase.from("medarbetare").update({ skyddsombud: nytt }).eq("id", medarbetare.id).select("id, skyddsombud");
+    setSkyddsombudSparar(false);
+    if (error || !skrivet?.length || skrivet[0].skyddsombud !== nytt) {
+      setSkyddsombud(fore);
+      setSparFel(`Skyddsombud sparades inte: ${error?.message || "inget sparades — raden träffades inte"}`);
+      return;
+    }
+    onSkyddsombudSparad(medarbetare.id, nytt);
   };
 
   const spara = async () => {
@@ -378,6 +401,10 @@ function DetaljVy({
         {harForetagsledare && (
           <Reglage label="Företagsledare / delägare" value={foretagsledare} onChange={v => { if (!foretagsledareSparar) valjForetagsledare(v); }}
             hint={foretagsledareSparar ? "Sparar…" : "Sparas direkt. Ingen lön i appen."} />
+        )}
+        {medarbetare.roll === "forare" && (
+          <Reglage label="Skyddsombud" value={skyddsombud} onChange={v => { if (!skyddsombudSparar) valjSkyddsombud(v); }}
+            hint={skyddsombudSparar ? "Sparar…" : "Väljs av förarna. Ser alla maskinkoller och åtgärder."} />
         )}
       </Kort>
 
