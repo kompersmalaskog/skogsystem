@@ -6,7 +6,14 @@
 // exakt. `dolj()` kan anropas om och om igen (vid 'styledata': lager som skapas eller tänds medan listan är öppen göms också) — den skriver aldrig
 // över en sparad synlighet. Samma mönster som körvyns lager-whitelist (page.tsx), men utan att ändra planeringsvyns egna toggle-val.
 
+import { RITAD_ID, RITAD_VEKTOR_LAGER } from './ritadKarta/lager';
+
+// Ritads grund (botten, terrängskuggning, vatten, vägar, hus) är bakgrund — annars blev objektlistans karta tom med Ritad vald (Martin 2026-10-31).
+// Skogen, blött och brant göms: de finns bara runt det valda objektet och vore en lös fläck i översikten.
+export const RITAD_GRUND: readonly string[] = [RITAD_ID.bakgrund, RITAD_ID.relief, ...RITAD_VEKTOR_LAGER.map((l) => l.id)];
+
 export const BAS_LAGER: readonly string[] = [
+  ...RITAD_GRUND,
   'bg', 'osm-layer', 'satellite-layer', 'lm-layer', 'terrain-layer', 'lm-skuggning-layer', 'sks-markfuktighet-layer', 'bg-korvy', 'hillshade-korvy',
 ];
 export const BEHALL_PREFIX: readonly string[] = ['wms-layer-', 'objlista-', 'maskin-', 'gps-'];
