@@ -1,8 +1,9 @@
 // RITAD — BLÖTT OCH BRANT (Martin 2026-10-31: "det måste bli super tydligt för maskinförarna vad det är blött och backigt").
 //
 // Tre saker på marken, inget mer:
-//   • BLÖTT = blått. Bara två steg ur Skogsstyrelsens/SLU:s markfuktighetskarta: fuktig (ljust blått) och blöt (tydligt blått).
-//     Torr, frisk och frisk-fuktig mark får INGEN färg — skogen syns som förut. Öppet vatten ritas av vattenlagret, inte här.
+//   • BLÖTT = blått, tre steg ur SLU:s markfuktighetskarta: frisk-fuktig (ljust blått — "det gröna är ju lite blött med", Martin 2026-10-31),
+//     fuktig (blått) och blöt (mörkt, starkt blått). Torr och frisk mark får INGEN färg — skogen syns som förut. Öppet vatten ritas av
+//     vattenlagret, inte här.
 //   • BACKIGT = skuggning: Lantmäteriets terrängskuggning ur 1 m-höjdmodellen, blandad in i skogsbilden (inte ett grått lager ovanpå).
 //   • BRANT = röda snedstreck från BRANT_GRAD (samma tecken som Brant-ytan i appen). 20–25° visas inte — annars blir kartan full av varningar.
 //
@@ -17,15 +18,22 @@ export const BRANT_GRAD = 25;
 /** Mindre sammanhängande brant än så här (rutor à 5 × 5 m) visas inte: en enstaka sten eller dikeskant är ingen brant. */
 export const BRANT_MIN_RUTOR = 8;
 
-export const FUKT = { ingen: 0, fuktig: 1, blot: 2 } as const;
+export const FUKT = { ingen: 0, lite: 1, fuktig: 2, blot: 3 } as const;
 export type FuktKod = (typeof FUKT)[keyof typeof FUKT];
 
 /** Färg per fuktkod (RGBA, alfa = hur mycket av skogen som täcks). Blått = blött i hela appen. */
 export const FUKT_FARG: readonly (readonly [number, number, number, number])[] = [
   [0, 0, 0, 0],
-  [74, 156, 226, 110],
-  [40, 116, 222, 200],
+  [110, 178, 240, 120],
+  [52, 132, 232, 175],
+  [24, 88, 214, 220],
 ];
+
+/**
+ * SLU:s markfuktighetskarta 2.0: 1 torr, 2 frisk, 3 frisk-fuktig, 4 fuktig, 5 blöt (samma numrering som lib/korbarhet.ts). Används bara när
+ * tjänstens egen attributtabell inte går att läsa — och bara på ett band vars alla värden ligger i 1–6.
+ */
+export const SLU_STANDARD = new Map<number, FuktKod>([[1, FUKT.ingen], [2, FUKT.ingen], [3, FUKT.lite], [4, FUKT.fuktig], [5, FUKT.blot], [6, FUKT.ingen]]);
 
 /** Lutning saknas. */
 export const LUTNING_SAKNAS = 255;
@@ -43,16 +51,13 @@ export function markUtsnitt(u: Pick<Utsnitt, 'minX' | 'maxY' | 'maxX' | 'minY'>)
   return { minX: u.minX, maxY: u.maxY, bredd: Math.round((u.maxX - u.minX) / MARK_RUTA_M), hojd: Math.round((u.maxY - u.minY) / MARK_RUTA_M) };
 }
 
-/**
- * Markfuktighetens klassnamn → vår kod. Läses ur tjänstens egen attributtabell, så appen aldrig gissar vilket tal som betyder blött.
- * "Frisk-fuktig" är INTE fuktig här (ingen färg); "Öppet vatten" ritas av vattenlagret.
- */
+/** Markfuktighetens klassnamn → vår kod (tjänstens egen attributtabell). "Öppet vatten" ritas av vattenlagret. */
 export function fuktKodFranNamn(namn: string | null | undefined): FuktKod {
   const n = (namn ?? '').toLowerCase().normalize('NFC');
   if (/vatten/.test(n)) return FUKT.ingen;
   if (/bl[öo]t/.test(n)) return FUKT.blot;
-  if (/frisk/.test(n)) return FUKT.ingen;
-  if (/fuktig/.test(n)) return FUKT.fuktig;
+  if (/frisk.*fukt/.test(n)) return FUKT.lite;
+  if (/fukt/.test(n)) return FUKT.fuktig;
   return FUKT.ingen;
 }
 

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { BRANT_GRAD, BRANT_MIN_RUTOR, FUKT, LUTNING_SAKNAS, brantYtor, franBase64, fuktKodFranNamn, markUtsnitt, tillBase64 } from './mark';
+import { BRANT_GRAD, BRANT_MIN_RUTOR, FUKT, FUKT_FARG, SLU_STANDARD, LUTNING_SAKNAS, brantYtor, franBase64, fuktKodFranNamn, markUtsnitt, tillBase64 } from './mark';
 import { tillSweref } from './skog';
 
-describe('fuktKodFranNamn: bara fuktig och blöt får färg', () => {
+describe('fuktKodFranNamn: frisk-fuktig, fuktig och blöt får tre blå steg', () => {
   it.each([
-    ['Torr', FUKT.ingen], ['Frisk', FUKT.ingen], ['Frisk-fuktig', FUKT.ingen], ['Frisk–Fuktig', FUKT.ingen],
+    ['Torr', FUKT.ingen], ['Frisk', FUKT.ingen], ['Frisk-fuktig', FUKT.lite], ['Frisk–Fuktig', FUKT.lite], ['Frisk fuktig', FUKT.lite],
     ['Fuktig', FUKT.fuktig], ['Blöt', FUKT.blot], ['Blot', FUKT.blot], ['Öppet vatten', FUKT.ingen], [null, FUKT.ingen],
   ])('%s', (namn, kod) => expect(fuktKodFranNamn(namn as any)).toBe(kod));
 });
@@ -37,4 +37,13 @@ it('markens rutnät täcker samma utsnitt som skogen, med 5 m rutor', () => {
 it('base64 tur och retur', () => {
   const b = Uint8Array.from([0, 1, 2, 255, 30]);
   expect([...franBase64(tillBase64(b))]).toEqual([...b]);
+});
+
+it('SLU:s numrering: 3 frisk-fuktig, 4 fuktig, 5 blöt — torr och frisk utan färg', () => {
+  expect([1, 2, 3, 4, 5].map((v) => SLU_STANDARD.get(v))).toEqual([FUKT.ingen, FUKT.ingen, FUKT.lite, FUKT.fuktig, FUKT.blot]);
+});
+it('ju blötare, desto starkare blått (aldrig grönt)', () => {
+  const [, lite, fuktig, blot] = FUKT_FARG;
+  expect(lite[3]).toBeLessThan(fuktig[3]); expect(fuktig[3]).toBeLessThan(blot[3]);
+  for (const c of [lite, fuktig, blot]) { expect(c[2]).toBeGreaterThan(c[1]); expect(c[2]).toBeGreaterThan(c[0]); }
 });

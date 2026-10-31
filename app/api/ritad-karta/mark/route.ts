@@ -3,7 +3,7 @@ import { fromArrayBuffer } from 'geotiff';
 import sharp from 'sharp';
 import { kravInloggad } from '@/lib/auth/server';
 import { utsnittForRingar } from '@/lib/ritadKarta/skog';
-import { FUKT, LUTNING_SAKNAS, MARK_RUTA_M, fuktKodFranNamn, markUtsnitt, tillBase64 } from '@/lib/ritadKarta/mark';
+import { FUKT, LUTNING_SAKNAS, MARK_RUTA_M, SLU_STANDARD, fuktKodFranNamn, markUtsnitt, tillBase64 } from '@/lib/ritadKarta/mark';
 
 // Ritad — blött, brant och terrängskuggning för samma utsnitt som skogen (trakten + 300 m). Se lib/ritadKarta/mark.ts.
 // In:  { ringar: [lng, lat][][] }
@@ -50,7 +50,9 @@ async function exportBand(service: string, u: U, auth: Record<string, string>, e
 
 /** Markfuktighetens värde → vår kod, ur tjänstens egen attributtabell (aldrig en gissad numrering). */
 async function fuktKoder(auth: Record<string, string>): Promise<Map<number, number>> {
+  // Faller den här används SLU:s standardnumrering (SLU_STANDARD), men bara på ett band där alla värden finns i den.
   const r = await hamta(`${MARKFUKT}/rasterAttributeTable?f=json`, auth);
+  if (!r.ok) throw new Error(`attributtabell ${r.status}`);
   const j: any = await r.json();
   const ut = new Map<number, number>();
   for (const f of j?.features ?? []) {
@@ -122,7 +124,7 @@ export async function POST(req: NextRequest) {
   const problem: string[] = [];
 
   const [fuktSvar, lutSvar, skuggSvar] = await Promise.allSettled([
-    Promise.all([fuktKoder(auth), exportBand(MARKFUKT, u, auth)]),
+    Promise.all([fuktKoder(auth).catch((e) => { console.error('[ritad-karta/mark] attributtabellen:', e); return SLU_STANDARD; }), exportBand(MARKFUKT, u, auth)]),
     exportBand(LUTNING, u, auth),
     skugga(u),
   ]);
@@ -133,7 +135,10 @@ export async function POST(req: NextRequest) {
     // Klassbandet = det band vars värden är attributtabellens (tjänsten kan ha fler band, t.ex. en sannolikhet).
     const v = band.find((b) => klassBand(b, koder));
     if (v) for (let i = 0; i < n; i++) fukt[i] = koder.get(Math.round(v[i])) ?? FUKT.ingen;
-    else { console.error('[ritad-karta/mark] markfuktighet: inget band med klassvärden', band.length); problem.push('markfuktighet'); }
+    else {
+      console.error('[ritad-karta/mark] markfuktighet: inget band med klassvärden', band.length, band.map((b) => { let mn = Infinity, mx = -Infinity; for (let i = 0; i < b.length; i++) { const x = b[i]; if (Number.isFinite(x)) { if (x < mn) mn = x; if (x > mx) mx = x; } } return [mn, mx]; }));
+      problem.push('markfuktighet');
+    }
   } else {
     console.error('[ritad-karta/mark] markfuktighet:', fuktSvar.reason);
     problem.push('markfuktighet');
