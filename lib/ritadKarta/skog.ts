@@ -148,8 +148,41 @@ export function bildHorn(rn: Pick<Rutnat, 'minX' | 'maxY' | 'bredd' | 'hojd'>): 
 }
 
 const KLASSER: Klass[] = ['ingen', 'oppet', 'ung', 'gallring', 'mogen', 'avverkat'];
-/** Utjämningens bredd i rutor. 0,6 = kanten följer rutnätet men utan trappsteg. */
-export const UTJAMNING = 0.6;
+/** Utjämningens bredd i rutor. 0,85 = mjuka kurvor i stället för rutnätets trappsteg (Martin 2026-10-31: kanterna såg pixliga ut). */
+export const UTJAMNING = 0.85;
+/** Mindre fläckar än så här (rutor à 10 × 10 m = 0,1 ha) tar grannarnas klass: en ensam 10 m-ruta ungskog i mogen skog är brus, inget att se. */
+export const MIN_FLACK_RUTOR = 10;
+
+/**
+ * Små fläckar bort: varje sammanhängande fläck (fyra grannar) under `minRutor` får den klass som omger den mest. Klasserna i `fasta` (ingen data,
+ * avverkat) ändras aldrig och tar aldrig över något — det avverkade kommer ur stammarna och är inte brus. Ändrar `kl` på plats.
+ */
+export function slataKlasser(kl: Uint8Array, bredd: number, hojd: number, minRutor: number, fasta: number[]): void {
+  const fast = new Set(fasta);
+  const sedd = new Uint8Array(kl.length);
+  const ko: number[] = [];
+  for (let s = 0; s < kl.length; s++) {
+    if (sedd[s] || fast.has(kl[s])) continue;
+    const c = kl[s];
+    const flack: number[] = [];
+    const runt = new Map<number, number>();
+    ko.length = 0; ko.push(s); sedd[s] = 1;
+    while (ko.length) {
+      const i = ko.pop()!; flack.push(i);
+      const r = Math.floor(i / bredd), k = i % bredd;
+      for (const [rr, kk] of [[r - 1, k], [r + 1, k], [r, k - 1], [r, k + 1]]) {
+        if (rr < 0 || kk < 0 || rr >= hojd || kk >= bredd) continue;
+        const j = rr * bredd + kk;
+        if (kl[j] === c) { if (!sedd[j]) { sedd[j] = 1; ko.push(j); } }
+        else if (!fast.has(kl[j])) runt.set(kl[j], (runt.get(kl[j]) ?? 0) + 1);
+      }
+    }
+    if (flack.length >= minRutor || runt.size === 0) continue;
+    let bast = -1, n = -1;
+    for (const [k, v] of runt) if (v > n) { n = v; bast = k; }
+    for (const i of flack) kl[i] = bast;
+  }
+}
 /** Hur brett blandningsbandet vid en kant är (andel av rösterna). Litet = skarp men inte pixlig kant. */
 export const KANT_MJUK = 0.2;
 
@@ -162,6 +195,7 @@ export const KANT_MJUK = 0.2;
 export function renderaSkog(rn: Rutnat, avverkat: Set<number>, farg: Record<Klass, [number, number, number, number]>, skala = 6): { data: Uint8ClampedArray; bredd: number; hojd: number } {
   const kl = new Uint8Array(rn.bredd * rn.hojd);
   for (let i = 0; i < kl.length; i++) kl[i] = KLASSER.indexOf(avverkat.has(i) ? 'avverkat' : klassFor(rn.hojdDm[i]));
+  slataKlasser(kl, rn.bredd, rn.hojd, MIN_FLACK_RUTOR, [KLASSER.indexOf('ingen'), KLASSER.indexOf('avverkat')]);
   return renderaKlasser(rn.bredd, rn.hojd, kl, KLASSER.map((k) => farg[k]), skala);
 }
 

@@ -197,7 +197,7 @@ import { LinjeRedList, type RedVal } from '../../components/planering/LinjeRedLi
 import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_KANT_LAGER, KORUPP_TRAFF_LAGER, arKorUpp, korUppUr, korUppData, korUppLager, ritaSpetsBild, synligaKorUpp, nyKorUpp, KORUPP_SKAL, korUppText, type KorUppPos, type Skal, type SnappVag } from '../../lib/korUpp'
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
-import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner } from '../../lib/traktTon'
+import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, tonPaint, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner } from '../../lib/traktTon'
 import { PLANSPAR_LAGER, PLANSPAR_NYCKEL, planSparPa, vaxlaPlanSpar } from '../../lib/planSparLager'
 import { KLART_FARG, KLART_YTA_KANT_BREDD, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_KANT_LAGER, INGA_YTOR, skotadeYtor } from '../../lib/kartKlart'
 import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
@@ -5164,7 +5164,8 @@ export default function PlannerPage() {
     if (!src?.setData || !map.getLayer(UTANFOR_TON_LAGER)) return;
     try { src.setData(tonYta as any); } catch { /* */ }
     try { map.setLayoutProperty(UTANFOR_TON_LAGER, 'visibility', tonYta.features.length > 0 && !fastighetsSyn.vida ? 'visible' : 'none'); } catch { /* */ }
-  }, [tonYta, fastighetsSyn.vida, mapLibreReady]);
+    try { for (const [k, v] of Object.entries(tonPaint(mapType))) map.setPaintProperty(UTANFOR_TON_LAGER, k, v); } catch { /* */ }
+  }, [tonYta, fastighetsSyn.vida, mapLibreReady, mapType]);
 
   // Justerade delar (en boundary-markör med fromVidaTd=<partKey> finns) döljs PER del.
   const justeradeTraktdelar = useMemo(

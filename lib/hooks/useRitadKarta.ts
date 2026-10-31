@@ -16,7 +16,7 @@ import { hamtaStammoln } from '@/lib/egenkontroll';
 import type { Rutnat } from '@/lib/ritadKarta/skog';
 import { omradeNyckel, valjOmrade, type Omrade, type OmradesKalla, type Ring } from '@/lib/ritadKarta/omrade';
 import { byggRitat, type Ritat } from '@/lib/ritadKarta/bygg';
-import { BLOTT_MONSTER, BLOTT_STRECK, BRANT_MONSTER, RITAD_DOLJ_FYLLNING, blottLager, blottMonsterBild, RITAD_ID, RITAD_KALLA, RITAD_LAGER, brantLager, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
+import { BLOTT_MONSTER, BLOTT_STRECK, BRANT_MONSTER, RITAD_DOLJ_FYLLNING, blottLager, kurvLager, blottMonsterBild, RITAD_ID, RITAD_KALLA, RITAD_LAGER, brantLager, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
 import { franBase64, type MarkRutnat } from '@/lib/ritadKarta/mark';
 import { snedstreckBild } from '@/lib/ytaStil';
 
@@ -55,11 +55,33 @@ async function hamtaSkog(f: Extract<Objektfakta, { typ: 'ok' }>, omrade: Omrade)
     try { stammar = (await hamtaStammoln(f.vo)).punkter; } catch { /* utan stammar ritas inget avverkat */ }
   }
   const kropp = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ringar: omrade.ringar }) };
-  const [r, mark] = await Promise.all([fetch('/api/ritad-karta/laser', kropp), hamtaMark(kropp)]);
+  const [r, mark, hojd] = await Promise.all([fetch('/api/ritad-karta/laser', kropp), hamtaMark(kropp), hamtaHojd(kropp)]);
   const j = await r.json().catch(() => ({}));
   if (!r.ok) return { typ: 'fel', text: (j as any)?.error || 'Kunde inte hämta laserdatan' };
   const rn = j as Rutnat;
-  return { typ: 'klar', ritat: byggRitat(rn, stammar, mark.rutnat, mark.skugga), ar: rn.ar ?? null, kalla: omrade.kalla, saknas: mark.saknas };
+  // Skuggningen ur höjdmodellen (ljus från flera håll) går före Lantmäteriets färdiga; finns ingen av dem saknas skuggningen.
+  const skugga = hojd.skugga ?? mark.skugga;
+  const saknas = mark.saknas.filter((t) => t !== 'skuggning' || !skugga);
+  if (hojd.fel) saknas.push(`höjdkurvor (${hojd.fel})`);
+  return { typ: 'klar', ritat: byggRitat(rn, stammar, mark.rutnat, skugga, hojd.kurvor), ar: rn.ar ?? null, kalla: omrade.kalla, saknas };
+}
+
+/** Höjdkurvor och skuggning från flera håll (lib/ritadKarta/hojd.ts). Faller den ritas kartan utan kurvor och raden säger varför. */
+async function hamtaHojd(kropp: RequestInit): Promise<{ kurvor: GeoJSON.FeatureCollection | null; skugga: CanvasImageSource | null; fel: string | null }> {
+  try {
+    const r = await fetch('/api/ritad-karta/hojd', kropp);
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok) return { kurvor: null, skugga: null, fel: String(j?.error || `svar ${r.status}`).slice(0, 120) };
+    let skugga: CanvasImageSource | null = null;
+    if (j.skugga) {
+      const im = new Image();
+      im.src = j.skugga;
+      try { await im.decode(); skugga = im; } catch { /* utan */ }
+    }
+    return { kurvor: j.kurvor ?? null, skugga, fel: null };
+  } catch {
+    return { kurvor: null, skugga: null, fel: 'kunde inte nås' };
+  }
 }
 
 /** Blött, brant och skuggning (lib/ritadKarta/mark.ts). Faller något ritas skogen ändå och `saknas` säger vad. */
@@ -107,6 +129,8 @@ function laggTillGrund(m: any) {
   if (!m.hasImage?.(BLOTT_MONSTER.tat)) m.addImage?.(BLOTT_MONSTER.tat, blottMonsterBild(BLOTT_STRECK.tat));
   if (!m.getSource(RITAD_KALLA.blott)) m.addSource(RITAD_KALLA.blott, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   for (const l of blottLager()) if (!m.getLayer(l.id)) m.addLayer({ ...l, layout: { visibility: 'none' } });
+  if (!m.getSource(RITAD_KALLA.kurvor)) m.addSource(RITAD_KALLA.kurvor, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  if (!m.getLayer(RITAD_ID.kurvor)) { const l = kurvLager(); m.addLayer({ ...l, layout: { ...l.layout, visibility: 'none' } }); }
 }
 
 function sattSkog(m: any, ritat: Ritat | null, paint: Record<string, number>) {
@@ -114,6 +138,7 @@ function sattSkog(m: any, ritat: Ritat | null, paint: Record<string, number>) {
   if (m.getSource(RITAD_KALLA.skog)) m.removeSource(RITAD_KALLA.skog);
   m.getSource(RITAD_KALLA.brant)?.setData(ritat ? ritat.brant : { type: 'FeatureCollection', features: [] });
   m.getSource(RITAD_KALLA.blott)?.setData(ritat ? ritat.blott : { type: 'FeatureCollection', features: [] });
+  m.getSource(RITAD_KALLA.kurvor)?.setData(ritat ? ritat.kurvor : { type: 'FeatureCollection', features: [] });
   if (!ritat) return;
   m.addSource(RITAD_KALLA.skog, { type: 'image', url: ritat.url, coordinates: ritat.horn });
   m.addLayer({ id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog, paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0, ...paint }, layout: { visibility: 'none' } });

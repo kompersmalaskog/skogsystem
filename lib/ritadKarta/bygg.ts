@@ -2,7 +2,7 @@
 // bakgrunden "Ritad" i planeringen och maskinen (lib/hooks/useRitadKarta), så de två aldrig ritar skogen olika.
 //
 // Med marken (lib/ritadKarta/mark.ts) läggs terrängskuggningen i SAMMA bild (soft-light, så skogens färger behålls och bara backarna blir
-// ljusare/mörkare). Brant och blött blir egna ytor (`brant`, `blott`) för mönsterlager på kartan — röda snedstreck och blå vågräta streck.
+// ljusare/mörkare). Skuggningen kommer helst ur höjdmodellen med ljus från flera håll (lib/ritadKarta/hojd.ts), annars Lantmäteriets färdiga. Brant och blött blir egna ytor (`brant`, `blott`) för mönsterlager på kartan — röda snedstreck och blå vågräta streck.
 
 import { avverkadeRutor, bildHorn, klasser, renderaSkog, skak, trad, type Rutnat, type Trad } from './skog';
 import { kronor, type Krona } from './kronor';
@@ -15,6 +15,8 @@ export type Ritat = {
   brant: GeoJSON.FeatureCollection;
   /** Blöt mark (lng/lat, `k` = fuktig | blot), tom utan marken. */
   blott: GeoJSON.FeatureCollection;
+  /** Höjdkurvor (lng/lat, `s` = 1 på stödkurvor), tom utan höjddata. */
+  kurvor: GeoJSON.FeatureCollection;
 };
 
 /** Hur mycket terrängskuggningen syns (0–1). */
@@ -26,7 +28,7 @@ export const skalaFor = (rn: Pick<Rutnat, 'bredd' | 'hojd'>) => Math.max(2, Math
 const tomFC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
 /** Kräver en webbläsare (canvas). `mark` och `skugga` är valfria: saknas de ritas skogen ensam. */
-export function byggRitat(rn: Rutnat, stammar: { lat: number; lng: number }[], mark?: MarkRutnat | null, skugga?: CanvasImageSource | null): Ritat {
+export function byggRitat(rn: Rutnat, stammar: { lat: number; lng: number }[], mark?: MarkRutnat | null, skugga?: CanvasImageSource | null, kurvor?: GeoJSON.FeatureCollection | null): Ritat {
   const avv = avverkadeRutor(rn, stammar);
   const kl = klasser(rn, avv);
   const bild = renderaSkog(rn, avv, KLASS_FARG, skalaFor(rn));
@@ -55,6 +57,7 @@ export function byggRitat(rn: Rutnat, stammar: { lat: number; lng: number }[], m
     url: c.toDataURL('image/png'), horn: bildHorn(rn), trad: trad(rn, kl), avverkade: avv.size, kronor: kronor(rn, avv, skak),
     brant: mark ? brantYtor(mark) : tomFC,
     blott: mark ? blottYtor(mark) : tomFC,
+    kurvor: kurvor ?? tomFC,
   };
 }
 
