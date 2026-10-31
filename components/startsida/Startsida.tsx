@@ -64,6 +64,7 @@ const MARKE_TEXT: Record<MarkeKalla, string> = {
   egenkontroll: 'objekt väntar på egenkontroll',
   ledighet: 'att göra i ledighet',
   lass: 'att göra i Lastbilen',
+  maskinkoll: 'maskinkoll att göra',
 }
 
 function antalFor(v: Vy, marken: Marken): number | null {
@@ -336,6 +337,9 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
   if (typeof ls === 'number' && ls > 0) uppgifter.push({ id: 'lass', text: lassSaknarText(ls), href: '/lastbil', farg: FARG.orange })
   const gk = marken.godkann
   if (typeof gk === 'number' && gk > 0) uppgifter.push({ id: 'godkann', text: flyttarAttGodkannaText(gk), href: '/lastbil?flik=fakturering', farg: FARG.orange })
+  // Maskinkollen (skyddsronden): förarens egen maskin, en gång i månaden.
+  const mk = marken.maskinkoll
+  if (typeof mk === 'number' && mk > 0) uppgifter.push({ id: 'maskinkoll', text: 'Dags för maskinkoll · ca 3 min', href: '/maskinkoll', farg: FARG.orange })
   // Datahälsan bor i Mer. Bara ett riktigt fel (röd: data tappas) står också här, så det aldrig missas.
   if (roll === 'admin' && datahalsa?.niva === 'rod') {
     uppgifter.push({ id: 'datahalsa', text: `Datahälsa: ${datahalsa.rubrik}`, href: '/datahalsa', farg: FARG.rod })
