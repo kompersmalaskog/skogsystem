@@ -1,18 +1,20 @@
 // Bygger det som ritas ur laserdatan: skogsbilden (PNG), hörnen den läggs på, träden och 3D-kronorna. EN funktion för /karta-ritad och för
 // bakgrunden "Ritad" i planeringen och maskinen (lib/hooks/useRitadKarta), så de två aldrig ritar skogen olika.
 //
-// Med marken (lib/ritadKarta/mark.ts) läggs i SAMMA bild: blöt mark som blå ton och terrängskuggningen (soft-light, så skogens färger
-// behålls och bara backarna blir ljusare/mörkare). Brant mark blir egna ytor (`brant`) för ett snedstreckslager på kartan.
+// Med marken (lib/ritadKarta/mark.ts) läggs terrängskuggningen i SAMMA bild (soft-light, så skogens färger behålls och bara backarna blir
+// ljusare/mörkare). Brant och blött blir egna ytor (`brant`, `blott`) för mönsterlager på kartan — röda snedstreck och blå vågräta streck.
 
-import { avverkadeRutor, bildHorn, klasser, renderaKlasser, renderaSkog, skak, trad, type Rutnat, type Trad } from './skog';
+import { avverkadeRutor, bildHorn, klasser, renderaSkog, skak, trad, type Rutnat, type Trad } from './skog';
 import { kronor, type Krona } from './kronor';
 import { KLASS_FARG } from './stil';
-import { FUKT_FARG, brantYtor, type MarkRutnat } from './mark';
+import { blottYtor, brantYtor, type MarkRutnat } from './mark';
 
 export type Ritat = {
   url: string; horn: ReturnType<typeof bildHorn>; trad: Trad[]; avverkade: number; kronor: Krona[];
   /** Brant mark (lng/lat), tom utan marken. */
   brant: GeoJSON.FeatureCollection;
+  /** Blöt mark (lng/lat, `k` = fuktig | blot), tom utan marken. */
+  blott: GeoJSON.FeatureCollection;
 };
 
 /** Hur mycket terrängskuggningen syns (0–1). */
@@ -33,16 +35,6 @@ export function byggRitat(rn: Rutnat, stammar: { lat: number; lng: number }[], m
   const g = c.getContext('2d')!;
   g.putImageData(new ImageData(bild.data as Uint8ClampedArray<ArrayBuffer>, bild.bredd, bild.hojd), 0, 0);
 
-  if (mark) {
-    // Blött: egen mjuk bild i markens rutnät, utsträckt över samma utsnitt.
-    const msk = Math.max(1, Math.round((bild.bredd / mark.bredd)));
-    const f = renderaKlasser(mark.bredd, mark.hojd, mark.fukt, FUKT_FARG, msk);
-    const fc = document.createElement('canvas');
-    fc.width = f.bredd; fc.height = f.hojd;
-    fc.getContext('2d')!.putImageData(new ImageData(f.data as Uint8ClampedArray<ArrayBuffer>, f.bredd, f.hojd), 0, 0);
-    g.imageSmoothingEnabled = true;
-    g.drawImage(fc, 0, 0, c.width, c.height);
-  }
   if (skugga) {
     g.save();
     g.globalCompositeOperation = 'soft-light';
@@ -62,6 +54,7 @@ export function byggRitat(rn: Rutnat, stammar: { lat: number; lng: number }[], m
   return {
     url: c.toDataURL('image/png'), horn: bildHorn(rn), trad: trad(rn, kl), avverkade: avv.size, kronor: kronor(rn, avv, skak),
     brant: mark ? brantYtor(mark) : tomFC,
+    blott: mark ? blottYtor(mark) : tomFC,
   };
 }
 

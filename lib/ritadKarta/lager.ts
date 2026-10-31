@@ -13,20 +13,22 @@
 import { BAKGRUND, RELIEF_KALLA, RELIEF_PAINT, VEKTOR_KALLA, VEKTOR_LAGER } from './stil';
 import { snedstreckId } from '../ytaStil';
 
-export const RITAD_KALLA = { vektor: 'ritad-vektor', relief: 'ritad-relief', skog: 'ritad-skog', brant: 'ritad-brant' } as const;
+export const RITAD_KALLA = { vektor: 'ritad-vektor', relief: 'ritad-relief', skog: 'ritad-skog', brant: 'ritad-brant', blott: 'ritad-blott' } as const;
 
 export const RITAD_ID = {
   bakgrund: 'ritad-bakgrund',
   skog: 'ritad-skog',
   relief: 'ritad-relief',
   brant: 'ritad-brant',
+  blottGles: 'ritad-blott-gles',
+  blottTat: 'ritad-blott-tat',
 } as const;
 
 /** Vatten, vägar och hus: stilens vektorlager med egna id:n (ritad-*) och egen källa. */
 export const RITAD_VEKTOR_LAGER = VEKTOR_LAGER.map((l) => ({ ...l, id: l.id.replace(/^rk-/, 'ritad-'), source: RITAD_KALLA.vektor }));
 
 /** Alla lager-id:n den ritade kartan använder, nerifrån och upp. */
-export const RITAD_LAGER: string[] = [RITAD_ID.bakgrund, RITAD_ID.skog, RITAD_ID.relief, ...RITAD_VEKTOR_LAGER.map((l) => l.id), RITAD_ID.brant];
+export const RITAD_LAGER: string[] = [RITAD_ID.bakgrund, RITAD_ID.skog, RITAD_ID.relief, RITAD_ID.blottGles, RITAD_ID.blottTat, ...RITAD_VEKTOR_LAGER.map((l) => l.id), RITAD_ID.brant];
 
 /** Lagren som alltid finns när Ritad är vald (inget objekt behövs). */
 export function grundLager(): any[] {
@@ -42,6 +44,37 @@ export const grundKallor = () => ({ [RITAD_KALLA.vektor]: VEKTOR_KALLA, [RITAD_K
 /** Brant mark (lib/ritadKarta/mark.ts): röda snedstreck — samma tecken som Brant-ytan i appen. Ligger under vägar och allt man planerar. */
 export const BRANT_MONSTER = snedstreckId('fara');
 export const brantLager = () => ({ id: RITAD_ID.brant, type: 'fill', source: RITAD_KALLA.brant, paint: { 'fill-pattern': BRANT_MONSTER, 'fill-opacity': 0.9 } });
+
+/**
+ * Blöt mark (lib/ritadKarta/mark.ts): blå vågräta streck som orienteringskartans myr — glesa = fuktigt, täta = blött (Martin 2026-10-31: "så lätt
+ * att ett barn förstår det direkt"). Strecken syns ovanpå all skog utan att färga om den. Det täta mönstret har varannan rad på samma plats som
+ * det glesa, så där båda ligger ser det ut som bara täta streck.
+ */
+export const BLOTT_MONSTER = { gles: 'ritad-blott-gles', tat: 'ritad-blott-tat' } as const;
+/** Strecken i pixlar: period (avstånd mellan strecken) och tjocklek för glest resp. tätt. Tätt = dubbelt så många och lite tjockare. */
+export const BLOTT_STRECK = { gles: 12, tat: 6, tjockGles: 2, tjockTat: 3 } as const;
+/** Myrens blå (samma som Blött-gruppen i appen). */
+export const BLOTT_FARG: readonly [number, number, number] = [10, 132, 255];
+
+/** Mönsterbild: blå vågräta streck över hela bredden, `period` px mellan strecken. */
+export function blottMonsterBild(period: number): { width: number; height: number; data: Uint8ClampedArray } {
+  const tjock = period === BLOTT_STRECK.tat ? BLOTT_STRECK.tjockTat : BLOTT_STRECK.tjockGles;
+  const w = 24, h = BLOTT_STRECK.gles * 2;
+  const data = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    if (y % period >= tjock) continue;
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      data[i] = BLOTT_FARG[0]; data[i + 1] = BLOTT_FARG[1]; data[i + 2] = BLOTT_FARG[2]; data[i + 3] = 255;
+    }
+  }
+  return { width: w, height: h, data };
+}
+
+export const blottLager = () => [
+  { id: RITAD_ID.blottGles, type: 'fill', source: RITAD_KALLA.blott, filter: ['==', ['get', 'k'], 'fuktig'], paint: { 'fill-pattern': BLOTT_MONSTER.gles, 'fill-opacity': 0.9 } },
+  { id: RITAD_ID.blottTat, type: 'fill', source: RITAD_KALLA.blott, filter: ['==', ['get', 'k'], 'blot'], paint: { 'fill-pattern': BLOTT_MONSTER.tat, 'fill-opacity': 0.9 } },
+];
 
 /**
  * Planeringens egna fyllningar som tonar trakten (röd 5 % över traktgränsen): på flygfoto syns de knappt, men på den ritade skogen gör de

@@ -98,6 +98,7 @@ const REGLER: Regel[] = [
   [/^ritad-bakgrund$/, RANG.bakgrund + 1 * D],
   [/^ritad-skog$/, RANG.bakgrund + 2 * D],
   [/^ritad-relief$/, RANG.bakgrund + 3 * D],
+  [/^ritad-blott-(gles|tat)$/, RANG.bakgrund + 3.5 * D],
   [/^ritad-(vatten|vattendrag)$/, RANG.bakgrund + 4 * D],
   [/^ritad-brant$/, RANG.bakgrund + 4.5 * D],
   [/^ritad-hus$/, RANG.bakgrund + 5 * D],

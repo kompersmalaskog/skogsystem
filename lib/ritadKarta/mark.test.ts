@@ -1,12 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { BRANT_GRAD, BRANT_MIN_RUTOR, FUKT, FUKT_FARG, fuktKodFranFarg, LUTNING_SAKNAS, brantYtor, franBase64, fuktKodFranNamn, markUtsnitt, tillBase64 } from './mark';
+import { BLOTT_MIN_RUTOR, BRANT_GRAD, BRANT_MIN_RUTOR, FUKT, FUKT_GRANS, KLASS_VATTEN, LUTNING_SAKNAS, blottYtor, brantYtor, franBase64, fuktKod, markUtsnitt, tillBase64 } from './mark';
 import { tillSweref } from './skog';
 
-describe('fuktKodFranNamn: frisk-fuktig, fuktig och blöt får tre blå steg', () => {
+describe('fuktKod: SLU:s sannolikhet för blöt mark → två steg', () => {
   it.each([
-    ['Torr', FUKT.ingen], ['Frisk', FUKT.ingen], ['Frisk-fuktig', FUKT.lite], ['Frisk–Fuktig', FUKT.lite], ['Frisk fuktig', FUKT.lite],
-    ['Fuktig', FUKT.fuktig], ['Blöt', FUKT.blot], ['Blot', FUKT.blot], ['Öppet vatten', FUKT.ingen], [null, FUKT.ingen],
-  ])('%s', (namn, kod) => expect(fuktKodFranNamn(namn as any)).toBe(kod));
+    [0, FUKT.ingen], [FUKT_GRANS.fuktig - 1, FUKT.ingen], [FUKT_GRANS.fuktig, FUKT.fuktig], [FUKT_GRANS.blot - 1, FUKT.fuktig],
+    [FUKT_GRANS.blot, FUKT.blot], [100, FUKT.blot], [255, FUKT.ingen], [-1, FUKT.ingen], [NaN, FUKT.ingen],
+  ])('%s', (p, kod) => expect(fuktKod(p)).toBe(kod));
+  it('öppet vatten ritas av vattenlagret, aldrig som blöt mark', () => expect(fuktKod(100, KLASS_VATTEN)).toBe(FUKT.ingen));
+});
+
+describe('blottYtor', () => {
+  const rn = (fukt: number[], b: number) => ({ minX: 400000, maxY: 6300000, bredd: b, hojd: fukt.length / b, rutaM: 5, fukt: Uint8Array.from(fukt) });
+  it('fuktig yta med blöt kärna: hela ytan glest, kärnan tätt', () => {
+    const f = new Array(36).fill(FUKT.fuktig); for (const i of [14, 15, 20, 21]) f[i] = FUKT.blot;
+    const fc = blottYtor(rn(f, 6));
+    const rutor = (k: string) => fc.features.filter((x) => x.properties!.k === k).reduce((a, x) => a + ((x.geometry as any).coordinates[0][1][0] - (x.geometry as any).coordinates[0][0][0]), 0);
+    expect(fc.features.some((x) => x.properties!.k === 'fuktig')).toBe(true);
+    expect(fc.features.filter((x) => x.properties!.k === 'blot')).toHaveLength(2);
+    expect(rutor('fuktig')).toBeGreaterThan(rutor('blot'));
+  });
+  it('små fläckar tas bort', () => {
+    const f = new Array(36).fill(FUKT.ingen); for (let i = 0; i < BLOTT_MIN_RUTOR - 1; i++) f[i] = FUKT.blot;
+    expect(blottYtor(rn(f, 6)).features).toHaveLength(0);
+  });
 });
 
 describe('brantYtor', () => {
@@ -39,19 +56,3 @@ it('base64 tur och retur', () => {
   expect([...franBase64(tillBase64(b))]).toEqual([...b]);
 });
 
-describe('fuktKodFranFarg: samma färger som lagret Markfuktighet', () => {
-  it.each([
-    ['brunt (torrt)', [150, 80, 50, 255], FUKT.ingen],
-    ['gult (friskt)', [200, 190, 60, 255], FUKT.ingen],
-    ['grönt (lite blött)', [60, 160, 70, 255], FUKT.lite],
-    ['turkos (fuktigt)', [40, 180, 180, 255], FUKT.fuktig],
-    ['blått (blött)', [30, 90, 210, 255], FUKT.blot],
-    ['grått', [120, 125, 122, 255], FUKT.ingen],
-    ['genomskinligt blått', [30, 90, 210, 0], FUKT.ingen],
-  ] as const)('%s', (_n, [r, g, b, a], kod) => expect(fuktKodFranFarg(r, g, b, a)).toBe(kod));
-});
-it('ju blötare, desto starkare blått (aldrig grönt)', () => {
-  const [, lite, fuktig, blot] = FUKT_FARG;
-  expect(lite[3]).toBeLessThan(fuktig[3]); expect(fuktig[3]).toBeLessThan(blot[3]);
-  for (const c of [lite, fuktig, blot]) { expect(c[2]).toBeGreaterThan(c[1]); expect(c[2]).toBeGreaterThan(c[0]); }
-});

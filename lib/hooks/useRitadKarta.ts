@@ -16,7 +16,7 @@ import { hamtaStammoln } from '@/lib/egenkontroll';
 import type { Rutnat } from '@/lib/ritadKarta/skog';
 import { omradeNyckel, valjOmrade, type Omrade, type OmradesKalla, type Ring } from '@/lib/ritadKarta/omrade';
 import { byggRitat, type Ritat } from '@/lib/ritadKarta/bygg';
-import { BRANT_MONSTER, RITAD_DOLJ_FYLLNING, RITAD_ID, RITAD_KALLA, RITAD_LAGER, brantLager, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
+import { BLOTT_MONSTER, BLOTT_STRECK, BRANT_MONSTER, RITAD_DOLJ_FYLLNING, blottLager, blottMonsterBild, RITAD_ID, RITAD_KALLA, RITAD_LAGER, brantLager, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
 import { franBase64, type MarkRutnat } from '@/lib/ritadKarta/mark';
 import { snedstreckBild } from '@/lib/ytaStil';
 
@@ -103,12 +103,17 @@ function laggTillGrund(m: any) {
   if (!m.hasImage?.(BRANT_MONSTER)) m.addImage?.(BRANT_MONSTER, snedstreckBild('fara'));
   if (!m.getSource(RITAD_KALLA.brant)) m.addSource(RITAD_KALLA.brant, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   if (!m.getLayer(RITAD_ID.brant)) m.addLayer({ ...brantLager(), layout: { visibility: 'none' } });
+  if (!m.hasImage?.(BLOTT_MONSTER.gles)) m.addImage?.(BLOTT_MONSTER.gles, blottMonsterBild(BLOTT_STRECK.gles));
+  if (!m.hasImage?.(BLOTT_MONSTER.tat)) m.addImage?.(BLOTT_MONSTER.tat, blottMonsterBild(BLOTT_STRECK.tat));
+  if (!m.getSource(RITAD_KALLA.blott)) m.addSource(RITAD_KALLA.blott, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  for (const l of blottLager()) if (!m.getLayer(l.id)) m.addLayer({ ...l, layout: { visibility: 'none' } });
 }
 
 function sattSkog(m: any, ritat: Ritat | null, paint: Record<string, number>) {
   if (m.getLayer(RITAD_ID.skog)) m.removeLayer(RITAD_ID.skog);
   if (m.getSource(RITAD_KALLA.skog)) m.removeSource(RITAD_KALLA.skog);
   m.getSource(RITAD_KALLA.brant)?.setData(ritat ? ritat.brant : { type: 'FeatureCollection', features: [] });
+  m.getSource(RITAD_KALLA.blott)?.setData(ritat ? ritat.blott : { type: 'FeatureCollection', features: [] });
   if (!ritat) return;
   m.addSource(RITAD_KALLA.skog, { type: 'image', url: ritat.url, coordinates: ritat.horn });
   m.addLayer({ id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog, paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0, ...paint }, layout: { visibility: 'none' } });

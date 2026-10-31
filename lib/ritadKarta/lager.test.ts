@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
-import { RITAD_ID, RITAD_KALLA, RITAD_LAGER, RITAD_VEKTOR_LAGER, grundKallor, grundLager, RITAD_DOLJ_FYLLNING, brantLager, ritadSynlighet } from './lager';
+import { RITAD_ID, RITAD_KALLA, RITAD_LAGER, RITAD_VEKTOR_LAGER, grundKallor, grundLager, RITAD_DOLJ_FYLLNING, brantLager, blottLager, blottMonsterBild, BLOTT_STRECK, ritadSynlighet } from './lager';
 import { harEgenRegel, lagerRang, RANG } from '../lagerOrdning';
 
 describe('ritadSynlighet', () => {
@@ -26,8 +26,8 @@ describe('lagren', () => {
   it('är giltiga enligt MapLibres stil-spec (ett fel här syns annars först i maskinen)', () => {
     const geo = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
     const stil = {
-      version: 8, sources: { ...grundKallor(), [RITAD_KALLA.brant]: geo, [RITAD_KALLA.skog]: { type: 'image', url: 'x.png', coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] } },
-      layers: [...grundLager(), { id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog }, brantLager()],
+      version: 8, sources: { ...grundKallor(), [RITAD_KALLA.brant]: geo, [RITAD_KALLA.blott]: geo, [RITAD_KALLA.skog]: { type: 'image', url: 'x.png', coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] } },
+      layers: [...grundLager(), { id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog }, ...blottLager(), brantLager()],
     };
     const fel = validateStyleMin(stil as any).map((f: any) => f.message).filter((m: string) => !/sprite|glyphs/i.test(m));
     expect(fel).toEqual([]);
@@ -64,4 +64,13 @@ describe('page.tsx: Ritad är kopplad på ett ställe', () => {
   it('hooken anropas efter körvyns whitelist (dess synlighet ska sättas sist)', () => {
     expect(page.indexOf('useRitadKarta({')).toBeGreaterThan(page.indexOf("if (korvyBasKarta === 'ritad')"));
   });
+});
+
+it('blött: vågräta streck, täta har dubbelt så många som glesa och samma rader där båda finns', () => {
+  const rader = (p: number) => { const b = blottMonsterBild(p); const ut: number[] = []; for (let y = 0; y < b.height; y++) if (b.data[(y * b.width) * 4 + 3] > 0) ut.push(y); return ut; };
+  const gles = rader(BLOTT_STRECK.gles), tat = rader(BLOTT_STRECK.tat);
+  expect(tat.length).toBe(gles.length * 2);
+  for (const y of gles) expect(tat).toContain(y);
+  const b = blottMonsterBild(BLOTT_STRECK.gles);
+  for (let x = 0; x < b.width; x++) expect(b.data[x * 4 + 3]).toBe(255);
 });
