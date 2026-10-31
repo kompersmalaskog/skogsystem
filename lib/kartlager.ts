@@ -4,8 +4,11 @@
 // överallt där planeringsvyns karta visas — planeringsvyn, körvyn, skotarläget, maskinläget — tills hen byter igen. Utan nät används det senast valda
 // på enheten (lokal kopia) och skickas till kontot när nätet kommer tillbaka. Reglerna för vad som gäller när servern svarar finns i `avstam`.
 
-export const KARTLAGER = ['satellite', 'lantmateriet', 'terrain', 'osm'] as const;
+export const KARTLAGER = ['satellite', 'lantmateriet', 'terrain', 'osm', 'ritad'] as const;
 export type Kartlager = (typeof KARTLAGER)[number];
+/** De fyra som är kartbilder (rutor från en tjänst). "Ritad" ritas av appen själv ur laserdatan (lib/ritadKarta, lib/hooks/useRitadKarta). */
+export const RASTER_KARTLAGER = ['satellite', 'lantmateriet', 'terrain', 'osm'] as const;
+export type RasterKartlager = (typeof RASTER_KARTLAGER)[number];
 
 /** Flygfoto (Lantmäteriets ortofoto). Internt id 'satellite' — bara visningsnamnet är "Flygfoto". */
 export const STANDARD_KARTLAGER: Kartlager = 'satellite';
@@ -14,10 +17,10 @@ export const LOKAL_NYCKEL = 'kartlager_v1';
 
 export const arKartlager = (v: unknown): v is Kartlager => typeof v === 'string' && (KARTLAGER as readonly string[]).includes(v);
 
-export const KARTLAGER_NAMN: Record<Kartlager, string> = { satellite: 'Flygfoto', lantmateriet: 'Karta', terrain: 'Topokarta', osm: 'OpenStreetMap' };
+export const KARTLAGER_NAMN: Record<Kartlager, string> = { satellite: 'Flygfoto', lantmateriet: 'Karta', terrain: 'Topokarta', osm: 'OpenStreetMap', ritad: 'Ritad' };
 
-/** Kartlagrets lager-id i kartstilen (page.tsx mapStyleConfig). */
-export const KARTLAGER_LAGER_ID: Record<Kartlager, string> = { satellite: 'satellite-layer', lantmateriet: 'lm-layer', terrain: 'terrain-layer', osm: 'osm-layer' };
+/** Kartlagrets lager-id i kartstilen (page.tsx mapStyleConfig). För Ritad: skogsbilden (reglaget Dämpad ↔ Skarp gäller den); resten av Ritads lager styrs av useRitadKarta. */
+export const KARTLAGER_LAGER_ID: Record<Kartlager, string> = { satellite: 'satellite-layer', lantmateriet: 'lm-layer', terrain: 'terrain-layer', osm: 'osm-layer', ritad: 'ritad-skog' };
 
 /** Den lokala kopian: senast valda lager på den här enheten, vem som valde det och om det ännu inte nått kontot. */
 export interface LokalKopia { val: Kartlager; osynkad: boolean; anvandarId: string | null }

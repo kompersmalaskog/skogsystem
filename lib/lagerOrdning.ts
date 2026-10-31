@@ -91,8 +91,19 @@ const REGLER: Regel[] = [
   // ── Ytor: zoner, hänsyn, nyckelbiotop, kultur, klart-grått, tillfälliga ytor ───────────────────────────────────────────
   [/^(zone-|zones-korvy-|klart-|trakt-(hansyn|ovrigt|nb|raa)-)/, RANG.ytor],
 
-  // ── Bakgrund: baskartor, hillshade, WMS-underlag, Vidas kartbild ──────────────────────────────────────────────────────
-  [/^(bg$|bg-korvy$|osm-layer$|satellite-layer$|lm-layer$|terrain-layer$|hillshade|lm-skuggning-layer$|sks-markfuktighet-layer$|vida-layer$|wms-layer-)/, RANG.bakgrund],
+  // ── Bakgrund: baskartor, sedan den ritade kartan (lib/ritadKarta/lager), sedan hillshade, WMS-underlag och Vidas kartbild ovanpå ──────
+  // Den ritade kartan läggs till först när någon väljer Ritad (långt efter WMS-lagren); utan egna steg hamnade dess täckande bakgrund OVANPÅ markfuktighet,
+  // naturvärden och andra underlag. Underlagen ligger därför ett steg över den.
+  [/^(bg$|bg-korvy$|osm-layer$|satellite-layer$|lm-layer$|terrain-layer$)/, RANG.bakgrund],
+  [/^ritad-bakgrund$/, RANG.bakgrund + 1 * D],
+  [/^ritad-skog$/, RANG.bakgrund + 2 * D],
+  [/^ritad-relief$/, RANG.bakgrund + 3 * D],
+  [/^ritad-(vatten|vattendrag)$/, RANG.bakgrund + 4 * D],
+  [/^ritad-hus$/, RANG.bakgrund + 5 * D],
+  [/^ritad-vag(-kant)?$/, RANG.bakgrund + 6 * D],
+  [/^ritad-kronor$/, RANG.bakgrund + 8 * D],
+  [/^ritad-trad$/, RANG.bakgrund + 9 * D],
+  [/^(hillshade|lm-skuggning-layer$|sks-markfuktighet-layer$|vida-layer$|wms-layer-)/, RANG.bakgrund + 30 * D],
 ];
 
 /** Rangen för ett lager. Lägre ligger under. */

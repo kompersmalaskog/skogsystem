@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { KARTBAS_DAMPAD, KARTBAS_PAINT, KARTBAS_SKARP, KARTBAS_STANDARD_STYRKA, kartBasPaint } from './kartBas';
-import { KARTLAGER, KARTLAGER_LAGER_ID } from './kartlager';
+import { KARTLAGER, KARTLAGER_LAGER_ID, RASTER_KARTLAGER } from './kartlager';
 import { tomKartaStil } from './objektKarta';
 
 const lasa = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
@@ -89,7 +89,7 @@ describe('reglaget Dämpad ↔ Skarp', () => {
 });
 
 describe('kartan utan valt objekt (tomKartaStil) har samma värden som planeringsvyn', () => {
-  for (const lager of KARTLAGER) {
+  for (const lager of RASTER_KARTLAGER) {
     it(`${lager}: lagrets paint = kartBasPaint (standard), och följer ett eget reglagevärde`, () => {
       const bas: any = tomKartaStil(lager).layers.find((l: any) => l.id === KARTLAGER_LAGER_ID[lager]);
       expect(bas.paint).toEqual(KARTBAS_PAINT[lager]);
@@ -97,6 +97,17 @@ describe('kartan utan valt objekt (tomKartaStil) har samma värden som planering
       expect(dampad.paint).toEqual(KARTBAS_DAMPAD[lager]);
     });
   }
+});
+
+describe('kartan utan valt objekt med Ritad: grunden (bakgrund, terrängskuggning, vatten och vägar), aldrig en tom yta', () => {
+  it('har den ritade kartans bakgrund och vektorlager, inga kartbilder', () => {
+    const s: any = tomKartaStil('ritad');
+    const ids = s.layers.map((l: any) => l.id);
+    expect(ids).toContain('ritad-bakgrund');
+    expect(ids).toContain('ritad-vag');
+    expect(ids).not.toContain('satellite-layer');
+    expect(s.sources['ritad-vektor']).toBeTruthy();
+  });
 });
 
 describe('page.tsx tar baslagrens paint ur lib/kartBas (ingen egen kopia av siffrorna)', () => {

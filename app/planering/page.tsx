@@ -179,8 +179,10 @@ import { useSkotarLass } from '../../lib/hooks/useSkotarLass'
 import { useSkotarVader } from '../../lib/hooks/useSkotarVader'
 import { hamtaPrognos, narmasteSteg } from '../../lib/smhi-prognos'
 import { useKartlager } from '../../lib/hooks/useKartlager'
-import { KARTLAGER_LAGER_ID } from '../../lib/kartlager'
+import { KARTLAGER_LAGER_ID, KARTLAGER_NAMN } from '../../lib/kartlager'
 import { kartBasPaint } from '../../lib/kartBas'
+import { useRitadKarta, ritadStatusText } from '../../lib/hooks/useRitadKarta'
+import { RITAD_LAGER } from '../../lib/ritadKarta/lager'
 import { useKartReglage } from '../../lib/hooks/useKartReglage'
 import { styrkaFor } from '../../lib/kartReglage'
 import { overlayReglage, bakgrundReglage, tillampaLagerOpacitet, nyttSkalaMinne } from '../../lib/lagerOpacitet'
@@ -9090,6 +9092,8 @@ export default function PlannerPage() {
       // Raster' / 'Lantmäteriet' om föraren vill toggla på dem manuellt.
       // Bas-karta: Karta (LM dämpad) eller Topokarta (LM full färg) — växlas i toggeln.
       const SHOW = new Set<string>([KARTLAGER_LAGER_ID[korvyBasKarta]]);
+      // Ritad: hela den ritade kartan (grund, skog, träd) — aldrig 3D-kronorna i körvyn (lib/ritadKarta/lager). Synligheten sätts sedan av useRitadKarta.
+      if (korvyBasKarta === 'ritad') for (const id of RITAD_LAGER) SHOW.add(id);
       // Våra ritade data + immersion-layers. 'zone-' (singular) = de PLATTA zon-lagren
       // (zone-fill/zone-outline/zone-label) — MÅSTE vara med annars döljs zonerna i körvy. Förr
       // visades zoner i körvy bara via 'zones-korvy-*-extrusion' (3D-pelaren, nu borttagen); utan
@@ -9142,6 +9146,26 @@ export default function PlannerPage() {
       korvyPrevVisRef.current = null;
     }
   }, [korvyActive, skotarKorvy, mapLibreReady, korvyBasKarta]);
+
+  // === RITAD: det femte kartlagret, ritat av appen ur laserdatan (lib/hooks/useRitadKarta) ===
+  // Ligger EFTER körvyns whitelist så att dess synlighet sätts sist. Inget hämtas förrän Ritad väljs.
+  const ritadSkogPaint = useMemo(() => kartBasPaint('ritad', styrkaFor(kartReglage.styrkor, 'ritad')), [kartReglage.styrkor]);
+  // Reserv när Vida saknar traktgräns (privata jobb): planerarens egna gränser i lng/lat, annars objektets punkt (lib/ritadKarta/omrade).
+  const ritadEgnaRingar = useMemo(() => {
+    if (mapType !== 'ritad' || objektSaknarPosition) return null;
+    return markers
+      .filter((m: any) => m.isLine && m.lineType === 'boundary' && Array.isArray(m.path) && m.path.length > 2)
+      .map((m: any) => m.path.map((p: any) => { const c = svgToLatLon(p.x, p.y); return [c.lon, c.lat] as [number, number]; }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapType, markers, mapCenter, scale, objektSaknarPosition]);
+  const ritadPunkt = useMemo(() => {
+    const lat = Number(valtObjekt?.lat), lng = Number(valtObjekt?.lng);
+    return Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0) ? { lat, lng } : null;
+  }, [valtObjekt?.lat, valtObjekt?.lng]);
+  const ritadStatus = useRitadKarta({
+    map: mapLibreReady ? mapInstanceRef.current : null, klar: mapLibreReady, vald: mapType === 'ritad',
+    objektId: valtObjekt?.id ?? null, skogPaint: ritadSkogPaint, egnaRingar: ritadEgnaRingar, punkt: ritadPunkt,
+  });
 
   // === KÖRVY: DEFERA skyddslagren — tänds en knapp EFTER öppning så basen (LM nedtonad) + symboler
   // laddar OKONKURRERAT → snabb start. De 7 gov-WMS congestar annars mobil-uppkopplingen vid
@@ -12490,6 +12514,7 @@ export default function PlannerPage() {
         { id: 'satellite', name: 'Flygfoto', desc: 'Lantmäteriet ortofoto 0,5 m' },
         { id: 'terrain', name: 'Topokarta', desc: 'Lantmäteriet — full färg' },
         { id: 'osm', name: 'OpenStreetMap', desc: 'Standardkarta' },
+        { id: 'ritad', name: 'Ritad', desc: ritadStatusText(ritadStatus) },
       ] as const).map((t): LagerRad => ({ id: t.id, namn: t.name, under: t.desc, typ: 'val', pa: mapType === t.id, bild: lagerBild(t.id), onTryck: () => setMapType(t.id),
         // Reglaget under vald bakgrund: Dämpad ↔ Skarp, per bakgrund och per enhet (lib/kartBas, lib/kartReglage).
         reglage: bakgrundReglage(t.id, kartReglage.styrkor, kartReglage.setStyrka) })),
@@ -17949,6 +17974,7 @@ export default function PlannerPage() {
                       if (mapType === 'lantmateriet') setMapType('satellite');
                       else if (mapType === 'satellite') setMapType('terrain');
                       else if (mapType === 'terrain') setMapType('osm');
+                      else if (mapType === 'osm') setMapType('ritad');
                       else setMapType('lantmateriet');
                     }}
                     style={{
@@ -17970,7 +17996,7 @@ export default function PlannerPage() {
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '15px', color: '#fff' }}>Karttyp</div>
                       <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>
-                        {mapType === 'lantmateriet' ? 'Karta' : mapType === 'satellite' ? 'Flygfoto' : mapType === 'terrain' ? 'Topokarta' : 'OpenStreetMap'}
+                        {KARTLAGER_NAMN[mapType]}
                       </div>
                     </div>
                   </div>}

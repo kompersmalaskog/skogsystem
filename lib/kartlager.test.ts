@@ -12,12 +12,13 @@ describe('kartlager: standard och namn', () => {
     expect(STANDARD_KARTLAGER).toBe('satellite');
     expect(KARTLAGER_NAMN.satellite).toBe('Flygfoto');
   });
-  it('fyra lager, varje med eget lager-id i kartstilen', () => {
-    expect([...KARTLAGER]).toEqual(['satellite', 'lantmateriet', 'terrain', 'osm']);
-    expect(KARTLAGER_LAGER_ID).toEqual({ satellite: 'satellite-layer', lantmateriet: 'lm-layer', terrain: 'terrain-layer', osm: 'osm-layer' });
+  it('fem lager, varje med eget lager-id i kartstilen (Ritad = skogsbilden ur laserdatan)', () => {
+    expect([...KARTLAGER]).toEqual(['satellite', 'lantmateriet', 'terrain', 'osm', 'ritad']);
+    expect(KARTLAGER_LAGER_ID).toEqual({ satellite: 'satellite-layer', lantmateriet: 'lm-layer', terrain: 'terrain-layer', osm: 'osm-layer', ritad: 'ritad-skog' });
+    expect(KARTLAGER_NAMN.ritad).toBe('Ritad');
   });
   it('arKartlager släpper bara igenom kända värden', () => {
-    expect(['satellite', 'lantmateriet', 'terrain', 'osm'].every(arKartlager)).toBe(true);
+    expect(['satellite', 'lantmateriet', 'terrain', 'osm', 'ritad'].every(arKartlager)).toBe(true);
     expect([null, undefined, '', 'hybrid', 'lm', 3, {}].some(arKartlager)).toBe(false);
   });
 });

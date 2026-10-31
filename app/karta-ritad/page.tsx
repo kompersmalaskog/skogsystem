@@ -13,8 +13,8 @@ import { lasVidaGrans } from '@/lib/egenkontrollOrigo';
 import { hamtaStammoln } from '@/lib/egenkontroll';
 import KartHuvud from '@/components/design/KartHuvud';
 import { AVSTAND, FARG, LAYOUT, RADIE, TRAFFYTA, TYP, medSafeBotten } from '@/lib/design/tokens';
-import { avverkadeRutor, bildHorn, klasser, renderaSkog, skak, trad, type Rutnat } from '@/lib/ritadKarta/skog';
-import { kronor } from '@/lib/ritadKarta/kronor';
+import type { Rutnat } from '@/lib/ritadKarta/skog';
+import { byggRitat } from '@/lib/ritadKarta/bygg';
 import { fpsOrd, matFps, type FpsMatt } from '@/lib/ritadKarta/fps';
 import { BAKGRUND, HIMMEL, KLASS_FARG, KRONA_FARG_UTTRYCK, LJUS, LUTAD_PITCH, KLASS_NAMN, RELIEF_KALLA, RELIEF_PAINT, TERRANG_OVERDRIFT, TRAD_FARG, VEKTOR_KALLA, VEKTOR_LAGER, ritaGran } from '@/lib/ritadKarta/stil';
 
@@ -85,18 +85,8 @@ function RitadKarta() {
   useEffect(() => { hamtaLaser(); }, [hamtaLaser]);
 
   const rn = lage.typ === 'klar' ? lage.rn : null;
-  const ritat = useMemo(() => {
-    if (!rn) return null;
-    const avv = avverkadeRutor(rn, stammar);
-    const kl = klasser(rn, avv);
-    // Bilden högst ~1 600 px på längsta sidan (en stor trakt ritas med färre pixlar per ruta, så den går lika fort).
-    const bild = renderaSkog(rn, avv, KLASS_FARG, Math.max(2, Math.min(6, Math.floor(1600 / Math.max(rn.bredd, rn.hojd)))));
-    const c = document.createElement('canvas');
-    c.width = bild.bredd; c.height = bild.hojd;
-    c.getContext('2d')!.putImageData(new ImageData(bild.data as Uint8ClampedArray<ArrayBuffer>, bild.bredd, bild.hojd), 0, 0);
-    const kr = kronor(rn, avv, skak);
-    return { url: c.toDataURL('image/png'), horn: bildHorn(rn), trad: trad(rn, kl), avverkade: avv.size, kronor: kr };
-  }, [rn, stammar]);
+  // Samma bygge som bakgrunden "Ritad" i planeringen och maskinen (lib/ritadKarta/bygg).
+  const ritat = useMemo(() => (rn ? byggRitat(rn, stammar) : null), [rn, stammar]);
 
   // Lagren: skog (bild) under vatten och vägar, träd och traktgräns överst.
   useEffect(() => {

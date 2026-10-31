@@ -8,11 +8,12 @@ export const BAKGRUND = '#1f211d';
 /** RGBA per klass i skogsbilden. 'ingen' = genomskinlig (bakgrunden syns). */
 export const KLASS_FARG: Record<Klass, [number, number, number, number]> = {
   ingen: [0, 0, 0, 0],
-  oppet: [52, 55, 46, 255],
-  ung: [72, 112, 70, 255],
-  gallring: [48, 92, 58, 255],
-  mogen: [32, 70, 46, 255],
-  avverkat: [118, 104, 80, 255],
+  // Tre gröna som går att skilja med en blick (Martin 2026-10-31: gallring och mogen var nästan samma): ljust = ungt, mörkt = moget.
+  oppet: [92, 90, 74, 255],
+  ung: [112, 158, 86, 255],
+  gallring: [64, 120, 68, 255],
+  mogen: [26, 70, 42, 255],
+  avverkat: [146, 126, 90, 255],
 };
 
 /** I ord, för teckenförklaringen. */
@@ -98,8 +99,8 @@ export const TRAD_FARG = { ung: '#8cc084', gallring: '#6fae74', mogen: '#5a9a68'
 export const VEKTOR_KALLA = { type: 'vector' as const, url: 'https://tiles.openfreemap.org/planet' };
 
 export const VEKTOR_LAGER = [
-  { id: 'rk-vatten', type: 'fill', source: 'vektor', 'source-layer': 'water', paint: { 'fill-color': '#1e3a4c' } },
-  { id: 'rk-vattendrag', type: 'line', source: 'vektor', 'source-layer': 'waterway', paint: { 'line-color': '#2b5670', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.5, 17, 2.5] } },
+  { id: 'rk-vatten', type: 'fill', source: 'vektor', 'source-layer': 'water', paint: { 'fill-color': '#2f6e9c' } },
+  { id: 'rk-vattendrag', type: 'line', source: 'vektor', 'source-layer': 'waterway', paint: { 'line-color': '#3f86b8', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.5, 17, 2.5] } },
   { id: 'rk-hus', type: 'fill', source: 'vektor', 'source-layer': 'building', minzoom: 14, paint: { 'fill-color': '#3a3a3c' } },
   { id: 'rk-vag-kant', type: 'line', source: 'vektor', 'source-layer': 'transportation', layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': '#141414', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 1.5, 17, ['match', ['get', 'class'], ['track', 'path'], 4, 9]] } },

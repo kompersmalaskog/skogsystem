@@ -28,6 +28,8 @@ export const KARTBAS_DAMPAD: Record<Kartlager, RasterPaint> = {
   // Topokarta (LM full färg) och OpenStreetMap: samma nedtoning som Karta.
   terrain: { 'raster-brightness-max': 0.72, 'raster-contrast': -0.04, 'raster-saturation': -0.55 },
   osm: { 'raster-brightness-max': 0.72, 'raster-contrast': -0.04, 'raster-saturation': -0.55 },
+  // Ritad: skogsbilden ur laserdatan (lib/ritadKarta). Den är redan mörk och lugn, så Dämpad tar bara ned den lite.
+  ritad: { 'raster-brightness-max': 0.7, 'raster-contrast': 0, 'raster-saturation': -0.4 },
 };
 
 /** Skarp (100): ingen nedtoning — samma egenskaper som Dämpad så att varje nyckel kan interpoleras. */
@@ -36,6 +38,7 @@ export const KARTBAS_SKARP: Record<Kartlager, RasterPaint> = {
   lantmateriet: { 'raster-brightness-max': 1, 'raster-contrast': 0, 'raster-saturation': 0, 'raster-opacity': 1 },
   terrain: { 'raster-brightness-max': 1, 'raster-contrast': 0, 'raster-saturation': 0 },
   osm: { 'raster-brightness-max': 1, 'raster-contrast': 0, 'raster-saturation': 0 },
+  ritad: { 'raster-brightness-max': 1, 'raster-contrast': 0, 'raster-saturation': 0 },
 };
 
 /** Reglagets standard: nästan Skarp. */

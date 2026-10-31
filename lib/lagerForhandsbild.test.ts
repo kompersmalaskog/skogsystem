@@ -4,8 +4,8 @@ import { GRUPPER } from './larm/grupper';
 
 describe('lagerForhandsbild', () => {
   it('bakgrundskartorna har var sin bild', () => {
-    expect(Object.keys(BASKARTA_BILD).sort()).toEqual(['lantmateriet', 'osm', 'satellite', 'terrain']);
-    expect(new Set(Object.values(BASKARTA_BILD)).size).toBe(4);
+    expect(Object.keys(BASKARTA_BILD).sort()).toEqual(['lantmateriet', 'osm', 'ritad', 'satellite', 'terrain']);
+    expect(new Set(Object.values(BASKARTA_BILD)).size).toBe(5);
     expect(lagerBild('satellite')).toBe(BASKARTA_BILD.satellite);
   });
   it('ett lager med färg får en tonad yta av just den färgen', () => {
