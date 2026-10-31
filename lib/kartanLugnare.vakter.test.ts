@@ -72,7 +72,9 @@ describe('fara rörs aldrig av nedtoning eller grått', () => {
     for (const r of rader) expect(r).toMatch(/type: 'raster'/);
     // Det enda andra stället som läser kartBasPaint är reglage-effekten (Dämpad ↔ Skarp): den sätter paint på de fyra baslagren via KARTLAGER_LAGER_ID och inget annat lager.
     const ovriga = sida.split('\n').filter((r) => r.includes('kartBasPaint(') && !r.includes('paint: kartBasPaint('));
-    expect(ovriga.filter((r) => !r.trim().startsWith('//')).length).toBe(1);
+    // … plus Ritads skogsbild (rasterlagret ritad-skog, satt av useRitadKarta) — samma reglage, ingen egen siffra.
+    expect(ovriga.filter((r) => !r.trim().startsWith('//')).length).toBe(2);
     expect(sida).toMatch(/const paint = kartBasPaint\(l, styrkaFor\(kartReglage\.styrkor, l\)\);/);
+    expect(sida).toContain("const ritadSkogPaint = useMemo(() => kartBasPaint('ritad', styrkaFor(kartReglage.styrkor, 'ritad')), [kartReglage.styrkor]);");
   });
 });

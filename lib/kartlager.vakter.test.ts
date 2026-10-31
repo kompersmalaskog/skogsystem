@@ -84,3 +84,18 @@ describe('kartlagret per användare: migrationen (körs vid release)', () => {
     expect(hook).not.toMatch(/\.update\(|\.upsert\(|\.insert\(/);
   });
 });
+
+describe('kartlagret Ritad: migrationen vidgar kolumnen och RPC:n (Martin 2026-10-31)', () => {
+  const dir = join(rot, 'supabase/migrations');
+  const fil = readdirSync(dir).find((f) => /^\d+_kartlager_ritad\.sql$/.test(f));
+  const sql = fil ? readFileSync(join(dir, fil), 'utf8') : '';
+  it('finns, och tar emot de fem lagren i både kolumnen och RPC:n', () => {
+    expect(fil).toBeTruthy();
+    expect(sql).toMatch(/kartlager in \('satellite', 'lantmateriet', 'terrain', 'osm', 'ritad'\)/);
+    expect(sql).toMatch(/p_lager not in \('satellite', 'lantmateriet', 'terrain', 'osm', 'ritad'\)/);
+    expect(sql).toContain('update medarbetare set kartlager = p_lager where user_id = auth.uid();');
+  });
+  it('ändrar inga rader', () => {
+    expect(sql).not.toMatch(/^\s*update\s+medarbetare\s+set\s+kartlager\s*=\s*'/im);
+  });
+});

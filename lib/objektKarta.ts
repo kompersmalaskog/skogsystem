@@ -10,6 +10,7 @@
 
 import type { Kartlager } from '@/lib/kartlager';
 import { kartBasPaint } from './kartBas';
+import { grundKallor, grundLager } from './ritadKarta/lager';
 import { harKoordinat } from './navigera';
 import { PANEL_BREDD_PX, plusLage, type PlusLage } from './plusArk';
 import { AVSTAND, FARG } from './design/tokens';
@@ -196,6 +197,8 @@ export function sakerstallPrickLager(map: any): { setData: (d: unknown) => void 
 export const TOM_KARTA_START = { center: [14.70, 56.40] as [number, number], zoom: 8 };   // verksamhetens mitt (som listans reserv för avstånd)
 /** Baskartan för kartan utan valt objekt: samma källor och nedtoning som planeringsvyns mapStyleConfig, för det kartlager användaren valt (lib/kartlager). */
 export function tomKartaStil(lager: Kartlager, styrka?: number) {
+  // Ritad utan objekt: den ritade kartans grund (bakgrund, terrängskuggning, vatten, vägar, hus). Skogen ritas först när ett objekt är öppet.
+  if (lager === 'ritad') return { version: 8 as const, sources: grundKallor() as any, layers: grundLager() as any[] };
   const kallor = {
     lantmateriet: { type: 'raster' as const, tiles: ['/api/forarkarta?z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 17, attribution: '&copy; Lantmäteriet' },
     satellite: { type: 'raster' as const, tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 18, attribution: '&copy; Lantmäteriet' },
