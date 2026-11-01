@@ -64,7 +64,33 @@ describe('lasMarkeringRad', () => {
   it('läser en riktig rad och avvisar okänd typ eller geometri', () => {
     expect(lasMarkeringRad({ id: 'a', typ: 'tagen', geometri: { type: 'Point', coordinates: [15, 57] }, bredd_m: 8, grupp: null, skapad_at: 't' })?.typ).toBe('tagen');
     expect(lasMarkeringRad({ id: 'a', typ: 'flyttad', geometri: { type: 'Point', coordinates: [15, 57] } })).toBeNull();
-    expect(lasMarkeringRad({ id: 'a', typ: 'tagen', geometri: { type: 'Polygon', coordinates: [] } })).toBeNull();
+    expect(lasMarkeringRad({ id: 'a', typ: 'tagen', geometri: { type: 'MultiPolygon', coordinates: [] } })).toBeNull();
     expect(lasMarkeringRad({ id: 'a', typ: 'tagen', geometri: { type: 'Point', coordinates: [15, 57] }, grupp: 'ved' })).toBeNull();
+  });
+});
+
+import { hogarIOmrade, iRing } from './skotarHogarKvar';
+describe('hogarIOmrade', () => {
+  const kx = M / Math.cos((57 * Math.PI) / 180);
+  const ring: [number, number][] = [[15 - 20 * kx, 57 - 20 * M], [15 + 20 * kx, 57 - 20 * M], [15 + 20 * kx, 57 + 20 * M], [15 - 20 * kx, 57 + 20 * M]];
+  const f = (dx: number, sv: Record<string, number>) => ({ geometry: { coordinates: [15 + dx * kx, 57] }, properties: { sortimentVolymJson: JSON.stringify(sv) } });
+  it('summerar bara högarna inne i ringen, per grupp, och raderna går ihop', () => {
+    const r = hogarIOmrade([f(0, { 'Timmer: A': 10.4, 'Massa: B': 3.4 }), f(5, { 'Massa: B': 2.4 }), f(50, { 'Timmer: A': 99 })], [], [], ring);
+    expect(r.hogar).toBe(2);
+    expect(r.grupper).toEqual([{ grupp: 'timmer', namn: 'Timmer', m3: 10 }, { grupp: 'massa', namn: 'Massaved', m3: 6 }]);
+    expect(r.kvar).toBe(16);
+    expect(r.skordat).toBe(16);
+  });
+  it('en markering tagen över området tömmer kvar men inte skördat', () => {
+    const m: HogMarkering = { id: 'p', typ: 'tagen', bredd_m: 8, grupp: null, skapad_at: 't', geometri: { type: 'Polygon', coordinates: [ring] } };
+    const r = hogarIOmrade([f(0, { 'Timmer: A': 10 })], [], [m], ring);
+    expect(r.kvar).toBe(0);
+    expect(r.grupper).toEqual([]);
+    expect(r.skordat).toBe(10);
+  });
+  it('iRing: punkt utanför och för få hörn', () => {
+    expect(iRing({ lng: 15, lat: 57 }, ring)).toBe(true);
+    expect(iRing({ lng: 15 + 30 * kx, lat: 57 }, ring)).toBe(false);
+    expect(iRing({ lng: 15, lat: 57 }, ring.slice(0, 2))).toBe(false);
   });
 });

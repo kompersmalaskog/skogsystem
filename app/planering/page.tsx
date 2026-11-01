@@ -145,7 +145,7 @@ import type { OmNav } from '../../components/planering/OmTrakten'
 import { startaFramhavning, startaKartSlapp } from '../../lib/omTraktenFramhavKarta'
 import { mittAvPunkter, omSammanfattning, punkterUrGeometri } from '../../lib/omTrakten'
 import { lagerBild, tonadYta, linjeYta, sparYta, prickYta } from '../../lib/lagerForhandsbild'
-import { hogPrickar, lasHogVisa, sparaHogVisa, HOG_VISA, HOG_PRICK_FARG, STRECK_BREDD_M, type HogVisa, type HogPrick, type HogMarkGrupp, hogNyckel } from '../../lib/skotarHogarKvar'
+import { hogPrickar, lasHogVisa, sparaHogVisa, HOG_VISA, HOG_PRICK_FARG, STRECK_BREDD_M, type HogVisa, type HogPrick, type HogMarkGrupp, hogNyckel, hogarIOmrade } from '../../lib/skotarHogarKvar'
 import { kopplaHogStreck, breddUttryck, HOG_STRECK_KALLA, HOG_STRECK_FORHAND_KALLA } from '../../lib/hogStreckKarta'
 import { useHogMarkeringar } from '../../lib/hooks/useHogMarkeringar'
 import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
@@ -742,10 +742,24 @@ function laggTillHogPrickar(map: any) {
   const lat = (() => { try { return map.getCenter().lat; } catch { return 57; } })();
   if (!map.getLayer('klart-hogstreck')) {
     try {
-      map.addLayer({ id: 'klart-hogstreck', type: 'line', source: HOG_STRECK_KALLA,
+      map.addLayer({ id: 'klart-hogstreck', type: 'line', source: HOG_STRECK_KALLA, filter: ['==', ['geometry-type'], 'LineString'],
         paint: { 'line-color': KLART_FARG, 'line-opacity': 0.35, 'line-width': breddUttryck(STRECK_BREDD_M, lat) as any },
         layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' } });
     } catch (e) { console.error('[Högar] streck:', e); }
+  }
+  if (!map.getLayer('klart-hogomrade')) {
+    try {
+      map.addLayer({ id: 'klart-hogomrade', type: 'fill', source: HOG_STRECK_KALLA, filter: ['==', ['geometry-type'], 'Polygon'],
+        paint: { 'fill-color': KLART_FARG, 'fill-opacity': 0.25 }, layout: { 'visibility': 'none' } });
+    } catch (e) { console.error('[Högar] område:', e); }
+  }
+  if (!map.getSource('skotar-hogomrade-source')) { try { map.addSource('skotar-hogomrade-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); } catch { /* */ } }
+  if (!map.getLayer('drawing-hogomrade-fill')) {
+    try {
+      map.addLayer({ id: 'drawing-hogomrade-fill', type: 'fill', source: 'skotar-hogomrade-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.12 } });
+      map.addLayer({ id: 'drawing-hogomrade-line', type: 'line', source: 'skotar-hogomrade-source', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#ffffff', 'line-width': 2.5 } });
+      map.addLayer({ id: 'drawing-hogomrade-punkt', type: 'circle', source: 'skotar-hogomrade-source', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 6, 'circle-color': '#ffffff', 'circle-stroke-color': 'rgba(0,0,0,0.8)', 'circle-stroke-width': 1.5 } });
+    } catch (e) { console.error('[Högar] område förhand:', e); }
   }
   if (!map.getLayer('drawing-hogstreck')) {
     try {
@@ -12281,7 +12295,12 @@ export default function PlannerPage() {
   const hogMarkGrupp: HogMarkGrupp | null = hogVisa === 'alla' ? null : hogVisa;
   const hogKanMarkera = prickLage && hogarPa && hogMark.tillganglig && (!!testlage || !!currentMedarbetare?.id);
   const [hogValt, setHogValt] = useState<{ lng: number; lat: number } | null>(null);
-  const [hogStreck, setHogStreck] = useState(false);
+  // Läget "Högarna i ett område": 'runt' = tryck ut hörnen runt ett område och se vad som ligger där (sortiment och m³), 'mala' = måla med fingret.
+  const [hogLage, setHogLage] = useState<null | 'runt' | 'mala'>(null);
+  const hogStreck = hogLage !== null;
+  const setHogStreck = (pa: boolean) => setHogLage(pa ? 'runt' : null);
+  const [hogRing, setHogRing] = useState<[number, number][]>([]);
+  const [hogRingKlar, setHogRingKlar] = useState(false);
   const [hogStreckSession, setHogStreckSession] = useState<string[]>([]);
   const [hogMarkKvitto, setHogMarkKvitto] = useState<{ text: string; id: string } | null>(null);
   const hogMarkKvittoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -12296,7 +12315,8 @@ export default function PlannerPage() {
     setHogValt({ lng: c[0], lat: c[1] });
     return true;
   };
-  useEffect(() => { if (!hogKanMarkera) { setHogValt(null); setHogStreck(false); } }, [hogKanMarkera]);
+  useEffect(() => { if (!hogKanMarkera) setHogValt(null); if (!hogKanMarkera && hogLage === 'mala') setHogLage(null); }, [hogKanMarkera, hogLage]);
+  useEffect(() => { if (!(prickLage && hogarPa)) setHogLage(null); }, [prickLage, hogarPa]);
   useEffect(() => { setHogValt(null); setHogStreck(false); setHogStreckSession([]); setHogMarkKvitto(null); }, [valtObjekt?.id]);
   const hogMarkera = (typ: 'tagen' | 'kvar') => {
     if (!hogValt) return;
@@ -12311,14 +12331,51 @@ export default function PlannerPage() {
   hogGruppRef.current = hogMarkGrupp;
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady || !hogStreck) return;
+    if (!map || !mapLibreReady || hogLage !== 'mala') return;
     try { map.easeTo({ pitch: 0, duration: 300 }); } catch { /* */ }
     return kopplaHogStreck(map, (coords) => {
       const id = hogLaggRef.current({ typ: 'tagen', geometri: { type: 'LineString', coordinates: coords }, bredd_m: STRECK_BREDD_M, grupp: hogGruppRef.current });
       if (id) setHogStreckSession((f) => [...f, id]);
     });
-  }, [hogStreck, mapLibreReady]);
-  useEffect(() => { if (!hogStreck) setHogStreckSession([]); }, [hogStreck]);
+  }, [hogLage, mapLibreReady]);
+  useEffect(() => { if (!hogStreck) setHogStreckSession([]); setHogRing([]); setHogRingKlar(false); }, [hogLage]);
+  // Rita runt: ett tryck = ett hörn (ett tryck = exakt en punkt), tryck på första hörnet stänger ytan. Märkt tillatIRitlage: det enda som tar trycken i läget.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || hogLage !== 'runt' || hogRingKlar) return;
+    try { map.easeTo({ pitch: 0, duration: 300 }); } catch { /* */ }
+    let forra: { x: number; y: number; t: number } | null = null;
+    const onClick = tillatIRitlage((e: any) => {
+      const nytt = { x: e.point.x, y: e.point.y, t: Date.now() };
+      if (forra && Math.hypot(nytt.x - forra.x, nytt.y - forra.y) < 4 && nytt.t - forra.t < 800) return;
+      forra = nytt;
+      const ll: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+      setHogRing((r) => {
+        if (r.length >= 3) {
+          const p0 = map.project(r[0]);
+          if (Math.hypot(p0.x - e.point.x, p0.y - e.point.y) <= 28) { setHogRingKlar(true); return r; }
+        }
+        return [...r, ll];
+      });
+    });
+    map.on('click', onClick);
+    return () => { map.off('click', onClick); };
+  }, [hogLage, hogRingKlar, mapLibreReady]);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const r = hogRing;
+    const fs: any[] = [];
+    if (r.length >= 3) fs.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [[...r, r[0]]] }, properties: {} });
+    if (r.length >= 2) fs.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: hogRingKlar ? [...r, r[0]] : r }, properties: {} });
+    for (const p of r) fs.push({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: {} });
+    try { (map.getSource('skotar-hogomrade-source') as any)?.setData({ type: 'FeatureCollection', features: fs }); } catch { /* */ }
+  }, [hogRing, hogRingKlar, mapLibreReady, korvyActive, korvyBasKarta]);
+  const hogOmrade = useMemo(
+    () => (hogRingKlar && hogRing.length >= 3 ? hogarIOmrade(hogarFeaturesRef.current, hogLass, hogMark.markeringar, hogRing) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hogRingKlar, hogRing, hogLass, hogMark.markeringar, hogarVersion],
+  );
   // Ringen runt vald hög och de sparade strecken (grått band, klart = grått).
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -12328,8 +12385,9 @@ export default function PlannerPage() {
       const visa = prickLage && hogarPa;
       (map.getSource(HOG_STRECK_KALLA) as any)?.setData({
         type: 'FeatureCollection',
-        features: visa ? hogMark.markeringar.filter((m) => m.typ === 'tagen' && m.geometri.type === 'LineString').map((m) => ({ type: 'Feature', geometry: m.geometri, properties: {} })) : [],
+        features: visa ? hogMark.markeringar.filter((m) => m.typ === 'tagen' && m.geometri.type !== 'Point').map((m) => ({ type: 'Feature', geometry: m.geometri, properties: {} })) : [],
       });
+      if (map.getLayer('klart-hogomrade')) map.setLayoutProperty('klart-hogomrade', 'visibility', visa ? 'visible' : 'none');
       if (map.getLayer('klart-hogstreck')) map.setLayoutProperty('klart-hogstreck', 'visibility', visa ? 'visible' : 'none');
     } catch (e) { console.error('[Högar] markeringar på kartan:', e); }
   }, [hogValt, hogMark.markeringar, prickLage, hogarPa, mapLibreReady, korvyActive, korvyBasKarta]);
@@ -12650,7 +12708,7 @@ export default function PlannerPage() {
       // Redigera linjer: sudda, förläng, koppla ihop (planeringen — hytten har ingen redigering av linjer). Listen nertill har Rita · Sudda · Förläng · Koppla ihop, Ångra och ✓ Klar.
       ...(korvyActive ? [] : [{ id: 'redigera', titel: 'Redigera linjer', ikon: 'redigera' as const, onTryck: () => { stangPlus(); avslutaPagaendeLage(); linjeRed.oppna('sudda'); const map = mapInstanceRef.current; if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 }); } }]),
       // Markera skotat: dra ett brett streck över högarna som är tagna (prickläget, bara när tabellen finns). Ett tryck på en hög gör samma sak för en hög.
-      ...(hogKanMarkera ? [{ id: 'hogstreck', titel: 'Markera skotat', ikon: 'stickvag' as const, onTryck: () => { stangPlus(); avslutaPagaendeLage(); setHogStreck(true); } }] : []),
+      ...(prickLage && hogarPa ? [{ id: 'hogstreck', titel: 'Högar i ett område', ikon: 'stickvag' as const, onTryck: () => { stangPlus(); avslutaPagaendeLage(); setHogStreck(true); } }] : []),
       { id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('arrows'); setMenuOpen(true); } },
       // Körordning: vägarna i den ordning de ska köras (lib/korordning). Ersätter de handplacerade körriktningspilarna.
       { id: 'korordning', titel: 'Körordning', ikon: 'korordning', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setKorForslagNej(false); setKorLage(true); } },
@@ -15128,14 +15186,53 @@ export default function PlannerPage() {
           />
         );
       })()}
-      {hogStreck && !plusRadOppen && (
+      {hogLage === 'mala' && !plusRadOppen && (
         <KorvyNertillList
           testid="hog-streck-list"
           smal={smalSkarm}
-          text={hogMarkGrupp ? `Dra över högarna där ${HOG_VISA.find((h) => h.id === hogVisa)?.namn.replace(/^Bara /, '')} är taget` : 'Dra över högarna som är tagna'}
+          text={hogMarkGrupp ? `Måla över högarna där ${HOG_VISA.find((h) => h.id === hogVisa)?.namn.replace(/^Bara /, '')} är taget` : 'Måla över högarna som är tagna'}
           knappar={[
+            { etikett: 'Rita runt', testid: 'hog-lage-runt', onClick: () => setHogLage('runt') },
             { etikett: 'Ångra', testid: 'hog-streck-angra', av: hogStreckSession.length === 0, onClick: () => { const id = hogStreckSession[hogStreckSession.length - 1]; if (id) { hogMark.taBort(id); setHogStreckSession((f) => f.slice(0, -1)); } } },
-            { etikett: 'Klar', testid: 'hog-streck-klar', gron: true, onClick: () => setHogStreck(false) },
+            { etikett: 'Klar', testid: 'hog-streck-klar', gron: true, onClick: () => setHogLage(null) },
+          ]}
+        />
+      )}
+      {hogLage === 'runt' && !hogRingKlar && !plusRadOppen && (
+        <KorvyNertillList
+          testid="hog-runt-list"
+          smal={smalSkarm}
+          text={hogRing.length < 3 ? `Tryck ut hörnen runt området · ${hogRing.length} hörn` : 'Tryck på första hörnet för att se vad som ligger där'}
+          knappar={[
+            ...(hogKanMarkera ? [{ etikett: 'Måla', testid: 'hog-lage-mala', onClick: () => setHogLage('mala') }] : []),
+            { etikett: '↩', aria: 'Ta bort senaste hörnet', testid: 'hog-runt-angra', av: hogRing.length === 0, onClick: () => setHogRing((r) => r.slice(0, -1)) },
+            { etikett: 'Klar', testid: 'hog-runt-klar', gron: true, av: hogRing.length < 3, onClick: () => setHogRingKlar(true) },
+            { etikett: '×', aria: 'Avbryt', testid: 'hog-runt-stang', onClick: () => setHogLage(null) },
+          ]}
+        />
+      )}
+      {hogLage === 'runt' && hogRingKlar && hogOmrade && !plusRadOppen && (
+        <KorvyNertillList
+          testid="hog-omrade-kort"
+          smal={smalSkarm}
+          stapla
+          text={
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div>{hogOmrade.hogar === 0 ? 'Inga högar i området' : hogOmrade.kvar === 0 ? 'Allt i området är taget' : `${hogOmrade.kvar} m³ ligger kvar`}</div>
+              {hogOmrade.grupper.map((g) => (
+                <div key={g.grupp} style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 400 }}><span>{g.namn}</span><span>{g.m3} m³</span></div>
+              ))}
+              {hogOmrade.hogar > 0 && <div style={{ fontWeight: 400, opacity: 0.6 }}>{`${hogOmrade.hogar} högar · skördat ${hogOmrade.skordat} m³`}</div>}
+            </div>
+          }
+          knappar={[
+            { etikett: 'Stäng', testid: 'hog-omrade-stang', onClick: () => setHogLage(null) },
+            { etikett: 'Allt är taget', testid: 'hog-omrade-tagen', primar: true, av: hogOmrade.kvar === 0 || !hogKanMarkera, onClick: () => {
+              const id = hogMark.lagg({ typ: 'tagen', geometri: { type: 'Polygon', coordinates: [[...hogRing, hogRing[0]]] }, bredd_m: STRECK_BREDD_M, grupp: hogMarkGrupp });
+              setHogLage(null);
+              if (!id) visaHogMarkKvitto('Kunde inte spara markeringen', ''); else visaHogMarkKvitto('Området markerat som taget', id);
+            } },
+            { etikett: 'Rita nytt', testid: 'hog-omrade-nytt', onClick: () => { setHogRing([]); setHogRingKlar(false); } },
           ]}
         />
       )}

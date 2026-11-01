@@ -44,8 +44,8 @@ export function useHogMarkeringar({ objektId, minId, maskinId, torr }: HogMarker
           grupp: p.rad.grupp, maskin_id: p.rad.maskin_id, skapad_av: p.rad.skapad_av,
         })
         : await supabase.from('skotar_hog_markering').delete().eq('id', p.id);
-      // 23505 = raden finns redan (ett tidigare försök kom fram). Rättighetsfel blir aldrig bättre: posten släpps.
-      if (error && error.code !== '23505' && error.code !== '42501' && !saknasTabell(error)) break;
+      // 23505 = raden finns redan (ett tidigare försök kom fram). Rättighetsfel (42501) och en rad databasen inte godtar (23514) blir aldrig bättre: posten släpps.
+      if (error && error.code !== '23505' && error.code !== '42501' && error.code !== '23514' && !saknasTabell(error)) break;
       if (saknasTabell(error)) { setTillganglig(false); break; }
       ko = lasKo().slice(1);
       sparaKo(ko);

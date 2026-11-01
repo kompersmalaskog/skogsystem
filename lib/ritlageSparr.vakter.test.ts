@@ -23,9 +23,10 @@ describe('spärren sitter på kartan och gäller alla ritlägen', () => {
 });
 
 describe('vilka lyssnare som är märkta', () => {
-  it('i sidan: ritverktygets klick och dubbelklick, mätningen och risa-delen — och inga andra', () => {
+  it('i sidan: ritverktygets klick och dubbelklick, mätningen, risa-delen och hörnen runt högarna (Högar i ett område) — och inga andra', () => {
     const traffar = sida.match(/= tillatIRitlage\(/g) ?? [];
-    expect(traffar).toHaveLength(4);
+    expect(traffar).toHaveLength(5);
+    expect(sida).toContain("const onClick = tillatIRitlage((e: any) => {\n      const nytt = { x: e.point.x, y: e.point.y, t: Date.now() };");
     expect(sida).toContain('const onClick = tillatIRitlage((e: any) => {\n      if (larmPlacering) {');
     expect(sida).toContain('const onDblClick = tillatIRitlage((e: any) => {');
     expect(sida).toContain('const onClick = tillatIRitlage((e: any) => {\n      const ll = e?.lngLat;\n      if (!ll) return;\n      const geo = measureGeoRef.current;');

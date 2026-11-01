@@ -200,7 +200,10 @@ export function hogPrickar(
  */
 export type HogMarkTyp = 'tagen' | 'kvar';
 export type HogMarkGrupp = Exclude<HogVisa, 'alla'>;
-export type HogGeometri = { type: 'Point'; coordinates: [number, number] } | { type: 'LineString'; coordinates: [number, number][] };
+export type HogGeometri =
+  | { type: 'Point'; coordinates: [number, number] }
+  | { type: 'LineString'; coordinates: [number, number][] }
+  | { type: 'Polygon'; coordinates: [number, number][][] };
 export interface HogMarkering {
   id: string;
   typ: HogMarkTyp;
@@ -225,6 +228,18 @@ function avstandTillSegment(p: { lat: number; lng: number }, a: [number, number]
   return Math.hypot(ax + t * dx, ay + t * dy);
 }
 
+/** Ligger punkten inne i ringen ([lng, lat], sluten eller inte)? */
+export function iRing(p: { lat: number; lng: number }, ring: readonly [number, number][]): boolean {
+  const r = ring.filter((x) => Number.isFinite(x?.[0]) && Number.isFinite(x?.[1]));
+  if (r.length < 3) return false;
+  let inne = false;
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    const [xi, yi] = r[i], [xj, yj] = r[j];
+    if ((yi > p.lat) !== (yj > p.lat) && p.lng < ((xj - xi) * (p.lat - yi)) / (yj - yi) + xi) inne = !inne;
+  }
+  return inne;
+}
+
 /** Träffar markeringen högen? */
 export function markeringTraffar(m: Pick<HogMarkering, 'geometri' | 'bredd_m'>, h: { lat: number; lng: number }): boolean {
   const g = m.geometri;
@@ -233,6 +248,7 @@ export function markeringTraffar(m: Pick<HogMarkering, 'geometri' | 'bredd_m'>, 
     if (!Number.isFinite(lng) || !Number.isFinite(lat)) return false;
     return dist(h, { lng, lat }) <= Math.max(TRYCK_RADIE_M, (Number(m.bredd_m) || 0) / 2);
   }
+  if (g?.type === 'Polygon') return iRing(h, g.coordinates?.[0] ?? []);
   if (g?.type === 'LineString') {
     const c = (g.coordinates ?? []).filter((x) => Number.isFinite(x?.[0]) && Number.isFinite(x?.[1]));
     const halv = Math.max(1, (Number(m.bredd_m) || STRECK_BREDD_M) / 2);
@@ -267,13 +283,54 @@ export function medMarkeringar(hogar: readonly HogIn[], kvar: readonly HogKvar[]
 export function lasMarkeringRad(r: Record<string, unknown>): HogMarkering | null {
   const typ = r?.typ;
   const g = r?.geometri as HogGeometri | undefined;
-  if ((typ !== 'tagen' && typ !== 'kvar') || !g || (g.type !== 'Point' && g.type !== 'LineString')) return null;
+  if ((typ !== 'tagen' && typ !== 'kvar') || !g || (g.type !== 'Point' && g.type !== 'LineString' && g.type !== 'Polygon')) return null;
   const grupp = r.grupp == null ? null : String(r.grupp);
   if (grupp !== null && !['timmer', 'kubb', 'massa', 'energi'].includes(grupp)) return null;
   return {
     id: String(r.id), typ, geometri: g, bredd_m: Number(r.bredd_m) || STRECK_BREDD_M,
     grupp: grupp as HogMarkGrupp | null, skapad_at: String(r.skapad_at ?? ''),
   };
+}
+
+/**
+ * VAD LIGGER I OMRÅDET (Martin 2026-11-01: "rita och se vad det ligger i ett visst område, sortiment och volym"). Samma uträkning som prickarna
+ * (lassen + förarens markeringar), summerad för högarna inne i ringen. Grupperna i fast ordning, en grupp utan virke kvar finns inte med.
+ * `skordat` = det skördaren lade i högarna i området (före lassen), så att man ser hur mycket som är taget.
+ */
+export interface OmradeSvar {
+  hogar: number;
+  kvar: number;
+  skordat: number;
+  grupper: { grupp: HogGrupp; namn: string; m3: number }[];
+}
+const GRUPP_NAMN: Record<HogGrupp, string> = { timmer: 'Timmer', kubb: 'Kubb', massa: 'Massaved', energi: 'Energi', ovrigt: 'Övrigt' };
+export function hogarIOmrade(
+  features: readonly { geometry?: { coordinates?: number[] }; properties?: { sortimentVolymJson?: string } }[],
+  lass: readonly Lass[],
+  markeringar: readonly HogMarkering[],
+  ring: readonly [number, number][],
+): OmradeSvar {
+  const hogar: HogIn[] = [];
+  for (const f of features) {
+    const c = f?.geometry?.coordinates;
+    if (!c || c.length < 2 || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
+    if (!iRing({ lng: c[0], lat: c[1] }, ring)) continue;
+    let sv: Record<string, number> = {};
+    try { sv = JSON.parse(f.properties?.sortimentVolymJson || '{}') || {}; } catch { sv = {}; }
+    hogar.push({ lng: c[0], lat: c[1], sortimentVolym: sv });
+  }
+  const kvar = medMarkeringar(hogar, hogarKvar(hogar, lass), markeringar);
+  const per = new Map<HogGrupp, number>();
+  let skordat = 0;
+  hogar.forEach((h, i) => {
+    for (const v of Object.values(h.sortimentVolym)) skordat += Math.max(0, v);
+    for (const [namn, v] of Object.entries(kvar[i].kvar)) if (v > 0) per.set(hogGrupp(namn), (per.get(hogGrupp(namn)) ?? 0) + v);
+  });
+  // Avrunda per grupp och summera de avrundade, så att raderna går att räkna ihop.
+  const grupper = (['timmer', 'kubb', 'massa', 'energi', 'ovrigt'] as HogGrupp[])
+    .map((g) => ({ grupp: g, namn: GRUPP_NAMN[g], m3: Math.round(per.get(g) ?? 0) }))
+    .filter((g) => g.m3 > 0);
+  return { hogar: hogar.length, kvar: grupper.reduce((s, g) => s + g.m3, 0), skordat: Math.round(skordat), grupper };
 }
 
 /** Valet under + sparas per enhet. Läsfel eller okänt värde = Alla. */
