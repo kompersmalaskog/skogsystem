@@ -90,7 +90,9 @@ describe('placering: en väg, exakt där trycket träffade, dragbart efteråt', 
   });
   it('håll fingret på kartan öppnar raden — bara när inget annat läge pågår, aldrig på en symbol', () => {
     expect(page).toContain('setLangtryckPunkt({ lat: ll.lat, lng: ll.lng });');
-    expect(page).toContain('langtryckNereRef.current = true;\n        setPlusRadOppen(true);');
+    expect(page).toContain('setLangtryckPunkt({ lat: ll.lat, lng: ll.lng });\n        setPlusRadOppen(true);');
+    expect(page).toContain('if (langtryckOmradeRef.current({ lat: ll.lat, lng: ll.lng }))');   // skotarläget: Högar i ett område i stället för dockan
+    expect(page).toContain('if (!(skotarKorvy && prickLage && hogarPa) || hogStreck) return false;');
     expect(page).toContain('}, LANGTRYCK_MS);');
     expect(page).toContain('langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen');
     expect(page).toContain("layers: ['markers-hit'].filter((l) => map.getLayer(l))");
