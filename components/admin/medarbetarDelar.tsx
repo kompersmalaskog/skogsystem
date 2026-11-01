@@ -35,6 +35,8 @@ export type Medarbetare = {
   hem_bekraftad_tid?: string | null;
   // Delägare / företagsledare: arbetstidslagen gäller inte (migration 20261013155407). Saknas tills migrationen är körd.
   foretagsledare?: boolean | null;
+  /** Skyddsombud (migration 20261031162152). Väljs av förarna, registreras här. Ser alla maskinkoller och åtgärder. */
+  skyddsombud?: boolean | null;
 };
 
 export type OperatorRad = {
