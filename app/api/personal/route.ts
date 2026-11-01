@@ -28,6 +28,7 @@ const LEDIG_STATUS = ["godkänd", "registrerad"];
  * ledighet. Rollen kommer ur sessionen, aldrig ur anropet.
  *
  * Svaret bär bara det vyn visar. Hemadress, e-post, lön och friskvård ägs av Admin › Medarbetare och skickas inte.
+ * Anställningsdatumet skickas bara till admin (det är admin som fyller i det). Mat: personens egen uppgift.
  * Undantaget är skyddsombudet: namn och telefon visas för ALLA (arbetsmiljölagen — alla ska veta vem det är).
  */
 export async function GET() {
@@ -41,7 +42,9 @@ export async function GET() {
 
   let medFraga = supabase
     .from("medarbetare")
-    .select("id, namn, roll, maskin_id, telefon, anhorig_namn, anhorig_telefon, anhorig_relation")
+    .select(arAdmin
+      ? "id, namn, roll, maskin_id, telefon, anhorig_namn, anhorig_telefon, anhorig_relation, anstallningsdatum"
+      : "id, namn, roll, maskin_id, telefon, anhorig_namn, anhorig_telefon, anhorig_relation")
     .eq("aktiv", true)
     .order("namn");
   let utbFraga = supabase
@@ -53,7 +56,10 @@ export async function GET() {
     .in("status", LEDIG_STATUS)
     .gte("slutdatum", idag)
     .order("startdatum");
+  // Mat: personens egen uppgift (kan vara en hälsouppgift). Bara personen själv och admin — samma regel som RLS.
+  let matFraga = supabase.from("medarbetare_mat").select("medarbetare_id, mat");
   if (!arAdmin) {
+    matFraga = matFraga.eq("medarbetare_id", sess.medarbetareId!);
     medFraga = medFraga.eq("id", sess.medarbetareId!);
     utbFraga = utbFraga.eq("medarbetare_id", sess.medarbetareId!);
     ledFraga = ledFraga.eq("medarbetare_id", sess.medarbetareId!);
@@ -65,8 +71,8 @@ export async function GET() {
     .eq("skyddsombud", true)
     .limit(1);
 
-  const [medRes, utbRes, ledRes, maskinRes, skyddRes] = await Promise.all([
-    medFraga, utbFraga, ledFraga, supabase.from("dim_maskin").select(DIM_MASKIN_NAMN_KOLUMNER), skyddFraga,
+  const [medRes, utbRes, ledRes, maskinRes, skyddRes, matRes] = await Promise.all([
+    medFraga, utbFraga, ledFraga, supabase.from("dim_maskin").select(DIM_MASKIN_NAMN_KOLUMNER), skyddFraga, matFraga,
   ]);
 
   // Personerna och deras utbildning är vyns kärna: ett läsfel där är ett fel. Ledighet, maskinnamn och
@@ -76,6 +82,11 @@ export async function GET() {
   if (ledRes.error) console.error("[personal] ledighet:", ledRes.error.message);
   if (maskinRes.error) console.error("[personal] dim_maskin:", maskinRes.error.message);
   if (skyddRes.error) console.error("[personal] skyddsombud:", skyddRes.error.message);
+  if (matRes.error) console.error("[personal] mat:", matRes.error.message);
+
+  // Läsfel: fältet utelämnas (undefined) — vyn visar då ingen Mat-rad i stället för ett påhittat "Inget särskilt".
+  const matPer: Record<string, string> | null = matRes.error ? null : {};
+  if (matPer) for (const r of (matRes.data || []) as any[]) if (r.medarbetare_id) matPer[r.medarbetare_id] = r.mat;
 
   const maskinNamn = maskinNamnMap(maskinRes.data as any[] | null);
 
@@ -110,6 +121,8 @@ export async function GET() {
     anhorig_relation: m.anhorig_relation,
     utbildning: utbPer[m.id] ?? [],
     ledighet: ledPer[m.id] ?? null,
+    ...(arAdmin ? { anstallningsdatum: m.anstallningsdatum ?? null } : {}),
+    ...(matPer ? { mat: matPer[m.id] ?? null } : {}),
   }));
 
   const s = !skyddRes.error ? ((skyddRes.data || []) as any[])[0] : null;

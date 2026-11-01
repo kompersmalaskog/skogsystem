@@ -19,6 +19,7 @@ import { hamtaAntalAttGodkanna } from '@/lib/lastbil/godkannVantar'
 import { lasFavoriter, sparaFavoriter } from '@/lib/startsidaFavoriter'
 import { hamtaMaskinkollVantar } from '@/lib/maskinkoll/data'
 import { hamtaAtgardMarke } from '@/lib/arbetsmiljo/atgarder'
+import { egnaUppgifterText } from '@/lib/personal'
 
 // Hur länge vi väntar på rollen innan svaret räknas som okänt (läsfel får aldrig ge en tom skärm).
 export const ROLL_MAX_VANTAN_MS = 1500
@@ -38,6 +39,8 @@ export type StartsidaData = {
   maskinkollVantar: number | null
   /** Öppna åtgärder (admin/skyddsombud; förare får 0) och hur många av dem som är stopp. null = kunde inte läsas → inget märke. */
   atgarder: { antal: number; stopp: number } | null
+  /** Egna uppgifter som saknas (telefon, anhörig) i ord. null = inget saknas eller kunde inte läsas → ingen rad. */
+  egnaUppgifter: string | null
   /** undefined = läses; null = inga egna (eller läsfel) → rollens förinställda. */
   favoritIds: string[] | null | undefined
   sparaFavoriterna: (ids: string[]) => Promise<boolean>
@@ -56,6 +59,7 @@ export function useStartsidaData(): StartsidaData {
   const [vantandeGodkannande, setVantandeGodkannande] = useState<number | null>(null)
   const [maskinkollVantar, setMaskinkollVantar] = useState<number | null>(null)
   const [atgarder, setAtgarder] = useState<{ antal: number; stopp: number } | null>(null)
+  const [egnaUppgifter, setEgnaUppgifter] = useState<string | null>(null)
   const [favoritIds, setFavoritIds] = useState<string[] | null | undefined>(undefined)
   const [konto, setKonto] = useState<{ namn: string | null; epost: string | null }>({ namn: null, epost: null })
 
@@ -108,6 +112,9 @@ export function useStartsidaData(): StartsidaData {
           if (vid && typeof data?.namn === 'string' && data.namn.trim()) setKonto(k => ({ ...k, namn: data.namn.trim() }))
           fardig()
         }, fardig)
+      // Egen fråga: ett läsfel här får aldrig ta rollen med sig. Läsfel = ingen rad, aldrig en gissning.
+      supabase.from('medarbetare').select('telefon, anhorig_telefon').eq('epost', user.email).single()
+        .then(({ data, error }) => { if (vid && !error && data) setEgnaUppgifter(egnaUppgifterText(data)) }, () => {})
     }, fardig)
     // SAMMA funktion som listvyn använder ⇒ siffran på ikonen och talet överst i listan kan aldrig säga olika saker.
     hamtaVantande()
@@ -129,5 +136,5 @@ export function useStartsidaData(): StartsidaData {
     window.location.href = '/login'
   }
 
-  return { roll, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, maskinkollVantar, atgarder, favoritIds, sparaFavoriterna, konto, loggaUt }
+  return { roll, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, maskinkollVantar, atgarder, egnaUppgifter, favoritIds, sparaFavoriterna, konto, loggaUt }
 }

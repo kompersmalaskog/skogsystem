@@ -34,6 +34,10 @@ export type Person = {
   utbildning: PersonUtbildning[];
   /** Pågående eller närmast kommande ledighet/frånvaro (godkänd eller registrerad). */
   ledighet: PersonLedighet | null;
+  /** Anställningsdatum (ägs av Admin › Medarbetare). Bara i adminsvaret — undefined = okänt här, aldrig "saknas". */
+  anstallningsdatum?: string | null;
+  /** Vad vi ska tänka på när vi beställer mat ("laktosfri"). Personens egen uppgift, bara den själv och admin ser den. */
+  mat?: string | null;
 };
 
 export type Skyddsombud = { id: string; namn: string; telefon: string | null };
@@ -154,7 +158,30 @@ export function personStatus(p: Person, nu: Date = new Date()): Status | null {
   if (tel) return { text: "Saknar telefon", atgard: true };
   const utb = utbildningStatus(p.utbildning);
   if (utb?.atgard) return utb;
+  // Lönen behöver datumet (helglön kräver tre månaders anställning). Bara när svaret faktiskt bär fältet (admin).
+  if (saknarAnstallningsdatum(p)) return { text: "Anställningsdatum saknas", atgard: true };
   if (ledighetNara(p.ledighet, nu)) return { text: ledighetText(p.ledighet, nu), atgard: false };
+  return null;
+}
+
+/** Fältet finns i svaret (admin) men är tomt. Saknas fältet helt vet vi inget och säger inget. */
+export const saknarAnstallningsdatum = (p: Person) => p.anstallningsdatum !== undefined && !harText(p.anstallningsdatum);
+
+/** "Mat att tänka på": de som skrivit något, i bokstavsordning. Aldrig de som inte skrivit — det saknas inget då. */
+export function matAttTankaPa(personal: Person[]): { id: string; namn: string; mat: string }[] {
+  return personal
+    .filter((p) => harText(p.mat))
+    .map((p) => ({ id: p.id, namn: p.namn, mat: p.mat!.trim() }))
+    .sort((a, b) => a.namn.localeCompare(b.namn, "sv"));
+}
+
+/** Startsidans påminnelse till personen själv. null = inget att fylla i. */
+export function egnaUppgifterText(p: Pick<Person, "telefon" | "anhorig_telefon">): string | null {
+  const tel = !harText(p.telefon);
+  const anh = !harText(p.anhorig_telefon);
+  if (tel && anh) return "Fyll i telefon och anhörig";
+  if (anh) return "Fyll i vem vi ringer om något händer dig";
+  if (tel) return "Fyll i ditt telefonnummer";
   return null;
 }
 

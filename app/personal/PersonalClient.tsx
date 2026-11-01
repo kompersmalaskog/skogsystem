@@ -11,6 +11,7 @@
 // ägs av sina vyer — här står bara en rad om dem. Lön, adress, roll och maskin ändras i Admin › Medarbetare.
 import { useCallback, useEffect, useState } from 'react';
 import AndraArk from '@/components/personal/AndraArk';
+import MatArk from '@/components/personal/MatArk';
 import PersonLista from '@/components/personal/PersonLista';
 import PersonSida from '@/components/personal/PersonSida';
 import VyKolumn from '@/components/design/VyKolumn';
@@ -57,6 +58,7 @@ export default function PersonalClient() {
   const [fel, setFel] = useState(false);
   const [vald, setVald] = useState<string | null>(null);
   const [andrar, setAndrar] = useState(false);
+  const [matAndrar, setMatAndrar] = useState(false);
 
   const hamta = useCallback(async () => {
     setLaddar(true); setFel(false);
@@ -109,10 +111,11 @@ export default function PersonalClient() {
       <div style={rot}>{stil}
         <VyKolumn>
           {jag
-            ? <PersonSida person={jag} arAdmin={false} arJag onAndra={() => setAndrar(true)} />
+            ? <PersonSida person={jag} arAdmin={false} arJag onAndra={() => setAndrar(true)} onAndraMat={() => setMatAndrar(true)} />
             : <Besked text="Din rad saknas i personalregistret. Be en admin lägga till dig i Admin › Medarbetare." />}
         </VyKolumn>
         {andrar && jag && <AndraArk person={jag} arJag onStang={() => setAndrar(false)} onSparad={() => { setAndrar(false); hamta(); }} />}
+        {matAndrar && jag && <MatArk person={jag} arJag onStang={() => setMatAndrar(false)} onSparad={() => { setMatAndrar(false); hamta(); }} />}
       </div>
     );
   }
@@ -138,11 +141,12 @@ export default function PersonalClient() {
         </div>
         <div className="ps-person">
           <VyKolumn>
-            <PersonSida person={visad} arAdmin arJag={arJag} onAndra={() => setAndrar(true)} onTillbaka={tillListan} />
+            <PersonSida person={visad} arAdmin arJag={arJag} onAndra={() => setAndrar(true)} onAndraMat={() => setMatAndrar(true)} onTillbaka={tillListan} />
           </VyKolumn>
         </div>
       </div>
       {andrar && <AndraArk key={visad.id} person={visad} arJag={arJag} onStang={() => setAndrar(false)} onSparad={() => { setAndrar(false); hamta(); }} />}
+      {matAndrar && <MatArk key={visad.id} person={visad} arJag={arJag} onStang={() => setMatAndrar(false)} onSparad={() => { setMatAndrar(false); hamta(); }} />}
     </div>
   );
 }

@@ -4,16 +4,18 @@
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import { AVSTAND, FARG, KNAPP, TYP } from '@/lib/design/tokens';
-import { fornamn, ledighetText, saknarAnhorig, saknarTelefon, utbildningStatus, type Person } from '@/lib/personal';
+import { fornamn, ledighetText, saknarAnhorig, saknarAnstallningsdatum, saknarTelefon, utbildningStatus, type Person } from '@/lib/personal';
 
 const ROLL_NAMN: Record<string, string> = { forare: 'Förare', admin: 'Admin' };
 
-export default function PersonSida({ person, arAdmin, arJag, onAndra, onTillbaka }: {
+export default function PersonSida({ person, arAdmin, arJag, onAndra, onAndraMat, onTillbaka }: {
   person: Person;
   arAdmin: boolean;
   /** Den inloggades egen sida: ingen Ring/SMS, rubriken "Mina uppgifter", texterna i du-form. */
   arJag: boolean;
   onAndra: () => void;
+  /** Öppnar Mat-arket. */
+  onAndraMat: () => void;
   /** Bara admin på telefon: tillbaka till listan. Döljs på stor skärm där listan står bredvid. */
   onTillbaka?: () => void;
 }) {
@@ -104,9 +106,31 @@ export default function PersonSida({ person, arAdmin, arJag, onAndra, onTillbaka
         <Rad titel={ledighetText(person.ledighet, nu)} dampad={!person.ledighet} sista attr={{ 'data-ledighet': '' }} />
       </Sektion>
 
+      {/* Mat: bara när svaret bär fältet (ett läsfel ger ingen rad, aldrig ett påhittat "Inget särskilt"). */}
+      {person.mat !== undefined && (
+        <Sektion rubrik="Mat" not={arJag ? 'Bara du och admin ser det.' : undefined}>
+          <Rad
+            titel={person.mat || 'Inget särskilt'}
+            dampad={!person.mat}
+            under={arJag && !person.mat ? 'Om vi beställer mat, till exempel på en utbildning' : undefined}
+            onTryck={kanAndra ? onAndraMat : undefined}
+            sista
+            attr={{ 'data-mat': person.mat ? 'ifylld' : 'tom' }}
+          />
+        </Sektion>
+      )}
+
       {arAdmin && (
         <Sektion rubrik="Mer">
-          <Rad titel="Fler uppgifter i Admin" under="Roll, maskin, adress, lön" href={`/admin?flik=medarbetare&person=${person.id}`} sista attr={{ 'data-admin-lank': '' }} />
+          <Rad
+            titel="Fler uppgifter i Admin"
+            under={saknarAnstallningsdatum(person)
+              ? <span style={{ color: FARG.orange }}>Anställningsdatum saknas · behövs för lönen</span>
+              : 'Roll, maskin, adress, lön'}
+            href={`/admin?flik=medarbetare&person=${person.id}`}
+            sista
+            attr={{ 'data-admin-lank': '' }}
+          />
         </Sektion>
       )}
     </div>

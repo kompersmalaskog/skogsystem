@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  antalAttGora, grupperaPaRoll, ledighetText, periodText, personStatus, utbildningStatus,
+  antalAttGora, egnaUppgifterText, matAttTankaPa, grupperaPaRoll, ledighetText, periodText, personStatus, utbildningStatus,
   type Person, type PersonUtbildning,
 } from "./personal";
 
@@ -90,5 +90,25 @@ describe("antalAttGora och grupperaPaRoll", () => {
   it("förare först, sedan admin, okänd roll sist", () => {
     const g = grupperaPaRoll([person({ id: "a", roll: "admin" }), person({ id: "b" }), person({ id: "c", roll: null })]);
     expect(g.map((x) => [x.rubrik, x.personer.map((p) => p.id)])).toEqual([["Förare", ["b"]], ["Admin", ["a"]], ["Övriga", ["c"]]]);
+  });
+});
+
+describe("anställningsdatum, mat och startsidans påminnelse", () => {
+  it("anställningsdatum saknas är en åtgärd efter utbildning — men bara när svaret bär fältet", () => {
+    expect(personStatus(person({ anstallningsdatum: null }), NU)).toEqual({ text: "Anställningsdatum saknas", atgard: true });
+    expect(personStatus(person({ anstallningsdatum: undefined }), NU)).toBeNull();
+    expect(personStatus(person({ anstallningsdatum: "2020-01-01" }), NU)).toBeNull();
+    expect(personStatus(person({ anstallningsdatum: null, utbildning: [utb("HLR", "saknas")] }), NU)?.text).toBe("HLR saknas");
+  });
+  it("mat är aldrig en åtgärd och listas bara för dem som skrivit något", () => {
+    expect(personStatus(person({ mat: null }), NU)).toBeNull();
+    const lista = matAttTankaPa([person({ id: "b", namn: "Örjan", mat: " laktosfri " }), person({ id: "a", namn: "Anna", mat: "vegetarian" }), person({ id: "c", mat: "" }), person({ id: "d" })]);
+    expect(lista).toEqual([{ id: "a", namn: "Anna", mat: "vegetarian" }, { id: "b", namn: "Örjan", mat: "laktosfri" }]);
+  });
+  it("påminnelsen säger vad som saknas i ord", () => {
+    expect(egnaUppgifterText({ telefon: null, anhorig_telefon: null })).toBe("Fyll i telefon och anhörig");
+    expect(egnaUppgifterText({ telefon: "070", anhorig_telefon: " " })).toBe("Fyll i vem vi ringer om något händer dig");
+    expect(egnaUppgifterText({ telefon: "", anhorig_telefon: "070" })).toBe("Fyll i ditt telefonnummer");
+    expect(egnaUppgifterText({ telefon: "070", anhorig_telefon: "070" })).toBeNull();
   });
 });
