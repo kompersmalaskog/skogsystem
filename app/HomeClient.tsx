@@ -115,7 +115,7 @@ function Raknarmarke({ antal, label }: { antal: number; label: string }) {
 function NyStartsida({ roll, data }: { roll: Roll; data: StartsidaData }) {
   const { besked } = useDatahalsa()
   return (
-    <Startsida roll={roll} marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null, lass: data.vantandeLass, godkann: data.vantandeGodkannande }}
+    <Startsida roll={roll} marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null, lass: data.vantandeLass, godkann: data.vantandeGodkannande, maskinkoll: data.maskinkollVantar }}
       datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna}
       konto={data.konto} onLoggaUt={data.loggaUt} />
   )

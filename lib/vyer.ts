@@ -17,7 +17,7 @@ export type Roll = 'admin' | 'forare'
 export type GruppId = 'produktion' | 'maskiner' | 'objekt' | 'personal' | 'ekonomi' | 'admin' | 'ovrigt'
 
 /** Vilken räknare som sitter på vyn (källan läses av startsidan, aldrig gissad). */
-export type MarkeKalla = 'egenkontroll' | 'ledighet' | 'lass'
+export type MarkeKalla = 'egenkontroll' | 'ledighet' | 'lass' | 'maskinkoll'
 
 export type Vy = {
   /** Stabil nyckel — används av favoriterna (sparas senare per person). Byt aldrig. */
@@ -61,6 +61,10 @@ export const VYER: Vy[] = [
   { id: 'inventarier', namn: 'Inventarier', href: '/inventarier', ikon: 'inventory_2', grupp: 'maskiner', sokord: ['lager', 'sågkedja', 'beställa', 'verktyg', 'bil', 'depåskåp', 'slang'] },
   { id: 'servicelogg', namn: 'Servicelogg', href: '/maskin-service', ikon: 'build', grupp: 'maskiner', sokord: ['service'] },
   { id: 'lastbilen', namn: 'Lastbilen', href: '/lastbil', ikon: 'pin_drop', grupp: 'maskiner', marke: 'lass', sokord: ['flytt', 'maskinflytt', 'hämta maskin', 'körningar', 'fakturering', 'flyttlogg'] },
+  // Maskinkollen = förarens skyddsrond en gång i månaden (arbetsmiljö, 2026-10-31). Märket = dags eller påbörjad.
+  { id: 'maskinkoll', namn: 'Maskinkoll', href: '/maskinkoll', ikon: 'checklist', grupp: 'maskiner', marke: 'maskinkoll', sokord: ['skyddsrond', 'arbetsmiljö', 'säkerhet', 'brandsläckare'] },
+  // "Något är fel": föraren rapporterar ett fel på maskinen när som helst, med bild. Blir en åtgärd direkt.
+  { id: 'nagot-ar-fel', namn: 'Något är fel', href: '/maskinkoll?fel=1', ikon: 'report', grupp: 'maskiner', sokord: ['fel', 'trasig', 'läcker', 'rapportera', 'skada', 'arbetsmiljö'] },
   { id: 'kontroller', namn: 'Kontroller', href: '/kontroller', ikon: 'fact_check', grupp: 'maskiner', sokord: ['besiktning', 'försäkring'] },
 
   // Objekt

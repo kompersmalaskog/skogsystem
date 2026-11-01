@@ -149,13 +149,18 @@ export function skapaMinnesLager(): FotoLager {
 const DB_NAMN = 'skogsystem-foton';
 const STORE = 'markering_foto_ko';
 
-/** IndexedDB-lager. Ger null om IndexedDB saknas eller inte går att öppna. */
-export async function skapaIndexedDbLager(idb: IDBFactory | undefined = typeof indexedDB === 'undefined' ? undefined : indexedDB): Promise<FotoLager | null> {
+/** IndexedDB-lager. Ger null om IndexedDB saknas eller inte går att öppna.
+ *  `namn` = egen databas för en annan kö (maskinkollen), så två köer aldrig ser varandras foton. Utan = markeringarnas. */
+export async function skapaIndexedDbLager(
+  idb: IDBFactory | undefined = typeof indexedDB === 'undefined' ? undefined : indexedDB,
+  namn: { db: string; store: string } = { db: DB_NAMN, store: STORE },
+): Promise<FotoLager | null> {
   if (!idb) return null;
+  const STORE = namn.store;
   let db: IDBDatabase;
   try {
     db = await new Promise<IDBDatabase>((klar, fel) => {
-      const r = idb.open(DB_NAMN, 1);
+      const r = idb.open(namn.db, 1);
       r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains(STORE)) r.result.createObjectStore(STORE, { keyPath: 'nyckel' }); };
       r.onsuccess = () => klar(r.result);
       r.onerror = () => fel(r.error);

@@ -17,6 +17,7 @@ import { hamtaLedighetPrick, type LedighetPrick } from '@/lib/ledighet/prick'
 import { hamtaAntalVantandeLass } from '@/lib/lastbil/lass/vantar'
 import { hamtaAntalAttGodkanna } from '@/lib/lastbil/godkannVantar'
 import { lasFavoriter, sparaFavoriter } from '@/lib/startsidaFavoriter'
+import { hamtaMaskinkollVantar } from '@/lib/maskinkoll/data'
 
 // Hur länge vi väntar på rollen innan svaret räknas som okänt (läsfel får aldrig ge en tom skärm).
 export const ROLL_MAX_VANTAN_MS = 1500
@@ -32,6 +33,8 @@ export type StartsidaData = {
   vantandeLass: number | null
   /** Flyttar som väntar på godkännande (bara admin ser dem). null = kunde inte läsas → inget märke, aldrig 0. */
   vantandeGodkannande: number | null
+  /** Förarens maskinkoll: 1 = dags eller påbörjad, 0 = inte dags eller ingen maskin. null = kunde inte läsas → inget märke. */
+  maskinkollVantar: number | null
   /** undefined = läses; null = inga egna (eller läsfel) → rollens förinställda. */
   favoritIds: string[] | null | undefined
   sparaFavoriterna: (ids: string[]) => Promise<boolean>
@@ -48,6 +51,7 @@ export function useStartsidaData(): StartsidaData {
   const [ledighetPrick, setLedighetPrick] = useState<LedighetPrick | null>(null)
   const [vantandeLass, setVantandeLass] = useState<number | null>(null)
   const [vantandeGodkannande, setVantandeGodkannande] = useState<number | null>(null)
+  const [maskinkollVantar, setMaskinkollVantar] = useState<number | null>(null)
   const [favoritIds, setFavoritIds] = useState<string[] | null | undefined>(undefined)
   const [konto, setKonto] = useState<{ namn: string | null; epost: string | null }>({ namn: null, epost: null })
 
@@ -68,6 +72,16 @@ export function useStartsidaData(): StartsidaData {
       hamtaAntalVantandeLass(supabase).then(n => { if (vid) setVantandeLass(n) })
       hamtaAntalAttGodkanna(supabase).then(n => { if (vid) setVantandeGodkannande(n) })
     }
+    hamta()
+    const synlig = () => { if (document.visibilityState === 'visible') hamta() }
+    document.addEventListener('visibilitychange', synlig)
+    return () => { vid = false; document.removeEventListener('visibilitychange', synlig) }
+  }, [])
+
+  // Maskinkollen: läses om när man kommer tillbaka till appen (märket ska försvinna när kollen är gjord).
+  useEffect(() => {
+    let vid = true
+    const hamta = () => { hamtaMaskinkollVantar(supabase).then(n => { if (vid) setMaskinkollVantar(n) }, () => { if (vid) setMaskinkollVantar(null) }) }
     hamta()
     const synlig = () => { if (document.visibilityState === 'visible') hamta() }
     document.addEventListener('visibilitychange', synlig)
@@ -108,5 +122,5 @@ export function useStartsidaData(): StartsidaData {
     window.location.href = '/login'
   }
 
-  return { roll, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, favoritIds, sparaFavoriterna, konto, loggaUt }
+  return { roll, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, maskinkollVantar, favoritIds, sparaFavoriterna, konto, loggaUt }
 }
