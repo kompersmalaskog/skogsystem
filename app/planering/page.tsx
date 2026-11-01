@@ -9349,7 +9349,8 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || !testlage) return;
-    return kopplaLangtryckFlytt(map, flyttaTestPosition);
+    // Skotarläget med högarna på: håll fingret = rita runt ett område, som i en riktig skotare (Martin 2026-11-01). Positionen flyttas då med "Flytta mig hit".
+    return kopplaLangtryckFlytt(map, (lat, lon) => { if (langtryckOmradeRef.current({ lat, lng: lon })) return; flyttaTestPosition(lat, lon); });
   }, [mapLibreReady, testlage, flyttaTestPosition]);
 
   // 8) LARMET (körvy OCH skotarläge): lib/larm avgör vad som larmar (typen → färggrupp → regel), hooken matar den med markeringar,
@@ -13392,7 +13393,7 @@ export default function PlannerPage() {
           fontSize: '13px', fontWeight: 800, letterSpacing: '0.3px', textAlign: 'center',
           boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
         }}>
-          <span>⚠ Visar som maskin: {startMaskinNamn || testlage.maskinId}<span data-testid="test-langtryck-tips" style={{ fontWeight: 600 }}> · håll fingret på kartan = flytta mig</span></span>
+          <span>⚠ Visar som maskin: {startMaskinNamn || testlage.maskinId}<span data-testid="test-langtryck-tips" style={{ fontWeight: 600 }}>{skotarKorvy && prickLage && hogarPa ? ' · håll fingret på kartan = rita runt högar' : ' · håll fingret på kartan = flytta mig'}</span></span>
           {skotarLassAktiv && (
             <button type="button" data-testid="skotar-provkor" onClick={() => skotarLass.provkorLossning(skotarValtAvlagg)}
               style={{ background: FARG.fyllning, color: FARG.text, border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
