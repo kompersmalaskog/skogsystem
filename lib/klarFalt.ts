@@ -4,8 +4,9 @@
 
 import { lasHarDu, lasVed, lasVidaAvlagg, vedTillKolumn, VED_TOM, type HarDuSvar, type VedDetaljer, type VidaAvlaggBekraftelse } from './klarTrakt';
 import { parseSvNum } from './objektInfoSpar';
+import { lasRiskbedomning, riskbedomningTillKolumn, RISK_TOM, type Riskbedomning } from './riskbedomning';
 
-export const KLAR_KOLUMNER = 'medelstam, har_du_svar, ved_detaljer, prognos_godkand_av, prognos_godkand_at, prognos_godkand_underlag, klar_kvar_antal';
+export const KLAR_KOLUMNER = 'medelstam, har_du_svar, ved_detaljer, prognos_godkand_av, prognos_godkand_at, prognos_godkand_underlag, klar_kvar_antal, riskbedomning';
 
 export interface PrognosGodkand { av: string | null; at: string | null; underlag: string | null }
 
@@ -19,10 +20,12 @@ export interface KlarFalt {
   prognosGodkand: PrognosGodkand;
   /** senast beräknat antal kvar (kortet skriver det; listorna visar det) — null = aldrig beräknat */
   klarKvarAntal: number | null;
+  /** riskbedömningen (lib/riskbedomning) — objekt.riskbedomning */
+  riskbedomning: Riskbedomning;
 }
 
 export const KLAR_TOM: KlarFalt = {
-  medelstam: '', harDu: {}, vidaAvlagg: null, ved: { ...VED_TOM }, prognosGodkand: { av: null, at: null, underlag: null }, klarKvarAntal: null,
+  medelstam: '', harDu: {}, vidaAvlagg: null, ved: { ...VED_TOM }, prognosGodkand: { av: null, at: null, underlag: null }, klarKvarAntal: null, riskbedomning: RISK_TOM,
 };
 
 export function radTillKlarFalt(r: any): KlarFalt {
@@ -37,6 +40,7 @@ export function radTillKlarFalt(r: any): KlarFalt {
       underlag: typeof r?.prognos_godkand_underlag === 'string' ? r.prognos_godkand_underlag : null,
     },
     klarKvarAntal: typeof r?.klar_kvar_antal === 'number' && Number.isFinite(r.klar_kvar_antal) ? r.klar_kvar_antal : null,
+    riskbedomning: lasRiskbedomning(r?.riskbedomning),
   };
 }
 
@@ -56,6 +60,7 @@ export function klarFaltTillKolumner(patch: Partial<KlarFalt>, nuvarande: Pick<K
     k.prognos_godkand_at = patch.prognosGodkand.at;
     k.prognos_godkand_underlag = patch.prognosGodkand.underlag;
   }
+  if ('riskbedomning' in patch && patch.riskbedomning) k.riskbedomning = riskbedomningTillKolumn(patch.riskbedomning);
   if ('klarKvarAntal' in patch) {
     k.klar_kvar_antal = patch.klarKvarAntal ?? null;
     k.klar_kvar_beraknad_at = patch.klarKvarAntal == null ? null : new Date().toISOString();

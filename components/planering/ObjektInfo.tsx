@@ -15,6 +15,8 @@ import VadBetyderKartan, { type VadBetyderKartanProps } from './VadBetyderKartan
 import { InstruktionLista } from './InstruktionKort';
 import { DIREKTIV_NYCKEL, type InstruktionerPaTrakten } from '@/lib/instruktioner/instruktioner';
 import KlarMedTrakten, { type KlarMedTraktenProps } from './KlarMedTrakten';
+import { ForarRisker, riskRadUnder } from './Risker';
+import type { Risk } from '@/lib/riskbedomning';
 import type { KartMarkering, KortKnappId } from '@/lib/objektKort';
 import type { PlusLage } from '@/lib/plusArk';
 import type { SlappOrsak } from '@/lib/omTraktenFramhav';
@@ -48,12 +50,15 @@ export interface ObjektInfoProps {
    * `onYta` flyger kartan till ytan; på telefon fälls arket ner först så att kartan syns ovanför. Saknas/null = det vanliga kortet (planeringsläget).
    */
   enkel?: (Omit<ObjektKortEnkelProps, 'onStang' | 'onMer' | 'onKnapp' | 'direktivSett' | 'onYta'> & { onYta: (nyckel: string, lage: PlusLage) => void }) | null;
+  /** MASKINLÄGET: riskbedömningen för föraren (lib/riskbedomning). lista null = inte gjord än (en dämpad rad). onLast → true när kvittot sparats. Saknas = ingen rad. */
+  forarRisker?: { lista: Risk[] | null; last: boolean; onLast: () => Promise<boolean> } | null;
   /** Panelens bredd (px) på bred skärm. Standard `PANEL_BREDD_PX`; maskinläget ger den bredare panelen (som korten). På telefon är det ett ark i full bredd. */
   bredd?: number;
 }
 
-export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, enkel = null, bredd, startVy = 'kort' }: ObjektInfoProps) {
+export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, enkel = null, forarRisker = null, bredd, startVy = 'kort' }: ObjektInfoProps) {
   const [vy, setVy] = useState<InfoVy>(startVy);
+  const [riskFel, setRiskFel] = useState(false);
   // Vidas traktdirektiv är instruktion nr 1 (lib/instruktioner): finns det en post för det kan föraren kvittera det direkt under rutan på kortet.
   const direktiv = instruktioner?.data.omraden.find((o) => o.nyckel === DIREKTIV_NYCKEL) ?? null;
   const ramLage = useSkarmLage(oppen);
@@ -74,13 +79,14 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
   const stangRam = () => { stangOm(); if (vy === 'om') { om.onTyp(null, ramLage); om.onNav(null); } onStang(); };
 
   return (
-    <InfoRam oppen={oppen} vy={vy} bredd={bredd} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : 'Mer'} onStang={stangRam}>
+    <InfoRam oppen={oppen} vy={vy} bredd={bredd} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : vy === 'risker' ? 'Risker på trakten' : 'Mer'} onStang={stangRam}>
       {({ lage, sattDetent }) => (
         vy === 'klar' && klar ? (
           <KlarMedTrakten {...klar} namn={objektNamn} onStang={stangRam} onInfo={() => setVy('kort')} />
         ) : (vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner)) && enkel ? (
           <ObjektKortEnkel {...enkel} direktivSett={direktiv ? { sedd: direktiv.nya === 0, onSett: () => instruktioner!.onSett([DIREKTIV_NYCKEL]) } : null}
             onStang={stangRam} onKnapp={onKnapp} onMer={() => setVy('mer')} onKarta={karta ? () => setVy('karta') : undefined}
+            risker={forarRisker ? { ...riskRadUnder(forarRisker.lista, forarRisker.last), onOppna: forarRisker.lista ? () => { setRiskFel(false); setVy('risker'); } : null } : null}
             onYta={(nyckel) => { sattDetent('halv'); enkel.onYta(nyckel, lage); }} />
         ) : vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner) ? (
           <ObjektKort {...kort} instruktioner={instruktioner && instruktioner.data.antal > 0 ? { antal: instruktioner.data.antal, nya: instruktioner.data.nya, onOppna: () => setVy('instruktioner') } : null}
@@ -91,6 +97,9 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
         ) : vy === 'om' ? (
           <OmTrakten {...om} start={aterstall} onVisa={(m) => om.onVisa(m, lage)} onSlapp={() => om.onSlapp('rad')} onTyp={(m) => { setTypOppen(!!m); om.onTyp(m, lage); }}
             objektNamn={objektNamn} objektId={objektId} onTillbaka={() => { stangOm(); om.onTyp(null, lage); om.onNav(null); setAterstall(undefined); setTypOppen(false); setVy('kort'); }} onStang={stangRam} />
+        ) : vy === 'risker' && forarRisker?.lista ? (
+          <ForarRisker objektNamn={objektNamn} risker={forarRisker.lista} last={forarRisker.last} sparFel={riskFel}
+            onLast={() => { setRiskFel(false); void forarRisker.onLast().then((ok) => setRiskFel(!ok)); }} onTillbaka={() => setVy('kort')} onStang={stangRam} />
         ) : vy === 'instruktioner' && instruktioner ? (
           <InstruktionLista data={instruktioner.data} objektNamn={objektNamn} onSett={instruktioner.onSett} onTillbaka={() => setVy('kort')} onStang={stangRam} />
         ) : vy === 'karta' && karta ? (

@@ -36,7 +36,7 @@ describe('rad ↔ fält', () => {
     expect(klarFaltTillKolumner({ klarKvarAntal: null })).toEqual({ klar_kvar_antal: null, klar_kvar_beraknad_at: null });
   });
   it('kolumnlistan i läsningen är exakt de som radTillKlarFalt läser', () => {
-    expect(KLAR_KOLUMNER.split(',').map((s) => s.trim()).sort()).toEqual(['har_du_svar', 'klar_kvar_antal', 'medelstam', 'prognos_godkand_at', 'prognos_godkand_av', 'prognos_godkand_underlag', 'ved_detaljer']);
+    expect(KLAR_KOLUMNER.split(',').map((s) => s.trim()).sort()).toEqual(['har_du_svar', 'klar_kvar_antal', 'medelstam', 'prognos_godkand_at', 'prognos_godkand_av', 'prognos_godkand_underlag', 'riskbedomning', 'ved_detaljer']);
   });
 });
 
