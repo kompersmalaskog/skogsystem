@@ -38,7 +38,7 @@ describe('prickarna gäller bara planeringsvyn (objektListaVal) — inte maskinl
   });
 
   it('långtryck (dockan) öppnas inte medan listan är öppen', () => {
-    expect(page).toMatch(/langtryckTillatenRef\.current = [^;]*&& !objektListaOppen;/);
+    expect(page).toMatch(/langtryckTillatenRef\.current = [^;]*&& !objektListaOppen && !hogStreck;/);
   });
 
   it('valjObjektUrLista: ett ANNAT objekt markerar valet (ingen kameraåtergång), samma objekt gör det inte (kartan går tillbaka)', () => {
