@@ -27,7 +27,7 @@ describe('symbolens namn', () => {
     expect(block).toContain('name: SYMBOL_NAMN[id]');
     expect(block).not.toMatch(/name: '/);
     const ids = MENY_KATEGORIER.flatMap((k) => k.symboler);
-    expect(ids.length).toBe(19);
+    expect(ids.length).toBe(20);   // + Odlingsröse (2026-11-01)
     for (const id of ids) expect(SYMBOL_NAMN[id], id).toBeTruthy();
   });
   it('namnet under symbolen på kartan (markers-korvy-label) bygger på SYMBOL_NAMN, inte egna ord', () => {

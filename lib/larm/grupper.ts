@@ -44,7 +44,7 @@ export const SYMBOL_GRUPP: Readonly<Record<string, FargGrupp>> = {
   // Natur
   eternitytree: 'natur', naturecorner: 'natur', highstump: 'natur',
   // Kultur
-  culturemonument: 'kultur', culturestump: 'kultur',
+  culturemonument: 'kultur', culturestump: 'kultur', odlingsrose: 'kultur',
   // Blött
   wet: 'blott',
   // Att göra (Manuell fällning är INTE fara längre)
@@ -55,7 +55,7 @@ export const SYMBOL_GRUPP: Readonly<Record<string, FargGrupp>> = {
 };
 
 /** Larmar ALDRIG, oavsett vem som satte dem: förarens pillräknare och planerarens symboler av samma typ (Martin 2026-10-20). Ritas gröna (Natur) som förut. */
-export const LARMFRIA_SYMBOLER: readonly string[] = ['highstump', 'eternitytree'];
+export const LARMFRIA_SYMBOLER: readonly string[] = ['highstump', 'eternitytree', 'odlingsrose'];   // Odlingsröse: en fossil åker har dussintals — larm på varje vore brus (Martin 2026-11-01)
 
 /**
  * Symbolens NAMN — EN källa för menyn (symbolkategorierna), namnet under symbolen på kartan (markers-korvy-label) och larmkortet/Om trakten.
@@ -65,7 +65,7 @@ export const LARMFRIA_SYMBOLER: readonly string[] = ['highstump', 'eternitytree'
 export const SYMBOL_NAMN: Readonly<Record<string, string>> = {
   eternitytree: 'Evighetsträd', naturecorner: 'Naturhörna',
   // Kulturlämning = stenröse, tjärdal, kolbotten, råsten. Gamla Kulturstubbar ritas och heter Kulturlämning (ingen data ändras).
-  culturemonument: 'Kulturlämning', culturestump: 'Kulturlämning',
+  culturemonument: 'Kulturlämning', culturestump: 'Kulturlämning', odlingsrose: 'Odlingsröse',
   highstump: 'Högstubbe', landing: 'Avlägg', brashpile: 'Rishög', windfall: 'Vindfälle', manualfelling: 'Manuell fällning', felloutside: 'Träd att avverka',
   powerline: 'El-ledning', road: 'Väg', turningpoint: 'Vändplats',
   ditch: 'Dike', bridge: 'Bro', corduroy: 'Kavling', wet: 'Fuktig mark', steep: 'Brant', trail: 'Stig / Led',
@@ -137,7 +137,7 @@ export type FallningGrupp = 'fara' | 'kultur' | 'natur';
 
 export const FALLNING_SYMBOL: Readonly<Record<string, FallningGrupp>> = {
   powerline: 'fara', warning: 'fara', huntingtower: 'fara',   // Jakttorn (Röd); Markkabel ligger i marken och räknas inte
-  culturemonument: 'kultur', culturestump: 'kultur',
+  culturemonument: 'kultur', culturestump: 'kultur', odlingsrose: 'kultur',   // Odlingsröse larmar aldrig men färgar cirkeln brun: fäll inte på stenhögen
   naturecorner: 'natur', eternitytree: 'natur',
 };
 export const FALLNING_LINJE: Readonly<Record<string, FallningGrupp>> = { stonewall: 'kultur', powerline: 'fara' };

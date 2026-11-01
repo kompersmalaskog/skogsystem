@@ -147,7 +147,7 @@ import { mittAvPunkter, omSammanfattning, punkterUrGeometri } from '../../lib/om
 import { lagerBild, tonadYta, linjeYta, sparYta, prickYta } from '../../lib/lagerForhandsbild'
 import { hogPrickar, lasHogVisa, sparaHogVisa, HOG_VISA, HOG_PRICK_FARG, STRECK_BREDD_M, type HogVisa, type HogPrick, type HogMarkGrupp, hogNyckel, hogarIOmrade } from '../../lib/skotarHogarKvar'
 import { useHogMarkeringar } from '../../lib/hooks/useHogMarkeringar'
-import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
+import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, arAlltidPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
@@ -2177,7 +2177,7 @@ export default function PlannerPage() {
           filter: ['==', ['get', 'prick'], true],
           paint: {
             'circle-radius': PRICK_DIAMETER_PX / 2,
-            'circle-color': ['match', ['get', 'type'], 'eternitytree', symbolFarg('eternitytree'), symbolFarg('highstump')],   // Natur (grön) för båda — lib/larm/grupper
+            'circle-color': ['match', ['get', 'type'], 'eternitytree', symbolFarg('eternitytree'), 'odlingsrose', symbolFarg('odlingsrose'), symbolFarg('highstump')],   // Natur (grön), Odlingsröse Kultur (brun) — lib/larm/grupper
             'circle-opacity': 1,
             'circle-stroke-width': 1.5,
             'circle-stroke-color': PRICK_KANT_FARG,   // mörk kant: pricken syns mot både ljus och mörk karta
@@ -8744,8 +8744,9 @@ export default function PlannerPage() {
           nearby = dist <= 120;                     // "växer lite"-hook (icon-size)
           withinRadius = dist <= FALLNINGSRADIE_M;  // inom fällningsradie
         }
-        // Körvyn: högstubbe/evighetsträd = liten prick (prick=true) utan fade/puls/ring (inget proximitetskort heller — se kö-effekten)
-        const prick = korvyActive && arPrick(m.type);
+        // Körvyn: högstubbe/evighetsträd = liten prick (prick=true) utan fade/puls/ring (inget proximitetskort heller — se kö-effekten).
+        // Odlingsröse är prick överallt, också i planeringen (många på en fossil åker).
+        const prick = (korvyActive && arPrick(m.type)) || arAlltidPrick(m.type);
         features.push({
           type: 'Feature',
           properties: prick
@@ -12171,6 +12172,15 @@ export default function PlannerPage() {
   // ── PLACERING: EN väg för räknarna i pillen, "Vid maskinen", långtryck på kartan och tryck på kartan ──
   // Markören hamnar EXAKT där trycket träffade (inget förskjutet över fingret) och går att dra efteråt. Körvyn: kvitto med Ångra,
   // antal 1. Planeringen: som förut (antal-frågan för evighetsträd/naturhörna/högstubbe).
+  const [roseSatta, setRoseSatta] = useState<number[]>([]);
+  useEffect(() => { if (!selectedSymbol || !arAlltidPrick(selectedSymbol)) setRoseSatta([]); }, [selectedSymbol]);
+  const angraRose = () => {
+    const id = roseSatta[roseSatta.length - 1];
+    if (id == null) return;
+    setRoseSatta((r) => r.slice(0, -1));
+    setMarkers((prev: any[]) => angraMarkering(prev, id));
+    deleteMarkerFromDb(id);
+  };
   const placeraSymbol = (typ: string, lat: number, lon: number, osakerM?: number) => {
     const { x, y } = latLonToSvg(lat, lon);
     const id = Date.now();
@@ -12193,7 +12203,9 @@ export default function PlannerPage() {
     if (navigator.vibrate) navigator.vibrate(30);
     // Ved-symbolen är ingen verktygssymbol: den ska aldrig hamna bland "senast använda" eller i plusdockan.
     if (typ !== 'firewood') setRecentSymbols((prev: string[]) => [typ, ...prev.filter((s) => s !== typ)].slice(0, 4));
-    setSelectedSymbol(null);
+    // Odlingsröse: läget ligger kvar så att man trycker ut alla rösen i rad (avslutas med ✓); ↩ tar bort det senaste.
+    if (arAlltidPrick(typ)) setRoseSatta((r) => [...r, id]);
+    else setSelectedSymbol(null);
     if (typ === 'landing' && klarAterAvlagg) { setKlarAterAvlagg(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); }
     if (typ !== 'firewood') noteraPlus({ typ: 'symbol', id: typ });
     if (korvyActive || (klarGaller && typ !== 'firewood')) visaKvitto(osakerM ? `${kvittoRubrik(symbolNamn(typ))} · osäker ±${osakerM} m` : kvittoRubrik(symbolNamn(typ)), 'ok', id);
@@ -14931,10 +14943,15 @@ export default function PlannerPage() {
         <KorvyNertillList
           testid="placera-list"
           smal={smalSkarm}
-          text={`Tryck där ${symbolNamn(selectedSymbol)} ska stå`}
+          text={arAlltidPrick(selectedSymbol)
+            ? `Tryck på varje ${symbolNamn(selectedSymbol).toLowerCase()} · ${roseSatta.length} satta`
+            : `Tryck där ${symbolNamn(selectedSymbol)} ska stå`}
           knappar={[
             ...(korvyActive ? [{ etikett: 'Vid maskinen', onClick: () => placeraVidMaskinen(selectedSymbol), testid: 'placera-vid-maskinen' }] : []),
-            AVBRYT_KNAPP(() => setSelectedSymbol(null), 'placera-avbryt'),
+            ...(arAlltidPrick(selectedSymbol) ? [
+              { etikett: '↩', aria: 'Ta bort senaste', onClick: angraRose, av: roseSatta.length === 0, testid: 'placera-angra' },
+              { etikett: '✓', aria: 'Klar', onClick: () => setSelectedSymbol(null), gron: true, testid: 'placera-klar' },
+            ] : [AVBRYT_KNAPP(() => setSelectedSymbol(null), 'placera-avbryt')]),
           ]}
         />
       ))}
