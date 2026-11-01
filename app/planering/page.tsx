@@ -746,9 +746,11 @@ function laggTillHogPrickar(map: any) {
   }
   if (!map.getLayer('drawing-hogomrade-fill')) {
     try {
-      map.addLayer({ id: 'drawing-hogomrade-fill', type: 'fill', source: 'skotar-hogomrade-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.12 } });
-      map.addLayer({ id: 'drawing-hogomrade-line', type: 'line', source: 'skotar-hogomrade-source', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#ffffff', 'line-width': 2.5 } });
-      map.addLayer({ id: 'drawing-hogomrade-punkt', type: 'circle', source: 'skotar-hogomrade-source', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 6, 'circle-color': '#ffffff', 'circle-stroke-color': 'rgba(0,0,0,0.8)', 'circle-stroke-width': 1.5 } });
+      // Samma blå som Mät (Martin 2026-11-01: vitt såg ut som högarna, som är vita prickar). Mörk kant så linjen syns över de blå basvägarna.
+      map.addLayer({ id: 'drawing-hogomrade-fill', type: 'fill', source: 'skotar-hogomrade-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#0a84ff', 'fill-opacity': 0.18 } });
+      map.addLayer({ id: 'drawing-hogomrade-kant', type: 'line', source: 'skotar-hogomrade-source', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': 'rgba(0,0,0,0.85)', 'line-width': 7 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+      map.addLayer({ id: 'drawing-hogomrade-line', type: 'line', source: 'skotar-hogomrade-source', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#0a84ff', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+      map.addLayer({ id: 'drawing-hogomrade-punkt', type: 'circle', source: 'skotar-hogomrade-source', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 6, 'circle-color': '#0a84ff', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } });
     } catch (e) { console.error('[Högar] område förhand:', e); }
   }
   if (!map.getSource('skotar-hogar-source')) {
