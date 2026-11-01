@@ -23,6 +23,7 @@ import { arBesokEjSett, byggEjSettNotis, type HamtaEjSett } from "@/lib/besok/ej
 import { koaBesokEjSett } from "@/lib/besok/ejsett-ko";
 import { maskinEtikett } from "@/lib/besok/maskinerPaBesok";
 import { rollAvMaskintyp } from "@/lib/maskindatorStart";
+import { AM_STOPP, arStoppNotis, byggStoppNotis, type HamtaStopp } from "@/lib/arbetsmiljo/stoppNotis";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -114,7 +115,7 @@ async function flush() {
     // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
     // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts), liksom lönenotiserna (lib/lonesystem/granskaNotis.ts).
-    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, ...LON_NOTIS_TYPER]))
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, ...LON_NOTIS_TYPER]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -189,8 +190,10 @@ async function flush() {
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
       // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ)) {
-        const u = arGodkannNotis(n.typ) ? await byggGodkannNotis(n, () => lasVantandeUnderlag(supabase))
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ)) {
+        // Maskinen ska stå (lib/arbetsmiljo/stoppNotis): borta, åtgärdad eller inte längre stopp → hoppas över.
+        const u = arStoppNotis(n.typ) ? await byggStoppNotis(n, hamtaStopp)
+          : arGodkannNotis(n.typ) ? await byggGodkannNotis(n, () => lasVantandeUnderlag(supabase))
           : arBesokEjSett(n.typ) ? await byggEjSettNotis(n, hamtaEjSett)
           : arBesokPaminnelse(n.typ) ? await byggBesokNotis(n, hamtaBesokObjekt)
           : arInventarieNotis(n.typ) ? await byggInventarieNotis(n, hamtaInventarierad)
@@ -303,6 +306,29 @@ const hamtaStickprovrad: HamtaStickprov = async (manad) => {
   if (!data) return { rad: null };
   const d = data as any;
   return { rad: { manad: d.manad, valda: Array.isArray(d.valda) ? d.valda : [], spridning_km: d.spridning_km == null ? null : Number(d.spridning_km) } };
+};
+
+// Åtgärden för "Maskinen ska stå", med maskinens och rapportörens namn. `rad: null` = finns inte; `fel` = kunde inte läsas.
+// Tjänstenyckeln läser förbi RLS (am_atgarder() kräver en inloggad admin/skyddsombud och ger därför inga rader här).
+const hamtaStopp: HamtaStopp = async (id) => {
+  const { data, error } = await supabase
+    .from("am_atgard")
+    .select("id, status, stopp, beskrivning, maskin_id, rapporterad_av, svar:svar_id(koll:maskinkoll_id(medarbetare_id))")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const svar = Array.isArray(d.svar) ? d.svar[0] : d.svar;
+  const koll = svar ? (Array.isArray(svar.koll) ? svar.koll[0] : svar.koll) : null;
+  const vemId: string | null = d.rapporterad_av ?? koll?.medarbetare_id ?? null;
+  const [m, p] = await Promise.all([
+    d.maskin_id ? supabase.from("dim_maskin").select("visningsnamn, modell").eq("maskin_id", d.maskin_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    vemId ? supabase.from("medarbetare").select("namn").eq("id", vemId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (m.error || p.error) return { rad: null, fel: (m.error ?? p.error)!.message };
+  const maskin = m.data as any;
+  return { rad: { id: d.id, status: d.status, stopp: !!d.stopp, beskrivning: d.beskrivning, maskin_namn: maskin?.visningsnamn || maskin?.modell || d.maskin_id || null, rapportor_namn: (p.data as any)?.namn ?? null } };
 };
 
 // Inventarieraden för "Börjar ta slut". `rad: null` = finns inte; `fel` = kunde inte läsas. Tjänstenyckeln läser förbi RLS.

@@ -22,7 +22,7 @@ import { MAX_FAVORITER, STANDARD_FAVORITER, favoriterFor, grupperFor, ovrigtFor,
 
 /** Räknare per källa. null = okänt (laddar eller läsfel) → inget märke, aldrig "0". */
 /** `godkann` hör till Lastbilen men är ingen egen vy-märkeskälla: Lastbilens märke är lass + flyttar att godkänna. */
-export type Marken = Partial<Record<MarkeKalla | 'godkann', number | null>>
+export type Marken = Partial<Record<MarkeKalla | 'godkann' | 'atgardStopp', number | null>>
 
 /** Datahälsans besked i den form startsidan behöver (samma som useDatahalsa ger). */
 export type DatahalsaBesked = { niva: 'laddar' | 'gron' | 'gul' | 'rod' | 'okant'; rubrik: string }
@@ -65,6 +65,7 @@ const MARKE_TEXT: Record<MarkeKalla, string> = {
   ledighet: 'att göra i ledighet',
   lass: 'att göra i Lastbilen',
   maskinkoll: 'maskinkoll att göra',
+  atgarder: 'åtgärder att göra',
 }
 
 function antalFor(v: Vy, marken: Marken): number | null {
@@ -340,6 +341,10 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
   // Maskinkollen (skyddsronden): förarens egen maskin, en gång i månaden.
   const mk = marken.maskinkoll
   if (typeof mk === 'number' && mk > 0) uppgifter.push({ id: 'maskinkoll', text: 'Dags för maskinkoll · ca 1 min', href: '/maskinkoll', farg: FARG.orange })
+  // Åtgärder: ett stopp är rött och säger det; annars antalet i orange.
+  const at = marken.atgarder, st = marken.atgardStopp
+  if (typeof st === 'number' && st > 0) uppgifter.push({ id: 'atgarder', text: st === 1 ? '1 maskin ska stå tills det är lagat' : `${st} stopp – maskiner ska stå tills det är lagat`, href: '/atgarder', farg: FARG.rod })
+  else if (typeof at === 'number' && at > 0) uppgifter.push({ id: 'atgarder', text: at === 1 ? '1 åtgärd att göra' : `${at} åtgärder att göra`, href: '/atgarder', farg: FARG.orange })
   // Datahälsan bor i Mer. Bara ett riktigt fel (röd: data tappas) står också här, så det aldrig missas.
   if (roll === 'admin' && datahalsa?.niva === 'rod') {
     uppgifter.push({ id: 'datahalsa', text: `Datahälsa: ${datahalsa.rubrik}`, href: '/datahalsa', farg: FARG.rod })

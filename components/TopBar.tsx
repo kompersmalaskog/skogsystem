@@ -35,6 +35,7 @@ const pageNames: Record<string, string> = {
   '/maskinflytt/platser': 'Flyttplatser',
   '/lastbil': 'Lastbilen',
   '/inventarier': 'Inventarier',
+  '/atgarder': 'Åtgärder',
   '/avtal': 'Avtal & Abonnemang',
   '/personal': 'Personal',
   '/om': 'Om appen',
