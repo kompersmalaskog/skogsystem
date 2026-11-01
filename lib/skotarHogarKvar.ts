@@ -169,6 +169,7 @@ export function hogPrickar(
   features: readonly { geometry?: { coordinates?: number[] }; properties?: { sortimentVolymJson?: string } }[],
   lass: readonly Lass[],
   visa: HogVisa,
+  markeringar: readonly HogMarkering[] = [],
 ): HogPrick[] {
   const hogar: HogIn[] = [];
   for (const f of features) {
@@ -178,7 +179,7 @@ export function hogPrickar(
     try { sv = JSON.parse(f.properties?.sortimentVolymJson || '{}') || {}; } catch { sv = {}; }
     hogar.push({ lng: c[0], lat: c[1], sortimentVolym: sv });
   }
-  const kvar = hogarKvar(hogar, lass);
+  const kvar = medMarkeringar(hogar, hogarKvar(hogar, lass), markeringar);
   const ut: HogPrick[] = [];
   hogar.forEach((h, i) => {
     const v = kvarFor(kvar[i], visa);
@@ -189,6 +190,90 @@ export function hogPrickar(
     ut.push({ nyckel: hogNyckel(h.lng, h.lat), lng: h.lng, lat: h.lat, v: Math.round(v * 100) / 100, farg: HOG_PRICK_FARG[visa], a: rest ? REST_STYRKA : FULL_STYRKA });
   });
   return ut;
+}
+
+/**
+ * FÖRARENS MARKERINGAR (tabellen skotar_hog_markering). Ett tryck på en hög = en punkt på högens plats; ett drag = en linje med bredd.
+ * De gäller FÖRE appens uträkning och i den ordning de gjordes: 'tagen' tömmer högarna under markeringen, 'kvar' gör dem hela igen
+ * (det skördaren lade där). grupp = bara det sortimentet, null = allt. Markeringen sparas som en plats, inte som en hög, eftersom
+ * högarna räknas om ur stammarna och kan flytta några meter när nya filer kommer.
+ */
+export type HogMarkTyp = 'tagen' | 'kvar';
+export type HogMarkGrupp = Exclude<HogVisa, 'alla'>;
+export type HogGeometri = { type: 'Point'; coordinates: [number, number] } | { type: 'LineString'; coordinates: [number, number][] };
+export interface HogMarkering {
+  id: string;
+  typ: HogMarkTyp;
+  geometri: HogGeometri;
+  bredd_m: number;
+  grupp: HogMarkGrupp | null;
+  skapad_at: string;
+}
+/** Strecket är så här brett om inget annat sägs (kranens räckvidd åt båda håll är mer — strecket ska träffa högarna föraren drog över). */
+export const STRECK_BREDD_M = 8;
+/** Ett tryck träffar högar inom så här många meter från punkten (högen kan flytta lite när nya filer kommer). */
+export const TRYCK_RADIE_M = 4;
+
+/** Avstånd i meter från en punkt till en sträcka. */
+function avstandTillSegment(p: { lat: number; lng: number }, a: [number, number], b: [number, number]): number {
+  const kx = M_PER_LAT * Math.cos((p.lat * Math.PI) / 180);
+  const ax = (a[0] - p.lng) * kx, ay = (a[1] - p.lat) * M_PER_LAT;
+  const bx = (b[0] - p.lng) * kx, by = (b[1] - p.lat) * M_PER_LAT;
+  const dx = bx - ax, dy = by - ay;
+  const l2 = dx * dx + dy * dy;
+  const t = l2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+  return Math.hypot(ax + t * dx, ay + t * dy);
+}
+
+/** Träffar markeringen högen? */
+export function markeringTraffar(m: Pick<HogMarkering, 'geometri' | 'bredd_m'>, h: { lat: number; lng: number }): boolean {
+  const g = m.geometri;
+  if (g?.type === 'Point') {
+    const [lng, lat] = g.coordinates ?? [];
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return false;
+    return dist(h, { lng, lat }) <= Math.max(TRYCK_RADIE_M, (Number(m.bredd_m) || 0) / 2);
+  }
+  if (g?.type === 'LineString') {
+    const c = (g.coordinates ?? []).filter((x) => Number.isFinite(x?.[0]) && Number.isFinite(x?.[1]));
+    const halv = Math.max(1, (Number(m.bredd_m) || STRECK_BREDD_M) / 2);
+    if (c.length === 1) return dist(h, { lng: c[0][0], lat: c[0][1] }) <= halv;
+    for (let i = 0; i < c.length - 1; i++) if (avstandTillSegment(h, c[i], c[i + 1]) <= halv) return true;
+  }
+  return false;
+}
+
+/** Appens uträkning med förarens markeringar ovanpå (äldst först). Rör aldrig indata. */
+export function medMarkeringar(hogar: readonly HogIn[], kvar: readonly HogKvar[], markeringar: readonly HogMarkering[]): HogKvar[] {
+  const k = kvar.map((x) => ({ ...x.kvar }));
+  const ordnade = markeringar.slice().sort((a, b) => (Date.parse(a.skapad_at) || 0) - (Date.parse(b.skapad_at) || 0));
+  for (const m of ordnade) {
+    if (m.typ !== 'tagen' && m.typ !== 'kvar') continue;
+    hogar.forEach((h, i) => {
+      if (!markeringTraffar(m, h)) return;
+      for (const namn of Object.keys(h.sortimentVolym)) {
+        if (m.grupp && hogGrupp(namn) !== m.grupp) continue;
+        k[i][namn] = m.typ === 'tagen' ? 0 : h.sortimentVolym[namn];
+      }
+    });
+  }
+  return k.map((kv, i) => {
+    const totalt = Object.values(kv).reduce((s, v) => s + Math.max(0, v), 0);
+    const fore = Object.values(hogar[i].sortimentVolym).reduce((s, v) => s + Math.max(0, v), 0);
+    return { kvar: kv, totalt, andel: fore > 0 ? Math.min(1, totalt / fore) : 0 };
+  });
+}
+
+/** En rad ur tabellen till en markering; null om den inte går att läsa (då hoppas den över, aldrig en gissning). */
+export function lasMarkeringRad(r: Record<string, unknown>): HogMarkering | null {
+  const typ = r?.typ;
+  const g = r?.geometri as HogGeometri | undefined;
+  if ((typ !== 'tagen' && typ !== 'kvar') || !g || (g.type !== 'Point' && g.type !== 'LineString')) return null;
+  const grupp = r.grupp == null ? null : String(r.grupp);
+  if (grupp !== null && !['timmer', 'kubb', 'massa', 'energi'].includes(grupp)) return null;
+  return {
+    id: String(r.id), typ, geometri: g, bredd_m: Number(r.bredd_m) || STRECK_BREDD_M,
+    grupp: grupp as HogMarkGrupp | null, skapad_at: String(r.skapad_at ?? ''),
+  };
 }
 
 /** Valet under + sparas per enhet. Läsfel eller okänt värde = Alla. */
