@@ -127,6 +127,8 @@ const NOD_CACHE = 'nod-v1';
 const NOD_SIDA = '/om-nagot-hander';
 const NOD_CACHA = 'nod-cacha';
 const NOD_SIDA_VANTA_MS = 5000;
+// Bilder sidan visar utan att de står i dess HTML (toppfältets hemknapp ritas av klienten). Best effort: saknas en sparas sidan ändå.
+const NOD_EXTRA = ['/home-icon.png'];
 
 function nodFiler(html) {
   const filer = new Set();
@@ -155,6 +157,9 @@ async function nodCacha() {
   const cache = await caches.open(NOD_CACHE);
   await cache.put(NOD_SIDA, svar);
   for (const [f, r] of hamtade) await cache.put(f, r);
+  for (const f of NOD_EXTRA) {
+    try { const r = await fetch(f, { credentials: 'same-origin' }); if (r.ok) await cache.put(f, r); } catch (_) { /* utan bilden fungerar sidan ändå */ }
+  }
 }
 
 async function nodNatForst(req, sida) {
@@ -186,7 +191,8 @@ self.addEventListener('fetch', (event) => {
   try { url = new URL(req.url); } catch (_) { return; }
   if (url.origin !== self.location.origin) return;
   const sida = req.mode === 'navigate' && url.pathname === NOD_SIDA;
-  const franSidan = !sida && url.pathname.startsWith('/_next/static/') && typeof req.referrer === 'string' && req.referrer.indexOf(NOD_SIDA) !== -1;
+  const franSidan = !sida && (url.pathname.startsWith('/_next/static/') || NOD_EXTRA.indexOf(url.pathname) !== -1)
+    && typeof req.referrer === 'string' && req.referrer.indexOf(NOD_SIDA) !== -1;
   if (!sida && !franSidan) return;
   event.respondWith(nodNatForst(req, sida));
 });

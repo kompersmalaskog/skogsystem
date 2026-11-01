@@ -122,7 +122,7 @@ export default function OmNagotHander() {
               {lage.kort.steg.map((s, i) => (
                 <li key={i} style={{ display: 'flex', gap: AVSTAND.m, alignItems: 'flex-start' }}>
                   <span aria-hidden style={{ ...TYP.listtitel, ...TNUM, width: 32, height: 32, borderRadius: RADIE.cirkel, background: FARG.upphojt, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
-                  <span style={{ ...TYP.rubrik, fontWeight: 600, paddingTop: 2 }}>{s}</span>
+                  <span style={{ ...TYP.rubrik, fontWeight: 600 }}>{s}</span>
                 </li>
               ))}
             </ol>

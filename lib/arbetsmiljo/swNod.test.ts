@@ -68,7 +68,7 @@ describe('service workern: nödsidan utan täckning', () => {
     const w = ladda(natSvar);
     await cacha(w);
     expect([...w.lager.get('nod-v1')!.keys()].sort()).toEqual([
-      '/_next/static/chunks/app/om-nagot-hander/page-9f.js', '/_next/static/chunks/webpack-1.js', '/_next/static/css/abc.css', '/om-nagot-hander',
+      '/_next/static/chunks/app/om-nagot-hander/page-9f.js', '/_next/static/chunks/webpack-1.js', '/_next/static/css/abc.css', '/home-icon.png', '/om-nagot-hander',
     ]);
   });
 
@@ -87,7 +87,7 @@ describe('service workern: nödsidan utan täckning', () => {
     });
     await cacha(w);
     const forut = w.lager.get('nod-v1');
-    expect(forut?.size).toBe(4);
+    expect(forut?.size).toBe(5);
     trasig = true;
     await cacha(w);
     expect(w.lager.get('nod-v1')).toBe(forut);
