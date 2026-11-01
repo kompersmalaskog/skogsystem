@@ -9537,7 +9537,7 @@ export default function PlannerPage() {
             // Stor skillnad mellan en riktig hög och en rest (Martin 2026-11-01: "ser ut som snö"): 1 m³ ett korn, 15 m³ en tydlig prick.
             'circle-radius': ['interpolate', ['linear'], ['zoom'],
               13, ['interpolate', ['linear'], ['get', 'v'], 0, 1, 2, 1.5, 10, 3, 30, 5],
-              17, ['interpolate', ['linear'], ['get', 'v'], 0, 1.5, 1, 2.5, 5, 5, 15, 9, 40, 14]],
+              17, ['interpolate', ['linear'], ['get', 'v'], 0, 1.5, 1, 2.5, 5, 4.5, 15, 7.5, 40, 10]],
             'circle-opacity': ['coalesce', ['get', 'a'], 0.95],
             'circle-stroke-opacity': ['coalesce', ['get', 'a'], 0.95],
           },

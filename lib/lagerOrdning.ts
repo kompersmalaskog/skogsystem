@@ -78,9 +78,11 @@ const REGLER: Regel[] = [
   // ── Traktgräns och rågång ──────────────────────────────────────────────────────────────────────────────────────────────
   [/^(line-boundary-|trakt-gr-|grans-|hornedit-)/, RANG.traktgrans],
 
-  // ── Hyttspår: skördarens under skotarens (skotarens spår är fokus), inom varje: tidigare dagar < den andres < eget ──────
-  [/^hyttspar-hist-/, RANG.hyttspar],
-  [/^hyttspar-andras-/, RANG.hyttspar + 5 * D],
+  // ── Hyttspår: skördarens under skotarens (skotarens spår är fokus), inom körvyn: den andres < egna tidigare dagar < eget idag ──────
+  // Maskinens EGNA spår (tidigare dagar och idag) ligger över den andra maskinens — skotaren och skördaren kör samma stickvägar, och skotarens spår
+  // försvann under skördarens i skotarläget (Martin 2026-11-01).
+  [/^hyttspar-andras-/, RANG.hyttspar],
+  [/^hyttspar-hist-/, RANG.hyttspar + 7 * D],
   [/^planspar-skordare-/, RANG.hyttspar + 5 * D],
   [/^hyttspar-egen-/, RANG.hyttspar + 10 * D],
   [/^planspar-skotare-/, RANG.hyttspar + 10 * D],

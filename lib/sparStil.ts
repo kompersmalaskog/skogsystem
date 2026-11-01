@@ -129,16 +129,16 @@ export function dampatSpar(roll: SparRoll, art: SparArt): DampatSpar {
   }
 }
 
-// ── SKOTARLÄGET (Martin 2026-11-01): skotarens eget spår lika tydligt som skördarens, med långa streck — skördarens lite svagare ──────────────
-/** Skotarens streck i skotarläget (i linjebredder: 4 långt, 1,5 luckor). */
-export const SKOTARSPAR_STRECK: readonly number[] = [4, 1.5];
+// ── SKOTARLÄGET (Martin 2026-11-01): skotarens eget spår ser ut som skördarens — heldraget, samma bredd — skördarens lite svagare ──────────────
+/** Skotarens streck i skotarläget: inget (heldraget, "så det ser ut som ett spår, samma på skördaren"). */
+export const SKOTARSPAR_STRECK: readonly number[] | null = null;
 /** Skördarens spår i skotarläget får så här mycket av sin vanliga opacitet. */
 export const SKORDARSPAR_SVAGARE = 0.7;
 
 export interface SkotarlageSpar extends DampatSpar { streck: readonly number[] | null }
 
 /**
- * Stilen i skotarläget: skotarens eget spår (idag och tidigare dagar) får skördarens bredd (3 px) och opacitet men behåller sin turkos och blir streckat;
+ * Stilen i skotarläget: skotarens eget spår (idag och tidigare dagar) får skördarens bredd (3 px) och opacitet men behåller sin turkos och är heldraget;
  * skördarens spår (den andres) är som vanligt men svagare. Allt annat är `dampatSpar`.
  */
 export function skotarlageSpar(roll: SparRoll, art: SparArt): SkotarlageSpar {
