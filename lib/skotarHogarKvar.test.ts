@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hogarKvar, hogGrupp, hogPrickar, hogSortimentNyckel, kvarFor, stoppILass, HOG_PRICK_FARG, KRAN_M } from './skotarHogarKvar';
+import { hogarKvar, hogGrupp, hogPrickar, hogSortimentNyckel, kvarFor, stoppILass, HOG_PRICK_FARG, KRAN_M, FULL_STYRKA, REST_STYRKA } from './skotarHogarKvar';
 import type { Lass, SparPunkt } from './skotarLass/typer';
 
 // Ett lokalt plan runt Skälviken: meter → lat/lng.
@@ -137,5 +137,17 @@ describe('prickarna', () => {
   });
   it('ingen orange (orange betyder tall)', () => {
     for (const c of Object.values(HOG_PRICK_FARG)) expect(c.toLowerCase()).not.toMatch(/^#ff9f0a|^#ff9500/);
+  });
+  it('en hög där lassen tog huvuddelen är en rest och ritas svagt; orörda högar är fulla, hur små de än är', () => {
+    const rester = [f(5, { [TIMMER]: 10, [ENERGI]: 1 }), f(80, { [ENERGI]: 0.3 })];
+    const lt = lass({ rader: [['Timmer: Vislanda_195_1-2_V3', 10]], sparPunkter: spar([[0, 0, 0], [0.5, 0, 100], [200, 0, 160]]) });
+    const p = hogPrickar(rester, [lt], 'alla');
+    expect(p.map((x) => [x.v, x.a])).toEqual([[1, REST_STYRKA], [0.3, FULL_STYRKA]]);
+    // Väljer man energi är resten energins hela hög — full styrka, egen färg
+    expect(hogPrickar(rester, [lt], 'energi').map((x) => x.a)).toEqual([FULL_STYRKA, FULL_STYRKA]);
+  });
+  it('lite taget ur en stor hög är ingen rest', () => {
+    const lt = lass({ rader: [['Timmer: Vislanda_195_1-2_V3', 2]], sparPunkter: spar([[0, 0, 0], [0.5, 0, 100], [200, 0, 160]]) });
+    expect(hogPrickar([f(5, { [TIMMER]: 10 })], [lt], 'alla')[0].a).toBe(FULL_STYRKA);
   });
 });

@@ -9532,11 +9532,12 @@ export default function PlannerPage() {
           // Färgen är neutral; ett eget sortiment under + ger sin färg (lib/skotarHogarKvar HOG_PRICK_FARG). a = tonar bort det lassen tog.
           paint: {
             'circle-color': ['get', 'farg'],
-            'circle-stroke-color': 'rgba(0,0,0,0.6)',
+            'circle-stroke-color': 'rgba(0,0,0,0.75)',
             'circle-stroke-width': 1.5,
+            // Stor skillnad mellan en riktig hög och en rest (Martin 2026-11-01: "ser ut som snö"): 1 m³ ett korn, 15 m³ en tydlig prick.
             'circle-radius': ['interpolate', ['linear'], ['zoom'],
-              13, ['interpolate', ['linear'], ['get', 'v'], 0, 1.5, 5, 2.5, 20, 3.5, 50, 4.5],
-              17, ['interpolate', ['linear'], ['get', 'v'], 0, 3, 5, 5, 20, 8, 50, 11]],
+              13, ['interpolate', ['linear'], ['get', 'v'], 0, 1, 2, 1.5, 10, 3, 30, 5],
+              17, ['interpolate', ['linear'], ['get', 'v'], 0, 1.5, 1, 2.5, 5, 5, 15, 9, 40, 14]],
             'circle-opacity': ['coalesce', ['get', 'a'], 0.95],
             'circle-stroke-opacity': ['coalesce', ['get', 'a'], 0.95],
           },
@@ -12235,26 +12236,34 @@ export default function PlannerPage() {
     const nyckel = `${visa}|${hogVisa}|${hogarVersion}|${valtObjekt?.id ?? ''}`;
     const sammaVy = hogPrickNyckelRef.current === nyckel;
     hogPrickNyckelRef.current = nyckel;
-    const borta = sammaVy ? [...hogPrickarRef.current.values()].filter((p) => !nyaMap.has(p.nyckel)) : [];
+    // Det som tonas: högar som försvann (→ 0) och högar som blev en rest (→ svag). Bara när LASSEN ändrats (samma vy).
+    const forra = hogPrickarRef.current;
+    const tonas = new Map<string, number>();
+    if (sammaVy) for (const [k, p] of forra) { const n = nyaMap.get(k); if (!n || n.a < p.a - 0.01) tonas.set(k, p.a); }
+    const borta = sammaVy ? [...forra.values()].filter((p) => !nyaMap.has(p.nyckel)) : [];
     hogPrickarRef.current = nyaMap;
     const feat = (p: HogPrick, a: number) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { v: p.v, farg: p.farg, a } });
-    const skriv = (a: number) => {
-      try { src.setData({ type: 'FeatureCollection', features: [...nya.map((p) => feat(p, 0.95)), ...(a > 0 ? borta.map((p) => feat(p, a)) : [])] }); }
+    // k = 0 → förra styrkan, k = 1 → den nya
+    const skriv = (k: number) => {
+      const blanda = (fran: number, till: number) => fran + (till - fran) * k;
+      const fs = nya.map((p) => feat(p, tonas.has(p.nyckel) ? blanda(tonas.get(p.nyckel)!, p.a) : p.a));
+      if (k < 1) for (const p of borta) fs.push(feat(p, blanda(p.a, 0)));
+      try { src.setData({ type: 'FeatureCollection', features: fs }); }
       catch (e) { console.error('[Skotarkörvy] hogar-dots setData:', e); }
     };
     let lugn = false;
     try { lugn = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { /* */ }
-    if (!borta.length || lugn) { skriv(0); return; }
+    if (!tonas.size || lugn) { skriv(1); return; }
     let ram: number | null = null;
     const start = performance.now();
     let senast = 0;
     const steg = (t: number) => {
       const k = Math.min(1, (t - start) / 650);
-      if (k >= 1) { ram = null; skriv(0); return; }
-      if (t - senast > 90) { senast = t; skriv(0.95 * (1 - k)); }
+      if (k >= 1) { ram = null; skriv(1); return; }
+      if (t - senast > 90) { senast = t; skriv(k); }
       ram = requestAnimationFrame(steg);
     };
-    skriv(0.95);
+    skriv(0);
     ram = requestAnimationFrame(steg);
     return () => { if (ram != null) cancelAnimationFrame(ram); };
   }, [skotarKorvy, hogarPa, hogVisa, hogarVersion, skotarLass.lass, valtObjekt?.id, mapLibreReady, korvyActive, korvyBasKarta]);

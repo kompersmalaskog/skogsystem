@@ -134,7 +134,7 @@ export const HOG_VISA: readonly { id: HogVisa; namn: string }[] = [
 ];
 /** Prickens färg per val. Alla = neutral ljus. Orange används aldrig (det betyder tall). */
 export const HOG_PRICK_FARG: Readonly<Record<HogVisa, string>> = {
-  alla: '#f5eedd', timmer: '#ffd60a', kubb: '#64d2ff', massa: '#ffffff', energi: '#ff9fd0',
+  alla: '#f3e6c4', timmer: '#ffd60a', kubb: '#64d2ff', massa: '#ffffff', energi: '#ff9fd0',
 };
 
 /** Kvar i högen för ett val (m³). */
@@ -145,8 +145,18 @@ export function kvarFor(k: HogKvar, visa: HogVisa): number {
   return s;
 }
 
-/** Det kartan ritar för en hög: där den ligger, hur mycket som ligger kvar för valet, och prickens färg. */
-export interface HogPrick { nyckel: string; lng: number; lat: number; v: number; farg: string }
+/** Det kartan ritar för en hög: där den ligger, hur mycket som ligger kvar för valet, prickens färg och styrka. */
+export interface HogPrick { nyckel: string; lng: number; lat: number; v: number; farg: string; /** 0–1 */ a: number }
+
+/**
+ * En hög där lassen tagit huvuddelen är en REST: mindre än REST_ANDEL av det som låg där (för valet) eller under REST_M3 kvar. Den ritas
+ * nästan osynlig (REST_STYRKA) så att det syns var det är kört — annars står varje hög kvar för energin och lövet skotaren lämnade
+ * (Skälviken 2026-11-01: 27 lass, ~500 m³, och trakten såg likadan ut). En hög som inget tagits ur är aldrig en rest, hur liten den än är.
+ */
+export const REST_ANDEL = 0.25;
+export const REST_M3 = 0.5;
+export const REST_STYRKA = 0.22;
+export const FULL_STYRKA = 0.95;
 
 /** Högarnas nyckel på kartan: positionen (ändras inte när lassen läses om). */
 export const hogNyckel = (lng: number, lat: number): string => `${lng.toFixed(6)},${lat.toFixed(6)}`;
@@ -173,7 +183,10 @@ export function hogPrickar(
   hogar.forEach((h, i) => {
     const v = kvarFor(kvar[i], visa);
     if (v < 0.05) return;
-    ut.push({ nyckel: hogNyckel(h.lng, h.lat), lng: h.lng, lat: h.lat, v: Math.round(v * 100) / 100, farg: HOG_PRICK_FARG[visa] });
+    const fore = kvarFor({ kvar: h.sortimentVolym, totalt: Object.values(h.sortimentVolym).reduce((s, x) => s + Math.max(0, x), 0), andel: 1 }, visa);
+    const taget = fore - v > 0.05;
+    const rest = taget && (v < REST_M3 || v < fore * REST_ANDEL);
+    ut.push({ nyckel: hogNyckel(h.lng, h.lat), lng: h.lng, lat: h.lat, v: Math.round(v * 100) / 100, farg: HOG_PRICK_FARG[visa], a: rest ? REST_STYRKA : FULL_STYRKA });
   });
   return ut;
 }
