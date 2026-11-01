@@ -401,6 +401,21 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
           )}
         </label>
 
+        {/* Om något händer: alltid här, för alla, också i maskinlådan. Inga ikoner från nätet (fungerar utan täckning). */}
+        {!soker && (
+          <Link href="/om-nagot-hander" data-om-nagot-hander
+            style={{ ...KORT, display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.min + AVSTAND.s, paddingTop: AVSTAND.s, paddingBottom: AVSTAND.s, marginBottom: AVSTAND.xl, color: FARG.text, textDecoration: 'none' }}>
+            <span aria-hidden="true" style={{ width: 32, height: 32, borderRadius: RADIE.cirkel, background: FARG.rod, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24"><path fill={FARG.text} d="M6.6 10.8a15.2 15.2 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z" /></svg>
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ ...TYP.listtitel, display: 'block' }}>Om något händer</span>
+              <span style={{ ...TYP.meta, color: FARG.text2, display: 'block' }}>Ring 112 och vad du gör</span>
+            </span>
+            <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />
+          </Link>
+        )}
+
         {soker ? (
           <section aria-label="Träffar" className="tona-opacity">
             <Etikett>Träffar</Etikett>

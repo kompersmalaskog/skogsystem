@@ -13,6 +13,7 @@ import FotoKoStartare from './FotoKoStartare'
 import MarkeringSynkStartare from './MarkeringSynkStartare'
 import KartkommentarStartare from './KartkommentarStartare'
 import SkotarLassStartare from './SkotarLassStartare'
+import NodStartare from './NodStartare'
 import VersionChecker from './VersionChecker'
 import AppStartVakt from './AppStartVakt'
 import { CurrentMedarbetareProvider } from '@/lib/CurrentMedarbetareContext'
@@ -33,6 +34,7 @@ export default function AppRamverk({ children }: { children: React.ReactNode }) 
       <MarkeringSynkStartare />
       <KartkommentarStartare />
       <SkotarLassStartare />
+      <NodStartare />
       <CurrentMedarbetareProvider>
         {/* Innehållet börjar under toppfältet — samma mått som TopBar (tokens LAYOUT). */}
         <div style={{ paddingTop: LAYOUT.topbar }}>
