@@ -1,33 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
+import { målMedarbetareId } from "@/lib/auth/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-async function kollaRedigera(): Promise<{ ok: boolean; error?: string }> {
-  const cookieStore = await cookies();
-  const authClient = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll(); },
-        setAll(cs) { cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options)); },
-      },
-    },
-  );
-  const { data: { user } } = await authClient.auth.getUser();
-  if (!user?.email) return { ok: false, error: "Ej inloggad" };
-  const { data: med } = await authClient
-    .from("medarbetare")
-    .select("roll")
-    .eq("epost", user.email)
-    .maybeSingle();
-  if (med?.roll !== "admin") return { ok: false, error: "Kräver admin" };
-  return { ok: true };
-}
 
 function supaService() {
   return createClient(
@@ -36,30 +12,41 @@ function supaService() {
   );
 }
 
-// Endast fält som får uppdateras via personal-vyn
-const UPPDATERBARA = [
-  "friskvard_budget_total",
-  "friskvard_budget_anvant",
-  "anhorig_namn",
-  "anhorig_telefon",
-  "anhorig_relation",
-  "telefon",
-  "hemadress",
-] as const;
+/**
+ * De ENDA fälten Personal-vyn ändrar: hur personen nås. Allt annat (namn, roll, maskin, adress, lön, friskvård)
+ * ändras i Admin › Medarbetare. Listan gäller både admin och föraren själv — en förare kan alltså aldrig nå roll,
+ * maskin eller lön härifrån, och fält som inte står här ignoreras tyst.
+ */
+const UPPDATERBARA = ["telefon", "anhorig_namn", "anhorig_telefon", "anhorig_relation"] as const;
 
+/**
+ * PATCH /api/personal/[id] — telefon och anhörig. Föraren ändrar SIN EGEN rad (så att anhöriguppgifterna faktiskt
+ * blir ifyllda — 2026-11-01 hade 0 av 7 någon), admin vem som helst. En förare som skickar någon annans id får 403
+ * (`målMedarbetareId`: aldrig tyst byte till den egna raden).
+ */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const auth = await kollaRedigera();
-  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: 401 });
+  const mal = await målMedarbetareId(id);
+  if (!mal.ok) return mal.res;
 
-  const body = await req.json();
-  const payload: any = {};
+  let body: any;
+  try { body = await req.json(); } catch { return NextResponse.json({ ok: false, error: "Ogiltig begäran" }, { status: 400 }); }
+  const payload: Record<string, string | null> = {};
   for (const k of UPPDATERBARA) {
-    if (k in body) payload[k] = body[k];
+    if (!(k in body)) continue;
+    const v = body[k];
+    if (v != null && typeof v !== "string") return NextResponse.json({ ok: false, error: `${k} måste vara text` }, { status: 400 });
+    payload[k] = v == null || v.trim() === "" ? null : v.trim();
   }
+  if (Object.keys(payload).length === 0) return NextResponse.json({ ok: false, error: "Inget att ändra" }, { status: 400 });
 
   const supabase = supaService();
-  const { data, error } = await supabase.from("medarbetare").update(payload).eq("id", id).select().single();
+  const { data, error } = await supabase
+    .from("medarbetare")
+    .update(payload)
+    .eq("id", mal.id)
+    .select("id, telefon, anhorig_namn, anhorig_telefon, anhorig_relation")
+    .single();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, medarbetare: data });
 }

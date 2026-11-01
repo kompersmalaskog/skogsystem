@@ -12,6 +12,13 @@
 - Markägarrapport-algoritm verifierad mot
   Husjönäs 2026-05-06
 
+## Personal: omtag del 1 av 3 — 2026-11-01
+**Byggt (gren `personal-omtag`):** `/personal` svarar på "Är alla nåbara och behöriga?" — talet överst, skyddsombudet, en rad per person som säger EN sak i ord. Personsidan: Ring/SMS, telefon, anhörig, utbildning (läst ur Utbildning), ledighet (läst ur Ledighet). Föraren ser "Mina uppgifter" och fyller själv i sin telefon och anhörig. Lista och person bredvid varandra från 1000 px. Se CLAUDE.md, raden `/personal`.
+**Borttaget:** certifikaten (dubblerade Utbildning) och friskvården ur vyn.
+**Läge i prod 2026-11-01:** 7 medarbetare, 0 med telefon, 0 med anhörig, och alla 28 utbildningsrader står som `saknas` — så alla sju kommer att stå som "behöver åtgärd" tills telefon, anhörig och utbildningsbevis är ifyllda. Det är sant, inte ett fel.
+**Kvar för Martin:** (1) säg till om tabellen `medarbetare_certifikat` (0 rader, ingen kod läser den längre) ska droppas — `drop table medarbetare_certifikat;`; (2) be förarna öppna Personal och fylla i anhörig.
+**Nästa:** del 2 Utlämnat, del 3 Förmåner via Fortnox (kräver ny Fortnox-behörighet för leverantörsfakturor). Bygginstruktionen ligger i claude.ai-projektet "Personal vyn".
+
 ## Arbetsmiljö: Åtgärdslistan — 2026-11-01
 **Byggt (gren `arbetsmiljo-atgarder`, bygger på #1029):** `/atgarder` — det maskinkollen och "Något är fel" lämnar efter sig. Stopp överst i rött, sedan efter deadline, åtgärdade hopfällda; arket visar bilden och — för admin — "Vad gjordes?" + Markera som åtgärdad. Märke och rad i Behöver dig. Se CLAUDE.md, raden `/atgarder`.
 **Migration `20261101102742_arbetsmiljo_atgarder.sql` (körd i prod 2026-11-01):** funktionen `am_atgarder()` och triggern `a_am_atgard_stang`. Provad i prod med ett block som rullades tillbaka: admin får raden med namn, stängning får servertid och vem (en tid från klienten skrivs över), en andra stängning skriver inte över den första, öppning tömmer, utan inloggning 0 rader. Ångra: `drop trigger a_am_atgard_stang on am_atgard; drop function am_atgard_stang(); drop function am_atgarder();`
