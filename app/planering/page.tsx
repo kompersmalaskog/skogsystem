@@ -12742,11 +12742,11 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || !(objektKartaTryck && objektListaOppen)) return;
-    const d = skapaLagerDoljare(map);
+    const d = skapaLagerDoljare(map, { visaKarta: mapType === 'ritad' });   // Ritad är ingen översiktskarta: Lantmäteriets karta medan listan är öppen
     d.dolj();
     map.on('styledata', d.dolj);       // lager som skapas eller tänds medan listan är öppen göms också
     return () => { try { map.off('styledata', d.dolj); } catch { /* kartan är borta */ } d.aterstall(); };
-  }, [objektKartaTryck, objektListaOppen, mapLibreReady]);
+  }, [objektKartaTryck, objektListaOppen, mapLibreReady, mapType]);
 
   // Planeringsvyn (även utan lista): symboler och deras etiketter klipps bort på en zoomnivå där trakten är för liten för att läsas och kommer tillbaka vid
   // inzoomning — tröskeln = zoomen där HELA trakten fyller ungefär halva skärmen (lib/symbolZoom). Körvyn och /maskin (objektListaVal=false) rörs inte.

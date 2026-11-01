@@ -22,7 +22,8 @@ export default function ObjektKartaTom({ onValj, onNavigera, maskin, kartlager =
   const [karta, setKarta] = useState<any | null>(null);
   const [prickar, setPrickar] = useState<KartPrickar | null>(null);
   // Samma bakgrundskarta som planeringsvyn (användarens sparade kartlager). Kartan byggs om bara när lagret byts.
-  const stil = useMemo(() => tomKartaStil(kartlager, kartlagerStyrka), [kartlager, kartlagerStyrka]);
+  // Ritad är ingen översiktskarta (inga ortnamn) — här visas Lantmäteriets karta i stället (Martin 2026-11-01). Användarens val ändras inte.
+  const stil = useMemo(() => (kartlager === 'ritad' ? tomKartaStil('lantmateriet') : tomKartaStil(kartlager, kartlagerStyrka)), [kartlager, kartlagerStyrka]);
   useObjektPrickar({ map: karta, aktiv: true, prickar, aterstall: false });
   return (
     <>

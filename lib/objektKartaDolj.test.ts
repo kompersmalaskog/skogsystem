@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { arBehalld, skapaLagerDoljare } from './objektKartaDolj';
+import { RITAD_ID, RITAD_LAGER } from './ritadKarta/lager';
 
 function fakeKarta(lager: Record<string, string | undefined>) {
   const vis: Record<string, string | undefined> = { ...lager };
@@ -79,5 +80,28 @@ describe('göm det valda objektets markeringar medan listan är öppen', () => {
   it('en karta utan stil ger inga fel', () => {
     const k: any = { getStyle: () => { throw new Error('stilen är inte laddad'); } };
     expect(skapaLagerDoljare(k).dolj()).toBe(0);
+  });
+});
+
+describe('Ritad vald: listan visar Lantmäteriets karta (Martin 2026-11-01: "det ska ju vara en riktig karta")', () => {
+  const lager = () => ({ ...Object.fromEntries(RITAD_LAGER.map((id) => [id, 'visible'])), 'lm-layer': 'none', 'satellite-layer': 'none', 'objlista-prick': 'visible' });
+  it('kartan tänds, Ritads lager göms, och allt återställs exakt', () => {
+    const k = fakeKarta(lager());
+    const d = skapaLagerDoljare(k, { visaKarta: true });
+    d.dolj();
+    expect(k.vis['lm-layer']).toBe('visible');
+    expect(k.vis['satellite-layer']).toBe('none');
+    for (const id of RITAD_LAGER) expect(k.vis[id]).toBe('none');
+    expect(k.vis['objlista-prick']).toBe('visible');
+    d.dolj();                               // styledata igen: inget ändras, sparat skrivs inte över
+    d.aterstall();
+    expect(k.vis['lm-layer']).toBe('none');
+    for (const id of RITAD_LAGER) expect(k.vis[id]).toBe('visible');
+  });
+  it('utan visaKarta rörs kartan inte', () => {
+    const k = fakeKarta(lager());
+    skapaLagerDoljare(k).dolj();
+    expect(k.vis['lm-layer']).toBe('none');
+    expect(k.vis[RITAD_ID.bakgrund]).toBe('none');
   });
 });

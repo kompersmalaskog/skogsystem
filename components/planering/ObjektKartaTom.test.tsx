@@ -64,7 +64,7 @@ const nerOchKlick = (ner: [number, number]) => act(() => {
   h.karta.canvas.dispatchEvent(new MouseEvent('click', { clientX: ner[0], clientY: ner[1], bubbles: true, cancelable: true }));
 });
 
-async function montera(kartlager?: 'satellite' | 'lantmateriet' | 'terrain' | 'osm') {
+async function montera(kartlager?: 'satellite' | 'lantmateriet' | 'terrain' | 'osm' | 'ritad') {
   behallare = document.createElement('div');
   document.body.appendChild(behallare);
   rot = createRoot(behallare);
@@ -91,6 +91,11 @@ describe('utan valt objekt: kartan syns, aldrig en svart tom yta', () => {
     expect(h.kartaProps.mapStyle.layers.map((l: any) => l.id)).toContain('satellite-layer');
     expect(q('objekt-lista')).not.toBeNull();
     expect(q('objekt-lista')!.getAttribute('data-oppen')).toBe('1');
+  });
+
+  it('med Ritad vald visas Lantmäteriets karta (Ritad har inga ortnamn) — användarens val ändras inte', async () => {
+    await montera('ritad');
+    expect(h.kartaProps.mapStyle).toEqual(tomKartaStil('lantmateriet'));
   });
 
   it('alla aktiva objekt med koordinat blir prickar på kartan, kameran zoomar ut över dem', async () => {
