@@ -138,7 +138,7 @@ describe('håll fingret på kartan flyttar testpositionen (testläget)', () => {
 describe('håll-fingret i testläget: sidans koppling (källvakt)', () => {
   const sida = readFileSync(path.resolve(process.cwd(), 'app/planering/page.tsx'), 'utf8').replace(/\r\n/g, '\n');
   it('kopplas bara i testläget', () => {
-    expect(sida).toMatch(/if \(!map \|\| !mapLibreReady \|\| !testlage\) return;\s*return kopplaLangtryckFlytt\(map, flyttaTestPosition\);/);
+    expect(sida).toMatch(/if \(!map \|\| !mapLibreReady \|\| !testlage\) return;[\s\S]{0,300}?return kopplaLangtryckFlytt\(map, \(lat, lon\) => \{ if \(langtryckOmradeRef\.current\(\{ lat, lng: lon \}\)\) return; flyttaTestPosition\(lat, lon\); \}\);/);
   });
   it('flyttar via flyttaTestPosition — den enda platsen som skriver position i testläget — aldrig GPS-hubben', () => {
     expect(sida).not.toMatch(/kopplaLangtryckFlytt\(map, (setCurrentPosition|setGpsPosition)/);
