@@ -83,11 +83,25 @@ describe('göm det valda objektets markeringar medan listan är öppen', () => {
   });
 });
 
-describe('Ritad som bakgrund (Martin 2026-10-31: objektlistans karta blev tom)', () => {
-  it('grunden (botten, skuggning, vatten, vägar, hus) står kvar; skogen, blött och brant göms', () => {
-    const k = fakeKarta(Object.fromEntries(RITAD_LAGER.map((id) => [id, 'visible'])));
+describe('Ritad vald: listan visar Lantmäteriets karta (Martin 2026-11-01: "det ska ju vara en riktig karta")', () => {
+  const lager = () => ({ ...Object.fromEntries(RITAD_LAGER.map((id) => [id, 'visible'])), 'lm-layer': 'none', 'satellite-layer': 'none', 'objlista-prick': 'visible' });
+  it('kartan tänds, Ritads lager göms, och allt återställs exakt', () => {
+    const k = fakeKarta(lager());
+    const d = skapaLagerDoljare(k, { visaKarta: true });
+    d.dolj();
+    expect(k.vis['lm-layer']).toBe('visible');
+    expect(k.vis['satellite-layer']).toBe('none');
+    for (const id of RITAD_LAGER) expect(k.vis[id]).toBe('none');
+    expect(k.vis['objlista-prick']).toBe('visible');
+    d.dolj();                               // styledata igen: inget ändras, sparat skrivs inte över
+    d.aterstall();
+    expect(k.vis['lm-layer']).toBe('none');
+    for (const id of RITAD_LAGER) expect(k.vis[id]).toBe('visible');
+  });
+  it('utan visaKarta rörs kartan inte', () => {
+    const k = fakeKarta(lager());
     skapaLagerDoljare(k).dolj();
-    for (const id of [RITAD_ID.bakgrund, RITAD_ID.relief, 'ritad-vatten', 'ritad-vag', 'ritad-hus']) expect(k.vis[id]).toBe('visible');
-    for (const id of [RITAD_ID.skog, RITAD_ID.blottGles, RITAD_ID.blottTat, RITAD_ID.brant, RITAD_ID.brantLite]) expect(k.vis[id]).toBe('none');
+    expect(k.vis['lm-layer']).toBe('none');
+    expect(k.vis[RITAD_ID.bakgrund]).toBe('none');
   });
 });

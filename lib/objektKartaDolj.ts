@@ -6,14 +6,11 @@
 // exakt. `dolj()` kan anropas om och om igen (vid 'styledata': lager som skapas eller tänds medan listan är öppen göms också) — den skriver aldrig
 // över en sparad synlighet. Samma mönster som körvyns lager-whitelist (page.tsx), men utan att ändra planeringsvyns egna toggle-val.
 
-import { RITAD_ID, RITAD_VEKTOR_LAGER } from './ritadKarta/lager';
-
-// Ritads grund (botten, terrängskuggning, vatten, vägar, hus) är bakgrund — annars blev objektlistans karta tom med Ritad vald (Martin 2026-10-31).
-// Skogen, blött och brant göms: de finns bara runt det valda objektet och vore en lös fläck i översikten.
-export const RITAD_GRUND: readonly string[] = [RITAD_ID.bakgrund, RITAD_ID.relief, ...RITAD_VEKTOR_LAGER.map((l) => l.id)];
+// Ritad (lib/ritadKarta) är ingen översiktskarta — inga ortnamn, mörk botten. Med Ritad vald visas Lantmäteriets karta (`OVERSIKT_KARTA`) medan
+// listan är öppen, och Ritads lager göms som allt annat; båda återställs när listan stängs (Martin 2026-11-01: "det ska ju vara en riktig karta").
+export const OVERSIKT_KARTA = 'lm-layer';
 
 export const BAS_LAGER: readonly string[] = [
-  ...RITAD_GRUND,
   'bg', 'osm-layer', 'satellite-layer', 'lm-layer', 'terrain-layer', 'lm-skuggning-layer', 'sks-markfuktighet-layer', 'bg-korvy', 'hillshade-korvy',
 ];
 export const BEHALL_PREFIX: readonly string[] = ['wms-layer-', 'objlista-', 'maskin-', 'gps-'];
@@ -22,12 +19,18 @@ export const arBehalld = (id: string): boolean => BAS_LAGER.includes(id) || BEHA
 
 export interface LagerDoljare { dolj: () => number; aterstall: () => number }
 
-export function skapaLagerDoljare(map: any): LagerDoljare {
+export function skapaLagerDoljare(map: any, opt: { visaKarta?: boolean } = {}): LagerDoljare {
   const sparad = new Map<string, string>();
   const dolj = () => {
     let antal = 0;
     let lager: any[] = [];
     try { lager = map.getStyle()?.layers ?? []; } catch { return 0; }
+    if (opt.visaKarta && map.getLayer?.(OVERSIKT_KARTA)) {
+      try {
+        const vis = map.getLayoutProperty(OVERSIKT_KARTA, 'visibility') ?? 'visible';
+        if (vis !== 'visible') { if (!sparad.has(OVERSIKT_KARTA)) sparad.set(OVERSIKT_KARTA, vis); map.setLayoutProperty(OVERSIKT_KARTA, 'visibility', 'visible'); }
+      } catch { /* lagret försvann */ }
+    }
     for (const l of lager) {
       const id: string = l.id;
       if (arBehalld(id)) continue;
