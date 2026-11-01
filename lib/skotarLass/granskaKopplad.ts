@@ -18,14 +18,8 @@ export async function lasObekraftade(): Promise<Lass[] | null> {
   } catch { return null; }
 }
 
-/** Trakten alla lass ur servern, utan att röra den lokala kön. null = kunde inte läsas. */
-export async function lasLassServer(objektId: string): Promise<Lass[] | null> {
-  try {
-    const r = await hamtaAlla<any>(() => supabase.from('skotar_lass').select(LASS_SELECT).eq('objekt_id', objektId) as any, 'id');
-    if (r.error) return null;
-    return r.data.map(lassFranServer).filter((l): l is Lass => !!l);
-  } catch { return null; }
-}
+export { lasLassServer } from './lasServer';
+import { lasLassServer } from './lasServer';
 
 /**
  * Är mer skotat än skördat på trakten? Samma underlag som "kvar" i skotarläget (skördat, Opti-lass, appens lass som räknas).

@@ -207,7 +207,7 @@ import { avlaggFeatures, laggTillAvlaggslager, taBortAvlaggslager } from '../../
 import { farduskotatKontroll } from '../../lib/skotarLass/kvar'
 import type { VagLinje } from '../../lib/skotarLass/spar'
 import type { Lass } from '../../lib/skotarLass/typer'
-import { lasLassServer } from '../../lib/skotarLass/granskaKopplad'
+import { lasLassServer } from '../../lib/skotarLass/lasServer'
 import { NyttAvlaggKort } from '../../components/planering/skotar/NyttAvlaggKort'
 import { AndraLassArk } from '../../components/planering/skotar/AndraLassArk'
 import { KvarArk } from '../../components/planering/skotar/KvarArk'
