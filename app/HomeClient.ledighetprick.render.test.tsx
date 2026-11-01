@@ -19,7 +19,7 @@ vi.mock("@/lib/supabase", () => ({
     auth: { getUser: async () => ({ data: { user: { email: "test@exempel.se" } } }) },
     from: (tabell: string) => tabell === "startsida_favoriter"
       ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }
-      : { select: () => ({ eq: () => ({ single: async () => ({ data: { roll: "forare" } }) }) }) },
+      : { select: () => ({ eq: () => ({ single: async () => ({ data: { roll: "forare", telefon: "070-000 00 00", anhorig_telefon: "070-111 11 11" } }) }) }) },
     rpc: async (namn: string) => { if (namn === "ledighet_prick") { h.anrop++; return h.prick(); } return { data: null, error: null }; },
   },
 }));

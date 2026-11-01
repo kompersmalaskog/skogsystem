@@ -147,3 +147,55 @@ describe('lägen', () => {
     expect(q('[data-personal-tal]')!.textContent).toContain('Alla nåbara och behöriga');
   });
 });
+
+describe('Mat och anställningsdatum', () => {
+  it('föraren ser sin Mat-rad, kan fylla i den, och Spara skickar bara mat', async () => {
+    hamtSvar = svar({
+      arAdmin: false, egenId: 'stefan',
+      personal: [{ id: 'stefan', namn: 'Stefan Nilsson', roll: 'forare', maskin_namn: null, telefon: '070-1', anhorig_namn: 'A', anhorig_telefon: '070-2', anhorig_relation: null, utbildning: [], ledighet: null, mat: null }],
+    });
+    await rendera();
+    const rad = q('[data-mat]') as HTMLButtonElement;
+    expect(rad.getAttribute('data-mat')).toBe('tom');
+    expect(rad.textContent).toContain('Inget särskilt');
+    expect(text()).toContain('Bara du och admin ser det');
+    await act(async () => { rad.click(); });
+    const spara = q('[data-spara-mat]') as HTMLButtonElement;
+    expect(spara.disabled).toBe(true);
+    const falt = el.ownerDocument.querySelector('input[name="mat"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => { setter.call(falt, 'laktosfri'); falt.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { (q('[data-spara-mat]') as HTMLButtonElement).click(); });
+    const patch = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')!;
+    expect(patch[0]).toBe('/api/personal/stefan');
+    expect(JSON.parse((patch[1] as RequestInit).body as string)).toEqual({ mat: 'laktosfri' });
+  });
+
+  it('läsfel på mat (fältet saknas i svaret) ger ingen Mat-rad', async () => {
+    await rendera();
+    await act(async () => { (q('[data-person-rad="joacim"]') as HTMLButtonElement).click(); });
+    expect(q('[data-mat]')).toBeNull();
+    expect(q('[data-mat-lista]')).toBeNull();
+  });
+
+  it('admin: "Mat att tänka på" listar bara dem som skrivit något', async () => {
+    const p = svar().personal.map((x: any) => ({ ...x, mat: x.id === 'oskar' ? 'vegetarian' : null }));
+    hamtSvar = svar({ personal: p });
+    await rendera();
+    const rad = q('[data-mat-lista]') as HTMLButtonElement;
+    expect(rad.textContent).toContain('1');
+    await act(async () => { rad.click(); });
+    const rader = Array.from(el.ownerDocument.querySelectorAll('[data-mat-rad]'));
+    expect(rader.map((r) => r.getAttribute('data-mat-rad'))).toEqual(['oskar']);
+    expect(rader[0].textContent).toContain('vegetarian');
+  });
+
+  it('admin: anställningsdatum saknas står på raden och vid länken till Admin', async () => {
+    const p = svar().personal.map((x: any) => ({ ...x, anstallningsdatum: x.id === 'joacim' ? null : '2020-01-01' }));
+    hamtSvar = svar({ personal: p });
+    await rendera();
+    expect(q('[data-person-rad="joacim"]')!.textContent).toContain('Anställningsdatum saknas');
+    await act(async () => { (q('[data-person-rad="joacim"]') as HTMLButtonElement).click(); });
+    expect(q('[data-admin-lank]')!.textContent).toContain('Anställningsdatum saknas');
+  });
+});

@@ -66,6 +66,7 @@ const MARKE_TEXT: Record<MarkeKalla, string> = {
   lass: 'att göra i Lastbilen',
   maskinkoll: 'maskinkoll att göra',
   atgarder: 'åtgärder att göra',
+  personal: 'uppgift att fylla i',
 }
 
 function antalFor(v: Vy, marken: Marken): number | null {
@@ -292,9 +293,11 @@ function AndraFavoriter({ roll, valda, onSpara, onStang }: { roll: Roll; valda: 
   )
 }
 
-export default function Startsida({ roll, marken, datahalsa, favoritIds, onSparaFavoriter, huvud, bred: bredUtifran, konto: kontoInfo, onLoggaUt }: {
+export default function Startsida({ roll, marken, egnaUppgifter, datahalsa, favoritIds, onSparaFavoriter, huvud, bred: bredUtifran, konto: kontoInfo, onLoggaUt }: {
   roll: Roll
   marken: Marken
+  /** Den inloggades egna uppgifter som saknas ("Fyll i telefon och anhörig"). null/undefined = inget att fylla i eller okänt. */
+  egnaUppgifter?: string | null
   datahalsa?: DatahalsaBesked
   /** Vem som är inloggad (kontokortet i Mer). */
   konto?: Konto
@@ -345,6 +348,8 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
   const at = marken.atgarder, st = marken.atgardStopp
   if (typeof st === 'number' && st > 0) uppgifter.push({ id: 'atgarder', text: st === 1 ? '1 maskin ska stå tills det är lagat' : `${st} stopp – maskiner ska stå tills det är lagat`, href: '/atgarder', farg: FARG.rod })
   else if (typeof at === 'number' && at > 0) uppgifter.push({ id: 'atgarder', text: at === 1 ? '1 åtgärd att göra' : `${at} åtgärder att göra`, href: '/atgarder', farg: FARG.orange })
+  // Egna uppgifter: telefon och anhörig, så att vi når personen och vet vem vi ringer vid en olycka.
+  if (egnaUppgifter) uppgifter.push({ id: 'personal', text: egnaUppgifter, href: '/personal', farg: FARG.orange })
   // Datahälsan bor i Mer. Bara ett riktigt fel (röd: data tappas) står också här, så det aldrig missas.
   if (roll === 'admin' && datahalsa?.niva === 'rod') {
     uppgifter.push({ id: 'datahalsa', text: `Datahälsa: ${datahalsa.rubrik}`, href: '/datahalsa', farg: FARG.rod })

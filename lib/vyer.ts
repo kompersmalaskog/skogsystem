@@ -17,7 +17,7 @@ export type Roll = 'admin' | 'forare'
 export type GruppId = 'produktion' | 'maskiner' | 'objekt' | 'personal' | 'ekonomi' | 'admin' | 'ovrigt'
 
 /** Vilken räknare som sitter på vyn (källan läses av startsidan, aldrig gissad). */
-export type MarkeKalla = 'egenkontroll' | 'ledighet' | 'lass' | 'maskinkoll' | 'atgarder'
+export type MarkeKalla = 'egenkontroll' | 'ledighet' | 'lass' | 'maskinkoll' | 'atgarder' | 'personal'
 
 export type Vy = {
   /** Stabil nyckel — används av favoriterna (sparas senare per person). Byt aldrig. */
@@ -79,7 +79,7 @@ export const VYER: Vy[] = [
   { id: 'planera', namn: 'Planera', href: '/planera', ikon: 'edit_calendar', grupp: 'personal', sokord: ['tid', 'min tid', 'stämpla'] },
   { id: 'arbetsrapport', namn: 'Arbetsrapport', href: '/arbetsrapport', ikon: 'description', grupp: 'personal', sokord: ['tid', 'lön', 'rapport'] },
   { id: 'ledighet', namn: 'Ledighet', href: '/ledighet', ikon: 'beach_access', grupp: 'personal', marke: 'ledighet', sokord: ['semester', 'atk', 'ledig'] },
-  { id: 'personal', namn: 'Personal', href: '/personal', ikon: 'badge', grupp: 'personal' },
+  { id: 'personal', namn: 'Personal', href: '/personal', ikon: 'badge', grupp: 'personal', marke: 'personal', sokord: ['telefon', 'anhörig', 'skyddsombud', 'mat'] },
   { id: 'utbildning', namn: 'Utbildning', href: '/utbildning', ikon: 'school', grupp: 'personal', sokord: ['intyg', 'certifikat'] },
 
   // Ekonomi

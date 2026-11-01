@@ -48,7 +48,8 @@ export function skapaMinnesDb(start: Record<string, Rad[]> = {}, unika: Record<s
     from(tabell: string) {
       if (!tabeller[tabell]) tabeller[tabell] = [];
       const filter: ((r: Rad) => boolean)[] = [];
-      let op: 'select' | 'insert' | 'update' | 'delete' = 'select';
+      let op: 'select' | 'insert' | 'update' | 'delete' | 'upsert' = 'select';
+      let konflikt: string[] = [];
       let payload: any = null;
       let kolumner = '*';
       let ordning: { kol: string; stigande: boolean } | null = null;
@@ -93,6 +94,19 @@ export function skapaMinnesDb(start: Record<string, Rad[]> = {}, unika: Record<s
           const ut = nya.map(projicera);
           return { data: ensam ? ut[0] ?? null : ut, error: null };
         }
+        if (op === 'upsert') {
+          // ON CONFLICT (konflikt) DO UPDATE: finns en rad med samma nyckel skrivs den över, annars läggs den till.
+          const nya = Array.isArray(payload) ? payload : [payload];
+          const ut: Rad[] = [];
+          for (const n of nya) {
+            const finns = konflikt.length ? tabeller[tabell].find((o) => konflikt.every((k) => String(o[k]) === String(n[k]))) : undefined;
+            if (finns) { Object.assign(finns, n); ut.push(finns); }
+            else { const ny = { id: `id-${++idRaknare}`, ...n }; tabeller[tabell].push(ny); ut.push(ny); }
+          }
+          db.skrivlogg.push({ tabell, op, antal: nya.length });
+          if (!skickaTillbaka) return { data: null, error: null };
+          return { data: ensam ? projicera(ut[0]) : ut.map(projicera), error: null };
+        }
         if (op === 'update') {
           const rader = traffar();
           // Atomärt per sats (som Postgres): bryter någon rad en unik nyckel ändras ingen.
@@ -120,6 +134,7 @@ export function skapaMinnesDb(start: Record<string, Rad[]> = {}, unika: Record<s
         select(kol?: string) { if (op === 'select') kolumner = kol ?? '*'; else { skickaTillbaka = true; if (kol) kolumner = kol; } return b; },
         insert(p: any) { op = 'insert'; payload = p; return b; },
         update(p: any) { op = 'update'; payload = p; return b; },
+        upsert(p: any, o?: { onConflict?: string }) { op = 'upsert'; payload = p; konflikt = (o?.onConflict ?? 'id').split(',').map((x) => x.trim()); return b; },
         delete() { op = 'delete'; return b; },
         eq(kol: string, v: any) { lagg(kol, (x) => x != null && String(x) === String(v)); return b; },
         neq(kol: string, v: any) { lagg(kol, (x) => String(x) !== String(v)); return b; },

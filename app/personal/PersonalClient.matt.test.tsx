@@ -46,7 +46,7 @@ const SVAR = {
   skyddsombud: { id: 'oskar', namn: 'Oskar Nilsson', telefon: '070-333 33 33' },
   personal: [
     { id: 'martin', namn: 'Martin Kompersmåla', roll: 'admin', maskin_namn: 'Scorpion', telefon: '070-000 00 00', anhorig_namn: 'Lisa', anhorig_telefon: '070-999 99 99', anhorig_relation: 'fru', utbildning: [], ledighet: null },
-    { id: 'stefan', namn: 'Stefan Nilsson Brorsmåla', roll: 'forare', maskin_namn: 'Scorpion', telefon: null, anhorig_namn: null, anhorig_telefon: null, anhorig_relation: null, utbildning: [{ namn: 'Motorsågskörkort AB', status: 'saknas', kravtyp: 'lag', giltig_till: null }], ledighet: null },
+    { id: 'stefan', namn: 'Stefan Nilsson Brorsmåla', roll: 'forare', maskin_namn: 'Scorpion', telefon: null, anhorig_namn: null, anhorig_telefon: null, anhorig_relation: null, utbildning: [{ namn: 'Motorsågskörkort AB', status: 'saknas', kravtyp: 'lag', giltig_till: null }], ledighet: null, mat: 'Laktosfri, äter inte fisk', anstallningsdatum: null },
     { id: 'oskar', namn: 'Oskar Nilsson', roll: 'forare', maskin_namn: 'H8E -26', telefon: '070-333 33 33', anhorig_namn: 'Eva Nilsson', anhorig_telefon: '070-444 44 44', anhorig_relation: 'mamma', utbildning: [{ namn: 'Första hjälpen / HLR', status: 'gar_ut_snart', kravtyp: 'bestallare', giltig_till: '2026-12-10' }], ledighet: null },
     { id: 'joacim', namn: 'Joacim', roll: 'forare', maskin_namn: 'Wisent', telefon: '070-555 55 55', anhorig_namn: 'Sara', anhorig_telefon: '070-666 66 66', anhorig_relation: 'sambo', utbildning: [{ namn: 'HLR', status: 'giltig', kravtyp: 'bestallare', giltig_till: '2099-01-01' }], ledighet: { typ: 'semester', startdatum: '2099-06-01', slutdatum: '2099-06-05' } },
   ],

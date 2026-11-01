@@ -87,6 +87,16 @@ describe('Startsida (admin)', () => {
     expect(markeVidLastbil).toContain('1 att göra i Lastbilen')
   })
 
+  it('egna uppgifter: raden säger vad som saknas och leder till Personal; inget saknas → ingen rad', async () => {
+    await montera(<Startsida roll="forare" marken={{ personal: 1 }} egnaUppgifter="Fyll i telefon och anhörig" />)
+    const s = sektion('Behöver dig')!
+    expect(s.textContent).toContain('Fyll i telefon och anhörig')
+    expect(lankar(s)).toEqual(['/personal'])
+    act(() => { rot?.unmount() }); rot = null
+    await montera(<Startsida roll="forare" marken={{}} egnaUppgifter={null} />)
+    expect(sektion('Behöver dig')).toBeNull()
+  })
+
   it('Lastbilen utan väntande lass (0) → varken rad eller märke', async () => {
     await montera(<Startsida roll="admin" marken={{ lass: 0 }} />)
     expect(sektion('Behöver dig')).toBeNull()

@@ -12,6 +12,10 @@
 - Markägarrapport-algoritm verifierad mot
   Husjönäs 2026-05-06
 
+## Personal: mat, anställningsdatum, påminnelse — 2026-11-01
+- Migration `20261101133753_medarbetare_mat.sql` körd i prod (filen byte-identisk, md5 add9dbf6…). RLS provad med en körning som rullades tillbaka: förare skriver bara sin egen rad (annans → 42501, update 0 rader), ser bara sin egen; admin ser alla; `andrad_av` sätts av databasen.
+- Ångra: `drop table public.medarbetare_mat; drop function public.medarbetare_mat_stampla();` (+ ta bort raden i schema_migrations).
+
 ## Personal: omtag del 1 av 3 — 2026-11-01
 **Byggt (gren `personal-omtag`):** `/personal` svarar på "Är alla nåbara och behöriga?" — talet överst, skyddsombudet, en rad per person som säger EN sak i ord. Personsidan: Ring/SMS, telefon, anhörig, utbildning (läst ur Utbildning), ledighet (läst ur Ledighet). Föraren ser "Mina uppgifter" och fyller själv i sin telefon och anhörig. Lista och person bredvid varandra från 1000 px. Se CLAUDE.md, raden `/personal`.
 **Borttaget:** certifikaten (dubblerade Utbildning) och friskvården ur vyn.

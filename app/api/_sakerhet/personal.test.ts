@@ -40,6 +40,10 @@ function seed(): MinnesDb {
       { id: "l3", medarbetare_id: FORARE1, typ: "semester", startdatum: "2099-07-01", slutdatum: "2099-07-05", status: "godkänd" },
       { id: "l4", medarbetare_id: FORARE2, typ: "tjanstledig", startdatum: "2099-05-01", slutdatum: "2099-05-30", status: "godkänd" },
     ],
+    medarbetare_mat: [
+      { medarbetare_id: FORARE1, mat: "Egen laktosfri" },
+      { medarbetare_id: FORARE2, mat: "Kollegans glutenfri" },
+    ],
     dim_maskin: [
       { maskin_id: "R64101", visningsnamn: "H8E -23", modell: null, tillverkare: null, maskin_typ: "Harvester" },
       { maskin_id: "R64428", visningsnamn: "H8E -26", modell: null, tillverkare: null, maskin_typ: "Harvester" },
@@ -191,5 +195,64 @@ describe("PATCH /api/personal/[id] — telefon och anhörig", () => {
     med("admin");
     expect((await patch(FORARE2, { telefon: "070-222" })).status).toBe(200);
     expect(rad(FORARE2).telefon).toBe("070-222");
+  });
+});
+
+describe("Mat — personens egen uppgift, bara den själv och admin", () => {
+  const patch = (id: string, body: Record<string, unknown>) =>
+    PATCH(anrop(`/api/personal/${id}`, { method: "PATCH", body: JSON.stringify(body) }), ctx({ id }));
+  const mat = (id: string) => g.__db.tabeller.medarbetare_mat.find((m: any) => m.medarbetare_id === id);
+
+  it("förare ser sin egen mat, aldrig kollegans — och frågan begränsas i databasen", async () => {
+    med("forare");
+    const j = await (await GET()).json();
+    expect(j.personal[0].mat).toBe("Egen laktosfri");
+    expect(JSON.stringify(j)).not.toContain("Kollegans glutenfri");
+    expect(g.__eq).toContainEqual(["medarbetare_mat", "medarbetare_id", FORARE1]);
+  });
+
+  it("admin ser allas mat; den som inte skrivit något får null", async () => {
+    med("admin");
+    const j = await (await GET()).json();
+    const per = Object.fromEntries(j.personal.map((p: any) => [p.id, p.mat]));
+    expect(per).toEqual({ [ADMIN]: null, [FORARE1]: "Egen laktosfri", [FORARE2]: "Kollegans glutenfri" });
+  });
+
+  it("läsfel på mat: fältet utelämnas, resten av vyn fungerar", async () => {
+    med("admin");
+    g.__db.injiceraFel("medarbetare_mat.select", { message: "boom" });
+    const r = await GET();
+    expect(r.status).toBe(200);
+    const j = await r.json();
+    expect(j.personal.every((p: any) => !("mat" in p))).toBe(true);
+  });
+
+  it("anställningsdatum bara till admin", async () => {
+    g.__db.tabeller.medarbetare.forEach((m: any) => { m.anstallningsdatum = null; });
+    med("forare");
+    expect("anstallningsdatum" in (await (await GET()).json()).personal[0]).toBe(false);
+    med("admin");
+    expect((await (await GET()).json()).personal.every((p: any) => p.anstallningsdatum === null)).toBe(true);
+  });
+
+  it("förare skriver sin egen mat; tom text tar bort raden", async () => {
+    med("forare");
+    expect((await patch(FORARE1, { mat: " vegetarian " })).status).toBe(200);
+    expect(mat(FORARE1)).toMatchObject({ mat: "vegetarian", andrad_av: FORARE1 });
+    expect((await patch(FORARE1, { mat: "  " })).status).toBe(200);
+    expect(mat(FORARE1)).toBeUndefined();
+  });
+
+  it("förare kan inte skriva en kollegas mat: 403, inget skrivs", async () => {
+    med("forare");
+    expect((await patch(FORARE2, { mat: "HACKAD" })).status).toBe(403);
+    expect(mat(FORARE2).mat).toBe("Kollegans glutenfri");
+    expect(g.__db.skrivlogg).toEqual([]);
+  });
+
+  it("för lång text eller fel typ → 400", async () => {
+    med("forare");
+    expect((await patch(FORARE1, { mat: "x".repeat(201) })).status).toBe(400);
+    expect((await patch(FORARE1, { mat: 5 })).status).toBe(400);
   });
 });
