@@ -13,6 +13,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
 };
 
+/** Bara inloggning krävs här. Vem som ser vad avgör /api/personal ur sessionen (admin alla, förare sig själv). */
 export default async function Page() {
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -29,13 +30,5 @@ export default async function Page() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user?.email) redirect("/login");
 
-  const { data: med } = await supabase
-    .from("medarbetare")
-    .select("roll")
-    .eq("epost", user.email)
-    .maybeSingle();
-
-  const kanRedigera = med?.roll === "admin";
-
-  return <PersonalClient kanRedigera={kanRedigera} />;
+  return <PersonalClient />;
 }
