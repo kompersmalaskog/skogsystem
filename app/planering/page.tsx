@@ -13353,7 +13353,7 @@ export default function PlannerPage() {
         <>
           {visaListan ? (
             // Kartan med alla objekt som prickar och listan ovanpå (lib/objektKarta) — aldrig en svart tom yta. Listan går inte att stänga här.
-            <ObjektKartaTom kartlager={mapType === 'ritad' ? 'lantmateriet' : mapType} kartlagerStyrka={styrkaFor(kartReglage.styrkor, mapType === 'ritad' ? 'lantmateriet' : mapType)} onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} maskin={listMaskin} />
+            <ObjektKartaTom kartlager={mapType} kartlagerStyrka={styrkaFor(kartReglage.styrkor, mapType)} onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} maskin={listMaskin} />
           ) : (
             <div data-testid="planering-utan-objekt" style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text2, fontFamily: FONT, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta }}>
               Hämtar objekt…
