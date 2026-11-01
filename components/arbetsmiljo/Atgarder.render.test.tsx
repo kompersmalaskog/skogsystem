@@ -18,7 +18,11 @@ vi.mock('@/lib/arbetsmiljo/atgarder', async (orig) => {
     hamtaAtgarder: async () => { h.hamtningar++; return h.las ? { ok: true, data: h.lista } : { ok: false, fel: riktig.LASFEL }; },
     farStanga: async () => h.far,
     fotoLank: async () => 'https://bild',
-    stangAtgard: async (_sb: unknown, id: string, text: string) => { h.stangda.push({ id, text }); return null; },
+    stangAtgard: async (_sb: unknown, id: string, text: string) => {
+      h.stangda.push({ id, text });
+      h.lista = h.lista.map((x: any) => x.id === id ? { ...x, status: 'klar', vadGjordes: text, stangdTid: '2026-11-01T10:00:00Z' } : x);
+      return null;
+    },
   };
 });
 
@@ -81,6 +85,11 @@ describe('Åtgärder', () => {
     expect(h.stangda).toEqual([{ id: 's', text: 'Bytte knappen' }]);
     expect(h.hamtningar).toBe(fore + 1);
     expect(window.location.search).toBe('');
+    // Listan försvinner aldrig efter en sparning: raden står under Åtgärdade och en bekräftelse syns.
+    expect(text()).not.toContain('Läser åtgärderna');
+    expect(text()).toContain('Markerad som åtgärdad');
+    expect(document.querySelector('[data-grupp=stopp]')).toBeNull();
+    expect(document.querySelector('[data-visa-klara]')?.textContent).toBe('Visa 1 åtgärdade');
   });
 
   it('skyddsombud (inte admin): ingen knapp, säger vem som stänger', async () => {

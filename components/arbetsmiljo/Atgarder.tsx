@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import Ark from '@/components/design/Ark';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
+import Ikon from '@/components/design/Ikon';
 import Tillstand from '@/components/design/Tillstand';
 import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import {
@@ -35,12 +36,31 @@ export default function Atgarder() {
   const [valdId, setValdId] = useState<string | null>(null);
   const [visaKlara, setVisaKlara] = useState(false);
 
-  const hamta = useCallback(async () => {
-    setLista(null);
+  const [kvitto, setKvitto] = useState<string | null>(null);
+
+  // `tyst`: listan står kvar medan den läses om (efter en sparning). Bara första läsningen och Försök igen visar "Läser".
+  // Ett läsfel vid en tyst omläsning tar inte bort listan som syns — den är redan rätt utom raden som just stängdes.
+  const hamta = useCallback(async (tyst = false) => {
+    if (!tyst) setLista(null);
     const [l, f] = await Promise.all([hamtaAtgarder(supabase), farStanga(supabase)]);
+    if (tyst && !l.ok) return;
     setLista(l);
     setFar(f);
   }, []);
+
+  useEffect(() => {
+    if (!kvitto) return;
+    const t = setTimeout(() => setKvitto(null), 4000);
+    return () => clearTimeout(t);
+  }, [kvitto]);
+
+  // Efter "Markera som åtgärdad": raden flyttas till Åtgärdade direkt (samma sak som databasen nu säger), sedan läses listan om tyst.
+  const stangd = (id: string, vadGjordes: string) => {
+    setLista(l => l?.ok ? { ok: true, data: l.data.map(a => a.id === id ? { ...a, status: 'klar', vadGjordes, stangdTid: new Date().toISOString() } : a) } : l);
+    setKvitto('Markerad som åtgärdad');
+    setValdId(null); sattId(null);
+    void hamta(true);
+  };
 
   useEffect(() => { setValdId(lasId()); void hamta(); }, [hamta]);
 
@@ -69,7 +89,13 @@ export default function Atgarder() {
         </Tillstand>
       </div>
 
-      {vald && <AtgardArk a={vald} idag={idag} far={far === true} onStang={stang} onStangd={() => { stang(); void hamta(); }} />}
+      {kvitto && (
+        <div role="status" className="tona-opacity" style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: `calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, background: FARG.upphojt, color: FARG.text, borderRadius: RADIE.kort, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, ...TYP.text, zIndex: 1500, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+          <Ikon namn="check_circle" farg={FARG.gron} />{kvitto}
+        </div>
+      )}
+
+      {vald && <AtgardArk a={vald} idag={idag} far={far === true} onStang={stang} onStangd={(text) => stangd(vald.id, text)} />}
       {lista?.ok && valdId && !vald && (
         <Ark rubrik="Åtgärden finns inte" onStang={stang} stang="Klar">
           <p style={{ ...TYP.text, color: FARG.text2, margin: 0 }}>Den kan ha tagits bort. Listan visar det som finns kvar.</p>
@@ -147,7 +173,7 @@ function Prick({ farg }: { farg: string }) {
   return <span aria-hidden style={{ display: 'inline-block', width: AVSTAND.s, height: AVSTAND.s, borderRadius: '50%', background: farg, marginRight: AVSTAND.s, verticalAlign: 'middle' }} />;
 }
 
-function AtgardArk({ a, idag, far, onStang, onStangd }: { a: Atgard; idag: string; far: boolean; onStang: () => void; onStangd: () => void }) {
+function AtgardArk({ a, idag, far, onStang, onStangd }: { a: Atgard; idag: string; far: boolean; onStang: () => void; onStangd: (vadGjordes: string) => void }) {
   const [bild, setBild] = useState<'laddar' | 'fel' | string>(a.fotoUrl ? 'laddar' : 'fel');
   const [text, setText] = useState('');
   const [sparar, setSparar] = useState(false);
@@ -167,7 +193,7 @@ function AtgardArk({ a, idag, far, onStang, onStangd }: { a: Atgard; idag: strin
     const f = await stangAtgard(supabase, a.id, text);
     setSparar(false);
     if (f) { setFel(f); return; }
-    onStangd();
+    onStangd(text.trim());
   };
 
   const d = deadlineText(a.deadline, idag);
