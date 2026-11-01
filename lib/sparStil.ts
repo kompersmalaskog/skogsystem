@@ -128,3 +128,41 @@ export function dampatSpar(roll: SparRoll, art: SparArt): DampatSpar {
     default: return ut(0.9, 0.72);
   }
 }
+
+// ── SKOTARLÄGET (Martin 2026-11-01): skotarens eget spår ser ut som skördarens — heldraget, samma bredd — skördarens lite svagare ──────────────
+/** Skotarens streck i skotarläget: inget (heldraget, "så det ser ut som ett spår, samma på skördaren"). */
+export const SKOTARSPAR_STRECK: readonly number[] | null = null;
+/** Skotarens spårband i skotarläget: tydligt redan på översiktsnivå och bredare än vägarna (basvägen ~4–6 px) när man är nära. */
+export const SKOTARSPAR_BAND_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 2, 15, 5, 17, 8, 19, 11];
+export const SKOTARSPAR_BAND_KANT: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 4, 15, 7, 17, 10, 19, 13];
+/** Skördarens spår i skotarläget får så här mycket av sin vanliga opacitet. */
+export const SKORDARSPAR_SVAGARE = 0.7;
+
+export interface SkotarlageSpar extends DampatSpar { streck: readonly number[] | null }
+
+/**
+ * Stilen i skotarläget: skotarens eget spår (idag och tidigare dagar) får skördarens bredd (3 px) och opacitet men behåller sin turkos och är heldraget;
+ * skördarens spår (den andres) är som vanligt men svagare. Allt annat är `dampatSpar`.
+ */
+export function skotarlageSpar(roll: SparRoll, art: SparArt): SkotarlageSpar {
+  if (roll === 'skotare' && (art === 'egen' || art === 'hist')) {
+    // Ett BAND, inte en tråd (Martin 2026-11-01, Skälviken: "jag har ju kört där i 4 dagar"): skotaren kör på basvägen och stickvägarna, och
+    // vägarna ligger över spåren (lib/lagerOrdning) — en linje lika smal som vägen försvann under den. Bandet är bredare än vägen så den
+    // körda vägen ligger i turkos, och historiken bleknar inte (de senaste dagarnas skotning är det skotaren behöver se).
+    return {
+      farg: ROLLFARG_SKOTARE,
+      bredd: SKOTARSPAR_BAND_BREDD as any[],
+      opacitet: art === 'egen' ? 0.9 : 0.75,
+      kantFarg: SPAR_KANT_FARG,
+      kantBredd: SKOTARSPAR_BAND_KANT as any[],
+      kantOpacitet: ['interpolate', ['linear'], ['zoom'], SPAR_KANT_FRAN_ZOOM, 0, SPAR_KANT_FULL_ZOOM, art === 'egen' ? 0.7 : 0.55],
+      streck: SKOTARSPAR_STRECK,
+    };
+  }
+  const s = dampatSpar(roll, art);
+  if (roll === 'skordare' && art === 'andras') {
+    const svag = (op: number | any[]): number | any[] => typeof op === 'number' ? op * SKORDARSPAR_SVAGARE : ['*', SKORDARSPAR_SVAGARE, op];
+    return { ...s, opacitet: svag(s.opacitet), kantOpacitet: ['*', SKORDARSPAR_SVAGARE, s.kantOpacitet], streck: null };
+  }
+  return { ...s, streck: null };
+}

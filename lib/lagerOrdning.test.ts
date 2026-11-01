@@ -12,7 +12,7 @@ const rang = (id: string, type?: string) => lagerRang({ id, type });
 const STEG: Array<[string, string[]]> = [
   ['bakgrund', ['bg', 'osm-layer', 'satellite-layer', 'lm-layer', 'terrain-layer', 'hillshade-korvy', 'lm-skuggning-layer', 'vida-layer', 'wms-layer-fastighetsgranser']],
   ['ytor', ['zone-fill', 'zone-hatch-natur', 'zone-outline', 'klart-yta-line', 'trakt-hansyn-fill', 'trakt-nb-fill', 'trakt-raa-fill']],
-  ['hyttspår', ['hyttspar-hist-line', 'hyttspar-andras-line', 'hyttspar-egen-line', 'planspar-skordare-line', 'planspar-skotare-line']],
+  ['hyttspår', ['hyttspar-andras-line', 'hyttspar-hist-line', 'hyttspar-egen-line', 'planspar-skordare-line', 'planspar-skotare-line']],
   ['traktgräns/rågång', ['line-boundary-base', 'line-boundary-stripe', 'trakt-gr-line', 'grans-fill', 'hornedit-base']],
   ['basvägar/stickvägar', ['line-mainRoad-casing', 'line-mainRoad-base', 'line-mainRoad-stripe', 'line-sideRoadRed-base', 'line-sideRoadBlue-base', 'trakt-basvag-line']],
   ['linjer (stenmur, dike, ledning)', ['line-stonewall-base', 'line-ditch-base', 'line-powerline-line', 'line-powerline-symbol', 'line-nature-base', 'trakt-kraftledning-line']],
@@ -49,9 +49,9 @@ describe('lagerordningen: bakgrund → ytor → hyttspår → traktgräns → v�
     expect(rang('hyttspar-andras-casing')).toBeLessThan(rang('line-mainRoad-casing'));
     expect(rang('hyttspar-egen-line')).toBeLessThan(rang('line-mainRoad-casing'));
   });
-  it('inom hyttspåren: skördarens under skotarens, tidigare dagar < den andres < eget', () => {
-    expect(rang('hyttspar-hist-line')).toBeLessThan(rang('hyttspar-andras-line'));
-    expect(rang('hyttspar-andras-line')).toBeLessThan(rang('hyttspar-egen-line'));
+  it('inom hyttspåren: den andra maskinens < egna tidigare dagar < eget idag; i planeringen skördarens under skotarens', () => {
+    expect(rang('hyttspar-andras-line')).toBeLessThan(rang('hyttspar-hist-line'));
+    expect(rang('hyttspar-hist-line')).toBeLessThan(rang('hyttspar-egen-line'));
     expect(rang('planspar-skordare-line')).toBeLessThan(rang('planspar-skotare-line'));
   });
   it('körordningens sken ligger UNDER väglagren, pilen över; larmet över symbolerna; framhävningens glöd under linjerna men ringen över symbolerna', () => {

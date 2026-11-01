@@ -45,7 +45,7 @@ import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
 import { strakFeatures } from '../../lib/strak'
 import { installeraLagerOrdning, symbolSortKey, VAG_SORT_KEY } from '../../lib/lagerOrdning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
-import { dampatSpar, sparAlder } from '../../lib/sparStil'
+import { dampatSpar, sparAlder, skotarlageSpar } from '../../lib/sparStil'
 import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
 import { useKlarFalt } from '../../lib/hooks/useKlarFalt'
@@ -144,7 +144,8 @@ import { framhavBounds, framhavdFran, slappAtgard, type FramhavdMarkering, type 
 import type { OmNav } from '../../components/planering/OmTrakten'
 import { startaFramhavning, startaKartSlapp } from '../../lib/omTraktenFramhavKarta'
 import { mittAvPunkter, omSammanfattning, punkterUrGeometri } from '../../lib/omTrakten'
-import { lagerBild, tonadYta, linjeYta, sparYta } from '../../lib/lagerForhandsbild'
+import { lagerBild, tonadYta, linjeYta, sparYta, prickYta } from '../../lib/lagerForhandsbild'
+import { hogPrickar, lasHogVisa, sparaHogVisa, HOG_VISA, HOG_PRICK_FARG, type HogVisa, type HogPrick } from '../../lib/skotarHogarKvar'
 import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
@@ -205,6 +206,8 @@ import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
 import { avlaggFeatures, laggTillAvlaggslager, taBortAvlaggslager } from '../../lib/skotarLass/avlaggKarta'
 import { farduskotatKontroll } from '../../lib/skotarLass/kvar'
 import type { VagLinje } from '../../lib/skotarLass/spar'
+import type { Lass } from '../../lib/skotarLass/typer'
+import { lasLassServer } from '../../lib/skotarLass/lasServer'
 import { NyttAvlaggKort } from '../../components/planering/skotar/NyttAvlaggKort'
 import { AndraLassArk } from '../../components/planering/skotar/AndraLassArk'
 import { KvarArk } from '../../components/planering/skotar/KvarArk'
@@ -726,6 +729,35 @@ const TESTBANNER_HOJD_PX = 36;
 
 // Förnyar sessionen före nytt försök att hämta Vidas lager (en utgången session ger tomma rader utan fel). Spärrad: högst en förnyelse per minut.
 const fornyaSessionVida = skapaFornyare(() => supabase.auth.refreshSession())
+
+// Högarna som prickar (skotarläget och planeringsvyn, lib/skotarHogarKvar). Läggs i kartans grundlager OCH körvyns (stilbyte återskapar lagren).
+function laggTillHogPrickar(map: any) {
+  if (!map.getSource('skotar-hogar-source')) {
+    try { map.addSource('skotar-hogar-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
+    catch (e) { console.error('[Skotarkörvy] hogar-source:', e); }
+  }
+  if (!map.getLayer('skotar-hogar-dots')) {
+    try {
+      map.addLayer({
+        id: 'skotar-hogar-dots', type: 'circle', source: 'skotar-hogar-source',
+        // Ljus prick med mörk kant (Martin 2026-11-01, som Komatsu MaxiVision): större prick = mer virke kvar (v, m³).
+        // Färgen är neutral; ett eget sortiment under + ger sin färg (lib/skotarHogarKvar HOG_PRICK_FARG). a = tonar bort det lassen tog.
+        paint: {
+          'circle-color': ['get', 'farg'],
+          'circle-stroke-color': 'rgba(0,0,0,0.75)',
+          'circle-stroke-width': 1.5,
+          // Stor skillnad mellan en riktig hög och en rest (Martin 2026-11-01: "ser ut som snö"): 1 m³ ett korn, 15 m³ en tydlig prick.
+          'circle-radius': ['interpolate', ['linear'], ['zoom'],
+            13, ['interpolate', ['linear'], ['get', 'v'], 0, 1, 2, 1.5, 10, 3, 30, 5],
+            17, ['interpolate', ['linear'], ['get', 'v'], 0, 1.5, 1, 2.5, 5, 4.5, 15, 7.5, 40, 10]],
+          'circle-opacity': ['coalesce', ['get', 'a'], 0.95],
+          'circle-stroke-opacity': ['coalesce', ['get', 'a'], 0.95],
+        },
+        layout: { 'visibility': 'none' },
+      });
+    } catch (e) { console.error('[Skotarkörvy] hogar-dots:', e); }
+  }
+}
 
 export default function PlannerPage() {
   // === OBJEKTVAL ===
@@ -1846,6 +1878,7 @@ export default function PlannerPage() {
         visibility: 'none',
       },
     });
+    laggTillHogPrickar(map);
 
     // === GROT-högar (separat lager) ===
     map.addSource('grot-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -4101,6 +4134,10 @@ export default function PlannerPage() {
   const [korvyForceRoll, setKorvyForceRoll] = useState<'skordare' | 'skotare' | null>(null);
   // Bumpas när hogarFeaturesRef.current byts (load + spara/ångra) så klumpningen räknas om.
   const [hogarVersion, setHogarVersion] = useState(0);
+  // Skotarläget: vilka högar prickarna visar (+ › Lager › Produktionshögar). Sparas per enhet; Alla som standard.
+  const [hogVisa, setHogVisaState] = useState<HogVisa>('alla');
+  useEffect(() => { setHogVisaState(lasHogVisa()); }, []);
+  const setHogVisa = (v: HogVisa) => { setHogVisaState(v); sparaHogVisa(v); };
   const skotarKorvy = korvyActive && (korvyForceRoll ? korvyForceRoll === 'skotare' : minRoll === 'skotare');
   // Maskintypen för målbilderna (skördare/skotare): enhetens maskin först, annars admins val, annars tilldelningen. Okänd (planeringsvyn utan maskin) ger skördarens version.
   const malbildRoll: Maskinroll | null = enhetRoll ?? korvyForceRoll ?? minRoll ?? null;
@@ -4922,10 +4959,12 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const vis = hogarPa ? 'visible' : 'none';
+    // Skotarläget och planeringsvyn ritar högarna som prickar (skotar-hogar-dots, effekten efter useSkotarLass) — tårtorna och klustren göms där.
+    const tartor = hogarPa && !(skotarKorvy || !korvyActive) ? 'visible' : 'none';
     if (map.getLayer('hogar-hit')) map.setLayoutProperty('hogar-hit', 'visibility', vis);
-    if (map.getLayer('hogar-circle')) map.setLayoutProperty('hogar-circle', 'visibility', vis);
-    if (map.getLayer('hogar-cluster')) map.setLayoutProperty('hogar-cluster', 'visibility', vis);
-  }, [hogarPa, mapLibreReady]);
+    if (map.getLayer('hogar-circle')) map.setLayoutProperty('hogar-circle', 'visibility', tartor);
+    if (map.getLayer('hogar-cluster')) map.setLayoutProperty('hogar-cluster', 'visibility', tartor);
+  }, [hogarPa, skotarKorvy, korvyActive, mapLibreReady]);
 
   // === GROT-högar: Toggle visibility ===
   useEffect(() => {
@@ -9513,26 +9552,7 @@ export default function PlannerPage() {
     // Produktionshögar som små prickar i sortiment-färg (punkt 3) — INTE fulla pie-ikoner (för rörigt
     // i körfart). Data + synlighet i egen effekt (skotarKorvy). Alla prickar samma storlek — ingen
     // förstoring av "aktiva" stråket (togs bort: högarna ska se likadana ut oavsett maskinens läge).
-    if (!map.getSource('skotar-hogar-source')) {
-      try { map.addSource('skotar-hogar-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
-      catch (e) { console.error('[Skotarkörvy] hogar-source:', e); }
-    }
-    if (!map.getLayer('skotar-hogar-dots')) {
-      try {
-        map.addLayer({
-          id: 'skotar-hogar-dots', type: 'circle', source: 'skotar-hogar-source',
-          paint: {
-            'circle-color': ['get', 'color'],
-            'circle-stroke-color': 'rgba(255,255,255,0.85)',
-            'circle-stroke-width': 1,
-            // Konstant storlek per zoom — ingen aktiv-förstoring (alla högar lika, oavsett maskinläge).
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 2, 16, 4, 19, 7],
-            'circle-opacity': 0.95,
-          },
-          layout: { 'visibility': 'none' },
-        });
-      } catch (e) { console.error('[Skotarkörvy] hogar-dots:', e); }
-    }
+    laggTillHogPrickar(map);
 
     // 2) Zon-extrusioner BORTTAGNA för ALLA zon-typer (wet/steep/culture). Zoner ska vara PLATTA
     // färgade ytor som markerar OMRÅDEN — inte 3D-pelare som reser sig (såg ut som objekt; Martin:
@@ -9936,14 +9956,16 @@ export default function PlannerPage() {
     const satt = (lager: string, prop: string, v: any) => { try { if (map.getLayer(lager)) map.setPaintProperty(lager, prop, v); } catch { /* */ } };
     // Stilen per roll och lager ur lib/sparStil (dampatSpar): 3 / 2,5 px, rollfärgerna, dagens ~0,9, smal mörk kant under; tidigare dagar bleknar med åldern (golv ~0,45).
     // Skördarens spår är tydligare än skotarens (skotaren följer stråken) men ligger under basvägen (lib/lagerOrdning).
+    // Skotarläget (lib/sparStil skotarlageSpar): skotarens eget spår lika tydligt som skördarens med långa streck, skördarens spår lite svagare.
     const stila = (namn: string, roll: 'skordare' | 'skotare', art: 'egen' | 'hist' | 'andras') => {
-      const s = dampatSpar(roll, art);
+      const s = skotarKorvy ? skotarlageSpar(roll, art) : { ...dampatSpar(roll, art), streck: null };
       satt(`${namn}-line`, 'line-color', s.farg); satt(`${namn}-line`, 'line-width', s.bredd); satt(`${namn}-line`, 'line-opacity', s.opacitet);
+      satt(`${namn}-line`, 'line-dasharray', s.streck ? [...s.streck] : null);
       satt(`${namn}-casing`, 'line-color', s.kantFarg); satt(`${namn}-casing`, 'line-width', s.kantBredd); satt(`${namn}-casing`, 'line-opacity', s.kantOpacitet);
     };
     if (hyttRoll) { stila('hyttspar-egen', hyttRoll, 'egen'); stila('hyttspar-hist', hyttRoll, 'hist'); }
     if (andrasRoll) stila('hyttspar-andras', andrasRoll, 'andras');
-  }, [hyttRoll, andrasRoll, mapLibreReady, korvyActive]);
+  }, [hyttRoll, andrasRoll, mapLibreReady, korvyActive, skotarKorvy]);
 
   // DET SOM ÄR KLART BLIR GRÅTT (Kartan lugnare, lib/kartKlart). Bara status som redan finns:
   //  • skotad yta  = skotning_uttag.polygon_coords (Markera utkört) → grå yta under allt annat (data här, utseende i lagren klart-yta-*)
@@ -9968,25 +9990,7 @@ export default function PlannerPage() {
   // Tidigare blev hela traktens vägar och spår grå ("klart = grått") — det gjorde efterhandsgranskningen omöjlig att läsa.
   // Grått finns kvar för det som är klart på RIKTIGT per sak: skotad yta (kanten ovan) och en körd väg i körordningen.
 
-  // SKOTARKÖRVY (punkt 3): mata hög-prickarna. Varje redan-kvar-reducerad hög → punkt i sortiment-
-  // färg (properties.color). Alla prickar lika stora — ingen aktiv-förstoring (borttagen).
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-    const feats: any[] = [];
-    if (skotarKorvy) {
-      for (const f of hogarFeaturesRef.current) {
-        const c = f?.geometry?.coordinates;
-        if (!c || c.length < 2) continue;
-        feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [c[0], c[1]] }, properties: { color: f.properties?.color || '#6b7c3a' } });
-      }
-    }
-    try {
-      const src = map.getSource('skotar-hogar-source') as any;
-      if (src) src.setData({ type: 'FeatureCollection', features: feats });
-      if (map.getLayer('skotar-hogar-dots')) map.setLayoutProperty('skotar-hogar-dots', 'visibility', skotarKorvy ? 'visible' : 'none');
-    } catch (e) { console.error('[Skotarkörvy] hogar-dots setData:', e); }
-  }, [skotarKorvy, hogarVersion, mapLibreReady, korvyActive, korvyBasKarta]);
+  // Skotarkörvyns hög-prickar matas efter useSkotarLass (de behöver lassen) — se "HÖGARNA I SKOTARLÄGET".
 
   // === Körvy-lager-toggles: hyttspår (Mitt spår + andras spår) ===
   // KEEP_PREFIX-whitelisten tänder alla hyttspar-* när körvyn aktiveras; dessa toggles släcker
@@ -12220,6 +12224,68 @@ export default function PlannerPage() {
     flyttaEgetAvlagg: skotarFlyttaAvlagg,
     omlasning: skordarKopplingNr,
   });
+
+  // HÖGARNA I SKOTARLÄGET (Martin 2026-11-01, lib/skotarHogarKvar): en ljus prick per hög, större = mer kvar. Det de registrerade lassen tog
+  // (stoppen i lassets spår, kranens räckvidd, samma sortiment) räknas bort, och en hög som tömts tonar bort på ~0,65 s. + › Lager › Produktionshögar
+  // väljer Alla sortiment eller ett (prickarna får då sin färg). Planeringsvyn och skördarens körvy ritar tårtorna som förut.
+  // Planeringsvyn: alla skotares lass på objektet (bara läsning) så att prickarna visar samma sak som i skotarläget.
+  const prickLage = skotarKorvy || !korvyActive;
+  const [planLass, setPlanLass] = useState<Lass[]>([]);
+  useEffect(() => {
+    if (korvyActive || !hogarPa || !valtObjekt?.id) { setPlanLass([]); return; }
+    let avbruten = false;
+    // Läser servern direkt — rör aldrig förarens lokala kö. Läsfel = inga lass räknas bort (högarna visas som skördade), aldrig en gissning.
+    lasLassServer(valtObjekt.id).then((r) => { if (avbruten) return; if (!r) console.error('[Högar] lassen kunde inte läsas'); setPlanLass(r ?? []); });
+    return () => { avbruten = true; };
+  }, [korvyActive, hogarPa, valtObjekt?.id, hogarVersion]);
+  const hogLass = skotarKorvy ? skotarLass.lass : planLass;
+  const hogPrickarRef = useRef<Map<string, HogPrick>>(new Map());
+  const hogPrickNyckelRef = useRef('');
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const visa = prickLage && hogarPa;
+    try { if (map.getLayer('skotar-hogar-dots')) map.setLayoutProperty('skotar-hogar-dots', 'visibility', visa ? 'visible' : 'none'); } catch { /* */ }
+    const src = map.getSource('skotar-hogar-source') as any;
+    if (!src) return;
+    let nya: HogPrick[] = [];
+    try { nya = visa ? hogPrickar(hogarFeaturesRef.current, hogLass, hogVisa) : []; } catch (e) { console.error('[Skotarkörvy] hög-prickar:', e); }
+    const nyaMap = new Map(nya.map((p) => [p.nyckel, p]));
+    // Tona bara bort det LASSEN tog: inte när valet, högarna eller objektet byts.
+    const nyckel = `${visa}|${hogVisa}|${hogarVersion}|${valtObjekt?.id ?? ''}`;
+    const sammaVy = hogPrickNyckelRef.current === nyckel;
+    hogPrickNyckelRef.current = nyckel;
+    // Det som tonas: högar som försvann (→ 0) och högar som blev en rest (→ svag). Bara när LASSEN ändrats (samma vy).
+    const forra = hogPrickarRef.current;
+    const tonas = new Map<string, number>();
+    if (sammaVy) for (const [k, p] of forra) { const n = nyaMap.get(k); if (!n || n.a < p.a - 0.01) tonas.set(k, p.a); }
+    const borta = sammaVy ? [...forra.values()].filter((p) => !nyaMap.has(p.nyckel)) : [];
+    hogPrickarRef.current = nyaMap;
+    const feat = (p: HogPrick, a: number) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { v: p.v, farg: p.farg, a } });
+    // k = 0 → förra styrkan, k = 1 → den nya
+    const skriv = (k: number) => {
+      const blanda = (fran: number, till: number) => fran + (till - fran) * k;
+      const fs = nya.map((p) => feat(p, tonas.has(p.nyckel) ? blanda(tonas.get(p.nyckel)!, p.a) : p.a));
+      if (k < 1) for (const p of borta) fs.push(feat(p, blanda(p.a, 0)));
+      try { src.setData({ type: 'FeatureCollection', features: fs }); }
+      catch (e) { console.error('[Skotarkörvy] hogar-dots setData:', e); }
+    };
+    let lugn = false;
+    try { lugn = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { /* */ }
+    if (!tonas.size || lugn) { skriv(1); return; }
+    let ram: number | null = null;
+    const start = performance.now();
+    let senast = 0;
+    const steg = (t: number) => {
+      const k = Math.min(1, (t - start) / 650);
+      if (k >= 1) { ram = null; skriv(1); return; }
+      if (t - senast > 90) { senast = t; skriv(k); }
+      ram = requestAnimationFrame(steg);
+    };
+    skriv(0);
+    ram = requestAnimationFrame(steg);
+    return () => { if (ram != null) cancelAnimationFrame(ram); };
+  }, [prickLage, hogarPa, hogVisa, hogarVersion, hogLass, valtObjekt?.id, mapLibreReady, korvyActive, korvyBasKarta]);
   // Väder för TRAKTENS position (inte där telefonen är); saknas koordinat faller det tillbaka på enhetens position. Testläget: dagarna hämtas, morgonkortet provkörs med knappen i bannern.
   const skotarVaderPos = useMemo(() => {
     const la = Number(valtObjekt?.lat), lo = Number(valtObjekt?.lng);
@@ -12559,6 +12625,13 @@ export default function PlannerPage() {
           () => setOverlays((prev: any) => vaxlaPlanSpar(prev, l.roll))))),
       ],
     });
+    // Skotarläget och planeringsvyn: vilka högar prickarna visar. Bara när högarna är på. Ett sortiment valt = prickarna får dess färg.
+    if ((skotarKorvy || !korvyActive) && hogarPa) {
+      g.push({
+        id: 'skotar-hogar-visa', rubrik: 'Produktionshögar',
+        rader: HOG_VISA.map((h): LagerRad => ({ id: `hogar-visa-${h.id}`, namn: h.namn, typ: 'val', pa: hogVisa === h.id, bild: prickYta(HOG_PRICK_FARG[h.id]), onTryck: () => setHogVisa(h.id) })),
+      });
+    }
     if (visibleLayers.zones) {
       g.push({ id: 'zontyper', rubrik: 'Zontyper', rader: zoneTypes.map((z) => vaxel(z.id, z.name, undefined, visibleZones[z.id] !== false, tonadYta(z.color), () => setVisibleZones((prev) => ({ ...prev, [z.id]: prev[z.id] === false })))) });
     }
