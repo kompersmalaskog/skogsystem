@@ -61,7 +61,8 @@ describe('EN rad längst ner per läge', () => {
     expect(page).toContain("const ritFramsteg = isZoneMode || nRit < 2 ? punktText(nRit) : geoFormatLength(geoPathMeters(currentDrawCoords));");
     expect(page).toContain("text={`${figur.yta ? 'Mät yta' : 'Mät sträcka'} · ${e ? e.text : punktText(n)}${klar ? ' · klar' : ''}`}");
     expect(page).toContain("text={`Nytt område · ${punktText(omradePunkter)}`}");
-    expect(page).toContain("text={`Tryck där ${symbolNamn(selectedSymbol)} ska stå`}");
+    expect(page).toContain(": `Tryck där ${symbolNamn(selectedSymbol)} ska stå`}");
+    expect(page).toContain("? `Tryck på varje ${symbolNamn(selectedSymbol).toLowerCase()} · ${roseSatta.length} satta`");
   });
 });
 

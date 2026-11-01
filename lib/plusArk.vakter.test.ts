@@ -32,10 +32,10 @@ describe('Symboler: samma kategorier, namn och ordning som appen alltid haft', (
   it('de sex kategorierna i den ordning appen har dem', () => {
     expect(namn).toEqual(['Naturvård', 'Kultur', 'Avverkning', 'Infrastruktur', 'Terräng', 'Övrigt']);
   });
-  it('19 symboler i menyn: Jakttorn, Markkabel och Grind in; Kulturstubbe (slogs ihop), Dike, Stig och Brant ut — alla fyra ritas ändå', () => {
+  it('20 symboler i menyn (Odlingsröse 2026-11-01): Jakttorn, Markkabel och Grind in; Kulturstubbe (slogs ihop), Dike, Stig och Brant ut — alla fyra ritas ändå', () => {
     expect(symboler).toEqual([
       'eternitytree=Evighetsträd', 'naturecorner=Naturhörna',
-      'culturemonument=Kulturlämning',
+      'culturemonument=Kulturlämning', 'odlingsrose=Odlingsröse',
       'highstump=Högstubbe', 'landing=Avlägg', 'brashpile=Rishög', 'windfall=Vindfälle', 'manualfelling=Manuell fällning', 'felloutside=Träd att avverka',
       'powerline=El-ledning', 'huntingtower=Jakttorn', 'groundcable=Markkabel', 'road=Väg', 'turningpoint=Vändplats', 'gate=Grind',
       'bridge=Bro', 'corduroy=Kavling', 'wet=Fuktig mark',

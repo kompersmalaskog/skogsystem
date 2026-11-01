@@ -78,7 +78,7 @@ describe('fällningscirkeln — färg per grupp', () => {
     for (const typ of ['steep', 'wet', 'highstump', 'manualfelling', 'felloutside', 'landing', 'road', 'ditch', 'bridge']) {
       expect(bedom([sym('x', typ, 5)]).grupp, typ).toBeNull();
     }
-    expect(Object.keys(FALLNING_SYMBOL).sort()).toEqual(['culturemonument', 'culturestump', 'eternitytree', 'huntingtower', 'naturecorner', 'powerline', 'warning']);
+    expect(Object.keys(FALLNING_SYMBOL).sort()).toEqual(['culturemonument', 'culturestump', 'eternitytree', 'huntingtower', 'naturecorner', 'odlingsrose', 'powerline', 'warning']);
     expect(FALLNING_SYMBOL.groundcable, 'Markkabel ligger i marken').toBeUndefined();
   });
 

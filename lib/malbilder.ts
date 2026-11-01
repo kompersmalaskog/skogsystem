@@ -2062,7 +2062,7 @@ export function malbildKalla(nyckel: string | null | undefined, variant?: string
 
 /** Symboltyper (lib/symboler) → målbild. Gamla Kulturstubbar och Vidas RAÄ-punkter är Kulturlämning. */
 export const MALBILD_SYMBOL: Readonly<Record<string, string>> = {
-  landing: 'avlagg', culturemonument: 'kulturlamning', culturestump: 'kulturlamning', raa_punkt: 'kulturlamning', wet: 'blott', eternitytree: 'evighetstrad', highstump: 'hogstubbe', naturecorner: 'naturhorna',
+  landing: 'avlagg', culturemonument: 'kulturlamning', culturestump: 'kulturlamning', odlingsrose: 'kulturlamning', raa_punkt: 'kulturlamning', wet: 'blott', eternitytree: 'evighetstrad', highstump: 'hogstubbe', naturecorner: 'naturhorna',
 };
 /** Ytor (zoneType, och Vidas lager som `vida:<slag>`) → målbild. Brant, Ej framkomlig och Gallringszon har ingen. */
 export const MALBILD_YTA: Readonly<Record<string, string>> = {

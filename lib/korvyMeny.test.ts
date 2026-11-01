@@ -78,7 +78,7 @@ describe('placering: en väg, exakt där trycket träffade, dragbart efteråt', 
     expect(page).toContain('else setSelectedSymbol(post.id);');
   });
   it('smal list "Tryck där … ska stå" — "Vid maskinen" bara i körvy — och inget hårkors i körvyn', () => {
-    expect(page).toContain('text={`Tryck där ${symbolNamn(selectedSymbol)} ska stå`}');
+    expect(page).toContain(': `Tryck där ${symbolNamn(selectedSymbol)} ska stå`}');
     expect(page).toContain("...(korvyActive ? [{ etikett: 'Vid maskinen'");
     expect(page).toContain('(selectedSymbol && !korvyActiveRef.current)');
   });
@@ -118,7 +118,7 @@ describe('prickar: högstubbe/evighetsträd i körvyn', () => {
     expect(page).toContain("id: 'markers-prick',");
     expect(page).toContain("filter: ['==', ['get', 'prick'], true],");
     expect(page).toContain("filter: ['!=', ['get', 'prick'], true],");
-    expect(page).toContain("const prick = korvyActive && arPrick(m.type);");
+    expect(page).toContain("const prick = (korvyActive && arPrick(m.type)) || arAlltidPrick(m.type);");
     // Lagerordningen läggs av lib/lagerOrdning (förut en moveLayer-lista i sidan): prickarna är symboler och ligger över vägar och linjer, under etiketterna.
     expect(lagerRang({ id: 'markers-prick' })).toBe(lagerRang({ id: 'markers-layer' }));
     expect(lagerRang({ id: 'markers-prick' })).toBeGreaterThan(lagerRang({ id: 'line-stonewall-base' }));
