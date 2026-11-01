@@ -100,9 +100,12 @@ export function kravStatus(antal: number, krav: number | null, andelAvverkat: nu
 // ingen ikon, ingen etikett, inget proximitetskort. Tryck på en prick → vad det är + Ta bort. Eget lager, på som standard.
 // Planeringsvyn visar full symbol som förut. (Naturhörnan räknas mot evighetsträdskravet men förblir en vanlig symbol.)
 
-export const PRICK_TYPER: readonly string[] = ['highstump', 'eternitytree'];
+export const PRICK_TYPER: readonly string[] = ['highstump', 'eternitytree', 'odlingsrose'];
+/** Ritas som prick ÖVERALLT, också i planeringen: en fossil åker har dussintals rösen och full symbol på varje döljer allt annat (Martin 2026-11-01). */
+export const ALLTID_PRICK: readonly string[] = ['odlingsrose'];
+export const arAlltidPrick = (typ: string | null | undefined): boolean => !!typ && ALLTID_PRICK.includes(typ);
 export const arPrick = (typ: string | null | undefined): boolean => !!typ && PRICK_TYPER.includes(typ);
-export const PRICK_NAMN: Readonly<Record<string, string>> = { highstump: SYMBOL_NAMN.highstump, eternitytree: SYMBOL_NAMN.eternitytree };
+export const PRICK_NAMN: Readonly<Record<string, string>> = { highstump: SYMBOL_NAMN.highstump, eternitytree: SYMBOL_NAMN.eternitytree, odlingsrose: SYMBOL_NAMN.odlingsrose };
 /** Prickarna har ett eget lager (overlay-id) i Lager-menyn. Saknas nyckeln är det PÅ — bara ett uttryckligt false döljer dem. */
 export const PRICK_LAGER_ID = 'miljoPrickar';
 export const prickarSynliga = (overlays: Record<string, boolean> | null | undefined): boolean => overlays?.[PRICK_LAGER_ID] !== false;

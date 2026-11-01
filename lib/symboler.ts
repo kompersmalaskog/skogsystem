@@ -49,6 +49,7 @@ export const GLYF: Readonly<Record<string, string>> = {
   naturecorner: 'M5 19C5 11 11 5 19 5c0 8-6 14-14 14z M5 19l7-7',
   // Kultur
   culturemonument: 'M4 9l8-5 8 5z M6 20h12 M7.5 20v-8 M12 20v-8 M16.5 20v-8',
+  odlingsrose: 'M4 19h16 M6 19c0-3 2.5-4.5 6-4.5s6 1.5 6 4.5 M9 14.5c0-2 1.3-3.5 3-3.5s3 1.5 3 3.5',
   // Blött
   wet: 'M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z',
   // Att göra
@@ -83,7 +84,7 @@ export const symbolDefTyp = (typ: string | null | undefined): string => {
 /** Symbolerna som finns i MENYN (symbolarket), per kategori — samma kategorier som förut. Dike, Stig, Brant (ytan finns) och Kulturstubbe (slogs ihop) finns inte i menyn men ritas fortfarande. */
 export const MENY_KATEGORIER: ReadonlyArray<{ namn: string; symboler: readonly string[] }> = [
   { namn: 'Naturvård', symboler: ['eternitytree', 'naturecorner'] },
-  { namn: 'Kultur', symboler: ['culturemonument'] },
+  { namn: 'Kultur', symboler: ['culturemonument', 'odlingsrose'] },
   { namn: 'Avverkning', symboler: ['highstump', 'landing', 'brashpile', 'windfall', 'manualfelling', 'felloutside'] },
   { namn: 'Infrastruktur', symboler: ['powerline', 'huntingtower', 'groundcable', 'road', 'turningpoint', 'gate'] },
   { namn: 'Terräng', symboler: ['bridge', 'corduroy', 'wet'] },
@@ -102,6 +103,7 @@ export const SYMBOL_FORKLARING: Readonly<Record<string, string>> = {
   highstump: 'Hög stubbe som ska lämnas kvar.',
   naturecorner: 'Hörn som sparas för naturvården – kör och fäll inte här.',
   culturemonument: 'Stenröse, tjärdal, kolbotten eller råsten – lagskyddat, kör inte på det.',
+  odlingsrose: 'Odlingsröse i en fossil åker – kör inte på stenhögen, fäll inga träd på den och lägg inget ris på den.',
   wet: 'Blött – kör försiktigt, risa vid behov.',
   manualfelling: 'Fälls för hand – kör inte skördaren hit.',
   felloutside: 'Träd som ska avverkas utanför ordinarie yta.',
