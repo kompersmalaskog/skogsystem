@@ -12,6 +12,11 @@
 - Markägarrapport-algoritm verifierad mot
   Husjönäs 2026-05-06
 
+## Arbetsmiljö: Åtgärdslistan — 2026-11-01
+**Byggt (gren `arbetsmiljo-atgarder`, bygger på #1029):** `/atgarder` — det maskinkollen och "Något är fel" lämnar efter sig. Stopp överst i rött, sedan efter deadline, åtgärdade hopfällda; arket visar bilden och — för admin — "Vad gjordes?" + Markera som åtgärdad. Märke och rad i Behöver dig. Se CLAUDE.md, raden `/atgarder`.
+**Migration `20261101102742_arbetsmiljo_atgarder.sql` (körd i prod 2026-11-01):** funktionen `am_atgarder()` och triggern `a_am_atgard_stang`. Provad i prod med ett block som rullades tillbaka: admin får raden med namn, stängning får servertid och vem (en tid från klienten skrivs över), en andra stängning skriver inte över den första, öppning tömmer, utan inloggning 0 rader. Ångra: `drop trigger a_am_atgard_stang on am_atgard; drop function am_atgard_stang(); drop function am_atgarder();`
+**Ej provat:** i riktig webbläsare/telefon (jsdom + tester). **Ej byggt:** push vid stopp (nästa steg), skyddsombudets kort på startsidan.
+
 ## Arbetsmiljö: Maskinkoll (skyddsrond) för föraren — 2026-10-31
 **Byggt (gren `arbetsmiljo-maskinkoll-forare`):** `/maskinkoll` — förarens skyddsrond en gång i månaden: godkännandet första gången ("Jag gör maskinkollen på Wisent" = skriftlig fördelning av uppgiften), en fråga per skärm Ja/Nej, Nej = foto (+ valfri rad), sist ett kontrollfoto som roterar per månad, Klart med det som skickats för åtgärd. Ingång: raden "Dags för maskinkoll" under **Behöver dig** på startsidan + vyn Maskinkoll i gruppen Maskiner med märke (inte i Arbetsrapport — den handlar om tid, se "En vy ägs av ett spår"). Foton via fotokön (`lib/fotoKo`, egen IndexedDB-databas `skogsystem-maskinkoll-foton`) — sökvägen skrivs i raden direkt, filen kommer upp när nätet finns.
 **Databasen (körd i prod 2026-10-31):** `20261031162152_arbetsmiljo_maskinkoll.sql` + `20261031162246_arbetsmiljo_stang_rpc.sql` — `am_fraga` (16 frågor), `am_uppgift_godkannande`, `am_maskinkoll`, `am_svar`, `am_atgard`, `medarbetare.skyddsombud`, bucket `am-foton`. Nej → åtgärd i en trigger; `klar` vägras tills alla aktiva frågor är besvarade + kontrollfoto; klar koll är låst. Triggrarna provade i en transaktion som rullades tillbaka.
