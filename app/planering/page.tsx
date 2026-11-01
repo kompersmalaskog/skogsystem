@@ -4783,6 +4783,7 @@ export default function PlannerPage() {
   // (langtryckTillatenRef sätts i handlers-blocket), aldrig på en symbol, avbryts av drag/nyp/rörelse.
   const langtryckTillatenRef = useRef(false);
   const langtryckNereRef = useRef(false);        // fingret ligger kvar efter ett långtryck som öppnade dockan
+  const langtryckOmradeRef = useRef<(p: { lat: number; lng: number }) => boolean>(() => false);   // skotarläget: håll fingret startar Högar i ett område (sätts längre ned)
   const langtryckSlukTillRef = useRef(0);        // klicket som följer på lyftet efter långtrycket ska inte stänga dockan
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -4803,8 +4804,10 @@ export default function PlannerPage() {
       timer = setTimeout(() => {
         timer = null;
         if (!langtryckTillatenRef.current) return;
-        setLangtryckPunkt({ lat: ll.lat, lng: ll.lng });
         langtryckNereRef.current = true;
+        // Skotarläget: håll fingret = rita runt ett område (första hörnet här) i stället för symboldockan (Martin 2026-11-01). Symboler sätts via +.
+        if (langtryckOmradeRef.current({ lat: ll.lat, lng: ll.lng })) { if (navigator.vibrate) navigator.vibrate(20); return; }
+        setLangtryckPunkt({ lat: ll.lat, lng: ll.lng });
         setPlusRadOppen(true);
         if (navigator.vibrate) navigator.vibrate(20);
       }, LANGTRYCK_MS);
@@ -12307,7 +12310,16 @@ export default function PlannerPage() {
     if (!id) { visaHogMarkKvitto('Kunde inte spara markeringen', ''); return; }
     visaHogMarkKvitto(typ === 'tagen' ? 'Högen markerad som tagen' : 'Högen ligger kvar', id);
   };
-  useEffect(() => { setHogRing([]); setHogRingKlar(false); }, [hogLage]);
+  const hogRingStartRef = useRef<[number, number] | null>(null);
+  useEffect(() => { const st = hogRingStartRef.current; hogRingStartRef.current = null; setHogRing(hogLage && st ? [st] : []); setHogRingKlar(false); }, [hogLage]);
+  // Håll fingret i skotarläget (prickarna syns): första hörnet där fingret är. Planeringsvyn behåller symboldockan.
+  langtryckOmradeRef.current = (p) => {
+    if (!(skotarKorvy && prickLage && hogarPa) || hogStreck) return false;
+    setHogValt(null);
+    hogRingStartRef.current = [p.lng, p.lat];
+    setHogLage('runt');
+    return true;
+  };
   // Rita runt: ett tryck = ett hörn (ett tryck = exakt en punkt), tryck på första hörnet stänger ytan. Märkt tillatIRitlage: det enda som tar trycken i läget.
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -12315,6 +12327,7 @@ export default function PlannerPage() {
     try { map.easeTo({ pitch: 0, duration: 300 }); } catch { /* */ }
     let forra: { x: number; y: number; t: number } | null = null;
     const onClick = tillatIRitlage((e: any) => {
+      if (langtryckNereRef.current || Date.now() < langtryckSlukTillRef.current) return;   // lyftet efter långtrycket som startade läget är inget hörn
       const nytt = { x: e.point.x, y: e.point.y, t: Date.now() };
       if (forra && Math.hypot(nytt.x - forra.x, nytt.y - forra.y) < 4 && nytt.t - forra.t < 800) return;
       forra = nytt;
@@ -12910,7 +12923,7 @@ export default function PlannerPage() {
   const ritFramsteg = isZoneMode || nRit < 2 ? punktText(nRit) : geoFormatLength(geoPathMeters(currentDrawCoords));
   langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !menuOpen && !selectedSymbol && !figur && !prickValt
     && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode && !omradeRitning && !skotningDrawing && !hornEditActive && !larmPlacering
-    && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode && !linjeRed.aktiv && !objektListaOppen;
+    && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode && !linjeRed.aktiv && !objektListaOppen && !hogStreck;
   // Testläget: håll fingret flyttar testpositionen (kopplaLangtryckFlytt) — plusdockan öppnas med plusknappen.
   if (testlage) langtryckTillatenRef.current = false;
 

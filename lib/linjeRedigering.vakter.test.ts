@@ -14,7 +14,7 @@ describe('Redigera linjer — vakter', () => {
   it('ritläget: medan redigeringen är på är all annan tryckning avstängd (spärren, kartläget och långtrycket)', () => {
     expect(page).toContain('|| larmPlacering || risaMarkMode || !!selectedSymbol || !!figur || linjeRed.aktiv || hogStreck;');
     expect(page).toContain('|| larmPlacering || risaMarkMode || !!selectedSymbol || !!figur || plusRadOppen || linjeRed.aktiv || hogStreck;');
-    expect(page).toContain('&& !risaMarkMode && !linjeRed.aktiv && !objektListaOppen;');
+    expect(page).toContain('&& !risaMarkMode && !linjeRed.aktiv && !objektListaOppen && !hogStreck;');
     expect(page).toContain('if (linjeRed.aktiv) linjeRed.stang();');   // ett annat verktyg avslutar redigeringen
   });
   it('Vidas data skrivs ALDRIG: ingen skrivning mot objekt_geometri, bara tabellen objekt_linje_dolt', () => {
