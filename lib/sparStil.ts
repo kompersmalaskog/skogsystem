@@ -128,3 +128,28 @@ export function dampatSpar(roll: SparRoll, art: SparArt): DampatSpar {
     default: return ut(0.9, 0.72);
   }
 }
+
+// ── SKOTARLÄGET (Martin 2026-11-01): skotarens eget spår lika tydligt som skördarens, med långa streck — skördarens lite svagare ──────────────
+/** Skotarens streck i skotarläget (i linjebredder: 4 långt, 1,5 luckor). */
+export const SKOTARSPAR_STRECK: readonly number[] = [4, 1.5];
+/** Skördarens spår i skotarläget får så här mycket av sin vanliga opacitet. */
+export const SKORDARSPAR_SVAGARE = 0.7;
+
+export interface SkotarlageSpar extends DampatSpar { streck: readonly number[] | null }
+
+/**
+ * Stilen i skotarläget: skotarens eget spår (idag och tidigare dagar) får skördarens bredd (3 px) och opacitet men behåller sin turkos och blir streckat;
+ * skördarens spår (den andres) är som vanligt men svagare. Allt annat är `dampatSpar`.
+ */
+export function skotarlageSpar(roll: SparRoll, art: SparArt): SkotarlageSpar {
+  if (roll === 'skotare' && (art === 'egen' || art === 'hist')) {
+    const s = dampatSpar('skordare', art);
+    return { ...s, farg: ROLLFARG_SKOTARE, streck: SKOTARSPAR_STRECK };
+  }
+  const s = dampatSpar(roll, art);
+  if (roll === 'skordare' && art === 'andras') {
+    const svag = (op: number | any[]): number | any[] => typeof op === 'number' ? op * SKORDARSPAR_SVAGARE : ['*', SKORDARSPAR_SVAGARE, op];
+    return { ...s, opacitet: svag(s.opacitet), kantOpacitet: ['*', SKORDARSPAR_SVAGARE, s.kantOpacitet], streck: null };
+  }
+  return { ...s, streck: null };
+}

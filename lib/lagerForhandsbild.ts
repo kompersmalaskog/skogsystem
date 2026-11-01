@@ -52,3 +52,8 @@ export function lagerBild(id: string, farg?: string): string {
   const c = farg ?? OVERLAY_FARG[id];
   return c ? tonadYta(c) : NEUTRAL;
 }
+
+/** En prick på mörk mark — förhandsbilden för skotarlägets högar (lib/skotarHogarKvar). */
+export function prickYta(farg: string): string {
+  return `radial-gradient(circle, ${farg} 0 7px, rgba(0,0,0,0.6) 7px 9px, transparent 9px), #2c2c2e`;
+}
