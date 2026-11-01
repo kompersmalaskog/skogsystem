@@ -108,6 +108,16 @@ describe('Personal (förare)', () => {
     expect(q('[data-admin-lank]')).toBeNull();
   });
 
+  it('raderna Telefon och Anhörig går att trycka på när de saknas – trycket öppnar samma ark som knappen', async () => {
+    await rendera();
+    const rad = q('[data-anhorig="saknas"]') as HTMLElement;
+    expect(rad.tagName).toBe('BUTTON');
+    await act(async () => { rad.click(); });
+    expect(el.ownerDocument.querySelector('input[name="anhorig_telefon"]')).not.toBeNull();
+    const tel = el.ownerDocument.querySelector('input[name="telefon"]') as HTMLInputElement;
+    expect(tel.getAttribute('inputmode')).toBe('tel');
+  });
+
   it('saknas anhörig är "Fyll i anhörig" skärmens enda primära knapp, och Spara är inaktiv tills något ändrats', async () => {
     await rendera();
     const knapp = q('[data-andra]') as HTMLButtonElement;

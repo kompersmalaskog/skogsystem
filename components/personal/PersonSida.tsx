@@ -55,6 +55,7 @@ export default function PersonSida({ person, arAdmin, arJag, onAndra, onAndraMat
         <Rad
           titel={tel ?? 'Saknas'}
           under={telSaknas ? <span style={{ color: FARG.orange }}>{arJag ? 'Fyll i ditt nummer så att vi når dig' : `${fornamn(person.namn)} går inte att ringa`}</span> : undefined}
+          onTryck={kanAndra ? onAndra : undefined}
           sista
           attr={{ 'data-telefon': '' }}
         />
@@ -65,6 +66,7 @@ export default function PersonSida({ person, arAdmin, arJag, onAndra, onAndraMat
           <Rad
             titel={person.anhorig_namn || 'Saknas'}
             under={<span style={{ color: FARG.orange }}>{arJag ? 'Fyll i vem vi ringer om något händer dig' : 'Vi vet inte vem vi ringer vid en olycka'}</span>}
+            onTryck={kanAndra ? onAndra : undefined}
             sista
             attr={{ 'data-anhorig': 'saknas' }}
           />
@@ -84,7 +86,11 @@ export default function PersonSida({ person, arAdmin, arJag, onAndra, onAndraMat
       {kanAndra && (
         <div style={{ marginBottom: AVSTAND.xl }}>
           <button type="button" onClick={onAndra} style={andraArPrimar ? KNAPP.primar : KNAPP.sekundar} data-andra>
-            {arJag && anhorigSaknas ? 'Fyll i anhörig' : 'Ändra telefon och anhörig'}
+            {!arJag ? 'Ändra telefon och anhörig'
+              : anhorigSaknas && telSaknas ? 'Fyll i telefon och anhörig'
+              : anhorigSaknas ? 'Fyll i anhörig'
+              : telSaknas ? 'Fyll i telefon'
+              : 'Ändra telefon och anhörig'}
           </button>
         </div>
       )}
