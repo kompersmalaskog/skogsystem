@@ -29,6 +29,9 @@ export type Vy = {
   grupp: GruppId
   /** Synlig bara för admin. Utan = alla inloggade. */
   bara?: 'admin'
+  /** Undantag från `bara`: synlig ÄVEN för skyddsombudet (medarbetare.skyddsombud), oavsett roll. Arbetsmiljölagen:
+   *  skyddsombudet ska se det som är fel på maskinerna — förut nådde hen Åtgärder bara via en länk (Martin 2026-11-02). */
+  aven?: 'skyddsombud'
   marke?: MarkeKalla
   /** Extra ord som sökningen ska hitta vyn på ("semester" → Ledighet). */
   sokord?: string[]
@@ -64,7 +67,7 @@ export const VYER: Vy[] = [
   // Maskinkollen = förarens skyddsrond en gång i månaden (arbetsmiljö, 2026-10-31). Märket = dags eller påbörjad.
   { id: 'maskinkoll', namn: 'Maskinkoll', href: '/maskinkoll', ikon: 'checklist', grupp: 'maskiner', marke: 'maskinkoll', sokord: ['skyddsrond', 'arbetsmiljö', 'säkerhet', 'brandsläckare'] },
   // "Något är fel": föraren rapporterar ett fel på maskinen när som helst, med bild. Blir en åtgärd direkt.
-  { id: 'atgarder', namn: 'Åtgärder', href: '/atgarder', ikon: 'build', grupp: 'maskiner', bara: 'admin', marke: 'atgarder', sokord: ['arbetsmiljö', 'skyddsrond', 'fel', 'stopp', 'maskinkoll'] },
+  { id: 'atgarder', namn: 'Åtgärder', href: '/atgarder', ikon: 'build', grupp: 'maskiner', bara: 'admin', aven: 'skyddsombud', marke: 'atgarder', sokord: ['arbetsmiljö', 'skyddsrond', 'fel', 'stopp', 'maskinkoll'] },
   // Om något händer: 112, larmplatsen, tre steg per situation, rapportera tillbud. Står också fast under sökfältet på startsidan.
   { id: 'om-nagot-hander', namn: 'Om något händer', href: '/om-nagot-hander', ikon: 'emergency', grupp: 'maskiner', sokord: ['112', 'olycka', 'tillbud', 'brand', 'skada', 'nödnummer', 'larm', 'första hjälpen', 'kraftledning'] },
   { id: 'nagot-ar-fel', namn: 'Något är fel', href: '/maskinkoll?fel=1', ikon: 'report', grupp: 'maskiner', sokord: ['fel', 'trasig', 'läcker', 'rapportera', 'skada', 'arbetsmiljö'] },
@@ -108,14 +111,17 @@ export const STANDARD_FAVORITER: Record<Roll, string[]> = {
 
 export const MAX_FAVORITER = 8
 
-/** Vyerna en roll får se, i registrets ordning. */
-export function vyerFor(roll: Roll): Vy[] {
-  return VYER.filter(v => !v.bara || v.bara === roll)
+/** Det som utöver rollen avgör vad man ser. */
+export type Behorighet = { skyddsombud?: boolean }
+
+/** Vyerna en roll får se, i registrets ordning. Skyddsombudet ser dessutom vyer märkta `aven: 'skyddsombud'`. */
+export function vyerFor(roll: Roll, b: Behorighet = {}): Vy[] {
+  return VYER.filter(v => !v.bara || v.bara === roll || (v.aven === 'skyddsombud' && b.skyddsombud === true))
 }
 
 /** Favoriterna för en roll: bara vyer rollen får se, i given ordning, max 8. Okända id hoppas över. */
-export function favoriterFor(roll: Roll, ids: string[] = STANDARD_FAVORITER[roll]): Vy[] {
-  const synliga = new Map(vyerFor(roll).map(v => [v.id, v]))
+export function favoriterFor(roll: Roll, ids: string[] = STANDARD_FAVORITER[roll], b: Behorighet = {}): Vy[] {
+  const synliga = new Map(vyerFor(roll, b).map(v => [v.id, v]))
   const ut: Vy[] = []
   for (const id of ids) {
     const v = synliga.get(id)
@@ -126,8 +132,8 @@ export function favoriterFor(roll: Roll, ids: string[] = STANDARD_FAVORITER[roll
 }
 
 /** Arbetsvyerna grupperade (utan Övrigt, som ligger i kontomenyn). Tomma grupper tas bort. */
-export function grupperFor(roll: Roll): { id: GruppId; namn: string; vyer: Vy[] }[] {
-  const vyer = vyerFor(roll)
+export function grupperFor(roll: Roll, b: Behorighet = {}): { id: GruppId; namn: string; vyer: Vy[] }[] {
+  const vyer = vyerFor(roll, b)
   return GRUPPER.filter(g => g.id !== 'ovrigt')
     .map(g => ({ ...g, vyer: vyer.filter(v => v.grupp === g.id) }))
     .filter(g => g.vyer.length > 0)
@@ -140,7 +146,7 @@ export function ovrigtFor(roll: Roll): Vy[] {
 const norm = (s: string) => s.toLocaleLowerCase('sv-SE').trim()
 
 /** Sök bland vyerna rollen får se: namn först (början av namnet före mitt i), sedan sökord. */
-export function sokVyer(roll: Roll, fraga: string): Vy[] {
+export function sokVyer(roll: Roll, fraga: string, b: Behorighet = {}): Vy[] {
   const q = norm(fraga)
   if (!q) return []
   const traff = (v: Vy): number => {
@@ -151,7 +157,7 @@ export function sokVyer(roll: Roll, fraga: string): Vy[] {
     if ((v.sokord ?? []).some(o => norm(o).startsWith(q) || norm(o).includes(q))) return 3
     return -1
   }
-  return vyerFor(roll)
+  return vyerFor(roll, b)
     .map((v, i) => ({ v, t: traff(v), i }))
     .filter(x => x.t >= 0)
     .sort((a, b) => a.t - b.t || a.i - b.i)

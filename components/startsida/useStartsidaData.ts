@@ -27,6 +27,8 @@ export const ROLL_MAX_VANTAN_MS = 1500
 export type StartsidaData = {
   /** Rollen som den står i medarbetare ('admin', 'forare', …), null = okänd. */
   roll: string | null
+  /** Den inloggade är skyddsombud. false tills det lästs (och vid läsfel) — då syns bara rollens vyer. */
+  skyddsombud: boolean
   /** true när rollen är läst ELLER väntetiden gått ut. */
   rollKlar: boolean
   vantandeEgenkontroll: number | null
@@ -52,6 +54,7 @@ export type StartsidaData = {
 
 export function useStartsidaData(): StartsidaData {
   const [roll, setRoll] = useState<string | null>(null)
+  const [skyddsombud, setSkyddsombud] = useState(false)
   const [rollKlar, setRollKlar] = useState(false)
   const [vantandeEgenkontroll, setVantandeEgenkontroll] = useState<number | null>(null)
   const [ledighetPrick, setLedighetPrick] = useState<LedighetPrick | null>(null)
@@ -106,9 +109,10 @@ export function useStartsidaData(): StartsidaData {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user?.email) { fardig(); return }
       if (vid) setKonto(k => ({ ...k, epost: user.email ?? null }))
-      supabase.from('medarbetare').select('roll, namn').eq('epost', user.email).single()
+      supabase.from('medarbetare').select('roll, namn, skyddsombud').eq('epost', user.email).single()
         .then(({ data }) => {
           if (vid && data?.roll) setRoll(data.roll)
+          if (vid) setSkyddsombud(data?.skyddsombud === true)
           if (vid && typeof data?.namn === 'string' && data.namn.trim()) setKonto(k => ({ ...k, namn: data.namn.trim() }))
           fardig()
         }, fardig)
@@ -136,5 +140,5 @@ export function useStartsidaData(): StartsidaData {
     window.location.href = '/login'
   }
 
-  return { roll, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, maskinkollVantar, atgarder, egnaUppgifter, favoritIds, sparaFavoriterna, konto, loggaUt }
+  return { roll, skyddsombud, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, maskinkollVantar, atgarder, egnaUppgifter, favoritIds, sparaFavoriterna, konto, loggaUt }
 }

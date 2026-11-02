@@ -47,6 +47,20 @@ describe('vyregistret', () => {
     expect(vyerFor('admin')).toHaveLength(VYER.length)
   })
 
+  it('skyddsombudet ser Åtgärder (och bara den) av admin-vyerna — i grupperna, favoriterna och sökningen', () => {
+    const b = { skyddsombud: true }
+    const adminHrefs = new Set(VYER.filter(v => v.bara === 'admin').map(v => v.href))
+    const sedda = [...grupperFor('forare', b).flatMap(g => g.vyer), ...favoriterFor('forare', VYER.map(v => v.id), b),
+      ...sokVyer('forare', 'åtgärd', b), ...sokVyer('forare', 'ekonomi', b), ...sokVyer('forare', 'admin', b)]
+    expect([...new Set(sedda.filter(v => adminHrefs.has(v.href)).map(v => v.href))]).toEqual(['/atgarder'])
+    expect(sokVyer('forare', 'stopp', b).map(v => v.href)).toContain('/atgarder')
+    // Utan flaggan (eller med false) ser föraren den inte.
+    expect(vyerFor('forare').some(v => v.href === '/atgarder')).toBe(false)
+    expect(vyerFor('forare', { skyddsombud: false }).some(v => v.href === '/atgarder')).toBe(false)
+    // Bara Åtgärder bär undantaget.
+    expect(VYER.filter(v => v.aven === 'skyddsombud').map(v => v.id)).toEqual(['atgarder'])
+  })
+
   it('grupperna + kontomenyn innehåller varje synlig vy exakt en gång', () => {
     for (const roll of ['admin', 'forare'] as const) {
       const visade = [...grupperFor(roll).flatMap(g => g.vyer), ...ovrigtFor(roll)].map(v => v.id)

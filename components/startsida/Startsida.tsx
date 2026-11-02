@@ -18,7 +18,7 @@ import Ark from '@/components/design/Ark'
 import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN, KORT, RADIE, TRAFFYTA, TYP, designCss, overgang } from '@/lib/design/tokens'
 import { lassSaknarText } from '@/lib/lastbil/lass/vantar'
 import { flyttarAttGodkannaText } from '@/lib/lastbil/godkannVantar'
-import { MAX_FAVORITER, STANDARD_FAVORITER, favoriterFor, grupperFor, ovrigtFor, sokVyer, type MarkeKalla, type Roll, type Vy } from '@/lib/vyer'
+import { MAX_FAVORITER, STANDARD_FAVORITER, favoriterFor, grupperFor, ovrigtFor, sokVyer, type Behorighet, type MarkeKalla, type Roll, type Vy } from '@/lib/vyer'
 
 /** Räknare per källa. null = okänt (laddar eller läsfel) → inget märke, aldrig "0". */
 /** `godkann` hör till Lastbilen men är ingen egen vy-märkeskälla: Lastbilens märke är lass + flyttar att godkänna. */
@@ -221,14 +221,14 @@ const ikonKnapp: CSSProperties = {
 }
 
 /** Arket "Dina vyer": ta bort (−), lägg till (+), flytta upp, återställ. Spara är grå tills något ändrats. */
-function AndraFavoriter({ roll, valda, onSpara, onStang }: { roll: Roll; valda: string[]; onSpara: (ids: string[]) => Promise<boolean>; onStang: () => void }) {
+function AndraFavoriter({ roll, behorighet, valda, onSpara, onStang }: { roll: Roll; behorighet: Behorighet; valda: string[]; onSpara: (ids: string[]) => Promise<boolean>; onStang: () => void }) {
   const [ids, setIds] = useState<string[]>(valda)
   const [sparar, setSparar] = useState(false)
   const [fel, setFel] = useState(false)
   const andrat = ids.length !== valda.length || ids.some((id, i) => id !== valda[i])
   const fullt = ids.length >= MAX_FAVORITER
-  const nuvarande = favoriterFor(roll, ids)
-  const grupper = grupperFor(roll).map(g => ({ ...g, vyer: g.vyer.filter(v => !ids.includes(v.id)) })).filter(g => g.vyer.length > 0)
+  const nuvarande = favoriterFor(roll, ids, behorighet)
+  const grupper = grupperFor(roll, behorighet).map(g => ({ ...g, vyer: g.vyer.filter(v => !ids.includes(v.id)) })).filter(g => g.vyer.length > 0)
   const standard = STANDARD_FAVORITER[roll]
   const arStandard = ids.length === standard.length && ids.every((id, i) => id === standard[i])
 
@@ -293,8 +293,10 @@ function AndraFavoriter({ roll, valda, onSpara, onStang }: { roll: Roll; valda: 
   )
 }
 
-export default function Startsida({ roll, marken, egnaUppgifter, datahalsa, favoritIds, onSparaFavoriter, huvud, bred: bredUtifran, konto: kontoInfo, onLoggaUt }: {
+export default function Startsida({ roll, skyddsombud = false, marken, egnaUppgifter, datahalsa, favoritIds, onSparaFavoriter, huvud, bred: bredUtifran, konto: kontoInfo, onLoggaUt }: {
   roll: Roll
+  /** Den inloggade är skyddsombud (medarbetare.skyddsombud) — ser då också Åtgärder (lib/vyer `aven`). */
+  skyddsombud?: boolean
   marken: Marken
   /** Den inloggades egna uppgifter som saknas ("Fyll i telefon och anhörig"). null/undefined = inget att fylla i eller okänt. */
   egnaUppgifter?: string | null
@@ -325,10 +327,11 @@ export default function Startsida({ roll, marken, egnaUppgifter, datahalsa, favo
   // Läses fortfarande bara när sidan HAR egna favoriter att läsa (onSparaFavoriter finns) och svaret inte kommit.
   const laddarFavoriter = onSparaFavoriter !== undefined && favoritIds === undefined
   const valdaIds = favoritIds ?? STANDARD_FAVORITER[roll]
-  const favoriter = useMemo(() => favoriterFor(roll, valdaIds), [roll, valdaIds])
-  const grupper = useMemo(() => grupperFor(roll), [roll])
+  const behorighet = useMemo<Behorighet>(() => ({ skyddsombud }), [skyddsombud])
+  const favoriter = useMemo(() => favoriterFor(roll, valdaIds, behorighet), [roll, valdaIds, behorighet])
+  const grupper = useMemo(() => grupperFor(roll, behorighet), [roll, behorighet])
   const ovrigt = useMemo(() => ovrigtFor(roll), [roll])
-  const traffar = useMemo(() => sokVyer(roll, fraga), [roll, fraga])
+  const traffar = useMemo(() => sokVyer(roll, fraga, behorighet), [roll, fraga, behorighet])
   const soker = fraga.trim().length > 0
 
   // Behöver dig: bara det som redan räknas idag. Visas bara när något väntar.
@@ -514,7 +517,7 @@ export default function Startsida({ roll, marken, egnaUppgifter, datahalsa, favo
       </div>
 
       {andra && onSparaFavoriter && (
-        <AndraFavoriter roll={roll} valda={favoriter.map(v => v.id)} onSpara={onSparaFavoriter} onStang={() => setAndra(false)} />
+        <AndraFavoriter roll={roll} behorighet={behorighet} valda={favoriter.map(v => v.id)} onSpara={onSparaFavoriter} onStang={() => setAndra(false)} />
       )}
 
       {konto && (
