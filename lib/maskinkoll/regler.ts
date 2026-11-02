@@ -26,6 +26,8 @@ export type Fraga = {
   stopp: boolean;
   /** Ett foto krävs också vid Ja (brandsläckarnas mätare, förbandslådan). */
   foto_vid_ja: boolean;
+  /** Månaderna (1–12) frågan ställs; null = hela året. Brandsäsongens fråga gäller april–september. */
+  manader?: number[] | null;
 };
 
 export type Svar = {
@@ -35,10 +37,17 @@ export type Svar = {
   kommentar: string | null;
 };
 
-/** Frågorna för maskinen: alla maskiner (maskin_typ NULL) + maskinens typ, i `ordning`. Inaktiva hämtas aldrig. */
-export function fragorFor(fragor: Fraga[], typ: MaskinTyp | null): Fraga[] {
+/** Månaden (1–12) i svensk tid — samma som databasens vakt räknar kollens månad på (när den startades). */
+export function svenskManad(d: Date): number {
+  return Number(new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', month: 'numeric' }).format(d));
+}
+
+/** Frågorna för maskinen: alla maskiner (maskin_typ NULL) + maskinens typ, i `ordning`. Inaktiva hämtas aldrig. Med `manad` bara de
+ *  frågor som gäller den månaden (null-manader = hela året). */
+export function fragorFor(fragor: Fraga[], typ: MaskinTyp | null, manad?: number): Fraga[] {
   return fragor
     .filter((f) => f.maskin_typ == null || (typ != null && f.maskin_typ === typ))
+    .filter((f) => manad == null || !f.manader || f.manader.length === 0 || f.manader.includes(manad))
     .slice()
     .sort((a, b) => a.ordning - b.ordning || a.kod.localeCompare(b.kod, 'sv'));
 }

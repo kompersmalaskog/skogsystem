@@ -2,7 +2,7 @@
 // Tabellerna (am_*) och reglerna i databasen: supabase/migrations/20261031162152_arbetsmiljo_maskinkoll.sql.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { arDags, deadlineFor, fragorFor, GODKANNANDE_VERSION, type Fraga, type Svar } from './regler';
+import { arDags, deadlineFor, fragorFor, GODKANNANDE_VERSION, svenskManad, type Fraga, type Svar } from './regler';
 
 export type Maskin = { id: string; namn: string; typ: string | null };
 
@@ -36,16 +36,16 @@ export async function hamtaLage(sb: SupabaseClient, nu: Date = new Date()): Prom
 
   const [maskinRes, fragaRes, godkRes, pagRes, klarRes] = await Promise.all([
     sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ').eq('maskin_id', maskinId).maybeSingle(),
-    sb.from('am_fraga').select('id, kod, text, hjalptext, maskin_typ, foto_url, ordning, stopp, foto_vid_ja').eq('aktiv', true),
+    sb.from('am_fraga').select('id, kod, text, hjalptext, maskin_typ, foto_url, ordning, stopp, foto_vid_ja, manader').eq('aktiv', true),
     sb.from('am_uppgift_godkannande').select('id').eq('medarbetare_id', medarbetareId).eq('maskin_id', maskinId).eq('text_version', GODKANNANDE_VERSION).limit(1),
-    sb.from('am_maskinkoll').select('id, am_svar(fraga_id, ok, foto_url, kommentar)').eq('maskin_id', maskinId).eq('medarbetare_id', medarbetareId).is('klar', null).order('startad', { ascending: false }).limit(1),
+    sb.from('am_maskinkoll').select('id, startad, am_svar(fraga_id, ok, foto_url, kommentar)').eq('maskin_id', maskinId).eq('medarbetare_id', medarbetareId).is('klar', null).order('startad', { ascending: false }).limit(1),
     sb.from('am_maskinkoll').select('klar').eq('maskin_id', maskinId).not('klar', 'is', null).order('klar', { ascending: false }).limit(1),
   ]);
   if (maskinRes.error || fragaRes.error || godkRes.error || pagRes.error || klarRes.error) return { ok: false, fel: LASFEL };
 
   const m = maskinRes.data as { maskin_id: string; visningsnamn: string | null; modell: string | null; maskin_typ: string | null } | null;
   const maskin: Maskin = { id: maskinId, namn: m?.visningsnamn || m?.modell || 'Din maskin', typ: m?.maskin_typ ?? null };
-  const pag = (pagRes.data ?? [])[0] as { id: string; am_svar: Svar[] | null } | undefined;
+  const pag = (pagRes.data ?? [])[0] as { id: string; startad?: string; am_svar: Svar[] | null } | undefined;
   const senasteKlar = ((klarRes.data ?? [])[0] as { klar: string } | undefined)?.klar ?? null;
 
   return {
@@ -53,7 +53,8 @@ export async function hamtaLage(sb: SupabaseClient, nu: Date = new Date()): Prom
     data: {
       medarbetareId,
       maskin,
-      fragor: fragorFor((fragaRes.data ?? []) as Fraga[], maskin.typ),
+      // Kollens månad = när den startades (databasens vakt räknar likadant); en ny koll startar nu.
+      fragor: fragorFor((fragaRes.data ?? []) as Fraga[], maskin.typ, svenskManad(pag?.startad ? new Date(pag.startad) : nu)),
       godkand: (godkRes.data ?? []).length > 0,
       pagaende: pag ? { id: pag.id, svar: pag.am_svar ?? [] } : null,
       senasteKlar,
