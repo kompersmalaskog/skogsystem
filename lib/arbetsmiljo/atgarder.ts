@@ -5,7 +5,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type Kalla = 'svar' | 'forare' | 'manuell';
+export type Kalla = 'svar' | 'forare' | 'manuell' | 'tillbud';
 
 export type Atgard = {
   id: string;
@@ -77,6 +77,7 @@ export function deadlineText(deadline: string | null, idag: string): { text: str
 export function kallaText(k: Kalla): string {
   if (k === 'svar') return 'Maskinkoll';
   if (k === 'forare') return 'Något är fel';
+  if (k === 'tillbud') return 'Rapport om vad som hände';
   return 'Lagd för hand';
 }
 
@@ -123,7 +124,7 @@ type Rad = {
 function tillAtgard(r: Rad): Atgard {
   return {
     id: r.id,
-    kalla: (r.kalla === 'svar' || r.kalla === 'forare' ? r.kalla : 'manuell') as Kalla,
+    kalla: (r.kalla === 'svar' || r.kalla === 'forare' || r.kalla === 'tillbud' ? r.kalla : 'manuell') as Kalla,
     maskinId: r.maskin_id,
     maskinNamn: r.maskin_namn,
     beskrivning: r.beskrivning,
@@ -182,4 +183,16 @@ export async function fotoLank(sb: SupabaseClient, sokvag: string): Promise<stri
   const { data, error } = await sb.storage.from('am-foton').createSignedUrl(sokvag, 600);
   if (error || !data?.signedUrl) return null;
   return data.signedUrl;
+}
+
+/**
+ * Radens och arkets rubrik. En maskinåtgärd heter som maskinen. Ett tillbud säger vad det är först — "Olycka · Giant",
+ * "Tillbud" (utan maskin) — så det aldrig läses som ett maskinfel. `typ` saknas (gick inte att läsa) → "Tillbud".
+ */
+export function atgardTitel(a: Pick<Atgard, 'kalla' | 'maskinNamn'>, typ?: 'tillbud' | 'olycka' | null): string {
+  if (a.kalla === 'tillbud') {
+    const vad = typ === 'olycka' ? 'Olycka' : 'Tillbud';
+    return a.maskinNamn ? `${vad} · ${a.maskinNamn}` : vad;
+  }
+  return a.maskinNamn ?? 'Okänd maskin';
 }

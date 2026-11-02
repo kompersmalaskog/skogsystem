@@ -116,3 +116,83 @@ self.addEventListener('notificationclick', (event) => {
   if (data && data.hytt && data.typ === 'test') { event.waitUntil(skickaTillSidor({ typ: 'hytt-testnotis-oppnad', tid: Date.now() }).then(() => oppnaApp(mal))); return; }
   event.waitUntil(oppnaApp(mal));
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// "Om något händer" utan täckning (components/arbetsmiljo/OmNagotHander, components/NodStartare).
+// Appen ber om NOD_CACHA när den har nät: då hämtas sidan /om-nagot-hander och alla filer den laddar (/_next/static/…) och
+// sparas i NOD_CACHE. Sidan och dess filer hämtas sedan NÄT FÖRST — med nät är allt som vanligt, utan nät tas det sparade.
+// INGET annat i appen går genom den här workern: bara själva nödsidan och filer som just den sidan begär.
+// En utloggad användare (sidan svarar med /login) sparar ingenting — då står den förra sparade kvar.
+const NOD_CACHE = 'nod-v1';
+const NOD_SIDA = '/om-nagot-hander';
+const NOD_CACHA = 'nod-cacha';
+const NOD_SIDA_VANTA_MS = 5000;
+// Bilder sidan visar utan att de står i dess HTML (toppfältets hemknapp ritas av klienten). Best effort: saknas en sparas sidan ändå.
+const NOD_EXTRA = ['/home-icon.png'];
+
+function nodFiler(html) {
+  const filer = new Set();
+  for (const m of html.matchAll(/\/_next\/static\/[A-Za-z0-9_\-.~/%]+?\.(?:js|css|woff2)/g)) filer.add(m[0]);
+  // App-routerns flight-data skriver chunkarna utan "/_next/": "static/chunks/…js" (ibland med \/ i stället för /).
+  for (const m of html.replace(/\\\//g, '/').matchAll(/(?:^|["'\s,(])static\/(?:chunks|css)\/[A-Za-z0-9_\-.~/%]+?\.(?:js|css)/g)) {
+    filer.add('/_next/' + m[0].replace(/^["'\s,(]/, ''));
+  }
+  return [...filer];
+}
+
+async function nodCacha() {
+  const svar = await fetch(NOD_SIDA, { credentials: 'same-origin', cache: 'no-store' });
+  let stig = '';
+  try { stig = new URL(svar.url).pathname; } catch (_) { return; }
+  if (!svar.ok || stig !== NOD_SIDA) return;
+  const html = await svar.clone().text();
+  const filer = nodFiler(html);
+  const hamtade = [];
+  for (const f of filer) {
+    const r = await fetch(f, { credentials: 'same-origin' });
+    if (!r.ok) return; // en fil saknas: behåll det förra sparade hellre än en halv sida
+    hamtade.push([f, r]);
+  }
+  await caches.delete(NOD_CACHE);
+  const cache = await caches.open(NOD_CACHE);
+  await cache.put(NOD_SIDA, svar);
+  for (const [f, r] of hamtade) await cache.put(f, r);
+  for (const f of NOD_EXTRA) {
+    try { const r = await fetch(f, { credentials: 'same-origin' }); if (r.ok) await cache.put(f, r); } catch (_) { /* utan bilden fungerar sidan ändå */ }
+  }
+}
+
+async function nodNatForst(req, sida) {
+  try {
+    const nat = sida
+      ? await Promise.race([fetch(req), new Promise((_, nej) => setTimeout(() => nej(new Error('tid')), NOD_SIDA_VANTA_MS))])
+      : await fetch(req);
+    if (nat.ok || !sida) return nat;
+  } catch (_) { /* ingen täckning — ta det sparade */ }
+  try {
+    const cache = await caches.open(NOD_CACHE);
+    const sparad = await cache.match(sida ? NOD_SIDA : req, { ignoreSearch: sida });
+    if (sparad) return sparad;
+  } catch (_) { /* inget sparat */ }
+  return fetch(req);
+}
+
+self.addEventListener('install', () => { self.skipWaiting(); });
+self.addEventListener('activate', (event) => { event.waitUntil(self.clients.claim()); });
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.typ === NOD_CACHA) event.waitUntil(nodCacha().catch(() => undefined));
+});
+
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  let url;
+  try { url = new URL(req.url); } catch (_) { return; }
+  if (url.origin !== self.location.origin) return;
+  const sida = req.mode === 'navigate' && url.pathname === NOD_SIDA;
+  const franSidan = !sida && (url.pathname.startsWith('/_next/static/') || NOD_EXTRA.indexOf(url.pathname) !== -1)
+    && typeof req.referrer === 'string' && req.referrer.indexOf(NOD_SIDA) !== -1;
+  if (!sida && !franSidan) return;
+  event.respondWith(nodNatForst(req, sida));
+});

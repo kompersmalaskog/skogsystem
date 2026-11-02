@@ -36,6 +36,7 @@ const pageNames: Record<string, string> = {
   '/lastbil': 'Lastbilen',
   '/inventarier': 'Inventarier',
   '/atgarder': 'Åtgärder',
+  '/om-nagot-hander': 'Om något händer',
   '/avtal': 'Avtal & Abonnemang',
   '/personal': 'Personal',
   '/om': 'Om appen',

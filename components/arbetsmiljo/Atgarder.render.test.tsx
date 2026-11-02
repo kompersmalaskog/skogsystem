@@ -8,7 +8,7 @@ import { createRoot } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Atgard } from '@/lib/arbetsmiljo/atgarder';
 
-const h = vi.hoisted(() => ({ lista: [] as any[], las: true, far: true as boolean | null, stangda: [] as any[], hamtningar: 0 }));
+const h = vi.hoisted(() => ({ lista: [] as any[], las: true, far: true as boolean | null, stangda: [] as any[], hamtningar: 0, tillbud: null as Map<string, any> | null, anmalda: [] as string[] }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('@/lib/arbetsmiljo/atgarder', async (orig) => {
@@ -23,6 +23,15 @@ vi.mock('@/lib/arbetsmiljo/atgarder', async (orig) => {
       h.lista = h.lista.map((x: any) => x.id === id ? { ...x, status: 'klar', vadGjordes: text, stangdTid: '2026-11-01T10:00:00Z' } : x);
       return null;
     },
+  };
+});
+
+vi.mock('@/lib/arbetsmiljo/tillbud', async (orig) => {
+  const riktig: any = await orig();
+  return {
+    ...riktig,
+    hamtaTillbudInfo: async () => h.tillbud,
+    markeraAnmald: async (_sb: unknown, id: string) => { h.anmalda.push(id); return { ok: true, tid: '2026-11-01T11:00:00Z' }; },
   };
 });
 
@@ -44,7 +53,7 @@ const tryck = async (b: Element | null | undefined) => { expect(b).toBeTruthy();
 
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  h.lista = []; h.las = true; h.far = true; h.stangda = []; h.hamtningar = 0;
+  h.lista = []; h.las = true; h.far = true; h.stangda = []; h.hamtningar = 0; h.tillbud = null; h.anmalda = [];
   window.history.replaceState(null, '', '/atgarder');
   el = document.createElement('div'); document.body.appendChild(el);
 });
@@ -122,5 +131,36 @@ describe('Åtgärder', () => {
     h.las = true;
     await tryck(knapp('Försök igen'));
     expect(text()).toContain('Inget att åtgärda');
+  });
+
+  it('tillbud: raden säger Olycka först, arket påminner om Arbetsmiljöverket och admin markerar anmäld', async () => {
+    h.lista = [a({ id: 't', kalla: 'tillbud', maskinNamn: 'Giant', beskrivning: 'Gren i ansiktet' })];
+    h.tillbud = new Map([['t', { tillbudId: 'tb-1', typ: 'olycka', anmaldTid: null, anmaldAvNamn: null }]]);
+    await montera();
+    expect(document.querySelector('[data-atgard=t]')?.textContent).toContain('Olycka · Giant');
+    await tryck(document.querySelector('[data-atgard=t]'));
+    expect(text()).toContain('Vad hände?');
+    expect(document.querySelector('[data-anmalan]')?.textContent).toContain('anmälas till Arbetsmiljöverket direkt');
+    expect(document.querySelector('[data-anmalan] a')?.getAttribute('href')).toBe('https://anmalarbetsskada.se');
+    await tryck(document.querySelector('[data-markera-anmald]'));
+    expect(h.anmalda).toEqual(['tb-1']);
+    expect(document.querySelector('[data-anmald]')?.textContent).toContain('Anmäld');
+  });
+
+  it('tillbud för skyddsombudet: påminnelsen syns men ingen Markera-knapp; läsfel på tillbuden → "Tillbud", ingen anmälan', async () => {
+    h.far = false;
+    h.lista = [a({ id: 't', kalla: 'tillbud', maskinNamn: null })];
+    h.tillbud = new Map([['t', { tillbudId: 'tb-1', typ: 'tillbud', anmaldTid: null, anmaldAvNamn: null }]]);
+    await montera();
+    await tryck(document.querySelector('[data-atgard=t]'));
+    expect(document.querySelector('[data-anmalan]')?.textContent).toContain('allvarligt tillbud');
+    expect(document.querySelector('[data-markera-anmald]')).toBeNull();
+    act(() => { rot?.unmount(); }); rot = null;
+    h.tillbud = null;
+    window.history.replaceState(null, '', '/atgarder');
+    await montera();
+    expect(document.querySelector('[data-atgard=t]')?.textContent).toContain('Tillbud');
+    await tryck(document.querySelector('[data-atgard=t]'));
+    expect(document.querySelector('[data-anmalan]')).toBeNull();
   });
 });

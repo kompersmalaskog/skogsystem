@@ -13,8 +13,9 @@ import Sektion from '@/components/design/Sektion';
 import Ikon from '@/components/design/Ikon';
 import Tillstand from '@/components/design/Tillstand';
 import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
+import { ANMAL_LANK, hamtaTillbudInfo, markeraAnmald, type TillbudInfo } from '@/lib/arbetsmiljo/tillbud';
 import {
-  deadlineText, farStanga, fornamn, fotoLank, gruppera, hamtaAtgarder, kallaText, narText, stangAtgard, svar, svenskDag, underText,
+  atgardTitel, deadlineText, farStanga, fornamn, fotoLank, gruppera, hamtaAtgarder, kallaText, narText, stangAtgard, svar, svenskDag, underText,
   type Atgard, type Las,
 } from '@/lib/arbetsmiljo/atgarder';
 
@@ -33,6 +34,8 @@ function sattId(id: string | null) {
 export default function Atgarder() {
   const [lista, setLista] = useState<Las<Atgard[]> | null>(null);
   const [far, setFar] = useState<boolean | null>(null);
+  /** Tillbuden bakom åtgärderna (typ och anmälan). null = kunde inte läsas → raderna heter "Tillbud", arket visar ingen anmälan. */
+  const [tillbud, setTillbud] = useState<Map<string, TillbudInfo> | null>(null);
   const [valdId, setValdId] = useState<string | null>(null);
   const [visaKlara, setVisaKlara] = useState(false);
 
@@ -42,10 +45,11 @@ export default function Atgarder() {
   // Ett läsfel vid en tyst omläsning tar inte bort listan som syns — den är redan rätt utom raden som just stängdes.
   const hamta = useCallback(async (tyst = false) => {
     if (!tyst) setLista(null);
-    const [l, f] = await Promise.all([hamtaAtgarder(supabase), farStanga(supabase)]);
+    const [l, f, t] = await Promise.all([hamtaAtgarder(supabase), farStanga(supabase), hamtaTillbudInfo(supabase)]);
     if (tyst && !l.ok) return;
     setLista(l);
     setFar(f);
+    setTillbud(t);
   }, []);
 
   useEffect(() => {
@@ -85,7 +89,7 @@ export default function Atgarder() {
             </div>
           )}
 
-          {g && <Lista g={g} idag={idag} visaKlara={visaKlara} onVisaKlara={() => setVisaKlara(v => !v)} onOppna={oppna} />}
+          {g && <Lista g={g} idag={idag} tillbud={tillbud} visaKlara={visaKlara} onVisaKlara={() => setVisaKlara(v => !v)} onOppna={oppna} />}
         </Tillstand>
       </div>
 
@@ -95,7 +99,8 @@ export default function Atgarder() {
         </div>
       )}
 
-      {vald && <AtgardArk a={vald} idag={idag} far={far === true} onStang={stang} onStangd={(text) => stangd(vald.id, text)} />}
+      {vald && <AtgardArk a={vald} idag={idag} far={far === true} tillbud={tillbud?.get(vald.id) ?? null} onStang={stang} onStangd={(text) => stangd(vald.id, text)}
+        onAnmald={(tid) => setTillbud(m => { if (!m) return m; const ny = new Map(m); const i = ny.get(vald.id); if (i) ny.set(vald.id, { ...i, anmaldTid: tid }); return ny; })} />}
       {lista?.ok && valdId && !vald && (
         <Ark rubrik="Åtgärden finns inte" onStang={stang} stang="Klar">
           <p style={{ ...TYP.text, color: FARG.text2, margin: 0 }}>Den kan ha tagits bort. Listan visar det som finns kvar.</p>
@@ -105,8 +110,8 @@ export default function Atgarder() {
   );
 }
 
-function Lista({ g, idag, visaKlara, onVisaKlara, onOppna }: {
-  g: ReturnType<typeof gruppera>; idag: string; visaKlara: boolean; onVisaKlara: () => void; onOppna: (id: string) => void;
+function Lista({ g, idag, tillbud, visaKlara, onVisaKlara, onOppna }: {
+  g: ReturnType<typeof gruppera>; idag: string; tillbud: Map<string, TillbudInfo> | null; visaKlara: boolean; onVisaKlara: () => void; onOppna: (id: string) => void;
 }) {
   const s = svar(g);
   const stoppText = g.stopp.length > 0;
@@ -119,7 +124,7 @@ function Lista({ g, idag, visaKlara, onVisaKlara, onOppna }: {
       </div>
       {s.tal === 0 && (
         <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>
-          Svarar en förare Nej i maskinkollen, eller trycker Något är fel, hamnar det här.
+          Svarar en förare Nej i maskinkollen, trycker Något är fel eller rapporterar vad som hände, hamnar det här.
         </p>
       )}
 
@@ -127,7 +132,7 @@ function Lista({ g, idag, visaKlara, onVisaKlara, onOppna }: {
         <div style={{ marginTop: AVSTAND.xl }} data-grupp="stopp">
           <Sektion rubrik="Ska stå tills det är lagat">
             {g.stopp.map((a, i) => (
-              <Rad key={a.id} titel={<><Prick farg={FARG.rod} />{a.maskinNamn ?? 'Okänd maskin'}</>}
+              <Rad key={a.id} titel={<><Prick farg={FARG.rod} />{atgardTitel(a, tillbud?.get(a.id)?.typ)}</>}
                 under={<>{a.beskrivning}<br />{underText(a)}</>}
                 onTryck={() => onOppna(a.id)} sista={i === g.stopp.length - 1} attr={{ 'data-atgard': a.id }} />
             ))}
@@ -141,7 +146,7 @@ function Lista({ g, idag, visaKlara, onVisaKlara, onOppna }: {
             {g.oppna.map((a, i) => {
               const d = deadlineText(a.deadline, idag);
               return (
-                <Rad key={a.id} titel={a.maskinNamn ?? 'Okänd maskin'}
+                <Rad key={a.id} titel={atgardTitel(a, tillbud?.get(a.id)?.typ)}
                   under={<>{a.beskrivning}<br />{underText(a)}</>}
                   hoger={d ? <span style={{ color: d.sen ? FARG.orange : FARG.text }}>{d.text}</span> : undefined}
                   onTryck={() => onOppna(a.id)} sista={i === g.oppna.length - 1} attr={{ 'data-atgard': a.id }} />
@@ -157,7 +162,7 @@ function Lista({ g, idag, visaKlara, onVisaKlara, onOppna }: {
             <Rad titel={visaKlara ? 'Dölj åtgärdade' : `Visa ${g.klara.length} åtgärdade`} onTryck={onVisaKlara} pil={false}
               sista={!visaKlara} attr={{ 'data-visa-klara': '' }} />
             {visaKlara && g.klara.map((a, i) => (
-              <Rad key={a.id} dampad titel={a.maskinNamn ?? 'Okänd maskin'}
+              <Rad key={a.id} dampad titel={atgardTitel(a, tillbud?.get(a.id)?.typ)}
                 under={<>{a.beskrivning}<br />{a.vadGjordes ? `Gjort: ${a.vadGjordes}` : ''}</>}
                 hogerUnder={a.stangdTid ? narText(a.stangdTid) : undefined}
                 onTryck={() => onOppna(a.id)} sista={i === g.klara.length - 1} attr={{ 'data-atgard': a.id }} />
@@ -173,7 +178,9 @@ function Prick({ farg }: { farg: string }) {
   return <span aria-hidden style={{ display: 'inline-block', width: AVSTAND.s, height: AVSTAND.s, borderRadius: '50%', background: farg, marginRight: AVSTAND.s, verticalAlign: 'middle' }} />;
 }
 
-function AtgardArk({ a, idag, far, onStang, onStangd }: { a: Atgard; idag: string; far: boolean; onStang: () => void; onStangd: (vadGjordes: string) => void }) {
+function AtgardArk({ a, idag, far, tillbud, onStang, onStangd, onAnmald }: {
+  a: Atgard; idag: string; far: boolean; tillbud: TillbudInfo | null; onStang: () => void; onStangd: (vadGjordes: string) => void; onAnmald: (tid: string) => void;
+}) {
   const [bild, setBild] = useState<'laddar' | 'fel' | string>(a.fotoUrl ? 'laddar' : 'fel');
   const [text, setText] = useState('');
   const [sparar, setSparar] = useState(false);
@@ -200,7 +207,7 @@ function AtgardArk({ a, idag, far, onStang, onStangd }: { a: Atgard; idag: strin
   const tom = text.trim() === '';
 
   return (
-    <Ark rubrik={a.maskinNamn ?? 'Okänd maskin'} onStang={onStang} stang={kanStanga ? 'Avbryt' : 'Klar'}
+    <Ark rubrik={atgardTitel(a, tillbud?.typ)} onStang={onStang} stang={kanStanga ? 'Avbryt' : 'Klar'}
       fot={kanStanga ? (
         <>
           {fel && <p role="alert" style={{ ...TYP.text, color: FARG.orange, margin: 0 }}>{fel}</p>}
@@ -223,7 +230,7 @@ function AtgardArk({ a, idag, far, onStang, onStangd }: { a: Atgard; idag: strin
         </div>
       )}
 
-      <Sektion rubrik="Vad är fel?" kort={false}>
+      <Sektion rubrik={a.kalla === 'tillbud' ? 'Vad hände?' : 'Vad är fel?'} kort={false}>
         <p style={{ ...TYP.text, color: FARG.text, margin: 0 }}>{a.beskrivning}</p>
       </Sektion>
 
@@ -233,6 +240,8 @@ function AtgardArk({ a, idag, far, onStang, onStangd }: { a: Atgard; idag: strin
           {oppen && d && <Rad titel="Senast" hoger={<span style={{ color: d.sen ? FARG.orange : FARG.text }}>{d.text}</span>} pil={false} sista />}
         </Sektion>
       </div>
+
+      {a.kalla === 'tillbud' && tillbud && <Anmalan info={tillbud} far={far} onAnmald={onAnmald} />}
 
       {!oppen && (
         <div style={{ marginTop: AVSTAND.l }} data-gjort>
@@ -249,7 +258,7 @@ function AtgardArk({ a, idag, far, onStang, onStangd }: { a: Atgard; idag: strin
         <div style={{ marginTop: AVSTAND.l }}>
           <Sektion rubrik="Vad gjordes?" kort={false}>
             <textarea value={text} onChange={e => setText(e.target.value)} aria-label="Vad gjordes?" rows={3}
-              placeholder="T.ex. bytte nödstoppsknappen"
+              placeholder={a.kalla === 'tillbud' ? 'T.ex. pratade igenom fällningen med alla förare' : 'T.ex. bytte nödstoppsknappen'}
               style={{ width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min * 2, border: 'none', borderRadius: RADIE.rad, background: FARG.upphojt, color: FARG.text, padding: AVSTAND.m, fontFamily: 'inherit', ...TYP.text, outline: 'none', resize: 'vertical' }} />
           </Sektion>
         </div>
@@ -259,5 +268,49 @@ function AtgardArk({ a, idag, far, onStang, onStangd }: { a: Atgard; idag: strin
         <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.l}px 0 0` }}>Arbetsledningen markerar åtgärden som klar.</p>
       )}
     </Ark>
+  );
+}
+
+/**
+ * Arbetsmiljöverket. Allvarliga olyckor och allvarliga tillbud ska anmälas direkt (arbetsmiljölagen 3 kap. 3 a §); en
+ * arbetsskada anmäls också till Försäkringskassan. Båda görs på anmalarbetsskada.se. Appen avgör inte om det var allvarligt —
+ * det gör arbetsledningen — men den påminner och kommer ihåg att det är gjort (tid och vem sätts av databasen).
+ */
+function Anmalan({ info, far, onAnmald }: { info: TillbudInfo; far: boolean; onAnmald: (tid: string) => void }) {
+  const [sparar, setSparar] = useState(false);
+  const [fel, setFel] = useState<string | null>(null);
+  const anmal = async () => {
+    setSparar(true); setFel(null);
+    const r = await markeraAnmald(supabase, info.tillbudId);
+    setSparar(false);
+    if (!r.ok) { setFel(r.fel); return; }
+    onAnmald(r.tid);
+  };
+  return (
+    <div style={{ marginTop: AVSTAND.l }} data-anmalan>
+      <Sektion rubrik="Arbetsmiljöverket" kort={false}>
+        {info.anmaldTid ? (
+          <p data-anmald style={{ ...TYP.text, color: FARG.text, margin: 0, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+            <Ikon namn="check_circle" farg={FARG.gron} />Anmäld {narText(info.anmaldTid)}
+          </p>
+        ) : (
+          <>
+            <p style={{ ...TYP.text, color: FARG.text, margin: 0 }}>
+              {info.typ === 'olycka'
+                ? 'Skadades någon allvarligt ska det anmälas till Arbetsmiljöverket direkt. En arbetsskada anmäls också till Försäkringskassan.'
+                : 'Kunde det ha gått riktigt illa är det ett allvarligt tillbud. Då ska det anmälas till Arbetsmiljöverket direkt.'}
+            </p>
+            <a href={ANMAL_LANK} target="_blank" rel="noopener noreferrer" style={{ ...KNAPP.lank, textDecoration: 'none' }}>Anmäl på anmalarbetsskada.se</a>
+            {far && (
+              <>
+                {fel && <p role="alert" style={{ ...TYP.text, color: FARG.orange, margin: `${AVSTAND.s}px 0` }}>{fel}</p>}
+                <button type="button" onClick={() => void anmal()} disabled={sparar} data-markera-anmald
+                  style={{ ...KNAPP.sekundar, marginTop: AVSTAND.s, ...(sparar ? INAKTIV : {}) }}>{sparar ? 'Sparar …' : 'Markera som anmäld'}</button>
+              </>
+            )}
+          </>
+        )}
+      </Sektion>
+    </div>
   );
 }
