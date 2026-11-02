@@ -77,6 +77,11 @@ function tileUpstreamUrl(z: number, x: number, y: number, kind: TileKind): strin
 
 // Baskartan ändras sällan → längre TTL.
 const CACHE_TTL = 30 * 60 * 1000;
+
+// Svar som får sparas: i webbläsaren ett dygn, i Vercels nät (nära telefonen) en vecka och därefter visas den sparade medan en ny hämtas.
+// Ett flygfoto byts vartannat år, en karta sällan — en vecka gammal ruta är aldrig fel. Utan s-maxage hämtades VARJE ruta från Lantmäteriet
+// så fort serverns minne tömts (serverlöst: ofta), och rutorna var svarta tills svaret kom. Middleware kör före Vercels cache, så inloggningen gäller ändå.
+const RUTA_CACHE = 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800';
 const cache = new Map<string, { body: ArrayBuffer; ct: string; ts: number }>();
 
 function getCached(k: string): { body: ArrayBuffer; ct: string } | null {
@@ -111,7 +116,7 @@ async function serveUpstream(url: string, cacheKey: string): Promise<NextRespons
     const ct = resp.headers.get('content-type') || 'image/png';
     setCached(cacheKey, body, ct);
     return new NextResponse(body, {
-      headers: { 'Content-Type': ct, 'Cache-Control': 'public, max-age=1800', 'X-Cache': 'MISS' },
+      headers: { 'Content-Type': ct, 'Cache-Control': RUTA_CACHE, 'X-Cache': 'MISS' },
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'proxy failed';
@@ -135,7 +140,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const cached = getCached(cacheKey);
     if (cached) {
       return new NextResponse(cached.body, {
-        headers: { 'Content-Type': cached.ct, 'Cache-Control': 'public, max-age=1800', 'X-Cache': 'HIT' },
+        headers: { 'Content-Type': cached.ct, 'Cache-Control': RUTA_CACHE, 'X-Cache': 'HIT' },
       });
     }
     return serveUpstream(tileUpstreamUrl(Number(z), Number(x), Number(y), kind), cacheKey);
@@ -152,7 +157,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const cached = getCached(cacheKey);
   if (cached) {
     return new NextResponse(cached.body, {
-      headers: { 'Content-Type': cached.ct, 'Cache-Control': 'public, max-age=1800', 'X-Cache': 'HIT' },
+      headers: { 'Content-Type': cached.ct, 'Cache-Control': RUTA_CACHE, 'X-Cache': 'HIT' },
     });
   }
   const url =

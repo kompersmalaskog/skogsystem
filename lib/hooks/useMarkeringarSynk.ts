@@ -138,6 +138,17 @@ export function useMarkeringarSynk<M extends { id: string | number }>(i: Markeri
     const { setMarkersLoaded, setMarkers, refs, hamtaServer, onHamtad } = inRef.current;
     setMarkersLoaded(false);   // vid VARJE objektbyte: effekter som hänger på markersLoaded kör om för det NYA objektet
     const objektId = i.objektId;
+    // Byte av trakt: den gamla traktens markeringar tas bort ur minnet DIREKT, så de aldrig ritas på den nya traktens plats medan den läses.
+    // Först skrivs det som ändrats i den gamla trakten lokalt (under den GAMLA traktens id) — inget går förlorat av bytet.
+    const gammalt = refs.objekt.current;
+    if (gammalt !== undefined && gammalt !== objektId) {
+      const fore = flushData.current.markers;
+      const oid = String(gammalt);
+      const dirty = fore.filter((m) => refs.persistedSnapshot.current.get(String(m.id)) !== JSON.stringify(m));
+      for (const m of dirty) void lagraLokalt(oid, m);
+      refs.objekt.current = undefined;
+      setMarkers([]);
+    }
     if (!objektId) return;
     let avbruten = false;
     const laggIn = (laddade: M[]) => {
