@@ -1957,7 +1957,7 @@ export const MALBILDER: Readonly<Record<string, Malbild>> = {
       "Fäll kantträden först, inåt hygget",
       "Skava inga träd och lägg inte ner plantor i andra bestånd",
     ],
-    fel: { bild: BILD.KANT_FEL, text: "Skadorna syns i flera år – på grannens mark får vi betala för dem" },
+    fel: { bild: BILD.KANT_FEL, text: "Skadorna syns i flera år – på grannens mark kan vi få betala för dem, och vi får dåligt rykte" },
   },
   stubbe: {
     nyckel: 'stubbe', namn: 'Stubben', grupp: 'info',
