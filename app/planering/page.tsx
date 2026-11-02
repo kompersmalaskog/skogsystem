@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { LjudSpelare } from '@/components/LjudSpelare'
 import { gpsGuardAccepts, haversineMeters } from '@/lib/gps-guard'
 import { avslutaMedPosition, medelAvSenaste } from '@/lib/gpsSparLinje'
+import { OMRADE_SPAR, arYtSparning, slutRing as slutGpsRing, ytaSparId, ytaTypAv } from '@/lib/gpsSparYta'
+import { YtaSparLista } from '@/components/planering/YtaSparLista'
 import { gpsSaknas } from '@/lib/gpsSaknas'
 import { useGpsSaknasLang } from '@/lib/hooks/useGpsSaknasLang'
 import { hallSkarmenVakenIWebblasare } from '@/lib/skarmVaken'
@@ -11296,6 +11298,10 @@ export default function PlannerPage() {
     }
   };
   
+  /** Färgen och namnet på det som spåras: linjens, ytans eller traktgränsens (nytt område). */
+  const gpsSparFarg = (id: string): string => id === OMRADE_SPAR ? LEGEND.fara : ytaTypAv(id) ? (zoneTypes.find(z => z.id === ytaTypAv(id))?.color || '#fff') : (lineTypes.find(t => t.id === id)?.color || '#fff');
+  const gpsSparNamn = (id: string): string | null => id === OMRADE_SPAR ? 'Nytt område' : ytaTypAv(id) ? (zoneTypes.find(z => z.id === ytaTypAv(id))?.name ?? null) : null;
+
   const startGpsTracking = (lineType: string, farg?: BasvagFarg | null) => {
     if (!('geolocation' in navigator)) {
       visaBesked('GPS stöds inte i denna enhet');
@@ -11501,7 +11507,25 @@ export default function PlannerPage() {
     // Spara linjen om vi har tillräckligt med punkter
     // Linjen går ända fram till där man står (lib/gpsSparLinje regel 3) — inte när spårningen är pausad (då står man någon annanstans).
     if (!gpsPausedRef.current) gpsPathRef.current = avslutaMedPosition(gpsPathRef.current, farskGps(), 0.5 / scale);
-    if (save && gpsPathRef.current.length > 1 && gpsLineType) {
+    // YTA eller NYTT OMRÅDE (lib/gpsSparYta): ringen sluts tillbaka till starten och sparas som en ritad yta / ett eget område.
+    let nyttOmrade: any = null;
+    if (arYtSparning(gpsLineType)) {
+      if (save) {
+        const r = slutGpsRing(gpsPathRef.current, scale);
+        if (!r.ok) visaBesked(`${r.skal} – inget sparat`);
+        else {
+          saveToHistory([...markers]);
+          const zt = ytaTypAv(gpsLineType);
+          if (zt) {
+            setMarkers(prev => [...prev, { id: Date.now(), zoneType: zt, path: r.ring, isZone: true, gpsRecorded: true }]);
+          } else {
+            nyttOmrade = { id: Date.now(), isLine: true, lineType: 'boundary', nummer: numreringRef.current.nastaGransNr, path: r.ring, gpsRecorded: true };
+            setMarkers((prev: any[]) => [...prev, nyttOmrade]);
+            saveMarkerToDb(nyttOmrade);
+          }
+        }
+      }
+    } else if (save && gpsPathRef.current.length > 1 && gpsLineType) {
       saveToHistory([...markers]);
       const newLine = {
         id: Date.now(),
@@ -11553,6 +11577,8 @@ export default function PlannerPage() {
     setStickvagOversikt(false);
     setMatVagId(null);
     setAutoRefId(null);
+
+    if (nyttOmrade) oppnaGranskort(nyttOmrade);   // samma yt-kort som när ett område ritas för hand
 
     // OBS: Vi stänger INTE av isTracking eller watchIdRef - GPS fortsätter visa position
   };
@@ -15693,6 +15719,12 @@ export default function PlannerPage() {
 
 
           {/* GPS-spårad linje (live) */}
+          {/* Spåras en yta: en tunn streckad linje visar hur den sluts tillbaka till starten (lib/gpsSparYta). */}
+          {gpsLineType && arYtSparning(gpsLineType) && gpsPath.length > 2 && (() => {
+            const a = svgToScreen(gpsPath[gpsPath.length - 1].x, gpsPath[gpsPath.length - 1].y);
+            const b = svgToScreen(gpsPath[0].x, gpsPath[0].y);
+            return a && b ? <line data-testid="gps-yta-slut" x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={gpsSparFarg(gpsLineType)} strokeWidth={2} strokeDasharray="4,6" opacity={0.7} /> : null;
+          })()}
           {gpsLineType && gpsPath.length > 1 && (
             <path
               d={gpsPath.map((p, i) => {
@@ -15700,7 +15732,7 @@ export default function PlannerPage() {
                 return s ? `${i === 0 ? 'M' : 'L'} ${s.x} ${s.y}` : '';
               }).join(' ')}
               fill="none"
-              stroke={gpsLineType === 'mainRoad' && gpsFargRef.current ? basvagFargHex(gpsFargRef.current) : (lineTypes.find(t => t.id === gpsLineType)?.color || '#fff')}
+              stroke={gpsLineType === 'mainRoad' && gpsFargRef.current ? basvagFargHex(gpsFargRef.current) : gpsSparFarg(gpsLineType)}
               strokeWidth={4}
               strokeDasharray="8,8"
               style={{ animation: 'pulse 1s infinite' }}
@@ -17229,6 +17261,7 @@ export default function PlannerPage() {
                 {basvagNamn(gpsFargRef.current)}
               </span>
             )}
+            {gpsSparNamn(gpsLineType) && <span data-testid="spara-yta-namn" style={{ ...TYP.meta, color: FARG.text }}>{gpsSparNamn(gpsLineType)}</span>}
             <span style={{ fontSize: '13px', opacity: 0.6 }}>
               {gpsPath.length} pkt
             </span>
@@ -17524,6 +17557,11 @@ export default function PlannerPage() {
               <LinjeTypLista steg="spara" typer={ritaLinjeTyper} basvagOppen={basvagSteg === 'spara'} basvagVal={basvagVal} onBasvagVal={setBasvagVal}
                 onTryckBasvag={() => oppnaBasvagSteg('spara')} onStartaBasvag={startaBasvagSpara} startText="Börja spåra"
                 onVal={(type) => { startGpsTracking(type.id); setSubMenu(null); setActiveCategory(null); }} />
+            )}
+            {activeCategory === 'lines' && subMenu === 'gps-lines' && (
+              <YtaSparLista ytor={zoneTypes.filter(z => z.id !== 'gallring')} omradeFarg={LEGEND.fara}
+                onYta={(id) => { startGpsTracking(ytaSparId(id)); setSubMenu(null); setActiveCategory(null); }}
+                onOmrade={() => { startGpsTracking(OMRADE_SPAR); setSubMenu(null); setActiveCategory(null); }} />
             )}
 
             {/* Linjer - Rita */}
