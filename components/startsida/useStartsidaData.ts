@@ -19,6 +19,7 @@ import { hamtaAntalAttGodkanna } from '@/lib/lastbil/godkannVantar'
 import { lasFavoriter, sparaFavoriter } from '@/lib/startsidaFavoriter'
 import { hamtaMaskinkollVantar } from '@/lib/maskinkoll/data'
 import { hamtaAtgardMarke } from '@/lib/arbetsmiljo/atgarder'
+import { hamtaArbetsmiljoRader, type ArbetsmiljoRad } from '@/lib/arbetsmiljo/startsida'
 import { behoverDigText as introBehoverDig, hamtaKvitton as hamtaIntroKvitton, introLage } from '@/lib/arbetsmiljo/introduktion'
 import { egnaUppgifterText } from '@/lib/personal'
 
@@ -46,6 +47,8 @@ export type StartsidaData = {
   egnaUppgifter: string | null
   /** Förarens introduktion som inte är klar, i ord. null = klar, inte förare eller kunde inte läsas → ingen rad. */
   introduktion: string | null
+  /** Arbetsmiljöns att göra-rader (riskbedömning). Tom = inget, eller kunde inte läsas. */
+  arbetsmiljo: ArbetsmiljoRad[]
   /** undefined = läses; null = inga egna (eller läsfel) → rollens förinställda. */
   favoritIds: string[] | null | undefined
   sparaFavoriterna: (ids: string[]) => Promise<boolean>
@@ -67,6 +70,7 @@ export function useStartsidaData(): StartsidaData {
   const [atgarder, setAtgarder] = useState<{ antal: number; stopp: number } | null>(null)
   const [egnaUppgifter, setEgnaUppgifter] = useState<string | null>(null)
   const [introduktion, setIntroduktion] = useState<string | null>(null)
+  const [arbetsmiljo, setArbetsmiljo] = useState<ArbetsmiljoRad[]>([])
   const [favoritIds, setFavoritIds] = useState<string[] | null | undefined>(undefined)
   const [konto, setKonto] = useState<{ namn: string | null; epost: string | null }>({ namn: null, epost: null })
 
@@ -121,10 +125,11 @@ export function useStartsidaData(): StartsidaData {
           fardig()
         }, fardig)
       // Egen fråga: ett läsfel här får aldrig ta rollen med sig. Läsfel = ingen rad, aldrig en gissning.
-      supabase.from('medarbetare').select('id, roll, telefon, anhorig_telefon').eq('epost', user.email).single()
+      supabase.from('medarbetare').select('id, roll, telefon, anhorig_telefon, maskin_id').eq('epost', user.email).single()
         .then(async ({ data, error }) => {
           if (!vid || error || !data) return
           setEgnaUppgifter(egnaUppgifterText(data))
+          hamtaArbetsmiljoRader(supabase, data).then(r => { if (vid) setArbetsmiljo(r) }, () => {})
           // Introduktionen: bara förare. Ett läsfel ger ingen rad (aldrig "0 av 5").
           if (data.roll !== 'forare') return
           const kvitton = await hamtaIntroKvitton(supabase, data.id)
@@ -151,5 +156,5 @@ export function useStartsidaData(): StartsidaData {
     window.location.href = '/login'
   }
 
-  return { roll, skyddsombud, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, maskinkollVantar, atgarder, egnaUppgifter, introduktion, favoritIds, sparaFavoriterna, konto, loggaUt }
+  return { roll, skyddsombud, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, maskinkollVantar, atgarder, egnaUppgifter, introduktion, arbetsmiljo, favoritIds, sparaFavoriterna, konto, loggaUt }
 }
