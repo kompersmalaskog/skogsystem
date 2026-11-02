@@ -24,6 +24,10 @@ import { uppfoljningStatus } from '@/lib/uppfoljning/status';
 export interface AvvikelseRad {
   id: string;
   text: string;
+  // Valfri andrad rad i dämpad grå under text — siffrorna bakom varningen i
+  // klartext (används av avbrott: "Maskinen stod stilla mer än vanligt" +
+  // "60 % av arbetstiden — normalt 7 % för Giant").
+  detalj?: string;
 }
 
 const MIN_G15_H = 8; // under ungefär en arbetsdags G15 är kvoterna bara brus
@@ -147,7 +151,8 @@ export function byggAvvikelser(inp: AvvikelseInput): AvvikelseRad[] {
       if (egenPct > abStaket.staket) {
         rader.push({
           id: `avbrott-${m.slag}`,
-          text: `Avbrott ${Math.round(egenPct)} % av G15 — mot ${Math.round(abStaket.median)} % normalt för ${namn}`,
+          text: `Maskinen stod stilla mer än vanligt`,
+          detalj: `${Math.round(egenPct)} % av arbetstiden — normalt ${Math.round(abStaket.median)} % för ${namn}`,
         });
       }
     }

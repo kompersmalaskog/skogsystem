@@ -186,6 +186,15 @@ const OBJEKT_CSS = `
 .uf-objekt { container-type: inline-size; max-width: ${KOLUMN.bred + 2 * AVSTAND.sidmarginal}px; margin: 0 auto; box-sizing: border-box; padding: ${AVSTAND.xl}px ${AVSTAND.sidmarginal}px ${AVSTAND.xxl}px; }
 .uf-topp { display: grid; grid-template-columns: minmax(0, 1fr); gap: ${AVSTAND.xl}px; align-items: start; }
 .uf-topp > * { min-width: 0; }
+.uf-kedjesteg { text-align: center; min-width: 0; }
+.uf-kedjelabel { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 5px; }
+.uf-kedjeval { font-size: 22px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+@container (min-width: 560px) { .uf-kedjeval-stor { font-size: 30px; } }
+.uf-kedjeenhet { font-size: 12px; color: ${FARG.text2}; font-weight: 400; margin-left: 2px; }
+.uf-kedjepil { color: ${FARG.text3}; font-size: 18px; line-height: 1; }
+.uf-avv-text { display: flex; flex-direction: column; gap: 2px; }
+.uf-avv-titel { font-size: 13px; color: ${V6_WARN}; font-weight: 500; line-height: 1.45; }
+.uf-avv-detalj { font-size: 12px; color: ${V6_GREY}; font-weight: 400; line-height: 1.4; }
 .uf-hur-rubrik { display: none; }
 .uf-hur-sektioner { background: ${V6_CARD}; border-radius: 0 0 ${RADIE.knapp}px ${RADIE.knapp}px; overflow: hidden; }
 .uf-hur-sektioner.ar-stangd { display: none; }
@@ -304,6 +313,24 @@ function StatusRad({ data }: { data: UppfoljningData }) {
 // (risjobb, OneDrive-lucka) faller den tillbaka på den rena statusraden, aldrig
 // ett påhittat på-backen-tal. Grot-raden hör till ett senare steg (grot_hamtad
 // finns inte i datan än). På tokens — resten av vyn migreras separat.
+// Hero-svaret som kedja: Skördat → Skotat → Kvar i skogen. Man ser VARFÖR det
+// ligger kvar (fällt minus hemkört) utan att räkna själv. Rollfärgerna (skördare
+// lila, skotare turkos) är samma som resten av appen.
+function KedjePil() {
+  return <span className="uf-kedjepil">›</span>;
+}
+function KedjeSteg({ label, farg, varde, stor = false }: { label: string; farg: string; varde: number; stor?: boolean }) {
+  const sv = (n: number) => n.toLocaleString('sv-SE');
+  return (
+    <div className="uf-kedjesteg">
+      <div className="uf-kedjelabel" style={{ color: farg }}>{label}</div>
+      <div className={stor ? 'uf-kedjeval uf-kedjeval-stor' : 'uf-kedjeval'}>
+        {sv(varde)}<span className="uf-kedjeenhet">m³</span>
+      </div>
+    </div>
+  );
+}
+
 function Svaret({ data }: { data: UppfoljningData }) {
   const s = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
   const klart = s.k === 'done';
@@ -327,7 +354,7 @@ function Svaret({ data }: { data: UppfoljningData }) {
     <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
       <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: AVSTAND.l }}>
         <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.xs }}>
-          {klart ? 'Är allt utkört?' : 'Hur mycket är kvar att köra ut?'}
+          {klart ? 'Är allt hemkört?' : 'Hur mycket är kvar att köra hem?'}
         </div>
         {klart ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
@@ -338,9 +365,12 @@ function Svaret({ data }: { data: UppfoljningData }) {
             </svg>
           </div>
         ) : (
-          <div style={{ ...TYP.tal }}>
-            {sv(paBacken)}
-            <span style={{ ...TYP.text, color: FARG.text2, marginLeft: AVSTAND.xs }}>m³ på backen</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr', alignItems: 'center', gap: AVSTAND.xs }}>
+            <KedjeSteg label="Skördat" farg={V6_SK} varde={visSkordat} />
+            <KedjePil />
+            <KedjeSteg label="Skotat" farg={V6_ST} varde={visSkotat} />
+            <KedjePil />
+            <KedjeSteg label="Kvar i skogen" farg={FARG.text2} varde={paBacken} stor />
           </div>
         )}
         <div style={{ height: 10, borderRadius: RADIE.stapel, background: FARG.upphojt, overflow: 'hidden', margin: `${AVSTAND.m}px 0 ${AVSTAND.s}px` }}>
@@ -382,7 +412,10 @@ function AvvikelseZon({ avvikelser }: { avvikelser?: AvvikelseRad[] }) {
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
-          <span style={{ fontSize: 13, color: V6_WARN, fontWeight: 500, lineHeight: 1.45 }}>{a.text}</span>
+          <div className="uf-avv-text">
+            <span className="uf-avv-titel">{a.text}</span>
+            {a.detalj && <span className="uf-avv-detalj">{a.detalj}</span>}
+          </div>
         </div>
       ))}
     </section>
