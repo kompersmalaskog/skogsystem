@@ -323,7 +323,7 @@ describe('planeringsvyns avlägg/brand/TMA-autospar använder baslinje + ändrad
     expect(src).toContain('data-testid="autospar-fel"');
     // markörladdningen bor i hooken (lib/hooks/useMarkeringarSynk): den nollar markersLoaded vid varje objektbyte, innan något annat
     const hook = readFileSync(new URL('./hooks/useMarkeringarSynk.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-    expect(hook).toMatch(/setMarkersLoaded\(false\);[^\n]*\n\s*const objektId = i\.objektId;\n\s*if \(!objektId\) return;/);
+    expect(hook).toMatch(/setMarkersLoaded\(false\);[^\n]*\n\s*const objektId = i\.objektId;\n/);
     expect(src).toContain('markers, markersLoaded, setMarkers, setMarkersLoaded');
   });
 });

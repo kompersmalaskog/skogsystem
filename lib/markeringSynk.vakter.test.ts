@@ -29,7 +29,10 @@ describe('inget skriver markeringar direkt mot nätet — allt går via det loka
   });
   it('laddning och hämta om går via sammanfogningen (skickar det som väntar först, lägger lokala ändringar ovanpå) — aldrig ett tomt minne vid läsfel', () => {
     expect(hook.match(/hamtaMarkeringarSammanfogade\(/g)!.length).toBe(2);
-    expect(hook).not.toMatch(/setMarkers\(\[\]\)/);
+    // Minnet töms på ETT ställe: när trakten BYTS (den gamla traktens markeringar får inte ritas på den nya) — efter att det ändrade skrivits lokalt.
+    // Aldrig vid ett läsfel eller i en hämtning.
+    expect(hook.match(/setMarkers\(\[\]\)/g)!.length).toBe(1);
+    expect(hook).toMatch(/if \(gammalt !== undefined && gammalt !== objektId\) \{[^}]*for \(const m of dirty\) void lagraLokalt\(oid, m\);\s*refs\.objekt\.current = undefined;\s*setMarkers\(\[\]\);/);
     expect(hook).toContain('lasLokaltForst(objektId)');                         // det lokala visas först, innan nätet svarat
     // allt som ändrats i minnet skrivs lokalt FÖRE sammanfogningen läser de väntande (även ändringar under hämtningen)
     expect(hook.match(/await lagraNuRef\.current\(\)\.catch\(\(\) => \{\}\)/g)!.length).toBe(2);
