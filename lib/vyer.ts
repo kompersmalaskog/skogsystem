@@ -72,6 +72,8 @@ export const VYER: Vy[] = [
   { id: 'om-nagot-hander', namn: 'Om något händer', href: '/om-nagot-hander', ikon: 'emergency', grupp: 'maskiner', sokord: ['112', 'olycka', 'tillbud', 'brand', 'skada', 'nödnummer', 'larm', 'första hjälpen', 'kraftledning'] },
   // Riskbedömning per maskintyp (AFS 2023:1): admin godkänner varje år, föraren läser riskerna för sin maskin.
   { id: 'riskbedomning', namn: 'Riskbedömning', href: '/riskbedomning', ikon: 'health_and_safety', grupp: 'maskiner', sokord: ['risk', 'risker', 'arbetsmiljö', 'säkerhet', 'motorsåg'] },
+  // Skyddsronden: arbetsledningen och skyddsombudet en gång om året (AFS 2023:1). Brister blir åtgärder.
+  { id: 'skyddsrond', namn: 'Skyddsrond', href: '/skyddsrond', ikon: 'verified_user', grupp: 'maskiner', bara: 'admin', aven: 'skyddsombud', sokord: ['arbetsmiljö', 'säkerhet', 'brandskydd', 'skyddsombud', 'rond'] },
   { id: 'nagot-ar-fel', namn: 'Något är fel', href: '/maskinkoll?fel=1', ikon: 'report', grupp: 'maskiner', sokord: ['fel', 'trasig', 'läcker', 'rapportera', 'skada', 'arbetsmiljö'] },
   { id: 'kontroller', namn: 'Kontroller', href: '/kontroller', ikon: 'fact_check', grupp: 'maskiner', sokord: ['besiktning', 'försäkring'] },
 

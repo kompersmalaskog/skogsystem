@@ -125,7 +125,7 @@ export function useStartsidaData(): StartsidaData {
           fardig()
         }, fardig)
       // Egen fråga: ett läsfel här får aldrig ta rollen med sig. Läsfel = ingen rad, aldrig en gissning.
-      supabase.from('medarbetare').select('id, roll, telefon, anhorig_telefon, maskin_id').eq('epost', user.email).single()
+      supabase.from('medarbetare').select('id, roll, telefon, anhorig_telefon, maskin_id, skyddsombud').eq('epost', user.email).single()
         .then(async ({ data, error }) => {
           if (!vid || error || !data) return
           setEgnaUppgifter(egnaUppgifterText(data))

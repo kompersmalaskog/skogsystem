@@ -30,9 +30,9 @@ describe('vyregistret', () => {
     expect(hrefs.length).toBeGreaterThan(25)
     const iRegistret = new Set(VYER.map(v => v.href))
     expect(hrefs.filter(h => !iRegistret.has(h))).toEqual([])
-    // Gamla sidans tre admin-poster är spärrade här också — plus Objektöversikten och Åtgärder (nya, bara admin) — och inget annat.
+    // Gamla sidans tre admin-poster är spärrade här också — plus Objektöversikten, Åtgärder och Skyddsrond (nya, bara admin) — och inget annat.
     expect(VYER.filter(v => v.bara === 'admin').map(v => v.href).sort())
-      .toEqual(['/admin', '/admin/markagarrapport', '/admin/objektoversikt', '/atgarder', '/ekonomi'])
+      .toEqual(['/admin', '/admin/markagarrapport', '/admin/objektoversikt', '/atgarder', '/ekonomi', '/skyddsrond'])
   })
 
   it('förare ser aldrig en admin-vy — varken i grupperna, kontomenyn, favoriterna eller sökningen', () => {
@@ -47,18 +47,18 @@ describe('vyregistret', () => {
     expect(vyerFor('admin')).toHaveLength(VYER.length)
   })
 
-  it('skyddsombudet ser Åtgärder (och bara den) av admin-vyerna — i grupperna, favoriterna och sökningen', () => {
+  it('skyddsombudet ser Åtgärder och Skyddsrond (och bara dem) av admin-vyerna — i grupperna, favoriterna och sökningen', () => {
     const b = { skyddsombud: true }
     const adminHrefs = new Set(VYER.filter(v => v.bara === 'admin').map(v => v.href))
     const sedda = [...grupperFor('forare', b).flatMap(g => g.vyer), ...favoriterFor('forare', VYER.map(v => v.id), b),
       ...sokVyer('forare', 'åtgärd', b), ...sokVyer('forare', 'ekonomi', b), ...sokVyer('forare', 'admin', b)]
-    expect([...new Set(sedda.filter(v => adminHrefs.has(v.href)).map(v => v.href))]).toEqual(['/atgarder'])
+    expect([...new Set(sedda.filter(v => adminHrefs.has(v.href)).map(v => v.href))].sort()).toEqual(['/atgarder', '/skyddsrond'])
     expect(sokVyer('forare', 'stopp', b).map(v => v.href)).toContain('/atgarder')
     // Utan flaggan (eller med false) ser föraren den inte.
     expect(vyerFor('forare').some(v => v.href === '/atgarder')).toBe(false)
     expect(vyerFor('forare', { skyddsombud: false }).some(v => v.href === '/atgarder')).toBe(false)
-    // Bara Åtgärder bär undantaget.
-    expect(VYER.filter(v => v.aven === 'skyddsombud').map(v => v.id)).toEqual(['atgarder'])
+    // Bara Åtgärder och Skyddsrond bär undantaget.
+    expect(VYER.filter(v => v.aven === 'skyddsombud').map(v => v.id)).toEqual(['atgarder', 'skyddsrond'])
   })
 
   it('grupperna + kontomenyn innehåller varje synlig vy exakt en gång', () => {
