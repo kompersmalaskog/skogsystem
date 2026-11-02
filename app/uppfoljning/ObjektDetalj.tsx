@@ -32,8 +32,13 @@ export default function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; 
   }
 
   return (
+    // Ingen max-w-app här: UppfoljningVy är ombyggd för att fylla panelen (egen
+    // .uf-objekt med max-width 1152 + margin auto, container queries). Den gamla
+    // 440px-kolumnen klämde ihop hero/maskiner/"Hur gick det?" till en smal remsa
+    // på stor skärm medan viewport-media-queryn ändå tvingade sida-vid-sida/rutnät
+    // → allt krympt och avklippt. Telefon är oförändrad (.uf-objekt fyller ändå).
     <div style={{ height: 'calc(100dvh - 56px - env(safe-area-inset-top))', overflowY: 'auto', background: '#000' }}>
-      <div className="max-w-app mx-auto" style={{ minHeight: '100%' }}>
+      <div style={{ minHeight: '100%' }}>
         <UppfoljningVy data={data} onBack={onBack} />
       </div>
     </div>
