@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import { LjudSpelare } from '@/components/LjudSpelare'
 import { gpsGuardAccepts, haversineMeters } from '@/lib/gps-guard'
+import { avslutaMedPosition, medelAvSenaste } from '@/lib/gpsSparLinje'
 import { gpsSaknas } from '@/lib/gpsSaknas'
 import { useGpsSaknasLang } from '@/lib/hooks/useGpsSaknasLang'
 import { hallSkarmenVakenIWebblasare } from '@/lib/skarmVaken'
@@ -3502,6 +3503,10 @@ export default function PlannerPage() {
   const watchIdRef = useRef<GpsKallaHandle | null>(null);
   const gpsMapPositionRef = useRef<Point>({ x: 200, y: 300 });
   const gpsPathRef = useRef<Point[]>([]);
+  // Senaste RIKTIGA (noggranna, ej utjämnade) positionen, i lat/lon och kartkoordinater — startpunkt och sista punkt för Spåra med GPS (lib/gpsSparLinje).
+  const senasteGpsRef = useRef<{ lat: number; lon: number; x: number; y: number; ts: number } | null>(null);
+  /** Den senaste riktiga positionen om den är färsk (högst 30 s gammal) — annars null, aldrig en gammal punkt som start eller slut. */
+  const farskGps = () => { const g = senasteGpsRef.current; return g && Date.now() - g.ts <= 30_000 ? g : null; };
   const gpsHistoryRef = useRef<Point[]>([]); // Senaste 20 positioner för medelvärde
   const lastAcceptedGpsRef = useRef<{ lat: number; lon: number; ts: number } | null>(null); // GPS-vaktens referens (rå lat/lon/ts)
   const lastConfirmedPosRef = useRef<Point>({ x: 200, y: 300 }); // Sista bekräftade position (efter minDistance-filter)
@@ -11339,13 +11344,17 @@ export default function PlannerPage() {
     
     // Om GPS redan är igång, använd den
     if (isTracking && watchIdRef.current) {
-      if (currentPosition) {
-        // Vi har en position - sätt startposition till nuvarande
-        const startX = gpsMapPositionRef.current.x;
-        const startY = gpsMapPositionRef.current.y;
+      // Startpunkten ur SAMMA position som linjen sedan räknas från (lib/gpsSparLinje regel 1): senaste noggranna fixen,
+      // annars currentPosition — aldrig den utjämnade prickens x/y ihop med GPS:ens lat/lon (det förskjöt hela linjen).
+      const startFix = farskGps() ?? (currentPosition ? { lat: currentPosition.lat, lon: currentPosition.lon } : null);
+      if (startFix) {
+        const s0 = latLonToSvg(startFix.lat, startFix.lon);
+        const startX = s0.x;
+        const startY = s0.y;
+        gpsMapPositionRef.current = s0;
         setGpsStartPos({ 
-          lat: currentPosition.lat, 
-          lon: currentPosition.lon, 
+          lat: startFix.lat, 
+          lon: startFix.lon, 
           x: startX, 
           y: startY 
         });
@@ -11354,7 +11363,7 @@ export default function PlannerPage() {
         setGpsPath([firstPoint]);
         lastConfirmedPosRef.current = firstPoint;
         gpsHistoryRef.current = [firstPoint];
-        lastAcceptedGpsRef.current = { lat: (currentPosition as any).lat, lon: (currentPosition as any).lon, ts: Date.now() }; // seed vakten (currentPosition = {lat,lon} i runtime)
+        lastAcceptedGpsRef.current = { lat: startFix.lat, lon: startFix.lon, ts: Date.now() }; // seed vakten
       }
       // GPS körs redan, vänta på första positionen i befintlig callback
       return;
@@ -11419,6 +11428,7 @@ export default function PlannerPage() {
               y: svgPos.y
             };
             const firstPoint = { x: svgPos.x, y: svgPos.y };
+            senasteGpsRef.current = { lat: newPos.lat, lon: newPos.lon, x: svgPos.x, y: svgPos.y, ts: Date.now() };
             gpsPathRef.current = [firstPoint];
             setGpsPath([firstPoint]);
             lastConfirmedPosRef.current = firstPoint;
@@ -11436,15 +11446,11 @@ export default function PlannerPage() {
           // Konvertera GPS till kartkoordinater
           const rawMapPos = gpsToMap(newPos.lat, newPos.lon, prev.lat, prev.lon, prev.x, prev.y);
 
-          // Lägg till i historik för medelvärde (max 20 punkter för jämnare resultat)
-          gpsHistoryRef.current = [...gpsHistoryRef.current.slice(-19), rawMapPos];
-
-          // Beräkna medelvärde av senaste positionerna
-          const history = gpsHistoryRef.current;
-          const smoothedPos = {
-            x: history.reduce((sum, p) => sum + p.x, 0) / history.length,
-            y: history.reduce((sum, p) => sum + p.y, 0) / history.length
-          };
+          // Kort medel (lib/gpsSparLinje regel 2) — förut 20 punkter, som fick linjen att släpa 10–15 m efter.
+          if (isAccurate) senasteGpsRef.current = { lat: newPos.lat, lon: newPos.lon, x: rawMapPos.x, y: rawMapPos.y, ts: Date.now() };
+          const medel = medelAvSenaste(gpsHistoryRef.current, rawMapPos);
+          gpsHistoryRef.current = medel.historik;
+          const smoothedPos = medel.medel;
 
           // Kolla avstånd från senast bekräftade position
           const distFromConfirmed = Math.sqrt(
@@ -11493,6 +11499,8 @@ export default function PlannerPage() {
 
   const stopGpsTracking = (save = true) => {
     // Spara linjen om vi har tillräckligt med punkter
+    // Linjen går ända fram till där man står (lib/gpsSparLinje regel 3) — inte när spårningen är pausad (då står man någon annanstans).
+    if (!gpsPausedRef.current) gpsPathRef.current = avslutaMedPosition(gpsPathRef.current, farskGps(), 0.5 / scale);
     if (save && gpsPathRef.current.length > 1 && gpsLineType) {
       saveToHistory([...markers]);
       const newLine = {
@@ -11552,6 +11560,7 @@ export default function PlannerPage() {
   // Spara väg och visa popup för att välja nästa färg
   const saveAndShowPopup = () => {
     const currentLineType = gpsLineType || gpsLineTypeRef.current;
+    if (!gpsPausedRef.current) gpsPathRef.current = avslutaMedPosition(gpsPathRef.current, farskGps(), 0.5 / scale);   // ända fram till där man står (lib/gpsSparLinje)
 
     if (gpsPathRef.current.length > 1 && currentLineType) {
       saveToHistory([...markers]);
@@ -11667,6 +11676,7 @@ export default function PlannerPage() {
         watchIdRef.current = null;
       }
       setIsTracking(false);
+      senasteGpsRef.current = null;
       setGpsLineType(null);
       gpsLineTypeRef.current = null;
       setGpsPath([]);
@@ -11710,6 +11720,7 @@ export default function PlannerPage() {
                 setGpsMapPosition(svgPos);
                 lastConfirmedPosRef.current = svgPos;
                 gpsHistoryRef.current = [svgPos];
+                senasteGpsRef.current = { lat: newPos.lat, lon: newPos.lon, x: svgPos.x, y: svgPos.y, ts: Date.now() };
                 return { 
                   lat: newPos.lat, 
                   lon: newPos.lon, 
@@ -11721,15 +11732,11 @@ export default function PlannerPage() {
               // Beräkna ny kartposition
               const rawMapPos = gpsToMap(newPos.lat, newPos.lon, prev.lat, prev.lon, prev.x, prev.y);
               
-              // Lägg till i historik för medelvärde
-              gpsHistoryRef.current = [...gpsHistoryRef.current.slice(-4), rawMapPos];
-              
-              // Beräkna medelvärde
-              const history = gpsHistoryRef.current;
-              const smoothedPos = {
-                x: history.reduce((sum, p) => sum + p.x, 0) / history.length,
-                y: history.reduce((sum, p) => sum + p.y, 0) / history.length
-              };
+              // Kort medel (lib/gpsSparLinje regel 2), samma som Spåra med GPS.
+              senasteGpsRef.current = { lat: newPos.lat, lon: newPos.lon, x: rawMapPos.x, y: rawMapPos.y, ts: Date.now() };
+              const medel = medelAvSenaste(gpsHistoryRef.current, rawMapPos);
+              gpsHistoryRef.current = medel.historik;
+              const smoothedPos = medel.medel;
               
               // Kolla avstånd från senast bekräftade position
               const distFromConfirmed = Math.sqrt(
