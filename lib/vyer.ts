@@ -84,6 +84,7 @@ export const VYER: Vy[] = [
   { id: 'planera', namn: 'Planera', href: '/planera', ikon: 'edit_calendar', grupp: 'personal', sokord: ['tid', 'min tid', 'stämpla'] },
   { id: 'arbetsrapport', namn: 'Arbetsrapport', href: '/arbetsrapport', ikon: 'description', grupp: 'personal', sokord: ['tid', 'lön', 'rapport'] },
   { id: 'ledighet', namn: 'Ledighet', href: '/ledighet', ikon: 'beach_access', grupp: 'personal', marke: 'ledighet', sokord: ['semester', 'atk', 'ledig'] },
+  { id: 'introduktion', namn: 'Introduktion', href: '/introduktion', ikon: 'school', grupp: 'personal', sokord: ['ny', 'välkommen', 'arbetsmiljö', 'skyddsombud'] },
   { id: 'personal', namn: 'Personal', href: '/personal', ikon: 'badge', grupp: 'personal', marke: 'personal', sokord: ['telefon', 'anhörig', 'skyddsombud', 'mat'] },
   { id: 'utbildning', namn: 'Utbildning', href: '/utbildning', ikon: 'school', grupp: 'personal', sokord: ['intyg', 'certifikat'] },
 

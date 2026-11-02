@@ -19,6 +19,8 @@ import {
   AVSTAND, FARG, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, RADIE, ROT_MIN_HOJD, TYP, VY_ROT, designCss, medSafeBotten,
 } from '@/lib/design/tokens';
 import { antalAttGora, behoverAtgard, type Person, type Skyddsombud } from '@/lib/personal';
+import { supabase } from '@/lib/supabase';
+import { hamtaKvitton as hamtaIntroKvitton, introLage, lageText, type Kvitto } from '@/lib/arbetsmiljo/introduktion';
 
 /** Från den här fönsterbredden står listan och personen bredvid varandra. Samma tal som Arbetsrapportens sidomeny. */
 export const PERSONAL_DELAD_FRAN_PX = 1000;
@@ -59,6 +61,12 @@ export default function PersonalClient() {
   const [vald, setVald] = useState<string | null>(null);
   const [andrar, setAndrar] = useState(false);
   const [matAndrar, setMatAndrar] = useState(false);
+  const [kvitton, setKvitton] = useState<Map<string, Kvitto[]> | null>(null);
+  const intro = (p: Person) => {
+    if (!kvitton || p.roll !== 'forare') return undefined;
+    const l = introLage(p, kvitton.get(p.id) ?? []);
+    return { text: lageText(l), klar: !!l.klarTid };
+  };
 
   const hamta = useCallback(async () => {
     setLaddar(true); setFel(false);
@@ -67,6 +75,8 @@ export default function PersonalClient() {
       const body = await r.json();
       if (!r.ok || !body.ok) throw new Error(body.error || `HTTP ${r.status}`);
       setData({ arAdmin: !!body.arAdmin, egenId: body.egenId ?? null, skyddsombud: body.skyddsombud ?? null, personal: body.personal ?? [] });
+      // Introduktionen är ett tillägg: ett läsfel ger ingen rad, aldrig ett fel på sidan.
+      hamtaIntroKvitton(supabase).then(k => setKvitton(k)).catch(() => setKvitton(null));
     } catch (e) {
       console.error('[personal] hämta', e);
       setFel(true);
@@ -111,7 +121,7 @@ export default function PersonalClient() {
       <div style={rot}>{stil}
         <VyKolumn>
           {jag
-            ? <PersonSida person={jag} arAdmin={false} arJag onAndra={() => setAndrar(true)} onAndraMat={() => setMatAndrar(true)} />
+            ? <PersonSida person={jag} introduktion={intro(jag)} arAdmin={false} arJag onAndra={() => setAndrar(true)} onAndraMat={() => setMatAndrar(true)} />
             : <Besked text="Din rad saknas i personalregistret. Be en admin lägga till dig i Admin › Medarbetare." />}
         </VyKolumn>
         {andrar && jag && <AndraArk person={jag} arJag onStang={() => setAndrar(false)} onSparad={() => { setAndrar(false); hamta(); }} />}
@@ -141,7 +151,7 @@ export default function PersonalClient() {
         </div>
         <div className="ps-person">
           <VyKolumn>
-            <PersonSida person={visad} arAdmin arJag={arJag} onAndra={() => setAndrar(true)} onAndraMat={() => setMatAndrar(true)} onTillbaka={tillListan} />
+            <PersonSida person={visad} introduktion={intro(visad)} arAdmin arJag={arJag} onAndra={() => setAndrar(true)} onAndraMat={() => setMatAndrar(true)} onTillbaka={tillListan} />
           </VyKolumn>
         </div>
       </div>

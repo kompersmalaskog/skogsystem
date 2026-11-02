@@ -9,9 +9,14 @@ import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import PersonalClient, { PERSONAL_DELAD_FRAN_PX } from './PersonalClient';
 import { FARG, KOLUMN, TRAFFYTA } from '@/lib/design/tokens';
+
+vi.mock('@/lib/arbetsmiljo/introduktion', async (orig) => ({
+  ...(await orig<typeof import('@/lib/arbetsmiljo/introduktion')>()),
+  hamtaKvitton: async () => new Map(),
+}));
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
