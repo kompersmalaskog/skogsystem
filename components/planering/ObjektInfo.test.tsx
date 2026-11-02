@@ -19,6 +19,8 @@ vi.mock('@/lib/smhi-brandrisk', () => {
 
 import ObjektInfo, { type ObjektInfoProps } from './ObjektInfo';
 import { sattBredd } from './PlusRad.testhjalp';
+import { klarProps } from './KlarMedTrakten.testhjalp';
+import { planerarRiskRad } from './Risker';
 import { byggMerGrupper, kortKnappar, faktaBrickor, tillForaren, objektRad, gpsNu, type KartMarkering } from '@/lib/objektKort';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -759,5 +761,34 @@ describe('förarens enkla kort (maskinläget): enkel-propen ersätter kortet —
     klicka(qa('yta-rad')[0]);
     expect(onYta).toHaveBeenCalledWith('hansyn:1', 'ark');
     expect(q('objekt-info')!.getAttribute('data-detent')).toBe('halv');
+  });
+});
+
+describe('planerarens rad "Risker på trakten" (Martin 2026-11-01: satte en ledning och hittade inte risken i ⓘ)', () => {
+  it('orange tills listan är godkänd, grön efteråt', () => {
+    expect(planerarRiskRad(1, false)).toEqual({ text: '1 risk · Godkänn innan maskinen börjar', ton: 'orange' });
+    expect(planerarRiskRad(2, true)).toEqual({ text: '2 risker · Godkänd ✓', ton: 'gron' });
+    expect(planerarRiskRad(0, false).text).toBe('Inga särskilda risker · Godkänn innan maskinen börjar');
+  });
+
+  it('står under Faror; ett tryck ställer kortet på steget Risker och öppnar "Klar med trakten?"', async () => {
+    let forberedd = 0;
+    const p = props({ faror: ['Kraftledning'] });
+    await montera({ ...p, kort: { ...p.kort, riskRad: planerarRiskRad(1, false) }, klar: klarProps({}), onRiskerForbered: () => { forberedd++; } });
+    const rad = q('kort-planerare-risker-rad')!;
+    expect(q('kort-planerare-risker-under')!.textContent).toBe('1 risk · Godkänn innan maskinen börjar');
+    // under Faror, före Till föraren
+    expect(q('kort-faror')!.compareDocumentPosition(rad) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(rad.compareDocumentPosition(q('kort-till-foraren')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    klicka(rad);
+    await flush();
+    expect(forberedd).toBe(1);
+    expect(q('klar-innehall')).not.toBeNull();
+    expect(q('kort-planerare-risker-rad')).toBeNull();
+  });
+
+  it('ingen rad utan riskRad (föraren, eller trakten är inte under planering)', async () => {
+    await montera({ ...props(), klar: klarProps({}), onRiskerForbered: () => {} });
+    expect(q('kort-planerare-risker-rad')).toBeNull();
   });
 });
