@@ -70,7 +70,7 @@ describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
   });
 });
 
-describe('placering: en väg, exakt där trycket träffade, dragbart efteråt', () => {
+describe('placering: en väg, exakt där trycket träffade, låst efteråt', () => {
   it('tryck på kartan, "Vid maskinen" och långtryck går alla genom placeraSymbol', () => {
     expect(page).toContain('placeraSymbolRef.current?.(selectedSymbol, lngLat.lat, lngLat.lng);');
     expect(page).toContain('placeraSymbolRef.current = placeraSymbol;');
@@ -107,10 +107,10 @@ describe('placering: en väg, exakt där trycket träffade, dragbart efteråt', 
     expect(hook).toContain("const pagar = sparPagarPerId.current.get(mid);\n    if (pagar) { try { await pagar; }");
     expect(hook).toContain('sparPagarPerId.current.set(id, sparning);');
   });
-  it('markeringar satta via flödet går att dra (båda vyerna), men andra symboler panorerar som förut', () => {
-    expect(page).toContain("map.on('mousedown', 'markers-hit', onDown);");
-    expect(page).toContain('      e.preventDefault();\n      dragId = String(id);');
-    expect(page).toContain('if (id == null || !korvyEgnaMarkorRef.current.has(String(id))) return;');
+  it('ALLA symboler är låsta på kartan (Martin 2026-11-02) — ingen drag på markers-hit, inte heller för egna', () => {
+    expect(page).not.toContain("map.on('mousedown', 'markers-hit'");
+    expect(page).not.toContain("map.on('touchstart', 'markers-hit'");
+    expect(page).not.toContain('dragId = String(id)');
     expect(page).toContain('korvyEgnaMarkorRef.current.add(String(id));');
   });
 });

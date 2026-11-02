@@ -4639,62 +4639,11 @@ export default function PlannerPage() {
   const avverkatIndataRef = useRef<{ areal: number | null; ringar: [number, number][][]; roll: string | null }>({ areal: null, ringar: [], roll: null });
   avverkatIndataRef.current = { areal: tolkaAreal(infoAreal) ?? tolkaAreal(valtObjekt?.areal), ringar: traktRingar, roll: hyttRoll ?? null };
 
-  // Markeringar jag SJÄLV satt via plusraden/räknarna/långtryck i den här sessionen: (1) går att dra efteråt, (2) ger inget proximitetskort — en markering som
-  // läggs på maskinens position ligger per definition på 0 m, och kortet "Högstubbe 0 m — Sett" skulle annars täcka just den symbolen och varna
-  // för något föraren nyss satte. (Efter omladdning är de vanliga markeringar och varnar som alla andra.)
-  // "Går att dra efteråt": de kan flyttas genom att dra i symbolen.
-  // Bara dem — en förare som panorerar över en hänsynssymbol ska aldrig flytta den av misstag. MapLibres standardmönster
-  // (draggbar punkt): preventDefault på tryck stoppar kartans pan för just det trycket; släpp sparar via vanliga markörsynken.
+  // Markeringar jag SJÄLV satt via plusraden/räknarna/långtryck i den här sessionen ger inget proximitetskort — en markering som läggs på maskinens
+  // position ligger per definition på 0 m, och kortet "Högstubbe 0 m — Sett" skulle annars täcka just den symbolen. (Efter omladdning varnar de som alla andra.)
+  // ALLA SYMBOLER ÄR LÅSTA PÅ KARTAN (Martin 2026-11-02): de egna gick förut att dra efteråt, och när man satte odlingsrösen tätt flyttades ett röse i stället
+  // för att kartan panorerade. Fel plats rättas med ↩ / Ta bort och en ny symbol, aldrig med drag.
   const korvyEgnaMarkorRef = useRef<Set<string>>(new Set());
-  const latLonTillSvgRef = useRef<((lat: number, lon: number) => { x: number; y: number }) | null>(null);
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-    let dragId: string | null = null;
-    let vantar = false;
-    let sista: { lat: number; lng: number } | null = null;
-    const flytta = () => {
-      vantar = false;
-      if (!dragId || !sista || !latLonTillSvgRef.current) return;
-      const { x, y } = latLonTillSvgRef.current(sista.lat, sista.lng);
-      const id = dragId;
-      setMarkers((prev: any[]) => prev.map((m) => (String(m.id) === id ? { ...m, x, y } : m)));
-    };
-    const onDown = (e: any) => {
-      const id = e.features?.[0]?.properties?.id;
-      if (id == null || !korvyEgnaMarkorRef.current.has(String(id))) return;
-      if (e.originalEvent?.touches && e.originalEvent.touches.length !== 1) return;   // nyp = zoom, inte flytt
-      e.preventDefault();
-      dragId = String(id);
-      map.getCanvas().style.cursor = 'grabbing';
-    };
-    const onMove = (e: any) => {
-      if (!dragId) return;
-      sista = { lat: e.lngLat.lat, lng: e.lngLat.lng };
-      if (!vantar) { vantar = true; requestAnimationFrame(flytta); }
-    };
-    const onUp = () => {
-      if (!dragId) return;
-      flytta();
-      dragId = null; sista = null;
-      map.getCanvas().style.cursor = '';
-    };
-    map.on('mousedown', 'markers-hit', onDown);
-    map.on('touchstart', 'markers-hit', onDown);
-    map.on('mousemove', onMove);
-    map.on('touchmove', onMove);
-    map.on('mouseup', onUp);
-    map.on('touchend', onUp);
-    return () => {
-      map.off('mousedown', 'markers-hit', onDown);
-      map.off('touchstart', 'markers-hit', onDown);
-      map.off('mousemove', onMove);
-      map.off('touchmove', onMove);
-      map.off('mouseup', onUp);
-      map.off('touchend', onUp);
-      try { map.getCanvas().style.cursor = ''; } catch { /* kartan kan vara borta */ }
-    };
-  }, [mapLibreReady]);
   useEffect(() => { korvyEgnaMarkorRef.current.clear(); }, [valtObjekt?.id]);
 
   // Plusradens fasta platser + användning följer MASKINEN (localStorage per maskin)
@@ -12123,7 +12072,6 @@ export default function PlannerPage() {
     setKorvyKvitto({ text, ton, markerId });
     korvyKvittoTimerRef.current = setTimeout(() => { setKorvyKvitto(null); korvyKvittoTimerRef.current = null; }, ton === 'ok' ? KVITTO_MS : 3500);
   };
-  latLonTillSvgRef.current = latLonToSvg;   // drag-effekten (ovan) läser alltid aktuell kartorigo/skala
   const symbolNamn = (typ: string): string => markerTypes.find((m) => m.id === typ)?.name || typ;
   // Borttagen markering: försvinner direkt, raden nertill ger tillbaka den i 5 s. Raderingen är redan lagd i synkkön (en grav); Ångra lägger markeringen
   // tillbaka i minnet och synken räknar den som NY (graven ersätts). Ett nytt borttag byter ut raden — bara den senaste kan ångras.

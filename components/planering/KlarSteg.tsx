@@ -153,7 +153,11 @@ export function TalCell({ id, aktiv, onAktiv, onKlart, varde, onChange, label, t
   id: string; aktiv: boolean; onAktiv: () => void; onKlart: () => void; varde: string; onChange: (v: string) => void; label: string;
   tom: string; align?: 'left' | 'right'; stor?: boolean; children: React.ReactNode;
 }) {
-  if (aktiv) return <Falt testid={`klar-${id}`} label={label} numeriskt kompakt value={komma(varde)} onChange={onChange} onKlart={onKlart} />;
+  // Medan man skriver visas DET MAN SKRIVER, inte värdet som räknas: ett tomt G15-fält räknas som förslaget, så ett tömt fält hoppade tillbaka till 20,5
+  // och 20,5 → 19 gick inte att skriva (Martin 2026-11-02: "jag kan bara ändra till 2"). Tomt när man lämnar fältet = förslaget, som förut.
+  const [utkast, setUtkast] = useState<string | null>(null);
+  React.useEffect(() => { if (!aktiv) setUtkast(null); }, [aktiv]);
+  if (aktiv) return <Falt testid={`klar-${id}`} label={label} numeriskt kompakt value={utkast ?? komma(varde)} onChange={(v) => { setUtkast(v); onChange(v); }} onKlart={() => { setUtkast(null); onKlart(); }} />;
   const saknas = varde.trim() === '';
   const yta = stor
     ? { background: 'transparent', padding: `0 ${AVSTAND.xs}px`, marginLeft: align === 'left' ? -AVSTAND.xs : 0, marginRight: align === 'right' ? -AVSTAND.xs : 0 }
