@@ -62,6 +62,11 @@ export async function rapporteraTillbud(sb: SupabaseClient, r: TillbudRad): Prom
 /** Det åtgärdsarket visar om ett tillbud. */
 export type TillbudInfo = { tillbudId: string; typ: TillbudTyp; anmaldTid: string | null; anmaldAvNamn: string | null };
 
+/** En olycka som inte markerats anmäld till Arbetsmiljöverket — raden i åtgärdslistan säger det (och admin får en påminnelse, lib/arbetsmiljo/anmalNotis). */
+export function ejAnmald(t: TillbudInfo | null | undefined): boolean {
+  return !!t && t.typ === 'olycka' && !t.anmaldTid;
+}
+
 /** Tillbuden bakom åtgärderna, nycklade på åtgärdens id. Läsfel → null (arket visar då inget om anmälan). */
 export async function hamtaTillbudInfo(sb: SupabaseClient): Promise<Map<string, TillbudInfo> | null> {
   let res: { data: unknown; error: unknown };

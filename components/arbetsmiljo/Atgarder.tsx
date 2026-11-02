@@ -13,7 +13,7 @@ import Sektion from '@/components/design/Sektion';
 import Ikon from '@/components/design/Ikon';
 import Tillstand from '@/components/design/Tillstand';
 import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
-import { ANMAL_LANK, hamtaTillbudInfo, markeraAnmald, type TillbudInfo } from '@/lib/arbetsmiljo/tillbud';
+import { ANMAL_LANK, ejAnmald, hamtaTillbudInfo, markeraAnmald, type TillbudInfo } from '@/lib/arbetsmiljo/tillbud';
 import {
   atgardTitel, deadlineText, farStanga, fornamn, fotoLank, gruppera, hamtaAtgarder, kallaText, narText, stangAtgard, svar, svenskDag, underText,
   type Atgard, type Las,
@@ -147,7 +147,7 @@ function Lista({ g, idag, tillbud, visaKlara, onVisaKlara, onOppna }: {
               const d = deadlineText(a.deadline, idag);
               return (
                 <Rad key={a.id} titel={atgardTitel(a, tillbud?.get(a.id)?.typ)}
-                  under={<>{a.beskrivning}<br />{underText(a)}</>}
+                  under={<>{a.beskrivning}<br />{underText(a)}{ejAnmald(tillbud?.get(a.id)) && <span data-ej-anmald style={{ color: FARG.orange }}> · Inte anmäld</span>}</>}
                   hoger={d ? <span style={{ color: d.sen ? FARG.orange : FARG.text }}>{d.text}</span> : undefined}
                   onTryck={() => onOppna(a.id)} sista={i === g.oppna.length - 1} attr={{ 'data-atgard': a.id }} />
               );

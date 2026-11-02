@@ -25,6 +25,7 @@ import { maskinEtikett } from "@/lib/besok/maskinerPaBesok";
 import { rollAvMaskintyp } from "@/lib/maskindatorStart";
 import { AM_STOPP, arStoppNotis, byggStoppNotis, type HamtaStopp } from "@/lib/arbetsmiljo/stoppNotis";
 import { AM_TILLBUD, arTillbudNotis, byggTillbudNotis, type HamtaTillbud } from "@/lib/arbetsmiljo/tillbudNotis";
+import { AM_ANMAL, arAnmalNotis, byggAnmalNotis, koaAnmalPaminnelse, type HamtaAnmal } from "@/lib/arbetsmiljo/anmalNotis";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -109,6 +110,14 @@ async function flush() {
     console.error("[notis/flush] godkänn-påminnelse:", e);
   }
 
+  // Arbetsmiljö: olycka som inte markerats anmäld till Arbetsmiljöverket 2 h efter rapporten → en påminnelse till admin (lib/arbetsmiljo/anmalNotis).
+  try {
+    const an = await koaAnmalPaminnelse(supabase);
+    if (!an.ok) console.error("[notis/flush] anmälan-påminnelse:", an.fel);
+  } catch (e) {
+    console.error("[notis/flush] anmälan-påminnelse:", e);
+  }
+
   const nu = new Date().toISOString();
   const { data: pendingRader, error } = await supabase
     .from("notis_kö")
@@ -116,7 +125,7 @@ async function flush() {
     // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
     // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts), liksom lönenotiserna (lib/lonesystem/granskaNotis.ts).
-    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, ...LON_NOTIS_TYPER]))
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_ANMAL, ...LON_NOTIS_TYPER]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -191,10 +200,11 @@ async function flush() {
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
       // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ)) {
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arAnmalNotis(n.typ)) {
         // Maskinen ska stå (lib/arbetsmiljo/stoppNotis): borta, åtgärdad eller inte längre stopp → hoppas över.
         // Tillbud/olycka (lib/arbetsmiljo/tillbudNotis): borta eller redan åtgärdad → hoppas över.
-        const u = arTillbudNotis(n.typ) ? await byggTillbudNotis(n, hamtaTillbud)
+        const u = arAnmalNotis(n.typ) ? await byggAnmalNotis(n, hamtaAnmal)
+          : arTillbudNotis(n.typ) ? await byggTillbudNotis(n, hamtaTillbud)
           : arStoppNotis(n.typ) ? await byggStoppNotis(n, hamtaStopp)
           : arGodkannNotis(n.typ) ? await byggGodkannNotis(n, () => lasVantandeUnderlag(supabase))
           : arBesokEjSett(n.typ) ? await byggEjSettNotis(n, hamtaEjSett)
@@ -352,6 +362,21 @@ const hamtaTillbud: HamtaTillbud = async (id) => {
   if (m.error || p.error) return { rad: null, fel: (m.error ?? p.error)!.message };
   const maskin = m.data as any;
   return { rad: { id: d.id, status: d.status, typ: t?.typ === "olycka" ? "olycka" : t?.typ === "tillbud" ? "tillbud" : null, beskrivning: d.beskrivning, maskin_namn: maskin?.visningsnamn || maskin?.modell || null, rapportor_namn: (p.data as any)?.namn ?? null } };
+};
+
+// Olyckan för anmälan-påminnelsen. `rad: null` = finns inte; `fel` = kunde inte läsas.
+const hamtaAnmal: HamtaAnmal = async (id) => {
+  const { data, error } = await supabase.from("am_tillbud").select("id, typ, anmald_tid, beskrivning, maskin_id").eq("id", id).maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const [a, m] = await Promise.all([
+    supabase.from("am_atgard").select("id").eq("tillbud_id", id).maybeSingle(),
+    d.maskin_id ? supabase.from("dim_maskin").select("visningsnamn, modell").eq("maskin_id", d.maskin_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (a.error || m.error) return { rad: null, fel: (a.error ?? m.error)!.message };
+  const maskin = m.data as any;
+  return { rad: { tillbud_id: d.id, atgard_id: (a.data as any)?.id ?? null, typ: d.typ === "olycka" ? "olycka" : "tillbud", anmald: d.anmald_tid != null, beskrivning: d.beskrivning, maskin_namn: maskin?.visningsnamn || maskin?.modell || null } };
 };
 
 // Inventarieraden för "Börjar ta slut". `rad: null` = finns inte; `fel` = kunde inte läsas. Tjänstenyckeln läser förbi RLS.
