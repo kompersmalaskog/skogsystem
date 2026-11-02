@@ -30,3 +30,18 @@ describe('Startsida — maskinkoll', () => {
     expect(el!.textContent).not.toContain('Dags för maskinkoll');
   });
 });
+
+describe('Startsida — skyddsombudet', () => {
+  // Grupperna är hopfällda; favoriterna visas direkt. Samma filter (lib/vyer) avgör båda.
+  async function med(skyddsombud: boolean) {
+    await act(async () => { rot = createRoot(el!); rot.render(<Startsida roll="forare" skyddsombud={skyddsombud} favoritIds={['atgarder', 'ledighet']} marken={{}} />); });
+  }
+  it('kan ha Åtgärder bland favoriterna; en förare utan uppdraget kan inte', async () => {
+    await med(true);
+    expect(el!.querySelector('a[href="/atgarder"]')).toBeTruthy();
+    act(() => { rot?.unmount(); }); rot = null;
+    await med(false);
+    expect(el!.querySelector('a[href="/atgarder"]')).toBeNull();
+    expect(el!.querySelector('a[href="/ledighet"]')).toBeTruthy();
+  });
+});

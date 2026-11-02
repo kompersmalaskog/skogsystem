@@ -139,7 +139,7 @@ export default function MaskinMeny({ maskinNamn, objektNamn, onBytObjekt, onStan
         style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: bredd, background: FARG.bg,
           paddingTop: 'env(safe-area-inset-top)', boxSizing: 'border-box',
           ...(panel ? { borderRight: `1px solid ${FARG.linje}` } : {}) }}>
-        <Startsida roll={roll} huvud={{ overst, under }} bred={panel}
+        <Startsida roll={roll} skyddsombud={data.skyddsombud} huvud={{ overst, under }} bred={panel}
           marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null, lass: data.vantandeLass, godkann: data.vantandeGodkannande, maskinkoll: data.maskinkollVantar, atgarder: data.atgarder?.antal ?? null, atgardStopp: data.atgarder?.stopp ?? null, personal: data.egnaUppgifter ? 1 : null }}
           egnaUppgifter={data.egnaUppgifter}
           datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna}
