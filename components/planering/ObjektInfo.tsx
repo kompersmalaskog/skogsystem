@@ -60,9 +60,11 @@ export interface ObjektInfoProps {
   bredd?: number;
   /** Traktens certifieringar (PEFC/FSC) — en rad "PEFC – vad gäller?" på kortet öppnar kraven. Tom/saknas = ingen rad. */
   cert?: CertTyp[];
+  /** "Ladda ner trakten" (lib/kartNedladdning): en dämpad rad på kortet — "Kartan sparad i enheten ✓" / "Sparar kartan … 60 %". null = ingen rad. */
+  kartaSparad?: string | null;
 }
 
-export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, enkel = null, forarRisker = null, onRiskerForbered, bredd, startVy = 'kort', cert = [] }: ObjektInfoProps) {
+export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, enkel = null, forarRisker = null, onRiskerForbered, bredd, startVy = 'kort', cert = [], kartaSparad = null }: ObjektInfoProps) {
   const onCert = cert.length ? { etikett: `${cert.join(' och ')} – vad gäller?`, onTryck: () => setVy('cert') } : undefined;
   const [vy, setVy] = useState<InfoVy>(startVy);
   const [riskFel, setRiskFel] = useState(false);
@@ -92,7 +94,7 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
           <KlarMedTrakten {...klar} namn={objektNamn} onStang={stangRam} onInfo={() => setVy('kort')} />
         ) : (vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner)) && enkel ? (
           <ObjektKortEnkel {...enkel} direktivSett={direktiv ? { sedd: direktiv.nya === 0, onSett: () => instruktioner!.onSett([DIREKTIV_NYCKEL]) } : null}
-            onStang={stangRam} onKnapp={onKnapp} onMer={() => setVy('mer')} onKarta={karta ? () => setVy('karta') : undefined} onCert={onCert}
+            onStang={stangRam} onKnapp={onKnapp} onMer={() => setVy('mer')} onKarta={karta ? () => setVy('karta') : undefined} onCert={onCert} kartaSparad={kartaSparad}
             risker={forarRisker ? { ...riskRadUnder(forarRisker.lista, forarRisker.last), onOppna: forarRisker.lista ? () => { setRiskFel(false); setVy('risker'); } : null } : null}
             onYta={(nyckel) => { sattDetent('halv'); enkel.onYta(nyckel, lage); }} />
         ) : vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner) ? (
@@ -101,7 +103,7 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
             namn={objektNamn} onStang={stangRam} onKlar={klar ? () => setVy('klar') : undefined}
             onRisker={klar && kort.riskRad && onRiskerForbered ? () => { onRiskerForbered(); setVy('klar'); } : undefined}
             onKnapp={onKnapp} onMer={() => setVy('mer')}
-            onPaTrakten={() => setVy('om')} onKarta={karta ? () => setVy('karta') : undefined} onCert={onCert} />
+            onPaTrakten={() => setVy('om')} onKarta={karta ? () => setVy('karta') : undefined} onCert={onCert} kartaSparad={kartaSparad} />
         ) : vy === 'om' ? (
           <OmTrakten {...om} start={aterstall} onVisa={(m) => om.onVisa(m, lage)} onSlapp={() => om.onSlapp('rad')} onTyp={(m) => { setTypOppen(!!m); om.onTyp(m, lage); }}
             objektNamn={objektNamn} objektId={objektId} onTillbaka={() => { stangOm(); om.onTyp(null, lage); om.onNav(null); setAterstall(undefined); setTypOppen(false); setVy('kort'); }} onStang={stangRam} />
