@@ -544,14 +544,6 @@ function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotar
   // övrigt bor i våning 1 (statusraden), korten upprepar det inte.
   const statusOrd = (slut?: string | null, lastDate?: string | null) =>
     slut ? `klar ${fmtISO(slut)}` : lastDate === idag ? 'kör idag' : null;
-  // Hur länge maskinen varit på trakten: från start till slut (klar) eller idag
-  // (pågår). Samma dag-räkning som hero ("dag N"), så siffrorna stämmer.
-  const dagarPa = (start?: string | null, slut?: string | null) => {
-    if (!start) return null;
-    const slutMs = slut ? new Date(slut).getTime() : Date.now();
-    return Math.max(1, Math.round((slutMs - new Date(start).getTime()) / 864e5));
-  };
-
   const skProd = data.prodSkordarePerDag || [];
   const skSnitt = skProd.length > 0 ? Math.round(skProd.reduce((a, b) => a + b.m3, 0) / skProd.length) : null;
   const stProd = data.lassPerDag || [];
@@ -572,7 +564,7 @@ function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotar
             primary={Math.round(data.skordat)}
             primaryUnit="m³" primaryLabel="skördat"
             snitt={skSnitt}
-            dagar={dagarPa(data.skordareStart, data.skordareSlut)}
+            dagar={skProd.length > 0 ? skProd.length : null}
           />
         )}
         {showSt && (
@@ -584,7 +576,7 @@ function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotar
             primaryUnit="m³"
             primaryLabel={skotareOmlastning ? 'omlastning · räknas ej i skotad total' : (data.skotatArManuell ? 'utkört (manuellt angivet)' : 'utkört')}
             snitt={stSnitt}
-            dagar={dagarPa(data.skotareStart, data.skotareSlut)}
+            dagar={stProd.length > 0 ? stProd.length : null}
           />
         )}
       </div>
@@ -656,78 +648,6 @@ function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
         ))}
       </div>
     </div>
-  );
-}
-
-// ── Tidslinje ─────────────────────────────────────────────────────────────
-// Spannet ("34 dagar") visas i collapse-rubriken — samma beräkning som
-// komponenten gör internt för procent-skalan.
-function tidslinjeDagar(data: UppfoljningData): number | null {
-  const allDates = [data.skordareStart, data.skordareSlut, data.skotareStart, data.skotareSlut].filter(Boolean) as string[];
-  if (allDates.length === 0) return null;
-  const withNow = [...allDates, new Date().toISOString().slice(0, 10)];
-  const min = withNow.reduce((a, b) => a < b ? a : b);
-  const max = withNow.reduce((a, b) => a > b ? a : b);
-  return daysBetween(min, max);
-}
-
-function Tidslinje({ data }: { data: UppfoljningData }) {
-  const allDates = [data.skordareStart, data.skordareSlut, data.skotareStart, data.skotareSlut].filter(Boolean) as string[];
-  if (allDates.length === 0) return null;
-  const now = new Date().toISOString().slice(0, 10);
-  const withNow = [...allDates, now];
-  const min = withNow.reduce((a, b) => a < b ? a : b);
-  const max = withNow.reduce((a, b) => a > b ? a : b);
-  const totalDays = daysBetween(min, max);
-  const toPct = (iso?: string | null) => iso ? (daysBetween(min, iso) / totalDays) * 100 : 0;
-  const today = toPct(now);
-
-  type Track = { label: string; color: string; start: string; end: string; active: boolean };
-  const tracks: Track[] = [];
-  if (data.skordareModell || data.skordareStart) {
-    tracks.push({ label: 'Skördare', color: V6_SK, start: data.skordareStart || min, end: data.skordareSlut || now, active: !data.skordareSlut });
-  }
-  if (data.skotareModell || data.skotareStart) {
-    tracks.push({ label: 'Skotare', color: V6_ST, start: data.skotareStart || min, end: data.skotareSlut || now, active: !!(data.skotareStart && !data.skotareSlut) });
-  }
-  if (tracks.length === 0) return null;
-
-  return (
-    <section style={{ padding: '0 24px 16px' }}>
-      <div style={{ background: V6_CARD, borderRadius: 16, padding: '18px 18px 16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: V6_GREY2, fontWeight: 600, marginBottom: 16, fontVariantNumeric: 'tabular-nums' }}>
-          <span>{fmtISO(min)}</span>
-          <span>{data.status === 'avslutat' ? fmtISO(max) : 'Idag'}</span>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 18, position: 'relative' }}>
-          {data.status !== 'avslutat' && (
-            <div style={{ position: 'absolute', left: `${today}%`, top: -10, bottom: -10, width: 1, background: 'rgba(255,255,255,0.14)', pointerEvents: 'none', zIndex: 1 }} />
-          )}
-          {tracks.map((t, i) => {
-            const startPct = toPct(t.start);
-            const endPct = toPct(t.end);
-            const width = Math.max(2, endPct - startPct);
-            return (
-              <div key={i}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: t.color }} />
-                  <span style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{t.label}</span>
-                  <span style={{ fontSize: 11, color: V6_GREY, fontVariantNumeric: 'tabular-nums', marginLeft: 'auto' }}>
-                    {fmtISO(t.start)} → {t.active ? 'pågår' : fmtISO(t.end)}
-                  </span>
-                </div>
-                <div style={{ position: 'relative', height: 12, background: 'rgba(255,255,255,0.04)', borderRadius: 6 }}>
-                  <div style={{ position: 'absolute', left: `${startPct}%`, width: `${width}%`, top: 0, bottom: 0, background: t.color, borderRadius: 6, opacity: t.active ? 1 : 0.5 }} />
-                  {t.active && (
-                    <div style={{ position: 'absolute', left: `${endPct}%`, top: -2, width: 16, height: 16, marginLeft: -8, borderRadius: '50%', background: t.color, boxShadow: `0 0 0 3px ${V6_CARD}, 0 0 14px ${t.color}` }} />
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -1369,12 +1289,6 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
     return delar.length > 0 ? delar.join(' · ') : null;
   })();
 
-  // Tidslinjen är "hur gick det", inte "vad är läget" — degraderad till
-  // detaljerna (våning 3). Gate:as på att minst ett spår kan ritas.
-  const tidslinjeVarde = (!!data.skordareModell || !!data.skordareStart || !!data.skotareModell || !!data.skotareStart)
-    ? tidslinjeDagar(data)
-    : null;
-
   const avbrottVarde = (() => {
     // Totalsträngarna ("4.2h") är samma tal som sektionens kort visar.
     const skH = (data.avbrottSkordare?.length || 0) > 0 ? parseFloat(data.avbrottSkordare_totalt) || 0 : 0;
@@ -1393,7 +1307,6 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   if (!risjobb && hasTradslagSort) hurDelar.push('trädslag');
   if (hasTidDiesel) hurDelar.push('tid & diesel');
   if (hasAvbrott) hurDelar.push('avbrott');
-  if (tidslinjeVarde != null) hurDelar.push('tidslinje');
   if (data.externSkotning) hurDelar.push('extern skotning');
   const harDjup = hurDelar.length > 0;
   const hurUndertext = hurDelar.slice(0, 3).join(' · ');
@@ -1448,7 +1361,6 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
             </Collapse>
           )}
           {hasAvbrott && <Collapse title="Avbrott" varde={avbrottVarde}><Avbrott data={data} /></Collapse>}
-          {tidslinjeVarde != null && <Collapse title="Tidslinje" varde={`${tidslinjeVarde} dagar`}><Tidslinje data={data} /></Collapse>}
           {data.externSkotning && <Collapse title="Extern skotning" varde={data.externForetag || null}><Extern data={data} /></Collapse>}
         </HurGickDet>
       )}
