@@ -22,10 +22,10 @@ describe('trädets storlek: FAST på skärmen', () => {
     expect(typeof lager.layout['icon-size']).toBe('number');
     expect(JSON.stringify(lager)).not.toContain('"zoom"');
   });
-  it('stubbe → topp är TRAD_SKARM_LANGD_PX (76 px) på skärmen: ca två symboler hög (en symbol är 64 px × 0,5–0,6 = 32–38 px)', () => {
+  it('stubbe → topp är TRAD_SKARM_LANGD_PX (52 px) på skärmen: ca en och en halv symbol hög (76 px var för stort, Martin 2026-11-02)', () => {
     expect(TRAD_TOPP_PX * TRAD_STORLEK).toBeCloseTo(TRAD_SKARM_LANGD_PX, 5);
     const symbol = 64 * 0.6;
-    expect(TRAD_SKARM_LANGD_PX / symbol).toBeGreaterThanOrEqual(1.8);
+    expect(TRAD_SKARM_LANGD_PX / symbol).toBeGreaterThanOrEqual(1.2);
     expect(TRAD_SKARM_LANGD_PX / symbol).toBeLessThanOrEqual(2.4);
   });
   it('ritas mot skärmen (viewport) så fast storlek gäller också när kartan lutas; vrids med kartan', () => {

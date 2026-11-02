@@ -131,7 +131,7 @@ const matTrad = (pg: any, id: string) => pg.evaluate((tid: string) => {
 }, id);
 
 describe.skipIf(!CHROMIUM)('Fällträd — riktig Chromium + MapLibre', () => {
-  it('FAST STORLEK: trädet är lika stort på skärmen vid zoom 14, 16 och 18 (och med lutad karta) — ca 76 px stubbe → topp, ungefär två symboler', async () => {
+  it('FAST STORLEK: trädet är lika stort på skärmen vid zoom 14, 16 och 18 (och med lutad karta) — ca 52 px stubbe → topp (Martin 2026-11-02: 76 var för stort)', async () => {
     const langder: number[] = [];
     for (const p of [{ zoom: 14, pitch: 0, bearing: 0 }, { zoom: 16, pitch: 0, bearing: 0 }, { zoom: 18, pitch: 0, bearing: 0 }, { zoom: 16.5, pitch: 50, bearing: 30 }]) {
       await oppna(p, async (pg) => {
@@ -143,7 +143,7 @@ describe.skipIf(!CHROMIUM)('Fällträd — riktig Chromium + MapLibre', () => {
       });
     }
     // kronans spets är en enda punkt och ritas med halvtäckande pixlar: den mätta längden varierar några px med vinkel och zoom — ett zoomberoende träd skulle skilja sig 16 gånger mellan zoom 14 och 18
-    for (const l of langder) { expect(l, JSON.stringify(langder)).toBeGreaterThan(62); expect(l, JSON.stringify(langder)).toBeLessThan(86); }
+    for (const l of langder) { expect(l, JSON.stringify(langder)).toBeGreaterThan(42); expect(l, JSON.stringify(langder)).toBeLessThan(60); }
     expect(Math.max(...langder) - Math.min(...langder), JSON.stringify(langder)).toBeLessThan(10);
   }, 240000);
 

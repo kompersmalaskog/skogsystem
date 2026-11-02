@@ -14457,7 +14457,7 @@ export default function PlannerPage() {
         };
         }
         const op = objektInfoSenasteRef.current;
-        return op ? <ObjektInfo oppen={infoOppen} startVy={infoStartVy} cert={certTyper(valtObjekt?.cert)} {...op} /> : null;
+        return op ? <ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} /> : null;
       })()}
 
       {/* === MODE-BANNER (aktivt verktygsläge) === */}
