@@ -3,7 +3,7 @@
 // Ärligt: ett läsfel är ett fel, aldrig en tom lista.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Kontakt, Larmplats, NodData } from './nod';
+import { giltigAndring, type KortAndring, type Kontakt, type Larmplats, type NodData } from './nod';
 
 export type TillbudTyp = 'tillbud' | 'olycka';
 
@@ -91,8 +91,9 @@ export const ANMAL_LANK = 'https://anmalarbetsskada.se';
 
 /** Nödsidans data: vem man ringer och traktenas larmplatser. Läsfel → null (sidan använder det som finns sparat). */
 export async function hamtaNodData(sb: SupabaseClient, nu: number = Date.now()): Promise<NodData | null> {
-  const [k, o] = await Promise.all([
+  const [k, o, r] = await Promise.all([
     sb.rpc('am_nodkontakter'),
+    sb.from('am_rutinkort').select('id, titel, steg1, steg2, steg3, andrad_tid'),
     sb.from('objekt').select('id, namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, status')
       .not('larmkoordinat_lat', 'is', null).not('larmkoordinat_lng', 'is', null).neq('status', 'avslutat'),
   ]);
@@ -103,5 +104,25 @@ export async function hamtaNodData(sb: SupabaseClient, nu: number = Date.now()):
   const larmplatser: Larmplats[] = (o.data as any[])
     .map(r => ({ objektId: r.id as string, namn: (r.namn as string) || 'Trakten', lat: Number(r.larmkoordinat_lat), lng: Number(r.larmkoordinat_lng), beskrivning: r.larmkoordinat_beskrivning?.trim() || null }))
     .filter(l => Number.isFinite(l.lat) && Number.isFinite(l.lng));
-  return { kontakter, larmplatser, hamtad: nu };
+  // Korten är ett tillägg: kunde de inte läsas saknas `andringar` (slaIhopNod behåller då det som var sparat).
+  const andringar: KortAndring[] | undefined = r.error || !Array.isArray(r.data) ? undefined
+    : (r.data as any[]).map(x => ({ id: x.id, titel: x.titel, steg: [x.steg1, x.steg2, x.steg3] as [string, string, string], andradTid: x.andrad_tid ?? null })).filter(giltigAndring);
+  return { kontakter, larmplatser, hamtad: nu, ...(andringar ? { andringar } : {}) };
+}
+
+/** Admin sparar ett korts rubrik och steg. Läser tillbaka raden. null = sparat; annars felet i ord. */
+export async function sparaKort(sb: SupabaseClient, a: { id: string; titel: string; steg: [string, string, string] }): Promise<string | null> {
+  const titel = a.titel.trim(); const steg = a.steg.map(s => s.trim());
+  if (!titel || steg.some(s => !s)) return 'Fyll i rubriken och alla tre stegen.';
+  const { data, error } = await sb.from('am_rutinkort').upsert({ id: a.id, titel, steg1: steg[0], steg2: steg[1], steg3: steg[2] }).select('titel, steg1, steg2, steg3').maybeSingle();
+  if (error || !data) return 'Kunde inte spara. Försök igen.';
+  const d = data as { titel: string; steg1: string; steg2: string; steg3: string };
+  if (d.titel !== titel || d.steg1 !== steg[0] || d.steg2 !== steg[1] || d.steg3 !== steg[2]) return 'Kunde inte spara. Försök igen.';
+  return null;
+}
+
+/** Tillbaka till appens text: ändringen tas bort. */
+export async function aterstallKort(sb: SupabaseClient, id: string): Promise<string | null> {
+  const { error } = await sb.from('am_rutinkort').delete().eq('id', id);
+  return error ? 'Kunde inte spara. Försök igen.' : null;
 }

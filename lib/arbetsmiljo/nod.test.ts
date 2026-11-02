@@ -106,3 +106,36 @@ describe('tillbudspushen', () => {
     expect((await byggTillbudNotis(n({ payload: {} }), async () => ({ rad: rad() }), nu)).typ).toBe('hoppa_over');
   });
 });
+
+describe('rutinkortens ändringar', () => {
+  it('admins ändring ersätter kortet men ordningen är appens; ofullständiga och okända rader hoppas över', async () => {
+    const { kortMedAndringar, RUTINKORT } = await import('./nod');
+    const k = kortMedAndringar([
+      { id: 'brand', titel: ' Brand! ', steg: ['a', 'b', 'c'], andradTid: null },
+      { id: 'skadad', titel: 'x', steg: ['a', '', 'c'], andradTid: null },
+      { id: 'okant', titel: 'x', steg: ['a', 'b', 'c'], andradTid: null } as any,
+    ]);
+    expect(k.map(x => x.id)).toEqual(RUTINKORT.map(x => x.id));
+    expect(k.find(x => x.id === 'brand')).toEqual({ id: 'brand', titel: 'Brand!', steg: ['a', 'b', 'c'] });
+    expect(k.find(x => x.id === 'skadad')!.titel).toBe('Någon är skadad');
+  });
+
+  it('kunde korten inte läsas behålls de sparade ändringarna — aldrig tyst tillbaka till appens text', async () => {
+    const { slaIhopNod, tolkaNod } = await import('./nod');
+    const gammal = { kontakter: [], larmplatser: [], hamtad: 1, andringar: [{ id: 'brand', titel: 'B', steg: ['a', 'b', 'c'] as [string, string, string], andradTid: null }] };
+    expect(slaIhopNod({ kontakter: [], larmplatser: [], hamtad: 2 }, gammal).andringar).toEqual(gammal.andringar);
+    expect(slaIhopNod({ kontakter: [], larmplatser: [], hamtad: 2, andringar: [] }, gammal).andringar).toEqual([]);
+    expect(tolkaNod(JSON.stringify(gammal))!.andringar).toEqual(gammal.andringar);
+    expect(tolkaNod(JSON.stringify({ kontakter: [], larmplatser: [], hamtad: 1 }))!.andringar).toBeUndefined();
+  });
+});
+
+describe('databasens kort', () => {
+  it('migrationens CHECK har exakt appens kort-id', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { RUTINKORT } = await import('./nod');
+    const sql = readFileSync(`${__dirname}/../../supabase/migrations/20261102145454_am_rutinkort.sql`, 'utf8');
+    const ids = sql.match(/id in \(([^)]+)\)/)![1].split(',').map(x => x.trim().replace(/'/g, ''));
+    expect(ids).toEqual(RUTINKORT.map(k => k.id));
+  });
+});
