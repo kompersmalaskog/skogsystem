@@ -123,3 +123,35 @@ describe('föraren', () => {
     expect(q('forar-risker-last')!.textContent).toBe('Läst ✓');
   });
 });
+
+import RiskKortHytt from './RiskKortHytt';
+import { riskKortLedigt } from '@/lib/instruktioner/ordning';
+
+describe('riskkortet i hytten', () => {
+  const lista = aktuellaRisker(FORSLAG, RISK_TOM);
+
+  it('visar riskerna och vad man gör direkt i kortet; "Jag har läst" kvitterar', () => {
+    let tryck = 0;
+    montera(<RiskKortHytt risker={lista} top="0px" sparar={false} fel={false} onLast={() => { tryck++; }} />);
+    expect(q('risk-kort-under')!.textContent).toBe('2 risker · Läs innan du börjar');
+    expect(q('risk-kort-lista')!.textContent).toContain('Kör rakt upp och ner');
+    klicka(q('risk-kort-las'));
+    expect(tryck).toBe(1);
+  });
+
+  it('medan det sparas finns ingen knapp att trycka två gånger; ett fel sägs', () => {
+    montera(<RiskKortHytt risker={lista} top="0px" sparar fel onLast={() => {}} />);
+    expect(q('risk-kort-las')).toBeNull();
+    expect(q('risk-kort-sparar')).not.toBeNull();
+    expect(q('risk-kort-fel')!.textContent).toBe('Kunde inte spara. Försök igen.');
+  });
+
+  it('ordningen: fara, lossning och besök går före; inget att läsa = inget kort', () => {
+    const bas = { harOlasta: true, larmVisas: false, lossningVisas: false, besokVisas: false };
+    expect(riskKortLedigt(bas)).toBe(true);
+    expect(riskKortLedigt({ ...bas, harOlasta: false })).toBe(false);
+    expect(riskKortLedigt({ ...bas, larmVisas: true })).toBe(false);
+    expect(riskKortLedigt({ ...bas, lossningVisas: true })).toBe(false);
+    expect(riskKortLedigt({ ...bas, besokVisas: true })).toBe(false);
+  });
+});

@@ -159,6 +159,11 @@ export function ForarRisker(p: ForarRiskerProps) {
   );
 }
 
+/** PLANERARENS rad i ⓘ-kortet (Martin 2026-11-01: han satte en ledning och letade efter risken i ⓘ). Orange tills listan är godkänd, grön sedan. */
+export function planerarRiskRad(antal: number, godkand: boolean): { text: string; ton: 'orange' | 'gron' } {
+  return godkand ? { text: `${riskAntalText(antal)} · Godkänd ✓`, ton: 'gron' } : { text: `${riskAntalText(antal)} · Godkänn innan maskinen börjar`, ton: 'orange' };
+}
+
 /** Raden på förarens ⓘ-kort: "Risker på trakten · 3 risker" och "Läs innan du börjar" (orange) eller "Läst ✓". null-lista = bedömningen är inte gjord. */
 export function riskRadUnder(risker: Risk[] | null, last: boolean): { text: string; ton: 'orange' | 'gron' | 'dampad' } {
   if (risker == null) return { text: 'Riskbedömningen är inte gjord än', ton: 'dampad' };

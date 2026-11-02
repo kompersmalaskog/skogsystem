@@ -26,6 +26,7 @@ import { anvandObjektLista, anvandObjektListaUtanObjekt } from '../../lib/objekt
 import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
 import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/ObjektInfo'
+import { planerarRiskRad } from '../../components/planering/Risker'
 import { type BesokPlanerareProps } from '../../components/besok/BesokPlanerare'
 import BesokKortHytt from '../../components/besok/BesokKortHytt'
 import { useBesokHytt } from '../../lib/hooks/useBesokHytt'
@@ -65,7 +66,8 @@ import { brandAttSkriva, brandKolumnerFranVarden, brandVardenFranRader, type Bra
 import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type TmaBaslinje, type TmaDbRad } from '../../lib/tmaSpar'
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
 import { useInstruktioner } from '../../lib/hooks/useInstruktioner'
-import { avlaggsradLedig, instruktionBlockerad, larmHallerPlatsen } from '../../lib/instruktioner/ordning'
+import { avlaggsradLedig, instruktionBlockerad, larmHallerPlatsen, riskKortLedigt } from '../../lib/instruktioner/ordning'
+import RiskKortHytt from '../../components/planering/RiskKortHytt'
 import { PULS_KALLA, pulsData, pulsFas, pulsLagerSpecar, pulsPaint, type Puls } from '../../lib/larm/pulsKarta'
 import { ytaRader } from '../../lib/ytaRader'
 import { rensaVidaNamn, brickaFarg } from '../../lib/ytaNamn'
@@ -4061,6 +4063,8 @@ export default function PlannerPage() {
   }), [markers, traktGeo, infoTerrang, infoBarighet, infoSkordareManFall]);
   const riskLista = useMemo(() => aktuellaRisker(riskForslag, klarFalt.riskbedomning), [riskForslag, klarFalt.riskbedomning]);
   const riskGodkand = riskLage(riskLista, klarFalt.riskbedomning) === 'godkand';
+  const [riskKortSparar, setRiskKortSparar] = useState(false);
+  const [riskKortFel, setRiskKortFel] = useState(false);
   const riskLast = useRiskLast(supabase, valtObjekt?.id ?? null, currentMedarbetare?.id ?? null, !!testlage);
   const forarRiskNu = forarRisk(riskLista, klarFalt.riskbedomning, riskLast.kvitton.filter((k) => k.medarbetareId === currentMedarbetare?.id).map((k) => k.underlag));
   const klarIn: KlarIndata = {
@@ -12426,6 +12430,11 @@ export default function PlannerPage() {
     bakgrund: hyttNotiserPa,
   });
   const besokKortSynligt = besokHytt.vantar.length > 0 && !larm.kort && !lossningVisas;
+  // RISKERNA I HYTTEN: godkänd riskbedömning som föraren inte läst → kort högst upp tills "Jag har läst" (components/planering/RiskKortHytt, ordning i lib/instruktioner/ordning).
+  // Visas först när ALLT som listan bygger på är läst (markeringar, Vidas underlag, förutsättningar, kvittona) — annars kunde kortet blinka förbi för en förare som redan läst.
+  const riskKortData = instruktionerAktiv && korvyActive && klarDataKlart && !!valtObjekt?.id && traktGeoHamtadFor === String(valtObjekt.id) && riskLast.lage === 'ok'
+    && !!forarRiskNu.risker && forarRiskNu.risker.length > 0 && !forarRiskNu.last ? forarRiskNu : null;
+  const riskKortSynligt = riskKortLedigt({ harOlasta: !!riskKortData, larmVisas: !!larm.kort, lossningVisas, besokVisas: besokKortSynligt });
   // === BESÖK: 70 m-ring runt maskinen medan ett besök är aktivt (till besökstid + 2 h) ===
   // Egen källa och egna lager (prefixet larm- hör till körvyns whitelist). Ritas för skördare och skotare, i körvy/maskinläge. Rött + streckat: en gräns att hålla utanför, inte en färg som bär ensam.
   useEffect(() => {
@@ -12456,8 +12465,8 @@ export default function PlannerPage() {
     objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id) } : null,
     db: supabase,
-    blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' || larm.fler.some((x) => x.grupp === 'fara') }), lossningVisas }) || besokKortSynligt,
-    blockeradPaminnelse: !!larm.kort || lossningVisas || besokKortSynligt,   // larm och lossningskort går före påminnelsen: den göms medan något av dem visas och kommer tillbaka efteråt
+    blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' || larm.fler.some((x) => x.grupp === 'fara') }), lossningVisas }) || besokKortSynligt || riskKortSynligt,
+    blockeradPaminnelse: !!larm.kort || lossningVisas || besokKortSynligt || riskKortSynligt,   // larm och lossningskort går före påminnelsen: den göms medan något av dem visas och kommer tillbaka efteråt
     torr: !!testlage,
   });
   // NOTISER I HYTTEN: fara, besök och område som Windows-notis när fönstret inte är framme (synligt OCH valt). Ett tillägg — korten i appen fungerar som förut. Passiv när brytaren är av.
@@ -14226,6 +14235,8 @@ export default function PlannerPage() {
             brand: Number.isFinite(Number(valtObjekt.lat)) && Number.isFinite(Number(valtObjekt.lng)) && valtObjekt.lat != null && valtObjekt.lng != null ? { lat: Number(valtObjekt.lat), lng: Number(valtObjekt.lng) } : null,
             onBrand: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
             klarRad: klarGaller ? { chip: klarChip } : null,
+            // Risker på trakten — egen rad direkt under Faror för planeraren (Martin 2026-11-01: letade efter risken i ⓘ efter att ha satt en ledning).
+            riskRad: klarGaller && klarDataKlart ? planerarRiskRad(riskLista.length, riskGodkand) : null,
             // Besök på trakten: bara planeraren (riktig admin) i planeringsläget — aldrig i maskinen eller för en förare.
             besok: kortRoll === 'planerare' && isAdminRiktig && !maskinlage && !maskinSomParam && valtObjekt.id ? {
               objektId: String(valtObjekt.id), status: valtObjekt.status ?? null,
@@ -14319,6 +14330,7 @@ export default function PlannerPage() {
           karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features), roll: malbildRoll },
           instruktioner: instruktionerAktiv ? { data: inst.paTrakten, onSett: inst.settOmraden } : null,
           // Riskbedömningen för föraren (maskinläget): raden "Risker på trakten" och listan med "Jag har läst".
+          onRiskerForbered: () => { klarVyRef.current = { v: 'steg', flode: { typ: 'ett', steg: 'risker', till: 'kort' } }; },
           forarRisker: instruktionerAktiv && klarHook.lage === 'ok' ? {
             lista: forarRiskNu.risker, last: forarRiskNu.last,
             onLast: () => (forarRiskNu.underlag ? riskLast.kvittera(forarRiskNu.underlag, testlage?.maskinId ?? enhetMaskinId ?? null) : Promise.resolve(false)),
@@ -14695,8 +14707,22 @@ export default function PlannerPage() {
           onUppfattat={() => { void besokHytt.kvittera(besokHytt.vantar[0].id); }}
         />
       )}
+      {/* RISKERNA PÅ TRAKTEN — tills föraren tryckt "Jag har läst". Larm, lossning och besök går före; instruktionerna väntar på det. */}
+      {riskKortSynligt && riskKortData?.risker && (
+        <RiskKortHytt
+          risker={riskKortData.risker}
+          top={instruktionTop}
+          sparar={riskKortSparar}
+          fel={riskKortFel}
+          onLast={() => {
+            if (!riskKortData.underlag) return;
+            setRiskKortFel(false); setRiskKortSparar(true);
+            void riskLast.kvittera(riskKortData.underlag, testlage?.maskinId ?? enhetMaskinId ?? null).then((ok) => { setRiskKortSparar(false); setRiskKortFel(!ok); });
+          }}
+        />
+      )}
       {/* TILLÅT NOTISER: en gång vid start i maskinen, bara om Chrome inte frågat. Larm, besök och lossning går före. */}
-      <HyttNotisTillat aktiv={instruktionerAktiv && hyttNotiserPa} dolj={!!larm.kort || besokKortSynligt || lossningVisas || !!inst.kort} top={instruktionTop} />
+      <HyttNotisTillat aktiv={instruktionerAktiv && hyttNotiserPa} dolj={!!larm.kort || besokKortSynligt || lossningVisas || !!inst.kort || riskKortSynligt} top={instruktionTop} />
       {korvyActive && inst.kort && (
         <InstruktionKortVy
           kort={inst.kort}
@@ -14716,7 +14742,7 @@ export default function PlannerPage() {
         />
       )}
       {/* PASSAGE PÅ PLANERAD VÄG genom en förbjuden yta: inget larmkort, inget ljud, bara raden "Passage genom Hänsyn 6" (lib/larm/passage). Allt annat överst går före. */}
-      {korvyActive && larm.passage && !larm.kort && !inst.kort && !inst.paminnelse && !besokKortSynligt && !lossningVisas && (
+      {korvyActive && larm.passage && !larm.kort && !inst.kort && !inst.paminnelse && !besokKortSynligt && !riskKortSynligt && !lossningVisas && (
         <PassageRad passage={larm.passage} top={instruktionTop} />
       )}
       {korvyActive && grindKort && (
@@ -14726,7 +14752,7 @@ export default function PlannerPage() {
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${larm.kort && !inst.kort ? 96 : 0}px + ${larmMalbild(inst.kort ? null : larm.kort) ? LARM_MALBILD_RAD_PX : 0}px)`}
         />
       )}
-      {korvyActive && !skotarKorvy && fgFall && !fall.grupp && !larm.kort && !inst.kort && !grindKort && (
+      {korvyActive && !skotarKorvy && fgFall && !fall.grupp && !larm.kort && !inst.kort && !grindKort && !riskKortSynligt && (
         <FastighetsgransKortVy
           fall={fgFall}
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}

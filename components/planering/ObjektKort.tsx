@@ -57,6 +57,9 @@ export interface ObjektKortProps {
   /** FÖRARENS sammanfattning av planeringen: det planeraren fyllt i, utan Klar-knapp och utan redigering. null/saknas = visas inte (planerare ser kortet "Klar med trakten?" i stället). */
   planering?: { rader: SammanfattningRad[]; oplanerad: boolean; gamla: string } | null;
   klarRad?: { chip: { text: string; ton: 'orange' | 'gron' | 'neutral' } | null } | null;
+  /** PLANERAREN: "Risker på trakten" direkt under Faror — öppnar steget Risker i "Klar med trakten?". null/saknas = ingen rad. */
+  riskRad?: { text: string; ton: 'orange' | 'gron' } | null;
+  onRisker?: () => void;
   onKlar?: () => void;
   /** Besök på trakten (planerarens kort): SMS till markägaren, besökslänken och loggen. null/saknas = visas inte (förare, maskinläget). */
   besok?: BesokPlanerareProps | null;
@@ -81,6 +84,16 @@ export default function ObjektKort(p: ObjektKortProps) {
           <div data-testid="kort-faror" role="note" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, marginBottom: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: FARG.upphojt }}>
             <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.rod, flexShrink: 0 }}>warning</span>
             <span style={{ ...TYP.listtitel, color: FARG.rod, overflowWrap: 'anywhere' }}>Faror: {p.faror.join(', ')}</span>
+          </div>
+        )}
+
+        {/* RISKER PÅ TRAKTEN — planerarens riskbedömning, direkt under Faror; ett tryck öppnar steget Risker */}
+        {p.riskRad && p.onRisker && (
+          <div style={{ marginBottom: AVSTAND.m }}>
+            <Gruppkort testid="kort-planerare-risker">
+              <RadKnapp forstaRad testid="kort-planerare-risker-rad" ikon="health_and_safety" etikett="Risker på trakten" onTryck={p.onRisker}
+                under={<span data-testid="kort-planerare-risker-under" data-ton={p.riskRad.ton} style={{ color: p.riskRad.ton === 'orange' ? FARG.orange : FARG.gron }}>{p.riskRad.text}</span>} />
+            </Gruppkort>
           </div>
         )}
 

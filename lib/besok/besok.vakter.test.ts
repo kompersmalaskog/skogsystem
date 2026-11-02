@@ -100,7 +100,7 @@ describe('planeringsvyn: besöken syns bara där de ska', () => {
     expect(page).toContain('{instruktionerAktiv && besokKortSynligt && (');
   });
   it('instruktionskortet väntar på besökskortet', () => {
-    expect(page).toMatch(/lossningVisas \}\) \|\| besokKortSynligt,/);
+    expect(page).toMatch(/lossningVisas \}\) \|\| besokKortSynligt \|\| riskKortSynligt,/);
   });
   it('ringen: egna lager med prefixet larm- (körvyns whitelist), radien ur konstanten, bara medan ett besök är aktivt', () => {
     expect(page).toContain("id: 'larm-besok-ring-fyll'");

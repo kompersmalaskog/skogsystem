@@ -25,3 +25,10 @@ export const instruktionBlockerad = (a: { larmVisas: boolean; lossningVisas: boo
  * `instruktionVantar` gäller också medan instruktionen själv väntar på larm/lossning — då har den redan företräde framför avläggsraden.
  */
 export const avlaggsradLedig = (a: { ledigtUtanInstruktion: boolean; instruktionVantar: boolean }): boolean => a.ledigtUtanInstruktion && !a.instruktionVantar;
+
+/**
+ * RISKKORTET i hytten (components/planering/RiskKortHytt): riskbedömningen föraren inte läst. Det läses innan arbetet börjar, så det går före instruktionerna
+ * (de väntar tills "Jag har läst"), men aldrig före fara, lossning eller ett besök som väntar på "Uppfattat". Inga risker = inget kort (inget att läsa).
+ */
+export const riskKortLedigt = (a: { harOlasta: boolean; larmVisas: boolean; lossningVisas: boolean; besokVisas: boolean }): boolean =>
+  a.harOlasta && !a.larmVisas && !a.lossningVisas && !a.besokVisas;
