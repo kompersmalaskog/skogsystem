@@ -113,7 +113,7 @@ export const YTA: Readonly<Record<string, YtaDef>> = {
   noentry: { grupp: 'fara', namn: 'Ej framkomlig', forbjuden: true },
   fornlamning: { grupp: 'kultur', namn: 'Fornlämning', forbjuden: true },
   // Sly/plantskog intill trakten (Martin 2026-11-02): föraren ska se var den är och inte fälla ut i den, men ingen "kör inte in" och inget larm.
-  ungskog: { grupp: 'natur', namn: 'Ungskog', forbjuden: false, larmar: false },
+  ungskog: { grupp: 'natur', namn: 'Fäll inte ut här', forbjuden: false, larmar: false },   // nyckeln heter ungskog (sparad data), namnet säger vad föraren ska göra (Martin 2026-11-02)
 };
 export const ytaDef = (zoneType: string | null | undefined): YtaDef | null => (zoneType && YTA[zoneType]) || null;
 

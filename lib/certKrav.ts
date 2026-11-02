@@ -29,7 +29,7 @@ export const CERT_INFO: Readonly<Record<CertTyp, CertInfo>> = {
     krav: [
       { rubrik: 'Minst 10 träd per hektar', text: 'Vid föryngringsavverkning lämnas i genomsnitt minst tio träd per hektar.', kalla: 'FSC faktablad Hänsynsträd (6.6.1–6.6.3)' },
       { rubrik: 'Större hyggen', text: 'Över 4 ha i södra Sverige: träd i avsättningar och kantzoner räknas inte in i de tio. Ingen punkt får ligga mer än 70 m från ett hänsynsobjekt eller hyggeskant.', kalla: 'FSC faktablad Hänsynsträd' },
-      { rubrik: 'Högstubbar', text: 'Appen räknar med 3 per hektar. Kravet är inte kontrollerat mot FSC-standarden — fråga Vida.', kalla: 'Inte kontrollerat', kontrollera: true },
+      { rubrik: 'Högstubbar', text: 'Minst 3 högstubbar per hektar, samma som PEFC.', kalla: 'Kompersmåla Skogs praxis (Martin 2026-11-02)' },
     ],
     lankar: [{ text: 'FSC faktablad Hänsynsträd', url: FSC_FAKTA_URL }, { text: 'FSC-standarden för Sverige', url: FSC_STANDARD_URL }],
   },
