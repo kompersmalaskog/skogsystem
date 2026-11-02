@@ -85,7 +85,7 @@ export function grupperaPunkter(punkter: readonly Punkt[]): { omrade: string; na
 }
 
 export type SvarTyp = 'ok' | 'brist' | 'galler_inte';
-export type Svar = { punkt: string; svar: SvarTyp; beskrivning: string | null };
+export type Svar = { id?: string; punkt: string; svar: SvarTyp; beskrivning: string | null };
 export type Rond = { id: string; punkter: Punkt[]; deltagare: string | null; startad: string; klar: string | null; svar: Svar[] };
 
 export const OFTA_DAGAR = 365;
@@ -134,14 +134,23 @@ function tolkaPunkter(raw: unknown): Punkt[] {
 export async function hamtaRonder(sb: SupabaseClient): Promise<Rond[] | null> {
   const [r, s] = await Promise.all([
     sb.from('am_skyddsrond').select('id, punkter, deltagare, startad, klar').order('startad', { ascending: false }),
-    sb.from('am_skyddsrond_svar').select('rond_id, punkt, svar, beskrivning'),
+    sb.from('am_skyddsrond_svar').select('id, rond_id, punkt, svar, beskrivning'),
   ]);
   if (r.error || s.error || !Array.isArray(r.data) || !Array.isArray(s.data)) return null;
-  const svar = s.data as { rond_id: string; punkt: string; svar: SvarTyp; beskrivning: string | null }[];
+  const svar = s.data as { id: string; rond_id: string; punkt: string; svar: SvarTyp; beskrivning: string | null }[];
   return (r.data as { id: string; punkter: unknown; deltagare: string | null; startad: string; klar: string | null }[]).map(x => ({
     id: x.id, punkter: tolkaPunkter(x.punkter), deltagare: x.deltagare, startad: x.startad, klar: x.klar,
-    svar: svar.filter(y => y.rond_id === x.id).map(y => ({ punkt: y.punkt, svar: y.svar, beskrivning: y.beskrivning })),
+    svar: svar.filter(y => y.rond_id === x.id).map(y => ({ id: y.id, punkt: y.punkt, svar: y.svar, beskrivning: y.beskrivning })),
   }));
+}
+
+/** Åtgärderna som bristerna blev (för PDF:en). null = kunde inte läsas. */
+export async function hamtaRondAtgarder(sb: SupabaseClient): Promise<{ svarId: string; status: 'oppen' | 'klar'; deadline: string | null; vadGjordes: string | null; stangdTid: string | null }[] | null> {
+  const { data, error } = await sb.from('am_atgard').select('skyddsrond_svar_id, status, deadline, vad_gjordes, stangd_tid').eq('kalla', 'skyddsrond');
+  if (error || !Array.isArray(data)) return null;
+  return (data as { skyddsrond_svar_id: string | null; status: 'oppen' | 'klar'; deadline: string | null; vad_gjordes: string | null; stangd_tid: string | null }[])
+    .filter(a => a.skyddsrond_svar_id)
+    .map(a => ({ svarId: a.skyddsrond_svar_id!, status: a.status, deadline: a.deadline, vadGjordes: a.vad_gjordes, stangdTid: a.stangd_tid }));
 }
 
 /** Startar en rond med listan som gäller nu. null = gick inte. */

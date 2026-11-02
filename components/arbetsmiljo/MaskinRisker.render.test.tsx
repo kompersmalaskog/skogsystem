@@ -35,6 +35,7 @@ vi.mock('@/lib/arbetsmiljo/maskinRisk', async (orig) => {
     kvittera: async (_s: unknown, id: string, typ: MaskinTyp, u: string) => { kvitton.push({ medarbetareId: id, maskintyp: typ, underlag: u, tid: '2026-11-02T11:00:00Z' }); return true; },
   };
 });
+vi.mock('@/app/helikopter/_components/PdfForhandsvisning', () => ({ default: ({ titel }: { titel: string }) => <div data-testid="pdf-panel">{titel}</div> }));
 import MaskinRisker from './MaskinRisker';
 import { lista, underlag } from '@/lib/arbetsmiljo/maskinRisk';
 
@@ -59,6 +60,7 @@ describe('Riskbedömning per maskintyp', () => {
     await act(async () => { q('[data-testid="mr-typ-skotare"]')!.click(); });
     expect(q('[data-testid="mr-risk-last"]')).toBeTruthy();
     expect(q('[data-testid^="mr-bort-"]')).toBeNull();
+    expect(q('[data-testid="mr-pdf"]')).toBeNull();
     await act(async () => { q('[data-testid="mr-las"]')!.click(); }); await vanta();
     expect(q('[data-testid="mr-last"]')!.textContent).toContain('Läst');
     expect(q('[data-testid="mr-svar"]')!.textContent).toBe('Du har läst riskerna för din maskin ✓');
@@ -68,6 +70,8 @@ describe('Riskbedömning per maskintyp', () => {
     jag = { ...jag, id: 'martin', roll: 'admin' };
     await act(async () => { root.render(<MaskinRisker />); }); await vanta();
     expect(q('[data-testid="mr-svar"]')!.textContent).toBe('3 av 4 att godkänna');
+    await act(async () => { q('[data-testid="mr-pdf"]')!.click(); });
+    expect(q('[data-testid="pdf-panel"]')!.textContent).toBe('Riskbedömning');
     await act(async () => { q('[data-testid="mr-typ-skotare"]')!.click(); });
     expect(q('[data-testid="mr-lasta"]')!.textContent).toBe('Stefan har inte läst');
     await act(async () => { q('[data-testid="mr-bort-brand"]')!.click(); }); await vanta();
