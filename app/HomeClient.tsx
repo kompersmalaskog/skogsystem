@@ -116,7 +116,7 @@ function NyStartsida({ roll, data }: { roll: Roll; data: StartsidaData }) {
   const { besked } = useDatahalsa()
   return (
     <Startsida roll={roll} skyddsombud={data.skyddsombud} marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null, lass: data.vantandeLass, godkann: data.vantandeGodkannande, maskinkoll: data.maskinkollVantar, atgarder: data.atgarder?.antal ?? null, atgardStopp: data.atgarder?.stopp ?? null, personal: data.egnaUppgifter ? 1 : null }}
-          egnaUppgifter={data.egnaUppgifter} introduktion={data.introduktion}
+          egnaUppgifter={data.egnaUppgifter} introduktion={data.introduktion} arbetsmiljo={data.arbetsmiljo}
       datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna}
       konto={data.konto} onLoggaUt={data.loggaUt} />
   )

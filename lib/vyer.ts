@@ -70,6 +70,8 @@ export const VYER: Vy[] = [
   { id: 'atgarder', namn: 'Åtgärder', href: '/atgarder', ikon: 'build', grupp: 'maskiner', bara: 'admin', aven: 'skyddsombud', marke: 'atgarder', sokord: ['arbetsmiljö', 'skyddsrond', 'fel', 'stopp', 'maskinkoll'] },
   // Om något händer: 112, larmplatsen, tre steg per situation, rapportera tillbud. Står också fast under sökfältet på startsidan.
   { id: 'om-nagot-hander', namn: 'Om något händer', href: '/om-nagot-hander', ikon: 'emergency', grupp: 'maskiner', sokord: ['112', 'olycka', 'tillbud', 'brand', 'skada', 'nödnummer', 'larm', 'första hjälpen', 'kraftledning'] },
+  // Riskbedömning per maskintyp (AFS 2023:1): admin godkänner varje år, föraren läser riskerna för sin maskin.
+  { id: 'riskbedomning', namn: 'Riskbedömning', href: '/riskbedomning', ikon: 'health_and_safety', grupp: 'maskiner', sokord: ['risk', 'risker', 'arbetsmiljö', 'säkerhet', 'motorsåg'] },
   { id: 'nagot-ar-fel', namn: 'Något är fel', href: '/maskinkoll?fel=1', ikon: 'report', grupp: 'maskiner', sokord: ['fel', 'trasig', 'läcker', 'rapportera', 'skada', 'arbetsmiljö'] },
   { id: 'kontroller', namn: 'Kontroller', href: '/kontroller', ikon: 'fact_check', grupp: 'maskiner', sokord: ['besiktning', 'försäkring'] },
 

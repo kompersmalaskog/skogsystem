@@ -58,7 +58,9 @@ export const STEG: Steg[] = [
       'När du börjar på en ny trakt kommer riskerna upp i maskinen.',
       'Där står vad som är farligt och vad du gör.',
       'Läs dem och tryck Jag har läst.',
+      'Det som är farligt med själva maskinen står under Riskbedömning.',
     ],
+    lank: { href: '/riskbedomning', text: 'Öppna Riskbedömning' },
   },
 ];
 

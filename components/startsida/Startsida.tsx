@@ -293,7 +293,7 @@ function AndraFavoriter({ roll, behorighet, valda, onSpara, onStang }: { roll: R
   )
 }
 
-export default function Startsida({ roll, skyddsombud = false, marken, egnaUppgifter, introduktion, datahalsa, favoritIds, onSparaFavoriter, huvud, bred: bredUtifran, konto: kontoInfo, onLoggaUt }: {
+export default function Startsida({ roll, skyddsombud = false, marken, egnaUppgifter, introduktion, arbetsmiljo, datahalsa, favoritIds, onSparaFavoriter, huvud, bred: bredUtifran, konto: kontoInfo, onLoggaUt }: {
   roll: Roll
   /** Den inloggade är skyddsombud (medarbetare.skyddsombud) — ser då också Åtgärder (lib/vyer `aven`). */
   skyddsombud?: boolean
@@ -302,6 +302,8 @@ export default function Startsida({ roll, skyddsombud = false, marken, egnaUppgi
   egnaUppgifter?: string | null
   /** Introduktionen är inte klar ("Gör introduktionen · 2 av 5 klart"). Den rymmer telefon och anhörig, så raden ersätter egnaUppgifter. */
   introduktion?: string | null
+  /** Arbetsmiljöns att göra-rader (riskbedömning, skyddsrond): lib/arbetsmiljo/startsida. Tom/saknad = inga rader. */
+  arbetsmiljo?: { id: string; text: string; href: string }[]
   datahalsa?: DatahalsaBesked
   /** Vem som är inloggad (kontokortet i Mer). */
   konto?: Konto
@@ -356,6 +358,7 @@ export default function Startsida({ roll, skyddsombud = false, marken, egnaUppgi
   // Egna uppgifter: telefon och anhörig, så att vi når personen och vet vem vi ringer vid en olycka.
   if (introduktion) uppgifter.push({ id: 'introduktion', text: introduktion, href: '/introduktion', farg: FARG.orange })
   else if (egnaUppgifter) uppgifter.push({ id: 'personal', text: egnaUppgifter, href: '/personal', farg: FARG.orange })
+  for (const r of arbetsmiljo ?? []) uppgifter.push({ id: r.id, text: r.text, href: r.href, farg: FARG.orange })
   // Datahälsan bor i Mer. Bara ett riktigt fel (röd: data tappas) står också här, så det aldrig missas.
   if (roll === 'admin' && datahalsa?.niva === 'rod') {
     uppgifter.push({ id: 'datahalsa', text: `Datahälsa: ${datahalsa.rubrik}`, href: '/datahalsa', farg: FARG.rod })
