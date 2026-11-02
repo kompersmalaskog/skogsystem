@@ -5,7 +5,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type Kalla = 'svar' | 'forare' | 'manuell' | 'tillbud';
+export type Kalla = 'svar' | 'forare' | 'manuell' | 'tillbud' | 'skyddsrond';
 
 export type Atgard = {
   id: string;
@@ -78,6 +78,7 @@ export function kallaText(k: Kalla): string {
   if (k === 'svar') return 'Maskinkoll';
   if (k === 'forare') return 'Något är fel';
   if (k === 'tillbud') return 'Rapport om vad som hände';
+  if (k === 'skyddsrond') return 'Skyddsrond';
   return 'Lagd för hand';
 }
 
@@ -124,7 +125,7 @@ type Rad = {
 function tillAtgard(r: Rad): Atgard {
   return {
     id: r.id,
-    kalla: (r.kalla === 'svar' || r.kalla === 'forare' || r.kalla === 'tillbud' ? r.kalla : 'manuell') as Kalla,
+    kalla: (r.kalla === 'svar' || r.kalla === 'forare' || r.kalla === 'tillbud' || r.kalla === 'skyddsrond' ? r.kalla : 'manuell') as Kalla,
     maskinId: r.maskin_id,
     maskinNamn: r.maskin_namn,
     beskrivning: r.beskrivning,
@@ -194,5 +195,6 @@ export function atgardTitel(a: Pick<Atgard, 'kalla' | 'maskinNamn'>, typ?: 'till
     const vad = typ === 'olycka' ? 'Olycka' : 'Tillbud';
     return a.maskinNamn ? `${vad} · ${a.maskinNamn}` : vad;
   }
+  if (a.kalla === 'skyddsrond') return a.maskinNamn ? `Skyddsrond · ${a.maskinNamn}` : 'Skyddsrond';
   return a.maskinNamn ?? 'Okänd maskin';
 }
