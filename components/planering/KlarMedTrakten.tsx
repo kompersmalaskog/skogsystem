@@ -19,6 +19,7 @@ import type { PrestationVarning } from '@/lib/g15Forslag';
 import { Gruppkort, Huvud, Pil, Rubrik } from './infoDelar';
 import KlarSe from './KlarSe';
 import KlarVed from './KlarVed';
+import { RiskerBody, type RiskerProps } from './Risker';
 import { AvlaggBody, BasvagBody, ForutsBody, HarDuSteg, MaskinerBody, MedelstamBody, OvrigtBody, PrognosBody, StegRam, StorKnapp } from './KlarSteg';
 
 export { fmtPrestation } from '@/lib/klarFormat';
@@ -113,6 +114,8 @@ export interface KlarMedTraktenProps {
    * `efter` = vyn kortet ska öppnas i när listen är besvarad (nästa steg, eller dit man kom ifrån). Saknas funktionen (riggen, tester) visas samma fråga i steget.
    */
   onGranskaAvlagg?: (efter: KlarVy) => void;
+  /** Riskbedömningen (lib/riskbedomning). Saknas/null = steget finns inte. */
+  risker?: (RiskerProps & { onStammer: () => void }) | null;
   onAndra: (patch: KlarPatch) => void;
   onHarDu: (id: HarDuId, varde: HarDuSvarVarde) => void;
   onPlaceraAvlagg: () => void;
@@ -137,6 +140,7 @@ const OVRIGT_ETT: Vy = { v: 'steg', flode: { typ: 'ett', steg: 'ovrigt', till: '
 
 const UNDER: Partial<Record<StegId, string>> = {
   forutsattningar: 'Hur ser trakten ut för maskinerna?',
+  risker: 'Vad kan gå fel här, och vad gör man då? Föraren läser det innan maskinen börjar.',
   maskiner: 'Vem kör?',
   prognos: 'Timmar per maskin — tryck på en siffra för att ändra den.',
   sammanfattning: 'Kontrollera och skicka till föraren.',
@@ -213,6 +217,13 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
       case 'forutsattningar': return ram(STEG_NAMN.forutsattningar, <ForutsBody p={p} />, nastaKnapp);
       case 'maskiner': return ram(STEG_NAMN.maskiner, <MaskinerBody p={p} />, nastaKnapp);
       case 'medelstam': return ram(STEG_NAMN.medelstam, <MedelstamBody p={p} />, nastaKnapp);
+      case 'risker': {
+        const rk = p.risker;
+        if (!rk) return ram(STEG_NAMN.risker, null, nastaKnapp);
+        return ram(STEG_NAMN.risker, <RiskerBody r={rk} />, rk.godkand
+          ? nastaKnapp
+          : <StorKnapp testid="klar-risker-stammer" onTryck={() => { rk.onStammer(); nasta(); }}>{rk.lista.length === 0 ? 'Stämmer – inga särskilda risker' : 'Stämmer'}</StorKnapp>);
+      }
       case 'ovrigt': return ram(STEG_NAMN.ovrigt, <OvrigtBody p={p} onVed={() => { if (!p.ovrigt.ved) p.onAndra({ ved: true }); setVy({ v: 'ved', efter: vy }); }} />, nastaKnapp);
       case 'prognos':
         return ram(STEG_NAMN.prognos, <PrognosBody p={p} onByt={flode.typ === 'ett' ? () => setVy({ v: 'steg', flode: { typ: 'ett', steg: 'maskiner', till: flode.till } }) : undefined} />, godkand || extern
@@ -251,6 +262,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
       case 'maskiner': return 'Välj';
       case 'medelstam': return 'Skriv';
       case 'harDu': return `${HAR_DU_FRAGOR.length - status.frågorKvar.length} av ${HAR_DU_FRAGOR.length}`;
+      case 'risker': return 'Granska';
       case 'prognos': return status.prognos.lage === 'ogodkand' && status.prognos.saknas.length > 0 ? `Saknar ${status.prognos.saknas[0]}` : 'Granska';
       default: return '';
     }

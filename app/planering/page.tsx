@@ -108,7 +108,10 @@ import { vidaSlagIFeatures } from '../../lib/teckenforklaring';
 import { BJORK_KANT_FARG, GALLRING_FARG, GROT_FARG, HOG_TRADSLAG_FARG, KARTA_BLANDAT, sortimentFarg } from '../../lib/tradslag';
 import { TRAFF_RADIE_PX } from '../../lib/egenkontrollTryck';
 import { FORBJUDNA_ZONTYPER, HANSYNSYTA_FILTER, OVRIGT_YTA_FILTER, OVRIGT_YTA_STIL, SNEDSTRECK_GRUPPER, VIDA_ETIKETT, YTA_ETIKETT, YTA_ETIKETT_STIL, YTA_ETIKETT_STORLEK, snedstreckBild, snedstreckId } from '@/lib/ytaStil';
-import { FOKUS_HATCH_OPACITET, fokusEtikettFilter, fokusOpacitet, medFokus } from '@/lib/fokusTrakt';
+import { FOKUS_HATCH_OPACITET, arFara, fokusEtikettFilter, fokusOpacitet, medFokus } from '@/lib/fokusTrakt';
+import { aktuellaRisker, aterstallForslag, borttagnaForslag, foreslaRisker, forarRisk, godkann as godkannRisker, laggTillEgen, riskLage, riskUnderlag, taBortEgen, taBortForslag } from '@/lib/riskbedomning';
+import { dagManad } from '@/lib/klarFormat';
+import { useRiskLast } from '@/lib/hooks/useRiskLast';
 import { arHansynsyta, arOvrigYta } from '@/lib/vidaYtaTyp';
 
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
@@ -4048,7 +4051,20 @@ export default function PlannerPage() {
   };
   // Basvägen räknas som ritad så fort en basväg finns på kartan (texten byggs i kortet där kartans geometri finns); här räcker antalet.
   const klarBasvagTexterTop = (markers as any[]).filter((m) => m.isLine && m.lineType === 'mainRoad').map(() => 'ritad');
+  // RISKBEDÖMNINGEN (lib/riskbedomning): appen föreslår det den vet ur kartan, Vidas underlag och förutsättningarna; planeraren godkänner listan, föraren kvitterar.
+  const riskForslag = useMemo(() => foreslaRisker({
+    markeringar: (markers as any[]).flatMap((m) => m.isMarker ? [{ slag: 'symbol', typ: String(m.type ?? '') }]
+      : m.isLine ? [{ slag: 'linje', typ: String(m.lineType ?? '') }]
+      : m.isZone ? [{ slag: 'zon', typ: String(m.zoneType ?? '') }] : []),
+    vidaKraftledning: (traktGeo?.features || []).some((f: any) => arFara(f?.properties, f?.geometry)),
+    terrang: infoTerrang, barighet: infoBarighet, manuellFallning: !!infoSkordareManFall,
+  }), [markers, traktGeo, infoTerrang, infoBarighet, infoSkordareManFall]);
+  const riskLista = useMemo(() => aktuellaRisker(riskForslag, klarFalt.riskbedomning), [riskForslag, klarFalt.riskbedomning]);
+  const riskGodkand = riskLage(riskLista, klarFalt.riskbedomning) === 'godkand';
+  const riskLast = useRiskLast(supabase, valtObjekt?.id ?? null, currentMedarbetare?.id ?? null, !!testlage);
+  const forarRiskNu = forarRisk(riskLista, klarFalt.riskbedomning, riskLast.kvitton.filter((k) => k.medarbetareId === currentMedarbetare?.id).map((k) => k.underlag));
   const klarIn: KlarIndata = {
+    risker: { antal: riskLista.length, kvar: !riskGodkand },
     avlaggAntal: klarAvlaggAntal, vidaAvlagg: klarVidaAvlagg, vidaAvlaggBekraftat: klarVidaBekraftat, basvagTexter: klarBasvagTexterTop, basvagForvantad: vidaBasvagFinns(traktGeo?.features), basvagKravs: infoBasvagKravs, barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
     skordare: klarSkordare, skotare: klarSkotare, prognos: klarPrognosIn, prognosGodkandUnderlag: klarFalt.prognosGodkand.underlag, harDu: klarFalt.harDu,
   };
@@ -14354,6 +14370,11 @@ export default function PlannerPage() {
           },
           karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features), roll: malbildRoll },
           instruktioner: instruktionerAktiv ? { data: inst.paTrakten, onSett: inst.settOmraden } : null,
+          // Riskbedömningen för föraren (maskinläget): raden "Risker på trakten" och listan med "Jag har läst".
+          forarRisker: instruktionerAktiv && klarHook.lage === 'ok' ? {
+            lista: forarRiskNu.risker, last: forarRiskNu.last,
+            onLast: () => (forarRiskNu.underlag ? riskLast.kvittera(forarRiskNu.underlag, testlage?.maskinId ?? enhetMaskinId ?? null) : Promise.resolve(false)),
+          } : null,
           // FÖRARENS ENKLA KORT (maskinläget): bara tre delar — namn och framsteg, "Det här gäller här" och en grupp rader längst ner (komponenten ObjektKortEnkel). Planeringsläget har det vanliga kortet.
           enkel: instruktionerAktiv ? (() => {
             const rader = ytaRader(traktGeo?.features, inst.paTrakten);
@@ -14438,6 +14459,19 @@ export default function PlannerPage() {
             onPlaceraAvlagg: () => { setKlarAterAvlagg(true); stang(); setSelectedSymbol('landing'); },
             onRitaBasvag: () => { setKlarAterBasvag(true); stang(); setDrawType('mainRoad'); setDrawFarg(valTillFarg(lasSenasteBasvagFarg())); setIsDrawMode(true); },
             onStammer: klarStammer,
+            risker: {
+              lista: riskLista, borttagna: borttagnaForslag(riskForslag, klarFalt.riskbedomning), godkand: riskGodkand,
+              godkandText: klarFalt.riskbedomning.godkand ? [namnForId(klarFalt.riskbedomning.godkand.av), dagManad(klarFalt.riskbedomning.godkand.at)].filter(Boolean).join(' ') : null,
+              lasta: riskLast.kvitton.filter((k) => k.underlag === riskUnderlag(riskLista)).map((k) => [namnForId(k.medarbetareId), dagManad(k.lastAt)].filter(Boolean).join(' ')),
+              lastaFel: riskLast.lage === 'fel',
+              onTaBort: (n) => { void klarHook.spara({ riskbedomning: n.startsWith('egen:') ? taBortEgen(klarFalt.riskbedomning, n.slice(5)) : taBortForslag(klarFalt.riskbedomning, n) }); },
+              onAterstall: (n) => { void klarHook.spara({ riskbedomning: aterstallForslag(klarFalt.riskbedomning, n) }); },
+              onLaggTill: (risk, atgard) => {
+                const ny = laggTillEgen(klarFalt.riskbedomning, (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()), risk, atgard);
+                if (ny) void klarHook.spara({ riskbedomning: ny });
+              },
+              onStammer: () => { void klarHook.spara({ riskbedomning: godkannRisker(klarFalt.riskbedomning, riskLista, currentMedarbetare?.id ?? null, new Date().toISOString()) }); },
+            },
             onVed: klarVed,
             onSattVedPaKartan: () => { setKlarStartMedVed(true); stang(); setSelectedSymbol('firewood'); },
             onKlarForMaskin: klarForMaskin,

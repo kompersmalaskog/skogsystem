@@ -9,6 +9,8 @@
 // behöver ingen) — appen gissar aldrig att en basväg saknas.
 // "Klar för maskin" spärrar aldrig — den visar bara vad som är kvar.
 
+import { riskAntalText } from './riskbedomning';
+
 // ── Status ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Objektets status när planeraren ännu inte tryckt "Klar för maskin". */
@@ -317,7 +319,7 @@ export function vidaAvlaggBekraftat(nummer: readonly string[], bek: VidaAvlaggBe
   return a.length === b.length && a.every((x, k) => x === b[k]);
 }
 
-export type PostId = 'avlagg' | 'basvag' | 'barighet' | 'terrang' | 'skotningsavstand' | 'skordare' | 'skotare' | 'medelstam' | 'prognos';
+export type PostId = 'avlagg' | 'basvag' | 'barighet' | 'terrang' | 'skotningsavstand' | 'skordare' | 'skotare' | 'medelstam' | 'risker' | 'prognos';
 
 export interface Post {
   id: PostId;
@@ -346,6 +348,8 @@ export interface KlarIndata {
   prognos: PrognosIndata;
   prognosGodkandUnderlag: string | null;
   harDu: HarDuSvar;
+  /** Riskbedömningen (lib/riskbedomning): antal risker i listan och om planeraren godkänt exakt den. Saknas = steget finns inte (äldre anropare). */
+  risker?: { antal: number; kvar: boolean };
 }
 
 export interface KlarStatus {
@@ -412,6 +416,7 @@ export function berakna(i: KlarIndata): KlarStatus {
     { id: 'skotare', etikett: 'Skotare', varde: st === 'egen' ? 'Egen' : st === 'extern' ? `Extern · ${i.skotare.externNamn.trim()}` : null, kvar: st === 'saknas' },
     // Medelstam styr G15-förslaget för skördaren. Saknas den (ingen TD-träff, inget skrivet) är raden kvar — förslaget faller då tillbaka på snitt över alla trakter.
     { id: 'medelstam', etikett: 'Medelstam', varde: i.prognos.medelstam != null && i.prognos.medelstam > 0 ? `${String(i.prognos.medelstam).replace('.', ',')} m³fub` : null, kvar: !(i.prognos.medelstam != null && i.prognos.medelstam > 0) },
+    ...(i.risker ? [{ id: 'risker' as const, etikett: 'Risker', varde: i.risker.kvar ? null : riskAntalText(i.risker.antal), kvar: i.risker.kvar }] : []),
     { id: 'prognos', etikett: 'Prognos', varde: prognos.lage === 'extern' ? 'Extern – ingen prognos' : prognos.lage === 'godkand' ? 'Stämmer' : null, kvar: prognos.lage === 'ogodkand' },
   ];
 

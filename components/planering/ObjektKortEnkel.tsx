@@ -48,6 +48,8 @@ export interface ObjektKortEnkelProps {
   dokument: { antal: number; chips: React.ReactNode } | null;
   onMer: () => void;
   vader?: React.ReactNode;
+  /** Riskbedömningen: raden "Risker på trakten" (lib/riskbedomning, components/planering/Risker riskRadUnder). onOppna null = inte gjord än (raden går inte att trycka). */
+  risker?: { text: string; ton: 'orange' | 'gron' | 'dampad'; onOppna: (() => void) | null } | null;
 }
 
 /** Den gröna stapeln: hur stor del av trakten som är klar. Ord och tal står bredvid (under namnet) — färgen är aldrig ensam. */
@@ -68,7 +70,7 @@ const Ruta = ({ children, testid }: { children: React.ReactNode; testid: string 
 export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
   const [dokOppen, setDokOppen] = useState(false);
   const n = p.knappar.length;
-  const harInnehall = p.faror.length > 0 || !!p.grot || p.tillForaren.length > 0 || p.ytor.length > 0 || !!p.brand;
+  const harInnehall = !!p.risker || p.faror.length > 0 || !!p.grot || p.tillForaren.length > 0 || p.ytor.length > 0 || !!p.brand;
 
   return (
     <>
@@ -83,6 +85,23 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
             <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.rod, flexShrink: 0 }}>warning</span>
             <span style={{ ...TYP.listtitel, color: FARG.rod, overflowWrap: 'anywhere' }}>Faror: {p.faror.join(', ')}</span>
           </Ruta>
+        )}
+
+        {/* RISKER PÅ TRAKTEN — planerarens riskbedömning; orange tills föraren läst just den här listan */}
+        {p.risker && (
+          <div style={{ marginBottom: AVSTAND.m }}>
+            <Gruppkort testid="kort-risker">
+              {p.risker.onOppna ? (
+                <RadKnapp forstaRad testid="kort-risker-rad" ikon="health_and_safety" etikett="Risker på trakten" onTryck={p.risker.onOppna}
+                  under={<span data-testid="kort-risker-under" style={{ color: p.risker.ton === 'orange' ? FARG.orange : p.risker.ton === 'gron' ? FARG.gron : FARG.text2 }}>{p.risker.text}</span>} />
+              ) : (
+                <div data-testid="kort-risker-rad" data-gjord="0" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px` }}>
+                  <div style={{ ...TYP.text }}>Risker på trakten</div>
+                  <div data-testid="kort-risker-under" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{p.risker.text}</div>
+                </div>
+              )}
+            </Gruppkort>
+          </div>
         )}
 
         {p.brand && <BrandriskRad lat={p.brand.lat} lng={p.brand.lng} onOppna={p.onBrand} luftUnder={AVSTAND.m} />}

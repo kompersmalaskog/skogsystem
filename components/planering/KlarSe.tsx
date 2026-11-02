@@ -12,6 +12,7 @@ import { dagManad, datum, fmtPrestation } from '@/lib/klarFormat';
 import { svTal } from '@/lib/objektKort';
 import { Pil } from './infoDelar';
 import { maskinNamnFor } from './KlarSteg';
+import { RiskRad, lastaText } from './Risker';
 import type { KlarMedTraktenProps, MaskinPrognos } from './KlarMedTrakten';
 
 type Ovrigt = KlarMedTraktenProps['ovrigt'];
@@ -143,6 +144,21 @@ export default function KlarSe({ p, onOppna, utanPadding = false }: { p: KlarMed
           })}
         </div>
       </SeBlock>
+
+      {/* RISKER — riskbedömningen: listan, vem som godkänt, vilka förare som läst. Ett tryck öppnar steget. */}
+      {p.risker && (
+        <SeBlock id="risker" titel="RISKER" hoger={p.risker.godkand ? `Stämmer ✓ ${p.risker.godkandText ?? ''}`.trim() : 'Inte godkänd'} hogerTon={p.risker.godkand ? 'gron' : 'orange'}>
+          <button type="button" data-testid="klar-se-risker-rad" onClick={() => onOppna('risker')} className="press-row"
+            style={{ width: '100%', padding: 0, display: 'block', background: 'transparent', border: 'none', color: FARG.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+            {p.risker.lista.length === 0
+              ? <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, ...TYP.text, color: FARG.text2 }}>Inga särskilda risker</div>
+              : p.risker.lista.map((r, k) => <RiskRad key={r.nyckel} r={r} forst={k === 0} />)}
+          </button>
+          {p.risker.godkand && (
+            <div data-testid="klar-se-risker-lasta" style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.m}px`, borderTop: `1px solid ${FARG.linje}`, ...TYP.meta, color: p.risker.lastaFel ? FARG.orange : FARG.text2 }}>{lastaText(p.risker)}</div>
+          )}
+        </SeBlock>
+      )}
 
       {/* MARKÄGARE & ÖVRIGT */}
       <SeBlock id="ovrigt" titel="MARKÄGARE & ÖVRIGT" hoger={avv.length === 0 ? 'Inga avvikelser' : undefined}>
