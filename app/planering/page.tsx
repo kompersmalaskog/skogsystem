@@ -4913,6 +4913,8 @@ export default function PlannerPage() {
     const hasVida = valtObjekt?.kartbild_url && valtObjekt?.kartbild_bounds && overlays.vidaKartbild;
 
     if (hasVida) {
+      // Ny kartbild (annat objekt): göm den gamla direkt — den syns igen när den nya är signerad och laddad.
+      if (map.getLayer('vida-layer')) map.setLayoutProperty('vida-layer', 'visibility', 'none');
       const b = valtObjekt.kartbild_bounds; // [[south, west], [north, east]]
       const coordinates: any = [
         [b[0][1], b[1][0]], // top-left: [west_lng, north_lat]
@@ -4999,12 +5001,19 @@ export default function PlannerPage() {
   }, [overlays.grothogar, mapLibreReady]);
 
   // === Trakt-geometri: hämta objekt_geometri, pumpa in + zooma till geometrins utsträckning ===
+  const traktGeoVisadForRef = useRef<string | null>(null);   // objektet vars geometri ligger i källan (eller laddas): ett NYTT objekt tömmer källan direkt
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const src = map.getSource('trakt-geo-source') as any;
     if (!src) return;
-    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); setTraktGeoHamtadFor(null); vidaFel.rapportera('finns'); return; }
+    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); setTraktGeoHamtadFor(null); vidaFel.rapportera('finns'); traktGeoVisadForRef.current = null; return; }
+    // Byte av trakt: den gamla traktens gräns och ytor tas bort DIREKT — annars ligger de kvar på den nya traktens plats tills svaret kommit.
+    if (traktGeoVisadForRef.current !== valtObjekt.id) {
+      traktGeoVisadForRef.current = valtObjekt.id;
+      src.setData({ type: 'FeatureCollection', features: [] });
+      setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); setTraktGeoHamtadFor(null);
+    }
     let avbruten = false;
     (async () => {
       // Startflödet och /maskin-sidan kan ha förladdat just det här objektets geometri (parallellt med kartans laddning). EN gång.
@@ -5526,6 +5535,7 @@ export default function PlannerPage() {
   }, [selectedHogarIdx, mapLibreReady]);
 
   // === Produktionshögar + GROT: Hämta och klustra HPR-stammar ===
+  const hogarVisadForRef = useRef<string | null>(null);
   useEffect(() => {
     const map = mapInstanceRef.current;
     const anyActive = hogarPa || overlays.grothogar;
@@ -5539,7 +5549,16 @@ export default function PlannerPage() {
       if (map && map.getSource('grot-source')) {
         (map.getSource('grot-source') as any).setData({ type: 'FeatureCollection', features: [] });
       }
+      hogarVisadForRef.current = null;
       return;
+    }
+    // Byte av trakt: den gamla traktens högar tas bort DIREKT, inte först när den nya traktens stammar lästs.
+    if (hogarVisadForRef.current !== valtObjekt.id) {
+      hogarVisadForRef.current = valtObjekt.id;
+      hogarFeaturesRef.current = [];
+      grotFeaturesRef.current = [];
+      (map.getSource('hogar-source') as any)?.setData({ type: 'FeatureCollection', features: [] });
+      (map.getSource('grot-source') as any)?.setData({ type: 'FeatureCollection', features: [] });
     }
 
     const TRADSLAG_COLOR = HOG_TRADSLAG_FARG;

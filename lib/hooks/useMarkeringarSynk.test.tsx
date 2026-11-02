@@ -47,12 +47,13 @@ const flush = async (n = 12) => { for (let i = 0; i < n; i++) await act(async ()
 const vanta = async (ms: number) => { await act(async () => { await new Promise((r) => setTimeout(r, ms)); }); await flush(); };
 
 let rot: Root | null = null; let behallare: HTMLElement | null = null;
-type Api = { markers: any[]; loaded: boolean; set: (f: (p: any[]) => any[]) => void; h: ReturnType<typeof import('./useMarkeringarSynk').useMarkeringarSynk<any>>; stamplar: boolean[] };
+type Api = { byt: (id: string) => void; markers: any[]; loaded: boolean; set: (f: (p: any[]) => any[]) => void; h: ReturnType<typeof import('./useMarkeringarSynk').useMarkeringarSynk<any>>; stamplar: boolean[] };
 
 async function montera(objektId = OBJ) {
   const { useMarkeringarSynk } = await import('./useMarkeringarSynk');
   const api: { current: Api | null } = { current: null };
   function Harness() {
+    const [oid, setOid] = useState(objektId);
     const [markers, setMarkers] = useState<any[]>([]);
     const [loaded, setLoaded] = useState(false);
     const refs = {
@@ -61,7 +62,7 @@ async function montera(objektId = OBJ) {
     };
     const stamplar = useRef<boolean[]>([]);
     const h = useMarkeringarSynk<any>({
-      objektId, markers, markersLoaded: loaded, setMarkers, setMarkersLoaded: setLoaded, typAv: () => 'symbol',
+      objektId: oid, markers, markersLoaded: loaded, setMarkers, setMarkersLoaded: setLoaded, typAv: () => 'symbol',
       hamtaServer: async (id) => {
         if (net.paus) await net.paus;   // testet kan hålla hämtningen "på väg"
         if (!net.online) return null;
@@ -69,7 +70,7 @@ async function montera(objektId = OBJ) {
       },
       refs, onHamtad: ({ farsk }) => { stamplar.current.push(farsk); },
     });
-    api.current = { markers, loaded, set: (f) => setMarkers((p) => f(p)), h, stamplar: stamplar.current };
+    api.current = { byt: setOid, markers, loaded, set: (f) => setMarkers((p) => f(p)), h, stamplar: stamplar.current };
     return null;
   }
   behallare = document.createElement('div'); document.body.appendChild(behallare); rot = createRoot(behallare);
@@ -207,5 +208,27 @@ describe('ändringar och borttagningar', () => {
     await flush(20);
     expect(ids(api)).toEqual([10]);
     expect(net.rader.has(nyckel(OBJ, '10'))).toBe(true);
+  });
+});
+
+describe('byte av trakt', () => {
+  it('den gamla traktens markeringar försvinner DIREKT, innan den nya traktens hämtats — och en osparad ändring i den gamla går inte förlorad', async () => {
+    serverMed(10);
+    net.rader.set(nyckel('objekt-2', '20'), { objekt_id: 'objekt-2', marker_id: '20', typ: 'symbol', data: mk(20) });
+    const api = await montera();
+    expect(ids(api)).toEqual([10]);
+    let slapp: () => void = () => {};
+    net.paus = new Promise<void>((r) => { slapp = r; });                         // servern svarar inte än
+    net.online = false;
+    await act(async () => { api.current!.set((p) => p.map((m) => (m.id === 10 ? { ...m, comment: 'ändrad' } : m))); });
+    await act(async () => { api.current!.byt('objekt-2'); });                   // byt INNAN den 400 ms långa sparningen hunnit gå
+    expect(ids(api)).toEqual([]);                                               // inget av den gamla trakten ritas på den nya
+    net.online = true;
+    slapp(); net.paus = null;
+    await flush(30);
+    expect(ids(api)).toEqual([20]);
+    await act(async () => { api.current!.byt(OBJ); });                          // tillbaka: ändringen finns kvar
+    await flush(30);
+    expect(api.current!.markers.find((m) => m.id === 10)?.comment).toBe('ändrad');
   });
 });
