@@ -29,8 +29,8 @@ const allaTexter = (): string[] => {
 };
 
 describe('lib/malbilder — innehållet', () => {
-  it('de 13 sorterna (14 med Kolbotten) finns och alla står i listan "Alla målbilder"', () => {
-    expect(Object.keys(MALBILDER).sort()).toEqual(['avlagg', 'blott', 'evighetstrad', 'fornlamning', 'hansyn', 'hogstubbe', 'kantzon', 'kulturlamning', 'kulturmiljo', 'naturhorna', 'nyckelbiotop', 'stenmur', 'vattenskydd']);
+  it('de 15 sorterna (16 med Kolbotten) finns och alla står i listan "Alla målbilder"', () => {
+    expect(Object.keys(MALBILDER).sort()).toEqual(['avlagg', 'blott', 'evighetstrad', 'fornlamning', 'hansyn', 'hogstubbe', 'kant', 'kantzon', 'kulturlamning', 'kulturmiljo', 'naturhorna', 'nyckelbiotop', 'stenmur', 'stubbe', 'vattenskydd']);
     expect([...MALBILD_ORDNING].sort()).toEqual(Object.keys(MALBILDER).sort());
     expect(MALBILDER.kulturlamning.varianter!.map((v) => v.nyckel)).toEqual(['kolbotten']);
   });
@@ -162,9 +162,9 @@ describe('lib/malbilder — källa per sort (bara en länk, ingen kopierad bild)
   const SKS = 'https://www.skogsstyrelsen.se/';
   const SAMLING = 'https://www.skogsstyrelsen.se/aga-skog/hansyn-till-miljo-och-skyddade-arter/malbilder-for-god-miljohansyn/';
   const KULTUR = 'https://www.skogsstyrelsen.se/globalassets/mer-om-skog/malbilder-for-god-miljohansyn/malbilder-kulturmiljoer/handledning-for-god-kulturmiljohansyn.pdf';
-  it('varje sort utom Vattenskyddsområde har en källa, och inget annat än en målbild har en', () => {
+  it('varje sort utom Vattenskyddsområde, Gräns mot skog och Stubben (vår egen praxis) har en källa, och inget annat än en målbild har en', () => {
     for (const k of Object.keys(MALBILD_KALLA)) expect(MALBILDER[k], `${k} saknas som målbild`).toBeDefined();
-    expect(Object.keys(MALBILDER).filter((k) => !MALBILD_KALLA[k])).toEqual(['vattenskydd']);
+    expect(Object.keys(MALBILDER).filter((k) => !MALBILD_KALLA[k]).sort()).toEqual(['kant', 'stubbe', 'vattenskydd']);
     expect(malbildKalla('vattenskydd')).toBeNull();
     expect(malbildKalla('finns-inte')).toBeNull();
     expect(malbildKalla(null)).toBeNull();

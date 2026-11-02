@@ -1760,6 +1760,115 @@ const BILD = {
 <circle cx="336" cy="36" r="22" fill="#E5342B" stroke="#FFFFFF" stroke-width="3"/>
 <path d="M327 27l18 18 M345 27l-18 18" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
 </svg>`,
+  KANT: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 560" role="img" aria-label="Gräns mot skog som står kvar sedd uppifrån: träden är fällda ut på hygget med toppen bort från gränsen, kantträden fällda först, skogen och plantorna på andra sidan är orörda"><defs><pattern id="kant-mark" width="40" height="40" patternUnits="userSpaceOnUse"><circle cx="8" cy="10" r="1.6" fill="#3A4531"/>
+<circle cx="28" cy="30" r="1.4" fill="#3A4531"/>
+<circle cx="30" cy="8" r="1" fill="#46523A"/>
+</pattern>
+<marker id="kant-pil" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#FFFFFF"/>
+</marker>
+</defs>
+<rect x="0" y="0" width="720" height="560" fill="#2A3324"/>
+<rect x="0" y="0" width="720" height="560" fill="url(#kant-mark)"/>
+<rect x="0" y="0" width="250" height="560" fill="#1E3322"/>
+<circle cx="40" cy="110" r="26" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="110" cy="90" r="30" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="190" cy="120" r="26" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="60" cy="200" r="28" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="150" cy="190" r="24" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="215" cy="230" r="22" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="40" cy="300" r="24" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="120" cy="290" r="30" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="200" cy="330" r="26" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="70" cy="390" r="28" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="160" cy="410" r="26" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="220" cy="450" r="22" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="50" cy="480" r="24" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="130" cy="500" r="28" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="205" cy="530" r="22" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="30" cy="40" r="22" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="130" cy="30" r="24" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="220" cy="40" r="22" fill="#24A148" stroke="#0E3B1C" stroke-width="2.5"/>
+<circle cx="95" cy="150" r="6" fill="#7BC46A" stroke="#0E3B1C" stroke-width="1.5"/>
+<circle cx="175" cy="160" r="6" fill="#7BC46A" stroke="#0E3B1C" stroke-width="1.5"/>
+<circle cx="100" cy="245" r="6" fill="#7BC46A" stroke="#0E3B1C" stroke-width="1.5"/>
+<circle cx="170" cy="260" r="6" fill="#7BC46A" stroke="#0E3B1C" stroke-width="1.5"/>
+<circle cx="95" cy="345" r="6" fill="#7BC46A" stroke="#0E3B1C" stroke-width="1.5"/>
+<circle cx="165" cy="365" r="6" fill="#7BC46A" stroke="#0E3B1C" stroke-width="1.5"/>
+<circle cx="110" cy="450" r="6" fill="#7BC46A" stroke="#0E3B1C" stroke-width="1.5"/>
+<circle cx="180" cy="480" r="6" fill="#7BC46A" stroke="#0E3B1C" stroke-width="1.5"/>
+<circle cx="80" cy="60" r="6" fill="#7BC46A" stroke="#0E3B1C" stroke-width="1.5"/>
+<path d="M258 0V560" stroke="#FFFFFF" stroke-width="5" stroke-dasharray="16 10"/>
+<circle cx="300" cy="120" r="6" fill="#C9A77A" stroke="#1A1A18" stroke-width="2"/>
+<line x1="300" y1="120" x2="440" y2="95" stroke="#FFFFFF" stroke-width="3" marker-end="url(#kant-pil)" opacity="0.9"/>
+<circle cx="310" cy="210" r="6" fill="#C9A77A" stroke="#1A1A18" stroke-width="2"/>
+<line x1="310" y1="210" x2="455" y2="225" stroke="#FFFFFF" stroke-width="3" marker-end="url(#kant-pil)" opacity="0.9"/>
+<circle cx="296" cy="300" r="6" fill="#C9A77A" stroke="#1A1A18" stroke-width="2"/>
+<line x1="296" y1="300" x2="438" y2="290" stroke="#FFFFFF" stroke-width="3" marker-end="url(#kant-pil)" opacity="0.9"/>
+<circle cx="312" cy="390" r="6" fill="#C9A77A" stroke="#1A1A18" stroke-width="2"/>
+<line x1="312" y1="390" x2="455" y2="410" stroke="#FFFFFF" stroke-width="3" marker-end="url(#kant-pil)" opacity="0.9"/>
+<circle cx="300" cy="470" r="6" fill="#C9A77A" stroke="#1A1A18" stroke-width="2"/>
+<line x1="300" y1="470" x2="440" y2="500" stroke="#FFFFFF" stroke-width="3" marker-end="url(#kant-pil)" opacity="0.9"/>
+<circle cx="430" cy="160" r="6" fill="#C9A77A" stroke="#1A1A18" stroke-width="2"/>
+<line x1="430" y1="160" x2="560" y2="140" stroke="#FFFFFF" stroke-width="3" marker-end="url(#kant-pil)" opacity="0.9"/>
+<circle cx="445" cy="330" r="6" fill="#C9A77A" stroke="#1A1A18" stroke-width="2"/>
+<line x1="445" y1="330" x2="585" y2="340" stroke="#FFFFFF" stroke-width="3" marker-end="url(#kant-pil)" opacity="0.9"/>
+<circle cx="560" cy="240" r="6" fill="#C9A77A" stroke="#1A1A18" stroke-width="2"/>
+<line x1="560" y1="240" x2="680" y2="230" stroke="#FFFFFF" stroke-width="3" marker-end="url(#kant-pil)" opacity="0.9"/>
+<circle cx="565" cy="430" r="6" fill="#C9A77A" stroke="#1A1A18" stroke-width="2"/>
+<line x1="565" y1="430" x2="690" y2="450" stroke="#FFFFFF" stroke-width="3" marker-end="url(#kant-pil)" opacity="0.9"/>
+<rect x="20" y="20" width="210" height="40" rx="12" fill="#1C1C1E"/>
+<text x="125" y="46" text-anchor="middle" font-size="17" font-weight="700" fill="#FFFFFF">Skog som står kvar</text>
+<rect x="266" y="22" width="80" height="40" rx="12" fill="#1C1C1E"/>
+<text x="306" y="48" text-anchor="middle" font-size="16" font-weight="700" fill="#FFFFFF">Gräns</text>
+<circle cx="258" cy="520" r="20" fill="#30D158" stroke="#FFFFFF" stroke-width="3"/>
+<path d="M249 520l6 6 12-13" stroke="#FFFFFF" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="470" y="40" width="226" height="40" rx="12" fill="#1C1C1E"/>
+<text x="583" y="66" text-anchor="middle" font-size="17" font-weight="700" fill="#FFFFFF">Fällt bort från gränsen</text>
+<rect x="476" y="500" width="222" height="40" rx="12" fill="#1C1C1E"/>
+<text x="587" y="526" text-anchor="middle" font-size="17" font-weight="700" fill="#FFFFFF">Kantträden först, inåt</text>
+</svg>`,
+  KANT_FEL: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 376 170" role="img" aria-label="Fel: ett träd fällt över gränsen in i skogen som står kvar, ett stående träd är skavt och plantor ligger nere"><rect width="376" height="170" fill="#2A3324"/>
+<rect x="0" y="0" width="150" height="170" fill="#1E3322"/>
+<circle cx="28" cy="30" r="16" fill="#24A148" stroke="#0E3B1C" stroke-width="2"/>
+<circle cx="90" cy="24" r="15" fill="#24A148" stroke="#0E3B1C" stroke-width="2"/>
+<circle cx="30" cy="140" r="16" fill="#24A148" stroke="#0E3B1C" stroke-width="2"/>
+<circle cx="110" cy="145" r="14" fill="#24A148" stroke="#0E3B1C" stroke-width="2"/>
+<circle cx="126" cy="70" r="14" fill="#24A148" stroke="#0E3B1C" stroke-width="2"/>
+<path d="M131 60 l7 5 l-4 10 z" fill="#E7D3A6" stroke="#E5342B" stroke-width="2"/>
+<path d="M156 0V170" stroke="#FFFFFF" stroke-width="3.5" stroke-dasharray="11 7"/>
+<line x1="210" y1="100" x2="38" y2="88" stroke="#8A6A44" stroke-width="7" stroke-linecap="round"/>
+<circle cx="32" cy="88" r="13" fill="#3E6E35" stroke="#0E3B1C" stroke-width="2"/>
+<circle cx="212" cy="100" r="5" fill="#C9A77A" stroke="#1A1A18" stroke-width="2"/>
+<path d="M64 98l12 12 M76 98l-12 12" stroke="#E5342B" stroke-width="3" stroke-linecap="round"/>
+<path d="M94 102l12 12 M106 102l-12 12" stroke="#E5342B" stroke-width="3" stroke-linecap="round"/>
+<circle cx="336" cy="36" r="22" fill="#E5342B" stroke="#FFFFFF" stroke-width="3"/>
+<path d="M327 27l18 18 M345 27l-18 18" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+</svg>`,
+  STUBBE: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 560" role="img" aria-label="Stubbe från sidan: rent kapad, slät och låg, ryggen som stack upp är kapad och ligger bredvid"><rect width="720" height="560" fill="#24323A"/>
+<path d="M0 410 C160 400 360 420 720 406 V560 H0Z" fill="#2E3A27"/>
+<path d="M250 420 L250 330 Q360 312 470 330 L470 420 Z" fill="#8E7350" stroke="#1A1A18" stroke-width="3"/>
+<path d="M268 360v40 M300 350v52 M410 352v48 M440 362v40" stroke="#6E5A3E" stroke-width="4" stroke-linecap="round"/>
+<ellipse cx="360" cy="330" rx="110" ry="22" fill="#F2E6CF" stroke="#1A1A18" stroke-width="3"/>
+<ellipse cx="360" cy="330" rx="70" ry="13" fill="none" stroke="#D8C6A0" stroke-width="2"/>
+<ellipse cx="360" cy="330" rx="34" ry="6" fill="none" stroke="#D8C6A0" stroke-width="2"/>
+<path d="M210 470 L250 436 L262 444 L224 478 Z" fill="#F2E6CF" stroke="#1A1A18" stroke-width="2.5"/>
+<path d="M200 420 Q360 446 520 420" fill="none" stroke="#4A5A3A" stroke-width="3"/>
+<circle cx="360" cy="250" r="20" fill="#30D158" stroke="#FFFFFF" stroke-width="3"/>
+<path d="M351 250l6 6 12-13" stroke="#FFFFFF" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="262" y="170" width="196" height="40" rx="12" fill="#1C1C1E"/>
+<text x="360" y="196" text-anchor="middle" font-size="17" font-weight="700" fill="#FFFFFF">Slät och låg</text>
+<rect x="40" y="494" width="240" height="40" rx="12" fill="#1C1C1E"/>
+<text x="160" y="520" text-anchor="middle" font-size="17" font-weight="700" fill="#FFFFFF">Ryggen kapad bort</text>
+</svg>`,
+  STUBBE_FEL: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 376 170" role="img" aria-label="Fel: en hög rygg, en flisa från stammen, står kvar på stubben"><rect width="376" height="170" fill="#24323A"/>
+<path d="M0 140 C120 136 250 144 376 138 V170 H0Z" fill="#2E3A27"/>
+<path d="M130 146 L130 112 Q180 104 230 112 L230 146 Z" fill="#8E7350" stroke="#1A1A18" stroke-width="2"/>
+<ellipse cx="180" cy="112" rx="50" ry="10" fill="#F2E6CF" stroke="#1A1A18" stroke-width="2"/>
+<path d="M186 114 L196 30 L210 24 L218 114 Z" fill="#F2E6CF" stroke="#1A1A18" stroke-width="2"/>
+<path d="M202 40 L206 108" stroke="#C9A77A" stroke-width="2"/>
+<circle cx="336" cy="36" r="22" fill="#E5342B" stroke="#FFFFFF" stroke-width="3"/>
+<path d="M327 27l18 18 M345 27l-18 18" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+</svg>`,
 } as const;
 
 // =================================================================================================================================
@@ -1840,6 +1949,25 @@ const BLOTT_REGLER: Regelsida = {
 };
 
 export const MALBILDER: Readonly<Record<string, Malbild>> = {
+  kant: {
+    nyckel: 'kant', namn: 'Gräns mot skog som står kvar', grupp: 'natur',
+    bild: BILD.KANT,
+    rader: [
+      "Fäll bort från gränsen – aldrig in på grannens mark",
+      "Fäll kantträden först, inåt hygget",
+      "Skava inga träd och lägg inte ner plantor i andra bestånd",
+    ],
+    fel: { bild: BILD.KANT_FEL, text: "Ett skavt träd ruttnar – ett nedlagt bestånd blir ett ärende med markägaren" },
+  },
+  stubbe: {
+    nyckel: 'stubbe', namn: 'Stubben', grupp: 'info',
+    bild: BILD.STUBBE,
+    rader: [
+      "Kapa ner ryggen om stammen spricker",
+      "Stubben ska vara slät och låg",
+    ],
+    fel: { bild: BILD.STUBBE_FEL, text: "En rygg på stubben ser illa ut – kapa den" },
+  },
   stenmur: {
     nyckel: 'stenmur', namn: 'Stenmur', grupp: 'kultur',
     bild: BILD.STENMUR,
@@ -2001,7 +2129,7 @@ export const MALBILDER: Readonly<Record<string, Malbild>> = {
 
 /** Ordningen i listan "Alla målbilder". */
 export const MALBILD_ORDNING: readonly string[] = [
-  'avlagg', 'stenmur', 'kulturlamning', 'kulturmiljo', 'fornlamning', 'hansyn', 'nyckelbiotop', 'evighetstrad', 'hogstubbe', 'naturhorna', 'blott', 'kantzon', 'vattenskydd',
+  'stubbe', 'kant', 'avlagg', 'stenmur', 'kulturlamning', 'kulturmiljo', 'fornlamning', 'hansyn', 'nyckelbiotop', 'evighetstrad', 'hogstubbe', 'naturhorna', 'blott', 'kantzon', 'vattenskydd',
 ];
 
 // =================================================================================================================================
@@ -2066,11 +2194,12 @@ export const MALBILD_SYMBOL: Readonly<Record<string, string>> = {
 };
 /** Ytor (zoneType, och Vidas lager som `vida:<slag>`) → målbild. Brant, Ej framkomlig och Gallringszon har ingen. */
 export const MALBILD_YTA: Readonly<Record<string, string>> = {
-  wet: 'blott', protected: 'hansyn', culture: 'kulturmiljo', fornlamning: 'fornlamning',
+  wet: 'blott', protected: 'hansyn', culture: 'kulturmiljo', fornlamning: 'fornlamning', ungskog: 'kant',
   'vida:hansynsyta': 'hansyn', 'vida:nyckelbiotop': 'nyckelbiotop', 'vida:raa_yta': 'fornlamning',
 };
 /** Linjer (lineType) → målbild. */
-export const MALBILD_LINJE: Readonly<Record<string, string>> = { stonewall: 'stenmur' };
+/** fastighetsgrans = tryck på rågången (kortet "Fastighetsgräns · X mot Y"). */
+export const MALBILD_LINJE: Readonly<Record<string, string>> = { stonewall: 'stenmur', fastighetsgrans: 'kant' };
 
 export type MalbildKalla = 'symbol' | 'yta' | 'linje';
 /** Målbildens nyckel för det man tryckt på, eller null (Fara, Info och allt annat utan målbild). */

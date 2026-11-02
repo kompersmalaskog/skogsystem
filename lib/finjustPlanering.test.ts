@@ -1,3 +1,4 @@
+import { MALBILDER, MALBILD_ORDNING, malbildNyckel } from './malbilder';
 import { describe, it, expect } from 'vitest';
 import { planMiljoRader } from './miljokrav';
 import { certTyper, CERT_INFO } from './certKrav';
@@ -26,9 +27,21 @@ describe('certifieringen', () => {
     expect(certTyper('Ej certifierad')).toEqual([]);
     expect(certTyper(null)).toEqual([]);
   });
-  it('varje krav har en källa; det okontrollerade är märkt', () => {
+  it('varje krav har en källa; FSC högstubbar är 3/ha och inte längre okontrollerat', () => {
     for (const info of Object.values(CERT_INFO)) for (const k of info.krav) expect(k.kalla, k.rubrik).toBeTruthy();
-    expect(CERT_INFO.FSC.krav.find((k) => k.rubrik === 'Högstubbar')?.kontrollera).toBe(true);
+    expect(CERT_INFO.FSC.krav.find((k) => k.rubrik === 'Högstubbar')?.kontrollera).toBeUndefined();
+    expect(CERT_INFO.FSC.krav.find((k) => k.rubrik === 'Högstubbar')?.text).toMatch(/3 högstubbar per hektar/);
+  });
+});
+
+describe('Målbilder kant och stubbe', () => {
+  it('ytan Fäll inte ut här och fastighetsgränsen visar målbilden kant; stubben står först i listan', () => {
+    expect(malbildNyckel('yta', 'ungskog')).toBe('kant');
+    expect(malbildNyckel('linje', 'fastighetsgrans')).toBe('kant');
+    expect(MALBILD_ORDNING.slice(0, 2)).toEqual(['stubbe', 'kant']);
+    expect(MALBILDER.kant.rader.join(' ')).toMatch(/grannens mark/);
+    expect(MALBILDER.stubbe.rader.join(' ')).toMatch(/ryggen/);
+    expect(YTA.ungskog.namn).toBe('Fäll inte ut här');
   });
 });
 

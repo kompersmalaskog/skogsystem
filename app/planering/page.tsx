@@ -8005,7 +8005,7 @@ export default function PlannerPage() {
     { id: 'culture', name: 'Kulturmiljö', color: ZONE_COLORS.culture, icon: 'culturemonument' },
     { id: 'noentry', name: 'Ej framkomlig', color: ZONE_COLORS.noentry, icon: 'warning' },
     { id: 'fornlamning', name: 'Fornlämning', color: ZONE_COLORS.fornlamning, icon: 'culturemonument' },
-    { id: 'ungskog', name: 'Ungskog', color: ZONE_COLORS.ungskog, icon: 'eternitytree' },   // sly/plantskog intill: larmar inte, färgar fällningscirkeln grön (Martin 2026-11-02)
+    { id: 'ungskog', name: 'Fäll inte ut här', color: ZONE_COLORS.ungskog, icon: 'eternitytree' },   // skog som står kvar (ungskog, plantor, annat bestånd): larmar inte, färgar fällningscirkeln grön, målbild 'kant' (Martin 2026-11-02)
     { id: 'gallring', name: 'Gallringszon', color: '#6b7c3a', icon: 'eternitytree' },
   ];
 
@@ -14784,6 +14784,7 @@ export default function PlannerPage() {
       {korvyActive && !skotarKorvy && fgFall && !fall.grupp && !larm.kort && !inst.kort && !grindKort && !riskKortSynligt && (
         <FastighetsgransKortVy
           fall={fgFall}
+          onVisa={() => setLarmMalbildOppen('kant')}
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
         />
       )}
