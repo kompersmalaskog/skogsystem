@@ -167,8 +167,13 @@ const V6_FF = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','
 // telefon liggande) där ingen sidokolumn finns.
 // Samma brytpunkt som UppfoljningRam (sidokolumnen dyker upp vid 1100 px). När
 // den syns är objektets pane viewport − 360 ≥ 740 px, alltså gott om plats.
+// VIKTIGT: kolumnerna är minmax(0, …fr) och barnen får min-width: 0 — annars
+// blir en grid-cells minsta bredd dess MIN-CONTENT (maskinkortens siffror/namn),
+// så maskinkolumnen vägrar krympa och svämmar över högerkanten på stor skärm.
+// (Precis skillnaden mot "Hur gick det?"-rutnätet nedan, som redan är minmax(0)
+// + overflow:hidden och därför krymper korrekt.)
 const FRAN_BRED_PX = 1100;
-const TOPP_SIDA_VID_SIDA = `.uf-topp { grid-template-columns: 1.1fr 1fr; }`;
+const TOPP_SIDA_VID_SIDA = `.uf-topp { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }`;
 const SEKTIONER_RUTNAT = `
   .uf-hur-knapp { display: none !important; }
   .uf-hur-rubrik { display: block; }
@@ -180,6 +185,7 @@ const SEKTIONER_TRE = `.uf-hur-sektioner { grid-template-columns: repeat(3, minm
 const OBJEKT_CSS = `
 .uf-objekt { container-type: inline-size; max-width: ${KOLUMN.bred + 2 * AVSTAND.sidmarginal}px; margin: 0 auto; box-sizing: border-box; padding: ${AVSTAND.xl}px ${AVSTAND.sidmarginal}px ${AVSTAND.xxl}px; }
 .uf-topp { display: grid; grid-template-columns: minmax(0, 1fr); gap: ${AVSTAND.xl}px; align-items: start; }
+.uf-topp > * { min-width: 0; }
 .uf-hur-rubrik { display: none; }
 .uf-hur-sektioner { background: ${V6_CARD}; border-radius: 0 0 ${RADIE.knapp}px ${RADIE.knapp}px; overflow: hidden; }
 .uf-hur-sektioner.ar-stangd { display: none; }

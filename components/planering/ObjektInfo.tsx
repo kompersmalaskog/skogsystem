@@ -54,13 +54,15 @@ export interface ObjektInfoProps {
   enkel?: (Omit<ObjektKortEnkelProps, 'onStang' | 'onMer' | 'onKnapp' | 'direktivSett' | 'onYta'> & { onYta: (nyckel: string, lage: PlusLage) => void }) | null;
   /** MASKINLÄGET: riskbedömningen för föraren (lib/riskbedomning). lista null = inte gjord än (en dämpad rad). onLast → true när kvittot sparats. Saknas = ingen rad. */
   forarRisker?: { lista: Risk[] | null; last: boolean; onLast: () => Promise<boolean> } | null;
+  /** PLANERAREN: körs innan "Klar med trakten?" öppnas från raden Risker — sidan ställer kortet på steget Risker. */
+  onRiskerForbered?: () => void;
   /** Panelens bredd (px) på bred skärm. Standard `PANEL_BREDD_PX`; maskinläget ger den bredare panelen (som korten). På telefon är det ett ark i full bredd. */
   bredd?: number;
   /** Traktens certifieringar (PEFC/FSC) — en rad "PEFC – vad gäller?" på kortet öppnar kraven. Tom/saknas = ingen rad. */
   cert?: CertTyp[];
 }
 
-export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, enkel = null, forarRisker = null, bredd, startVy = 'kort', cert = [] }: ObjektInfoProps) {
+export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, enkel = null, forarRisker = null, onRiskerForbered, bredd, startVy = 'kort', cert = [] }: ObjektInfoProps) {
   const onCert = cert.length ? { etikett: `${cert.join(' och ')} – vad gäller?`, onTryck: () => setVy('cert') } : undefined;
   const [vy, setVy] = useState<InfoVy>(startVy);
   const [riskFel, setRiskFel] = useState(false);
@@ -97,6 +99,7 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
           <ObjektKort {...kort} instruktioner={instruktioner && instruktioner.data.antal > 0 ? { antal: instruktioner.data.antal, nya: instruktioner.data.nya, onOppna: () => setVy('instruktioner') } : null}
             direktivSett={direktiv ? { sedd: direktiv.nya === 0, onSett: () => instruktioner!.onSett([DIREKTIV_NYCKEL]) } : null}
             namn={objektNamn} onStang={stangRam} onKlar={klar ? () => setVy('klar') : undefined}
+            onRisker={klar && kort.riskRad && onRiskerForbered ? () => { onRiskerForbered(); setVy('klar'); } : undefined}
             onKnapp={onKnapp} onMer={() => setVy('mer')}
             onPaTrakten={() => setVy('om')} onKarta={karta ? () => setVy('karta') : undefined} onCert={onCert} />
         ) : vy === 'om' ? (
