@@ -26,7 +26,7 @@ describe('PassageRad', () => {
 describe('sidan (källvakt)', () => {
   const sida = readFileSync(join(__dirname, '..', '..', 'app', 'planering', 'page.tsx'), 'utf8');
   it('raden visas bara utan larmkort, instruktion, påminnelse, besök och lossning — på instruktionens plats', () => {
-    expect(sida).toContain('{korvyActive && larm.passage && !larm.kort && !inst.kort && !inst.paminnelse && !besokKortSynligt && !lossningVisas && (');
+    expect(sida).toContain('{korvyActive && larm.passage && !larm.kort && !inst.kort && !inst.paminnelse && !besokKortSynligt && !riskKortSynligt && !lossningVisas && (');
     expect(sida).toContain('<PassageRad passage={larm.passage} top={instruktionTop} />');
   });
 });
