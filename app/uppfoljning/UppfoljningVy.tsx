@@ -424,11 +424,11 @@ function AvvikelseZon({ avvikelser }: { avvikelser?: AvvikelseRad[] }) {
 
 // ── Maskinkort ────────────────────────────────────────────────────────────
 function MaskinCell({
-  label, color, modell, forare, statusOrd, primary, primaryUnit, primaryLabel, snitt,
+  label, color, modell, forare, statusOrd, primary, primaryUnit, primaryLabel, snitt, dagar,
 }: {
   label: string; color: string; modell?: string | null; forare?: string | null;
   statusOrd: string | null; primary: number; primaryUnit: string; primaryLabel: string;
-  snitt: number | null;
+  snitt: number | null; dagar: number | null;
 }) {
   return (
     <div style={{ background: V6_CARD, borderRadius: 16, padding: '16px 16px 14px', minWidth: 0 }}>
@@ -445,6 +445,11 @@ function MaskinCell({
         {snitt != null && (
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>Snitt/dag</span><span style={{ color: '#fff', fontWeight: 500 }}>{snitt} m³</span>
+          </div>
+        )}
+        {dagar != null && (
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>På trakten</span><span style={{ color: '#fff', fontWeight: VIKT.halvfet }}>{dagar} {dagar === 1 ? 'dag' : 'dagar'}</span>
           </div>
         )}
         {(modell || statusOrd) && (
@@ -539,6 +544,13 @@ function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotar
   // övrigt bor i våning 1 (statusraden), korten upprepar det inte.
   const statusOrd = (slut?: string | null, lastDate?: string | null) =>
     slut ? `klar ${fmtISO(slut)}` : lastDate === idag ? 'kör idag' : null;
+  // Hur länge maskinen varit på trakten: från start till slut (klar) eller idag
+  // (pågår). Samma dag-räkning som hero ("dag N"), så siffrorna stämmer.
+  const dagarPa = (start?: string | null, slut?: string | null) => {
+    if (!start) return null;
+    const slutMs = slut ? new Date(slut).getTime() : Date.now();
+    return Math.max(1, Math.round((slutMs - new Date(start).getTime()) / 864e5));
+  };
 
   const skProd = data.prodSkordarePerDag || [];
   const skSnitt = skProd.length > 0 ? Math.round(skProd.reduce((a, b) => a + b.m3, 0) / skProd.length) : null;
@@ -560,6 +572,7 @@ function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotar
             primary={Math.round(data.skordat)}
             primaryUnit="m³" primaryLabel="skördat"
             snitt={skSnitt}
+            dagar={dagarPa(data.skordareStart, data.skordareSlut)}
           />
         )}
         {showSt && (
@@ -571,6 +584,7 @@ function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotar
             primaryUnit="m³"
             primaryLabel={skotareOmlastning ? 'omlastning · räknas ej i skotad total' : (data.skotatArManuell ? 'utkört (manuellt angivet)' : 'utkört')}
             snitt={stSnitt}
+            dagar={dagarPa(data.skotareStart, data.skotareSlut)}
           />
         )}
       </div>
@@ -1332,6 +1346,13 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   })();
 
   const tradslagVarde = (() => {
+    // Teaser: dominerande trädslag ("Gran 73 %"), inte objektets volym en gång
+    // till (den står redan i hero och på maskinkortet). Faller tillbaka på volym
+    // om trädslagsandelar saknas.
+    if (data.tradslag.length > 0) {
+      const topp = data.tradslag.reduce((a, b) => (b.pct > a.pct ? b : a));
+      if (topp.pct > 0) return `${topp.namn} ${Math.round(topp.pct)} %`;
+    }
     const total = data.skordat > 0 ? data.skordat : data.sortiment.reduce((a, b) => a + b.m3, 0);
     return total > 0 ? `${sv(Math.round(total))} m³` : null;
   })();
