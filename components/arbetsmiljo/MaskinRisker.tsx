@@ -11,6 +11,7 @@ import Ark from '@/components/design/Ark';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import Falt from '@/components/design/Falt';
+import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning';
 import { AVSTAND, FARG, KNAPP, RADIE, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import { datumText } from '@/lib/arbetsmiljo/introduktion';
 import {
@@ -27,6 +28,8 @@ type Data = {
   minTyp: MaskinTyp | null;
   /** Admin: aktiva förare och deras maskintyp, för "Har inte läst". null = kunde inte läsas. */
   forare: Forare[] | null;
+  /** Admin: alla medarbetares namn (för "godkänd av" i PDF:en). */
+  namn: Record<string, string>;
 };
 
 const fornamn = (n: string) => n.trim().split(/\s+/)[0] ?? n;
@@ -45,6 +48,7 @@ export default function MaskinRisker() {
   const [ny, setNy] = useState(false);
   const [nyRisk, setNyRisk] = useState('');
   const [nyAtgard, setNyAtgard] = useState('');
+  const [pdf, setPdf] = useState(false);
 
   const hamta = useCallback(async () => {
     if (!medarbetare) return;
@@ -57,15 +61,17 @@ export default function MaskinRisker() {
       if (!bedomningar || !kvitton) { setData('fel'); return; }
       const typAv = (maskinId: string | null) => typForMaskin(maskiner?.find(m => m.maskin_id === maskinId)?.maskin_typ);
       let forare: Forare[] | null = null;
+      const namn: Record<string, string> = {};
       if (arAdmin) {
         const { data: rader, error } = await supabase.from('medarbetare').select('id, namn, roll, aktiv, maskin_id, foretagsledare');
+        if (!error && Array.isArray(rader)) for (const r of rader as { id: string; namn: string }[]) namn[r.id] = r.namn;
         if (!error && Array.isArray(rader) && maskiner) {
           forare = (rader as { id: string; namn: string; roll: string; aktiv: boolean; maskin_id: string | null; foretagsledare: boolean | null }[])
             .filter(r => r.aktiv && r.roll === 'forare' && r.foretagsledare !== true)
             .map(r => ({ id: r.id, namn: r.namn, typ: typAv(r.maskin_id) }));
         }
       }
-      setData({ bedomningar, kvitton, minTyp: typAv(medarbetare.maskin_id), forare });
+      setData({ bedomningar, kvitton, minTyp: typAv(medarbetare.maskin_id), forare, namn });
     } catch { setData('fel'); }
   }, [medarbetare, arAdmin]);
 
@@ -154,7 +160,24 @@ export default function MaskinRisker() {
               ))}
           </Sektion>
         )}
+        {ok && arAdmin && (
+          <button type="button" data-testid="mr-pdf" onClick={() => setPdf(true)} style={{ ...KNAPP.sekundar, width: '100%', marginTop: AVSTAND.l }}>
+            Dela som PDF
+          </button>
+        )}
       </div>
+
+      {pdf && ok && (
+        <PdfForhandsvisning
+          skapa={async () => {
+            const [{ riskDokument }, { skapaArbetsmiljoPdf }] = await Promise.all([import('@/lib/arbetsmiljo/dokument'), import('@/lib/arbetsmiljo/pdf')]);
+            return skapaArbetsmiljoPdf(riskDokument(ok.bedomningar, ok.namn, ok.forare, ok.kvitton));
+          }}
+          filnamn={`riskbedomning-${new Date().toISOString().slice(0, 10)}`}
+          titel="Riskbedömning"
+          onStang={() => setPdf(false)}
+        />
+      )}
 
       {valt && ok && (() => {
         const b = ok.bedomningar[valt];

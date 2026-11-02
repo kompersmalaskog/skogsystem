@@ -10,10 +10,11 @@ import Ark from '@/components/design/Ark';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import Falt from '@/components/design/Falt';
+import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning';
 import { AVSTAND, FARG, KNAPP, RADIE, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import { datumText } from '@/lib/arbetsmiljo/introduktion';
 import {
-  antalBesvarade, antalBrister, avsluta, byggPunkter, grupperaPunkter, hamtaRonder, lage, startaRond, svara,
+  antalBesvarade, antalBrister, avsluta, byggPunkter, grupperaPunkter, hamtaRondAtgarder, hamtaRonder, lage, startaRond, svara,
   type Punkt, type Rond, type SvarTyp,
 } from '@/lib/arbetsmiljo/skyddsrond';
 
@@ -31,6 +32,7 @@ export default function Skyddsrond() {
   const [deltagare, setDeltagare] = useState('');
   const [sparar, setSparar] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
+  const [pdf, setPdf] = useState(false);
 
   const hamta = useCallback(async () => {
     try {
@@ -163,6 +165,11 @@ export default function Skyddsrond() {
           </div>
         )}
         {rond?.klar && rond.deltagare && <div style={{ ...TYP.meta, color: FARG.text2 }}>Gick ronden: {rond.deltagare}</div>}
+        {rond?.klar && (
+          <button type="button" data-testid="sr-pdf" onClick={() => setPdf(true)} style={{ ...KNAPP.sekundar, width: '100%', marginTop: AVSTAND.l }}>
+            Dela som PDF
+          </button>
+        )}
       </div>
 
       {valt && rond && (
@@ -196,6 +203,18 @@ export default function Skyddsrond() {
             )}
           </div>
         </Ark>
+      )}
+
+      {pdf && rond?.klar && (
+        <PdfForhandsvisning
+          skapa={async () => {
+            const [{ skyddsrondDokument }, { skapaArbetsmiljoPdf }] = await Promise.all([import('@/lib/arbetsmiljo/dokument'), import('@/lib/arbetsmiljo/pdf')]);
+            return skapaArbetsmiljoPdf(skyddsrondDokument(rond, await hamtaRondAtgarder(supabase)));
+          }}
+          filnamn={`skyddsrond-${rond.klar.slice(0, 10)}`}
+          titel="Skyddsrond"
+          onStang={() => setPdf(false)}
+        />
       )}
 
       {avslut && rond && (

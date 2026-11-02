@@ -9,7 +9,10 @@ import type { Punkt, Rond, SvarTyp } from '@/lib/arbetsmiljo/skyddsrond';
 let lasare = true;
 vi.mock('@/lib/supabase', () => ({ supabase: {
   rpc: async () => ({ data: lasare, error: null }),
-  from: () => ({ select: async () => ({ data: [{ maskin_id: 'G', visningsnamn: 'Giant', aktiv_till: null }], error: null }) }),
+  from: () => ({ select: () => {
+    const svar = Promise.resolve({ data: [{ maskin_id: 'G', visningsnamn: 'Giant', aktiv_till: null }], error: null });
+    return Object.assign(svar, { eq: async () => ({ data: [], error: null }) });
+  } }),
 } }));
 
 let ronder: Rond[] = [];
@@ -27,6 +30,14 @@ vi.mock('@/lib/arbetsmiljo/skyddsrond', async (orig) => {
     },
     avsluta: async (_s: unknown, id: string, d: string) => { if (avslutFel) return avslutFel; const r = ronder.find(x => x.id === id)!; r.klar = new Date().toISOString(); r.deltagare = d; return null; },
   };
+});
+let pdfBytes: Uint8Array | null = null;
+vi.mock('@/app/helikopter/_components/PdfForhandsvisning', async () => {
+  const { useEffect } = await import('react');
+  return { default: ({ skapa, titel }: { skapa: () => Promise<Uint8Array>; titel: string }) => {
+    useEffect(() => { skapa().then(b => { pdfBytes = b; }); }, [skapa]);
+    return <div data-testid="pdf-panel">{titel}</div>;
+  } };
 });
 import Skyddsrond from './Skyddsrond';
 
@@ -68,6 +79,15 @@ describe('Skyddsrond', () => {
     await act(async () => { q('[data-testid="sr-avsluta"]')!.click(); }); await vanta();
     expect(q('[data-testid="sr-svar"]')!.textContent).toMatch(/^Gjord .* · nästa senast /);
     expect(q('[data-testid^="sr-tidigare-"]')!.textContent).toContain('1 brist');
+
+    // En klar rond går att dela som PDF; en pågående har ingen knapp.
+    expect(q('[data-testid="sr-pdf"]')).toBeNull();
+    await act(async () => { q('[data-testid^="sr-tidigare-"]')!.click(); });
+    pdfBytes = null;
+    await act(async () => { q('[data-testid="sr-pdf"]')!.click(); });
+    for (let i = 0; i < 40 && !pdfBytes; i++) await act(async () => { await new Promise(r => setTimeout(r, 25)); });
+    expect(q('[data-testid="pdf-panel"]')!.textContent).toBe('Skyddsrond');
+    expect(pdfBytes!.length).toBeGreaterThan(1000);
   });
 
   it('den som inte går ronden ser bara en rad', async () => {
