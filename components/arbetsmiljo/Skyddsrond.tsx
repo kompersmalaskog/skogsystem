@@ -6,6 +6,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
+import { laggMaskinkollFoto } from '@/lib/maskinkoll/fotoKo';
+import { fotoSokvag } from '@/lib/maskinkoll/regler';
+import { fotoLank } from '@/lib/arbetsmiljo/atgarder';
 import Ark from '@/components/design/Ark';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
@@ -22,7 +26,13 @@ type Data = { ronder: Rond[]; maskiner: { id: string; namn: string }[] };
 
 const SVAR_TEXT: Record<SvarTyp, string> = { ok: 'Bra', brist: 'Brist', galler_inte: 'Gäller inte' };
 
+/** Bilden på en brist: en ny fil att ladda upp, eller sökvägen som redan är sparad. visa = det som visas (lokal eller signerad länk). */
+type Bild = { fil: File | null; sokvag: string | null; visa: string | null };
+const INGEN_BILD: Bild = { fil: null, sokvag: null, visa: null };
+
 export default function Skyddsrond() {
+  const { medarbetare } = useCurrentMedarbetare();
+  const [bild, setBild] = useState<Bild>(INGEN_BILD);
   const [far, setFar] = useState<boolean | null>(null);
   const [data, setData] = useState<Data | null | 'fel'>(null);
   const [visad, setVisad] = useState<string | null>(null);
@@ -74,10 +84,17 @@ export default function Skyddsrond() {
   const spara = async (svar: SvarTyp) => {
     if (!rond || !valt) return;
     setSparar(true); setFel(null);
-    const lyckades = await svara(supabase, rond.id, valt, svar, svar === 'brist' ? brist : null);
+    let foto: string | null = svar === 'brist' ? bild.sokvag : null;
+    if (svar === 'brist' && bild.fil && medarbetare) {
+      foto = fotoSokvag(medarbetare.id, 'skyddsrond', `${rond.id}-${valt.id}`, Date.now());
+      // Fotot läggs i kön (sparat lokalt direkt, uppladdat när nätet finns) — samma som maskinkollen.
+      try { await laggMaskinkollFoto(rond.id, valt.id, foto, bild.fil); }
+      catch { setSparar(false); setFel('Bilden gick inte att läsa. Ta en ny.'); return; }
+    }
+    const lyckades = await svara(supabase, rond.id, valt, svar, svar === 'brist' ? brist : null, foto);
     setSparar(false);
     if (!lyckades) { setFel('Kunde inte spara. Försök igen.'); return; }
-    setValt(null); setBrist(null);
+    stangPunkt();
     await hamta();
   };
 
@@ -89,6 +106,25 @@ export default function Skyddsrond() {
     if (f) { setFel(f); return; }
     setAvslut(false); setDeltagare('');
     await hamta();
+  };
+
+  const stangPunkt = () => { setValt(null); setBrist(null); setBild(INGEN_BILD); };
+
+  const oppnaPunkt = (p: Punkt) => {
+    const s = svarFor(p);
+    setFel(null);
+    setBrist(s?.svar === 'brist' ? s.beskrivning ?? '' : null);
+    setBild(s?.svar === 'brist' && s.fotoUrl ? { fil: null, sokvag: s.fotoUrl, visa: null } : INGEN_BILD);
+    setValt(p);
+    if (s?.svar === 'brist' && s.fotoUrl) {
+      const sokvag = s.fotoUrl;
+      fotoLank(supabase, sokvag).then(u => setBild(b => (b.sokvag === sokvag && !b.fil ? { ...b, visa: u } : b)));
+    }
+  };
+
+  const valjBild = (fil: File | undefined) => {
+    if (!fil) return;
+    setBild({ fil, sokvag: null, visa: URL.createObjectURL(fil) });
   };
 
   const svarFor = (p: Punkt) => rond?.svar.find(s => s.punkt === p.id) ?? null;
@@ -148,10 +184,10 @@ export default function Skyddsrond() {
             {g.punkter.map((p, i) => {
               const s = svarFor(p);
               const under = !s ? undefined
-                : s.svar === 'brist' ? <span style={{ color: FARG.orange }}>Brist: {s.beskrivning}</span>
+                : s.svar === 'brist' ? <span style={{ color: FARG.orange }}>Brist: {s.beskrivning}{s.fotoUrl ? ' · Bild' : ''}</span>
                 : s.svar === 'ok' ? <span style={{ color: FARG.gron }}>Bra</span>
                 : 'Gäller inte';
-              return <Rad key={p.id} titel={p.text} under={under} onTryck={last ? undefined : () => { setFel(null); setBrist(s?.svar === 'brist' ? s.beskrivning ?? '' : null); setValt(p); }}
+              return <Rad key={p.id} titel={p.text} under={under} onTryck={last ? undefined : () => oppnaPunkt(p)}
                 sista={i === g.punkter.length - 1} attr={{ 'data-testid': `sr-punkt-${p.id}` }} />;
             })}
           </Sektion>
@@ -173,7 +209,7 @@ export default function Skyddsrond() {
       </div>
 
       {valt && rond && (
-        <Ark rubrik={valt.text} onStang={() => { setValt(null); setBrist(null); }}
+        <Ark rubrik={valt.text} onStang={stangPunkt}
           fot={brist !== null
             ? <>
                 <button type="button" data-testid="sr-spara-brist" disabled={sparar || !brist.trim()} onClick={() => spara('brist')}
@@ -199,6 +235,20 @@ export default function Skyddsrond() {
                   placeholder="T.ex. Protokollet för Giant saknas"
                   style={{ width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min * 2, border: 'none', borderRadius: RADIE.rad, background: FARG.fyllning, color: FARG.text, padding: AVSTAND.m, fontFamily: 'inherit', ...TYP.text, outline: 'none', resize: 'vertical' }} />
                 <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Blir en åtgärd att göra inom 30 dagar.</div>
+                {medarbetare && (bild.fil || bild.sokvag ? (
+                  <div data-testid="sr-bild" style={{ marginTop: AVSTAND.l }}>
+                    {bild.visa
+                      ? <img src={bild.visa} alt="Bild på bristen" style={{ display: 'block', width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', borderRadius: RADIE.kort, background: FARG.fyllning }} />
+                      : <div style={{ width: '100%', aspectRatio: '4 / 3', borderRadius: RADIE.kort, background: FARG.fyllning }} />}
+                    <button type="button" data-testid="sr-bild-bort" onClick={() => setBild(INGEN_BILD)} style={{ ...KNAPP.lank, minHeight: TRAFFYTA.min, paddingLeft: 0 }}>Ta bort bilden</button>
+                  </div>
+                ) : (
+                  <label data-testid="sr-bild-ta" style={{ ...KNAPP.sekundar, width: '100%', marginTop: AVSTAND.l, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', cursor: 'pointer' }}>
+                    Ta en bild (valfritt)
+                    <input type="file" accept="image/*" capture="environment" data-testid="sr-bild-fil" style={{ display: 'none' }}
+                      onChange={e => { valjBild(e.target.files?.[0]); e.target.value = ''; }} />
+                  </label>
+                ))}
               </div>
             )}
           </div>
