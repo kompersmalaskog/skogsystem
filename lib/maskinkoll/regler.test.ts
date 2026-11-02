@@ -87,3 +87,17 @@ function byggJpeg(original: string, datetime: string): ArrayBuffer {
   const bytes = [0xff, 0xd8, 0xff, 0xe1, (len >> 8) & 255, len & 255, ...app1, 0xff, 0xd9];
   return new Uint8Array(bytes).buffer;
 }
+
+describe('frågor som bara gäller vissa månader (brandsäsongen)', () => {
+  const f = (kod: string, manader: number[] | null) => ({ id: kod, kod, text: kod, hjalptext: null, maskin_typ: null, foto_url: null, ordning: 1, stopp: false, foto_vid_ja: false, manader });
+  const fragor = [f('N1', null), f('N7', [4, 5, 6, 7, 8, 9])];
+  it('brandsäsongens fråga ställs april–september, aldrig i november; utan månad visas allt', async () => {
+    const { fragorFor, svenskManad } = await import('./regler');
+    expect(fragorFor(fragor, null, 7).map(x => x.kod)).toEqual(['N1', 'N7']);
+    expect(fragorFor(fragor, null, 11).map(x => x.kod)).toEqual(['N1']);
+    expect(fragorFor(fragor, null).map(x => x.kod)).toEqual(['N1', 'N7']);
+    // Svensk tid: 30 september 23:30 UTC är 1 oktober i Sverige.
+    expect(svenskManad(new Date('2026-09-30T23:30:00Z'))).toBe(10);
+    expect(svenskManad(new Date('2026-09-30T21:00:00Z'))).toBe(9);
+  });
+});
