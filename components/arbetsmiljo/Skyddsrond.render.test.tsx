@@ -15,6 +15,12 @@ vi.mock('@/lib/supabase', () => ({ supabase: {
   } }),
 } }));
 
+vi.mock('@/lib/CurrentMedarbetareContext', () => ({ useCurrentMedarbetare: () => ({ medarbetare: { id: 'martin', namn: 'Martin', roll: 'admin' }, loading: false }) }));
+const koade: { sokvag: string; namn: string }[] = [];
+vi.mock('@/lib/maskinkoll/fotoKo', () => ({ laggMaskinkollFoto: async (_k: string, _d: string, sokvag: string, fil: File) => { koade.push({ sokvag, namn: fil.name }); } }));
+vi.mock('@/lib/arbetsmiljo/atgarder', () => ({ fotoLank: async (_sb: unknown, sokvag: string) => `https://signerad/${sokvag}` }));
+(URL as any).createObjectURL = () => 'blob:lokal';
+
 let ronder: Rond[] = [];
 let avslutFel: string | null = null;
 vi.mock('@/lib/arbetsmiljo/skyddsrond', async (orig) => {
@@ -25,8 +31,8 @@ vi.mock('@/lib/arbetsmiljo/skyddsrond', async (orig) => {
     byggPunkter: () => kort,
     hamtaRonder: async () => JSON.parse(JSON.stringify(ronder)),
     startaRond: async (_s: unknown, punkter: Punkt[]) => { ronder.unshift({ id: 'ny', punkter, deltagare: null, startad: new Date().toISOString(), klar: null, svar: [] }); return 'ny'; },
-    svara: async (_s: unknown, id: string, p: Punkt, svar: SvarTyp, b: string | null) => {
-      const r = ronder.find(x => x.id === id)!; r.svar = r.svar.filter(x => x.punkt !== p.id); r.svar.push({ punkt: p.id, svar, beskrivning: b }); return true;
+    svara: async (_s: unknown, id: string, p: Punkt, svar: SvarTyp, b: string | null, foto: string | null = null) => {
+      const r = ronder.find(x => x.id === id)!; r.svar = r.svar.filter(x => x.punkt !== p.id); r.svar.push({ punkt: p.id, svar, beskrivning: b, fotoUrl: foto }); return true;
     },
     avsluta: async (_s: unknown, id: string, d: string) => { if (avslutFel) return avslutFel; const r = ronder.find(x => x.id === id)!; r.klar = new Date().toISOString(); r.deltagare = d; return null; },
   };
@@ -43,7 +49,7 @@ import Skyddsrond from './Skyddsrond';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root; let el: HTMLDivElement;
-beforeEach(() => { ronder = []; lasare = true; avslutFel = null; el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el); });
+beforeEach(() => { koade.length = 0; ronder = []; lasare = true; avslutFel = null; el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el); });
 afterEach(() => { act(() => root.unmount()); el.remove(); document.body.innerHTML = ''; });
 const vanta = async () => { for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve(); }); };
 const q = (s: string) => document.querySelector(s) as HTMLElement | null;
@@ -67,8 +73,25 @@ describe('Skyddsrond', () => {
     await act(async () => { q('[data-testid="sr-svar-brist"]')!.click(); });
     expect((q('[data-testid="sr-spara-brist"]') as HTMLButtonElement).disabled).toBe(true);
     await skriv('[data-testid="sr-brist-text"]', 'En släckare saknas');
+    // Bilden är valfri: välj en, den visas, och sparas som en sökväg i egen mapp.
+    const fil = new File(['x'], 'slackare.jpg', { type: 'image/jpeg' });
+    const inp = q('[data-testid="sr-bild-fil"]') as HTMLInputElement;
+    Object.defineProperty(inp, 'files', { value: [fil], configurable: true });
+    await act(async () => { inp.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect((q('[data-testid="sr-bild"] img') as HTMLImageElement).src).toBe('blob:lokal');
     await act(async () => { q('[data-testid="sr-spara-brist"]')!.click(); }); await vanta();
-    expect(q('[data-testid="sr-punkt-brand_slackare:G"]')!.textContent).toContain('Brist: En släckare saknas');
+    expect(koade).toHaveLength(1);
+    expect(koade[0].sokvag).toMatch(/^martin\/skyddsrond\/ny-brand_slackare_G-\d+\.jpg$/);
+    expect(ronder[0].svar.find(x => x.punkt === 'brand_slackare:G')!.fotoUrl).toBe(koade[0].sokvag);
+    expect(q('[data-testid="sr-punkt-brand_slackare:G"]')!.textContent).toContain('Brist: En släckare saknas · Bild');
+    // Öppnas bristen igen visas den sparade bilden (signerad länk); Ta bort bilden gör att den inte sparas.
+    await act(async () => { q('[data-testid="sr-punkt-brand_slackare:G"]')!.click(); }); await vanta();
+    expect((q('[data-testid="sr-bild"] img') as HTMLImageElement).src).toBe(`https://signerad/${koade[0].sokvag}`);
+    await act(async () => { q('[data-testid="sr-bild-bort"]')!.click(); });
+    expect(q('[data-testid="sr-bild-ta"]')).toBeTruthy();
+    await act(async () => { q('[data-testid="sr-spara-brist"]')!.click(); }); await vanta();
+    expect(ronder[0].svar.find(x => x.punkt === 'brand_slackare:G')!.fotoUrl).toBeNull();
+    expect(koade).toHaveLength(1);
     await act(async () => { q('[data-testid="sr-punkt-sasong"]')!.click(); });
     await act(async () => { q('[data-testid="sr-svar-galler_inte"]')!.click(); }); await vanta();
 

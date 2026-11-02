@@ -85,7 +85,7 @@ export function grupperaPunkter(punkter: readonly Punkt[]): { omrade: string; na
 }
 
 export type SvarTyp = 'ok' | 'brist' | 'galler_inte';
-export type Svar = { id?: string; punkt: string; svar: SvarTyp; beskrivning: string | null };
+export type Svar = { id?: string; punkt: string; svar: SvarTyp; beskrivning: string | null; fotoUrl?: string | null };
 export type Rond = { id: string; punkter: Punkt[]; deltagare: string | null; startad: string; klar: string | null; svar: Svar[] };
 
 export const OFTA_DAGAR = 365;
@@ -134,13 +134,13 @@ function tolkaPunkter(raw: unknown): Punkt[] {
 export async function hamtaRonder(sb: SupabaseClient): Promise<Rond[] | null> {
   const [r, s] = await Promise.all([
     sb.from('am_skyddsrond').select('id, punkter, deltagare, startad, klar').order('startad', { ascending: false }),
-    sb.from('am_skyddsrond_svar').select('id, rond_id, punkt, svar, beskrivning'),
+    sb.from('am_skyddsrond_svar').select('id, rond_id, punkt, svar, beskrivning, foto_url'),
   ]);
   if (r.error || s.error || !Array.isArray(r.data) || !Array.isArray(s.data)) return null;
-  const svar = s.data as { id: string; rond_id: string; punkt: string; svar: SvarTyp; beskrivning: string | null }[];
+  const svar = s.data as { id: string; rond_id: string; punkt: string; svar: SvarTyp; beskrivning: string | null; foto_url: string | null }[];
   return (r.data as { id: string; punkter: unknown; deltagare: string | null; startad: string; klar: string | null }[]).map(x => ({
     id: x.id, punkter: tolkaPunkter(x.punkter), deltagare: x.deltagare, startad: x.startad, klar: x.klar,
-    svar: svar.filter(y => y.rond_id === x.id).map(y => ({ id: y.id, punkt: y.punkt, svar: y.svar, beskrivning: y.beskrivning })),
+    svar: svar.filter(y => y.rond_id === x.id).map(y => ({ id: y.id, punkt: y.punkt, svar: y.svar, beskrivning: y.beskrivning, fotoUrl: y.foto_url ?? null })),
   }));
 }
 
@@ -160,12 +160,12 @@ export async function startaRond(sb: SupabaseClient, punkter: Punkt[]): Promise<
   return (data as { id: string }).id;
 }
 
-/** Sparar ett svar. Brist utan text sparas inte. false = gick inte. */
-export async function svara(sb: SupabaseClient, rondId: string, p: Punkt, svar: SvarTyp, beskrivning: string | null): Promise<boolean> {
+/** Sparar ett svar. Brist utan text sparas inte. Bara en brist kan ha ett foto (sökväg i am-foton). false = gick inte. */
+export async function svara(sb: SupabaseClient, rondId: string, p: Punkt, svar: SvarTyp, beskrivning: string | null, fotoUrl: string | null = null): Promise<boolean> {
   const text = beskrivning?.trim() || null;
   if (svar === 'brist' && !text) return false;
   const { error } = await sb.from('am_skyddsrond_svar').upsert(
-    { rond_id: rondId, punkt: p.id, punkt_text: p.text, maskin_id: p.maskinId ?? null, svar, beskrivning: svar === 'brist' ? text : null },
+    { rond_id: rondId, punkt: p.id, punkt_text: p.text, maskin_id: p.maskinId ?? null, svar, beskrivning: svar === 'brist' ? text : null, foto_url: svar === 'brist' ? fotoUrl : null },
     { onConflict: 'rond_id,punkt' },
   );
   return !error;
