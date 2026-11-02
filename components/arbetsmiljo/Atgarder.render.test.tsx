@@ -138,6 +138,7 @@ describe('Åtgärder', () => {
     h.tillbud = new Map([['t', { tillbudId: 'tb-1', typ: 'olycka', anmaldTid: null, anmaldAvNamn: null }]]);
     await montera();
     expect(document.querySelector('[data-atgard=t]')?.textContent).toContain('Olycka · Giant');
+    expect(document.querySelector('[data-atgard=t] [data-ej-anmald]')?.textContent).toContain('Inte anmäld');
     await tryck(document.querySelector('[data-atgard=t]'));
     expect(text()).toContain('Vad hände?');
     expect(document.querySelector('[data-anmalan]')?.textContent).toContain('anmälas till Arbetsmiljöverket direkt');
@@ -145,6 +146,7 @@ describe('Åtgärder', () => {
     await tryck(document.querySelector('[data-markera-anmald]'));
     expect(h.anmalda).toEqual(['tb-1']);
     expect(document.querySelector('[data-anmald]')?.textContent).toContain('Anmäld');
+    expect(document.querySelector('[data-atgard=t] [data-ej-anmald]')).toBeNull();
   });
 
   it('tillbud för skyddsombudet: påminnelsen syns men ingen Markera-knapp; läsfel på tillbuden → "Tillbud", ingen anmälan', async () => {
