@@ -9,7 +9,7 @@
 import { useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { hamtaNodData } from '@/lib/arbetsmiljo/tillbud'
-import { lasNod, sparaNod } from '@/lib/arbetsmiljo/nod'
+import { lasNod, slaIhopNod, sparaNod } from '@/lib/arbetsmiljo/nod'
 
 export const NOD_CACHA = 'nod-cacha'
 const MIN_MELLAN_MS = 60 * 60 * 1000
@@ -17,7 +17,7 @@ const MIN_MELLAN_MS = 60 * 60 * 1000
 export async function uppdateraNod(): Promise<void> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return
   const d = await hamtaNodData(supabase).catch(() => null)
-  if (d) sparaNod(d)
+  if (d) sparaNod(slaIhopNod(d, lasNod()))
   try {
     const reg = await navigator.serviceWorker?.getRegistration()
     const sw = reg?.active

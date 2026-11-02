@@ -1,7 +1,8 @@
 // "Om något händer" — rutinkorten, nödkoordinaten och vem man ringer. Spec: "Arbetsmiljö i Skogsystem – spec", Om något händer.
 //
 // Allt här fungerar UTAN TÄCKNING:
-//  - Korten står i koden (inte i databasen), så de finns så fort sidan finns. Ändras de: ändra här.
+//  - Korten står i koden, så de finns så fort sidan finns. Admin kan ändra ett korts rubrik och steg i appen (tabellen
+//    am_rutinkort, en rad per ändrat kort); ändringarna sparas på enheten med resten (NodData.andringar).
 //  - Telefonnumren och traktenas larmplatser sparas på enheten (localStorage, NOD_NYCKEL) varje gång appen har nät, och läses
 //    därifrån när den inte har det. Positionen kommer från telefonens/datorns GPS, som inte behöver nät.
 //  - Sidan och dess filer sparas av service workern (public/sw.js, "nod-cacha").
@@ -25,8 +26,26 @@ export const RUTINKORT: Rutinkort[] = [
   { id: 'fast', titel: 'Maskinen sitter fast', steg: ['Stäng av. Gå aldrig under kran eller last.', 'Ring arbetsledningen innan någon börjar dra.', 'Ingen står i vajerns eller kedjans linje.'] },
 ];
 
-export function hittaKort(id: string | null | undefined): Rutinkort | null {
-  return RUTINKORT.find(k => k.id === id) ?? null;
+/** En ändring av ett kort (am_rutinkort). Saknas en rad gäller appens text. */
+export type KortAndring = { id: string; titel: string; steg: [string, string, string]; andradTid: string | null };
+
+/** Korten som de ska visas: appens kort i appens ordning, med admins ändringar. Okända id och ofullständiga rader hoppas över. */
+export function kortMedAndringar(andringar: KortAndring[] | null | undefined): Rutinkort[] {
+  const m = new Map((andringar ?? []).filter(giltigAndring).map(a => [a.id, a]));
+  return RUTINKORT.map(k => {
+    const a = m.get(k.id);
+    return a ? { id: k.id, titel: a.titel.trim(), steg: a.steg.map(x => x.trim()) as [string, string, string] } : k;
+  });
+}
+
+export function giltigAndring(a: unknown): a is KortAndring {
+  const x = a as KortAndring;
+  return !!x && RUTINKORT.some(k => k.id === x.id) && typeof x.titel === 'string' && x.titel.trim() !== ''
+    && Array.isArray(x.steg) && x.steg.length === 3 && x.steg.every(s => typeof s === 'string' && s.trim() !== '');
+}
+
+export function hittaKort(id: string | null | undefined, kort: Rutinkort[] = RUTINKORT): Rutinkort | null {
+  return kort.find(k => k.id === id) ?? null;
 }
 
 export type Kontakt = { namn: string; telefon: string };
@@ -89,7 +108,13 @@ export function telLank(nummer: string): string {
 
 export const NOD_NYCKEL = 'nod_v1';
 
-export type NodData = { kontakter: Kontakt[]; larmplatser: Larmplats[]; hamtad: number };
+/** `andringar` saknas = okänt (äldre sparning eller läsfel) → appens kort, eller det som redan var sparat (`slaIhopNod`). */
+export type NodData = { kontakter: Kontakt[]; larmplatser: Larmplats[]; hamtad: number; andringar?: KortAndring[] };
+
+/** Ny data från nätet + det som var sparat: kunde korten inte läsas behålls de sparade ändringarna (aldrig tyst tillbaka till appens text). */
+export function slaIhopNod(ny: NodData, gammal: NodData | null): NodData {
+  return ny.andringar !== undefined ? ny : { ...ny, ...(gammal?.andringar ? { andringar: gammal.andringar } : {}) };
+}
 
 export function tolkaNod(raw: string | null | undefined): NodData | null {
   if (!raw) return null;
@@ -100,7 +125,8 @@ export function tolkaNod(raw: string | null | undefined): NodData | null {
       !!k && typeof (k as Kontakt).namn === 'string' && typeof (k as Kontakt).telefon === 'string' && (k as Kontakt).telefon.trim() !== '');
     const larmplatser = (p.larmplatser as unknown[]).filter((l): l is Larmplats =>
       !!l && typeof (l as Larmplats).objektId === 'string' && Number.isFinite((l as Larmplats).lat) && Number.isFinite((l as Larmplats).lng));
-    return { kontakter, larmplatser, hamtad: p.hamtad };
+    const andringar = Array.isArray(p.andringar) ? (p.andringar as unknown[]).filter(giltigAndring) : undefined;
+    return { kontakter, larmplatser, hamtad: p.hamtad, ...(andringar ? { andringar } : {}) };
   } catch {
     return null;
   }

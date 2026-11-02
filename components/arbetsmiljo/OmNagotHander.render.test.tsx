@@ -9,7 +9,7 @@ import { createRoot } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const h = vi.hoisted(() => ({
-  nod: null as any, rapporter: [] as any[], rapportSvar: null as string | null, vem: { ok: true, medarbetareId: 'm-1', maskinId: 'PONS' } as any,
+  nod: null as any, admin: false, sparade: [] as any[], aterstallda: [] as string[], rapporter: [] as any[], rapportSvar: null as string | null, vem: { ok: true, medarbetareId: 'm-1', maskinId: 'PONS' } as any,
 }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
@@ -21,8 +21,11 @@ vi.mock('@/lib/arbetsmiljo/tillbud', async (orig) => {
     hamtaNodData: async () => h.nod,
     hamtaRapportor: async () => h.vem,
     rapporteraTillbud: async (_sb: unknown, r: any) => { h.rapporter.push(r); return h.rapportSvar; },
+    sparaKort: async (_sb: unknown, a: any) => { h.sparade.push(a); h.nod = { ...h.nod, andringar: [{ ...a, andradTid: 'nu' }] }; return null; },
+    aterstallKort: async (_sb: unknown, id: string) => { h.aterstallda.push(id); h.nod = { ...h.nod, andringar: [] }; return null; },
   };
 });
+vi.mock('@/lib/CurrentMedarbetareContext', () => ({ useCurrentMedarbetare: () => ({ medarbetare: h.admin ? { roll: 'admin' } : { roll: 'forare' }, loading: false }) }));
 
 import OmNagotHander from './OmNagotHander';
 import { NOD_NYCKEL } from '@/lib/arbetsmiljo/nod';
@@ -47,6 +50,7 @@ beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.clear();
   h.nod = { kontakter: [{ namn: 'Martin', telefon: '070-111 22 33' }, { namn: 'Joacim', telefon: '070 444' }], larmplatser: [{ objektId: 'o1', namn: 'Skälviken', lat: 56.84321, lng: 15.2219, beskrivning: 'Möt vid bommen' }], hamtad: 1 };
+  h.admin = false; h.sparade = []; h.aterstallda = [];
   h.rapporter = []; h.rapportSvar = null; h.vem = { ok: true, medarbetareId: 'm-1', maskinId: 'PONS' };
   geoSvar = null;
   (navigator as any).geolocation = { watchPosition: (ok: any) => { geoSvar = ok; return 1; }, clearWatch: () => {} };
@@ -161,5 +165,50 @@ describe('Om något händer', () => {
   it('inga ikoner från nätet (fungerar utan täckning)', async () => {
     await montera();
     expect(document.querySelector('.material-symbols-outlined')).toBeNull();
+  });
+});
+
+describe('Rutinkorten går att ändra', () => {
+  const skrivFalt = async (etikett: string, v: string) => {
+    const lab = Array.from(document.querySelectorAll('label')).find(l => l.textContent === etikett)!;
+    const inp = document.getElementById(lab.htmlFor) as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(inp, v);
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+
+  it('en förare ser ingen Ändra-knapp', async () => {
+    await montera();
+    await tryck(document.querySelector('[data-kort=brand]'));
+    expect(document.querySelector('[data-andra-kort]')).toBeNull();
+  });
+
+  it('admin ändrar ett steg: Spara är grå tills något ändrats, sedan visas den nya texten för alla', async () => {
+    h.admin = true;
+    await montera();
+    await tryck(document.querySelector('[data-kort=brand]'));
+    await tryck(document.querySelector('[data-andra-kort]'));
+    expect((document.querySelector('[data-spara-kort]') as HTMLButtonElement).disabled).toBe(true);
+    await skrivFalt('Steg 2', 'Släck med släckaren vid hytten.');
+    await tryck(document.querySelector('[data-spara-kort]'));
+    expect(h.sparade[0].steg[1]).toBe('Släck med släckaren vid hytten.');
+    expect(document.querySelector('[data-spara-kort]')).toBeNull();
+    expect(document.querySelector('[data-steg]')!.textContent).toContain('Släck med släckaren vid hytten.');
+    expect(JSON.parse(localStorage.getItem(NOD_NYCKEL)!).andringar[0].id).toBe('brand');
+  });
+
+  it('ett tomt steg går inte att spara; ett ändrat kort kan gå tillbaka till appens text', async () => {
+    h.admin = true;
+    h.nod = { ...h.nod, andringar: [{ id: 'brand', titel: 'Brand!', steg: ['a', 'b', 'c'], andradTid: 'x' }] };
+    await montera();
+    expect(document.querySelector('[data-kort=brand]')!.textContent).toContain('Brand!');
+    await tryck(document.querySelector('[data-kort=brand]'));
+    await tryck(document.querySelector('[data-andra-kort]'));
+    await skrivFalt('Steg 1', '  ');
+    expect((document.querySelector('[data-spara-kort]') as HTMLButtonElement).disabled).toBe(true);
+    await tryck(document.querySelector('[data-aterstall-kort]'));
+    expect(h.aterstallda).toEqual(['brand']);
+    expect(document.querySelector('h1')!.textContent).toBe('Det brinner');
   });
 });

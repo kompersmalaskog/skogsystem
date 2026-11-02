@@ -13,10 +13,13 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { AVSTAND, FARG, INAKTIV, KNAPP, KORT, RADIE, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import {
-  RUTINKORT, hittaKort, koordinatRader, koordinatText, lasNod, ringText, senasteObjektPaEnheten, sparaNod, telLank, valjLarmplats,
+  hittaKort, kortMedAndringar, koordinatRader, koordinatText, lasNod, ringText, senasteObjektPaEnheten, slaIhopNod, sparaNod, telLank, valjLarmplats,
   type NodData, type Position, type Rutinkort,
 } from '@/lib/arbetsmiljo/nod';
-import { TYP_VAL, hamtaNodData, hamtaRapportor, rapporteraTillbud, type TillbudTyp } from '@/lib/arbetsmiljo/tillbud';
+import { TYP_VAL, aterstallKort, hamtaNodData, hamtaRapportor, rapporteraTillbud, sparaKort, type TillbudTyp } from '@/lib/arbetsmiljo/tillbud';
+import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
+import Ark from '@/components/design/Ark';
+import Falt from '@/components/design/Falt';
 import { laggMaskinkollFoto } from '@/lib/maskinkoll/fotoKo';
 import { fotoSokvag } from '@/lib/maskinkoll/regler';
 
@@ -73,7 +76,7 @@ export default function OmNagotHander() {
   useEffect(() => {
     setNod(lasNod());
     let vid = true;
-    hamtaNodData(supabase).then(d => { if (d && vid) { sparaNod(d); setNod(d); } }).catch(() => {});
+    hamtaNodData(supabase).then(d => { if (d && vid) { const ny = slaIhopNod(d, lasNod()); sparaNod(ny); setNod(ny); } }).catch(() => {});
     return () => { vid = false; };
   }, []);
 
@@ -81,6 +84,16 @@ export default function OmNagotHander() {
 
   const larmplats = valjLarmplats(nod?.larmplatser ?? [], pos, pos ? null : senasteObjektPaEnheten());
   const kontakter = nod?.kontakter ?? [];
+  // Korten med admins ändringar (sparade på enheten). Ett öppet kort visas alltid i sin senaste lydelse.
+  const kortLista = kortMedAndringar(nod?.andringar);
+  const visat = (k: Rutinkort) => hittaKort(k.id, kortLista) ?? k;
+  const { medarbetare } = useCurrentMedarbetare();
+  const arAdmin = medarbetare?.roll === 'admin';
+  const [andrar, setAndrar] = useState<Rutinkort | null>(null);
+  const lasOm = useCallback(async () => {
+    const d = await hamtaNodData(supabase).catch(() => null);
+    if (d) { const ny = slaIhopNod(d, lasNod()); sparaNod(ny); setNod(ny); }
+  }, []);
 
   return (
     <div style={{ ...VY_ROT, minHeight: ROT_MIN_HOJD }}>
@@ -99,8 +112,8 @@ export default function OmNagotHander() {
             <Nodkort pos={pos} status={status} larmplats={larmplats} forst />
             <Etikett>Vad har hänt?</Etikett>
             <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
-              {RUTINKORT.map((k, i) => (
-                <RadKnapp key={k.id} sista={i === RUTINKORT.length - 1} onTryck={() => ga({ vy: 'kort', kort: k })} attr={{ 'data-kort': k.id }}>
+              {kortLista.map((k, i) => (
+                <RadKnapp key={k.id} sista={i === kortLista.length - 1} onTryck={() => ga({ vy: 'kort', kort: k })} attr={{ 'data-kort': k.id }}>
                   {k.titel}
                 </RadKnapp>
               ))}
@@ -116,10 +129,10 @@ export default function OmNagotHander() {
 
         {lage.vy === 'kort' && (
           <>
-            <h1 style={{ ...TYP.titel, margin: 0 }}>{lage.kort.titel}</h1>
+            <h1 style={{ ...TYP.titel, margin: 0 }}>{visat(lage.kort).titel}</h1>
             <Nodkort pos={pos} status={status} larmplats={larmplats} kompakt />
             <ol data-steg style={{ listStyle: 'none', margin: `${AVSTAND.xl}px 0 0`, padding: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
-              {lage.kort.steg.map((s, i) => (
+              {visat(lage.kort).steg.map((s, i) => (
                 <li key={i} style={{ display: 'flex', gap: AVSTAND.m, alignItems: 'flex-start' }}>
                   <span aria-hidden style={{ ...TYP.listtitel, ...TNUM, width: 32, height: 32, borderRadius: RADIE.cirkel, background: FARG.upphojt, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
                   <span style={{ ...TYP.rubrik, fontWeight: 600 }}>{s}</span>
@@ -139,7 +152,14 @@ export default function OmNagotHander() {
               <RadKnapp sista onTryck={() => ga({ vy: 'rapport', kort: lage.kort })} attr={{ 'data-rapportera': '' }}
                 under="När det värsta är över">Rapportera vad som hände</RadKnapp>
             </div>
+            {arAdmin && (
+              <button type="button" data-andra-kort onClick={() => setAndrar(visat(lage.kort))} style={{ ...KNAPP.lank, marginTop: AVSTAND.l }}>Ändra kortet</button>
+            )}
           </>
+        )}
+        {andrar && (
+          <KortRedigerare kort={andrar} andrat={(nod?.andringar ?? []).some(a => a.id === andrar.id)}
+            onStang={() => setAndrar(null)} onSparat={async () => { await lasOm(); setAndrar(null); }} />
         )}
 
         {lage.vy === 'rapport' && (
@@ -314,5 +334,41 @@ function Bock({ vald }: { vald: boolean }) {
       <circle cx="12" cy="12" r="10" fill={vald ? FARG.text : 'none'} stroke={vald ? FARG.text : FARG.text3} strokeWidth="2" />
       {vald && <path d="M7.5 12.5l3 3 6-6.5" fill="none" stroke={FARG.bg} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />}
     </svg>
+  );
+}
+
+/** Admin ändrar ett korts rubrik och tre steg. Spara är grå tills något ändrats och allt är ifyllt. */
+function KortRedigerare({ kort, andrat, onStang, onSparat }: { kort: Rutinkort; andrat: boolean; onStang: () => void; onSparat: () => Promise<void> }) {
+  const [titel, setTitel] = useState(kort.titel);
+  const [steg, setSteg] = useState<[string, string, string]>([...kort.steg] as [string, string, string]);
+  const [sparar, setSparar] = useState(false);
+  const [fel, setFel] = useState<string | null>(null);
+  const ifyllt = titel.trim() !== '' && steg.every(x => x.trim() !== '');
+  const ny = titel.trim() !== kort.titel || steg.some((x, i) => x.trim() !== kort.steg[i]);
+  const kan = ifyllt && ny && !sparar;
+  const kor = async (f: () => Promise<string | null>) => {
+    setSparar(true); setFel(null);
+    const e = await f();
+    setSparar(false);
+    if (e) { setFel(e); return; }
+    await onSparat();
+  };
+  return (
+    <Ark rubrik="Ändra kortet" onStang={onStang}
+      fot={<>
+        <button type="button" data-spara-kort disabled={!kan} onClick={() => kor(() => sparaKort(supabase, { id: kort.id, titel, steg }))}
+          style={{ ...KNAPP.primar, width: '100%', ...(kan ? {} : INAKTIV) }}>{sparar ? 'Sparar …' : 'Spara'}</button>
+        {fel && <div role="status" data-kort-fel style={{ ...TYP.text, color: FARG.orange, marginTop: AVSTAND.s }}>{fel}</div>}
+      </>}>
+      <Falt etikett="Rubrik" value={titel} onChange={setTitel} />
+      {steg.map((x, i) => (
+        <Falt key={i} etikett={`Steg ${i + 1}`} value={x} onChange={v => setSteg(s => { const n = [...s] as [string, string, string]; n[i] = v; return n; })} />
+      ))}
+      <p style={{ ...TYP.meta, color: FARG.text2, margin: 0 }}>Alla ser ändringen nästa gång appen har nät. Korta meningar – tre steg.</p>
+      {andrat && (
+        <button type="button" data-aterstall-kort disabled={sparar} onClick={() => kor(() => aterstallKort(supabase, kort.id))}
+          style={{ ...KNAPP.lank, marginTop: AVSTAND.m }}>Tillbaka till appens text</button>
+      )}
+    </Ark>
   );
 }
