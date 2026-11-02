@@ -49,6 +49,8 @@ export interface ObjektKortProps {
   instruktioner?: { antal: number; nya: number; onOppna: () => void } | null;
   /** "Vad betyder kartan ›" — öppnar teckenförklaringen. Saknas = ingen rad. */
   onKarta?: () => void;
+  /** "PEFC – vad gäller?" — kraven för traktens certifiering. Saknas = ingen rad. */
+  onCert?: { etikett: string; onTryck: () => void };
   brand: { lat: number; lng: number } | null;
   onBrand: () => void;
   dokument: { antal: number; chips: React.ReactNode } | null;
@@ -190,6 +192,7 @@ export default function ObjektKort(p: ObjektKortProps) {
           {p.onKarta && (
             <RadKnapp forstaRad={!p.paTrakten && !(p.instruktioner && p.instruktioner.antal > 0)} testid="kort-vad-betyder-kartan" etikett="Vad betyder kartan" onTryck={p.onKarta} />
           )}
+          {p.onCert && <RadKnapp testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}
           {p.dokument && (
             <>
               <RadKnapp testid="kort-dokument" ikon="description" etikett={`Dokument (${p.dokument.antal})`} onTryck={() => setDokOppen((v) => !v)}

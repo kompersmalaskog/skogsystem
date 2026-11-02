@@ -52,7 +52,7 @@ export interface YtaIn { id: string | number; zoneType?: string; comment?: strin
 /** Egen ritad yta. Gallringszonen och okända typer är ingen varningsyta. */
 export function ytaObjekt(y: YtaIn, pos: LatLon, risaInne?: boolean): LarmObjekt | null {
   const d = ytaDef(y.zoneType);
-  if (!d) return null;
+  if (!d || d.larmar === false) return null;   // Ungskog larmar aldrig
   return {
     id: String(y.id), kalla: 'yta', grupp: d.grupp, namn: d.namn, typ: y.zoneType, forbjuden: d.forbjuden,
     hash: innehallHash({ type: y.zoneType, comment: y.comment }), kommentar: y.comment || null,

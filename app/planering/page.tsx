@@ -152,7 +152,8 @@ import { mittAvPunkter, omSammanfattning, punkterUrGeometri } from '../../lib/om
 import { lagerBild, tonadYta, linjeYta, sparYta, prickYta } from '../../lib/lagerForhandsbild'
 import { hogPrickar, lasHogVisa, sparaHogVisa, HOG_VISA, HOG_PRICK_FARG, STRECK_BREDD_M, type HogVisa, type HogPrick, type HogMarkGrupp, hogNyckel, hogarIOmrade } from '../../lib/skotarHogarKvar'
 import { useHogMarkeringar } from '../../lib/hooks/useHogMarkeringar'
-import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, arAlltidPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
+import { certTyper } from '../../lib/certKrav'
+import { miljoKrav, raknaMiljo, kravStatus, planMiljoRader, tolkaAreal, arPrick, arAlltidPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
@@ -1659,11 +1660,25 @@ export default function PlannerPage() {
 
     // === Basväg RISA-delsträcka: blå (samma #3b82f6 som RISA-zonen) ovanpå vägen. ===
     // Prefix 'line-' → med i körvyns KEEP_PREFIX-whitelist, syns alltså i körvyn.
+    // Martin 2026-11-02: blått utan kant försvann mot markfuktigheten och mot en blå/gul basväg. Nu: MÖRK KANT (täcker markfuktigheten just där), blått,
+    // och vita TVÄRSTRECK som en kavling — "kör på ris" i vilken bakgrund som helst. Tvärstrecken är en bred linje med korta streck (butt-ändar).
+    map.addLayer({
+      id: 'line-mainroad-risa-kant', type: 'line', source: 'lines-source',
+      filter: ['==', ['get', 'isRisa'], true],
+      paint: { 'line-color': 'rgba(0,0,0,0.9)', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 5, 11, 7, 13, 9, 15, 12, 17, 14] as any },
+      layout: { 'line-cap': 'round', 'line-join': 'miter' },
+    });
     map.addLayer({
       id: 'line-mainroad-risa', type: 'line', source: 'lines-source',
       filter: ['==', ['get', 'isRisa'], true],
       paint: { 'line-color': '#3b82f6', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 2, 11, 3, 13, 4, 15, 6, 17, 7] as any },
       layout: { 'line-cap': 'round', 'line-join': 'miter' },
+    });
+    map.addLayer({
+      id: 'line-mainroad-risa-streck', type: 'line', source: 'lines-source',
+      filter: ['==', ['get', 'isRisa'], true],
+      paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 4, 11, 6, 13, 8, 15, 11, 17, 13] as any, 'line-dasharray': [0.25, 1.25] },
+      layout: { 'line-cap': 'butt', 'line-join': 'miter' },
     });
     // Basvägen har INGEN fast etikett på kartan (Kartan lugnare, 2026-10-24): nummer och längd ("Basväg 3 röd · 640 m") visas först när man trycker på vägen (markeringskortet).
     // Den fasta texten på kartan är bara namnet inne i ytor (HÄNSYN 3, RISA …) och avläggets nummer.
@@ -7990,6 +8005,7 @@ export default function PlannerPage() {
     { id: 'culture', name: 'Kulturmiljö', color: ZONE_COLORS.culture, icon: 'culturemonument' },
     { id: 'noentry', name: 'Ej framkomlig', color: ZONE_COLORS.noentry, icon: 'warning' },
     { id: 'fornlamning', name: 'Fornlämning', color: ZONE_COLORS.fornlamning, icon: 'culturemonument' },
+    { id: 'ungskog', name: 'Ungskog', color: ZONE_COLORS.ungskog, icon: 'eternitytree' },   // sly/plantskog intill: larmar inte, färgar fällningscirkeln grön (Martin 2026-11-02)
     { id: 'gallring', name: 'Gallringszon', color: '#6b7c3a', icon: 'eternitytree' },
   ];
 
@@ -12980,6 +12996,8 @@ export default function PlannerPage() {
   const andelAvverkat = avverkat?.andel ?? null;
   const hogstubbarVy = { antal: miljoAntal.hogstubbar, krav: miljoKravVal.hogstubbar, status: kravStatus(miljoAntal.hogstubbar, miljoKravVal.hogstubbar, andelAvverkat) };
   const evighetstradVy = { antal: miljoAntal.evighetstrad, krav: miljoKravVal.evighetstrad, status: kravStatus(miljoAntal.evighetstrad, miljoKravVal.evighetstrad, andelAvverkat) };
+  // Planeringens namnfält: samma tal som maskinens räknare (Martin 2026-11-02). Ingen "efter" — i planeringen finns inget avverkat än; grönt = kravet uppfyllt.
+  const planMiljoText = planMiljoRader(miljoAntal, miljoKravVal);
   const plusOppen = plusRadOppen;   // plus-knappens vridning/badge/prickar
 
   // === RISA-DEL på basväg: starta två-tapp / avbryt / committa / ta bort ===
@@ -13791,6 +13809,17 @@ export default function PlannerPage() {
                     · {klarChip.text}
                   </span>
                 )}
+                {planMiljoText && (
+                  /* Högstubbar och evighetsträd som i maskinen (Martin 2026-11-02): "Högstubbar 3/8 · Evighetsträd 8/26", grönt när kravet är uppfyllt. Tryck = På trakten. */
+                  <span role="button" tabIndex={0} data-testid="objekt-pill-miljo" aria-label={`${planMiljoText.map((d) => d.text).join(', ')}. Tryck för listan På trakten`}
+                    onClick={(e) => { e.stopPropagation(); setObjektListaOppen(false); setInfoStartVy('om'); setTraktOversiktOpen(true); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setObjektListaOppen(false); setInfoStartVy('om'); setTraktOversiktOpen(true); } }}
+                    style={{ marginLeft: AVSTAND.s, fontWeight: '600' }}>
+                    {planMiljoText.map((d) => (
+                      <span key={d.text} style={{ color: d.klar ? FARG.gron : FARG.text }}> · {d.text}{d.klar ? ' ✓' : ''}</span>
+                    ))}
+                  </span>
+                )}
                 {(valtObjekt.areal || valtObjekt.typ) && (
                   <span style={{ fontWeight: '400', color: 'rgba(255,255,255,0.65)' }}>
                     {valtObjekt.areal ? ` · ${svTal(valtObjekt.areal, 2)} ha` : ''}
@@ -14440,7 +14469,7 @@ export default function PlannerPage() {
         };
         }
         const op = objektInfoSenasteRef.current;
-        return op ? <ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} /> : null;
+        return op ? <ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} /> : null;
       })()}
 
       {/* === MODE-BANNER (aktivt verktygsläge) === */}

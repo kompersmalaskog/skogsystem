@@ -129,6 +129,7 @@ export const YTA_FORKLARING: Readonly<Record<string, string>> = {
   culture: 'Kulturmiljö – kör och fäll varsamt.',
   noentry: 'Ej framkomlig – kör inte in.',
   fornlamning: 'Fornlämning – lagskyddad. Kör inte in.',
+  ungskog: 'Ungskog eller sly – fäll inte ut träd i den.',
   gallring: 'Gallringszon.',
 };
 export const VIDA_FORKLARING: Readonly<Record<VidaSlag, string>> = {

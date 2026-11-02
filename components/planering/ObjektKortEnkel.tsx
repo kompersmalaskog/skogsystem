@@ -45,6 +45,8 @@ export interface ObjektKortEnkelProps {
   onKnapp: (id: KortKnappId) => void;
   larm: { satt: boolean; koordinat: string; beskrivning: string; onVisa: () => void };
   onKarta?: () => void;
+  /** "PEFC – vad gäller?" — kraven för traktens certifiering. Saknas = ingen rad. */
+  onCert?: { etikett: string; onTryck: () => void };
   dokument: { antal: number; chips: React.ReactNode } | null;
   onMer: () => void;
   vader?: React.ReactNode;
@@ -166,6 +168,7 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
           )}
           {p.larm.satt && p.larm.beskrivning && <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px`, ...TYP.text, whiteSpace: 'pre-wrap' }}>{p.larm.beskrivning}</div>}
           {p.onKarta && <RadKnapp testid="kort-vad-betyder-kartan" etikett="Kartans färger" onTryck={p.onKarta} />}
+          {p.onCert && <RadKnapp testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}
           {p.dokument && (
             <>
               <RadKnapp testid="kort-dokument" etikett={`Dokument (${p.dokument.antal})`} onTryck={() => setDokOppen((v) => !v)}

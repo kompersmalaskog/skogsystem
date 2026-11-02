@@ -36,7 +36,7 @@ export const TRAD_TOPP_PX = 100;
  * FAST STORLEK PÅ SKÄRMEN (Martin 2026-10-25): trädet är ca två symboler hög (en symbol är 64 px × 0,5–0,6 = ca 32–38 px) oavsett zoom, lutning och vridning — ett tecken, inte en karta i skala.
  * Stubbe → topp = TRAD_SKARM_LANGD_PX på skärmen.
  */
-export const TRAD_SKARM_LANGD_PX = 76;
+export const TRAD_SKARM_LANGD_PX = 52;   // 76 var för stort (Martin 2026-11-02)
 export const TRAD_STORLEK = TRAD_SKARM_LANGD_PX / TRAD_TOPP_PX;
 
 /** Trädet, ritat uppåt med stubben i (w/2, h − pad). `vald` lägger en vit ring runt trädet — bara medan dess kort är öppet. */
