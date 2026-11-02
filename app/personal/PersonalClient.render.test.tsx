@@ -7,6 +7,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import PersonalClient from './PersonalClient';
 
+// Introduktionens kvitton läses ur databasen — här en låtsad läsning (ingen riktig klient i test).
+let introKvitton: Map<string, { steg: string; tid: string }[]> | null = new Map();
+vi.mock('@/lib/arbetsmiljo/introduktion', async (orig) => ({
+  ...(await orig<typeof import('@/lib/arbetsmiljo/introduktion')>()),
+  hamtaKvitton: async () => introKvitton,
+}));
+
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 const LANGT_FRAM = '2099-01-01';
@@ -32,6 +39,7 @@ beforeEach(() => {
   el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el);
   window.history.replaceState(null, '', '/personal');
   hamtSvar = svar();
+  introKvitton = new Map();
   fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === 'PATCH') return { ok: true, status: 200, json: async () => ({ ok: true }) } as any;
     if (hamtSvar === 'fel') return { ok: false, status: 500, json: async () => ({ ok: false, error: 'boom' }) } as any;
@@ -197,5 +205,33 @@ describe('Mat och anställningsdatum', () => {
     expect(q('[data-person-rad="joacim"]')!.textContent).toContain('Anställningsdatum saknas');
     await act(async () => { (q('[data-person-rad="joacim"]') as HTMLButtonElement).click(); });
     expect(q('[data-admin-lank]')!.textContent).toContain('Anställningsdatum saknas');
+  });
+});
+
+describe('Introduktion på personen', () => {
+  it('admin ser förarens läge; en förare som läst allt och fyllt i uppgifterna är klar', async () => {
+    const t = '2026-11-03T08:00:00Z';
+    introKvitton = new Map([['joacim', ['nod', 'skyddsombud', 'maskinkoll', 'risker'].map(steg => ({ steg, tid: t }))]]);
+    window.history.replaceState(null, '', '/personal?p=joacim');
+    await rendera();
+    expect(q('[data-introduktion]')!.getAttribute('data-introduktion')).toBe('klar');
+    expect(q('[data-introduktion]')!.textContent).toContain('Klar 3 nov');
+  });
+  it('stefan saknar uppgifter och har inte läst något: 0 av 5, inte klar', async () => {
+    window.history.replaceState(null, '', '/personal?p=stefan');
+    await rendera();
+    expect(q('[data-introduktion]')!.textContent).toContain('0 av 5 klart');
+    expect(q('[data-introduktion]')!.textContent).toContain('Inte klar');
+  });
+  it('kan kvittona inte läsas finns ingen rad; admin har ingen rad', async () => {
+    introKvitton = null;
+    window.history.replaceState(null, '', '/personal?p=stefan');
+    await rendera();
+    expect(q('[data-introduktion]')).toBeNull();
+    act(() => root.unmount()); root = createRoot(el);
+    introKvitton = new Map();
+    window.history.replaceState(null, '', '/personal?p=admin');
+    await rendera();
+    expect(q('[data-introduktion]')).toBeNull();
   });
 });

@@ -8,8 +8,10 @@ import { fornamn, ledighetText, saknarAnhorig, saknarAnstallningsdatum, saknarTe
 
 const ROLL_NAMN: Record<string, string> = { forare: 'Förare', admin: 'Admin' };
 
-export default function PersonSida({ person, arAdmin, arJag, onAndra, onAndraMat, onTillbaka }: {
+export default function PersonSida({ person, arAdmin, arJag, onAndra, onAndraMat, onTillbaka, introduktion }: {
   person: Person;
+  /** Introduktionen (ägs av /introduktion): "Klar 3 nov" / "2 av 5 klart". undefined = inte läst → ingen rad. Bara förare. */
+  introduktion?: { text: string; klar: boolean };
   arAdmin: boolean;
   /** Den inloggades egen sida: ingen Ring/SMS, rubriken "Mina uppgifter", texterna i du-form. */
   arJag: boolean;
@@ -101,6 +103,13 @@ export default function PersonSida({ person, arAdmin, arJag, onAndra, onAndraMat
           <Rad titel="Inga utbildningskrav" dampad sista attr={{ 'data-utbildning': 'inga' }} />
         )}
       </Sektion>
+
+      {introduktion && (
+        <Sektion rubrik="Introduktion">
+          <Rad titel={introduktion.text} under={introduktion.klar ? undefined : <span style={{ color: FARG.orange }}>{arJag ? 'Gör den innan du kör' : 'Inte klar'}</span>}
+            href={arJag ? '/introduktion' : undefined} sista attr={{ 'data-introduktion': introduktion.klar ? 'klar' : 'kvar' }} />
+        </Sektion>
+      )}
 
       <Sektion rubrik="Ledighet">
         <Rad titel={ledighetText(person.ledighet, nu)} dampad={!person.ledighet} sista attr={{ 'data-ledighet': '' }} />

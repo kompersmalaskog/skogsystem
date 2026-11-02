@@ -45,3 +45,15 @@ describe('Startsida — skyddsombudet', () => {
     expect(el!.querySelector('a[href="/ledighet"]')).toBeTruthy();
   });
 });
+
+describe('Startsida — introduktionen', () => {
+  it('raden leder till /introduktion och ersätter raden om telefon och anhörig', async () => {
+    await act(async () => { rot = createRoot(el!); rot.render(<Startsida roll="forare" marken={{}} egnaUppgifter="Fyll i telefon och anhörig" introduktion="Gör introduktionen · 2 av 5 klart" />); });
+    const lank = Array.from(el!.querySelectorAll('a')).find(a => a.getAttribute('href') === '/introduktion');
+    expect(lank?.textContent).toContain('Gör introduktionen · 2 av 5 klart');
+    expect(el!.textContent).not.toContain('Fyll i telefon och anhörig');
+    act(() => { rot?.unmount(); }); rot = null;
+    await act(async () => { rot = createRoot(el!); rot.render(<Startsida roll="forare" marken={{}} egnaUppgifter="Fyll i telefon och anhörig" introduktion={null} />); });
+    expect(el!.textContent).toContain('Fyll i telefon och anhörig');
+  });
+});
