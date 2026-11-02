@@ -81,6 +81,7 @@ export const LARM_REGEL_TEXT: Readonly<Record<LarmRegel, string>> = { alltid: 'L
 export function larmRegelText(o: { grupp: FargGrupp; typ?: string | null; forbjuden?: boolean; avverkas?: boolean }): string {
   if (o.avverkas) return `${LARM_REGEL_TEXT.aldrig} – avverkas`;
   if (o.typ && LARMFRIA_SYMBOLER.includes(o.typ)) return LARM_REGEL_TEXT.aldrig;
+  if (o.typ && YTA[o.typ]?.larmar === false) return LARM_REGEL_TEXT.aldrig;
   if (o.forbjuden) return LARM_REGEL_TEXT.alltid;
   return LARM_REGEL_TEXT[GRUPPER[o.grupp].larm];
 }
@@ -100,7 +101,8 @@ export const linjeFarg = (lineType: string | null | undefined): string | null =>
 export const FARG_STENMUR = GRUPPER[LINJE_GRUPP.stonewall].farg;
 export const LINJE_NAMN: Readonly<Record<string, string>> = { stonewall: 'Stenmur', powerline: 'El-ledning' };
 
-export interface YtaDef { grupp: FargGrupp; namn: string; forbjuden: boolean }
+/** `larmar: false` = ytan larmar aldrig (Ungskog) — den syns och färgar fällningscirkeln, men ger inget kort. */
+export interface YtaDef { grupp: FargGrupp; namn: string; forbjuden: boolean; larmar?: false }
 
 /** Egna ritade ytor (zoneType). `forbjuden` = ytor man inte får köra in i: larmar alltid vid inkörning, även kvitterade. Gallringszonen är ingen varningsyta. */
 export const YTA: Readonly<Record<string, YtaDef>> = {
@@ -110,6 +112,8 @@ export const YTA: Readonly<Record<string, YtaDef>> = {
   culture: { grupp: 'kultur', namn: 'Kulturmiljö', forbjuden: false },
   noentry: { grupp: 'fara', namn: 'Ej framkomlig', forbjuden: true },
   fornlamning: { grupp: 'kultur', namn: 'Fornlämning', forbjuden: true },
+  // Sly/plantskog intill trakten (Martin 2026-11-02): föraren ska se var den är och inte fälla ut i den, men ingen "kör inte in" och inget larm.
+  ungskog: { grupp: 'natur', namn: 'Ungskog', forbjuden: false, larmar: false },
 };
 export const ytaDef = (zoneType: string | null | undefined): YtaDef | null => (zoneType && YTA[zoneType]) || null;
 
@@ -141,7 +145,7 @@ export const FALLNING_SYMBOL: Readonly<Record<string, FallningGrupp>> = {
   naturecorner: 'natur', eternitytree: 'natur',
 };
 export const FALLNING_LINJE: Readonly<Record<string, FallningGrupp>> = { stonewall: 'kultur', powerline: 'fara' };
-export const FALLNING_YTA: Readonly<Record<string, FallningGrupp>> = { protected: 'natur', culture: 'kultur', fornlamning: 'kultur' };
+export const FALLNING_YTA: Readonly<Record<string, FallningGrupp>> = { protected: 'natur', culture: 'kultur', fornlamning: 'kultur', ungskog: 'natur' };
 export const FALLNING_VIDA: Readonly<Record<VidaSlag, FallningGrupp>> = {
   kraftledning: 'fara', hansynsyta: 'natur', nyckelbiotop: 'natur', raa_yta: 'kultur', raa_punkt: 'kultur',
 };

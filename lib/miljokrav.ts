@@ -113,3 +113,17 @@ export const prickarSynliga = (overlays: Record<string, boolean> | null | undefi
 export const PRICK_DIAMETER_PX = 10;
 /** Prickens kant: mörk, så den läses mot flygfoto och vit karta. */
 export const PRICK_KANT_FARG = '#1a1a1a';
+
+/**
+ * Planeringens namnfält (Martin 2026-11-02): "Högstubbar 3/8 · Evighetsträd 8/26" — samma antal som maskinens räknare. Krav saknas (ej certifierat):
+ * bara antalet, och bara när något är satt. Inget alls = null (ingen text i namnfältet).
+ */
+export function planMiljoRader(
+  antal: { hogstubbar: number; evighetstrad: number },
+  krav: { hogstubbar: number | null; evighetstrad: number | null },
+): { text: string; klar: boolean }[] | null {
+  const rad = (namn: string, n: number, k: number | null) =>
+    k != null ? { text: `${namn} ${n}/${k}`, klar: n >= k } : n > 0 ? { text: `${namn} ${n}`, klar: false } : null;
+  const r = [rad('Högstubbar', antal.hogstubbar, krav.hogstubbar), rad('Evighetsträd', antal.evighetstrad, krav.evighetstrad)].filter((x): x is { text: string; klar: boolean } => !!x);
+  return r.length ? r : null;
+}
