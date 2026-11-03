@@ -50,12 +50,7 @@ export function arDikeFC(v: unknown): v is DikeFC {
   return !!v && (v as any).type === 'FeatureCollection' && Array.isArray((v as any).features);
 }
 
-/** PostgREST-filtret för diken vars ruta överlappar `b`. */
-export function dikeFilter(b: Bbox): { kol: string; op: 'gte' | 'lte'; v: number }[] {
-  return [
-    { kol: 'max_lat', op: 'gte', v: b.minLat },
-    { kol: 'min_lat', op: 'lte', v: b.maxLat },
-    { kol: 'max_lng', op: 'gte', v: b.minLon },
-    { kol: 'min_lng', op: 'lte', v: b.maxLon },
-  ];
+/** Argumenten till databasfunktionen `dike_i_ruta` (diken vars ruta överlappar `b`, via rutans GiST-index). */
+export function rutaArgument(b: Bbox): { p_min_lng: number; p_min_lat: number; p_max_lng: number; p_max_lat: number } {
+  return { p_min_lng: b.minLon, p_min_lat: b.minLat, p_max_lng: b.maxLon, p_max_lat: b.maxLat };
 }

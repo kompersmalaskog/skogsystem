@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { dikeFilter, dikeSlag, raderTillDiken, visasDike, arDikeFC } from './diken';
+import { rutaArgument, dikeSlag, raderTillDiken, visasDike, arDikeFC } from './diken';
 import { RITAD_DIKE_ID, RITAD_LAGER, grundKallor, grundLager } from './lager';
 import { DIKE_FARG, VAG_FARG } from './stil';
 import { lagerRang } from '../lagerOrdning';
@@ -29,12 +29,13 @@ describe('dikena (Naturvårdsverkets dikeskarta)', () => {
     expect(arDikeFC(fc)).toBe(true);
   });
 
-  it('filtret tar diken vars ruta överlappar trakten', () => {
-    const f = dikeFilter({ minLat: 56, maxLat: 57, minLon: 15, maxLon: 16 });
-    expect(f).toEqual([
-      { kol: 'max_lat', op: 'gte', v: 56 }, { kol: 'min_lat', op: 'lte', v: 57 },
-      { kol: 'max_lng', op: 'gte', v: 15 }, { kol: 'min_lng', op: 'lte', v: 16 },
-    ]);
+  it('rutan går till dike_i_ruta med rätt axlar, och routen frågar via rutans index (inte fyra kolumnfilter)', () => {
+    expect(rutaArgument({ minLat: 56, maxLat: 57, minLon: 15, maxLon: 16 })).toEqual({ p_min_lng: 15, p_min_lat: 56, p_max_lng: 16, p_max_lat: 57 });
+    const route = fs.readFileSync(path.resolve(__dirname, '../../app/api/ritad-karta/diken/route.ts'), 'utf8');
+    expect(route).toContain("rpc('dike_i_ruta'");
+    expect(route).not.toContain(".from('dike')");
+    const mig = fs.readFileSync(path.resolve(__dirname, '../../supabase/migrations/20261103150307_ritad_dike_ruta.sql'), 'utf8');
+    expect(mig).toContain('using gist (box(point(min_lng, min_lat), point(max_lng, max_lat)))');
   });
 
   it('importen sparar inte vägdiken — samma regel som appens (Naturvårdsverkets riktiga typer)', () => {
