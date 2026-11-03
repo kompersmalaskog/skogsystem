@@ -33,6 +33,7 @@ function fakeKarta() {
     hasImage: () => true, addImage: vi.fn(),
     setLayoutProperty: (id: string, _p: string, v: string) => synlig.set(id, v),
     setPaintProperty: vi.fn(),
+    setFilter: vi.fn(),
     getPitch: () => pitch,
     satPitch: (p: number) => { pitch = p; for (const f of lyss.get('pitch') ?? []) f(); },
     on: (t: string, f: () => void) => { if (!lyss.has(t)) lyss.set(t, new Set()); lyss.get(t)!.add(f); },
@@ -176,6 +177,9 @@ describe('useRitadKarta', () => {
     expect(fetchMock.mock.calls.some((c: any[]) => String(c[0]).includes('/api/ritad-karta/vagar'))).toBe(true);
     await waitFor(() => expect(m.kallor.get('ritad-nvdb').setData.mock.calls.at(-1)?.[0]?.features?.length).toBe(1));
     expect(ritadStatusText(result.current)).not.toContain('vägar');
+    // Samma väg ur två källor blev två parallella vägar: OpenStreetMaps göms där Trafikverkets finns.
+    const filt = (m as any).setFilter.mock.calls.filter((c: any[]) => c[0] === 'ritad-vag');
+    expect(JSON.stringify(filt.at(-1)?.[1])).toContain('within');
 
     vagSvar = { ok: false, json: async () => ({ error: 'nej' }) };
     const m2 = fakeKarta();
@@ -183,6 +187,8 @@ describe('useRitadKarta', () => {
     await waitFor(() => expect(r2.result.current.typ).toBe('klar'));
     expect(ritadStatusText(r2.result.current)).toMatch(/Trafikverkets vägar kunde inte hämtas$/);
     expect(m2.lager.has(RITAD_ID.skog)).toBe(true);
+    // Utan Trafikverkets vägar visas OpenStreetMaps överallt.
+    expect((m2 as any).setFilter.mock.calls.filter((c: any[]) => c[0] === 'ritad-vag').at(-1)?.[1]).toBeNull();
   });
 
   it('blött och brant hämtas med skogen; faller de ritas skogen ändå och raden säger vad som saknas', async () => {

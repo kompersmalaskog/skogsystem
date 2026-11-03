@@ -40,6 +40,9 @@ export const RITAD_NVDB_LAGER = [
     paint: { 'line-color': ['match', ['get', 'k'], 'stor', VAG_FARG.stor, VAG_FARG.skog], 'line-width': vagBredd(['get', 'k'], 0) } },
 ];
 
+/** OpenStreetMaps väglager (göms där Trafikverkets vägar finns, lib/ritadKarta/vagar `osmUtanforFilter`). */
+export const RITAD_OSM_VAG_ID = ['ritad-vag-kant', 'ritad-vag'] as const;
+
 /** Alla lager-id:n den ritade kartan använder, nerifrån och upp. */
 export const RITAD_LAGER: string[] = [RITAD_ID.bakgrund, RITAD_ID.skog, RITAD_ID.relief, RITAD_ID.blottGles, RITAD_ID.blottTat, ...RITAD_VEKTOR_LAGER.map((l) => l.id), RITAD_NVDB_ID.kant, RITAD_NVDB_ID.vag, RITAD_ID.brantLite, RITAD_ID.brant];
 
