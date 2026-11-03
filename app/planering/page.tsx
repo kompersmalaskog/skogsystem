@@ -249,6 +249,8 @@ import MaskinMeny from '@/components/startsida/MaskinMeny'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 import { optiLokalDag } from '@/lib/optiTid'
+import { KARTRUTA_MALL, traktBbox, punktBbox, nedladdningText } from '@/lib/kartNedladdning'
+import { useLaddaNerTrakt } from '@/lib/hooks/useLaddaNerTrakt'
 /** Lagren som bär en egen yta: fyllning, snedstreckning (ytor man inte får köra in i) och kant. En lista för synlighet och nedtoning. */
 const ZONE_LAGER = (): string[] => ['zone-fill', ...SNEDSTRECK_GRUPPER.map((g) => `zone-hatch-${g}`), 'zone-outline-casing', 'zone-outline'];
 const arZonYta = (id: string): boolean => id === 'zone-fill' || id.startsWith('zone-hatch-');
@@ -1439,7 +1441,7 @@ export default function PlannerPage() {
       // visningsnamnet är "Flygfoto", vilket är vad bilden faktiskt är.)
       satellite: {
         type: 'raster' as const,
-        tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'],
+        tiles: [KARTRUTA_MALL.satellite],
         tileSize: 256,
         maxzoom: 18,
         attribution: '&copy; Lantmäteriet',
@@ -1458,7 +1460,7 @@ export default function PlannerPage() {
       // LM har höjdkurvorna inbakade i kartan.
       topographic: {
         type: 'raster' as const,
-        tiles: ['/api/forarkarta?layer=farg&z={z}&x={x}&y={y}'],
+        tiles: [KARTRUTA_MALL.topographic],
         tileSize: 256,
         maxzoom: 17,
         attribution: '&copy; Lantmäteriet',
@@ -1468,7 +1470,7 @@ export default function PlannerPage() {
       // för kommersiell drift). Proxyn byter till LM öppna data-WMTS när LM_OPEN_TOPO_TOKEN sätts.
       lantmateriet: {
         type: 'raster' as const,
-        tiles: ['/api/forarkarta?z={z}&x={x}&y={y}'],
+        tiles: [KARTRUTA_MALL.lantmateriet],
         tileSize: 256,
         maxzoom: 17,
         attribution: '&copy; Lantmäteriet',
@@ -3235,6 +3237,16 @@ export default function PlannerPage() {
   const [startDold, setStartDold] = useState(false);                                 // overlayen avmonterad efter 'klar'
   const vidaFel = useVidaLagerFel(valtObjekt?.id ?? null);   // hämtfel på Vidas lager → raden "Vidas lager saknas …" + nytt försök (hooken ligger här: före effekten som hämtar)
   const [traktGeoHamtadFor, setTraktGeoHamtadFor] = useState<string | null>(null);   // objekt-id vars trakt-geometri-svar kommit (finns ELLER saknas)
+  // "Ladda ner trakten" (lib/kartNedladdning): när traktens geometri kommit sparas kartrutorna runt den i enheten — kartan kommer direkt, också utan täckning.
+  // Ytan = Vidas traktgräns; saknas den, en ruta runt objektets punkt. Först när geometrisvaret kommit (annars laddas fel yta ner).
+  const kartNedBbox = useMemo(() => {
+    if (!valtObjekt?.id || traktGeoHamtadFor !== valtObjekt.id) return null;
+    const b = traktBbox(traktGeo);
+    if (b) return b;
+    const lat = Number((valtObjekt as any).lat), lng = Number((valtObjekt as any).lng);
+    return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 ? punktBbox(lat, lng) : null;
+  }, [valtObjekt?.id, traktGeoHamtadFor, traktGeo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const kartNedladdning = useLaddaNerTrakt({ objektId: valtObjekt?.id ?? null, bbox: kartNedBbox, aktiv: !!valtObjekt?.id });
   const startFixFarskSattRef = useRef(false);
   const startOversiktSattRef = useRef(false);                                        // översikten är satt (en gång)
   const startFlygGjordRef = useRef(false);                                           // flygningen är gjord (EN flyTo)
@@ -14521,7 +14533,7 @@ export default function PlannerPage() {
         };
         }
         const op = objektInfoSenasteRef.current;
-        return op ? <ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} /> : null;
+        return op ? <ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} kartaSparad={nedladdningText(kartNedladdning)} /> : null;
       })()}
 
       {/* === MODE-BANNER (aktivt verktygsläge) === */}

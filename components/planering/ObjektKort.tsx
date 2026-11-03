@@ -51,6 +51,8 @@ export interface ObjektKortProps {
   onKarta?: () => void;
   /** "PEFC – vad gäller?" — kraven för traktens certifiering. Saknas = ingen rad. */
   onCert?: { etikett: string; onTryck: () => void };
+  /** "Ladda ner trakten": en dämpad rad ovanför Mer. null/saknas = ingen rad. */
+  kartaSparad?: string | null;
   brand: { lat: number; lng: number } | null;
   onBrand: () => void;
   dokument: { antal: number; chips: React.ReactNode } | null;
@@ -201,6 +203,7 @@ export default function ObjektKort(p: ObjektKortProps) {
             </>
           )}
           <LarmKort larm={p.larm} />
+          {p.kartaSparad && <div data-testid="kort-karta-sparad" style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}`, ...TYP.meta, color: FARG.text2 }}>{p.kartaSparad}</div>}
           <RadKnapp testid="kort-mer" etikett="Mer" under="Fler val och inställningar" onTryck={p.onMer} />
         </Gruppkort>
         {p.vader && <div data-testid="kort-vader" style={{ marginTop: AVSTAND.l }}>{p.vader}</div>}

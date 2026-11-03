@@ -121,7 +121,7 @@ self.addEventListener('notificationclick', (event) => {
 // "Om något händer" utan täckning (components/arbetsmiljo/OmNagotHander, components/NodStartare).
 // Appen ber om NOD_CACHA när den har nät: då hämtas sidan /om-nagot-hander och alla filer den laddar (/_next/static/…) och
 // sparas i NOD_CACHE. Sidan och dess filer hämtas sedan NÄT FÖRST — med nät är allt som vanligt, utan nät tas det sparade.
-// INGET annat i appen går genom den här workern: bara själva nödsidan och filer som just den sidan begär.
+// Utöver kartrutorna (nedan) går INGET annat i appen genom den här workern: bara själva nödsidan och filer som just den sidan begär.
 // En utloggad användare (sidan svarar med /login) sparar ingenting — då står den förra sparade kvar.
 const NOD_CACHE = 'nod-v1';
 const NOD_SIDA = '/om-nagot-hander';
@@ -184,11 +184,53 @@ self.addEventListener('message', (event) => {
   if (event.data && event.data.typ === NOD_CACHA) event.waitUntil(nodCacha().catch(() => undefined));
 });
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// KARTRUTOR (lib/kartNedladdning, Martin 2026-11-02): Lantmäteriets bakgrunder (/api/forarkarta?…z=…) och höjddatan (AWS terrarium)
+// tas ur det sparade FÖRST — kartan kommer direkt, också utan täckning. KART_CACHE fylls av "Ladda ner trakten" i sidan och rensas där
+// (de senaste trakterna). En ruta som visas med nät sparas också i KART_LOPANDE, som hålls under KART_LOPANDE_MAX rutor.
+// Bara bilder sparas (en utgången session ger inloggningssidan, inte en ruta). OpenStreetMap går aldrig hit — deras regler.
+// Namnen måste vara ordagrant lika lib/kartNedladdning.ts (vaktas av ett test).
+const KART_CACHE = 'kartrutor-v1';
+const KART_LOPANDE = 'kartrutor-lopande-v1';
+const KART_LOPANDE_MAX = 3000;
+let kartSparade = 0;
+
+function arKartruta(url) {
+  if (url.origin === self.location.origin) return url.pathname === '/api/forarkarta' && url.searchParams.has('z');
+  return url.hostname === 's3.amazonaws.com' && url.pathname.indexOf('/elevation-tiles-prod/terrarium/') === 0;
+}
+const arBild = (r) => !!r && r.ok && (r.headers.get('content-type') || '').indexOf('image/') === 0;
+
+async function kartRensa(cache) {
+  try {
+    const nycklar = await cache.keys();
+    for (let i = 0; i < nycklar.length - KART_LOPANDE_MAX; i++) await cache.delete(nycklar[i]);   // äldst först
+  } catch (_) { /* nästa gång */ }
+}
+
+async function kartruta(req) {
+  const nyckel = req.url;
+  try {
+    const sparad = (await (await caches.open(KART_CACHE)).match(nyckel)) || (await (await caches.open(KART_LOPANDE)).match(nyckel));
+    if (sparad) return sparad;
+  } catch (_) { /* Cache API saknas — hämta som vanligt */ }
+  const svar = await fetch(req);
+  if (arBild(svar)) {
+    try {
+      const lopande = await caches.open(KART_LOPANDE);
+      await lopande.put(nyckel, svar.clone());
+      if (++kartSparade % 100 === 0) kartRensa(lopande);
+    } catch (_) { /* full — kartan visas ändå */ }
+  }
+  return svar;
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   let url;
   try { url = new URL(req.url); } catch (_) { return; }
+  if (arKartruta(url)) { event.respondWith(kartruta(req)); return; }
   if (url.origin !== self.location.origin) return;
   const sida = req.mode === 'navigate' && url.pathname === NOD_SIDA;
   const franSidan = !sida && (url.pathname.startsWith('/_next/static/') || NOD_EXTRA.indexOf(url.pathname) !== -1)

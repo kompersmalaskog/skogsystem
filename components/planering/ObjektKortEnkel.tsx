@@ -47,6 +47,8 @@ export interface ObjektKortEnkelProps {
   onKarta?: () => void;
   /** "PEFC – vad gäller?" — kraven för traktens certifiering. Saknas = ingen rad. */
   onCert?: { etikett: string; onTryck: () => void };
+  /** "Ladda ner trakten": en dämpad rad ovanför Mer. null/saknas = ingen rad. */
+  kartaSparad?: string | null;
   dokument: { antal: number; chips: React.ReactNode } | null;
   onMer: () => void;
   vader?: React.ReactNode;
@@ -176,6 +178,7 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
               {dokOppen && <div data-testid="kort-dokument-lista" style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px` }}>{p.dokument.chips}</div>}
             </>
           )}
+          {p.kartaSparad && <div data-testid="kort-karta-sparad" style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}`, ...TYP.meta, color: FARG.text2 }}>{p.kartaSparad}</div>}
           <RadKnapp testid="kort-mer" etikett="Mer" under="Fler val och inställningar" onTryck={p.onMer} />
         </Gruppkort>
         {p.vader && <div data-testid="kort-vader" style={{ marginTop: AVSTAND.l }}>{p.vader}</div>}
