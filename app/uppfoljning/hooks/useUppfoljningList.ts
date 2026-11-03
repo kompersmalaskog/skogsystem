@@ -7,7 +7,6 @@ import { harledTyp } from '@/lib/objekt/typ';
 import { type UppfoljningObjekt } from '../lib/transform';
 import { objektSkotat, type SkotareManuellRad } from '@/lib/skotat';
 import { maskinVisningsnamn } from '@/lib/maskinNamn';
-import { mergaLassPerDag } from '@/lib/uppfoljning/mergaSkotarLass';
 
 // ── URL-identifierare för ett objekt ─────────────────────────────────────
 // Används av både listsidan (för router.push) och detaljsidan (för find).
@@ -73,10 +72,10 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         // vägen trunkerades tyst vid PostgREST 1000-radstaket och gav dessutom
         // icke-deterministiska summor när importen skrev under paginering.
         // prod-vyns maskiner = skördare (producerar), lass-vyns = skotare.
-        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade, skotareManuellRes, faktLassRows] = await Promise.all([
+        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade, skotareManuellRes, hlLassRows] = await Promise.all([
           supabase.from('dim_objekt').select('*'),
           supabase.from('dim_maskin').select('*'),
-          supabase.from('objekt').select('id, vo_nummer, markagare, areal, typ, skotare_maskin_id'),
+          supabase.from('objekt').select('vo_nummer, markagare, areal, typ, skotare_maskin_id'),
           supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub, stammar, sista_datum, maskin_ids'),
           supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub, antal_lass, sista_datum, maskin_ids'),
           supabase.from('grot_koppling').select('risjobb_objekt_id, avverknings_objekt_id'),
@@ -84,8 +83,9 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           // ALLA manuell-rader (inte bara maskin_id NULL): maskin_id SATT = utförd skotning per maskin.
           // Nya fält (volym_egen_skotning/volym_omlastning) driver EN-regeln (lib/skotat); volym_m3 = läs-fallback.
           supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, volym_m3, g15_timmar, volym_egen_skotning, volym_omlastning, ar_omlastning'),
-          // Per-maskin lass (rå, paginerad) — för den delade skotat-regeln (lib/skotat).
-          hamtaAlla<{ objekt_id: string; maskin_id: string | null; datum: string | null; volym_m3sub: number | null }>(() => supabase.from('fakt_lass').select('objekt_id, maskin_id, datum, volym_m3sub').order('objekt_id')),
+          // Skotarvolym per objekt+maskin ur helikopter_lass (Opti+app sammanslaget,
+          // skalat, mappat) — paginerad. För den delade skotat-regeln (lib/skotat).
+          hamtaAlla<{ objekt_id: string; maskin_id: string | null; volym_m3sub: number | null }>(() => supabase.from('helikopter_lass').select('objekt_id, maskin_id, volym_m3sub').order('objekt_id')),
         ]);
 
         // Ett fel på någon källa får ALDRIG se ut som tom lista.
@@ -112,58 +112,19 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             manPerMaskinById.get(r.objekt_id)!.set(r.maskin_id, r as SkotareManuellRad);   // utförd skotning per maskin (rå rad)
           }
         }
-        // App-registrerade skotarlass (skotar_lass) — Opti slutade ge rader när
-        // föraren började registrera i appen. Mappa app-uuid → VO och slå ihop
-        // med Opti per maskin+dag (helikopterns regel: mest volym vinner, aldrig
-        // summan). Ett fel får aldrig fälla listan → faller tillbaka på Opti.
-        const uuidTillVo = new Map<string, string>();
-        for (const o of objektTbl) if (o.id && o.vo_nummer) uuidTillVo.set(String(o.id), String(o.vo_nummer));
-        let appLassRader: Array<{ objekt_id: string; maskin_id: string | null; datum: string | null; volym_m3sub: number }> = [];
-        try {
-          const uuids = Array.from(uuidTillVo.keys());
-          if (uuids.length) {
-            const ra = await hamtaAlla<any>(() => supabase
-              .from('skotar_lass')
-              .select('id, objekt_id, maskin_id, datum, status, bekraftad_av, skotar_lass_del(skotar_lass_sortiment(m3_forare))')
-              .in('objekt_id', uuids).order('id'));
-            appLassRader = ra
-              .filter((l: any) => l.status === 'bekraftat' && l.bekraftad_av !== 'auto')
-              .map((l: any) => ({
-                objekt_id: uuidTillVo.get(String(l.objekt_id)) || '',
-                maskin_id: l.maskin_id,
-                datum: l.datum,
-                volym_m3sub: (l.skotar_lass_del || []).reduce((a: number, d: any) =>
-                  a + (d.skotar_lass_sortiment || []).reduce((b: number, s: any) => b + (Number(s.m3_forare) || 0), 0), 0),
-              }))
-              .filter((r: any) => r.objekt_id);
-          }
-        } catch (e) {
-          console.error('[useUppfoljningList] skotar_lass-sammanslagning misslyckades:', e);
-        }
-
-        // Per-maskin lass (Opti ⊕ app, per objekt) för den delade skotat-regeln
-        // (lib/skotat): manuell per maskin trumfar DEN maskinens lass. Lass utan
-        // maskin_id under sentinel (bevaras, kan aldrig trumfas). Mergen är per
-        // objekt (nycklar maskin|dag krockar annars mellan objekt), sedan summa
-        // per maskin.
-        const optiPerObjekt = new Map<string, any[]>();
-        for (const r of faktLassRows) {
-          if (!r.objekt_id) continue;
-          (optiPerObjekt.get(r.objekt_id) ?? optiPerObjekt.set(r.objekt_id, []).get(r.objekt_id)!).push(r);
-        }
-        const appPerObjekt = new Map<string, any[]>();
-        for (const r of appLassRader) {
-          (appPerObjekt.get(r.objekt_id) ?? appPerObjekt.set(r.objekt_id, []).get(r.objekt_id)!).push(r);
-        }
+        // Per-maskin skotarvolym ur helikopter_lass (den KANONISKA Opti+app-
+        // sammanslagningen: mest volym per maskin+dag, skalad med Färdigskotad och
+        // mappad till rätt dim-objekt) — summeras per objekt+maskin. Gör listan
+        // EXAKT lika helikoptern/verkligheten, och lika detaljvyn. Den delade
+        // skotat-regeln (lib/skotat) ligger kvar ovanpå: manuell per maskin trumfar
+        // DEN maskinens lass; sentinel-nyckeln bevarar lass utan maskin_id.
         const lassPerMaskinById = new Map<string, Map<string, number>>();
-        for (const oid of new Set<string>([...optiPerObjekt.keys(), ...appPerObjekt.keys()])) {
-          const merged = mergaLassPerDag(optiPerObjekt.get(oid) ?? [], appPerObjekt.get(oid) ?? []);
-          const mm = new Map<string, number>();
-          for (const r of merged) {
-            const mid = r.maskin_id || '__ingen__';
-            mm.set(mid, (mm.get(mid) || 0) + (Number(r.volym_m3sub) || 0));
-          }
-          lassPerMaskinById.set(oid, mm);
+        for (const r of hlLassRows) {
+          if (!r.objekt_id) continue;
+          const mid = r.maskin_id || '__ingen__';
+          if (!lassPerMaskinById.has(r.objekt_id)) lassPerMaskinById.set(r.objekt_id, new Map());
+          const mm = lassPerMaskinById.get(r.objekt_id)!;
+          mm.set(mid, (mm.get(mid) || 0) + (Number(r.volym_m3sub) || 0));
         }
 
         const objektInfo = new Map<string, { agare: string; areal: number; typ: string; plSkotare: string | null }>();
