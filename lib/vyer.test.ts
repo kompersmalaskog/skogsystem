@@ -70,7 +70,7 @@ describe('vyregistret', () => {
 
   it('Arbetsmiljö är ETT kort; delarna syns inte i grupperna men går att söka fram', () => {
     const delar = VYER.filter(v => v.del === 'arbetsmiljo').map(v => v.id).sort()
-    expect(delar).toEqual(['atgarder', 'introduktion', 'maskinkoll', 'nagot-ar-fel', 'om-nagot-hander', 'riskbedomning', 'skyddsrond'])
+    expect(delar).toEqual(['atgarder', 'introduktion', 'maskinkoll', 'om-nagot-hander', 'rapportera', 'riskbedomning', 'skyddsrond'])
     const iGrupper = grupperFor('admin').flatMap(g => g.vyer).map(v => v.id)
     expect(iGrupper).toContain('arbetsmiljo')
     expect(iGrupper.filter(id => delar.includes(id))).toEqual([])

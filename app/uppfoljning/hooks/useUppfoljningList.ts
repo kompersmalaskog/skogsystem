@@ -72,7 +72,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         // vägen trunkerades tyst vid PostgREST 1000-radstaket och gav dessutom
         // icke-deterministiska summor när importen skrev under paginering.
         // prod-vyns maskiner = skördare (producerar), lass-vyns = skotare.
-        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade, skotareManuellRes, faktLassRows] = await Promise.all([
+        const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade, skotareManuellRes, hlLassRows] = await Promise.all([
           supabase.from('dim_objekt').select('*'),
           supabase.from('dim_maskin').select('*'),
           supabase.from('objekt').select('vo_nummer, markagare, areal, typ, skotare_maskin_id'),
@@ -83,8 +83,9 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           // ALLA manuell-rader (inte bara maskin_id NULL): maskin_id SATT = utförd skotning per maskin.
           // Nya fält (volym_egen_skotning/volym_omlastning) driver EN-regeln (lib/skotat); volym_m3 = läs-fallback.
           supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, volym_m3, g15_timmar, volym_egen_skotning, volym_omlastning, ar_omlastning'),
-          // Per-maskin lass (rå, paginerad) — för den delade skotat-regeln (lib/skotat).
-          hamtaAlla<{ objekt_id: string; maskin_id: string | null; volym_m3sub: number | null }>(() => supabase.from('fakt_lass').select('objekt_id, maskin_id, volym_m3sub').order('objekt_id')),
+          // Skotarvolym per objekt+maskin ur helikopter_lass (Opti+app sammanslaget,
+          // skalat, mappat) — paginerad. För den delade skotat-regeln (lib/skotat).
+          hamtaAlla<{ objekt_id: string; maskin_id: string | null; volym_m3sub: number | null }>(() => supabase.from('helikopter_lass').select('objekt_id, maskin_id, volym_m3sub').order('objekt_id')),
         ]);
 
         // Ett fel på någon källa får ALDRIG se ut som tom lista.
@@ -111,10 +112,14 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             manPerMaskinById.get(r.objekt_id)!.set(r.maskin_id, r as SkotareManuellRad);   // utförd skotning per maskin (rå rad)
           }
         }
-        // Per-maskin lass (fakt_lass) för den delade skotat-regeln (lib/skotat): manuell per maskin trumfar
-        // DEN maskinens lass. Lass utan maskin_id under sentinel (bevaras, kan aldrig trumfas).
+        // Per-maskin skotarvolym ur helikopter_lass (den KANONISKA Opti+app-
+        // sammanslagningen: mest volym per maskin+dag, skalad med Färdigskotad och
+        // mappad till rätt dim-objekt) — summeras per objekt+maskin. Gör listan
+        // EXAKT lika helikoptern/verkligheten, och lika detaljvyn. Den delade
+        // skotat-regeln (lib/skotat) ligger kvar ovanpå: manuell per maskin trumfar
+        // DEN maskinens lass; sentinel-nyckeln bevarar lass utan maskin_id.
         const lassPerMaskinById = new Map<string, Map<string, number>>();
-        for (const r of faktLassRows) {
+        for (const r of hlLassRows) {
           if (!r.objekt_id) continue;
           const mid = r.maskin_id || '__ingen__';
           if (!lassPerMaskinById.has(r.objekt_id)) lassPerMaskinById.set(r.objekt_id, new Map());
@@ -301,7 +306,13 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           const volymSkotareEff = objektSkotat({ lassPerMaskin: aggLassPM, manuellRadPerMaskin: aggManPM, manuellObjektNiva: skotatArManuell ? manuellVolym : null }).skotat;
 
           const skStart = skordareEntry?.start_date || null;
-          const skSlut = skordareEntry?.end_date || skordareEntry?.skordning_avslutad || null;
+          // skordning_avslutad är ett OBJEKT-fakt men kan ligga på vilken rad som
+          // helst i VO-gruppen (Skälviken: på skotarens rad, ingen skördar-rad).
+          // Föll skördar-raden bort tänkte statusen att skördaren körde fast
+          // skördningen var klar → "Skördare + skotare kör" i stället för
+          // "Skördare klar · skotare kör". Härled slutet ur hela gruppen.
+          const objektSkordningSlut = entries.map((e: any) => e.skordning_avslutad).filter(Boolean).sort()[0] || null;
+          const skSlut = skordareEntry?.end_date || skordareEntry?.skordning_avslutad || objektSkordningSlut || null;
           const stStart = skotareEntry?.start_date || null;
           const stSlut = skotareEntry?.end_date || skotareEntry?.skotning_avslutad || null;
 

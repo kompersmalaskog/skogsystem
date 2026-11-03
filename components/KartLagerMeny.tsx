@@ -234,7 +234,7 @@ export default function KartLagerMeny(p: Typ) {
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
                 { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
                 { id: 'fastighetsgranser', name: 'Fastighetsgränser', desc: 'Lantmäteriet fastighetsindelning', enabled: true },
-                { id: 'hydrografi', name: 'Diken & vattendrag', desc: 'Vattenytor och flödesackumulation (SKS)', enabled: true },
+                { id: 'hydrografi', name: 'Vattenvägar (beräknade)', desc: 'Var vatten rinner enligt terrängen — inte uppmätta diken (SKS)', enabled: true },
               ].map(overlay => (
                 <div
                   key={overlay.id}

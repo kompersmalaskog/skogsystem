@@ -117,6 +117,17 @@ export function vagBredd(slag: unknown, extra: number): unknown {
     17, ['match', slag, 'skog', 5 + extra, 7.5 + extra]];
 }
 
+/**
+ * Dikena (Naturvårdsverkets dikeskarta, lib/ritadKarta/diken): ljust blå linje med mörk kant — vattnets färgfamilj men ljusare än bäckarna och
+ * de blå blött-strecken, så ett dike syns också mitt i blöt mark. Smala: ett dike är en meter, inte en väg.
+ */
+export const DIKE_FARG = '#8fd8ff';
+export const DIKE_KANT = '#0b1d2a';
+export const DIKE_KANT_EXTRA = 1.5;
+export function dikeBredd(extra: number): unknown {
+  return ['interpolate', ['linear'], ['zoom'], 12, 0.8 + extra * 0.5, 14, 1.5 + extra, 17, 3 + extra];
+}
+
 /** OpenFreeMap (OpenMapTiles-schemat, fri, ingen nyckel) — vatten, vägar och hus som platta vektorer. */
 export const VEKTOR_KALLA = { type: 'vector' as const, url: 'https://tiles.openfreemap.org/planet' };
 

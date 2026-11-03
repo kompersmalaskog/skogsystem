@@ -228,12 +228,72 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
           }
         }
 
+        // ── Skotarens lass: KÄLLA = helikopter_lass ───────────────────────────
+        // Opti slutade ge fakt_lass-rader när föraren började registrera lass i
+        // appen (Skälviken: 40 m³ / 1 dag mot 648 m³ / 6 dagar). helikopter_lass
+        // är den KANONISKA sammanslagningen: Opti+app, mest volym per maskin+dag
+        // (aldrig summan), SKALAD med Färdigskotad (skotar_trakt_avslut) och
+        // mappad till rätt dim-objekt — så uppföljningen blir exakt lika
+        // verkligheten/helikoptern (annars skiljer avslutade trakter och
+        // maskinobjekt, t.ex. Mölleryd 779 rått mot 759 skalat).
+        // Transformen vill ha per-LASS-rader (den räknar lass och skotningsavstånd),
+        // så vi återskapar dem per dag: Opti-dag → de riktiga fakt_lass-raderna
+        // (har korstracka + antal); app-dag → N rader (N = appens bekräftade lass
+        // den dagen, jämnt delad dagsvolym; app-lass bär inget korstracka —
+        // skotningsavstånd via GPS är en egen punkt). Fel → faller tillbaka på Opti.
+        let mergedLass: any[] = lassRes.data || [];
+        if (stIds.length) {
+          try {
+            const { data: hl } = await supabase.from('helikopter_lass')
+              .select('objekt_id, maskin_id, datum, volym_m3sub, kalla').in('objekt_id', stIds);
+            if (hl && hl.length) {
+              // Antal bekräftade app-lass per maskin|dag — för att återskapa rader.
+              const appAntal = new Map<string, number>();
+              const { data: objRader } = await supabase.from('objekt').select('id').in('vo_nummer', stIds);
+              const uuids = (objRader || []).map((o: any) => String(o.id));
+              if (uuids.length) {
+                const { data: appRader } = await supabase.from('skotar_lass')
+                  .select('maskin_id, datum, status, bekraftad_av').in('objekt_id', uuids);
+                (appRader || []).filter((l: any) => l.status === 'bekraftat' && l.bekraftad_av !== 'auto')
+                  .forEach((l: any) => { const k = `${l.maskin_id}|${l.datum}`; appAntal.set(k, (appAntal.get(k) || 0) + 1); });
+              }
+              const optiPerNyckel = new Map<string, any[]>();
+              for (const r of (lassRes.data || [])) {
+                if (r.maskin_id && r.datum) { const k = `${r.maskin_id}|${r.datum}`; (optiPerNyckel.get(k) ?? optiPerNyckel.set(k, []).get(k)!).push(r); }
+              }
+              const hlNycklar = new Set<string>();
+              const rader: any[] = [];
+              for (const d of hl) {
+                const k = `${d.maskin_id}|${d.datum}`;
+                hlNycklar.add(k);
+                if (d.kalla === 'app') {
+                  const n = Math.max(1, appAntal.get(k) || 1);
+                  const styck = (Number(d.volym_m3sub) || 0) / n;
+                  for (let i = 0; i < n; i++) rader.push({ objekt_id: d.objekt_id, maskin_id: d.maskin_id, datum: d.datum, volym_m3sub: styck, korstracka_m: null });
+                } else {
+                  const opti = optiPerNyckel.get(k);
+                  if (opti && opti.length) rader.push(...opti);
+                  else rader.push({ objekt_id: d.objekt_id, maskin_id: d.maskin_id, datum: d.datum, volym_m3sub: Number(d.volym_m3sub) || 0, korstracka_m: null });
+                }
+              }
+              // Opti-rader som helikoptern inte känner (borde inte hända) + grot-lass
+              // utan maskin/dag behålls.
+              for (const r of (lassRes.data || [])) {
+                if (!(r.maskin_id && r.datum) || !hlNycklar.has(`${r.maskin_id}|${r.datum}`)) rader.push(r);
+              }
+              mergedLass = rader;
+            }
+          } catch (e) {
+            console.error('[useObjektUppfoljning] helikopter_lass-sammanslagning misslyckades:', e);
+          }
+        }
+
         const bas = buildUppfoljningData({
           obj,
           tidRows: tidRes.data || [],
           prodRows: prodRes.data || [],
           sortRows: sortRes.data || [],
-          lassRows: lassRes.data || [],
+          lassRows: mergedLass,
           lassSortRows: lassSortRes.data || [],
           avbrottRows,
           dimSort: dimSortRes.data || [],

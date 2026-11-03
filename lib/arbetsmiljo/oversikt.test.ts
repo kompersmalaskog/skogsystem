@@ -29,7 +29,7 @@ const rad = (d: Indata, id: string) => byggRader(d, NU).find(r => r.id === id)!;
 describe('arbetsmiljöns översikt', () => {
   it('admin med allt klart: "Allt är i ordning", alla delar i fast ordning', () => {
     const r = byggRader(admin(), NU);
-    expect(r.map(x => x.id)).toEqual(['atgarder', 'skyddsrond', 'riskbedomning', 'maskinkoll', 'nagot-ar-fel', 'introduktion']);
+    expect(r.map(x => x.id)).toEqual(['atgarder', 'skyddsrond', 'riskbedomning', 'maskinkoll', 'rapportera', 'introduktion']);
     expect(svar(r)).toEqual({ text: 'Allt är i ordning' });
     expect(rad(admin(), 'skyddsrond').under).toBe('Gjord 2 nov · nästa om ett år');
     expect(rad(admin(), 'riskbedomning').under).toBe('Alla fyra maskintyper godkända');
@@ -53,7 +53,7 @@ describe('arbetsmiljöns översikt', () => {
 
   it('föraren ser inte Åtgärder och Skyddsrond; ska läsa riskerna för sin maskin', () => {
     const d = forare({ maskinkoll: 1 });
-    expect(byggRader(d, NU).map(x => x.id)).toEqual(['riskbedomning', 'maskinkoll', 'nagot-ar-fel', 'introduktion']);
+    expect(byggRader(d, NU).map(x => x.id)).toEqual(['riskbedomning', 'maskinkoll', 'rapportera', 'introduktion']);
     expect(rad(d, 'riskbedomning').under).toBe('Läs riskerna för skotaren');
     expect(rad(d, 'maskinkoll').under).toBe('Dags för månadens koll · ca 1 min');
     expect(svar(byggRader(d, NU))).toEqual({ text: '2 saker behöver dig', ton: 'orange' });

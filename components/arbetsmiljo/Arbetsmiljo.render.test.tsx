@@ -25,11 +25,13 @@ vi.mock('@/lib/arbetsmiljo/arshjul', async (orig) => ({
   hamtaGjorda: async () => [],
   markeraGjord: async (...a: unknown[]) => { gjortAnrop.push(a.slice(1)); return null; },
 }));
+let mina: any[] | null = [];
+vi.mock('@/lib/arbetsmiljo/lagatBesked', async (orig) => ({ ...(await orig<typeof import('@/lib/arbetsmiljo/lagatBesked')>()), hamtaMinaRapporter: async () => mina }));
 import Arbetsmiljo from './Arbetsmiljo';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root; let el: HTMLDivElement;
-beforeEach(() => { el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el); });
+beforeEach(() => { mina = []; window.history.replaceState(null, '', '/arbetsmiljo'); el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el); });
 afterEach(() => { act(() => root.unmount()); el.remove(); });
 const vanta = async () => { for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve(); }); };
 const q = (s: string) => document.querySelector(s) as HTMLElement | null;
@@ -43,7 +45,7 @@ describe('Arbetsmiljö', () => {
     const rader = Array.from(document.querySelectorAll('[data-am-rad]')).map(e => [e.getAttribute('data-am-rad'), e.getAttribute('href')]);
     expect(rader).toEqual([
       ['atgarder', '/atgarder'], ['skyddsrond', '/skyddsrond'], ['arshjul', null], ['riskbedomning', '/riskbedomning'],
-      ['maskinkoll', '/maskinkoll'], ['nagot-ar-fel', '/maskinkoll?fel=1'], ['introduktion', '/introduktion'],
+      ['maskinkoll', '/maskinkoll'], ['rapportera', '/om-nagot-hander?rapport=1'], ['introduktion', '/introduktion'],
     ]);
     expect(q('[data-am-rad="atgarder"]')!.textContent).toContain('2 att åtgärda');
     expect(q('[data-am-rad="riskbedomning"]')!.textContent).toContain('0 av 4 godkända');
@@ -82,5 +84,25 @@ describe('Arbetsmiljö', () => {
     jag = { id: 'f', roll: 'forare', telefon: '1', anhorig_telefon: '2', maskin_id: 'A1', skyddsombud: false };
     await act(async () => { root.render(<Arbetsmiljo />); }); await vanta();
     expect(q('[data-am-rad="arshjul"]')).toBeNull();
+  });
+
+  it('det du rapporterat: en rad när det finns något, listan med läget i ord, och pushens länk öppnar den direkt', async () => {
+    jag = { id: 'f', roll: 'forare', telefon: '1', anhorig_telefon: '2', maskin_id: 'A1', skyddsombud: false };
+    mina = [
+      { id: 'a1', kalla: 'forare', maskinNamn: 'Giant', beskrivning: 'Nödstoppet stannar inte motorn', lagad: true, vadGjordes: 'Bytt brytare', stangdTid: '2026-11-03T09:00:00Z', skapad: '2026-11-01T09:00:00Z' },
+      { id: 'a2', kalla: 'forare', maskinNamn: 'Giant', beskrivning: 'Steget sitter löst', lagad: false, vadGjordes: null, stangdTid: null, skapad: '2026-10-31T09:00:00Z' },
+    ];
+    window.history.replaceState(null, '', '/arbetsmiljo?mina=1');
+    await act(async () => { root.render(<Arbetsmiljo />); }); await vanta();
+    expect(q('[data-am-mina]')!.textContent).toContain('1 väntar · 1 klar');
+    const rader = Array.from(document.querySelectorAll('[data-am-min]')).map(e => e.textContent);
+    expect(rader[0]).toContain('Väntar på att lagas');
+    expect(rader[1]).toContain('Lagat 3 nov · Bytt brytare');
+  });
+
+  it('inget rapporterat: ingen rad alls', async () => {
+    jag = { id: 'f', roll: 'forare', telefon: '1', anhorig_telefon: '2', maskin_id: 'A1', skyddsombud: false };
+    await act(async () => { root.render(<Arbetsmiljo />); }); await vanta();
+    expect(q('[data-am-mina]')).toBeNull();
   });
 });

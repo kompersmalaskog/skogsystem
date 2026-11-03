@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import Ikon from '@/components/design/Ikon';
+import Ark from '@/components/design/Ark';
 import { AVSTAND, FARG, IKON, KNAPP, KORT, RADIE, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import { hamtaMaskinkollVantar } from '@/lib/maskinkoll/data';
 import { hamtaAtgardMarke } from '@/lib/arbetsmiljo/atgarder';
@@ -19,11 +20,12 @@ import { hamtaKvitton as hamtaIntroKvitton, introLage } from '@/lib/arbetsmiljo/
 import { byggRader, svar, type Indata, type OversiktRad } from '@/lib/arbetsmiljo/oversikt';
 import { byggArshjul, hamtaGjorda, svenskArManad, type Rad as ArshjulRad } from '@/lib/arbetsmiljo/arshjul';
 import ArshjulArk from './ArshjulArk';
+import { hamtaMinaRapporter, minaSammanfattning, ordnaMina, rapportTitel, rapportUnder, type MinRapport } from '@/lib/arbetsmiljo/lagatBesked';
 
-type Last = { rader: OversiktRad[]; arshjul: ArshjulRad[] | null } | 'fel' | null;
+type Last = { rader: OversiktRad[]; arshjul: ArshjulRad[] | null; mina: MinRapport[] | null } | 'fel' | null;
 
 /** Läser allt sidan behöver. En del som inte gick att läsa blir null — aldrig en gissning. */
-async function lasIndata(): Promise<Indata | null> {
+async function lasIndata(): Promise<{ indata: Indata; mina: MinRapport[] | null } | null> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user?.email) return null;
   const { data: jag, error } = await supabase.from('medarbetare')
@@ -34,7 +36,7 @@ async function lasIndata(): Promise<Indata | null> {
   const tyst = <T,>(p: Promise<T>): Promise<T | null> => p.then(v => v, () => null);
 
   const ar = svenskArManad(new Date()).ar;
-  const [maskinkoll, atgarder, ronder, bedomningar, riskKvitton, maskin, introKvitton, gjorda] = await Promise.all([
+  const [maskinkoll, atgarder, ronder, bedomningar, riskKvitton, maskin, introKvitton, gjorda, mina] = await Promise.all([
     tyst(hamtaMaskinkollVantar(supabase)),
     serArbetsledning ? tyst(hamtaAtgardMarke(supabase)) : Promise.resolve(null),
     serArbetsledning ? tyst(hamtaRonder(supabase)) : Promise.resolve(null),
@@ -45,10 +47,11 @@ async function lasIndata(): Promise<Indata | null> {
       : Promise.resolve(null),
     arAdmin ? Promise.resolve(null) : tyst(hamtaIntroKvitton(supabase, jag.id)),
     serArbetsledning ? tyst(hamtaGjorda(supabase, ar)) : Promise.resolve(null),
+    tyst(hamtaMinaRapporter(supabase, jag.id)),
   ]);
 
   const maskinTyp = maskin && !maskin.error ? (maskin.data as { maskin_typ?: string } | null)?.maskin_typ : null;
-  return {
+  const indata: Indata = {
     arAdmin,
     serArbetsledning,
     medarbetareId: jag.id,
@@ -60,6 +63,7 @@ async function lasIndata(): Promise<Indata | null> {
     // Årshjulet: bara arbetsledningen. Går något av det inte att läsa är hela årshjulet ett läsfel, aldrig "inte gjort".
     arshjul: !serArbetsledning ? undefined : gjorda && ronder && bedomningar ? byggArshjul({ nu: new Date(), gjorda, ronder, risk: bedomningar }) : null,
   };
+  return { indata, mina: mina ?? null };
 }
 
 const TON_FARG = { orange: FARG.orange, rod: FARG.rod } as const;
@@ -67,16 +71,21 @@ const TON_FARG = { orange: FARG.orange, rod: FARG.rod } as const;
 export default function Arbetsmiljo() {
   const [last, setLast] = useState<Last>(null);
   const [visaAr, setVisaAr] = useState(false);
+  const [visaMina, setVisaMina] = useState(false);
 
-  // /arbetsmiljo?ar=1 öppnar årshjulet direkt.
+  // /arbetsmiljo?ar=1 öppnar årshjulet direkt; pushen "Lagat" öppnar /arbetsmiljo?mina=1 → listan direkt.
   useEffect(() => {
-    try { if (new URLSearchParams(window.location.search).get('ar') === '1') setVisaAr(true); } catch { /* ingen adress */ }
+    try {
+      const q = new URLSearchParams(window.location.search);
+      if (q.get('ar') === '1') setVisaAr(true);
+      if (q.get('mina') === '1') setVisaMina(true);
+    } catch { /* ingen adress */ }
   }, []);
 
   const hamta = useCallback(async () => {
     try {
       const d = await lasIndata();
-      setLast(d ? { rader: byggRader(d), arshjul: d.arshjul ?? null } : 'fel');
+      setLast(d ? { rader: byggRader(d.indata), arshjul: d.indata.arshjul ?? null, mina: d.mina } : 'fel');
     } catch { setLast('fel'); }
   }, []);
 
@@ -115,21 +124,48 @@ export default function Arbetsmiljo() {
           <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />
         </Link>
 
-        {last && last !== 'fel' && (
-          <Sektion rubrik="Allt om arbetsmiljön">
-            {last.rader.map((r, i) => (
-              <Rad key={r.id} titel={r.titel} sista={i === last.rader.length - 1}
-                href={r.id === 'arshjul' ? undefined : r.href}
-                onTryck={r.id === 'arshjul' && last.arshjul ? () => setVisaAr(true) : undefined}
-                attr={{ 'data-am-rad': r.id }}
-                under={<span style={{ color: r.ton ? TON_FARG[r.ton] : undefined }}>{r.under}</span>} />
-            ))}
-          </Sektion>
-        )}
+        {last && last !== 'fel' && (() => {
+          // Det du rapporterat: bara när det finns något (eller inte gick att läsa). Ett tryck visar varje rapport och vad som hände.
+          const visa = last.mina === null || last.mina.length > 0;
+          return (
+            <Sektion rubrik="Allt om arbetsmiljön">
+              {last.rader.map((r, i) => (
+                <Rad key={r.id} titel={r.titel} sista={!visa && i === last.rader.length - 1}
+                  href={r.id === 'arshjul' ? undefined : r.href}
+                  onTryck={r.id === 'arshjul' && last.arshjul ? () => setVisaAr(true) : undefined}
+                  attr={{ 'data-am-rad': r.id }}
+                  under={<span style={{ color: r.ton ? TON_FARG[r.ton] : undefined }}>{r.under}</span>} />
+              ))}
+              {visa && (
+                <Rad titel="Det du rapporterat" sista attr={{ 'data-am-mina': '1' }}
+                  under={last.mina === null ? 'Kunde inte läsas just nu' : minaSammanfattning(last.mina)}
+                  onTryck={last.mina ? () => setVisaMina(true) : undefined} />
+              )}
+            </Sektion>
+          );
+        })()}
       </div>
 
       {visaAr && last && last !== 'fel' && last.arshjul && (
         <ArshjulArk ar={svenskArManad(new Date()).ar} rader={last.arshjul} onStang={() => setVisaAr(false)} onAndrat={() => void hamta()} />
+      )}
+
+      {visaMina && last && last !== 'fel' && (
+        <Ark rubrik="Det du rapporterat" stang="Klar" onStang={() => setVisaMina(false)}>
+          {last.mina === null ? (
+            <p style={{ ...TYP.meta, color: FARG.text2 }}>Kunde inte läsas just nu.</p>
+          ) : last.mina.length === 0 ? (
+            <p style={{ ...TYP.meta, color: FARG.text2 }}>Du har inte rapporterat något än.</p>
+          ) : (
+            <Sektion rubrik="Senaste halvåret" kort={false}>
+              {ordnaMina(last.mina).map((r, i, alla) => (
+                <Rad key={r.id} titel={r.lagad ? <>✓ {rapportTitel(r)}</> : rapportTitel(r)} sista={i === alla.length - 1}
+                  attr={{ 'data-am-min': r.id }}
+                  under={<span style={{ color: r.lagad ? FARG.gron : FARG.text2 }}>{rapportUnder(r)}</span>} />
+              ))}
+            </Sektion>
+          )}
+        </Ark>
       )}
     </div>
   );

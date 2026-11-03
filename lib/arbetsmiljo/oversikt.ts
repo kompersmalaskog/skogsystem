@@ -13,7 +13,7 @@ import { arshjulRad, svenskArManad, type Rad as ArshjulRad } from './arshjul';
 export type Ton = 'orange' | 'rod';
 
 export type OversiktRad = {
-  id: 'atgarder' | 'skyddsrond' | 'arshjul' | 'riskbedomning' | 'maskinkoll' | 'nagot-ar-fel' | 'introduktion';
+  id: 'atgarder' | 'skyddsrond' | 'arshjul' | 'riskbedomning' | 'maskinkoll' | 'rapportera' | 'introduktion';
   titel: string;
   href: string;
   under: string;
@@ -122,7 +122,7 @@ export function byggRader(d: Indata, nu: Date = new Date()): OversiktRad[] {
   rader.push(
     riskRad(d.risk, d.arAdmin, d.medarbetareId, nu),
     maskinkollRad(d.maskinkoll),
-    { id: 'nagot-ar-fel', titel: 'Något är fel', href: '/maskinkoll?fel=1', under: 'Rapportera ett fel med en bild', attGora: false },
+    { id: 'rapportera', titel: 'Rapportera', href: '/om-nagot-hander?rapport=1', under: 'Något trasigt, nära att hända eller en skada', attGora: false },
     introRad(d.intro),
   );
   return rader;
