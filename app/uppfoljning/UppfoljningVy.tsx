@@ -380,18 +380,40 @@ function Svaret({ data }: { data: UppfoljningData }) {
           <span>{sv(visSkotat)} av {sv(visSkordat)} m³ hemma</span>
           <span>{andel} %</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.l, ...TYP.listtitel }}>
-          <span style={{ width: 11, height: 11, borderRadius: RADIE.cirkel, background: STATUS_FARG[s.k], flexShrink: 0 }} />
-          <span>{s.t}</span>
-          {s.dagar != null && (
-            <span style={{ ...TYP.text, color: FARG.text2, ...TNUM }}>· {klart ? `${s.dagar} dagar` : `dag ${s.dagar}`}</span>
-          )}
-        </div>
-        {klartOm != null && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.s, ...TYP.text, color: FARG.text2 }}>
-            <span style={{ width: 9, height: 9, borderRadius: RADIE.cirkel, background: FARG.text3, flexShrink: 0 }} />
-            <span>Klart om <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>~{klartOm}</span> dagar</span>
+        {s.klarOchKor ? (
+          // Skördaren KLAR, skotaren KÖR — en rad per maskin med roll-färg (lila
+          // skördare / turkos skotare, samma som kedjan ovan). Tiden ligger på
+          // skotar-raden (den som jobbar mot "klart"). Ingen "dag N" — den sa
+          // mindre och krockade med "klart om".
+          <div style={{ marginTop: AVSTAND.l, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.listtitel }}>
+              <span style={{ width: 11, height: 11, borderRadius: RADIE.cirkel, background: V6_SK, flexShrink: 0 }} />
+              <span>Skördaren klar</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.listtitel }}>
+              <span style={{ width: 11, height: 11, borderRadius: RADIE.cirkel, background: V6_ST, flexShrink: 0 }} />
+              <span>Skotaren kör</span>
+              {klartOm != null && (
+                <span style={{ ...TYP.text, color: FARG.text2 }}>· klart om <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>~{klartOm}</span> dagar</span>
+              )}
+            </div>
           </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.l, ...TYP.listtitel }}>
+              <span style={{ width: 11, height: 11, borderRadius: RADIE.cirkel, background: STATUS_FARG[s.k], flexShrink: 0 }} />
+              <span>{s.t}</span>
+              {s.dagar != null && (
+                <span style={{ ...TYP.text, color: FARG.text2, ...TNUM }}>· {klart ? `${s.dagar} dagar` : `dag ${s.dagar}`}</span>
+              )}
+            </div>
+            {klartOm != null && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.s, ...TYP.text, color: FARG.text2 }}>
+                <span style={{ width: 9, height: 9, borderRadius: RADIE.cirkel, background: FARG.text3, flexShrink: 0 }} />
+                <span>Klart om <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>~{klartOm}</span> dagar</span>
+              </div>
+            )}
+          </>
         )}
       </div>
     </section>

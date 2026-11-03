@@ -45,6 +45,10 @@ export interface UppfoljningStatus {
   // false när ingen skotning väntas från oss (extern skotning, avslutat)
   // eller när skördardata saknas.
   visaKvar: boolean;
+  // true = skördaren KLAR men skotaren KÖR. Detaljvyns hero visar det som två
+  // roll-färgade rader (skördaren klar / skotaren kör) i stället för den
+  // hopkedjade statustexten.
+  klarOchKor: boolean;
 }
 
 function dagarSedan(iso: string): number {
@@ -63,9 +67,11 @@ export function uppfoljningStatus(o: StatusFalt): UppfoljningStatus {
 
   let t: string;
   let k: UppfoljningStatusKey;
+  let klarOchKor = false;
   if (avslutat) {
     t = 'Avslutat'; k = 'done';
   } else if (skDone && stAct) {
+    klarOchKor = true;
     // Skördaren KLAR (skordareSlut satt) men skotaren kör fortfarande — säg
     // båda var för sig i stället för "Skördare + skotare kör". Nyckeln är
     // 'skotare' (det som faktiskt körs nu); objektet hade samma nyckel innan
@@ -99,5 +105,5 @@ export function uppfoljningStatus(o: StatusFalt): UppfoljningStatus {
   const visaKvar = !avslutat && !o.externSkotning && !kvarOkant && o.skordat > 0;
   const kvar = visaKvar ? Math.max(0, o.skordat - o.skotat) : null;
 
-  return { t, k, dagar, kvar, kvarOkant, visaKvar };
+  return { t, k, dagar, kvar, kvarOkant, visaKvar, klarOchKor };
 }
