@@ -65,6 +65,13 @@ export function uppfoljningStatus(o: StatusFalt): UppfoljningStatus {
   let k: UppfoljningStatusKey;
   if (avslutat) {
     t = 'Avslutat'; k = 'done';
+  } else if (skDone && stAct) {
+    // Skördaren KLAR (skordareSlut satt) men skotaren kör fortfarande — säg
+    // båda var för sig i stället för "Skördare + skotare kör". Nyckeln är
+    // 'skotare' (det som faktiskt körs nu); objektet hade samma nyckel innan
+    // (skördaren klar → inte skAct → föll till 'Skotare kör'), så listans
+    // gruppering ändras inte.
+    t = 'Skördare klar · skotare kör'; k = 'skotare';
   } else if (skAct && stAct) {
     // Båda kör — säg det. Nyckeln förblir 'skordare' så listans gruppering
     // och prickfärg inte ändras (skördaren vann även innan).
