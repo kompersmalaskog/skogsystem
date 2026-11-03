@@ -251,6 +251,8 @@ import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 import { optiLokalDag } from '@/lib/optiTid'
 import { KARTRUTA_MALL, traktBbox, punktBbox, nedladdningText } from '@/lib/kartNedladdning'
 import { useLaddaNerTrakt } from '@/lib/hooks/useLaddaNerTrakt'
+import { useBakgrundsNedladdning } from '@/lib/hooks/useBakgrundsNedladdning'
+import { KORVY_BAKGRUND } from '@/lib/kartBas'
 /** Lagren som bär en egen yta: fyllning, snedstreckning (ytor man inte får köra in i) och kant. En lista för synlighet och nedtoning. */
 const ZONE_LAGER = (): string[] => ['zone-fill', ...SNEDSTRECK_GRUPPER.map((g) => `zone-hatch-${g}`), 'zone-outline-casing', 'zone-outline'];
 const arZonYta = (id: string): boolean => id === 'zone-fill' || id.startsWith('zone-hatch-');
@@ -3247,6 +3249,8 @@ export default function PlannerPage() {
     return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 ? punktBbox(lat, lng) : null;
   }, [valtObjekt?.id, traktGeoHamtadFor, traktGeo]); // eslint-disable-line react-hooks/exhaustive-deps
   const kartNedladdning = useLaddaNerTrakt({ objektId: valtObjekt?.id ?? null, bbox: kartNedBbox, aktiv: !!valtObjekt?.id });
+  // Trakterna man SKA till laddas ner i bakgrunden (lib/hooks/useBakgrundsNedladdning): maskinen sin kö, planeraren alla pågående och planerade. Aldrig i testläget.
+  useBakgrundsNedladdning({ roll: testlage ? null : maskinlage ? 'maskin' : isAdminRiktig ? 'planerare' : null, maskinId: enhetMaskinId, oppenId: valtObjekt?.id ? String(valtObjekt.id) : null });
   const startFixFarskSattRef = useRef(false);
   const startOversiktSattRef = useRef(false);                                        // översikten är satt (en gång)
   const startFlygGjordRef = useRef(false);                                           // flygningen är gjord (EN flyTo)
@@ -9817,7 +9821,7 @@ export default function PlannerPage() {
         map.addLayer({
           id: 'bg-korvy',
           type: 'background',
-          paint: { 'background-color': '#0d1929' },
+          paint: { 'background-color': KORVY_BAKGRUND },   // en ruta som inte hunnit komma syns som dämpad skog, inte som ett svart hål
           layout: { 'visibility': 'none' },
         });
         // Flytta längst NER så den ligger under alla raster-basemaps + våra lager

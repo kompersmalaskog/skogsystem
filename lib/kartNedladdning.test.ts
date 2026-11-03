@@ -88,3 +88,41 @@ describe('vakter', () => {
     expect(terrang).toContain(KARTRUTA_MALL.terrang);
   });
 });
+
+import { attRensa, bakgrundNat, nogPlats, onskadeTrakter } from './kartNedladdning';
+
+describe('bakgrunden (som Tesla: föraren gör ingenting)', () => {
+  it('maskinen: den öppna trakten + de två nästa i kön, i köns ordning', () => {
+    const ko = [{ objekt_id: 'c', ordning: 3 }, { objekt_id: 'a', ordning: 1 }, { objekt_id: 'b', ordning: 2 }, { objekt_id: 'd', ordning: 4 }];
+    expect(onskadeTrakter({ roll: 'maskin', oppen: 'x', ko, aktiva: [] })).toEqual(['x', 'a', 'b']);
+    expect(onskadeTrakter({ roll: 'maskin', oppen: 'a', ko, aktiva: [] })).toEqual(['a', 'b', 'c']);
+  });
+  it('planeraren: alla pågående och planerade; ingen roll = inget', () => {
+    expect(onskadeTrakter({ roll: 'planerare', oppen: null, ko: [], aktiva: ['p1', 'p2'] })).toEqual(['p1', 'p2']);
+    expect(onskadeTrakter({ roll: null, oppen: 'x', ko: [], aktiva: ['p1'] })).toEqual([]);
+  });
+  it('bara wifi/kabel; okänt nät räcker på dator och maskin men aldrig på en telefon', () => {
+    expect(bakgrundNat({ onLine: true, connection: { type: 'wifi' } }, false)).toBe(true);
+    expect(bakgrundNat({ onLine: true, connection: { type: 'cellular' } }, true)).toBe(false);
+    expect(bakgrundNat({ onLine: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)' }, false)).toBe(false);
+    expect(bakgrundNat({ onLine: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)' }, true)).toBe(true);   // iPad/telefon som är maskin
+    expect(bakgrundNat({ onLine: true, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130' }, false)).toBe(true);
+    expect(bakgrundNat({ onLine: false, connection: { type: 'wifi' } }, true)).toBe(false);
+  });
+  it('gott om plats: minst 500 MB kvar och högst 60 % använt; okänt = ja', () => {
+    const MB = 1024 * 1024;
+    expect(nogPlats({ usage: 100 * MB, quota: 2000 * MB })).toBe(true);
+    expect(nogPlats({ usage: 1300 * MB, quota: 2000 * MB })).toBe(false);
+    expect(nogPlats({ usage: 100 * MB, quota: 550 * MB })).toBe(false);
+    expect(nogPlats(null)).toBe(true);
+  });
+  it('rensa: bara det som inte behövs OCH inte öppnats på 14 dagar', () => {
+    const dag = 86_400_000, nu = 100 * dag;
+    const meta = [
+      { id: 'behovs', bbox: TRAKT, ts: 0, antal: 1 },
+      { id: 'gammal', bbox: TRAKT, ts: 0, antal: 1 },
+      { id: 'oppnadNyss', bbox: TRAKT, ts: 0, antal: 1, oppnad: nu - dag },
+    ];
+    expect(attRensa(meta, ['behovs'], nu)).toEqual(['gammal']);
+  });
+});

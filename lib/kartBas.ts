@@ -59,3 +59,7 @@ export function kartBasPaint(lager: Kartlager, styrka: number = KARTBAS_STANDARD
 
 /** Det som gäller utan eget val (standardstyrkan). */
 export const KARTBAS_PAINT: Record<Kartlager, RasterPaint> = Object.fromEntries(KARTLAGER.map((l) => [l, kartBasPaint(l)])) as Record<Kartlager, RasterPaint>;
+
+/** Körvyns bakgrund under kartrutorna: syns bara där en ruta inte hunnit komma. Dämpad mörk skogston (som ett flygfoto av skog) i stället
+ *  för nästan svart — en saknad ruta ska se ut som skog som laddar, inte som ett hål i kartan (Martin 2026-11-03: "svarta ytor"). */
+export const KORVY_BAKGRUND = '#3b4236';
