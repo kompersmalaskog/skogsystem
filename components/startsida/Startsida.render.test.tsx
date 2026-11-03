@@ -59,7 +59,9 @@ describe('Startsida (admin)', () => {
     for (const b of Array.from(sektion('Alla vyer')!.querySelectorAll('button[aria-expanded]'))) await act(async () => { (b as HTMLButtonElement).click() })
     await act(async () => { (document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement).click() })
     const nabara = new Set([...lankar(sektion('Alla vyer')!), ...lankar(document.querySelector('[role="dialog"]')!)])
-    expect(VYER.map(v => v.href).filter(href => !nabara.has(href))).toEqual([])
+    // Arbetsmiljöns delar nås via kortet Arbetsmiljö (och sökningen), inte som egna kort.
+    expect(VYER.filter(v => !v.del).map(v => v.href).filter(href => !nabara.has(href))).toEqual([])
+    expect(nabara.has('/arbetsmiljo')).toBe(true)
   })
 
   it('Behöver dig visas inte när inget väntar — och okänt (null) räknas aldrig som noll', async () => {

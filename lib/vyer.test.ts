@@ -51,7 +51,7 @@ describe('vyregistret', () => {
     const b = { skyddsombud: true }
     const adminHrefs = new Set(VYER.filter(v => v.bara === 'admin').map(v => v.href))
     const sedda = [...grupperFor('forare', b).flatMap(g => g.vyer), ...favoriterFor('forare', VYER.map(v => v.id), b),
-      ...sokVyer('forare', 'åtgärd', b), ...sokVyer('forare', 'ekonomi', b), ...sokVyer('forare', 'admin', b)]
+      ...sokVyer('forare', 'åtgärd', b), ...sokVyer('forare', 'skyddsrond', b), ...sokVyer('forare', 'ekonomi', b), ...sokVyer('forare', 'admin', b)]
     expect([...new Set(sedda.filter(v => adminHrefs.has(v.href)).map(v => v.href))].sort()).toEqual(['/atgarder', '/skyddsrond'])
     expect(sokVyer('forare', 'stopp', b).map(v => v.href)).toContain('/atgarder')
     // Utan flaggan (eller med false) ser föraren den inte.
@@ -61,11 +61,22 @@ describe('vyregistret', () => {
     expect(VYER.filter(v => v.aven === 'skyddsombud').map(v => v.id)).toEqual(['atgarder', 'skyddsrond'])
   })
 
-  it('grupperna + kontomenyn innehåller varje synlig vy exakt en gång', () => {
+  it('grupperna + kontomenyn innehåller varje synlig vy exakt en gång (delarna av Arbetsmiljö bor på dess sida)', () => {
     for (const roll of ['admin', 'forare'] as const) {
       const visade = [...grupperFor(roll).flatMap(g => g.vyer), ...ovrigtFor(roll)].map(v => v.id)
-      expect(visade.sort()).toEqual(vyerFor(roll).map(v => v.id).sort())
+      expect(visade.sort()).toEqual(vyerFor(roll).filter(v => !v.del).map(v => v.id).sort())
     }
+  })
+
+  it('Arbetsmiljö är ETT kort; delarna syns inte i grupperna men går att söka fram', () => {
+    const delar = VYER.filter(v => v.del === 'arbetsmiljo').map(v => v.id).sort()
+    expect(delar).toEqual(['atgarder', 'introduktion', 'maskinkoll', 'nagot-ar-fel', 'om-nagot-hander', 'riskbedomning', 'skyddsrond'])
+    const iGrupper = grupperFor('admin').flatMap(g => g.vyer).map(v => v.id)
+    expect(iGrupper).toContain('arbetsmiljo')
+    expect(iGrupper.filter(id => delar.includes(id))).toEqual([])
+    expect(sokVyer('forare', '112').map(v => v.id)).toContain('om-nagot-hander')
+    expect(sokVyer('admin', 'skyddsrond').map(v => v.id)).toEqual(expect.arrayContaining(['skyddsrond', 'arbetsmiljo']))
+    expect(favoriterFor('forare', ['maskinkoll']).map(v => v.id)).toEqual(['maskinkoll'])
   })
 
   it('standardfavoriterna finns, är synliga för rollen och högst åtta', () => {

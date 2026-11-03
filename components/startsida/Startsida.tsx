@@ -67,6 +67,7 @@ const MARKE_TEXT: Record<MarkeKalla, string> = {
   maskinkoll: 'maskinkoll att göra',
   atgarder: 'åtgärder att göra',
   personal: 'uppgift att fylla i',
+  arbetsmiljo: 'att göra i arbetsmiljön',
 }
 
 function antalFor(v: Vy, marken: Marken): number | null {
