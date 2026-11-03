@@ -7,6 +7,9 @@
 //   • När: när trakten öppnas, på bra nät (inte "spara data", inte 2G). Redan sparat = inget hämtas igen.
 //   • Hur mycket: traktgränsen + `MARGINAL_M`; Flygfoto upp till zoom 18, kartorna till 17, höjddatan till 15. Blir det fler än `MAX_RUTOR`
 //     tas den högsta zoomen bort först (Flygfoto 17 är fortfarande skarpt nog på skärmen). De `MAX_TRAKTER` senaste trakterna sparas; äldre rensas.
+//   • I BAKGRUNDEN (Tesla: föraren gör ingenting): maskinen tar sin trakt och de två nästa i sin kö, planeraren alla pågående och planerade —
+//     bara på wifi/kabel (`bakgrundNat`) och bara med gott om plats (`nogPlats`). En trakt som inte längre behövs och inte öppnats på
+//     `RENSA_EFTER_DAGAR` tas bort.
 
 export const KART_CACHE = 'kartrutor-v1';
 
@@ -28,7 +31,7 @@ const ZOOM: Record<Lager, [number, number]> = {
 
 export const MARGINAL_M = 300;
 export const MAX_RUTOR = 1500;
-export const MAX_TRAKTER = 8;
+export const MAX_TRAKTER = 20;
 
 export interface Bbox { vast: number; syd: number; ost: number; nord: number }
 
@@ -107,7 +110,8 @@ export function braNat(nav: { onLine?: boolean; connection?: { saveData?: boolea
 
 // ── Minnet av vilka trakter som är sparade (per enhet) ───────────────────────────────────────────────────────────────
 export const META_NYCKEL = 'kart_nedladdad_v1';
-export interface TraktMeta { id: string; bbox: Bbox; ts: number; antal: number }
+/** `ts` = när rutorna hämtades (färskhet), `oppnad` = när trakten senast öppnades (rensning). */
+export interface TraktMeta { id: string; bbox: Bbox; ts: number; antal: number; oppnad?: number }
 
 export function lasMeta(lager: Pick<Storage, 'getItem'> | null): TraktMeta[] {
   try { const v = JSON.parse(lager?.getItem(META_NYCKEL) ?? '[]'); return Array.isArray(v) ? v.filter((m) => m && typeof m.id === 'string' && m.bbox) : []; } catch { return []; }
@@ -129,4 +133,53 @@ export function nedladdningText(l: NedladdningLage): string | null {
   if (l.lage === 'laddar') return `Sparar kartan i enheten … ${l.totalt ? Math.floor((100 * l.klara) / l.totalt) : 0} %`;
   if (l.lage === 'fel') return 'Kartan kunde inte sparas – försöker igen nästa gång';
   return null;
+}
+
+// ── Bakgrunden: vilka trakter, på vilket nät, med hur mycket plats ────────────────────────────────────────────────────
+export const KO_FRAMAT = 2;              // maskinen: trakten den står på + så många till i sin kö
+export const RENSA_EFTER_DAGAR = 14;     // en trakt som inte behövs längre och inte öppnats på så länge tas bort
+export const MIN_LEDIGT_BYTES = 500 * 1024 * 1024;
+export const MAX_ANDEL_ANVANT = 0.6;
+
+export interface KoRad { objekt_id: string; ordning: number | null }
+
+/** Vilka trakter som ska finnas i enheten. Maskinen: den öppna + de närmaste i kön. Planeraren: alla pågående och planerade. */
+export function onskadeTrakter(p: { roll: 'maskin' | 'planerare' | null; oppen: string | null; ko: KoRad[]; aktiva: string[] }): string[] {
+  const ut: string[] = [];
+  const lagg = (id: string | null | undefined) => { if (id && !ut.includes(id)) ut.push(id); };
+  if (p.roll === 'maskin') {
+    lagg(p.oppen);
+    const sorterad = [...p.ko].sort((a, b) => (a.ordning ?? 1e9) - (b.ordning ?? 1e9));
+    for (const k of sorterad) { if (ut.length >= 1 + KO_FRAMAT) break; lagg(k.objekt_id); }
+  } else if (p.roll === 'planerare') {
+    lagg(p.oppen);
+    for (const id of p.aktiva) lagg(id);
+  }
+  return ut;
+}
+
+/**
+ * Nät för bakgrunden (mycket data): bara wifi eller kabel. Vet webbläsaren inte vilket nät det är (Safari, Chrome på dator)
+ * räcker bra nät på en dator eller maskindator — aldrig på en telefon, där det kan vara mobildata.
+ */
+export function bakgrundNat(nav: { onLine?: boolean; userAgent?: string; maxTouchPoints?: number; connection?: { type?: string; saveData?: boolean; effectiveType?: string } } | undefined, arMaskin: boolean): boolean {
+  if (!braNat(nav as any)) return false;
+  const typ = nav?.connection?.type;
+  if (typ) return typ === 'wifi' || typ === 'ethernet';
+  if (arMaskin) return true;
+  const ua = nav?.userAgent ?? '';
+  const telefon = /iPhone|iPod|Android.+Mobile|Mobile Safari/i.test(ua);
+  return !telefon;
+}
+
+/** Gott om plats: minst `MIN_LEDIGT_BYTES` kvar och högst `MAX_ANDEL_ANVANT` av det webbläsaren ger appen. Vet vi inte: ja. */
+export function nogPlats(e: { usage?: number; quota?: number } | null | undefined): boolean {
+  if (!e || !e.quota) return true;
+  const anv = e.usage ?? 0;
+  return e.quota - anv >= MIN_LEDIGT_BYTES && anv / e.quota <= MAX_ANDEL_ANVANT;
+}
+
+/** Trakter i minnet som inte behövs längre och inte öppnats på `RENSA_EFTER_DAGAR`. */
+export function attRensa(meta: TraktMeta[], onskade: string[], nu: number): string[] {
+  return meta.filter((m) => !onskade.includes(m.id) && nu - Math.max(m.ts, m.oppnad ?? 0) > RENSA_EFTER_DAGAR * 86_400_000).map((m) => m.id);
 }
