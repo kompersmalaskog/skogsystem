@@ -21,6 +21,7 @@ import { franBase64, type MarkRutnat } from '@/lib/ritadKarta/mark';
 import { snedstreckBild } from '@/lib/ytaStil';
 import { medReserv } from '@/lib/ritadKarta/reserv';
 import { OSM_TILL_ZOOM, arVagFC, type VagFC } from '@/lib/ritadKarta/vagar';
+import { arDikeFC, type DikeFC } from '@/lib/ritadKarta/diken';
 
 export type RitadStatus =
   | { typ: 'av' }
@@ -30,7 +31,7 @@ export type RitadStatus =
   | { typ: 'ingen-grans' }
   | { typ: 'fel'; text: string };
 
-type Svar = { typ: 'klar'; ritat: Ritat; vagar: VagFC | null; ar: number | null; kalla: OmradesKalla; saknas: string[] } | { typ: 'ingen-grans' } | { typ: 'fel'; text: string };
+type Svar = { typ: 'klar'; ritat: Ritat; vagar: VagFC | null; diken: DikeFC | null; ar: number | null; kalla: OmradesKalla; saknas: string[] } | { typ: 'ingen-grans' } | { typ: 'fel'; text: string };
 type Objektfakta = { typ: 'ok'; vida: Ring[] | null; vo: string | null; slutavverkning: boolean } | { typ: 'fel'; text: string };
 
 // En gång per objekt och session: Vidas gräns och laserdatan ändras inte medan man kör. Ett fel cachas aldrig (nästa öppning försöker igen).
@@ -62,7 +63,7 @@ async function hamtaFakta(objektId: string): Promise<Objektfakta> {
 }
 
 /** Rådata för ett område: laser, blött/brant och stammarna — hämtade (eller ur det sparade) men inte ritade. Också bakgrundsnedladdningen använder den. */
-async function hamtaRadata(f: FaktaOk, omrade: Omrade): Promise<{ laser: Rutnat | null; laserFel: string; mark: any | null; stammar: { lat: number; lng: number }[]; vagar: VagFC | null }> {
+async function hamtaRadata(f: FaktaOk, omrade: Omrade): Promise<{ laser: Rutnat | null; laserFel: string; mark: any | null; stammar: { lat: number; lng: number }[]; vagar: VagFC | null; diken: DikeFC | null }> {
   const nyck = omradeNyckel(omrade);
   const kropp = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ringar: omrade.ringar }) };
   let laserFel = 'Kunde inte hämta laserdatan';
@@ -76,7 +77,7 @@ async function hamtaRadata(f: FaktaOk, omrade: Omrade): Promise<{ laser: Rutnat 
   const stammarP = f.slutavverkning && f.vo
     ? medReserv<{ lat: number; lng: number }[]>(`stammar/${f.vo}`, async () => ({ ok: true, varde: (await hamtaStammoln(f.vo)).punkter }))
     : Promise.resolve(null);
-  const [laser, mark, stammar, vagar] = await Promise.all([
+  const [laser, mark, stammar, vagar, diken] = await Promise.all([
     medReserv<Rutnat>(`laser/${nyck}`, () => jsonFran('/api/ritad-karta/laser', (j) => { if (j?.error) laserFel = j.error; })),
     medReserv<any>(`mark/${nyck}`, () => jsonFran('/api/ritad-karta/mark')),
     stammarP,
@@ -85,16 +86,21 @@ async function hamtaRadata(f: FaktaOk, omrade: Omrade): Promise<{ laser: Rutnat 
       const r = await jsonFran('/api/ritad-karta/vagar');
       return r.ok && arVagFC(r.varde) ? r : { ok: false };
     }),
+    // Dikena (lib/ritadKarta/diken): faller de ritas resten ändå.
+    medReserv<DikeFC>(`diken/${nyck}`, async () => {
+      const r = await jsonFran('/api/ritad-karta/diken');
+      return r.ok && arDikeFC(r.varde) ? r : { ok: false };
+    }),
   ]);
-  return { laser: laser?.varde ?? null, laserFel, mark: mark?.varde ?? null, stammar: stammar?.varde ?? [], vagar: vagar && arVagFC(vagar.varde) ? vagar.varde : null };
+  return { laser: laser?.varde ?? null, laserFel, mark: mark?.varde ?? null, stammar: stammar?.varde ?? [], vagar: vagar && arVagFC(vagar.varde) ? vagar.varde : null, diken: diken && arDikeFC(diken.varde) ? diken.varde : null };
 }
 
 async function hamtaSkog(f: FaktaOk, omrade: Omrade): Promise<Svar> {
   const d = await hamtaRadata(f, omrade);
   if (!d.laser) return { typ: 'fel', text: d.laserFel };
   const mark = await tolkaMark(d.mark);
-  const saknas = d.vagar ? mark.saknas : [...mark.saknas, 'Trafikverkets vägar'];
-  return { typ: 'klar', ritat: byggRitat(d.laser, d.stammar, mark.rutnat, mark.skugga), vagar: d.vagar, ar: d.laser.ar ?? null, kalla: omrade.kalla, saknas };
+  const saknas = [...mark.saknas, ...(d.vagar ? [] : ['Trafikverkets vägar']), ...(d.diken ? [] : ['diken'])];
+  return { typ: 'klar', ritat: byggRitat(d.laser, d.stammar, mark.rutnat, mark.skugga), vagar: d.vagar, diken: d.diken, ar: d.laser.ar ?? null, kalla: omrade.kalla, saknas };
 }
 
 /**
@@ -157,8 +163,9 @@ function laggTillGrund(m: any) {
 }
 
 const TOM = { type: 'FeatureCollection', features: [] };
-function sattSkog(m: any, ritat: Ritat | null, vagar: VagFC | null, paint: Record<string, number>) {
+function sattSkog(m: any, ritat: Ritat | null, vagar: VagFC | null, diken: DikeFC | null, paint: Record<string, number>) {
   m.getSource(RITAD_KALLA.nvdb)?.setData(vagar ?? TOM);
+  m.getSource(RITAD_KALLA.diken)?.setData(diken ?? TOM);
   // Finns Trafikverkets vägar ritas OpenStreetMaps bara längre ut än OSM_TILL_ZOOM — annars blir samma väg två parallella vägar.
   const medNvdb = !!vagar?.features.length;
   for (const id of RITAD_OSM_VAG_ID) if (m.getLayer(id)) m.setLayerZoomRange?.(id, 0, medNvdb ? OSM_TILL_ZOOM : 24);
@@ -218,12 +225,13 @@ export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar
   // Lägg skogen på kartan (eller ta bort den när objektet byts).
   const ritat = svar && svar.id === objektId && svar.svar.typ === 'klar' ? svar.svar.ritat : null;
   const vagarPaKartan = svar && svar.id === objektId && svar.svar.typ === 'klar' ? svar.svar.vagar : null;
-  const nyckel = ritat && svar?.svar.typ === 'klar' ? `${objektId}|${svar.svar.kalla}|${svar.svar.ar}|${svar.svar.ritat.url.length}|${vagarPaKartan?.features.length ?? -1}` : null;
+  const dikenPaKartan = svar && svar.id === objektId && svar.svar.typ === 'klar' ? svar.svar.diken : null;
+  const nyckel = ritat && svar?.svar.typ === 'klar' ? `${objektId}|${svar.svar.kalla}|${svar.svar.ar}|${svar.svar.ritat.url.length}|${vagarPaKartan?.features.length ?? -1}|${dikenPaKartan?.features.length ?? -1}` : null;
   useEffect(() => {
     if (!map || !grundKlar) return;
     if (ritatPaKartan.current === nyckel) return;
-    try { sattSkog(map, ritat, vagarPaKartan, paintRef.current); ritatPaKartan.current = nyckel; } catch (e) { console.warn('[ritad] kunde inte rita skogen', e); }
-  }, [map, grundKlar, nyckel, ritat, vagarPaKartan]);
+    try { sattSkog(map, ritat, vagarPaKartan, dikenPaKartan, paintRef.current); ritatPaKartan.current = nyckel; } catch (e) { console.warn('[ritad] kunde inte rita skogen', e); }
+  }, [map, grundKlar, nyckel, ritat, vagarPaKartan, dikenPaKartan]);
 
   // Reglaget Dämpad ↔ Skarp gäller skogsbilden.
   useEffect(() => {

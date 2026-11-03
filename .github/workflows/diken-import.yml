@@ -1,0 +1,66 @@
+# Ritad: för in Naturvårdsverkets dikeskarta (Diken Sverige, CC0) i tabellen `dike`. ENGÅNGSKÖRNING, startas för hand:
+# Actions → "Ritad — diken" → Run workflow. Torrkörning är standard (laddar ner, räknar, skriver ingenting).
+# Länen: G Kronoberg, H Kalmar, K Blekinge (där trakterna ligger). Fler län: lägg till bokstaven i `lan`.
+# Kräver repository-SECRET `SUPABASE_SERVICE_ROLE_KEY` och variabeln `NEXT_PUBLIC_SUPABASE_URL` (samma som lass-historik).
+# Körs bara från main.
+name: Ritad — diken
+
+on:
+  workflow_dispatch:
+    inputs:
+      lage:
+        description: 'torrkor = räkna (inget skrivs) · skriv = för in dikena'
+        type: choice
+        options: [torrkor, skriv]
+        default: torrkor
+      lan:
+        description: 'Länsbokstäver, mellanslag emellan'
+        default: 'G H K'
+
+concurrency:
+  group: diken-import
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  diken:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: GDAL
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gdal-bin
+      - name: Ladda ner och gör om
+        env:
+          LAN: ${{ inputs.lan }}
+        run: |
+          set -euo pipefail
+          mkdir -p diken && cd diken
+          for L in $LAN; do
+            echo "::group::Län $L"
+            curl -fsSL -o "Diken_$L.gdb.zip" "https://geodata.naturvardsverket.se/nedladdning/Diken/Diken_Sverige/Diken_lansvis/Diken_$L.gdb.zip"
+            unzip -q -o "Diken_$L.gdb.zip" -d "lan_$L"
+            GDB=$(find "lan_$L" -type d -name '*.gdb' | head -1)
+            ogrinfo -so "$GDB" | head -40
+            LAGER=$(ogrinfo -ro -q "$GDB" | sed -n 's/^[0-9]*: \([^ ]*\).*/\1/p' | head -1)
+            ogrinfo -so "$GDB" "$LAGER" | head -30
+            # Förenkla till 1 m i SWEREF 99 TM (meter), sedan till WGS84.
+            ogr2ogr -f GeoJSONSeq -simplify 1 -t_srs EPSG:4326 -lco COORDINATE_PRECISION=6 "dike_$L.geojsonl" "$GDB" "$LAGER"
+            wc -l "dike_$L.geojsonl"
+            echo "::endgroup::"
+          done
+      - name: Importera
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LAGE: ${{ inputs.lage }}
+        run: |
+          set -euo pipefail
+          FLAGGA=""; [ "$LAGE" = "skriv" ] || FLAGGA="--torr"
+          node scripts/diken-import.mjs diken/*.geojsonl $FLAGGA | tee -a "$GITHUB_STEP_SUMMARY"

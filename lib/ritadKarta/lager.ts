@@ -10,11 +10,11 @@
 //     3D-skogen finns kvar på provsidan /karta-ritad.
 // Utseendet (färger, symboler, vektorlager) bor i lib/ritadKarta/stil.ts — samma som /karta-ritad.
 
-import { BAKGRUND, RELIEF_KALLA, RELIEF_PAINT, VAG_FARG, VAG_KANT, VAG_KANT_EXTRA, VEKTOR_KALLA, VEKTOR_LAGER, vagBredd } from './stil';
+import { BAKGRUND, RELIEF_KALLA, RELIEF_PAINT, VAG_FARG, VAG_KANT, VAG_KANT_EXTRA, VEKTOR_KALLA, VEKTOR_LAGER, vagBredd, DIKE_FARG, DIKE_KANT, DIKE_KANT_EXTRA, dikeBredd } from './stil';
 import { OSM_TILL_ZOOM } from './vagar';
 import { SNEDSTRECK_PERIOD, snedstreckBild, snedstreckId } from '../ytaStil';
 
-export const RITAD_KALLA = { vektor: 'ritad-vektor', relief: 'ritad-relief', skog: 'ritad-skog', brant: 'ritad-brant', blott: 'ritad-blott', nvdb: 'ritad-nvdb' } as const;
+export const RITAD_KALLA = { vektor: 'ritad-vektor', relief: 'ritad-relief', skog: 'ritad-skog', brant: 'ritad-brant', blott: 'ritad-blott', nvdb: 'ritad-nvdb', diken: 'ritad-diken' } as const;
 
 export const RITAD_ID = {
   bakgrund: 'ritad-bakgrund',
@@ -41,11 +41,20 @@ export const RITAD_NVDB_LAGER = [
     paint: { 'line-color': ['match', ['get', 'k'], 'stor', VAG_FARG.stor, VAG_FARG.skog], 'line-width': vagBredd(['get', 'k'], 0) } },
 ];
 
+/** Dikena (lib/ritadKarta/diken): ovanpå blött och vattendrag, under brant och vägar. */
+export const RITAD_DIKE_ID = { kant: 'ritad-dike-kant', dike: 'ritad-dike' } as const;
+export const RITAD_DIKE_LAGER = [
+  { id: RITAD_DIKE_ID.kant, type: 'line', source: RITAD_KALLA.diken, minzoom: 12, layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': DIKE_KANT, 'line-width': dikeBredd(DIKE_KANT_EXTRA), 'line-opacity': 0.8 } },
+  { id: RITAD_DIKE_ID.dike, type: 'line', source: RITAD_KALLA.diken, minzoom: 12, layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': DIKE_FARG, 'line-width': dikeBredd(0) } },
+];
+
 /** OpenStreetMaps väglager (göms nära när Trafikverkets vägar finns, lib/ritadKarta/vagar `OSM_TILL_ZOOM`). */
 export const RITAD_OSM_VAG_ID = ['ritad-vag-kant', 'ritad-vag'] as const;
 
 /** Alla lager-id:n den ritade kartan använder, nerifrån och upp. */
-export const RITAD_LAGER: string[] = [RITAD_ID.bakgrund, RITAD_ID.skog, RITAD_ID.relief, RITAD_ID.blottGles, RITAD_ID.blottTat, ...RITAD_VEKTOR_LAGER.map((l) => l.id), RITAD_NVDB_ID.kant, RITAD_NVDB_ID.vag, RITAD_ID.brantLite, RITAD_ID.brant];
+export const RITAD_LAGER: string[] = [RITAD_ID.bakgrund, RITAD_ID.skog, RITAD_ID.relief, RITAD_ID.blottGles, RITAD_ID.blottTat, ...RITAD_VEKTOR_LAGER.map((l) => l.id), RITAD_DIKE_ID.kant, RITAD_DIKE_ID.dike, RITAD_NVDB_ID.kant, RITAD_NVDB_ID.vag, RITAD_ID.brantLite, RITAD_ID.brant];
 
 /** Lagren som alltid finns när Ritad är vald (inget objekt behövs). */
 export function grundLager(): any[] {
@@ -53,6 +62,7 @@ export function grundLager(): any[] {
     { id: RITAD_ID.bakgrund, type: 'background', paint: { 'background-color': BAKGRUND } },
     { id: RITAD_ID.relief, type: 'hillshade', source: RITAD_KALLA.relief, paint: RELIEF_PAINT },
     ...RITAD_VEKTOR_LAGER,
+    ...RITAD_DIKE_LAGER,
     ...RITAD_NVDB_LAGER,
   ];
 }
@@ -61,6 +71,7 @@ export const grundKallor = () => ({
   [RITAD_KALLA.vektor]: VEKTOR_KALLA,
   [RITAD_KALLA.relief]: RELIEF_KALLA,
   [RITAD_KALLA.nvdb]: { type: 'geojson' as const, data: { type: 'FeatureCollection' as const, features: [] as unknown[] } },
+  [RITAD_KALLA.diken]: { type: 'geojson' as const, data: { type: 'FeatureCollection' as const, features: [] as unknown[] } },
 });
 
 /** Brant mark (lib/ritadKarta/mark.ts): röda snedstreck — samma tecken som Brant-ytan i appen. Ligger under vägar och allt man planerar. */
