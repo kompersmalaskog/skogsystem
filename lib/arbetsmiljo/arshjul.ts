@@ -1,6 +1,6 @@
 // ÅRSHJULET (2026-11-03, efter Skogsentreprenörernas arbetsmiljöhjul): det som ska göras en gång om året, i den månad det hör till.
 // Svarar på "Vad är kvar i år?". Riskbedömningen och skyddsronden har egna vyer och räknas ur dem; resten bockas av här
-// (tabellen am_arshjul_gjort, migration 20261103130000_am_arshjul.sql). Admin och skyddsombud ser det; förare inte.
+// (tabellen am_arshjul_gjort, migration 20261103124235_am_arshjul.sql). Admin och skyddsombud ser det; förare inte.
 //
 // Ren logik utom läsning och skrivning längst ner. Texterna ändras HÄR.
 
