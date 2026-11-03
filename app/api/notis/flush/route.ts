@@ -25,6 +25,7 @@ import { maskinEtikett } from "@/lib/besok/maskinerPaBesok";
 import { rollAvMaskintyp } from "@/lib/maskindatorStart";
 import { AM_STOPP, arStoppNotis, byggStoppNotis, type HamtaStopp } from "@/lib/arbetsmiljo/stoppNotis";
 import { AM_TILLBUD, arTillbudNotis, byggTillbudNotis, type HamtaTillbud } from "@/lib/arbetsmiljo/tillbudNotis";
+import { AM_KEMIKALIE, arKemikalieNotis, byggKemikalieNotis, type HamtaKemikalie } from "@/lib/arbetsmiljo/kemikalieNotis";
 import { AM_ANMAL, arAnmalNotis, byggAnmalNotis, koaAnmalPaminnelse, type HamtaAnmal } from "@/lib/arbetsmiljo/anmalNotis";
 import { AM_LAGAT, arLagatNotis, byggLagatNotis, koaLagatBesked, type HamtaLagat } from "@/lib/arbetsmiljo/lagatBesked";
 
@@ -134,7 +135,7 @@ async function flush() {
     // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
     // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts), liksom lönenotiserna (lib/lonesystem/granskaNotis.ts).
-    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_ANMAL, AM_LAGAT, ...LON_NOTIS_TYPER]))
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_KEMIKALIE, AM_ANMAL, AM_LAGAT, ...LON_NOTIS_TYPER]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -209,12 +210,13 @@ async function flush() {
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
       // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arAnmalNotis(n.typ) || arLagatNotis(n.typ)) {
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arKemikalieNotis(n.typ) || arAnmalNotis(n.typ) || arLagatNotis(n.typ)) {
         // Maskinen ska stå (lib/arbetsmiljo/stoppNotis): borta, åtgärdad eller inte längre stopp → hoppas över.
         // Tillbud/olycka (lib/arbetsmiljo/tillbudNotis): borta eller redan åtgärdad → hoppas över.
         const u = arLagatNotis(n.typ) ? await byggLagatNotis(n, hamtaLagat)
           : arAnmalNotis(n.typ) ? await byggAnmalNotis(n, hamtaAnmal)
           : arTillbudNotis(n.typ) ? await byggTillbudNotis(n, hamtaTillbud)
+          : arKemikalieNotis(n.typ) ? await byggKemikalieNotis(n, hamtaKemikalie)
           : arStoppNotis(n.typ) ? await byggStoppNotis(n, hamtaStopp)
           : arGodkannNotis(n.typ) ? await byggGodkannNotis(n, () => lasVantandeUnderlag(supabase))
           : arBesokEjSett(n.typ) ? await byggEjSettNotis(n, hamtaEjSett)
@@ -388,6 +390,17 @@ const hamtaTillbud: HamtaTillbud = async (id) => {
   if (m.error || p.error) return { rad: null, fel: (m.error ?? p.error)!.message };
   const maskin = m.data as any;
   return { rad: { id: d.id, status: d.status, typ: t?.typ === "olycka" ? "olycka" : t?.typ === "tillbud" ? "tillbud" : null, beskrivning: d.beskrivning, maskin_namn: maskin?.visningsnamn || maskin?.modell || null, rapportor_namn: (p.data as any)?.namn ?? null } };
+};
+
+// Produkten bakom "Säkerhetsblad saknas", med namnet på den som lade till. Tjänstenyckeln läser förbi RLS.
+const hamtaKemikalie: HamtaKemikalie = async (id) => {
+  const { data, error } = await supabase.from("am_kemikalie").select("id, namn, var_finns, aktiv, sdb_sokvag, skapad_av").eq("id", id).maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const p = d.skapad_av ? await supabase.from("medarbetare").select("namn").eq("id", d.skapad_av).maybeSingle() : { data: null, error: null };
+  if (p.error) return { rad: null, fel: p.error.message };
+  return { rad: { id: d.id, namn: d.namn, var_finns: d.var_finns, aktiv: !!d.aktiv, har_blad: !!d.sdb_sokvag, tillagd_av_namn: (p.data as any)?.namn ?? null } };
 };
 
 // Olyckan för anmälan-påminnelsen. `rad: null` = finns inte; `fel` = kunde inte läsas.

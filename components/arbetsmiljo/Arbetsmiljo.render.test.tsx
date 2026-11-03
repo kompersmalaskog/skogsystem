@@ -48,7 +48,7 @@ describe('Arbetsmiljö', () => {
       ['maskinkoll', '/maskinkoll'], ['kemikalier', '/kemikalier'], ['rapportera', '/om-nagot-hander?rapport=1'], ['introduktion', '/introduktion'],
     ]);
     expect(q('[data-am-rad="atgarder"]')!.textContent).toContain('2 att åtgärda');
-    expect(q('[data-am-rad="riskbedomning"]')!.textContent).toContain('0 av 4 godkända');
+    expect(q('[data-am-rad="riskbedomning"]')!.textContent).toContain('0 av 5 godkända');
   });
 
   it('förare: ser inte Åtgärder och Skyddsrond', async () => {

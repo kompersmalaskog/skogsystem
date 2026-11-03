@@ -101,10 +101,11 @@ describe('riskbedömningens dokument', () => {
     b.skordare = godkand('skordare', b.skordare, '2026-11-03T10:00:00Z', 'm1');
     b.skotare = { ...godkand('skotare', b.skotare, '2026-11-03T10:00:00Z', 'm1'), bort: ['last'] };
     const d = riskDokument(b, { m1: 'Martin Lindqvist' }, null, [], NU);
-    expect(d.svar).toBe('1 av 4 godkända');
+    expect(d.svar).toBe('1 av 5 godkända');
     expect(d.sektioner.map(s => s.under)).toEqual([
       'Godkänd 3 november 2026 av Martin',
       'Ändrad efter godkännandet 3 november 2026 – inte godkänd igen',
+      'Inte godkänd',
       'Inte godkänd',
       'Inte godkänd',
     ]);
@@ -118,7 +119,7 @@ describe('riskbedömningens dokument', () => {
     const d = riskDokument(b, { m1: 'Martin' }, [
       { id: 'f1', namn: 'Daniel Ek', typ: 'skotare' }, { id: 'f2', namn: 'Max Berg', typ: 'skotare' }, { id: 'f3', namn: 'Stefan', typ: 'skordare' },
     ], [{ medarbetareId: 'f1', maskintyp: 'skotare', underlag: u, tid: '2026-11-04T07:00:00Z' }], NU);
-    expect(d.svar).toBe('Alla fyra är godkända');
+    expect(d.svar).toBe('Alla är godkända');
     const skotare = d.sektioner.find(s => s.rubrik === 'Skotare')!;
     expect(skotare.rader.at(-1)).toEqual({ titel: 'Lästa av förarna', text: 'Daniel 4 november 2026 · Max har inte läst', ton: 'brist' });
     expect(d.sektioner.find(s => s.rubrik === 'Lastbil')!.rader.some(r => r.titel === 'Lästa av förarna')).toBe(false);
@@ -141,7 +142,7 @@ describe('PDF:en', () => {
     const { text, sidor } = await texten(await skapaArbetsmiljoPdf(riskDokument(b, { m1: 'Martin' }, null, [], NU)));
     expect(sidor).toBeGreaterThan(1);
     expect(text).toContain(`sida 1 av ${sidor}`);
-    for (const s of ['Riskbedömning – maskinerna', 'Alla fyra är godkända', 'Skördare', 'Motorsåg', 'Kedjeskott från sågen', 'Godkänd 3 november 2026 av Martin']) {
+    for (const s of ['Riskbedömning – maskinerna', 'Alla är godkända', 'Skördare', 'Motorsåg', 'Kedjeskott från sågen', 'Godkänd 3 november 2026 av Martin']) {
       expect(text).toContain(s);
     }
   });

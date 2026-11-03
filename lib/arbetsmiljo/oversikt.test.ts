@@ -32,7 +32,7 @@ describe('arbetsmiljöns översikt', () => {
     expect(r.map(x => x.id)).toEqual(['atgarder', 'skyddsrond', 'riskbedomning', 'maskinkoll', 'rapportera', 'introduktion']);
     expect(svar(r)).toEqual({ text: 'Allt är i ordning' });
     expect(rad(admin(), 'skyddsrond').under).toBe('Gjord 2 nov · nästa om ett år');
-    expect(rad(admin(), 'riskbedomning').under).toBe('Alla fyra maskintyper godkända');
+    expect(rad(admin(), 'riskbedomning').under).toBe('Alla är godkända');
   });
 
   it('räknar det som behöver dig; ett stopp gör svaret rött', () => {
@@ -42,7 +42,7 @@ describe('arbetsmiljöns översikt', () => {
     expect(svar(r)).toEqual({ text: '3 saker behöver dig', ton: 'rod' });
     expect(rad(d, 'atgarder')).toMatchObject({ under: '1 maskin ska stå tills det är lagat', ton: 'rod' });
     expect(rad(d, 'skyddsrond').under).toBe('Ingen gjord än · en gång om året');
-    expect(rad(d, 'riskbedomning').under).toBe('1 av 4 godkända');
+    expect(rad(d, 'riskbedomning').under).toBe('1 av 5 godkända');
   });
 
   it('ett läsfel säger det och svaret påstår aldrig "i ordning"', () => {
@@ -54,7 +54,7 @@ describe('arbetsmiljöns översikt', () => {
   it('föraren ser inte Åtgärder och Skyddsrond; ska läsa riskerna för sin maskin', () => {
     const d = forare({ maskinkoll: 1 });
     expect(byggRader(d, NU).map(x => x.id)).toEqual(['riskbedomning', 'maskinkoll', 'rapportera', 'introduktion']);
-    expect(rad(d, 'riskbedomning').under).toBe('Läs riskerna för skotaren');
+    expect(rad(d, 'riskbedomning').under).toBe('Läs riskerna för skotaren och oljor och kemikalier');
     expect(rad(d, 'maskinkoll').under).toBe('Dags för månadens koll · ca 1 min');
     expect(svar(byggRader(d, NU))).toEqual({ text: '2 saker behöver dig', ton: 'orange' });
   });
@@ -64,7 +64,9 @@ describe('arbetsmiljöns översikt', () => {
     expect(rad(forare({ risk: { bedomningar: b, kvitton: [], minTyp: 'skotare' } }), 'riskbedomning')).toMatchObject({ under: 'Riskerna för skotaren är inte klara än', attGora: false });
     const g = allaGodkanda();
     const kvitto = { medarbetareId: 'f', maskintyp: 'skotare' as const, underlag: underlag(lista('skotare', g.skotare)), tid: '2026-11-03T07:00:00Z' };
-    expect(rad(forare({ risk: { bedomningar: g, kvitton: [kvitto], minTyp: 'skotare' } }), 'riskbedomning').under).toBe('Läst 3 nov');
+    const kem = { medarbetareId: 'f', maskintyp: 'kemikalier' as const, underlag: underlag(lista('kemikalier', g.kemikalier)), tid: '2026-11-02T07:00:00Z' };
+    expect(rad(forare({ risk: { bedomningar: g, kvitton: [kvitto], minTyp: 'skotare' } }), 'riskbedomning').under).toBe('Läs riskerna för oljor och kemikalier');
+    expect(rad(forare({ risk: { bedomningar: g, kvitton: [kvitto, kem], minTyp: 'skotare' } }), 'riskbedomning').under).toBe('Läst 3 nov');
   });
 
   it('skyddsombudet (förare) ser också Åtgärder och Skyddsrond', () => {

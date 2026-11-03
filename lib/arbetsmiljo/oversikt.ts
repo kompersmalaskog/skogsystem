@@ -6,7 +6,7 @@
 // En del som inte gick att läsa är `null`: raden säger det, och svaret påstår aldrig "Allt är i ordning".
 
 import { antalBesvarade, type Lage as RondLage } from './skyddsrond';
-import { MASKINTYPER, TYP_BESTAMD, lage as riskLage, lastTid, lista, synligForForare, underlag, type Bedomning, type Kvitto, type MaskinTyp } from './maskinRisk';
+import { MASKINTYPER, TYP_BESTAMD, attLasa, forarensTyper, lage as riskLage, lastTid, lista, synligForForare, underlag, type Bedomning, type Kvitto, type MaskinTyp } from './maskinRisk';
 import { datumText, lageText, type IntroLage } from './introduktion';
 import { arshjulRad, svenskArManad, type Rad as ArshjulRad } from './arshjul';
 import { svar as kemSvar, type Kemikalie } from './kemikalier';
@@ -80,17 +80,19 @@ function riskRad(r: Risk, arAdmin: boolean, medarbetareId: string, nu: Date): Ov
   if (!r) return felRad(bas.id, bas.titel, bas.href);
   if (arAdmin) {
     const godkanda = MASKINTYPER.filter(t => riskLage(t, r.bedomningar[t], nu) === 'godkand').length;
-    if (godkanda === MASKINTYPER.length) return { ...bas, under: 'Alla fyra maskintyper godkända', attGora: false };
+    if (godkanda === MASKINTYPER.length) return { ...bas, under: 'Alla är godkända', attGora: false };
     return { ...bas, under: `${godkanda} av ${MASKINTYPER.length} godkända`, ton: 'orange', attGora: true };
   }
-  if (!r.minTyp) return { ...bas, under: 'Vad som är farligt med varje maskin', attGora: false };
-  const b = r.bedomningar[r.minTyp];
-  if (!synligForForare(riskLage(r.minTyp, b, nu))) return { ...bas, under: `Riskerna för ${TYP_BESTAMD[r.minTyp]} är inte klara än`, attGora: false };
+  // Föraren läser sin maskin och oljor och kemikalier (ALLA_LASER).
+  const typer = forarensTyper(r.minTyp).filter(t => synligForForare(riskLage(t, r.bedomningar[t], nu)));
+  if (typer.length === 0) {
+    return { ...bas, under: r.minTyp ? `Riskerna för ${TYP_BESTAMD[r.minTyp]} är inte klara än` : 'Vad som är farligt i arbetet', attGora: false };
+  }
   if (!r.kvitton) return felRad(bas.id, bas.titel, bas.href);
-  const last = lastTid(r.kvitton, medarbetareId, r.minTyp, underlag(lista(r.minTyp, b)));
-  return last
-    ? { ...bas, under: `Läst ${datumText(last)}`, attGora: false }
-    : { ...bas, under: `Läs riskerna för ${TYP_BESTAMD[r.minTyp]}`, ton: 'orange', attGora: true };
+  const kvar = attLasa(r.minTyp, r.bedomningar, r.kvitton, medarbetareId, nu);
+  if (kvar.length > 0) return { ...bas, under: `Läs riskerna för ${kvar.map(t => TYP_BESTAMD[t]).join(' och ')}`, ton: 'orange', attGora: true };
+  const senast = typer.map(t => lastTid(r.kvitton!, medarbetareId, t, underlag(lista(t, r.bedomningar[t]))) ?? '').sort().pop()!;
+  return { ...bas, under: `Läst ${datumText(senast)}`, attGora: false };
 }
 
 function maskinkollRad(n: number | null): OversiktRad {

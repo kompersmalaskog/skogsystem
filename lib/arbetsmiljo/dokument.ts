@@ -6,7 +6,7 @@
 
 import { grupperaPunkter, antalBrister, type Rond, type SvarTyp } from './skyddsrond';
 import {
-  MASKINTYPER, TYP_NAMN, lage, lastTid, lista, underlag,
+  ALLA_LASER, MASKINTYPER, TYP_NAMN, lage, lastTid, lista, underlag,
   type Bedomning, type Kvitto, type MaskinTyp,
 } from './maskinRisk';
 
@@ -154,7 +154,7 @@ export function riskDokument(
       : risker.map(r => ({ titel: r.risk, text: r.atgard }));
     if (forare && l !== 'aldrig' && l !== 'andrad') {
       const u = underlag(risker);
-      const deras = forare.filter(f => f.typ === t);
+      const deras = ALLA_LASER.includes(t) ? [...forare] : forare.filter(f => f.typ === t);
       if (deras.length > 0) {
         const delar = deras.map(f => {
           const tid = lastTid(kvitton, f.id, t, u);
@@ -167,13 +167,13 @@ export function riskDokument(
     return { rubrik: TYP_NAMN[t], under, rader };
   });
   return {
-    titel: 'Riskbedömning – maskinerna',
+    titel: 'Riskbedömning – maskinerna och kemikalierna',
     filnamn: `riskbedomning-${svDag(nu.toISOString())}`,
     fakta: [
       { etikett: 'Utskriven', varde: langtDatum(nu.toISOString()) },
-      { etikett: 'Gäller', varde: 'Skördare, skotare, lastbil och motorsåg' },
+      { etikett: 'Gäller', varde: 'Skördare, skotare, lastbil, motorsåg samt oljor och kemikalier' },
     ],
-    svar: godkanda === MASKINTYPER.length ? 'Alla fyra är godkända' : `${godkanda} av ${MASKINTYPER.length} godkända`,
+    svar: godkanda === MASKINTYPER.length ? 'Alla är godkända' : `${godkanda} av ${MASKINTYPER.length} godkända`,
     svarTon: godkanda === MASKINTYPER.length ? 'bra' : 'brist',
     sektioner,
     not: 'Varje risk står med vad föraren gör. Bedömningen ses över varje år och när något ändras. Riskerna på varje trakt bedöms i planeringen innan maskinen börjar (AFS 2023:1).',
