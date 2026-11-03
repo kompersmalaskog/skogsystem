@@ -15,6 +15,12 @@ const BATCH = 1000;
 const r6 = (v) => Math.round(v * 1e6) / 1e6;
 const falt = (p, namn) => { const k = Object.keys(p ?? {}).find((x) => x.toLowerCase() === namn.toLowerCase()); return k ? p[k] : undefined; };
 
+/**
+ * Vägdiken sparas inte (Martin 2026-11-03): appen visar dem aldrig (lib/ritadKarta/diken.ts `visasDike`) och de är en fjärdedel av
+ * raderna. Samma regel som appens `dikeSlag(...) === 'vag'` — testet i lib/ritadKarta/diken.test.ts kräver att de säger samma sak.
+ */
+export const arVagdike = (typ) => { const t = String(typ ?? '').toLowerCase(); return t.includes('väg') || t.includes('vag'); };
+
 /** En feature → en rad, eller null (ingen giltig linje / inget id). */
 export function tillRad(f) {
   const id = Number(falt(f?.properties, 'Dike_ID'));
@@ -49,7 +55,7 @@ async function main() {
   if (!torr && (!URL_ || !NYCKEL)) throw new Error('Saknar NEXT_PUBLIC_SUPABASE_URL eller SUPABASE_SERVICE_ROLE_KEY');
   if (!filer.length) throw new Error('Ange minst en GeoJSONSeq-fil');
   const typer = new Map();
-  let totalt = 0, hoppade = 0;
+  let totalt = 0, hoppade = 0, vagdiken = 0;
   for (const fil of filer) {
     let batch = [];
     const rl = readline.createInterface({ input: fs.createReadStream(fil), crlfDelay: Infinity });
@@ -60,13 +66,14 @@ async function main() {
       const r = tillRad(f);
       if (!r) { hoppade++; continue; }
       typer.set(r.typ, (typer.get(r.typ) ?? 0) + 1);
+      if (arVagdike(r.typ)) { vagdiken++; continue; }
       batch.push(r);
       if (batch.length >= BATCH) { await skicka(batch); totalt += batch.length; batch = []; if (totalt % 20000 === 0) console.log(`  ${totalt} diken …`); }
     }
     if (batch.length) { await skicka(batch); totalt += batch.length; }
     console.log(`${fil}: klar (${totalt} hittills)`);
   }
-  console.log(`${torr ? 'TORRKÖRNING — inget skrivet. ' : ''}${totalt} diken, ${hoppade} rader utan giltig linje eller id`);
+  console.log(`${torr ? 'TORRKÖRNING — inget skrivet. ' : ''}${totalt} diken, ${vagdiken} vägdiken inte sparade, ${hoppade} rader utan giltig linje eller id`);
   console.log('Typer:', JSON.stringify(Object.fromEntries(typer)));
 }
 
