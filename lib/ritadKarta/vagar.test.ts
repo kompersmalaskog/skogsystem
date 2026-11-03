@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { OSM_GOMS_MARGINAL_M, osmUtanforFilter, arVagFC, nvdbTillVagar, tolkaWkt, vagBox, vagKlass, vagSlag, VAG_MARGINAL_M } from './vagar';
+import { OSM_TILL_ZOOM, arVagFC, nvdbTillVagar, tolkaWkt, vagBox, vagKlass, vagSlag, VAG_MARGINAL_M } from './vagar';
 import { RITAD_LAGER, RITAD_NVDB_ID, grundKallor, grundLager } from './lager';
 import { VAG_FARG, VAG_KANT, VEKTOR_LAGER } from './stil';
 import { lagerRang } from '../lagerOrdning';
@@ -96,14 +96,13 @@ describe('vägarnas utseende (Martin 2026-11-03: grusfärg, aldrig vitt)', () =>
   });
 });
 
-describe('OpenStreetMaps vägar göms där Trafikverkets finns (Martin 2026-11-03: "det känns dubbelt")', () => {
-  it('filtret visar bara det som inte ligger helt innanför rutan', () => {
-    const f = osmUtanforFilter(vagBox(TRAKT, OSM_GOMS_MARGINAL_M)!) as any;
-    expect(f[0]).toBe('!');
-    expect(f[1][0]).toBe('within');
-    expect(f[1][1].coordinates[0]).toHaveLength(5);
+describe('OpenStreetMap och Trafikverket delar på zoomen (Martin 2026-11-03: "det känns dubbelt")', () => {
+  it('Trafikverkets vägar börjar där OpenStreetMaps slutar', () => {
+    for (const l of grundLager().filter((l: any) => l.id.startsWith('ritad-nvdb'))) expect(l.minzoom).toBe(OSM_TILL_ZOOM);
   });
-  it('rutan där OSM göms är mindre än rutan Trafikverkets vägar hämtas för', () => {
-    expect(OSM_GOMS_MARGINAL_M).toBeLessThan(VAG_MARGINAL_M);
+  it('hooken byter OSM:s zoomgräns, aldrig ett filter på plats (OSM:s kartrutor är för stora för within)', () => {
+    const hook = fs.readFileSync(path.resolve(__dirname, '../hooks/useRitadKarta.ts'), 'utf8');
+    expect(hook).toContain('setLayerZoomRange');
+    expect(hook).not.toContain("'within'");
   });
 });

@@ -13,15 +13,16 @@ export type VagFeature = { type: 'Feature'; properties: { k: VagSlag }; geometry
 export type VagFC = { type: 'FeatureCollection'; features: VagFeature[] };
 
 /** Rutan som frågas är trakten + så här många meter (NVDB tar bara länkar som ligger helt inne i rutan). */
-export const VAG_MARGINAL_M = 1500;
+export const VAG_MARGINAL_M = 3000;
 /**
- * OpenStreetMaps vägar göms innanför trakten + så här många meter när Trafikverkets vägar finns (Martin 2026-11-03: "det känns dubbelt").
- * Samma väg från två källor ligger några meter isär och blev två parallella vägar. Mindre än VAG_MARGINAL_M: en NVDB-länk som går ut över
- * frågans kant saknas i NVDB, så OpenStreetMap får ta över en bit innan den kanten.
+ * Var källorna tar över (Martin 2026-11-03: "det känns dubbelt"): samma väg från OpenStreetMap och Trafikverket ligger några meter isär och blev
+ * två parallella vägar. Ett filter på plats går inte: OpenStreetMaps vägar kommer i kartrutor på ~2,4 km, så en väg ligger aldrig "helt inne"
+ * i trakten. Därför delar ZOOMEN: närmare än OSM_TILL_ZOOM ritas bara Trafikverkets vägar (trakten + VAG_MARGINAL_M), längre ut bara
+ * OpenStreetMaps. Utan Trafikverkets vägar ritas OpenStreetMaps på alla zoomnivåer.
  */
-export const OSM_GOMS_MARGINAL_M = 750;
+export const OSM_TILL_ZOOM = 12;
 /** Högst så här många länkar läses (sidor om 1 000). Fler än så i ett traktområde betyder fel område, inte fler vägar. */
-export const VAG_MAX_LANKAR = 5000;
+export const VAG_MAX_LANKAR = 8000;
 /** Klass 0–5 i NVDB:s funktionella vägklass är allmän väg; 6–9 är de minsta vägarna (skogsbilvägar, enskilda vägar). */
 export const VAG_STOR_TOM_KLASS = 5;
 
@@ -85,10 +86,4 @@ export function nvdbTillVagar(rader: unknown[]): VagFC {
 /** Är svaret från servern en användbar vägsamling? (Det sparade i enheten kan vara gammalt eller trasigt.) */
 export function arVagFC(v: unknown): v is VagFC {
   return !!v && (v as any).type === 'FeatureCollection' && Array.isArray((v as any).features);
-}
-
-/** Filtret för OpenStreetMaps väglager: bara det som INTE ligger helt innanför rutan där Trafikverkets vägar ritas. */
-export function osmUtanforFilter(b: Bbox): unknown {
-  const ring = [[b.minLon, b.minLat], [b.maxLon, b.minLat], [b.maxLon, b.maxLat], [b.minLon, b.maxLat], [b.minLon, b.minLat]];
-  return ['!', ['within', { type: 'Polygon', coordinates: [ring] }]];
 }

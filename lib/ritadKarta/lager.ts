@@ -11,6 +11,7 @@
 // Utseendet (färger, symboler, vektorlager) bor i lib/ritadKarta/stil.ts — samma som /karta-ritad.
 
 import { BAKGRUND, RELIEF_KALLA, RELIEF_PAINT, VAG_FARG, VAG_KANT, VAG_KANT_EXTRA, VEKTOR_KALLA, VEKTOR_LAGER, vagBredd } from './stil';
+import { OSM_TILL_ZOOM } from './vagar';
 import { SNEDSTRECK_PERIOD, snedstreckBild, snedstreckId } from '../ytaStil';
 
 export const RITAD_KALLA = { vektor: 'ritad-vektor', relief: 'ritad-relief', skog: 'ritad-skog', brant: 'ritad-brant', blott: 'ritad-blott', nvdb: 'ritad-nvdb' } as const;
@@ -34,13 +35,13 @@ export const RITAD_VEKTOR_LAGER = VEKTOR_LAGER.map((l) => ({ ...l, id: l.id.repl
  */
 export const RITAD_NVDB_ID = { kant: 'ritad-nvdb-kant', vag: 'ritad-nvdb' } as const;
 export const RITAD_NVDB_LAGER = [
-  { id: RITAD_NVDB_ID.kant, type: 'line', source: RITAD_KALLA.nvdb, layout: { 'line-cap': 'round', 'line-join': 'round' },
+  { id: RITAD_NVDB_ID.kant, type: 'line', source: RITAD_KALLA.nvdb, minzoom: OSM_TILL_ZOOM, layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': VAG_KANT, 'line-width': vagBredd(['get', 'k'], VAG_KANT_EXTRA) } },
-  { id: RITAD_NVDB_ID.vag, type: 'line', source: RITAD_KALLA.nvdb, layout: { 'line-cap': 'round', 'line-join': 'round' },
+  { id: RITAD_NVDB_ID.vag, type: 'line', source: RITAD_KALLA.nvdb, minzoom: OSM_TILL_ZOOM, layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': ['match', ['get', 'k'], 'stor', VAG_FARG.stor, VAG_FARG.skog], 'line-width': vagBredd(['get', 'k'], 0) } },
 ];
 
-/** OpenStreetMaps väglager (göms där Trafikverkets vägar finns, lib/ritadKarta/vagar `osmUtanforFilter`). */
+/** OpenStreetMaps väglager (göms nära när Trafikverkets vägar finns, lib/ritadKarta/vagar `OSM_TILL_ZOOM`). */
 export const RITAD_OSM_VAG_ID = ['ritad-vag-kant', 'ritad-vag'] as const;
 
 /** Alla lager-id:n den ritade kartan använder, nerifrån och upp. */
