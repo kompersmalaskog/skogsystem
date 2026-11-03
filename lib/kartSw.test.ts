@@ -57,4 +57,15 @@ describe('service workern: kartrutor', () => {
     expect(await hamta(w, `${ORIGIN}/api/forarkarta?bbox=1,2,3,4`)).toBeUndefined();
     expect(await hamta(w, `${ORIGIN}/api/version`)).toBeUndefined();
   });
+  it('Ritads vägar (OpenFreeMap): rutan sparas och kommer utan nät; källbeskrivningen tas med nät först, sparad utan', async () => {
+    let nat = true;
+    const pbf = (namn: string) => ({ ok: true, namn, headers: { get: () => 'application/x-protobuf' }, clone() { return this; } });
+    const w = ladda(async (r: any) => { if (!nat) throw new Error('offline'); return r.url.endsWith('/planet') ? { ok: true, namn: 'kalla', headers: { get: () => 'application/json' }, clone() { return this; } } : pbf('ruta'); });
+    const RUTA_OFM = 'https://tiles.openfreemap.org/planet/20251022_001001_pt/14/1/2.pbf';
+    expect((await hamta(w, 'https://tiles.openfreemap.org/planet')).namn).toBe('kalla');
+    expect((await hamta(w, RUTA_OFM)).namn).toBe('ruta');
+    nat = false;
+    expect((await hamta(w, 'https://tiles.openfreemap.org/planet')).namn).toBe('kalla');
+    expect((await hamta(w, RUTA_OFM)).namn).toBe('ruta');
+  });
 });

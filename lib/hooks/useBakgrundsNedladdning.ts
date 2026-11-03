@@ -4,6 +4,7 @@
 //   • Maskinen: trakten den står på + de två nästa i sin kö (maskin_ko). Planeraren: alla pågående och planerade.
 //   • Bara på wifi/kabel (en telefon på okänt nät räknas som mobildata) och bara med gott om plats — annars ingenting.
 //   • En trakt i taget, två rutor åt gången (den som är öppen går före: useLaddaNerTrakt hämtar med fyra).
+//   • Är Ritad vald bakgrund hämtas också Ritads skog (laserdatan, blött/brant, stammarna — lib/ritadKarta/reserv) och vägar/vatten (OpenFreeMap).
 //   • Körs när sidan öppnas, när nätet kommer tillbaka och var 30:e minut. Ingen rad och ingen knapp — det märks bara på att kartan finns.
 // Ytan = Vidas traktgräns (objekt_geometri), annars en ruta runt objektets punkt — samma regler som för den öppna trakten.
 import { useEffect, useRef } from 'react';
@@ -11,7 +12,8 @@ import { supabase } from '@/lib/supabase';
 import {
   attRensa, bakgrundNat, lasMeta, nogPlats, onskadeTrakter, punktBbox, traktBbox, type Bbox, type KoRad,
 } from '@/lib/kartNedladdning';
-import { arSparad, laddaNerRutor, lagring, taBortTrakter } from '@/lib/kartNedladdningKor';
+import { GILTIG_DAGAR, arSparad, laddaNerRutor, laddaNerVektor, lagring, taBortTrakter } from '@/lib/kartNedladdningKor';
+import { forladdaRitad } from '@/lib/hooks/useRitadKarta';
 
 const INTERVALL_MS = 30 * 60_000;
 const START_EFTER_MS = 20_000;        // sidan och den öppna trakten först
@@ -36,17 +38,28 @@ async function lasOnskade(roll: 'maskin' | 'planerare', maskinId: string | null,
   return onskadeTrakter({ roll, oppen, ko: [], aktiva: (data ?? []).map((r: any) => String(r.id)) });
 }
 
-async function ytaFor(id: string): Promise<Bbox | null> {
+async function ytaFor(id: string): Promise<{ bbox: Bbox; punkt: { lat: number; lng: number } | null } | null> {
   const { data: g, error } = await supabase.from('objekt_geometri').select('geometri').eq('objekt_id', id).maybeSingle();
   if (error) return null;
-  const b = traktBbox((g as any)?.geometri);
-  if (b) return b;
   const { data: o } = await supabase.from('objekt').select('lat, lng').eq('id', id).maybeSingle();
   const lat = Number((o as any)?.lat), lng = Number((o as any)?.lng);
-  return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 ? punktBbox(lat, lng) : null;
+  const punkt = Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 ? { lat, lng } : null;
+  const b = traktBbox((g as any)?.geometri) ?? (punkt ? punktBbox(punkt.lat, punkt.lng) : null);
+  return b ? { bbox: b, punkt } : null;
 }
 
-export function useBakgrundsNedladdning({ roll, maskinId, oppenId }: { roll: 'maskin' | 'planerare' | null; maskinId: string | null; oppenId: string | null }): void {
+// Ritad (laserdatan + vägar och vatten) hämtas bara när Ritad är vald bakgrund, en gång per trakt och 60 dagar.
+const RITAD_KLAR = 'ritad_nedladdad_v1';
+function ritadKlar(id: string): boolean {
+  try { const m = JSON.parse(lagring()?.getItem(RITAD_KLAR) ?? '{}'); return typeof m[id] === 'number' && Date.now() - m[id] < GILTIG_DAGAR * 86_400_000; } catch { return false; }
+}
+function markeraRitad(id: string): void {
+  try { const m = JSON.parse(lagring()?.getItem(RITAD_KLAR) ?? '{}'); m[id] = Date.now(); lagring()?.setItem(RITAD_KLAR, JSON.stringify(m)); } catch { /* */ }
+}
+
+export function useBakgrundsNedladdning({ roll, maskinId, oppenId, ritad = false }: { roll: 'maskin' | 'planerare' | null; maskinId: string | null; oppenId: string | null; ritad?: boolean }): void {
+  const ritadRef = useRef(ritad);
+  ritadRef.current = ritad;
   const igang = useRef(false);
   const oppenRef = useRef(oppenId);
   oppenRef.current = oppenId;
@@ -68,10 +81,14 @@ export function useBakgrundsNedladdning({ roll, maskinId, oppenId }: { roll: 'ma
           let plats: StorageEstimate | null = null;
           try { plats = await navigator.storage?.estimate?.() ?? null; } catch { /* okänt = ok */ }
           if (!nogPlats(plats)) return;                            // ont om plats: sluta, aldrig tränga undan något
-          const bbox = await ytaFor(id);
-          if (!bbox || avbruten) continue;
-          if (await arSparad(id, bbox)) continue;
-          await laddaNerRutor(id, bbox, { avbruten: () => avbruten, samtidiga: 2 });
+          const yta = await ytaFor(id);
+          if (!yta || avbruten) continue;
+          if (!(await arSparad(id, yta.bbox))) await laddaNerRutor(id, yta.bbox, { avbruten: () => avbruten, samtidiga: 2 });
+          if (avbruten) return;
+          if (ritadRef.current && !ritadKlar(id)) {
+            const [skog, vagar] = await Promise.all([forladdaRitad(id, yta.punkt).catch(() => false), laddaNerVektor(yta.bbox, () => avbruten).catch(() => false)]);
+            if (skog && vagar && !avbruten) markeraRitad(id);
+          }
         }
         // Trakter som inte behövs längre (avslutade, flyttade ur kön) och inte öppnats på länge tas bort.
         const bort = attRensa(lasMeta(lagring()), [...onskade, ...(oppenRef.current ? [oppenRef.current] : [])], Date.now());

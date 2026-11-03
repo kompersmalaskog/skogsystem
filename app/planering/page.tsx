@@ -3250,7 +3250,7 @@ export default function PlannerPage() {
   }, [valtObjekt?.id, traktGeoHamtadFor, traktGeo]); // eslint-disable-line react-hooks/exhaustive-deps
   const kartNedladdning = useLaddaNerTrakt({ objektId: valtObjekt?.id ?? null, bbox: kartNedBbox, aktiv: !!valtObjekt?.id });
   // Trakterna man SKA till laddas ner i bakgrunden (lib/hooks/useBakgrundsNedladdning): maskinen sin kö, planeraren alla pågående och planerade. Aldrig i testläget.
-  useBakgrundsNedladdning({ roll: testlage ? null : maskinlage ? 'maskin' : isAdminRiktig ? 'planerare' : null, maskinId: enhetMaskinId, oppenId: valtObjekt?.id ? String(valtObjekt.id) : null });
+  useBakgrundsNedladdning({ roll: testlage ? null : maskinlage ? 'maskin' : isAdminRiktig ? 'planerare' : null, maskinId: enhetMaskinId, oppenId: valtObjekt?.id ? String(valtObjekt.id) : null, ritad: mapType === 'ritad' });
   const startFixFarskSattRef = useRef(false);
   const startOversiktSattRef = useRef(false);                                        // översikten är satt (en gång)
   const startFlygGjordRef = useRef(false);                                           // flygningen är gjord (EN flyTo)
