@@ -5,7 +5,7 @@ import { dikeFilter, dikeSlag, raderTillDiken, visasDike, arDikeFC } from './dik
 import { RITAD_DIKE_ID, RITAD_LAGER, grundKallor, grundLager } from './lager';
 import { DIKE_FARG, VAG_FARG } from './stil';
 import { lagerRang } from '../lagerOrdning';
-import { arVagdike, tillRad } from '../../scripts/diken-import.mjs';
+import { arVagdike, lanUrFil, radId, tillRad } from '../../scripts/diken-import.mjs';
 
 describe('dikena (Naturvårdsverkets dikeskarta)', () => {
   it('sorterna läses på ordet', () => {
@@ -48,12 +48,24 @@ describe('dikena (Naturvårdsverkets dikeskarta)', () => {
   });
 
   it('importen: en feature → en rad med ruta, multilinjer behålls, utan id ingen rad', () => {
-    const r = tillRad({ properties: { DIKE_ID: '42', TYP: 'Skogsdike', LANGD_M: 120.5 }, geometry: { type: 'MultiLineString', coordinates: [[[15.1234567, 56.1], [15.2, 56.2]], [[15.3, 56.0], [15.31, 56.05]]] } })!;
-    expect(r.id).toBe(42);
+    const r = tillRad({ properties: { DIKE_ID: '42', TYP: 'Skogsdike', LANGD_M: 120.5 }, geometry: { type: 'MultiLineString', coordinates: [[[15.1234567, 56.1], [15.2, 56.2]], [[15.3, 56.0], [15.31, 56.05]]] } }, 'G')!;
+    expect(r.id).toBe(70_000_042);
     expect(r.typ).toBe('Skogsdike');
     expect(r.coords[0][0]).toEqual([15.123457, 56.1]);
     expect([r.min_lat, r.max_lat, r.min_lng, r.max_lng]).toEqual([56.0, 56.2, 15.123457, 15.31]);
-    expect(tillRad({ properties: {}, geometry: { type: 'LineString', coordinates: [[15, 56], [15.1, 56.1]] } })).toBeNull();
+    expect(tillRad({ properties: {}, geometry: { type: 'LineString', coordinates: [[15, 56], [15.1, 56.1]] } }, 'G')).toBeNull();
+    expect(tillRad({ properties: { DIKE_ID: 1 }, geometry: { type: 'LineString', coordinates: [[15, 56], [15.1, 56.1]] } }, undefined)).toBeNull();
+  });
+
+  it('Dike_ID börjar om i varje län: samma nummer i två län blir två rader (Martin 2026-11-03, 1,7 miljoner diken blev 975 000)', () => {
+    expect(radId('G', 1)).not.toBe(radId('H', 1));
+    expect(radId('K', 1059661)).toBe(101_059_661);
+    expect(radId('G', 9_999_999)).toBeLessThan(radId('H', 0)!);
+    expect(radId('G', 10_000_000)).toBeNull();
+    expect(radId('Q', 1)).toBeNull();
+    expect(lanUrFil('diken/dike_H.geojsonl')).toBe('H');
+    expect(lanUrFil('diken/dike_AC.geojsonl')).toBe('AC');
+    expect(lanUrFil('diken/annat.geojsonl')).toBeNull();
   });
 
   it('ljust blått, inte vägarnas grus; lagren ovanpå blött men under vägarna', () => {
