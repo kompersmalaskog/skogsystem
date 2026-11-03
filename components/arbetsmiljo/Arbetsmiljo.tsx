@@ -21,6 +21,7 @@ import { byggRader, svar, type Indata, type OversiktRad } from '@/lib/arbetsmilj
 import { byggArshjul, hamtaGjorda, svenskArManad, type Rad as ArshjulRad } from '@/lib/arbetsmiljo/arshjul';
 import ArshjulArk from './ArshjulArk';
 import { hamtaKemikalier } from '@/lib/arbetsmiljo/kemikalier';
+import { hamtaLamningar } from '@/lib/arbetsmiljo/avfall';
 import { hamtaMinaRapporter, minaSammanfattning, ordnaMina, rapportTitel, rapportUnder, type MinRapport } from '@/lib/arbetsmiljo/lagatBesked';
 
 type Last = { rader: OversiktRad[]; arshjul: ArshjulRad[] | null; mina: MinRapport[] | null } | 'fel' | null;
@@ -37,7 +38,7 @@ async function lasIndata(): Promise<{ indata: Indata; mina: MinRapport[] | null 
   const tyst = <T,>(p: Promise<T>): Promise<T | null> => p.then(v => v, () => null);
 
   const ar = svenskArManad(new Date()).ar;
-  const [maskinkoll, atgarder, ronder, bedomningar, riskKvitton, maskin, introKvitton, gjorda, mina, kemikalier] = await Promise.all([
+  const [maskinkoll, atgarder, ronder, bedomningar, riskKvitton, maskin, introKvitton, gjorda, mina, kemikalier, avfall] = await Promise.all([
     tyst(hamtaMaskinkollVantar(supabase)),
     serArbetsledning ? tyst(hamtaAtgardMarke(supabase)) : Promise.resolve(null),
     serArbetsledning ? tyst(hamtaRonder(supabase)) : Promise.resolve(null),
@@ -50,6 +51,7 @@ async function lasIndata(): Promise<{ indata: Indata; mina: MinRapport[] | null 
     serArbetsledning ? tyst(hamtaGjorda(supabase, ar)) : Promise.resolve(null),
     tyst(hamtaMinaRapporter(supabase, jag.id)),
     tyst(hamtaKemikalier(supabase)),
+    tyst(hamtaLamningar(supabase)),
   ]);
 
   const maskinTyp = maskin && !maskin.error ? (maskin.data as { maskin_typ?: string } | null)?.maskin_typ : null;
@@ -64,6 +66,7 @@ async function lasIndata(): Promise<{ indata: Indata; mina: MinRapport[] | null 
     intro: arAdmin ? undefined : introKvitton ? introLage(jag, introKvitton.get(jag.id) ?? []) : null,
     // Årshjulet: bara arbetsledningen. Går något av det inte att läsa är hela årshjulet ett läsfel, aldrig "inte gjort".
     kemikalier: kemikalier ?? null,
+    avfall: avfall ?? null,
     arshjul: !serArbetsledning ? undefined : gjorda && ronder && bedomningar ? byggArshjul({ nu: new Date(), gjorda, ronder, risk: bedomningar }) : null,
   };
   return { indata, mina: mina ?? null };

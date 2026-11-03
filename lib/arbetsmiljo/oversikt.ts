@@ -10,11 +10,12 @@ import { MASKINTYPER, TYP_BESTAMD, attLasa, forarensTyper, lage as riskLage, las
 import { datumText, lageText, type IntroLage } from './introduktion';
 import { arshjulRad, svenskArManad, type Rad as ArshjulRad } from './arshjul';
 import { svar as kemSvar, type Kemikalie } from './kemikalier';
+import { svar as avfallSvar, type Lamning } from './avfall';
 
 export type Ton = 'orange' | 'rod';
 
 export type OversiktRad = {
-  id: 'atgarder' | 'skyddsrond' | 'arshjul' | 'riskbedomning' | 'maskinkoll' | 'kemikalier' | 'rapportera' | 'introduktion';
+  id: 'atgarder' | 'skyddsrond' | 'arshjul' | 'riskbedomning' | 'maskinkoll' | 'kemikalier' | 'avfall' | 'rapportera' | 'introduktion';
   titel: string;
   href: string;
   under: string;
@@ -46,6 +47,8 @@ export type Indata = {
   arshjul?: ArshjulRad[] | null;
   /** Kemikalieförteckningen. undefined = visas inte, null = läsfel. */
   kemikalier?: readonly Kemikalie[] | null;
+  /** Farligt avfall (lämningarna). undefined = visas inte, null = läsfel. */
+  avfall?: readonly Lamning[] | null;
 };
 
 const LASFEL = 'Kunde inte läsas just nu';
@@ -112,6 +115,15 @@ function kemikalieRad(k: readonly Kemikalie[] | null, arAdmin: boolean): Oversik
   return s.ton ? { ...bas, under: s.text, ton: 'orange', attGora: arAdmin } : { ...bas, under: `${s.text} · ${s.under}`, attGora: false };
 }
 
+/** Farligt avfall är aldrig något att göra här — det antecknas när det lämnas. Väntar något på täckning står det i orange. */
+function avfallRad(l: readonly Lamning[] | null): OversiktRad {
+  const bas = { id: 'avfall' as const, titel: 'Farligt avfall', href: '/farligt-avfall' };
+  if (!l) return felRad(bas.id, bas.titel, bas.href);
+  const s = avfallSvar(l);
+  if (s.ton) return { ...bas, under: s.text, ton: 'orange', attGora: false };
+  return { ...bas, under: l.length === 0 ? 'Gamla slangar, oljiga trasor och tomma dunkar' : `${s.text} · ${s.under}`, attGora: false };
+}
+
 function introRad(i: Indata['intro']): OversiktRad {
   const bas = { id: 'introduktion' as const, titel: 'Introduktion', href: '/introduktion' };
   if (i === undefined) return { ...bas, under: 'Det en ny förare ska veta', attGora: false };
@@ -137,6 +149,7 @@ export function byggRader(d: Indata, nu: Date = new Date()): OversiktRad[] {
     riskRad(d.risk, d.arAdmin, d.medarbetareId, nu),
     maskinkollRad(d.maskinkoll),
     ...(d.kemikalier !== undefined ? [kemikalieRad(d.kemikalier, d.arAdmin)] : []),
+    ...(d.avfall !== undefined ? [avfallRad(d.avfall)] : []),
     { id: 'rapportera', titel: 'Rapportera', href: '/om-nagot-hander?rapport=1', under: 'Något trasigt, nära att hända eller en skada', attGora: false },
     introRad(d.intro),
   );

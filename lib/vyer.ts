@@ -80,6 +80,7 @@ export const VYER: Vy[] = [
   { id: 'skyddsrond', namn: 'Skyddsrond', href: '/skyddsrond', ikon: 'verified_user', grupp: 'maskiner', bara: 'admin', aven: 'skyddsombud', del: 'arbetsmiljo', sokord: ['arbetsmiljö', 'säkerhet', 'brandskydd', 'skyddsombud', 'rond'] },
   // Kemikalieförteckningen: varje produkt, var den finns och säkerhetsdatabladet (AFS 2023:10). Förarna öppnar bladet.
   { id: 'kemikalier', namn: 'Kemikalier', href: '/kemikalier', ikon: 'science', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['säkerhetsdatablad', 'säkerhetsblad', 'sdb', 'olja', 'kemikalie', 'arbetsmiljö', 'spray', 'bränsle'] },
+  { id: 'farligt-avfall', namn: 'Farligt avfall', href: '/farligt-avfall', ikon: 'recycling', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['avfall', 'slang', 'hydraulslang', 'spillolja', 'trasor', 'dunk', 'kvitto', 'liggare', 'miljö', 'arbetsmiljö'] },
   { id: 'rapportera', namn: 'Rapportera', href: '/om-nagot-hander?rapport=1', ikon: 'report', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['fel', 'trasig', 'läcker', 'något är fel', 'tillbud', 'nära ögat', 'olycka', 'skada', 'arbetsmiljö'] },
   { id: 'kontroller', namn: 'Kontroller', href: '/kontroller', ikon: 'fact_check', grupp: 'maskiner', sokord: ['besiktning', 'försäkring'] },
 
