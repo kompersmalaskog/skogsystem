@@ -315,7 +315,14 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           const objektSkordningSlut = entries.map((e: any) => e.skordning_avslutad).filter(Boolean).sort()[0] || null;
           const skSlut = skordareEntry?.end_date || skordareEntry?.skordning_avslutad || objektSkordningSlut || null;
           const stStart = skotareEntry?.start_date || null;
-          const stSlut = skotareEntry?.end_date || skotareEntry?.skotning_avslutad || null;
+          // skotning_avslutad är objektets EGEN klar-signal (Färdigskotad /
+          // Avsluta objekt) och kan ligga på vilken rad som helst i gruppen —
+          // härled den ur HELA gruppen, symmetriskt med objektSkordningSlut.
+          // end_date blandar maskiner: på Skälviken ligger SKÖRDNINGENS end_date
+          // på skotarens enda rad, så end_date fick förut betyda "skotaren klar"
+          // fast skotningen inte var klar. Bara skotning_avslutad.
+          const objektSkotningSlut = entries.map((e: any) => e.skotning_avslutad).filter(Boolean).sort()[0] || null;
+          const stSlut = objektSkotningSlut;
 
           // Skördning klar ≠ avslutat. Ett objekt är AVSLUTAT först när
           // SKOTNINGEN är markerad klar (skotning_avslutad). Ett skördning-
