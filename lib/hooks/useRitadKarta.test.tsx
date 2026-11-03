@@ -59,12 +59,13 @@ async function waitFor(f: () => void, ms = 2000) {
   }
 }
 
-let laserSvar: any, markSvar: any;
+let laserSvar: any, markSvar: any, vagSvar: any;
 beforeEach(() => {
   fetchMock.mockReset(); grans.mockReset();
   laserSvar = { ok: true, json: async () => ({ minX: 0, maxY: 0, bredd: 1, hojd: 1, hojdDm: [100], ar: 2021 }) };
   markSvar = { ok: true, json: async () => ({ minX: 0, maxY: 0, bredd: 2, hojd: 2, rutaM: 5, fukt: 'AAECAA==', lutning: 'AB4eHg==', skugga: null, fel: [] }) };
-  fetchMock.mockImplementation(async (url: string) => (String(url).includes('/mark') ? markSvar : laserSvar));
+  vagSvar = { ok: true, json: async () => ({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: { k: 'skog' }, geometry: { type: 'LineString', coordinates: [[15, 56], [15.01, 56.01]] } }] }) };
+  fetchMock.mockImplementation(async (url: string) => (String(url).includes('/mark') ? markSvar : String(url).includes('/vagar') ? vagSvar : laserSvar));
   grans.mockResolvedValue({ typ: 'ok', ringar: [[[15, 56], [15.01, 56], [15.01, 56.01], [15, 56]]] });
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -166,6 +167,22 @@ describe('useRitadKarta', () => {
     await waitFor(() => expect(result.current.typ).toBe('klar'));
     expect(JSON.parse(laserAnrop()[1].body).ringar[0][0]).toEqual([15, 56]);
     expect(ritadStatusText(result.current)).toMatch(/^Skogen ur laserskanningen 2021( ·|$)/);
+  });
+
+  it('Trafikverkets vägar hämtas med skogen och läggs på kartan; faller de säger raden det och skogen ritas ändå', async () => {
+    const m = fakeKarta();
+    const { result } = renderHook(() => useRitadKarta({ map: m, klar: true, vald: true, objektId: 'o20', skogPaint: PAINT }));
+    await waitFor(() => expect(result.current.typ).toBe('klar'));
+    expect(fetchMock.mock.calls.some((c: any[]) => String(c[0]).includes('/api/ritad-karta/vagar'))).toBe(true);
+    await waitFor(() => expect(m.kallor.get('ritad-nvdb').setData.mock.calls.at(-1)?.[0]?.features?.length).toBe(1));
+    expect(ritadStatusText(result.current)).not.toContain('vägar');
+
+    vagSvar = { ok: false, json: async () => ({ error: 'nej' }) };
+    const m2 = fakeKarta();
+    const r2 = renderHook(() => useRitadKarta({ map: m2, klar: true, vald: true, objektId: 'o21', skogPaint: PAINT }));
+    await waitFor(() => expect(r2.result.current.typ).toBe('klar'));
+    expect(ritadStatusText(r2.result.current)).toMatch(/Trafikverkets vägar kunde inte hämtas$/);
+    expect(m2.lager.has(RITAD_ID.skog)).toBe(true);
   });
 
   it('blött och brant hämtas med skogen; faller de ritas skogen ändå och raden säger vad som saknas', async () => {
