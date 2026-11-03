@@ -75,7 +75,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         const [dimObjektRes, dimMaskinRes, objektTblRes, prodRes, lassRes, kopplingRes, exkluderade, skotareManuellRes, hlLassRows] = await Promise.all([
           supabase.from('dim_objekt').select('*'),
           supabase.from('dim_maskin').select('*'),
-          supabase.from('objekt').select('vo_nummer, markagare, areal, typ, skotare_maskin_id'),
+          supabase.from('objekt').select('vo_nummer, markagare, areal, typ, skotare_maskin_id, volym'),
           supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub, stammar, sista_datum, maskin_ids'),
           supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub, antal_lass, sista_datum, maskin_ids'),
           supabase.from('grot_koppling').select('risjobb_objekt_id, avverknings_objekt_id'),
@@ -127,13 +127,13 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           mm.set(mid, (mm.get(mid) || 0) + (Number(r.volym_m3sub) || 0));
         }
 
-        const objektInfo = new Map<string, { agare: string; areal: number; typ: string; plSkotare: string | null }>();
+        const objektInfo = new Map<string, { agare: string; areal: number; typ: string; plSkotare: string | null; volym: number }>();
         objektTbl.forEach(o => {
           if (o.vo_nummer) {
             // skotare_maskin_id = planerarens tilldelade skotare (objekt-tabellen,
             // Martins planering). dim_objekt.tilldelad_skotare är ofta tom (Skälviken),
             // så den här är den som visar "Elefant 26" innan första lasset.
-            objektInfo.set(o.vo_nummer, { agare: o.markagare || '', areal: o.areal || 0, typ: o.typ || '', plSkotare: o.skotare_maskin_id || null });
+            objektInfo.set(o.vo_nummer, { agare: o.markagare || '', areal: o.areal || 0, typ: o.typ || '', plSkotare: o.skotare_maskin_id || null, volym: Number(o.volym) || 0 });
           }
         });
 
@@ -242,6 +242,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
 
           const agare = firstEntry.skogsagare || firstEntry.bolag || info?.agare || '';
           const areal = info?.areal || 0;
+          const volym = info?.volym || 0;
           // Typen härleds ur risskotning-flaggan + huvudtyp — aldrig gissad.
           const risFlagga = entries.some((e: any) => e.risskotning === true);
           const typ = harledTyp(risFlagga, firstEntry.huvudtyp || info?.typ);
@@ -387,6 +388,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             typ,
             agare,
             areal,
+            volym,
             skordareModell: skordareEntry ? maskinVisningsnamn(maskinMap.get(skMaskinId)) : null,
             skordareStart: skStart,
             skordareSlut: skSlut,

@@ -49,6 +49,13 @@ export interface UppfoljningStatus {
   // roll-färgade rader (skördaren klar / skotaren kör) i stället för den
   // hopkedjade statustexten.
   klarOchKor: boolean;
+  // Per-maskin-läge för detaljvyns hero (en roll-rad per maskin). Listan
+  // använder dem inte, men de delar samma 7-dagars-aktivitet och klar-signaler.
+  skKlar: boolean;   // skördaren klar (skordareSlut satt, eller avslutat)
+  skAktiv: boolean;  // skördaren kört de senaste 7 dagarna
+  stKlar: boolean;   // skotaren klar (skotareSlut satt, eller avslutat)
+  stAktiv: boolean;  // skotaren kört de senaste 7 dagarna
+  externt: boolean;  // skotas externt (ingen skotare från oss)
 }
 
 function dagarSedan(iso: string): number {
@@ -105,5 +112,12 @@ export function uppfoljningStatus(o: StatusFalt): UppfoljningStatus {
   const visaKvar = !avslutat && !o.externSkotning && !kvarOkant && o.skordat > 0;
   const kvar = visaKvar ? Math.max(0, o.skordat - o.skotat) : null;
 
-  return { t, k, dagar, kvar, kvarOkant, visaKvar, klarOchKor };
+  return {
+    t, k, dagar, kvar, kvarOkant, visaKvar, klarOchKor,
+    skKlar: skDone || avslutat,
+    skAktiv: skAct,
+    stKlar: !!o.skotareSlut || avslutat,
+    stAktiv: stAct,
+    externt: !!o.externSkotning,
+  };
 }

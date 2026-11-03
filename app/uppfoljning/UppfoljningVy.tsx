@@ -45,6 +45,10 @@ export interface UppfoljningData {
   // Våning 2 — beräknas i useObjektUppfoljning (kräver 90-dagarsreferensen)
   avvikelser?: AvvikelseRad[];
   senastUppdaterad?: string;
+  // Direktivets volym (objekt.volym, m³fub som "ska avverkas"). 0/saknas = okänd.
+  // Grund för skördarens "klart om" (direktiv − skördat) / snitt per dag. En
+  // uppskattning, inte en mätning — därför alltid "~".
+  volym?: number;
   skordat: number;
   skotat: number;
   // Steg 2a — skotare per maskin på detta objekt (fakt_lass grupperat + manuellt
@@ -331,6 +335,19 @@ function KedjeSteg({ label, farg, varde, stor = false }: { label: string; farg: 
   );
 }
 
+// En statusrad per maskin i hero: prick i rollfärg (lila skördare / turkos
+// skotare), läget i ord, och en valfri "· klart om ~N dagar". Färgen pekar ut
+// maskinen, orden bär läget (dämpad = passiv, t.ex. "har inte börjat").
+function Rollrad({ farg, text, suffix, dampad = false }: { farg: string; text: string; suffix?: React.ReactNode; dampad?: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.listtitel }}>
+      <span style={{ width: 11, height: 11, borderRadius: RADIE.cirkel, background: farg, flexShrink: 0 }} />
+      <span style={dampad ? { color: FARG.text2, fontWeight: VIKT.normal } : undefined}>{text}</span>
+      {suffix && <span style={{ ...TYP.text, color: FARG.text2 }}>{suffix}</span>}
+    </div>
+  );
+}
+
 function Svaret({ data }: { data: UppfoljningData }) {
   const s = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
   const klart = s.k === 'done';
@@ -350,12 +367,27 @@ function Svaret({ data }: { data: UppfoljningData }) {
   const stSnitt = stDagar.length > 0 ? stDagar.reduce((a, b) => a + (b.m3 || 0), 0) / stDagar.length : 0;
   const klartOm = (!klart && paBacken > 0 && stSnitt > 0) ? Math.max(1, Math.round(paBacken / stSnitt)) : null;
 
+  // Skördarens "klart om": (direktivets volym − skördat) / skördarens snitt per
+  // dag. Direktivet (data.volym, "ska avverkas") är en UPPSKATTNING → alltid
+  // "~". Skördat ≥ direktivet (direktivet var lågt) → "snart klar", aldrig ett
+  // minustal. Snitt/dag = produktionsdagarnas medel (ur prodSkordarePerDag).
+  const skProdDagar = (data.prodSkordarePerDag || []).filter(d => (d.m3 || 0) > 0);
+  const skSnitt = skProdDagar.length > 0 ? skProdDagar.reduce((a, b) => a + (b.m3 || 0), 0) / skProdDagar.length : 0;
+  const direktiv = data.volym && data.volym > 0 ? data.volym : null;
+  const skKvar = direktiv != null ? Math.round(direktiv - visSkordat) : null;
+  const skKlartOm = (!s.skKlar && direktiv != null && skSnitt > 0 && (skKvar ?? 0) > 0) ? Math.max(1, Math.round((skKvar as number) / skSnitt)) : null;
+  const skSnartKlar = !s.skKlar && direktiv != null && skSnitt > 0 && (skKvar ?? 1) <= 0;
+
+  // "· klart om ~N dagar" som nod (fetstilt tal). En enda plats.
+  const klartOmNod = (n: number) => (
+    <>· klart om <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>~{n}</span> dagar</>
+  );
+  const skKor = !s.skKlar;
+  const stKor = !s.stKlar && !s.externt && (s.stAktiv || visSkotat > 0);
+
   return (
     <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
       <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: AVSTAND.l }}>
-        <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.xs }}>
-          {klart ? 'Är allt hemkört?' : 'Hur mycket är kvar att köra hem?'}
-        </div>
         {klart ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
             <span style={{ ...TYP.tal }}>Klart</span>
@@ -380,40 +412,24 @@ function Svaret({ data }: { data: UppfoljningData }) {
           <span>{sv(visSkotat)} av {sv(visSkordat)} m³ hemma</span>
           <span>{andel} %</span>
         </div>
-        {s.klarOchKor ? (
-          // Skördaren KLAR, skotaren KÖR — en rad per maskin med roll-färg (lila
-          // skördare / turkos skotare, samma som kedjan ovan). Tiden ligger på
-          // skotar-raden (den som jobbar mot "klart"). Ingen "dag N" — den sa
-          // mindre och krockade med "klart om".
+        {!klart && (
+          // EN roll-rad per maskin: skördaren (lila) och skotaren (turkos), var
+          // för sig, var och en säger sitt läge. Bara skotaren får "klart om"
+          // ur backen; skördaren ur direktivet (objekt.volym). "dag N" är borta —
+          // den krockade med "klart om". Avslutat objekt visar bara "Klart ✓".
           <div style={{ marginTop: AVSTAND.l, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.listtitel }}>
-              <span style={{ width: 11, height: 11, borderRadius: RADIE.cirkel, background: V6_SK, flexShrink: 0 }} />
-              <span>Skördaren klar</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.listtitel }}>
-              <span style={{ width: 11, height: 11, borderRadius: RADIE.cirkel, background: V6_ST, flexShrink: 0 }} />
-              <span>Skotaren kör</span>
-              {klartOm != null && (
-                <span style={{ ...TYP.text, color: FARG.text2 }}>· klart om <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>~{klartOm}</span> dagar</span>
-              )}
-            </div>
+            <Rollrad
+              farg={V6_SK}
+              text={s.skKlar ? 'Skördaren klar' : 'Skördaren kör'}
+              suffix={skKor ? (skKlartOm != null ? klartOmNod(skKlartOm) : (skSnartKlar ? '· snart klar' : null)) : null}
+            />
+            <Rollrad
+              farg={V6_ST}
+              text={s.externt ? 'Skotas externt' : s.stKlar ? 'Skotaren klar' : stKor ? 'Skotaren kör' : 'Skotaren har inte börjat'}
+              dampad={s.externt || (!s.stKlar && !stKor)}
+              suffix={stKor && klartOm != null ? klartOmNod(klartOm) : null}
+            />
           </div>
-        ) : (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.l, ...TYP.listtitel }}>
-              <span style={{ width: 11, height: 11, borderRadius: RADIE.cirkel, background: STATUS_FARG[s.k], flexShrink: 0 }} />
-              <span>{s.t}</span>
-              {s.dagar != null && (
-                <span style={{ ...TYP.text, color: FARG.text2, ...TNUM }}>· {klart ? `${s.dagar} dagar` : `dag ${s.dagar}`}</span>
-              )}
-            </div>
-            {klartOm != null && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.s, ...TYP.text, color: FARG.text2 }}>
-                <span style={{ width: 9, height: 9, borderRadius: RADIE.cirkel, background: FARG.text3, flexShrink: 0 }} />
-                <span>Klart om <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>~{klartOm}</span> dagar</span>
-              </div>
-            )}
-          </>
         )}
       </div>
     </section>
