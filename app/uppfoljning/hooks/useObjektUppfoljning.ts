@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { buildUppfoljningData, buildEmptyData, type UppfoljningObjekt } from '../lib/transform';
 import { byggAvvikelser } from '../lib/avvikelser';
+import { mergaLassPerDag } from '@/lib/uppfoljning/mergaSkotarLass';
 import type { UppfoljningData } from '../UppfoljningVy';
 
 export interface UseObjektUppfoljningResult {
@@ -228,12 +229,48 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
           }
         }
 
+        // ── App-registrerade skotarlass (skotar_lass) ─────────────────────────
+        // Opti slutade ge fakt_lass-rader när föraren började registrera lass i
+        // appen, så fakt_lass ensam visar bara enstaka dagar (Skälviken: 40 m³ /
+        // 1 dag mot 648 m³ / 6 dagar). Hämta appens BEKRÄFTADE lass (ej auto) och
+        // slå ihop per maskin+dag med helikopterns regel (mest volym vinner,
+        // aldrig summan). Ett fel här får aldrig fälla vyn — faller tillbaka på
+        // enbart Opti.
+        let mergedLass: any[] = lassRes.data || [];
+        if (stIds.length) {
+          try {
+            const { data: objRader } = await supabase.from('objekt').select('id, vo_nummer').in('vo_nummer', stIds);
+            const uuidTillVo = new Map<string, string>((objRader || []).map((o: any) => [String(o.id), String(o.vo_nummer)]));
+            const uuids = Array.from(uuidTillVo.keys());
+            if (uuids.length) {
+              const { data: appRader } = await supabase
+                .from('skotar_lass')
+                .select('id, objekt_id, maskin_id, datum, status, bekraftad_av, skotar_lass_del(skotar_lass_sortiment(m3_forare))')
+                .in('objekt_id', uuids);
+              const appLass = (appRader || [])
+                .filter((l: any) => l.status === 'bekraftat' && l.bekraftad_av !== 'auto')
+                .map((l: any) => ({
+                  objekt_id: uuidTillVo.get(String(l.objekt_id)) ?? null,
+                  maskin_id: l.maskin_id,
+                  datum: l.datum,
+                  volym_m3sub: (l.skotar_lass_del || []).reduce((a: number, d: any) =>
+                    a + (d.skotar_lass_sortiment || []).reduce((b: number, s: any) => b + (Number(s.m3_forare) || 0), 0), 0),
+                  korstracka_m: null,
+                }))
+                .filter((r: any) => r.objekt_id);
+              mergedLass = mergaLassPerDag(lassRes.data || [], appLass);
+            }
+          } catch (e) {
+            console.error('[useObjektUppfoljning] skotar_lass-sammanslagning misslyckades:', e);
+          }
+        }
+
         const bas = buildUppfoljningData({
           obj,
           tidRows: tidRes.data || [],
           prodRows: prodRes.data || [],
           sortRows: sortRes.data || [],
-          lassRows: lassRes.data || [],
+          lassRows: mergedLass,
           lassSortRows: lassSortRes.data || [],
           avbrottRows,
           dimSort: dimSortRes.data || [],
