@@ -98,6 +98,25 @@ export const RELIEF_PAINT = {
 
 export const TRAD_FARG = { ung: '#8cc084', gallring: '#6fae74', mogen: '#5a9a68' } as const;
 
+/**
+ * Vägarna (Martin 2026-11-03: "vägen syns knappt alls, bara om man vet om dom"): GRUSFÄRG med mörk kant — inte vitt (Vidas traktgräns är vit
+ * streckad och fastighetsgränsen vit heldragen), inte gult/rött (snitseln) och inte orange (tall). Allmän väg bredare och ljusare, skogsväg smalare
+ * och lite mörkare — samma färgfamilj, så allt som är väg läses som väg. Samma stil för OpenStreetMaps vägar och Trafikverkets (NVDB, lib/ritadKarta/vagar).
+ */
+export const VAG_FARG = { stor: '#e6d3a3', skog: '#cdb47e' } as const;
+export const VAG_KANT = '#16130e';
+/** Kanten är så här många px bredare än vägen (en px på var sida + lite). */
+export const VAG_KANT_EXTRA = 2.5;
+/** OpenStreetMaps klasser som är skogsväg/traktorväg/stig — resten räknas som allmän väg. */
+export const VAG_OSM_SKOG = ['track', 'path', 'service'];
+/** Vägens bredd i px efter zoom; `slag` är ett uttryck som ger 'stor' eller 'skog'. */
+export function vagBredd(slag: unknown, extra: number): unknown {
+  return ['interpolate', ['linear'], ['zoom'],
+    11, ['match', slag, 'skog', 1 + extra * 0.5, 1.6 + extra * 0.5],
+    14, ['match', slag, 'skog', 2.8 + extra, 3.8 + extra],
+    17, ['match', slag, 'skog', 5 + extra, 7.5 + extra]];
+}
+
 /** OpenFreeMap (OpenMapTiles-schemat, fri, ingen nyckel) — vatten, vägar och hus som platta vektorer. */
 export const VEKTOR_KALLA = { type: 'vector' as const, url: 'https://tiles.openfreemap.org/planet' };
 
@@ -106,7 +125,7 @@ export const VEKTOR_LAGER = [
   { id: 'rk-vattendrag', type: 'line', source: 'vektor', 'source-layer': 'waterway', paint: { 'line-color': '#3f86b8', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.5, 17, 2.5] } },
   { id: 'rk-hus', type: 'fill', source: 'vektor', 'source-layer': 'building', minzoom: 14, paint: { 'fill-color': '#3a3a3c' } },
   { id: 'rk-vag-kant', type: 'line', source: 'vektor', 'source-layer': 'transportation', layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#141414', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 1.5, 17, ['match', ['get', 'class'], ['track', 'path'], 4, 9]] } },
+    paint: { 'line-color': VAG_KANT, 'line-width': vagBredd(['match', ['get', 'class'], VAG_OSM_SKOG, 'skog', 'stor'], VAG_KANT_EXTRA) } },
   { id: 'rk-vag', type: 'line', source: 'vektor', 'source-layer': 'transportation', layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': ['match', ['get', 'class'], ['track', 'path'], '#8a8478', '#d8d4c8'], 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.6, 17, ['match', ['get', 'class'], ['track', 'path'], 2, 6]] } },
+    paint: { 'line-color': ['match', ['get', 'class'], VAG_OSM_SKOG, VAG_FARG.skog, VAG_FARG.stor], 'line-width': vagBredd(['match', ['get', 'class'], VAG_OSM_SKOG, 'skog', 'stor'], 0) } },
 ] as const;
