@@ -25,6 +25,8 @@ export interface UppfoljningObjekt {
   skordareObjektIds?: string[];
   skordareModellMaskinId: string | null;
   volymSkordare: number;
+  // Direktivets volym (objekt.volym, m³fub "ska avverkas"). 0 = okänd.
+  volym: number;
   stammar: number;
   skotareModell: string | null;
   skotareStart: string | null;
@@ -764,6 +766,7 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     areal: obj.areal,
     agare: obj.agare,
     status: obj.status,
+    volym: obj.volym,
     skordareModell: obj.skordareModell,
     skordareStart: obj.skordareStart,
     skordareSlut: obj.skordareSlut,
@@ -841,7 +844,7 @@ export function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
   return {
     objektNamn: obj.namn,
     objektId: obj.skotareObjektId || obj.skordareObjektId || obj.vo_nummer || null,
-    skordat: 0, skotat: 0, skotarePerMaskin: [], omlastningArbete: [], skotareMaskiner: [], kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning,
+    volym: obj.volym, skordat: 0, skotat: 0, skotarePerMaskin: [], omlastningArbete: [], skotareMaskiner: [], kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning,
     externSkotning: obj.externSkotning, externForetag: obj.externForetag, externPrisTyp: obj.externPrisTyp, externPris: obj.externPris, externAntal: obj.externAntal,
     maskiner: [],
     typ: obj.typ, areal: obj.areal, agare: obj.agare, status: obj.status,
