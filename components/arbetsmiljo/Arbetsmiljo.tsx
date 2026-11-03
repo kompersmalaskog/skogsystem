@@ -17,8 +17,10 @@ import { hamtaRonder, lage as rondLage } from '@/lib/arbetsmiljo/skyddsrond';
 import { hamtaBedomningar, hamtaKvitton as hamtaRiskKvitton, typForMaskin } from '@/lib/arbetsmiljo/maskinRisk';
 import { hamtaKvitton as hamtaIntroKvitton, introLage } from '@/lib/arbetsmiljo/introduktion';
 import { byggRader, svar, type Indata, type OversiktRad } from '@/lib/arbetsmiljo/oversikt';
+import { byggArshjul, hamtaGjorda, svenskArManad, type Rad as ArshjulRad } from '@/lib/arbetsmiljo/arshjul';
+import ArshjulArk from './ArshjulArk';
 
-type Last = { rader: OversiktRad[] } | 'fel' | null;
+type Last = { rader: OversiktRad[]; arshjul: ArshjulRad[] | null } | 'fel' | null;
 
 /** Läser allt sidan behöver. En del som inte gick att läsa blir null — aldrig en gissning. */
 async function lasIndata(): Promise<Indata | null> {
@@ -31,7 +33,8 @@ async function lasIndata(): Promise<Indata | null> {
   const serArbetsledning = arAdmin || jag.skyddsombud === true;
   const tyst = <T,>(p: Promise<T>): Promise<T | null> => p.then(v => v, () => null);
 
-  const [maskinkoll, atgarder, ronder, bedomningar, riskKvitton, maskin, introKvitton] = await Promise.all([
+  const ar = svenskArManad(new Date()).ar;
+  const [maskinkoll, atgarder, ronder, bedomningar, riskKvitton, maskin, introKvitton, gjorda] = await Promise.all([
     tyst(hamtaMaskinkollVantar(supabase)),
     serArbetsledning ? tyst(hamtaAtgardMarke(supabase)) : Promise.resolve(null),
     serArbetsledning ? tyst(hamtaRonder(supabase)) : Promise.resolve(null),
@@ -41,6 +44,7 @@ async function lasIndata(): Promise<Indata | null> {
       ? tyst(Promise.resolve(supabase.from('dim_maskin').select('maskin_typ').eq('maskin_id', jag.maskin_id).maybeSingle()))
       : Promise.resolve(null),
     arAdmin ? Promise.resolve(null) : tyst(hamtaIntroKvitton(supabase, jag.id)),
+    serArbetsledning ? tyst(hamtaGjorda(supabase, ar)) : Promise.resolve(null),
   ]);
 
   const maskinTyp = maskin && !maskin.error ? (maskin.data as { maskin_typ?: string } | null)?.maskin_typ : null;
@@ -53,6 +57,8 @@ async function lasIndata(): Promise<Indata | null> {
     skyddsrond: ronder ? rondLage(ronder, new Date()) : null,
     risk: bedomningar ? { bedomningar, kvitton: riskKvitton ?? null, minTyp: typForMaskin(maskinTyp) } : null,
     intro: arAdmin ? undefined : introKvitton ? introLage(jag, introKvitton.get(jag.id) ?? []) : null,
+    // Årshjulet: bara arbetsledningen. Går något av det inte att läsa är hela årshjulet ett läsfel, aldrig "inte gjort".
+    arshjul: !serArbetsledning ? undefined : gjorda && ronder && bedomningar ? byggArshjul({ nu: new Date(), gjorda, ronder, risk: bedomningar }) : null,
   };
 }
 
@@ -60,11 +66,17 @@ const TON_FARG = { orange: FARG.orange, rod: FARG.rod } as const;
 
 export default function Arbetsmiljo() {
   const [last, setLast] = useState<Last>(null);
+  const [visaAr, setVisaAr] = useState(false);
+
+  // /arbetsmiljo?ar=1 öppnar årshjulet direkt.
+  useEffect(() => {
+    try { if (new URLSearchParams(window.location.search).get('ar') === '1') setVisaAr(true); } catch { /* ingen adress */ }
+  }, []);
 
   const hamta = useCallback(async () => {
     try {
       const d = await lasIndata();
-      setLast(d ? { rader: byggRader(d) } : 'fel');
+      setLast(d ? { rader: byggRader(d), arshjul: d.arshjul ?? null } : 'fel');
     } catch { setLast('fel'); }
   }, []);
 
@@ -106,13 +118,19 @@ export default function Arbetsmiljo() {
         {last && last !== 'fel' && (
           <Sektion rubrik="Allt om arbetsmiljön">
             {last.rader.map((r, i) => (
-              <Rad key={r.id} titel={r.titel} href={r.href} sista={i === last.rader.length - 1}
+              <Rad key={r.id} titel={r.titel} sista={i === last.rader.length - 1}
+                href={r.id === 'arshjul' ? undefined : r.href}
+                onTryck={r.id === 'arshjul' && last.arshjul ? () => setVisaAr(true) : undefined}
                 attr={{ 'data-am-rad': r.id }}
                 under={<span style={{ color: r.ton ? TON_FARG[r.ton] : undefined }}>{r.under}</span>} />
             ))}
           </Sektion>
         )}
       </div>
+
+      {visaAr && last && last !== 'fel' && last.arshjul && (
+        <ArshjulArk ar={svenskArManad(new Date()).ar} rader={last.arshjul} onStang={() => setVisaAr(false)} onAndrat={() => void hamta()} />
+      )}
     </div>
   );
 }

@@ -8,11 +8,12 @@
 import { antalBesvarade, type Lage as RondLage } from './skyddsrond';
 import { MASKINTYPER, TYP_BESTAMD, lage as riskLage, lastTid, lista, synligForForare, underlag, type Bedomning, type Kvitto, type MaskinTyp } from './maskinRisk';
 import { datumText, lageText, type IntroLage } from './introduktion';
+import { arshjulRad, svenskArManad, type Rad as ArshjulRad } from './arshjul';
 
 export type Ton = 'orange' | 'rod';
 
 export type OversiktRad = {
-  id: 'atgarder' | 'skyddsrond' | 'riskbedomning' | 'maskinkoll' | 'nagot-ar-fel' | 'introduktion';
+  id: 'atgarder' | 'skyddsrond' | 'arshjul' | 'riskbedomning' | 'maskinkoll' | 'nagot-ar-fel' | 'introduktion';
   titel: string;
   href: string;
   under: string;
@@ -40,6 +41,8 @@ export type Indata = {
   risk: Risk;
   /** Förarens egen introduktion. undefined = visas som information (admin). null = läsfel. */
   intro?: IntroLage | null;
+  /** Årshjulets rader (bara arbetsledningen). undefined = visas inte, null = läsfel. */
+  arshjul?: ArshjulRad[] | null;
 };
 
 const LASFEL = 'Kunde inte läsas just nu';
@@ -102,10 +105,20 @@ function introRad(i: Indata['intro']): OversiktRad {
   return i.klarTid ? { ...bas, under: lageText(i), attGora: false } : { ...bas, under: lageText(i), ton: 'orange', attGora: true };
 }
 
+function arshjulOversikt(a: ArshjulRad[] | null, nu: Date): OversiktRad {
+  const bas = { id: 'arshjul' as const, href: '/arbetsmiljo?ar=1' };
+  const ar = svenskArManad(nu).ar;
+  if (!a) return felRad(bas.id, `Året ${ar}`, bas.href);
+  return { ...bas, ...arshjulRad(a, ar) };
+}
+
 /** Raderna i en fast ordning — det som ska åtgärdas först, sedan det man gör själv, sist det nya förare läser. */
 export function byggRader(d: Indata, nu: Date = new Date()): OversiktRad[] {
   const rader: OversiktRad[] = [];
-  if (d.serArbetsledning) rader.push(atgardRad(d.atgarder), rondRad(d.skyddsrond));
+  if (d.serArbetsledning) {
+    rader.push(atgardRad(d.atgarder), rondRad(d.skyddsrond));
+    if (d.arshjul !== undefined) rader.push(arshjulOversikt(d.arshjul, nu));
+  }
   rader.push(
     riskRad(d.risk, d.arAdmin, d.medarbetareId, nu),
     maskinkollRad(d.maskinkoll),

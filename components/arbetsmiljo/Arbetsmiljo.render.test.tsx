@@ -19,6 +19,12 @@ vi.mock('@/lib/arbetsmiljo/maskinRisk', async (orig) => {
   return { ...o, hamtaBedomningar: async () => Object.fromEntries(o.MASKINTYPER.map(t => [t, { ...o.TOM, bort: [], egna: [] }])), hamtaKvitton: async () => [] };
 });
 vi.mock('@/lib/arbetsmiljo/introduktion', async (orig) => ({ ...(await orig<typeof import('@/lib/arbetsmiljo/introduktion')>()), hamtaKvitton: async () => new Map() }));
+const gjortAnrop: unknown[][] = [];
+vi.mock('@/lib/arbetsmiljo/arshjul', async (orig) => ({
+  ...(await orig<typeof import('@/lib/arbetsmiljo/arshjul')>()),
+  hamtaGjorda: async () => [],
+  markeraGjord: async (...a: unknown[]) => { gjortAnrop.push(a.slice(1)); return null; },
+}));
 import Arbetsmiljo from './Arbetsmiljo';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -32,11 +38,11 @@ describe('Arbetsmiljö', () => {
   it('admin: svaret räknar det som behöver dig, och varje del är en rad till sin vy', async () => {
     jag = { id: 'm', roll: 'admin', telefon: '1', anhorig_telefon: '2', maskin_id: null, skyddsombud: false };
     await act(async () => { root.render(<Arbetsmiljo />); }); await vanta();
-    expect(q('[data-testid="am-svar"]')!.textContent).toBe('4 saker behöver dig');
+    expect(q('[data-testid="am-svar"]')!.textContent).toBe('5 saker behöver dig');
     expect(q('[data-testid="am-nod"]')!.getAttribute('href')).toBe('/om-nagot-hander');
     const rader = Array.from(document.querySelectorAll('[data-am-rad]')).map(e => [e.getAttribute('data-am-rad'), e.getAttribute('href')]);
     expect(rader).toEqual([
-      ['atgarder', '/atgarder'], ['skyddsrond', '/skyddsrond'], ['riskbedomning', '/riskbedomning'],
+      ['atgarder', '/atgarder'], ['skyddsrond', '/skyddsrond'], ['arshjul', null], ['riskbedomning', '/riskbedomning'],
       ['maskinkoll', '/maskinkoll'], ['nagot-ar-fel', '/maskinkoll?fel=1'], ['introduktion', '/introduktion'],
     ]);
     expect(q('[data-am-rad="atgarder"]')!.textContent).toContain('2 att åtgärda');
@@ -56,5 +62,25 @@ describe('Arbetsmiljö', () => {
     await act(async () => { root.render(<Arbetsmiljo />); }); await vanta();
     expect(q('[data-testid="am-svar"]')!.textContent).toBe('Kunde inte läsa arbetsmiljön');
     expect(document.body.textContent).toContain('Försök igen');
+  });
+
+  it('årshjulet: raden öppnar arket, en punkt visar vad man gör och Gjort bockar av den', async () => {
+    jag = { id: 'm', roll: 'admin', telefon: '1', anhorig_telefon: '2', maskin_id: null, skyddsombud: false };
+    await act(async () => { root.render(<Arbetsmiljo />); }); await vanta();
+    expect(q('[data-am-rad="arshjul"]')!.textContent).toMatch(/Året \d{4}/);
+    await act(async () => { q('[data-am-rad="arshjul"]')!.click(); });
+    const punkter = Array.from(document.querySelectorAll('[data-arshjul]')).map(e => e.getAttribute('data-arshjul'));
+    expect(punkter).toEqual(['riskbedomning', 'apt_var', 'osa', 'kemikalier', 'apt_host', 'skyddsrond', 'uppfoljning']);
+    expect(q('[data-arshjul="skyddsrond"]')!.getAttribute('href')).toBe('/skyddsrond');
+    await act(async () => { q('[data-arshjul="kemikalier"]')!.click(); });
+    expect(document.body.textContent).toContain('säkerhetsbladet');
+    await act(async () => { q('[data-gjort]')!.click(); }); await vanta();
+    expect(gjortAnrop.at(-1)).toEqual([expect.any(Number), 'kemikalier', '']);
+  });
+
+  it('förare: inget årshjul', async () => {
+    jag = { id: 'f', roll: 'forare', telefon: '1', anhorig_telefon: '2', maskin_id: 'A1', skyddsombud: false };
+    await act(async () => { root.render(<Arbetsmiljo />); }); await vanta();
+    expect(q('[data-am-rad="arshjul"]')).toBeNull();
   });
 });
