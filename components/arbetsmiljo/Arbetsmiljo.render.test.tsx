@@ -37,7 +37,7 @@ describe('Arbetsmiljö', () => {
     const rader = Array.from(document.querySelectorAll('[data-am-rad]')).map(e => [e.getAttribute('data-am-rad'), e.getAttribute('href')]);
     expect(rader).toEqual([
       ['atgarder', '/atgarder'], ['skyddsrond', '/skyddsrond'], ['riskbedomning', '/riskbedomning'],
-      ['maskinkoll', '/maskinkoll'], ['nagot-ar-fel', '/maskinkoll?fel=1'], ['introduktion', '/introduktion'],
+      ['maskinkoll', '/maskinkoll'], ['rapportera', '/om-nagot-hander?rapport=1'], ['introduktion', '/introduktion'],
     ]);
     expect(q('[data-am-rad="atgarder"]')!.textContent).toContain('2 att åtgärda');
     expect(q('[data-am-rad="riskbedomning"]')!.textContent).toContain('0 av 4 godkända');
