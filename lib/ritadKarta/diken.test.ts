@@ -5,7 +5,6 @@ import { dikeFilter, dikeSlag, raderTillDiken, visasDike, arDikeFC } from './dik
 import { RITAD_DIKE_ID, RITAD_LAGER, grundKallor, grundLager } from './lager';
 import { DIKE_FARG, VAG_FARG } from './stil';
 import { lagerRang } from '../lagerOrdning';
-// @ts-expect-error — skriptet är .mjs utan typer
 import { tillRad } from '../../scripts/diken-import.mjs';
 
 describe('dikena (Naturvårdsverkets dikeskarta)', () => {
@@ -39,7 +38,7 @@ describe('dikena (Naturvårdsverkets dikeskarta)', () => {
   });
 
   it('importen: en feature → en rad med ruta, multilinjer behålls, utan id ingen rad', () => {
-    const r = tillRad({ properties: { DIKE_ID: '42', TYP: 'Skogsdike', LANGD_M: 120.5 }, geometry: { type: 'MultiLineString', coordinates: [[[15.1234567, 56.1], [15.2, 56.2]], [[15.3, 56.0], [15.31, 56.05]]] } });
+    const r = tillRad({ properties: { DIKE_ID: '42', TYP: 'Skogsdike', LANGD_M: 120.5 }, geometry: { type: 'MultiLineString', coordinates: [[[15.1234567, 56.1], [15.2, 56.2]], [[15.3, 56.0], [15.31, 56.05]]] } })!;
     expect(r.id).toBe(42);
     expect(r.typ).toBe('Skogsdike');
     expect(r.coords[0][0]).toEqual([15.123457, 56.1]);
