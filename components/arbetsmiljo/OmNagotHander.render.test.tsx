@@ -112,14 +112,15 @@ describe('Om något händer', () => {
     expect(document.querySelectorAll('[data-ring]')).toHaveLength(0);
   });
 
-  it('rapporten: Skicka är inaktiv tills någon-skadades är besvarat och texten skriven; skickar kort, maskin och position', async () => {
+  it('rapporten: Skicka är inaktiv tills vad som hände är valt och texten skriven; skickar kort, maskin och position', async () => {
     await montera();
     await position(56.845, 15.222);
     await tryck(document.querySelector('[data-kort=valt]'));
     await tryck(document.querySelector('[data-rapportera]'));
     const skicka = () => document.querySelector('[data-skicka]') as HTMLButtonElement;
     expect(skicka().disabled).toBe(true);
-    expect(text()).toContain('Svara om någon skadades.');
+    expect(text()).toContain('Välj vad som hände.');
+    expect(document.querySelector('[data-trasigt]')!.getAttribute('href')).toBe('/maskinkoll?fel=1');
     await tryck(document.querySelector('[data-typ=tillbud]'));
     expect(skicka().disabled).toBe(true);
     await skriv(document.querySelector('textarea')!, 'Lutade för mycket i backen');

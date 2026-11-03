@@ -69,7 +69,8 @@ export const VYER: Vy[] = [
   { id: 'lastbilen', namn: 'Lastbilen', href: '/lastbil', ikon: 'pin_drop', grupp: 'maskiner', marke: 'lass', sokord: ['flytt', 'maskinflytt', 'hämta maskin', 'körningar', 'fakturering', 'flyttlogg'] },
   // Maskinkollen = förarens skyddsrond en gång i månaden (arbetsmiljö, 2026-10-31). Märket = dags eller påbörjad.
   { id: 'maskinkoll', namn: 'Maskinkoll', href: '/maskinkoll', ikon: 'checklist', grupp: 'maskiner', marke: 'maskinkoll', del: 'arbetsmiljo', sokord: ['skyddsrond', 'arbetsmiljö', 'säkerhet', 'brandsläckare'] },
-  // "Något är fel": föraren rapporterar ett fel på maskinen när som helst, med bild. Blir en åtgärd direkt.
+  // "Rapportera": EN väg för allt (taget från industrins IA-system) — första frågan är vad det är: något trasigt (→ Något är fel, med bild,
+  // blir en åtgärd direkt), nära ögat (tillbud) eller en skada (olycka).
   { id: 'atgarder', namn: 'Åtgärder', href: '/atgarder', ikon: 'build', grupp: 'maskiner', bara: 'admin', aven: 'skyddsombud', marke: 'atgarder', del: 'arbetsmiljo', sokord: ['arbetsmiljö', 'skyddsrond', 'fel', 'stopp', 'maskinkoll'] },
   // Om något händer: 112, larmplatsen, tre steg per situation, rapportera tillbud. Står också fast under sökfältet på startsidan.
   { id: 'om-nagot-hander', namn: 'Om något händer', href: '/om-nagot-hander', ikon: 'emergency', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['112', 'olycka', 'tillbud', 'brand', 'skada', 'nödnummer', 'larm', 'första hjälpen', 'kraftledning'] },
@@ -77,7 +78,7 @@ export const VYER: Vy[] = [
   { id: 'riskbedomning', namn: 'Riskbedömning', href: '/riskbedomning', ikon: 'health_and_safety', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['risk', 'risker', 'arbetsmiljö', 'säkerhet', 'motorsåg'] },
   // Skyddsronden: arbetsledningen och skyddsombudet en gång om året (AFS 2023:1). Brister blir åtgärder.
   { id: 'skyddsrond', namn: 'Skyddsrond', href: '/skyddsrond', ikon: 'verified_user', grupp: 'maskiner', bara: 'admin', aven: 'skyddsombud', del: 'arbetsmiljo', sokord: ['arbetsmiljö', 'säkerhet', 'brandskydd', 'skyddsombud', 'rond'] },
-  { id: 'nagot-ar-fel', namn: 'Något är fel', href: '/maskinkoll?fel=1', ikon: 'report', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['fel', 'trasig', 'läcker', 'rapportera', 'skada', 'arbetsmiljö'] },
+  { id: 'rapportera', namn: 'Rapportera', href: '/om-nagot-hander?rapport=1', ikon: 'report', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['fel', 'trasig', 'läcker', 'något är fel', 'tillbud', 'nära ögat', 'olycka', 'skada', 'arbetsmiljö'] },
   { id: 'kontroller', namn: 'Kontroller', href: '/kontroller', ikon: 'fact_check', grupp: 'maskiner', sokord: ['besiktning', 'försäkring'] },
 
   // Objekt

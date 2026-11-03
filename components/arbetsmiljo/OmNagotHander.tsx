@@ -121,7 +121,7 @@ export default function OmNagotHander() {
             <Etikett>Efteråt</Etikett>
             <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
               <RadKnapp sista onTryck={() => ga({ vy: 'rapport', kort: null })} attr={{ 'data-rapportera': '' }}
-                under="Något som hände, eller nästan hände">Rapportera vad som hände</RadKnapp>
+                under="Något trasigt, nära att hända eller en skada">Rapportera</RadKnapp>
             </div>
             <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px ${AVSTAND.xs}px 0` }}>Korten fungerar utan täckning.</p>
           </>
@@ -248,8 +248,16 @@ function Rapport({ kort, pos, onKlar }: { kort: Rutinkort | null; pos: Position 
     <div data-rapport>
       <h1 style={{ ...TYP.titel, margin: 0 }}>Vad hände?</h1>
 
-      <Etikett>Skadades någon?</Etikett>
+      {/* EN väg för allt: något trasigt går till "Något är fel" (bild, blir en åtgärd direkt), resten rapporteras här. */}
+      <Etikett>Välj det som stämmer</Etikett>
       <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
+        <Link href="/maskinkoll?fel=1" data-trasigt style={{ ...radStil, textDecoration: 'none', borderBottom: `1px solid ${FARG.linje}` }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ ...TYP.listtitel, display: 'block' }}>Något är trasigt</span>
+            <span style={{ ...TYP.meta, color: FARG.text2, display: 'block' }}>På maskinen eller grejerna</span>
+          </span>
+          <Pil />
+        </Link>
         {TYP_VAL.map((v, i) => (
           <button key={v.typ} type="button" onClick={() => setTyp(v.typ)} aria-pressed={typ === v.typ} data-typ={v.typ}
             style={{ ...radStil, borderBottom: i === TYP_VAL.length - 1 ? 'none' : `1px solid ${FARG.linje}` }}>
@@ -285,7 +293,7 @@ function Rapport({ kort, pos, onKlar }: { kort: Rutinkort | null; pos: Position 
         style={{ ...KNAPP.primar, marginTop: AVSTAND.xl, ...(!klar || sparar ? INAKTIV : {}) }}>
         {sparar ? 'Skickar …' : 'Skicka till arbetsledningen'}
       </button>
-      {!klar && <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>{typ ? 'Skriv vad som hände.' : 'Svara om någon skadades.'}</p>}
+      {!klar && <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>{typ ? 'Skriv vad som hände.' : 'Välj vad som hände.'}</p>}
     </div>
   );
 }

@@ -9,8 +9,8 @@ export type TillbudTyp = 'tillbud' | 'olycka';
 
 /** Föraren svarar på EN fråga: skadades någon? */
 export const TYP_VAL: { typ: TillbudTyp; titel: string; under: string }[] = [
-  { typ: 'tillbud', titel: 'Nej, men det var nära', under: 'Ett tillbud' },
-  { typ: 'olycka', titel: 'Ja, någon skadades', under: 'En olycka' },
+  { typ: 'tillbud', titel: 'Det var nära att hända något', under: 'Ingen skadades' },
+  { typ: 'olycka', titel: 'Någon skadades', under: 'En olycka' },
 ];
 
 export function typText(typ: TillbudTyp): string {
