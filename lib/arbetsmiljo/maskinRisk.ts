@@ -8,12 +8,20 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type MaskinTyp = 'skordare' | 'skotare' | 'lastbil' | 'motorsag';
-export const MASKINTYPER: MaskinTyp[] = ['skordare', 'skotare', 'lastbil', 'motorsag'];
+// 'kemikalier' (2026-11-03) är ingen maskin utan arbetsmomenten med oljor, bränsle, sprayer och avgaser (AFS 2023:10).
+// Den gäller ALLA förare (ALLA_LASER), inte bara de med en viss maskin. Namnet MaskinTyp står kvar (kolumnen heter maskintyp).
+export type MaskinTyp = 'skordare' | 'skotare' | 'lastbil' | 'motorsag' | 'kemikalier';
+export const MASKINTYPER: MaskinTyp[] = ['skordare', 'skotare', 'lastbil', 'motorsag', 'kemikalier'];
+/** Typer som alla förare ska läsa, oavsett maskin. */
+export const ALLA_LASER: readonly MaskinTyp[] = ['kemikalier'];
 
-export const TYP_NAMN: Record<MaskinTyp, string> = { skordare: 'Skördare', skotare: 'Skotare', lastbil: 'Lastbil', motorsag: 'Motorsåg' };
+export const TYP_NAMN: Record<MaskinTyp, string> = {
+  skordare: 'Skördare', skotare: 'Skotare', lastbil: 'Lastbil', motorsag: 'Motorsåg', kemikalier: 'Oljor och kemikalier',
+};
 /** "Läs riskerna för skotaren" */
-export const TYP_BESTAMD: Record<MaskinTyp, string> = { skordare: 'skördaren', skotare: 'skotaren', lastbil: 'lastbilen', motorsag: 'motorsågen' };
+export const TYP_BESTAMD: Record<MaskinTyp, string> = {
+  skordare: 'skördaren', skotare: 'skotaren', lastbil: 'lastbilen', motorsag: 'motorsågen', kemikalier: 'oljor och kemikalier',
+};
 
 export type MaskinRisk = { nyckel: string; risk: string; atgard: string; egen: boolean };
 
@@ -56,6 +64,19 @@ export const KATALOG: Record<MaskinTyp, readonly { nyckel: string; risk: string;
     R('korkort', 'Utan utbildning', 'Du ska ha motorsågskörkort för det du gör.'),
     R('ensam_sag', 'Ensam med motorsåg', 'Någon ska veta var du är och när du är klar.'),
     R('vibration', 'Vibrationer i händerna', 'Ta pauser. Säg till om fingrarna blir vita eller domnar.'),
+  ],
+  // Per arbetsmoment. Faromärkningen och första hjälpen för varje produkt står i säkerhetsbladet (Kemikalier).
+  kemikalier: [
+    R('tanka', 'Diesel och AdBlue när du tankar', 'Ha handskar. Tvätta händerna efteråt. Ingen rökning eller eld nära.'),
+    R('hydraulolja', 'Hydraulolja på huden eller i ögonen', 'Ha handskar och skyddsglasögon när du byter slang eller filter. Olja i ögat: skölj i 15 minuter.'),
+    R('hogtryck', 'Olja som sprutar under högt tryck', 'Känn aldrig efter läckor med handen. Har olja gått in under huden: åk till sjukhus direkt, även om det inte gör ont.'),
+    R('kedjeolja', 'Kedjeolja och motorolja', 'Ha handskar när du fyller på. Byt kläder som blivit genomblöta av olja.'),
+    R('spray', 'Sprayer och avfettning', 'Spraya utomhus eller med porten öppen. Ingen eld eller gnistor nära.'),
+    R('bensin', 'Bensin och alkylatbensin', 'Förvara i godkänd dunk, svalt och långt från eld. Tanka inte en varm motorsåg.'),
+    R('stubbe', 'Medel för stubbehandling', 'Ha handskar när du fyller på. Gör som det står på etiketten.'),
+    R('avgaser', 'Avgaser', 'Kör inte motorn i hallen med porten stängd.'),
+    R('spill', 'Spill i naturen', 'Saneringssatsen ska finnas i maskinen. Stoppa läckan, lägg på absorbent och ring arbetsledningen vid större spill.'),
+    R('ny_produkt', 'Något nytt du inte känner till', 'Läs säkerhetsbladet i appen under Kemikalier innan du använder det. Finns det inte: lägg till produkten.'),
   ],
 };
 
@@ -204,10 +225,21 @@ export function adminRad(bedomningar: Record<MaskinTyp, Bedomning>, nu: Date): s
   return att === 1 ? '1 riskbedömning att godkänna' : `${att} riskbedömningar att godkänna`;
 }
 
-/** Föraren: läs riskerna för sin maskin när de är godkända och inte lästa. */
+/** Typerna föraren ska läsa: sin maskin först, sedan de alla läser. */
+export function forarensTyper(typ: MaskinTyp | null): MaskinTyp[] {
+  return [...(typ ? [typ] : []), ...ALLA_LASER.filter(t => t !== typ)];
+}
+
+/** De av förarens typer som är godkända men inte lästa (i ordning). */
+export function attLasa(typ: MaskinTyp | null, bedomningar: Record<MaskinTyp, Bedomning>, kvitton: readonly Kvitto[], medarbetareId: string, nu: Date): MaskinTyp[] {
+  return forarensTyper(typ).filter(t => {
+    const b = bedomningar[t];
+    return synligForForare(lage(t, b, nu)) && !lastTid(kvitton, medarbetareId, t, underlag(lista(t, b)));
+  });
+}
+
+/** Föraren: läs riskerna för sin maskin, och för oljor och kemikalier, när de är godkända och inte lästa. */
 export function forarRad(typ: MaskinTyp | null, bedomningar: Record<MaskinTyp, Bedomning>, kvitton: readonly Kvitto[], medarbetareId: string, nu: Date): string | null {
-  if (!typ) return null;
-  const b = bedomningar[typ];
-  if (!synligForForare(lage(typ, b, nu))) return null;
-  return lastTid(kvitton, medarbetareId, typ, underlag(lista(typ, b))) ? null : `Läs riskerna för ${TYP_BESTAMD[typ]}`;
+  const kvar = attLasa(typ, bedomningar, kvitton, medarbetareId, nu);
+  return kvar.length === 0 ? null : `Läs riskerna för ${kvar.map(t => TYP_BESTAMD[t]).join(' och ')}`;
 }

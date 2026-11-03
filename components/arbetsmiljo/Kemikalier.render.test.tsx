@@ -7,6 +7,7 @@ import { act } from 'react';
 let jag: { id: string; roll: 'admin' | 'forare' } = { id: 'm', roll: 'admin' };
 vi.mock('@/lib/CurrentMedarbetareContext', () => ({ useCurrentMedarbetare: () => ({ medarbetare: jag, loading: false }) }));
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
+vi.mock('@/lib/markeringFoto', () => ({ komprimeraMarkeringFoto: async (f: File) => f }));
 
 let lista: any[] | null = [];
 const tillagda: unknown[][] = [];
@@ -67,15 +68,54 @@ describe('Kemikalier', () => {
     expect(w.location.href).toBe('https://signerad.example/a/1.pdf');
   });
 
-  it('föraren ser listan och kan öppna bladet, men inte lägga till eller bocka av året', async () => {
+  it('föraren ser listan och kan öppna bladet, men inte bocka av året eller ta bort', async () => {
     jag = { id: 'f', roll: 'forare' };
     await act(async () => { root.render(<Kemikalier />); }); await vanta();
-    expect(q('[data-kem-ny]')).toBeNull();
+    expect(q('[data-kem-ny]')).not.toBeNull();
     expect(q('[data-kem-genomgang]')).toBeNull();
     await klick('[data-kem="b"]');
     expect(q('[data-kem-oppna]')).toBeNull();
-    expect(document.body.textContent).toContain('Säg till arbetsledningen');
+    expect(document.body.textContent).toContain('Arbetsledningen ordnar det');
     expect(q('[data-kem-bort]')).toBeNull();
+  });
+
+  it('föraren lägger till det hen köpt, med foto på etiketten, och får veta att arbetsledningen ordnar bladet', async () => {
+    jag = { id: 'f', roll: 'forare' };
+    await act(async () => { root.render(<Kemikalier />); }); await vanta();
+    await klick('[data-kem-ny]');
+    const bild = new File(['x'], 'burk.jpg', { type: 'image/jpeg' });
+    const inp = document.querySelector('input[accept="image/*"]') as HTMLInputElement;
+    expect(inp.getAttribute('capture')).toBe('environment');
+    Object.defineProperty(inp, 'files', { value: [bild], configurable: true });
+    await act(async () => { inp.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(q('[data-kem-fotorad]')!.textContent).toContain('burk.jpg');
+    await skriv('Vad heter den?', 'Biohyd 46');
+    await klick('[data-kem-spara]');
+    expect(tillagda).toHaveLength(1);
+    expect(tillagda[0].slice(0, 3)).toEqual(['Biohyd 46', '', null]);
+    expect(tillagda[0][3]).toBe(bild);
+    expect(q('[data-kem-kvitto]')!.textContent).toContain('Arbetsledningen ordnar säkerhetsbladet');
+  });
+
+  it('fotot på etiketten syns i produkten', async () => {
+    lista![0] = { ...lista![0], etikettSokvag: 'a/etikett-1.jpg' };
+    await act(async () => { root.render(<Kemikalier />); }); await vanta();
+    await klick('[data-kem="a"]');
+    expect((q('[data-kem-foto]') as HTMLImageElement).src).toBe('https://signerad.example/a/etikett-1.jpg');
+  });
+
+  it('?id= (pushen) öppnar produkten', async () => {
+    window.history.replaceState(null, '', '/kemikalier?id=b');
+    await act(async () => { root.render(<Kemikalier />); }); await vanta();
+    window.history.replaceState(null, '', '/');
+    expect(document.body.textContent).toContain('Avfettning');
+    expect(q('[data-kem-bort]')).not.toBeNull();
+  });
+
+  it('länken till riskbedömningen för kemikalier finns för alla', async () => {
+    jag = { id: 'f', roll: 'forare' };
+    await act(async () => { root.render(<Kemikalier />); }); await vanta();
+    expect(q('[data-kem-risk]')!.getAttribute('href')).toBe('/riskbedomning?typ=kemikalier');
   });
 
   it('admin lägger till en produkt; Lägg till är grå tills den har ett namn', async () => {
@@ -85,7 +125,7 @@ describe('Kemikalier', () => {
     await skriv('Vad heter den?', 'Kedjeolja');
     await skriv('Var finns den?', 'Verkstaden');
     await klick('[data-kem-spara]');
-    expect(tillagda).toEqual([['Kedjeolja', 'Verkstaden', null]]);
+    expect(tillagda).toEqual([['Kedjeolja', 'Verkstaden', null, null]]);
   });
 
   it('årets genomgång bockar av årshjulets punkt Kemikalierna', async () => {

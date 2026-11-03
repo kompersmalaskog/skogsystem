@@ -57,7 +57,7 @@ export function svenskArManad(nu: Date): { ar: number; manad: number } {
 
 const arFor = (iso: string) => svenskArManad(new Date(iso)).ar;
 
-/** Riskbedömningen är gjord i år när alla fyra maskintyper är godkända i år på listan som gäller nu. Datumet = den sista. */
+/** Riskbedömningen är gjord i år när alla typer (maskinerna och kemikalierna) är godkända i år på listan som gäller nu. Datumet = den sista. */
 export function riskGjord(b: Record<MaskinTyp, Bedomning>, ar: number, nu: Date): string | null {
   let senast: string | null = null;
   for (const t of MASKINTYPER) {

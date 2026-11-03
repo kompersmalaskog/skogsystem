@@ -3,7 +3,7 @@ import { filFel, ordna, radUnder, svar, type Kemikalie } from './kemikalier';
 import { byggRader } from './oversikt';
 
 const k = (namn: string, blad: boolean, varFinns: string | null = 'Verkstaden'): Kemikalie =>
-  ({ id: namn, namn, varFinns, sdbSokvag: blad ? `${namn}/1.pdf` : null, sdbTid: blad ? '2026-11-03T10:00:00Z' : null });
+  ({ id: namn, namn, varFinns, sdbSokvag: blad ? `${namn}/1.pdf` : null, sdbTid: blad ? '2026-11-03T10:00:00Z' : null, etikettSokvag: null });
 
 describe('kemikalier', () => {
   it('svaret säger hur många som saknar blad', () => {

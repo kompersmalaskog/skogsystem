@@ -42,7 +42,7 @@ import { lista, underlag } from '@/lib/arbetsmiljo/maskinRisk';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root; let el: HTMLDivElement;
 beforeEach(() => {
-  bed = { skordare: tom(), skotare: tom(), lastbil: tom(), motorsag: tom() };
+  bed = { skordare: tom(), skotare: tom(), lastbil: tom(), motorsag: tom(), kemikalier: tom() };
   bed.skotare = { ...bed.skotare, godkandUnderlag: underlag(lista('skotare', bed.skotare)), godkandTid: new Date().toISOString(), godkandAv: 'martin' };
   kvitton = []; lasOk = true; sparade.length = 0;
   jag = { ...jag, id: 'stefan', roll: 'forare' };
@@ -55,7 +55,7 @@ const q = (s: string) => document.querySelector(s) as HTMLElement | null;
 describe('Riskbedömning per maskintyp', () => {
   it('föraren ser bara godkända typer, läser sin maskin och kvitterar', async () => {
     await act(async () => { root.render(<MaskinRisker />); }); await vanta();
-    expect(q('[data-testid="mr-svar"]')!.textContent).toBe('Läs riskerna för din maskin');
+    expect(q('[data-testid="mr-svar"]')!.textContent).toBe('Läs riskerna för skotaren');
     expect(document.querySelectorAll('[data-testid^="mr-typ-"]')).toHaveLength(1);
     await act(async () => { q('[data-testid="mr-typ-skotare"]')!.click(); });
     expect(q('[data-testid="mr-risk-last"]')).toBeTruthy();
@@ -63,13 +63,13 @@ describe('Riskbedömning per maskintyp', () => {
     expect(q('[data-testid="mr-pdf"]')).toBeNull();
     await act(async () => { q('[data-testid="mr-las"]')!.click(); }); await vanta();
     expect(q('[data-testid="mr-last"]')!.textContent).toContain('Läst');
-    expect(q('[data-testid="mr-svar"]')!.textContent).toBe('Du har läst riskerna för din maskin ✓');
+    expect(q('[data-testid="mr-svar"]')!.textContent).toBe('Du har läst det som gäller dig ✓');
   });
 
   it('admin: gäller inte sparar, listan blir ändrad, Stämmer godkänner, och vem som läst står', async () => {
     jag = { ...jag, id: 'martin', roll: 'admin' };
     await act(async () => { root.render(<MaskinRisker />); }); await vanta();
-    expect(q('[data-testid="mr-svar"]')!.textContent).toBe('3 av 4 att godkänna');
+    expect(q('[data-testid="mr-svar"]')!.textContent).toBe('4 av 5 att godkänna');
     await act(async () => { q('[data-testid="mr-pdf"]')!.click(); });
     expect(q('[data-testid="pdf-panel"]')!.textContent).toBe('Riskbedömning');
     await act(async () => { q('[data-testid="mr-typ-skotare"]')!.click(); });
@@ -81,6 +81,16 @@ describe('Riskbedömning per maskintyp', () => {
     await act(async () => { q('[data-testid="mr-stammer"]')!.click(); }); await vanta();
     expect(sparade.at(-1)).toMatchObject({ godkann: true });
     expect(q('[data-testid="mr-godkand"]')).toBeTruthy();
+  });
+
+  it('oljor och kemikalier gäller alla förare: egen rad, med i svaret, och ?typ= öppnar den', async () => {
+    bed.kemikalier = { ...bed.kemikalier, godkandUnderlag: underlag(lista('kemikalier', bed.kemikalier)), godkandTid: new Date().toISOString(), godkandAv: 'martin' };
+    window.history.replaceState(null, '', '/riskbedomning?typ=kemikalier');
+    await act(async () => { root.render(<MaskinRisker />); }); await vanta();
+    window.history.replaceState(null, '', '/');
+    expect(q('[data-testid="mr-svar"]')!.textContent).toBe('Läs riskerna för skotaren och oljor och kemikalier');
+    expect(q('[data-testid="mr-typ-kemikalier"]')!.textContent).toContain('Alla förare');
+    expect(q('[data-testid="mr-risk-hogtryck"]')).toBeTruthy();
   });
 
   it('kan bedömningarna inte läsas är det ett fel, aldrig en tom lista', async () => {

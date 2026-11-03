@@ -3,15 +3,15 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   KATALOG, MASKINTYPER, TOM, adminRad, forarRad, kvittera, lage, laggTill, lista, borttagna, taBort, taTillbaka, tolka, typForMaskin, underlag,
-  type Bedomning,
+  type Bedomning, type MaskinTyp,
 } from './maskinRisk';
 
 const nu = new Date('2026-11-02T12:00:00Z');
-const godkand = (typ: 'skotare', b: Bedomning, tid = '2026-11-01T08:00:00Z'): Bedomning => ({ ...b, godkandUnderlag: underlag(lista(typ, b)), godkandTid: tid, godkandAv: 'm' });
+const godkand = (typ: MaskinTyp, b: Bedomning, tid = '2026-11-01T08:00:00Z'): Bedomning => ({ ...b, godkandUnderlag: underlag(lista(typ, b)), godkandTid: tid, godkandAv: 'm' });
 
 describe('riskbedömning per maskintyp', () => {
   it('fyra typer, varje risk har en åtgärd och nycklarna är unika per typ', () => {
-    expect(MASKINTYPER).toEqual(['skordare', 'skotare', 'lastbil', 'motorsag']);
+    expect(MASKINTYPER).toEqual(['skordare', 'skotare', 'lastbil', 'motorsag', 'kemikalier']);
     for (const t of MASKINTYPER) {
       const n = KATALOG[t].map(r => r.nyckel);
       expect(new Set(n).size).toBe(n.length);
@@ -40,8 +40,8 @@ describe('riskbedömning per maskintyp', () => {
   });
 
   it('startsidan: admin räknar det som inte är godkänt, föraren läser sin maskin bara när den är godkänd', () => {
-    const alla = { skordare: TOM, skotare: godkand('skotare', TOM), lastbil: TOM, motorsag: TOM };
-    expect(adminRad(alla, nu)).toBe('3 riskbedömningar att godkänna');
+    const alla = { skordare: TOM, skotare: godkand('skotare', TOM), lastbil: TOM, motorsag: TOM, kemikalier: TOM };
+    expect(adminRad(alla, nu)).toBe('4 riskbedömningar att godkänna');
     expect(forarRad('skordare', alla, [], 'stefan', nu)).toBeNull();
     expect(forarRad('skotare', alla, [], 'stefan', nu)).toBe('Läs riskerna för skotaren');
     const u = underlag(lista('skotare', alla.skotare));
@@ -59,8 +59,16 @@ describe('riskbedömning per maskintyp', () => {
     expect(await kvittera(sb({ code: '42501' }), 'm', 'skotare', 'u')).toBe(false);
   });
 
-  it('databasens maskintyper är exakt de fyra', () => {
-    const sql = readFileSync(join(__dirname, '../../supabase/migrations/20261102161330_am_riskbedomning_maskin.sql'), 'utf8');
+  it('oljor och kemikalier ska alla förare läsa, efter sin egen maskin', () => {
+    const alla = { skordare: TOM, skotare: godkand('skotare', TOM), lastbil: TOM, motorsag: TOM, kemikalier: godkand('kemikalier', TOM) };
+    expect(forarRad('skotare', alla, [], 'stefan', nu)).toBe('Läs riskerna för skotaren och oljor och kemikalier');
+    expect(forarRad(null, alla, [], 'stefan', nu)).toBe('Läs riskerna för oljor och kemikalier');
+    const u = underlag(lista('kemikalier', alla.kemikalier));
+    expect(forarRad(null, alla, [{ medarbetareId: 'stefan', maskintyp: 'kemikalier', underlag: u, tid: '2026-11-02T08:00:00Z' }], 'stefan', nu)).toBeNull();
+  });
+
+  it('databasens maskintyper är exakt de som finns i appen', () => {
+    const sql = readFileSync(join(__dirname, '../../supabase/migrations/20261103141033_am_kemikalier_alla_lagger_till.sql'), 'utf8');
     const m = [...sql.matchAll(/maskintyp in \(([^)]+)\)/g)];
     expect(m).toHaveLength(2);
     for (const x of m) expect(x[1].split(',').map(s => s.trim().replace(/'/g, ''))).toEqual(MASKINTYPER);

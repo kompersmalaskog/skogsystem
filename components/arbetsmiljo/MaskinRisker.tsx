@@ -4,7 +4,7 @@
 // En rad per maskintyp. Ett tryck öppnar riskerna: admin tar bort det som inte gäller, lägger till egna och trycker Stämmer;
 // föraren läser och trycker "Jag har läst". Reglerna och texterna: lib/arbetsmiljo/maskinRisk.ts.
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import Ark from '@/components/design/Ark';
@@ -15,7 +15,7 @@ import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning'
 import { AVSTAND, FARG, KNAPP, RADIE, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import { datumText } from '@/lib/arbetsmiljo/introduktion';
 import {
-  MASKINTYPER, TYP_NAMN, antalText, borttagna, godkann, hamtaBedomningar, hamtaKvitton, kvittera, lage, laggTill, lastTid, lista,
+  ALLA_LASER, MASKINTYPER, TYP_BESTAMD, TYP_NAMN, antalText, attLasa, borttagna, godkann, hamtaBedomningar, hamtaKvitton, kvittera, lage, laggTill, lastTid, lista,
   sparaListan, synligForForare, taBort, taTillbaka, typForMaskin, underlag,
   type Bedomning, type Kvitto, type Lage, type MaskinRisk, type MaskinTyp,
 } from '@/lib/arbetsmiljo/maskinRisk';
@@ -77,12 +77,22 @@ export default function MaskinRisker() {
 
   useEffect(() => { hamta(); }, [hamta]);
 
+  // /riskbedomning?typ=kemikalier (från Kemikalier) öppnar den typen en gång när datan är läst.
+  const djuplank = useRef(false);
+  useEffect(() => {
+    if (djuplank.current || !data || data === 'fel') return;
+    djuplank.current = true;
+    const t = new URLSearchParams(window.location.search).get('typ') as MaskinTyp | null;
+    if (t && MASKINTYPER.includes(t) && (arAdmin || synligForForare(lage(t, data.bedomningar[t], new Date())))) setValt(t);
+  }, [data, arAdmin]);
+
   const nu = new Date();
   const ok = data && data !== 'fel' ? data : null;
 
   // Vad föraren ser: bara godkända. Sin egen maskin först.
-  const typer = ok ? (arAdmin ? MASKINTYPER : MASKINTYPER.filter(t => synligForForare(lage(t, ok.bedomningar[t], nu))))
-    .slice().sort((a, b) => (a === ok.minTyp ? -1 : b === ok.minTyp ? 1 : 0)) : [];
+  const synliga = ok ? (arAdmin ? MASKINTYPER : MASKINTYPER.filter(t => synligForForare(lage(t, ok.bedomningar[t], nu)))) : [];
+  const typer = synliga.filter(t => !ALLA_LASER.includes(t)).sort((a, b) => (a === ok?.minTyp ? -1 : b === ok?.minTyp ? 1 : 0));
+  const allasTyper = synliga.filter(t => ALLA_LASER.includes(t));
 
   const svar = (() => {
     if (data === null) return 'Läser …';
@@ -91,10 +101,10 @@ export default function MaskinRisker() {
       const att = MASKINTYPER.filter(t => lage(t, data.bedomningar[t], nu) !== 'godkand').length;
       return att === 0 ? 'Alla är godkända · Se över varje år' : `${att} av ${MASKINTYPER.length} att godkänna`;
     }
-    if (!data.minTyp) return 'Det farliga med maskinerna och vad du gör';
-    const b = data.bedomningar[data.minTyp];
-    if (!synligForForare(lage(data.minTyp, b, nu))) return 'Riskbedömningen för din maskin är inte klar än';
-    return lastTid(data.kvitton, medarbetare!.id, data.minTyp, underlag(lista(data.minTyp, b))) ? 'Du har läst riskerna för din maskin ✓' : 'Läs riskerna för din maskin';
+    const kvar = attLasa(data.minTyp, data.bedomningar, data.kvitton, medarbetare!.id, nu);
+    if (kvar.length > 0) return `Läs riskerna för ${kvar.map(t => TYP_BESTAMD[t]).join(' och ')}`;
+    if (data.minTyp && !synligForForare(lage(data.minTyp, data.bedomningar[data.minTyp], nu))) return 'Riskbedömningen för din maskin är inte klar än';
+    return synliga.length > 0 ? 'Du har läst det som gäller dig ✓' : 'Det farliga i arbetet och vad du gör';
   })();
 
   const spara = async (typ: MaskinTyp, b: Bedomning) => {
@@ -134,8 +144,9 @@ export default function MaskinRisker() {
       return <>{n} · <span style={{ color: FARG.orange }}>{LAGE_TEXT[l]}</span></>;
     }
     const tid = lastTid(ok.kvitton, medarbetare!.id, t, underlag(lista(t, b)));
-    const egen = t === ok.minTyp ? 'Din maskin · ' : '';
-    return tid ? `${egen}${n} · Läst ${datumText(tid)}` : <>{egen}{n} · <span style={{ color: t === ok.minTyp ? FARG.orange : FARG.text2 }}>Läs</span></>;
+    const minaOrd = t === ok.minTyp || ALLA_LASER.includes(t);
+    const egen = t === ok.minTyp ? 'Din maskin · ' : ALLA_LASER.includes(t) ? 'Alla förare · ' : '';
+    return tid ? `${egen}${n} · Läst ${datumText(tid)}` : <>{egen}{n} · <span style={{ color: minaOrd ? FARG.orange : FARG.text2 }}>Läs</span></>;
   };
 
   const stang = () => { setValt(null); setNy(false); setNyRisk(''); setNyAtgard(''); setFel(false); };
@@ -158,6 +169,14 @@ export default function MaskinRisker() {
                 <Rad key={t} titel={TYP_NAMN[t]} under={radUnder(t)} onTryck={() => { setFel(false); setValt(t); }}
                   sista={i === typer.length - 1} attr={{ 'data-testid': `mr-typ-${t}` }} />
               ))}
+          </Sektion>
+        )}
+        {ok && allasTyper.length > 0 && (
+          <Sektion rubrik="Allt arbete" not={arAdmin ? 'Gäller alla förare. Säkerhetsbladen för varje produkt finns under Kemikalier.' : undefined}>
+            {allasTyper.map((t, i) => (
+              <Rad key={t} titel={TYP_NAMN[t]} under={radUnder(t)} onTryck={() => { setFel(false); setValt(t); }}
+                sista={i === allasTyper.length - 1} attr={{ 'data-testid': `mr-typ-${t}` }} />
+            ))}
           </Sektion>
         )}
         {ok && arAdmin && (
@@ -185,7 +204,7 @@ export default function MaskinRisker() {
         const l = lage(valt, b, nu);
         const u = underlag(risker);
         const tid = medarbetare ? lastTid(ok.kvitton, medarbetare.id, valt, u) : null;
-        const lasta = arAdmin && ok.forare ? ok.forare.filter(f => f.typ === valt) : [];
+        const lasta = arAdmin && ok.forare ? ok.forare.filter(f => ALLA_LASER.includes(valt) || f.typ === valt) : [];
         const fot = arAdmin
           ? (l === 'godkand'
             ? <div data-testid="mr-godkand" style={{ ...TYP.text, color: FARG.text2, textAlign: 'center' }}>Godkänd {datumText(b.godkandTid!)}</div>
