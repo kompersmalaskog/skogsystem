@@ -42,6 +42,9 @@ export default function ArshjulArk({ ar, rader, onStang, onAndrat }: { ar: numbe
           </>
         )}>
         <p style={{ ...TYP.text, color: FARG.text, margin: 0 }}>{rad.punkt.vad}</p>
+        {vald === 'kemikalier' && (
+          <a href="/kemikalier" data-kem-lank style={{ ...KNAPP.sekundar, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', marginTop: AVSTAND.l, boxSizing: 'border-box' }}>Öppna kemikalielistan</a>
+        )}
         {gjord ? (
           <div style={{ marginTop: AVSTAND.l }}>
             <p style={{ ...TYP.listtitel, color: FARG.gron, margin: 0 }}>✓ {rad.under}</p>

@@ -27,7 +27,7 @@ export const PUNKTER: readonly Punkt[] = [
   { id: 'riskbedomning', manad: 1, titel: 'Riskbedömning', vad: 'Se över riskerna för varje maskintyp och tryck Stämmer.', href: '/riskbedomning' },
   { id: 'apt_var', manad: 3, titel: 'Arbetsplatsträff, våren', vad: 'Samla alla en timme. Prata om det som hänt sedan sist och vad som ska bli bättre. Skriv ner vad ni bestämde.' },
   { id: 'osa', manad: 3, titel: 'Hur mår vi?', vad: 'Fråga alla hur de har det på jobbet: för mycket att göra, stress, att jobba ensam, hur vi har det ihop. Skriv ner vad ni bestämde.' },
-  { id: 'kemikalier', manad: 5, titel: 'Kemikalierna', vad: 'Gå igenom oljor, sprayer och bränsle i maskinerna och verkstaden. Finns säkerhetsbladet för varje? Släng det som inte används.' },
+  { id: 'kemikalier', manad: 5, titel: 'Kemikalierna', vad: 'Gå igenom oljor, sprayer och bränsle i maskinerna och verkstaden. Finns säkerhetsbladet för varje i kemikalielistan? Släng det som inte används.' },
   { id: 'apt_host', manad: 9, titel: 'Arbetsplatsträff, hösten', vad: 'Samla alla en timme. Prata om det som hänt sedan sist och vad som ska bli bättre. Skriv ner vad ni bestämde.' },
   { id: 'skyddsrond', manad: 10, titel: 'Skyddsrond', vad: 'Gå igenom maskinerna, verkstaden och lastbilen tillsammans med skyddsombudet.', href: '/skyddsrond' },
   { id: 'uppfoljning', manad: 11, titel: 'Hur gick året?', vad: 'Titta tillbaka: blev det som skulle göras gjort? Vad gör vi bättre nästa år?' },
