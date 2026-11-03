@@ -19,11 +19,13 @@ vi.mock('@/lib/arbetsmiljo/maskinRisk', async (orig) => {
   return { ...o, hamtaBedomningar: async () => Object.fromEntries(o.MASKINTYPER.map(t => [t, { ...o.TOM, bort: [], egna: [] }])), hamtaKvitton: async () => [] };
 });
 vi.mock('@/lib/arbetsmiljo/introduktion', async (orig) => ({ ...(await orig<typeof import('@/lib/arbetsmiljo/introduktion')>()), hamtaKvitton: async () => new Map() }));
+let mina: any[] | null = [];
+vi.mock('@/lib/arbetsmiljo/lagatBesked', async (orig) => ({ ...(await orig<typeof import('@/lib/arbetsmiljo/lagatBesked')>()), hamtaMinaRapporter: async () => mina }));
 import Arbetsmiljo from './Arbetsmiljo';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root; let el: HTMLDivElement;
-beforeEach(() => { el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el); });
+beforeEach(() => { mina = []; window.history.replaceState(null, '', '/arbetsmiljo'); el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el); });
 afterEach(() => { act(() => root.unmount()); el.remove(); });
 const vanta = async () => { for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve(); }); };
 const q = (s: string) => document.querySelector(s) as HTMLElement | null;
@@ -56,5 +58,25 @@ describe('Arbetsmiljö', () => {
     await act(async () => { root.render(<Arbetsmiljo />); }); await vanta();
     expect(q('[data-testid="am-svar"]')!.textContent).toBe('Kunde inte läsa arbetsmiljön');
     expect(document.body.textContent).toContain('Försök igen');
+  });
+
+  it('det du rapporterat: en rad när det finns något, listan med läget i ord, och pushens länk öppnar den direkt', async () => {
+    jag = { id: 'f', roll: 'forare', telefon: '1', anhorig_telefon: '2', maskin_id: 'A1', skyddsombud: false };
+    mina = [
+      { id: 'a1', kalla: 'forare', maskinNamn: 'Giant', beskrivning: 'Nödstoppet stannar inte motorn', lagad: true, vadGjordes: 'Bytt brytare', stangdTid: '2026-11-03T09:00:00Z', skapad: '2026-11-01T09:00:00Z' },
+      { id: 'a2', kalla: 'forare', maskinNamn: 'Giant', beskrivning: 'Steget sitter löst', lagad: false, vadGjordes: null, stangdTid: null, skapad: '2026-10-31T09:00:00Z' },
+    ];
+    window.history.replaceState(null, '', '/arbetsmiljo?mina=1');
+    await act(async () => { root.render(<Arbetsmiljo />); }); await vanta();
+    expect(q('[data-am-mina]')!.textContent).toContain('1 väntar · 1 klar');
+    const rader = Array.from(document.querySelectorAll('[data-am-min]')).map(e => e.textContent);
+    expect(rader[0]).toContain('Väntar på att lagas');
+    expect(rader[1]).toContain('Lagat 3 nov · Bytt brytare');
+  });
+
+  it('inget rapporterat: ingen rad alls', async () => {
+    jag = { id: 'f', roll: 'forare', telefon: '1', anhorig_telefon: '2', maskin_id: 'A1', skyddsombud: false };
+    await act(async () => { root.render(<Arbetsmiljo />); }); await vanta();
+    expect(q('[data-am-mina]')).toBeNull();
   });
 });

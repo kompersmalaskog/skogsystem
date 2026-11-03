@@ -261,6 +261,9 @@ function AtgardArk({ a, idag, far, tillbud, onStang, onStangd, onAnmald }: {
               placeholder={a.kalla === 'tillbud' ? 'T.ex. pratade igenom fällningen med alla förare' : 'T.ex. bytte nödstoppsknappen'}
               style={{ width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min * 2, border: 'none', borderRadius: RADIE.rad, background: FARG.upphojt, color: FARG.text, padding: AVSTAND.m, fontFamily: 'inherit', ...TYP.text, outline: 'none', resize: 'vertical' }} />
           </Sektion>
+          {a.kalla !== 'manuell' && (
+            <p data-far-veta style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>Den som rapporterade får det du skriver i telefonen.</p>
+          )}
         </div>
       )}
 

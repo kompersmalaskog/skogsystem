@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import Ikon from '@/components/design/Ikon';
+import Ark from '@/components/design/Ark';
 import { AVSTAND, FARG, IKON, KNAPP, KORT, RADIE, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import { hamtaMaskinkollVantar } from '@/lib/maskinkoll/data';
 import { hamtaAtgardMarke } from '@/lib/arbetsmiljo/atgarder';
@@ -17,11 +18,12 @@ import { hamtaRonder, lage as rondLage } from '@/lib/arbetsmiljo/skyddsrond';
 import { hamtaBedomningar, hamtaKvitton as hamtaRiskKvitton, typForMaskin } from '@/lib/arbetsmiljo/maskinRisk';
 import { hamtaKvitton as hamtaIntroKvitton, introLage } from '@/lib/arbetsmiljo/introduktion';
 import { byggRader, svar, type Indata, type OversiktRad } from '@/lib/arbetsmiljo/oversikt';
+import { hamtaMinaRapporter, minaSammanfattning, ordnaMina, rapportTitel, rapportUnder, type MinRapport } from '@/lib/arbetsmiljo/lagatBesked';
 
-type Last = { rader: OversiktRad[] } | 'fel' | null;
+type Last = { rader: OversiktRad[]; mina: MinRapport[] | null } | 'fel' | null;
 
 /** Läser allt sidan behöver. En del som inte gick att läsa blir null — aldrig en gissning. */
-async function lasIndata(): Promise<Indata | null> {
+async function lasIndata(): Promise<{ indata: Indata; mina: MinRapport[] | null } | null> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user?.email) return null;
   const { data: jag, error } = await supabase.from('medarbetare')
@@ -31,7 +33,7 @@ async function lasIndata(): Promise<Indata | null> {
   const serArbetsledning = arAdmin || jag.skyddsombud === true;
   const tyst = <T,>(p: Promise<T>): Promise<T | null> => p.then(v => v, () => null);
 
-  const [maskinkoll, atgarder, ronder, bedomningar, riskKvitton, maskin, introKvitton] = await Promise.all([
+  const [maskinkoll, atgarder, ronder, bedomningar, riskKvitton, maskin, introKvitton, mina] = await Promise.all([
     tyst(hamtaMaskinkollVantar(supabase)),
     serArbetsledning ? tyst(hamtaAtgardMarke(supabase)) : Promise.resolve(null),
     serArbetsledning ? tyst(hamtaRonder(supabase)) : Promise.resolve(null),
@@ -41,10 +43,11 @@ async function lasIndata(): Promise<Indata | null> {
       ? tyst(Promise.resolve(supabase.from('dim_maskin').select('maskin_typ').eq('maskin_id', jag.maskin_id).maybeSingle()))
       : Promise.resolve(null),
     arAdmin ? Promise.resolve(null) : tyst(hamtaIntroKvitton(supabase, jag.id)),
+    tyst(hamtaMinaRapporter(supabase, jag.id)),
   ]);
 
   const maskinTyp = maskin && !maskin.error ? (maskin.data as { maskin_typ?: string } | null)?.maskin_typ : null;
-  return {
+  const indata: Indata = {
     arAdmin,
     serArbetsledning,
     medarbetareId: jag.id,
@@ -54,17 +57,24 @@ async function lasIndata(): Promise<Indata | null> {
     risk: bedomningar ? { bedomningar, kvitton: riskKvitton ?? null, minTyp: typForMaskin(maskinTyp) } : null,
     intro: arAdmin ? undefined : introKvitton ? introLage(jag, introKvitton.get(jag.id) ?? []) : null,
   };
+  return { indata, mina: mina ?? null };
 }
 
 const TON_FARG = { orange: FARG.orange, rod: FARG.rod } as const;
 
 export default function Arbetsmiljo() {
   const [last, setLast] = useState<Last>(null);
+  const [visaMina, setVisaMina] = useState(false);
+
+  // Pushen "Lagat" öppnar /arbetsmiljo?mina=1 → listan direkt.
+  useEffect(() => {
+    try { if (new URLSearchParams(window.location.search).get('mina') === '1') setVisaMina(true); } catch { /* ingen adress */ }
+  }, []);
 
   const hamta = useCallback(async () => {
     try {
       const d = await lasIndata();
-      setLast(d ? { rader: byggRader(d) } : 'fel');
+      setLast(d ? { rader: byggRader(d.indata), mina: d.mina } : 'fel');
     } catch { setLast('fel'); }
   }, []);
 
@@ -103,16 +113,43 @@ export default function Arbetsmiljo() {
           <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />
         </Link>
 
-        {last && last !== 'fel' && (
-          <Sektion rubrik="Allt om arbetsmiljön">
-            {last.rader.map((r, i) => (
-              <Rad key={r.id} titel={r.titel} href={r.href} sista={i === last.rader.length - 1}
-                attr={{ 'data-am-rad': r.id }}
-                under={<span style={{ color: r.ton ? TON_FARG[r.ton] : undefined }}>{r.under}</span>} />
-            ))}
-          </Sektion>
-        )}
+        {last && last !== 'fel' && (() => {
+          // Det du rapporterat: bara när det finns något (eller inte gick att läsa). Ett tryck visar varje rapport och vad som hände.
+          const visa = last.mina === null || last.mina.length > 0;
+          return (
+            <Sektion rubrik="Allt om arbetsmiljön">
+              {last.rader.map((r, i) => (
+                <Rad key={r.id} titel={r.titel} href={r.href} sista={!visa && i === last.rader.length - 1}
+                  attr={{ 'data-am-rad': r.id }}
+                  under={<span style={{ color: r.ton ? TON_FARG[r.ton] : undefined }}>{r.under}</span>} />
+              ))}
+              {visa && (
+                <Rad titel="Det du rapporterat" sista attr={{ 'data-am-mina': '1' }}
+                  under={last.mina === null ? 'Kunde inte läsas just nu' : minaSammanfattning(last.mina)}
+                  onTryck={last.mina ? () => setVisaMina(true) : undefined} />
+              )}
+            </Sektion>
+          );
+        })()}
       </div>
+
+      {visaMina && last && last !== 'fel' && (
+        <Ark rubrik="Det du rapporterat" stang="Klar" onStang={() => setVisaMina(false)}>
+          {last.mina === null ? (
+            <p style={{ ...TYP.meta, color: FARG.text2 }}>Kunde inte läsas just nu.</p>
+          ) : last.mina.length === 0 ? (
+            <p style={{ ...TYP.meta, color: FARG.text2 }}>Du har inte rapporterat något än.</p>
+          ) : (
+            <Sektion rubrik="Senaste halvåret" kort={false}>
+              {ordnaMina(last.mina).map((r, i, alla) => (
+                <Rad key={r.id} titel={r.lagad ? <>✓ {rapportTitel(r)}</> : rapportTitel(r)} sista={i === alla.length - 1}
+                  attr={{ 'data-am-min': r.id }}
+                  under={<span style={{ color: r.lagad ? FARG.gron : FARG.text2 }}>{rapportUnder(r)}</span>} />
+              ))}
+            </Sektion>
+          )}
+        </Ark>
+      )}
     </div>
   );
 }

@@ -26,6 +26,7 @@ import { rollAvMaskintyp } from "@/lib/maskindatorStart";
 import { AM_STOPP, arStoppNotis, byggStoppNotis, type HamtaStopp } from "@/lib/arbetsmiljo/stoppNotis";
 import { AM_TILLBUD, arTillbudNotis, byggTillbudNotis, type HamtaTillbud } from "@/lib/arbetsmiljo/tillbudNotis";
 import { AM_ANMAL, arAnmalNotis, byggAnmalNotis, koaAnmalPaminnelse, type HamtaAnmal } from "@/lib/arbetsmiljo/anmalNotis";
+import { AM_LAGAT, arLagatNotis, byggLagatNotis, koaLagatBesked, type HamtaLagat } from "@/lib/arbetsmiljo/lagatBesked";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -118,6 +119,14 @@ async function flush() {
     console.error("[notis/flush] anmälan-påminnelse:", e);
   }
 
+  // Arbetsmiljö: en åtgärd som markerats åtgärdad → den som rapporterade får veta det (lib/arbetsmiljo/lagatBesked). Ett fel stoppar aldrig kön.
+  try {
+    const lg = await koaLagatBesked(supabase);
+    if (!lg.ok) console.error("[notis/flush] lagat-besked:", lg.fel);
+  } catch (e) {
+    console.error("[notis/flush] lagat-besked:", e);
+  }
+
   const nu = new Date().toISOString();
   const { data: pendingRader, error } = await supabase
     .from("notis_kö")
@@ -125,7 +134,7 @@ async function flush() {
     // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
     // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts), liksom lönenotiserna (lib/lonesystem/granskaNotis.ts).
-    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_ANMAL, ...LON_NOTIS_TYPER]))
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_ANMAL, AM_LAGAT, ...LON_NOTIS_TYPER]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -200,10 +209,11 @@ async function flush() {
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
       // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arAnmalNotis(n.typ)) {
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arAnmalNotis(n.typ) || arLagatNotis(n.typ)) {
         // Maskinen ska stå (lib/arbetsmiljo/stoppNotis): borta, åtgärdad eller inte längre stopp → hoppas över.
         // Tillbud/olycka (lib/arbetsmiljo/tillbudNotis): borta eller redan åtgärdad → hoppas över.
-        const u = arAnmalNotis(n.typ) ? await byggAnmalNotis(n, hamtaAnmal)
+        const u = arLagatNotis(n.typ) ? await byggLagatNotis(n, hamtaLagat)
+          : arAnmalNotis(n.typ) ? await byggAnmalNotis(n, hamtaAnmal)
           : arTillbudNotis(n.typ) ? await byggTillbudNotis(n, hamtaTillbud)
           : arStoppNotis(n.typ) ? await byggStoppNotis(n, hamtaStopp)
           : arGodkannNotis(n.typ) ? await byggGodkannNotis(n, () => lasVantandeUnderlag(supabase))
@@ -319,6 +329,22 @@ const hamtaStickprovrad: HamtaStickprov = async (manad) => {
   if (!data) return { rad: null };
   const d = data as any;
   return { rad: { manad: d.manad, valda: Array.isArray(d.valda) ? d.valda : [], spridning_km: d.spridning_km == null ? null : Number(d.spridning_km) } };
+};
+
+// Åtgärden bakom "Lagat" — status, vad som gjordes, maskinens och den som stängdes namn. Tjänstenyckeln läser förbi RLS.
+const hamtaLagat: HamtaLagat = async (id) => {
+  const { data, error } = await supabase.from("am_atgard")
+    .select("id, status, kalla, beskrivning, vad_gjordes, maskin_id, stangd_av").eq("id", id).maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const [m, p] = await Promise.all([
+    d.maskin_id ? supabase.from("dim_maskin").select("visningsnamn, modell").eq("maskin_id", d.maskin_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    d.stangd_av ? supabase.from("medarbetare").select("namn").eq("id", d.stangd_av).maybeSingle() : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (m.error || p.error) return { rad: null, fel: (m.error ?? p.error)!.message };
+  const maskin = m.data as any;
+  return { rad: { id: d.id, status: d.status, kalla: d.kalla, beskrivning: d.beskrivning ?? "", vad_gjordes: d.vad_gjordes, maskin_namn: maskin?.visningsnamn || maskin?.modell || null, stangd_av_namn: (p.data as any)?.namn ?? null } };
 };
 
 // Åtgärden för "Maskinen ska stå", med maskinens och rapportörens namn. `rad: null` = finns inte; `fel` = kunde inte läsas.
