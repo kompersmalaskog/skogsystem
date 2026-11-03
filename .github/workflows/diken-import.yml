@@ -48,7 +48,9 @@ jobs:
             unzip -q -o "Diken_$L.gdb.zip" -d "lan_$L"
             GDB=$(find "lan_$L" -type d -name '*.gdb' | head -1)
             ogrinfo -so "$GDB" | head -40
-            LAGER=$(ogrinfo -ro -q "$GDB" | sed -n 's/^[0-9]*: \([^ ]*\).*/\1/p' | head -1)
+            LAGER=$(ogrinfo -ro -q "$GDB" | sed -n -e 's/^[0-9]*: \([^ ]*\).*/\1/p' -e 's/^Layer: \([^ ]*\).*/\1/p' | head -1)
+            [ -n "$LAGER" ] || { echo "Hittade inget lager i $GDB"; exit 1; }
+            echo "Lager: $LAGER"
             ogrinfo -so "$GDB" "$LAGER" | head -30
             # Förenkla till 1 m i SWEREF 99 TM (meter), sedan till WGS84.
             ogr2ogr -f GeoJSONSeq -simplify 1 -t_srs EPSG:4326 -lco COORDINATE_PRECISION=6 "dike_$L.geojsonl" "$GDB" "$LAGER"
