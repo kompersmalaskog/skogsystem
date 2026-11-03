@@ -102,6 +102,8 @@ const REGLER: Regel[] = [
   [/^ritad-relief$/, RANG.bakgrund + 3 * D],
   [/^ritad-blott-(gles|tat)$/, RANG.bakgrund + 3.5 * D],
   [/^ritad-(vatten|vattendrag)$/, RANG.bakgrund + 4 * D],
+  [/^ritad-dike-kant$/, RANG.bakgrund + 4.2 * D],
+  [/^ritad-dike$/, RANG.bakgrund + 4.3 * D],
   [/^ritad-brant(-lite)?$/, RANG.bakgrund + 4.5 * D],
   [/^ritad-hus$/, RANG.bakgrund + 5 * D],
   // Vägarna: alla kanter under alla fyllningar, så OpenStreetMaps och Trafikverkets väg blir EN väg där båda finns.
