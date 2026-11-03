@@ -5,7 +5,7 @@ import { dikeFilter, dikeSlag, raderTillDiken, visasDike, arDikeFC } from './dik
 import { RITAD_DIKE_ID, RITAD_LAGER, grundKallor, grundLager } from './lager';
 import { DIKE_FARG, VAG_FARG } from './stil';
 import { lagerRang } from '../lagerOrdning';
-import { tillRad } from '../../scripts/diken-import.mjs';
+import { arVagdike, tillRad } from '../../scripts/diken-import.mjs';
 
 describe('dikena (Naturvårdsverkets dikeskarta)', () => {
   it('sorterna läses på ordet', () => {
@@ -35,6 +35,16 @@ describe('dikena (Naturvårdsverkets dikeskarta)', () => {
       { kol: 'max_lat', op: 'gte', v: 56 }, { kol: 'min_lat', op: 'lte', v: 57 },
       { kol: 'max_lng', op: 'gte', v: 15 }, { kol: 'min_lng', op: 'lte', v: 16 },
     ]);
+  });
+
+  it('importen sparar inte vägdiken — samma regel som appens (Naturvårdsverkets riktiga typer)', () => {
+    for (const typ of ['Skogsdike', 'Vägdike', 'Övrigt dike', 'Dike på åkermark', 'Dike på öppen våtmark', null, '']) {
+      expect(arVagdike(typ)).toBe(!visasDike(dikeSlag(typ)));
+    }
+    expect(arVagdike('Vägdike')).toBe(true);
+    expect(arVagdike('Skogsdike')).toBe(false);
+    expect(dikeSlag('Dike på öppen våtmark')).toBe('myr');
+    expect(dikeSlag('Dike på åkermark')).toBe('aker');
   });
 
   it('importen: en feature → en rad med ruta, multilinjer behålls, utan id ingen rad', () => {
