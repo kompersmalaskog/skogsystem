@@ -22,6 +22,7 @@ import { hamtaAtgardMarke } from '@/lib/arbetsmiljo/atgarder'
 import { hamtaArbetsmiljoRader, type ArbetsmiljoRad } from '@/lib/arbetsmiljo/startsida'
 import { behoverDigText as introBehoverDig, hamtaKvitton as hamtaIntroKvitton, introLage } from '@/lib/arbetsmiljo/introduktion'
 import { egnaUppgifterText } from '@/lib/personal'
+import { startsidaAntal } from '@/lib/arbetsmiljo/oversikt'
 
 // Hur länge vi väntar på rollen innan svaret räknas som okänt (läsfel får aldrig ge en tom skärm).
 export const ROLL_MAX_VANTAN_MS = 1500
@@ -49,6 +50,8 @@ export type StartsidaData = {
   introduktion: string | null
   /** Arbetsmiljöns att göra-rader (riskbedömning). Tom = inget, eller kunde inte läsas. */
   arbetsmiljo: ArbetsmiljoRad[]
+  /** Märket på kortet Arbetsmiljö: samma räkning som sidans svar (lib/arbetsmiljo/oversikt). null = inget. */
+  arbetsmiljoMarke: number | null
   /** undefined = läses; null = inga egna (eller läsfel) → rollens förinställda. */
   favoritIds: string[] | null | undefined
   sparaFavoriterna: (ids: string[]) => Promise<boolean>
@@ -156,5 +159,7 @@ export function useStartsidaData(): StartsidaData {
     window.location.href = '/login'
   }
 
-  return { roll, skyddsombud, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, maskinkollVantar, atgarder, egnaUppgifter, introduktion, arbetsmiljo, favoritIds, sparaFavoriterna, konto, loggaUt }
+  const arbetsmiljoMarke = startsidaAntal({ maskinkoll: maskinkollVantar, atgarder: atgarder?.antal ?? null, rader: arbetsmiljo.length, introduktion: !!introduktion })
+
+  return { roll, skyddsombud, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, maskinkollVantar, atgarder, egnaUppgifter, introduktion, arbetsmiljo, arbetsmiljoMarke, favoritIds, sparaFavoriterna, konto, loggaUt }
 }

@@ -38,6 +38,7 @@ const pageNames: Record<string, string> = {
   '/atgarder': 'Åtgärder',
   '/om-nagot-hander': 'Om något händer',
   '/introduktion': 'Introduktion',
+  '/arbetsmiljo': 'Arbetsmiljö',
   '/riskbedomning': 'Riskbedömning',
   '/skyddsrond': 'Skyddsrond',
   '/avtal': 'Avtal & Abonnemang',
