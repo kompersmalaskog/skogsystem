@@ -193,6 +193,10 @@ self.addEventListener('message', (event) => {
 const KART_CACHE = 'kartrutor-v1';
 const KART_LOPANDE = 'kartrutor-lopande-v1';
 const KART_LOPANDE_MAX = 3000;
+// Ritads vägar och vatten (OpenFreeMap, vektorrutor): rutorna ligger under en versionsmapp och ändras aldrig → sparat först. Beskrivningen
+// av källan (/planet, pekar ut versionen) hämtas med nät först och tas ur det sparade utan nät. Få och små — ingen gräns.
+const KART_VEKTOR = 'kartrutor-vektor-v1';
+const OFM_HOST = 'tiles.openfreemap.org';
 let kartSparade = 0;
 
 function arKartruta(url) {
@@ -206,6 +210,26 @@ async function kartRensa(cache) {
     const nycklar = await cache.keys();
     for (let i = 0; i < nycklar.length - KART_LOPANDE_MAX; i++) await cache.delete(nycklar[i]);   // äldst först
   } catch (_) { /* nästa gång */ }
+}
+
+const arVektorSvar = (r) => !!r && r.ok && /protobuf|mapbox-vector-tile|octet-stream/.test(r.headers.get('content-type') || '');
+
+async function vektorruta(req) {
+  try { const sparad = await (await caches.open(KART_VEKTOR)).match(req.url); if (sparad) return sparad; } catch (_) { /* */ }
+  const svar = await fetch(req);
+  if (arVektorSvar(svar)) { try { await (await caches.open(KART_VEKTOR)).put(req.url, svar.clone()); } catch (_) { /* */ } }
+  return svar;
+}
+
+async function vektorKalla(req) {
+  try {
+    const svar = await fetch(req);
+    if (svar.ok) { try { await (await caches.open(KART_VEKTOR)).put(req.url, svar.clone()); } catch (_) { /* */ } }
+    return svar;
+  } catch (e) {
+    try { const sparad = await (await caches.open(KART_VEKTOR)).match(req.url); if (sparad) return sparad; } catch (_) { /* */ }
+    throw e;
+  }
 }
 
 async function kartruta(req) {
@@ -230,6 +254,11 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   let url;
   try { url = new URL(req.url); } catch (_) { return; }
+  if (url.hostname === OFM_HOST) {
+    if (url.pathname.endsWith('.pbf')) { event.respondWith(vektorruta(req)); return; }
+    if (url.pathname === '/planet') { event.respondWith(vektorKalla(req)); return; }
+    return;
+  }
   if (arKartruta(url)) { event.respondWith(kartruta(req)); return; }
   if (url.origin !== self.location.origin) return;
   const sida = req.mode === 'navigate' && url.pathname === NOD_SIDA;

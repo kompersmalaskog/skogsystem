@@ -1,6 +1,6 @@
 // Själva nedladdningen av en traktkarta (lib/kartNedladdning): EN väg för trakten som är öppen (useLaddaNerTrakt) och för trakterna
 // som hämtas i bakgrunden (useBakgrundsNedladdning). Bara i webbläsaren (Cache Storage + fetch).
-import { KART_CACHE, lasMeta, medTrakt, planeraRutor, sparaMeta, type Bbox } from '@/lib/kartNedladdning';
+import { KART_CACHE, lasMeta, medMarginal, medTrakt, planeraRutor, rutorFor, sparaMeta, type Bbox } from '@/lib/kartNedladdning';
 
 export const GILTIG_DAGAR = 60;       // äldre än så laddas trakten ner igen (ett flygfoto byts vartannat år)
 const FEL_ANDEL = 0.1;                // fler än 10 % rutor som inte gick att hämta = fel (nästa gång försöks igen)
@@ -72,4 +72,34 @@ export async function taBortTrakter(ids: string[]): Promise<void> {
   const behall = new Set(kvar.flatMap((m) => planeraRutor(m.bbox)));
   const cache = await caches.open(KART_CACHE);
   for (const m of bort) for (const u of planeraRutor(m.bbox)) if (!behall.has(u)) { try { await cache.delete(abs(u)); } catch { /* */ } }
+}
+
+// ── Ritad: vägar och vatten (OpenFreeMap, vektorrutor) ──────────────────────────────────────────────────────────────
+export const KART_VEKTOR = 'kartrutor-vektor-v1';
+const OFM_KALLA = 'https://tiles.openfreemap.org/planet';
+const VEKTOR_ZOOM: [number, number] = [10, 14];   // OpenFreeMaps rutor slutar på 14; närmare ritar kartan dem större
+
+/** Hämtar Ritads vägar och vatten runt trakten till enheten (de är små: några tiotal rutor). `true` = allt fanns eller hämtades. */
+export async function laddaNerVektor(bbox: Bbox, avbruten: () => boolean): Promise<boolean> {
+  const cache = await caches.open(KART_VEKTOR);
+  let mall: string | null = null;
+  try {
+    const r = await fetch(OFM_KALLA);
+    if (r.ok) { await cache.put(OFM_KALLA, r.clone()); mall = (await r.json())?.tiles?.[0] ?? null; }
+  } catch { /* inget nät */ }
+  if (!mall) return false;
+  const b = medMarginal(bbox);
+  let fel = 0;
+  for (let z = VEKTOR_ZOOM[0]; z <= VEKTOR_ZOOM[1] && !avbruten(); z++) {
+    for (const { x, y } of rutorFor(b, z)) {
+      if (avbruten()) return false;
+      const u = mall.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
+      try {
+        if (await cache.match(u)) continue;
+        const r = await fetch(u, { mode: 'cors', credentials: 'omit' });
+        if (r.ok) await cache.put(u, r); else fel++;
+      } catch { fel++; }
+    }
+  }
+  return fel === 0;
 }

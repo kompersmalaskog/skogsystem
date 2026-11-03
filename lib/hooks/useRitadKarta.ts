@@ -19,6 +19,7 @@ import { byggRitat, type Ritat } from '@/lib/ritadKarta/bygg';
 import { BLOTT_MONSTER, BLOTT_STRECK, BRANT_MONSTER, BRANT_LITE_MONSTER, brantLiteBild, RITAD_DOLJ_FYLLNING, blottLager, blottMonsterBild, RITAD_ID, RITAD_KALLA, RITAD_LAGER, brantLager, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
 import { franBase64, type MarkRutnat } from '@/lib/ritadKarta/mark';
 import { snedstreckBild } from '@/lib/ytaStil';
+import { medReserv } from '@/lib/ritadKarta/reserv';
 
 export type RitadStatus =
   | { typ: 'av' }
@@ -35,39 +36,77 @@ type Objektfakta = { typ: 'ok'; vida: Ring[] | null; vo: string | null; slutavve
 const faktaCache = new Map<string, Promise<Objektfakta>>();
 const laserCache = new Map<string, Promise<Svar>>();
 
-async function hamtaFakta(objektId: string): Promise<Objektfakta> {
+// Allt som hämtas går via lib/ritadKarta/reserv: nät först, det som sparats i enheten när nätet inte går — Ritad fungerar utan täckning.
+type FaktaOk = Extract<Objektfakta, { typ: 'ok' }>;
+
+async function hamtaFaktaNat(objektId: string): Promise<{ ok: true; varde: FaktaOk } | { ok: false }> {
   const { data: o, error } = await supabase.from('objekt').select('vo_nummer, typ').eq('id', objektId).maybeSingle();
-  if (error) return { typ: 'fel', text: 'Kunde inte läsa objektet' };
+  if (error) return { ok: false };
   const g = await lasVidaGrans(supabase as any, objektId);
-  if (g.typ === 'fel') return { typ: 'fel', text: 'Kunde inte läsa traktgränsen' };
+  if (g.typ === 'fel') return { ok: false };
   return {
-    typ: 'ok',
-    vida: g.typ === 'ok' && g.ringar?.length ? (g.ringar as Ring[]) : null,
-    vo: (o as any)?.vo_nummer ?? null,
-    slutavverkning: (o as any)?.typ === 'slutavverkning',
+    ok: true,
+    varde: {
+      typ: 'ok',
+      vida: g.typ === 'ok' && g.ringar?.length ? (g.ringar as Ring[]) : null,
+      vo: (o as any)?.vo_nummer ?? null,
+      slutavverkning: (o as any)?.typ === 'slutavverkning',
+    },
   };
 }
 
-async function hamtaSkog(f: Extract<Objektfakta, { typ: 'ok' }>, omrade: Omrade): Promise<Svar> {
-  let stammar: { lat: number; lng: number }[] = [];
-  // Bara en slutavverkning ritas som avverkad: i en gallring står skogen kvar.
-  if (f.slutavverkning && f.vo) {
-    try { stammar = (await hamtaStammoln(f.vo)).punkter; } catch { /* utan stammar ritas inget avverkat */ }
-  }
-  const kropp = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ringar: omrade.ringar }) };
-  const [r, mark] = await Promise.all([fetch('/api/ritad-karta/laser', kropp), hamtaMark(kropp)]);
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) return { typ: 'fel', text: (j as any)?.error || 'Kunde inte hämta laserdatan' };
-  const rn = j as Rutnat;
-  return { typ: 'klar', ritat: byggRitat(rn, stammar, mark.rutnat, mark.skugga), ar: rn.ar ?? null, kalla: omrade.kalla, saknas: mark.saknas };
+async function hamtaFakta(objektId: string): Promise<Objektfakta> {
+  const r = await medReserv<FaktaOk>(`fakta/${objektId}`, () => hamtaFaktaNat(objektId));
+  return r ? r.varde : { typ: 'fel', text: 'Kunde inte läsa traktgränsen' };
 }
 
-/** Blött, brant och skuggning (lib/ritadKarta/mark.ts). Faller något ritas skogen ändå och `saknas` säger vad. */
-async function hamtaMark(kropp: RequestInit): Promise<{ rutnat: MarkRutnat | null; skugga: CanvasImageSource | null; saknas: string[] }> {
+/** Rådata för ett område: laser, blött/brant och stammarna — hämtade (eller ur det sparade) men inte ritade. Också bakgrundsnedladdningen använder den. */
+async function hamtaRadata(f: FaktaOk, omrade: Omrade): Promise<{ laser: Rutnat | null; laserFel: string; mark: any | null; stammar: { lat: number; lng: number }[] }> {
+  const nyck = omradeNyckel(omrade);
+  const kropp = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ringar: omrade.ringar }) };
+  let laserFel = 'Kunde inte hämta laserdatan';
+  const jsonFran = async (url: string, felText?: (j: any) => void) => {
+    const r = await fetch(url, kropp);
+    const j = await r.json().catch(() => null);
+    if (!r.ok || !j) { felText?.(j); return { ok: false as const }; }
+    return { ok: true as const, varde: j };
+  };
+  // Bara en slutavverkning ritas som avverkad: i en gallring står skogen kvar.
+  const stammarP = f.slutavverkning && f.vo
+    ? medReserv<{ lat: number; lng: number }[]>(`stammar/${f.vo}`, async () => ({ ok: true, varde: (await hamtaStammoln(f.vo)).punkter }))
+    : Promise.resolve(null);
+  const [laser, mark, stammar] = await Promise.all([
+    medReserv<Rutnat>(`laser/${nyck}`, () => jsonFran('/api/ritad-karta/laser', (j) => { if (j?.error) laserFel = j.error; })),
+    medReserv<any>(`mark/${nyck}`, () => jsonFran('/api/ritad-karta/mark')),
+    stammarP,
+  ]);
+  return { laser: laser?.varde ?? null, laserFel, mark: mark?.varde ?? null, stammar: stammar?.varde ?? [] };
+}
+
+async function hamtaSkog(f: FaktaOk, omrade: Omrade): Promise<Svar> {
+  const d = await hamtaRadata(f, omrade);
+  if (!d.laser) return { typ: 'fel', text: d.laserFel };
+  const mark = await tolkaMark(d.mark);
+  return { typ: 'klar', ritat: byggRitat(d.laser, d.stammar, mark.rutnat, mark.skugga), ar: d.laser.ar ?? null, kalla: omrade.kalla, saknas: mark.saknas };
+}
+
+/**
+ * Bakgrundsnedladdningen: hämta allt Ritad behöver för objektet till enheten, utan att rita något. Ytan = Vidas traktgräns, annars objektets
+ * punkt (planerarens egen gräns finns bara på sidan). `true` = hämtat (eller fanns), `false` = gick inte.
+ */
+export async function forladdaRitad(objektId: string, punkt: { lat: number; lng: number } | null): Promise<boolean> {
+  const f = await hamtaFakta(objektId);
+  if (f.typ !== 'ok') return false;
+  const omrade = valjOmrade({ vida: f.vida, egna: null, punkt });
+  if (!omrade) return false;
+  const d = await hamtaRadata(f, omrade);
+  return !!d.laser;
+}
+
+/** Blött, brant och skuggning (lib/ritadKarta/mark.ts) ur serverns svar. Saknas något ritas skogen ändå och `saknas` säger vad. */
+async function tolkaMark(j: any | null): Promise<{ rutnat: MarkRutnat | null; skugga: CanvasImageSource | null; saknas: string[] }> {
+  if (!j) return { rutnat: null, skugga: null, saknas: ['blött och brant'] };
   try {
-    const r = await fetch('/api/ritad-karta/mark', kropp);
-    if (!r.ok) return { rutnat: null, skugga: null, saknas: ['blött och brant'] };
-    const j: any = await r.json();
     const rutnat: MarkRutnat = { minX: j.minX, maxY: j.maxY, bredd: j.bredd, hojd: j.hojd, rutaM: j.rutaM, fukt: franBase64(j.fukt), lutning: franBase64(j.lutning) };
     let skugga: CanvasImageSource | null = null;
     if (j.skugga) {
