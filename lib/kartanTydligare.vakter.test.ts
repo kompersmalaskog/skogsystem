@@ -38,11 +38,11 @@ describe('reglagen är inkopplade i planeringssidan (planering OCH körvy/maskin
 });
 
 describe('spåren: smal mörk kant i stället för den dolda ljusa, rollfärger, inga hårdkodade värden i sidan', () => {
-  it('alla casing-lager läser kantens färg, bredd och opacitet ur dampatSpar', () => {
+  it('alla casing-lager läser kantens färg, bredd och opacitet ur sparStil (kartSpar: skotaren som band utan kant, skördaren grå där klar — lib/korsparKlart)', () => {
     expect(sida).not.toContain('HYTTSPAR_CASING_COLOR');
-    expect(sida).not.toMatch(/'line-opacity': 0, 'line-width': dampatSpar/);
+    expect(sida).not.toMatch(/'line-opacity': 0, 'line-width': (dampatSpar|kartSpar)/);
     for (const art of ["'skotare', 'hist'", "'skotare', 'egen'", "'skordare', 'andras'"]) {
-      expect(sida).toContain(`'line-color': dampatSpar(${art}).kantFarg, 'line-opacity': dampatSpar(${art}).kantOpacitet as any, 'line-width': dampatSpar(${art}).kantBredd`);
+      expect(sida).toContain(`'line-color': kartSpar(${art}).kantFarg, 'line-opacity': kartSpar(${art}).kantOpacitet as any, 'line-width': kartSpar(${art}).kantBredd`);
     }
     expect(sida).toContain("'line-color': st.kantFarg, 'line-opacity': st.kantOpacitet as any, 'line-width': st.kantBredd");
   });
