@@ -4,7 +4,7 @@ import { mejlLank } from './kemikalier';
 
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]); // %PDF-1
 const svar = (status: number, body: Uint8Array | string, headers: Record<string, string> = {}) =>
-  new Response(typeof body === 'string' ? body : new Blob([body]), { status, headers });
+  new Response(typeof body === 'string' ? body : new Blob([body as BlobPart]), { status, headers });
 
 describe('länkar appen får hämta', () => {
   it('bara https till vanliga värdnamn', () => {
