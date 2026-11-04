@@ -29,6 +29,11 @@ import { anvandObjektLista, anvandObjektListaUtanObjekt } from '../../lib/objekt
 import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
 import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/ObjektInfo'
+import { AvvikelseFlode, type AvvikelseFlodeRef, type AvvikelsePos } from '../../components/planering/AvvikelseFlode'
+import { AvvikelseKort } from '../../components/planering/AvvikelseKort'
+import { useAvvikelser } from '../../lib/hooks/useAvvikelser'
+import { forvalVidPos } from '../../lib/avvikelse'
+import { AVVIKELSE_LAGER, ritaAvvikelser } from '../../lib/avvikelseKarta'
 import { planerarRiskRad } from '../../components/planering/Risker'
 import { type BesokPlanerareProps } from '../../components/besok/BesokPlanerare'
 import BesokKortHytt from '../../components/besok/BesokKortHytt'
@@ -9416,6 +9421,42 @@ export default function PlannerPage() {
   // "AVVERKAS – LARMA INTE" (Martin 2026-10-29): Vidas hänsynsytor som planeraren markerat larmar inte och räknas inte i fällningscirkeln (lib/vidaAvverkas).
   // Ytan ritas och instruktionen visas som förut — bara larmet tystnar. Går markeringarna inte att läsa larmar allt.
   const vidaAvverkas = useVidaAvverkas(supabase, valtObjekt?.id, isAdminRiktig);
+  // ── AVVIKELSE SOM BEVIS (Martin 2026-11-04): + › Rita & mät › Avvikelse → kameran → typ (förvald ur kartan) → Spara. Röd romb på kartan.
+  // Platsen är den position kartan har just nu (körvyns GPS, annars sidans), noggrannheten följer med. Servern sätter fotograf och tid.
+  const avvikelseFlodeRef = useRef<AvvikelseFlodeRef>(null);
+  const avvikelsePosRef = useRef<AvvikelsePos | null>(null);
+  {
+    const p = korvyEffectivePos ?? currentPosition;
+    avvikelsePosRef.current = p ? { lat: p.lat, lng: p.lon, noggrannhetM: gpsAccuracy } : null;
+  }
+  const avvikelseIndataRef = useRef<{ markers: any[]; vida: any; svg: (x: number, y: number) => { lat: number; lon: number } }>({ markers: [], vida: null, svg: () => ({ lat: 0, lon: 0 }) });
+  avvikelseIndataRef.current = { markers, vida: traktGeo, svg: svgToLatLon };
+  const hamtaAvvikelsePos = useCallback(() => avvikelsePosRef.current, []);
+  const hamtaAvvikelseForval = useCallback((pos: AvvikelsePos | null) => {
+    const d = avvikelseIndataRef.current;
+    return forvalVidPos({ pos, markers: d.markers, svgToLatLon: d.svg, vida: d.vida });
+  }, []);
+  const avvikelseMaskinNamn = useCallback((id: string) => { const m = dimMaskiner.find((x) => x.maskin_id === id); return m ? maskinModell(m) || null : null; }, [dimMaskiner]);
+  const avvikelser = useAvvikelser(valtObjekt?.id ?? null);
+  const [valdAvvikelseId, setValdAvvikelseId] = useState<string | null>(null);
+  const valdAvvikelse = valdAvvikelseId ? avvikelser.lista.find((a) => a.rad.id === valdAvvikelseId) ?? null : null;
+  const avvikelsePunkterRef = useRef<{ id: string; lat: number; lng: number; vantar: boolean }[]>([]);
+  avvikelsePunkterRef.current = avvikelser.lista.map((a) => ({ id: a.rad.id, lat: a.rad.lat, lng: a.rad.lng, vantar: a.vantar }));
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const rita = () => ritaAvvikelser(map, avvikelsePunkterRef.current);
+    rita();
+    map.on('styledata', rita);   // stilbyte (flygfoto ↔ karta, körvyn) tar bort källor och lager — lägg tillbaka
+    const tryck = (e: any) => {
+      if (vinnandeKategoriForKarta(map, e.point) !== 'punkt') return;
+      const id = e.features?.[0]?.properties?.id;
+      if (id) setValdAvvikelseId(String(id));
+    };
+    map.on('click', AVVIKELSE_LAGER, tryck);
+    return () => { map.off('styledata', rita); map.off('click', AVVIKELSE_LAGER, tryck); };
+  }, [avvikelser.lista, mapLibreReady]);
+
   const vidaLarm = useMemo(() => utanAvverkade(traktGeo, vidaAvverkas.avverkas), [traktGeo, vidaAvverkas.avverkas]);
   const larm = useKorvyLarm({
     aktiv: korvyActive,
@@ -12793,6 +12834,8 @@ export default function PlannerPage() {
   // trycktPlusPost). Mät sträcka/Mät yta startar mätfiguren (Klar visar talet, inget sparas). Spåra med GPS öppnar GPS-undermenyn (samma startGpsTracking).
   const byggRita = (): RitaKort[] => {
     return [
+      // AVVIKELSE SOM BEVIS: kameran öppnas i SAMMA tryck (iOS kräver ett riktigt tryck för kameran) — se components/planering/AvvikelseFlode.
+      ...(valtObjekt?.id ? [{ id: 'avvikelse', titel: 'Avvikelse', ikon: 'avvikelse' as const, onTryck: () => { avvikelseFlodeRef.current?.oppna(); stangPlus(); avslutaPagaendeLage(); } }] : []),
       { id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje') },
       { id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta') },
       // Eget område (ersätter "Spara som › Yta"): samma markering — traktgräns med nummer. Ritmekaniken = tryck hörn, stäng på första hörnet.
@@ -15058,6 +15101,9 @@ export default function PlannerPage() {
              dockan returnerar den null direkt — exakt som när den avmonterades. Nyckeln fryses medan den stängs (annars byts den när plusArkStart nollas
              och panelen blinkar bort) och räknas upp vid varje öppning så den alltid startar om rent. */}
       {/* OBJEKTLISTAN (ark under 900 px, panel från 900 px) — bara planeringsvyn; körvyn och maskinläget har sin egen väg. Monterad hela tiden så utglidningen hinner spelas. */}
+      <AvvikelseFlode ref={avvikelseFlodeRef} objektId={valtObjekt?.id ?? null} hamtaPos={hamtaAvvikelsePos} hamtaForval={hamtaAvvikelseForval}
+        fotograf={currentMedarbetare?.namn ?? null} maskinNamn={avvikelseMaskinNamn} />
+      {valdAvvikelse && <AvvikelseKort avvikelse={valdAvvikelse} onStang={() => setValdAvvikelseId(null)} maskinNamn={avvikelseMaskinNamn} />}
       {objektListaVal && (
         <ObjektLista oppen={objektListaOppen} kanStangas valtId={valtObjekt?.id ?? null} onValj={valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} onStang={() => setObjektListaOppen(false)} onPrickar={setListPrickar} kartaTryck={objektKartaTryck} />
       )}

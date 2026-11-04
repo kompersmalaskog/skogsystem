@@ -47,7 +47,7 @@ export interface PlusPostVy {
 
 export interface SymbolKategori { id: string; rubrik: string; poster: PlusPostVy[] }
 
-export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps' | 'omrade' | 'pilar' | 'stickvag' | 'korordning' | 'redigera';
+export type RitaIkonId = 'avvikelse' | 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps' | 'omrade' | 'pilar' | 'stickvag' | 'korordning' | 'redigera';
 /** En stor ruta i Rita & mät. Vad ett tryck gör avgör sidan (samma flöden som förut). */
 export interface RitaKort { id: string; titel: string; ikon: RitaIkonId; onTryck: () => void }
 
@@ -106,6 +106,7 @@ function RitaIkon({ id }: { id: RitaIkonId }) {
   const punkter = (pp: number[][]) => pp.map(([x, y]) => <circle key={`${x}-${y}`} cx={x} cy={y} r="3.5" fill={f} />);
   return (
     <svg aria-hidden="true" width="40" height="40" viewBox="0 0 40 40">
+      {id === 'avvikelse' && <><path d="M6 14 H13 L16 9 H24 L27 14 H34 V32 H6 Z" {...linje} /><circle cx="20" cy="22" r="6" {...linje} /></>}
       {id === 'linje' && <><path d="M6 32 L16 14 L26 24 L34 8" {...linje} />{punkter([[6, 32], [16, 14], [26, 24], [34, 8]])}</>}
       {id === 'yta' && <><path d="M6 10 L30 6 L35 30 L10 34 Z" {...linje} />{punkter([[6, 10], [30, 6], [35, 30], [10, 34]])}</>}
       {id === 'strackan' && <path d="M5 20 H35 M5 13 V27 M35 13 V27" {...linje} />}
