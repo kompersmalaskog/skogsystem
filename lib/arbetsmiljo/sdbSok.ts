@@ -12,6 +12,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { extractText, getDocumentProxy } from 'unpdf';
+import { hKoder } from './kemikalier';
 
 /** Etiketten läses och bladet söks med en snabb modell; går den inte att nå provas nästa. Ändras med KEMIKALIE_MODELL. */
 export const MODELLER = ['claude-sonnet-5-5', 'claude-sonnet-4-5', 'claude-sonnet-4-20250514'] as const;
@@ -200,7 +201,7 @@ export async function hamtaPdf(start: string, hamta: Hamta = fetch): Promise<Uin
   return null;
 }
 
-async function pdfText(b: Uint8Array): Promise<string> {
+export async function pdfText(b: Uint8Array): Promise<string> {
   try {
     const doc = await getDocumentProxy(new Uint8Array(b));
     const { text } = await extractText(doc, { mergePages: true });
@@ -208,7 +209,7 @@ async function pdfText(b: Uint8Array): Promise<string> {
   } catch { return ''; }
 }
 
-export type Fynd = { pdf: Uint8Array; url: string; namnStammer: boolean };
+export type Fynd = { pdf: Uint8Array; url: string; namnStammer: boolean; koder: string[] };
 
 /** Första länken som är en riktig PDF och ett säkerhetsdatablad. En där namnet syns går före en där det inte gör det. */
 export async function valjBlad(urler: readonly string[], namn: string, hamta: Hamta = fetch, las: (b: Uint8Array) => Promise<string> = pdfText): Promise<Fynd | null> {
@@ -216,10 +217,11 @@ export async function valjBlad(urler: readonly string[], namn: string, hamta: Ha
   for (const u of urler) {
     const pdf = await hamtaPdf(u, hamta);
     if (!pdf) continue;
-    const k = kontrolleraText(await las(pdf), namn);
+    const text = await las(pdf);
+    const k = kontrolleraText(text, namn);
     if (!k.arSdb) continue;
-    if (k.namnStammer) return { pdf, url: u, namnStammer: true };
-    reserv ??= { pdf, url: u, namnStammer: false };
+    if (k.namnStammer) return { pdf, url: u, namnStammer: true, koder: hKoder(text) };
+    reserv ??= { pdf, url: u, namnStammer: false, koder: hKoder(text) };
   }
   return reserv;
 }

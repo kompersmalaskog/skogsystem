@@ -4,7 +4,7 @@
 export type Etikett = { namn: string; tillverkare: string | null };
 export type LasSvar = { ok: true; etikett: Etikett } | { ok: false; olaslig: boolean };
 export type SokSvar =
-  | { status: 'hittad'; fil: File; kalla: string; namnStammer: boolean }
+  | { status: 'hittad'; fil: File; kalla: string; namnStammer: boolean; koder: string[] }
   | { status: 'inget' }
   | { status: 'fel' };
 
@@ -42,6 +42,14 @@ export async function sokBladApi(namn: string, tillverkare: string | null): Prom
     for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
     const kalla = typeof json.kalla === 'string' ? json.kalla : 'nätet';
     const fil = new File([b], `${namn.replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 60)}-sdb.pdf`, { type: 'application/pdf' });
-    return { status: 'hittad', fil, kalla, namnStammer: json.namnStammer === true };
+    const koder = Array.isArray(json.koder) ? json.koder.filter((k): k is string => typeof k === 'string') : [];
+    return { status: 'hittad', fil, kalla, namnStammer: json.namnStammer === true, koder };
   } catch { return { status: 'fel' }; }
+}
+
+/** Faroangivelserna i ett blad (en fil man valt själv, eller ett äldre blad). null = gick inte att läsa. */
+export async function lasKoderApi(pdf: Blob): Promise<string[] | null> {
+  if (pdf.size > 3 * 1024 * 1024) return null;
+  const { json } = await post({ steg: 'koder', pdf: await blobTillBase64(pdf) });
+  return json?.ok && Array.isArray(json.koder) ? json.koder.filter((k): k is string => typeof k === 'string') : null;
 }

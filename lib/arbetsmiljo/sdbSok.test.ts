@@ -111,3 +111,23 @@ describe('mejlet till leverantören', () => {
     expect(new URLSearchParams(mejlLank('Statoil Hydraway', 'Statoil', null).slice(8)).get('subject')).toBe('Säkerhetsdatablad för Statoil Hydraway');
   });
 });
+
+import { faraRad, faror, hKoder } from './kemikalier';
+describe('farorna ur bladet', () => {
+  it('H-koderna läses ur texten, en gång var, i nummerordning', () => {
+    const t = 'AVSNITT 2: H225 Mycket brandfarlig. H 350 Kan orsaka cancer. H340, H304+H336, H360FD. EUH066. H411. H2O 1234 H999';
+    expect(hKoder(t)).toEqual(['H225', 'H304', 'H336', 'H340', 'H350', 'H360FD', 'H411']);
+    expect(hKoder('Klassificering: H350i')).toEqual(['H350i']);
+  });
+  it('bensin: cancer först, sedan brandfarlig och miljö', () => {
+    const f = faror(['H225', 'H304', 'H340', 'H350', 'H411']);
+    expect(f.map(x => x.slag)).toEqual(['cancer', 'brand', 'miljo']);
+    expect(f[0].koder).toEqual(['H340', 'H350']);
+    expect(faraRad({ hKoder: ['H225', 'H340'] })).toBe('Kan ge cancer eller skada arvsmassan');
+  });
+  it('en vanlig hydraulolja har inget allvarligt; ett olästa blad säger inget', () => {
+    expect(faraRad({ hKoder: ['H304', 'H412'] })).toBeNull();
+    expect(faraRad({ hKoder: null })).toBeNull();
+    expect(faraRad({ hKoder: ['H317', 'H334'] })).toBe('Kan ge allergi');
+  });
+});

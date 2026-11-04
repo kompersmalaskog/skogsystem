@@ -19,6 +19,8 @@ export type Kemikalie = {
   sdbTid: string | null;
   /** Foto på etiketten (faromärkningen syns där). */
   etikettSokvag: string | null;
+  /** Faroangivelserna ur bladet (H350 …). null = bladet är inte läst än; [] = inga. */
+  hKoder?: string[] | null;
 };
 
 /** Svaret överst. */
@@ -59,13 +61,13 @@ export function filFel(f: { type: string; size: number; name: string }): string 
 // Läsning och skrivning
 // ---------------------------------------------------------------------------------------------------------------------------
 
-type Rad = { id: string; namn: string; var_finns: string | null; sdb_sokvag: string | null; sdb_tid: string | null; etikett_sokvag?: string | null };
+type Rad = { id: string; namn: string; var_finns: string | null; sdb_sokvag: string | null; sdb_tid: string | null; etikett_sokvag?: string | null; h_koder?: string[] | null };
 
 /** Alla aktiva. null = kunde inte läsas (aldrig "inga produkter"). */
 export async function hamtaKemikalier(sb: SupabaseClient): Promise<Kemikalie[] | null> {
-  const { data, error } = await sb.from('am_kemikalie').select('id, namn, var_finns, sdb_sokvag, sdb_tid, etikett_sokvag').eq('aktiv', true);
+  const { data, error } = await sb.from('am_kemikalie').select('id, namn, var_finns, sdb_sokvag, sdb_tid, etikett_sokvag, h_koder').eq('aktiv', true);
   if (error) return null;
-  return ((data ?? []) as Rad[]).map(r => ({ id: r.id, namn: r.namn, varFinns: r.var_finns, sdbSokvag: r.sdb_sokvag, sdbTid: r.sdb_tid, etikettSokvag: r.etikett_sokvag ?? null }));
+  return ((data ?? []) as Rad[]).map(r => ({ id: r.id, namn: r.namn, varFinns: r.var_finns, sdbSokvag: r.sdb_sokvag, sdbTid: r.sdb_tid, etikettSokvag: r.etikett_sokvag ?? null, hKoder: r.h_koder ?? null }));
 }
 
 /** Ladda upp ett blad (PDF) eller etikettens foto (JPEG). Sökvägen returneras, eller null vid fel. */
@@ -77,7 +79,7 @@ async function laddaUpp(sb: SupabaseClient, id: string, fil: Blob, slag: 'blad' 
 
 /** Ny produkt. Fotot och bladet är valfria. Fel = text, annars null. */
 export async function laggTill(
-  sb: SupabaseClient, namn: string, varFinns: string, fil: Blob | null, etikett: Blob | null = null,
+  sb: SupabaseClient, namn: string, varFinns: string, fil: Blob | null, etikett: Blob | null = null, koder: string[] | null = null,
 ): Promise<string | null> {
   const n = namn.trim();
   if (!n) return 'Skriv vad produkten heter.';
@@ -94,15 +96,17 @@ export async function laggTill(
   }
   const rad: Record<string, unknown> = { id, namn: n.slice(0, 120), var_finns: varFinns.trim().slice(0, 120) || null, sdb_sokvag: sokvag };
   if (etikettSokvag) rad.etikett_sokvag = etikettSokvag;
+  if (sokvag && koder) rad.h_koder = koder;
   const { error } = await sb.from('am_kemikalie').insert(rad);
   return error ? 'Kunde inte spara just nu. Försök igen.' : null;
 }
 
 /** Byt (eller lägg till) säkerhetsbladet. Det gamla ligger kvar i bucketen. */
-export async function bytBlad(sb: SupabaseClient, id: string, fil: Blob): Promise<string | null> {
+export async function bytBlad(sb: SupabaseClient, id: string, fil: Blob, koder: string[] | null = null): Promise<string | null> {
   const sokvag = await laddaUpp(sb, id, fil);
   if (!sokvag) return 'Kunde inte ladda upp säkerhetsbladet. Försök igen.';
-  const { data, error } = await sb.from('am_kemikalie').update({ sdb_sokvag: sokvag }).eq('id', id).select('id');
+  // Nytt blad: koderna läses om (null = inte lästa, läses i efterhand).
+  const { data, error } = await sb.from('am_kemikalie').update({ sdb_sokvag: sokvag, h_koder: koder }).eq('id', id).select('id');
   if (error || !data || data.length === 0) return 'Kunde inte spara just nu. Försök igen.';
   return null;
 }
@@ -141,4 +145,61 @@ export function mejlLank(namn: string, tillverkare: string | null, avsandare: st
     avsandare ? `${avsandare}, Kompersmåla Skog AB` : 'Kompersmåla Skog AB',
   ].join('\n');
   return `mailto:?subject=${encodeURIComponent(amne)}&body=${encodeURIComponent(text)}`;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// FAROR UR BLADET (2026-11-04). Avsnitt 2 i ett säkerhetsdatablad listar produktens faroangivelser som koder (H350, H317 …).
+// Appen läser koderna ur PDF:en när bladet läggs in, så ingen behöver läsa bladet för att se om produkten kan ge cancer eller allergi
+// — de produkterna ska man titta på särskilt (AFS 2023:10: byt till en ofarligare om det går). Vanliga oljor har inga av dem.
+// ---------------------------------------------------------------------------------------------------------------------------
+
+/** Alla H-koder i texten, utan dubbletter, i nummerordning ("H 350" och "H350i" känns igen; "H360FD" behåller bokstäverna). */
+export function hKoder(text: string): string[] {
+  const ut = new Set<string>();
+  for (const m of text.matchAll(/(?<![A-Za-z0-9])(EUH|H)\s?(\d{3})(i|[FfDd]{1,2})?(?![0-9])/g)) {
+    if (m[1] === 'EUH') continue;
+    const nr = Number(m[2]);
+    if (nr < 200 || nr > 420) continue;
+    ut.add(`H${m[2]}${m[3] ?? ''}`);
+  }
+  return [...ut].sort((a, b) => a.localeCompare(b, 'sv', { numeric: true }));
+}
+
+export type FaraSlag = 'cancer' | 'allergi' | 'gift' | 'brand' | 'miljo';
+export type Fara = { slag: FaraSlag; titel: string; gora: string; allvarlig: boolean; koder: string[] };
+
+const FAROR: ReadonlyArray<{ slag: FaraSlag; titel: string; gora: string; allvarlig: boolean; test: (nr: number) => boolean }> = [
+  { slag: 'cancer', titel: 'Kan ge cancer eller skada arvsmassan', gora: 'Byt till en ofarligare produkt om det går. Annars: handskar och bra ventilation, aldrig på huden.', allvarlig: true,
+    test: n => [340, 341, 350, 351, 360, 361, 362].includes(n) },
+  { slag: 'allergi', titel: 'Kan ge allergi', gora: 'Handskar. Låt den inte komma på huden eller andas in den.', allvarlig: true,
+    test: n => n === 317 || n === 334 },
+  { slag: 'gift', titel: 'Giftig', gora: 'Läs säkerhetsbladet innan du använder den.', allvarlig: true,
+    test: n => [300, 301, 310, 311, 330, 331, 370, 372].includes(n) },
+  { slag: 'brand', titel: 'Brandfarlig', gora: 'Ingen gnista eller öppen eld i närheten.', allvarlig: false,
+    test: n => n >= 220 && n <= 228 },
+  { slag: 'miljo', titel: 'Farlig för vatten och fisk', gora: 'Spill i marken ska tas upp.', allvarlig: false,
+    test: n => n === 400 || n === 410 || n === 411 },
+];
+
+/** Koderna som faror i vardagsord, allvarligast först. Okända koder visas inte (de flesta är irritation, yrsel …). */
+export function faror(koder: readonly string[] | null | undefined): Fara[] {
+  if (!koder) return [];
+  const ut: Fara[] = [];
+  for (const f of FAROR) {
+    const traffar = koder.filter(k => f.test(Number(k.slice(1, 4))));
+    if (traffar.length) ut.push({ slag: f.slag, titel: f.titel, gora: f.gora, allvarlig: f.allvarlig, koder: traffar });
+  }
+  return ut;
+}
+
+/** Raden i listan: de allvarliga farorna, annars null. */
+export function faraRad(k: Pick<Kemikalie, 'hKoder'>): string | null {
+  const a = faror(k.hKoder).filter(f => f.allvarlig);
+  return a.length ? a.map(f => f.titel).join(' · ') : null;
+}
+
+/** Spara koderna på en produkt (admin, när ett äldre blad lästs i efterhand). */
+export async function sparaKoder(sb: SupabaseClient, id: string, koder: string[]): Promise<boolean> {
+  const { data, error } = await sb.from('am_kemikalie').update({ h_koder: koder }).eq('id', id).select('id');
+  return !error && !!data && data.length > 0;
 }

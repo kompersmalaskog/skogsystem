@@ -18,6 +18,7 @@ vi.mock('@/lib/arbetsmiljo/kemikalier', async (orig) => ({
   laggTill: async (...a: unknown[]) => { tillagda.push(a.slice(1)); return null; },
   bladLank: async (_sb: unknown, s: string) => { lankar.push(s); return `https://signerad.example/${s}`; },
   bytBlad: async (...a: unknown[]) => { bytta.push(a.slice(1)); return null; },
+  sparaKoder: async (...a: unknown[]) => { sparat.push(a.slice(1)); return true; },
 }));
 const gjort: unknown[][] = [];
 let gjorda: any[] = [];
@@ -30,18 +31,20 @@ let lasSvar: any = { ok: false, olaslig: true };
 let sokSvar: any = { status: 'inget' };
 const sokningar: unknown[][] = [];
 const bytta: unknown[][] = [];
+const sparat: unknown[][] = [];
 vi.mock('@/lib/arbetsmiljo/hittaBlad', () => ({
   lasEtikettApi: async () => lasSvar,
   sokBladApi: async (...a: unknown[]) => { sokningar.push(a); return sokSvar; },
+  lasKoderApi: async () => ['H317'],
 }));
 import Kemikalier from './Kemikalier';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root; let el: HTMLDivElement;
 beforeEach(() => {
-  jag = { id: 'm', roll: 'admin' }; lasSvar = { ok: false, olaslig: true }; sokSvar = { status: 'inget' }; sokningar.length = 0; bytta.length = 0; tillagda.length = 0; lankar.length = 0; gjort.length = 0; gjorda = [];
+  jag = { id: 'm', roll: 'admin' }; lasSvar = { ok: false, olaslig: true }; sokSvar = { status: 'inget' }; sokningar.length = 0; bytta.length = 0; sparat.length = 0; tillagda.length = 0; lankar.length = 0; gjort.length = 0; gjorda = [];
   lista = [
-    { id: 'a', namn: 'Hydraulolja', varFinns: 'Giant', sdbSokvag: 'a/1.pdf', sdbTid: '2026-11-01T10:00:00Z' },
+    { id: 'a', namn: 'Hydraulolja', varFinns: 'Giant', sdbSokvag: 'a/1.pdf', sdbTid: '2026-11-01T10:00:00Z', hKoder: [] },
     { id: 'b', namn: 'Avfettning', varFinns: null, sdbSokvag: null, sdbTid: null },
   ];
   el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el);
@@ -134,7 +137,7 @@ describe('Kemikalier', () => {
     await skriv('Vad heter den?', 'Kedjeolja');
     await skriv('Var finns den?', 'Verkstaden');
     await klick('[data-kem-spara]');
-    expect(tillagda).toEqual([['Kedjeolja', 'Verkstaden', null, null]]);
+    expect(tillagda).toEqual([['Kedjeolja', 'Verkstaden', null, null, null]]);
   });
 
   it('årets genomgång bockar av årshjulets punkt Kemikalierna', async () => {
@@ -163,7 +166,7 @@ describe('Kemikalier', () => {
     jag = { id: 'f', roll: 'forare' };
     const blad = new File(['%PDF'], 'sdb.pdf', { type: 'application/pdf' });
     lasSvar = { ok: true, etikett: { namn: 'Hydraway HVXA 46', tillverkare: 'Statoil' } };
-    sokSvar = { status: 'hittad', fil: blad, kalla: 'statoil.se', namnStammer: true };
+    sokSvar = { status: 'hittad', fil: blad, kalla: 'statoil.se', namnStammer: true, koder: ['H225', 'H350'] };
     await act(async () => { root.render(<Kemikalier />); }); await vanta();
     await klick('[data-kem-ny]');
     await fota();
@@ -171,9 +174,11 @@ describe('Kemikalier', () => {
     expect(q('[data-kem-sok="hittad"]')!.textContent).toContain('statoil.se');
     await klick('[data-kem-ratt]');
     expect(q('[data-kem-bladet]')!.textContent).toContain('Från statoil.se');
+    expect(q('[data-kem-ny-fara]')!.textContent).toContain('Kan ge cancer');
     await klick('[data-kem-spara]');
     expect(tillagda[0][0]).toBe('Hydraway HVXA 46');
     expect(tillagda[0][2]).toBe(blad);
+    expect(tillagda[0][4]).toEqual(['H225', 'H350']); // farorna följer med
     expect(q('[data-kem-kvitto]')!.textContent).not.toContain('Arbetsledningen');
   });
 
@@ -202,12 +207,30 @@ describe('Kemikalier', () => {
 
   it('admin letar upp bladet för en produkt som saknar det, och sparar det med ett tryck', async () => {
     const blad = new File(['%PDF'], 'sdb.pdf', { type: 'application/pdf' });
-    sokSvar = { status: 'hittad', fil: blad, kalla: 'kemetyl.se', namnStammer: true };
+    sokSvar = { status: 'hittad', fil: blad, kalla: 'kemetyl.se', namnStammer: true, koder: ['H317'] };
     await act(async () => { root.render(<Kemikalier />); }); await vanta();
     await klick('[data-kem="b"]');
     await klick('[data-kem-leta]');
     expect(sokningar).toEqual([['Avfettning', null]]);
     await klick('[data-kem-ratt]');
-    expect(bytta).toEqual([['b', blad]]);
+    expect(bytta).toEqual([['b', blad, ['H317']]]);
+  });
+
+  it('farorna ur bladet syns i listan och i produkten', async () => {
+    lista![0] = { ...lista![0], hKoder: ['H225', 'H317'] };
+    await act(async () => { root.render(<Kemikalier />); }); await vanta();
+    expect(q('[data-kem="a"]')!.textContent).toContain('Kan ge allergi');
+    expect(q('[data-kem="a"]')!.textContent).not.toContain('Brandfarlig'); // bara det allvarliga i listan
+    await klick('[data-kem="a"]');
+    expect(q('[data-kem-fara="allergi"]')!.textContent).toContain('Handskar');
+    expect(q('[data-kem-fara="brand"]')).not.toBeNull();
+  });
+
+  it('ett äldre blad utan lästa faror läses av admin i bakgrunden och sparas', async () => {
+    lista![0] = { ...lista![0], hKoder: null };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, blob: async () => new Blob(['%PDF']) } as never);
+    await act(async () => { root.render(<Kemikalier />); }); await vanta(); await vanta();
+    expect(lankar).toContain('a/1.pdf');
+    expect(sparat).toEqual([['a', ['H317']]]);
   });
 });
