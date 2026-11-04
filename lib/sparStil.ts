@@ -186,6 +186,12 @@ export const SKOTAR_BAND_OPACITET: Readonly<Record<'plan' | 'egen' | 'hist' | 'a
 const KLAR: any[] = ['==', ['get', 'klar'], true];
 /** Byter varje stoppvärde i ett zoom-uttryck (['interpolate', …, ['zoom'], z, v, …]) mot ['case', klar, f(v), v]. Ett tal blir ett case direkt. */
 function perKlart(v: any, f: (x: any) => any): any {
+  // ['*', k, zoom-uttryck] (skotarlägets svagare skördare): flytta in faktorn i stoppen, annars ligger zoom inte överst.
+  if (Array.isArray(v) && v[0] === '*' && v.length === 3 && Array.isArray(v[2]) && v[2][0] === 'interpolate' && Array.isArray(v[2][2]) && v[2][2][0] === 'zoom') {
+    const z = v[2].slice(0, 3);
+    for (let i = 3; i < v[2].length; i += 2) z.push(v[2][i], ['*', v[1], v[2][i + 1]]);
+    return perKlart(z, f);
+  }
   if (Array.isArray(v) && v[0] === 'interpolate' && Array.isArray(v[2]) && v[2][0] === 'zoom') {
     const ut = v.slice(0, 3);
     for (let i = 3; i < v.length; i += 2) ut.push(v[i], ['case', KLAR, f(v[i + 1]), v[i + 1]]);

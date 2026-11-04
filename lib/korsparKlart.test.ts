@@ -77,6 +77,17 @@ describe('kartans stil: blått betyder vatten', () => {
     const stopp = (s.kantOpacitet as any[]).slice(3).filter((_, i) => i % 2 === 1);
     expect(stopp.every((v: any) => Array.isArray(v) && v[0] === 'case' && v[2] === 0)).toBe(true);
   });
+  it('alla lager validerar i MapLibre (zoom överst) — också skotarlägets svagare skördare', async () => {
+    const { validateStyleMin } = await import('@maplibre/maplibre-gl-style-spec');
+    const layers: any[] = [];
+    for (const roll of ['skordare', 'skotare'] as const) for (const art of ['plan', 'egen', 'hist', 'andras'] as const) for (const l of [false, true]) {
+      const s = kartSpar(roll, art, l), id = `${roll}-${art}-${l}`;
+      layers.push({ id: id + '-l', type: 'line', source: 's', paint: { 'line-color': s.farg, 'line-width': s.bredd, 'line-opacity': s.opacitet } });
+      layers.push({ id: id + '-c', type: 'line', source: 's', paint: { 'line-color': s.kantFarg, 'line-width': s.kantBredd, 'line-opacity': s.kantOpacitet } });
+    }
+    const fel = validateStyleMin({ version: 8, sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } }, layers } as any);
+    expect(fel.map((e: any) => e.message)).toEqual([]);
+  });
   it('medKlart av ett tal ger ett case direkt', () => {
     const s = medKlart({ farg: '#000', bredd: 3, opacitet: 1, kantFarg: '#000', kantBredd: 5, kantOpacitet: 0.8 });
     expect(s.bredd).toEqual(['case', ['==', ['get', 'klar'], true], 3 * 0.85, 3]);
