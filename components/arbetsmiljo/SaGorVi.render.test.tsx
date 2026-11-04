@@ -55,8 +55,8 @@ describe('Så gör vi', () => {
   it('admin ser alla, trycker Stämmer och ändrar stegen (minst tre)', async () => {
     jag = { id: 'a', roll: 'admin' };
     await act(async () => { root.render(<SaGorVi />); }); await vanta();
-    expect(q('[data-testid="sgv-svar"]')!.textContent).toBe('5 av 6 att godkänna');
-    expect(document.querySelectorAll('[data-sgv]')).toHaveLength(6);
+    expect(q('[data-testid="sgv-svar"]')!.textContent).toBe('7 av 8 att godkänna');
+    expect(document.querySelectorAll('[data-sgv]')).toHaveLength(8);
     await klick('[data-sgv="trailer"]');
     expect(q('[data-sgv-lage]')!.textContent).toBe('Inte godkänd');
     await klick('[data-sgv-stammer]');

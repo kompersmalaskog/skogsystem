@@ -7,7 +7,7 @@ const godkand = (id: InstrId, steg: string[] | null = null, tid = '2026-11-01T10
 
 describe('instruktionerna', () => {
   it('bara de jobb som har allvarliga risker, 3–5 korta steg var', () => {
-    expect(INSTR_IDN).toHaveLength(6);
+    expect(INSTR_IDN).toHaveLength(8);
     for (const id of INSTR_IDN) {
       const k = KATALOG[id];
       expect(k.steg.length, id).toBeGreaterThanOrEqual(MIN_STEG);
@@ -47,7 +47,7 @@ describe('godkännandet följer exakt stegen', () => {
 
 describe('svaret', () => {
   it('admin: hur många som ska godkännas', () => {
-    expect(svar(true, {}, [], 'a', nu)).toEqual({ text: '6 av 6 att godkänna', ton: 'orange' });
+    expect(svar(true, {}, [], 'a', nu)).toEqual({ text: '8 av 8 att godkänna', ton: 'orange' });
     const alla = Object.fromEntries(INSTR_IDN.map(id => [id, godkand(id)])) as Record<InstrId, Godkannande>;
     expect(svar(true, alla, [], 'a', nu)).toEqual({ text: 'Alla är godkända' });
   });
@@ -57,5 +57,14 @@ describe('svaret', () => {
     expect(attLasa(g, [], 'f', nu)).toEqual(['trailer', 'ensam']);
     const kv = [{ medarbetareId: 'f', instruktion: 'ensam' as const, underlag: g.ensam.godkandUnderlag!, tid: '2026-11-02T08:00:00Z' }];
     expect(svar(false, g, kv, 'f', nu)).toEqual({ text: '1 att läsa', ton: 'orange' });
+  });
+});
+
+describe('källorna', () => {
+  it('länkar bara till https och gäller de rättade stegen', () => {
+    for (const id of INSTR_IDN) { const k = KATALOG[id].kalla; if (k) expect(k.url).toMatch(/^https:\/\//); }
+    expect(KATALOG.kraftledning.steg.join(' ')).toContain('20 m');
+    expect(KATALOG.kraftledning.steg.join(' ')).toContain('10 m');
+    expect(KATALOG.bargning.kalla?.text).toContain('Skogforsk');
   });
 });
