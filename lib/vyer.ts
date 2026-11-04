@@ -82,6 +82,7 @@ export const VYER: Vy[] = [
   // Kemikalieförteckningen: varje produkt, var den finns och säkerhetsdatabladet (AFS 2023:10). Förarna öppnar bladet.
   { id: 'kemikalier', namn: 'Kemikalier', href: '/kemikalier', ikon: 'science', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['säkerhetsdatablad', 'säkerhetsblad', 'sdb', 'olja', 'kemikalie', 'arbetsmiljö', 'spray', 'bränsle'] },
   { id: 'farligt-avfall', namn: 'Farligt avfall', href: '/farligt-avfall', ikon: 'recycling', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['avfall', 'slang', 'hydraulslang', 'spillolja', 'trasor', 'dunk', 'kvitto', 'liggare', 'miljö', 'arbetsmiljö'] },
+  { id: 'sa-gor-vi', namn: 'Så gör vi', href: '/sa-gor-vi', ikon: 'menu_book', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['instruktion', 'rutin', 'hydraulslang', 'trailer', 'lasta', 'kraftledning', 'motorsåg', 'svetsa', 'ensam', 'arbetsmiljö'] },
   { id: 'rapportera', namn: 'Rapportera', href: '/om-nagot-hander?rapport=1', ikon: 'report', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['fel', 'trasig', 'läcker', 'något är fel', 'tillbud', 'nära ögat', 'olycka', 'skada', 'arbetsmiljö'] },
   { id: 'kontroller', namn: 'Fordon', href: '/kontroller', ikon: 'local_shipping', grupp: 'maskiner', sokord: ['kontroller', 'besiktning', 'försäkring', 'brandskydd', 'släp', 'tank', 'bil'] },
 
