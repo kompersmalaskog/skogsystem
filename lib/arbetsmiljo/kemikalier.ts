@@ -124,3 +124,21 @@ export async function bladLank(sb: SupabaseClient, sokvag: string): Promise<stri
   const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(sokvag, 600);
   return error || !data?.signedUrl ? null : data.signedUrl;
 }
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// Hittar appen inget blad: ett färdigt mejl till leverantören. Mottagaren fyller man i själv (appen vet inte var produkten köptes).
+// ---------------------------------------------------------------------------------------------------------------------------
+
+export function mejlLank(namn: string, tillverkare: string | null, avsandare: string | null): string {
+  const produkt = tillverkare && !namn.toLowerCase().includes(tillverkare.toLowerCase()) ? `${tillverkare} ${namn}` : namn;
+  const amne = `Säkerhetsdatablad för ${produkt}`;
+  const text = [
+    'Hej!',
+    '',
+    `Kan ni skicka säkerhetsdatabladet (SDB) för ${produkt}? Vi använder den i vår skogsverksamhet och behöver bladet enligt AFS 2023:10.`,
+    '',
+    'Tack på förhand!',
+    avsandare ? `${avsandare}, Kompersmåla Skog AB` : 'Kompersmåla Skog AB',
+  ].join('\n');
+  return `mailto:?subject=${encodeURIComponent(amne)}&body=${encodeURIComponent(text)}`;
+}
