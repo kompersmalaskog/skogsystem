@@ -1,3 +1,5 @@
+import { FARG } from './design/tokens';
+
 // HYTTSPÅRENS RITSTIL — en källa för körvyns lager (egen/hist/andras) OCH planeringsvyns lager (planspar-*).
 //
 // Apple-Maps-look: färgad kärna + LJUS casing (vit) som lyfter linjen från busig bakgrund (raster, gränser, basvägar). Casing ~2,5 px bredare än linjen.
@@ -165,4 +167,55 @@ export function skotarlageSpar(roll: SparRoll, art: SparArt): SkotarlageSpar {
     return { ...s, opacitet: svag(s.opacitet), kantOpacitet: ['*', SKORDARSPAR_SVAGARE, s.kantOpacitet], streck: null };
   }
   return { ...s, streck: null };
+}
+
+// ── KÖRSPÅREN SOM SVAR (Martin 2026-11-04, lib/korsparKlart) ─────────────────────────────────────────────────────────────────────────────────────────
+// Blått betyder vatten (diken, blött, bäckar). Skotaren ritas därför INTE längre som en turkos linje på kartan: skördarens stråk blir GRÅTT där skotaren
+// har kört (featurens `klar`), och skotarens eget spår är bara ett svagt ljust band. ROLLFARG_SKOTARE finns kvar i diagram och listor (Uppföljning), där
+// det finns en teckenförklaring. dampatSpar/skotarlageSpar för skotaren används inte av kartan längre.
+/** Ett kört stråk: appens grå (samma som "klart" i lib/kartKlart), tunnare, ingen mörk kant. */
+export const STRAK_KLAR_FARG = FARG.text2;
+export const STRAK_KLAR_OPACITET = 0.75;
+/** Ett kört stråk är så här mycket smalare än ett som är kvar. */
+export const STRAK_KLAR_BREDD_ANDEL = 0.66;
+/** Skotarens band: ljust och svagt, bredare än en linje — "här har skotaren varit". */
+export const SKOTAR_BAND_FARG = FARG.text;
+export const SKOTAR_BAND_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 3, 15, 5, 17, 8, 19, 11];
+export const SKOTAR_BAND_OPACITET: Readonly<Record<'plan' | 'egen' | 'hist' | 'andras', number>> = { plan: 0.25, andras: 0.25, egen: 0.35, hist: 0.3 };
+
+const KLAR: any[] = ['==', ['get', 'klar'], true];
+/** Byter varje stoppvärde i ett zoom-uttryck (['interpolate', …, ['zoom'], z, v, …]) mot ['case', klar, f(v), v]. Ett tal blir ett case direkt. */
+function perKlart(v: any, f: (x: any) => any): any {
+  if (Array.isArray(v) && v[0] === 'interpolate' && Array.isArray(v[2]) && v[2][0] === 'zoom') {
+    const ut = v.slice(0, 3);
+    for (let i = 3; i < v.length; i += 2) ut.push(v[i], ['case', KLAR, f(v[i + 1]), v[i + 1]]);
+    return ut;
+  }
+  return ['case', KLAR, f(v), v];
+}
+
+export interface SparPaint { farg: any; bredd: any; opacitet: any; kantFarg: string; kantBredd: any; kantOpacitet: any; streck: readonly number[] | null }
+
+/** Skördarens stil med kört stråk inbyggt: grått, tunnare och utan kant där `klar` är sant, annars exakt som förut. */
+export function medKlart(s: { farg: string; bredd: any; opacitet: any; kantFarg: string; kantBredd: any; kantOpacitet: any; streck?: readonly number[] | null }): SparPaint {
+  return {
+    farg: ['case', KLAR, STRAK_KLAR_FARG, s.farg],
+    bredd: perKlart(s.bredd, (x) => (typeof x === 'number' ? Math.max(1, x * STRAK_KLAR_BREDD_ANDEL) : x)),
+    opacitet: ['case', KLAR, STRAK_KLAR_OPACITET, s.opacitet],
+    kantFarg: s.kantFarg,
+    kantBredd: s.kantBredd,
+    kantOpacitet: perKlart(s.kantOpacitet, () => 0),
+    streck: s.streck ?? null,
+  };
+}
+
+/** Skotarens spår på kartan, oavsett var: ett svagt ljust band utan kant. */
+export function skotarBand(art: SparArt): SparPaint {
+  return { farg: SKOTAR_BAND_FARG, bredd: SKOTAR_BAND_BREDD, opacitet: SKOTAR_BAND_OPACITET[art], kantFarg: SPAR_KANT_FARG, kantBredd: SKOTAR_BAND_BREDD, kantOpacitet: 0, streck: null };
+}
+
+/** Kartans stil för en rolls spår i ett lager. Skördare: rollfärgen med kört stråk grått. Skotare: bandet. `skotarlage` = skördarens spår i skotarens körvy (svagare). */
+export function kartSpar(roll: SparRoll, art: SparArt, skotarlage = false): SparPaint {
+  if (roll === 'skotare') return skotarBand(art);
+  return medKlart(skotarlage ? skotarlageSpar(roll, art) : dampatSpar(roll, art));
 }
