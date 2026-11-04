@@ -206,7 +206,7 @@ import { TVATRYCK_KALLA, tvaTryckData, tvaTryckLager, type TvaStart } from '../.
 import { installeraRitlageSparr, tillatIRitlage } from '../../lib/ritlageSparr'
 import { useLinjeRedigering, laggLinjeRedigeringLager } from '../../lib/hooks/useLinjeRedigering'
 import { LinjeRedList, type RedVal } from '../../components/planering/LinjeRedList'
-import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_KANT_LAGER, KORUPP_TRAFF_LAGER, arKorUpp, korUppUr, korUppData, korUppLager, ritaSpetsBild, synligaKorUpp, nyKorUpp, KORUPP_SKAL, korUppText, type KorUppPos, type Skal, type SnappVag } from '../../lib/korUpp'
+import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_KANT_LAGER, KORUPP_TRAFF_LAGER, arKorUpp, korUppUr, korUppData, korUppLager, ritaSpetsBild, nyKorUpp, KORUPP_SKAL, korUppText, type KorUppPos, type Skal, type SnappVag } from '../../lib/korUpp'
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
 import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, tonPaint, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner, tonPolygonerMedEgna } from '../../lib/traktTon'
@@ -240,6 +240,9 @@ import { markerIconDefs, getIconDef, loadMarkerImageForMaplibre, canvasToMapLibr
 import { ZONE_COLORS } from '@/lib/zone-colors'
 import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
 import { harFoto, komprimeraMarkeringFoto } from '@/lib/markeringFoto'
+import { narStyrka } from '../../lib/narStyrka'
+import { signaturer, lasSett, sparaSett, behoverVisas, nyaMarkeringar, textNy, inforJobbet, oversiktUnder } from '../../lib/traktOversikt'
+import { kommentarTecken, laggTillTeckenBilder, teckenHornLager, teckenFriLager, teckenPunkter, TECKEN_KALLA, TECKEN_HORN_LAGER } from '../../lib/kommentarTecken'
 import { FOTO_UPPE_EVENT, laggFotoIKo, prenumereraFotoKo, tomFotoForMarkering, vantandeFotoNycklar, type FotoUppeDetail } from '@/lib/markeringFotoKo'
 import { fotoNyckel } from '@/lib/fotoKo'
 import { prenumereraMarkeringSynk, antalVantandeMarkeringar } from '@/lib/markeringSynkKo'
@@ -349,7 +352,6 @@ function markerInnehallHash(m: { type?: string; comment?: string }): string {
 // är NULL) — det fanns aldrig äkta skräp att fånga, bara legitimt att gömma. Ett filter som
 // bara gömmer legitimt och aldrig fångar skräp ska bort, inte tunas om till ett nytt magiskt
 // tal (att gissa en tröskel var hela buggen). Äkta skräp fångas hellre av from-driver-synhållet.
-const KORVY_SIGHT_M = 400;
 
 // Kurerade skyddslager som LYSER alltid i körvyns tysta stil (tvingas synliga, oavsett förarens
 // overlay-toggle). Övriga WMS hålls AV → ren tyst vy. overlayId = wms-layer-<id> utan prefix.
@@ -2197,6 +2199,11 @@ export default function PlannerPage() {
           },
         });
         console.log('[MapLibre] markers-layer added');
+        // KOMMENTAR-TECKEN i symbolens hörn (lib/kommentarTecken): pratbubbla = någon har skrivit, kamera = foto. Samma storlek och styrka som symbolen.
+        laggTillTeckenBilder(map);
+        if (!map.getLayer('markers-kommentar')) map.addLayer(teckenHornLager(['interpolate', ['linear'], ['zoom'], 10, 0.15, 12, 0.2, 13, 0.3, 14, 0.4, 15, 0.5, 16, 0.6, 17, 0.75]));
+        if (!map.getSource(TECKEN_KALLA)) map.addSource(TECKEN_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        if (!map.getLayer('markers-kommentar-fri')) map.addLayer(teckenFriLager());   // linjens mitt och ytans namn
         // PRICKARNA: ca 6 px, grön (Natur, båda typerna), ingen ikon/etikett. Bara körvyns features bär prick=true.
         map.addLayer({
           id: 'markers-prick',
@@ -2619,7 +2626,7 @@ export default function PlannerPage() {
   const omNavRef = useRef<OmNav | null>(null);
   const framhavdLageRef = useRef<PlusLage>('ark');
   // Telefonens "‹ Om trakten": objektinfon öppnas direkt på Om trakten i stället för på kortet (nollas när den stängs).
-  const [infoStartVy, setInfoStartVy] = useState<'kort' | 'om' | 'klar'>('kort');
+  const [infoStartVy, setInfoStartVy] = useState<'kort' | 'om' | 'klar' | 'oversikt'>('kort');
   // Lämnar framhävningen. Anropas från kartan (tryck på tom yta), raden ("Visa hela"), stängd panel och "‹ Om trakten" — alltid via refen så att en lyssnare
   // som hängt kvar från en tidigare rendering ändå når den senaste versionen. Zoomar ut till hela trakten för de orsaker som `slappAtgard` anger.
   const slappFramhavningRef = useRef<(orsak: SlappOrsak) => void>(() => {});
@@ -8743,6 +8750,9 @@ export default function PlannerPage() {
     return { gpsText, felKod, soker, gpsGammal, dataText, dataGammal, harProblem, harVarning };
   })();
 
+  // KOMMENTAR-TECKEN (Martin 2026-11-04): vilka markeringar som har en kommentar (kartkommentar) — fylls av en effekt efter useKartkommentarer längre ned.
+  const [kommentarNycklarText, setKommentarNycklarText] = useState('');
+  const kommentarNycklar = useMemo(() => new Set(kommentarNycklarText.split('|').filter(Boolean)), [kommentarNycklarText]);
   const syncMarkersToMapLibre = () => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -8753,13 +8763,11 @@ export default function PlannerPage() {
       const features: any[] = [];
       // KÖRVY: from-driver — visa symboler inom synhåll från MIG (GPS), inte från trakt-centrum.
       // Jämför två VERKLIGA positioner (GPS + symbolens svgToLatLon) → robust mot skevt/saknat
-      // centrum. ÖVERSIKT (ej körvy): visa ALLA — from-center-filtret borttaget (se KORVY_SIGHT_M).
+      // centrum. Allt visas, i körvyn också — styrkan följer avståndet.
       const symbolMarkers = markers.filter((m): m is MedXY => {
         if (!harXY(m) || !m.isMarker) return false;
-        if (korvyActive && arPrick(m.type) && !prickarSynliga(overlays)) return false;   // prick-lagret avslaget i körvyn → dolda
-        if (!korvyActive || !korvyEffectivePos) return true;   // översikt / ingen fix än → alla
-        const ll = svgToLatLon(m.x, m.y);
-        return haversineM(korvyEffectivePos.lat, korvyEffectivePos.lon, ll.lat, ll.lon) <= KORVY_SIGHT_M;
+        if (korvyActive && arPrick(m.type) && !prickarSynliga(overlays)) return false;   // lagret Högstubbar/evighetsträd avslaget i körvyn → dolda
+        return true;   // ALLT SYNS (Martin 2026-11-04): ingen symbol göms för att den ligger långt bort — styrkan följer avståndet (lib/narStyrka)
       });
       const korvyPos = korvyActive ? korvyEffectivePos : null;
       symbolMarkers.forEach(m => {
@@ -8783,21 +8791,22 @@ export default function PlannerPage() {
         let withinRadius = false;
         if (korvyPos && korvyPos.lat != null && korvyPos.lon != null) {
           dist = Math.round(haversineM(korvyPos.lat, korvyPos.lon, ll.lat, ll.lon));
-          const SYMBOL_FADE_FAR = 150; // bortom detta = tyst grundnivå
-          if (dist <= FALLNINGSRADIE_M) opacity = 1;
-          else if (dist >= SYMBOL_FADE_FAR) opacity = 0.28;
-          else opacity = 0.28 + 0.72 * (SYMBOL_FADE_FAR - dist) / (SYMBOL_FADE_FAR - FALLNINGSRADIE_M);
+          opacity = narStyrka(dist, KORVY_FARO_TYPER.has(String(m.type)));   // full inom 80 m, svagare längre bort, fara alltid full
           nearby = dist <= 120;                     // "växer lite"-hook (icon-size)
           withinRadius = dist <= FALLNINGSRADIE_M;  // inom fällningsradie
         }
-        // Körvyn: högstubbe/evighetsträd = liten prick (prick=true) utan fade/puls/ring (inget proximitetskort heller — se kö-effekten).
-        // Odlingsröse är prick överallt, också i planeringen (många på en fossil åker).
-        const prick = (korvyActive && arPrick(m.type)) || arAlltidPrick(m.type);
+        // Körvyn: högstubbe/evighetsträd = en LITEN riktig symbol (liten=true, Martin 2026-11-04 — prickarna gick inte att känna igen), utan växande ring
+        // (inget proximitetskort heller — se kö-effekten). Odlingsröse är prick överallt, också i planeringen (många på en fossil åker).
+        const prick = arAlltidPrick(m.type);
+        const liten = korvyActive && arPrick(m.type);
+        const kommentar = prick ? null : kommentarTecken(kommentarNycklar.has(markerNyckel(m.id)) || !!String((m as any).comment ?? '').trim(), harFoto(m));
         features.push({
           type: 'Feature',
           properties: prick
             ? { type: m.type, id: m.id, opacity: 1, dist: null, nearby: false, withinRadius: false, prick: true }
-            : { type: m.type || 'default', id: m.id, opacity, dist, nearby, withinRadius },
+            : liten
+              ? { type: m.type, id: m.id, opacity, dist, nearby: false, withinRadius: false, liten: true, kommentar }
+              : { type: m.type || 'default', id: m.id, opacity, dist, nearby, withinRadius, kommentar },
           geometry: { type: 'Point', coordinates: [ll.lon, ll.lat] },
         });
       });
@@ -8808,7 +8817,7 @@ export default function PlannerPage() {
   };
 
   // Synka vid dataändringar och proximity-tick
-  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyEffectivePos, vagSpokeSymboler, overlays[PRICK_LAGER_ID]]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyEffectivePos, vagSpokeSymboler, overlays[PRICK_LAGER_ID], kommentarNycklarText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Synka pilar → arrows-source (geo-låst MapLibre-layer). x/y → lng/lat via svgToLatLon (samma
   // konvertering som symboler, origo-fix-medveten). Riktningen bärs av m.rotation → icon-rotate.
@@ -8834,7 +8843,7 @@ export default function PlannerPage() {
   }, [markers, mapLibreReady, mapCenter, visibleLayers.arrows, objektSaknarPosition]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // FÄLLTRÄD och KÖR UPP OCH BACKA → egna källor. Planeringen ser alla (träden med handtag att vrida i). Körvyn: bara SKÖRDAREN, bara det som ligger nära maskinen — trädet när någon del av det
-  // ligger i fällningscirkeln (30 m), kör upp-pilen inom KORUPP_SYNLIG_M. Skotaren ser inga. De gamla gröna pilarna föreslås bli träd (spöken med svagare färg) medan planeraren är i Fällriktning-läget.
+  // ligger i fällningscirkeln (30 m), kör upp-pilen ALLTID (skördare och skotare), det nära starkast (lib/narStyrka). Skotaren ser inga träd. De gamla gröna pilarna föreslås bli träd (spöken med svagare färg) medan planeraren är i Fällriktning-läget.
   const [tradForslagNej, setTradForslagNej] = useState(false);   // "Inte nu" till förslaget (gäller tills trakten byts)
   useEffect(() => { setTradForslagNej(false); }, [valtObjekt?.id]);
   const tradForslag = useMemo(
@@ -8862,7 +8871,7 @@ export default function PlannerPage() {
     tsrc.setData({ type: 'FeatureCollection', features: tradFeatures });
     const pilar = (markers as any[]).filter(arKorUpp).map(korUppUr).filter((k): k is KorUppPos => !!k);
     korUppPilarRef.current = pilar;
-    ksrc.setData(korUppData(synligaKorUpp(pilar, lage, pos)));
+    ksrc.setData(korUppData(pilar, lage === 'planering' ? null : pos));
   }, [markers, mapLibreReady, mapCenter, visibleLayers.arrows, objektSaknarPosition, korvyActive, skotarKorvy, korvyEffectivePos?.lat, korvyEffectivePos?.lon, tradForslag, markerMenuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // TVÅ TRYCK (lib/tvaTryck): kör upp-pilen och fällträdet sätts med två tryck — första = start (pilen snäpper till närmaste väg) respektive stubben, andra = slut respektive åt vilket håll trädet
@@ -9176,6 +9185,7 @@ export default function PlannerPage() {
     ];
     const sizeAt = (base: number): any => [
       'case',
+      ['==', ['get', 'liten'], true], base * 0.6,   // högstubbe/evighetsträd: en liten riktig symbol
       ['==', ['get', 'withinRadius'], true], base * 1.5,  // inom fällningsradie → växer tydligt
       ['==', ['get', 'nearby'], true], base * 1.15,       // nära → växer lite
       base,
@@ -9188,6 +9198,7 @@ export default function PlannerPage() {
     ];
     try {
       map.setLayoutProperty('markers-layer', 'icon-size', korvyActive ? korvyBoostedSize : baseSize);
+      if (map.getLayer(TECKEN_HORN_LAGER)) map.setLayoutProperty(TECKEN_HORN_LAGER, 'icon-size', korvyActive ? korvyBoostedSize : baseSize);   // tecknet följer symbolen
     } catch (e) { console.error('[Körvy] icon-size set failed:', e); }
   }, [korvyActive, mapLibreReady]);
 
@@ -9413,6 +9424,75 @@ export default function PlannerPage() {
     minNamn: currentMedarbetare?.namn ?? null,
     arAdmin: isAdminRiktig,
   });
+  // KOMMENTAR-TECKEN: vilka nycklar som har en kommentar (symbolerna läser dem i syncMarkersToMapLibre), och tecknen på linjer och ytor.
+  const kommentarNycklarNu = useMemo(() => Array.from(new Set(kk.rader.map((r) => r.yta_nyckel))).sort().join('|'), [kk.rader]);
+  useEffect(() => { setKommentarNycklarText(kommentarNycklarNu); }, [kommentarNycklarNu]);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource(TECKEN_KALLA) as any;
+    if (!src) return;
+    if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; }
+    const egna = (markers as any[]).filter((m) => (m.isLine || m.isZone) && Array.isArray(m.path) && m.path.length > 1).map((m) => ({
+      id: m.id, slag: (m.isZone ? 'yta' : 'linje') as 'yta' | 'linje',
+      coords: m.path.map((q: any) => { const ll = svgToLatLon(q.x, q.y); return [ll.lon, ll.lat] as [number, number]; }),
+      harText: !!String(m.comment ?? '').trim(), harFoto: harFoto(m),
+    }));
+    const pos = korvyActive && korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null;
+    src.setData(teckenPunkter({
+      nycklar: kommentarNycklar, egna, vida: traktGeo,
+      styrka: pos ? (p) => narStyrka(haversineM(pos.lat, pos.lon, p[1], p[0])) : undefined,
+    }));
+  }, [markers, mapLibreReady, mapCenter, kommentarNycklar, traktGeo, korvyActive, korvyEffectivePos?.lat, korvyEffectivePos?.lon, objektSaknarPosition]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ÖVERBLICKEN NÄR MASKINEN BÖRJAR PÅ EN TRAKT (lib/traktOversikt, components/planering/TraktOversikt): första gången en maskin öppnar trakten —
+  // och när planeraren ändrat något sedan dess — öppnas objektinfon på "Hela trakten" och kartan visar hela trakten. "Börja köra" sparar vad som setts
+  // (per maskin och trakt, i enheten) och kartan följer maskinen igen. Bara maskinläget; planeringen rörs inte.
+  const oversiktMaskinId = testlage?.maskinId ?? enhetMaskinId ?? null;
+  const oversiktSig = useMemo(() => signaturer({
+    markers: (markers as any[]).filter((m) => m.isMarker || m.isLine || m.isZone || m.isArrow).map((m) => ({ id: m.id, type: m.type ?? null, lineType: m.lineType ?? null, zoneType: m.zoneType ?? null, comment: m.comment ?? null, photoPath: m.photoPath ?? null })),
+    kommentarIds: kk.rader.map((r) => r.id),
+    texter: [vidaDirektiv],
+    infor: [],
+  }), [markers, kk.rader, vidaDirektiv]);
+  const [oversiktSett, setOversiktSett] = useState<Set<string> | null>(null);
+  const oversiktKolladRef = useRef<string | null>(null);
+  useEffect(() => {
+    setOversiktSett(oversiktMaskinId && valtObjekt?.id ? lasSett(oversiktMaskinId, String(valtObjekt.id)) : null);
+  }, [oversiktMaskinId, valtObjekt?.id]);
+  const visaHelaTrakten = useCallback(() => {
+    const map = mapInstanceRef.current;
+    const gran = traktGrans(traktGeo);
+    if (map && gran) {
+      setKorvyFollowPaused(true);   // kartan visar hela trakten tills föraren trycker Börja köra (eller centrera)
+      const bred = typeof window !== 'undefined' && window.innerWidth >= 900;
+      const nere = !bred && typeof window !== 'undefined' ? Math.round(window.innerHeight * 0.5) : 0;
+      try { map.fitBounds(gran, { padding: { top: AVSTAND.xxl * 3, left: AVSTAND.xxl * 1.5, right: AVSTAND.xxl * 1.5 + (bred ? INFO_PANEL_MASKIN_BREDD_PX + AVSTAND.l : 0), bottom: AVSTAND.xxl * 1.5 + nere }, maxZoom: 17, pitch: 0, bearing: 0, duration: 900 }); } catch { /* kartan är borta */ }
+    }
+  }, [traktGeo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const oversiktAktiv = korvyActive && (maskinlage || !!maskinSomParam);   // = instruktionerAktiv (deklarerad längre ned)
+  useEffect(() => {
+    if (!oversiktAktiv || !oversiktMaskinId || !valtObjekt?.id || startKameraLasNu) return;
+    const oid = String(valtObjekt.id);
+    if (!markersLoaded || markersObjektIdRef.current !== oid || !kk.laddad || traktGeoHamtadFor !== valtObjekt.id) return;
+    const kollad = `${oid}:${oversiktSig.join(',').length}:${oversiktSig.length}`;
+    if (oversiktKolladRef.current === kollad) return;
+    oversiktKolladRef.current = kollad;
+    if (!behoverVisas(lasSett(oversiktMaskinId, oid), oversiktSig)) return;
+    if (traktOversiktOpen || objektListaOppen) return;
+    setInfoStartVy('oversikt');
+    setTraktOversiktOpen(true);
+    visaHelaTrakten();
+  }, [oversiktAktiv, oversiktMaskinId, valtObjekt?.id, startKameraLasNu, markersLoaded, kk.laddad, traktGeoHamtadFor, oversiktSig]); // eslint-disable-line react-hooks/exhaustive-deps
+  const borjaKora = useCallback(() => {
+    if (oversiktMaskinId && valtObjekt?.id) { sparaSett(oversiktMaskinId, String(valtObjekt.id), oversiktSig); setOversiktSett(new Set(oversiktSig)); }
+    setKorvyFollowPaused(false);   // följet tar över vid nästa GPS-punkt
+    const map = mapInstanceRef.current;
+    const pos = korvyEffectivePos;
+    if (map && pos && korvyActive) {
+      const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
+      try { map.easeTo({ center: [pos.lon, pos.lat], zoom: korvyZoomRef.current, pitch: 28, bearing: kartBearing, padding: { top: topPad, bottom: 0, left: 0, right: 0 }, duration: 700 }); } catch { /* */ }
+    }
+  }, [oversiktMaskinId, valtObjekt?.id, oversiktSig, korvyEffectivePos, korvyActive, kartBearing]); // eslint-disable-line react-hooks/exhaustive-deps
   // "AVVERKAS – LARMA INTE" (Martin 2026-10-29): Vidas hänsynsytor som planeraren markerat larmar inte och räknas inte i fällningscirkeln (lib/vidaAvverkas).
   // Ytan ritas och instruktionen visas som förut — bara larmet tystnar. Går markeringarna inte att läsa larmar allt.
   const vidaAvverkas = useVidaAvverkas(supabase, valtObjekt?.id, isAdminRiktig);
@@ -12732,7 +12812,7 @@ export default function PlannerPage() {
     { id: 'fastighetsgrans', name: 'Fastighetsgränser', desc: 'Vita gränser och beteckningar, utanför trakten tonas ned', enabled: true },
     { id: 'hydrografi', name: 'Vattenvägar (beräknade)', desc: 'Var vatten rinner enligt terrängen — inte uppmätta diken (SKS)', enabled: true },
     // Körvyn: högstubbar/evighetsträd som små prickar — eget lager, PÅ som standard (saknad nyckel = på)
-    ...(korvyActive ? [{ id: PRICK_LAGER_ID, name: 'Högstubbar och evighetsträd', desc: 'Små prickar på kartan (på som standard)', enabled: true }] : []),
+    ...(korvyActive ? [{ id: PRICK_LAGER_ID, name: 'Högstubbar och evighetsträd', desc: 'Små symboler på kartan (på som standard)', enabled: true }] : []),
   ];
   const lagerPoster: { id: string; name: string }[] = (() => {
     const sett = new Set<string>();
@@ -14188,17 +14268,18 @@ export default function PlannerPage() {
         // finns sådan text kvar står den som en grå rad "Gamla anteckningar" — i planerarens kort och i förarens sammanfattning. Inget raderas.
         const forareTexter = tillForaren({ vida });
         const gamlaTexter = [valtObjekt.forardirektiv, egna].map((t) => String(t ?? '').trim()).filter(Boolean).join('\n\n');
-        const forarPlanering = kortRoll === 'forare' ? {
-          oplanerad: valtObjekt.status === 'oplanerad',
-          gamla: gamlaTexter,
-          rader: forarSammanfattning({
+        const forarRader = forarSammanfattning({
             avlaggAntal: klarAvlaggAntal, vidaAvlagg: klarVidaAvlagg, basvagTexter: kartMarkeringar.filter(arBasvagMark).map((m) => basvagText(m.farg, m.langdM)), basvagKravs: infoBasvagKravs,
             barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
             bandSkordare: infoSkordareBand, bandSkotare: infoSkotareBand, bandParSkordare: infoSkordareBandPar, bandParSkotare: infoSkotareBandPar,
             breddat: infoSkotareLastreder, konfiguration: infoSkotareMaskinId === 'A110148' ? infoSkotareKonfig : null, risDirekt: infoSkotareRisDirekt, extraVagn: infoSkotareExtraVagn,
             trailerIn: infoTrailerIn, trailerKommentar: infoTransportKommentar, manuellFallning: infoSkordareManFall, manuellFallningText: infoSkordareManFallText,
             ved: infoMarkagareVed, vedDetaljer: vedVisning, vedText: vedSammanfattning(vedVisning), harDu: klarFalt.harDu,
-          }),
+          });
+        const forarPlanering = kortRoll === 'forare' ? {
+          oplanerad: valtObjekt.status === 'oplanerad',
+          gamla: gamlaTexter,
+          rader: forarRader,
         } : null;
         const arealHaKort = tolkaAreal(infoAreal) ?? tolkaAreal(valtObjekt.areal);
         const avverkatText = !korvyActive ? null
@@ -14472,6 +14553,15 @@ export default function PlannerPage() {
             onLast: () => (forarRiskNu.underlag ? riskLast.kvittera(forarRiskNu.underlag, testlage?.maskinId ?? enhetMaskinId ?? null) : Promise.resolve(false)),
           } : null,
           // FÖRARENS ENKLA KORT (maskinläget): bara tre delar — namn och framsteg, "Det här gäller här" och en grupp rader längst ner (komponenten ObjektKortEnkel). Planeringsläget har det vanliga kortet.
+          // ÖVERBLICKEN (maskinläget): "Hela trakten" — visas av sig själv första gången och via "Visa hela trakten" på kortet.
+          oversikt: instruktionerAktiv ? {
+            under: oversiktUnder(typTxt, certTyper(valtObjekt.cert), arealHaKort),
+            faror: faroLinjer,
+            infor: inforJobbet(forarRader),
+            nya: nyaMarkeringar(oversiktSett, (markers as any[]).map((m) => ({ id: m.id, type: m.type ?? null, lineType: m.lineType ?? null, zoneType: m.zoneType ?? null, comment: m.comment ?? null, photoPath: m.photoPath ?? null })), kk.rader.map((r) => ({ id: r.id, nyckel: r.yta_nyckel }))),
+            nyaTexter: new Set(textNy(oversiktSett, vida) ? ['vida'] : []),
+            onBorja: borjaKora,
+          } : null,
           enkel: instruktionerAktiv ? (() => {
             const rader = ytaRader(traktGeo?.features, inst.paTrakten);
             const framsteg = framstegRad({ typ: typTxt, arealHa: arealHaKort, klartHa: maskinSlag === 'skordare' && avverkat?.harSpar ? avverkat.ha : null });

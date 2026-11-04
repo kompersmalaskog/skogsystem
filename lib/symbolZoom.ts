@@ -24,6 +24,7 @@ const METER_PER_PX_ZOOM0 = 40075016.686 / 512;
 /** Lagren som bär symboler och etiketter (och deras osynliga träffytor, så ett tryck inte öppnar ett kort för något man inte ser). */
 export const SYMBOL_LAGER: readonly string[] = [
   'markers-layer', 'markers-hit',            // symboler (avlägg, högstubbe, fara …)
+  'markers-kommentar', 'markers-kommentar-fri',   // kommentar-tecknen (lib/kommentarTecken) följer symbolerna
   'arrows-layer', 'arrows-hit',              // pilar
   'trakt-punkt-circle', 'trakt-punkt-label', // Vidas punkter (avlägg, larm) och deras etiketter
   'trakt-hansyn-label', 'trakt-ovrigt-label', 'trakt-nb-label', 'trakt-raa-label', 'yta-nr-label', 'yta-nr-hit', 'zone-label',
