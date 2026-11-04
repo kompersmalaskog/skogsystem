@@ -206,7 +206,7 @@ hitta aldrig på en ny.
 | Vad | Färg | Källa |
 |---|---|---|
 | Skördare (spår, maskin, etikett) | **lila `#bf5af2`** | `ROLLFARG_SKORDARE` / `rollFarg()` |
-| Skotare (spår, maskin, etikett) | **grön `#34c759`** | `ROLLFARG_SKOTARE` / `rollFarg()` |
+| Skotare (spår, maskin, etikett) | **turkos `#64d2ff`** | `ROLLFARG_SKOTARE` / `rollFarg()` |
 | Maskinens position (GPS-pricken) | blå `#0a84ff` | `FARG.bla` |
 | Traktgräns / snitsel | röd `#ff453a` + gul streck `#fbbf24` | `LEGEND.fara` / `LEGEND.gul` |
 | GROT | amber `#f59e0b` | kartlager |
@@ -217,9 +217,11 @@ Kartans fulla legend (basväg, dike, brant, kultur, fornlämning …) bor i `LEG
 (page.tsx) och hålls medvetet på en **egen semantisk axel** skild från `FARG`-temat
 — snitsel/kartmarkeringar är fysiska band i skogen, inte UI-status.
 
-De **absoluta rollfärgerna** — skotare **grön `#34c759`**, skördare **lila `#bf5af2`** —
-bor i `rollFarg()` / `ROLLFARG_SKOTARE` / `ROLLFARG_SKORDARE` (page.tsx, #543-serien) och
+De **absoluta rollfärgerna** — skotare **turkos `#64d2ff`**, skördare **lila `#bf5af2`** —
+bor i `rollFarg()` / `ROLLFARG_SKOTARE` / `ROLLFARG_SKORDARE` (`lib/sparStil.ts`) och
 gäller i **alla** vyer (hyttspår, stråk, maskin, etikett). Använd dem — aldrig egna.
+Skotaren var grön `#34c759` till 2026-10-29, då den byttes till turkos för att grönt
+krockade med granhögarna och hänsynskanten på kartan — ändra inte tillbaka.
 **OBS:** `FARG.skordare` (#a8d582) / `FARG.skotare` (#f0b24c) är INTE rollfärger — de
 används bara som två poster i en diagrampalett (arbetsrapporten) och ska aldrig färga en roll.
 
