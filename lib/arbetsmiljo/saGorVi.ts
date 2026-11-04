@@ -8,10 +8,13 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type InstrId = 'hydraulslang' | 'trailer' | 'kraftledning' | 'motorsag' | 'heta_arbeten' | 'ensam';
-export const INSTR_IDN: InstrId[] = ['hydraulslang', 'trailer', 'kraftledning', 'motorsag', 'heta_arbeten', 'ensam'];
+export type InstrId = 'hydraulslang' | 'trailer' | 'kraftledning' | 'motorsag' | 'heta_arbeten' | 'ensam' | 'brant' | 'bargning';
+// Ordning: det farligaste först.
+export const INSTR_IDN: InstrId[] = ['kraftledning', 'brant', 'bargning', 'motorsag', 'hydraulslang', 'trailer', 'heta_arbeten', 'ensam'];
 
-export type Instruktion = { id: InstrId; titel: string; nar: string; steg: string[] };
+/** Var texten är kontrollerad. Bara en länk – ingen text eller bild kopieras. */
+export type Kalla = { text: string; url: string };
+export type Instruktion = { id: InstrId; titel: string; nar: string; steg: string[]; kalla?: Kalla };
 
 export const MIN_STEG = 3;
 export const MAX_STEG = 5;
@@ -22,7 +25,7 @@ export const KATALOG: Record<InstrId, Omit<Instruktion, 'id'>> = {
     nar: 'En slang läcker eller har spruckit',
     steg: [
       'Sänk kranen och aggregatet till marken.',
-      'Stäng av motorn och rör spakarna så trycket går ur.',
+      'Stäng av motorn och rör spakarna så trycket går ur. Töm ackumulatorn om maskinen har en.',
       'Handskar och skyddsglasögon på.',
       'Byt slangen. Känn aldrig efter läckor med handen.',
       'Torka upp spill. Gamla slangen och trasorna i farligt avfall.',
@@ -34,20 +37,23 @@ export const KATALOG: Record<InstrId, Omit<Instruktion, 'id'>> = {
     steg: [
       'Plan och fast mark. Ingen människa nära.',
       'Kör sakta och rakt upp på ramperna.',
-      'Sänk kranen och aggregatet. Dra åt parkeringsbromsen.',
-      'Surra med minst fyra kedjor.',
+      'Kranen ner och surrad. Parkeringsbroms, lägsta växeln, låst midja.',
+      'Surra i maskinens surrningsöglor: minst två kedjor framåt och två bakåt.',
       'Stanna efter en kort bit och kolla surrningen igen.',
     ],
+    kalla: { text: 'TYA · Branschnorm lastsäkring', url: 'https://forankra.bynder.com/m/4b0cc9e45ce0f81/original/TYA-Branschnorm_Lastsakring.pdf' },
   },
   kraftledning: {
     titel: 'Nära kraftledning',
     nar: 'Trakten har en ledning (röd på kartan)',
     steg: [
       'Se på kartan var ledningen går innan du börjar.',
-      'Fäll aldrig ett träd som kan nå ledningen. Ring nätägaren först.',
-      'Rör kranen ledningen: stanna i hytten och ring 112.',
-      'Måste du ut: hoppa med samlade fötter, rör aldrig maskinen och marken samtidigt, skutta sedan bort.',
+      'Kan trädet hamna inom 10 m från ledningen: ring nätägaren innan du fäller.',
+      'Rör kranen ledningen: sitt kvar i hytten och försök köra loss. Ring nätägaren. Skadad eller brand: 112.',
+      'Måste du ut: hoppa jämfota. Rör aldrig maskinen och marken samtidigt.',
+      'Gå med små skutt minst 20 m bort.',
     ],
+    kalla: { text: 'Elsäkerhetsverket · Säkerhet nära elektriska ledningar', url: 'https://www.elsakerhetsverket.se/globalassets/pdf/anlaggning/sakerhet-nara-elektriska-ledningar.pdf' },
   },
   motorsag: {
     titel: 'Fälla svåra träd med motorsåg',
@@ -55,10 +61,11 @@ export const KATALOG: Record<InstrId, Omit<Instruktion, 'id'>> = {
     steg: [
       'Skyddsbyxor, hjälm med visir och kängor med sågskydd.',
       'Ingen inom två trädlängder.',
-      'Bestäm fallriktning och vart du går undan innan du sågar.',
+      'Bestäm fallriktning och en undanväg snett bakåt innan du sågar.',
       'Hängande eller hårt spänt träd: ta det med maskinen.',
       'Någon ska veta var du är och när du är klar.',
     ],
+    kalla: { text: 'Husqvarna · Förbered trädfällning', url: 'https://www.husqvarna.com/se/utforska-och-upptack/chainsaw-academy/grundlaggande-tradfallning/hur-man-forbereder-tradfallning/' },
   },
   heta_arbeten: {
     titel: 'Svetsa och slipa i skogen',
@@ -79,6 +86,30 @@ export const KATALOG: Record<InstrId, Omit<Instruktion, 'id'>> = {
       'Hör av dig när du är klar.',
       'Hör ingen av dig ringer arbetsledningen. Svarar du inte åker någon dit.',
     ],
+    kalla: { text: 'Skogforsk · Säker i skogen: Ensamarbete', url: 'https://www.skogforsk.se/rad--stod/filmer--publikationer/saker-i-skogen/' },
+  },
+  brant: {
+    titel: 'Köra i brant terräng',
+    nar: 'Där maskinen kan välta eller glida (röda streck på kartan)',
+    steg: [
+      'Se på kartan var det är brant innan du kör dit.',
+      'Kör rakt upp och ner. Aldrig tvärs över backen.',
+      'Kör hellre tom uppför och lastad nedför.',
+      'Bältet på. Börjar maskinen tippa: stanna i hytten.',
+      'Ser det för brant ut: kör inte. Ring arbetsledningen.',
+    ],
+  },
+  bargning: {
+    titel: 'Bärga en maskin som kört fast',
+    nar: 'När en maskin ska dras loss med en annan',
+    steg: [
+      'Säg till någon vad du gör. Gör det inte värre – be om hjälp tidigt.',
+      'Dra bara i maskinens bärgningspunkter. Kolla att vajer, block och band är hela.',
+      'Säkra kroken med en extra lina till en annan fast punkt.',
+      'Ingen får stå där vajern slår om den brister.',
+      'Kom överens om tecken innan ni drar. Gräv bort stubbar och sten först.',
+    ],
+    kalla: { text: 'Skogforsk · Checklista vid bärgning', url: 'https://www.skogforsk.se/cd_20190114162704/contentassets/c65abaa12fd84a578be7cc3b44794ddb/checklista-vid-bargning-171024.pdf' },
   },
 };
 
@@ -88,7 +119,7 @@ export const TOM: Godkannande = { steg: null, godkandUnderlag: null, godkandTid:
 /** Instruktionen som gäller: admins ändrade steg, annars appens. */
 export function instruktion(id: InstrId, g: Godkannande | undefined): Instruktion {
   const k = KATALOG[id];
-  return { id, titel: k.titel, nar: k.nar, steg: g?.steg && g.steg.length >= MIN_STEG ? g.steg : k.steg };
+  return { id, titel: k.titel, nar: k.nar, kalla: k.kalla, steg: g?.steg && g.steg.length >= MIN_STEG ? g.steg : k.steg };
 }
 
 /** Är stegen ändrade från appens? */

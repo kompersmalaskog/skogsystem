@@ -12,7 +12,7 @@ import Ark from '@/components/design/Ark';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import Falt from '@/components/design/Falt';
-import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, ROT_MIN_HOJD, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
+import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import { datumText } from '@/lib/arbetsmiljo/introduktion';
 import {
   INSTR_IDN, MAX_STEG, arAndrad, godkann, hamta, hamtaKvitton, instruktion, kvittera, lage, lastTid, rensaSteg, sparaSteg, svar, synligForForare,
@@ -146,6 +146,14 @@ export default function SaGorVi() {
                   </li>
                 ))}
               </ol>
+            )}
+
+            {!andrar && i.kalla && (
+              <a data-sgv-kalla href={i.kalla.url} target="_blank" rel="noopener noreferrer"
+                onClick={e => { if (window.open(i.kalla!.url, '_blank', 'noopener')) e.preventDefault(); }}
+                style={{ ...TYP.meta, color: FARG.bla, display: 'inline-flex', alignItems: 'center', minHeight: TRAFFYTA.min, marginTop: AVSTAND.m, textDecoration: 'none' }}>
+                Källa: {i.kalla.text} ›
+              </a>
             )}
 
             {arAdmin && !andrar && (
