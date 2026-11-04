@@ -1,3 +1,5 @@
+import { FARG } from './design/tokens';
+
 // HYTTSPÅRENS RITSTIL — en källa för körvyns lager (egen/hist/andras) OCH planeringsvyns lager (planspar-*).
 //
 // Apple-Maps-look: färgad kärna + LJUS casing (vit) som lyfter linjen från busig bakgrund (raster, gränser, basvägar). Casing ~2,5 px bredare än linjen.
@@ -162,7 +164,33 @@ export function skotarlageSpar(roll: SparRoll, art: SparArt): SkotarlageSpar {
   const s = dampatSpar(roll, art);
   if (roll === 'skordare' && art === 'andras') {
     const svag = (op: number | any[]): number | any[] => typeof op === 'number' ? op * SKORDARSPAR_SVAGARE : ['*', SKORDARSPAR_SVAGARE, op];
-    return { ...s, opacitet: svag(s.opacitet), kantOpacitet: ['*', SKORDARSPAR_SVAGARE, s.kantOpacitet], streck: null };
+    // Kanten är ett zoom-uttryck: faktorn läggs i stoppen (MapLibre kräver zoom överst — ['*', k, zoom-uttryck] avvisas och lagret behöll förra värdet).
+    const kz = s.kantOpacitet as any[];
+    const kant = Array.isArray(kz) && kz[0] === 'interpolate' ? [...kz.slice(0, 3), ...kz.slice(3).map((v, i) => (i % 2 === 1 ? svag(v) : v))] : svag(kz as any);
+    return { ...s, opacitet: svag(s.opacitet), kantOpacitet: kant as any[], streck: null };
   }
   return { ...s, streck: null };
+}
+
+// ── KÖRSPÅREN SOM SVAR (Martin 2026-11-04, lib/korsparKlart) ─────────────────────────────────────────────────────────────────────────────────────────
+// En regel som ett barn förstår: LILA = där skördaren körde (alltid, tydligt, aldrig nedtonat), och en VIT MITTLINJE i stråket = skotaren på det här jobbet har
+// kört här (som mittlinjen på en väg). Skotaren ritas inte som en egen linje på kartan — den kör i skördarens stråk, och blått betyder vatten.
+// På ett GROT-jobb är det GROT-skotaren som ger mittlinjen; samma regel. Det som är kvar att skota visas av produktionshögarna, inte av linjerna.
+// ROLLFARG_SKOTARE finns kvar i diagram och listor med teckenförklaring. dampatSpar/skotarlageSpar för skotaren används inte av kartan längre.
+/** Skördarens stråk på kartan: bredare än förut så att mittlinjen får plats med lila på båda sidor (mätt mot flygfoto: 5 px vid zoom 17). */
+export const STRAK_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 2, 15, 3.5, 17, 5, 19, 7];
+export const STRAK_KANT_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 2 + SPAR_KANT_EXTRA_PX, 15, 3.5 + SPAR_KANT_EXTRA_PX, 17, 5 + SPAR_KANT_EXTRA_PX, 19, 7 + SPAR_KANT_EXTRA_PX];
+/** Mittlinjen: vit, ungefär en tredjedel av stråket, och syns först när stråket är brett nog att bära den. */
+export const MITTLINJE_FARG = '#ffffff';
+export const MITTLINJE_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 0.6, 15, 1.2, 17, 1.8, 19, 2.5];
+export const MITTLINJE_OPACITET: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 0, 14.5, 0.95];
+/** Filtret som avgör var mittlinjen ritas: bitar av skördarens stråk där skotaren varit (lib/korsparKlart delaKlart sätter `klar`). */
+export const MITTLINJE_FILTER: readonly any[] = ['==', ['get', 'klar'], true];
+
+export interface SparPaint { farg: any; bredd: any; opacitet: any; kantFarg: string; kantBredd: any; kantOpacitet: any; streck: readonly number[] | null }
+
+/** Kartans stil för skördarens stråk: rollfärgen, alltid tydlig. `skotarlage` = i skotarens körvy (lite svagare, som förut). */
+export function kartSpar(art: SparArt, skotarlage = false): SparPaint {
+  const s = skotarlage ? skotarlageSpar('skordare', art) : { ...dampatSpar('skordare', art), streck: null };
+  return { farg: s.farg, bredd: STRAK_BREDD, opacitet: s.opacitet, kantFarg: s.kantFarg, kantBredd: STRAK_KANT_BREDD, kantOpacitet: s.kantOpacitet, streck: null };
 }

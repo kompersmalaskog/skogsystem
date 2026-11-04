@@ -11,17 +11,17 @@ const forekomster = (re: RegExp) => (page.match(re) || []).length;
 describe('RITNINGEN går genom utjämningen — på exakt de fyra ritställena', () => {
   it('hyttsparRitadeLinjer anropas på fyra ställen: live eget spår, tidigare dagar, den andres spår, planeringsvyn', () => {
     expect(forekomster(/hyttsparRitadeLinjer\(/g)).toBe(4);
-    const live = page.indexOf('const uppdateraHyttsparLager = useCallback');
+    const live = page.indexOf('const ritaKorvySpar = useCallback');   // körvyns tre källor ritas av EN funktion (lib/korsparKlart)
     expect(live).toBeGreaterThan(0);
-    expect(page.slice(live, live + 900)).toContain('hyttsparRitadeLinjer(hyttsparPointsRef.current as any)');   // live eget spår: hela dagens RÅA punkter in, utjämnad linje ut
+    expect(page.slice(live, live + 1200)).toContain('hyttsparRitadeLinjer(hyttsparPointsRef.current as any)');   // live eget spår: hela dagens RÅA punkter in, utjämnad linje ut
     // tidigare dagar: dagens EGNA rad filtreras bort (GROT-jobb tar också virkesobjektets skördarspår — då är raden en annan objekt_id och behålls)
     expect(page).toMatch(/\.filter\(\(r: any\) => r\.objekt_id !== objektId \|\| r\.datum !== idag\)[^\n]*\n\s*\.map\(\(r: any\) => \(\{ linjer: hyttsparRitadeLinjer\(/);
     // den andres spår: EN delad hjälpare (tillRader) som ritar via den utjämnade vägen — egna rader och GROT-jobbets virkesobjekt-rader går igenom samma
     expect(page).toMatch(/const tillRader = \(rader: any\[\] \| null\) => \(rader \|\| \[\]\)\n\s*\.map\(\(r: any\) => \(\{ linjer: hyttsparRitadeLinjer\(/);
     expect(page).toMatch(/raderPerRoll\[roll\]\.push\(\{ linjer: hyttsparRitadeLinjer\(Array\.isArray\(\(r as any\)\.points\)/);
     // STRÅK (lib/strak): historik, den andres och planeringens spår går alla genom strakFeatures — aldrig live-spåret
-    expect(page.match(/strakFeatures\(/g)!.length).toBe(4);
-    expect(page.slice(live, live + 900)).not.toContain('strakFeatures');
+    expect(page.match(/strakFeatures\(/g)!.length).toBe(3);   // historik, den andres, planeringens skördare (skotaren ritas som band ur rådata-linjerna, lib/korsparKlart)
+    expect(page.slice(live, live + 2600)).not.toContain('strakFeatures');
   });
   it('importerna finns', () => {
     expect(page).toContain("import { hyttsparRitadeLinjer } from '../../lib/sparJamning'");
@@ -64,7 +64,7 @@ describe('stilen: dämpade spår (lib/sparStil dampatSpar), en källa för alla 
     expect(page).toContain("satt(`${namn}-casing`, 'line-color', s.kantFarg); satt(`${namn}-casing`, 'line-width', s.kantBredd); satt(`${namn}-casing`, 'line-opacity', s.kantOpacitet);");
   });
   it('planeringsvyns lager skapas med stilen per roll', () => {
-    expect(page).toContain("const st = dampatSpar(roll, 'plan');");
+    expect(page).toContain("const st = kartSpar('plan');");   // skördaren grå där skotaren kört, skotaren som band (lib/sparStil kartSpar)
     expect(page).toContain("'line-opacity': st.opacitet as any, 'line-width': st.bredd");
     expect(page).toContain("'line-color': st.kantFarg, 'line-opacity': st.kantOpacitet as any, 'line-width': st.kantBredd");
   });

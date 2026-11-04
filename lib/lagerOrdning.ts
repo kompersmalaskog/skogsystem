@@ -81,6 +81,11 @@ const REGLER: Regel[] = [
   // ── Hyttspår: skördarens under skotarens (skotarens spår är fokus), inom körvyn: den andres < egna tidigare dagar < eget idag ──────
   // Maskinens EGNA spår (tidigare dagar och idag) ligger över den andra maskinens — skotaren och skördaren kör samma stickvägar, och skotarens spår
   // försvann under skördarens i skotarläget (Martin 2026-11-01).
+  // Vita mittlinjen (skotaren har kört här, lib/sparStil MITTLINJE_*) ligger direkt ovanpå sitt stråk.
+  [/^hyttspar-andras-mitt$/, RANG.hyttspar + 1 * D],
+  [/^hyttspar-hist-mitt$/, RANG.hyttspar + 8 * D],
+  [/^planspar-skordare-mitt$/, RANG.hyttspar + 6 * D],
+  [/^hyttspar-egen-mitt$/, RANG.hyttspar + 11 * D],
   [/^hyttspar-andras-/, RANG.hyttspar],
   [/^hyttspar-hist-/, RANG.hyttspar + 7 * D],
   [/^planspar-skordare-/, RANG.hyttspar + 5 * D],
