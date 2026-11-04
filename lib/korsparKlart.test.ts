@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { delaKlart, utanforStrak, linjerUr, KLART_RADIE_M, type LinjeFeature, type Koord } from './korsparKlart';
-import { kartSpar, medKlart, dampatSpar, STRAK_KLAR_FARG, SKOTAR_BAND_FARG, ROLLFARG_SKOTARE } from './sparStil';
+import { delaKlart, linjerUr, KLART_RADIE_M, type LinjeFeature, type Koord } from './korsparKlart';
+import { kartSpar, ROLLFARG_SKORDARE, ROLLFARG_SKOTARE, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER, STRAK_BREDD } from './sparStil';
 
 // Ett lokalt plan runt Mölleryd: 1 m österut ≈ 1/(111320·cos 56,9°) grader.
 const LAT = 56.9, M_LNG = 1 / (111_320 * Math.cos((LAT * Math.PI) / 180)), M_LAT = 1 / 111_320;
@@ -39,58 +39,39 @@ describe('delaKlart', () => {
   });
 });
 
-describe('utanforStrak', () => {
-  it('bara delen utanför stråken blir band', () => {
-    const skot = [[p(0, 0), p(50, 0), p(50, 60)]];
-    const ut = utanforStrak(skot, [[p(0, 0), p(50, 0)]]);
-    expect(ut).toHaveLength(1);
-    expect(langd(ut[0])).toBeGreaterThan(40);
-    expect(ut[0].geometry.coordinates.every((c) => (c[1] - LAT) / M_LAT > KLART_RADIE_M)).toBe(true);
-  });
-  it('helt på stråken → inget band; utan stråk → hela spåret', () => {
-    expect(utanforStrak([[p(0, 1), p(80, 1)]], [[p(0, 0), p(80, 0)]])).toEqual([]);
-    expect(utanforStrak([[p(0, 0), p(10, 0), p(20, 0)]], [])).toHaveLength(1);
-  });
-  it('linjerUr tar linjerna', () => {
+describe('linjerUr', () => {
+  it('tar linjerna', () => {
     expect(linjerUr([linje([p(0, 0), p(1, 1)])])).toHaveLength(1);
     expect(linjerUr(null)).toEqual([]);
   });
 });
 
-describe('kartans stil: blått betyder vatten', () => {
-  it('skotaren ritas aldrig i sin turkosa rollfärg på kartan', () => {
-    for (const art of ['plan', 'egen', 'hist', 'andras'] as const) {
-      for (const lage of [false, true]) {
-        const s = kartSpar('skotare', art, lage);
-        expect(s.farg).toBe(SKOTAR_BAND_FARG);
-        expect(JSON.stringify(s)).not.toContain(ROLLFARG_SKOTARE);
-        expect(s.kantOpacitet).toBe(0);
-      }
+describe('kartans stil: lila stråk, vit mittlinje där skotaren kört', () => {
+  it('stråket är alltid skördarens lila — aldrig grått, aldrig turkos', () => {
+    for (const art of ['plan', 'egen', 'hist', 'andras'] as const) for (const lage of [false, true]) {
+      const s = kartSpar(art, lage);
+      expect(s.farg).toBe(ROLLFARG_SKORDARE);
+      expect(JSON.stringify(s)).not.toContain(ROLLFARG_SKOTARE);
+      expect(JSON.stringify(s)).not.toContain('klar');
     }
   });
-  it('skördaren: rollfärg där kvar, grått och utan kant där klar', () => {
-    const s = kartSpar('skordare', 'plan');
-    expect(s.farg).toEqual(['case', ['==', ['get', 'klar'], true], STRAK_KLAR_FARG, dampatSpar('skordare', 'plan').farg]);
-    // zoom-uttrycket ligger överst (MapLibre kräver det) och varje stopp är ett case
-    expect((s.bredd as any[])[0]).toBe('interpolate');
-    expect((s.kantOpacitet as any[])[0]).toBe('interpolate');
-    const stopp = (s.kantOpacitet as any[]).slice(3).filter((_, i) => i % 2 === 1);
-    expect(stopp.every((v: any) => Array.isArray(v) && v[0] === 'case' && v[2] === 0)).toBe(true);
+  it('mittlinjen är vit, ritas bara där `klar` och är smalare än stråket på varje zoomsteg', () => {
+    expect(MITTLINJE_FARG).toBe('#ffffff');
+    expect(MITTLINJE_FILTER).toEqual(['==', ['get', 'klar'], true]);
+    const stopp = (e: readonly any[]) => { const m = new Map<number, number>(); for (let i = 3; i < e.length; i += 2) m.set(e[i], e[i + 1]); return m; };
+    const strak = stopp(STRAK_BREDD), mitt = stopp(MITTLINJE_BREDD);
+    for (const [z, b] of mitt) expect(b).toBeLessThanOrEqual((strak.get(z) as number) * 0.4);
   });
   it('alla lager validerar i MapLibre (zoom överst) — också skotarlägets svagare skördare', async () => {
     const { validateStyleMin } = await import('@maplibre/maplibre-gl-style-spec');
     const layers: any[] = [];
-    for (const roll of ['skordare', 'skotare'] as const) for (const art of ['plan', 'egen', 'hist', 'andras'] as const) for (const l of [false, true]) {
-      const s = kartSpar(roll, art, l), id = `${roll}-${art}-${l}`;
+    for (const art of ['plan', 'egen', 'hist', 'andras'] as const) for (const l of [false, true]) {
+      const s = kartSpar(art, l), id = `${art}-${l}`;
       layers.push({ id: id + '-l', type: 'line', source: 's', paint: { 'line-color': s.farg, 'line-width': s.bredd, 'line-opacity': s.opacitet } });
       layers.push({ id: id + '-c', type: 'line', source: 's', paint: { 'line-color': s.kantFarg, 'line-width': s.kantBredd, 'line-opacity': s.kantOpacitet } });
     }
+    layers.push({ id: 'mitt', type: 'line', source: 's', filter: MITTLINJE_FILTER, paint: { 'line-color': MITTLINJE_FARG, 'line-width': MITTLINJE_BREDD, 'line-opacity': MITTLINJE_OPACITET } });
     const fel = validateStyleMin({ version: 8, sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } }, layers } as any);
     expect(fel.map((e: any) => e.message)).toEqual([]);
-  });
-  it('medKlart av ett tal ger ett case direkt', () => {
-    const s = medKlart({ farg: '#000', bredd: 3, opacitet: 1, kantFarg: '#000', kantBredd: 5, kantOpacitet: 0.8 });
-    expect(s.bredd).toEqual(['case', ['==', ['get', 'klar'], true], 3 * 0.85, 3]);
-    expect(s.kantOpacitet).toEqual(['case', ['==', ['get', 'klar'], true], 0, 0.8]);
   });
 });

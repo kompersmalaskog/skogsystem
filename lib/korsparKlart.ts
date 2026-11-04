@@ -1,8 +1,8 @@
 // KÖRSPÅREN SOM SVAR (Martin 2026-11-04): spåren finns för att visa HUR SKÖRDAREN KÖRDE och ATT SKOTAREN HAR VARIT DÄR.
 // Skotaren får därför ingen egen linje i en egen färg längre (turkos krockade med vatten, diken och blött — blått betyder vatten).
-//   • Skördarens stråk ritas som förut (lila) — det är vägen skotaren ska köra.
-//   • Där skotaren har kört blir stråket GRÅTT (samma regel som resten av kartan: klart blir grått, lib/kartKlart).
-//   • Där skotaren kört utanför stråken ritas ett svagt ljust band.
+//   • Skördarens stråk ritas alltid lila och tydligt — det är vägnätet, också för GROT-skotaren och markberedaren.
+//   • Där skotaren på jobbet har kört får stråket en VIT MITTLINJE (lib/sparStil MITTLINJE_*), som mittlinjen på en väg.
+//   • Grått användes först och försvann mot flygfotot (Martin 2026-11-04) — klart blir alltså INTE grått här.
 // Ett stråk räknas som kört när skotaren varit inom KLART_RADIE_M. Prövat på Mölleryds riktiga spår (2026-11-04): 6–12 m gav 90–99 % körda stråk —
 // talet hänger inte på exakt gräns. Bara ritningen: sparad data och allt som räknas rörs inte. Ren och testbar.
 
@@ -105,31 +105,6 @@ export function delaKlart(skordare: LinjeFeature[], skotarLinjer: Koord[][], rad
       bit.push(llT[i]);
     }
     if (bit.length >= 2) ut.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: bit }, properties: { ...f.properties, klar: !!klar } });
-  }
-  return ut;
-}
-
-/** Bitarna av skotarens spår som ligger mer än `radie` meter från alla skördarens stråk — ritas som ett svagt band. */
-export function utanforStrak(skotarLinjer: Koord[][], skordarLinjer: Koord[][], radie = KLART_RADIE_M): LinjeFeature[] {
-  const alla = [...(skotarLinjer ?? []).flat(), ...(skordarLinjer ?? []).flat()].filter(giltig);
-  if (alla.length === 0) return [];
-  const proj = projektion(alla);
-  const skord = fortata(skordarLinjer ?? [], proj, STRAK_STEG_M);
-  const ix = skord.length ? index(skord, Math.max(radie, 1)) : null;
-  const ut: LinjeFeature[] = [];
-  for (const l of skotarLinjer ?? []) {
-    const ll = (l ?? []).filter(giltig);
-    if (ll.length < 2) continue;
-    let bit: Koord[] = [];
-    const slut = () => { if (bit.length >= 2) ut.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: bit }, properties: {} }); bit = []; };
-    const prova = (c: Koord) => { if (!ix || !nara(ix, proj.xy(c), radie)) bit.push(c); else slut(); };
-    prova(ll[0]);
-    for (let i = 1; i < ll.length; i++) {
-      const a = proj.xy(ll[i - 1]), b = proj.xy(ll[i]);
-      const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / SKOTAR_STEG_M));
-      for (let k = 1; k <= n; k++) prova([ll[i - 1][0] + ((ll[i][0] - ll[i - 1][0]) * k) / n, ll[i - 1][1] + ((ll[i][1] - ll[i - 1][1]) * k) / n]);
-    }
-    slut();
   }
   return ut;
 }

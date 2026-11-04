@@ -64,7 +64,7 @@ describe('stilen: dämpade spår (lib/sparStil dampatSpar), en källa för alla 
     expect(page).toContain("satt(`${namn}-casing`, 'line-color', s.kantFarg); satt(`${namn}-casing`, 'line-width', s.kantBredd); satt(`${namn}-casing`, 'line-opacity', s.kantOpacitet);");
   });
   it('planeringsvyns lager skapas med stilen per roll', () => {
-    expect(page).toContain("const st = kartSpar(roll, 'plan');");   // skördaren grå där skotaren kört, skotaren som band (lib/sparStil kartSpar)
+    expect(page).toContain("const st = kartSpar('plan');");   // skördaren grå där skotaren kört, skotaren som band (lib/sparStil kartSpar)
     expect(page).toContain("'line-opacity': st.opacitet as any, 'line-width': st.bredd");
     expect(page).toContain("'line-color': st.kantFarg, 'line-opacity': st.kantOpacitet as any, 'line-width': st.kantBredd");
   });

@@ -164,64 +164,33 @@ export function skotarlageSpar(roll: SparRoll, art: SparArt): SkotarlageSpar {
   const s = dampatSpar(roll, art);
   if (roll === 'skordare' && art === 'andras') {
     const svag = (op: number | any[]): number | any[] => typeof op === 'number' ? op * SKORDARSPAR_SVAGARE : ['*', SKORDARSPAR_SVAGARE, op];
-    return { ...s, opacitet: svag(s.opacitet), kantOpacitet: ['*', SKORDARSPAR_SVAGARE, s.kantOpacitet], streck: null };
+    // Kanten är ett zoom-uttryck: faktorn läggs i stoppen (MapLibre kräver zoom överst — ['*', k, zoom-uttryck] avvisas och lagret behöll förra värdet).
+    const kz = s.kantOpacitet as any[];
+    const kant = Array.isArray(kz) && kz[0] === 'interpolate' ? [...kz.slice(0, 3), ...kz.slice(3).map((v, i) => (i % 2 === 1 ? svag(v) : v))] : svag(kz as any);
+    return { ...s, opacitet: svag(s.opacitet), kantOpacitet: kant as any[], streck: null };
   }
   return { ...s, streck: null };
 }
 
 // ── KÖRSPÅREN SOM SVAR (Martin 2026-11-04, lib/korsparKlart) ─────────────────────────────────────────────────────────────────────────────────────────
-// Blått betyder vatten (diken, blött, bäckar). Skotaren ritas därför INTE längre som en turkos linje på kartan: skördarens stråk blir GRÅTT där skotaren
-// har kört (featurens `klar`), och skotarens eget spår är bara ett svagt ljust band. ROLLFARG_SKOTARE finns kvar i diagram och listor (Uppföljning), där
-// det finns en teckenförklaring. dampatSpar/skotarlageSpar för skotaren används inte av kartan längre.
-/** Ett kört stråk: appens grå (samma som "klart" i lib/kartKlart), tunnare, ingen mörk kant. */
-export const STRAK_KLAR_FARG = FARG.text2;
-export const STRAK_KLAR_OPACITET = 0.9;
-/** Ett kört stråk är så här mycket smalare än ett som är kvar. */
-export const STRAK_KLAR_BREDD_ANDEL = 0.85;
-/** Skotarens band: ljust och svagt, bredare än en linje — "här har skotaren varit". */
-export const SKOTAR_BAND_FARG = FARG.text;
-export const SKOTAR_BAND_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 3, 15, 5, 17, 8, 19, 11];
-export const SKOTAR_BAND_OPACITET: Readonly<Record<'plan' | 'egen' | 'hist' | 'andras', number>> = { plan: 0.5, andras: 0.5, egen: 0.6, hist: 0.55 };
-
-const KLAR: any[] = ['==', ['get', 'klar'], true];
-/** Byter varje stoppvärde i ett zoom-uttryck (['interpolate', …, ['zoom'], z, v, …]) mot ['case', klar, f(v), v]. Ett tal blir ett case direkt. */
-function perKlart(v: any, f: (x: any) => any): any {
-  // ['*', k, zoom-uttryck] (skotarlägets svagare skördare): flytta in faktorn i stoppen, annars ligger zoom inte överst.
-  if (Array.isArray(v) && v[0] === '*' && v.length === 3 && Array.isArray(v[2]) && v[2][0] === 'interpolate' && Array.isArray(v[2][2]) && v[2][2][0] === 'zoom') {
-    const z = v[2].slice(0, 3);
-    for (let i = 3; i < v[2].length; i += 2) z.push(v[2][i], ['*', v[1], v[2][i + 1]]);
-    return perKlart(z, f);
-  }
-  if (Array.isArray(v) && v[0] === 'interpolate' && Array.isArray(v[2]) && v[2][0] === 'zoom') {
-    const ut = v.slice(0, 3);
-    for (let i = 3; i < v.length; i += 2) ut.push(v[i], ['case', KLAR, f(v[i + 1]), v[i + 1]]);
-    return ut;
-  }
-  return ['case', KLAR, f(v), v];
-}
+// En regel som ett barn förstår: LILA = där skördaren körde (alltid, tydligt, aldrig nedtonat), och en VIT MITTLINJE i stråket = skotaren på det här jobbet har
+// kört här (som mittlinjen på en väg). Skotaren ritas inte som en egen linje på kartan — den kör i skördarens stråk, och blått betyder vatten.
+// På ett GROT-jobb är det GROT-skotaren som ger mittlinjen; samma regel. Det som är kvar att skota visas av produktionshögarna, inte av linjerna.
+// ROLLFARG_SKOTARE finns kvar i diagram och listor med teckenförklaring. dampatSpar/skotarlageSpar för skotaren används inte av kartan längre.
+/** Skördarens stråk på kartan: bredare än förut så att mittlinjen får plats med lila på båda sidor (mätt mot flygfoto: 5 px vid zoom 17). */
+export const STRAK_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 2, 15, 3.5, 17, 5, 19, 7];
+export const STRAK_KANT_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 2 + SPAR_KANT_EXTRA_PX, 15, 3.5 + SPAR_KANT_EXTRA_PX, 17, 5 + SPAR_KANT_EXTRA_PX, 19, 7 + SPAR_KANT_EXTRA_PX];
+/** Mittlinjen: vit, ungefär en tredjedel av stråket, och syns först när stråket är brett nog att bära den. */
+export const MITTLINJE_FARG = '#ffffff';
+export const MITTLINJE_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 0.6, 15, 1.2, 17, 1.8, 19, 2.5];
+export const MITTLINJE_OPACITET: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 0, 14.5, 0.95];
+/** Filtret som avgör var mittlinjen ritas: bitar av skördarens stråk där skotaren varit (lib/korsparKlart delaKlart sätter `klar`). */
+export const MITTLINJE_FILTER: readonly any[] = ['==', ['get', 'klar'], true];
 
 export interface SparPaint { farg: any; bredd: any; opacitet: any; kantFarg: string; kantBredd: any; kantOpacitet: any; streck: readonly number[] | null }
 
-/** Skördarens stil med kört stråk inbyggt: grått, tunnare och utan kant där `klar` är sant, annars exakt som förut. */
-export function medKlart(s: { farg: string; bredd: any; opacitet: any; kantFarg: string; kantBredd: any; kantOpacitet: any; streck?: readonly number[] | null }): SparPaint {
-  return {
-    farg: ['case', KLAR, STRAK_KLAR_FARG, s.farg],
-    bredd: perKlart(s.bredd, (x) => (typeof x === 'number' ? Math.max(1, x * STRAK_KLAR_BREDD_ANDEL) : x)),
-    opacitet: ['case', KLAR, STRAK_KLAR_OPACITET, s.opacitet],
-    kantFarg: s.kantFarg,
-    kantBredd: s.kantBredd,
-    kantOpacitet: perKlart(s.kantOpacitet, () => 0),
-    streck: s.streck ?? null,
-  };
-}
-
-/** Skotarens spår på kartan, oavsett var: ett svagt ljust band utan kant. */
-export function skotarBand(art: SparArt): SparPaint {
-  return { farg: SKOTAR_BAND_FARG, bredd: SKOTAR_BAND_BREDD, opacitet: SKOTAR_BAND_OPACITET[art], kantFarg: SPAR_KANT_FARG, kantBredd: SKOTAR_BAND_BREDD, kantOpacitet: 0, streck: null };
-}
-
-/** Kartans stil för en rolls spår i ett lager. Skördare: rollfärgen med kört stråk grått. Skotare: bandet. `skotarlage` = skördarens spår i skotarens körvy (svagare). */
-export function kartSpar(roll: SparRoll, art: SparArt, skotarlage = false): SparPaint {
-  if (roll === 'skotare') return skotarBand(art);
-  return medKlart(skotarlage ? skotarlageSpar(roll, art) : dampatSpar(roll, art));
+/** Kartans stil för skördarens stråk: rollfärgen, alltid tydlig. `skotarlage` = i skotarens körvy (lite svagare, som förut). */
+export function kartSpar(art: SparArt, skotarlage = false): SparPaint {
+  const s = skotarlage ? skotarlageSpar('skordare', art) : { ...dampatSpar('skordare', art), streck: null };
+  return { farg: s.farg, bredd: STRAK_BREDD, opacitet: s.opacitet, kantFarg: s.kantFarg, kantBredd: STRAK_KANT_BREDD, kantOpacitet: s.kantOpacitet, streck: null };
 }
