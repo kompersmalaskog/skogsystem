@@ -43,6 +43,7 @@ const pageNames: Record<string, string> = {
   '/skyddsrond': 'Skyddsrond',
   '/kemikalier': 'Kemikalier',
   '/farligt-avfall': 'Farligt avfall',
+  '/sa-gor-vi': 'Så gör vi',
   '/avtal': 'Avtal & Abonnemang',
   '/personal': 'Personal',
   '/om': 'Om appen',

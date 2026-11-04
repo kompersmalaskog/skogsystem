@@ -11,11 +11,12 @@ import { datumText, lageText, type IntroLage } from './introduktion';
 import { arshjulRad, svenskArManad, type Rad as ArshjulRad } from './arshjul';
 import { svar as kemSvar, type Kemikalie } from './kemikalier';
 import { svar as avfallSvar, type Lamning } from './avfall';
+import { svar as saGorViSvar, type Godkannande, type InstrId, type Kvitto as InstrKvitto } from './saGorVi';
 
 export type Ton = 'orange' | 'rod';
 
 export type OversiktRad = {
-  id: 'atgarder' | 'skyddsrond' | 'arshjul' | 'riskbedomning' | 'maskinkoll' | 'kemikalier' | 'avfall' | 'rapportera' | 'introduktion';
+  id: 'atgarder' | 'skyddsrond' | 'arshjul' | 'riskbedomning' | 'maskinkoll' | 'kemikalier' | 'avfall' | 'sagorvi' | 'rapportera' | 'introduktion';
   titel: string;
   href: string;
   under: string;
@@ -49,6 +50,8 @@ export type Indata = {
   kemikalier?: readonly Kemikalie[] | null;
   /** Farligt avfall (lämningarna). undefined = visas inte, null = läsfel. */
   avfall?: readonly Lamning[] | null;
+  /** Så gör vi (instruktionerna). undefined = visas inte, null = läsfel. */
+  saGorVi?: { g: Record<InstrId, Godkannande>; kvitton: readonly InstrKvitto[] } | null;
 };
 
 const LASFEL = 'Kunde inte läsas just nu';
@@ -124,6 +127,13 @@ function avfallRad(l: readonly Lamning[] | null): OversiktRad {
   return { ...bas, under: l.length === 0 ? 'Gamla slangar, oljiga trasor och tomma dunkar' : `${s.text} · ${s.under}`, attGora: false };
 }
 
+function saGorViRad(d: Indata['saGorVi'], arAdmin: boolean, medarbetareId: string, nu: Date): OversiktRad {
+  const bas = { id: 'sagorvi' as const, titel: 'Så gör vi', href: '/sa-gor-vi' };
+  if (!d) return felRad(bas.id, bas.titel, bas.href);
+  const s = saGorViSvar(arAdmin, d.g, d.kvitton, medarbetareId, nu);
+  return s.ton ? { ...bas, under: s.text, ton: 'orange', attGora: true } : { ...bas, under: s.text, attGora: false };
+}
+
 function introRad(i: Indata['intro']): OversiktRad {
   const bas = { id: 'introduktion' as const, titel: 'Introduktion', href: '/introduktion' };
   if (i === undefined) return { ...bas, under: 'Det en ny förare ska veta', attGora: false };
@@ -149,6 +159,7 @@ export function byggRader(d: Indata, nu: Date = new Date()): OversiktRad[] {
     riskRad(d.risk, d.arAdmin, d.medarbetareId, nu),
     maskinkollRad(d.maskinkoll),
     ...(d.kemikalier !== undefined ? [kemikalieRad(d.kemikalier, d.arAdmin)] : []),
+    ...(d.saGorVi !== undefined ? [saGorViRad(d.saGorVi, d.arAdmin, d.medarbetareId, nu)] : []),
     ...(d.avfall !== undefined ? [avfallRad(d.avfall)] : []),
     { id: 'rapportera', titel: 'Rapportera', href: '/om-nagot-hander?rapport=1', under: 'Något trasigt, nära att hända eller en skada', attGora: false },
     introRad(d.intro),
