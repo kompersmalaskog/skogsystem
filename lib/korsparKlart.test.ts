@@ -79,7 +79,7 @@ describe('kartans stil: blått betyder vatten', () => {
   });
   it('medKlart av ett tal ger ett case direkt', () => {
     const s = medKlart({ farg: '#000', bredd: 3, opacitet: 1, kantFarg: '#000', kantBredd: 5, kantOpacitet: 0.8 });
-    expect(s.bredd).toEqual(['case', ['==', ['get', 'klar'], true], 3 * 0.66, 3]);
+    expect(s.bredd).toEqual(['case', ['==', ['get', 'klar'], true], 3 * 0.85, 3]);
     expect(s.kantOpacitet).toEqual(['case', ['==', ['get', 'klar'], true], 0, 0.8]);
   });
 });

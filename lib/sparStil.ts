@@ -175,13 +175,13 @@ export function skotarlageSpar(roll: SparRoll, art: SparArt): SkotarlageSpar {
 // det finns en teckenförklaring. dampatSpar/skotarlageSpar för skotaren används inte av kartan längre.
 /** Ett kört stråk: appens grå (samma som "klart" i lib/kartKlart), tunnare, ingen mörk kant. */
 export const STRAK_KLAR_FARG = FARG.text2;
-export const STRAK_KLAR_OPACITET = 0.75;
+export const STRAK_KLAR_OPACITET = 0.9;
 /** Ett kört stråk är så här mycket smalare än ett som är kvar. */
-export const STRAK_KLAR_BREDD_ANDEL = 0.66;
+export const STRAK_KLAR_BREDD_ANDEL = 0.85;
 /** Skotarens band: ljust och svagt, bredare än en linje — "här har skotaren varit". */
 export const SKOTAR_BAND_FARG = FARG.text;
 export const SKOTAR_BAND_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 3, 15, 5, 17, 8, 19, 11];
-export const SKOTAR_BAND_OPACITET: Readonly<Record<'plan' | 'egen' | 'hist' | 'andras', number>> = { plan: 0.25, andras: 0.25, egen: 0.35, hist: 0.3 };
+export const SKOTAR_BAND_OPACITET: Readonly<Record<'plan' | 'egen' | 'hist' | 'andras', number>> = { plan: 0.5, andras: 0.5, egen: 0.6, hist: 0.55 };
 
 const KLAR: any[] = ['==', ['get', 'klar'], true];
 /** Byter varje stoppvärde i ett zoom-uttryck (['interpolate', …, ['zoom'], z, v, …]) mot ['case', klar, f(v), v]. Ett tal blir ett case direkt. */
