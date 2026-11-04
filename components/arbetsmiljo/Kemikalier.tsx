@@ -7,7 +7,7 @@
 // Längst ner: riskbedömningen för kemikalier och (admin) årets genomgång som bockar av årshjulets punkt Kemikalierna.
 // Texterna: lib/arbetsmiljo/kemikalier.ts. ?id=<produkt> öppnar produkten (pushen).
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import Ark from '@/components/design/Ark';
@@ -16,11 +16,76 @@ import Sektion from '@/components/design/Sektion';
 import Falt from '@/components/design/Falt';
 import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, ROT_MIN_HOJD, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import { komprimeraMarkeringFoto } from '@/lib/markeringFoto';
-import { andraVar, bildFel, bladLank, bytBlad, filFel, hamtaKemikalier, laggTill, ordna, radUnder, svar, taBort, type Kemikalie } from '@/lib/arbetsmiljo/kemikalier';
+import { andraVar, bildFel, bladLank, bytBlad, faraRad, faror, filFel, hamtaKemikalier, laggTill, mejlLank, ordna, radUnder, sparaKoder, svar, taBort, type Kemikalie } from '@/lib/arbetsmiljo/kemikalier';
+import { lasEtikettApi, lasKoderApi, sokBladApi, type SokSvar } from '@/lib/arbetsmiljo/hittaBlad';
 import { hamtaGjorda, markeraGjord, svenskArManad } from '@/lib/arbetsmiljo/arshjul';
 import { datumText } from '@/lib/arbetsmiljo/introduktion';
 
 type Data = { lista: Kemikalie[]; genomgang: string | null | undefined };
+
+/** Var appen är med bladet: läser etiketten, letar, hittade ett (väntar på svar), hittade inget, eller kunde inte. */
+type Sok = null | 'laser' | 'soker' | Extract<SokSvar, { status: 'hittad' }> | 'inget' | 'fel' | 'olaslig';
+
+function oppnaFil(f: Blob) {
+  const u = URL.createObjectURL(f);
+  const w = window.open(u, '_blank');
+  if (!w) window.location.href = u;
+  setTimeout(() => URL.revokeObjectURL(u), 60_000);
+}
+
+/** Säkerhetsbladet i ett ark: appen letar själv; hittar den ett frågar den "rätt blad?"; annars mejl till leverantören eller en fil. */
+function BladSok({ sok, fil, kalla, namn, tillverkare, avsandare, onLeta, onRatt, onFel, onValjFil }: {
+  sok: Sok; fil: File | null; kalla: string | null; namn: string; tillverkare: string | null; avsandare: string | null;
+  onLeta: () => void; onRatt: () => void; onFel: () => void; onValjFil: () => void;
+}) {
+  const n = namn.trim();
+  const mejl = n ? <Rad titel="Be leverantören om bladet" under="Ett färdigt mejl – skriv bara vem det går till" pil
+    attr={{ 'data-kem-mejl': '1' }} onTryck={() => { window.location.href = mejlLank(n, tillverkare, avsandare); }} /> : null;
+  const valjFil = (sista = true) => <Rad titel="Välj fil" under="Har du bladet som PDF?" sista={sista}
+    hoger={<span style={{ color: FARG.bla }}>Välj fil</span>} onTryck={onValjFil} />;
+  let innehall: ReactNode;
+  if (fil) {
+    innehall = <Rad titel="Säkerhetsblad" sista attr={{ 'data-kem-bladet': '1' }}
+      under={kalla ? <span style={{ color: FARG.gron }}>✓ Från {kalla}</span> : fil.name}
+      hoger={<span style={{ color: FARG.bla }}>Byt</span>} onTryck={onValjFil} />;
+  } else if (sok === 'laser') {
+    innehall = <Rad titel="Läser etiketten …" under="Namnet fylls i av sig självt" sista attr={{ 'data-kem-sok': 'laser' }} />;
+  } else if (sok === 'soker') {
+    innehall = <Rad titel="Letar efter säkerhetsbladet …" under="Det kan ta en minut" sista attr={{ 'data-kem-sok': 'soker' }} />;
+  } else if (sok && typeof sok === 'object') {
+    innehall = (
+      <>
+        <Rad titel="Hittade säkerhetsbladet" attr={{ 'data-kem-sok': 'hittad' }}
+          under={<>{sok.kalla}{!sok.namnStammer && <span style={{ color: FARG.orange }}> · kolla att det är rätt produkt</span>}</>}
+          hoger={<span style={{ color: FARG.bla }}>Visa</span>} onTryck={() => oppnaFil(sok.fil)} sista />
+        <p style={{ ...TYP.text, color: FARG.text, margin: `${AVSTAND.m}px 0 ${AVSTAND.s}px` }}>Är det här rätt blad?</p>
+        <div style={{ display: 'flex', gap: AVSTAND.s }}>
+          <button type="button" data-kem-ratt onClick={onRatt} style={{ ...KNAPP.sekundar, flex: 1 }}>Rätt blad</button>
+          <button type="button" data-kem-fel onClick={onFel} style={{ ...KNAPP.sekundar, flex: 1 }}>Fel blad</button>
+        </div>
+      </>
+    );
+  } else if (sok) {
+    const text = sok === 'inget' ? 'Hittade inget säkerhetsblad på nätet' : sok === 'olaslig' ? 'Kunde inte läsa namnet på etiketten – skriv det ovanför' : 'Kunde inte leta just nu';
+    innehall = (
+      <>
+        <p data-kem-sok={sok} style={{ ...TYP.text, color: FARG.orange, margin: `0 0 ${AVSTAND.s}px` }}>{text}</p>
+        {sok !== 'inget' && n && <Rad titel="Leta igen" pil onTryck={onLeta} attr={{ 'data-kem-leta': '1' }} />}
+        {mejl}
+        {valjFil()}
+      </>
+    );
+  } else {
+    innehall = (
+      <>
+        {n && <Rad titel="Leta upp säkerhetsbladet" under="Appen letar på nätet" pil onTryck={onLeta} attr={{ 'data-kem-leta': '1' }} />}
+        <Rad titel="Säkerhetsblad (PDF)" sista under={n ? 'Eller välj en fil du har' : 'Ta en bild på etiketten så letar appen upp bladet'}
+          hoger={<span style={{ color: FARG.bla }}>Välj fil</span>} onTryck={onValjFil} />
+      </>
+    );
+  }
+  return <Sektion rubrik="Säkerhetsblad" kort={false}>{innehall}</Sektion>;
+}
 
 export default function Kemikalier() {
   const { medarbetare } = useCurrentMedarbetare();
@@ -42,6 +107,15 @@ export default function Kemikalier() {
   const [sparar, setSparar] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
   const filRef = useRef<HTMLInputElement>(null);
+  const [sok, setSok] = useState<Sok>(null);
+  const [tillverkare, setTillverkare] = useState<string | null>(null);
+  const [bladKalla, setBladKalla] = useState<string | null>(null);
+  const [filKoder, setFilKoder] = useState<string[] | null>(null);
+  const lastAldre = useRef(false);
+  const namnRef = useRef('');
+  namnRef.current = namn;
+  // Ett svar som kommer efter att arket stängts eller en ny sökning startats gäller inte.
+  const sokNr = useRef(0);
 
   const hamta = useCallback(async () => {
     if (!medarbetare) return;
@@ -67,6 +141,28 @@ export default function Kemikalier() {
     if (id && data.lista.some(k => k.id === id)) setValdId(id);
   }, [data]);
 
+  // Äldre blad (innan appen läste faroangivelserna): admin läser dem en gång i bakgrunden, ett i taget.
+  useEffect(() => {
+    if (!arAdmin || lastAldre.current || !data || data === 'fel') return;
+    const olasta = data.lista.filter(k => k.sdbSokvag && k.hKoder == null);
+    if (!olasta.length) return;
+    lastAldre.current = true;
+    void (async () => {
+      let sparat = false;
+      for (const k of olasta) {
+        try {
+          const url = await bladLank(supabase, k.sdbSokvag!);
+          if (!url) continue;
+          const r = await fetch(url);
+          if (!r.ok) continue;
+          const koder = await lasKoderApi(await r.blob());
+          if (koder && await sparaKoder(supabase, k.id, koder)) sparat = true;
+        } catch { /* nästa gång */ }
+      }
+      if (sparat) void hamta();
+    })();
+  }, [data, arAdmin, hamta]);
+
   // Etikettens foto i den öppna produkten.
   const etikett = vald?.etikettSokvag ?? null;
   useEffect(() => {
@@ -77,7 +173,34 @@ export default function Kemikalier() {
     return () => { aktiv = false; };
   }, [etikett]);
 
-  const stang = () => { setValdId(null); setNy(false); setAndrarVar(false); setBekraftaBort(false); setFel(null); setFil(null); setFoto(null); setNamn(''); setPlats(''); };
+  const stang = () => {
+    sokNr.current++;
+    setValdId(null); setNy(false); setAndrarVar(false); setBekraftaBort(false); setFel(null); setFil(null); setFoto(null); setNamn(''); setPlats('');
+    setSok(null); setTillverkare(null); setBladKalla(null); setFilKoder(null);
+  };
+
+  const leta = async (n: string, t: string | null) => {
+    if (!n.trim()) return;
+    const nr = ++sokNr.current;
+    setSok('soker');
+    const r = await sokBladApi(n.trim(), t);
+    if (nr !== sokNr.current) return;
+    setSok(r.status === 'hittad' ? r : r.status);
+  };
+
+  // Fotot på etiketten: appen läser namnet och letar upp bladet. Föraren gör ingenting mer.
+  const lasOchLeta = async (bild: Blob) => {
+    const nr = ++sokNr.current;
+    setSok('laser');
+    const r = await lasEtikettApi(bild);
+    if (nr !== sokNr.current) return;
+    if (!r.ok) { setSok(r.olaslig ? 'olaslig' : 'fel'); return; }
+    const egetNamn = namnRef.current.trim();
+    if (!egetNamn) setNamn(r.etikett.namn);
+    setTillverkare(r.etikett.tillverkare);
+    await leta(egetNamn || r.etikett.namn, r.etikett.tillverkare);
+  };
+
 
   const kor = async (f: () => Promise<string | null>, efter: () => void = stang) => {
     setSparar(true); setFel(null);
@@ -103,7 +226,10 @@ export default function Kemikalier() {
     if (!f) return;
     const e = filFel(f);
     if (e) { setFel(e); return; }
-    if (sedan) sedan(f); else setFil(f);
+    sokNr.current++; setSok(null); setBladKalla(null);
+    if (sedan) { sedan(f); return; }
+    setFil(f); setFilKoder(null);
+    void lasKoderApi(f).then(k => setFilKoder(k));
   };
 
   const valjFoto = (f: File | null) => {
@@ -112,11 +238,15 @@ export default function Kemikalier() {
     const e = bildFel(f);
     if (e) { setFel(e); return; }
     setFoto(f);
+    if (!fil) void (async () => {
+      const bild = await komprimeraMarkeringFoto(f).catch(() => f);
+      await lasOchLeta(bild);
+    })();
   };
 
   const spara = () => void kor(async () => {
     const bild = foto ? await komprimeraMarkeringFoto(foto).catch(() => foto) : null;
-    return laggTill(supabase, namn, plats, fil, bild);
+    return laggTill(supabase, namn, plats, fil, bild, filKoder);
   }, () => {
     const utanBlad = !fil;
     const n = namn.trim();
@@ -143,7 +273,8 @@ export default function Kemikalier() {
         {data && data !== 'fel' && data.lista.length > 0 && (
           <Sektion rubrik="Produkter">
             {ordna(data.lista).map((k, i, alla) => (
-              <Rad key={k.id} titel={k.namn} under={radUnder(k)} sista={i === alla.length - 1} pil
+              <Rad key={k.id} titel={k.namn} sista={i === alla.length - 1} pil
+                under={faraRad(k) ? <>{radUnder(k)} · <span style={{ color: FARG.orange }}>{faraRad(k)}</span></> : radUnder(k)}
                 hoger={k.sdbSokvag ? undefined : <span style={{ color: FARG.orange }}>Saknas</span>}
                 attr={{ 'data-kem': k.id }}
                 onTryck={() => { setFel(null); setValdId(k.id); }} />
@@ -189,16 +320,31 @@ export default function Kemikalier() {
             <img src={fotoUrl} alt={`Etiketten på ${vald.namn}`} data-kem-foto
               style={{ display: 'block', width: '100%', maxHeight: 320, objectFit: 'contain', borderRadius: RADIE.kort, background: FARG.upphojt, marginBottom: AVSTAND.l }} />
           )}
+          {faror(vald.hKoder).length > 0 && (
+            <Sektion rubrik="Det här är farligt" kort={false}>
+              {faror(vald.hKoder).map((f, i, alla) => (
+                <Rad key={f.slag} titel={<span style={{ color: f.allvarlig ? FARG.orange : FARG.text }}>{f.titel}</span>} under={f.gora}
+                  sista={i === alla.length - 1} attr={{ 'data-kem-fara': f.slag }} />
+              ))}
+            </Sektion>
+          )}
           <Sektion rubrik="Om produkten" kort={false}>
-            <Rad titel="Var den finns" under={radUnder(vald)} sista={!arAdmin}
+            <Rad titel="Var den finns" under={radUnder(vald)} sista={!arAdmin || !vald.sdbSokvag}
               onTryck={arAdmin ? () => { setPlats(vald.varFinns ?? ''); setAndrarVar(true); } : undefined} pil={arAdmin} />
-            {arAdmin && (
+            {arAdmin && vald.sdbSokvag && (
               <Rad titel="Säkerhetsblad" sista
                 under={vald.sdbSokvag ? (vald.sdbTid ? `Uppladdat ${datumText(vald.sdbTid)}` : 'Finns') : <span style={{ color: FARG.orange }}>Saknas</span>}
                 hoger={<span style={{ color: FARG.bla }}>{vald.sdbSokvag ? 'Byt' : 'Ladda upp'}</span>}
                 onTryck={sparar ? undefined : () => filRef.current?.click()} />
             )}
           </Sektion>
+          {arAdmin && !vald.sdbSokvag && (
+            <BladSok sok={sok} fil={null} kalla={null} namn={vald.namn} tillverkare={null} avsandare={medarbetare?.namn ?? null}
+              onLeta={() => void leta(vald.namn, null)}
+              onRatt={() => { if (sok && typeof sok === 'object') { const f = sok.fil; const k = sok.koder; setSok(null); void kor(() => bytBlad(supabase, vald.id, f, k), () => {}); } }}
+              onFel={() => setSok('inget')}
+              onValjFil={() => filRef.current?.click()} />
+          )}
           {!vald.sdbSokvag && !arAdmin && (
             <p style={{ ...TYP.text, color: FARG.orange, margin: `${AVSTAND.m}px 0 0` }}>Säkerhetsbladet saknas. Arbetsledningen ordnar det.</p>
           )}
@@ -222,7 +368,7 @@ export default function Kemikalier() {
               style={{ ...KNAPP.tertiar, color: FARG.rod, marginTop: AVSTAND.xl }}>Används inte längre</button>
           ))}
           <input ref={filRef} type="file" accept="application/pdf,.pdf" hidden aria-hidden="true"
-            onChange={e => { const f = e.target.files?.[0] ?? null; e.target.value = ''; valjFil(f, ff => void kor(() => bytBlad(supabase, vald.id, ff), () => {})); }} />
+            onChange={e => { const f = e.target.files?.[0] ?? null; e.target.value = ''; valjFil(f, ff => void kor(async () => bytBlad(supabase, vald.id, ff, await lasKoderApi(ff)), () => {})); }} />
         </Ark>
       )}
 
@@ -234,17 +380,22 @@ export default function Kemikalier() {
             style={{ ...KNAPP.primar, ...(sparar || !namn.trim() ? INAKTIV : {}) }}>{sparar ? 'Sparar …' : 'Lägg till'}</button>}>
           <Sektion rubrik="Etiketten" kort={false}>
             <Rad titel="Foto på etiketten" sista attr={{ 'data-kem-fotorad': '1' }}
-              under={foto ? foto.name : 'Ta en bild på burken så syns varningarna'}
+              under={foto ? foto.name : 'Appen läser namnet och letar upp säkerhetsbladet'}
               hoger={<span style={{ color: FARG.bla }}>{foto ? 'Ta ny' : 'Ta bild'}</span>}
               onTryck={() => fotoRef.current?.click()} />
           </Sektion>
           <Falt etikett="Vad heter den?" value={namn} onChange={setNamn} placeholder="T.ex. Hydraulolja Biohyd 46" />
           <Falt etikett="Var finns den?" value={plats} onChange={setPlats} placeholder="T.ex. Giant, verkstaden" />
-          <Sektion rubrik="Säkerhetsblad" kort={false}>
-            <Rad titel="Säkerhetsblad (PDF)" sista under={fil ? fil.name : 'Har du inte bladet ordnar arbetsledningen det'}
-              hoger={<span style={{ color: FARG.bla }}>{fil ? 'Byt' : 'Välj fil'}</span>}
-              onTryck={() => filRef.current?.click()} />
-          </Sektion>
+          <BladSok sok={sok} fil={fil} kalla={bladKalla} namn={namn} tillverkare={tillverkare} avsandare={medarbetare?.namn ?? null}
+            onLeta={() => void leta(namn, tillverkare)}
+            onRatt={() => { if (sok && typeof sok === 'object') { setFil(sok.fil); setBladKalla(sok.kalla); setFilKoder(sok.koder); setSok(null); } }}
+            onFel={() => setSok('inget')}
+            onValjFil={() => filRef.current?.click()} />
+          {fil && faraRad({ hKoder: filKoder }) && (
+            <p data-kem-ny-fara style={{ ...TYP.text, color: FARG.orange, margin: `${AVSTAND.m}px 0 0` }}>
+              {faraRad({ hKoder: filKoder })}. Den ska ni titta på särskilt i riskbedömningen.
+            </p>
+          )}
           <input ref={fotoRef} type="file" accept="image/*" capture="environment" hidden aria-hidden="true"
             onChange={e => { const f = e.target.files?.[0] ?? null; e.target.value = ''; valjFoto(f); }} />
           {fel && <p role="alert" style={{ ...TYP.text, color: FARG.orange, margin: `${AVSTAND.m}px 0 0` }}>{fel}</p>}
