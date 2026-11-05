@@ -73,7 +73,7 @@ export const VYER: Vy[] = [
   // blir en åtgärd direkt), nära ögat (tillbud) eller en skada (olycka).
   { id: 'atgarder', namn: 'Åtgärder', href: '/atgarder', ikon: 'build', grupp: 'maskiner', bara: 'admin', aven: 'skyddsombud', marke: 'atgarder', del: 'arbetsmiljo', sokord: ['arbetsmiljö', 'skyddsrond', 'fel', 'stopp', 'maskinkoll'] },
   // Om något händer: 112, larmplatsen, tre steg per situation, rapportera tillbud. Står också fast under sökfältet på startsidan.
-  { id: 'om-nagot-hander', namn: 'Om något händer', href: '/om-nagot-hander', ikon: 'emergency', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['112', 'olycka', 'tillbud', 'brand', 'skada', 'nödnummer', 'larm', 'första hjälpen', 'kraftledning'] },
+  { id: 'om-nagot-hander', namn: 'Om något händer', href: '/om-nagot-hander', ikon: 'emergency', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['112', 'olycka', 'tillbud', 'brand', 'skada', 'nödnummer', 'larm', 'första hjälpen', 'kraftledning', 'instruktion', 'så gör vi', 'hydraulslang', 'slang', 'trailer', 'lasta', 'bärga', 'bärgning', 'motorsåg', 'svetsa', 'brant'] },
   // Riskbedömning per maskintyp (AFS 2023:1): admin godkänner varje år, föraren läser riskerna för sin maskin.
   { id: 'riskbedomning', namn: 'Riskbedömning', href: '/riskbedomning', ikon: 'health_and_safety', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['risk', 'risker', 'arbetsmiljö', 'säkerhet', 'motorsåg'] },
   // Skyddsronden: arbetsledningen och skyddsombudet en gång om året (AFS 2023:1). Brister blir åtgärder.
@@ -81,6 +81,8 @@ export const VYER: Vy[] = [
   // Kemikalieförteckningen: varje produkt, var den finns och säkerhetsdatabladet (AFS 2023:10). Förarna öppnar bladet.
   { id: 'kemikalier', namn: 'Kemikalier', href: '/kemikalier', ikon: 'science', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['säkerhetsdatablad', 'säkerhetsblad', 'sdb', 'olja', 'kemikalie', 'arbetsmiljö', 'spray', 'bränsle'] },
   { id: 'farligt-avfall', namn: 'Farligt avfall', href: '/farligt-avfall', ikon: 'recycling', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['avfall', 'slang', 'hydraulslang', 'spillolja', 'trasor', 'dunk', 'kvitto', 'liggare', 'miljö', 'arbetsmiljö'] },
+  // Föraren läser instruktionerna under Om något händer (ett tryck); här godkänner och ändrar admin dem.
+  { id: 'sa-gor-vi', namn: 'Så gör vi', href: '/sa-gor-vi', ikon: 'menu_book', grupp: 'maskiner', bara: 'admin', del: 'arbetsmiljo', sokord: ['instruktion', 'rutin', 'godkänna', 'arbetsmiljö'] },
   { id: 'rapportera', namn: 'Rapportera', href: '/om-nagot-hander?rapport=1', ikon: 'report', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['fel', 'trasig', 'läcker', 'något är fel', 'tillbud', 'nära ögat', 'olycka', 'skada', 'arbetsmiljö'] },
   { id: 'kontroller', namn: 'Kontroller', href: '/kontroller', ikon: 'fact_check', grupp: 'maskiner', sokord: ['besiktning', 'försäkring'] },
 
