@@ -277,6 +277,15 @@ describe('TESTFASEN: först bara oss, sedan inköparen, sist markägaren (Martin
     expect((nav.mock.calls[0][0] as string).startsWith('sms:0702327410&body=')).toBe(true);
     expect(hook.ut.loggaSms).toHaveBeenCalledWith({ avsandareId: 'm1', mottagareNamn: 'Jan-Erik Gustafsson', mottagareNummer: '0702327410', handelse: 'oppnad' });
   });
+  it('steg 2: en inköpare som inte är med i testet går INTE att välja', async () => {
+    await visa(<BesokPlanerare {...props} inkopareSms inkopare="Magnus Axelsson" navigera={vi.fn()} />);
+    await tryck(q('kort-besok-sms'));
+    expect(q('kort-besok-till-inkopare')).toBeNull();
+    expect(q('kort-besok-till-med-m1')).not.toBeNull();
+    await visa(<BesokPlanerare {...props} inkopareSms inkopare="Martin Hjert" navigera={vi.fn()} />);
+    await tryck(q('kort-besok-sms'));
+    expect(q('kort-besok-till-inkopare')!.textContent).toContain('Martin Hjert');
+  });
   it('steg 2 utan inköparens nummer: bara Martin och Joacim', async () => {
     await visa(<BesokPlanerare {...props} inkopareSms inkopareTel={null} navigera={vi.fn()} />);
     await tryck(q('kort-besok-sms'));

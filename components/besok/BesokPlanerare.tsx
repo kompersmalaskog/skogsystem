@@ -13,16 +13,22 @@ import { besoksUrl } from '@/lib/besok/offentlig';
 import { loggRader, smsLage } from '@/lib/besok/planerare';
 import { markagareFornamn } from '@/lib/besok/sms';
 import { telNummer } from '@/app/oversikt/objekt-info';
-import { INKOPARE_SMS_PA, MARKAGARE_SMS_PA } from '@/lib/besok/konstanter';
+import { INKOPARE_SMS_PA, MARKAGARE_SMS_PA, TEST_INKOPARE } from '@/lib/besok/konstanter';
 
 /** En mottagare av besöks-SMS:et. */
 export interface SmsMottagare { id: string; etikett: string; namn: string | null; tel: string | null }
+
+/** Bara inköparna i testet (TEST_INKOPARE) går att välja. */
+export function arTestInkopare(namn: string | null | undefined): boolean {
+  const n = (namn ?? '').trim().toLowerCase();
+  return !!n && TEST_INKOPARE.some((t) => t.toLowerCase() === n);
+}
 
 /** Vem SMS:et kan gå till: markägaren (bara när `markagareSms`), inköparen (bara när `inkopareSms` och numret finns) och oss (aktiva admin med telefon). */
 export function smsMottagare(o: { markagareSms: boolean; inkopareSms: boolean; markagare: string | null; markagareTel: string | null; inkopare: string | null; inkopareTel: string | null; oss: { id: string; namn: string; telefon: string }[] }): SmsMottagare[] {
   const ut: SmsMottagare[] = [];
   if (o.markagareSms) ut.push({ id: 'markagare', etikett: o.markagare?.trim() ? `Markägaren · ${o.markagare.trim()}` : 'Markägaren', namn: markagareFornamn(o.markagare) ?? (o.markagare?.trim() || null), tel: o.markagareTel?.trim() || null });
-  if (o.inkopareSms && o.inkopareTel?.trim()) ut.push({ id: 'inkopare', etikett: o.inkopare?.trim() ? `Inköparen · ${o.inkopare.trim()}` : 'Inköparen', namn: o.inkopare?.trim() || 'Inköparen', tel: o.inkopareTel.trim() });
+  if (o.inkopareSms && o.inkopareTel?.trim() && arTestInkopare(o.inkopare)) ut.push({ id: 'inkopare', etikett: o.inkopare?.trim() ? `Inköparen · ${o.inkopare.trim()}` : 'Inköparen', namn: o.inkopare?.trim() || 'Inköparen', tel: o.inkopareTel.trim() });
   for (const m of o.oss) { const f = m.namn.trim().split(/\s+/)[0] || m.namn; ut.push({ id: `med-${m.id}`, etikett: f, namn: f, tel: m.telefon }); }
   return ut;
 }
