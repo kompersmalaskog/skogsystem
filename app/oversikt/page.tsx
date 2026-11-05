@@ -1354,12 +1354,13 @@ function ForberedDig({ o, roll, warn }: { o: PlanObjekt; roll: Roll; warn: Varni
           ))}
         </div>
       )}
-      {f.markagare && (
+      {/* Markägaren: namnet bara när det finns — saknas det står bara knappen, aldrig en tom etikett. */}
+      {f.markagare && (f.markagare.namn ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: 44 }}>
-          <div style={{ flex: 1, minWidth: 0, ...TYP.text }}><span style={{ color: FARG.text2 }}>Markägare </span>{f.markagare.namn ?? ''}</div>
+          <div style={{ flex: 1, minWidth: 0, ...TYP.text }}><span style={{ color: FARG.text2 }}>Markägare </span>{f.markagare.namn}</div>
           {f.markagare.telHref && <a href={f.markagare.telHref} style={{ ...KNAPP_LITEN, flexGrow: 0, padding: `0 ${AVSTAND.l}px` }}><SvgRing />Ring</a>}
         </div>
-      )}
+      ) : f.markagare.telHref && <a href={f.markagare.telHref} style={KNAPP_LITEN}><SvgRing />Ring markägaren</a>)}
     </div>
   );
 }
@@ -1397,7 +1398,10 @@ function MinPlan({ f, namn, legs, varning, fran, posFel, forman, onKarta }: {
             {nu ? (<>
               <div style={{ ...TYP.listtitel }}>{koNamn(f.nuObjekt!)}</div>
               <div style={{ ...TYP.meta, color: FARG.text2 }}>{faktaRad(nu)}</div>
-              <div style={{ ...TYP.text }}><StatusOrd o={nu} /></div>
+              {/* Där maskinen står är "Här nu" — aldrig databasens "Klar att köra" (Bondeskog stod planerad medan Giant körde där). */}
+              <div style={{ ...TYP.text, display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs }}>
+                <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: FARG.gron }} />Här nu
+              </div>
             </>) : <div style={{ ...TYP.text, color: posFel ? FARG.orange : FARG.text2 }}>{posFel ? POS_NU_TEXT : 'Står inte på något objekt just nu'}</div>}
           </div>
         </div>
