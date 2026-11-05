@@ -144,7 +144,7 @@ describe('grupperna utgår från status', () => {
   });
 });
 
-// Traktgräns (L_TRAKTDEL) som kvadrat runt en punkt — samma form som objekt_geometri.geometri.
+// Traktgräns (L_TRAKTDEL) som kvadrat runt en punkt — samma form som objekt_traktgrans.geometri.
 const kvadrat = (lat: number, lng: number, d: number) => ({
   type: 'FeatureCollection',
   features: [{ properties: { _lager: 'L_TRAKTDEL' }, geometry: { type: 'Polygon', coordinates: [[[lng - d, lat - d], [lng + d, lat - d], [lng + d, lat + d], [lng - d, lat + d], [lng - d, lat - d]]] } }],
@@ -227,7 +227,7 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
 
 describe('Här — enhetens GPS innanför ett objekts traktgräns', () => {
   it('GPS innanför Gallring Sjö → "Här" överst med bara det objektet; det står inte också under Pågår', async () => {
-    h.tabeller = { objekt_geometri: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.01) }, { objekt_id: 'e', geometri: kvadrat(56.45, 14.75, 0.01) }] };
+    h.tabeller = { objekt_traktgrans: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.01) }, { objekt_id: 'e', geometri: kvadrat(56.45, 14.75, 0.01) }] };
     await montera();
     expect(rubriker()).toEqual(['Här', 'Pågår', 'Planerade', 'Oplanerade']);
     expect(radIdn()[0]).toBe('p');
@@ -239,7 +239,7 @@ describe('Här — enhetens GPS innanför ett objekts traktgräns', () => {
   });
 
   it('oavsett status: ett PLANERAT objekt man står i hamnar också i Här', async () => {
-    h.tabeller = { objekt_geometri: [{ objekt_id: 'e', geometri: kvadrat(56.4, 14.7, 0.01) }] };
+    h.tabeller = { objekt_traktgrans: [{ objekt_id: 'e', geometri: kvadrat(56.4, 14.7, 0.01) }] };
     await montera();
     expect(rubriker()[0]).toBe('Här');
     expect(radIdn()[0]).toBe('e');
@@ -247,7 +247,7 @@ describe('Här — enhetens GPS innanför ett objekts traktgräns', () => {
   });
 
   it('avslutat UTAN virke kvar → aldrig Här, även när GPS:en står i dess gräns', async () => {
-    h.tabeller = { objekt_geometri: [{ objekt_id: 'v', geometri: kvadrat(56.4, 14.7, 0.01) }] };
+    h.tabeller = { objekt_traktgrans: [{ objekt_id: 'v', geometri: kvadrat(56.4, 14.7, 0.01) }] };
     await montera();
     expect(rubriker()).not.toContain('Här');
     expect(q('objekt-rad-v')).toBeNull();
@@ -255,7 +255,7 @@ describe('Här — enhetens GPS innanför ett objekts traktgräns', () => {
 
   it('avslutat MED virke kvar och GPS i gränsen → Här, med etiketten Skotning kvar', async () => {
     vallustSkotning(600);
-    h.tabeller.objekt_geometri = [{ objekt_id: 'v', geometri: kvadrat(56.4, 14.7, 0.01) }];
+    h.tabeller.objekt_traktgrans = [{ objekt_id: 'v', geometri: kvadrat(56.4, 14.7, 0.01) }];
     await montera();
     expect(rubriker()[0]).toBe('Här');
     expect(radIdn()[0]).toBe('v');
@@ -264,14 +264,14 @@ describe('Här — enhetens GPS innanför ett objekts traktgräns', () => {
   });
 
   it('GPS utanför alla gränser → ingen "Här"', async () => {
-    h.tabeller = { objekt_geometri: [{ objekt_id: 'p', geometri: kvadrat(56.9, 15.5, 0.01) }] };
+    h.tabeller = { objekt_traktgrans: [{ objekt_id: 'p', geometri: kvadrat(56.9, 15.5, 0.01) }] };
     await montera();
     expect(rubriker()).toEqual(['Pågår', 'Planerade', 'Oplanerade']);
   });
 
   it('ingen GPS-fix → ingen "Här" — verksamhetens mitt (reserven för avstånden) räknas aldrig som en position', async () => {
     h.gps = { giltig: false };
-    h.tabeller = { objekt_geometri: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.5) }] };   // reservpunkten (56,40; 14,70) ligger mitt i gränsen
+    h.tabeller = { objekt_traktgrans: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.5) }] };   // reservpunkten (56,40; 14,70) ligger mitt i gränsen
     await montera();
     expect(rubriker()).not.toContain('Här');
     expect(q('objekt-rad-p')).not.toBeNull();                                // objektet ligger kvar i sin vanliga grupp
@@ -280,25 +280,25 @@ describe('Här — enhetens GPS innanför ett objekts traktgräns', () => {
   it('traktgränserna kunde inte läsas (fel eller tomt svar) → ingen "Här" — aldrig en 300 m-gissning på alla objekt', async () => {
     // lat/lng på Gallring Sjö ligger ~1 km från GPS:en, Ekeby inom 300 m om punktregeln fick gälla
     h.rader = RADER.map((r) => (r.id === 'e' ? { ...r, lat: 56.4005, lng: 14.7005 } : r));
-    h.tabeller = {};                                                         // objekt_geometri tomt, utan fel (utgången session)
+    h.tabeller = {};                                                         // objekt_traktgrans tomt, utan fel (utgången session)
     await montera();
     expect(rubriker()).not.toContain('Här');
     await act(async () => { rot?.unmount(); }); behallare?.remove();
-    h.tabellFel.objekt_geometri = true;
+    h.tabellFel.objekt_traktgrans = true;
     await montera();
     expect(rubriker()).not.toContain('Här');
   });
 
   it('objekt utan traktgräns bland laddade gränser: inom 300 m från punkten gäller (som förarlistans Här)', async () => {
     h.rader = RADER.map((r) => (r.id === 'e' ? { ...r, lat: 56.4005, lng: 14.7005 } : r));
-    h.tabeller = { objekt_geometri: [{ objekt_id: 'p', geometri: kvadrat(56.9, 15.5, 0.01) }] };   // någon annans gräns finns → laddat
+    h.tabeller = { objekt_traktgrans: [{ objekt_id: 'p', geometri: kvadrat(56.9, 15.5, 0.01) }] };   // någon annans gräns finns → laddat
     await montera();
     expect(rubriker()[0]).toBe('Här');
     expect(radIdn()[0]).toBe('e');
   });
 
   it('sökning filtrerar även Här', async () => {
-    h.tabeller = { objekt_geometri: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.01) }] };
+    h.tabeller = { objekt_traktgrans: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.01) }] };
     await montera();
     expect(rubriker()[0]).toBe('Här');
     await act(async () => {

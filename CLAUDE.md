@@ -257,6 +257,17 @@ En flytt kommer inte med på fakturan förrän den är godkänd, och appen sa de
 
 ---
 
+## Prestanda — databasen är EN för appen och importen (2026-11-05, Martin: "appen är seg och hänger sig ibland")
+
+Inloggade frågor stoppas efter **8 s** (`statement_timeout` för `authenticated`) — det är "hänger sig". Mätt i `pg_stat_statements`: de tyngsta frågorna kom från **importbevakarens efterberäkning** (`auto_import_watch.py` → `import_diameterserie.py`, `berakna_rotkap.py`, `berakna_utfall_objekt.py`, `berakna_stamplingsmodell.py`), inte från appen — och de körs mot samma databas som appen. Regler:
+- **Ett skript räknar aldrig per objekt i en loop mot PostgREST.** Gör en RPC som svarar för alla objekt (`rotkap_stockar_antal(text[])`, migration `20261105111153_prestanda_traktgrans_rotkap_antal.sql`, körd i prod, byte-identisk; förut 250 000 räknefrågor).
+- **Filtrera på en kolumn = index på kolumnen.** `detalj_stam_diameter(filnamn)` saknade index och lästes helt vid varje "finns filen redan?" (`idx_stam_diameter_filnamn`).
+- **Appen läser aldrig hela `objekt_geometri` i en lista** (6,4 MB per öppning). Behövs bara traktgränsen: vyn **`objekt_traktgrans`** (bara `L_TRAKTDEL`, bara `_lager` i properties, ~70 kB, `security_invoker` så RLS gäller som förut). Används av `ObjektLista.tsx`; per objekt (`lasVidaGrans`) läses tabellen som förut.
+- **GPS-spåren (`detalj_gps_spar`, 11 M punkter) och `backup_detalj_gps_spar_20260509` (1 M punkter) tas aldrig bort** — de används vid egenkontroll och GROT-skotning. `idx_gps_objekt` var en dubblett av `detalj_gps_spar_objekt_id_idx` och togs bort; tabellen fick VACUUM 2026-11-05.
+- **Kvar att göra:** `berakna_utfall_objekt`/`berakna_stamplingsmodell` tar ~1,8 s per anrop och körs efter varje import även utan nyheter.
+
+---
+
 ## Import — Hur det fungerar
 
 ### Huvudskript: skogsmaskin_import_version_6.py
