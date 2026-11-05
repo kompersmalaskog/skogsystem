@@ -13,7 +13,10 @@ import { maskinVisningsnamn } from '@/lib/maskinNamn';
 import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
 import type { OversiktObjekt, Maskin, MaskinKoItem } from './oversikt-types';
 import { STATUS_AKTIV, STATUS_AVSLUTADE } from './oversikt-types';
-import { hamtaSenastePlatser, dagarSedan, type PlatsForslag } from '../maskinflytt/senastePlats';
+import { dagarSedan, type PlatsForslag } from '../maskinflytt/senastePlats';
+import { hamtaMaskinPlatser } from '../maskinflytt/maskinPlatser';
+import { narText } from '@/lib/maskinerNu';
+import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 import { paBackenKvar } from '@/lib/skotat';
 import { hamtaSkordMapV2, type SkordAggV2 } from './skord-data';
 import { beraknaForslag, arSkotare, maskinAktiv, tomtForslag, markeraOkanda, koNamn, arGrotKo, type MaskinForslag, type MaskinRad, type MaskinTyp, type KoPost } from './nasta-v2';
@@ -36,7 +39,8 @@ import GrotListaArk, { ARK_ANDEL, type ArkLage } from './GrotLista';
 import GrotObjektArk, { type ArkKo, type ArkSkotare } from './GrotObjektArk';
 import { useGrotVagAvstand } from './grot-avstand';
 import { KNAPP, KNAPP_LITEN, SheetBas, Grabber, VarningRader } from './ark-delar';
-import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, INAKTIV, designCss } from '@/lib/design/tokens';
+import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, INAKTIV, designCss, KNAPP as TOKEN_KNAPP } from '@/lib/design/tokens';
+import { navigeringsMal, navigeringsUrl, type NavObjekt } from '@/lib/navigera';
 
 declare global { interface Window { maplibregl: any } }
 
@@ -205,6 +209,7 @@ export default function OversiktV2Page() {
   const [fel, setFel] = useState(false);
   const [selMaskin, setSelMaskin] = useState<string | null>(null);
   const [selObjekt, setSelObjekt] = useState<string | null>(null); // förman tryckte på en prick
+  const minPos = useMinPosition(!!(selMaskin || selObjekt)); // din position för km i Kör dit — frågas först när ett ark öppnas
   const [zoomNiva, setZoomNiva] = useState(9);
   const [koPreview, setKoPreview] = useState<OversiktObjekt[] | null>(null); // live drag-ordning för vald maskin
 
@@ -246,7 +251,7 @@ export default function OversiktV2Page() {
     } else { console.error('[Översikt v2] position: läsningen gick inte', res.status === 'fulfilled' ? res.value.fel : res.reason); sattLasFel('pos', true); sattLasFel('posDelvis', false); }
     setPlatserKlar(true); // även vid fel: då vet vi inte var någon står, och maskinerna listas som "position ej läst" (och går att öppna)
   }, [sattLasFel]);
-  const laddaPlatser = useCallback(async () => { tillampaPlatser((await Promise.allSettled([hamtaSenastePlatser(maskinIdsRef.current)]))[0]); }, [tillampaPlatser]);
+  const laddaPlatser = useCallback(async () => { tillampaPlatser((await Promise.allSettled([hamtaMaskinPlatser(maskinIdsRef.current)]))[0]); }, [tillampaPlatser]);
 
   // GROT-listan. Misslyckas läsningen: ingen chip, GROT-trakter syns inte i kön, ingen kö-rensning — och bannern säger det.
   const tillampaGrot = useCallback((res: PromiseSettledResult<GrotRaw>) => {
@@ -323,7 +328,7 @@ export default function OversiktV2Page() {
     maskinIdsRef.current = ids;
     // Tidsgräns på varje: en läsning som hänger får inte hålla tillbaka de andra (de tillämpas först när alla är klara, så att inget blinkar "inget planerat")
     const [platserRes, skordRes, telRes, grotRes] = await Promise.allSettled([
-      medTidsgrans(hamtaSenastePlatser(ids), TIDSGRANS_SEKUNDAR), medTidsgrans(hamtaSkordMapV2(), TIDSGRANS_SEKUNDAR),
+      medTidsgrans(hamtaMaskinPlatser(ids), TIDSGRANS_SEKUNDAR), medTidsgrans(hamtaSkordMapV2(), TIDSGRANS_SEKUNDAR),
       medTidsgrans(lasTelefoner(), TIDSGRANS_SEKUNDAR), medTidsgrans(hamtaGrotRaw(supabase), TIDSGRANS_SEKUNDAR),
     ]);
     // Var och en tillämpas för sig: ett fel i en läsning lämnar de andra orörda och tänder sin egen banner-rad.
@@ -737,7 +742,7 @@ export default function OversiktV2Page() {
       if (!entry) {
         const container = document.createElement('div'); container.style.cssText = 'position:relative;width:0;height:0';
         const square = document.createElement('div');
-        square.style.cssText = `position:absolute;left:-12px;top:-12px;width:24px;height:24px;border-radius:5px;background:${FARG.bla};cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.4)`;
+        square.style.cssText = `position:absolute;left:-12px;top:-12px;width:24px;height:24px;border-radius:5px;background:${FARG.text3};cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.4)`;
         const label = document.createElement('div');
         label.style.cssText = `position:absolute;left:16px;top:-16px;display:flex;flex-direction:row;align-items:baseline;gap:4px;padding:6px 11px;background:${CHIP_BG};border-radius:10px;cursor:pointer;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.35)`;
         const name = document.createElement('div'); name.style.cssText = `font-size:14px;font-weight:600;color:${FARG.text}`; name.textContent = namn;
@@ -748,14 +753,21 @@ export default function OversiktV2Page() {
         container.appendChild(square); container.appendChild(label);
         const marker = new window.maplibregl.Marker({ element: container, anchor: 'center' }).setLngLat([f.koordinat.lng, f.koordinat.lat]).addTo(map);
         entry = { marker, container, square, label, sub }; machMarkersRef.current.set(mid, entry);
-      } else { (entry.label.firstChild as HTMLDivElement).textContent = namn; entry.marker.setLngLat([f.koordinat.lng, f.koordinat.lat]); }
+      } else entry.marker.setLngLat([f.koordinat.lng, f.koordinat.lat]);
+      // En maskin ser ut som en maskin: rollfärgen (skördare lila, skotare turkos — lib/sparStil). En position äldre än en timme ser
+      // ALDRIG färsk ut: grå ruta och tiden efter namnet ("Wisent · igår"), samma regel och text som Planeringens maskinprickar (lib/maskinerNu).
+      const tp = positions.get(mid)?.tidpunkt ?? null;
+      const alder = tp ? narText(tp.length > 10 ? tp : null, tp.length <= 10 ? tp : null, new Date()) : { farsk: false, nar: 'tid okänd' };
+      (entry.label.firstChild as HTMLDivElement).textContent = alder.farsk ? namn : `${namn} · ${alder.nar}`;
+      (entry.label.firstChild as HTMLDivElement).style.color = alder.farsk ? FARG.text : FARG.text2;
+      entry.square.style.background = alder.farsk ? (f.typ === 'skotare' ? ROLLFARG_SKOTARE : ROLLFARG_SKORDARE) : FARG.text3;
       entry.sub.textContent = sublabelText(f); // bara "→ nästa" / "· inget planerat"; km finns i arket
       entry.sub.style.color = nastaAv(f) ? '#a1a1a6' : FARG.text2;
       if (f.okand) entry.sub.style.color = FARG.orange; // ett läsfel syns: etiketten "ej läst" blir orange
     });
     restyleSelection(); layoutLabels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [forslag, maskiner, mapStyleLoaded, sublabelText, layoutLabels]);
+  }, [forslag, maskiner, positions, mapStyleLoaded, sublabelText, layoutLabels]);
 
   // Auto-fit en gång (flott-översikt). Hoppas över om en maskin redan är vald → urvals-fit äger kameran (förarläge).
   useEffect(() => {
@@ -816,7 +828,7 @@ export default function OversiktV2Page() {
       mm.square.style.width = sel ? '28px' : '24px'; mm.square.style.height = sel ? '28px' : '24px';
       mm.square.style.left = sel ? '-14px' : '-12px'; mm.square.style.top = sel ? '-14px' : '-12px';
       mm.square.style.opacity = (!S || sel) ? '1' : '0.28';
-      mm.square.style.boxShadow = sel ? `0 0 0 4px rgba(10,132,255,0.28), 0 1px 4px rgba(0,0,0,0.4)` : '0 1px 4px rgba(0,0,0,0.4)';
+      mm.square.style.boxShadow = sel ? `0 0 0 4px rgba(255,255,255,0.35), 0 1px 4px rgba(0,0,0,0.4)` : '0 1px 4px rgba(0,0,0,0.4)'; // vald = vit ring (blått är bara navigering)
     }); // etikett-/klustersynlighet ägs av layoutMachines (anropas sist)
     dotsRef.current.forEach((d, id) => {
       const desc = d.desc;
@@ -1198,7 +1210,7 @@ export default function OversiktV2Page() {
           onOrderChange={hanteraOrderChange}
           koRader={maskinKo.filter((k) => k.maskin_id === selMaskin).sort((a, b) => a.ordning - b.ordning)}
           kandidater={laggKandidater} kmTill={laggKmTill} onValjObjekt={valjLaggObjekt} onHighlight={setHighlightObjekt} onLaggLage={hanteraLaggLage}
-          onTaBort={taBortKo}
+          onTaBort={taBortKo} fran={minPos}
         />
       )}
 
@@ -1214,6 +1226,7 @@ export default function OversiktV2Page() {
           fornamn={fornamn} smsMaskin={maskinOrd(valt?.typ)}
           onLaggIKo={laggIKo} onFlytta={flyttaKo} onTaBort={taBortKo}
           onTillbaka={valt ? () => setSelObjekt(null) : undefined}
+          fran={minPos}
           onClose={() => { setSelObjekt(null); setSelMaskin(null); }}
         />
       )}
@@ -1242,6 +1255,39 @@ export default function OversiktV2Page() {
   );
 }
 
+// ══════════════════════════════ KÖR DIT ═══════════════════════════════════════
+// Arkets ENDA primära knapp (Martin 2026-11-05: "Översikt → tryck på maskinen → Kör dit. Tre tryck."). Vart: lib/navigera
+// (larmkoordinaten först, annars objektets punkt) — samma som bilknappen i Planering. Avståndet är ORS-väg från DIN position,
+// som allt annat i Översikten; okänt = inget tal alls, aldrig fågelväg.
+function KorDit({ objekt, fran, text = 'Kör dit' }: { objekt: NavObjekt | null; fran: { lat: number; lng: number } | null; text?: string }) {
+  const mal = navigeringsMal(objekt);
+  const [km, setKm] = useState<number | null>(null);
+  const malNyckel = mal ? `${mal.lat},${mal.lng}` : ''; const franNyckel = fran ? `${fran.lat.toFixed(3)},${fran.lng.toFixed(3)}` : '';
+  useEffect(() => {
+    setKm(null);
+    if (!mal || !fran) return;
+    let avbruten = false;
+    void vagKm(fran, mal).then((v) => { if (!avbruten) setKm(v); });
+    return () => { avbruten = true; };
+  }, [malNyckel, franNyckel]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!mal) return null;
+  return (
+    <a href={navigeringsUrl(mal.lat, mal.lng)} target="_blank" rel="noopener noreferrer" style={{ ...TOKEN_KNAPP.primar, textDecoration: 'none', ...TNUM }}>
+      <SvgVag />{text}{km != null ? ` · ${Math.round(km)} km` : ''}
+    </a>
+  );
+}
+
+/** Din position (telefonens GPS), läst en gång när ett ark öppnas. Nekad eller okänd → null, och Kör dit visas utan km. */
+function useMinPosition(aktiv: boolean): { lat: number; lng: number } | null {
+  const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    if (!aktiv || pos || typeof navigator === 'undefined' || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition((p) => setPos({ lat: p.coords.latitude, lng: p.coords.longitude }), () => { /* nekad: inga km */ }, { maximumAge: 300_000, timeout: 15_000 });
+  }, [aktiv, pos]);
+  return pos;
+}
+
 // ══════════════════════════════ MASKIN-ARK ═══════════════════════════════════
 function aggFor(o: OversiktObjekt | null | undefined, skord: Record<string, SkordAggV2>): SkordAggV2 | undefined {
   return o?.vo_nummer ? skord[o.vo_nummer] : undefined;
@@ -1257,8 +1303,6 @@ function volFor(f: MaskinForslag, o: OversiktObjekt, agg: SkordAggV2 | undefined
   if (f.typ === 'skotare') return agg && agg.skordat > 0 ? paBackenKvar(agg.skordat, agg.skotat, agg.egenSkotning) : null;
   return o.volym_planerad ?? (o.volym || null);
 }
-const mapsHref = (o: OversiktObjekt | null): string | null => !o || o.lat == null || o.lng == null ? null
-  : (typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) ? `maps://maps.apple.com/?daddr=${o.lat},${o.lng}` : `https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}`);
 
 const SvgVag = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s7-7 7-12a7 7 0 0 0-14 0c0 5 7 12 7 12z" /><circle cx="12" cy="10" r="2.5" /></svg>;
 const SvgRing = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" /></svg>;
@@ -1317,7 +1361,7 @@ const RAD_KORT: React.CSSProperties = { display: 'grid', columnGap: AVSTAND.m, r
 
 // forare = LÄSLÄGE: inga skrivknappar (gäller förare på alla maskiner). dinMaskin = förarens egen maskin (märks i rubriken).
 // Raderna Nu/1/2… öppnar objekt-arket via onOppnaObjekt.
-function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grotFel, telFel, onForsokTel, varning, telefon, forare, dinMaskin, onOppnaObjekt, onClose, onReorder, onOrdnaLage, onOrderChange, koRader, kandidater, kmTill, onValjObjekt, onHighlight, onLaggLage, onSenFel, onTaBort }: {
+function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grotFel, telFel, onForsokTel, varning, telefon, forare, dinMaskin, onOppnaObjekt, onClose, onReorder, onOrdnaLage, onOrderChange, koRader, kandidater, kmTill, onValjObjekt, onHighlight, onLaggLage, onSenFel, onTaBort, fran }: {
   f: MaskinForslag; namn: string; legs: (number | null)[]; skord: Record<string, SkordAggV2>; varning: (objektId: string) => VarningsSvar;
   /** Virke på backen gick inte att läsa: förslag och kandidater i "Lägg till objekt" kan saknas — arket säger det i stället för "inget planerat". */
   skordFel: boolean; onForsokSkord: () => void;
@@ -1331,6 +1375,8 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
   onSenFel: (fel: string) => void;
   /** Ta bort en kö-rad (i "Ändra kön"). Verifierad skrivning: null = landade, annars ett meddelande. */
   onTaBort: (koId: string) => Promise<string | null>;
+  /** Din position, för km i Kör dit. */
+  fran: { lat: number; lng: number } | null;
 }) {
   const [ordnaLage, setOrdnaLage] = useState(false);
   const [laggLage, setLaggLage] = useState(false);
@@ -1429,6 +1475,10 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
           <div style={{ ...TYP.text, color: posFel ? FARG.orange : FARG.text2, minHeight: 44, display: 'flex', alignItems: 'center' }}>{posFel ? POS_NU_TEXT : 'Står inte på något objekt just nu'}</div>
         )}
       </div>
+      {/* KÖR DIT — dit maskinen står; står den inte på något objekt, till nästa i kön. Gäller alla, förare och förman, alla maskiner. */}
+      {!ordnaLage && (f.nuObjekt
+        ? <KorDit objekt={f.nuObjekt} fran={fran} />
+        : nasta && <KorDit objekt={nasta} fran={fran} text={`Kör till ${koNamn(nasta)}`} />)}
       {sparar > 0 && <div role="status" style={{ ...TYP.meta, color: FARG.text2 }}>Sparar…</div>}
       {koFel && <div ref={felRef} role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{koFel}</div>}
       {koVarning === 'fel' && <div role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{VARNING_LASFEL}</div>}
@@ -1485,10 +1535,8 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
         </div>
       )}
 
-      {/* Knappar — förare: bara vägen dit. Förman: Ändra kön (eller Lägg till när kön är tom), Ring, Vägbeskrivning. */}
-      {forare ? (
-        mapsHref(nasta) && <a href={mapsHref(nasta)!} target="_blank" rel="noopener noreferrer" style={{ ...KNAPP, marginTop: AVSTAND.xs }}><SvgVag />Vägbeskrivning{nasta ? ` till ${nasta.namn}` : ''}</a>
-      ) : !ordnaLage && (<>
+      {/* Knappar — förare: inga (Kör dit står överst). Förman: Ändra kön (eller Lägg till när kön är tom) och Ring. */}
+      {!forare && !ordnaLage && (<>
         {kanOrdna
           ? <button onClick={toggleOrdna} style={{ ...KNAPP_LITEN }}>Ändra kön</button>
           : <button onClick={oppnaLagg} style={{ ...KNAPP_LITEN }}>+ Lägg till objekt</button>}
@@ -1498,12 +1546,7 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
             <button onClick={onForsokTel} style={{ ...KNAPP_LITEN, flexGrow: 0, flexShrink: 0, padding: `0 ${AVSTAND.m}px` }}>Försök igen</button>
           </div>
         )}
-        {(telefon || mapsHref(nasta)) && (
-          <div style={{ display: 'flex', gap: AVSTAND.s }}>
-            {telefon && <a href={`tel:${telefon}`} style={KNAPP}><SvgRing />Ring</a>}
-            {mapsHref(nasta) && <a href={mapsHref(nasta)!} target="_blank" rel="noopener noreferrer" style={KNAPP}><SvgVag />Vägbeskrivning</a>}
-          </div>
-        )}
+        {telefon && <a href={`tel:${telefon}`} style={KNAPP}><SvgRing />Ring föraren</a>}
       </>)}
       </>)}
     </div>
@@ -1529,7 +1572,9 @@ type KobarMaskin = { id: string; namn: string; roll: MaskinTyp };
 // förare och förman. onTillbaka finns när arket öppnats från en rad i maskin-arket (pilen går tillbaka dit).
 // Köåtgärderna är verifierade och svarar null när det landade, annars ett meddelande som visas här under knapparna (aldrig tyst).
 // Sms-knappen öppnar telefonens sms-app med färdig text — appen skickar ALDRIG något själv.
-function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maskinRoll, maskinKo, forare, fornamn, smsMaskin, onLaggIKo, onFlytta, onTaBort, onSenFel, onTillbaka, onClose }: {
+function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maskinRoll, maskinKo, forare, fornamn, smsMaskin, onLaggIKo, onFlytta, onTaBort, onSenFel, onTillbaka, onClose, fran }: {
+  /** Din position, för km i Kör dit. */
+  fran?: { lat: number; lng: number } | null;
   o: OversiktObjekt; skord: Record<string, SkordAggV2>; warn: VarningsSvar; // läst (kan vara tomt = "ingen"), misslyckat eller pågående
   koFel: boolean; // kön gick inte att läsa: "i kö"-uppgifterna kan saknas — arket säger det i stället för att låta en tom kö stå
   skordare: { id: string; namn: string; koordinat: { lat: number; lng: number } | null; klararTyp: string | null }[];
@@ -1607,6 +1652,9 @@ function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maski
           <div style={{ ...TYP.meta, color: koFel && !koRader.length ? FARG.orange : FARG.text2, whiteSpace: 'nowrap' }}>{koRader.length ? `i kö` : koFel ? 'kön ej läst' : harMaskin(o) ? 'planerad' : 'väntar · ingen maskin'}</div>
         </div>
       </div>
+
+      {/* KÖR DIT — samma knapp som i maskin-arket: en trakt utan maskin (en ny trakt man ska titta på) nås likadant, tryck på pricken. */}
+      <KorDit objekt={o} fran={fran ?? null} />
 
       <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', columnGap: AVSTAND.m, rowGap: AVSTAND.s, ...TYP.text }}>
         {rad('Åtgärd', `${atgard}${areal ? ` · ${areal}` : ''}`)}

@@ -1,14 +1,28 @@
 'use client';
 
-// Läser maskinernas senaste position (RPC maskin_senaste_position) och maskinregistret, var 60:e sekund medan sidan syns,
+// Läser var maskinerna står — SAMMA källa som Översikten (app/maskinflytt/maskinPlatser: flytt, produktion och appens GPS, nyast
+// vinner; regeln i lib/maskinPlats) — och maskinregistret, var 60:e sekund medan sidan syns,
 // och ritar prickarna på kartan (lib/maskinerNu). Ett läsfel lämnar förra prickarna kvar och loggas — kartan påstår aldrig
 // att en maskin står någon annanstans än den senast hördes. `utan` = den egna maskinen (maskinläget), som inte ritas.
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { hamtaMaskinPlatser } from '@/app/maskinflytt/maskinPlatser';
 import { byggMaskinerNu, ritaMaskinerNu, MASKINER_NU_TRAFF, tryckText, type MaskinNu, type MaskinPosRad, type MaskinRegister } from '@/lib/maskinerNu';
 
 export const MASKINER_NU_UPPDATERA_MS = 60_000;
+
+/** En plats per maskin → raderna prickarna ritas ur. Klockslaget följer bara med när källan har ett (GPS, flytt); en
+ *  produktionsdag är ett datum, och då står dagen bredvid namnet (lib/maskinerNu narText). */
+export function platserTillRader(platser: ReadonlyMap<string, { namn: string; koordinat: { lat: number; lng: number } | null; objektId: string | null; tidpunkt: string | null }>): MaskinPosRad[] {
+  const ut: MaskinPosRad[] = [];
+  platser.forEach((p, maskin_id) => {
+    if (!p.koordinat) return;
+    const t = p.tidpunkt;
+    ut.push({ maskin_id, roll: null, objekt_id: p.objektId, objekt_namn: p.namn, datum: t ? (t.length <= 10 ? t : new Date(t).toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' })) : null, lat: p.koordinat.lat, lng: p.koordinat.lng, tid: t && t.length > 10 ? t : null });
+  });
+  return ut;
+}
 
 export function useMaskinerNu({ map, aktiv, utan = null, onTryck }: { map: any; aktiv: boolean; utan?: string | null; onTryck?: (text: string, m: MaskinNu) => void }) {
   const [rader, setRader] = useState<MaskinPosRad[] | null>(null);
@@ -20,16 +34,20 @@ export function useMaskinerNu({ map, aktiv, utan = null, onTryck }: { map: any; 
     let avbruten = false;
     const las = async () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      let pos: { data: unknown; error: unknown }; let reg: { data: unknown; error: unknown };
       try {
-        [pos, reg] = await Promise.all([
-          supabase.rpc('maskin_senaste_position'),
-          supabase.from('dim_maskin').select('maskin_id, visningsnamn, maskin_typ, aktiv_till'),
-        ]);
+        const reg = await supabase.from('dim_maskin').select('maskin_id, visningsnamn, maskin_typ, aktiv_till');
+        if (avbruten) return;
+        if (reg.error) { console.error('[MaskinerNu] maskinregistret kunde inte läsas:', reg.error); return; }
+        const register = (reg.data ?? []) as MaskinRegister[];
+        setRegister(register);
+        const pos = await hamtaMaskinPlatser(register.map((m) => m.maskin_id).filter(Boolean));
+        if (avbruten) return;
+        if (pos.fel) { console.error('[MaskinerNu] positionerna kunde inte läsas:', pos.fel); }
+        else {
+          if (pos.delvisFel) console.error('[MaskinerNu] positionerna: delfel', pos.delvisFel);
+          setRader(platserTillRader(pos.platser));
+        }
       } catch (e) { console.error('[MaskinerNu] kunde inte läsas:', e); return; }   // ett tillägg som aldrig får fälla kartan
-      if (avbruten) return;
-      if (pos.error) { console.error('[MaskinerNu] positionerna kunde inte läsas:', pos.error); } else setRader((pos.data ?? []) as MaskinPosRad[]);
-      if (reg.error) console.error('[MaskinerNu] maskinregistret kunde inte läsas:', reg.error); else setRegister((reg.data ?? []) as MaskinRegister[]);
       setTick((t) => t + 1);
     };
     void las();
