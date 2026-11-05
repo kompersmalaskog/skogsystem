@@ -13927,10 +13927,12 @@ export default function PlannerPage() {
                     ))}
                   </span>
                 )}
-                {(valtObjekt.areal || valtObjekt.typ) && (
+                {(valtObjekt.areal || valtObjekt.typ || certTyper(valtObjekt.cert).length > 0) && (
                   <span style={{ fontWeight: '400', color: 'rgba(255,255,255,0.65)' }}>
                     {valtObjekt.areal ? ` · ${svTal(valtObjekt.areal, 2)} ha` : ''}
                     {valtObjekt.typ ? ` · ${valtObjekt.typ === 'slutavverkning' ? 'Slutavv.' : valtObjekt.typ === 'gallring' ? 'Gallring' : (objektHuvudtyp(valtObjekt) ? typLabel(objektHuvudtyp(valtObjekt)) : valtObjekt.typ)}` : ''}
+                    {/* Certifieringen syns direkt i namnfältet (Martin 2026-11-05, Bondeskog: "det står inget om att det är PEFC") — samma tolkning som ⓘ och överblicken (certTyper). */}
+                    {certTyper(valtObjekt.cert).length > 0 && <span data-testid="objekt-pill-cert"> · {certTyper(valtObjekt.cert).join(' och ')}</span>}
                   </span>
                 )}
               </>
