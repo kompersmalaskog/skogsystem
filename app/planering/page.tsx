@@ -140,6 +140,7 @@ import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
 import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } from '../../lib/borttagenKvitto'
 import { VagFargForslag } from '../../components/planering/VagFargForslag'
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
+import { useMaskinerNu } from '@/lib/hooks/useMaskinerNu'
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
 import HyttNotiserKort from '../../components/planering/HyttNotiserKort'
@@ -12323,6 +12324,16 @@ export default function PlannerPage() {
     korvyKvittoTimerRef.current = setTimeout(() => { setKorvyKvitto(null); korvyKvittoTimerRef.current = null; }, ton === 'ok' ? KVITTO_MS : 3500);
   };
   const symbolNamn = (typ: string): string => markerTypes.find((m) => m.id === typ)?.name || typ;
+  // MASKINERNA PÅ KARTAN (Martin 2026-11-05): en prick per maskin där den senast hördes, i alla lägen. Den egna maskinen har redan sin prick.
+  // Tryck på pricken = en rad nertill i 4 s: "Giant · Bondeskog AU 2026" (lib/maskinerNu).
+  const [maskinInfo, setMaskinInfo] = useState<string | null>(null);
+  const maskinInfoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visaMaskinInfo = useCallback((text: string) => {
+    if (maskinInfoTimerRef.current) clearTimeout(maskinInfoTimerRef.current);
+    setMaskinInfo(text);
+    maskinInfoTimerRef.current = setTimeout(() => { setMaskinInfo(null); maskinInfoTimerRef.current = null; }, 4000);
+  }, []);
+  useMaskinerNu({ map: mapLibreReady ? mapInstanceRef.current : null, aktiv: true, utan: testlage?.maskinId ?? enhetMaskinId ?? null, onTryck: visaMaskinInfo });
   // Borttagen markering: försvinner direkt, raden nertill ger tillbaka den i 5 s. Raderingen är redan lagd i synkkön (en grav); Ångra lägger markeringen
   // tillbaka i minnet och synken räknar den som NY (graven ersätts). Ett nytt borttag byter ut raden — bara den senaste kan ångras.
   const visaBorttagen = (marker: any) => {
@@ -15495,6 +15506,9 @@ export default function PlannerPage() {
         smal={smalSkarm}
         onKopplad={() => { setHogarReload(prev => prev + 1); setSkotningReload(prev => prev + 1); setSkordarKopplingNr(prev => prev + 1); }}
       />
+      {maskinInfo && !korvyKvitto && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && (
+        <KorvyKvitto text={maskinInfo} ton="ok" smal={smalSkarm} />
+      )}
       {(korvyActive || klarGaller) && korvyKvitto && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && (
         <KorvyKvitto text={kvittoMedKvar(korvyKvitto.text, klarStatus.antalKvar, klarGaller && klarDataKlart && korvyKvitto.ton === 'ok')} ton={korvyKvitto.ton} onAngra={korvyKvitto.markerId != null ? angraKvitto : undefined} smal={smalSkarm} />
       )}

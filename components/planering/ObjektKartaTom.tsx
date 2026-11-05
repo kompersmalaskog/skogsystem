@@ -12,6 +12,7 @@ import React, { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import ObjektLista, { type ListaObjekt, type ObjektListaProps } from './ObjektLista';
 import { useObjektPrickar } from '@/lib/hooks/useObjektPrickar';
+import { useMaskinerNu } from '@/lib/hooks/useMaskinerNu';
 import { TOM_KARTA_START, tomKartaStil, type KartPrickar } from '@/lib/objektKarta';
 import { STANDARD_KARTLAGER, type Kartlager } from '@/lib/kartlager';
 import { FARG } from '@/lib/design/tokens';
@@ -25,6 +26,8 @@ export default function ObjektKartaTom({ onValj, onNavigera, maskin, kartlager =
   // Ritad är ingen översiktskarta (inga ortnamn) — här visas Lantmäteriets karta i stället (Martin 2026-11-01). Användarens val ändras inte.
   const stil = useMemo(() => (kartlager === 'ritad' ? tomKartaStil('lantmateriet') : tomKartaStil(kartlager, kartlagerStyrka)), [kartlager, kartlagerStyrka]);
   useObjektPrickar({ map: karta, aktiv: true, prickar, aterstall: false });
+  // Maskinerna där de senast hördes (Martin 2026-11-05) — samma prickar som på planeringskartan. Den egna maskinen (maskinläget) ritas inte.
+  useMaskinerNu({ map: karta, aktiv: true, utan: maskin?.maskinId ?? null });
   return (
     <>
       <div data-testid="planering-utan-objekt-karta" style={{ position: 'fixed', inset: 0, background: FARG.bg }}>
