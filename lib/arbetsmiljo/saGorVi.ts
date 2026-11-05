@@ -39,7 +39,7 @@ export const KATALOG: Record<InstrId, Omit<Instruktion, 'id'>> = {
     steg: [
       'Plan och fast mark. Ingen människa nära.',
       'Kör sakta och rakt upp på ramperna.',
-      'Kranen ner och surrad. Parkeringsbroms, lägsta växeln, låst midja.',
+      'Kranen ner och surrad. Parkeringsbromsen på.',
       'Surra i maskinens surrningsöglor: minst två kedjor framåt och två bakåt.',
       'Stanna efter en kort bit och kolla surrningen igen.',
     ],
