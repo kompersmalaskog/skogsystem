@@ -276,7 +276,8 @@ describe('städningen', () => {
     expect(las('./objektInfoSpar.ts')).toContain('info_anteckningar');
   });
   it('Till föraren = bara Vidas direktiv', () => {
-    expect(page).toContain('const forareTexter = tillForaren({ vida });');
+    expect(page).toContain('const forareTexter = tillForaren({ vida, vidaStruket: vidaStruket ?? [],');
+    expect(page).not.toMatch(/tillForaren\(\{[^}]*(forardirektiv|anteckningar)/);
   });
   it('Trakt-panelen har bara Larm kvar — allt annat har fått plats i kortet', () => {
     for (const borta of ['{/* FAKTA-flik */}', "traktTab === 'fakta'", "traktTab === 'prognos'", 'renderMaskinVal', 'valjUtforare', 'setMaskinSheet', 'Maskin-väljar-sheet']) expect(page, borta).not.toContain(borta);
