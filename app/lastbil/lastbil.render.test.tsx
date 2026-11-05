@@ -3311,6 +3311,19 @@ describe("Tid att fakturera (flytt över 3 mil): appen föreslår tiden ur runda
     expect(mock.skrivningar.at(-1)).toEqual({ tabell: "fakturaunderlag_flytt", varden: { traillertimmar: 4.3 } });
     expect(dlg()!.getAttribute("aria-label")).toMatch(/^Giant · /);                 // tillbaka i flyttens ark
     expect(valRad("Tid")!.getAttribute("aria-label")).toBe("Tid: 4 h 18 min");
+    // Kvittot: man ser att trycket gick fram (Martin 2026-11-05: "inget som visade att det sparades")
+    expect(valRad("Tid")!.parentElement!.textContent).toContain("Sparad nu — 4 h 18 min faktureras");
+    // Öppnar man tiden igen säger knappen att den redan är sparad — inte en släckt "Spara" utan förklaring
+    await klicka(valRad("Tid")!);
+    const spara = () => dlg()!.querySelector("[data-tid-spara]") as HTMLButtonElement;
+    expect(spara().textContent).toBe("checkSparad 4 h 18 min");
+    expect(spara().disabled).toBe(true);
+    expect(dlg()!.querySelector("[data-tid-sparad]")!.textContent).toContain("Den här tiden är sparad och faktureras");
+    await klicka(knapp(/^\+15 min$/, dlg()!));
+    expect(spara().textContent).toBe("Spara 4 h 33 min");
+    expect(spara().disabled).toBe(false);
+    expect(dlg()!.querySelector("[data-tid-sparad]")).toBeNull();
+    await klicka(knapp(/^Avbryt$/, dlg()!));
     await vantaTills(() => tidRad("u8")?.textContent === "Tid 4 h 18 min");
     expect(tidRad("u8")!.textContent).toBe("Tid 4 h 18 min");
   });

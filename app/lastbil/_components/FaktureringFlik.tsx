@@ -308,7 +308,7 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
         );
       })()}
       {ga && gaSteg && gaRad && gaSteg.typ === 'tid' && (
-        <TidArk key={gaRad.id} maskin={vadText(gaRad, n)} forslag={forslagFor(gaRad, tid.lage) ?? null}
+        <TidArk key={gaRad.id} maskin={vadText(gaRad, n)} forslag={forslagFor(gaRad, tid.lage)}
           sparadMin={sparadMin(gaRad)} last={false} steg={`${ga.i + 1} av ${ga.ko.length}`} sparaText="Spara och nästa"
           onStang={() => setGa(null)} onHoppaOver={nasta}
           onSpara={async min => {
