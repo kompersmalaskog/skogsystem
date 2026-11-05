@@ -1,5 +1,5 @@
 'use client';
-// Sektionen "Markägaren" längst ner i GROT-objekt-arket i /oversikt-v2. Bara förman/admin ser den — GrotObjektArk
+// Sektionen "Markägaren" längst ner i GROT-objekt-arket i /oversikt. Bara förman/admin ser den — GrotObjektArk
 // renderar den enbart när onSpara skickats in, och förare kommer aldrig in i GROT-arket alls.
 //
 // Ett fält, direktspar (ingen Spara-knapp): Bortkört senast — datumväljare + Rensa. Datumet sparas först när det är ett

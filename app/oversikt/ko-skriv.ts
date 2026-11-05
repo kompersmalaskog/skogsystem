@@ -1,4 +1,4 @@
-// Köskrivningar för /oversikt-v2 — VERIFIERADE. Ren logik (klienten injiceras), Node-importerbar, testas i ko-skriv.test.ts.
+// Köskrivningar för /oversikt — VERIFIERADE. Ren logik (klienten injiceras), Node-importerbar, testas i ko-skriv.test.ts.
 //
 // Varje skrivning gör tre saker: (1) läser kön FÄRSKT ur databasen (skärmens kopia kan vara gammal — någon annan kan ha ändrat
 // den), (2) skriver, (3) läser tillbaka INNEHÅLLET och jämför mot det som skulle skrivas. Ett `{error}` är inte hela sanningen:
@@ -9,7 +9,7 @@
 // sanningen. `ko: null` = kön gick inte att läsa → skärmen lämnas orörd och användaren får veta att det inte går att avgöra.
 // Teknik (felmeddelanden från databasen) hamnar i konsolen, aldrig i arket.
 
-import type { MaskinKoItem } from '../oversikt/oversikt-types';
+import type { MaskinKoItem } from './oversikt-types';
 
 export const KO_SPARFEL = 'Kunde inte spara — försök igen';
 export const KO_LASFEL = 'Kunde inte läsa kön efteråt — ladda om sidan';

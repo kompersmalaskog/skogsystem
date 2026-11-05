@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { KO_LASFEL, KO_RAD_BORTA, KO_SPARFEL, KO_TOAST, KO_TOAST_OSAKER, flyttaKoVerifierat, laggIKoVerifierat, lasKo, skapaKoKedja, skrivOrdningVerifierat, taBortKoVerifierat, toastText } from './ko-skriv';
-import type { MaskinKoItem } from '../oversikt/oversikt-types';
+import type { MaskinKoItem } from './oversikt-types';
 
 // En liten fake av maskin_ko som beter sig som PostgREST för de anrop modulen gör — inklusive de tysta felen:
 //   'fel'   = svaret har {error} och inget ändras

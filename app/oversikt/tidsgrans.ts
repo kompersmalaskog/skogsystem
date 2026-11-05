@@ -1,4 +1,4 @@
-// Tidsgränser för läsningarna i /oversikt-v2 (fynd G). Ett anrop som aldrig får svar — nätet försvinner mitt i en läsning, och klienten har
+// Tidsgränser för läsningarna i /oversikt (fynd G). Ett anrop som aldrig får svar — nätet försvinner mitt i en läsning, och klienten har
 // ingen egen tidsgräns — lämnade sidan på "Laddar kartan…" för alltid, och för de sekundära läsningarna hölls ALLA andra resultat (position,
 // virke på backen, GROT, telefon) tillbaka tills den långsammaste kommit. Efter tidsgränsen räknas läsningen som misslyckad och sidan säger
 // det (felruta för kärndatan, banner för resten): ett läsfel är aldrig "ingen".

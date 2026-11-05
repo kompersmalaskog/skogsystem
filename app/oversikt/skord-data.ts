@@ -1,5 +1,5 @@
 'use client';
-// Skörd/skotat per objekt (nyckel = vo_nummer) för /oversikt-v2.
+// Skörd/skotat per objekt (nyckel = vo_nummer) för /oversikt.
 //
 // SAMMA regel som gamla /oversikt (page.tsx FAS B) och lib/skotat — men en egen,
 // avskalad kopia så att gamla /oversikt inte behöver röras. Bär bara det v2 behöver:

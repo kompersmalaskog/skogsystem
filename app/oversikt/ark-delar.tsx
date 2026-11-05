@@ -1,4 +1,4 @@
-// Delade ark-delar för /oversikt-v2: maskin-arket, objekt-arket och GROT-arken ska se EXAKT likadana ut.
+// Delade ark-delar för /oversikt: maskin-arket, objekt-arket och GROT-arken ska se EXAKT likadana ut.
 // Knapparna och arkets ram flyttades ordagrant ur page.tsx (en Next-sida kan inte exportera annat än sin default) — inga värden
 // ändrade. VarningLista/VarningRader (faror och hänsyn med planerarens kommentar) delas av objekt-arket och GROT-objekt-arket.
 import React from 'react';

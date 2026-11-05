@@ -1,5 +1,5 @@
 'use client';
-// Objekt-arket för en GROT-trakt i /oversikt-v2 (tryck på en rad i GROT-listan; kartan har då flugit dit).
+// Objekt-arket för en GROT-trakt i /oversikt (tryck på en rad i GROT-listan; kartan har då flugit dit).
 // Samma rader som v2:s vanliga objekt-ark — Åtgärd · Volym · Faror/Hänsyn · Avstånd · Väntat — med GROT-innehåll,
 // plus "Just nu" när en skotare står på det länkade risjobbet, och "Lägg i kö för …". Tillbaka-pilen går till
 // GROT-listan igen.
@@ -22,7 +22,7 @@ import { AVSTAND, FARG, INAKTIV, TYP, TNUM } from '@/lib/design/tokens';
 import { uppskattaGrotM3fub } from '@/lib/grot';
 import { typLabel } from '@/lib/objekt/typ';
 import { lasVarningar, type VarningsSvar } from './markeringar-las';
-import type { MaskinKoItem } from '../oversikt/oversikt-types';
+import type { MaskinKoItem } from './oversikt-types';
 import { hamtaVagKm } from '@/lib/grotvy/avstand';
 import { arealText, FORSENAD_TEXT, grotSchablonText, kmText, kortDatum, markBegransningText, SAKNAR_OBJEKT_TEXT, senastText, skordatText } from '@/lib/grotvy/format';
 import { arForsenad, rollMatcharTyp, type GrotRad, type GrotSkrivning, type Koord } from '@/lib/grotvy/lista';

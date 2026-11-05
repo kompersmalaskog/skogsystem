@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { beraknaForslag, tomtForslag, type MaskinRad } from './nasta-v2';
-import type { OversiktObjekt } from '../oversikt/oversikt-types';
+import type { OversiktObjekt } from './oversikt-types';
 
 const idag = new Date().toISOString().slice(0, 10);
 const obj = (id: string, over: Partial<OversiktObjekt> = {}): OversiktObjekt =>

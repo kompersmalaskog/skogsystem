@@ -1,7 +1,7 @@
 // SMS till markägaren — texten är beställd ord för ord (Martin 2026-10-22). Appen skickar ALDRIG något: knappen öppnar telefonens Meddelanden med mottagare och text
-// ifyllda (sms:-länk, samma som `app/oversikt-v2/sms`); planeraren läser, ändrar och trycker själv på skicka.
+// ifyllda (sms:-länk, samma som `app/oversikt/sms`); planeraren läser, ändrar och trycker själv på skicka.
 
-import { arIos, forstaNamn, smsHref } from '@/app/oversikt-v2/sms';
+import { arIos, forstaNamn, smsHref } from '@/app/oversikt/sms';
 import { dagarMellan, idagStockholm } from '@/lib/grotvy/format';
 import { FORETAG_TELEFON } from './konstanter';
 

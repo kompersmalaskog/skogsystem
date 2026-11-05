@@ -1,5 +1,5 @@
 'use client';
-// Per-maskin kö/rutt för /oversikt-v2 (SLUTLIG). FÖRSLAG, aldrig order.
+// Per-maskin kö/rutt för /oversikt (SLUTLIG). FÖRSLAG, aldrig order.
 //
 // SKÖRDARE: nästa = förmannens kö (maskin_ko), punkt. Ingen gissning. Avslutade döljs.
 //           Tom kö → 'inget planerat'. Hela kön ritas som numrerad rutt (1 → 2 → …).
@@ -11,8 +11,8 @@
 // Ren logik, Node-importerbar (dry-run kör exakt samma fn): ingen supabase-import.
 
 import { paBackenKvar } from '@/lib/skotat';
-import type { OversiktObjekt, MaskinKoItem } from '../oversikt/oversikt-types';
-import { STATUS_AVSLUTADE } from '../oversikt/oversikt-types';
+import type { OversiktObjekt, MaskinKoItem } from './oversikt-types';
+import { STATUS_AVSLUTADE } from './oversikt-types';
 import type { PlatsForslag } from '../maskinflytt/senastePlats';
 import type { SkordAggV2 } from './skord-data';
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { koLaget } from './ko-regler';
-import type { MaskinKoItem } from '../oversikt/oversikt-types';
+import type { MaskinKoItem } from './oversikt-types';
 import type { MaskinTyp } from './nasta-v2';
 
 const ko = (id: string, maskin: string, objekt: string, ordning = 0): MaskinKoItem => ({ id, maskin_id: maskin, objekt_id: objekt, ordning });

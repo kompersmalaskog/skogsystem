@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { beraknaForslag, markeraOkanda, type MaskinRad } from './nasta-v2';
-import type { MaskinKoItem, OversiktObjekt } from '../oversikt/oversikt-types';
+import type { MaskinKoItem, OversiktObjekt } from './oversikt-types';
 import type { PlatsForslag } from '../maskinflytt/senastePlats';
 
 // doldaAvslutade = hur många rader i en SKOTARES kö som göms för att objektet är avslutat och inte släpps in av GROT-listan.

@@ -2,7 +2,7 @@
 // Regel: rensa VO-nummer och årssuffix (som i SMS:et), ta bort ledande koder, klipp vid första kod efter ett riktigt ord. Blir inget kvar → fastighetsbeteckningen.
 // Hittas inget heller → "Trakten" (aldrig en kod).
 
-import { rensaObjektnamn } from '@/app/oversikt-v2/sms';
+import { rensaObjektnamn } from '@/app/oversikt/sms';
 
 const ORDKOD = /^(au|rp|ga|lrk|vf|sa|bark|gallring|slutavverkning|föryngring|föryngringsavverkning|rotpost|avverkningsuppdrag|grot|\+|&)$/i;
 const AR = /^(?:20)?2[4-9]$/;                    // 25 / 2025

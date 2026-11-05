@@ -42,14 +42,6 @@ describe("HTML byggs aldrig av oescapad text", () => {
     expect(utanSink).toEqual([]);
   });
 
-  it("Översiktskartans etiketter: inget namn går in i en innerHTML-mall utan escapeHtml", () => {
-    const src = kalla.find(f => f.rel === "app/oversikt/OversiktKarta.tsx")!.src;
-    const mallar = src.split("\n").filter(l => /\.innerHTML\s*=\s*`/.test(l) || /const frisk = /.test(l));
-    const farliga = mallar.flatMap(l => Array.from(l.matchAll(/\$\{([^}]+)\}/g)).map(m => m[1].trim()))
-      .filter(uttryck => /\b(namn|label|s|volLabel|obj\.namn|info\.label)\b/.test(uttryck) && !/escapeHtml\(/.test(uttryck));
-    expect(farliga).toEqual([]);
-  });
-
   // Sinkar vars HTML byggs i en stor komponent som inte går att montera i ett test: ingen rå interpolering av användartext.
   const RAA: Array<[string, RegExp[]]> = [
     ["app/planering/KartaVy.tsx", [/\$\{\s*objekt\.namn\s*\}/, /\$\{\s*objekt\.volym[^}]*\}/]],
@@ -59,10 +51,6 @@ describe("HTML byggs aldrig av oescapad text", () => {
   it("Arbetsrapportens utskrift: personens namn är escapat (skuggad variabel före mallen)", () => {
     const src = kalla.find(f => f.rel === "components/arbetsrapport/Arbetsrapport.tsx")!.src;
     expect(src).toContain("const medarbetare = { namn: escapeHtml(medarbetareForeUtskrift?.namn) };");
-  });
-  it("Översiktens maskinmarkör: färskhetstexten är escapad (skuggad variabel före mallen)", () => {
-    const src = kalla.find(f => f.rel === "app/oversikt/OversiktKarta.tsx")!.src;
-    expect(src).toContain("const farskhet = farskhetRaa ? escapeHtml(farskhetRaa) : null;");
   });
   it.each(RAA)("%s: användartext i HTML-mallar går genom escapeHtml", (rel, monster) => {
     const src = kalla.find(f => f.rel === rel)!.src;

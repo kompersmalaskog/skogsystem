@@ -99,7 +99,7 @@ describe('källvakter: alla ställen som läser status är med', () => {
   });
   it('helikopter-v2 och översikt-v2 tappar inte nya trakter', () => {
     expect(las('../app/helikopter-v2/page.tsx')).toContain("o.status === 'oplanerad' || o.status === 'planerad' || o.status === 'pagaende'");
-    expect(las('../app/oversikt-v2/page.tsx')).toContain("if (o.status === 'oplanerad') {");
+    expect(las('../app/oversikt/page.tsx')).toContain("if (o.status === 'oplanerad') {");
   });
 });
 
