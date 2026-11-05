@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { avslutaObjekt } from '@/lib/avslutaObjekt';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import { maskinVisningsnamn } from '@/lib/maskinNamn';
 import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
@@ -38,7 +39,7 @@ import { sparaFalt } from '@/lib/redigering/objektRouter';
 import GrotListaArk, { ARK_ANDEL, type ArkLage } from './GrotLista';
 import GrotObjektArk, { type ArkKo, type ArkSkotare } from './GrotObjektArk';
 import { useGrotVagAvstand } from './grot-avstand';
-import { KNAPP, KNAPP_LITEN, SheetBas, Grabber, VarningRader } from './ark-delar';
+import { KNAPP, KNAPP_LITEN, SheetBas, Grabber, VarningLista } from './ark-delar';
 import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, INAKTIV, designCss, KNAPP as TOKEN_KNAPP } from '@/lib/design/tokens';
 import { navigeringsMal, navigeringsUrl, type NavObjekt } from '@/lib/navigera';
 
@@ -46,8 +47,8 @@ declare global { interface Window { maplibregl: any } }
 
 const CHIP_BG = 'rgba(28,28,30,0.94)';
 const GRAY_LINE = 'rgba(72,72,74,0.95)';
-const LIT_LINE = '#1c1c1e';
-const GRAY_DOT = '#636366';
+const LIT_LINE = FARG.kort;
+const GRAY_DOT = FARG.text3;
 const THRESHOLD_ZOOM = 11; // < detta = översikt (bara maskiner + pågående + ringar); ≥ = allt
 const TOAST_MS = 4000;      // hur länge toasten (en kö-sparning som felade efter att arket stängts) står kvar
 
@@ -114,7 +115,7 @@ interface DotDesc { form: 'ring' | 'fill'; color: string; opacity: number; size:
 const GROT_PRICK: DotDesc = { form: 'fill', color: FARG.diagram2, opacity: 1, size: 16, utzoom: true, namnbar: true, halo: true };
 // Brådskande GROT-prick: större (20 px), MÖRKARE orange än GROT_PRICK, röd när markägarens datum har passerat. Orange-nyansen är
 // en egen konstant (ingen token): Martins beställning 2026-10-04 — byt här om nyansen ska justeras. Etikettens text är token-färg.
-const GROT_BRADSKANDE = '#e8710a';
+const GROT_BRADSKANDE = FARG.orangeMork; // brådskande GROT: ett steg allvarligare än orange (token, inte en egen nyans)
 function bradskandePrick(b: Bradskande): DotDesc {
   const forsenad = b.typ === 'forsenad';
   return { form: 'fill', color: forsenad ? FARG.rod : GROT_BRADSKANDE, opacity: 1, size: 20, utzoom: true, namnbar: true, halo: true, etikett: { text: b.text, farg: forsenad ? FARG.rod : FARG.orange } };
@@ -226,6 +227,14 @@ export default function OversiktV2Page() {
   const legGeomCache = useCallback((from: { lat: number; lng: number } | null, to: { lat: number; lng: number } | null): [number, number][] | null => (from && to ? ruttCacheRef.current.get(cacheKey(from, to))?.geom ?? null : null), []);
 
   // Kön läses om (efter GROT-städningen och vid "Försök igen"). Ett fel är ALDRIG en tom kö: skärmen behåller det den hade och bannern säger det.
+  // "GROT klart" i objekt-arket: samma avslut som planeringens Avsluta-knapp (status + ur alla köer). Objektet visas avslutat direkt.
+  const avslutaGrot = useCallback(async (objektId: string): Promise<string | null> => {
+    const r = await avslutaObjekt(supabase, { objektId });
+    if (!r.ok) return 'Kunde inte avsluta trakten. Försök igen.';
+    setObjekt((prev) => prev.map((x) => (x.id === objektId ? { ...x, status: 'avslutat' } : x)));
+    setMaskinKo((prev) => prev.filter((k) => k.objekt_id !== objektId));
+    return null;
+  }, []);
   const refetchKo = useCallback(async () => {
     try {
       const svar = await supabase.from('maskin_ko').select('*').order('ordning');
@@ -620,7 +629,7 @@ export default function OversiktV2Page() {
         if (geom && geom.length > 1) {
           features.push({ type: 'Feature', properties: { clr: LIT_LINE, op: dimmed ? 0.5 : 1, w: dimmed ? 2 : 3 }, geometry: { type: 'LineString', coordinates: geom } }); // väggeometri ur ORS
         } else {
-          features.push({ type: 'Feature', properties: { clr: '#8e8e93', op: 0.5, w: 1.5 }, geometry: { type: 'LineString', coordinates: [[a.lng, a.lat], [b.lng, b.lat]] } }); // geometri saknas → tunn rak grå, aldrig påhittad väg
+          features.push({ type: 'Feature', properties: { clr: FARG.text2, op: 0.5, w: 1.5 }, geometry: { type: 'LineString', coordinates: [[a.lng, a.lat], [b.lng, b.lat]] } }); // geometri saknas → tunn rak grå, aldrig påhittad väg
         }
       }
     }
@@ -762,7 +771,7 @@ export default function OversiktV2Page() {
       (entry.label.firstChild as HTMLDivElement).style.color = alder.farsk ? FARG.text : FARG.text2;
       entry.square.style.background = alder.farsk ? (f.typ === 'skotare' ? ROLLFARG_SKOTARE : ROLLFARG_SKORDARE) : FARG.text3;
       entry.sub.textContent = sublabelText(f); // bara "→ nästa" / "· inget planerat"; km finns i arket
-      entry.sub.style.color = nastaAv(f) ? '#a1a1a6' : FARG.text2;
+      entry.sub.style.color = nastaAv(f) ? FARG.text : FARG.text2; // finns ett nästa är det det viktiga — vitt; annars dämpat
       if (f.okand) entry.sub.style.color = FARG.orange; // ett läsfel syns: etiketten "ej läst" blir orange
     });
     restyleSelection(); layoutLabels();
@@ -1226,7 +1235,7 @@ export default function OversiktV2Page() {
           fornamn={fornamn} smsMaskin={maskinOrd(valt?.typ)}
           onLaggIKo={laggIKo} onFlytta={flyttaKo} onTaBort={taBortKo}
           onTillbaka={valt ? () => setSelObjekt(null) : undefined}
-          fran={minPos}
+          fran={minPos} onGrotKlar={avslutaGrot}
           onClose={() => { setSelObjekt(null); setSelMaskin(null); }}
         />
       )}
@@ -1430,7 +1439,7 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
             <button onClick={stangLagg} style={{ background: 'none', border: 'none', color: FARG.bla, ...TYP.text, cursor: 'pointer', padding: 0 }}>Avbryt</button>
           </div>
           {kandidater.length > 8 && (
-            <input value={sok} onChange={(e) => setSok(e.target.value)} placeholder="Sök objekt…" style={{ ...TYP.text, padding: `0 ${AVSTAND.m}px`, height: 44, boxSizing: 'border-box', borderRadius: RADIE.rad, border: '1px solid #48484a', background: FARG.upphojt, color: FARG.text, outline: 'none' }} />
+            <input value={sok} onChange={(e) => setSok(e.target.value)} placeholder="Sök objekt…" style={{ ...TYP.text, padding: `0 ${AVSTAND.m}px`, height: 44, boxSizing: 'border-box', borderRadius: RADIE.rad, border: 'none', background: FARG.upphojt, color: FARG.text, outline: 'none' }} />
           )}
           {filtrerade.length === 0 ? (
             skordFel && f.typ === 'skotare' && kandidater.length === 0 ? (
@@ -1572,9 +1581,11 @@ type KobarMaskin = { id: string; namn: string; roll: MaskinTyp };
 // förare och förman. onTillbaka finns när arket öppnats från en rad i maskin-arket (pilen går tillbaka dit).
 // Köåtgärderna är verifierade och svarar null när det landade, annars ett meddelande som visas här under knapparna (aldrig tyst).
 // Sms-knappen öppnar telefonens sms-app med färdig text — appen skickar ALDRIG något själv.
-function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maskinRoll, maskinKo, forare, fornamn, smsMaskin, onLaggIKo, onFlytta, onTaBort, onSenFel, onTillbaka, onClose, fran }: {
+function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maskinRoll, maskinKo, forare, fornamn, smsMaskin, onLaggIKo, onFlytta, onTaBort, onSenFel, onTillbaka, onClose, fran, onGrotKlar }: {
   /** Din position, för km i Kör dit. */
   fran?: { lat: number; lng: number } | null;
+  /** GROT/klipp: föraren trycker "GROT klart" → avslut (lib/avslutaObjekt). null = avslutat, annars ett meddelande. */
+  onGrotKlar?: (objektId: string) => Promise<string | null>;
   o: OversiktObjekt; skord: Record<string, SkordAggV2>; warn: VarningsSvar; // läst (kan vara tomt = "ingen"), misslyckat eller pågående
   koFel: boolean; // kön gick inte att läsa: "i kö"-uppgifterna kan saknas — arket säger det i stället för att låta en tom kö stå
   skordare: { id: string; namn: string; koordinat: { lat: number; lng: number } | null; klararTyp: string | null }[];
@@ -1637,58 +1648,80 @@ function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maski
   const avstText = skordare.filter((s) => s.koordinat).map((s) => `${avstand[s.id] != null ? Math.round(avstand[s.id]!) : '–'} km från ${s.namn}`).join(' · ') || '–';
   const rad = (label: string, val: React.ReactNode) => (<><div style={{ color: FARG.text2 }}>{label}</div><div>{val}</div></>);
 
+  // Status i ord — EN rad under fakta. Står den i kö säger raden hos vem och vilken plats; det är det planeraren letar efter.
+  const statusText = o.status === 'pagaende' ? 'Pågår'
+    : koRader.length ? `I kö för ${koRader.map((r) => maskinNamn(r.maskin_id)).join(' och ')}`
+    : koFel ? 'Kön kunde inte läsas'
+    : harMaskin(o) ? 'Planerad' : 'Väntar · ingen maskin';
+  const fakta = [atgard, areal, vol != null ? `${fmt(vol)} m³` : null].filter(Boolean).join(' · ');
+  const faror = warn !== 'laddar' && warn !== 'fel' ? warn.faror : [];
+  const [mer, setMer] = useState(false);
+  const [grotFraga, setGrotFraga] = useState(false); // "Är riset bortkört?" — ett tryck till avslutar
+  // GROT har ingen volym att räkna mot och hämtas ofta i omgångar → appen gissar aldrig när det är klart; föraren säger det (Martin 2026-11-05).
+  const arGrotJobb = ['grot', 'energiklippning'].includes((o.typ || '').toLowerCase()) && o.status !== 'avslutat' && !!onGrotKlar;
+
   return (
     <div className="sheet-upp" style={{ ...SheetBas, boxSizing: 'border-box', maxHeight: '62%', overflowY: 'auto' }}>
       <Grabber onClose={onClose} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
+
+      {/* SVARET FÖRST: namnet, vad det är, och läget i ord. */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.xs }}>
         {onTillbaka && (
           <button onClick={onTillbaka} aria-label="Tillbaka till maskinen"
-            style={{ width: 44, height: 44, minWidth: 44, marginLeft: -AVSTAND.m, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', color: FARG.text2, cursor: 'pointer' }}>
+            style={{ width: 44, height: 44, minWidth: 44, marginLeft: -AVSTAND.m, marginTop: -AVSTAND.s, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', color: FARG.text2, cursor: 'pointer' }}>
             <SvgTillbaka />
           </button>
         )}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: AVSTAND.s }}>
-          <a href={`/planering?valt=${o.id}`} style={{ ...TYP.rubrik, color: FARG.text, textDecoration: 'none', minWidth: 0 }}>{o.namn} <span style={{ ...TYP.meta, color: FARG.text2 }}>›</span></a>
-          <div style={{ ...TYP.meta, color: koFel && !koRader.length ? FARG.orange : FARG.text2, whiteSpace: 'nowrap' }}>{koRader.length ? `i kö` : koFel ? 'kön ej läst' : harMaskin(o) ? 'planerad' : 'väntar · ingen maskin'}</div>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+          <a href={`/planering?valt=${o.id}`} style={{ ...TYP.rubrik, color: FARG.text, textDecoration: 'none' }}>{o.namn} <span style={{ ...TYP.meta, color: FARG.text2 }}>›</span></a>
+          <div style={{ ...TYP.text, ...TNUM }}>{fakta}</div>
+          <div style={{ ...TYP.meta, color: koFel && !koRader.length ? FARG.orange : FARG.text2 }}>{statusText}</div>
         </div>
       </div>
 
-      {/* KÖR DIT — samma knapp som i maskin-arket: en trakt utan maskin (en ny trakt man ska titta på) nås likadant, tryck på pricken. */}
       <KorDit objekt={o} fran={fran ?? null} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', columnGap: AVSTAND.m, rowGap: AVSTAND.s, ...TYP.text }}>
-        {rad('Åtgärd', `${atgard}${areal ? ` · ${areal}` : ''}`)}
-        {rad('Volym', vol != null ? `${fmt(vol)} m³ planerat` : '–')}
-        <VarningRader svar={warn} />
-        {rad('Bärighet', bar ? <span style={{ color: bar.begransning ? FARG.orange : FARG.text }}>{bar.text}</span> : <span style={{ color: FARG.text2 }}>–</span>)}
-        {rad('Avstånd', <span style={{ color: FARG.text2 }}>{avstText}</span>)}
-        {rad('Väntat', <span style={{ color: FARG.text2 }}>{vantatDatum ? `sedan ${kortDatum(vantatDatum)} · ${dagarSedan(vantatDatum)} dgr` : '–'}</span>)}
-      </div>
-
-      {(ringHref || smsLank) && (
-        <div style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap', marginTop: AVSTAND.xs }}>
-          {ringHref && <a href={ringHref} style={KNAPP}><SvgRing />Ring markägare</a>}
-          {smsLank && <a href={smsLank} style={KNAPP}><SvgSms />Sms markägaren</a>}
+      {/* FAROR syns alltid — det föraren måste veta innan han kör dit. Hänsyn och resten bor under "Mer om trakten". */}
+      {warn === 'fel' && <div role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{VARNING_LASFEL}</div>}
+      {faror.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+          <div style={{ ...TYP.micro, color: FARG.text2 }}>{faror.length === 1 ? 'Fara på trakten' : `${faror.length} faror på trakten`}</div>
+          <VarningLista items={faror} farg={FARG.rod} />
         </div>
       )}
 
+      {/* GROT KLART — bara GROT/klipp. Två tryck: frågan står i arket (aldrig en dialog), Avbryt går tillbaka. */}
+      {arGrotJobb && (grotFraga ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+          <div style={{ ...TYP.text }}>Är riset bortkört? Trakten avslutas och tas ur alla köer.</div>
+          <div style={{ display: 'flex', gap: AVSTAND.s }}>
+            <button disabled={arbetar} onClick={() => { setGrotFraga(false); void kor(() => onGrotKlar!(o.id)); }} style={knappStil(KNAPP_LITEN)}>Ja, GROT klart</button>
+            <button disabled={arbetar} onClick={() => setGrotFraga(false)} style={{ minHeight: 44, padding: `0 ${AVSTAND.m}px`, border: 'none', background: 'none', color: FARG.bla, fontFamily: 'inherit', ...TYP.text, cursor: 'pointer' }}>Avbryt</button>
+          </div>
+        </div>
+      ) : (
+        <button disabled={arbetar} onClick={() => setGrotFraga(true)} style={knappStil(KNAPP_LITEN)}>GROT klart</button>
+      ))}
+
+      {/* KÖN (förman): en rad per maskin som har trakten, med Flytta och Ta bort på raden. */}
       {!forare && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+          <div style={{ ...TYP.micro, color: FARG.text2 }}>Kön</div>
           {koFel && <div role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{KO_OKAND_TEXT} — vilka köer objektet ligger i kan saknas.</div>}
           {koRader.map((r) => {
             const plats = maskinKo.filter((k) => k.maskin_id === r.maskin_id).sort((a, b) => a.ordning - b.ordning).findIndex((k) => k.id === r.id) + 1;
             const mal = flyttMal(r);
             return (
-              <div key={r.id} style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-                <div style={{ ...TYP.meta, color: FARG.text2 }}>I kö för {maskinNamn(r.maskin_id)} · {plats}:a</div>
-                <div style={{ display: 'flex', gap: AVSTAND.s }}>
-                  {mal.length > 0 && <button disabled={arbetar} onClick={() => setValjFlytt((x) => (x === r.id ? null : r.id))} style={knappStil(KNAPP_LITEN)}>Flytta till …</button>}
-                  <button disabled={arbetar} onClick={() => kor(() => onTaBort(r.id))} style={knappStil({ ...KNAPP_LITEN, color: FARG.rod })}>Ta bort ur kön</button>
+              <div key={r.id} style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: 44, ...TYP.text }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>{maskinNamn(r.maskin_id)} <span style={{ color: FARG.text2 }}>· {plats}:a i kön</span></div>
+                  {mal.length > 0 && <button disabled={arbetar} onClick={() => setValjFlytt((x) => (x === r.id ? null : r.id))} style={knappStil({ ...KNAPP_LITEN, flexGrow: 0, padding: `0 ${AVSTAND.m}px` })}>Flytta</button>}
+                  <button disabled={arbetar} onClick={() => kor(() => onTaBort(r.id))} aria-label={`Ta bort ur ${maskinNamn(r.maskin_id)}s kö`} style={knappStil({ minHeight: 44, padding: `0 ${AVSTAND.s}px`, border: 'none', background: 'none', color: FARG.rod, fontFamily: 'inherit', ...TYP.text, cursor: 'pointer' })}>Ta bort</button>
                 </div>
                 {valjFlytt === r.id && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: AVSTAND.s }}>
-                    {mal.map((s) => (
-                      <button key={s.id} disabled={arbetar} onClick={() => { setValjFlytt(null); void kor(() => onFlytta(r.id, s.id)); }} style={knappStil({ ...KNAPP_LITEN, flexGrow: 0, padding: `0 ${AVSTAND.l}px` })}>{s.namn}</button>
+                    {mal.map((m) => (
+                      <button key={m.id} disabled={arbetar} onClick={() => { setValjFlytt(null); void kor(() => onFlytta(r.id, m.id)); }} style={knappStil({ ...KNAPP_LITEN, flexGrow: 0, padding: `0 ${AVSTAND.l}px` })}>Till {m.namn}</button>
                     ))}
                   </div>
                 )}
@@ -1696,17 +1729,43 @@ function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maski
             );
           })}
           {attLagga.length === 1 ? (
-            <button disabled={arbetar} onClick={() => kor(() => onLaggIKo(attLagga[0].id, o.id))} style={knappStil({ ...KNAPP, marginTop: AVSTAND.xs })}>+ Lägg i kö för {attLagga[0].namn}</button>
+            <button disabled={arbetar} onClick={() => kor(() => onLaggIKo(attLagga[0].id, o.id))} style={knappStil(KNAPP_LITEN)}>+ Lägg i kö för {attLagga[0].namn}</button>
           ) : attLagga.length > 1 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-              <div style={{ ...TYP.micro, color: FARG.text2 }}>Lägg i kö för</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: AVSTAND.s }}>
-                {attLagga.map((s) => <button key={s.id} disabled={arbetar} onClick={() => kor(() => onLaggIKo(s.id, o.id))} style={knappStil({ ...KNAPP_LITEN, flexGrow: 0, padding: `0 ${AVSTAND.l}px` })}>+ {s.namn}</button>)}
-              </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: AVSTAND.s }}>
+              {attLagga.map((m) => <button key={m.id} disabled={arbetar} onClick={() => kor(() => onLaggIKo(m.id, o.id))} style={knappStil({ ...KNAPP_LITEN, flexGrow: 0, padding: `0 ${AVSTAND.l}px` })}>+ {m.namn}</button>)}
             </div>
           ) : koRader.length === 0 ? <div style={{ ...TYP.meta, color: FARG.text2 }}>Ingen maskin passar den här åtgärden.</div> : null}
           {arbetar && <div role="status" style={{ ...TYP.meta, color: FARG.text2 }}>Sparar…</div>}
           {meddelande && <div ref={felRef} role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{meddelande}</div>}
+        </div>
+      )}
+
+      {forare && arbetar && <div role="status" style={{ ...TYP.meta, color: FARG.text2 }}>Sparar…</div>}
+      {forare && meddelande && <div ref={felRef} role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{meddelande}</div>}
+
+      {/* MARKÄGAREN */}
+      {(ringHref || smsLank) && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+          <div style={{ ...TYP.micro, color: FARG.text2 }}>Markägaren</div>
+          <div style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap' }}>
+            {ringHref && <a href={ringHref} style={KNAPP}><SvgRing />Ring</a>}
+            {smsLank && <a href={smsLank} style={KNAPP}><SvgSms />Sms</a>}
+          </div>
+        </div>
+      )}
+
+      {/* MER — det man ibland behöver, aldrig det första man ser. */}
+      <button onClick={() => setMer((v) => !v)} aria-expanded={mer}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 44, padding: 0, border: 'none', background: 'none', color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', ...TYP.text }}>
+        <span>Mer om trakten</span><span style={{ color: FARG.text2 }}>{mer ? '⌃' : '⌄'}</span>
+      </button>
+      {mer && (
+        <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', columnGap: AVSTAND.m, rowGap: AVSTAND.s, ...TYP.text }}>
+          {rad('Bärighet', bar ? <span style={{ color: bar.begransning ? FARG.orange : FARG.text }}>{bar.text}</span> : <span style={{ color: FARG.text2 }}>–</span>)}
+          {warn === 'laddar' ? rad('Hänsyn', <span style={{ color: FARG.text2 }}>–</span>)
+            : warn !== 'fel' && rad('Hänsyn', warn.hansyn.length ? <VarningLista items={warn.hansyn} farg={FARG.orange} /> : <span style={{ color: FARG.text2 }}>ingen</span>)}
+          {rad('Avstånd', <span style={{ color: FARG.text2 }}>{avstText}</span>)}
+          {rad('Väntat', <span style={{ color: FARG.text2 }}>{vantatDatum ? `sedan ${kortDatum(vantatDatum)} · ${dagarSedan(vantatDatum)} dgr` : '–'}</span>)}
         </div>
       )}
     </div>
