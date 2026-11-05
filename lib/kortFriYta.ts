@@ -35,12 +35,28 @@ export function friYtaPadding(kartan: Ruta, kort: Ruta | null, luft: number, top
 
 export type Granser = [[number, number], [number, number]];
 
+/** Hur långt från trakten en del av en linje får ligga och ändå tas med i bilden. Längre bort = bara närmaste punkten (Martin 2026-11-05: "nu zoomar du ut för mycket"). */
+export const NARA_TRAKT_KAMERA_M = 300;
+
+const avstandTillRutaM = (lng: number, lat: number, r: Granser): number => {
+  const dx = Math.max(r[0][0] - lng, 0, lng - r[1][0]) * 111320 * Math.cos((lat * Math.PI) / 180);
+  const dy = Math.max(r[0][1] - lat, 0, lat - r[1][1]) * 110540;
+  return Math.hypot(dx, dy);
+};
+
 /**
- * Vad kameran ska rymma när en rad i listan trycks (Martin 2026-11-05: "kommer inte till rätt ställe"). En symbol: bara den.
- * En linje eller yta: den OCH trakten — en stig eller väg utanför trakten visas annars utan sammanhang och man vet inte var man är.
+ * Vad kameran ska rymma när en rad i listan trycks. En symbol: bara den. En linje eller yta: trakten + den del av linjen som ligger
+ * inom 300 m från trakten — en lång stig ut genom skogen ska inte dra ut kameran flera kilometer. Ligger hela linjen längre bort
+ * tas bara dess närmaste punkt med, så man ser var den börjar sett från trakten.
  */
-export function kameraGranser(sak: Granser | null, trakt: Granser | null, slag: 'symbol' | 'linje' | 'zon'): Granser | null {
+export function kameraGranser(sak: Granser | null, trakt: Granser | null, slag: 'symbol' | 'linje' | 'zon', punkter: ReadonlyArray<{ lat: number; lng: number }> = []): Granser | null {
   if (!sak) return null;
   if (slag === 'symbol' || !trakt) return sak;
-  return [[Math.min(sak[0][0], trakt[0][0]), Math.min(sak[0][1], trakt[0][1])], [Math.max(sak[1][0], trakt[1][0]), Math.max(sak[1][1], trakt[1][1])]];
+  const nara = punkter.filter((q) => avstandTillRutaM(q.lng, q.lat, trakt) <= NARA_TRAKT_KAMERA_M);
+  const med = nara.length > 0 ? nara
+    : punkter.length > 0 ? [punkter.reduce((a, b) => (avstandTillRutaM(b.lng, b.lat, trakt) < avstandTillRutaM(a.lng, a.lat, trakt) ? b : a))]
+    : [{ lng: sak[0][0], lat: sak[0][1] }, { lng: sak[1][0], lat: sak[1][1] }];
+  let [[w, so], [e, n]] = trakt;
+  for (const q of med) { w = Math.min(w, q.lng); e = Math.max(e, q.lng); so = Math.min(so, q.lat); n = Math.max(n, q.lat); }
+  return [[w, so], [e, n]];
 }

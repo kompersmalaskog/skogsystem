@@ -14619,7 +14619,7 @@ export default function PlannerPage() {
                   const kartRuta = map.getContainer().getBoundingClientRect();
                   const panel = document.querySelector('[data-testid="marker-kort"] > div, [data-testid="trakt-kort"] > div') as HTMLElement | null;
                   const p = friYtaPadding(kartRuta, panel ? panel.getBoundingClientRect() : null, AVSTAND.xxl, AVSTAND.xxl * 2.5);
-                  const bounds = kameraGranser(framhavBounds(framhavdFran(m)), traktGrans(traktGeo), m.slag);
+                  const bounds = kameraGranser(framhavBounds(framhavdFran(m)), traktGrans(traktGeo), m.slag, m.geometri ?? []);
                   try {
                     if (bounds) map.fitBounds(bounds, { padding: p, maxZoom: m.slag === 'symbol' ? 18 : 17, duration: 800 });
                     else if (m.lat != null && m.lng != null) map.easeTo({ center: [m.lng, m.lat], zoom: Math.max(map.getZoom(), 18), padding: p, duration: 800 });

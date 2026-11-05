@@ -36,8 +36,17 @@ describe('kameraGranser — linjer och ytor visas med trakten runt sig', async (
   it('symbol: bara symbolen', () => {
     expect(kameraGranser([[15.02, 57.02], [15.02, 57.02]], trakt, 'symbol')).toEqual([[15.02, 57.02], [15.02, 57.02]]);
   });
-  it('linje utanför trakten: trakten kommer med', () => {
-    expect(kameraGranser([[15.02, 57.02], [15.03, 57.03]], trakt, 'linje')).toEqual([[15.0, 57.0], [15.03, 57.03]]);
+  it('lång linje ut genom skogen: bara delen nära trakten tas med — kameran drar inte ut flera kilometer', () => {
+    // från traktens kant (15.01, 57.005) och 3 km österut
+    const punkter = [{ lng: 15.01, lat: 57.005 }, { lng: 15.012, lat: 57.005 }, { lng: 15.06, lat: 57.005 }];
+    const g = kameraGranser([[15.01, 57.005], [15.06, 57.005]], trakt, 'linje', punkter)!;
+    expect(g[1][0]).toBeCloseTo(15.012, 6);   // 15.06 (3 km bort) är inte med
+    expect(g[0]).toEqual([15.0, 57.0]);
+  });
+  it('linje helt långt bort: bara den närmaste punkten', () => {
+    const punkter = [{ lng: 15.05, lat: 57.005 }, { lng: 15.08, lat: 57.005 }];
+    const g = kameraGranser([[15.05, 57.005], [15.08, 57.005]], trakt, 'linje', punkter)!;
+    expect(g[1][0]).toBeCloseTo(15.05, 6);
   });
   it('ingen trakt eller ingen sak', () => {
     expect(kameraGranser([[1, 2], [3, 4]], null, 'zon')).toEqual([[1, 2], [3, 4]]);
