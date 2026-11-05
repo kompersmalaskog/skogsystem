@@ -1387,7 +1387,7 @@ function MinPlan({ f, namn, legs, varning, fran, posFel, forman, onKarta }: {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
           <div style={{ ...TYP.titel }}>{namn}</div>
-          <div style={{ ...TYP.meta, color: FARG.text2 }}>{forman ? 'Förarens plan' : 'Din plan'} · kön bestäms av förmannen</div>
+          <div style={{ ...TYP.meta, color: FARG.text2 }}>{forman ? 'Förarens plan' : 'Din plan'}</div>
         </div>
 
         {/* NU */}
@@ -1416,7 +1416,7 @@ function MinPlan({ f, namn, legs, varning, fran, posFel, forman, onKarta }: {
               <ForberedDig o={nasta.objekt as unknown as PlanObjekt} roll={roll} warn={varning(nasta.objekt.id)} />
             </div>
           ) : (
-            <div style={{ ...kort, ...TYP.text, color: FARG.text2 }}>Inget planerat efter det här. Förmannen lägger nästa trakt i kön.</div>
+            <div style={{ ...kort, ...TYP.text, color: FARG.text2 }}>Inget planerat efter det här.</div>
           )}
         </div>
 
