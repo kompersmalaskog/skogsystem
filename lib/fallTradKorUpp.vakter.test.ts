@@ -26,10 +26,10 @@ describe('lagring: ingen migration', () => {
 });
 
 describe('vad som syns var', () => {
-  it('sidan väljer läge: planering = alla, körvy skotare/skördare = kör upp bara nära (träd bara skördaren)', () => {
+  it('sidan väljer läge: planering = alla, körvy = kör upp alla, det nära starkast (träd bara skördaren)', () => {
     expect(sida).toContain("const lage = !korvyActive ? 'planering' : skotarKorvy ? 'skotare' : 'skordare';");
     expect(sida).toContain('const synliga = synligaTrad(trad, lage, pos);');
-    expect(sida).toContain('ksrc.setData(korUppData(synligaKorUpp(pilar, lage, pos)));');
+    expect(sida).toContain("ksrc.setData(korUppData(pilar, lage === 'planering' ? null : pos));");
   });
   it('den vita ringen sitter bara på trädet vars kort är öppet, och bara i planeringen', () => {
     expect(sida).toContain("valdId: lage === 'planering' && markerMenuOpen != null ? String(markerMenuOpen) : null");

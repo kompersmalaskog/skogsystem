@@ -54,6 +54,8 @@ export interface ObjektKortEnkelProps {
   vader?: React.ReactNode;
   /** Riskbedömningen: raden "Risker på trakten" (lib/riskbedomning, components/planering/Risker riskRadUnder). onOppna null = inte gjord än (raden går inte att trycka). */
   risker?: { text: string; ton: 'orange' | 'gron' | 'dampad'; onOppna: (() => void) | null } | null;
+  /** "Visa hela trakten": överblicken (lib/traktOversikt) — allt på trakten på en sida. Saknas = ingen rad. */
+  onOversikt?: () => void;
 }
 
 /** Den gröna stapeln: hur stor del av trakten som är klar. Ord och tal står bredvid (under namnet) — färgen är aldrig ensam. */
@@ -81,6 +83,14 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
       <Huvud titel={p.namn} undertitel={p.under} onStang={p.onStang} />
       {p.andel != null && <Stapel andel={p.andel} />}
       <div data-testid="kort-innehall" data-enkel="ja" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
+        {/* VISA HELA TRAKTEN — överblicken som visades när maskinen kom till trakten, alltid ett tryck bort */}
+        {p.onOversikt && (
+          <div style={{ marginBottom: AVSTAND.m }}>
+            <Gruppkort testid="kort-oversikt">
+              <RadKnapp forstaRad testid="kort-visa-hela" ikon="map" etikett="Visa hela trakten" under="Faror, direktiv och allt på kartan" onTryck={p.onOversikt} />
+            </Gruppkort>
+          </div>
+        )}
         {/* DET HÄR GÄLLER HÄR — vanlig rubrik (inte små versaler) */}
         <h2 data-testid="kort-galler-rubrik" style={{ ...TYP.rubrik, color: FARG.text, margin: `${AVSTAND.s}px ${AVSTAND.xs}px ${AVSTAND.m}px` }}>Det här gäller här</h2>
 

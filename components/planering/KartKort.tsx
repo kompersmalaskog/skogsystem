@@ -81,6 +81,8 @@ export interface KartKortProps {
    *  under fotona, läggs i <KartKortNederst>. */
   children?: React.ReactNode;
   testid?: string;
+  /** "‹ Lista": kortet öppnades från förarens lista (Hela trakten) — tillbaka dit. Saknas = ingen knapp. */
+  tillbaka?: { etikett: string; onClick: () => void };
 }
 
 export interface KartKortRost {
@@ -137,6 +139,14 @@ export function KartKort(p: KartKortProps) {
         </div>
 
         <div style={{ overflowY: 'auto', padding: `${AVSTAND.xs}px ${AVSTAND.xl}px ${AVSTAND.xl}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+          {p.tillbaka && (
+            <button type="button" data-testid="kartkort-tillbaka" onClick={p.tillbaka.onClick}
+              style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: AVSTAND.xs, minHeight: TRAFFYTA.min, marginLeft: -AVSTAND.xs, marginBottom: -AVSTAND.s, padding: `0 ${AVSTAND.xs}px`,
+                border: 'none', background: 'none', color: FARG.bla, fontFamily: 'inherit', cursor: 'pointer', touchAction: 'manipulation', ...TYP.text }}>
+              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={FARG.bla} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6 L9 12 L15 18" /></svg>
+              {p.tillbaka.etikett}
+            </button>
+          )}
           {/* Huvud: ikon, "Namn · Grupp", larmregel (inte för Info — det larmar aldrig), ✕ */}
           <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.l }}>
             <span data-testid="kartkort-ikon" style={{ flexShrink: 0, display: 'flex' }}>{p.ikon}</span>

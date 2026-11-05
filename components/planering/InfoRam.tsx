@@ -14,7 +14,7 @@ import { PANEL_BREDD_PX, dragHojd, valjListdetent, type Detent, type PlusLage } 
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import { ARK_HOJD_PROCENT } from '@/lib/objektKarta';
 
-export type InfoVy = 'kort' | 'om' | 'mer' | 'klar' | 'karta' | 'instruktioner' | 'risker' | 'cert';
+export type InfoVy = 'kort' | 'om' | 'mer' | 'klar' | 'karta' | 'instruktioner' | 'risker' | 'cert' | 'oversikt';
 
 export interface InfoRamProps {
   oppen: boolean;
