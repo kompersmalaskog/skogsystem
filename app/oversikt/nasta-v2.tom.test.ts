@@ -31,3 +31,16 @@ describe('tomtForslag — en aktiv maskin utan position och kö ska gå att öpp
     expect(kor([wisent]).has('JD810E')).toBe(false);              // och utan att den skickas in finns den inte i resultatet alls
   });
 });
+
+describe('förslag — ett objekt där en skotare redan står föreslås aldrig', () => {
+  it('Elefanten står på a: a är Nu, inte ett förslag — och Wisent får det inte heller', () => {
+    const elefant: MaskinRad = { maskin_id: 'A130743', maskin_typ: 'Forwarder', skotar_roll: 'slutavverkning' };
+    const objekt = [obj('a', { typ: 'slutavverkning', status: 'pagaende' }), obj('b', { typ: 'slutavverkning' })];
+    const skord = { 'VO-a': { skordat: 1700, skotat: 800, egenSkotning: false, sista: idag }, 'VO-b': { skordat: 600, skotat: null, egenSkotning: false, sista: idag } } as any;
+    const positions = new Map([['A130743', { koordinat: { lat: 56.5, lng: 14.7 }, objektId: 'a', tidpunkt: idag }]]) as any;
+    const r = beraknaForslag({ maskiner: [elefant, wisent], objekt, maskinKo: [], skord, positions, avstandKm: () => 5 });
+    expect(r.get('A130743')!.nuObjekt?.id).toBe('a');
+    expect(r.get('A130743')!.ko.map((p) => p.objekt.id)).not.toContain('a');
+    expect(r.get('A030353')!.ko.map((p) => p.objekt.id)).not.toContain('a');
+  });
+});
