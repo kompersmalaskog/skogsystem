@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeSb } from './fakeSb.testStod';
-import { maskinerPaTrakten, minAnmalan, publikVy, rensaBesokCache, rensaNamn, rensaTelefon, skapaAnmalan, slaUppLank } from './server';
+import { markeraGatt, maskinerPaTrakten, minAnmalan, publikVy, rensaBesokCache, rensaNamn, rensaTelefon, skapaAnmalan, slaUppLank } from './server';
 
 const TOKEN = 'T'.repeat(40);
 const OBJ = '00000000-0000-4000-8000-0000000000aa';
@@ -50,12 +50,12 @@ describe('vad besökssidan får: exakt de fält sidan visar', () => {
     const sb = varld({ tabeller: { hyttspar: [punkt('skordare', 56.351, 15.051, min(2)), punkt('skotare', 56.349, 15.049, min(5))] } });
     const r = await publikVy(sb, TOKEN, { nu: NU });
     expect(r.status).toBe(200);
-    expect(Object.keys(r.body).sort()).toEqual(['besok', 'framsteg', 'gran', 'harMotorsag', 'maskiner', 'mitt', 'motorsag', 'namn', 'ok', 'ringM', 'roller', 'uppdaterad', 'utforare']);
+    expect(Object.keys(r.body).sort()).toEqual(['besok', 'framsteg', 'gran', 'harMotorsag', 'maskiner', 'mitt', 'motorsag', 'namn', 'ok', 'ring', 'ringM', 'roller', 'skog', 'uppdaterad', 'utforare']);
     const json = JSON.stringify(r.body);
     for (const hemligt of ['Hemligsson', '0709999999', '11251359', '1000', 'forare_id', 'Stefan', 'points', 'volym', 'token', 'uppdaterad_at']) expect(json.includes(hemligt), hemligt).toBe(false);
     expect((r.body.maskiner as any[]).map((m) => Object.keys(m).sort())).toEqual([['lat', 'lng', 'roll', 'tid'], ['lat', 'lng', 'roll', 'tid']]);
     expect(r.body.namn).toBe('Hålabäck');   // utan VO-nummer, årssuffix och Vidas koder (au)
-    expect(r.body.utforare).toBe('Kompersmåla Skog åt Vida');
+    expect(r.body.utforare).toBe('Kompersmåla Skog avverkar åt Vida');
   });
   it('framsteget: bara procent när prognosen inte håller (två dagar räcker inte)', async () => {
     const r = await publikVy(varld(), TOKEN, { nu: NU });
@@ -133,7 +133,7 @@ describe('markägarens egen anmälan', () => {
   };
   it('visar anmälan och vilka maskiner som sett den — utan maskin- eller förar-id', async () => {
     const r = await minAnmalan(varld({ tabeller }), OBJ, '11111111-1111-4111-8111-111111111111');
-    expect(r).toEqual({ id: '11111111-1111-4111-8111-111111111111', besokstid: min(-30), kvitteringar: [{ roll: 'skordare', tid: min(1) }], maskiner: [{ etikett: 'Skördaren', roll: 'skordare', tid: min(1) }] });
+    expect(r).toEqual({ id: '11111111-1111-4111-8111-111111111111', besokstid: min(-30), gatt: null, kvitteringar: [{ roll: 'skordare', tid: min(1) }], maskiner: [{ etikett: 'Skördaren', roll: 'skordare', tid: min(1) }] });
     expect(JSON.stringify(r)).not.toMatch(/M1|f1|Anna|070/);
   });
   it('en annan trakts anmälan, ett trasigt id eller inget id ger ingenting', async () => {
@@ -188,5 +188,70 @@ describe('POST anmälan', () => {
     expect(rensaTelefon('+46 70 123 45 67')).toBe('+46 70 123 45 67');
     expect(rensaTelefon('070<script>1234567')).toBe('0701234567');
     expect(rensaTelefon('1'.repeat(20))).toBeNull();
+  });
+});
+
+describe('Din skog: varför träden står kvar', () => {
+  const ev = (x: number) => ({ objekt_id: OBJ, typ: 'symbol', data: { type: 'eternitytree', x, y: 0 } });
+  const hs = { objekt_id: OBJ, typ: 'symbol', data: { type: 'highstump', x: 5, y: 5 } };
+  const kant = { objekt_id: OBJ, geometri: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { _lager: 'L_TILLAGGSYTOR', _typ: 'hänsynsyta', TYP: '24', FLBESKR: 'Kant mot vatten O' }, geometry: { type: 'Polygon', coordinates: [[[15.05, 56.35], [15.051, 56.35], [15.051, 56.351], [15.05, 56.35]]] } }] } };
+  it('certifierad trakt: raderna, antalen mot kravet och prickarna — inga volymer, ingen röta', async () => {
+    const sb = varld({ tabeller: { objekt: [objekt({ cert: 'FSC PEFC', areal: 5.2, grot: true })], planering_markeringar: [ev(0), ev(10), hs], objekt_geometri: [traktdel, kant] } });
+    const r = await publikVy(sb, TOKEN, { nu: NU });
+    const skog = r.body.skog as any;
+    expect(skog.intro).toBe('Din skog är FSC- och PEFC-certifierad. Då sparar vi träd åt naturen, och du får ersättning för det.');
+    expect(skog.rader.map((x: any) => x.id)).toEqual(['evighetstrad', 'hogstubbe', 'toppar', 'ris', 'kantzon', 'spridda']);
+    expect(skog.rader[0].varde).toBe('2 av 52');
+    expect(skog.rader[1].varde).toBe('1 av 16');
+    expect(skog.rader.find((x: any) => x.id === 'ris').krav).toBe('Riset tas ut, men minst en femtedel ligger kvar');
+    expect(skog.prickar.map((p: any) => p.typ).sort()).toEqual(['evighetstrad', 'evighetstrad', 'hogstubbe']);
+    expect(skog.kantzon).toHaveLength(1);
+    expect(JSON.stringify(skog)).not.toMatch(/Kant mot vatten O|volym|rota|röta/);
+  });
+  it('inte certifierad: ingen sektion, inga prickar', async () => {
+    const r = await publikVy(varld({ tabeller: { objekt: [objekt({ cert: 'Ej certifierad', areal: 5 })], planering_markeringar: [ev(0)] } }), TOKEN, { nu: NU });
+    expect((r.body.skog as any).rader).toEqual([]);
+    expect((r.body.skog as any).prickar).toEqual([]);
+  });
+  it('PEFC, eller FSC under 4 ha: ingen 70 m-rad; ingen kant mot vatten: ingen kantzon', async () => {
+    const pefc = await publikVy(varld({ tabeller: { objekt: [objekt({ cert: 'PEFC', areal: 9 })] } }), TOKEN, { nu: NU });
+    expect((pefc.body.skog as any).rader.map((x: any) => x.id)).toEqual(['evighetstrad', 'hogstubbe', 'toppar', 'ris']);
+    rensaBesokCache();
+    const liten = await publikVy(varld({ tabeller: { objekt: [objekt({ cert: 'FSC', areal: 3.9 })] } }), TOKEN, { nu: NU });
+    expect((liten.body.skog as any).rader.map((x: any) => x.id)).not.toContain('spridda');
+  });
+  it('ved bara när den är beställd', async () => {
+    const utan = await publikVy(varld({ tabeller: { objekt: [objekt({ cert: 'FSC' })] } }), TOKEN, { nu: NU });
+    expect((utan.body.skog as any).ved).toBeNull();
+    rensaBesokCache();
+    const med = await publikVy(varld({ tabeller: { objekt: [objekt({ ved_detaljer: { plats: 'avlagg', langd: '3m', sortiment: ['bjork'] } })] } }), TOKEN, { nu: NU });
+    expect((med.body.skog as any).ved).toEqual({ text: '3 m · Björk · vid avlägget', plats: null });
+  });
+  it('"Ring om något" = den som skickade länken (förnamn + nummer), aldrig något annat om personen', async () => {
+    const sb = varld({ tabeller: { objekt_besok_sms: [{ objekt_id: OBJ, oppnad_av: 'm1', oppnad_at: min(60) }], medarbetare: [{ id: 'm1', namn: 'Martin Lindqvist', telefon: '070-111 22 33', epost: 'hemlig@x.se' }] } });
+    const r = await publikVy(sb, TOKEN, { nu: NU });
+    expect(r.body.ring).toEqual({ namn: 'Martin', telefon: '070-111 22 33' });
+    rensaBesokCache();
+    expect((await publikVy(varld({ tabeller: { objekt_besok_sms: [] } }), TOKEN, { nu: NU })).body.ring).toBeNull();
+  });
+});
+
+describe('"Jag har gått härifrån"', () => {
+  const ID = '11111111-1111-4111-8111-111111111111';
+  const tabeller = { objekt_besok: [{ id: ID, objekt_id: OBJ, namn: 'Anna', telefon: '070', besokstid: min(-30), gatt_at: null }, { id: '22222222-2222-4222-8222-222222222222', objekt_id: 'annat', besokstid: min(-30), gatt_at: null }] };
+  it('sätter tiden en gång; annan traktens besök rörs inte', async () => {
+    const sb = varld({ tabeller });
+    expect((await markeraGatt(sb, TOKEN, { id: ID }, NU)).status).toBe(200);
+    expect(tabeller.objekt_besok[0].gatt_at).toBe(NU.toISOString());
+    const senare = new Date(NU.getTime() + 600000);
+    await markeraGatt(sb, TOKEN, { id: ID }, senare);
+    expect(tabeller.objekt_besok[0].gatt_at).toBe(NU.toISOString());   // första tiden står kvar
+    await markeraGatt(sb, TOKEN, { id: '22222222-2222-4222-8222-222222222222' }, NU);
+    expect(tabeller.objekt_besok[1].gatt_at).toBeNull();
+    expect((await minAnmalan(sb, OBJ, ID))?.gatt).toBe(NU.toISOString());
+  });
+  it('trasigt id → 400, okänd länk → 404', async () => {
+    expect((await markeraGatt(varld({ tabeller }), TOKEN, { id: 'x' }, NU)).status).toBe(400);
+    expect((await markeraGatt(varld({ tabeller }), 'x'.repeat(40), { id: ID }, NU)).status).toBe(404);
   });
 });

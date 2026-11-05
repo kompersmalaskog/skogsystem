@@ -83,7 +83,7 @@ describe('servern: maskinen har inte sett besöket', () => {
     const typen = rad.slice(0, rad.indexOf('export async function minAnmalan'));
     expect(typen).not.toMatch(/maskin_id|forare|maskinId/);
     // objektet som returneras bär bara etikett, roll och tid
-    expect(rad).toContain('return { id: d.id, besokstid: d.besokstid, kvitteringar: kv, maskiner };');
+    expect(rad).toContain('return { id: d.id, besokstid: d.besokstid, gatt: d.gatt_at ?? null, kvitteringar: kv, maskiner };');
   });
 });
 

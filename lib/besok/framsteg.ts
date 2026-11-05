@@ -102,9 +102,9 @@ export function framstegText(f: Framsteg): string | null {
   return delar.length ? delar.join(' · ') : null;
 }
 
-/** "Kompersmåla Skog åt Vida" — bolaget ur objektet; privat eller okänt bolag ger bara företagsnamnet. */
+/** "Kompersmåla Skog avverkar åt Vida" — bolaget ur objektet; privat eller okänt bolag ger bara företagsnamnet. */
 export function utforareText(bolag: string | null | undefined): string {
   const b = (bolag ?? '').trim();
   if (!b || /^privat$/i.test(b) || /^(none|not known)$/i.test(b)) return 'Kompersmåla Skog';
-  return `Kompersmåla Skog åt ${/vida/i.test(b) ? 'Vida' : b}`;
+  return `Kompersmåla Skog avverkar åt ${/vida/i.test(b) ? 'Vida' : b}`;
 }

@@ -1,11 +1,11 @@
-// Vilka adresser som är öppna utan inloggning. EXAKT besökssidan och dess tre rutter med en lång slumpad token i adressen — inget annat.
+// Vilka adresser som är öppna utan inloggning. EXAKT besökssidan och dess rutter (läget, anmal, karta, gatt) med en lång slumpad token i adressen — inget annat.
 // Middleware släpper igenom dem (och bara dem); `AppRamverk` hoppar över appens egna startare på just dessa sidor.
 
 import { TOKEN_MIN_TECKEN } from './konstanter';
 
 const TOKEN = `[A-Za-z0-9_-]{${TOKEN_MIN_TECKEN},128}`;
 const SIDA = new RegExp(`^/besok/${TOKEN}/?$`);
-const API = new RegExp(`^/api/besok/${TOKEN}(?:/(?:anmal|karta))?/?$`);
+const API = new RegExp(`^/api/besok/${TOKEN}(?:/(?:anmal|karta|gatt))?/?$`);
 
 export const arBesoksSida = (sokvag: string): boolean => SIDA.test(sokvag);
 export const arBesoksApi = (sokvag: string): boolean => API.test(sokvag);

@@ -1,4 +1,4 @@
-// En minimal Supabase-fake för besökets servertester: tabeller som arrayer, filtren som servern använder (eq, gte, lte, in), insert och rpc. Inget annat — anropar koden något annat kastar fakeen.
+// En minimal Supabase-fake för besökets servertester: tabeller som arrayer, filtren som servern använder (eq, is, gte, lte, in), insert, update och rpc. Inget annat — anropar koden något annat kastar fakeen.
 
 type Rad = Record<string, any>;
 type Resultat = { data: any; error: { message: string } | null; count?: number | null };
@@ -10,7 +10,8 @@ export function fakeSb(tabeller: Record<string, Rad[]>, rpcSvar: Record<string, 
   let n = 0;
   function bygg(tabell: string) {
     const filter: ((r: Rad) => boolean)[] = [];
-    let op: 'select' | 'insert' | 'upsert' = 'select';
+    let op: 'select' | 'insert' | 'upsert' | 'update' = 'select';
+    let uppd: Rad | null = null;
     let insRad: Rad | null = null;
     let huvud = false;
     let upsertNyckel: Record<string, true> = {};
@@ -23,6 +24,12 @@ export function fakeSb(tabeller: Record<string, Rad[]>, rpcSvar: Record<string, 
         const finns = (tabeller[tabell] ?? []).some((r) => Object.keys(upsertNyckel).every((k) => r[k] === rad[k]));
         if (!finns) { (tabeller[tabell] ??= []).push(rad); loggar.push({ tabell, op: 'upsert', rad }); }
         return { data: null, error: null };
+      }
+      if (op === 'update') {
+        const rader = (tabeller[tabell] ?? []).filter((r) => filter.every((f) => f(r)));
+        for (const r of rader) Object.assign(r, uppd);
+        loggar.push({ tabell, op: 'update', rad: { ...uppd } });
+        return { data: rader, error: null };
       }
       if (op === 'insert') {
         const rad = { id: `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`, skapad_at: new Date().toISOString(), ...insRad };
@@ -37,6 +44,8 @@ export function fakeSb(tabeller: Record<string, Rad[]>, rpcSvar: Record<string, 
       select(k?: string, o?: { head?: boolean; count?: string }) { kolumner = k ?? '*'; valda.push({ tabell, kolumner }); if (o?.head) huvud = true; return b; },
       insert(rad: Rad) { op = 'insert'; insRad = rad; return b; },
       upsert(rad: Rad, o?: { onConflict?: string }) { op = 'upsert'; insRad = rad; upsertNyckel = Object.fromEntries((o?.onConflict ?? 'id').split(',').map((k) => [k.trim(), true as const])); return b; },
+      update(rad: Rad) { op = 'update'; uppd = rad; return b; },
+      is(k: string, v: any) { filter.push((r) => (r[k] ?? null) === v); return b; },
       eq(k: string, v: any) { filter.push((r) => r[k] === v); return b; },
       gte(k: string, v: any) { filtrerade.push({ tabell, op: 'gte', kolumn: k, varde: v }); filter.push((r) => r[k] >= v); return b; },
       lte(k: string, v: any) { filter.push((r) => r[k] <= v); return b; },
