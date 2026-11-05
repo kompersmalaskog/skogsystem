@@ -241,6 +241,7 @@ import { ZONE_COLORS } from '@/lib/zone-colors'
 import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
 import { harFoto, komprimeraMarkeringFoto } from '@/lib/markeringFoto'
 import { narStyrka } from '../../lib/narStyrka'
+import { friYtaPadding } from '../../lib/kortFriYta'
 import { signaturer, lasSett, sparaSett, behoverVisas, nyaMarkeringar, nyaKommentarer, textNy, inforJobbet, oversiktUnder, oversiktUnderlag, harLastOversikt, certRad, skyddadeOmraden } from '../../lib/traktOversikt'
 import { kommentarTecken, laggTillTeckenBilder, teckenHornLager, teckenFriLager, teckenPunkter, TECKEN_KALLA, TECKEN_HORN_LAGER } from '../../lib/kommentarTecken'
 import { FOTO_UPPE_EVENT, laggFotoIKo, prenumereraFotoKo, tomFotoForMarkering, vantandeFotoNycklar, type FotoUppeDetail } from '@/lib/markeringFotoKo'
@@ -14603,19 +14604,36 @@ export default function PlannerPage() {
               onOppna: (m: KartMarkering) => {
                 stang();
                 setKorvyFollowPaused(true);
-                const map = mapInstanceRef.current;
-                const bred = typeof window !== 'undefined' && window.innerWidth >= 900;
-                const nere = typeof window !== 'undefined' ? Math.round(window.innerHeight * (bred ? 0 : 0.45)) : 0;
-                const bounds = framhavBounds(framhavdFran(m));
-                try {
-                  if (map && bounds) map.fitBounds(bounds, { padding: { top: AVSTAND.xxl * 3, bottom: AVSTAND.xxl * 2 + nere, left: AVSTAND.xxl * 2, right: AVSTAND.xxl * 2 }, maxZoom: 18, duration: 800 });
-                  else if (map && m.lat != null && m.lng != null) map.flyTo({ center: [m.lng, m.lat], zoom: Math.max(map.getZoom(), 18), duration: 700, offset: [0, -nere / 2] });
-                } catch { /* kartan är borta */ }
                 setOversiktAter(true);
                 const vidaOppna = vidaOppnaPerId.get(m.id);
-                if (vidaOppna) { vidaOppna(); return; }
-                const egen = (markers as any[]).find((x) => String(x.id) === m.id);
-                if (egen) setMarkerMenuOpen(egen.id);
+                if (vidaOppna) vidaOppna();
+                else {
+                  const egen = (markers as any[]).find((x) => String(x.id) === m.id);
+                  if (egen) setMarkerMenuOpen(egen.id);
+                }
+                // Platsen ska SYNAS bredvid kortet, inte bakom det (Martin 2026-11-05): mät kortet när det ritats och lägg platsen i den största fria biten.
+                const flyg = () => {
+                  const map = mapInstanceRef.current;
+                  if (!map) return;
+                  const kartRuta = map.getContainer().getBoundingClientRect();
+                  const panel = document.querySelector('[data-testid="marker-kort"] > div, [data-testid="trakt-kort"] > div') as HTMLElement | null;
+                  const p = friYtaPadding(kartRuta, panel ? panel.getBoundingClientRect() : null, AVSTAND.xxl, AVSTAND.xxl * 2.5);
+                  const bounds = framhavBounds(framhavdFran(m));
+                  try {
+                    if (bounds) map.fitBounds(bounds, { padding: p, maxZoom: 18, duration: 800 });
+                    else if (m.lat != null && m.lng != null) map.easeTo({ center: [m.lng, m.lat], zoom: Math.max(map.getZoom(), 18), padding: p, duration: 800 });
+                  } catch { /* kartan är borta */ }
+                };
+                requestAnimationFrame(() => requestAnimationFrame(flyg));
+                // och den pulserar en stund så ögat hittar den
+                if (m.lat != null && m.lng != null) {
+                  if (ytaPulsTimerRef.current) clearTimeout(ytaPulsTimerRef.current);
+                  const geometri = m.geometri && m.geometri.length > 1
+                    ? (m.slag === 'zon' ? { type: 'Polygon' as const, coordinates: [m.geometri.map((q) => [q.lng, q.lat])] } : { type: 'LineString' as const, coordinates: m.geometri.map((q) => [q.lng, q.lat]) })
+                    : { type: 'Point' as const, coordinates: [m.lng, m.lat] };
+                  setYtaPuls({ id: `lista:${m.id}`, farg: FARG.text, geometri });
+                  ytaPulsTimerRef.current = setTimeout(() => setYtaPuls(null), YTA_PULS_MS);
+                }
               },
               onStang: () => { setKorvyFollowPaused(false); },
             };
