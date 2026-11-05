@@ -242,7 +242,7 @@ describe('hyttens orange kort', () => {
   });
 });
 
-describe('TESTFASEN: besöks-SMS:et går bara till inköparen och oss (Martin 2026-11-05)', () => {
+describe('TESTFASEN: först bara oss, sedan inköparen, sist markägaren (Martin 2026-11-05)', () => {
   const props = { objektId: 'o1', status: 'planerad', markagare: 'Kerstin Olsson', markagareTel: '070-003 82 94', fastighet: 'HÅLABÄCK 1:13', planeradStart: '2026-10-23', faktiskStart: null, pagaendeStartad: null, inkopare: 'Jan-Erik Gustafsson', inkopareTel: '070-232 74 10' };
   beforeEach(() => {
     hook.ut = { laddat: true, migrering: true, fel: null, lank: { token: TOKEN, aktiv: true }, besok: [], kvittenser: [], sms: [], maskinNamn: {}, personNamn: {},
@@ -250,9 +250,21 @@ describe('TESTFASEN: besöks-SMS:et går bara till inköparen och oss (Martin 20
       sattAktiv: vi.fn(async () => null), loggaSms: vi.fn(async () => null), laddaOm: vi.fn() };
     vi.stubGlobal('navigator', { ...navigator, userAgent: 'iPhone', maxTouchPoints: 5 });
   });
-  it('markägaren går INTE att välja; inköparen, Martin och Joacim går', async () => {
+  it('steg 1 (standard): bara Martin och Joacim — varken inköparen eller markägaren', async () => {
     const nav = vi.fn();
     await visa(<BesokPlanerare {...props} navigera={nav} origin="https://app.test" />);
+    expect(q('kort-besok-sms')!.textContent).toContain('Test – bara till oss');
+    await tryck(q('kort-besok-sms'));
+    expect(q('kort-besok-till-markagare')).toBeNull();
+    expect(q('kort-besok-till-inkopare')).toBeNull();
+    expect(q('kort-besok-till-med-m1')!.textContent).toContain('Martin');
+    expect(q('kort-besok-till-med-m2')!.textContent).toContain('Joacim');
+    await tryck(q('kort-besok-till-med-m2'));
+    expect((nav.mock.calls[0][0] as string).startsWith('sms:0704445566&body=')).toBe(true);
+  });
+  it('steg 2: inköparen slås på — markägaren går fortfarande INTE att välja', async () => {
+    const nav = vi.fn();
+    await visa(<BesokPlanerare {...props} inkopareSms navigera={nav} origin="https://app.test" />);
     expect(q('kort-besok-sms')!.textContent).toContain('Skicka besökslänken');
     expect(q('kort-besok-sms')!.textContent).toContain('Test – bara till inköparen och oss');
     await tryck(q('kort-besok-sms'));
@@ -265,8 +277,8 @@ describe('TESTFASEN: besöks-SMS:et går bara till inköparen och oss (Martin 20
     expect((nav.mock.calls[0][0] as string).startsWith('sms:0702327410&body=')).toBe(true);
     expect(hook.ut.loggaSms).toHaveBeenCalledWith({ avsandareId: 'm1', mottagareNamn: 'Jan-Erik Gustafsson', mottagareNummer: '0702327410', handelse: 'oppnad' });
   });
-  it('utan inköparens nummer: bara Martin och Joacim', async () => {
-    await visa(<BesokPlanerare {...props} inkopareTel={null} navigera={vi.fn()} />);
+  it('steg 2 utan inköparens nummer: bara Martin och Joacim', async () => {
+    await visa(<BesokPlanerare {...props} inkopareSms inkopareTel={null} navigera={vi.fn()} />);
     await tryck(q('kort-besok-sms'));
     expect(q('kort-besok-till-inkopare')).toBeNull();
     expect(q('kort-besok-till-med-m2')).not.toBeNull();

@@ -1,7 +1,7 @@
 'use client';
 
 // "Besök på trakten" i objektets ⓘ-kort (planeringsläget): SMS med besökslänken, besökslänken (på/av, visa som markägaren) och loggen över alla anmälningar och kvittenser.
-// TESTFAS (Martin 2026-11-05, `MARKAGARE_SMS_PA`): SMS:et går bara till inköparen och till oss (Martin, Joacim) — markägaren går inte att välja förrän vi vet att det fungerar.
+// TESTFAS (Martin 2026-11-05, `INKOPARE_SMS_PA`/`MARKAGARE_SMS_PA`): SMS:et går först bara till oss (Martin, Joacim), sedan också till inköparen, sist till markägaren.
 // SMS:et skickas ALDRIG av appen — knappen öppnar telefonens Meddelanden med mottagare och text ifyllda; planeringen läser, ändrar och trycker själv på skicka.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -13,16 +13,16 @@ import { besoksUrl } from '@/lib/besok/offentlig';
 import { loggRader, smsLage } from '@/lib/besok/planerare';
 import { markagareFornamn } from '@/lib/besok/sms';
 import { telNummer } from '@/app/oversikt/objekt-info';
-import { MARKAGARE_SMS_PA } from '@/lib/besok/konstanter';
+import { INKOPARE_SMS_PA, MARKAGARE_SMS_PA } from '@/lib/besok/konstanter';
 
 /** En mottagare av besöks-SMS:et. */
 export interface SmsMottagare { id: string; etikett: string; namn: string | null; tel: string | null }
 
-/** Vem SMS:et kan gå till: markägaren (bara när `markagareSms`), inköparen (när numret finns) och oss (aktiva admin med telefon). */
-export function smsMottagare(o: { markagareSms: boolean; markagare: string | null; markagareTel: string | null; inkopare: string | null; inkopareTel: string | null; oss: { id: string; namn: string; telefon: string }[] }): SmsMottagare[] {
+/** Vem SMS:et kan gå till: markägaren (bara när `markagareSms`), inköparen (bara när `inkopareSms` och numret finns) och oss (aktiva admin med telefon). */
+export function smsMottagare(o: { markagareSms: boolean; inkopareSms: boolean; markagare: string | null; markagareTel: string | null; inkopare: string | null; inkopareTel: string | null; oss: { id: string; namn: string; telefon: string }[] }): SmsMottagare[] {
   const ut: SmsMottagare[] = [];
   if (o.markagareSms) ut.push({ id: 'markagare', etikett: o.markagare?.trim() ? `Markägaren · ${o.markagare.trim()}` : 'Markägaren', namn: markagareFornamn(o.markagare) ?? (o.markagare?.trim() || null), tel: o.markagareTel?.trim() || null });
-  if (o.inkopareTel?.trim()) ut.push({ id: 'inkopare', etikett: o.inkopare?.trim() ? `Inköparen · ${o.inkopare.trim()}` : 'Inköparen', namn: o.inkopare?.trim() || 'Inköparen', tel: o.inkopareTel.trim() });
+  if (o.inkopareSms && o.inkopareTel?.trim()) ut.push({ id: 'inkopare', etikett: o.inkopare?.trim() ? `Inköparen · ${o.inkopare.trim()}` : 'Inköparen', namn: o.inkopare?.trim() || 'Inköparen', tel: o.inkopareTel.trim() });
   for (const m of o.oss) { const f = m.namn.trim().split(/\s+/)[0] || m.namn; ut.push({ id: `med-${m.id}`, etikett: f, namn: f, tel: m.telefon }); }
   return ut;
 }
@@ -41,6 +41,8 @@ export interface BesokPlanerareProps {
   inkopareTel?: string | null;
   /** Bara för test: får markägaren väljas? Standard: MARKAGARE_SMS_PA. */
   markagareSms?: boolean;
+  /** Bara för test: får inköparen väljas? Standard: INKOPARE_SMS_PA. */
+  inkopareSms?: boolean;
   /** påminnelsen öppnade kortet: SMS-raden rullas fram och markeras */
   fokusSms?: boolean;
   /** Bara för test: hur sms:-länken öppnas och vilken adress länken till markägaren byggs på. Standard: Meddelanden via window.location och den adress appen körs på. */
@@ -103,7 +105,8 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
 
   const lankKlar = !!d.lank && d.lank.aktiv && !avslutat;
   const markagareSms = p.markagareSms ?? MARKAGARE_SMS_PA;
-  const mottagare = smsMottagare({ markagareSms, markagare: p.markagare, markagareTel: p.markagareTel, inkopare: p.inkopare ?? null, inkopareTel: p.inkopareTel ?? null, oss: d.testMottagare ?? [] });
+  const inkopareSms = p.inkopareSms ?? INKOPARE_SMS_PA;
+  const mottagare = smsMottagare({ markagareSms, inkopareSms, markagare: p.markagare, markagareTel: p.markagareTel, inkopare: p.inkopare ?? null, inkopareTel: p.inkopareTel ?? null, oss: d.testMottagare ?? [] });
 
   /** Texten som skickas/kopieras – samma för båda vägarna. */
   function byggText(lank: string): string {
@@ -154,7 +157,7 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
       <Gruppkort>
         <div ref={smsRef} style={p.fokusSms ? { outline: `2px solid ${FARG.text}`, outlineOffset: -2, borderRadius: RADIE.kort } : undefined}>
           <RadKnapp forstaRad testid="kort-besok-sms" ikon={mobil ? 'sms' : 'content_copy'} etikett={mobil ? 'Skicka besökslänken' : 'Kopiera SMS-text och länk'}
-            under={avslutat ? 'Trakten är avslutad' : !d.lank ? 'Förbereder länken …' : !d.lank.aktiv ? 'Länken är avstängd — slå på den först' : [markagareSms ? null : 'Test – bara till inköparen och oss', smsStatus].filter(Boolean).join(' · ')}
+            under={avslutat ? 'Trakten är avslutad' : !d.lank ? 'Förbereder länken …' : !d.lank.aktiv ? 'Länken är avstängd — slå på den först' : [markagareSms ? null : inkopareSms ? 'Test – bara till inköparen och oss' : 'Test – bara till oss', smsStatus].filter(Boolean).join(' · ')}
             onTryck={() => (lankKlar ? setValjer((v) => !v) : setMeddelande(avslutat ? 'Trakten är avslutad.' : 'Länken är inte klar än.'))} />
         </div>
         {valjer && lankKlar && (
