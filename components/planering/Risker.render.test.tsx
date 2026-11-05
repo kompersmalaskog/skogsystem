@@ -12,7 +12,7 @@ import { klarProps } from './KlarMedTrakten.testhjalp';
 import { ForarRisker, riskRadUnder } from './Risker';
 import ObjektKortEnkel from './ObjektKortEnkel';
 import {
-  RISK_TOM, aktuellaRisker, aterstallForslag, borttagnaForslag, foreslaRisker, forarRisk, godkann, laggTillEgen, riskLage, riskUnderlag, taBortEgen, taBortForslag, type Riskbedomning,
+  RISK_TOM, aktuellaRisker, sattAllvarlig, aterstallForslag, borttagnaForslag, foreslaRisker, forarRisk, godkann, laggTillEgen, riskLage, riskUnderlag, taBortEgen, taBortForslag, type Riskbedomning,
 } from '@/lib/riskbedomning';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -42,6 +42,7 @@ function Planerare({ spar }: { spar: { rb: Riskbedomning } }) {
         lista, borttagna: borttagnaForslag(FORSLAG, rb), godkand: godk, godkandText: godk ? 'Martin 1 nov' : null, lasta: [], lastaFel: false,
         onTaBort: (n) => satt(n.startsWith('egen:') ? taBortEgen(rb, n.slice(5)) : taBortForslag(rb, n)),
         onAterstall: (n) => satt(aterstallForslag(rb, n)),
+        onAllvarlig: (n, ja) => satt(sattAllvarlig(rb, n, ja)),
         onLaggTill: (r, a) => { const ny = laggTillEgen(rb, 'x1', r, a); if (ny) satt(ny); },
         onStammer: () => satt(godkann(rb, lista, 'm1', '2026-11-01T10:00:00Z')),
       }} />
@@ -153,5 +154,38 @@ describe('riskkortet i hytten', () => {
     expect(riskKortLedigt({ ...bas, larmVisas: true })).toBe(false);
     expect(riskKortLedigt({ ...bas, lossningVisas: true })).toBe(false);
     expect(riskKortLedigt({ ...bas, besokVisas: true })).toBe(false);
+  });
+});
+
+describe('allvarlig eller mindre allvarlig', () => {
+  it('planeraren väljer med ett tryck; allt är Allvarlig från början, och ett godkännande gäller inte längre efter ett byte', () => {
+    const spar = { rb: RISK_TOM };
+    montera(<Planerare spar={spar} />);
+    const val = q('risk-brant-allvar')!;
+    const knappar = val.querySelectorAll('button');
+    expect(knappar[0].textContent).toBe('Allvarlig');
+    expect(knappar[0].getAttribute('aria-selected')).toBe('true');
+    klicka(knappar[1]);
+    expect(spar.rb.mindre).toEqual(['brant']);
+    expect(q('risk-brant-allvar')!.querySelectorAll('button')[1].getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('föraren ser allvaret i ord, allvarliga först', () => {
+    const lista = aktuellaRisker(FORSLAG, sattAllvarlig(RISK_TOM, 'kraftledning', false));
+    montera(<ForarRisker objektNamn="Skälviken" risker={lista} last={false} sparFel={false} onLast={() => {}} onTillbaka={() => {}} onStang={() => {}} />);
+    const rader = Array.from(el!.querySelectorAll('[data-testid^="risk-"][data-testid$="-atgard"]')).map((x) => x.getAttribute('data-testid'));
+    expect(rader).toEqual(['risk-brant-atgard', 'risk-kraftledning-atgard']);
+    expect(q('risk-kraftledning')!.textContent).toContain('Mindre allvarlig');
+    expect(q('risk-brant')!.textContent).toContain('Allvarlig');
+  });
+});
+
+describe('sidans koppling (källvakt)', () => {
+  it('kortet i hytten får bara de allvarliga, och planeraren kan välja allvar', async () => {
+    const { readFileSync } = await import('node:fs');
+    const sida = readFileSync('app/planering/page.tsx', 'utf8');
+    expect(sida).toMatch(/risker=\{allvarliga\(riskKortData\.risker\)\}/);
+    expect(sida).toMatch(/allvarliga\(forarRiskNu\.risker\)\.length > 0/);
+    expect(sida).toMatch(/onAllvarlig: \(n, ja\) => \{ void klarHook\.spara\(\{ riskbedomning: sattAllvarlig\(/);
   });
 });

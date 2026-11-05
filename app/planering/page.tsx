@@ -115,7 +115,7 @@ import { BJORK_KANT_FARG, GALLRING_FARG, GROT_FARG, HOG_TRADSLAG_FARG, KARTA_BLA
 import { TRAFF_RADIE_PX } from '../../lib/egenkontrollTryck';
 import { FORBJUDNA_ZONTYPER, HANSYNSYTA_FILTER, OVRIGT_YTA_FILTER, OVRIGT_YTA_STIL, SNEDSTRECK_GRUPPER, VIDA_ETIKETT, YTA_ETIKETT, YTA_ETIKETT_STIL, YTA_ETIKETT_STORLEK, snedstreckBild, snedstreckId } from '@/lib/ytaStil';
 import { FOKUS_HATCH_OPACITET, arFara, fokusEtikettFilter, fokusOpacitet, medFokus } from '@/lib/fokusTrakt';
-import { aktuellaRisker, aterstallForslag, borttagnaForslag, foreslaRisker, forarRisk, godkann as godkannRisker, laggTillEgen, riskLage, riskUnderlag, taBortEgen, taBortForslag } from '@/lib/riskbedomning';
+import { aktuellaRisker, allvarliga, aterstallForslag, borttagnaForslag, foreslaRisker, forarRisk, godkann as godkannRisker, laggTillEgen, riskLage, riskUnderlag, sattAllvarlig, taBortEgen, taBortForslag } from '@/lib/riskbedomning';
 import { dagManad } from '@/lib/klarFormat';
 import { useRiskLast } from '@/lib/hooks/useRiskLast';
 import { arHansynsyta, arOvrigYta } from '@/lib/vidaYtaTyp';
@@ -12674,7 +12674,7 @@ export default function PlannerPage() {
   // RISKERNA I HYTTEN: godkänd riskbedömning som föraren inte läst → kort högst upp tills "Jag har läst" (components/planering/RiskKortHytt, ordning i lib/instruktioner/ordning).
   // Visas först när ALLT som listan bygger på är läst (markeringar, Vidas underlag, förutsättningar, kvittona) — annars kunde kortet blinka förbi för en förare som redan läst.
   const riskKortData = instruktionerAktiv && korvyActive && klarDataKlart && !!valtObjekt?.id && traktGeoHamtadFor === String(valtObjekt.id) && riskLast.lage === 'ok'
-    && !!forarRiskNu.risker && forarRiskNu.risker.length > 0 && !forarRiskNu.last ? forarRiskNu : null;
+    && !!forarRiskNu.risker && allvarliga(forarRiskNu.risker).length > 0 && !forarRiskNu.last ? forarRiskNu : null;
   const riskKortSynligt = riskKortLedigt({ harOlasta: !!riskKortData, larmVisas: !!larm.kort, lossningVisas, besokVisas: besokKortSynligt });
   // === BESÖK: 70 m-ring runt maskinen medan ett besök är aktivt (till besökstid + 2 h) ===
   // Egen källa och egna lager (prefixet larm- hör till körvyns whitelist). Ritas för skördare och skotare, i körvy/maskinläge. Rött + streckat: en gräns att hålla utanför, inte en färg som bär ensam.
@@ -14747,6 +14747,7 @@ export default function PlannerPage() {
               lastaFel: riskLast.lage === 'fel',
               onTaBort: (n) => { void klarHook.spara({ riskbedomning: n.startsWith('egen:') ? taBortEgen(klarFalt.riskbedomning, n.slice(5)) : taBortForslag(klarFalt.riskbedomning, n) }); },
               onAterstall: (n) => { void klarHook.spara({ riskbedomning: aterstallForslag(klarFalt.riskbedomning, n) }); },
+              onAllvarlig: (n, ja) => { void klarHook.spara({ riskbedomning: sattAllvarlig(klarFalt.riskbedomning, n, ja) }); },
               onLaggTill: (risk, atgard) => {
                 const ny = laggTillEgen(klarFalt.riskbedomning, (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()), risk, atgard);
                 if (ny) void klarHook.spara({ riskbedomning: ny });
@@ -15031,7 +15032,7 @@ export default function PlannerPage() {
       {/* RISKERNA PÅ TRAKTEN — tills föraren tryckt "Jag har läst". Larm, lossning och besök går före; instruktionerna väntar på det. */}
       {riskKortSynligt && riskKortData?.risker && (
         <RiskKortHytt
-          risker={riskKortData.risker}
+          risker={allvarliga(riskKortData.risker)}
           top={instruktionTop}
           sparar={riskKortSparar}
           fel={riskKortFel}

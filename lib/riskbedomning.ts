@@ -9,7 +9,12 @@
 // Ändras listan efter godkännandet (en ny ledning på kartan, en egen risk) gäller godkännandet inte längre och förarnas kvitton gäller inte heller —
 // samma fingeravtrycksmönster som prognosen (lib/klarTrakt prognosUnderlag). Inget nollställs i databasen.
 //
-// Lagring: objekt.riskbedomning (jsonb) = { bort: string[], egna: [{ id, risk, atgard }], godkand: { av, at, underlag } | null }.
+// ALLVARLIG ELLER MINDRE ALLVARLIG (2026-11-05, AFS 2023:1 11 §: av dokumentationen ska det framgå vilka riskerna är OCH om de är allvarliga).
+// Varje risk är Allvarlig från början; planeraren ändrar med ett tryck (`mindre` = nycklarna som är mindre allvarliga). Bara de allvarliga visas
+// i kortet i hytten; hela listan finns i ⓘ. En mindre allvarlig risk ändrar fingeravtrycket (`|mindre`) — en allvarlig gör det inte, så
+// godkännanden och kvitton från före den här ändringen gäller som förut.
+//
+// Lagring: objekt.riskbedomning (jsonb) = { bort: string[], egna: [{ id, risk, atgard }], mindre?: string[], godkand: { av, at, underlag } | null }.
 // Ren logik, ingen React, ingen databas.
 
 export type RiskKalla = 'vida' | 'karta' | 'forutsattningar' | 'planerare';
@@ -20,6 +25,8 @@ export interface Risk {
   risk: string;
   atgard: string;
   kalla: RiskKalla;
+  /** AFS 2023:1 11 §: är risken allvarlig? Allvarlig från början; planeraren ändrar. */
+  allvarlig: boolean;
 }
 
 export interface EgenRisk { id: string; risk: string; atgard: string }
@@ -30,10 +37,12 @@ export interface Riskbedomning {
   /** appens förslag (nycklar) som planeraren sagt "Gäller inte" om */
   bort: string[];
   egna: EgenRisk[];
+  /** nycklar som planeraren sagt är MINDRE allvarliga (allt annat är allvarligt) */
+  mindre: string[];
   godkand: RiskGodkand | null;
 }
 
-export const RISK_TOM: Riskbedomning = { bort: [], egna: [], godkand: null };
+export const RISK_TOM: Riskbedomning = { bort: [], egna: [], mindre: [], godkand: null };
 
 /** Katalogen: vad appen kan föreslå och vad man gör. Orden är vardagliga, en mening per åtgärd. Ändras HÄR. */
 export const RISK_KATALOG = {
@@ -81,15 +90,16 @@ export function foreslaRisker(i: RiskForslagIndata): Risk[] {
   if (har('symbol', 'manualfelling')) satt('motorsag', 'karta');
   if (har('symbol', 'warning')) satt('varning', 'karta');
 
-  return ORDNING.filter((n) => kallor.has(n)).map((n) => ({ nyckel: n, risk: RISK_KATALOG[n].risk, atgard: RISK_KATALOG[n].atgard, kalla: kallor.get(n)! }));
+  return ORDNING.filter((n) => kallor.has(n)).map((n) => ({ nyckel: n, risk: RISK_KATALOG[n].risk, atgard: RISK_KATALOG[n].atgard, kalla: kallor.get(n)!, allvarlig: true }));
 }
 
 /** Listan som gäller: förslagen utom de som "gäller inte", sedan planerarens egna (i den ordning de lades till). */
 export function aktuellaRisker(forslag: readonly Risk[], rb: Riskbedomning): Risk[] {
   const bort = new Set(rb.bort);
+  const mindre = new Set(rb.mindre ?? []);
   return [
-    ...forslag.filter((r) => !bort.has(r.nyckel)),
-    ...rb.egna.map((e) => ({ nyckel: `egen:${e.id}`, risk: e.risk, atgard: e.atgard, kalla: 'planerare' as const })),
+    ...forslag.filter((r) => !bort.has(r.nyckel)).map((r) => ({ ...r, allvarlig: !mindre.has(r.nyckel) })),
+    ...rb.egna.map((e) => ({ nyckel: `egen:${e.id}`, risk: e.risk, atgard: e.atgard, kalla: 'planerare' as const, allvarlig: !mindre.has(`egen:${e.id}`) })),
   ];
 }
 
@@ -101,7 +111,7 @@ export function borttagnaForslag(forslag: readonly Risk[], rb: Riskbedomning): R
 
 /** Fingeravtryck av listan. Ordningen spelar ingen roll; texten gör det (en ändrad åtgärd är en ny bedömning). */
 export function riskUnderlag(risker: readonly Risk[]): string {
-  return risker.map((r) => `${r.nyckel}=${r.risk.trim()}|${r.atgard.trim()}`).sort().join('§') || 'inga';
+  return risker.map((r) => `${r.nyckel}=${r.risk.trim()}|${r.atgard.trim()}${r.allvarlig === false ? '|mindre' : ''}`).sort().join('§') || 'inga';
 }
 
 export type RiskLage = 'godkand' | 'kvar';
@@ -131,7 +141,23 @@ export function laggTillEgen(rb: Riskbedomning, id: string, risk: string, atgard
 }
 
 export function taBortEgen(rb: Riskbedomning, id: string): Riskbedomning {
-  return { ...rb, egna: rb.egna.filter((e) => e.id !== id) };
+  return { ...rb, egna: rb.egna.filter((e) => e.id !== id), mindre: (rb.mindre ?? []).filter((n) => n !== `egen:${id}`) };
+}
+
+/** Allvarlig eller mindre allvarlig, ett tryck. */
+export function sattAllvarlig(rb: Riskbedomning, nyckel: string, allvarlig: boolean): Riskbedomning {
+  const utan = (rb.mindre ?? []).filter((n) => n !== nyckel);
+  return { ...rb, mindre: allvarlig ? utan : [...utan, nyckel] };
+}
+
+/** Bara de allvarliga (kortet i hytten). */
+export function allvarliga<T extends { allvarlig: boolean }>(risker: readonly T[]): T[] {
+  return risker.filter((r) => r.allvarlig);
+}
+
+/** Allvarliga först, sedan de mindre allvarliga — ordningen inom varje grupp står kvar. */
+export function allvarligaForst<T extends { allvarlig: boolean }>(risker: readonly T[]): T[] {
+  return [...risker.filter((r) => r.allvarlig), ...risker.filter((r) => !r.allvarlig)];
 }
 
 export function godkann(rb: Riskbedomning, risker: readonly Risk[], av: string | null, nu: string): Riskbedomning {
@@ -142,7 +168,7 @@ export function godkann(rb: Riskbedomning, risker: readonly Risk[], av: string |
 
 /** objekt.riskbedomning → bedömning. Tolerant: allt okänt ignoreras, aldrig ett kast. */
 export function lasRiskbedomning(raw: unknown): Riskbedomning {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...RISK_TOM, bort: [], egna: [] };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...RISK_TOM, bort: [], egna: [], mindre: [] };
   const o = raw as Record<string, unknown>;
   const bort = Array.isArray(o.bort) ? o.bort.filter((x): x is string => typeof x === 'string') : [];
   const egna = Array.isArray(o.egna)
@@ -151,17 +177,20 @@ export function lasRiskbedomning(raw: unknown): Riskbedomning {
       return x && typeof x.id === 'string' && typeof x.risk === 'string' && typeof x.atgard === 'string' ? [{ id: x.id, risk: x.risk, atgard: x.atgard }] : [];
     })
     : [];
+  const mindre = Array.isArray(o.mindre) ? o.mindre.filter((x): x is string => typeof x === 'string') : [];
   const g = o.godkand as Record<string, unknown> | null | undefined;
   const godkand = g && typeof g === 'object' && typeof g.at === 'string' && typeof g.underlag === 'string'
     ? { av: typeof g.av === 'string' ? g.av : null, at: g.at, underlag: g.underlag }
     : null;
-  return { bort, egna, godkand };
+  return { bort, egna, mindre, godkand };
 }
 
 /** Kolumnformen. En helt tom bedömning sparas som null (aldrig {}). */
 export function riskbedomningTillKolumn(rb: Riskbedomning): Record<string, unknown> | null {
-  if (rb.bort.length === 0 && rb.egna.length === 0 && !rb.godkand) return null;
-  return { bort: rb.bort, egna: rb.egna, godkand: rb.godkand };
+  const mindre = rb.mindre ?? [];
+  if (rb.bort.length === 0 && rb.egna.length === 0 && mindre.length === 0 && !rb.godkand) return null;
+  // `mindre` skrivs bara när den har något — en bedömning utan den ser ut exakt som förut.
+  return mindre.length > 0 ? { bort: rb.bort, egna: rb.egna, mindre, godkand: rb.godkand } : { bort: rb.bort, egna: rb.egna, godkand: rb.godkand };
 }
 
 // ── Föraren ──────────────────────────────────────────────────────────────────────────────────────────────────────────
