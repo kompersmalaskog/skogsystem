@@ -65,7 +65,38 @@ export interface TdFalt {
   tolkningsvarningar: string[];
 }
 
-export function parseTraktdirektivText(text: string, traktnrFromFilename = ''): TdFalt {
+/** Mobilnummer (07X) i TD-texten. */
+const MOBIL = /07\d[-\s]?\d{3}[-\s]?\d{2}[-\s]?\d{2}/g;
+/** Inköparnumret parsern kände igen innan inköparens namn användes. Bara reserv. */
+const KAND_INKOPARE_TEL = '0702327410';
+
+/**
+ * Markägarens och inköparens mobil ur sidhuvudet "Säljare: Kontaktperson Inköpare VIDA <SÄLJARE> <tel> <Inköpare> <växel> <mobil> …".
+ * Inköparens namn (ur objektinfo, annars TD:n) delar huvudet: första mobilen FÖRE namnet är markägarens, första EFTER är inköparens.
+ * Hittas inte namnet i huvudet gäller den gamla regeln (0702327410 = inköparen, första andra = markägaren).
+ */
+export function telefonerUrTd(text: string, inkopareNamn: string | null | undefined): { markagare_tel: string; inkopare_tel: string } {
+  const rena = (t: string) => t.replace(/[\s-]/g, '');
+  const start = text.search(/Kontaktperson\s+Inköpare/i);
+  const slut = start >= 0 ? text.slice(start).search(/Fastighetsbeteckning/i) : -1;
+  const huvud = start >= 0 && slut > 0 ? text.slice(start, start + slut) : '';
+  const namn = (inkopareNamn ?? '').trim();
+  if (huvud && namn) {
+    const i = huvud.toLowerCase().indexOf(namn.toLowerCase());
+    if (i >= 0) {
+      const fore = [...huvud.slice(0, i).matchAll(MOBIL)].map((m) => rena(m[0]));
+      const efter = [...huvud.slice(i + namn.length).matchAll(MOBIL)].map((m) => rena(m[0]));
+      return { markagare_tel: fore[0] ?? '', inkopare_tel: efter[0] ?? '' };
+    }
+  }
+  const alla = (text.match(MOBIL) || []).map(rena);
+  return {
+    markagare_tel: alla.find((t) => t !== KAND_INKOPARE_TEL) || '',
+    inkopare_tel: alla.find((t) => t === KAND_INKOPARE_TEL) || '',
+  };
+}
+
+export function parseTraktdirektivText(text: string, traktnrFromFilename = '', inkopareNamn?: string | null): TdFalt {
   // Namn - efter "Traktdirektiv -"
   let namn = '';
   const namnMatch = text.match(/Traktdirektiv\s*[-–]\s*([A-Za-zÅÄÖåäö0-9\s]+?)(?=\s*Traktnr|\n)/i);
@@ -104,10 +135,11 @@ export function parseTraktdirektivText(text: string, traktnrFromFilename = ''): 
 
   // Markägare - namn i VERSALER efter "VIDA"
   let markagare = '';
-  const markagareMatch = text.match(/VIDA\s+([A-ZÅÄÖ][A-ZÅÄÖ]+(?:\s+[A-ZÅÄÖ]+)+)/);
+  const markagareMatch = text.match(/VIDA\s+([A-ZÅÄÖ][A-ZÅÄÖ-]+(?:\s+[A-ZÅÄÖ][A-ZÅÄÖ-]*)+)/);
   if (markagareMatch) {
+    // Bindestreck i förnamn: "CARL-GREGER" -> "Carl-Greger"
     markagare = markagareMatch[1].trim().split(/\s+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      .map((w) => w.split('-').map((d) => d.charAt(0).toUpperCase() + d.slice(1).toLowerCase()).join('-')).join(' ');
   }
 
   // E-post - första e-postadressen (markägarens)
@@ -120,10 +152,8 @@ export function parseTraktdirektivText(text: string, traktnrFromFilename = ''): 
   if (inkopareMatch) inkopare = inkopareMatch[1].trim();
 
   // Telefonnummer - alla 07X-nummer
-  const allaTelefoner = text.match(/07\d[-\s]?\d{3}[-\s]?\d{2}[-\s]?\d{2}/g) || [];
-  const renaTelefoner = allaTelefoner.map((t) => t.replace(/[\s-]/g, ''));
-  const markagare_tel = renaTelefoner.find((t) => t !== '0702327410') || '';
-  const inkopare_tel = renaTelefoner.find((t) => t === '0702327410') || '';
+  // Inköparens namn delar sidhuvudet (telefonerUrTd).
+  const { markagare_tel, inkopare_tel } = telefonerUrTd(text, inkopareNamn || inkopare);
 
   // Cert
   let cert = 'Ej certifierad';
