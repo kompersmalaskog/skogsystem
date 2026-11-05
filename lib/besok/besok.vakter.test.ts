@@ -18,10 +18,14 @@ const selectLista = (src: string) => Array.from(src.matchAll(/\.select\('([^']*)
 describe('besökssidan läser exakt de fält den visar', () => {
   const TILLATET = new Set([
     'objekt_id, aktiv',                                                                     // länken
-    'id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id, fastighetsbeteckning',  // objektet (volym används bara för procenten, skickas aldrig ut)
-    'typ, data',                                                                            // motorsåg
+    'id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id, fastighetsbeteckning, cert, areal, grot, ved_detaljer',  // objektet (volym bara för procenten; cert/areal/grot för "Därför står träden kvar"; ved för "Din ved")
+    'typ, data',                                                                            // motorsåg, evighetsträd, högstubbar, ved-nålen
+    'geometri',                                                                             // Vidas kant mot vatten (bara ytan)
+    'oppnad_av, oppnad_at',                                                                 // vem som skickade länken …
+    'namn, telefon',                                                                        // … och hans nummer: "Ring om något" (samma nummer som står i SMS:et; bara förnamnet lämnar servern)
     'roll, datum, points, uppdaterad_at',                                                   // maskinernas SENASTE punkt
-    'id, besokstid',                                                                        // markägarens egen anmälan
+    'id, besokstid',                                                                        // den nya anmälan
+    'id, besokstid, gatt_at',                                                               // markägarens egen anmälan (och om hen gått härifrån)
     'roll, kvitterad_at, maskin_id',                                                        // vilka maskiner som sett den (maskin_id matchar raden per maskin och lämnar aldrig servern)
     'id',                                                                                   // räkning av anmälningar i timmen
   ]);
@@ -37,7 +41,7 @@ describe('besökssidan läser exakt de fält den visar', () => {
     expect(svar).toContain('body: {');
   });
   it('servern använder service-klienten och rutterna läser ingen session', () => {
-    for (const f of ['app/api/besok/[token]/route.ts', 'app/api/besok/[token]/anmal/route.ts', 'app/api/besok/[token]/karta/route.ts']) {
+    for (const f of ['app/api/besok/[token]/route.ts', 'app/api/besok/[token]/anmal/route.ts', 'app/api/besok/[token]/karta/route.ts', 'app/api/besok/[token]/gatt/route.ts']) {
       const s = las(f);
       expect(s).toContain('tjanstKlient');
       expect(s).not.toMatch(/autentisera|kravInloggad|kravRoll|cookies\(/);

@@ -207,8 +207,8 @@ describe('framsteg: "62 % klart · klart ca fredag"', () => {
     expect(dagText('2026-11-05', '2026-10-22')).toBe('den 5 november');
   });
   it('utförare', () => {
-    expect(utforareText('Vida')).toBe('Kompersmåla Skog åt Vida');
-    expect(utforareText('Vida Energi')).toBe('Kompersmåla Skog åt Vida');
+    expect(utforareText('Vida')).toBe('Kompersmåla Skog avverkar åt Vida');
+    expect(utforareText('Vida Energi')).toBe('Kompersmåla Skog avverkar åt Vida');
     expect(utforareText('Privat')).toBe('Kompersmåla Skog');
     expect(utforareText(null)).toBe('Kompersmåla Skog');
   });
