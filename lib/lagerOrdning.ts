@@ -41,6 +41,8 @@ type Regel = [test: RegExp, rang: number];
 // Första träffen gäller. Specifikt före allmänt.
 const REGLER: Regel[] = [
   // ── Egen position överst: maskinens prick, GPS-ring och osäkerhetscirkel ────────────────────────────────────────────────
+  // De ANDRA maskinerna (lib/maskinerNu) ligger överst bland allt utom den egna positionen.
+  [/^maskin-andra-/, RANG.position - 10 * D],
   [/^(maskin-|gps-)/, RANG.position],
 
   // ── Framhävningens glöd, kontur och fält (Om trakten): ligger UNDER markeringarna den framhäver, så den aldrig döljer linjen — ringen, symbolen och etiketten ligger överst ──
