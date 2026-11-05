@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { forbered, statusOrd, faktaRad, strackaText, type PlanObjekt } from './plan';
+import { forbered, godkandaRisker, statusOrd, faktaRad, strackaText, type PlanObjekt } from './plan';
 
 // Prod 2026-11-05: Arvidstorp (Johannishus) och Lidhem Britteberg, fälten som de står i objekt-raden.
 const arvidstorp: PlanObjekt = {
@@ -22,14 +22,14 @@ describe('statusOrd — läget i ett ord', () => {
 });
 
 describe('forbered — allt föraren måste veta, för sin roll', () => {
-  it('skördaren: faror först, planerarens text ordagrant, manuell fällning, sortiment — inte skotarens band', () => {
+  it('skördaren: faror först, planerarens text ordagrant, manuell fällning — aldrig sortiment, inte skotarens band', () => {
     const f = forbered(arvidstorp, 'skordare', lasta);
     expect(f.faror.map((x) => x.label)).toEqual(['Kraftledning']);
     expect(f.planeraren).toBe('OBS! Flertalet träd stämplade utanför området. Se stämplingslängd.');
     const t = f.rader.map((r) => r.text);
     expect(t).toContain('Bärighet medel · flackt');
     expect(t).toContain('Manuell fällning');
-    expect(t).toContain('Sortiment: Gran timmer Urshult, Kubb Gran, Massa Barr, Energi Bränsleved');
+    expect(t.some((x) => x.startsWith('Sortiment'))).toBe(false); // "det stämmer aldrig" (Martin 2026-11-05)
     expect(t).toContain('Certifierad: FSC, PEFC');
     expect(t).toContain('Hänsyn: Evighetsträd');
     expect(t.some((x) => x.startsWith('Band'))).toBe(false);
@@ -44,7 +44,7 @@ describe('forbered — allt föraren måste veta, för sin roll', () => {
   });
   it('det som inte är ifyllt står inte alls — aldrig en tom rad', () => {
     const f = forbered({ id: 'x', namn: 'Tom', status: 'oplanerad', cert: 'None' }, 'skordare', { faror: [], hansyn: [] });
-    expect(f).toEqual({ faror: [], farorOlasta: false, planeraren: null, rader: [], dokument: [], markagare: null });
+    expect(f).toEqual({ faror: [], riskbedomd: false, farorOlasta: false, planeraren: null, rader: [], dokument: [], markagare: null });
   });
   it('dålig bärighet och trailer som inte kommer in är varningar', () => {
     const f = forbered({ id: 'x', namn: 'X', status: 'planerad', barighet: 'dalig', transport_trailer_in: false }, 'skotare', { faror: [], hansyn: [] });
@@ -53,10 +53,6 @@ describe('forbered — allt föraren måste veta, för sin roll', () => {
   it('faror som inte kunde läsas sägs — en tom lista är aldrig "inga faror"', () => {
     expect(forbered(arvidstorp, 'skordare', 'fel').farorOlasta).toBe(true);
   });
-  it('sortimentet som Postgres-text (före tolkning) blir samma rad', () => {
-    const t = forbered({ ...arvidstorp, sortiment: '{"Gran timmer · Urshult","Kubb · Gran"}' }, 'skordare', lasta).rader.map((r) => r.text);
-    expect(t).toContain('Sortiment: Gran timmer Urshult, Kubb Gran');
-  });
 });
 
 describe('fakta och sträcka', () => {
@@ -64,5 +60,33 @@ describe('fakta och sträcka', () => {
   it('sträckan är från förra trakten; okänd = ingen text', () => {
     expect(strackaText(43.6, 'Bondeskog')).toBe('44 km från Bondeskog');
     expect(strackaText(null, 'Bondeskog')).toBeNull();
+  });
+});
+
+describe('godkandaRisker — det planeraren tryckt Stämmer på', () => {
+  it('Arvidstorp (prod): risk och åtgärd i planerarens ord', () => {
+    const rb = { godkand: { at: 'x', av: null, underlag: 'kraftledning=Kraftledning|Fäll aldrig mot ledningen. Faller ett träd på den – gå inte fram, ring 112.§motorsag=Motorsåg på trakten|Ingen motorsåg närmare maskinen än två trädlängder.' } };
+    expect(godkandaRisker(rb)).toEqual([
+      { risk: 'Kraftledning', atgard: 'Fäll aldrig mot ledningen. Faller ett träd på den – gå inte fram, ring 112.' },
+      { risk: 'Motorsåg på trakten', atgard: 'Ingen motorsåg närmare maskinen än två trädlängder.' },
+    ]);
+  });
+  it('ingen bedömning = null (aldrig "inga risker"); godkänd tom lista = []', () => {
+    expect(godkandaRisker(null)).toBeNull();
+    expect(godkandaRisker({ bort: [], egna: [], godkand: null })).toBeNull();
+    expect(godkandaRisker({ godkand: { at: 'x', underlag: 'inga' } })).toEqual([]);
+  });
+});
+
+describe('forbered — riskerna står först, en gång', () => {
+  it('Kraftledning i både riskbedömningen och på kartan blir EN rad med åtgärd + kartans kommentar; övriga kartfaror följer', () => {
+    const o = { ...arvidstorp, riskbedomning: { godkand: { at: 'x', underlag: 'kraftledning=Kraftledning|Fäll aldrig mot ledningen.§motorsag=Motorsåg på trakten|Två trädlängder.' } } };
+    const f = forbered(o, 'skordare', { faror: [{ label: 'Kraftledning', kommentar: 'Kör inte under med kranen uppe' }, { label: 'Brant', kommentar: null }], hansyn: [] });
+    expect(f.riskbedomd).toBe(true);
+    expect(f.faror).toEqual([
+      { label: 'Kraftledning', kommentar: 'Fäll aldrig mot ledningen.\nKör inte under med kranen uppe' },
+      { label: 'Motorsåg på trakten', kommentar: 'Två trädlängder.' },
+      { label: 'Brant', kommentar: null },
+    ]);
   });
 });

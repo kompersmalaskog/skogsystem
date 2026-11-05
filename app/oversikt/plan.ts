@@ -21,6 +21,7 @@ export interface PlanObjekt {
   skordare_manuell_fallning?: boolean | null; skordare_manuell_fallning_text?: string | null;
   markagare?: string | null; markagare_tel?: string | null; markagare_ska_ha_ved?: boolean | null; markagare_ved_text?: string | null;
   anteckningar?: string | null; sortiment?: string[] | string | null; cert?: string | null;
+  riskbedomning?: unknown;
   larmkoordinat_beskrivning?: string | null;
   traktdirektiv_url?: string | null; traktkarta_url?: string | null; stamplingslangd_url?: string | null;
 }
@@ -48,13 +49,16 @@ const AVSTAND: Record<string, string> = { kort: 'kort skotningsavstånd', medel:
 
 export interface ForberedRad { text: string; varning: boolean }
 export interface Forbered {
-  /** Faror — står först, röda, med planerarens kommentar. */
+  /** Faror — står först, röda: riskbedömningens risker med sin åtgärd, sedan kartans faror. En risk som också är en fara på kartan
+   *  (Kraftledning) står EN gång, med åtgärden och kartans kommentar. */
   faror: Varning[];
+  /** false = planeraren har inte gjort riskbedömningen — sidan säger det (en tom lista är aldrig "inga risker"). */
+  riskbedomd: boolean;
   /** Kunde farorna inte läsas säger sidan det — en tom lista får aldrig betyda "inga faror". */
   farorOlasta: boolean;
   /** Det planeraren skrivit, ordagrant. */
   planeraren: string | null;
-  /** Allt annat, i ordning: marken, trailern, band, fällning, ved, hänsyn, infart, sortiment, certifiering. */
+  /** Allt annat, i ordning: marken, trailern, band, fällning, ved, hänsyn, infart, certifiering. */
   rader: ForberedRad[];
   dokument: { namn: string; url: string }[];
   markagare: { namn: string | null; telHref: string | null } | null;
@@ -84,11 +88,7 @@ export function forbered(o: PlanObjekt, roll: Roll, warn: VarningsSvar): Forbere
 
   if (o.larmkoordinat_beskrivning?.trim()) rader.push({ text: `Infart: ${o.larmkoordinat_beskrivning.trim()}`, varning: false });
 
-  if (roll === 'skordare') {
-    const s = Array.isArray(o.sortiment) ? o.sortiment : typeof o.sortiment === 'string' ? o.sortiment.replace(/^\{|\}$/g, '').split(',').map((x) => x.replace(/^"|"$/g, '')) : [];
-    const rena = s.map((x) => x.replace(/\s*·\s*/g, ' ').trim()).filter(Boolean);
-    if (rena.length) rader.push({ text: `Sortiment: ${rena.join(', ')}`, varning: false });
-  }
+  // Sortimentet visas inte (Martin 2026-11-05: "det stämmer aldrig") — det som står i objekt-raden är inte det maskinen kapar.
   const cert = (o.cert ?? '').trim();
   if (cert && cert.toLowerCase() !== 'none') rader.push({ text: `Certifierad: ${cert.split(/\s+/).join(', ')}`, varning: false });
 
@@ -101,11 +101,41 @@ export function forbered(o: PlanObjekt, roll: Roll, warn: VarningsSvar): Forbere
   const tel = telHref(o.markagare_tel);
   const markagare = o.markagare?.trim() || tel ? { namn: o.markagare?.trim() || null, telHref: tel } : null;
 
-  return { faror: ok ? warn.faror : [], farorOlasta: warn === 'fel', planeraren: o.anteckningar?.trim() || null, rader, dokument, markagare };
+  const risker = godkandaRisker(o.riskbedomning);
+  const kartFaror = ok ? warn.faror : [];
+  const lika = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  const faror: Varning[] = [
+    ...(risker ?? []).map((r) => {
+      const kom = kartFaror.find((f) => lika(f.label, r.risk))?.kommentar?.trim();
+      const text = [r.atgard, kom && kom !== r.atgard ? kom : null].filter(Boolean).join('\n');
+      return { label: r.risk, kommentar: text || null };
+    }),
+    ...kartFaror.filter((f) => !(risker ?? []).some((r) => lika(f.label, r.risk))),
+  ];
+
+  return { faror, riskbedomd: risker != null, farorOlasta: warn === 'fel', planeraren: o.anteckningar?.trim() || null, rader, dokument, markagare };
 }
 
 /** "44 km från Bondeskog" — sträckan är maskinens körning från förra trakten, inte från telefonen. Okänd → ingen text. */
 export function strackaText(km: number | null | undefined, fran: string | null): string | null {
   if (km == null) return null;
   return fran ? `${Math.round(km)} km från ${fran}` : `${Math.round(km)} km`;
+}
+
+export interface PlanRisk { risk: string; atgard: string }
+/**
+ * Riskerna planeraren GODKÄNT (objekt.riskbedomning.godkand.underlag = exakt listan han tryckte Stämmer på, lib/riskbedomning riskUnderlag).
+ * null = ingen bedömning gjord — då säger sidan det, en tom lista får aldrig se ut som "inga risker". [] = godkänt "Inga särskilda risker".
+ */
+export function godkandaRisker(raw: unknown): PlanRisk[] | null {
+  const g = raw && typeof raw === 'object' ? (raw as { godkand?: { underlag?: unknown } | null }).godkand : null;
+  const u = g && typeof g.underlag === 'string' ? g.underlag : null;
+  if (u == null) return null;
+  if (u === 'inga' || !u.trim()) return [];
+  return u.split('§').flatMap((del) => {
+    const lik = del.indexOf('='); const rest = lik >= 0 ? del.slice(lik + 1) : del;
+    const st = rest.indexOf('|');
+    const risk = (st >= 0 ? rest.slice(0, st) : rest).trim(); const atgard = st >= 0 ? rest.slice(st + 1).trim() : '';
+    return risk ? [{ risk, atgard }] : [];
+  });
 }

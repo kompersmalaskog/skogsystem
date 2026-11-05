@@ -1324,19 +1324,34 @@ function StatusOrd({ o }: { o: PlanObjekt }) {
   </span>;
 }
 
-function ForberedDig({ o, roll, warn }: { o: PlanObjekt; roll: Roll; warn: VarningsSvar }) {
+/** Det som skrivits på kartan för en trakt (kartkommentar). 'laddar' medan det läses, 'fel' när det inte gick — aldrig tyst tomt. */
+type KartText = string[] | 'laddar' | 'fel';
+
+function ForberedDig({ o, roll, warn, kartText }: { o: PlanObjekt; roll: Roll; warn: VarningsSvar; kartText: KartText }) {
   const f = forbered(o, roll, warn);
-  const tomt = !f.faror.length && !f.farorOlasta && !f.planeraren && !f.rader.length && !f.dokument.length && !f.markagare;
+  const texter = Array.isArray(kartText) ? kartText : [];
+  const tomt = !f.faror.length && !f.farorOlasta && !f.planeraren && !texter.length && !f.rader.length && !f.dokument.length && !f.markagare;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
       <div style={{ ...TYP.micro, color: FARG.text2 }}>Förbered dig</div>
       {tomt && <div style={{ ...TYP.text, color: FARG.text2 }}>Planeraren har inte skrivit något om den här trakten.</div>}
       {f.farorOlasta && <div role="alert" style={{ ...TYP.text, color: FARG.orange }}>{VARNING_LASFEL}</div>}
       {f.faror.length > 0 && <VarningLista items={f.faror} farg={FARG.rod} />}
+      {/* Riskbedömningen: ingen gjord sägs — en tom lista får aldrig läsas som "inga risker". */}
+      {!f.riskbedomd && <div style={{ ...TYP.meta, color: FARG.orange }}>Riskbedömningen är inte gjord än</div>}
       {f.planeraren && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
           <div style={{ ...TYP.meta, color: FARG.text2 }}>Planeraren skriver</div>
           <div style={{ ...TYP.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{f.planeraren}</div>
+        </div>
+      )}
+      {/* Det planeraren och förarna skrivit på kartan — ordagrant, en rad per kommentar. Var det står syns på kartan i Planeringen. */}
+      {(texter.length > 0 || kartText === 'fel') && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+          <div style={{ ...TYP.meta, color: FARG.text2 }}>Skrivet på kartan</div>
+          {kartText === 'fel'
+            ? <div role="alert" style={{ ...TYP.text, color: FARG.orange }}>Kunde inte läsa det som står på kartan</div>
+            : texter.map((t, i) => <div key={i} style={{ ...TYP.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{t}</div>)}
         </div>
       )}
       {f.rader.length > 0 && (
@@ -1378,6 +1393,23 @@ function MinPlan({ f, namn, legs, varning, fran, posFel, forman, onKarta }: {
   const nasta = lista[0] ?? null;
   const sedan = lista.slice(1);
   const [oppen, setOppen] = useState<string | null>(null);  // en senare trakt vars "Förbered dig" är utfälld
+  // Kartans kommentarer för trakterna i planen — EN läsning. Bara läsning; skrivs i Planeringen.
+  const idNyckel = lista.map((p) => p.objekt.id).join(',');
+  const [kartText, setKartText] = useState<Record<string, string[]> | 'laddar' | 'fel'>('laddar');
+  useEffect(() => {
+    if (!idNyckel) { setKartText({}); return; }
+    let aktiv = true; setKartText('laddar');
+    supabase.from('kartkommentar').select('objekt_id, text, skapad_at').in('objekt_id', idNyckel.split(',')).order('skapad_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (!aktiv) return;
+        if (error || !Array.isArray(data)) { console.error('[oversikt] kartkommentar', error); setKartText('fel'); return; }
+        const ut: Record<string, string[]> = {};
+        for (const r of data as { objekt_id: string; text: string | null }[]) { const t = r.text?.trim(); if (t) (ut[r.objekt_id] ??= []).push(t); }
+        setKartText(ut);
+      });
+    return () => { aktiv = false; };
+  }, [idNyckel]);
+  const kartFor = (id: string): KartText => (typeof kartText === 'string' ? kartText : kartText[id] ?? []);
   const nu = f.nuObjekt as unknown as PlanObjekt | null;
   const kort: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: AVSTAND.m, padding: AVSTAND.l, background: FARG.kort, borderRadius: RADIE.kort };
   const franNamn = (i: number) => (i === 0 ? (f.nuObjekt ? koNamn(f.nuObjekt) : null) : koNamn(lista[i - 1].objekt));
@@ -1417,7 +1449,7 @@ function MinPlan({ f, namn, legs, varning, fran, posFel, forman, onKarta }: {
                 <div style={{ ...TYP.text }}><StatusOrd o={nasta.objekt as unknown as PlanObjekt} /></div>
               </div>
               <KorDit objekt={nasta.objekt} fran={fran} />
-              <ForberedDig o={nasta.objekt as unknown as PlanObjekt} roll={roll} warn={varning(nasta.objekt.id)} />
+              <ForberedDig o={nasta.objekt as unknown as PlanObjekt} roll={roll} warn={varning(nasta.objekt.id)} kartText={kartFor(nasta.objekt.id)} />
             </div>
           ) : (
             <div style={{ ...kort, ...TYP.text, color: FARG.text2 }}>Inget planerat efter det här.</div>
@@ -1440,7 +1472,7 @@ function MinPlan({ f, namn, legs, varning, fran, posFel, forman, onKarta }: {
                     <div style={{ ...TYP.meta, color: FARG.text2 }}>{[strackaText(legs[i], franNamn(i))].filter(Boolean).join('')}</div>
                     <div style={{ ...TYP.text }}><StatusOrd o={o} /></div>
                   </button>
-                  {utfald && (<><KorDit objekt={p.objekt} fran={fran} /><ForberedDig o={o} roll={roll} warn={varning(p.objekt.id)} /></>)}
+                  {utfald && (<><KorDit objekt={p.objekt} fran={fran} /><ForberedDig o={o} roll={roll} warn={varning(p.objekt.id)} kartText={kartFor(p.objekt.id)} /></>)}
                 </div>
               );
             })}
