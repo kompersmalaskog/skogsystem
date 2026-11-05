@@ -7,7 +7,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { writeFileSync } from 'node:fs';
 
-const h = vi.hoisted(() => ({ kommentarer: [] as { objekt_id: string; text: string; skapad_at: string }[], fel: false }));
+const h = vi.hoisted(() => ({ kommentarer: [] as { objekt_id: string; yta_nyckel: string; text: string; skapad_at: string }[], fel: false }));
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: () => ({
@@ -21,6 +21,7 @@ vi.mock('@/lib/supabase', () => ({
 }));
 
 import { MinPlan } from './MinPlan';
+import { ANALYS_EXEMPEL } from './traktanalys';
 import type { MaskinForslag } from './nasta-v2';
 import type { OversiktObjekt } from './oversikt-types';
 
@@ -44,7 +45,8 @@ let rot: Root; let el: HTMLDivElement;
 const rendera = async (ff: MaskinForslag = f) => {
   await act(async () => {
     rot.render(<MinPlan f={ff} namn="Giant" legs={[44, 3]} varning={(id) => (id === 'l' ? { faror: [{ label: 'Kraftledning', kommentar: 'Kör inte under med kranen uppe' }], hansyn: [] } : { faror: [], hansyn: [] })}
-      korDit={() => <a data-kordit="">Kör dit</a>} posFel={false} forman={false} onKarta={() => {}} />);
+      korDit={() => <a data-kordit="">Kör dit</a>} posFel={false} forman={false} onKarta={() => {}}
+      analysFor={(o) => (o.id === 'l' ? ANALYS_EXEMPEL : o.id === 'g' ? { lage: 'fel' } : { lage: 'klar', fynd: [] })} />);
   });
   await act(async () => { await Promise.resolve(); });
 };
@@ -53,8 +55,9 @@ const rader = () => [...el.querySelectorAll('.mp-lista button[aria-current], .mp
 
 beforeEach(() => {
   h.kommentarer = [
-    { objekt_id: 'l', text: 'Kör på riset ut med vägen för avlägget', skapad_at: '1' },
-    { objekt_id: 'b', text: 'Fäll inte ut i denna föryngringen', skapad_at: '2' },
+    { objekt_id: 'l', yta_nyckel: 'punkt:01-1', text: 'Kör på riset ut med vägen för avlägget', skapad_at: '1' },
+    { objekt_id: 'l', yta_nyckel: 'traktdel:130666:0', text: 'På denna trakten finns det fossil åker', skapad_at: '2' },
+    { objekt_id: 'b', yta_nyckel: 'marker:1793605827552', text: 'Fäll inte ut i denna föryngringen', skapad_at: '3' },
   ];
   h.fel = false;
   el = document.createElement('div'); document.body.appendChild(el); rot = createRoot(el);
@@ -76,28 +79,49 @@ describe('Min plan — körordningen till vänster, trakten till höger', () => 
     expect(trakt().textContent).toContain('Bondeskog AU 2026');
     expect(trakt().textContent).toContain('Här nu');
     expect(trakt().querySelector('[data-kordit]')).toBeNull();            // man är redan där
-    expect(trakt().textContent).toContain('Fäll inte ut i denna föryngringen');
+    // en kommentar på en plats listas inte — den kommer upp i hytten där; sidan säger att den finns
+    expect(trakt().textContent).not.toContain('Fäll inte ut i denna föryngringen');
+    expect(trakt().textContent).toContain('1 sak är märkt på kartan');
     expect(trakt().textContent).toContain('Förbered dig för nästa');
   });
 
-  it('ett tryck på Nästa: frågorna, faran en gång med åtgärd + kartans kommentar, aldrig sortiment', async () => {
+  it('ett tryck på Nästa: boardingkortet — Farligt, Skyddat, Innan du åker, När du är där, Mer', async () => {
     await rendera();
     await act(async () => { rader()[1].click(); });
-    const t = trakt().textContent ?? '';
+    const t = () => trakt().textContent ?? '';
     expect(el.firstElementChild?.className).toContain('mp-vy-trakt');      // telefon: trakten är skärmen
     expect(trakt().querySelector('[data-kordit]')).not.toBeNull();
     const rubriker = [...trakt().querySelectorAll('h3')].map((x) => x.textContent);
-    expect(rubriker).toEqual(['Vad är farligt?', 'Vad ska du tänka på?', 'Hur är det att köra där?', 'Vem äger skogen?', 'Papper om trakten']);
-    expect(t.match(/Kraftledning/g)?.length).toBe(1);
-    expect(t).toContain('Fäll aldrig mot ledningen.');
-    expect(t).toContain('Kör inte under med kranen uppe');
-    expect(t).toContain('Kör på riset ut med vägen för avlägget');
-    expect(t).toContain('Trailern kan inte köra in');
-    expect(t).toContain('Markägaren ska ha ved');
-    expect(t).not.toContain('Sortiment');
+    expect(rubriker).toEqual(['Farligt', 'Skyddat på trakten', 'Innan du åker', 'När du är där']);
+    expect(t().match(/Kraftledning/g)?.length).toBe(1);
+    expect(t()).toContain('Fäll aldrig mot ledningen.');
+    expect(t()).toContain('Kör inte under med kranen uppe');
+    // traktanalysen: märkena som rader
+    expect(t()).toContain('Fossil åker · barmark'); expect(t()).toContain('Vattenskydd'); expect(t()).toContain('Nyckelbiotop');
+    // innan du åker: det som är varning + ved, högst tre
+    expect(t()).toContain('Bärighet dålig'); expect(t()).toContain('Trailern kan inte köra in'); expect(t()).toContain('Markägaren ska ha ved');
+    // när du är där: Vidas text och traktdelens kommentar; platsens kommentar bara som antal
+    expect(t()).toContain('OBS!');
+    expect(t()).toContain('På denna trakten finns det fossil åker');
+    expect(t()).not.toContain('Kör på riset ut med vägen för avlägget');
+    expect(t()).toContain('1 sak är märkt på kartan');
+    expect((trakt().querySelector('a[href^="/planering?objekt="]') as HTMLAnchorElement).getAttribute('href')).toBe('/planering?objekt=l');
+    expect(t()).not.toContain('Sortiment');
+    // Mer om trakten är stängt; ett tryck visar markägaren och papperen
+    expect(t()).not.toContain('Traktdirektiv');
+    await act(async () => { ([...trakt().querySelectorAll('button')].find((b) => b.textContent?.includes('Mer om trakten')) as HTMLButtonElement).click(); });
+    expect(t()).toContain('Traktdirektiv'); expect(t()).toContain('Johannishus');
     if (process.env.MINPLAN_HTML) writeFileSync(process.env.MINPLAN_HTML.replace('.html', '-trakt.html'), el.innerHTML);
     await act(async () => { (trakt().querySelector('.mp-bara-smal') as HTMLButtonElement).click(); });
     expect(el.firstElementChild?.className).toContain('mp-vy-lista');
+  });
+
+  it('traktanalysen: kunde inte köras = "Kunde inte kontrolleras"; inget hittat = ingen rubrik alls', async () => {
+    await rendera();
+    await act(async () => { rader()[2].click(); });                       // Bondagård: fel
+    expect(trakt().textContent).toContain('Kunde inte kontrolleras');
+    await act(async () => { rader()[0].click(); });                       // Bondeskog: inget hittat
+    expect(trakt().textContent).not.toContain('Skyddat på trakten');
   });
 
   it('ingen riskbedömning sägs i orange; kartan som inte gick att läsa sägs', async () => {

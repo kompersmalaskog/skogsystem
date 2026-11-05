@@ -41,6 +41,7 @@ import GrotObjektArk, { type ArkKo, type ArkSkotare } from './GrotObjektArk';
 import { useGrotVagAvstand } from './grot-avstand';
 import { KNAPP, KNAPP_LITEN, SheetBas, Grabber, VarningLista, SvgRing } from './ark-delar';
 import { MinPlan } from './MinPlan';
+import { analysMarkorer, analysRader, lasTraktAnalys } from './traktanalys';
 import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, INAKTIV, designCss, KNAPP as TOKEN_KNAPP, KOLUMN } from '@/lib/design/tokens';
 import { navigeringsMal, navigeringsUrl, type NavObjekt } from '@/lib/navigera';
 
@@ -829,6 +830,28 @@ export default function OversiktV2Page() {
     });
   }, []);
   useEffect(() => { syncDotVisibility(); layoutLabels(); }, [zoomNiva, syncDotVisibility, layoutLabels]);
+
+  // TRAKTANALYSEN PÅ KARTAN (./traktanalys): en prick där något hittats, i kategorins färg (barmark = kultur brun, vattenskydd = blött blå,
+  // skydd = natur grön). Tryck = vad det är, i klartext. Inget hittat eller ej kontrollerat = ingen prick (det sägs i texten om trakten).
+  const analysMarkRef = useRef<any[]>([]);
+  useEffect(() => {
+    const map = mapRef.current; if (!map || !mapStyleLoaded) return;
+    analysMarkRef.current.forEach((m) => m.remove()); analysMarkRef.current = [];
+    const oppna = objekt.filter((o) => o.status !== 'avslutat');
+    for (const m of analysMarkorer(oppna.map((o) => ({ id: o.id, namn: o.namn, analys: lasTraktAnalys(o) })))) {
+      const el = document.createElement('button');
+      el.type = 'button'; el.setAttribute('aria-label', `${m.text} · ${m.objektNamn}`);
+      // 44 px träffyta runt en 14 px prick (färgen bär aldrig ensam — texten kommer vid tryck)
+      el.style.cssText = `width:${44}px;height:${44}px;padding:0;border:none;background:none;display:flex;align-items:center;justify-content:center;cursor:pointer`;
+      const prick = document.createElement('span');
+      prick.style.cssText = `width:14px;height:14px;border-radius:50%;background:${m.farg};border:2px solid ${FARG.text};box-shadow:0 1px 4px rgba(0,0,0,0.5)`;
+      el.appendChild(prick);
+      const popup = new window.maplibregl.Popup({ offset: 14, closeButton: false }).setText(`${m.text} · ${m.objektNamn}`);
+      el.addEventListener('click', (e) => { e.stopPropagation(); });
+      analysMarkRef.current.push(new window.maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([m.lng, m.lat]).setPopup(popup).addTo(map));
+    }
+    return () => { analysMarkRef.current.forEach((m) => m.remove()); analysMarkRef.current = []; };
+  }, [objekt, mapStyleLoaded]);
 
   const restyleSelection = useCallback(() => {
     const map = mapRef.current; if (!map) return;
@@ -1713,6 +1736,18 @@ function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maski
           <VarningLista items={faror} farg={FARG.rod} />
         </div>
       )}
+
+      {/* SKYDDAT — vad traktanalysen hittat (./traktanalys). Inget hittat = ingen rad; kunde inte köras = det sägs. */}
+      {(() => { const r = analysRader(lasTraktAnalys(o)); return r.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+          <div style={{ ...TYP.micro, color: FARG.text2 }}>Skyddat på trakten</div>
+          {r.map((x, i) => (
+            <div key={i} style={{ ...TYP.text, display: 'flex', alignItems: 'center', gap: AVSTAND.s, color: x.fel ? FARG.orange : FARG.text }}>
+              {x.farg && <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: RADIE.cirkel, background: x.farg, flexShrink: 0 }} />}{x.text}
+            </div>
+          ))}
+        </div>
+      ); })()}
 
       {/* GROT KLART — bara GROT/klipp. Två tryck: frågan står i arket (aldrig en dialog), Avbryt går tillbaka. */}
       {arGrotJobb && (grotFraga ? (

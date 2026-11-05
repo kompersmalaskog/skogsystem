@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { FARG, TYP, AVSTAND, RADIE, KOLUMN, KNAPP } from '@/lib/design/tokens';
 import { KommentarVisning } from '@/components/planering/KommentarRuta';
+import { giltigVidaText } from '@/lib/vidaStruket';
+import { analysRader, lasTraktAnalys, type TraktAnalys } from './traktanalys';
 import { forbered, statusOrd, faktaRad, strackaText, type PlanObjekt, type Roll } from './plan';
 import { koNamn, type MaskinForslag } from './nasta-v2';
 import { POS_NU_TEXT } from './las-fel-banner';
@@ -21,8 +23,11 @@ function StatusOrd({ o }: { o: PlanObjekt }) {
   </span>;
 }
 
-/** Det som skrivits på kartan för en trakt (kartkommentar). 'laddar' medan det läses, 'fel' när det inte gick — aldrig tyst tomt. */
-type KartText = string[] | 'laddar' | 'fel';
+/** Det som skrivits på kartan för en trakt (kartkommentar): texterna som gäller HELA trakten (traktdelen) och antalet som hör till en plats.
+ *  'laddar' medan det läses, 'fel' när det inte gick — aldrig tyst tomt. */
+type KartText = { hela: string[]; platser: number } | 'laddar' | 'fel';
+/** En kommentar på traktdelen gäller hela trakten; allt annat (markering, yta, avlägg, punkt) hör till en plats och kommer upp i hytten där. */
+export const gallerHelaTrakten = (ytaNyckel: string | null | undefined): boolean => /^traktdel:/.test(ytaNyckel ?? '');
 
 // MIN PLAN — som markägarrapporten (Martin 2026-11-05): körordningen i en lista till vänster, trakten man valt till höger.
 //  - under 1100 px: EN sak per skärm — listan, ett tryck öppnar trakten med "‹ Min plan";
@@ -90,18 +95,35 @@ function Rader({ rader }: { rader: { text: string; varning: boolean }[] }) {
   </div>;
 }
 
-/** Allt föraren måste veta om trakten, som frågor. En fråga utan innehåll står inte — utom "Vad är farligt?", som alltid svarar. */
-function TraktFragor({ o, roll, warn, kartText }: { o: PlanObjekt; roll: Roll; warn: VarningsSvar; kartText: KartText }) {
+/** Högst så många saker under "Innan du åker" — resten står under Mer om trakten. */
+const INNAN_MAX = 3;
+
+/**
+ * Nästa trakt som ett boardingkort (Martin 2026-11-05: "hur hade Apple, Tesla, SpaceX gjort … så ett barn förstår direkt"):
+ *   FARLIGT          riskerna med vad man gör — alltid, överst
+ *   SKYDDAT          vad traktanalysen hittat (fossil åker, vattenskydd …) — bara när något hittats, eller när det inte kunde kontrolleras
+ *   INNAN DU ÅKER    högst tre saker att ha med eller göra (band, trailern, ved …)
+ *   NÄR DU ÄR DÄR    det som gäller hela trakten (Vidas text utan det strukna, traktdelens kommentarer) + "N saker är märkta på kartan"
+ *   MER OM TRAKTEN › resten, för den som vill
+ * Det som hör till en plats ("denna stigen") listas inte: det kommer upp i hytten när maskinen kör dit.
+ */
+function TraktFragor({ o, roll, warn, kartText, analys }: { o: PlanObjekt; roll: Roll; warn: VarningsSvar; kartText: KartText; analys: TraktAnalys }) {
   const f = forbered(o, roll, warn);
-  const texter = Array.isArray(kartText) ? kartText : [];
-  const tanka = f.rader.filter((r) => r.grupp === 'tanka');
-  const kora = f.rader.filter((r) => r.grupp === 'kora');
-  const agare = f.rader.filter((r) => r.grupp === 'agare');
-  const harTanka = !!f.vida || texter.length > 0 || kartText === 'fel' || tanka.length > 0;
-  const ingetSkrivet = !harTanka && !kora.length && !agare.length && !f.markagare && !f.dokument.length;
+  const [mer, setMer] = useState(false);
+  const skydd = analysRader(analys);
+  const ved = f.rader.filter((r) => r.grupp === 'agare');
+  const innanAlla = [...f.rader.filter((r) => r.varning && r.grupp !== 'agare'), ...ved];
+  const innan = innanAlla.slice(0, INNAN_MAX);
+  const ovriga = f.rader.filter((r) => !innan.includes(r));
+  const vida = giltigVidaText(f.vida, f.vidaStruket);   // föraren ser bara det som gäller — strecket står i Planeringen
+  const hela = typeof kartText === 'object' ? kartText.hela : [];
+  const platser = typeof kartText === 'object' ? kartText.platser : 0;
+  const harDar = !!vida || hela.length > 0 || platser > 0 || kartText === 'fel';
+  const ringIInnan = ved.length > 0 && innan.some((r) => r.grupp === 'agare') && !!f.markagare?.telHref;
+  const harMer = ovriga.length > 0 || !!f.markagare || f.dokument.length > 0;
   return (
     <div className="mp-fragor-ram"><div className="mp-fragor">
-      <Fraga rubrik="Vad är farligt?" hel>
+      <Fraga rubrik="Farligt" hel>
         {f.farorOlasta && <div role="alert" style={{ ...TYP.text, color: FARG.orange }}>{VARNING_LASFEL}</div>}
         {warn === 'laddar' && <div style={{ ...TYP.text, color: FARG.text2 }}>{VARNING_LADDAR}</div>}
         {/* Åtgärden är det föraren ska göra — den står i läsbar storlek, inte som en fotnot. */}
@@ -116,59 +138,81 @@ function TraktFragor({ o, roll, warn, kartText }: { o: PlanObjekt; roll: Roll; w
         {f.riskbedomd && !f.faror.length && warn !== 'laddar' && !f.farorOlasta && <div style={{ ...TYP.text, color: FARG.text2 }}>Inga särskilda risker</div>}
       </Fraga>
 
-      {harTanka && (
-        <Fraga rubrik="Vad ska du tänka på?">
-          {/* Vidas traktdirektiv — samma ruta som i Planeringen; det planeraren strukit står kvar med streck. Stryks i Planeringens ⓘ-kort. */}
-          {f.vida && <KommentarVisning vida vidaEtikett="Vida" text={f.vida} meningar struket={f.vidaStruket} />}
-          {/* Det som skrivits på kartan — ordagrant. Var det står syns på kartan i Planeringen. */}
-          {(texter.length > 0 || kartText === 'fel') && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-              <div style={{ ...TYP.meta, color: FARG.text2 }}>Skrivet på kartan</div>
-              {kartText === 'fel'
-                ? <div role="alert" style={{ ...TYP.text, color: FARG.orange }}>Kunde inte läsa det som står på kartan</div>
-                : <KartRader texter={texter} />}
+      {/* Traktanalysen: inget hittat = ingen rad (aldrig "ingen fossil åker" — RAÄ har inte allt); kunde inte köras = det sägs. */}
+      {skydd.length > 0 && (
+        <Fraga rubrik="Skyddat på trakten" hel>
+          {skydd.map((r, i) => (
+            <div key={i} style={{ ...TYP.text, display: 'flex', alignItems: 'center', gap: AVSTAND.s, color: r.fel ? FARG.orange : FARG.text }}>
+              {r.farg && <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: RADIE.cirkel, background: r.farg, flexShrink: 0 }} />}
+              <span style={{ overflowWrap: 'anywhere' }}>{r.text}</span>
+            </div>
+          ))}
+        </Fraga>
+      )}
+
+      {innan.length > 0 && (
+        <Fraga rubrik="Innan du åker">
+          <Rader rader={innan} />
+          {ringIInnan && <a href={f.markagare!.telHref!} style={KNAPP_LITEN}><SvgRing />Ring markägaren</a>}
+        </Fraga>
+      )}
+
+      {harDar && (
+        <Fraga rubrik="När du är där">
+          {vida && <KommentarVisning vida vidaEtikett="Vida" text={vida} meningar />}
+          {hela.length > 0 && <KartRader texter={hela} />}
+          {kartText === 'fel' && <div role="alert" style={{ ...TYP.text, color: FARG.orange }}>Kunde inte läsa det som står på kartan</div>}
+          {platser > 0 && (
+            <a href={`/planering?objekt=${encodeURIComponent(o.id)}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.s, minHeight: 44, color: FARG.text, textDecoration: 'none' }}>
+              <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{ ...TYP.text }}>{platser === 1 ? '1 sak är märkt på kartan' : `${platser} saker är märkta på kartan`}</span>
+                <span style={{ ...TYP.meta, color: FARG.text2 }}>De kommer upp när du kör dit · Visa på kartan</span>
+              </span>
+              <span style={{ color: FARG.text2 }}>›</span>
+            </a>
+          )}
+        </Fraga>
+      )}
+
+      {harMer && (
+        <section className="mp-hel" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+          <button type="button" onClick={() => setMer((m) => !m)} aria-expanded={mer}
+            style={{ ...mpKort, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', border: 'none', color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer', minHeight: 44, ...TYP.listtitel }}>
+            <span>Mer om trakten</span><span style={{ color: FARG.text2 }}>{mer ? '⌃' : '›'}</span>
+          </button>
+          {mer && (
+            <div style={mpKort}>
+              {ovriga.length > 0 && <Rader rader={ovriga} />}
+              {f.markagare && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+                  {f.markagare.namn && <div style={{ ...TYP.text, overflowWrap: 'anywhere' }}><span style={{ color: FARG.text2 }}>Markägare </span>{f.markagare.namn}</div>}
+                  {f.markagare.telHref && !ringIInnan && <a href={f.markagare.telHref} style={KNAPP_LITEN}><SvgRing />Ring markägaren</a>}
+                </div>
+              )}
+              {f.dokument.map((d) => (
+                <a key={d.namn} href={d.url} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 44, color: FARG.text, textDecoration: 'none', borderTop: `1px solid ${FARG.linje}`, ...TYP.text }}>
+                  <span>{d.namn}</span><span style={{ color: FARG.text2 }}>›</span>
+                </a>
+              ))}
             </div>
           )}
-          {tanka.length > 0 && <Rader rader={tanka} />}
-        </Fraga>
+        </section>
       )}
-
-      {kora.length > 0 && <Fraga rubrik="Hur är det att köra där?"><Rader rader={kora} /></Fraga>}
-
-      {(f.markagare || agare.length > 0) && (
-        <Fraga rubrik="Vem äger skogen?">
-          {f.markagare?.namn && <div style={{ ...TYP.text, overflowWrap: 'anywhere' }}>{f.markagare.namn}</div>}
-          {agare.length > 0 && <Rader rader={agare} />}
-          {f.markagare?.telHref && <a href={f.markagare.telHref} style={KNAPP_LITEN}><SvgRing />Ring markägaren</a>}
-        </Fraga>
-      )}
-
-      {f.dokument.length > 0 && (
-        <Fraga rubrik="Papper om trakten">
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {f.dokument.map((d) => (
-              <a key={d.namn} href={d.url} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 44, color: FARG.text, textDecoration: 'none', borderBottom: `1px solid ${FARG.linje}`, ...TYP.text }}>
-                <span>{d.namn}</span><span style={{ color: FARG.text2 }}>›</span>
-              </a>
-            ))}
-          </div>
-        </Fraga>
-      )}
-
-      {ingetSkrivet && <div className="mp-hel" style={{ ...TYP.text, color: FARG.text2 }}>Planeraren har inte skrivit något om den här trakten.</div>}
     </div></div>
   );
 }
 
 interface PlanRad { id: string; objekt: OversiktObjekt; etikett: string; nu: boolean; nasta: boolean; stracka: string | null }
 
-export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKarta }: {
+export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKarta, analysFor = lasTraktAnalys }: {
   f: MaskinForslag; namn: string; legs: (number | null)[]; varning: (objektId: string) => VarningsSvar;
   /** "Kör dit" till en trakt (sidans knapp — samma mål och km som i arken). */
   korDit: (objekt: OversiktObjekt) => React.ReactNode; posFel: boolean;
   /** Förmannen tittar på en förares plan: knappen går tillbaka till kartan i stället för "Se alla maskiner". */
   forman: boolean; onKarta: () => void;
+  /** Traktanalysen per trakt (./traktanalys). Standard = kopplingen; testerna ger påhittad data. */
+  analysFor?: (o: OversiktObjekt) => TraktAnalys;
 }) {
   const roll: Roll = f.typ === 'skotare' ? 'skotare' : 'skordare';
   const ko = f.ko.filter((p) => p.kalla === 'ko');
@@ -196,21 +240,25 @@ export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKart
 
   // Kartans kommentarer för trakterna i planen — EN läsning. Bara läsning; skrivs i Planeringen.
   const idNyckel = rader.map((r) => r.id).join(',');
-  const [kartText, setKartText] = useState<Record<string, string[]> | 'laddar' | 'fel'>('laddar');
+  const [kartText, setKartText] = useState<Record<string, { hela: string[]; platser: number }> | 'laddar' | 'fel'>('laddar');
   useEffect(() => {
     if (!idNyckel) { setKartText({}); return; }
     let aktiv = true; setKartText('laddar');
-    supabase.from('kartkommentar').select('objekt_id, text, skapad_at').in('objekt_id', idNyckel.split(',')).order('skapad_at', { ascending: true })
+    supabase.from('kartkommentar').select('objekt_id, yta_nyckel, text, skapad_at').in('objekt_id', idNyckel.split(',')).order('skapad_at', { ascending: true })
       .then(({ data, error }) => {
         if (!aktiv) return;
         if (error || !Array.isArray(data)) { console.error('[oversikt] kartkommentar', error); setKartText('fel'); return; }
-        const ut: Record<string, string[]> = {};
-        for (const r of data as { objekt_id: string; text: string | null }[]) { const t = r.text?.trim(); if (t) (ut[r.objekt_id] ??= []).push(t); }
+        const ut: Record<string, { hela: string[]; platser: number }> = {};
+        for (const r of data as { objekt_id: string; yta_nyckel: string | null; text: string | null }[]) {
+          const t = r.text?.trim(); if (!t) continue;
+          const u = (ut[r.objekt_id] ??= { hela: [], platser: 0 });
+          if (gallerHelaTrakten(r.yta_nyckel)) u.hela.push(t); else u.platser += 1;
+        }
         setKartText(ut);
       });
     return () => { aktiv = false; };
   }, [idNyckel]);
-  const kartFor = (id: string): KartText => (typeof kartText === 'string' ? kartText : kartText[id] ?? []);
+  const kartFor = (id: string): KartText => (typeof kartText === 'string' ? kartText : kartText[id] ?? { hela: [], platser: 0 });
 
   const valj = (id: string) => { setVald(id); setVy('trakt'); };
   const vo = valdRad ? (valdRad.objekt as unknown as PlanObjekt) : null;
@@ -271,7 +319,7 @@ export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKart
                 </div>
               </div>
               {!valdRad.nu && korDit(valdRad.objekt)}
-              <TraktFragor o={vo} roll={roll} warn={varning(valdRad.id)} kartText={kartFor(valdRad.id)} />
+              <TraktFragor o={vo} roll={roll} warn={varning(valdRad.id)} kartText={kartFor(valdRad.id)} analys={analysFor(valdRad.objekt)} />
               {/* Står man på NU pekar sidan på Nästa — det är den man ska förbereda sig för. */}
               {valdRad.nu && nastaRad && (
                 <button onClick={() => valj(nastaRad.id)}
