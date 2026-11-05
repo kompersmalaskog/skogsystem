@@ -1,10 +1,10 @@
 'use client';
 
-// "KLAR MED TRAKTEN?" — planerarens färdigplanering. Två lägen, samma rader beter sig likadant:
+// "KLAR MED TRAKTEN?" — planerarens färdigplanering. EN SIDA, inga steg att gå igenom (Martin 2026-11-05: "för mycket tryck … så enkelt att ett barn förstår det direkt"):
 //
-//   GÖRA (något är kvar):   "N saker kvar" + stor knapp "Gå igenom". Knappen tar planeraren genom det som är kvar, ETT STEG I TAGET (`StegRam` i KlarSteg: "‹ traktnamn",
-//                           framstegsstreck, rubrik, innehåll, stora knappar, Föregående / Hoppa över). Listan "Behöver dig" ligger kvar under för den som vill hoppa direkt —
-//                           varje rad öppnar SAMMA steg, bara det steget. Inga rader fälls ut på plats, inga skrivfält i listan.
+//   GÖRA (något är kvar):   "N kvar" + raden "N klara ✓ ›" (allt appen redan vet eller som är gjort, ihopfällt — öppnar sammanställningen) + listan KVAR, en rad per sak:
+//                           en Har du-fråga svaras DIREKT på raden (Ja / Nej, samma ord som förut); Avlägg och Basväg gör saken direkt (placera, rita, visa Vidas avlägg);
+//                           Förutsättningar, Maskiner, Medelstam, Risker och Prognos öppnar sitt steg (val som inte ryms på en rad). Allt som besvarats försvinner ur listan.
 //   SE (allt klart, och efter Klar för maskin): en sida som ett ifyllt A4 (KlarSe). Ett tryck på en sektion öppnar samma steg för att ändra; efteråt är man tillbaka.
 //
 // Stegen (= områdena som kan vara kvar, `status.antalKvar` räknar dem): Avlägg · Basväg · Förutsättningar · Maskiner · Medelstam · Har du … · Prognos · sist Sammanfattning
@@ -146,6 +146,18 @@ const UNDER: Partial<Record<StegId, string>> = {
   sammanfattning: 'Kontrollera och skicka till föraren.',
 };
 
+const RAD: React.CSSProperties = { width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none', color: FARG.text, ...TYP.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' };
+
+/** Svar direkt på raden: två lika knappar, 44 px höga — inget är förvalt (planeraren svarar själv). */
+function SvarKnapp({ testid, onTryck, children }: { testid: string; onTryck: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" data-testid={testid} onClick={onTryck} className="press-scale"
+      style={{ minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, borderRadius: RADIE.knapp, border: 'none', background: FARG.fyllning, color: FARG.text, ...TYP.listtitel, whiteSpace: 'nowrap', flexShrink: 0, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+      {children}
+    </button>
+  );
+}
+
 /** Säger åt sidan att visa avläggen på kartan (en gång när steget öppnas); ritar ingenting — arket stängs av sidan. */
 function AvlaggGranska({ efter, onGranska }: { efter: Vy; onGranska: (efter: Vy) => void }) {
   useEffect(() => { onGranska(efter); // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -239,11 +251,22 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   }
 
   // ── KORTET: GÖRA eller SE ─────────────────────────────────────────────────────────────────────────────────────────────
-  const visaSe = vy.v === 'se' || planerad || status.klar;
+  const visaSe = vy.v === 'se' || status.klar;
   const oppnaSteg = (s: StegId, fraga?: HarDuId) => setVy({ v: 'steg', flode: { typ: 'ett', steg: s, fraga, till: vy.v === 'se' ? 'se' : 'kort' } });
-  const goraIgenom = () => setVy({ v: 'steg', flode: { typ: 'alla', start: kvar, steg: kvar[0] ?? 'sammanfattning' } });
+  // Avlägg och Basväg gör saken direkt; resten öppnar sitt steg.
+  const gor = (s: StegId) => {
+    if (s === 'basvag') { p.onRitaBasvag(); return; }
+    if (s === 'avlagg') {
+      if ((p.vidaAvlagg ?? []).length > 0 && p.onGranskaAvlagg) { p.onGranskaAvlagg({ v: 'kort' }); return; }
+      if ((p.vidaAvlagg ?? []).length === 0) { p.onPlaceraAvlagg(); return; }
+    }
+    oppnaSteg(s);
+  };
+  const raderKvar = kvar.filter((s) => s !== 'harDu');
+  const fragorKvar = HAR_DU_FRAGOR.filter((f) => status.frågorKvar.includes(f.id));
+  const antalKlara = status.poster.filter((x) => !x.kvar).length + (HAR_DU_FRAGOR.length - status.frågorKvar.length);
 
-  const lageText = planerad ? 'Klar för maskin ✓' : status.klar ? 'Redo att skicka' : `${status.antalKvar} ${status.antalKvar === 1 ? 'sak' : 'saker'} kvar`;
+  const lageText = planerad ? 'Klar för maskin ✓' : status.klar ? 'Redo att skicka' : `${status.antalKvar} kvar`;
   const lageFarg = planerad ? FARG.gron : status.klar ? FARG.text : FARG.orange;
   const undertitel = (
     <>
@@ -256,12 +279,11 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   // värdet i Behöver dig-raderna: orange uppmaning (färg + ord)
   const uppmaning = (s: StegId): string => {
     switch (s) {
-      case 'avlagg': return (p.vidaAvlagg ?? []).length > 0 ? 'Bekräfta' : 'Placera på kartan';
+      case 'avlagg': return (p.vidaAvlagg ?? []).length > 0 ? 'Bekräfta' : 'Placera';
       case 'basvag': return 'Rita';
       case 'forutsattningar': return status.forutsattningarKvar === 3 ? '3 att välja' : `${status.forutsattningarKvar} kvar`;
       case 'maskiner': return 'Välj';
       case 'medelstam': return 'Skriv';
-      case 'harDu': return `${HAR_DU_FRAGOR.length - status.frågorKvar.length} av ${HAR_DU_FRAGOR.length}`;
       case 'risker': return 'Granska';
       case 'prognos': return status.prognos.lage === 'ogodkand' && status.prognos.saknas.length > 0 ? `Saknar ${status.prognos.saknas[0]}` : 'Granska';
       default: return '';
@@ -288,12 +310,6 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
 
         {visaSe ? (
           <>
-            {/* Efter Klar för maskin kan något ha tillkommit, och från GÖRA kan man ha öppnat sammanställningen: knappen leder in i genomgången */}
-            {status.antalKvar > 0 && (
-              <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px 0` }}>
-                <StorKnapp testid="klar-ga-igenom" onTryck={goraIgenom}>Gå igenom</StorKnapp>
-              </div>
-            )}
             <KlarSe p={p} onOppna={oppnaSteg} />
             {vy.v === 'se' && (
               <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
@@ -303,40 +319,49 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
           </>
         ) : (
           <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>
-            <StorKnapp testid="klar-ga-igenom" onTryck={goraIgenom}>Gå igenom</StorKnapp>
+            {/* KLARA — allt som är gjort eller som appen redan vet, ihopfällt. Ett tryck visar hela trakten. */}
+            <Gruppkort testid="klar-del2">
+              <button type="button" data-testid="klar-se-oppna" onClick={() => setVy({ v: 'se' })} className="press-row" style={RAD}>
+                <span style={{ flex: 1, minWidth: 0 }}>{antalKlara} klara</span>
+                <span style={{ ...TYP.listtitel, color: FARG.gron }}>✓</span>
+                <Pil />
+              </button>
+              {p.onInfo && (
+                <button type="button" data-testid="klar-info" onClick={p.onInfo} className="press-row" style={{ ...RAD, borderTop: `1px solid ${FARG.linje}` }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>Om trakten</span>
+                  <Pil />
+                </button>
+              )}
+            </Gruppkort>
 
+            {/* KVAR — en rad per sak. Frågorna svaras på raden; resten gör sin sak eller öppnar sitt steg. */}
             <section data-testid="klar-behover" style={{ marginTop: AVSTAND.sektion }}>
-              <Rubrik>Behöver dig</Rubrik>
+              <Rubrik>Kvar</Rubrik>
               <Gruppkort testid="klar-del1">
-                {kvar.map((s, k) => (
+                {raderKvar.map((s, k) => (
                   <div key={s} data-testid={`klar-post-${s}`} data-kvar="1" style={{ borderTop: k === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
-                    <button type="button" data-testid={`klar-rad-${s}`} onClick={() => oppnaSteg(s)} className="press-row"
-                      style={{ width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none', color: FARG.text, ...TYP.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+                    <button type="button" data-testid={`klar-rad-${s}`} onClick={() => gor(s)} className="press-row" style={RAD}>
                       <span style={{ flex: 1, minWidth: 0 }}>{STEG_NAMN[s]}</span>
                       <span data-testid={`klar-rad-${s}-varde`} style={{ ...TYP.listtitel, color: FARG.orange, textAlign: 'right' }}>{uppmaning(s)}</span>
                       <Pil />
                     </button>
                   </div>
                 ))}
+                {fragorKvar.map((f, k) => (
+                  <div key={f.id} data-testid={`klar-post-fraga-${f.id}`} data-kvar="1"
+                    style={{ borderTop: raderKvar.length === 0 && k === 0 ? 'none' : `1px solid ${FARG.linje}`, padding: `${AVSTAND.s}px ${AVSTAND.l}px` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.primar }}>
+                      <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text }}>{f.fraga}</span>
+                      <SvarKnapp testid={`klar-fraga-${f.id}-ja`} onTryck={() => p.onHarDu(f.id, 'ja')}>{f.ja}</SvarKnapp>
+                      <SvarKnapp testid={`klar-fraga-${f.id}-nej`} onTryck={() => p.onHarDu(f.id, f.nejVarde)}>{f.nej}</SvarKnapp>
+                    </div>
+                    {p.varningar.filter((v) => v.fraga === f.id).map((v, i) => (
+                      <div key={i} data-testid={`klar-varning-${f.id}`} style={{ ...TYP.meta, color: FARG.orange, paddingBottom: AVSTAND.xs }}>{v.text}</div>
+                    ))}
+                  </div>
+                ))}
               </Gruppkort>
             </section>
-
-            <div style={{ marginTop: AVSTAND.sektion }}>
-              <Gruppkort testid="klar-del2">
-                <button type="button" data-testid="klar-se-oppna" onClick={() => setVy({ v: 'se' })} className="press-row"
-                  style={{ width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none', color: FARG.text, ...TYP.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
-                  <span style={{ flex: 1, minWidth: 0 }}>Visa hela trakten</span>
-                  <Pil />
-                </button>
-                {p.onInfo && (
-                  <button type="button" data-testid="klar-info" onClick={p.onInfo} className="press-row"
-                    style={{ width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none', borderTop: `1px solid ${FARG.linje}`, color: FARG.text, ...TYP.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
-                    <span style={{ flex: 1, minWidth: 0 }}>Om trakten</span>
-                    <Pil />
-                  </button>
-                )}
-              </Gruppkort>
-            </div>
           </div>
         )}
       </div>

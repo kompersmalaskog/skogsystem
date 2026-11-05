@@ -39,9 +39,10 @@ describe('kortet och sidan', () => {
     expect(page).toContain('if (!infoSkordareMaskinId && klarSkordare.maskinId) { setInfoSkordareMaskinId(klarSkordare.maskinId); setInfoSkordareUtforare(null); }');
     expect(page).toContain('if (!infoSkotareMaskinId && klarSkotare.maskinId) { setInfoSkotareMaskinId(klarSkotare.maskinId); setInfoSkotareUtforare(null); }');
   });
-  it('varje rad beter sig likadant: Behöver dig-listan har inga fält och inga utfällningar — en rad öppnar sitt steg, och valen sparas direkt i steget', () => {
+  it('Kvar-listan har inga skrivfält och inga utfällningar — en fråga svaras på raden, en sak görs eller öppnar sitt steg, och valen sparas direkt', () => {
     const lista = kort.slice(kort.indexOf('data-testid="klar-behover"'), kort.indexOf('{/* ── KLAR FÖR MASKIN'));
-    expect(lista).toContain('onClick={() => oppnaSteg(s)}');
+    expect(lista).toContain('onClick={() => gor(s)}');
+    expect(lista).toContain("onTryck={() => p.onHarDu(f.id, 'ja')}");
     expect(lista).not.toMatch(/<Falt|<input|<textarea|aria-expanded|stangRad/);
     expect(allt).not.toContain('stangRad');
     // ett val i ett steg går rakt till sidan (onAndra) — kortet håller inget eget svar
@@ -113,20 +114,18 @@ describe('två lägen: GÖRA och SE (jobb 1)', () => {
     expect(kort).not.toContain('titel={`Klar med ${p.namn}?`}');
   });
   it('läget avgörs av vad som är kvar: SE när trakten är klar eller skickad (eller när man bett om den), annars GÖRA', () => {
-    expect(kort).toContain("const visaSe = vy.v === 'se' || planerad || status.klar;");
-    expect(kort).toContain('{status.antalKvar > 0 && (');                                  // kvar efter skickad trakt: "Gå igenom" överst på SE-sidan
+    expect(kort).toContain("const visaSe = vy.v === 'se' || status.klar;");   // skickad trakt med något nytt kvar: Kvar-listan, inte en genomgång
+    expect(kort).not.toContain('klar-ga-igenom');                                  // inga steg att gå igenom (Martin 2026-11-05)
   });
-  it('fast ordning i GÖRA: Gå igenom → Behöver dig → Visa hela trakten / Om trakten → (utanför det som scrollar) Klar för maskin', () => {
+  it('fast ordning i GÖRA: N klara ✓ / Om trakten → Kvar → (utanför det som scrollar) Klar för maskin', () => {
     const i = (t: string) => kort.indexOf(t);
     const gora = kort.slice(i(') : (\n          <div style={{ padding'));
-    expect(i('testid="klar-ga-igenom" onTryck={goraIgenom}>Gå igenom')).toBeGreaterThan(0);
-    expect(gora.indexOf('testid="klar-ga-igenom"')).toBeLessThan(gora.indexOf('data-testid="klar-behover"'));
-    expect(gora.indexOf('data-testid="klar-behover"')).toBeLessThan(gora.indexOf('data-testid="klar-se-oppna"'));
     expect(gora.indexOf('data-testid="klar-se-oppna"')).toBeLessThan(gora.indexOf('data-testid="klar-info"'));
+    expect(gora.indexOf('data-testid="klar-info"')).toBeLessThan(gora.indexOf('data-testid="klar-behover"'));
     expect(i('data-testid="klar-innehall"')).toBeLessThan(i('data-testid="klar-for-maskin" data-klar'));
   });
-  it('"Visa hela trakten ›" öppnar SE-sidan — ingen egen lista; "Om trakten ›" finns kvar och öppnar ⓘ', () => {
-    expect(kort).toContain('Visa hela trakten');
+  it('"N klara ✓ ›" öppnar SE-sidan — ingen egen lista; "Om trakten ›" finns kvar och öppnar ⓘ', () => {
+    expect(kort).toContain('{antalKlara} klara');
     expect(kort).toContain("onClick={() => setVy({ v: 'se' })}");
     expect(allt).not.toContain('Allt som är ifyllt');
     expect(kort).toContain('onClick={p.onInfo}');
@@ -242,8 +241,8 @@ describe('två lägen: GÖRA och SE (jobb 1)', () => {
   });
   it('orange bara på rubrikens antal och på värden i Behöver dig; i stegen bara på ej valda etiketter, prognosen utanför liknande trakter och varningsrutor', () => {
     const orangeRader = (kalla: string) => kalla.split('\n').filter((r) => r.includes('FARG.orange'));
-    // orkestratorn: rubrikens antal (läget + "· N kvar"), värdet i raden, och två felrutor (datalage med ikon + text, sparfel)
-    expect(orangeRader(kort).length).toBe(6);
+    // orkestratorn: rubrikens antal (läget + "· N kvar"), värdet i raden, frågans varning, och två felrutor (datalage med ikon + text, sparfel)
+    expect(orangeRader(kort).length).toBe(7);
     expect(orangeRader(kort).filter((r) => r.includes('klar-rad-${s}-varde')).length).toBe(1);
     // stegen: ej vald segmentetikett, varningsruta (Varningsruta, 2 rader), prestation + varningsrad
     expect(orangeRader(steg).length).toBe(5);
