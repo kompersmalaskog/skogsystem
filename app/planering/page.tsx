@@ -241,7 +241,7 @@ import { ZONE_COLORS } from '@/lib/zone-colors'
 import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
 import { harFoto, komprimeraMarkeringFoto } from '@/lib/markeringFoto'
 import { narStyrka } from '../../lib/narStyrka'
-import { signaturer, lasSett, sparaSett, behoverVisas, nyaMarkeringar, textNy, inforJobbet, oversiktUnder } from '../../lib/traktOversikt'
+import { signaturer, lasSett, sparaSett, behoverVisas, nyaMarkeringar, nyaKommentarer, textNy, inforJobbet, oversiktUnder, oversiktUnderlag, harLastOversikt, certRad, skyddadeOmraden } from '../../lib/traktOversikt'
 import { kommentarTecken, laggTillTeckenBilder, teckenHornLager, teckenFriLager, teckenPunkter, TECKEN_KALLA, TECKEN_HORN_LAGER } from '../../lib/kommentarTecken'
 import { FOTO_UPPE_EVENT, laggFotoIKo, prenumereraFotoKo, tomFotoForMarkering, vantandeFotoNycklar, type FotoUppeDetail } from '@/lib/markeringFotoKo'
 import { fotoNyckel } from '@/lib/fotoKo'
@@ -9450,10 +9450,16 @@ export default function PlannerPage() {
   const oversiktMaskinId = testlage?.maskinId ?? enhetMaskinId ?? null;
   const oversiktSig = useMemo(() => signaturer({
     markers: (markers as any[]).filter((m) => m.isMarker || m.isLine || m.isZone || m.isArrow).map((m) => ({ id: m.id, type: m.type ?? null, lineType: m.lineType ?? null, zoneType: m.zoneType ?? null, comment: m.comment ?? null, photoPath: m.photoPath ?? null })),
-    kommentarIds: kk.rader.map((r) => r.id),
+    kommentarIds: [],
+    kommentarer: kk.rader.map((r) => ({ id: r.id, text: r.text })),
     texter: [vidaDirektiv],
     infor: [],
   }), [markers, kk.rader, vidaDirektiv]);
+  // "Jag har läst allt" sparas per FÖRARE i trakt_risk_last (samma tabell som riskbedömningens kvitto, eget underlag) — tiden sätts av databasen.
+  const oversiktUnderlagNu = useMemo(() => oversiktUnderlag(oversiktSig), [oversiktSig]);
+  const oversiktLast = harLastOversikt(riskLast.kvitton, currentMedarbetare?.id ?? null, oversiktUnderlagNu);
+  // Kortet öppnades från listan → "‹ Lista" på kortet tar tillbaka dit.
+  const [oversiktAter, setOversiktAter] = useState(false);
   const [oversiktSett, setOversiktSett] = useState<Set<string> | null>(null);
   const oversiktKolladRef = useRef<string | null>(null);
   useEffect(() => {
@@ -9474,15 +9480,18 @@ export default function PlannerPage() {
     if (!oversiktAktiv || !oversiktMaskinId || !valtObjekt?.id || startKameraLasNu) return;
     const oid = String(valtObjekt.id);
     if (!markersLoaded || markersObjektIdRef.current !== oid || !kk.laddad || traktGeoHamtadFor !== valtObjekt.id) return;
-    const kollad = `${oid}:${oversiktSig.join(',').length}:${oversiktSig.length}`;
+    if (riskLast.lage === 'laddar') return;
+    const kollad = `${oid}:${oversiktUnderlagNu}:${oversiktLast ? 1 : 0}`;
     if (oversiktKolladRef.current === kollad) return;
     oversiktKolladRef.current = kollad;
-    if (!behoverVisas(lasSett(oversiktMaskinId, oid), oversiktSig)) return;
+    // Föraren har inte läst just det här (servern) — eller, går kvittona inte att läsa, enheten har inte sett det.
+    const visa = riskLast.lage === 'ok' ? !oversiktLast : behoverVisas(lasSett(oversiktMaskinId, oid), oversiktSig);
+    if (!visa) return;
     if (traktOversiktOpen || objektListaOppen) return;
     setInfoStartVy('oversikt');
     setTraktOversiktOpen(true);
     visaHelaTrakten();
-  }, [oversiktAktiv, oversiktMaskinId, valtObjekt?.id, startKameraLasNu, markersLoaded, kk.laddad, traktGeoHamtadFor, oversiktSig]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [oversiktAktiv, oversiktMaskinId, valtObjekt?.id, startKameraLasNu, markersLoaded, kk.laddad, traktGeoHamtadFor, oversiktSig, riskLast.lage, oversiktLast]); // eslint-disable-line react-hooks/exhaustive-deps
   const borjaKora = useCallback(() => {
     if (oversiktMaskinId && valtObjekt?.id) { sparaSett(oversiktMaskinId, String(valtObjekt.id), oversiktSig); setOversiktSett(new Set(oversiktSig)); }
     setKorvyFollowPaused(false);   // följet tar över vid nästa GPS-punkt
@@ -9493,6 +9502,16 @@ export default function PlannerPage() {
       try { map.easeTo({ center: [pos.lon, pos.lat], zoom: korvyZoomRef.current, pitch: 28, bearing: kartBearing, padding: { top: topPad, bottom: 0, left: 0, right: 0 }, duration: 700 }); } catch { /* */ }
     }
   }, [oversiktMaskinId, valtObjekt?.id, oversiktSig, korvyEffectivePos, korvyActive, kartBearing]); // eslint-disable-line react-hooks/exhaustive-deps
+  // "Jag har läst allt": riskbedömningen (om den inte redan är läst) och hela trakten kvitteras, sedan kartan som vid Börja köra. false = något gick inte att spara.
+  const lasAlltOversikt = async (): Promise<boolean> => {
+    const maskin = testlage?.maskinId ?? enhetMaskinId ?? null;
+    if (forarRiskNu.underlag && !forarRiskNu.last && !(await riskLast.kvittera(forarRiskNu.underlag, maskin))) return false;
+    if (!(await riskLast.kvittera(oversiktUnderlagNu, maskin))) return false;
+    borjaKora();
+    return true;
+  };
+  useEffect(() => { if (markerMenuOpen == null && !traktInfo && !traktOversiktOpen) setOversiktAter(false); }, [markerMenuOpen, traktInfo, traktOversiktOpen]);
+  const tillbakaTillLista = oversiktAter ? { etikett: 'Lista', onClick: () => { setMarkerMenuOpen(null); setTraktInfo(null); setInfoStartVy('oversikt'); setTraktOversiktOpen(true); } } : undefined;
   // "AVVERKAS – LARMA INTE" (Martin 2026-10-29): Vidas hänsynsytor som planeraren markerat larmar inte och räknas inte i fällningscirkeln (lib/vidaAvverkas).
   // Ytan ritas och instruktionen visas som förut — bara larmet tystnar. Går markeringarna inte att läsa larmar allt.
   const vidaAvverkas = useVidaAvverkas(supabase, valtObjekt?.id, isAdminRiktig);
@@ -14554,14 +14573,53 @@ export default function PlannerPage() {
           } : null,
           // FÖRARENS ENKLA KORT (maskinläget): bara tre delar — namn och framsteg, "Det här gäller här" och en grupp rader längst ner (komponenten ObjektKortEnkel). Planeringsläget har det vanliga kortet.
           // ÖVERBLICKEN (maskinläget): "Hela trakten" — visas av sig själv första gången och via "Visa hela trakten" på kortet.
-          oversikt: instruktionerAktiv ? {
-            under: oversiktUnder(typTxt, certTyper(valtObjekt.cert), arealHaKort),
-            faror: faroLinjer,
-            infor: inforJobbet(forarRader),
-            nya: nyaMarkeringar(oversiktSett, (markers as any[]).map((m) => ({ id: m.id, type: m.type ?? null, lineType: m.lineType ?? null, zoneType: m.zoneType ?? null, comment: m.comment ?? null, photoPath: m.photoPath ?? null })), kk.rader.map((r) => ({ id: r.id, nyckel: r.yta_nyckel }))),
-            nyaTexter: new Set(textNy(oversiktSett, vida) ? ['vida'] : []),
-            onBorja: borjaKora,
-          } : null,
+          oversikt: instruktionerAktiv ? (() => {
+            // Kommentarerna på själva trakten (Vidas traktdelar, egna områden) gäller hela trakten — de står i "Det här ska du veta".
+            const traktNycklar = [...new Set(kk.rader.map((r) => r.yta_nyckel).filter((n) => n.startsWith('traktdel:') || n.startsWith('omrade:')))];
+            const helaTrakten = traktNycklar.flatMap((n) => omKommentarer(n));
+            const miljoRader = [
+              { id: 'hogstubbar', antal: hogstubbarVy.antal, krav: hogstubbarVy.krav },
+              { id: 'evighetstrad', antal: evighetstradVy.antal, krav: evighetstradVy.krav },
+            ];
+            const grot = grotRad(valtObjekt.grot ?? null, maskinSlag);
+            const infor = [...inforJobbet(forarRader), ...(grot ? [{ id: 'grot', etikett: 'GROT', text: grot }] : [])];
+            const nyaK = nyaKommentarer(oversiktSett, kk.rader.map((r) => ({ id: r.id, text: r.text })));
+            return {
+              under: oversiktUnder(typTxt, certTyper(valtObjekt.cert), arealHaKort),
+              larm: { satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '', beskrivning: larmBeskr, onVisa: () => { stang(); larmFlyTill(); } },
+              faror: faroLinjer,
+              risker: forarRiskNu.risker,
+              skydd: skyddadeOmraden(restr, !!(traktData as any)?.beraknad?.restriktionerAnalyseradAt),
+              brand: Number.isFinite(Number(valtObjekt.lat)) && Number.isFinite(Number(valtObjekt.lng)) && valtObjekt.lat != null && valtObjekt.lng != null ? { lat: Number(valtObjekt.lat), lng: Number(valtObjekt.lng) } : null,
+              onBrand: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
+              cert: certRad(certTyper(valtObjekt.cert), miljoRader),
+              helaTrakten,
+              infor,
+              nya: nyaMarkeringar(oversiktSett, (markers as any[]).map((m) => ({ id: m.id, type: m.type ?? null, lineType: m.lineType ?? null, zoneType: m.zoneType ?? null, comment: m.comment ?? null, photoPath: m.photoPath ?? null })), kk.rader.map((r) => ({ id: r.id, nyckel: r.yta_nyckel, text: r.text }))),
+              nyaTexter: new Set([...(textNy(oversiktSett, vida) ? ['vida'] : []), ...nyaK]),
+              last: oversiktLast,
+              onLast: lasAlltOversikt,
+              // En rad på kartan: listan stängs, kartan visar platsen och SAMMA kort som när man trycker på symbolen öppnas — med "‹ Lista" tillbaka.
+              onOppna: (m: KartMarkering) => {
+                stang();
+                setKorvyFollowPaused(true);
+                const map = mapInstanceRef.current;
+                const bred = typeof window !== 'undefined' && window.innerWidth >= 900;
+                const nere = typeof window !== 'undefined' ? Math.round(window.innerHeight * (bred ? 0 : 0.45)) : 0;
+                const bounds = framhavBounds(framhavdFran(m));
+                try {
+                  if (map && bounds) map.fitBounds(bounds, { padding: { top: AVSTAND.xxl * 3, bottom: AVSTAND.xxl * 2 + nere, left: AVSTAND.xxl * 2, right: AVSTAND.xxl * 2 }, maxZoom: 18, duration: 800 });
+                  else if (map && m.lat != null && m.lng != null) map.flyTo({ center: [m.lng, m.lat], zoom: Math.max(map.getZoom(), 18), duration: 700, offset: [0, -nere / 2] });
+                } catch { /* kartan är borta */ }
+                setOversiktAter(true);
+                const vidaOppna = vidaOppnaPerId.get(m.id);
+                if (vidaOppna) { vidaOppna(); return; }
+                const egen = (markers as any[]).find((x) => String(x.id) === m.id);
+                if (egen) setMarkerMenuOpen(egen.id);
+              },
+              onStang: () => { setKorvyFollowPaused(false); },
+            };
+          })() : null,
           enkel: instruktionerAktiv ? (() => {
             const rader = ytaRader(traktGeo?.features, inst.paTrakten);
             const framsteg = framstegRad({ typ: typTxt, arealHa: arealHaKort, klartHa: maskinSlag === 'skordare' && avverkat?.harSpar ? avverkat.ha : null });
@@ -16285,6 +16343,7 @@ export default function PlannerPage() {
           <KartKort
             key={nyckel || traktInfo.rubrik}
             testid="trakt-kort"
+            tillbaka={tillbakaTillLista}
             ikon={<LarmIkon kalla={bet.ikon.kalla} typ={bet.ikon.typ} grupp={bet.grupp} storlek={52} />}
             // Vidas ATGARD på ett AVLÄGG är ett namn/en plats ("skbv betet", "byvägen"), aldrig en instruktion: den visas i namnraden ("Virkesavlägg · Vida: skbv betet"), inte som kommentar.
             namn={traktInfo.kategori === 'punkt' && traktInfo.vidaKommentar ? `${rubrikVisad} · Vida: ${traktInfo.vidaKommentar}` : rubrikVisad}
@@ -16732,6 +16791,7 @@ export default function PlannerPage() {
         return (
           <KartKort
             testid="marker-kort"
+            tillbaka={tillbakaTillLista}
             ikon={marker.isMarker ? (
               // Symbolen som på kartan: gruppens form och färg med vit kant och glyf (lib/symboler) — ikonrutan har alltid gruppens färg.
               <SymbolIkon typ={marker.type} storlek={52} />
