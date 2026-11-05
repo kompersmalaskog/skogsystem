@@ -15433,7 +15433,7 @@ export default function PlannerPage() {
         />
       )}
       {/* LARMPLATSEN PÅ KARTAN (Hela trakten › Om något händer › Visa på kartan): EN rad nertill — koordinaten och "‹ Lista" tillbaka. */}
-      {larmPaKartan && (() => {
+      {larmPaKartan && !traktOversiktOpen && !plusRadOppen && !menuOpen && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && !framhavListSynlig && (() => {
         const la = parseFloat((infoLarmLat || '').replace(',', '.')); const ln = parseFloat((infoLarmLng || '').replace(',', '.'));
         if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
         return (
