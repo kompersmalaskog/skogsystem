@@ -53,3 +53,23 @@ describe('kameraGranser — linjer och ytor visas med trakten runt sig', async (
     expect(kameraGranser(null, trakt, 'linje')).toBeNull();
   });
 });
+
+describe('listaPunkt — en fast plats, aldrig en ruta (Bondeskogs basväg går en kilometer norrut)', async () => {
+  const { listaPunkt } = await import('./kortFriYta');
+  const trakt: [[number, number], [number, number]] = [[15.0, 57.0], [15.01, 57.01]];
+  it('symbol: dess plats', () => {
+    expect(listaPunkt({ lat: 57.005, lng: 15.005 }, trakt)).toEqual({ lat: 57.005, lng: 15.005 });
+  });
+  it('kort linje i trakten: mitten', () => {
+    const p = listaPunkt({ lat: null, lng: null, geometri: [{ lat: 57.002, lng: 15.002 }, { lat: 57.004, lng: 15.002 }] }, trakt)!;
+    expect(p.lat).toBeCloseTo(57.003, 4);
+  });
+  it('lång väg ut ur trakten: punkten där den når trakten, inte mitten en halv kilometer bort', () => {
+    const vag = [{ lat: 57.009, lng: 15.005 }, { lat: 57.02, lng: 15.005 }, { lat: 57.02, lng: 15.005 }].map((q, i) => (i === 2 ? { lat: 57.019, lng: 15.005 } : q));
+    const p = listaPunkt({ lat: null, lng: null, geometri: vag }, trakt)!;
+    expect(p.lat).toBeCloseTo(57.009, 5);
+  });
+  it('ingen plats: null', () => {
+    expect(listaPunkt({ lat: null, lng: null }, trakt)).toBeNull();
+  });
+});
