@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { markeraOkanda, tomtForslag, type MaskinForslag, type MaskinRad, type KoPost } from './nasta-v2';
-import type { OversiktObjekt } from '../oversikt/oversikt-types';
+import type { OversiktObjekt } from './oversikt-types';
 
 const obj = (id: string): OversiktObjekt => ({ id, namn: `Objekt ${id}`, typ: 'gallring', status: 'planerad', lat: 56.5, lng: 14.7 }) as OversiktObjekt;
 const post = (id: string, kalla: 'ko' | 'forslag'): KoPost => ({ objekt: obj(id), troligt: false, kalla });

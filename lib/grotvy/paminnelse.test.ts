@@ -114,7 +114,7 @@ describe('paminnelseMeddelande — texten', () => {
     const m = paminnelseMeddelande(p, '2026-10-04');
     expect(m.title).toBe('GROT · Karsemåla AU 2025');
     expect(m.body).toBe('Ska vara bortkört senast 11 okt');
-    expect(m.url).toBe('/oversikt-v2');
+    expect(m.url).toBe('/oversikt');
     expect(m.tag).toContain('2026-10-11');
   });
   it('markvillkoret kommer efter tankstreck — bara när det är satt', () => {

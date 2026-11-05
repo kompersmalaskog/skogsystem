@@ -1,7 +1,7 @@
-// Det objekt-arket i /oversikt-v2 visar om ett objekt, som ren logik (Node-importerbar, testas i objekt-info.test.ts):
+// Det objekt-arket i /oversikt visar om ett objekt, som ren logik (Node-importerbar, testas i objekt-info.test.ts):
 // planerarens faror och hänsyn MED kommentar, bärighet och markägarens telefon. Allt kommer ur planeringen — här läses det bara.
 
-import { classifyMarkering, markeringSub, markeringNamn } from '../oversikt/markeringar';
+import { classifyMarkering, markeringSub, markeringNamn } from './markeringar';
 
 /** En fara eller hänsyn: namnet (Kraftledning, Fornlämning …) och planerarens beskrivning (data.comment) om den finns. */
 export interface Varning { label: string; kommentar: string | null }

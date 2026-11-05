@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { arGrotKo, beraknaForslag, koNamn, type MaskinRad } from './nasta-v2';
-import type { MaskinKoItem, OversiktObjekt } from '../oversikt/oversikt-types';
+import type { MaskinKoItem, OversiktObjekt } from './oversikt-types';
 
 // Minsta möjliga objekt för kö-logiken — resten av OversiktObjekt är opåverkat.
 function obj(id: string, status: string, over: Partial<OversiktObjekt> = {}): OversiktObjekt {

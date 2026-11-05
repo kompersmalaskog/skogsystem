@@ -11,7 +11,7 @@ import { besokSmsText, arIos, arMobil, narOrd, smsNummer } from '@/lib/besok/sms
 import { besoksUrl } from '@/lib/besok/offentlig';
 import { loggRader, smsLage } from '@/lib/besok/planerare';
 import { markagareFornamn } from '@/lib/besok/sms';
-import { telNummer } from '@/app/oversikt-v2/objekt-info';
+import { telNummer } from '@/app/oversikt/objekt-info';
 
 export interface BesokPlanerareProps {
   objektId: string;

@@ -1,4 +1,4 @@
-// Rollen avgör vad /oversikt-v2 får göra. Ren logik (Node-importerbar, testas i lage.test.ts) — sidan kopplar in den.
+// Rollen avgör vad /oversikt får göra. Ren logik (Node-importerbar, testas i lage.test.ts) — sidan kopplar in den.
 //
 // FAIL-CLOSED: skrivrättighet ges bara åt roller som uttryckligen har den (admin). Allt annat — en förare, en roll som
 // inte är läst än, en roll som saknas eller är okänd — får ALDRIG knappar som skriver. Förare är i läsläge på alla maskiner

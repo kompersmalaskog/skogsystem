@@ -1,5 +1,5 @@
 'use client';
-// Vägavstånd mellan GROT-objekten för listan i /oversikt-v2 — ORS-väg, '–' tills det är känt, aldrig fågelväg.
+// Vägavstånd mellan GROT-objekten för listan i /oversikt — ORS-väg, '–' tills det är känt, aldrig fågelväg.
 //
 // Fågelvägen väljer bara VILKA par som är värda ett anrop (de 3 närmaste per objekt, lib/grotvy/avstand);
 // siffran som visas är alltid ORS-vägavstånd. Paren går i kanonisk riktning, så de ligger redan i route_cache

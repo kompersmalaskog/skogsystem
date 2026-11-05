@@ -1,5 +1,5 @@
 'use client';
-// GROT-listan som ark i /oversikt-v2 (chippen "GROT · N" på kartan). Kartan syns ovanför arket.
+// GROT-listan som ark i /oversikt (chippen "GROT · N" på kartan). Kartan syns ovanför arket.
 // Ren presentation — data, avstånd och "står här" kommer in som props, så samma komponent kan renderas mot
 // fixturer utan inloggning och databas.
 //

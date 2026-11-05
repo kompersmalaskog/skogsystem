@@ -1,4 +1,4 @@
-// Faror och hänsyn ur planering_markeringar för /oversikt-v2 — LÄSNINGEN, som ren logik (klienten injiceras; Node-importerbar,
+// Faror och hänsyn ur planering_markeringar för /oversikt — LÄSNINGEN, som ren logik (klienten injiceras; Node-importerbar,
 // testas i markeringar-las.test.ts).
 //
 // Regeln som allt här bygger på: "ingen" får bara visas när en läsning LYCKADES och gav 0 faror/hänsyn för objektet. En läsning som
@@ -11,7 +11,7 @@
 // och gav statement timeout), för en liten bit objekt i taget (`in`), sorterat på unik nyckel och sidat över PostgREST:s radgräns.
 // En bit som felar läses om objekt för objekt — ETT trasigt eller tungt objekt tar inte med sig de andra.
 
-import { STATUS_AVSLUTADE } from '../oversikt/oversikt-types';
+import { STATUS_AVSLUTADE } from './oversikt-types';
 import { byggVarningar, type MarkeringRow, type ObjWarn } from './objekt-info';
 import { medTidsgrans } from './tidsgrans';
 
