@@ -9461,6 +9461,8 @@ export default function PlannerPage() {
   const oversiktLast = harLastOversikt(riskLast.kvitton, currentMedarbetare?.id ?? null, oversiktUnderlagNu);
   // Kortet öppnades från listan → "‹ Lista" på kortet tar tillbaka dit.
   const [oversiktAter, setOversiktAter] = useState(false);
+  // Larmplatsen visas på kartan från Hela trakten → "‹ Lista" nertill tar tillbaka listan (Martin 2026-11-05).
+  const [larmPaKartan, setLarmPaKartan] = useState(false);
   const [oversiktSett, setOversiktSett] = useState<Set<string> | null>(null);
   const oversiktKolladRef = useRef<string | null>(null);
   useEffect(() => {
@@ -9512,6 +9514,8 @@ export default function PlannerPage() {
     return true;
   };
   useEffect(() => { if (markerMenuOpen == null && !traktInfo && !traktOversiktOpen) setOversiktAter(false); }, [markerMenuOpen, traktInfo, traktOversiktOpen]);
+  useEffect(() => { if (traktOversiktOpen || !korvyActive) setLarmPaKartan(false); }, [traktOversiktOpen, korvyActive]);
+  useEffect(() => { setLarmPaKartan(false); }, [valtObjekt?.id]);
   // Listan öppen = kartan visar hela trakten, hur den än öppnades (första gången, ⓘ eller ‹ Lista). Martin 2026-11-05: "det zoomar ut för mycket".
   useEffect(() => { if (traktOversiktOpen && oversiktAktiv && (infoStartVy === 'oversikt' || infoStartVy === 'kort')) visaHelaTrakten(); }, [traktOversiktOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   // "‹ Lista": kortet stängs, listan öppnas och kartan går ut till HELA trakten igen tills nästa rad trycks (Martin 2026-11-05).
@@ -14590,7 +14594,7 @@ export default function PlannerPage() {
             const nyaK = nyaKommentarer(oversiktSett, kk.rader.map((r) => ({ id: r.id, text: r.text })));
             return {
               under: oversiktUnder(typTxt, certTyper(valtObjekt.cert), arealHaKort),
-              larm: { satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '', beskrivning: larmBeskr, onVisa: () => { stang(); larmFlyTill(); } },
+              larm: { satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '', beskrivning: larmBeskr, onVisa: () => { stang(); larmFlyTill(); setLarmPaKartan(true); } },
               faror: faroLinjer,
               risker: forarRiskNu.risker,
               skydd: skyddadeOmraden(restr, !!(traktData as any)?.beraknad?.restriktionerAnalyseradAt),
@@ -15428,6 +15432,20 @@ export default function PlannerPage() {
           ]}
         />
       )}
+      {/* LARMPLATSEN PÅ KARTAN (Hela trakten › Om något händer › Visa på kartan): EN rad nertill — koordinaten och "‹ Lista" tillbaka. */}
+      {larmPaKartan && (() => {
+        const la = parseFloat((infoLarmLat || '').replace(',', '.')); const ln = parseFloat((infoLarmLng || '').replace(',', '.'));
+        if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+        return (
+          <NedfaldList
+            testid="larm-list"
+            smal={smalSkarm}
+            text={`Larmkoordinat · ${la.toFixed(5)}, ${ln.toFixed(5)}`}
+            tillbaka={{ etikett: 'Lista', onClick: () => { setLarmPaKartan(false); setInfoStartVy('oversikt'); setTraktOversiktOpen(true); }, testid: 'larm-tillbaka' }}
+            extra={[AVBRYT_KNAPP(() => setLarmPaKartan(false), 'larm-slapp')]}
+          />
+        );
+      })()}
       {/* FRAMHÄVD MARKERING (Om trakten › Visa ›, telefon): EN rad längst ner — vad som är valt, "‹ Om trakten" (öppnar listan igen och släpper framhävningen), × (släpp + hela trakten) */}
       {framhavListSynlig && framhavdMarkering && (
         <NedfaldList

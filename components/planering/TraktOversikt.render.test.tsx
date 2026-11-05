@@ -53,6 +53,25 @@ describe('Hela trakten', () => {
     expect(q('oversikt-larm')!.textContent).toContain('Om något händer – ring 112');
     expect(q('oversikt-larm')!.textContent).toContain('56.81234, 15.12345');
   });
+  it('larmraden öppnar "Om något händer": koordinaten stort, täckningsraden, Visa på kartan, och ‹ Hela trakten tillbaka', async () => {
+    let visa = 0;
+    await montera(<TraktOversikt {...props({ larm: { satt: true, koordinat: '56.81234, 15.12345', beskrivning: 'Vid avlägget', onVisa: () => { visa++; } } })} />);
+    act(() => { q('oversikt-larm-rad')!.click(); });
+    expect(visa).toBe(0);
+    expect(q('larm-koordinat')!.textContent).toBe('56.81234, 15.12345');
+    expect(q('larm-beskrivning')!.textContent).toBe('Vid avlägget');
+    expect(q('larm-tackning')!.textContent).toContain('täckning');
+    expect(ruta!.textContent).not.toMatch(/kontrollera|kontrollerad/i);
+    act(() => { q('larm-visa')!.click(); });
+    expect(visa).toBe(1);
+    act(() => { q('info-tillbaka')!.click(); });
+    expect(q('oversikt-larm')).not.toBeNull();
+  });
+  it('larmkoordinat saknas → raden öppnar ingenting', async () => {
+    await montera(<TraktOversikt {...props({ larm: { satt: false, koordinat: '', beskrivning: '', onVisa: () => {} } })} />);
+    act(() => { q('oversikt-larm-rad')!.click(); });
+    expect(q('larm-vy')).toBeNull();
+  });
   it('all text är UTSKRIVEN: Vidas text, trakten och kommentaren på kartan — aldrig "1 med text"', async () => {
     await montera(<TraktOversikt {...props()} />);
     expect(q('oversikt-veta')!.textContent).toContain('Säljaren behåller lövet');

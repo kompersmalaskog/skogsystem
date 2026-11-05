@@ -73,3 +73,12 @@ describe('listaPunkt — en fast plats, aldrig en ruta (Bondeskogs basväg går 
     expect(listaPunkt({ lat: null, lng: null }, trakt)).toBeNull();
   });
 });
+
+describe('larmplatsen på kartan har vägen tillbaka till listan (Martin 2026-11-05)', () => {
+  it('Hela trakten sätter larmPaKartan och listen "‹ Lista" öppnar listan igen', async () => {
+    const { readFileSync } = await import('node:fs');
+    const s = readFileSync('app/planering/page.tsx', 'utf8');
+    expect(s).toMatch(/onVisa: \(\) => \{ stang\(\); larmFlyTill\(\); setLarmPaKartan\(true\); \}/);
+    expect(s).toMatch(/testid="larm-list"[\s\S]{0,400}etikett: 'Lista', onClick: \(\) => \{ setLarmPaKartan\(false\); setInfoStartVy\('oversikt'\); setTraktOversiktOpen\(true\); \}/);
+  });
+});

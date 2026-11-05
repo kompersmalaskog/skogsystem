@@ -18,6 +18,7 @@ import { byggOmGrupper, objektTitel, type TypRad } from '@/lib/omTrakten';
 import type { Risk } from '@/lib/riskbedomning';
 import { utanTextRad, type SkyddRad } from '@/lib/traktOversikt';
 import BrandriskRad from './BrandriskRad';
+import LarmVy from './LarmVy';
 import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
 import { KommentarVisning } from './KommentarRuta';
 import type { OmMiljoRad } from './OmTrakten';
@@ -116,6 +117,8 @@ function KartRad({ m, forsta, ny, ikon, objektId, onOppna, onFoto }: { m: KartMa
 export default function TraktOversikt(p: TraktOversiktProps) {
   const [sparar, setSparar] = useState(false);
   const [fel, setFel] = useState(false);
+  // Larmraden öppnar "Om något händer" i samma panel, med "‹ Hela trakten" tillbaka (Martin 2026-11-05).
+  const [larmVy, setLarmVy] = useState(false);
   const grupper = useMemo(
     () => byggOmGrupper(p.markeringar, null, p.miljo.map((m) => ({ id: m.id as 'hogstubbar' | 'evighetstrad', namn: m.namn, antal: m.antal, krav: m.krav, uppfyllt: m.uppfyllt })), []),
     [p.markeringar, p.miljo],
@@ -139,6 +142,10 @@ export default function TraktOversikt(p: TraktOversiktProps) {
     if (ok) p.onStang(); else setFel(true);
   };
 
+  if (larmVy && p.larm?.satt) {
+    return <LarmVy koordinat={p.larm.koordinat} beskrivning={p.larm.beskrivning} onVisa={p.larm.onVisa} onTillbaka={() => setLarmVy(false)} onStang={p.onStang} />;
+  }
+
   return (
     <>
       <Huvud titel={p.namn} undertitel={p.under || undefined} onStang={p.onStang} />
@@ -151,7 +158,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
               <RadKnapp ikon="emergency" farg={FARG.rod} forstaRad testid="oversikt-larm-rad"
                 etikett="Om något händer – ring 112"
                 under={p.larm.satt ? [p.larm.koordinat, p.larm.beskrivning].filter(Boolean).join(' · ') : 'Larmkoordinat saknas – fråga planeraren'}
-                onTryck={p.larm.satt ? p.larm.onVisa : () => {}} pil={p.larm.satt} />
+                onTryck={p.larm.satt ? () => setLarmVy(true) : () => {}} pil={p.larm.satt} />
             </Gruppkort>
           </section>
         )}

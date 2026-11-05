@@ -1,0 +1,35 @@
+'use client';
+
+// OM NÅGOT HÄNDER — ett tryck på larmraden i Hela trakten (Martin 2026-11-05: "jag kan inte komma tillbaka till listan").
+// Koordinaten STORT så den går att läsa upp för SOS, var platsen är, en enkel rad om täckning, och "Visa på kartan"
+// (kartan visar platsen med "‹ Lista" nertill). Lathunden med bilder kommer när företagets rutin är skriven — ingen påhittad text här.
+
+import React from 'react';
+import { AVSTAND, FARG, IKON, KNAPP, TYP } from '@/lib/design/tokens';
+import { Gruppkort, Huvud } from './infoDelar';
+
+export const LARM_TACKNING = 'Kolla att du har täckning här innan du börjar.';
+
+export default function LarmVy({ koordinat, beskrivning, onVisa, onTillbaka, onStang }: {
+  koordinat: string; beskrivning: string; onVisa: () => void; onTillbaka: () => void; onStang: () => void;
+}) {
+  return (
+    <>
+      <Huvud titel="Om något händer" tillbaka="Hela trakten" onTillbaka={onTillbaka} onStang={onStang} />
+      <div data-testid="larm-vy" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+        <Gruppkort>
+          <div style={{ padding: `${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.listtitel, color: FARG.rod }}>
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.rod }}>emergency</span>
+              Ring 112 och läs upp larmkoordinaten
+            </div>
+            <div data-testid="larm-koordinat" style={{ ...TYP.tal, color: FARG.text, overflowWrap: 'anywhere', userSelect: 'text' }}>{koordinat}</div>
+            {beskrivning && <div data-testid="larm-beskrivning" style={{ ...TYP.text, color: FARG.text }}>{beskrivning}</div>}
+          </div>
+        </Gruppkort>
+        <div data-testid="larm-tackning" style={{ ...TYP.text, color: FARG.text2 }}>{LARM_TACKNING}</div>
+        <button type="button" data-testid="larm-visa" onClick={onVisa} style={KNAPP.primar}>Visa på kartan</button>
+      </div>
+    </>
+  );
+}
