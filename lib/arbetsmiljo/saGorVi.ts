@@ -94,7 +94,7 @@ export const KATALOG: Record<InstrId, Omit<Instruktion, 'id'>> = {
     steg: [
       'Se på kartan var det är brant innan du kör dit.',
       'Kör rakt upp och ner. Aldrig tvärs över backen.',
-      'Kör hellre tom uppför och lastad nedför.',
+      'Kör hellre tom uppför och lastad nedför. Lasta aldrig över grinden – stockarna kan åka in i hytten.',
       'Bältet på. Börjar maskinen tippa: stanna i hytten.',
       'Ser det för brant ut: kör inte. Ring arbetsledningen.',
     ],
