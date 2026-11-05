@@ -62,7 +62,7 @@ describe('nya objektlistan med ett objekt bakom gäller bara planeringsvyn — i
 
   it('km-knappen och Vägbeskrivning använder SAMMA navigering (lib/navigera)', () => {
     expect(page).toContain("import { startaNavigering, harKoordinat } from '../../lib/navigera'");
-    expect((page.match(/startaNavigering\(/g) || []).length).toBe(3);   // tidig retur-listan, huvudvyns lista, Kör hit på kortet
+    expect((page.match(/startaNavigering\(/g) || []).length).toBe(2);   // tidig retur-listan och huvudvyns lista (Kör hit på kortet är borttagen 2026-11-05)
   });
 
   it('avslutar man ett objekt glöms det som planeringens startobjekt', () => {

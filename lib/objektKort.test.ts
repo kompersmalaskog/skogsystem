@@ -26,10 +26,8 @@ describe('raden under namnet: typ · avtalsform · cert', () => {
 
 describe('knapprad efter roll', () => {
   const ids = (k: ReturnType<typeof kortKnappar>) => k.map((x) => x.id);
-  it('planerare: Kör hit (Mer är en rad längst ner, inte en knapp) — Inför maskin visas inte förrän den finns', () => {
-    expect(ids(kortKnappar({ roll: 'planerare', harKoordinat: true, korvyAktiv: false, maskinSlag: null }))).toEqual(['kor-hit']);
-  });
-  it('planerare utan koordinat: inga knappar alls (ingen Kör hit att trycka på)', () => {
+  it('planerare: inga knappar — Kör hit är borttagen (Martin 2026-11-05: används aldrig)', () => {
+    expect(ids(kortKnappar({ roll: 'planerare', harKoordinat: true, korvyAktiv: false, maskinSlag: null }))).toEqual([]);
     expect(ids(kortKnappar({ roll: 'planerare', harKoordinat: false, korvyAktiv: false, maskinSlag: null }))).toEqual([]);
   });
   it('förare på skotare: Körvy · Skotning · Utkört', () => {
@@ -52,9 +50,6 @@ describe('knapprad efter roll', () => {
   it('"Mer" är aldrig en knapp (den är inte det viktigaste på kortet)', () => {
     for (const roll of ['planerare', 'forare'] as const) for (const maskinSlag of [null, 'skordare', 'skotare'] as const) for (const korvyAktiv of [false, true])
       expect(ids(kortKnappar({ roll, harKoordinat: true, korvyAktiv, maskinSlag }))).not.toContain('mer');
-  });
-  it('Kör hit finns aldrig för förare', () => {
-    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skotare' }))).not.toContain('kor-hit');
   });
 });
 

@@ -4,6 +4,7 @@
 //
 //   Uppifrån: namn · Faror (röd rad, säkerhet står alltid överst) · TILL FÖRAREN (Vidas traktdirektiv i sin helhet, samma ruta som instruktionskortet) · Brandrisk · knapprad efter
 //   roll (utan Mer) · faktabrickor · uppdraget: Instruktioner på trakten · På trakten · Vad betyder kartan · Dokument · Larmkoordinat · Mer (en rad, längst ner).
+//   PLANERAREN (`planerare`): inga knappar eller brickor, svaret "Klar med trakten?" överst och EN lista: Risker · Markägaren · På trakten · … · Mer.
 //
 // Ren presentation: sidan bygger texterna (lib/objektKort) och bestämmer vad ett tryck gör.
 
@@ -67,21 +68,39 @@ export interface ObjektKortProps {
   onKlar?: () => void;
   /** Besök på trakten (planerarens kort): SMS till markägaren, besökslänken och loggen. null/saknas = visas inte (förare, maskinläget). */
   besok?: BesokPlanerareProps | null;
+  /** PLANERAREN i planeringsläget (Martin 2026-11-05: "så enkel att ett barn förstår den direkt"): inga faktabrickor (ha och m³ står i raden under namnet),
+   *  "Klar med trakten?" som svaret överst, och allt annat i EN lista — Risker · Markägaren · På trakten · Dokument · Vad betyder kartan · Mer. Föraren och maskinläget rörs inte. */
+  planerare?: boolean;
   /** Skotarläget: vädret de närmaste dagarna (bara här — inget väder på kartan). Sist på kortet. */
   vader?: React.ReactNode;
 }
 
 export default function ObjektKort(p: ObjektKortProps) {
   const [dokOppen, setDokOppen] = useState(false);
+  // Markägaren: EN rad på kortet; SMS, besökssidan, länken och loggen ligger bakom den (kommer man från en påminnelse om SMS:et öppnas den direkt).
+  const [markagareOppen, setMarkagareOppen] = useState(!!p.besok?.fokusSms);
   const n = p.knappar.length;
   // Alla knappar på EN rad. Fyra (förare) kräver tätare: 4 px mellanrum och ingen sidopadding ger 79 px per knapp på en 360 px bred telefon — "Skotning" är 73 px.
   const kolumner = Math.max(1, n);
   const tat = n >= 4;
-  const alla = [...p.brickor, ...p.extraBrickor];
+  const alla = p.planerare ? [] : [...p.brickor, ...p.extraBrickor];
+  const undertitel = p.planerare ? planerarRad(p.rad, p.brickor) : p.rad;
+  const paTrakten = p.paTrakten && p.planerare ? p.paTrakten.split(' · ')[0] : p.paTrakten;   // "17 markeringar" — "med text" säger inget för planeraren
+
+  if (markagareOppen && p.besok) {
+    return (
+      <>
+        <Huvud titel="Markägaren" undertitel={p.besok.markagare || undefined} tillbaka={p.namn} onTillbaka={() => setMarkagareOppen(false)} onStang={p.onStang} />
+        <div data-testid="kort-markagare-vy" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
+          <BesokPlanerare {...p.besok} />
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
-      <Huvud titel={p.namn} undertitel={p.rad || undefined} onStang={p.onStang} />
+      <Huvud titel={p.namn} undertitel={undertitel || undefined} onStang={p.onStang} />
       <div data-testid="kort-innehall" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
         {/* FAROR — röd rad med ord (färg är aldrig ensam bärare) */}
         {p.faror.length > 0 && (
@@ -91,15 +110,8 @@ export default function ObjektKort(p: ObjektKortProps) {
           </div>
         )}
 
-        {/* RISKER PÅ TRAKTEN — planerarens riskbedömning, direkt under Faror; ett tryck öppnar steget Risker */}
-        {p.riskRad && p.onRisker && (
-          <div style={{ marginBottom: AVSTAND.m }}>
-            <Gruppkort testid="kort-planerare-risker">
-              <RadKnapp forstaRad testid="kort-planerare-risker-rad" ikon="health_and_safety" etikett="Risker på trakten" onTryck={p.onRisker}
-                under={<span data-testid="kort-planerare-risker-under" data-ton={p.riskRad.ton} style={{ color: p.riskRad.ton === 'orange' ? FARG.orange : FARG.gron }}>{p.riskRad.text}</span>} />
-            </Gruppkort>
-          </div>
-        )}
+        {/* KLAR MED TRAKTEN? — SVARET för planeraren, direkt under Faror: "Klar för maskin ✓" eller "N kvar" i orange. Ett tryck öppnar checklistan. */}
+        {p.klarRad && p.onKlar && <KlarSvar chip={p.klarRad.chip} onKlar={p.onKlar} />}
 
         {/* TILL FÖRAREN — Vidas traktdirektiv och planerarens texter, HÖGST UPP (efter Faror-raden: säkerhet står alltid överst) och ALLTID i sin helhet: aldrig avklippt, inget "Läs allt".
             SAMMA ruta som instruktionskortet och kartkortet (KommentarRuta): ljusare ruta, 19 px text, blå "Vida · traktdirektiv". Vidas direktiv är löptext utan radbrytningar och delas
@@ -122,16 +134,6 @@ export default function ObjektKort(p: ObjektKortProps) {
 
         {/* BRANDRISK — bara när någon av de fem dagarna är 3 eller högre; direkt under Faror */}
         {p.brand && <BrandriskRad lat={p.brand.lat} lng={p.brand.lng} onOppna={p.onBrand} luftUnder={AVSTAND.m} />}
-
-        {/* KLAR MED TRAKTEN? — planerarens ingång till färdigplaneringen; "N kvar" i orange, "Klar" i grönt (ord och färg tillsammans) */}
-        {p.klarRad && p.onKlar && (
-          <div style={{ marginBottom: AVSTAND.m }}>
-            <Gruppkort testid="kort-klar">
-              <RadKnapp forstaRad testid="kort-klar-rad" etikett="Klar med trakten?" onTryck={p.onKlar}
-                hoger={p.klarRad.chip ? <span data-testid="kort-klar-chip" data-ton={p.klarRad.chip.ton} style={{ ...TYP.listtitel, color: p.klarRad.chip.ton === 'orange' ? FARG.orange : p.klarRad.chip.ton === 'gron' ? FARG.gron : FARG.text }}>{p.klarRad.chip.text}</span> : undefined} />
-            </Gruppkort>
-          </div>
-        )}
 
         {/* KNAPPRAD efter roll — högst EN primär: den första. "Mer" ligger inte här: den är en rad längst ner i uppdraget. Inga knappar = ingen rad. */}
         {n > 0 && <div data-testid="kort-knappar" style={{ display: 'grid', gridTemplateColumns: `repeat(${kolumner}, minmax(0, 1fr))`, gap: tat ? AVSTAND.xs : AVSTAND.s, marginBottom: AVSTAND.l }}>
@@ -179,20 +181,25 @@ export default function ObjektKort(p: ObjektKortProps) {
           </div>
         )}
 
-        {/* BESÖK PÅ TRAKTEN — bara planeraren: SMS till markägaren, länken till besökssidan och loggen över anmälningar */}
-        {p.besok && <BesokPlanerare {...p.besok} />}
-
-        {/* UPPDRAGET: På trakten · Brandrisk · Dokument · Larmkoordinat */}
+        {/* UPPDRAGET — EN lista: (planeraren: Risker · Markägaren) · På trakten · Vad betyder kartan · Dokument · Larmkoordinat · Mer */}
         <Gruppkort testid="kort-uppdrag">
+          {p.riskRad && p.onRisker && (
+            <RadKnapp forstaRad testid="kort-planerare-risker-rad" ikon="health_and_safety" etikett="Risker på trakten" onTryck={p.onRisker}
+              under={<span data-testid="kort-planerare-risker-under" data-ton={p.riskRad.ton} style={{ color: p.riskRad.ton === 'orange' ? FARG.orange : FARG.gron }}>{p.riskRad.text}</span>} />
+          )}
+          {p.besok && (
+            <RadKnapp forstaRad={!(p.riskRad && p.onRisker)} testid="kort-markagare" ikon="person" etikett="Markägaren" onTryck={() => setMarkagareOppen(true)}
+              under={p.besok.markagare || 'Namn saknas'} />
+          )}
           {p.instruktioner && p.instruktioner.antal > 0 && (
             <RadKnapp forstaRad testid="kort-instruktioner" etikett={`Instruktioner på trakten (${p.instruktioner.antal})`} onTryck={p.instruktioner.onOppna}
               hoger={p.instruktioner.nya > 0 ? <span data-testid="kort-instruktioner-nya" style={{ ...TYP.listtitel, color: FARG.text }}>{p.instruktioner.nya} {p.instruktioner.nya === 1 ? 'ny' : 'nya'}</span> : undefined} />
           )}
-          {p.paTrakten && (
-            <RadKnapp forstaRad={!(p.instruktioner && p.instruktioner.antal > 0)} testid="kort-pa-trakten" etikett={`På trakten · ${p.paTrakten}`} onTryck={p.onPaTrakten} />
+          {paTrakten && (
+            <RadKnapp forstaRad={!(p.instruktioner && p.instruktioner.antal > 0) && !(p.riskRad && p.onRisker) && !p.besok} testid="kort-pa-trakten" etikett={`På trakten · ${paTrakten}`} onTryck={p.onPaTrakten} />
           )}
           {p.onKarta && (
-            <RadKnapp forstaRad={!p.paTrakten && !(p.instruktioner && p.instruktioner.antal > 0)} testid="kort-vad-betyder-kartan" etikett="Vad betyder kartan" onTryck={p.onKarta} />
+            <RadKnapp forstaRad={!paTrakten && !(p.instruktioner && p.instruktioner.antal > 0) && !(p.riskRad && p.onRisker) && !p.besok} testid="kort-vad-betyder-kartan" etikett="Vad betyder kartan" onTryck={p.onKarta} />
           )}
           {p.onCert && <RadKnapp testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}
           {p.dokument && (
@@ -209,6 +216,26 @@ export default function ObjektKort(p: ObjektKortProps) {
         {p.vader && <div data-testid="kort-vader" style={{ marginTop: AVSTAND.l }}>{p.vader}</div>}
       </div>
     </>
+  );
+}
+
+/** Raden under namnet för planeraren: "Slutavverkning · Au · PEFC · 2,5 ha · 610 m³" (areal och volym ur faktabrickorna, som inte visas). */
+export function planerarRad(rad: string, brickor: Bricka[]): string {
+  const fakta = brickor.filter((b) => b.id === 'areal' || b.id === 'volym').map((b) => b.varde);
+  return [rad, ...fakta].filter(Boolean).join(' · ');
+}
+
+/** Svaret överst på planerarens kort. Grön chip = "Klar för maskin ✓"; annars "Klar med trakten?" med det som är kvar i orange. */
+function KlarSvar({ chip, onKlar }: { chip: { text: string; ton: 'orange' | 'gron' | 'neutral' } | null; onKlar: () => void }) {
+  const klar = chip?.ton === 'gron';
+  return (
+    <div style={{ marginBottom: AVSTAND.m }}>
+      <Gruppkort testid="kort-klar">
+        <RadKnapp forstaRad testid="kort-klar-rad" etikett={klar ? 'Klar för maskin' : 'Klar med trakten?'} onTryck={onKlar}
+          hoger={chip && !klar ? <span data-testid="kort-klar-chip" data-ton={chip.ton} style={{ ...TYP.listtitel, color: chip.ton === 'orange' ? FARG.orange : FARG.text }}>{chip.text}</span>
+            : klar ? <span data-testid="kort-klar-chip" data-ton="gron" style={{ ...TYP.listtitel, color: FARG.gron }}>✓</span> : undefined} />
+      </Gruppkort>
+    </div>
   );
 }
 

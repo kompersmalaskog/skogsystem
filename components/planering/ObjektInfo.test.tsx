@@ -8,6 +8,7 @@ vi.mock('@/lib/supabase', () => ({ supabase: { from: () => ({}), storage: { from
 const smhi = vi.hoisted(() => ({ fel: false, klasser: [2, 3, 4, 5, 3, 1] as number[] }));
 // Fotokön (IndexedDB finns inte i jsdom): det lokala fotot som väntar på uppladdning.
 const kon = vi.hoisted(() => ({ blob: null as Blob | null }));
+vi.mock('@/components/besok/BesokPlanerare', () => ({ default: () => <div data-testid="besok-stub">besök</div> }));
 vi.mock('@/lib/markeringFotoKo', () => ({ lokaltMarkeringFoto: vi.fn(async () => kon.blob), prenumereraFotoKo: () => () => {} }));
 vi.mock('@/lib/smhi-brandrisk', () => {
   const dagar = () => Array.from({ length: 6 }, (_, i) => {
@@ -133,16 +134,42 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
     expect(q('kort-uppdrag')).not.toBeNull();   // allt syns
   });
 
-  it('planerare: EN knapp, Kör hit (ingen Inför maskin, ingen Körvy) — och Mer är en rad längst ner i uppdraget, inte en knapp', async () => {
+  it('planerare: inga knappar alls (Kör hit är borttagen) — Mer är en rad längst ner i uppdraget', async () => {
     await montera(props());
-    expect(qa('kort-knappar')[0].querySelectorAll('button').length).toBe(1);
-    expect(q('kort-knapp-kor-hit')).not.toBeNull();
-    expect(q('kort-knapp-mer')).toBeNull();
+    expect(q('kort-knappar')).toBeNull();
+    expect(behallare!.textContent).not.toContain('Kör hit');
     expect(q('kort-mer')).not.toBeNull();
-    expect(q('kort-knapp-korvy')).toBeNull();
-    expect(behallare!.textContent).not.toContain('Inför maskin');
-    klicka(q('kort-knapp-kor-hit'));
-    expect(spion.knapp).toEqual(['kor-hit']);
+  });
+
+  it('PLANERAREN (planeringsläget): svaret överst, inga faktabrickor (ha och m³ i raden), en lista med Risker · Markägaren · På trakten', async () => {
+    const p = props();
+    await montera({ ...p, klar: klarProps({}), kort: { ...p.kort, planerare: true, klarRad: { chip: { text: '3 kvar', ton: 'orange' } }, riskRad: planerarRiskRad(0, true),
+      besok: { objektId: 'objekt-1', status: 'planerad', markagare: 'Anders Ingemarsson', markagareTel: null, fastighet: null, planeradStart: null, faktiskStart: null, pagaendeStartad: null } } });
+    expect(q('info-undertitel')!.textContent).toBe('Slutavverkning · Rp · FSC PEFC · 3,6 ha · 950 m³');
+    expect(q('kort-brickor')).toBeNull();
+    expect(q('kort-klar-rad')!.textContent).toContain('Klar med trakten?');
+    expect(q('kort-klar-chip')!.textContent).toBe('3 kvar');
+    klicka(q('kort-klar-rad')); await flush(); expect(q('klar-innehall')).not.toBeNull();
+    await act(async () => { rot!.unmount(); }); behallare!.remove();
+    await montera({ ...p, klar: klarProps({}), kort: { ...p.kort, planerare: true, riskRad: planerarRiskRad(0, true),
+      besok: { objektId: 'objekt-1', status: 'planerad', markagare: 'Anders Ingemarsson', markagareTel: null, fastighet: null, planeradStart: null, faktiskStart: null, pagaendeStartad: null } }, onRiskerForbered: () => {} });
+    const rader = Array.from(q('kort-uppdrag')!.children).map((e) => e.getAttribute('data-testid'));
+    expect(rader.slice(0, 3)).toEqual(['kort-planerare-risker-rad', 'kort-markagare', 'kort-pa-trakten']);
+    expect(q('kort-pa-trakten')!.textContent).toBe('På trakten · 4 markeringar');
+    expect(q('kort-markagare')!.textContent).toContain('Anders Ingemarsson');
+    expect(q('besok-stub')).toBeNull();   // SMS, länken och loggen ligger bakom raden
+    klicka(q('kort-markagare'));
+    expect(q('besok-stub')).not.toBeNull();
+    expect(q('info-titel')!.textContent).toBe('Markägaren');
+    klicka(q('info-tillbaka'));
+    expect(q('kort-uppdrag')).not.toBeNull();
+  });
+
+  it('PLANERAREN: klar trakt = "Klar för maskin ✓"', async () => {
+    const p = props();
+    await montera({ ...p, klar: klarProps({}), kort: { ...p.kort, planerare: true, klarRad: { chip: { text: 'Klar', ton: 'gron' } } } });
+    expect(q('kort-klar-rad')!.textContent).toContain('Klar för maskin');
+    expect(q('kort-klar-chip')!.textContent).toBe('✓');
   });
 
   it('förare: Körvy · Skotning · Utkört — varje knapp ropar rätt handling; Mer (en rad) öppnar Mer här inne', async () => {
@@ -199,8 +226,10 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
     const f = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(f(q('kort-faror')!, q('kort-till-foraren')!)).toBe(true);
     expect(f(q('kort-till-foraren')!, q('info-brandrisk-kort')!)).toBe(true);
-    expect(f(q('kort-till-foraren')!, q('kort-knappar')!)).toBe(true);
     expect(f(q('kort-till-foraren')!, q('kort-uppdrag')!)).toBe(true);
+    await act(async () => { rot!.unmount(); }); behallare!.remove();
+    await montera(props({ roll: 'forare', faror: ['Kraftledning'] }));
+    expect(f(q('kort-till-foraren')!, q('kort-knappar')!)).toBe(true);
   });
 
   it('Vidas direktiv har ✓ Sett under rutan i maskinläget (instruktion nr 1) — tills det setts; planeringsvyn har ingen knapp', async () => {
@@ -648,7 +677,7 @@ describe('position — sidans currentPosition är { lat, lon } (PR 766)', () => 
 
   it('utan position: kortet OCH Om trakten renderas, utan avstånd', async () => {
     await montera(sk(sidansPosition(null)));
-    expect(q('kort-knappar')).not.toBeNull();
+    expect(q('kort-uppdrag')).not.toBeNull();
     klicka(q('kort-pa-trakten'));
     expect(qa('om-objekt').length).toBe(2);
     expect(qa('om-avstand').length).toBe(0);
@@ -656,7 +685,7 @@ describe('position — sidans currentPosition är { lat, lon } (PR 766)', () => 
 
   it('MED position i { lat, lon }-form: kortet OCH Om trakten renderas, och avstånd visas (närmast först)', async () => {
     await montera(sk(sidansPosition({ lat: 56.4009, lon: 14.7 })));
-    expect(q('kort-knappar')).not.toBeNull();
+    expect(q('kort-uppdrag')).not.toBeNull();
     klicka(q('kort-pa-trakten'));
     const rader = qa('om-objekt');
     expect(rader.map((r) => r.getAttribute('data-id'))).toEqual(['f1', 'f2']);
@@ -771,15 +800,15 @@ describe('planerarens rad "Risker på trakten" (Martin 2026-11-01: satte en ledn
     expect(planerarRiskRad(0, false).text).toBe('Inga särskilda risker · Godkänn innan maskinen börjar');
   });
 
-  it('står under Faror; ett tryck ställer kortet på steget Risker och öppnar "Klar med trakten?"', async () => {
+  it('står först i listan; ett tryck ställer kortet på steget Risker och öppnar "Klar med trakten?"', async () => {
     let forberedd = 0;
     const p = props({ faror: ['Kraftledning'] });
     await montera({ ...p, kort: { ...p.kort, riskRad: planerarRiskRad(1, false) }, klar: klarProps({}), onRiskerForbered: () => { forberedd++; } });
     const rad = q('kort-planerare-risker-rad')!;
     expect(q('kort-planerare-risker-under')!.textContent).toBe('1 risk · Godkänn innan maskinen börjar');
-    // under Faror, före Till föraren
-    expect(q('kort-faror')!.compareDocumentPosition(rad) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(rad.compareDocumentPosition(q('kort-till-foraren')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // först i listan, efter Faror och Till föraren (svaret och Vidas text står överst)
+    expect(q('kort-till-foraren')!.compareDocumentPosition(rad) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(q('kort-uppdrag')!.firstElementChild).toBe(rad);
     klicka(rad);
     await flush();
     expect(forberedd).toBe(1);
