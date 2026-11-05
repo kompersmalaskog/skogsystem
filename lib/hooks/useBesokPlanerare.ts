@@ -20,9 +20,11 @@ export type PlanerareState = {
   maskinNamn: Record<string, string>;
   personNamn: Record<string, string>;
   avsandare: { id: string; namn: string | null; telefon: string | null } | null;
+  /** TESTFASEN: aktiva admin med telefon (Martin och Joacim) — mottagare av besöks-SMS:et innan markägaren får det. */
+  testMottagare: { id: string; namn: string; telefon: string }[];
 };
 
-const TOM: PlanerareState = { laddat: false, migrering: true, fel: null, lank: null, besok: [], kvittenser: [], sms: [], maskinNamn: {}, personNamn: {}, avsandare: null };
+const TOM: PlanerareState = { laddat: false, migrering: true, fel: null, lank: null, besok: [], kvittenser: [], sms: [], maskinNamn: {}, personNamn: {}, avsandare: null, testMottagare: [] };
 const saknasTabell = (m?: string | null) => /does not exist|schema cache|PGRST205|42P01/i.test(m ?? '');
 
 const SMS_KOLUMNER = 'id, oppnad_av, oppnad_at, mottagare_namn, mottagare_nummer';
@@ -54,7 +56,7 @@ export function useBesokPlanerare({ objektId, aktiv, skapaLank }: { objektId: st
         supabase.from('objekt_besok').select('id, namn, telefon, besokstid, skapad_at').eq('objekt_id', id).order('skapad_at', { ascending: false }).limit(100),
         lasSms(id),
         supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell'),
-        supabase.from('medarbetare').select('id, namn'),
+        supabase.from('medarbetare').select('id, namn, telefon, roll, aktiv'),
         supabase.auth.getUser().then(async ({ data }) => data.user?.id
           ? supabase.from('medarbetare').select('id, namn, telefon').eq('user_id', data.user.id).maybeSingle()
           : { data: null, error: null }),
@@ -79,12 +81,14 @@ export function useBesokPlanerare({ objektId, aktiv, skapaLank }: { objektId: st
       const maskinNamn: Record<string, string> = {};
       for (const m of ((mask.data ?? []) as { maskin_id: string; visningsnamn: string | null; modell: string | null }[])) maskinNamn[m.maskin_id] = m.visningsnamn || m.modell || m.maskin_id;
       const personNamn: Record<string, string> = {};
-      for (const m of ((med.data ?? []) as { id: string; namn: string }[])) personNamn[m.id] = m.namn;
+      const medRader = (med.data ?? []) as { id: string; namn: string; telefon?: string | null; roll?: string | null; aktiv?: boolean | null }[];
+      for (const m of medRader) personNamn[m.id] = m.namn;
+      const testMottagare = medRader.filter((m) => m.roll === 'admin' && m.aktiv !== false && (m.telefon ?? '').trim()).map((m) => ({ id: m.id, namn: m.namn, telefon: String(m.telefon).trim() }));
       const jag = me.data as { id: string; namn: string | null; telefon: string | null } | null;
       setS((p) => ({
         laddat: true, migrering: true, fel: k.error ? k.error.message : null,
         lank: lank ?? p.lank, besok, kvittenser: (k.data ?? []) as KvittensRad[], sms: sm.data ?? [],
-        maskinNamn, personNamn, avsandare: jag ? { id: jag.id, namn: jag.namn, telefon: jag.telefon } : null,
+        maskinNamn, personNamn, avsandare: jag ? { id: jag.id, namn: jag.namn, telefon: jag.telefon } : null, testMottagare,
       }));
     } catch (e) {
       setS((p) => ({ ...p, laddat: true, fel: e instanceof Error ? e.message : 'Kunde inte läsa besöken' }));

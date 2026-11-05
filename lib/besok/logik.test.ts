@@ -231,9 +231,9 @@ describe('påminnelsen till planeraren', () => {
   });
   const hamta = (rad: any, fel?: string) => async () => ({ rad, fel });
   const n = { typ: 'besok_paminnelse', payload: { objekt_id: 'A', nar: 'i morgon' }, skapad_at: new Date(NU.getTime() - 60000).toISOString() };
-  it('texten byggs färskt: "<Trakt> startar i morgon" + "Skicka till markägaren?" och länken öppnar kortet', async () => {
+  it('texten byggs färskt: "<Trakt> startar i morgon" + "Skicka besökslänken?" och länken öppnar kortet', async () => {
     const u = await byggBesokNotis(n, hamta({ id: 'A', namn: 'Hålabäck', status: 'planerad', sms_skickat: false }), NU.getTime());
-    expect(u).toEqual({ typ: 'skicka', meddelande: { title: 'Hålabäck startar i morgon', body: 'Skicka till markägaren?', url: '/planering?objekt=A&besok=sms', tag: 'besok-A' } });
+    expect(u).toEqual({ typ: 'skicka', meddelande: { title: 'Hålabäck startar i morgon', body: 'Skicka besökslänken?', url: '/planering?objekt=A&besok=sms', tag: 'besok-A' } });
   });
   it('redan skickat, avslutat, borta, för gammalt, läsfel', async () => {
     expect((await byggBesokNotis(n, hamta({ id: 'A', namn: 'H', status: 'planerad', sms_skickat: true }), NU.getTime())).typ).toBe('hoppa_over');

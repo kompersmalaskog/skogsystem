@@ -1,6 +1,7 @@
 'use client';
 
-// "Besök på trakten" i objektets ⓘ-kort (planeringsläget): SMS till markägaren, besökslänken (på/av, visa som markägaren) och loggen över alla anmälningar och kvittenser.
+// "Besök på trakten" i objektets ⓘ-kort (planeringsläget): SMS med besökslänken, besökslänken (på/av, visa som markägaren) och loggen över alla anmälningar och kvittenser.
+// TESTFAS (Martin 2026-11-05, `INKOPARE_SMS_PA`/`MARKAGARE_SMS_PA`): SMS:et går först bara till oss (Martin, Joacim), sedan också till inköparen, sist till markägaren.
 // SMS:et skickas ALDRIG av appen — knappen öppnar telefonens Meddelanden med mottagare och text ifyllda; planeringen läser, ändrar och trycker själv på skicka.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -12,6 +13,25 @@ import { besoksUrl } from '@/lib/besok/offentlig';
 import { loggRader, smsLage } from '@/lib/besok/planerare';
 import { markagareFornamn } from '@/lib/besok/sms';
 import { telNummer } from '@/app/oversikt/objekt-info';
+import { INKOPARE_SMS_PA, MARKAGARE_SMS_PA, TEST_INKOPARE } from '@/lib/besok/konstanter';
+
+/** En mottagare av besöks-SMS:et. */
+export interface SmsMottagare { id: string; etikett: string; namn: string | null; tel: string | null }
+
+/** Bara inköparna i testet (TEST_INKOPARE) går att välja. */
+export function arTestInkopare(namn: string | null | undefined): boolean {
+  const n = (namn ?? '').trim().toLowerCase();
+  return !!n && TEST_INKOPARE.some((t) => t.toLowerCase() === n);
+}
+
+/** Vem SMS:et kan gå till: markägaren (bara när `markagareSms`), inköparen (bara när `inkopareSms` och numret finns) och oss (aktiva admin med telefon). */
+export function smsMottagare(o: { markagareSms: boolean; inkopareSms: boolean; markagare: string | null; markagareTel: string | null; inkopare: string | null; inkopareTel: string | null; oss: { id: string; namn: string; telefon: string }[] }): SmsMottagare[] {
+  const ut: SmsMottagare[] = [];
+  if (o.markagareSms) ut.push({ id: 'markagare', etikett: o.markagare?.trim() ? `Markägaren · ${o.markagare.trim()}` : 'Markägaren', namn: markagareFornamn(o.markagare) ?? (o.markagare?.trim() || null), tel: o.markagareTel?.trim() || null });
+  if (o.inkopareSms && o.inkopareTel?.trim() && arTestInkopare(o.inkopare)) ut.push({ id: 'inkopare', etikett: o.inkopare?.trim() ? `Inköparen · ${o.inkopare.trim()}` : 'Inköparen', namn: o.inkopare?.trim() || 'Inköparen', tel: o.inkopareTel.trim() });
+  for (const m of o.oss) { const f = m.namn.trim().split(/\s+/)[0] || m.namn; ut.push({ id: `med-${m.id}`, etikett: f, namn: f, tel: m.telefon }); }
+  return ut;
+}
 
 export interface BesokPlanerareProps {
   objektId: string;
@@ -22,6 +42,13 @@ export interface BesokPlanerareProps {
   planeradStart: string | null;
   faktiskStart: string | null;
   pagaendeStartad: string | null;
+  /** inköparen ur traktdirektivet (objekt.inkopare / inkopare_tel) — mottagare i testfasen */
+  inkopare?: string | null;
+  inkopareTel?: string | null;
+  /** Bara för test: får markägaren väljas? Standard: MARKAGARE_SMS_PA. */
+  markagareSms?: boolean;
+  /** Bara för test: får inköparen väljas? Standard: INKOPARE_SMS_PA. */
+  inkopareSms?: boolean;
   /** påminnelsen öppnade kortet: SMS-raden rullas fram och markeras */
   fokusSms?: boolean;
   /** Bara för test: hur sms:-länken öppnas och vilken adress länken till markägaren byggs på. Standard: Meddelanden via window.location och den adress appen körs på. */
@@ -60,6 +87,7 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
   const d = useBesokPlanerare({ objektId: p.objektId, aktiv: true, skapaLank: !avslutat });
   const [loggOppen, setLoggOppen] = useState(false);
   const [meddelande, setMeddelande] = useState<string | null>(null);
+  const [valjer, setValjer] = useState(false);
   const smsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (p.fokusSms) smsRef.current?.scrollIntoView({ block: 'center' }); }, [p.fokusSms, d.laddat]);
@@ -82,8 +110,9 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
   }
 
   const lankKlar = !!d.lank && d.lank.aktiv && !avslutat;
-  const fornamnMark = markagareFornamn(p.markagare);
-  const mottagare = [p.markagare?.trim() || null, p.markagareTel?.trim() || null].filter(Boolean).join(' · ');
+  const markagareSms = p.markagareSms ?? MARKAGARE_SMS_PA;
+  const inkopareSms = p.inkopareSms ?? INKOPARE_SMS_PA;
+  const mottagare = smsMottagare({ markagareSms, inkopareSms, markagare: p.markagare, markagareTel: p.markagareTel, inkopare: p.inkopare ?? null, inkopareTel: p.inkopareTel ?? null, oss: d.testMottagare ?? [] });
 
   /** Texten som skickas/kopieras – samma för båda vägarna. */
   function byggText(lank: string): string {
@@ -93,27 +122,29 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
       lank, avsandareNamn: d.avsandare?.namn, avsandareTelefon: d.avsandare?.telefon, foretagTelefon: p.foretagTelefon,
     });
   }
-  const loggInfo = () => ({ avsandareId: d.avsandare?.id ?? null, mottagareNamn: fornamnMark ?? (p.markagare?.trim() || null), mottagareNummer: telNummer(p.markagareTel) });
+  const loggInfo = (m: { namn: string | null; tel: string | null }) => ({ avsandareId: d.avsandare?.id ?? null, mottagareNamn: m.namn, mottagareNummer: telNummer(m.tel) });
+  /** Svaret på "Skickade du SMS:et?" gäller den mottagare som senast öppnades/kopierades (ur loggen, så det håller efter en omladdning). */
+  const senaste = d.sms[0] ? { namn: d.sms[0].mottagare_namn ?? null, tel: d.sms[0].mottagare_nummer ?? null } : { namn: null, tel: null };
 
-  function skicka() {
+  function skicka(m: SmsMottagare) {
     if (!d.lank) return;   // knappen anropar bara skicka() när lankKlar (länk på, trakten ej avslutad) — ENDA stället som avgör det
-    setMeddelande(null);
+    setMeddelande(null); setValjer(false);
     const text = byggText(besoksUrl(p.origin ?? window.location.origin, d.lank.token));
     if (mobil) {
       // Loggen först (fire-and-forget: ett fel där får aldrig stoppa SMS:et), sedan Meddelanden — i samma tryck. "Öppnat" är INTE "skickat": kortet frågar efteråt.
-      void d.loggaSms({ ...loggInfo(), handelse: 'oppnad' });
-      (p.navigera ?? ((h: string) => { window.location.href = h; }))(smsLank(p.markagareTel, text, arIos(navigator.userAgent, navigator.maxTouchPoints)));
+      void d.loggaSms({ ...loggInfo(m), handelse: 'oppnad' });
+      (p.navigera ?? ((h: string) => { window.location.href = h; }))(smsLank(m.tel, text, arIos(navigator.userAgent, navigator.maxTouchPoints)));
       return;
     }
     // Dator: ingen sms:-länk (den öppnar inget användbart) — texten med länken kopieras, planeraren klistrar in den där hen skickar.
     (p.kopiera ?? kopieraText)(text).then(
-      () => { void d.loggaSms({ ...loggInfo(), handelse: 'kopierad' }); setMeddelande(p.markagareTel ? `Kopierat — klistra in i ett SMS till ${p.markagareTel}.` : 'Kopierat — klistra in i ett SMS.'); },
+      () => { void d.loggaSms({ ...loggInfo(m), handelse: 'kopierad' }); setMeddelande(m.tel ? `Kopierat — klistra in i ett SMS till ${m.tel}.` : 'Kopierat — klistra in i ett SMS.'); },
       () => setMeddelande('Kunde inte kopiera — försök igen.'),
     );
   }
 
   function svara(skickat: boolean) {
-    void d.loggaSms({ ...loggInfo(), handelse: skickat ? 'skickad' : 'ej_skickad' });
+    void d.loggaSms({ ...loggInfo(senaste), handelse: skickat ? 'skickad' : 'ej_skickad' });
   }
 
   // Inget nummer i SMS:et? Då står raden "Ring mig på …" bort — planeraren ska veta det innan hen skickar.
@@ -131,10 +162,18 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
       <Rubrik>Besök på trakten</Rubrik>
       <Gruppkort>
         <div ref={smsRef} style={p.fokusSms ? { outline: `2px solid ${FARG.text}`, outlineOffset: -2, borderRadius: RADIE.kort } : undefined}>
-          <RadKnapp forstaRad testid="kort-besok-sms" ikon={mobil ? 'sms' : 'content_copy'} etikett={mobil ? 'Skicka till markägaren' : 'Kopiera SMS-text och länk'}
-            under={avslutat ? 'Trakten är avslutad' : !d.lank ? 'Förbereder länken …' : !d.lank.aktiv ? 'Länken är avstängd — slå på den först' : [mottagare || 'Markägare saknas', p.markagareTel ? null : 'nummer saknas — du skriver det själv', smsStatus].filter(Boolean).join(' · ')}
-            onTryck={() => (lankKlar ? skicka() : setMeddelande(avslutat ? 'Trakten är avslutad.' : 'Länken är inte klar än.'))} />
+          <RadKnapp forstaRad testid="kort-besok-sms" ikon={mobil ? 'sms' : 'content_copy'} etikett={mobil ? 'Skicka besökslänken' : 'Kopiera SMS-text och länk'}
+            under={avslutat ? 'Trakten är avslutad' : !d.lank ? 'Förbereder länken …' : !d.lank.aktiv ? 'Länken är avstängd — slå på den först' : [markagareSms ? null : inkopareSms ? 'Test – bara till inköparen och oss' : 'Test – bara till oss', smsStatus].filter(Boolean).join(' · ')}
+            onTryck={() => (lankKlar ? setValjer((v) => !v) : setMeddelande(avslutat ? 'Trakten är avslutad.' : 'Länken är inte klar än.'))} />
         </div>
+        {valjer && lankKlar && (
+          <div data-testid="kort-besok-mottagare">
+            {mottagare.length === 0 && <div style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.m}px`, ...TYP.meta, color: FARG.orange, borderTop: `1px solid ${FARG.linje}` }}>Ingen att skicka till — inköparens nummer saknas och ingen av oss har telefon i Admin › Medarbetare.</div>}
+            {mottagare.map((m) => (
+              <RadKnapp key={m.id} testid={`kort-besok-till-${m.id}`} ikon="person" etikett={m.etikett} under={m.tel || 'nummer saknas — du skriver det själv'} onTryck={() => skicka(m)} />
+            ))}
+          </div>
+        )}
         {lage.typ === 'obekraftad' && !avslutat && (
           <div data-testid="kort-besok-sms-fraga" style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.m}px`, borderTop: `1px solid ${FARG.linje}` }}>
             <div style={{ ...TYP.listtitel }}>Skickade du SMS:et?</div>
