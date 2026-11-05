@@ -85,7 +85,7 @@ function montera(start: KlarFixtur, extra?: Partial<KlarMedTraktenProps>) {
 beforeEach(() => { Object.assign(spion, { granska: [], bekrafta: 0, klarForMaskin: 0, fortsatter: 0, placeraAvlagg: 0, ritaBasvag: 0, sattVed: 0, stammer: 0, stang: 0, patchar: [] }); sattBredd(390); });
 afterEach(() => { act(() => { rot?.unmount(); }); behallare?.remove(); rot = null; behallare = null; });
 
-const ALLA_SVAR = (): KlarFixtur['harDu'] => { let s = {}; for (const id of ['gransar', 'naturvarden', 'kulturlamningar', 'ledningar', 'snitslat', 'avlagg_hugga'] as const) s = sattHarDu(s, id, 'ja', 'm1', 'T'); return s; };
+const ALLA_SVAR = (): KlarFixtur['harDu'] => { let s = {}; for (const { id } of HAR_DU_FRAGOR) s = sattHarDu(s, id, 'ja', 'm1', 'T'); return s; };
 
 /** Allt ifyllt, prognosen godkänd, alla sex frågor besvarade: "Allt klart". */
 const KLAR: KlarFixtur = {
@@ -103,7 +103,6 @@ const rubrik = () => text('klar-steg-rubrik');
 const hoppa = () => klicka(q('klar-steg-hoppa'));
 /** Hoppa över på Har du … går en FRÅGA framåt; steget är klart efter den sjätte */
 const hoppaHarDu = () => { for (let k = 0; k < HAR_DU_FRAGOR.length; k += 1) hoppa(); };
-const gaIgenom = () => klicka(q('klar-ga-igenom'));
 /** radens id i Behöver dig, i ordning */
 const kvarRader = () => Array.from(q('klar-behover')!.querySelectorAll('[data-kvar="1"]')).map((e) => e.getAttribute('data-testid')!.replace('klar-post-', ''));
 const skriva = (id: string, v: string) => { klicka(q(`klar-cell-${id}`)); skriv(q(`klar-${id}`) as HTMLInputElement, v); blur(q(`klar-${id}`)); };
@@ -115,249 +114,136 @@ const EGNA: KlarFixtur = { skordare: EGEN('R64101'), skotare: EGEN('A110148'), s
 /** Allt ifyllt utom att prognosen inte är godkänd: prognosen är det enda som är kvar. */
 const BARA_PROGNOS: KlarFixtur = { ...KLAR, godkand: false };
 
-describe('GÖRA: start (något är kvar)', () => {
-  it('rubriken är traktens namn; under den "N saker kvar" i orange — antalet är områden, samma som stegen', () => {
+describe('GÖRA: EN sida — "N klara ✓", sedan det som är kvar (Martin 2026-11-05: inga steg att gå igenom)', () => {
+  it('rubriken är traktens namn; under den "N kvar" i orange — en rad per sak, varje obesvarad fråga en egen rad', () => {
     montera({});
-    expect(text('klar-status')).toBe(`${kvarSteg(klarProps({}).status).length} saker kvar`);
-    expect(text('klar-status')).toBe('5 saker kvar');
+    const st = klarProps({}).status;
+    expect(text('klar-status')).toBe(`${st.antalKvar} kvar`);
+    expect(st.antalKvar).toBe(4 + HAR_DU_FRAGOR.length);
     expect(q('klar-status')!.style.color).toBe(orange());
     expect(behallare!.textContent).toContain('Skälviken');
-    expect(finns('klar-fakta')).toBe(false);                             // åtgärd · areal · volym hör till sammanställningen, inte till uppgiftslistan
+    expect(finns('klar-fakta')).toBe(false);
+    expect(finns('klar-ga-igenom')).toBe(false);
   });
-  it('en stor knapp "Gå igenom" överst; Behöver dig-listan ligger under och har ett steg per område i stegens ordning', () => {
+  it('Kvar-listan: Avlägg · Förutsättningar · Maskiner · Prognos, sedan varje obesvarad fråga med Ja/Nej på raden', () => {
     montera({});
-    expect(text('klar-ga-igenom')).toBe('Gå igenom');
-    expect(px(q('klar-ga-igenom')!.style.minHeight)).toBeGreaterThanOrEqual(60);
-    expect(kvarRader()).toEqual(['avlagg', 'forutsattningar', 'maskiner', 'harDu', 'prognos']);
-    expect(text('klar-rad-avlagg-varde')).toBe('Placera på kartan');
+    expect(kvarRader()).toEqual(['avlagg', 'forutsattningar', 'maskiner', 'prognos', ...HAR_DU_FRAGOR.map((f) => `fraga-${f.id}`)]);
+    expect(text('klar-rad-avlagg-varde')).toBe('Placera');
     expect(text('klar-rad-forutsattningar-varde')).toBe('3 att välja');
     expect(text('klar-rad-maskiner-varde')).toBe('Välj');
-    expect(text('klar-rad-harDu-varde')).toBe('0 av 6');
     expect(text('klar-rad-prognos-varde')).toMatch(/^Saknar /);
-  });
-  it('varje rad beter sig likadant: inga fält, inga utfällningar i listan — bara en pil som öppnar sitt steg', () => {
-    montera({});
     expect(q('klar-behover')!.querySelectorAll('input,textarea').length).toBe(0);
-    for (const s of kvarRader()) {
-      const rad = q(`klar-rad-${s}`)!;
-      expect(rad.tagName, s).toBe('BUTTON');
-      expect(px(rad.style.minHeight), s).toBeGreaterThanOrEqual(44);
-      expect(rad.getAttribute('aria-expanded'), s).toBeNull();
-    }
   });
-  it('"Visa hela trakten ›" öppnar sammanställningen (ingen egen lista, inget "Allt som är ifyllt"); "Om trakten ›" finns kvar och ber sidan öppna ⓘ', () => {
+  it('en fråga svaras direkt på raden och raden försvinner; antalet sjunker med ett', () => {
+    montera({});
+    const fore = klarProps({}).status.antalKvar;
+    klicka(q('klar-fraga-markagare-ja'));
+    expect(finns('klar-post-fraga-markagare')).toBe(false);
+    expect(text('klar-status')).toBe(`${fore - 1} kvar`);
+    klicka(q('klar-fraga-gransar-nej'));
+    expect(finns('klar-post-fraga-gransar')).toBe(false);
+    expect(text('klar-status')).toBe(`${fore - 2} kvar`);
+  });
+  it('Avlägg och Basväg gör saken direkt — ingen mellanskärm', () => {
+    montera({ basvagForvantad: true });
+    klicka(q('klar-rad-avlagg'));
+    expect(spion.placeraAvlagg).toBe(1);
+    klicka(q('klar-rad-basvag'));
+    expect(spion.ritaBasvag).toBe(1);
+    expect(finns('klar-steg')).toBe(false);
+  });
+  it('Förutsättningar öppnar sitt steg (knappen heter Klar); klart → tillbaka och raden är borta', () => {
+    montera({});
+    klicka(q('klar-rad-forutsattningar'));
+    expect(rubrik()).toBe('Förutsättningar');
+    expect(finns('klar-steg-framsteg')).toBe(false);
+    expect(finns('klar-steg-hoppa')).toBe(false);
+    expect(text('klar-steg-nasta')).toBe('Klar');
+    klicka(q('klar-barighet-bra')); klicka(q('klar-terrang-kuperat')); klicka(q('klar-skotningsavstand-kort'));
+    klicka(q('klar-steg-nasta'));
+    expect(kvarRader()).not.toContain('forutsattningar');
+  });
+  it('Maskiner lämnar listan först när båda rollerna är valda', () => {
+    montera({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101') });
+    expect(kvarRader()).toContain('maskiner');
+    montera_om({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101'), skotare: EGEN('A110148') });
+    expect(kvarRader()).not.toContain('maskiner');
+  });
+  it('Medelstam saknas: egen rad "Skriv" som öppnar ett steg med ett skrivfält', () => {
+    montera({ medelstam: null });
+    expect(text('klar-rad-medelstam-varde')).toBe('Skriv');
+    klicka(q('klar-rad-medelstam'));
+    skriv(q('klar-medelstam-falt') as HTMLInputElement, '0,64');
+    expect(spion.patchar.at(-1)).toEqual({ medelstam: '0,64' });
+  });
+  it('"N klara ✓ ›" öppnar sammanställningen; "Om trakten ›" ber sidan öppna ⓘ', () => {
     let info = 0;
-    montera({}, { onInfo: () => { info += 1; } });
-    expect(text('klar-se-oppna')).toBe('Visa hela trakten');
-    expect(behallare!.textContent).not.toContain('Allt som är ifyllt');
-    expect(text('klar-info')).toBe('Om trakten');
+    montera({ avlaggAntal: 1 }, { onInfo: () => { info += 1; } });
+    expect(text('klar-se-oppna')).toMatch(/^\d+ klara✓$/);
     klicka(q('klar-info'));
     expect(info).toBe(1);
     klicka(q('klar-se-oppna'));
     expect(finns('klar-se')).toBe(true);
     expect(finns('klar-behover')).toBe(false);
+    klicka(q('klar-se-tillbaka'));
+    expect(finns('klar-behover')).toBe(true);
   });
-  it('utan onInfo (förarens vy, körvy) finns ingen "Om trakten"-rad', () => {
+  it('utan onInfo finns ingen "Om trakten"-rad', () => {
     montera({});
     expect(finns('klar-info')).toBe(false);
   });
-  it('orange står bara på antalet i rubriken och på värdet i Behöver dig-raderna', () => {
+  it('orange står bara på antalet i rubriken, värdet i raderna och frågornas varningar', () => {
     montera({});
     const orangea = Array.from(behallare!.querySelectorAll<HTMLElement>('*')).filter((e) => e.style.color === orange());
     expect(orangea.length).toBeGreaterThan(0);
     for (const e of orangea) {
-      const ok = e.getAttribute('data-testid') === 'klar-status' || e.closest('[data-testid^="klar-rad-"][data-testid$="-varde"]') != null;
+      const id = e.getAttribute('data-testid') ?? '';
+      const ok = id === 'klar-status' || id.startsWith('klar-varning-') || e.closest('[data-testid^="klar-rad-"][data-testid$="-varde"]') != null;
       expect(ok, e.outerHTML.slice(0, 120)).toBe(true);
     }
   });
-  it('Klar för maskin spärrar aldrig: den går att trycka med saker kvar, och Fortsätter en annan dag stänger', () => {
+  it('Klar för maskin spärrar aldrig: grå med saker kvar, grön när allt är klart; Fortsätter en annan dag stänger', () => {
     montera({});
     expect(q('klar-for-maskin')!.getAttribute('data-klar')).toBe('0');
-    expect(q('klar-for-maskin')!.hasAttribute('disabled')).toBe(false);
     klicka(q('klar-for-maskin'));
     expect(spion.klarForMaskin).toBe(1);
     klicka(q('klar-fortsatter'));
     expect(spion.fortsatter).toBe(1);
+    montera_om(KLAR);
+    expect(q('klar-for-maskin')!.getAttribute('data-klar')).toBe('1');
   });
-  it('inget innehåll ligger under Klar för maskin: knappraden är en egen rad under det som scrollar, och listan har luft i botten', () => {
+  it('inget innehåll ligger under Klar för maskin, och listan har luft i botten', () => {
     montera({});
     expect(q('klar-innehall')!.contains(q('klar-for-maskin'))).toBe(false);
     expect(px(q('klar-innehall')!.style.paddingBottom)).toBeGreaterThanOrEqual(32);
   });
 });
 
-describe('GÖRA: "Gå igenom" — ett steg i taget', () => {
-  it('första steget: "‹ traktnamn", "1 av 5", framstegsstreck med fem delar, rubrik, stor knapp, Föregående (grå) och Hoppa över', () => {
-    montera({});
-    gaIgenom();
-    expect(rubrik()).toBe('Avlägg');
-    expect(text('klar-steg-tillbaka')).toBe('Skälviken');
-    expect(text('klar-steg-rakneverk')).toBe('1 av 5');
-    expect(q('klar-steg-framsteg')!.children.length).toBe(5);
-    expect(q('klar-steg-framsteg')!.children[0].getAttribute('data-delsteg')).toBe('nu');
-    expect(text('klar-steg-nasta')).toBe('Nästa');
-    expect(px(q('klar-steg-nasta')!.style.minHeight)).toBeGreaterThanOrEqual(60);
-    expect(q('klar-steg-foregaende')!.hasAttribute('disabled')).toBe(true);
-    expect(finns('klar-steg-hoppa')).toBe(true);
-  });
-  it('strecket räknar bara stegen som är kvar: "4 saker kvar" = 1 av 4 — och sammanfattningen är slutskärmen, inte ett numrerat steg', () => {
-    montera({ avlaggAntal: 1 });
-    expect(text('klar-status')).toBe('4 saker kvar');
-    gaIgenom();
-    expect(rubrik()).toBe('Förutsättningar');                               // klara steg hoppas över
-    expect(text('klar-steg-rakneverk')).toBe('1 av 4');
-    expect(q('klar-steg-framsteg')!.children.length).toBe(4);
-    hoppa(); hoppa();                                                       // Maskiner · Har du …
-    expect(rubrik()).toBe(HAR_DU_FRAGOR[0].fraga);
-    expect(text('klar-steg-rakneverk')).toBe('3 av 4');                     // strecket räknar steg, inte frågor
-    hoppaHarDu();
-    expect(rubrik()).toBe('Prognos');
-    expect(text('klar-steg-rakneverk')).toBe('4 av 4');
-    hoppa();
-    expect(rubrik()).toBe('Sammanfattning');
-    expect(finns('klar-steg-framsteg')).toBe(false);
-    expect(finns('klar-steg-rakneverk')).toBe(false);
-    expect(finns('klar-steg-hoppa')).toBe(false);                           // ingenting att hoppa över på slutskärmen
-  });
-  it('stegen kommer i ordning: Avlägg · Förutsättningar · Maskiner · Har du … · Prognos · Sammanfattning; Föregående går tillbaka', () => {
-    montera({});
-    gaIgenom();
-    const sett: string[] = [rubrik()];
-    for (let k = 0; k < 3; k += 1) { hoppa(); sett.push(rubrik()); }
-    expect(sett).toEqual(['Avlägg', 'Förutsättningar', 'Maskiner', HAR_DU_FRAGOR[0].fraga]);
-    hoppaHarDu(); sett.push(rubrik());
-    expect(sett.at(-1)).toBe('Prognos');
-    hoppa();
-    expect(rubrik()).toBe('Sammanfattning');
-    klicka(q('klar-steg-foregaende'));
-    expect(rubrik()).toBe('Prognos');
-    expect(text('klar-steg-rakneverk')).toBe('5 av 5');
-  });
-  it('‹ traktnamn tar tillbaka till uppgiftslistan', () => {
-    montera({});
-    gaIgenom();
-    klicka(q('klar-steg-tillbaka'));
-    expect(finns('klar-behover')).toBe(true);
-    expect(finns('klar-steg')).toBe(false);
-  });
-  it('Avlägg: kartan visas, "Placera på kartan" ber sidan krympa arket till en list; Nästa går vidare', () => {
-    montera({}, { kartaYta: <div data-testid="karta-yta">karta</div> });
-    gaIgenom();
-    expect(finns('karta-yta')).toBe(true);
-    expect(finns('klar-avlagg-status')).toBe(false);                        // ingen text om att inget är placerat — knappen räcker
-    expect(behallare!.textContent).not.toContain('Tryck på kartan där avlägget ska ligga');
-    klicka(q('klar-avlagg-placera'));
-    expect(spion.placeraAvlagg).toBe(1);
-    klicka(q('klar-steg-nasta'));
-    expect(rubrik()).toBe('Förutsättningar');
-  });
-  it('Förutsättningar: tre segmentknappar; ett val sparas direkt och etiketten slutar vara orange', () => {
-    montera({ avlaggAntal: 1 });
-    gaIgenom();
-    for (const id of ['barighet', 'terrang', 'skotningsavstand']) {
-      expect(q(`klar-seg-${id}`)!.getAttribute('data-vald'), id).toBe('0');
-      expect(q(`klar-seg-${id}-etikett`)!.style.color, id).toBe(orange());
-    }
-    expect(Array.from(q('klar-seg-barighet')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Bra', 'Medel', 'Dålig']);
-    expect(Array.from(q('klar-seg-terrang')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Flack', 'Kuperad', 'Brant']);
-    expect(Array.from(q('klar-seg-skotningsavstand')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Kort', 'Medel', 'Långt']);
-    klicka(q('klar-barighet-bra'));
-    expect(spion.patchar.at(-1)).toEqual({ barighet: 'bra' });
-    expect(q('klar-seg-barighet-etikett')!.style.color).not.toBe(orange());
-    klicka(q('klar-barighet-bra'));                                         // samma val igen tar tillbaka svaret
-    expect(spion.patchar.at(-1)).toEqual({ barighet: null });
-  });
-  it('Maskiner: egen maskin eller extern; valet sparas direkt, extern kräver ett namn', () => {
-    montera({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel' });
-    gaIgenom();
-    expect(rubrik()).toBe('Maskiner');
-    klicka(q('klar-skordare-egen'));
-    klicka(q('klar-skordare-maskin-R64101'));
-    expect(spion.patchar.at(-1)).toEqual({ skordare: EGEN('R64101') });
-    klicka(q('klar-skotare-extern'));
-    expect(finns('klar-skotare-extern-namn')).toBe(true);
-  });
-  it('Har du …: en fråga i taget, två stora knappar; ett svar går direkt till nästa fråga och efter den sista till nästa steg', () => {
-    montera({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36 });
-    gaIgenom();
-    expect(rubrik()).toBe(HAR_DU_FRAGOR[0].fraga);
-    expect(px(q('klar-fraga-gransar-ja')!.style.minHeight)).toBeGreaterThanOrEqual(60);
-    expect(px(q('klar-fraga-gransar-nej')!.style.minHeight)).toBeGreaterThanOrEqual(60);
-    for (let k = 0; k < HAR_DU_FRAGOR.length; k += 1) {
-      expect(rubrik(), `fråga ${k + 1}`).toBe(HAR_DU_FRAGOR[k].fraga);
-      klicka(q(`klar-fraga-${HAR_DU_FRAGOR[k].id}-ja`));
-    }
-    expect(rubrik()).toBe('Prognos');                                       // prognosen är kvar (inte godkänd) och kommer efter frågorna
-  });
-  it('Prognos: Stämmer är grå tills allt som behövs finns; trycket sparar godkännandet och leder till sammanfattningen', () => {
-    montera({ ...KLAR, godkand: false, skordareTimmar: null });
-    gaIgenom();
-    expect(rubrik()).toBe('Prognos');
-    expect(q('klar-stammer')!.hasAttribute('disabled')).toBe(true);
-    skriva('skordartimmar', '41');
-    expect(q('klar-stammer')!.hasAttribute('disabled')).toBe(false);
-    klicka(q('klar-stammer'));
-    expect(spion.stammer).toBe(1);
-    expect(rubrik()).toBe('Sammanfattning');
-  });
-  it('Sammanfattning: hela trakten på en sida och den gröna knappen Klar för maskin; efter trycket är kortet i läget "Klar för maskin ✓"', () => {
-    montera(BARA_PROGNOS);
-    gaIgenom();
-    klicka(q('klar-stammer'));
-    expect(finns('klar-se')).toBe(true);
-    expect(text('klar-for-maskin')).toBe('Klar för maskin');
-    klicka(q('klar-for-maskin'));
-    expect(spion.klarForMaskin).toBe(1);
-    expect(text('klar-status')).toBe('Klar för maskin ✓');
-    expect(finns('klar-for-maskin')).toBe(false);
-  });
-  it('inget ligger under Klar för maskin i sammanfattningen: knappen är en egen rad under det som scrollar, och sista raden har luft', () => {
-    montera(BARA_PROGNOS);
-    gaIgenom();
-    klicka(q('klar-stammer'));
-    const scroll = q('klar-steg-rubrik')!.parentElement!.parentElement as HTMLElement;
-    expect(scroll.contains(q('klar-for-maskin'))).toBe(false);
-    expect(px(scroll.style.paddingBottom)).toBeGreaterThanOrEqual(32);
-    expect(scroll.contains(q('klar-se-ovrigt-rad'))).toBe(true);           // sista sektionen ligger i det som scrollar, ovanför knappen
-  });
-});
-
-describe('den knapp som gör stegets sak är primär — aldrig två vita knappar samtidigt', () => {
+describe('stegen som öppnas från sammanställningen: den knapp som gör stegets sak är primär', () => {
   const vit = (id: string) => q(id)!.style.background === farg(FARG.text);
-  it('Avlägg: "Placera på kartan" är vit och Nästa grå tills avlägget är placerat; sedan tvärtom, och "Avlägg placerat ✓" står där', () => {
-    montera({});
-    klicka(q('klar-rad-avlagg'));
-    expect(text('klar-avlagg-placera')).toBe('Placera på kartan');
-    expect(vit('klar-avlagg-placera')).toBe(true);
-    expect(vit('klar-steg-nasta')).toBe(false);
-    act(() => { rot!.unmount(); }); behallare!.remove();
+  it('Avlägg placerat: "Placera ett till" grå, Klar vit', () => {
     montera({ avlaggAntal: 1 });
     klicka(q('klar-se-oppna'));
     klicka(q('klar-se-avlagg'));
     expect(text('klar-avlagg-status')).toBe('Avlägg placerat ✓');
-    expect(text('klar-avlagg-placera')).toBe('Placera ett till');
     expect(vit('klar-avlagg-placera')).toBe(false);
     expect(vit('klar-steg-nasta')).toBe(true);
   });
-  it('Basväg: "Rita basväg" är vit så länge Vidas basväg inte är ritad, Nästa grå; ritad → tvärtom', () => {
-    montera({ basvagForvantad: true });
-    klicka(q('klar-rad-basvag'));
-    expect(vit('klar-basvag-rita')).toBe(true);
-    expect(vit('klar-steg-nasta')).toBe(false);
-    act(() => { rot!.unmount(); }); behallare!.remove();
+  it('Basväg ritad: Rita basväg grå, Klar vit', () => {
     montera({ basvagForvantad: true, basvagTexter: ['Röd · 640 m'] });
     klicka(q('klar-se-oppna'));
     klicka(q('klar-se-basvag'));
     expect(vit('klar-basvag-rita')).toBe(false);
     expect(vit('klar-steg-nasta')).toBe(true);
   });
-  it('övriga steg har en enda vit knapp: Nästa/Klar (valen är segmentknappar) och Stämmer i Prognos', () => {
-    montera({ avlaggAntal: 1 });
-    gaIgenom();
-    expect(rubrik()).toBe('Förutsättningar');
-    expect(vit('klar-steg-nasta')).toBe(true);
-    hoppa();
-    expect(vit('klar-steg-nasta')).toBe(true);                             // Maskiner
+  it('Prognos: Stämmer är grå tills allt som behövs finns; trycket sparar godkännandet', () => {
+    montera({ ...KLAR, godkand: false, skordareTimmar: null });
+    klicka(q('klar-rad-prognos'));
+    expect(rubrik()).toBe('Prognos');
+    expect(q('klar-stammer')!.hasAttribute('disabled')).toBe(true);
+    skriva('skordartimmar', '41');
+    klicka(q('klar-stammer'));
+    expect(spion.stammer).toBe(1);
   });
 });
 
@@ -395,7 +281,7 @@ describe('Vidas avlägg räknas som avlägg', () => {
     expect(vit('klar-steg-nasta')).toBe(true);
     klicka(q('klar-steg-nasta'));
     expect(kvarRader()).not.toContain('avlagg');
-    expect(text('klar-status')).toBe('4 saker kvar');
+    expect(text('klar-status')).toBe(`${3 + HAR_DU_FRAGOR.length} kvar`);
   });
   it('Lägg till eget ber sidan placera ett (samma list nertill som för vanliga avlägg); frågan står kvar', () => {
     montera({ ...VIDA });
@@ -403,14 +289,6 @@ describe('Vidas avlägg räknas som avlägg', () => {
     klicka(q('klar-avlagg-placera'));
     expect(spion.placeraAvlagg).toBe(1);
     expect(finns('klar-avlagg-stammer')).toBe(true);
-  });
-  it('med en sida som visar avläggen på kartan: steget ritar ingenting i arket och sidan får veta vart kortet ska när frågan är besvarad (Gå igenom → nästa steg)', () => {
-    montera({ ...VIDA }, { onGranskaAvlagg: (e) => spion.granska.push(e) });
-    gaIgenom();
-    expect(finns('klar-avlagg-granska')).toBe(true);
-    expect(finns('klar-steg-rubrik')).toBe(false);
-    expect(spion.granska.length).toBe(1);
-    expect(spion.granska[0]).toMatchObject({ v: 'steg', flode: { typ: 'alla', steg: 'forutsattningar' } });
   });
   it('en rad i Behöver dig: efter frågan öppnas kortet i listan igen; ur sammanställningen: tillbaka dit (kortet visar sammanställningen när inget är kvar)', () => {
     montera({ ...VIDA }, { onGranskaAvlagg: (e) => spion.granska.push(e) });
@@ -421,11 +299,11 @@ describe('Vidas avlägg räknas som avlägg', () => {
     klicka(q('klar-se-avlagg'));                                            // tryck på raden = visa dem på kartan
     expect(spion.granska).toEqual([{ v: 'kort' }]);                       // kortet visar sammanställningen när inget är kvar — samma sida
   });
-  it('utan Vida-avlägg visas aldrig kartläget — steget är det vanliga (Placera på kartan)', () => {
+  it('utan Vida-avlägg visas aldrig kartläget — raden ber sidan placera ett direkt', () => {
     montera({}, { onGranskaAvlagg: (e) => spion.granska.push(e) });
     klicka(q('klar-rad-avlagg'));
     expect(spion.granska.length).toBe(0);
-    expect(text('klar-avlagg-placera')).toBe('Placera på kartan');
+    expect(spion.placeraAvlagg).toBe(1);
   });
   it('SE-raden heter alltid "Avlägg · …": "2 från Vida", "eget", "2 från Vida + 1 eget"; kvar: "2 från Vida – bekräfta" / "saknas"', () => {
     montera({ ...KLAR, ...VIDA, vidaBekraftat: true, avlaggAntal: 0 });
@@ -446,9 +324,9 @@ describe('Vidas avlägg räknas som avlägg', () => {
     klicka(q('klar-se-oppna'));
     expect(text('klar-se-avlagg')).toBe('Avlägg · saknas');
   });
-  it('inga Vida-avlägg: som förut (Placera på kartan)', () => {
+  it('inga Vida-avlägg: raden säger "Placera"', () => {
     montera({});
-    expect(text('klar-rad-avlagg-varde')).toBe('Placera på kartan');
+    expect(text('klar-rad-avlagg-varde')).toBe('Placera');
   });
 });
 
@@ -459,7 +337,7 @@ describe('maskinerna står bara under Prognos', () => {
     expect(q('klar-se-forutsattningar')!.textContent).not.toContain('Rottne H8E · Ponsse Elephant King AF');
     expect(text('klar-se-prognos-skordare')).toContain('Rottne H8E');         // maskinen står under Prognos
   });
-  it('byte av maskin går via Prognos-steget ("Byt maskin") när det öppnats ur sammanställningen; inte i Gå igenom', () => {
+  it('byte av maskin går via Prognos-steget ("Byt maskin") när det öppnats ur sammanställningen', () => {
     montera({ ...BARA_PROGNOS });
     klicka(q('klar-se-oppna'));
     klicka(q('klar-se-prognos-skordare'));
@@ -470,71 +348,15 @@ describe('maskinerna står bara under Prognos', () => {
     expect(spion.patchar.at(-1)).toEqual({ skordare: EGEN('PONS20SDJAA270231') });
     klicka(q('klar-steg-nasta'));
     expect(finns('klar-se')).toBe(true);                                    // tillbaka i sammanställningen
-    act(() => { rot!.unmount(); }); behallare!.remove();
-    montera({ ...BARA_PROGNOS });
-    gaIgenom();
-    expect(rubrik()).toBe('Prognos');
-    expect(finns('klar-byt-maskin')).toBe(false);
-  });
-});
-
-describe('GÖRA: en rad i Behöver dig öppnar SAMMA steg — bara det steget', () => {
-  it('Förutsättningar: ingen genomgång (inget streck, inget Föregående/Hoppa över), knappen heter Klar; klart → tillbaka och raden är borta', () => {
-    montera({});
-    klicka(q('klar-rad-forutsattningar'));
-    expect(rubrik()).toBe('Förutsättningar');
-    expect(finns('klar-steg-framsteg')).toBe(false);
-    expect(finns('klar-steg-rakneverk')).toBe(false);
-    expect(finns('klar-steg-foregaende')).toBe(false);
-    expect(finns('klar-steg-hoppa')).toBe(false);
-    expect(text('klar-steg-nasta')).toBe('Klar');
-    klicka(q('klar-barighet-bra')); klicka(q('klar-terrang-kuperat')); klicka(q('klar-skotningsavstand-kort'));
-    klicka(q('klar-steg-nasta'));
-    expect(finns('klar-behover')).toBe(true);
-    expect(kvarRader()).not.toContain('forutsattningar');
-    expect(text('klar-status')).toBe('4 saker kvar');
-  });
-  it('Har du … från listan: de sex frågorna är delarna i strecket', () => {
-    montera({});
-    klicka(q('klar-rad-harDu'));
-    expect(q('klar-steg-framsteg')!.children.length).toBe(HAR_DU_FRAGOR.length);
-    klicka(q(`klar-fraga-${HAR_DU_FRAGOR[0].id}-nej`));
-    expect(rubrik()).toBe(HAR_DU_FRAGOR[1].fraga);
-  });
-  it('Maskiner: valet för bägge rollerna är ETT område som lämnar listan först när båda är valda', () => {
-    montera({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel' });
-    expect(kvarRader()).toContain('maskiner');
-    act(() => { rot!.unmount(); }); behallare!.remove();
-    montera({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101') });
-    expect(kvarRader()).toContain('maskiner');                              // bara ena rollen vald → fortfarande kvar
-    act(() => { rot!.unmount(); }); behallare!.remove();
-    montera({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101'), skotare: EGEN('A110148') });
-    expect(kvarRader()).not.toContain('maskiner');
-  });
-  it('Medelstam saknas: egen rad "Skriv" som öppnar ett steg med ett skrivfält', () => {
-    montera({ medelstam: null });
-    expect(text('klar-rad-medelstam-varde')).toBe('Skriv');
-    klicka(q('klar-rad-medelstam'));
-    expect(finns('klar-medelstam-falt')).toBe(true);
-    skriv(q('klar-medelstam-falt') as HTMLInputElement, '0,64');
-    expect(spion.patchar.at(-1)).toEqual({ medelstam: '0,64' });
-  });
-  it('basväg som Vida har men som inte är ritad: egen rad "Rita"; stegets knapp ber sidan rita', () => {
-    montera({ basvagForvantad: true });
-    expect(kvarRader()).toContain('basvag');
-    expect(text('klar-rad-basvag-varde')).toBe('Rita');
-    klicka(q('klar-rad-basvag'));
-    klicka(q('klar-basvag-rita'));
-    expect(spion.ritaBasvag).toBe(1);
   });
 });
 
 describe('SE: en sida som ett ifyllt A4', () => {
-  it('"Visa hela trakten" → sektionerna Prognos · Förutsättningar · Har du … · Markägare & övrigt; "‹ Till det som är kvar" tillbaka', () => {
+  it('"N klara" → sektionerna Prognos · Förutsättningar · Har du … · Markägare & övrigt; "‹ Till det som är kvar" tillbaka', () => {
     montera({});
     klicka(q('klar-se-oppna'));
     for (const id of ['prognos', 'forutsattningar', 'hardu', 'ovrigt']) expect(finns(`klar-se-${id}`), id).toBe(true);
-    expect(finns('klar-ga-igenom')).toBe(true);                             // något är kvar → "Gå igenom" överst
+    expect(finns('klar-ga-igenom')).toBe(false);                            // inga steg att gå igenom
     klicka(q('klar-se-tillbaka'));
     expect(finns('klar-behover')).toBe(true);
   });
@@ -562,7 +384,7 @@ describe('SE: en sida som ett ifyllt A4', () => {
     expect(text('klar-se-avlagg')).toBe('Avlägg · eget');
     expect(text('klar-se-basvag')).toContain('5 st · 599 m');
   });
-  it('Har du …: sex svar i två kolumner med ✓; obesvarad står som "Obesvarad" i orange', () => {
+  it('Har du …: sju svar i två kolumner med ✓; obesvarad står som "Obesvarad" i orange', () => {
     montera(KLAR);
     for (const f of HAR_DU_FRAGOR) {
       expect(q(`klar-se-fraga-${f.id}`)!.getAttribute('data-besvarad'), f.id).toBe('1');
@@ -572,7 +394,7 @@ describe('SE: en sida som ett ifyllt A4', () => {
     montera({ ...KLAR, harDu: sattHarDu({}, 'gransar', 'ja', 'm1', 'T') });
     klicka(q('klar-se-oppna'));
     expect(text('klar-se-fraga-naturvarden')).toContain('Obesvarad');
-    expect(text('klar-se-hardu-hoger')).toMatch(/^1 av 6/);
+    expect(text('klar-se-hardu-hoger')).toMatch(new RegExp(`^1 av ${HAR_DU_FRAGOR.length}`));
   });
   it('ett tryck på en sektion öppnar samma steg för att ändra — och efteråt är man tillbaka i sammanställningen', () => {
     montera(KLAR);
@@ -627,15 +449,13 @@ describe('planerad trakt', () => {
     expect(finns('klar-for-maskin')).toBe(false);
     expect(finns('klar-ga-igenom')).toBe(false);
   });
-  it('något nytt kvar efter att trakten skickats: sammanställningen + "Gå igenom" överst + "· 1 kvar" i rubriken', () => {
+  it('något nytt kvar efter att trakten skickats: Kvar-listan med den raden + "· 1 kvar" i rubriken', () => {
     montera({ ...KLAR, objektStatus: 'planerad', harDu: sattHarDu(ALLA_SVAR() ?? {}, 'gransar', 'ja', 'm1', 'T') });   // samma svar igen tar tillbaka det → en fråga obesvarad
     expect(text('klar-status')).toContain('Klar för maskin ✓');
     expect(q('klar-status')!.parentElement!.textContent).toContain('· 1 kvar');
-    expect(finns('klar-se')).toBe(true);
-    expect(finns('klar-behover')).toBe(false);
-    expect(finns('klar-ga-igenom')).toBe(true);
-    gaIgenom();
-    expect(rubrik()).toBe(HAR_DU_FRAGOR[0].fraga);                          // bara Har du … är kvar → genomgången är den steget
+    expect(kvarRader()).toEqual(['fraga-gransar']);
+    klicka(q('klar-fraga-gransar-ja'));
+    expect(finns('klar-se')).toBe(true);                                    // inget kvar → sammanställningen
   });
 });
 
@@ -780,12 +600,13 @@ describe('Markägare & övrigt (steget nås från sammanställningen)', () => {
 });
 
 describe('alla tryckytor', () => {
-  it('uppgiftslistan: ≥ 44 pt (rader) och 60 pt (Gå igenom); stegen: 60 pt på de stora knapparna', () => {
+  it('sidan: ≥ 44 pt (rader och Ja/Nej på raden); stegen: 60 pt på de stora knapparna', () => {
     montera({});
     const knappar = Array.from(behallare!.querySelectorAll<HTMLElement>('button'));
     for (const b of knappar) expect(px(b.style.minHeight) || 44, b.textContent ?? '').toBeGreaterThanOrEqual(44);
-    gaIgenom();
-    expect(px(q('klar-avlagg-placera')!.style.minHeight)).toBeGreaterThanOrEqual(60);
+    expect(px(q('klar-fraga-gransar-ja')!.style.minHeight)).toBeGreaterThanOrEqual(44);
+    klicka(q('klar-rad-forutsattningar'));
+    expect(px(q('klar-steg-nasta')!.style.minHeight)).toBeGreaterThanOrEqual(60);
     expect(px(q('klar-steg-tillbaka')!.style.minHeight)).toBeGreaterThanOrEqual(44);
   });
 });

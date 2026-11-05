@@ -5,7 +5,7 @@ import { STEG_NAMN, STEG_ORDNING, genomgangSteg, kvarSteg } from './klarSteg';
 
 const INGEN: UtforareVal = { maskinId: null, utforare: null, externNamn: '' };
 const EGEN = (id: string): UtforareVal => ({ maskinId: id, utforare: null, externNamn: '' });
-const FRAGOR: HarDuSvar = Object.fromEntries(['gransar', 'naturvarden', 'kulturlamningar', 'ledningar', 'snitslat', 'avlagg_hugga'].map((id) => [id, { svar: 'ja', av: 'm1', at: 'T' }])) as HarDuSvar;
+const FRAGOR: HarDuSvar = Object.fromEntries(['gransar', 'naturvarden', 'kulturlamningar', 'ledningar', 'snitslat', 'avlagg_hugga', 'markagare'].map((id) => [id, { svar: 'ja', av: 'm1', at: 'T' }])) as HarDuSvar;
 
 function prognos(o: Partial<PrognosIndata> = {}): PrognosIndata {
   return { skordareTimmar: null, skotareTimmar: null, volym: 1800, medelstam: 0.72, areal: 3.6, bandSkordare: null, bandSkotare: null, breddat: false, skotningsavstand: null, barighet: null, terrang: null, basvagKravs: false, basvagTimmar: null, skordare: INGEN, skotare: INGEN, ...o };
@@ -19,10 +19,10 @@ function status(o: Partial<KlarIndata> = {}, p: Partial<PrognosIndata> = {}) {
 }
 
 describe('kvarSteg', () => {
-  it('en ny trakt: avlägg · förutsättningar · maskiner · har du · prognos — och antalet är exakt antalKvar', () => {
+  it('en ny trakt: avlägg · förutsättningar · maskiner · har du · prognos — antalet = stegen utom Har du + en rad per obesvarad fråga', () => {
     const s = status();
     expect(kvarSteg(s)).toEqual(['avlagg', 'forutsattningar', 'maskiner', 'harDu', 'prognos']);
-    expect(kvarSteg(s).length).toBe(s.antalKvar);
+    expect(kvarSteg(s).length - 1 + s.frågorKvar.length).toBe(s.antalKvar);
   });
   it('ett klart område försvinner; Maskiner är kvar tills BÅDA rollerna är valda', () => {
     const delvis = status({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101') });
