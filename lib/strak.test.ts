@@ -103,6 +103,7 @@ describe('vakt: stråk är BARA ritning', () => {
       }
     };
     for (const d of ['lib', 'app', 'components']) gå(path.join(process.cwd(), d));
-    expect(traffar.sort()).toEqual(['app/planering/page.tsx', 'lib/objektoversikt/lasKarta.ts']);
+    // lib/skotarlank/server.ts: skotarlänkens karta — bara ritningen av skördarens spår, ingen beräkning.
+    expect(traffar.sort()).toEqual(['app/planering/page.tsx', 'lib/objektoversikt/lasKarta.ts', 'lib/skotarlank/server.ts']);
   });
 });

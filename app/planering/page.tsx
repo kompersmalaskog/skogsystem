@@ -14501,6 +14501,8 @@ export default function PlannerPage() {
               planeradStart: valtObjekt.planerad_start ?? null, faktiskStart: valtObjekt.faktisk_start ?? null, pagaendeStartad: valtObjekt.pagaende_startad_timestamp ?? null,
               fokusSms: besokFokus,
             } satisfies BesokPlanerareProps : null,
+            // Skotare utifrån: samma villkor som besöket — bara planeraren (riktig admin) i planeringsläget.
+            skotarLank: kortRoll === 'planerare' && isAdminRiktig && !maskinlage && !maskinSomParam && valtObjekt.id ? { objektId: String(valtObjekt.id), status: valtObjekt.status ?? null } : null,
             dokument: harDok ? {
               antal: dokAntal,
               chips: (
