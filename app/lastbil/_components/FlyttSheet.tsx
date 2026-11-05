@@ -202,6 +202,13 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   // Tiden (flytt över 3 mil) bor här, under FAKTURA: "Tid · 2 h 17 min ›" öppnar tidsvyn i samma ark (Martin 2026-10-24: ett kort = ett tryck).
   const [tidVy, setTidVy] = useState(false);
   const [tidSparadMin, setTidSparadMin] = useState<number | null>(null);
+  /** Kvittot efter att tiden sparats: "Sparad nu" under raden en stund, så man ser att trycket gick fram. */
+  const [tidKvitto, setTidKvitto] = useState(false);
+  useEffect(() => {
+    if (!tidKvitto) return;
+    const t = setTimeout(() => setTidKvitto(false), 6000);
+    return () => clearTimeout(t);
+  }, [tidKvitto]);
   const tidUnderlag = useMemo(() => (u ? [u] : null), [u]);
   const tidLas = useTraillertid(tidUnderlag);
 
@@ -258,11 +265,11 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   const tidForslag = u ? (tidLas.lage.lage === 'klar' ? tidLas.lage.forslag.get(u.id) ?? null : tidLas.lage.lage === 'fel' ? null : undefined) : undefined;
   if (tidVy && u) {
     return (
-      <TidArk maskin={titel} forslag={tidForslag ?? null} sparadMin={tidMin} last={!!u.fakturerad_tid}
+      <TidArk maskin={titel} forslag={tidForslag} sparadMin={tidMin} last={!!u.fakturerad_tid}
         onStang={() => setTidVy(false)}
         onSpara={async min => {
           const svar = await sparaTraillertid(u.id, timmarForFaktura(min));
-          if (svar.ok) { setTidSparadMin(min); setTidVy(false); onAndrad(); } else if (svar.utdaterad) onAndrad();
+          if (svar.ok) { setTidSparadMin(min); setTidKvitto(true); setTidVy(false); onAndrad(); } else if (svar.utdaterad) onAndrad();
           return svar;
         }} />
     );
@@ -270,11 +277,12 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   const tidRad = u && fakturerasPaTid(u) ? (
     <ValRad etikett="Tid" onTryck={u.fakturerad_tid ? undefined : () => setTidVy(true)}
       varde={tidMin != null ? fmtTid(tidMin) : tidForslag === undefined ? 'Läser …' : 'Saknas'}
-      notis={tidMin != null ? null
+      notis={tidKvitto ? `Sparad nu — ${tidMin != null ? fmtTid(tidMin) : ''} faktureras`
+        : tidMin != null ? null
         : tidForslag?.lage === 'ok' ? `Förslag ${fmtTid(tidForslag.min)} — tryck för att spara`
         : tidForslag?.lage === 'saknas' ? `${tidForslag.orsak} — ställ in tiden själv`
         : tidForslag === null ? 'Kunde inte läsa rundan — ställ in tiden själv' : null}
-      notisFarg={FARG.orange} />
+      notisFarg={tidKvitto ? FARG.gron : FARG.orange} />
   ) : null;
 
   // ── Låst: allt läsbart, inga chevrons, inga redigeringsknappar, en grå rad som säger varför ──
