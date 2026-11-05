@@ -109,7 +109,7 @@ describe('riskbedömningens dokument', () => {
       'Inte godkänd',
       'Inte godkänd',
     ]);
-    expect(d.sektioner[0].rader[0]).toEqual({ titel: 'Folk nära maskinen', text: 'Är någon närmare än 70 meter: stanna och vänta tills ni har pratat med varandra.' });
+    expect(d.sektioner[0].rader[0]).toEqual({ titel: 'Folk nära maskinen', text: 'Är någon närmare än 70 meter: stanna och vänta tills ni har pratat med varandra.', status: 'Allvarlig', ton: undefined });
   });
 
   it('visar vilka förare som läst, bara på godkända', () => {

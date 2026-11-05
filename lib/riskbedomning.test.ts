@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  RISK_TOM, aktuellaRisker, aterstallForslag, borttagnaForslag, foreslaRisker, forarRisk, godkann, lasRiskbedomning, laggTillEgen,
+  RISK_TOM, aktuellaRisker, allvarliga, allvarligaForst, sattAllvarlig, aterstallForslag, borttagnaForslag, foreslaRisker, forarRisk, godkann, lasRiskbedomning, laggTillEgen,
   riskAntalText, riskLage, riskUnderlag, riskbedomningTillKolumn, taBortEgen, taBortForslag, type RiskForslagIndata,
 } from './riskbedomning';
 import { berakna } from './klarTrakt';
@@ -51,7 +51,7 @@ describe('planerarens beslut', () => {
     expect(laggTillEgen(RISK_TOM, 'a', '', 'Skylt')).toBeNull();
     const rb = laggTillEgen(RISK_TOM, 'a', ' Allmän väg ', 'Skylt när vi lastar')!;
     const lista = aktuellaRisker(forslag, rb);
-    expect(lista[lista.length - 1]).toEqual({ nyckel: 'egen:a', risk: 'Allmän väg', atgard: 'Skylt när vi lastar', kalla: 'planerare' });
+    expect(lista[lista.length - 1]).toEqual({ nyckel: 'egen:a', risk: 'Allmän väg', atgard: 'Skylt när vi lastar', kalla: 'planerare', allvarlig: true });
     expect(aktuellaRisker(forslag, taBortEgen(rb, 'a'))).toHaveLength(2);
   });
 
@@ -78,9 +78,9 @@ describe('planerarens beslut', () => {
 
 describe('lagring', () => {
   it('tål skräp och sparar en tom bedömning som null', () => {
-    expect(lasRiskbedomning(null)).toEqual({ bort: [], egna: [], godkand: null });
+    expect(lasRiskbedomning(null)).toEqual({ bort: [], egna: [], mindre: [], godkand: null });
     expect(lasRiskbedomning({ bort: ['brant', 3], egna: [{ id: 'a', risk: 'x', atgard: 'y' }, { id: 1 }], godkand: { at: 'x' } }))
-      .toEqual({ bort: ['brant'], egna: [{ id: 'a', risk: 'x', atgard: 'y' }], godkand: null });
+      .toEqual({ bort: ['brant'], egna: [{ id: 'a', risk: 'x', atgard: 'y' }], mindre: [], godkand: null });
     expect(riskbedomningTillKolumn(RISK_TOM)).toBeNull();
   });
 
@@ -126,5 +126,45 @@ describe('Klar med trakten?', () => {
     const klar = berakna({ ...bas, risker: { antal: 2, kvar: false } });
     expect(kvarSteg(klar)).not.toContain('risker');
     expect(klar.poster.find((p) => p.id === 'risker')!.varde).toBe('2 risker');
+  });
+});
+
+describe('allvarlig eller mindre allvarlig (AFS 2023:1 11 §)', () => {
+  const i: RiskForslagIndata = { markeringar: [{ slag: 'symbol', typ: 'powerline' }, { slag: 'symbol', typ: 'huntingtower' }], vidaKraftledning: false, terrang: null, barighet: null, manuellFallning: false };
+  const forslag = foreslaRisker(i);
+
+  it('allt är allvarligt från början, och fingeravtrycket är detsamma som före ändringen', () => {
+    const lista = aktuellaRisker(forslag, RISK_TOM);
+    expect(lista.every((r) => r.allvarlig)).toBe(true);
+    expect(riskUnderlag(lista)).not.toContain('mindre');
+  });
+
+  it('mindre allvarlig ändrar listan och gör ett godkännande ogiltigt; tillbaka till allvarlig gör det giltigt igen', () => {
+    const godk = godkann(RISK_TOM, aktuellaRisker(forslag, RISK_TOM), 'm', '2026-11-05');
+    const mindre = sattAllvarlig(godk, 'jakttorn', false);
+    const lista = aktuellaRisker(forslag, mindre);
+    expect(lista.find((r) => r.nyckel === 'jakttorn')?.allvarlig).toBe(false);
+    expect(riskLage(lista, mindre)).toBe('kvar');
+    const tillbaka = sattAllvarlig(mindre, 'jakttorn', true);
+    expect(riskLage(aktuellaRisker(forslag, tillbaka), tillbaka)).toBe('godkand');
+  });
+
+  it('bara de allvarliga i hytten, allvarliga först i listan', () => {
+    const rb = sattAllvarlig(RISK_TOM, 'kraftledning', false);
+    const lista = aktuellaRisker(forslag, rb);
+    expect(allvarliga(lista).map((r) => r.nyckel)).toEqual(['jakttorn']);
+    expect(allvarligaForst(lista).map((r) => r.nyckel)).toEqual(['jakttorn', 'kraftledning']);
+  });
+
+  it('sparas och läses tillbaka; utan mindre sparas samma form som förut', () => {
+    const rb = sattAllvarlig(RISK_TOM, 'jakttorn', false);
+    expect(lasRiskbedomning(riskbedomningTillKolumn(rb))).toEqual(rb);
+    const utan = taBortForslag(RISK_TOM, 'brant');
+    expect(riskbedomningTillKolumn(utan)).toEqual({ bort: ['brant'], egna: [], godkand: null });
+  });
+
+  it('en borttagen egen risk tar med sig sitt allvar', () => {
+    const rb = sattAllvarlig(laggTillEgen(RISK_TOM, 'a', 'Väg', 'Skylt')!, 'egen:a', false);
+    expect(taBortEgen(rb, 'a').mindre).toEqual([]);
   });
 });
