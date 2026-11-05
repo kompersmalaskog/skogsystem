@@ -14,7 +14,7 @@ export const SheetBas: React.CSSProperties = { position: 'absolute', left: 0, ri
   // Arket är en yta att trycka på, inte text att markera: ett drag eller ett långt tryck i hytten markerade hela arket blått (2026-11-05).
   userSelect: 'none', WebkitUserSelect: 'none' };
 export function Grabber({ onClose }: { onClose: () => void }) {
-  return <button onClick={onClose} aria-label="Stäng" style={{ display: 'flex', justifyContent: 'center', border: 'none', background: 'none', padding: `${AVSTAND.xs}px 0`, cursor: 'pointer' }}><div style={{ width: 36, height: 5, borderRadius: 3, background: '#48484a' }} /></button>;
+  return <button onClick={onClose} aria-label="Stäng" style={{ display: 'flex', justifyContent: 'center', border: 'none', background: 'none', padding: `${AVSTAND.xs}px 0`, cursor: 'pointer' }}><div style={{ width: 36, height: 5, borderRadius: RADIE.stapel, background: FARG.text3 }} /></button>;
 }
 
 // Faror och hänsyn i objekt-arken: ALLA, var och en med planerarens kommentar under sig. Objekt-arket och GROT-objekt-arket delar
