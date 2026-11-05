@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { avslutaObjekt } from '@/lib/avslutaObjekt';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import { maskinVisningsnamn } from '@/lib/maskinNamn';
 import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
@@ -226,6 +227,14 @@ export default function OversiktV2Page() {
   const legGeomCache = useCallback((from: { lat: number; lng: number } | null, to: { lat: number; lng: number } | null): [number, number][] | null => (from && to ? ruttCacheRef.current.get(cacheKey(from, to))?.geom ?? null : null), []);
 
   // Kön läses om (efter GROT-städningen och vid "Försök igen"). Ett fel är ALDRIG en tom kö: skärmen behåller det den hade och bannern säger det.
+  // "GROT klart" i objekt-arket: samma avslut som planeringens Avsluta-knapp (status + ur alla köer). Objektet visas avslutat direkt.
+  const avslutaGrot = useCallback(async (objektId: string): Promise<string | null> => {
+    const r = await avslutaObjekt(supabase, { objektId });
+    if (!r.ok) return 'Kunde inte avsluta trakten. Försök igen.';
+    setObjekt((prev) => prev.map((x) => (x.id === objektId ? { ...x, status: 'avslutat' } : x)));
+    setMaskinKo((prev) => prev.filter((k) => k.objekt_id !== objektId));
+    return null;
+  }, []);
   const refetchKo = useCallback(async () => {
     try {
       const svar = await supabase.from('maskin_ko').select('*').order('ordning');
@@ -1226,7 +1235,7 @@ export default function OversiktV2Page() {
           fornamn={fornamn} smsMaskin={maskinOrd(valt?.typ)}
           onLaggIKo={laggIKo} onFlytta={flyttaKo} onTaBort={taBortKo}
           onTillbaka={valt ? () => setSelObjekt(null) : undefined}
-          fran={minPos}
+          fran={minPos} onGrotKlar={avslutaGrot}
           onClose={() => { setSelObjekt(null); setSelMaskin(null); }}
         />
       )}
@@ -1572,9 +1581,11 @@ type KobarMaskin = { id: string; namn: string; roll: MaskinTyp };
 // förare och förman. onTillbaka finns när arket öppnats från en rad i maskin-arket (pilen går tillbaka dit).
 // Köåtgärderna är verifierade och svarar null när det landade, annars ett meddelande som visas här under knapparna (aldrig tyst).
 // Sms-knappen öppnar telefonens sms-app med färdig text — appen skickar ALDRIG något själv.
-function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maskinRoll, maskinKo, forare, fornamn, smsMaskin, onLaggIKo, onFlytta, onTaBort, onSenFel, onTillbaka, onClose, fran }: {
+function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maskinRoll, maskinKo, forare, fornamn, smsMaskin, onLaggIKo, onFlytta, onTaBort, onSenFel, onTillbaka, onClose, fran, onGrotKlar }: {
   /** Din position, för km i Kör dit. */
   fran?: { lat: number; lng: number } | null;
+  /** GROT/klipp: föraren trycker "GROT klart" → avslut (lib/avslutaObjekt). null = avslutat, annars ett meddelande. */
+  onGrotKlar?: (objektId: string) => Promise<string | null>;
   o: OversiktObjekt; skord: Record<string, SkordAggV2>; warn: VarningsSvar; // läst (kan vara tomt = "ingen"), misslyckat eller pågående
   koFel: boolean; // kön gick inte att läsa: "i kö"-uppgifterna kan saknas — arket säger det i stället för att låta en tom kö stå
   skordare: { id: string; namn: string; koordinat: { lat: number; lng: number } | null; klararTyp: string | null }[];
@@ -1645,6 +1656,9 @@ function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maski
   const fakta = [atgard, areal, vol != null ? `${fmt(vol)} m³` : null].filter(Boolean).join(' · ');
   const faror = warn !== 'laddar' && warn !== 'fel' ? warn.faror : [];
   const [mer, setMer] = useState(false);
+  const [grotFraga, setGrotFraga] = useState(false); // "Är riset bortkört?" — ett tryck till avslutar
+  // GROT har ingen volym att räkna mot och hämtas ofta i omgångar → appen gissar aldrig när det är klart; föraren säger det (Martin 2026-11-05).
+  const arGrotJobb = ['grot', 'energiklippning'].includes((o.typ || '').toLowerCase()) && o.status !== 'avslutat' && !!onGrotKlar;
 
   return (
     <div className="sheet-upp" style={{ ...SheetBas, boxSizing: 'border-box', maxHeight: '62%', overflowY: 'auto' }}>
@@ -1675,6 +1689,19 @@ function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maski
           <VarningLista items={faror} farg={FARG.rod} />
         </div>
       )}
+
+      {/* GROT KLART — bara GROT/klipp. Två tryck: frågan står i arket (aldrig en dialog), Avbryt går tillbaka. */}
+      {arGrotJobb && (grotFraga ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+          <div style={{ ...TYP.text }}>Är riset bortkört? Trakten avslutas och tas ur alla köer.</div>
+          <div style={{ display: 'flex', gap: AVSTAND.s }}>
+            <button disabled={arbetar} onClick={() => { setGrotFraga(false); void kor(() => onGrotKlar!(o.id)); }} style={knappStil(KNAPP_LITEN)}>Ja, GROT klart</button>
+            <button disabled={arbetar} onClick={() => setGrotFraga(false)} style={{ minHeight: 44, padding: `0 ${AVSTAND.m}px`, border: 'none', background: 'none', color: FARG.bla, fontFamily: 'inherit', ...TYP.text, cursor: 'pointer' }}>Avbryt</button>
+          </div>
+        </div>
+      ) : (
+        <button disabled={arbetar} onClick={() => setGrotFraga(true)} style={knappStil(KNAPP_LITEN)}>GROT klart</button>
+      ))}
 
       {/* KÖN (förman): en rad per maskin som har trakten, med Flytta och Ta bort på raden. */}
       {!forare && (
@@ -1712,6 +1739,9 @@ function ObjektArk({ o, skord, koFel, warn, skordare, skotare, maskinNamn, maski
           {meddelande && <div ref={felRef} role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{meddelande}</div>}
         </div>
       )}
+
+      {forare && arbetar && <div role="status" style={{ ...TYP.meta, color: FARG.text2 }}>Sparar…</div>}
+      {forare && meddelande && <div ref={felRef} role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{meddelande}</div>}
 
       {/* MARKÄGAREN */}
       {(ringHref || smsLank) && (
