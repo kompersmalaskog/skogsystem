@@ -48,7 +48,7 @@ describe('forbered — allt föraren måste veta, för sin roll', () => {
   });
   it('dålig bärighet och trailer som inte kommer in är varningar', () => {
     const f = forbered({ id: 'x', namn: 'X', status: 'planerad', barighet: 'dalig', transport_trailer_in: false }, 'skotare', { faror: [], hansyn: [] });
-    expect(f.rader).toEqual([{ text: 'Bärighet dålig', varning: true }, { text: 'Trailern kan inte köra in', varning: true }]);
+    expect(f.rader).toEqual([{ text: 'Bärighet dålig', varning: true, grupp: 'kora' }, { text: 'Trailern kan inte köra in', varning: true, grupp: 'kora' }]);
   });
   it('faror som inte kunde läsas sägs — en tom lista är aldrig "inga faror"', () => {
     expect(forbered(arvidstorp, 'skordare', 'fel').farorOlasta).toBe(true);

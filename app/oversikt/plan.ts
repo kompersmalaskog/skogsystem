@@ -47,7 +47,9 @@ export function faktaRad(o: PlanObjekt): string {
 const TERRANG: Record<string, string> = { flackt: 'flackt', kuperat: 'kuperat', brant: 'brant' };
 const AVSTAND: Record<string, string> = { kort: 'kort skotningsavstånd', medel: 'medellångt skotningsavstånd', langt: 'långt skotningsavstånd', 'långt': 'långt skotningsavstånd' };
 
-export interface ForberedRad { text: string; varning: boolean }
+/** Vilken fråga raden svarar på: 'kora' = Hur är det att köra där?, 'tanka' = Vad ska du tänka på?, 'agare' = Vem äger skogen? */
+export type RadGrupp = 'kora' | 'tanka' | 'agare';
+export interface ForberedRad { text: string; varning: boolean; grupp: RadGrupp }
 export interface Forbered {
   /** Faror — står först, röda: riskbedömningens risker med sin åtgärd, sedan kartans faror. En risk som också är en fara på kartan
    *  (Kraftledning) står EN gång, med åtgärden och kartans kommentar. */
@@ -72,25 +74,25 @@ export function forbered(o: PlanObjekt, roll: Roll, warn: VarningsSvar): Forbere
   const bar = barighetText(o.barighet);
   const mark = [bar ? `Bärighet ${bar.text.toLowerCase()}` : null, o.terrang ? TERRANG[o.terrang.toLowerCase()] ?? o.terrang : null,
     roll === 'skotare' && o.skotningsavstand ? AVSTAND[o.skotningsavstand.toLowerCase()] ?? o.skotningsavstand : null].filter(Boolean);
-  if (mark.length) rader.push({ text: (mark.join(' · ')).replace(/^./, (c) => c.toUpperCase()), varning: !!bar?.begransning });
+  if (mark.length) rader.push({ text: (mark.join(' · ')).replace(/^./, (c) => c.toUpperCase()), varning: !!bar?.begransning, grupp: 'kora' });
 
-  if (o.transport_trailer_in === false) rader.push({ text: 'Trailern kan inte köra in', varning: true });
-  else if (o.transport_trailer_in === true) rader.push({ text: 'Trailern kan köra in', varning: false });
+  if (o.transport_trailer_in === false) rader.push({ text: 'Trailern kan inte köra in', varning: true, grupp: 'kora' });
+  else if (o.transport_trailer_in === true) rader.push({ text: 'Trailern kan köra in', varning: false, grupp: 'kora' });
 
   const band = roll === 'skordare' ? (o.skordare_band ? o.skordare_band_par : null) : (o.skotare_band ? o.skotare_band_par : null);
-  if (roll === 'skordare' ? o.skordare_band : o.skotare_band) rader.push({ text: band ? `Band behövs · ${band} par` : 'Band behövs', varning: true });
-  if (roll === 'skotare' && o.skotare_lastreder_breddat) rader.push({ text: 'Breddat lastrede', varning: false });
-  if (roll === 'skordare' && o.skordare_manuell_fallning) rader.push({ text: `Manuell fällning${o.skordare_manuell_fallning_text?.trim() ? `: ${o.skordare_manuell_fallning_text.trim()}` : ''}`, varning: true });
-  if (o.markagare_ska_ha_ved) rader.push({ text: `Markägaren ska ha ved${o.markagare_ved_text?.trim() ? `: ${o.markagare_ved_text.trim()}` : ''}`, varning: false });
+  if (roll === 'skordare' ? o.skordare_band : o.skotare_band) rader.push({ text: band ? `Band behövs · ${band} par` : 'Band behövs', varning: true, grupp: 'kora' });
+  if (roll === 'skotare' && o.skotare_lastreder_breddat) rader.push({ text: 'Breddat lastrede', varning: false, grupp: 'kora' });
+  if (roll === 'skordare' && o.skordare_manuell_fallning) rader.push({ text: `Manuell fällning${o.skordare_manuell_fallning_text?.trim() ? `: ${o.skordare_manuell_fallning_text.trim()}` : ''}`, varning: true, grupp: 'tanka' });
+  if (o.markagare_ska_ha_ved) rader.push({ text: `Markägaren ska ha ved${o.markagare_ved_text?.trim() ? `: ${o.markagare_ved_text.trim()}` : ''}`, varning: false, grupp: 'agare' });
 
   const ok = warn !== 'laddar' && warn !== 'fel';
-  if (ok) for (const h of warn.hansyn) rader.push({ text: `Hänsyn: ${h.label}${h.kommentar ? ` — ${h.kommentar}` : ''}`, varning: false });
+  if (ok) for (const h of warn.hansyn) rader.push({ text: `Hänsyn: ${h.label}${h.kommentar ? ` — ${h.kommentar}` : ''}`, varning: false, grupp: 'tanka' });
 
-  if (o.larmkoordinat_beskrivning?.trim()) rader.push({ text: `Infart: ${o.larmkoordinat_beskrivning.trim()}`, varning: false });
+  if (o.larmkoordinat_beskrivning?.trim()) rader.push({ text: `Infart: ${o.larmkoordinat_beskrivning.trim()}`, varning: false, grupp: 'kora' });
 
   // Sortimentet visas inte (Martin 2026-11-05: "det stämmer aldrig") — det som står i objekt-raden är inte det maskinen kapar.
   const cert = (o.cert ?? '').trim();
-  if (cert && cert.toLowerCase() !== 'none') rader.push({ text: `Certifierad: ${cert.split(/\s+/).join(', ')}`, varning: false });
+  if (cert && cert.toLowerCase() !== 'none') rader.push({ text: `Certifierad: ${cert.split(/\s+/).join(', ')}`, varning: false, grupp: 'tanka' });
 
   const dokument = [
     o.traktdirektiv_url ? { namn: 'Traktdirektiv', url: o.traktdirektiv_url } : null,

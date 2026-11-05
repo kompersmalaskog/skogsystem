@@ -24,7 +24,6 @@ import { beraknaForslag, arSkotare, maskinAktiv, tomtForslag, markeraOkanda, koN
 import { arbetsLage } from './lage';
 import { koLaget } from './ko-regler';
 import { barighetText, telHref } from './objekt-info';
-import { forbered, statusOrd, faktaRad, strackaText, type PlanObjekt, type Roll } from './plan';
 import { LasFelBanner, LASFEL_KO, LASFEL_SKORD, LASFEL_POS, LASFEL_POS_DELVIS, LASFEL_GROT, KO_OKAND_TEXT, SKORD_OKAND_TEXT, POS_OKAND_TEXT, POS_NU_TEXT, TEL_OKAND_TEXT, grotDoltText } from './las-fel-banner';
 import { TOMT_LAGE, VARNING_LADDAR, VARNING_LASFEL, lasVarningar, objektAttLasaForst, slaIhop, varningarAttLasa, varningFor, type VarningsLage, type VarningsSvar } from './markeringar-las';
 import { medTidsgrans, TIDSGRANS_KARN, TIDSGRANS_SEKUNDAR } from './tidsgrans';
@@ -40,7 +39,8 @@ import { sparaFalt } from '@/lib/redigering/objektRouter';
 import GrotListaArk, { ARK_ANDEL, type ArkLage } from './GrotLista';
 import GrotObjektArk, { type ArkKo, type ArkSkotare } from './GrotObjektArk';
 import { useGrotVagAvstand } from './grot-avstand';
-import { KNAPP, KNAPP_LITEN, SheetBas, Grabber, VarningLista } from './ark-delar';
+import { KNAPP, KNAPP_LITEN, SheetBas, Grabber, VarningLista, SvgRing } from './ark-delar';
+import { MinPlan } from './MinPlan';
 import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, INAKTIV, designCss, KNAPP as TOKEN_KNAPP, KOLUMN } from '@/lib/design/tokens';
 import { navigeringsMal, navigeringsUrl, type NavObjekt } from '@/lib/navigera';
 
@@ -1215,7 +1215,8 @@ export default function OversiktV2Page() {
 
       {/* MIN PLAN — förarens sida (och förmannens "Visa som förarens plan"). Ligger över kartan; kartan finns ett tryck bort. */}
       {!laddar && !fel && planF && planMaskinId && (
-        <MinPlan f={planF} namn={maskinNamnAv(planMaskinId)} legs={selMaskin === planMaskinId ? selLegs : []} varning={varningFran} fran={minPos}
+        <MinPlan f={planF} namn={maskinNamnAv(planMaskinId)} legs={selMaskin === planMaskinId ? selLegs : []} varning={varningFran}
+          korDit={(o) => <KorDit objekt={o} fran={minPos} />}
           posFel={lasFel.pos} forman={!!planFor}
           onKarta={() => { if (planFor) setPlanFor(null); else { setVisaKarta(true); } }} />
       )}
@@ -1314,177 +1315,6 @@ function useMinPosition(aktiv: boolean): { lat: number; lng: number } | null {
   return pos;
 }
 
-// ══════════════════════════════ MIN PLAN ═════════════════════════════════════
-// Förarens sida (Martin 2026-11-05): "du ska från detta objekt till detta, och statusen på det … allt han måste veta för nästa trakt
-// så han är förberedd". Ett ärligt A4 i telefonen: NU, NÄSTA (med "Förbered dig" öppet) och SEDAN. Regler och ord: ./plan.ts.
-function StatusOrd({ o }: { o: PlanObjekt }) {
-  const s = statusOrd(o);
-  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs, color: s.klar ? FARG.text : FARG.orange }}>
-    <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: s.klar ? FARG.gron : FARG.orange }} />{s.text}
-  </span>;
-}
-
-/** Det som skrivits på kartan för en trakt (kartkommentar). 'laddar' medan det läses, 'fel' när det inte gick — aldrig tyst tomt. */
-type KartText = string[] | 'laddar' | 'fel';
-
-function ForberedDig({ o, roll, warn, kartText }: { o: PlanObjekt; roll: Roll; warn: VarningsSvar; kartText: KartText }) {
-  const f = forbered(o, roll, warn);
-  const texter = Array.isArray(kartText) ? kartText : [];
-  const tomt = !f.faror.length && !f.farorOlasta && !f.planeraren && !texter.length && !f.rader.length && !f.dokument.length && !f.markagare;
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
-      <div style={{ ...TYP.micro, color: FARG.text2 }}>Förbered dig</div>
-      {tomt && <div style={{ ...TYP.text, color: FARG.text2 }}>Planeraren har inte skrivit något om den här trakten.</div>}
-      {f.farorOlasta && <div role="alert" style={{ ...TYP.text, color: FARG.orange }}>{VARNING_LASFEL}</div>}
-      {f.faror.length > 0 && <VarningLista items={f.faror} farg={FARG.rod} />}
-      {/* Riskbedömningen: ingen gjord sägs — en tom lista får aldrig läsas som "inga risker". */}
-      {!f.riskbedomd && <div style={{ ...TYP.meta, color: FARG.orange }}>Riskbedömningen är inte gjord än</div>}
-      {f.planeraren && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-          <div style={{ ...TYP.meta, color: FARG.text2 }}>Planeraren skriver</div>
-          <div style={{ ...TYP.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{f.planeraren}</div>
-        </div>
-      )}
-      {/* Det planeraren och förarna skrivit på kartan — ordagrant, en rad per kommentar. Var det står syns på kartan i Planeringen. */}
-      {(texter.length > 0 || kartText === 'fel') && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-          <div style={{ ...TYP.meta, color: FARG.text2 }}>Skrivet på kartan</div>
-          {kartText === 'fel'
-            ? <div role="alert" style={{ ...TYP.text, color: FARG.orange }}>Kunde inte läsa det som står på kartan</div>
-            : texter.map((t, i) => <div key={i} style={{ ...TYP.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{t}</div>)}
-        </div>
-      )}
-      {f.rader.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-          {f.rader.map((r, i) => <div key={i} style={{ ...TYP.text, color: r.varning ? FARG.orange : FARG.text }}>{r.text}</div>)}
-        </div>
-      )}
-      {f.dokument.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {f.dokument.map((d) => (
-            <a key={d.namn} href={d.url} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 44, color: FARG.text, textDecoration: 'none', borderBottom: `1px solid ${FARG.linje}`, ...TYP.text }}>
-              <span>{d.namn}</span><span style={{ color: FARG.text2 }}>›</span>
-            </a>
-          ))}
-        </div>
-      )}
-      {/* Markägaren: namnet bara när det finns — saknas det står bara knappen, aldrig en tom etikett. */}
-      {f.markagare && (f.markagare.namn ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: 44 }}>
-          <div style={{ flex: 1, minWidth: 0, ...TYP.text }}><span style={{ color: FARG.text2 }}>Markägare </span>{f.markagare.namn}</div>
-          {f.markagare.telHref && <a href={f.markagare.telHref} style={{ ...KNAPP_LITEN, flexGrow: 0, padding: `0 ${AVSTAND.l}px` }}><SvgRing />Ring</a>}
-        </div>
-      ) : f.markagare.telHref && <a href={f.markagare.telHref} style={KNAPP_LITEN}><SvgRing />Ring markägaren</a>)}
-    </div>
-  );
-}
-
-function MinPlan({ f, namn, legs, varning, fran, posFel, forman, onKarta }: {
-  f: MaskinForslag; namn: string; legs: (number | null)[]; varning: (objektId: string) => VarningsSvar;
-  fran: { lat: number; lng: number } | null; posFel: boolean;
-  /** Förmannen tittar på en förares plan: knappen längst ner går tillbaka till kartan i stället för "Se alla maskiner". */
-  forman: boolean; onKarta: () => void;
-}) {
-  const roll: Roll = f.typ === 'skotare' ? 'skotare' : 'skordare';
-  const ko = f.ko.filter((p) => p.kalla === 'ko');
-  const forslag = f.ko.filter((p) => p.kalla === 'forslag');
-  const lista = ko.length ? ko : forslag;                     // utan kö: appens förslag, och det står att det är förslag
-  const nasta = lista[0] ?? null;
-  const sedan = lista.slice(1);
-  const [oppen, setOppen] = useState<string | null>(null);  // en senare trakt vars "Förbered dig" är utfälld
-  // Kartans kommentarer för trakterna i planen — EN läsning. Bara läsning; skrivs i Planeringen.
-  const idNyckel = lista.map((p) => p.objekt.id).join(',');
-  const [kartText, setKartText] = useState<Record<string, string[]> | 'laddar' | 'fel'>('laddar');
-  useEffect(() => {
-    if (!idNyckel) { setKartText({}); return; }
-    let aktiv = true; setKartText('laddar');
-    supabase.from('kartkommentar').select('objekt_id, text, skapad_at').in('objekt_id', idNyckel.split(',')).order('skapad_at', { ascending: true })
-      .then(({ data, error }) => {
-        if (!aktiv) return;
-        if (error || !Array.isArray(data)) { console.error('[oversikt] kartkommentar', error); setKartText('fel'); return; }
-        const ut: Record<string, string[]> = {};
-        for (const r of data as { objekt_id: string; text: string | null }[]) { const t = r.text?.trim(); if (t) (ut[r.objekt_id] ??= []).push(t); }
-        setKartText(ut);
-      });
-    return () => { aktiv = false; };
-  }, [idNyckel]);
-  const kartFor = (id: string): KartText => (typeof kartText === 'string' ? kartText : kartText[id] ?? []);
-  const nu = f.nuObjekt as unknown as PlanObjekt | null;
-  const kort: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: AVSTAND.m, padding: AVSTAND.l, background: FARG.kort, borderRadius: RADIE.kort };
-  const franNamn = (i: number) => (i === 0 ? (f.nuObjekt ? koNamn(f.nuObjekt) : null) : koNamn(lista[i - 1].objekt));
-
-  return (
-    <div role="dialog" aria-label={`Plan för ${namn}`} style={{ position: 'absolute', inset: 0, zIndex: 20, overflowY: 'auto', background: FARG.bg, userSelect: 'none', WebkitUserSelect: 'none' }}>
-      <div style={{ maxWidth: KOLUMN.smal, margin: '0 auto', padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.xl, boxSizing: 'border-box' }}>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-          <div style={{ ...TYP.titel }}>{namn}</div>
-          <div style={{ ...TYP.meta, color: FARG.text2 }}>{forman ? 'Förarens plan' : 'Din plan'}</div>
-        </div>
-
-        {/* NU */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-          <div style={{ ...TYP.micro, color: FARG.text2 }}>Nu</div>
-          <div style={kort}>
-            {nu ? (<>
-              <div style={{ ...TYP.listtitel }}>{koNamn(f.nuObjekt!)}</div>
-              <div style={{ ...TYP.meta, color: FARG.text2 }}>{faktaRad(nu)}</div>
-              {/* Där maskinen står är "Här nu" — aldrig databasens "Klar att köra" (Bondeskog stod planerad medan Giant körde där). */}
-              <div style={{ ...TYP.text, display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs }}>
-                <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: FARG.gron }} />Här nu
-              </div>
-            </>) : <div style={{ ...TYP.text, color: posFel ? FARG.orange : FARG.text2 }}>{posFel ? POS_NU_TEXT : 'Står inte på något objekt just nu'}</div>}
-          </div>
-        </div>
-
-        {/* NÄSTA — med "Förbered dig" öppet: det föraren ska läsa innan han åker */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-          <div style={{ ...TYP.micro, color: FARG.text2 }}>{ko.length ? 'Nästa' : 'Nästa — appens förslag'}</div>
-          {nasta ? (
-            <div style={kort}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-                <div style={{ ...TYP.rubrik }}>{koNamn(nasta.objekt)}</div>
-                <div style={{ ...TYP.meta, color: FARG.text2 }}>{[faktaRad(nasta.objekt as unknown as PlanObjekt), strackaText(legs[0], franNamn(0))].filter(Boolean).join(' · ')}</div>
-                <div style={{ ...TYP.text }}><StatusOrd o={nasta.objekt as unknown as PlanObjekt} /></div>
-              </div>
-              <KorDit objekt={nasta.objekt} fran={fran} />
-              <ForberedDig o={nasta.objekt as unknown as PlanObjekt} roll={roll} warn={varning(nasta.objekt.id)} kartText={kartFor(nasta.objekt.id)} />
-            </div>
-          ) : (
-            <div style={{ ...kort, ...TYP.text, color: FARG.text2 }}>Inget planerat efter det här.</div>
-          )}
-        </div>
-
-        {/* SEDAN — en rad per trakt; ett tryck fäller ut samma "Förbered dig" */}
-        {sedan.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-            <div style={{ ...TYP.micro, color: FARG.text2 }}>Sedan</div>
-            {sedan.map((p, j) => {
-              const i = j + 1; const o = p.objekt as unknown as PlanObjekt; const utfald = oppen === p.objekt.id;
-              return (
-                <div key={p.objekt.id} style={kort}>
-                  <button onClick={() => setOppen(utfald ? null : p.objekt.id)} aria-expanded={utfald}
-                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: AVSTAND.xs, padding: 0, border: 'none', background: 'none', color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer', minHeight: 44 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.s, ...TYP.listtitel }}>
-                      <span style={{ minWidth: 0 }}>{i + 1}. {koNamn(p.objekt)}</span><span style={{ color: FARG.text2 }}>{utfald ? '⌃' : '⌄'}</span>
-                    </div>
-                    <div style={{ ...TYP.meta, color: FARG.text2 }}>{[strackaText(legs[i], franNamn(i))].filter(Boolean).join('')}</div>
-                    <div style={{ ...TYP.text }}><StatusOrd o={o} /></div>
-                  </button>
-                  {utfald && (<><KorDit objekt={p.objekt} fran={fran} /><ForberedDig o={o} roll={roll} warn={varning(p.objekt.id)} kartText={kartFor(p.objekt.id)} /></>)}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <button onClick={onKarta} style={{ ...KNAPP_LITEN }}>{forman ? 'Tillbaka till kartan' : 'Se alla maskiner på kartan'}</button>
-      </div>
-    </div>
-  );
-}
-
 // ══════════════════════════════ MASKIN-ARK ═══════════════════════════════════
 function aggFor(o: OversiktObjekt | null | undefined, skord: Record<string, SkordAggV2>): SkordAggV2 | undefined {
   return o?.vo_nummer ? skord[o.vo_nummer] : undefined;
@@ -1502,7 +1332,6 @@ function volFor(f: MaskinForslag, o: OversiktObjekt, agg: SkordAggV2 | undefined
 }
 
 const SvgVag = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s7-7 7-12a7 7 0 0 0-14 0c0 5 7 12 7 12z" /><circle cx="12" cy="10" r="2.5" /></svg>;
-const SvgRing = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" /></svg>;
 
 
 const HROW = 60; // px per rad i drag-listan
