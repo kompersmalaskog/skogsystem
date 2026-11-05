@@ -32,3 +32,15 @@ export function friYtaPadding(kartan: Ruta, kort: Ruta | null, luft: number, top
   kandidater.sort((a, b) => b.yta - a.yta);
   return kandidater[0].p;
 }
+
+export type Granser = [[number, number], [number, number]];
+
+/**
+ * Vad kameran ska rymma när en rad i listan trycks (Martin 2026-11-05: "kommer inte till rätt ställe"). En symbol: bara den.
+ * En linje eller yta: den OCH trakten — en stig eller väg utanför trakten visas annars utan sammanhang och man vet inte var man är.
+ */
+export function kameraGranser(sak: Granser | null, trakt: Granser | null, slag: 'symbol' | 'linje' | 'zon'): Granser | null {
+  if (!sak) return null;
+  if (slag === 'symbol' || !trakt) return sak;
+  return [[Math.min(sak[0][0], trakt[0][0]), Math.min(sak[0][1], trakt[0][1])], [Math.max(sak[1][0], trakt[1][0]), Math.max(sak[1][1], trakt[1][1])]];
+}

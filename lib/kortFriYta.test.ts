@@ -29,3 +29,18 @@ describe('friYtaPadding — platsen syns bredvid kortet, inte bakom det', () => 
     expect(p.bottom).toBeGreaterThan(600);
   });
 });
+
+describe('kameraGranser — linjer och ytor visas med trakten runt sig', async () => {
+  const { kameraGranser } = await import('./kortFriYta');
+  const trakt: [[number, number], [number, number]] = [[15.0, 57.0], [15.01, 57.01]];
+  it('symbol: bara symbolen', () => {
+    expect(kameraGranser([[15.02, 57.02], [15.02, 57.02]], trakt, 'symbol')).toEqual([[15.02, 57.02], [15.02, 57.02]]);
+  });
+  it('linje utanför trakten: trakten kommer med', () => {
+    expect(kameraGranser([[15.02, 57.02], [15.03, 57.03]], trakt, 'linje')).toEqual([[15.0, 57.0], [15.03, 57.03]]);
+  });
+  it('ingen trakt eller ingen sak', () => {
+    expect(kameraGranser([[1, 2], [3, 4]], null, 'zon')).toEqual([[1, 2], [3, 4]]);
+    expect(kameraGranser(null, trakt, 'linje')).toBeNull();
+  });
+});

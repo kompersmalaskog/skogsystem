@@ -241,7 +241,7 @@ import { ZONE_COLORS } from '@/lib/zone-colors'
 import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
 import { harFoto, komprimeraMarkeringFoto } from '@/lib/markeringFoto'
 import { narStyrka } from '../../lib/narStyrka'
-import { friYtaPadding } from '../../lib/kortFriYta'
+import { friYtaPadding, kameraGranser } from '../../lib/kortFriYta'
 import { signaturer, lasSett, sparaSett, behoverVisas, nyaMarkeringar, nyaKommentarer, textNy, inforJobbet, oversiktUnder, oversiktUnderlag, harLastOversikt, certRad, skyddadeOmraden } from '../../lib/traktOversikt'
 import { kommentarTecken, laggTillTeckenBilder, teckenHornLager, teckenFriLager, teckenPunkter, TECKEN_KALLA, TECKEN_HORN_LAGER } from '../../lib/kommentarTecken'
 import { FOTO_UPPE_EVENT, laggFotoIKo, prenumereraFotoKo, tomFotoForMarkering, vantandeFotoNycklar, type FotoUppeDetail } from '@/lib/markeringFotoKo'
@@ -9512,7 +9512,8 @@ export default function PlannerPage() {
     return true;
   };
   useEffect(() => { if (markerMenuOpen == null && !traktInfo && !traktOversiktOpen) setOversiktAter(false); }, [markerMenuOpen, traktInfo, traktOversiktOpen]);
-  const tillbakaTillLista = oversiktAter ? { etikett: 'Lista', onClick: () => { setMarkerMenuOpen(null); setTraktInfo(null); setInfoStartVy('oversikt'); setTraktOversiktOpen(true); } } : undefined;
+  // "‹ Lista": kortet stängs, listan öppnas och kartan går ut till HELA trakten igen tills nästa rad trycks (Martin 2026-11-05).
+  const tillbakaTillLista = oversiktAter ? { etikett: 'Lista', onClick: () => { setMarkerMenuOpen(null); setTraktInfo(null); setInfoStartVy('oversikt'); setTraktOversiktOpen(true); visaHelaTrakten(); } } : undefined;
   // "AVVERKAS – LARMA INTE" (Martin 2026-10-29): Vidas hänsynsytor som planeraren markerat larmar inte och räknas inte i fällningscirkeln (lib/vidaAvverkas).
   // Ytan ritas och instruktionen visas som förut — bara larmet tystnar. Går markeringarna inte att läsa larmar allt.
   const vidaAvverkas = useVidaAvverkas(supabase, valtObjekt?.id, isAdminRiktig);
@@ -14618,9 +14619,9 @@ export default function PlannerPage() {
                   const kartRuta = map.getContainer().getBoundingClientRect();
                   const panel = document.querySelector('[data-testid="marker-kort"] > div, [data-testid="trakt-kort"] > div') as HTMLElement | null;
                   const p = friYtaPadding(kartRuta, panel ? panel.getBoundingClientRect() : null, AVSTAND.xxl, AVSTAND.xxl * 2.5);
-                  const bounds = framhavBounds(framhavdFran(m));
+                  const bounds = kameraGranser(framhavBounds(framhavdFran(m)), traktGrans(traktGeo), m.slag);
                   try {
-                    if (bounds) map.fitBounds(bounds, { padding: p, maxZoom: 18, duration: 800 });
+                    if (bounds) map.fitBounds(bounds, { padding: p, maxZoom: m.slag === 'symbol' ? 18 : 17, duration: 800 });
                     else if (m.lat != null && m.lng != null) map.easeTo({ center: [m.lng, m.lat], zoom: Math.max(map.getZoom(), 18), padding: p, duration: 800 });
                   } catch { /* kartan är borta */ }
                 };
