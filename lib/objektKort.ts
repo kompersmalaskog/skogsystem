@@ -18,21 +18,17 @@ export function objektRad(o: { typ?: string | null; avtalsform?: string | null; 
 
 // ── Knapprad efter roll ──────────────────────────────────────────────────────────────────────────────────────────────
 
-export type KortKnappId = 'kor-hit' | 'korvy' | 'skotning' | 'utkort';
+export type KortKnappId = 'korvy' | 'skotning' | 'utkort';
 export interface KortKnapp { id: KortKnappId; etikett: string }
 export type KortRoll = 'planerare' | 'forare';
 
 /**
- * Planerare: Kör hit. ("Inför maskin" kommer i en egen PR och visas först då — en knapp som inte finns får inte ligga där.)
+ * Planerare: inga knappar. "Kör hit" är borttagen (Martin 2026-11-05: "den använder vi aldrig"); vägbeskrivningen finns på objektlistans rad (bilen).
  * Förare: Körvy · Skotning · Utkört. "Mer" är INTE en knapp här: den är en rad längst ner i uppdraget (ObjektKort), eftersom den inte är det viktigaste på kortet. Körvy-knappen försvinner medan körvyn redan är igång (Avsluta körvy ligger i Mer). En skördarförare har
  * ingen skotning att öppna eller markera utkört: Skotning och Utkört visas för skotare och när maskinen inte är känd.
  */
 export function kortKnappar(o: { roll: KortRoll; harKoordinat: boolean; korvyAktiv: boolean; maskinSlag: 'skordare' | 'skotare' | null; utanSkotning?: boolean }): KortKnapp[] {
-  if (o.roll === 'planerare') {
-    return [
-      ...(o.harKoordinat ? [{ id: 'kor-hit' as const, etikett: 'Kör hit' }] : []),
-    ];
-  }
+  if (o.roll === 'planerare') return [];
   return [
     ...(o.korvyAktiv ? [] : [{ id: 'korvy' as const, etikett: 'Körvy' }]),
     // utanSkotning = skotarläget med lassrapportering i appen: det gamla skotningsverktyget (Skotning: sortiment och högar, Utkört: rita yta → Skotningsuttag) förvirrar där och visas inte.

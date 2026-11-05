@@ -14474,8 +14474,7 @@ export default function PlannerPage() {
           objektId: String(valtObjekt.id),
           onStang: stang,
           onKnapp: (id) => {
-            if (id === 'kor-hit') { startaNavigering(valtObjekt); stang(); }
-            else if (id === 'korvy') { unlockKorvyLjud(); setKorvyForceRoll(null); setKorvyActive(true); stang(); }
+            if (id === 'korvy') { unlockKorvyLjud(); setKorvyForceRoll(null); setKorvyActive(true); stang(); }
             else if (id === 'skotning') { setActiveCategory('skotning'); setMenuOpen(true); stang(); }
             else if (id === 'utkort') { startaMarkeraUtkort(); stang(); }
           },
@@ -14491,6 +14490,7 @@ export default function PlannerPage() {
             paTrakten: sammanf.antal > 0 ? markeringsRad(sammanf) : null,
             brand: Number.isFinite(Number(valtObjekt.lat)) && Number.isFinite(Number(valtObjekt.lng)) && valtObjekt.lat != null && valtObjekt.lng != null ? { lat: Number(valtObjekt.lat), lng: Number(valtObjekt.lng) } : null,
             onBrand: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
+            planerare: kortRoll === 'planerare' && !maskinlage && !maskinSomParam,
             klarRad: klarGaller ? { chip: klarChip } : null,
             // Risker på trakten — egen rad direkt under Faror för planeraren (Martin 2026-11-01: letade efter risken i ⓘ efter att ha satt en ledning).
             riskRad: klarGaller && klarDataKlart ? planerarRiskRad(riskLista.length, riskGodkand) : null,

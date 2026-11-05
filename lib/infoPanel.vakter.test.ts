@@ -42,7 +42,7 @@ describe('städad panel', () => {
   it('"Mer" är en rad längst ner i uppdraget, inte en knapp i knappraden', () => {
     expect(kort).toContain('testid="kort-mer"');
     expect(las('lib/objektKort.ts')).not.toMatch(/id: 'mer'/);
-    expect(las('lib/objektKort.ts')).toContain("export type KortKnappId = 'kor-hit' | 'korvy' | 'skotning' | 'utkort';");
+    expect(las('lib/objektKort.ts')).toContain("export type KortKnappId = 'korvy' | 'skotning' | 'utkort';");
     expect(kort.indexOf('testid="kort-dokument"')).toBeLessThan(kort.indexOf('testid="kort-mer"'));
     expect(kort).not.toContain('kort-knapp-mer');
   });
@@ -54,7 +54,7 @@ describe('städad panel', () => {
     expect(kort).toContain('{larm.visaKontroll && <span data-testid="kort-larm-status"');
   });
   it('"På trakten · N markeringar" har samma stil som övriga rader (ingen grå text-prefix)', () => {
-    expect(kort).toContain('etikett={`På trakten · ${p.paTrakten}`}');
+    expect(kort).toContain('etikett={`På trakten · ${paTrakten}`}');
     expect(kort).not.toMatch(/På trakten <\/span>/);
   });
   it('Till föraren ligger efter Faror och före Brandrisk, knapprad och uppdrag', () => {
