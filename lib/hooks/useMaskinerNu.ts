@@ -20,10 +20,13 @@ export function useMaskinerNu({ map, aktiv, utan = null, onTryck }: { map: any; 
     let avbruten = false;
     const las = async () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      const [pos, reg] = await Promise.all([
-        supabase.rpc('maskin_senaste_position'),
-        supabase.from('dim_maskin').select('maskin_id, visningsnamn, maskin_typ, aktiv_till'),
-      ]);
+      let pos: { data: unknown; error: unknown }; let reg: { data: unknown; error: unknown };
+      try {
+        [pos, reg] = await Promise.all([
+          supabase.rpc('maskin_senaste_position'),
+          supabase.from('dim_maskin').select('maskin_id, visningsnamn, maskin_typ, aktiv_till'),
+        ]);
+      } catch (e) { console.error('[MaskinerNu] kunde inte läsas:', e); return; }   // ett tillägg som aldrig får fälla kartan
       if (avbruten) return;
       if (pos.error) { console.error('[MaskinerNu] positionerna kunde inte läsas:', pos.error); } else setRader((pos.data ?? []) as MaskinPosRad[]);
       if (reg.error) console.error('[MaskinerNu] maskinregistret kunde inte läsas:', reg.error); else setRegister((reg.data ?? []) as MaskinRegister[]);
