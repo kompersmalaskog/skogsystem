@@ -4,7 +4,18 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { CURRENT_VERSION } from '@/lib/changelog'
-import { LAYOUT, TRAFFYTA } from '@/lib/design/tokens' // toppfältets höjd bor BARA i tokens
+import { FARG, LAYOUT, TRAFFYTA, TYP } from '@/lib/design/tokens' // toppfältets höjd bor BARA i tokens
+import { VYER } from '@/lib/vyer'
+
+// Arbetsmiljöns delar (Kemikalier, Så gör vi, Riskbedömning …) nås från sidan Arbetsmiljö.
+// Där är vägen ut "‹ Arbetsmiljö", inte hem — annars måste man börja om från startsidan
+// för varje del (Martin 2026-11-05). Om något händer är undantaget: förarna öppnar den
+// från startsidan och ska alltid ha hemknappen där.
+export const ARBETSMILJO_DELAR: ReadonlySet<string> = new Set(
+  VYER.filter((v) => v.del === 'arbetsmiljo')
+    .map((v) => v.href.split('?')[0])
+    .filter((h) => h !== '/om-nagot-hander'),
+)
 
 const pageNames: Record<string, string> = {
   '/': 'Kompersmåla Skog',
@@ -90,6 +101,7 @@ export default function TopBar() {
   }, [])
 
   if (isHome) return null
+  const tillArbetsmiljo = ARBETSMILJO_DELAR.has(pathname)
   // Planeringsvyn har egen minimal header (hem + objekt-pill + nödprick). /maskin är SAMMA vy i maskinläge
   // ("Öppna som maskin") — utan den här raden ritades ett "Maskin v1.0.0"-fält ovanpå kartan.
   if (pathname === '/planering' || pathname === '/maskin') return null
@@ -118,7 +130,22 @@ export default function TopBar() {
       fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif",
     }}>
       {/* Hem-knapp — dold när underliggande vy har egen bakåtpil */}
-      {!isHome && !hideHome ? (
+      {!isHome && !hideHome && tillArbetsmiljo ? (
+        <Link href="/arbetsmiljo" aria-label="Tillbaka till Arbetsmiljö" style={{
+          position: 'absolute',
+          left: 4,
+          height: TRAFFYTA.min,
+          minWidth: TRAFFYTA.min,
+          padding: '0 8px',
+          display: 'flex',
+          alignItems: 'center',
+          textDecoration: 'none',
+          color: FARG.bla,
+          ...TYP.text,
+        }}>
+          ‹ Arbetsmiljö
+        </Link>
+      ) : !isHome && !hideHome ? (
         <Link href="/" style={{
           // Träffytan är appens minimiyta (44 px); den synliga rutan (36 px, vänsterkant 12 px) ligger centrerad i den och ser ut som förut.
           position: 'absolute',
