@@ -53,8 +53,8 @@ async function lasIndata(): Promise<{ indata: Indata; mina: MinRapport[] | null 
     tyst(hamtaMinaRapporter(supabase, jag.id)),
     tyst(hamtaKemikalier(supabase)),
     tyst(hamtaLamningar(supabase)),
-    tyst(hamtaSaGorVi(supabase)),
-    tyst(hamtaSaGorViKvitton(supabase)),
+    arAdmin ? tyst(hamtaSaGorVi(supabase)) : Promise.resolve(null),
+    arAdmin ? tyst(hamtaSaGorViKvitton(supabase)) : Promise.resolve(null),
   ]);
 
   const maskinTyp = maskin && !maskin.error ? (maskin.data as { maskin_typ?: string } | null)?.maskin_typ : null;
@@ -70,7 +70,8 @@ async function lasIndata(): Promise<{ indata: Indata; mina: MinRapport[] | null 
     // Årshjulet: bara arbetsledningen. Går något av det inte att läsa är hela årshjulet ett läsfel, aldrig "inte gjort".
     kemikalier: kemikalier ?? null,
     avfall: avfall ?? null,
-    saGorVi: sgv && sgvKvitton ? { g: sgv, kvitton: sgvKvitton } : null,
+    // Så gör vi är en rad bara för admin (godkänna). Föraren läser instruktionerna under Om något händer.
+    saGorVi: !arAdmin ? undefined : sgv && sgvKvitton ? { g: sgv, kvitton: sgvKvitton } : null,
     arshjul: !serArbetsledning ? undefined : gjorda && ronder && bedomningar ? byggArshjul({ nu: new Date(), gjorda, ronder, risk: bedomningar }) : null,
   };
   return { indata, mina: mina ?? null };

@@ -7,7 +7,7 @@ const godkand = (id: InstrId, steg: string[] | null = null, tid = '2026-11-01T10
 
 describe('instruktionerna', () => {
   it('bara de jobb som har allvarliga risker, 3–5 korta steg var', () => {
-    expect(INSTR_IDN).toHaveLength(8);
+    expect(INSTR_IDN).toHaveLength(7);
     for (const id of INSTR_IDN) {
       const k = KATALOG[id];
       expect(k.steg.length, id).toBeGreaterThanOrEqual(MIN_STEG);
@@ -16,10 +16,10 @@ describe('instruktionerna', () => {
     }
   });
   it('admins steg går före appens; för få steg = appens', () => {
-    expect(instruktion('ensam', { steg: ['a', 'b', 'c'], godkandUnderlag: null, godkandTid: null }).steg).toEqual(['a', 'b', 'c']);
-    expect(instruktion('ensam', tolka({ steg: ['a', 'b'] })).steg).toEqual(KATALOG.ensam.steg);
-    expect(arAndrad('ensam', { steg: ['a', 'b', 'c'], godkandUnderlag: null, godkandTid: null })).toBe(true);
-    expect(arAndrad('ensam', { steg: [...KATALOG.ensam.steg], godkandUnderlag: null, godkandTid: null })).toBe(false);
+    expect(instruktion('heta_arbeten', { steg: ['a', 'b', 'c'], godkandUnderlag: null, godkandTid: null }).steg).toEqual(['a', 'b', 'c']);
+    expect(instruktion('heta_arbeten', tolka({ steg: ['a', 'b'] })).steg).toEqual(KATALOG.heta_arbeten.steg);
+    expect(arAndrad('heta_arbeten', { steg: ['a', 'b', 'c'], godkandUnderlag: null, godkandTid: null })).toBe(true);
+    expect(arAndrad('heta_arbeten', { steg: [...KATALOG.heta_arbeten.steg], godkandUnderlag: null, godkandTid: null })).toBe(false);
   });
   it('rensa: tomma bort, högst fem, minst tre', () => {
     expect(rensaSteg(['  a ', '', 'b', 'c'])).toEqual(['a', 'b', 'c']);
@@ -37,25 +37,25 @@ describe('godkännandet följer exakt stegen', () => {
     expect(lage('trailer', godkand('trailer', null, '2025-10-01T10:00:00Z'), nu)).toBe('se_over');
   });
   it('ett kvitto gäller bara stegen det lästes på', () => {
-    const i = instruktion('ensam', undefined);
-    const kv = [{ medarbetareId: 'f', instruktion: 'ensam' as const, underlag: underlag(i), tid: '2026-11-02T08:00:00Z' }];
+    const i = instruktion('heta_arbeten', undefined);
+    const kv = [{ medarbetareId: 'f', instruktion: 'heta_arbeten' as const, underlag: underlag(i), tid: '2026-11-02T08:00:00Z' }];
     expect(lastTid(kv, 'f', i)).toBe('2026-11-02T08:00:00Z');
-    expect(lastTid(kv, 'f', instruktion('ensam', { steg: ['a', 'b', 'c'], godkandUnderlag: null, godkandTid: null }))).toBeNull();
+    expect(lastTid(kv, 'f', instruktion('heta_arbeten', { steg: ['a', 'b', 'c'], godkandUnderlag: null, godkandTid: null }))).toBeNull();
     expect(lastTid(kv, 'annan', i)).toBeNull();
   });
 });
 
 describe('svaret', () => {
   it('admin: hur många som ska godkännas', () => {
-    expect(svar(true, {}, [], 'a', nu)).toEqual({ text: '8 av 8 att godkänna', ton: 'orange' });
+    expect(svar(true, {}, [], 'a', nu)).toEqual({ text: '7 av 7 att godkänna', ton: 'orange' });
     const alla = Object.fromEntries(INSTR_IDN.map(id => [id, godkand(id)])) as Record<InstrId, Godkannande>;
     expect(svar(true, alla, [], 'a', nu)).toEqual({ text: 'Alla är godkända' });
   });
   it('föraren: bara godkända räknas', () => {
     expect(svar(false, {}, [], 'f', nu)).toEqual({ text: 'Instruktionerna är inte klara än' });
-    const g = { ensam: godkand('ensam'), trailer: godkand('trailer') };
-    expect(attLasa(g, [], 'f', nu)).toEqual(['trailer', 'ensam']);
-    const kv = [{ medarbetareId: 'f', instruktion: 'ensam' as const, underlag: g.ensam.godkandUnderlag!, tid: '2026-11-02T08:00:00Z' }];
+    const g = { heta_arbeten: godkand('heta_arbeten'), trailer: godkand('trailer') };
+    expect(attLasa(g, [], 'f', nu)).toEqual(['trailer', 'heta_arbeten']);
+    const kv = [{ medarbetareId: 'f', instruktion: 'heta_arbeten' as const, underlag: g.heta_arbeten.godkandUnderlag!, tid: '2026-11-02T08:00:00Z' }];
     expect(svar(false, g, kv, 'f', nu)).toEqual({ text: '1 att läsa', ton: 'orange' });
   });
 });

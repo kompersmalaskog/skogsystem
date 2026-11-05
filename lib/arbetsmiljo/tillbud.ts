@@ -4,6 +4,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { giltigAndring, type KortAndring, type Kontakt, type Larmplats, type NodData } from './nod';
+import { hamta as hamtaInstruktioner } from './saGorVi';
 
 export type TillbudTyp = 'tillbud' | 'olycka';
 
@@ -96,11 +97,13 @@ export const ANMAL_LANK = 'https://anmalarbetsskada.se';
 
 /** Nödsidans data: vem man ringer och traktenas larmplatser. Läsfel → null (sidan använder det som finns sparat). */
 export async function hamtaNodData(sb: SupabaseClient, nu: number = Date.now()): Promise<NodData | null> {
-  const [k, o, r] = await Promise.all([
+  const [k, o, r, instruktioner] = await Promise.all([
     sb.rpc('am_nodkontakter'),
     sb.from('am_rutinkort').select('id, titel, steg1, steg2, steg3, andrad_tid'),
     sb.from('objekt').select('id, namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, status')
       .not('larmkoordinat_lat', 'is', null).not('larmkoordinat_lng', 'is', null).neq('status', 'avslutat'),
+    // Så gör vi: ett tillägg. Kunde de inte läsas saknas fältet (slaIhopNod behåller det som var sparat).
+    hamtaInstruktioner(sb).catch(() => null),
   ]);
   if (k.error || o.error || !Array.isArray(k.data) || !Array.isArray(o.data)) return null;
   const kontakter: Kontakt[] = (k.data as { namn: string | null; telefon: string | null }[])
@@ -112,7 +115,7 @@ export async function hamtaNodData(sb: SupabaseClient, nu: number = Date.now()):
   // Korten är ett tillägg: kunde de inte läsas saknas `andringar` (slaIhopNod behåller då det som var sparat).
   const andringar: KortAndring[] | undefined = r.error || !Array.isArray(r.data) ? undefined
     : (r.data as any[]).map(x => ({ id: x.id, titel: x.titel, steg: [x.steg1, x.steg2, x.steg3] as [string, string, string], andradTid: x.andrad_tid ?? null })).filter(giltigAndring);
-  return { kontakter, larmplatser, hamtad: nu, ...(andringar ? { andringar } : {}) };
+  return { kontakter, larmplatser, hamtad: nu, ...(andringar ? { andringar } : {}), ...(instruktioner ? { instruktioner } : {}) };
 }
 
 /** Admin sparar ett korts rubrik och steg. Läser tillbaka raden. null = sparat; annars felet i ord. */
