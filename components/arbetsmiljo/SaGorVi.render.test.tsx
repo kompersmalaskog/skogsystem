@@ -29,9 +29,9 @@ import { instruktion, underlag } from '@/lib/arbetsmiljo/saGorVi';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root; let el: HTMLDivElement;
-const ok = (id: 'ensam' | 'trailer') => ({ steg: null, godkandUnderlag: underlag(instruktion(id, undefined)), godkandTid: new Date().toISOString() });
+const ok = (id: 'heta_arbeten' | 'trailer') => ({ steg: null, godkandUnderlag: underlag(instruktion(id, undefined)), godkandTid: new Date().toISOString() });
 beforeEach(() => {
-  jag = { id: 'f', roll: 'forare' }; g = { ensam: ok('ensam') }; kvitton = []; kvitterade.length = 0; godkanda.length = 0; sparade.length = 0;
+  jag = { id: 'f', roll: 'forare' }; g = { heta_arbeten: ok('heta_arbeten') }; kvitton = []; kvitterade.length = 0; godkanda.length = 0; sparade.length = 0;
   el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el);
 });
 afterEach(() => { act(() => root.unmount()); el.remove(); });
@@ -44,7 +44,7 @@ describe('Så gör vi', () => {
     await act(async () => { root.render(<SaGorVi />); }); await vanta();
     expect(q('[data-testid="sgv-svar"]')!.textContent).toBe('1 att läsa');
     expect(document.querySelectorAll('[data-sgv]')).toHaveLength(1);
-    await klick('[data-sgv="ensam"]');
+    await klick('[data-sgv="heta_arbeten"]');
     expect(q('[data-sgv-steg]')!.querySelectorAll('li')).toHaveLength(4);
     expect(q('[data-sgv-andra-knapp]')).toBeNull();
     await klick('[data-sgv-las]');
@@ -55,8 +55,8 @@ describe('Så gör vi', () => {
   it('admin ser alla, trycker Stämmer och ändrar stegen (minst tre)', async () => {
     jag = { id: 'a', roll: 'admin' };
     await act(async () => { root.render(<SaGorVi />); }); await vanta();
-    expect(q('[data-testid="sgv-svar"]')!.textContent).toBe('7 av 8 att godkänna');
-    expect(document.querySelectorAll('[data-sgv]')).toHaveLength(8);
+    expect(q('[data-testid="sgv-svar"]')!.textContent).toBe('6 av 7 att godkänna');
+    expect(document.querySelectorAll("[data-sgv]")).toHaveLength(7);
     await klick('[data-sgv="trailer"]');
     expect(q('[data-sgv-lage]')!.textContent).toBe('Inte godkänd');
     await klick('[data-sgv-stammer]');

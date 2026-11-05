@@ -8,9 +8,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type InstrId = 'hydraulslang' | 'trailer' | 'kraftledning' | 'motorsag' | 'heta_arbeten' | 'ensam' | 'brant' | 'bargning';
+export type InstrId = 'hydraulslang' | 'trailer' | 'kraftledning' | 'motorsag' | 'heta_arbeten' | 'brant' | 'bargning';
 // Ordning: det farligaste först.
-export const INSTR_IDN: InstrId[] = ['kraftledning', 'brant', 'bargning', 'motorsag', 'hydraulslang', 'trailer', 'heta_arbeten', 'ensam'];
+export const INSTR_IDN: InstrId[] = ['kraftledning', 'brant', 'bargning', 'motorsag', 'hydraulslang', 'trailer', 'heta_arbeten'];
+// Ensam i skogen är INTE en instruktion (2026-11-05): det är vardag. Det blir en kontroll i appen och en rad i riskbedömningen.
+// 'ensam' står kvar i databasens CHECK (am_sa_gor_vi) så gamla rader inte fäller något; appen läser den aldrig.
 
 /** Var texten är kontrollerad. Bara en länk – ingen text eller bild kopieras. */
 export type Kalla = { text: string; url: string };
@@ -76,17 +78,6 @@ export const KATALOG: Record<InstrId, Omit<Instruktion, 'id'>> = {
       'Släckaren och vatten framme innan du börjar.',
       'Vakta platsen en timme efteråt.',
     ],
-  },
-  ensam: {
-    titel: 'Ensam i skogen',
-    nar: 'När du jobbar utan någon i närheten',
-    steg: [
-      'Säg till var du är och när du slutar.',
-      'Ha telefonen på dig, laddad.',
-      'Hör av dig när du är klar.',
-      'Hör ingen av dig ringer arbetsledningen. Svarar du inte åker någon dit.',
-    ],
-    kalla: { text: 'Skogforsk · Säker i skogen: Ensamarbete', url: 'https://www.skogforsk.se/rad--stod/filmer--publikationer/saker-i-skogen/' },
   },
   brant: {
     titel: 'Köra i brant terräng',

@@ -8,6 +8,8 @@
 //  - Sidan och dess filer sparas av service workern (public/sw.js, "nod-cacha").
 // Ren modul utom läs/skriv av localStorage.
 
+import { INSTR_IDN, MIN_STEG, TOM, type Godkannande, type InstrId } from './saGorVi';
+
 export type Rutinkort = {
   id: string;
   titel: string;
@@ -108,12 +110,34 @@ export function telLank(nummer: string): string {
 
 export const NOD_NYCKEL = 'nod_v1';
 
-/** `andringar` saknas = okänt (äldre sparning eller läsfel) → appens kort, eller det som redan var sparat (`slaIhopNod`). */
-export type NodData = { kontakter: Kontakt[]; larmplatser: Larmplats[]; hamtad: number; andringar?: KortAndring[] };
+/**
+ * `andringar` saknas = okänt (äldre sparning eller läsfel) → appens kort, eller det som redan var sparat (`slaIhopNod`).
+ * `instruktioner` = "Så gör vi" (admins steg + godkännandet, am_sa_gor_vi) så att instruktionerna går att läsa utan täckning.
+ * Saknas = okänt → det som redan var sparat; finns inget sparat visas inga instruktioner (aldrig en ogodkänd).
+ */
+export type NodData = { kontakter: Kontakt[]; larmplatser: Larmplats[]; hamtad: number; andringar?: KortAndring[]; instruktioner?: Record<InstrId, Godkannande> };
 
-/** Ny data från nätet + det som var sparat: kunde korten inte läsas behålls de sparade ändringarna (aldrig tyst tillbaka till appens text). */
+/** Ny data från nätet + det som var sparat: kunde korten eller instruktionerna inte läsas behålls de sparade (aldrig tyst tillbaka). */
 export function slaIhopNod(ny: NodData, gammal: NodData | null): NodData {
-  return ny.andringar !== undefined ? ny : { ...ny, ...(gammal?.andringar ? { andringar: gammal.andringar } : {}) };
+  return {
+    ...ny,
+    ...(ny.andringar === undefined && gammal?.andringar ? { andringar: gammal.andringar } : {}),
+    ...(ny.instruktioner === undefined && gammal?.instruktioner ? { instruktioner: gammal.instruktioner } : {}),
+  };
+}
+
+/** Sparade godkännanden ur enheten. Allt som inte ser rätt ut blir "inte godkänd" — aldrig en gissning. */
+export function tolkaGodkannanden(raw: unknown): Record<InstrId, Godkannande> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const ut = {} as Record<InstrId, Godkannande>;
+  for (const id of INSTR_IDN) {
+    const g = (raw as Record<string, unknown>)[id] as Partial<Godkannande> | undefined;
+    const steg = Array.isArray(g?.steg) && g!.steg.every(x => typeof x === 'string') && g!.steg.length >= MIN_STEG ? g!.steg : null;
+    ut[id] = g && typeof g === 'object'
+      ? { steg, godkandUnderlag: typeof g.godkandUnderlag === 'string' ? g.godkandUnderlag : null, godkandTid: typeof g.godkandTid === 'string' ? g.godkandTid : null }
+      : { ...TOM };
+  }
+  return ut;
 }
 
 export function tolkaNod(raw: string | null | undefined): NodData | null {
@@ -126,7 +150,8 @@ export function tolkaNod(raw: string | null | undefined): NodData | null {
     const larmplatser = (p.larmplatser as unknown[]).filter((l): l is Larmplats =>
       !!l && typeof (l as Larmplats).objektId === 'string' && Number.isFinite((l as Larmplats).lat) && Number.isFinite((l as Larmplats).lng));
     const andringar = Array.isArray(p.andringar) ? (p.andringar as unknown[]).filter(giltigAndring) : undefined;
-    return { kontakter, larmplatser, hamtad: p.hamtad, ...(andringar ? { andringar } : {}) };
+    const instruktioner = tolkaGodkannanden(p.instruktioner);
+    return { kontakter, larmplatser, hamtad: p.hamtad, ...(andringar ? { andringar } : {}), ...(instruktioner ? { instruktioner } : {}) };
   } catch {
     return null;
   }
