@@ -94,15 +94,6 @@ async function vagRutt(from: { lat: number; lng: number }, to: { lat: number; ln
   } catch { return { km: null, geom: null }; }
 }
 
-// Faror och hänsyn (med planerarens kommentar) byggs i objekt-info.ts och läses i markeringar-las.ts. Raden i maskin-arket visar bara den
-// första (kort); objekt-arket visar alla. En rad som INTE gick att läsa säger det ("faror ej lästa") — en tom rad får aldrig betyda
-// "okänt". Pågår läsningen (laddar) står det i bannern överst i arket, inte på raden.
-const varnText = (s: VarningsSvar): { text: string; color: string } | null =>
-  s === 'fel' ? { text: 'faror ej lästa', color: FARG.orange }
-    : s === 'laddar' ? null
-    : s.faror.length ? { text: `fara: ${s.faror[0].label}`, color: FARG.rod }
-    : s.hansyn.length ? { text: `hänsyn: ${s.hansyn[0].label}`, color: FARG.orange } : null;
-
 const harMaskin = (o: OversiktObjekt) => !!((o as any).skordare_maskin_id || (o as any).skotare_maskin_id);
 
 // Prick/ring per objekt. form:'ring' = väntar (planerad OCH otilldelad). 'fill' = fylld.
@@ -1207,6 +1198,7 @@ export default function OversiktV2Page() {
           onOrderChange={hanteraOrderChange}
           koRader={maskinKo.filter((k) => k.maskin_id === selMaskin).sort((a, b) => a.ordning - b.ordning)}
           kandidater={laggKandidater} kmTill={laggKmTill} onValjObjekt={valjLaggObjekt} onHighlight={setHighlightObjekt} onLaggLage={hanteraLaggLage}
+          onTaBort={taBortKo}
         />
       )}
 
@@ -1254,7 +1246,13 @@ export default function OversiktV2Page() {
 function aggFor(o: OversiktObjekt | null | undefined, skord: Record<string, SkordAggV2>): SkordAggV2 | undefined {
   return o?.vo_nummer ? skord[o.vo_nummer] : undefined;
 }
-const rowMeta = (agg: SkordAggV2 | undefined): string => agg?.sista ? `avverkat ${kortDatum(agg.sista)} · legat ${dagarSedan(agg.sista)} dgr` : '';
+const kmText = (km: number | null | undefined): string => (km != null ? `${Math.round(km)} km` : '–');
+// Raden i maskin-arket säger BARA om det finns en fara (och hur många) — vad den är står i objekt-arket. "fara: Varning" sa ingenting.
+// Hänsyn står inte på raden. Kunde farorna inte läsas står det, aldrig tyst.
+const faraRad = (s: VarningsSvar): { text: string; color: string } | null =>
+  s === 'fel' ? { text: 'faror ej lästa', color: FARG.orange }
+    : s === 'laddar' ? null
+    : s.faror.length ? { text: s.faror.length === 1 ? '1 fara på trakten' : `${s.faror.length} faror på trakten`, color: FARG.orange } : null;
 function volFor(f: MaskinForslag, o: OversiktObjekt, agg: SkordAggV2 | undefined): number | null {
   if (f.typ === 'skotare') return agg && agg.skordat > 0 ? paBackenKvar(agg.skordat, agg.skotat, agg.egenSkotning) : null;
   return o.volym_planerad ?? (o.volym || null);
@@ -1267,7 +1265,7 @@ const SvgRing = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none
 
 
 const HROW = 60; // px per rad i drag-listan
-function ReorderLista({ rows, onDrop, onOrderChange }: { rows: { koId: string; namn: string; hoger: string }[]; onDrop: (order: string[]) => void; onOrderChange?: (order: string[]) => void }) {
+function ReorderLista({ rows, onDrop, onOrderChange, onTaBort }: { rows: { koId: string; namn: string; hoger: string }[]; onDrop: (order: string[]) => void; onOrderChange?: (order: string[]) => void; onTaBort?: (koId: string) => void }) {
   const nyckel = rows.map((r) => r.koId).join(',');
   const [order, setOrder] = useState<string[]>(() => rows.map((r) => r.koId));
   useEffect(() => { setOrder(rows.map((r) => r.koId)); }, [nyckel]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1298,7 +1296,10 @@ function ReorderLista({ rows, onDrop, onOrderChange }: { rows: { koId: string; n
           <div key={koId} style={{ position: 'absolute', left: 0, right: 0, top, height: HROW - 8, display: 'flex', alignItems: 'center', gap: AVSTAND.m, padding: `0 ${AVSTAND.s}px`, boxSizing: 'border-box', background: FARG.upphojt, borderRadius: RADIE.rad, boxShadow: dragged ? '0 8px 22px rgba(0,0,0,0.55)' : 'none', transform: dragged ? 'scale(1.03)' : 'none', zIndex: dragged ? 2 : 1, transition: dragged ? 'none' : 'top 180ms cubic-bezier(0.2,0,0,1)', ...TYP.text, ...TNUM }}>
             <div style={{ width: 20, color: FARG.text2, fontWeight: 600 }}>{i + 1}</div>
             <div style={{ flexGrow: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.namn}</div>
-            <div style={{ ...TYP.meta, color: FARG.text2, whiteSpace: 'nowrap' }}>{r.hoger}</div>
+            {onTaBort && (
+              <button onClick={() => onTaBort(koId)} aria-label={`Ta bort ${r.namn} ur kön`}
+                style={{ minHeight: 44, padding: `0 ${AVSTAND.s}px`, border: 'none', background: 'none', color: FARG.rod, fontFamily: 'inherit', ...TYP.meta, cursor: 'pointer', whiteSpace: 'nowrap' }}>Ta bort</button>
+            )}
             <div onPointerDown={(e) => start(e, koId)} onPointerMove={(e) => move(e.clientY)} onPointerUp={end} onPointerCancel={end}
               role="button" aria-label="Dra för att ändra ordning"
               style={{ width: 44, height: 44, minWidth: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', touchAction: 'none', color: FARG.text2, marginRight: -AVSTAND.s }}>
@@ -1316,7 +1317,7 @@ const RAD_KORT: React.CSSProperties = { display: 'grid', columnGap: AVSTAND.m, r
 
 // forare = LÄSLÄGE: inga skrivknappar (gäller förare på alla maskiner). dinMaskin = förarens egen maskin (märks i rubriken).
 // Raderna Nu/1/2… öppnar objekt-arket via onOppnaObjekt.
-function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grotFel, telFel, onForsokTel, varning, telefon, forare, dinMaskin, onOppnaObjekt, onClose, onReorder, onOrdnaLage, onOrderChange, koRader, kandidater, kmTill, onValjObjekt, onHighlight, onLaggLage, onSenFel }: {
+function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grotFel, telFel, onForsokTel, varning, telefon, forare, dinMaskin, onOppnaObjekt, onClose, onReorder, onOrdnaLage, onOrderChange, koRader, kandidater, kmTill, onValjObjekt, onHighlight, onLaggLage, onSenFel, onTaBort }: {
   f: MaskinForslag; namn: string; legs: (number | null)[]; skord: Record<string, SkordAggV2>; varning: (objektId: string) => VarningsSvar;
   /** Virke på backen gick inte att läsa: förslag och kandidater i "Lägg till objekt" kan saknas — arket säger det i stället för "inget planerat". */
   skordFel: boolean; onForsokSkord: () => void;
@@ -1328,6 +1329,8 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
   kandidater: LaggKand[]; kmTill: (k: LaggKand) => number | null; onValjObjekt: (objektId: string) => Promise<string | null>; onHighlight: (objektId: string | null) => void; onLaggLage: (active: boolean) => void;
   /** En sparning som felade efter att arket stängts — sidan visar en toast (meddelandet i arket har då ingenstans att stå). */
   onSenFel: (fel: string) => void;
+  /** Ta bort en kö-rad (i "Ändra kön"). Verifierad skrivning: null = landade, annars ett meddelande. */
+  onTaBort: (koId: string) => Promise<string | null>;
 }) {
   const [ordnaLage, setOrdnaLage] = useState(false);
   const [laggLage, setLaggLage] = useState(false);
@@ -1351,13 +1354,11 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
     return fel;
   };
   const nuAgg = aggFor(f.nuObjekt, skord);
-  const rollLabel = f.typ === 'skotare' ? 'skotare' : 'skördare';
   const nuKvar = f.nuObjekt && nuAgg && nuAgg.skordat > 0 ? paBackenKvar(nuAgg.skordat, nuAgg.skotat, nuAgg.egenSkotning) : null;
-  const nuVarde = f.typ === 'skotare' && nuKvar != null ? `${fmt(nuKvar)} m³ kvar` : '';
   const nasta = f.ko[0]?.objekt ?? null;
   const koPoster = f.ko.filter((p) => p.kalla === 'ko');          // kö: numrerad 1,2,…, ordningsbar
   const forslagPoster = f.ko.filter((p) => p.kalla === 'forslag'); // automatikens förslag: dämpad, ej ordningsbar
-  const kanOrdna = koPoster.length > 1;                            // 'Ändra ordning' gäller BARA kö-raderna
+  const kanOrdna = koPoster.length > 0;                            // 'Ändra kön' gäller BARA kö-raderna (flytta och ta bort)
   // Faror och hänsyn för raderna: ett läsfel eller en pågående läsning står i bannern överst — en rad utan text får aldrig betyda "okänt".
   const koSvar = f.ko.map((p) => varning(p.objekt.id));
   const koVarning: 'fel' | 'laddar' | null = koSvar.some((s) => s === 'fel') ? 'fel' : koSvar.some((s) => s === 'laddar') ? 'laddar' : null;
@@ -1412,81 +1413,97 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
           )}
         </div>
       ) : (<>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <div style={{ ...TYP.rubrik }}>{namn}</div>
-        <div style={{ ...TYP.meta, color: FARG.text2 }}>{dinMaskin ? 'din maskin · ' : ''}{rollLabel}{f.manuellKo ? ' · manuell kö' : ''}</div>
+      {/* Svaret först: var maskinen är och — för skotaren — hur mycket som är kvar där. Skärmens enda tal. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: AVSTAND.s }}>
+          <div style={{ ...TYP.rubrik }}>{namn}</div>
+          {dinMaskin && <div style={{ ...TYP.meta, color: FARG.text2 }}>Din maskin</div>}
+        </div>
+        {f.nuObjekt ? (
+          <button onClick={() => onOppnaObjekt(f.nuObjekt!.id)} aria-label={`Öppna ${f.nuObjekt.namn}`}
+            style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, minHeight: 44, padding: 0, border: 'none', background: 'none', color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer', ...TYP.text, ...TNUM }}>
+            <span style={{ minWidth: 0 }}>{f.typ === 'skotare' ? 'Skotar' : 'Skördar'} {f.nuObjekt.namn}{nuKvar != null && f.typ === 'skotare' ? <span style={{ color: FARG.text2 }}> · {fmt(nuKvar)} m³ kvar</span> : null}</span>
+            <span style={{ color: FARG.text2 }}>›</span>
+          </button>
+        ) : (
+          <div style={{ ...TYP.text, color: posFel ? FARG.orange : FARG.text2, minHeight: 44, display: 'flex', alignItems: 'center' }}>{posFel ? POS_NU_TEXT : 'Står inte på något objekt just nu'}</div>
+        )}
       </div>
       {sparar > 0 && <div role="status" style={{ ...TYP.meta, color: FARG.text2 }}>Sparar…</div>}
       {koFel && <div ref={felRef} role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{koFel}</div>}
       {koVarning === 'fel' && <div role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{VARNING_LASFEL}</div>}
       {koVarning === 'laddar' && <div style={{ ...TYP.meta, color: FARG.text2 }}>{VARNING_LADDAR}</div>}
 
-      {/* Nu — står maskinen på ett känt objekt går raden att trycka på (objekt-arket) */}
-      {f.nuObjekt ? (
-        <button onClick={() => onOppnaObjekt(f.nuObjekt!.id)} aria-label={`Öppna ${f.nuObjekt.namn}`} style={{ ...RAD_KORT, gridTemplateColumns: '52px minmax(0, 1fr) auto' }}>
-          <div style={{ color: FARG.text2 }}>Nu</div>
-          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.nuObjekt.namn}</div>
-          <div style={{ color: FARG.text2, whiteSpace: 'nowrap' }}>{nuVarde}</div>
-          {rowMeta(nuAgg) && (<><div /><div style={{ ...TYP.meta, color: FARG.text2, gridColumn: '2 / 4' }}>{rowMeta(nuAgg)}</div></>)}
-        </button>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '52px minmax(0, 1fr) auto', columnGap: AVSTAND.m, rowGap: AVSTAND.s, ...TYP.text, ...TNUM }}>
-          <div style={{ color: FARG.text2 }}>Nu</div>
-          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={{ color: posFel ? FARG.orange : FARG.text2 }}>{posFel ? POS_NU_TEXT : 'okänd plats'}</span></div>
-          <div style={{ color: FARG.text2, whiteSpace: 'nowrap' }}>{nuVarde}</div>
-        </div>
-      )}
-
       {(skordFel || posFel) && f.typ === 'skotare' && f.ko.length > 0 && forslagPoster.length === 0 && <div role="status" style={{ ...TYP.meta, color: FARG.orange }}>{skordFel ? SKORD_OKAND_TEXT : POS_OKAND_TEXT}</div>}
       {grotFel && f.typ === 'skotare' && f.ko.length > 0 && (f.doldaAvslutade ?? 0) > 0 && <div role="status" style={{ ...TYP.meta, color: FARG.orange }}>{grotDoltText(f.doldaAvslutade ?? 0)}</div>}
 
-      {/* Kö (numrerad, ordningsbar) + Förslag (dämpad). Varje rad går att trycka på → objekt-arket. */}
-      {f.ko.length === 0 ? (
-        <div style={{ display: 'grid', gridTemplateColumns: '52px minmax(0,1fr)', columnGap: AVSTAND.m, ...TYP.text }}><div style={{ color: FARG.text2 }}>Nästa</div><div style={{ color: f.okand ? FARG.orange : FARG.text2 }}>{f.okand === 'ko' ? KO_OKAND_TEXT : f.okand === 'skord' ? SKORD_OKAND_TEXT : f.okand === 'pos' ? POS_OKAND_TEXT : f.okand === 'grot' ? grotDoltText(f.doldaAvslutade ?? 0) : 'inget planerat'}</div></div>
-      ) : (ordnaLage && kanOrdna) ? (
-        <ReorderLista key={ordnaNyckel} rows={dragRader} onDrop={slappOrdning} onOrderChange={onOrderChange} />
+      {/* KÖN — "Sen kör den till": nummer, namn, km. Volym, datum och hänsyn bor i objekt-arket (tryck på raden). En fara står
+          på raden, för den ska föraren veta innan han kör dit. */}
+      {ordnaLage && kanOrdna ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ ...TYP.micro, color: FARG.text2 }}>Ändra kön</div>
+            <button onClick={toggleOrdna} style={{ minHeight: 44, padding: 0, border: 'none', background: 'none', color: FARG.bla, fontFamily: 'inherit', ...TYP.text, cursor: 'pointer' }}>Klar</button>
+          </div>
+          <ReorderLista key={ordnaNyckel} rows={dragRader} onDrop={slappOrdning} onOrderChange={onOrderChange} onTaBort={(koId) => { void sparaKo(() => onTaBort(koId)); }} />
+          <button onClick={oppnaLagg} style={{ ...KNAPP_LITEN }}>+ Lägg till objekt</button>
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, ...TYP.text, ...TNUM }}>
-          {f.ko.map((p, i) => {
-            const v = varnText(varning(p.objekt.id)); const meta = rowMeta(aggFor(p.objekt, skord));
-            const forstaForslag = p.kalla === 'forslag' && i === koPoster.length && koPoster.length > 0; // 'Förslag'-rubrik bara när kö finns ovanför
+          <div style={{ ...TYP.micro, color: FARG.text2 }}>Sen kör den till</div>
+          {koPoster.length === 0 ? (
+            <div style={{ color: f.okand && forslagPoster.length === 0 ? FARG.orange : FARG.text2, minHeight: 44, display: 'flex', alignItems: 'center' }}>
+              {forslagPoster.length > 0 ? 'Inget i kön' : f.okand === 'ko' ? KO_OKAND_TEXT : f.okand === 'skord' ? SKORD_OKAND_TEXT : f.okand === 'pos' ? POS_OKAND_TEXT : f.okand === 'grot' ? grotDoltText(f.doldaAvslutade ?? 0) : 'Inget planerat efter det här'}
+            </div>
+          ) : koPoster.map((p, i) => {
+            const fara = faraRad(varning(p.objekt.id));
             return (
-              <React.Fragment key={p.objekt.id}>
-                {forstaForslag && <div style={{ ...TYP.micro, color: FARG.text2, marginTop: AVSTAND.xs }}>Förslag</div>}
-                <button onClick={() => onOppnaObjekt(p.objekt.id)} aria-label={`Öppna ${p.objekt.namn}`} style={{ ...RAD_KORT, gridTemplateColumns: '32px minmax(0, 1fr) auto' }}>
-                  <div style={{ color: FARG.text2 }}>{i + 1}</div>
-                  <div style={{ fontWeight: p.troligt ? 400 : 600, color: p.troligt ? FARG.text2 : FARG.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{koNamn(p.objekt)}</div>
-                  <div style={{ color: FARG.text2, whiteSpace: 'nowrap' }}>{hogerFor(p, i)}</div>
-                  {(meta || v || p.troligt) && (<><div /><div style={{ ...TYP.meta, color: FARG.text2, gridColumn: '2 / 4' }}>
-                    {p.troligt ? 'troligt — kan ändras' : <>{meta}{meta && v ? ' · ' : ''}{v && <span style={{ color: v.color }}>{v.text}</span>}</>}
-                  </div></>)}
-                </button>
-              </React.Fragment>
+              <button key={p.objekt.id} onClick={() => onOppnaObjekt(p.objekt.id)} aria-label={`Öppna ${p.objekt.namn}`} style={{ ...RAD_KORT, gridTemplateColumns: '28px minmax(0, 1fr) auto' }}>
+                <div style={{ color: FARG.text2 }}>{i + 1}</div>
+                <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{koNamn(p.objekt)}</div>
+                <div style={{ color: FARG.text2, whiteSpace: 'nowrap' }}>{kmText(legs[i])}</div>
+                {fara && (<><div /><div style={{ ...TYP.meta, color: fara.color, gridColumn: '2 / 4' }}>{fara.text}</div></>)}
+              </button>
             );
           })}
+          {/* Appens förslag är en EGEN grupp utan nummer — aldrig en fortsättning på kön. */}
+          {forslagPoster.length > 0 && (<>
+            <div style={{ ...TYP.micro, color: FARG.text2, marginTop: AVSTAND.s }}>Appen föreslår</div>
+            {forslagPoster.map((p, j) => {
+              const i = koPoster.length + j;
+              const fara = faraRad(varning(p.objekt.id));
+              const under = p.troligt ? { text: 'troligt — kan ändras', color: FARG.text2 } : fara;
+              return (
+                <button key={p.objekt.id} onClick={() => onOppnaObjekt(p.objekt.id)} aria-label={`Öppna ${p.objekt.namn}`} style={{ ...RAD_KORT, gridTemplateColumns: 'minmax(0, 1fr) auto' }}>
+                  <div style={{ color: FARG.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{koNamn(p.objekt)}</div>
+                  <div style={{ color: FARG.text2, whiteSpace: 'nowrap' }}>{kmText(legs[i])}</div>
+                  {under && <div style={{ ...TYP.meta, color: under.color, gridColumn: '1 / 3' }}>{under.text}</div>}
+                </button>
+              );
+            })}
+          </>)}
         </div>
       )}
 
-      {/* Knappar */}
+      {/* Knappar — förare: bara vägen dit. Förman: Ändra kön (eller Lägg till när kön är tom), Ring, Vägbeskrivning. */}
       {forare ? (
         mapsHref(nasta) && <a href={mapsHref(nasta)!} target="_blank" rel="noopener noreferrer" style={{ ...KNAPP, marginTop: AVSTAND.xs }}><SvgVag />Vägbeskrivning{nasta ? ` till ${nasta.namn}` : ''}</a>
-      ) : (<>
-        <div style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap' }}>
-          {kanOrdna && (
-            <button onClick={toggleOrdna} style={{ ...KNAPP_LITEN, borderColor: ordnaLage ? FARG.bla : '#48484a', color: ordnaLage ? FARG.bla : FARG.text }}>{ordnaLage ? 'Klar' : 'Ändra ordning'}</button>
-          )}
-          <button onClick={oppnaLagg} style={{ ...KNAPP_LITEN, borderColor: '#48484a', color: FARG.text }}>+ Lägg till objekt</button>
-        </div>
+      ) : !ordnaLage && (<>
+        {kanOrdna
+          ? <button onClick={toggleOrdna} style={{ ...KNAPP_LITEN }}>Ändra kön</button>
+          : <button onClick={oppnaLagg} style={{ ...KNAPP_LITEN }}>+ Lägg till objekt</button>}
         {telFel && !telefon && (
           <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
             <div role="alert" style={{ ...TYP.meta, color: FARG.orange, flex: 1 }}>{TEL_OKAND_TEXT}</div>
             <button onClick={onForsokTel} style={{ ...KNAPP_LITEN, flexGrow: 0, flexShrink: 0, padding: `0 ${AVSTAND.m}px` }}>Försök igen</button>
           </div>
         )}
-        <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.xs }}>
-          {telefon && <a href={`tel:${telefon}`} style={KNAPP}><SvgRing />Ring</a>}
-          {mapsHref(nasta) && <a href={mapsHref(nasta)!} target="_blank" rel="noopener noreferrer" style={KNAPP}><SvgVag />Vägbeskrivning</a>}
-        </div>
+        {(telefon || mapsHref(nasta)) && (
+          <div style={{ display: 'flex', gap: AVSTAND.s }}>
+            {telefon && <a href={`tel:${telefon}`} style={KNAPP}><SvgRing />Ring</a>}
+            {mapsHref(nasta) && <a href={mapsHref(nasta)!} target="_blank" rel="noopener noreferrer" style={KNAPP}><SvgVag />Vägbeskrivning</a>}
+          </div>
+        )}
       </>)}
       </>)}
     </div>

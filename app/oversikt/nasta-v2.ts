@@ -182,9 +182,12 @@ export function beraknaForslag(args: {
   // ── SKOTARE ──
   const skotare = maskiner.filter((m) => arSkotare(m));
   // Enriched skotarkandidater (backen ≥ golv, ej avslutat, bolag, koordinat, ≤45 dgr eller FPR-täckt).
+  // Ett objekt där en skotare redan står föreslås aldrig — varken för den (det är "Nu") eller för en annan skotare (det skotas redan).
+  // Skälviken stod 2026-11-05 både som Nu och som Förslag 5 hos Elefanten, med en väg ritad dit på kartan.
+  const skotasNu = new Set(skotare.map((m) => lageFor(m).nuObjektId).filter((id): id is string => !!id));
   const kand: Kand[] = [];
   for (const o of objekt) {
-    if (o.lat == null || o.lng == null || !o.bolag || avAvslutat(o)) continue;
+    if (o.lat == null || o.lng == null || !o.bolag || avAvslutat(o) || skotasNu.has(o.id)) continue;
     const agg = o.vo_nummer ? skord[o.vo_nummer] : undefined;
     const skotat = agg?.skotat ?? null;
     const backen = paBackenKvar(agg?.skordat ?? 0, skotat, agg?.egenSkotning ?? false);
