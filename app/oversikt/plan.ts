@@ -7,6 +7,7 @@
 
 import { barighetText, telHref, type Varning } from './objekt-info';
 import type { VarningsSvar } from './markeringar-las';
+import { lasStruket, type Struken } from '@/lib/vidaStruket';
 
 export type Roll = 'skordare' | 'skotare';
 
@@ -21,7 +22,7 @@ export interface PlanObjekt {
   skordare_manuell_fallning?: boolean | null; skordare_manuell_fallning_text?: string | null;
   markagare?: string | null; markagare_tel?: string | null; markagare_ska_ha_ved?: boolean | null; markagare_ved_text?: string | null;
   anteckningar?: string | null; sortiment?: string[] | string | null; cert?: string | null;
-  riskbedomning?: unknown;
+  riskbedomning?: unknown; vida_struket?: unknown;
   larmkoordinat_beskrivning?: string | null;
   traktdirektiv_url?: string | null; traktkarta_url?: string | null; stamplingslangd_url?: string | null;
 }
@@ -58,8 +59,9 @@ export interface Forbered {
   riskbedomd: boolean;
   /** Kunde farorna inte läsas säger sidan det — en tom lista får aldrig betyda "inga faror". */
   farorOlasta: boolean;
-  /** Det planeraren skrivit, ordagrant. */
-  planeraren: string | null;
+  /** Vidas traktdirektiv (objekt.anteckningar), ordagrant — det planeraren strukit står kvar med streck (vidaStruket). */
+  vida: string | null;
+  vidaStruket: Struken[];
   /** Allt annat, i ordning: marken, trailern, band, fällning, ved, hänsyn, infart, certifiering. */
   rader: ForberedRad[];
   dokument: { namn: string; url: string }[];
@@ -86,7 +88,13 @@ export function forbered(o: PlanObjekt, roll: Roll, warn: VarningsSvar): Forbere
   if (o.markagare_ska_ha_ved) rader.push({ text: `Markägaren ska ha ved${o.markagare_ved_text?.trim() ? `: ${o.markagare_ved_text.trim()}` : ''}`, varning: false, grupp: 'agare' });
 
   const ok = warn !== 'laddar' && warn !== 'fel';
-  if (ok) for (const h of warn.hansyn) rader.push({ text: `Hänsyn: ${h.label}${h.kommentar ? ` — ${h.kommentar}` : ''}`, varning: false, grupp: 'tanka' });
+  // Hänsyn på EN rad (Martin 2026-11-05: "Hänsyn: Hänsyn" sa ingenting): namnen ihop, en etikett som bara upprepar ordet räknas inte.
+  // En hänsyn med planerarens kommentar får egen rad — kommentaren är det föraren ska läsa.
+  if (ok) {
+    const namn = [...new Set(warn.hansyn.filter((h) => !h.kommentar && h.label.trim().toLowerCase() !== 'hänsyn').map((h) => h.label.trim().toLowerCase()))];
+    if (namn.length) rader.push({ text: `Hänsyn: ${namn.join(', ')}`, varning: false, grupp: 'tanka' });
+    for (const h of warn.hansyn) if (h.kommentar) rader.push({ text: `${h.label.trim().toLowerCase() === 'hänsyn' ? 'Hänsyn' : `Hänsyn ${h.label.trim().toLowerCase()}`}: ${h.kommentar}`, varning: false, grupp: 'tanka' });
+  }
 
   if (o.larmkoordinat_beskrivning?.trim()) rader.push({ text: `Infart: ${o.larmkoordinat_beskrivning.trim()}`, varning: false, grupp: 'kora' });
 
@@ -115,7 +123,7 @@ export function forbered(o: PlanObjekt, roll: Roll, warn: VarningsSvar): Forbere
     ...kartFaror.filter((f) => !(risker ?? []).some((r) => lika(f.label, r.risk))),
   ];
 
-  return { faror, riskbedomd: risker != null, farorOlasta: warn === 'fel', planeraren: o.anteckningar?.trim() || null, rader, dokument, markagare };
+  return { faror, riskbedomd: risker != null, farorOlasta: warn === 'fel', vida: o.anteckningar?.trim() || null, vidaStruket: lasStruket(o.vida_struket), rader, dokument, markagare };
 }
 
 /** "44 km från Bondeskog" — sträckan är maskinens körning från förra trakten, inte från telefonen. Okänd → ingen text. */

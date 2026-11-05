@@ -182,7 +182,7 @@ export default function OmTrakten(p: OmTraktenProps) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
               {helaTraffar.map((h) => (
                 <div key={h.id} data-testid={`om-post-${h.id}`}>
-                  <KommentarVisning vida={h.id === 'vida'} etikett={h.avsandare} text={h.text} meningar={h.id === 'vida'} />
+                  <KommentarVisning vida={h.id === 'vida'} etikett={h.avsandare} text={h.text} meningar={h.id === 'vida'} struket={h.struket} onVaxla={h.onVaxla} strykFel={h.strykFel} />
                   {h.id === 'vida' && p.planttext && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>{p.planttext}</div>}
                 </div>
               ))}

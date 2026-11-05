@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, useContext } from 'r
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
+import { lasStruket, vaxlaStruken, giltigVidaText, type Struken } from '@/lib/vidaStruket'
 import { LjudSpelare } from '@/components/LjudSpelare'
 import { gpsGuardAccepts, haversineMeters } from '@/lib/gps-guard'
 import { avslutaMedPosition, medelAvSenaste } from '@/lib/gpsSparLinje'
@@ -2633,6 +2634,11 @@ export default function PlannerPage() {
   // som hängt kvar från en tidigare rendering ändå når den senaste versionen. Zoomar ut till hela trakten för de orsaker som `slappAtgard` anger.
   const slappFramhavningRef = useRef<(orsak: SlappOrsak) => void>(() => {});
   const [vidaDirektiv, setVidaDirektiv] = useState(''); // objekt.anteckningar (Vida/kontoret), read-only i översikten
+  // Det planeraren strukit i Vidas text (objekt.vida_struket, lib/vidaStruket). null = kolumnen kunde inte läsas (migrationen ej körd) → inget streck och ingen knapp.
+  const [vidaStruket, setVidaStruket] = useState<Struken[] | null>(null);
+  const [vidaStrykFel, setVidaStrykFel] = useState<string | null>(null);
+  // Det som GÄLLER av Vidas text: till hytten (instruktion nr 1), "nytt sedan sist" och talen ur texten. Det strukna står kvar med streck i korten.
+  const vidaGiltig = useMemo(() => giltigVidaText(vidaDirektiv, vidaStruket ?? []), [vidaDirektiv, vidaStruket]);
   const [traktData, setTraktData] = useState<TraktData>({ ...INFO_STANDARD.traktData });   // volym/areal = gammalt demovärde (649 m³fub / 2 ha), ingen läser det
   const [prognosSettings, setPrognosSettings] = useState<PrognosSettings>({ ...INFO_STANDARD.prognosSettings });   // terpipirangSvar = % svår terräng, barighetDalig = % dålig bärighet
   const [manuellPrognos, setManuellPrognos] = useState<ManuellPrognos>({ ...INFO_STANDARD.manuellPrognos });   // planerarens uppskattning
@@ -2738,6 +2744,31 @@ export default function PlannerPage() {
   //  • alla fält sätts alltid ur raden (jsonb-fält faller tillbaka på INFO_STANDARD) → inget ligger kvar från föregående objekt.
   // infoBasRef = vad "oförändrat" betyder som kolumnvärden för det här objektet; sparningen jämför mot den och skickar bara skillnaden.
   const infoBasRef = useRef<{ id: string; rad: InfoRad } | null>(null);
+  // Strecken i Vidas text läses för sig: saknas kolumnen (migrationen ej körd) får inte hela objektinfon falla.
+  useEffect(() => {
+    setVidaStruket(null); setVidaStrykFel(null);
+    const id = valtObjekt?.id; if (!id) return;
+    let avbruten = false;
+    void supabase.from('objekt').select('vida_struket').eq('id', id).maybeSingle().then(({ data, error }) => {
+      if (avbruten) return;
+      if (error) { console.warn('[planering] vida_struket kunde inte läsas', error.message); return; }
+      setVidaStruket(lasStruket((data as { vida_struket?: unknown } | null)?.vida_struket));
+    });
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id]);
+  // Stryk / ta tillbaka en del av Vidas text. Bara planeraren (riktig admin). Visas direkt, sparas, och går tillbaka om det inte gick att spara.
+  const vaxlaVidaDel = useCallback(async (del: string) => {
+    const id = valtObjekt?.id; if (!id || vidaStruket == null) return;
+    const fore = vidaStruket;
+    const ny = vaxlaStruken(fore, del, currentMedarbetare?.namn?.split(' ')[0] ?? null, new Date().toISOString());
+    setVidaStruket(ny); setVidaStrykFel(null);
+    const { data, error } = await supabase.from('objekt').update({ vida_struket: ny.length ? ny : null }).eq('id', id).select('id');
+    if (error || !data?.length) {
+      console.error('[planering] vida_struket sparades inte', error);
+      setVidaStruket(fore); setVidaStrykFel('Strecket sparades inte. Kolla nätet och tryck igen.');
+    }
+  }, [valtObjekt?.id, vidaStruket, currentMedarbetare?.namn]);
+
   useEffect(() => {
     setInfoLoaded(false);
     setInfoLaddFel(false);
@@ -9454,9 +9485,9 @@ export default function PlannerPage() {
     markers: (markers as any[]).filter((m) => m.isMarker || m.isLine || m.isZone || m.isArrow).map((m) => ({ id: m.id, type: m.type ?? null, lineType: m.lineType ?? null, zoneType: m.zoneType ?? null, comment: m.comment ?? null, photoPath: m.photoPath ?? null })),
     kommentarIds: [],
     kommentarer: kk.rader.map((r) => ({ id: r.id, text: r.text })),
-    texter: [vidaDirektiv],
+    texter: [vidaGiltig],
     infor: [],
-  }), [markers, kk.rader, vidaDirektiv]);
+  }), [markers, kk.rader, vidaGiltig]);
   // "Jag har läst allt" sparas per FÖRARE i trakt_risk_last (samma tabell som riskbedömningens kvitto, eget underlag) — tiden sätts av databasen.
   const oversiktUnderlagNu = useMemo(() => oversiktUnderlag(oversiktSig), [oversiktSig]);
   const oversiktLast = harLastOversikt(riskLast.kvitton, currentMedarbetare?.id ?? null, oversiktUnderlagNu);
@@ -12701,7 +12732,7 @@ export default function PlannerPage() {
     svgToLatLon,
     typNamn: (typ) => markerTypes.find((t) => t.id === typ)?.name || 'Markering',
     vida: traktGeo,
-    direktiv: vidaDirektiv,   // Vidas traktdirektiv för hela trakten: instruktion nr 1 (lib/instruktioner)
+    direktiv: vidaGiltig,     // Vidas traktdirektiv för hela trakten, utan det planeraren strukit: instruktion nr 1 (lib/instruktioner)
     kommentarer: kk.rader,
     objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id) } : null,
@@ -14106,6 +14137,7 @@ export default function PlannerPage() {
         const infoOppen = traktOversiktOpen && !!valtObjekt;
         if (infoOppen && valtObjekt) {
         const vida = (vidaDirektiv || '').trim();
+        const vidaGaller = vidaGiltig;   // talen ur texten räknas bara på det som gäller (det strukna räknas inte)
         const egna = (infoAnteckningar || '').trim();
         const restr = (traktData as any)?.beraknad?.restriktioner as Array<{ name?: string; type?: string; details?: string; warning?: string }> | undefined;
         const arealNum = parseFloat(String(infoAreal ?? '').replace(',', '.'));
@@ -14131,7 +14163,7 @@ export default function PlannerPage() {
           }
           return null;
         };
-        const vidaTal = extractTal(vida);
+        const vidaTal = extractTal(vidaGaller);
         const egnaTal = extractTal(egna);
         const tal = vidaTal || egnaTal;                    // Vida vinner
         const loN: number | null = tal ? tal.lo : null;
@@ -14306,7 +14338,7 @@ export default function PlannerPage() {
         const maskinSlag = (enhetRoll ?? minRoll) as 'skordare' | 'skotare' | null;
         // TILL FÖRAREN = bara Vidas direktiv (läsning). Planerarens egna texter (förardirektiv och det gamla fältet Anteckningar) är inte längre något man skriver:
         // finns sådan text kvar står den som en grå rad "Gamla anteckningar" — i planerarens kort och i förarens sammanfattning. Inget raderas.
-        const forareTexter = tillForaren({ vida });
+        const forareTexter = tillForaren({ vida, vidaStruket: vidaStruket ?? [], onVaxla: isAdminRiktig && !maskinlage && vidaStruket != null ? (d: string) => { void vaxlaVidaDel(d); } : undefined, strykFel: vidaStrykFel });
         const gamlaTexter = [valtObjekt.forardirektiv, egna].map((t) => String(t ?? '').trim()).filter(Boolean).join('\n\n');
         const forarRader = forarSammanfattning({
             avlaggAntal: klarAvlaggAntal, vidaAvlagg: klarVidaAvlagg, basvagTexter: kartMarkeringar.filter(arBasvagMark).map((m) => basvagText(m.farg, m.langdM)), basvagKravs: infoBasvagKravs,

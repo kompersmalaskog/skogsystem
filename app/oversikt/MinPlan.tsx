@@ -2,7 +2,8 @@
 // MIN PLAN — förarens sida i Översikten. Regler och ord: ./plan.ts; sidan (page.tsx) ger kön, faror och Kör dit.
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { FARG, TYP, AVSTAND, RADIE, KOLUMN } from '@/lib/design/tokens';
+import { FARG, TYP, AVSTAND, RADIE, KOLUMN, KNAPP } from '@/lib/design/tokens';
+import { KommentarVisning } from '@/components/planering/KommentarRuta';
 import { forbered, statusOrd, faktaRad, strackaText, type PlanObjekt, type Roll } from './plan';
 import { koNamn, type MaskinForslag } from './nasta-v2';
 import { POS_NU_TEXT } from './las-fel-banner';
@@ -56,14 +57,31 @@ const MP_CSS = `
 
 const mpKort: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: AVSTAND.m, padding: AVSTAND.l, background: FARG.kort, borderRadius: RADIE.kort, minWidth: 0 };
 
-/** Ett kort med en fråga som rubrik — samma form som markägarrapportens frågor. */
+/** En fråga: etiketten OVANFÖR kortet (designregeln "Rubrikplats"), svaret i kortet. */
 function Fraga({ rubrik, hel, children }: { rubrik: string; hel?: boolean; children: React.ReactNode }) {
   return (
-    <section className={hel ? 'mp-hel' : undefined} style={mpKort}>
-      <h3 style={{ ...TYP.listtitel, margin: 0 }}>{rubrik}</h3>
-      {children}
+    <section className={hel ? 'mp-hel' : undefined} style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s, minWidth: 0 }}>
+      <h3 style={{ ...TYP.micro, color: FARG.text2, margin: 0 }}>{rubrik}</h3>
+      <div style={mpKort}>{children}</div>
     </section>
   );
+}
+
+/** Kartans kommentarer: en per rad med en linje emellan; en lång text visar tre rader och "Läs mer". */
+function KartRader({ texter }: { texter: string[] }) {
+  const [oppen, setOppen] = useState<number | null>(null);
+  return <div style={{ display: 'flex', flexDirection: 'column' }}>
+    {texter.map((t, i) => {
+      const lang = t.length > 160 || t.split('\n').length > 3;
+      const kort = lang && oppen !== i;
+      return (
+        <div key={i} style={{ padding: `${AVSTAND.s}px 0`, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}`, display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+          <div style={{ ...TYP.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', ...(kort ? { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : null) }}>{t}</div>
+          {lang && <button type="button" onClick={() => setOppen(oppen === i ? null : i)} style={{ ...KNAPP.tertiar }}>{kort ? 'Läs mer' : 'Visa mindre'}</button>}
+        </div>
+      );
+    })}
+  </div>;
 }
 
 function Rader({ rader }: { rader: { text: string; varning: boolean }[] }) {
@@ -79,7 +97,7 @@ function TraktFragor({ o, roll, warn, kartText }: { o: PlanObjekt; roll: Roll; w
   const tanka = f.rader.filter((r) => r.grupp === 'tanka');
   const kora = f.rader.filter((r) => r.grupp === 'kora');
   const agare = f.rader.filter((r) => r.grupp === 'agare');
-  const harTanka = !!f.planeraren || texter.length > 0 || kartText === 'fel' || tanka.length > 0;
+  const harTanka = !!f.vida || texter.length > 0 || kartText === 'fel' || tanka.length > 0;
   const ingetSkrivet = !harTanka && !kora.length && !agare.length && !f.markagare && !f.dokument.length;
   return (
     <div className="mp-fragor-ram"><div className="mp-fragor">
@@ -100,19 +118,15 @@ function TraktFragor({ o, roll, warn, kartText }: { o: PlanObjekt; roll: Roll; w
 
       {harTanka && (
         <Fraga rubrik="Vad ska du tänka på?">
-          {f.planeraren && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-              <div style={{ ...TYP.meta, color: FARG.text2 }}>Planeraren skriver</div>
-              <div style={{ ...TYP.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{f.planeraren}</div>
-            </div>
-          )}
+          {/* Vidas traktdirektiv — samma ruta som i Planeringen; det planeraren strukit står kvar med streck. Stryks i Planeringens ⓘ-kort. */}
+          {f.vida && <KommentarVisning vida vidaEtikett="Vida" text={f.vida} meningar struket={f.vidaStruket} />}
           {/* Det som skrivits på kartan — ordagrant. Var det står syns på kartan i Planeringen. */}
           {(texter.length > 0 || kartText === 'fel') && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
               <div style={{ ...TYP.meta, color: FARG.text2 }}>Skrivet på kartan</div>
               {kartText === 'fel'
                 ? <div role="alert" style={{ ...TYP.text, color: FARG.orange }}>Kunde inte läsa det som står på kartan</div>
-                : texter.map((t, i) => <div key={i} style={{ ...TYP.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{t}</div>)}
+                : <KartRader texter={texter} />}
             </div>
           )}
           {tanka.length > 0 && <Rader rader={tanka} />}

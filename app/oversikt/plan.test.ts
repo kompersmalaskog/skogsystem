@@ -25,13 +25,13 @@ describe('forbered — allt föraren måste veta, för sin roll', () => {
   it('skördaren: faror först, planerarens text ordagrant, manuell fällning — aldrig sortiment, inte skotarens band', () => {
     const f = forbered(arvidstorp, 'skordare', lasta);
     expect(f.faror.map((x) => x.label)).toEqual(['Kraftledning']);
-    expect(f.planeraren).toBe('OBS! Flertalet träd stämplade utanför området. Se stämplingslängd.');
+    expect(f.vida).toBe('OBS! Flertalet träd stämplade utanför området. Se stämplingslängd.');
     const t = f.rader.map((r) => r.text);
     expect(t).toContain('Bärighet medel · flackt');
     expect(t).toContain('Manuell fällning');
     expect(t.some((x) => x.startsWith('Sortiment'))).toBe(false); // "det stämmer aldrig" (Martin 2026-11-05)
     expect(t).toContain('Certifierad: FSC, PEFC');
-    expect(t).toContain('Hänsyn: Evighetsträd');
+    expect(t).toContain('Hänsyn: evighetsträd');
     expect(t.some((x) => x.startsWith('Band'))).toBe(false);
     expect(f.dokument.map((d) => d.namn)).toEqual(['Traktdirektiv', 'Stämplingslängd']);
     expect(f.markagare).toEqual({ namn: 'Johannishus Godsförvaltning Ab', telHref: 'tel:045712345' });
@@ -44,7 +44,7 @@ describe('forbered — allt föraren måste veta, för sin roll', () => {
   });
   it('det som inte är ifyllt står inte alls — aldrig en tom rad', () => {
     const f = forbered({ id: 'x', namn: 'Tom', status: 'oplanerad', cert: 'None' }, 'skordare', { faror: [], hansyn: [] });
-    expect(f).toEqual({ faror: [], riskbedomd: false, farorOlasta: false, planeraren: null, rader: [], dokument: [], markagare: null });
+    expect(f).toEqual({ faror: [], riskbedomd: false, farorOlasta: false, vida: null, vidaStruket: [], rader: [], dokument: [], markagare: null });
   });
   it('dålig bärighet och trailer som inte kommer in är varningar', () => {
     const f = forbered({ id: 'x', namn: 'X', status: 'planerad', barighet: 'dalig', transport_trailer_in: false }, 'skotare', { faror: [], hansyn: [] });
@@ -88,5 +88,15 @@ describe('forbered — riskerna står först, en gång', () => {
       { label: 'Motorsåg på trakten', kommentar: 'Två trädlängder.' },
       { label: 'Brant', kommentar: null },
     ]);
+  });
+});
+
+describe('hänsyn på en rad', () => {
+  it('Bondeskog (prod): Evighetsträd, Hänsyn, Högstubbe → "Hänsyn: evighetsträd, högstubbe"; med kommentar egen rad', () => {
+    const f = forbered({ id: 'x', namn: 'X', status: 'planerad' }, 'skordare', { faror: [], hansyn: [
+      { label: 'Evighetsträd', kommentar: null }, { label: 'Hänsyn', kommentar: null }, { label: 'Högstubbe', kommentar: null }, { label: 'Evighetsträd', kommentar: null },
+      { label: 'Hänsyn', kommentar: 'Kant mot bäcken' },
+    ] });
+    expect(f.rader.map((r) => r.text)).toEqual(['Hänsyn: evighetsträd, högstubbe', 'Hänsyn: Kant mot bäcken']);
   });
 });
