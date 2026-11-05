@@ -36,6 +36,10 @@ export const PROGNOS = { TAKT_STABIL: 0.5, SENASTE_DAG_MAX: 3, HORISONT_MAX: 15 
  *  Format som det ska stå i SMS:et, t.ex. "0470-123 45". */
 export const FORETAG_TELEFON = '';
 
+/** TESTFAS (Martin 2026-11-05): besöks-SMS:et går bara till inköparen och till oss (aktiva admin med telefon — Martin och Joacim) tills vi vet att det fungerar.
+ *  false = markägaren går inte att välja som mottagare. Sätts till true först när Martin säger att text och sida är klara. */
+export const MARKAGARE_SMS_PA = false;
+
 /** Länken är en slumpad token av minst så här många tecken (databasen kräver detsamma). */
 export const TOKEN_MIN_TECKEN = 32;
 

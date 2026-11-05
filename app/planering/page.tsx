@@ -14498,6 +14498,7 @@ export default function PlannerPage() {
             besok: kortRoll === 'planerare' && isAdminRiktig && !maskinlage && !maskinSomParam && valtObjekt.id ? {
               objektId: String(valtObjekt.id), status: valtObjekt.status ?? null,
               markagare: valtObjekt.markagare ?? null, markagareTel: valtObjekt.markagare_tel ?? null, fastighet: valtObjekt.fastighetsbeteckning ?? null,
+              inkopare: valtObjekt.inkopare ?? null, inkopareTel: valtObjekt.inkopare_tel ?? null,
               planeradStart: valtObjekt.planerad_start ?? null, faktiskStart: valtObjekt.faktisk_start ?? null, pagaendeStartad: valtObjekt.pagaende_startad_timestamp ?? null,
               fokusSms: besokFokus,
             } satisfies BesokPlanerareProps : null,
