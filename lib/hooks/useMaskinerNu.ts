@@ -12,7 +12,7 @@ export const MASKINER_NU_UPPDATERA_MS = 60_000;
 
 export function useMaskinerNu({ map, aktiv, utan = null, onTryck }: { map: any; aktiv: boolean; utan?: string | null; onTryck?: (text: string, m: MaskinNu) => void }) {
   const [rader, setRader] = useState<MaskinPosRad[] | null>(null);
-  const [register, setRegister] = useState<MaskinRegister[]>([]);
+  const [register, setRegister] = useState<MaskinRegister[] | null>(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -22,11 +22,11 @@ export function useMaskinerNu({ map, aktiv, utan = null, onTryck }: { map: any; 
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       const [pos, reg] = await Promise.all([
         supabase.rpc('maskin_senaste_position'),
-        supabase.from('dim_maskin').select('maskin_id, visningsnamn, maskin_typ, aktiv'),
+        supabase.from('dim_maskin').select('maskin_id, visningsnamn, maskin_typ, aktiv_till'),
       ]);
       if (avbruten) return;
       if (pos.error) { console.error('[MaskinerNu] positionerna kunde inte läsas:', pos.error); } else setRader((pos.data ?? []) as MaskinPosRad[]);
-      if (!reg.error) setRegister((reg.data ?? []) as MaskinRegister[]);
+      if (reg.error) console.error('[MaskinerNu] maskinregistret kunde inte läsas:', reg.error); else setRegister((reg.data ?? []) as MaskinRegister[]);
       setTick((t) => t + 1);
     };
     void las();
@@ -36,8 +36,9 @@ export function useMaskinerNu({ map, aktiv, utan = null, onTryck }: { map: any; 
     return () => { avbruten = true; clearInterval(id); document.removeEventListener('visibilitychange', synlig); };
   }, [aktiv]);
 
-  // Färskheten räknas om vid varje läsning (tick), så en maskin som tystnat blir grå.
-  const maskiner = useMemo(() => (aktiv && rader ? byggMaskinerNu(rader, register, new Date(), utan) : []), [aktiv, rader, register, utan, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Färskheten räknas om vid varje läsning (tick), så en maskin som tystnat blir grå. Inga prickar förrän registret är läst
+  // (annars står maskin-id:t i stället för namnet — 2026-11-05: "PONS20SDJAA270231" på kartan).
+  const maskiner = useMemo(() => (aktiv && rader && register ? byggMaskinerNu(rader, register, new Date(), utan) : []), [aktiv, rader, register, utan, tick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!map) return;

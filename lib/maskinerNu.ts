@@ -13,7 +13,7 @@ export interface MaskinPosRad {
   maskin_id: string; roll: string | null; objekt_id: string | null; objekt_namn: string | null;
   datum: string | null; lat: number | null; lng: number | null; tid: string | null;
 }
-export interface MaskinRegister { maskin_id: string; visningsnamn?: string | null; maskin_typ?: string | null; aktiv?: boolean | null }
+export interface MaskinRegister { maskin_id: string; visningsnamn?: string | null; maskin_typ?: string | null; aktiv_till?: string | null }
 
 export interface MaskinNu {
   maskinId: string; namn: string; roll: 'skordare' | 'skotare'; lat: number; lng: number;
@@ -56,8 +56,8 @@ const rollAv = (rad: MaskinPosRad, reg?: MaskinRegister): 'skordare' | 'skotare'
 };
 
 /**
- * Raderna → prickarna. Bort: utan position, avslutade maskiner (aktiv = false), och den egna maskinen (`utan`, maskinläget
- * — den har redan sin egen prick). Namnet ur registret (visningsnamn), aldrig ett maskin-id om det finns ett namn.
+ * Raderna → prickarna. Bort: utan position, avslutade maskiner (aktiv_till före idag), och den egna maskinen (`utan`, maskinläget
+ * — den har redan sin egen prick). Namnet ur registret (visningsnamn: Giant, H8E -26, Wisent …) — aldrig ett maskin-id; saknas namnet står "Okänd maskin".
  */
 export function byggMaskinerNu(rader: MaskinPosRad[], register: MaskinRegister[], nu: Date, utan: string | null = null): MaskinNu[] {
   const reg = new Map(register.map((r) => [r.maskin_id, r]));
@@ -66,11 +66,12 @@ export function byggMaskinerNu(rader: MaskinPosRad[], register: MaskinRegister[]
     if (!r.maskin_id || r.maskin_id === utan) continue;
     if (typeof r.lat !== 'number' || typeof r.lng !== 'number' || !Number.isFinite(r.lat) || !Number.isFinite(r.lng)) continue;
     const m = reg.get(r.maskin_id);
-    if (m && m.aktiv === false) continue;
+    // Avslutad maskin: aktiv_till före idag (sista dagen räknas som aktiv, som i maskinvyns sidolista).
+    if (m?.aktiv_till && m.aktiv_till < dag(nu)) continue;
     const roll = rollAv(r, m);
     if (!roll) continue;
     const { farsk, nar } = narText(r.tid, r.datum, nu);
-    ut.push({ maskinId: r.maskin_id, namn: (m?.visningsnamn ?? '').trim() || r.maskin_id, roll, lat: r.lat, lng: r.lng, farsk, nar, objektNamn: r.objekt_namn });
+    ut.push({ maskinId: r.maskin_id, namn: (m?.visningsnamn ?? '').trim() || 'Okänd maskin', roll, lat: r.lat, lng: r.lng, farsk, nar, objektNamn: r.objekt_namn });
   }
   return ut.sort((a, b) => a.namn.localeCompare(b.namn, 'sv'));
 }

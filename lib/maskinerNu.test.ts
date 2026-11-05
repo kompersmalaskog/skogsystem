@@ -8,9 +8,9 @@ import { lagerRang as rangFor } from './lagerOrdning';
 const nu = new Date('2026-11-05T09:30:00Z'); // 10:30 svensk tid
 const rad = (o: Partial<MaskinPosRad>): MaskinPosRad => ({ maskin_id: 'PONS20SDJAA270231', roll: 'skordare', objekt_id: 'o1', objekt_namn: 'Bondeskog AU 2026', datum: '2026-11-05', lat: 56.659, lng: 15.358, tid: '2026-11-05T09:25:20Z', ...o });
 const register = [
-  { maskin_id: 'PONS20SDJAA270231', visningsnamn: 'Giant', maskin_typ: 'Harvester', aktiv: true },
-  { maskin_id: 'A030353', visningsnamn: 'Wisent', maskin_typ: 'Forwarder', aktiv: true },
-  { maskin_id: 'A110148', visningsnamn: 'Elefant AF', maskin_typ: 'Forwarder', aktiv: false },
+  { maskin_id: 'PONS20SDJAA270231', visningsnamn: 'Giant', maskin_typ: 'Harvester', aktiv_till: null },
+  { maskin_id: 'A030353', visningsnamn: 'Wisent', maskin_typ: 'Forwarder', aktiv_till: null },
+  { maskin_id: 'A110148', visningsnamn: 'Elefant AF', maskin_typ: 'Forwarder', aktiv_till: '2026-07-08' },
 ];
 
 describe('narText — en gammal position ser aldrig färsk ut', () => {
@@ -46,6 +46,17 @@ describe('byggMaskinerNu', () => {
       rad({}), rad({ maskin_id: 'A030353', roll: 'skotare' }), rad({ maskin_id: 'A110148', roll: 'skotare' }), rad({ maskin_id: 'X', lat: null }),
     ], register, nu, 'PONS20SDJAA270231');
     expect(ut.map((m) => m.namn)).toEqual(['Wisent']);
+  });
+});
+
+describe('namnet', () => {
+  it('aldrig maskin-id:t: utan namn i registret står "Okänd maskin"', () => {
+    expect(byggMaskinerNu([rad({ maskin_id: 'R64428', roll: 'skordare' })], register, nu)[0].namn).toBe('Okänd maskin');
+  });
+  it('hooken läser de kolumner som finns i dim_maskin (aktiv_till — kolumnen aktiv finns inte) och väntar på registret', () => {
+    const hook = readFileSync('lib/hooks/useMaskinerNu.ts', 'utf8');
+    expect(hook).toContain("select('maskin_id, visningsnamn, maskin_typ, aktiv_till')");
+    expect(hook).toContain('aktiv && rader && register ?');
   });
 });
 
