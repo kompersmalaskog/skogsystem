@@ -3,9 +3,9 @@
 // SAMMA bilder och färger som planeringsvyn och objektöversiktens karta: planerarens markeringar ritas med lib/kartstil + lib/egenkontrollkarta
 // (symboler, pilar, linjer med basvägarnas snitselfärger, stickvägar, backväg, ytor med snedstreck), Vidas lager med samma filter, färger och
 // etiketter som planeringen (hänsyn, nyckelbiotop, fornlämning, basväg, kraftledning som ledning, avlägg med Vidas nummer), skördarens körspår
-// som stråk (sparLager) och produktionshögarna som prickar i trädslagets färg (som objektöversikten).
+// som stråk (kartSpar, som skotarläget) och produktionshögarna som skotarlägets ljusa prickar.
 
-import { backvagFeatureUrData, backvagLager, BACKVAG_KALLA, kontextFeature, sparFeatures, sparLager, SPAR_KALLA, vidaGransFeatures, vidaGransLager, VIDA_GRANS_KALLA } from '@/lib/egenkontrollkarta';
+import { backvagFeatureUrData, backvagLager, BACKVAG_KALLA, kontextFeature, sparFeatures, SPAR_KALLA, vidaGransFeatures, vidaGransLager, VIDA_GRANS_KALLA } from '@/lib/egenkontrollkarta';
 import { kraftledningLager, linjeLager, pilLager, symbolLager, VIDA_BASVAG_FARG, zonFyllLager, zonKantLager, zonSnedstreckLager } from '@/lib/kartstil';
 import { VAG_LINJETYPER } from '@/lib/backvag';
 import { HANSYNSYTA_FILTER, OVRIGT_YTA_FILTER, OVRIGT_YTA_STIL, snedstreckId, VIDA_ETIKETT, YTA_ETIKETT_STIL, YTA_ETIKETT_STORLEK } from '@/lib/ytaStil';
@@ -13,6 +13,7 @@ import { FARG_KULTUR, FARG_NATUR } from '@/lib/larm/grupper';
 import { linjeKort, SYMBOL_FORKLARING, vidaForklaring, vidaLinjeKort, ytaForklaring } from '@/lib/symboler';
 import { markeringNamn } from '@/app/oversikt/markeringar';
 import type { Origo } from '@/lib/kartkoordinater';
+import { kartSpar } from '@/lib/sparStil';
 import type { SkotarHog } from './hogar';
 
 export type LngLat = [number, number];
@@ -77,7 +78,7 @@ export function kallor(d: Data) {
     const p = mittpunkt(f.geometry);
     return p ? [{ type: 'Feature', properties: f.properties, geometry: { type: 'Point', coordinates: p } }] : [];
   });
-  const hogar = (d.hogar?.hogar ?? []).map((h, i) => ({ type: 'Feature', properties: { hi: i, volym: h.m3, farg: h.farg }, geometry: { type: 'Point', coordinates: [h.lng, h.lat] } }));
+  const hogar = (d.hogar?.hogar ?? []).map((h, i) => ({ type: 'Feature', properties: { hi: i, v: h.m3, farg: h.farg, a: h.a }, geometry: { type: 'Point', coordinates: [h.lng, h.lat] } }));
   return {
     [KALLA.mark]: fc(mark),
     [KALLA.avlaggNr]: fc(avlaggNr),
@@ -134,15 +135,24 @@ export function lagerSpec() {
     ...backvagLager(),
   ];
   const kraftledning = kraftledningLager(KALLA.vida, 'sk-kraft', VIDA_KRAFT);
-  const spar = sparLager('skordare');
+  // Skördarens stråk som i maskinernas skotarläge (lib/sparStil kartSpar, skotarläget): lila, brett, mörk kant.
+  const sp = kartSpar('plan', true);
+  const spar = [
+    { id: 'sk-spar-kant', type: 'line', source: SPAR_KALLA.skordare, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': sp.kantFarg, 'line-width': sp.kantBredd, 'line-opacity': sp.kantOpacitet } },
+    { id: 'sk-spar', type: 'line', source: SPAR_KALLA.skordare, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': sp.farg, 'line-width': sp.bredd, 'line-opacity': sp.opacitet } },
+  ];
+  // Samma prickar som maskinernas skotarläge (app/planering/page.tsx laggTillHogPrickar): ljus prick med mörk kant, större = mer kvar, en rest nästan osynlig.
   const hogar = [{
     id: 'sk-hogar', type: 'circle', source: KALLA.hogar,
     paint: {
       'circle-color': ['get', 'farg'],
+      'circle-stroke-color': 'rgba(0,0,0,0.75)',
+      'circle-stroke-width': 1.5,
       'circle-radius': ['interpolate', ['linear'], ['zoom'],
-        13, ['interpolate', ['linear'], ['sqrt', ['get', 'volym']], 0, 2, 5, 5],
-        17, ['interpolate', ['linear'], ['sqrt', ['get', 'volym']], 0, 4, 5, 14]],
-      'circle-stroke-color': 'rgba(0,0,0,0.6)', 'circle-stroke-width': 1, 'circle-opacity': 0.92,
+        13, ['interpolate', ['linear'], ['get', 'v'], 0, 1, 2, 1.5, 10, 3, 30, 5],
+        17, ['interpolate', ['linear'], ['get', 'v'], 0, 1.5, 1, 2.5, 5, 4.5, 15, 7.5, 40, 10]],
+      'circle-opacity': ['coalesce', ['get', 'a'], 0.95],
+      'circle-stroke-opacity': ['coalesce', ['get', 'a'], 0.95],
     },
   }];
   const symboler = [

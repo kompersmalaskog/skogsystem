@@ -11,7 +11,7 @@
 
 import { klustraStammar, type HogStam } from '@/lib/produktionshogar';
 import { draAvUttagFranHogar, type UttagRad } from '@/lib/skotat';
-import { hogarKvar, medMarkeringar, type HogIn, type HogMarkering } from '@/lib/skotarHogarKvar';
+import { FULL_STYRKA, HOG_PRICK_FARG, hogarKvar, medMarkeringar, REST_ANDEL, REST_M3, REST_STYRKA, type HogIn, type HogMarkering } from '@/lib/skotarHogarKvar';
 import { tradslagFarg, tradslagLabel } from '@/lib/tradslag';
 import type { Lass } from '@/lib/skotarLass/typer';
 
@@ -25,8 +25,10 @@ export type SkotarHog = {
   m3: number;
   /** störst först */
   tradslag: HogTradslag[];
-  /** färgen = det trädslag som ligger mest av */
+  /** prickens färg: samma ljusa som maskinernas skotarläge (HOG_PRICK_FARG.alla) */
   farg: string;
+  /** prickens styrka: en hög där lassen tagit huvuddelen är en rest och nästan osynlig, som i skotarläget */
+  a: number;
 };
 export type HogarSvar = { hogar: SkotarHog[]; kvar: HogTradslag[]; kvarM3: number; skordatM3: number };
 
@@ -68,7 +70,11 @@ export function skotarHogar(stammar: readonly Stam[], uttag: readonly UttagRad[]
     const tradslag = [...per].map(([namn, v]) => ({ namn, m3: Math.round(v * 10) / 10, farg: tradslagFarg(namn) })).filter((t) => t.m3 > 0).sort((a, b) => b.m3 - a.m3);
     const m3 = Math.round(tradslag.reduce((s, t) => s + t.m3, 0) * 10) / 10;
     if (m3 < 0.05) return;
-    hogar.push({ lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], m3, tradslag, farg: tradslag[0].farg });
+    // Samma regel som skotarlägets prickar (lib/skotarHogarKvar hogPrickar): det som låg i högen före lassen mot det som ligger kvar.
+    const fore0 = Object.values(hogIn[j].sortimentVolym).reduce((s, x) => s + Math.max(0, x), 0);
+    const kvar0 = kvar[j].totalt;
+    const rest = fore0 - kvar0 > 0.05 && (kvar0 < REST_M3 || kvar0 < fore0 * REST_ANDEL);
+    hogar.push({ lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], m3, tradslag, farg: HOG_PRICK_FARG.alla, a: rest ? REST_STYRKA : FULL_STYRKA });
   });
 
   // Hela trakten: hela m³ per trädslag, summan av de avrundade (raderna går att räkna ihop).

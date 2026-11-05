@@ -8,7 +8,7 @@
 // Ren från Next: rutterna är tunna och returnerar `{ status, body }` härifrån, så reglerna kan testas utan nätverk.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { beslutaOrigo, lasVidaGrans, markeringsGranser, markeringsPunkter, type VidaGrans } from '@/lib/egenkontrollOrigo';
+import { beslutaOrigo, KVITTO, lasVidaGrans, markeringsGranser, markeringsPunkter, type VidaGrans } from '@/lib/egenkontrollOrigo';
 import { svgToLatLon, type Origo } from '@/lib/kartkoordinater';
 import { objektStartKamera } from '@/lib/objektFlyg';
 import { hamtaAltNummer, hogarObjektIds } from '@/lib/objektNummer';
@@ -160,6 +160,33 @@ export function origoUtanVida(objekt: { lat: number | null; lng: number | null; 
 
 const ORIGO_TEXT = 'Planerarens markeringar visas inte: de går inte att placera säkert på kartan.';
 
+/**
+ * Egenkontrollens svaga kontroll räknar PUNKTER: en GPS-spårad basväg på 1,2 km ut till allmän väg (Bondeskog AU 2026, ~90 punkter)
+ * väger då tyngre än alla symboler i trakten, och en rätt placerad trakt underkänns. Här räknas varje MARKERING en gång: den räknas
+ * som på plats när någon av dess punkter ligger inom Vidas ruta + samma marginal. En felplacering (hela trakten förskjuten, PR 278/322)
+ * flyttar alla markeringar åt samma håll och fångas fortfarande. Gäller bara när planeraren inte ritat någon traktgräns
+ * (då har den starka kontrollen redan sagt nej) och bara skotarsidan — egenkontrollen är orörd.
+ */
+export function origoPerMarkering(objekt: { lat: number | null; lng: number | null; kartbild_bounds: unknown }, rader: { data?: unknown }[], vida: VidaGrans): Origo | null {
+  if (vida.typ !== 'ok') return null;
+  const origo = objektStartKamera(objekt);
+  if (!origo) return null;
+  const [[vMinLng, vMinLat], [vMaxLng, vMaxLat]] = vida.gran;
+  const mLng = 111_320 * Math.cos((origo.lat * Math.PI) / 180);
+  const marginalM = Math.max(KVITTO.MARGINAL_MIN_M, KVITTO.MARGINAL_ANDEL * Math.max((vMaxLng - vMinLng) * mLng, (vMaxLat - vMinLat) * 111_320));
+  const dLng = marginalM / mLng;
+  const dLat = marginalM / 111_320;
+  let antal = 0;
+  let inom = 0;
+  for (const r of rader) {
+    const p = markeringsPunkter([r]);
+    if (p.length === 0) continue;
+    antal++;
+    if (p.some((q) => { const ll = svgToLatLon(q.x, q.y, origo); return ll.lng >= vMinLng - dLng && ll.lng <= vMaxLng + dLng && ll.lat >= vMinLat - dLat && ll.lat <= vMaxLat + dLat; })) inom++;
+  }
+  return antal > 0 && inom / antal >= KVITTO.ANDEL_INOM ? origo : null;
+}
+
 export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
   const fel: string[] = [];
   const alt = await hamtaAltNummer(sb, o.id).catch(() => []);
@@ -210,6 +237,8 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
             .filter((q) => typeof q?.lat === 'number' && typeof q?.lng === 'number').map((q) => [q.lng as number, q.lat as number] as LngLat)),
         ];
         origo = origoUtanVida(objekt, punkter, ref);
+      } else if (beslut.skal === 'stammer_inte' && markeringsGranser(rader).length === 0) {
+        origo = origoPerMarkering(objekt, rader, vida);
       }
       if (origo) markeringar = rader.map((r) => rensaMarkering(r.data)).filter((x): x is Record<string, unknown> => !!x);
       else origoText = ORIGO_TEXT;
