@@ -695,7 +695,10 @@ export default function OversiktV2Page() {
       const grotRad = grotOppen ? grotPerObjektId.get(o.id) : undefined;
       const br = grotRad ? bradskandeFor(grotRad, todayISO) : null; // GROT-läget + markägarens datum → brådskande prick (går före statusens stil)
       const d = br ? bradskandePrick(br) : dotDesc(o, koObjektIds.has(o.id), grotIds.has(o.id) ? (grotOppen ? 'oppen' : 'vantar') : false);
-      if (d) want.set(o.id, { desc: d, lat: o.lat, lng: o.lng, namn: grotRad?.namn || o.namn, grot: grotPerObjektId.has(o.id), fynd: analysKortOrd(lasTraktAnalys(o)) }); // GROT-läge: samma namn som i listan
+      // Något att kolla på trakten (orange ring) syns ALLTID, också utzoomat och oplanerat (Martin 2026-11-06: "när det är något man
+      // måste kolla ska den inte alltid synas då"). Prod 2026-11-06: 4 öppna trakter, så kartan blir inte rörig. Avslutade rörs inte.
+      const fynd = o.status === 'avslutat' ? null : analysKortOrd(lasTraktAnalys(o));
+      if (d) want.set(o.id, { desc: fynd ? { ...d, utzoom: true } : d, lat: o.lat, lng: o.lng, namn: grotRad?.namn || o.namn, grot: grotPerObjektId.has(o.id), fynd }); // GROT-läge: samma namn som i listan
     }
     grotUtanPrick.forEach((r) => { const br = bradskandeFor(r, todayISO); want.set(`grot:${r.id}`, { desc: br ? bradskandePrick(br) : GROT_PRICK, lat: r.koordinat!.lat, lng: r.koordinat!.lng, namn: r.namn, grot: true, fynd: null }); });
     dotsRef.current.forEach((d, id) => { if (!want.has(id)) { d.marker.remove(); dotsRef.current.delete(id); } });
