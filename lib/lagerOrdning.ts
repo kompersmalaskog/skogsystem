@@ -53,6 +53,8 @@ const REGLER: Regel[] = [
   [/^(drawing-|measure-|skotning-|figur-etikett|omtrakten-|line-linjered-|hornedit-(mid|vertex|nr)|checklist-|avlagg-granska-)/, RANG.etiketter + 40 * D],
 
   // ── Larm: ringar och pin ligger över symbolerna men under etiketterna ──────────────────────────────────────────────────
+  // Skotarläget: mörkt längre bort från maskinen — över vägar och spår, under linjer man ska vara rädd om, symboler och högar.
+  [/^skotar-nara-ton$/, RANG.linjer - 5 * D],
   [/^larm-pin$/, RANG.symboler + 90 * D],
   [/^larm-/, RANG.symboler + 80 * D],
 
@@ -84,6 +86,8 @@ const REGLER: Regel[] = [
   // Maskinens EGNA spår (tidigare dagar och idag) ligger över den andra maskinens — skotaren och skördaren kör samma stickvägar, och skotarens spår
   // försvann under skördarens i skotarläget (Martin 2026-11-01).
   // Vita mittlinjen (skotaren har kört här, lib/sparStil MITTLINJE_*) ligger direkt ovanpå sitt stråk.
+  // Gallrat-bandet (lib/gallratSpar) ligger under alla spår, strax över ytorna.
+  [/-gallrat$/, RANG.ytor + 90 * D],
   [/^hyttspar-andras-mitt$/, RANG.hyttspar + 1 * D],
   [/^hyttspar-hist-mitt$/, RANG.hyttspar + 8 * D],
   [/^planspar-skordare-mitt$/, RANG.hyttspar + 6 * D],

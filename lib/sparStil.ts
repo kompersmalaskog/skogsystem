@@ -118,16 +118,23 @@ export function sparAlder(datum: string | null | undefined, idagIso: string): nu
  *   skotare : 2,5 px, samma värden
  * Eget spår idag (live) är alltid dagens värde. Kanten är linjen + 2 px i VAG_KANT_FARG med 80 % av linjens opacitet.
  */
+/** Skördarens spår: bredd (px vid full zoom) och hur mycket av den vanliga styrkan de får. */
+export const SKORDARSPAR_BREDD = 1.8;
+export const SKORDARSPAR_STYRKA = 0.65;
+
 export function dampatSpar(roll: SparRoll, art: SparArt): DampatSpar {
   const farg = roll === 'skordare' ? ROLLFARG_SKORDARE : ROLLFARG_SKOTARE;
-  const full = roll === 'skordare' ? 3 : 2.5;
+  // Skördarens spår tunna och svagare (Martin 2026-11-06: "vi prova"): stråken syns för skotaren men tar inte över kartan.
+  const sk = roll === 'skordare';
+  const full = sk ? SKORDARSPAR_BREDD : 2.5;
+  const f = sk ? SKORDARSPAR_STYRKA : 1;
   const ut = (opacitet: number | any[], kantOpacitet: number | any[]): DampatSpar => ({ farg, bredd: sparBredd(full), opacitet, kantFarg: SPAR_KANT_FARG, kantBredd: sparKantBredd(full), kantOpacitet: sparKantOp(kantOpacitet) });
-  const blek = (idag: number, aldst: number) => ut(sparBlekning(idag, aldst), sparBlekning(idag * 0.8, aldst * 0.8));
+  const blek = (idag: number, aldst: number) => ut(sparBlekning(idag * f, aldst * f), sparBlekning(idag * 0.8 * f, aldst * 0.8 * f));
   switch (art) {
     case 'hist': return blek(0.85, 0.45);
     case 'andras':
     case 'plan': return blek(0.9, 0.45);
-    default: return ut(0.9, 0.72);
+    default: return ut(0.9 * f, 0.72 * f);
   }
 }
 

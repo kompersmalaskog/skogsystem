@@ -211,6 +211,8 @@ import { LinjeRedList, type RedVal } from '../../components/planering/LinjeRedLi
 import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_KANT_LAGER, KORUPP_TRAFF_LAGER, arKorUpp, korUppUr, korUppData, korUppLager, ritaSpetsBild, nyKorUpp, KORUPP_SKAL, korUppText, type KorUppPos, type Skal, type SnappVag } from '../../lib/korUpp'
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
+import { GALLRAT_BREDD_M, GALLRAT_FARG, GALLRAT_LAGER, GALLRAT_OPACITET, arGallring, bandBredd } from '../../lib/gallratSpar'
+import { NARA_FLYTT_M, NARA_TON_FARG, NARA_TON_KALLA, NARA_TON_LAGER, meterMellan, naraTonYta } from '../../lib/naraTon'
 import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, tonPaint, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner, tonPolygonerMedEgna } from '../../lib/traktTon'
 import { PLANSPAR_LAGER, PLANSPAR_NYCKEL, planSparPa, vaxlaPlanSpar } from '../../lib/planSparLager'
 import { KLART_FARG, KLART_YTA_KANT_BREDD, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_KANT_LAGER, INGA_YTOR, skotadeYtor } from '../../lib/kartKlart'
@@ -754,6 +756,8 @@ const fornyaSessionVida = skapaFornyare(() => supabase.auth.refreshSession())
 const HOG_OMRADE_KALLA = 'skotar-hogomrade-klart-source';
 /** Under den här zoomen syns inga högar — kartan är lugn utzoomat. */
 const HOGAR_FRAN_ZOOM = 15;
+/** Ordet på egna Blött-ytor står först från den här zoomen. */
+const BLOTT_ORD_FRAN_ZOOM = 16;
 function laggTillHogPrickar(map: any) {
   // Förarens markeringar (lib/skotarHogarKvar, tabellen skotar_hog_markering): ett område som markerats taget ritas grått UNDER prickarna — klart är grått.
   for (const k of [HOG_OMRADE_KALLA, 'skotar-hogar-vald-source', 'skotar-hogomrade-source']) {
@@ -785,7 +789,7 @@ function laggTillHogPrickar(map: any) {
         // Högarna kommer fram först inzoomat (Martin 2026-11-06: utzoomat bara trakten, vägen, faran och det han ska spara).
         minzoom: HOGAR_FRAN_ZOOM,
         // Ljus prick med mörk kant (Martin 2026-11-01, som Komatsu MaxiVision): större prick = mer virke kvar (v, m³).
-        // Färgen är neutral; ett eget sortiment under + ger sin färg (lib/skotarHogarKvar HOG_PRICK_FARG). a = tonar bort det lassen tog.
+        // Färgen = högens trädslag (Martin 2026-11-06); ett eget sortiment under + ger sin färg (lib/skotarHogarKvar HOG_PRICK_FARG). a = tonar bort det lassen tog.
         paint: {
           'circle-color': ['get', 'farg'],
           'circle-stroke-color': 'rgba(0,0,0,0.75)',
@@ -1588,6 +1592,8 @@ export default function PlannerPage() {
         'text-color': YTA_ETIKETT_STIL.text,
         'text-halo-color': YTA_ETIKETT_STIL.kant,
         'text-halo-width': YTA_ETIKETT_STIL.kantBredd,
+        // Blött-ordet först inzoomat (Martin 2026-11-06: ett ord är dyrt på kartan); strecken/ytan syns alltid. Övriga ytor som förut.
+        'text-opacity': ['step', ['zoom'], ['case', ['==', ['get', 'zoneType'], 'wet'], 0, 1], BLOTT_ORD_FRAN_ZOOM, 1] as any,
       },
     });
 
@@ -9294,7 +9300,7 @@ export default function PlannerPage() {
       // effekten (som kör i planeringsläget); whitelisten släpper bara igenom dem så de inte döljs här.
       // 'measure-' + 'figur-etikett' = Mät/Rita-figuren (punkter, linje, yta, etikett). Utan dem döljs figuren i körvyn
       // (synlig i källan, osynlig på skärmen — testselens skärmbild avslöjade det).
-      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett', 'omtrakten-', 'skotar-avlagg-', 'larm-', 'klart-'];
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'skotar-nara-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett', 'omtrakten-', 'skotar-avlagg-', 'larm-', 'klart-'];
       for (const l of allLayers) {
         // Fastighetsgränsen (Vidas rågång trakt-ragang-* och Lantmäteri-paret wms-layer-fastighetsgranser*) hör till lagret "Fastighetsgränser", inte till körvyns
         // whitelist: släckt lager = vanlig karta också i körvyn. Synligheten sätts av lagereffekterna, som inte rörs av att körvyn öppnas.
@@ -9353,6 +9359,23 @@ export default function PlannerPage() {
     const lat = Number(valtObjekt?.lat), lng = Number(valtObjekt?.lng);
     return Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0) ? { lat, lng } : null;
   }, [valtObjekt?.lat, valtObjekt?.lng]);
+  // === SKOTARLÄGET: skarpt nära maskinen, lugnt längre bort (lib/naraTon, Martin 2026-11-06) ===
+  const naraTonPosRef = useRef<{ lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const pos = skotarKorvy && currentPosition ? { lat: currentPosition.lat, lng: currentPosition.lon } : null;
+    try {
+      if (!map.getSource(NARA_TON_KALLA)) map.addSource(NARA_TON_KALLA, { type: 'geojson', data: naraTonYta(null) });
+      if (!map.getLayer(NARA_TON_LAGER)) map.addLayer({ id: NARA_TON_LAGER, type: 'fill', source: NARA_TON_KALLA, paint: { 'fill-color': NARA_TON_FARG, 'fill-opacity': ['get', 'op'] } });
+      const forra = naraTonPosRef.current;
+      if (!pos) { if (forra) { (map.getSource(NARA_TON_KALLA) as any)?.setData(naraTonYta(null)); naraTonPosRef.current = null; } return; }
+      if (forra && meterMellan(forra, pos) < NARA_FLYTT_M) return;
+      (map.getSource(NARA_TON_KALLA) as any)?.setData(naraTonYta(pos));
+      naraTonPosRef.current = pos;
+    } catch (e) { console.warn('[nära-ton]', e); }
+  }, [mapLibreReady, skotarKorvy, currentPosition]);
+
   const ritadStatus = useRitadKarta({
     map: mapLibreReady ? mapInstanceRef.current : null, klar: mapLibreReady, vald: mapType === 'ritad',
     objektId: valtObjekt?.id ?? null, skogPaint: ritadSkogPaint, egnaRingar: ritadEgnaRingar, punkt: ritadPunkt,
@@ -10135,6 +10158,17 @@ export default function PlannerPage() {
         } catch (e) { console.error(`[Planspår] ${roll}-line:`, e); }
       }
     }
+    // GALLRAT (lib/gallratSpar): brett svagt band under skördarens spår — syns bara på gallring (synlighetseffekten nedan).
+    for (const [id, src] of [[GALLRAT_LAGER.plan, 'planspar-skordare-source'], [GALLRAT_LAGER.andras, 'hyttspar-andras-source'], [GALLRAT_LAGER.egen, 'hyttspar-egen-source'], [GALLRAT_LAGER.hist, 'hyttspar-hist-source']] as const) {
+      if (map.getLayer(id) || !map.getSource(src)) continue;
+      try {
+        map.addLayer({
+          id, type: 'line', source: src,
+          paint: { 'line-color': GALLRAT_FARG, 'line-opacity': GALLRAT_OPACITET, 'line-width': bandBredd(GALLRAT_BREDD_M, 57) as any },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error(`[Gallrat] ${id}:`, e); }
+    }
     // VIT MITTLINJE (lib/sparStil MITTLINJE_*): ovanpå skördarens stråk där skotaren kört (featurens `klar`, lib/korsparKlart). En per källa som kan bära skördarens stråk.
     for (const [id, src] of [['planspar-skordare-mitt', 'planspar-skordare-source'], ['hyttspar-egen-mitt', 'hyttspar-egen-source'], ['hyttspar-hist-mitt', 'hyttspar-hist-source'], ['hyttspar-andras-mitt', 'hyttspar-andras-source']] as const) {
       if (map.getLayer(id) || !map.getSource(src)) continue;
@@ -10202,6 +10236,27 @@ export default function PlannerPage() {
     const visaMitt = !korvyActive && !!valtObjekt?.id && planSparPa(overlays, 'skordare') && planSparPa(overlays, 'skotare');
     try { if (map.getLayer('planspar-skordare-mitt')) map.setLayoutProperty('planspar-skordare-mitt', 'visibility', visaMitt ? 'visible' : 'none'); } catch { /* */ }
   }, [korvyActive, valtObjekt?.id, mapLibreReady, (overlays as any)[PLANSPAR_NYCKEL.skordare], (overlays as any)[PLANSPAR_NYCKEL.skotare]]);
+
+  // GALLRAT: bandet syns bara på gallring, i planeringen (skördarens planspår) och i körvyn (skotaren: den andres = skördarens; skördaren: egen + hist).
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const gallring = arGallring(valtObjekt as any);
+    const lat = Number(valtObjekt?.lat);
+    const synlig: Record<string, boolean> = {
+      [GALLRAT_LAGER.plan]: gallring && !korvyActive && !!valtObjekt?.id && planSparPa(overlays, 'skordare'),
+      [GALLRAT_LAGER.andras]: gallring && korvyActive && skotarKorvy,
+      [GALLRAT_LAGER.egen]: gallring && korvyActive && !skotarKorvy,
+      [GALLRAT_LAGER.hist]: gallring && korvyActive && !skotarKorvy,
+    };
+    for (const [id, visa] of Object.entries(synlig)) {
+      try {
+        if (!map.getLayer(id)) continue;
+        map.setLayoutProperty(id, 'visibility', visa ? 'visible' : 'none');
+        if (visa && Number.isFinite(lat)) map.setPaintProperty(id, 'line-width', bandBredd(GALLRAT_BREDD_M, lat));
+      } catch { /* */ }
+    }
+  }, [mapLibreReady, korvyActive, skotarKorvy, valtObjekt?.id, (valtObjekt as any)?.typ, valtObjekt?.lat, (overlays as any)[PLANSPAR_NYCKEL.skordare]]);
 
   // KÖRVYNS ABSOLUTA rollfärger: eget-spårets (egen + hist) färg = FÖRARENS roll, andras-spårets färg =
   // MOTPARTENS roll — skotare turkos, skördare lila, SAMMA i båda körvyerna oberoende av vem som kör.
