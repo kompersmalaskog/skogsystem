@@ -94,7 +94,7 @@ afterEach(async () => { await act(async () => { rot?.unmount(); }); behallare?.r
 describe('grupperna utgår från status', () => {
   it('Pågår först (grön prick), sedan Planerade och Oplanerade (grå prick); Avslutade är EN rad längst ner', async () => {
     await montera();
-    const rubriker = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent);
+    const rubriker = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent!.replace(/ \(\d+\)$/, ''));
     expect(rubriker).toEqual(['Pågår', 'Planerade', 'Oplanerade']);
     const ordning = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
     expect(ordning.slice(0, 2).sort()).toEqual(['n', 'p']);                  // Pågår
@@ -104,11 +104,8 @@ describe('grupperna utgår från status', () => {
     expect(q('objekt-lista-avslutade')!.textContent).toContain('Avslutade');
     expect(q('objekt-lista-avslutade')!.textContent).toContain('(2)');
     // prickar: Pågår = grön, övriga = grå
-    const prickar = (id: string) => q(`objekt-rad-${id}`)!.querySelector('[data-testid^="objekt-prick-"]')!.getAttribute('data-testid');
-    expect(prickar('p')).toBe('objekt-prick-gron');
-    expect(prickar('n')).toBe('objekt-prick-gron');
-    expect(prickar('e')).toBe('objekt-prick-gra');
-    expect(prickar('o')).toBe('objekt-prick-gra');
+    expect(behallare!.querySelector('[data-testid^="objekt-prick-"]')).toBeNull();   // ingen prick: rubriken säger var trakten är
+    expect(q('objekt-grupp-pagar')!.textContent).toBe('Pågår (2)');
   });
 
   it('Vällust RP M-R -25 (avslutat) syns ALDRIG under Planerade — bara under Avslutade, även med planerad månad satt', async () => {
@@ -126,15 +123,12 @@ describe('grupperna utgår från status', () => {
     expect(q('objekt-rad-v')).toBeNull();
   });
 
-  it('GROT och energiklippning syns bland de aktiva; inga typknappar eller flikar', async () => {
+  it('GROT och energiklippning syns bland de aktiva', async () => {
     await montera();
     expect(q('objekt-rad-g')!.textContent).toContain('GROT Hjorthult');
-    expect(q('objekt-rad-g')!.textContent).toContain('GROT · Vida');            // typen skrivs GROT, versaler
+    expect(q('objekt-steg-g')!.textContent).toBe('✓ PlaneratSkotning');                 // GROT skördas inte: bara skotningssteget
     expect(q('objekt-rad-n')!.textContent).toContain('Energiklippning');
-    const knappar = Array.from(behallare!.querySelectorAll('button')).map((b) => b.textContent);
-    for (const typ of ['Alla', 'Slutavverkning', 'Gallring']) expect(knappar).not.toContain(typ);
     expect(behallare!.querySelector('[role="tab"]')).toBeNull();
-    expect(behallare!.querySelector('[aria-pressed]')).toBeNull();
   });
 
   it('inom gruppen närmast först (km ur GPS-positionen)', async () => {
@@ -150,7 +144,7 @@ const kvadrat = (lat: number, lng: number, d: number) => ({
   features: [{ properties: { _lager: 'L_TRAKTDEL' }, geometry: { type: 'Polygon', coordinates: [[[lng - d, lat - d], [lng + d, lat - d], [lng + d, lat + d], [lng - d, lat + d], [lng - d, lat - d]]] } }],
 });
 const radIdn = () => Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
-const rubriker = () => Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent);
+const rubriker = () => Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent!.replace(/ \(\d+\)$/, ''));
 
 // Vällust-formen: status avslutat, planerad månad satt. Skördat 900 m³, skotat 600 → 300 m³ kvar på backen.
 const vallustSkotning = (skotat: number, extra: Record<string, unknown> = {}) => {
@@ -169,8 +163,8 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
     const pagar = radIdn().slice(0, 3);
     expect(pagar).toContain('v');
     expect(pagar.sort()).toEqual(['n', 'p', 'v']);
-    expect(q('objekt-skotning-kvar-v')!.textContent).toBe('Skotning kvar');
-    expect(q('objekt-rad-v')!.querySelector('[data-testid="objekt-prick-gron"]')).not.toBeNull();   // Pågår = grön prick
+    expect(q('objekt-steg-v-skot')!.textContent).toBe('Skotning kvar');
+    expect(q('objekt-steg-v-skord')!.textContent).toBe('✓ Skördat');
     expect(q('objekt-lista-avslutade')!.textContent).toContain('(1)');                                  // bara "Äldre avslutat" är kvar
     klicka(q('objekt-lista-avslutade'));
     expect(q('objekt-rad-v')).toBeNull();
@@ -180,7 +174,7 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
   it('etiketten sitter bara på det objektet — inte på de andra Pågår-raderna', async () => {
     vallustSkotning(600);
     await montera();
-    expect(behallare!.querySelectorAll('[data-testid^="objekt-skotning-kvar-"]')).toHaveLength(1);
+    expect(behallare!.querySelectorAll('[data-kvar="1"]')).toHaveLength(1);
     expect(q('objekt-rad-p')!.textContent).not.toContain('Skotning kvar');
   });
 
@@ -188,7 +182,7 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
     vallustSkotning(897);
     await montera();
     expect(q('objekt-rad-v')).toBeNull();
-    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+    expect(behallare!.querySelector('[data-kvar="1"]')).toBeNull();
     expect(q('objekt-lista-avslutade')!.textContent).toContain('(2)');
     klicka(q('objekt-lista-avslutade'));
     expect(q('objekt-rad-v')).not.toBeNull();
@@ -202,7 +196,7 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
     vallustSkotning(100, { egen_skotning: true });
     await montera();
     expect(q('objekt-rad-v')).toBeNull();
-    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+    expect(behallare!.querySelector('[data-kvar="1"]')).toBeNull();
   });
 
   it('underlaget går inte att hämta → ingen gissning: avslutat förblir Avslutade', async () => {
@@ -210,7 +204,7 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
     h.tabellFel.vy_uppf_lass_per_objekt = true;
     await montera();
     expect(q('objekt-rad-v')).toBeNull();
-    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+    expect(behallare!.querySelector('[data-kvar="1"]')).toBeNull();
   });
 
   it('en planerad/pågående rad får aldrig etiketten, hur mycket virke det än är kvar', async () => {
@@ -221,7 +215,7 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
     };
     h.rader = RADER.map((r) => (r.id === 'p' ? { ...r, vo_nummer: 'VO-P' } : r));
     await montera();
-    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+    expect(behallare!.querySelector('[data-kvar="1"]')).toBeNull();
   });
 });
 
@@ -243,7 +237,6 @@ describe('Här — enhetens GPS innanför ett objekts traktgräns', () => {
     await montera();
     expect(rubriker()[0]).toBe('Här');
     expect(radIdn()[0]).toBe('e');
-    expect(q('objekt-rad-e')!.querySelector('[data-testid="objekt-prick-gra"]')).not.toBeNull();     // prick efter status, inte efter grupp
   });
 
   it('avslutat UTAN virke kvar → aldrig Här, även när GPS:en står i dess gräns', async () => {
@@ -259,7 +252,7 @@ describe('Här — enhetens GPS innanför ett objekts traktgräns', () => {
     await montera();
     expect(rubriker()[0]).toBe('Här');
     expect(radIdn()[0]).toBe('v');
-    expect(q('objekt-skotning-kvar-v')).not.toBeNull();
+    expect(q('objekt-steg-v-skot')!.textContent).toContain('Skotning kvar');
     expect(radIdn().filter((i) => i === 'v')).toHaveLength(1);
   });
 
@@ -425,9 +418,9 @@ describe('Avslutade — växlare per typ', () => {
 
   it('Pågår och Planerade berörs inte, och "Avslutade (N)" räknar alla typer', async () => {
     await montera();
-    expect(Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent)).toEqual(['Pågår', 'Planerade']);
+    expect(Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent!.replace(/ \(\d+\)$/, ''))).toEqual(['Pågår', 'Planerade']);
     expect(radIdn().sort()).toEqual(['p1', 'pl']);
-    expect(behallare!.querySelector('[role="radiogroup"]')).toBeNull();      // ingen växlare i huvudlistan
+    expect(behallare!.querySelector('[data-testid="avslutade-typvaxlare"]')).toBeNull();      // ingen växlare i huvudlistan
     expect(q('objekt-lista-avslutade')!.textContent).toContain('(7)');
     expect(q('objekt-rad-p1')!.textContent).not.toContain('Avslutat');
   });
@@ -451,11 +444,13 @@ describe('Avslutade — växlare per typ', () => {
 });
 
 describe('raden', () => {
-  it('namn (fet) och under den typ · källa · m³', async () => {
+  it('namn (fet) och under den typ · källa · m³ (rad utan steg); med steg står stegen i stället', async () => {
     await montera();
-    const rad = q('objekt-rad-e')!;
-    expect(rad.textContent).toContain('Ekeby');
-    expect(rad.textContent).toContain('Slutavverkning · Södra · 1 200 m³');
+    expect(q('objekt-rad-p')!.textContent).toContain('Gallring Sjö');
+    expect(q('objekt-rad-p')!.textContent).toMatch(/Gallring · Södra · 300\sm³/);
+    expect(q('objekt-rad-e')!.textContent).toContain('Ekeby');
+    expect(q('objekt-rad-e')!.textContent).not.toContain('1 200 m³');
+    expect(q('objekt-steg-e')!.textContent).toBe('✓ PlaneratSkördningSkotning');
     expect(q('objekt-rad-n')!.textContent).toContain('Energiklippning');      // ingen källa/volym → bara typ, inget "–"
   });
 
@@ -636,5 +631,123 @@ describe('maskinläge: maskinens egna objekt först, med etiketten "Den här mas
     await montera({ kanStangas: false });
     expect(ordning()).toEqual(['nara', 'gall', 'egen']);
     expect(q('objekt-egen-maskin-egen')).toBeNull();
+  });
+});
+
+describe('typväljaren överst (Martin 2026-11-06)', () => {
+  it('Alla · Slutavverkning · Gallring · GROT · Energiklippning — bara typer som finns bland de aktiva, fast ordning, Alla förvald', async () => {
+    await montera();
+    const knappar = Array.from(behallare!.querySelectorAll('[data-testid^="aktiva-typ-"]')).map((b) => b.textContent);
+    expect(knappar).toEqual(['Alla', 'Slutavverkning1', 'Gallring2', 'GROT1', 'Energiklippning1']);
+    expect(q('aktiva-typ-alla')!.getAttribute('aria-checked')).toBe('true');
+  });
+  it('tryck på Gallring: bara gallringarna, Pågår/Planerade/Oplanerade kvar, typordet upprepas inte på raden', async () => {
+    await montera();
+    klicka(q('aktiva-typ-gallring'));
+    const rader = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
+    expect(rader).toEqual(['p', 'o']);
+    expect(q('objekt-rad-p')!.textContent).not.toContain('Gallring ·');
+    expect(q('objekt-lista-avslutade')!.textContent).toContain('(2)');      // Avslutade räknar som förut
+    klicka(q('aktiva-typ-alla'));
+    expect(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).toHaveLength(5);
+  });
+  it('bara en typ bland de aktiva → ingen väljare', async () => {
+    h.rader = RADER.filter((r) => r.typ === 'gallring');
+    await montera();
+    expect(q('aktiva-typvaxlare')).toBeNull();
+  });
+  it('varje öppning börjar på Alla', async () => {
+    await montera();
+    klicka(q('aktiva-typ-grot'));
+    await visa({ oppen: false });
+    await visa({ oppen: true });
+    expect(q('aktiva-typ-alla')!.getAttribute('aria-checked')).toBe('true');
+  });
+});
+
+describe('traktanalysen på raden — högst en rad, bara när något finns', () => {
+  const analys = (fynd: any[], fel: string[] = []) => ({ at: '2026-11-06T10:00:00Z', grans: 'x', fynd, fel });
+  it('fossil åker → "Fossil åker – kräver barmark"; vattenskydd → "Vattenskydd"; båda → en rad', async () => {
+    h.rader = [
+      { ...RADER[1], trakt_analys: analys([{ type: 'fornlamning', name: 'Fossil åker (Almundsryd 373:1)' }]) },
+      { ...RADER[3], trakt_analys: analys([{ type: 'vattenskydd', name: 'Vattenskyddsområde' }]) },
+      { ...RADER[2], trakt_analys: analys([{ type: 'vattenskydd', name: 'V' }, { type: 'fornlamning', name: 'Område med fossil åkermark' }]) },
+    ];
+    await montera();
+    expect(q('objekt-trakt-e')!.textContent).toBe('Fossil åker – kräver barmark');
+    expect(q('objekt-trakt-p')!.textContent).toBe('Vattenskydd');
+    expect(q('objekt-trakt-g')!.textContent).toBe('Fossil åker · vattenskydd');
+    expect(q('objekt-rad-e')!.querySelectorAll('[data-testid^="objekt-trakt-"]')).toHaveLength(1);
+  });
+  it('inget hittat, ej körd eller bara skydd (nyckelbiotop) → ingen rad; en kontroll som föll → "Ej kontrollerad"', async () => {
+    h.rader = [
+      { ...RADER[1], trakt_analys: analys([]) },
+      { ...RADER[3] },
+      { ...RADER[2], trakt_analys: analys([{ type: 'nyckelbiotop', name: 'NB' }]) },
+      { ...RADER[4], trakt_analys: analys([], ['Vattenskydd: nät']) },
+    ];
+    await montera();
+    expect(q('objekt-trakt-e')).toBeNull();
+    expect(q('objekt-trakt-p')).toBeNull();
+    expect(q('objekt-trakt-g')).toBeNull();
+    expect(q('objekt-trakt-n')!.textContent).toBe('Ej kontrollerad');
+    expect(behallare!.textContent).not.toMatch(/inget hittat/i);
+  });
+});
+
+describe('stegen på raden: Skörd och Skotning (objekt.fas från timjobbet)', () => {
+  it('EN rubrik Pågår, raderna i ordningen skördas → väntar → skotas, och varje rad säger själv hur långt den kommit', async () => {
+    h.rader = [
+      { ...RADER[1], status: 'pagaende', fas: 'skotas', typ: 'gallring' },
+      { ...RADER[3], fas: 'skordas', typ: 'slutavverkning' },
+      { ...RADER[4], fas: 'vantar_skotare', typ: 'slutavverkning' },
+      { ...RADER[5] },
+    ];
+    h.tabeller = {};
+    await montera();
+    expect(rubriker()).toEqual(['Pågår', 'Oplanerade']);
+    const ordning = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
+    expect(ordning.slice(0, 3)).toEqual(['p', 'n', 'e']);
+    expect(q('objekt-steg-p')!.textContent).toBe('✓ PlaneratSkördasSkotning');
+    expect(q('objekt-steg-n')!.textContent).toBe('✓ Planerat✓ SkördatVäntar på skotare');
+    expect(q('objekt-steg-e')!.textContent).toBe('✓ Planerat✓ SkördatSkotas');
+    expect(q('objekt-steg-n-skot')!.getAttribute('style')).toContain('rgb(255, 159, 10)');   // väntar = orange, det enda
+    expect(q('objekt-steg-n-skord')!.getAttribute('style')).toContain('rgb(48, 209, 88)');   // klart = grön bock
+    expect(q('objekt-steg-p-skot')!.getAttribute('style')).not.toContain('rgb(255, 159, 10)');
+  });
+  it('med steg står ingen volym på raden (den finns i trakten)', async () => {
+    h.rader = [{ ...RADER[3], fas: 'skotas', typ: 'slutavverkning', volym: 610 }];
+    h.tabeller = {};
+    await montera();
+    expect(q('objekt-rad-p')!.textContent).not.toContain('610');
+  });
+  it('GROT har bara skotningssteget', async () => {
+    h.rader = [{ ...RADER[3], fas: 'skotas', typ: 'grot' }];
+    h.tabeller = {};
+    await montera();
+    expect(q('objekt-steg-p')!.textContent).toBe('✓ PlaneratSkotas');
+  });
+  it('planerad = ✓ Planerat (grön), oplanerad = Planering (orange); det som inte börjat står bara som ord', async () => {
+    h.rader = [{ ...RADER[1] }, { ...RADER[5] }];
+    h.tabeller = {};
+    await montera();
+    expect(q('objekt-steg-e')!.textContent).toBe('✓ PlaneratSkördningSkotning');
+    expect(q('objekt-steg-o')!.textContent).toBe('PlaneringSkördningSkotning');
+    expect(q('objekt-steg-o-plan')!.getAttribute('data-lage')).toBe('vantar');
+    expect(q('objekt-steg-e-skord')!.getAttribute('data-lage')).toBe('ej');
+  });
+  it('oplanerad med kvar: "Planering · 4 kvar" i planeringssteget, ingen egen etikett ovanför', async () => {
+    h.rader = [{ ...RADER[5], status: 'oplanerad', klar_kvar_antal: 4 }];
+    h.tabeller = {};
+    await montera();
+    expect(q('objekt-steg-o-plan')!.textContent).toBe('Planering · 4 kvar');
+    expect(q('objekt-steg-o-plan')!.getAttribute('style')).toContain('rgb(255, 159, 10)');
+    expect(q('objekt-oplanerad-o')).toBeNull();
+  });
+  it('pågående utan fas: inga steg, raden som förut', async () => {
+    h.rader = [{ ...RADER[3] }];
+    h.tabeller = {};
+    await montera();
+    expect(behallare!.querySelector('[data-testid^="objekt-steg-"]')).toBeNull();
   });
 });

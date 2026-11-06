@@ -4,7 +4,8 @@
 // (samma regel och samma rörelse som plus-arket: lib/plusArk.plusLage, lib/hooks/useSkarmLage, RORELSE.byte). Ingen egen sida: kartan ligger kvar
 // bakom (ingen mörk bakgrund), × / Esc / tryck på kartan stänger.
 //
-//   Sökfält överst · Här (bara när GPS:en står innanför ett objekts traktgräns) · Pågår (grön prick) · Planerade · Oplanerade (grå prick) ·
+//   Sökfält överst · Här (bara när GPS:en står innanför ett objekts traktgräns) · Skördas · Väntar på skotare (orange) · Skotas · Pågår (utan fas) ·
+//   Planerade · Oplanerade · (Martin 2026-11-06: rubriken säger var trakten är — ingen prick, ingen fas-etikett på raden utom under Här)
 //   "Avslutade (N)" som en rad längst ner som öppnar dem i samma ark: överst en segmentväxlare med typerna som finns bland avslutade
 //   ("Slutavverkning 38 · Gallring 18 · GROT 1", flest förvald), under den objekten av vald typ, senast avslutade först, med "Avslutat 2026-10-05"
 //   på raden. Sök söker i alla typer (växlaren göms medan man söker).
@@ -23,11 +24,13 @@ import { PANEL_BREDD_PX, dragHojd, valjListdetent, type Detent } from '@/lib/plu
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import { useVagavstand } from '@/lib/hooks/useVagavstand';
 import { oplaneradRadText } from '@/lib/klarTrakt';
-import { arSkotningKvar, avslutadMeta, avslutadeAvTyp, avslutadeTyper, effektivGrupp, fagelKm, grupperaObjekt, kmText, maskinRang, radMeta, valdAvslutadTyp, type AvslutadTyp, type ListObjekt } from '@/lib/objektVal';
+import { aktivaTyper, arSkotningKvar, avTyp, avslutadMeta, avslutadeAvTyp, avslutadeTyper, effektivGrupp, fagelKm, fasOrdning, fasSteg, giltigAktivTyp, grupperaObjekt, kmText, maskinRang, radMeta, radMetaUtanTyp, valdAvslutadTyp, type AvslutadTyp, type ListObjekt } from '@/lib/objektVal';
 import { arTilldelad, objektTraffPunkt, type KlararTyp } from '@/lib/objektPlats';
 import { hamtaSkotningKvar } from '@/lib/skotningKvar';
 import { harKoordinat } from '@/lib/navigera';
 import { ARK_HOJD_PROCENT, byggPrickar, type KartPrickar } from '@/lib/objektKarta';
+import { lasTraktAnalys, listRad } from '@/lib/traktAnalys/markning';
+import { GRUPPER } from '@/lib/larm/grupper';
 
 export type ListaObjekt = ListObjekt & Record<string, any>;
 
@@ -84,6 +87,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   const [sok, setSok] = useState('');
   const [visaAvslutade, setVisaAvslutade] = useState(false);
   const [valdTyp, setValdTyp] = useState<AvslutadTyp | null>(null);   // null = den med flest
+  const [aktivTyp, setAktivTyp] = useState<AvslutadTyp | null>(null); // aktiva objekt: null = Alla
   const [objekt, setObjekt] = useState<ListaObjekt[]>([]);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState(false);
@@ -109,6 +113,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     setSok('');
     setVisaAvslutade(false);
     setValdTyp(null);
+    setAktivTyp(null);
     setStartad(true);
     setUtglidet(false);
     const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -207,18 +212,25 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   const maskinId = maskin?.maskinId ?? null;
   const klararTyp = maskin?.klararTyp ?? null;
   const rang = maskin ? (o: ListaObjekt) => maskinRang(o, maskinId, klararTyp) : undefined;
-  const grupper = useMemo(
+  const grupperAllaTyper = useMemo(
     () => grupperaObjekt(objekt, { sok, avstandKm, skotningKvar: skotKvar, arHar, rang }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- avstandKm/arHar/rang läser vag/pos/gpsPos/geometri/maskin som är med
     [objekt, sok, vag, pos, gpsPos, geometri, skotKvar, maskinId, klararTyp],
   );
   const sokar = sok.trim() !== '';
   // Kartan följer inte sökfältet (prickarna hoppar inte för varje tecken): samma uppdelning utan sökfiltret, därför en egen.
-  const grupperUtanSok = useMemo(
+  const grupperUtanSokAllaTyper = useMemo(
     () => grupperaObjekt(objekt, { sok: '', avstandKm, skotningKvar: skotKvar, arHar, rang }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- som ovan
     [objekt, vag, pos, gpsPos, geometri, skotKvar, maskinId, klararTyp],
   );
+  // Typväljaren för de aktiva (lib/objektVal.aktivaTyper): räknas utan sökningen så knapparna inte försvinner medan man skriver.
+  const aktivaTyperLista = aktivaTyper([...grupperUtanSokAllaTyper.har, ...grupperUtanSokAllaTyper.pagar, ...grupperUtanSokAllaTyper.planerade, ...grupperUtanSokAllaTyper.oplanerade]);
+  const aktivTypGiltig = giltigAktivTyp(aktivaTyperLista, aktivTyp);
+  const medTyp = <G extends { har: ListaObjekt[]; pagar: ListaObjekt[]; planerade: ListaObjekt[]; oplanerade: ListaObjekt[] }>(g: G): G =>
+    aktivTypGiltig ? { ...g, har: avTyp(g.har, aktivTypGiltig), pagar: avTyp(g.pagar, aktivTypGiltig), planerade: avTyp(g.planerade, aktivTypGiltig), oplanerade: avTyp(g.oplanerade, aktivTypGiltig) } : g;
+  const grupper = medTyp(grupperAllaTyper);
+  const grupperUtanSok = medTyp(grupperUtanSokAllaTyper);
   const avslutadeTyperLista = avslutadeTyper(grupper.avslutade);
   const valdAvslutad = valdAvslutadTyp(grupper.avslutade, valdTyp);
   const avslutadeVald = avslutadeAvTyp(grupper.avslutade, valdAvslutad);
@@ -230,11 +242,11 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   onPrickarRef.current = onPrickar;
   // Avslutade-vyn: prickarna är det listan visar — vald typ, eller alla typer när man söker (sök söker i alla typer).
   const avslutadeIListan = sokar ? grupper.avslutade : avslutadeAvTyp(grupperUtanSok.avslutade, valdAvslutadTyp(grupperUtanSok.avslutade, valdTyp));
-  const kartNyckel = visaAvslutade ? (sokar ? 'avslutade:sok' : `avslutade:${valdAvslutadTyp(grupperUtanSok.avslutade, valdTyp) ?? '-'}`) : 'aktiva';
+  const kartNyckel = visaAvslutade ? (sokar ? 'avslutade:sok' : `avslutade:${valdAvslutadTyp(grupperUtanSok.avslutade, valdTyp) ?? '-'}`) : aktivTypGiltig ? `aktiva:${aktivTypGiltig}` : 'aktiva';
   const kartPrickar = useMemo(
     () => byggPrickar(grupperUtanSok, avslutadeIListan, skotKvar, visaAvslutade),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- avslutadeIListan härleds ur grupper/grupperUtanSok/valdTyp/sokar som är med
-    [grupperUtanSok, grupper.avslutade, sokar, skotKvar, valdTyp, visaAvslutade],
+    [grupperUtanSokAllaTyper, aktivTypGiltig, grupper.avslutade, sokar, skotKvar, valdTyp, visaAvslutade],
   );
   const prickarKlara = oppen && startad && !laddar && skotKvarKlar;
   const sigRef = useRef('');                                   // senast skickade prickar — vägavstånden som trillar in ändrar inte prickarna, och då skickas inget
@@ -258,14 +270,19 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   if (!oppen && utglidet) return null;
 
   const glidInne = oppen && inne;
-  const prickFor = (o: ListaObjekt): 'gron' | 'gra' => (effektivGrupp(o, skotKvar) === 'pagar' ? 'gron' : 'gra');
   const rad = (o: ListaObjekt, avslutadVy?: 'utanTyp' | 'medTyp') => {
-    const prick = prickFor(o);
-    const kvarEtikett = arSkotningKvar(o, skotKvar);
+    // Stegen Skörd och Skotning (objekt.fas, timjobbet) — raden säger själv hur långt trakten kommit.
+    // Avslutat men skotning kvar = skördat klart, skotningen orange.
+    const kvar = !avslutadVy && arSkotningKvar(o, skotKvar);
+    const steg = kvar
+      ? (fasSteg({ fas: 'vantar_skotare', typ: o.typ, status: 'pagaende' }) ?? []).map((x) => (x.id === 'skot' ? { ...x, text: 'Skotning kvar' } : x))
+      : fasSteg(o);
     // Oplanerad = ingen har tryckt Klar för maskin: orange "N kvar" (eller ärligt "Inte klarplanerad" när kortet aldrig öppnats). Syns, spärrar aldrig.
-    const planEtikett = (o.status ?? '').trim().toLowerCase() === 'oplanerad' ? oplaneradRadText(o.klar_kvar_antal) : null;
+    const planEtikett = !steg && (o.status ?? '').trim().toLowerCase() === 'oplanerad' ? oplaneradRadText(o.klar_kvar_antal) : null;   // med steg står det i planeringssteget
     const egen = !!maskin && !avslutadVy && arTilldelad({ skordare_maskin_id: o.skordare_maskin_id, skotare_maskin_id: o.skotare_maskin_id }, maskinId);   // maskinläge: tilldelat den här maskinen
-    const meta = avslutadVy ? avslutadMeta(o, avslutadVy === 'medTyp') : radMeta(o);
+    const meta = avslutadVy ? avslutadMeta(o, avslutadVy === 'medTyp') : steg ? null : aktivTypGiltig ? radMetaUtanTyp(o) : radMeta(o);   // med steg flyttar volymen in i trakten
+    // Traktanalysen (servern, lib/traktAnalys): HÖGST en rad, bara när något finns — fossil åker, vattenskydd eller "Ej kontrollerad".
+    const mark = avslutadVy ? null : listRad(lasTraktAnalys({ trakt_analys: o.trakt_analys }));
     const km = avstandKm(o);
     const arVag = vag[o.id] != null;
     const kmTxt = kmText(km, !arVag);
@@ -278,17 +295,16 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         tabIndex={0}
         data-testid={`objekt-rad-${o.id}`}
         aria-current={aktuell ? 'true' : undefined}
-        aria-label={`${o.namn ?? 'Objekt'}${meta ? `, ${meta}` : ''}${egen ? ', den här maskinen' : ''}${kvarEtikett ? ', skotning kvar' : ''}${planEtikett ? `, ${planEtikett}` : ''}`}
+        aria-label={`${o.namn ?? 'Objekt'}${meta ? `, ${meta}` : ''}${egen ? ', den här maskinen' : ''}${steg ? `, ${steg.map((x) => (x.lage === 'klar' ? `${x.text} klart` : x.text)).join(', ')}` : ''}${planEtikett ? `, ${planEtikett}` : ''}${mark ? `, ${mark.text}` : ''}`}
         onClick={() => onValj(o)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onValj(o); } }}
         className="press-row"
         style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.primar + AVSTAND.l, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, cursor: 'pointer',
           borderBottom: `1px solid ${FARG.linje}`, background: aktuell ? FARG.tonad : 'transparent' }}
       >
-        <span aria-hidden="true" data-testid={`objekt-prick-${prick}`} style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: RADIE.cirkel, flexShrink: 0, background: prick === 'gron' ? FARG.gron : FARG.text3 }} />
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', ...TYP.listtitel, color: FARG.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn ?? 'Namnlöst objekt'}</span>
-          {(meta || kvarEtikett || planEtikett || egen) && (
+          {(meta || planEtikett || egen) && (
             <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere', ...TNUM }}>   {/* radbryts hellre än klipper volymen */}
               {meta}
               {egen && (
@@ -297,18 +313,33 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
                   Den här maskinen
                 </span>
               )}
-              {kvarEtikett && (
-                <span data-testid={`objekt-skotning-kvar-${o.id}`}
-                  style={{ display: 'inline-block', marginLeft: meta ? AVSTAND.s : 0, padding: `0 ${AVSTAND.s}px`, borderRadius: RADIE.rad, background: FARG.fyllning, color: FARG.orange, fontWeight: VIKT.halvfet }}>
-                  Skotning kvar
-                </span>
-              )}
               {planEtikett && (
                 <span data-testid={`objekt-oplanerad-${o.id}`}
                   style={{ display: 'inline-block', marginLeft: meta ? AVSTAND.s : 0, padding: `0 ${AVSTAND.s}px`, borderRadius: RADIE.rad, background: FARG.fyllning, color: FARG.orange, fontWeight: VIKT.halvfet }}>
                   {planEtikett}
                 </span>
               )}
+            </span>
+          )}
+          {steg && steg.length > 0 && (
+            <span data-testid={`objekt-steg-${o.id}`} aria-hidden="true"
+              style={{ display: 'flex', flexWrap: 'wrap', columnGap: AVSTAND.m, ...TYP.meta, fontWeight: VIKT.halvfet }}>
+              {steg.map((x) => (
+                <span key={x.id} data-testid={`objekt-steg-${o.id}-${x.id}`} data-lage={x.lage} data-kvar={kvar && x.id === 'skot' ? '1' : undefined}
+                  style={{ whiteSpace: 'nowrap', color: x.lage === 'klar' ? FARG.gron : x.lage === 'vantar' ? FARG.orange : x.lage === 'pagar' ? FARG.text : FARG.text2 }}>
+                  {x.lage === 'klar' ? `✓ ${x.text}` : x.text}
+                </span>
+              ))}
+            </span>
+          )}
+          {mark && (
+            <span data-testid={`objekt-trakt-${o.id}`} data-kategori={mark.kategori ?? 'ej'}
+              style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs + AVSTAND.xs / 2, ...TYP.meta, color: mark.kategori ? FARG.text2 : FARG.text3 }}>
+              {mark.kategori && (
+                <span aria-hidden="true" style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, flexShrink: 0,
+                  background: mark.kategori === 'vattenskydd' ? GRUPPER.blott.farg : GRUPPER.kultur.farg }} />
+              )}
+              {mark.text}
             </span>
           )}
         </span>
@@ -329,8 +360,8 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     );
   };
 
-  const gruppRubrik = (id: string, txt: string) => (
-    <div data-testid={`objekt-grupp-${id}`} style={{ ...TYP.micro, color: FARG.text2, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.s}px` }}>{txt}</div>
+  const gruppRubrik = (id: string, txt: string, orange = false) => (
+    <div data-testid={`objekt-grupp-${id}`} style={{ ...TYP.micro, color: orange ? FARG.orange : FARG.text2, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.s}px` }}>{txt}</div>
   );
 
   const tomText = laddar && !finnsNagot ? 'Hämtar objekt…'
@@ -367,6 +398,21 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
           style={{ width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, border: 'none', borderRadius: RADIE.rad, background: FARG.upphojt, color: FARG.text, fontFamily: 'inherit', ...TYP.text, outline: 'none' }}
         />
       </div>
+      {!visaAvslutade && aktivaTyperLista.length > 0 && (
+        <div role="radiogroup" aria-label="Typ av objekt" data-testid="aktiva-typvaxlare"
+          style={{ flexShrink: 0, display: 'flex', gap: AVSTAND.xs, margin: `0 ${AVSTAND.l}px ${AVSTAND.s}px`, padding: AVSTAND.xs, borderRadius: RADIE.rad, background: FARG.upphojt, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          {[{ typ: null as AvslutadTyp | null, etikett: 'Alla', antal: null as number | null }, ...aktivaTyperLista].map((t) => {
+            const vald = t.typ === aktivTypGiltig;
+            return (
+              <button key={t.typ ?? 'alla'} type="button" role="radio" aria-checked={vald} data-testid={`aktiva-typ-${t.typ ?? 'alla'}`} onClick={() => setAktivTyp(t.typ)}
+                style={{ flex: '1 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: AVSTAND.xs + AVSTAND.xs / 2, minHeight: TRAFFYTA.min - AVSTAND.s, padding: `0 ${AVSTAND.m}px`, border: 'none', borderRadius: RADIE.rad - AVSTAND.xs / 2,
+                  background: vald ? FARG.fyllning : 'transparent', color: vald ? FARG.text : FARG.text2, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', ...TYP.meta, fontWeight: vald ? VIKT.halvfet : VIKT.normal, touchAction: 'manipulation' }}>
+                {t.etikett}{t.antal != null && <span style={TNUM}>{t.antal}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {visaAvslutade && !sokar && avslutadeTyperLista.length > 0 && (
         <div role="radiogroup" aria-label="Typ av avslutade objekt" data-testid="avslutade-typvaxlare"
           style={{ flexShrink: 0, display: 'flex', gap: AVSTAND.xs, margin: `0 ${AVSTAND.l}px ${AVSTAND.s}px`, padding: AVSTAND.xs, borderRadius: RADIE.rad, background: FARG.upphojt, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
@@ -394,9 +440,9 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         ) : (
           <>
             {grupper.har.length > 0 && <>{gruppRubrik('har', 'Här')}{grupper.har.map((o) => rad(o))}</>}
-            {grupper.pagar.length > 0 && <>{gruppRubrik('pagar', 'Pågår')}{grupper.pagar.map((o) => rad(o))}</>}
-            {grupper.planerade.length > 0 && <>{gruppRubrik('planerade', 'Planerade')}{grupper.planerade.map((o) => rad(o))}</>}
-            {grupper.oplanerade.length > 0 && <>{gruppRubrik('oplanerade', 'Oplanerade')}{grupper.oplanerade.map((o) => rad(o))}</>}
+            {grupper.pagar.length > 0 && <>{gruppRubrik('pagar', `Pågår (${grupper.pagar.length})`)}{[...grupper.pagar].sort((a, b) => fasOrdning({ fas: a.fas }) - fasOrdning({ fas: b.fas })).map((o) => rad(o))}</>}
+            {grupper.planerade.length > 0 && <>{gruppRubrik('planerade', `Planerade (${grupper.planerade.length})`)}{grupper.planerade.map((o) => rad(o))}</>}
+            {grupper.oplanerade.length > 0 && <>{gruppRubrik('oplanerade', `Oplanerade (${grupper.oplanerade.length})`)}{grupper.oplanerade.map((o) => rad(o))}</>}
             {aktivaAntal === 0 && (
               <div style={{ ...TYP.meta, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xl}px ${AVSTAND.l}px` }}>
                 {sok.trim() ? `Inget objekt matchar "${sok.trim()}".` : 'Inga aktiva objekt. Avslutade finns längst ner.'}

@@ -59,7 +59,7 @@ describe('öppen lista: prickar och zoom', () => {
     await rendera({ map: karta, aktiv: true, prickar: null });
     expect(karta.fitBounds).not.toHaveBeenCalled();             // inga prickar än (objekten läses)
     await rendera({ map: karta, aktiv: true, prickar: prickar('aktiva', [prick('a', { lat: 56.3, lng: 14.6 }), prick('b', { lat: 56.6, lng: 14.9 })]) });
-    expect(karta.lager).toEqual([PRICK_LAGER.ring, PRICK_LAGER.prick, PRICK_LAGER.namn]);
+    expect(karta.lager).toEqual([PRICK_LAGER.ring, PRICK_LAGER.varning, PRICK_LAGER.prick, PRICK_LAGER.namn]);
     expect(karta.kallor[PRICK_KALLA].data.features).toHaveLength(2);
     expect(karta.fitBounds).toHaveBeenCalledTimes(1);
     const [gr, opt] = karta.fitBounds.mock.calls[0];

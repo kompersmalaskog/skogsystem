@@ -6,7 +6,6 @@
 // Rena funktioner + en tunn koppling till kartan. Lagren heter maskin-andra-* (följer med in i körvyn och objektlistan,
 // ligger under den egna positionen — lib/lagerOrdning).
 
-import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from './sparStil';
 import { FARG } from './design/tokens';
 
 export interface MaskinPosRad {
@@ -97,7 +96,8 @@ export function maskinerNuGeoJson(maskiner: MaskinNu[]) {
       properties: {
         maskinId: m.maskinId,
         etikett: etikett(m),
-        farg: m.farsk ? (m.roll === 'skordare' ? ROLLFARG_SKORDARE : ROLLFARG_SKOTARE) : FARG.text2,
+        // Vit prick, ingen rollfärg (Martin 2026-11-06): färgerna på kartan betyder trakten — grön = en maskin jobbar där, orange ring = fossil åker/vattenskydd.
+        farg: m.farsk ? FARG.text : FARG.text2,
         farsk: m.farsk,
       },
     })),
@@ -116,7 +116,7 @@ export function ritaMaskinerNu(map: any, maskiner: MaskinNu[]): void {
     map.addLayer({ id: 'maskin-andra-ring', type: 'circle', source: MASKINER_NU_KALLA, paint: { 'circle-radius': 22, 'circle-opacity': 0 } });
     map.addLayer({
       id: 'maskin-andra-prick', type: 'circle', source: MASKINER_NU_KALLA,
-      paint: { 'circle-radius': 8, 'circle-color': ['get', 'farg'], 'circle-stroke-width': 3, 'circle-stroke-color': FARG.text, 'circle-opacity': 1 },
+      paint: { 'circle-radius': 8, 'circle-color': ['get', 'farg'], 'circle-stroke-width': 3, 'circle-stroke-color': FARG.bg, 'circle-opacity': 1 },
     });
     map.addLayer({
       id: 'maskin-andra-namn', type: 'symbol', source: MASKINER_NU_KALLA,

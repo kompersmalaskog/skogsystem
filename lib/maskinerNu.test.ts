@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { byggMaskinerNu, narText, etikett, tryckText, maskinerNuGeoJson, ritaMaskinerNu, MASKINER_NU_LAGER, type MaskinPosRad } from './maskinerNu';
-import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from './sparStil';
 import { FARG } from './design/tokens';
 import { lagerRang as rangFor } from './lagerOrdning';
 
@@ -27,19 +26,19 @@ describe('narText — en gammal position ser aldrig färsk ut', () => {
 });
 
 describe('byggMaskinerNu', () => {
-  it('namnet ur registret, rollen ur maskintypen, färsk i rollfärg', () => {
+  it('namnet ur registret, rollen ur maskintypen, färsk = vit prick (ingen rollfärg)', () => {
     const [m] = byggMaskinerNu([rad({})], register, nu);
     expect(m).toMatchObject({ namn: 'Giant', roll: 'skordare', farsk: true });
     expect(etikett(m)).toBe('Giant');
     expect(tryckText(m)).toBe('Giant · Bondeskog AU 2026');
-    expect(maskinerNuGeoJson([m]).features[0].properties.farg).toBe(ROLLFARG_SKORDARE);
+    expect(maskinerNuGeoJson([m]).features[0].properties.farg).toBe(FARG.text);
   });
   it('gammal = grå och tiden efter namnet', () => {
     const [m] = byggMaskinerNu([rad({ maskin_id: 'A030353', roll: 'skotare', tid: '2026-11-04T15:00:00Z' })], register, nu);
     expect(etikett(m)).toBe('Wisent · igår');
     expect(tryckText(m)).toBe('Wisent · senast igår · Bondeskog AU 2026');
     expect(maskinerNuGeoJson([m]).features[0].properties.farg).toBe(FARG.text2);
-    expect(maskinerNuGeoJson(byggMaskinerNu([rad({ maskin_id: 'A030353', roll: 'skotare' })], register, nu)).features[0].properties.farg).toBe(ROLLFARG_SKOTARE);
+    expect(maskinerNuGeoJson(byggMaskinerNu([rad({ maskin_id: 'A030353', roll: 'skotare' })], register, nu)).features[0].properties.farg).toBe(FARG.text);
   });
   it('bort: den egna maskinen, avslutade maskiner och rader utan position', () => {
     const ut = byggMaskinerNu([
