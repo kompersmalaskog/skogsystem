@@ -4,16 +4,15 @@
 // HOG_SKRIV=<mapp> sparar skärmbilderna.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
-import fs from 'node:fs';
 import path from 'node:path';
 import { it, expect } from 'vitest';
 import { hogRadie, hogHalvBild, HOG_HALV_BILD, HOG_HALV_RADIE_PX } from './hogPrick';
 import { hogTradslagFarger } from './tradslag';
-const rot = execSync('npm root -g').toString().trim();
-const pw = createRequire(path.join(rot, 'x.js'))('playwright');
+// Utan Playwright (CI) hoppas mätningen över, som de andra hytt-testerna.
+const pw: any = (() => { try { const rot = execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); return createRequire(path.join(rot, 'x.js'))('playwright'); } catch { return null; } })();
 const ML = path.join(process.cwd(), 'node_modules/maplibre-gl/dist');
 const OUT = process.env.HOG_SKRIV || '';
-it('högarna i trädslagsfärg, blandat halv–halv', async () => {
+it.skipIf(!pw)('högarna i trädslagsfärg, blandat halv–halv', async () => {
   const hogar = [
     [0, 0, { GRAN: 10 }, 8], [0.0004, 0, { TALL: 10 }, 8], [0.0008, 0, { 'BJÖRK': 10 }, 8], [0.0012, 0, { GRAN: 5, TALL: 5 }, 8],
     [0, -0.00025, { GRAN: 10 }, 1], [0.0004, -0.00025, { GRAN: 10 }, 4], [0.0008, -0.00025, { GRAN: 10 }, 15], [0.0012, -0.00025, { GRAN: 6, 'BJÖRK': 4 }, 30],
