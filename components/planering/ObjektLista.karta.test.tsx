@@ -108,7 +108,7 @@ describe('prickar till kartan när listan är öppen', () => {
     await montera();
     const p = prickar();
     expect(Object.keys(p).sort()).toEqual(['e', 'g', 'n', 'o2', 'p']);
-    expect(p.o2.farg).toBe('ihalig');
+    expect(p.o2.farg).toBe('gra');
     expect(p.p.farg).toBe('gron');
     expect(p.n.farg).toBe('gron');
     expect(p.e.farg).toBe('gra');

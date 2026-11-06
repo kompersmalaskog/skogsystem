@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ARK_HOJD_ANDEL, PRICK_LAGER_SPEC, TRYCK_TOLERANS_PX, TOM_KARTA_STIL, tomKartaStil, arTryck, byggPrickar, kartPadding, narmastePrick, prickGrans, prickarGeoJson, sakerstallPrickLager,
+  harVarning, ARK_HOJD_ANDEL, PRICK_LAGER_SPEC, TRYCK_TOLERANS_PX, TOM_KARTA_STIL, tomKartaStil, arTryck, byggPrickar, kartPadding, narmastePrick, prickGrans, prickarGeoJson, sakerstallPrickLager,
 } from './objektKarta';
 import { grupperaObjekt, type ListObjekt } from './objektVal';
 import { FARG } from './design/tokens';
@@ -43,10 +43,10 @@ describe('byggPrickar — aktiva objekt', () => {
     expect(p.pl.har).toBe(false);
   });
 
-  it('Oplanerade (saknad eller okänd status) ritas som ihålig grå ring', () => {
+  it('Oplanerade (saknad eller okänd status) är grå som Planerade — grönt betyder bara att en maskin jobbar där', () => {
     const p = per(aktiva());
-    expect(p.op.farg).toBe('ihalig');
-    expect(p.ok.farg).toBe('ihalig');
+    expect(p.op.farg).toBe('gra');
+    expect(p.ok.farg).toBe('gra');
     expect(p.op.har).toBe(false);
   });
 
@@ -58,10 +58,10 @@ describe('byggPrickar — aktiva objekt', () => {
     expect(ids).toEqual(iListan);
   });
 
-  it('en Oplanerad man står på: ihålig ring + blå ring', () => {
+  it('en Oplanerad man står på: grå prick + blå ring', () => {
     const g = grupperaObjekt(OBJEKT, { skotningKvar: KVAR, arHar: (o) => o.id === 'op' });
     const p = per(byggPrickar(g, [], KVAR, false));
-    expect(p.op).toMatchObject({ farg: 'ihalig', har: true });
+    expect(p.op).toMatchObject({ farg: 'gra', har: true });
   });
 
   it('namnens kollisionsordning: Här före Pågår före Planerade', () => {
@@ -106,8 +106,7 @@ describe('prickarGeoJson och prickGrans', () => {
     expect(har.geometry.coordinates).toEqual([14.70, 56.40]);
     expect(har.properties).toMatchObject({ har: 1, farg: FARG.text3, prio: 0 });
     expect(fc.features.find((f) => f.properties.id === 'pa')!.properties).toMatchObject({ har: 0, farg: FARG.gron });
-    expect(fc.features.find((f) => f.properties.id === 'op')!.properties).toMatchObject({ ihalig: 1, farg: FARG.text3 });
-    expect(fc.features.find((f) => f.properties.id === 'pl')!.properties.ihalig).toBe(0);
+    expect(fc.features.find((f) => f.properties.id === 'op')!.properties).toMatchObject({ ihalig: 0, farg: FARG.text3, varning: 0 });
     expect(prickarGeoJson([]).features).toEqual([]);
   });
   it('gränsen omsluter alla prickar; tom lista = null', () => {
@@ -164,7 +163,7 @@ describe('lagren', () => {
     expect(p['circle-stroke-color']).toEqual(['case', ['==', ['get', 'ihalig'], 1], ['get', 'farg'], FARG.text]);
     expect(p['circle-stroke-opacity']).toBe(1);
   });
-  it('sakerstallPrickLager lägger källa + tre lager en gång (idempotent)', () => {
+  it('sakerstallPrickLager lägger källa + fyra lager en gång (idempotent)', () => {
     const k: Record<string, any> = {}; const l: string[] = [];
     const map = {
       getSource: (id: string) => k[id], addSource: (id: string, s: any) => { k[id] = { ...s, setData: () => {} }; },
@@ -172,7 +171,7 @@ describe('lagren', () => {
     };
     expect(sakerstallPrickLager(map)).not.toBeNull();
     sakerstallPrickLager(map);
-    expect(l).toEqual(['objlista-ring', 'objlista-prick', 'objlista-namn']);
+    expect(l).toEqual(['objlista-ring', 'objlista-varning', 'objlista-prick', 'objlista-namn']);
   });
   it('tomkartans stil: Lantmäteriets bas som planeringsvyn (aldrig en svart yta)', () => {
     expect(TOM_KARTA_STIL.sources.lantmateriet.tiles[0]).toBe('/api/forarkarta?z={z}&x={x}&y={y}');
@@ -183,5 +182,28 @@ describe('lagren', () => {
     expect(tomKartaStil('terrain').sources).toEqual({ topographic: expect.objectContaining({ tiles: ['/api/forarkarta?layer=farg&z={z}&x={x}&y={y}'] }) });
     expect(tomKartaStil('osm').layers.map((x) => x.id)).toEqual(['bg', 'osm-layer']);
     expect(tomKartaStil('lantmateriet')).toEqual(TOM_KARTA_STIL);
+  });
+});
+
+describe('färgerna betyder EN sak var (Martin 2026-11-06)', () => {
+  const ana = (fynd: any[]) => ({ at: '2026-11-06T10:00:00Z', grans: 'x', fynd, fel: [] });
+  const O = [
+    { id: 'skord', namn: 'A', status: 'pagaende', fas: 'skordas', lat: 56.4, lng: 14.7 },
+    { id: 'vantar', namn: 'B', status: 'pagaende', fas: 'vantar_skotare', lat: 56.41, lng: 14.7, trakt_analys: ana([{ type: 'fornlamning', name: 'Fossil åker (X 1:1)' }]) },
+    { id: 'skot', namn: 'C', status: 'pagaende', fas: 'skotas', lat: 56.42, lng: 14.7, trakt_analys: ana([{ type: 'vattenskydd', name: 'V' }]) },
+    { id: 'plan', namn: 'D', status: 'planerad', lat: 56.43, lng: 14.7, trakt_analys: ana([{ type: 'nyckelbiotop', name: 'NB' }]) },
+  ] as any[];
+  it('grön = en maskin jobbar där (Skördas, Skotas); Väntar på skotare och Planerade är grå', () => {
+    const p = per(byggPrickar(grupperaObjekt(O), [], null, false));
+    expect([p.skord.farg, p.vantar.farg, p.skot.farg, p.plan.farg]).toEqual(['gron', 'gra', 'gron', 'gra']);
+  });
+  it('orange ring = fossil åker eller vattenskydd; nyckelbiotop eller ingen analys ger ingen ring', () => {
+    const p = per(byggPrickar(grupperaObjekt(O), [], null, false));
+    expect([p.skord.varning, p.vantar.varning, p.skot.varning, p.plan.varning]).toEqual([false, true, true, false]);
+    expect(harVarning({ trakt_analys: ana([], ) })).toBe(false);
+  });
+  it('ringen ritas i orange och bara för varning = 1', () => {
+    expect(PRICK_LAGER_SPEC.varning.filter).toEqual(['==', ['get', 'varning'], 1]);
+    expect(PRICK_LAGER_SPEC.varning.paint['circle-stroke-color']).toBe(FARG.orange);
   });
 });

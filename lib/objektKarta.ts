@@ -1,8 +1,9 @@
 // Objekten som prickar på kartan medan objektlistan är öppen (planeringsvyn, telefon och dator). Rena funktioner, ingen karta, ingen DB:
 // vad som ritas, var kameran ska stå, vad ett tryck träffar. Sidan (app/planering/page.tsx) äger MapLibre; listan (ObjektLista) äger datat.
 //
-//   Prickar:  grön = Pågår (även "Skotning kvar"), grå = Planerade, ihålig grå ring = Oplanerade (saknad/okänd status). Objektet man står på (Här)
-//             får en blå ring. Avslutade ritas BARA när Avslutade-vyn är öppen (det listan visar: vald typ, eller allt vid sökning).
+//   Prickar:  grön = en maskin jobbar där (Skördas, Skotas, Pågår utan fas), grå = ingen maskin jobbar där (Väntar på skotare, Planerade,
+//             Oplanerade). Orange ring = fossil åker eller vattenskydd (traktanalysen). Objektet man står på (Här) får en blå ring utanför.
+//             (Martin 2026-11-06: varje färg betyder EN sak — maskinerna själva är vita, lib/maskinerNu.) Avslutade ritas BARA när Avslutade-vyn är öppen (det listan visar: vald typ, eller allt vid sökning).
 //             Allt som syns i listan har en prick — utom objekt utan koordinat, som bara finns i listan.
 //   Namn:     bredvid pricken, men bara där de inte krockar (MapLibres egen kollisionshantering; Här först, sedan Pågår, sedan Planerade).
 //   Kamera:   zoomar ut så att alla prickar ryms i DEN SYNLIGA delen av kartan — arket (telefon, nedre halvan) och panelen (bred skärm,
@@ -14,7 +15,8 @@ import { grundKallor, grundLager } from './ritadKarta/lager';
 import { harKoordinat } from './navigera';
 import { PANEL_BREDD_PX, plusLage, type PlusLage } from './plusArk';
 import { AVSTAND, FARG } from './design/tokens';
-import { effektivGrupp, type ListObjekt, type ObjektGrupper } from './objektVal';
+import { effektivGrupp, pagarDel, type ListObjekt, type ObjektGrupper } from './objektVal';
+import { lasTraktAnalys, listRad } from './traktAnalys/markning';
 
 /** gron = Pågår, gra = Planerade (och avslutade i Avslutade-vyn), ihalig = Oplanerade (saknad/okänd status): en ihålig grå ring */
 export type PrickFarg = 'gron' | 'gra' | 'ihalig';
@@ -27,6 +29,8 @@ export interface KartPrick {
   farg: PrickFarg;
   /** GPS:en står innanför objektets traktgräns → blå ring */
   har: boolean;
+  /** fossil åker eller vattenskydd (traktanalysen) → orange ring */
+  varning?: boolean;
   /** namnens kollisionsordning: lägre = vinner platsen (Här, sedan Pågår, sedan Planerade) */
   prio: number;
 }
@@ -45,15 +49,23 @@ export const ARK_HOJD_PROCENT = `${ARK_HOJD_ANDEL * 100}%`;
 
 /** Prickarnas lager/källa på kartan. */
 export const PRICK_KALLA = 'objlista-source';
-export const PRICK_LAGER = { ring: 'objlista-ring', prick: 'objlista-prick', namn: 'objlista-namn' } as const;
-export const PRICK_LAGER_ID: readonly string[] = [PRICK_LAGER.ring, PRICK_LAGER.prick, PRICK_LAGER.namn];
+export const PRICK_LAGER = { ring: 'objlista-ring', varning: 'objlista-varning', prick: 'objlista-prick', namn: 'objlista-namn' } as const;
+export const PRICK_LAGER_ID: readonly string[] = [PRICK_LAGER.ring, PRICK_LAGER.varning, PRICK_LAGER.prick, PRICK_LAGER.namn];
 
 /** Tryckradie (px) runt fingret när en prick söks — en prick är ~14 px, ett finger träffar inte exakt. */
 export const PRICK_TRYCK_RADIE_PX = 24;
 
 const FARG_PRICK: Record<PrickFarg, string> = { gron: FARG.gron, gra: FARG.text3, ihalig: FARG.text3 };
 
-const prickFarg = (g: ReturnType<typeof effektivGrupp>): PrickFarg => (g === 'pagar' ? 'gron' : g === 'oplanerade' ? 'ihalig' : 'gra');
+/** Grön = en maskin jobbar där. Väntar på skotare är Pågår men ingen maskin är där → grå. */
+const prickFarg = (o: ListObjekt & { fas?: unknown }, g: ReturnType<typeof effektivGrupp>): PrickFarg =>
+  g === 'pagar' && pagarDel({ fas: o.fas }) !== 'vantar' ? 'gron' : 'gra';
+
+/** Orange ring: traktanalysen har hittat fossil åker eller vattenskydd (samma som raden i listan, lib/traktAnalys/markning). */
+export function harVarning(o: { trakt_analys?: unknown }): boolean {
+  const k = listRad(lasTraktAnalys({ trakt_analys: o.trakt_analys }))?.kategori;
+  return k === 'barmark' || k === 'vattenskydd';
+}
 
 /** Prick-listan ur listans grupper. `avslutadeVald` = bara i Avslutade-vyn: de avslutade objekten listan visar (vald typ, eller alla typer vid sökning). */
 export function byggPrickar<T extends ListObjekt>(
@@ -66,13 +78,13 @@ export function byggPrickar<T extends ListObjekt>(
   const lagg = (o: T, har: boolean, prio: number) => {
     if (!harKoordinat(o)) return;   // ingen koordinat = bara listan
     ut.push({ id: o.id, namn: (o.namn ?? '').trim() || 'Namnlöst objekt', lat: o.lat, lng: o.lng,
-      farg: prickFarg(effektivGrupp(o, skotningKvar)), har, prio });
+      farg: prickFarg(o as ListObjekt & { fas?: unknown }, effektivGrupp(o, skotningKvar)), har, varning: harVarning(o as { trakt_analys?: unknown }), prio });
   };
   if (visaAvslutade) {
     // Avslutade-vyn visar bara de avslutade av vald typ — grå (de är inte aktiva), aldrig Här-ring (Här gäller aktiva).
     for (const o of avslutadeVald) {
       if (!harKoordinat(o)) continue;
-      ut.push({ id: o.id, namn: (o.namn ?? '').trim() || 'Namnlöst objekt', lat: o.lat, lng: o.lng, farg: 'gra', har: false, prio: 4 });
+      ut.push({ id: o.id, namn: (o.namn ?? '').trim() || 'Namnlöst objekt', lat: o.lat, lng: o.lng, farg: 'gra', har: false, varning: false, prio: 4 });
     }
     return ut;
   }
@@ -89,7 +101,7 @@ export function prickarGeoJson(prickar: readonly KartPrick[]) {
     type: 'FeatureCollection' as const,
     features: prickar.map((p) => ({
       type: 'Feature' as const,
-      properties: { id: p.id, namn: p.namn, farg: FARG_PRICK[p.farg], ihalig: p.farg === 'ihalig' ? 1 : 0, har: p.har ? 1 : 0, prio: p.prio },
+      properties: { id: p.id, namn: p.namn, farg: FARG_PRICK[p.farg], ihalig: p.farg === 'ihalig' ? 1 : 0, har: p.har ? 1 : 0, varning: p.varning ? 1 : 0, prio: p.prio },
       geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
     })),
   };
@@ -147,7 +159,11 @@ export const arTryck = (ner: { x: number; y: number } | null, upp: { x: number; 
 export const PRICK_LAGER_SPEC = {
   ring: {
     id: PRICK_LAGER.ring, type: 'circle' as const, source: PRICK_KALLA, filter: ['==', ['get', 'har'], 1] as any,
-    paint: { 'circle-radius': 13, 'circle-color': FARG.bla, 'circle-opacity': 0, 'circle-stroke-color': FARG.bla, 'circle-stroke-width': 3, 'circle-stroke-opacity': 1 },
+    paint: { 'circle-radius': 17, 'circle-color': FARG.bla, 'circle-opacity': 0, 'circle-stroke-color': FARG.bla, 'circle-stroke-width': 3, 'circle-stroke-opacity': 1 },
+  },
+  varning: {
+    id: PRICK_LAGER.varning, type: 'circle' as const, source: PRICK_KALLA, filter: ['==', ['get', 'varning'], 1] as any,
+    paint: { 'circle-radius': 12, 'circle-color': FARG.orange, 'circle-opacity': 0, 'circle-stroke-color': FARG.orange, 'circle-stroke-width': 3, 'circle-stroke-opacity': 1 },
   },
   prick: {
     id: PRICK_LAGER.prick, type: 'circle' as const, source: PRICK_KALLA,
@@ -183,7 +199,7 @@ export const PRICK_LAGER_SPEC = {
 export function sakerstallPrickLager(map: any): { setData: (d: unknown) => void } | null {
   try {
     if (!map.getSource(PRICK_KALLA)) map.addSource(PRICK_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    for (const spec of [PRICK_LAGER_SPEC.ring, PRICK_LAGER_SPEC.prick, PRICK_LAGER_SPEC.namn]) {
+    for (const spec of [PRICK_LAGER_SPEC.ring, PRICK_LAGER_SPEC.varning, PRICK_LAGER_SPEC.prick, PRICK_LAGER_SPEC.namn]) {
       if (!map.getLayer(spec.id)) map.addLayer(spec);
     }
     return map.getSource(PRICK_KALLA) ?? null;
