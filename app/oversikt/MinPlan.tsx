@@ -1,6 +1,6 @@
 'use client';
 // MIN PLAN — förarens sida i Översikten. Regler och ord: ./plan.ts; sidan (page.tsx) ger kön, faror och Kör dit.
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { FARG, TYP, AVSTAND, RADIE, KOLUMN, KNAPP } from '@/lib/design/tokens';
 import { KommentarVisning } from '@/components/planering/KommentarRuta';
@@ -107,7 +107,7 @@ const INNAN_MAX = 3;
  *   MER OM TRAKTEN › resten, för den som vill
  * Det som hör till en plats ("denna stigen") listas inte: det kommer upp i hytten när maskinen kör dit.
  */
-function TraktFragor({ o, roll, warn, kartText, analys }: { o: PlanObjekt; roll: Roll; warn: VarningsSvar; kartText: KartText; analys: TraktAnalys }) {
+function TraktFragor({ maskinId, o, roll, warn, kartText, analys }: { maskinId: string; o: PlanObjekt; roll: Roll; warn: VarningsSvar; kartText: KartText; analys: TraktAnalys }) {
   const f = forbered(o, roll, warn);
   const [mer, setMer] = useState(false);
   const skydd = analysRader(analys);
@@ -163,7 +163,7 @@ function TraktFragor({ o, roll, warn, kartText, analys }: { o: PlanObjekt; roll:
           {hela.length > 0 && <KartRader texter={hela} />}
           {kartText === 'fel' && <div role="alert" style={{ ...TYP.text, color: FARG.orange }}>Kunde inte läsa det som står på kartan</div>}
           {platser > 0 && (
-            <a href={`/planering?objekt=${encodeURIComponent(o.id)}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.s, minHeight: 44, color: FARG.text, textDecoration: 'none' }}>
+            <a href={`/planering?objekt=${encodeURIComponent(o.id)}&fran=oversikt&plan=${encodeURIComponent(maskinId)}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.s, minHeight: 44, color: FARG.text, textDecoration: 'none' }}>
               <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 <span style={{ ...TYP.text }}>{platser === 1 ? '1 sak är märkt på kartan' : `${platser} saker är märkta på kartan`}</span>
                 <span style={{ ...TYP.meta, color: FARG.text2 }}>De kommer upp när du kör dit · Visa på kartan</span>
@@ -205,7 +205,7 @@ function TraktFragor({ o, roll, warn, kartText, analys }: { o: PlanObjekt; roll:
 
 interface PlanRad { id: string; objekt: OversiktObjekt; etikett: string; nu: boolean; nasta: boolean; stracka: string | null }
 
-export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKarta, analysFor = lasTraktAnalys }: {
+export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKarta, analysFor = lasTraktAnalys, startTrakt = null }: {
   f: MaskinForslag; namn: string; legs: (number | null)[]; varning: (objektId: string) => VarningsSvar;
   /** "Kör dit" till en trakt (sidans knapp — samma mål och km som i arken). */
   korDit: (objekt: OversiktObjekt) => React.ReactNode; posFel: boolean;
@@ -213,6 +213,8 @@ export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKart
   forman: boolean; onKarta: () => void;
   /** Traktanalysen per trakt (./traktanalys). Standard = kopplingen; testerna ger påhittad data. */
   analysFor?: (o: OversiktObjekt) => TraktAnalys;
+  /** Trakten som ska vara öppen när planen visas (tillbaka från Planeringen). */
+  startTrakt?: string | null;
 }) {
   const roll: Roll = f.typ === 'skotare' ? 'skotare' : 'skordare';
   const ko = f.ko.filter((p) => p.kalla === 'ko');
@@ -231,10 +233,13 @@ export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKart
     })),
   ];
   const forsta = rader[0]?.id ?? null;
-  const [vald, setVald] = useState<string | null>(forsta);
-  const [vy, setVy] = useState<'lista' | 'trakt'>('lista'); // bara under 1100 px
-  // Ny trakt för maskinen → valet hoppar dit (föraren ska aldrig läsa om fel trakt utan att märka det).
-  useEffect(() => { setVald(forsta); }, [nuId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Tillbaka från kartan i Planeringen ("‹ Översikt"): samma trakt öppen igen.
+  const start = startTrakt && rader.some((r) => r.id === startTrakt) ? startTrakt : null;
+  const [vald, setVald] = useState<string | null>(start ?? forsta);
+  const [vy, setVy] = useState<'lista' | 'trakt'>(start ? 'trakt' : 'lista'); // bara under 1100 px
+  // Ny trakt för maskinen → valet hoppar dit (föraren ska aldrig läsa om fel trakt utan att märka det). Inte vid första visningen.
+  const forstaNu = useRef(true);
+  useEffect(() => { if (forstaNu.current) { forstaNu.current = false; return; } setVald(forsta); }, [nuId]); // eslint-disable-line react-hooks/exhaustive-deps
   const valdRad = rader.find((r) => r.id === vald) ?? rader[0] ?? null;
   const nastaRad = rader.find((r) => r.nasta) ?? null;
 
@@ -272,6 +277,8 @@ export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKart
         {/* LISTAN — körordningen */}
         <aside className="mp-lista" aria-label="Körordning">
           <div className="mp-inre">
+            {/* Tillbaka till kartan — alltid på samma ställe, överst (Martin 2026-11-06: "måste finnas så jag kan komma till kartan igen"). */}
+            <button type="button" onClick={onKarta} style={{ ...KNAPP.lank, alignSelf: 'flex-start', padding: 0 }}>‹ Kartan</button>
             <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
               <div style={{ ...TYP.titel }}>{namn}</div>
               <div style={{ ...TYP.meta, color: FARG.text2 }}>{forman ? 'Förarens plan' : 'Din plan'}</div>
@@ -282,7 +289,7 @@ export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKart
                 {rader.map((r) => {
                   const o = r.objekt as unknown as PlanObjekt; const arVald = r.id === valdRad?.id;
                   return (
-                    <button key={r.id} onClick={() => valj(r.id)} aria-current={arVald ? 'true' : undefined}
+                    <button key={r.id} data-rad="" onClick={() => valj(r.id)} aria-current={arVald ? 'true' : undefined}
                       style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: AVSTAND.xs, minHeight: 44, padding: AVSTAND.m,
                         background: arVald ? FARG.upphojt : FARG.kort, border: 'none', borderRadius: RADIE.kort, color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
                       {/* Nästa står i vit text — det är den trakten föraren ska förbereda sig för. */}
@@ -297,7 +304,6 @@ export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKart
                 })}
               </div>
             ) : <div style={{ ...TYP.text, color: FARG.text2 }}>Inget planerat efter det här.</div>}
-            <button onClick={onKarta} style={{ ...KNAPP_LITEN }}>{forman ? 'Tillbaka till kartan' : 'Se alla maskiner på kartan'}</button>
           </div>
         </aside>
 
@@ -319,7 +325,7 @@ export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKart
                 </div>
               </div>
               {!valdRad.nu && korDit(valdRad.objekt)}
-              <TraktFragor o={vo} roll={roll} warn={varning(valdRad.id)} kartText={kartFor(valdRad.id)} analys={analysFor(valdRad.objekt)} />
+              <TraktFragor maskinId={f.maskinId} o={vo} roll={roll} warn={varning(valdRad.id)} kartText={kartFor(valdRad.id)} analys={analysFor(valdRad.objekt)} />
               {/* Står man på NU pekar sidan på Nästa — det är den man ska förbereda sig för. */}
               {valdRad.nu && nastaRad && (
                 <button onClick={() => valj(nastaRad.id)}

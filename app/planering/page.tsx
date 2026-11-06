@@ -4208,6 +4208,19 @@ export default function PlannerPage() {
   // BESÖK PÅ TRAKTEN: påminnelsen "<Trakt> startar i morgon – skicka till markägaren?" länkar till /planering?objekt=<id>&besok=sms. Då öppnas ⓘ-kortet med SMS-raden i fokus (en tryckning till öppnar Meddelanden —
   // en sms:-länk måste öppnas av ett riktigt tryck, aldrig av sidan själv). Parametern tas bort direkt.
   const [besokFokus, setBesokFokus] = useState(false);
+  // TILLBAKA TILL ÖVERSIKTEN: /planering?objekt=<id>&fran=oversikt&plan=<maskin> (Min plan, "Visa på kartan") → "‹ Översikt" bredvid hem-knappen,
+  // som öppnar samma plan på samma trakt (/oversikt?plan=&trakt=). Läses en gång; parametrarna fran/plan tas bort ur adressen.
+  const [tillbakaOversikt, setTillbakaOversikt] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href);
+      if (u.searchParams.get('fran') !== 'oversikt') return;
+      const plan = u.searchParams.get('plan'); const trakt = u.searchParams.get('objekt');
+      setTillbakaOversikt(plan ? `/oversikt?plan=${encodeURIComponent(plan)}${trakt ? `&trakt=${encodeURIComponent(trakt)}` : ''}` : '/oversikt');
+      u.searchParams.delete('fran'); u.searchParams.delete('plan');
+      window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch { /* */ }
+  }, []);
   useEffect(() => {
     if (!valtObjekt?.id) return;
     try {
@@ -13981,14 +13994,22 @@ export default function PlannerPage() {
                 <path d="M5 10 L5 21 L19 21 L19 10" />
               </svg>
             );
-            return maskinlage ? (
+            // Kom man hit från Översikten ("Visa på kartan" i Min plan) står "‹ Översikt" först — tillbaka till samma plan och trakt
+            // (Martin 2026-11-06: "när jag hamnar på kartan ska jag kunna back och komma till översikten igen").
+            const tillbaka = tillbakaOversikt ? (
+              <Link href={tillbakaOversikt} data-testid="tillbaka-oversikt" className="press-scale"
+                style={{ ...hemStil, width: 'auto', padding: `0 ${AVSTAND.m}px`, color: FARG.text, ...TYP.listtitel }}>
+                ‹ Översikt
+              </Link>
+            ) : null;
+            return maskinlage ? (<>{tillbaka}
               <button type="button" aria-label="Meny" aria-haspopup="dialog" data-testid="hem-maskinmeny" className="press-scale" onClick={() => setMaskinMenyOppen(true)} style={hemStil}>
                 {hemIkon}
-              </button>
-            ) : (
+              </button></>
+            ) : (<>{tillbaka}
               <Link href="/" aria-label="Hem" className="press-scale" style={hemStil}>
                 {hemIkon}
-              </Link>
+              </Link></>
             );
           })()}
 

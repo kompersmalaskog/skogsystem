@@ -420,6 +420,18 @@ export default function OversiktV2Page() {
     const id = new URLSearchParams(window.location.search).get('objekt');
     if (id) djupLankRef.current = { id, klar: false };
   }, []);
+  // Tillbaka från Planeringen ("‹ Översikt"): ?plan=<maskin>&trakt=<objekt> öppnar samma plan på samma trakt. Parametrarna tas bort direkt.
+  const [startTrakt, setStartTrakt] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href);
+      const plan = u.searchParams.get('plan'); const trakt = u.searchParams.get('trakt');
+      if (!plan) return;
+      setPlanFor(plan); setStartTrakt(trakt);
+      u.searchParams.delete('plan'); u.searchParams.delete('trakt');
+      window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch { /* */ }
+  }, []);
   useEffect(() => {
     if (didAutoSelect.current || rollLaddar || laddar) return;
     if (djupLankRef.current.id) { didAutoSelect.current = true; return; } // djuplänken äger urvalet
@@ -1238,10 +1250,10 @@ export default function OversiktV2Page() {
 
       {/* MIN PLAN — förarens sida (och förmannens "Visa som förarens plan"). Ligger över kartan; kartan finns ett tryck bort. */}
       {!laddar && !fel && planF && planMaskinId && (
-        <MinPlan f={planF} namn={maskinNamnAv(planMaskinId)} legs={selMaskin === planMaskinId ? selLegs : []} varning={varningFran}
+        <MinPlan key={planMaskinId} startTrakt={startTrakt} f={planF} namn={maskinNamnAv(planMaskinId)} legs={selMaskin === planMaskinId ? selLegs : []} varning={varningFran}
           korDit={(o) => <KorDit objekt={o} fran={minPos} />}
-          posFel={lasFel.pos} forman={!!planFor}
-          onKarta={() => { if (planFor) setPlanFor(null); else { setVisaKarta(true); } }} />
+          posFel={lasFel.pos} forman={!!planFor && planFor !== egenMaskinId}
+          onKarta={() => { const egen = !planFor || planFor === egenMaskinId; setPlanFor(null); setStartTrakt(null); if (egen) setVisaKarta(true); }} />
       )}
 
       {/* MASKIN-ARK — förman: kö-knappar. Förare: läsläge (inga skrivknappar) på ALLA maskiner; den egna märks "din maskin".

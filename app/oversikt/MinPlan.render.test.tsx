@@ -42,16 +42,17 @@ const f: MaskinForslag = {
 };
 
 let rot: Root; let el: HTMLDivElement;
-const rendera = async (ff: MaskinForslag = f) => {
+let kartan = 0;
+const rendera = async (ff: MaskinForslag = f, startTrakt: string | null = null) => {
   await act(async () => {
     rot.render(<MinPlan f={ff} namn="Giant" legs={[44, 3]} varning={(id) => (id === 'l' ? { faror: [{ label: 'Kraftledning', kommentar: 'Kör inte under med kranen uppe' }], hansyn: [] } : { faror: [], hansyn: [] })}
-      korDit={() => <a data-kordit="">Kör dit</a>} posFel={false} forman={false} onKarta={() => {}}
+      korDit={() => <a data-kordit="">Kör dit</a>} posFel={false} forman={false} onKarta={() => { kartan += 1; }} startTrakt={startTrakt}
       analysFor={(o) => (o.id === 'l' ? ANALYS_EXEMPEL : o.id === 'g' ? { lage: 'fel' } : { lage: 'klar', fynd: [] })} />);
   });
   await act(async () => { await Promise.resolve(); });
 };
 const trakt = () => el.querySelector('.mp-trakt') as HTMLElement;
-const rader = () => [...el.querySelectorAll('.mp-lista button[aria-current], .mp-lista button')].filter((b, i, a) => a.indexOf(b) === i) as HTMLButtonElement[];
+const rader = () => [...el.querySelectorAll('.mp-lista button[data-rad]')] as HTMLButtonElement[];
 
 beforeEach(() => {
   h.kommentarer = [
@@ -67,7 +68,7 @@ afterEach(() => { act(() => rot.unmount()); el.remove(); });
 describe('Min plan — körordningen till vänster, trakten till höger', () => {
   it('listan: Här nu, Nästa, 2:a — i körordning', async () => {
     await rendera();
-    const t = [...el.querySelectorAll('.mp-lista button')].map((b) => b.textContent);
+    const t = rader().map((b) => b.textContent);
     expect(t[0]).toContain('Här nu'); expect(t[0]).toContain('Bondeskog');
     expect(t[1]).toContain('Nästa'); expect(t[1]).toContain('Britteberg'); expect(t[1]).toContain('44 km från Bondeskog');
     expect(t[2]).toContain('Sedan'); expect(t[2]).toContain('Bondagård');
@@ -105,7 +106,7 @@ describe('Min plan — körordningen till vänster, trakten till höger', () => 
     expect(t()).toContain('På denna trakten finns det fossil åker');
     expect(t()).not.toContain('Kör på riset ut med vägen för avlägget');
     expect(t()).toContain('1 sak är märkt på kartan');
-    expect((trakt().querySelector('a[href^="/planering?objekt="]') as HTMLAnchorElement).getAttribute('href')).toBe('/planering?objekt=l');
+    expect((trakt().querySelector('a[href^="/planering?objekt="]') as HTMLAnchorElement).getAttribute('href')).toBe('/planering?objekt=l&fran=oversikt&plan=GIANT');
     expect(t()).not.toContain('Sortiment');
     // Mer om trakten är stängt; ett tryck visar markägaren och papperen
     expect(t()).not.toContain('Traktdirektiv');
@@ -132,6 +133,15 @@ describe('Min plan — körordningen till vänster, trakten till höger', () => 
     expect(t).toContain('Riskbedömningen är inte gjord än');
     expect(t).not.toContain('Inga särskilda risker');
     expect(t).toContain('Kunde inte läsa det som står på kartan');
+  });
+
+  it('‹ Kartan står överst och går till kartan; tillbaka från Planeringen öppnar samma trakt', async () => {
+    kartan = 0;
+    await rendera(f, 'g');
+    expect(el.firstElementChild?.className).toContain('mp-vy-trakt');
+    expect(trakt().textContent).toContain('Bondagård');
+    await act(async () => { ([...el.querySelectorAll('.mp-lista button')].find((b) => b.textContent === '‹ Kartan') as HTMLButtonElement).click(); });
+    expect(kartan).toBe(1);
   });
 
   it('maskinen kommer till en ny trakt → valet hoppar dit', async () => {
