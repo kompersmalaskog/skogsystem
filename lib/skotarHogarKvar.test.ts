@@ -129,6 +129,13 @@ describe('prickarna', () => {
     expect(hogPrickar(feats, [l], 'energi').map((x) => [x.v, x.farg])).toEqual([[3, HOG_PRICK_FARG.energi]]);
     expect(hogPrickar(feats, [l], 'massa').map((x) => x.v)).toEqual([6]);
   });
+  it('alla: högens trädslag i hela färger, blandad hög får andra halvan (bild K)', () => {
+    const g = (x: number, farg: string, farg2: string | null) => ({ ...f(x, { [MASSA]: 6 }), properties: { sortimentVolymJson: JSON.stringify({ [MASSA]: 6 }), prickFarg: farg, prickFarg2: farg2 } });
+    const p = hogPrickar([g(5, '#1d9e75', null), g(80, '#1d9e75', '#FF9F0A')], [], 'alla');
+    expect(p.map((x) => [x.farg, x.farg2])).toEqual([['#1d9e75', null], ['#1d9e75', '#FF9F0A']]);
+    // Ett valt sortiment: sortimentets färg, ingen andra halva.
+    expect(hogPrickar([g(80, '#1d9e75', '#FF9F0A')], [], 'massa').map((x) => [x.farg, x.farg2])).toEqual([[HOG_PRICK_FARG.massa, null]]);
+  });
   it('trasig JSON ger ingen hög, inget fel', () => {
     expect(hogPrickar([{ geometry: { coordinates: [1, 2] }, properties: { sortimentVolymJson: '{' } }], [], 'alla')).toEqual([]);
   });

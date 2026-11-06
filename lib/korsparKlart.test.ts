@@ -46,13 +46,14 @@ describe('linjerUr', () => {
   });
 });
 
-describe('kartans stil (kartan lugn 2026-11-06): ljust stråk, grått där skotaren kört', () => {
-  it('stråket är ljust neutralt där det är kvar och grått och svagt där `klar` — aldrig lila, aldrig turkos', () => {
+describe('kartans stil (kartan stillren 2026-11-06): tunt lila stråk, svagare där skotaren kört', () => {
+  it('stråket är lila (skördarens färg) och svagare där `klar` — ingen grå, aldrig turkos', () => {
     for (const art of ['plan', 'egen', 'hist', 'andras'] as const) for (const lage of [false, true]) {
       const s = kartSpar(art, lage);
       expect(s.farg).toEqual(['case', MITTLINJE_FILTER, STRAK_KLAR_FARG, STRAK_FARG]);
       expect(JSON.stringify(s)).not.toContain(ROLLFARG_SKOTARE);
-      expect(JSON.stringify(s)).not.toContain(ROLLFARG_SKORDARE);
+      expect(STRAK_FARG).toBe(ROLLFARG_SKORDARE);
+      expect(STRAK_KLAR_FARG).toBe(ROLLFARG_SKORDARE);
       expect(JSON.stringify(s.opacitet)).toContain(String(STRAK_KLAR_STYRKA));
     }
   });

@@ -14,6 +14,7 @@ import { byggTeckenforklaring, type ForklaringRad, type TeckenMarkering } from '
 import type { VidaSlag } from '@/lib/larm/grupper';
 import { malbildNyckel, type Maskinroll } from '@/lib/malbilder';
 import { MalbildBlad, MalbildLista } from '@/components/malbild/Malbild';
+import { HOG_TRADSLAG_FARG, KARTA_BLANDAT } from '@/lib/tradslag';
 import { Gruppkort, Huvud, Rubrik } from './infoDelar';
 
 export interface VadBetyderKartanProps {
@@ -22,6 +23,8 @@ export interface VadBetyderKartanProps {
   vida: readonly VidaSlag[];
   /** Maskintypen (skördare/skotare): målbilden kan skilja per roll. */
   roll?: Maskinroll | null;
+  /** Trakten har produktionshögar: då förklaras högarnas färger (trädslag). */
+  hogar?: boolean;
   onTillbaka: () => void;
   onStang: () => void;
 }
@@ -72,7 +75,27 @@ export function ForklaringBild({ rad }: { rad: ForklaringRad }) {
   );
 }
 
-export default function VadBetyderKartan({ objektNamn, markeringar, vida, roll = null, onTillbaka, onStang }: VadBetyderKartanProps) {
+/**
+ * Högarna på kartan (Martin 2026-11-06, bild K): en prick per hög i trädslagets hela färg, större prick = mer virke. Blandad = halv–halv.
+ * Samma färger som kartan (lib/tradslag HOG_TRADSLAG_FARG / hogTradslagFarger) — ingen egen palett.
+ */
+const HOG_RADER: { namn: string; farg: string; farg2?: string }[] = [
+  { namn: 'Gran', farg: HOG_TRADSLAG_FARG.GRAN },
+  { namn: 'Tall', farg: HOG_TRADSLAG_FARG.TALL },
+  { namn: 'Björk', farg: HOG_TRADSLAG_FARG['BJÖRK'] },
+  { namn: 'Blandat', farg: HOG_TRADSLAG_FARG.GRAN, farg2: HOG_TRADSLAG_FARG.TALL },
+  { namn: 'Okänt trädslag', farg: KARTA_BLANDAT },
+];
+export function HogPrickBild({ farg, farg2 }: { farg: string; farg2?: string }) {
+  const bakgrund = farg2 ? `linear-gradient(90deg, ${farg} 50%, ${farg2} 50%)` : farg;
+  return (
+    <span aria-hidden="true" data-bild="hog" style={{ width: BILD, height: BILD, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <span style={{ width: 16, height: 16, borderRadius: RADIE.cirkel, background: bakgrund, boxShadow: `0 0 0 1.5px ${KANT_SVART_STARK}` }} />
+    </span>
+  );
+}
+
+export default function VadBetyderKartan({ objektNamn, markeringar, vida, roll = null, hogar = false, onTillbaka, onStang }: VadBetyderKartanProps) {
   const [visaAlla, setVisaAlla] = useState(false);
   // Tryck på en rad öppnar målbilden (bara för sorter som har en); "Alla målbilder" öppnar vilken som helst.
   const [malbild, setMalbild] = useState<{ nyckel: string; ikon?: React.ReactNode } | null>(null);
@@ -114,6 +137,23 @@ export default function VadBetyderKartan({ objektNamn, markeringar, vida, roll =
             </Gruppkort>
           </section>
         ))}
+        {(hogar || visaAlla) && (
+          <section data-testid="teckenforklaring-hogar">
+            <Rubrik>Högar</Rubrik>
+            <Gruppkort>
+              {HOG_RADER.map((h, i) => (
+                <div key={h.namn} data-testid={`teckenforklaring-hog-${h.namn}`} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, minHeight: TRAFFYTA.primar + AVSTAND.s, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
+                  <HogPrickBild farg={h.farg} farg2={h.farg2} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', ...TYP.text, color: FARG.text }}>{h.namn}</span>
+                    {i === 0 && <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>Större prick = mer virke kvar.</span>}
+                    {h.farg2 && <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>De två största trädslagen, halva var.</span>}
+                  </span>
+                </div>
+              ))}
+            </Gruppkort>
+          </section>
+        )}
         <MalbildLista roll={roll} onVisa={(n) => setMalbild({ nyckel: n })} />
         <button type="button" data-testid="teckenforklaring-visa-alla" onClick={() => setVisaAlla((v) => !v)} className="press"
           style={{ ...KNAPP.sekundar, width: '100%', minHeight: TRAFFYTA.primar, fontFamily: 'inherit', cursor: 'pointer', touchAction: 'manipulation' }}>

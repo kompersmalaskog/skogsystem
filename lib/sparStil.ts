@@ -120,7 +120,7 @@ export function sparAlder(datum: string | null | undefined, idagIso: string): nu
  */
 /** Skördarens spår: bredd (px vid full zoom) och hur mycket av den vanliga styrkan de får. */
 export const SKORDARSPAR_BREDD = 1.8;
-export const SKORDARSPAR_STYRKA = 0.65;
+export const SKORDARSPAR_STYRKA = 0.85;   // tunna men tydliga (bild H–K): bredden gör dem lugna, inte svagheten
 
 export function dampatSpar(roll: SparRoll, art: SparArt): DampatSpar {
   const farg = roll === 'skordare' ? STRAK_FARG : ROLLFARG_SKOTARE;
@@ -188,17 +188,17 @@ export function skotarlageSpar(roll: SparRoll, art: SparArt): SkotarlageSpar {
 export const STRAK_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 1, 15, 2, 17, 3, 19, 4.5];
 export const STRAK_KANT_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 1 + SPAR_KANT_EXTRA_PX, 15, 2 + SPAR_KANT_EXTRA_PX, 17, 3 + SPAR_KANT_EXTRA_PX, 19, 4.5 + SPAR_KANT_EXTRA_PX];
 /**
- * KARTAN LUGN (prototyp, Martin 2026-11-06: "färg bara där det gäller, klart blir grått"): skördarens stråk är inte längre lila utan ljust neutralt —
- * färgen på kartan är vägarnas snitsel, fara och natur. Där skotaren kört (`klar`) blir stråket grått och svagt: arbetet krymper på kartan.
- * Ersätter den lila stråken med vit mittlinje (2026-11-04).
+ * KARTAN STILLREN (Martin 2026-11-06, bild H–K): skördarens stråk är TUNNA och LILA (rollfärgen) — skotaren hittar stråken, men de tar inte
+ * över kartan. Där skotaren kört (`klar`) blir stråket svagare i samma lila: arbetet krymper på kartan, ingen ny färg. Det grå stråket
+ * (prototypen "kartan lugn") är borta.
  */
-export const STRAK_FARG = '#e5e5ea';
-export const STRAK_KLAR_FARG = '#8e8e93';
-export const STRAK_KLAR_STYRKA = 0.4;
+export const STRAK_FARG = ROLLFARG_SKORDARE;
+export const STRAK_KLAR_FARG = ROLLFARG_SKORDARE;
+export const STRAK_KLAR_STYRKA = 0.35;
 /** Mittlinjen: vit, ungefär en tredjedel av stråket, och syns först när stråket är brett nog att bära den. */
 export const MITTLINJE_FARG = '#ffffff';
 export const MITTLINJE_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 0.6, 15, 1.2, 17, 1.8, 19, 2.5];
-/** Mittlinjen ritas inte längre (kartan lugn): det körda syns som grått stråk. Lagren finns kvar, osynliga. */
+/** Mittlinjen ritas inte längre (kartan stillren): det körda syns som svagare stråk. Lagren finns kvar, osynliga. */
 export const MITTLINJE_OPACITET = 0;
 /** Filtret som avgör var mittlinjen ritas: bitar av skördarens stråk där skotaren varit (lib/korsparKlart delaKlart sätter `klar`). */
 export const MITTLINJE_FILTER: readonly any[] = ['==', ['get', 'klar'], true];

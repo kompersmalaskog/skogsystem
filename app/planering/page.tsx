@@ -112,7 +112,7 @@ import { forfattarText, kanAndraKommentar, kanRaderaKommentar, kortKommentarer, 
 import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring, linjeKort, vidaLinjeKort, traktKortBetydelse } from '../../lib/symboler'
 import { LarmIkon, SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
 import { vidaSlagIFeatures } from '../../lib/teckenforklaring';
-import { BJORK_KANT_FARG, GALLRING_FARG, GROT_FARG, HOG_TRADSLAG_FARG, KARTA_BLANDAT, sortimentFarg } from '../../lib/tradslag';
+import { BJORK_KANT_FARG, GALLRING_FARG, GROT_FARG, HOG_TRADSLAG_FARG, KARTA_BLANDAT, hogTradslagFarger, sortimentFarg } from '../../lib/tradslag';
 import { TRAFF_RADIE_PX } from '../../lib/egenkontrollTryck';
 import { FORBJUDNA_ZONTYPER, HANSYNSYTA_FILTER, OVRIGT_YTA_FILTER, OVRIGT_YTA_STIL, SNEDSTRECK_GRUPPER, VIDA_ETIKETT, YTA_ETIKETT, YTA_ETIKETT_STIL, YTA_ETIKETT_STORLEK, snedstreckBild, snedstreckId } from '@/lib/ytaStil';
 import { FOKUS_HATCH_OPACITET, arFara, fokusEtikettFilter, fokusOpacitet, medFokus } from '@/lib/fokusTrakt';
@@ -189,6 +189,7 @@ import { VilkenMaskinSkarm } from '../../components/maskin/VilkenMaskinSkarm'
 import { typLabel } from '../../lib/objekt/typ'
 import { hamtaAltNummer, hogarObjektIds, nyckelHorTillObjekt } from '../../lib/objektNummer'
 import { klustraStammar } from '../../lib/produktionshogar'
+import { hogRadie, hogHalvBild, HOG_HALV_BILD, HOG_HALV_RADIE_PX } from '../../lib/hogPrick'
 import { useSkotarLass } from '../../lib/hooks/useSkotarLass'
 import { useSkotarVader } from '../../lib/hooks/useSkotarVader'
 import { hamtaPrognos, narmasteSteg } from '../../lib/smhi-prognos'
@@ -788,21 +789,32 @@ function laggTillHogPrickar(map: any) {
         // Högarna kommer fram först inzoomat (Martin 2026-11-06: utzoomat bara trakten, vägen, faran och det han ska spara).
         minzoom: HOGAR_FRAN_ZOOM,
         // Ljus prick med mörk kant (Martin 2026-11-01, som Komatsu MaxiVision): större prick = mer virke kvar (v, m³).
-        // Färgen = högens trädslag (Martin 2026-11-06); ett eget sortiment under + ger sin färg (lib/skotarHogarKvar HOG_PRICK_FARG). a = tonar bort det lassen tog.
+        // Färgen = högens trädslag i hela färger (Martin 2026-11-06, bild K); blandad hög får andra halvan i lagret skotar-hogar-halv.
+        // Ett eget sortiment under + ger sin färg (lib/skotarHogarKvar HOG_PRICK_FARG). a = tonar bort det lassen tog.
         paint: {
           'circle-color': ['get', 'farg'],
           'circle-stroke-color': 'rgba(0,0,0,0.75)',
           'circle-stroke-width': 1.5,
           // Stor skillnad mellan en riktig hög och en rest (Martin 2026-11-01: "ser ut som snö"): 1 m³ ett korn, 15 m³ en tydlig prick.
-          'circle-radius': ['interpolate', ['linear'], ['zoom'],
-            13, ['interpolate', ['linear'], ['get', 'v'], 0, 1, 2, 1.5, 10, 3, 30, 5],
-            17, ['interpolate', ['linear'], ['get', 'v'], 0, 1.5, 1, 2.5, 5, 4.5, 15, 7.5, 40, 10]],
+          'circle-radius': hogRadie(1) as any,
           'circle-opacity': ['coalesce', ['get', 'a'], 0.95],
           'circle-stroke-opacity': ['coalesce', ['get', 'a'], 0.95],
         },
         layout: { 'visibility': 'none' },
       });
     } catch (e) { console.error('[Skotarkörvy] hogar-dots:', e); }
+  }
+  // Blandad hög: andra trädslagets färg som en halv skiva ovanpå pricken (samma storlek, samma tonning). SDF-bild så färgen kommer ur datan.
+  if (!map.hasImage?.(HOG_HALV_BILD)) { try { const b = hogHalvBild(); map.addImage(HOG_HALV_BILD, b, { sdf: true }); } catch (e) { console.error('[Högar] halv-bild:', e); } }
+  if (!map.getLayer('skotar-hogar-halv')) {
+    try {
+      map.addLayer({
+        id: 'skotar-hogar-halv', type: 'symbol', source: 'skotar-hogar-source', minzoom: HOGAR_FRAN_ZOOM,
+        filter: ['has', 'farg2'],
+        layout: { 'icon-image': HOG_HALV_BILD, 'icon-size': hogRadie(1 / HOG_HALV_RADIE_PX) as any, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'visibility': 'none' },
+        paint: { 'icon-color': ['get', 'farg2'], 'icon-opacity': ['coalesce', ['get', 'a'], 0.95] },
+      });
+    } catch (e) { console.error('[Högar] halv:', e); }
   }
   // Ringen runt högen man tryckt på (kortet Tagen / Ligger kvar är öppet).
   if (!map.getLayer('skotar-hogar-vald')) {
@@ -5778,6 +5790,8 @@ export default function PlannerPage() {
         const dominantPct = sorted.length > 0 ? sorted[0][1] / n : 0;
         const tradslag = sorted.map(([k, v]) => `${k} ${Math.round(100 * v / n)}%`).join(', ');
         const color = dominantPct > 0.7 ? (TRADSLAG_COLOR[dominant] || BLANDAT_COLOR) : BLANDAT_COLOR;
+        // Prickarnas färger (skotar-hogar-dots): ett trädslag = en färg, blandat = de två största halv–halv (lib/tradslag).
+        const hogFarger = hogTradslagFarger(tradslagCount);
         const sortimentSorted = Object.entries(sortimentVolym).sort((a, b) => b[1] - a[1]);
         const sortiment = sortimentSorted.length > 0 ? sortimentSorted[0][0] : (dominant || 'Okänt');
         if (volym > 0.01) {
@@ -5785,7 +5799,7 @@ export default function PlannerPage() {
           hogar.push({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [cLng, cLat] },
-            properties: { volym: Math.round(volym * 100) / 100, tradslag, sortiment, stammar: n, datum, color, sortimentVolymJson: JSON.stringify(sortimentVolym), pieIcon: `pie-${pieIdx}` },
+            properties: { volym: Math.round(volym * 100) / 100, tradslag, sortiment, stammar: n, datum, color, prickFarg: hogFarger.farg, prickFarg2: hogFarger.farg2, sortimentVolymJson: JSON.stringify(sortimentVolym), pieIcon: `pie-${pieIdx}` },
           });
           if (grotCount > 0) {
             grotHogar.push({
@@ -12675,7 +12689,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const visa = prickLage && hogarPa;
-    try { if (map.getLayer('skotar-hogar-dots')) map.setLayoutProperty('skotar-hogar-dots', 'visibility', visa ? 'visible' : 'none'); } catch { /* */ }
+    for (const id of ['skotar-hogar-dots', 'skotar-hogar-halv']) { try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visa ? 'visible' : 'none'); } catch { /* */ } }
     const src = map.getSource('skotar-hogar-source') as any;
     if (!src) return;
     let nya: HogPrick[] = [];
@@ -12691,7 +12705,7 @@ export default function PlannerPage() {
     if (sammaVy) for (const [k, p] of forra) { const n = nyaMap.get(k); if (!n || n.a < p.a - 0.01) tonas.set(k, p.a); }
     const borta = sammaVy ? [...forra.values()].filter((p) => !nyaMap.has(p.nyckel)) : [];
     hogPrickarRef.current = nyaMap;
-    const feat = (p: HogPrick, a: number) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { v: p.v, farg: p.farg, a } });
+    const feat = (p: HogPrick, a: number) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { v: p.v, farg: p.farg, ...(p.farg2 ? { farg2: p.farg2 } : {}), a } });
     // k = 0 → förra styrkan, k = 1 → den nya
     const skriv = (k: number) => {
       const blanda = (fran: number, till: number) => fran + (till - fran) * k;
@@ -14682,7 +14696,7 @@ export default function PlannerPage() {
               } : null,
             },
           },
-          karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features), roll: malbildRoll },
+          karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features), roll: malbildRoll, hogar: (hogarFeaturesRef.current?.length ?? 0) > 0 },
           instruktioner: instruktionerAktiv ? { data: inst.paTrakten, onSett: inst.settOmraden } : null,
           // Riskbedömningen för föraren (maskinläget): raden "Risker på trakten" och listan med "Jag har läst".
           onRiskerForbered: () => { klarVyRef.current = { v: 'steg', flode: { typ: 'ett', steg: 'risker', till: 'kort' } }; },

@@ -146,7 +146,7 @@ export function kvarFor(k: HogKvar, visa: HogVisa): number {
 }
 
 /** Det kartan ritar för en hög: där den ligger, hur mycket som ligger kvar för valet, prickens färg och styrka. */
-export interface HogPrick { nyckel: string; lng: number; lat: number; v: number; farg: string; /** 0–1 */ a: number }
+export interface HogPrick { nyckel: string; lng: number; lat: number; v: number; farg: string; /** Andra halvan för en blandad hög (bara Alla), annars null. */ farg2: string | null; /** 0–1 */ a: number }
 
 /**
  * En hög där lassen tagit huvuddelen är en REST: mindre än REST_ANDEL av det som låg där (för valet) eller under REST_M3 kvar. Den ritas
@@ -163,21 +163,25 @@ export const hogNyckel = (lng: number, lat: number): string => `${lng.toFixed(6)
 
 /**
  * Prickarna i skotarläget ur högarna (planeringsvyns hogar-features, som redan bär `sortimentVolymJson`) och lassen.
- * En hög där inget av valt sortiment ligger kvar finns inte med (den har tonats bort).
+ * Alla sortiment: högens TRÄDSLAG i hela färger (`prickFarg`/`prickFarg2` på featuren, lib/tradslag hogTradslagFarger — Martin 2026-11-06, bild K);
+ * ett valt sortiment: sortimentets färg, en färg. En hög där inget av valt sortiment ligger kvar finns inte med (den har tonats bort).
  */
 export function hogPrickar(
-  features: readonly { geometry?: { coordinates?: number[] }; properties?: { sortimentVolymJson?: string } }[],
+  features: readonly { geometry?: { coordinates?: number[] }; properties?: { sortimentVolymJson?: string; prickFarg?: string; prickFarg2?: string | null } }[],
   lass: readonly Lass[],
   visa: HogVisa,
   markeringar: readonly HogMarkering[] = [],
 ): HogPrick[] {
   const hogar: HogIn[] = [];
+  const farger: { farg: string | null; farg2: string | null }[] = [];
+  const text = (x: unknown): string | null => (typeof x === 'string' && x ? x : null);
   for (const f of features) {
     const c = f?.geometry?.coordinates;
     if (!c || c.length < 2 || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
     let sv: Record<string, number> = {};
     try { sv = JSON.parse(f.properties?.sortimentVolymJson || '{}') || {}; } catch { sv = {}; }
     hogar.push({ lng: c[0], lat: c[1], sortimentVolym: sv });
+    farger.push({ farg: text(f.properties?.prickFarg), farg2: text(f.properties?.prickFarg2) });
   }
   const kvar = medMarkeringar(hogar, hogarKvar(hogar, lass), markeringar);
   const ut: HogPrick[] = [];
@@ -187,7 +191,9 @@ export function hogPrickar(
     const fore = kvarFor({ kvar: h.sortimentVolym, totalt: Object.values(h.sortimentVolym).reduce((s, x) => s + Math.max(0, x), 0), andel: 1 }, visa);
     const taget = fore - v > 0.05;
     const rest = taget && (v < REST_M3 || v < fore * REST_ANDEL);
-    ut.push({ nyckel: hogNyckel(h.lng, h.lat), lng: h.lng, lat: h.lat, v: Math.round(v * 100) / 100, farg: HOG_PRICK_FARG[visa], a: rest ? REST_STYRKA : FULL_STYRKA });
+    ut.push({ nyckel: hogNyckel(h.lng, h.lat), lng: h.lng, lat: h.lat, v: Math.round(v * 100) / 100,
+      farg: visa === 'alla' ? (farger[i].farg ?? HOG_PRICK_FARG.alla) : HOG_PRICK_FARG[visa],
+      farg2: visa === 'alla' && farger[i].farg ? farger[i].farg2 : null, a: rest ? REST_STYRKA : FULL_STYRKA });
   });
   return ut;
 }
