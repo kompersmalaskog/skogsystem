@@ -32,7 +32,7 @@ const FEL = (status: number, fel: string): Svar => ({ status, body: { ok: false,
 
 // ---- Länken ---------------------------------------------------------------------------------------------------------------------------------
 
-type ObjektRad = { id: string; namn: string; vo_nummer: string | null; status: string | null; lat: number | null; lng: number | null; kartbild_bounds: unknown; fastighetsbeteckning: string | null; dim_objekt_id: string | null };
+export type ObjektRad = { id: string; namn: string; anteckningar?: string | null; vo_nummer: string | null; status: string | null; lat: number | null; lng: number | null; kartbild_bounds: unknown; fastighetsbeteckning: string | null; dim_objekt_id: string | null };
 export type LankUtfall = { ok: true; objekt: ObjektRad } | { ok: false; skal: 'okand' | 'avstangd' | 'avslutat' | 'fel' };
 
 const AVSLUTAD = (s: string | null) => s === 'avslutat' || s === 'klar';
@@ -43,7 +43,7 @@ export async function slaUppSkotarLank(sb: Sb, token: string): Promise<LankUtfal
   if (l.error) return { ok: false, skal: 'fel' };
   if (!l.data) return { ok: false, skal: 'okand' };
   if (!(l.data as { aktiv: boolean }).aktiv) return { ok: false, skal: 'avstangd' };
-  const o = await sb.from('objekt').select('id, namn, vo_nummer, status, lat, lng, kartbild_bounds, fastighetsbeteckning, dim_objekt_id').eq('id', (l.data as { objekt_id: string }).objekt_id).maybeSingle();
+  const o = await sb.from('objekt').select('id, namn, vo_nummer, status, lat, lng, kartbild_bounds, fastighetsbeteckning, dim_objekt_id, anteckningar').eq('id', (l.data as { objekt_id: string }).objekt_id).maybeSingle();
   if (o.error) return { ok: false, skal: 'fel' };
   if (!o.data) return { ok: false, skal: 'okand' };
   const objekt = o.data as ObjektRad;
@@ -71,6 +71,8 @@ async function cachad<T>(nyckel: string, ttlMs: number, f: () => Promise<T>, nu 
   return v;
 }
 export const rensaSkotarCache = () => cache.clear();
+/** Efter en markering: nästa läsning av objektets karta räknas om (annars visar den högen som kvar i två minuter). */
+export const glomSkotarVy = (objektId: string) => { cache.delete(`vy:${objektId}`); };
 
 /** Är länken giltig? Kort cache (60 s) så att en karta med tjugo rutor inte gör tjugo uppslag. */
 export async function skotarLankGiltig(sb: Sb, token: string, nu = Date.now()): Promise<boolean> {
@@ -130,6 +132,8 @@ export type SkotarVy = {
   /** Kommentarernas text per markering (id), äldst först. Aldrig vem som skrev. */
   kommentarer: Record<string, string[]>;
   vida: ReturnType<typeof rensaVida>;
+  /** Om trakten: Vidas traktdirektiv och kommentarerna på själva trakten (text, aldrig vem). */
+  omTrakten: { direktiv: string | null; kommentarer: string[] };
   /** Det som inte gick att läsa, i ord. */
   fel: string[];
 };
@@ -187,10 +191,15 @@ export function origoPerMarkering(objekt: { lat: number | null; lng: number | nu
   return antal > 0 && inom / antal >= KVITTO.ANDEL_INOM ? origo : null;
 }
 
+/** Numren objektets stammar ligger under (VO-nummer, extra nummer och skördarens maskinobjekt). */
+export async function objektStamIds(sb: Sb, o: ObjektRad): Promise<string[]> {
+  const alt = await hamtaAltNummer(sb, o.id).catch(() => []);
+  return Array.from(new Set([...(o.vo_nummer ? hogarObjektIds(o.vo_nummer, alt) : []), ...(o.dim_objekt_id ? [o.dim_objekt_id] : [])]));
+}
+
 export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
   const fel: string[] = [];
-  const alt = await hamtaAltNummer(sb, o.id).catch(() => []);
-  const ids = Array.from(new Set([...(o.vo_nummer ? hogarObjektIds(o.vo_nummer, alt) : []), ...(o.dim_objekt_id ? [o.dim_objekt_id] : [])]));
+  const ids = await objektStamIds(sb, o);
 
   const [markSvar, vida, sparSvar, stamSvar, tsSvar, kommSvar, uttagSvar, lassSvar, hogMarkSvar] = await Promise.all([
     sb.from('planering_markeringar').select('data').eq('objekt_id', o.id),
@@ -201,7 +210,7 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
         () => sb.from('detalj_stam').select('latitude, longitude, total_volym, tradslag_id, sortiment').in('objekt_id', ids).not('latitude', 'is', null) as never, 'id')
       : Promise.resolve({ data: [], error: null }),
     sb.from('dim_tradslag').select('tradslag_id, namn'),
-    sb.from('kartkommentar').select('yta_nyckel, text, skapad_at').eq('objekt_id', o.id).like('yta_nyckel', 'marker:%'),
+    sb.from('kartkommentar').select('yta_nyckel, text, skapad_at').eq('objekt_id', o.id),
     sb.from('skotning_uttag').select('tradslag, volym, polygon_coords').eq('objekt_id', o.id),
     hamtaAlla<unknown>(() => sb.from('skotar_lass').select(LASS_SELECT).eq('objekt_id', o.id) as never, 'id'),
     sb.from('skotar_hog_markering').select('id, typ, geometri, bredd_m, grupp, skapad_at').eq('objekt_id', o.id).order('skapad_at'),
@@ -287,8 +296,16 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
     } catch { fel.push('produktionshögarna'); }
   }
 
+  const direktiv = typeof o.anteckningar === 'string' && o.anteckningar.trim() ? o.anteckningar.trim() : null;
+  // Kommentarerna på själva trakten (traktdelar och egna områden), äldst först.
+  const traktKommentarer = kommSvar.error ? [] : [...((kommSvar.data ?? []) as { yta_nyckel: string; text: string | null; skapad_at: string }[])]
+    .filter((r) => /^(traktdel|omrade):/.test(String(r.yta_nyckel)))
+    .sort((a, b) => String(a.skapad_at).localeCompare(String(b.skapad_at)))
+    .map((r) => String(r.text ?? '').trim()).filter(Boolean);
+
   return {
     namn: besokNamn(o.namn, o.vo_nummer, o.fastighetsbeteckning),
+    omTrakten: { direktiv, kommentarer: traktKommentarer },
     mitt: o.lat != null && o.lng != null ? { lat: o.lat, lng: o.lng } : null,
     gran, spar, hogar, origo, origoText, markeringar, kommentarer, vida: rensaVida(vidaFeatures), fel,
   };

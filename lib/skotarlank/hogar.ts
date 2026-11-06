@@ -11,7 +11,7 @@
 
 import { klustraStammar, type HogStam } from '@/lib/produktionshogar';
 import { draAvUttagFranHogar, type UttagRad } from '@/lib/skotat';
-import { FULL_STYRKA, HOG_PRICK_FARG, hogarKvar, medMarkeringar, REST_ANDEL, REST_M3, REST_STYRKA, type HogIn, type HogMarkering } from '@/lib/skotarHogarKvar';
+import { FULL_STYRKA, HOG_PRICK_FARG, hogarIOmrade, hogarKvar, medMarkeringar, type OmradeSvar, REST_ANDEL, REST_M3, REST_STYRKA, type HogIn, type HogMarkering } from '@/lib/skotarHogarKvar';
 import { tradslagFarg, tradslagLabel } from '@/lib/tradslag';
 import type { Lass } from '@/lib/skotarLass/typer';
 
@@ -36,19 +36,35 @@ const SEP = '\u0001';
 const OKANT_SORT = '(okänt sortiment)';
 const sortNamn = (s: string | null) => (s && s.trim() ? s : OKANT_SORT);
 
+const basStammar = (stammar: readonly Stam[]): HogStam[] =>
+  stammar.map((s) => ({ lat: s.lat, lng: s.lng, total_volym: s.volym, tradslag: tradslagLabel(s.tradslag), sortiment: sortNamn(s.sortiment) }));
+
+/** Steg 1–2: högarna per sortiment efter planerarens uttag, som features (samma form som planeringsvyns högar). Varje hög bär sitt index `i`. */
+function hogarEfterUttag(perSort: ReturnType<typeof klustraStammar>, uttag: readonly UttagRad[]) {
+  const features = perSort.map((k, i) => ({
+    geometry: { coordinates: [k.lng, k.lat] },
+    properties: { i, volym: k.volym, sortimentVolymJson: JSON.stringify(k.sortimentVolym) },
+  }));
+  return draAvUttagFranHogar(features, [...uttag]);
+}
+
+/**
+ * RITA RUNT: det som ligger kvar i högarna inne i ringen, per sortimentgrupp. SAMMA uträkning som skotarlägets "Högar i ett område"
+ * (lib/skotarHogarKvar hogarIOmrade) på samma högar som kartan visar.
+ */
+export function skotarOmrade(stammar: readonly Stam[], uttag: readonly UttagRad[], lass: readonly Lass[], markeringar: readonly HogMarkering[], ring: readonly [number, number][]): OmradeSvar {
+  return hogarIOmrade(hogarEfterUttag(klustraStammar(basStammar(stammar)), uttag), lass, markeringar, ring);
+}
+
 /** Högarna med det som ligger kvar. Tomma högar (under 0,05 m³) finns inte med. */
 export function skotarHogar(stammar: readonly Stam[], uttag: readonly UttagRad[], lass: readonly Lass[], markeringar: readonly HogMarkering[]): HogarSvar {
-  const bas: HogStam[] = stammar.map((s) => ({ lat: s.lat, lng: s.lng, total_volym: s.volym, tradslag: tradslagLabel(s.tradslag), sortiment: sortNamn(s.sortiment) }));
+  const bas = basStammar(stammar);
   const perSort = klustraStammar(bas);
   const perTsSort = klustraStammar(bas.map((s) => ({ ...s, sortiment: `${s.tradslag}${SEP}${s.sortiment}` })));
   if (perSort.length !== perTsSort.length) throw new Error('högarna gick inte att para ihop');
 
   // 2. Planerarens uttag — högarna bär sitt index så att de går att para ihop efteråt (tömda högar försvinner ur listan).
-  const features = perSort.map((k, i) => ({
-    geometry: { coordinates: [k.lng, k.lat] },
-    properties: { i, volym: k.volym, sortimentVolymJson: JSON.stringify(k.sortimentVolym) },
-  }));
-  const efterUttag = draAvUttagFranHogar(features, [...uttag]);
+  const efterUttag = hogarEfterUttag(perSort, uttag);
 
   // 3. Lassen och förarnas markeringar.
   const hogIn: HogIn[] = efterUttag.map((f) => ({ lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], sortimentVolym: JSON.parse(f.properties.sortimentVolymJson || '{}') }));
