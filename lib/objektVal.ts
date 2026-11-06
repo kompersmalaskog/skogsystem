@@ -284,27 +284,33 @@ export function pagarDel(o: { fas?: unknown }): PagarDel {
 }
 
 // ---- Stegen på raden: Skörd och Skotning (Martin 2026-11-06: "så att ett barn förstår direkt") ----------------------------------------
-// Varje rad säger själv hur långt trakten kommit: ● pågår, ✓ klart (grön), ○ inte börjat. Väntar på skotare är det enda orange.
+// Varje rad säger själv hur långt trakten kommit: ✓ klart (grön bock), pågår = vit text, inte börjat = bara grått ord (Martin: "är det inte färdigt ska det bara stå det"). Orange = något väntar: oplanerad, väntar på skotare.
 export type StegLage = 'pagar' | 'klar' | 'ej' | 'vantar';
-export type Steg = { id: 'skord' | 'skot'; lage: StegLage; text: string };
+export type Steg = { id: 'plan' | 'skord' | 'skot'; lage: StegLage; text: string };
 
 /** Stegen för en trakt, eller null när fasen inte är känd (pågående utan fas). Planerad/oplanerad = båda ○. GROT och energiklippning skördas inte: bara skotningssteget. */
-export function fasSteg(o: { fas?: unknown; typ?: string | null; status?: string | null }): Steg[] | null {
+export function fasSteg(o: { fas?: unknown; typ?: string | null; status?: string | null; klar_kvar_antal?: number | null }): Steg[] | null {
   const virke = /slutavverk|gallring/i.test(String(o.typ ?? ''));
   const st = String(o.status ?? '').trim().toLowerCase();
   const avslutat = st === 'avslutat' || st === 'klar';
-  const inteBorjat = !o.fas && (st === 'planerad' || st === 'oplanerad' || st === '');
+  const oplanerad = !o.fas && (st === 'oplanerad' || st === '');
+  const planerad = !o.fas && st === 'planerad';
   let skord: StegLage; let skot: StegLage;
   if (avslutat) { skord = 'klar'; skot = 'klar'; }
-  else if (inteBorjat) { skord = 'ej'; skot = 'ej'; }
+  else if (oplanerad || planerad) { skord = 'ej'; skot = 'ej'; }
   else if (o.fas === 'skordas') { skord = 'pagar'; skot = 'ej'; }
   else if (o.fas === 'vantar_skotare') { skord = 'klar'; skot = 'vantar'; }
   else if (o.fas === 'skotas') { skord = 'klar'; skot = 'pagar'; }
   else return null;
+  // Planeringen är första steget: klar = grön bock. Oplanerad = orange med vad som är kvar (det enda som kräver planeraren).
+  const kvar = o.klar_kvar_antal;
+  const plan: Steg = oplanerad
+    ? { id: 'plan', lage: 'vantar', text: typeof kvar === 'number' && kvar > 0 ? `Planering · ${kvar} kvar` : 'Planering' }
+    : { id: 'plan', lage: 'klar', text: 'Planerat' };
   const skordText = skord === 'pagar' ? 'Skördas' : skord === 'klar' ? 'Skördat' : 'Skördning';
   const skotText = skot === 'pagar' ? 'Skotas' : skot === 'klar' ? 'Skotat' : skot === 'vantar' ? 'Väntar på skotare' : 'Skotning';
-  const steg: Steg[] = [{ id: 'skot', lage: skot, text: skotText }];
-  return virke ? [{ id: 'skord', lage: skord, text: skordText }, ...steg] : steg;
+  const skotSteg: Steg = { id: 'skot', lage: skot, text: skotText };
+  return virke ? [plan, { id: 'skord', lage: skord, text: skordText }, skotSteg] : [plan, skotSteg];
 }
 
 /** Ordningen inom Pågår: skördas, väntar, skotas, sedan resten. */

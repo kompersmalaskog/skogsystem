@@ -275,10 +275,10 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     // Avslutat men skotning kvar = skördat klart, skotningen orange.
     const kvar = !avslutadVy && arSkotningKvar(o, skotKvar);
     const steg = kvar
-      ? (fasSteg({ fas: 'vantar_skotare', typ: o.typ }) ?? []).map((x) => (x.id === 'skot' ? { ...x, text: 'Skotning kvar' } : x))
+      ? (fasSteg({ fas: 'vantar_skotare', typ: o.typ, status: 'pagaende' }) ?? []).map((x) => (x.id === 'skot' ? { ...x, text: 'Skotning kvar' } : x))
       : fasSteg(o);
     // Oplanerad = ingen har tryckt Klar för maskin: orange "N kvar" (eller ärligt "Inte klarplanerad" när kortet aldrig öppnats). Syns, spärrar aldrig.
-    const planEtikett = (o.status ?? '').trim().toLowerCase() === 'oplanerad' ? oplaneradRadText(o.klar_kvar_antal) : null;
+    const planEtikett = !steg && (o.status ?? '').trim().toLowerCase() === 'oplanerad' ? oplaneradRadText(o.klar_kvar_antal) : null;   // med steg står det i planeringssteget
     const egen = !!maskin && !avslutadVy && arTilldelad({ skordare_maskin_id: o.skordare_maskin_id, skotare_maskin_id: o.skotare_maskin_id }, maskinId);   // maskinläge: tilldelat den här maskinen
     const meta = avslutadVy ? avslutadMeta(o, avslutadVy === 'medTyp') : steg ? null : aktivTypGiltig ? radMetaUtanTyp(o) : radMeta(o);   // med steg flyttar volymen in i trakten
     // Traktanalysen (servern, lib/traktAnalys): HÖGST en rad, bara när något finns — fossil åker, vattenskydd eller "Ej kontrollerad".
@@ -327,7 +327,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
               {steg.map((x) => (
                 <span key={x.id} data-testid={`objekt-steg-${o.id}-${x.id}`} data-lage={x.lage} data-kvar={kvar && x.id === 'skot' ? '1' : undefined}
                   style={{ whiteSpace: 'nowrap', color: x.lage === 'klar' ? FARG.gron : x.lage === 'vantar' ? FARG.orange : x.lage === 'pagar' ? FARG.text : FARG.text2 }}>
-                  {x.lage === 'klar' ? '✓' : x.lage === 'pagar' ? '●' : '○'} {x.text}
+                  {x.lage === 'klar' ? `✓ ${x.text}` : x.text}
                 </span>
               ))}
             </span>

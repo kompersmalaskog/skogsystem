@@ -126,7 +126,7 @@ describe('grupperna utgår från status', () => {
   it('GROT och energiklippning syns bland de aktiva', async () => {
     await montera();
     expect(q('objekt-rad-g')!.textContent).toContain('GROT Hjorthult');
-    expect(q('objekt-steg-g')!.textContent).toBe('○ Skotning');                 // GROT skördas inte: bara skotningssteget
+    expect(q('objekt-steg-g')!.textContent).toBe('✓ PlaneratSkotning');                 // GROT skördas inte: bara skotningssteget
     expect(q('objekt-rad-n')!.textContent).toContain('Energiklippning');
     expect(behallare!.querySelector('[role="tab"]')).toBeNull();
   });
@@ -163,7 +163,7 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
     const pagar = radIdn().slice(0, 3);
     expect(pagar).toContain('v');
     expect(pagar.sort()).toEqual(['n', 'p', 'v']);
-    expect(q('objekt-steg-v-skot')!.textContent).toBe('○ Skotning kvar');
+    expect(q('objekt-steg-v-skot')!.textContent).toBe('Skotning kvar');
     expect(q('objekt-steg-v-skord')!.textContent).toBe('✓ Skördat');
     expect(q('objekt-lista-avslutade')!.textContent).toContain('(1)');                                  // bara "Äldre avslutat" är kvar
     klicka(q('objekt-lista-avslutade'));
@@ -450,7 +450,7 @@ describe('raden', () => {
     expect(q('objekt-rad-p')!.textContent).toMatch(/Gallring · Södra · 300\sm³/);
     expect(q('objekt-rad-e')!.textContent).toContain('Ekeby');
     expect(q('objekt-rad-e')!.textContent).not.toContain('1 200 m³');
-    expect(q('objekt-steg-e')!.textContent).toBe('○ Skördning○ Skotning');
+    expect(q('objekt-steg-e')!.textContent).toBe('✓ PlaneratSkördningSkotning');
     expect(q('objekt-rad-n')!.textContent).toContain('Energiklippning');      // ingen källa/volym → bara typ, inget "–"
   });
 
@@ -708,9 +708,9 @@ describe('stegen på raden: Skörd och Skotning (objekt.fas från timjobbet)', (
     expect(rubriker()).toEqual(['Pågår', 'Oplanerade']);
     const ordning = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
     expect(ordning.slice(0, 3)).toEqual(['p', 'n', 'e']);
-    expect(q('objekt-steg-p')!.textContent).toBe('● Skördas○ Skotning');
-    expect(q('objekt-steg-n')!.textContent).toBe('✓ Skördat○ Väntar på skotare');
-    expect(q('objekt-steg-e')!.textContent).toBe('✓ Skördat● Skotas');
+    expect(q('objekt-steg-p')!.textContent).toBe('✓ PlaneratSkördasSkotning');
+    expect(q('objekt-steg-n')!.textContent).toBe('✓ Planerat✓ SkördatVäntar på skotare');
+    expect(q('objekt-steg-e')!.textContent).toBe('✓ Planerat✓ SkördatSkotas');
     expect(q('objekt-steg-n-skot')!.getAttribute('style')).toContain('rgb(255, 159, 10)');   // väntar = orange, det enda
     expect(q('objekt-steg-n-skord')!.getAttribute('style')).toContain('rgb(48, 209, 88)');   // klart = grön bock
     expect(q('objekt-steg-p-skot')!.getAttribute('style')).not.toContain('rgb(255, 159, 10)');
@@ -725,15 +725,24 @@ describe('stegen på raden: Skörd och Skotning (objekt.fas från timjobbet)', (
     h.rader = [{ ...RADER[3], fas: 'skotas', typ: 'grot' }];
     h.tabeller = {};
     await montera();
-    expect(q('objekt-steg-p')!.textContent).toBe('● Skotas');
+    expect(q('objekt-steg-p')!.textContent).toBe('✓ PlaneratSkotas');
   });
-  it('planerad och oplanerad: båda stegen ○, grå', async () => {
+  it('planerad = ✓ Planerat (grön), oplanerad = Planering (orange); det som inte börjat står bara som ord', async () => {
     h.rader = [{ ...RADER[1] }, { ...RADER[5] }];
     h.tabeller = {};
     await montera();
-    expect(q('objekt-steg-e')!.textContent).toBe('○ Skördning○ Skotning');
-    expect(q('objekt-steg-o')!.textContent).toBe('○ Skördning○ Skotning');
+    expect(q('objekt-steg-e')!.textContent).toBe('✓ PlaneratSkördningSkotning');
+    expect(q('objekt-steg-o')!.textContent).toBe('PlaneringSkördningSkotning');
+    expect(q('objekt-steg-o-plan')!.getAttribute('data-lage')).toBe('vantar');
     expect(q('objekt-steg-e-skord')!.getAttribute('data-lage')).toBe('ej');
+  });
+  it('oplanerad med kvar: "Planering · 4 kvar" i planeringssteget, ingen egen etikett ovanför', async () => {
+    h.rader = [{ ...RADER[5], status: 'oplanerad', klar_kvar_antal: 4 }];
+    h.tabeller = {};
+    await montera();
+    expect(q('objekt-steg-o-plan')!.textContent).toBe('Planering · 4 kvar');
+    expect(q('objekt-steg-o-plan')!.getAttribute('style')).toContain('rgb(255, 159, 10)');
+    expect(q('objekt-oplanerad-o')).toBeNull();
   });
   it('pågående utan fas: inga steg, raden som förut', async () => {
     h.rader = [{ ...RADER[3] }];
