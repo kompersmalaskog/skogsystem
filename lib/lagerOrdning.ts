@@ -53,6 +53,8 @@ const REGLER: Regel[] = [
   [/^(drawing-|measure-|skotning-|figur-etikett|omtrakten-|line-linjered-|hornedit-(mid|vertex|nr)|checklist-|avlagg-granska-)/, RANG.etiketter + 40 * D],
 
   // ── Larm: ringar och pin ligger över symbolerna men under etiketterna ──────────────────────────────────────────────────
+  // Skotarläget: mörkt längre bort från maskinen — över vägar och spår, under linjer man ska vara rädd om, symboler och högar.
+  [/^skotar-nara-ton$/, RANG.linjer - 5 * D],
   [/^larm-pin$/, RANG.symboler + 90 * D],
   [/^larm-/, RANG.symboler + 80 * D],
 

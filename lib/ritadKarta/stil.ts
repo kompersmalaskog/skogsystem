@@ -9,11 +9,13 @@ export const BAKGRUND = '#1f211d';
 export const KLASS_FARG: Record<Klass, [number, number, number, number]> = {
   ingen: [0, 0, 0, 0],
   // Tre gröna som går att skilja med en blick (Martin 2026-10-31: gallring och mogen var nästan samma): ljust = ungt, mörkt = moget.
-  oppet: [92, 90, 74, 255],
-  ung: [112, 158, 86, 255],
-  gallring: [64, 120, 68, 255],
-  mogen: [26, 70, 42, 255],
-  avverkat: [146, 126, 90, 255],
+  // Dämpade (Martin 2026-11-06, kartan lugn): skogen är kuliss, färgen på kartan är vägar, fara och natur.
+  oppet: [88, 88, 78, 255],
+  ung: [104, 126, 94, 255],
+  gallring: [70, 94, 72, 255],
+  mogen: [36, 54, 42, 255],
+  // Ljust och rent (Martin 2026-11-06: "stillrent"): det avverkade är det ljusaste på kartan, inte en brun fläck.
+  avverkat: [214, 202, 174, 255],
 };
 
 /** I ord, för teckenförklaringen. */
@@ -86,14 +88,15 @@ export const LJUS = { anchor: 'map' as const, color: '#fff6e0', intensity: 0.45,
 /** Terrängskuggning (MapLibres hillshade på samma höjddata som 3D-terrängen): mörkt i skuggan, en aning ljust i solen, platt mark orörd. */
 export const RELIEF_KALLA = { type: 'raster-dem' as const, tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 15, encoding: 'terrarium' as const };
 // Ljus från fyra håll (Martin 2026-10-31: sluttningar mot solen blev platta med en enda sol): nordväst starkast, som en vanlig karta,
-// tre till fyller i.
+// tre till fyller i. STARKARE 2026-11-06 (bild H, Martin: "här ser du markstrukturen bättre"): höjder och sänkor ska läsas på hygget
+// också — det är där maskinen kör. Skuggan är svart och ljuset nästan vitt, så ingen ny färg kommer in på kartan.
 export const RELIEF_PAINT = {
   'hillshade-method': 'multidirectional',
   'hillshade-illumination-direction': [225, 270, 315, 0],
-  'hillshade-illumination-altitude': [45, 45, 45, 45],
-  'hillshade-shadow-color': ['rgba(0,0,0,0.18)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.35)'],
-  'hillshade-highlight-color': ['rgba(255,248,230,0.03)', 'rgba(255,248,230,0.06)', 'rgba(255,248,230,0.1)', 'rgba(255,248,230,0.06)'],
-  'hillshade-exaggeration': 0.55,
+  'hillshade-illumination-altitude': [40, 40, 40, 40],
+  'hillshade-shadow-color': ['rgba(0,0,0,0.28)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.68)', 'rgba(0,0,0,0.5)'],
+  'hillshade-highlight-color': ['rgba(255,248,230,0.06)', 'rgba(255,248,230,0.12)', 'rgba(255,248,230,0.2)', 'rgba(255,248,230,0.12)'],
+  'hillshade-exaggeration': 0.8,
 } as const;
 
 export const TRAD_FARG = { ung: '#8cc084', gallring: '#6fae74', mogen: '#5a9a68' } as const;
