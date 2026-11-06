@@ -66,6 +66,24 @@ def rakna(tabell, filt):
     return int(r.headers['Content-Range'].split('/')[-1])
 
 
+def rakna_stockar(ids):
+    """Joinbara stockar (stem_key och log_key satta) per objekt, alla i ett anrop.
+    Objekt utan stockar saknas i svaret och blir 0 — samma som rakna() gav.
+    Går RPC:n inte att nå räknas objekt för objekt som förut (långsamt men rätt)."""
+    if not ids:
+        return {}
+    h = {k: v for k, v in M.SUPABASE_HEADERS.items() if k != 'Prefer'}
+    try:
+        r = requests.post('%s/rest/v1/rpc/rotkap_stockar_antal' % M.SUPABASE_URL,
+                          headers=h, json={'p_objekt_ids': list(ids)}, timeout=120)
+        r.raise_for_status()
+        return {x['objekt_id']: int(x['antal']) for x in r.json()}
+    except Exception as e:
+        print('rotkap_stockar_antal gick inte (%s) — räknar objekt för objekt' % e)
+        return {i: rakna('detalj_stock', 'objekt_id=eq.%s&stem_key=not.is.null&log_key=not.is.null' % i)
+                for i in ids}
+
+
 def barkfit(stockar):
     par = [(s['toppdia_ob_mm'], s['toppdia_ub_mm']) for s in stockar
            if s['toppdia_ob_mm'] and s['toppdia_ub_mm'] and s['toppdia_ob_mm'] > 0]
@@ -335,11 +353,15 @@ def main():
     print('objekt med diameterserie: %d   (%s)' % (len(ids), 'alla räknas om' if alla else
           'ett objekt' if bara else 'inkrementellt'))
 
+    # Bara joinbara stockar: nyckellösa kopior (parsern 21 apr–7 maj 2026)
+    # räknades annars med — Stensjömåla visade 159 333 stockar där 8 961 är verkliga.
+    # ALLA objekt i ETT anrop (rotkap_stockar_antal, samma villkor). Förut en räknefråga per objekt
+    # vid varje efterberäkning — den fråga som tog mest databastid av alla (2026-11-05).
+    stockar_per_objekt = rakna_stockar(ids)
+
     t0 = time.time(); utfall = []; fel = 0; raknade = 0
     for objekt_id in ids:
-        # Bara joinbara stockar: nyckellösa kopior (parsern 21 apr–7 maj 2026)
-        # räknades annars med — Stensjömåla visade 159 333 stockar där 8 961 är verkliga.
-        stockar_antal = rakna('detalj_stock', 'objekt_id=eq.%s&stem_key=not.is.null&log_key=not.is.null' % objekt_id)
+        stockar_antal = stockar_per_objekt.get(objekt_id, 0)
         serier_antal = sum(p['serier'] for p in per_objekt[objekt_id])
         f = forra.get(objekt_id)
         if f and not alla and not bara and f['stockar_antal'] == stockar_antal and f['serier_antal'] == serier_antal:

@@ -69,7 +69,7 @@ const klicka = (el: Element | null) => { expect(el).not.toBeNull(); act(() => { 
 
 import type { KartPrickar } from '@/lib/objektKarta';
 
-// Traktgräns (L_TRAKTDEL) som kvadrat runt en punkt — samma form som objekt_geometri.geometri.
+// Traktgräns (L_TRAKTDEL) som kvadrat runt en punkt — samma form som objekt_traktgrans.geometri.
 const kvadrat = (lat: number, lng: number, d: number) => ({
   type: 'FeatureCollection',
   features: [{ properties: { _lager: 'L_TRAKTDEL' }, geometry: { type: 'Polygon', coordinates: [[[lng - d, lat - d], [lng + d, lat - d], [lng + d, lat + d], [lng - d, lat + d], [lng - d, lat - d]]] } }],
@@ -129,7 +129,7 @@ describe('prickar till kartan när listan är öppen', () => {
   });
 
   it('objektet man står på (GPS innanför traktgränsen) har blå ring', async () => {
-    h.tabeller = { objekt_geometri: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.01) }, { objekt_id: 'e', geometri: kvadrat(56.45, 14.75, 0.01) }] };
+    h.tabeller = { objekt_traktgrans: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.01) }, { objekt_id: 'e', geometri: kvadrat(56.45, 14.75, 0.01) }] };
     await montera();
     const p = prickar();
     expect(p.p.har).toBe(true);
@@ -140,7 +140,7 @@ describe('prickar till kartan när listan är öppen', () => {
 
   it('ingen "Här" utan fix eller utan laddade gränser → ingen ring', async () => {
     h.gps = { giltig: false };
-    h.tabeller = { objekt_geometri: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.5) }] };
+    h.tabeller = { objekt_traktgrans: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.5) }] };
     await montera();
     expect(Object.values(prickar()).some((x) => x.har)).toBe(false);
   });

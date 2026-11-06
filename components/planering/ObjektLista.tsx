@@ -155,6 +155,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   // Skotning kvar (avslutat men virke på backen) och traktgränserna för "Här" — vid varje öppning, ihop med objekten.
   // Fel eller tomt svar = okänt (null), aldrig "inga": objekt_geometri har RLS, så en utgången session ger tomma rader UTAN fel
   // (CLAUDE.md, maskindator-start) — och utan gränser skulle varje objekt falla tillbaka på 300 m-regeln och ge falsk "Här".
+  // Läser vyn objekt_traktgrans (bara L_TRAKTDEL, ~70 kB), aldrig hela objekt_geometri (6,4 MB vid varje öppning — 2026-11-05).
   useEffect(() => {
     if (!oppen) return;
     let avbruten = false;
@@ -162,7 +163,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
       const kvar = await hamtaSkotningKvar(supabase);
       if (!avbruten) { setSkotKvar(kvar); setSkotKvarKlar(true); }
       try {
-        const { data, error } = await supabase.from('objekt_geometri').select('objekt_id, geometri');
+        const { data, error } = await supabase.from('objekt_traktgrans').select('objekt_id, geometri');
         if (avbruten) return;
         if (error || !data || data.length === 0) { setGeometri(null); return; }
         const m = new Map<string, any>();
