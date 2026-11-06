@@ -163,7 +163,8 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
     const pagar = radIdn().slice(0, 3);
     expect(pagar).toContain('v');
     expect(pagar.sort()).toEqual(['n', 'p', 'v']);
-    expect(q('objekt-skotning-kvar-v')!.textContent).toBe('Skotning kvar');
+    expect(q('objekt-steg-v-skot')!.textContent).toBe('○ Skotning kvar');
+    expect(q('objekt-steg-v-skord')!.textContent).toBe('✓ Skördat');
     expect(q('objekt-lista-avslutade')!.textContent).toContain('(1)');                                  // bara "Äldre avslutat" är kvar
     klicka(q('objekt-lista-avslutade'));
     expect(q('objekt-rad-v')).toBeNull();
@@ -173,7 +174,7 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
   it('etiketten sitter bara på det objektet — inte på de andra Pågår-raderna', async () => {
     vallustSkotning(600);
     await montera();
-    expect(behallare!.querySelectorAll('[data-testid^="objekt-skotning-kvar-"]')).toHaveLength(1);
+    expect(behallare!.querySelectorAll('[data-kvar="1"]')).toHaveLength(1);
     expect(q('objekt-rad-p')!.textContent).not.toContain('Skotning kvar');
   });
 
@@ -181,7 +182,7 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
     vallustSkotning(897);
     await montera();
     expect(q('objekt-rad-v')).toBeNull();
-    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+    expect(behallare!.querySelector('[data-kvar="1"]')).toBeNull();
     expect(q('objekt-lista-avslutade')!.textContent).toContain('(2)');
     klicka(q('objekt-lista-avslutade'));
     expect(q('objekt-rad-v')).not.toBeNull();
@@ -195,7 +196,7 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
     vallustSkotning(100, { egen_skotning: true });
     await montera();
     expect(q('objekt-rad-v')).toBeNull();
-    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+    expect(behallare!.querySelector('[data-kvar="1"]')).toBeNull();
   });
 
   it('underlaget går inte att hämta → ingen gissning: avslutat förblir Avslutade', async () => {
@@ -203,7 +204,7 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
     h.tabellFel.vy_uppf_lass_per_objekt = true;
     await montera();
     expect(q('objekt-rad-v')).toBeNull();
-    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+    expect(behallare!.querySelector('[data-kvar="1"]')).toBeNull();
   });
 
   it('en planerad/pågående rad får aldrig etiketten, hur mycket virke det än är kvar', async () => {
@@ -214,7 +215,7 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
     };
     h.rader = RADER.map((r) => (r.id === 'p' ? { ...r, vo_nummer: 'VO-P' } : r));
     await montera();
-    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+    expect(behallare!.querySelector('[data-kvar="1"]')).toBeNull();
   });
 });
 
@@ -251,7 +252,7 @@ describe('Här — enhetens GPS innanför ett objekts traktgräns', () => {
     await montera();
     expect(rubriker()[0]).toBe('Här');
     expect(radIdn()[0]).toBe('v');
-    expect(q('objekt-skotning-kvar-v')).not.toBeNull();
+    expect(q('objekt-steg-v-skot')!.textContent).toContain('Skotning kvar');
     expect(radIdn().filter((i) => i === 'v')).toHaveLength(1);
   });
 
@@ -692,34 +693,42 @@ describe('traktanalysen på raden — högst en rad, bara när något finns', ()
   });
 });
 
-describe('fasen på raden (objekt.fas från timjobbet)', () => {
-  it('Pågår delas i Skördas · Väntar på skotare (orange) · Skotas, med antal; raden har ingen fas-etikett', async () => {
+describe('stegen på raden: Skörd och Skotning (objekt.fas från timjobbet)', () => {
+  it('EN rubrik Pågår, raderna i ordningen skördas → väntar → skotas, och varje rad säger själv hur långt den kommit', async () => {
     h.rader = [
-      { ...RADER[1], status: 'pagaende', fas: 'skordas' },
-      { ...RADER[3], fas: 'skotas' },
+      { ...RADER[1], status: 'pagaende', fas: 'skotas', typ: 'gallring' },
+      { ...RADER[3], fas: 'skordas', typ: 'slutavverkning' },
       { ...RADER[4], fas: 'vantar_skotare', typ: 'slutavverkning' },
-      { ...RADER[2], status: 'pagaende', fas: 'skotas' },
       { ...RADER[5] },
     ];
-    await montera();
-    expect(rubriker()).toEqual(['Skördas', 'Väntar på skotare', 'Skotas', 'Oplanerade']);
-    expect(q('objekt-grupp-skotas')!.textContent).toBe('Skotas (2)');
-    expect(q('objekt-grupp-vantar')!.getAttribute('style')).toContain('rgb(255, 159, 10)');
-    const ordning = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
-    expect(ordning.slice(0, 2)).toEqual(['e', 'n']);
-    expect(behallare!.querySelector('[data-testid^="objekt-fas-"]')).toBeNull();
-  });
-  it('under Här står fasen på raden (rubriken säger bara Här)', async () => {
-    h.rader = [{ ...RADER[3], fas: 'skotas' }];
-    h.tabeller = { objekt_traktgrans: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.01) }] };
-    await montera();
-    expect(rubriker()[0]).toBe('Här');
-    expect(q('objekt-fas-p')!.textContent).toBe('Skördat klart · skotas');
-  });
-  it('fasen ersätter den gamla etiketten "Skotning kvar"', async () => {
-    h.rader = [{ ...RADER[0], fas: 'skotas' }];
     h.tabeller = {};
     await montera();
-    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+    expect(rubriker()).toEqual(['Pågår', 'Oplanerade']);
+    const ordning = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
+    expect(ordning.slice(0, 3)).toEqual(['p', 'n', 'e']);
+    expect(q('objekt-steg-p')!.textContent).toBe('● Skördas○ Skotning');
+    expect(q('objekt-steg-n')!.textContent).toBe('✓ Skördat○ Väntar på skotare');
+    expect(q('objekt-steg-e')!.textContent).toBe('✓ Skördat● Skotas');
+    expect(q('objekt-steg-n-skot')!.getAttribute('style')).toContain('rgb(255, 159, 10)');   // väntar = orange, det enda
+    expect(q('objekt-steg-n-skord')!.getAttribute('style')).toContain('rgb(48, 209, 88)');   // klart = grön bock
+    expect(q('objekt-steg-p-skot')!.getAttribute('style')).not.toContain('rgb(255, 159, 10)');
+  });
+  it('med steg står ingen volym på raden (den finns i trakten)', async () => {
+    h.rader = [{ ...RADER[3], fas: 'skotas', typ: 'slutavverkning', volym: 610 }];
+    h.tabeller = {};
+    await montera();
+    expect(q('objekt-rad-p')!.textContent).not.toContain('610');
+  });
+  it('GROT har bara skotningssteget', async () => {
+    h.rader = [{ ...RADER[3], fas: 'skotas', typ: 'grot' }];
+    h.tabeller = {};
+    await montera();
+    expect(q('objekt-steg-p')!.textContent).toBe('● Skotas');
+  });
+  it('utan fas: inga steg, raden som förut', async () => {
+    h.rader = [{ ...RADER[5] }];
+    h.tabeller = {};
+    await montera();
+    expect(behallare!.querySelector('[data-testid^="objekt-steg-"]')).toBeNull();
   });
 });

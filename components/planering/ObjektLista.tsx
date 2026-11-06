@@ -24,7 +24,7 @@ import { PANEL_BREDD_PX, dragHojd, valjListdetent, type Detent } from '@/lib/plu
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import { useVagavstand } from '@/lib/hooks/useVagavstand';
 import { oplaneradRadText } from '@/lib/klarTrakt';
-import { PAGAR_DELAR, aktivaTyper, arSkotningKvar, avTyp, avslutadMeta, avslutadeAvTyp, avslutadeTyper, effektivGrupp, fagelKm, fasText, giltigAktivTyp, grupperaObjekt, kmText, maskinRang, pagarDel, radMeta, radMetaUtanTyp, valdAvslutadTyp, type AvslutadTyp, type ListObjekt } from '@/lib/objektVal';
+import { aktivaTyper, arSkotningKvar, avTyp, avslutadMeta, avslutadeAvTyp, avslutadeTyper, effektivGrupp, fagelKm, fasOrdning, fasSteg, giltigAktivTyp, grupperaObjekt, kmText, maskinRang, radMeta, radMetaUtanTyp, valdAvslutadTyp, type AvslutadTyp, type ListObjekt } from '@/lib/objektVal';
 import { arTilldelad, objektTraffPunkt, type KlararTyp } from '@/lib/objektPlats';
 import { hamtaSkotningKvar } from '@/lib/skotningKvar';
 import { harKoordinat } from '@/lib/navigera';
@@ -270,14 +270,17 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   if (!oppen && utglidet) return null;
 
   const glidInne = oppen && inne;
-  const rad = (o: ListaObjekt, avslutadVy?: 'utanTyp' | 'medTyp', medFas = false) => {
-    // Fasen (timjobbet, objekt.fas) går före den gamla etiketten: den säger både skördat och skotat.
-    const fas = avslutadVy || !medFas ? null : fasText(o);   // bara under Här — annars står fasen i rubriken
-    const kvarEtikett = !fas && arSkotningKvar(o, skotKvar);
+  const rad = (o: ListaObjekt, avslutadVy?: 'utanTyp' | 'medTyp') => {
+    // Stegen Skörd och Skotning (objekt.fas, timjobbet) — raden säger själv hur långt trakten kommit.
+    // Avslutat men skotning kvar = skördat klart, skotningen orange.
+    const kvar = !avslutadVy && arSkotningKvar(o, skotKvar);
+    const steg = kvar
+      ? (fasSteg({ fas: 'vantar_skotare', typ: o.typ }) ?? []).map((x) => (x.id === 'skot' ? { ...x, text: 'Skotning kvar' } : x))
+      : fasSteg(o);
     // Oplanerad = ingen har tryckt Klar för maskin: orange "N kvar" (eller ärligt "Inte klarplanerad" när kortet aldrig öppnats). Syns, spärrar aldrig.
     const planEtikett = (o.status ?? '').trim().toLowerCase() === 'oplanerad' ? oplaneradRadText(o.klar_kvar_antal) : null;
     const egen = !!maskin && !avslutadVy && arTilldelad({ skordare_maskin_id: o.skordare_maskin_id, skotare_maskin_id: o.skotare_maskin_id }, maskinId);   // maskinläge: tilldelat den här maskinen
-    const meta = avslutadVy ? avslutadMeta(o, avslutadVy === 'medTyp') : aktivTypGiltig ? radMetaUtanTyp(o) : radMeta(o);
+    const meta = avslutadVy ? avslutadMeta(o, avslutadVy === 'medTyp') : steg ? null : aktivTypGiltig ? radMetaUtanTyp(o) : radMeta(o);   // med steg flyttar volymen in i trakten
     // Traktanalysen (servern, lib/traktAnalys): HÖGST en rad, bara när något finns — fossil åker, vattenskydd eller "Ej kontrollerad".
     const mark = avslutadVy ? null : listRad(lasTraktAnalys({ trakt_analys: o.trakt_analys }));
     const km = avstandKm(o);
@@ -292,7 +295,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         tabIndex={0}
         data-testid={`objekt-rad-${o.id}`}
         aria-current={aktuell ? 'true' : undefined}
-        aria-label={`${o.namn ?? 'Objekt'}${meta ? `, ${meta}` : ''}${egen ? ', den här maskinen' : ''}${fas ? `, ${fas.text}` : ''}${kvarEtikett ? ', skotning kvar' : ''}${planEtikett ? `, ${planEtikett}` : ''}${mark ? `, ${mark.text}` : ''}`}
+        aria-label={`${o.namn ?? 'Objekt'}${meta ? `, ${meta}` : ''}${egen ? ', den här maskinen' : ''}${steg ? `, ${steg.map((x) => (x.lage === 'klar' ? `${x.text} klart` : x.text)).join(', ')}` : ''}${planEtikett ? `, ${planEtikett}` : ''}${mark ? `, ${mark.text}` : ''}`}
         onClick={() => onValj(o)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onValj(o); } }}
         className="press-row"
@@ -301,7 +304,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
       >
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', ...TYP.listtitel, color: FARG.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn ?? 'Namnlöst objekt'}</span>
-          {(meta || fas || kvarEtikett || planEtikett || egen) && (
+          {(meta || planEtikett || egen) && (
             <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere', ...TNUM }}>   {/* radbryts hellre än klipper volymen */}
               {meta}
               {egen && (
@@ -310,24 +313,23 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
                   Den här maskinen
                 </span>
               )}
-              {fas && (
-                <span data-testid={`objekt-fas-${o.id}`}
-                  style={{ display: 'inline-block', marginLeft: meta ? AVSTAND.s : 0, padding: `0 ${AVSTAND.s}px`, borderRadius: RADIE.rad, background: FARG.fyllning, color: fas.vantar ? FARG.orange : FARG.text, fontWeight: VIKT.halvfet }}>
-                  {fas.text}
-                </span>
-              )}
-              {kvarEtikett && (
-                <span data-testid={`objekt-skotning-kvar-${o.id}`}
-                  style={{ display: 'inline-block', marginLeft: meta ? AVSTAND.s : 0, padding: `0 ${AVSTAND.s}px`, borderRadius: RADIE.rad, background: FARG.fyllning, color: FARG.orange, fontWeight: VIKT.halvfet }}>
-                  Skotning kvar
-                </span>
-              )}
               {planEtikett && (
                 <span data-testid={`objekt-oplanerad-${o.id}`}
                   style={{ display: 'inline-block', marginLeft: meta ? AVSTAND.s : 0, padding: `0 ${AVSTAND.s}px`, borderRadius: RADIE.rad, background: FARG.fyllning, color: FARG.orange, fontWeight: VIKT.halvfet }}>
                   {planEtikett}
                 </span>
               )}
+            </span>
+          )}
+          {steg && steg.length > 0 && (
+            <span data-testid={`objekt-steg-${o.id}`} aria-hidden="true"
+              style={{ display: 'flex', flexWrap: 'wrap', columnGap: AVSTAND.m, ...TYP.meta, fontWeight: VIKT.halvfet }}>
+              {steg.map((x) => (
+                <span key={x.id} data-testid={`objekt-steg-${o.id}-${x.id}`} data-lage={x.lage} data-kvar={kvar && x.id === 'skot' ? '1' : undefined}
+                  style={{ whiteSpace: 'nowrap', color: x.lage === 'klar' ? FARG.gron : x.lage === 'vantar' ? FARG.orange : x.lage === 'pagar' ? FARG.text : FARG.text2 }}>
+                  {x.lage === 'klar' ? '✓' : x.lage === 'pagar' ? '●' : '○'} {x.text}
+                </span>
+              ))}
             </span>
           )}
           {mark && (
@@ -437,11 +439,8 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
               : avslutadeVald.map((o) => rad(o, 'utanTyp'))
         ) : (
           <>
-            {grupper.har.length > 0 && <>{gruppRubrik('har', 'Här')}{grupper.har.map((o) => rad(o, undefined, true))}</>}
-            {PAGAR_DELAR.map((del) => {
-              const lista = grupper.pagar.filter((o) => pagarDel({ fas: o.fas }) === del.id);
-              return lista.length > 0 && <React.Fragment key={del.id}>{gruppRubrik(del.id, `${del.rubrik} (${lista.length})`, del.orange)}{lista.map((o) => rad(o))}</React.Fragment>;
-            })}
+            {grupper.har.length > 0 && <>{gruppRubrik('har', 'Här')}{grupper.har.map((o) => rad(o))}</>}
+            {grupper.pagar.length > 0 && <>{gruppRubrik('pagar', `Pågår (${grupper.pagar.length})`)}{[...grupper.pagar].sort((a, b) => fasOrdning({ fas: a.fas }) - fasOrdning({ fas: b.fas })).map((o) => rad(o))}</>}
             {grupper.planerade.length > 0 && <>{gruppRubrik('planerade', `Planerade (${grupper.planerade.length})`)}{grupper.planerade.map((o) => rad(o))}</>}
             {grupper.oplanerade.length > 0 && <>{gruppRubrik('oplanerade', `Oplanerade (${grupper.oplanerade.length})`)}{grupper.oplanerade.map((o) => rad(o))}</>}
             {aktivaAntal === 0 && (

@@ -282,3 +282,29 @@ export const PAGAR_DELAR: readonly { id: PagarDel; rubrik: string; orange: boole
 export function pagarDel(o: { fas?: unknown }): PagarDel {
   return o.fas === 'skordas' ? 'skordas' : o.fas === 'vantar_skotare' ? 'vantar' : o.fas === 'skotas' ? 'skotas' : 'pagar';
 }
+
+// ---- Stegen på raden: Skörd och Skotning (Martin 2026-11-06: "så att ett barn förstår direkt") ----------------------------------------
+// Varje rad säger själv hur långt trakten kommit: ● pågår, ✓ klart (grön), ○ inte börjat. Väntar på skotare är det enda orange.
+export type StegLage = 'pagar' | 'klar' | 'ej' | 'vantar';
+export type Steg = { id: 'skord' | 'skot'; lage: StegLage; text: string };
+
+/** Stegen för en trakt, eller null när fasen inte är känd. GROT och energiklippning skördas inte: bara skotningssteget. */
+export function fasSteg(o: { fas?: unknown; typ?: string | null; status?: string | null }): Steg[] | null {
+  const virke = /slutavverk|gallring/i.test(String(o.typ ?? ''));
+  const avslutat = /^(avslutat|klar)$/i.test(String(o.status ?? '').trim());
+  let skord: StegLage; let skot: StegLage;
+  if (avslutat) { skord = 'klar'; skot = 'klar'; }
+  else if (o.fas === 'skordas') { skord = 'pagar'; skot = 'ej'; }
+  else if (o.fas === 'vantar_skotare') { skord = 'klar'; skot = 'vantar'; }
+  else if (o.fas === 'skotas') { skord = 'klar'; skot = 'pagar'; }
+  else return null;
+  const skordText = skord === 'pagar' ? 'Skördas' : 'Skördat';
+  const skotText = skot === 'pagar' ? 'Skotas' : skot === 'klar' ? 'Skotat' : skot === 'vantar' ? 'Väntar på skotare' : 'Skotning';
+  const steg: Steg[] = [{ id: 'skot', lage: skot, text: skotText }];
+  return virke ? [{ id: 'skord', lage: skord, text: skordText }, ...steg] : steg;
+}
+
+/** Ordningen inom Pågår: skördas, väntar, skotas, sedan resten. */
+export function fasOrdning(o: { fas?: unknown }): number {
+  return ({ skordas: 0, vantar: 1, skotas: 2, pagar: 3 } as const)[pagarDel(o)];
+}
