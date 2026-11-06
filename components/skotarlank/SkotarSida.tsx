@@ -67,7 +67,9 @@ type Omrade = { hogar: number; kvar: number; skordat: number; grupper: { grupp: 
 type Panel = null | 'meny' | 'kvar' | 'om' | 'lager' | 'forklaring';
 const LAGRING_FORRA_LASS = 'skotarlank_forra_lass_v1';
 const LASS_MAX = 60;
-type Kvitto = { text: string; id: string } | { text: string; id: null };
+type Kvitto = { text: string; id: string | string[] } | { text: string; id: null };
+/** Sortimentgrupperna man kan bocka i "I området" (övrigt går bara med Allt är taget — tabellen har ingen grupp för det). */
+const VALBARA_GRUPPER = ['timmer', 'kubb', 'massa', 'energi'];
 const nyttId = () => (crypto as Crypto & { randomUUID?: () => string }).randomUUID?.() ?? 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/[x]/g, () => Math.floor(Math.random() * 16).toString(16));
 
 const tal = (n: number) => n.toLocaleString('sv-SE', { maximumFractionDigits: 1 });
@@ -135,6 +137,8 @@ export default function SkotarSida({ token }: { token: string }) {
   const [ritar, setRitar] = useState(false);
   const [ring, setRing] = useState<LngLat[]>([]);
   const [ringKlar, setRingKlar] = useState(false);
+  // Sortimenten han bockat i "I området" (tomt = allt).
+  const [valdaGrupper, setValdaGrupper] = useState<string[]>([]);
   const [omrade, setOmrade] = useState<{ typ: 'laddar' } | { typ: 'fel' } | { typ: 'ok'; svar: Omrade } | null>(null);
   const [sparar, setSparar] = useState(false);
   const [kvitto, setKvitto] = useState<Kvitto | null>(null);
@@ -200,9 +204,9 @@ export default function SkotarSida({ token }: { token: string }) {
 
   // --- Rita runt.
   const borjaRita = useCallback((forsta?: LngLat) => {
-    setKort(null); setPanel(null); setOmrade(null); setRingKlar(false); setRing(forsta ? [forsta] : []); setRitar(true);
+    setKort(null); setPanel(null); setOmrade(null); setValdaGrupper([]); setRingKlar(false); setRing(forsta ? [forsta] : []); setRitar(true);
   }, []);
-  const slutaRita = useCallback(() => { setRitar(false); setRing([]); setRingKlar(false); setOmrade(null); }, []);
+  const slutaRita = useCallback(() => { setRitar(false); setRing([]); setRingKlar(false); setOmrade(null); setValdaGrupper([]); }, []);
   const laggHorn = useCallback((p: LngLat, punkt: { x: number; y: number }) => {
     const map = kartaRef.current;
     setRing((r) => {
@@ -230,26 +234,41 @@ export default function SkotarSida({ token }: { token: string }) {
   }, [ringKlar, ring, token]);
 
   // --- Markera: en hög (punkt) eller hela ringen. Sparas på servern, sedan läses kartan om. Ångra i 5 s.
-  const markera = useCallback(async (typ: 'tagen' | 'kvar', plats: { punkt: LngLat } | { ring: LngLat[] }, text: string): Promise<boolean> => {
-    const id = nyttId();
+  // grupper = bara de sortimenten (en markering per sortiment), utelämnat = allt.
+  const markera = useCallback(async (typ: 'tagen' | 'kvar', plats: { punkt: LngLat } | { ring: LngLat[] }, text: string, grupper: (string | null)[] = [null]): Promise<boolean> => {
     setSparar(true); setSparFel(null);
+    const ids: string[] = [];
     try {
-      const r = await fetch(`/api/skotare/${token}/hog`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, typ, ...plats }) });
-      const j = await r.json().catch(() => null);
-      if (!r.ok || !j?.ok) { setSparFel(j?.fel || 'Kunde inte spara — försök igen'); return false; }
-      setKvitto({ text, id });
+      for (const grupp of grupper) {
+        const id = nyttId();
+        const r = await fetch(`/api/skotare/${token}/hog`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, typ, ...plats, ...(grupp ? { grupp } : {}) }) });
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j?.ok) {
+          // Allt eller inget: det som hann sparas tas bort igen.
+          for (const x of ids) await fetch(`/api/skotare/${token}/hog?id=${encodeURIComponent(x)}`, { method: 'DELETE' }).catch(() => undefined);
+          setSparFel(j?.fel || 'Kunde inte spara — försök igen'); return false;
+        }
+        ids.push(id);
+      }
+      setKvitto({ text, id: ids.length === 1 ? ids[0] : ids });
       void hamta(true);
       return true;
-    } catch { setSparFel('Kunde inte spara — kontrollera täckningen och försök igen'); return false; }
-    finally { setSparar(false); }
+    } catch {
+      for (const x of ids) await fetch(`/api/skotare/${token}/hog?id=${encodeURIComponent(x)}`, { method: 'DELETE' }).catch(() => undefined);
+      setSparFel('Kunde inte spara — kontrollera täckningen och försök igen'); return false;
+    } finally { setSparar(false); }
   }, [token, hamta]);
   const angra = useCallback(async () => {
     const k = kvitto;
     if (!k?.id) return;
     setKvitto(null);
     try {
-      const r = await fetch(`/api/skotare/${token}/hog?id=${encodeURIComponent(k.id)}`, { method: 'DELETE' });
-      setKvitto({ text: r.ok ? 'Ångrat' : 'Gick inte att ångra', id: null });
+      let ok = true;
+      for (const id of Array.isArray(k.id) ? k.id : [k.id]) {
+        const r = await fetch(`/api/skotare/${token}/hog?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (!r.ok) ok = false;
+      }
+      setKvitto({ text: ok ? 'Ångrat' : 'Gick inte att ångra', id: null });
     } catch { setKvitto({ text: 'Gick inte att ångra', id: null }); }
     void hamta(true);
   }, [kvitto, token, hamta]);
@@ -565,11 +584,17 @@ export default function SkotarSida({ token }: { token: string }) {
       {/* Svaret för det ritade området. */}
       {ritar && ringKlar && (
         <Ark rubrik="I området" stang="Klar" onStang={slutaRita}
-          fot={omrade?.typ === 'ok' && omrade.svar.kvar > 0 ? (
-            <button type="button" disabled={sparar} data-skotar-allt-taget=""
-              onClick={() => void markera('tagen', { ring }, 'Området markerat taget').then((ok) => { if (ok) slutaRita(); })}
-              style={{ ...KNAPP.primar, minHeight: KNAPP_PX, opacity: sparar ? 0.5 : 1 }}>{sparar ? 'Sparar …' : 'Allt är taget'}</button>
-          ) : undefined}>
+          fot={omrade?.typ === 'ok' && omrade.svar.kvar > 0 ? (() => {
+            // Inget ibockat = allt i området. Ibockat = bara de sortimenten, ett i taget till servern.
+            const valda = omrade.svar.grupper.filter((g) => valdaGrupper.includes(g.grupp));
+            const namn = valda.map((g) => g.namn);
+            const text = valda.length === 0 ? 'Allt är taget' : `${namn.length > 1 ? `${namn.slice(0, -1).join(', ')} och ${namn[namn.length - 1]}` : namn[0]} är taget`;
+            return (
+              <button type="button" disabled={sparar} data-skotar-allt-taget=""
+                onClick={() => void markera('tagen', { ring }, valda.length === 0 ? 'Området markerat taget' : text, valda.length === 0 ? [null] : valda.map((g) => g.grupp)).then((ok) => { if (ok) slutaRita(); })}
+                style={{ ...KNAPP.primar, minHeight: KNAPP_PX, opacity: sparar ? 0.5 : 1 }}>{sparar ? 'Sparar …' : text}</button>
+            );
+          })() : undefined}>
           <div data-skotar-omrade="">
             {(!omrade || omrade.typ === 'laddar') && <p style={{ ...TYP.text, color: FARG.text2, margin: 0 }}>Räknar …</p>}
             {omrade?.typ === 'fel' && <p style={{ ...TYP.text, color: FARG.orange, margin: 0 }}>Kunde inte räkna just nu. Försök igen.</p>}
@@ -579,11 +604,22 @@ export default function SkotarSida({ token }: { token: string }) {
                   <span style={{ ...TYP.tal }}>{tal(omrade.svar.kvar)}</span><span style={{ ...TYP.text }}>m³fub ligger kvar</span>
                 </div>
                 <div style={{ marginTop: AVSTAND.m }}>
-                  {omrade.svar.grupper.map((g, i) => (
-                    <div key={g.grupp} style={{ display: 'flex', alignItems: 'center', minHeight: TRAFFYTA.primar, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}`, ...TYP.text, ...TNUM }}>
-                      <span style={{ flex: 1 }}>{g.namn}</span><span>{tal(g.m3)} m³fub</span>
-                    </div>
-                  ))}
+                  {omrade.svar.grupper.map((g, i) => {
+                    const valbar = VALBARA_GRUPPER.includes(g.grupp);
+                    const vald = valdaGrupper.includes(g.grupp);
+                    const rad = { display: 'flex', alignItems: 'center', gap: AVSTAND.m, width: '100%', minHeight: TRAFFYTA.primar, padding: 0, background: 'none', border: 'none', borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}`, color: FARG.text, textAlign: 'left' as const, ...TYP.text, ...TNUM };
+                    const innehall = (
+                      <>
+                        <span aria-hidden style={{ width: 24, height: 24, flexShrink: 0, borderRadius: '50%', border: valbar ? `2px solid ${vald ? FARG.text : FARG.text3}` : 'none', background: vald ? FARG.text : 'transparent', color: FARG.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta }}>{vald ? '✓' : ''}</span>
+                        <span style={{ flex: 1 }}>{g.namn}</span><span>{tal(g.m3)} m³fub</span>
+                      </>
+                    );
+                    return valbar ? (
+                      <button key={g.grupp} type="button" role="checkbox" aria-checked={vald} data-skotar-grupp={g.grupp}
+                        onClick={() => setValdaGrupper((v) => (v.includes(g.grupp) ? v.filter((x) => x !== g.grupp) : [...v, g.grupp]))} style={{ ...rad, cursor: 'pointer' }}>{innehall}</button>
+                    ) : <div key={g.grupp} style={rad}>{innehall}</div>;
+                  })}
+                  <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Bocka i det du har tagit. Inget ibockat = allt.</p>
                 </div>
                 <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
                   {omrade.svar.hogar === 0 ? 'Inga högar inne i området.' : `${omrade.svar.hogar} ${omrade.svar.hogar === 1 ? 'hög' : 'högar'} · skördat ${tal(omrade.svar.skordat)} m³fub`}

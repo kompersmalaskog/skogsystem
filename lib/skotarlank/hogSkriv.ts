@@ -84,12 +84,18 @@ export async function skotarOmradeSvar(sb: Sb, token: string, body: unknown): Pr
   return { status: 200, body: { ok: true, ...skotarOmrade(d.stammar, d.uttag, d.lass, d.mark, ring) } };
 }
 
-// ---- POST /api/skotare/<token>/hog  { id, typ: 'tagen'|'kvar', punkt?: [lng, lat], ring?: [[lng, lat], …] } -------------------------------
+// ---- POST /api/skotare/<token>/hog  { id, typ: 'tagen'|'kvar', punkt?: [lng, lat], ring?: [[lng, lat], …], grupp?: timmer|kubb|massa|energi } -
+// grupp = bara det sortimentet (som förarnas "Bara timmer"), utelämnat/null = allt.
+
+/** Sortimentgrupperna en markering kan gälla (samma som tabellens CHECK). Övrigt går bara att ta med "Allt är taget". */
+export const HOG_MARK_GRUPPER = ['timmer', 'kubb', 'massa', 'energi'] as const;
 
 export async function skotarHogMarkera(sb: Sb, token: string, body: unknown, nu = Date.now()): Promise<Svar> {
-  const b = (body ?? {}) as { id?: unknown; typ?: unknown; punkt?: unknown; ring?: unknown };
+  const b = (body ?? {}) as { id?: unknown; typ?: unknown; punkt?: unknown; ring?: unknown; grupp?: unknown };
   if (typeof b.id !== 'string' || !UUID.test(b.id)) return FEL(400, 'Ogiltigt id');
   if (b.typ !== 'tagen' && b.typ !== 'kvar') return FEL(400, 'Ogiltig typ');
+  if (b.grupp != null && !(HOG_MARK_GRUPPER as readonly unknown[]).includes(b.grupp)) return FEL(400, 'Okänt sortiment');
+  const grupp = (b.grupp ?? null) as (typeof HOG_MARK_GRUPPER)[number] | null;
   let geometri: { type: 'Point'; coordinates: [number, number] } | { type: 'Polygon'; coordinates: [number, number][][] };
   let punkter: [number, number][];
   if (b.ring !== undefined) {
@@ -114,7 +120,7 @@ export async function skotarHogMarkera(sb: Sb, token: string, body: unknown, nu 
   if ((c.count ?? 0) >= HOG_MAX_PER_TIMME) return FEL(429, 'För många markeringar just nu — försök igen om en stund');
 
   const ins = await sb.from('skotar_hog_markering').insert({
-    id: b.id, objekt_id: u.objekt.id, typ: b.typ, geometri, bredd_m: STRECK_BREDD_M, grupp: null, maskin_id: null, skapad_av: null,
+    id: b.id, objekt_id: u.objekt.id, typ: b.typ, geometri, bredd_m: STRECK_BREDD_M, grupp, maskin_id: null, skapad_av: null,
   });
   // Samma id igen (ett omförsök) = redan sparad.
   if (ins.error && (ins.error as { code?: string }).code !== '23505') return FEL(503, 'Kunde inte spara just nu');

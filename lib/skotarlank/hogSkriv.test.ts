@@ -88,6 +88,18 @@ describe('markera en hög', () => {
     expect(sb._skrivet[0].rad.geometri.type).toBe('Polygon');
     expect((await skotarHogMarkera(fake(bas()), TOKEN, { id: ID, typ: 'kvar', ring })).status).toBe(400);
   });
+  it('ett sortiment i taget: grupp sparas, utan grupp = allt, okänt sortiment avvisas', async () => {
+    const ring = [[15.0, 56.6], [15.0002, 56.6], [15.0002, 56.6002]];
+    const sb = fake(bas());
+    expect((await skotarHogMarkera(sb, TOKEN, { id: ID, typ: 'tagen', ring, grupp: 'timmer' })).status).toBe(200);
+    expect(sb._skrivet[0].rad.grupp).toBe('timmer');
+    const sb2 = fake(bas());
+    expect((await skotarHogMarkera(sb2, TOKEN, { id: ID, typ: 'tagen', ring })).status).toBe(200);
+    expect(sb2._skrivet[0].rad.grupp).toBeNull();
+    const sb3 = fake(bas());
+    expect((await skotarHogMarkera(sb3, TOKEN, { id: ID, typ: 'tagen', ring, grupp: 'ovrigt' })).status).toBe(400);
+    expect(sb3._skrivet).toHaveLength(0);
+  });
   it('utanför trakten, okänd länk eller trasig indata sparas aldrig', async () => {
     const sb = fake(bas());
     expect((await skotarHogMarkera(sb, TOKEN, { id: ID, typ: 'tagen', punkt: [16.0, 57.0] })).status).toBe(422);
