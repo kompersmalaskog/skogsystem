@@ -4,9 +4,12 @@
 // Byggd för maskindatorn: Chrome på Windows, stor pekskärm, helskärm, installerbar som app.
 //
 // KARTAN SKA VARA REN (Martin 2026-11-06): bara kartan och EN knapp, + nere till höger (som i maskinerna). Inga volymer på kartan —
-// de kommer när man vill: + › Kvar på trakten, Rita runt (tryck ut hörnen runt högarna → vad som ligger kvar där, "Allt är taget"),
-// eller ett tryck på en hög (volymen + Tagen / Ligger kvar). Håll fingret på kartan = Rita runt börjar där. Markeringarna sparas i samma
-// tabell som våra förares, så de syns i planeringen och i våra skotare. Datan läses om var 5:e minut och efter varje markering.
+// de kommer när man vill: + › Kvar på trakten, Rita runt (tryck ut hörnen runt högarna → vad som ligger kvar där, bocka i det han tagit),
+// eller ett tryck på en hög (volymen + Tagen). Håll fingret på kartan = Rita runt börjar där.
+//
+// ETT SÄTT ATT RAPPORTERA (Martin 2026-11-06: "måste veta hur mycket det ligger på varje avlägg", och inget som kan bli dubbelt):
+// "Tagen" frågar vart det gick (bara när trakten har fler än ett avlägg) och servern skriver markeringen OCH volymen på avlägget i samma steg.
+// Det finns inget lasskort. Markeringarna sparas i samma tabell som våra förares, så de syns i planeringen och i våra skotare.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
@@ -28,7 +31,6 @@ import type { HogSortiment, SkotarHog } from '@/lib/skotarlank/hogar';
 import type { Avlagg } from '@/lib/skotarlank/avlagg';
 import { ritaRuta, RUTA_BILD, RUTA_STRACK } from '@/lib/skotarLass/avlaggKarta';
 import { laggTillTeckenBilder } from '@/lib/kommentarTecken';
-import { SiffraKnapp, SifferPlatta, StegKnapp } from '@/components/planering/skotar/StegKnapp';
 import { hallSkarmenVakenIWebblasare } from '@/lib/skarmVaken';
 import { useRitadSkotare } from '@/lib/skotarlank/useRitadSkotare';
 
@@ -38,8 +40,6 @@ type Vy = Omit<Data, 'avlagg'> & {
   mitt: { lat: number; lng: number } | null;
   hogar: { hogar: SkotarHog[]; kvar: HogSortiment[]; kvarM3: number; skordatM3: number } | null;
   avlagg: Avlagg[] | null;
-  /** m³ per sortiment han markerat taget sedan sitt senaste lass (servern räknar). */
-  lastForslag?: Record<string, number> | null;
   sortiment: { namn: string; visning: string }[];
   origoText: string | null;
   kommentarer: Record<string, string[]>;
@@ -67,9 +67,12 @@ const RING_KALLA = 'sk-ring';
 
 type Omrade = { hogar: number; kvar: number; skordat: number; grupper: { grupp: string; namn: string; m3: number }[] };
 type Panel = null | 'meny' | 'kvar' | 'om' | 'lager' | 'forklaring';
-const LAGRING_FORRA_LASS = 'skotarlank_forra_lass_v1';
-const LASS_MAX = 60;
-type Kvitto = { text: string; id: string | string[] } | { text: string; id: null };
+/** Avlägget han senast körde till — står först när han väljer vart det gick. */
+const LAGRING_SENASTE_AVLAGG = 'skotarlank_senaste_avlagg_v1';
+/** Kvittot efter en sparning; `lass` = Ångra tar bort lasset (och markeringen det skapades av). */
+type Kvitto = { text: string; lass?: string };
+/** Det han markerat taget och ännu inte sagt vart det gick. */
+type Taget = { plats: { punkt: LngLat } | { ring: LngLat[] }; grupper: (string | null)[]; text: string; klar?: () => void };
 /** Sortimentgrupperna man kan bocka i "I området" (övrigt går bara med Allt är taget — tabellen har ingen grupp för det). */
 const VALBARA_GRUPPER = ['timmer', 'kubb', 'massa', 'energi'];
 const nyttId = () => (crypto as Crypto & { randomUUID?: () => string }).randomUUID?.() ?? 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/[x]/g, () => Math.floor(Math.random() * 16).toString(16));
@@ -147,8 +150,7 @@ export default function SkotarSida({ token }: { token: string }) {
   const [sparFel, setSparFel] = useState<string | null>(null);
   // Avläggen: valt avlägg (kortet), lasskortet och läget "placera nytt avlägg".
   const [avlaggRef, setAvlaggRef] = useState<string | null>(null);
-  const [lassKvitto, setLassKvitto] = useState<string | null>(null);
-  const [lassFor, setLassFor] = useState<string | null>(null);
+  const [vart, setVart] = useState<Taget | null>(null);
   const [placerar, setPlacerar] = useState(false);
   const placerarRef = useRef(false);
   placerarRef.current = placerar;
@@ -235,45 +237,42 @@ export default function SkotarSida({ token }: { token: string }) {
     return () => { aktuell = false; };
   }, [ringKlar, ring, token]);
 
-  // --- Markera: en hög (punkt) eller hela ringen. Sparas på servern, sedan läses kartan om. Ångra i 5 s.
-  // grupper = bara de sortimenten (en markering per sortiment), utelämnat = allt.
-  const markera = useCallback(async (typ: 'tagen' | 'kvar', plats: { punkt: LngLat } | { ring: LngLat[] }, text: string, grupper: (string | null)[] = [null]): Promise<boolean> => {
+  // --- Taget: det han tagit (en hög eller ringen, ett sortiment per markering — eller allt) + vart det gick. Servern räknar volymen ur högarna
+  // och skriver markeringarna och lasset på avlägget i ett steg. Ångra i 5 s = lasset och markeringarna tas bort.
+  const skickaTaget = useCallback(async (t: Taget, avlagg: Avlagg): Promise<void> => {
     setSparar(true); setSparFel(null);
-    const ids: string[] = [];
+    const lass = nyttId();
+    const markeringar = t.grupper.map((grupp) => ({ id: nyttId(), ...t.plats, ...(grupp ? { grupp } : {}) }));
     try {
-      for (const grupp of grupper) {
-        const id = nyttId();
-        const r = await fetch(`/api/skotare/${token}/hog`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, typ, ...plats, ...(grupp ? { grupp } : {}) }) });
-        const j = await r.json().catch(() => null);
-        if (!r.ok || !j?.ok) {
-          // Allt eller inget: det som hann sparas tas bort igen.
-          for (const x of ids) await fetch(`/api/skotare/${token}/hog?id=${encodeURIComponent(x)}`, { method: 'DELETE' }).catch(() => undefined);
-          setSparFel(j?.fel || 'Kunde inte spara — försök igen'); return false;
-        }
-        ids.push(id);
-      }
-      setKvitto({ text, id: ids.length === 1 ? ids[0] : ids });
+      const r = await fetch(`/api/skotare/${token}/taget`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lass, avlagg: avlagg.ref, markeringar }) });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.ok) { setSparFel(j?.fel || 'Kunde inte spara — försök igen'); return; }
+      spara(`${LAGRING_SENASTE_AVLAGG}:${token}`, avlagg.ref);
+      setVart(null);
+      setKvitto({ text: `${tal(Number(j.m3) || 0)} m³ till ${avlagg.nr ? `avlägg ${avlagg.nr}` : 'avlägget'}`, lass });
+      t.klar?.();
       void hamta(true);
-      return true;
-    } catch {
-      for (const x of ids) await fetch(`/api/skotare/${token}/hog?id=${encodeURIComponent(x)}`, { method: 'DELETE' }).catch(() => undefined);
-      setSparFel('Kunde inte spara — kontrollera täckningen och försök igen'); return false;
-    } finally { setSparar(false); }
+    } catch { setSparFel('Kunde inte spara — kontrollera täckningen och försök igen'); }
+    finally { setSparar(false); }
   }, [token, hamta]);
-  const angra = useCallback(async () => {
-    const k = kvitto;
-    if (!k?.id) return;
+  /** "Tagen": ett enda avlägg = dit direkt; fler = frågan vart det gick; inget = sätt ut ett först. */
+  const taget = useCallback((t: Taget) => {
+    const lista = vyRef.current?.avlagg;
+    setSparFel(null);
+    if (!lista) { setSparFel('Avläggen gick inte att läsa just nu — försök igen'); return; }
+    if (lista.length === 0) { setSparFel('Sätt ut ett avlägg först: + › Nytt avlägg'); return; }
+    if (lista.length === 1) { void skickaTaget(t, lista[0]); return; }
+    setVart(t);
+  }, [skickaTaget]);
+  const taBortLass = useCallback(async (id: string, angrat = false) => {
     setKvitto(null);
     try {
-      let ok = true;
-      for (const id of Array.isArray(k.id) ? k.id : [k.id]) {
-        const r = await fetch(`/api/skotare/${token}/hog?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-        if (!r.ok) ok = false;
-      }
-      setKvitto({ text: ok ? 'Ångrat' : 'Gick inte att ångra', id: null });
-    } catch { setKvitto({ text: 'Gick inte att ångra', id: null }); }
+      const r = await fetch(`/api/skotare/${token}/lass?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const j = await r.json().catch(() => null);
+      setKvitto({ text: r.ok ? (angrat ? 'Ångrat' : 'Borttaget') : (j?.fel || 'Gick inte att ta bort') });
+    } catch { setKvitto({ text: 'Gick inte att ta bort' }); }
     void hamta(true);
-  }, [kvitto, token, hamta]);
+  }, [token, hamta]);
   useEffect(() => {
     if (!kvitto) return;
     const t = setTimeout(() => setKvitto(null), ANGRA_MS);
@@ -282,56 +281,29 @@ export default function SkotarSida({ token }: { token: string }) {
 
   // --- Nytt avlägg: ett tryck på kartan i placeringsläget. Servern ger numret; sedan öppnas avläggskortet.
   const nyttAvlagg = useCallback(async (punkt: LngLat) => {
-    setPlacerar(false); setSparFel(null); setLassKvitto(null);
+    setPlacerar(false); setSparFel(null);
     const id = nyttId();
     try {
       const r = await fetch(`/api/skotare/${token}/avlagg`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, punkt }) });
       const j = await r.json().catch(() => null);
-      if (!r.ok || !j?.ok) { setKvitto({ text: j?.fel || 'Kunde inte spara avlägget', id: null }); return; }
+      if (!r.ok || !j?.ok) { setKvitto({ text: j?.fel || 'Kunde inte spara avlägget' }); return; }
       await hamta(true);
       setAvlaggRef(String(j.ref));
-    } catch { setKvitto({ text: 'Kunde inte spara avlägget — kontrollera täckningen', id: null }); }
+    } catch { setKvitto({ text: 'Kunde inte spara avlägget — kontrollera täckningen' }); }
   }, [token, hamta]);
   const nyttAvlaggRef = useRef(nyttAvlagg);
   nyttAvlaggRef.current = nyttAvlagg;
 
-  // --- Lass: sparas på servern mot avlägget. Ångra i 5 s = lasset stryks.
-  const sparaLass = useCallback(async (avlagg: string, sortiment: Record<string, number>, nr: string): Promise<boolean> => {
-    const id = nyttId();
-    setSparar(true); setSparFel(null);
-    try {
-      const r = await fetch(`/api/skotare/${token}/lass`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, avlagg, sortiment }) });
-      const j = await r.json().catch(() => null);
-      if (!r.ok || !j?.ok) { setSparFel(j?.fel || 'Kunde inte spara lasset — försök igen'); return false; }
-      spara(`${LAGRING_FORRA_LASS}:${token}`, sortiment);
-      const m3 = Object.values(sortiment).reduce((a, b) => a + b, 0);
-      setLassKvitto(id);
-      setKvitto({ text: `Lass till avlägg ${nr} · ${tal(m3)} m³`, id: null });
-      void hamta(true);
-      return true;
-    } catch { setSparFel('Kunde inte spara lasset — kontrollera täckningen och försök igen'); return false; }
-    finally { setSparar(false); }
-  }, [token, hamta]);
-  const taBortLass = useCallback(async (id: string) => {
-    try {
-      const r = await fetch(`/api/skotare/${token}/lass?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-      setKvitto({ text: r.ok ? 'Lasset borttaget' : 'Gick inte att ta bort lasset', id: null });
-    } catch { setKvitto({ text: 'Gick inte att ta bort lasset', id: null }); }
-    setLassKvitto(null);
-    void hamta(true);
-  }, [token, hamta]);
   const taBortAvlagg = useCallback(async (ref: string) => {
-    setLassKvitto(null);
     const id = ref.replace(/^egen:/, '');
     try {
       const r = await fetch(`/api/skotare/${token}/avlagg?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
       const j = await r.json().catch(() => null);
-      setKvitto({ text: r.ok ? 'Avlägget borttaget' : (j?.fel || 'Gick inte att ta bort avlägget'), id: null });
+      setKvitto({ text: r.ok ? 'Avlägget borttaget' : (j?.fel || 'Gick inte att ta bort avlägget') });
       if (r.ok) setAvlaggRef(null);
-    } catch { setKvitto({ text: 'Gick inte att ta bort avlägget', id: null }); }
+    } catch { setKvitto({ text: 'Gick inte att ta bort avlägget' }); }
     void hamta(true);
   }, [token, hamta]);
-  useEffect(() => { if (!kvitto) setLassKvitto(null); }, [kvitto]);
 
   // --- Kartan skapas en gång (när datan finns första gången).
   const harData = lage.typ === 'ok';
@@ -527,7 +499,6 @@ export default function SkotarSida({ token }: { token: string }) {
   const kvar = v.hogar;
   const stangPanel = () => setPanel(null);
   const valtAvlagg = avlaggRef ? v.avlagg?.find((a) => a.ref === avlaggRef) ?? null : null;
-  const lassAvlagg = lassFor ? v.avlagg?.find((a) => a.ref === lassFor) ?? null : null;
   const visningAv = (namn: string) => v.sortiment.find((x) => x.namn === namn)?.visning ?? namn;
   // Planerarens eller Vidas text om avlägget (bara läsning).
   const avlaggInfo: TryckKort | null = (() => {
@@ -578,13 +549,12 @@ export default function SkotarSida({ token }: { token: string }) {
       {kvitto && (
         <div role="status" data-skotar-kvitto="" style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', bottom: AVSTAND.xxl + KNAPP_PX + AVSTAND.l, display: 'flex', alignItems: 'center', gap: AVSTAND.l, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, minHeight: KNAPP_PX, borderRadius: RADIE.sheet, background: 'rgba(28,28,30,0.95)', boxShadow: '0 2px 10px rgba(0,0,0,0.5)', ...TYP.text, whiteSpace: 'nowrap' }}>
           {kvitto.text}
-          {kvitto.id && <button type="button" onClick={() => void angra()} style={{ ...KNAPP.lank, minHeight: TRAFFYTA.min }}>Ångra</button>}
-          {!kvitto.id && lassKvitto && <button type="button" onClick={() => void taBortLass(lassKvitto)} style={{ ...KNAPP.lank, minHeight: TRAFFYTA.min }}>Ångra</button>}
+          {kvitto.lass && <button type="button" data-skotar-angra="" onClick={() => void taBortLass(kvitto.lass!, true)} style={{ ...KNAPP.lank, minHeight: TRAFFYTA.min }}>Ångra</button>}
         </div>
       )}
 
       {/* Svaret för det ritade området. */}
-      {ritar && ringKlar && (
+      {ritar && ringKlar && !vart && (
         <Ark rubrik="I området" stang="Klar" onStang={slutaRita}
           fot={omrade?.typ === 'ok' && omrade.svar.kvar > 0 ? (() => {
             // Inget ibockat = allt i området. Ibockat = bara de sortimenten, ett i taget till servern.
@@ -593,7 +563,7 @@ export default function SkotarSida({ token }: { token: string }) {
             const text = valda.length === 0 ? 'Allt är taget' : `${namn.length > 1 ? `${namn.slice(0, -1).join(', ')} och ${namn[namn.length - 1]}` : namn[0]} är taget`;
             return (
               <button type="button" disabled={sparar} data-skotar-allt-taget=""
-                onClick={() => void markera('tagen', { ring }, valda.length === 0 ? 'Området markerat taget' : text, valda.length === 0 ? [null] : valda.map((g) => g.grupp)).then((ok) => { if (ok) slutaRita(); })}
+                onClick={() => taget({ plats: { ring }, grupper: valda.length === 0 ? [null] : valda.map((g) => g.grupp), text, klar: slutaRita })}
                 style={{ ...KNAPP.primar, minHeight: KNAPP_PX, opacity: sparar ? 0.5 : 1 }}>{sparar ? 'Sparar …' : text}</button>
             );
           })() : undefined}>
@@ -634,26 +604,24 @@ export default function SkotarSida({ token }: { token: string }) {
         </Ark>
       )}
 
-      {kort && (
+      {kort && !vart && (
         <KortArk kort={kort} token={token} sparar={sparar} fel={sparFel} onStang={() => { setKort(null); setSparFel(null); }}
-          onMarkera={(typ) => {
+          onTagen={() => {
             if (kort.typ !== 'hog') return;
-            void markera(typ, { punkt: [kort.hog.lng, kort.hog.lat] }, typ === 'tagen' ? 'Högen markerad tagen' : 'Högen markerad som kvar').then((ok) => { if (ok) setKort(null); });
+            taget({ plats: { punkt: [kort.hog.lng, kort.hog.lat] }, grupper: [null], text: 'Högen är tagen', klar: () => setKort(null) });
           }} />
       )}
 
-      {valtAvlagg && !lassFor && (
-        <AvlaggArk avlagg={valtAvlagg} visning={visningAv} info={avlaggInfo} sparFel={sparFel}
-          onStang={() => { setAvlaggRef(null); setSparFel(null); }}
-          onLossa={() => { setSparFel(null); setLassFor(valtAvlagg.ref); }}
-          onTaBortLass={(id) => void taBortLass(id)}
-          onTaBortAvlagg={valtAvlagg.kalla === 'egen' && valtAvlagg.lass === 0 ? () => void taBortAvlagg(valtAvlagg.ref) : undefined} />
+      {vart && v.avlagg && (
+        <VartArk taget={vart} avlagg={v.avlagg} senaste={las<string>(`${LAGRING_SENASTE_AVLAGG}:${token}`, '')} sparar={sparar} fel={sparFel}
+          onVal={(a) => void skickaTaget(vart, a)} onStang={() => { setVart(null); setSparFel(null); }} />
       )}
 
-      {lassAvlagg && (
-        <LassArk avlagg={lassAvlagg} sortiment={v.sortiment} markerat={v.lastForslag ?? null} forra={las<Record<string, number>>(`${LAGRING_FORRA_LASS}:${token}`, {})} sparar={sparar} fel={sparFel}
-          onAvbryt={() => { setLassFor(null); setSparFel(null); }}
-          onKlar={(s) => void sparaLass(lassAvlagg.ref, s, lassAvlagg.nr).then((ok) => { if (ok) { setLassFor(null); setAvlaggRef(null); } })} />
+      {valtAvlagg && (
+        <AvlaggArk avlagg={valtAvlagg} visning={visningAv} info={avlaggInfo} sparFel={sparFel}
+          onStang={() => { setAvlaggRef(null); setSparFel(null); }}
+          onTaBortLass={(id) => void taBortLass(id)}
+          onTaBortAvlagg={valtAvlagg.kalla === 'egen' && valtAvlagg.lass === 0 ? () => void taBortAvlagg(valtAvlagg.ref) : undefined} />
       )}
 
       {panel === 'meny' && (
@@ -738,17 +706,14 @@ function Textruta({ kalla, text }: { kalla: string; text: string }) {
   );
 }
 
-/** Arket för ett tryck: en markering/Vida-objekt (bara läsning), eller en hög (volymen + Tagen / Ligger kvar). */
-function KortArk({ kort, token, sparar, fel, onStang, onMarkera }: { kort: TryckKort; token: string; sparar: boolean; fel: string | null; onStang: () => void; onMarkera: (typ: 'tagen' | 'kvar') => void }) {
+/** Arket för ett tryck: en markering/Vida-objekt (bara läsning), eller en hög (volymen + Tagen). */
+function KortArk({ kort, token, sparar, fel, onStang, onTagen }: { kort: TryckKort; token: string; sparar: boolean; fel: string | null; onStang: () => void; onTagen: () => void }) {
   if (kort.typ === 'hog') {
     const h = kort.hog;
     return (
       <Ark rubrik="Högen" stang="Klar" onStang={onStang}
         fot={(
-          <div style={{ display: 'flex', gap: AVSTAND.m }}>
-            <button type="button" disabled={sparar} onClick={() => onMarkera('kvar')} data-skotar-hog-kvar="" style={{ ...KNAPP.sekundar, flex: 1, minHeight: KNAPP_PX, opacity: sparar ? 0.5 : 1 }}>Ligger kvar</button>
-            <button type="button" disabled={sparar} onClick={() => onMarkera('tagen')} data-skotar-hog-tagen="" style={{ ...KNAPP.primar, flex: 1, width: 'auto', minHeight: KNAPP_PX, opacity: sparar ? 0.5 : 1 }}>{sparar ? 'Sparar …' : 'Tagen'}</button>
-          </div>
+          <button type="button" disabled={sparar} onClick={onTagen} data-skotar-hog-tagen="" style={{ ...KNAPP.primar, minHeight: KNAPP_PX, opacity: sparar ? 0.5 : 1 }}>{sparar ? 'Sparar …' : 'Tagen'}</button>
         )}>
         <div data-skotar-hog="">
           <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s }}>
@@ -821,29 +786,28 @@ const tid = (iso: string) => {
   return idag ? kl : `${d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm', day: 'numeric', month: 'short' })} ${kl}`;
 };
 
-/** Avläggskortet: vad som lossats där (per sortiment), de senaste lassen och Lossa här. */
-function AvlaggArk({ avlagg, visning, info, sparFel, onStang, onLossa, onTaBortLass, onTaBortAvlagg }: {
+/** Avläggskortet: vad som körts dit (per sortiment) och det senaste. Det som körs dit kommer från "Tagen" — här finns inget att fylla i. */
+function AvlaggArk({ avlagg, visning, info, sparFel, onStang, onTaBortLass, onTaBortAvlagg }: {
   avlagg: Avlagg; visning: (namn: string) => string; info: TryckKort | null; sparFel: string | null;
-  onStang: () => void; onLossa: () => void; onTaBortLass: (id: string) => void; onTaBortAvlagg?: () => void;
+  onStang: () => void; onTaBortLass: (id: string) => void; onTaBortAvlagg?: () => void;
 }) {
   const [fraga, setFraga] = useState<string | null>(null);
   return (
-    <Ark rubrik={avlagg.nr ? `Avlägg ${avlagg.nr}` : 'Avlägg'} stang="Klar" onStang={onStang}
-      fot={<button type="button" onClick={onLossa} data-skotar-lossa="" style={{ ...KNAPP.primar, minHeight: KNAPP_PX }}>Lossa här</button>}>
+    <Ark rubrik={avlagg.nr ? `Avlägg ${avlagg.nr}` : 'Avlägg'} stang="Klar" onStang={onStang}>
       <div data-skotar-avlagg="">
         <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s }}>
           <span style={{ ...TYP.tal }}>{tal(avlagg.m3)}</span>
-          <span style={{ ...TYP.text }}>m³fub · {avlagg.lass} {avlagg.lass === 1 ? 'lass' : 'lass'}</span>
+          <span style={{ ...TYP.text }}>m³fub hit</span>
         </div>
         {avlagg.sortiment.length > 0 && (
           <div style={{ marginTop: AVSTAND.m }}>
             {avlagg.sortiment.map((t, i) => <SortimentRad key={t.namn} namn={visning(t.namn)} m3={t.m3} forsta={i === 0} />)}
           </div>
         )}
-        {avlagg.lass === 0 && <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Inget lossat här än.</p>}
+        {avlagg.lass === 0 && <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Inget kört hit än. Markera det du tagit på kartan (Tagen) så hamnar det här.</p>}
         {avlagg.senaste.length > 0 && (
           <>
-            <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.l }}>Senaste lassen</div>
+            <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.l }}>Senast</div>
             {avlagg.senaste.map((l, i) => (
               <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.primar, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}`, ...TYP.text, ...TNUM }}>
                 <span style={{ flex: 1 }}>{tid(l.tid)} · {tal(l.m3)} m³</span>
@@ -868,61 +832,28 @@ function AvlaggArk({ avlagg, visning, info, sparFel, onStang, onLossa, onTaBortL
   );
 }
 
-/**
- * Lasskortet: m³ per sortiment med − / + (ett steg per tryck) och sifferknappsatsen. Förifyllt med det han markerat taget sedan sitt förra lass
- * (`markerat`, servern räknar ur högarna) — har han inte markerat något, som förra lasset.
- */
-export function lassForifyllning(sortiment: readonly { namn: string }[], markerat: Record<string, number> | null, forra: Record<string, number>): { varden: Record<string, number>; kalla: 'markerat' | 'forra' | 'tomt' } {
-  const ut = (k: Record<string, number>) => { const v: Record<string, number> = {}; for (const s of sortiment) if (k[s.namn] > 0) v[s.namn] = Math.round(k[s.namn]); return v; };
-  const m = markerat ? ut(markerat) : {};
-  if (Object.keys(m).length > 0) return { varden: m, kalla: 'markerat' };
-  const f = ut(forra);
-  return { varden: f, kalla: Object.keys(f).length > 0 ? 'forra' : 'tomt' };
+/** Vart körde du det? En rad per avlägg — det han senast körde till först, sedan i nummerordning. Ett tryck sparar. */
+export function ordnaAvlagg(avlagg: readonly Avlagg[], senaste: string): Avlagg[] {
+  const nr = (a: Avlagg) => (/^\d+$/.test(a.nr) ? Number(a.nr) : Infinity);
+  return [...avlagg].sort((a, b) => Number(b.ref === senaste) - Number(a.ref === senaste) || nr(a) - nr(b) || a.nr.localeCompare(b.nr, 'sv'));
 }
 
-function LassArk({ avlagg, sortiment, markerat, forra, sparar, fel, onAvbryt, onKlar }: {
-  avlagg: Avlagg; sortiment: { namn: string; visning: string }[]; markerat: Record<string, number> | null; forra: Record<string, number>; sparar: boolean; fel: string | null;
-  onAvbryt: () => void; onKlar: (s: Record<string, number>) => void;
+function VartArk({ taget, avlagg, senaste, sparar, fel, onVal, onStang }: {
+  taget: Taget; avlagg: readonly Avlagg[]; senaste: string; sparar: boolean; fel: string | null; onVal: (a: Avlagg) => void; onStang: () => void;
 }) {
-  const [start] = useState(() => lassForifyllning(sortiment, markerat, forra));
-  const [varden, setVarden] = useState<Record<string, number>>(start.varden);
-  const [skriver, setSkriver] = useState<string | null>(null);
-  const summa = Object.values(varden).reduce((a, b) => a + b, 0);
-  const satt = (namn: string, n: number) => setVarden((v) => ({ ...v, [namn]: Math.max(0, Math.min(LASS_MAX, Math.round(n))) }));
-  // De som har ett värde först (så förra lassets sortiment ligger överst), sedan resten i traktens ordning.
-  const ordnade = [...sortiment].sort((a, b) => Number((varden[b.namn] ?? 0) > 0) - Number((varden[a.namn] ?? 0) > 0));
-  const utan0 = Object.fromEntries(Object.entries(varden).filter(([, v]) => v > 0));
-  const forStort = summa > LASS_MAX;
+  const lista = ordnaAvlagg(avlagg, senaste);
   return (
-    <Ark rubrik={`Lass till avlägg ${avlagg.nr}`} onStang={onAvbryt}
-      fot={(
-        <button type="button" disabled={sparar || summa <= 0 || forStort} onClick={() => onKlar(utan0)} data-skotar-lass-klar=""
-          style={{ ...KNAPP.primar, minHeight: KNAPP_PX, opacity: sparar || summa <= 0 || forStort ? 0.5 : 1 }}>
-          {sparar ? 'Sparar …' : summa > 0 ? `Klar · ${summa} m³` : 'Klar'}
-        </button>
-      )}>
-      <div data-skotar-lass="">
-        {start.kalla !== 'tomt' && (
-          <p data-skotar-lass-kalla={start.kalla} style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.meta, color: FARG.text2 }}>
-            {start.kalla === 'markerat' ? 'Ifyllt med det du markerat taget sedan förra lasset. Stämmer det inte, ändra innan du trycker Klar.' : 'Ifyllt som förra lasset.'}
-          </p>
-        )}
-        {sortiment.length === 0 && <p style={{ margin: 0, ...TYP.text, color: FARG.text2 }}>Inga sortiment från skördaren på trakten än.</p>}
-        {ordnade.map((s, i) => (
-          <div key={s.namn} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: 64, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
-            <span style={{ flex: 1, minWidth: 0, ...TYP.text, overflowWrap: 'anywhere' }}>{s.visning}</span>
-            <StegKnapp tecken="−" etikett={`Minska ${s.visning}`} testid={`lass-minus-${i}`} onSteg={() => satt(s.namn, (varden[s.namn] ?? 0) - 1)} />
-            <SiffraKnapp varde={varden[s.namn] ?? 0} etikett={s.visning} testid={`lass-siffra-${i}`} onOppna={() => setSkriver(s.namn)} />
-            <StegKnapp tecken="+" etikett={`Öka ${s.visning}`} testid={`lass-plus-${i}`} onSteg={() => satt(s.namn, (varden[s.namn] ?? 0) + 1)} />
-          </div>
+    <Ark rubrik="Vart körde du det?" onStang={onStang}>
+      <div data-skotar-vart="">
+        <p style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.meta, color: FARG.text2 }}>{taget.text}</p>
+        {lista.map((a, i) => (
+          <Rad key={a.ref} titel={a.nr ? `Avlägg ${a.nr}` : 'Avlägg'} under={a.ref === senaste ? 'Senast' : undefined} hoger={a.m3 > 0 ? `${tal(a.m3)} m³fub` : undefined}
+            onTryck={() => { if (!sparar) onVal(a); }} sista={i === lista.length - 1} attr={{ 'data-skotar-vart-avlagg': a.ref }} />
         ))}
-        {forStort && <p role="alert" style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.orange }}>Ett lass kan vara högst {LASS_MAX} m³.</p>}
+        {sparar && <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Sparar …</p>}
         {fel && <p role="alert" style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.orange }}>{fel}</p>}
+        <p style={{ margin: `${AVSTAND.l}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Saknas avlägget? Stäng och välj + › Nytt avlägg.</p>
       </div>
-      {skriver && (
-        <SifferPlatta namn={sortiment.find((x) => x.namn === skriver)?.visning ?? skriver} varde={varden[skriver] ?? 0}
-          onKlar={(n) => { if (n != null) satt(skriver, n); setSkriver(null); }} onAvbryt={() => setSkriver(null)} />
-      )}
     </Ark>
   );
 }

@@ -4,7 +4,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { cachadSkotarVy, glomSkotarVy, lankFelSvar, slaUppSkotarLank, type Svar } from './server';
-import { LASS_MAX_M3, nastaNummer, rensaSortiment, type EgetAvlaggRad } from './avlagg';
+import { nastaNummer, type EgetAvlaggRad } from './avlagg';
 
 type Sb = SupabaseClient;
 const FEL = (status: number, fel: string): Svar => ({ status, body: { ok: false, fel } });
@@ -15,7 +15,6 @@ const arPunkt = (p: unknown): p is [number, number] =>
 /** Ett avlägg får ligga så här långt (m) från traktgränsen, stammarna eller objektets punkt — avlägget ligger ofta vid vägen utanför trakten. */
 export const AVLAGG_MARGINAL_M = 1500;
 /** Högst så många lass per objekt och timme från länken. */
-export const LASS_MAX_PER_TIMME = 60;
 export const AVLAGG_MAX_PER_TIMME = 20;
 
 /** Ligger punkten inom marginalen från något av referenspunkterna (ruta runt dem)? */
@@ -75,42 +74,22 @@ export async function skotarAvlaggTaBort(sb: Sb, token: string, id: string | nul
   return { status: 200, body: { ok: true } };
 }
 
-// ---- POST /api/skotare/<token>/lass  { id, avlagg: '<ref>', sortiment: { '<namn>': m3 } } -------------------------------------------------
-
-export async function skotarLassNytt(sb: Sb, token: string, body: unknown, nu = Date.now()): Promise<Svar> {
-  const b = (body ?? {}) as { id?: unknown; avlagg?: unknown; sortiment?: unknown };
-  if (typeof b.id !== 'string' || !UUID.test(b.id)) return FEL(400, 'Ogiltigt id');
-  if (typeof b.avlagg !== 'string' || b.avlagg.length > 90) return FEL(400, 'Avlägget går inte att läsa');
-  const sortiment = rensaSortiment(b.sortiment);
-  const summa = Object.values(sortiment).reduce((a, x) => a + x, 0);
-  if (Object.keys(sortiment).length === 0) return FEL(400, 'Lasset är tomt');
-  if (summa > LASS_MAX_M3) return FEL(400, `Ett lass kan vara högst ${LASS_MAX_M3} m³`);
-  const u = await slaUppSkotarLank(sb, token);
-  if (!u.ok) return lankFelSvar(u);
-  glomSkotarVy(u.objekt.id);   // färsk läsning: en annan serverinstans kan just ha skrivit
-  const vy = await cachadSkotarVy(sb, u.objekt, nu);
-  if (!vy.avlagg) return FEL(503, 'Kunde inte spara just nu');
-  if (!vy.avlagg.some((a) => a.ref === b.avlagg)) return FEL(422, 'Avlägget finns inte på trakten');
-  const tillatna = new Set(vy.sortiment.map((x) => x.namn));
-  if (Object.keys(sortiment).some((k) => !tillatna.has(k))) return FEL(422, 'Sortimentet finns inte på trakten');
-  const antal = await inomTimme(sb, 'skotar_lank_lass', u.objekt.id, nu);
-  if (antal == null) return FEL(503, 'Kunde inte spara just nu');
-  if (antal >= LASS_MAX_PER_TIMME) return FEL(429, 'För många lass just nu — försök igen om en stund');
-  const ins = await sb.from('skotar_lank_lass').insert({ id: b.id, objekt_id: u.objekt.id, avlagg: b.avlagg, sortiment });
-  if (ins.error && (ins.error as { code?: string }).code !== '23505') return FEL(503, 'Kunde inte spara just nu');
-  glomSkotarVy(u.objekt.id);
-  return { status: 200, body: { ok: true } };
-}
-
-// ---- DELETE /api/skotare/<token>/lass?id= — strykes (raden finns kvar) ---------------------------------------------------------------------
+// ---- DELETE /api/skotare/<token>/lass?id= — strykes (raden finns kvar) och markeringarna det skapades av tas bort ---------------------------------------------------------------------
 
 export async function skotarLassTaBort(sb: Sb, token: string, id: string | null): Promise<Svar> {
   if (!id || !UUID.test(id)) return FEL(400, 'Ogiltigt id');
   const u = await slaUppSkotarLank(sb, token);
   if (!u.ok) return lankFelSvar(u);
-  const r = await sb.from('skotar_lank_lass').update({ struken: true }).eq('id', id).eq('objekt_id', u.objekt.id).select('id');
+  const r = await sb.from('skotar_lank_lass').update({ struken: true }).eq('id', id).eq('objekt_id', u.objekt.id).select('id, markeringar');
   if (r.error) return FEL(503, 'Kunde inte ta bort just nu');
-  if (!(r.data as unknown[] | null)?.length) return FEL(404, 'Lasset finns inte');
+  const rad = ((r.data ?? []) as { markeringar?: string[] | null }[])[0];
+  if (!rad) return FEL(404, 'Lasset finns inte');
+  // Markeringarna lasset skapades av försvinner också: högarna kommer tillbaka på kartan. Bara länkens egna (ingen person).
+  const mark = (rad.markeringar ?? []).filter((x) => UUID.test(x));
+  if (mark.length) {
+    const del = await sb.from('skotar_hog_markering').delete().in('id', mark).eq('objekt_id', u.objekt.id).is('skapad_av', null);
+    if (del.error) { glomSkotarVy(u.objekt.id); return FEL(503, 'Lasset är borttaget, men högarna kunde inte läggas tillbaka — försök igen'); }
+  }
   glomSkotarVy(u.objekt.id);
   return { status: 200, body: { ok: true } };
 }

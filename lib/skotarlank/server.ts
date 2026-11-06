@@ -22,7 +22,7 @@ import { lasMarkeringRad, type HogMarkering } from '@/lib/skotarHogarKvar';
 import { besokNamn } from '@/lib/besok/namn';
 import { MARKERING_FOTO_BUCKET } from '@/lib/markeringFotoSokvag';
 import { arGiltigtSkotarToken } from './offentlig';
-import { pagaendeLass, skotarHogar, type HogarSvar, type Stam } from './hogar';
+import { skotarHogar, type HogarSvar, type Stam } from './hogar';
 import { byggAvlagg, lassSortiment, type Avlagg, type EgetAvlaggRad, type LassRad } from './avlagg';
 import { sattSortimentKlass, sortimentVisning } from '@/lib/skotarLass/sortiment';
 
@@ -138,8 +138,6 @@ export type SkotarVy = {
   omTrakten: { direktiv: string | null; kommentarer: string[] };
   /** Avläggen (hans egna, planerarens, Vidas) med det han rapporterat dit. null = lassen eller avläggen gick inte att läsa. */
   avlagg: Avlagg[] | null;
-  /** m³ per sortiment som han markerat taget sedan sitt senaste lass (förslaget till lasskortet). Tomt = inget markerat, null = gick inte att räkna. */
-  lastForslag: Record<string, number> | null;
   /** Sortimenten att välja i lasskortet (skördarens på trakten, störst först), med namnet i klartext. */
   sortiment: { namn: string; visning: string }[];
   /** Det som inte gick att läsa, i ord. */
@@ -231,7 +229,7 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
     sb.from('kartkommentar').select('yta_nyckel, text, skapad_at').eq('objekt_id', o.id),
     sb.from('skotning_uttag').select('tradslag, volym, polygon_coords').eq('objekt_id', o.id),
     hamtaAlla<unknown>(() => sb.from('skotar_lass').select(LASS_SELECT).eq('objekt_id', o.id) as never, 'id'),
-    sb.from('skotar_hog_markering').select('id, typ, geometri, bredd_m, grupp, skapad_at, skapad_av').eq('objekt_id', o.id).order('skapad_at'),
+    sb.from('skotar_hog_markering').select('id, typ, geometri, bredd_m, grupp, skapad_at').eq('objekt_id', o.id).order('skapad_at'),
     sb.from('skotar_lank_avlagg').select('id, nummer, lat, lng, borttagen').eq('objekt_id', o.id),
     sb.from('skotar_lank_lass').select('id, avlagg, sortiment, struken, skapad_at').eq('objekt_id', o.id),
     lasSortimentKlassServer(sb),
@@ -304,7 +302,6 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
   // Produktionshögarna. Går stammarna inte att läsa finns inga högar; går uttag, lass eller markeringar inte att läsa sägs det (högarna visas då som skördade).
   let hogar: HogarSvar | null = null;
   let sortimentNamn: string[] = [];
-  let lastForslag: Record<string, number> | null = null;
   if (stamSvar.error) fel.push('produktionshögarna');
   else {
     const tsNamn = new Map(((tsSvar.data ?? []) as { tradslag_id: string; namn: string }[]).map((r) => [String(r.tradslag_id), r.namn]));
@@ -313,15 +310,7 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
       .map((s) => ({ lat: s.latitude, lng: s.longitude, volym: Number(s.total_volym) || 0, tradslag: tsNamn.get(String(s.tradslag_id)) ?? '', sortiment: s.sortiment }));
     sortimentNamn = lassSortiment(stammar);
     const lass: Lass[] = lassSvar.error ? [] : (lassSvar.data as unknown[]).map(lassFranServer).filter((l): l is Lass => !!l);
-    const markRader = hogMarkSvar.error ? [] : ((hogMarkSvar.data ?? []) as Record<string, unknown>[]).map((r) => ({ r, m: lasMarkeringRad(r) })).filter((x): x is { r: Record<string, unknown>; m: HogMarkering } => !!x.m);
-    const hogMark: HogMarkering[] = markRader.map((x) => x.m);
-    // Det han markerat taget via länken (ingen person) sedan sitt senaste lass = förslaget till nästa lass.
-    if (!lankLassSvar.error && !uttagSvar.error && !lassSvar.error) {
-      const senaste = ((lankLassSvar.data ?? []) as LassRad[]).filter((l) => !l.struken).reduce((m, l) => (String(l.skapad_at) > m ? String(l.skapad_at) : m), '');
-      const sedanMs = senaste ? Date.parse(senaste) : -Infinity;
-      const hans = markRader.filter((x) => x.r.skapad_av == null && (Date.parse(String(x.r.skapad_at)) || 0) > sedanMs).map((x) => x.m);
-      try { lastForslag = pagaendeLass(stammar, (uttagSvar.data ?? []) as never, lass, hogMark, hans); } catch { lastForslag = null; }
-    }
+    const hogMark: HogMarkering[] = hogMarkSvar.error ? [] : ((hogMarkSvar.data ?? []) as Record<string, unknown>[]).map(lasMarkeringRad).filter((m): m is HogMarkering => !!m);
     if (uttagSvar.error || lassSvar.error) fel.push('det som redan skotats');
     try {
       hogar = stammar.length ? skotarHogar(stammar, (uttagSvar.error ? [] : uttagSvar.data ?? []) as never, lass, hogMark, sortimentVisning) : null;
@@ -345,7 +334,7 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
     namn: besokNamn(o.namn, o.vo_nummer, o.fastighetsbeteckning),
     omTrakten: { direktiv, kommentarer: traktKommentarer },
     mitt: o.lat != null && o.lng != null ? { lat: o.lat, lng: o.lng } : null,
-    avlagg, lastForslag, sortiment: sortimentNamn.map((namn) => ({ namn, visning: sortimentVisning(namn) || namn })),
+    avlagg, sortiment: sortimentNamn.map((namn) => ({ namn, visning: sortimentVisning(namn) || namn })),
     gran, spar, hogar, origo, origoText, markeringar, kommentarer, vida: vidaRen, fel,
   };
 }

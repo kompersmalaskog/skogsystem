@@ -83,10 +83,9 @@ export function skotarHogar(stammar: readonly Stam[], uttag: readonly UttagRad[]
 }
 
 /**
- * DET HAN HAR PÅ LASSET (Martin 2026-11-06: "har han markerat av ett område då vet ju redan maskinen vad han har på lasset"):
- * m³ per sortiment som HANS markeringar sedan förra lasset tog ur högarna = det som ligger kvar utan dem minus det som ligger kvar med dem.
- * Samma högar och samma uträkning som kartan. Ett sortiment utan virke (eller som han lade tillbaka med "Ligger kvar") finns inte med.
- * Bara ett FÖRSLAG till lasskortet: han bekräftar alltid.
+ * DET HANS MARKERING TOG (Martin 2026-11-06: "har han markerat av ett område då vet ju redan maskinen vad han har på lasset"):
+ * m³ per sortiment som markeringarna i `hans` tog ur högarna = det som ligger kvar utan dem minus det som ligger kvar med dem.
+ * Samma högar och samma uträkning som kartan, en decimal. Det är volymen som skrivs på avlägget han väljer (`skotarTaget`).
  */
 export function pagaendeLass(stammar: readonly Stam[], uttag: readonly UttagRad[], lass: readonly Lass[], alla: readonly HogMarkering[], hans: readonly HogMarkering[]): Record<string, number> {
   if (hans.length === 0 || stammar.length === 0) return {};
@@ -103,5 +102,5 @@ export function pagaendeLass(stammar: readonly Stam[], uttag: readonly UttagRad[
       if (d > 0 && namn !== OKANT_SORT) per.set(namn, (per.get(namn) ?? 0) + d);
     }
   });
-  return Object.fromEntries([...per].map(([n, v]) => [n, Math.round(v)] as const).filter(([, v]) => v > 0));
+  return Object.fromEntries([...per].map(([n, v]) => [n, Math.round(v * 10) / 10] as const).filter(([, v]) => v > 0));
 }

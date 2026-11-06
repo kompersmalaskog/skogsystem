@@ -1,9 +1,8 @@
-// Skotarlänken: rita runt och markera högar. Servern bestämmer objektet och tiden, markeringen måste ligga på trakten,
-// ingen person sparas, och Ångra tar bara bort en markering gjord via länken nyss — aldrig våra förares.
+// Skotarlänken: rita runt och kartans lager. Tagen (markering + lass) provas i avlagg.test.ts.
 import { describe, expect, it, beforeEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { lasRing, paTrakten, skotarHogAngra, skotarHogMarkera, skotarOmradeSvar, HOG_MARGINAL_M } from './hogSkriv';
+import { lasRing, paTrakten, skotarOmradeSvar, HOG_MARGINAL_M } from './hogSkriv';
 import { rensaSkotarCache } from './server';
 import { arOffentligSkotarSokvag } from './offentlig';
 import { markeringDel, STANDARD_LAGER } from './karta';
@@ -73,64 +72,6 @@ describe('ringen och trakten', () => {
   });
 });
 
-describe('markera en hög', () => {
-  it('sparas på länkens objekt utan person, med punkten', async () => {
-    const t = bas(); const sb = fake(t);
-    const s = await skotarHogMarkera(sb, TOKEN, { id: ID, typ: 'tagen', punkt: [15.0, 56.6], objekt_id: 'annat', skapad_av: 'någon' });
-    expect(s.status).toBe(200);
-    const rad = sb._skrivet.find((w: any) => w.typ === 'insert').rad;
-    expect(rad).toMatchObject({ id: ID, objekt_id: OBJ, typ: 'tagen', skapad_av: null, maskin_id: null, geometri: { type: 'Point', coordinates: [15.0, 56.6] } });
-  });
-  it('en ring sparas som yta, bara som tagen', async () => {
-    const ring = [[15.0, 56.6], [15.0002, 56.6], [15.0002, 56.6002]];
-    const sb = fake(bas());
-    expect((await skotarHogMarkera(sb, TOKEN, { id: ID, typ: 'tagen', ring })).status).toBe(200);
-    expect(sb._skrivet[0].rad.geometri.type).toBe('Polygon');
-    expect((await skotarHogMarkera(fake(bas()), TOKEN, { id: ID, typ: 'kvar', ring })).status).toBe(400);
-  });
-  it('ett sortiment i taget: grupp sparas, utan grupp = allt, okänt sortiment avvisas', async () => {
-    const ring = [[15.0, 56.6], [15.0002, 56.6], [15.0002, 56.6002]];
-    const sb = fake(bas());
-    expect((await skotarHogMarkera(sb, TOKEN, { id: ID, typ: 'tagen', ring, grupp: 'timmer' })).status).toBe(200);
-    expect(sb._skrivet[0].rad.grupp).toBe('timmer');
-    const sb2 = fake(bas());
-    expect((await skotarHogMarkera(sb2, TOKEN, { id: ID, typ: 'tagen', ring })).status).toBe(200);
-    expect(sb2._skrivet[0].rad.grupp).toBeNull();
-    const sb3 = fake(bas());
-    expect((await skotarHogMarkera(sb3, TOKEN, { id: ID, typ: 'tagen', ring, grupp: 'ovrigt' })).status).toBe(400);
-    expect(sb3._skrivet).toHaveLength(0);
-  });
-  it('utanför trakten, okänd länk eller trasig indata sparas aldrig', async () => {
-    const sb = fake(bas());
-    expect((await skotarHogMarkera(sb, TOKEN, { id: ID, typ: 'tagen', punkt: [16.0, 57.0] })).status).toBe(422);
-    expect((await skotarHogMarkera(sb, 'c'.repeat(64), { id: ID, typ: 'tagen', punkt: [15.0, 56.6] })).status).toBe(404);
-    expect((await skotarHogMarkera(sb, TOKEN, { id: 'inte-uuid', typ: 'tagen', punkt: [15.0, 56.6] })).status).toBe(400);
-    expect((await skotarHogMarkera(sb, TOKEN, { id: ID, typ: 'radera', punkt: [15.0, 56.6] })).status).toBe(400);
-    expect(sb._skrivet).toHaveLength(0);
-  });
-  it('avstängd länk sparar inget', async () => {
-    const t = bas(); t.objekt_skotar_lank[0].aktiv = false;
-    const sb = fake(t);
-    expect((await skotarHogMarkera(sb, TOKEN, { id: ID, typ: 'tagen', punkt: [15.0, 56.6] })).status).toBe(410);
-    expect(sb._skrivet).toHaveLength(0);
-  });
-});
-
-describe('ångra', () => {
-  it('tar bort länkens egen markering', async () => {
-    const t = bas(); const sb = fake(t);
-    await skotarHogMarkera(sb, TOKEN, { id: ID, typ: 'tagen', punkt: [15.0, 56.6] });
-    expect((await skotarHogAngra(sb, TOKEN, ID)).status).toBe(200);
-    expect(t.skotar_hog_markering.map((r) => r.id)).toEqual(['egen-1']);
-  });
-  it('rör aldrig våra förares markeringar', async () => {
-    const t = bas(); const sb = fake(t);
-    t.skotar_hog_markering[0].id = ID;
-    expect((await skotarHogAngra(sb, TOKEN, ID)).status).toBe(404);
-    expect(t.skotar_hog_markering).toHaveLength(1);
-  });
-});
-
 describe('rita runt', () => {
   it('räknar det som ligger kvar i ringen', async () => {
     const s = await skotarOmradeSvar(fake(bas()), TOKEN, { ring: [[14.999, 56.599], [15.001, 56.599], [15.001, 56.601], [14.999, 56.601]] });
@@ -163,9 +104,10 @@ describe('ren karta', () => {
     // Kvar-volymen finns bara i panelen "Kvar på trakten".
     expect(sida.indexOf('data-skotar-kvar=""')).toBeGreaterThan(sida.indexOf("panel === 'kvar'"));
   });
-  it('rutterna för rita runt och högar är öppna med token', () => {
+  it('rutterna för rita runt och Tagen är öppna med token; den gamla markera-rutten finns inte', () => {
     expect(arOffentligSkotarSokvag(`/api/skotare/${TOKEN}/omrade`)).toBe(true);
-    expect(arOffentligSkotarSokvag(`/api/skotare/${TOKEN}/hog`)).toBe(true);
+    expect(arOffentligSkotarSokvag(`/api/skotare/${TOKEN}/taget`)).toBe(true);
+    expect(arOffentligSkotarSokvag(`/api/skotare/${TOKEN}/hog`)).toBe(false);
     expect(arOffentligSkotarSokvag(`/api/skotare/${TOKEN}/annat`)).toBe(false);
   });
 });

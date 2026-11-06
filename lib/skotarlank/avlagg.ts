@@ -26,8 +26,9 @@ export type Avlagg = {
 export type EgetAvlaggRad = { id: string; nummer: number; lat: number; lng: number; borttagen?: boolean };
 export type LassRad = { id: string; avlagg: string; sortiment: unknown; struken?: boolean; skapad_at: string };
 
-/** Ett lass sortiment: bara positiva tal under taket, nycklar som text. Tomt = inget giltigt. */
-export const LASS_MAX_M3 = 60;
+/** Ett lass sortiment: bara positiva tal under taket, nycklar som text. Tomt = inget giltigt. Ett lass är det en markering tog — ett
+ * ritat område kan vara flera vändor, så taket är bara ett skydd mot en trasig rad. */
+export const LASS_MAX_M3 = 1000;
 export function rensaSortiment(v: unknown): Record<string, number> {
   const ut: Record<string, number> = {};
   if (!v || typeof v !== 'object' || Array.isArray(v)) return ut;
@@ -98,7 +99,7 @@ export function nastaNummer(avlagg: readonly Pick<Avlagg, 'nr'>[], egna: readonl
   return max + 1;
 }
 
-/** Sortimenten att välja i lasskortet: skördarens på trakten, störst först. */
+/** Traktens sortiment: skördarens, störst först. */
 export function lassSortiment(stammar: readonly { volym: number; sortiment: string | null }[]): string[] {
   const m = new Map<string, number>();
   for (const s of stammar) if (s.sortiment && s.sortiment.trim()) m.set(s.sortiment, (m.get(s.sortiment) ?? 0) + (s.volym || 0));
