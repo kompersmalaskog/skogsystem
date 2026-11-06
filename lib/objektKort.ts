@@ -76,7 +76,14 @@ export function extraBrickor(o: { barighet?: string | null; terrang?: string | n
 
 // ── Till föraren ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export interface TillForarenPost { id: string; avsandare: string; text: string }
+export interface TillForarenPost {
+  id: string; avsandare: string; text: string;
+  /** Bara Vidas text: delar planeraren strukit (lib/vidaStruket) — visas med streck, aldrig borttagna. */
+  struket?: readonly import('./vidaStruket').Struken[];
+  /** Bara Vidas text och bara planeraren: stryk/ta tillbaka en del. */
+  onVaxla?: (del: string) => void;
+  strykFel?: string | null;
+}
 
 export const AVSANDARE_VIDA = 'Vida';
 export const AVSANDARE_PLANERARE = 'Planerare';
@@ -85,11 +92,12 @@ export const AVSANDARE_PLANERARE = 'Planerare';
  * Vidas direktiv och planerarens egen text, var och en med vem som skrivit. Förardirektivet (planerarens korta körinstruktion) först, sedan Vida,
  * sedan planerarens "Att tänka på". Tomma texter utelämnas. Ingen författare lagras per text i databasen — planerarens text signeras med rollen.
  */
-export function tillForaren(o: { forardirektiv?: string | null; vida?: string | null; anteckningar?: string | null }): TillForarenPost[] {
+export function tillForaren(o: { forardirektiv?: string | null; vida?: string | null; anteckningar?: string | null;
+  vidaStruket?: readonly import('./vidaStruket').Struken[]; onVaxla?: (del: string) => void; strykFel?: string | null }): TillForarenPost[] {
   const rensa = (s: string | null | undefined) => String(s ?? '').trim();
   const ut: TillForarenPost[] = [];
   if (rensa(o.forardirektiv)) ut.push({ id: 'forardirektiv', avsandare: AVSANDARE_PLANERARE, text: rensa(o.forardirektiv) });
-  if (rensa(o.vida)) ut.push({ id: 'vida', avsandare: AVSANDARE_VIDA, text: rensa(o.vida) });
+  if (rensa(o.vida)) ut.push({ id: 'vida', avsandare: AVSANDARE_VIDA, text: rensa(o.vida), ...(o.vidaStruket?.length ? { struket: o.vidaStruket } : {}), ...(o.onVaxla ? { onVaxla: o.onVaxla } : {}), ...(o.strykFel ? { strykFel: o.strykFel } : {}) });
   if (rensa(o.anteckningar)) ut.push({ id: 'anteckningar', avsandare: AVSANDARE_PLANERARE, text: rensa(o.anteckningar) });
   return ut;
 }

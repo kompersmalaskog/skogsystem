@@ -122,7 +122,7 @@ export default function ObjektKort(p: ObjektKortProps) {
               const vida = t.id === 'vida';
               return (
                 <div key={t.id} data-testid={`kort-post-${t.id}`}>
-                  <KommentarVisning vida={vida} etikett={t.avsandare} text={t.text} meningar={vida} />
+                  <KommentarVisning vida={vida} etikett={t.avsandare} text={t.text} meningar={vida} struket={t.struket} onVaxla={t.onVaxla} strykFel={t.strykFel} />
                   {vida && p.direktivSett && !p.direktivSett.sedd && (
                     <div style={{ marginTop: AVSTAND.s }}><SettKnapp testid="kort-direktiv-sett" onSett={p.direktivSett.onSett} /></div>
                   )}

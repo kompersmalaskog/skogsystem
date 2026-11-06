@@ -28,8 +28,10 @@ describe('panelens bredd', () => {
 
 describe('Vidas direktiv är instruktion nr 1', () => {
   it('sidan matar instruktionshooken med direktivet (objekt.anteckningar) — samma text som "Till föraren"', () => {
-    expect(sida).toMatch(/useInstruktioner\(\{[\s\S]*?direktiv: vidaDirektiv,/);
-    expect(sida).toContain("const forareTexter = tillForaren({ vida });");
+    // Hytten får det som GÄLLER (det planeraren strukit är borta — lib/vidaStruket); korten får hela texten med streck.
+    expect(sida).toMatch(/useInstruktioner\(\{[\s\S]*?direktiv: vidaGiltig,/);
+    expect(sida).toContain('const vidaGiltig = useMemo(() => giltigVidaText(vidaDirektiv, vidaStruket ?? []), [vidaDirektiv, vidaStruket]);');
+    expect(sida).toContain("const forareTexter = tillForaren({ vida, vidaStruket: vidaStruket ?? [],");
   });
   it('kortet får "✓ Sett" för direktivet bara i maskinläget (instruktioner kommer bara då)', () => {
     expect(sida).toContain('instruktioner: instruktionerAktiv ? { data: inst.paTrakten, onSett: inst.settOmraden } : null,');

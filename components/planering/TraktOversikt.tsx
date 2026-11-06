@@ -245,7 +245,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
                 return (
                   <div key={t.id} data-testid={`oversikt-post-${t.id}`}>
                     {p.nyaTexter.has(t.id) && <div style={{ marginBottom: AVSTAND.xs }}><Nytt /></div>}
-                    <KommentarVisning vida={vida} etikett={vida ? undefined : `Hela trakten · ${t.avsandare}`} vidaEtikett="Vida" text={t.text} meningar={vida} />
+                    <KommentarVisning vida={vida} etikett={vida ? undefined : `Hela trakten · ${t.avsandare}`} vidaEtikett="Vida" text={t.text} meningar={vida} struket={t.struket} onVaxla={t.onVaxla} strykFel={t.strykFel} />
                   </div>
                 );
               })}
