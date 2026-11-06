@@ -4,6 +4,7 @@
 // Selektorerna har inga citattecken (React escapar dem i <style>).
 import React, { useState } from 'react';
 import { FARG, TYP, AVSTAND, RADIE, KNAPP } from '@/lib/design/tokens';
+import Sektion from '@/components/design/Sektion';
 import type { TrakterGrupper, TraktRad } from './trakterLista';
 
 export const TRAKTER_SIDOKOLUMN_FRAN_PX = 1100;
@@ -17,7 +18,7 @@ const CSS = `
 }
 `;
 
-function Grupp({ rubrik, rader, valt, onValj, hopfalld }: { rubrik: string; rader: TraktRad[]; valt: string | null; onValj: (id: string) => void; hopfalld?: boolean }) {
+function TraktGrupp({ rubrik, rader, valt, onValj, hopfalld }: { rubrik: string; rader: TraktRad[]; valt: string | null; onValj: (id: string) => void; hopfalld?: boolean }) {
   const [oppen, setOppen] = useState(!hopfalld);
   if (!rader.length) return null;
   if (!oppen) {
@@ -29,13 +30,12 @@ function Grupp({ rubrik, rader, valt, onValj, hopfalld }: { rubrik: string; rade
     );
   }
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-      <h3 style={{ ...TYP.micro, color: FARG.text2, margin: 0 }}>{rubrik} · {rader.length}</h3>
-      <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
+    <Sektion rubrik={`${rubrik} · ${rader.length}`}>
+      <div style={{ overflow: 'hidden' }}>
         {rader.map((r, i) => (
           <button key={r.id} type="button" data-trakt-rad="" onClick={() => onValj(r.id)} aria-current={r.id === valt ? 'true' : undefined}
             style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', gap: AVSTAND.s, minHeight: 48, padding: AVSTAND.m, border: 'none', borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}`, background: r.id === valt ? FARG.upphojt : 'none', color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+            <span style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, minWidth: 0 }}>
               <span style={{ ...TYP.listtitel, overflowWrap: 'anywhere' }}>{r.namn}</span>
               {r.under && <span style={{ ...TYP.meta, color: r.underOrange ? FARG.orange : FARG.text2 }}>{r.under}</span>}
               {/* Vad traktanalysen hittat — orange, samma signal som ringen på kartan. */}
@@ -45,7 +45,7 @@ function Grupp({ rubrik, rader, valt, onValj, hopfalld }: { rubrik: string; rade
           </button>
         ))}
       </div>
-    </section>
+    </Sektion>
   );
 }
 
@@ -60,9 +60,9 @@ export function TrakterPanel({ grupper, valt, onValj, onStang }: { grupper: Trak
           <div style={{ ...TYP.meta, color: FARG.text2 }}>{grupper.antal === 1 ? '1 trakt som inte är avslutad' : `${grupper.antal} trakter som inte är avslutade`}</div>
         </div>
         {grupper.antal === 0 && <div style={{ ...TYP.text, color: FARG.text2 }}>Inga trakter just nu.</div>}
-        <Grupp rubrik="Pågår" rader={grupper.pagar} valt={valt} onValj={onValj} />
-        <Grupp rubrik="Planerade" rader={grupper.planerade} valt={valt} onValj={onValj} />
-        <Grupp rubrik="Oplanerade" rader={grupper.oplanerade} valt={valt} onValj={onValj} hopfalld />
+        <TraktGrupp rubrik="Pågår" rader={grupper.pagar} valt={valt} onValj={onValj} />
+        <TraktGrupp rubrik="Planerade" rader={grupper.planerade} valt={valt} onValj={onValj} />
+        <TraktGrupp rubrik="Oplanerade" rader={grupper.oplanerade} valt={valt} onValj={onValj} hopfalld />
       </div>
     </aside>
   );
@@ -90,7 +90,7 @@ export function KartMeny({ rader, onStang }: { rader: MenyRad[]; onStang: () => 
         {rader.map((r, i) => (
           <button key={r.id} type="button" role="menuitem" onClick={r.onClick}
             style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', gap: AVSTAND.s, minHeight: 52, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, border: 'none', borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}`, background: 'none', color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
               <span style={{ ...TYP.listtitel }}>{r.text}</span>
               {r.under && <span style={{ ...TYP.meta, color: r.underOrange ? FARG.orange : FARG.text2 }}>{r.under}</span>}
             </span>
