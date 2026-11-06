@@ -38,6 +38,8 @@ type Vy = Omit<Data, 'avlagg'> & {
   mitt: { lat: number; lng: number } | null;
   hogar: { hogar: SkotarHog[]; kvar: HogSortiment[]; kvarM3: number; skordatM3: number } | null;
   avlagg: Avlagg[] | null;
+  /** m³ per sortiment han markerat taget sedan sitt senaste lass (servern räknar). */
+  lastForslag?: Record<string, number> | null;
   sortiment: { namn: string; visning: string }[];
   origoText: string | null;
   kommentarer: Record<string, string[]>;
@@ -649,7 +651,7 @@ export default function SkotarSida({ token }: { token: string }) {
       )}
 
       {lassAvlagg && (
-        <LassArk avlagg={lassAvlagg} sortiment={v.sortiment} forra={las<Record<string, number>>(`${LAGRING_FORRA_LASS}:${token}`, {})} sparar={sparar} fel={sparFel}
+        <LassArk avlagg={lassAvlagg} sortiment={v.sortiment} markerat={v.lastForslag ?? null} forra={las<Record<string, number>>(`${LAGRING_FORRA_LASS}:${token}`, {})} sparar={sparar} fel={sparFel}
           onAvbryt={() => { setLassFor(null); setSparFel(null); }}
           onKlar={(s) => void sparaLass(lassAvlagg.ref, s, lassAvlagg.nr).then((ok) => { if (ok) { setLassFor(null); setAvlaggRef(null); } })} />
       )}
@@ -866,16 +868,24 @@ function AvlaggArk({ avlagg, visning, info, sparFel, onStang, onLossa, onTaBortL
   );
 }
 
-/** Lasskortet: m³ per sortiment med − / + (ett steg per tryck) och sifferknappsatsen, förifyllt som förra lasset. */
-function LassArk({ avlagg, sortiment, forra, sparar, fel, onAvbryt, onKlar }: {
-  avlagg: Avlagg; sortiment: { namn: string; visning: string }[]; forra: Record<string, number>; sparar: boolean; fel: string | null;
+/**
+ * Lasskortet: m³ per sortiment med − / + (ett steg per tryck) och sifferknappsatsen. Förifyllt med det han markerat taget sedan sitt förra lass
+ * (`markerat`, servern räknar ur högarna) — har han inte markerat något, som förra lasset.
+ */
+export function lassForifyllning(sortiment: readonly { namn: string }[], markerat: Record<string, number> | null, forra: Record<string, number>): { varden: Record<string, number>; kalla: 'markerat' | 'forra' | 'tomt' } {
+  const ut = (k: Record<string, number>) => { const v: Record<string, number> = {}; for (const s of sortiment) if (k[s.namn] > 0) v[s.namn] = Math.round(k[s.namn]); return v; };
+  const m = markerat ? ut(markerat) : {};
+  if (Object.keys(m).length > 0) return { varden: m, kalla: 'markerat' };
+  const f = ut(forra);
+  return { varden: f, kalla: Object.keys(f).length > 0 ? 'forra' : 'tomt' };
+}
+
+function LassArk({ avlagg, sortiment, markerat, forra, sparar, fel, onAvbryt, onKlar }: {
+  avlagg: Avlagg; sortiment: { namn: string; visning: string }[]; markerat: Record<string, number> | null; forra: Record<string, number>; sparar: boolean; fel: string | null;
   onAvbryt: () => void; onKlar: (s: Record<string, number>) => void;
 }) {
-  const [varden, setVarden] = useState<Record<string, number>>(() => {
-    const ut: Record<string, number> = {};
-    for (const s of sortiment) if (forra[s.namn] > 0) ut[s.namn] = Math.round(forra[s.namn]);
-    return ut;
-  });
+  const [start] = useState(() => lassForifyllning(sortiment, markerat, forra));
+  const [varden, setVarden] = useState<Record<string, number>>(start.varden);
   const [skriver, setSkriver] = useState<string | null>(null);
   const summa = Object.values(varden).reduce((a, b) => a + b, 0);
   const satt = (namn: string, n: number) => setVarden((v) => ({ ...v, [namn]: Math.max(0, Math.min(LASS_MAX, Math.round(n))) }));
@@ -892,6 +902,11 @@ function LassArk({ avlagg, sortiment, forra, sparar, fel, onAvbryt, onKlar }: {
         </button>
       )}>
       <div data-skotar-lass="">
+        {start.kalla !== 'tomt' && (
+          <p data-skotar-lass-kalla={start.kalla} style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.meta, color: FARG.text2 }}>
+            {start.kalla === 'markerat' ? 'Ifyllt med det du markerat taget sedan förra lasset. Stämmer det inte, ändra innan du trycker Klar.' : 'Ifyllt som förra lasset.'}
+          </p>
+        )}
         {sortiment.length === 0 && <p style={{ margin: 0, ...TYP.text, color: FARG.text2 }}>Inga sortiment från skördaren på trakten än.</p>}
         {ordnade.map((s, i) => (
           <div key={s.namn} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: 64, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>

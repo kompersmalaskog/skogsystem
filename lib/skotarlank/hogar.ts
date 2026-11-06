@@ -81,3 +81,27 @@ export function skotarHogar(stammar: readonly Stam[], uttag: readonly UttagRad[]
   const skordat = stammar.reduce((s, x) => s + (x.volym || 0), 0);
   return { hogar, kvar: kvarRader, kvarM3: kvarRader.reduce((s, t) => s + t.m3, 0), skordatM3: Math.round(skordat) };
 }
+
+/**
+ * DET HAN HAR PÅ LASSET (Martin 2026-11-06: "har han markerat av ett område då vet ju redan maskinen vad han har på lasset"):
+ * m³ per sortiment som HANS markeringar sedan förra lasset tog ur högarna = det som ligger kvar utan dem minus det som ligger kvar med dem.
+ * Samma högar och samma uträkning som kartan. Ett sortiment utan virke (eller som han lade tillbaka med "Ligger kvar") finns inte med.
+ * Bara ett FÖRSLAG till lasskortet: han bekräftar alltid.
+ */
+export function pagaendeLass(stammar: readonly Stam[], uttag: readonly UttagRad[], lass: readonly Lass[], alla: readonly HogMarkering[], hans: readonly HogMarkering[]): Record<string, number> {
+  if (hans.length === 0 || stammar.length === 0) return {};
+  const efterUttag = hogarEfterUttag(klustraStammar(basStammar(stammar)), uttag);
+  const hogIn: HogIn[] = efterUttag.map((f) => ({ lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], sortimentVolym: JSON.parse(f.properties.sortimentVolymJson || '{}') }));
+  const bas = hogarKvar(hogIn, lass);
+  const hansSet = new Set(hans);
+  const utan = medMarkeringar(hogIn, bas, alla.filter((m) => !hansSet.has(m)));
+  const med = medMarkeringar(hogIn, bas, alla);
+  const per = new Map<string, number>();
+  utan.forEach((u, j) => {
+    for (const [namn, v] of Object.entries(u.kvar)) {
+      const d = Math.max(0, v) - Math.max(0, med[j].kvar[namn] ?? 0);
+      if (d > 0 && namn !== OKANT_SORT) per.set(namn, (per.get(namn) ?? 0) + d);
+    }
+  });
+  return Object.fromEntries([...per].map(([n, v]) => [n, Math.round(v)] as const).filter(([, v]) => v > 0));
+}
