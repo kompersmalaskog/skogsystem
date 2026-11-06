@@ -132,9 +132,13 @@ export const HOG_VISA: readonly { id: HogVisa; namn: string }[] = [
   { id: 'massa', namn: 'Bara massa' },
   { id: 'energi', namn: 'Bara energi' },
 ];
-/** Prickens färg per val. Alla = neutral ljus. Orange används aldrig (det betyder tall). */
+/**
+ * Prickens färg per val (Martin 2026-11-06). Alla = trädslagets färg (featurens prickFarg); utan trädslag den neutrala ljusa.
+ * Ett valt sortiment visas ensamt, så färgen behöver inte skilja sortimenten åt — den ska synas på ALLA kartor (Flygfoto, Ritad, Mörk) och
+ * inte låna någon annans betydelse: VIT med svart kant. Förut var timmer gul (= snitseln), kubb turkos (= skotarens spår) och energi rosa.
+ */
 export const HOG_PRICK_FARG: Readonly<Record<HogVisa, string>> = {
-  alla: '#f3e6c4', timmer: '#ffd60a', kubb: '#64d2ff', massa: '#ffffff', energi: '#ff9fd0',
+  alla: '#f3e6c4', timmer: '#ffffff', kubb: '#ffffff', massa: '#ffffff', energi: '#ffffff',
 };
 
 /** Kvar i högen för ett val (m³). */
@@ -146,7 +150,29 @@ export function kvarFor(k: HogKvar, visa: HogVisa): number {
 }
 
 /** Det kartan ritar för en hög: där den ligger, hur mycket som ligger kvar för valet, prickens färg och styrka. */
-export interface HogPrick { nyckel: string; lng: number; lat: number; v: number; farg: string; /** Andra halvan för en blandad hög (bara Alla), annars null. */ farg2: string | null; /** 0–1 */ a: number }
+export interface HogPrick {
+  nyckel: string; lng: number; lat: number; v: number; farg: string;
+  /** Andra halvan för en blandad hög (bara Alla), annars null. */ farg2: string | null;
+  /** 0–1 */ a: number;
+  /** Det som ligger kvar per sortimentgrupp (m³, en decimal), största först — det ett tryck på högen visar. */
+  grupper?: HogGruppKvar[];
+}
+export interface HogGruppKvar { grupp: HogGrupp; namn: string; m3: number }
+
+/** Det som ligger kvar i en hög per sortimentgrupp: avrundat till en decimal per grupp, största först, grupper under 0,05 m³ visas inte. */
+export function hogGrupperKvar(kvar: Readonly<Record<string, number>>): HogGruppKvar[] {
+  const per = new Map<HogGrupp, number>();
+  for (const [namn, v] of Object.entries(kvar)) if (v > 0) per.set(hogGrupp(namn), (per.get(hogGrupp(namn)) ?? 0) + v);
+  return [...per.entries()]
+    .map(([grupp, m3]) => ({ grupp, namn: GRUPP_NAMN[grupp], m3: Math.round(m3 * 10) / 10 }))
+    .filter((g) => g.m3 > 0)
+    .sort((a, b) => b.m3 - a.m3);
+}
+/** "Timmer 4,2 · Massaved 2,1 m³" — samma ord som Kvar-listan. Tom lista: ''. */
+export function hogInnehallText(grupper: readonly HogGruppKvar[]): string {
+  if (!grupper.length) return '';
+  return grupper.map((g) => `${g.namn} ${g.m3.toFixed(1).replace('.', ',')}`).join(' · ') + ' m³';
+}
 
 /**
  * En hög där lassen tagit huvuddelen är en REST: mindre än REST_ANDEL av det som låg där (för valet) eller under REST_M3 kvar. Den ritas
@@ -193,7 +219,8 @@ export function hogPrickar(
     const rest = taget && (v < REST_M3 || v < fore * REST_ANDEL);
     ut.push({ nyckel: hogNyckel(h.lng, h.lat), lng: h.lng, lat: h.lat, v: Math.round(v * 100) / 100,
       farg: visa === 'alla' ? (farger[i].farg ?? HOG_PRICK_FARG.alla) : HOG_PRICK_FARG[visa],
-      farg2: visa === 'alla' && farger[i].farg ? farger[i].farg2 : null, a: rest ? REST_STYRKA : FULL_STYRKA });
+      farg2: visa === 'alla' && farger[i].farg ? farger[i].farg2 : null, a: rest ? REST_STYRKA : FULL_STYRKA,
+      grupper: hogGrupperKvar(kvar[i].kvar) });
   });
   return ut;
 }

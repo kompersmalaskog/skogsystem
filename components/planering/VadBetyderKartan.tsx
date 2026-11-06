@@ -146,7 +146,7 @@ export default function VadBetyderKartan({ objektNamn, markeringar, vida, roll =
                   <HogPrickBild farg={h.farg} farg2={h.farg2} />
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: 'block', ...TYP.text, color: FARG.text }}>{h.namn}</span>
-                    {i === 0 && <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>Större prick = mer virke kvar.</span>}
+                    {i === 0 && <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>Större prick = mer virke kvar. Tryck på en hög för att se sortimenten.</span>}
                     {h.farg2 && <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>De två största trädslagen, halva var.</span>}
                   </span>
                 </div>

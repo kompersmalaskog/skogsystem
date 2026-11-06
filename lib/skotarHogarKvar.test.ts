@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hogarKvar, hogGrupp, hogPrickar, hogSortimentNyckel, kvarFor, stoppILass, HOG_PRICK_FARG, KRAN_M, FULL_STYRKA, REST_STYRKA } from './skotarHogarKvar';
+import { hogInnehallText, hogarKvar, hogGrupp, hogPrickar, hogSortimentNyckel, kvarFor, stoppILass, HOG_PRICK_FARG, KRAN_M, FULL_STYRKA, REST_STYRKA } from './skotarHogarKvar';
 import type { Lass, SparPunkt } from './skotarLass/typer';
 
 // Ett lokalt plan runt Skälviken: meter → lat/lng.
@@ -135,6 +135,15 @@ describe('prickarna', () => {
     expect(p.map((x) => [x.farg, x.farg2])).toEqual([['#1d9e75', null], ['#1d9e75', '#FF9F0A']]);
     // Ett valt sortiment: sortimentets färg, ingen andra halva.
     expect(hogPrickar([g(80, '#1d9e75', '#FF9F0A')], [], 'massa').map((x) => [x.farg, x.farg2])).toEqual([[HOG_PRICK_FARG.massa, null]]);
+  });
+  it('ett tryck visar innehållet: per sortimentgrupp, en decimal, största först', () => {
+    const p = hogPrickar([f(5, { [TIMMER]: 4.24, [MASSA]: 2.06, [ENERGI]: 0.02 })], [], 'alla');
+    expect(p[0].grupper).toEqual([{ grupp: 'timmer', namn: 'Timmer', m3: 4.2 }, { grupp: 'massa', namn: 'Massaved', m3: 2.1 }]);
+    expect(hogInnehallText(p[0].grupper!)).toBe('Timmer 4,2 · Massaved 2,1 m³');
+    expect(hogInnehallText([])).toBe('');
+  });
+  it('ett valt sortiment är vitt — samma på alla kartor, lånar ingen annans färg (gul snitsel, turkos skotare)', () => {
+    for (const v of ['timmer', 'kubb', 'massa', 'energi'] as const) expect(HOG_PRICK_FARG[v]).toBe('#ffffff');
   });
   it('trasig JSON ger ingen hög, inget fel', () => {
     expect(hogPrickar([{ geometry: { coordinates: [1, 2] }, properties: { sortimentVolymJson: '{' } }], [], 'alla')).toEqual([]);
