@@ -5,6 +5,8 @@ import { supabase } from '@/lib/supabase';
 import { FARG, TYP, AVSTAND, RADIE, KOLUMN, KNAPP } from '@/lib/design/tokens';
 import { KommentarVisning } from '@/components/planering/KommentarRuta';
 import { giltigVidaText } from '@/lib/vidaStruket';
+import { fasSteg } from '@/lib/objektVal';
+import { FasSteg } from '@/components/objekt/FasSteg';
 import { analysRader, lasTraktAnalys, type TraktAnalys } from './traktanalys';
 import { forbered, statusOrd, faktaRad, strackaText, type PlanObjekt, type Roll } from './plan';
 import { koNamn, type MaskinForslag } from './nasta-v2';
@@ -162,14 +164,12 @@ function TraktFragor({ maskinId, o, roll, warn, kartText, analys }: { maskinId: 
           {vida && <KommentarVisning vida vidaEtikett="Vida" text={vida} meningar />}
           {hela.length > 0 && <KartRader texter={hela} />}
           {kartText === 'fel' && <div role="alert" style={{ ...TYP.text, color: FARG.orange }}>Kunde inte läsa det som står på kartan</div>}
+          {/* Bara information — vägen till kartan är "Öppna trakten på kartan" högst upp (Martin 2026-11-06: "finns på två ställen"). */}
           {platser > 0 && (
-            <a href={`/planering?objekt=${encodeURIComponent(o.id)}&fran=oversikt&plan=${encodeURIComponent(maskinId)}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.s, minHeight: 44, color: FARG.text, textDecoration: 'none' }}>
-              <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <span style={{ ...TYP.text }}>{platser === 1 ? '1 sak är märkt på kartan' : `${platser} saker är märkta på kartan`}</span>
-                <span style={{ ...TYP.meta, color: FARG.text2 }}>De kommer upp när du kör dit · Visa på kartan</span>
-              </span>
-              <span style={{ color: FARG.text2 }}>›</span>
-            </a>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ ...TYP.text }}>{platser === 1 ? '1 sak är märkt på kartan' : `${platser} saker är märkta på kartan`}</span>
+              <span style={{ ...TYP.meta, color: FARG.text2 }}>De kommer upp i hytten när du kör dit</span>
+            </div>
           )}
         </Fraga>
       )}
@@ -298,7 +298,7 @@ export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKart
                         <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{koNamn(r.objekt)}</span><span style={{ color: FARG.text2 }}>›</span>
                       </div>
                       <div style={{ ...TYP.meta, color: FARG.text2 }}>{[faktaRad(o), r.stracka].filter(Boolean).join(' · ')}</div>
-                      {!r.nu && <div style={{ ...TYP.meta }}><StatusOrd o={o} /></div>}
+                      {(() => { const st = fasSteg(r.objekt as never); return st ? <FasSteg steg={st} /> : !r.nu ? <div style={{ ...TYP.meta }}><StatusOrd o={o} /></div> : null; })()}
                     </button>
                   );
                 })}
@@ -319,9 +319,9 @@ export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKart
                 <div style={{ ...TYP.meta, color: FARG.text2 }}>{[faktaRad(vo), valdRad.stracka].filter(Boolean).join(' · ')}</div>
                 <div style={{ ...TYP.text }}>
                   {/* Där maskinen står är "Här nu" — aldrig databasens "Klar att köra" (Bondeskog stod planerad medan Giant körde där). */}
-                  {valdRad.nu
-                    ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs }}><span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: FARG.gron }} />Här nu</span>
-                    : <StatusOrd o={vo} />}
+                  {valdRad.nu && <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs }}><span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: FARG.gron }} />Här nu</span>}
+                  {/* Samma steg som Planeringens lista och Trakter (components/objekt/FasSteg). */}
+                  {(() => { const st = fasSteg(valdRad.objekt as never); return st ? <FasSteg steg={st} /> : !valdRad.nu ? <StatusOrd o={vo} /> : null; })()}
                 </div>
               </div>
               {!valdRad.nu && korDit(valdRad.objekt)}

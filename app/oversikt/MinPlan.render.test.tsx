@@ -109,7 +109,7 @@ describe('Min plan — körordningen till vänster, trakten till höger', () => 
     expect(t()).toContain('På denna trakten finns det fossil åker');
     expect(t()).not.toContain('Kör på riset ut med vägen för avlägget');
     expect(t()).toContain('1 sak är märkt på kartan');
-    expect((trakt().querySelector('a[href^="/planering?objekt="]') as HTMLAnchorElement).getAttribute('href')).toBe('/planering?objekt=l&fran=oversikt&plan=GIANT');
+    expect(trakt().querySelectorAll('a[href^="/planering?objekt="]')).toHaveLength(1);   // EN väg till kartan: knappen högst upp
     expect(t()).not.toContain('Sortiment');
     // Mer om trakten är stängt; ett tryck visar markägaren och papperen
     expect(t()).not.toContain('Traktdirektiv');
