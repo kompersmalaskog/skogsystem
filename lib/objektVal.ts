@@ -258,3 +258,27 @@ export function avTyp<T extends ListObjekt>(objekt: readonly T[], typ: AvslutadT
 export function radMetaUtanTyp(o: ListObjekt): string {
   return [(o.bolag ?? '').trim(), volymText(o.volym)].filter(Boolean).join(' · ');
 }
+
+// ---- Fasen på trakten (objekt.fas, skrivs av timjobbet objekt_status_ur_maskindata) -----------------------------------------------
+// Martin 2026-11-06: "jag vet ju inte om det är färdigskördat eller skotat". En kort etikett på raden; null = ingen etikett.
+export function fasText(o: { fas?: unknown; typ?: string | null }): { text: string; vantar: boolean } | null {
+  const virke = /slutavverk|gallring/i.test(String(o.typ ?? ''));
+  switch (o.fas) {
+    case 'skordas': return { text: 'Skördas', vantar: false };
+    case 'skotas': return { text: virke ? 'Skördat klart · skotas' : 'Skotas', vantar: false };
+    case 'vantar_skotare': return { text: 'Skördat klart · väntar på skotare', vantar: true };
+    default: return null;
+  }
+}
+
+/** Pågår delas efter fasen (Martin 2026-11-06: "så att ett barn förstår direkt"). Utan fas = 'pagar' (gamla rubriken). */
+export type PagarDel = 'skordas' | 'vantar' | 'skotas' | 'pagar';
+export const PAGAR_DELAR: readonly { id: PagarDel; rubrik: string; orange: boolean }[] = [
+  { id: 'skordas', rubrik: 'Skördas', orange: false },
+  { id: 'vantar', rubrik: 'Väntar på skotare', orange: true },
+  { id: 'skotas', rubrik: 'Skotas', orange: false },
+  { id: 'pagar', rubrik: 'Pågår', orange: false },
+];
+export function pagarDel(o: { fas?: unknown }): PagarDel {
+  return o.fas === 'skordas' ? 'skordas' : o.fas === 'vantar_skotare' ? 'vantar' : o.fas === 'skotas' ? 'skotas' : 'pagar';
+}

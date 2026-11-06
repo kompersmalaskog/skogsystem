@@ -808,6 +808,9 @@ function laggTillHogPrickar(map: any) {
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
+  const [fortsattSparar, setFortsattSparar] = useState(false);   // "Inte klar – fortsätt" i Mer
+  const [fortsattFel, setFortsattFel] = useState<string | null>(null);
+  useEffect(() => { setFortsattFel(null); }, [valtObjekt?.id]);
   // Öppet dokument i in-app PDF-läsvyn (signerad url + titel), null = stängd
   const [pdfDok, setPdfDok] = useState<{ url: string; titel: string } | null>(null);
   // STEG 1: tilldelning av skördare/skotare + "Klar — skicka till förare"
@@ -14577,6 +14580,19 @@ export default function PlannerPage() {
           mer: {
             grupper: merIn.grupper,
             avsluta: merIn.avslutaObjekt ? () => { setVisarAvslutaConfirmation(true); stang(); } : null,
+            // Avslutad av appen (objekt_status_ur_maskindata): planeraren kan säga "Inte klar – fortsätt" (RPC objekt_fortsatt).
+            fortsatt: isAdminRiktig && objektListaVal && valtObjekt?.status === 'avslutat' && valtObjekt?.status_auto_skal ? {
+              skal: String(valtObjekt.status_auto_skal),
+              sparar: fortsattSparar,
+              fel: fortsattFel,
+              onTryck: async () => {
+                setFortsattSparar(true); setFortsattFel(null);
+                const { error } = await supabase.rpc('objekt_fortsatt', { p_objekt: valtObjekt.id });
+                setFortsattSparar(false);
+                if (error) { setFortsattFel('Kunde inte spara – försök igen'); return; }
+                setValtObjekt((o: any) => (o && o.id === valtObjekt.id ? { ...o, status: 'pagaende', status_auto_skal: null, avslutad_timestamp: null } : o));
+              },
+            } : null,
             planerare: {
               visaSom: isAdminRiktig ? {
                 aktivId: simuleradForareId,
