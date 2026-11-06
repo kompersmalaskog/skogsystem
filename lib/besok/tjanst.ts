@@ -6,11 +6,16 @@ import type { Svar } from './server';
 
 let klient: SupabaseClient | null = null;
 
+/** fetch som aldrig läser eller skriver Next.js datacache. */
+export const utanCache: typeof fetch = (input, init) => fetch(input, { ...init, cache: 'no-store' });
+
 export function tjanstKlient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const nyckel = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !nyckel) return null;
-  klient ??= createClient(url, nyckel, { auth: { persistSession: false, autoRefreshToken: false } });
+  // ALDRIG Next.js datacache: Next 14 sparar fetch-svar i route handlers trots `dynamic = 'force-dynamic'`, så en läsning kunde ge
+  // tabellens innehåll från första gången den lästes (skotarlänkens avlägg syntes aldrig, 2026-11-06). Varje anrop går till databasen.
+  klient ??= createClient(url, nyckel, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: utanCache } });
   return klient;
 }
 
