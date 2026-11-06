@@ -150,9 +150,9 @@ export default function SkotarSida({ token }: { token: string }) {
   useEffect(() => { setLager(las(LAGRING_LAGER, STANDARD_LAGER)); setBas(las<BasId>(LAGRING_BAS, 'foto') === 'karta' ? 'karta' : 'foto'); }, []);
 
   // --- Datan: nu, och var 5:e minut. Ett läsfel efter att kartan visats tar inte bort kartan.
-  const hamta = useCallback(async () => {
+  const hamta = useCallback(async (farsk = false) => {
     try {
-      const r = await fetch(`/api/skotare/${token}`, { cache: 'no-store' });
+      const r = await fetch(`/api/skotare/${token}${farsk ? '?farsk=1' : ''}`, { cache: 'no-store' });
       const j = await r.json().catch(() => null);
       if (r.ok && j?.ok) { setLage({ typ: 'ok', vy: j as Vy }); return; }
       setLage((f) => (f.typ === 'ok' && r.status >= 500 ? f : { typ: 'fel', status: r.status, text: felText(r.status) }));
@@ -227,7 +227,7 @@ export default function SkotarSida({ token }: { token: string }) {
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) { setSparFel(j?.fel || 'Kunde inte spara — försök igen'); return false; }
       setKvitto({ text, id });
-      void hamta();
+      void hamta(true);
       return true;
     } catch { setSparFel('Kunde inte spara — kontrollera täckningen och försök igen'); return false; }
     finally { setSparar(false); }
@@ -240,7 +240,7 @@ export default function SkotarSida({ token }: { token: string }) {
       const r = await fetch(`/api/skotare/${token}/hog?id=${encodeURIComponent(k.id)}`, { method: 'DELETE' });
       setKvitto({ text: r.ok ? 'Ångrat' : 'Gick inte att ångra', id: null });
     } catch { setKvitto({ text: 'Gick inte att ångra', id: null }); }
-    void hamta();
+    void hamta(true);
   }, [kvitto, token, hamta]);
   useEffect(() => {
     if (!kvitto) return;
@@ -256,7 +256,7 @@ export default function SkotarSida({ token }: { token: string }) {
       const r = await fetch(`/api/skotare/${token}/avlagg`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, punkt }) });
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) { setKvitto({ text: j?.fel || 'Kunde inte spara avlägget', id: null }); return; }
-      await hamta();
+      await hamta(true);
       setAvlaggRef(String(j.ref));
     } catch { setKvitto({ text: 'Kunde inte spara avlägget — kontrollera täckningen', id: null }); }
   }, [token, hamta]);
@@ -275,7 +275,7 @@ export default function SkotarSida({ token }: { token: string }) {
       const m3 = Object.values(sortiment).reduce((a, b) => a + b, 0);
       setLassKvitto(id);
       setKvitto({ text: `Lass till avlägg ${nr} · ${tal(m3)} m³`, id: null });
-      void hamta();
+      void hamta(true);
       return true;
     } catch { setSparFel('Kunde inte spara lasset — kontrollera täckningen och försök igen'); return false; }
     finally { setSparar(false); }
@@ -286,7 +286,7 @@ export default function SkotarSida({ token }: { token: string }) {
       setKvitto({ text: r.ok ? 'Lasset borttaget' : 'Gick inte att ta bort lasset', id: null });
     } catch { setKvitto({ text: 'Gick inte att ta bort lasset', id: null }); }
     setLassKvitto(null);
-    void hamta();
+    void hamta(true);
   }, [token, hamta]);
   const taBortAvlagg = useCallback(async (ref: string) => {
     setLassKvitto(null);
@@ -297,7 +297,7 @@ export default function SkotarSida({ token }: { token: string }) {
       setKvitto({ text: r.ok ? 'Avlägget borttaget' : (j?.fel || 'Gick inte att ta bort avlägget'), id: null });
       if (r.ok) setAvlaggRef(null);
     } catch { setKvitto({ text: 'Gick inte att ta bort avlägget', id: null }); }
-    void hamta();
+    void hamta(true);
   }, [token, hamta]);
   useEffect(() => { if (!kvitto) setLassKvitto(null); }, [kvitto]);
 

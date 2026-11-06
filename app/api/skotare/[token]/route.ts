@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { skotarVySvar } from '@/lib/skotarlank/server';
 import { BESOK_RUBRIKER, ejKonfigurerad, tjanstKlient } from '@/lib/besok/tjanst';
 
@@ -7,11 +7,11 @@ import { BESOK_RUBRIKER, ejKonfigurerad, tjanstKlient } from '@/lib/besok/tjanst
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(_req: Request, ctx: { params: { token: string } }): Promise<NextResponse> {
+export async function GET(req: NextRequest, ctx: { params: { token: string } }): Promise<NextResponse> {
   const sb = tjanstKlient();
   if (!sb) return ejKonfigurerad();
   try {
-    const s = await skotarVySvar(sb, ctx.params.token);
+    const s = await skotarVySvar(sb, ctx.params.token, Date.now(), req.nextUrl.searchParams.get('farsk') === '1');
     return NextResponse.json(s.body, { status: s.status, headers: BESOK_RUBRIKER });
   } catch (e) {
     console.error('[skotare] GET:', e instanceof Error ? e.message : e);

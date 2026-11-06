@@ -147,3 +147,21 @@ describe('källvakter', () => {
     expect(arOffentligSkotarSokvag(`/api/skotare/${TOKEN}/lass`)).toBe(true);
   });
 });
+
+describe('cachen efter en skrivning', () => {
+  it('ett lass mot ett avlägg som en annan serverinstans just skapat godtas (vyn läses om, inte ur cachen)', async () => {
+    const t = bas(); const sb = fake(t);
+    const { skotarVySvar } = await import('./server');
+    expect((await skotarVySvar(sb, TOKEN)).status).toBe(200);              // vyn hamnar i cachen utan avlägget
+    t.skotar_lank_avlagg.push({ id: ID2, objekt_id: OBJ, nummer: 1, lat: 56.6, lng: 15.0, borttagen: false });   // skrivet på en annan instans
+    expect((await skotarLassNytt(sb, TOKEN, { id: ID, avlagg: `egen:${ID2}`, sortiment: { Massaved: 10 } })).status).toBe(200);
+  });
+  it('farsk=1 läser förbi cachen', async () => {
+    const t = bas(); const sb = fake(t);
+    const { skotarVySvar } = await import('./server');
+    await skotarVySvar(sb, TOKEN);
+    t.skotar_lank_avlagg.push({ id: ID2, objekt_id: OBJ, nummer: 1, lat: 56.6, lng: 15.0, borttagen: false });
+    expect(((await skotarVySvar(sb, TOKEN)).body.avlagg as unknown[]).length).toBe(0);
+    expect(((await skotarVySvar(sb, TOKEN, Date.now(), true)).body.avlagg as unknown[]).length).toBe(1);
+  });
+});

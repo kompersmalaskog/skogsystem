@@ -344,9 +344,14 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
 /** Objektets vy, cachad i två minuter (rensas efter varje skrivning, glomSkotarVy). */
 export const cachadSkotarVy = (sb: Sb, o: ObjektRad, nu = Date.now()) => cachad(`vy:${o.id}`, 2 * 60000, () => lasSkotarVy(sb, o), nu);
 
-export async function skotarVySvar(sb: Sb, token: string, nu = Date.now()): Promise<Svar> {
+/**
+ * `farsk` = läs om, förbi cachen. Används direkt efter en skrivning: på Vercel kan skrivningen och nästa läsning hamna på olika serverinstanser,
+ * så att rensa cachen där skrivningen gjordes räcker inte (avläggen syntes inte förrän cachen gått ut, 2026-11-06).
+ */
+export async function skotarVySvar(sb: Sb, token: string, nu = Date.now(), farsk = false): Promise<Svar> {
   const u = await slaUppSkotarLank(sb, token);
   if (!u.ok) return lankFelSvar(u);
+  if (farsk) glomSkotarVy(u.objekt.id);
   const vy = await cachadSkotarVy(sb, u.objekt, nu);
   return { status: 200, body: { ok: true, ...vy, uppdaterad: new Date(nu).toISOString() } };
 }

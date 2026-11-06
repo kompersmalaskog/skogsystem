@@ -42,6 +42,7 @@ export async function skotarAvlaggNytt(sb: Sb, token: string, body: unknown, nu 
   const punkt: [number, number] = [b.punkt[0], b.punkt[1]];
   const u = await slaUppSkotarLank(sb, token);
   if (!u.ok) return lankFelSvar(u);
+  glomSkotarVy(u.objekt.id);   // färsk läsning: en annan serverinstans kan just ha skrivit
   const vy = await cachadSkotarVy(sb, u.objekt, nu);
   const ref: [number, number][] = [...vy.gran.flat(), ...(vy.hogar?.hogar ?? []).map((h) => [h.lng, h.lat] as [number, number]), ...(vy.mitt ? [[vy.mitt.lng, vy.mitt.lat] as [number, number]] : [])];
   if (!naraTrakten(punkt, ref)) return FEL(422, 'Avlägget ligger för långt från trakten');
@@ -63,6 +64,7 @@ export async function skotarAvlaggTaBort(sb: Sb, token: string, id: string | nul
   if (!id || !UUID.test(id)) return FEL(400, 'Ogiltigt id');
   const u = await slaUppSkotarLank(sb, token);
   if (!u.ok) return lankFelSvar(u);
+  glomSkotarVy(u.objekt.id);   // färsk läsning: en annan serverinstans kan just ha skrivit
   const vy = await cachadSkotarVy(sb, u.objekt, nu);
   const a = vy.avlagg?.find((x) => x.ref === `egen:${id}`);
   if (!a) return FEL(404, 'Avlägget finns inte');
@@ -85,6 +87,7 @@ export async function skotarLassNytt(sb: Sb, token: string, body: unknown, nu = 
   if (summa > LASS_MAX_M3) return FEL(400, `Ett lass kan vara högst ${LASS_MAX_M3} m³`);
   const u = await slaUppSkotarLank(sb, token);
   if (!u.ok) return lankFelSvar(u);
+  glomSkotarVy(u.objekt.id);   // färsk läsning: en annan serverinstans kan just ha skrivit
   const vy = await cachadSkotarVy(sb, u.objekt, nu);
   if (!vy.avlagg) return FEL(503, 'Kunde inte spara just nu');
   if (!vy.avlagg.some((a) => a.ref === b.avlagg)) return FEL(422, 'Avlägget finns inte på trakten');
