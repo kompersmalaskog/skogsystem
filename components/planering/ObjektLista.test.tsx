@@ -94,7 +94,7 @@ afterEach(async () => { await act(async () => { rot?.unmount(); }); behallare?.r
 describe('grupperna utgår från status', () => {
   it('Pågår först (grön prick), sedan Planerade och Oplanerade (grå prick); Avslutade är EN rad längst ner', async () => {
     await montera();
-    const rubriker = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent);
+    const rubriker = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent!.replace(/ \(\d+\)$/, ''));
     expect(rubriker).toEqual(['Pågår', 'Planerade', 'Oplanerade']);
     const ordning = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
     expect(ordning.slice(0, 2).sort()).toEqual(['n', 'p']);                  // Pågår
@@ -104,11 +104,8 @@ describe('grupperna utgår från status', () => {
     expect(q('objekt-lista-avslutade')!.textContent).toContain('Avslutade');
     expect(q('objekt-lista-avslutade')!.textContent).toContain('(2)');
     // prickar: Pågår = grön, övriga = grå
-    const prickar = (id: string) => q(`objekt-rad-${id}`)!.querySelector('[data-testid^="objekt-prick-"]')!.getAttribute('data-testid');
-    expect(prickar('p')).toBe('objekt-prick-gron');
-    expect(prickar('n')).toBe('objekt-prick-gron');
-    expect(prickar('e')).toBe('objekt-prick-gra');
-    expect(prickar('o')).toBe('objekt-prick-gra');
+    expect(behallare!.querySelector('[data-testid^="objekt-prick-"]')).toBeNull();   // ingen prick: rubriken säger var trakten är
+    expect(q('objekt-grupp-pagar')!.textContent).toBe('Pågår (2)');
   });
 
   it('Vällust RP M-R -25 (avslutat) syns ALDRIG under Planerade — bara under Avslutade, även med planerad månad satt', async () => {
@@ -150,7 +147,7 @@ const kvadrat = (lat: number, lng: number, d: number) => ({
   features: [{ properties: { _lager: 'L_TRAKTDEL' }, geometry: { type: 'Polygon', coordinates: [[[lng - d, lat - d], [lng + d, lat - d], [lng + d, lat + d], [lng - d, lat + d], [lng - d, lat - d]]] } }],
 });
 const radIdn = () => Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
-const rubriker = () => Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent);
+const rubriker = () => Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent!.replace(/ \(\d+\)$/, ''));
 
 // Vällust-formen: status avslutat, planerad månad satt. Skördat 900 m³, skotat 600 → 300 m³ kvar på backen.
 const vallustSkotning = (skotat: number, extra: Record<string, unknown> = {}) => {
@@ -170,7 +167,6 @@ describe('Skotning kvar — avslutat där skotningen inte är klar ligger under 
     expect(pagar).toContain('v');
     expect(pagar.sort()).toEqual(['n', 'p', 'v']);
     expect(q('objekt-skotning-kvar-v')!.textContent).toBe('Skotning kvar');
-    expect(q('objekt-rad-v')!.querySelector('[data-testid="objekt-prick-gron"]')).not.toBeNull();   // Pågår = grön prick
     expect(q('objekt-lista-avslutade')!.textContent).toContain('(1)');                                  // bara "Äldre avslutat" är kvar
     klicka(q('objekt-lista-avslutade'));
     expect(q('objekt-rad-v')).toBeNull();
@@ -243,7 +239,6 @@ describe('Här — enhetens GPS innanför ett objekts traktgräns', () => {
     await montera();
     expect(rubriker()[0]).toBe('Här');
     expect(radIdn()[0]).toBe('e');
-    expect(q('objekt-rad-e')!.querySelector('[data-testid="objekt-prick-gra"]')).not.toBeNull();     // prick efter status, inte efter grupp
   });
 
   it('avslutat UTAN virke kvar → aldrig Här, även när GPS:en står i dess gräns', async () => {
@@ -425,7 +420,7 @@ describe('Avslutade — växlare per typ', () => {
 
   it('Pågår och Planerade berörs inte, och "Avslutade (N)" räknar alla typer', async () => {
     await montera();
-    expect(Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent)).toEqual(['Pågår', 'Planerade']);
+    expect(Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent!.replace(/ \(\d+\)$/, ''))).toEqual(['Pågår', 'Planerade']);
     expect(radIdn().sort()).toEqual(['p1', 'pl']);
     expect(behallare!.querySelector('[role="radiogroup"]')).toBeNull();      // ingen växlare i huvudlistan
     expect(q('objekt-lista-avslutade')!.textContent).toContain('(7)');
@@ -640,20 +635,28 @@ describe('maskinläge: maskinens egna objekt först, med etiketten "Den här mas
 });
 
 describe('fasen på raden (objekt.fas från timjobbet)', () => {
-  it('Skördas / Skördat klart · skotas / Skördat klart · väntar på skotare; GROT heter bara Skotas', async () => {
+  it('Pågår delas i Skördas · Väntar på skotare (orange) · Skotas, med antal; raden har ingen fas-etikett', async () => {
     h.rader = [
-      { ...RADER[1], fas: 'skordas' },
+      { ...RADER[1], status: 'pagaende', fas: 'skordas' },
       { ...RADER[3], fas: 'skotas' },
       { ...RADER[4], fas: 'vantar_skotare', typ: 'slutavverkning' },
-      { ...RADER[2], fas: 'skotas' },
+      { ...RADER[2], status: 'pagaende', fas: 'skotas' },
       { ...RADER[5] },
     ];
     await montera();
-    expect(q('objekt-fas-e')!.textContent).toBe('Skördas');
+    expect(rubriker()).toEqual(['Skördas', 'Väntar på skotare', 'Skotas', 'Oplanerade']);
+    expect(q('objekt-grupp-skotas')!.textContent).toBe('Skotas (2)');
+    expect(q('objekt-grupp-vantar')!.getAttribute('style')).toContain('rgb(255, 159, 10)');
+    const ordning = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
+    expect(ordning.slice(0, 2)).toEqual(['e', 'n']);
+    expect(behallare!.querySelector('[data-testid^="objekt-fas-"]')).toBeNull();
+  });
+  it('under Här står fasen på raden (rubriken säger bara Här)', async () => {
+    h.rader = [{ ...RADER[3], fas: 'skotas' }];
+    h.tabeller = { objekt_traktgrans: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.01) }] };
+    await montera();
+    expect(rubriker()[0]).toBe('Här');
     expect(q('objekt-fas-p')!.textContent).toBe('Skördat klart · skotas');
-    expect(q('objekt-fas-n')!.textContent).toBe('Skördat klart · väntar på skotare');
-    expect(q('objekt-fas-g')!.textContent).toBe('Skotas');
-    expect(q('objekt-fas-o')).toBeNull();
   });
   it('fasen ersätter den gamla etiketten "Skotning kvar"', async () => {
     h.rader = [{ ...RADER[0], fas: 'skotas' }];

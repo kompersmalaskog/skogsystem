@@ -241,3 +241,15 @@ export function fasText(o: { fas?: unknown; typ?: string | null }): { text: stri
     default: return null;
   }
 }
+
+/** Pågår delas efter fasen (Martin 2026-11-06: "så att ett barn förstår direkt"). Utan fas = 'pagar' (gamla rubriken). */
+export type PagarDel = 'skordas' | 'vantar' | 'skotas' | 'pagar';
+export const PAGAR_DELAR: readonly { id: PagarDel; rubrik: string; orange: boolean }[] = [
+  { id: 'skordas', rubrik: 'Skördas', orange: false },
+  { id: 'vantar', rubrik: 'Väntar på skotare', orange: true },
+  { id: 'skotas', rubrik: 'Skotas', orange: false },
+  { id: 'pagar', rubrik: 'Pågår', orange: false },
+];
+export function pagarDel(o: { fas?: unknown }): PagarDel {
+  return o.fas === 'skordas' ? 'skordas' : o.fas === 'vantar_skotare' ? 'vantar' : o.fas === 'skotas' ? 'skotas' : 'pagar';
+}

@@ -4,7 +4,8 @@
 // (samma regel och samma rörelse som plus-arket: lib/plusArk.plusLage, lib/hooks/useSkarmLage, RORELSE.byte). Ingen egen sida: kartan ligger kvar
 // bakom (ingen mörk bakgrund), × / Esc / tryck på kartan stänger.
 //
-//   Sökfält överst · Här (bara när GPS:en står innanför ett objekts traktgräns) · Pågår (grön prick) · Planerade · Oplanerade (grå prick) ·
+//   Sökfält överst · Här (bara när GPS:en står innanför ett objekts traktgräns) · Skördas · Väntar på skotare (orange) · Skotas · Pågår (utan fas) ·
+//   Planerade · Oplanerade · (Martin 2026-11-06: rubriken säger var trakten är — ingen prick, ingen fas-etikett på raden utom under Här)
 //   "Avslutade (N)" som en rad längst ner som öppnar dem i samma ark: överst en segmentväxlare med typerna som finns bland avslutade
 //   ("Slutavverkning 38 · Gallring 18 · GROT 1", flest förvald), under den objekten av vald typ, senast avslutade först, med "Avslutat 2026-10-05"
 //   på raden. Sök söker i alla typer (växlaren göms medan man söker).
@@ -23,7 +24,7 @@ import { PANEL_BREDD_PX, dragHojd, valjListdetent, type Detent } from '@/lib/plu
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import { useVagavstand } from '@/lib/hooks/useVagavstand';
 import { oplaneradRadText } from '@/lib/klarTrakt';
-import { arSkotningKvar, avslutadMeta, fasText, avslutadeAvTyp, avslutadeTyper, effektivGrupp, fagelKm, grupperaObjekt, kmText, maskinRang, radMeta, valdAvslutadTyp, type AvslutadTyp, type ListObjekt } from '@/lib/objektVal';
+import { PAGAR_DELAR, arSkotningKvar, avslutadMeta, fasText, pagarDel, avslutadeAvTyp, avslutadeTyper, effektivGrupp, fagelKm, grupperaObjekt, kmText, maskinRang, radMeta, valdAvslutadTyp, type AvslutadTyp, type ListObjekt } from '@/lib/objektVal';
 import { arTilldelad, objektTraffPunkt, type KlararTyp } from '@/lib/objektPlats';
 import { hamtaSkotningKvar } from '@/lib/skotningKvar';
 import { harKoordinat } from '@/lib/navigera';
@@ -258,11 +259,9 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   if (!oppen && utglidet) return null;
 
   const glidInne = oppen && inne;
-  const prickFor = (o: ListaObjekt): 'gron' | 'gra' => (effektivGrupp(o, skotKvar) === 'pagar' ? 'gron' : 'gra');
-  const rad = (o: ListaObjekt, avslutadVy?: 'utanTyp' | 'medTyp') => {
-    const prick = prickFor(o);
+  const rad = (o: ListaObjekt, avslutadVy?: 'utanTyp' | 'medTyp', medFas = false) => {
     // Fasen (timjobbet, objekt.fas) går före den gamla etiketten: den säger både skördat och skotat.
-    const fas = avslutadVy ? null : fasText(o);
+    const fas = avslutadVy || !medFas ? null : fasText(o);   // bara under Här — annars står fasen i rubriken
     const kvarEtikett = !fas && arSkotningKvar(o, skotKvar);
     // Oplanerad = ingen har tryckt Klar för maskin: orange "N kvar" (eller ärligt "Inte klarplanerad" när kortet aldrig öppnats). Syns, spärrar aldrig.
     const planEtikett = (o.status ?? '').trim().toLowerCase() === 'oplanerad' ? oplaneradRadText(o.klar_kvar_antal) : null;
@@ -287,7 +286,6 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.primar + AVSTAND.l, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, cursor: 'pointer',
           borderBottom: `1px solid ${FARG.linje}`, background: aktuell ? FARG.tonad : 'transparent' }}
       >
-        <span aria-hidden="true" data-testid={`objekt-prick-${prick}`} style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: RADIE.cirkel, flexShrink: 0, background: prick === 'gron' ? FARG.gron : FARG.text3 }} />
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', ...TYP.listtitel, color: FARG.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn ?? 'Namnlöst objekt'}</span>
           {(meta || fas || kvarEtikett || planEtikett || egen) && (
@@ -337,8 +335,8 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     );
   };
 
-  const gruppRubrik = (id: string, txt: string) => (
-    <div data-testid={`objekt-grupp-${id}`} style={{ ...TYP.micro, color: FARG.text2, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.s}px` }}>{txt}</div>
+  const gruppRubrik = (id: string, txt: string, orange = false) => (
+    <div data-testid={`objekt-grupp-${id}`} style={{ ...TYP.micro, color: orange ? FARG.orange : FARG.text2, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.s}px` }}>{txt}</div>
   );
 
   const tomText = laddar && !finnsNagot ? 'Hämtar objekt…'
@@ -401,10 +399,13 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
               : avslutadeVald.map((o) => rad(o, 'utanTyp'))
         ) : (
           <>
-            {grupper.har.length > 0 && <>{gruppRubrik('har', 'Här')}{grupper.har.map((o) => rad(o))}</>}
-            {grupper.pagar.length > 0 && <>{gruppRubrik('pagar', 'Pågår')}{grupper.pagar.map((o) => rad(o))}</>}
-            {grupper.planerade.length > 0 && <>{gruppRubrik('planerade', 'Planerade')}{grupper.planerade.map((o) => rad(o))}</>}
-            {grupper.oplanerade.length > 0 && <>{gruppRubrik('oplanerade', 'Oplanerade')}{grupper.oplanerade.map((o) => rad(o))}</>}
+            {grupper.har.length > 0 && <>{gruppRubrik('har', 'Här')}{grupper.har.map((o) => rad(o, undefined, true))}</>}
+            {PAGAR_DELAR.map((del) => {
+              const lista = grupper.pagar.filter((o) => pagarDel({ fas: o.fas }) === del.id);
+              return lista.length > 0 && <React.Fragment key={del.id}>{gruppRubrik(del.id, `${del.rubrik} (${lista.length})`, del.orange)}{lista.map((o) => rad(o))}</React.Fragment>;
+            })}
+            {grupper.planerade.length > 0 && <>{gruppRubrik('planerade', `Planerade (${grupper.planerade.length})`)}{grupper.planerade.map((o) => rad(o))}</>}
+            {grupper.oplanerade.length > 0 && <>{gruppRubrik('oplanerade', `Oplanerade (${grupper.oplanerade.length})`)}{grupper.oplanerade.map((o) => rad(o))}</>}
             {aktivaAntal === 0 && (
               <div style={{ ...TYP.meta, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xl}px ${AVSTAND.l}px` }}>
                 {sok.trim() ? `Inget objekt matchar "${sok.trim()}".` : 'Inga aktiva objekt. Avslutade finns längst ner.'}
