@@ -40,6 +40,7 @@ import GrotObjektArk, { type ArkKo, type ArkSkotare } from './GrotObjektArk';
 import { useGrotVagAvstand } from './grot-avstand';
 import { KNAPP, KNAPP_LITEN, SheetBas, Grabber, VarningLista, SvgRing } from './ark-delar';
 import { MinPlan } from './MinPlan';
+import { kortNamn, kortaNamn } from './kortNamn';
 import { analysKortOrd, analysRader, lasTraktAnalys } from './traktanalys';
 import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, INAKTIV, designCss, KNAPP as TOKEN_KNAPP, KOLUMN } from '@/lib/design/tokens';
 import { navigeringsMal, navigeringsUrl, type NavObjekt } from '@/lib/navigera';
@@ -78,7 +79,7 @@ async function fetchAllRows<T>(query: () => any): Promise<T[]> {
   return all;
 }
 /** Telefonnumren till Ring-knappen: medarbetare med en maskin. */
-const lasTelefoner = () => supabase.from('medarbetare').select('maskin_id, telefon, roll').not('maskin_id', 'is', null);
+const lasTelefoner = () => supabase.from('medarbetare').select('maskin_id, telefon, roll, namn').not('maskin_id', 'is', null);
 /** ORS-vägavstånd via /api/routing. Bara source cache/ors räknas; annars null → "–". Aldrig fågelväg. */
 async function vagKm(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<number | null> {
   try {
@@ -193,6 +194,7 @@ export default function OversiktV2Page() {
   const [positions, setPositions] = useState<Map<string, PlatsForslag>>(new Map());
   const [platserKlar, setPlatserKlar] = useState(false); // positionerna är lästa (eller läsningen misslyckades) — förrän dess vet vi inte vilka maskiner som saknar position
   const [telByMaskin, setTelByMaskin] = useState<Record<string, string>>({});
+  const [forarNamnByMaskin, setForarNamnByMaskin] = useState<Record<string, string>>({}); // "Ring Stefan" — förnamnet hos den som har telefonen
   const [ruttVersion, setRuttVersion] = useState(0); // bumpas när rutt-cachen fyllts → rita om km/linjer
   const [highlightObjekt, setHighlightObjekt] = useState<string | null>(null); // prick som markeras under fingret i '+ Lägg till objekt'
   // GROT (lib/grotvy): råa rader → lista (grotLista) → objekt.id-mängden som släpper in avslutade trakter i kön.
@@ -276,9 +278,11 @@ export default function OversiktV2Page() {
       console.error('[Översikt v2] telefon: läsningen gick inte', res.status === 'fulfilled' ? (res.value.error ?? 'svaret var inte en lista') : res.reason);
       sattLasFel('tel', true); return;
     }
-    const t: Record<string, string> = {};
-    for (const r of res.value.data as { maskin_id: string; telefon: string | null }[]) if (r.maskin_id && r.telefon && !t[r.maskin_id]) t[r.maskin_id] = r.telefon;
-    setTelByMaskin(t); sattLasFel('tel', false);
+    const t: Record<string, string> = {}; const n: Record<string, string> = {};
+    for (const r of res.value.data as { maskin_id: string; telefon: string | null; namn?: string | null }[]) {
+      if (r.maskin_id && r.telefon && !t[r.maskin_id]) { t[r.maskin_id] = r.telefon; const fn = r.namn?.trim().split(/\s+/)[0]; if (fn) n[r.maskin_id] = fn; }
+    }
+    setTelByMaskin(t); setForarNamnByMaskin(n); sattLasFel('tel', false);
   }, [sattLasFel]);
   const laddaTel = useCallback(async () => { tillampaTel((await Promise.allSettled([lasTelefoner()]))[0]); }, [tillampaTel]);
 
@@ -472,6 +476,16 @@ export default function OversiktV2Page() {
   const dotsRef = useRef<Map<string, { marker: any; el: HTMLDivElement; circle: HTMLDivElement; label: HTMLDivElement; datum: HTMLSpanElement; namn: HTMLSpanElement; ring: HTMLDivElement; fynd: HTMLSpanElement; fyndOrd: string | null; desc: DotDesc; grot: boolean }>>(new Map());
   const ordnaRef = useRef(false); // true medan "Ändra ordning" är öppet → kartan rör sig inte av sig själv
   const stopMarkersRef = useRef<any[]>([]); // numrerade rutt-cirklar + on-map-etiketter
+  const stopChipsRef = useRef<HTMLDivElement[]>([]); // planens namnskyltar — göms när de krockar (siffran står kvar)
+  const layoutStopChips = useCallback(() => {
+    const synliga: DOMRect[] = [];
+    for (const chip of stopChipsRef.current) {
+      chip.style.visibility = 'visible';
+      const r = chip.getBoundingClientRect();
+      const krock = synliga.some((v) => r.left < v.right + 4 && r.right + 4 > v.left && r.top < v.bottom + 2 && r.bottom + 2 > v.top);
+      if (krock) chip.style.visibility = 'hidden'; else synliga.push(r);
+    }
+  }, []);
   const clusterMarkersRef = useRef<any[]>([]); // ihopslagna maskin-markörer ("N maskiner")
   const highlightMarkerRef = useRef<any>(null); // prick under fingret i '+ Lägg till objekt'-väljaren
   const didFitRef = useRef(false);
@@ -501,7 +515,7 @@ export default function OversiktV2Page() {
   // Etiketten är en SKYLT, inte en mening: maskinnamnet (name-div) + "→ nästa". Inga km (de bor i arket).
   const sublabelText = useCallback((f: MaskinForslag): string => {
     const nasta = nastaAv(f);
-    if (nasta) return `→ ${koNamn(nasta)}`;
+    if (nasta) return `→ ${kortNamn(koNamn(nasta))}`;
     return f.okand === 'ko' ? '· kön ej läst' : f.okand === 'skord' ? '· förslag ej läst' : f.okand === 'grot' ? '· GROT ej läst' : '· inget planerat'; // ett läsfel är aldrig "inget planerat"
   }, []);
 
@@ -617,7 +631,7 @@ export default function OversiktV2Page() {
       map.addLayer({ id: 'routes', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'clr'], 'line-width': ['get', 'w'], 'line-dasharray': [2, 2], 'line-opacity': ['get', 'op'] } });
       setMapStyleLoaded(true);
     });
-    map.on('move', () => { layoutMachines(); layoutLabels(); }); map.on('zoom', () => { layoutMachines(); layoutLabels(); setZoomNiva(map.getZoom()); });
+    map.on('move', () => { layoutMachines(); layoutLabels(); layoutStopChips(); }); map.on('zoom', () => { layoutMachines(); layoutLabels(); layoutStopChips(); setZoomNiva(map.getZoom()); });
     map.on('click', () => { setSelMaskin(null); setSelObjekt(null); setGrotOppen(false); setGrotValt(null); }); // tryck på kartan stänger alla ark, även GROT
     return () => {
       machMarkersRef.current.forEach((m) => m.marker.remove()); machMarkersRef.current.clear();
@@ -627,7 +641,7 @@ export default function OversiktV2Page() {
       if (highlightMarkerRef.current) { highlightMarkerRef.current.remove(); highlightMarkerRef.current = null; }
       map.remove(); mapRef.current = null; setMapStyleLoaded(false);
     };
-  }, [mapReady, layoutLabels, layoutMachines]);
+  }, [mapReady, layoutLabels, layoutMachines, layoutStopChips]);
 
   // Rutt-linjer ritas ENBART för vald maskin (hela kön nu→1→2→…). Översiktsläget har
   // inga linjer alls — fem korsande rutter var brus.
@@ -885,31 +899,25 @@ export default function OversiktV2Page() {
     syncDotVisibility();
     if (map.getLayer('routes')) map.getSource('routes'); // paint är data-driven (uppdateras i rutt-effekten)
 
-    stopMarkersRef.current.forEach((m) => m.remove()); stopMarkersRef.current = [];
+    stopMarkersRef.current.forEach((m) => m.remove()); stopMarkersRef.current = []; stopChipsRef.current = [];
     if (S) {
-      const f = forslagRef.current.get(S);
+      // Planen på kartan (Martin 2026-11-06): en grön prick med siffran (samma siffra som i arkets plan) och det KORTA namnet bredvid.
+      // Inga km-skyltar på linjen — km står i arket. Krockar två namn göms det senare (layoutStopChips), siffran står alltid kvar.
+      const korta = kortaNamn(koObj.map((o) => o.namn));
       koObj.forEach((o, i) => {
         if (o.lat == null || o.lng == null) return;
         const troligt = troligtSet.has(o.id);
         const circ = document.createElement('div');
-        circ.style.cssText = `width:26px;height:26px;border-radius:50%;background:${FARG.gron};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;opacity:${troligt ? 0.6 : 1};pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,0.4)`;
+        circ.style.cssText = `width:26px;height:26px;border-radius:50%;background:${FARG.gron};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:${FARG.bg};opacity:${troligt ? 0.6 : 1};pointer-events:none;box-shadow:0 0 0 2px ${FARG.text},0 1px 4px rgba(0,0,0,0.4)`;
         circ.textContent = String(i + 1);
         stopMarkersRef.current.push(new window.maplibregl.Marker({ element: circ, anchor: 'center' }).setLngLat([o.lng, o.lat]).addTo(map));
         const nameChip = document.createElement('div');
         nameChip.style.cssText = `padding:3px 8px;background:${CHIP_BG};border-radius:8px;font-size:12px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;opacity:${troligt ? 0.8 : 1};box-shadow:0 2px 8px rgba(0,0,0,0.35)`;
-        nameChip.textContent = koNamn(o); // GROT-trakter märks
-        stopMarkersRef.current.push(new window.maplibregl.Marker({ element: nameChip, anchor: 'bottom', offset: [0, -18] }).setLngLat([o.lng, o.lat]).addTo(map));
-        // km ur klient-cachen (route-cache); miss → '–' (inga routing-anrop mitt i ett drag)
-        const prev = i === 0 ? (f ? ruttStart(f) : null) : (koObj[i - 1].lat != null ? { lat: koObj[i - 1].lat!, lng: koObj[i - 1].lng! } : null);
-        const to = { lat: o.lat, lng: o.lng };
-        if (prev) {
-          const km = legKmCache(prev, to); const geom = legGeomCache(prev, to); const kmChip = document.createElement('div');
-          kmChip.style.cssText = `padding:2px 7px;background:${CHIP_BG};border-radius:8px;font-size:12px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;opacity:${troligt ? 0.8 : 1}`;
-          kmChip.textContent = km != null ? `${Math.round(km)} km` : '–';
-          const mid = geom && geom.length > 1 ? geom[Math.floor(geom.length / 2)] : [(prev.lng + o.lng) / 2, (prev.lat + o.lat) / 2]; // på vägen om geometri finns
-          stopMarkersRef.current.push(new window.maplibregl.Marker({ element: kmChip, anchor: 'center' }).setLngLat(mid as [number, number]).addTo(map));
-        }
+        nameChip.textContent = `${korta[i]}${arGrotKo(o) ? ' · GROT' : ''}`; // GROT-trakter märks
+        stopMarkersRef.current.push(new window.maplibregl.Marker({ element: nameChip, anchor: 'left', offset: [18, 0] }).setLngLat([o.lng, o.lat]).addTo(map));
+        stopChipsRef.current.push(nameChip);
       });
+      requestAnimationFrame(() => layoutStopChips());
     }
     layoutMachines(); // klustring + etikettsynlighet speglar urvalet
   }, []);
@@ -1248,7 +1256,7 @@ export default function OversiktV2Page() {
         <MaskinArk key={selMaskin!} f={valt} namn={maskinNamnAv(selMaskin!)}
           legs={selLegs} skord={skord} skordFel={lasFel.skord} onForsokSkord={laddaSkord} varning={varningFran} onSenFel={visaSenFel}
           posFel={lasFel.pos} grotFel={lasFel.grot} telFel={lasFel.tel} onForsokTel={laddaTel}
-          telefon={kanRedigera ? (telByMaskin[selMaskin!] ?? null) : null}
+          telefon={kanRedigera ? (telByMaskin[selMaskin!] ?? null) : null} forarNamn={forarNamnByMaskin[selMaskin!] ?? null}
           forare={!kanRedigera} dinMaskin={selMaskin === egenMaskinId}
           onOppnaObjekt={setSelObjekt}
           onClose={() => setSelMaskin(null)}
@@ -1307,7 +1315,7 @@ export default function OversiktV2Page() {
 // Arkets ENDA primära knapp (Martin 2026-11-05: "Översikt → tryck på maskinen → Kör dit. Tre tryck."). Vart: lib/navigera
 // (larmkoordinaten först, annars objektets punkt) — samma som bilknappen i Planering. Avståndet är ORS-väg från DIN position,
 // som allt annat i Översikten; okänt = inget tal alls, aldrig fågelväg.
-function KorDit({ objekt, fran, text = 'Kör dit' }: { objekt: NavObjekt | null; fran: { lat: number; lng: number } | null; text?: string }) {
+function KorDit({ objekt, fran, text = 'Kör dit', sekundar = false }: { objekt: NavObjekt | null; fran: { lat: number; lng: number } | null; text?: string; sekundar?: boolean }) {
   const mal = navigeringsMal(objekt);
   const [km, setKm] = useState<number | null>(null);
   const malNyckel = mal ? `${mal.lat},${mal.lng}` : ''; const franNyckel = fran ? `${fran.lat.toFixed(3)},${fran.lng.toFixed(3)}` : '';
@@ -1320,7 +1328,7 @@ function KorDit({ objekt, fran, text = 'Kör dit' }: { objekt: NavObjekt | null;
   }, [malNyckel, franNyckel]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!mal) return null;
   return (
-    <a href={navigeringsUrl(mal.lat, mal.lng)} target="_blank" rel="noopener noreferrer" style={{ ...TOKEN_KNAPP.primar, textDecoration: 'none', ...TNUM }}>
+    <a href={navigeringsUrl(mal.lat, mal.lng)} target="_blank" rel="noopener noreferrer" style={{ ...(sekundar ? TOKEN_KNAPP.sekundar : TOKEN_KNAPP.primar), textDecoration: 'none', ...TNUM }}>
       <SvgVag />{text}{km != null ? ` · ${Math.round(km)} km` : ''}
     </a>
   );
@@ -1408,7 +1416,9 @@ const RAD_KORT: React.CSSProperties = { display: 'grid', columnGap: AVSTAND.m, r
 
 // forare = LÄSLÄGE: inga skrivknappar (gäller förare på alla maskiner). dinMaskin = förarens egen maskin (märks i rubriken).
 // Raderna Nu/1/2… öppnar objekt-arket via onOppnaObjekt.
-function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grotFel, telFel, onForsokTel, varning, telefon, forare, dinMaskin, onOppnaObjekt, onClose, onReorder, onOrdnaLage, onOrderChange, koRader, kandidater, kmTill, onValjObjekt, onHighlight, onLaggLage, onSenFel, onTaBort, fran, onVisaPlan }: {
+function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grotFel, telFel, onForsokTel, varning, telefon, forare, dinMaskin, onOppnaObjekt, onClose, onReorder, onOrdnaLage, onOrderChange, koRader, kandidater, kmTill, onValjObjekt, onHighlight, onLaggLage, onSenFel, onTaBort, fran, onVisaPlan, forarNamn = null }: {
+  /** Förnamnet på den som har maskinens telefon — "Ring Stefan". Saknas: "Ring föraren". */
+  forarNamn?: string | null;
   f: MaskinForslag; namn: string; legs: (number | null)[]; skord: Record<string, SkordAggV2>; varning: (objektId: string) => VarningsSvar;
   /** Virke på backen gick inte att läsa: förslag och kandidater i "Lägg till objekt" kan saknas — arket säger det i stället för "inget planerat". */
   skordFel: boolean; onForsokSkord: () => void;
@@ -1508,31 +1518,21 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
           )}
         </div>
       ) : (<>
-      {/* Svaret först: var maskinen är och — för skotaren — hur mycket som är kvar där. Skärmens enda tal. */}
+      {/* SVARET I EN MENING (Martin 2026-11-06: "så ett barn förstår direkt"): "Giant skördar Bondeskog". Tryck = trakten. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: AVSTAND.s }}>
-          <div style={{ ...TYP.rubrik }}>{namn}</div>
-          {dinMaskin && <div style={{ ...TYP.meta, color: FARG.text2 }}>Din maskin</div>}
-        </div>
+        {dinMaskin && <div style={{ ...TYP.micro, color: FARG.text2 }}>Din maskin</div>}
         {f.nuObjekt ? (
           <button onClick={() => onOppnaObjekt(f.nuObjekt!.id)} aria-label={`Öppna ${f.nuObjekt.namn}`}
-            style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, minHeight: 44, padding: 0, border: 'none', background: 'none', color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer', ...TYP.text, ...TNUM }}>
-            <span style={{ minWidth: 0 }}>{f.typ === 'skotare' ? 'Skotar' : 'Skördar'} {f.nuObjekt.namn}{nuKvar != null && f.typ === 'skotare' ? <span style={{ color: FARG.text2 }}> · {fmt(nuKvar)} m³ kvar</span> : null}</span>
+            style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, minHeight: 44, padding: 0, border: 'none', background: 'none', color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer', ...TYP.rubrik }}>
+            <span style={{ minWidth: 0 }}>{namn} {f.typ === 'skotare' ? 'skotar' : 'skördar'} {kortNamn(f.nuObjekt.namn)}</span>
             <span style={{ color: FARG.text2 }}>›</span>
           </button>
         ) : (
-          <div style={{ ...TYP.text, color: posFel ? FARG.orange : FARG.text2, minHeight: 44, display: 'flex', alignItems: 'center' }}>{posFel ? POS_NU_TEXT : 'Står inte på något objekt just nu'}</div>
+          <div style={{ ...TYP.rubrik }}>{namn}</div>
         )}
+        {f.nuObjekt && nuKvar != null && f.typ === 'skotare' && <div style={{ ...TYP.text, color: FARG.text2, ...TNUM }}>{fmt(nuKvar)} m³ kvar att skota</div>}
+        {!f.nuObjekt && <div style={{ ...TYP.text, color: posFel ? FARG.orange : FARG.text2 }}>{posFel ? POS_NU_TEXT : 'Står inte på något objekt just nu'}</div>}
       </div>
-      {/* KÖR DIT — dit maskinen står; står den inte på något objekt, till nästa i kön. Gäller alla, förare och förman, alla maskiner. */}
-      {!ordnaLage && (f.nuObjekt
-        ? <KorDit objekt={f.nuObjekt} fran={fran} />
-        : nasta && <KorDit objekt={nasta} fran={fran} text={`Kör till ${koNamn(nasta)}`} />)}
-      {!ordnaLage && onVisaPlan && (
-        <button onClick={onVisaPlan} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 44, padding: 0, border: 'none', background: 'none', color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', ...TYP.text }}>
-          <span>{dinMaskin ? 'Visa min plan' : 'Visa som förarens plan'}</span><span style={{ color: FARG.text2 }}>›</span>
-        </button>
-      )}
       {sparar > 0 && <div role="status" style={{ ...TYP.meta, color: FARG.text2 }}>Sparar…</div>}
       {koFel && <div ref={felRef} role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{koFel}</div>}
       {koVarning === 'fel' && <div role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{VARNING_LASFEL}</div>}
@@ -1541,35 +1541,59 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
       {(skordFel || posFel) && f.typ === 'skotare' && f.ko.length > 0 && forslagPoster.length === 0 && <div role="status" style={{ ...TYP.meta, color: FARG.orange }}>{skordFel ? SKORD_OKAND_TEXT : POS_OKAND_TEXT}</div>}
       {grotFel && f.typ === 'skotare' && f.ko.length > 0 && (f.doldaAvslutade ?? 0) > 0 && <div role="status" style={{ ...TYP.meta, color: FARG.orange }}>{grotDoltText(f.doldaAvslutade ?? 0)}</div>}
 
-      {/* KÖN — "Sen kör den till": nummer, namn, km. Volym, datum och hänsyn bor i objekt-arket (tryck på raden). En fara står
-          på raden, för den ska föraren veta innan han kör dit. */}
       {ordnaLage && kanOrdna ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ ...TYP.micro, color: FARG.text2 }}>Ändra kön</div>
-            <button onClick={toggleOrdna} style={{ minHeight: 44, padding: 0, border: 'none', background: 'none', color: FARG.bla, fontFamily: 'inherit', ...TYP.text, cursor: 'pointer' }}>Klar</button>
+            <div style={{ ...TYP.micro, color: FARG.text2 }}>Ändra ordning</div>
+            <button onClick={toggleOrdna} style={{ ...TOKEN_KNAPP.lank }}>Klar</button>
           </div>
           <ReorderLista key={ordnaNyckel} rows={dragRader} onDrop={slappOrdning} onOrderChange={onOrderChange} onTaBort={(koId) => { void sparaKo(() => onTaBort(koId)); }} />
           <button onClick={oppnaLagg} style={{ ...KNAPP_LITEN }}>+ Lägg till objekt</button>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, ...TYP.text, ...TNUM }}>
-          <div style={{ ...TYP.micro, color: FARG.text2 }}>Sen kör den till</div>
-          {koPoster.length === 0 ? (
-            <div style={{ color: f.okand && forslagPoster.length === 0 ? FARG.orange : FARG.text2, minHeight: 44, display: 'flex', alignItems: 'center' }}>
-              {forslagPoster.length > 0 ? 'Inget i kön' : f.okand === 'ko' ? KO_OKAND_TEXT : f.okand === 'skord' ? SKORD_OKAND_TEXT : f.okand === 'pos' ? POS_OKAND_TEXT : f.okand === 'grot' ? grotDoltText(f.doldaAvslutade ?? 0) : 'Inget planerat efter det här'}
-            </div>
-          ) : koPoster.map((p, i) => {
-            const fara = faraRad(varning(p.objekt.id));
-            return (
-              <button key={p.objekt.id} onClick={() => onOppnaObjekt(p.objekt.id)} aria-label={`Öppna ${p.objekt.namn}`} style={{ ...RAD_KORT, gridTemplateColumns: '28px minmax(0, 1fr) auto' }}>
-                <div style={{ color: FARG.text2 }}>{i + 1}</div>
-                <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{koNamn(p.objekt)}</div>
-                <div style={{ color: FARG.text2, whiteSpace: 'nowrap' }}>{kmText(legs[i])}</div>
-                {fara && (<><div /><div style={{ ...TYP.meta, color: fara.color, gridColumn: '2 / 4' }}>{fara.text}</div></>)}
+        /* PLANEN SOM EN TUNNELBANEKARTA: en lodrät linje, en prick per trakt. Siffran på pricken är samma som på kartan. */
+        <div style={{ display: 'flex', flexDirection: 'column', ...TYP.text, ...TNUM }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ ...TYP.micro, color: FARG.text2 }}>Planen</div>
+            {!forare && kanOrdna && <button onClick={toggleOrdna} style={{ ...TOKEN_KNAPP.tertiar }}>Ändra ordning</button>}
+          </div>
+          {(() => {
+            const korta = kortaNamn([...(f.nuObjekt ? [f.nuObjekt.namn] : []), ...koPoster.map((p) => p.objekt.namn)]);
+            const nuKort = f.nuObjekt ? korta[0] : null;
+            const koKort = korta.slice(f.nuObjekt ? 1 : 0);
+            const stationer: { key: string; prick: React.ReactNode; namn: string; hoger: string; under: { text: string; color: string } | null; onClick?: () => void; sista: boolean }[] = [
+              ...(f.nuObjekt && nuKort ? [{ key: 'nu', prick: <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: RADIE.cirkel, background: FARG.text, display: 'block' }} />, namn: nuKort, hoger: 'nu', under: null, onClick: () => onOppnaObjekt(f.nuObjekt!.id), sista: koPoster.length === 0 }] : []),
+              ...koPoster.map((p, i) => ({
+                key: p.objekt.id,
+                prick: <span aria-hidden="true" style={{ width: 22, height: 22, borderRadius: RADIE.cirkel, background: FARG.gron, color: FARG.bg, ...TYP.meta, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>,
+                namn: `${koKort[i]}${arGrotKo(p.objekt) ? ' · GROT' : ''}`, hoger: kmText(legs[i]), under: faraRad(varning(p.objekt.id)),
+                onClick: () => onOppnaObjekt(p.objekt.id), sista: i === koPoster.length - 1,
+              })),
+            ];
+            if (koPoster.length === 0) {
+              return (<>
+                <div style={{ color: f.okand && forslagPoster.length === 0 ? FARG.orange : FARG.text2, minHeight: 44, display: 'flex', alignItems: 'center' }}>
+                  {forslagPoster.length > 0 ? 'Inget i kön' : f.okand === 'ko' ? KO_OKAND_TEXT : f.okand === 'skord' ? SKORD_OKAND_TEXT : f.okand === 'pos' ? POS_OKAND_TEXT : f.okand === 'grot' ? grotDoltText(f.doldaAvslutade ?? 0) : 'Inget planerat efter det här'}
+                </div>
+              </>);
+            }
+            return stationer.map((st) => (
+              <button key={st.key} onClick={st.onClick} aria-label={`Öppna ${st.namn}`}
+                style={{ display: 'grid', gridTemplateColumns: '28px minmax(0, 1fr) auto', columnGap: AVSTAND.m, alignItems: 'stretch', padding: 0, border: 'none', background: 'none', color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer', minHeight: 48 }}>
+                {/* linjen löper genom prickarna; den sista har ingen linje nedåt */}
+                <span style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {!st.sista && <span aria-hidden="true" style={{ position: 'absolute', left: '50%', top: '50%', bottom: 0, width: 2, transform: 'translateX(-50%)', background: FARG.text3 }} />}
+                  {st.key !== stationer[0].key && <span aria-hidden="true" style={{ position: 'absolute', left: '50%', top: 0, height: '50%', width: 2, transform: 'translateX(-50%)', background: FARG.text3 }} />}
+                  <span style={{ position: 'relative' }}>{st.prick}</span>
+                </span>
+                <span style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, padding: `${AVSTAND.s}px 0` }}>
+                  <span style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{st.namn}</span>
+                  {st.under && <span style={{ ...TYP.meta, color: st.under.color }}>{st.under.text}</span>}
+                </span>
+                <span style={{ color: FARG.text2, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }}>{st.hoger}</span>
               </button>
-            );
-          })}
+            ));
+          })()}
           {/* Appens förslag är en EGEN grupp utan nummer — aldrig en fortsättning på kön. */}
           {forslagPoster.length > 0 && (<>
             <div style={{ ...TYP.micro, color: FARG.text2, marginTop: AVSTAND.s }}>Appen föreslår</div>
@@ -1579,7 +1603,7 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
               const under = p.troligt ? { text: 'troligt — kan ändras', color: FARG.text2 } : fara;
               return (
                 <button key={p.objekt.id} onClick={() => onOppnaObjekt(p.objekt.id)} aria-label={`Öppna ${p.objekt.namn}`} style={{ ...RAD_KORT, gridTemplateColumns: 'minmax(0, 1fr) auto' }}>
-                  <div style={{ color: FARG.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{koNamn(p.objekt)}</div>
+                  <div style={{ color: FARG.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{kortNamn(koNamn(p.objekt))}</div>
                   <div style={{ color: FARG.text2, whiteSpace: 'nowrap' }}>{kmText(legs[i])}</div>
                   {under && <div style={{ ...TYP.meta, color: under.color, gridColumn: '1 / 3' }}>{under.text}</div>}
                 </button>
@@ -1589,18 +1613,24 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
         </div>
       )}
 
-      {/* Knappar — förare: inga (Kör dit står överst). Förman: Ändra kön (eller Lägg till när kön är tom) och Ring. */}
-      {!forare && !ordnaLage && (<>
-        {kanOrdna
-          ? <button onClick={toggleOrdna} style={{ ...KNAPP_LITEN }}>Ändra kön</button>
-          : <button onClick={oppnaLagg} style={{ ...KNAPP_LITEN }}>+ Lägg till objekt</button>}
-        {telFel && !telefon && (
+      {/* KNAPPARNA, i ordning: Ring <förare> (förman: det man oftast vill) · Kör till <maskin> · Se det föraren ser. */}
+      {!ordnaLage && (<>
+        {!forare && telFel && !telefon && (
           <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
             <div role="alert" style={{ ...TYP.meta, color: FARG.orange, flex: 1 }}>{TEL_OKAND_TEXT}</div>
             <button onClick={onForsokTel} style={{ ...KNAPP_LITEN, flexGrow: 0, flexShrink: 0, padding: `0 ${AVSTAND.m}px` }}>Försök igen</button>
           </div>
         )}
-        {telefon && <a href={`tel:${telefon}`} style={KNAPP}><SvgRing />Ring föraren</a>}
+        {!forare && telefon && <a href={`tel:${telefon}`} style={{ ...TOKEN_KNAPP.primar, textDecoration: 'none' }}><SvgRing />Ring {forarNamn ?? 'föraren'}</a>}
+        {f.nuObjekt
+          ? <KorDit objekt={f.nuObjekt} fran={fran} text={`Kör till ${namn}`} sekundar={!forare && !!telefon} />
+          : nasta && <KorDit objekt={nasta} fran={fran} text={`Kör till ${kortNamn(koNamn(nasta))}`} sekundar={!forare && !!telefon} />}
+        {!forare && !kanOrdna && <button onClick={oppnaLagg} style={{ ...KNAPP_LITEN }}>+ Lägg till objekt</button>}
+        {onVisaPlan && (
+          <button onClick={onVisaPlan} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 44, padding: 0, border: 'none', background: 'none', color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', ...TYP.text }}>
+            <span>{dinMaskin ? 'Min plan' : 'Se det föraren ser'}</span><span style={{ color: FARG.text2 }}>›</span>
+          </button>
+        )}
       </>)}
       </>)}
     </div>
