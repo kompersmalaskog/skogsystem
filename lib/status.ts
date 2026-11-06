@@ -40,11 +40,12 @@ export function dagarKvar(datum: string): number {
 }
 
 export function laggTillManader(datum: string, manader: number): string {
-  const d = new Date(datum + 'T00:00:00');
-  const dag = d.getDate();
-  d.setMonth(d.getMonth() + manader);
+  // Allt i UTC: lokal midnatt skriven med toISOString blev dagen före i svensk tid (2026-11-06 + 12 mån → 2027-11-05).
+  const d = new Date(datum + 'T00:00:00Z');
+  const dag = d.getUTCDate();
+  d.setUTCMonth(d.getUTCMonth() + manader);
   // Månadsspill (31 jan + 1 mån): kliv tillbaka till sista giltiga dagen.
-  if (d.getDate() < dag) d.setDate(0);
+  if (d.getUTCDate() < dag) d.setUTCDate(0);
   return d.toISOString().slice(0, 10);
 }
 

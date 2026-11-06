@@ -82,7 +82,7 @@ export const VYER: Vy[] = [
   { id: 'kemikalier', namn: 'Kemikalier', href: '/kemikalier', ikon: 'science', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['säkerhetsdatablad', 'säkerhetsblad', 'sdb', 'olja', 'kemikalie', 'arbetsmiljö', 'spray', 'bränsle'] },
   { id: 'farligt-avfall', namn: 'Farligt avfall', href: '/farligt-avfall', ikon: 'recycling', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['avfall', 'slang', 'hydraulslang', 'spillolja', 'trasor', 'dunk', 'kvitto', 'liggare', 'miljö', 'arbetsmiljö'] },
   { id: 'rapportera', namn: 'Rapportera', href: '/om-nagot-hander?rapport=1', ikon: 'report', grupp: 'maskiner', del: 'arbetsmiljo', sokord: ['fel', 'trasig', 'läcker', 'något är fel', 'tillbud', 'nära ögat', 'olycka', 'skada', 'arbetsmiljö'] },
-  { id: 'kontroller', namn: 'Kontroller', href: '/kontroller', ikon: 'fact_check', grupp: 'maskiner', sokord: ['besiktning', 'försäkring'] },
+  { id: 'kontroller', namn: 'Fordon', href: '/kontroller', ikon: 'local_shipping', grupp: 'maskiner', sokord: ['kontroller', 'besiktning', 'försäkring', 'brandskydd', 'släp', 'tank', 'bil'] },
 
   // Objekt
   { id: 'planering', namn: 'Planering', href: '/planering', ikon: 'event_note', grupp: 'objekt', sokord: ['karta', 'trakt'] },

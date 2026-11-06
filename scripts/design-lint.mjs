@@ -157,6 +157,14 @@ export const SKARPA = [
   "app/maskinvy/Sidolista.tsx",
   "app/maskinvy/page.tsx",
   // Inventarier (2026-10-21): tokens från början, noll literaler.
+  // Fordon (/kontroller, 2026-11-06): omgjord på tokens och components/design, noll literaler.
+  "components/fordon/FordonLista.tsx",
+  "components/fordon/FordonSida.tsx",
+  "components/fordon/FordonArk.tsx",
+  "components/fordon/RegistreraArk.tsx",
+  "components/fordon/delar.tsx",
+  "app/kontroller/page.tsx",
+  "app/kontroller/[id]/page.tsx",
   "components/inventarier/InventarierStart.tsx",
   "components/inventarier/PlatsSida.tsx",
   "components/inventarier/RadArk.tsx",

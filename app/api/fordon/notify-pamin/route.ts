@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 import { createClient } from "@supabase/supabase-js";
-import { KONTROLLTYPER, type Kontrolltypnyckel } from "@/lib/kontrolltyper";
+import { KONTROLLTYPER, arFordonKontroll, type Kontrolltypnyckel } from "@/lib/kontrolltyper";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,6 +79,8 @@ export async function POST(req: NextRequest) {
   for (const k of kontroller || []) {
     const resurs: any = Array.isArray((k as any).resurs) ? (k as any).resurs[0] : (k as any).resurs;
     if (!resurs || !resurs.aktiv) continue;
+    // Service visas inte längre i Fordon (Martin 2026-11-06) — ingen påminnelse om den heller.
+    if (!arFordonKontroll((k as any).typ)) continue;
 
     const datum: string = (k as any).nasta_forfall;
     const målsDagar = mål.find((m) => addDagar(m.dagar) === datum);
