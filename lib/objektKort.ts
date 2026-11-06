@@ -24,15 +24,15 @@ export type KortRoll = 'planerare' | 'forare';
 
 /**
  * Planerare: inga knappar. "Kör hit" är borttagen (Martin 2026-11-05: "den använder vi aldrig"); vägbeskrivningen finns på objektlistans rad (bilen).
- * Förare: Körvy · Skotning · Utkört. "Mer" är INTE en knapp här: den är en rad längst ner i uppdraget (ObjektKort), eftersom den inte är det viktigaste på kortet. Körvy-knappen försvinner medan körvyn redan är igång (Avsluta körvy ligger i Mer). En skördarförare har
+ * Förare: Körvy. "Mer" är INTE en knapp här: den är en rad längst ner i uppdraget (ObjektKort), eftersom den inte är det viktigaste på kortet. Körvy-knappen försvinner medan körvyn redan är igång (Avsluta körvy ligger i Mer). En skördarförare har
  * ingen skotning att öppna eller markera utkört: Skotning och Utkört visas för skotare och när maskinen inte är känd.
  */
 export function kortKnappar(o: { roll: KortRoll; harKoordinat: boolean; korvyAktiv: boolean; maskinSlag: 'skordare' | 'skotare' | null; utanSkotning?: boolean }): KortKnapp[] {
   if (o.roll === 'planerare') return [];
   return [
     ...(o.korvyAktiv ? [] : [{ id: 'korvy' as const, etikett: 'Körvy' }]),
-    // utanSkotning = skotarläget med lassrapportering i appen: det gamla skotningsverktyget (Skotning: sortiment och högar, Utkört: rita yta → Skotningsuttag) förvirrar där och visas inte.
-    ...(o.maskinSlag === 'skordare' || o.utanSkotning ? [] : [{ id: 'skotning' as const, etikett: 'Skotning' }, { id: 'utkort' as const, etikett: 'Utkört' }]),
+    // Det gamla skotningsverktyget (Skotning: sortimentlistan, Utkört: rita yta → Skotningsuttag) är BORTTAGET (Martin 2026-11-06):
+    // tryck på en hög (Tagen / Ligger kvar) och + › Rita & mät › Högar i ett område gör samma sak. Redan sparade uttag dras av som förut.
   ];
 }
 
@@ -295,8 +295,7 @@ export function byggMerGrupper(c: MerIn): { grupper: MerGrupp[]; planerarenBlock
   // FÖRAREN — Markera utkört, Genomgång & kvittering (Briefing + Kvittera markeringar i ETT val: genomgången slutar med kvittering).
   // Skotning-arket (sortiment, högar) ligger här för dem som inte har den som knapp på kortet — annars nås det inte alls.
   const foraren: MerRad[] = [
-    ...(c.skotningFinnsSomKnapp || c.utanSkotning ? [] : [{ id: 'skotning', etikett: 'Skotning', under: 'Sortiment och högar', ikon: 'local_shipping', onTryck: c.go.skotning }]),
-    ...(c.utanSkotning ? [] : [{ id: 'markera-utkort', etikett: 'Markera utkört', under: 'Rita det som är utkört', ikon: 'edit', onTryck: c.go.markeraUtkort }]),
+    // Skotning och Markera utkört är borttagna (Martin 2026-11-06) — se kortKnappar.
     { id: 'genomgang', etikett: 'Genomgång & kvittering', under: 'Gå igenom trakten och kvittera markeringarna', ikon: 'menu_book', onTryck: c.go.genomgang },
   ];
   grupper.push({ id: 'foraren', titel: 'Föraren', rader: foraren });
