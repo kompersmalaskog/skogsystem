@@ -12,6 +12,7 @@ const lasa = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), 'ut
 describe('Dämpad (0) = nivån från Kartan lugnare: mörkare och gråare, alla lager', () => {
   it('varje bakgrundslager är dämpat: ljuset ner (vitt blir högst 80 % ljust) och färgen ner (mättnad högst −0,4)', () => {
     for (const lager of KARTLAGER) {
+      if (lager === 'mork') continue;   // Mörk (Tesla) är mörk med flit — egen test nedan
       const p = kartBasPaint(lager, 0);
       expect(p, lager).toEqual(KARTBAS_DAMPAD[lager]);
       expect(p['raster-brightness-max'], `${lager} ljus`).toBeLessThanOrEqual(0.8);
@@ -21,14 +22,23 @@ describe('Dämpad (0) = nivån från Kartan lugnare: mörkare och gråare, alla 
   });
   it('Flygfotot är mörkast: ortofotot har de ljusaste ytorna (åker, hygge, grusväg) där en gul linje annars försvinner', () => {
     const ljus = (l: (typeof KARTLAGER)[number]) => kartBasPaint(l, 0)['raster-brightness-max'];
-    for (const l of KARTLAGER) if (l !== 'satellite') expect(ljus('satellite')).toBeLessThan(ljus(l));
+    for (const l of KARTLAGER) if (l !== 'satellite' && l !== 'mork') expect(ljus('satellite')).toBeLessThan(ljus(l));
     expect(ljus('satellite')).toBeGreaterThanOrEqual(0.45); expect(ljus('satellite')).toBeLessThanOrEqual(0.55);
+  });
+});
+
+describe('Mörk (Tesla): mörk också i Skarp', () => {
+  it('skogen är nästan svart i Dämpad och aldrig ljus i Skarp; reglaget går från den ena till den andra', () => {
+    expect(kartBasPaint('mork', 0)['raster-brightness-max']).toBeLessThanOrEqual(0.25);
+    expect(kartBasPaint('mork', 100)['raster-brightness-max']).toBeLessThanOrEqual(0.5);
+    expect(kartBasPaint('mork', 100)['raster-brightness-max']).toBeGreaterThan(kartBasPaint('mork', 0)['raster-brightness-max']);
   });
 });
 
 describe('Skarp (100) = ingen nedtoning alls', () => {
   it('ljus 1, mättnad 0, kontrast 0 (och full opacitet där Dämpad har en lägre)', () => {
     for (const lager of KARTLAGER) {
+      if (lager === 'mork') continue;
       const p = kartBasPaint(lager, 100);
       expect(p, lager).toEqual(KARTBAS_SKARP[lager]);
       expect(p['raster-brightness-max']).toBe(1); expect(p['raster-saturation']).toBe(0); expect(p['raster-contrast']).toBe(0);

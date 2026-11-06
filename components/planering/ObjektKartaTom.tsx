@@ -24,7 +24,7 @@ export default function ObjektKartaTom({ onValj, onNavigera, maskin, kartlager =
   const [prickar, setPrickar] = useState<KartPrickar | null>(null);
   // Samma bakgrundskarta som planeringsvyn (användarens sparade kartlager). Kartan byggs om bara när lagret byts.
   // Ritad är ingen översiktskarta (inga ortnamn) — här visas Lantmäteriets karta i stället (Martin 2026-11-01). Användarens val ändras inte.
-  const stil = useMemo(() => (kartlager === 'ritad' ? tomKartaStil('lantmateriet') : tomKartaStil(kartlager, kartlagerStyrka)), [kartlager, kartlagerStyrka]);
+  const stil = useMemo(() => (kartlager === 'ritad' || kartlager === 'mork' ? tomKartaStil('lantmateriet') : tomKartaStil(kartlager, kartlagerStyrka)), [kartlager, kartlagerStyrka]);
   useObjektPrickar({ map: karta, aktiv: true, prickar, aterstall: false });
   // Maskinerna där de senast hördes (Martin 2026-11-05) — samma prickar som på planeringskartan. Den egna maskinen (maskinläget) ritas inte.
   useMaskinerNu({ map: karta, aktiv: true, utan: maskin?.maskinId ?? null });

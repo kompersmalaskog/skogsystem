@@ -93,7 +93,7 @@ describe('hooken och listan', () => {
 
 describe('markeringarna göms medan listan är öppen, och symbolerna klipps på zoom — bara i planeringsvyn', () => {
   it('gömningen gäller bara när kartan tar trycken OCH listan är öppen (annars som förut); återställs vid stängning/val', () => {
-    const i = page.indexOf("const d = skapaLagerDoljare(map, { visaKarta: mapType === 'ritad' });");
+    const i = page.indexOf("const d = skapaLagerDoljare(map, { visaKarta: arRitadKarta(mapType) });");
     const effekt = page.slice(page.lastIndexOf('useEffect(() => {', i), page.indexOf('}, [objektKartaTryck, objektListaOppen, mapLibreReady, mapType]);', i));
     expect(effekt).toContain('!(objektKartaTryck && objektListaOppen)) return;');
     expect(effekt).toContain("map.on('styledata', d.dolj);");
