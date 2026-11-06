@@ -12,6 +12,7 @@ export const BASKARTA_BILD: Readonly<Record<string, string>> = {
   terrain: 'linear-gradient(135deg, #e8e4cf, #a9bd8e, #d8c9a0)',
   osm: 'linear-gradient(135deg, #f2efe9, #aad3df)',
   ritad: 'linear-gradient(135deg, #20462e, #305c3a, #76684f)',
+  mork: 'linear-gradient(135deg, #0b0d10, #1a1d22 55%, #6e7075)',
 };
 
 /** Lager som inte kommer ur LayerDef (overlayLista i sidan): en färg per id. */

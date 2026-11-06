@@ -30,6 +30,8 @@ export const KARTBAS_DAMPAD: Record<Kartlager, RasterPaint> = {
   osm: { 'raster-brightness-max': 0.72, 'raster-contrast': -0.04, 'raster-saturation': -0.55 },
   // Ritad: skogsbilden ur laserdatan (lib/ritadKarta). Den är redan mörk och lugn, så Dämpad tar bara ned den lite.
   ritad: { 'raster-brightness-max': 0.7, 'raster-contrast': 0, 'raster-saturation': -0.4 },
+  // Mörk (Tesla, lib/ritadKarta/mork): samma skogsbild som Ritad men nästan svart — trakten (det avverkade) är ljusast, skogen bara en aning.
+  mork: { 'raster-brightness-max': 0.18, 'raster-contrast': 0, 'raster-saturation': -0.7 },
 };
 
 /** Skarp (100): ingen nedtoning — samma egenskaper som Dämpad så att varje nyckel kan interpoleras. */
@@ -39,6 +41,8 @@ export const KARTBAS_SKARP: Record<Kartlager, RasterPaint> = {
   terrain: { 'raster-brightness-max': 1, 'raster-contrast': 0, 'raster-saturation': 0 },
   osm: { 'raster-brightness-max': 1, 'raster-contrast': 0, 'raster-saturation': 0 },
   ritad: { 'raster-brightness-max': 1, 'raster-contrast': 0, 'raster-saturation': 0 },
+  // Mörk är mörk också i Skarp: reglaget avgör hur mycket av skogen som syns, aldrig en ljus karta.
+  mork: { 'raster-brightness-max': 0.45, 'raster-contrast': 0.05, 'raster-saturation': -0.35 },
 };
 
 /** Reglagets standard: nästan Skarp. */
