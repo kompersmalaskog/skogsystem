@@ -27,3 +27,17 @@ export function analysKortOrd(a: TraktAnalys): string | null {
   const r = listRad(a);
   return r && r.kategori ? r.text : null;
 }
+
+/**
+ * Allt traktanalysen hittat PÅ trakten, på EN rad — under trakten i maskinens plan (Martin 2026-11-06: "på denna trakten är det ju
+ * varning för tre saker" — planen sa bara "Vattenskydd" fast Natura 2000 och nyckelbiotop också ligger på trakten).
+ * Ett ord per sort, i markenRader-ordning: "Vattenskydd · Natura 2000 · Nyckelbiotop". Bara fossil åker = "Fossil åker – kräver barmark".
+ * Listorna (Trakter, Planeringens objektlista) har kvar listRad — samma rad som Planeringen, högst en sak.
+ */
+export function analysAllaOrd(a: TraktAnalys): string | null {
+  if (a.lage !== 'klar') return null;
+  const r = markenRader(a).filter((x) => x.kategori);
+  if (!r.length) return null;
+  if (r.length === 1 && r[0].kategori === 'barmark') return `${r[0].text.split(' · ')[0]} – kräver barmark`;
+  return r.map((x) => (x.kategori === 'barmark' ? `${x.text.split(' · ')[0]} – barmark` : x.text)).join(' · ');
+}

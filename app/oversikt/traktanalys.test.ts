@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { analysRader, analysKortOrd, fyndFarg, lasTraktAnalys } from './traktanalys';
+import { analysRader, analysKortOrd, analysAllaOrd, fyndFarg, lasTraktAnalys } from './traktanalys';
 import { GRUPPER } from '@/lib/larm/grupper';
 
 // Serverns analys (objekt.trakt_analys) — bara fynd som ligger PÅ trakten (exakt intersect mot Vidas gräns).
@@ -28,5 +28,19 @@ describe('traktanalysen i Översikten = lib/traktAnalys/markning, ingen egen tol
   });
   it('analyserad utan fynd = inga rader (aldrig en bekräftelse)', () => {
     expect(analysRader(lasTraktAnalys({ trakt_analys: { at, fynd: [], fel: [] } }))).toEqual([]);
+  });
+  it('planen säger ALLT på trakten (Bengt-Eric, prod 2026-11-06: vattenskydd, Natura 2000, tre nyckelbiotoper)', () => {
+    const a = lasTraktAnalys({ trakt_analys: { at, fel: [], fynd: [
+      { type: 'vattenskydd', name: 'Älmhult' }, { type: 'natura2000', name: 'Prästängen' },
+      { type: 'nyckelbiotop', name: 'Ädellöv syd kyrka väst väg' }, { type: 'nyckelbiotop', name: 'Strandskog syd kyrkan' }, { type: 'nyckelbiotop', name: 'HAGMARK I SÄLLHULT' },
+    ] } });
+    expect(analysAllaOrd(a)).toBe('Vattenskydd · Natura 2000 · Nyckelbiotop');
+    expect(analysKortOrd(a)).toBe('Vattenskydd');
+  });
+  it('bara fossil åker = samma ord som kartan; inget/ej analyserad = inget', () => {
+    expect(analysAllaOrd(lasTraktAnalys({ trakt_analys: { at, fel: [], fynd: [{ type: 'fornlamning', name: 'Fossil åker' }] } }))).toBe('Fossil åker – kräver barmark');
+    expect(analysAllaOrd(lasTraktAnalys({ trakt_analys: { at, fel: [], fynd: [{ type: 'fornlamning', name: 'Fossil åker' }, { type: 'nyckelbiotop', name: 'x' }] } }))).toBe('Fossil åker – barmark · Nyckelbiotop');
+    expect(analysAllaOrd(lasTraktAnalys({ trakt_analys: { at, fel: [], fynd: [] } }))).toBeNull();
+    expect(analysAllaOrd(lasTraktAnalys({}))).toBeNull();
   });
 });

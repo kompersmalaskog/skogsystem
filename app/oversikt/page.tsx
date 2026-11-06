@@ -43,7 +43,7 @@ import { MinPlan } from './MinPlan';
 import { kortNamn, kortaNamn } from './kortNamn';
 import { trakterGrupper } from './trakterLista';
 import { TrakterPanel, KartMeny, KartMenyKnapp, TRAKTER_SIDOKOLUMN_FRAN_PX } from './TrakterPanel';
-import { analysKortOrd, analysRader, lasTraktAnalys } from './traktanalys';
+import { analysAllaOrd, analysKortOrd, analysRader, lasTraktAnalys } from './traktanalys';
 import { listRad } from '@/lib/traktAnalys/markning';
 import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, INAKTIV, designCss, KNAPP as TOKEN_KNAPP, KOLUMN } from '@/lib/design/tokens';
 import { navigeringsMal, navigeringsUrl, type NavObjekt } from '@/lib/navigera';
@@ -1585,9 +1585,9 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
             const korta = kortaNamn([...(f.nuObjekt ? [f.nuObjekt.namn] : []), ...koPoster.map((p) => p.objekt.namn)]);
             const nuKort = f.nuObjekt ? korta[0] : null;
             const koKort = korta.slice(f.nuObjekt ? 1 : 0);
-            // Under namnet: en fara (som förut) och vad traktanalysen hittat — orange, samma signal som ringen på kartan (Martin 2026-11-06).
+            // Under namnet: en fara (som förut) och ALLT traktanalysen hittat på trakten, en rad (Martin 2026-11-06: "varning för tre saker").
             const underFor = (o: OversiktObjekt) => {
-              const fara = faraRad(varning(o.id)); const fynd = analysKortOrd(lasTraktAnalys(o));
+              const fara = faraRad(varning(o.id)); const fynd = analysAllaOrd(lasTraktAnalys(o));
               return [fara, fynd ? { text: fynd, color: FARG.orange } : null].filter((x): x is { text: string; color: string } => !!x);
             };
             const stationer: { key: string; prick: React.ReactNode; namn: string; hoger: string; under: { text: string; color: string }[]; onClick?: () => void; sista: boolean }[] = [
