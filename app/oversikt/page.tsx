@@ -910,13 +910,17 @@ export default function OversiktV2Page() {
       koObj.forEach((o, i) => {
         if (o.lat == null || o.lng == null) return;
         const troligt = troligtSet.has(o.id);
+        // Traktanalysen syns också i planen (Martin 2026-11-06: "jag ser det inte på trakten från jag trycker på wisenten"):
+        // samma signal som översiktskartan — orange ring runt siffran och ordet efter namnet. Hela listan står i arket.
+        const fyndOrd = analysKortOrd(lasTraktAnalys(o));
         const circ = document.createElement('div');
-        circ.style.cssText = `width:26px;height:26px;border-radius:50%;background:${FARG.gron};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:${FARG.bg};opacity:${troligt ? 0.6 : 1};pointer-events:none;box-shadow:0 0 0 2px ${FARG.text},0 1px 4px rgba(0,0,0,0.4)`;
+        circ.style.cssText = `width:26px;height:26px;border-radius:50%;background:${FARG.gron};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:${FARG.bg};opacity:${troligt ? 0.6 : 1};pointer-events:none;box-shadow:0 0 0 2px ${FARG.text}${fyndOrd ? `,0 0 0 5px ${FARG.orange}` : ''},0 1px 4px rgba(0,0,0,0.4)`;
         circ.textContent = String(i + 1);
         stopMarkersRef.current.push(new window.maplibregl.Marker({ element: circ, anchor: 'center' }).setLngLat([o.lng, o.lat]).addTo(map));
         const nameChip = document.createElement('div');
         nameChip.style.cssText = `padding:3px 8px;background:${CHIP_BG};border-radius:8px;font-size:12px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;opacity:${troligt ? 0.8 : 1};box-shadow:0 2px 8px rgba(0,0,0,0.35)`;
         nameChip.textContent = `${korta[i]}${arGrotKo(o) ? ' · GROT' : ''}`; // GROT-trakter märks
+        if (fyndOrd) { const f = document.createElement('span'); f.style.color = FARG.orange; f.textContent = ` · ${fyndOrd}`; nameChip.appendChild(f); }
         stopMarkersRef.current.push(new window.maplibregl.Marker({ element: nameChip, anchor: 'left', offset: [18, 0] }).setLngLat([o.lng, o.lat]).addTo(map));
         stopChipsRef.current.push(nameChip);
       });
