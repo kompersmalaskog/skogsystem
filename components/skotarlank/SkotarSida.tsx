@@ -26,6 +26,8 @@ import { vidaSlagIFeatures } from '@/lib/teckenforklaring';
 import { KALLA, LAGER, STANDARD_LAGER, finns as finnsLager, kallor, lagerIdn, lagerOrdning, markeringKort, vidaKort, type Data, type Lager, type LngLat, type TryckKort } from '@/lib/skotarlank/karta';
 import type { HogSortiment, SkotarHog } from '@/lib/skotarlank/hogar';
 import type { Avlagg } from '@/lib/skotarlank/avlagg';
+import { ritaRuta, RUTA_BILD, RUTA_STRACK } from '@/lib/skotarLass/avlaggKarta';
+import { laggTillTeckenBilder } from '@/lib/kommentarTecken';
 import { SiffraKnapp, SifferPlatta, StegKnapp } from '@/components/planering/skotar/StegKnapp';
 import { hallSkarmenVakenIWebblasare } from '@/lib/skarmVaken';
 import { useRitadSkotare } from '@/lib/skotarlank/useRitadSkotare';
@@ -112,6 +114,12 @@ async function laggTillBilder(map: maplibregl.Map): Promise<void> {
   for (const f of BACKVAG_STRECK_FARGER) lagg(backvagIkonNamn(f), canvasToMapLibreImage(ritaBackvagStreck(f)));
   for (const g of SNEDSTRECK_GRUPPER) lagg(snedstreckId(g), snedstreckBild(g));
   lagg('kraftledning-stolpe', canvasToMapLibreImage(ritaStolpeIkon()));
+  // Avläggens vita ruta (samma bild som skotarläget) och bubblan/kameran på markeringar med kommentar eller foto.
+  try {
+    const ruta = ritaRuta();
+    if (ruta && !map.hasImage(RUTA_BILD)) map.addImage(RUTA_BILD, ruta, { pixelRatio: 2, stretchX: RUTA_STRACK.stretchX.map((r) => [...r]) as never, stretchY: RUTA_STRACK.stretchY.map((r) => [...r]) as never, content: [...RUTA_STRACK.content] as never });
+  } catch { /* fäller inte kartan */ }
+  laggTillTeckenBilder(map);
   await Promise.all(laddar);
 }
 
@@ -332,7 +340,7 @@ export default function SkotarSida({ token }: { token: string }) {
       // Det under fingret (26 px åt varje håll): symbol före hög före linje före yta.
       const r = 26;
       const traffar = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]])
-        .filter((f) => f.source === KALLA.mark || f.source === KALLA.vida || f.source === KALLA.hogar || f.source === KALLA.egnaAvlagg)
+        .filter((f) => f.source === KALLA.mark || f.source === KALLA.vida || f.source === KALLA.hogar || f.source === KALLA.avlagg)
         // En hög träffas bara när fingret är PÅ den (högarna ligger tätt; annars går det aldrig att trycka på ytan under dem).
         .filter((f) => {
           if (f.source !== KALLA.hogar || f.geometry.type !== 'Point') return true;
@@ -351,7 +359,7 @@ export default function SkotarSida({ token }: { token: string }) {
       const p = f.properties ?? {};
       setSparFel(null);
       // Ett avlägg (hans eget, planerarens eller Vidas) öppnar avläggskortet: det som lossats där och Lossa här.
-      const ref = f.source === KALLA.egnaAvlagg ? String(p.ref ?? '')
+      const ref = f.source === KALLA.avlagg ? String(p.ref ?? '')
         : f.source === KALLA.mark && typeof p.i === 'number' && vy.markeringar[p.i]?.type === 'landing' ? `plan:${String(vy.markeringar[p.i].id)}`
           : f.source === KALLA.vida && typeof p.vi === 'number' && vy.vida[p.vi]?.properties._typ === 'punkt' ? `vida:${String(vy.vida[p.vi].properties.EXTRA_LABE ?? vy.vida[p.vi].properties.LOPNR ?? '').trim()}` : '';
       if (ref && vy.avlagg?.some((a) => a.ref === ref)) { setKort(null); setAvlaggRef(ref); return; }

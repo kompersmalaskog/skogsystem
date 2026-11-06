@@ -5,7 +5,7 @@ import path from 'path';
 import { skotarHogar, type Stam } from './hogar';
 import { arGiltigtSkotarToken, arOffentligSkotarSokvag, arSkotarSida, skotarUrl } from './offentlig';
 import { lasSkotarVy, origoUtanVida, rensaMarkering, rensaSkotarCache, rensaVida, skotarFoto, skotarVySvar, slaUppSkotarLank, MARKERING_FALT } from './server';
-import { kallor, markeringKort, vidaKort, lagerIdn, lagerOrdning } from './karta';
+import { KALLA, kallor, markeringKort, vidaKort, lagerIdn, lagerOrdning } from './karta';
 import { skotarManifest } from './manifest';
 
 const rot = path.resolve(__dirname, '../..');
@@ -182,14 +182,46 @@ describe('högarna', () => {
 });
 
 describe('kartan', () => {
-  it('avläggets nummer får en etikett, och ett tryck visar namn, betydelse, kommentar och foto', () => {
+  it('alla avlägg (hans, planerarens, Vidas) blir vita rutor med numret, och ett tryck visar namn, betydelse, kommentar och foto', () => {
     const origo = { lat: 56.6, lng: 15.0 } as any;
-    const k = kallor({ origo, markeringar: [{ id: 'm1', isMarker: true, type: 'landing', x: 0, y: 0, nummer: 3, comment: 'Lägg massan här', foto: true }], vida: [], gran: [], spar: [], hogar: null });
-    expect((k['sk-avlagg-nr'] as any).features[0].properties.nr).toBe('3');
+    const avlagg = [
+      { ref: 'egen:a', kalla: 'egen', nr: '1', lng: 15, lat: 56.6 },
+      { ref: 'plan:m1', kalla: 'plan', nr: '3', lng: 15, lat: 56.6 },
+      { ref: 'vida:01-1', kalla: 'vida', nr: '01-1', lng: 15, lat: 56.6 },
+      { ref: 'plan:m2', kalla: 'plan', nr: '', lng: 15, lat: 56.6 },
+    ];
+    const k = kallor({ origo, markeringar: [{ id: 'm1', isMarker: true, type: 'landing', x: 0, y: 0, nummer: 3, comment: 'Lägg massan här', foto: true }], vida: [], gran: [], spar: [], hogar: null, avlagg });
+    expect((k[KALLA.avlagg] as any).features.map((f: any) => f.properties.nr)).toEqual(['1', '3', '01-1', 'Avlägg']);
+    // Planerarens avläggssymbol ritas inte en gång till under rutan, och Vidas punkt har inget eget lager längre.
+    const sym = lagerOrdning().find((l) => l.id === 'sk-v-sym');
+    expect(JSON.stringify(sym.filter)).toContain('landing');
+    expect(lagerOrdning().map((l) => l.id).filter((id) => /avlagg/.test(id))).toEqual(['sk-avlagg']);
+    expect(lagerOrdning().find((l) => l.id === 'sk-avlagg')?.layout['icon-image']).toBe('skotar-avlagg-ruta');
     const kort = markeringKort({ id: 'm1', type: 'landing', nummer: 3, comment: 'Lägg massan här', foto: true }, { m1: ['Blött i svängen'] });
     expect(kort).toMatchObject({ typ: 'markering', fotoId: 'm1', kommentarer: ['Lägg massan här', 'Blött i svängen'] });
     expect((kort as any).namn).toMatch(/3/);
     expect((kort as any).forklaring.length).toBeGreaterThan(0);
+  });
+  it('bubbla när någon skrivit något, kamera när det finns foto — på symbolen, och mitt på linjer och ytor', () => {
+    const origo = { lat: 56.6, lng: 15.0 } as any;
+    const k = kallor({
+      origo, gran: [], spar: [], hogar: null, vida: [], kommentarer: { s2: ['Blött'], l1: ['Kör inte här'] },
+      markeringar: [
+        { id: 's1', isMarker: true, type: 'warning', x: 0, y: 0, foto: true },
+        { id: 's2', isMarker: true, type: 'warning', x: 10, y: 0 },
+        { id: 's3', isMarker: true, type: 'warning', x: 20, y: 0, comment: 'Sten', foto: true },
+        { id: 's4', isMarker: true, type: 'warning', x: 30, y: 0, comment: '  ' },
+        { id: 'l1', isLine: true, lineType: 'stonewall', path: [{ x: 0, y: 0 }, { x: 100, y: 0 }] },
+      ],
+    });
+    const mark = (k[KALLA.mark] as any).features;
+    expect(mark.map((f: any) => f.properties.kommentar ?? null)).toEqual(['foto', 'text', 'bada', null, null]);
+    const fri = (k[KALLA.tecken] as any).features;
+    expect(fri).toHaveLength(1);
+    expect(fri[0].properties).toMatchObject({ kommentar: 'text', i: 4 });
+    // Tecknen följer sitt lagerval: varje tecken-lager hör till ett val.
+    const idn = Object.values(lagerIdn()).flat();
+    for (const l of lagerOrdning().filter((x) => /tecken/.test(x.id))) expect(idn).toContain(l.id);
   });
   it('Vidas hänsyn och avlägg har namn och betydelse', () => {
     expect(vidaKort({ _typ: 'hänsynsyta', LOPNR: 3, FLBESKR: 'Kantzon' })).toMatchObject({ namn: expect.stringMatching(/3$/), kommentarer: ['Kantzon'] });

@@ -16,10 +16,14 @@ import type { Origo } from '@/lib/kartkoordinater';
 import { kartSpar } from '@/lib/sparStil';
 import { arOvrigYta } from '@/lib/vidaYtaTyp';
 import type { SkotarHog } from './hogar';
+import { kommentarTecken, linjeMitt } from '@/lib/kommentarTecken';
+import { inrePunkt } from '@/lib/ytaEtikett';
+import { RUTA_BILD } from '@/lib/skotarLass/avlaggKarta';
 
 export type LngLat = [number, number];
 
-export const KALLA = { mark: 'sk-mark', avlaggNr: 'sk-avlagg-nr', vida: 'sk-vida', hogar: 'sk-hogar', egnaAvlagg: 'sk-egna-avlagg' } as const;
+/** `avlagg` = ALLA avlägg (hans egna, planerarens och Vidas) som skotarlägets vita rutor med numret. `tecken` = bubbla/kamera mitt på linjer och ytor. */
+export const KALLA = { mark: 'sk-mark', vida: 'sk-vida', hogar: 'sk-hogar', avlagg: 'sk-avlagg', tecken: 'sk-tecken' } as const;
 const HEL = { opacitet: 1, breddFaktor: 1 };
 const FONT = ['Open Sans Bold'];
 
@@ -57,8 +61,10 @@ export type Data = {
   gran: LngLat[][];
   spar: LngLat[][];
   hogar: { hogar: SkotarHog[] } | null;
-  /** Avläggen med rapporterade lass; de egna (satta via länken) ritas av kartan här, planerarens och Vidas med sina egna lager. */
+  /** Avläggen med rapporterade lass — alla ritas här som vita rutor med numret (samma som skotarläget). */
   avlagg?: { ref: string; kalla: string; nr: string; lng: number; lat: number }[] | null;
+  /** Kartkommentarernas text per markering (id). Ger bubblan på symbolen. */
+  kommentarer?: Record<string, string[]> | null;
 };
 
 const fc = (features: unknown[]) => ({ type: 'FeatureCollection', features });
@@ -66,16 +72,22 @@ const fc = (features: unknown[]) => ({ type: 'FeatureCollection', features });
 /** Källorna som kartan fyller. Varje markering bär sin plats i listan (`i`) så att ett tryck hittar den. */
 export function kallor(d: Data) {
   const mark: any[] = [];
-  const avlaggNr: any[] = [];
+  const tecken: any[] = [];
   const backvag: any[] = [];
   if (d.origo) {
     d.markeringar.forEach((m, i) => {
       const f = kontextFeature(m, d.origo!);
       if (!f) return;
-      mark.push({ ...f, properties: { ...f.properties, i, del: markeringDel(f as never) } });
-      const nr = m.nummer ?? m.avlaggNummer;
-      if (m.type === 'landing' && nr != null && String(nr).trim() && f.geometry.type === 'Point') {
-        avlaggNr.push({ type: 'Feature', properties: { nr: String(nr).trim() }, geometry: f.geometry });
+      const delen = markeringDel(f as never);
+      // Bubbla när någon skrivit något på markeringen, kamera när den har ett foto (lib/kommentarTecken, som körvyn). Texten skrivs aldrig på kartan.
+      const harText = (d.kommentarer?.[String(m.id)]?.length ?? 0) > 0 || (typeof m.comment === 'string' && m.comment.trim() !== '');
+      const slag = kommentarTecken(harText, m.foto === true);
+      const kind = (f.properties as any).kind;
+      mark.push({ ...f, properties: { ...f.properties, i, del: delen, ...(slag && kind === 'symbol' ? { kommentar: slag } : {}) } });
+      if (slag && kind !== 'symbol') {
+        const g: any = f.geometry;
+        const p = g.type === 'Point' ? g.coordinates : kind === 'linje' ? linjeMitt(g.coordinates) : g.type === 'Polygon' && g.coordinates?.[0]?.length >= 3 ? inrePunkt(g.coordinates) : null;
+        if (p) tecken.push({ type: 'Feature', properties: { i, del: delen, kommentar: slag }, geometry: { type: 'Point', coordinates: p } });
       }
       const b = backvagFeatureUrData(m, d.origo!, undefined, false);
       if (b) backvag.push(b);
@@ -85,13 +97,13 @@ export function kallor(d: Data) {
   const hogar = (d.hogar?.hogar ?? []).map((h, i) => ({ type: 'Feature', properties: { hi: i, v: h.m3, farg: h.farg, a: h.a }, geometry: { type: 'Point', coordinates: [h.lng, h.lat] } }));
   return {
     [KALLA.mark]: fc(mark),
-    [KALLA.avlaggNr]: fc(avlaggNr),
+    [KALLA.tecken]: fc(tecken),
     [BACKVAG_KALLA]: fc(backvag),
     [KALLA.vida]: fc(vida),
     [VIDA_GRANS_KALLA]: fc(vidaGransFeatures(d.gran)),
     [SPAR_KALLA.skordare]: fc(sparFeatures(d.spar.map((l) => l.map(([lng, lat]) => ({ lat, lng }))))),
     [KALLA.hogar]: fc(hogar),
-    [KALLA.egnaAvlagg]: fc((d.avlagg ?? []).filter((a) => a.kalla === 'egen').map((a) => ({ type: 'Feature', properties: { ref: a.ref, nr: a.nr }, geometry: { type: 'Point', coordinates: [a.lng, a.lat] } }))),
+    [KALLA.avlagg]: fc((d.avlagg ?? []).map((a) => ({ type: 'Feature', properties: { ref: a.ref, nr: a.nr || 'Avlägg' }, geometry: { type: 'Point', coordinates: [a.lng, a.lat] } }))),
   };
 }
 
@@ -99,7 +111,6 @@ const FLB = ['downcase', ['to-string', ['coalesce', ['get', 'FLBESKR'], '']]];
 const VIDA_LINJE = ['==', ['get', '_typ'], 'linje'];
 const VIDA_KRAFT = ['all', VIDA_LINJE, ['in', 'kraftled', FLB]];
 const VIDA_BASVAG = ['all', VIDA_LINJE, ['!', ['in', 'kraftled', FLB]]];
-const VIDA_AVLAGG = ['==', ['get', '_typ'], 'punkt'];
 const NB = ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'];
 const RAA_YTA = ['==', ['get', '_lager'], 'L_RAA_POLY_101'];
 const del = (d: Del) => ['==', ['get', 'del'], d];
@@ -108,6 +119,32 @@ const del = (d: Del) => ['==', ['get', 'del'], d];
 const egnaYtor = (d: Del, prefix: string) => [
   ...zonFyllLager(KALLA.mark, prefix, del(d)), ...zonSnedstreckLager(KALLA.mark, prefix, del(d)), ...zonKantLager(KALLA.mark, prefix, del(d)),
 ];
+
+/** Bubblan/kameran i symbolens hörn: samma källa, storlek och plats som symbolen (bilden har symbolbildens mått). */
+function hornLager(prefix: string, filter: any[]) {
+  const storlek = symbolLager(KALLA.mark, prefix, null).layout['icon-size'];
+  return {
+    id: `${prefix}-tecken`, type: 'symbol', source: KALLA.mark,
+    filter: ['all', ['==', ['get', 'kind'], 'symbol'], ['has', 'kommentar'], filter],
+    layout: {
+      'icon-image': ['concat', 'kommentar-', ['get', 'kommentar']], 'icon-size': storlek,
+      'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center',
+      'icon-pitch-alignment': 'viewport', 'icon-rotation-alignment': 'viewport',
+    },
+  };
+}
+
+/** Bubblan/kameran mitt på en linje, i en yta eller på en pil. */
+function friLager(prefix: string, filter: any[]) {
+  return {
+    id: `${prefix}-tecken-fri`, type: 'symbol', source: KALLA.tecken, filter,
+    layout: {
+      'icon-image': ['concat', 'kommentar-fri-', ['get', 'kommentar']], 'icon-size': 1,
+      'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center',
+      'icon-pitch-alignment': 'viewport', 'icon-rotation-alignment': 'viewport',
+    },
+  };
+}
 
 /** Lagren per val. Ritordningen bestäms av lagerOrdning (ytor underst, symboler och nummer överst). */
 export function lagerSpec() {
@@ -134,8 +171,10 @@ export function lagerSpec() {
   const ovrigtSymboler = [
     pilLager(M, 'sk-o', HEL),
     symbolLager(M, 'sk-o', del('ovrigt')),
+    hornLager('sk-o', del('ovrigt')), friLager('sk-o', del('ovrigt')),
     { id: 'sk-vida-raa-punkt', type: 'circle', source: KALLA.vida, filter: ['==', ['get', '_lager'], 'L_RAA_POINT_101'], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 7], 'circle-color': FARG_KULTUR, 'circle-stroke-color': '#1a1a1a', 'circle-stroke-width': 1.5 } },
   ];
+  const skyddTecken = [friLager('sk-s', del('skydd'))];
   const grans = [...vidaGransLager(), ...linjeLager(M, 'sk-g', null, undefined, { endast: ['boundary'] })];
   const vagar = [
     { id: 'sk-vida-basvag', type: 'line', source: KALLA.vida, filter: VIDA_BASVAG, paint: { 'line-color': ['coalesce', ['get', '_farg'], VIDA_BASVAG_FARG], 'line-width': 4 }, layout: { 'line-cap': 'round' } },
@@ -143,18 +182,25 @@ export function lagerSpec() {
     ...backvagLager(),
   ];
   const vagSymboler = [
-    symbolLager(M, 'sk-v', del('vag')),
-    { id: 'sk-avlagg-nr', type: 'symbol', source: KALLA.avlaggNr, layout: { 'text-field': ['get', 'nr'], 'text-size': 13, 'text-font': FONT, 'text-offset': [0, 2.2], 'text-anchor': 'top', 'text-allow-overlap': true }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.8)', 'text-halo-width': 1.4 } },
-    { id: 'sk-vida-avlagg', type: 'symbol', source: KALLA.vida, filter: VIDA_AVLAGG, layout: { 'icon-image': 'marker-landing', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.15, 13, 0.3, 15, 0.5, 17, 0.75], 'icon-allow-overlap': true, 'icon-ignore-placement': true } },
-    { id: 'sk-eget-avlagg', type: 'symbol', source: KALLA.egnaAvlagg, layout: { 'icon-image': 'marker-landing', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.15, 13, 0.3, 15, 0.5, 17, 0.75], 'icon-allow-overlap': true, 'icon-ignore-placement': true } },
-    { id: 'sk-eget-avlagg-nr', type: 'symbol', source: KALLA.egnaAvlagg, layout: { 'text-field': ['get', 'nr'], 'text-size': 13, 'text-font': FONT, 'text-offset': [0, 2.4], 'text-anchor': 'top', 'text-allow-overlap': true, 'text-optional': true }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.8)', 'text-halo-width': 1.4 } },
-    { id: 'sk-vida-avlagg-nr', type: 'symbol', source: KALLA.vida, filter: VIDA_AVLAGG, layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'LOPNR'], '']], 'text-size': 13, 'text-font': FONT, 'text-offset': [0, 2.4], 'text-anchor': 'top', 'text-allow-overlap': true, 'text-optional': true }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.8)', 'text-halo-width': 1.4 } },
+    // Avläggen ritas som rutor (nedan) — planerarens avläggssymbol ritas inte en gång till.
+    symbolLager(M, 'sk-v', ['all', del('vag'), ['!=', ['get', 'typ'], 'landing']]),
+    hornLager('sk-v', del('vag')), friLager('sk-v', del('vag')),
+    // ALLA avlägg som skotarlägets vita rutor med numret (lib/skotarLass/avlaggKarta): syns på flygfoto, karta och Ritad.
+    {
+      id: 'sk-avlagg', type: 'symbol', source: KALLA.avlagg,
+      layout: {
+        'icon-image': RUTA_BILD, 'icon-text-fit': 'both', 'icon-text-fit-padding': [3, 7, 3, 7], 'icon-size': 1, 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+        'text-field': ['to-string', ['get', 'nr']], 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 12, 14, 16, 17, 20], 'text-font': FONT,
+        'text-allow-overlap': true, 'text-ignore-placement': true, 'text-anchor': 'center',
+      },
+      paint: { 'text-color': '#000000' },
+    },
   ];
   const faraLinjer = [
     ...kraftledningLager(KALLA.vida, 'sk-kraft', VIDA_KRAFT),
     ...linjeLager(M, 'sk-f', null, undefined, { endast: Object.keys(LINJE_GRUPP).filter((t) => LINJE_GRUPP[t] === 'fara') }),
   ];
-  const faraSymboler = [symbolLager(M, 'sk-f', del('fara'))];
+  const faraSymboler = [symbolLager(M, 'sk-f', del('fara')), hornLager('sk-f', del('fara')), friLager('sk-f', del('fara'))];
   // Skördarens stråk som i maskinernas skotarläge (lib/sparStil kartSpar, skotarläget): lila, brett, mörk kant.
   const sp = kartSpar('plan', true);
   const spar = [
@@ -175,13 +221,13 @@ export function lagerSpec() {
       'circle-stroke-opacity': ['coalesce', ['get', 'a'], 0.95],
     },
   }];
-  return { skydd, ovrigtYtor, ovrigtSymboler, grans, vagar, vagSymboler, faraLinjer, faraSymboler, spar, hogar };
+  return { skydd, skyddTecken, ovrigtYtor, ovrigtSymboler, grans, vagar, vagSymboler, faraLinjer, faraSymboler, spar, hogar };
 }
 
 /** Lagren i den ordning de läggs på kartan: ytor underst, sedan gräns, vägar, fara, spår, högar och överst symbolerna (faran överst av allt). */
 export function lagerOrdning(): any[] {
   const s = lagerSpec();
-  return [...s.ovrigtYtor, ...s.skydd, ...s.grans, ...s.vagar, ...s.faraLinjer, ...s.spar, ...s.hogar, ...s.ovrigtSymboler, ...s.vagSymboler, ...s.faraSymboler];
+  return [...s.ovrigtYtor, ...s.skydd, ...s.grans, ...s.vagar, ...s.faraLinjer, ...s.spar, ...s.hogar, ...s.skyddTecken, ...s.ovrigtSymboler, ...s.vagSymboler, ...s.faraSymboler];
 }
 
 /** Vilka lager-id som hör till vilket val. */
@@ -190,7 +236,7 @@ export function lagerIdn(): Record<Lager, string[]> {
   const id = (l: any[]) => l.map((x) => x.id as string);
   return {
     grans: id(s.grans), spar: id(s.spar), hogar: id(s.hogar), vagar: [...id(s.vagar), ...id(s.vagSymboler)], fara: [...id(s.faraLinjer), ...id(s.faraSymboler)],
-    skydd: id(s.skydd), ovrigt: [...id(s.ovrigtYtor), ...id(s.ovrigtSymboler)],
+    skydd: [...id(s.skydd), ...id(s.skyddTecken)], ovrigt: [...id(s.ovrigtYtor), ...id(s.ovrigtSymboler)],
   };
 }
 
@@ -206,7 +252,7 @@ export function finns(d: Data, k: ReturnType<typeof kallor>): Record<Lager, bool
     grans: d.gran.length > 0 || mark.some((f) => p(f).typ === 'boundary'),
     spar: d.spar.length > 0,
     hogar: (d.hogar?.hogar.length ?? 0) > 0,
-    vagar: harDel('vag') || (d.avlagg ?? []).some((a) => a.kalla === 'egen') || vida.some((f) => (p(f)._typ === 'linje' && !arVidaKraft(f)) || p(f)._typ === 'punkt'),
+    vagar: harDel('vag') || (d.avlagg ?? []).length > 0 || vida.some((f) => (p(f)._typ === 'linje' && !arVidaKraft(f)) || p(f)._typ === 'punkt'),
     fara: harDel('fara') || vida.some(arVidaKraft),
     skydd: harDel('skydd') || vidaSkydd,
     ovrigt: harDel('ovrigt') || vida.some((f) => arOvrigYta(p(f)) || p(f)._lager === 'L_RAA_LINE_101' || p(f)._lager === 'L_RAA_POINT_101'),
