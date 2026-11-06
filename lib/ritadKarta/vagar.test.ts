@@ -88,7 +88,9 @@ describe('vägarnas utseende (Martin 2026-11-03: grusfärg, aldrig vitt)', () =>
 
   it('nyckeln stannar på servern', () => {
     const route = fs.readFileSync(path.resolve(__dirname, '../../app/api/ritad-karta/vagar/route.ts'), 'utf8');
-    expect(route).toContain('process.env.TRAFIKVERKET_API_KEY');
+    const server = fs.readFileSync(path.resolve(__dirname, './serverHamta.ts'), 'utf8');
+    expect(server).toContain('process.env.TRAFIKVERKET_API_KEY');
+    expect(server).not.toContain("'use client'");
     expect(route).toContain('kravInloggad');
     const hook = fs.readFileSync(path.resolve(__dirname, '../hooks/useRitadKarta.ts'), 'utf8');
     expect(hook).not.toContain('TRAFIKVERKET');

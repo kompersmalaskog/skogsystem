@@ -5,7 +5,7 @@ import { TOKEN_MIN_TECKEN } from '@/lib/besok/konstanter';
 
 const TOKEN = `[A-Za-z0-9_-]{${TOKEN_MIN_TECKEN},128}`;
 const SIDA = new RegExp(`^/skotare/${TOKEN}/?$`);
-const API = new RegExp(`^/api/skotare/${TOKEN}(?:/(?:karta|foto|manifest|omrade|hog|avlagg|lass))?/?$`);
+const API = new RegExp(`^/api/skotare/${TOKEN}(?:/(?:karta|foto|manifest|omrade|hog|avlagg|lass|ritad))?/?$`);
 
 export const arSkotarSida = (sokvag: string): boolean => SIDA.test(sokvag);
 export const arSkotarApi = (sokvag: string): boolean => API.test(sokvag);

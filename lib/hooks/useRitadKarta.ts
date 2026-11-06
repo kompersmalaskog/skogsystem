@@ -117,7 +117,7 @@ export async function forladdaRitad(objektId: string, punkt: { lat: number; lng:
 }
 
 /** Blött, brant och skuggning (lib/ritadKarta/mark.ts) ur serverns svar. Saknas något ritas skogen ändå och `saknas` säger vad. */
-async function tolkaMark(j: any | null): Promise<{ rutnat: MarkRutnat | null; skugga: CanvasImageSource | null; saknas: string[] }> {
+export async function tolkaMark(j: any | null): Promise<{ rutnat: MarkRutnat | null; skugga: CanvasImageSource | null; saknas: string[] }> {
   if (!j) return { rutnat: null, skugga: null, saknas: ['blött och brant'] };
   try {
     const rutnat: MarkRutnat = { minX: j.minX, maxY: j.maxY, bredd: j.bredd, hojd: j.hojd, rutaM: j.rutaM, fukt: franBase64(j.fukt), lutning: franBase64(j.lutning) };
@@ -149,7 +149,7 @@ function cachad<T extends { typ: string }>(cache: Map<string, Promise<T>>, nycke
 }
 
 
-function laggTillGrund(m: any) {
+export function laggTillGrund(m: any) {
   for (const [id, k] of Object.entries(grundKallor())) if (!m.getSource(id)) m.addSource(id, k);
   for (const l of grundLager()) if (!m.getLayer(l.id)) m.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: 'none' } });
   if (!m.hasImage?.(BRANT_MONSTER)) m.addImage?.(BRANT_MONSTER, snedstreckBild('fara'));
@@ -163,7 +163,7 @@ function laggTillGrund(m: any) {
 }
 
 const TOM = { type: 'FeatureCollection', features: [] };
-function sattSkog(m: any, ritat: Ritat | null, vagar: VagFC | null, diken: DikeFC | null, paint: Record<string, number>) {
+export function sattSkog(m: any, ritat: Ritat | null, vagar: VagFC | null, diken: DikeFC | null, paint: Record<string, number>) {
   m.getSource(RITAD_KALLA.nvdb)?.setData(vagar ?? TOM);
   m.getSource(RITAD_KALLA.diken)?.setData(diken ?? TOM);
   // Finns Trafikverkets vägar ritas OpenStreetMaps bara längre ut än OSM_TILL_ZOOM — annars blir samma väg två parallella vägar.

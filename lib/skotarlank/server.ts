@@ -34,7 +34,7 @@ const FEL = (status: number, fel: string): Svar => ({ status, body: { ok: false,
 
 // ---- Länken ---------------------------------------------------------------------------------------------------------------------------------
 
-export type ObjektRad = { id: string; namn: string; anteckningar?: string | null; vo_nummer: string | null; status: string | null; lat: number | null; lng: number | null; kartbild_bounds: unknown; fastighetsbeteckning: string | null; dim_objekt_id: string | null };
+export type ObjektRad = { id: string; namn: string; typ?: string | null; anteckningar?: string | null; vo_nummer: string | null; status: string | null; lat: number | null; lng: number | null; kartbild_bounds: unknown; fastighetsbeteckning: string | null; dim_objekt_id: string | null };
 export type LankUtfall = { ok: true; objekt: ObjektRad } | { ok: false; skal: 'okand' | 'avstangd' | 'avslutat' | 'fel' };
 
 const AVSLUTAD = (s: string | null) => s === 'avslutat' || s === 'klar';
@@ -45,7 +45,7 @@ export async function slaUppSkotarLank(sb: Sb, token: string): Promise<LankUtfal
   if (l.error) return { ok: false, skal: 'fel' };
   if (!l.data) return { ok: false, skal: 'okand' };
   if (!(l.data as { aktiv: boolean }).aktiv) return { ok: false, skal: 'avstangd' };
-  const o = await sb.from('objekt').select('id, namn, vo_nummer, status, lat, lng, kartbild_bounds, fastighetsbeteckning, dim_objekt_id, anteckningar').eq('id', (l.data as { objekt_id: string }).objekt_id).maybeSingle();
+  const o = await sb.from('objekt').select('id, namn, typ, vo_nummer, status, lat, lng, kartbild_bounds, fastighetsbeteckning, dim_objekt_id, anteckningar').eq('id', (l.data as { objekt_id: string }).objekt_id).maybeSingle();
   if (o.error) return { ok: false, skal: 'fel' };
   if (!o.data) return { ok: false, skal: 'okand' };
   const objekt = o.data as ObjektRad;

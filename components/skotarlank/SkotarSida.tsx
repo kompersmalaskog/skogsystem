@@ -28,6 +28,7 @@ import type { HogSortiment, SkotarHog } from '@/lib/skotarlank/hogar';
 import type { Avlagg } from '@/lib/skotarlank/avlagg';
 import { SiffraKnapp, SifferPlatta, StegKnapp } from '@/components/planering/skotar/StegKnapp';
 import { hallSkarmenVakenIWebblasare } from '@/lib/skarmVaken';
+import { useRitadSkotare } from '@/lib/skotarlank/useRitadSkotare';
 
 type Vy = Omit<Data, 'avlagg'> & {
   ok: true;
@@ -82,11 +83,13 @@ function felText(status: number): string {
   return 'Kartan går inte att hämta just nu. Kontrollera täckningen — sidan försöker igen av sig själv.';
 }
 
-type BasId = 'foto' | 'karta';
+type BasId = 'foto' | 'karta' | 'ritad';
+const BAS_NAMN: Record<BasId, string> = { foto: 'Flygfoto', karta: 'Karta', ritad: 'Ritad' };
+const lasBas = (): BasId => { const b = las<BasId>(LAGRING_BAS, 'foto'); return b === 'karta' || b === 'ritad' ? b : 'foto'; };
 function kartStil(token: string, bas: BasId): maplibregl.StyleSpecification {
   const foto = BASKARTOR.find((b) => b.id === 'satellite');
   const karta = BASKARTOR.find((b) => b.id === 'lantmateriet');
-  const kalla = (lager: BasId) => ({ type: 'raster' as const, tiles: [`${location.origin}/api/skotare/${token}/karta?lager=${lager}&z={z}&x={x}&y={y}`], tileSize: 256, maxzoom: 18, attribution: '© Lantmäteriet' });
+  const kalla = (lager: 'foto' | 'karta') => ({ type: 'raster' as const, tiles: [`${location.origin}/api/skotare/${token}/karta?lager=${lager}&z={z}&x={x}&y={y}`], tileSize: 256, maxzoom: 18, attribution: '© Lantmäteriet' });
   return {
     version: 8,
     sources: { foto: kalla('foto'), karta: kalla('karta') },
@@ -147,7 +150,7 @@ export default function SkotarSida({ token }: { token: string }) {
   const svaljKlick = useRef(false);
 
   // Valen minns per dator.
-  useEffect(() => { setLager(las(LAGRING_LAGER, STANDARD_LAGER)); setBas(las<BasId>(LAGRING_BAS, 'foto') === 'karta' ? 'karta' : 'foto'); }, []);
+  useEffect(() => { setLager(las(LAGRING_LAGER, STANDARD_LAGER)); setBas(lasBas()); }, []);
 
   // --- Datan: nu, och var 5:e minut. Ett läsfel efter att kartan visats tar inte bort kartan.
   const hamta = useCallback(async (farsk = false) => {
@@ -308,7 +311,7 @@ export default function SkotarSida({ token }: { token: string }) {
     const v = vyRef.current;
     const start = v?.mitt ?? { lat: 56.6, lng: 15.0 };
     const map = new maplibregl.Map({
-      container: behallare.current, style: kartStil(token, las<BasId>(LAGRING_BAS, 'foto') === 'karta' ? 'karta' : 'foto'),
+      container: behallare.current, style: kartStil(token, lasBas()),
       center: [start.lng, start.lat], zoom: 14, maxPitch: 0, dragRotate: false, doubleClickZoom: false, attributionControl: { compact: true },
     });
     try { map.touchZoomRotate.disableRotation(); } catch { /* */ }
@@ -403,6 +406,8 @@ export default function SkotarSida({ token }: { token: string }) {
     map.setLayoutProperty('bas-foto', 'visibility', bas === 'foto' ? 'visible' : 'none');
     map.setLayoutProperty('bas-karta', 'visibility', bas === 'karta' ? 'visible' : 'none');
   }, [bas, kartaKlar]);
+  // Ritad: skogen ur laserdatan, blött, brant, vägar och diken — samma ritning som appen (lib/skotarlank/useRitadSkotare).
+  const ritad = useRitadSkotare({ map: kartaRef.current, klar: kartaKlar, vald: bas === 'ritad', token });
 
   // --- Källor och lager.
   const vy = lage.typ === 'ok' ? lage.vy : null;
@@ -613,7 +618,7 @@ export default function SkotarSida({ token }: { token: string }) {
             <Rad titel="Kvar på trakten" hoger={kvar && kvar.kvarM3 > 0 ? `${tal(kvar.kvarM3)} m³fub` : undefined} onTryck={() => setPanel('kvar')} attr={{ 'data-meny': 'kvar' }} />
             <Rad titel="Om trakten" onTryck={() => setPanel('om')} attr={{ 'data-meny': 'om' }} />
             <Rad titel="Kartans färger" onTryck={() => setPanel('forklaring')} attr={{ 'data-meny': 'forklaring' }} />
-            <Rad titel="Lager" under={bas === 'foto' ? 'Flygfoto' : 'Karta'} onTryck={() => setPanel('lager')} attr={{ 'data-meny': 'lager' }} />
+            <Rad titel="Lager" under={BAS_NAMN[bas]} onTryck={() => setPanel('lager')} attr={{ 'data-meny': 'lager' }} />
             <Rad titel="Visa hela trakten" onTryck={() => { stangPanel(); visaHela(true); }} attr={{ 'data-meny': 'hela' }} />
             <Rad titel={helskarm ? 'Lämna helskärm' : 'Helskärm'} onTryck={() => { stangPanel(); vaxlaHelskarm(); }} pil={false} sista={!installera} attr={{ 'data-meny': 'helskarm' }} />
             {installera && <Rad titel="Lägg kartan som app på datorn" onTryck={() => { void installera.prompt().finally(() => setInstallera(null)); }} pil={false} sista attr={{ 'data-meny': 'installera' }} />}
@@ -655,7 +660,8 @@ export default function SkotarSida({ token }: { token: string }) {
       {panel === 'lager' && (
         <Ark rubrik="Visa på kartan" stang="Klar" onStang={stangPanel}>
           <div style={{ marginBottom: AVSTAND.l }}>
-            <Flikkontroll flikar={[['foto', 'Flygfoto'], ['karta', 'Karta']] as const} aktiv={bas} onVal={(b) => sattBas(b)} />
+            <Flikkontroll flikar={[['foto', 'Flygfoto'], ['karta', 'Karta'], ['ritad', 'Ritad']] as const} aktiv={bas} onVal={(b) => sattBas(b)} />
+            {bas === 'ritad' && <p data-ritad-status="" style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: ritad.status.typ === 'fel' ? FARG.orange : FARG.text2 }}>{ritad.text}</p>}
           </div>
           {LAGER.map((l, i) => (
             <Brytare key={l.id} id={l.id} namn={l.namn} pa={lager[l.id] && finns[l.id]} kan={finns[l.id]} under={finns[l.id] ? undefined : saknas[l.id]}
