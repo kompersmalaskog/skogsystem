@@ -1561,12 +1561,17 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
             const korta = kortaNamn([...(f.nuObjekt ? [f.nuObjekt.namn] : []), ...koPoster.map((p) => p.objekt.namn)]);
             const nuKort = f.nuObjekt ? korta[0] : null;
             const koKort = korta.slice(f.nuObjekt ? 1 : 0);
-            const stationer: { key: string; prick: React.ReactNode; namn: string; hoger: string; under: { text: string; color: string } | null; onClick?: () => void; sista: boolean }[] = [
-              ...(f.nuObjekt && nuKort ? [{ key: 'nu', prick: <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: RADIE.cirkel, background: FARG.text, display: 'block' }} />, namn: nuKort, hoger: 'nu', under: null, onClick: () => onOppnaObjekt(f.nuObjekt!.id), sista: koPoster.length === 0 }] : []),
+            // Under namnet: en fara (som förut) och vad traktanalysen hittat — orange, samma signal som ringen på kartan (Martin 2026-11-06).
+            const underFor = (o: OversiktObjekt) => {
+              const fara = faraRad(varning(o.id)); const fynd = analysKortOrd(lasTraktAnalys(o));
+              return [fara, fynd ? { text: fynd, color: FARG.orange } : null].filter((x): x is { text: string; color: string } => !!x);
+            };
+            const stationer: { key: string; prick: React.ReactNode; namn: string; hoger: string; under: { text: string; color: string }[]; onClick?: () => void; sista: boolean }[] = [
+              ...(f.nuObjekt && nuKort ? [{ key: 'nu', prick: <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: RADIE.cirkel, background: FARG.text, display: 'block' }} />, namn: nuKort, hoger: 'nu', under: underFor(f.nuObjekt), onClick: () => onOppnaObjekt(f.nuObjekt!.id), sista: koPoster.length === 0 }] : []),
               ...koPoster.map((p, i) => ({
                 key: p.objekt.id,
                 prick: <span aria-hidden="true" style={{ width: 22, height: 22, borderRadius: RADIE.cirkel, background: FARG.gron, color: FARG.bg, ...TYP.meta, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>,
-                namn: `${koKort[i]}${arGrotKo(p.objekt) ? ' · GROT' : ''}`, hoger: kmText(legs[i]), under: faraRad(varning(p.objekt.id)),
+                namn: `${koKort[i]}${arGrotKo(p.objekt) ? ' · GROT' : ''}`, hoger: kmText(legs[i]), under: underFor(p.objekt),
                 onClick: () => onOppnaObjekt(p.objekt.id), sista: i === koPoster.length - 1,
               })),
             ];
@@ -1588,7 +1593,7 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
                 </span>
                 <span style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, padding: `${AVSTAND.s}px 0` }}>
                   <span style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{st.namn}</span>
-                  {st.under && <span style={{ ...TYP.meta, color: st.under.color }}>{st.under.text}</span>}
+                  {st.under.map((u, k) => <span key={k} style={{ ...TYP.meta, color: u.color }}>{u.text}</span>)}
                 </span>
                 <span style={{ color: FARG.text2, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }}>{st.hoger}</span>
               </button>
