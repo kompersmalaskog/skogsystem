@@ -31,7 +31,7 @@ import { arIos, forstaNamn, maskinOrd, rensaObjektnamn, smsHref, smsText, type M
 import { hamtaGrotRaw } from '@/lib/grotvy/hamta';
 import { byggGrotLista, grotKordaObjektIds, grotSnartAntal, grotVantandeObjektIds, medDimPatch, type GrotRad, type GrotRaw, type GrotSkrivning } from '@/lib/grotvy/lista';
 import { arGrotUnderlagTillforlitligt, koRaderAttRensa, raderaKoRader } from '@/lib/grotvy/ko';
-import { avstandText, grotChipText } from '@/lib/grotvy/format';
+import { avstandText } from '@/lib/grotvy/format';
 import { bradskandeFor, type Bradskande } from '@/lib/grotvy/kartprick';
 import { narmasteVag } from '@/lib/grotvy/avstand';
 import { sparaFalt } from '@/lib/redigering/objektRouter';
@@ -41,6 +41,8 @@ import { useGrotVagAvstand } from './grot-avstand';
 import { KNAPP, KNAPP_LITEN, SheetBas, Grabber, VarningLista, SvgRing } from './ark-delar';
 import { MinPlan } from './MinPlan';
 import { kortNamn, kortaNamn } from './kortNamn';
+import { trakterGrupper } from './trakterLista';
+import { TrakterPanel, KartMeny, KartMenyKnapp, TRAKTER_SIDOKOLUMN_FRAN_PX } from './TrakterPanel';
 import { analysKortOrd, analysRader, lasTraktAnalys } from './traktanalys';
 import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, INAKTIV, designCss, KNAPP as TOKEN_KNAPP, KOLUMN } from '@/lib/design/tokens';
 import { navigeringsMal, navigeringsUrl, type NavObjekt } from '@/lib/navigera';
@@ -1053,6 +1055,20 @@ export default function OversiktV2Page() {
   const maskinRollAv = useCallback((id: string): MaskinTyp | null => { const mm = maskinById.get(id); return mm ? (arSkotare(mm as MaskinRad) ? 'skotare' : 'skordare') : null; }, [maskinById]);
   const maskinNamnAv = useCallback((id: string): string => maskinVisningsnamn(maskinById.get(id)) || id, [maskinById]);
 
+  // MENYN nere till höger och TRAKTER-listan (Martin 2026-11-06: kartan så ren som möjligt — listorna väljs i en meny).
+  const [menyOppen, setMenyOppen] = useState(false);
+  const [trakterOppen, setTrakterOppen] = useState(false);
+  const trakter = useMemo(() => trakterGrupper(objekt, forslag, maskinNamnAv, (o) => analysKortOrd(lasTraktAnalys(o))), [objekt, forslag, maskinNamnAv]);
+  const valjTrakt = useCallback((id: string) => {
+    const o = objekt.find((x) => x.id === id); const map = mapRef.current;
+    setSelMaskin(null); setGrotOppen(false); setGrotValt(null); setSelObjekt(id);
+    if (map && o && o.lat != null && o.lng != null) {
+      const H = map.getContainer().clientHeight;
+      map.easeTo({ center: [o.lng, o.lat], zoom: Math.max(map.getZoom(), 12), offset: [0, -Math.round(H * 0.18)], duration: 500 }); // ovanför arket
+    }
+    if (typeof window !== 'undefined' && window.innerWidth < TRAKTER_SIDOKOLUMN_FRAN_PX) setTrakterOppen(false); // telefon: kartan med trakten är nästa skärm
+  }, [objekt]);
+
   // '+ Lägg till objekt'-väljaren: kandidater för vald maskin (highlightObjekt-state deklareras ovan).
   const laggKandidater = useMemo<LaggKand[]>(() => {
     if (!valt || !selMaskin) return [];
@@ -1181,26 +1197,33 @@ export default function OversiktV2Page() {
       <style>{designCss}</style>
       <div ref={mapContainerRef} style={{ position: 'absolute', inset: 0 }} />
 
-      {/* GROT-chip — bara förman/admin (förare och okänd roll ser den aldrig) och bara när något väntar. Tryck → GROT-listan som ark.
-          'GROT · 28 · 2 snart': orange när något har markägarens datum inom 7 dagar (eller förbi) och inte är kört — orden bär
-          beskedet, färgen förstärker det. */}
-      {!laddar && !fel && kanRedigera && grotLista && grotLista.alla.length > 0 && (
-        <button onClick={() => (grotOppen ? stangGrot() : oppnaGrot())} aria-pressed={grotOppen} aria-label={`GROT-listan, ${grotLista.alla.length} objekt${grotSnart > 0 ? `, ${grotSnart} snart` : ''}`}
-          style={{ position: 'absolute', top: AVSTAND.m, right: AVSTAND.m, zIndex: 7, minHeight: 44, padding: `0 ${AVSTAND.m}px`, display: 'flex', alignItems: 'center', border: 'none', borderRadius: RADIE.knapp, cursor: 'pointer', fontFamily: 'inherit', background: CHIP_BG, color: grotSnart > 0 ? FARG.orange : FARG.text, boxShadow: '0 2px 8px rgba(0,0,0,0.35)', ...TYP.meta, fontWeight: 600, ...TNUM }}>
-          {grotChipText(grotLista.alla.length, grotSnart)}
-        </button>
-      )}
-
       {/* Läsfel som inte stoppar kartan (kön, virke på backen, var maskinerna står, GROT): rader överst, var och en med "Försök igen" — under
           GROT-chippen när den finns. */}
       {!laddar && !fel && (lasFel.ko || lasFel.skord || lasFel.pos || lasFel.posDelvis || lasFel.grot) && (
-        <LasFelBanner topp={AVSTAND.m + (kanRedigera && grotLista && grotLista.alla.length > 0 ? 44 + AVSTAND.s : 0)} poster={[
+        <LasFelBanner topp={AVSTAND.m} poster={[
           ...(lasFel.ko ? [{ id: 'ko', text: LASFEL_KO, onForsok: refetchKo }] : []),
           ...(lasFel.skord ? [{ id: 'skord', text: LASFEL_SKORD, onForsok: laddaSkord }] : []),
           ...(lasFel.pos ? [{ id: 'pos', text: LASFEL_POS, onForsok: laddaPlatser }] : []),
           ...(lasFel.posDelvis ? [{ id: 'posdelvis', text: LASFEL_POS_DELVIS, onForsok: laddaPlatser }] : []),
           ...(lasFel.grot ? [{ id: 'grot', text: LASFEL_GROT, onForsok: laddaGrot }] : []),
         ]} />
+      )}
+
+      {/* MENYN — EN knapp nere till höger; listorna (Trakter, GROT, Min plan) väljs här. Orange prick = något behöver dig. */}
+      {!laddar && !fel && kanOppnaArk && !selMaskin && !selObjekt && !grotOppen && !menyOppen && !(planF && planMaskinId) && (
+        <KartMenyKnapp onClick={() => setMenyOppen(true)} prick={kanRedigera && (grotSnart > 0 || trakter.utanMaskin > 0)} />
+      )}
+      {menyOppen && (
+        <KartMeny onStang={() => setMenyOppen(false)} rader={[
+          { id: 'trakter', text: `Trakter · ${trakter.antal}`, under: kanRedigera && trakter.utanMaskin > 0 ? `${trakter.utanMaskin} planerade utan maskin` : null, underOrange: true,
+            onClick: () => { setMenyOppen(false); setSelMaskin(null); setTrakterOppen(true); } },
+          ...(kanRedigera && grotLista && grotLista.alla.length > 0 ? [{ id: 'grot', text: `GROT · ${grotLista.alla.length}`, under: grotSnart > 0 ? `${grotSnart} snart` : null, underOrange: true,
+            onClick: () => { setMenyOppen(false); setTrakterOppen(false); oppnaGrot(); } }] : []),
+          ...(egenMaskinId ? [{ id: 'plan', text: 'Min plan', onClick: () => { setMenyOppen(false); setTrakterOppen(false); setVisaKarta(false); } }] : []),
+        ]} />
+      )}
+      {trakterOppen && !laddar && !fel && (
+        <TrakterPanel grupper={trakter} valt={selObjekt} onValj={valjTrakt} onStang={() => setTrakterOppen(false)} />
       )}
 
       {laddar && (
