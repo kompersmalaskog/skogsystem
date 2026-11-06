@@ -23,6 +23,8 @@ import { besokNamn } from '@/lib/besok/namn';
 import { MARKERING_FOTO_BUCKET } from '@/lib/markeringFotoSokvag';
 import { arGiltigtSkotarToken } from './offentlig';
 import { skotarHogar, type HogarSvar, type Stam } from './hogar';
+import { byggAvlagg, lassSortiment, type Avlagg, type EgetAvlaggRad, type LassRad } from './avlagg';
+import { sattSortimentKlass, sortimentVisning } from '@/lib/skotarLass/sortiment';
 
 type Sb = SupabaseClient;
 export type Svar = { status: number; body: Record<string, unknown> };
@@ -134,6 +136,10 @@ export type SkotarVy = {
   vida: ReturnType<typeof rensaVida>;
   /** Om trakten: Vidas traktdirektiv och kommentarerna på själva trakten (text, aldrig vem). */
   omTrakten: { direktiv: string | null; kommentarer: string[] };
+  /** Avläggen (hans egna, planerarens, Vidas) med det han rapporterat dit. null = lassen eller avläggen gick inte att läsa. */
+  avlagg: Avlagg[] | null;
+  /** Sortimenten att välja i lasskortet (skördarens på trakten, störst först), med namnet i klartext. */
+  sortiment: { namn: string; visning: string }[];
   /** Det som inte gick att läsa, i ord. */
   fel: string[];
 };
@@ -191,6 +197,16 @@ export function origoPerMarkering(objekt: { lat: number | null; lng: number | nu
   return antal > 0 && inom / antal >= KVITTO.ANDEL_INOM ? origo : null;
 }
 
+/** Sortimentens klartextnamn (grupp och destination ur vy_sortiment_klass), läst högst en gång i timmen per serverinstans. Ett läsfel = namnen tolkas ur texten. */
+async function lasSortimentKlassServer(sb: Sb): Promise<void> {
+  await cachad('sortiment-klass', 3600_000, async () => {
+    const r = await hamtaAlla<{ sortiment_id: string; namn: string | null; grupp: string | null; destination: string | null }>(
+      () => sb.from('vy_sortiment_klass').select('sortiment_id, namn, grupp, destination') as never, 'sortiment_id');
+    if (!r.error && r.data.length) sattSortimentKlass(r.data);
+    return true;
+  }).catch(() => undefined);
+}
+
 /** Numren objektets stammar ligger under (VO-nummer, extra nummer och skördarens maskinobjekt). */
 export async function objektStamIds(sb: Sb, o: ObjektRad): Promise<string[]> {
   const alt = await hamtaAltNummer(sb, o.id).catch(() => []);
@@ -201,7 +217,7 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
   const fel: string[] = [];
   const ids = await objektStamIds(sb, o);
 
-  const [markSvar, vida, sparSvar, stamSvar, tsSvar, kommSvar, uttagSvar, lassSvar, hogMarkSvar] = await Promise.all([
+  const [markSvar, vida, sparSvar, stamSvar, tsSvar, kommSvar, uttagSvar, lassSvar, hogMarkSvar, egnaAvlaggSvar, lankLassSvar] = await Promise.all([
     sb.from('planering_markeringar').select('data').eq('objekt_id', o.id),
     lasVidaGrans(sb, o.id).catch((e: unknown): VidaGrans => ({ typ: 'fel', meddelande: String(e) })),
     sb.from('hyttspar').select('points').eq('objekt_id', o.id).eq('roll', 'skordare').order('datum', { ascending: true }).order('id', { ascending: true }),
@@ -214,6 +230,9 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
     sb.from('skotning_uttag').select('tradslag, volym, polygon_coords').eq('objekt_id', o.id),
     hamtaAlla<unknown>(() => sb.from('skotar_lass').select(LASS_SELECT).eq('objekt_id', o.id) as never, 'id'),
     sb.from('skotar_hog_markering').select('id, typ, geometri, bredd_m, grupp, skapad_at').eq('objekt_id', o.id).order('skapad_at'),
+    sb.from('skotar_lank_avlagg').select('id, nummer, lat, lng, borttagen').eq('objekt_id', o.id),
+    sb.from('skotar_lank_lass').select('id, avlagg, sortiment, struken, skapad_at').eq('objekt_id', o.id),
+    lasSortimentKlassServer(sb),
   ]);
 
   // Traktgränsen + Vidas lager
@@ -282,19 +301,27 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
 
   // Produktionshögarna. Går stammarna inte att läsa finns inga högar; går uttag, lass eller markeringar inte att läsa sägs det (högarna visas då som skördade).
   let hogar: HogarSvar | null = null;
+  let sortimentNamn: string[] = [];
   if (stamSvar.error) fel.push('produktionshögarna');
   else {
     const tsNamn = new Map(((tsSvar.data ?? []) as { tradslag_id: string; namn: string }[]).map((r) => [String(r.tradslag_id), r.namn]));
     const stammar: Stam[] = stamSvar.data
       .filter((s) => typeof s.latitude === 'number' && typeof s.longitude === 'number')
       .map((s) => ({ lat: s.latitude, lng: s.longitude, volym: Number(s.total_volym) || 0, tradslag: tsNamn.get(String(s.tradslag_id)) ?? '', sortiment: s.sortiment }));
+    sortimentNamn = lassSortiment(stammar);
     const lass: Lass[] = lassSvar.error ? [] : (lassSvar.data as unknown[]).map(lassFranServer).filter((l): l is Lass => !!l);
     const hogMark: HogMarkering[] = hogMarkSvar.error ? [] : ((hogMarkSvar.data ?? []) as Record<string, unknown>[]).map(lasMarkeringRad).filter((m): m is HogMarkering => !!m);
     if (uttagSvar.error || lassSvar.error) fel.push('det som redan skotats');
     try {
-      hogar = stammar.length ? skotarHogar(stammar, (uttagSvar.error ? [] : uttagSvar.data ?? []) as never, lass, hogMark) : null;
+      hogar = stammar.length ? skotarHogar(stammar, (uttagSvar.error ? [] : uttagSvar.data ?? []) as never, lass, hogMark, sortimentVisning) : null;
     } catch { fel.push('produktionshögarna'); }
   }
+
+  // Avläggen och hans lass (egna tabeller — räknas aldrig som vår skotning).
+  let avlagg: Avlagg[] | null = null;
+  const vidaRen = rensaVida(vidaFeatures);
+  if (egnaAvlaggSvar.error || lankLassSvar.error) fel.push('avläggen');
+  else avlagg = byggAvlagg({ egna: (egnaAvlaggSvar.data ?? []) as EgetAvlaggRad[], markeringar, origo, vida: vidaRen as never, lass: (lankLassSvar.data ?? []) as LassRad[] });
 
   const direktiv = typeof o.anteckningar === 'string' && o.anteckningar.trim() ? o.anteckningar.trim() : null;
   // Kommentarerna på själva trakten (traktdelar och egna områden), äldst först.
@@ -307,16 +334,20 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
     namn: besokNamn(o.namn, o.vo_nummer, o.fastighetsbeteckning),
     omTrakten: { direktiv, kommentarer: traktKommentarer },
     mitt: o.lat != null && o.lng != null ? { lat: o.lat, lng: o.lng } : null,
-    gran, spar, hogar, origo, origoText, markeringar, kommentarer, vida: rensaVida(vidaFeatures), fel,
+    avlagg, sortiment: sortimentNamn.map((namn) => ({ namn, visning: sortimentVisning(namn) || namn })),
+    gran, spar, hogar, origo, origoText, markeringar, kommentarer, vida: vidaRen, fel,
   };
 }
 
 // ---- GET /api/skotare/<token> ---------------------------------------------------------------------------------------------------------------
 
+/** Objektets vy, cachad i två minuter (rensas efter varje skrivning, glomSkotarVy). */
+export const cachadSkotarVy = (sb: Sb, o: ObjektRad, nu = Date.now()) => cachad(`vy:${o.id}`, 2 * 60000, () => lasSkotarVy(sb, o), nu);
+
 export async function skotarVySvar(sb: Sb, token: string, nu = Date.now()): Promise<Svar> {
   const u = await slaUppSkotarLank(sb, token);
   if (!u.ok) return lankFelSvar(u);
-  const vy = await cachad(`vy:${u.objekt.id}`, 2 * 60000, () => lasSkotarVy(sb, u.objekt), nu);
+  const vy = await cachadSkotarVy(sb, u.objekt, nu);
   return { status: 200, body: { ok: true, ...vy, uppdaterad: new Date(nu).toISOString() } };
 }
 

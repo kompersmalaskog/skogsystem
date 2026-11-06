@@ -163,15 +163,16 @@ describe('origot på en egen trakt utan Vida-gräns', () => {
 
 describe('högarna', () => {
   const st = (lat: number, ts: string, sort: string, volym: number): Stam => ({ lat, lng: 15, volym, tradslag: ts, sortiment: sort });
-  it('m³fub per trädslag, och samma högar som planeringens klustring', () => {
-    const r = skotarHogar([st(56.6, 'Gran', 'Gran Massa: A', 1), st(56.60001, 'Tall', 'Tall Massa: A', 0.5), st(56.7, 'Gran', 'Gran Timmer: T', 2)], [], [], []);
+  it('m³fub per sortiment, med klartextnamnet, och samma högar som planeringens klustring', () => {
+    const r = skotarHogar([st(56.6, 'Gran', 'Gran Massa: A', 1), st(56.60001, 'Tall', 'Tall Massa: A', 0.5), st(56.7, 'Gran', 'Gran Timmer: T', 2)], [], [], [], (n) => `[${n}]`);
     expect(r.hogar).toHaveLength(2);
-    expect(r.hogar[0].tradslag.map((t) => [t.namn, t.m3])).toEqual([['Gran', 1], ['Tall', 0.5]]);
-    expect(r.kvarM3).toBe(4);   // Gran 3 + Tall 1 (0,5 avrundas uppåt) — summan av de avrundade raderna
+    expect(r.hogar[0].sortiment.map((t) => [t.namn, t.visning, t.m3])).toEqual([['Gran Massa: A', '[Gran Massa: A]', 1], ['Tall Massa: A', '[Tall Massa: A]', 0.5]]);
+    expect(r.kvar.map((t) => t.namn)).toEqual(['Gran Timmer: T', 'Gran Massa: A', 'Tall Massa: A']);
+    expect(r.kvarM3).toBe(4);   // 2 + 1 + 1 (0,5 avrundas uppåt) — summan av de avrundade raderna
   });
-  it('planerarens uttag dras av per sortiment, och trädslagen följer med', () => {
+  it('planerarens uttag dras av per sortiment', () => {
     const r = skotarHogar([st(56.6, 'Gran', 'Gran Massa: A', 1), st(56.60001, 'Tall', 'Tall Massa: A', 1)], [{ tradslag: 'Gran Massa: A', volym: 1 }], [], []);
-    expect(r.hogar[0].tradslag.map((t) => t.namn)).toEqual(['Tall']);
+    expect(r.hogar[0].sortiment.map((t) => t.namn)).toEqual(['Tall Massa: A']);
   });
   it('en hög som förarna markerat som tagen finns inte med', () => {
     const r = skotarHogar([st(56.6, 'Gran', 'Gran Massa: A', 1)], [], [], [{ id: 'x', typ: 'tagen', geometri: { type: 'Point', coordinates: [15, 56.6] }, bredd_m: 8, grupp: null, skapad_at: '2026-11-05T10:00:00Z' }]);

@@ -41,12 +41,12 @@ describe('origoPerMarkering', () => {
 import { skotarHogar } from './hogar';
 import { FULL_STYRKA, HOG_PRICK_FARG } from '@/lib/skotarHogarKvar';
 describe('högarna som skotarlägets prickar', () => {
-  it('ljus prick med full styrka på en orörd hög; trädslagen finns kvar för rutan och kortet', () => {
+  it('ljus prick med full styrka på en orörd hög; sortimenten finns för kortet', () => {
     const st = Array.from({ length: 6 }, (_, i) => ({ lat: 56.659 + i * 1e-6, lng: 15.356, volym: 0.4, tradslag: 'Gran', sortiment: 'Massa' }));
     const h = skotarHogar(st, [], [], []);
     expect(h.hogar.length).toBeGreaterThan(0);
     expect(h.hogar[0].farg).toBe(HOG_PRICK_FARG.alla);
     expect(h.hogar[0].a).toBe(FULL_STYRKA);
-    expect(h.hogar[0].tradslag[0].namn).toBe('Gran');
+    expect(h.hogar[0].sortiment[0].namn).toBe('Massa');
   });
 });

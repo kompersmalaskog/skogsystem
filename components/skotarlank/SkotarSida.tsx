@@ -24,14 +24,18 @@ import { canvasToMapLibreImage, loadMarkerImageForMaplibre, markerIconDefs } fro
 import { SNEDSTRECK_GRUPPER, snedstreckBild, snedstreckId } from '@/lib/ytaStil';
 import { vidaSlagIFeatures } from '@/lib/teckenforklaring';
 import { KALLA, LAGER, STANDARD_LAGER, finns as finnsLager, kallor, lagerIdn, lagerOrdning, markeringKort, vidaKort, type Data, type Lager, type LngLat, type TryckKort } from '@/lib/skotarlank/karta';
-import type { HogTradslag, SkotarHog } from '@/lib/skotarlank/hogar';
+import type { HogSortiment, SkotarHog } from '@/lib/skotarlank/hogar';
+import type { Avlagg } from '@/lib/skotarlank/avlagg';
+import { SiffraKnapp, SifferPlatta, StegKnapp } from '@/components/planering/skotar/StegKnapp';
 import { hallSkarmenVakenIWebblasare } from '@/lib/skarmVaken';
 
-type Vy = Data & {
+type Vy = Omit<Data, 'avlagg'> & {
   ok: true;
   namn: string;
   mitt: { lat: number; lng: number } | null;
-  hogar: { hogar: SkotarHog[]; kvar: HogTradslag[]; kvarM3: number; skordatM3: number } | null;
+  hogar: { hogar: SkotarHog[]; kvar: HogSortiment[]; kvarM3: number; skordatM3: number } | null;
+  avlagg: Avlagg[] | null;
+  sortiment: { namn: string; visning: string }[];
   origoText: string | null;
   kommentarer: Record<string, string[]>;
   omTrakten: { direktiv: string | null; kommentarer: string[] };
@@ -58,6 +62,8 @@ const RING_KALLA = 'sk-ring';
 
 type Omrade = { hogar: number; kvar: number; skordat: number; grupper: { grupp: string; namn: string; m3: number }[] };
 type Panel = null | 'meny' | 'kvar' | 'om' | 'lager' | 'forklaring';
+const LAGRING_FORRA_LASS = 'skotarlank_forra_lass_v1';
+const LASS_MAX = 60;
 type Kvitto = { text: string; id: string } | { text: string; id: null };
 const nyttId = () => (crypto as Crypto & { randomUUID?: () => string }).randomUUID?.() ?? 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/[x]/g, () => Math.floor(Math.random() * 16).toString(16));
 
@@ -122,6 +128,13 @@ export default function SkotarSida({ token }: { token: string }) {
   const [sparar, setSparar] = useState(false);
   const [kvitto, setKvitto] = useState<Kvitto | null>(null);
   const [sparFel, setSparFel] = useState<string | null>(null);
+  // Avläggen: valt avlägg (kortet), lasskortet och läget "placera nytt avlägg".
+  const [avlaggRef, setAvlaggRef] = useState<string | null>(null);
+  const [lassKvitto, setLassKvitto] = useState<string | null>(null);
+  const [lassFor, setLassFor] = useState<string | null>(null);
+  const [placerar, setPlacerar] = useState(false);
+  const placerarRef = useRef(false);
+  placerarRef.current = placerar;
 
   const behallare = useRef<HTMLDivElement>(null);
   const kartaRef = useRef<maplibregl.Map | null>(null);
@@ -235,6 +248,59 @@ export default function SkotarSida({ token }: { token: string }) {
     return () => clearTimeout(t);
   }, [kvitto]);
 
+  // --- Nytt avlägg: ett tryck på kartan i placeringsläget. Servern ger numret; sedan öppnas avläggskortet.
+  const nyttAvlagg = useCallback(async (punkt: LngLat) => {
+    setPlacerar(false); setSparFel(null); setLassKvitto(null);
+    const id = nyttId();
+    try {
+      const r = await fetch(`/api/skotare/${token}/avlagg`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, punkt }) });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.ok) { setKvitto({ text: j?.fel || 'Kunde inte spara avlägget', id: null }); return; }
+      await hamta();
+      setAvlaggRef(String(j.ref));
+    } catch { setKvitto({ text: 'Kunde inte spara avlägget — kontrollera täckningen', id: null }); }
+  }, [token, hamta]);
+  const nyttAvlaggRef = useRef(nyttAvlagg);
+  nyttAvlaggRef.current = nyttAvlagg;
+
+  // --- Lass: sparas på servern mot avlägget. Ångra i 5 s = lasset stryks.
+  const sparaLass = useCallback(async (avlagg: string, sortiment: Record<string, number>, nr: string): Promise<boolean> => {
+    const id = nyttId();
+    setSparar(true); setSparFel(null);
+    try {
+      const r = await fetch(`/api/skotare/${token}/lass`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, avlagg, sortiment }) });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.ok) { setSparFel(j?.fel || 'Kunde inte spara lasset — försök igen'); return false; }
+      spara(`${LAGRING_FORRA_LASS}:${token}`, sortiment);
+      const m3 = Object.values(sortiment).reduce((a, b) => a + b, 0);
+      setLassKvitto(id);
+      setKvitto({ text: `Lass till avlägg ${nr} · ${tal(m3)} m³`, id: null });
+      void hamta();
+      return true;
+    } catch { setSparFel('Kunde inte spara lasset — kontrollera täckningen och försök igen'); return false; }
+    finally { setSparar(false); }
+  }, [token, hamta]);
+  const taBortLass = useCallback(async (id: string) => {
+    try {
+      const r = await fetch(`/api/skotare/${token}/lass?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      setKvitto({ text: r.ok ? 'Lasset borttaget' : 'Gick inte att ta bort lasset', id: null });
+    } catch { setKvitto({ text: 'Gick inte att ta bort lasset', id: null }); }
+    setLassKvitto(null);
+    void hamta();
+  }, [token, hamta]);
+  const taBortAvlagg = useCallback(async (ref: string) => {
+    setLassKvitto(null);
+    const id = ref.replace(/^egen:/, '');
+    try {
+      const r = await fetch(`/api/skotare/${token}/avlagg?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const j = await r.json().catch(() => null);
+      setKvitto({ text: r.ok ? 'Avlägget borttaget' : (j?.fel || 'Gick inte att ta bort avlägget'), id: null });
+      if (r.ok) setAvlaggRef(null);
+    } catch { setKvitto({ text: 'Gick inte att ta bort avlägget', id: null }); }
+    void hamta();
+  }, [token, hamta]);
+  useEffect(() => { if (!kvitto) setLassKvitto(null); }, [kvitto]);
+
   // --- Kartan skapas en gång (när datan finns första gången).
   const harData = lage.typ === 'ok';
   useEffect(() => {
@@ -257,12 +323,13 @@ export default function SkotarSida({ token }: { token: string }) {
       if (svaljKlick.current) { svaljKlick.current = false; return; }
       // I ritläget gör ett tryck bara ett hörn — inget annat på kartan öppnas.
       if (ritarRef.current) { laggHorn([e.lngLat.lng, e.lngLat.lat], e.point); return; }
+      if (placerarRef.current) { void nyttAvlaggRef.current([e.lngLat.lng, e.lngLat.lat]); return; }
       const vy = vyRef.current;
       if (!vy) return;
       // Det under fingret (26 px åt varje håll): symbol före hög före linje före yta.
       const r = 26;
       const traffar = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]])
-        .filter((f) => f.source === KALLA.mark || f.source === KALLA.vida || f.source === KALLA.hogar)
+        .filter((f) => f.source === KALLA.mark || f.source === KALLA.vida || f.source === KALLA.hogar || f.source === KALLA.egnaAvlagg)
         // En hög träffas bara när fingret är PÅ den (högarna ligger tätt; annars går det aldrig att trycka på ytan under dem).
         .filter((f) => {
           if (f.source !== KALLA.hogar || f.geometry.type !== 'Point') return true;
@@ -280,6 +347,11 @@ export default function SkotarSida({ token }: { token: string }) {
       if (!f) return;
       const p = f.properties ?? {};
       setSparFel(null);
+      // Ett avlägg (hans eget, planerarens eller Vidas) öppnar avläggskortet: det som lossats där och Lossa här.
+      const ref = f.source === KALLA.egnaAvlagg ? String(p.ref ?? '')
+        : f.source === KALLA.mark && typeof p.i === 'number' && vy.markeringar[p.i]?.type === 'landing' ? `plan:${String(vy.markeringar[p.i].id)}`
+          : f.source === KALLA.vida && typeof p.vi === 'number' && vy.vida[p.vi]?.properties._typ === 'punkt' ? `vida:${String(vy.vida[p.vi].properties.EXTRA_LABE ?? vy.vida[p.vi].properties.LOPNR ?? '').trim()}` : '';
+      if (ref && vy.avlagg?.some((a) => a.ref === ref)) { setKort(null); setAvlaggRef(ref); return; }
       if (f.source === KALLA.mark && typeof p.i === 'number' && vy.markeringar[p.i]) setKort(markeringKort(vy.markeringar[p.i], vy.kommentarer));
       else if (f.source === KALLA.hogar && typeof p.hi === 'number' && vy.hogar?.hogar[p.hi]) setKort({ typ: 'hog', hog: vy.hogar.hogar[p.hi] });
       else if (f.source === KALLA.vida && typeof p.vi === 'number' && vy.vida[p.vi]) setKort(vidaKort(vy.vida[p.vi].properties));
@@ -420,6 +492,16 @@ export default function SkotarSida({ token }: { token: string }) {
   };
   const kvar = v.hogar;
   const stangPanel = () => setPanel(null);
+  const valtAvlagg = avlaggRef ? v.avlagg?.find((a) => a.ref === avlaggRef) ?? null : null;
+  const lassAvlagg = lassFor ? v.avlagg?.find((a) => a.ref === lassFor) ?? null : null;
+  const visningAv = (namn: string) => v.sortiment.find((x) => x.namn === namn)?.visning ?? namn;
+  // Planerarens eller Vidas text om avlägget (bara läsning).
+  const avlaggInfo: TryckKort | null = (() => {
+    if (!valtAvlagg || valtAvlagg.kalla === 'egen') return null;
+    if (valtAvlagg.kalla === 'plan') { const m = v.markeringar.find((x) => String(x.id) === valtAvlagg.ref.slice(5)); return m ? markeringKort(m, v.kommentarer) : null; }
+    const f = v.vida.find((x) => x.properties._typ === 'punkt' && String(x.properties.EXTRA_LABE ?? x.properties.LOPNR ?? '').trim() === valtAvlagg.ref.slice(5));
+    return f ? vidaKort(f.properties) : null;
+  })();
 
   return (
     <main style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text, fontFamily: 'Inter, -apple-system, system-ui, sans-serif', overflow: 'hidden', touchAction: 'none' }}>
@@ -433,7 +515,14 @@ export default function SkotarSida({ token }: { token: string }) {
       )}
 
       {/* EN knapp: + nere till höger, som i maskinerna. */}
-      {!ritar && (
+      {placerar && (
+        <div data-skotar-placerar="" style={{ position: 'absolute', left: AVSTAND.l, right: AVSTAND.l, bottom: AVSTAND.l, display: 'flex', alignItems: 'center', gap: AVSTAND.s, padding: AVSTAND.s, borderRadius: RADIE.sheet, background: 'rgba(28,28,30,0.95)', boxShadow: '0 2px 10px rgba(0,0,0,0.5)', maxWidth: 720, marginLeft: 'auto', marginRight: 'auto' }}>
+          <div style={{ flex: 1, minWidth: 0, padding: `0 ${AVSTAND.s}px`, ...TYP.text }}>Tryck där avlägget ska ligga</div>
+          <RundKnapp ikon="close" text="Avbryt" onClick={() => setPlacerar(false)} attr="placera-avbryt" />
+        </div>
+      )}
+
+      {!ritar && !placerar && (
         <div style={{ position: 'absolute', bottom: AVSTAND.xxl, right: AVSTAND.l }}>
           <RundKnapp ikon="add" text="Meny" onClick={() => { setKort(null); setPanel('meny'); }} attr="plus" stor />
         </div>
@@ -456,6 +545,7 @@ export default function SkotarSida({ token }: { token: string }) {
         <div role="status" data-skotar-kvitto="" style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', bottom: AVSTAND.xxl + KNAPP_PX + AVSTAND.l, display: 'flex', alignItems: 'center', gap: AVSTAND.l, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, minHeight: KNAPP_PX, borderRadius: RADIE.sheet, background: 'rgba(28,28,30,0.95)', boxShadow: '0 2px 10px rgba(0,0,0,0.5)', ...TYP.text, whiteSpace: 'nowrap' }}>
           {kvitto.text}
           {kvitto.id && <button type="button" onClick={() => void angra()} style={{ ...KNAPP.lank, minHeight: TRAFFYTA.min }}>Ångra</button>}
+          {!kvitto.id && lassKvitto && <button type="button" onClick={() => void taBortLass(lassKvitto)} style={{ ...KNAPP.lank, minHeight: TRAFFYTA.min }}>Ångra</button>}
         </div>
       )}
 
@@ -501,10 +591,25 @@ export default function SkotarSida({ token }: { token: string }) {
           }} />
       )}
 
+      {valtAvlagg && !lassFor && (
+        <AvlaggArk avlagg={valtAvlagg} visning={visningAv} info={avlaggInfo} sparFel={sparFel}
+          onStang={() => { setAvlaggRef(null); setSparFel(null); }}
+          onLossa={() => { setSparFel(null); setLassFor(valtAvlagg.ref); }}
+          onTaBortLass={(id) => void taBortLass(id)}
+          onTaBortAvlagg={valtAvlagg.kalla === 'egen' && valtAvlagg.lass === 0 ? () => void taBortAvlagg(valtAvlagg.ref) : undefined} />
+      )}
+
+      {lassAvlagg && (
+        <LassArk avlagg={lassAvlagg} sortiment={v.sortiment} forra={las<Record<string, number>>(`${LAGRING_FORRA_LASS}:${token}`, {})} sparar={sparar} fel={sparFel}
+          onAvbryt={() => { setLassFor(null); setSparFel(null); }}
+          onKlar={(s) => void sparaLass(lassAvlagg.ref, s, lassAvlagg.nr).then((ok) => { if (ok) { setLassFor(null); setAvlaggRef(null); } })} />
+      )}
+
       {panel === 'meny' && (
         <Ark rubrik={v.namn} stang="Klar" onStang={stangPanel}>
           <div data-skotar-meny="">
             <Rad titel="Rita runt högar" under="Se vad som ligger kvar i ett område" onTryck={() => borjaRita()} attr={{ 'data-meny': 'rita' }} />
+            <Rad titel="Nytt avlägg" under="Tryck sedan där det ska ligga" onTryck={() => { stangPanel(); setAvlaggRef(null); setPlacerar(true); }} attr={{ 'data-meny': 'avlagg' }} />
             <Rad titel="Kvar på trakten" hoger={kvar && kvar.kvarM3 > 0 ? `${tal(kvar.kvarM3)} m³fub` : undefined} onTryck={() => setPanel('kvar')} attr={{ 'data-meny': 'kvar' }} />
             <Rad titel="Om trakten" onTryck={() => setPanel('om')} attr={{ 'data-meny': 'om' }} />
             <Rad titel="Kartans färger" onTryck={() => setPanel('forklaring')} attr={{ 'data-meny': 'forklaring' }} />
@@ -526,12 +631,7 @@ export default function SkotarSida({ token }: { token: string }) {
                   <span style={{ ...TYP.tal }} data-skotar-kvar-m3="">{tal(kvar.kvarM3)}</span><span style={{ ...TYP.text }}>m³fub kvar att skota</span>
                 </div>
                 <div style={{ marginTop: AVSTAND.m }}>
-                  {kvar.kvar.map((t, i) => (
-                    <div key={t.namn} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.primar, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}`, ...TYP.text, ...TNUM }}>
-                      <span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: RADIE.cirkel, background: t.farg, flexShrink: 0 }} />
-                      <span style={{ flex: 1 }}>{t.namn}</span><span>{tal(t.m3)} m³fub</span>
-                    </div>
-                  ))}
+                  {kvar.kvar.map((t, i) => <SortimentRad key={t.namn} namn={t.visning} m3={t.m3} forsta={i === 0} />)}
                 </div>
                 <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Det skördaren lagt, minus det som skotats och det som markerats taget. Ungefär.</p>
               </>
@@ -603,12 +703,7 @@ function KortArk({ kort, token, sparar, fel, onStang, onMarkera }: { kort: Tryck
             <span style={{ ...TYP.tal }}>{tal(h.m3)}</span><span style={{ ...TYP.text }}>m³fub ligger kvar här</span>
           </div>
           <div style={{ marginTop: AVSTAND.m }}>
-            {h.tradslag.map((t, i) => (
-              <div key={t.namn} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.primar, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}`, ...TYP.text, ...TNUM }}>
-                <span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: RADIE.cirkel, background: t.farg, flexShrink: 0 }} />
-                <span style={{ flex: 1 }}>{t.namn}</span><span>{tal(t.m3)} m³fub</span>
-              </div>
-            ))}
+            {h.sortiment.map((t, i) => <SortimentRad key={t.namn} namn={t.visning} m3={t.m3} forsta={i === 0} />)}
           </div>
           <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Det skördaren lade här, minus det som redan skotats. Ungefär — högen kan ligga några meter fel.</p>
           {fel && <p role="alert" style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.orange }}>{fel}</p>}
@@ -656,5 +751,113 @@ function Brytare({ namn, pa, kan, under, sista, onVaxla, id }: { namn: string; p
         <span style={{ width: 27, height: 27, borderRadius: '50%', background: '#fff' }} />
       </span>
     </button>
+  );
+}
+
+function SortimentRad({ namn, m3, forsta }: { namn: string; m3: number; forsta: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.primar, borderTop: forsta ? 'none' : `1px solid ${FARG.linje}`, ...TYP.text, ...TNUM }}>
+      <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{namn}</span><span style={{ whiteSpace: 'nowrap' }}>{tal(m3)} m³fub</span>
+    </div>
+  );
+}
+
+const tid = (iso: string) => {
+  const d = new Date(iso);
+  const idag = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' }) === d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' });
+  const kl = d.toLocaleTimeString('sv-SE', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit' });
+  return idag ? kl : `${d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm', day: 'numeric', month: 'short' })} ${kl}`;
+};
+
+/** Avläggskortet: vad som lossats där (per sortiment), de senaste lassen och Lossa här. */
+function AvlaggArk({ avlagg, visning, info, sparFel, onStang, onLossa, onTaBortLass, onTaBortAvlagg }: {
+  avlagg: Avlagg; visning: (namn: string) => string; info: TryckKort | null; sparFel: string | null;
+  onStang: () => void; onLossa: () => void; onTaBortLass: (id: string) => void; onTaBortAvlagg?: () => void;
+}) {
+  const [fraga, setFraga] = useState<string | null>(null);
+  return (
+    <Ark rubrik={avlagg.nr ? `Avlägg ${avlagg.nr}` : 'Avlägg'} stang="Klar" onStang={onStang}
+      fot={<button type="button" onClick={onLossa} data-skotar-lossa="" style={{ ...KNAPP.primar, minHeight: KNAPP_PX }}>Lossa här</button>}>
+      <div data-skotar-avlagg="">
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s }}>
+          <span style={{ ...TYP.tal }}>{tal(avlagg.m3)}</span>
+          <span style={{ ...TYP.text }}>m³fub · {avlagg.lass} {avlagg.lass === 1 ? 'lass' : 'lass'}</span>
+        </div>
+        {avlagg.sortiment.length > 0 && (
+          <div style={{ marginTop: AVSTAND.m }}>
+            {avlagg.sortiment.map((t, i) => <SortimentRad key={t.namn} namn={visning(t.namn)} m3={t.m3} forsta={i === 0} />)}
+          </div>
+        )}
+        {avlagg.lass === 0 && <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Inget lossat här än.</p>}
+        {avlagg.senaste.length > 0 && (
+          <>
+            <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.l }}>Senaste lassen</div>
+            {avlagg.senaste.map((l, i) => (
+              <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.primar, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}`, ...TYP.text, ...TNUM }}>
+                <span style={{ flex: 1 }}>{tid(l.tid)} · {tal(l.m3)} m³</span>
+                <button type="button" data-skotar-tabort-lass={l.id} onClick={() => { if (fraga === l.id) { setFraga(null); onTaBortLass(l.id); } else setFraga(l.id); }}
+                  style={{ ...KNAPP.lank, minHeight: TRAFFYTA.min, color: fraga === l.id ? FARG.rod : FARG.bla }}>{fraga === l.id ? 'Ta bort?' : 'Ta bort'}</button>
+              </div>
+            ))}
+          </>
+        )}
+        {info && (info.typ === 'markering') && (info.forklaring || info.kommentarer.length > 0) && (
+          <div style={{ marginTop: AVSTAND.l, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+            {info.kommentarer.map((t, i) => <p key={i} style={{ margin: 0, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: FARG.upphojt, ...TYP.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{t}</p>)}
+          </div>
+        )}
+        {sparFel && <p role="alert" style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.orange }}>{sparFel}</p>}
+        {onTaBortAvlagg && (
+          <button type="button" onClick={() => { if (fraga === 'avlagg') { setFraga(null); onTaBortAvlagg(); } else setFraga('avlagg'); }}
+            style={{ ...KNAPP.sekundar, width: '100%', minHeight: KNAPP_PX, marginTop: AVSTAND.l, color: fraga === 'avlagg' ? FARG.rod : FARG.text }}>{fraga === 'avlagg' ? 'Ta bort avlägget?' : 'Ta bort avlägget'}</button>
+        )}
+      </div>
+    </Ark>
+  );
+}
+
+/** Lasskortet: m³ per sortiment med − / + (ett steg per tryck) och sifferknappsatsen, förifyllt som förra lasset. */
+function LassArk({ avlagg, sortiment, forra, sparar, fel, onAvbryt, onKlar }: {
+  avlagg: Avlagg; sortiment: { namn: string; visning: string }[]; forra: Record<string, number>; sparar: boolean; fel: string | null;
+  onAvbryt: () => void; onKlar: (s: Record<string, number>) => void;
+}) {
+  const [varden, setVarden] = useState<Record<string, number>>(() => {
+    const ut: Record<string, number> = {};
+    for (const s of sortiment) if (forra[s.namn] > 0) ut[s.namn] = Math.round(forra[s.namn]);
+    return ut;
+  });
+  const [skriver, setSkriver] = useState<string | null>(null);
+  const summa = Object.values(varden).reduce((a, b) => a + b, 0);
+  const satt = (namn: string, n: number) => setVarden((v) => ({ ...v, [namn]: Math.max(0, Math.min(LASS_MAX, Math.round(n))) }));
+  // De som har ett värde först (så förra lassets sortiment ligger överst), sedan resten i traktens ordning.
+  const ordnade = [...sortiment].sort((a, b) => Number((varden[b.namn] ?? 0) > 0) - Number((varden[a.namn] ?? 0) > 0));
+  const utan0 = Object.fromEntries(Object.entries(varden).filter(([, v]) => v > 0));
+  const forStort = summa > LASS_MAX;
+  return (
+    <Ark rubrik={`Lass till avlägg ${avlagg.nr}`} onStang={onAvbryt}
+      fot={(
+        <button type="button" disabled={sparar || summa <= 0 || forStort} onClick={() => onKlar(utan0)} data-skotar-lass-klar=""
+          style={{ ...KNAPP.primar, minHeight: KNAPP_PX, opacity: sparar || summa <= 0 || forStort ? 0.5 : 1 }}>
+          {sparar ? 'Sparar …' : summa > 0 ? `Klar · ${summa} m³` : 'Klar'}
+        </button>
+      )}>
+      <div data-skotar-lass="">
+        {sortiment.length === 0 && <p style={{ margin: 0, ...TYP.text, color: FARG.text2 }}>Inga sortiment från skördaren på trakten än.</p>}
+        {ordnade.map((s, i) => (
+          <div key={s.namn} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: 64, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
+            <span style={{ flex: 1, minWidth: 0, ...TYP.text, overflowWrap: 'anywhere' }}>{s.visning}</span>
+            <StegKnapp tecken="−" etikett={`Minska ${s.visning}`} testid={`lass-minus-${i}`} onSteg={() => satt(s.namn, (varden[s.namn] ?? 0) - 1)} />
+            <SiffraKnapp varde={varden[s.namn] ?? 0} etikett={s.visning} testid={`lass-siffra-${i}`} onOppna={() => setSkriver(s.namn)} />
+            <StegKnapp tecken="+" etikett={`Öka ${s.visning}`} testid={`lass-plus-${i}`} onSteg={() => satt(s.namn, (varden[s.namn] ?? 0) + 1)} />
+          </div>
+        ))}
+        {forStort && <p role="alert" style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.orange }}>Ett lass kan vara högst {LASS_MAX} m³.</p>}
+        {fel && <p role="alert" style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.orange }}>{fel}</p>}
+      </div>
+      {skriver && (
+        <SifferPlatta namn={sortiment.find((x) => x.namn === skriver)?.visning ?? skriver} varde={varden[skriver] ?? 0}
+          onKlar={(n) => { if (n != null) satt(skriver, n); setSkriver(null); }} onAvbryt={() => setSkriver(null)} />
+      )}
+    </Ark>
   );
 }
