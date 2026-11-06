@@ -21,7 +21,9 @@ vi.mock('@/lib/supabase', () => ({
 }));
 
 import { MinPlan } from './MinPlan';
-import { ANALYS_EXEMPEL } from './traktanalys';
+import { lasTraktAnalys } from './traktanalys';
+const ANALYS_EXEMPEL = lasTraktAnalys({ trakt_analys: { at: '2026-11-06T12:00:00Z', fel: [], fynd: [
+  { type: 'fornlamning', name: 'Fossil åker (Väckelsång 192:1)' }, { type: 'vattenskydd', name: 'Ryd' }, { type: 'nyckelbiotop', name: 'Karsamåla' }] } });
 import type { MaskinForslag } from './nasta-v2';
 import type { OversiktObjekt } from './oversikt-types';
 
@@ -47,7 +49,7 @@ const rendera = async (ff: MaskinForslag = f, startTrakt: string | null = null) 
   await act(async () => {
     rot.render(<MinPlan f={ff} namn="Giant" legs={[44, 3]} varning={(id) => (id === 'l' ? { faror: [{ label: 'Kraftledning', kommentar: 'Kör inte under med kranen uppe' }], hansyn: [] } : { faror: [], hansyn: [] })}
       korDit={() => <a data-kordit="">Kör dit</a>} posFel={false} forman={false} onKarta={() => { kartan += 1; }} startTrakt={startTrakt}
-      analysFor={(o) => (o.id === 'l' ? ANALYS_EXEMPEL : o.id === 'g' ? { lage: 'fel' } : { lage: 'klar', fynd: [] })} />);
+      analysFor={(o) => (o.id === 'l' ? ANALYS_EXEMPEL : o.id === 'g' ? { lage: 'fel', at: 'x' } : { lage: 'klar', at: 'x', fynd: [], ofullstandig: false })} />);
   });
   await act(async () => { await Promise.resolve(); });
 };
@@ -107,7 +109,7 @@ describe('Min plan — körordningen till vänster, trakten till höger', () => 
     expect(t()).toContain('På denna trakten finns det fossil åker');
     expect(t()).not.toContain('Kör på riset ut med vägen för avlägget');
     expect(t()).toContain('1 sak är märkt på kartan');
-    expect((trakt().querySelector('a[href^="/planering?objekt="]') as HTMLAnchorElement).getAttribute('href')).toBe('/planering?objekt=l&fran=oversikt&plan=GIANT');
+    expect(trakt().querySelectorAll('a[href^="/planering?objekt="]')).toHaveLength(1);   // EN väg till kartan: knappen högst upp
     expect(t()).not.toContain('Sortiment');
     // Mer om trakten är stängt; ett tryck visar markägaren och papperen
     expect(t()).not.toContain('Traktdirektiv');
@@ -118,10 +120,10 @@ describe('Min plan — körordningen till vänster, trakten till höger', () => 
     expect(el.firstElementChild?.className).toContain('mp-vy-lista');
   });
 
-  it('traktanalysen: kunde inte köras = "Kunde inte kontrolleras"; inget hittat = ingen rubrik alls', async () => {
+  it('traktanalysen: kunde inte köras = "Ej kontrollerad"; inget hittat = ingen rubrik alls', async () => {
     await rendera();
     await act(async () => { rader()[2].click(); });                       // Bondagård: fel
-    expect(trakt().textContent).toContain('Kunde inte kontrolleras');
+    expect(trakt().textContent).toContain('Ej kontrollerad');
     await act(async () => { rader()[0].click(); });                       // Bondeskog: inget hittat
     expect(trakt().textContent).not.toContain('Skyddat på trakten');
   });

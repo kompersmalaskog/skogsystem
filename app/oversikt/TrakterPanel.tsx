@@ -5,6 +5,8 @@
 import React, { useState } from 'react';
 import { FARG, TYP, AVSTAND, RADIE, KNAPP } from '@/lib/design/tokens';
 import Sektion from '@/components/design/Sektion';
+import { FasSteg } from '@/components/objekt/FasSteg';
+import { GRUPPER } from '@/lib/larm/grupper';
 import type { TrakterGrupper, TraktRad } from './trakterLista';
 
 export const TRAKTER_SIDOKOLUMN_FRAN_PX = 1100;
@@ -37,9 +39,15 @@ function TraktGrupp({ rubrik, rader, valt, onValj, hopfalld }: { rubrik: string;
             style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', gap: AVSTAND.s, minHeight: 48, padding: AVSTAND.m, border: 'none', borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}`, background: r.id === valt ? FARG.upphojt : 'none', color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
             <span style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, minWidth: 0 }}>
               <span style={{ ...TYP.listtitel, overflowWrap: 'anywhere' }}>{r.namn}</span>
+              {/* Samma rad som i Planeringens objektlista: stegen och traktanalysen (components/objekt/FasSteg, lib/traktAnalys). */}
+              {r.steg && r.steg.length > 0 && <FasSteg steg={r.steg} />}
               {r.under && <span style={{ ...TYP.meta, color: r.underOrange ? FARG.orange : FARG.text2 }}>{r.under}</span>}
-              {/* Vad traktanalysen hittat — orange, samma signal som ringen på kartan. */}
-              {r.fynd && <span style={{ ...TYP.meta, color: FARG.orange }}>{r.fynd}</span>}
+              {r.fynd && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...TYP.meta, color: r.fynd.kategori ? FARG.text2 : FARG.text3 }}>
+                  {r.fynd.kategori && <span aria-hidden="true" style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, flexShrink: 0, background: r.fynd.kategori === 'vattenskydd' ? GRUPPER.blott.farg : GRUPPER.kultur.farg }} />}
+                  {r.fynd.text}
+                </span>
+              )}
             </span>
             <span style={{ color: FARG.text2 }}>›</span>
           </button>

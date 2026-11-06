@@ -43,7 +43,8 @@ import { MinPlan } from './MinPlan';
 import { kortNamn, kortaNamn } from './kortNamn';
 import { trakterGrupper } from './trakterLista';
 import { TrakterPanel, KartMeny, KartMenyKnapp, TRAKTER_SIDOKOLUMN_FRAN_PX } from './TrakterPanel';
-import { analysKortOrd, analysRader, lasTraktAnalys } from './traktanalys';
+import { analysAllaOrd, analysKortOrd, analysRader, lasTraktAnalys } from './traktanalys';
+import { listRad } from '@/lib/traktAnalys/markning';
 import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, INAKTIV, designCss, KNAPP as TOKEN_KNAPP, KOLUMN } from '@/lib/design/tokens';
 import { navigeringsMal, navigeringsUrl, type NavObjekt } from '@/lib/navigera';
 
@@ -694,7 +695,10 @@ export default function OversiktV2Page() {
       const grotRad = grotOppen ? grotPerObjektId.get(o.id) : undefined;
       const br = grotRad ? bradskandeFor(grotRad, todayISO) : null; // GROT-läget + markägarens datum → brådskande prick (går före statusens stil)
       const d = br ? bradskandePrick(br) : dotDesc(o, koObjektIds.has(o.id), grotIds.has(o.id) ? (grotOppen ? 'oppen' : 'vantar') : false);
-      if (d) want.set(o.id, { desc: d, lat: o.lat, lng: o.lng, namn: grotRad?.namn || o.namn, grot: grotPerObjektId.has(o.id), fynd: analysKortOrd(lasTraktAnalys(o)) }); // GROT-läge: samma namn som i listan
+      // Något att kolla på trakten (orange ring) syns ALLTID, också utzoomat och oplanerat (Martin 2026-11-06: "när det är något man
+      // måste kolla ska den inte alltid synas då"). Prod 2026-11-06: 4 öppna trakter, så kartan blir inte rörig. Avslutade rörs inte.
+      const fynd = o.status === 'avslutat' ? null : analysKortOrd(lasTraktAnalys(o));
+      if (d) want.set(o.id, { desc: fynd ? { ...d, utzoom: true } : d, lat: o.lat, lng: o.lng, namn: grotRad?.namn || o.namn, grot: grotPerObjektId.has(o.id), fynd }); // GROT-läge: samma namn som i listan
     }
     grotUtanPrick.forEach((r) => { const br = bradskandeFor(r, todayISO); want.set(`grot:${r.id}`, { desc: br ? bradskandePrick(br) : GROT_PRICK, lat: r.koordinat!.lat, lng: r.koordinat!.lng, namn: r.namn, grot: true, fynd: null }); });
     dotsRef.current.forEach((d, id) => { if (!want.has(id)) { d.marker.remove(); dotsRef.current.delete(id); } });
@@ -909,13 +913,17 @@ export default function OversiktV2Page() {
       koObj.forEach((o, i) => {
         if (o.lat == null || o.lng == null) return;
         const troligt = troligtSet.has(o.id);
+        // Traktanalysen syns också i planen (Martin 2026-11-06: "jag ser det inte på trakten från jag trycker på wisenten"):
+        // samma signal som översiktskartan — orange ring runt siffran och ordet efter namnet. Hela listan står i arket.
+        const fyndOrd = analysKortOrd(lasTraktAnalys(o));
         const circ = document.createElement('div');
-        circ.style.cssText = `width:26px;height:26px;border-radius:50%;background:${FARG.gron};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:${FARG.bg};opacity:${troligt ? 0.6 : 1};pointer-events:none;box-shadow:0 0 0 2px ${FARG.text},0 1px 4px rgba(0,0,0,0.4)`;
+        circ.style.cssText = `width:26px;height:26px;border-radius:50%;background:${FARG.gron};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:${FARG.bg};opacity:${troligt ? 0.6 : 1};pointer-events:none;box-shadow:0 0 0 2px ${FARG.text}${fyndOrd ? `,0 0 0 5px ${FARG.orange}` : ''},0 1px 4px rgba(0,0,0,0.4)`;
         circ.textContent = String(i + 1);
         stopMarkersRef.current.push(new window.maplibregl.Marker({ element: circ, anchor: 'center' }).setLngLat([o.lng, o.lat]).addTo(map));
         const nameChip = document.createElement('div');
         nameChip.style.cssText = `padding:3px 8px;background:${CHIP_BG};border-radius:8px;font-size:12px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;opacity:${troligt ? 0.8 : 1};box-shadow:0 2px 8px rgba(0,0,0,0.35)`;
         nameChip.textContent = `${korta[i]}${arGrotKo(o) ? ' · GROT' : ''}`; // GROT-trakter märks
+        if (fyndOrd) { const f = document.createElement('span'); f.style.color = FARG.orange; f.textContent = ` · ${fyndOrd}`; nameChip.appendChild(f); }
         stopMarkersRef.current.push(new window.maplibregl.Marker({ element: nameChip, anchor: 'left', offset: [18, 0] }).setLngLat([o.lng, o.lat]).addTo(map));
         stopChipsRef.current.push(nameChip);
       });
@@ -1058,7 +1066,7 @@ export default function OversiktV2Page() {
   // MENYN nere till höger och TRAKTER-listan (Martin 2026-11-06: kartan så ren som möjligt — listorna väljs i en meny).
   const [menyOppen, setMenyOppen] = useState(false);
   const [trakterOppen, setTrakterOppen] = useState(false);
-  const trakter = useMemo(() => trakterGrupper(objekt, forslag, maskinNamnAv, (o) => analysKortOrd(lasTraktAnalys(o))), [objekt, forslag, maskinNamnAv]);
+  const trakter = useMemo(() => trakterGrupper(objekt, forslag, maskinNamnAv, (o) => listRad(lasTraktAnalys(o))), [objekt, forslag, maskinNamnAv]);
   const valjTrakt = useCallback((id: string) => {
     const o = objekt.find((x) => x.id === id); const map = mapRef.current;
     setSelMaskin(null); setGrotOppen(false); setGrotValt(null); setSelObjekt(id);
@@ -1584,9 +1592,9 @@ function MaskinArk({ f, namn, legs, skord, skordFel, onForsokSkord, posFel, grot
             const korta = kortaNamn([...(f.nuObjekt ? [f.nuObjekt.namn] : []), ...koPoster.map((p) => p.objekt.namn)]);
             const nuKort = f.nuObjekt ? korta[0] : null;
             const koKort = korta.slice(f.nuObjekt ? 1 : 0);
-            // Under namnet: en fara (som förut) och vad traktanalysen hittat — orange, samma signal som ringen på kartan (Martin 2026-11-06).
+            // Under namnet: en fara (som förut) och ALLT traktanalysen hittat på trakten, en rad (Martin 2026-11-06: "varning för tre saker").
             const underFor = (o: OversiktObjekt) => {
-              const fara = faraRad(varning(o.id)); const fynd = analysKortOrd(lasTraktAnalys(o));
+              const fara = faraRad(varning(o.id)); const fynd = analysAllaOrd(lasTraktAnalys(o));
               return [fara, fynd ? { text: fynd, color: FARG.orange } : null].filter((x): x is { text: string; color: string } => !!x);
             };
             const stationer: { key: string; prick: React.ReactNode; namn: string; hoger: string; under: { text: string; color: string }[]; onClick?: () => void; sista: boolean }[] = [

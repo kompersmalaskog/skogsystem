@@ -16,6 +16,7 @@
 // Utan valt objekt (första gången / objektet borttaget) är listan det enda som finns: `kanStangas=false` → ingen ×, inget stängs.
 // Ren presentation + datahämtning; vad ett val GÖR (öppna objektet, flytta kartan) avgör sidan.
 
+import { FasSteg } from '@/components/objekt/FasSteg';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaEnGpsFix } from '@/lib/gpsKalla';
@@ -321,17 +322,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
               )}
             </span>
           )}
-          {steg && steg.length > 0 && (
-            <span data-testid={`objekt-steg-${o.id}`} aria-hidden="true"
-              style={{ display: 'flex', flexWrap: 'wrap', columnGap: AVSTAND.m, ...TYP.meta, fontWeight: VIKT.halvfet }}>
-              {steg.map((x) => (
-                <span key={x.id} data-testid={`objekt-steg-${o.id}-${x.id}`} data-lage={x.lage} data-kvar={kvar && x.id === 'skot' ? '1' : undefined}
-                  style={{ whiteSpace: 'nowrap', color: x.lage === 'klar' ? FARG.gron : x.lage === 'vantar' ? FARG.orange : x.lage === 'pagar' ? FARG.text : FARG.text2 }}>
-                  {x.lage === 'klar' ? `✓ ${x.text}` : x.text}
-                </span>
-              ))}
-            </span>
-          )}
+          {steg && steg.length > 0 && <FasSteg steg={steg} testId={`objekt-steg-${o.id}`} kvarSkot={kvar} />}
           {mark && (
             <span data-testid={`objekt-trakt-${o.id}`} data-kategori={mark.kategori ?? 'ej'}
               style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs + AVSTAND.xs / 2, ...TYP.meta, color: mark.kategori ? FARG.text2 : FARG.text3 }}>
