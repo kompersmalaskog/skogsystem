@@ -638,3 +638,27 @@ describe('maskinläge: maskinens egna objekt först, med etiketten "Den här mas
     expect(q('objekt-egen-maskin-egen')).toBeNull();
   });
 });
+
+describe('fasen på raden (objekt.fas från timjobbet)', () => {
+  it('Skördas / Skördat klart · skotas / Skördat klart · väntar på skotare; GROT heter bara Skotas', async () => {
+    h.rader = [
+      { ...RADER[1], fas: 'skordas' },
+      { ...RADER[3], fas: 'skotas' },
+      { ...RADER[4], fas: 'vantar_skotare', typ: 'slutavverkning' },
+      { ...RADER[2], fas: 'skotas' },
+      { ...RADER[5] },
+    ];
+    await montera();
+    expect(q('objekt-fas-e')!.textContent).toBe('Skördas');
+    expect(q('objekt-fas-p')!.textContent).toBe('Skördat klart · skotas');
+    expect(q('objekt-fas-n')!.textContent).toBe('Skördat klart · väntar på skotare');
+    expect(q('objekt-fas-g')!.textContent).toBe('Skotas');
+    expect(q('objekt-fas-o')).toBeNull();
+  });
+  it('fasen ersätter den gamla etiketten "Skotning kvar"', async () => {
+    h.rader = [{ ...RADER[0], fas: 'skotas' }];
+    h.tabeller = {};
+    await montera();
+    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+  });
+});

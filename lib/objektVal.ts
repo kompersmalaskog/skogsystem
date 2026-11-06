@@ -229,3 +229,15 @@ export function anvandObjektLista(a: { maskinlage: boolean; maskinSom: boolean; 
 export function anvandObjektListaUtanObjekt(a: { maskinlage: boolean; maskinSom: boolean; korvyActive: boolean }): boolean {
   return a.maskinlage || anvandObjektLista(a);
 }
+
+// ---- Fasen på trakten (objekt.fas, skrivs av timjobbet objekt_status_ur_maskindata) -----------------------------------------------
+// Martin 2026-11-06: "jag vet ju inte om det är färdigskördat eller skotat". En kort etikett på raden; null = ingen etikett.
+export function fasText(o: { fas?: unknown; typ?: string | null }): { text: string; vantar: boolean } | null {
+  const virke = /slutavverk|gallring/i.test(String(o.typ ?? ''));
+  switch (o.fas) {
+    case 'skordas': return { text: 'Skördas', vantar: false };
+    case 'skotas': return { text: virke ? 'Skördat klart · skotas' : 'Skotas', vantar: false };
+    case 'vantar_skotare': return { text: 'Skördat klart · väntar på skotare', vantar: true };
+    default: return null;
+  }
+}
