@@ -31,7 +31,7 @@ const pageNames: Record<string, string> = {
   '/gallring': 'Gallring',
   '/matning': 'Mätning',
   '/affarsuppfoljning': 'Affärsuppföljning',
-  '/kontroller': 'Kontroller',
+  '/kontroller': 'Fordon',
   '/maskinflytt/platser': 'Flyttplatser',
   '/lastbil': 'Lastbilen',
   '/inventarier': 'Inventarier',
@@ -67,6 +67,7 @@ export default function TopBar() {
     : pathname.startsWith('/utbildning/') ? 'Utbildning'
     : pathname.startsWith('/maskin-service/') ? 'Servicelogg'
     // /inventarier/plats/<id>: platsens namn står i sidan, toppfältet säger bara var man är.
+    : pathname.startsWith('/kontroller/') ? 'Fordon'
     : pathname.startsWith('/inventarier/') ? 'Inventarier'
     // /i/<rad_id>: QR-koden på en låda.
     : pathname.startsWith('/i/') ? 'Inventarier'

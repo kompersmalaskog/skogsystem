@@ -5,7 +5,7 @@
 // kontroll 60. status.ts läser typens värde med global default som fallback.
 
 export type Resurstyp = 'bil' | 'lastbil' | 'slap' | 'maskin' | 'cistern';
-export type Kontrolltypnyckel = 'besiktning' | 'service' | 'cisternkontroll' | 'brandskydd';
+export type Kontrolltypnyckel = 'besiktning' | 'service' | 'cisternkontroll' | 'brandskydd' | 'forsakring';
 export type Enhet = 'manader' | 'timmar' | 'km';
 
 export const VARNING_DAGAR_DEFAULT = 30;
@@ -50,9 +50,28 @@ export const KONTROLLTYPER: Record<Kontrolltypnyckel, Kontrolltyp> = {
     galler: ['maskin', 'cistern'],
     varning_dagar: 60,
     enhet: () => 'manader',
-    standardintervall: () => null,
+    standardintervall: () => 12, // brandskyddskontroll en gång om året (SBF 127)
+  },
+  forsakring: {
+    nyckel: 'forsakring',
+    etikett: 'Försäkring',
+    galler: ['bil', 'lastbil', 'slap', 'maskin'],
+    varning_dagar: 30,
+    enhet: () => 'manader',
+    standardintervall: () => 12,
   },
 };
+
+/**
+ * Fordonsvyns kontroller (Martin 2026-11-06: "service behöver vi inte här — det är mera om fordonen").
+ * Service finns kvar som typ för gamla rader men visas inte, räknas inte och skapas inte för nya fordon
+ * (maskinernas service bor i /maskin-service).
+ */
+export const FORDON_KONTROLLER: readonly Kontrolltypnyckel[] = ['besiktning', 'forsakring', 'brandskydd', 'cisternkontroll'];
+
+export function arFordonKontroll(typ: string): typ is Kontrolltypnyckel {
+  return (FORDON_KONTROLLER as readonly string[]).includes(typ);
+}
 
 /** Mätarens enhet härleds ur resurstyp — ingen egen kolumn (#1). */
 export function matarenhet(typ: Resurstyp): 'km' | 'timmar' | null {
@@ -63,7 +82,7 @@ export function matarenhet(typ: Resurstyp): 'km' | 'timmar' | null {
 
 /** Kontrolltyper som gäller en given resurstyp. */
 export function kontrolltyperForResurs(typ: Resurstyp): Kontrolltyp[] {
-  return Object.values(KONTROLLTYPER).filter((k) => k.galler.includes(typ));
+  return Object.values(KONTROLLTYPER).filter((k) => k.galler.includes(typ) && arFordonKontroll(k.nyckel));
 }
 
 /** varning_dagar för en typ, med global fallback (#6). */
