@@ -14002,15 +14002,15 @@ export default function PlannerPage() {
                 ‹ Översikt
               </Link>
             ) : null;
-            return maskinlage ? (<>{tillbaka}
+            return <>{tillbaka}{maskinlage ? (
               <button type="button" aria-label="Meny" aria-haspopup="dialog" data-testid="hem-maskinmeny" className="press-scale" onClick={() => setMaskinMenyOppen(true)} style={hemStil}>
                 {hemIkon}
-              </button></>
-            ) : (<>{tillbaka}
+              </button>
+            ) : (
               <Link href="/" aria-label="Hem" className="press-scale" style={hemStil}>
                 {hemIkon}
-              </Link></>
-            );
+              </Link>
+            )}</>;
           })()}
 
           {/* KÖRVY: objektpillen med tre tryckytor — namn (objektinfo) | Högstubbar n/krav | Evighetsträd n/krav (räknarna sätter en
