@@ -752,6 +752,8 @@ const fornyaSessionVida = skapaFornyare(() => supabase.auth.refreshSession())
 
 // Högarna som prickar (skotarläget och planeringsvyn, lib/skotarHogarKvar). Läggs i kartans grundlager OCH körvyns (stilbyte återskapar lagren).
 const HOG_OMRADE_KALLA = 'skotar-hogomrade-klart-source';
+/** Under den här zoomen syns inga högar — kartan är lugn utzoomat. */
+const HOGAR_FRAN_ZOOM = 15;
 function laggTillHogPrickar(map: any) {
   // Förarens markeringar (lib/skotarHogarKvar, tabellen skotar_hog_markering): ett område som markerats taget ritas grått UNDER prickarna — klart är grått.
   for (const k of [HOG_OMRADE_KALLA, 'skotar-hogar-vald-source', 'skotar-hogomrade-source']) {
@@ -780,6 +782,8 @@ function laggTillHogPrickar(map: any) {
     try {
       map.addLayer({
         id: 'skotar-hogar-dots', type: 'circle', source: 'skotar-hogar-source',
+        // Högarna kommer fram först inzoomat (Martin 2026-11-06: utzoomat bara trakten, vägen, faran och det han ska spara).
+        minzoom: HOGAR_FRAN_ZOOM,
         // Ljus prick med mörk kant (Martin 2026-11-01, som Komatsu MaxiVision): större prick = mer virke kvar (v, m³).
         // Färgen är neutral; ett eget sortiment under + ger sin färg (lib/skotarHogarKvar HOG_PRICK_FARG). a = tonar bort det lassen tog.
         paint: {

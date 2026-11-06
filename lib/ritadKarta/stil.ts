@@ -13,7 +13,8 @@ export const KLASS_FARG: Record<Klass, [number, number, number, number]> = {
   ung: [112, 158, 86, 255],
   gallring: [64, 120, 68, 255],
   mogen: [26, 70, 42, 255],
-  avverkat: [146, 126, 90, 255],
+  // Ljust och rent (Martin 2026-11-06: "stillrent"): det avverkade är det ljusaste på kartan, inte en brun fläck.
+  avverkat: [214, 202, 174, 255],
 };
 
 /** I ord, för teckenförklaringen. */

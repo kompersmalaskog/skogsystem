@@ -13,6 +13,7 @@
 import { BAKGRUND, RELIEF_KALLA, RELIEF_PAINT, VAG_FARG, VAG_KANT, VAG_KANT_EXTRA, VEKTOR_KALLA, VEKTOR_LAGER, vagBredd, DIKE_FARG, DIKE_KANT, DIKE_KANT_EXTRA, dikeBredd } from './stil';
 import { OSM_TILL_ZOOM } from './vagar';
 import { SNEDSTRECK_PERIOD, snedstreckBild, snedstreckId } from '../ytaStil';
+import { NARA_TRAKT_M, avstandTillTrakt, traktModell } from '../traktNara';
 
 export const RITAD_KALLA = { vektor: 'ritad-vektor', relief: 'ritad-relief', skog: 'ritad-skog', brant: 'ritad-brant', blott: 'ritad-blott', nvdb: 'ritad-nvdb', diken: 'ritad-diken' } as const;
 
@@ -102,7 +103,7 @@ export const brantLager = () => [
  */
 export const BLOTT_MONSTER = { gles: 'ritad-blott-gles', tat: 'ritad-blott-tat' } as const;
 /** Strecken i pixlar: period (avstånd mellan strecken) och tjocklek för glest resp. tätt. Tätt = dubbelt så många och lite tjockare. */
-export const BLOTT_STRECK = { gles: 12, tat: 6, tjockGles: 2, tjockTat: 3 } as const;
+export const BLOTT_STRECK = { gles: 12, tat: 6, tjockGles: 1, tjockTat: 2 } as const;   // tunnare streck 2026-11-06, samma gradering
 /** Myrens blå (samma som Blött-gruppen i appen). */
 export const BLOTT_FARG: readonly [number, number, number] = [10, 132, 255];
 
@@ -121,9 +122,21 @@ export function blottMonsterBild(period: number): { width: number; height: numbe
   return { width: w, height: h, data };
 }
 
+/** Full styrka inne i trakten och 50 m runt den; längre ut tonas strecken (Martin 2026-11-06: kartan lugn runt omkring). `_ute` sätts av `blottMedTrakt`. */
+export const BLOTT_UTE_OPACITET = 0.25;
+export const BLOTT_OPACITET: any[] = ['case', ['==', ['get', '_ute'], true], BLOTT_UTE_OPACITET, 0.9];
+
+/** Märker blöta ytor som ligger mer än 50 m från trakten (`_ute: true`). Utan trakt: oförändrat (allt full styrka). */
+export function blottMedTrakt<T extends { features?: any[] }>(fc: T, trakt: [number, number][][] | null | undefined): T {
+  if (!fc || !Array.isArray(fc.features) || !trakt?.length) return fc;
+  const modell = traktModell({ features: trakt.map((r) => ({ type: 'Feature', properties: { _lager: 'L_TRAKTDEL' }, geometry: { type: 'Polygon', coordinates: [r] } })) });
+  if (!modell) return fc;
+  return { ...fc, features: fc.features.map((f) => (f?.geometry && avstandTillTrakt(f.geometry, modell, NARA_TRAKT_M) > NARA_TRAKT_M ? { ...f, properties: { ...f.properties, _ute: true } } : f)) };
+}
+
 export const blottLager = () => [
-  { id: RITAD_ID.blottGles, type: 'fill', source: RITAD_KALLA.blott, filter: ['==', ['get', 'k'], 'fuktig'], paint: { 'fill-pattern': BLOTT_MONSTER.gles, 'fill-opacity': 0.9 } },
-  { id: RITAD_ID.blottTat, type: 'fill', source: RITAD_KALLA.blott, filter: ['==', ['get', 'k'], 'blot'], paint: { 'fill-pattern': BLOTT_MONSTER.tat, 'fill-opacity': 0.9 } },
+  { id: RITAD_ID.blottGles, type: 'fill', source: RITAD_KALLA.blott, filter: ['==', ['get', 'k'], 'fuktig'], paint: { 'fill-pattern': BLOTT_MONSTER.gles, 'fill-opacity': BLOTT_OPACITET } },
+  { id: RITAD_ID.blottTat, type: 'fill', source: RITAD_KALLA.blott, filter: ['==', ['get', 'k'], 'blot'], paint: { 'fill-pattern': BLOTT_MONSTER.tat, 'fill-opacity': BLOTT_OPACITET } },
 ];
 
 /**

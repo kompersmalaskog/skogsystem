@@ -86,3 +86,16 @@ describe('lite brant', () => {
     expect(forsta(lite)).toEqual(forsta(tat));
   });
 });
+
+describe('blött tonas utanför trakten (2026-11-06)', () => {
+  it('ytor mer än 50 m från trakten får _ute, de inne och nära gör det inte; utan trakt oförändrat', async () => {
+    const { blottMedTrakt, BLOTT_OPACITET, BLOTT_UTE_OPACITET } = await import('./lager');
+    const trakt: [number, number][][] = [[[15, 56], [15.002, 56], [15.002, 56.002], [15, 56.002], [15, 56]]];
+    const yta = (lng: number) => ({ type: 'Feature', properties: { k: 'blot' }, geometry: { type: 'Polygon', coordinates: [[[lng, 56.001], [lng + 0.0002, 56.001], [lng + 0.0002, 56.0012], [lng, 56.001]]] } });
+    const fc = { type: 'FeatureCollection', features: [yta(15.001), yta(15.0025), yta(15.01)] };
+    const ut = blottMedTrakt(fc, trakt);
+    expect(ut.features.map((f: any) => f.properties._ute ?? false)).toEqual([false, false, true]);
+    expect(blottMedTrakt(fc, null)).toBe(fc);
+    expect(JSON.stringify(BLOTT_OPACITET)).toContain(String(BLOTT_UTE_OPACITET));
+  });
+});
