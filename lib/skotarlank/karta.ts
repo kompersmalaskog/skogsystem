@@ -14,6 +14,7 @@ import { linjeKort, SYMBOL_FORKLARING, vidaForklaring, vidaLinjeKort, ytaForklar
 import { markeringNamn } from '@/app/oversikt/markeringar';
 import type { Origo } from '@/lib/kartkoordinater';
 import { kartSpar } from '@/lib/sparStil';
+import { arOvrigYta } from '@/lib/vidaYtaTyp';
 import type { SkotarHog } from './hogar';
 
 export type LngLat = [number, number];
@@ -195,7 +196,7 @@ export function finns(d: Data, k: ReturnType<typeof kallor>): Record<Lager, bool
   const p = (f: any) => f.properties ?? {};
   const arVidaKraft = (f: any) => p(f)._typ === 'linje' && /kraftled/i.test(String(p(f).FLBESKR ?? ''));
   const harDel = (x: Del) => mark.some((f) => p(f).del === x && p(f).typ !== 'boundary');
-  const vidaSkydd = vida.some((f) => p(f)._typ === 'hänsynsyta' && String(p(f).TYP ?? '') !== '71') || vida.some((f) => p(f)._lager === 'SV_SKS_NYCKELBIOTOP_101' || p(f)._lager === 'L_RAA_POLY_101');
+  const vidaSkydd = vida.some((f) => p(f)._typ === 'hänsynsyta' && !arOvrigYta(p(f))) || vida.some((f) => p(f)._lager === 'SV_SKS_NYCKELBIOTOP_101' || p(f)._lager === 'L_RAA_POLY_101');
   return {
     grans: d.gran.length > 0 || mark.some((f) => p(f).typ === 'boundary'),
     spar: d.spar.length > 0,
@@ -203,7 +204,7 @@ export function finns(d: Data, k: ReturnType<typeof kallor>): Record<Lager, bool
     vagar: harDel('vag') || vida.some((f) => (p(f)._typ === 'linje' && !arVidaKraft(f)) || p(f)._typ === 'punkt'),
     fara: harDel('fara') || vida.some(arVidaKraft),
     skydd: harDel('skydd') || vidaSkydd,
-    ovrigt: harDel('ovrigt') || vida.some((f) => (p(f)._typ === 'hänsynsyta' && String(p(f).TYP ?? '') === '71') || p(f)._lager === 'L_RAA_LINE_101' || p(f)._lager === 'L_RAA_POINT_101'),
+    ovrigt: harDel('ovrigt') || vida.some((f) => arOvrigYta(p(f)) || p(f)._lager === 'L_RAA_LINE_101' || p(f)._lager === 'L_RAA_POINT_101'),
   };
 }
 
