@@ -122,16 +122,15 @@ export function blottMonsterBild(period: number): { width: number; height: numbe
   return { width: w, height: h, data };
 }
 
-/** Full styrka inne i trakten och 50 m runt den; längre ut tonas strecken (Martin 2026-11-06: kartan lugn runt omkring). `_ute` sätts av `blottMedTrakt`. */
-export const BLOTT_UTE_OPACITET = 0.25;
-export const BLOTT_OPACITET: any[] = ['case', ['==', ['get', '_ute'], true], BLOTT_UTE_OPACITET, 0.9];
+/** Blött ritas bara inne i trakten och 50 m runt den (Martin 2026-11-06: där ute ska maskinen inte vara — kartan lugn). */
+export const BLOTT_OPACITET = 0.9;
 
-/** Märker blöta ytor som ligger mer än 50 m från trakten (`_ute: true`). Utan trakt: oförändrat (allt full styrka). */
+/** Tar bort blöta ytor som ligger mer än 50 m från trakten. Utan trakt: oförändrat. */
 export function blottMedTrakt<T extends { features?: any[] }>(fc: T, trakt: [number, number][][] | null | undefined): T {
   if (!fc || !Array.isArray(fc.features) || !trakt?.length) return fc;
   const modell = traktModell({ features: trakt.map((r) => ({ type: 'Feature', properties: { _lager: 'L_TRAKTDEL' }, geometry: { type: 'Polygon', coordinates: [r] } })) });
   if (!modell) return fc;
-  return { ...fc, features: fc.features.map((f) => (f?.geometry && avstandTillTrakt(f.geometry, modell, NARA_TRAKT_M) > NARA_TRAKT_M ? { ...f, properties: { ...f.properties, _ute: true } } : f)) };
+  return { ...fc, features: fc.features.filter((f) => !(f?.geometry && avstandTillTrakt(f.geometry, modell, NARA_TRAKT_M) > NARA_TRAKT_M)) };
 }
 
 export const blottLager = () => [

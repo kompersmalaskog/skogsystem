@@ -116,13 +116,7 @@ describe('prickarna', () => {
   const feats = [f(5, { [TIMMER]: 4, [ENERGI]: 3 }), f(80, { [MASSA]: 6 })];
   const l = lass({ rader: [['Timmer: Vislanda_195_1-2_V3', 4]], sparPunkter: spar([[0, 0, 0], [0.5, 0, 100], [200, 0, 160]]) });
 
-  it('alla: högens trädslagsfärg när den finns (2026-11-06), annars neutral; valt sortiment ger sortimentets färg', () => {
-    const med = [{ ...feats[0], properties: { ...feats[0].properties, color: '#30d158' } }, feats[1]];
-    const p = hogPrickar(med, [l], 'alla');
-    expect(p.map((x) => x.farg)).toEqual(['#30d158', HOG_PRICK_FARG.alla]);
-    expect(hogPrickar(med, [l], 'energi')[0].farg).toBe(HOG_PRICK_FARG.energi);
-  });
-  it('alla: det som ligger kvar, neutral färg utan trädslag', () => {
+  it('alla: det som ligger kvar, neutral färg', () => {
     const p = hogPrickar(feats, [l], 'alla');
     expect(p.map((x) => x.v)).toEqual([3, 6]);
     expect(p.every((x) => x.farg === HOG_PRICK_FARG.alla)).toBe(true);

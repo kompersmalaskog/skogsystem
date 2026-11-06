@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SKORDARSPAR_BREDD, SKORDARSPAR_STYRKA,
+import { SKORDARSPAR_BREDD, SKORDARSPAR_STYRKA, STRAK_FARG,
   dampatSpar, sparAlder, sparBlekning, SPAR_DAMPAD_FARG, SPAR_BLEKNA_DAGAR, SPAR_KANT_FARG, SPAR_KANT_FRAN_ZOOM, SPAR_KANT_FULL_ZOOM,
   sparStil, rollFarg, ROLLFARG_SKORDARE, ROLLFARG_SKOTARE, HYTTSPAR_LINE_WIDTH, HYTTSPAR_CASING_WIDTH, HYTTSPAR_HIST_LINE_WIDTH, HYTTSPAR_HIST_CASING_WIDTH,
   SKORDARSPAR_LINJE_BREDD, SKORDARSPAR_LINJE_OPACITET, SKORDARSPAR_CASING_BREDD, SKORDARSPAR_CASING_OPACITET, type SparArt,
@@ -98,7 +98,7 @@ describe('spåren på planeringskartan: rollfärger, 3 / 2,5 px, dagens ~0,9, sm
     for (const roll of ['skordare', 'skotare'] as const) {
       const farger = new Set(ARTER2.map((art) => dampatSpar(roll, art).farg));
       expect(farger.size).toBe(1);
-      expect([...farger][0]).toBe(roll === 'skordare' ? ROLLFARG_SKORDARE : ROLLFARG_SKOTARE);
+      expect([...farger][0]).toBe(roll === 'skordare' ? STRAK_FARG : ROLLFARG_SKOTARE);
       expect([...farger][0]).not.toBe(SPAR_DAMPAD_FARG[roll]);
     }
     expect(ROLLFARG_SKOTARE).toBe('#64d2ff'); expect(ROLLFARG_SKORDARE).toBe('#bf5af2');   // identitetsfärgerna är oförändrade

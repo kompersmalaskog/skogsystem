@@ -86,8 +86,6 @@ const REGLER: Regel[] = [
   // Maskinens EGNA spår (tidigare dagar och idag) ligger över den andra maskinens — skotaren och skördaren kör samma stickvägar, och skotarens spår
   // försvann under skördarens i skotarläget (Martin 2026-11-01).
   // Vita mittlinjen (skotaren har kört här, lib/sparStil MITTLINJE_*) ligger direkt ovanpå sitt stråk.
-  // Gallrat-bandet (lib/gallratSpar) ligger under alla spår, strax över ytorna.
-  [/-gallrat$/, RANG.ytor + 90 * D],
   [/^hyttspar-andras-mitt$/, RANG.hyttspar + 1 * D],
   [/^hyttspar-hist-mitt$/, RANG.hyttspar + 8 * D],
   [/^planspar-skordare-mitt$/, RANG.hyttspar + 6 * D],

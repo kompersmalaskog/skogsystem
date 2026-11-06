@@ -9,10 +9,11 @@ export const BAKGRUND = '#1f211d';
 export const KLASS_FARG: Record<Klass, [number, number, number, number]> = {
   ingen: [0, 0, 0, 0],
   // Tre gröna som går att skilja med en blick (Martin 2026-10-31: gallring och mogen var nästan samma): ljust = ungt, mörkt = moget.
-  oppet: [92, 90, 74, 255],
-  ung: [112, 158, 86, 255],
-  gallring: [64, 120, 68, 255],
-  mogen: [26, 70, 42, 255],
+  // Dämpade (Martin 2026-11-06, kartan lugn): skogen är kuliss, färgen på kartan är vägar, fara och natur.
+  oppet: [88, 88, 78, 255],
+  ung: [104, 126, 94, 255],
+  gallring: [70, 94, 72, 255],
+  mogen: [36, 54, 42, 255],
   // Ljust och rent (Martin 2026-11-06: "stillrent"): det avverkade är det ljusaste på kartan, inte en brun fläck.
   avverkat: [214, 202, 174, 255],
 };

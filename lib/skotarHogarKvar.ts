@@ -162,26 +162,22 @@ export const FULL_STYRKA = 0.95;
 export const hogNyckel = (lng: number, lat: number): string => `${lng.toFixed(6)},${lat.toFixed(6)}`;
 
 /**
- * Prickarna i skotarläget ur högarna. Alla sortiment: högens trädslagsfärg (planeringens `color`, samma som produktionshögarna;
- * Martin 2026-11-06 — förut neutral). Ett valt sortiment: sortimentets färg.
- * (planeringsvyns hogar-features, som redan bär `sortimentVolymJson`) och lassen.
+ * Prickarna i skotarläget ur högarna (planeringsvyns hogar-features, som redan bär `sortimentVolymJson`) och lassen.
  * En hög där inget av valt sortiment ligger kvar finns inte med (den har tonats bort).
  */
 export function hogPrickar(
-  features: readonly { geometry?: { coordinates?: number[] }; properties?: { sortimentVolymJson?: string; color?: string } }[],
+  features: readonly { geometry?: { coordinates?: number[] }; properties?: { sortimentVolymJson?: string } }[],
   lass: readonly Lass[],
   visa: HogVisa,
   markeringar: readonly HogMarkering[] = [],
 ): HogPrick[] {
   const hogar: HogIn[] = [];
-  const farger: (string | undefined)[] = [];
   for (const f of features) {
     const c = f?.geometry?.coordinates;
     if (!c || c.length < 2 || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
     let sv: Record<string, number> = {};
     try { sv = JSON.parse(f.properties?.sortimentVolymJson || '{}') || {}; } catch { sv = {}; }
     hogar.push({ lng: c[0], lat: c[1], sortimentVolym: sv });
-    farger.push(typeof f.properties?.color === 'string' && f.properties.color ? f.properties.color : undefined);
   }
   const kvar = medMarkeringar(hogar, hogarKvar(hogar, lass), markeringar);
   const ut: HogPrick[] = [];
@@ -191,7 +187,7 @@ export function hogPrickar(
     const fore = kvarFor({ kvar: h.sortimentVolym, totalt: Object.values(h.sortimentVolym).reduce((s, x) => s + Math.max(0, x), 0), andel: 1 }, visa);
     const taget = fore - v > 0.05;
     const rest = taget && (v < REST_M3 || v < fore * REST_ANDEL);
-    ut.push({ nyckel: hogNyckel(h.lng, h.lat), lng: h.lng, lat: h.lat, v: Math.round(v * 100) / 100, farg: visa === 'alla' ? (farger[i] ?? HOG_PRICK_FARG.alla) : HOG_PRICK_FARG[visa], a: rest ? REST_STYRKA : FULL_STYRKA });
+    ut.push({ nyckel: hogNyckel(h.lng, h.lat), lng: h.lng, lat: h.lat, v: Math.round(v * 100) / 100, farg: HOG_PRICK_FARG[visa], a: rest ? REST_STYRKA : FULL_STYRKA });
   });
   return ut;
 }
@@ -309,13 +305,12 @@ export interface OmradeSvar {
 }
 const GRUPP_NAMN: Record<HogGrupp, string> = { timmer: 'Timmer', kubb: 'Kubb', massa: 'Massaved', energi: 'Energi', ovrigt: 'Övrigt' };
 export function hogarIOmrade(
-  features: readonly { geometry?: { coordinates?: number[] }; properties?: { sortimentVolymJson?: string; color?: string } }[],
+  features: readonly { geometry?: { coordinates?: number[] }; properties?: { sortimentVolymJson?: string } }[],
   lass: readonly Lass[],
   markeringar: readonly HogMarkering[],
   ring: readonly [number, number][],
 ): OmradeSvar {
   const hogar: HogIn[] = [];
-  const farger: (string | undefined)[] = [];
   for (const f of features) {
     const c = f?.geometry?.coordinates;
     if (!c || c.length < 2 || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
@@ -323,7 +318,6 @@ export function hogarIOmrade(
     let sv: Record<string, number> = {};
     try { sv = JSON.parse(f.properties?.sortimentVolymJson || '{}') || {}; } catch { sv = {}; }
     hogar.push({ lng: c[0], lat: c[1], sortimentVolym: sv });
-    farger.push(typeof f.properties?.color === 'string' && f.properties.color ? f.properties.color : undefined);
   }
   const kvar = medMarkeringar(hogar, hogarKvar(hogar, lass), markeringar);
   const per = new Map<HogGrupp, number>();

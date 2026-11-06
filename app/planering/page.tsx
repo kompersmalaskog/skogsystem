@@ -50,7 +50,7 @@ import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
 import { strakFeatures } from '../../lib/strak'
 import { installeraLagerOrdning, symbolSortKey, VAG_SORT_KEY } from '../../lib/lagerOrdning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
-import { dampatSpar, sparAlder, kartSpar, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER } from '../../lib/sparStil'
+import { dampatSpar, sparAlder, kartSpar, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER, STRAK_KLAR_FARG } from '../../lib/sparStil'
 import { delaKlart, linjerUr } from '../../lib/korsparKlart'
 import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
@@ -211,7 +211,6 @@ import { LinjeRedList, type RedVal } from '../../components/planering/LinjeRedLi
 import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_KANT_LAGER, KORUPP_TRAFF_LAGER, arKorUpp, korUppUr, korUppData, korUppLager, ritaSpetsBild, nyKorUpp, KORUPP_SKAL, korUppText, type KorUppPos, type Skal, type SnappVag } from '../../lib/korUpp'
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
-import { GALLRAT_BREDD_M, GALLRAT_FARG, GALLRAT_LAGER, GALLRAT_OPACITET, arGallring, bandBredd } from '../../lib/gallratSpar'
 import { NARA_FLYTT_M, NARA_TON_FARG, NARA_TON_KALLA, NARA_TON_LAGER, meterMellan, naraTonYta } from '../../lib/naraTon'
 import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, tonPaint, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner, tonPolygonerMedEgna } from '../../lib/traktTon'
 import { PLANSPAR_LAGER, PLANSPAR_NYCKEL, planSparPa, vaxlaPlanSpar } from '../../lib/planSparLager'
@@ -10158,17 +10157,6 @@ export default function PlannerPage() {
         } catch (e) { console.error(`[Planspår] ${roll}-line:`, e); }
       }
     }
-    // GALLRAT (lib/gallratSpar): brett svagt band under skördarens spår — syns bara på gallring (synlighetseffekten nedan).
-    for (const [id, src] of [[GALLRAT_LAGER.plan, 'planspar-skordare-source'], [GALLRAT_LAGER.andras, 'hyttspar-andras-source'], [GALLRAT_LAGER.egen, 'hyttspar-egen-source'], [GALLRAT_LAGER.hist, 'hyttspar-hist-source']] as const) {
-      if (map.getLayer(id) || !map.getSource(src)) continue;
-      try {
-        map.addLayer({
-          id, type: 'line', source: src,
-          paint: { 'line-color': GALLRAT_FARG, 'line-opacity': GALLRAT_OPACITET, 'line-width': bandBredd(GALLRAT_BREDD_M, 57) as any },
-          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
-        });
-      } catch (e) { console.error(`[Gallrat] ${id}:`, e); }
-    }
     // VIT MITTLINJE (lib/sparStil MITTLINJE_*): ovanpå skördarens stråk där skotaren kört (featurens `klar`, lib/korsparKlart). En per källa som kan bära skördarens stråk.
     for (const [id, src] of [['planspar-skordare-mitt', 'planspar-skordare-source'], ['hyttspar-egen-mitt', 'hyttspar-egen-source'], ['hyttspar-hist-mitt', 'hyttspar-hist-source'], ['hyttspar-andras-mitt', 'hyttspar-andras-source']] as const) {
       if (map.getLayer(id) || !map.getSource(src)) continue;
@@ -10236,27 +10224,6 @@ export default function PlannerPage() {
     const visaMitt = !korvyActive && !!valtObjekt?.id && planSparPa(overlays, 'skordare') && planSparPa(overlays, 'skotare');
     try { if (map.getLayer('planspar-skordare-mitt')) map.setLayoutProperty('planspar-skordare-mitt', 'visibility', visaMitt ? 'visible' : 'none'); } catch { /* */ }
   }, [korvyActive, valtObjekt?.id, mapLibreReady, (overlays as any)[PLANSPAR_NYCKEL.skordare], (overlays as any)[PLANSPAR_NYCKEL.skotare]]);
-
-  // GALLRAT: bandet syns bara på gallring, i planeringen (skördarens planspår) och i körvyn (skotaren: den andres = skördarens; skördaren: egen + hist).
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-    const gallring = arGallring(valtObjekt as any);
-    const lat = Number(valtObjekt?.lat);
-    const synlig: Record<string, boolean> = {
-      [GALLRAT_LAGER.plan]: gallring && !korvyActive && !!valtObjekt?.id && planSparPa(overlays, 'skordare'),
-      [GALLRAT_LAGER.andras]: gallring && korvyActive && skotarKorvy,
-      [GALLRAT_LAGER.egen]: gallring && korvyActive && !skotarKorvy,
-      [GALLRAT_LAGER.hist]: gallring && korvyActive && !skotarKorvy,
-    };
-    for (const [id, visa] of Object.entries(synlig)) {
-      try {
-        if (!map.getLayer(id)) continue;
-        map.setLayoutProperty(id, 'visibility', visa ? 'visible' : 'none');
-        if (visa && Number.isFinite(lat)) map.setPaintProperty(id, 'line-width', bandBredd(GALLRAT_BREDD_M, lat));
-      } catch { /* */ }
-    }
-  }, [mapLibreReady, korvyActive, skotarKorvy, valtObjekt?.id, (valtObjekt as any)?.typ, valtObjekt?.lat, (overlays as any)[PLANSPAR_NYCKEL.skordare]]);
 
   // KÖRVYNS ABSOLUTA rollfärger: eget-spårets (egen + hist) färg = FÖRARENS roll, andras-spårets färg =
   // MOTPARTENS roll — skotare turkos, skördare lila, SAMMA i båda körvyerna oberoende av vem som kör.
@@ -13039,7 +13006,7 @@ export default function PlannerPage() {
   // Spårens förhandsfärg = linjens riktiga färg på kartan (lib/sparStil dampatSpar), inte en egen.
   const sparFarg = (art: 'egen' | 'andras'): string => {
     const roll = art === 'egen' ? hyttRoll : andrasRoll;
-    return roll ? (roll === 'skotare' ? MITTLINJE_FARG : dampatSpar(roll, art).farg) : art === 'egen' ? FARG.gron : FARG.text2;
+    return roll ? (roll === 'skotare' ? STRAK_KLAR_FARG : dampatSpar(roll, art).farg) : art === 'egen' ? FARG.gron : FARG.text2;
   };
   // LAGER: samma grupper i samma ordning som den gamla Lager-menyn (Bakgrundskarta, Kompass, Overlay, WMS-grupperna, SMHI, Dina
   // markeringar, Produktionsdata, Zontyper, Linjetyper). Raderna skriver samma state som förut (overlays,
@@ -13091,7 +13058,7 @@ export default function PlannerPage() {
         ...(korvyActive ? [
           vaxel('mittSpar', 'Mitt spår', undefined, !!(overlays as any).mittSpar, sparYta(sparFarg('egen')), sla('mittSpar')),
           vaxel('andrasSpar', andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', undefined, !!(overlays as any).andrasSpar, sparYta(sparFarg('andras')), sla('andrasSpar')),
-        ] : PLANSPAR_LAGER.map((l) => vaxel(l.id, l.namn, undefined, planSparPa(overlays, l.roll), sparYta(l.roll === 'skotare' ? MITTLINJE_FARG : dampatSpar(l.roll, 'plan').farg),
+        ] : PLANSPAR_LAGER.map((l) => vaxel(l.id, l.namn, undefined, planSparPa(overlays, l.roll), sparYta(l.roll === 'skotare' ? STRAK_KLAR_FARG : dampatSpar(l.roll, 'plan').farg),
           () => setOverlays((prev: any) => vaxlaPlanSpar(prev, l.roll))))),
       ],
     });

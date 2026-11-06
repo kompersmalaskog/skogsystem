@@ -123,7 +123,7 @@ export const SKORDARSPAR_BREDD = 1.8;
 export const SKORDARSPAR_STYRKA = 0.65;
 
 export function dampatSpar(roll: SparRoll, art: SparArt): DampatSpar {
-  const farg = roll === 'skordare' ? ROLLFARG_SKORDARE : ROLLFARG_SKOTARE;
+  const farg = roll === 'skordare' ? STRAK_FARG : ROLLFARG_SKOTARE;
   // Skördarens spår tunna och svagare (Martin 2026-11-06: "vi prova"): stråken syns för skotaren men tar inte över kartan.
   const sk = roll === 'skordare';
   const full = sk ? SKORDARSPAR_BREDD : 2.5;
@@ -185,12 +185,21 @@ export function skotarlageSpar(roll: SparRoll, art: SparArt): SkotarlageSpar {
 // På ett GROT-jobb är det GROT-skotaren som ger mittlinjen; samma regel. Det som är kvar att skota visas av produktionshögarna, inte av linjerna.
 // ROLLFARG_SKOTARE finns kvar i diagram och listor med teckenförklaring. dampatSpar/skotarlageSpar för skotaren används inte av kartan längre.
 /** Skördarens stråk på kartan: bredare än förut så att mittlinjen får plats med lila på båda sidor (mätt mot flygfoto: 5 px vid zoom 17). */
-export const STRAK_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 2, 15, 3.5, 17, 5, 19, 7];
-export const STRAK_KANT_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 2 + SPAR_KANT_EXTRA_PX, 15, 3.5 + SPAR_KANT_EXTRA_PX, 17, 5 + SPAR_KANT_EXTRA_PX, 19, 7 + SPAR_KANT_EXTRA_PX];
+export const STRAK_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 1, 15, 2, 17, 3, 19, 4.5];
+export const STRAK_KANT_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 1 + SPAR_KANT_EXTRA_PX, 15, 2 + SPAR_KANT_EXTRA_PX, 17, 3 + SPAR_KANT_EXTRA_PX, 19, 4.5 + SPAR_KANT_EXTRA_PX];
+/**
+ * KARTAN LUGN (prototyp, Martin 2026-11-06: "färg bara där det gäller, klart blir grått"): skördarens stråk är inte längre lila utan ljust neutralt —
+ * färgen på kartan är vägarnas snitsel, fara och natur. Där skotaren kört (`klar`) blir stråket grått och svagt: arbetet krymper på kartan.
+ * Ersätter den lila stråken med vit mittlinje (2026-11-04).
+ */
+export const STRAK_FARG = '#e5e5ea';
+export const STRAK_KLAR_FARG = '#8e8e93';
+export const STRAK_KLAR_STYRKA = 0.4;
 /** Mittlinjen: vit, ungefär en tredjedel av stråket, och syns först när stråket är brett nog att bära den. */
 export const MITTLINJE_FARG = '#ffffff';
 export const MITTLINJE_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 0.6, 15, 1.2, 17, 1.8, 19, 2.5];
-export const MITTLINJE_OPACITET: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 0, 14.5, 0.95];
+/** Mittlinjen ritas inte längre (kartan lugn): det körda syns som grått stråk. Lagren finns kvar, osynliga. */
+export const MITTLINJE_OPACITET = 0;
 /** Filtret som avgör var mittlinjen ritas: bitar av skördarens stråk där skotaren varit (lib/korsparKlart delaKlart sätter `klar`). */
 export const MITTLINJE_FILTER: readonly any[] = ['==', ['get', 'klar'], true];
 
@@ -199,5 +208,15 @@ export interface SparPaint { farg: any; bredd: any; opacitet: any; kantFarg: str
 /** Kartans stil för skördarens stråk: rollfärgen, alltid tydlig. `skotarlage` = i skotarens körvy (lite svagare, som förut). */
 export function kartSpar(art: SparArt, skotarlage = false): SparPaint {
   const s = skotarlage ? skotarlageSpar('skordare', art) : { ...dampatSpar('skordare', art), streck: null };
-  return { farg: s.farg, bredd: STRAK_BREDD, opacitet: s.opacitet, kantFarg: s.kantFarg, kantBredd: STRAK_KANT_BREDD, kantOpacitet: s.kantOpacitet, streck: null };
+  const klar = MITTLINJE_FILTER as any[];
+  const faktor = ['case', klar, STRAK_KLAR_STYRKA, 1];
+  return {
+    farg: ['case', klar, STRAK_KLAR_FARG, STRAK_FARG],
+    bredd: STRAK_BREDD,
+    opacitet: ['*', faktor, s.opacitet],
+    kantFarg: s.kantFarg,
+    kantBredd: STRAK_KANT_BREDD,
+    kantOpacitet: ['interpolate', ['linear'], ['zoom'], SPAR_KANT_FRAN_ZOOM, 0, SPAR_KANT_FULL_ZOOM, ['*', faktor, 0.6]],
+    streck: null,
+  };
 }
