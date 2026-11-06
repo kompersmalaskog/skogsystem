@@ -9,7 +9,7 @@
 //     tanke som blött (glest = fuktigt, tätt = blött). Gränserna är Skogforsks terrängklasser för lutning: klass 4 från 33 % (≈ 18°), klass 5
 //     från 50 % (≈ 27°). Flackare än klass 4 visas inte — annars blir kartan full av varningar.
 //
-// Rena funktioner; hämtningen bor i app/api/ritad-karta/mark/route.ts, sammanfogningen i lib/ritadKarta/bygg.ts.
+// Rena funktioner; hämtningen bor i lib/ritadKarta/serverHamta.ts, sammanfogningen i lib/ritadKarta/bygg.ts.
 
 import { tillLngLat, type Utsnitt } from './skog';
 

@@ -17,6 +17,7 @@ import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
 import { KommentarVisning } from './KommentarRuta';
 import { SettKnapp } from './InstruktionKort';
 import BesokPlanerare, { type BesokPlanerareProps } from '../besok/BesokPlanerare';
+import SkotarLankPlanerare, { type SkotarLankPlanerareProps } from '../skotarlank/SkotarLankPlanerare';
 
 export interface KortLarm {
   satt: boolean;
@@ -68,6 +69,8 @@ export interface ObjektKortProps {
   onKlar?: () => void;
   /** Besök på trakten (planerarens kort): SMS till markägaren, besökslänken och loggen. null/saknas = visas inte (förare, maskinläget). */
   besok?: BesokPlanerareProps | null;
+  /** Skotare utifrån (planerarens kort): länken till skotarsidan för en extern skotare. null/saknas = visas inte. */
+  skotarLank?: SkotarLankPlanerareProps | null;
   /** PLANERAREN i planeringsläget (Martin 2026-11-05: "så enkel att ett barn förstår den direkt"): inga faktabrickor (ha och m³ står i raden under namnet),
    *  "Klar med trakten?" som svaret överst, och allt annat i EN lista — Risker · Markägaren · På trakten · Dokument · Vad betyder kartan · Mer. Föraren och maskinläget rörs inte. */
   planerare?: boolean;
@@ -79,6 +82,7 @@ export default function ObjektKort(p: ObjektKortProps) {
   const [dokOppen, setDokOppen] = useState(false);
   // Markägaren: EN rad på kortet; SMS, besökssidan, länken och loggen ligger bakom den (kommer man från en påminnelse om SMS:et öppnas den direkt).
   const [markagareOppen, setMarkagareOppen] = useState(!!p.besok?.fokusSms);
+  const [skotarLankOppen, setSkotarLankOppen] = useState(false);
   const n = p.knappar.length;
   // Alla knappar på EN rad. Fyra (förare) kräver tätare: 4 px mellanrum och ingen sidopadding ger 79 px per knapp på en 360 px bred telefon — "Skotning" är 73 px.
   const kolumner = Math.max(1, n);
@@ -86,6 +90,17 @@ export default function ObjektKort(p: ObjektKortProps) {
   const alla = p.planerare ? [] : [...p.brickor, ...p.extraBrickor];
   const undertitel = p.planerare ? planerarRad(p.rad, p.brickor) : p.rad;
   const paTrakten = p.paTrakten && p.planerare ? p.paTrakten.split(' · ')[0] : p.paTrakten;   // "17 markeringar" — "med text" säger inget för planeraren
+
+  if (skotarLankOppen && p.skotarLank) {
+    return (
+      <>
+        <Huvud titel="Skotare utifrån" tillbaka={p.namn} onTillbaka={() => setSkotarLankOppen(false)} onStang={p.onStang} />
+        <div data-testid="kort-skotarlank-vy" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
+          <SkotarLankPlanerare {...p.skotarLank} />
+        </div>
+      </>
+    );
+  }
 
   if (markagareOppen && p.besok) {
     return (
@@ -190,6 +205,10 @@ export default function ObjektKort(p: ObjektKortProps) {
           {p.besok && (
             <RadKnapp forstaRad={!(p.riskRad && p.onRisker)} testid="kort-markagare" ikon="person" etikett="Markägaren" onTryck={() => setMarkagareOppen(true)}
               under={p.besok.markagare || 'Namn saknas'} />
+          )}
+          {p.skotarLank && (
+            <RadKnapp forstaRad={!(p.riskRad && p.onRisker) && !p.besok} testid="kort-skotarlank-rad" ikon="share" etikett="Skotare utifrån"
+              under="Länk som visar körspår och högar" onTryck={() => setSkotarLankOppen(true)} />
           )}
           {p.instruktioner && p.instruktioner.antal > 0 && (
             <RadKnapp forstaRad testid="kort-instruktioner" etikett={`Instruktioner på trakten (${p.instruktioner.antal})`} onTryck={p.instruktioner.onOppna}
