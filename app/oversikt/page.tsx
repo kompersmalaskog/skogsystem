@@ -17,7 +17,6 @@ import { STATUS_AKTIV, STATUS_AVSLUTADE } from './oversikt-types';
 import { dagarSedan, type PlatsForslag } from '../maskinflytt/senastePlats';
 import { hamtaMaskinPlatser } from '../maskinflytt/maskinPlatser';
 import { narText } from '@/lib/maskinerNu';
-import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 import { paBackenKvar } from '@/lib/skotat';
 import { hamtaSkordMapV2, type SkordAggV2 } from './skord-data';
 import { beraknaForslag, arSkotare, maskinAktiv, tomtForslag, markeraOkanda, koNamn, arGrotKo, type MaskinForslag, type MaskinRad, type MaskinTyp, type KoPost } from './nasta-v2';
@@ -41,7 +40,7 @@ import GrotObjektArk, { type ArkKo, type ArkSkotare } from './GrotObjektArk';
 import { useGrotVagAvstand } from './grot-avstand';
 import { KNAPP, KNAPP_LITEN, SheetBas, Grabber, VarningLista, SvgRing } from './ark-delar';
 import { MinPlan } from './MinPlan';
-import { analysMarkorer, analysRader, lasTraktAnalys } from './traktanalys';
+import { analysKortOrd, analysRader, lasTraktAnalys } from './traktanalys';
 import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, INAKTIV, designCss, KNAPP as TOKEN_KNAPP, KOLUMN } from '@/lib/design/tokens';
 import { navigeringsMal, navigeringsUrl, type NavObjekt } from '@/lib/navigera';
 
@@ -470,7 +469,7 @@ export default function OversiktV2Page() {
   const machMarkersRef = useRef<Map<string, { marker: any; container: HTMLDivElement; square: HTMLDivElement; label: HTMLDivElement; sub: HTMLDivElement }>>(new Map());
   // grot = pricken hör till GROT-listan (GROT-arket är öppet): den behåller full styrka medan övriga prickar dämpas.
   // label = skylten bredvid pricken: [datum] [namn]. datum (brådskande GROT-trakt) syns på alla zoomnivåer, namnet först från z11.
-  const dotsRef = useRef<Map<string, { marker: any; el: HTMLDivElement; circle: HTMLDivElement; label: HTMLDivElement; datum: HTMLSpanElement; namn: HTMLSpanElement; desc: DotDesc; grot: boolean }>>(new Map());
+  const dotsRef = useRef<Map<string, { marker: any; el: HTMLDivElement; circle: HTMLDivElement; label: HTMLDivElement; datum: HTMLSpanElement; namn: HTMLSpanElement; ring: HTMLDivElement; fynd: HTMLSpanElement; fyndOrd: string | null; desc: DotDesc; grot: boolean }>>(new Map());
   const ordnaRef = useRef(false); // true medan "Ändra ordning" är öppet → kartan rör sig inte av sig själv
   const stopMarkersRef = useRef<any[]>([]); // numrerade rutt-cirklar + on-map-etiketter
   const clusterMarkersRef = useRef<any[]>([]); // ihopslagna maskin-markörer ("N maskiner")
@@ -673,15 +672,15 @@ export default function OversiktV2Page() {
   // Objekt-prickar/ringar
   useEffect(() => {
     const map = mapRef.current; if (!map || !mapStyleLoaded) return;
-    const want = new Map<string, { desc: DotDesc; lat: number; lng: number; namn: string; grot: boolean }>();
+    const want = new Map<string, { desc: DotDesc; lat: number; lng: number; namn: string; grot: boolean; fynd: string | null }>();
     for (const o of objekt) {
       if (o.lat == null || o.lng == null) continue;
       const grotRad = grotOppen ? grotPerObjektId.get(o.id) : undefined;
       const br = grotRad ? bradskandeFor(grotRad, todayISO) : null; // GROT-läget + markägarens datum → brådskande prick (går före statusens stil)
       const d = br ? bradskandePrick(br) : dotDesc(o, koObjektIds.has(o.id), grotIds.has(o.id) ? (grotOppen ? 'oppen' : 'vantar') : false);
-      if (d) want.set(o.id, { desc: d, lat: o.lat, lng: o.lng, namn: grotRad?.namn || o.namn, grot: grotPerObjektId.has(o.id) }); // GROT-läge: samma namn som i listan
+      if (d) want.set(o.id, { desc: d, lat: o.lat, lng: o.lng, namn: grotRad?.namn || o.namn, grot: grotPerObjektId.has(o.id), fynd: analysKortOrd(lasTraktAnalys(o)) }); // GROT-läge: samma namn som i listan
     }
-    grotUtanPrick.forEach((r) => { const br = bradskandeFor(r, todayISO); want.set(`grot:${r.id}`, { desc: br ? bradskandePrick(br) : GROT_PRICK, lat: r.koordinat!.lat, lng: r.koordinat!.lng, namn: r.namn, grot: true }); });
+    grotUtanPrick.forEach((r) => { const br = bradskandeFor(r, todayISO); want.set(`grot:${r.id}`, { desc: br ? bradskandePrick(br) : GROT_PRICK, lat: r.koordinat!.lat, lng: r.koordinat!.lng, namn: r.namn, grot: true, fynd: null }); });
     dotsRef.current.forEach((d, id) => { if (!want.has(id)) { d.marker.remove(); dotsRef.current.delete(id); } });
     want.forEach((p, id) => {
       let entry = dotsRef.current.get(id);
@@ -692,14 +691,19 @@ export default function OversiktV2Page() {
         label.style.cssText = `position:absolute;padding:2px 6px;background:${CHIP_BG};border-radius:6px;font-size:12px;font-weight:600;color:${FARG.text};white-space:nowrap;pointer-events:none;box-shadow:0 1px 5px rgba(0,0,0,0.3);display:none`;
         const datum = document.createElement('span'); datum.style.cssText = 'display:none;font-weight:700'; // brådskande: '5 okt' / 'försenad' (text + färg sätts nedan)
         const namn = document.createElement('span');
-        label.appendChild(datum); label.appendChild(namn);
-        el.appendChild(circle); el.appendChild(label);
+        // TRAKTANALYSEN (Martin 2026-11-06: en färg, en betydelse): något att tänka på = orange ring runt pricken; inzoomat står ordet efter namnet.
+        const ring = document.createElement('div');
+        ring.style.cssText = `position:absolute;left:-13px;top:-13px;width:26px;height:26px;border-radius:50%;border:2.5px solid ${FARG.orange};box-sizing:border-box;pointer-events:none;display:none`;
+        const fynd = document.createElement('span'); fynd.style.cssText = `display:none;color:${FARG.orange}`;
+        label.appendChild(datum); label.appendChild(namn); label.appendChild(fynd);
+        el.appendChild(ring); el.appendChild(circle); el.appendChild(label);
         const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([p.lng, p.lat]).addTo(map);
         el.addEventListener('click', (e) => { e.stopPropagation(); prickKlickRef.current(id); });
-        entry = { marker, el, circle, label, datum, namn, desc: p.desc, grot: p.grot };
+        entry = { marker, el, circle, label, datum, namn, ring, fynd, fyndOrd: null, desc: p.desc, grot: p.grot };
         dotsRef.current.set(id, entry);
       }
       entry.desc = p.desc; entry.grot = p.grot; entry.namn.textContent = p.namn;
+      entry.fyndOrd = p.fynd; entry.fynd.textContent = p.fynd ? ` · ${p.fynd}` : ''; entry.ring.style.display = p.fynd ? 'block' : 'none';
       entry.datum.textContent = p.desc.etikett?.text ?? ''; entry.datum.style.color = p.desc.etikett?.farg ?? '';
     });
     restyleSelection(); // skyltarnas läge läggs om av effekterna nedan (forslag-effekten kör layoutLabels vid varje ändring, och GROT-listan styr forslag via grotIds)
@@ -770,7 +774,7 @@ export default function OversiktV2Page() {
       if (!entry) {
         const container = document.createElement('div'); container.style.cssText = 'position:relative;width:0;height:0';
         const square = document.createElement('div');
-        square.style.cssText = `position:absolute;left:-12px;top:-12px;width:24px;height:24px;border-radius:5px;background:${FARG.text3};cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.4)`;
+        square.style.cssText = `position:absolute;left:-10px;top:-10px;width:20px;height:20px;border-radius:50%;background:${FARG.text3};border:2px solid ${FARG.bg};box-sizing:border-box;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.4)`;
         const label = document.createElement('div');
         label.style.cssText = `position:absolute;left:16px;top:-16px;display:flex;flex-direction:row;align-items:baseline;gap:4px;padding:6px 11px;background:${CHIP_BG};border-radius:10px;cursor:pointer;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.35)`;
         const name = document.createElement('div'); name.style.cssText = `font-size:14px;font-weight:600;color:${FARG.text}`; name.textContent = namn;
@@ -788,7 +792,9 @@ export default function OversiktV2Page() {
       const alder = tp ? narText(tp.length > 10 ? tp : null, tp.length <= 10 ? tp : null, new Date()) : { farsk: false, nar: 'tid okänd' };
       (entry.label.firstChild as HTMLDivElement).textContent = alder.farsk ? namn : `${namn} · ${alder.nar}`;
       (entry.label.firstChild as HTMLDivElement).style.color = alder.farsk ? FARG.text : FARG.text2;
-      entry.square.style.background = alder.farsk ? (f.typ === 'skotare' ? ROLLFARG_SKOTARE : ROLLFARG_SKORDARE) : FARG.text3;
+      // Vit prick (Martin 2026-11-06: "ta bort färgerna" — kartan bär EN färg, orange för traktanalysen). Rollen står i arket ("Skördar …"/"Skotar …");
+      // rollfärgerna lever kvar där spåren ritas (Planeringen, hytten).
+      entry.square.style.background = alder.farsk ? FARG.text : FARG.text3;
       entry.sub.textContent = sublabelText(f); // bara "→ nästa" / "· inget planerat"; km finns i arket
       entry.sub.style.color = nastaAv(f) ? FARG.text : FARG.text2; // finns ett nästa är det det viktiga — vitt; annars dämpat
       if (f.okand) entry.sub.style.color = FARG.orange; // ett läsfel syns: etiketten "ej läst" blir orange
@@ -836,6 +842,7 @@ export default function OversiktV2Page() {
       const namnSyns = dotVisible && !S && d.desc.namnbar && z >= THRESHOLD_ZOOM && !(grot && !d.grot);
       const datumSyns = dotVisible && grot && !!d.desc.etikett; // brådskande datumskylt: ALLA zoomnivåer — prickar slås aldrig ihop till kluster, så skylten är aldrig borta
       d.namn.style.display = namnSyns ? 'inline' : 'none';
+      d.fynd.style.display = namnSyns && d.fyndOrd ? 'inline' : 'none';
       d.datum.style.display = datumSyns ? 'inline' : 'none';
       d.datum.style.marginRight = namnSyns ? '6px' : '0'; // luft mellan datum och namn; skylten med bara datum får ingen tom kant
       d.label.style.display = (namnSyns || datumSyns) ? 'block' : 'none';
@@ -843,27 +850,6 @@ export default function OversiktV2Page() {
   }, []);
   useEffect(() => { syncDotVisibility(); layoutLabels(); }, [zoomNiva, syncDotVisibility, layoutLabels]);
 
-  // TRAKTANALYSEN PÅ KARTAN (./traktanalys): en prick där något hittats, i kategorins färg (barmark = kultur brun, vattenskydd = blött blå,
-  // skydd = natur grön). Tryck = vad det är, i klartext. Inget hittat eller ej kontrollerat = ingen prick (det sägs i texten om trakten).
-  const analysMarkRef = useRef<any[]>([]);
-  useEffect(() => {
-    const map = mapRef.current; if (!map || !mapStyleLoaded) return;
-    analysMarkRef.current.forEach((m) => m.remove()); analysMarkRef.current = [];
-    const oppna = objekt.filter((o) => o.status !== 'avslutat');
-    for (const m of analysMarkorer(oppna.map((o) => ({ id: o.id, namn: o.namn, analys: lasTraktAnalys(o) })))) {
-      const el = document.createElement('button');
-      el.type = 'button'; el.setAttribute('aria-label', `${m.text} · ${m.objektNamn}`);
-      // 44 px träffyta runt en 14 px prick (färgen bär aldrig ensam — texten kommer vid tryck)
-      el.style.cssText = `width:${44}px;height:${44}px;padding:0;border:none;background:none;display:flex;align-items:center;justify-content:center;cursor:pointer`;
-      const prick = document.createElement('span');
-      prick.style.cssText = `width:14px;height:14px;border-radius:50%;background:${m.farg};border:2px solid ${FARG.text};box-shadow:0 1px 4px rgba(0,0,0,0.5)`;
-      el.appendChild(prick);
-      const popup = new window.maplibregl.Popup({ offset: 14, closeButton: false }).setText(`${m.text} · ${m.objektNamn}`);
-      el.addEventListener('click', (e) => { e.stopPropagation(); });
-      analysMarkRef.current.push(new window.maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([m.lng, m.lat]).setPopup(popup).addTo(map));
-    }
-    return () => { analysMarkRef.current.forEach((m) => m.remove()); analysMarkRef.current = []; };
-  }, [objekt, mapStyleLoaded]);
 
   const restyleSelection = useCallback(() => {
     const map = mapRef.current; if (!map) return;

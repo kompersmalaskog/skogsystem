@@ -325,6 +325,9 @@ export function MinPlan({ f, namn, legs, varning, korDit, posFel, forman, onKart
                 </div>
               </div>
               {!valdRad.nu && korDit(valdRad.objekt)}
+              {/* Till trakten i Planeringen (kartan med allt som är märkt) — "‹ Översikt" där tar tillbaka hit. */}
+              <a href={`/planering?objekt=${encodeURIComponent(valdRad.id)}&fran=oversikt&plan=${encodeURIComponent(f.maskinId)}`} data-testid="oppna-trakten"
+                style={{ ...KNAPP.sekundar, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', color: FARG.text }}>Öppna trakten på kartan</a>
               <TraktFragor maskinId={f.maskinId} o={vo} roll={roll} warn={varning(valdRad.id)} kartText={kartFor(valdRad.id)} analys={analysFor(valdRad.objekt)} />
               {/* Står man på NU pekar sidan på Nästa — det är den man ska förbereda sig för. */}
               {valdRad.nu && nastaRad && (

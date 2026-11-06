@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { analysRader, analysMarkorer, fyndFarg, lasTraktAnalys, ANALYS_EXEMPEL, KONTROLLERA_FEL_TEXT } from './traktanalys';
+import { analysRader, analysMarkorer, analysKortOrd, fyndFarg, lasTraktAnalys, ANALYS_EXEMPEL, KONTROLLERA_FEL_TEXT } from './traktanalys';
 import { GRUPPER } from '@/lib/larm/grupper';
 
 describe('traktanalysen i Översikten', () => {
@@ -22,7 +22,17 @@ describe('traktanalysen i Översikten', () => {
     expect(m.map((x) => x.text)).toEqual(['Fossil åker · barmark', 'Vattenskydd']);
     expect(m[0]).toMatchObject({ objektNamn: 'Lidhem', farg: GRUPPER.kultur.farg, lat: 56.4231, lng: 15.5112 });
   });
-  it('tills andra spårets funktion är inkopplad visas ingenting', () => {
-    expect(lasTraktAnalys({ id: 'x', trakt_data: { beraknad: { restriktioner: [{ name: 'Fornlämning' }] } } })).toEqual({ lage: 'ej_kopplad' });
+  it('den sparade analysen (prod 2026-11-06): Britteberg fossil åker = barmark; Bjällerhult nyckelbiotop = skydd', () => {
+    const brit = lasTraktAnalys({ id: 'l', trakt_data: { beraknad: { restriktionerAnalyseradAt: 1793550266956, restriktioner: [{ type: 'fornlamning', name: 'Fossil åker (Väckelsång 192:1)' }] } } });
+    expect(analysRader(brit).map((r) => r.text)).toEqual(['Fossil åker · barmark']);
+    expect(analysKortOrd(brit)).toBe('Fossil åker');
+    const bj = lasTraktAnalys({ id: 'b', trakt_data: { beraknad: { restriktionerAnalyseradAt: 1, restriktioner: [{ type: 'nyckelbiotop', name: 'KARSAMÅLA VID INÄGOR' }, { type: 'vattenskydd', name: 'Ryd' }, { type: 'fornlamning', name: 'Vägmärke (L1955:7217)' }] } } });
+    expect(analysRader(bj).map((r) => r.text)).toEqual(['Nyckelbiotop · KARSAMÅLA VID INÄGOR', 'Vattenskydd · Ryd', 'Fornlämning · Vägmärke (L1955:7217)']);
+    expect(analysKortOrd(bj)).toBe('Nyckelbiotop +2');
+  });
+  it('analyserad utan fynd = inga rader; aldrig analyserad = "Inte kontrollerad än" (aldrig tomt)', () => {
+    expect(analysRader(lasTraktAnalys({ id: 'x', trakt_data: { beraknad: { restriktionerAnalyseradAt: 1, restriktioner: [] } } }))).toEqual([]);
+    expect(analysRader(lasTraktAnalys({ id: 'x', trakt_data: null })).map((r) => r.text)).toEqual(['Inte kontrollerad än']);
+    expect(analysKortOrd(lasTraktAnalys({ id: 'x' }))).toBeNull();
   });
 });

@@ -24,6 +24,7 @@ export interface TraktFynd {
 
 export type TraktAnalys =
   | { lage: 'ej_kopplad' }                 // datan finns inte än (andra spårets PR ej mergad)
+  | { lage: 'ej_kontrollerad' }            // trakten har aldrig analyserats — sägs, aldrig tomt
   | { lage: 'fel' }                        // analysen kunde inte köras (tjänsten nere)
   | { lage: 'klar'; fynd: TraktFynd[] };   // körd; tom lista = inget hittat (ingen rad, ingen bekräftelse)
 
@@ -31,17 +32,48 @@ export const KATEGORI_GRUPP: Record<FyndKategori, FargGrupp> = { barmark: 'kultu
 export const fyndFarg = (k: FyndKategori): string => GRUPPER[KATEGORI_GRUPP[k]].farg;
 export const KONTROLLERA_FEL_TEXT = 'Kunde inte kontrolleras';
 
+const FORNLAMNING_BARMARK = /fossil\s*åker|odlingsrös|röjningsrös|stensträng|kolbotten|kolningsanl/i;
+const TYP_ORD: Record<string, string> = {
+  fornlamning: 'Fornlämning', vattenskydd: 'Vattenskydd', nyckelbiotop: 'Nyckelbiotop', natura2000: 'Natura 2000',
+  naturreservat: 'Naturreservat', biotopskydd: 'Biotopskydd', skoghistoria: 'Skog & Historia', skog_historia: 'Skog & Historia',
+};
+
 /**
- * Traktens analys. KOPPLINGEN: byts mot andra spårets funktion när den PR:en är mergad (Martin säger till och vad den heter).
- * Fram till dess: 'ej_kopplad' för alla trakter — ingenting visas, ingenting gissas.
+ * Traktens analys. TILLS VIDARE (Martin 2026-11-06: "kör nu"): det traktanalysen redan sparat när trakten öppnats i Planeringen
+ * (objekt.trakt_data.beraknad.restriktioner + restriktionerAnalyseradAt) — bara namnen, ingen plats (den sparade datan har ingen).
+ * BYTS mot Besök/markägare-spårets funktion när den PR:en är mergad (kategori och plats kommer därifrån).
  */
-export function lasTraktAnalys(_o: { id: string; trakt_data?: unknown }): TraktAnalys {
-  return { lage: 'ej_kopplad' };
+export function lasTraktAnalys(o: { id: string; trakt_data?: unknown }): TraktAnalys {
+  const b = (o.trakt_data as { beraknad?: { restriktioner?: unknown; restriktionerAnalyseradAt?: unknown } } | null | undefined)?.beraknad;
+  if (!b || b.restriktionerAnalyseradAt == null) return { lage: 'ej_kontrollerad' };
+  const lista = Array.isArray(b.restriktioner) ? b.restriktioner as { type?: unknown; name?: unknown }[] : [];
+  const fynd: TraktFynd[] = lista.flatMap((r): TraktFynd[] => {
+    const typ = typeof r.type === 'string' ? r.type.trim().toLowerCase() : '';
+    const namn = typeof r.name === 'string' ? r.name.trim() : '';
+    if (!typ && !namn) return [];
+    if (typ === 'fornlamning' && FORNLAMNING_BARMARK.test(namn)) {
+      const vad = namn.replace(/\s*\(.*\)\s*$/, '').trim() || 'Fornlämning';
+      return [{ kategori: 'barmark' as const, text: `${vad} · barmark`, plats: null }];
+    }
+    const ord = TYP_ORD[typ] ?? (typ ? typ[0].toUpperCase() + typ.slice(1) : 'Skydd');
+    return [{ kategori: typ === 'vattenskydd' ? 'vattenskydd' as const : 'skydd' as const, text: namn ? `${ord} · ${namn}` : ord, plats: null }];
+  });
+  return { lage: 'klar', fynd };
+}
+
+/** Kort ord för kartan ("Fossil åker", "Vattenskydd", "Fossil åker +1"); null = inget hittat. */
+export function analysKortOrd(a: TraktAnalys): string | null {
+  if (a.lage !== 'klar') return null;
+  const r = analysRader(a);
+  if (!r.length) return null;
+  const forsta = r[0].text.split(' · ')[0];
+  return r.length > 1 ? `${forsta} +${r.length - 1}` : forsta;
 }
 
 /** Raderna i texten om trakten: ett märke per rad, i den ordning funktionen gav dem; fel = en orange rad; inget hittat eller ej kopplad = inga rader. */
 export function analysRader(a: TraktAnalys): { text: string; farg: string | null; fel: boolean }[] {
   if (a.lage === 'fel') return [{ text: KONTROLLERA_FEL_TEXT, farg: null, fel: true }];
+  if (a.lage === 'ej_kontrollerad') return [{ text: 'Inte kontrollerad än', farg: null, fel: true }];
   if (a.lage !== 'klar') return [];
   const sedda = new Set<string>();
   return a.fynd.filter((f) => { const k = f.text.trim().toLowerCase(); if (!k || sedda.has(k)) return false; sedda.add(k); return true; })

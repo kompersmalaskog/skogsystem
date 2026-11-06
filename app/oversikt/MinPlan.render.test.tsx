@@ -92,6 +92,7 @@ describe('Min plan — körordningen till vänster, trakten till höger', () => 
     const t = () => trakt().textContent ?? '';
     expect(el.firstElementChild?.className).toContain('mp-vy-trakt');      // telefon: trakten är skärmen
     expect(trakt().querySelector('[data-kordit]')).not.toBeNull();
+    expect(trakt().querySelector('[data-testid=oppna-trakten]')?.getAttribute('href')).toBe('/planering?objekt=l&fran=oversikt&plan=GIANT');
     const rubriker = [...trakt().querySelectorAll('h3')].map((x) => x.textContent);
     expect(rubriker).toEqual(['Farligt', 'Skyddat på trakten', 'Innan du åker', 'När du är där']);
     expect(t().match(/Kraftledning/g)?.length).toBe(1);
