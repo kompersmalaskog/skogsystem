@@ -51,6 +51,10 @@
       "schedule": "7 * * * *"
     },
     {
+      "path": "/api/cron/traktanalys",
+      "schedule": "23 * * * *"
+    },
+    {
       "path": "/api/cron/kalibrering-grepp",
       "schedule": "10,40 * * * *"
     },
