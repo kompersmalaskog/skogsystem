@@ -238,3 +238,22 @@ describe('Avslutade — typer, vald typ, sortering och datum', () => {
     expect(avslutadMeta(a('y', 'gallring', null), false)).toBe('Avslutat —');
   });
 });
+
+describe('aktiva: typväljaren', () => {
+  const o = (id: string, typ: string | null) => ({ id, namn: id, typ } as any);
+  it('bara typer som finns, i fast ordning, och bara när det finns minst två', async () => {
+    const { aktivaTyper } = await import('./objektVal');
+    expect(aktivaTyper([o('a', 'gallring'), o('b', 'slutavverkning'), o('c', 'gallring'), o('d', 'grot')]).map((t) => `${t.etikett} ${t.antal}`))
+      .toEqual(['Slutavverkning 1', 'Gallring 2', 'GROT 1']);
+    expect(aktivaTyper([o('a', 'gallring'), o('b', 'gallring')])).toEqual([]);
+  });
+  it('en vald typ som inte finns längre är Alla; avTyp filtrerar och behåller ordningen', async () => {
+    const { aktivaTyper, giltigAktivTyp, avTyp } = await import('./objektVal');
+    const lista = [o('a', 'gallring'), o('b', 'slutavverkning'), o('c', 'gallring')];
+    const typer = aktivaTyper(lista);
+    expect(giltigAktivTyp(typer, 'grot')).toBeNull();
+    expect(giltigAktivTyp(typer, 'gallring')).toBe('gallring');
+    expect(avTyp(lista, 'gallring').map((x) => x.id)).toEqual(['a', 'c']);
+    expect(avTyp(lista, null).map((x) => x.id)).toEqual(['a', 'b', 'c']);
+  });
+});

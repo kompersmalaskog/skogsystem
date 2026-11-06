@@ -126,15 +126,12 @@ describe('grupperna utgår från status', () => {
     expect(q('objekt-rad-v')).toBeNull();
   });
 
-  it('GROT och energiklippning syns bland de aktiva; inga typknappar eller flikar', async () => {
+  it('GROT och energiklippning syns bland de aktiva', async () => {
     await montera();
     expect(q('objekt-rad-g')!.textContent).toContain('GROT Hjorthult');
     expect(q('objekt-rad-g')!.textContent).toContain('GROT · Vida');            // typen skrivs GROT, versaler
     expect(q('objekt-rad-n')!.textContent).toContain('Energiklippning');
-    const knappar = Array.from(behallare!.querySelectorAll('button')).map((b) => b.textContent);
-    for (const typ of ['Alla', 'Slutavverkning', 'Gallring']) expect(knappar).not.toContain(typ);
     expect(behallare!.querySelector('[role="tab"]')).toBeNull();
-    expect(behallare!.querySelector('[aria-pressed]')).toBeNull();
   });
 
   it('inom gruppen närmast först (km ur GPS-positionen)', async () => {
@@ -427,7 +424,7 @@ describe('Avslutade — växlare per typ', () => {
     await montera();
     expect(Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent)).toEqual(['Pågår', 'Planerade']);
     expect(radIdn().sort()).toEqual(['p1', 'pl']);
-    expect(behallare!.querySelector('[role="radiogroup"]')).toBeNull();      // ingen växlare i huvudlistan
+    expect(behallare!.querySelector('[data-testid="avslutade-typvaxlare"]')).toBeNull();      // ingen växlare i huvudlistan
     expect(q('objekt-lista-avslutade')!.textContent).toContain('(7)');
     expect(q('objekt-rad-p1')!.textContent).not.toContain('Avslutat');
   });
@@ -636,5 +633,66 @@ describe('maskinläge: maskinens egna objekt först, med etiketten "Den här mas
     await montera({ kanStangas: false });
     expect(ordning()).toEqual(['nara', 'gall', 'egen']);
     expect(q('objekt-egen-maskin-egen')).toBeNull();
+  });
+});
+
+describe('typväljaren överst (Martin 2026-11-06)', () => {
+  it('Alla · Slutavverkning · Gallring · GROT · Energiklippning — bara typer som finns bland de aktiva, fast ordning, Alla förvald', async () => {
+    await montera();
+    const knappar = Array.from(behallare!.querySelectorAll('[data-testid^="aktiva-typ-"]')).map((b) => b.textContent);
+    expect(knappar).toEqual(['Alla', 'Slutavverkning1', 'Gallring2', 'GROT1', 'Energiklippning1']);
+    expect(q('aktiva-typ-alla')!.getAttribute('aria-checked')).toBe('true');
+  });
+  it('tryck på Gallring: bara gallringarna, Pågår/Planerade/Oplanerade kvar, typordet upprepas inte på raden', async () => {
+    await montera();
+    klicka(q('aktiva-typ-gallring'));
+    const rader = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
+    expect(rader).toEqual(['p', 'o']);
+    expect(q('objekt-rad-p')!.textContent).not.toContain('Gallring ·');
+    expect(q('objekt-lista-avslutade')!.textContent).toContain('(2)');      // Avslutade räknar som förut
+    klicka(q('aktiva-typ-alla'));
+    expect(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).toHaveLength(5);
+  });
+  it('bara en typ bland de aktiva → ingen väljare', async () => {
+    h.rader = RADER.filter((r) => r.typ === 'gallring');
+    await montera();
+    expect(q('aktiva-typvaxlare')).toBeNull();
+  });
+  it('varje öppning börjar på Alla', async () => {
+    await montera();
+    klicka(q('aktiva-typ-grot'));
+    await visa({ oppen: false });
+    await visa({ oppen: true });
+    expect(q('aktiva-typ-alla')!.getAttribute('aria-checked')).toBe('true');
+  });
+});
+
+describe('traktanalysen på raden — högst en rad, bara när något finns', () => {
+  const analys = (fynd: any[], fel: string[] = []) => ({ at: '2026-11-06T10:00:00Z', grans: 'x', fynd, fel });
+  it('fossil åker → "Fossil åker – kräver barmark"; vattenskydd → "Vattenskydd"; båda → en rad', async () => {
+    h.rader = [
+      { ...RADER[1], trakt_analys: analys([{ type: 'fornlamning', name: 'Fossil åker (Almundsryd 373:1)' }]) },
+      { ...RADER[3], trakt_analys: analys([{ type: 'vattenskydd', name: 'Vattenskyddsområde' }]) },
+      { ...RADER[2], trakt_analys: analys([{ type: 'vattenskydd', name: 'V' }, { type: 'fornlamning', name: 'Område med fossil åkermark' }]) },
+    ];
+    await montera();
+    expect(q('objekt-trakt-e')!.textContent).toBe('Fossil åker – kräver barmark');
+    expect(q('objekt-trakt-p')!.textContent).toBe('Vattenskydd');
+    expect(q('objekt-trakt-g')!.textContent).toBe('Fossil åker · vattenskydd');
+    expect(q('objekt-rad-e')!.querySelectorAll('[data-testid^="objekt-trakt-"]')).toHaveLength(1);
+  });
+  it('inget hittat, ej körd eller bara skydd (nyckelbiotop) → ingen rad; en kontroll som föll → "Ej kontrollerad"', async () => {
+    h.rader = [
+      { ...RADER[1], trakt_analys: analys([]) },
+      { ...RADER[3] },
+      { ...RADER[2], trakt_analys: analys([{ type: 'nyckelbiotop', name: 'NB' }]) },
+      { ...RADER[4], trakt_analys: analys([], ['Vattenskydd: nät']) },
+    ];
+    await montera();
+    expect(q('objekt-trakt-e')).toBeNull();
+    expect(q('objekt-trakt-p')).toBeNull();
+    expect(q('objekt-trakt-g')).toBeNull();
+    expect(q('objekt-trakt-n')!.textContent).toBe('Ej kontrollerad');
+    expect(behallare!.textContent).not.toMatch(/inget hittat/i);
   });
 });

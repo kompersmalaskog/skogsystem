@@ -229,3 +229,32 @@ export function anvandObjektLista(a: { maskinlage: boolean; maskinSom: boolean; 
 export function anvandObjektListaUtanObjekt(a: { maskinlage: boolean; maskinSom: boolean; korvyActive: boolean }): boolean {
   return a.maskinlage || anvandObjektLista(a);
 }
+
+// ---- Aktiva: typväljare -----------------------------------------------------------------------------------------------------------
+// Martin 2026-11-06: "dela upp den på slutavverkning gallring GROT energiklippning … så enkel så att ett barn förstår den direkt".
+// Överst i listan (inte i Avslutade) en rad: Alla · Slutavverkning 4 · Gallring 3 · GROT 1. Bara typer som finns, i FAST ordning (knapparna
+// hoppar aldrig när antalen ändras), och bara när det finns minst två typer — en typ ensam är ingen fråga. Alla är förvalt varje gång.
+
+/** Typerna bland de aktiva objekten, i fast ordning. Tom lista = visa ingen väljare. */
+export function aktivaTyper(objekt: readonly ListObjekt[]): { typ: AvslutadTyp; etikett: string; antal: number }[] {
+  const antal = new Map<AvslutadTyp, number>();
+  for (const o of objekt) { const t = avslutadTyp(o); antal.set(t, (antal.get(t) ?? 0) + 1); }
+  const typer = AVSLUTAD_TYP_ORDNING.filter((t) => (antal.get(t) ?? 0) > 0)
+    .map((t) => ({ typ: t, etikett: AVSLUTAD_TYP_ETIKETT[t], antal: antal.get(t)! }));
+  return typer.length >= 2 ? typer : [];
+}
+
+/** Vald typ om den finns bland typerna, annars null (= Alla). */
+export function giltigAktivTyp(typer: readonly { typ: AvslutadTyp }[], vald: AvslutadTyp | null | undefined): AvslutadTyp | null {
+  return vald && typer.some((t) => t.typ === vald) ? vald : null;
+}
+
+/** Objekten av en typ; null = alla. Ordningen behålls. */
+export function avTyp<T extends ListObjekt>(objekt: readonly T[], typ: AvslutadTyp | null): T[] {
+  return typ ? objekt.filter((o) => avslutadTyp(o) === typ) : [...objekt];
+}
+
+/** Raden under namnet när en typ är vald: typen står redan i väljaren, så den upprepas inte. */
+export function radMetaUtanTyp(o: ListObjekt): string {
+  return [(o.bolag ?? '').trim(), volymText(o.volym)].filter(Boolean).join(' · ');
+}
