@@ -16,6 +16,7 @@ import { hamtaStammoln } from '@/lib/egenkontroll';
 import type { Rutnat } from '@/lib/ritadKarta/skog';
 import { omradeNyckel, valjOmrade, type Omrade, type OmradesKalla, type Ring } from '@/lib/ritadKarta/omrade';
 import { byggRitat, type Ritat } from '@/lib/ritadKarta/bygg';
+import { sattDragt } from '@/lib/ritadKarta/mork';
 import { blottMedTrakt, BLOTT_MONSTER, BLOTT_STRECK, BRANT_MONSTER, BRANT_LITE_MONSTER, brantLiteBild, RITAD_DOLJ_FYLLNING, blottLager, blottMonsterBild, RITAD_ID, RITAD_KALLA, RITAD_LAGER, RITAD_OSM_VAG_ID, brantLager, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
 import { franBase64, type MarkRutnat } from '@/lib/ritadKarta/mark';
 import { snedstreckBild } from '@/lib/ytaStil';
@@ -178,8 +179,10 @@ export function sattSkog(m: any, ritat: Ritat | null, vagar: VagFC | null, diken
   m.addLayer({ id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog, paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0, ...paint }, layout: { visibility: 'none' } });
 }
 
-export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar, punkt }: {
+export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar, punkt, mork = false }: {
   map: any | null; klar: boolean; vald: boolean; objektId: string | null; skogPaint: Record<string, number>;
+  /** Mörk (Tesla, lib/ritadKarta/mork): samma ritade karta i mörk drägt. */
+  mork?: boolean;
   /** Traktgränser planeraren ritat själv ([lng, lat][]); används när Vida saknar traktgräns. */
   egnaRingar?: Ring[] | null;
   /** Objektets punkt; ruta runt den när ingen gräns finns. */
@@ -240,6 +243,12 @@ export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar
     if (!map || !map.getLayer?.(RITAD_ID.skog)) return;
     for (const [k, v] of Object.entries(skogPaint)) { try { map.setPaintProperty(RITAD_ID.skog, k, v); } catch { /* */ } }
   }, [map, skogPaint, nyckel]);
+
+  // Drägten: Mörk eller Ritad (lib/ritadKarta/mork). Sätts när grunden lagts och när valet byts.
+  useEffect(() => {
+    if (!map || !grundKlar) return;
+    try { sattDragt(map, vald && mork); } catch (e) { console.warn('[ritad] drägten', e); }
+  }, [map, grundKlar, vald, mork, nyckel]);
 
   // Synligheten — körvyns whitelist släpper igenom RITAD_KORVY_LAGER (page.tsx), så den här effekten kan sätta allt.
   useEffect(() => {

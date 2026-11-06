@@ -195,7 +195,7 @@ import { useSkotarLass } from '../../lib/hooks/useSkotarLass'
 import { useSkotarVader } from '../../lib/hooks/useSkotarVader'
 import { hamtaPrognos, narmasteSteg } from '../../lib/smhi-prognos'
 import { useKartlager } from '../../lib/hooks/useKartlager'
-import { KARTLAGER_LAGER_ID, KARTLAGER_NAMN } from '../../lib/kartlager'
+import { KARTLAGER_LAGER_ID, KARTLAGER_NAMN, arRitadKarta } from '../../lib/kartlager'
 import { kartBasPaint } from '../../lib/kartBas'
 import { useRitadKarta, ritadStatusText } from '../../lib/hooks/useRitadKarta'
 import { RITAD_LAGER } from '../../lib/ritadKarta/lager'
@@ -9304,7 +9304,7 @@ export default function PlannerPage() {
       // Bas-karta: Karta (LM dämpad) eller Topokarta (LM full färg) — växlas i toggeln.
       const SHOW = new Set<string>([KARTLAGER_LAGER_ID[korvyBasKarta]]);
       // Ritad: hela den ritade kartan (grund, skog, träd) — aldrig 3D-kronorna i körvyn (lib/ritadKarta/lager). Synligheten sätts sedan av useRitadKarta.
-      if (korvyBasKarta === 'ritad') for (const id of RITAD_LAGER) SHOW.add(id);
+      if (arRitadKarta(korvyBasKarta)) for (const id of RITAD_LAGER) SHOW.add(id);   // Ritad och Mörk är samma ritade karta
       // Våra ritade data + immersion-layers. 'zone-' (singular) = de PLATTA zon-lagren
       // (zone-fill/zone-outline/zone-label) — MÅSTE vara med annars döljs zonerna i körvy. Förr
       // visades zoner i körvy bara via 'zones-korvy-*-extrusion' (3D-pelaren, nu borttagen); utan
@@ -9360,10 +9360,12 @@ export default function PlannerPage() {
 
   // === RITAD: det femte kartlagret, ritat av appen ur laserdatan (lib/hooks/useRitadKarta) ===
   // Ligger EFTER körvyns whitelist så att dess synlighet sätts sist. Inget hämtas förrän Ritad väljs.
-  const ritadSkogPaint = useMemo(() => kartBasPaint('ritad', styrkaFor(kartReglage.styrkor, 'ritad')), [kartReglage.styrkor]);
+  // Mörk (Tesla) är samma ritade karta; skogsbilden får Mörks egna ändpunkter och reglage (lib/kartBas `mork`).
+  const ritadSkogLager = mapType === 'mork' ? 'mork' : 'ritad';
+  const ritadSkogPaint = useMemo(() => kartBasPaint(ritadSkogLager, styrkaFor(kartReglage.styrkor, ritadSkogLager)), [kartReglage.styrkor, ritadSkogLager]);
   // Reserv när Vida saknar traktgräns (privata jobb): planerarens egna gränser i lng/lat, annars objektets punkt (lib/ritadKarta/omrade).
   const ritadEgnaRingar = useMemo(() => {
-    if (mapType !== 'ritad' || objektSaknarPosition) return null;
+    if (!arRitadKarta(mapType) || objektSaknarPosition) return null;
     return markers
       .filter((m: any) => m.isLine && m.lineType === 'boundary' && Array.isArray(m.path) && m.path.length > 2)
       .map((m: any) => m.path.map((p: any) => { const c = svgToLatLon(p.x, p.y); return [c.lon, c.lat] as [number, number]; }));
@@ -9391,7 +9393,7 @@ export default function PlannerPage() {
   }, [mapLibreReady, skotarKorvy, currentPosition]);
 
   const ritadStatus = useRitadKarta({
-    map: mapLibreReady ? mapInstanceRef.current : null, klar: mapLibreReady, vald: mapType === 'ritad',
+    map: mapLibreReady ? mapInstanceRef.current : null, klar: mapLibreReady, vald: arRitadKarta(mapType), mork: mapType === 'mork',
     objektId: valtObjekt?.id ?? null, skogPaint: ritadSkogPaint, egnaRingar: ritadEgnaRingar, punkt: ritadPunkt,
   });
 
@@ -13043,7 +13045,9 @@ export default function PlannerPage() {
         { id: 'satellite', name: 'Flygfoto', desc: 'Lantmäteriet ortofoto 0,5 m' },
         { id: 'terrain', name: 'Topokarta', desc: 'Lantmäteriet — full färg' },
         { id: 'osm', name: 'OpenStreetMap', desc: 'Standardkarta' },
-        { id: 'ritad', name: 'Ritad', desc: ritadStatusText(ritadStatus) },
+        { id: 'ritad', name: 'Ritad', desc: mapType === 'ritad' ? ritadStatusText(ritadStatus) : 'Skogen ritad ur laserdatan' },
+        // Tesla-kartan (Martin 2026-11-06): samma ritade karta i mörk drägt — ett eget val, aldrig standard (lib/ritadKarta/mork).
+        { id: 'mork', name: 'Mörk', desc: mapType === 'mork' ? ritadStatusText(ritadStatus) : 'Mörk karta — vägar och det du planerat lyser' },
       ] as const).map((t): LagerRad => ({ id: t.id, namn: t.name, under: t.desc, typ: 'val', pa: mapType === t.id, bild: lagerBild(t.id), onTryck: () => setMapType(t.id),
         // Reglaget under vald bakgrund: Dämpad ↔ Skarp, per bakgrund och per enhet (lib/kartBas, lib/kartReglage).
         reglage: bakgrundReglage(t.id, kartReglage.styrkor, kartReglage.setStyrka) })),
@@ -13272,7 +13276,7 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || !(objektKartaTryck && objektListaOppen)) return;
-    const d = skapaLagerDoljare(map, { visaKarta: mapType === 'ritad' });   // Ritad är ingen översiktskarta: Lantmäteriets karta medan listan är öppen
+    const d = skapaLagerDoljare(map, { visaKarta: arRitadKarta(mapType) });   // Ritad är ingen översiktskarta: Lantmäteriets karta medan listan är öppen
     d.dolj();
     map.on('styledata', d.dolj);       // lager som skapas eller tänds medan listan är öppen göms också
     return () => { try { map.off('styledata', d.dolj); } catch { /* kartan är borta */ } d.aterstall(); };
@@ -18756,6 +18760,7 @@ export default function PlannerPage() {
                       else if (mapType === 'satellite') setMapType('terrain');
                       else if (mapType === 'terrain') setMapType('osm');
                       else if (mapType === 'osm') setMapType('ritad');
+                      else if (mapType === 'ritad') setMapType('mork');
                       else setMapType('lantmateriet');
                     }}
                     style={{

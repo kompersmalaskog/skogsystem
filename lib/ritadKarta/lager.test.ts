@@ -55,14 +55,15 @@ describe('lagren', () => {
 describe('page.tsx: Ritad är kopplad på ett ställe', () => {
   const page = readFileSync(join(__dirname, '../../app/planering/page.tsx'), 'utf8');
   it('raden Ritad finns i Bakgrundskarta och säger vad som syns', () => {
-    expect(page).toContain("{ id: 'ritad', name: 'Ritad', desc: ritadStatusText(ritadStatus) },");
+    expect(page).toContain("{ id: 'ritad', name: 'Ritad', desc: mapType === 'ritad' ? ritadStatusText(ritadStatus) : 'Skogen ritad ur laserdatan' },");
+    expect(page).toContain("{ id: 'mork', name: 'Mörk', desc: mapType === 'mork' ? ritadStatusText(ritadStatus) :");
   });
   it('körvyn släpper igenom den ritade kartan bara när Ritad är vald', () => {
-    expect(page).toContain("if (korvyBasKarta === 'ritad') for (const id of RITAD_LAGER) SHOW.add(id);");
+    expect(page).toContain("if (arRitadKarta(korvyBasKarta)) for (const id of RITAD_LAGER) SHOW.add(id);");
     expect(page).not.toMatch(/KEEP_PREFIX = \[[^\]]*'ritad-'/);
   });
   it('hooken anropas efter körvyns whitelist (dess synlighet ska sättas sist)', () => {
-    expect(page.indexOf('useRitadKarta({')).toBeGreaterThan(page.indexOf("if (korvyBasKarta === 'ritad')"));
+    expect(page.indexOf('useRitadKarta({')).toBeGreaterThan(page.indexOf("if (arRitadKarta(korvyBasKarta))"));
   });
 });
 

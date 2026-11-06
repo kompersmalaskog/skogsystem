@@ -75,6 +75,6 @@ describe('fara rörs aldrig av nedtoning eller grått', () => {
     // … plus Ritads skogsbild (rasterlagret ritad-skog, satt av useRitadKarta) — samma reglage, ingen egen siffra.
     expect(ovriga.filter((r) => !r.trim().startsWith('//')).length).toBe(2);
     expect(sida).toMatch(/const paint = kartBasPaint\(l, styrkaFor\(kartReglage\.styrkor, l\)\);/);
-    expect(sida).toContain("const ritadSkogPaint = useMemo(() => kartBasPaint('ritad', styrkaFor(kartReglage.styrkor, 'ritad')), [kartReglage.styrkor]);");
+    expect(sida).toContain("const ritadSkogPaint = useMemo(() => kartBasPaint(ritadSkogLager, styrkaFor(kartReglage.styrkor, ritadSkogLager)), [kartReglage.styrkor, ritadSkogLager]);");
   });
 });
