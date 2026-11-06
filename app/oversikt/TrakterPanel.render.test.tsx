@@ -6,17 +6,22 @@ import { act } from 'react';
 import { writeFileSync } from 'node:fs';
 import { TrakterPanel, KartMeny, KartMenyKnapp } from './TrakterPanel';
 import type { TrakterGrupper } from './trakterLista';
+import { fasSteg } from '@/lib/objektVal';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let rot: Root | null = null; let el: HTMLDivElement;
 const montera = async (n: React.ReactNode) => { el = document.createElement('div'); document.body.appendChild(el); rot = createRoot(el); await act(async () => { rot!.render(n); }); };
 afterEach(() => { act(() => rot?.unmount()); el?.remove(); rot = null; });
 
+const steg = (fas: string | null, status: string) => fasSteg({ fas, typ: 'slutavverkning', status });
 const G: TrakterGrupper = {
-  pagar: [{ id: 'b', namn: 'Bondeskog', under: 'Giant står här', underOrange: false, fynd: null }, { id: 'p', namn: 'Patrik Andersson Bjällerhult', under: 'H8E -26 står här', underOrange: false, fynd: 'Nyckelbiotop' }],
-  planerade: [{ id: 'l', namn: 'Lidhem Britteberg', under: 'Giant · nästa', underOrange: false, fynd: 'Fossil åker' }, { id: 'e', namn: 'Edestad', under: 'Ingen maskin', underOrange: true, fynd: null }],
-  oplanerade: [{ id: 'h', namn: 'Hönshylte gallring', under: null, underOrange: false, fynd: null }],
-  antal: 5, utanMaskin: 1,
+  pagar: [{ id: 'b', namn: 'Bondeskog', under: 'Giant står här', underOrange: false, steg: steg('skordas', 'pagaende'), fynd: null },
+    { id: 'a', namn: 'Arvidstorp', under: null, underOrange: false, steg: steg('vantar_skotare', 'pagaende'), fynd: null },
+    { id: 'p', namn: 'Patrik Andersson Bjällerhult', under: 'H8E -26 står här', underOrange: false, steg: steg('skordas', 'pagaende'), fynd: null }],
+  planerade: [{ id: 'l', namn: 'Lidhem Britteberg', under: 'Giant · nästa', underOrange: false, steg: steg(null, 'planerad'), fynd: { text: 'Fossil åker – kräver barmark', kategori: 'barmark' } },
+    { id: 'e', namn: 'Edestad', under: 'Ingen maskin', underOrange: true, steg: steg(null, 'planerad'), fynd: null }],
+  oplanerade: [{ id: 'h', namn: 'Hönshylte gallring', under: null, underOrange: false, steg: steg(null, 'oplanerad'), fynd: null }],
+  antal: 6, utanMaskin: 1,
 };
 
 describe('Trakter', () => {
@@ -24,11 +29,13 @@ describe('Trakter', () => {
     const valda: string[] = []; let stangd = 0;
     await montera(<div style={{ position: 'relative', height: 900 }}><TrakterPanel grupper={G} valt="l" onValj={(id) => valda.push(id)} onStang={() => { stangd += 1; }} /></div>);
     if (process.env.TRAKTER_HTML) writeFileSync(process.env.TRAKTER_HTML, el.innerHTML);
-    expect([...el.querySelectorAll('h3')].map((h) => h.textContent)).toEqual(['Pågår · 2', 'Planerade · 2']);
+    expect([...el.querySelectorAll('h3')].map((h) => h.textContent)).toEqual(['Pågår · 3', 'Planerade · 2']);
+    // samma steg som Planeringens lista
+    expect(el.textContent).toContain('✓ Planerat'); expect(el.textContent).toContain('Skördas'); expect(el.textContent).toContain('Väntar på skotare');
     expect(el.textContent).toContain('Oplanerade · 1');
     expect(el.textContent).not.toContain('Hönshylte');
-    expect(el.textContent).toContain('Fossil åker');
-    await act(async () => { ([...el.querySelectorAll('[data-trakt-rad]')][2] as HTMLButtonElement).click(); });
+    expect(el.textContent).toContain('Fossil åker – kräver barmark');
+    await act(async () => { ([...el.querySelectorAll('[data-trakt-rad]')][3] as HTMLButtonElement).click(); });
     expect(valda).toEqual(['l']);
     await act(async () => { ([...el.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Oplanerade')) as HTMLButtonElement).click(); });
     expect(el.textContent).toContain('Hönshylte');

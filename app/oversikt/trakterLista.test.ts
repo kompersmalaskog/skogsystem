@@ -16,9 +16,9 @@ const namn: Record<string, string> = { GIANT: 'Giant', EK: 'Elefant 26' };
 
 describe('Trakter — som i Planeringen', () => {
   const g = trakterGrupper([bondeskog, brit, garden, arv, edestad, hons, vashult],
-    new Map([['GIANT', f(bondeskog, [brit, garden])], ['EK', f(null, [garden, arv])]]), (m) => namn[m], (x) => (x.id === 'l' ? 'Fossil åker' : null));
+    new Map([['GIANT', f(bondeskog, [brit, garden])], ['EK', f(null, [garden, arv])]]), (m) => namn[m], (x) => (x.id === 'l' ? { text: 'Fossil åker – kräver barmark', kategori: 'barmark' } : null));
   it('pågår = där en maskin står (positionen), även när statusen släpar', () => {
-    expect(g.pagar).toEqual([{ id: 'b', namn: 'Bondeskog', under: 'Giant står här', underOrange: false, fynd: null }]);
+    expect(g.pagar.map((r) => [r.id, r.namn, r.under])).toEqual([['b', 'Bondeskog', 'Giant står här']]);
   });
   it('planerade: vems kö och vilket nummer (samma som planen); ingen kö = "Ingen maskin" orange, sist', () => {
     expect(g.planerade.map((r) => [r.namn, r.under, r.underOrange])).toEqual([
@@ -27,7 +27,8 @@ describe('Trakter — som i Planeringen', () => {
       ['Lidhem Britteberg', 'Giant · nästa', false],
       ['Edestad', 'Ingen maskin', true],
     ]);
-    expect(g.planerade.find((r) => r.id === 'l')?.fynd).toBe('Fossil åker');
+    expect(g.planerade.find((r) => r.id === 'l')?.fynd?.text).toBe('Fossil åker – kräver barmark');
+    expect(g.planerade.find((r) => r.id === 'l')?.steg?.map((x) => x.text)).toEqual(['Planerat', 'Skördning', 'Skotning']);
     expect(g.utanMaskin).toBe(1);
   });
   it('oplanerade för sig; avslutade finns inte', () => {

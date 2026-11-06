@@ -8,10 +8,12 @@
 // GROT-trakter (avslutade, ris kvar) har sin egen lista och finns inte här. Namnen är de korta (./kortNamn), hela när trakten öppnas.
 
 import { kortaNamn } from './kortNamn';
+import { fasSteg, fasOrdning, type Steg } from '@/lib/objektVal';
 import type { OversiktObjekt } from './oversikt-types';
 import type { MaskinForslag } from './nasta-v2';
 
-export interface TraktRad { id: string; namn: string; under: string | null; underOrange: boolean; fynd: string | null }
+/** En rad — samma innehåll som Planeringens objektlista: namnet, stegen (fasSteg), traktanalysens rad (listRad) + vem som står där/vems kö. */
+export interface TraktRad { id: string; namn: string; under: string | null; underOrange: boolean; steg: Steg[] | null; fynd: { text: string; kategori: string | null } | null }
 export interface TrakterGrupper { pagar: TraktRad[]; planerade: TraktRad[]; oplanerade: TraktRad[]; antal: number; utanMaskin: number }
 
 const sv = (a: string, b: string) => a.localeCompare(b, 'sv');
@@ -21,7 +23,7 @@ export function trakterGrupper(
   objekt: readonly OversiktObjekt[],
   forslag: ReadonlyMap<string, MaskinForslag>,
   maskinNamn: (maskinId: string) => string,
-  fynd: (o: OversiktObjekt) => string | null,
+  fynd: (o: OversiktObjekt) => { text: string; kategori: string | null } | null,
 ): TrakterGrupper {
   const oppna = objekt.filter((o) => o.status !== 'avslutat');
   const kortLista = kortaNamn(oppna.map((x) => x.namn));
@@ -32,13 +34,14 @@ export function trakterGrupper(
     if (f.nuObjekt) harNu.set(f.nuObjekt.id, [...(harNu.get(f.nuObjekt.id) ?? []), maskinNamn(mid)]);
     f.ko.filter((p) => p.kalla === 'ko').forEach((p, i) => iKo.set(p.objekt.id, [...(iKo.get(p.objekt.id) ?? []), { maskin: maskinNamn(mid), nr: i + 1 }]));
   });
-  const rad = (o: OversiktObjekt, under: string | null, underOrange = false): TraktRad => ({ id: o.id, namn: korta.get(o.id) ?? o.namn, under, underOrange, fynd: fynd(o) });
+  const rad = (o: OversiktObjekt, under: string | null, underOrange = false): TraktRad => ({ id: o.id, namn: korta.get(o.id) ?? o.namn, under, underOrange, steg: fasSteg(o as never), fynd: fynd(o) });
 
   const pagar: TraktRad[] = []; const planerade: (TraktRad & { sort: string })[] = []; const oplanerade: TraktRad[] = [];
   for (const o of oppna) {
     const nu = harNu.get(o.id);
     if (nu?.length || o.status === 'pagaende') {
-      pagar.push(rad(o, nu?.length ? `${lista([...nu].sort(sv))} står här` : 'Pågår · ingen maskin där nu', !nu?.length));
+      // Stegen säger hur långt den kommit ("✓ Skördat · Väntar på skotare"); raden under säger bara vem som står där.
+      pagar.push({ ...rad(o, nu?.length ? `${lista([...nu].sort(sv))} står här` : null), ordning: fasOrdning(o as never) } as TraktRad & { ordning: number });
     } else if (o.status === 'planerad') {
       const ko = (iKo.get(o.id) ?? []).sort((a, b) => sv(a.maskin, b.maskin));
       planerade.push(ko.length
@@ -48,7 +51,8 @@ export function trakterGrupper(
       oplanerade.push(rad(o, null));
     }
   }
-  pagar.sort((a, b) => sv(a.namn, b.namn)); oplanerade.sort((a, b) => sv(a.namn, b.namn));
+  pagar.sort((a, b) => ((a as TraktRad & { ordning?: number }).ordning ?? 9) - ((b as TraktRad & { ordning?: number }).ordning ?? 9) || sv(a.namn, b.namn));
+  for (const r of pagar) delete (r as TraktRad & { ordning?: number }).ordning; oplanerade.sort((a, b) => sv(a.namn, b.namn));
   planerade.sort((a, b) => sv(a.sort, b.sort));
   const pl = planerade.map(({ sort: _s, ...r }) => r);
   return { pagar, planerade: pl, oplanerade, antal: pagar.length + pl.length + oplanerade.length, utanMaskin: pl.filter((r) => r.underOrange).length };

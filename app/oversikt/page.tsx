@@ -44,6 +44,7 @@ import { kortNamn, kortaNamn } from './kortNamn';
 import { trakterGrupper } from './trakterLista';
 import { TrakterPanel, KartMeny, KartMenyKnapp, TRAKTER_SIDOKOLUMN_FRAN_PX } from './TrakterPanel';
 import { analysKortOrd, analysRader, lasTraktAnalys } from './traktanalys';
+import { listRad } from '@/lib/traktAnalys/markning';
 import { FARG, TYP, AVSTAND, RADIE, FONT, TNUM, INAKTIV, designCss, KNAPP as TOKEN_KNAPP, KOLUMN } from '@/lib/design/tokens';
 import { navigeringsMal, navigeringsUrl, type NavObjekt } from '@/lib/navigera';
 
@@ -1058,7 +1059,7 @@ export default function OversiktV2Page() {
   // MENYN nere till höger och TRAKTER-listan (Martin 2026-11-06: kartan så ren som möjligt — listorna väljs i en meny).
   const [menyOppen, setMenyOppen] = useState(false);
   const [trakterOppen, setTrakterOppen] = useState(false);
-  const trakter = useMemo(() => trakterGrupper(objekt, forslag, maskinNamnAv, (o) => analysKortOrd(lasTraktAnalys(o))), [objekt, forslag, maskinNamnAv]);
+  const trakter = useMemo(() => trakterGrupper(objekt, forslag, maskinNamnAv, (o) => listRad(lasTraktAnalys(o))), [objekt, forslag, maskinNamnAv]);
   const valjTrakt = useCallback((id: string) => {
     const o = objekt.find((x) => x.id === id); const map = mapRef.current;
     setSelMaskin(null); setGrotOppen(false); setGrotValt(null); setSelObjekt(id);
