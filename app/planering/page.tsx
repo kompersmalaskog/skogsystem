@@ -141,6 +141,7 @@ import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
 import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } from '../../lib/borttagenKvitto'
 import { VagFargForslag } from '../../components/planering/VagFargForslag'
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
+import { HogKort, m3Text } from '../../components/planering/HogKort'
 import { useMaskinerNu } from '@/lib/hooks/useMaskinerNu'
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
@@ -156,7 +157,7 @@ import type { OmNav } from '../../components/planering/OmTrakten'
 import { startaFramhavning, startaKartSlapp } from '../../lib/omTraktenFramhavKarta'
 import { mittAvPunkter, omSammanfattning, punkterUrGeometri } from '../../lib/omTrakten'
 import { lagerBild, tonadYta, linjeYta, sparYta, prickYta } from '../../lib/lagerForhandsbild'
-import { hogPrickar, lasHogVisa, sparaHogVisa, HOG_VISA, HOG_PRICK_FARG, STRECK_BREDD_M, type HogVisa, type HogPrick, type HogMarkGrupp, hogNyckel, hogarIOmrade, hogInnehallText } from '../../lib/skotarHogarKvar'
+import { hogPrickar, lasHogVisa, sparaHogVisa, HOG_VISA, HOG_PRICK_FARG, STRECK_BREDD_M, type HogVisa, type HogPrick, type HogMarkGrupp, hogNyckel, hogarIOmrade } from '../../lib/skotarHogarKvar'
 import { useHogMarkeringar } from '../../lib/hooks/useHogMarkeringar'
 import { certTyper } from '../../lib/certKrav'
 import { miljoKrav, raknaMiljo, kravStatus, planMiljoRader, tolkaAreal, arPrick, arAlltidPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
@@ -15630,22 +15631,17 @@ export default function PlannerPage() {
       {/* Högarna: tryck på en hög → Tagen / Ligger kvar (ringen runt högen syns på kartan). */}
       {hogValt && hogKanMarkera && !plusRadOppen && !hogStreck && (() => {
         const p = hogPrickarRef.current.get(hogNyckel(hogValt.lng, hogValt.lat));
-        const sort = hogVisa === 'alla' ? '' : ` ${HOG_VISA.find((h) => h.id === hogVisa)?.namn.replace(/^Bara /, '') ?? ''}`;
-        const huvud = p ? `${String(p.v.toFixed(1)).replace('.', ',')} m³${sort} ligger kvar här` : `Inget${sort} kvar här`;
-        // Vad som ligger i högen (Martin 2026-11-06: "se sortimenten på alla högar"): per sortimentgrupp, bara när alla sortiment visas.
-        const innehall = hogVisa === 'alla' && p?.grupper?.length ? hogInnehallText(p.grupper) : '';
-        const text = innehall ? <span style={{ display: 'flex', flexDirection: 'column' }}><span>{huvud}</span><span data-testid="hog-kort-innehall" style={{ ...TYP.meta, color: FARG.text2 }}>{innehall}</span></span> : huvud;
+        const sort = hogVisa === 'alla' ? '' : ` ${HOG_VISA.find((h) => h.id === hogVisa)?.namn.replace(/^Bara /, '').toLowerCase() ?? ''}`;
+        const titel = p ? `${m3Text(p.v)} m³${sort} kvar här` : `Inget${sort} kvar här`;
+        // Design A (Martin 2026-11-06): vad som ligger i högen, per sortimentgrupp — bara när alla sortiment visas.
         return (
-          <KorvyNertillList
-            testid="hog-kort"
+          <HogKort
+            titel={titel}
+            grupper={hogVisa === 'alla' ? p?.grupper : undefined}
             smal={smalSkarm}
-            stapla
-            text={text}
-            knappar={[
-              { etikett: 'Stäng', testid: 'hog-kort-stang', onClick: () => setHogValt(null) },
-              { etikett: 'Tagen', testid: 'hog-kort-tagen', primar: true, onClick: () => hogMarkera('tagen') },
-              { etikett: 'Ligger kvar', testid: 'hog-kort-kvar', onClick: () => hogMarkera('kvar') },
-            ]}
+            onStang={() => setHogValt(null)}
+            onTagen={() => hogMarkera('tagen')}
+            onKvar={() => hogMarkera('kvar')}
           />
         );
       })()}
