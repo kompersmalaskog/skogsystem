@@ -288,17 +288,20 @@ export function pagarDel(o: { fas?: unknown }): PagarDel {
 export type StegLage = 'pagar' | 'klar' | 'ej' | 'vantar';
 export type Steg = { id: 'skord' | 'skot'; lage: StegLage; text: string };
 
-/** Stegen för en trakt, eller null när fasen inte är känd. GROT och energiklippning skördas inte: bara skotningssteget. */
+/** Stegen för en trakt, eller null när fasen inte är känd (pågående utan fas). Planerad/oplanerad = båda ○. GROT och energiklippning skördas inte: bara skotningssteget. */
 export function fasSteg(o: { fas?: unknown; typ?: string | null; status?: string | null }): Steg[] | null {
   const virke = /slutavverk|gallring/i.test(String(o.typ ?? ''));
-  const avslutat = /^(avslutat|klar)$/i.test(String(o.status ?? '').trim());
+  const st = String(o.status ?? '').trim().toLowerCase();
+  const avslutat = st === 'avslutat' || st === 'klar';
+  const inteBorjat = !o.fas && (st === 'planerad' || st === 'oplanerad' || st === '');
   let skord: StegLage; let skot: StegLage;
   if (avslutat) { skord = 'klar'; skot = 'klar'; }
+  else if (inteBorjat) { skord = 'ej'; skot = 'ej'; }
   else if (o.fas === 'skordas') { skord = 'pagar'; skot = 'ej'; }
   else if (o.fas === 'vantar_skotare') { skord = 'klar'; skot = 'vantar'; }
   else if (o.fas === 'skotas') { skord = 'klar'; skot = 'pagar'; }
   else return null;
-  const skordText = skord === 'pagar' ? 'Skördas' : 'Skördat';
+  const skordText = skord === 'pagar' ? 'Skördas' : skord === 'klar' ? 'Skördat' : 'Skördning';
   const skotText = skot === 'pagar' ? 'Skotas' : skot === 'klar' ? 'Skotat' : skot === 'vantar' ? 'Väntar på skotare' : 'Skotning';
   const steg: Steg[] = [{ id: 'skot', lage: skot, text: skotText }];
   return virke ? [{ id: 'skord', lage: skord, text: skordText }, ...steg] : steg;

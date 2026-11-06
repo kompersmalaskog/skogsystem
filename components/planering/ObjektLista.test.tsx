@@ -126,7 +126,7 @@ describe('grupperna utgår från status', () => {
   it('GROT och energiklippning syns bland de aktiva', async () => {
     await montera();
     expect(q('objekt-rad-g')!.textContent).toContain('GROT Hjorthult');
-    expect(q('objekt-rad-g')!.textContent).toContain('GROT · Vida');            // typen skrivs GROT, versaler
+    expect(q('objekt-steg-g')!.textContent).toBe('○ Skotning');                 // GROT skördas inte: bara skotningssteget
     expect(q('objekt-rad-n')!.textContent).toContain('Energiklippning');
     expect(behallare!.querySelector('[role="tab"]')).toBeNull();
   });
@@ -444,11 +444,13 @@ describe('Avslutade — växlare per typ', () => {
 });
 
 describe('raden', () => {
-  it('namn (fet) och under den typ · källa · m³', async () => {
+  it('namn (fet) och under den typ · källa · m³ (rad utan steg); med steg står stegen i stället', async () => {
     await montera();
-    const rad = q('objekt-rad-e')!;
-    expect(rad.textContent).toContain('Ekeby');
-    expect(rad.textContent).toContain('Slutavverkning · Södra · 1 200 m³');
+    expect(q('objekt-rad-p')!.textContent).toContain('Gallring Sjö');
+    expect(q('objekt-rad-p')!.textContent).toMatch(/Gallring · Södra · 300\sm³/);
+    expect(q('objekt-rad-e')!.textContent).toContain('Ekeby');
+    expect(q('objekt-rad-e')!.textContent).not.toContain('1 200 m³');
+    expect(q('objekt-steg-e')!.textContent).toBe('○ Skördning○ Skotning');
     expect(q('objekt-rad-n')!.textContent).toContain('Energiklippning');      // ingen källa/volym → bara typ, inget "–"
   });
 
@@ -725,8 +727,16 @@ describe('stegen på raden: Skörd och Skotning (objekt.fas från timjobbet)', (
     await montera();
     expect(q('objekt-steg-p')!.textContent).toBe('● Skotas');
   });
-  it('utan fas: inga steg, raden som förut', async () => {
-    h.rader = [{ ...RADER[5] }];
+  it('planerad och oplanerad: båda stegen ○, grå', async () => {
+    h.rader = [{ ...RADER[1] }, { ...RADER[5] }];
+    h.tabeller = {};
+    await montera();
+    expect(q('objekt-steg-e')!.textContent).toBe('○ Skördning○ Skotning');
+    expect(q('objekt-steg-o')!.textContent).toBe('○ Skördning○ Skotning');
+    expect(q('objekt-steg-e-skord')!.getAttribute('data-lage')).toBe('ej');
+  });
+  it('pågående utan fas: inga steg, raden som förut', async () => {
+    h.rader = [{ ...RADER[3] }];
     h.tabeller = {};
     await montera();
     expect(behallare!.querySelector('[data-testid^="objekt-steg-"]')).toBeNull();
