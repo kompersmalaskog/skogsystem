@@ -268,7 +268,7 @@ describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat —
     expect(mer).not.toContain('Byt objekt');
     expect(mer).not.toContain("etikett: 'Brandrisk'");
     expect(mer).not.toContain("etikett: 'Gallring'");
-    expect(las('../app/HomeClient.tsx')).toContain("href: '/planering?installningar=1'");
+    expect(las('../lib/vyer.ts')).toContain("href: '/planering?installningar=1'");
     expect(page).toContain("u.searchParams.get('installningar') !== '1'");
   });
   it('Mer › Planeraren har bara VY-växlaren (admin); Tilldelning och "Klar — skicka till förare" är borta — Klar för maskin bor i Klar med trakten?', () => {

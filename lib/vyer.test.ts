@@ -25,14 +25,22 @@ describe('vyregistret', () => {
   })
 
   it('INGET har tagits bort: varje ruta på gamla startsidan finns i registret, med samma spärr', () => {
-    const gammal = readFileSync(join(ROT, 'app', 'HomeClient.tsx'), 'utf8')
-    const hrefs = Array.from(gammal.matchAll(/href: '([^']+)'/g)).map(m => m[1])
-    expect(hrefs.length).toBeGreaterThan(25)
+    // Gamla startsidans rutor, frysta när den revs (2026-11-09, app/HomeClient.tsx före borttagningen).
+    const hrefs = ['/admin', '/admin/markagarrapport', '/affarsuppfoljning/rakna', '/arbetsrapport', '/avtal', '/egenkontroll',
+      '/ekonomi', '/forbattringsforslag', '/gallring', '/helikopter', '/helikopter-v2', '/kalibrering', '/kontroller', '/lastbil',
+      '/ledighet', '/maskin-service', '/maskinvy', '/maskinvy?ny=1', '/objekt', '/om', '/oversikt', '/personal', '/planera',
+      '/planering', '/planering?installningar=1', '/redigering', '/starta-jobb', '/uppfoljning', '/uppfoljning/fordelning', '/utbildning']
     const iRegistret = new Set(VYER.map(v => v.href))
     expect(hrefs.filter(h => !iRegistret.has(h))).toEqual([])
     // Gamla sidans tre admin-poster är spärrade här också — plus Objektöversikten, Åtgärder och Skyddsrond (nya, bara admin) — och inget annat.
     expect(VYER.filter(v => v.bara === 'admin').map(v => v.href).sort())
       .toEqual(['/admin', '/admin/markagarrapport', '/admin/objektoversikt', '/atgarder', '/ekonomi', '/skyddsrond'])
+  })
+
+  it('den gamla startsidan är borta: Hem visar bara den nya (inga egna rutor i HomeClient)', () => {
+    const hem = readFileSync(join(ROT, 'app', 'HomeClient.tsx'), 'utf8')
+    expect(hem).not.toMatch(/href: '/)
+    expect(hem).toContain('<Startsida')
   })
 
   it('förare ser aldrig en admin-vy — varken i grupperna, kontomenyn, favoriterna eller sökningen', () => {

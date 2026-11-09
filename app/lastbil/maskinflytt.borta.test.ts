@@ -39,7 +39,7 @@ describe('/maskinflytt är ersatt av Hämta en maskin i Lastbilen', () => {
     expect(VYER.some(v => v.href.startsWith('/maskinflytt'))).toBe(false);
     expect(VYER.map(v => v.id)).not.toContain('maskinflytt');
     expect(VYER.map(v => v.id)).toContain('lastbilen');
-    expect(readFileSync(join(ROT, 'app', 'HomeClient.tsx'), 'utf8')).not.toMatch(/href: '\/maskinflytt'/);
+    expect(readFileSync(join(ROT, 'lib', 'vyer.ts'), 'utf8')).not.toMatch(/href: '\/maskinflytt'/);
   });
 
   it('ingen kod länkar till /maskinflytt (utom /maskinflytt/platser, /maskinflytt/sammanstallning och testerna som kontrollerar att adressen saknas)', () => {

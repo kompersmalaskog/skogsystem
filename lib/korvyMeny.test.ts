@@ -57,7 +57,7 @@ describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
     expect(page).toContain('id="gps-kalla-kort"');
     const mer = las('../lib/objektKort.ts');
     expect(mer).toContain('if (c.korvyAktiv || c.maskinlage) {');
-    expect(las('../app/HomeClient.tsx')).toContain("href: '/planering?installningar=1'");
+    expect(las('../lib/vyer.ts')).toContain("href: '/planering?installningar=1'");
   });
   it('fasta och användning sparas per maskin (ej i testläge)', () => {
     expect(page).toContain('const s = hamtaPlusRad(enhetMaskinId);');
