@@ -29,6 +29,7 @@ const pageNames: Record<string, string> = {
   '/utbildning/katalog': 'Katalog',
   '/egenkontroll': 'Egenkontroll',
   '/gallring': 'Gallring',
+  '/massaved': 'Massaved',
   '/matning': 'Mätning',
   '/affarsuppfoljning': 'Affärsuppföljning',
   '/kontroller': 'Fordon',
