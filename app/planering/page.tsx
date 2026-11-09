@@ -50,7 +50,7 @@ import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
 import { strakFeatures } from '../../lib/strak'
 import { installeraLagerOrdning, symbolSortKey, VAG_SORT_KEY } from '../../lib/lagerOrdning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
-import { dampatSpar, sparAlder, kartSpar, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER } from '../../lib/sparStil'
+import { dampatSpar, sparAlder, kartSpar, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER, STRAK_KLAR_FARG } from '../../lib/sparStil'
 import { delaKlart, linjerUr } from '../../lib/korsparKlart'
 import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
@@ -112,7 +112,7 @@ import { forfattarText, kanAndraKommentar, kanRaderaKommentar, kortKommentarer, 
 import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring, linjeKort, vidaLinjeKort, traktKortBetydelse } from '../../lib/symboler'
 import { LarmIkon, SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
 import { vidaSlagIFeatures } from '../../lib/teckenforklaring';
-import { BJORK_KANT_FARG, GALLRING_FARG, GROT_FARG, HOG_TRADSLAG_FARG, KARTA_BLANDAT, sortimentFarg } from '../../lib/tradslag';
+import { BJORK_KANT_FARG, GALLRING_FARG, GROT_FARG, HOG_TRADSLAG_FARG, KARTA_BLANDAT, hogTradslagFarger, sortimentFarg } from '../../lib/tradslag';
 import { TRAFF_RADIE_PX } from '../../lib/egenkontrollTryck';
 import { FORBJUDNA_ZONTYPER, HANSYNSYTA_FILTER, OVRIGT_YTA_FILTER, OVRIGT_YTA_STIL, SNEDSTRECK_GRUPPER, VIDA_ETIKETT, YTA_ETIKETT, YTA_ETIKETT_STIL, YTA_ETIKETT_STORLEK, snedstreckBild, snedstreckId } from '@/lib/ytaStil';
 import { FOKUS_HATCH_OPACITET, arFara, fokusEtikettFilter, fokusOpacitet, medFokus } from '@/lib/fokusTrakt';
@@ -141,6 +141,7 @@ import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
 import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } from '../../lib/borttagenKvitto'
 import { VagFargForslag } from '../../components/planering/VagFargForslag'
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
+import { HogKort, m3Text, tagenEtikett } from '../../components/planering/HogKort'
 import { useMaskinerNu } from '@/lib/hooks/useMaskinerNu'
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
@@ -156,7 +157,7 @@ import type { OmNav } from '../../components/planering/OmTrakten'
 import { startaFramhavning, startaKartSlapp } from '../../lib/omTraktenFramhavKarta'
 import { mittAvPunkter, omSammanfattning, punkterUrGeometri } from '../../lib/omTrakten'
 import { lagerBild, tonadYta, linjeYta, sparYta, prickYta } from '../../lib/lagerForhandsbild'
-import { hogPrickar, lasHogVisa, sparaHogVisa, HOG_VISA, HOG_PRICK_FARG, STRECK_BREDD_M, type HogVisa, type HogPrick, type HogMarkGrupp, hogNyckel, hogarIOmrade } from '../../lib/skotarHogarKvar'
+import { hogPrickar, lasHogVisa, sparaHogVisa, HOG_VISA, HOG_PRICK_FARG, STRECK_BREDD_M, type HogVisa, type HogPrick, type HogMarkGrupp, type HogGrupp, hogNyckel, hogarIOmrade } from '../../lib/skotarHogarKvar'
 import { useHogMarkeringar } from '../../lib/hooks/useHogMarkeringar'
 import { certTyper } from '../../lib/certKrav'
 import { miljoKrav, raknaMiljo, kravStatus, planMiljoRader, tolkaAreal, arPrick, arAlltidPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
@@ -189,6 +190,7 @@ import { VilkenMaskinSkarm } from '../../components/maskin/VilkenMaskinSkarm'
 import { typLabel } from '../../lib/objekt/typ'
 import { hamtaAltNummer, hogarObjektIds, nyckelHorTillObjekt } from '../../lib/objektNummer'
 import { klustraStammar } from '../../lib/produktionshogar'
+import { hogRadie, hogHalvBild, HOG_HALV_BILD, HOG_HALV_RADIE_PX } from '../../lib/hogPrick'
 import { useSkotarLass } from '../../lib/hooks/useSkotarLass'
 import { useSkotarVader } from '../../lib/hooks/useSkotarVader'
 import { hamtaPrognos, narmasteSteg } from '../../lib/smhi-prognos'
@@ -211,6 +213,7 @@ import { LinjeRedList, type RedVal } from '../../components/planering/LinjeRedLi
 import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_KANT_LAGER, KORUPP_TRAFF_LAGER, arKorUpp, korUppUr, korUppData, korUppLager, ritaSpetsBild, nyKorUpp, KORUPP_SKAL, korUppText, type KorUppPos, type Skal, type SnappVag } from '../../lib/korUpp'
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
+import { NARA_FLYTT_M, NARA_TON_FARG, NARA_TON_KALLA, NARA_TON_LAGER, meterMellan, naraTonYta } from '../../lib/naraTon'
 import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, tonPaint, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner, tonPolygonerMedEgna } from '../../lib/traktTon'
 import { PLANSPAR_LAGER, PLANSPAR_NYCKEL, planSparPa, vaxlaPlanSpar } from '../../lib/planSparLager'
 import { KLART_FARG, KLART_YTA_KANT_BREDD, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_KANT_LAGER, INGA_YTOR, skotadeYtor } from '../../lib/kartKlart'
@@ -752,6 +755,10 @@ const fornyaSessionVida = skapaFornyare(() => supabase.auth.refreshSession())
 
 // Högarna som prickar (skotarläget och planeringsvyn, lib/skotarHogarKvar). Läggs i kartans grundlager OCH körvyns (stilbyte återskapar lagren).
 const HOG_OMRADE_KALLA = 'skotar-hogomrade-klart-source';
+/** Under den här zoomen syns inga högar — kartan är lugn utzoomat. */
+const HOGAR_FRAN_ZOOM = 15;
+/** Ordet på egna Blött-ytor står först från den här zoomen. */
+const BLOTT_ORD_FRAN_ZOOM = 16;
 function laggTillHogPrickar(map: any) {
   // Förarens markeringar (lib/skotarHogarKvar, tabellen skotar_hog_markering): ett område som markerats taget ritas grått UNDER prickarna — klart är grått.
   for (const k of [HOG_OMRADE_KALLA, 'skotar-hogar-vald-source', 'skotar-hogomrade-source']) {
@@ -780,22 +787,35 @@ function laggTillHogPrickar(map: any) {
     try {
       map.addLayer({
         id: 'skotar-hogar-dots', type: 'circle', source: 'skotar-hogar-source',
+        // Högarna kommer fram först inzoomat (Martin 2026-11-06: utzoomat bara trakten, vägen, faran och det han ska spara).
+        minzoom: HOGAR_FRAN_ZOOM,
         // Ljus prick med mörk kant (Martin 2026-11-01, som Komatsu MaxiVision): större prick = mer virke kvar (v, m³).
-        // Färgen är neutral; ett eget sortiment under + ger sin färg (lib/skotarHogarKvar HOG_PRICK_FARG). a = tonar bort det lassen tog.
+        // Färgen = högens trädslag i hela färger (Martin 2026-11-06, bild K); blandad hög får andra halvan i lagret skotar-hogar-halv.
+        // Ett eget sortiment under + ger sin färg (lib/skotarHogarKvar HOG_PRICK_FARG). a = tonar bort det lassen tog.
         paint: {
           'circle-color': ['get', 'farg'],
           'circle-stroke-color': 'rgba(0,0,0,0.75)',
           'circle-stroke-width': 1.5,
           // Stor skillnad mellan en riktig hög och en rest (Martin 2026-11-01: "ser ut som snö"): 1 m³ ett korn, 15 m³ en tydlig prick.
-          'circle-radius': ['interpolate', ['linear'], ['zoom'],
-            13, ['interpolate', ['linear'], ['get', 'v'], 0, 1, 2, 1.5, 10, 3, 30, 5],
-            17, ['interpolate', ['linear'], ['get', 'v'], 0, 1.5, 1, 2.5, 5, 4.5, 15, 7.5, 40, 10]],
+          'circle-radius': hogRadie(1) as any,
           'circle-opacity': ['coalesce', ['get', 'a'], 0.95],
           'circle-stroke-opacity': ['coalesce', ['get', 'a'], 0.95],
         },
         layout: { 'visibility': 'none' },
       });
     } catch (e) { console.error('[Skotarkörvy] hogar-dots:', e); }
+  }
+  // Blandad hög: andra trädslagets färg som en halv skiva ovanpå pricken (samma storlek, samma tonning). SDF-bild så färgen kommer ur datan.
+  if (!map.hasImage?.(HOG_HALV_BILD)) { try { const b = hogHalvBild(); map.addImage(HOG_HALV_BILD, b, { sdf: true }); } catch (e) { console.error('[Högar] halv-bild:', e); } }
+  if (!map.getLayer('skotar-hogar-halv')) {
+    try {
+      map.addLayer({
+        id: 'skotar-hogar-halv', type: 'symbol', source: 'skotar-hogar-source', minzoom: HOGAR_FRAN_ZOOM,
+        filter: ['has', 'farg2'],
+        layout: { 'icon-image': HOG_HALV_BILD, 'icon-size': hogRadie(1 / HOG_HALV_RADIE_PX) as any, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'visibility': 'none' },
+        paint: { 'icon-color': ['get', 'farg2'], 'icon-opacity': ['coalesce', ['get', 'a'], 0.95] },
+      });
+    } catch (e) { console.error('[Högar] halv:', e); }
   }
   // Ringen runt högen man tryckt på (kortet Tagen / Ligger kvar är öppet).
   if (!map.getLayer('skotar-hogar-vald')) {
@@ -1584,6 +1604,8 @@ export default function PlannerPage() {
         'text-color': YTA_ETIKETT_STIL.text,
         'text-halo-color': YTA_ETIKETT_STIL.kant,
         'text-halo-width': YTA_ETIKETT_STIL.kantBredd,
+        // Blött-ordet först inzoomat (Martin 2026-11-06: ett ord är dyrt på kartan); strecken/ytan syns alltid. Övriga ytor som förut.
+        'text-opacity': ['step', ['zoom'], ['case', ['==', ['get', 'zoneType'], 'wet'], 0, 1], BLOTT_ORD_FRAN_ZOOM, 1] as any,
       },
     });
 
@@ -5769,6 +5791,8 @@ export default function PlannerPage() {
         const dominantPct = sorted.length > 0 ? sorted[0][1] / n : 0;
         const tradslag = sorted.map(([k, v]) => `${k} ${Math.round(100 * v / n)}%`).join(', ');
         const color = dominantPct > 0.7 ? (TRADSLAG_COLOR[dominant] || BLANDAT_COLOR) : BLANDAT_COLOR;
+        // Prickarnas färger (skotar-hogar-dots): ett trädslag = en färg, blandat = de två största halv–halv (lib/tradslag).
+        const hogFarger = hogTradslagFarger(tradslagCount);
         const sortimentSorted = Object.entries(sortimentVolym).sort((a, b) => b[1] - a[1]);
         const sortiment = sortimentSorted.length > 0 ? sortimentSorted[0][0] : (dominant || 'Okänt');
         if (volym > 0.01) {
@@ -5776,7 +5800,7 @@ export default function PlannerPage() {
           hogar.push({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [cLng, cLat] },
-            properties: { volym: Math.round(volym * 100) / 100, tradslag, sortiment, stammar: n, datum, color, sortimentVolymJson: JSON.stringify(sortimentVolym), pieIcon: `pie-${pieIdx}` },
+            properties: { volym: Math.round(volym * 100) / 100, tradslag, sortiment, stammar: n, datum, color, prickFarg: hogFarger.farg, prickFarg2: hogFarger.farg2, sortimentVolymJson: JSON.stringify(sortimentVolym), pieIcon: `pie-${pieIdx}` },
           });
           if (grotCount > 0) {
             grotHogar.push({
@@ -9290,7 +9314,7 @@ export default function PlannerPage() {
       // effekten (som kör i planeringsläget); whitelisten släpper bara igenom dem så de inte döljs här.
       // 'measure-' + 'figur-etikett' = Mät/Rita-figuren (punkter, linje, yta, etikett). Utan dem döljs figuren i körvyn
       // (synlig i källan, osynlig på skärmen — testselens skärmbild avslöjade det).
-      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett', 'omtrakten-', 'skotar-avlagg-', 'larm-', 'klart-'];
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'skotar-nara-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett', 'omtrakten-', 'skotar-avlagg-', 'larm-', 'klart-'];
       for (const l of allLayers) {
         // Fastighetsgränsen (Vidas rågång trakt-ragang-* och Lantmäteri-paret wms-layer-fastighetsgranser*) hör till lagret "Fastighetsgränser", inte till körvyns
         // whitelist: släckt lager = vanlig karta också i körvyn. Synligheten sätts av lagereffekterna, som inte rörs av att körvyn öppnas.
@@ -9349,6 +9373,23 @@ export default function PlannerPage() {
     const lat = Number(valtObjekt?.lat), lng = Number(valtObjekt?.lng);
     return Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0) ? { lat, lng } : null;
   }, [valtObjekt?.lat, valtObjekt?.lng]);
+  // === SKOTARLÄGET: skarpt nära maskinen, lugnt längre bort (lib/naraTon, Martin 2026-11-06) ===
+  const naraTonPosRef = useRef<{ lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const pos = skotarKorvy && currentPosition ? { lat: currentPosition.lat, lng: currentPosition.lon } : null;
+    try {
+      if (!map.getSource(NARA_TON_KALLA)) map.addSource(NARA_TON_KALLA, { type: 'geojson', data: naraTonYta(null) });
+      if (!map.getLayer(NARA_TON_LAGER)) map.addLayer({ id: NARA_TON_LAGER, type: 'fill', source: NARA_TON_KALLA, paint: { 'fill-color': NARA_TON_FARG, 'fill-opacity': ['get', 'op'] } });
+      const forra = naraTonPosRef.current;
+      if (!pos) { if (forra) { (map.getSource(NARA_TON_KALLA) as any)?.setData(naraTonYta(null)); naraTonPosRef.current = null; } return; }
+      if (forra && meterMellan(forra, pos) < NARA_FLYTT_M) return;
+      (map.getSource(NARA_TON_KALLA) as any)?.setData(naraTonYta(pos));
+      naraTonPosRef.current = pos;
+    } catch (e) { console.warn('[nära-ton]', e); }
+  }, [mapLibreReady, skotarKorvy, currentPosition]);
+
   const ritadStatus = useRitadKarta({
     map: mapLibreReady ? mapInstanceRef.current : null, klar: mapLibreReady, vald: mapType === 'ritad',
     objektId: valtObjekt?.id ?? null, skogPaint: ritadSkogPaint, egnaRingar: ritadEgnaRingar, punkt: ritadPunkt,
@@ -12558,6 +12599,9 @@ export default function PlannerPage() {
   const setHogStreck = (pa: boolean) => setHogLage(pa ? 'runt' : null);
   const [hogRing, setHogRing] = useState<[number, number][]>([]);
   const [hogRingKlar, setHogRingKlar] = useState(false);
+  // Områdeskortets ibockade sortiment — nollas varje gång ett nytt område ritas.
+  const [hogOmradeValda, setHogOmradeValda] = useState<ReadonlySet<HogGrupp>>(() => new Set());
+  useEffect(() => { setHogOmradeValda(new Set()); }, [hogRingKlar, hogLage]);
   const [hogMarkKvitto, setHogMarkKvitto] = useState<{ text: string; id: string } | null>(null);
   const hogMarkKvittoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visaHogMarkKvitto = (text: string, id: string) => {
@@ -12649,7 +12693,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const visa = prickLage && hogarPa;
-    try { if (map.getLayer('skotar-hogar-dots')) map.setLayoutProperty('skotar-hogar-dots', 'visibility', visa ? 'visible' : 'none'); } catch { /* */ }
+    for (const id of ['skotar-hogar-dots', 'skotar-hogar-halv']) { try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visa ? 'visible' : 'none'); } catch { /* */ } }
     const src = map.getSource('skotar-hogar-source') as any;
     if (!src) return;
     let nya: HogPrick[] = [];
@@ -12665,7 +12709,7 @@ export default function PlannerPage() {
     if (sammaVy) for (const [k, p] of forra) { const n = nyaMap.get(k); if (!n || n.a < p.a - 0.01) tonas.set(k, p.a); }
     const borta = sammaVy ? [...forra.values()].filter((p) => !nyaMap.has(p.nyckel)) : [];
     hogPrickarRef.current = nyaMap;
-    const feat = (p: HogPrick, a: number) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { v: p.v, farg: p.farg, a } });
+    const feat = (p: HogPrick, a: number) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { v: p.v, farg: p.farg, ...(p.farg2 ? { farg2: p.farg2 } : {}), a } });
     // k = 0 → förra styrkan, k = 1 → den nya
     const skriv = (k: number) => {
       const blanda = (fran: number, till: number) => fran + (till - fran) * k;
@@ -12980,7 +13024,7 @@ export default function PlannerPage() {
   // Spårens förhandsfärg = linjens riktiga färg på kartan (lib/sparStil dampatSpar), inte en egen.
   const sparFarg = (art: 'egen' | 'andras'): string => {
     const roll = art === 'egen' ? hyttRoll : andrasRoll;
-    return roll ? (roll === 'skotare' ? MITTLINJE_FARG : dampatSpar(roll, art).farg) : art === 'egen' ? FARG.gron : FARG.text2;
+    return roll ? (roll === 'skotare' ? STRAK_KLAR_FARG : dampatSpar(roll, art).farg) : art === 'egen' ? FARG.gron : FARG.text2;
   };
   // LAGER: samma grupper i samma ordning som den gamla Lager-menyn (Bakgrundskarta, Kompass, Overlay, WMS-grupperna, SMHI, Dina
   // markeringar, Produktionsdata, Zontyper, Linjetyper). Raderna skriver samma state som förut (overlays,
@@ -13032,7 +13076,7 @@ export default function PlannerPage() {
         ...(korvyActive ? [
           vaxel('mittSpar', 'Mitt spår', undefined, !!(overlays as any).mittSpar, sparYta(sparFarg('egen')), sla('mittSpar')),
           vaxel('andrasSpar', andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', undefined, !!(overlays as any).andrasSpar, sparYta(sparFarg('andras')), sla('andrasSpar')),
-        ] : PLANSPAR_LAGER.map((l) => vaxel(l.id, l.namn, undefined, planSparPa(overlays, l.roll), sparYta(l.roll === 'skotare' ? MITTLINJE_FARG : dampatSpar(l.roll, 'plan').farg),
+        ] : PLANSPAR_LAGER.map((l) => vaxel(l.id, l.namn, undefined, planSparPa(overlays, l.roll), sparYta(l.roll === 'skotare' ? STRAK_KLAR_FARG : dampatSpar(l.roll, 'plan').farg),
           () => setOverlays((prev: any) => vaxlaPlanSpar(prev, l.roll))))),
       ],
     });
@@ -14656,7 +14700,7 @@ export default function PlannerPage() {
               } : null,
             },
           },
-          karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features), roll: malbildRoll },
+          karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features), roll: malbildRoll, hogar: (hogarFeaturesRef.current?.length ?? 0) > 0 },
           instruktioner: instruktionerAktiv ? { data: inst.paTrakten, onSett: inst.settOmraden } : null,
           // Riskbedömningen för föraren (maskinläget): raden "Risker på trakten" och listan med "Jag har läst".
           onRiskerForbered: () => { klarVyRef.current = { v: 'steg', flode: { typ: 'ett', steg: 'risker', till: 'kort' } }; },
@@ -15590,17 +15634,17 @@ export default function PlannerPage() {
       {/* Högarna: tryck på en hög → Tagen / Ligger kvar (ringen runt högen syns på kartan). */}
       {hogValt && hogKanMarkera && !plusRadOppen && !hogStreck && (() => {
         const p = hogPrickarRef.current.get(hogNyckel(hogValt.lng, hogValt.lat));
-        const sort = hogVisa === 'alla' ? '' : ` ${HOG_VISA.find((h) => h.id === hogVisa)?.namn.replace(/^Bara /, '') ?? ''}`;
-        const text = p ? `${String(p.v.toFixed(1)).replace('.', ',')} m³${sort} ligger kvar här` : `Inget${sort} kvar här`;
+        const sort = hogVisa === 'alla' ? '' : ` ${HOG_VISA.find((h) => h.id === hogVisa)?.namn.replace(/^Bara /, '').toLowerCase() ?? ''}`;
+        const titel = p ? `${m3Text(p.v)} m³${sort} kvar här` : `Inget${sort} kvar här`;
+        // Design A (Martin 2026-11-06): vad som ligger i högen, per sortimentgrupp — bara när alla sortiment visas.
         return (
-          <KorvyNertillList
-            testid="hog-kort"
+          <HogKort
+            titel={titel}
+            grupper={hogVisa === 'alla' ? p?.grupper : undefined}
             smal={smalSkarm}
-            stapla
-            text={text}
             knappar={[
               { etikett: 'Stäng', testid: 'hog-kort-stang', onClick: () => setHogValt(null) },
-              { etikett: 'Tagen', testid: 'hog-kort-tagen', primar: true, onClick: () => hogMarkera('tagen') },
+              { etikett: 'Tagen', testid: 'hog-kort-tagen', onClick: () => hogMarkera('tagen') },
               { etikett: 'Ligger kvar', testid: 'hog-kort-kvar', onClick: () => hogMarkera('kvar') },
             ]}
           />
@@ -15618,34 +15662,40 @@ export default function PlannerPage() {
           ]}
         />
       )}
-      {hogLage === 'runt' && hogRingKlar && hogOmrade && !plusRadOppen && (
-        <KorvyNertillList
-          testid="hog-omrade-kort"
-          smal={smalSkarm}
-          stapla
-          text={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div>{hogOmrade.hogar === 0 ? 'Inga högar i området' : hogOmrade.kvar === 0 ? 'Allt i området är taget' : `${hogOmrade.kvar} m³ ligger kvar`}</div>
-              {hogOmrade.grupper.map((g) => (
-                <div key={g.grupp} style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 400 }}><span>{g.namn}</span><span>{g.m3} m³</span></div>
-              ))}
-              {hogOmrade.hogar > 0 && <div style={{ fontWeight: 400, opacity: 0.6 }}>{`${hogOmrade.hogar} högar · skördat ${hogOmrade.skordat} m³`}</div>}
-            </div>
-          }
-          knappar={[
-            { etikett: 'Stäng', testid: 'hog-omrade-stang', onClick: () => setHogLage(null) },
-            { etikett: 'Allt är taget', testid: 'hog-omrade-tagen', primar: true, av: hogOmrade.kvar === 0 || !hogKanMarkera, onClick: () => {
-              const id = hogMark.lagg({ typ: 'tagen', geometri: { type: 'Polygon', coordinates: [[...hogRing, hogRing[0]]] }, bredd_m: STRECK_BREDD_M, grupp: hogMarkGrupp });
-              setHogLage(null);
-              if (!id) visaHogMarkKvitto('Kunde inte spara markeringen', ''); else visaHogMarkKvitto('Området markerat som taget', id);
-            } },
-            { etikett: 'Rita nytt', testid: 'hog-omrade-nytt', onClick: () => { setHogRing([]); setHogRingKlar(false); } },
-          ]}
-        />
-      )}
+      {hogLage === 'runt' && hogRingKlar && hogOmrade && !plusRadOppen && (() => {
+        // Områdeskortet (Martin 2026-11-06): samma utseende som högkortet; bocka i ett eller flera sortiment för att markera bara dem.
+        // Inget ibockat = allt. Varje sortiment blir en egen markering (tabellens grupp), Ångra tar bort alla som skapades.
+        const valdaRader = hogOmrade.grupper.filter((g) => hogOmradeValda.has(g.grupp));
+        const titel = hogOmrade.hogar === 0 ? 'Inga högar i området' : hogOmrade.kvar === 0 ? 'Allt i området är taget' : `${hogOmrade.kvar} m³ kvar i området`;
+        const mest = hogOmrade.grupper.length > 1 ? `Mest ${hogOmrade.grupper.slice().sort((x, y) => y.m3 - x.m3)[0].namn.toLowerCase()} · ` : '';
+        const under = hogOmrade.hogar > 0 ? `${mest}${hogOmrade.hogar} högar · skördat ${hogOmrade.skordat} m³` : null;
+        return (
+          <HogKort
+            testid="hog-omrade-kort"
+            titel={titel}
+            under={under}
+            grupper={hogOmrade.kvar > 0 ? hogOmrade.grupper.slice().sort((x, y) => y.m3 - x.m3) : undefined}
+            decimaler={0}
+            val={hogKanMarkera && hogOmrade.kvar > 0 ? { valda: hogOmradeValda, onVal: (g) => setHogOmradeValda((v) => { const n = new Set(v); if (n.has(g)) n.delete(g); else n.add(g); return n; }) } : undefined}
+            smal={smalSkarm}
+            knappar={[
+              { etikett: 'Stäng', testid: 'hog-omrade-stang', onClick: () => setHogLage(null) },
+              { etikett: tagenEtikett(valdaRader), testid: 'hog-omrade-tagen', av: hogOmrade.kvar === 0 || !hogKanMarkera, onClick: () => {
+                const geometri = { type: 'Polygon' as const, coordinates: [[...hogRing, hogRing[0]]] };
+                const grupper: (HogMarkGrupp | null)[] = valdaRader.length ? valdaRader.map((g) => g.grupp as HogMarkGrupp) : [hogMarkGrupp];
+                const ids = grupper.map((grupp) => hogMark.lagg({ typ: 'tagen', geometri, bredd_m: STRECK_BREDD_M, grupp }));
+                setHogLage(null);
+                if (ids.some((id) => !id)) { ids.forEach((id) => { if (id) hogMark.taBort(id); }); visaHogMarkKvitto('Kunde inte spara markeringen', ''); return; }
+                visaHogMarkKvitto(valdaRader.length ? `${tagenEtikett(valdaRader)} i området` : 'Området markerat som taget', ids.join(','));
+              } },
+              { etikett: 'Rita nytt', testid: 'hog-omrade-nytt', onClick: () => { setHogRing([]); setHogRingKlar(false); } },
+            ]}
+          />
+        );
+      })()}
       {hogMarkKvitto && !hogValt && !hogStreck && !plusRadOppen && (
         <KorvyKvitto text={hogMarkKvitto.text} ton={hogMarkKvitto.id ? 'ok' : 'fel'} smal={smalSkarm}
-          onAngra={hogMarkKvitto.id ? () => { hogMark.taBort(hogMarkKvitto.id); setHogMarkKvitto(null); } : undefined} />
+          onAngra={hogMarkKvitto.id ? () => { hogMarkKvitto.id.split(',').forEach((id) => hogMark.taBort(id)); setHogMarkKvitto(null); } : undefined} />
       )}
 
 

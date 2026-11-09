@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { delaKlart, linjerUr, KLART_RADIE_M, type LinjeFeature, type Koord } from './korsparKlart';
-import { kartSpar, ROLLFARG_SKORDARE, ROLLFARG_SKOTARE, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER, STRAK_BREDD } from './sparStil';
+import { kartSpar, ROLLFARG_SKORDARE, ROLLFARG_SKOTARE, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER, STRAK_FARG, STRAK_KLAR_FARG, STRAK_KLAR_STYRKA } from './sparStil';
 
 // Ett lokalt plan runt Mölleryd: 1 m österut ≈ 1/(111320·cos 56,9°) grader.
 const LAT = 56.9, M_LNG = 1 / (111_320 * Math.cos((LAT * Math.PI) / 180)), M_LAT = 1 / 111_320;
@@ -46,21 +46,20 @@ describe('linjerUr', () => {
   });
 });
 
-describe('kartans stil: lila stråk, vit mittlinje där skotaren kört', () => {
-  it('stråket är alltid skördarens lila — aldrig grått, aldrig turkos', () => {
+describe('kartans stil (kartan stillren 2026-11-06): tunt lila stråk, svagare där skotaren kört', () => {
+  it('stråket är lila (skördarens färg) och svagare där `klar` — ingen grå, aldrig turkos', () => {
     for (const art of ['plan', 'egen', 'hist', 'andras'] as const) for (const lage of [false, true]) {
       const s = kartSpar(art, lage);
-      expect(s.farg).toBe(ROLLFARG_SKORDARE);
+      expect(s.farg).toEqual(['case', MITTLINJE_FILTER, STRAK_KLAR_FARG, STRAK_FARG]);
       expect(JSON.stringify(s)).not.toContain(ROLLFARG_SKOTARE);
-      expect(JSON.stringify(s)).not.toContain('klar');
+      expect(STRAK_FARG).toBe(ROLLFARG_SKORDARE);
+      expect(STRAK_KLAR_FARG).toBe(ROLLFARG_SKORDARE);
+      expect(JSON.stringify(s.opacitet)).toContain(String(STRAK_KLAR_STYRKA));
     }
   });
-  it('mittlinjen är vit, ritas bara där `klar` och är smalare än stråket på varje zoomsteg', () => {
-    expect(MITTLINJE_FARG).toBe('#ffffff');
+  it('mittlinjen ritas inte längre', () => {
+    expect(MITTLINJE_OPACITET).toBe(0);
     expect(MITTLINJE_FILTER).toEqual(['==', ['get', 'klar'], true]);
-    const stopp = (e: readonly any[]) => { const m = new Map<number, number>(); for (let i = 3; i < e.length; i += 2) m.set(e[i], e[i + 1]); return m; };
-    const strak = stopp(STRAK_BREDD), mitt = stopp(MITTLINJE_BREDD);
-    for (const [z, b] of mitt) expect(b).toBeLessThanOrEqual((strak.get(z) as number) * 0.4);
   });
   it('alla lager validerar i MapLibre (zoom överst) — också skotarlägets svagare skördare', async () => {
     const { validateStyleMin } = await import('@maplibre/maplibre-gl-style-spec');

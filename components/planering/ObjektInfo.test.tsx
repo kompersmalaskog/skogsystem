@@ -172,15 +172,14 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
     expect(q('kort-klar-chip')!.textContent).toBe('✓');
   });
 
-  it('förare: Körvy · Skotning · Utkört — varje knapp ropar rätt handling; Mer (en rad) öppnar Mer här inne', async () => {
+  it('förare: Körvy — varje knapp ropar rätt handling; Mer (en rad) öppnar Mer här inne', async () => {
     await montera(props({ roll: 'forare' }));
-    expect(Array.from(q('kort-knappar')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Körvy', 'Skotning', 'Utkört']);
-    expect(q('kort-knappar')!.style.gridTemplateColumns).toContain('repeat(3,');   // alla tre på EN rad
-    klicka(q('kort-knapp-korvy')); klicka(q('kort-knapp-skotning')); klicka(q('kort-knapp-utkort'));
-    expect(spion.knapp).toEqual(['korvy', 'skotning', 'utkort']);
+    expect(Array.from(q('kort-knappar')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Körvy']);
+    klicka(q('kort-knapp-korvy'));
+    expect(spion.knapp).toEqual(['korvy']);
     klicka(q('kort-mer'));
     expect(q('objekt-info')!.getAttribute('data-vy')).toBe('mer');
-    expect(spion.knapp).toEqual(['korvy', 'skotning', 'utkort']);   // Mer ropar inte sidan
+    expect(spion.knapp).toEqual(['korvy']);   // Mer ropar inte sidan
   });
 
   it('skördarförare: bara Körvy som knapp', async () => {

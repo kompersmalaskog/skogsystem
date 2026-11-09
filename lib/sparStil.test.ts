@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
+import { SKORDARSPAR_BREDD, SKORDARSPAR_STYRKA, STRAK_FARG,
   dampatSpar, sparAlder, sparBlekning, SPAR_DAMPAD_FARG, SPAR_BLEKNA_DAGAR, SPAR_KANT_FARG, SPAR_KANT_FRAN_ZOOM, SPAR_KANT_FULL_ZOOM,
   sparStil, rollFarg, ROLLFARG_SKORDARE, ROLLFARG_SKOTARE, HYTTSPAR_LINE_WIDTH, HYTTSPAR_CASING_WIDTH, HYTTSPAR_HIST_LINE_WIDTH, HYTTSPAR_HIST_CASING_WIDTH,
   SKORDARSPAR_LINJE_BREDD, SKORDARSPAR_LINJE_OPACITET, SKORDARSPAR_CASING_BREDD, SKORDARSPAR_CASING_OPACITET, type SparArt,
@@ -73,9 +73,9 @@ describe('spåren på planeringskartan: rollfärger, 3 / 2,5 px, dagens ~0,9, sm
   const tal = (o: number | any[]) => (typeof o === 'number' ? [o] : [o[4], o[6]] as number[]);   // interpolate: stopp-värdena
   const full = (b: any[]) => b[b.length - 1] as number;   // bredden vid högsta zoomsteget (arbetsnivå)
   const inre = (o: any[]) => o[o.length - 1] as number | any[];   // kantens opacitet utan zoomuttrycket runt
-  it('skördare 3 px och skotare 2,5 px på arbetsnivå (zoom 17) i alla lager — och tunnare på översiktsnivå', () => {
+  it('skördare tunt (1,8 px) och skotare 2,5 px på arbetsnivå (zoom 17) i alla lager — och tunnare på översiktsnivå', () => {
     for (const art of ARTER2) {
-      expect(full(dampatSpar('skordare', art).bredd), `skördare ${art}`).toBe(3);
+      expect(full(dampatSpar('skordare', art).bredd), `skördare ${art}`).toBe(SKORDARSPAR_BREDD);
       expect(full(dampatSpar('skotare', art).bredd), `skotare ${art}`).toBe(2.5);
       for (const roll of ['skordare', 'skotare'] as const) {
         const b = dampatSpar(roll, art).bredd;
@@ -98,7 +98,7 @@ describe('spåren på planeringskartan: rollfärger, 3 / 2,5 px, dagens ~0,9, sm
     for (const roll of ['skordare', 'skotare'] as const) {
       const farger = new Set(ARTER2.map((art) => dampatSpar(roll, art).farg));
       expect(farger.size).toBe(1);
-      expect([...farger][0]).toBe(roll === 'skordare' ? ROLLFARG_SKORDARE : ROLLFARG_SKOTARE);
+      expect([...farger][0]).toBe(roll === 'skordare' ? STRAK_FARG : ROLLFARG_SKOTARE);
       expect([...farger][0]).not.toBe(SPAR_DAMPAD_FARG[roll]);
     }
     expect(ROLLFARG_SKOTARE).toBe('#64d2ff'); expect(ROLLFARG_SKORDARE).toBe('#bf5af2');   // identitetsfärgerna är oförändrade
@@ -107,10 +107,11 @@ describe('spåren på planeringskartan: rollfärger, 3 / 2,5 px, dagens ~0,9, sm
     for (const roll of ['skordare', 'skotare'] as const) for (const art of ARTER2) {
       const o = dampatSpar(roll, art).opacitet;
       const [idag, aldst] = tal(o);
-      expect(idag, `${roll} ${art} idag`).toBeGreaterThanOrEqual(0.85); expect(idag).toBeLessThanOrEqual(0.95);
-      if (typeof o !== 'number') { expect(aldst, `${roll} ${art} golv`).toBeGreaterThanOrEqual(0.4); expect(aldst).toBeLessThanOrEqual(0.5); }
+      const f = roll === 'skordare' ? SKORDARSPAR_STYRKA : 1;   // skördarens spår är svagare (2026-11-06)
+      expect(idag, `${roll} ${art} idag`).toBeGreaterThanOrEqual(0.85 * f); expect(idag).toBeLessThanOrEqual(0.95 * f);
+      if (typeof o !== 'number') { expect(aldst, `${roll} ${art} golv`).toBeGreaterThanOrEqual(0.4 * f); expect(aldst).toBeLessThanOrEqual(0.5 * f); }
     }
-    expect(dampatSpar('skordare', 'egen').opacitet).toBe(0.9);   // eget live-spår: alltid dagens värde
+    expect(dampatSpar('skordare', 'egen').opacitet).toBeCloseTo(0.9 * SKORDARSPAR_STYRKA);   // eget live-spår: alltid dagens värde
   });
   it('smal mörk kant under, som vägarna: samma färg som VAG_KANT_FARG, linjen + 2 px, något svagare än linjen', () => {
     expect(SPAR_KANT_FARG).toBe(VAG_KANT_FARG);
@@ -123,8 +124,11 @@ describe('spåren på planeringskartan: rollfärger, 3 / 2,5 px, dagens ~0,9, sm
       expect(kant).toBeLessThan(lin);
     }
   });
-  it('skördarens spår är minst lika tydligt som skotarens', () => {
-    for (const art of ARTER2) expect(Math.max(...tal(dampatSpar('skordare', art).opacitet))).toBeGreaterThanOrEqual(Math.max(...tal(dampatSpar('skotare', art).opacitet)));
+  it('skördarens spår är tunnare och svagare än skotarens (Martin 2026-11-06: stråken syns men tar inte över kartan) — men syns alltid', () => {
+    for (const art of ARTER2) {
+      expect(Math.max(...tal(dampatSpar('skordare', art).opacitet))).toBeLessThan(Math.max(...tal(dampatSpar('skotare', art).opacitet)));
+      expect(Math.min(...tal(dampatSpar('skordare', art).opacitet))).toBeGreaterThan(0.25);
+    }
   });
   it('tidigare dagar bleknar: planering, historik och den andres spår går från dagens värde ner till ett lägre efter 14 dagar (kanten likaså); eget live-spår är dagens', () => {
     for (const roll of ['skordare', 'skotare'] as const) for (const art of ['hist', 'plan', 'andras'] as const) {

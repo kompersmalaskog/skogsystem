@@ -14,11 +14,11 @@ let rot: Root | null = null;
 let el: HTMLElement | null = null;
 afterEach(() => { act(() => { rot?.unmount(); }); el?.remove(); rot = null; el = null; });
 
-function visa(markeringar: any[], vida: any[] = []) {
+function visa(markeringar: any[], vida: any[] = [], hogar = false) {
   el = document.createElement('div'); document.body.appendChild(el);
   rot = createRoot(el);
   const spion = { tillbaka: 0, stang: 0 };
-  act(() => { rot!.render(<VadBetyderKartan objektNamn="Skälviken" markeringar={markeringar} vida={vida} onTillbaka={() => { spion.tillbaka++; }} onStang={() => { spion.stang++; }} />); });
+  act(() => { rot!.render(<VadBetyderKartan objektNamn="Skälviken" markeringar={markeringar} vida={vida} hogar={hogar} onTillbaka={() => { spion.tillbaka++; }} onStang={() => { spion.stang++; }} />); });
   return spion;
 }
 const q = (id: string) => el!.querySelector<HTMLElement>(`[data-testid="${id}"]`);
@@ -82,5 +82,17 @@ describe('VadBetyderKartan', () => {
     expect(symbol.getAttribute('data-form')).toBe('triangel');
     expect(symbol.getAttribute('data-symbol')).toBe('powerline');
     expect(bild.innerHTML).not.toContain('dashed');   // ingen streckad variant kvar
+  });
+  it('högarna förklaras bara när trakten har högar: trädslagens färger, blandat halv–halv', () => {
+    visa([{ isMarker: true, type: 'warning' }]);
+    expect(q('teckenforklaring-hogar')).toBeNull();
+    act(() => { rot!.unmount(); }); el!.remove();
+    visa([{ isMarker: true, type: 'warning' }], [], true);
+    const h = q('teckenforklaring-hogar')!;
+    expect(h.textContent).toContain('Gran');
+    expect(h.textContent).toContain('Tall');
+    expect(h.textContent).toContain('Blandat');
+    const blandat = q('teckenforklaring-hog-Blandat')!.querySelector<HTMLElement>('[data-bild="hog"] > span')!;
+    expect(blandat.style.background).toContain('linear-gradient');
   });
 });
