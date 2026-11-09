@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { KARTLAGER } from './kartlager';
 
 const rot = join(__dirname, '..');
 const las = (rel: string) => readFileSync(join(rot, rel), 'utf8');
@@ -96,6 +97,19 @@ describe('kartlagret Ritad: migrationen vidgar kolumnen och RPC:n (Martin 2026-1
     expect(sql).toContain('update medarbetare set kartlager = p_lager where user_id = auth.uid();');
   });
   it('ändrar inga rader', () => {
+    expect(sql).not.toMatch(/^\s*update\s+medarbetare\s+set\s+kartlager\s*=\s*'/im);
+  });
+});
+
+describe('kartlagret Mörk: migrationen vidgar kolumnen och RPC:n (Martin 2026-11-06)', () => {
+  const dir = join(rot, 'supabase/migrations');
+  const fil = readdirSync(dir).find((f) => /^\d+_kartlager_mork\.sql$/.test(f));
+  const sql = fil ? readFileSync(join(dir, fil), 'utf8') : '';
+  it('finns, och tar emot de sex lagren i både kolumnen och RPC:n — samma lista som appen', () => {
+    expect(fil).toBeTruthy();
+    const lista = KARTLAGER.map((l) => `'${l}'`).join(', ');
+    expect(sql).toContain(`kartlager in (${lista})`);
+    expect(sql).toContain(`p_lager not in (${lista})`);
     expect(sql).not.toMatch(/^\s*update\s+medarbetare\s+set\s+kartlager\s*=\s*'/im);
   });
 });

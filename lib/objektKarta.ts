@@ -12,6 +12,7 @@
 import type { Kartlager } from '@/lib/kartlager';
 import { kartBasPaint } from './kartBas';
 import { grundKallor, grundLager } from './ritadKarta/lager';
+import { morkGrundLager } from './ritadKarta/mork';
 import { harKoordinat } from './navigera';
 import { PANEL_BREDD_PX, plusLage, type PlusLage } from './plusArk';
 import { AVSTAND, FARG } from './design/tokens';
@@ -215,6 +216,7 @@ export const TOM_KARTA_START = { center: [14.70, 56.40] as [number, number], zoo
 export function tomKartaStil(lager: Kartlager, styrka?: number) {
   // Ritad utan objekt: den ritade kartans grund (bakgrund, terrängskuggning, vatten, vägar, hus). Skogen ritas först när ett objekt är öppet.
   if (lager === 'ritad') return { version: 8 as const, sources: grundKallor() as any, layers: grundLager() as any[] };
+  if (lager === 'mork') return { version: 8 as const, sources: grundKallor() as any, layers: morkGrundLager() };
   const kallor = {
     lantmateriet: { type: 'raster' as const, tiles: ['/api/forarkarta?z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 17, attribution: '&copy; Lantmäteriet' },
     satellite: { type: 'raster' as const, tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 18, attribution: '&copy; Lantmäteriet' },

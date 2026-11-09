@@ -4,6 +4,8 @@
 import type { Klass } from './skog';
 
 export const BAKGRUND = '#1f211d';
+/** Mörk (Tesla, lib/ritadKarta/mork): nästan svart botten. */
+export const MORK_BAKGRUND = '#0b0d10';
 
 /** RGBA per klass i skogsbilden. 'ingen' = genomskinlig (bakgrunden syns). */
 export const KLASS_FARG: Record<Klass, [number, number, number, number]> = {

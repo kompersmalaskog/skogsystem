@@ -9,7 +9,7 @@
 // nedtoning. Ren logik (ingen karta, ingen canvas): testas i node.
 import { FARG } from './design/tokens';
 import { NARA_TRAKT_M } from './traktNara';
-import { BAKGRUND as RITAD_BAKGRUND } from './ritadKarta/stil';
+import { BAKGRUND as RITAD_BAKGRUND, MORK_BAKGRUND } from './ritadKarta/stil';
 
 /** Svart, genomskinlig: nedtoning är mörkare, aldrig en annan färg. */
 export const UTANFOR_TON_FARG = FARG.bg;
@@ -23,6 +23,8 @@ export const UTANFOR_TON_RITAD = { farg: RITAD_BAKGRUND, opacitet: 0.5 } as cons
 /** Nedtoningens färg och styrka för ett kartlager. */
 export const tonPaint = (kartlager: string) => kartlager === 'ritad'
   ? { 'fill-color': UTANFOR_TON_RITAD.farg, 'fill-opacity': UTANFOR_TON_RITAD.opacitet }
+  : kartlager === 'mork'
+  ? { 'fill-color': MORK_BAKGRUND, 'fill-opacity': UTANFOR_TON_RITAD.opacitet }
   : { 'fill-color': UTANFOR_TON_FARG, 'fill-opacity': UTANFOR_TON_OPACITET };
 /** Avståndet från traktgränsen där nedtoningen börjar (samma som Fokus på trakten). */
 export const UTANFOR_TON_AVSTAND_M = NARA_TRAKT_M;
