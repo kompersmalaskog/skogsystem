@@ -6,12 +6,15 @@
 //
 // Ärlighetsreglerna som gällde förut gäller här också:
 //  - Ett märke som inte går att läsa är null (inget märke), aldrig 0.
-//  - Rollen som inte går att läsa är null. Startsidan visar då den gamla sidan; lådan visar förarens vyer
-//    (aldrig adminvyer på en gissning).
+//  - Rollen som inte går att läsa är null, och då visas förarens vyer (aldrig adminvyer på en gissning).
+//    Den gamla startsidan finns inte längre (Martin 2026-11-09: den dök upp vid dålig täckning).
+//  - Rollen sparas per enhet och e-post (`lib/sparadRoll`), så startsidan visas direkt med rätt roll utan att
+//    vänta på nätet; databasens svar gäller alltid och skriver över det sparade.
 //  - Favoriter som inte går att läsa ger rollens förinställda.
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { lasSparadRoll, sparaRoll, rensaSparadRoll, lasSparadeFavoriter, sparaFavoriterLokalt } from '@/lib/sparadRoll'
 import { hamtaVantande } from '@/lib/egenkontroll'
 import { hamtaLedighetPrick, type LedighetPrick } from '@/lib/ledighet/prick'
 import { hamtaAntalVantandeLass } from '@/lib/lastbil/lass/vantar'
@@ -115,14 +118,34 @@ export function useStartsidaData(): StartsidaData {
 
   useEffect(() => {
     let vid = true
-    const klar = setTimeout(() => { if (vid) setRollKlar(true) }, ROLL_MAX_VANTAN_MS)
+    // Svarar inte nätet: visa sidan ändå (förarens vyer, rollens förinställda favoriter) — aldrig en tom ruta.
+    const klar = setTimeout(() => {
+      if (!vid) return
+      setRollKlar(true)
+      setFavoritIds(f => f === undefined ? null : f)
+    }, ROLL_MAX_VANTAN_MS)
     const fardig = () => { if (vid) setRollKlar(true) }
+    // Den sparade rollen visas direkt: sessionen läses lokalt (inget nät), och rollen bara för samma e-post.
+    Promise.resolve()
+      .then(() => supabase.auth.getSession?.())
+      .then(svar => {
+        const epost = svar?.data?.session?.user?.email
+        const sparad = lasSparadRoll(epost)
+        if (vid && sparad) {
+          setRoll(r => r ?? sparad)
+          const fav = lasSparadeFavoriter(epost)
+          if (fav !== undefined) setFavoritIds(f => f === undefined ? fav : f)
+          fardig()
+        }
+      }, () => {})
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user?.email) { fardig(); return }
       if (vid) setKonto(k => ({ ...k, epost: user.email ?? null }))
       supabase.from('medarbetare').select('roll, namn, skyddsombud').eq('epost', user.email).single()
-        .then(({ data }) => {
+        .then(({ data, error }) => {
           if (vid && data?.roll) setRoll(data.roll)
+          // Bara ett riktigt svar sparas; ett läsfel lämnar det sparade orört.
+          if (!error && data && user.email) sparaRoll(user.email, data.roll ?? null)
           if (vid) setSkyddsombud(data?.skyddsombud === true)
           if (vid && typeof data?.namn === 'string' && data.namn.trim()) setKonto(k => ({ ...k, namn: data.namn.trim() }))
           fardig()
@@ -143,18 +166,29 @@ export function useStartsidaData(): StartsidaData {
     hamtaVantande()
       .then(({ antalVantande }) => { if (vid) setVantandeEgenkontroll(antalVantande) })
       .catch(() => { if (vid) setVantandeEgenkontroll(null) })
-    lasFavoriter(supabase).then(r => { if (vid) setFavoritIds(r.status === 'egna' ? r.ids : null) })
+    lasFavoriter(supabase).then(r => {
+      if (!vid) return
+      // Ett läsfel skriver aldrig över det enheten minns.
+      if (r.status === 'fel') { setFavoritIds(f => f === undefined ? null : f); return }
+      const ids = r.status === 'egna' ? r.ids : null
+      setFavoritIds(ids)
+      supabase.auth.getSession?.().then(s => { const e = s?.data?.session?.user?.email; if (e) sparaFavoriterLokalt(e, ids) }, () => {})
+    })
     return () => { vid = false; clearTimeout(klar) }
   }, [])
 
   const sparaFavoriterna = async (ids: string[]) => {
     const landat = await sparaFavoriter(supabase, ids)
-    if (landat) setFavoritIds(landat)
+    if (landat) {
+      setFavoritIds(landat)
+      supabase.auth.getSession?.().then(s => { const e = s?.data?.session?.user?.email; if (e) sparaFavoriterLokalt(e, landat) }, () => {})
+    }
     return landat != null
   }
 
   // Samma utloggning som Arbetsrapporten: logga ut och gå till inloggningen (hela sidan laddas om, inget gammalt tillstånd följer med).
   const loggaUt = async () => {
+    rensaSparadRoll()
     await supabase.auth.signOut()
     window.location.href = '/login'
   }
