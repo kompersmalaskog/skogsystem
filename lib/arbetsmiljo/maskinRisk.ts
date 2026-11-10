@@ -8,7 +8,7 @@
 //
 // ALLVARLIG ELLER MINDRE ALLVARLIG (2026-11-05, AFS 2023:1 11 §: dokumentationen ska säga OM riskerna är allvarliga). Allt är Allvarligt från
 // början; admin ändrar med ett tryck (`mindre` = nycklarna som är mindre allvarliga, kolumnen am_riskbedomning.mindre, migration
-// 20261105120000_am_riskbedomning_mindre.sql). En mindre allvarlig risk ändrar fingeravtrycket (`|mindre`); en allvarlig gör det inte, så
+// 20261110115944_am_riskbedomning_mindre.sql). En mindre allvarlig risk ändrar fingeravtrycket (`|mindre`); en allvarlig gör det inte, så
 // godkännanden och kvitton från före ändringen gäller som förut. Saknas kolumnen läses allt som Allvarligt och valet sparas inte.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
