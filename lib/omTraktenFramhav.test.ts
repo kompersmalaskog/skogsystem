@@ -244,7 +244,7 @@ describe('sidans koppling (page.tsx kan inte monteras — källvakt)', () => {
   });
   it('raden "Visa hela", stängd panel och telefonens "‹ Om trakten" är kopplade; objektinfon kan öppnas direkt på Om trakten', () => {
     expect(page).toContain("onSlapp: (orsak) => slappFramhavningRef.current(orsak),");
-    expect(page).toContain('<ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} kartaSparad={nedladdningText(kartNedladdning)} />');
+    expect(page).toContain('<ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} kartaSparad={nedladdningText(kartNedladdning)} egenkontroll={egenkontrollInfo} />');
     expect(page).toContain('testid="framhav-list"');
     expect(page).toContain("slappFramhavningRef.current('tillbaka'); setInfoStartVy('om'); setTraktOversiktOpen(true);");
     expect(page).toContain("AVBRYT_KNAPP(() => slappFramhavningRef.current('rad'), 'framhav-slapp')");   // × på telefonens rad = som Visa hela (zoomar ut)
