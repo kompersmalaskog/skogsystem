@@ -172,7 +172,14 @@ describe('Maskinkollen', () => {
     window.history.replaceState(null, '', '/maskinkoll?fel=1');
     h.lage = lage({ godkand: false });
     await montera();
+    // Först var på maskinen (Wisent är en skotare: tecknad skotare). Nästa är grå tills något är valt.
+    expect(el!.textContent).toContain('Var är det fel?');
+    expect(knapp('Nästa')!.disabled).toBe(true);
+    await tryck(Array.from(el!.querySelectorAll('[role=radio]')).find(b => b.textContent?.includes('Band och kedjor')) as HTMLButtonElement);
+    expect(knapp('Nästa')!.disabled).toBe(false);
+    await tryck(knapp('Nästa'));
     expect(el!.textContent).toContain('Något är fel');
+    expect(el!.textContent).toContain('Band och kedjor');
     expect(knapp('Skicka')!.disabled).toBe(true);
     await valjFil(nyBild());
     const cb = el!.querySelector('[role=checkbox]') as HTMLButtonElement;
@@ -181,7 +188,28 @@ describe('Maskinkollen', () => {
     await tryck(knapp('Skicka'));
     expect(h.rapporter).toHaveLength(1);
     expect(h.rapporter[0]).toMatchObject({ medarbetareId: 'med-1', maskinId: 'A030353', stopp: true });
+    expect(h.rapporter[0].plats).toMatchObject({ del: 'band' });
     expect(String(h.rapporter[0].fotoUrl).startsWith('med-1/fel/')).toBe(true);
     expect(el!.textContent).toContain('Skickat');
+  });
+
+  it('Något är fel: "Vet inte var" går vidare utan plats', async () => {
+    window.history.replaceState(null, '', '/maskinkoll?fel=1');
+    h.lage = lage({ godkand: false });
+    await montera();
+    await tryck(knapp('Vet inte var'));
+    expect(el!.textContent).toContain('Något är fel');
+    expect(el!.textContent).not.toContain('Ändra');
+    await valjFil(nyBild());
+    await tryck(knapp('Skicka'));
+    expect(h.rapporter.at(-1).plats).toBeNull();
+  });
+
+  it('Något är fel: maskin utan teckning (okänd typ) hoppar över platsen', async () => {
+    window.history.replaceState(null, '', '/maskinkoll?fel=1');
+    h.lage = lage({ godkand: false, maskin: { id: 'X1', namn: 'Lastbil', typ: null } });
+    await montera();
+    expect(el!.textContent).not.toContain('Var är det fel?');
+    expect(knapp('Skicka')).toBeTruthy();
   });
 });

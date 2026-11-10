@@ -12,10 +12,11 @@ import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import Ikon from '@/components/design/Ikon';
 import Tillstand from '@/components/design/Tillstand';
+import MaskinBild from '@/components/arbetsmiljo/MaskinBild';
 import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import { ANMAL_LANK, ejAnmald, hamtaTillbudInfo, markeraAnmald, type TillbudInfo } from '@/lib/arbetsmiljo/tillbud';
 import {
-  atgardTitel, deadlineText, farStanga, fornamn, fotoLank, gruppera, hamtaAtgarder, kallaText, narText, stangAtgard, svar, svenskDag, underText,
+  atgardTitel, deadlineText, farStanga, felText, fornamn, fotoLank, gruppera, hamtaAtgarder, kallaText, narText, stangAtgard, svar, svenskDag, underText,
   type Atgard, type Las,
 } from '@/lib/arbetsmiljo/atgarder';
 
@@ -133,7 +134,7 @@ function Lista({ g, idag, tillbud, visaKlara, onVisaKlara, onOppna }: {
           <Sektion rubrik="Ska stå tills det är lagat">
             {g.stopp.map((a, i) => (
               <Rad key={a.id} titel={<><Prick farg={FARG.rod} />{atgardTitel(a, tillbud?.get(a.id)?.typ)}</>}
-                under={<>{a.beskrivning}<br />{underText(a)}</>}
+                under={<>{felText(a)}<br />{underText(a)}</>}
                 onTryck={() => onOppna(a.id)} sista={i === g.stopp.length - 1} attr={{ 'data-atgard': a.id }} />
             ))}
           </Sektion>
@@ -147,7 +148,7 @@ function Lista({ g, idag, tillbud, visaKlara, onVisaKlara, onOppna }: {
               const d = deadlineText(a.deadline, idag);
               return (
                 <Rad key={a.id} titel={atgardTitel(a, tillbud?.get(a.id)?.typ)}
-                  under={<>{a.beskrivning}<br />{underText(a)}{ejAnmald(tillbud?.get(a.id)) && <span data-ej-anmald style={{ color: FARG.orange }}> · Inte anmäld</span>}</>}
+                  under={<>{felText(a)}<br />{underText(a)}{ejAnmald(tillbud?.get(a.id)) && <span data-ej-anmald style={{ color: FARG.orange }}> · Inte anmäld</span>}</>}
                   hoger={d ? <span style={{ color: d.sen ? FARG.orange : FARG.text }}>{d.text}</span> : undefined}
                   onTryck={() => onOppna(a.id)} sista={i === g.oppna.length - 1} attr={{ 'data-atgard': a.id }} />
               );
@@ -163,7 +164,7 @@ function Lista({ g, idag, tillbud, visaKlara, onVisaKlara, onOppna }: {
               sista={!visaKlara} attr={{ 'data-visa-klara': '' }} />
             {visaKlara && g.klara.map((a, i) => (
               <Rad key={a.id} dampad titel={atgardTitel(a, tillbud?.get(a.id)?.typ)}
-                under={<>{a.beskrivning}<br />{a.vadGjordes ? `Gjort: ${a.vadGjordes}` : ''}</>}
+                under={<>{felText(a)}<br />{a.vadGjordes ? `Gjort: ${a.vadGjordes}` : ''}</>}
                 hogerUnder={a.stangdTid ? narText(a.stangdTid) : undefined}
                 onTryck={() => onOppna(a.id)} sista={i === g.klara.length - 1} attr={{ 'data-atgard': a.id }} />
             ))}
@@ -219,6 +220,12 @@ function AtgardArk({ a, idag, far, tillbud, onStang, onStangd, onAnmald }: {
         <p data-stopp style={{ ...TYP.text, fontWeight: 600, color: FARG.rod, margin: `0 0 ${AVSTAND.m}px` }}>Maskinen ska stå tills det är lagat.</p>
       )}
 
+      {a.plats && (
+        <div style={{ marginBottom: AVSTAND.l }} data-maskinbild>
+          <MaskinBild typ={a.plats.typ} val={a.plats.val} etikett={a.maskinNamn ?? undefined} />
+        </div>
+      )}
+
       {a.fotoUrl && (
         <div style={{ marginBottom: AVSTAND.l }}>
           {bild === 'laddar' && <p style={{ ...TYP.meta, color: FARG.text2, margin: 0 }}>Hämtar bilden …</p>}
@@ -231,7 +238,7 @@ function AtgardArk({ a, idag, far, tillbud, onStang, onStangd, onAnmald }: {
       )}
 
       <Sektion rubrik={a.kalla === 'tillbud' ? 'Vad hände?' : 'Vad är fel?'} kort={false}>
-        <p style={{ ...TYP.text, color: FARG.text, margin: 0 }}>{a.beskrivning}</p>
+        <p style={{ ...TYP.text, color: FARG.text, margin: 0 }}>{felText(a)}</p>
       </Sektion>
 
       <div style={{ marginTop: AVSTAND.l }}>

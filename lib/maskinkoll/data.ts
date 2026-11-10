@@ -2,6 +2,7 @@
 // Tabellerna (am_*) och reglerna i databasen: supabase/migrations/20261031162152_arbetsmiljo_maskinkoll.sql.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { tillLagring, type Val } from '@/lib/arbetsmiljo/maskinBild';
 import { arDags, deadlineFor, fragorFor, GODKANNANDE_VERSION, svenskManad, type Fraga, type Svar } from './regler';
 
 export type Maskin = { id: string; namn: string; typ: string | null };
@@ -108,7 +109,7 @@ export async function avsluta(sb: SupabaseClient, kollId: string): Promise<Las<s
 /** "Något är fel": föraren rapporterar ett fel utan en koll runt omkring. Blir en öppen åtgärd direkt. */
 export async function rapporteraFel(
   sb: SupabaseClient,
-  rad: { medarbetareId: string; maskinId: string; beskrivning: string; fotoUrl: string; stopp: boolean; id: string },
+  rad: { medarbetareId: string; maskinId: string; beskrivning: string; fotoUrl: string; stopp: boolean; id: string; plats?: Val | null },
   nu: Date = new Date(),
 ): Promise<string | null> {
   const beskrivning = rad.beskrivning.trim() || 'Fel rapporterat av föraren';
@@ -121,6 +122,8 @@ export async function rapporteraFel(
     foto_url: rad.fotoUrl,
     stopp: rad.stopp,
     deadline: deadlineFor(rad.stopp, nu),
+    // Var på maskinen (tryck på teckningen). Saknas = föraren visste inte var / maskinen har ingen teckning.
+    ...(rad.plats ? tillLagring(rad.plats) : {}),
   }).select('id').single();
   // Ett omförsök efter ett svar som försvann: raden finns redan = sparat.
   if (error && error.code === '23505') return null;
