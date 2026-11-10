@@ -63,6 +63,12 @@ export interface UppfoljningData {
   kvarPct: number;
   egenSkotning?: boolean;
   grotSkotning?: boolean;
+  // Grot-anpassat avverkningsobjekt: det ligger ris på hygget att köra ut.
+  // grotHamtad = datum då riset hämtades, null = det ligger kvar. Frikopplat
+  // från virkets skotningsstatus — ett objekt kan vara "Klart" (virket hemma)
+  // men ha ris kvar, och det ska synas ärligt.
+  grotAnpassad?: boolean;
+  grotHamtad?: string | null;
   externSkotning?: boolean;
   externForetag?: string;
   externPrisTyp?: 'm3' | 'timme';
@@ -385,6 +391,12 @@ function Svaret({ data }: { data: UppfoljningData }) {
   const skKor = !s.skKlar;
   const stKor = !s.stKlar && !s.externt && (s.stAktiv || visSkotat > 0);
 
+  // Grot-rad: bara på ett grot-anpassat AVVERKNINGSobjekt (själva risjobbet följs
+  // upp som eget objekt). Visas i BÅDE pågående och Klart-läge — ett objekt kan
+  // vara klart avverkat och skotat men ha riset kvar på hygget, och då får det
+  // inte se färdigt ut. En tyst rad i ord, inget konkurrerande tal.
+  const visaGrot = !!data.grotAnpassad && !arRisjobb(data);
+
   return (
     <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
       <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: AVSTAND.l }}>
@@ -429,6 +441,11 @@ function Svaret({ data }: { data: UppfoljningData }) {
               dampad={s.externt || (!s.stKlar && !stKor)}
               suffix={stKor && klartOm != null ? klartOmNod(klartOm) : null}
             />
+          </div>
+        )}
+        {visaGrot && (
+          <div style={{ marginTop: AVSTAND.m, paddingTop: AVSTAND.s, borderTop: `0.5px solid ${V6_SEP}`, ...TYP.meta, color: FARG.text2 }}>
+            {data.grotHamtad ? `Riset hämtat ${fmtISO(data.grotHamtad)}` : 'Riset ligger kvar på hygget'}
           </div>
         )}
       </div>
