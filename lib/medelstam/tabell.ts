@@ -11,6 +11,8 @@ import {
 
 /** Medelstammarna i tabellen, m³fub per stam. */
 export const TABELL_STEG = [0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.8] as const;
+/** Gran och tall var för sig: ett trädslags egen medelstam går högre än traktens (tall upp till 1,1 i prod 2026-11-10). */
+export const TABELL_STEG_TRADSLAG = [...TABELL_STEG, 0.9, 1.0] as const;
 /** Färre trakter än så i fönstret: talet visas men märks "osäkert". Under MIN_OBJEKT (3) visas inget tal alls. */
 export const SAKER_MIN_TRAKTER = 6;
 
@@ -38,16 +40,19 @@ export function fordelaVolym(volym: number, andel: Andelar): Record<Sortiment, n
   return Object.fromEntries(SORTIMENT.map((s, i) => [s, ut[i]])) as Record<Sortiment, number>;
 }
 
-/** Tabellen för slutavverkning. `volym` null = bara procent. */
+/**
+ * Tabellen för slutavverkning. `volym` null = bara procent.
+ * `tradslag` = ett trädslags objekt (lib/medelstam/las.ts tradslagObjekt): då räknas allt på dem, också rötan — samma val som MedelstamVy.
+ */
 export function medelstamTabell(
   alla: Objekt[], meta: Record<string, number | null>, rotLasbar: boolean, volym: number | null,
-  steg: readonly number[] = TABELL_STEG,
+  steg: readonly number[] = TABELL_STEG, tradslag: Objekt[] | null = null,
 ): TabellRad[] {
   // Samma val som MedelstamVy: röta-lutningen och medianen räknas över hela urvalet (lövdominerade borta), fönstret på slutavverkningarna.
-  const urval = delaUrval(alla).med;
+  const urval = tradslag ?? delaUrval(alla).med;
   const med = urval.filter(o => o.typ === 'Slutavverkning');
   const lutning = rotaLutning(urval);
-  const median = meta.rot20_median ?? rotaMedian(urval);
+  const median = tradslag ? rotaMedian(urval) : (meta.rot20_median ?? rotaMedian(urval));
   const kanRota = rotLasbar && lutning != null && median != null;
   return steg.map(m => {
     const u = utfall(med, m, kanRota ? median : null, kanRota ? lutning : null);
