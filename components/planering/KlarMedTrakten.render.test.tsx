@@ -634,7 +634,7 @@ describe('ingången från ⓘ-kortet', () => {
   const M = (o: Partial<KartMarkering> & { id: string }): KartMarkering => ({ slag: 'symbol', typ: 'highstump', namn: 'Högstubbe', comment: '', lat: null, lng: null, skapad: null, ordning: 0, ...o });
   function infoProps(klar: ReturnType<typeof klarProps> | null, roll: 'planerare' | 'forare' = 'planerare') {
     const go: any = new Proxy({}, { get: () => () => {} });
-    const mer = byggMerGrupper({ roll, arAdmin: roll === 'planerare', korvyAktiv: false, maskinlage: false, skotningFinnsSomKnapp: false, status: 'oplanerad', tillTrakt: true, vagdata: null, go });
+    const mer = byggMerGrupper({ roll, arAdmin: roll === 'planerare', korvyAktiv: false, maskinlage: false, skotningFinnsSomKnapp: false, status: 'oplanerad', go });
     return {
       oppen: true, onStang: () => {}, objektNamn: 'Skälviken', objektId: 'o1', onKnapp: () => {},
       kort: {

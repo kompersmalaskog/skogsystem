@@ -232,22 +232,17 @@ describe('Rita & mät: NIO rutor — alla ritverktyg (Körordning och Snitsla st
 describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat — inget tappat', () => {
   const mer = las('../lib/objektKort.ts');
   const merVy = las('../components/planering/MerMeny.tsx');
-  it('Mer har gruppernas rubriker Körvy · Föraren · Planeraren · Övrigt, och Avsluta objekt för sig', () => {
+  it('Mer har gruppernas rubriker Körvy · Övrigt (Föraren och Planeraren städades bort 2026-11-10), och Avsluta objekt för sig', () => {
     const titlar = Array.from(mer.matchAll(/titel: '([^']+)'/g)).map((m) => m[1]);
-    expect(titlar).toEqual(expect.arrayContaining(['Körvy', 'Föraren', 'Planeraren', 'Övrigt']));
+    expect(titlar).toEqual(['Körvy', 'Övrigt']);
     expect(merVy).toContain('data-testid="mer-avsluta-objekt"');
   });
   it('gamla val som finns kvar i Mer, med samma handling i sidan', () => {
     for (const rad of [
       'gpsText: korvyStatus.gpsText', 'dataText: korvyStatus.dataText',
       "avslutaKorvy: efter(() => { setKorvyActive(false); setKorvyForceRoll(null); }),",
-      "skordarKorvy: efter(() => { unlockKorvyLjud(); setKorvyForceRoll('skordare'); setKorvyActive(true); }),",
-      "skotarKorvy: efter(() => { setKorvyForceRoll('skotare'); setKorvyActive(true); }),",
       "skotning: efter(() => { setActiveCategory('skotning'); setMenuOpen(true); }),",
       'markeraUtkort: efter(startaMarkeraUtkort),',
-      "trakt: efter(() => { setTraktOpen(true); }),",
-      "vagdata: efter(() => { korOmVagdata(); }),",
-      "genomgang: efter(() => { setBriefingMode(true); setActiveCategory(null); }),",
       "installningar: efter(() => oppnaInst(false)),",
     ]) expect(page, rad).toContain(rad);
   });
@@ -257,8 +252,12 @@ describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat —
     expect(page).toContain('setChecklistOpen(false)');   // modalen finns kvar för Genomgång & kvittering
     expect(las('../lib/objektInfoSpar.ts')).toContain('checklist_items');   // kolumnen sparas som förut
   });
-  it('Briefing + Kvittera markeringar blev ETT val (Genomgång & kvittering); genomgången slutar redan i kvitteringen', () => {
-    expect(mer).toContain("etikett: 'Genomgång & kvittering'");
+  it('STÄDAT 2026-11-10: Genomgång & kvittering, Visa som, Trakt och körvyerna utanför maskinläget är borta ur Mer; Larm och Vägdata nås från ⓘ-kortet', () => {
+    expect(mer).not.toContain("etikett: 'Genomgång & kvittering'");
+    for (const s of ["id: 'skordarkorvy'", "id: 'skotarkorvy'", "id: 'trakt'", "id: 'vagdata'"]) expect(mer, s).not.toContain(s);
+    expect(page).not.toContain('visaSom: isAdminRiktig ? {');
+    expect(page).toContain("onAndra: kortRoll === 'planerare' && !maskinlage && !maskinSomParam ? efter(() => { setTraktOpen(true); }) : undefined,");
+    expect(page).toContain("vagdata: !maskinlage && !maskinSomParam && vagdataStatusKod ? {");
     expect(mer).not.toContain("etikett: 'Briefing'");
     expect(mer).not.toContain("etikett: 'Kvittera markeringar'");
     expect(las('../app/planering/TraktBriefing.tsx')).toContain('setChecklistOpen(true);');
@@ -271,8 +270,7 @@ describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat —
     expect(las('../lib/vyer.ts')).toContain("href: '/planering?installningar=1'");
     expect(page).toContain("u.searchParams.get('installningar') !== '1'");
   });
-  it('Mer › Planeraren har bara VY-växlaren (admin); Tilldelning och "Klar — skicka till förare" är borta — Klar för maskin bor i Klar med trakten?', () => {
-    for (const s of ['visaSom: isAdminRiktig ? {', 'handleVaxlaVy(id)']) expect(page, s).toContain(s);
+  it('Mer › Planeraren är borta (Visa som städades bort 2026-11-10); Tilldelning och "Klar — skicka till förare" är borta — Klar för maskin bor i Klar med trakten?', () => {
     for (const s of ['handleAssignSkordare', 'handleAssignSkotare', 'handleSendKlar', 'onSkicka:']) expect(page, s).not.toContain(s);
     for (const s of ["'Klar — skicka till förare'", 'Skickad till förare', 'mer-tilldelning']) expect(merVy, s).not.toContain(s);
     // Klar för maskin: samma status + tidsstämpel som den gamla knappen, och spärrar aldrig

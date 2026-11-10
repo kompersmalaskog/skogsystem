@@ -262,7 +262,7 @@ import MaskinMeny from '@/components/startsida/MaskinMeny'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 import { optiLokalDag } from '@/lib/optiTid'
-import { KARTRUTA_MALL, traktBbox, punktBbox, nedladdningText } from '@/lib/kartNedladdning'
+import { KARTRUTA_MALL, traktBbox, punktBbox } from '@/lib/kartNedladdning'
 import { useLaddaNerTrakt } from '@/lib/hooks/useLaddaNerTrakt'
 import { useBakgrundsNedladdning } from '@/lib/hooks/useBakgrundsNedladdning'
 import { KORVY_BAKGRUND } from '@/lib/kartBas'
@@ -14472,24 +14472,18 @@ export default function PlannerPage() {
         const sammanf = omSammanfattning(omMarkeringar, ovrigaYtor.map((y) => ({ harText: !!(y.vidaText || foersta(anteckningar[y.nyckel]?.text)) })));
         const merIn = byggMerGrupper({
           roll: kortRoll, arAdmin: isAdminRiktig, korvyAktiv: korvyActive, maskinlage: maskinlage || !!maskinSomParam,
-          skotningFinnsSomKnapp: kortRoll === 'forare' && maskinSlag !== 'skordare', utanSkotning: skotarLassAktiv, status: valtObjekt.status ?? null, tillTrakt: true,
+          skotningFinnsSomKnapp: kortRoll === 'forare' && maskinSlag !== 'skordare', utanSkotning: skotarLassAktiv, status: valtObjekt.status ?? null,
           korvy: korvyActive ? {
             gpsText: korvyStatus.gpsText, gpsProblem: korvyStatus.harProblem, dataText: korvyStatus.dataText,
             andrasSparText: andrasRoll ? (andrasRoll === 'skordare' ? 'Uppdatera skördarens spår' : 'Uppdatera skotarens spår') : null,
           } : undefined,
-          vagdata: vagdataStatusKod ? { varde: vagdataVarde, misslyckad: vagdataStatusKod === 'misslyckad', kanKora: isAdminRiktig } : null,
           go: {
-            skordarKorvy: efter(() => { unlockKorvyLjud(); setKorvyForceRoll('skordare'); setKorvyActive(true); }),
-            skotarKorvy: efter(() => { setKorvyForceRoll('skotare'); setKorvyActive(true); }),
             avslutaKorvy: efter(() => { setKorvyActive(false); setKorvyForceRoll(null); }),
             gps: efter(() => { acquireGpsWithFallback(); }),
             data: efter(() => { refetchMarkers(true); }),
             andrasSpar: efter(() => { hamtaAndrasSpar(); }),
             skotning: efter(() => { setActiveCategory('skotning'); setMenuOpen(true); }),
             markeraUtkort: efter(startaMarkeraUtkort),
-            genomgang: efter(() => { setBriefingMode(true); setActiveCategory(null); }),
-            vagdata: efter(() => { korOmVagdata(); }),
-            trakt: efter(() => { setTraktOpen(true); }),
             installningar: efter(() => oppnaInst(false)),
             gpsKalla: webSerialStott ? efter(() => oppnaInst(true)) : null,
             forslag: efter(() => { window.location.href = '/forbattringsforslag'; }),
@@ -14658,7 +14652,12 @@ export default function PlannerPage() {
             larm: {
               satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '',
               bekraftad: !!infoLarmBekraftad, visaKontroll: kortRoll === 'planerare' && !maskinlage && !maskinSomParam, beskrivning: larmBeskr, onVisa: larmFlyTill,
+              // Planeraren ändrar larmplatsen härifrån (raden Trakt i Mer är borttagen 2026-11-10).
+              onAndra: kortRoll === 'planerare' && !maskinlage && !maskinSomParam ? efter(() => { setTraktOpen(true); }) : undefined,
             },
+            vagdata: !maskinlage && !maskinSomParam && vagdataStatusKod ? {
+              varde: vagdataVarde, misslyckad: vagdataStatusKod === 'misslyckad', onTryck: isAdminRiktig ? efter(() => { korOmVagdata(); }) : null,
+            } : null,
           },
           om: {
             hela: forareTexter,
@@ -14729,13 +14728,7 @@ export default function PlannerPage() {
                 setValtObjekt((o: any) => (o && o.id === valtObjekt.id ? { ...o, status: 'pagaende', status_auto_skal: null, avslutad_timestamp: null } : o));
               },
             } : null,
-            planerare: {
-              visaSom: isAdminRiktig ? {
-                aktivId: simuleradForareId,
-                alternativ: [{ id: null as string | null, label: 'Planerare' }, ...medarbetareLista.filter((m) => m.roll === 'forare').map((m) => ({ id: m.id as string | null, label: `Visa som ${m.namn}` }))],
-                onValj: (id) => { if (navigator.vibrate) navigator.vibrate(8); handleVaxlaVy(id); stang(); },
-              } : null,
-            },
+            planerare: null,
           },
           karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features), roll: malbildRoll, hogar: (hogarFeaturesRef.current?.length ?? 0) > 0 },
           instruktioner: instruktionerAktiv ? { data: inst.paTrakten, onSett: inst.settOmraden } : null,
@@ -14914,7 +14907,7 @@ export default function PlannerPage() {
         };
         }
         const op = objektInfoSenasteRef.current;
-        return op ? <ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} kartaSparad={nedladdningText(kartNedladdning)} egenkontroll={egenkontrollInfo} /> : null;
+        return op ? <ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} egenkontroll={egenkontrollInfo} /> : null;
       })()}
 
       {/* === MODE-BANNER (aktivt verktygsläge) === */}
@@ -20468,7 +20461,7 @@ export default function PlannerPage() {
             borderBottom: '1px solid rgba(255,255,255,0.08)',
           }}>
             <div style={{ fontSize: '17px', fontWeight: '500', color: '#fff' }}>
-              Trakt
+              Larmkoordinat
             </div>
             <button
               onClick={() => setTraktOpen(false)}

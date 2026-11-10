@@ -138,38 +138,28 @@ describe('Om trakten: sortering, sök, avstånd', () => {
 describe('Mer', () => {
   const fn = () => vi.fn();
   const go = (): MerIn['go'] => ({
-    skordarKorvy: fn(), skotarKorvy: fn(), avslutaKorvy: fn(), gps: fn(), data: fn(), andrasSpar: fn(),
-    skotning: fn(), markeraUtkort: fn(), genomgang: fn(), vagdata: fn(), trakt: fn(), installningar: fn(), gpsKalla: fn(), forslag: fn(),
+    avslutaKorvy: fn(), gps: fn(), data: fn(), andrasSpar: fn(),
+    skotning: fn(), markeraUtkort: fn(), installningar: fn(), gpsKalla: fn(), forslag: fn(),
   });
-  const bas = (o: Partial<MerIn> = {}): MerIn => ({ roll: 'planerare', arAdmin: true, korvyAktiv: false, maskinlage: false, skotningFinnsSomKnapp: false, status: 'planerad', tillTrakt: true, vagdata: { varde: '3 vägar', misslyckad: false, kanKora: true }, go: go(), ...o });
+  const bas = (o: Partial<MerIn> = {}): MerIn => ({ roll: 'planerare', arAdmin: true, korvyAktiv: false, maskinlage: false, skotningFinnsSomKnapp: false, status: 'planerad', go: go(), ...o });
   const id = (r: ReturnType<typeof byggMerGrupper>, g: string) => r.grupper.find((x) => x.id === g)?.rader.map((x) => x.id) ?? null;
   it('Mer: Skotning och Markera utkört finns inte längre (Martin 2026-11-06) — oavsett läge', () => {
     for (const utanSkotning of [false, true]) {
-      expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false, utanSkotning })), 'foraren')).not.toContain('skotning');
-      expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false, utanSkotning })), 'foraren')).not.toContain('markera-utkort');
+      const alla = byggMerGrupper(bas({ roll: 'forare', arAdmin: false, utanSkotning })).grupper.flatMap((g) => g.rader.map((r) => r.id));
+      expect(alla).not.toContain('skotning');
+      expect(alla).not.toContain('markera-utkort');
     }
   });
 
-  it('planerare (admin): körvyerna, föraren, planeraren, övrigt — och inga Byt objekt, Brandrisk, Gallring, Inställningar, Förslag', () => {
-    const r = bas();
-    const m = byggMerGrupper(r);
-    expect(m.grupper.map((g) => g.id)).toEqual(['korvy', 'foraren', 'planeraren', 'ovrigt']);
-    expect(id(m, 'korvy')).toEqual(['skordarkorvy', 'skotarkorvy']);
-    expect(id(m, 'foraren')).toEqual(['genomgang']);
-    expect(id(m, 'ovrigt')).toEqual(['vagdata', 'trakt']);
-    const alla = m.grupper.flatMap((g) => g.rader.map((x) => x.etikett.toLowerCase())).join('|');
-    for (const bort of ['byt objekt', 'brandrisk', 'gallring', 'inställningar', 'förslag']) expect(alla).not.toContain(bort);
+  it('planerare i planeringen (städat 2026-11-10): inga körvyer, ingen Genomgång, ingen Visa som, ingen Trakt/Vägdata — Mer är tom utom Avsluta objekt', () => {
+    const m = byggMerGrupper(bas());
+    expect(m.grupper).toEqual([]);
+    expect(m.planerarenBlock).toBe(false);
+    for (const status of ['pagaende']) expect(byggMerGrupper(bas({ status })).avslutaObjekt).toBe(true);
   });
-  it('Briefing och Kvittera markeringar är ETT val: Genomgång & kvittering', () => {
-    const etiketter = byggMerGrupper(bas()).grupper.flatMap((g) => g.rader.map((x) => x.etikett));
-    expect(etiketter).toContain('Genomgång & kvittering');
-    expect(etiketter).not.toContain('Briefing');
-    expect(etiketter).not.toContain('Kvittera markeringar');
-  });
-  it('förare: ingen Körvy-grupp (knappen ligger på kortet), ingen dubblett av Skotning, ingen Planeraren-grupp', () => {
+  it('förare utan körvy: inga grupper', () => {
     const m = byggMerGrupper(bas({ roll: 'forare', arAdmin: false, skotningFinnsSomKnapp: true }));
-    expect(m.grupper.map((g) => g.id)).toEqual(['foraren', 'ovrigt']);
-    expect(id(m, 'foraren')).toEqual(['genomgang']);
+    expect(m.grupper).toEqual([]);
     expect(m.planerarenBlock).toBe(false);
   });
   it('körvy igång: GPS, kartdata, spår, Avsluta körvy (röd) — samt Inställningar, GPS-källa och Förslag; INGEN baskarta/Lager (lagervalet bor bara i +)', () => {
@@ -177,7 +167,7 @@ describe('Mer', () => {
       korvy: { gpsText: 'GPS: ok', gpsProblem: false, dataText: 'Kartdata: nu', andrasSparText: 'Uppdatera skotarens spår' } }));
     expect(id(m, 'korvy')).toEqual(['gps', 'kartdata', 'andras-spar', 'avsluta-korvy']);
     expect(m.grupper.find((g) => g.id === 'korvy')!.rader.at(-1)!.farlig).toBe(true);
-    expect(id(m, 'ovrigt')).toEqual(['vagdata', 'trakt', 'installningar', 'gps-kalla', 'forslag']);
+    expect(id(m, 'ovrigt')).toEqual(['installningar', 'gps-kalla', 'forslag']);
     expect([...id(m, 'korvy')!, ...id(m, 'ovrigt')!]).not.toContain('baskarta');
     expect([...id(m, 'korvy')!, ...id(m, 'ovrigt')!]).not.toContain('lager');
   });
@@ -187,24 +177,18 @@ describe('Mer', () => {
   });
   it('vanlig planering (telefon/dator): Inställningar och Förslag ligger på startsidan, inte här', () => {
     const m = byggMerGrupper(bas());
-    expect(id(m, 'ovrigt')).not.toContain('installningar');
-    expect(id(m, 'ovrigt')).not.toContain('forslag');
+    expect(id(m, 'ovrigt')).toBeNull();
   });
   it('Avsluta objekt: bara när objektet är pågående', () => {
     expect(byggMerGrupper(bas({ status: 'pagaende' })).avslutaObjekt).toBe(true);
     expect(byggMerGrupper(bas({ status: 'planerad' })).avslutaObjekt).toBe(false);
     expect(byggMerGrupper(bas({ status: 'avslutat' })).avslutaObjekt).toBe(false);
   });
-  it('Vägdata visar statusen och är bara tryckbar för planeraren; röd när den misslyckats', () => {
-    const rad = byggMerGrupper(bas({ vagdata: { varde: 'Kunde inte hämtas', misslyckad: true, kanKora: false } })).grupper.find((g) => g.id === 'ovrigt')!.rader.find((r) => r.id === 'vagdata')!;
-    expect(rad.under).toBe('Kunde inte hämtas');
-    expect(rad.farlig).toBe(true);
-  });
   it('en rad ropar rätt handling', () => {
-    const c = bas();
+    const c = bas({ korvyAktiv: true, korvy: { gpsText: 'GPS', gpsProblem: false, dataText: 'Data', andrasSparText: null } });
     const m = byggMerGrupper(c);
-    m.grupper.find((g) => g.id === 'foraren')!.rader.find((r) => r.id === 'genomgang')!.onTryck();
-    expect(c.go.genomgang).toHaveBeenCalledTimes(1);
+    m.grupper.find((g) => g.id === 'korvy')!.rader.find((r) => r.id === 'avsluta-korvy')!.onTryck();
+    expect(c.go.avslutaKorvy).toHaveBeenCalledTimes(1);
     expect(c.go.markeraUtkort).not.toHaveBeenCalled();
   });
 });

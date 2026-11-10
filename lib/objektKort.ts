@@ -257,12 +257,9 @@ export interface MerIn {
   utanSkotning?: boolean;
   status: string | null;
   korvy?: { gpsText: string; gpsProblem: boolean; dataText: string; andrasSparText: string | null };
-  vagdata?: { varde: string; misslyckad: boolean; kanKora: boolean } | null;
-  tillTrakt: boolean;
   go: {
-    skordarKorvy: () => void; skotarKorvy: () => void; avslutaKorvy: () => void; gps: () => void; data: () => void; andrasSpar: () => void;
-    skotning: () => void; markeraUtkort: () => void; genomgang: () => void;
-    vagdata: () => void; trakt: () => void;
+    avslutaKorvy: () => void; gps: () => void; data: () => void; andrasSpar: () => void;
+    skotning: () => void; markeraUtkort: () => void;
     installningar: () => void; gpsKalla: (() => void) | null; forslag: () => void;
   };
 }
@@ -284,38 +281,24 @@ export function byggMerGrupper(c: MerIn): { grupper: MerGrupp[]; planerarenBlock
       ...(c.korvy.andrasSparText ? [{ id: 'andras-spar', etikett: c.korvy.andrasSparText, ikon: 'refresh', onTryck: c.go.andrasSpar }] : []),
       { id: 'avsluta-korvy', etikett: 'Avsluta körvy', ikon: 'close', onTryck: c.go.avslutaKorvy, farlig: true },
     );
-  } else if (c.arAdmin) {
-    korvy.push(
-      { id: 'skordarkorvy', etikett: 'Skördarkörvy', ikon: 'navigation', onTryck: c.go.skordarKorvy },
-      { id: 'skotarkorvy', etikett: 'Skotarkörvy', ikon: 'local_shipping', onTryck: c.go.skotarKorvy },
-    );
   }
   if (korvy.length) grupper.push({ id: 'korvy', titel: 'Körvy', rader: korvy });
 
-  // FÖRAREN — Markera utkört, Genomgång & kvittering (Briefing + Kvittera markeringar i ETT val: genomgången slutar med kvittering).
-  // Skotning-arket (sortiment, högar) ligger här för dem som inte har den som knapp på kortet — annars nås det inte alls.
-  const foraren: MerRad[] = [
-    // Skotning och Markera utkört är borttagna (Martin 2026-11-06) — se kortKnappar.
-    { id: 'genomgang', etikett: 'Genomgång & kvittering', under: 'Gå igenom trakten och kvittera markeringarna', ikon: 'menu_book', onTryck: c.go.genomgang },
-  ];
-  grupper.push({ id: 'foraren', titel: 'Föraren', rader: foraren });
-
-  // PLANERAREN — blocken (Visa som, tilldelning) ritas av komponenten.
-  const planerarenBlock = c.arAdmin || c.roll === 'planerare';
-  if (planerarenBlock) grupper.push({ id: 'planeraren', titel: 'Planeraren', rader: [] });
+  // STÄDAT 2026-11-10 (Martin): körvyerna utanför maskinläget (Skördar-/Skotarkörvy — körvyn bor i maskinerna, provas med /maskin?som=),
+  // Föraren › Genomgång & kvittering (den gamla briefingen som flög över trakten — ingen använde den; instruktionerna kvitteras vid inkörning),
+  // Planeraren › Visa som, och Övrigt › Trakt (larmplatsen ändras från raden Larmkoordinat på ⓘ-kortet). Vägdata är en rad på ⓘ-kortet.
+  const planerarenBlock = false;
 
   // ÖVRIGT — Vägdata, Trakt (bara Larm kvar). Vidas egenkontroll-checklista (checklist_items) är borttagen härifrån 2026-10-15 — datan och /egenkontroll rörs inte. I körvy och maskinläge (där startsidan inte nås) även
   // Inställningar, GPS-källa och Förslag. KARTLAGER/baskarta finns INTE här: lagervalet bor på ETT ställe i körvyn, + › Alla › Lager (ⓘ visar information, inga kartinställningar). Annars bor Inställningar och Förslag på startsidan.
   const ovrigt: MerRad[] = [
-    ...(c.vagdata ? [{ id: 'vagdata', etikett: 'Vägdata', under: c.vagdata.varde, ikon: c.vagdata.misslyckad ? 'error' : 'route', onTryck: c.vagdata.kanKora ? c.go.vagdata : () => {}, farlig: c.vagdata.misslyckad }] : []),
-    ...(c.tillTrakt ? [{ id: 'trakt', etikett: 'Trakt', under: 'Larm', ikon: 'info', onTryck: c.go.trakt }] : []),
   ];
   if (c.korvyAktiv || c.maskinlage) {
     ovrigt.push({ id: 'installningar', etikett: 'Inställningar', under: 'Kompass, tillstånd, karta', ikon: 'settings', onTryck: c.go.installningar });
     if (c.go.gpsKalla) ovrigt.push({ id: 'gps-kalla', etikett: 'GPS-källa', under: 'Serieport och baudrate', ikon: 'gps_fixed', onTryck: c.go.gpsKalla });
     ovrigt.push({ id: 'forslag', etikett: 'Förslag', ikon: 'lightbulb', onTryck: c.go.forslag });
   }
-  grupper.push({ id: 'ovrigt', titel: 'Övrigt', rader: ovrigt });
+  if (ovrigt.length) grupper.push({ id: 'ovrigt', titel: 'Övrigt', rader: ovrigt });
 
   return { grupper, planerarenBlock, avslutaObjekt: c.status === 'pagaende' };
 }
