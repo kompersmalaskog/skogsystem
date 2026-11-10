@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BILD_B, BILD_H, DEL_ORDNING, TRAFF_RADIE, bildTyp, delNamn, delar, franLagring, tillLagring, tryck, valjDel } from './maskinBild';
+import { BILD_B, BILD_H, DEL_ORDNING, TRAFF_RADIE, bildTyp, bytSida, delNamn, delar, franLagring, sidaText, tillLagring, tryck, valjDel } from './maskinBild';
 import { felText } from './atgarder';
 
 describe('maskinbilden', () => {
@@ -61,5 +61,39 @@ describe('maskinbilden', () => {
     expect(felText({ beskrivning: 'Länk lös', plats })).toBe('Band och kedjor · Länk lös');
     expect(felText({ beskrivning: 'Fel rapporterat av föraren', plats })).toBe('Band och kedjor');
     expect(felText({ beskrivning: 'Länk lös', plats: null })).toBe('Länk lös');
+    expect(felText({ beskrivning: 'Länk lös', plats: { typ: 'skotare', val: valjDel('skotare', 'band', 'hoger') } })).toBe('Band och kedjor, höger sida · Länk lös');
   });
 });
+
+describe('höger och vänster sida', () => {
+  it('höger sida är vänster spegelvänd, samma höjd', () => {
+    for (const typ of ['skordare', 'skordare8', 'skotare'] as const) {
+      const v = delar(typ, 'vanster'), h = delar(typ, 'hoger');
+      h.forEach((d, i) => { expect(d.x).toBe(BILD_B - v[i].x); expect(d.y).toBe(v[i].y); });
+    }
+  });
+  it('ett tryck på höger sida väljer delen där den syns på höger sida', () => {
+    const band = delar('skotare', 'hoger').find(d => d.id === 'band')!;
+    expect(tryck('skotare', band.x, band.y, 'hoger')).toEqual({ del: 'band', x: band.x, y: band.y, sida: 'hoger' });
+    expect(tryck('skotare', 380, 60, 'hoger')).toEqual({ del: 'annat', x: 380, y: 60, sida: 'hoger' });
+  });
+  it('byte av sida tar med delen, men inte "Annat ställe"', () => {
+    expect(bytSida('skordare8', valjDel('skordare8', 'band', 'vanster'), 'hoger')).toEqual(valjDel('skordare8', 'band', 'hoger'));
+    expect(bytSida('skordare8', { del: 'annat', x: 10, y: 10, sida: 'vanster' }, 'hoger')).toBeNull();
+    expect(bytSida('skordare8', null, 'hoger')).toBeNull();
+  });
+  it('sidan sparas och läses tillbaka; okänd sida sägs aldrig', () => {
+    const v = valjDel('skotare', 'stege', 'hoger');
+    const l = tillLagring(v);
+    expect(l.maskin_sida).toBe('hoger');
+    const tillbaka = franLagring(l.maskin_del, l.maskin_x, l.maskin_y, l.maskin_sida)!;
+    expect(tillbaka.del).toBe('stege');
+    expect(tillbaka.sida).toBe('hoger');
+    expect(tillbaka.x).toBeCloseTo(v.x, 0);
+    expect(tillLagring({ del: 'band', x: 10, y: 10 })).not.toHaveProperty('maskin_sida');
+    expect(franLagring('band', 0.1, 0.1, 'fram')!.sida).toBeUndefined();
+    expect(sidaText({ sida: 'hoger' })).toBe('höger sida');
+    expect(sidaText({})).toBeNull();
+  });
+});
+

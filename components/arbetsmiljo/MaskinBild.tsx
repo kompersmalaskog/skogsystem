@@ -8,12 +8,15 @@
 //  - välja (onVal satt): små prickar visar var man kan trycka; vald plats får en orange prick med en lugn puls.
 //    Under bilden en knapp per del (samma val, för den som hellre läser).
 //  - visa (onVal saknas): bara den valda pricken, för Åtgärder.
+// Sida: "Vänster sida | Höger sida" ovanför bilden (Martin 2026-11-10, aldrig fram eller bak). Höger sida är samma
+// teckning spegelvänd — ett fel på höger boggi pekas ut där det sitter. Byts sida följer en vald del med.
 // Rörelse: maskinen tonar in, vald prick poppar och pulserar. Stilla vid "minska rörelser".
 
-import { useId, type MouseEvent } from 'react';
+import { useId, useState, type MouseEvent } from 'react';
 import Ikon from '@/components/design/Ikon';
+import Flikkontroll from '@/components/design/Flikkontroll';
 import { AVSTAND, FARG, RADIE, RORELSE, TRAFFYTA, TYP } from '@/lib/design/tokens';
-import { BILD_B, BILD_H, delNamn, delar, tryck, valjDel, type BildTyp, type Val } from '@/lib/arbetsmiljo/maskinBild';
+import { BILD_B, BILD_H, SIDA_NAMN, SIDOR, bytSida, delNamn, delar, tryck, valjDel, type BildTyp, type Sida, type Val } from '@/lib/arbetsmiljo/maskinBild';
 
 const KROPP = { fill: FARG.upphojt, stroke: FARG.text2, strokeWidth: 1.5, strokeLinejoin: 'round' as const };
 const DETALJ = { fill: 'none', stroke: FARG.text3, strokeWidth: 1.5, strokeLinecap: 'round' as const };
@@ -244,43 +247,64 @@ function Skotare() {
 const CSS = `
 .mb-in { animation: mb-in ${RORELSE.sheet}ms ${RORELSE.kurva} both; }
 @keyframes mb-in { from { opacity: 0; transform: translateY(${RORELSE.lyft}px); } to { opacity: 1; transform: none; } }
+.mb-ton { animation: mb-ton ${RORELSE.byte}ms ${RORELSE.kurva} both; }
+@keyframes mb-ton { from { opacity: 0; } to { opacity: 1; } }
 .mb-pop { animation: mb-pop ${RORELSE.byte}ms ${RORELSE.kurva} both; transform-box: fill-box; transform-origin: center; }
 @keyframes mb-pop { from { transform: scale(0.2); } to { transform: scale(1); } }
 .mb-puls { animation: mb-puls 1.8s ease-out infinite; transform-box: fill-box; transform-origin: center; }
 @keyframes mb-puls { from { transform: scale(1); opacity: 0.7; } to { transform: scale(2.6); opacity: 0; } }
 .mb-andas { animation: mb-andas 2.4s ease-in-out infinite; }
 @keyframes mb-andas { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .mb-in, .mb-pop, .mb-puls, .mb-andas { animation: none; } .mb-puls { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .mb-in, .mb-ton, .mb-pop, .mb-puls, .mb-andas { animation: none; } .mb-puls { opacity: 0; } }
 `;
 
 export default function MaskinBild({ typ, val, onVal, etikett }: {
   typ: BildTyp;
   val: Val | null;
-  /** Saknas = bara visa (ingen tryckyta, inga knappar). */
-  onVal?: (v: Val) => void;
+  /** Saknas = bara visa (ingen tryckyta, inga knappar). null = inget valt (efter byte av sida från "Annat ställe"). */
+  onVal?: (v: Val | null) => void;
   /** Tillgänglig beskrivning av bilden. */
   etikett?: string;
 }) {
   const id = useId();
   const valjer = !!onVal;
-  const lista = delar(typ);
+  const [valdSida, setValdSida] = useState<Sida>(val?.sida ?? 'vanster');
+  // Visa: sidan som sparades (okänd = vänster). Välja: förarens val.
+  const sida: Sida = valjer ? valdSida : (val?.sida ?? 'vanster');
+  const lista = delar(typ, sida);
+
+  const bytTill = (ny: Sida) => {
+    if (ny === sida) return;
+    setValdSida(ny);
+    onVal?.(bytSida(typ, val, ny));
+  };
 
   const klick = (e: MouseEvent<SVGSVGElement>) => {
     if (!onVal) return;
     const r = e.currentTarget.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) return;
-    const v = tryck(typ, ((e.clientX - r.left) / r.width) * BILD_B, ((e.clientY - r.top) / r.height) * BILD_H);
+    const v = tryck(typ, ((e.clientX - r.left) / r.width) * BILD_B, ((e.clientY - r.top) / r.height) * BILD_H, sida);
     if (v) onVal(v);
   };
 
   return (
     <div>
       <style>{CSS}</style>
+      {valjer && (
+        <div style={{ marginBottom: AVSTAND.s }}>
+          <Flikkontroll flikar={SIDOR.map(s => [s, SIDA_NAMN[s]] as const)} aktiv={sida} onVal={bytTill} />
+        </div>
+      )}
       <svg viewBox={`0 0 ${BILD_B} ${BILD_H}`} role="img" aria-labelledby={`${id}-t`}
         onClick={klick} className="mb-in"
         style={{ display: 'block', width: '100%', height: 'auto', aspectRatio: `${BILD_B} / ${BILD_H}`, background: FARG.kort, borderRadius: RADIE.kort, cursor: valjer ? 'pointer' : 'default', touchAction: 'manipulation' }}>
-        <title id={`${id}-t`}>{`${etikett ?? (typ === 'skotare' ? 'Skotare' : 'Skördare')}${val ? ` · ${delNamn(val.del, typ)}` : ''}`}</title>
-        {typ === 'skordare' ? <Skordare /> : typ === 'skordare8' ? <Skordare8 /> : <Skotare />}
+        <title id={`${id}-t`}>{`${etikett ?? (typ === 'skotare' ? 'Skotare' : 'Skördare')} · ${SIDA_NAMN[sida].toLowerCase()}${val ? ` · ${delNamn(val.del, typ)}` : ''}`}</title>
+        {/* Spegeln ligger på ett yttre g: en CSS-animation (transform) på samma element skulle skriva över den. */}
+        <g data-sida={sida} transform={sida === 'hoger' ? `translate(${BILD_B} 0) scale(-1 1)` : undefined}>
+          <g key={sida} className="mb-ton">
+            {typ === 'skordare' ? <Skordare /> : typ === 'skordare8' ? <Skordare8 /> : <Skotare />}
+          </g>
+        </g>
         {valjer && lista.map(d => (
           <circle key={d.id} cx={d.x} cy={d.y} r={6} fill={FARG.text} stroke={FARG.bg} strokeWidth={2}
             className={val ? undefined : 'mb-andas'} opacity={val && val.del === d.id ? 0 : 0.85} />
@@ -299,7 +323,7 @@ export default function MaskinBild({ typ, val, onVal, etikett }: {
           {lista.map(d => {
             const vald = val?.del === d.id;
             return (
-              <button key={d.id} type="button" role="radio" aria-checked={vald} onClick={() => onVal!(valjDel(typ, d.id))}
+              <button key={d.id} type="button" role="radio" aria-checked={vald} onClick={() => onVal!(valjDel(typ, d.id, sida))}
                 style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px ${AVSTAND.m}px`, border: 'none', borderRadius: RADIE.rad, background: vald ? FARG.upphojt : FARG.kort, color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left', ...TYP.text }}>
                 <Ikon namn={vald ? 'radio_button_checked' : 'radio_button_unchecked'} farg={vald ? FARG.orange : FARG.text3} />
                 <span style={{ minWidth: 0 }}>{d.namn}</span>

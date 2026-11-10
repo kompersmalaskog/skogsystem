@@ -68,7 +68,18 @@ const PLATS: Record<BildTyp, Record<(typeof DEL_ORDNING)[number], { x: number; y
 /** Ett tryck närmare än så här (i teckningens enheter) från en del väljer den delen. ~44 px på en telefon. */
 export const TRAFF_RADIE = 26;
 
-export type Val = { del: DelId; x: number; y: number };
+/** Vilken sida av maskinen teckningen visar (Martin 2026-11-10: höger och vänster, aldrig fram eller bak).
+ * Vänster = teckningen som den är ritad (fronten åt vänster). Höger = samma teckning spegelvänd. */
+export type Sida = 'vanster' | 'hoger';
+export const SIDOR = ['vanster', 'hoger'] as const;
+export const SIDA_NAMN: Record<Sida, string> = { vanster: 'Vänster sida', hoger: 'Höger sida' };
+
+/** x,y är i teckningens enheter SÅ SOM DEN VISAS (spegelvänd på höger sida). `sida` saknas = okänd (rader från
+ * före sidorna) — ritas som vänster sida men sägs aldrig i text. */
+export type Val = { del: DelId; x: number; y: number; sida?: Sida };
+
+/** En plats på vänster sidas teckning, på den sida som visas. */
+const pa = (sida: Sida | undefined, x: number) => (sida === 'hoger' ? BILD_B - x : x);
 
 /** Skördare med boggier fram och bak (åtta hjul). Allt annat ritas som fyrhjulig. */
 const ATTA_HJUL = /\b8w\b|scorpion|bear|beaver|ergo/i;
@@ -85,14 +96,15 @@ export function delNamn(del: DelId, typ: BildTyp): string {
 }
 
 /** Delarna med plats och namn, i knapparnas ordning. */
-export function delar(typ: BildTyp): { id: (typeof DEL_ORDNING)[number]; namn: string; x: number; y: number }[] {
-  return DEL_ORDNING.map(id => ({ id, namn: NAMN[id](typ), ...PLATS[typ][id] }));
+export function delar(typ: BildTyp, sida: Sida = 'vanster'): { id: (typeof DEL_ORDNING)[number]; namn: string; x: number; y: number }[] {
+  return DEL_ORDNING.map(id => ({ id, namn: NAMN[id](typ), x: pa(sida, PLATS[typ][id].x), y: PLATS[typ][id].y }));
 }
 
-function narmaste(typ: BildTyp, x: number, y: number): { def: ReturnType<typeof delar>[number]; d: number } {
-  let bast = delar(typ)[0];
+function narmaste(typ: BildTyp, sida: Sida, x: number, y: number): { def: ReturnType<typeof delar>[number]; d: number } {
+  const lista = delar(typ, sida);
+  let bast = lista[0];
   let bastD = Infinity;
-  for (const d of delar(typ)) {
+  for (const d of lista) {
     const dist = Math.hypot(d.x - x, d.y - y);
     if (dist < bastD) { bast = d; bastD = dist; }
   }
@@ -103,29 +115,46 @@ function narmaste(typ: BildTyp, x: number, y: number): { def: ReturnType<typeof 
  * Ett tryck på teckningen (i teckningens enheter). Nära en del → den delen, med delens plats.
  * Annars → "Annat ställe" exakt där man tryckte. Utanför teckningen → null.
  */
-export function tryck(typ: BildTyp, x: number, y: number): Val | null {
+export function tryck(typ: BildTyp, x: number, y: number, sida?: Sida): Val | null {
   if (!(x >= 0 && x <= BILD_B && y >= 0 && y <= BILD_H)) return null;
-  const { def, d } = narmaste(typ, x, y);
-  if (d <= TRAFF_RADIE) return { del: def.id, x: def.x, y: def.y };
-  return { del: 'annat', x, y };
+  const { def, d } = narmaste(typ, sida ?? 'vanster', x, y);
+  const v: Val = d <= TRAFF_RADIE ? { del: def.id, x: def.x, y: def.y } : { del: 'annat', x, y };
+  if (sida) v.sida = sida;
+  return v;
 }
 
 /** En knapp under teckningen valdes: delens plats. */
-export function valjDel(typ: BildTyp, del: (typeof DEL_ORDNING)[number]): Val {
+export function valjDel(typ: BildTyp, del: (typeof DEL_ORDNING)[number], sida?: Sida): Val {
   const p = PLATS[typ][del];
-  return { del, x: p.x, y: p.y };
+  const v: Val = { del, x: pa(sida, p.x), y: p.y };
+  if (sida) v.sida = sida;
+  return v;
+}
+
+/** Föraren byter sida: en namngiven del följer med till samma del på andra sidan. "Annat ställe" går inte att flytta
+ * (en plats på vänster sida är ingen plats på höger) — då är inget valt. */
+export function bytSida(typ: BildTyp, v: Val | null, sida: Sida): Val | null {
+  if (!v || v.del === 'annat') return null;
+  return valjDel(typ, v.del, sida);
+}
+
+/** "höger sida" / "vänster sida" när sidan är känd, annars inget. */
+export function sidaText(v: Pick<Val, 'sida'>): string | null {
+  return v.sida ? SIDA_NAMN[v.sida].toLowerCase() : null;
 }
 
 /** Till databasen: 0..1, tre decimaler. */
-export function tillLagring(v: Val): { maskin_del: DelId; maskin_x: number; maskin_y: number } {
+export function tillLagring(v: Val): { maskin_del: DelId; maskin_x: number; maskin_y: number; maskin_sida?: Sida } {
   const r = (n: number) => Math.round(n * 1000) / 1000;
-  return { maskin_del: v.del, maskin_x: r(v.x / BILD_B), maskin_y: r(v.y / BILD_H) };
+  return { maskin_del: v.del, maskin_x: r(v.x / BILD_B), maskin_y: r(v.y / BILD_H), ...(v.sida ? { maskin_sida: v.sida } : {}) };
 }
 
 /** Från databasen. Något saknas eller är fel → null (då ritas ingen prick, aldrig en gissad). */
-export function franLagring(del: unknown, x: unknown, y: unknown): Val | null {
+export function franLagring(del: unknown, x: unknown, y: unknown, sida?: unknown): Val | null {
   const giltig = (DEL_ORDNING as readonly string[]).includes(del as string) || del === 'annat';
   if (!giltig || typeof x !== 'number' || typeof y !== 'number') return null;
   if (!(x >= 0 && x <= 1 && y >= 0 && y <= 1)) return null;
-  return { del: del as DelId, x: x * BILD_B, y: y * BILD_H };
+  const v: Val = { del: del as DelId, x: x * BILD_B, y: y * BILD_H };
+  if (sida === 'vanster' || sida === 'hoger') v.sida = sida;
+  return v;
 }
