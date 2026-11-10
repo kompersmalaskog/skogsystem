@@ -56,6 +56,7 @@ export const VYER: Vy[] = [
   { id: 'aptering', namn: 'Aptering', href: '/uppfoljning/fordelning', ikon: 'content_cut', grupp: 'produktion', sokord: ['fördelning', 'sortiment'] },
   { id: 'oversikt', namn: 'Översikt', href: '/oversikt', ikon: 'dashboard', grupp: 'produktion', sokord: ['karta', 'grot'] },
   { id: 'gallring', namn: 'Gallring', href: '/gallring', ikon: 'forest', grupp: 'produktion' },
+  { id: 'massaved', namn: 'Massaved', href: '/massaved', ikon: 'straighten', grupp: 'produktion', bara: 'admin', sokord: ['massa', 'längd', 'medellängd', 'gallring'] },
   { id: 'helikopter', namn: 'Helikopter', href: '/helikopter', ikon: 'flight', grupp: 'produktion', sokord: ['beställt', 'prognos'] },
   { id: 'helikopter-v2', namn: 'Helikopter v2', href: '/helikopter-v2', ikon: 'helicopter', grupp: 'produktion' },
   { id: 'affarsuppfoljning', namn: 'Affärsuppföljning', href: '/affarsuppfoljning/rakna', ikon: 'business_center', grupp: 'produktion', sokord: ['affär'] },

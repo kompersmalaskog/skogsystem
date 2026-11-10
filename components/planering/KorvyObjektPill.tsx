@@ -52,11 +52,16 @@ const Avdelare = () => <span aria-hidden="true" style={{ width: 1, alignSelf: 'c
 /** Skotarens kvar-del: "Kvar ~121 m³ · Klar ~onsdag", åtskild av en tunn linje. Tryck öppnar kvar per sortiment. */
 export interface KvarDel { text: string; klar: string | null; onTryck: () => void }
 
+/** Gallringsskördarens massaved: "Massa idag 4,5 m". Tryck öppnar arket med trädslag, fördelning och alla förare. */
+export interface MassaDel { etikett: string; varde: string; onTryck: () => void }
+
 export function KorvyObjektPill({
-  namn, hogstubbar, evighetstrad, smal, ikonHogstubbe, ikonEvighetstrad, orangeKant, prefix, kvar, visaRaknare = true,
+  namn, hogstubbar, evighetstrad, smal, ikonHogstubbe, ikonEvighetstrad, orangeKant, prefix, kvar, massa, visaRaknare = true,
   onNamn, onHogstubbe, onEvighetstrad,
 }: {
   kvar?: KvarDel | null;
+  /** Bara gallringsskördare (H8E) i maskinläget. */
+  massa?: MassaDel | null;
   /** false på en skotare: Högstubbar/Evighetsträd hör till skördaren. Pillen är då bara namnet (+ Kvar · Klar när lassen går att räkna). */
   visaRaknare?: boolean;
   namn: string;
@@ -97,6 +102,25 @@ export function KorvyObjektPill({
           <Raknare namn="Högstubbar" ikon={ikonHogstubbe} vy={hogstubbar} smal={smal} onTryck={onHogstubbe} testid="korvy-pill-hogstubbar" handling="Tryck för att sätta en högstubbe här" />
           <Avdelare />
           <Raknare namn="Evighetsträd" ikon={ikonEvighetstrad} vy={evighetstrad} smal={smal} onTryck={onEvighetstrad} testid="korvy-pill-evighetstrad" handling="Tryck för att sätta ett evighetsträd här" />
+        </>
+      )}
+      {massa && (
+        <>
+          <Avdelare />
+          <button
+            type="button"
+            data-testid="korvy-pill-massa"
+            aria-label={massa.varde === '–' ? 'Massaveden kunde inte läsas. Tryck för mer' : `${massa.etikett} ${massa.varde} i snitt. Tryck för mer om massaveden`}
+            onClick={massa.onTryck}
+            className="press-dim"
+            style={{
+              display: 'flex', alignItems: 'center', gap: AVSTAND.s, height: PILL_HOJD_PX, padding: `0 ${smal ? AVSTAND.m : AVSTAND.l}px`,
+              border: 'none', background: 'transparent', color: FARG.text2, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, ...TYP.text,
+            }}
+          >
+            <span>{smal ? 'Massa' : massa.etikett}</span>
+            <b style={{ color: FARG.text, ...TYP.rubrik, ...TNUM }}>{massa.varde}</b>
+          </button>
         </>
       )}
     </>

@@ -263,6 +263,9 @@ import { KARTRUTA_MALL, traktBbox, punktBbox, nedladdningText } from '@/lib/kart
 import { useLaddaNerTrakt } from '@/lib/hooks/useLaddaNerTrakt'
 import { useBakgrundsNedladdning } from '@/lib/hooks/useBakgrundsNedladdning'
 import { KORVY_BAKGRUND } from '@/lib/kartBas'
+import { useMassaLangd } from '@/lib/hooks/useMassaLangd'
+import { arGallringsskordare, meterText, pillEtikett, pillVarde, valjJag } from '@/lib/massaLangd'
+import MassaArk from '@/components/massaved/MassaArk'
 /** Lagren som bär en egen yta: fyllning, snedstreckning (ytor man inte får köra in i) och kant. En lista för synlighet och nedtoning. */
 const ZONE_LAGER = (): string[] => ['zone-fill', ...SNEDSTRECK_GRUPPER.map((g) => `zone-hatch-${g}`), 'zone-outline-casing', 'zone-outline'];
 const arZonYta = (id: string): boolean => id === 'zone-fill' || id.startsWith('zone-hatch-');
@@ -12764,6 +12767,20 @@ export default function PlannerPage() {
     bakgrund: hyttNotiserPa,
   });
   const besokKortSynligt = besokHytt.vantar.length > 0 && !larm.kort && !lossningVisas;
+  // MASSAVEDENS LÄNGD (bara gallringsskördare, H8E, i maskinläget; Martin 2026-11-09): "Massa idag 4,5 m" i namnfältet, tryck = arket
+  // med trädslag, fördelning och alla förare (lib/massaLangd). Skotare och Giant ser ingenting. Alla aktiva gallringsskördare läses så att förarna kan jämföras.
+  const massaGallringsMaskiner = useMemo(
+    () => dimMaskiner.filter(m => arGallringsskordare(m, idagISOStr)).map(m => m.maskin_id),
+    [dimMaskiner, idagISOStr],
+  );
+  const massaAktiv = instruktionerAktiv && !skotarKorvy && !!besokMaskinId && massaGallringsMaskiner.includes(besokMaskinId);
+  const massaLangd = useMassaLangd(massaGallringsMaskiner, massaAktiv);
+  const [massaArkOppet, setMassaArkOppet] = useState(false);
+  const massaJag = massaAktiv && massaLangd.rader && besokMaskinId ? valjJag(massaLangd.rader, besokMaskinId, currentMedarbetare?.id ?? null) : null;
+  const massaPill = massaAktiv && massaLangd.rader && besokMaskinId ? pillVarde(massaLangd.rader, besokMaskinId, massaJag?.nyckel ?? null, massaLangd.idag) : null;
+  // Gick massaveden inte att läsa står "Massa –" i namnfältet (aldrig tyst borta); arket säger varför och har Försök igen.
+  const massaLasfel = massaAktiv && !massaLangd.rader && !!massaLangd.fel;
+  const massaMaskinNamn = useMemo(() => Object.fromEntries(dimMaskiner.map(m => [m.maskin_id, maskinModell(m)])), [dimMaskiner]);
   // RISKERNA I HYTTEN: godkänd riskbedömning som föraren inte läst → kort högst upp tills "Jag har läst" (components/planering/RiskKortHytt, ordning i lib/instruktioner/ordning).
   // Visas först när ALLT som listan bygger på är läst (markeringar, Vidas underlag, förutsättningar, kvittona) — annars kunde kortet blinka förbi för en förare som redan läst.
   const riskKortData = instruktionerAktiv && korvyActive && klarDataKlart && !!valtObjekt?.id && traktGeoHamtadFor === String(valtObjekt.id) && riskLast.lage === 'ok'
@@ -14082,6 +14099,7 @@ export default function PlannerPage() {
                 : skotarLassAktiv && skotarLass.sammanfattning
                   ? { text: skotarLass.sammanfattning.kvarText, klar: skotarLass.sammanfattning.klarText, onTryck: () => setSkotarKvarOppet(true) }
                   : null}
+              massa={massaPill ? { etikett: pillEtikett(massaPill.dag, massaLangd.idag), varde: meterText(massaPill.cm), onTryck: () => setMassaArkOppet(true) } : massaLasfel ? { etikett: 'Massa', varde: '–', onTryck: () => setMassaArkOppet(true) } : null}
               onNamn={() => setTraktOversiktOpen(o => !o)}
               onHogstubbe={() => placeraVidMaskinen('highstump')}
               onEvighetstrad={() => placeraVidMaskinen('eternitytree')}
@@ -15136,6 +15154,11 @@ export default function PlannerPage() {
           onVisaMalbild={setLarmMalbildOppen}
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
         />
+      )}
+      {/* MASSAVEDENS LÄNGD — arket bakom "Massa idag 4,5 m" i namnfältet (bara gallringsskördare i maskinläget). */}
+      {massaAktiv && massaArkOppet && (
+        <MassaArk rader={massaLangd.rader} fel={massaLangd.fel} idag={massaLangd.idag} jag={massaJag} maskinNamn={massaMaskinNamn}
+          onForsok={massaLangd.forsokIgen} onStang={() => setMassaArkOppet(false)} />
       )}
       {/* BESÖK PÅ TRAKTEN — orange kort högst upp i hytten tills Uppfattat (hooken useBesokHytt). Larm och lossningsflödet går före. */}
       {instruktionerAktiv && besokKortSynligt && (
