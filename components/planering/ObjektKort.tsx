@@ -300,7 +300,7 @@ function LarmKort({ larm }: { larm: KortLarm }) {
   const lista = v && larm.onVisaPlats && v.platser.length > 1 ? (
     <LarmPlatser larm={v} onVisa={larm.onVisaPlats} />
   ) : null;
-  // Föraren utan färsk position bland flera larmplatser: alla, och hen väljer själv. Planeraren (onAndra) ser alltid sin egen överst.
+  // Föraren utan färsk position bland flera larmplatser: alla, och hen väljer själv. Planeraren (onAndra) utan position ser sin egen överst.
   if (!larm.onAndra && v?.valjSjalv && lista) {
     return (
       <div data-testid="kort-larm" data-satt="1" data-valj-sjalv="1" style={{ borderTop: `1px solid ${FARG.linje}` }}>
@@ -312,11 +312,24 @@ function LarmKort({ larm }: { larm: KortLarm }) {
   }
   const allaRad = lista ? (
     <>
-      <RadKnapp testid="kort-larm-alla" etikett={larm.onAndra ? `Vidas larmplatser (${v!.platser.length})` : `Alla larmplatser (${v!.platser.length})`} onTryck={() => setAlla((x) => !x)}
+      <RadKnapp testid="kort-larm-alla" etikett={`Alla larmplatser (${v!.platser.length})`} onTryck={() => setAlla((x) => !x)}
         pil={false} hoger={<span style={{ display: 'inline-flex', transform: alla ? 'rotate(90deg)' : 'none' }}><Pil /></span>} />
       {alla && lista}
     </>
   ) : null;
+  // Planeraren PÅ trakten (färsk position, flera larmplatser): den närmaste överst som för föraren — något kan hända när man planerar
+  // också (Martin 2026-11-10). Den egna larmplatsen ändras från raden under.
+  if (larm.onAndra && v?.narmast && lista) {
+    return (
+      <>
+        {/* Den närmaste är först i listan när den valts på positionen (lib/larmpunkter.valjLarmpunkt). */}
+        {larmHuvud({ ...larm, satt: true, koordinat: v.koordinat, visaKontroll: false, beskrivning: '', onAndra: undefined, onVisa: () => larm.onVisaPlats!(0) }, v)}
+        <RadKnapp testid="kort-larm-andra" etikett="Ändra din larmplats"
+          under={larm.satt ? `${larm.koordinat} · ${larm.bekraftad ? 'kontrollerad' : 'inte kontrollerad'}` : 'Ingen satt'} onTryck={larm.onAndra} />
+        {allaRad}
+      </>
+    );
+  }
   return <>{larmHuvud(larm, larm.onAndra ? null : v ?? null)}{allaRad}</>;
 }
 

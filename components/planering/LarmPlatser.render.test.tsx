@@ -83,3 +83,31 @@ describe('"Om något händer" — flera larmplatser', () => {
     expect(q('larm-platser')!.children).toHaveLength(5);
   });
 });
+
+import ObjektKort from './ObjektKort';
+describe('ⓘ-kortet för planeraren', () => {
+  const planerare = (pos: { lat: number; lng: number } | null, farsk: boolean, andra: () => void) => {
+    const v = larmVisning(valjLarmpunkt(punkter, pos, farsk));
+    return { satt: true, koordinat: '56.49691, 14.70865', bekraftad: false, visaKontroll: true, beskrivning: '', onVisa: () => {}, onAndra: andra, visning: v, onVisaPlats: (i: number) => { visade.push(i); } };
+  };
+  const kort = (larm: any) => <ObjektKort {...({ namn: 'Santhe', rad: '', knappar: [], onKnapp: () => {}, onStang: () => {}, faror: [], tillForaren: [], brickor: [], extraBrickor: [], paTrakten: null, brand: null, onBrand: () => {}, dokument: null, larm } as any)} />;
+  it('på trakten: den närmaste överst, den egna ändras från raden under', async () => {
+    let andrat = 0; visade.length = 0;
+    await montera(kort(planerare(vidHuset, true, () => { andrat++; })));
+    expect(q('kort-larm')!.textContent).toContain('56.51626, 14.70847');
+    expect(q('kort-larm-namn')!.textContent).toContain('Avlägg 01-4');
+    act(() => { q('kort-larm')!.click(); });
+    expect(visade).toEqual([0]);
+    expect(q('kort-larm-andra')!.textContent).toContain('56.49691, 14.70865');
+    act(() => { q('kort-larm-andra')!.click(); });
+    expect(andrat).toBe(1);
+  });
+  it('på kontoret: den egna överst, som förut', async () => {
+    let andrat = 0;
+    await montera(kort(planerare({ lat: 57.7, lng: 11.97 }, true, () => { andrat++; })));
+    expect(q('kort-larm')!.textContent).toContain('56.49691, 14.70865');
+    expect(q('kort-larm-andra')).toBeNull();
+    act(() => { q('kort-larm')!.click(); });
+    expect(andrat).toBe(1);
+  });
+});

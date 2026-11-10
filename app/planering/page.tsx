@@ -14348,7 +14348,7 @@ export default function PlannerPage() {
               ),
             } : null,
             larm: kortRoll === 'planerare' && !maskinlage && !maskinSomParam ? {
-              // Planeraren ser och ändrar objektets egen larmplats härifrån (raden Trakt i Mer är borttagen 2026-11-10); Vidas övriga står under "Vidas larmplatser".
+              // Planeraren ser och ändrar objektets egen larmplats härifrån (raden Trakt i Mer är borttagen 2026-11-10); på trakten står den närmaste överst och den egna ändras från raden under (ObjektKort.LarmKort).
               satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '',
               bekraftad: !!infoLarmBekraftad, visaKontroll: true, beskrivning: larmBeskr, onVisa: larmFlyTill,
               visning: larmVis, onVisaPlats: (i: number) => larmVisaPunkt(larmVal.alla[i], false),
