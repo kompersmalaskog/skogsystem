@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  arGallringsskordare, dagOrd, fordelning, forraVeckan, iPeriod, meterText, perForare, perTradslag, pillEtikett, pillVarde, summera, valjJag,
+  arGallringsskordare, dagOrd, dmText, langdFordelning, forraVeckan, iPeriod, meterText, perForare, perTradslag, pillEtikett, pillVarde, summera, valjJag,
   type MassaRad,
 } from './massaLangd';
 
@@ -52,10 +52,15 @@ describe('massaLangd', () => {
     expect(t.map(x => [x.tradslag, x.cm])).toEqual([['Gran', 500], ['Tall', 400]]);
   });
 
-  it('fördelningen summerar till 100', () => {
-    const f = fordelning([r({ langd_dm: 30, antal: 1 }), r({ langd_dm: 45, antal: 1 }), r({ langd_dm: 50, antal: 1 })]);
-    expect(f.map(k => k.etikett)).toEqual(['3,0 m', '4,5 m', '5,0 m']);
-    expect(f.reduce((s, k) => s + k.procent, 0)).toBe(100);
+  it('fördelningen i 10 cm-steg: luckor fylls, vanligast och mittersta halvan', () => {
+    const f = langdFordelning([r({ langd_dm: 43, antal: 1, summa_cm: 430 }), r({ langd_dm: 45, antal: 5, summa_cm: 2250 }), r({ langd_dm: 46, antal: 2, summa_cm: 920 }), r({ langd_dm: 49, antal: 2, summa_cm: 980 })])!;
+    expect(f.staplar.map(x => x.dm)).toEqual([43, 44, 45, 46, 47, 48, 49]);
+    expect(f.staplar[1].antal).toBe(0);
+    expect(f.vanligast).toBe(45);
+    expect([f.q1, f.q3]).toEqual([45, 46]);
+    expect(f.antal).toBe(10);
+    expect(dmText(45)).toBe('4,5 m');
+    expect(langdFordelning([])).toBeNull();
   });
 
   it('per förare: en rad per person, längst först, period idag/7/30', () => {

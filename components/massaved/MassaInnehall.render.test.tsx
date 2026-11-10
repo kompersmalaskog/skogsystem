@@ -35,8 +35,10 @@ describe('MassaInnehall', () => {
     const forare = [...div.querySelectorAll('[data-testid="massa-forare"]')];
     expect(forare.map(f => f.textContent?.split('H8E')[0].trim())).toEqual(['Martin', 'Oskar · du']);
     expect(forare[1].getAttribute('data-du')).toBe('1');
-    const klasser = [...div.querySelectorAll('[data-testid="massa-klass"]')];
-    expect(klasser.map(k => k.textContent)).toEqual(['4,0 m50 %', '4,5 m50 %']);
+    // Fördelningen: förarens egna stockar de senaste 7 dagarna, en stapel per 10 cm.
+    expect(div.querySelector('[data-testid="massa-histo-svar"]')?.textContent).toBe('Vanligast 4,5 m · hälften mellan 4,0 och 4,5 m');
+    expect(div.querySelector('[data-testid="massa-histo-meta"]')?.textContent).toBe('Snitt 4,28 m · 24 stockar · Oskar · H8E -26');
+    expect([...div.querySelectorAll('[data-testid="massa-stapel"]')].map(s => s.getAttribute('data-dm'))).toEqual(['40', '41', '42', '43', '44', '45']);
     stang();
   });
 

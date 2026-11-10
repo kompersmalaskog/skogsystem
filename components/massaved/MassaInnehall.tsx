@@ -3,7 +3,8 @@
 // MASSAVEDENS LÄNGD — innehållet. Samma komponent i hyttens ark (tryck på "Massa idag 4,5 m" i namnfältet) och på
 // admins sida /massaved. All räkning i lib/massaLangd; här ritas bara. Inget mål och ingen färg på talen (Martin 2026-11-09).
 //
-// Uppifrån: svaret (förarens snitt, stort) · Per trädslag (idag · förra veckan) · Hur långa blev stockarna? (Alla/Gran/Tall/Björk)
+// Uppifrån: svaret (förarens snitt, stort) · Per trädslag (idag · förra veckan) · Hur långa blev stockarna? (10 cm-staplar,
+// Idag/7 dagar/30 dagar, Alla/Gran/Tall/Björk)
 // · Alla förare (Idag/7 dagar/30 dagar), den egna raden märkt "du"; ett tryck på en förare fäller ut trädslagen, en åt gången.
 
 import { useMemo, useState } from 'react';
@@ -13,11 +14,13 @@ import Rad from '@/components/design/Rad';
 import { AVSTAND, FARG, KNAPP, RADIE, TNUM, TYP } from '@/lib/design/tokens';
 import { tradslagFarg, tradslagLabel } from '@/lib/tradslag';
 import {
-  dagOrd, fordelning, forraVeckan, iPeriod, mellan, meterText, perForare, perTradslag, personNyckel, summera,
+  dagOrd, dmText, forraVeckan, langdFordelning, iPeriod, mellan, meterText, perForare, perTradslag, personNyckel, summera,
   PERIODER, type MassaRad, type Period,
 } from '@/lib/massaLangd';
 
-const STAPEL_HOJD_PX = 8;
+const HISTO_HOJD_PX = 120;
+/** Mellanrummet mellan 10 cm-staplarna: 25 staplar på en telefon ryms inte med 4 px. */
+const STAPEL_MELLANRUM_PX = 2;
 
 export interface MassaInnehallProps {
   rader: MassaRad[] | null;
@@ -36,9 +39,45 @@ function Prick({ tradslag }: { tradslag: string }) {
   return <span aria-hidden="true" style={{ display: 'inline-block', width: 10, height: 10, borderRadius: RADIE.cirkel, background: tradslagFarg(tradslag), boxShadow: `inset 0 0 0 1px ${FARG.linje}`, marginRight: AVSTAND.s, verticalAlign: 'middle' }} />;
 }
 
+function Histogram({ f, vem }: { f: NonNullable<ReturnType<typeof langdFordelning>>; vem: string }) {
+  const max = Math.max(...f.staplar.map(x => x.antal));
+  const halva = f.q1 === f.q3 ? `hälften kring ${dmText(f.q1)}` : `hälften mellan ${dmText(f.q1).replace(' m', '')} och ${dmText(f.q3)}`;
+  return (
+    <div style={{ padding: `${AVSTAND.s}px 0 ${AVSTAND.m}px` }}>
+      <div data-testid="massa-histo-svar" style={{ ...TYP.rubrik, color: FARG.text }}>Vanligast {dmText(f.vanligast)} · {halva}</div>
+      <div data-testid="massa-histo-meta" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs, ...TNUM }}>
+        Snitt {(f.cm / 100).toFixed(2).replace('.', ',')} m · {f.antal.toLocaleString('sv-SE')} stockar · {vem}
+      </div>
+      <div aria-hidden="true" style={{ display: 'flex', alignItems: 'flex-end', gap: STAPEL_MELLANRUM_PX, height: HISTO_HOJD_PX, marginTop: AVSTAND.l }}>
+        {f.staplar.map(x => {
+          const farg = x.dm === f.vanligast ? FARG.text : x.dm >= f.q1 && x.dm <= f.q3 ? FARG.text2 : FARG.fyllning;
+          return (
+            <div key={x.dm} data-testid="massa-stapel" data-dm={x.dm} style={{ flex: '1 1 0', minWidth: 0, height: `${max ? (x.antal / max) * 100 : 0}%`, minHeight: x.antal ? 2 : 0, background: farg, borderRadius: `${RADIE.stapel}px ${RADIE.stapel}px 0 0` }} />
+          );
+        })}
+      </div>
+      <div aria-hidden="true" style={{ display: 'flex', gap: STAPEL_MELLANRUM_PX, marginTop: AVSTAND.xs }}>
+        {f.staplar.map(x => (
+          <div key={x.dm} style={{ flex: '1 1 0', minWidth: 0, position: 'relative', height: 18 }}>
+            {x.dm % 5 === 0 && <span style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap', ...TYP.micro, color: FARG.text2, ...TNUM }}>{(x.dm / 10).toFixed(1).replace('.', ',')}</span>}
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: `${AVSTAND.xs}px ${AVSTAND.l}px`, marginTop: AVSTAND.m, ...TYP.meta, color: FARG.text2 }}>
+        {([[FARG.text, 'Vanligast'], [FARG.text2, 'Hälften av stockarna'], [FARG.fyllning, 'Övriga']] as const).map(([c, t]) => (
+          <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}>
+            <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: RADIE.stapel, background: c }} />{t}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function MassaInnehall({ rader, fel, idag, jag, maskinNamn, onForsok, iArk }: MassaInnehallProps) {
   const [tradVal, setTradVal] = useState<string>('alla');
   const [period, setPeriod] = useState<Period>('idag');
+  const [fordPeriod, setFordPeriod] = useState<Period>('vecka');
   const [oppenForare, setOppenForare] = useState<string | null>(null);
   const kort = !iArk;
 
@@ -51,10 +90,7 @@ export default function MassaInnehall({ rader, fel, idag, jag, maskinNamn, onFor
     const minFv = mellan(mina, fv.fran, fv.till);
     const ttMin = perTradslag(minDag);
     const ttFv = new Map(perTradslag(minFv).map(t => [t.tradslag, t]));
-    // Fördelningen: förarens senaste dag om hen har en, annars alla förare idag.
-    const fordUnderlag = minDag.length ? minDag : iPeriod(rader, 'idag', idag);
-    const trad = [...new Set(fordUnderlag.map(r => tradslagLabel(r.tradslag)))];
-    return { senast, snitt: summera(minDag), fv: summera(minFv), ttMin, ttFv, fordUnderlag, trad };
+    return { senast, mina, snitt: summera(minDag), fv: summera(minFv), ttMin, ttFv };
   }, [rader, idag, jag]);
 
   if (fel && !rader) {
@@ -67,8 +103,15 @@ export default function MassaInnehall({ rader, fel, idag, jag, maskinNamn, onFor
   }
   if (!rader || !vy) return <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.l}px 0` }}>Läser massaveden …</div>;
 
-  const valtTrad = tradVal !== 'alla' && vy.trad.includes(tradVal) ? tradVal : 'alla';
-  const ford = fordelning(valtTrad === 'alla' ? vy.fordUnderlag : vy.fordUnderlag.filter(r => tradslagLabel(r.tradslag) === valtTrad));
+  // Fördelningen: förarens egna stockar i perioden om hen har några, annars alla förare.
+  const minaIPeriod = iPeriod(vy.mina, fordPeriod, idag);
+  const egen = minaIPeriod.length > 0;
+  const fordUnderlag = egen ? minaIPeriod : iPeriod(rader, fordPeriod, idag);
+  const trad = [...new Set(fordUnderlag.map(r => tradslagLabel(r.tradslag)))];
+  const valtTrad = tradVal !== 'alla' && trad.includes(tradVal) ? tradVal : 'alla';
+  const ford = langdFordelning(valtTrad === 'alla' ? fordUnderlag : fordUnderlag.filter(r => tradslagLabel(r.tradslag) === valtTrad));
+  const fordVem = egen && jag ? `${jag.namn} · ${[...new Set(fordUnderlag.map(r => maskinNamn[r.maskin_id] ?? r.maskin_id))].join(', ')}` : 'Alla förare';
+  const fordPeriodOrd = fordPeriod === 'idag' ? 'idag' : fordPeriod === 'vecka' ? 'de senaste 7 dagarna' : 'de senaste 30 dagarna';
   const forare = perForare(iPeriod(rader, period, idag));
   const periodOrd = period === 'idag' ? 'idag' : period === 'vecka' ? 'de senaste 7 dagarna' : 'de senaste 30 dagarna';
 
@@ -107,25 +150,18 @@ export default function MassaInnehall({ rader, fel, idag, jag, maskinNamn, onFor
         </Sektion>
       )}
 
-      {ford.length > 0 && (
-        <Sektion rubrik="Hur långa blev stockarna?" kort={kort}
-          not={vy.senast && jag && vy.fordUnderlag.length ? `${jag.namn} ${dagOrd(vy.senast, idag)}.` : 'Alla förare idag.'}>
-          {vy.trad.length > 1 && (
-            <div style={{ padding: `${AVSTAND.s}px 0` }}>
-              <Flikkontroll flikar={[['alla', 'Alla'], ...vy.trad.map(t => [t, t] as const)]} aktiv={valtTrad} onVal={setTradVal} />
-            </div>
-          )}
-          {ford.map((k, i) => (
-            <div key={k.dm} data-testid="massa-klass" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: 44, borderBottom: i === ford.length - 1 ? 'none' : `1px solid ${FARG.linje}` }}>
-              <span style={{ ...TYP.text, color: FARG.text, width: 64, flexShrink: 0, ...TNUM }}>{k.etikett}</span>
-              <span aria-hidden="true" style={{ flex: 1, height: STAPEL_HOJD_PX, borderRadius: RADIE.stapel, background: FARG.fyllning, overflow: 'hidden' }}>
-                <span style={{ display: 'block', height: '100%', width: `${k.procent}%`, background: FARG.text2, borderRadius: RADIE.stapel }} />
-              </span>
-              <span style={{ ...TYP.text, color: FARG.text, width: 48, textAlign: 'right', flexShrink: 0, ...TNUM }}>{k.procent} %</span>
-            </div>
-          ))}
-        </Sektion>
-      )}
+      <Sektion rubrik="Hur långa blev stockarna?" kort={kort}>
+        <div style={{ padding: `${AVSTAND.s}px 0` }}>
+          <Flikkontroll flikar={PERIODER} aktiv={fordPeriod} onVal={setFordPeriod} />
+        </div>
+        {trad.length > 1 && (
+          <div style={{ padding: `${AVSTAND.s}px 0` }}>
+            <Flikkontroll flikar={[['alla', 'Alla'], ...trad.map(t => [t, t] as const)]} aktiv={valtTrad} onVal={setTradVal} />
+          </div>
+        )}
+        {!ford && <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Ingen massaved {fordPeriodOrd}.</div>}
+        {ford && <Histogram f={ford} vem={fordVem} />}
+      </Sektion>
 
       <Sektion rubrik="Alla förare" kort={kort} not={forare.length ? 'Längst snitt först. Tryck på en förare för trädslagen.' : undefined}>
         <div style={{ padding: `${AVSTAND.s}px 0` }}>

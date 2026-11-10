@@ -157,23 +157,45 @@ export function perTradslag(rader: readonly MassaRad[]): TradslagRad[] {
     .sort((a, b) => b.antal - a.antal);
 }
 
-export interface LangdKlass { dm: number; etikett: string; antal: number; procent: number }
+export interface LangdFordelning {
+  /** En stapel per 10 cm från kortaste till längsta, luckor med 0 så att skalan är jämn. */
+  staplar: { dm: number; antal: number }[];
+  /** Den vanligaste längden (vid lika: den kortaste av dem). */
+  vanligast: number;
+  /** Den mittersta halvan av stockarna ligger mellan q1 och q3 (dm). */
+  q1: number;
+  q3: number;
+  antal: number;
+  cm: number;
+}
 
-/** Fördelningen i halvmeter (langd_dm avrundat till närmaste 5 dm). Procenten summerar till 100 (största rest). */
-export function fordelning(rader: readonly MassaRad[]): LangdKlass[] {
+/** Fördelningen i 10 cm-steg (langd_dm). null när det inte finns några stockar. */
+export function langdFordelning(rader: readonly MassaRad[]): LangdFordelning | null {
   const m = new Map<number, number>();
   for (const r of rader) {
-    const k = Math.round((Number(r.langd_dm) || 0) / 5) * 5;
-    m.set(k, (m.get(k) ?? 0) + (Number(r.antal) || 0));
+    const dm = Number(r.langd_dm) || 0;
+    if (dm <= 0) continue;
+    m.set(dm, (m.get(dm) ?? 0) + (Number(r.antal) || 0));
   }
-  const total = [...m.values()].reduce((s, v) => s + v, 0);
-  if (!total) return [];
-  const klasser = [...m.entries()].sort((a, b) => a[0] - b[0]).map(([dm, antal]) => ({ dm, antal, exakt: (antal / total) * 100 }));
-  const golv = klasser.map(k => Math.floor(k.exakt));
-  let rest = 100 - golv.reduce((s, v) => s + v, 0);
-  const ordning = klasser.map((k, i) => ({ i, r: k.exakt - golv[i] })).sort((a, b) => b.r - a.r);
-  for (const o of ordning) { if (rest <= 0) break; golv[o.i] += 1; rest -= 1; }
-  return klasser.map((k, i) => ({ dm: k.dm, etikett: `${(k.dm / 10).toFixed(1).replace('.', ',')} m`, antal: k.antal, procent: golv[i] }));
+  const s = summera(rader);
+  if (!m.size || !s) return null;
+  const min = Math.min(...m.keys()), max = Math.max(...m.keys());
+  const staplar: { dm: number; antal: number }[] = [];
+  for (let dm = min; dm <= max; dm++) staplar.push({ dm, antal: m.get(dm) ?? 0 });
+  const total = staplar.reduce((t, x) => t + x.antal, 0);
+  let vanligast = staplar[0].dm, top = -1, kum = 0, q1 = 0, q3 = 0;
+  for (const x of staplar) {
+    if (x.antal > top) { top = x.antal; vanligast = x.dm; }
+    kum += x.antal;
+    if (!q1 && kum >= total * 0.25) q1 = x.dm;
+    if (!q3 && kum >= total * 0.75) q3 = x.dm;
+  }
+  return { staplar, vanligast, q1, q3, antal: s.antal, cm: s.cm };
+}
+
+/** "4,5 m" ur decimeter. */
+export function dmText(dm: number): string {
+  return `${(dm / 10).toFixed(1).replace('.', ',')} m`;
 }
 
 export interface ForareRad { nyckel: string; namn: string; maskiner: string[]; antal: number; cm: number; tradslag: TradslagRad[] }
