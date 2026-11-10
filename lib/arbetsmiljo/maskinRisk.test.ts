@@ -74,3 +74,25 @@ describe('riskbedömning per maskintyp', () => {
     for (const x of m) expect(x[1].split(',').map(s => s.trim().replace(/'/g, ''))).toEqual(MASKINTYPER);
   });
 });
+
+describe('allvarlig eller mindre allvarlig (AFS 2023:1 11 §)', () => {
+  it('allt är allvarligt från början; mindre allvarlig ändrar fingeravtrycket och gör godkännandet ogiltigt', async () => {
+    const m = await import('./maskinRisk');
+    const lista0 = m.lista('skotare', m.TOM);
+    expect(lista0.every((r) => r.allvarlig)).toBe(true);
+    const u0 = m.underlag(lista0);
+    expect(u0).not.toContain('mindre');
+    const godk = { ...m.TOM, godkandUnderlag: u0, godkandTid: new Date().toISOString() };
+    expect(m.lage('skotare', godk, new Date())).toBe('godkand');
+    const mindre = m.sattAllvarlig(godk, 'skak', false);
+    expect(m.lista('skotare', mindre).find((r) => r.nyckel === 'skak')?.allvarlig).toBe(false);
+    expect(m.lage('skotare', mindre, new Date())).toBe('andrad');
+    expect(m.lage('skotare', m.sattAllvarlig(mindre, 'skak', true), new Date())).toBe('godkand');
+  });
+
+  it('läser mindre ur raden och tål att den saknas', async () => {
+    const m = await import('./maskinRisk');
+    expect(m.tolka({ maskintyp: 'skotare', bort: [], egna: [], mindre: ['skak', 3], godkand_underlag: null, godkand_tid: null, godkand_av: null }).mindre).toEqual(['skak']);
+    expect(m.tolka({ maskintyp: 'skotare', bort: [], egna: [], godkand_underlag: null, godkand_tid: null, godkand_av: null }).mindre).toEqual([]);
+  });
+});

@@ -3,6 +3,7 @@
 // RISKERNA I HYTTEN (Martin 2026-11-02): utan påminnelse kan en förare köra en hel trakt utan att öppna riskbedömningen. Därför kommer listan som ett kort
 // högst upp när föraren öppnar körvyn på en trakt där planeraren godkänt riskerna och föraren inte läst just den listan. Kortet visar riskerna och vad man gör
 // — inget att leta efter — och ligger kvar tills "Jag har läst". Det spärrar ingenting: kartan går att använda under.
+// Bara de ALLVARLIGA riskerna står i kortet (AFS 2023:1 11 §, Martin 2026-11-05: mindre att läsa i hytten); hela listan finns i ⓘ. Sidan filtrerar.
 // Samma stil som instruktionskortet (InstruktionKort). Larm, lossning och besök går före — det avgör sidan (lib/instruktioner/ordning `riskKortLedigt`).
 
 import React from 'react';

@@ -4,6 +4,7 @@
 // Här byggs bara INNEHÅLLET (ren, testad): rubrik, fakta, svaret i en mening och avsnitt med rader. Varje text står också i appen, så
 // PDF:en och skärmen kan aldrig säga olika saker. Ritningen är lib/arbetsmiljo/pdf.ts.
 
+import { allvarligaForst } from '@/lib/riskbedomning';
 import { grupperaPunkter, antalBrister, type Rond, type SvarTyp } from './skyddsrond';
 import {
   ALLA_LASER, MASKINTYPER, TYP_NAMN, lage, lastTid, lista, underlag,
@@ -151,7 +152,8 @@ export function riskDokument(
       : `Godkänd ${langtDatum(b.godkandTid!)}${av ? ` av ${av}` : ''}${l === 'se_over' ? ' – över ett år sedan, ska ses över' : ''}`;
     const rader: DokRad[] = risker.length === 0
       ? [{ titel: 'Inga risker', ton: 'dampad' }]
-      : risker.map(r => ({ titel: r.risk, text: r.atgard }));
+      // AFS 2023:1 11 §: dokumentationen ska säga OM risken är allvarlig. Allvarliga först.
+      : allvarligaForst(risker).map(r => ({ titel: r.risk, text: r.atgard, status: r.allvarlig ? 'Allvarlig' : 'Mindre allvarlig', ton: r.allvarlig ? undefined : 'dampad' as const }));
     if (forare && l !== 'aldrig' && l !== 'andrad') {
       const u = underlag(risker);
       const deras = ALLA_LASER.includes(t) ? [...forare] : forare.filter(f => f.typ === t);

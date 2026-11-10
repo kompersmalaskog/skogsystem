@@ -15,7 +15,7 @@ const tabeller: Record<string, unknown[]> = {
 };
 vi.mock('@/lib/supabase', () => ({ supabase: { from: (t: string) => ({ select: () => Promise.resolve({ data: tabeller[t] ?? [], error: null }) }) } }));
 
-const tom = (): Bedomning => ({ bort: [], egna: [], godkandUnderlag: null, godkandTid: null, godkandAv: null });
+const tom = (): Bedomning => ({ bort: [], egna: [], mindre: [], godkandUnderlag: null, godkandTid: null, godkandAv: null });
 let bed: Record<MaskinTyp, Bedomning>;
 let kvitton: Kvitto[];
 let lasOk = true;
@@ -81,6 +81,26 @@ describe('Riskbedömning per maskintyp', () => {
     await act(async () => { q('[data-testid="mr-stammer"]')!.click(); }); await vanta();
     expect(sparade.at(-1)).toMatchObject({ godkann: true });
     expect(q('[data-testid="mr-godkand"]')).toBeTruthy();
+  });
+
+  it('admin: allvarlig eller mindre allvarlig med ett tryck, och listan måste godkännas igen; föraren ser ordet', async () => {
+    jag = { ...jag, id: 'martin', roll: 'admin' };
+    await act(async () => { root.render(<MaskinRisker />); }); await vanta();
+    await act(async () => { q('[data-testid="mr-typ-skotare"]')!.click(); });
+    const knappar = q('[data-testid="mr-allvar-skak"]')!.querySelectorAll('button');
+    expect(knappar[0].getAttribute('aria-selected')).toBe('true');
+    await act(async () => { (knappar[1] as HTMLElement).click(); }); await vanta();
+    expect(sparade.at(-1)!.b.mindre).toEqual(['skak']);
+    expect(q('[data-testid="mr-lage"]')!.textContent).toBe('Ändrad – godkänn igen');
+    await act(async () => { q('[data-testid="mr-stammer"]')!.click(); }); await vanta();
+    act(() => root.unmount()); root = createRoot(el);
+    jag = { ...jag, id: 'stefan', roll: 'forare' };
+    await act(async () => { root.render(<MaskinRisker />); }); await vanta();
+    await act(async () => { q('[data-testid="mr-typ-skotare"]')!.click(); });
+    expect(q('[data-testid="mr-allvar-skak"]')).toBeNull();
+    expect(q('[data-testid="mr-risk-skak"]')!.textContent).toContain('Mindre allvarlig');
+    const ordning = Array.from(document.querySelectorAll('[data-testid^="mr-risk-"]')).map((x) => x.getAttribute('data-testid'));
+    expect(ordning.at(-1)).toBe('mr-risk-skak');
   });
 
   it('oljor och kemikalier gäller alla förare: egen rad, med i svaret, och ?typ= öppnar den', async () => {

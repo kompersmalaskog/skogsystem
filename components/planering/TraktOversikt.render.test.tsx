@@ -102,7 +102,7 @@ describe('Hela trakten', () => {
     expect(q('oversikt-skydd-okant')!.textContent).toContain('inte kontrollerade');
   });
   it('riskerna står med risk och åtgärd', async () => {
-    await montera(<TraktOversikt {...props({ risker: [{ nyckel: 'ledning', risk: 'Kraftledning i norr', atgard: 'Fäll aldrig mot ledningen', kalla: 'karta' }] })} />);
+    await montera(<TraktOversikt {...props({ risker: [{ nyckel: 'ledning', risk: 'Kraftledning i norr', atgard: 'Fäll aldrig mot ledningen', kalla: 'karta', allvarlig: true }] })} />);
     expect(q('oversikt-risker')!.textContent).toContain('Kraftledning i norr');
     expect(q('oversikt-risker')!.textContent).toContain('Fäll aldrig mot ledningen');
   });
