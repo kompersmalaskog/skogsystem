@@ -105,7 +105,8 @@ describe('det som lämnar servern', () => {
     const sb = fake(bas());
     const s = await skotarVySvar(sb, TOKEN);
     expect(s.status).toBe(200);
-    const text = JSON.stringify(s.body);
+    // `uppdaterad` är svarets egen tid (now()) och innehåller 'T08:' mellan 08 och 09 UTC — den räknas inte som en läckt tid.
+    const text = JSON.stringify({ ...(s.body as object), uppdaterad: undefined });
     for (const ord of ['Hemlig', '0701234567', 'Oskar', 'photoAv', 'photoPath', 'o-1/m1.jpg', 'intern', 'P-1027', 'R64428', 'JD810E', 'T08:', 'u-9', 'maskin_id']) expect(text, ord).not.toContain(ord);
     const b = s.body as any;
     expect(b.namn).toBe('Bjällerhult');

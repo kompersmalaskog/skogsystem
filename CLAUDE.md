@@ -386,7 +386,7 @@ Skotaren 810E har en iPad med SIM (GPS) i stället för en Ponsse-dator. **Samma
 | Brun = Kultur | `#B5651D` | Kulturminne, Kulturstubbe, **Stenmur (linje — en stenmur i skogen är en kulturlämning, flyttad från Grön 2026-10-20)**, Kulturmiljö, Fornlämning, RAÄ (punkt = Kultur, yta = Fornlämning) | tills kvitterat |
 | Blå = Blött | `#0A84FF` | Blött-yta, Fuktig mark, Risa | tills kvitterat |
 | Lila = Att göra | `#AF52DE` | **Manuell fällning (inte fara längre)**, Träd att avverka | aldrig |
-| Mörk = Info | `#1C1C1E` | Avlägg, Ved, Rishög, Vindfälle, Väg, Vändplats, Dike, Bro, Kavling, Stig | aldrig |
+| Mörk = Info | `#1C1C1E` | Avlägg, Ved, Rishög, Vindfälle, Väg, Vändplats, Dike, Bro, Kavling, Stig, **Info ("i")** | aldrig — **utom Info (`note`): visas tills föraren tryckt Sett, men utan ljud och vibration** (Martin 2026-11-10: Varning sattes på sådant som bara var bra att veta och larmade då varje gång; `SYMBOL_LARM`/`TYSTA_SYMBOLER`/`larmRegelFor` i `lib/larm/grupper.ts`, bara källan symbol) |
 
 **Orange betyder bara tall** (bruna Kultur är medvetet inte orange). Kvarvarande orange utanför kartans färgspråk (GROT-amber, grov GPS, "kan bli bättre"-observationen, status) är inte åtgärdat.
 

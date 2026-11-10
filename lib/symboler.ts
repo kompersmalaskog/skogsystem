@@ -66,6 +66,7 @@ export const GLYF: Readonly<Record<string, string>> = {
   bridge: 'M3 15h18 M5 15c2-6 12-6 14 0 M7 15v4 M17 15v4',
   corduroy: 'M6 4v16 M10 4v16 M14 4v16 M18 4v16',
   trail: 'M6 20h.5 M8.5 15.5h.5 M11.5 12h.5 M14 8h.5 M17 4.5h.5',
+  note: 'M12 10v9 M12 5v1',
   gate: 'M4 20V5 M20 20V5 M4 9h16 M4 15h16 M8 9l4 6 M12 9l4 6',
   default: 'M12 8.5a3.5 3.5 0 1 0 0.01 0z',
 };
@@ -88,14 +89,14 @@ export const MENY_KATEGORIER: ReadonlyArray<{ namn: string; symboler: readonly s
   { namn: 'Avverkning', symboler: ['highstump', 'landing', 'brashpile', 'windfall', 'manualfelling', 'felloutside'] },
   { namn: 'Infrastruktur', symboler: ['powerline', 'huntingtower', 'groundcable', 'road', 'turningpoint', 'gate'] },
   { namn: 'Terräng', symboler: ['bridge', 'corduroy', 'wet'] },
-  { namn: 'Övrigt', symboler: ['warning'] },
+  { namn: 'Övrigt', symboler: ['note', 'warning'] },
 ];
 export const UR_MENYN: readonly string[] = ['culturestump', 'ditch', 'trail', 'steep'];
 
 /** EN mening om vad symbolen betyder — i kortet vid tryck och i "Vad betyder kartan". */
 export const SYMBOL_FORKLARING: Readonly<Record<string, string>> = {
   powerline: 'Ledning – håll avstånd och fäll inte åt det hållet.',
-  warning: 'Något farligt här – läs kommentaren.',
+  warning: 'Något farligt här – läs kommentaren. Larmar varje gång.',
   steep: 'Brant – risk för att maskinen glider.',
   huntingtower: 'Jakttorn – människor kan finnas i eller nära tornet.',
   groundcable: 'Nedgrävd kabel – kör försiktigt och gräv inte.',
@@ -117,6 +118,7 @@ export const SYMBOL_FORKLARING: Readonly<Record<string, string>> = {
   bridge: 'Bro över dike eller bäck.',
   corduroy: 'Kavling – risad väg över blött.',
   trail: 'Stig eller led.',
+  note: 'Bra att veta – läs kommentaren. Visas en gång, inget larm.',
   gate: 'Grind med hänglås – stäng efter dig. Koden visas när du är nära.',
   default: 'Markering.',
 };

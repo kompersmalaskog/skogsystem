@@ -32,14 +32,14 @@ describe('Symboler: samma kategorier, namn och ordning som appen alltid haft', (
   it('de sex kategorierna i den ordning appen har dem', () => {
     expect(namn).toEqual(['Naturvård', 'Kultur', 'Avverkning', 'Infrastruktur', 'Terräng', 'Övrigt']);
   });
-  it('20 symboler i menyn (Odlingsröse 2026-11-01): Jakttorn, Markkabel och Grind in; Kulturstubbe (slogs ihop), Dike, Stig och Brant ut — alla fyra ritas ändå', () => {
+  it('21 symboler i menyn (Odlingsröse 2026-11-01, Info 2026-11-10): Jakttorn, Markkabel och Grind in; Kulturstubbe (slogs ihop), Dike, Stig och Brant ut — alla fyra ritas ändå', () => {
     expect(symboler).toEqual([
       'eternitytree=Evighetsträd', 'naturecorner=Naturhörna',
       'culturemonument=Kulturlämning', 'odlingsrose=Odlingsröse',
       'highstump=Högstubbe', 'landing=Avlägg', 'brashpile=Rishög', 'windfall=Vindfälle', 'manualfelling=Manuell fällning', 'felloutside=Träd att avverka',
       'powerline=El-ledning', 'huntingtower=Jakttorn', 'groundcable=Markkabel', 'road=Väg', 'turningpoint=Vändplats', 'gate=Grind',
       'bridge=Bro', 'corduroy=Kavling', 'wet=Fuktig mark',
-      'warning=Varning',
+      'note=Info', 'warning=Varning',
     ]);
     for (const t of UR_MENYN) expect(kat, t).not.toContain(t);
     expect(page).toContain('...UR_MENYN.map((id) => ({ id, name: SYMBOL_NAMN[id] }))');   // namnen finns kvar för gamla markeringar

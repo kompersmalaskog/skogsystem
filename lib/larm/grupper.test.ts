@@ -96,3 +96,10 @@ describe('larmregeln i klartext (samma kort för symboler, linjer, ytor och Vida
     for (const g of Object.values(GRUPPER)) expect(larmRegelText({ grupp: g.id })).toBe(LARM_REGEL_TEXT[g.larm]);
   });
 });
+
+describe('Info-symbolens larmtext', () => {
+  it('säger att den visas tills Sett och är tyst', () => {
+    expect(larmRegelText({ grupp: 'info', typ: 'note' })).toBe('Visas tills du tryckt Sett, inget ljud');
+    expect(larmRegelText({ grupp: 'info', typ: 'firewood' })).toBe('Larmar inte');
+  });
+});
