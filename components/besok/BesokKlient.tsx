@@ -1,10 +1,11 @@
 'use client';
 
-// Markägarens länk (/besok/<token>): öppen utan inloggning, telefon, svart iOS-stil. EN länk, TVÅ delar (Martin 2026-11-05):
-//  • DIN SKOG — sidan man kommer tillbaka till: traktnamn, "% klart", kartan med evighetsträd/högstubbar/kantzon (aldrig maskiner), "Därför står träden kvar"
-//    (bara certifierade, bara rader som gäller trakten, tryck = ark med "Så ska det se ut"), Din ved, och knappen "Jag kommer på besök".
-//  • BESÖKET i tre steg: (1) säkerhet + "Jag har läst", (2) anmälan, (3) under besöket: vilka maskiner som sett det, vem man ringer, "Jag har gått härifrån".
-//    Kommer man tillbaka till länken under ett pågående besök öppnas steg 3 direkt.
+// Markägarens länk (/besok/<token>): öppen utan inloggning, telefon, svart iOS-stil. EN länk, TVÅ lägen efter NÄR man öppnar den (Martin 2026-11-10):
+//  • MEDAN VI JOBBAR — "Ska du gå ut i skogen?": kartan med maskinerna och deras röda ringar, regeln under kartan, en rad per fara med VARFÖR
+//    (lib/besok/sakerhet), vem man ringer och EN knapp "Anmäl besök" → anmälan → under besöket (vilka maskiner som sett det, "Jag har gått härifrån").
+//    Inget om certifiering här, och inget "% klart".
+//  • NÄR VI ÄR KLARA — "Varför ser det ut så här?": kartan och bara de rader som gäller trakten (lib/besok/skogen). Länken lever 60 dagar efter avslut.
+//    Kommer man tillbaka till länken under ett pågående besök öppnas besöket direkt.
 // Inga förarnamn, inga spår, inga volymer, ingen röta, inget klart-datum. Texterna står i lib/besok (sakerhet, skogen, status) — inte här.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -17,10 +18,10 @@ import { MalbildBild } from '@/components/malbild/Malbild';
 import SkotarBild from './SkotarBild';
 import type { KartaData } from './BesokKarta';
 import { PRICK_FARG } from '@/lib/besok/farg';
-import { HUVUDREGEL, SKOTARARK_RUBRIK, SKOTARARK_TEXT, sakerhetsRader, type MaskinRoll } from '@/lib/besok/sakerhet';
+import { HUVUDREGEL, RINGREGEL, SKOTARARK_RUBRIK, SKOTARARK_TEXT, sakerhetsRader, type MaskinRoll } from '@/lib/besok/sakerhet';
 import { arBesokAktivt, klockslag } from '@/lib/besok/tid';
 import { VANTAR_TEXT, kvitteringsRader, maskinStatusRader } from '@/lib/besok/status';
-import { CERT_FORKLARING, HITTILLS_TEXT, KARTA_UNGEFAR, type SkogRad } from '@/lib/besok/skogen';
+import { CERT_FORKLARING, KARTA_UNGEFAR, type SkogRad } from '@/lib/besok/skogen';
 import { malbildInnehall } from '@/lib/malbilder';
 import { PUBLIK_POLL_MS } from '@/lib/besok/konstanter';
 
@@ -29,6 +30,10 @@ const BesokKarta = dynamic(() => import('./BesokKarta'), { ssr: false, loading: 
 type Pos = { lat: number; lng: number };
 type Vy = {
   ok: true;
+  /** pagar = maskinerna arbetar · klar = objektet avslutat ("Varför ser det ut så här?"). */
+  lage?: 'pagar' | 'klar';
+  klarDatum?: string | null;
+  gallring?: boolean;
   namn: string;
   utforare: string;
   framsteg: { procent: number | null; klartCa: string | null; text: string | null; forklaring?: string | null };
@@ -45,8 +50,8 @@ type Vy = {
   ring?: { namn: string; telefon: string } | null;
 };
 type Slut = { fel: string; status: number };
-/** skog = Din skog · sakerhet/anmal/under = besökets tre steg. */
-export type Lage = 'skog' | 'sakerhet' | 'anmal' | 'under';
+/** skog = sidan (medan vi jobbar eller när vi är klara) · anmal/under = besökets två steg. */
+export type Lage = 'skog' | 'anmal' | 'under';
 
 const lagringsNyckel = (token: string) => `besok_anmalan_v1:${token}`;
 const lasAnmalan = (token: string): string | null => { try { const j = JSON.parse(localStorage.getItem(lagringsNyckel(token)) || 'null'); return typeof j?.id === 'string' ? j.id : null; } catch { return null; } };
@@ -135,10 +140,10 @@ export default function BesokKlient({ token }: { token: string }) {
 
   const pagar = besokPagar(vy.besok);
   let sida: React.ReactNode;
-  if (lage === 'sakerhet') sida = <SakerhetSteg vy={vy} token={token} onTillbaka={() => setLage('skog')} onVidare={() => setLage('anmal')} onSkotare={() => setSkotarArk(true)} />;
-  else if (lage === 'anmal') sida = <AnmalSteg token={token} onTillbaka={() => setLage('sakerhet')} onSkickat={(id) => { sparaAnmalan(token, id); startBeslut.current = true; setBesokId(id); setLage('under'); }} />;
+  if (vy.lage === 'klar') sida = <KlarVy vy={vy} token={token} onRad={setRad} onCert={() => setCertArk(true)} />;
+  else if (lage === 'anmal') sida = <AnmalSteg token={token} onTillbaka={() => setLage('skog')} onSkickat={(id) => { sparaAnmalan(token, id); startBeslut.current = true; setBesokId(id); setLage('under'); }} />;
   else if (lage === 'under') sida = <UnderSteg vy={vy} token={token} onTillbaka={() => setLage('skog')} onGatt={() => { glomAnmalan(token); setBesokId(null); setLage('skog'); setKvitto('Tack! Förarna vet att du har gått.'); }} />;
-  else sida = <DinSkog vy={vy} token={token} pagar={pagar} kvitto={kvitto} onBesok={() => { setKvitto(null); setLage(pagar ? 'under' : 'sakerhet'); }} onRad={setRad} onCert={() => setCertArk(true)} />;
+  else sida = <PagarVy vy={vy} token={token} pagar={pagar} kvitto={kvitto} onBesok={() => { setKvitto(null); setLage(pagar ? 'under' : 'anmal'); }} onSkotare={() => setSkotarArk(true)} />;
 
   return (
     <>
@@ -164,93 +169,137 @@ export default function BesokKlient({ token }: { token: string }) {
   );
 }
 
-// ---- DIN SKOG -------------------------------------------------------------------------------------------------------------------------------
+// ---- MEDAN VI JOBBAR: "Ska du gå ut i skogen?" -----------------------------------------------------------------------------------------------
 
-function DinSkog({ vy, token, pagar, kvitto, onBesok, onRad, onCert }: { vy: Vy; token: string; pagar: boolean; kvitto: string | null; onBesok: () => void; onRad: (r: SkogRad) => void; onCert: () => void }) {
-  const skog = vy.skog;
+function PagarVy({ vy, token, pagar, kvitto, onBesok, onSkotare }: { vy: Vy; token: string; pagar: boolean; kvitto: string | null; onBesok: () => void; onSkotare: () => void }) {
+  const rader = useMemo(() => sakerhetsRader({ roller: vy.roller, harMotorsag: vy.harMotorsag }), [vy.roller, vy.harMotorsag]);
+  const karta: KartaData = useMemo(() => ({ token, mitt: vy.mitt, gran: vy.gran, maskiner: vy.maskiner, motorsag: vy.motorsag, ringM: vy.ringM }), [token, vy.mitt, vy.gran, vy.maskiner, vy.motorsag, vy.ringM]);
   const arbetar = vy.maskiner.length > 0;
-  const karta: KartaData = useMemo(() => ({ token, mitt: vy.mitt, gran: vy.gran, maskiner: [], motorsag: [], ringM: vy.ringM, prickar: skog?.prickar ?? [], kantzon: skog?.kantzon ?? [], ved: skog?.ved?.plats ?? null }), [token, vy.mitt, vy.gran, vy.ringM, skog]);
-  const harEv = (skog?.prickar ?? []).some((p) => p.typ === 'evighetstrad');
-  const harHs = (skog?.prickar ?? []).some((p) => p.typ === 'hogstubbe');
-  const harKz = (skog?.kantzon ?? []).length > 0;
-
   return (
-    <div data-testid="besok-sida" style={{ ...ROT, paddingBottom: medSafeBotten(96) }}>
+    <div data-testid="besok-sida" data-lage="pagar" style={{ ...ROT, paddingBottom: medSafeBotten(96) }}>
       <header style={{ paddingTop: TOPP }}>
-        <h1 data-testid="besok-namn" style={{ margin: 0, ...TYP.titel }}>{vy.namn}</h1>
-        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{vy.utforare}</div>
+        <div data-testid="besok-namn" style={{ ...TYP.meta, color: FARG.text2 }}>{vy.namn} · {vy.utforare}</div>
+        <h1 style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.titel }}>Ska du gå ut i skogen?</h1>
       </header>
 
       {kvitto && <div data-testid="besok-kvitto" role="status" style={{ ...KORT, marginTop: AVSTAND.l, ...TYP.listtitel, color: FARG.gron }}>✓ {kvitto}</div>}
 
-      {/* Bara medan maskinerna arbetar: en gul rad som leder till besöket. */}
-      {arbetar && !pagar && (
-        <button type="button" data-testid="besok-arbetar" onClick={onBesok}
-          style={{ ...radStil(true), marginTop: AVSTAND.l, background: FARG.gul, color: FARG.bg, borderRadius: RADIE.kort, cursor: 'pointer' }}>
-          <Ikon namn="warning" farg={FARG.bg} />
-          <span style={{ flex: 1, minWidth: 0, ...TYP.listtitel }}>Maskiner arbetar här – anmäl dig innan du går ut</span>
-          <Ikon namn="chevron_right" farg={FARG.bg} />
-        </button>
+      {arbetar && (
+        <div data-testid="besok-arbetar" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.l, ...TYP.listtitel, color: FARG.gul }}>
+          <span aria-hidden="true" style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: '50%', background: FARG.gul, flexShrink: 0 }} />
+          Maskinerna arbetar här just nu
+        </div>
       )}
 
-      {vy.framsteg.procent != null && (
-        <section style={{ marginTop: AVSTAND.l }}>
-          <div data-testid="besok-framsteg" style={{ ...TYP.listtitel, ...TNUM }}>{vy.framsteg.procent} % klart</div>
-          <div aria-hidden="true" style={{ height: AVSTAND.xs, borderRadius: RADIE.stapel, background: FARG.fyllning, marginTop: AVSTAND.s, overflow: 'hidden' }}>
-            <div style={{ width: `${vy.framsteg.procent}%`, height: '100%', background: FARG.text }} />
-          </div>
-        </section>
-      )}
-
-      <section style={{ marginTop: AVSTAND.l }}>
-        <BesokKarta data={karta} hojd={300} />
-        {(harEv || harHs || harKz) && (
-          <div data-testid="besok-forklaring" style={{ display: 'flex', flexWrap: 'wrap', gap: `${AVSTAND.xs}px ${AVSTAND.l}px`, marginTop: AVSTAND.s, ...TYP.meta, color: FARG.text2 }}>
-            {harEv && <Tecken farg={PRICK_FARG.evighetstrad} text="Evighetsträd" />}
-            {harHs && <Tecken farg={PRICK_FARG.hogstubbe} text="Högstubbar" />}
-            {harKz && <Tecken farg={FARG.bla} text="Kantzon" />}
-            {(harEv || harHs) && <span>{KARTA_UNGEFAR}</span>}
-          </div>
-        )}
+      <section style={{ marginTop: AVSTAND.m }}>
+        <BesokKarta data={karta} hojd={280} />
+        <div data-testid="besok-ringregel" style={{ display: 'flex', gap: AVSTAND.s, alignItems: 'flex-start', marginTop: AVSTAND.s, ...TYP.text }}>
+          <span aria-hidden="true" style={{ width: AVSTAND.m, height: AVSTAND.m, marginTop: AVSTAND.xs, borderRadius: '50%', border: `2px dashed ${FARG.rod}`, flexShrink: 0, boxSizing: 'border-box' }} />
+          <span>{RINGREGEL}</span>
+        </div>
       </section>
 
-      {skog && skog.rader.length > 0 && (
-        <section data-testid="besok-skogen">
-          <Rubrik>Därför står träden kvar</Rubrik>
-          {skog.intro && <p style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.text }}>{skog.intro}</p>}
-          <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.s }}>{HITTILLS_TEXT}</div>
-          <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
-            {skog.rader.map((r, i) => (
-              <button key={r.id} type="button" data-testid={`besok-skograd-${r.id}`} onClick={() => onRad(r)} style={{ ...radStil(i === 0), cursor: 'pointer' }}>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', ...TYP.listtitel }}>{r.namn}</span>
-                  <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{r.varfor}</span>
-                </span>
-                {r.varde && <span style={{ ...TYP.listtitel, ...TNUM, whiteSpace: 'nowrap' }}>{r.varde}</span>}
-                <Ikon namn="chevron_right" farg={FARG.text3} />
-              </button>
-            ))}
-            <button type="button" data-testid="besok-cert" onClick={onCert} style={{ ...radStil(false), cursor: 'pointer' }}>
-              <span style={{ flex: 1, minWidth: 0, ...TYP.text }}>{CERT_FORKLARING.rubrik}</span>
+      <section data-testid="besok-har-just-nu" style={{ marginTop: AVSTAND.l, background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
+        {rader.map((r, i) => {
+          const inre = (
+            <>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', ...TYP.listtitel }}>{r.rubrik}</span>
+                <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{r.text}</span>
+              </span>
+              {r.ark && <Ikon namn="chevron_right" farg={FARG.text3} />}
+            </>
+          );
+          return r.ark
+            ? <button key={r.id} type="button" data-testid={`besok-rad-${r.id}`} onClick={onSkotare} style={{ ...radStil(i === 0), cursor: 'pointer' }}>{inre}</button>
+            : <div key={r.id} data-testid={`besok-rad-${r.id}`} style={radStil(i === 0)}>{inre}</div>;
+        })}
+      </section>
+
+      {vy.ring && <RingRad ring={vy.ring} />}
+
+      <FastKnapp>
+        <button type="button" data-testid="besok-kommer" onClick={onBesok} style={KNAPP.primar}>{pagar ? 'Ditt besök' : 'Anmäl besök'}</button>
+      </FastKnapp>
+    </div>
+  );
+}
+
+function RingRad({ ring }: { ring: { namn: string; telefon: string } }) {
+  return (
+    <section data-testid="besok-ring" style={{ ...KORT, marginTop: AVSTAND.l, display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
+      <Ikon namn="call" farg={FARG.text} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', ...TYP.listtitel }}>Ring {ring.namn}</span>
+        <a href={`tel:${ring.telefon.replace(/[^\d+]/g, '')}`} style={{ ...TYP.meta, color: FARG.text2, ...TNUM, userSelect: 'text' }}>{ring.telefon}</a>
+      </span>
+    </section>
+  );
+}
+
+// ---- NÄR VI ÄR KLARA: "Varför ser det ut så här?" -------------------------------------------------------------------------------------------
+
+const klarDag = (iso: string | null | undefined): string | null => {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(t) ? new Intl.DateTimeFormat('sv-SE', { day: 'numeric', month: 'short', timeZone: 'Europe/Stockholm' }).format(new Date(t)).replace('.', '') : null;
+};
+
+function KlarVy({ vy, token, onRad, onCert }: { vy: Vy; token: string; onRad: (r: SkogRad) => void; onCert: () => void }) {
+  const skog = vy.skog;
+  const karta: KartaData = useMemo(() => ({ token, mitt: vy.mitt, gran: vy.gran, maskiner: [], motorsag: [], ringM: vy.ringM, prickar: skog?.prickar ?? [], kantzon: skog?.kantzon ?? [], ved: skog?.ved?.plats ?? null }), [token, vy.mitt, vy.gran, vy.ringM, skog]);
+  const harEv = (skog?.prickar ?? []).some((p) => p.typ === 'evighetstrad');
+  const harHs = (skog?.prickar ?? []).some((p) => p.typ === 'hogstubbe');
+  const harKz = (skog?.kantzon ?? []).length > 0;
+  const rader = skog?.rader ?? [];
+  const dag = klarDag(vy.klarDatum);
+  return (
+    <div data-testid="besok-sida" data-lage="klar" style={{ ...ROT, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
+      <header style={{ paddingTop: TOPP }}>
+        <div data-testid="besok-namn" style={{ ...TYP.meta, color: FARG.text2 }}>{vy.namn}{dag ? ` · klar ${dag}` : ' · klar'}</div>
+        <h1 style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.titel }}>Varför ser det ut så här?</h1>
+      </header>
+
+      <section style={{ marginTop: AVSTAND.l }}>
+        <BesokKarta data={karta} hojd={280} />
+        <div data-testid="besok-forklaring" style={{ display: 'flex', flexWrap: 'wrap', gap: `${AVSTAND.xs}px ${AVSTAND.l}px`, marginTop: AVSTAND.s, ...TYP.meta, color: FARG.text2 }}>
+          {vy.gran && <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs }}><span aria-hidden="true" style={{ width: AVSTAND.l, height: 2, background: FARG.text }} />Din trakt</span>}
+          {harEv && <Tecken farg={PRICK_FARG.evighetstrad} text="Evighetsträd" />}
+          {harHs && <Tecken farg={PRICK_FARG.hogstubbe} text="Högstubbar" />}
+          {harKz && <Tecken farg={FARG.bla} text="Kantzon" />}
+          {(harEv || harHs) && <span>{KARTA_UNGEFAR}</span>}
+        </div>
+      </section>
+
+      {rader.length > 0 && (
+        <section data-testid="besok-skogen" style={{ marginTop: AVSTAND.l, background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
+          {rader.map((r, i) => (
+            <button key={r.id} type="button" data-testid={`besok-skograd-${r.id}`} onClick={() => onRad(r)} style={{ ...radStil(i === 0), cursor: 'pointer' }}>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', ...TYP.listtitel }}>{r.namn}</span>
+                <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{r.varfor}</span>
+              </span>
+              {r.varde && <span style={{ ...TYP.listtitel, ...TNUM, whiteSpace: 'nowrap' }}>{r.varde}</span>}
               <Ikon namn="chevron_right" farg={FARG.text3} />
             </button>
-          </div>
+          ))}
+          {!vy.gallring && skog?.intro && (
+            <button type="button" data-testid="besok-cert" onClick={onCert} style={{ ...radStil(false), cursor: 'pointer' }}>
+              <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text2 }}>{CERT_FORKLARING.rubrik}</span>
+              <Ikon namn="chevron_right" farg={FARG.text3} />
+            </button>
+          )}
         </section>
       )}
 
       {skog?.ved && (
-        <section data-testid="besok-ved">
-          <Rubrik>Din ved</Rubrik>
-          <div style={{ ...KORT, ...TYP.text }}>
-            {skog.ved.text}
-            {skog.ved.plats && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Platsen står på kartan</div>}
-          </div>
+        <section data-testid="besok-ved" style={{ ...KORT, marginTop: AVSTAND.l }}>
+          <div style={{ ...TYP.listtitel }}>Din ved</div>
+          <div style={{ ...TYP.text, marginTop: AVSTAND.xs }}>{skog.ved.text}</div>
+          {skog.ved.plats && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Platsen står på kartan</div>}
         </section>
       )}
 
-      <FastKnapp>
-        <button type="button" data-testid="besok-kommer" onClick={onBesok} style={KNAPP.primar}>{pagar ? 'Ditt besök' : 'Jag kommer på besök'}</button>
-      </FastKnapp>
+      {vy.ring && <div data-testid="besok-ring" style={{ marginTop: AVSTAND.xl, textAlign: 'center', ...TYP.meta, color: FARG.text2 }}>Frågor? Ring {vy.ring.namn} · <a href={`tel:${vy.ring.telefon.replace(/[^\d+]/g, '')}`} style={{ color: FARG.text2, ...TNUM, userSelect: 'text' }}>{vy.ring.telefon}</a></div>}
     </div>
   );
 }
@@ -259,7 +308,7 @@ function Tecken({ farg, text }: { farg: string; text: string }) {
   return <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs }}><span aria-hidden="true" style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: '50%', background: farg }} />{text}</span>;
 }
 
-/** Arket bakom en rad i "Därför står träden kvar": tecknad bild (bara "Så ska det se ut"), förklaringen, kravet dämpat och kartan med bara den saken. */
+/** Arket bakom en rad: tecknad bild (bara "Så ska det se ut"), förklaringen, kravet dämpat och kartan med bara den saken. */
 function SkogArk({ rad, vy, token, onStang }: { rad: SkogRad; vy: Vy; token: string; onStang: () => void }) {
   const bild = rad.malbild ? malbildInnehall(rad.malbild, null)?.bild ?? null : null;
   const skog = vy.skog;
@@ -274,8 +323,8 @@ function SkogArk({ rad, vy, token, onStang }: { rad: SkogRad; vy: Vy; token: str
       <div data-testid={`besok-skogark-${rad.id}`} style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m, paddingBottom: AVSTAND.m }}>
         {bild && <MalbildBild svg={bild} testid="besok-skogark-bild" />}
         <p style={{ margin: 0, ...TYP.text }}>{rad.forklaring}</p>
-        <div style={{ ...TYP.meta, color: FARG.text2 }}>{rad.krav}</div>
-        {rad.varde && <div style={{ ...TYP.listtitel, ...TNUM }}>Hittills {rad.varde}</div>}
+        {rad.krav && <div style={{ ...TYP.meta, color: FARG.text2 }}>{rad.krav}</div>}
+        {rad.varde && <div style={{ ...TYP.listtitel, ...TNUM }}>På din trakt: {rad.varde}</div>}
         {karta && (
           <>
             <BesokKarta data={karta} hojd={240} />
@@ -284,72 +333,6 @@ function SkogArk({ rad, vy, token, onStang }: { rad: SkogRad; vy: Vy; token: str
         )}
       </div>
     </Ark>
-  );
-}
-
-// ---- BESÖKET, STEG 1: SÄKERHET --------------------------------------------------------------------------------------------------------------
-
-function SakerhetSteg({ vy, token, onTillbaka, onVidare, onSkotare }: { vy: Vy; token: string; onTillbaka: () => void; onVidare: () => void; onSkotare: () => void }) {
-  const [last, setLast] = useState(false);
-  const rader = useMemo(() => sakerhetsRader({ roller: vy.roller, harMotorsag: vy.harMotorsag }), [vy.roller, vy.harMotorsag]);
-  const karta: KartaData = useMemo(() => ({ token, mitt: vy.mitt, gran: vy.gran, maskiner: vy.maskiner, motorsag: vy.motorsag, ringM: vy.ringM }), [token, vy.mitt, vy.gran, vy.maskiner, vy.motorsag, vy.ringM]);
-  return (
-    <div data-testid="besok-steg-sakerhet" style={{ ...ROT, paddingBottom: medSafeBotten(96) }}>
-      <div style={{ paddingTop: TOPP_TILLBAKA }}><Tillbaka text="Din skog" onClick={onTillbaka} /></div>
-      <div style={{ ...TYP.meta, color: FARG.text2 }}>Steg 1 av 3</div>
-      <h1 style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.titel }}>Innan du går ut</h1>
-
-      <section data-testid="besok-huvudregel" style={{ marginTop: AVSTAND.l, background: FARG.text, color: FARG.bg, borderRadius: RADIE.kort, padding: AVSTAND.l }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
-          <Ikon namn="front_hand" storlek={IKON.stor / 2} farg={FARG.bg} />
-          <h2 style={{ margin: 0, ...TYP.rubrik }}>{HUVUDREGEL.rubrik}</h2>
-        </div>
-        <ol style={{ listStyle: 'none', margin: `${AVSTAND.m}px 0 0`, padding: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-          {HUVUDREGEL.steg.map((s, i) => (
-            <li key={s} style={{ display: 'flex', gap: AVSTAND.m, alignItems: 'baseline', ...TYP.text }}>
-              <span style={{ ...TYP.listtitel, minWidth: AVSTAND.l, ...TNUM }}>{i + 1}</span><span>{s}</span>
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      {rader.length > 0 && (
-        <section data-testid="besok-har-just-nu" style={{ marginTop: AVSTAND.xl }}>
-          <div style={{ ...TYP.micro, color: FARG.text2, marginBottom: AVSTAND.s }}>Här just nu</div>
-          <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
-            {rader.map((r, i) => {
-              const inre = (
-                <>
-                  <Ikon namn={r.id === 'skotare' ? 'local_shipping' : r.id === 'skordare' ? 'forest' : 'carpenter'} farg={FARG.orange} />
-                  <span style={{ flex: 1, minWidth: 0, ...TYP.text }}>{r.text}</span>
-                  {r.ark && <Ikon namn="chevron_right" farg={FARG.text3} />}
-                </>
-              );
-              return r.ark
-                ? <button key={r.id} type="button" data-testid={`besok-rad-${r.id}`} onClick={onSkotare} style={{ ...radStil(i === 0), cursor: 'pointer' }}>{inre}</button>
-                : <div key={r.id} data-testid={`besok-rad-${r.id}`} style={radStil(i === 0)}>{inre}</div>;
-            })}
-          </div>
-        </section>
-      )}
-
-      {vy.maskiner.length > 0 && (
-        <section style={{ marginTop: AVSTAND.xl }}>
-          <BesokKarta data={karta} hojd={260} />
-          <div data-testid="besok-uppdaterad" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s, ...TNUM }}>Här är maskinerna nu · {klockslag(vy.uppdaterad)}</div>
-        </section>
-      )}
-
-      <button type="button" role="checkbox" aria-checked={last} data-testid="besok-last" onClick={() => setLast((v) => !v)}
-        style={{ ...radStil(true), marginTop: AVSTAND.xl, background: FARG.kort, borderRadius: RADIE.kort, cursor: 'pointer' }}>
-        <Ikon namn={last ? 'check_circle' : 'radio_button_unchecked'} farg={last ? FARG.gron : FARG.text3} />
-        <span style={{ flex: 1, ...TYP.listtitel }}>Jag har läst</span>
-      </button>
-
-      <FastKnapp>
-        <button type="button" data-testid="besok-vidare" onClick={() => { if (last) onVidare(); }} style={{ ...KNAPP.primar, ...(last ? null : INAKTIV) }}>Fortsätt</button>
-      </FastKnapp>
-    </div>
   );
 }
 
@@ -382,8 +365,7 @@ function AnmalSteg({ token, onTillbaka, onSkickat }: { token: string; onTillbaka
   return (
     <div data-testid="besok-steg-anmal" style={{ ...ROT, paddingBottom: medSafeBotten(140) }}>
       <div style={{ paddingTop: TOPP_TILLBAKA }}><Tillbaka text="Tillbaka" onClick={onTillbaka} /></div>
-      <div style={{ ...TYP.meta, color: FARG.text2 }}>Steg 2 av 3</div>
-      <h1 style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.l}px`, ...TYP.titel }}>Jag kommer på besök</h1>
+      <h1 style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.l}px`, ...TYP.titel }}>Anmäl besök</h1>
       <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>När kommer du?</div>
       <Flikkontroll flikar={[['nu', 'Nu'], ['om1h', 'Om 1 h'], ['tid', 'Välj tid']] as const} aktiv={nar} onVal={setNar} />
       {nar === 'tid' && (
@@ -427,7 +409,7 @@ function UnderSteg({ vy, token, onTillbaka, onGatt }: { vy: Vy; token: string; o
 
   return (
     <div data-testid="besok-steg-under" style={{ ...ROT, paddingBottom: medSafeBotten(150) }}>
-      <div style={{ paddingTop: TOPP_TILLBAKA }}><Tillbaka text="Din skog" onClick={onTillbaka} /></div>
+      <div style={{ paddingTop: TOPP_TILLBAKA }}><Tillbaka text="Tillbaka" onClick={onTillbaka} /></div>
       <h1 style={{ margin: 0, ...TYP.titel }}>Ditt besök</h1>
       {anmalan && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs, ...TNUM }}>Anmält · kommer {klockslag(anmalan.besokstid)}</div>}
 
@@ -452,13 +434,7 @@ function UnderSteg({ vy, token, onTillbaka, onGatt }: { vy: Vy; token: string; o
         <span style={{ ...TYP.text }}>{HUVUDREGEL.rubrik}</span>
       </div>
 
-      {vy.ring && (
-        <section data-testid="besok-ring" style={{ ...KORT, marginTop: AVSTAND.l }}>
-          <div style={{ ...TYP.meta, color: FARG.text2 }}>Ring om något</div>
-          <div style={{ ...TYP.listtitel, marginTop: AVSTAND.xs }}>{vy.ring.namn}</div>
-          <a href={`tel:${vy.ring.telefon.replace(/[^\d+]/g, '')}`} style={{ ...TYP.listtitel, color: FARG.text, ...TNUM, userSelect: 'text' }}>{vy.ring.telefon}</a>
-        </section>
-      )}
+      {vy.ring && <RingRad ring={vy.ring} />}
 
       <FastKnapp>
         {fel && <div role="alert" style={{ ...TYP.text, color: FARG.rod }}>{fel}</div>}

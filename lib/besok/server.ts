@@ -10,7 +10,7 @@ import { svgToLatLon } from '@/lib/kartkoordinater';
 import { hamtaAltNummer, hogarObjektIds } from '@/lib/objektNummer';
 import { idagStockholm } from '@/lib/grotvy/format';
 import { besokNamn } from './namn';
-import { BESOK_MAX_PER_TIMME, BESOK_RING_M, FORETAG_TELEFON, MASKIN_FERSK_MIN, TOKEN_MIN_TECKEN } from './konstanter';
+import { BESOK_MAX_PER_TIMME, BESOK_RING_M, FORETAG_TELEFON, LANK_EFTER_AVSLUT_DAGAR, MASKIN_FERSK_MIN, TOKEN_MIN_TECKEN } from './konstanter';
 import { arGiltigtToken } from './offentlig';
 import { KLART_CA_FORKLARING, beraknaFramsteg, framstegText, utforareText, type DagVolym } from './framsteg';
 import { arKlockslag, arRimligBesokstid, besokstid, type TidVal } from './tid';
@@ -27,24 +27,32 @@ const FEL = (status: number, fel: string): Svar => ({ status, body: { ok: false,
 
 // ---- Länken ---------------------------------------------------------------------------------------------------------------------------------
 
-type ObjektRad = { id: string; namn: string; vo_nummer: string | null; status: string | null; bolag: string | null; lat: number | null; lng: number | null; kartbild_bounds: unknown; volym: number | null; dim_objekt_id: string | null; fastighetsbeteckning: string | null; cert?: string | null; areal?: number | null; grot?: boolean | null; ved_detaljer?: unknown };
+type ObjektRad = { id: string; namn: string; vo_nummer: string | null; status: string | null; bolag: string | null; lat: number | null; lng: number | null; kartbild_bounds: unknown; volym: number | null; dim_objekt_id: string | null; fastighetsbeteckning: string | null; cert?: string | null; areal?: number | null; grot?: boolean | null; ved_detaljer?: unknown; typ?: string | null; avslutad_timestamp?: string | null };
 
-export type LankUtfall = { ok: true; objekt: ObjektRad } | { ok: false; skal: 'okand' | 'avstangd' | 'avslutat' | 'fel'; meddelande?: string };
+/** pagar = maskinerna arbetar (säkerhet + anmälan) · klar = objektet avslutat, länken lever LANK_EFTER_AVSLUT_DAGAR till ("Varför ser det ut så här?"). */
+export type Lage = 'pagar' | 'klar';
+export type LankUtfall = { ok: true; objekt: ObjektRad; lage: Lage } | { ok: false; skal: 'okand' | 'avstangd' | 'avslutat' | 'fel'; meddelande?: string };
 
 const AVSLUTAD = (s: string | null) => s === 'avslutat' || s === 'klar';
 
-export async function slaUppLank(sb: Sb, token: string): Promise<LankUtfall> {
+/** Är ett avslutat objekts länk fortfarande öppen? Avslutsdagen + LANK_EFTER_AVSLUT_DAGAR. Saknas avslutstiden (gamla 'klar') är den stängd. */
+export function klarLankLever(avslutad: string | null | undefined, nu: Date): boolean {
+  const t = avslutad ? Date.parse(avslutad) : NaN;
+  return Number.isFinite(t) && nu.getTime() - t <= LANK_EFTER_AVSLUT_DAGAR * 86400000;
+}
+
+export async function slaUppLank(sb: Sb, token: string, nu: Date = new Date()): Promise<LankUtfall> {
   if (!arGiltigtToken(token)) return { ok: false, skal: 'okand' };
   const l = await sb.from('objekt_besok_lank').select('objekt_id, aktiv').eq('token', token).maybeSingle();
   if (l.error) return { ok: false, skal: 'fel', meddelande: l.error.message };
   if (!l.data) return { ok: false, skal: 'okand' };
   if (!(l.data as { aktiv: boolean }).aktiv) return { ok: false, skal: 'avstangd' };
-  const o = await sb.from('objekt').select('id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id, fastighetsbeteckning, cert, areal, grot, ved_detaljer').eq('id', (l.data as { objekt_id: string }).objekt_id).maybeSingle();
+  const o = await sb.from('objekt').select('id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id, fastighetsbeteckning, cert, areal, grot, ved_detaljer, typ, avslutad_timestamp').eq('id', (l.data as { objekt_id: string }).objekt_id).maybeSingle();
   if (o.error) return { ok: false, skal: 'fel', meddelande: o.error.message };
   if (!o.data) return { ok: false, skal: 'okand' };
   const objekt = o.data as ObjektRad;
-  if (AVSLUTAD(objekt.status)) return { ok: false, skal: 'avslutat' };
-  return { ok: true, objekt };
+  if (AVSLUTAD(objekt.status)) return klarLankLever(objekt.avslutad_timestamp, nu) ? { ok: true, objekt, lage: 'klar' } : { ok: false, skal: 'avslutat' };
+  return { ok: true, objekt, lage: 'pagar' };
 }
 
 /** Lankfel → svar. Samma text till alla utom "okänd" (som är ett 404 utan förklaring: en gissad token ska inte lära sig något). */
@@ -139,8 +147,8 @@ async function tungDel(sb: Sb, o: ObjektRad, nu: Date): Promise<Tung> {
   const ved = harVed(vedRaw) ? { text: vedSammanfattning(lasVed(vedRaw)).replace(/^Ved:\s*/, ''), plats: vedPin ?? (() => { const v = lasVed(vedRaw); return v.lat != null && v.lng != null ? { lat: v.lat, lng: v.lng } : null; })() } : null;
   const skog: PublikSkog = {
     intro: certIntro(cert),
-    rader: skogRader({ cert, arealHa: tolkaAreal(o.areal), grot: !!o.grot, evighetstrad: antal.evighetstrad, hogstubbar: antal.hogstubbar, harEvighetstradPos: prickar.some((p) => p.typ === 'evighetstrad'), harHogstubbePos: prickar.some((p) => p.typ === 'hogstubbe'), harKantzon: kantzon.length > 0 }),
-    prickar: certIntro(cert) ? prickar : [],
+    rader: skogRader({ typ: o.typ ?? null, cert, arealHa: tolkaAreal(o.areal), grot: !!o.grot, evighetstrad: antal.evighetstrad, hogstubbar: antal.hogstubbar, harEvighetstradPos: prickar.some((p) => p.typ === 'evighetstrad'), harHogstubbePos: prickar.some((p) => p.typ === 'hogstubbe'), harKantzon: kantzon.length > 0 }),
+    prickar: certIntro(cert) && String(o.typ ?? '').toLowerCase() === 'slutavverkning' ? prickar : [],
     kantzon: certIntro(cert) ? kantzon : [],
     ved,
   };
@@ -232,21 +240,26 @@ export async function minAnmalan(sb: Sb, objektId: string, besokId: string | nul
 
 export async function publikVy(sb: Sb, token: string, opt: { besokId?: string | null; nu?: Date } = {}): Promise<Svar> {
   const nu = opt.nu ?? new Date();
-  const u = await slaUppLank(sb, token);
+  const u = await slaUppLank(sb, token, nu);
   if (!u.ok) return lankFelSvar(u);
   const o = u.objekt;
+  const klar = u.lage === 'klar';
+  // När vi är klara visas inga maskiner och ingen anmälan — bara "Varför ser det ut så här?".
   const [tung, maskiner, besok] = await Promise.all([
     cachad(`tung:${o.id}`, 5 * 60000, () => tungDel(sb, o, nu), nu.getTime()),
-    maskinerPaTrakten(sb, o.id, nu),
-    minAnmalan(sb, o.id, opt.besokId),
+    klar ? Promise.resolve([] as PublikMaskin[]) : maskinerPaTrakten(sb, o.id, nu),
+    klar ? Promise.resolve(null) : minAnmalan(sb, o.id, opt.besokId),
   ]);
   const roller = maskiner.map((m) => m.roll);
   return {
     status: 200,
     body: {
       ok: true,
+      lage: u.lage,
+      klarDatum: klar ? o.avslutad_timestamp ?? null : null,
+      gallring: String(o.typ ?? '').toLowerCase() === 'gallring',
       namn: besokNamn(o.namn, o.vo_nummer, o.fastighetsbeteckning),
-      utforare: utforareText(o.bolag),
+      utforare: utforareText(o.bolag, o.typ ?? null),
       framsteg: { procent: tung.framsteg.procent, klartCa: tung.framsteg.klartCa, text: framstegText(tung.framsteg), forklaring: tung.framsteg.klartCa ? KLART_CA_FORKLARING : null },
       gran: tung.gran,
       mitt: o.lat != null && o.lng != null ? { lat: o.lat, lng: o.lng } : null,
@@ -282,8 +295,9 @@ export function tolkaTidVal(b: Record<string, unknown>): TidVal | null {
 }
 
 export async function skapaAnmalan(sb: Sb, token: string, body: unknown, nu: Date = new Date()): Promise<Svar> {
-  const u = await slaUppLank(sb, token);
+  const u = await slaUppLank(sb, token, nu);
   if (!u.ok) return lankFelSvar(u);
+  if (u.lage === 'klar') return FEL(410, 'Arbetet på trakten är avslutat');
   const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   const namn = rensaNamn(b.namn);
   const telefon = rensaTelefon(b.telefon);
@@ -317,7 +331,7 @@ export async function lankGiltig(sb: Sb, token: string, nu = Date.now()): Promis
 
 /** "Jag har gått härifrån": besöket är över. Hyttkortet, ringen och "har inte sett"-varningen släpper. Bara besök på DEN HÄR länkens objekt, en gång (första tiden står kvar). */
 export async function markeraGatt(sb: Sb, token: string, body: unknown, nu: Date = new Date()): Promise<Svar> {
-  const u = await slaUppLank(sb, token);
+  const u = await slaUppLank(sb, token, nu);
   if (!u.ok) return lankFelSvar(u);
   const id = (body && typeof body === 'object' ? (body as Record<string, unknown>).id : null);
   if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) return FEL(400, 'Ogiltig begäran');

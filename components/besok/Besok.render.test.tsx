@@ -12,7 +12,7 @@ vi.mock('@/lib/hooks/useBesokPlanerare', () => ({ useBesokPlanerare: () => hook.
 import BesokKlient from './BesokKlient';
 import BesokKortHytt from './BesokKortHytt';
 import BesokPlanerare from './BesokPlanerare';
-import { HUVUDREGEL, SKOTARARK_TEXT } from '@/lib/besok/sakerhet';
+import { RINGREGEL, SKOTARARK_TEXT } from '@/lib/besok/sakerhet';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let rot: Root | null = null;
@@ -55,82 +55,56 @@ const vy = (extra: Record<string, any> = {}) => ({
 });
 const svar = (status: number, body: any) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 
-describe('markägarens länk: Din skog', () => {
-  let anrop: { url: string; init?: any }[];
+describe('markägarens länk: medan vi jobbar — "Ska du gå ut i skogen?"', () => {
   let nastaVy: any;
   beforeEach(() => {
-    anrop = []; nastaVy = vy();
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
-      anrop.push({ url, init });
-      return svar(200, nastaVy);
-    }));
+    nastaVy = vy();
+    vi.stubGlobal('fetch', vi.fn(async () => svar(200, nastaVy)));
   });
 
-  it('uppifrån: namn, "avverkar åt Vida", gul rad medan maskinerna arbetar, % klart (aldrig klart-datum), kartan UTAN maskiner, knappen', async () => {
+  it('frågan överst, "Maskinerna arbetar här just nu", kartan MED maskinerna, regeln under kartan och EN knapp — inget om certifiering eller % klart', async () => {
     await visa(<BesokKlient token={TOKEN} />);
-    expect(q('besok-namn')!.textContent).toBe('Skälviken');
-    expect(el!.textContent).toContain('Kompersmåla Skog avverkar åt Vida');
-    expect(q('besok-arbetar')!.textContent).toContain('Maskiner arbetar här – anmäl dig innan du går ut');
-    expect(q('besok-framsteg')!.textContent).toBe('62 % klart');
-    expect(el!.textContent).not.toMatch(/klart ca|fredag/);
-    expect(q('karta-stub')!.getAttribute('data-maskiner')).toBe('0');
-    expect(q('karta-stub')!.getAttribute('data-prickar')).toBe('2');
-    expect(q('besok-huvudregel')).toBeNull();                  // säkerheten bor i besöket, inte på Din skog
-    expect(q('besok-kommer')!.textContent).toBe('Jag kommer på besök');
-    expect(el!.textContent).not.toMatch(/röta|m³|förare/i);
+    expect(q('besok-sida')!.getAttribute('data-lage')).toBe('pagar');
+    expect(q('besok-namn')!.textContent).toBe('Skälviken · Kompersmåla Skog avverkar åt Vida');
+    expect(el!.querySelector('h1')!.textContent).toBe('Ska du gå ut i skogen?');
+    expect(q('besok-arbetar')!.textContent).toBe('Maskinerna arbetar här just nu');
+    expect(q('karta-stub')!.getAttribute('data-maskiner')).toBe('2');
+    expect(q('besok-ringregel')!.textContent).toBe(RINGREGEL);
+    expect(q('besok-kommer')!.textContent).toBe('Anmäl besök');
+    expect(el!.querySelectorAll('button[data-testid="besok-kommer"], [data-testid="besok-arbetar"] button')).toHaveLength(1);
+    expect(q('besok-skogen')).toBeNull();
+    expect(q('besok-sida')!.textContent).not.toMatch(/% klart|certifier|Evighetsträd|röta|m³/i);
   });
 
-  it('inga maskiner igång: ingen gul rad', async () => {
-    nastaVy = vy({ maskiner: [], roller: [] });
+  it('en rad per fara med VARFÖR: skördare (kedjan), skotare (kranen, öppnar arket), motorsåg och virkestravarna', async () => {
+    await visa(<BesokKlient token={TOKEN} />);
+    const rader = Array.from(el!.querySelectorAll('[data-testid^="besok-rad-"]')).map((n) => n.getAttribute('data-testid'));
+    expect(rader).toEqual(['besok-rad-skordare', 'besok-rad-skotare', 'besok-rad-motorsag', 'besok-rad-travar']);
+    expect(q('besok-rad-skordare')!.textContent).toContain('Kedjan kan gå av');
+    expect(q('besok-rad-skordare')!.textContent).toContain('70 m');
+    expect(q('besok-rad-skotare')!.textContent).toContain('Kranen svänger');
+    expect(q('besok-rad-travar')!.textContent).toContain('Klättra aldrig');
+    expect(q('besok-rad-skordare')!.tagName).toBe('DIV');
+    await tryck(q('besok-rad-skotare'));
+    const ark = q('besok-skotarark')!;
+    expect(ark.querySelector('svg')).not.toBeNull();
+    expect(ark.querySelector('p')!.textContent).toBe(SKOTARARK_TEXT);
+  });
+
+  it('inga maskiner igång: ingen gul rad och bara virkestravarna', async () => {
+    nastaVy = vy({ maskiner: [], roller: [], harMotorsag: false });
     await visa(<BesokKlient token={TOKEN} />);
     expect(q('besok-arbetar')).toBeNull();
+    expect(Array.from(el!.querySelectorAll('[data-testid^="besok-rad-"]')).map((n) => n.getAttribute('data-testid'))).toEqual(['besok-rad-travar']);
   });
 
-  it('"Därför står träden kvar": intro, "Hittills", raderna med antal, FSC/PEFC-raden — och ingen sektion utan cert', async () => {
+  it('vem man ringer, med numret', async () => {
     await visa(<BesokKlient token={TOKEN} />);
-    const sek = q('besok-skogen')!;
-    expect(sek.textContent).toContain('Därför står träden kvar');
-    expect(sek.textContent).toContain(SKOG.intro);
-    expect(sek.textContent).toContain('Hittills – siffrorna växer medan vi avverkar');
-    expect(q('besok-skograd-evighetstrad')!.textContent).toContain('41 av 73');
-    expect(q('besok-skograd-toppar')!.textContent).toContain('Ligger kvar med flit – inte slarv');
-    await tryck(q('besok-cert'));
-    expect(q('besok-certark')!.textContent).toContain('Vida köper certifierat virke');
-    act(() => { rot!.unmount(); }); el!.remove();
-    nastaVy = vy({ skog: { ...SKOG, intro: null, rader: [], prickar: [] } });
-    await visa(<BesokKlient token={TOKEN} />);
-    expect(q('besok-skogen')).toBeNull();
+    expect(q('besok-ring')!.textContent).toContain('Ring Martin');
+    expect(q('besok-ring')!.querySelector('a')!.getAttribute('href')).toBe('tel:0701112233');
   });
 
-  it('tryck på en rad: ark med "Så ska det se ut"-bilden, förklaringen, kravet och kartan med bara den saken; ingen "Inte så här"', async () => {
-    await visa(<BesokKlient token={TOKEN} />);
-    await tryck(q('besok-skograd-evighetstrad'));
-    const ark = q('besok-skogark-evighetstrad')!;
-    expect(ark.querySelector('[data-testid="besok-skogark-bild"] svg')).not.toBeNull();
-    expect(ark.textContent).toContain('Kravet: minst 10 per hektar');
-    expect(ark.textContent).toContain('Prickarna visar ungefärlig plats');
-    expect(ark.textContent).not.toContain('Inte så här');
-    expect(ark.querySelector('[data-testid="karta-stub"]')!.getAttribute('data-prickar')).toBe('2');
-  });
-
-  it('en rad utan målbild och karta: bara text', async () => {
-    await visa(<BesokKlient token={TOKEN} />);
-    await tryck(q('besok-skograd-toppar'));
-    const ark = q('besok-skogark-toppar')!;
-    expect(ark.querySelector('svg')).toBeNull();
-    expect(ark.querySelector('[data-testid="karta-stub"]')).toBeNull();
-  });
-
-  it('Din ved bara när den är beställd', async () => {
-    await visa(<BesokKlient token={TOKEN} />);
-    expect(q('besok-ved')!.textContent).toContain('3 m · Björk · vid avlägget');
-    act(() => { rot!.unmount(); }); el!.remove();
-    nastaVy = vy({ skog: { ...SKOG, ved: null } });
-    await visa(<BesokKlient token={TOKEN} />);
-    expect(q('besok-ved')).toBeNull();
-  });
-
-  it('avslutat objekt (410) och okänd länk (404) har egna, tomma sidor', async () => {
+  it('avstängd länk (410) och okänd länk (404) har egna, tomma sidor', async () => {
     (fetch as any).mockImplementation(async () => svar(410, { ok: false, fel: 'Arbetet på trakten är avslutat' }));
     await visa(<BesokKlient token={TOKEN} />);
     expect(el!.textContent).toContain('Arbetet är klart');
@@ -141,7 +115,64 @@ describe('markägarens länk: Din skog', () => {
   });
 });
 
-describe('markägarens länk: besöket i tre steg', () => {
+describe('markägarens länk: när vi är klara — "Varför ser det ut så här?"', () => {
+  let nastaVy: any;
+  const KLAR = { lage: 'klar', klarDatum: '2026-11-14T10:00:00Z', maskiner: [], roller: [], besok: null };
+  beforeEach(() => {
+    nastaVy = vy(KLAR);
+    vi.stubGlobal('fetch', vi.fn(async () => svar(200, nastaVy)));
+  });
+
+  it('frågan överst, "klar 14 nov", kartan utan maskiner, raderna — ingen knapp och ingen säkerhet', async () => {
+    await visa(<BesokKlient token={TOKEN} />);
+    expect(q('besok-sida')!.getAttribute('data-lage')).toBe('klar');
+    expect(q('besok-namn')!.textContent).toBe('Skälviken · klar 14 nov');
+    expect(el!.querySelector('h1')!.textContent).toBe('Varför ser det ut så här?');
+    expect(q('karta-stub')!.getAttribute('data-maskiner')).toBe('0');
+    expect(q('karta-stub')!.getAttribute('data-prickar')).toBe('2');
+    expect(q('besok-skograd-evighetstrad')!.textContent).toContain('41');
+    expect(q('besok-kommer')).toBeNull();
+    expect(q('besok-ringregel')).toBeNull();
+    expect(q('besok-ring')!.textContent).toContain('Frågor? Ring Martin');
+    await tryck(q('besok-cert'));
+    expect(q('besok-certark')!.textContent).toContain('Vida köper certifierat virke');
+  });
+
+  it('tryck på en rad: ark med "Så ska det se ut"-bilden, förklaringen, kravet och kartan med bara den saken', async () => {
+    await visa(<BesokKlient token={TOKEN} />);
+    await tryck(q('besok-skograd-evighetstrad'));
+    const ark = q('besok-skogark-evighetstrad')!;
+    expect(ark.querySelector('[data-testid="besok-skogark-bild"] svg')).not.toBeNull();
+    expect(ark.textContent).toContain('Kravet: minst 10 per hektar');
+    expect(ark.textContent).not.toContain('Inte så här');
+    expect(ark.querySelector('[data-testid="karta-stub"]')!.getAttribute('data-prickar')).toBe('2');
+    act(() => { rot!.unmount(); }); el!.remove();
+    await visa(<BesokKlient token={TOKEN} />);
+    await tryck(q('besok-skograd-toppar'));
+    expect(q('besok-skogark-toppar')!.querySelector('[data-testid="karta-stub"]')).toBeNull();
+  });
+
+  it('gallring: bara de två raderna, ingen FSC/PEFC-rad', async () => {
+    nastaVy = vy({ ...KLAR, gallring: true, skog: { ...SKOG, prickar: [], rader: [
+      { id: 'stickvagar', namn: 'Vägarna genom skogen', varfor: 'Ungefär var 20:e meter, så maskinen når träden', varde: null, malbild: null, forklaring: 'x', krav: '', karta: false },
+      { id: 'basta', namn: 'De bästa träden står kvar', varfor: 'De får mer ljus och växer snabbare', varde: null, malbild: null, forklaring: 'x', krav: '', karta: false },
+    ] } });
+    await visa(<BesokKlient token={TOKEN} />);
+    expect(Array.from(el!.querySelectorAll('[data-testid^="besok-skograd-"]')).map((n) => n.getAttribute('data-testid'))).toEqual(['besok-skograd-stickvagar', 'besok-skograd-basta']);
+    expect(q('besok-cert')).toBeNull();
+  });
+
+  it('Din ved bara när den är beställd', async () => {
+    await visa(<BesokKlient token={TOKEN} />);
+    expect(q('besok-ved')!.textContent).toContain('3 m · Björk · vid avlägget');
+    act(() => { rot!.unmount(); }); el!.remove();
+    nastaVy = vy({ ...KLAR, skog: { ...SKOG, ved: null } });
+    await visa(<BesokKlient token={TOKEN} />);
+    expect(q('besok-ved')).toBeNull();
+  });
+});
+
+describe('markägarens länk: besöket', () => {
   let anrop: { url: string; init?: any }[];
   let nastaVy: any;
   beforeEach(() => {
@@ -155,40 +186,9 @@ describe('markägarens länk: besöket i tre steg', () => {
     }));
   });
 
-  it('steg 1: huvudregeln, "Här just nu", maskinerna på kartan — Fortsätt först efter "Jag har läst"', async () => {
-    await visa(<BesokKlient token={TOKEN} />);
-    await tryck(q('besok-kommer'));
-    const regel = q('besok-huvudregel')!;
-    expect(regel.textContent).toContain(HUVUDREGEL.rubrik);
-    HUVUDREGEL.steg.forEach((s) => expect(regel.textContent).toContain(s));
-    expect(el!.querySelectorAll('[data-testid^="besok-rad-"]')).toHaveLength(3);
-    expect(q('besok-rad-skotare')!.tagName).toBe('BUTTON');
-    expect(q('besok-rad-skordare')!.tagName).toBe('DIV');
-    expect(q('karta-stub')!.getAttribute('data-maskiner')).toBe('2');
-    await tryck(q('besok-vidare'));
-    expect(q('besok-steg-anmal')).toBeNull();                 // inte läst än
-    expect(getComputedStyle(q('besok-vidare')!).pointerEvents).toBe('none');
-    await tryck(q('besok-last'));
-    expect(q('besok-last')!.getAttribute('aria-checked')).toBe('true');
-    await tryck(q('besok-vidare'));
-    expect(q('besok-steg-anmal')).not.toBeNull();
-    expect(el!.textContent).not.toMatch(/olycka|farlig|döda vinkeln/i);
-  });
-
-  it('den gula raden leder också till steg 1; skotarraden öppnar arket med bilden och EN mening', async () => {
-    await visa(<BesokKlient token={TOKEN} />);
-    await tryck(q('besok-arbetar'));
-    await tryck(q('besok-rad-skotare'));
-    const ark = q('besok-skotarark')!;
-    expect(ark.querySelector('svg')).not.toBeNull();
-    expect(ark.querySelector('p')!.textContent).toBe(SKOTARARK_TEXT);
-  });
-
   async function tillSteg2() {
     await visa(<BesokKlient token={TOKEN} />);
     await tryck(q('besok-kommer'));
-    await tryck(q('besok-last'));
-    await tryck(q('besok-vidare'));
   }
 
   it('steg 2 → 3: Skicka avstängd tills namn och telefon finns, skickar rätt innehåll och visar läget per maskin', async () => {
@@ -234,15 +234,14 @@ describe('markägarens länk: besöket i tre steg', () => {
     expect(q('besok-steg-under')).not.toBeNull();
     await tryck(q('besok-tillbaka'));
     expect(q('besok-kommer')!.textContent).toBe('Ditt besök');
-    expect(q('besok-arbetar')).toBeNull();                    // besöket är redan anmält
   });
 
-  it('ett besök som är över öppnar Din skog, inte steg 3', async () => {
+  it('ett besök som är över öppnar sidan, inte besöket', async () => {
     localStorage.setItem(`besok_anmalan_v1:${TOKEN}`, JSON.stringify({ id: ID }));
     (fetch as any).mockImplementation(async (url: string) => svar(200, { ...nastaVy, besok: { id: ID, besokstid: TID, gatt: '2026-10-22T12:00:00Z', kvitteringar: [] } }));
     await visa(<BesokKlient token={TOKEN} />);
     expect(q('besok-steg-under')).toBeNull();
-    expect(q('besok-kommer')!.textContent).toBe('Jag kommer på besök');
+    expect(q('besok-kommer')!.textContent).toBe('Anmäl besök');
   });
 
   it('"Jag har gått härifrån": skickar besökets id, glömmer anmälan och visar ett tack på Din skog', async () => {

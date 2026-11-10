@@ -18,7 +18,7 @@ const selectLista = (src: string) => Array.from(src.matchAll(/\.select\('([^']*)
 describe('besökssidan läser exakt de fält den visar', () => {
   const TILLATET = new Set([
     'objekt_id, aktiv',                                                                     // länken
-    'id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id, fastighetsbeteckning, cert, areal, grot, ved_detaljer',  // objektet (volym bara för procenten; cert/areal/grot för "Därför står träden kvar"; ved för "Din ved")
+    'id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id, fastighetsbeteckning, cert, areal, grot, ved_detaljer, typ, avslutad_timestamp',  // objektet (volym bara för procenten; cert/areal/grot/typ för "Varför ser det ut så här?"; ved för "Din ved"; avslutad_timestamp för hur länge länken lever)
     'typ, data',                                                                            // motorsåg, evighetsträd, högstubbar, ved-nålen
     'geometri',                                                                             // Vidas kant mot vatten (bara ytan)
     'oppnad_av, oppnad_at',                                                                 // vem som skickade länken …
@@ -84,7 +84,7 @@ describe('ramverket hoppar över appens startare på besökssidan', () => {
 
 describe('besökssidans text', () => {
   it('ingen säkerhetstext skrivs i vyn — den kommer ur lib/besok/sakerhet.ts', () => {
-    for (const ord of ['Gå aldrig', 'Träd kan', 'motorsåg', 'Stanna minst', 'Vinka', 'reflexväst', 'backar', 'döda vinkeln']) expect(klient, ord).not.toContain(ord);
+    for (const ord of ['Gå aldrig', 'Träd kan', 'motorsåg', 'Kedjan', 'Kranen', 'Klättra', 'röda ringen', 'Stanna minst', 'Vinka', 'reflexväst', 'backar', 'döda vinkeln']) expect(klient, ord).not.toContain(ord);
     expect(klient).toContain("from '@/lib/besok/sakerhet'");
   });
   it('avstånd skrivs aldrig som tal i komponenter eller sidan — bara konstanterna', () => {
