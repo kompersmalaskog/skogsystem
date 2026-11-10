@@ -78,7 +78,9 @@ describe('larmplatsen på kartan har vägen tillbaka till listan (Martin 2026-11
   it('Hela trakten sätter larmPaKartan och listen "‹ Lista" öppnar listan igen', async () => {
     const { readFileSync } = await import('node:fs');
     const s = readFileSync('app/planering/page.tsx', 'utf8');
-    expect(s).toMatch(/onVisa: \(\) => \{ stang\(\); larmFlyTill\(\); setLarmPaKartan\(true\); \}/);
-    expect(s).toMatch(/testid="larm-list"[\s\S]{0,400}etikett: 'Lista', onClick: \(\) => \{ setLarmPaKartan\(false\); setInfoStartVy\('oversikt'\); setTraktOversiktOpen\(true\); \}/);
+    // 2026-11-10: flera larmplatser — kartan visar den valda (eller den man tryckte på i listan), med sitt avlägg i listen.
+    expect(s).toMatch(/onVisa: \(\) => \{ stang\(\); larmVisaPunkt\(larmVal\.vald, true\); \}/);
+    expect(s).toMatch(/if \(medList\) setLarmPaKartan\(\{ lat: p\.lat, lng: p\.lng, namn: p\.namn \}\)/);
+    expect(s).toMatch(/testid="larm-list"[\s\S]{0,400}etikett: 'Lista', onClick: \(\) => \{ setLarmPaKartan\(null\); setInfoStartVy\('oversikt'\); setTraktOversiktOpen\(true\); \}/);
   });
 });

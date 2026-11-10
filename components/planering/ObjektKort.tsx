@@ -17,6 +17,8 @@ import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
 import { KommentarVisning } from './KommentarRuta';
 import { SettKnapp } from './InstruktionKort';
 import BesokPlanerare, { type BesokPlanerareProps } from '../besok/BesokPlanerare';
+import LarmPlatser, { LarmValjSjalv } from './LarmPlatser';
+import type { LarmVisning } from '@/lib/larmpunkter';
 import SkotarLankPlanerare, { type SkotarLankPlanerareProps } from '../skotarlank/SkotarLankPlanerare';
 
 export interface KortLarm {
@@ -29,6 +31,9 @@ export interface KortLarm {
   onVisa: () => void;
   /** Planeraren: raden öppnar larmplatsen för att sätta eller ändra den. Saknas = föraren (raden visar platsen på kartan). */
   onAndra?: () => void;
+  /** Flera larmplatser (lib/larmpunkter.larmVisning). Saknas = bara den ena. */
+  visning?: LarmVisning;
+  onVisaPlats?: (index: number) => void;
 }
 
 export interface ObjektKortProps {
@@ -290,6 +295,32 @@ function KlarSvar({ chip, onKlar }: { chip: { text: string; ton: 'orange' | 'gro
 
 /** Larmkoordinaten är säkerhet: alltid synlig. Satt = tryck flyger kartan dit; ej satt = ärlig varning (farligare att dölja än att visa). */
 function LarmKort({ larm }: { larm: KortLarm }) {
+  const [alla, setAlla] = useState(false);
+  const v = larm.visning;
+  const lista = v && larm.onVisaPlats && v.platser.length > 1 ? (
+    <LarmPlatser larm={v} onVisa={larm.onVisaPlats} />
+  ) : null;
+  // Föraren utan färsk position bland flera larmplatser: alla, och hen väljer själv. Planeraren (onAndra) ser alltid sin egen överst.
+  if (!larm.onAndra && v?.valjSjalv && lista) {
+    return (
+      <div data-testid="kort-larm" data-satt="1" data-valj-sjalv="1" style={{ borderTop: `1px solid ${FARG.linje}` }}>
+        <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px 0`, ...TYP.listtitel }}>Om något händer – ring 112</div>
+        <LarmValjSjalv />
+        {lista}
+      </div>
+    );
+  }
+  const allaRad = lista ? (
+    <>
+      <RadKnapp testid="kort-larm-alla" etikett={larm.onAndra ? `Vidas larmplatser (${v!.platser.length})` : `Alla larmplatser (${v!.platser.length})`} onTryck={() => setAlla((x) => !x)}
+        pil={false} hoger={<span style={{ display: 'inline-flex', transform: alla ? 'rotate(90deg)' : 'none' }}><Pil /></span>} />
+      {alla && lista}
+    </>
+  ) : null;
+  return <>{larmHuvud(larm, larm.onAndra ? null : v ?? null)}{allaRad}</>;
+}
+
+function larmHuvud(larm: KortLarm, v: LarmVisning | null) {
   if (!larm.satt && larm.onAndra) {
     return (
       <RadKnapp testid="kort-larm" ikon="warning" farg={FARG.orange} etikett="Larmkoordinat ej satt" under="Tryck för att sätta mötesplatsen för räddningstjänsten" onTryck={larm.onAndra} />
@@ -312,6 +343,7 @@ function LarmKort({ larm }: { larm: KortLarm }) {
       <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>Larmkoordinat</span>
+          {v && (v.narmast || v.namn) && <span data-testid="kort-larm-namn" style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{[v.narmast, v.namn].filter(Boolean).join(' · ')}</span>}
           <span style={{ display: 'block', ...TYP.listtitel, ...TNUM, overflowWrap: 'anywhere' }}>{larm.koordinat}</span>
           {larm.visaKontroll && <span data-testid="kort-larm-status" style={{ display: 'block', ...TYP.meta, color: larm.bekraftad ? FARG.gron : FARG.orange }}>{larm.bekraftad ? 'Larmplats kontrollerad' : 'Larmplats inte kontrollerad'}</span>}
         </span>

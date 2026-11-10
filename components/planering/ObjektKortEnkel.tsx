@@ -21,6 +21,8 @@ import { Gruppkort, Huvud, Pil, RadKnapp } from './infoDelar';
 import { SettKnapp } from './InstruktionKort';
 import { KommentarVisning } from './KommentarRuta';
 import { YtaRadVy } from './YtaRad';
+import LarmPlatser, { LarmValjSjalv } from './LarmPlatser';
+import type { LarmVisning } from '@/lib/larmpunkter';
 
 export interface ObjektKortEnkelProps {
   namn: string;
@@ -43,7 +45,8 @@ export interface ObjektKortEnkelProps {
   onYta: (nyckel: string) => void;
   knappar: KortKnapp[];
   onKnapp: (id: KortKnappId) => void;
-  larm: { satt: boolean; koordinat: string; beskrivning: string; onVisa: () => void };
+  /** Larmplatsen (lib/larmpunkter.larmVisning): den närmaste, eller alla när GPS saknas. `onVisaPlats` = en rad i listan över alla. */
+  larm: { satt: boolean; koordinat: string; beskrivning: string; onVisa: () => void } & Partial<Omit<LarmVisning, 'satt' | 'koordinat'>> & { onVisaPlats?: (index: number) => void };
   onKarta?: () => void;
   /** "PEFC – vad gäller?" — kraven för traktens certifiering. Saknas = ingen rad. */
   onCert?: { etikett: string; onTryck: () => void };
@@ -77,6 +80,9 @@ const Ruta = ({ children, testid }: { children: React.ReactNode; testid: string 
 
 export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
   const [dokOppen, setDokOppen] = useState(false);
+  const [larmAllaOppen, setLarmAllaOppen] = useState(false);
+  const larmFlera = p.larm.platser && p.larm.onVisaPlats && p.larm.platser.length > 1;
+  const larmLista = larmFlera ? <LarmPlatser larm={{ namn: null, narmast: null, valjSjalv: false, ...p.larm, platser: p.larm.platser! }} onVisa={p.larm.onVisaPlats!} /> : null;
   const n = p.knappar.length;
   const harInnehall = !!p.risker || p.faror.length > 0 || !!p.grot || p.tillForaren.length > 0 || p.ytor.length > 0 || !!p.brand;
 
@@ -170,9 +176,18 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
 
         {/* LÄNGST NER — en grupp rader: 112 med larmkoordinaten · Kartans färger · Dokument · Mer */}
         <Gruppkort testid="kort-uppdrag">
-          {p.larm.satt ? (
+          {p.larm.satt && p.larm.valjSjalv && larmLista ? (
+            <div data-testid="kort-larm" data-satt="1" data-valj-sjalv="1">
+              <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px 0`, ...TYP.text }}>Om något händer – ring 112</div>
+              <LarmValjSjalv />
+              {larmLista}
+            </div>
+          ) : p.larm.satt ? (
             <RadKnapp forstaRad testid="kort-larm" etikett="Om något händer – ring 112" onTryck={p.larm.onVisa}
-              under={<span data-testid="kort-larm-koordinat" style={TNUM}>Larmkoordinat {p.larm.koordinat}</span>} />
+              under={<>
+                {(p.larm.narmast || p.larm.namn) && <span data-testid="kort-larm-namn" style={{ display: 'block' }}>{[p.larm.narmast, p.larm.namn].filter(Boolean).join(' · ')}</span>}
+                <span data-testid="kort-larm-koordinat" style={{ display: 'block', ...TNUM }}>Larmkoordinat {p.larm.koordinat}</span>
+              </>} />
           ) : (
             <div data-testid="kort-larm" data-satt="0" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px` }}>
               <div style={{ ...TYP.text }}>Om något händer – ring 112</div>
@@ -181,6 +196,13 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
             </div>
           )}
           {p.larm.satt && p.larm.beskrivning && <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px`, ...TYP.text, whiteSpace: 'pre-wrap' }}>{p.larm.beskrivning}</div>}
+          {p.larm.satt && !p.larm.valjSjalv && larmLista && (
+            <>
+              <RadKnapp testid="kort-larm-alla" etikett={`Alla larmplatser (${p.larm.platser!.length})`} onTryck={() => setLarmAllaOppen((v) => !v)}
+                pil={false} hoger={<span style={{ display: 'inline-flex', transform: larmAllaOppen ? 'rotate(90deg)' : 'none' }}><Pil /></span>} />
+              {larmAllaOppen && larmLista}
+            </>
+          )}
           {p.onEgenkontroll && <RadKnapp testid="kort-egenkontroll" etikett="Egenkontroll" under={p.onEgenkontroll.under} onTryck={p.onEgenkontroll.onTryck} />}
           {p.onKarta && <RadKnapp testid="kort-vad-betyder-kartan" etikett="Kartans färger" onTryck={p.onKarta} />}
           {p.onCert && <RadKnapp testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}

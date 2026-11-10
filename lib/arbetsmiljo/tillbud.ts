@@ -2,6 +2,7 @@
 // Databasen gör resten: varje rapport blir en åtgärd (kalla 'tillbud') och en push till admin och skyddsombud.
 // Ärligt: ett läsfel är ett fel, aldrig en tom lista.
 
+import { larmpunkterUr } from '../larmpunkter';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { giltigAndring, type KortAndring, type Kontakt, type Larmplats, type NodData } from './nod';
 import { hamta as hamtaInstruktioner } from './saGorVi';
@@ -97,21 +98,38 @@ export const ANMAL_LANK = 'https://anmalarbetsskada.se';
 
 /** Nödsidans data: vem man ringer och traktenas larmplatser. Läsfel → null (sidan använder det som finns sparat). */
 export async function hamtaNodData(sb: SupabaseClient, nu: number = Date.now()): Promise<NodData | null> {
-  const [k, o, r, instruktioner] = await Promise.all([
+  // Ordningen ÄR namnen: k = kontakter, o = objekt (larmplatserna), r = rutinkorten. Fram till 2026-11-10 låg rutinkorten
+  // på o:s plats — nödsidan fick inga larmplatser alls och admins ändrade kort nådde aldrig enheterna (test: nodLarmplatser.test.ts).
+  const [k, o, r, instruktioner, vp] = await Promise.all([
     sb.rpc('am_nodkontakter'),
+    sb.from('objekt').select('id, namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, status').neq('status', 'avslutat'),
     sb.from('am_rutinkort').select('id, titel, steg1, steg2, steg3, andrad_tid'),
-    sb.from('objekt').select('id, namn, larmkoordinat_lat, larmkoordinat_lng, larmkoordinat_beskrivning, status')
-      .not('larmkoordinat_lat', 'is', null).not('larmkoordinat_lng', 'is', null).neq('status', 'avslutat'),
     // Så gör vi: ett tillägg. Kunde de inte läsas saknas fältet (slaIhopNod behåller det som var sparat).
     hamtaInstruktioner(sb).catch(() => null),
+    // Vidas larmplatser (en vid varje avlägg) — ett tillägg. Kunde de inte läsas gäller objektets egen larmkoordinat som förut.
+    Promise.resolve(sb.rpc('objekt_tillaggspunkter')).catch(() => ({ data: null, error: true })),
   ]);
   if (k.error || o.error || !Array.isArray(k.data) || !Array.isArray(o.data)) return null;
   const kontakter: Kontakt[] = (k.data as { namn: string | null; telefon: string | null }[])
     .filter(r => r.namn && r.telefon)
     .map(r => ({ namn: r.namn as string, telefon: r.telefon as string }));
-  const larmplatser: Larmplats[] = (o.data as any[])
-    .map(r => ({ objektId: r.id as string, namn: (r.namn as string) || 'Trakten', lat: Number(r.larmkoordinat_lat), lng: Number(r.larmkoordinat_lng), beskrivning: r.larmkoordinat_beskrivning?.trim() || null }))
-    .filter(l => Number.isFinite(l.lat) && Number.isFinite(l.lng));
+  const vidaPerObjekt = new Map<string, unknown[]>();
+  if (!(vp as any)?.error && Array.isArray((vp as any)?.data)) {
+    for (const x of (vp as any).data as { objekt_id: string; punkt: unknown }[]) {
+      const lista = vidaPerObjekt.get(x.objekt_id) ?? [];
+      lista.push(x.punkt);
+      vidaPerObjekt.set(x.objekt_id, lista);
+    }
+  }
+  const larmplatser: Larmplats[] = (o.data as any[]).flatMap(r => {
+    const la = Number(r.larmkoordinat_lat); const ln = Number(r.larmkoordinat_lng);
+    const egen = r.larmkoordinat_lat != null && r.larmkoordinat_lng != null && Number.isFinite(la) && Number.isFinite(ln) ? { lat: la, lng: ln } : null;
+    const beskr: string | null = r.larmkoordinat_beskrivning?.trim() || null;
+    return larmpunkterUr((vidaPerObjekt.get(r.id) ?? []) as any[], egen).map(p => ({
+      objektId: r.id as string, namn: (r.namn as string) || 'Trakten', lat: p.lat, lng: p.lng,
+      beskrivning: [p.namn, p.objektets ? beskr : null].filter(Boolean).join('\n') || null,
+    }));
+  });
   // Korten är ett tillägg: kunde de inte läsas saknas `andringar` (slaIhopNod behåller då det som var sparat).
   const andringar: KortAndring[] | undefined = r.error || !Array.isArray(r.data) ? undefined
     : (r.data as any[]).map(x => ({ id: x.id, titel: x.titel, steg: [x.steg1, x.steg2, x.steg3] as [string, string, string], andradTid: x.andrad_tid ?? null })).filter(giltigAndring);
