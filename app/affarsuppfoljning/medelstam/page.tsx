@@ -42,7 +42,7 @@ function Innehall() {
   if (!d) return <div style={SIDA} />;
 
   return (
-    <MedelstamVy alla={d.alla} meta={d.meta} uppdaterad={d.uppdaterad} rotLasbar={d.rotLasbar} vy={vy} fran={fran} msAdress={msAdress}
+    <MedelstamVy alla={d.alla} tradslag={d.tradslag} meta={d.meta} uppdaterad={d.uppdaterad} rotLasbar={d.rotLasbar} vy={vy} fran={fran} msAdress={msAdress}
       gaTill={(v, f) => router.push(v === 'huvud' ? BAS : `${BAS}?vy=${v}${f && f !== 'huvud' ? `&fran=${f}` : ''}`)} />
   );
 }
