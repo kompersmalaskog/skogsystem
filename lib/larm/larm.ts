@@ -22,7 +22,7 @@
 //
 // Kvittensen gäller bara den förare som kvitterat (`forareId`). En annan förare får fullt larm.
 
-import { GRUPPER, type FargGrupp } from './grupper';
+import { GRUPPER, arTystSymbol, larmRegelFor, type FargGrupp } from './grupper';
 
 export const NARA_M = 40;
 export const MYCKET_NARA_M = 15;
@@ -143,7 +143,7 @@ export function arKvitterad(o: Pick<LarmObjekt, 'id' | 'hash'>, kvitt: KvittensK
 export function larmar(o: LarmObjekt, kvitterad: boolean): boolean {
   if (o.undantagen) return false;
   if (o.forbjuden) return true;
-  const regel = GRUPPER[o.grupp].larm;
+  const regel = larmRegelFor(o);
   if (regel === 'aldrig') return false;
   if (regel === 'alltid') return true;
   return !kvitterad;
@@ -151,7 +151,7 @@ export function larmar(o: LarmObjekt, kvitterad: boolean): boolean {
 
 /** Visar objektet en ring i gruppens färg när man är nära? Alla larmgrupper, även kvitterade. */
 export function harRing(o: LarmObjekt): boolean {
-  return !o.undantagen && (o.forbjuden === true || GRUPPER[o.grupp].larm !== 'aldrig');
+  return !o.undantagen && (o.forbjuden === true || larmRegelFor(o) !== 'aldrig');
 }
 
 /**
@@ -241,6 +241,7 @@ export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensK
     if (!larmar(o, kvitterad)) continue;
     aktiva.push({ o, steg, kvitterad, sett: !fara && !!inp.state.sett[o.id] });
     // Ljud en gång per närmande: första gången objektet kommer in, och en gång till när Röd kommer inom 15 m.
+    if (arTystSymbol(o)) continue;                        // Info ("i"): kortet visas, men inget ljud och ingen vibration
     if (prev === 'ute' && steg === 'nara') {
       if (ljud !== 'mycket_nara') ljud = 'nara';
       vibration = vibration ?? (o.kalla === 'yta' ? VIBRATION_YTA : VIBRATION.nara);

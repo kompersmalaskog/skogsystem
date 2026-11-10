@@ -425,3 +425,36 @@ describe('flera larm samtidigt', () => {
     expect(steg([rod('R', 12)]).fler).toEqual([]);
   });
 });
+
+describe('Info ("i", typ note): visas en gång, tyst (Martin 2026-11-10)', () => {
+  const info = (extra: Partial<LarmObjekt> = {}) => sym('info', 30, { id: 's-note', typ: 'note', namn: 'Info', kommentar: 'Grinden kärvar', ...extra });
+  it('är mörk Info', () => expect(SYMBOL_GRUPP.note).toBe('info'));
+  it('okvitterad: kortet visas med Sett-rad, men inget ljud och ingen vibration', () => {
+    const u = steg([info()]);
+    expect(u.kort).not.toBeNull();
+    expect(u.ljud).toBeNull();
+    expect(u.vibration).toBeNull();
+    expect(harSettRad(info())).toBe(true);
+  });
+  it('kvitterad av samma förare med samma text: tyst och inget kort', () => {
+    const o = info();
+    const u = steg([o], kv(o));
+    expect(u.kort).toBeNull();
+    expect(larmar(o, true)).toBe(false);
+  });
+  it('ändrad text eller annan förare: visas igen', () => {
+    const o = info();
+    expect(steg([o], kv(o, A, 'annan-hash')).kort).not.toBeNull();
+    expect(steg([o], kv(o, B)).kort).not.toBeNull();
+  });
+  it('tystnaden tar inte ljudet från en annan symbol samtidigt', () => {
+    const u = steg([info(), sym('natur', 25)]);
+    expect(u.ljud).toBe('nara');
+  });
+  it('övriga Info-symboler larmar fortfarande aldrig', () => {
+    expect(steg([sym('info', 30, { typ: 'firewood' })]).kort).toBeNull();
+  });
+  it('bara symboler: en linje eller yta med typen note följer gruppen', () => {
+    expect(steg([sym('info', 30, { typ: 'note', kalla: 'linje' })]).kort).toBeNull();
+  });
+});
