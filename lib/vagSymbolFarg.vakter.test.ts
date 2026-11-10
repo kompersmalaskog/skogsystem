@@ -19,7 +19,7 @@ describe('sidans koppling', () => {
   it('frågan står bara när inget annat pågår nertill', () => {
     const m = sida.match(/const vagForslagListSynlig = ([^;]+);/);
     expect(m).not.toBeNull();
-    for (const villkor of ['harVagForslag(vagForslag)', '!kartLageIgang', '!menuOpen', '!objektListaOppen', '!traktOversiktOpen', '!framhavListSynlig', '!korLage', '!klarGranskaAvlagg', 'markerMenuOpen == null', '!briefingMode']) {
+    for (const villkor of ['harVagForslag(vagForslag)', '!kartLageIgang', '!menuOpen', '!objektListaOppen', '!traktOversiktOpen', '!framhavListSynlig', '!korLage', '!klarGranskaAvlagg', 'markerMenuOpen == null']) {
       expect(m![1], villkor).toContain(villkor);
     }
   });

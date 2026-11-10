@@ -73,6 +73,9 @@ export interface ObjektInfoProps {
   oversikt?: Omit<TraktOversiktProps, 'namn' | 'tillForaren' | 'markeringar' | 'miljo' | 'ikon' | 'objektId' | 'onFoto' | 'onMer' | 'onCert'> | null;
 }
 
+/** Mer har inget eget kvar (planeringen efter städningen 2026-11-10): då står Avsluta objekt och "Inte klar – fortsätt" på kortet och Mer-raden försvinner. */
+export const merArTom = (mer: Pick<MerMenyProps, 'grupper' | 'planerare'>): boolean => mer.grupper.every((g) => g.rader.length === 0) && !mer.planerare?.visaSom;
+
 export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, enkel = null, forarRisker = null, onRiskerForbered, bredd, startVy = 'kort', cert = [], kartaSparad = null, oversikt = null, egenkontroll = null }: ObjektInfoProps) {
   // Om trakten öppnad från överblicken går tillbaka dit, inte till kortet.
   const [omFran, setOmFran] = useState<'kort' | 'oversikt'>('kort');
@@ -125,7 +128,8 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
             direktivSett={direktiv ? { sedd: direktiv.nya === 0, onSett: () => instruktioner!.onSett([DIREKTIV_NYCKEL]) } : null}
             namn={objektNamn} onStang={stangRam} onKlar={klar ? () => setVy('klar') : undefined}
             onRisker={klar && kort.riskRad && onRiskerForbered ? () => { onRiskerForbered(); setVy('klar'); } : undefined}
-            onKnapp={onKnapp} onMer={() => setVy('mer')}
+            onKnapp={onKnapp} onMer={merArTom(mer) ? undefined : () => setVy('mer')}
+            avsluta={merArTom(mer) ? mer.avsluta : null} fortsatt={merArTom(mer) ? mer.fortsatt : null}
             onPaTrakten={() => setVy('om')} onKarta={karta ? () => setVy('karta') : undefined} onCert={onCert} kartaSparad={kartaSparad}
             onEgenkontroll={egenkontroll ? { under: egenkontroll.under, onTryck: () => setVy('egenkontroll') } : undefined} />
         ) : vy === 'om' ? (

@@ -215,11 +215,11 @@ describe('puls', () => {
 
 describe('sidans koppling (page.tsx kan inte monteras — källvakt)', () => {
   const page = readFileSync(resolve(__dirname, '../app/planering/page.tsx'), 'utf8');
-  it('framhävningen släpps vid tryck på kartan eller nytt val — ingen timer — och ligger EFTER briefing-effekten (som annars skriver över nedtoningen)', () => {
+  it('framhävningen släpps vid tryck på kartan eller nytt val — ingen timer — och ligger EFTER grundvärdes-effekten (som annars skriver över nedtoningen)', () => {
     expect(page).not.toMatch(/setTimeout\(\(\) => setFramhavdMarkering\(null\), \d+\)/);
     expect(page).toContain('startaFramhavning(map as any, framhavning,');
     expect(page).toContain('const framhavning = framhavdMarkering ?? (framhavdTyp && framhavdTyp.length > 0 ? framhavdTyp : null);');   // ett enskilt objekt går före typens
-    const briefing = page.indexOf('}, [briefingMode, briefingHighlightId, mapLibreReady, markers, checklistMapView]);');
+    const briefing = page.indexOf('  }, [mapLibreReady, markers]);');
     const framhav = page.indexOf('// Om trakten › Visa ›: markeringen framhävs');
     expect(briefing).toBeGreaterThan(0);
     expect(framhav).toBeGreaterThan(briefing);
@@ -244,7 +244,7 @@ describe('sidans koppling (page.tsx kan inte monteras — källvakt)', () => {
   });
   it('raden "Visa hela", stängd panel och telefonens "‹ Om trakten" är kopplade; objektinfon kan öppnas direkt på Om trakten', () => {
     expect(page).toContain("onSlapp: (orsak) => slappFramhavningRef.current(orsak),");
-    expect(page).toContain('<ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} kartaSparad={nedladdningText(kartNedladdning)} egenkontroll={egenkontrollInfo} />');
+    expect(page).toContain('<ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} egenkontroll={egenkontrollInfo} />');
     expect(page).toContain('testid="framhav-list"');
     expect(page).toContain("slappFramhavningRef.current('tillbaka'); setInfoStartVy('om'); setTraktOversiktOpen(true);");
     expect(page).toContain("AVBRYT_KNAPP(() => slappFramhavningRef.current('rad'), 'framhav-slapp')");   // × på telefonens rad = som Visa hela (zoomar ut)

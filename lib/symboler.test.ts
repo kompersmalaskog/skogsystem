@@ -128,8 +128,6 @@ describe('inga kopior av glyfer, former och färger', () => {
     for (const [t, f] of Object.entries(SYMBOL_FORKLARING)) expect(String(f).toLowerCase(), t).not.toContain('lastbil');
   });
   it('de gamla kopiorna är borta: briefingens ICON_SVG/ICON_BG och markeringsikonernas egna SVG-banor', () => {
-    const briefing = lasa('app/planering/TraktBriefing.tsx');
-    expect(briefing).not.toMatch(/ICON_SVG|ICON_BG\b/);
     expect(lasa('lib/marker-icons.ts')).not.toMatch(/<path d="M/);
   });
   it('symbol- och ytkoden skriver ingen grupp-hex själv (färgen kommer ur lib/larm/grupper)', () => {

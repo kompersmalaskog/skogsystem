@@ -27,6 +27,8 @@ export interface KortLarm {
   visaKontroll: boolean;
   beskrivning: string;
   onVisa: () => void;
+  /** Planeraren: raden öppnar larmplatsen för att sätta eller ändra den. Saknas = föraren (raden visar platsen på kartan). */
+  onAndra?: () => void;
 }
 
 export interface ObjektKortProps {
@@ -41,7 +43,12 @@ export interface ObjektKortProps {
   /** MASKINLÄGET: Vidas direktiv är instruktion nr 1 — "✓ Sett" under rutan medan det inte setts. Null/saknas = ingen knapp (planeringsvyn). */
   direktivSett?: { sedd: boolean; onSett: () => void } | null;
   /** "Mer" är en rad längst ner i uppdraget (inte en stor knapp högst upp): menyn med Körvy, Föraren, Planeraren, Övrigt och Avsluta objekt. */
-  onMer: () => void;
+  /** Saknas = ingen Mer-rad (planeringen: Mer hade inget kvar — Avsluta objekt står på kortet, 2026-11-10). */
+  onMer?: () => void;
+  /** "Avsluta objekt" (rött, bara när objektet pågår) — på kortet när Mer inte finns. */
+  avsluta?: (() => void) | null;
+  /** "Inte klar – fortsätt" när appen avslutade objektet — på kortet när Mer inte finns. */
+  fortsatt?: { skal: string; onTryck: () => void; sparar?: boolean; fel?: string | null } | null;
   brickor: Bricka[];
   extraBrickor: Bricka[];
   /** "N markeringar · M med text" — null = inga markeringar (raden visas inte) */
@@ -55,6 +62,8 @@ export interface ObjektKortProps {
   onCert?: { etikett: string; onTryck: () => void };
   /** "Ladda ner trakten": en dämpad rad ovanför Mer. null/saknas = ingen rad. */
   kartaSparad?: string | null;
+  /** Vägdata (planeringen): "3 vägar" / "Kunde inte hämtas". onTryck null = bara att läsa. null/saknas = ingen rad. */
+  vagdata?: { varde: string; misslyckad: boolean; onTryck: (() => void) | null } | null;
   /** Vidas egenkontroll: "Egenkontroll · 2 av 6 frågor". Saknas = ingen rad. */
   onEgenkontroll?: { under: string; onTryck: () => void };
   brand: { lat: number; lng: number } | null;
@@ -232,9 +241,27 @@ export default function ObjektKort(p: ObjektKortProps) {
             </>
           )}
           <LarmKort larm={p.larm} />
+          {p.vagdata && (p.vagdata.onTryck
+            ? <RadKnapp testid="kort-vagdata" ikon={p.vagdata.misslyckad ? 'error' : 'route'} farg={p.vagdata.misslyckad ? FARG.orange : undefined} etikett="Vägdata" under={p.vagdata.varde} onTryck={p.vagdata.onTryck} />
+            : <RadKnapp testid="kort-vagdata" ikon={p.vagdata.misslyckad ? 'error' : 'route'} farg={p.vagdata.misslyckad ? FARG.orange : undefined} etikett="Vägdata" under={p.vagdata.varde} onTryck={() => {}} pil={false} />)}
           {p.kartaSparad && <div data-testid="kort-karta-sparad" style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}`, ...TYP.meta, color: FARG.text2 }}>{p.kartaSparad}</div>}
-          <RadKnapp testid="kort-mer" etikett="Mer" under="Fler val och inställningar" onTryck={p.onMer} />
+          {p.onMer && <RadKnapp testid="kort-mer" etikett="Mer" under="Fler val och inställningar" onTryck={p.onMer} />}
         </Gruppkort>
+        {p.fortsatt && (
+          <div style={{ marginTop: AVSTAND.l }}>
+            <Gruppkort testid="kort-fortsatt">
+              <RadKnapp forstaRad testid="kort-fortsatt-rad" ikon="replay" etikett={p.fortsatt.sparar ? 'Sparar …' : 'Inte klar – fortsätt'}
+                under={p.fortsatt.fel ?? p.fortsatt.skal} farg={p.fortsatt.fel ? FARG.orange : undefined} onTryck={p.fortsatt.sparar ? () => {} : p.fortsatt.onTryck} pil={false} />
+            </Gruppkort>
+          </div>
+        )}
+        {p.avsluta && (
+          <div style={{ marginTop: AVSTAND.l }}>
+            <Gruppkort testid="kort-avsluta">
+              <RadKnapp forstaRad testid="kort-avsluta-objekt" ikon="check_circle" farg={FARG.rod} etikett="Avsluta objekt" onTryck={p.avsluta} pil={false} />
+            </Gruppkort>
+          </div>
+        )}
         {p.vader && <div data-testid="kort-vader" style={{ marginTop: AVSTAND.l }}>{p.vader}</div>}
       </div>
     </>
@@ -263,19 +290,24 @@ function KlarSvar({ chip, onKlar }: { chip: { text: string; ton: 'orange' | 'gro
 
 /** Larmkoordinaten är säkerhet: alltid synlig. Satt = tryck flyger kartan dit; ej satt = ärlig varning (farligare att dölja än att visa). */
 function LarmKort({ larm }: { larm: KortLarm }) {
+  if (!larm.satt && larm.onAndra) {
+    return (
+      <RadKnapp testid="kort-larm" ikon="warning" farg={FARG.orange} etikett="Larmkoordinat ej satt" under="Tryck för att sätta mötesplatsen för räddningstjänsten" onTryck={larm.onAndra} />
+    );
+  }
   if (!larm.satt) {
     return (
       <div data-testid="kort-larm" data-satt="0" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, ...TYP.listtitel, color: FARG.orange }}>
           <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad }}>warning</span>Larmkoordinat ej satt
         </div>
-        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Ingen mötesplats för räddningstjänsten är angiven. Sätt den under Mer › Trakt › Larm.</div>
+        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Ingen mötesplats för räddningstjänsten är angiven.</div>
         {larm.beskrivning && <div style={{ ...TYP.text, marginTop: AVSTAND.s, whiteSpace: 'pre-wrap' }}>{larm.beskrivning}</div>}
       </div>
     );
   }
   return (
-    <button type="button" data-testid="kort-larm" data-satt="1" onClick={larm.onVisa} className="press-row" aria-label="Visa larmkoordinaten på kartan"
+    <button type="button" data-testid="kort-larm" data-satt="1" onClick={larm.onAndra ?? larm.onVisa} className="press-row" aria-label={larm.onAndra ? 'Ändra larmkoordinaten' : 'Visa larmkoordinaten på kartan'}
       style={{ width: '100%', display: 'block', padding: `${AVSTAND.m}px ${AVSTAND.l}px`, background: 'transparent', border: 'none', borderTop: `1px solid ${FARG.linje}`, color: FARG.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
       <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
         <span style={{ flex: 1, minWidth: 0 }}>
