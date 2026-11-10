@@ -184,9 +184,10 @@ export type Props = {
   start?: { typ?: Typ; ms?: string; rot?: string; tradslag?: Val };   // för rendering utan lagring (verifiering)
   msAdress?: string | null;       // ?ms=0,50 från Räknas tabell: öppna slutavverkning på just den medelstammen
   tradslag?: Record<Tradslag, Objekt[]> | null;   // gran och tall var för sig (slutavverkning); null/saknas = inget val
+  tsAdress?: Tradslag | null;     // ?ts=gran från Räknas tabell: öppna på granens medelstam
 };
 
-export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fran, gaTill, start, msAdress, tradslag }: Props) {
+export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fran, gaTill, start, msAdress, tradslag, tsAdress }: Props) {
   const [typ, setTyp] = useState<Typ>(start?.typ ?? 'Slutavverkning');
   const [valTs, setValTs] = useState<Val>(start?.tradslag ?? 'alla');
   const [msText, setMsText] = useState<Partial<Record<MsNyckel, string>>>(start?.ms != null ? { [start.tradslag && start.tradslag !== 'alla' ? start.tradslag : (start.typ ?? 'Slutavverkning')]: start.ms } : {});
@@ -202,12 +203,12 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fra
       if (l.tradslag && VAL.some(([v]) => v === l.tradslag)) setValTs(l.tradslag);
       if (msAdress && tolkaMedelstam(msAdress) != null) {
         setTyp('Slutavverkning');
-        setValTs('alla');
-        setMsText(t => ({ ...t, Slutavverkning: msAdress }));
+        setValTs(tsAdress ?? 'alla');
+        setMsText(t => ({ ...t, [tsAdress ?? 'Slutavverkning']: msAdress }));
       }
     }
     setLaddatLokalt(true);
-  }, [start, msAdress]);
+  }, [start, msAdress, tsAdress]);
   useEffect(() => { if (laddatLokalt && !start) sparaLokalt({ typ, ms: msText, rot: rotVal, tradslag: valTs }); }, [typ, msText, rotVal, valTs, laddatLokalt, start]);
 
   const urval = useMemo(() => delaUrval(alla), [alla]);       // lövdominerade objekt ligger i urval.utanfor — redovisas, räknas inte

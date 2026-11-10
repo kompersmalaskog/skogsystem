@@ -23,6 +23,8 @@ function Innehall() {
   const fran: Vy | undefined = franParam === 'objekt' || franParam === 'kurva' || franParam === 'huvud' ? franParam : undefined;
   // ?ms=0,50 — en rad i Räknas tabell öppnar sidan på just den medelstammen (slutavverkning).
   const msAdress = sp.get('ms');
+  const tsParam = sp.get('ts');
+  const tsAdress = tsParam === 'gran' || tsParam === 'tall' ? tsParam : null;
 
   const [d, setD] = useState<MedelstamUnderlag | null>(null);
   const [laddar, setLaddar] = useState(true);
@@ -42,7 +44,7 @@ function Innehall() {
   if (!d) return <div style={SIDA} />;
 
   return (
-    <MedelstamVy alla={d.alla} tradslag={d.tradslag} meta={d.meta} uppdaterad={d.uppdaterad} rotLasbar={d.rotLasbar} vy={vy} fran={fran} msAdress={msAdress}
+    <MedelstamVy alla={d.alla} tradslag={d.tradslag} meta={d.meta} uppdaterad={d.uppdaterad} rotLasbar={d.rotLasbar} vy={vy} fran={fran} msAdress={msAdress} tsAdress={tsAdress}
       gaTill={(v, f) => router.push(v === 'huvud' ? BAS : `${BAS}?vy=${v}${f && f !== 'huvud' ? `&fran=${f}` : ''}`)} />
   );
 }

@@ -12,11 +12,17 @@ import { AVSTAND, FARG, KORT, RADIE, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/des
 import { Etikett, nf, nf0, Fel } from '@/components/Ytform';
 import { sortimentFarg } from '@/components/Sortimentstapel';
 import { SORTIMENT, type Sortiment } from '@/lib/medelstam/berakna';
-import { lasMedelstamUnderlag, type MedelstamUnderlag, type LasFel } from '@/lib/medelstam/las';
-import { medelstamTabell } from '@/lib/medelstam/tabell';
+import { lasMedelstamUnderlag, type MedelstamUnderlag, type LasFel, type Tradslag } from '@/lib/medelstam/las';
+import Flikkontroll from '@/components/design/Flikkontroll';
+import { medelstamTabell, TABELL_STEG, TABELL_STEG_TRADSLAG } from '@/lib/medelstam/tabell';
 
 const KORT_NAMN: Record<Sortiment, string> = { timmer: 'Timmer', kubb: 'Kubb', massa: 'Massa', ovrigt: 'Övrigt' };
 const VOLYM_NYCKEL = 'rakna_volym_v1';
+const TS_NYCKEL = 'rakna_tradslag_v1';
+type Val = 'alla' | Tradslag;
+const VAL: readonly (readonly [Val, string])[] = [['alla', 'Alla'], ['gran', 'Gran'], ['tall', 'Tall']];
+function lasVal(): Val { try { const v = localStorage.getItem(TS_NYCKEL); return v === 'gran' || v === 'tall' ? v : 'alla'; } catch { return 'alla'; } }
+function sparaVal(v: Val) { try { localStorage.setItem(TS_NYCKEL, v); } catch { /* privat läge */ } }
 const KOLUMN_MS = 76;   // medelstamskolumnen; sortimenten delar resten lika
 
 function lasVolym(): string { try { return localStorage.getItem(VOLYM_NYCKEL) ?? ''; } catch { return ''; } }
@@ -36,23 +42,32 @@ export default function VadGerDet({ underlag }: { underlag?: MedelstamUnderlag }
   const [d, setD] = useState<MedelstamUnderlag | null>(underlag ?? null);
   const [fel, setFel] = useState<LasFel | null>(null);
   const [volymText, setVolymText] = useState('');
+  const [val, setVal] = useState<Val>('alla');
 
   async function hamta() {
     setFel(null);
     const res = await lasMedelstamUnderlag();
     if (res.ok) setD(res.d); else setFel(res.fel);
   }
-  useEffect(() => { setVolymText(lasVolym()); if (!underlag) hamta(); }, [underlag]);
+  useEffect(() => { setVolymText(lasVolym()); setVal(lasVal()); if (!underlag) hamta(); }, [underlag]);
 
   const volym = tolkaVolym(volymText);
-  const rader = useMemo(() => (d ? medelstamTabell(d.alla, d.meta, d.rotLasbar, volym) : []), [d, volym]);
+  // Gran eller tall: tabellen räknas på trädslagets egna stammar (samma underlag som medelstamssidans val). Går trädslagen inte att läsa finns inget val.
+  const ts: Tradslag | null = d?.tradslag && val !== 'alla' ? val : null;
+  const tsObjekt = ts && d?.tradslag ? d.tradslag[ts] : null;
+  const rader = useMemo(() => (d ? medelstamTabell(d.alla, d.meta, d.rotLasbar, volym, tsObjekt ? TABELL_STEG_TRADSLAG : TABELL_STEG, tsObjekt) : []), [d, volym, tsObjekt]);
 
   return (
     <>
       <Etikett>Vad ger det? · slutavverkning</Etikett>
       <div style={{ ...KORT, margin: `0 ${AVSTAND.l}px` }}>
+        {d?.tradslag && (
+          <div style={{ marginBottom: AVSTAND.m }}>
+            <Flikkontroll flikar={VAL} aktiv={val} onVal={v => { setVal(v); sparaVal(v); }} />
+          </div>
+        )}
         <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min }}>
-          <span style={{ ...TYP.text }}>Traktens volym</span>
+          <span style={{ ...TYP.text }}>{ts === 'gran' ? 'Granens volym' : ts === 'tall' ? 'Tallens volym' : 'Traktens volym'}</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
             <input value={volymText} inputMode="decimal" placeholder="valfri" aria-label="Traktens volym i kubikmeter"
               onFocus={e => e.target.select()}
@@ -69,11 +84,11 @@ export default function VadGerDet({ underlag }: { underlag?: MedelstamUnderlag }
         {d && (
           <div style={{ marginTop: AVSTAND.m }}>
             <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.s }}>
-              {volym != null ? `Kubik av ${nf0(volym)} m³fub` : 'Procent av volymen — skriv en volym för kubik'}
+              {volym != null ? `Kubik av ${nf0(volym)} m³fub` : `Procent av ${ts ? `${ts}ens volym` : 'volymen'} — skriv en volym för kubik`}
             </div>
             {/* Rubrikraden: färgen bär aldrig ensam — prick + ord. */}
             <div style={{ ...rutnat, ...TYP.meta, color: FARG.text2, paddingBottom: AVSTAND.s }}>
-              <span>Medelstam</span>
+              <span>{ts ? `Medelstam ${ts}` : 'Medelstam'}</span>
               {SORTIMENT.map(s => (
                 <span key={s} style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: AVSTAND.xs }}>
                   <span aria-hidden style={{ width: 8, height: 8, borderRadius: 4, background: sortimentFarg(s), flexShrink: 0,
@@ -84,7 +99,7 @@ export default function VadGerDet({ underlag }: { underlag?: MedelstamUnderlag }
             </div>
             {rader.map(r => (
               <button key={r.m} disabled={r.forFa}
-                onClick={() => router.push(`/affarsuppfoljning/medelstam?ms=${nf(r.m, 2)}`)}
+                onClick={() => router.push(`/affarsuppfoljning/medelstam?ms=${nf(r.m, 2)}${ts ? `&ts=${ts}` : ''}`)}
                 aria-label={r.forFa ? `Medelstam ${nf(r.m, 2)}: för få trakter` : `Medelstam ${nf(r.m, 2)}: ${SORTIMENT.map(s => `${KORT_NAMN[s]} ${r.m3 ? nf0(r.m3[s]) + ' kubik' : (r.procent?.[s] ?? 0) + ' procent'}`).join(', ')}, ${r.n} trakter`}
                 style={{ ...rutnat, width: '100%', minHeight: TRAFFYTA.primar, padding: `${AVSTAND.s}px 0`, background: 'none', border: 'none',
                          borderTop: `1px solid ${FARG.linje}`, fontFamily: 'inherit', color: FARG.text, textAlign: 'left',
@@ -107,7 +122,7 @@ export default function VadGerDet({ underlag }: { underlag?: MedelstamUnderlag }
               </button>
             ))}
             <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>
-              Vidas slutavverkningar inom ±15 % av medelstammen. Fingervisning, inte facit — tryck på en rad för spannet och trakterna.
+              {ts ? `Bara ${ts === 'gran' ? 'granarna' : 'tallarna'} i Vidas slutavverkningar, inom ±15 % av ${ts === 'gran' ? 'granarnas' : 'tallarnas'} medelstam.` : 'Vidas slutavverkningar inom ±15 % av medelstammen.'} Fingervisning, inte facit — tryck på en rad för spannet och trakterna.
             </div>
           </div>
         )}
