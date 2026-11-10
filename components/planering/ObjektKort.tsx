@@ -55,6 +55,8 @@ export interface ObjektKortProps {
   onCert?: { etikett: string; onTryck: () => void };
   /** "Ladda ner trakten": en dämpad rad ovanför Mer. null/saknas = ingen rad. */
   kartaSparad?: string | null;
+  /** Vidas egenkontroll: "Egenkontroll · 2 av 6 frågor". Saknas = ingen rad. */
+  onEgenkontroll?: { under: string; onTryck: () => void };
   brand: { lat: number; lng: number } | null;
   onBrand: () => void;
   dokument: { antal: number; chips: React.ReactNode } | null;
@@ -220,6 +222,7 @@ export default function ObjektKort(p: ObjektKortProps) {
           {p.onKarta && (
             <RadKnapp forstaRad={!paTrakten && !(p.instruktioner && p.instruktioner.antal > 0) && !(p.riskRad && p.onRisker) && !p.besok} testid="kort-vad-betyder-kartan" etikett="Vad betyder kartan" onTryck={p.onKarta} />
           )}
+          {p.onEgenkontroll && <RadKnapp testid="kort-egenkontroll" ikon="checklist" etikett="Egenkontroll till Vida" under={p.onEgenkontroll.under} onTryck={p.onEgenkontroll.onTryck} />}
           {p.onCert && <RadKnapp testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}
           {p.dokument && (
             <>
