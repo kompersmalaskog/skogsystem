@@ -14,15 +14,19 @@ import Ark from '@/components/design/Ark';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import Falt from '@/components/design/Falt';
+import MaskinBild from '@/components/arbetsmiljo/MaskinBild';
+import Ikon from '@/components/design/Ikon';
+import { bildTyp, type BildTyp } from '@/lib/arbetsmiljo/maskinBild';
 import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning';
 import { AVSTAND, FARG, KNAPP, RADIE, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import { datumText } from '@/lib/arbetsmiljo/introduktion';
 import {
-  antalBesvarade, antalBrister, avsluta, byggPunkter, grupperaPunkter, hamtaRondAtgarder, hamtaRonder, lage, startaRond, svara,
-  type Punkt, type Rond, type SvarTyp,
+  antalBesvarade, antalBrister, avsluta, byggPunkter, gallerMaskin, grupperaPunkter, platsText, hamtaRondAtgarder, hamtaRonder, lage, startaRond, svara,
+  type PlatsVal, type Punkt, type Rond, type SvarTyp,
 } from '@/lib/arbetsmiljo/skyddsrond';
 
-type Data = { ronder: Rond[]; maskiner: { id: string; namn: string }[] };
+type Maskin = { id: string; namn: string; typ: BildTyp | null };
+type Data = { ronder: Rond[]; maskiner: Maskin[] };
 
 const SVAR_TEXT: Record<SvarTyp, string> = { ok: 'Bra', brist: 'Brist', galler_inte: 'Gäller inte' };
 
@@ -33,6 +37,8 @@ const INGEN_BILD: Bild = { fil: null, sokvag: null, visa: null };
 export default function Skyddsrond() {
   const { medarbetare } = useCurrentMedarbetare();
   const [bild, setBild] = useState<Bild>(INGEN_BILD);
+  /** Var på maskinen bristen sitter (valfritt). maskinId utan val = maskinen är vald men ingen plats tryckt. */
+  const [plats, setPlats] = useState<PlatsVal | null>(null);
   const [far, setFar] = useState<boolean | null>(null);
   const [data, setData] = useState<Data | null | 'fel'>(null);
   const [visad, setVisad] = useState<string | null>(null);
@@ -52,13 +58,13 @@ export default function Skyddsrond() {
       if (!lasare) return;
       const [ronder, m] = await Promise.all([
         hamtaRonder(supabase),
-        supabase.from('dim_maskin').select('maskin_id, visningsnamn, aktiv_till'),
+        supabase.from('dim_maskin').select('maskin_id, visningsnamn, aktiv_till, maskin_typ, modell'),
       ]);
       if (!ronder || m.error || !Array.isArray(m.data)) { setData('fel'); return; }
       const idag = new Date().toISOString().slice(0, 10);
-      const maskiner = (m.data as { maskin_id: string; visningsnamn: string | null; aktiv_till: string | null }[])
+      const maskiner = (m.data as { maskin_id: string; visningsnamn: string | null; aktiv_till: string | null; maskin_typ?: string | null; modell?: string | null }[])
         .filter(x => !x.aktiv_till || x.aktiv_till >= idag)
-        .map(x => ({ id: x.maskin_id, namn: x.visningsnamn ?? x.maskin_id }))
+        .map(x => ({ id: x.maskin_id, namn: x.visningsnamn ?? x.maskin_id, typ: bildTyp(x.maskin_typ, x.modell) }))
         .sort((a, b) => a.namn.localeCompare(b.namn, 'sv'));
       setData({ ronder, maskiner });
     } catch { setData('fel'); }
@@ -75,7 +81,7 @@ export default function Skyddsrond() {
   const starta = async () => {
     if (!ok) return;
     setSparar(true); setFel(null);
-    const id = await startaRond(supabase, byggPunkter(ok.maskiner));
+    const id = await startaRond(supabase, byggPunkter(ok.maskiner.map(m => ({ id: m.id, namn: m.namn }))));
     setSparar(false);
     if (!id) { setFel('Kunde inte starta ronden. Försök igen.'); return; }
     await hamta();
@@ -91,7 +97,7 @@ export default function Skyddsrond() {
       try { await laggMaskinkollFoto(rond.id, valt.id, foto, bild.fil); }
       catch { setSparar(false); setFel('Bilden gick inte att läsa. Ta en ny.'); return; }
     }
-    const lyckades = await svara(supabase, rond.id, valt, svar, svar === 'brist' ? brist : null, foto);
+    const lyckades = await svara(supabase, rond.id, valt, svar, svar === 'brist' ? brist : null, foto, svar === 'brist' ? plats : null);
     setSparar(false);
     if (!lyckades) { setFel('Kunde inte spara. Försök igen.'); return; }
     stangPunkt();
@@ -108,13 +114,15 @@ export default function Skyddsrond() {
     await hamta();
   };
 
-  const stangPunkt = () => { setValt(null); setBrist(null); setBild(INGEN_BILD); };
+  const stangPunkt = () => { setValt(null); setBrist(null); setBild(INGEN_BILD); setPlats(null); };
 
   const oppnaPunkt = (p: Punkt) => {
     const s = svarFor(p);
     setFel(null);
     setBrist(s?.svar === 'brist' ? s.beskrivning ?? '' : null);
     setBild(s?.svar === 'brist' && s.fotoUrl ? { fil: null, sokvag: s.fotoUrl, visa: null } : INGEN_BILD);
+    setPlats(p.maskinId ? { maskinId: p.maskinId, val: s?.svar === 'brist' ? s.plats?.val ?? null : null }
+      : s?.svar === 'brist' && s.maskinId ? { maskinId: s.maskinId, val: s.plats?.val ?? null } : null);
     setValt(p);
     if (s?.svar === 'brist' && s.fotoUrl) {
       const sokvag = s.fotoUrl;
@@ -184,7 +192,7 @@ export default function Skyddsrond() {
             {g.punkter.map((p, i) => {
               const s = svarFor(p);
               const under = !s ? undefined
-                : s.svar === 'brist' ? <span style={{ color: FARG.orange }}>Brist: {s.beskrivning}{s.fotoUrl ? ' · Bild' : ''}</span>
+                : s.svar === 'brist' ? <span style={{ color: FARG.orange }}>Brist: {[s.beskrivning, platsText(s.plats), s.fotoUrl ? 'Bild' : null].filter(Boolean).join(' · ')}</span>
                 : s.svar === 'ok' ? <span style={{ color: FARG.gron }}>Bra</span>
                 : 'Gäller inte';
               return <Rad key={p.id} titel={p.text} under={under} onTryck={last ? undefined : () => oppnaPunkt(p)}
@@ -235,6 +243,7 @@ export default function Skyddsrond() {
                   placeholder="T.ex. Protokollet för Giant saknas"
                   style={{ width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min * 2, border: 'none', borderRadius: RADIE.rad, background: FARG.fyllning, color: FARG.text, padding: AVSTAND.m, fontFamily: 'inherit', ...TYP.text, outline: 'none', resize: 'vertical' }} />
                 <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Blir en åtgärd att göra inom 30 dagar.</div>
+                {ok && gallerMaskin(valt) && <PaMaskinen punkt={valt} maskiner={ok.maskiner} plats={plats} onPlats={setPlats} />}
                 {medarbetare && (bild.fil || bild.sokvag ? (
                   <div data-testid="sr-bild" style={{ marginTop: AVSTAND.l }}>
                     {bild.visa
@@ -277,6 +286,51 @@ export default function Skyddsrond() {
           <Falt etikett="Vilka gick ronden?" value={deltagare} onChange={setDeltagare} placeholder="T.ex. Martin och Oskar (skyddsombud)" autoFocus
             stod={`${antalBrister(rond) === 0 ? 'Inga brister' : antalBrister(rond) === 1 ? '1 brist blir en åtgärd' : `${antalBrister(rond)} brister blir åtgärder`}. Ronden går inte att ändra efteråt.`} />
         </Ark>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Var på maskinen bristen sitter — tryck på teckningen i stället för att skriva var (Martin 2026-11-10). Valfritt.
+ * Punkten gäller en maskin (brandskyddet): bara teckningen. "I varje maskin": först vilken maskin, sedan teckningen.
+ * Maskiner utan teckning (inte skördare eller skotare) kan väljas men har ingen bild.
+ */
+function PaMaskinen({ punkt, maskiner, plats, onPlats }: {
+  punkt: Punkt; maskiner: Maskin[]; plats: PlatsVal | null; onPlats: (p: PlatsVal | null) => void;
+}) {
+  const fast = punkt.maskinId ?? null;
+  const vald = maskiner.find(m => m.id === (fast ?? plats?.maskinId)) ?? null;
+  return (
+    <div data-testid="sr-pa-maskinen" style={{ marginTop: AVSTAND.l }}>
+      <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.s }}>
+        {fast ? 'Var på maskinen? (valfritt)' : 'Vilken maskin? (valfritt)'}
+      </div>
+      {!fast && (
+        <div role="radiogroup" aria-label="Vilken maskin?"
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: AVSTAND.s, marginBottom: vald?.typ ? AVSTAND.m : 0 }}>
+          {maskiner.map(m => {
+            const pa = plats?.maskinId === m.id;
+            return (
+              <button key={m.id} type="button" role="radio" aria-checked={pa} data-testid={`sr-maskin-${m.id}`}
+                onClick={() => onPlats(pa ? null : { maskinId: m.id, val: null })}
+                style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px ${AVSTAND.m}px`, border: 'none', borderRadius: RADIE.rad, background: pa ? FARG.upphojt : FARG.kort, color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left', ...TYP.text }}>
+                <Ikon namn={pa ? 'radio_button_checked' : 'radio_button_unchecked'} farg={pa ? FARG.orange : FARG.text3} />
+                <span style={{ minWidth: 0 }}>{m.namn}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {vald?.typ && (
+        <>
+          <MaskinBild key={vald.id} typ={vald.typ} val={plats?.maskinId === vald.id ? plats.val : null}
+            onVal={v => onPlats({ maskinId: vald.id, val: v })} etikett={vald.namn} />
+          {plats?.val && (
+            <button type="button" data-testid="sr-plats-bort" onClick={() => onPlats({ maskinId: vald.id, val: null })}
+              style={{ ...KNAPP.lank, minHeight: TRAFFYTA.min, paddingLeft: 0 }}>Ta bort platsen</button>
+          )}
+        </>
       )}
     </div>
   );
