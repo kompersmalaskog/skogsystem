@@ -10415,43 +10415,9 @@ export default function PlannerPage() {
   // Arket stängt och inget objekt framhävt (tryck på kartan, ×, annan åtgärd) → typmarkeringen och minnet av var man stod släpps. Ett objekt som just stängt arket håller dem kvar.
   useEffect(() => { if (!traktOversiktOpen && !framhavdMarkering) { setFramhavdTyp(null); omNavRef.current = null; } }, [traktOversiktOpen, framhavdMarkering]);
 
-  // Lagrens grundvärden sätts om varje gång markeringarna ändras. Det här var den gamla briefingens "återställ"-gren
-  // (briefingen är borttagen 2026-11-10). Den ligger kvar ORÖRD eftersom den körs i dag och ändrar vad kartan visar:
-  // en borttagning är en egen ändring som måste provas på kartan (den skriver t.ex. över körordningens line-opacity på vägarna).
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-    const lineTypeIds = ['boundary', 'mainRoad',
-      'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'nature', 'ditch', 'trail'];
-    try {
-      lineTypeIds.forEach(lt => {
-        ['base', 'casing', 'stripe'].forEach(suffix => {
-          const id = `line-${lt}-${suffix}`;
-          if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
-        });
-      });
-      if (map.getLayer('line-boundary-glow')) map.removeLayer('line-boundary-glow');
-      const bndLw = ['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4, 11, 5, 13, 5, 15, 7, 17, 8] as any;
-      const bndCw = ['interpolate', ['linear'], ['zoom'], 5, 5, 8, 6, 11, 7, 13, 7, 15, 9, 17, 10] as any;
-      if (map.getLayer('line-boundary-base')) map.setPaintProperty('line-boundary-base', 'line-width', bndLw);
-      if (map.getLayer('line-boundary-stripe')) {
-        map.setPaintProperty('line-boundary-stripe', 'line-width', bndLw);
-        map.setPaintProperty('line-boundary-stripe', 'line-color', LEGEND.gul);
-      }
-      if (map.getLayer('line-boundary-casing')) map.setPaintProperty('line-boundary-casing', 'line-width', bndCw);
-      ZONE_LAGER().forEach(id => {
-        if (!map.getLayer(id)) return;
-        if (arZonYta(id)) map.setPaintProperty(id, 'fill-opacity', id === 'zone-fill' ? 0.2 : 1);
-        else map.setPaintProperty(id, 'line-opacity', 1);
-      });
-      if (map.getLayer('markers-layer')) {
-        map.setPaintProperty('markers-layer', 'icon-opacity', ['number', ['get', 'opacity'], 1]);
-      }
-    } catch (e) { /* */ }
-  }, [mapLibreReady, markers]);
 
   // Om trakten › Visa ›: markeringen framhävs — symbol = 1,5× större med tjock blå ring, linje = HELA linjen, yta = hela konturen — övriga tonas ner till
-  // ca 30 % och kommentaren står som etikett intill. Ligger EFTER grundvärdes-effekten ovan: den återställer lagrens opacitet och skulle annars skriva över nedtoningen.
+  // ca 30 % och kommentaren står som etikett intill. Den återställer själv varje lager till exakt sitt förra värde.
   // Det man SER byggs om när kartans lager ändras (`markers`); att ett tryck på kartan släpper den sitter i en egen effekt här under, som bara hänger på valet.
   useEffect(() => {
     const map = mapInstanceRef.current;
