@@ -40,7 +40,7 @@ import Atgarder from './Atgarder';
 const a = (o: Partial<Atgard>): Atgard => ({
   id: 'x', kalla: 'svar', maskinId: 'JD810E', maskinNamn: '810E', beskrivning: 'Fel', fotoUrl: null, deadline: '2026-12-31',
   status: 'oppen', stopp: false, vadGjordes: null, stangdTid: null, stangdAvNamn: null, skapad: '2026-10-31T10:00:00Z',
-  rapportorNamn: 'Stefan Nilsson', ...o,
+  rapportorNamn: 'Stefan Nilsson', plats: null, ...o,
 });
 
 let rot: ReturnType<typeof createRoot> | null = null;
@@ -164,5 +164,16 @@ describe('Åtgärder', () => {
     expect(document.querySelector('[data-atgard=t]')?.textContent).toContain('Tillbud');
     await tryck(document.querySelector('[data-atgard=t]'));
     expect(document.querySelector('[data-anmalan]')).toBeNull();
+  });
+
+  it('ett fel med plats på maskinen: delen först på raden, och teckningen med pricken i arket', async () => {
+    h.lista = [a({ id: 'p1', kalla: 'forare', beskrivning: 'Länk lös', plats: { typ: 'skotare', val: { del: 'band', x: 309, y: 190 } } })];
+    await montera();
+    expect(text()).toContain('Band och kedjor · Länk lös');
+    await tryck(document.querySelector('[data-atgard="p1"]'));
+    const bild = document.querySelector('[data-maskinbild] svg');
+    expect(bild).toBeTruthy();
+    expect(bild!.querySelector('title')!.textContent).toContain('Band och kedjor');
+    expect(document.querySelectorAll('[data-maskinbild] [role=radio]')).toHaveLength(0);
   });
 });

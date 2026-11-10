@@ -2,9 +2,11 @@
 // Tabellerna (am_*) och reglerna i databasen: supabase/migrations/20261031162152_arbetsmiljo_maskinkoll.sql.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { tillLagring, type Val } from '@/lib/arbetsmiljo/maskinBild';
+import { maskinAktivIdag, maskinNamn, type MaskinRegisterRad } from '@/lib/maskinFraga';
 import { arDags, deadlineFor, fragorFor, GODKANNANDE_VERSION, svenskManad, type Fraga, type Svar } from './regler';
 
-export type Maskin = { id: string; namn: string; typ: string | null };
+export type Maskin = { id: string; namn: string; typ: string | null; modell?: string | null };
 
 export type MaskinkollLage = {
   medarbetareId: string;
@@ -44,7 +46,7 @@ export async function hamtaLage(sb: SupabaseClient, nu: Date = new Date()): Prom
   if (maskinRes.error || fragaRes.error || godkRes.error || pagRes.error || klarRes.error) return { ok: false, fel: LASFEL };
 
   const m = maskinRes.data as { maskin_id: string; visningsnamn: string | null; modell: string | null; maskin_typ: string | null } | null;
-  const maskin: Maskin = { id: maskinId, namn: m?.visningsnamn || m?.modell || 'Din maskin', typ: m?.maskin_typ ?? null };
+  const maskin: Maskin = { id: maskinId, namn: m?.visningsnamn || m?.modell || 'Din maskin', typ: m?.maskin_typ ?? null, modell: m?.modell ?? null };
   const pag = (pagRes.data ?? [])[0] as { id: string; startad?: string; am_svar: Svar[] | null } | undefined;
   const senasteKlar = ((klarRes.data ?? [])[0] as { klar: string } | undefined)?.klar ?? null;
 
@@ -59,6 +61,50 @@ export async function hamtaLage(sb: SupabaseClient, nu: Date = new Date()): Prom
       pagaende: pag ? { id: pag.id, svar: pag.am_svar ?? [] } : null,
       senasteKlar,
       dags: arDags(senasteKlar, nu),
+    },
+  };
+}
+
+/** "Något är fel": vem som rapporterar och vilka maskiner det kan gälla. */
+export type FelVal = {
+  medarbetareId: string;
+  /** Förarens egen maskin (medarbetare.maskin_id), om den finns bland maskinerna. */
+  egen: string | null;
+  arAdmin: boolean;
+  /** Aktiva skördare och skotare, den egna först, sedan på namn. */
+  maskiner: Maskin[];
+};
+
+/** Maskinerna "Något är fel" kan gälla: aktiva skördare och skotare + förarens egen (vilken typ den än har). Ren. */
+export function felMaskiner(register: MaskinRegisterRad[], egen: string | null, idagISO: string): Maskin[] {
+  const ut: Maskin[] = [];
+  for (const m of register) {
+    const kand = m.maskin_typ === 'Harvester' || m.maskin_typ === 'Forwarder';
+    if (m.maskin_id !== egen && (!kand || !maskinAktivIdag(m, idagISO))) continue;
+    ut.push({ id: m.maskin_id, namn: maskinNamn(m), typ: m.maskin_typ ?? null, modell: m.modell ?? null });
+  }
+  return ut.sort((a, b) => (a.id === egen ? -1 : b.id === egen ? 1 : a.namn.localeCompare(b.namn, 'sv')));
+}
+
+export async function hamtaFelVal(sb: SupabaseClient, nu: Date = new Date()): Promise<Las<FelVal>> {
+  const { data: auth } = await sb.auth.getUser();
+  const uid = auth?.user?.id;
+  if (!uid) return { ok: false, fel: 'Du är inte inloggad.' };
+  const [med, reg] = await Promise.all([
+    sb.from('medarbetare').select('id, maskin_id, roll').eq('user_id', uid).maybeSingle(),
+    sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, aktiv_till'),
+  ]);
+  if (med.error || reg.error || !med.data) return { ok: false, fel: LASFEL };
+  const idag = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm' }).format(nu);
+  const egenId = (med.data.maskin_id as string | null) ?? null;
+  const maskiner = felMaskiner((reg.data ?? []) as MaskinRegisterRad[], egenId, idag);
+  return {
+    ok: true,
+    data: {
+      medarbetareId: med.data.id as string,
+      egen: maskiner.some(m => m.id === egenId) ? egenId : null,
+      arAdmin: med.data.roll === 'admin',
+      maskiner,
     },
   };
 }
@@ -108,7 +154,7 @@ export async function avsluta(sb: SupabaseClient, kollId: string): Promise<Las<s
 /** "Något är fel": föraren rapporterar ett fel utan en koll runt omkring. Blir en öppen åtgärd direkt. */
 export async function rapporteraFel(
   sb: SupabaseClient,
-  rad: { medarbetareId: string; maskinId: string; beskrivning: string; fotoUrl: string; stopp: boolean; id: string },
+  rad: { medarbetareId: string; maskinId: string; beskrivning: string; fotoUrl: string; stopp: boolean; id: string; plats?: Val | null },
   nu: Date = new Date(),
 ): Promise<string | null> {
   const beskrivning = rad.beskrivning.trim() || 'Fel rapporterat av föraren';
@@ -121,6 +167,8 @@ export async function rapporteraFel(
     foto_url: rad.fotoUrl,
     stopp: rad.stopp,
     deadline: deadlineFor(rad.stopp, nu),
+    // Var på maskinen (tryck på teckningen). Saknas = föraren visste inte var / maskinen har ingen teckning.
+    ...(rad.plats ? tillLagring(rad.plats) : {}),
   }).select('id').single();
   // Ett omförsök efter ett svar som försvann: raden finns redan = sparat.
   if (error && error.code === '23505') return null;

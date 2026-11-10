@@ -4,7 +4,7 @@ import { deadlineText, fornamn, gruppera, narText, stangAtgard, svar, svenskDag,
 const a = (o: Partial<Atgard>): Atgard => ({
   id: 'x', kalla: 'svar', maskinId: 'JD810E', maskinNamn: '810E', beskrivning: 'Fel', fotoUrl: null, deadline: null,
   status: 'oppen', stopp: false, vadGjordes: null, stangdTid: null, stangdAvNamn: null, skapad: '2026-10-31T10:00:00Z',
-  rapportorNamn: 'Stefan Nilsson', ...o,
+  rapportorNamn: 'Stefan Nilsson', plats: null, ...o,
 });
 
 describe('gruppera', () => {

@@ -4,6 +4,7 @@
 // Ärligt: ett läsfel är ett fel (`{ ok: false }`), aldrig en tom lista.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { bildTyp, delNamn, franLagring, type BildTyp, type Val } from './maskinBild';
 
 export type Kalla = 'svar' | 'forare' | 'manuell' | 'tillbud' | 'skyddsrond';
 
@@ -22,6 +23,8 @@ export type Atgard = {
   stangdAvNamn: string | null;
   skapad: string;
   rapportorNamn: string | null;
+  /** Var på maskinen föraren tryckte (Något är fel). null = inte angivet, eller kunde inte läsas. */
+  plats: { typ: BildTyp; val: Val } | null;
 };
 
 export type Las<T> = { ok: true; data: T } | { ok: false; fel: string };
@@ -138,13 +141,46 @@ function tillAtgard(r: Rad): Atgard {
     stangdAvNamn: r.stangd_av_namn,
     skapad: r.skapad,
     rapportorNamn: r.rapportor_namn,
+    plats: null,
   };
 }
 
 export async function hamtaAtgarder(sb: SupabaseClient): Promise<Las<Atgard[]>> {
   const { data, error } = await sb.rpc('am_atgarder');
   if (error || !Array.isArray(data)) return { ok: false, fel: LASFEL };
-  return { ok: true, data: (data as Rad[]).map(tillAtgard) };
+  const lista = (data as Rad[]).map(tillAtgard);
+  const platser = await hamtaPlatser(sb);
+  return { ok: true, data: lista.map(a => ({ ...a, plats: platser.get(a.id) ?? null })) };
+}
+
+/**
+ * Var på maskinen (migration 20261110123344_am_atgard_maskin_plats.sql). Ett TILLÄGG: går det inte att läsa visas
+ * åtgärderna som förut, utan bild — aldrig ett fel i listan. Bara maskiner med teckning (skördare, skotare) får en plats.
+ */
+async function hamtaPlatser(sb: SupabaseClient): Promise<Map<string, { typ: BildTyp; val: Val }>> {
+  const ut = new Map<string, { typ: BildTyp; val: Val }>();
+  try {
+    const { data, error } = await sb.from('am_atgard')
+      .select('id, maskin_del, maskin_x, maskin_y, dim_maskin(maskin_typ, modell)')
+      .not('maskin_del', 'is', null);
+    if (error || !Array.isArray(data)) return ut;
+    for (const r of data as { id: string; maskin_del: unknown; maskin_x: unknown; maskin_y: unknown; dim_maskin: { maskin_typ: string | null; modell?: string | null } | { maskin_typ: string | null; modell?: string | null }[] | null }[]) {
+      const m = Array.isArray(r.dim_maskin) ? r.dim_maskin[0] : r.dim_maskin;
+      const typ = bildTyp(m?.maskin_typ, m?.modell);
+      const val = franLagring(r.maskin_del, r.maskin_x, r.maskin_y);
+      if (typ && val) ut.set(r.id, { typ, val });
+    }
+  } catch { /* tillägget får aldrig fälla listan */ }
+  return ut;
+}
+
+const STANDARD_BESKRIVNING = 'Fel rapporterat av föraren';
+
+/** Raden om felet: delen först när den finns — "Band och kedjor · läcker vid boggin", eller bara "Band och kedjor". */
+export function felText(a: Pick<Atgard, 'beskrivning' | 'plats'>): string {
+  if (!a.plats) return a.beskrivning;
+  const del = delNamn(a.plats.val.del, a.plats.typ);
+  return a.beskrivning.trim() === STANDARD_BESKRIVNING ? del : `${del} · ${a.beskrivning}`;
 }
 
 /** Får den inloggade stänga åtgärder (admin)? null = kunde inte läsas → ingen Klar-knapp. */
