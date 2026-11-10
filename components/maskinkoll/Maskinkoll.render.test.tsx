@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
   foton: [] as any[],
   avslutade: [] as string[],
   rapporter: [] as any[],
+  felVal: null as any,
 }));
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
@@ -22,6 +23,8 @@ vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('@/lib/maskinkoll/fotoKo', () => ({ laggMaskinkollFoto: async (...a: any[]) => { h.foton.push(a); } }));
 vi.mock('@/lib/maskinkoll/data', () => ({
   hamtaLage: async () => ({ ok: true, data: h.lage }),
+  // "Något är fel": h.felVal om satt, annars förare med egen maskin = h.lage.maskin.
+  hamtaFelVal: async () => ({ ok: true, data: h.felVal ?? { medarbetareId: 'med-1', egen: h.lage.maskin.id, arAdmin: false, maskiner: [h.lage.maskin] } }),
   godkann: async () => { h.godkanda++; return null; },
   startaKoll: async () => ({ ok: true, data: 'koll-1' }),
   sparaSvar: async (_sb: unknown, koll: string, fraga: any, svar: any) => { h.sparade.push({ koll, fraga_text: fraga.text, ...svar }); return null; },
@@ -66,7 +69,7 @@ const tryck = async (b: HTMLElement | undefined) => { expect(b).toBeTruthy(); aw
 
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  h.lage = lage(); h.sparade = []; h.godkanda = 0; h.foton = []; h.avslutade = []; h.rapporter = [];
+  h.lage = lage(); h.sparade = []; h.godkanda = 0; h.foton = []; h.avslutade = []; h.rapporter = []; h.felVal = null;
   window.history.replaceState(null, '', '/maskinkoll');
   el = document.createElement('div'); document.body.appendChild(el);
   (URL as any).createObjectURL = () => 'blob:bild';
@@ -211,5 +214,36 @@ describe('Maskinkollen', () => {
     await montera();
     expect(el!.textContent).not.toContain('Var är det fel?');
     expect(knapp('Skicka')).toBeTruthy();
+  });
+
+  it('Något är fel som admin: väljer maskin först, sedan teckningen av den maskinen', async () => {
+    window.history.replaceState(null, '', '/maskinkoll?fel=1');
+    h.felVal = { medarbetareId: 'admin-1', egen: null, arAdmin: true, maskiner: [
+      { id: 'PONS20SDJAA270231', namn: 'Giant', typ: 'Harvester' },
+      { id: 'A030353', namn: 'Wisent', typ: 'Forwarder' },
+    ] };
+    await montera();
+    expect(el!.textContent).toContain('Vilken maskin?');
+    expect(el!.textContent).not.toContain('Var är det fel?');
+    const giant = Array.from(el!.querySelectorAll('button, a, [role=button]')).find(b => b.textContent?.includes('Giant')) as HTMLElement;
+    await tryck(giant);
+    expect(el!.textContent).toContain('Var är det fel?');
+    expect(el!.textContent).toContain('Kran och aggregat');
+    await tryck(knapp('Tillbaka'));
+    expect(el!.textContent).toContain('Vilken maskin?');
+    const wisent = Array.from(el!.querySelectorAll('button, a, [role=button]')).find(b => b.textContent?.includes('Wisent')) as HTMLElement;
+    await tryck(wisent);
+    await tryck(knapp('Vet inte var'));
+    await valjFil(nyBild());
+    await tryck(knapp('Skicka'));
+    expect(h.rapporter.at(-1)).toMatchObject({ medarbetareId: 'admin-1', maskinId: 'A030353', plats: null });
+  });
+
+  it('Något är fel som förare utan maskin: får listan i stället för "Ingen maskin kopplad"', async () => {
+    window.history.replaceState(null, '', '/maskinkoll?fel=1');
+    h.felVal = { medarbetareId: 'med-2', egen: null, arAdmin: false, maskiner: [{ id: 'A030353', namn: 'Wisent', typ: 'Forwarder' }] };
+    await montera();
+    expect(el!.textContent).toContain('Vilken maskin?');
+    expect(el!.textContent).not.toContain('Ingen maskin kopplad');
   });
 });

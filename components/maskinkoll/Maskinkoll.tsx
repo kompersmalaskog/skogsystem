@@ -19,16 +19,19 @@ import { supabase } from '@/lib/supabase';
 import Ikon from '@/components/design/Ikon';
 import Tillstand from '@/components/design/Tillstand';
 import Svarsrad from '@/components/design/Svarsrad';
+import Sektion from '@/components/design/Sektion';
+import Rad from '@/components/design/Rad';
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, KORT, RADIE, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
-import { avsluta, godkann, hamtaLage, rapporteraFel, sparaSvar, startaKoll, type MaskinkollLage } from '@/lib/maskinkoll/data';
+import { avsluta, godkann, hamtaFelVal, hamtaLage, rapporteraFel, sparaSvar, startaKoll, type FelVal, type Maskin, type MaskinkollLage } from '@/lib/maskinkoll/data';
 import { laggMaskinkollFoto } from '@/lib/maskinkoll/fotoKo';
 import MaskinBild from '@/components/arbetsmiljo/MaskinBild';
 import { bildTyp, delNamn, type Val } from '@/lib/arbetsmiljo/maskinBild';
 import { arFilenGammal, datumText, enManadSenare, fotoSokvag, lage as raknaLage, type Fraga } from '@/lib/maskinkoll/regler';
 
 /** 'foto' = bilden till ett svar (Nej, eller Ja på en fråga som kräver foto). 'plats' + 'rapport' = "Något är fel":
- *  först var på maskinen (tecknad bild, bara skördare och skotare), sedan bild och text. */
-type Steg = 'laddar' | 'fel' | 'ingenMaskin' | 'inteDags' | 'godkann' | 'fraga' | 'foto' | 'avslutar' | 'klar' | 'plats' | 'rapport' | 'rapportKlar';
+ *  först var på maskinen (tecknad bild, bara skördare och skotare), sedan bild och text. 'valjMaskin' = admin, eller förare
+ *  utan egen maskin: vilken maskin felet gäller (Martin 2026-11-10). */
+type Steg = 'laddar' | 'fel' | 'ingenMaskin' | 'valjMaskin' | 'inteDags' | 'godkann' | 'fraga' | 'foto' | 'avslutar' | 'klar' | 'plats' | 'rapport' | 'rapportKlar';
 
 type Lokalt = { ok: boolean; bild: string | null; kommentar: string | null };
 
@@ -55,21 +58,28 @@ export default function Maskinkoll() {
   const [fotoOk, setFotoOk] = useState(false);
   const [stoppRapport, setStoppRapport] = useState(false);
   const [plats, setPlats] = useState<Val | null>(null);
+  const [felVal, setFelVal] = useState<FelVal | null>(null);
   const [sparar, setSparar] = useState(false);
   const [klarTid, setKlarTid] = useState<string | null>(null);
   const kamera = useRef<HTMLInputElement>(null);
 
   const ladda = useCallback(async () => {
     setSteg('laddar'); setFel(null);
+    // "Något är fel" (?fel=1): vilken maskin och var — inget godkännande, inga frågor. Admin, och förare utan egen
+    // maskin, väljer maskinen först; en förare med egen maskin rapporterar på den direkt.
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('fel') === '1') {
+      const v = await hamtaFelVal(supabase);
+      if (!v.ok) { setFel(v.fel); setSteg('fel'); return; }
+      setFelVal(v.data);
+      const egen = v.data.maskiner.find(m => m.id === v.data.egen);
+      if (egen && !v.data.arAdmin) { valjFelMaskin(v.data, egen); return; }
+      if (v.data.maskiner.length === 0) { setSteg('ingenMaskin'); return; }
+      setSteg('valjMaskin'); return;
+    }
     const r = await hamtaLage(supabase);
     if (!r.ok) { setFel(r.fel); setSteg('fel'); return; }
     if (!r.data) { setSteg('ingenMaskin'); return; }
     const d = r.data;
-    // "Något är fel" (?fel=1) behöver bara maskinen — inget godkännande, inga frågor.
-    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('fel') === '1') {
-      setData(d); setUtkast({ fil: null, bild: null, kommentar: '' }); setStoppRapport(false); setPlats(null);
-      setSteg(bildTyp(d.maskin.typ) ? 'plats' : 'rapport'); return;
-    }
     if (d.fragor.length === 0) { setFel('Det finns inga frågor för den här maskinen.'); setSteg('fel'); return; }
     setData(d);
     const tidigare: Record<string, Lokalt> = {};
@@ -171,6 +181,15 @@ export default function Maskinkoll() {
   };
   const typ = data ? bildTyp(data.maskin.typ) : null;
 
+  /** Maskinen valdes (eller är förarens egen): rapporten gäller den. */
+  function valjFelMaskin(v: FelVal, m: Maskin) {
+    setData({ medarbetareId: v.medarbetareId, maskin: m, fragor: [], godkand: true, pagaende: null, senasteKlar: null, dags: false });
+    setFel(null); setUtkast({ fil: null, bild: null, kommentar: '' }); setStoppRapport(false); setPlats(null);
+    setSteg(bildTyp(m.typ) ? 'plats' : 'rapport');
+  }
+  /** Gick det att välja maskin (listan visades)? Då leder Tillbaka från första steget dit. */
+  const fickValja = !!felVal && !(felVal.egen && !felVal.arAdmin);
+
   const godkannUppgift = async () => {
     if (!data || sparar) return;
     setSparar(true); setFel(null);
@@ -198,6 +217,7 @@ export default function Maskinkoll() {
           vanster={steg === 'foto'
             ? <button type="button" onClick={() => { setSteg('fraga'); setFel(null); }} style={KNAPP.lank}>Tillbaka</button>
             : steg === 'rapport' && typ ? <button type="button" onClick={() => setSteg('plats')} style={KNAPP.lank}>Tillbaka</button>
+            : fickValja && (steg === 'plats' || steg === 'rapport') ? <button type="button" onClick={() => { setFel(null); setSteg('valjMaskin'); }} style={KNAPP.lank}>Tillbaka</button>
             : steg === 'klar' || steg === 'rapportKlar' || steg === 'avslutar' ? null : <button type="button" onClick={tillbaka} style={KNAPP.lank}>Avbryt</button>}
           mitt={visaRaknare ? `${index + 1} av ${antal}` : null}
         />
@@ -218,6 +238,19 @@ export default function Maskinkoll() {
             <div style={{ marginTop: AVSTAND.xl }}>
               <Svarsrad stor rubrik="Ingen maskin kopplad" rad="Maskinkollen görs på din maskin. Be arbetsledningen koppla den under Admin → Medarbetare." fri />
             </div>
+          )}
+
+          {steg === 'valjMaskin' && felVal && (
+            <Fyll>
+              <h1 style={{ margin: `${AVSTAND.xl}px 0 ${AVSTAND.l}px`, ...TYP.titel }}>Vilken maskin?</h1>
+              <Sektion rubrik="Skördare och skotare">
+                {felVal.maskiner.map((m, i) => (
+                  <Rad key={m.id} titel={m.namn}
+                    under={[m.id === felVal.egen ? 'Din maskin' : null, m.typ === 'Harvester' ? 'Skördare' : m.typ === 'Forwarder' ? 'Skotare' : null].filter(Boolean).join(' · ') || undefined}
+                    pil onTryck={() => valjFelMaskin(felVal, m)} sista={i === felVal.maskiner.length - 1} />
+                ))}
+              </Sektion>
+            </Fyll>
           )}
 
           {steg === 'inteDags' && data && (

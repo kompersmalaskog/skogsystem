@@ -3,6 +3,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { tillLagring, type Val } from '@/lib/arbetsmiljo/maskinBild';
+import { maskinAktivIdag, maskinNamn, type MaskinRegisterRad } from '@/lib/maskinFraga';
 import { arDags, deadlineFor, fragorFor, GODKANNANDE_VERSION, svenskManad, type Fraga, type Svar } from './regler';
 
 export type Maskin = { id: string; namn: string; typ: string | null };
@@ -60,6 +61,50 @@ export async function hamtaLage(sb: SupabaseClient, nu: Date = new Date()): Prom
       pagaende: pag ? { id: pag.id, svar: pag.am_svar ?? [] } : null,
       senasteKlar,
       dags: arDags(senasteKlar, nu),
+    },
+  };
+}
+
+/** "Något är fel": vem som rapporterar och vilka maskiner det kan gälla. */
+export type FelVal = {
+  medarbetareId: string;
+  /** Förarens egen maskin (medarbetare.maskin_id), om den finns bland maskinerna. */
+  egen: string | null;
+  arAdmin: boolean;
+  /** Aktiva skördare och skotare, den egna först, sedan på namn. */
+  maskiner: Maskin[];
+};
+
+/** Maskinerna "Något är fel" kan gälla: aktiva skördare och skotare + förarens egen (vilken typ den än har). Ren. */
+export function felMaskiner(register: MaskinRegisterRad[], egen: string | null, idagISO: string): Maskin[] {
+  const ut: Maskin[] = [];
+  for (const m of register) {
+    const kand = m.maskin_typ === 'Harvester' || m.maskin_typ === 'Forwarder';
+    if (m.maskin_id !== egen && (!kand || !maskinAktivIdag(m, idagISO))) continue;
+    ut.push({ id: m.maskin_id, namn: maskinNamn(m), typ: m.maskin_typ ?? null });
+  }
+  return ut.sort((a, b) => (a.id === egen ? -1 : b.id === egen ? 1 : a.namn.localeCompare(b.namn, 'sv')));
+}
+
+export async function hamtaFelVal(sb: SupabaseClient, nu: Date = new Date()): Promise<Las<FelVal>> {
+  const { data: auth } = await sb.auth.getUser();
+  const uid = auth?.user?.id;
+  if (!uid) return { ok: false, fel: 'Du är inte inloggad.' };
+  const [med, reg] = await Promise.all([
+    sb.from('medarbetare').select('id, maskin_id, roll').eq('user_id', uid).maybeSingle(),
+    sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, aktiv_till'),
+  ]);
+  if (med.error || reg.error || !med.data) return { ok: false, fel: LASFEL };
+  const idag = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm' }).format(nu);
+  const egenId = (med.data.maskin_id as string | null) ?? null;
+  const maskiner = felMaskiner((reg.data ?? []) as MaskinRegisterRad[], egenId, idag);
+  return {
+    ok: true,
+    data: {
+      medarbetareId: med.data.id as string,
+      egen: maskiner.some(m => m.id === egenId) ? egenId : null,
+      arAdmin: med.data.roll === 'admin',
+      maskiner,
     },
   };
 }
