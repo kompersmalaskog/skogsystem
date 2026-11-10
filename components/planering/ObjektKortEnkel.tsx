@@ -83,7 +83,7 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
   const [dokOppen, setDokOppen] = useState(false);
   const [larmAllaOppen, setLarmAllaOppen] = useState(false);
   const larmFlera = p.larm.platser && p.larm.onVisaPlats && p.larm.platser.length > 1;
-  const larmLista = larmFlera ? <LarmPlatser larm={{ namn: null, narmast: null, valjSjalv: false, ...p.larm, platser: p.larm.platser! }} onVisa={p.larm.onVisaPlats!} /> : null;
+  const larmLista = larmFlera ? <LarmPlatser larm={{ namn: null, narmast: null, valjSjalv: false, kontroll: null, ...p.larm, platser: p.larm.platser! }} onVisa={p.larm.onVisaPlats!} /> : null;
   const n = p.knappar.length;
   const harInnehall = !!p.risker || p.faror.length > 0 || !!p.grot || p.tillForaren.length > 0 || p.ytor.length > 0 || !!p.brand;
 
@@ -106,6 +106,7 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
               under={<>
                 {(p.larm.narmast || p.larm.namn) && <span data-testid="kort-larm-namn" style={{ display: 'block' }}>{[p.larm.narmast, p.larm.namn].filter(Boolean).join(' · ')}</span>}
                 <span data-testid="kort-larm-koordinat" style={{ display: 'block', ...TNUM }}>Larmkoordinat {p.larm.koordinat}</span>
+                {p.larm.kontroll && <span data-testid="kort-larm-kontroll" style={{ display: 'block', color: p.larm.kontroll.ton === 'gron' ? FARG.gron : FARG.orange }}>{p.larm.kontroll.text}</span>}
               </>} />
           ) : (
             <div data-testid="kort-larm" data-satt="0" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px` }}>

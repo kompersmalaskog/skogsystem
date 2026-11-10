@@ -11,6 +11,9 @@ import { OMRADE_SPAR, arYtSparning, slutRing as slutGpsRing, ytaSparId, ytaTypAv
 import { YtaSparLista } from '@/components/planering/YtaSparLista'
 import { gpsSaknas } from '@/lib/gpsSaknas'
 import { larmpunkterUr, valjLarmpunkt, larmVisning, POS_FARSK_MS, type Larmpunkt } from '@/lib/larmpunkter'
+import { fragaOm } from '@/lib/larmKontroll'
+import { useLarmKontroll } from '@/lib/hooks/useLarmKontroll'
+import LarmKontrollKort from '@/components/planering/LarmKontrollKort'
 import { useGpsSaknasLang } from '@/lib/hooks/useGpsSaknasLang'
 import { hallSkarmenVakenIWebblasare } from '@/lib/skarmVaken'
 import { signeraKartfil } from '@/lib/kartfiler'
@@ -12532,6 +12535,17 @@ export default function PlannerPage() {
   useEffect(() => { if (!inst.paminnelse) setPaminnelseOppen(null); }, [inst.paminnelse]);
   // Instruktionskortet och påminnelsen sitter på samma plats (under objektpillen och larmets/grindens kort).
   const instruktionTop = `calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px + ${grindKort ? GRIND_KORT_HOJD_PX + AVSTAND.s : 0}px)`;
+  // LARMPLATSEN — "Kommer en ambulans hit?" (lib/larmKontroll, Martin 2026-11-10): i maskinen och för planeraren ute med telefonen,
+  // en gång per larmplats som ingen bekräftat, när man står inom 50 m med färsk position. Allt annat överst (larm, lossning, besök,
+  // risker, instruktioner, grind) går före. I testläget sparas svaren bara i minnet.
+  const larmKontroll = useLarmKontroll({ objektId: valtObjekt?.id ? String(valtObjekt.id) : null, medarbetareId: currentMedarbetare?.id ?? null, maskinId: testlage?.maskinId ?? enhetMaskinId ?? null, torr: !!testlage });
+  const larmKontrollGaller = instruktionerAktiv || (!isForare && !maskinlage && !maskinSomParam && !!currentMedarbetare);
+  const larmKontrollFarsk = !!testlage || (senasteGiltigFixRef.current != null && Date.now() - senasteGiltigFixRef.current < POS_FARSK_MS);
+  const larmKontrollPunkt = larmKontrollGaller
+    ? fragaOm(larmPunkterAlla, larmKontroll.rader, gpsNu({ korvyAktiv: korvyActive, korvyPos: korvyEffectivePos, position: currentPosition }), larmKontrollFarsk, larmKontroll.avfardade)
+    : null;
+  const larmKontrollSynlig = !!larmKontrollPunkt && !larm.kort && !lossningVisas && !besokKortSynligt && !riskKortSynligt && !inst.kort && !inst.paminnelse && !grindKort
+    && !traktOversiktOpen && !plusRadOppen && !menuOpen;
   // Lästes kommentarerna på annat håll — kartkortet (Vidas objekt eller egen markering) eller ⓘ (ett framhävt objekt) — räknas de som sedda och visas inte igen vid inkörning.
   // Kartkortet (KartKort) rörs inte: sidan ser bara vilket objekts kort som är öppet.
   const lastNycklar = instruktionerAktiv
@@ -13982,7 +13996,7 @@ export default function PlannerPage() {
         // Flera larmplatser (Vida: en vid varje avlägg): den närmaste maskinen/telefonen med FÄRSK position, annars alla och föraren väljer.
         const larmPosFarsk = !!testlage || (senasteGiltigFixRef.current != null && Date.now() - senasteGiltigFixRef.current < POS_FARSK_MS);
         const larmVal = valjLarmpunkt(larmPunkterAlla, gpsNu({ korvyAktiv: korvyActive, korvyPos: korvyEffectivePos, position: currentPosition }), larmPosFarsk);
-        const larmVis = larmVisning(larmVal);
+        const larmVis = larmVisning(larmVal, larmKontroll.rader);
         const larmVisaPunkt = (p: Larmpunkt | null | undefined, medList: boolean) => {
           if (!p) return;
           setTraktOversiktOpen(false);
@@ -14927,6 +14941,18 @@ export default function PlannerPage() {
           kod={grindKort.kod}
           symbol={<SymbolIkon typ={GRIND_TYP} storlek={52} />}
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${larm.kort && !inst.kort ? 96 : 0}px + ${larmMalbild(inst.kort ? null : larm.kort) ? LARM_MALBILD_RAD_PX : 0}px)`}
+        />
+      )}
+      {larmKontrollSynlig && larmKontrollPunkt && (
+        <LarmKontrollKort
+          key={`${larmKontrollPunkt.lat},${larmKontrollPunkt.lng}`}
+          namn={larmKontrollPunkt.namn}
+          top={instruktionTop}
+          sparar={larmKontroll.sparar}
+          fel={larmKontroll.fel}
+          onJa={() => { void larmKontroll.svara(larmKontrollPunkt, 'ja', null); }}
+          onNej={(t) => { void larmKontroll.svara(larmKontrollPunkt, 'nej', t); }}
+          onInteNu={() => larmKontroll.avfarda(larmKontrollPunkt)}
         />
       )}
       {korvyActive && !skotarKorvy && fgFall && !fall.grupp && !larm.kort && !inst.kort && !grindKort && !riskKortSynligt && (

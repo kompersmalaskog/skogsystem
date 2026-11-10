@@ -21,7 +21,10 @@ export default function LarmPlatser({ larm, onVisa, forstaRad = false }: { larm:
       {larm.platser.map((p, i) => (
         <RadKnapp key={`${p.koordinat}-${i}`} forstaRad={forstaRad && i === 0} testid={`larm-plats-${i}`}
           etikett={p.narmast ? <span>{p.namn} <span style={{ ...TYP.meta, color: FARG.gron }}>· närmast dig</span></span> : p.namn}
-          under={<span style={TNUM}>{p.koordinat}</span>}
+          under={<>
+            <span style={{ display: 'block', ...TNUM }}>{p.koordinat}</span>
+            {p.kontroll && <span data-testid={`larm-plats-kontroll-${i}`} style={{ display: 'block', color: p.kontroll.ton === 'gron' ? FARG.gron : FARG.orange }}>{p.kontroll.text}</span>}
+          </>}
           onTryck={() => onVisa(i)} />
       ))}
     </div>
