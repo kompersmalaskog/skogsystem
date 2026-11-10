@@ -7,15 +7,12 @@
 
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { KartKort, KartKortNederst } from '@/components/planering/KartKort';
 import { MalbildBlad, MalbildRad } from './Malbild';
 import { FARG, KNAPP } from '@/lib/design/tokens';
-import { MALBILDER, MALBILD_ORDNING } from '@/lib/malbilder';
+import { MALBILDER, MALBILD_ORDNING, malbildKalla } from '@/lib/malbilder';
+import { hittaChromium } from '../../lib/testStod/chromium';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -29,18 +26,7 @@ const MINDRE_TELEFONER = [{ w: 375, h: 667 }, { w: 360, h: 740 }];
 const KORT_SKARMAR = [TELEFON, ...MINDRE_TELEFONER, ...SKARMAR];
 const LANG_MENING = 'Stenröse, tjärdal, kolbotten eller råsten – lagskyddat, kör inte på det. Gäller också vid fällning och risning i närheten.';
 
-function chromium(): { launch: (o: object) => Promise<any> } | null {
-  try {
-    const rot = execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    const kor = createRequire(path.join(rot, 'x.js'));
-    const pw = kor('playwright');
-    const mapp = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-    const ver = fs.readdirSync(mapp).filter((n) => /^chromium-\d+$/.test(n)).sort().pop();
-    const exe = ver && path.join(mapp, ver, 'chrome-linux', 'chrome');
-    if (!exe || !fs.existsSync(exe)) return null;
-    return { launch: (o) => pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox'], ...o }) };
-  } catch { return null; }
-}
+const chromium = () => hittaChromium();
 const CHROMIUM = chromium();
 
 function renderaHtml(el: React.ReactElement, efter?: () => void): string {
@@ -69,7 +55,7 @@ const typisktKort = (nyckel: string, roll: 'skordare' | 'skotare') => {
   );
 };
 
-type Sida = { namn: string; html: string; slag: 'kort' | 'blad' };
+type Sida = { namn: string; html: string; slag: 'kort' | 'blad'; harKalla?: boolean };
 function sidor(): Sida[] {
   const ut: Sida[] = [];
   for (const nyckel of MALBILD_ORDNING) {
@@ -78,10 +64,10 @@ function sidor(): Sida[] {
     for (const roll of roller) {
       const tagg = `${nyckel}${nyckel === 'blott' ? '-' + roll : ''}`;
       ut.push({ namn: `kort ${tagg}`, slag: 'kort', html: renderaHtml(typisktKort(nyckel, roll)) });
-      ut.push({ namn: `blad ${tagg}`, slag: 'blad', html: renderaHtml(<MalbildBlad nyckel={nyckel} roll={roll} onStang={() => {}} onSett={() => {}} />) });
+      ut.push({ namn: `blad ${tagg}`, slag: 'blad', harKalla: !!malbildKalla(nyckel), html: renderaHtml(<MalbildBlad nyckel={nyckel} roll={roll} onStang={() => {}} onSett={() => {}} />) });
     }
     if (m.varianter?.some((v) => v.nyckel === 'kolbotten')) {
-      ut.push({ namn: `blad ${nyckel}-kolbotten`, slag: 'blad', html: renderaHtml(<MalbildBlad nyckel={nyckel} roll="skordare" onStang={() => {}} onSett={() => {}} />, kolbotten) });
+      ut.push({ namn: `blad ${nyckel}-kolbotten`, slag: 'blad', harKalla: !!malbildKalla(nyckel, 'kolbotten'), html: renderaHtml(<MalbildBlad nyckel={nyckel} roll="skordare" onStang={() => {}} onSett={() => {}} />, kolbotten) });
     }
   }
   return ut;
@@ -116,8 +102,8 @@ describe(`Målbilden på maskindatorn och telefonen — ${CHROMIUM ? 'mätt i Ch
             return { fel: Math.round(felUnderRulltopp), nedre: Math.round(tillgangligt), kalla };
           });
           expect(m, `${sida.namn} ${s.w}×${s.h}: bild, felbild eller fot hittades inte`).not.toBeNull();
-          // Källraden: finns för alla sorter utom Vattenskyddsområde, minst 44 px hög, under felbilden och inom bladets bredd.
-          if (sida.namn.startsWith('blad vattenskydd')) expect(m!.kalla, `${sida.namn}: ska sakna källrad`).toBeNull();
+          // Källraden: finns exakt för de sorter som har en källa i lib/malbilder (MALBILD_KALLA; Vattenskyddsområde, Stubben och Kant har ingen), minst 44 px hög, under felbilden och inom bladets bredd.
+          if (!sida.harKalla) expect(m!.kalla, `${sida.namn}: ska sakna källrad`).toBeNull();
           else {
             expect(m!.kalla, `${sida.namn} ${s.w}×${s.h}: källraden saknas`).not.toBeNull();
             expect(m!.kalla!.h, `${sida.namn} ${s.w}×${s.h}: källraden är under 44 px`).toBeGreaterThanOrEqual(44);

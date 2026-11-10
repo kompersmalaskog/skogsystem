@@ -1,0 +1,36 @@
+# Webbläsartesterna (*.hytt.test.ts, *.matt.test.tsx): mäter kartan och vyerna i en riktig Chromium.
+#
+# Vanliga vitest-jobbet har ingen Chromium, så där hoppas de över. Det här jobbet installerar Chromium och kör dem med
+# KRAV_CHROMIUM=1: saknas webbläsaren blir jobbet RÖTT i stället för grönt på överhoppade tester (lib/testStod/chromium.ts).
+# Bakgrund (2026-11-10): elva tester letade efter Chromium på fel ställe och hoppades över; fyra hade hunnit bli röda utan att någon såg det.
+name: webbläsartester
+
+on:
+  pull_request:
+
+concurrency:
+  group: webblasartester-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  webblasartester:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Installera Playwright och Chromium
+        run: |
+          npm i --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+      - name: Kör webbläsartesterna
+        env:
+          KRAV_CHROMIUM: '1'
+          NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-platshallare
+          SUPABASE_SERVICE_ROLE_KEY: ci-platshallare
+        run: npx vitest run $(git grep -l "testStod/chromium" -- '*.test.ts' '*.test.tsx')

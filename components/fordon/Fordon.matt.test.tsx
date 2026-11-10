@@ -5,8 +5,6 @@
 // Hoppas över om det inte finns någon Chromium — det står i testnamnet. FORDON_SKRIV=<mapp> sparar bilderna.
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +18,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: () => {}, replace:
 
 import FordonLista from './FordonLista';
 import FordonSida from './FordonSida';
+import { hittaChromium } from '../../lib/testStod/chromium';
 
 const SKARMAR = [
   { namn: 'smal telefon 360', w: 360, h: 740 },
@@ -28,20 +27,7 @@ const SKARMAR = [
   { namn: 'dator 1440', w: 1440, h: 900 },
 ];
 
-function chromium(): { launch: (o: object) => Promise<any> } | null {
-  for (const las of [
-    () => createRequire(import.meta.url)('playwright'),
-    () => createRequire(path.join(execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(), 'x.js'))('playwright'),
-  ]) {
-    try {
-      const pw = las();
-      const exe = pw.chromium.executablePath();
-      if (!exe || !fs.existsSync(exe)) continue;
-      return { launch: (o) => pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox'], ...o }) };
-    } catch { /* nästa väg */ }
-  }
-  return null;
-}
+const chromium = () => hittaChromium();
 const CHROMIUM = chromium();
 
 function k(id: string, typ: string, nasta_forfall: string | null, extra: Record<string, unknown> = {}) {

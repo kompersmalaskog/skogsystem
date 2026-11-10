@@ -13,8 +13,6 @@
 // FAKTURA_SKRIV=<mapp> sparar skärmbilderna.
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -23,6 +21,7 @@ import { FAKTURA_CSS, SIDOKOLUMN_FRAN_PX } from './FakturaRam';
 import { byggListVy, type OversiktsRad } from '@/lib/faktura/listaVy';
 import { byggFakturaLage } from '@/lib/faktura/fakturaLage';
 import { FARG, KOLUMN_CSS, TRAFFYTA, designCss } from '@/lib/design/tokens';
+import { hittaChromium } from '../../lib/testStod/chromium';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -39,21 +38,7 @@ const SKARMAR = [
   { namn: 'dator 1440', w: 1440, h: 900 },
 ];
 
-function chromium(): { launch: (o: object) => Promise<any> } | null {
-  for (const las of [
-    () => createRequire(import.meta.url)('playwright'),
-    () => createRequire(path.join(
-      execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(), 'x.js'))('playwright'),
-  ]) {
-    try {
-      const pw = las();
-      const exe = pw.chromium.executablePath();
-      if (!exe || !fs.existsSync(exe)) continue;
-      return { launch: (o) => pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox'], ...o }) };
-    } catch { /* nästa väg */ }
-  }
-  return null;
-}
+const chromium = () => hittaChromium();
 const CHROMIUM = chromium();
 
 const bas: OversiktsRad = {

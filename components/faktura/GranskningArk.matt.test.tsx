@@ -10,14 +10,11 @@
 // på en smal skärm.
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import GranskningArk, { type GranskningProps, type Vy } from './GranskningArk';
 import { raknaSortiment, type SortimentRad } from '@/lib/ekonomi/sortimentAntal';
 import { FARG, TRAFFYTA } from '@/lib/design/tokens';
+import { hittaChromium } from '../../lib/testStod/chromium';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -27,27 +24,7 @@ const SKARMAR = [
   { namn: 'dator 1280', w: 1280, h: 800 },
 ];
 
-/**
- * Playwright säger själv var webbläsaren ligger. Att bygga sökvägen för hand
- * ("chrome-linux/chrome") går sönder tyst när mappen heter något annat —
- * chrome-linux64 i den här miljön — och då HOPPAS mätningen över i stället för
- * att larma. Faller importen tillbaka på den globala installationen.
- */
-function chromium(): { launch: (o: object) => Promise<any> } | null {
-  for (const las of [
-    () => createRequire(import.meta.url)('playwright'),
-    () => createRequire(path.join(
-      execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(), 'x.js'))('playwright'),
-  ]) {
-    try {
-      const pw = las();
-      const exe = pw.chromium.executablePath();
-      if (!exe || !fs.existsSync(exe)) continue;
-      return { launch: (o) => pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox'], ...o }) };
-    } catch { /* nästa väg */ }
-  }
-  return null;
-}
+const chromium = () => hittaChromium();
 const CHROMIUM = chromium();
 
 const rad = (namn: string, kundkod: string | null, m3: number): SortimentRad =>
