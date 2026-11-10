@@ -61,37 +61,50 @@ function rendera(data: UppfoljningData): string {
   return be.textContent || '';
 }
 
+// Schablon: skordat 880 × 0,35 = 308 m³fub ris, märkt "ca" (gissning, ej mätt).
 describe('Grot-raden på ett avverkningsobjekt', () => {
-  it('ris kvar: säger "Riset ligger kvar på hygget"', () => {
+  it('ris kvar: visar mängden (ca 308 m³fub) + "ligger kvar på hygget"', () => {
     const text = rendera(hygge({ grotHamtad: null }));
-    expect(text).toContain('Riset ligger kvar på hygget');
-    expect(text).not.toContain('Riset hämtat');
+    expect(text).toContain('ca 308 m³fub');
+    expect(text).toContain('ligger kvar på hygget');
+    expect(text).not.toContain('hämtat');
   });
 
-  it('ris hämtat: säger "Riset hämtat <datum>"', () => {
+  it('ris hämtat: visar mängden + "hämtat <datum>"', () => {
     const text = rendera(hygge({ grotHamtad: '2026-10-28' }));
-    expect(text).toContain('Riset hämtat 28 okt');
-    expect(text).not.toContain('Riset ligger kvar på hygget');
+    expect(text).toContain('ca 308 m³fub');
+    expect(text).toContain('hämtat 28 okt');
+    expect(text).not.toContain('ligger kvar på hygget');
   });
 
-  it('KÄRNAN: ett färdigavverkat och färdigskotat hygge med ris kvar visar "Klart" OCH "Riset ligger kvar"', () => {
+  it('mängden är en SCHABLON, aldrig mätt: alltid märkt "ca"', () => {
+    // Skyddar mot att talet läses som uppmätt utkört ris. Utfallet bor på GROT-objektet.
+    const text = rendera(hygge({ grotHamtad: null }));
+    expect(text).toContain('ca ');
+  });
+
+  // (Grot-raden visas bara när skordat > 0 — Svaret bailar till StatusRad utan
+  // skördad volym, så "ca 0 m³fub" kan aldrig uppstå. Skablon-basen finns alltid.)
+
+  it('KÄRNAN: färdigavverkat och färdigskotat hygge med ris kvar visar "Klart" OCH ris-raden', () => {
     // Objektet är klart (avslutat, allt skotat) men riset ligger kvar — raden
     // visas i Klart-läge så hygget inte ser helt färdigt ut.
     const text = rendera(hygge({ status: 'avslutat', skotat: 880, kvarPct: 0, skotareSlut: '2026-10-30', grotHamtad: null }));
     expect(text).toContain('Klart');
-    expect(text).toContain('Riset ligger kvar på hygget');
+    expect(text).toContain('ca 308 m³fub');
+    expect(text).toContain('ligger kvar på hygget');
   });
 
   it('inte grot-anpassat: ingen grot-rad', () => {
     const text = rendera(hygge({ grotAnpassad: false, grotHamtad: null }));
-    expect(text).not.toContain('Riset ligger kvar på hygget');
-    expect(text).not.toContain('Riset hämtat');
+    expect(text).not.toContain('ligger kvar på hygget');
+    expect(text).not.toContain('Ris: ca');
   });
 
   it('risjobb: ingen grot-rad (risjobbet följs upp som eget objekt)', () => {
     // grotSkotning = true ⇒ arRisjobb ⇒ raden undertrycks även om grotAnpassad är satt.
     const text = rendera(hygge({ grotSkotning: true, grotAnpassad: true, skordat: 0, grotHamtad: null }));
-    expect(text).not.toContain('Riset ligger kvar på hygget');
-    expect(text).not.toContain('Riset hämtat');
+    expect(text).not.toContain('ligger kvar på hygget');
+    expect(text).not.toContain('Ris: ca');
   });
 });
