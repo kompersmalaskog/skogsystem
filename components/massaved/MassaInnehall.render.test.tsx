@@ -1,6 +1,6 @@
+// @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
