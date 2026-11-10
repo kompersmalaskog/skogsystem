@@ -13,6 +13,7 @@ import OmTrakten, { type OmNav, type OmTraktenProps } from './OmTrakten';
 import MerMeny, { type MerMenyProps } from './MerMeny';
 import VadBetyderKartan, { type VadBetyderKartanProps } from './VadBetyderKartan';
 import CertInfoVy from './CertInfoVy';
+import EgenkontrollVida, { type EgenkontrollVidaProps } from './EgenkontrollVida';
 import TraktOversikt, { type TraktOversiktProps } from './TraktOversikt';
 import type { CertTyp } from '@/lib/certKrav';
 import { InstruktionLista } from './InstruktionKort';
@@ -67,10 +68,12 @@ export interface ObjektInfoProps {
    * MASKINLÄGET: överblicken av hela trakten (lib/traktOversikt) — visas av sig själv första gången maskinen öppnar trakten (sidan öppnar med startVy 'oversikt')
    * och går att öppna igen via "Visa hela trakten" på förarens kort. Markeringar, miljö och ytor tas ur `om`. null = ingen.
    */
+  /** Vidas egenkontroll (lib/vidaEgenkontroll): raden på kortet och vyn bakom den. null = ingen rad (ingen Vida-mall). */
+  egenkontroll?: { under: string; vy: Omit<EgenkontrollVidaProps, 'objektNamn' | 'onTillbaka' | 'onStang'> } | null;
   oversikt?: Omit<TraktOversiktProps, 'namn' | 'tillForaren' | 'markeringar' | 'miljo' | 'ikon' | 'objektId' | 'onFoto' | 'onMer' | 'onCert'> | null;
 }
 
-export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, enkel = null, forarRisker = null, onRiskerForbered, bredd, startVy = 'kort', cert = [], kartaSparad = null, oversikt = null }: ObjektInfoProps) {
+export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, enkel = null, forarRisker = null, onRiskerForbered, bredd, startVy = 'kort', cert = [], kartaSparad = null, oversikt = null, egenkontroll = null }: ObjektInfoProps) {
   // Om trakten öppnad från överblicken går tillbaka dit, inte till kortet.
   const [omFran, setOmFran] = useState<'kort' | 'oversikt'>('kort');
   // I MASKINLÄGET är "Hela trakten" det ⓘ öppnar (Martin 2026-11-05): ett ställe med allt. Kortet nås via "Mer om trakten".
@@ -99,13 +102,15 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
   const stangRam = () => { stangOm(); if (vy === 'om') { om.onTyp(null, ramLage); om.onNav(null); } onStang(); };
 
   return (
-    <InfoRam oppen={oppen} vy={vy} bredd={bredd} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : vy === 'risker' ? 'Risker på trakten' : vy === 'cert' ? 'Certifiering' : vy === 'oversikt' ? 'Hela trakten' : 'Mer'} onStang={stangRam}>
+    <InfoRam oppen={oppen} vy={vy} bredd={bredd} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : vy === 'risker' ? 'Risker på trakten' : vy === 'cert' ? 'Certifiering' : vy === 'oversikt' ? 'Hela trakten' : vy === 'egenkontroll' ? 'Egenkontroll' : 'Mer'} onStang={stangRam}>
       {({ lage, sattDetent }) => (
         vy === 'oversikt' && oversikt ? (
           <TraktOversikt {...oversikt} namn={objektNamn} tillForaren={om.hela} markeringar={om.markeringar} miljo={om.miljo} ikon={om.ikon} objektId={objektId} onFoto={om.onFoto}
             onStang={() => { oversikt.onStang(); onStang(); }}
             onCert={cert.length ? () => { setCertFran('oversikt'); setVy('cert'); } : undefined}
             onMer={() => setVy('kort')} />
+        ) : vy === 'egenkontroll' && egenkontroll ? (
+          <EgenkontrollVida {...egenkontroll.vy} objektNamn={objektNamn} onTillbaka={() => setVy('kort')} onStang={stangRam} />
         ) : vy === 'klar' && klar ? (
           <KlarMedTrakten {...klar} namn={objektNamn} onStang={stangRam} onInfo={() => setVy('kort')} />
         ) : (vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner)) && enkel ? (
@@ -113,14 +118,16 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
             onStang={stangRam} onKnapp={onKnapp} onMer={() => setVy('mer')} onKarta={karta ? () => setVy('karta') : undefined} onCert={onCert} kartaSparad={kartaSparad}
             risker={forarRisker ? { ...riskRadUnder(forarRisker.lista, forarRisker.last), onOppna: forarRisker.lista ? () => { setRiskFel(false); setVy('risker'); } : null } : null}
             onYta={(nyckel) => { sattDetent('halv'); enkel.onYta(nyckel, lage); }}
-            onOversikt={oversikt ? () => setVy('oversikt') : undefined} />
+            onOversikt={oversikt ? () => setVy('oversikt') : undefined}
+            onEgenkontroll={egenkontroll ? { under: egenkontroll.under, onTryck: () => setVy('egenkontroll') } : undefined} />
         ) : vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner) ? (
           <ObjektKort {...kort} instruktioner={instruktioner && instruktioner.data.antal > 0 ? { antal: instruktioner.data.antal, nya: instruktioner.data.nya, onOppna: () => setVy('instruktioner') } : null}
             direktivSett={direktiv ? { sedd: direktiv.nya === 0, onSett: () => instruktioner!.onSett([DIREKTIV_NYCKEL]) } : null}
             namn={objektNamn} onStang={stangRam} onKlar={klar ? () => setVy('klar') : undefined}
             onRisker={klar && kort.riskRad && onRiskerForbered ? () => { onRiskerForbered(); setVy('klar'); } : undefined}
             onKnapp={onKnapp} onMer={() => setVy('mer')}
-            onPaTrakten={() => setVy('om')} onKarta={karta ? () => setVy('karta') : undefined} onCert={onCert} kartaSparad={kartaSparad} />
+            onPaTrakten={() => setVy('om')} onKarta={karta ? () => setVy('karta') : undefined} onCert={onCert} kartaSparad={kartaSparad}
+            onEgenkontroll={egenkontroll ? { under: egenkontroll.under, onTryck: () => setVy('egenkontroll') } : undefined} />
         ) : vy === 'om' ? (
           <OmTrakten {...om} start={aterstall} onVisa={(m) => om.onVisa(m, lage)} onSlapp={() => om.onSlapp('rad')} onTyp={(m) => { setTypOppen(!!m); om.onTyp(m, lage); }}
             objektNamn={objektNamn} objektId={objektId} onTillbaka={() => { stangOm(); om.onTyp(null, lage); om.onNav(null); setAterstall(undefined); setTypOppen(false); setVy(omFran === 'oversikt' && oversikt ? 'oversikt' : 'kort'); }} onStang={stangRam} />

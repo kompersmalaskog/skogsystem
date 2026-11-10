@@ -56,6 +56,8 @@ export interface ObjektKortEnkelProps {
   risker?: { text: string; ton: 'orange' | 'gron' | 'dampad'; onOppna: (() => void) | null } | null;
   /** "Visa hela trakten": överblicken (lib/traktOversikt) — allt på trakten på en sida. Saknas = ingen rad. */
   onOversikt?: () => void;
+  /** Vidas egenkontroll: "Egenkontroll · 2 av 6 frågor". Saknas = ingen rad. */
+  onEgenkontroll?: { under: string; onTryck: () => void };
 }
 
 /** Den gröna stapeln: hur stor del av trakten som är klar. Ord och tal står bredvid (under namnet) — färgen är aldrig ensam. */
@@ -179,6 +181,7 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
             </div>
           )}
           {p.larm.satt && p.larm.beskrivning && <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px`, ...TYP.text, whiteSpace: 'pre-wrap' }}>{p.larm.beskrivning}</div>}
+          {p.onEgenkontroll && <RadKnapp testid="kort-egenkontroll" etikett="Egenkontroll" under={p.onEgenkontroll.under} onTryck={p.onEgenkontroll.onTryck} />}
           {p.onKarta && <RadKnapp testid="kort-vad-betyder-kartan" etikett="Kartans färger" onTryck={p.onKarta} />}
           {p.onCert && <RadKnapp testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}
           {p.dokument && (

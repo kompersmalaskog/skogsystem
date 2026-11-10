@@ -160,6 +160,9 @@ import { lagerBild, tonadYta, linjeYta, sparYta, prickYta } from '../../lib/lage
 import { hogPrickar, lasHogVisa, sparaHogVisa, HOG_VISA, HOG_PRICK_FARG, STRECK_BREDD_M, type HogVisa, type HogPrick, type HogMarkGrupp, type HogGrupp, hogNyckel, hogarIOmrade } from '../../lib/skotarHogarKvar'
 import { useHogMarkeringar } from '../../lib/hooks/useHogMarkeringar'
 import { certTyper } from '../../lib/certKrav'
+import { byggEgenkontroll, type Roll as EkRoll } from '../../lib/vidaEgenkontroll'
+import { useEgenkontrollVida } from '../../lib/hooks/useEgenkontrollVida'
+import { egenkontrollRad } from '../../components/planering/EgenkontrollVida'
 import { miljoKrav, raknaMiljo, kravStatus, planMiljoRader, tolkaAreal, arPrick, arAlltidPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
@@ -13337,6 +13340,18 @@ export default function PlannerPage() {
   const planMiljoText = planMiljoRader(miljoAntal, miljoKravVal);
   const plusOppen = plusRadOppen;   // plus-knappens vridning/badge/prickar
 
+  // VIDAS EGENKONTROLL (lib/vidaEgenkontroll): förarens få frågor i maskinläget, Vidas hela formulär för planeraren. Läses när ⓘ öppnas.
+  const ekRoll: EkRoll | null = instruktionerAktiv ? (skotarKorvy ? 'skotare' : 'skordare') : null;
+  const ek = useEgenkontrollVida(valtObjekt?.id ?? null, traktOversiktOpen && !!valtObjekt, ekRoll, testlage?.maskinId ?? enhetMaskinId ?? null);
+  const ekModell = useMemo(() => (ek.lage === 'ok'
+    ? byggEgenkontroll(ek.items, { cert: ek.cert, grot: ek.grot, evighetstrad: miljoAntal.evighetstrad, evighetstradKrav: miljoKravVal.evighetstrad }, ek.svar, ek.typ === 'grot' || ek.typ === 'energiklippning')
+    : null), [ek.lage, ek.items, ek.cert, ek.grot, ek.typ, ek.svar, miljoAntal.evighetstrad, miljoKravVal.evighetstrad]);
+  const ekRad = egenkontrollRad(ekModell, ekRoll, ek.svar);
+  const egenkontrollInfo = ekRad || ek.lage === 'fel' ? {
+    under: ek.lage === 'fel' ? 'Kunde inte läsas' : ekRad!.under,
+    vy: { lage: ek.lage, modell: ekModell, roll: ekRoll, svar: ek.svar, fel: ek.fel, onSvara: ek.svara, onLasOm: ek.lasOm },
+  } : null;
+
   // === RISA-DEL på basväg: starta två-tapp / avbryt / committa / ta bort ===
   const startaRisaMarkering = (roadId: string | number) => {
     setRisaMarkRoadId(roadId);
@@ -14899,7 +14914,7 @@ export default function PlannerPage() {
         };
         }
         const op = objektInfoSenasteRef.current;
-        return op ? <ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} kartaSparad={nedladdningText(kartNedladdning)} /> : null;
+        return op ? <ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} kartaSparad={nedladdningText(kartNedladdning)} egenkontroll={egenkontrollInfo} /> : null;
       })()}
 
       {/* === MODE-BANNER (aktivt verktygsläge) === */}
