@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const h = vi.hoisted(() => ({
   nod: null as any, admin: false, sparade: [] as any[], aterstallda: [] as string[], rapporter: [] as any[], rapportSvar: null as string | null, vem: { ok: true, medarbetareId: 'm-1', maskinId: 'PONS' } as any,
+  kvitton: [] as any[], kvitterade: [] as string[],
 }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
@@ -25,10 +26,19 @@ vi.mock('@/lib/arbetsmiljo/tillbud', async (orig) => {
     aterstallKort: async (_sb: unknown, id: string) => { h.aterstallda.push(id); h.nod = { ...h.nod, andringar: [] }; return null; },
   };
 });
-vi.mock('@/lib/CurrentMedarbetareContext', () => ({ useCurrentMedarbetare: () => ({ medarbetare: h.admin ? { roll: 'admin' } : { roll: 'forare' }, loading: false }) }));
+vi.mock('@/lib/CurrentMedarbetareContext', () => ({ useCurrentMedarbetare: () => ({ medarbetare: h.admin ? { id: 'a-1', roll: 'admin' } : { id: 'm-1', roll: 'forare' }, loading: false }) }));
+vi.mock('@/lib/arbetsmiljo/saGorVi', async (orig) => {
+  const riktig: any = await orig();
+  return {
+    ...riktig,
+    hamtaKvitton: async () => h.kvitton,
+    kvittera: async (_sb: unknown, _m: string, i: any) => { h.kvitterade.push(i.id); return true; },
+  };
+});
 
 import OmNagotHander from './OmNagotHander';
 import { NOD_NYCKEL } from '@/lib/arbetsmiljo/nod';
+import { instruktion, underlag } from '@/lib/arbetsmiljo/saGorVi';
 
 let rot: ReturnType<typeof createRoot> | null = null;
 let el: HTMLDivElement | null = null;
@@ -50,7 +60,7 @@ beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.clear();
   h.nod = { kontakter: [{ namn: 'Martin', telefon: '070-111 22 33' }, { namn: 'Joacim', telefon: '070 444' }], larmplatser: [{ objektId: 'o1', namn: 'Skälviken', lat: 56.84321, lng: 15.2219, beskrivning: 'Möt vid bommen' }], hamtad: 1 };
-  h.admin = false; h.sparade = []; h.aterstallda = [];
+  h.admin = false; h.sparade = []; h.aterstallda = []; h.kvitton = []; h.kvitterade = [];
   h.rapporter = []; h.rapportSvar = null; h.vem = { ok: true, medarbetareId: 'm-1', maskinId: 'PONS' };
   geoSvar = null;
   (navigator as any).geolocation = { watchPosition: (ok: any) => { geoSvar = ok; return 1; }, clearWatch: () => {} };
@@ -211,5 +221,49 @@ describe('Rutinkorten går att ändra', () => {
     await tryck(document.querySelector('[data-aterstall-kort]'));
     expect(h.aterstallda).toEqual(['brand']);
     expect(document.querySelector('h1')!.textContent).toBe('Det brinner');
+  });
+});
+
+const godkand = (id: any) => ({ steg: null, godkandUnderlag: underlag(instruktion(id, undefined)), godkandTid: new Date().toISOString() });
+const ogodkand = { steg: null, godkandUnderlag: null, godkandTid: null };
+
+describe('Ska du göra något av det här? (Så gör vi under Om något händer)', () => {
+  it('bara godkända visas, ett tryck ger stegen och källan, föraren trycker Jag har läst', async () => {
+    h.nod = { ...h.nod, instruktioner: { kraftledning: godkand('kraftledning'), bargning: godkand('bargning'), brant: ogodkand } };
+    await montera();
+    expect(text()).toContain('Ska du göra något av det här?');
+    const rader = Array.from(document.querySelectorAll('[data-instr]')).map(x => x.getAttribute('data-instr'));
+    expect(rader).toEqual(['kraftledning', 'bargning']);
+    await tryck(document.querySelector('[data-instr="bargning"]'));
+    expect(window.location.search).toBe('?instr=bargning');
+    expect(document.querySelectorAll('[data-instr-vy="bargning"] [data-steg] li')).toHaveLength(instruktion('bargning', undefined).steg.length);
+    expect(document.querySelector('[data-instr-kalla]')?.textContent).toContain('Skogforsk');
+    await tryck(document.querySelector('[data-instr-las]'));
+    expect(h.kvitterade).toEqual(['bargning']);
+    expect(document.querySelector('[data-instr-last]')?.textContent).toContain('Läst');
+    expect(document.querySelector('[data-instr-las]')).toBeNull();
+  });
+
+  it('inga godkända = ingen rubrik och inga rader (aldrig en tom lista)', async () => {
+    h.nod = { ...h.nod, instruktioner: { kraftledning: ogodkand } };
+    await montera();
+    expect(text()).not.toContain('Ska du göra något av det här?');
+    expect(document.querySelector('[data-instr]')).toBeNull();
+  });
+
+  it('utan täckning: instruktionerna ur det som sparats på enheten', async () => {
+    localStorage.setItem(NOD_NYCKEL, JSON.stringify({ ...h.nod, instruktioner: { trailer: godkand('trailer') } }));
+    h.nod = null;
+    await montera();
+    expect(Array.from(document.querySelectorAll('[data-instr]')).map(x => x.getAttribute('data-instr'))).toEqual(['trailer']);
+  });
+
+  it('admin får länken till Så gör vi i stället för Jag har läst', async () => {
+    h.admin = true;
+    h.nod = { ...h.nod, instruktioner: { motorsag: godkand('motorsag') } };
+    window.history.replaceState(null, '', '/om-nagot-hander?instr=motorsag');
+    await montera();
+    expect(document.querySelector('[data-instr-andra]')?.getAttribute('href')).toBe('/sa-gor-vi?id=motorsag');
+    expect(document.querySelector('[data-instr-las]')).toBeNull();
   });
 });
