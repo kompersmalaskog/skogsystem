@@ -161,12 +161,12 @@ async function hamtaPlatser(sb: SupabaseClient): Promise<Map<string, { typ: Bild
   const ut = new Map<string, { typ: BildTyp; val: Val }>();
   try {
     const { data, error } = await sb.from('am_atgard')
-      .select('id, maskin_del, maskin_x, maskin_y, dim_maskin(maskin_typ)')
+      .select('id, maskin_del, maskin_x, maskin_y, dim_maskin(maskin_typ, modell)')
       .not('maskin_del', 'is', null);
     if (error || !Array.isArray(data)) return ut;
-    for (const r of data as { id: string; maskin_del: unknown; maskin_x: unknown; maskin_y: unknown; dim_maskin: { maskin_typ: string | null } | { maskin_typ: string | null }[] | null }[]) {
+    for (const r of data as { id: string; maskin_del: unknown; maskin_x: unknown; maskin_y: unknown; dim_maskin: { maskin_typ: string | null; modell?: string | null } | { maskin_typ: string | null; modell?: string | null }[] | null }[]) {
       const m = Array.isArray(r.dim_maskin) ? r.dim_maskin[0] : r.dim_maskin;
-      const typ = bildTyp(m?.maskin_typ);
+      const typ = bildTyp(m?.maskin_typ, m?.modell);
       const val = franLagring(r.maskin_del, r.maskin_x, r.maskin_y);
       if (typ && val) ut.set(r.id, { typ, val });
     }

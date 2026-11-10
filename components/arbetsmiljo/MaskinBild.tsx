@@ -20,14 +20,19 @@ const DETALJ = { fill: 'none', stroke: FARG.text3, strokeWidth: 1.5, strokeLinec
 const BOM = { fill: 'none', stroke: FARG.text2, strokeWidth: 9, strokeLinecap: 'round' as const };
 const BOM_INRE = { fill: 'none', stroke: FARG.upphojt, strokeWidth: 6, strokeLinecap: 'round' as const };
 
-function Hjul({ x, y }: { x: number; y: number }) {
+function Hjul({ x, y, r = 25 }: { x: number; y: number; r?: number }) {
   return (
     <g>
-      <circle cx={x} cy={y} r={25} fill={FARG.bg} stroke={FARG.text2} strokeWidth={1.5} />
-      <circle cx={x} cy={y} r={17} {...DETALJ} />
-      <circle cx={x} cy={y} r={6} fill={FARG.text3} />
+      <circle cx={x} cy={y} r={r} fill={FARG.bg} stroke={FARG.text2} strokeWidth={1.5} />
+      <circle cx={x} cy={y} r={r * 0.68} {...DETALJ} />
+      <circle cx={x} cy={y} r={r * 0.24} fill={FARG.text3} />
     </g>
   );
+}
+
+/** Kedjor runt ett ensamt hjul (fyrhjulig maskin). */
+function Kedja({ x, y, r }: { x: number; y: number; r: number }) {
+  return <circle cx={x} cy={y} r={r + 3} fill="none" stroke={FARG.text3} strokeWidth={4} strokeDasharray="3 4" />;
 }
 
 /** Band runt ett boggipar: en rundad ram med länkar. */
@@ -63,7 +68,46 @@ function Droppe({ x, y }: { x: number; y: number }) {
   return <path d={`M${x} ${y} q5 8 0 11 q-5 -3 0 -11 z`} fill={FARG.text3} stroke={FARG.text2} strokeWidth={1} />;
 }
 
+/** Fyrhjulig skördare (Rottne H8E): kranen längst fram, hytten bakom den, midjeled, motorn bak. */
 function Skordare() {
+  return (
+    <g>
+      <line x1={0} y1={214} x2={BILD_B} y2={214} stroke={FARG.linje} strokeWidth={2} />
+      {/* Kranen: pelare längst fram, bom upp och fram, aggregat. */}
+      <rect x={76} y={92} width={18} height={60} rx={4} {...KROPP} />
+      <path d="M85 96 L118 26 L40 58" {...BOM} />
+      <path d="M85 96 L118 26 L40 58" {...BOM_INRE} />
+      <path d="M94 104 Q104 116 118 108" {...DETALJ} strokeDasharray="4 3" />
+      <line x1={40} y1={58} x2={40} y2={70} stroke={FARG.text2} strokeWidth={4} />
+      <path d="M20 70 H60 L64 106 H16 Z" {...KROPP} />
+      <circle cx={30} cy={88} r={7} {...DETALJ} />
+      <circle cx={50} cy={88} r={7} {...DETALJ} />
+      {/* Främre ram, hytt, midjeled, bakre ram med motor. */}
+      <rect x={66} y={150} width={144} height={18} rx={4} {...KROPP} />
+      <path d="M120 150 V86 Q120 72 134 72 H188 Q200 72 200 84 V150 Z" {...KROPP} />
+      <path d="M130 86 H192 V122 H130 Z" fill={FARG.kort} stroke={FARG.text3} strokeWidth={1.5} />
+      <rect x={176} y={64} width={14} height={7} rx={2} fill={FARG.text3} />
+      <circle cx={216} cy={160} r={7} {...KROPP} />
+      <rect x={222} y={150} width={156} height={18} rx={4} {...KROPP} />
+      <path d="M226 150 V112 Q226 104 234 104 H354 L378 124 V150 Z" {...KROPP} />
+      <line x1={246} y1={116} x2={246} y2={140} {...DETALJ} />
+      <line x1={258} y1={116} x2={258} y2={140} {...DETALJ} />
+      <line x1={270} y1={116} x2={270} y2={140} {...DETALJ} />
+      <rect x={240} y={88} width={6} height={16} rx={2} fill={FARG.text3} />
+      <circle cx={356} cy={124} r={4} fill={FARG.text3} stroke={FARG.text2} strokeWidth={1.5} />
+      <Stege x={200} y1={140} y2={192} />
+      <Slackare x={244} y={154} />
+      <Droppe x={356} y={170} />
+      {/* Två stora hjul, kedjor fram. */}
+      <Kedja x={112} y={180} r={34} />
+      <Hjul x={112} y={180} r={34} />
+      <Hjul x={304} y={180} r={34} />
+    </g>
+  );
+}
+
+/** Åttahjulig skördare med boggier (Ponsse Scorpion): hytten fram, kranen bakom, motorn bak. */
+function Skordare8() {
   return (
     <g>
       <line x1={0} y1={214} x2={BILD_B} y2={214} stroke={FARG.linje} strokeWidth={2} />
@@ -179,8 +223,8 @@ export default function MaskinBild({ typ, val, onVal, etikett }: {
       <svg viewBox={`0 0 ${BILD_B} ${BILD_H}`} role="img" aria-labelledby={`${id}-t`}
         onClick={klick} className="mb-in"
         style={{ display: 'block', width: '100%', height: 'auto', aspectRatio: `${BILD_B} / ${BILD_H}`, background: FARG.kort, borderRadius: RADIE.kort, cursor: valjer ? 'pointer' : 'default', touchAction: 'manipulation' }}>
-        <title id={`${id}-t`}>{`${etikett ?? (typ === 'skordare' ? 'Skördare' : 'Skotare')}${val ? ` · ${delNamn(val.del, typ)}` : ''}`}</title>
-        {typ === 'skordare' ? <Skordare /> : <Skotare />}
+        <title id={`${id}-t`}>{`${etikett ?? (typ === 'skotare' ? 'Skotare' : 'Skördare')}${val ? ` · ${delNamn(val.del, typ)}` : ''}`}</title>
+        {typ === 'skordare' ? <Skordare /> : typ === 'skordare8' ? <Skordare8 /> : <Skotare />}
         {valjer && lista.map(d => (
           <circle key={d.id} cx={d.x} cy={d.y} r={6} fill={FARG.text} stroke={FARG.bg} strokeWidth={2}
             className={val ? undefined : 'mb-andas'} opacity={val && val.del === d.id ? 0 : 0.85} />

@@ -6,7 +6,7 @@ import { tillLagring, type Val } from '@/lib/arbetsmiljo/maskinBild';
 import { maskinAktivIdag, maskinNamn, type MaskinRegisterRad } from '@/lib/maskinFraga';
 import { arDags, deadlineFor, fragorFor, GODKANNANDE_VERSION, svenskManad, type Fraga, type Svar } from './regler';
 
-export type Maskin = { id: string; namn: string; typ: string | null };
+export type Maskin = { id: string; namn: string; typ: string | null; modell?: string | null };
 
 export type MaskinkollLage = {
   medarbetareId: string;
@@ -46,7 +46,7 @@ export async function hamtaLage(sb: SupabaseClient, nu: Date = new Date()): Prom
   if (maskinRes.error || fragaRes.error || godkRes.error || pagRes.error || klarRes.error) return { ok: false, fel: LASFEL };
 
   const m = maskinRes.data as { maskin_id: string; visningsnamn: string | null; modell: string | null; maskin_typ: string | null } | null;
-  const maskin: Maskin = { id: maskinId, namn: m?.visningsnamn || m?.modell || 'Din maskin', typ: m?.maskin_typ ?? null };
+  const maskin: Maskin = { id: maskinId, namn: m?.visningsnamn || m?.modell || 'Din maskin', typ: m?.maskin_typ ?? null, modell: m?.modell ?? null };
   const pag = (pagRes.data ?? [])[0] as { id: string; startad?: string; am_svar: Svar[] | null } | undefined;
   const senasteKlar = ((klarRes.data ?? [])[0] as { klar: string } | undefined)?.klar ?? null;
 
@@ -81,7 +81,7 @@ export function felMaskiner(register: MaskinRegisterRad[], egen: string | null, 
   for (const m of register) {
     const kand = m.maskin_typ === 'Harvester' || m.maskin_typ === 'Forwarder';
     if (m.maskin_id !== egen && (!kand || !maskinAktivIdag(m, idagISO))) continue;
-    ut.push({ id: m.maskin_id, namn: maskinNamn(m), typ: m.maskin_typ ?? null });
+    ut.push({ id: m.maskin_id, namn: maskinNamn(m), typ: m.maskin_typ ?? null, modell: m.modell ?? null });
   }
   return ut.sort((a, b) => (a.id === egen ? -1 : b.id === egen ? 1 : a.namn.localeCompare(b.namn, 'sv')));
 }

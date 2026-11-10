@@ -15,6 +15,6 @@ describe('felMaskiner', () => {
   });
   it('den egna maskinen först, också när typen är okänd', () => {
     expect(felMaskiner(reg, 'A030353', '2026-11-10').map(m => m.id)).toEqual(['A030353', 'PONS', 'R64428']);
-    expect(felMaskiner(reg, 'LB1', '2026-11-10')[0]).toEqual({ id: 'LB1', namn: 'Lastbil', typ: 'Truck' });
+    expect(felMaskiner(reg, 'LB1', '2026-11-10')[0]).toEqual({ id: 'LB1', namn: 'Lastbil', typ: 'Truck', modell: null });
   });
 });

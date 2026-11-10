@@ -177,15 +177,15 @@ export default function Maskinkoll() {
 
   const oppnaRapport = () => {
     setFel(null); setUtkast({ fil: null, bild: null, kommentar: '' }); setStoppRapport(false); setPlats(null);
-    setSteg(data && bildTyp(data.maskin.typ) ? 'plats' : 'rapport');
+    setSteg(data && bildTyp(data.maskin.typ, data.maskin.modell) ? 'plats' : 'rapport');
   };
-  const typ = data ? bildTyp(data.maskin.typ) : null;
+  const typ = data ? bildTyp(data.maskin.typ, data.maskin.modell) : null;
 
   /** Maskinen valdes (eller är förarens egen): rapporten gäller den. */
   function valjFelMaskin(v: FelVal, m: Maskin) {
     setData({ medarbetareId: v.medarbetareId, maskin: m, fragor: [], godkand: true, pagaende: null, senasteKlar: null, dags: false });
     setFel(null); setUtkast({ fil: null, bild: null, kommentar: '' }); setStoppRapport(false); setPlats(null);
-    setSteg(bildTyp(m.typ) ? 'plats' : 'rapport');
+    setSteg(bildTyp(m.typ, m.modell) ? 'plats' : 'rapport');
   }
   /** Gick det att välja maskin (listan visades)? Då leder Tillbaka från första steget dit. */
   const fickValja = !!felVal && !(felVal.egen && !felVal.arAdmin);

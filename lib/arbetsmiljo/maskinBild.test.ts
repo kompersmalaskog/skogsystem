@@ -5,6 +5,9 @@ import { felText } from './atgarder';
 describe('maskinbilden', () => {
   it('maskintypen avgör teckningen; okänd typ ger ingen', () => {
     expect(bildTyp('Harvester')).toBe('skordare');
+    expect(bildTyp('Harvester', 'H8E')).toBe('skordare');
+    expect(bildTyp('Harvester', 'PONSSE Scorpion Giant 8W')).toBe('skordare8');
+    expect(delNamn('kran', 'skordare8')).toBe('Kran och aggregat');
     expect(bildTyp('Forwarder')).toBe('skotare');
     expect(bildTyp('Truck')).toBeNull();
     expect(bildTyp(null)).toBeNull();
@@ -19,7 +22,7 @@ describe('maskinbilden', () => {
   });
 
   it('varje del ligger på teckningen och två delar är aldrig så nära att ett tryck blir tvetydigt', () => {
-    for (const typ of ['skordare', 'skotare'] as const) {
+    for (const typ of ['skordare', 'skordare8', 'skotare'] as const) {
       const d = delar(typ);
       for (const a of d) {
         expect(a.x).toBeGreaterThan(0); expect(a.x).toBeLessThan(BILD_B);

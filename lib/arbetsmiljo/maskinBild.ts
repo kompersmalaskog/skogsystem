@@ -9,7 +9,8 @@
 export const BILD_B = 400;
 export const BILD_H = 240;
 
-export type BildTyp = 'skordare' | 'skotare';
+/** `skordare` = fyrhjulig skördare (Rottne H8E), `skordare8` = åttahjulig med boggier (Ponsse Scorpion), `skotare` = skotare. */
+export type BildTyp = 'skordare' | 'skordare8' | 'skotare';
 
 /** Delarna i den ordning knapparna står. `annat` = ett tryck någon annanstans på maskinen. */
 export const DEL_ORDNING = ['kran', 'hytt', 'stege', 'slackare', 'nodstopp', 'lackage', 'slang', 'band'] as const;
@@ -19,7 +20,7 @@ type DelDef = { namn: string; x: number; y: number };
 
 /** Namnen är förarens ord. Skördarens kran har ett aggregat, skotarens en grip. */
 const NAMN: Record<DelId, (t: BildTyp) => string> = {
-  kran: t => (t === 'skordare' ? 'Kran och aggregat' : 'Kran och grip'),
+  kran: t => (t === 'skotare' ? 'Kran och grip' : 'Kran och aggregat'),
   hytt: () => 'Lampa och ruta',
   stege: () => 'Stege och handtag',
   slackare: () => 'Släckare',
@@ -33,6 +34,16 @@ const NAMN: Record<DelId, (t: BildTyp) => string> = {
 /** Var varje del sitter på teckningen (stämmer med MaskinBild.tsx). */
 const PLATS: Record<BildTyp, Record<(typeof DEL_ORDNING)[number], { x: number; y: number }>> = {
   skordare: {
+    kran: { x: 104, y: 34 },
+    hytt: { x: 161, y: 103 },
+    stege: { x: 205, y: 168 },
+    slackare: { x: 250, y: 166 },
+    nodstopp: { x: 356, y: 124 },
+    lackage: { x: 356, y: 176 },
+    slang: { x: 106, y: 104 },
+    band: { x: 112, y: 180 },
+  },
+  skordare8: {
     kran: { x: 100, y: 43 },
     hytt: { x: 163, y: 95 },
     stege: { x: 212, y: 160 },
@@ -59,9 +70,12 @@ export const TRAFF_RADIE = 26;
 
 export type Val = { del: DelId; x: number; y: number };
 
-/** Maskinens typ ur dim_maskin.maskin_typ. Okänd typ (lastbil, saknas) = ingen teckning. */
-export function bildTyp(maskinTyp: string | null | undefined): BildTyp | null {
-  if (maskinTyp === 'Harvester') return 'skordare';
+/** Skördare med boggier fram och bak (åtta hjul). Allt annat ritas som fyrhjulig. */
+const ATTA_HJUL = /\b8w\b|scorpion|bear|beaver|ergo/i;
+
+/** Maskinens typ ur dim_maskin.maskin_typ (+ modell för skördarens hjul). Okänd typ (lastbil, saknas) = ingen teckning. */
+export function bildTyp(maskinTyp: string | null | undefined, modell?: string | null): BildTyp | null {
+  if (maskinTyp === 'Harvester') return modell && ATTA_HJUL.test(modell) ? 'skordare8' : 'skordare';
   if (maskinTyp === 'Forwarder') return 'skotare';
   return null;
 }
