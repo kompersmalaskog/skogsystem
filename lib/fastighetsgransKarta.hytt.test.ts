@@ -11,8 +11,6 @@
 //   7. Lantmäteriets rasterlager (när Vida inte levererat fastigheter) ritas i SAMMA stil: vit kärna med mörk kant, aldrig gult (syntetisk tile — riktiga WMS nås inte härifrån).
 // Skala: zoom 17 på lat 57 = 3,07 px per meter (MapLibres 512-rutor), vyn är 900 × 640 px = ±146 × ±104 m kring (200, 100).
 // FASTIGHET_SKRIV=<mapp> sparar skärmbilderna.
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -21,19 +19,9 @@ import { LEGEND } from './kartstil';
 import { vidaEtikettPunkter } from './ytaEtikett';
 import { RAGANG_LAGER_ORDNING, TRAKTGRANS_BREDD, TRAKTGRANS_KANT_BREDD, TRAKTGRANS_KANT_FARG, ragangKallor, ragangLager, forstaVektorLagerId, lmGransLager, LM_GRANS } from './fastighetsgransKarta';
 import zlib from 'node:zlib';
+import { hittaChromium, KARTA_ARGS } from './testStod/chromium';
 
-function chromium(): { launch: (o: object) => Promise<any> } | null {
-  try {
-    const rot = execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    const kor = createRequire(path.join(rot, 'x.js'));
-    const pw = kor('playwright');
-    const mapp = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-    const ver = fs.readdirSync(mapp).filter((n) => /^chromium-\d+$/.test(n)).sort().pop();
-    const exe = ver && path.join(mapp, ver, 'chrome-linux', 'chrome');
-    if (!exe || !fs.existsSync(exe)) return null;
-    return { launch: (o) => pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'], ...o }) };
-  } catch { return null; }
-}
+const chromium = () => hittaChromium(KARTA_ARGS);
 // FASTIGHET_UTAN_CHROMIUM=1: bara källvakterna (mutationskontrollen kör dem snabbt, Chromium-mätningarna för sig).
 const CHROMIUM = process.env.FASTIGHET_UTAN_CHROMIUM ? null : chromium();
 const MAPLIBRE = path.join(process.cwd(), 'node_modules/maplibre-gl/dist');

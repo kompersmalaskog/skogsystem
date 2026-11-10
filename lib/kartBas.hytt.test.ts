@@ -2,25 +2,13 @@
 // BAKGRUNDEN TONAS NER PÅ RIKTIGT — mätt i riktig Chromium + MapLibre (jsdom kan inte rita). En bild med vitt (åker/vägkant) och en mättad röd ruta ritas genom
 // varje bakgrundslagers paint ur lib/kartBas; vitt ska bli grått (ljusast ≤ 80 % av 255) och den röda ska ha tappat minst en tredjedel av sin färgspridning.
 // Utan Chromium hoppas mätningen över.
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
-import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { KARTBAS_PAINT, kartBasPaint } from './kartBas';
 import { KARTLAGER } from './kartlager';
+import { hittaChromium, KARTA_ARGS } from './testStod/chromium';
 
-function chromium(): { launch: (o: object) => Promise<any> } | null {
-  try {
-    const rot = execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    const pw = createRequire(path.join(rot, 'x.js'))('playwright');
-    const mapp = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-    const ver = fs.readdirSync(mapp).filter((n) => /^chromium-\d+$/.test(n)).sort().pop();
-    const exe = ver && path.join(mapp, ver, 'chrome-linux', 'chrome');
-    if (!exe || !fs.existsSync(exe)) return null;
-    return { launch: (o) => pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'], ...o }) };
-  } catch { return null; }
-}
+const chromium = () => hittaChromium(KARTA_ARGS);
 const CHROMIUM = chromium();
 const MAPLIBRE = path.join(process.cwd(), 'node_modules/maplibre-gl/dist');
 
@@ -61,7 +49,15 @@ describe.skipIf(!CHROMIUM)('kartBasPaint i riktig MapLibre — Dämpad (0) tonar
       expect(spridning(m.rod), `${lager} röd blev ${m.rod}`).toBeLessThan(spridning(ref.rod) * (2 / 3));
     }, 90000);
   }
-  for (const lager of KARTLAGER) {
+  // Mörk (#1121) är mörk med flit, också i Skarp ("reglaget avgör hur mycket av skogen som syns, aldrig en ljus karta"): den prövas för sig.
+  it('mork: mörk i alla lägen — Skarp högst hälften av ljuset, standard mörkare än orört, Dämpad mörkast', async () => {
+    const ref = await mat(null);
+    const std = await mat(KARTBAS_PAINT.mork), skarp = await mat(kartBasPaint('mork', 100)), dampad = await mat(kartBasPaint('mork', 0));
+    expect(Math.max(...skarp.vitt), `skarp vitt ${skarp.vitt}`).toBeLessThanOrEqual(255 * 0.5);
+    expect(Math.max(...std.vitt)).toBeLessThan(Math.max(...ref.vitt));
+    expect(Math.max(...dampad.vitt)).toBeLessThan(Math.max(...std.vitt));
+  }, 90000);
+  for (const lager of KARTLAGER.filter((l) => l !== 'mork')) {
     it(`${lager}: standard (85) behåller nästan all ljus och färg (≥ 85 %) — inte grått; Skarp (100) är orörd bild`, async () => {
       const ref = await mat(null);
       const std = await mat(KARTBAS_PAINT[lager]);

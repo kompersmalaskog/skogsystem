@@ -3,27 +3,15 @@
 // färgerna ur page.tsx) och mäts i pixlar: bara nu ska vara tjockare (alla andra som vanligt), en körd väg grå, nu ska ha vita pilar på vägen och skenet under. Arvidstorp RP J-Hus -25 (prod
 // 2026-10-25, fixtur) ritas som före (de gamla körriktningspilarna) och efter (körordning). Ingen flygfotobakgrund (nätverket nås inte härifrån): mörkgrön platta.
 // jsdom kan inte rita en karta, därför Chromium; finns ingen hoppas mätningen över. KOR_SKRIV=<mapp> sparar skärmbilderna.
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, BASVAG_STRECK_DASH, BASVAG_STRECK_LAYOUT, VAG_KANT_FARG, ritaPilIkon, forstaVagLagerId, LEGEND } from './kartstil';
 import { korBredd, korFarg, KOR_OPACITET, KOR_INTE_KLAR, korEgenskap, korPunkter, korPunktLager, korSkenLager, KOR_KALLA, KOR_PIL_BILD, KOR_PIL_FARG } from './korordningKarta';
 import { foreslaOrdning, statusPerVag, nyTackning, laggTillFix, type KorVag } from './korordning';
+import { hittaChromium, KARTA_ARGS } from './testStod/chromium';
 
-function chromium(): { launch: (o: object) => Promise<any> } | null {
-  try {
-    const rot = execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    const kor = createRequire(path.join(rot, 'x.js'));
-    const pw = kor('playwright');
-    const mapp = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-    const ver = fs.readdirSync(mapp).filter((n) => /^chromium-\d+$/.test(n)).sort().pop();
-    const exe = ver && path.join(mapp, ver, 'chrome-linux', 'chrome');
-    if (!exe || !fs.existsSync(exe)) return null;
-    return { launch: (o) => pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'], ...o }) };
-  } catch { return null; }
-}
+const chromium = () => hittaChromium(KARTA_ARGS);
 const CHROMIUM = chromium();
 const MAPLIBRE = path.join(process.cwd(), 'node_modules/maplibre-gl/dist');
 const LW = ['interpolate', ['linear'], ['zoom'], 5, 2, 8, 2, 11, 3, 13, 4, 15, 6, 17, 7];

@@ -4,25 +4,13 @@
 // ritades med rundade ändar och åt upp det blå (75 % gult). Här ritas vägarna med lagerspecarna ur lib/kartstil (samma konstanter som planeringsvyn använder; page.tsx är
 // källvaktad nedan) och färgen mäts i pixlar: varje val ska ge sin egen färg i både planeringsläget (utan sken) och maskinläget (med sken), och Blå/gul ska vara ~50/50.
 // jsdom kan inte rita en karta, därför Chromium. Finns ingen Chromium hoppas mätningen över. BASVAG_SKRIV=<mapp> sparar skärmbilderna.
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, BASVAG_STRECK_DASH, BASVAG_STRECK_LAYOUT, BASVAG_SKEN_ID, basvagSkenLager, forstaVagLagerId, LEGEND } from './kartstil';
+import { hittaChromium, KARTA_ARGS } from './testStod/chromium';
 
-function chromium(): { launch: (o: object) => Promise<any> } | null {
-  try {
-    const rot = execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    const kor = createRequire(path.join(rot, 'x.js'));
-    const pw = kor('playwright');
-    const mapp = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-    const ver = fs.readdirSync(mapp).filter((n) => /^chromium-\d+$/.test(n)).sort().pop();
-    const exe = ver && path.join(mapp, ver, 'chrome-linux', 'chrome');
-    if (!exe || !fs.existsSync(exe)) return null;
-    return { launch: (o) => pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'], ...o }) };
-  } catch { return null; }
-}
+const chromium = () => hittaChromium(KARTA_ARGS);
 const CHROMIUM = chromium();
 const MAPLIBRE = path.join(process.cwd(), 'node_modules/maplibre-gl/dist');
 

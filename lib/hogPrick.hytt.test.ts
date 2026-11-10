@@ -2,23 +2,22 @@
 // HÖGARNA I RIKTIG CHROMIUM + MAPLIBRE (2026-11-06): samma lagerspecar som planeringen (lib/hogPrick), trädslagsfärger och halv–halv för blandat.
 // Mäter pixlar: en blandad hög har vänster halva i första trädslagets färg och höger i andra; större volym = större prick. Utan Chromium hoppas den över.
 // HOG_SKRIV=<mapp> sparar skärmbilderna.
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { it, expect } from 'vitest';
 import { hogRadie, hogHalvBild, HOG_HALV_BILD, HOG_HALV_RADIE_PX } from './hogPrick';
 import { hogTradslagFarger } from './tradslag';
+import { hittaChromium, KARTA_ARGS } from './testStod/chromium';
 // Utan Playwright (CI) hoppas mätningen över, som de andra hytt-testerna.
-const pw: any = (() => { try { const rot = execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); return createRequire(path.join(rot, 'x.js'))('playwright'); } catch { return null; } })();
+const CHROMIUM = hittaChromium(KARTA_ARGS);
 const ML = path.join(process.cwd(), 'node_modules/maplibre-gl/dist');
 const OUT = process.env.HOG_SKRIV || '';
-it.skipIf(!pw)('högarna i trädslagsfärg, blandat halv–halv', async () => {
+it.skipIf(!CHROMIUM)('högarna i trädslagsfärg, blandat halv–halv', async () => {
   const hogar = [
     [0, 0, { GRAN: 10 }, 8], [0.0004, 0, { TALL: 10 }, 8], [0.0008, 0, { 'BJÖRK': 10 }, 8], [0.0012, 0, { GRAN: 5, TALL: 5 }, 8],
     [0, -0.00025, { GRAN: 10 }, 1], [0.0004, -0.00025, { GRAN: 10 }, 4], [0.0008, -0.00025, { GRAN: 10 }, 15], [0.0012, -0.00025, { GRAN: 6, 'BJÖRK': 4 }, 30],
   ];
   const feats = hogar.map(([x, y, ts, v]: any) => { const f = hogTradslagFarger(ts); return { type: 'Feature', geometry: { type: 'Point', coordinates: [15.356 + x, 56.659 + y] }, properties: { v, farg: f.farg, ...(f.farg2 ? { farg2: f.farg2 } : {}), a: 0.95 } }; });
-  const b = await pw.chromium.launch({ args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  const b = await CHROMIUM!.launch({});
   for (const zoom of [16, 18]) {
     const pg = await b.newPage({ viewport: { width: 700, height: 300 }, deviceScaleFactor: 2 });
     await pg.setContent('<!doctype html><html><head><style>html,body,#m{margin:0;height:100%}</style></head><body><div id="m"></div></body></html>');
