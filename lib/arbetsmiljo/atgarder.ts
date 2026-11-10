@@ -4,7 +4,7 @@
 // Ärligt: ett läsfel är ett fel (`{ ok: false }`), aldrig en tom lista.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { bildTyp, delNamn, franLagring, type BildTyp, type Val } from './maskinBild';
+import { bildTyp, delNamn, franLagring, sidaText, type BildTyp, type Val } from './maskinBild';
 
 export type Kalla = 'svar' | 'forare' | 'manuell' | 'tillbud' | 'skyddsrond';
 
@@ -160,14 +160,21 @@ export async function hamtaAtgarder(sb: SupabaseClient): Promise<Las<Atgard[]>> 
 async function hamtaPlatser(sb: SupabaseClient): Promise<Map<string, { typ: BildTyp; val: Val }>> {
   const ut = new Map<string, { typ: BildTyp; val: Val }>();
   try {
-    const { data, error } = await sb.from('am_atgard')
-      .select('id, maskin_del, maskin_x, maskin_y, dim_maskin(maskin_typ, modell)')
+    // Sidan (migration 20261110152701_am_atgard_maskin_sida.sql) läses om den finns; saknas kolumnen läses platsen utan sida.
+    let svar: { data: unknown; error: unknown } = await sb.from('am_atgard')
+      .select('id, maskin_del, maskin_x, maskin_y, maskin_sida, dim_maskin(maskin_typ, modell)')
       .not('maskin_del', 'is', null);
+    if (svar.error) {
+      svar = await sb.from('am_atgard')
+        .select('id, maskin_del, maskin_x, maskin_y, dim_maskin(maskin_typ, modell)')
+        .not('maskin_del', 'is', null);
+    }
+    const { data, error } = svar;
     if (error || !Array.isArray(data)) return ut;
-    for (const r of data as { id: string; maskin_del: unknown; maskin_x: unknown; maskin_y: unknown; dim_maskin: { maskin_typ: string | null; modell?: string | null } | { maskin_typ: string | null; modell?: string | null }[] | null }[]) {
+    for (const r of data as { id: string; maskin_del: unknown; maskin_x: unknown; maskin_y: unknown; maskin_sida?: unknown; dim_maskin: { maskin_typ: string | null; modell?: string | null } | { maskin_typ: string | null; modell?: string | null }[] | null }[]) {
       const m = Array.isArray(r.dim_maskin) ? r.dim_maskin[0] : r.dim_maskin;
       const typ = bildTyp(m?.maskin_typ, m?.modell);
-      const val = franLagring(r.maskin_del, r.maskin_x, r.maskin_y);
+      const val = franLagring(r.maskin_del, r.maskin_x, r.maskin_y, r.maskin_sida);
       if (typ && val) ut.set(r.id, { typ, val });
     }
   } catch { /* tillägget får aldrig fälla listan */ }
@@ -176,10 +183,12 @@ async function hamtaPlatser(sb: SupabaseClient): Promise<Map<string, { typ: Bild
 
 const STANDARD_BESKRIVNING = 'Fel rapporterat av föraren';
 
-/** Raden om felet: delen först när den finns — "Band och kedjor · läcker vid boggin", eller bara "Band och kedjor". */
+/** Raden om felet: delen först när den finns — "Band och kedjor, höger sida · läcker vid boggin", eller bara delen.
+ * Sidan sägs bara när den sparades (äldre rader har ingen). */
 export function felText(a: Pick<Atgard, 'beskrivning' | 'plats'>): string {
   if (!a.plats) return a.beskrivning;
-  const del = delNamn(a.plats.val.del, a.plats.typ);
+  const sida = sidaText(a.plats.val);
+  const del = delNamn(a.plats.val.del, a.plats.typ) + (sida ? `, ${sida}` : '');
   return a.beskrivning.trim() === STANDARD_BESKRIVNING ? del : `${del} · ${a.beskrivning}`;
 }
 

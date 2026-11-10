@@ -25,7 +25,7 @@ import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, KORT, RADIE, ROT_MIN_HOJD, TRAFFYT
 import { avsluta, godkann, hamtaFelVal, hamtaLage, rapporteraFel, sparaSvar, startaKoll, type FelVal, type Maskin, type MaskinkollLage } from '@/lib/maskinkoll/data';
 import { laggMaskinkollFoto } from '@/lib/maskinkoll/fotoKo';
 import MaskinBild from '@/components/arbetsmiljo/MaskinBild';
-import { bildTyp, delNamn, type Val } from '@/lib/arbetsmiljo/maskinBild';
+import { bildTyp, delNamn, sidaText, type Val } from '@/lib/arbetsmiljo/maskinBild';
 import { arFilenGammal, datumText, enManadSenare, fotoSokvag, lage as raknaLage, type Fraga } from '@/lib/maskinkoll/regler';
 
 /** 'foto' = bilden till ett svar (Nej, eller Ja på en fråga som kräver foto). 'plats' + 'rapport' = "Något är fel":
@@ -348,7 +348,7 @@ export default function Maskinkoll() {
               <h1 style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.l}px`, ...TYP.titel }}>Var är det fel?</h1>
               <MaskinBild typ={typ} val={plats} onVal={setPlats} etikett={data.maskin.namn} />
               <p aria-live="polite" style={{ margin: `${AVSTAND.m}px 0 0`, minHeight: AVSTAND.xl, ...TYP.text, color: plats ? FARG.text : FARG.text2 }}>
-                {plats ? delNamn(plats.del, typ) : 'Tryck på maskinen där felet sitter'}
+                {plats ? [delNamn(plats.del, typ), sidaText(plats)].filter(Boolean).join(', ') : 'Tryck på maskinen där felet sitter'}
               </p>
               <div style={{ flex: 1, minHeight: AVSTAND.xl }} />
               <button type="button" disabled={!plats} onClick={() => { setFel(null); setSteg('rapport'); }}
@@ -370,7 +370,7 @@ export default function Maskinkoll() {
                 <button type="button" onClick={() => setSteg('plats')}
                   style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, width: '100%', minHeight: TRAFFYTA.min, marginTop: AVSTAND.m, padding: `0 ${AVSTAND.m}px`, border: 'none', borderRadius: RADIE.rad, background: FARG.upphojt, color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left', ...TYP.text }}>
                   <Ikon namn="location_on" farg={FARG.orange} />
-                  <span style={{ flex: 1 }}>{delNamn(plats.del, typ)}</span>
+                  <span style={{ flex: 1 }}>{[delNamn(plats.del, typ), sidaText(plats)].filter(Boolean).join(', ')}</span>
                   <span style={{ ...TYP.meta, color: FARG.text2 }}>Ändra</span>
                 </button>
               )}
