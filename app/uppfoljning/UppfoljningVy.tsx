@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { type ObjektTyp, arRisjobb, typLabel } from '@/lib/objekt/typ';
 import { tradslagFarg } from '@/lib/tradslag';
 import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
+import { uppskattaGrotM3fub, GROT_UTTAGSFAKTOR_DEFAULT } from '@/lib/grot';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
 import type { SkotareMaskinStat } from './lib/transform';
@@ -394,8 +395,15 @@ function Svaret({ data }: { data: UppfoljningData }) {
   // Grot-rad: bara på ett grot-anpassat AVVERKNINGSobjekt (själva risjobbet följs
   // upp som eget objekt). Visas i BÅDE pågående och Klart-läge — ett objekt kan
   // vara klart avverkat och skotat men ha riset kvar på hygget, och då får det
-  // inte se färdigt ut. En tyst rad i ord, inget konkurrerande tal.
+  // inte se färdigt ut. Raden visar PLANEN: hur mycket ris som väntar (schablon
+  // ×0,35 på skördad volym, märkt "ca" — en gissning, aldrig mätt) + status.
+  // Utkörningens UTFALL följs på det egna GROT-objektet, inte här.
   const visaGrot = !!data.grotAnpassad && !arRisjobb(data);
+  const grotEst = visaGrot ? uppskattaGrotM3fub(data.skordat, GROT_UTTAGSFAKTOR_DEFAULT) : null;
+  const grotStatus = data.grotHamtad ? `hämtat ${fmtISO(data.grotHamtad)}` : 'ligger kvar på hygget';
+  const grotText = grotEst != null
+    ? `Ris: ca ${Math.round(grotEst).toLocaleString('sv-SE')} m³fub · ${grotStatus}`
+    : `Riset ${grotStatus}`;
 
   return (
     <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
@@ -445,7 +453,7 @@ function Svaret({ data }: { data: UppfoljningData }) {
         )}
         {visaGrot && (
           <div style={{ marginTop: AVSTAND.m, paddingTop: AVSTAND.s, borderTop: `0.5px solid ${V6_SEP}`, ...TYP.meta, color: FARG.text2 }}>
-            {data.grotHamtad ? `Riset hämtat ${fmtISO(data.grotHamtad)}` : 'Riset ligger kvar på hygget'}
+            {grotText}
           </div>
         )}
       </div>
