@@ -1,4 +1,9 @@
-// "Din skog" på markägarens länk: varför träd står kvar efter avverkningen. Rena funktioner — servern räknar talen, sidan ritar bara.
+// "Varför ser det ut så här?" på markägarens länk, när vi är klara. Rena funktioner — servern räknar talen, sidan ritar bara.
+//
+// Martin 2026-11-10: BARA det som gäller trakten, högst några rader.
+// - Gallring: inga certifieringsrader alls (de gäller avverkning). I stället två rader om det markägare undrar på en gallring: stickvägarna och att de bästa träden står kvar.
+// - Slutavverkning, certifierad: evighetsträd och högstubbar (antal, aldrig "N av krav" på raden — kravet står i arket; 0 visas inte som ett tal).
+// - Grova toppar och ris: BARA FSC och när GROT tas. Riset räknas aldrig i procent — riset i basvägarna mäter ingen, ett påhittat tal är värre än inget.
 //
 // Martin 2026-11-05 (texterna granskas av Jan-Erik senare — ändra HÄR, ingen text i komponenten):
 // - Bara certifierade trakter (objekt.cert nämner FSC eller PEFC) får sektionen. Ersättningen gäller alla certifierade, ingen extra godkänning.
@@ -9,7 +14,7 @@
 
 import { EVIGHETSTRAD_PER_HA, HOGSTUBBAR_PER_HA } from '@/lib/miljokrav';
 
-export type SkogRadId = 'evighetstrad' | 'hogstubbe' | 'toppar' | 'ris' | 'kantzon' | 'spridda';
+export type SkogRadId = 'evighetstrad' | 'hogstubbe' | 'toppar' | 'ris' | 'kantzon' | 'spridda' | 'stickvagar' | 'basta';
 
 export type SkogRad = {
   id: SkogRadId;
@@ -50,16 +55,18 @@ export const CERT_FORKLARING = {
   ],
 } as const;
 
-export const HITTILLS_TEXT = 'Hittills – siffrorna växer medan vi avverkar';
 export const KARTA_UNGEFAR = 'Prickarna visar ungefärlig plats';
 
 /** Över så här många hektar gäller FSC:s regel om träd utspridda över hygget. */
 export const SPRIDDA_FRAN_HA = 4;
 export const SPRIDDA_MAX_M = 70;
 
-const avAntal = (antal: number, krav: number | null): string => (krav != null ? `${antal} av ${krav}` : String(antal));
+/** Antalet på raden: bara när något är satt (0 ser ut som ett misslyckande och säger inget). */
+const antalText = (antal: number): string | null => (antal > 0 ? String(antal) : null);
 
 export type SkogIndata = {
+  /** objekt.typ: 'gallring' ger gallringsraderna, 'slutavverkning' certifieringsraderna, annat inga rader. */
+  typ: string | null;
   cert: Cert;
   arealHa: number | null;
   grot: boolean;
@@ -70,33 +77,51 @@ export type SkogIndata = {
   harKantzon: boolean;
 };
 
-/** Raderna i "Därför står träden kvar", i den ordning de visas. Tom lista = sektionen visas inte (ej certifierat). */
+/** Gallringens två rader — gäller alla gallringar, certifierade eller inte. */
+export const GALLRING_RADER: SkogRad[] = [
+  {
+    id: 'stickvagar', namn: 'Vägarna genom skogen', varfor: 'Ungefär var 20:e meter, så maskinen når träden', varde: null, malbild: null,
+    forklaring: 'Maskinerna kör på smala vägar genom skogen, ungefär var 20:e meter. Därifrån når de träden runt omkring. Vägarna växer igen med tiden.',
+    krav: '', karta: false,
+  },
+  {
+    id: 'basta', namn: 'De bästa träden står kvar', varfor: 'De får mer ljus och växer snabbare', varde: null, malbild: null,
+    forklaring: 'Vi tar ut klena, krokiga och skadade träd. De som står kvar får mer ljus, vatten och näring och växer sig grova.',
+    krav: '', karta: false,
+  },
+];
+
+/** Raderna under "Varför ser det ut så här?", i den ordning de visas. Tom lista = inga rader. */
 export function skogRader(d: SkogIndata): SkogRad[] {
-  if (!arCert(d.cert)) return [];
+  const typ = String(d.typ ?? '').toLowerCase();
+  if (typ === 'gallring') return GALLRING_RADER;
+  if (typ !== 'slutavverkning' || !arCert(d.cert)) return [];
   const kravEv = d.arealHa != null ? Math.ceil(Math.round(d.arealHa * EVIGHETSTRAD_PER_HA * 1e6) / 1e6) : null;
   const kravHs = d.arealHa != null ? Math.ceil(Math.round(d.arealHa * HOGSTUBBAR_PER_HA * 1e6) / 1e6) : null;
   const r: SkogRad[] = [
     {
-      id: 'evighetstrad', namn: 'Evighetsträd', varfor: 'Får aldrig avverkas', varde: avAntal(d.evighetstrad, kravEv), malbild: 'evighetstrad',
+      id: 'evighetstrad', namn: 'Evighetsträd', varfor: 'Får aldrig avverkas', varde: antalText(d.evighetstrad), malbild: 'evighetstrad',
       forklaring: 'Grova och gamla träd som står kvar för alltid. De blir hem åt fåglar, insekter och lavar i hundratals år.',
-      krav: `Kravet: minst ${EVIGHETSTRAD_PER_HA} per hektar`, karta: d.harEvighetstradPos,
+      krav: kravEv != null ? `Kravet: minst ${EVIGHETSTRAD_PER_HA} per hektar, ${kravEv} på din trakt` : `Kravet: minst ${EVIGHETSTRAD_PER_HA} per hektar`, karta: d.harEvighetstradPos,
     },
     {
-      id: 'hogstubbe', namn: 'Högstubbar', varfor: 'Hem åt insekter och hackspett', varde: avAntal(d.hogstubbar, kravHs), malbild: 'hogstubbe',
+      id: 'hogstubbe', namn: 'Högstubbar', varfor: 'Hem åt insekter och hackspett', varde: antalText(d.hogstubbar), malbild: 'hogstubbe',
       forklaring: 'Träd som kapas högt och får stå kvar och dö. Död ved är det som flest arter i skogen lever av.',
-      krav: `Kravet: minst ${HOGSTUBBAR_PER_HA} per hektar`, karta: d.harHogstubbePos,
+      krav: kravHs != null ? `Kravet: minst ${HOGSTUBBAR_PER_HA} per hektar, ${kravHs} på din trakt` : `Kravet: minst ${HOGSTUBBAR_PER_HA} per hektar`, karta: d.harHogstubbePos,
     },
+  ];
+  if (d.cert.fsc && d.grot) r.push(
     {
       id: 'toppar', namn: 'Grova toppar', varfor: 'Ligger kvar med flit – inte slarv', varde: null, malbild: null,
       forklaring: 'En del grova toppar lämnas på hygget. Död ved på marken behövs för svampar och insekter.',
-      krav: 'Ingår i certifieringens krav på död ved', karta: false,
+      krav: 'FSC: när riset tas ut ska grova toppar ligga kvar', karta: false,
     },
     {
       id: 'ris', namn: 'Ris på marken', varfor: 'Ger näring tillbaka', varde: null, malbild: null,
-      forklaring: 'Grenar och barr som ligger kvar ger tillbaka näring till marken och skyddar den när maskinerna kör.',
-      krav: d.grot ? 'Riset tas ut, men minst en femtedel ligger kvar' : 'Riset ligger kvar', karta: false,
+      forklaring: 'En del av riset ligger kvar med flit. Det ger näring tillbaka till marken. Riset i vägarna skyddar marken när maskinerna kör, och räknas in i det som lämnas.',
+      krav: 'FSC: en del av riset ska ligga kvar när riset tas ut', karta: false,
     },
-  ];
+  );
   if (d.harKantzon) r.push({
     id: 'kantzon', namn: 'Kantzon', varfor: 'Skyddar vattnet', varde: null, malbild: 'kantzon',
     forklaring: 'En remsa träd och buskar står kvar mot vattnet. De skuggar, binder jorden och håller slam borta från vattnet.',

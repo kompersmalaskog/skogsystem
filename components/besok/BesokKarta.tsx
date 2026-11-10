@@ -87,8 +87,9 @@ export default function BesokKarta({ data, hojd = 340 }: { data: KartaData; hojd
     map.on('load', () => {
       map.addSource('gran', { type: 'geojson', data: gransFc(senaste.current) });
       map.addSource('ringar', { type: 'geojson', data: ringar(senaste.current) });
-      map.addLayer({ id: 'gran-kant', type: 'line', source: 'gran', paint: { 'line-color': FARG.bg, 'line-width': 5, 'line-opacity': 0.7 } });
-      map.addLayer({ id: 'gran', type: 'line', source: 'gran', paint: { 'line-color': '#fff', 'line-width': 2.5, 'line-dasharray': [2, 1.2] } });
+      // Traktgränsen heldragen och tunn (en streckad gräns på en utspridd trakt blev vita fläckar, Martin 2026-11-10).
+      map.addLayer({ id: 'gran-kant', type: 'line', source: 'gran', paint: { 'line-color': FARG.bg, 'line-width': 4, 'line-opacity': 0.6 } });
+      map.addLayer({ id: 'gran', type: 'line', source: 'gran', paint: { 'line-color': '#fff', 'line-width': 2 } });
       map.addSource('kantzon', { type: 'geojson', data: kantzonFc(senaste.current) });
       map.addSource('prickar', { type: 'geojson', data: prickFc(senaste.current) });
       map.addLayer({ id: 'kantzon-fyll', type: 'fill', source: 'kantzon', paint: { 'fill-color': KANTZON_FARG, 'fill-opacity': 0.25 } });

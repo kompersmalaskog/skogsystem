@@ -6,6 +6,9 @@ export const BESOK_RING_M = { skordare: 70, skotare: 20, motorsag: 40 } as const
 /** Ringen runt maskinen i HYTTEN medan ett besök är aktivt — samma för alla maskiner. */
 export const HYTT_RING_M = 70;
 
+/** Länken lever så här många dagar efter att objektet avslutats: då visar sidan "Varför ser det ut så här?" (Martin 2026-11-10 — det är efter avverkningen markägaren undrar). */
+export const LANK_EFTER_AVSLUT_DAGAR = 60;
+
 /** Ett besök är aktivt till besökstiden + detta (minuter). Ringen i hytten ritas så länge; kortet ligger kvar tills Uppfattat. */
 export const BESOK_EFTERTID_MIN = 120;
 

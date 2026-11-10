@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { arBesoksSida, arBesoksApi, arGiltigtToken, arOffentligBesokSokvag, besoksUrl } from './offentlig';
 import { arMobil, besokSmsText, fastighetText, markagareFornamn, narOrd, smsNummer } from './sms';
 import { arBesokAktivt, arKlockslag, arRimligBesokstid, besokstid, klockslag, kommerText, loggTid } from './tid';
-import { HUVUDREGEL, SKOTARARK_TEXT, sakerhetsRader } from './sakerhet';
+import { HUVUDREGEL, RINGREGEL, SKOTARARK_TEXT, sakerhetsRader } from './sakerhet';
 import { besokNamn } from './namn';
 import { KLART_CA_FORKLARING, beraknaFramsteg, dagText, framstegText, hallandeTakt, plusArbetsdagar, takt, utforareText } from './framsteg';
 import { byggBesokNotis, valjPaminnelser, type PaminnelseObjekt } from './paminnelse';
@@ -118,22 +118,21 @@ describe('besökstiden (svensk tid)', () => {
   });
 });
 
-describe('säkerhetsreglerna: huvudregel + högst tre rader, bara det som finns', () => {
-  it('huvudregeln har tre steg och avståndet kommer ur konstanten', () => {
+describe('säkerhetsreglerna: en rad per fara med varför, bara det som finns — och virkestravarna alltid', () => {
+  it('regeln under kartan och den korta regeln', () => {
+    expect(RINGREGEL).toBe('Gå aldrig in i den röda ringen. Vänta tills föraren sett dig och stängt av.');
     expect(HUVUDREGEL.rubrik).toBe('Gå aldrig fram till en maskin');
-    expect(HUVUDREGEL.steg).toHaveLength(3);
-    expect(HUVUDREGEL.steg).toEqual([`Stanna minst ${BESOK_RING_M.skordare} m bort`, 'Vinka – vänta tills föraren stängt av', 'Ha reflexväst, håll barn och hund nära']);
   });
-  it('rader i fast ordning, max tre', () => {
+  it('rader i fast ordning: skördare, skotare, motorsåg, virkestravar — avståndet ur konstanten', () => {
     const alla = sakerhetsRader({ roller: ['skordare', 'skotare'], harMotorsag: true });
-    expect(alla.map((r) => r.id)).toEqual(['skotare', 'skordare', 'motorsag']);
-    expect(alla.find((r) => r.id === 'skotare')!.text).toBe('Gå aldrig bakom skotaren eller mellan skotaren och virkeshögen');
-    expect(alla.find((r) => r.id === 'skordare')!.text).toBe('Träd kan falla åt alla håll');
-    expect(alla.find((r) => r.id === 'motorsag')!.text).toBe('Någon fäller med motorsåg här');
+    expect(alla.map((r) => r.id)).toEqual(['skordare', 'skotare', 'motorsag', 'travar']);
+    expect(alla[0]).toMatchObject({ rubrik: `Skördaren · ${BESOK_RING_M.skordare} m`, text: 'Kedjan kan gå av och slungas långt. Träd kan falla åt fel håll.' });
+    expect(alla[1]).toMatchObject({ rubrik: `Skotaren · ${BESOK_RING_M.skotare} m`, text: 'Kranen svänger runt maskinen, och föraren ser dåligt bakåt.' });
+    expect(alla[3]).toMatchObject({ rubrik: 'Virkestravarna', text: 'Klättra aldrig på dem. De kan rasa.' });
   });
-  it('bara det som finns på trakten; bara skotaren öppnar ett ark', () => {
-    expect(sakerhetsRader({ roller: ['skordare'], harMotorsag: false }).map((r) => r.id)).toEqual(['skordare']);
-    expect(sakerhetsRader({ roller: [], harMotorsag: false })).toEqual([]);
+  it('bara det som finns på trakten; travarna alltid; bara skotaren öppnar ett ark', () => {
+    expect(sakerhetsRader({ roller: ['skordare'], harMotorsag: false }).map((r) => r.id)).toEqual(['skordare', 'travar']);
+    expect(sakerhetsRader({ roller: [], harMotorsag: false }).map((r) => r.id)).toEqual(['travar']);
     expect(sakerhetsRader({ roller: ['skordare', 'skotare'], harMotorsag: true }).filter((r) => r.ark).map((r) => r.id)).toEqual(['skotare']);
   });
   it('arkets enda text', () => { expect(SKOTARARK_TEXT).toBe('När skotaren backar med lass ser föraren ingenting bakom sig.'); });
@@ -349,6 +348,7 @@ describe('traktens namn på besökssidan', () => {
     expect(besokNamn('Stora Mossen RP', null, 'X')).toBe('Stora Mossen');
     expect(besokNamn('AU A-A -25', null, null)).toBe('Trakten');
     expect(besokNamn('   ', null, '  Höka 1:2 ')).toBe('Höka 1:2');
+    expect(besokNamn('Gallring Santhe 2026.', null, null)).toBe('Santhe');
   });
 });
 

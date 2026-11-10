@@ -31,7 +31,8 @@ describe('länken', () => {
   it('okänd token → 404, avstängd → 410, avslutat objekt → 410, kort token → 404 utan uppslag', async () => {
     expect((await publikVy(varld(), 'x'.repeat(40), { nu: NU })).status).toBe(404);
     expect((await publikVy(varld({ tabeller: { objekt_besok_lank: [{ token: TOKEN, objekt_id: OBJ, aktiv: false }] } }), TOKEN, { nu: NU })).status).toBe(410);
-    expect((await publikVy(varld({ tabeller: { objekt: [objekt({ status: 'avslutat' })] } }), TOKEN, { nu: NU })).status).toBe(410);
+    expect((await publikVy(varld({ tabeller: { objekt: [objekt({ status: 'avslutat' })] } }), TOKEN, { nu: NU })).status).toBe(410);   // avslutat utan avslutstid
+    expect((await publikVy(varld({ tabeller: { objekt: [objekt({ status: 'avslutat', avslutad_timestamp: min(61 * 1440) })] } }), TOKEN, { nu: NU })).status).toBe(410);
     expect((await publikVy(varld({ tabeller: { objekt: [objekt({ status: 'klar' })] } }), TOKEN, { nu: NU })).status).toBe(410);
     const sb = varld();
     expect((await publikVy(sb, 'kort', { nu: NU })).status).toBe(404);
@@ -50,7 +51,8 @@ describe('vad besökssidan får: exakt de fält sidan visar', () => {
     const sb = varld({ tabeller: { hyttspar: [punkt('skordare', 56.351, 15.051, min(2)), punkt('skotare', 56.349, 15.049, min(5))] } });
     const r = await publikVy(sb, TOKEN, { nu: NU });
     expect(r.status).toBe(200);
-    expect(Object.keys(r.body).sort()).toEqual(['besok', 'framsteg', 'gran', 'harMotorsag', 'maskiner', 'mitt', 'motorsag', 'namn', 'ok', 'ring', 'ringM', 'roller', 'skog', 'uppdaterad', 'utforare']);
+    expect(Object.keys(r.body).sort()).toEqual(['besok', 'framsteg', 'gallring', 'gran', 'harMotorsag', 'klarDatum', 'lage', 'maskiner', 'mitt', 'motorsag', 'namn', 'ok', 'ring', 'ringM', 'roller', 'skog', 'uppdaterad', 'utforare']);
+    expect(r.body.lage).toBe('pagar');
     const json = JSON.stringify(r.body);
     for (const hemligt of ['Hemligsson', '0709999999', '11251359', '1000', 'forare_id', 'Stefan', 'points', 'volym', 'token', 'uppdaterad_at']) expect(json.includes(hemligt), hemligt).toBe(false);
     expect((r.body.maskiner as any[]).map((m) => Object.keys(m).sort())).toEqual([['lat', 'lng', 'roll', 'tid'], ['lat', 'lng', 'roll', 'tid']]);
@@ -195,30 +197,52 @@ describe('Din skog: varför träden står kvar', () => {
   const ev = (x: number) => ({ objekt_id: OBJ, typ: 'symbol', data: { type: 'eternitytree', x, y: 0 } });
   const hs = { objekt_id: OBJ, typ: 'symbol', data: { type: 'highstump', x: 5, y: 5 } };
   const kant = { objekt_id: OBJ, geometri: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { _lager: 'L_TILLAGGSYTOR', _typ: 'hänsynsyta', TYP: '24', FLBESKR: 'Kant mot vatten O' }, geometry: { type: 'Polygon', coordinates: [[[15.05, 56.35], [15.051, 56.35], [15.051, 56.351], [15.05, 56.35]]] } }] } };
-  it('certifierad trakt: raderna, antalen mot kravet och prickarna — inga volymer, ingen röta', async () => {
-    const sb = varld({ tabeller: { objekt: [objekt({ cert: 'FSC PEFC', areal: 5.2, grot: true })], planering_markeringar: [ev(0), ev(10), hs], objekt_geometri: [traktdel, kant] } });
+  it('certifierad slutavverkning med FSC och GROT: antal (inget krav på raden), toppar och ris, kantzon, spridda — inga volymer, ingen röta', async () => {
+    const sb = varld({ tabeller: { objekt: [objekt({ typ: 'slutavverkning', cert: 'FSC PEFC', areal: 5.2, grot: true })], planering_markeringar: [ev(0), ev(10), hs], objekt_geometri: [traktdel, kant] } });
     const r = await publikVy(sb, TOKEN, { nu: NU });
     const skog = r.body.skog as any;
-    expect(skog.intro).toBe('Din skog är FSC- och PEFC-certifierad. Då sparar vi träd åt naturen, och du får ersättning för det.');
     expect(skog.rader.map((x: any) => x.id)).toEqual(['evighetstrad', 'hogstubbe', 'toppar', 'ris', 'kantzon', 'spridda']);
-    expect(skog.rader[0].varde).toBe('2 av 52');
-    expect(skog.rader[1].varde).toBe('1 av 16');
-    expect(skog.rader.find((x: any) => x.id === 'ris').krav).toBe('Riset tas ut, men minst en femtedel ligger kvar');
+    expect(skog.rader[0].varde).toBe('2');
+    expect(skog.rader[0].krav).toBe('Kravet: minst 10 per hektar, 52 på din trakt');
+    expect(skog.rader[1].varde).toBe('1');
+    expect(skog.rader.find((x: any) => x.id === 'ris').forklaring).toContain('Riset i vägarna skyddar marken');
+    expect(JSON.stringify(skog)).not.toMatch(/procent|%|femtedel/);
     expect(skog.prickar.map((p: any) => p.typ).sort()).toEqual(['evighetstrad', 'evighetstrad', 'hogstubbe']);
     expect(skog.kantzon).toHaveLength(1);
     expect(JSON.stringify(skog)).not.toMatch(/Kant mot vatten O|volym|rota|röta/);
   });
-  it('inte certifierad: ingen sektion, inga prickar', async () => {
-    const r = await publikVy(varld({ tabeller: { objekt: [objekt({ cert: 'Ej certifierad', areal: 5 })], planering_markeringar: [ev(0)] } }), TOKEN, { nu: NU });
+  it('0 satta: inget tal på raden (ser ut som ett misslyckande)', async () => {
+    const r = await publikVy(varld({ tabeller: { objekt: [objekt({ typ: 'slutavverkning', cert: 'PEFC', areal: 5 })] } }), TOKEN, { nu: NU });
+    expect((r.body.skog as any).rader[0].varde).toBeNull();
+  });
+  it('inte certifierad slutavverkning: inga rader, inga prickar', async () => {
+    const r = await publikVy(varld({ tabeller: { objekt: [objekt({ typ: 'slutavverkning', cert: 'Ej certifierad', areal: 5 })], planering_markeringar: [ev(0)] } }), TOKEN, { nu: NU });
     expect((r.body.skog as any).rader).toEqual([]);
     expect((r.body.skog as any).prickar).toEqual([]);
   });
-  it('PEFC, eller FSC under 4 ha: ingen 70 m-rad; ingen kant mot vatten: ingen kantzon', async () => {
-    const pefc = await publikVy(varld({ tabeller: { objekt: [objekt({ cert: 'PEFC', areal: 9 })] } }), TOKEN, { nu: NU });
-    expect((pefc.body.skog as any).rader.map((x: any) => x.id)).toEqual(['evighetstrad', 'hogstubbe', 'toppar', 'ris']);
+  it('PEFC, eller FSC utan GROT: inga toppar och inget ris; FSC under 4 ha: ingen 70 m-rad', async () => {
+    const pefc = await publikVy(varld({ tabeller: { objekt: [objekt({ typ: 'slutavverkning', cert: 'PEFC', areal: 9, grot: true })] } }), TOKEN, { nu: NU });
+    expect((pefc.body.skog as any).rader.map((x: any) => x.id)).toEqual(['evighetstrad', 'hogstubbe']);
     rensaBesokCache();
-    const liten = await publikVy(varld({ tabeller: { objekt: [objekt({ cert: 'FSC', areal: 3.9 })] } }), TOKEN, { nu: NU });
-    expect((liten.body.skog as any).rader.map((x: any) => x.id)).not.toContain('spridda');
+    const fscUtanGrot = await publikVy(varld({ tabeller: { objekt: [objekt({ typ: 'slutavverkning', cert: 'FSC', areal: 3.9, grot: false })] } }), TOKEN, { nu: NU });
+    expect((fscUtanGrot.body.skog as any).rader.map((x: any) => x.id)).toEqual(['evighetstrad', 'hogstubbe']);
+  });
+  it('gallring: bara vägarna och de bästa träden — inga certifieringsrader, inga prickar, "gallrar åt Vida"', async () => {
+    const r = await publikVy(varld({ tabeller: { objekt: [objekt({ typ: 'gallring', cert: 'FSC PEFC', areal: 12, grot: true })], planering_markeringar: [ev(0), hs] } }), TOKEN, { nu: NU });
+    expect((r.body.skog as any).rader.map((x: any) => x.id)).toEqual(['stickvagar', 'basta']);
+    expect((r.body.skog as any).prickar).toEqual([]);
+    expect(r.body.gallring).toBe(true);
+    expect(r.body.utforare).toBe('Kompersmåla Skog gallrar åt Vida');
+  });
+  it('avslutat inom 60 dagar: läget "klar" — inga maskiner, ingen anmälan, och en anmälan avvisas', async () => {
+    const tab = { objekt: [objekt({ typ: 'slutavverkning', status: 'avslutat', avslutad_timestamp: min(10 * 1440) })], hyttspar: [punkt('skordare', 56.351, 15.051, min(2))] };
+    const r = await publikVy(varld({ tabeller: tab }), TOKEN, { nu: NU });
+    expect(r.status).toBe(200);
+    expect(r.body.lage).toBe('klar');
+    expect(r.body.klarDatum).toBe(min(10 * 1440));
+    expect(r.body.maskiner).toEqual([]);
+    expect(r.body.besok).toBeNull();
+    expect((await skapaAnmalan(varld({ tabeller: tab }), TOKEN, { namn: 'Anna', telefon: '0701234567', nar: 'nu' }, NU)).status).toBe(410);
   });
   it('ved bara när den är beställd', async () => {
     const utan = await publikVy(varld({ tabeller: { objekt: [objekt({ cert: 'FSC' })] } }), TOKEN, { nu: NU });
