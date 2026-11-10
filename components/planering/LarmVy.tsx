@@ -48,6 +48,7 @@ export default function LarmVy({ koordinat, beskrivning, onVisa, visning, onVisa
               Ring 112 och läs upp larmkoordinaten
             </div>
             {visning && (visning.narmast || visning.namn) && <div data-testid="larm-namn" style={{ ...TYP.text, color: FARG.text2 }}>{[visning.narmast, visning.namn].filter(Boolean).join(' · ')}</div>}
+            {visning?.kontroll && <div data-testid="larm-kontroll" style={{ ...TYP.text, color: visning.kontroll.ton === 'gron' ? FARG.gron : FARG.orange }}>{visning.kontroll.text}</div>}
             <div data-testid="larm-koordinat" style={{ ...TYP.tal, color: FARG.text, overflowWrap: 'anywhere', userSelect: 'text' }}>{koordinat}</div>
             {beskrivning && <div data-testid="larm-beskrivning" style={{ ...TYP.text, color: FARG.text }}>{beskrivning}</div>}
           </div>

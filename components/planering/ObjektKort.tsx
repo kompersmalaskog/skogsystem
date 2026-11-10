@@ -361,6 +361,7 @@ function larmHuvud(larm: KortLarm, v: LarmVisning | null) {
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>Larmkoordinat</span>
           {v && (v.narmast || v.namn) && <span data-testid="kort-larm-namn" style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{[v.narmast, v.namn].filter(Boolean).join(' · ')}</span>}
+          {v?.kontroll && <span data-testid="kort-larm-kontroll" style={{ display: 'block', ...TYP.meta, color: v.kontroll.ton === 'gron' ? FARG.gron : FARG.orange }}>{v.kontroll.text}</span>}
           <span style={{ display: 'block', ...TYP.listtitel, ...TNUM, overflowWrap: 'anywhere' }}>{larm.koordinat}</span>
           {larm.visaKontroll && <span data-testid="kort-larm-status" style={{ display: 'block', ...TYP.meta, color: larm.bekraftad ? FARG.gron : FARG.orange }}>{larm.bekraftad ? 'Larmplats kontrollerad' : 'Larmplats inte kontrollerad'}</span>}
         </span>

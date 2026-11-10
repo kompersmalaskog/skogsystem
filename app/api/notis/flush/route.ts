@@ -28,6 +28,9 @@ import { AM_TILLBUD, arTillbudNotis, byggTillbudNotis, type HamtaTillbud } from 
 import { AM_KEMIKALIE, arKemikalieNotis, byggKemikalieNotis, type HamtaKemikalie } from "@/lib/arbetsmiljo/kemikalieNotis";
 import { AM_ANMAL, arAnmalNotis, byggAnmalNotis, koaAnmalPaminnelse, type HamtaAnmal } from "@/lib/arbetsmiljo/anmalNotis";
 import { AM_LAGAT, arLagatNotis, byggLagatNotis, koaLagatBesked, type HamtaLagat } from "@/lib/arbetsmiljo/lagatBesked";
+import { LARMPLATS_NEJ, arLarmplatsNejNotis, byggLarmplatsNejNotis, koaLarmplatsNej, type HamtaNej } from "@/lib/larmKontrollNotis";
+import { larmpunkterUr, SAMMA_PUNKT_M } from "@/lib/larmpunkter";
+import { avstandPunktM } from "@/lib/larm/geo";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -128,6 +131,14 @@ async function flush() {
     console.error("[notis/flush] lagat-besked:", e);
   }
 
+  // Larmplatsen: någon svarade "Nej, ambulansen kommer inte fram" → planerarna får veta det (lib/larmKontrollNotis). Ett fel stoppar aldrig kön.
+  try {
+    const ln = await koaLarmplatsNej(supabase);
+    if (!ln.ok) console.error("[notis/flush] larmplats-nej:", ln.fel);
+  } catch (e) {
+    console.error("[notis/flush] larmplats-nej:", e);
+  }
+
   const nu = new Date().toISOString();
   const { data: pendingRader, error } = await supabase
     .from("notis_kö")
@@ -135,7 +146,7 @@ async function flush() {
     // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
     // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts), liksom lönenotiserna (lib/lonesystem/granskaNotis.ts).
-    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_KEMIKALIE, AM_ANMAL, AM_LAGAT, ...LON_NOTIS_TYPER]))
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_KEMIKALIE, AM_ANMAL, AM_LAGAT, LARMPLATS_NEJ, ...LON_NOTIS_TYPER]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -210,10 +221,11 @@ async function flush() {
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
       // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arKemikalieNotis(n.typ) || arAnmalNotis(n.typ) || arLagatNotis(n.typ)) {
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arKemikalieNotis(n.typ) || arAnmalNotis(n.typ) || arLagatNotis(n.typ) || arLarmplatsNejNotis(n.typ)) {
         // Maskinen ska stå (lib/arbetsmiljo/stoppNotis): borta, åtgärdad eller inte längre stopp → hoppas över.
         // Tillbud/olycka (lib/arbetsmiljo/tillbudNotis): borta eller redan åtgärdad → hoppas över.
-        const u = arLagatNotis(n.typ) ? await byggLagatNotis(n, hamtaLagat)
+        const u = arLarmplatsNejNotis(n.typ) ? await byggLarmplatsNejNotis(n, hamtaNej)
+          : arLagatNotis(n.typ) ? await byggLagatNotis(n, hamtaLagat)
           : arAnmalNotis(n.typ) ? await byggAnmalNotis(n, hamtaAnmal)
           : arTillbudNotis(n.typ) ? await byggTillbudNotis(n, hamtaTillbud)
           : arKemikalieNotis(n.typ) ? await byggKemikalieNotis(n, hamtaKemikalie)
@@ -334,6 +346,31 @@ const hamtaStickprovrad: HamtaStickprov = async (manad) => {
 };
 
 // Åtgärden bakom "Lagat" — status, vad som gjordes, maskinens och den som stängdes namn. Tjänstenyckeln läser förbi RLS.
+const hamtaNej: HamtaNej = async (id) => {
+  const { data, error } = await supabase.from("larmplats_kontroll")
+    .select("id, objekt_id, lat, lng, kommentar, skapad_at, medarbetare:medarbetare_id(namn)").eq("id", id).maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const [o, alla, pk] = await Promise.all([
+    supabase.from("objekt").select("namn").eq("id", d.objekt_id).maybeSingle(),
+    supabase.from("larmplats_kontroll").select("id, lat, lng, svar, kommentar, skapad_at").eq("objekt_id", d.objekt_id),
+    supabase.rpc("objekt_tillaggspunkter"),
+  ]);
+  if (alla.error) return { rad: null, fel: alla.error.message };
+  // Avläggets namn: samma regel som appen (lib/larmpunkter). Går punkterna inte att läsa skrivs koordinaten.
+  const features = !pk.error && Array.isArray(pk.data) ? (pk.data as any[]).filter((x) => x.objekt_id === d.objekt_id).map((x) => x.punkt) : [];
+  const punkt = larmpunkterUr(features, null).find((p) => avstandPunktM({ lat: p.lat, lon: p.lng }, { lat: Number(d.lat), lon: Number(d.lng) }) < SAMMA_PUNKT_M);
+  const forn = typeof d.medarbetare?.namn === "string" ? d.medarbetare.namn.trim().split(/\s+/)[0] : null;
+  return {
+    rad: {
+      id: d.id, objekt_id: d.objekt_id, objekt_namn: (o.data as any)?.namn ?? null, lat: Number(d.lat), lng: Number(d.lng),
+      kommentar: d.kommentar ?? null, vem: forn, skapad_at: d.skapad_at, plats: punkt?.namn ?? null,
+      alla: ((alla.data ?? []) as any[]).map((r) => ({ id: r.id, lat: Number(r.lat), lng: Number(r.lng), svar: r.svar === "ja" ? "ja" : "nej", kommentar: r.kommentar ?? null, vem: null, skapadAt: r.skapad_at })),
+    },
+  };
+};
+
 const hamtaLagat: HamtaLagat = async (id) => {
   const { data, error } = await supabase.from("am_atgard")
     .select("id, status, kalla, beskrivning, vad_gjordes, maskin_id, stangd_av").eq("id", id).maybeSingle();

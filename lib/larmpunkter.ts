@@ -12,6 +12,7 @@
 //     väljer själv. Appen gissar aldrig en larmplats.
 // Ren, inga beroenden till kartan eller databasen.
 import { avstandPunktM } from './larm/geo';
+import { kontrollFor, kontrollText, type LarmKontrollRad } from './larmKontroll';
 
 export interface Larmpunkt {
   lat: number;
@@ -118,7 +119,7 @@ function avstandOrd(m: number): string {
 }
 
 /** En rad i listan över alla larmplatser. */
-export interface LarmPlatsRad { namn: string; koordinat: string; narmast: boolean }
+export interface LarmPlatsRad { namn: string; koordinat: string; narmast: boolean; kontroll: { text: string; ton: 'gron' | 'orange' } | null }
 
 /** Det korten visar. Samma modell för ⓘ-kortet, förarens kort och "Om något händer". */
 export interface LarmVisning {
@@ -134,9 +135,12 @@ export interface LarmVisning {
   valjSjalv: boolean;
   /** Alla larmplatser när de är fler än en (tom annars), i samma ordning som `LarmVal.alla`. */
   platser: LarmPlatsRad[];
+  /** Den valdas kontroll ("Ambulansen kommer fram · Daniel 12 nov"), lib/larmKontroll. */
+  kontroll: { text: string; ton: 'gron' | 'orange' } | null;
 }
 
-export function larmVisning(val: LarmVal): LarmVisning {
+export function larmVisning(val: LarmVal, kontroller: readonly LarmKontrollRad[] | null = null): LarmVisning {
+  const k = (p: Larmpunkt) => (kontroller ? kontrollText(kontrollFor(p, kontroller)) : null);
   const v = val.vald;
   const flera = val.alla.length > 1;
   return {
@@ -149,7 +153,9 @@ export function larmVisning(val: LarmVal): LarmVisning {
       namn: p.namn ?? 'Larmplats',
       koordinat: larmKoordinatText(p),
       narmast: p === v && val.avstandM != null,
+      kontroll: k(p),
     })) : [],
+    kontroll: v ? k(v) : null,
   };
 }
 
