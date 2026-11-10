@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { FLIKAR } from './plusArk';
 import { SYMBOL_NAMN } from './larm/grupper';
 import { MENY_KATEGORIER, UR_MENYN } from './symboler';
@@ -260,7 +260,8 @@ describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat —
     expect(page).toContain("vagdata: !maskinlage && !maskinSomParam && vagdataStatusKod ? {");
     expect(mer).not.toContain("etikett: 'Briefing'");
     expect(mer).not.toContain("etikett: 'Kvittera markeringar'");
-    expect(las('../app/planering/TraktBriefing.tsx')).toContain('setChecklistOpen(true);');
+    expect(existsSync(new URL('../app/planering/TraktBriefing.tsx', import.meta.url))).toBe(false);
+    expect(page).not.toContain('briefingMode');
   });
   it('borta ur menyn: Byt objekt (namnet och ⌂ gör det), Brandrisk (kortet och lagret), Gallring (ligger i +), Inställningar och Förslag (startsidan, utom maskindator/körvy)', () => {
     expect(page).not.toContain("label: 'Byt objekt'");

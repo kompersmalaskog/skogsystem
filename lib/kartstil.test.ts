@@ -173,7 +173,8 @@ describe('linjetyperna (lineTypeDefs)', () => {
     // gransen tas bort ur listan av nedtonbara typer. Andras den regeln dar
     // maste kontextlagret ses over - annars glider utseendet isar igen.
     const k = sammanfoga(KALLA);
-    expect(k).toContain(sammanfoga('const dimmableLineTypes = lineTypeIds.filter(lt => lt !== \'boundary\');'));
+    // Den enda nedtoningen av linjer (briefingen) är borttagen 2026-11-10: planeringen tonar inte ner några linjer alls.
+    expect(k).not.toContain('dimmableLineTypes');
     expect(k).toContain(sammanfoga('// Traktgräns: alltid tydlig'));
   });
 

@@ -275,7 +275,6 @@ const arZonYta = (id: string): boolean => id === 'zone-fill' || id.startsWith('z
 
 
 const DynamicMapLibre = dynamic(() => import('@/components/MapLibreMap'), { ssr: false })
-const TraktBriefing = dynamic(() => import('./TraktBriefing'), { ssr: false })
 // In-app PDF-läsvy (dokument öppnas INNE i appen, ej window.open). pdfjs laddas
 // lazy inuti komponenten — inget av detta drar in i planeringsvyns startbundle.
 const PdfLasare = dynamic(() => import('./PdfLasare'), { ssr: false })
@@ -670,10 +669,6 @@ function kortSortiment(raw: string): string {
   if (ord.length <= 1) return utanApt;
   return ord[0] + ' ' + ord.slice(1).map(w => w.toLowerCase()).join(' ');
 }
-
-// STEG 6a-3: en rad i objekt_kvittering (per objekt + roll). kvitterat_at satt = låst kvitto.
-type KvittRad = { checked_ids: string[]; kvitterat_av_id: string | null; kvitterat_av_namn: string | null; kvitterat_at: string | null };
-const EMPTY_KVITT: KvittRad = { checked_ids: [], kvitterat_av_id: null, kvitterat_av_namn: null, kvitterat_at: null };
 
 // Rotations-kontroll för pilar — LIGGER I KORTET, rör aldrig kartan (löser drag-vs-pan-krocken).
 // Ratt (dra runt cirkeln → pilen pekar dit fingret är, snäpp 15°) + ⟲/⟳-knappar för finjustering.
@@ -2358,97 +2353,6 @@ export default function PlannerPage() {
     mapInstanceRef.current = null;
     setMapLibreReady(false);
   }, []);
-
-  // Briefing-läge
-  const [briefingMode, setBriefingMode] = useState(false);
-  const [briefingHighlightId, setBriefingHighlightId] = useState<string | number | null>(null);
-  const [briefingCompleted, setBriefingCompleted] = useState(false);
-  // STEG 6a-3: per-roll kvittering (objekt_kvittering) — två oberoende rader/objekt.
-  const [kvittSkordare, setKvittSkordare] = useState<KvittRad | null>(null);
-  const [kvittSkotare, setKvittSkotare] = useState<KvittRad | null>(null);
-  // Aktuell rolls kvitto + härledda checked_ids (ersätter gamla briefingCheckedIds-state).
-  const minRollKvitto: KvittRad | null = minRoll === 'skordare' ? kvittSkordare : minRoll === 'skotare' ? kvittSkotare : null;
-  const briefingCheckedIds: string[] = minRollKvitto?.checked_ids ?? [];
-  const [briefingChecklistMode, setBriefingChecklistMode] = useState(false);
-  const [briefingStepTotal, setBriefingStepTotal] = useState(0);
-  const [checklistMapView, setChecklistMapView] = useState<{ itemId: string; center: { lat: number; lon: number }; markerId?: string | number; source: 'checklist' | 'mandatory'; bbox?: [number,number,number,number]; zoom?: number; type?: string; comment?: string; audioData?: string; photoData?: string; photoPath?: string; photoTs?: number; title?: string; icon?: string } | null>(null);
-  const checklistPulseRef = useRef<any>(null);
-  const checklistPrevOverlaysRef = useRef<Record<string, boolean> | null>(null);
-
-  // === KVITTERING (objekt_kvittering): ladda BÅDA roller för valt objekt ===
-  useEffect(() => {
-    if (!valtObjekt?.id) { setKvittSkordare(null); setKvittSkotare(null); return; }
-    let avbruten = false;
-    (async () => {
-      const { data, error } = await supabase
-        .from('objekt_kvittering')
-        .select('roll, checked_ids, kvitterat_av_id, kvitterat_av_namn, kvitterat_at')
-        .eq('objekt_id', valtObjekt.id);
-      if (avbruten) return;
-      if (error) { console.error('[Kvittering] Ladda fel:', error); return; }
-      const rad = (r: 'skordare' | 'skotare'): KvittRad | null => {
-        const d = data?.find((x: any) => x.roll === r);
-        return d ? { checked_ids: d.checked_ids ?? [], kvitterat_av_id: d.kvitterat_av_id, kvitterat_av_namn: d.kvitterat_av_namn, kvitterat_at: d.kvitterat_at } : null;
-      };
-      setKvittSkordare(rad('skordare'));
-      setKvittSkotare(rad('skotare'));
-    })();
-    return () => { avbruten = true; };
-  }, [valtObjekt?.id]);
-
-  // === KVITTERING: spara aktuell rolls checked_ids (debounced, per-roll upsert) ===
-  const kvittSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const scheduleKvittUpsert = useCallback((roll: 'skordare' | 'skotare', patch: Record<string, unknown>) => {
-    const objektId = valtObjekt?.id;
-    if (!objektId) return;
-    if (kvittSaveTimers.current[roll]) clearTimeout(kvittSaveTimers.current[roll]);
-    kvittSaveTimers.current[roll] = setTimeout(async () => {
-      const { error } = await supabase
-        .from('objekt_kvittering')
-        .upsert({ objekt_id: objektId, roll, ...patch, updated_at: new Date().toISOString() }, { onConflict: 'objekt_id,roll' });
-      if (error) console.error('[Kvittering] Spara fel:', error);
-    }, 1200);
-  }, [valtObjekt?.id]);
-
-  // Skriv aktuell rolls checked_ids (optimistiskt + debounced). Fryst efter kvitto.
-  const persistCheckedIds = useCallback((ids: string[]) => {
-    if (!valtObjekt?.id || !minRoll) return;            // ej tilldelad → ingen persistens
-    if (minRollKvitto?.kvitterat_at) return;             // kvitterat → checked_ids frysta (G4)
-    const setter = minRoll === 'skordare' ? setKvittSkordare : setKvittSkotare;
-    setter(prev => ({ ...(prev ?? EMPTY_KVITT), checked_ids: ids }));
-    scheduleKvittUpsert(minRoll, { checked_ids: ids });
-  }, [valtObjekt?.id, minRoll, minRollKvitto?.kvitterat_at, scheduleKvittUpsert]);
-
-  // === BRIEFING-STATUS: Ladda från Supabase ===
-  const briefingLoadedRef = useRef(false);
-  useEffect(() => {
-    briefingLoadedRef.current = false;
-    if (!valtObjekt?.id) return;
-    const load = async () => {
-      const { data, error } = await supabase
-        .from('briefing_status')
-        .select('completed, step_total')
-        .eq('objekt_id', valtObjekt.id)
-        .maybeSingle();
-      if (error) {
-        console.error('[Briefing] Ladda fel:', error);
-      } else if (data) {
-        setBriefingCompleted(data.completed || false);
-        setBriefingStepTotal(data.step_total || 0);
-      }
-      briefingLoadedRef.current = true;
-    };
-    load();
-  }, [valtObjekt?.id]);
-
-  // === BRIEFING-STATUS: Spara borttaget (prod-bugg-fix) ===
-  // Den gamla upserten skrev till briefing_status med onConflict 'objekt_id', men
-  // tabellen saknar unikt index på objekt_id → Postgres 42P10 → PostgREST 400
-  // ("[Briefing] Spara fel") vid VARJE briefing → tabellen förblev tom. Persistensen
-  // har alltså aldrig fungerat. briefingCompleted sätts ändå in-session av
-  // onBriefingComplete (driver plus-badgen), så borttagningen ändrar inget funktionellt.
-  // Den riktiga kvitteringen ligger i objekt_kvittering (onConflict 'objekt_id,roll',
-  // unikt index finns) och påverkas INTE.
 
   // === LJUD: Supabase Storage helpers ===
   const uploadAudioToStorage = useCallback(async (blob: Blob, markerId: string | number, noteId?: string): Promise<string | null> => {
@@ -8852,14 +8756,6 @@ export default function PlannerPage() {
       symbolMarkers.forEach(m => {
         const ll = svgToLatLon(m.x, m.y);
         let opacity = 1;
-        // Briefing highlight: active marker full opacity, others dimmed
-        if (briefingMode && briefingHighlightId) {
-          opacity = m.id === briefingHighlightId ? 1 : 0.2;
-        }
-        // Checklist map view: active marker full, others dimmed
-        if (checklistMapView && briefingHighlightId) {
-          opacity = m.id === briefingHighlightId ? 1 : 0.3;
-        }
         // Förslaget vägsymbol → vägfärg står nertill: symbolerna som tas bort vid Godkänn ritas som spöken.
         if (vagSpokeSymboler.has(String(m.id))) opacity = VAGSYMBOL_SPOKE_OPACITET;
         // KÖRVY: symbolen TÄNDS UPP när den kommer nära — långt bort svagt/tyst, växer mot
@@ -8896,7 +8792,7 @@ export default function PlannerPage() {
   };
 
   // Synka vid dataändringar och proximity-tick
-  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyEffectivePos, vagSpokeSymboler, overlays[PRICK_LAGER_ID], kommentarNycklarText]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, korvyActive, currentPosition, korvyEffectivePos, vagSpokeSymboler, overlays[PRICK_LAGER_ID], kommentarNycklarText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Synka pilar → arrows-source (geo-låst MapLibre-layer). x/y → lng/lat via svgToLatLon (samma
   // konvertering som symboler, origo-fix-medveten). Riktningen bärs av m.rotation → icon-rotate.
@@ -10519,226 +10415,51 @@ export default function PlannerPage() {
   // Arket stängt och inget objekt framhävt (tryck på kartan, ×, annan åtgärd) → typmarkeringen och minnet av var man stod släpps. Ett objekt som just stängt arket håller dem kvar.
   useEffect(() => { if (!traktOversiktOpen && !framhavdMarkering) { setFramhavdTyp(null); omNavRef.current = null; } }, [traktOversiktOpen, framhavdMarkering]);
 
-  // 2d) Briefing highlight: dim non-active, pulse active element
-  const briefingPulseRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Lagrens grundvärden sätts om varje gång markeringarna ändras. Det här var den gamla briefingens "återställ"-gren
+  // (briefingen är borttagen 2026-11-10). Den ligger kvar ORÖRD eftersom den körs i dag och ändrar vad kartan visar:
+  // en borttagning är en egen ändring som måste provas på kartan (den skriver t.ex. över körordningens line-opacity på vägarna).
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-
-    // Clear any existing pulse interval
-    if (briefingPulseRef.current) {
-      clearInterval(briefingPulseRef.current);
-      briefingPulseRef.current = null;
-    }
-
     const lineTypeIds = ['boundary', 'mainRoad',
       'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'nature', 'ditch', 'trail'];
-    // Non-boundary lines (boundary is always visible during briefing)
-    const dimmableLineTypes = lineTypeIds.filter(lt => lt !== 'boundary');
-
-    // Restore defaults when briefing off
-    if (!briefingMode) {
-      try {
-        lineTypeIds.forEach(lt => {
-          ['base', 'casing', 'stripe'].forEach(suffix => {
-            const id = `line-${lt}-${suffix}`;
-            if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
-          });
-        });
-        // Remove briefing glow layer + restore boundary widths and colors
-        if (map.getLayer('line-boundary-glow')) map.removeLayer('line-boundary-glow');
-        const bndLw = ['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4, 11, 5, 13, 5, 15, 7, 17, 8] as any;
-        const bndCw = ['interpolate', ['linear'], ['zoom'], 5, 5, 8, 6, 11, 7, 13, 7, 15, 9, 17, 10] as any;
-        if (map.getLayer('line-boundary-base')) map.setPaintProperty('line-boundary-base', 'line-width', bndLw);
-        if (map.getLayer('line-boundary-stripe')) {
-          map.setPaintProperty('line-boundary-stripe', 'line-width', bndLw);
-          map.setPaintProperty('line-boundary-stripe', 'line-color', '#fbbf24');
-        }
-        if (map.getLayer('line-boundary-casing')) map.setPaintProperty('line-boundary-casing', 'line-width', bndCw);
-
-        ZONE_LAGER().forEach(id => {
-          if (!map.getLayer(id)) return;
-          if (arZonYta(id)) map.setPaintProperty(id, 'fill-opacity', id === 'zone-fill' ? 0.2 : 1);
-          else map.setPaintProperty(id, 'line-opacity', 1);
-        });
-        if (map.getLayer('markers-layer')) {
-          map.setPaintProperty('markers-layer', 'icon-opacity', ['number', ['get', 'opacity'], 1]);
-        }
-      } catch (e) { /* */ }
-
-      // Checklist map view: dim others + pulse active marker
-      if (checklistMapView && briefingHighlightId) {
-        try {
-          // Dim all markers except the active one
-          if (map.getLayer('markers-layer')) {
-            map.setPaintProperty('markers-layer', 'icon-opacity',
-              ['case', ['==', ['get', 'id'], briefingHighlightId], 1, 0.3]);
-          }
-          // Dim zones
-          ZONE_LAGER().forEach(id => {
-            if (!map.getLayer(id)) return;
-            if (arZonYta(id)) map.setPaintProperty(id, 'fill-opacity', id === 'zone-fill' ? 0.05 : 0.15);
-            else map.setPaintProperty(id, 'line-opacity', 0.15);
-          });
-        } catch (e) { /* */ }
-
-        // Pulse: opacity 1.0 → 0.4, 1.5s cycle
-        let t = 0;
-        const step = (2 * Math.PI) / 30; // 30 ticks × 50ms = 1500ms per cycle
-        briefingPulseRef.current = setInterval(() => {
-          t += step;
-          const op = 0.7 + 0.3 * Math.sin(t); // oscillates 0.4 – 1.0
-          try {
-            if (map.getLayer('markers-layer')) {
-              map.setPaintProperty('markers-layer', 'icon-opacity',
-                ['case', ['==', ['get', 'id'], briefingHighlightId], op, 0.3]);
-            }
-          } catch (e) { /* */ }
-        }, 50);
-      }
-
-      return;
-    }
-
-    // === Briefing is ON: boost boundary visibility ===
     try {
-      // Thicker boundary lines
-      const bndLwBoosted = ['interpolate', ['linear'], ['zoom'], 5, 4, 8, 5, 11, 6, 13, 7, 15, 9, 17, 10] as any;
-      const bndCwBoosted = ['interpolate', ['linear'], ['zoom'], 5, 6, 8, 8, 11, 9, 13, 10, 15, 12, 17, 14] as any;
-      if (map.getLayer('line-boundary-base')) map.setPaintProperty('line-boundary-base', 'line-width', bndLwBoosted);
+      lineTypeIds.forEach(lt => {
+        ['base', 'casing', 'stripe'].forEach(suffix => {
+          const id = `line-${lt}-${suffix}`;
+          if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
+        });
+      });
+      if (map.getLayer('line-boundary-glow')) map.removeLayer('line-boundary-glow');
+      const bndLw = ['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4, 11, 5, 13, 5, 15, 7, 17, 8] as any;
+      const bndCw = ['interpolate', ['linear'], ['zoom'], 5, 5, 8, 6, 11, 7, 13, 7, 15, 9, 17, 10] as any;
+      if (map.getLayer('line-boundary-base')) map.setPaintProperty('line-boundary-base', 'line-width', bndLw);
       if (map.getLayer('line-boundary-stripe')) {
-        map.setPaintProperty('line-boundary-stripe', 'line-width', bndLwBoosted);
-        map.setPaintProperty('line-boundary-stripe', 'line-color', '#ffdd00');
+        map.setPaintProperty('line-boundary-stripe', 'line-width', bndLw);
+        map.setPaintProperty('line-boundary-stripe', 'line-color', LEGEND.gul);
       }
-      if (map.getLayer('line-boundary-casing')) map.setPaintProperty('line-boundary-casing', 'line-width', bndCwBoosted);
-      // Add a wide glow layer behind the boundary (once)
-      if (!map.getLayer('line-boundary-glow')) {
-        const glowWidth = ['interpolate', ['linear'], ['zoom'], 5, 10, 8, 14, 11, 18, 13, 22, 15, 28, 17, 32] as any;
-        map.addLayer({
-          id: 'line-boundary-glow', type: 'line', source: 'lines-source',
-          filter: ['==', ['get', 'lineType'], 'boundary'],
-          paint: { 'line-color': '#fbbf24', 'line-width': glowWidth, 'line-opacity': 0.3, 'line-blur': 4 },
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-        }, 'line-boundary-casing'); // Insert below casing
+      if (map.getLayer('line-boundary-casing')) map.setPaintProperty('line-boundary-casing', 'line-width', bndCw);
+      ZONE_LAGER().forEach(id => {
+        if (!map.getLayer(id)) return;
+        if (arZonYta(id)) map.setPaintProperty(id, 'fill-opacity', id === 'zone-fill' ? 0.2 : 1);
+        else map.setPaintProperty(id, 'line-opacity', 1);
+      });
+      if (map.getLayer('markers-layer')) {
+        map.setPaintProperty('markers-layer', 'icon-opacity', ['number', ['get', 'opacity'], 1]);
       }
     } catch (e) { /* */ }
-
-    const activeMarker = briefingHighlightId ? markers.find(m => m.id === briefingHighlightId) : null;
-    const isBoundaryStep = activeMarker?.isLine && (activeMarker as any).lineType === 'boundary';
-    const activeLineId = (activeMarker?.isLine && !isBoundaryStep) ? activeMarker.id : null;
-    const activeZoneId = activeMarker?.isZone ? activeMarker.id : null;
-    const activeSymbolId = activeMarker?.isMarker ? activeMarker.id : null;
-
-    // Boundary step: extra thick lines + glow
-    try {
-      if (isBoundaryStep) {
-        const bndLwExtra = ['interpolate', ['linear'], ['zoom'], 5, 5, 8, 6, 11, 8, 13, 9, 15, 11, 17, 12] as any;
-        const bndCwExtra = ['interpolate', ['linear'], ['zoom'], 5, 8, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18] as any;
-        if (map.getLayer('line-boundary-base')) map.setPaintProperty('line-boundary-base', 'line-width', bndLwExtra);
-        if (map.getLayer('line-boundary-stripe')) map.setPaintProperty('line-boundary-stripe', 'line-width', bndLwExtra);
-        if (map.getLayer('line-boundary-casing')) map.setPaintProperty('line-boundary-casing', 'line-width', bndCwExtra);
-        if (map.getLayer('line-boundary-glow')) map.setPaintProperty('line-boundary-glow', 'line-opacity', 0.45);
-      } else {
-        // Restore to briefing-boosted (not extra thick)
-        const bndLwBoosted2 = ['interpolate', ['linear'], ['zoom'], 5, 4, 8, 5, 11, 6, 13, 7, 15, 9, 17, 10] as any;
-        const bndCwBoosted2 = ['interpolate', ['linear'], ['zoom'], 5, 6, 8, 8, 11, 9, 13, 10, 15, 12, 17, 14] as any;
-        if (map.getLayer('line-boundary-base')) map.setPaintProperty('line-boundary-base', 'line-width', bndLwBoosted2);
-        if (map.getLayer('line-boundary-stripe')) map.setPaintProperty('line-boundary-stripe', 'line-width', bndLwBoosted2);
-        if (map.getLayer('line-boundary-casing')) map.setPaintProperty('line-boundary-casing', 'line-width', bndCwBoosted2);
-        if (map.getLayer('line-boundary-glow')) map.setPaintProperty('line-boundary-glow', 'line-opacity', 0.3);
-      }
-    } catch (e) { /* */ }
-
-    // Apply function: sets dim + active opacity for all layers (boundary excluded — always full)
-    const applyOpacity = (activeOp: number) => {
-      try {
-        // Lines (skip boundary — always visible)
-        dimmableLineTypes.forEach(lt => {
-          ['base', 'casing', 'stripe'].forEach(suffix => {
-            const id = `line-${lt}-${suffix}`;
-            if (!map.getLayer(id)) return;
-            if (activeLineId) {
-              map.setPaintProperty(id, 'line-opacity', ['case', ['==', ['get', 'id'], activeLineId], activeOp, 0.15]);
-            } else {
-              map.setPaintProperty(id, 'line-opacity', briefingHighlightId ? 0.15 : 0.7);
-            }
-          });
-        });
-
-        // Boundary pulse during boundary step
-        if (isBoundaryStep) {
-          ['line-boundary-base', 'line-boundary-stripe', 'line-boundary-casing'].forEach(id => {
-            if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', activeOp);
-          });
-          if (map.getLayer('line-boundary-glow')) {
-            map.setPaintProperty('line-boundary-glow', 'line-opacity', activeOp * 0.45);
-          }
-        }
-
-        // Zones
-        ZONE_LAGER().forEach(id => {
-          if (!map.getLayer(id)) return;
-          if (activeZoneId) {
-            if (arZonYta(id)) {
-              map.setPaintProperty(id, 'fill-opacity', ['case', ['==', ['get', 'id'], activeZoneId], id === 'zone-fill' ? activeOp * 0.35 : 1, id === 'zone-fill' ? 0.05 : 0.15]);
-            } else {
-              map.setPaintProperty(id, 'line-opacity', ['case', ['==', ['get', 'id'], activeZoneId], activeOp, 0.15]);
-            }
-          } else {
-            if (arZonYta(id)) map.setPaintProperty(id, 'fill-opacity', id === 'zone-fill' ? (briefingHighlightId ? 0.05 : 0.2) : (briefingHighlightId ? 0.15 : 1));
-            else map.setPaintProperty(id, 'line-opacity', briefingHighlightId ? 0.15 : 1);
-          }
-        });
-
-        // Markers (symbol layer)
-        if (activeSymbolId && map.getLayer('markers-layer')) {
-          map.setPaintProperty('markers-layer', 'icon-opacity',
-            ['case', ['==', ['get', 'id'], activeSymbolId], activeOp, 0.2]);
-        }
-      } catch (e) { /* */ }
-    };
-
-    // Initial apply
-    applyOpacity(1);
-
-    // Pulse animation
-    if (briefingHighlightId) {
-      if (isBoundaryStep) {
-        // Boundary: distinct on/off blink (~2s cycle)
-        let on = true;
-        briefingPulseRef.current = setInterval(() => {
-          on = !on;
-          applyOpacity(on ? 1 : 0.4);
-        }, 1000);
-      } else {
-        // Other elements: smooth sine wave pulse
-        let t = 0;
-        briefingPulseRef.current = setInterval(() => {
-          t += 0.08;
-          const op = 0.5 + 0.5 * Math.sin(t);
-          applyOpacity(op);
-        }, 50);
-      }
-    }
-
-    return () => {
-      if (briefingPulseRef.current) {
-        clearInterval(briefingPulseRef.current);
-        briefingPulseRef.current = null;
-      }
-    };
-  }, [briefingMode, briefingHighlightId, mapLibreReady, markers, checklistMapView]);
+  }, [mapLibreReady, markers]);
 
   // Om trakten › Visa ›: markeringen framhävs — symbol = 1,5× större med tjock blå ring, linje = HELA linjen, yta = hela konturen — övriga tonas ner till
-  // ca 30 % och kommentaren står som etikett intill. Ligger EFTER briefing-effekten: den återställer lagrens opacitet och skulle annars skriva över nedtoningen.
+  // ca 30 % och kommentaren står som etikett intill. Ligger EFTER grundvärdes-effekten ovan: den återställer lagrens opacitet och skulle annars skriva över nedtoningen.
   // Det man SER byggs om när kartans lager ändras (`markers`); att ett tryck på kartan släpper den sitter i en egen effekt här under, som bara hänger på valet.
   useEffect(() => {
     const map = mapInstanceRef.current;
     const framhavning = framhavdMarkering ?? (framhavdTyp && framhavdTyp.length > 0 ? framhavdTyp : null);
-    if (!map || !mapLibreReady || !framhavning || briefingMode || checklistMapView) return;
+    if (!map || !mapLibreReady || !framhavning) return;
     const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     return startaFramhavning(map as any, framhavning, { minskadRorelse: minskad });
-  }, [framhavdMarkering, framhavdTyp, mapLibreReady, briefingMode, checklistMapView, markers]);
+  }, [framhavdMarkering, framhavdTyp, mapLibreReady, markers]);
 
   // Släpper framhävningen: nollar valet och zoomar (för rad, kartryck och stängd panel) ut till hela trakten — samma svep som när ett objekt väljs.
   slappFramhavningRef.current = (orsak) => {
@@ -13267,7 +12988,7 @@ export default function PlannerPage() {
   const ritFramsteg = isZoneMode || nRit < 2 ? punktText(nRit) : geoFormatLength(geoPathMeters(currentDrawCoords));
   langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !menuOpen && !selectedSymbol && !figur && !prickValt
     && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode && !omradeRitning && !skotningDrawing && !hornEditActive && !larmPlacering
-    && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode && !linjeRed.aktiv && !objektListaOppen && !hogStreck;
+    && !traktOversiktOpen && !markerMenuOpen && !risaMarkMode && !linjeRed.aktiv && !objektListaOppen && !hogStreck;
   // Testläget: håll fingret flyttar testpositionen (kopplaLangtryckFlytt) — plusdockan öppnas med plusknappen.
   if (testlage) langtryckTillatenRef.current = false;
 
@@ -13281,7 +13002,7 @@ export default function PlannerPage() {
   const objektKartaTryck = objektListaVal && mapLibreReady && !kartLageIgang;
   // Förslaget vägsymbol → vägfärg står nertill bara när inget annat pågår där (ritläge, meny, listor, körordning, framhävning …).
   const vagForslagListSynlig = harVagForslag(vagForslag) && !kartLageIgang && !menuOpen && !objektListaOppen && !traktOversiktOpen && !framhavListSynlig
-    && !korLage && !klarGranskaAvlagg && markerMenuOpen == null && !briefingMode;
+    && !korLage && !klarGranskaAvlagg && markerMenuOpen == null;
   useEffect(() => { setVagSpokeAktiv(vagForslagListSynlig); }, [vagForslagListSynlig]);
   const { markeraVal: markeraListVal } = useObjektPrickar({
     map: objektKartaTryck ? mapInstanceRef.current : null,
@@ -13958,16 +13679,6 @@ export default function PlannerPage() {
     );
   }
 
-  // Badge-räkning för plus-knappen (okvitterade briefing-anteckningar + symboler).
-  // Återför notifikationen från gamla briefing-checklist-knappen på ett icke-flytande sätt.
-  const plusBadgeCount: number = (() => {
-    if (!briefingCompleted) return 0;
-    const boundary = markers.find(m => m.isLine && m.lineType === 'boundary');
-    const noteIds = (boundary?.notes || []).map(n => `about-note-${n.id}`);
-    const newNotes = noteIds.filter(id => !briefingCheckedIds.includes(id));
-    const uncheckedSymbols = briefingStepTotal - briefingCheckedIds.filter(id => !id.startsWith('about-note-')).length;
-    return Math.max(0, uncheckedSymbols) + newNotes.length;
-  })();
 
   // Toppbannern finns kvar för skotningens "Markera utkört" (skotningsspåret äger den). Rita, mät, placera och Nytt område har sin rad längst ner.
   const activeMode: { label: string; onExit: () => void; exitLabel: string; onDone?: () => void; doneLabel?: string } | null =
@@ -14035,7 +13746,7 @@ export default function PlannerPage() {
       )}
 
       {/* === MINIMAL HEADER === */}
-      {!briefingMode && (
+      {true && (
         <div style={{
           position: 'absolute',
           top: 0,
@@ -14911,7 +14622,7 @@ export default function PlannerPage() {
       })()}
 
       {/* === MODE-BANNER (aktivt verktygsläge) === */}
-      {!briefingMode && activeMode && (
+      {activeMode && (
         <div style={{
           position: 'absolute', top: 90, left: 16, right: 16, zIndex: 101,
           background: 'rgba(10,132,255,0.92)',
@@ -15008,7 +14719,7 @@ export default function PlannerPage() {
           aktiverats och position saknas → tryck → getCurrentPosition i gesten → iOS-dialog. Nekad
           → ärlig "gå till Inställningar", aldrig tyst död. (Desktop/Safari: isIOSStandalonePWA=false
           → banner visas aldrig, auto funkar.) */}
-      {isIOSStandalonePWA() && !platsAktiverad && !currentPosition && !briefingMode && (() => {
+      {isIOSStandalonePWA() && !platsAktiverad && !currentPosition && (() => {
         const nekad = gpsStatus?.kind === 'error' && gpsStatus.code === 1;
         const soker = gpsStatus?.kind === 'searching';
         return (
@@ -15051,7 +14762,7 @@ export default function PlannerPage() {
       {/* Färskhets-stämpel + Uppdatera (mellanlösning, ingen öppen realtid). REN SKÄRM: visas nu bara
           i PLANERINGSVYN (!korvyActive) — i körvyn bor kartdata-status + uppdatera i +-menyn (raden
           "Kartdata …") + den tysta pricken på +-knappen. Gul när datan är >10 min gammal. */}
-      {valtObjekt && !briefingMode && !korvyActive && (() => {
+      {valtObjekt && !korvyActive && (() => {
         const alderMin = markersUppdateradAt != null ? (Date.now() - markersUppdateradAt) / 60000 : null;
         const gammal = alderMin != null && alderMin >= FARSKHET_GAMMAL_MIN;
         const tid = markersUppdateradAt != null ? new Date(markersUppdateradAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : null;
@@ -15246,12 +14957,12 @@ export default function PlannerPage() {
 
 
       {/* STEG 3 (förenklad): "Starta körning"-pill för förare med planerat objekt.
-          Döljs när annat läge är aktivt (ritar/mäter/körvy/briefing/skotning) — då
+          Döljs när annat läge är aktivt (ritar/mäter/körvy/skotning) — då
           krockar inte pillen med mode-bannern på samma top-position. */}
       {isForare && (valtObjekt?.status === 'planerad' || valtObjekt?.status === 'oplanerad')
         && !isDrawMode && !isZoneMode && !isArrowMode
         && !isMeasuring && !skotningDrawing
-        && !korvyActive && !briefingMode && (
+        && !korvyActive && (
         <button
           type="button"
           onClick={handleStartKorning}
@@ -15293,10 +15004,10 @@ export default function PlannerPage() {
           Sallan-handling → ett steg bort i menyn är lämpligt, precis som 'Byt objekt'. */}
 
       {/* === PLUS-KNAPP (nere höger). SÄKERHETSVILLKOR (fältfynd): i KÖRVY är +-knappen enda vägen till
-             menyn (där Avsluta bor) → den får ALDRIG kunna döljas. Volym-/briefing-state som råkade ligga
+             menyn (där Avsluta bor) → den får ALDRIG kunna döljas. Volym-state som råkade ligga
              kvar dolde den förr och kapade utvägen (det #488 tvingades kringgå). `korvyActive ||` gör den
              ALLTID synlig i körvy, oavsett övrigt state. Utanför körvy: oförändrad gate. */}
-      {(korvyActive || (!briefingMode && !(volymLoading || volymResultat))) && (
+      {(korvyActive || !(volymLoading || volymResultat)) && (
         <button
           type="button"
           onClick={() => { if (navigator.vibrate) navigator.vibrate(10); if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusArkStart(null); } else { setPlusArkStart(null); setPlusRadOppen(true); } }}
@@ -15335,32 +15046,6 @@ export default function PlannerPage() {
             <path d="M12 5 L12 19" />
             <path d="M5 12 L19 12" />
           </svg>
-          {plusBadgeCount > 0 && !plusOppen && (
-            <span
-              aria-label={`${plusBadgeCount} okvitterade`}
-              style={{
-                position: 'absolute',
-                top: '-2px',
-                right: '-2px',
-                minWidth: '22px',
-                height: '22px',
-                padding: '0 6px',
-                borderRadius: '11px',
-                background: '#ff453a',
-                color: '#fff',
-                fontSize: '13px',
-                fontWeight: '700',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                border: '2px solid rgba(20,20,22,0.72)',
-
-                transform: plusOppen ? 'rotate(-45deg)' : 'none',
-              }}
-            >
-              {plusBadgeCount}
-            </span>
-          )}
           {/* TYST status-prick (fältfynd): GPS/kartdata-statusen flyttades in i menyn; en liten prick
               på +-knappen lyser RÖTT (GPS-fel/ingen fix) eller GULT (gammal position/kartdata) så
               föraren ser att något behöver kollas — utan en textrad på kartan. Detaljen finns i menyn. */}
@@ -16083,10 +15768,7 @@ export default function PlannerPage() {
           {visibleLayers.arrows && markers.filter((m): m is MedXY => harXY(m) && !!m.isArrow).map(m => {
             const arrow = arrowTypes.find(t => t.id === m.arrowType);
             const isDragging = draggingMarker === m.id;
-            let opacity = 1;
-            if (briefingMode && briefingHighlightId) {
-              opacity = m.id === briefingHighlightId ? 1 : 0.2;
-            }
+            const opacity = 1;
             const arrowScale = getConstrainedSize(2);
             const ringRadius = getConstrainedSize(50);
             const photoRadius = getConstrainedSize(18);
@@ -16838,7 +16520,7 @@ export default function PlannerPage() {
       {/* === CENTRERA-KNAPP — EN komponent, samma beteende och utseende i körvyn och planeringsvyn (lib/centrera). Körvyn: dold så
              länge kartan följer maskinen; drar föraren i kartan pausas följningen och knappen syns; tryck → följning igen.
              Planeringen: dold när kartan står på positionen; dras kartan bort syns den; tryck → centrera EN gång (ingen följning). */}
-      {valtObjekt && !briefingMode && !(volymLoading || volymResultat) && (
+      {valtObjekt && !(volymLoading || volymResultat) && (
         <CentreraKnapp synlig={centreraSynlig} onTryck={centreraTryck} />
       )}
 
@@ -17608,7 +17290,7 @@ export default function PlannerPage() {
       })()}
 
       {/* === VOLYMBERÄKNING + KÖRBARHET === */}
-      {(volymLoading || volymResultat) && !briefingMode && (
+      {(volymLoading || volymResultat) && (
         <VolymPanel
           resultat={volymResultat}
           loading={volymLoading}
@@ -17620,7 +17302,7 @@ export default function PlannerPage() {
       )}
 
       {/* === SMHI BRANDRISK-BADGE === */}
-      {overlays.brandrisk && brandriskData && !briefingMode && (
+      {overlays.brandrisk && brandriskData && (
         <div style={{
           position: 'absolute',
           top: 60,
@@ -17775,7 +17457,7 @@ export default function PlannerPage() {
       )}
 
       {/* === PANEL-SHEET (tidigare helskärmsmeny — nu glas-bottom-sheet) === */}
-      {menuOpen && !briefingMode && (
+      {menuOpen && (
         <>
           {/* Backdrop — tap-utanför stänger sheet */}
           <div
@@ -20962,201 +20644,6 @@ export default function PlannerPage() {
           Sparat!
         </div>
       )}
-
-      {/* === TRAKTBRIEFING === */}
-      {(briefingMode || briefingChecklistMode) && (
-        <TraktBriefing
-          markers={markers}
-          mapInstanceRef={mapInstanceRef}
-          svgToLatLon={svgToLatLon}
-          symbolCategories={symbolCategories}
-          lineTypes={lineTypes}
-          zoneTypes={zoneTypes}
-          overlays={overlays}
-          setOverlays={setOverlays}
-          traktName={valtObjekt?.namn || valtObjekt?.beteckning || 'Trakt'}
-          onClose={() => { setBriefingMode(false); setBriefingChecklistMode(false); setBriefingHighlightId(null); }}
-          onActiveMarkerChange={setBriefingHighlightId}
-          mode={briefingChecklistMode ? 'checklist' : 'briefing'}
-          checkedStepIds={briefingCheckedIds}
-          onChecklistChange={persistCheckedIds}
-          currentRole={minRoll}
-          kvittSkordare={kvittSkordare}
-          kvittSkotare={kvittSkotare}
-          onKvittera={(checkedIds: string[]) => {
-            if (!valtObjekt?.id || !minRoll) return;
-            const at = new Date().toISOString();
-            const patch = { checked_ids: checkedIds, kvitterat_av_id: effectiveMedarbetare?.id ?? null, kvitterat_av_namn: effectiveMedarbetare?.namn ?? null, kvitterat_at: at };
-            const setter = minRoll === 'skordare' ? setKvittSkordare : setKvittSkotare;
-            setter(prev => ({ ...(prev ?? EMPTY_KVITT), ...patch }));   // optimistiskt → kvitterat_at satt
-            supabase.from('objekt_kvittering')
-              .upsert({ objekt_id: valtObjekt.id, roll: minRoll, ...patch, updated_at: at }, { onConflict: 'objekt_id,roll' })
-              .then(({ error }) => { if (error) console.error('[Kvittering] Kvitto-fel:', error); });
-          }}
-          isAdmin={isAdminRiktig}
-          onNollstall={(roll: 'skordare' | 'skotare') => {
-            if (!valtObjekt?.id) return;
-            const at = new Date().toISOString();
-            // 1) audit-logg (vem nollställde) — riktig användare, ej simulerad
-            supabase.from('kvittering_reset_logg').insert({
-              objekt_id: valtObjekt.id, roll,
-              nollstalld_av_id: currentMedarbetare?.id ?? null,
-              nollstalld_av_namn: currentMedarbetare?.namn ?? null,
-              nollstalld_at: at,
-            }).then(({ error }) => { if (error) console.error('[Kvittering] Reset-logg fel:', error); });
-            // 2) rensa rollens rad → tillbaka till att-göra (kvitto + checked_ids nollas)
-            const cleared = { checked_ids: [] as string[], kvitterat_av_id: null, kvitterat_av_namn: null, kvitterat_at: null };
-            const setter = roll === 'skordare' ? setKvittSkordare : setKvittSkotare;
-            setter(() => ({ ...cleared }));   // optimistiskt
-            supabase.from('objekt_kvittering')
-              .upsert({ objekt_id: valtObjekt.id, roll, ...cleared, updated_at: at }, { onConflict: 'objekt_id,roll' })
-              .then(({ error }) => { if (error) console.error('[Kvittering] Nollställ fel:', error); });
-          }}
-          onBriefingComplete={(total: number) => { setBriefingCompleted(true); setBriefingStepTotal(total); }}
-          onShowOnMap={(itemId, center, markerId, source, extra) => {
-            setBriefingMode(false);            // stäng även briefing-flödets helskärmsark så glidningen + kart-kortet syns (annars ligger arket kvar och pin verkar död)
-            setBriefingChecklistMode(false);
-            setBriefingHighlightId(markerId || null);
-            setChecklistMapView({ itemId, center, markerId, source: source || 'checklist', bbox: extra?.bbox, zoom: extra?.zoom, type: extra?.type, comment: extra?.comment, audioData: extra?.audioData, photoData: extra?.photoData, photoPath: extra?.photoPath, photoTs: extra?.photoTs, title: extra?.title, icon: extra?.icon });
-            const m = mapInstanceRef.current;
-            if (m) {
-              m.flyTo({ center: [center.lon, center.lat], zoom: extra?.zoom || 17, pitch: 55, duration: 1500, essential: true });
-              // Property step: activate fastighetsgränser WMS + pulsing overlay
-              if (extra?.type === 'property') {
-                checklistPrevOverlaysRef.current = { ...overlays };
-                if (m.getLayer('wms-layer-fastighetsgranser')) {
-                  m.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', 'visible');
-                  m.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1.0);
-                }
-                setOverlays(prev => ({ ...prev, fastighetsgranser: true }));
-                const pulseSrc = 'checklist-fastighet-pulse';
-                const pulseLayer = 'checklist-fastighet-pulse-layer';
-                try { if (m.getLayer(pulseLayer)) m.removeLayer(pulseLayer); } catch {}
-                try { if (m.getSource(pulseSrc)) m.removeSource(pulseSrc); } catch {}
-                if (extra.bbox) {
-                  const wmsUrl = 'https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3'
-                    + '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=granser&STYLES=morkbakgrund'
-                    + '&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
-                  m.addSource(pulseSrc, { type: 'raster', tiles: [wmsUrl], tileSize: 256, bounds: extra.bbox });
-                  m.addLayer({ id: pulseLayer, type: 'raster', source: pulseSrc, paint: { 'raster-opacity': 1.0, 'raster-saturation': 1, 'raster-contrast': 0.8 } });
-                }
-                let pulseOn = true;
-                checklistPulseRef.current = setInterval(() => {
-                  if (!mapInstanceRef.current) return;
-                  pulseOn = !pulseOn;
-                  try { if (mapInstanceRef.current.getLayer(pulseLayer)) mapInstanceRef.current.setPaintProperty(pulseLayer, 'raster-opacity', pulseOn ? 1.0 : 0.0); } catch {}
-                }, 1000);
-              }
-            }
-          }}
-        />
-      )}
-
-      {/* === CHECKLISTA "VISA PÅ KARTAN" — info-kort (utanför briefing) === */}
-      {checklistMapView && !briefingMode && !briefingChecklistMode && (() => {
-        const cleanupPropertyPulse = () => {
-          if (checklistPulseRef.current) { clearInterval(checklistPulseRef.current); checklistPulseRef.current = null; }
-          const m = mapInstanceRef.current;
-          if (m) {
-            try { if (m.getLayer('checklist-fastighet-pulse-layer')) m.removeLayer('checklist-fastighet-pulse-layer'); } catch {}
-            try { if (m.getSource('checklist-fastighet-pulse')) m.removeSource('checklist-fastighet-pulse'); } catch {}
-            if (checklistPrevOverlaysRef.current) {
-              const wasOn = checklistPrevOverlaysRef.current.fastighetsgranser;
-              if (m.getLayer('wms-layer-fastighetsgranser')) {
-                m.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', wasOn ? 'visible' : 'none');
-                m.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1);
-              }
-              setOverlays(prev => ({ ...prev, fastighetsgranser: checklistPrevOverlaysRef.current?.fastighetsgranser ?? false }));
-              checklistPrevOverlaysRef.current = null;
-            }
-          }
-        };
-        const cv = checklistMapView;
-        const hasContent = !!(cv.comment || cv.audioData || harFoto(cv));
-        return (
-        <div style={{
-          position: 'absolute',
-          bottom: 0, left: 0, right: 0,
-          pointerEvents: 'none',
-          zIndex: 300,
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-        }}>
-          <div style={{
-            pointerEvents: 'auto',
-            width: '100%', maxWidth: '420px',
-            margin: '0 12px',
-            marginBottom: 'max(20px, env(safe-area-inset-bottom))',
-            background: 'rgba(10,15,8,0.92)',
-            backdropFilter: 'blur(30px)', WebkitBackdropFilter: 'blur(30px)',
-            borderRadius: '16px',
-            border: '1px solid rgba(48,209,88,0.1)',
-            overflow: 'hidden',
-          }}>
-            {/* Photo */}
-            {harFoto(cv) && (
-              <MarkeringFoto photoPath={cv.photoPath} photoData={cv.photoData} photoTs={cv.photoTs} alt="" style={{ width: '100%', height: '140px', objectFit: 'cover' }} />
-            )}
-            {/* Content */}
-            <div style={{ padding: '14px 16px' }}>
-              {/* Title */}
-              {cv.title && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: hasContent ? '8px' : '12px' }}>
-                  {cv.icon && <span style={{ fontSize: '17px' }}>{cv.icon}</span>}
-                  <span style={{ fontSize: '15px', fontWeight: '600', color: '#fff' }}>{cv.title}</span>
-                </div>
-              )}
-              {/* Comment */}
-              {cv.comment && (
-                <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.55)', lineHeight: '1.5', marginBottom: '10px' }}>
-                  {cv.comment}
-                </div>
-              )}
-              {/* Audio */}
-              {cv.audioData && (
-                <div style={{ marginBottom: '10px' }}>
-                  <LjudSpelare src={cv.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
-                </div>
-              )}
-              {/* Buttons */}
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  onClick={() => {
-                    cleanupPropertyPulse();
-                    setBriefingHighlightId(null);
-                    setBriefingChecklistMode(true);
-                    setChecklistMapView(null);
-                  }}
-                  style={{
-                    flex: 1, padding: '12px',
-                    borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)',
-                    background: 'rgba(255,255,255,0.06)',
-                    color: 'rgba(232,240,224,0.7)', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-                  }}
-                >← Tillbaka</button>
-                <button
-                  onClick={() => {
-                    cleanupPropertyPulse();
-                    const id = cv.itemId;
-                    if (cv.source !== 'mandatory') {
-                      persistCheckedIds(briefingCheckedIds.includes(id) ? briefingCheckedIds : [...briefingCheckedIds, id]);
-                    }
-                    setBriefingHighlightId(null);
-                    setBriefingChecklistMode(true);
-                    setChecklistMapView(null);
-                  }}
-                  style={{
-                    flex: 1, padding: '12px',
-                    borderRadius: '10px', border: '1px solid rgba(48,209,88,0.2)',
-                    background: 'rgba(48,209,88,0.12)',
-                    color: '#30d158', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-                  }}
-                >✓ Klar – tillbaka</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        );
-      })()}
 
       {/* === Multi-select högar panel (slide-in från höger) === */}
       {multiSelectPanel && !skotningPanel && (() => {
