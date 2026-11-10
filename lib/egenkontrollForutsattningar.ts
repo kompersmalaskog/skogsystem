@@ -2,7 +2,7 @@
 // (lib/egenkontrollRapport.ts) skriver. EN KALLA, sa att de aldrig kan saga olika saker om
 // samma runda. Ren text - ingen React, ingen databas.
 
-import { DAGAR_FORE, type VaderSnapshot } from '@/lib/egenkontrollvader';
+import { DAGAR_FORE, type DatumKalla, type VaderSnapshot } from '@/lib/egenkontrollvader';
 
 const MANADER = ['jan', 'feb', 'mars', 'apr', 'maj', 'juni', 'juli', 'aug', 'sep', 'okt', 'nov', 'dec'];
 
@@ -16,6 +16,18 @@ export function period(fran: string | null, till: string | null): string | null 
   if (aY !== bY) return `${aD} ${m(aM)} ${aY}–${bD} ${m(bM)} ${bY}`;
   if (aM !== bM) return `${aD} ${m(aM)}–${bD} ${m(bM)}`;
   return `${aD}–${bD} ${m(aM)}`;
+}
+
+/**
+ * Var datumen kommer ifran, i ord.
+ *
+ * MASKINDATAN SAGS INTE UT - den ar normalfallet och behover inget tillagg.
+ * Korsparet SAGS ALLTID: det ar en annan matning (vilka dagar appen sag
+ * maskinen pa trakten, inte vilka dagar den producerade), och den som laser
+ * rapporten om tva ar ska se skillnaden utan att behova fraga.
+ */
+export function kallaText(kalla: DatumKalla | null | undefined): string | null {
+  return kalla === 'korspar' ? 'ur appens körspår' : null;
 }
 
 export function mm(v: number | null | undefined): string {
@@ -59,7 +71,13 @@ export function saknasLangt(vader: VaderSnapshot | null): string {
     return 'Objektet saknar koordinat, så det går inte att säga vilket väder som rådde. Sätt en koordinat på objektet, så följer vädret med nästa runda.';
   }
   if (vader.status === 'saknar_skotdatum') {
-    return 'Vi vet inte när trakten skotades. Objektet är inte kopplat till maskindatan, och utan den finns ingen ärlig källa till skotningsdatumen — objektets egna datum är skördens.';
+    // Texten sa forr "Objektet ar inte kopplat till maskindatan" och stannade
+    // dar. Det var sant men inte hela sanningen, och i Ostra-Hokas fall rent
+    // missvisande: skotarens korspar lag i databasen med tio dagar i oktober.
+    // Nu lases bada kallorna (hamtaArbetsfonster), sa den har raden betyder
+    // att INGEN av dem har nagot - och da ar det ingen koppling som fattas,
+    // det ar att ingen maskin har lamnat ett spar efter sig pa trakten.
+    return 'Vi vet inte när trakten skotades. Varken maskinens filer eller appens körspår har någon dag på den här trakten, och objektets egna datum är skördens — så det finns ingen ärlig källa till skotningsdatumen.';
   }
   return `Vädret kunde inte hämtas när rundan startades${vader.fel ? ` (${vader.fel})` : ''}. Det hämtas bara en gång, så raden fylls inte i i efterhand.`;
 }
@@ -84,8 +102,9 @@ export function forutsattningsRader(
   const rader: string[] = [];
   if (vader?.status === 'ok') {
     const nar = period(vader.skot_start, vader.skot_slut);
+    const kalla = kallaText(vader.skot_kalla);
     const delar = [
-      nar ? `Skotat ${nar}` : null,
+      nar ? `Skotat ${nar}${kalla ? ` (${kalla})` : ''}` : null,
       `${mm(vader.mm_fore)} före, ${mm(vader.mm_under)} under`,
       vader.frostnatter == null
         ? 'temperatur saknas'

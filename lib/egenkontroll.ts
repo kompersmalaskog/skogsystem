@@ -584,7 +584,7 @@ export async function generateEgenkontroll(
     const vader = await hamtaVader(
       objekt.lat as number | null,
       objekt.lng as number | null,
-      await hamtaArbetsfonster(klient, objekt.dim_objekt_id as string | null),
+      await hamtaArbetsfonster(klient, objekt.dim_objekt_id as string | null, objektId),
     );
     const { data } = await klient
       .from('egenkontroll')
@@ -612,51 +612,147 @@ export async function generateEgenkontroll(
 }
 
 /**
- * Nar trakten skordades och skotades, enligt MASKINDATAN.
+ * En dag raknas som en arbetsdag i korsparet forst vid sa manga punkter.
  *
- * Kraver dim_objekt_id - nyckeln mot fakta-tabellerna. Den ar satt pa tre
- * objekt totalt, sa de allra flesta rundor far tillbaka bara nullar i dag.
- * Det ar med avsikt: det finns ingen annan arlig kalla. faktisk_slut ar null
- * pa 12 av 13 objekt i listan, faktisk_start bar SKORDENS forsta dag, och
- * avslutad_timestamp ar ett knapptryck. Bara fakt_lass vet nar det skotades.
+ * SKALET ar mätt, inte valt pa kansla. Hyttsparet gallras (en punkt slapps om
+ * den ligger narmare an 2 m fran den forra), sa en maskin som star still med
+ * appen pa loggar nastan ingenting medan en dags skotning tacker kilometer.
+ * Fordelningen i prod 2026-11-10, alla hyttspar pa de elva pagaende rundornas
+ * objekt, antal punkter per dag:
  *
- * Skord = fakt_produktion (skordaren), skotning = fakt_lass (skotaren). De
- * lases var for sig, aldrig joinade - se CLAUDE.md.
+ *   0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3   <- appen var pa, maskinen jobbade inte
+ *   22, 60, 133, 165, 176, 199, 217, 262, 369, 372, 496, 537, 671, 745, 750, 799, 837, 911
+ *
+ * Inget varde ligger mellan 3 och 22. Tjugo sitter i den luckan. Lagre, och
+ * Akelius skotare (0, 1, 2, 0, 0 punkter over fjorton dygn) hade gett fonstret
+ * "skotat 6-20 sep" - ett fonster byggt av dagar dar ingen skotade, och
+ * mm-talen hade raknats over det. Hogre, och en kort avslutande dag (Ostra-Hoka
+ * 16 okt, 60 punkter) hade fallit bort.
+ *
+ * Flyttas talet: mat om fordelningen forst och skriv in den har.
+ */
+export const HYTTSPAR_MIN_PUNKTER = 20;
+
+export type HyttsparDag = { roll: string; datum: string; antal_punkter: number | null };
+
+/**
+ * Forsta och sista dagen per roll ur korsparet. REN - hela gransdragningen
+ * ligger har sa den gar att prova mot prod-datan utan databas.
+ *
+ * En dag under HYTTSPAR_MIN_PUNKTER raknas inte, och ett okant antal
+ * (null) raknas inte heller: utan matningen kan vi inte veta om maskinen
+ * jobbade dar. Rollerna blandas aldrig.
+ */
+export function fonsterUrKorspar(rader: HyttsparDag[], roll: string): [string, string] | null {
+  const datum = rader
+    .filter((r) => r.roll === roll && typeof r.antal_punkter === 'number' && r.antal_punkter >= HYTTSPAR_MIN_PUNKTER)
+    .map((r) => r.datum)
+    .sort();
+  return datum.length ? [datum[0], datum[datum.length - 1]] : null;
+}
+
+/**
+ * Nar trakten skordades och skotades.
+ *
+ * TVA KALLOR, I ORDNING, PER ROLL:
+ *   1. MASKINDATAN - fakt_produktion (skordaren) och fakt_lass (skotaren).
+ *      Kraver dim_objekt_id, nyckeln mot fakta-tabellerna.
+ *   2. APPENS KORSPAR - hyttspar pa objektets egen id, per roll.
+ *
+ * Varfor steg 2 finns: dim_objekt_id ar satt pa ETT av de elva objekt som har
+ * en pagaende runda (prod 2026-11-10). De andra tio fick darfor status
+ * saknar_skotdatum och texten "Objektet ar inte kopplat till maskindatan" -
+ * medan hyttspar hela tiden visste vilka dagar skotaren kort. Ostra-Hoka:
+ * skotare A130743, tio dagar 5-16 oktober, upp till 671 punkter pa en dag.
+ * Att saga "vi vet inte" om nagot som star i databasen ar inte arlighet, det
+ * ar en oläst tabell.
+ *
+ * KORSPARET AR EN MATNING, INTE EN GISSNING - men det ar en ANNAN matning an
+ * filerna: det sager vilka dagar appen sag maskinen pa trakten, inte vilka
+ * dagar den producerade. Darfor foljer kallan med i fonstret (skot_kalla) och
+ * skrivs ut i vyn och i rapporten. En dag med nagra enstaka punkter raknas
+ * inte - se HYTTSPAR_MIN_PUNKTER.
+ *
+ * Rollerna avgors var for sig: skorden kan komma ur filerna och skotningen ur
+ * korsparet. Fonstren lases aldrig joinade - se CLAUDE.md.
  */
 async function hamtaArbetsfonster(
   klient: SupabaseClient,
   dimObjektId: string | null,
+  objektId: string | null,
 ): Promise<Arbetsfonster> {
-  const inget: Arbetsfonster = {
+  const fonster: Arbetsfonster = {
     skord_start: null, skord_slut: null, skot_start: null, skot_slut: null,
-  };
-  if (!dimObjektId) return inget;
-
-  // .order() kravs - utan ORDER BY ar .limit(1) inte "forsta datumet" utan
-  // "nagon rad". Samma fallgrop som paginering utan sortering.
-  const kant = async (tabell: string, stigande: boolean): Promise<string | null> => {
-    const { data, error } = await klient
-      .from(tabell)
-      .select('datum')
-      .eq('objekt_id', dimObjektId)
-      .order('datum', { ascending: stigande })
-      .limit(1);
-    if (error) throw new Error(`Kunde inte läsa ${tabell}: ${error.message}`);
-    const rad = (data ?? [])[0] as { datum?: string } | undefined;
-    return rad?.datum ?? null;
+    skord_kalla: null, skot_kalla: null,
   };
 
-  const [skordStart, skordSlut, skotStart, skotSlut] = await Promise.all([
-    kant('fakt_produktion', true),
-    kant('fakt_produktion', false),
-    kant('fakt_lass', true),
-    kant('fakt_lass', false),
-  ]);
+  if (dimObjektId) {
+    // .order() kravs - utan ORDER BY ar .limit(1) inte "forsta datumet" utan
+    // "nagon rad". Samma fallgrop som paginering utan sortering.
+    const kant = async (tabell: string, stigande: boolean): Promise<string | null> => {
+      const { data, error } = await klient
+        .from(tabell)
+        .select('datum')
+        .eq('objekt_id', dimObjektId)
+        .order('datum', { ascending: stigande })
+        .limit(1);
+      if (error) throw new Error(`Kunde inte läsa ${tabell}: ${error.message}`);
+      const rad = (data ?? [])[0] as { datum?: string } | undefined;
+      return rad?.datum ?? null;
+    };
 
-  return {
-    skord_start: skordStart, skord_slut: skordSlut,
-    skot_start: skotStart, skot_slut: skotSlut,
-  };
+    const [skordStart, skordSlut, skotStart, skotSlut] = await Promise.all([
+      kant('fakt_produktion', true),
+      kant('fakt_produktion', false),
+      kant('fakt_lass', true),
+      kant('fakt_lass', false),
+    ]);
+
+    if (skordStart && skordSlut) {
+      fonster.skord_start = skordStart;
+      fonster.skord_slut = skordSlut;
+      fonster.skord_kalla = 'maskindata';
+    }
+    if (skotStart && skotSlut) {
+      fonster.skot_start = skotStart;
+      fonster.skot_slut = skotSlut;
+      fonster.skot_kalla = 'maskindata';
+    }
+  }
+
+  // Bada rollerna klara ur filerna - ingen anledning att lasa korsparet.
+  if (fonster.skord_kalla && fonster.skot_kalla) return fonster;
+  if (!objektId) return fonster;
+
+  const { data, error } = await klient
+    .from('hyttspar')
+    .select('roll, datum, antal_punkter')
+    .eq('objekt_id', objektId)
+    .order('datum', { ascending: true });
+  // Ett lasfel ar ett fel. Tyst tomt hade sett ut som "inget korspar finns",
+  // och da hade texten paststatt att vi inte vet nar trakten skotades.
+  if (error) throw new Error(`Kunde inte läsa körspåren: ${error.message}`);
+
+  // Gransen dras i fonsterUrKorspar, inte i fragan: en .gte() mot
+  // antal_punkter hade tappat raderna med NULL utan att saga det.
+  const rader = (data ?? []) as unknown as HyttsparDag[];
+
+  if (!fonster.skord_kalla) {
+    const spann = fonsterUrKorspar(rader, 'skordare');
+    if (spann) {
+      [fonster.skord_start, fonster.skord_slut] = spann;
+      fonster.skord_kalla = 'korspar';
+    }
+  }
+  if (!fonster.skot_kalla) {
+    const spann = fonsterUrKorspar(rader, 'skotare');
+    if (spann) {
+      [fonster.skot_start, fonster.skot_slut] = spann;
+      fonster.skot_kalla = 'korspar';
+    }
+  }
+
+  return fonster;
 }
 
 async function hamtaPagaende(
@@ -844,6 +940,101 @@ export async function kompletteraRunda(
     throw new Error(`Kunde inte lägga till punkterna: ${error.message}`);
   }
   throw new Error('Punkterna kunde inte läggas till — någon annan ändrade rundan samtidigt. Ladda om sidan.');
+}
+
+// ---------------------------------------------------------------------------
+// Vadret: fylla ETT HAL, aldrig skriva om ett varde
+// ---------------------------------------------------------------------------
+//
+// Vadret hamtas EN GANG, vid genereringen, och fylls aldrig i i efterhand -
+// dokumentet ska saga samma sak om tva ar som i dag (se lib/egenkontrollvader.ts).
+// Den regeln star. Men tio av elva pagaende rundor har INGET vader alls: de
+// skapades innan korsparet lastes, sa fonstret blev tomt och snapshotten bar
+// bara skalet. Det finns inget varde att skriva om - det finns ett hal.
+//
+// REGLER (samma anda som ryggraden ovan):
+//  - Bara en PAGAENDE runda. En klar runda ror vi aldrig (databasens las avvisar den ocksa).
+//  - Bara dar inget vader nagonsin skrevs: vader IS NULL eller status saknar_skotdatum.
+//    ALDRIG status ok (det ar ett varde) och aldrig api_fel (da fragade vi, och
+//    svaret gick fel - att fraga igen ar precis den drift regeln skyddar mot).
+//  - Bara nar fonstret NU finns. Saknas det ocksa i korsparet skrivs ingenting:
+//    en identisk snapshot med ny tidsstampel vid varje oppning ar ingen uppgift.
+//  - EN LASARE SKRIVER ALDRIG: egen funktion som sidan anropar, aldrig en bieffekt i hamtaRunda.
+//  - Arkivet ar ERA5 for en passerad manad. Samma fraga ger samma svar nasta ar,
+//    sa talet ar inte ett varde som kan rora sig - det ar darfor halet gar att fylla.
+
+export type VaderResultat = {
+  /** true = en snapshot skrevs nu. */
+  fyllt: boolean;
+  /** Kort skal nar inget skrevs. Null nar fyllt. */
+  skal: string | null;
+};
+
+/**
+ * Fyller vadret pa en PAGAENDE runda som aldrig fick nagot. Se reglerna ovan.
+ *
+ * Kastar bara pa ett riktigt fel (lasfel, nat, rattigheter). Allt annat - klar
+ * runda, vader som redan finns, fonster som fortfarande saknas - ar inget fel
+ * och ger fyllt: false med ett skal.
+ */
+export async function kompletteraVader(
+  egenkontrollId: string,
+  options: KlientOptions = {},
+): Promise<VaderResultat> {
+  const { klient } = await kravSession(options);
+
+  const { data: runda, error: rundFel } = await klient
+    .from('egenkontroll')
+    .select('id, status, objekt_id, vader')
+    .eq('id', egenkontrollId)
+    .maybeSingle();
+  if (rundFel) throw new Error(`Kunde inte läsa rundan: ${rundFel.message}`);
+  if (!runda) throw new Error('Rundan hittades inte. Ladda om sidan.');
+
+  const r = runda as unknown as { status: string; objekt_id: string; vader: VaderSnapshot | null };
+  if (r.status === 'klar') return { fyllt: false, skal: 'Rundan är klar.' };
+  const gammalStatus = r.vader?.status ?? null;
+  if (gammalStatus !== null && gammalStatus !== 'saknar_skotdatum') {
+    return { fyllt: false, skal: 'Vädret är redan hämtat.' };
+  }
+
+  const { data: objekt, error: objFel } = await klient
+    .from('objekt')
+    .select('lat, lng, dim_objekt_id')
+    .eq('id', r.objekt_id)
+    .maybeSingle();
+  if (objFel) throw new Error(`Kunde inte läsa objektet: ${objFel.message}`);
+  if (!objekt) return { fyllt: false, skal: 'Objektet hittades inte.' };
+  const o = objekt as unknown as { lat: number | null; lng: number | null; dim_objekt_id: string | null };
+
+  const fonster = await hamtaArbetsfonster(klient, o.dim_objekt_id, r.objekt_id);
+  // Inget fonster an - skriv inget. Nasta oppning provar igen, och den dagen
+  // maskinen loggat en dag pa trakten fylls raden.
+  if (!fonster.skot_start || !fonster.skot_slut) {
+    return { fyllt: false, skal: 'Det finns fortfarande inga skotningsdatum.' };
+  }
+
+  const vader = await hamtaVader(o.lat, o.lng, fonster);
+  // Gick hamtningen fel skriver vi inget: den gamla raden sager redan att
+  // vadret saknas, och ett api_fel i kolumnen hade last dorren for nasta
+  // forsok (api_fel kompletteras aldrig - se reglerna ovan).
+  if (vader.status !== 'ok') {
+    return { fyllt: false, skal: vader.fel ?? 'Vädret kunde inte hämtas.' };
+  }
+
+  // Skriver bara pa exakt det hal vi las. Filtret ar samma villkor som ovan,
+  // igen - mellan lasningen och skrivningen kan en annan enhet ha hunnit fylla.
+  let fraga = klient.from('egenkontroll').update({ vader }).eq('id', egenkontrollId).eq('status', 'pagaende');
+  fraga = gammalStatus === null
+    ? fraga.is('vader', null)
+    : fraga.filter('vader->>status', 'eq', 'saknar_skotdatum');
+
+  const { data: skrivet, error: skrivFel } = await fraga.select('id');
+  if (skrivFel) throw new Error(`Kunde inte spara vädret: ${skrivFel.message}`);
+  if ((skrivet ?? []).length === 0) {
+    return { fyllt: false, skal: 'Någon annan hann fylla vädret först.' };
+  }
+  return { fyllt: true, skal: null };
 }
 
 // ---------------------------------------------------------------------------

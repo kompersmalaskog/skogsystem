@@ -44,6 +44,7 @@ import {
   avslutaRunda,
   sparaRundKommentar,
   kompletteraRunda,
+  kompletteraVader,
   saknadeUtforandepunkter,
   hamtaFoton,
   hamtaKontextmarkeringar,
@@ -419,11 +420,16 @@ export default function EgenkontrollRundaPage() {
       // RYGGRADEN: en PAGAENDE runda far de utforandepunkter katalogen kraver NAR DEN OPPNAS (additivt, se kompletteraRunda). Bara vid en riktig
       // oppning, inte vid de tysta omlasningarna efter varje sparning - en misslyckad komplettering ska inte gora varje sparning langsammare.
       // Gar det inte (ingen tackning) oppnas rundan som forut och sidan sager hur manga punkter som saknas.
-      if (rund.egenkontroll && rund.egenkontroll.status !== 'klar' && !val.tyst) {
-        const saknas = saknadeUtforandepunkter(rund.egenkontroll.objekt_typ, rund.punkter.map((p) => p.punkt_typ)).length;
+      // Rundan som den las FORE kompletteringarna. Egen variabel: `rund` skrivs
+      // om nedan, och da tappar TypeScript att egenkontroll inte ar null.
+      const oppnad = !val.tyst && rund.egenkontroll && rund.egenkontroll.status !== 'klar'
+        ? rund.egenkontroll
+        : null;
+      if (oppnad) {
+        const saknas = saknadeUtforandepunkter(oppnad.objekt_typ, rund.punkter.map((p) => p.punkt_typ)).length;
         if (saknas > 0) {
           try {
-            await kompletteraRunda(rund.egenkontroll.id);
+            await kompletteraRunda(oppnad.id);
             rund = await hamtaRunda(objektId);
             setKompletteringSaknas(0);
           } catch {
@@ -431,6 +437,19 @@ export default function EgenkontrollRundaPage() {
           }
         } else {
           setKompletteringSaknas(0);
+        }
+
+        // VADRET: en pagaende runda som aldrig fick nagot vader far det nu, om
+        // fonstret finns i dag (se kompletteraVader). Samma regler som
+        // ryggraden: bara vid en riktig oppning, aldrig vid de tysta
+        // omlasningarna, och ett misslyckande ar tyst - raden sager redan att
+        // vadret saknas, och vyn ska oppna i skogen aven utan tackning.
+        const vstatus = oppnad.vader?.status ?? null;
+        if (vstatus === null || vstatus === 'saknar_skotdatum') {
+          try {
+            const svar = await kompletteraVader(oppnad.id);
+            if (svar.fyllt) rund = await hamtaRunda(objektId);
+          } catch { /* ingen tackning - rundan oppnar som forut */ }
         }
       }
       setVy(rund);
