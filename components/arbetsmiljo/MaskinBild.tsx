@@ -24,8 +24,58 @@ function Hjul({ x, y, r = 25 }: { x: number; y: number; r?: number }) {
   return (
     <g>
       <circle cx={x} cy={y} r={r} fill={FARG.bg} stroke={FARG.text2} strokeWidth={1.5} />
-      <circle cx={x} cy={y} r={r * 0.68} {...DETALJ} />
-      <circle cx={x} cy={y} r={r * 0.24} fill={FARG.text3} />
+      <circle cx={x} cy={y} r={r - 3} fill="none" stroke={FARG.text3} strokeWidth={3} strokeDasharray="2 3" />
+      <circle cx={x} cy={y} r={r * 0.58} fill={FARG.upphojt} stroke={FARG.text3} strokeWidth={1.5} />
+      <circle cx={x} cy={y} r={r * 0.36} fill="none" stroke={FARG.text3} strokeWidth={1} strokeDasharray="1.5 3" />
+      <circle cx={x} cy={y} r={r * 0.2} fill={FARG.text3} />
+    </g>
+  );
+}
+
+/** Boggibalk under två hjul. */
+function Boggi({ x1, x2, y }: { x1: number; x2: number; y: number }) {
+  return <rect x={x1} y={y - 6} width={x2 - x1} height={12} rx={6} {...KROPP} />;
+}
+
+/** Skördaraggregat: kropp, matarvalsar, kvistknivar, sågsvärd. Övre vänstra hörnet i (x, y). */
+function Aggregat({ x, y }: { x: number; y: number }) {
+  return (
+    <g>
+      <path d={`M${x + 6} ${y} H${x + 40} Q${x + 46} ${y} ${x + 46} ${y + 6} V${y + 42} Q${x + 46} ${y + 48} ${x + 40} ${y + 48} H${x + 6} Q${x} ${y + 48} ${x} ${y + 42} V${y + 6} Q${x} ${y} ${x + 6} ${y} Z`} {...KROPP} />
+      <path d={`M${x + 2} ${y + 8} Q${x - 8} ${y + 16} ${x + 2} ${y + 24} M${x + 44} ${y + 8} Q${x + 54} ${y + 16} ${x + 44} ${y + 24}`} {...DETALJ} stroke={FARG.text2} strokeWidth={2.5} />
+      <circle cx={x + 14} cy={y + 28} r={8} {...DETALJ} stroke={FARG.text2} />
+      <circle cx={x + 32} cy={y + 28} r={8} {...DETALJ} stroke={FARG.text2} />
+      <rect x={x + 8} y={y + 6} width={30} height={6} rx={2} fill={FARG.text3} />
+      <line x1={x + 4} y1={y + 46} x2={x - 12} y2={y + 54} stroke={FARG.text2} strokeWidth={3} strokeLinecap="round" />
+    </g>
+  );
+}
+
+/** Hydraulcylinder: tjockt rör + tunn kolvstång. */
+function Cylinder({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number; y2: number }) {
+  const mx = x1 + (x2 - x1) * 0.6, my = y1 + (y2 - y1) * 0.6;
+  return (
+    <g>
+      <line x1={x1} y1={y1} x2={mx} y2={my} stroke={FARG.text2} strokeWidth={6} strokeLinecap="round" />
+      <line x1={x1} y1={y1} x2={mx} y2={my} stroke={FARG.upphojt} strokeWidth={3} strokeLinecap="round" />
+      <line x1={mx} y1={my} x2={x2} y2={y2} stroke={FARG.text2} strokeWidth={2.5} strokeLinecap="round" />
+    </g>
+  );
+}
+
+/** Stor panoramahytt med glas, dörrkarm, takljus och backspegel. */
+function Hytt({ x1, x2, y1, y2 }: { x1: number; x2: number; y1: number; y2: number }) {
+  const mitt = Math.round(x1 + (x2 - x1) * 0.6);
+  return (
+    <g>
+      <rect x={x1 + 2} y={y1 - 8} width={x2 - x1 - 4} height={6} rx={3} fill={FARG.text3} />
+      {[x1 + 10, x2 - 18].map(lx => <rect key={lx} x={lx} y={y1 - 14} width={8} height={5} rx={1.5} fill={FARG.text2} />)}
+      <path d={`M${x1} ${y2} V${y1 + 14} Q${x1} ${y1} ${x1 + 14} ${y1} H${x2 - 12} Q${x2} ${y1} ${x2} ${y1 + 12} V${y2} Z`} {...KROPP} />
+      <path d={`M${x1 + 7} ${y1 + 9} H${x2 - 7} V${y2 - 16} H${x1 + 7} Z`} fill={FARG.kort} stroke={FARG.text3} strokeWidth={1.5} />
+      <line x1={mitt} y1={y1 + 9} x2={mitt} y2={y2 - 2} stroke={FARG.text3} strokeWidth={2} />
+      <line x1={x1 + 14} y1={y1 + 16} x2={x1 + 28} y2={y1 + 30} stroke={FARG.text3} strokeWidth={1} opacity={0.6} />
+      <line x1={x2} y1={y1 + 18} x2={x2 + 10} y2={y1 + 12} stroke={FARG.text2} strokeWidth={2} strokeLinecap="round" />
+      <rect x={x2 + 8} y={y1 + 4} width={5} height={10} rx={1.5} fill={FARG.text3} />
     </g>
   );
 }
@@ -68,79 +118,85 @@ function Droppe({ x, y }: { x: number; y: number }) {
   return <path d={`M${x} ${y} q5 8 0 11 q-5 -3 0 -11 z`} fill={FARG.text3} stroke={FARG.text2} strokeWidth={1} />;
 }
 
-/** Fyrhjulig skördare (Rottne H8E): kranen längst fram, hytten bakom den, midjeled, motorn bak. */
+/** Fyrhjulig skördare (Rottne H8E): kranen längst fram på ramen, stor hytt bakom, midjeled, motorn bak. */
 function Skordare() {
   return (
     <g>
       <line x1={0} y1={214} x2={BILD_B} y2={214} stroke={FARG.linje} strokeWidth={2} />
-      {/* Kranen: pelare längst fram, bom upp och fram, aggregat. */}
-      <rect x={76} y={92} width={18} height={60} rx={4} {...KROPP} />
-      <path d="M85 96 L118 26 L40 58" {...BOM} />
-      <path d="M85 96 L118 26 L40 58" {...BOM_INRE} />
-      <path d="M94 104 Q104 116 118 108" {...DETALJ} strokeDasharray="4 3" />
-      <line x1={40} y1={58} x2={40} y2={70} stroke={FARG.text2} strokeWidth={4} />
-      <path d="M20 70 H60 L64 106 H16 Z" {...KROPP} />
-      <circle cx={30} cy={88} r={7} {...DETALJ} />
-      <circle cx={50} cy={88} r={7} {...DETALJ} />
-      {/* Främre ram, hytt, midjeled, bakre ram med motor. */}
-      <rect x={66} y={150} width={144} height={18} rx={4} {...KROPP} />
-      <path d="M120 150 V86 Q120 72 134 72 H188 Q200 72 200 84 V150 Z" {...KROPP} />
-      <path d="M130 86 H192 V122 H130 Z" fill={FARG.kort} stroke={FARG.text3} strokeWidth={1.5} />
-      <rect x={176} y={64} width={14} height={7} rx={2} fill={FARG.text3} />
-      <circle cx={216} cy={160} r={7} {...KROPP} />
-      <rect x={222} y={150} width={156} height={18} rx={4} {...KROPP} />
-      <path d="M226 150 V112 Q226 104 234 104 H354 L378 124 V150 Z" {...KROPP} />
-      <line x1={246} y1={116} x2={246} y2={140} {...DETALJ} />
-      <line x1={258} y1={116} x2={258} y2={140} {...DETALJ} />
-      <line x1={270} y1={116} x2={270} y2={140} {...DETALJ} />
-      <rect x={240} y={88} width={6} height={16} rx={2} fill={FARG.text3} />
-      <circle cx={356} cy={124} r={4} fill={FARG.text3} stroke={FARG.text2} strokeWidth={1.5} />
-      <Stege x={200} y1={140} y2={192} />
-      <Slackare x={244} y={154} />
-      <Droppe x={356} y={170} />
-      {/* Två stora hjul, kedjor fram. */}
-      <Kedja x={112} y={180} r={34} />
-      <Hjul x={112} y={180} r={34} />
-      <Hjul x={304} y={180} r={34} />
+      {/* Främre ram och kranens pelare längst fram. */}
+      <path d="M60 152 L72 140 H214 V164 H74 Z" {...KROPP} />
+      <rect x={66} y={134} width={40} height={8} rx={3} {...KROPP} />
+      <path d="M74 134 V112 Q74 104 82 104 H96 Q102 104 102 112 V134 Z" {...KROPP} />
+      {/* Bom upp och bak, sticka fram och ner, cylindrar och slangar. */}
+      <Cylinder x1={80} y1={128} x2={100} y2={64} />
+      <path d="M88 108 L122 24 L38 52" {...BOM} />
+      <path d="M88 108 L122 24 L38 52" {...BOM_INRE} />
+      <Cylinder x1={112} y1={38} x2={70} y2={40} />
+      <path d="M100 104 Q112 70 116 40" {...DETALJ} strokeDasharray="4 3" />
+      <circle cx={122} cy={24} r={5} fill={FARG.text3} />
+      <line x1={38} y1={52} x2={38} y2={64} stroke={FARG.text2} strokeWidth={4} />
+      <Aggregat x={16} y={64} />
+      {/* Hytt. */}
+      <Hytt x1={114} x2={204} y1={66} y2={140} />
+      {/* Midjeled, bakre ram, motorhuv med kylare, avgasrör, baklampa. */}
+      <circle cx={222} cy={154} r={8} {...KROPP} />
+      <rect x={228} y={140} width={146} height={24} rx={4} {...KROPP} />
+      <path d="M232 140 V104 Q232 96 240 96 H340 Q350 96 356 104 L380 124 V140 Z" {...KROPP} />
+      {[248, 258, 268, 278].map(x => <line key={x} x1={x} y1={108} x2={x} y2={132} {...DETALJ} />)}
+      <path d="M326 108 H346 L360 122 H326 Z" fill={FARG.kort} stroke={FARG.text3} strokeWidth={1.5} />
+      <rect x={300} y={78} width={7} height={18} rx={2} fill={FARG.text3} />
+      <rect x={374} y={128} width={6} height={8} rx={1.5} fill={FARG.text2} />
+      <circle cx={360} cy={130} r={4} fill={FARG.text3} stroke={FARG.text2} strokeWidth={1.5} />
+      <Stege x={208} y1={130} y2={198} />
+      <Slackare x={262} y={110} />
+      <Droppe x={356} y={174} />
+      {/* Två stora hjul, kedjor på framhjulet. */}
+      <Kedja x={118} y={176} r={38} />
+      <Hjul x={118} y={176} r={38} />
+      <Hjul x={300} y={176} r={38} />
     </g>
   );
 }
 
-/** Åttahjulig skördare med boggier (Ponsse Scorpion): hytten fram, kranen bakom, motorn bak. */
+/** Åttahjulig skördare med boggier (Ponsse Scorpion): hytten fram, kranen bakom med bommen över hytten, motorn bak. */
 function Skordare8() {
   return (
     <g>
       <line x1={0} y1={214} x2={BILD_B} y2={214} stroke={FARG.linje} strokeWidth={2} />
-      {/* Kranen: pelare, bom, sticka, aggregat. */}
-      <rect x={212} y={70} width={16} height={74} rx={4} {...KROPP} />
-      <path d="M220 74 L150 24 L52 62" {...BOM} />
-      <path d="M220 74 L150 24 L52 62" {...BOM_INRE} />
-      <path d="M214 84 L156 40" {...DETALJ} strokeDasharray="4 3" />
-      <line x1={52} y1={62} x2={52} y2={74} stroke={FARG.text2} strokeWidth={4} />
-      <path d="M32 74 H72 L76 112 H28 Z" {...KROPP} />
-      <circle cx={42} cy={92} r={7} {...DETALJ} />
-      <circle cx={62} cy={92} r={7} {...DETALJ} />
-      <line x1={26} y1={116} x2={8} y2={124} stroke={FARG.text2} strokeWidth={3} strokeLinecap="round" />
-      {/* Ram, motor, hytt. */}
-      <rect x={96} y={142} width={276} height={20} rx={4} {...KROPP} />
-      <path d="M232 142 V108 Q232 100 240 100 H356 L374 116 V142 Z" {...KROPP} />
-      <line x1={250} y1={112} x2={250} y2={134} {...DETALJ} />
-      <line x1={262} y1={112} x2={262} y2={134} {...DETALJ} />
-      <line x1={274} y1={112} x2={274} y2={134} {...DETALJ} />
-      <rect x={244} y={84} width={6} height={16} rx={2} fill={FARG.text3} />
-      <circle cx={352} cy={118} r={4} fill={FARG.text3} stroke={FARG.text2} strokeWidth={1.5} />
-      <path d="M120 142 V78 Q120 64 134 64 H194 Q206 64 206 76 V142 Z" {...KROPP} />
-      <path d="M130 78 H198 V114 H130 Z" fill={FARG.kort} stroke={FARG.text3} strokeWidth={1.5} />
-      <rect x={180} y={56} width={14} height={7} rx={2} fill={FARG.text3} />
-      <Stege x={208} y1={128} y2={176} />
-      <Slackare x={262} y={146} />
-      <Droppe x={318} y={166} />
-      {/* Hjul och band. */}
-      <Band x1={112} x2={166} y={186} />
-      <Hjul x={112} y={186} />
-      <Hjul x={166} y={186} />
-      <Hjul x={292} y={186} />
-      <Hjul x={346} y={186} />
+      {/* Främre ram och hytt. */}
+      <path d="M58 156 L68 146 H210 V170 H70 Z" {...KROPP} />
+      <Hytt x1={72} x2={166} y1={66} y2={146} />
+      {/* Kranen bakom hytten: pelare, bom i en båge över hytten, sticka fram till aggregatet. */}
+      <rect x={172} y={140} width={36} height={8} rx={3} {...KROPP} />
+      <path d="M178 140 V108 Q178 100 186 100 H196 Q202 100 202 108 V140 Z" {...KROPP} />
+      <Cylinder x1={196} y1={132} x2={170} y2={56} />
+      <path d="M190 104 L130 16 L36 54" {...BOM} />
+      <path d="M190 104 L130 16 L36 54" {...BOM_INRE} />
+      <Cylinder x1={142} y1={30} x2={86} y2={34} />
+      <path d="M198 104 Q186 70 174 52" {...DETALJ} strokeDasharray="4 3" />
+      <circle cx={130} cy={16} r={5} fill={FARG.text3} />
+      <line x1={36} y1={54} x2={36} y2={66} stroke={FARG.text2} strokeWidth={4} />
+      <Aggregat x={14} y={66} />
+      {/* Midjeled, bakre ram, hög motor med kylare, avgasrör, baklampa. */}
+      <circle cx={216} cy={160} r={8} {...KROPP} />
+      <rect x={222} y={146} width={152} height={24} rx={4} {...KROPP} />
+      <path d="M228 146 V100 Q228 92 236 92 H336 L374 112 V146 Z" {...KROPP} />
+      {[244, 254, 264, 274].map(x => <line key={x} x1={x} y1={104} x2={x} y2={136} {...DETALJ} />)}
+      <path d="M322 104 H340 L358 116 H322 Z" fill={FARG.kort} stroke={FARG.text3} strokeWidth={1.5} />
+      <rect x={300} y={74} width={7} height={18} rx={2} fill={FARG.text3} />
+      <rect x={368} y={130} width={6} height={8} rx={1.5} fill={FARG.text2} />
+      <circle cx={358} cy={124} r={4} fill={FARG.text3} stroke={FARG.text2} strokeWidth={1.5} />
+      <Stege x={203} y1={140} y2={198} />
+      <Slackare x={244} y={154} />
+      <Droppe x={376} y={170} />
+      {/* Boggier fram och bak, band på främre. */}
+      <Boggi x1={96} x2={150} y={188} />
+      <Boggi x1={286} x2={340} y={188} />
+      <Band x1={96} x2={150} y={188} />
+      <Hjul x={96} y={188} r={26} />
+      <Hjul x={150} y={188} r={26} />
+      <Hjul x={286} y={188} r={26} />
+      <Hjul x={340} y={188} r={26} />
     </g>
   );
 }
