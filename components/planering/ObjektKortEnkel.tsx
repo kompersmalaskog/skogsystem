@@ -5,7 +5,8 @@
 //   1. Överst: traktens namn (stort) + "Slutavverkning · 2,5 av 5,2 ha klart" + grön stapel. ✕ i hörnet.
 //   2. "Det här gäller här" (vanlig rubrik, inte små versaler): Faror (röda, först) · GROT (bara om trakten har GROT) · Vidas traktdirektiv "Hela trakten · Vida" med numrerade punkter ·
 //      en rad per yta med KARTANS namn som bricka (lib/ytaRader) — osedda med en liten blå prick. Ett tryck på en yta flyger kartan dit.
-//   3. Längst ner, EN grupp rader: "Om något händer – ring 112" med larmkoordinaten · Kartans färger · Dokument (N) · Mer.
+//   0. Överst: "Om något händer – ring 112" med den närmaste larmplatsen (lib/larmpunkter; 2026-11-10).
+//   3. Längst ner, EN grupp rader: Kartans färger · Dokument (N) · Mer.
 //
 // Bort för föraren (finns kvar i planeringsläget, `ObjektKort`): m³-chip och produktionssiffror (finns som lager) och "På trakten · N markeringar".
 // Brandrisk (bara klass 3+), knappraden (bara när det finns knappar) och skotarens väder är säkerhet/funktion och står kvar när de har något att säga.
@@ -21,6 +22,8 @@ import { Gruppkort, Huvud, Pil, RadKnapp } from './infoDelar';
 import { SettKnapp } from './InstruktionKort';
 import { KommentarVisning } from './KommentarRuta';
 import { YtaRadVy } from './YtaRad';
+import LarmPlatser, { LarmValjSjalv } from './LarmPlatser';
+import type { LarmVisning } from '@/lib/larmpunkter';
 
 export interface ObjektKortEnkelProps {
   namn: string;
@@ -43,7 +46,8 @@ export interface ObjektKortEnkelProps {
   onYta: (nyckel: string) => void;
   knappar: KortKnapp[];
   onKnapp: (id: KortKnappId) => void;
-  larm: { satt: boolean; koordinat: string; beskrivning: string; onVisa: () => void };
+  /** Larmplatsen (lib/larmpunkter.larmVisning): den närmaste, eller alla när GPS saknas. `onVisaPlats` = en rad i listan över alla. */
+  larm: { satt: boolean; koordinat: string; beskrivning: string; onVisa: () => void } & Partial<Omit<LarmVisning, 'satt' | 'koordinat'>> & { onVisaPlats?: (index: number) => void };
   onKarta?: () => void;
   /** "PEFC – vad gäller?" — kraven för traktens certifiering. Saknas = ingen rad. */
   onCert?: { etikett: string; onTryck: () => void };
@@ -77,6 +81,9 @@ const Ruta = ({ children, testid }: { children: React.ReactNode; testid: string 
 
 export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
   const [dokOppen, setDokOppen] = useState(false);
+  const [larmAllaOppen, setLarmAllaOppen] = useState(false);
+  const larmFlera = p.larm.platser && p.larm.onVisaPlats && p.larm.platser.length > 1;
+  const larmLista = larmFlera ? <LarmPlatser larm={{ namn: null, narmast: null, valjSjalv: false, ...p.larm, platser: p.larm.platser! }} onVisa={p.larm.onVisaPlats!} /> : null;
   const n = p.knappar.length;
   const harInnehall = !!p.risker || p.faror.length > 0 || !!p.grot || p.tillForaren.length > 0 || p.ytor.length > 0 || !!p.brand;
 
@@ -85,6 +92,38 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
       <Huvud titel={p.namn} undertitel={p.under} onStang={p.onStang} />
       {p.andel != null && <Stapel andel={p.andel} />}
       <div data-testid="kort-innehall" data-enkel="ja" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
+        {/* OM NÅGOT HÄNDER — larmplatsen HÖGST UPP (Martin 2026-11-10: "man ska inte behöva leta"). Den närmaste maskinen, eller alla när positionen saknas. */}
+        <div style={{ marginBottom: AVSTAND.m }}>
+          <Gruppkort testid="kort-larm-grupp">
+          {p.larm.satt && p.larm.valjSjalv && larmLista ? (
+            <div data-testid="kort-larm" data-satt="1" data-valj-sjalv="1">
+              <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px 0`, ...TYP.text }}>Om något händer – ring 112</div>
+              <LarmValjSjalv />
+              {larmLista}
+            </div>
+          ) : p.larm.satt ? (
+            <RadKnapp forstaRad testid="kort-larm" etikett="Om något händer – ring 112" onTryck={p.larm.onVisa}
+              under={<>
+                {(p.larm.narmast || p.larm.namn) && <span data-testid="kort-larm-namn" style={{ display: 'block' }}>{[p.larm.narmast, p.larm.namn].filter(Boolean).join(' · ')}</span>}
+                <span data-testid="kort-larm-koordinat" style={{ display: 'block', ...TNUM }}>Larmkoordinat {p.larm.koordinat}</span>
+              </>} />
+          ) : (
+            <div data-testid="kort-larm" data-satt="0" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px` }}>
+              <div style={{ ...TYP.text }}>Om något händer – ring 112</div>
+              <div style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.xs }}>Larmkoordinat ej satt</div>
+              {p.larm.beskrivning && <div style={{ ...TYP.text, marginTop: AVSTAND.s, whiteSpace: 'pre-wrap' }}>{p.larm.beskrivning}</div>}
+            </div>
+          )}
+          {p.larm.satt && p.larm.beskrivning && <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px`, ...TYP.text, whiteSpace: 'pre-wrap' }}>{p.larm.beskrivning}</div>}
+          {p.larm.satt && !p.larm.valjSjalv && larmLista && (
+            <>
+              <RadKnapp testid="kort-larm-alla" etikett={`Alla larmplatser (${p.larm.platser!.length})`} onTryck={() => setLarmAllaOppen((v) => !v)}
+                pil={false} hoger={<span style={{ display: 'inline-flex', transform: larmAllaOppen ? 'rotate(90deg)' : 'none' }}><Pil /></span>} />
+              {larmAllaOppen && larmLista}
+            </>
+          )}
+          </Gruppkort>
+        </div>
         {/* VISA HELA TRAKTEN — överblicken som visades när maskinen kom till trakten, alltid ett tryck bort */}
         {p.onOversikt && (
           <div style={{ marginBottom: AVSTAND.m }}>
@@ -168,22 +207,11 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
           </div>
         )}
 
-        {/* LÄNGST NER — en grupp rader: 112 med larmkoordinaten · Kartans färger · Dokument · Mer */}
+        {/* LÄNGST NER — en grupp rader: Egenkontroll · Kartans färger · Dokument · Mer (larmplatsen står överst) */}
         <Gruppkort testid="kort-uppdrag">
-          {p.larm.satt ? (
-            <RadKnapp forstaRad testid="kort-larm" etikett="Om något händer – ring 112" onTryck={p.larm.onVisa}
-              under={<span data-testid="kort-larm-koordinat" style={TNUM}>Larmkoordinat {p.larm.koordinat}</span>} />
-          ) : (
-            <div data-testid="kort-larm" data-satt="0" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px` }}>
-              <div style={{ ...TYP.text }}>Om något händer – ring 112</div>
-              <div style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.xs }}>Larmkoordinat ej satt</div>
-              {p.larm.beskrivning && <div style={{ ...TYP.text, marginTop: AVSTAND.s, whiteSpace: 'pre-wrap' }}>{p.larm.beskrivning}</div>}
-            </div>
-          )}
-          {p.larm.satt && p.larm.beskrivning && <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px`, ...TYP.text, whiteSpace: 'pre-wrap' }}>{p.larm.beskrivning}</div>}
-          {p.onEgenkontroll && <RadKnapp testid="kort-egenkontroll" etikett="Egenkontroll" under={p.onEgenkontroll.under} onTryck={p.onEgenkontroll.onTryck} />}
-          {p.onKarta && <RadKnapp testid="kort-vad-betyder-kartan" etikett="Kartans färger" onTryck={p.onKarta} />}
-          {p.onCert && <RadKnapp testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}
+          {p.onEgenkontroll && <RadKnapp forstaRad testid="kort-egenkontroll" etikett="Egenkontroll" under={p.onEgenkontroll.under} onTryck={p.onEgenkontroll.onTryck} />}
+          {p.onKarta && <RadKnapp forstaRad={!p.onEgenkontroll} testid="kort-vad-betyder-kartan" etikett="Kartans färger" onTryck={p.onKarta} />}
+          {p.onCert && <RadKnapp forstaRad={!p.onEgenkontroll && !p.onKarta} testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}
           {p.dokument && (
             <>
               <RadKnapp testid="kort-dokument" etikett={`Dokument (${p.dokument.antal})`} onTryck={() => setDokOppen((v) => !v)}

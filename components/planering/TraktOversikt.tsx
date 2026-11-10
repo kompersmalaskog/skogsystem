@@ -19,11 +19,12 @@ import type { Risk } from '@/lib/riskbedomning';
 import { utanTextRad, type SkyddRad } from '@/lib/traktOversikt';
 import BrandriskRad from './BrandriskRad';
 import LarmVy from './LarmVy';
+import type { LarmVisning } from '@/lib/larmpunkter';
 import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
 import { KommentarVisning } from './KommentarRuta';
 import type { OmMiljoRad } from './OmTrakten';
 
-export interface OversiktLarm { satt: boolean; koordinat: string; beskrivning: string; onVisa: () => void }
+export interface OversiktLarm { satt: boolean; koordinat: string; beskrivning: string; onVisa: () => void; visning?: LarmVisning; onVisaPlats?: (index: number) => void }
 
 export interface TraktOversiktProps {
   namn: string;
@@ -143,7 +144,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
   };
 
   if (larmVy && p.larm?.satt) {
-    return <LarmVy koordinat={p.larm.koordinat} beskrivning={p.larm.beskrivning} onVisa={p.larm.onVisa} onTillbaka={() => setLarmVy(false)} onStang={p.onStang} />;
+    return <LarmVy koordinat={p.larm.koordinat} beskrivning={p.larm.beskrivning} onVisa={p.larm.onVisa} visning={p.larm.visning} onVisaPlats={p.larm.onVisaPlats} onTillbaka={() => setLarmVy(false)} onStang={p.onStang} />;
   }
 
   return (
@@ -157,7 +158,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
             <Gruppkort>
               <RadKnapp ikon="emergency" farg={FARG.rod} forstaRad testid="oversikt-larm-rad"
                 etikett="Om något händer – ring 112"
-                under={p.larm.satt ? [p.larm.koordinat, p.larm.beskrivning].filter(Boolean).join(' · ') : 'Larmkoordinat saknas – fråga planeraren'}
+                under={!p.larm.satt ? 'Larmkoordinat saknas – fråga planeraren' : p.larm.visning?.valjSjalv ? `${p.larm.visning.platser.length} larmplatser – välj den närmaste` : [p.larm.visning?.narmast, p.larm.visning?.namn, p.larm.koordinat, p.larm.beskrivning].filter(Boolean).join(' · ')}
                 onTryck={p.larm.satt ? () => setLarmVy(true) : () => {}} pil={p.larm.satt} />
             </Gruppkort>
           </section>

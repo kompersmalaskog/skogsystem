@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   LARMPLATS_NARA_M, NOD_NYCKEL, RUTINKORT, avstandM, hittaKort, koordinatRader, koordinatText, lasNod, senasteObjektPaEnheten, sparaNod,
-  telLank, tolkaNod, valjLarmplats, type Larmplats,
+  telLank, tolkaNod, valjLarmplats, larmplatserUtanPosition, type Larmplats,
 } from './nod';
 import { atgardTitel } from './atgarder';
 import { byggTillbudNotis, tillbudNotisText, type TillbudNotisRad } from './tillbudNotis';
@@ -137,5 +137,24 @@ describe('databasens kort', () => {
     const sql = readFileSync(`${__dirname}/../../supabase/migrations/20261102145454_am_rutinkort.sql`, 'utf8');
     const ids = sql.match(/id in \(([^)]+)\)/)![1].split(',').map(x => x.trim().replace(/'/g, ''));
     expect(ids).toEqual(RUTINKORT.map(k => k.id));
+  });
+});
+
+describe('nödsidan — flera larmplatser på samma trakt (Vida: en vid varje avlägg)', () => {
+  const a1: Larmplats = { objektId: 'a', namn: 'Santhe', lat: 56.51, lng: 14.70, beskrivning: 'Avlägg 01-3' };
+  const a2: Larmplats = { objektId: 'a', namn: 'Santhe', lat: 56.49, lng: 14.65, beskrivning: 'Avlägg 01-1' };
+  it('med position: den närmaste av traktens', () => {
+    expect(valjLarmplats([a1, a2], { lat: 56.491, lng: 14.651, noggrannhet: 10 }, null)?.beskrivning).toBe('Avlägg 01-1');
+  });
+  it('utan position: ingen gissning bland flera — alla listas', () => {
+    expect(valjLarmplats([a1, a2], null, 'a')).toBeNull();
+    expect(larmplatserUtanPosition([a1, a2], null, 'a')).toEqual([a1, a2]);
+  });
+  it('en enda på trakten: den gäller, ingen lista', () => {
+    expect(valjLarmplats([a1], null, 'a')).toBe(a1);
+    expect(larmplatserUtanPosition([a1], null, 'a')).toEqual([]);
+  });
+  it('med position listas inget (den närmaste väljs)', () => {
+    expect(larmplatserUtanPosition([a1, a2], { lat: 56.5, lng: 14.7, noggrannhet: 10 }, 'a')).toEqual([]);
   });
 });

@@ -10,6 +10,7 @@ import { avslutaMedPosition, medelAvSenaste } from '@/lib/gpsSparLinje'
 import { OMRADE_SPAR, arYtSparning, slutRing as slutGpsRing, ytaSparId, ytaTypAv } from '@/lib/gpsSparYta'
 import { YtaSparLista } from '@/components/planering/YtaSparLista'
 import { gpsSaknas } from '@/lib/gpsSaknas'
+import { larmpunkterUr, valjLarmpunkt, larmVisning, POS_FARSK_MS, type Larmpunkt } from '@/lib/larmpunkter'
 import { useGpsSaknasLang } from '@/lib/hooks/useGpsSaknasLang'
 import { hallSkarmenVakenIWebblasare } from '@/lib/skarmVaken'
 import { signeraKartfil } from '@/lib/kartfiler'
@@ -2628,6 +2629,11 @@ export default function PlannerPage() {
   const [infoLarmLat, setInfoLarmLat] = useState('');
   const [infoLarmLng, setInfoLarmLng] = useState('');
   const [infoLarmBeskrivning, setInfoLarmBeskrivning] = useState('');
+  // ALLA larmplatser på trakten (lib/larmpunkter): Vidas (en vid varje avlägg) + objektets egen. Kortet väljer den närmaste maskinen.
+  const larmPunkterAlla = useMemo<Larmpunkt[]>(() => {
+    const la = parseFloat((infoLarmLat || '').replace(',', '.')); const ln = parseFloat((infoLarmLng || '').replace(',', '.'));
+    return larmpunkterUr(traktGeo?.features, Number.isFinite(la) && Number.isFinite(ln) ? { lat: la, lng: ln } : null);
+  }, [traktGeo, infoLarmLat, infoLarmLng]);
   const [infoLarmKalla, setInfoLarmKalla] = useState<'td' | 'egen' | null>(null);
   const [infoLarmBekraftad, setInfoLarmBekraftad] = useState(false);
   const [larmPlacering, setLarmPlacering] = useState(false); // "Peka på karta"-läge (larmkoordinat)
@@ -6427,6 +6433,7 @@ export default function PlannerPage() {
       if (!map.getLayer('larm-pin-hit')) {
         map.addLayer({
           id: 'larm-pin-hit', type: 'circle', source: 'larm-pin-source',
+          filter: ['==', ['get', 'objektets'], true],
           paint: { 'circle-radius': 22, 'circle-color': 'rgba(0,0,0,0)' },
         });
       }
@@ -6643,13 +6650,10 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     const src: any = map.getSource('larm-pin-source');
     if (!src || !src.setData) return;
-    const lat = parseFloat((infoLarmLat || '').replace(',', '.'));
-    const lng = parseFloat((infoLarmLng || '').replace(',', '.'));
-    const features: any[] = (Number.isFinite(lat) && Number.isFinite(lng))
-      ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: {} }]
-      : [];
+    // ALLA larmplatser (lib/larmpunkter): Vida lägger en vid varje avlägg. Bara objektets egen (`objektets`) går att trycka på — den ändrar planeraren.
+    const features: any[] = larmPunkterAlla.map((p) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { objektets: p.objektets } }));
     src.setData({ type: 'FeatureCollection', features } as any);
-  }, [infoLarmLat, infoLarmLng, mapLibreReady]);
+  }, [larmPunkterAlla, mapLibreReady]);
 
   // === Skotning polygon-ritning (canvas overlay — inga React state-uppdateringar under ritning) ===
   useEffect(() => {
@@ -9455,7 +9459,7 @@ export default function PlannerPage() {
   // Kortet öppnades från listan → "‹ Lista" på kortet tar tillbaka dit.
   const [oversiktAter, setOversiktAter] = useState(false);
   // Larmplatsen visas på kartan från Hela trakten → "‹ Lista" nertill tar tillbaka listan (Martin 2026-11-05).
-  const [larmPaKartan, setLarmPaKartan] = useState(false);
+  const [larmPaKartan, setLarmPaKartan] = useState<{ lat: number; lng: number; namn: string | null } | null>(null);
   const [oversiktSett, setOversiktSett] = useState<Set<string> | null>(null);
   const oversiktKolladRef = useRef<string | null>(null);
   useEffect(() => {
@@ -9507,8 +9511,8 @@ export default function PlannerPage() {
     return true;
   };
   useEffect(() => { if (markerMenuOpen == null && !traktInfo && !traktOversiktOpen) setOversiktAter(false); }, [markerMenuOpen, traktInfo, traktOversiktOpen]);
-  useEffect(() => { if (traktOversiktOpen || !korvyActive) setLarmPaKartan(false); }, [traktOversiktOpen, korvyActive]);
-  useEffect(() => { setLarmPaKartan(false); }, [valtObjekt?.id]);
+  useEffect(() => { if (traktOversiktOpen || !korvyActive) setLarmPaKartan(null); }, [traktOversiktOpen, korvyActive]);
+  useEffect(() => { setLarmPaKartan(null); }, [valtObjekt?.id]);
   // Listan öppen = kartan visar hela trakten, hur den än öppnades (första gången, ⓘ eller ‹ Lista). Martin 2026-11-05: "det zoomar ut för mycket".
   useEffect(() => { if (traktOversiktOpen && oversiktAktiv && (infoStartVy === 'oversikt' || infoStartVy === 'kort')) visaHelaTrakten(); }, [traktOversiktOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   // "‹ Lista": kortet stängs, listan öppnas och kartan går ut till HELA trakten igen tills nästa rad trycks (Martin 2026-11-05).
@@ -13975,6 +13979,23 @@ export default function PlannerPage() {
           const map = mapInstanceRef.current; if (!map) return;
           map.flyTo({ center: [larmLng, larmLat], zoom: Math.max(map.getZoom(), 17), duration: 700 });
         };
+        // Flera larmplatser (Vida: en vid varje avlägg): den närmaste maskinen/telefonen med FÄRSK position, annars alla och föraren väljer.
+        const larmPosFarsk = !!testlage || (senasteGiltigFixRef.current != null && Date.now() - senasteGiltigFixRef.current < POS_FARSK_MS);
+        const larmVal = valjLarmpunkt(larmPunkterAlla, gpsNu({ korvyAktiv: korvyActive, korvyPos: korvyEffectivePos, position: currentPosition }), larmPosFarsk);
+        const larmVis = larmVisning(larmVal);
+        const larmVisaPunkt = (p: Larmpunkt | null | undefined, medList: boolean) => {
+          if (!p) return;
+          setTraktOversiktOpen(false);
+          const map = mapInstanceRef.current;
+          if (map) map.flyTo({ center: [p.lng, p.lat], zoom: Math.max(map.getZoom(), 17), duration: 700 });
+          if (medList) setLarmPaKartan({ lat: p.lat, lng: p.lng, namn: p.namn });
+        };
+        // Förarens larmrad: den valda (eller den enda). Utan vald finns bara listan.
+        const forarLarm = (medList: boolean) => ({
+          ...larmVis, beskrivning: larmBeskr,
+          onVisa: () => larmVisaPunkt(larmVal.vald, medList),
+          onVisaPlats: (i: number) => larmVisaPunkt(larmVal.alla[i], medList),
+        });
         const stang = () => { setTraktOversiktOpen(false); };
         // Kontorets dokument (TD + stämplingslängd) ligger i privat bucket → signeras vid klick och
         // renderas i in-app PDF-läsvyn (PdfLasare), aldrig window.open/nedladdning som slänger ut
@@ -14326,11 +14347,17 @@ export default function PlannerPage() {
                 />
               ),
             } : null,
-            larm: {
+            larm: kortRoll === 'planerare' && !maskinlage && !maskinSomParam ? {
+              // Planeraren ser och ändrar objektets egen larmplats härifrån (raden Trakt i Mer är borttagen 2026-11-10); på trakten står den närmaste överst och den egna ändras från raden under (ObjektKort.LarmKort).
               satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '',
-              bekraftad: !!infoLarmBekraftad, visaKontroll: kortRoll === 'planerare' && !maskinlage && !maskinSomParam, beskrivning: larmBeskr, onVisa: larmFlyTill,
-              // Planeraren ändrar larmplatsen härifrån (raden Trakt i Mer är borttagen 2026-11-10).
-              onAndra: kortRoll === 'planerare' && !maskinlage && !maskinSomParam ? efter(() => { setTraktOpen(true); }) : undefined,
+              bekraftad: !!infoLarmBekraftad, visaKontroll: true, beskrivning: larmBeskr, onVisa: larmFlyTill,
+              visning: larmVis, onVisaPlats: (i: number) => larmVisaPunkt(larmVal.alla[i], false),
+              onAndra: efter(() => { setTraktOpen(true); }),
+            } : {
+              // Föraren (telefon/körvy): den närmaste larmplatsen, eller alla när positionen saknas.
+              satt: larmVis.satt, koordinat: larmVis.koordinat,
+              bekraftad: !!infoLarmBekraftad, visaKontroll: false, beskrivning: larmBeskr, onVisa: () => larmVisaPunkt(larmVal.vald, false),
+              visning: larmVis, onVisaPlats: (i: number) => larmVisaPunkt(larmVal.alla[i], false),
             },
             vagdata: !maskinlage && !maskinSomParam && vagdataStatusKod ? {
               varde: vagdataVarde, misslyckad: vagdataStatusKod === 'misslyckad', onTryck: isAdminRiktig ? efter(() => { korOmVagdata(); }) : null,
@@ -14430,7 +14457,7 @@ export default function PlannerPage() {
             const nyaK = nyaKommentarer(oversiktSett, kk.rader.map((r) => ({ id: r.id, text: r.text })));
             return {
               under: oversiktUnder(typTxt, certTyper(valtObjekt.cert), arealHaKort),
-              larm: { satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '', beskrivning: larmBeskr, onVisa: () => { stang(); larmFlyTill(); setLarmPaKartan(true); } },
+              larm: { satt: larmVis.satt, koordinat: larmVis.koordinat, beskrivning: larmBeskr, onVisa: () => { stang(); larmVisaPunkt(larmVal.vald, true); }, visning: larmVis, onVisaPlats: (i: number) => { stang(); larmVisaPunkt(larmVal.alla[i], true); } },
               faror: faroLinjer,
               risker: forarRiskNu.risker,
               skydd: skyddadeOmraden(restr, !!(traktData as any)?.beraknad?.restriktionerAnalyseradAt),
@@ -14508,7 +14535,7 @@ export default function PlannerPage() {
                 ytaPulsTimerRef.current = setTimeout(() => setYtaPuls(null), YTA_PULS_MS);
               },
               knappar: kortKnappar({ roll: kortRoll, harKoordinat: objektListaVal && harKoordinat(valtObjekt), korvyAktiv: korvyActive, maskinSlag, utanSkotning: skotarLassAktiv }),
-              larm: { satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '', beskrivning: larmBeskr, onVisa: larmFlyTill },
+              larm: forarLarm(false),
               dokument: harDok ? {
                 antal: dokAntal,
                 chips: (
@@ -15250,15 +15277,14 @@ export default function PlannerPage() {
       )}
       {/* LARMPLATSEN PÅ KARTAN (Hela trakten › Om något händer › Visa på kartan): EN rad nertill — koordinaten och "‹ Lista" tillbaka. */}
       {larmPaKartan && !traktOversiktOpen && !plusRadOppen && !menuOpen && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && !framhavListSynlig && (() => {
-        const la = parseFloat((infoLarmLat || '').replace(',', '.')); const ln = parseFloat((infoLarmLng || '').replace(',', '.'));
-        if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+        const lp = larmPaKartan;
         return (
           <NedfaldList
             testid="larm-list"
             smal={smalSkarm}
-            text={`Larmkoordinat · ${la.toFixed(5)}, ${ln.toFixed(5)}`}
-            tillbaka={{ etikett: 'Lista', onClick: () => { setLarmPaKartan(false); setInfoStartVy('oversikt'); setTraktOversiktOpen(true); }, testid: 'larm-tillbaka' }}
-            extra={[AVBRYT_KNAPP(() => setLarmPaKartan(false), 'larm-slapp')]}
+            text={`${lp.namn ? `${lp.namn} · ` : 'Larmkoordinat · '}${lp.lat.toFixed(5)}, ${lp.lng.toFixed(5)}`}
+            tillbaka={{ etikett: 'Lista', onClick: () => { setLarmPaKartan(null); setInfoStartVy('oversikt'); setTraktOversiktOpen(true); }, testid: 'larm-tillbaka' }}
+            extra={[AVBRYT_KNAPP(() => setLarmPaKartan(null), 'larm-slapp')]}
           />
         );
       })()}

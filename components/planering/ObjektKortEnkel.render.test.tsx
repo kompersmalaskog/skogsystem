@@ -166,11 +166,15 @@ describe('ObjektKortEnkel — en rad per yta, kartans namn som bricka', () => {
 });
 
 describe('ObjektKortEnkel — längst ner EN grupp rader, och bort med det som inte hör hit', () => {
-  it('"Om något händer – ring 112" med larmkoordinaten · Kartans färger · Dokument (N) · Mer — i den ordningen i ETT kort', async () => {
+  it('"Om något händer – ring 112" HÖGST UPP i kortet (2026-11-10), sedan längst ner Kartans färger · Dokument (N) · Mer i ETT kort', async () => {
     await montera(<ObjektKortEnkel {...props()} />);
     const grupp = q('kort-uppdrag')!;
     const ids = Array.from(grupp.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid'));
-    expect(ids.filter((i) => ['kort-larm', 'kort-vad-betyder-kartan', 'kort-dokument', 'kort-mer'].includes(i!))).toEqual(['kort-larm', 'kort-vad-betyder-kartan', 'kort-dokument', 'kort-mer']);
+    expect(ids.filter((i) => ['kort-larm', 'kort-vad-betyder-kartan', 'kort-dokument', 'kort-mer'].includes(i!))).toEqual(['kort-vad-betyder-kartan', 'kort-dokument', 'kort-mer']);
+    // Larmplatsen är det första i kortet: före "Det här gäller här" och allt annat.
+    const allt = Array.from(q('kort-innehall')!.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid'));
+    expect(allt[0]).toBe('kort-larm-grupp');
+    expect(allt.indexOf('kort-larm')).toBeLessThan(allt.indexOf('kort-galler-rubrik'));
     expect(q('kort-larm')!.textContent).toContain('Om något händer – ring 112');
     expect(q('kort-larm-koordinat')!.textContent).toBe('Larmkoordinat 56.40012, 14.70123');
     expect(q('kort-vad-betyder-kartan')!.textContent).toBe('Kartans färger');

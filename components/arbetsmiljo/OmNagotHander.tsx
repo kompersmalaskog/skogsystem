@@ -17,8 +17,9 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { AVSTAND, FARG, INAKTIV, KNAPP, KORT, RADIE, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import {
-  hittaKort, kortMedAndringar, koordinatRader, koordinatText, lasNod, ringText, senasteObjektPaEnheten, slaIhopNod, sparaNod, telLank, valjLarmplats,
+  hittaKort, kortMedAndringar, koordinatRader, koordinatText, lasNod, ringText, senasteObjektPaEnheten, slaIhopNod, sparaNod, telLank, valjLarmplats, larmplatserUtanPosition,
   type NodData, type Position, type Rutinkort,
+  type Larmplats,
 } from '@/lib/arbetsmiljo/nod';
 import { TYP_VAL, aterstallKort, hamtaNodData, hamtaRapportor, rapporteraTillbud, sparaKort, type TillbudTyp } from '@/lib/arbetsmiljo/tillbud';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
@@ -92,6 +93,8 @@ export default function OmNagotHander() {
   const ga = useCallback((l: Lage) => { setLage(l); skrivAdress(l); if (typeof window !== 'undefined') window.scrollTo(0, 0); }, []);
 
   const larmplats = valjLarmplats(nod?.larmplatser ?? [], pos, pos ? null : senasteObjektPaEnheten());
+  // Utan position och flera larmplatser på trakten (Vida lägger en vid varje avlägg): alla, man läser upp den närmaste själv.
+  const flera = larmplatserUtanPosition(nod?.larmplatser ?? [], pos, pos ? null : senasteObjektPaEnheten());
   const kontakter = nod?.kontakter ?? [];
   // Korten med admins ändringar (sparade på enheten). Ett öppet kort visas alltid i sin senaste lydelse.
   const kortLista = kortMedAndringar(nod?.andringar);
@@ -130,7 +133,7 @@ export default function OmNagotHander() {
         {lage.vy === 'start' && (
           <>
             {/* Ingen egen rubrik: toppfältet säger redan "Om något händer". Det viktigaste står först. */}
-            <Nodkort pos={pos} status={status} larmplats={larmplats} forst />
+            <Nodkort pos={pos} status={status} larmplats={larmplats} flera={flera} forst />
             <Etikett>Vad har hänt?</Etikett>
             <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
               {kortLista.map((k, i) => (
@@ -163,7 +166,7 @@ export default function OmNagotHander() {
         {lage.vy === 'kort' && (
           <>
             <h1 style={{ ...TYP.titel, margin: 0 }}>{visat(lage.kort).titel}</h1>
-            <Nodkort pos={pos} status={status} larmplats={larmplats} kompakt />
+            <Nodkort pos={pos} status={status} larmplats={larmplats} flera={flera} kompakt />
             <ol data-steg style={{ listStyle: 'none', margin: `${AVSTAND.xl}px 0 0`, padding: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
               {visat(lage.kort).steg.map((s, i) => (
                 <li key={i} style={{ display: 'flex', gap: AVSTAND.m, alignItems: 'flex-start' }}>
@@ -220,12 +223,23 @@ export default function OmNagotHander() {
 }
 
 /** Ring 112 + det man läser upp. Larmplatsen (där ambulansen ska in) först om trakten har en, annars där man står. */
-function Nodkort({ pos, status, larmplats, kompakt, forst }: { pos: Position | null; status: 'soker' | 'ok' | 'saknas'; larmplats: ReturnType<typeof valjLarmplats>; kompakt?: boolean; forst?: boolean }) {
+function Nodkort({ pos, status, larmplats, flera = [], kompakt, forst }: { pos: Position | null; status: 'soker' | 'ok' | 'saknas'; larmplats: ReturnType<typeof valjLarmplats>; flera?: Larmplats[]; kompakt?: boolean; forst?: boolean }) {
   const huvud = larmplats ? { rubrik: `Larmplats · ${larmplats.namn}`, lat: larmplats.lat, lng: larmplats.lng, under: larmplats.beskrivning } : pos ? { rubrik: 'Här är du', lat: pos.lat, lng: pos.lng, under: null } : null;
   const rader = huvud ? koordinatRader(huvud.lat, huvud.lng) : null;
   return (
     <div data-nodkort style={{ ...KORT, marginTop: forst ? 0 : AVSTAND.l }}>
-      {huvud && rader ? (
+      {!huvud && flera.length > 1 ? (
+        <div data-larmplatser-alla>
+          <div style={{ ...TYP.micro, color: FARG.text2 }}>Larmplatser · {flera[0].namn}</div>
+          <div style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.s }}>Appen vet inte var du är – läs upp den som ligger närmast dig.</div>
+          {flera.map((l, i) => (
+            <div key={i} data-larmplats-rad style={{ marginTop: AVSTAND.m }}>
+              {l.beskrivning && <div style={{ ...TYP.text }}>{l.beskrivning}</div>}
+              <div style={{ ...TYP.rubrik, ...TNUM }}>{koordinatText(l.lat, l.lng)}</div>
+            </div>
+          ))}
+        </div>
+      ) : huvud && rader ? (
         <>
           <div style={{ ...TYP.micro, color: FARG.text2 }}>{huvud.rubrik}</div>
           <div data-koordinat={koordinatText(huvud.lat, huvud.lng)} style={{ ...(kompakt ? TYP.rubrik : TYP.tal), ...TNUM, marginTop: AVSTAND.s }}>

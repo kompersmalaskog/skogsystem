@@ -90,8 +90,20 @@ export function valjLarmplats(platser: Larmplats[], pos: Position | null, senast
     }
     return bast && bastM <= LARMPLATS_NARA_M ? bast : null;
   }
-  if (senasteObjektId) return platser.find(p => p.objektId === senasteObjektId) ?? null;
+  if (senasteObjektId) {
+    // Vida lägger en larmplats vid varje avlägg: har trakten flera vet vi inte vilken som gäller utan position — då ingen,
+    // och sidan visar alla traktens (larmplatserUtanPosition). Aldrig den första i listan som om den vore rätt.
+    const traktens = platser.filter(p => p.objektId === senasteObjektId);
+    return traktens.length === 1 ? traktens[0] : null;
+  }
   return null;
+}
+
+/** Utan position och med flera larmplatser på trakten enheten senast hade öppen: alla, så att man läser upp den närmaste själv. */
+export function larmplatserUtanPosition(platser: Larmplats[], pos: Position | null, senasteObjektId: string | null): Larmplats[] {
+  if (pos || !senasteObjektId) return [];
+  const traktens = platser.filter(p => p.objektId === senasteObjektId);
+  return traktens.length > 1 ? traktens : [];
 }
 
 /** "Ring Martin" / "Ring Martin eller Joacim" som rubrik; knapparna är en per person. */

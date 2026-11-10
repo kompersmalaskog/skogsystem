@@ -256,7 +256,8 @@ describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat —
     expect(mer).not.toContain("etikett: 'Genomgång & kvittering'");
     for (const s of ["id: 'skordarkorvy'", "id: 'skotarkorvy'", "id: 'trakt'", "id: 'vagdata'"]) expect(mer, s).not.toContain(s);
     expect(page).not.toContain('visaSom: isAdminRiktig ? {');
-    expect(page).toContain("onAndra: kortRoll === 'planerare' && !maskinlage && !maskinSomParam ? efter(() => { setTraktOpen(true); }) : undefined,");
+    expect(page).toContain("larm: kortRoll === 'planerare' && !maskinlage && !maskinSomParam ? {");
+    expect(page).toContain('onAndra: efter(() => { setTraktOpen(true); }),');
     expect(page).toContain("vagdata: !maskinlage && !maskinSomParam && vagdataStatusKod ? {");
     expect(mer).not.toContain("etikett: 'Briefing'");
     expect(mer).not.toContain("etikett: 'Kvittera markeringar'");

@@ -52,7 +52,10 @@ describe('städad panel', () => {
     expect(kort).toContain('{n > 0 && <div data-testid="kort-knappar"');
   });
   it('"Larmplats inte kontrollerad" bara i planeringsläget: sidan ger visaKontroll = planerare utanför maskinläge och testläge', () => {
-    expect(sida).toContain("visaKontroll: kortRoll === 'planerare' && !maskinlage && !maskinSomParam,");
+    // 2026-11-10: planerarens larmrad (med kontrollstatusen) och förarens (närmaste larmplatsen, utan status) är två grenar.
+    expect(sida).toContain("larm: kortRoll === 'planerare' && !maskinlage && !maskinSomParam ? {");
+    expect(sida).toContain('bekraftad: !!infoLarmBekraftad, visaKontroll: true,');
+    expect(sida).toContain('bekraftad: !!infoLarmBekraftad, visaKontroll: false,');
     expect(kort).toContain('{larm.visaKontroll && <span data-testid="kort-larm-status"');
   });
   it('"På trakten · N markeringar" har samma stil som övriga rader (ingen grå text-prefix)', () => {
