@@ -101,6 +101,9 @@ describe('ⓘ-kortet för planeraren', () => {
     expect(q('kort-larm-andra')!.textContent).toContain('56.49691, 14.70865');
     act(() => { q('kort-larm-andra')!.click(); });
     expect(andrat).toBe(1);
+    // Larmplatsen står först i kortet (2026-11-10), inte långt ner bland Dokument och Mer.
+    const allt = Array.from(q('kort-innehall')!.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid'));
+    expect(allt[0]).toBe('kort-larm-grupp');
   });
   it('på kontoret: den egna överst, som förut', async () => {
     let andrat = 0;
