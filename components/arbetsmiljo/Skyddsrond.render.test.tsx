@@ -18,7 +18,7 @@ vi.mock('@/lib/supabase', () => ({ supabase: {
 vi.mock('@/lib/CurrentMedarbetareContext', () => ({ useCurrentMedarbetare: () => ({ medarbetare: { id: 'martin', namn: 'Martin', roll: 'admin' }, loading: false }) }));
 const koade: { sokvag: string; namn: string }[] = [];
 vi.mock('@/lib/maskinkoll/fotoKo', () => ({ laggMaskinkollFoto: async (_k: string, _d: string, sokvag: string, fil: File) => { koade.push({ sokvag, namn: fil.name }); } }));
-vi.mock('@/lib/arbetsmiljo/atgarder', () => ({ fotoLank: async (_sb: unknown, sokvag: string) => `https://signerad/${sokvag}` }));
+vi.mock('@/lib/arbetsmiljo/atgarder', () => ({ hamtaAnsvar: async () => null, fotoLank: async (_sb: unknown, sokvag: string) => `https://signerad/${sokvag}` }));
 (URL as any).createObjectURL = () => 'blob:lokal';
 
 let ronder: Rond[] = [];

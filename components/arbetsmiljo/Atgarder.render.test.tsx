@@ -8,7 +8,7 @@ import { createRoot } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Atgard } from '@/lib/arbetsmiljo/atgarder';
 
-const h = vi.hoisted(() => ({ lista: [] as any[], las: true, far: true as boolean | null, stangda: [] as any[], hamtningar: 0, tillbud: null as Map<string, any> | null, anmalda: [] as string[] }));
+const h = vi.hoisted(() => ({ lista: [] as any[], las: true, far: true as boolean | null, stangda: [] as any[], hamtningar: 0, tillbud: null as Map<string, any> | null, anmalda: [] as string[], satta: [] as any[], personer: [{ id: 'p1', namn: 'Joacim Ringberg' }, { id: 'p2', namn: 'Martin Lindqvist' }] as any[] | null }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('@/lib/arbetsmiljo/atgarder', async (orig) => {
@@ -18,6 +18,16 @@ vi.mock('@/lib/arbetsmiljo/atgarder', async (orig) => {
     hamtaAtgarder: async () => { h.hamtningar++; return h.las ? { ok: true, data: h.lista } : { ok: false, fel: riktig.LASFEL }; },
     farStanga: async () => h.far,
     fotoLank: async () => 'https://bild',
+    hamtaPersoner: async () => h.personer,
+    sattAnsvar: async (_sb: unknown, id: string, andring: any) => {
+      h.satta.push({ id, ...andring });
+      h.lista = h.lista.map((x: any) => x.id !== id ? x : {
+        ...x,
+        ...(andring.ansvarigId !== undefined ? { ansvarig: andring.ansvarigId ? h.personer!.find((p: any) => p.id === andring.ansvarigId) : null } : {}),
+        ...(andring.deadline ? { deadline: andring.deadline } : {}),
+      });
+      return null;
+    },
     stangAtgard: async (_sb: unknown, id: string, text: string) => {
       h.stangda.push({ id, text });
       h.lista = h.lista.map((x: any) => x.id === id ? { ...x, status: 'klar', vadGjordes: text, stangdTid: '2026-11-01T10:00:00Z' } : x);
@@ -53,7 +63,7 @@ const tryck = async (b: Element | null | undefined) => { expect(b).toBeTruthy();
 
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  h.lista = []; h.las = true; h.far = true; h.stangda = []; h.hamtningar = 0; h.tillbud = null; h.anmalda = [];
+  h.lista = []; h.las = true; h.far = true; h.stangda = []; h.hamtningar = 0; h.tillbud = null; h.anmalda = []; h.satta = []; h.personer = [{ id: 'p1', namn: 'Joacim Ringberg' }, { id: 'p2', namn: 'Martin Lindqvist' }];
   window.history.replaceState(null, '', '/atgarder');
   el = document.createElement('div'); document.body.appendChild(el);
 });
@@ -175,5 +185,48 @@ describe('Åtgärder', () => {
     expect(bild).toBeTruthy();
     expect(bild!.querySelector('title')!.textContent).toContain('Band och kedjor');
     expect(document.querySelectorAll('[data-maskinbild] [role=radio]')).toHaveLength(0);
+  });
+
+  it('vem och när: admin väljer vem i samma ark, raden visar förnamnet, Ingen tar bort; senast väljs med ett tryck', async () => {
+    h.lista = [a({ id: 'x', ansvarig: null, deadline: null })];
+    await montera();
+    await tryck(document.querySelector('[data-atgard=x]'));
+    expect(document.querySelector('[data-vem]')!.textContent).toContain('Ingen vald');
+    expect(document.querySelector('[data-nar]')!.textContent).toContain('Inget datum');
+    await tryck(document.querySelector('[data-vem]'));
+    expect(text()).toContain('Vem gör det?');
+    expect(document.querySelector('[data-person-ingen]')).toBeNull();
+    await tryck(document.querySelector('[data-person=p1]'));
+    expect(h.satta).toEqual([{ id: 'x', ansvarigId: 'p1' }]);
+    expect(document.querySelector('[data-vem]')!.textContent).toContain('Joacim');
+    expect(document.querySelector('[data-vem]')!.textContent).not.toContain('Ringberg');
+    // Senast: ett tryck på ett snabbval sparar datumet
+    await tryck(document.querySelector('[data-nar]'));
+    const val = document.querySelector('[data-nar-val]')!;
+    const dag = val.getAttribute('data-nar-val');
+    await tryck(val);
+    expect(h.satta[1]).toEqual({ id: 'x', deadline: dag });
+    // Tillbaka i listan: förnamnet till höger på raden
+    await tryck(knapp('Avbryt'));
+    expect(document.querySelector('[data-atgard=x]')!.textContent).toContain('Joacim');
+    // Ingen tar bort
+    await tryck(document.querySelector('[data-atgard=x]'));
+    await tryck(document.querySelector('[data-vem]'));
+    await tryck(document.querySelector('[data-person-ingen]'));
+    expect(h.satta[2]).toEqual({ id: 'x', ansvarigId: null });
+    expect(document.querySelector('[data-vem]')!.textContent).toContain('Ingen vald');
+  });
+
+  it('vem och när för skyddsombudet: läses men går inte att trycka; kunde vem inte läsas står ingen Vem-rad', async () => {
+    h.far = false;
+    h.lista = [a({ id: 'x', ansvarig: { id: 'p2', namn: 'Martin Lindqvist' } }), a({ id: 'y', ansvarig: undefined })];
+    await montera();
+    await tryck(document.querySelector('[data-atgard=x]'));
+    expect(document.querySelector('[data-vem]')!.textContent).toContain('Martin');
+    expect(document.querySelector('[data-vem]')!.tagName).not.toBe('BUTTON');
+    await tryck(knapp('Klar'));
+    await tryck(document.querySelector('[data-atgard=y]'));
+    expect(document.querySelector('[data-vem]')).toBeNull();
+    expect(document.querySelector('[data-nar]')).toBeTruthy();
   });
 });

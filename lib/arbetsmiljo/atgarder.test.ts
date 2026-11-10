@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deadlineText, fornamn, gruppera, narText, stangAtgard, svar, svenskDag, type Atgard } from './atgarder';
+import { deadlineVal, hamtaAnsvar, sattAnsvar, deadlineText, fornamn, gruppera, narText, stangAtgard, svar, svenskDag, type Atgard } from './atgarder';
 
 const a = (o: Partial<Atgard>): Atgard => ({
   id: 'x', kalla: 'svar', maskinId: 'JD810E', maskinNamn: '810E', beskrivning: 'Fel', fotoUrl: null, deadline: null,
@@ -83,5 +83,36 @@ describe('stangAtgard', () => {
   it('fel = försök igen', async () => {
     const { klient } = sb(null, { message: 'x' });
     expect(await stangAtgard(klient, 'id', 'x')).toBe('Kunde inte spara. Försök igen.');
+  });
+});
+
+describe('vem och när', () => {
+  it('snabbvalen räknas från idag, över månadsskiftet', () => {
+    expect(deadlineVal('2026-11-28').map(v => v.dag)).toEqual(['2026-11-28', '2026-12-05', '2026-12-12', '2026-12-28', '2027-02-27']);
+  });
+
+  const sb = (svar: { data: unknown; error: unknown }, logg: any[] = []) => ({
+    rpc: async () => svar,
+    from: () => {
+      const q: any = { update: (r: unknown) => { logg.push({ update: r }); return q; }, eq: (k: string, v: unknown) => { logg.push({ [k]: v }); return q; }, select: async () => svar };
+      return q;
+    },
+  }) as any;
+
+  it('hamtaAnsvar: läsfel = null (vem sägs inte), annars en karta id → person', async () => {
+    expect(await hamtaAnsvar(sb({ data: null, error: { message: 'x' } }))).toBeNull();
+    const m = await hamtaAnsvar(sb({ data: [{ id: 'a', ansvarig_id: 'p', ansvarig_namn: 'Joacim' }], error: null }));
+    expect(m?.get('a')).toEqual({ id: 'p', namn: 'Joacim' });
+  });
+
+  it('sattAnsvar: bara öppna, noll rader = fel, ogiltigt datum skickas aldrig', async () => {
+    const logg: any[] = [];
+    expect(await sattAnsvar(sb({ data: [{ id: 'a' }], error: null }, logg), 'a', { ansvarigId: 'p', deadline: '2026-12-01' })).toBeNull();
+    expect(logg).toEqual([{ update: { ansvarig_id: 'p', deadline: '2026-12-01' } }, { id: 'a' }, { status: 'oppen' }]);
+    expect(await sattAnsvar(sb({ data: [], error: null }), 'a', { ansvarigId: null })).toContain('redan stängd');
+    expect(await sattAnsvar(sb({ data: null, error: { message: 'x' } }), 'a', { ansvarigId: null })).toContain('Kunde inte spara');
+    const logg2: any[] = [];
+    expect(await sattAnsvar(sb({ data: [{ id: 'a' }], error: null }, logg2), 'a', { deadline: '1 dec' })).toBe('Ogiltigt datum.');
+    expect(logg2).toEqual([]);
   });
 });

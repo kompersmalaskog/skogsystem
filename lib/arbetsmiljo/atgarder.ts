@@ -25,7 +25,11 @@ export type Atgard = {
   rapportorNamn: string | null;
   /** Var på maskinen föraren tryckte (Något är fel). null = inte angivet, eller kunde inte läsas. */
   plats: { typ: BildTyp; val: Val } | null;
+  /** Vem som ska göra den. null = ingen vald; undefined = kunde inte läsas (då sägs ingenting om vem). */
+  ansvarig?: Ansvarig | null;
 };
+
+export type Ansvarig = { id: string; namn: string };
 
 export type Las<T> = { ok: true; data: T } | { ok: false; fel: string };
 
@@ -149,8 +153,71 @@ export async function hamtaAtgarder(sb: SupabaseClient): Promise<Las<Atgard[]>> 
   const { data, error } = await sb.rpc('am_atgarder');
   if (error || !Array.isArray(data)) return { ok: false, fel: LASFEL };
   const lista = (data as Rad[]).map(tillAtgard);
-  const platser = await hamtaPlatser(sb);
-  return { ok: true, data: lista.map(a => ({ ...a, plats: platser.get(a.id) ?? null })) };
+  const [platser, ansvar] = await Promise.all([hamtaPlatser(sb), hamtaAnsvar(sb)]);
+  return { ok: true, data: lista.map(a => ({ ...a, plats: platser.get(a.id) ?? null, ansvarig: ansvar ? ansvar.get(a.id) ?? null : undefined })) };
+}
+
+/**
+ * Vem som ska göra åtgärden (migration 20261110155904_am_atgard_ansvar.sql). Ett TILLÄGG: går det inte att läsa är svaret
+ * null, och listan visas utan vem — aldrig "ingen ansvarig" på en gissning.
+ */
+export async function hamtaAnsvar(sb: SupabaseClient): Promise<Map<string, Ansvarig> | null> {
+  try {
+    const { data, error } = await sb.rpc('am_atgard_ansvar');
+    if (error || !Array.isArray(data)) return null;
+    const ut = new Map<string, Ansvarig>();
+    for (const r of data as { id: string; ansvarig_id: string | null; ansvarig_namn: string | null }[]) {
+      if (r.ansvarig_id && r.ansvarig_namn) ut.set(r.id, { id: r.ansvarig_id, namn: r.ansvarig_namn });
+    }
+    return ut;
+  } catch { return null; }
+}
+
+/** De som kan få en åtgärd: aktiva medarbetare, i namnordning. null = kunde inte läsas. Bara admin läser (det är admin som väljer). */
+export async function hamtaPersoner(sb: SupabaseClient): Promise<Ansvarig[] | null> {
+  const { data, error } = await sb.from('medarbetare').select('id, namn').eq('aktiv', true).order('namn');
+  if (error || !Array.isArray(data)) return null;
+  return (data as { id: string; namn: string | null }[]).filter(r => r.namn?.trim()).map(r => ({ id: r.id, namn: r.namn!.trim() }));
+}
+
+function plusDagar(dag: string, n: number): string {
+  const d = new Date(`${dag}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Snabbval för "Senast": ett tryck, inget datumfält. */
+export function deadlineVal(idag: string): { text: string; dag: string }[] {
+  return [
+    { text: 'Idag', dag: idag },
+    { text: 'Om en vecka', dag: plusDagar(idag, 7) },
+    { text: 'Om två veckor', dag: plusDagar(idag, 14) },
+    { text: 'Om en månad', dag: plusDagar(idag, 30) },
+    { text: 'Om tre månader', dag: plusDagar(idag, 91) },
+  ];
+}
+
+/** Datumet i ord för snabbvalen: "17 nov". */
+export function datumKort(dag: string): string {
+  return kortDatum(dag);
+}
+
+/**
+ * Sätter vem och/eller senast. Bara en ÖPPEN åtgärd ändras; läser tillbaka — noll rader = redan stängd eller du får inte.
+ * null = sparat, annars texten som ska stå.
+ */
+export async function sattAnsvar(sb: SupabaseClient, id: string, andring: { ansvarigId?: string | null; deadline?: string }): Promise<string | null> {
+  const rad: Record<string, unknown> = {};
+  if (andring.ansvarigId !== undefined) rad.ansvarig_id = andring.ansvarigId;
+  if (andring.deadline !== undefined) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(andring.deadline)) return 'Ogiltigt datum.';
+    rad.deadline = andring.deadline;
+  }
+  if (Object.keys(rad).length === 0) return null;
+  const { data, error } = await sb.from('am_atgard').update(rad).eq('id', id).eq('status', 'oppen').select('id');
+  if (error) return 'Kunde inte spara. Försök igen.';
+  if (!data || data.length === 0) return 'Åtgärden är redan stängd, eller så får du inte ändra den.';
+  return null;
 }
 
 /**
