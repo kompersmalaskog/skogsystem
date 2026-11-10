@@ -13,7 +13,7 @@ import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
 import GranskningArk, { type GranskningProps, type Vy } from './GranskningArk';
 import { raknaSortiment, type SortimentRad } from '@/lib/ekonomi/sortimentAntal';
-import { FARG, TRAFFYTA } from '@/lib/design/tokens';
+import { FARG, TRAFFYTA, FONT } from '@/lib/design/tokens';
 import { hittaChromium } from '../../lib/testStod/chromium';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -77,7 +77,7 @@ const sida = (inner: string) =>
   `<!doctype html><html><head><meta charset="utf-8">`
   + `<meta name="viewport" content="width=device-width,initial-scale=1">`
   + `<style>html,body{margin:0;background:${FARG.bg};color:#fff;`
-  + `font-family:system-ui,sans-serif}.material-symbols-outlined{font-size:0}</style>`
+  + `font-family:${FONT}}.material-symbols-outlined{font-size:0}</style>`
   + `</head><body>${inner}</body></html>`;
 
 describe(`Granskningen — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chromium i miljön'}`, () => {

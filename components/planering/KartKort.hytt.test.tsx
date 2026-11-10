@@ -9,7 +9,7 @@ import { TraktAnalysRad, type Kontroll } from './TraktAnalysRad';
 import { BasvagFargVal } from './BasvagFargVal';
 import { BackvagVal } from './BackvagVal';
 import { MalbildRad } from '@/components/malbild/Malbild';
-import { FARG } from '@/lib/design/tokens';
+import { FARG, FONT } from '@/lib/design/tokens';
 import { hittaChromium } from '../../lib/testStod/chromium';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -73,7 +73,7 @@ const FALL: { namn: string; html: () => string; kravUtanScroll: boolean }[] = [
 ];
 
 describe(`Kortet del 2 — mått i ${CHROMIUM ? 'Chromium' : 'HOPPAD ÖVER: ingen Chromium i miljön'}`, () => {
-  const sidaHtml = (html: string) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:${FARG.bg};color:#fff;font-family:system-ui,sans-serif}.material-symbols-outlined{display:inline-block;width:22px;height:22px;font-size:0;overflow:hidden}</style></head><body>${html}</body></html>`;
+  const sidaHtml = (html: string) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:${FARG.bg};color:#fff;font-family:${FONT}}.material-symbols-outlined{display:inline-block;width:22px;height:22px;font-size:0;overflow:hidden}</style></head><body>${html}</body></html>`;
 
   it.skipIf(!CHROMIUM)('höjder, träffytor (≥ 44 px), ingen sidscroll och kommentarerna överst — på telefon och maskindatorn', async () => {
     const b = await CHROMIUM!.launch({});

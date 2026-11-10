@@ -8,7 +8,7 @@ import { createRoot } from 'react-dom/client';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FARG, TRAFFYTA } from '@/lib/design/tokens';
+import { FARG, TRAFFYTA, FONT } from '@/lib/design/tokens';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom kör inga bildrutor: uppräkningen och övertoningen skulle fotograferas mitt i (0, halvgenomskinligt).
@@ -83,7 +83,7 @@ async function htmlFor(el: JSX.Element, klickaPa?: string): Promise<string> {
 
 const sida = (inner: string) =>
   `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`
-  + `<style>html,body{margin:0;background:${FARG.bg};color:${FARG.text};font-family:system-ui,sans-serif}`
+  + `<style>html,body{margin:0;background:${FARG.bg};color:${FARG.text};font-family:${FONT}}`
   + `.material-symbols-outlined{font-size:0 !important;display:inline-block;width:22px;height:22px}`
   + `.sheet-upp,.tona-opacity{animation:none !important;opacity:1 !important;transform:none !important}</style></head>`
   + `<body>${inner}</body></html>`;

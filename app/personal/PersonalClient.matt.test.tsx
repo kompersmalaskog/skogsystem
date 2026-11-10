@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import PersonalClient, { PERSONAL_DELAD_FRAN_PX } from './PersonalClient';
-import { FARG, KOLUMN, TRAFFYTA } from '@/lib/design/tokens';
+import { FARG, KOLUMN, TRAFFYTA, FONT } from '@/lib/design/tokens';
 import { hittaChromium } from '../../lib/testStod/chromium';
 
 vi.mock('@/lib/arbetsmiljo/introduktion', async (orig) => ({
@@ -60,7 +60,7 @@ async function html(adress: string): Promise<string> {
 const sida = (inner: string) =>
   `<!doctype html><html><head><meta charset="utf-8">`
   + `<meta name="viewport" content="width=device-width,initial-scale=1">`
-  + `<style>html,body{margin:0;background:${FARG.bg};color:${FARG.text};font-family:system-ui,sans-serif}`
+  + `<style>html,body{margin:0;background:${FARG.bg};color:${FARG.text};font-family:${FONT}}`
   // Ikonfonten finns inte här: behåll glyfens ruta så att raden mäts lika bred som den riktiga.
   + `.material-symbols-outlined{font-size:0 !important;display:inline-block;width:18px;height:18px}</style></head>`
   + `<body>${inner}</body></html>`;

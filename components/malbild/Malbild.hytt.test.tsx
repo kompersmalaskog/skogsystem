@@ -10,7 +10,7 @@ import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
 import { KartKort, KartKortNederst } from '@/components/planering/KartKort';
 import { MalbildBlad, MalbildRad } from './Malbild';
-import { FARG, KNAPP } from '@/lib/design/tokens';
+import { FARG, KNAPP, FONT } from '@/lib/design/tokens';
 import { MALBILDER, MALBILD_ORDNING, malbildKalla } from '@/lib/malbilder';
 import { hittaChromium } from '../../lib/testStod/chromium';
 
@@ -74,7 +74,7 @@ function sidor(): Sida[] {
 }
 
 describe(`Målbilden på maskindatorn och telefonen — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chromium i miljön'}`, () => {
-  const sidaHtml = (html: string) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:${FARG.bg};color:#fff;font-family:system-ui,sans-serif}.material-symbols-outlined{font-size:0}</style></head><body>${html}</body></html>`;
+  const sidaHtml = (html: string) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:${FARG.bg};color:#fff;font-family:${FONT}}.material-symbols-outlined{font-size:0}</style></head><body>${html}</body></html>`;
 
   it.skipIf(!CHROMIUM)(`BLADET: bild och "Inte så här" syns med minst ${MIN_MARGINAL_PX} px marginal på alla sorter (båda maskintyperna, Kolbotten) vid 1280×800 och 1024×640`, async () => {
     const lista = sidor().filter((x) => x.slag === 'blad');

@@ -20,7 +20,7 @@ import FakturaLista from './FakturaLista';
 import { FAKTURA_CSS, SIDOKOLUMN_FRAN_PX } from './FakturaRam';
 import { byggListVy, type OversiktsRad } from '@/lib/faktura/listaVy';
 import { byggFakturaLage } from '@/lib/faktura/fakturaLage';
-import { FARG, KOLUMN_CSS, TRAFFYTA, designCss } from '@/lib/design/tokens';
+import { FARG, KOLUMN_CSS, TRAFFYTA, designCss, FONT } from '@/lib/design/tokens';
 import { hittaChromium } from '../../lib/testStod/chromium';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -115,7 +115,7 @@ const sida = (inner: string) =>
   // Ikonfonten finns inte här. Glyfens inline-fontSize (22 px) slår en vanlig
   // regel, så den måste tvingas bort — och rutan behållas, annars mäter vi en
   // smalare rad än den riktiga.
-  + `font-family:system-ui,sans-serif}`
+  + `font-family:${FONT}}`
   + `.material-symbols-outlined{font-size:0 !important;display:inline-block;width:22px;height:22px}`
   + `${designCss}${KOLUMN_CSS}${FAKTURA_CSS}</style></head>`
   + `<body><div class="fa-ram fa-lista-vy"><aside class="fa-sida">`
