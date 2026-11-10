@@ -43,7 +43,12 @@ export interface ObjektKortProps {
   /** MASKINLÄGET: Vidas direktiv är instruktion nr 1 — "✓ Sett" under rutan medan det inte setts. Null/saknas = ingen knapp (planeringsvyn). */
   direktivSett?: { sedd: boolean; onSett: () => void } | null;
   /** "Mer" är en rad längst ner i uppdraget (inte en stor knapp högst upp): menyn med Körvy, Föraren, Planeraren, Övrigt och Avsluta objekt. */
-  onMer: () => void;
+  /** Saknas = ingen Mer-rad (planeringen: Mer hade inget kvar — Avsluta objekt står på kortet, 2026-11-10). */
+  onMer?: () => void;
+  /** "Avsluta objekt" (rött, bara när objektet pågår) — på kortet när Mer inte finns. */
+  avsluta?: (() => void) | null;
+  /** "Inte klar – fortsätt" när appen avslutade objektet — på kortet när Mer inte finns. */
+  fortsatt?: { skal: string; onTryck: () => void; sparar?: boolean; fel?: string | null } | null;
   brickor: Bricka[];
   extraBrickor: Bricka[];
   /** "N markeringar · M med text" — null = inga markeringar (raden visas inte) */
@@ -240,8 +245,23 @@ export default function ObjektKort(p: ObjektKortProps) {
             ? <RadKnapp testid="kort-vagdata" ikon={p.vagdata.misslyckad ? 'error' : 'route'} farg={p.vagdata.misslyckad ? FARG.orange : undefined} etikett="Vägdata" under={p.vagdata.varde} onTryck={p.vagdata.onTryck} />
             : <RadKnapp testid="kort-vagdata" ikon={p.vagdata.misslyckad ? 'error' : 'route'} farg={p.vagdata.misslyckad ? FARG.orange : undefined} etikett="Vägdata" under={p.vagdata.varde} onTryck={() => {}} pil={false} />)}
           {p.kartaSparad && <div data-testid="kort-karta-sparad" style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}`, ...TYP.meta, color: FARG.text2 }}>{p.kartaSparad}</div>}
-          <RadKnapp testid="kort-mer" etikett="Mer" under="Fler val och inställningar" onTryck={p.onMer} />
+          {p.onMer && <RadKnapp testid="kort-mer" etikett="Mer" under="Fler val och inställningar" onTryck={p.onMer} />}
         </Gruppkort>
+        {p.fortsatt && (
+          <div style={{ marginTop: AVSTAND.l }}>
+            <Gruppkort testid="kort-fortsatt">
+              <RadKnapp forstaRad testid="kort-fortsatt-rad" ikon="replay" etikett={p.fortsatt.sparar ? 'Sparar …' : 'Inte klar – fortsätt'}
+                under={p.fortsatt.fel ?? p.fortsatt.skal} farg={p.fortsatt.fel ? FARG.orange : undefined} onTryck={p.fortsatt.sparar ? () => {} : p.fortsatt.onTryck} pil={false} />
+            </Gruppkort>
+          </div>
+        )}
+        {p.avsluta && (
+          <div style={{ marginTop: AVSTAND.l }}>
+            <Gruppkort testid="kort-avsluta">
+              <RadKnapp forstaRad testid="kort-avsluta-objekt" ikon="check_circle" farg={FARG.rod} etikett="Avsluta objekt" onTryck={p.avsluta} pil={false} />
+            </Gruppkort>
+          </div>
+        )}
         {p.vader && <div data-testid="kort-vader" style={{ marginTop: AVSTAND.l }}>{p.vader}</div>}
       </div>
     </>

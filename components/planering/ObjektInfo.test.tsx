@@ -717,6 +717,24 @@ describe('larmplatsen och vägdata på kortet (Mer städat 2026-11-10)', () => {
   });
 });
 
+describe('Mer tom i planeringen: Avsluta objekt på kortet, ingen Mer-rad (2026-11-10)', () => {
+  it('utan körvy finns ingen Mer-rad; Avsluta objekt och Inte klar – fortsätt står på kortet', async () => {
+    const p = props();
+    let avsluta = 0, fortsatt = 0;
+    p.mer = { ...p.mer, grupper: [], planerare: null, avsluta: () => { avsluta += 1; }, fortsatt: { skal: 'Giant körde vidare', onTryck: () => { fortsatt += 1; } } };
+    await montera(p);
+    expect(q('kort-mer')).toBeNull();
+    klicka(q('kort-avsluta-objekt'));
+    klicka(q('kort-fortsatt-rad'));
+    expect([avsluta, fortsatt]).toEqual([1, 1]);
+  });
+  it('med körvy kvar i Mer: Mer-raden finns och Avsluta objekt bor kvar där', async () => {
+    await montera(props());
+    expect(q('kort-mer')).not.toBeNull();
+    expect(q('kort-avsluta-objekt')).toBeNull();
+  });
+});
+
 describe('Mer', () => {
   it('körvy igång: grupperna Körvy och Avsluta objekt (rött) längst ner när objektet är pågående — inga Föraren/Planeraren (städat 2026-11-10)', async () => {
     const p = props();
