@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { act } from 'react';
@@ -66,5 +68,10 @@ describe('KorvyObjektPill massa', () => {
     const { div, stang } = rita(<KorvyObjektPill {...bas} />);
     expect(div.querySelector('[data-testid="korvy-pill-massa"]')).toBeNull();
     stang();
+  });
+  it('läsfel i hytten: namnfältet säger "Massa –", aldrig tyst borta', () => {
+    const src = readFileSync(join(process.cwd(), 'app/planering/page.tsx'), 'utf8');
+    expect(src).toMatch(/massaLasfel = massaAktiv && !massaLangd\.rader && !!massaLangd\.fel/);
+    expect(src).toContain(": massaLasfel ? { etikett: 'Massa', varde: '–'");
   });
 });

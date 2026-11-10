@@ -12778,6 +12778,8 @@ export default function PlannerPage() {
   const [massaArkOppet, setMassaArkOppet] = useState(false);
   const massaJag = massaAktiv && massaLangd.rader && besokMaskinId ? valjJag(massaLangd.rader, besokMaskinId, currentMedarbetare?.id ?? null) : null;
   const massaPill = massaAktiv && massaLangd.rader && besokMaskinId ? pillVarde(massaLangd.rader, besokMaskinId, massaJag?.nyckel ?? null, massaLangd.idag) : null;
+  // Gick massaveden inte att läsa står "Massa –" i namnfältet (aldrig tyst borta); arket säger varför och har Försök igen.
+  const massaLasfel = massaAktiv && !massaLangd.rader && !!massaLangd.fel;
   const massaMaskinNamn = useMemo(() => Object.fromEntries(dimMaskiner.map(m => [m.maskin_id, maskinModell(m)])), [dimMaskiner]);
   // RISKERNA I HYTTEN: godkänd riskbedömning som föraren inte läst → kort högst upp tills "Jag har läst" (components/planering/RiskKortHytt, ordning i lib/instruktioner/ordning).
   // Visas först när ALLT som listan bygger på är läst (markeringar, Vidas underlag, förutsättningar, kvittona) — annars kunde kortet blinka förbi för en förare som redan läst.
@@ -14097,7 +14099,7 @@ export default function PlannerPage() {
                 : skotarLassAktiv && skotarLass.sammanfattning
                   ? { text: skotarLass.sammanfattning.kvarText, klar: skotarLass.sammanfattning.klarText, onTryck: () => setSkotarKvarOppet(true) }
                   : null}
-              massa={massaPill ? { etikett: pillEtikett(massaPill.dag, massaLangd.idag), varde: meterText(massaPill.cm), onTryck: () => setMassaArkOppet(true) } : null}
+              massa={massaPill ? { etikett: pillEtikett(massaPill.dag, massaLangd.idag), varde: meterText(massaPill.cm), onTryck: () => setMassaArkOppet(true) } : massaLasfel ? { etikett: 'Massa', varde: '–', onTryck: () => setMassaArkOppet(true) } : null}
               onNamn={() => setTraktOversiktOpen(o => !o)}
               onHogstubbe={() => placeraVidMaskinen('highstump')}
               onEvighetstrad={() => placeraVidMaskinen('eternitytree')}

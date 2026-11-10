@@ -110,7 +110,7 @@ export function KorvyObjektPill({
           <button
             type="button"
             data-testid="korvy-pill-massa"
-            aria-label={`${massa.etikett} ${massa.varde} i snitt. Tryck för mer om massaveden`}
+            aria-label={massa.varde === '–' ? 'Massaveden kunde inte läsas. Tryck för mer' : `${massa.etikett} ${massa.varde} i snitt. Tryck för mer om massaveden`}
             onClick={massa.onTryck}
             className="press-dim"
             style={{
