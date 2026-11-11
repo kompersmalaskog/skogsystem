@@ -8,6 +8,8 @@ import React, { useState } from 'react';
 import Ark from '@/components/design/Ark';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
+import Flikkontroll from '@/components/design/Flikkontroll';
+import type { SiffraRad } from '@/lib/produktionSiffror';
 import { AVSTAND, FARG, KNAPP, TNUM, TYP, designCss } from '@/lib/design/tokens';
 import type { DetaljRad, ProduktionVy } from '@/lib/produktionVy';
 
@@ -42,6 +44,8 @@ export interface SkordareDetaljer {
   /** Området maskinen står i, null utanför alla områden. */
   harNu: { namn: string; under: string; hogstubbar: { varde: string; efter: boolean }; evighetstrad: { varde: string; efter: boolean } } | null;
   omraden: DetaljRad[];
+  /** "Hur går det?" ur maskinens filer (idag och veckan). */
+  hurGarDet: { lage: 'laser' } | { lage: 'fel'; onForsok: () => void } | { lage: 'ok'; idag: SiffraRad[]; vecka: SiffraRad[]; not: string | null };
 }
 
 export interface ProduktionProps {
@@ -55,6 +59,7 @@ export interface ProduktionProps {
 
 export default function Produktion({ undertitel, vy, detaljer, onStang }: ProduktionProps) {
   const [visa, setVisa] = useState<'oversikt' | 'detaljer'>('oversikt');
+  const [period, setPeriod] = useState<'idag' | 'vecka'>('idag');
   const iDetaljer = visa === 'detaljer' && detaljer.typ === 'skordare';
   return (
     <>
@@ -89,6 +94,8 @@ export default function Produktion({ undertitel, vy, detaljer, onStang }: Produk
                 </div>
               )}
 
+              {detaljer.typ === 'skordare' && <HurGarDet h={detaljer.hurGarDet} period={period} onPeriod={setPeriod} />}
+
               <div>
                 <Rad titel="Detaljer" sista attr={{ 'data-testid': 'produktion-detaljer' }}
                   under={detaljer.typ === 'skordare' ? 'Området du står i och alla områden' : 'Kvar per sortiment och dagens lass'}
@@ -116,6 +123,30 @@ export default function Produktion({ undertitel, vy, detaljer, onStang }: Produk
         </div>
       </Ark>
     </>
+  );
+}
+
+function HurGarDet({ h, period, onPeriod }: { h: SkordareDetaljer['hurGarDet']; period: 'idag' | 'vecka'; onPeriod: (p: 'idag' | 'vecka') => void }) {
+  const rader = h.lage === 'ok' ? (period === 'idag' ? h.idag : h.vecka) : [];
+  return (
+    <Sektion rubrik="Hur går det?" kort={false} not={h.lage === 'ok' && h.not ? h.not : undefined}>
+      <div style={{ marginBottom: AVSTAND.s }}>
+        <Flikkontroll flikar={[['idag', 'Idag'], ['vecka', 'Veckan']] as const} aktiv={period} onVal={onPeriod} />
+      </div>
+      {h.lage === 'laser' && <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Läser maskinens filer …</div>}
+      {h.lage === 'fel' && (
+        <div data-testid="produktion-siffror-fel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: AVSTAND.m, padding: `${AVSTAND.m}px 0` }}>
+          <span style={{ ...TYP.text, color: FARG.orange }}>Kunde inte läsa maskinens filer</span>
+          <button type="button" onClick={h.onForsok} style={KNAPP.lank}>Försök igen</button>
+        </div>
+      )}
+      {h.lage === 'ok' && rader.length === 0 && (
+        <div data-testid="produktion-siffror-tom" style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>
+          {period === 'idag' ? 'Ingen fil från maskinen idag än' : 'Ingen fil från maskinen den här veckan'}
+        </div>
+      )}
+      {rader.map((r, i) => <Rad key={r.id} titel={r.titel} hoger={r.varde} sista={i === rader.length - 1} attr={{ 'data-testid': `produktion-siffra-${r.id}` }} />)}
+    </Sektion>
   );
 }
 

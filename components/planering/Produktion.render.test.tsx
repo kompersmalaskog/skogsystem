@@ -33,6 +33,8 @@ const DETALJER = {
     { id: '6', titel: 'Område 6', under: 'Inte börjat', hoger: '9,0 ha', dampad: false },
     { id: '3', titel: 'Område 3', under: 'Klart', hoger: '✓', dampad: true },
   ],
+  hurGarDet: { lage: 'ok' as const, idag: [{ id: 'virke', titel: 'Virke', varde: '38 m³' }, { id: 'g15', titel: 'Per G15-timme', varde: '5,1 m³' }],
+    vecka: [{ id: 'virke', titel: 'Virke', varde: '112 m³' }], not: 'Ur maskinens filer · senaste 15:22' },
 };
 
 describe('Produktion', () => {
@@ -47,10 +49,17 @@ describe('Produktion', () => {
     expect(q('produktion-omrade')).toBeNull();   // områdena ligger bakom Detaljer
   });
 
-  it('Detaljer byter innehåll i samma ark: här nu och områdena; ‹ Produktion tillbaka', async () => {
+  it('Hur går det? på första sidan; Detaljer byter till här nu och områdena; ‹ Produktion tillbaka', async () => {
     await montera(<Produktion undertitel="x" vy={VY} detaljer={DETALJER} onStang={() => {}} />);
+    // Hur går det? står på första sidan (siffrorna ur maskinens filer)
+    expect(q('produktion-siffra-virke')!.textContent).toContain('38 m³');
+    expect(document.body.textContent).toContain('senaste 15:22');
+    act(() => { [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find((e) => e.textContent === 'Veckan')!.click(); });
+    expect(q('produktion-siffra-virke')!.textContent).toContain('112 m³');
+    expect(q('produktion-siffra-g15')).toBeNull();
     act(() => { q('produktion-detaljer')!.click(); });
     expect(q('produktion-ring')).toBeNull();
+    expect(q('produktion-siffra-virke')).toBeNull();
     expect(document.body.textContent).toContain('Här nu');
     expect(document.body.textContent).toContain('0 · 19 nu');
     expect(qa('produktion-omrade').map((e) => e.textContent)).toEqual([
@@ -72,6 +81,17 @@ describe('Produktion', () => {
     act(() => { q('produktion-detaljer')!.click(); });
     expect(oppna).toHaveBeenCalledTimes(1);
     expect(q('produktion-ring')).not.toBeNull();
+  });
+});
+
+describe('Hur går det? när filerna inte går att läsa', () => {
+  it('säger det och har Försök igen — aldrig 0', async () => {
+    const forsok = vi.fn();
+    await montera(<Produktion undertitel="x" vy={VY} detaljer={{ ...DETALJER, hurGarDet: { lage: 'fel', onForsok: forsok } }} onStang={() => {}} />);
+    expect(q('produktion-siffror-fel')!.textContent).toContain('Kunde inte läsa');
+    expect(q('produktion-siffra-virke')).toBeNull();
+    act(() => { [...q('produktion-siffror-fel')!.querySelectorAll('button')][0].click(); });
+    expect(forsok).toHaveBeenCalled();
   });
 });
 

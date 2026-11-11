@@ -172,6 +172,8 @@ import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAre
 import { beraknaFramsteg, omradeVid, type Framsteg, type Omrade, type MiljoMarkering, type SparDag } from '../../lib/omradeFramsteg'
 import { skordareVy, skotareVy, omradeRader, raknareText } from '../../lib/produktionVy'
 import Produktion from '@/components/planering/Produktion'
+import { useProduktionSiffror } from '@/lib/hooks/useProduktionSiffror'
+import { summera as summeraProduktion, siffraRader, farskText } from '@/lib/produktionSiffror'
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
 import { TELEFON_GPS, cirkelPolygon, osakerhetsText, samlaPosition, type SamlatResultat } from '../../lib/telefonGps'
@@ -13089,6 +13091,8 @@ export default function PlannerPage() {
   // Området skördaren står i: pillens räknare gäller det området och säger "2 nu" när det är dags (lib/omradeFramsteg).
   const omradeNu = framsteg && currentPosition ? omradeVid(framsteg.omraden, currentPosition.lon, currentPosition.lat) : null;
   const pillHogstubbar = omradeNu ? { antal: omradeNu.hogstubbar.antal, krav: null, status: 'ingen' as const, nu: omradeNu.hogstubbar.nu } : hogstubbarVy;
+  // "Hur går det?" ur skördarens filer — läses bara medan Produktion är öppen.
+  const produktionSiffror = useProduktionSiffror(besokMaskinId ?? null, produktionOppen && !skotarKorvy);
   const produktionKan = instruktionerAktiv && (skotarLassAktiv ? !!(skotarLass.kvar && skotarLass.sammanfattning) : !skotarKorvy && !!framsteg && framsteg.omraden.length > 0);
   const pillEvighetstrad = omradeNu ? { antal: omradeNu.evighetstrad.antal, krav: null, status: 'ingen' as const, nu: omradeNu.evighetstrad.nu } : evighetstradVy;
   // Planeringens namnfält: samma tal som maskinens räknare (Martin 2026-11-02). Ingen "efter" — i planeringen finns inget avverkat än; grönt = kravet uppfyllt.
@@ -14955,6 +14959,19 @@ export default function PlannerPage() {
               evighetstrad: raknareText(omradeNu.evighetstrad),
             } : null,
             omraden: omradeRader(framsteg, omradeNu?.id ?? null),
+            hurGarDet: (() => {
+              const sv = produktionSiffror.svar;
+              if (sv.lage === 'laser') return { lage: 'laser' as const };
+              if (sv.lage === 'fel') return { lage: 'fel' as const, onForsok: produktionSiffror.forsok };
+              const { idag: dag, prod, tid } = sv.data;
+              const prodIdag = prod.filter((r) => r.datum === dag);
+              return {
+                lage: 'ok' as const,
+                idag: siffraRader(summeraProduktion(prodIdag, tid ? tid.filter((r) => r.datum === dag) : null)),
+                vecka: siffraRader(summeraProduktion(prod, tid)),
+                not: farskText(prod),
+              };
+            })(),
           }} />;
       })()}
       {/* MASSAVEDENS LÄNGD — arket bakom "Massa idag 4,5 m" i namnfältet (bara gallringsskördare i maskinläget). */}
