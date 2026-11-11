@@ -197,10 +197,15 @@ export const STRAK_FARG = ROLLFARG_SKORDARE;
 export const STRAK_KLAR_FARG = ROLLFARG_SKORDARE;
 /** Där skotaren kört är lila lika starkt som annars (Martin 2026-11-11: nedtoningen såg urtvättad ut) — det körda visas av den GRÅ mittlinjen. */
 export const STRAK_KLAR_STYRKA = 1;
-/** Mittlinjen: GRÅ (grått = klart i hela appen, lib/kartKlart KLART_FARG), ungefär en tredjedel av stråket. */
-export const MITTLINJE_FARG = FARG.text2;
-export const MITTLINJE_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 0.6, 15, 1.2, 17, 1.8, 19, 2.5];
-/** Mittlinjen ritas igen (Martin 2026-11-11): lila = skördaren körde, grått streck i det lila = skotaren har varit där. */
+/** Mittlinjen: VIT, drygt halva stråket (Martin 2026-11-11). Grått provades samma dag och försvann mot lila och flygfoto (som 2026-11-04). */
+export const MITTLINJE_FARG = FARG.text;
+export const MITTLINJE_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 0.6, 15, 1, 17, 1.5, 19, 2];
+/**
+ * Där skotaren kört är stråket BREDARE (som en väg med mittlinje), så det vita strecket får lila på båda sidor. Mätt i Chromium 2026-11-11: på det tunna
+ * stråket (3 px vid zoom 17) täckte mittlinjen nästan allt lila och linjen såg grå/vit ut. Okört stråk är lika tunt som förut.
+ */
+export const STRAK_KLAR_BREDD: readonly [number, number][] = [[13, 2], [15, 3.5], [17, 5], [19, 7]];
+/** Mittlinjen ritas igen (Martin 2026-11-11): lila = skördaren körde, vitt streck i det lila = skotaren har varit där. */
 export const MITTLINJE_OPACITET = 1;
 /** Filtret som avgör var mittlinjen ritas: bitar av skördarens stråk där skotaren varit (lib/korsparKlart delaKlart sätter `klar`). */
 export const MITTLINJE_FILTER: readonly any[] = ['==', ['get', 'klar'], true];
@@ -214,10 +219,10 @@ export function kartSpar(art: SparArt, skotarlage = false): SparPaint {
   const faktor = ['case', klar, STRAK_KLAR_STYRKA, 1];
   return {
     farg: ['case', klar, STRAK_KLAR_FARG, STRAK_FARG],
-    bredd: STRAK_BREDD,
+    bredd: ['interpolate', ['linear'], ['zoom'], ...STRAK_KLAR_BREDD.flatMap(([z, b], i) => [z, ['case', klar, b, (STRAK_BREDD as any[])[4 + i * 2]]])],
     opacitet: ['*', faktor, s.opacitet],
     kantFarg: s.kantFarg,
-    kantBredd: STRAK_KANT_BREDD,
+    kantBredd: ['interpolate', ['linear'], ['zoom'], ...STRAK_KLAR_BREDD.flatMap(([z, b], i) => [z, ['case', klar, b + SPAR_KANT_EXTRA_PX, (STRAK_KANT_BREDD as any[])[4 + i * 2]]])],
     kantOpacitet: ['interpolate', ['linear'], ['zoom'], SPAR_KANT_FRAN_ZOOM, 0, SPAR_KANT_FULL_ZOOM, ['*', faktor, 0.6]],
     streck: null,
   };

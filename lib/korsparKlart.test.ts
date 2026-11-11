@@ -58,9 +58,9 @@ describe('kartans stil (kartan stillren 2026-11-06): tunt lila stråk, svagare d
       expect(JSON.stringify(s.opacitet)).toContain(String(STRAK_KLAR_STYRKA));
     }
   });
-  it('mittlinjen ritas igen, grå, och lila är lika starkt där skotaren kört (Martin 2026-11-11)', () => {
+  it('mittlinjen ritas igen, vit, och lila är lika starkt där skotaren kört (Martin 2026-11-11)', () => {
     expect(MITTLINJE_OPACITET).toBe(1);
-    expect(MITTLINJE_FARG).toBe(FARG.text2);
+    expect(MITTLINJE_FARG).toBe(FARG.text);
     expect(STRAK_KLAR_STYRKA).toBe(1);
     expect(MITTLINJE_FILTER).toEqual(['==', ['get', 'klar'], true]);
   });
