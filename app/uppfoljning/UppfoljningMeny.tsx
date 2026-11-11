@@ -39,7 +39,12 @@ const LASSDATA_START = '2026-07-21';
 function sektionAv(o: UppfoljningObjekt): Sektion {
   const seven = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
   const skordareAktiv = !!(o.skordareLastDate && o.skordareLastDate >= seven);
-  if (skordareAktiv && !o.skotningAvslutad) return 'skordare';
+  // "Skördas ännu" bara när skördningen INTE är klar. skordareAktiv (fil senaste
+  // 7 dagarna) är en proxy för "skördar fortfarande" — en trakt som blev
+  // färdigskördad för 2–5 dagar sen har kvar en färsk fil men ÄR klar och väntar
+  // på skotning. skordning_avslutad är den riktiga signalen; respektera den, så
+  // ett sånt objekt landar i oskotat (liggetid) i stället för "skördas ännu".
+  if (skordareAktiv && !o.skotningAvslutad && !o.skordningAvslutad) return 'skordare';
   if (o.skotningAvslutad) return 'avslutade';
   if (o.externSkotning || o.egenSkotning) return 'ovrigt';
   if (kvarM3(o) > 0) {

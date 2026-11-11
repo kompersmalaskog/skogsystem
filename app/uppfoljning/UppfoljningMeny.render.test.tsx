@@ -79,6 +79,35 @@ describe('UppfoljningMeny', () => {
     expect(text()).toContain('Visa alla typer');
   });
 
+  it('färdigskördat men oskotat objekt visar liggetid, INTE "skördas ännu"', async () => {
+    // Edestad/Bondeskog-fallet: skördningen är klar (skordning_avslutad satt) men
+    // skördaren lämnade en fil de senaste dagarna, så den gamla proxyn (fil senaste
+    // 7 dagarna) kallade det "skördas ännu". Nu landar det i oskotat = liggetid.
+    const idag = new Date().toISOString().slice(0, 10);
+    const treDgrSedan = new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10);
+    data = [obj({
+      vo_nummer: 'E', namn: 'Edestad Fardig', typ: 'slutavverkning',
+      skordningAvslutad: true, skotningAvslutad: false,
+      skordareLastDate: idag, sistaAvverkning: treDgrSedan,
+      antalLass: 1, volymSkordare: 1000, volymSkotare: 200,
+    })];
+    await montera();
+    expect(text()).toContain('Edestad Fardig');
+    expect(text()).toContain('legat');            // liggetid → hamnade i oskotat
+    expect(text()).not.toContain('skördas ännu');
+  });
+
+  it('KONTROLL: en trakt som faktiskt skördas visar fortfarande "skördas ännu"', async () => {
+    // Fixen tar INTE bort "skördas ännu" i stort — bara när skördningen är klar.
+    const idag = new Date().toISOString().slice(0, 10);
+    data = [obj({
+      vo_nummer: 'L', namn: 'Lidhem Pagar', typ: 'slutavverkning',
+      skordningAvslutad: false, skotningAvslutad: false, skordareLastDate: idag,
+    })];
+    await montera();
+    expect(text()).toContain('skördas ännu');
+  });
+
   it('grot-kortet visar schablon och filtrerar till ris-listan', async () => {
     data = [
       obj({ vo_nummer: 'A', namn: 'Slutavv Ett', typ: 'slutavverkning', volymSkordare: 1000, volymSkotare: 200 }),
