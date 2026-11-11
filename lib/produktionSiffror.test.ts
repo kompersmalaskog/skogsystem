@@ -46,3 +46,16 @@ describe('skotarSiffror', () => {
     expect(skotarSiffror([], 'A1', '2026-11-11', '2026-11-11')).toEqual([]);
   });
 });
+
+describe('skotarSiffror: skotningsavstånd', () => {
+  // två punkter 0,009° latitud isär ≈ 1 001 m tur och retur → ca 500 m enkel väg
+  const spar = [{ lat: 56.6, lng: 15.8, tid: '' }, { lat: 56.609, lng: 15.8, tid: '' }];
+  const l = (id: string, sp: unknown[]) => ({ id, maskinId: 'A1', datum: '2026-11-11', status: 'bekraftat', bekraftadAv: 'forare', sparPunkter: sp, delar: [{ rader: [{ sortiment: 'x', m3: 15 }] }] }) as any;
+  it('halva sträckan, bara lass med spår', () => {
+    const r = skotarSiffror([l('1', spar), l('2', [])], 'A1', '2026-11-11', '2026-11-11');
+    expect(r.find((x) => x.id === 'avstand')).toEqual({ id: 'avstand', titel: 'Skotningsavstånd', varde: 'ca 500 m', under: 'enkel väg' });
+  });
+  it('inget spår = ingen rad', () => {
+    expect(skotarSiffror([l('1', [])], 'A1', '2026-11-11', '2026-11-11').find((x) => x.id === 'avstand')).toBeUndefined();
+  });
+});

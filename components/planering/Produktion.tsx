@@ -105,7 +105,7 @@ export default function Produktion({ undertitel, vy, detaljer, onStang }: Produk
 
               <HurGarDet h={detaljer.hurGarDet} period={period} onPeriod={setPeriod} skotare={detaljer.typ === 'skotare'} />
               {detaljer.typ === 'skotare' && detaljer.avlagg.length > 0 && (
-                <Sektion rubrik="Avlägg" kort={false}>
+                <Sektion rubrik="Avlägg · hela trakten" kort={false}>
                   {detaljer.avlagg.map((r, i) => <Rad key={r.id} titel={r.titel} under={r.under} hoger={r.hoger} sista={i === detaljer.avlagg.length - 1} attr={{ 'data-testid': 'produktion-avlagg' }} />)}
                 </Sektion>
               )}
@@ -159,7 +159,7 @@ function HurGarDet({ h, period, onPeriod, skotare }: { h: SkordareDetaljer['hurG
           {skotare ? (period === 'idag' ? 'Inga lass idag än' : 'Inga lass den här veckan') : period === 'idag' ? 'Ingen fil från maskinen idag än' : 'Ingen fil från maskinen den här veckan'}
         </div>
       )}
-      {rader.map((r, i) => <Rad key={r.id} titel={r.titel} hoger={r.varde} sista={i === rader.length - 1} attr={{ 'data-testid': `produktion-siffra-${r.id}` }} />)}
+      {rader.map((r, i) => <Rad key={r.id} titel={r.titel} under={r.under} hoger={r.varde} sista={i === rader.length - 1} attr={{ 'data-testid': `produktion-siffra-${r.id}` }} />)}
     </Sektion>
   );
 }

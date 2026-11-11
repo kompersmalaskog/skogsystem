@@ -4,7 +4,9 @@
 // Siffrorna är så färska som senaste filen ("Virke t.o.m. 15:22"), aldrig live.
 
 import { g15Sek } from './g15';
-import { raknasSomSkotat, totalM3 } from './skotarLass/lassModell';
+import { raknasSomSkotat, totalM3 } from './skotarLass/lassModell'
+import { pathMeters } from './geoMat'
+import { snittSkotningsavstandM, SKOTNINGSAVSTAND_ETIKETT, SKOTNINGSAVSTAND_UNDERTEXT } from './skotningsavstand';
 import type { Lass } from './skotarLass/typer';
 
 
@@ -47,7 +49,7 @@ export function veckansMandag(iso: string): string {
 
 const tal = (v: number, dec: number) => v.toLocaleString('sv-SE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
-export interface SiffraRad { id: string; titel: string; varde: string }
+export interface SiffraRad { id: string; titel: string; varde: string; under?: string }
 
 /** Raderna i "Hur går det?". Ett värde som saknas står inte alls (aldrig 0 för något som inte mätts). */
 export function siffraRader(s: Siffror): SiffraRad[] {
@@ -81,5 +83,20 @@ export function skotarSiffror(lass: readonly Lass[], maskinId: string, fran: str
     { id: 'lass', titel: 'Lass', varde: tal(mina.length, 0) },
     { id: 'skotat', titel: 'Skotat', varde: `${tal(m3, 0)} m³` },
     { id: 'snittlass', titel: 'Snittlass', varde: `${tal(m3 / mina.length, 0)} m³` },
+    ...avstandRad(mina),
   ];
+}
+
+/**
+ * Skotningsavstånd ur lassens spår: sträckan sedan förra lossningen (ut, lastning, tillbaka) = tur och retur, som Optis
+ * korstracka. Halveras med lib/skotningsavstand (EN regel). Bara lass med spår räknas; inget spår = ingen rad, aldrig 0.
+ * Spåret är glesat, så sträckan blir något för kort — därav "ca", avrundat till 10 m.
+ */
+function avstandRad(lass: readonly Lass[]): SiffraRad[] {
+  const langder = lass
+    .map((l) => ((l.sparPunkter?.length ?? 0) >= 2 ? pathMeters(l.sparPunkter.map((p) => [p.lng, p.lat] as [number, number])) : 0))
+    .filter((m) => m > 0);
+  const snitt = snittSkotningsavstandM(langder.reduce((a, b) => a + b, 0), langder.length);
+  if (snitt == null) return [];
+  return [{ id: 'avstand', titel: SKOTNINGSAVSTAND_ETIKETT, varde: `ca ${tal(Math.round(snitt / 10) * 10, 0)} m`, under: SKOTNINGSAVSTAND_UNDERTEXT }];
 }
