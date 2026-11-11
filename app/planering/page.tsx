@@ -182,7 +182,7 @@ import { basvagSammanfattning, basvagText, arBasvagFarg, BASVAG_FARGER, BASVAG_F
 import { BasvagFargVal } from '../../components/planering/BasvagFargVal'
 import { BackvagVal } from '../../components/planering/BackvagVal'
 import { arVagTyp, backvagFeature, lasBackvag, medBackvag, BACKVAG_FORVALD_ANDE, BACKVAG_STRECK_FARGER, type Backvag } from '../../lib/backvag'
-import { backvagIkonNamn, backvagStreckLager, ritaBackvagStreck, kraftledningLager, ritaStolpeIkon, KRAFTLEDNING_STOLPE_BILD, BASVAG_STRECK_DASH, BASVAG_STRECK_LAYOUT, VAG_KANT_FARG, arStickvag, BASVAG_SKEN_ID, basvagSkenLager, forstaVagLagerId, NATURVARD_BREDD, NATURVARD_KANT_BREDD } from '../../lib/kartstil'
+import { backvagIkonNamn, backvagStreckLager, ritaBackvagStreck, kraftledningLager, ritaStolpeIkon, KRAFTLEDNING_STOLPE_BILD, BASVAG_STRECK_DASH, BASVAG_STRECK_LAYOUT, VAG_KANT_FARG, arStickvag, BASVAG_SKEN_ID, basvagSkenLager, forstaVagLagerId, NATURVARD_BREDD, NATURVARD_KANT_BREDD, dikeLager, DIKE, DIKE_PROV_CSS } from '../../lib/kartstil'
 import { LINJE_TRAFF_PX, narmasteLinje, linjeAtgard, VIDA_LINJE_TRAFFLAGER, EGNA_LINJER_TRAFFLAGER } from '../../lib/linjeTryck'
 import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
@@ -313,8 +313,8 @@ const LEGEND = {
   kultur:        FARG_KULTUR, // brun     – kulturmiljö (orange betyder bara tall)
   fornlamning:   FARG_KULTUR, // brun     – fornlämning (samma brun, namnet står i ytan)
   brant:         FARG_FARA,  // röd       – brant (Fara)
-  dike:          '#06b6d4',  // cyan      – dike
-  dikeKant:      '#0e7490',  // mörk cyan – dikeskant
+  dike:          DIKE.vatten, // ljusblå  – dikets vatten (lib/kartstil DIKE)
+  dikeKant:      DIKE.jord,  // brun      – dikets jordkant
   vit:           '#fff',     // vit       – stig/led
 };
 
@@ -1621,7 +1621,7 @@ export default function PlannerPage() {
       { id: 'sideRoadBlue', color: LEGEND.vatten },
       // Naturvård: tunn, heldragen grön — ingen röd rand (rött betyder fara; Martin 2026-10-28: den röd/gröna linjen runt hänsyn såg ut som en fara).
       { id: 'nature', color: LEGEND.naturvard, solid: true, tunn: true },
-      { id: 'ditch', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
+      { id: 'ditch', color: LEGEND.dike, dike: true },
       { id: 'trail', color: LEGEND.vit, dashed: true },
       { id: 'stonewall', color: FARG_STENMUR, stonewall: true },
       { id: 'powerline', color: FARG_FARA, kraftledning: true },
@@ -1634,6 +1634,11 @@ export default function PlannerPage() {
       // El-ledning som linje: ritas som en LEDNING (lib/kartstil kraftledningLager) — exakt som Vidas Kraftledning. Prefix 'line-' → med i körvyn.
       if (lt.id === 'powerline') {
         for (const l of kraftledningLager('lines-source', 'line-powerline', ['==', ['get', 'lineType'], 'powerline'], true)) map.addLayer(l);
+        return;
+      }
+      // Dike: en fåra med vatten i (mörk kant, jordkant, fåra, smal blå vattenlinje) — lib/kartstil dikeLager, samma som egenkontrollens karta.
+      if (lt.dike) {
+        for (const l of dikeLager('lines-source', 'line-ditch-base', ['==', ['get', 'lineType'], 'ditch'])) map.addLayer(l);
         return;
       }
       // Stenmur: eget block-streckat utseende (butt-cap), skilt från generiska loopen. Kultur = brun (lib/larm/grupper) med mörk kant under
@@ -8060,7 +8065,7 @@ export default function PlannerPage() {
     { id: 'sideRoadYellow', name: 'Stickväg Gul', color: LEGEND.gul, striped: false },
     { id: 'sideRoadBlue', name: 'Stickväg Blå', color: LEGEND.vatten, striped: false },
     { id: 'nature', name: 'Naturvård', color: LEGEND.naturvard },
-    { id: 'ditch', name: 'Dike', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
+    { id: 'ditch', name: 'Dike', color: LEGEND.dike, prov: DIKE_PROV_CSS },
     { id: 'trail', name: 'Stig/Led', color: LEGEND.vit, striped: false, dashed: true },
     // Stenmur: biotopskyddad hänsynslinje. Grå (enda gråa linjen). `color` = picker-swatch +
     // live-preview (mellangrå, syns i mörk meny OCH på ljus karta); kart-färgen sätts i lineTypeDefs.
@@ -10765,7 +10770,7 @@ export default function PlannerPage() {
     try {
       // Line layers per type
       const lineTypeIds = ['boundary', 'mainRoad', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'nature', 'ditch', 'trail'];
-      const stripedTypeIds = ['boundary', 'mainRoad', 'nature', 'ditch'];
+      const stripedTypeIds = ['boundary', 'mainRoad', 'nature'];
       // El-ledningen (ledningsutseendet) följer lagerväljaren som övriga linjer.
       for (const del of ['casing', 'line', 'stolpar', 'symbol']) safeSetVisibility(`line-powerline-${del}`, visibleLayers.lines && visibleLines.powerline !== false ? 'visible' : 'none');
       lineTypeIds.forEach(id => {
@@ -10775,6 +10780,7 @@ export default function PlannerPage() {
         if (stripedTypeIds.includes(id)) {
           safeSetVisibility(`line-${id}-stripe`, vis);
         }
+        if (id === 'ditch') for (const del of ['kant', 'fara', 'vatten']) safeSetVisibility(`line-ditch-base-${del}`, vis);
         if (id === 'trail') {
           safeSetVisibility('trail-footprints', vis);
         }

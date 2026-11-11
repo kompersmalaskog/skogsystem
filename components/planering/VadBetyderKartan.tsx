@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { SymbolIkon } from '@/components/SymbolIkon';
 import { AVSTAND, FARG, KNAPP, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
-import { KANT_SVART_STARK } from '@/lib/kartstil';
+import { KANT_SVART_STARK, DIKE } from '@/lib/kartstil';
 import { GRUPPER } from '@/lib/larm/grupper';
 import { SNEDSTRECK_PX } from '@/lib/ytaStil';
 import { byggTeckenforklaring, type ForklaringRad, type TeckenMarkering } from '@/lib/teckenforklaring';
@@ -44,6 +44,17 @@ export function ForklaringBild({ rad }: { rad: ForklaringRad }) {
       <span aria-hidden="true" data-bild="linje" data-kant="stark" style={{ position: 'relative', width: BILD, height: BILD, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
         <span style={{ position: 'absolute', left: 0, right: 0, height: STENMUR_BILD_KANT_PX, borderRadius: RADIE.cirkel, background: KANT_SVART_STARK }} />
         <span style={{ position: 'absolute', left: 0, right: 0, height: 0, borderTop: `${STENMUR_BILD_KANT_PX - 4}px dashed ${farg}` }} />
+      </span>
+    );
+  }
+  if (rad.slag === 'linje' && rad.typ === 'ditch') {
+    // Diket som på kartan: mörk kant, jordkant, fåra och en smal blå vattenlinje (lib/kartstil DIKE) — ingen randning.
+    return (
+      <span aria-hidden="true" data-bild="linje" data-dike="ja" style={{ position: 'relative', width: BILD, height: BILD, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        <span style={{ position: 'absolute', left: 0, right: 0, height: 13, borderRadius: RADIE.cirkel, background: DIKE.kant }} />
+        <span style={{ position: 'absolute', left: 1, right: 1, height: 10, borderRadius: RADIE.cirkel, background: DIKE.jord }} />
+        <span style={{ position: 'absolute', left: 2, right: 2, height: 6, borderRadius: RADIE.cirkel, background: DIKE.fara }} />
+        <span style={{ position: 'absolute', left: 3, right: 3, height: 3, borderRadius: RADIE.cirkel, background: DIKE.vatten }} />
       </span>
     );
   }

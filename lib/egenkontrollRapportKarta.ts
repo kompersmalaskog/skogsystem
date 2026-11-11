@@ -8,6 +8,7 @@
 import { FARG_FARA, FARG_NATUR, GRUPPER, linjeFarg, symbolFarg, ytaDef } from './larm/grupper';
 import { SYMBOL_TYPER, symbolDef, symbolDefTyp } from './symboler';
 import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from './sparStil';
+import { DIKE } from './kartstil';
 
 export type KartMarkering =
   /** `backvag` = vägen är en backväg (lib/backvag): dubbla tvärstreck ritas i den änden. Sätts bara på en väg (basväg, stickväg). */
@@ -25,13 +26,15 @@ export type MarkeringStil = {
   streck: number[] | null;
   /** Ytor man inte får köra in i ritas snedstreckade i gruppens färg (lib/ytaStil), som i appen. */
   snedstreck?: boolean;
+  /** Dike: en fåra med vatten i (mörk kant, jordkant, fåra, smal blå vattenlinje — lib/kartstil DIKE), som i appen. */
+  dike?: boolean;
   /** Kraftledning: röd linje med mörk kant, stolpar och farosymbol (ritaKraftledning), som i appen. */
   ledning?: boolean;
 };
 
 const LINJER: Record<string, Omit<MarkeringStil, 'nyckel'>> = {
   mainRoad: { etikett: 'Basväg', farg: '#3b82f6', bredd: 2.2, streck: null },
-  ditch: { etikett: 'Dike', farg: '#0e7490', bredd: 0.9, streck: [3, 2] },
+  ditch: { etikett: 'Dike', farg: DIKE.vatten, bredd: 1.8, streck: null, dike: true },
   stonewall: { etikett: 'Stenmur', farg: linjeFarg('stonewall') ?? FARG_NATUR, bredd: 1.6, streck: [2, 1] },
   nature: { etikett: 'Naturvård (linje)', farg: FARG_NATUR, bredd: 1, streck: null },   // tunn, heldragen grön som i appen (2026-10-28)
   trail: { etikett: 'Stig', farg: '#8e8e93', bredd: 0.9, streck: [2, 2] },
