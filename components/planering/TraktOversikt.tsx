@@ -1,11 +1,14 @@
 'use client';
 
 // HELA TRAKTEN — det föraren läser när han börjar på en trakt (Martin 2026-11-05: "så enkelt att ett barn förstår direkt", "allt utskrivet").
-// EN sida, uppifrån, i den ordning det är viktigt:
-//   Larmkoordinat (om något händer) · Faror (röd) · Risker · Skyddade områden · Brandrisk · Certifieringen (det ni satt ut, i ord)
-//   · Det här ska du veta (Vidas text + texterna på trakten, i sin helhet) · Inför jobbet (bara det som avviker)
-//   · På kartan (EN rad per sak med text: symbolen, vad det är, HELA texten, fotot) · Utan text (en rad) · Mer om trakten
-//   · "Jag har läst allt" (första gången och när något ändrats) / "Till kartan".
+// FYRA FRÅGOR, uppifrån (Martin 2026-11-11, skissen "hela"): ALL information står kvar, bara dubbletterna är borta.
+//   Om något händer   — larmkoordinaten, stor, och hur långt dit (fågelväg — appen ritar ingen väg dit).
+//   Vad är farligt?   — Vidas faror, farorna på kartan, riskbedömningen och brandrisken. Starkast på sidan.
+//   Vad ska du göra?  — Vidas text och texterna på trakten, inför jobbet, och det på kartan som inte ska sparas.
+//   Vad ska sparas?   — certifieringen som två rader ("Evighetsträd 1 av 11"), skyddade områden och hänsynen på kartan.
+//   Sist: det som är kollat och i ordning som EN grå rad, Utan text, Mer om trakten, "Jag har läst allt" / "Till kartan".
+// Dubbletter som tas bort: riskraden "Varning på kartan" när varningen redan står under farorna, och avläggets namn
+// (Vidas kod, "inback skbv") på larmraden — namnet står kvar i "Om något händer".
 // Ingen meningsrad med siffror, inget "1 med text": det som är skrivet står där. Ett tryck på en rad på kartan öppnar samma kort som på kartan.
 // Ren presentation — sidan räknar, sparar kvittot och öppnar korten.
 
@@ -79,12 +82,6 @@ const Nytt = () => (
   </span>
 );
 
-const Bock = ({ text, testid }: { text: string; testid: string }) => (
-  <div data-testid={testid} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.text, color: FARG.text2 }}>
-    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.gron }}>check_circle</span>{text}
-  </div>
-);
-
 /** En sak på kartan med text: symbolen, vad det är, HELA texten, fotot. Hela raden öppnar kortet. */
 function KartRad({ m, forsta, ny, ikon, objektId, onOppna, onFoto }: { m: KartMarkering; forsta: boolean; ny: boolean; ikon: (m: KartMarkering) => React.ReactNode; objektId: string | null; onOppna: (m: KartMarkering) => void; onFoto: (src: string) => void }) {
   const texter = kommentarerFor(m);
@@ -126,14 +123,26 @@ export default function TraktOversikt(p: TraktOversiktProps) {
   );
   const faroMark = (grupper.find((g) => g.grupp === 'faror')?.rader ?? []).flatMap((r) => r.markeringar);
   const ovrigaRader: TypRad[] = grupper.filter((g) => g.grupp !== 'faror' && g.grupp !== 'vida').flatMap((g) => g.rader);
-  // Allt med text, i listans ordning (en markering = en rad, aldrig "1 med text").
-  const medText = ovrigaRader.flatMap((r) => r.markeringar).filter((m) => kommentarerFor(m).length > 0 || harFoto(m));
-  // Utan text: sorterna, med antalet som INTE har text. Högstubbar/evighetsträd står i certifieringsraden när den finns.
+  const harText = (m: KartMarkering) => kommentarerFor(m).length > 0 || harFoto(m);
+  // Allt med text, i listans ordning (en markering = en rad, aldrig "1 med text"). Hänsynen hör till "Vad ska sparas?".
+  const sparasText = ovrigaRader.filter((r) => r.grupp === 'hansyn').flatMap((r) => r.markeringar).filter(harText);
+  const gorText = ovrigaRader.filter((r) => r.grupp !== 'hansyn').flatMap((r) => r.markeringar).filter(harText);
+  // Certifieringen som rader: "Evighetsträd 1 av 11". Utan krav: bara antalet.
+  const certRader = p.cert ? p.miljo : [];
+  // Utan text: sorterna, med antalet som INTE har text. Högstubbar/evighetsträd står i certifieringsraderna när de finns.
   const utan = utanTextRad(ovrigaRader
     .filter((r) => !(p.cert && r.nyckel.startsWith('miljo:')) && !r.ytaTyp)
-    .map((r) => ({ namn: r.namn, antal: r.miljo ? r.miljo.satta : r.markeringar.filter((m) => !(kommentarerFor(m).length > 0 || harFoto(m))).length })));
-  const harFaror = p.faror.length > 0 || faroMark.length > 0;
-  const harRisker = !!p.risker && p.risker.length > 0;
+    .map((r) => ({ namn: r.namn, antal: r.miljo ? r.miljo.satta : r.markeringar.filter((m) => !harText(m)).length })));
+  // Riskraden "Varning" säger bara att det finns en varning på kartan — den står redan under farorna.
+  const risker = (p.risker ?? []).filter((r) => !(r.nyckel === 'varning' && faroMark.length > 0));
+  const harFaror = p.faror.length > 0 || faroMark.length > 0 || risker.length > 0;
+  const harGora = p.tillForaren.length > 0 || p.helaTrakten.length > 0 || p.infor.length > 0 || gorText.length > 0;
+  const harSpara = certRader.length > 0 || (!!p.cert && p.miljo.length === 0) || p.skydd.lage === 'finns' || sparasText.length > 0;
+  // Det som är kollat och i ordning: EN grå rad längst ner.
+  const kollat = [
+    !harFaror && (p.risker ? 'inga faror eller risker' : 'inga faror utmärkta'),
+    p.skydd.lage === 'inga' && 'inga skyddade områden',
+  ].filter(Boolean) as string[];
 
   const last = async () => {
     if (p.last) { p.onStang(); return; }
@@ -147,147 +156,154 @@ export default function TraktOversikt(p: TraktOversiktProps) {
     return <LarmVy koordinat={p.larm.koordinat} beskrivning={p.larm.beskrivning} onVisa={p.larm.onVisa} visning={p.larm.visning} onVisaPlats={p.larm.onVisaPlats} onTillbaka={() => setLarmVy(false)} onStang={p.onStang} />;
   }
 
+  const kartRad = (m: KartMarkering, i: number, forstaOffset = 0) => (
+    <KartRad key={m.id} m={m} forsta={forstaOffset === 0 && i === 0} ny={p.nya.has(m.id)} ikon={p.ikon} objektId={p.objektId} onOppna={p.onOppna} onFoto={p.onFoto} />
+  );
+  const rad = (key: string, i: number, barn: React.ReactNode, testid?: string) => (
+    <div key={key} data-testid={testid} style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>{barn}</div>
+  );
+  const larmUnder = !p.larm ? '' : !p.larm.satt ? 'Larmkoordinat saknas – fråga planeraren'
+    : p.larm.visning?.valjSjalv ? `${p.larm.visning.platser.length} larmplatser – välj den närmaste`
+    : [p.larm.visning?.narmast ?? p.larm.visning?.fagelvag, 'Tryck så visas den på kartan'].filter(Boolean).join(' · ');
+
   return (
     <>
       <Huvud titel={p.namn} undertitel={p.under || undefined} onStang={p.onStang} />
       <div data-testid="oversikt-innehall" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
 
-        {/* 1. LARMKOORDINATEN — först, alltid. */}
+        {/* 1. OM NÅGOT HÄNDER — först, alltid. Koordinaten stort, avståndet i fågelväg. */}
         {p.larm && (
           <section data-testid="oversikt-larm">
+            <Rubrik farg={FARG.rod}>Om något händer – ring 112</Rubrik>
             <Gruppkort>
               <RadKnapp ikon="emergency" farg={FARG.rod} forstaRad testid="oversikt-larm-rad"
-                etikett="Om något händer – ring 112"
-                under={!p.larm.satt ? 'Larmkoordinat saknas – fråga planeraren' : p.larm.visning?.valjSjalv ? `${p.larm.visning.platser.length} larmplatser – välj den närmaste` : [p.larm.visning?.narmast, p.larm.visning?.namn, p.larm.koordinat, p.larm.beskrivning].filter(Boolean).join(' · ')}
+                etikett={p.larm.satt && p.larm.koordinat
+                  ? <span data-testid="oversikt-larm-koordinat" style={{ ...TYP.listtitel, color: FARG.text, fontVariantNumeric: 'tabular-nums' }}>{p.larm.koordinat}</span>
+                  : <span style={{ color: FARG.text }}>Larmkoordinat</span>}
+                under={larmUnder}
                 onTryck={p.larm.satt ? () => setLarmVy(true) : () => {}} pil={p.larm.satt} />
             </Gruppkort>
           </section>
         )}
 
-        {/* 2. FAROR (röd) — en rad per fara med sin text; tryck = kortet på kartan. */}
-        {harFaror && (
+        {/* 2. VAD ÄR FARLIGT? — Vidas faror, farorna på kartan, riskbedömningen, brandrisken. */}
+        {(harFaror || p.brand) && (
           <section data-testid="oversikt-faror">
-            <Rubrik farg={FARG.rod}>Faror</Rubrik>
+            {harFaror && <Rubrik farg={FARG.rod}>Vad är farligt?</Rubrik>}
+            {harFaror && (
+              <Gruppkort>
+                {p.faror.map((f, i) => (
+                  <div key={`vida-${f}`} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.rod }}>warning</span>
+                    <span style={{ ...TYP.listtitel, color: FARG.rod, overflowWrap: 'anywhere' }}>{f}</span>
+                  </div>
+                ))}
+                {faroMark.map((m, i) => kartRad(m, i, p.faror.length))}
+                {risker.length > 0 && (
+                  <div data-testid="oversikt-risker" style={{ borderTop: p.faror.length + faroMark.length === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
+                    {risker.map((r, i) => rad(r.nyckel, i, (
+                      <>
+                        <div style={{ ...TYP.listtitel, overflowWrap: 'anywhere' }}>{r.risk}</div>
+                        {r.atgard.trim() && <div style={{ ...TYP.text, color: FARG.text2, overflowWrap: 'anywhere' }}>{r.atgard}</div>}
+                      </>
+                    )))}
+                  </div>
+                )}
+              </Gruppkort>
+            )}
+            {p.brand && <div style={{ marginTop: harFaror ? AVSTAND.s : 0 }}><BrandriskRad lat={p.brand.lat} lng={p.brand.lng} onOppna={p.onBrand} /></div>}
+          </section>
+        )}
+
+        {/* 3. VAD SKA DU GÖRA? — texterna i sin helhet, inför jobbet, och det på kartan som har text. */}
+        {harGora && (
+          <section data-testid="oversikt-gora" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+            <Rubrik>Vad ska du göra?</Rubrik>
+            {(p.tillForaren.length > 0 || p.helaTrakten.length > 0) && (
+              <div data-testid="oversikt-veta" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+                {p.tillForaren.map((t) => {
+                  const vida = t.id === 'vida';
+                  return (
+                    <div key={t.id} data-testid={`oversikt-post-${t.id}`}>
+                      {p.nyaTexter.has(t.id) && <div style={{ marginBottom: AVSTAND.xs }}><Nytt /></div>}
+                      <KommentarVisning vida={vida} etikett={vida ? undefined : `Hela trakten · ${t.avsandare}`} vidaEtikett="Vida" text={t.text} meningar={vida} struket={t.struket} onVaxla={t.onVaxla} strykFel={t.strykFel} />
+                    </div>
+                  );
+                })}
+                {p.helaTrakten.map((k) => (
+                  <div key={k.id} data-testid="oversikt-trakten-text">
+                    {p.nyaTexter.has(k.id) && <div style={{ marginBottom: AVSTAND.xs }}><Nytt /></div>}
+                    <KommentarVisning etikett={k.forfattare ? `Trakten · ${k.forfattare}` : 'Trakten'} text={k.text} meningar={false} />
+                  </div>
+                ))}
+              </div>
+            )}
+            {p.infor.length > 0 && (
+              <div data-testid="oversikt-infor">
+                <Gruppkort>
+                  {p.infor.map((r, i) => (
+                    <div key={r.id} data-testid={`oversikt-infor-${r.id}`} style={{ display: 'flex', gap: AVSTAND.m, alignItems: 'baseline', padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
+                      <span style={{ ...TYP.text, color: FARG.text2, flexShrink: 0 }}>{r.etikett}</span>
+                      <span style={{ ...TYP.listtitel, flex: 1, minWidth: 0, textAlign: 'right', overflowWrap: 'anywhere' }}>{r.text}</span>
+                    </div>
+                  ))}
+                </Gruppkort>
+              </div>
+            )}
+            {gorText.length > 0 && (
+              <div data-testid="oversikt-pa-kartan">
+                <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>På kartan · tryck så visas platsen</div>
+                <Gruppkort>{gorText.map((m, i) => kartRad(m, i))}</Gruppkort>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* 4. VAD SKA SPARAS? — certifieringen, skyddade områden, hänsynen på kartan. */}
+        {harSpara && (
+          <section data-testid="oversikt-spara">
+            <Rubrik farg={FARG.gron}>Vad ska sparas?</Rubrik>
             <Gruppkort>
-              {p.faror.map((f, i) => (
-                <div key={`vida-${f}`} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
-                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.rod }}>warning</span>
-                  <span style={{ ...TYP.listtitel, color: FARG.rod, overflowWrap: 'anywhere' }}>{f}</span>
+              {certRader.map((m, i) => (
+                <RadKnapp key={m.id} ikon={m.uppfyllt ? 'check_circle' : 'park'} farg={m.uppfyllt ? FARG.gron : FARG.orange} forstaRad={i === 0} testid={`oversikt-cert-${m.id}`}
+                  etikett={<span style={{ color: FARG.text }}>{m.krav != null ? `${m.namn} ${m.antal} av ${m.krav}` : `${m.namn} ${m.antal}`}</span>}
+                  under={i === 0 && p.onCert ? 'Vad certifieringen kräver' : undefined}
+                  onTryck={p.onCert ?? (() => {})} pil={!!p.onCert} />
+              ))}
+              {p.cert && p.miljo.length === 0 && (
+                <RadKnapp ikon={p.cert.klar ? 'check_circle' : 'park'} farg={p.cert.klar ? FARG.gron : FARG.orange} forstaRad testid="oversikt-cert-rad"
+                  etikett={<span style={{ color: FARG.text }}>{p.cert.text}</span>} onTryck={p.onCert ?? (() => {})} pil={!!p.onCert} />
+              )}
+              {p.skydd.lage === 'finns' && (
+                <div data-testid="oversikt-skydd" style={{ borderTop: p.cert ? `1px solid ${FARG.linje}` : 'none' }}>
+                  {p.skydd.rader.map((r, i) => rad(`${r.namn}-${i}`, i, (
+                    <>
+                      <div style={{ ...TYP.listtitel, overflowWrap: 'anywhere' }}>{r.namn}</div>
+                      {r.text && <div style={{ ...TYP.text, color: FARG.text2, overflowWrap: 'anywhere' }}>{r.text}</div>}
+                    </>
+                  )))}
                 </div>
-              ))}
-              {faroMark.map((m, i) => (
-                <KartRad key={m.id} m={m} forsta={p.faror.length === 0 && i === 0} ny={p.nya.has(m.id)} ikon={p.ikon} objektId={p.objektId} onOppna={p.onOppna} onFoto={p.onFoto} />
-              ))}
+              )}
+              {sparasText.length > 0 && (
+                <div data-testid="oversikt-spara-kartan" style={{ borderTop: p.cert || p.skydd.lage === 'finns' ? `1px solid ${FARG.linje}` : 'none' }}>
+                  {sparasText.map((m, i) => kartRad(m, i))}
+                </div>
+              )}
             </Gruppkort>
           </section>
         )}
 
-        {/* 3. RISKER — planerarens riskbedömning: risk och vad man gör. */}
-        {harRisker && (
-          <section data-testid="oversikt-risker">
-            <Rubrik>Risker</Rubrik>
-            <Gruppkort>
-              {p.risker!.map((r, i) => (
-                <div key={r.nyckel} style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
-                  <div style={{ ...TYP.listtitel, overflowWrap: 'anywhere' }}>{r.risk}</div>
-                  {r.atgard.trim() && <div style={{ ...TYP.text, color: FARG.text2, overflowWrap: 'anywhere' }}>{r.atgard}</div>}
-                </div>
-              ))}
-            </Gruppkort>
-          </section>
-        )}
+        {/* Skyddade områden aldrig kontrollerade: det sägs, aldrig "inga". */}
+        {p.skydd.lage === 'inte' && <div data-testid="oversikt-skydd-okant" style={{ ...TYP.text, color: FARG.orange }}>Skyddade områden är inte kontrollerade – fråga planeraren</div>}
 
-        {/* 4. SKYDDADE OMRÅDEN — bara det som hittades. Aldrig "inget hittat" om analysen inte körts. */}
-        {p.skydd.lage === 'finns' && (
-          <section data-testid="oversikt-skydd">
-            <Rubrik farg={FARG.orange}>Skyddade områden</Rubrik>
-            <Gruppkort>
-              {p.skydd.rader.map((r, i) => (
-                <div key={`${r.namn}-${i}`} style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
-                  <div style={{ ...TYP.listtitel, overflowWrap: 'anywhere' }}>{r.namn}</div>
-                  {r.text && <div style={{ ...TYP.text, color: FARG.text2, overflowWrap: 'anywhere' }}>{r.text}</div>}
-                </div>
-              ))}
-            </Gruppkort>
-          </section>
-        )}
-
-        {/* Det som är kontrollerat och inte hittat: EN rad, så han vet att det är kollat. */}
-        {(!harFaror || (p.risker && !harRisker) || p.skydd.lage !== 'finns') && (
-          <div data-testid="oversikt-kollat" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-            {!harFaror && <Bock testid="oversikt-inga-faror" text="Inga faror utmärkta" />}
-            {p.risker && !harRisker && <Bock testid="oversikt-inga-risker" text="Inga särskilda risker" />}
-            {p.skydd.lage === 'inga' && <Bock testid="oversikt-inga-skydd" text="Inga skyddade områden (vattenskydd, nyckelbiotop, fornlämning …)" />}
-            {p.skydd.lage === 'inte' && <div data-testid="oversikt-skydd-okant" style={{ ...TYP.text, color: FARG.orange }}>Skyddade områden är inte kontrollerade – fråga planeraren</div>}
+        {/* Det som är kollat och i ordning: EN grå rad. */}
+        {kollat.length > 0 && (
+          <div data-testid="oversikt-kollat" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.text, color: FARG.text2 }}>
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.text2 }}>check_circle</span>
+            <span style={{ overflowWrap: 'anywhere' }}>Kollat: {kollat.join(' · ')}</span>
           </div>
         )}
 
-        {/* 5. BRANDRISK — bara klass 3 eller högre (raden visar sig själv). */}
-        {p.brand && <BrandriskRad lat={p.brand.lat} lng={p.brand.lng} onOppna={p.onBrand} />}
-
-        {/* 6. CERTIFIERINGEN — det ni redan satt ut, i ord. */}
-        {p.cert && (
-          <section data-testid="oversikt-cert">
-            <Gruppkort>
-              <RadKnapp ikon={p.cert.klar ? 'check_circle' : 'park'} farg={p.cert.klar ? FARG.gron : FARG.orange} forstaRad testid="oversikt-cert-rad"
-                etikett={p.cert.text} under={p.onCert ? 'Vad certifieringen kräver' : undefined}
-                onTryck={p.onCert ?? (() => {})} pil={!!p.onCert} />
-            </Gruppkort>
-          </section>
-        )}
-
-        {/* 7. DET HÄR SKA DU VETA — Vidas text och texterna på trakten, i sin helhet. */}
-        {(p.tillForaren.length > 0 || p.helaTrakten.length > 0) && (
-          <section data-testid="oversikt-veta">
-            <Rubrik>Det här ska du veta</Rubrik>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-              {p.tillForaren.map((t) => {
-                const vida = t.id === 'vida';
-                return (
-                  <div key={t.id} data-testid={`oversikt-post-${t.id}`}>
-                    {p.nyaTexter.has(t.id) && <div style={{ marginBottom: AVSTAND.xs }}><Nytt /></div>}
-                    <KommentarVisning vida={vida} etikett={vida ? undefined : `Hela trakten · ${t.avsandare}`} vidaEtikett="Vida" text={t.text} meningar={vida} struket={t.struket} onVaxla={t.onVaxla} strykFel={t.strykFel} />
-                  </div>
-                );
-              })}
-              {p.helaTrakten.map((k) => (
-                <div key={k.id} data-testid="oversikt-trakten-text">
-                  {p.nyaTexter.has(k.id) && <div style={{ marginBottom: AVSTAND.xs }}><Nytt /></div>}
-                  <KommentarVisning etikett={k.forfattare ? `Trakten · ${k.forfattare}` : 'Trakten'} text={k.text} meningar={false} />
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* 8. INFÖR JOBBET — bara det som avviker. */}
-        {p.infor.length > 0 && (
-          <section data-testid="oversikt-infor">
-            <Rubrik>Inför jobbet</Rubrik>
-            <Gruppkort>
-              {p.infor.map((r, i) => (
-                <div key={r.id} data-testid={`oversikt-infor-${r.id}`} style={{ display: 'flex', gap: AVSTAND.m, alignItems: 'baseline', padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
-                  <span style={{ ...TYP.text, color: FARG.text2, flexShrink: 0 }}>{r.etikett}</span>
-                  <span style={{ ...TYP.listtitel, flex: 1, minWidth: 0, textAlign: 'right', overflowWrap: 'anywhere' }}>{r.text}</span>
-                </div>
-              ))}
-            </Gruppkort>
-          </section>
-        )}
-
-        {/* 9. PÅ KARTAN — en rad per sak med text, HELA texten. Tryck = kartan visar platsen och kortet öppnas. */}
-        {medText.length > 0 && (
-          <section data-testid="oversikt-pa-kartan">
-            <Rubrik>På kartan · tryck så visas platsen</Rubrik>
-            <Gruppkort>
-              {medText.map((m, i) => (
-                <KartRad key={m.id} m={m} forsta={i === 0} ny={p.nya.has(m.id)} ikon={p.ikon} objektId={p.objektId} onOppna={p.onOppna} onFoto={p.onFoto} />
-              ))}
-            </Gruppkort>
-          </section>
-        )}
-
-        {/* 10. UTAN TEXT — en rad. */}
         {utan && (
           <section data-testid="oversikt-utan-text">
             <Rubrik>Utan text</Rubrik>
