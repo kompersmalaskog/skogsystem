@@ -167,8 +167,10 @@ import { certTyper } from '../../lib/certKrav'
 import { byggEgenkontroll, type Roll as EkRoll } from '../../lib/vidaEgenkontroll'
 import { useEgenkontrollVida } from '../../lib/hooks/useEgenkontrollVida'
 import { egenkontrollRad } from '../../components/planering/EgenkontrollVida'
-import { miljoKrav, raknaMiljo, kravStatus, planMiljoRader, tolkaAreal, arPrick, arAlltidPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
+import { arCertifierat, miljoKrav, raknaMiljo, kravStatus, planMiljoRader, tolkaAreal, arPrick, arAlltidPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
+import { beraknaFramsteg, type Framsteg, type Omrade, type MiljoMarkering, type SparDag } from '../../lib/omradeFramsteg'
+import { framstegVy } from '../../lib/omradeFramstegVy'
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
 import { TELEFON_GPS, cirkelPolygon, osakerhetsText, samlaPosition, type SamlatResultat } from '../../lib/telefonGps'
@@ -4708,6 +4710,10 @@ export default function PlannerPage() {
   // Avverkat (skördarens hyttspår, 10 m buffert, klippt mot traktgränsen) — pillens "efter" och objektinfons "Avverkat X av Y ha"
   const [avverkat, setAvverkat] = useState<{ m2: number; ha: number; andel: number | null; harSpar: boolean } | null>(null);
   const skordarSparRef = useRef<[number, number][][]>([]);
+  // Samma spår per dag (tempot och klar-dagen per område, lib/omradeFramsteg) + det som behövs för att dela upp per område. Fylls i render nedan.
+  const skordarSparDagRef = useRef<SparDag[]>([]);
+  const [framsteg, setFramsteg] = useState<Framsteg | null>(null);
+  const framstegIndataRef = useRef<{ omraden: Omrade[]; markeringar: MiljoMarkering[]; certifierat: boolean }>({ omraden: [], markeringar: [], certifierat: false });
   const [skordarSparVersion, setSkordarSparVersion] = useState(0);
   const traktRingar = useMemo(() => traktgransRingar(traktGeo), [traktGeo]);
   const avverkatIndataRef = useRef<{ areal: number | null; ringar: [number, number][][]; roll: string | null }>({ areal: null, ringar: [], roll: null });
@@ -4752,10 +4758,19 @@ export default function PlannerPage() {
     const harSpar = segment.some((s) => s.length > 0);
     const m2 = avverkadAreaM2(segment, { ringar });
     setAvverkat({ m2, ha: avverkatHa(m2, areal), andel: harSpar ? avverkadAndel(m2, areal) : null, harSpar });
+    // Per område (bara skördaren; samma rådata). Inga områden = ingen grupp i kortet.
+    const fi = framstegIndataRef.current;
+    if (roll === 'skordare' && fi.omraden.length > 0) {
+      try {
+        setFramsteg(beraknaFramsteg({ omraden: fi.omraden, spar: skordarSparDagRef.current, liveSegment: live, idag: lokaltDatumStockholm(serverNu()), markeringar: fi.markeringar, certifierat: fi.certifierat }));
+      } catch (e) { console.error('[Framsteg] räknefel:', e); setFramsteg(null); }
+    } else setFramsteg(null);
   }, []);
   useEffect(() => {
     skordarSparRef.current = [];
+    skordarSparDagRef.current = [];
     setAvverkat(null);
+    setFramsteg(null);
   }, [korvyActive, valtObjekt?.id]);
   useEffect(() => {
     if (!(korvyActive && valtObjekt?.id)) return;
@@ -4763,10 +4778,11 @@ export default function PlannerPage() {
     const objektId = valtObjekt.id;
     const hamta = async () => {
       try {
-        const { data, error } = await supabase.from('hyttspar').select('points').eq('objekt_id', objektId).eq('roll', 'skordare');
+        const { data, error } = await supabase.from('hyttspar').select('points, datum').eq('objekt_id', objektId).eq('roll', 'skordare');
         if (avbruten) return;
         if (error) { console.error('[Avverkat] spår-hämtning:', error.message); return; }
-        skordarSparRef.current = (data || []).flatMap((r: any) => hyttsparTillLinjer(Array.isArray(r.points) ? r.points : []));   // RÅDATA (avverkad areal)
+        skordarSparDagRef.current = (data || []).map((r: any) => ({ datum: String(r.datum ?? ''), segment: hyttsparTillLinjer(Array.isArray(r.points) ? r.points : []) })).filter((d) => d.datum);   // RÅDATA, per dag (tempot)
+        skordarSparRef.current = skordarSparDagRef.current.flatMap((d) => d.segment);   // RÅDATA (avverkad areal)
         raknaAvverkat();
       } catch (e) { console.error('[Avverkat] undantag:', e); }
     };
@@ -8140,6 +8156,28 @@ export default function PlannerPage() {
     const lat = mapCenter.lat + dyMeters / mPerDegLat;
     return { lat, lon };
   };
+
+  // Per område (ⓘ-kortet, lib/omradeFramsteg): kartans numrerade ytor — Vidas traktdelar (en "Justera gräns"-kopia ersätter sin del) + egna traktgränser.
+  // En ensam yta heter "Trakten". Läses av raknaAvverkat via ref; nyckeln nedan räknar om när områdena eller markeringarna ändras.
+  {
+    const omraden: Omrade[] = [];
+    for (const d of traktdelDelar) {
+      if (justeradeTraktdelar.has(d.partKey)) continue;
+      const nr = objektNumrering.visaBitNummer ? objektNumrering.bitNr.get(d.partKey) : undefined;
+      omraden.push({ id: `td:${d.partKey}`, namn: nr != null ? `Område ${nr}` : 'Trakten', ring: d.ringLngLat as [number, number][] });
+    }
+    for (const m of markers as any[]) {
+      if (!(m.isLine && m.lineType === 'boundary' && Array.isArray(m.path) && m.path.length > 2)) continue;
+      const nr = objektNumrering.visaGransNummer ? objektNumrering.gransNr.get(String(m.id)) : undefined;
+      omraden.push({ id: `grans:${m.id}`, namn: nr != null ? `Område ${nr}` : 'Trakten', ring: m.path.map((p: any) => { const ll = svgToLatLon(p.x, p.y); return [ll.lon, ll.lat] as [number, number]; }) });
+    }
+    const markeringar: MiljoMarkering[] = (markers as any[])
+      .filter((m) => m.isMarker && (m.type === 'highstump' || m.type === 'eternitytree' || m.type === 'naturecorner'))
+      .map((m) => { const ll = (m.lng != null && m.lat != null) ? { lon: Number(m.lng), lat: Number(m.lat) } : svgToLatLon(m.x, m.y); return { type: m.type, antal: m.antal ?? null, lng: ll.lon, lat: ll.lat }; });
+    framstegIndataRef.current = { omraden, markeringar, certifierat: arCertifierat(valtObjekt?.cert) };
+  }
+  const framstegNyckel = `${framstegIndataRef.current.omraden.map((o) => `${o.id}:${o.ring.length}`).join(',')}|${framstegIndataRef.current.markeringar.length}|${framstegIndataRef.current.markeringar.reduce((s, m) => s + (m.antal ?? 1), 0)}|${framstegIndataRef.current.certifierat}`;
+  useEffect(() => { if (korvyActive) raknaAvverkat(); }, [framstegNyckel, korvyActive, raknaAvverkat]);
 
   // REDIGERA LINJER (Martin 2026-10-25, skiss 47–48): sudda, förläng och koppla ihop — vägar och alla ritade linjer; Vidas linjer kan döljas (aldrig ändras). Se lib/hooks/useLinjeRedigering.
   const linjeRed = useLinjeRedigering({
@@ -14526,11 +14564,16 @@ export default function PlannerPage() {
           })() : null,
           enkel: instruktionerAktiv ? (() => {
             const rader = ytaRader(traktGeo?.features, inst.paTrakten);
-            const framsteg = framstegRad({ typ: typTxt, arealHa: arealHaKort, klartHa: maskinSlag === 'skordare' && avverkat?.harSpar ? avverkat.ha : null });
+            const framstegGammal = framstegRad({ typ: typTxt, arealHa: arealHaKort, klartHa: maskinSlag === 'skordare' && avverkat?.harSpar ? avverkat.ha : null });
+            // Hur långt har skördaren kommit, per område och hela trakten (bara skördaren; inget nytt på kartan)
+            const fVy = maskinSlag === 'skordare' && framsteg && framsteg.omraden.length > 0
+              ? framstegVy(framsteg, { typ: typTxt, idag: lokaltDatumStockholm(serverNu()), hela: { hogstubbar: { antal: miljoAntal.hogstubbar, krav: miljoKravVal.hogstubbar }, evighetstrad: { antal: miljoAntal.evighetstrad, krav: miljoKravVal.evighetstrad } } })
+              : null;
             return {
               namn: valtObjekt.namn,
-              under: framsteg.text,
-              andel: framsteg.andel,
+              under: fVy && framsteg?.harSpar ? fVy.under : framstegGammal.text,
+              andel: fVy && framsteg?.harSpar ? fVy.andel : framstegGammal.andel,
+              framsteg: fVy,
               faror: faroLinjer,
               grot: grotRad(valtObjekt.grot ?? null, maskinSlag),
               tillForaren: forareTexter,

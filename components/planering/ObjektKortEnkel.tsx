@@ -24,6 +24,7 @@ import { KommentarVisning } from './KommentarRuta';
 import { YtaRadVy } from './YtaRad';
 import LarmPlatser, { LarmValjSjalv } from './LarmPlatser';
 import type { LarmVisning } from '@/lib/larmpunkter';
+import type { FramstegVy, RaknarText } from '@/lib/omradeFramstegVy';
 
 export interface ObjektKortEnkelProps {
   namn: string;
@@ -60,6 +61,8 @@ export interface ObjektKortEnkelProps {
   risker?: { text: string; ton: 'orange' | 'gron' | 'dampad'; onOppna: (() => void) | null } | null;
   /** "Visa hela trakten": överblicken (lib/traktOversikt) — allt på trakten på en sida. Saknas = ingen rad. */
   onOversikt?: () => void;
+  /** Skördaren: hur långt har han kommit, per område och för hela trakten (lib/omradeFramsteg + omradeFramstegVy). Saknas = ingen grupp. */
+  framsteg?: FramstegVy | null;
   /** Vidas egenkontroll: "Egenkontroll · 2 av 6 frågor". Saknas = ingen rad. */
   onEgenkontroll?: { under: string; onTryck: () => void };
 }
@@ -71,6 +74,44 @@ function Stapel({ andel }: { andel: number }) {
     <div data-testid="kort-stapel" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Klart på trakten"
       style={{ height: AVSTAND.s, borderRadius: RADIE.rad, background: FARG.fyllning, overflow: 'hidden', margin: `0 ${AVSTAND.l}px ${AVSTAND.m}px` }}>
       <div data-testid="kort-stapel-fyll" style={{ width: `${pct}%`, height: '100%', borderRadius: RADIE.rad, background: FARG.gron }} />
+    </div>
+  );
+}
+
+const Miljo = ({ rader }: { rader: RaknarText[] }) => (
+  <>{rader.map((r, i) => (
+    <span key={r.text}>{i > 0 && ' · '}<span style={{ color: r.uppfyllt ? FARG.gron : FARG.text2 }}>{r.text}</span></span>
+  ))}</>
+);
+
+/** HUR LÅNGT HAR DU KOMMIT — klar-dagen och tempot överst, en rad per område (ha och högstubbar/evighetsträd), sist hela trakten. Bara att läsa. */
+function FramstegGrupp({ f }: { f: FramstegVy }) {
+  const rad = { padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}`, display: 'flex', alignItems: 'center', gap: AVSTAND.m } as const;
+  return (
+    <div style={{ marginBottom: AVSTAND.m }}>
+      <Gruppkort testid="kort-framsteg">
+        <div data-testid="kort-framsteg-rubrik" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px` }}>
+          <div style={{ ...TYP.listtitel, color: FARG.text }}>{f.rubrik}</div>
+          {f.tempo && <div data-testid="kort-framsteg-tempo" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{f.tempo}</div>}
+        </div>
+        {f.omraden.map((o) => (
+          <div key={o.id} data-testid="kort-framsteg-omrade" data-klart={o.klart ? '1' : '0'} style={rad}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ ...TYP.text, color: FARG.text }}>{o.namn}</div>
+              {o.miljo.length > 0 && <div style={{ ...TYP.meta, marginTop: AVSTAND.xs, overflowWrap: 'anywhere' }}><Miljo rader={o.miljo} /></div>}
+            </div>
+            <div style={{ ...TYP.text, ...TNUM, color: o.klart ? FARG.gron : FARG.text, whiteSpace: 'nowrap' }}>{o.hoger}</div>
+          </div>
+        ))}
+        {f.helaTrakten.length > 0 && (
+          <div data-testid="kort-framsteg-hela" style={rad}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ ...TYP.text, color: FARG.text }}>Hela trakten</div>
+              <div style={{ ...TYP.meta, marginTop: AVSTAND.xs, overflowWrap: 'anywhere' }}><Miljo rader={f.helaTrakten} /></div>
+            </div>
+          </div>
+        )}
+      </Gruppkort>
     </div>
   );
 }
@@ -125,6 +166,8 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
           )}
           </Gruppkort>
         </div>
+        {/* HUR LÅNGT HAR DU KOMMIT — skördaren: klar-dag, tempo och varje område (Martin och Oskar 2026-11-11). Bara här, aldrig på kartan. */}
+        {p.framsteg && <FramstegGrupp f={p.framsteg} />}
         {/* VISA HELA TRAKTEN — överblicken som visades när maskinen kom till trakten, alltid ett tryck bort */}
         {p.onOversikt && (
           <div style={{ marginBottom: AVSTAND.m }}>
