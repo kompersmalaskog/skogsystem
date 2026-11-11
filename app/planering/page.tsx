@@ -169,8 +169,9 @@ import { useEgenkontrollVida } from '../../lib/hooks/useEgenkontrollVida'
 import { egenkontrollRad } from '../../components/planering/EgenkontrollVida'
 import { arCertifierat, miljoKrav, raknaMiljo, kravStatus, planMiljoRader, tolkaAreal, arPrick, arAlltidPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
-import { beraknaFramsteg, type Framsteg, type Omrade, type MiljoMarkering, type SparDag } from '../../lib/omradeFramsteg'
-import { framstegVy } from '../../lib/omradeFramstegVy'
+import { beraknaFramsteg, omradeVid, type Framsteg, type Omrade, type MiljoMarkering, type SparDag } from '../../lib/omradeFramsteg'
+import { skordareVy, skotareVy, omradeRader, raknareText } from '../../lib/produktionVy'
+import Produktion from '@/components/planering/Produktion'
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
 import { TELEFON_GPS, cirkelPolygon, osakerhetsText, samlaPosition, type SamlatResultat } from '../../lib/telefonGps'
@@ -13082,6 +13083,14 @@ export default function PlannerPage() {
   const andelAvverkat = avverkat?.andel ?? null;
   const hogstubbarVy = { antal: miljoAntal.hogstubbar, krav: miljoKravVal.hogstubbar, status: kravStatus(miljoAntal.hogstubbar, miljoKravVal.hogstubbar, andelAvverkat) };
   const evighetstradVy = { antal: miljoAntal.evighetstrad, krav: miljoKravVal.evighetstrad, status: kravStatus(miljoAntal.evighetstrad, miljoKravVal.evighetstrad, andelAvverkat) };
+  // PRODUKTION (lib/produktionVy, components/planering/Produktion): namnet i pillen öppnar den i maskinläget, för skördaren och skotaren. ⓘ = Hela trakten.
+  const [produktionOppen, setProduktionOppen] = useState(false);
+  useEffect(() => { setProduktionOppen(false); }, [valtObjekt?.id]);
+  // Området skördaren står i: pillens räknare gäller det området och säger "2 nu" när det är dags (lib/omradeFramsteg).
+  const omradeNu = framsteg && currentPosition ? omradeVid(framsteg.omraden, currentPosition.lon, currentPosition.lat) : null;
+  const pillHogstubbar = omradeNu ? { antal: omradeNu.hogstubbar.antal, krav: null, status: 'ingen' as const, nu: omradeNu.hogstubbar.nu } : hogstubbarVy;
+  const produktionKan = instruktionerAktiv && (skotarLassAktiv ? !!(skotarLass.kvar && skotarLass.sammanfattning) : !skotarKorvy && !!framsteg && framsteg.omraden.length > 0);
+  const pillEvighetstrad = omradeNu ? { antal: omradeNu.evighetstrad.antal, krav: null, status: 'ingen' as const, nu: omradeNu.evighetstrad.nu } : evighetstradVy;
   // Planeringens namnfält: samma tal som maskinens räknare (Martin 2026-11-02). Ingen "efter" — i planeringen finns inget avverkat än; grönt = kravet uppfyllt.
   const planMiljoText = planMiljoRader(miljoAntal, miljoKravVal);
   const plusOppen = plusRadOppen;   // plus-knappens vridning/badge/prickar
@@ -13837,8 +13846,10 @@ export default function PlannerPage() {
           {korvyActive && valtObjekt ? (
             <KorvyObjektPill
               namn={valtObjekt.namn}
-              hogstubbar={hogstubbarVy}
-              evighetstrad={evighetstradVy}
+              hogstubbar={pillHogstubbar}
+              evighetstrad={pillEvighetstrad}
+              namnUnder={omradeNu && framsteg && framsteg.omraden.length > 1 ? omradeNu.namn : null}
+              namnHandling={produktionKan ? 'Tryck för produktion' : undefined}
               smal={screenSize.width < 640}
               ikonHogstubbe={renderIcon('highstump', 18, '#fff')}
               ikonEvighetstrad={renderIcon('eternitytree', 18, '#fff')}
@@ -13851,7 +13862,7 @@ export default function PlannerPage() {
                   ? { text: skotarLass.sammanfattning.kvarText, klar: skotarLass.sammanfattning.klarText, onTryck: () => setSkotarKvarOppet(true) }
                   : null}
               massa={massaPill ? { etikett: pillEtikett(massaPill.dag, massaLangd.idag), varde: meterText(massaPill.cm), onTryck: () => setMassaArkOppet(true) } : massaLasfel ? { etikett: 'Massa', varde: '–', onTryck: () => setMassaArkOppet(true) } : null}
-              onNamn={() => setTraktOversiktOpen(o => !o)}
+              onNamn={() => { if (produktionKan) { setTraktOversiktOpen(false); setProduktionOppen(true); } else setTraktOversiktOpen(o => !o); }}
               onHogstubbe={() => placeraVidMaskinen('highstump')}
               onEvighetstrad={() => placeraVidMaskinen('eternitytree')}
             />
@@ -14194,10 +14205,6 @@ export default function PlannerPage() {
         const typTxt = valtObjekt.typ === 'slutavverkning' ? 'Slutavverkning' : valtObjekt.typ === 'gallring' ? 'Gallring' : (objektHuvudtyp(valtObjekt) ? typLabel(objektHuvudtyp(valtObjekt)) : (valtObjekt.typ || ''));
         const kortRoll: KortRoll = (isForare || (maskinlage && !isAdminRiktig)) ? 'forare' : 'planerare';
         const maskinSlag = (enhetRoll ?? minRoll) as 'skordare' | 'skotare' | null;
-        // Hur långt har skördaren kommit, per område och hela trakten (bara skördaren; inget nytt på kartan). Samma i Hela trakten och kortet.
-        const framstegVyKort = maskinSlag === 'skordare' && framsteg && framsteg.omraden.length > 0
-          ? framstegVy(framsteg, { typ: typTxt, idag: lokaltDatumStockholm(serverNu()), hela: { hogstubbar: { antal: miljoAntal.hogstubbar, krav: miljoKravVal.hogstubbar }, evighetstrad: { antal: miljoAntal.evighetstrad, krav: miljoKravVal.evighetstrad } } })
-          : null;
         // TILL FÖRAREN = bara Vidas direktiv (läsning). Planerarens egna texter (förardirektiv och det gamla fältet Anteckningar) är inte längre något man skriver:
         // finns sådan text kvar står den som en grå rad "Gamla anteckningar" — i planerarens kort och i förarens sammanfattning. Inget raderas.
         const forareTexter = tillForaren({ vida, vidaStruket: vidaStruket ?? [], onVaxla: isAdminRiktig && !maskinlage && vidaStruket != null ? (d: string) => { void vaxlaVidaDel(d); } : undefined, strykFel: vidaStrykFel });
@@ -14516,7 +14523,6 @@ export default function PlannerPage() {
             const nyaK = nyaKommentarer(oversiktSett, kk.rader.map((r) => ({ id: r.id, text: r.text })));
             return {
               under: oversiktUnder(typTxt, certTyper(valtObjekt.cert), arealHaKort),
-              framsteg: framstegVyKort,
               larm: { satt: larmVis.satt, koordinat: larmVis.koordinat, beskrivning: larmBeskr, onVisa: () => { stang(); larmVisaPunkt(larmVal.vald, true); }, visning: larmVis, onVisaPlats: (i: number) => { stang(); larmVisaPunkt(larmVal.alla[i], true); } },
               faror: faroLinjer,
               risker: forarRiskNu.risker,
@@ -14569,13 +14575,11 @@ export default function PlannerPage() {
           })() : null,
           enkel: instruktionerAktiv ? (() => {
             const rader = ytaRader(traktGeo?.features, inst.paTrakten);
-            const framstegGammal = framstegRad({ typ: typTxt, arealHa: arealHaKort, klartHa: maskinSlag === 'skordare' && avverkat?.harSpar ? avverkat.ha : null });
-            const fVy = framstegVyKort;
+            const framsteg = framstegRad({ typ: typTxt, arealHa: arealHaKort, klartHa: maskinSlag === 'skordare' && avverkat?.harSpar ? avverkat.ha : null });
             return {
               namn: valtObjekt.namn,
-              under: fVy && framsteg?.harSpar ? fVy.under : framstegGammal.text,
-              andel: fVy && framsteg?.harSpar ? fVy.andel : framstegGammal.andel,
-              framsteg: fVy,
+              under: framsteg.text,
+              andel: framsteg.andel,
               faror: faroLinjer,
               grot: grotRad(valtObjekt.grot ?? null, maskinSlag),
               tillForaren: forareTexter,
@@ -14930,6 +14934,29 @@ export default function PlannerPage() {
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
         />
       )}
+      {/* PRODUKTION — namnet i pillen (maskinläget): ringen, klar-dagen, bara det som avviker, Detaljer. */}
+      {produktionOppen && produktionKan && valtObjekt && (() => {
+        const typ = valtObjekt.typ === 'gallring' ? 'Gallring' : valtObjekt.typ === 'slutavverkning' ? 'Slutavverkning' : (objektHuvudtyp(valtObjekt) ? typLabel(objektHuvudtyp(valtObjekt)) : (valtObjekt.typ || ''));
+        const maskin = besokMaskinId ? (massaMaskinNamn[besokMaskinId] || '') : '';
+        const undertitel = [valtObjekt.namn, maskin].filter(Boolean).join(' · ');
+        const stang = () => setProduktionOppen(false);
+        if (skotarLassAktiv && skotarLass.kvar && skotarLass.sammanfattning) {
+          return <Produktion undertitel={undertitel} vy={skotareVy(skotarLass.kvar, skotarLass.sammanfattning)} onStang={stang}
+            detaljer={{ typ: 'skotare', onOppna: () => { setProduktionOppen(false); setSkotarKvarOppet(true); } }} />;
+        }
+        if (!framsteg) return null;
+        return <Produktion undertitel={undertitel} vy={skordareVy(framsteg, { typ, idag: lokaltDatumStockholm(serverNu()) })} onStang={stang}
+          detaljer={{
+            typ: 'skordare',
+            harNu: omradeNu ? {
+              namn: omradeNu.namn,
+              under: `${omradeNu.gallratHa.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} av ${omradeNu.arealHa.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ha ${typ.toLowerCase() === 'gallring' ? 'gallrat' : 'avverkat'}`,
+              hogstubbar: raknareText(omradeNu.hogstubbar),
+              evighetstrad: raknareText(omradeNu.evighetstrad),
+            } : null,
+            omraden: omradeRader(framsteg, omradeNu?.id ?? null),
+          }} />;
+      })()}
       {/* MASSAVEDENS LÄNGD — arket bakom "Massa idag 4,5 m" i namnfältet (bara gallringsskördare i maskinläget). */}
       {massaAktiv && massaArkOppet && (
         <MassaArk rader={massaLangd.rader} fel={massaLangd.fel} idag={massaLangd.idag} jag={massaJag} maskinNamn={massaMaskinNamn}

@@ -19,16 +19,38 @@ import { EVIGHETSTRAD_PER_HA, HOGSTUBBAR_PER_HA, kravAntal } from './miljokrav';
 import { klarDatum, snittPerDag, type LassDag } from './skotarLass/kvar';
 
 export const KLART_ANDEL = 0.95;
+/** "N nu" räknas först när så här mycket av området är gallrat — annars står "1 nu" så fort man kört in (Martin 2026-11-11: en påminnelse, inget tjat). */
+export const NU_FRAN_HA = 0.2;
 const JORDRADIE_M = 6371008.8;
 
 export interface Omrade { id: string; namn: string; ring: Punkt[] }
 export interface SparDag { datum: string; segment: Punkt[][] }
 export interface MiljoMarkering { type?: string | null; antal?: number | null; lng: number; lat: number }
 
-export interface Raknare { antal: number; krav: number | null }
+export interface Raknare {
+  antal: number;
+  /** Kravet på hela området (certifierat), annars null. */
+  krav: number | null;
+  /** Hur många som borde stå för det som är gallrat hittills (golv; 0 under NU_FRAN_HA); null utan krav. */
+  borde: number | null;
+  /** borde − antal, aldrig under 0: "2 nu" i pillen. */
+  nu: number;
+}
+
+/** Hur många borde stå för gallrat yta: golvet av ha × per ha, aldrig över hela områdets krav, 0 innan NU_FRAN_HA är gallrat. */
+export function bordeFor(gallratHa: number, perHa: number, krav: number | null): number | null {
+  if (krav == null) return null;
+  if (!(gallratHa >= NU_FRAN_HA)) return 0;
+  return Math.min(krav, Math.floor(gallratHa * perHa + 1e-9));
+}
+const raknare = (antal: number, krav: number | null, gallratHa: number, perHa: number): Raknare => {
+  const borde = bordeFor(gallratHa, perHa, krav);
+  return { antal, krav, borde, nu: borde == null ? 0 : Math.max(0, borde - antal) };
+};
 export interface OmradeRad {
   id: string;
   namn: string;
+  ring: Punkt[];
   arealHa: number;
   gallratHa: number;
   klart: boolean;
@@ -82,6 +104,12 @@ const antalAv = (m: MiljoMarkering) => (typeof m.antal === 'number' && Number.is
 const arHogstubbe = (t: string | null | undefined) => t === 'highstump';
 const arEvighet = (t: string | null | undefined) => t === 'eternitytree' || t === 'naturecorner';   // samma som lib/miljokrav raknaMiljo
 
+/** Området en punkt står i (första träffen), annars null. */
+export function omradeVid<T extends { ring: Punkt[] }>(omraden: readonly T[], lng: number, lat: number): T | null {
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  return omraden.find((o) => o.ring.length >= 3 && punktIRing(lng, lat, o.ring)) ?? null;
+}
+
 export function beraknaFramsteg(i: {
   omraden: readonly Omrade[];
   /** Skördarens körspår per dag (rådata). */
@@ -106,10 +134,10 @@ export function beraknaFramsteg(i: {
     const hs = inne.filter((m) => arHogstubbe(m.type)).reduce((s, m) => s + antalAv(m), 0);
     const ev = inne.filter((m) => arEvighet(m.type)).reduce((s, m) => s + antalAv(m), 0);
     return {
-      id: o.id, namn: o.namn, arealHa, gallratHa,
+      id: o.id, namn: o.namn, ring: o.ring, arealHa, gallratHa,
       klart: arealHa > 0 && gallratHa >= arealHa * KLART_ANDEL,
-      hogstubbar: { antal: hs, krav: i.certifierat ? kravAntal(arealHa, HOGSTUBBAR_PER_HA) : null },
-      evighetstrad: { antal: ev, krav: i.certifierat ? kravAntal(arealHa, EVIGHETSTRAD_PER_HA) : null },
+      hogstubbar: raknare(hs, i.certifierat ? kravAntal(arealHa, HOGSTUBBAR_PER_HA) : null, gallratHa, HOGSTUBBAR_PER_HA),
+      evighetstrad: raknare(ev, i.certifierat ? kravAntal(arealHa, EVIGHETSTRAD_PER_HA) : null, gallratHa, EVIGHETSTRAD_PER_HA),
     };
   });
   const arealHa = rader.reduce((s, r) => s + r.arealHa, 0);

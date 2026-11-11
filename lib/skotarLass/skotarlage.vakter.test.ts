@@ -140,7 +140,7 @@ describe('skotarläget i planeringsvyn', () => {
   it('objektnamnet i pillen byter ALDRIG objekt (objekt byts med hemknappen) — namnet öppnar objektinfon som före #831; ⓘ-knappen uppe till höger finns i skotarkörvyn (EN, på platshållarens plats)', () => {
     expect(page).not.toContain('skotarBytObjekt');
     expect(page).not.toContain('bytObjekt');
-    expect(page).toContain('onNamn={() => setTraktOversiktOpen(o => !o)}');
+    expect(page).toContain('onNamn={() => { if (produktionKan) { setTraktOversiktOpen(false); setProduktionOppen(true); } else setTraktOversiktOpen(o => !o); }}');
     // ⓘ uppe till höger (rund mörk knapp 44 px, öppnar objektinfon/väder) måste finnas i skotarkörvyn — och bara EN: på platshållarens plats, aldrig en andra bredvid pillen.
     expect(page).toContain('{objektListaVal || skotarKorvy || instruktionerAktiv ? (');   // + skördarens maskinläge: samma ⓘ, EN knapp
     expect(page.match(/data-testid="objektinfo-knapp"/g)).toHaveLength(1);

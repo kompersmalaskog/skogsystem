@@ -13,7 +13,7 @@ describe('objektpillen: tre tryckytor i körvyn, planeringens gamla pill orörd'
     expect(page).toContain('{korvyActive && valtObjekt ? (\n            <KorvyObjektPill');
     expect(page).toContain('          ) : (\n          /* Objekt-pill (glasig).');
     // Namnet öppnar objektinfon — för skördare OCH skotare, exakt som före #831. Objekt byts med hemknappen (maskinlådan), aldrig av namnet.
-    expect(page).toContain("onNamn={() => setTraktOversiktOpen(o => !o)}");
+    expect(page).toContain("onNamn={() => { if (produktionKan) { setTraktOversiktOpen(false); setProduktionOppen(true); } else setTraktOversiktOpen(o => !o); }}");
     expect(page).not.toContain('skotarBytObjekt');
   });
   it('räknarna sätter en markering vid maskinen (aldrig en gammal/saknad position)', () => {

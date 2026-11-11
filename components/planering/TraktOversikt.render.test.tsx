@@ -148,27 +148,3 @@ describe('Hela trakten', () => {
     expect(n).toBe(1);
   });
 });
-
-describe('Hela trakten — hur långt skördaren kommit', () => {
-  const framsteg = {
-    under: 'Gallring · 14,2 av 20,0 ha klart', andel: 0.71, rubrik: 'Klar ca fredag', tempo: 'Du gallrar ca 2,4 ha per dag (senaste dagarna)',
-    omraden: [{ id: 'a', namn: 'Område 1', hoger: '3,1 av 8,0 ha', klart: false, miljo: [{ text: 'Högstubbar 1 av 4', uppfyllt: false }] }, { id: 'b', namn: 'Område 2', hoger: 'Klart ✓', klart: true, miljo: [] }],
-    helaTrakten: [{ text: 'Högstubbar 5 av 8', uppfyllt: false }],
-  };
-  it('står direkt efter larmet, med klar-dag och områdena', async () => {
-    await montera(<TraktOversikt {...props({ framsteg })} />);
-    const g = q('kort-framsteg')!;
-    expect(g.textContent).toContain('Klar ca fredag');
-    expect(qa('kort-framsteg-omrade').map((r) => r.textContent)).toEqual([expect.stringContaining('Område 1'), expect.stringContaining('Klart ✓')]);
-    const innehall = q('oversikt-innehall')!;
-    const delar = [...innehall.children];
-    const larmIdx = delar.findIndex((e) => e.getAttribute('data-testid') === 'oversikt-larm');
-    const framIdx = delar.findIndex((e) => e.contains(g));
-    expect(larmIdx).toBeGreaterThanOrEqual(0);
-    expect(framIdx).toBe(larmIdx + 1);
-  });
-  it('utan framsteg (skotare, ett område saknas) ingen grupp', async () => {
-    await montera(<TraktOversikt {...props()} />);
-    expect(q('kort-framsteg')).toBeNull();
-  });
-});

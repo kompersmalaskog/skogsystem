@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { beraknaFramsteg, ringArealHa, punktIRing, KLART_ANDEL, type Omrade, type SparDag } from './omradeFramsteg';
-import { framstegVy } from './omradeFramstegVy';
+import { beraknaFramsteg, ringArealHa, punktIRing, omradeVid, bordeFor, KLART_ANDEL, type Omrade, type SparDag } from './omradeFramsteg';
+import { skordareVy, skotareVy, omradeRader, raknareText } from './produktionVy';
 import type { Punkt } from './avverkadAreal';
 
 // Ett lokalt rutnät i meter runt en punkt i Småland → lng/lat.
@@ -96,10 +96,10 @@ describe('beraknaFramsteg', () => {
         { type: 'naturecorner', antal: 3, lng: l2, lat: b2 },
       ],
     });
-    expect(f.omraden[0].hogstubbar).toEqual({ antal: 3, krav: 6 });   // 2 ha × 3/ha
-    expect(f.omraden[0].evighetstrad).toEqual({ antal: 0, krav: 20 });
-    expect(f.omraden[1].hogstubbar).toEqual({ antal: 0, krav: 3 });
-    expect(f.omraden[1].evighetstrad).toEqual({ antal: 4, krav: 10 });
+    expect(f.omraden[0].hogstubbar).toMatchObject({ antal: 3, krav: 6 });   // 2 ha × 3/ha
+    expect(f.omraden[0].evighetstrad).toMatchObject({ antal: 0, krav: 20 });
+    expect(f.omraden[1].hogstubbar).toMatchObject({ antal: 0, krav: 3 });
+    expect(f.omraden[1].evighetstrad).toMatchObject({ antal: 4, krav: 10 });
   });
 
   it('ej certifierat: inget krav', () => {
@@ -108,34 +108,90 @@ describe('beraknaFramsteg', () => {
   });
 });
 
-describe('framstegVy', () => {
+describe('"N nu": hur många som borde stå för det som är gallrat', () => {
   const idag = '2026-11-11';
-  const hela = { hogstubbar: { antal: 3, krav: 9 }, evighetstrad: { antal: 30, krav: 30 } };
+  it('räknas först från 0,2 ha och aldrig över områdets krav', () => {
+    expect(bordeFor(0.1, 10, 20)).toBe(0);
+    expect(bordeFor(0.2, 3, 6)).toBe(0);      // 0,6 → golv 0
+    expect(bordeFor(1.9, 10, 47)).toBe(19);
+    expect(bordeFor(1.9, 3, 15)).toBe(5);
+    expect(bordeFor(9, 10, 20)).toBe(20);
+    expect(bordeFor(1.9, 10, null)).toBeNull();
+  });
+  it('halva område A gallrat, 3 högstubbar satta → 0 nu; inga evighetsträd → 10 nu', () => {
+    const [l, b] = p(20, 20);
+    const f = beraknaFramsteg({ omraden: [A, B], spar: [{ datum: '2026-11-10', segment: strak(0, 100, 0, 100) }], idag, certifierat: true,
+      markeringar: [{ type: 'highstump', antal: 3, lng: l, lat: b }] });
+    expect(f.omraden[0].hogstubbar).toMatchObject({ antal: 3, borde: 3, nu: 0 });
+    expect(f.omraden[0].evighetstrad).toMatchObject({ antal: 0, borde: 10, nu: 10 });
+    expect(f.omraden[1].evighetstrad.nu).toBe(0);   // inget gallrat i B
+  });
+  it('ej certifierat: aldrig "nu"', () => {
+    const f = beraknaFramsteg({ omraden: [A], spar: [{ datum: '2026-11-10', segment: strak(0, 200, 0, 100) }], idag, markeringar: [], certifierat: false });
+    expect(f.omraden[0].evighetstrad).toMatchObject({ borde: null, nu: 0 });
+  });
+  it('omradeVid hittar området maskinen står i', () => {
+    const [l, b] = p(300, 50);
+    expect(omradeVid([A, B], l, b)?.id).toBe('b');
+    const [l2, b2] = p(225, 50);
+    expect(omradeVid([A, B], l2, b2)).toBeNull();
+  });
+});
 
-  it('säger hur långt det kommit, i ord', () => {
-    const f = beraknaFramsteg({ omraden: [A, B], spar: [
-      { datum: '2026-11-09', segment: strak(0, 60, 0, 100) },
-      { datum: '2026-11-10', segment: strak(60, 120, 0, 100) },
-    ], idag, markeringar: [], certifierat: true });
-    const v = framstegVy(f, { typ: 'Gallring', idag, hela });
-    expect(v.under).toMatch(/^Gallring · \d+,\d av 3,0 ha klart$/);
-    expect(v.rubrik).toMatch(/^Klar ca /);
-    expect(v.tempo).toMatch(/^Du gallrar ca \d+,\d ha per dag/);
-    expect(v.omraden.map((o) => o.namn)).toEqual(['Område 1', 'Område 2']);
-    expect(v.omraden[1].hoger).toBe('0,0 av 1,0 ha');
-    expect(v.helaTrakten.map((r) => r.text)).toEqual(['Högstubbar 3 av 9', 'Evighetsträd 30 av 30 ✓']);
+describe('Produktion — texterna', () => {
+  const idag = '2026-11-11';
+  const tvaDagar: SparDag[] = [
+    { datum: '2026-11-09', segment: strak(0, 60, 0, 100) },
+    { datum: '2026-11-10', segment: strak(60, 120, 0, 100) },
+  ];
+
+  it('skördaren: ringen, klar-dagen, tempot och bara det som avviker', () => {
+    const f = beraknaFramsteg({ omraden: [A, B], spar: tvaDagar, idag, markeringar: [], certifierat: true });
+    const v = skordareVy(f, { typ: 'Gallring', idag });
+    expect(v.tal).toMatch(/^\d+,\d ha$/);
+    expect(v.talUnder).toBe('av 3,0 ha');
+    expect(v.svar).toMatch(/^Klar ca /);
+    expect(v.tempo).toMatch(/^ca \d+,\d ha per dag$/);
+    expect(v.avvikelser.map((a) => a.titel)).toEqual(['Högstubbar efter i område 1', 'Evighetsträd efter i område 1']);
+    expect(v.avvikelser[1].under).toMatch(/^0 satta – borde vara \d+ för det du gallrat$/);
+    expect(v.iFas).toBeNull();
   });
 
-  it('ett enda område: inga rader per område', () => {
+  it('inget avviker på en certifierad trakt: "i fas"; ej certifierad: säger ingenting', () => {
+    const [l, b] = p(20, 20);
+    const mark = [{ type: 'highstump', antal: 10, lng: l, lat: b }, { type: 'eternitytree', antal: 30, lng: l, lat: b }];
+    const f = beraknaFramsteg({ omraden: [A, B], spar: tvaDagar, idag, markeringar: mark, certifierat: true });
+    expect(skordareVy(f, { typ: 'Gallring', idag }).iFas).toBe('Högstubbar och evighetsträd i fas');
+    const g = beraknaFramsteg({ omraden: [A, B], spar: tvaDagar, idag, markeringar: [], certifierat: false });
+    const v = skordareVy(g, { typ: 'Gallring', idag });
+    expect(v.avvikelser).toEqual([]);
+    expect(v.iFas).toBeNull();
+  });
+
+  it('inget spår: "Inget skördarspår än", ingen dag', () => {
     const f = beraknaFramsteg({ omraden: [A], spar: [], idag, markeringar: [], certifierat: false });
-    const v = framstegVy(f, { typ: 'Gallring', idag, hela });
-    expect(v.omraden).toEqual([]);
-    expect(v.rubrik).toBe('Inget skördarspår än');
+    const v = skordareVy(f, { typ: 'Gallring', idag });
+    expect(v.svar).toBe('Inget skördarspår än');
+    expect(v.tempo).toBeNull();
   });
 
-  it('klart område säger Klart ✓', () => {
-    const f = beraknaFramsteg({ omraden: [A, B], spar: [{ datum: '2026-11-10', segment: strak(250, 350, 0, 100) }], idag, markeringar: [], certifierat: false });
-    const v = framstegVy(f, { typ: 'Gallring', idag, hela });
-    expect(v.omraden[1].hoger).toBe('Klart ✓');
+  it('områdena: det du står i först, påbörjade, inte börjat, klara sist och dämpade', () => {
+    const C: Omrade = { id: 'c', namn: 'Område 3', ring: ruta(0, 200, 100, 100) };
+    const f = beraknaFramsteg({ omraden: [A, B, C], idag, markeringar: [], certifierat: false,
+      spar: [{ datum: '2026-11-10', segment: [...strak(250, 350, 0, 100), ...strak(0, 40, 0, 100)] }] });
+    const rader = omradeRader(f, 'c');
+    expect(rader.map((r) => [r.titel, r.under])).toEqual([['Område 3', 'Här nu'], ['Område 1', 'Pågår'], ['Område 2', 'Klart']]);
+    expect(rader[2]).toMatchObject({ hoger: '✓', dampad: true });
+  });
+
+  it('räknarens text i Här nu', () => {
+    expect(raknareText({ antal: 0, krav: 47, borde: 19, nu: 19 })).toEqual({ varde: '0 · 19 nu', efter: true });
+    expect(raknareText({ antal: 6, krav: 15, borde: 5, nu: 0 })).toEqual({ varde: '6 ✓', efter: false });
+    expect(raknareText({ antal: 2, krav: null, borde: null, nu: 0 })).toEqual({ varde: '2', efter: false });
+  });
+
+  it('skotaren: kvar i ringen, skotat av skördat som andel, klar-dagen', () => {
+    const v = skotareVy({ rader: [], skordat: 1000, skotat: 700, kvarTotal: 300 }, { kvarM3: 300, kvarText: 'Kvar ~300 m³', klarText: 'Klar ~fredag' });
+    expect(v).toMatchObject({ tal: '~300 m³', talUnder: 'kvar att skota', andel: 0.7, svar: 'Klar ca fredag', avvikelser: [], iFas: null });
   });
 });

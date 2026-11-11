@@ -295,32 +295,3 @@ describe('KommentarVisning — etiketten för hela trakten', () => {
     expect(qa('kartkort-kommentar-kalla').map((e) => e.textContent)).toEqual(['Hela trakten · Vida', 'Vida · traktdirektiv']);
   });
 });
-
-describe('ObjektKortEnkel — hur långt har skördaren kommit, per område', () => {
-  const framsteg = {
-    under: 'Gallring · 14,2 av 20,0 ha klart', andel: 0.71, rubrik: 'Klar ca fredag', tempo: 'Du gallrar ca 2,4 ha per dag (senaste dagarna)',
-    omraden: [
-      { id: 'a', namn: 'Område 1', hoger: 'Klart ✓', klart: true, miljo: [{ text: 'Högstubbar 4 av 4 ✓', uppfyllt: true }] },
-      { id: 'b', namn: 'Område 2', hoger: '3,1 av 8,0 ha', klart: false, miljo: [{ text: 'Högstubbar 1 av 4', uppfyllt: false }] },
-    ],
-    helaTrakten: [{ text: 'Högstubbar 5 av 8', uppfyllt: false }, { text: 'Evighetsträd 20 av 20 ✓', uppfyllt: true }],
-  };
-  it('svaret, tempot, en rad per område och hela trakten', async () => {
-    await montera(<ObjektKortEnkel {...props({ framsteg })} />);
-    const g = q('kort-framsteg')!;
-    expect(g.textContent).toContain('Klar ca fredag');
-    expect(g.textContent).toContain('Du gallrar ca 2,4 ha per dag');
-    const rader = qa('kort-framsteg-omrade');
-    expect(rader.map((r) => r.textContent)).toEqual([
-      expect.stringContaining('Område 1'), expect.stringContaining('Område 2'),
-    ]);
-    expect(rader[0].textContent).toContain('Klart ✓');
-    expect(rader[1].textContent).toContain('3,1 av 8,0 ha');
-    expect(rader[1].textContent).toContain('Högstubbar 1 av 4');
-    expect(q('kort-framsteg-hela')!.textContent).toContain('Evighetsträd 20 av 20 ✓');
-  });
-  it('utan framsteg finns ingen grupp', async () => {
-    await montera(<ObjektKortEnkel {...props()} />);
-    expect(q('kort-framsteg')).toBeNull();
-  });
-});
