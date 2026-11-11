@@ -169,7 +169,7 @@ import { useEgenkontrollVida } from '../../lib/hooks/useEgenkontrollVida'
 import { egenkontrollRad } from '../../components/planering/EgenkontrollVida'
 import { arCertifierat, miljoKrav, raknaMiljo, kravStatus, planMiljoRader, tolkaAreal, arPrick, arAlltidPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
-import { beraknaFramsteg, omradeVid, type Framsteg, type Omrade, type MiljoMarkering, type SparDag } from '../../lib/omradeFramsteg'
+import { beraknaFramsteg, omradeVid, pillRaknare, type Framsteg, type Omrade, type MiljoMarkering, type SparDag } from '../../lib/omradeFramsteg'
 import { skordareVy, skotareVy, omradeRader, raknareText } from '../../lib/produktionVy'
 import Produktion from '@/components/planering/Produktion'
 import { useProduktionSiffror } from '@/lib/hooks/useProduktionSiffror'
@@ -13090,11 +13090,11 @@ export default function PlannerPage() {
   useEffect(() => { setProduktionOppen(false); }, [valtObjekt?.id]);
   // Området skördaren står i: pillens räknare gäller det området och säger "2 nu" när det är dags (lib/omradeFramsteg).
   const omradeNu = framsteg && currentPosition ? omradeVid(framsteg.omraden, currentPosition.lon, currentPosition.lat) : null;
-  const pillHogstubbar = omradeNu ? { antal: omradeNu.hogstubbar.antal, krav: null, status: 'ingen' as const, nu: omradeNu.hogstubbar.nu } : hogstubbarVy;
+  const pillHogstubbar = framsteg ? pillRaknare(framsteg, omradeNu, 'hogstubbar', miljoAntal.hogstubbar) ?? hogstubbarVy : hogstubbarVy;
   // "Hur går det?" ur skördarens filer — läses bara medan Produktion är öppen.
   const produktionSiffror = useProduktionSiffror(besokMaskinId ?? null, produktionOppen && !skotarKorvy);
   const produktionKan = instruktionerAktiv && (skotarLassAktiv ? !!(skotarLass.kvar && skotarLass.sammanfattning) : !skotarKorvy && !!framsteg && framsteg.omraden.length > 0);
-  const pillEvighetstrad = omradeNu ? { antal: omradeNu.evighetstrad.antal, krav: null, status: 'ingen' as const, nu: omradeNu.evighetstrad.nu } : evighetstradVy;
+  const pillEvighetstrad = framsteg ? pillRaknare(framsteg, omradeNu, 'evighetstrad', miljoAntal.evighetstrad) ?? evighetstradVy : evighetstradVy;
   // Planeringens namnfält: samma tal som maskinens räknare (Martin 2026-11-02). Ingen "efter" — i planeringen finns inget avverkat än; grönt = kravet uppfyllt.
   const planMiljoText = planMiljoRader(miljoAntal, miljoKravVal);
   const plusOppen = plusRadOppen;   // plus-knappens vridning/badge/prickar

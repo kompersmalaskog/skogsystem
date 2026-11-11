@@ -167,3 +167,23 @@ export function beraknaFramsteg(i: {
     klarDatum: !klart && tempo ? klarDatum(kvarHa, tempo, i.idag) : null,
   };
 }
+
+/**
+ * Pillens räknare per område (Martin 2026-11-11): i ett område gäller det områdets antal och "N nu"; utanför områdena summan av alla
+ * områdens "nu" bredvid hela traktens antal — samma betydelse överallt: räknat på det som är GALLRAT, aldrig på hela trakten.
+ * I fas (inget "nu" och något borde redan stå) = 'uppfyllt' (grön siffra + ✓). null = inget krav (ej certifierat): pillen räknar som förut.
+ */
+export function pillRaknare(
+  f: Framsteg, omradeNu: OmradeRad | null, vad: 'hogstubbar' | 'evighetstrad', totalAntal: number,
+): { antal: number; krav: null; status: 'ingen' | 'uppfyllt'; nu: number } | null {
+  if (omradeNu) {
+    const r = omradeNu[vad];
+    if (r.borde == null) return null;
+    return { antal: r.antal, krav: null, status: r.nu === 0 && r.borde > 0 ? 'uppfyllt' : 'ingen', nu: r.nu };
+  }
+  const rk = f.omraden.map((o) => o[vad]);
+  if (!rk.length || rk.some((r) => r.borde == null)) return null;
+  const nu = rk.reduce((s, r) => s + r.nu, 0);
+  const borde = rk.reduce((s, r) => s + (r.borde ?? 0), 0);
+  return { antal: totalAntal, krav: null, status: nu === 0 && borde > 0 ? 'uppfyllt' : 'ingen', nu };
+}

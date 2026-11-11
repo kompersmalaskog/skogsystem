@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { beraknaFramsteg, ringArealHa, punktIRing, omradeVid, bordeFor, KLART_ANDEL, type Omrade, type SparDag } from './omradeFramsteg';
+import { beraknaFramsteg, ringArealHa, punktIRing, omradeVid, bordeFor, pillRaknare, KLART_ANDEL, type Omrade, type SparDag } from './omradeFramsteg';
 import { skordareVy, skotareVy, omradeRader, raknareText } from './produktionVy';
 import type { Punkt } from './avverkadAreal';
 
@@ -193,5 +193,24 @@ describe('Produktion — texterna', () => {
   it('skotaren: kvar i ringen, skotat av skördat som andel, klar-dagen', () => {
     const v = skotareVy({ rader: [], skordat: 1000, skotat: 700, kvarTotal: 300 }, { kvarM3: 300, kvarText: 'Kvar ~300 m³', klarText: 'Klar ~fredag' });
     expect(v).toMatchObject({ tal: '~300 m³', talUnder: 'kvar att skota', andel: 0.7, svar: 'Klar ca fredag', avvikelser: [], iFas: null });
+  });
+});
+
+describe('pillens räknare (pillRaknare)', () => {
+  const idag = '2026-11-11';
+  const [l, b] = p(20, 20);
+  const f = beraknaFramsteg({ omraden: [A, B], spar: [{ datum: '2026-11-10', segment: [...strak(0, 100, 0, 100), ...strak(250, 350, 0, 100)] }], idag, certifierat: true,
+    markeringar: [{ type: 'highstump', antal: 3, lng: l, lat: b }] });
+  it('i ett område: områdets antal, "nu" och ✓ när det är i fas', () => {
+    expect(pillRaknare(f, f.omraden[0], 'hogstubbar', 3)).toEqual({ antal: 3, krav: null, status: 'uppfyllt', nu: 0 });
+    expect(pillRaknare(f, f.omraden[1], 'hogstubbar', 3)).toEqual({ antal: 0, krav: null, status: 'ingen', nu: 2 });   // B: knappt 1 ha gallrat → golv 2
+  });
+  it('utanför områdena: hela traktens antal och summan av områdenas "nu"', () => {
+    expect(pillRaknare(f, null, 'hogstubbar', 3)).toEqual({ antal: 3, krav: null, status: 'ingen', nu: 2 });   // A i fas (0) + B (2)
+    expect(pillRaknare(f, null, 'evighetstrad', 0)!.nu).toBe(f.omraden[0].evighetstrad.nu + f.omraden[1].evighetstrad.nu);
+  });
+  it('ej certifierat: null (pillen räknar som förut)', () => {
+    const g = beraknaFramsteg({ omraden: [A], spar: [], idag, markeringar: [], certifierat: false });
+    expect(pillRaknare(g, null, 'hogstubbar', 0)).toBeNull();
   });
 });
