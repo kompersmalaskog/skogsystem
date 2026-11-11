@@ -764,21 +764,14 @@ const TESTBANNER_HOJD_PX = 36;
 const fornyaSessionVida = skapaFornyare(() => supabase.auth.refreshSession())
 
 // Högarna som prickar (skotarläget och planeringsvyn, lib/skotarHogarKvar). Läggs i kartans grundlager OCH körvyns (stilbyte återskapar lagren).
-const HOG_OMRADE_KALLA = 'skotar-hogomrade-klart-source';
 /** Under den här zoomen syns inga högar — kartan är lugn utzoomat. */
 const HOGAR_FRAN_ZOOM = 15;
 /** Ordet på egna Blött-ytor står först från den här zoomen. */
 const BLOTT_ORD_FRAN_ZOOM = 16;
 function laggTillHogPrickar(map: any) {
-  // Förarens markeringar (lib/skotarHogarKvar, tabellen skotar_hog_markering): ett område som markerats taget ritas grått UNDER prickarna — klart är grått.
-  for (const k of [HOG_OMRADE_KALLA, 'skotar-hogar-vald-source', 'skotar-hogomrade-source']) {
+  // Förarens markeringar (tabellen skotar_hog_markering) syns bara som att högarna försvinner — inget grått område (Martin 2026-11-11: "rent och snyggt").
+  for (const k of ['skotar-hogar-vald-source', 'skotar-hogomrade-source']) {
     if (!map.getSource(k)) { try { map.addSource(k, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); } catch (e) { console.error('[Högar] källa', k, e); } }
-  }
-  if (!map.getLayer('klart-hogomrade')) {
-    try {
-      map.addLayer({ id: 'klart-hogomrade', type: 'fill', source: HOG_OMRADE_KALLA, filter: ['==', ['geometry-type'], 'Polygon'],
-        paint: { 'fill-color': KLART_FARG, 'fill-opacity': 0.25 }, layout: { 'visibility': 'none' } });
-    } catch (e) { console.error('[Högar] område:', e); }
   }
   if (!map.getLayer('drawing-hogomrade-fill')) {
     try {
@@ -12419,20 +12412,14 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [hogRingKlar, hogRing, hogLass, hogMark.markeringar, hogarVersion],
   );
-  // Ringen runt vald hög och de sparade strecken (grått band, klart = grått).
+  // Ringen runt vald hög.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     try {
       (map.getSource('skotar-hogar-vald-source') as any)?.setData({ type: 'FeatureCollection', features: hogValt ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [hogValt.lng, hogValt.lat] }, properties: {} }] : [] });
-      const visa = prickLage && hogarPa;
-      (map.getSource(HOG_OMRADE_KALLA) as any)?.setData({
-        type: 'FeatureCollection',
-        features: visa ? hogMark.markeringar.filter((m) => m.typ === 'tagen' && m.geometri.type === 'Polygon').map((m) => ({ type: 'Feature', geometry: m.geometri, properties: {} })) : [],
-      });
-      if (map.getLayer('klart-hogomrade')) map.setLayoutProperty('klart-hogomrade', 'visibility', visa ? 'visible' : 'none');
-    } catch (e) { console.error('[Högar] markeringar på kartan:', e); }
-  }, [hogValt, hogMark.markeringar, prickLage, hogarPa, mapLibreReady, korvyActive, korvyBasKarta]);
+    } catch (e) { console.error('[Högar] vald hög på kartan:', e); }
+  }, [hogValt, mapLibreReady, korvyActive, korvyBasKarta]);
   const hogPrickarRef = useRef<Map<string, HogPrick>>(new Map());
   const hogPrickNyckelRef = useRef('');
   useEffect(() => {
