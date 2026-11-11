@@ -51,6 +51,7 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
     ...verklig,
     hamtaRunda: () => hamtaRunda(),
     kompletteraRunda: async () => ({ tillagda: [] }),
+    kompletteraVader: async () => ({ fyllt: false, skal: 'test' }),
     hamtaFoton: async () => [],
     hamtaProvytor: async () => [],
     hamtaNoteringar: () => hamtaNoteringar(),

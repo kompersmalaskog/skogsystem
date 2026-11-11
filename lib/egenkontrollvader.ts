@@ -28,6 +28,16 @@ export type VaderDygn = {
   min_temp: number | null;
 };
 
+/**
+ * Var datumen kommer ifran. Tva MATNINGAR, inte en matning och en gissning:
+ * maskinens egna filer, eller appens korspar ur hytten (hyttspar).
+ *
+ * Kallan skrivs ut i vyn och i rapporten. Den som laser om tva ar ska se
+ * skillnaden - korsparet sager vilka dagar appen sag maskinen pa trakten,
+ * filerna sager vilka dagar den producerade.
+ */
+export type DatumKalla = 'maskindata' | 'korspar';
+
 export type VaderSnapshot = {
   status: VaderStatus;
   /** Kort skal nar status ar api_fel. Null annars. */
@@ -39,6 +49,9 @@ export type VaderSnapshot = {
   skord_slut: string | null;
   skot_start: string | null;
   skot_slut: string | null;
+  /** Null = datumen saknas (eller snapshot fran fore kallan fanns). */
+  skord_kalla: DatumKalla | null;
+  skot_kalla: DatumKalla | null;
 
   dygn: VaderDygn[];
   /** Summa nederbord de DAGAR_FORE dygnen fore skot_start. */
@@ -75,6 +88,7 @@ function tomt(status: VaderStatus, fel: string | null = null): VaderSnapshot {
     kalla: 'open-meteo/era5',
     hamtad: new Date().toISOString(),
     skord_start: null, skord_slut: null, skot_start: null, skot_slut: null,
+    skord_kalla: null, skot_kalla: null,
     dygn: [],
     mm_fore: null, mm_under: null,
     min_temp: null, frostnatter: null, tjale: null,
@@ -90,6 +104,9 @@ export type Arbetsfonster = {
   skord_slut: string | null;
   skot_start: string | null;
   skot_slut: string | null;
+  /** Per roll, inte per fonster: skorden kan komma ur filerna och skotningen ur korsparet. */
+  skord_kalla?: DatumKalla | null;
+  skot_kalla?: DatumKalla | null;
 };
 
 /**
@@ -153,6 +170,8 @@ export async function hamtaVader(
       skord_slut: fonster.skord_slut,
       skot_start: skotStart,
       skot_slut: skotSlut,
+      skord_kalla: fonster.skord_start ? (fonster.skord_kalla ?? null) : null,
+      skot_kalla: fonster.skot_kalla ?? null,
       dygn,
       mm_fore: summa(fore.map((x) => x.nederbord_mm)),
       mm_under: summa(under.map((x) => x.nederbord_mm)),

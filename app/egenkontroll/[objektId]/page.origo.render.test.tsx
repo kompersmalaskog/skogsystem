@@ -41,6 +41,7 @@ vi.mock('@/lib/egenkontroll', async () => {
     // Rundorna här har bara planpunkter, så sidan kompletterar dem vid öppningen. Det är INTE det testet prövar: utan mock går anropet mot den
     // riktiga Supabase-klienten (session saknas -> kastar efter en kall modulladdning på ~70 ms) och testet blev en kapplöpning mot väntetiden.
     kompletteraRunda: async () => ({ tillagda: [] }),
+    kompletteraVader: async () => ({ fyllt: false, skal: 'test' }),
     hamtaKontextmarkeringar: () => h.kontext(),
     hamtaVidaGrans: () => { h.vidaFragad++; return h.vida(); },
     hamtaProvytor: async () => [],
