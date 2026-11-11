@@ -59,7 +59,7 @@ describe('GROT-jobb som hör till ett virkesobjekt visar dess traktgräns, ytor/
     expect(page).toMatch(/horTillId && roll === 'skordare' \? \[objektId, horTillId\] : \[objektId\]/);
   });
   it('avverkad areal räknas fortfarande bara på objektets EGNA skördarspår (jobbet äger inget virkesobjekts areal)', () => {
-    expect(page).toMatch(/from\('hyttspar'\)\.select\('points'\)\.eq\('objekt_id', objektId\)\.eq\('roll', 'skordare'\)/);
+    expect(page).toMatch(/from\('hyttspar'\)\.select\('points, datum'\)\.eq\('objekt_id', objektId\)\.eq\('roll', 'skordare'\)/);
   });
 });
 
