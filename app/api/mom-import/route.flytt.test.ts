@@ -8,7 +8,7 @@
  *
  * Gäller bara dagar synken själv bygger. Bekräftade och redigerade dagar rörs aldrig.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const g = globalThis as any;
 
@@ -96,6 +96,11 @@ const LUCKA = {
   start_lokal: "2026-10-12T12:30:56.599841", slut_lokal: "2026-10-12T13:50:34.612849",
   fran_lat: 56.5571099, fran_lng: 14.6939483, till_lat: 56.5198142, till_lng: 14.6131424,
 };
+
+// Synken bygger bara dagar inom 30 dagar bakåt från idag (route.ts). Klockan låses till dagen fixturerna gäller,
+// annars faller dagarna ur fönstret med tiden och testet blir rött av sig självt (hände 2026-11-11).
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-19T12:00:00Z")); });
+afterEach(() => { vi.useRealTimers(); });
 
 beforeEach(() => {
   g.__skriv = []; g.__rpcAnrop = []; g.__insertFel = {}; g.__selectFel = {};
