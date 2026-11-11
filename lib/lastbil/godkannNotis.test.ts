@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { byggGodkannNotis, godkannKoNyckel, godkannMeddelande, FLYTT_GODKANN } from './godkannNotis';
 import { koaGodkannPaminnelse } from './godkannKo';
+
+// Reglerna här gäller när appen används fullt ut (lib/fulltUt.ts). Före 2027: lib/fulltUt.test.ts.
+vi.mock('@/lib/fulltUt', async (orig) => ({ ...(await orig<typeof import('@/lib/fulltUt')>()), fulltUt: () => true }));
+
 
 describe('Påminnelsen om flyttar som väntar på godkännande', () => {
   it('köas bara på måndagen från 07:00 svensk tid, en nyckel per måndag', () => {

@@ -17,6 +17,7 @@
 
 import { kmText } from '@/lib/objektVal';
 import type { Stickprov } from '@/lib/egenkontrollStickprov';
+import { FULLT_UT_AR, fulltUt } from '@/lib/fulltUt';
 
 export const EGENKONTROLL_STICKPROV = 'egenkontroll_stickprov';
 export const arStickprovNotis = (typ: unknown): typ is typeof EGENKONTROLL_STICKPROV => typ === EGENKONTROLL_STICKPROV;
@@ -46,6 +47,7 @@ export async function byggStickprovNotis(
   hamta: HamtaStickprov,
   nu: number = Date.now(),
 ): Promise<StickprovNotisUtfall> {
+  if (!fulltUt(nu)) return { typ: 'hoppa_over', orsak: `Ej skickad — appen används fullt ut från ${FULLT_UT_AR}` };
   const manad = n.payload?.manad;
   if (typeof manad !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(manad)) return { typ: 'hoppa_over', orsak: 'Ej skickad — notisen saknar månad' };
 

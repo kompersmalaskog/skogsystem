@@ -32,6 +32,7 @@ import { AM_ARSHJUL, arArshjulNotis, byggArshjulNotis, koaArshjulPaminnelse, las
 import { LARMPLATS_NEJ, arLarmplatsNejNotis, byggLarmplatsNejNotis, koaLarmplatsNej, type HamtaNej } from "@/lib/larmKontrollNotis";
 import { larmpunkterUr, SAMMA_PUNKT_M } from "@/lib/larmpunkter";
 import { avstandPunktM } from "@/lib/larm/geo";
+import { fulltUt } from "@/lib/fulltUt";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -85,7 +86,8 @@ async function flush() {
 
   // Månadens stickprov för egenkontrollen: dras av databasen vid första anropet i en ny månad (annars no-op). Cronen går var 5:e minut, så
   // dragningen och pushen sker utan att någon öppnat appen — och oberoende av pg_cron. Ett fel här får aldrig stoppa resten av kön.
-  try {
+  // Före 2027 (lib/fulltUt.ts) dras inget av cronen — appen används fullt ut först då.
+  if (fulltUt()) try {
     const { error: stickprovFel } = await supabase.rpc("egenkontroll_stickprov");
     if (stickprovFel) console.error("[notis/flush] egenkontroll_stickprov:", stickprovFel.message);
   } catch (e) {
