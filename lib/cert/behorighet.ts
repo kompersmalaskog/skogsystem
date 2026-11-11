@@ -2,7 +2,7 @@
 //
 // Cert LÄSER Utbildning: behörigheterna bor i utbildning_typ / utbildning_krav / utbildning_bevis och vilka av dem som
 // är SE-krav står i cert_se_krav. Utgångsdatumet (giltig_till) kommer färdigt ur vyn utbildning_status — här räknas bara
-// DAGARNA dit, eftersom Cert varnar 60 dagar före (Utbildning varnar 90).
+// DAGARNA dit, så att gränsen (90 dagar, samma som Utbildning och Personal) ligger på ETT ställe här.
 //
 // Status lagras aldrig. Texten bär alltid budskapet ("HLR · 40 dagar"), färgen förstärker bara.
 
@@ -11,14 +11,14 @@ export const SE_KRAV: Record<string, { etikett: string; ordning: number; vaxel?:
   '3.1.1': { etikett: 'SYN', ordning: 0 },
   '3.1.10': { etikett: 'HLR', ordning: 1 },
   '3.1.9': { etikett: 'ADR', ordning: 2, vaxel: 'Kör farligt gods' },
-  '3.1.8': { etikett: 'Natur', ordning: 3, vaxel: 'Planerar hänsyn' },
+  '3.1.8': { etikett: 'Naturvärde', ordning: 3, vaxel: 'Planerar hänsyn' },
 };
 
 /** Den som har det här kravet kör maskin — och står därför i listan. */
 export const KOR_MASKIN_KRAV = '3.1.1';
 
-/** Varna så här många dagar före utgång (dag 60 räknas in). */
-export const SNART_DAGAR = 60;
+/** Varna så här många dagar före utgång (dag 90 räknas in). */
+export const SNART_DAGAR = 90;
 
 export type Lage = 'ok' | 'snart' | 'utgangen' | 'saknas';
 

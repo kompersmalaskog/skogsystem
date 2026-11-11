@@ -60,9 +60,9 @@ describe('Cert › Behörigheter', () => {
     expect([...rader[2].querySelectorAll('[data-cert-etikett]')].map(e => e.textContent)).toEqual(['SYN', 'HLR']);
   });
 
-  it('59 dagar är gult, 61 dagar är OK', () => {
-    const div = rita([{ id: 'a', namn: 'Anna', behorigheter: [b({ giltigTill: plus(59) }), hlr({ giltigTill: plus(61) })] }]);
-    expect(div.querySelector('[data-cert-etikett="snart"]')?.textContent).toBe('SYN · 59 dagar');
+  it('89 dagar är gult, 91 dagar är OK', () => {
+    const div = rita([{ id: 'a', namn: 'Anna', behorigheter: [b({ giltigTill: plus(89) }), hlr({ giltigTill: plus(91) })] }]);
+    expect(div.querySelector('[data-cert-etikett="snart"]')?.textContent).toBe('SYN · 89 dagar');
     expect(div.querySelector('[data-cert-etikett="ok"]')?.textContent).toBe('HLR');
   });
 

@@ -13,10 +13,10 @@ const b = (p: Partial<Behorighet> = {}): Behorighet => ({
 const person = (namn: string, ...bs: Behorighet[]): Person => ({ id: namn, namn, behorigheter: bs });
 
 describe('läget räknas vid läsning', () => {
-  it('59 dagar kvar är gult, 61 dagar är OK, 60 räknas in', () => {
-    expect(lageFor(b({ giltigTill: plus(59) }), IDAG)).toEqual({ lage: 'snart', dagar: 59 });
-    expect(lageFor(b({ giltigTill: plus(61) }), IDAG).lage).toBe('ok');
-    expect(lageFor(b({ giltigTill: plus(60) }), IDAG).lage).toBe('snart');
+  it('89 dagar kvar är gult, 91 dagar är OK, 90 räknas in', () => {
+    expect(lageFor(b({ giltigTill: plus(89) }), IDAG)).toEqual({ lage: 'snart', dagar: 89 });
+    expect(lageFor(b({ giltigTill: plus(91) }), IDAG).lage).toBe('ok');
+    expect(lageFor(b({ giltigTill: plus(90) }), IDAG).lage).toBe('snart');
   });
   it('går ut idag är inte utgånget, igår är det', () => {
     expect(lageFor(b({ giltigTill: IDAG }), IDAG).lage).toBe('snart');
@@ -38,6 +38,7 @@ describe('etiketten säger det i ord', () => {
     expect(etikettText(b({ seKrav: '3.1.9', bevisId: null }), IDAG).text).toBe('ADR · saknas');
     expect(etikettText(b({ giltigTill: plus(-3) }), IDAG).text).toBe('SYN · utgången');
     expect(etikettText(b({ giltigTill: plus(1) }), IDAG).text).toBe('SYN · 1 dag');
+    expect(etikettText(b({ seKrav: '3.1.8', bevisId: null }), IDAG).text).toBe('Naturvärde · saknas');
   });
 });
 
