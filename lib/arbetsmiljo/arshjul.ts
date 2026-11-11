@@ -8,6 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { MASKINTYPER, lage as riskLage, type Bedomning, type MaskinTyp } from './maskinRisk';
 import { antalBesvarade, type Rond } from './skyddsrond';
 import { datumText } from './introduktion';
+import { BORJAR_TEXT, arbetsmiljoIgang } from './start';
 
 export type ManuellPunkt = 'apt_var' | 'osa' | 'kemikalier' | 'apt_host' | 'uppfoljning';
 export type PunktId = 'riskbedomning' | 'skyddsrond' | ManuellPunkt;
@@ -99,6 +100,8 @@ export function byggArshjul(d: Indata): Rad[] {
     }
 
     if (gjordTid) return { punkt: p, gjordTid, anteckning, under: `Gjord ${datumText(gjordTid)}`, ton: 'gron', attGora: false };
+    // Före start (lib/arbetsmiljo/start.ts) är inget dags eller sent.
+    if (!arbetsmiljoIgang(d.nu)) return { punkt: p, gjordTid, anteckning, under: pagar ?? BORJAR_TEXT, attGora: false };
     if (pagar) return { punkt: p, gjordTid, anteckning, under: pagar, ton: 'orange', attGora: true };
     if (p.manad < manad) return { punkt: p, gjordTid, anteckning, under: `Inte gjord · skulle gjorts i ${MANADER[p.manad - 1]}`, ton: 'orange', attGora: true };
     if (p.manad === manad) return { punkt: p, gjordTid, anteckning, under: 'Dags nu', ton: 'orange', attGora: true };
@@ -111,6 +114,7 @@ export function arshjulRad(rader: readonly Rad[], ar: number): { titel: string; 
   const gjorda = rader.filter(r => r.gjordTid).length;
   const att = rader.filter(r => r.attGora && !r.punkt.href);
   const titel = `Året ${ar}`;
+  if (rader.every(r => !r.attGora) && rader.some(r => r.under === BORJAR_TEXT)) return { titel, under: BORJAR_TEXT, attGora: false };
   if (att.length > 0) {
     const forst = att[0].punkt.titel;
     return { titel, under: att.length === 1 ? `Att göra: ${forst}` : `${att.length} att göra · först ${forst}`, ton: 'orange', attGora: true };

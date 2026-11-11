@@ -29,6 +29,10 @@ let mina: any[] | null = [];
 vi.mock('@/lib/arbetsmiljo/lagatBesked', async (orig) => ({ ...(await orig<typeof import('@/lib/arbetsmiljo/lagatBesked')>()), hamtaMinaRapporter: async () => mina }));
 import Arbetsmiljo from './Arbetsmiljo';
 
+// Reglerna här gäller när arbetsmiljön har börjat (lib/arbetsmiljo/start.ts). Före start: start.test.ts.
+vi.mock('@/lib/arbetsmiljo/start', async (orig) => ({ ...(await orig<typeof import('@/lib/arbetsmiljo/start')>()), arbetsmiljoIgang: () => true }));
+
+
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root; let el: HTMLDivElement;
 beforeEach(() => { mina = []; window.history.replaceState(null, '', '/arbetsmiljo'); el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el); });

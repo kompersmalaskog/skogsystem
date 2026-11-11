@@ -4,6 +4,10 @@ import {
 } from './arshjulNotis';
 import { byggArshjul, type Rad } from './arshjul';
 
+// Reglerna här gäller när arbetsmiljön har börjat (lib/arbetsmiljo/start.ts). Före start: start.test.ts.
+vi.mock('@/lib/arbetsmiljo/start', async (orig) => ({ ...(await orig<typeof import('@/lib/arbetsmiljo/start')>()), arbetsmiljoIgang: () => true }));
+
+
 // Onsdag 11 november 2026, 09:00 svensk tid (vintertid, UTC+1).
 const ONS_09 = new Date('2026-11-11T08:00:00Z');
 

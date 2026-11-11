@@ -26,6 +26,7 @@ import { hamtaArbetsmiljoRader, type ArbetsmiljoRad } from '@/lib/arbetsmiljo/st
 import { behoverDigText as introBehoverDig, hamtaKvitton as hamtaIntroKvitton, introLage } from '@/lib/arbetsmiljo/introduktion'
 import { egnaUppgifterText } from '@/lib/personal'
 import { startsidaAntal } from '@/lib/arbetsmiljo/oversikt'
+import { arbetsmiljoIgang } from '@/lib/arbetsmiljo/start'
 
 // Hur länge vi väntar på rollen innan svaret räknas som okänt (läsfel får aldrig ge en tom skärm).
 export const ROLL_MAX_VANTAN_MS = 1500
@@ -193,7 +194,12 @@ export function useStartsidaData(): StartsidaData {
     window.location.href = '/login'
   }
 
-  const arbetsmiljoMarke = startsidaAntal({ maskinkoll: maskinkollVantar, atgarder: atgarder?.antal ?? null, rader: arbetsmiljo.length, introduktion: !!introduktion })
+  // Arbetsmiljön börjar 2027 (lib/arbetsmiljo/start.ts): före dess ingen maskinkoll- eller introduktionsrad och inget märke för dem.
+  // Åtgärderna (det som hänt) räknas alltid.
+  const igang = arbetsmiljoIgang()
+  const maskinkoll = igang ? maskinkollVantar : (maskinkollVantar == null ? null : 0)
+  const intro = igang ? introduktion : null
+  const arbetsmiljoMarke = startsidaAntal({ maskinkoll, atgarder: atgarder?.antal ?? null, rader: arbetsmiljo.length, introduktion: !!intro })
 
-  return { roll, skyddsombud, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, maskinkollVantar, atgarder, egnaUppgifter, introduktion, arbetsmiljo, arbetsmiljoMarke, favoritIds, sparaFavoriterna, konto, loggaUt }
+  return { roll, skyddsombud, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, maskinkollVantar: maskinkoll, atgarder, egnaUppgifter, introduktion: intro, arbetsmiljo, arbetsmiljoMarke, favoritIds, sparaFavoriterna, konto, loggaUt }
 }

@@ -16,6 +16,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { byggArshjul, hamtaGjorda, svenskArManad, MANADER, type Rad } from './arshjul';
 import { hamtaRonder } from './skyddsrond';
 import { hamtaBedomningar } from './maskinRisk';
+import { ARBETSMILJO_START_AR, arbetsmiljoIgang } from './start';
 
 export const AM_ARSHJUL = 'am_arshjul';
 export const arArshjulNotis = (typ: unknown): typ is typeof AM_ARSHJUL => typ === AM_ARSHJUL;
@@ -87,6 +88,7 @@ export async function byggArshjulNotis(
 ): Promise<ArshjulUtfall> {
   const koad = n.skapad_at ? Date.parse(n.skapad_at) : NaN;
   if (Number.isFinite(koad) && nu.getTime() - koad > ARSHJUL_MAX_ALDER_MS) return { typ: 'hoppa_over', orsak: 'Ej skickad — för gammal (köad för mer än 24 timmar sedan)' };
+  if (!arbetsmiljoIgang(nu)) return { typ: 'hoppa_over', orsak: `Ej skickad — arbetsmiljön börjar ${ARBETSMILJO_START_AR}` };
   const rader = await hamta();
   if (!rader) return { typ: 'uppskjut' };
   const text = arshjulText(rader, nu);
@@ -101,6 +103,7 @@ export type ArshjulKoRapport = { ok: boolean; koade: number; hoppade?: string; f
  * Ett fel stoppar aldrig resten av kön (flush fångar det).
  */
 export async function koaArshjulPaminnelse(sb: SupabaseClient, nu: Date = new Date()): Promise<ArshjulKoRapport> {
+  if (!arbetsmiljoIgang(nu)) return { ok: true, koade: 0, hoppade: `arbetsmiljön börjar ${ARBETSMILJO_START_AR}` };
   if (!dagsAttKoa(nu)) return { ok: true, koade: 0, hoppade: 'inte vardag från 08:00' };
   const dedup = arshjulDedup(nu);
 

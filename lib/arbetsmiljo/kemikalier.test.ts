@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { filFel, ordna, radUnder, svar, type Kemikalie } from './kemikalier';
 import { byggRader } from './oversikt';
+
+// Reglerna här gäller när arbetsmiljön har börjat (lib/arbetsmiljo/start.ts). Före start: start.test.ts.
+vi.mock('@/lib/arbetsmiljo/start', async (orig) => ({ ...(await orig<typeof import('@/lib/arbetsmiljo/start')>()), arbetsmiljoIgang: () => true }));
+
 
 const k = (namn: string, blad: boolean, varFinns: string | null = 'Verkstaden'): Kemikalie =>
   ({ id: namn, namn, varFinns, sdbSokvag: blad ? `${namn}/1.pdf` : null, sdbTid: blad ? '2026-11-03T10:00:00Z' : null, etikettSokvag: null });
