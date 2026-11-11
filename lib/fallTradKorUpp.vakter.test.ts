@@ -73,9 +73,9 @@ describe('menyn och kartan känner de nya sorterna', () => {
     expect(sida).toContain("const KEEP_PREFIX = ['line-',");
     expect(sida).toContain('for (const l of [...korUppLager(), ...tradLager(), ...tvaTryckLager()]) if (!map.getLayer(l.id)) map.addLayer(l);');
   });
-  it('symbollagren är klippta eller uttalade undantag; tryck på dem öppnar kortet (klickprioritet: punkt)', () => {
+  it('symbollagren är klippta eller uttalade undantag; tryck på dem öppnar kortet (klickprioritet: symbol)', () => {
     for (const l of [...korUppLager(), ...tradLager()].filter((x) => x.type === 'symbol')) expect([...SYMBOL_LAGER, ...SYMBOL_UNDANTAG], l.id).toContain(l.id);
-    const punkt = KLICK_LAGER.find((k) => k.kategori === 'punkt')!.lager;
+    const punkt = KLICK_LAGER.find((k) => k.kategori === 'symbol')!.lager;
     expect(punkt).toContain('line-fall-trad'); expect(punkt).toContain('line-korupp-traff');
     expect(sida).toContain("map.on('click', TRAD_LAGER, handleMarkerFeatureClick);");
     expect(sida).toContain("map.on('click', KORUPP_TRAFF_LAGER, handleMarkerFeatureClick);");
