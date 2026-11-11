@@ -16501,16 +16501,16 @@ export default function PlannerPage() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', marginBottom: '24px' }}>
                 <button type="button" className="btn-press" onClick={() => setVal(val - 1)}
                   style={{ width: '52px', height: '52px', borderRadius: '26px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '28px', lineHeight: 1, cursor: 'pointer' }}>−</button>
-                <input type="number" inputMode="numeric" min={1} autoFocus
+                {/* Ingen autoFocus/markering (Martin 2026-11-11): siffran stod blåmarkerad varje gång — det vanliga är 1, och − / + räcker. Tryck i fältet för att skriva. */}
+                <input type="number" inputMode="numeric" min={1}
                   value={val}
-                  onFocus={ev => ev.target.select()}
                   onChange={ev => { const n = parseInt(ev.target.value, 10); setVal(Number.isFinite(n) ? n : 1); }}
                   style={{ width: '110px', textAlign: 'center', padding: '14px 0', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '32px', fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
                 <button type="button" className="btn-press" onClick={() => setVal(val + 1)}
                   style={{ width: '52px', height: '52px', borderRadius: '26px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '28px', lineHeight: 1, cursor: 'pointer' }}>+</button>
               </div>
               <button type="button" className="btn-press" onClick={() => setAntalPrompt(null)}
-                style={{ width: '100%', padding: '15px', borderRadius: '14px', border: 'none', background: '#0a84ff', color: '#fff', fontSize: '16px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Klar</button>
+                style={{ ...KNAPP.primar, cursor: 'pointer' }}>Klar</button>
             </div>
           </div>
         );
