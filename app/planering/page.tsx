@@ -135,7 +135,7 @@ import { tolkaSparadPosition, MASKINPOS_NYCKEL, sparObjektGiltigt, valjPosObjekt
 import { hamtaSenasteSparStart, taForladdadSparStart, forladdaTraktGeo, taForladdadTraktGeo } from '../../lib/maskinPositionDb'
 import { markeraStart } from '../../lib/maskinstartMatning'
 import { installeraKameraLogg } from '../../lib/kameraLogg'
-import { tonaInLager, TRAKTGRANS_LAGER } from '../../lib/kartTona'
+import { tonaInLager, TRAKTGRANS_LAGER, TRAKT_FYLL_OPACITET } from '../../lib/kartTona'
 import { vantaPaGrundkarta, kameraLage, kameraAndrad } from '../../lib/kartaLaddad'
 import { arKartanPaPositionen, centreraKnappSynlig } from '../../lib/centrera'
 import { jamkaMarkhojd, MARKHOJD_KONTROLL_MS } from '../../lib/kartaMarkhojd'
@@ -2029,7 +2029,7 @@ export default function PlannerPage() {
     // av lib/lagerOrdning. Ingen traktgräns = ingen yta = ingen nedtoning. Kopplingen till objektet är effekten [traktGeo] längre ned.
     map.addSource(UTANFOR_TON_KALLA, { type: 'geojson', data: INGEN_TON as any });
     map.addLayer({ id: UTANFOR_TON_LAGER, type: 'fill', source: UTANFOR_TON_KALLA, paint: { 'fill-color': UTANFOR_TON_FARG, 'fill-opacity': UTANFOR_TON_OPACITET, 'fill-antialias': false }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'traktdel-parts-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': 0.05 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'traktdel-parts-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': TRAKT_FYLL_OPACITET }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-gr-casing', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': TRAKTGRANS_KANT_FARG, 'line-width': trTdCasingW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.fara, 'line-width': trTdW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'trakt-gr-stripe', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.gul, 'line-width': trTdW, 'line-dasharray': [2, 2] }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
@@ -2146,7 +2146,7 @@ export default function PlannerPage() {
     map.addSource('grans-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     // Bara den osynliga tappytan (fyllningen). fill-outline-color transparent → INGEN tunn orange kant;
     // snitseln ritas enbart av line-boundary-*. Siffran ligger på egen punktkälla (yta-nr-source), ej här.
-    map.addLayer({ id: 'grans-fill', type: 'fill', source: 'grans-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': 0.05, 'fill-outline-color': 'rgba(0,0,0,0)' } });
+    map.addLayer({ id: 'grans-fill', type: 'fill', source: 'grans-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': TRAKT_FYLL_OPACITET, 'fill-outline-color': 'rgba(0,0,0,0)' } });
 
     // === Yta-nummer (bitar + egna gränser) på EN punktkälla (centroid) — en siffra per yta, ingen dubblering ===
     // Symbol på polygon dubblerar etiketten när polygonen spänner flera tiles (två 8:or vid inzoomning).

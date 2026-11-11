@@ -35,9 +35,12 @@ export function tonaInLager(
   return n;
 }
 
+/** Traktytans fyllning: OSYNLIG (Martin 2026-11-11: ren flygbild innanför gränsen). Lagret finns kvar som tappyta — queryRenderedFeatures hittar en fill med opacitet 0. */
+export const TRAKT_FYLL_OPACITET = 0;
+
 /** Traktgränsens lager (snitsel + tappyta) — de som syns direkt när objektet öppnas. Slutvärdena = lagrens egna. */
 export const TRAKTGRANS_LAGER: TonaLager[] = [
-  { id: 'trakt-gr-fill', prop: 'fill-opacity', till: 0.05 },
+  { id: 'trakt-gr-fill', prop: 'fill-opacity', till: TRAKT_FYLL_OPACITET },
   { id: 'trakt-gr-casing', prop: 'line-opacity', till: 1 },
   { id: 'trakt-gr-line', prop: 'line-opacity', till: 1 },
   { id: 'trakt-gr-stripe', prop: 'line-opacity', till: 1 },
