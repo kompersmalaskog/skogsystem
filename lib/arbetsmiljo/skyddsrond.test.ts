@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BRAND_OMRADE, OMRADEN, antalBesvarade, avsluta, behoverDigText, byggPunkter, grupperaPunkter, lage, svara, type Rond } from './skyddsrond';
+import { BRAND_OMRADE, OMRADEN, antalBesvarade, avsluta, behoverDigText, byggPunkter, grupperaPunkter, gallerMaskin, lage, platsFranRad, platsText, svara, svarRad, type Rond } from './skyddsrond';
 import { atgardTitel, kallaText } from './atgarder';
 
 const nu = new Date('2026-11-02T12:00:00Z');
@@ -44,5 +44,47 @@ describe('skyddsronden', () => {
     expect(kallaText('skyddsrond')).toBe('Skyddsrond');
     expect(atgardTitel({ kalla: 'skyddsrond', maskinNamn: 'Giant' })).toBe('Skyddsrond · Giant');
     expect(atgardTitel({ kalla: 'skyddsrond', maskinNamn: null })).toBe('Skyddsrond');
+  });
+});
+
+describe('skyddsrond: brist på maskinbilden', () => {
+  const p = byggPunkter(maskiner).find(x => x.id === 'brand_slackare:G')!;
+  const sasong = byggPunkter(maskiner).find(x => x.id === 'sasong')!;
+  const val = { del: 'slackare' as const, x: 200, y: 120, sida: 'hoger' as const };
+
+  it('bara punkter som gäller en maskin får bilden', () => {
+    expect(gallerMaskin(p)).toBe(true);
+    expect(gallerMaskin(sasong)).toBe(true);
+    expect(gallerMaskin({ id: 'forband' })).toBe(true);
+    expect(gallerMaskin({ id: 'hlr' })).toBe(false);
+    expect(gallerMaskin({ id: 'mar' })).toBe(false);
+  });
+
+  it('raden: brist med plats får del, x/y 0..1 och sida; utan plats nollas allt', () => {
+    expect(svarRad('r', p, 'brist', 'Tom', null, { maskinId: 'G', val })).toMatchObject({
+      maskin_id: 'G', maskin_del: 'slackare', maskin_x: 0.5, maskin_y: 0.5, maskin_sida: 'hoger',
+    });
+    expect(svarRad('r', p, 'brist', 'Tom', null, null)).toMatchObject({ maskin_id: 'G', maskin_del: null, maskin_x: null, maskin_y: null, maskin_sida: null });
+    // Vald maskin utan plats: maskinen sparas, ingen prick.
+    expect(svarRad('r', sasong, 'brist', 'Spade', null, { maskinId: 'W', val: null })).toMatchObject({ maskin_id: 'W', maskin_del: null });
+    // Utan sida: sidan nollas, aldrig en gissad.
+    expect(svarRad('r', p, 'brist', 'Tom', null, { maskinId: 'G', val: { del: 'kran', x: 10, y: 10 } })).toMatchObject({ maskin_sida: null });
+  });
+
+  it('Bra och Gäller inte sparar aldrig en plats, och punktens egen maskin står kvar', () => {
+    expect(svarRad('r', p, 'ok', null, 'x.jpg', { maskinId: 'W', val })).toMatchObject({ maskin_id: 'G', maskin_del: null, foto_url: null, beskrivning: null });
+    expect(svarRad('r', sasong, 'galler_inte', null, null, { maskinId: 'W', val })).toMatchObject({ maskin_id: null, maskin_del: null });
+  });
+
+  it('platsen läses tillbaka och sägs i ord', () => {
+    const pl = platsFranRad({ id: 's', rond_id: 'r', punkt: 'x', svar: 'brist', beskrivning: 'Tom', foto_url: null, maskin_id: 'G',
+      maskin_del: 'slackare', maskin_x: 0.5, maskin_y: 0.5, maskin_sida: 'hoger', dim_maskin: { maskin_typ: 'Harvester', modell: 'Scorpion Giant 8W' } });
+    expect(pl?.typ).toBe('skordare8');
+    expect(platsText(pl)).toBe('Släckare, höger sida');
+    // Fel värde eller ingen brist → ingen plats.
+    expect(platsFranRad({ id: 's', rond_id: 'r', punkt: 'x', svar: 'brist', beskrivning: 'Tom', foto_url: null, maskin_id: 'G', maskin_del: 'kran', maskin_x: 2, maskin_y: 0.5 })).toBeNull();
+    expect(platsFranRad({ id: 's', rond_id: 'r', punkt: 'x', svar: 'ok', beskrivning: null, foto_url: null, maskin_id: 'G', maskin_del: 'kran', maskin_x: 0.1, maskin_y: 0.5 })).toBeNull();
+    // Maskin utan teckning: ingen text.
+    expect(platsText({ maskinId: 'L', typ: null, val })).toBeNull();
   });
 });

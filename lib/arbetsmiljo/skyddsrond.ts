@@ -7,6 +7,7 @@
 // Källor till punkterna: Arbetsmiljöverkets exempelhandbok (Undersöka arbetsmiljön), Länsförsäkringar/SBF 127 (brandskydd på
 // skogsmaskiner), Skogforsks Riskhantering avseende brand vid skogsarbete. Ren logik + läsning/skrivning; ingen React.
 
+import { bildTyp, delNamn, franLagring, sidaText, tillLagring, type BildTyp, type Val } from './maskinBild';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type Punkt = { id: string; omrade: string; text: string; hjalp?: string; lank?: string; maskinId?: string };
@@ -85,7 +86,22 @@ export function grupperaPunkter(punkter: readonly Punkt[]): { omrade: string; na
 }
 
 export type SvarTyp = 'ok' | 'brist' | 'galler_inte';
-export type Svar = { id?: string; punkt: string; svar: SvarTyp; beskrivning: string | null; fotoUrl?: string | null };
+/** Var på maskinen bristen sitter (valfritt). typ = teckningen för maskinen, null när den inte har någon. */
+export type BristPlats = { maskinId: string; typ: BildTyp | null; val: Val };
+export type Svar = { id?: string; punkt: string; svar: SvarTyp; beskrivning: string | null; fotoUrl?: string | null; maskinId?: string | null; plats?: BristPlats | null };
+
+/** Punkter vars brist sitter på en maskin: brandskyddet per maskin, och det som ska finnas "i varje maskin". */
+const I_VARJE_MASKIN = new Set(['sasong', 'forband', 'sanering']);
+export function gallerMaskin(p: { id: string; maskinId?: string }): boolean {
+  return !!p.maskinId || I_VARJE_MASKIN.has(p.id);
+}
+
+/** "Släckare, höger sida" — var bristen sitter, i ord. null utan plats eller teckning. */
+export function platsText(pl: BristPlats | null | undefined): string | null {
+  if (!pl || !pl.typ) return null;
+  const sida = sidaText(pl.val);
+  return delNamn(pl.val.del, pl.typ) + (sida ? `, ${sida}` : '');
+}
 export type Rond = { id: string; punkter: Punkt[]; deltagare: string | null; startad: string; klar: string | null; svar: Svar[] };
 
 export const OFTA_DAGAR = 365;
@@ -130,17 +146,39 @@ function tolkaPunkter(raw: unknown): Punkt[] {
   });
 }
 
+export type SvarRad = {
+  id: string; rond_id: string; punkt: string; svar: SvarTyp; beskrivning: string | null; foto_url: string | null;
+  maskin_id?: string | null; maskin_del?: unknown; maskin_x?: unknown; maskin_y?: unknown; maskin_sida?: unknown;
+  dim_maskin?: { maskin_typ: string | null; modell: string | null } | { maskin_typ: string | null; modell: string | null }[] | null;
+};
+
+/** Platsen på en sparad brist. Saknas något → null (ingen prick, aldrig en gissad). */
+export function platsFranRad(r: SvarRad): BristPlats | null {
+  if (r.svar !== 'brist' || !r.maskin_id) return null;
+  const val = franLagring(r.maskin_del, r.maskin_x, r.maskin_y, r.maskin_sida);
+  if (!val) return null;
+  const m = Array.isArray(r.dim_maskin) ? r.dim_maskin[0] : r.dim_maskin;
+  return { maskinId: r.maskin_id, typ: bildTyp(m?.maskin_typ, m?.modell), val };
+}
+
 /** Alla ronder med svar. null = kunde inte läsas. */
 export async function hamtaRonder(sb: SupabaseClient): Promise<Rond[] | null> {
+  const lasSvar = async () => {
+    // Platsen (migration 20261110154714) läses om den finns; går det inte läses svaren utan plats — aldrig ett fel i ronden.
+    const med = await sb.from('am_skyddsrond_svar')
+      .select('id, rond_id, punkt, svar, beskrivning, foto_url, maskin_id, maskin_del, maskin_x, maskin_y, maskin_sida, dim_maskin(maskin_typ, modell)');
+    if (!med.error) return med as { data: unknown; error: unknown };
+    return await sb.from('am_skyddsrond_svar').select('id, rond_id, punkt, svar, beskrivning, foto_url') as { data: unknown; error: unknown };
+  };
   const [r, s] = await Promise.all([
     sb.from('am_skyddsrond').select('id, punkter, deltagare, startad, klar').order('startad', { ascending: false }),
-    sb.from('am_skyddsrond_svar').select('id, rond_id, punkt, svar, beskrivning, foto_url'),
+    lasSvar(),
   ]);
   if (r.error || s.error || !Array.isArray(r.data) || !Array.isArray(s.data)) return null;
-  const svar = s.data as { id: string; rond_id: string; punkt: string; svar: SvarTyp; beskrivning: string | null; foto_url: string | null }[];
+  const svar = s.data as SvarRad[];
   return (r.data as { id: string; punkter: unknown; deltagare: string | null; startad: string; klar: string | null }[]).map(x => ({
     id: x.id, punkter: tolkaPunkter(x.punkter), deltagare: x.deltagare, startad: x.startad, klar: x.klar,
-    svar: svar.filter(y => y.rond_id === x.id).map(y => ({ id: y.id, punkt: y.punkt, svar: y.svar, beskrivning: y.beskrivning, fotoUrl: y.foto_url ?? null })),
+    svar: svar.filter(y => y.rond_id === x.id).map(y => ({ id: y.id, punkt: y.punkt, svar: y.svar, beskrivning: y.beskrivning, fotoUrl: y.foto_url ?? null, maskinId: y.maskin_id ?? null, plats: platsFranRad(y) })),
   }));
 }
 
@@ -160,14 +198,27 @@ export async function startaRond(sb: SupabaseClient, punkter: Punkt[]): Promise<
   return (data as { id: string }).id;
 }
 
-/** Sparar ett svar. Brist utan text sparas inte. Bara en brist kan ha ett foto (sökväg i am-foton). false = gick inte. */
-export async function svara(sb: SupabaseClient, rondId: string, p: Punkt, svar: SvarTyp, beskrivning: string | null, fotoUrl: string | null = null): Promise<boolean> {
+/** Raden som sparas. Bara en brist kan ha foto och plats; platsens maskin går före punktens (för "i varje maskin"). */
+export type PlatsVal = { maskinId: string; val: Val | null };
+
+export function svarRad(rondId: string, p: Punkt, svar: SvarTyp, text: string | null, fotoUrl: string | null, plats: PlatsVal | null) {
+  const brist = svar === 'brist';
+  const pl = brist ? plats : null;
+  const v = pl?.val ?? null;
+  return {
+    rond_id: rondId, punkt: p.id, punkt_text: p.text, maskin_id: pl?.maskinId ?? p.maskinId ?? null, svar,
+    beskrivning: brist ? text : null, foto_url: brist ? fotoUrl : null,
+    maskin_del: null, maskin_x: null, maskin_y: null, maskin_sida: null,
+    ...(v ? tillLagring(v) : {}),
+  } as Record<string, unknown>;
+}
+
+/** Sparar ett svar. Brist utan text sparas inte. Bara en brist kan ha ett foto (sökväg i am-foton) och en plats. false = gick inte. */
+export async function svara(sb: SupabaseClient, rondId: string, p: Punkt, svar: SvarTyp, beskrivning: string | null, fotoUrl: string | null = null,
+  plats: PlatsVal | null = null): Promise<boolean> {
   const text = beskrivning?.trim() || null;
   if (svar === 'brist' && !text) return false;
-  const { error } = await sb.from('am_skyddsrond_svar').upsert(
-    { rond_id: rondId, punkt: p.id, punkt_text: p.text, maskin_id: p.maskinId ?? null, svar, beskrivning: svar === 'brist' ? text : null, foto_url: svar === 'brist' ? fotoUrl : null },
-    { onConflict: 'rond_id,punkt' },
-  );
+  const { error } = await sb.from('am_skyddsrond_svar').upsert(svarRad(rondId, p, svar, text, fotoUrl, plats), { onConflict: 'rond_id,punkt' });
   return !error;
 }
 

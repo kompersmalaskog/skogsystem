@@ -5,7 +5,7 @@
 // PDF:en och skärmen kan aldrig säga olika saker. Ritningen är lib/arbetsmiljo/pdf.ts.
 
 import { allvarligaForst } from '@/lib/riskbedomning';
-import { grupperaPunkter, antalBrister, type Rond, type SvarTyp } from './skyddsrond';
+import { grupperaPunkter, antalBrister, platsText, type Rond, type SvarTyp } from './skyddsrond';
 import {
   ALLA_LASER, MASKINTYPER, TYP_NAMN, lage, lastTid, lista, underlag,
   type Bedomning, type Kvitto, type MaskinTyp,
@@ -92,7 +92,8 @@ export function skyddsrondDokument(rond: Rond, atgarder: readonly RondAtgard[] |
       rader: brister
         .map(({ p, s }) => {
           const st = atgarder ? atgardStatus(atgardFor(s?.id), idag) : null;
-          return { titel: p.text, text: s?.beskrivning ?? undefined, status: st?.status, ton: st?.ton };
+          const plats = platsText(s?.plats);
+          return { titel: p.text, text: [s?.beskrivning, plats].filter(Boolean).join(' · ') || undefined, status: st?.status, ton: st?.ton };
         })
         .sort((a, b) => Number(a.ton === 'bra') - Number(b.ton === 'bra')),
     });

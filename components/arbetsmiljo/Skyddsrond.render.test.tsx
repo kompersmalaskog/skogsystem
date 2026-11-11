@@ -4,13 +4,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
-import type { Punkt, Rond, SvarTyp } from '@/lib/arbetsmiljo/skyddsrond';
+import type { PlatsVal, Punkt, Rond, SvarTyp } from '@/lib/arbetsmiljo/skyddsrond';
+let senastePlats: PlatsVal | null = null;
 
 let lasare = true;
 vi.mock('@/lib/supabase', () => ({ supabase: {
   rpc: async () => ({ data: lasare, error: null }),
   from: () => ({ select: () => {
-    const svar = Promise.resolve({ data: [{ maskin_id: 'G', visningsnamn: 'Giant', aktiv_till: null }], error: null });
+    const svar = Promise.resolve({ data: [{ maskin_id: 'G', visningsnamn: 'Giant', aktiv_till: null, maskin_typ: 'Harvester', modell: 'Scorpion Giant 8W' }, { maskin_id: 'W', visningsnamn: 'Wisent', aktiv_till: null, maskin_typ: 'Forwarder', modell: 'Wisent' }], error: null });
     return Object.assign(svar, { eq: async () => ({ data: [], error: null }) });
   } }),
 } }));
@@ -31,8 +32,11 @@ vi.mock('@/lib/arbetsmiljo/skyddsrond', async (orig) => {
     byggPunkter: () => kort,
     hamtaRonder: async () => JSON.parse(JSON.stringify(ronder)),
     startaRond: async (_s: unknown, punkter: Punkt[]) => { ronder.unshift({ id: 'ny', punkter, deltagare: null, startad: new Date().toISOString(), klar: null, svar: [] }); return 'ny'; },
-    svara: async (_s: unknown, id: string, p: Punkt, svar: SvarTyp, b: string | null, foto: string | null = null) => {
-      const r = ronder.find(x => x.id === id)!; r.svar = r.svar.filter(x => x.punkt !== p.id); r.svar.push({ punkt: p.id, svar, beskrivning: b, fotoUrl: foto }); return true;
+    svara: async (_s: unknown, id: string, p: Punkt, svar: SvarTyp, b: string | null, foto: string | null = null, plats: PlatsVal | null = null) => {
+      senastePlats = plats;
+      const typ = plats ? (plats.maskinId === 'W' ? 'skotare' : 'skordare8') : null;
+      const r = ronder.find(x => x.id === id)!; r.svar = r.svar.filter(x => x.punkt !== p.id);
+      r.svar.push({ punkt: p.id, svar, beskrivning: b, fotoUrl: foto, maskinId: plats?.maskinId ?? p.maskinId ?? null, plats: plats?.val ? { maskinId: plats.maskinId, typ, val: plats.val } as never : null }); return true;
     },
     avsluta: async (_s: unknown, id: string, d: string) => { if (avslutFel) return avslutFel; const r = ronder.find(x => x.id === id)!; r.klar = new Date().toISOString(); r.deltagare = d; return null; },
   };
@@ -111,6 +115,41 @@ describe('Skyddsrond', () => {
     for (let i = 0; i < 40 && !pdfBytes; i++) await act(async () => { await new Promise(r => setTimeout(r, 25)); });
     expect(q('[data-testid="pdf-panel"]')!.textContent).toBe('Skyddsrond');
     expect(pdfBytes!.length).toBeGreaterThan(1000);
+  });
+
+  it('en brist pekas ut på maskinbilden: brandskyddet direkt på maskinen, "i varje maskin" efter val av maskin', async () => {
+    await act(async () => { root.render(<Skyddsrond />); }); await vanta();
+    await act(async () => { q('[data-testid="sr-starta"]')!.click(); }); await vanta();
+    // Bra visar ingen bild.
+    await act(async () => { q('[data-testid="sr-punkt-brand_slackare:G"]')!.click(); });
+    expect(q('[data-testid="sr-pa-maskinen"]')).toBeNull();
+    await act(async () => { q('[data-testid="sr-svar-brist"]')!.click(); });
+    // Brandskyddet gäller Giant: teckningen direkt, inget maskinval.
+    expect(q('[data-testid="sr-pa-maskinen"] svg')).toBeTruthy();
+    expect(q('[data-testid="sr-maskin-G"]')).toBeNull();
+    await skriv('[data-testid="sr-brist-text"]', 'Släckaren tom');
+    const slackare = [...document.querySelectorAll('[data-testid="sr-pa-maskinen"] [role="radio"]')].find(b => b.textContent?.endsWith('Släckare')) as HTMLElement;
+    await act(async () => { slackare.click(); });
+    await act(async () => { q('[data-testid="sr-spara-brist"]')!.click(); }); await vanta();
+    expect(senastePlats?.maskinId).toBe('G');
+    expect(senastePlats?.val?.del).toBe('slackare');
+    expect(q('[data-testid="sr-punkt-brand_slackare:G"]')!.textContent).toContain('Brist: Släckaren tom · Släckare, vänster sida');
+    // Öppnas igen står pricken kvar; Ta bort platsen sparar utan plats men med maskinen.
+    await act(async () => { q('[data-testid="sr-punkt-brand_slackare:G"]')!.click(); });
+    expect(q('[data-testid="sr-plats-bort"]')).toBeTruthy();
+    await act(async () => { q('[data-testid="sr-plats-bort"]')!.click(); });
+    await act(async () => { q('[data-testid="sr-spara-brist"]')!.click(); }); await vanta();
+    expect(senastePlats).toEqual({ maskinId: 'G', val: null });
+
+    // "I varje maskin": välj maskin först, sedan visas just den maskinens teckning.
+    await act(async () => { q('[data-testid="sr-punkt-sasong"]')!.click(); });
+    await act(async () => { q('[data-testid="sr-svar-brist"]')!.click(); });
+    expect(q('[data-testid="sr-pa-maskinen"] svg')).toBeNull();
+    await act(async () => { q('[data-testid="sr-maskin-W"]')!.click(); });
+    expect(q('[data-testid="sr-pa-maskinen"] svg title')!.textContent).toContain('Wisent');
+    await skriv('[data-testid="sr-brist-text"]', 'Spade saknas');
+    await act(async () => { q('[data-testid="sr-spara-brist"]')!.click(); }); await vanta();
+    expect(senastePlats).toEqual({ maskinId: 'W', val: null });
   });
 
   it('den som inte går ronden ser bara en rad', async () => {
