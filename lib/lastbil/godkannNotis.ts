@@ -13,6 +13,7 @@
  */
 
 import { sthlmDelar } from '@/lib/sthlmTid';
+import { FULLT_UT_AR, fulltUt } from '@/lib/fulltUt';
 
 export const FLYTT_GODKANN = 'flytt_godkann';
 export const arGodkannNotis = (typ: unknown): typ is typeof FLYTT_GODKANN => typ === FLYTT_GODKANN;
@@ -67,6 +68,7 @@ export async function byggGodkannNotis(
   hamta: HamtaVantande,
   nu: number = Date.now(),
 ): Promise<GodkannNotisUtfall> {
+  if (!fulltUt(nu)) return { typ: 'hoppa_over', orsak: `Ej skickad — appen används fullt ut från ${FULLT_UT_AR}` };
   const koad = n.skapad_at ? Date.parse(n.skapad_at) : NaN;
   if (Number.isFinite(koad) && nu - koad > GODKANN_MAX_ALDER_MS) return { typ: 'hoppa_over', orsak: 'Ej skickad — för gammal (köad för mer än 24 timmar sedan)' };
   const { rader, fel } = await hamta();

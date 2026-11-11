@@ -4,6 +4,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { FLYTT_GODKANN, godkannKoNyckel, type VantandeUnderlag } from './godkannNotis';
+import { fulltUt } from '@/lib/fulltUt';
 
 export type KoRapport = { ok: boolean; vantar: number; koade: number; fel?: string };
 
@@ -16,6 +17,7 @@ export async function lasVantandeUnderlag(sb: SupabaseClient): Promise<{ rader: 
 }
 
 export async function koaGodkannPaminnelse(sb: SupabaseClient, nu: Date = new Date()): Promise<KoRapport> {
+  if (!fulltUt(nu)) return { ok: true, vantar: 0, koade: 0 };
   const nyckel = godkannKoNyckel(nu);
   if (!nyckel) return { ok: true, vantar: 0, koade: 0 };
   const v = await lasVantandeUnderlag(sb);

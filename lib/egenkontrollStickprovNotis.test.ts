@@ -1,8 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { EGENKONTROLL_STICKPROV, STICKPROV_MAX_ALDER_MS, arStickprovNotis, byggStickprovNotis, stickprovNotisText, type HamtaStickprov, type StickprovNotisRad } from './egenkontrollStickprovNotis';
 import { flushUrval } from './ledighet/notis';
+
+// Reglerna här gäller när appen används fullt ut (lib/fulltUt.ts). Före 2027: lib/fulltUt.test.ts.
+vi.mock('@/lib/fulltUt', async (orig) => ({ ...(await orig<typeof import('@/lib/fulltUt')>()), fulltUt: () => true }));
+
 
 const valda = (n: number) => Array.from({ length: n }, (_, i) => ({ objekt_id: `o${i}`, namn: `O${i}`, ordning: i + 1, km_fran_ankare: i }));
 const rad = (n: number, spridning: number | null): StickprovNotisRad => ({ manad: '2026-11-01', valda: valda(n), spridning_km: spridning });

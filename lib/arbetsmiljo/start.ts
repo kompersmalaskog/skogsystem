@@ -8,15 +8,17 @@
  * Det som HÄNDER gäller alltid, också före start: en maskin som ska stå, Något är fel, tillbud och olyckor (med
  * påminnelsen om anmälan), "Lagat" till den som rapporterade och säkerhetsblad som saknas för något nyköpt.
  *
- * Ändra startåret HÄR och ingen annanstans.
+ * Startåret står i lib/fulltUt.ts.
  */
 
-export const ARBETSMILJO_START_AR = 2027;
+import { FULLT_UT_AR, fulltUt } from '@/lib/fulltUt';
+
+/** Samma år som resten av appen (lib/fulltUt.ts). */
+export const ARBETSMILJO_START_AR = FULLT_UT_AR;
 
 /** Har arbetsmiljön börjat räknas? Svenskt år, så nyårsnatten räknas rätt. */
 export function arbetsmiljoIgang(nu: Date = new Date()): boolean {
-  const ar = Number(new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric' }).format(nu));
-  return ar >= ARBETSMILJO_START_AR;
+  return fulltUt(nu);
 }
 
 /** Texten som står där appen annars hade sagt att något är sent. */
