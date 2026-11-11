@@ -226,7 +226,7 @@ import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
 import { NARA_FLYTT_M, NARA_TON_FARG, NARA_TON_KALLA, NARA_TON_LAGER, meterMellan, naraTonYta } from '../../lib/naraTon'
-import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, tonPaint, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner, tonPolygonerMedEgna } from '../../lib/traktTon'
+import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, UTANFOR_TON_PA, tonPaint, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner, tonPolygonerMedEgna } from '../../lib/traktTon'
 import { PLANSPAR_LAGER, PLANSPAR_NYCKEL, planSparPa, vaxlaPlanSpar } from '../../lib/planSparLager'
 import { KLART_FARG, KLART_YTA_KANT_BREDD, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_KANT_LAGER, INGA_YTOR, skotadeYtor } from '../../lib/kartKlart'
 import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
@@ -5273,6 +5273,7 @@ export default function PlannerPage() {
   // fastighetsnedtoning är påslagen (lagret Fastighetsgränser + Vida-data) tonar den redan ned det som ligger utanför, och de två läggs inte ovanpå varandra.
   // Saknar objektet Vidas gräns används planerarens egna traktgränser (samma omräkning som svgToLatLon, som deklareras längre ned).
   const tonYta = useMemo(() => {
+    if (!UTANFOR_TON_PA) return INGEN_TON;
     if (!(traktGeoHamtadFor && valtObjekt?.id && traktGeoHamtadFor === valtObjekt.id)) return INGEN_TON;
     const mLon = 111320 * Math.cos(mapCenter.lat * Math.PI / 180);
     const egna = markers.filter((m: any) => m.isLine && m.lineType === 'boundary' && Array.isArray(m.path) && m.path.length > 2)
@@ -5285,7 +5286,7 @@ export default function PlannerPage() {
     const src = map.getSource(UTANFOR_TON_KALLA) as any;
     if (!src?.setData || !map.getLayer(UTANFOR_TON_LAGER)) return;
     try { src.setData(tonYta as any); } catch { /* */ }
-    try { map.setLayoutProperty(UTANFOR_TON_LAGER, 'visibility', tonYta.features.length > 0 && !fastighetsSyn.vida ? 'visible' : 'none'); } catch { /* */ }
+    try { map.setLayoutProperty(UTANFOR_TON_LAGER, 'visibility', UTANFOR_TON_PA && tonYta.features.length > 0 && !fastighetsSyn.vida ? 'visible' : 'none'); } catch { /* */ }
     try { for (const [k, v] of Object.entries(tonPaint(mapType))) map.setPaintProperty(UTANFOR_TON_LAGER, k, v); } catch { /* */ }
   }, [tonYta, fastighetsSyn.vida, mapLibreReady, mapType]);
 

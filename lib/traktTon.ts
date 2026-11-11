@@ -15,6 +15,8 @@ import { BAKGRUND as RITAD_BAKGRUND, MORK_BAKGRUND } from './ritadKarta/stil';
 export const UTANFOR_TON_FARG = FARG.bg;
 /** Så mycket mörkare blir det utanför: 25 %. */
 export const UTANFOR_TON_OPACITET = 0.25;
+/** AVSTÄNGD (Martin 2026-11-11: "ser billigt ut" — den ljusa ringen runt trakten var en andra kant utan betydelse; snitseln visar trakten). Koden finns kvar. */
+export const UTANFOR_TON_PA = false;
 /**
  * Med bakgrunden Ritad (en mörk ritad karta) syns 25 % svart knappt — utanför trakten ska ändå vara lugnt (Martin 2026-10-31, "som Tesla": bara det
  * som gäller nu syns fullt). Där läggs den ritade kartans egen bakgrundsfärg till hälften över: skog och blött utanför blir grå och stilla.
