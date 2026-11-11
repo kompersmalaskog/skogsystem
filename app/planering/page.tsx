@@ -16501,7 +16501,7 @@ export default function PlannerPage() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', marginBottom: '24px' }}>
                 <button type="button" className="btn-press" onClick={() => setVal(val - 1)}
                   style={{ width: '52px', height: '52px', borderRadius: '26px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '28px', lineHeight: 1, cursor: 'pointer' }}>−</button>
-                {/* Ingen autoFocus/markering (Martin 2026-11-11): siffran stod blåmarkerad varje gång — det vanliga är 1, och − / + räcker. Tryck i fältet för att skriva. */}
+                {/* Fältet tar inte fokus av sig självt (Martin 2026-11-11): siffran stod blåmarkerad varje gång — det vanliga är 1, och − / + räcker. Tryck i fältet för att skriva. */}
                 <input type="number" inputMode="numeric" min={1}
                   value={val}
                   onChange={ev => { const n = parseInt(ev.target.value, 10); setVal(Number.isFinite(n) ? n : 1); }}
