@@ -9,6 +9,8 @@
 
 import { bildTyp, delNamn, franLagring, sidaText, tillLagring, type BildTyp, type Val } from './maskinBild';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { hamtaAnsvar } from './atgarder';
+import type { RondAtgard } from './dokument';
 
 export type Punkt = { id: string; omrade: string; text: string; hjalp?: string; lank?: string; maskinId?: string };
 export type Omrade = { id: string; namn: string; punkter: { id: string; text: string; hjalp?: string; lank?: string }[] };
@@ -183,12 +185,19 @@ export async function hamtaRonder(sb: SupabaseClient): Promise<Rond[] | null> {
 }
 
 /** Åtgärderna som bristerna blev (för PDF:en). null = kunde inte läsas. */
-export async function hamtaRondAtgarder(sb: SupabaseClient): Promise<{ svarId: string; status: 'oppen' | 'klar'; deadline: string | null; vadGjordes: string | null; stangdTid: string | null }[] | null> {
-  const { data, error } = await sb.from('am_atgard').select('skyddsrond_svar_id, status, deadline, vad_gjordes, stangd_tid').eq('kalla', 'skyddsrond');
+export async function hamtaRondAtgarder(sb: SupabaseClient): Promise<RondAtgard[] | null> {
+  const [{ data, error }, ansvar] = await Promise.all([
+    sb.from('am_atgard').select('id, skyddsrond_svar_id, status, deadline, vad_gjordes, stangd_tid').eq('kalla', 'skyddsrond'),
+    hamtaAnsvar(sb),
+  ]);
   if (error || !Array.isArray(data)) return null;
-  return (data as { skyddsrond_svar_id: string | null; status: 'oppen' | 'klar'; deadline: string | null; vad_gjordes: string | null; stangd_tid: string | null }[])
+  return (data as { id: string; skyddsrond_svar_id: string | null; status: 'oppen' | 'klar'; deadline: string | null; vad_gjordes: string | null; stangd_tid: string | null }[])
     .filter(a => a.skyddsrond_svar_id)
-    .map(a => ({ svarId: a.skyddsrond_svar_id!, status: a.status, deadline: a.deadline, vadGjordes: a.vad_gjordes, stangdTid: a.stangd_tid }));
+    .map(a => ({
+      svarId: a.skyddsrond_svar_id!, status: a.status, deadline: a.deadline, vadGjordes: a.vad_gjordes, stangdTid: a.stangd_tid,
+      // Vem (tillägget am_atgard_ansvar): går det inte att läsa sägs ingenting om vem i PDF:en.
+      ansvarig: ansvar ? ansvar.get(a.id)?.namn ?? null : undefined,
+    }));
 }
 
 /** Startar en rond med listan som gäller nu. null = gick inte. */

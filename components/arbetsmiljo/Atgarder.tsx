@@ -16,8 +16,9 @@ import MaskinBild from '@/components/arbetsmiljo/MaskinBild';
 import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import { ANMAL_LANK, ejAnmald, hamtaTillbudInfo, markeraAnmald, type TillbudInfo } from '@/lib/arbetsmiljo/tillbud';
 import {
-  atgardTitel, deadlineText, farStanga, felText, fornamn, fotoLank, gruppera, hamtaAtgarder, kallaText, narText, stangAtgard, svar, svenskDag, underText,
-  type Atgard, type Las,
+  atgardTitel, datumKort, deadlineText, deadlineVal, farStanga, felText, fornamn, fotoLank, gruppera, hamtaAtgarder, hamtaPersoner, kallaText, narText,
+  sattAnsvar, stangAtgard, svar, svenskDag, underText,
+  type Ansvarig, type Atgard, type Las,
 } from '@/lib/arbetsmiljo/atgarder';
 
 function lasId(): string | null {
@@ -67,6 +68,12 @@ export default function Atgarder() {
     void hamta(true);
   };
 
+  // Efter ett nytt "Vem" eller "Senast": raden visar det direkt, sedan läses listan om tyst.
+  const andrad = (id: string, patch: Partial<Pick<Atgard, 'ansvarig' | 'deadline'>>) => {
+    setLista(l => l?.ok ? { ok: true, data: l.data.map(a => a.id === id ? { ...a, ...patch } : a) } : l);
+    void hamta(true);
+  };
+
   useEffect(() => { setValdId(lasId()); void hamta(); }, [hamta]);
 
   const oppna = (id: string) => { setValdId(id); sattId(id); };
@@ -100,7 +107,7 @@ export default function Atgarder() {
         </div>
       )}
 
-      {vald && <AtgardArk a={vald} idag={idag} far={far === true} tillbud={tillbud?.get(vald.id) ?? null} onStang={stang} onStangd={(text) => stangd(vald.id, text)}
+      {vald && <AtgardArk a={vald} idag={idag} far={far === true} tillbud={tillbud?.get(vald.id) ?? null} onStang={stang} onStangd={(text) => stangd(vald.id, text)} onAndrad={(patch) => andrad(vald.id, patch)}
         onAnmald={(tid) => setTillbud(m => { if (!m) return m; const ny = new Map(m); const i = ny.get(vald.id); if (i) ny.set(vald.id, { ...i, anmaldTid: tid }); return ny; })} />}
       {lista?.ok && valdId && !vald && (
         <Ark rubrik="Åtgärden finns inte" onStang={stang} stang="Klar">
@@ -135,6 +142,7 @@ function Lista({ g, idag, tillbud, visaKlara, onVisaKlara, onOppna }: {
             {g.stopp.map((a, i) => (
               <Rad key={a.id} titel={<><Prick farg={FARG.rod} />{atgardTitel(a, tillbud?.get(a.id)?.typ)}</>}
                 under={<>{felText(a)}<br />{underText(a)}</>}
+                hogerUnder={fornamn(a.ansvarig?.namn ?? null) ?? undefined}
                 onTryck={() => onOppna(a.id)} sista={i === g.stopp.length - 1} attr={{ 'data-atgard': a.id }} />
             ))}
           </Sektion>
@@ -150,6 +158,7 @@ function Lista({ g, idag, tillbud, visaKlara, onVisaKlara, onOppna }: {
                 <Rad key={a.id} titel={atgardTitel(a, tillbud?.get(a.id)?.typ)}
                   under={<>{felText(a)}<br />{underText(a)}{ejAnmald(tillbud?.get(a.id)) && <span data-ej-anmald style={{ color: FARG.orange }}> · Inte anmäld</span>}</>}
                   hoger={d ? <span style={{ color: d.sen ? FARG.orange : FARG.text }}>{d.text}</span> : undefined}
+                  hogerUnder={fornamn(a.ansvarig?.namn ?? null) ?? undefined}
                   onTryck={() => onOppna(a.id)} sista={i === g.oppna.length - 1} attr={{ 'data-atgard': a.id }} />
               );
             })}
@@ -179,8 +188,21 @@ function Prick({ farg }: { farg: string }) {
   return <span aria-hidden style={{ display: 'inline-block', width: AVSTAND.s, height: AVSTAND.s, borderRadius: '50%', background: farg, marginRight: AVSTAND.s, verticalAlign: 'middle' }} />;
 }
 
-function AtgardArk({ a, idag, far, tillbud, onStang, onStangd, onAnmald }: {
+function AtgardArk({ a, idag, far, tillbud, onStang, onStangd, onAnmald, onAndrad }: {
   a: Atgard; idag: string; far: boolean; tillbud: TillbudInfo | null; onStang: () => void; onStangd: (vadGjordes: string) => void; onAnmald: (tid: string) => void;
+  onAndrad: (patch: Partial<Pick<Atgard, 'ansvarig' | 'deadline'>>) => void;
+}) {
+  // "Vem" och "Senast" väljs i samma ark (en egen vy), aldrig ett ark ovanpå ett ark.
+  const [vy, setVy] = useState<'atgard' | 'vem' | 'nar'>('atgard');
+  if (vy !== 'atgard') {
+    return <VemNarVy a={a} idag={idag} vy={vy} onTillbaka={() => setVy('atgard')} onSparad={(patch) => { onAndrad(patch); setVy('atgard'); }} />;
+  }
+  return <AtgardInnehall a={a} idag={idag} far={far} tillbud={tillbud} onStang={onStang} onStangd={onStangd} onAnmald={onAnmald} onVem={() => setVy('vem')} onNar={() => setVy('nar')} />;
+}
+
+function AtgardInnehall({ a, idag, far, tillbud, onStang, onStangd, onAnmald, onVem, onNar }: {
+  a: Atgard; idag: string; far: boolean; tillbud: TillbudInfo | null; onStang: () => void; onStangd: (vadGjordes: string) => void; onAnmald: (tid: string) => void;
+  onVem: () => void; onNar: () => void;
 }) {
   const [bild, setBild] = useState<'laddar' | 'fel' | string>(a.fotoUrl ? 'laddar' : 'fel');
   const [text, setText] = useState('');
@@ -243,10 +265,24 @@ function AtgardArk({ a, idag, far, tillbud, onStang, onStangd, onAnmald }: {
 
       <div style={{ marginTop: AVSTAND.l }}>
         <Sektion rubrik="Rapporterat" kort={false}>
-          <Rad titel={kallaText(a.kalla)} under={underText(a)} pil={false} sista={!(oppen && d)} />
-          {oppen && d && <Rad titel="Senast" hoger={<span style={{ color: d.sen ? FARG.orange : FARG.text }}>{d.text}</span>} pil={false} sista />}
+          <Rad titel={kallaText(a.kalla)} under={underText(a)} pil={false} sista />
         </Sektion>
       </div>
+
+      {oppen && (
+        <div style={{ marginTop: AVSTAND.l }} data-vem-nar>
+          <Sektion rubrik="Vem gör det och när?" kort={false}>
+            {a.ansvarig !== undefined && (
+              <Rad titel="Vem" attr={{ 'data-vem': '' }}
+                hoger={a.ansvarig ? fornamn(a.ansvarig.namn) : <span style={{ color: far ? FARG.orange : FARG.text2 }}>Ingen vald</span>}
+                onTryck={far ? onVem : undefined} sista={false} />
+            )}
+            <Rad titel="Senast" attr={{ 'data-nar': '' }}
+              hoger={d ? <span style={{ color: d.sen ? FARG.orange : FARG.text }}>{d.text}</span> : <span style={{ color: far ? FARG.orange : FARG.text2 }}>Inget datum</span>}
+              onTryck={far ? onNar : undefined} sista />
+          </Sektion>
+        </div>
+      )}
 
       {a.kalla === 'tillbud' && tillbud && <Anmalan info={tillbud} far={far} onAnmald={onAnmald} />}
 
@@ -276,6 +312,62 @@ function AtgardArk({ a, idag, far, tillbud, onStang, onStangd, onAnmald }: {
 
       {oppen && !far && (
         <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.l}px 0 0` }}>Arbetsledningen markerar åtgärden som klar.</p>
+      )}
+    </Ark>
+  );
+}
+
+/** Väljer vem som gör åtgärden, eller senast när. Ett tryck sparar och går tillbaka; Avbryt går tillbaka utan att spara. */
+function VemNarVy({ a, idag, vy, onTillbaka, onSparad }: {
+  a: Atgard; idag: string; vy: 'vem' | 'nar'; onTillbaka: () => void; onSparad: (patch: Partial<Pick<Atgard, 'ansvarig' | 'deadline'>>) => void;
+}) {
+  const [personer, setPersoner] = useState<Ansvarig[] | null | 'laddar'>('laddar');
+  const [sparar, setSparar] = useState(false);
+  const [fel, setFel] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (vy !== 'vem') return;
+    let vid = true;
+    hamtaPersoner(supabase).then(p => { if (vid) setPersoner(p); });
+    return () => { vid = false; };
+  }, [vy]);
+
+  const spara = async (andring: { ansvarigId?: string | null; deadline?: string }, patch: Partial<Pick<Atgard, 'ansvarig' | 'deadline'>>) => {
+    if (sparar) return;
+    setSparar(true); setFel(null);
+    const f = await sattAnsvar(supabase, a.id, andring);
+    setSparar(false);
+    if (f) { setFel(f); return; }
+    onSparad(patch);
+  };
+
+  // Det som redan är valt får en bock (vit — blått betyder navigera).
+  const vald = (on: boolean) => on ? <Ikon namn="check" farg={FARG.text} /> : undefined;
+
+  return (
+    <Ark rubrik={vy === 'vem' ? 'Vem gör det?' : 'Senast när?'} onStang={onTillbaka}>
+      {fel && <p role="alert" style={{ ...TYP.text, color: FARG.orange, margin: `0 0 ${AVSTAND.m}px` }}>{fel}</p>}
+      {vy === 'vem' && personer === 'laddar' && <p style={{ ...TYP.meta, color: FARG.text2, margin: 0 }}>Läser …</p>}
+      {vy === 'vem' && personer === null && <p role="alert" style={{ ...TYP.text, color: FARG.orange, margin: 0 }}>Kunde inte läsa vilka som finns.</p>}
+      {vy === 'vem' && Array.isArray(personer) && (
+        <Sektion rubrik="Medarbetare" kort={false}>
+          {personer.map((p, i) => (
+            <Rad key={p.id} titel={p.namn} hoger={vald(a.ansvarig?.id === p.id)} pil={false} attr={{ 'data-person': p.id }}
+              onTryck={() => void spara({ ansvarigId: p.id }, { ansvarig: p })} sista={i === personer.length - 1 && !a.ansvarig} />
+          ))}
+          {a.ansvarig && (
+            <Rad titel={<span style={{ color: FARG.text2 }}>Ingen</span>} pil={false} attr={{ 'data-person-ingen': '' }}
+              onTryck={() => void spara({ ansvarigId: null }, { ansvarig: null })} sista />
+          )}
+        </Sektion>
+      )}
+      {vy === 'nar' && (
+        <Sektion rubrik="Senast" kort={false}>
+          {deadlineVal(idag).map((v, i, l) => (
+            <Rad key={v.text} titel={v.text} hoger={<>{datumKort(v.dag)}{a.deadline === v.dag && <> {vald(true)}</>}</>} pil={false}
+              attr={{ 'data-nar-val': v.dag }} onTryck={() => void spara({ deadline: v.dag }, { deadline: v.dag })} sista={i === l.length - 1} />
+          ))}
+        </Sektion>
       )}
     </Ark>
   );

@@ -48,7 +48,11 @@ const fornamn = (n: string | null | undefined) => n?.trim().split(/\s+/)[0] || n
 // ── Skyddsronden ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Åtgärden som en brist blev (am_atgard, kalla 'skyddsrond'). */
-export type RondAtgard = { svarId: string; status: 'oppen' | 'klar'; deadline: string | null; vadGjordes: string | null; stangdTid: string | null };
+export type RondAtgard = {
+  svarId: string; status: 'oppen' | 'klar'; deadline: string | null; vadGjordes: string | null; stangdTid: string | null;
+  /** Vem som ska göra den. null = ingen vald; undefined = kunde inte läsas (då sägs ingenting om vem). */
+  ansvarig?: string | null;
+};
 
 const SVAR_ORD: Record<SvarTyp, string> = { ok: 'Bra', brist: 'Brist', galler_inte: 'Gäller inte' };
 const SVAR_TON: Record<SvarTyp, Ton> = { ok: 'bra', brist: 'brist', galler_inte: 'dampad' };
@@ -64,8 +68,10 @@ export function atgardStatus(a: RondAtgard | undefined, idag: string): { status:
     const nar = a.stangdTid ? ` ${langtDatum(a.stangdTid)}` : '';
     return { status: `Åtgärdad${nar}${a.vadGjordes ? ` – ${a.vadGjordes}` : ''}`, ton: 'bra' };
   }
-  if (a.deadline && a.deadline < idag) return { status: `Inte åtgärdad · skulle vara klar ${langtDatum(a.deadline)}`, ton: 'brist' };
-  return { status: a.deadline ? `Inte åtgärdad än · senast ${langtDatum(a.deadline)}` : 'Inte åtgärdad än', ton: 'brist' };
+  // Vem ska göra den (AFS 2023:1): förnamnet, "ingen ansvarig vald" när ingen är vald, ingenting när det inte gick att läsa.
+  const vem = a.ansvarig === undefined ? '' : ` · ${fornamn(a.ansvarig) ?? 'ingen ansvarig vald'}`;
+  if (a.deadline && a.deadline < idag) return { status: `Inte åtgärdad${vem} · skulle vara klar ${langtDatum(a.deadline)}`, ton: 'brist' };
+  return { status: a.deadline ? `Inte åtgärdad än${vem} · senast ${langtDatum(a.deadline)}` : `Inte åtgärdad än${vem}`, ton: 'brist' };
 }
 
 /**
