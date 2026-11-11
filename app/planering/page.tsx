@@ -135,7 +135,7 @@ import { tolkaSparadPosition, MASKINPOS_NYCKEL, sparObjektGiltigt, valjPosObjekt
 import { hamtaSenasteSparStart, taForladdadSparStart, forladdaTraktGeo, taForladdadTraktGeo } from '../../lib/maskinPositionDb'
 import { markeraStart } from '../../lib/maskinstartMatning'
 import { installeraKameraLogg } from '../../lib/kameraLogg'
-import { tonaInLager, TRAKTGRANS_LAGER } from '../../lib/kartTona'
+import { tonaInLager, TRAKTGRANS_LAGER, TRAKT_FYLL_OPACITET } from '../../lib/kartTona'
 import { vantaPaGrundkarta, kameraLage, kameraAndrad } from '../../lib/kartaLaddad'
 import { arKartanPaPositionen, centreraKnappSynlig } from '../../lib/centrera'
 import { jamkaMarkhojd, MARKHOJD_KONTROLL_MS } from '../../lib/kartaMarkhojd'
@@ -226,7 +226,7 @@ import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
 import { NARA_FLYTT_M, NARA_TON_FARG, NARA_TON_KALLA, NARA_TON_LAGER, meterMellan, naraTonYta } from '../../lib/naraTon'
-import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, tonPaint, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner, tonPolygonerMedEgna } from '../../lib/traktTon'
+import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, UTANFOR_TON_PA, tonPaint, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner, tonPolygonerMedEgna } from '../../lib/traktTon'
 import { PLANSPAR_LAGER, PLANSPAR_NYCKEL, planSparPa, vaxlaPlanSpar } from '../../lib/planSparLager'
 import { KLART_FARG, KLART_YTA_KANT_BREDD, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_KANT_LAGER, INGA_YTOR, skotadeYtor } from '../../lib/kartKlart'
 import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
@@ -764,21 +764,14 @@ const TESTBANNER_HOJD_PX = 36;
 const fornyaSessionVida = skapaFornyare(() => supabase.auth.refreshSession())
 
 // Högarna som prickar (skotarläget och planeringsvyn, lib/skotarHogarKvar). Läggs i kartans grundlager OCH körvyns (stilbyte återskapar lagren).
-const HOG_OMRADE_KALLA = 'skotar-hogomrade-klart-source';
 /** Under den här zoomen syns inga högar — kartan är lugn utzoomat. */
 const HOGAR_FRAN_ZOOM = 15;
 /** Ordet på egna Blött-ytor står först från den här zoomen. */
 const BLOTT_ORD_FRAN_ZOOM = 16;
 function laggTillHogPrickar(map: any) {
-  // Förarens markeringar (lib/skotarHogarKvar, tabellen skotar_hog_markering): ett område som markerats taget ritas grått UNDER prickarna — klart är grått.
-  for (const k of [HOG_OMRADE_KALLA, 'skotar-hogar-vald-source', 'skotar-hogomrade-source']) {
+  // Förarens markeringar (tabellen skotar_hog_markering) syns bara som att högarna försvinner — inget grått område (Martin 2026-11-11: "rent och snyggt").
+  for (const k of ['skotar-hogar-vald-source', 'skotar-hogomrade-source']) {
     if (!map.getSource(k)) { try { map.addSource(k, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); } catch (e) { console.error('[Högar] källa', k, e); } }
-  }
-  if (!map.getLayer('klart-hogomrade')) {
-    try {
-      map.addLayer({ id: 'klart-hogomrade', type: 'fill', source: HOG_OMRADE_KALLA, filter: ['==', ['geometry-type'], 'Polygon'],
-        paint: { 'fill-color': KLART_FARG, 'fill-opacity': 0.25 }, layout: { 'visibility': 'none' } });
-    } catch (e) { console.error('[Högar] område:', e); }
   }
   if (!map.getLayer('drawing-hogomrade-fill')) {
     try {
@@ -2036,7 +2029,7 @@ export default function PlannerPage() {
     // av lib/lagerOrdning. Ingen traktgräns = ingen yta = ingen nedtoning. Kopplingen till objektet är effekten [traktGeo] längre ned.
     map.addSource(UTANFOR_TON_KALLA, { type: 'geojson', data: INGEN_TON as any });
     map.addLayer({ id: UTANFOR_TON_LAGER, type: 'fill', source: UTANFOR_TON_KALLA, paint: { 'fill-color': UTANFOR_TON_FARG, 'fill-opacity': UTANFOR_TON_OPACITET, 'fill-antialias': false }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'traktdel-parts-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': 0.05 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-gr-fill', type: 'fill', source: 'traktdel-parts-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': TRAKT_FYLL_OPACITET }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-gr-casing', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': TRAKTGRANS_KANT_FARG, 'line-width': trTdCasingW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.fara, 'line-width': trTdW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'trakt-gr-stripe', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.gul, 'line-width': trTdW, 'line-dasharray': [2, 2] }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
@@ -2153,7 +2146,7 @@ export default function PlannerPage() {
     map.addSource('grans-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     // Bara den osynliga tappytan (fyllningen). fill-outline-color transparent → INGEN tunn orange kant;
     // snitseln ritas enbart av line-boundary-*. Siffran ligger på egen punktkälla (yta-nr-source), ej här.
-    map.addLayer({ id: 'grans-fill', type: 'fill', source: 'grans-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': 0.05, 'fill-outline-color': 'rgba(0,0,0,0)' } });
+    map.addLayer({ id: 'grans-fill', type: 'fill', source: 'grans-source', paint: { 'fill-color': LEGEND.fara, 'fill-opacity': TRAKT_FYLL_OPACITET, 'fill-outline-color': 'rgba(0,0,0,0)' } });
 
     // === Yta-nummer (bitar + egna gränser) på EN punktkälla (centroid) — en siffra per yta, ingen dubblering ===
     // Symbol på polygon dubblerar etiketten när polygonen spänner flera tiles (två 8:or vid inzoomning).
@@ -5280,6 +5273,7 @@ export default function PlannerPage() {
   // fastighetsnedtoning är påslagen (lagret Fastighetsgränser + Vida-data) tonar den redan ned det som ligger utanför, och de två läggs inte ovanpå varandra.
   // Saknar objektet Vidas gräns används planerarens egna traktgränser (samma omräkning som svgToLatLon, som deklareras längre ned).
   const tonYta = useMemo(() => {
+    if (!UTANFOR_TON_PA) return INGEN_TON;
     if (!(traktGeoHamtadFor && valtObjekt?.id && traktGeoHamtadFor === valtObjekt.id)) return INGEN_TON;
     const mLon = 111320 * Math.cos(mapCenter.lat * Math.PI / 180);
     const egna = markers.filter((m: any) => m.isLine && m.lineType === 'boundary' && Array.isArray(m.path) && m.path.length > 2)
@@ -5292,7 +5286,7 @@ export default function PlannerPage() {
     const src = map.getSource(UTANFOR_TON_KALLA) as any;
     if (!src?.setData || !map.getLayer(UTANFOR_TON_LAGER)) return;
     try { src.setData(tonYta as any); } catch { /* */ }
-    try { map.setLayoutProperty(UTANFOR_TON_LAGER, 'visibility', tonYta.features.length > 0 && !fastighetsSyn.vida ? 'visible' : 'none'); } catch { /* */ }
+    try { map.setLayoutProperty(UTANFOR_TON_LAGER, 'visibility', UTANFOR_TON_PA && tonYta.features.length > 0 && !fastighetsSyn.vida ? 'visible' : 'none'); } catch { /* */ }
     try { for (const [k, v] of Object.entries(tonPaint(mapType))) map.setPaintProperty(UTANFOR_TON_LAGER, k, v); } catch { /* */ }
   }, [tonYta, fastighetsSyn.vida, mapLibreReady, mapType]);
 
@@ -12419,20 +12413,14 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [hogRingKlar, hogRing, hogLass, hogMark.markeringar, hogarVersion],
   );
-  // Ringen runt vald hög och de sparade strecken (grått band, klart = grått).
+  // Ringen runt vald hög.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     try {
       (map.getSource('skotar-hogar-vald-source') as any)?.setData({ type: 'FeatureCollection', features: hogValt ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [hogValt.lng, hogValt.lat] }, properties: {} }] : [] });
-      const visa = prickLage && hogarPa;
-      (map.getSource(HOG_OMRADE_KALLA) as any)?.setData({
-        type: 'FeatureCollection',
-        features: visa ? hogMark.markeringar.filter((m) => m.typ === 'tagen' && m.geometri.type === 'Polygon').map((m) => ({ type: 'Feature', geometry: m.geometri, properties: {} })) : [],
-      });
-      if (map.getLayer('klart-hogomrade')) map.setLayoutProperty('klart-hogomrade', 'visibility', visa ? 'visible' : 'none');
-    } catch (e) { console.error('[Högar] markeringar på kartan:', e); }
-  }, [hogValt, hogMark.markeringar, prickLage, hogarPa, mapLibreReady, korvyActive, korvyBasKarta]);
+    } catch (e) { console.error('[Högar] vald hög på kartan:', e); }
+  }, [hogValt, mapLibreReady, korvyActive, korvyBasKarta]);
   const hogPrickarRef = useRef<Map<string, HogPrick>>(new Map());
   const hogPrickNyckelRef = useRef('');
   useEffect(() => {

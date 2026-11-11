@@ -164,7 +164,10 @@ describe('page.tsx — kopplingen', () => {
     expect(sida).toMatch(/traktGeoHamtadFor === valtObjekt\.id\)\) return INGEN_TON/);
   });
   it('lagret syns bara när det finns en yta och Vidas egen fastighetsnedtoning inte redan tonar ned det som ligger utanför (ingen dubbel nedtoning)', () => {
-    expect(sida).toMatch(/tonYta\.features\.length > 0 && !fastighetsSyn\.vida \? 'visible' : 'none'/);
+    expect(sida).toMatch(/UTANFOR_TON_PA && tonYta\.features\.length > 0 && !fastighetsSyn\.vida \? 'visible' : 'none'/);
+  });
+  it('nedtoningen är avstängd (Martin 2026-11-11: den ljusa ringen såg billig ut)', async () => {
+    expect((await import('./traktTon')).UTANFOR_TON_PA).toBe(false);
   });
   it('står i körvyns KEEP_PREFIX (trakt-) så nedtoningen följer med in i körvyn, skotarläget och maskinläget', () => {
     expect(sida).toMatch(/KEEP_PREFIX = \[[^\]]*'trakt-'/);

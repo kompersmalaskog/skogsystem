@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { delaKlart, linjerUr, KLART_RADIE_M, type LinjeFeature, type Koord } from './korsparKlart';
+import { FARG } from './design/tokens';
 import { kartSpar, ROLLFARG_SKORDARE, ROLLFARG_SKOTARE, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER, STRAK_FARG, STRAK_KLAR_FARG, STRAK_KLAR_STYRKA } from './sparStil';
 
 // Ett lokalt plan runt Mölleryd: 1 m österut ≈ 1/(111320·cos 56,9°) grader.
@@ -57,8 +58,10 @@ describe('kartans stil (kartan stillren 2026-11-06): tunt lila stråk, svagare d
       expect(JSON.stringify(s.opacitet)).toContain(String(STRAK_KLAR_STYRKA));
     }
   });
-  it('mittlinjen ritas inte längre', () => {
-    expect(MITTLINJE_OPACITET).toBe(0);
+  it('mittlinjen ritas igen, vit, och lila är lika starkt där skotaren kört (Martin 2026-11-11)', () => {
+    expect(MITTLINJE_OPACITET).toBe(1);
+    expect(MITTLINJE_FARG).toBe(FARG.text);
+    expect(STRAK_KLAR_STYRKA).toBe(1);
     expect(MITTLINJE_FILTER).toEqual(['==', ['get', 'klar'], true]);
   });
   it('alla lager validerar i MapLibre (zoom överst) — också skotarlägets svagare skördare', async () => {
