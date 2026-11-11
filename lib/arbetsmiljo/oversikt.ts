@@ -11,6 +11,7 @@ import { datumText, lageText, type IntroLage } from './introduktion';
 import { arshjulRad, svenskArManad, type Rad as ArshjulRad } from './arshjul';
 import { svar as kemSvar, type Kemikalie } from './kemikalier';
 import { svar as avfallSvar, type Lamning } from './avfall';
+import { arbetsmiljoIgang } from './start';
 import { svar as saGorViSvar, type Godkannande, type InstrId, type Kvitto as InstrKvitto } from './saGorVi';
 
 export type Ton = 'orange' | 'rod';
@@ -164,6 +165,8 @@ export function byggRader(d: Indata, nu: Date = new Date()): OversiktRad[] {
     { id: 'rapportera', titel: 'Rapportera', href: '/om-nagot-hander?rapport=1', under: 'Något trasigt, nära att hända eller en skada', attGora: false },
     introRad(d.intro),
   );
+  // Före start (lib/arbetsmiljo/start.ts) är bara det som hänt något att göra: Åtgärder. Resten står som information.
+  if (!arbetsmiljoIgang(nu)) return rader.map(r => (r.id === 'atgarder' || r.fel) ? r : { ...r, attGora: false, ton: undefined });
   return rader;
 }
 

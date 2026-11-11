@@ -2,6 +2,7 @@
 // Ett läsfel ger inga rader — aldrig en gissning.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { behoverDigText as rondText, hamtaRonder, lage as rondLage } from './skyddsrond';
+import { arbetsmiljoIgang } from './start';
 import { adminRad, forarRad, hamtaBedomningar, hamtaKvitton, typForMaskin } from './maskinRisk';
 
 export type ArbetsmiljoRad = { id: string; text: string; href: string };
@@ -10,6 +11,7 @@ export type Jag = { id: string; roll: string | null; maskin_id: string | null; s
 
 export async function hamtaArbetsmiljoRader(sb: SupabaseClient, jag: Jag, nu = new Date()): Promise<ArbetsmiljoRad[]> {
   const rader: ArbetsmiljoRad[] = [];
+  if (!arbetsmiljoIgang(nu)) return rader;
   try {
     const bedomningar = await hamtaBedomningar(sb);
     if (bedomningar) {
