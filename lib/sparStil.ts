@@ -129,7 +129,8 @@ export function dampatSpar(roll: SparRoll, art: SparArt): DampatSpar {
   const full = sk ? SKORDARSPAR_BREDD : 2.5;
   const f = sk ? SKORDARSPAR_STYRKA : 1;
   const ut = (opacitet: number | any[], kantOpacitet: number | any[]): DampatSpar => ({ farg, bredd: sparBredd(full), opacitet, kantFarg: SPAR_KANT_FARG, kantBredd: sparKantBredd(full), kantOpacitet: sparKantOp(kantOpacitet) });
-  const blek = (idag: number, aldst: number) => ut(sparBlekning(idag * f, aldst * f), sparBlekning(idag * 0.8 * f, aldst * 0.8 * f));
+  // Ingen blekning med åldern (Martin 2026-11-11: "spåren ska inte tonas ner"): ett gammalt spår är lika starkt som dagens. `aldst` ignoreras.
+  const blek = (idag: number, _aldst: number) => ut(idag * f, idag * 0.8 * f);
   switch (art) {
     case 'hist': return blek(0.85, 0.45);
     case 'andras':
@@ -145,7 +146,7 @@ export const SKOTARSPAR_STRECK: readonly number[] | null = null;
 export const SKOTARSPAR_BAND_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 2, 15, 5, 17, 8, 19, 11];
 export const SKOTARSPAR_BAND_KANT: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 4, 15, 7, 17, 10, 19, 13];
 /** Skördarens spår i skotarläget får så här mycket av sin vanliga opacitet. */
-export const SKORDARSPAR_SVAGARE = 0.7;
+export const SKORDARSPAR_SVAGARE = 1;   // Martin 2026-11-11: lila lika starkt överallt — också i skotarläget
 
 export interface SkotarlageSpar extends DampatSpar { streck: readonly number[] | null }
 
@@ -194,12 +195,13 @@ export const STRAK_KANT_BREDD: readonly any[] = ['interpolate', ['linear'], ['zo
  */
 export const STRAK_FARG = ROLLFARG_SKORDARE;
 export const STRAK_KLAR_FARG = ROLLFARG_SKORDARE;
-export const STRAK_KLAR_STYRKA = 0.35;
-/** Mittlinjen: vit, ungefär en tredjedel av stråket, och syns först när stråket är brett nog att bära den. */
-export const MITTLINJE_FARG = '#ffffff';
+/** Där skotaren kört är lila lika starkt som annars (Martin 2026-11-11: nedtoningen såg urtvättad ut) — det körda visas av den GRÅ mittlinjen. */
+export const STRAK_KLAR_STYRKA = 1;
+/** Mittlinjen: GRÅ (grått = klart i hela appen, lib/kartKlart KLART_FARG), ungefär en tredjedel av stråket. */
+export const MITTLINJE_FARG = FARG.text2;
 export const MITTLINJE_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 0.6, 15, 1.2, 17, 1.8, 19, 2.5];
-/** Mittlinjen ritas inte längre (kartan stillren): det körda syns som svagare stråk. Lagren finns kvar, osynliga. */
-export const MITTLINJE_OPACITET = 0;
+/** Mittlinjen ritas igen (Martin 2026-11-11): lila = skördaren körde, grått streck i det lila = skotaren har varit där. */
+export const MITTLINJE_OPACITET = 1;
 /** Filtret som avgör var mittlinjen ritas: bitar av skördarens stråk där skotaren varit (lib/korsparKlart delaKlart sätter `klar`). */
 export const MITTLINJE_FILTER: readonly any[] = ['==', ['get', 'klar'], true];
 

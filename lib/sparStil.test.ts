@@ -130,16 +130,11 @@ describe('spåren på planeringskartan: rollfärger, 3 / 2,5 px, dagens ~0,9, sm
       expect(Math.min(...tal(dampatSpar('skordare', art).opacitet))).toBeGreaterThan(0.25);
     }
   });
-  it('tidigare dagar bleknar: planering, historik och den andres spår går från dagens värde ner till ett lägre efter 14 dagar (kanten likaså); eget live-spår är dagens', () => {
+  it('ingen blekning med åldern (Martin 2026-11-11): planering, historik och den andres spår är lika starka som dagens', () => {
     for (const roll of ['skordare', 'skotare'] as const) for (const art of ['hist', 'plan', 'andras'] as const) {
-      for (const o of [dampatSpar(roll, art).opacitet, inre(dampatSpar(roll, art).kantOpacitet as any[])] as any[][]) {
-        expect(o[0]).toBe('interpolate');
-        expect(o[2]).toEqual(['coalesce', ['to-number', ['get', 'alder']], 0]);
-        expect(o[3]).toBe(0); expect(o[5]).toBe(SPAR_BLEKNA_DAGAR);
-        expect(o[6]).toBeLessThan(o[4]);   // äldst < idag
-      }
+      expect(typeof dampatSpar(roll, art).opacitet).toBe('number');
+      expect(JSON.stringify(dampatSpar(roll, art))).not.toContain('alder');
     }
-    expect(SPAR_BLEKNA_DAGAR).toBe(14);
     expect(sparBlekning(0.6, 0.2)).toEqual(['interpolate', ['linear'], ['coalesce', ['to-number', ['get', 'alder']], 0], 0, 0.6, 14, 0.2]);
   });
   it('sparAlder: dagar sedan, aldrig negativt; saknat eller trasigt datum är dagens (vi gissar inte att något är gammalt)', () => {
