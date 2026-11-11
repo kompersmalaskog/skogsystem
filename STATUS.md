@@ -12,6 +12,14 @@
 - Markägarrapport-algoritm verifierad mot
   Husjönäs 2026-05-06
 
+## Cert › Behörigheter — 2026-11-11
+**Byggt (gren `claude/zealous-dirac-bbusfo`):** `/cert` (bara admin, gruppen Admin) svarar på "Är alla förare behöriga?": svaret överst i ord, en rad per förare med en etikett per behörighet ("SYN", "HLR · 40 dagar", "ADR · saknas"), problem först. Tryck = förarens ark: kursdatum, giltig till (fylls i av kursdatum), Fota intyg (kameran, miniatyr), Uppladdat hos SE, och växlarna "Kör farligt gods" (ADR) och "Planerar hänsyn" (naturvärdesbedömning). Se CLAUDE.md, raden `/cert`.
+**Cert LÄSER Utbildning (Martins beslut 2026-11-11, väg B):** behörigheterna bor i `utbildning_typ`/`utbildning_krav`/`utbildning_bevis`, så Personal, Utbildning och Cert visar samma intyg. Listan = de som har kravet SYN avverkning i Utbildning (inte roll). HLR är 24 månader, som i Utbildning.
+**Migration `20261111183157_cert_se.sql` (körd i prod 2026-11-11):** två nya rader i `utbildning_typ` (SYN avverkning 60 mån, Grundläggande naturvärdesbedömning 60 mån, båda per person), SYN-krav för alla 7 aktiva, nya tabellerna `cert_se_krav` (utbildning → SE-krav: 3.1.1 SYN, 3.1.8 natur, 3.1.9 ADR 1.3, 3.1.10 HLR) och `cert_se` ("Uppladdat hos SE" per intyg), och bucketen `utbildningsbevis` tar nu också JPEG (förut bara PDF). RLS provad i prod med en körning som rullades tillbaka: en förare ser bara sin egen `cert_se`-rad, update ger 0 rader, insert i `cert_se_krav` nekas (42501).
+**Ångra:** `drop table cert_se, cert_se_krav; update storage.buckets set allowed_mime_types = array['application/pdf'] where id = 'utbildningsbevis'; delete from utbildning_typ where namn in ('SYN avverkning','Grundläggande naturvärdesbedömning');` (kraven följer med; går bara så länge inga bevis registrerats på typerna).
+**Följder att känna till:** (1) Utbildning och Personal visar nu "SYN avverkning saknas" för alla sju tills intygen är inlagda — det är sant. (2) Naturvärdesbedömningen står som "inte igång" i Utbildning tills någon slagit på "Planerar hänsyn" i Cert. (3) Cert varnar 60 dagar före utgång, Utbildning och Personal 90 — mellan dag 61 och 90 säger de olika.
+**Ej provat:** kameran och uppladdningen på riktig iPhone, och hela sparkedjan mot prod (render-testet kör mot en låtsad sparfunktion). **Ej byggt:** dokument och påminnelser i Cert, påminnelser i förarens vy, PDF-val i Cert (PDF-bevis läggs in i Utbildning och visas i Cert som länk).
+
 ## Personal: mat, anställningsdatum, påminnelse — 2026-11-01
 - Migration `20261101133753_medarbetare_mat.sql` körd i prod (filen byte-identisk, md5 add9dbf6…). RLS provad med en körning som rullades tillbaka: förare skriver bara sin egen rad (annans → 42501, update 0 rader), ser bara sin egen; admin ser alla; `andrad_av` sätts av databasen.
 - Ångra: `drop table public.medarbetare_mat; drop function public.medarbetare_mat_stampla();` (+ ta bort raden i schema_migrations).

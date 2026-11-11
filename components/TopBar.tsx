@@ -41,6 +41,7 @@ const pageNames: Record<string, string> = {
   '/egenkontroll': 'Egenkontroll',
   '/gallring': 'Gallring',
   '/massaved': 'Massaved',
+  '/cert': 'Cert',
   '/matning': 'Mätning',
   '/affarsuppfoljning': 'Affärsuppföljning',
   '/kontroller': 'Fordon',
