@@ -77,7 +77,12 @@ describe('Produktion', () => {
 
   it('skotaren: Detaljer öppnar kvar per sortiment (handlingen), inte en egen lista', async () => {
     const oppna = vi.fn();
-    await montera(<Produktion undertitel="Mölleryd · Elefant 26" vy={{ ...VY, tal: '~312 m³', talUnder: 'kvar att skota', avvikelser: [] }} detaljer={{ typ: 'skotare', onOppna: oppna }} onStang={() => {}} />);
+    await montera(<Produktion undertitel="Mölleryd · Elefant 26" vy={{ ...VY, tal: '~312 m³', talUnder: 'kvar att skota', avvikelser: [] }} detaljer={{ typ: 'skotare', onOppna: oppna, hurGarDet: { lage: 'ok', idag: [], vecka: [{ id: 'lass', titel: 'Lass', varde: '4' }], not: null },
+        avlagg: [{ id: 'vida:01-1', titel: 'Avlägg 01-1', under: '24 lass', hoger: '612 m³', dampad: false }] }} onStang={() => {}} />);
+    expect(q('produktion-siffror-tom')!.textContent).toBe('Inga lass idag än');
+    expect(qa('produktion-avlagg').map((e) => e.textContent)).toEqual([expect.stringContaining('612 m³')]);
+    act(() => { [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find((e) => e.textContent === 'Veckan')!.click(); });
+    expect(q('produktion-siffra-lass')!.textContent).toContain('4');
     act(() => { q('produktion-detaljer')!.click(); });
     expect(oppna).toHaveBeenCalledTimes(1);
     expect(q('produktion-ring')).not.toBeNull();

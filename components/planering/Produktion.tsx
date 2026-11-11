@@ -48,12 +48,21 @@ export interface SkordareDetaljer {
   hurGarDet: { lage: 'laser' } | { lage: 'fel'; onForsok: () => void } | { lage: 'ok'; idag: SiffraRad[]; vecka: SiffraRad[]; not: string | null };
 }
 
+export interface SkotareDetaljer {
+  typ: 'skotare';
+  /** Detaljer = kvar per sortiment och dagens lass (KvarArk). */
+  onOppna: () => void;
+  hurGarDet: SkordareDetaljer['hurGarDet'];
+  /** Skotat per avlägg, mest först; tomt = ingen sektion. */
+  avlagg: DetaljRad[];
+}
+
 export interface ProduktionProps {
   /** "Gallring Santhe · H8E -26" */
   undertitel: string;
   vy: ProduktionVy;
   /** Skördaren: detaljerna i samma ark. Skotaren: en handling (öppnar kvar per sortiment). */
-  detaljer: SkordareDetaljer | { typ: 'skotare'; onOppna: () => void };
+  detaljer: SkordareDetaljer | SkotareDetaljer;
   onStang: () => void;
 }
 
@@ -94,7 +103,12 @@ export default function Produktion({ undertitel, vy, detaljer, onStang }: Produk
                 </div>
               )}
 
-              {detaljer.typ === 'skordare' && <HurGarDet h={detaljer.hurGarDet} period={period} onPeriod={setPeriod} />}
+              <HurGarDet h={detaljer.hurGarDet} period={period} onPeriod={setPeriod} skotare={detaljer.typ === 'skotare'} />
+              {detaljer.typ === 'skotare' && detaljer.avlagg.length > 0 && (
+                <Sektion rubrik="Avlägg" kort={false}>
+                  {detaljer.avlagg.map((r, i) => <Rad key={r.id} titel={r.titel} under={r.under} hoger={r.hoger} sista={i === detaljer.avlagg.length - 1} attr={{ 'data-testid': 'produktion-avlagg' }} />)}
+                </Sektion>
+              )}
 
               <div>
                 <Rad titel="Detaljer" sista attr={{ 'data-testid': 'produktion-detaljer' }}
@@ -126,7 +140,7 @@ export default function Produktion({ undertitel, vy, detaljer, onStang }: Produk
   );
 }
 
-function HurGarDet({ h, period, onPeriod }: { h: SkordareDetaljer['hurGarDet']; period: 'idag' | 'vecka'; onPeriod: (p: 'idag' | 'vecka') => void }) {
+function HurGarDet({ h, period, onPeriod, skotare }: { h: SkordareDetaljer['hurGarDet']; period: 'idag' | 'vecka'; onPeriod: (p: 'idag' | 'vecka') => void; skotare?: boolean }) {
   const rader = h.lage === 'ok' ? (period === 'idag' ? h.idag : h.vecka) : [];
   return (
     <Sektion rubrik="Hur går det?" kort={false} not={h.lage === 'ok' && h.not ? h.not : undefined}>
@@ -142,7 +156,7 @@ function HurGarDet({ h, period, onPeriod }: { h: SkordareDetaljer['hurGarDet']; 
       )}
       {h.lage === 'ok' && rader.length === 0 && (
         <div data-testid="produktion-siffror-tom" style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>
-          {period === 'idag' ? 'Ingen fil från maskinen idag än' : 'Ingen fil från maskinen den här veckan'}
+          {skotare ? (period === 'idag' ? 'Inga lass idag än' : 'Inga lass den här veckan') : period === 'idag' ? 'Ingen fil från maskinen idag än' : 'Ingen fil från maskinen den här veckan'}
         </div>
       )}
       {rader.map((r, i) => <Rad key={r.id} titel={r.titel} hoger={r.varde} sista={i === rader.length - 1} attr={{ 'data-testid': `produktion-siffra-${r.id}` }} />)}

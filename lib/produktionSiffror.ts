@@ -4,6 +4,9 @@
 // Siffrorna är så färska som senaste filen ("Virke t.o.m. 15:22"), aldrig live.
 
 import { g15Sek } from './g15';
+import { raknasSomSkotat, totalM3 } from './skotarLass/lassModell';
+import type { Lass } from './skotarLass/typer';
+
 
 export interface ProdRad { datum: string; volym_m3sub?: number | null; stammar?: number | null; skapad_tid?: string | null }
 export interface TidRad { datum: string; processing_sek?: number | null; terrain_sek?: number | null; other_work_sek?: number | null; bransle_liter?: number | null }
@@ -65,4 +68,18 @@ export function farskText(prod: readonly ProdRad[]): string | null {
   if (!t.length) return null;
   const k = new Date(Math.max(...t)).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm' });
   return `Ur maskinens filer · senaste ${k}`;
+}
+
+// ── Skotaren: ur appens lass (bara de som räknas: bekräftade, inte strukna, inte gamla automatiska) ──
+
+/** "Hur går det?" för skotaren: lass, skotat och snittlass för en maskin, ett datumintervall (svenska dagar, båda inklusive). */
+export function skotarSiffror(lass: readonly Lass[], maskinId: string, fran: string, till: string): SiffraRad[] {
+  const mina = lass.filter((l) => l.maskinId === maskinId && raknasSomSkotat(l) && l.datum >= fran && l.datum <= till);
+  if (!mina.length) return [];
+  const m3 = mina.reduce((s, l) => s + l.delar.reduce((t, d) => t + totalM3(d.rader), 0), 0);
+  return [
+    { id: 'lass', titel: 'Lass', varde: tal(mina.length, 0) },
+    { id: 'skotat', titel: 'Skotat', varde: `${tal(m3, 0)} m³` },
+    { id: 'snittlass', titel: 'Snittlass', varde: `${tal(m3 / mina.length, 0)} m³` },
+  ];
 }

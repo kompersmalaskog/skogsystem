@@ -173,7 +173,7 @@ import { beraknaFramsteg, omradeVid, pillRaknare, type Framsteg, type Omrade, ty
 import { skordareVy, skotareVy, omradeRader, raknareText } from '../../lib/produktionVy'
 import Produktion from '@/components/planering/Produktion'
 import { useProduktionSiffror } from '@/lib/hooks/useProduktionSiffror'
-import { summera as summeraProduktion, siffraRader, farskText } from '@/lib/produktionSiffror'
+import { summera as summeraProduktion, siffraRader, farskText, skotarSiffror, veckansMandag } from '@/lib/produktionSiffror'
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
 import { TELEFON_GPS, cirkelPolygon, osakerhetsText, samlaPosition, type SamlatResultat } from '../../lib/telefonGps'
@@ -14945,8 +14945,20 @@ export default function PlannerPage() {
         const undertitel = [valtObjekt.namn, maskin].filter(Boolean).join(' · ');
         const stang = () => setProduktionOppen(false);
         if (skotarLassAktiv && skotarLass.kvar && skotarLass.sammanfattning) {
+          const dag = lokaltDatumStockholm(serverNu());
+          const mid = skotarMaskinId ?? '';
+          const avlaggRader = skotarLass.avlagg
+            .map((a) => ({ a, s: skotatTillAvlagg(skotarLass.lass, a.id) }))
+            .filter((x) => x.s.m3 > 0)
+            .sort((x, y) => y.s.m3 - x.s.m3)
+            .map((x) => ({ id: x.a.id, titel: `Avlägg ${x.a.nummer}`, under: `${x.s.antalLass} lass`, hoger: `${Math.round(x.s.m3).toLocaleString('sv-SE')} m³`, dampad: false }));
           return <Produktion undertitel={undertitel} vy={skotareVy(skotarLass.kvar, skotarLass.sammanfattning)} onStang={stang}
-            detaljer={{ typ: 'skotare', onOppna: () => { setProduktionOppen(false); setSkotarKvarOppet(true); } }} />;
+            detaljer={{
+              typ: 'skotare',
+              onOppna: () => { setProduktionOppen(false); setSkotarKvarOppet(true); },
+              hurGarDet: { lage: 'ok', idag: skotarSiffror(skotarLass.lass, mid, dag, dag), vecka: skotarSiffror(skotarLass.lass, mid, veckansMandag(dag), dag), not: 'Lassen du registrerat i appen' },
+              avlagg: avlaggRader,
+            }} />;
         }
         if (!framsteg) return null;
         return <Produktion undertitel={undertitel} vy={skordareVy(framsteg, { typ, idag: lokaltDatumStockholm(serverNu()) })} onStang={stang}
