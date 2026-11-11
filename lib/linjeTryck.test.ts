@@ -119,7 +119,7 @@ describe('träfflagren i klickprioriteten och sidan', () => {
     expect(kategoriForLager(VIDA_LINJE_TRAFFLAGER)).toBe('linje');
     expect(kategoriForLager('trakt-kraftledning-line')).toBeNull();
     expect(valjKlickKategori(['trakt-linje-hit', 'zone-fill'])).toBe('linje');
-    expect(valjKlickKategori(['markers-hit', 'trakt-linje-hit'])).toBe('punkt');   // en symbol på linjen vinner fortfarande
+    expect(valjKlickKategori(['markers-hit', 'trakt-linje-hit'])).toBe('symbol');   // en symbol på linjen vinner fortfarande
     expect(KLICK_LAGER.find((k) => k.kategori === 'linje')!.lager).toContain('trakt-raa-line');
   });
   const sida = readFileSync('app/planering/page.tsx', 'utf8');

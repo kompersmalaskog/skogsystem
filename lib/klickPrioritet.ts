@@ -9,21 +9,24 @@
 //
 // Ordning (högst först):
 //   1. larm    — larmkoordinaten (akut, får aldrig döljas)
-//   2. yta-nr  — ytans nummer: öppnar ALLTID ytkortet, även när högar täcker ytan
-//   3. punkt   — högar (timmer + GROT), markörer/pilar, Vidas tilläggspunkter
-//   4. linje   — stickvägar, basvägar, kraftledningar, RAÄ-linjer, områdesgräns-linjer
-//   5. fastighet — fastighetsgränsen (rågången): ett tryck på gränsen öppnar "X mot Y" före traktdelens yta, så att man kan trycka på en rågång som ligger på traktgränsen
-//   6. yta     — minsta ytan (gräns-fyllning, zoner, Vidas hänsyns-/traktdels-ytor)
+//   2. symbol  — det någon SATT UT: symboler, pilar, fällträd, kör upp-pilar. Före ytnumret (2026-11-11): numrets 44 px träffyta
+//                slog annars en symbol som stod nära siffran — man tryckte på högstubben och fick "Område 2".
+//   3. yta-nr  — ytans nummer: öppnar ALLTID ytkortet, även när högar täcker ytan
+//   4. punkt   — högar (timmer + GROT), Vidas tilläggspunkter, RAÄ-punkter
+//   5. linje   — stickvägar, basvägar, kraftledningar, RAÄ-linjer, områdesgräns-linjer
+//   6. fastighet — fastighetsgränsen (rågången): ett tryck på gränsen öppnar "X mot Y" före traktdelens yta, så att man kan trycka på en rågång som ligger på traktgränsen
+//   7. yta     — minsta ytan (gräns-fyllning, zoner, Vidas hänsyns-/traktdels-ytor)
 
-export type KlickKategori = 'larm' | 'yta-nr' | 'punkt' | 'linje' | 'fastighet' | 'yta';
+export type KlickKategori = 'larm' | 'symbol' | 'yta-nr' | 'punkt' | 'linje' | 'fastighet' | 'yta';
 
 // Kategori → dess kart-lager. Ett lager får bara stå i EN kategori.
 export const KLICK_LAGER: { kategori: KlickKategori; lager: string[] }[] = [
   { kategori: 'larm',   lager: ['larm-pin-hit'] },
+  { kategori: 'symbol', lager: ['markers-hit', 'arrows-hit', 'line-fall-trad', 'line-korupp-traff'] },
   { kategori: 'yta-nr', lager: ['yta-nr-hit'] },
   {
     kategori: 'punkt',
-    lager: ['hogar-hit', 'hogar-cluster', 'grot-circle', 'markers-hit', 'arrows-hit', 'line-fall-trad', 'line-korupp-traff', 'trakt-punkt-circle', 'trakt-raa-point'],
+    lager: ['hogar-hit', 'hogar-cluster', 'grot-circle', 'trakt-punkt-circle', 'trakt-raa-point'],
   },
   {
     kategori: 'linje',

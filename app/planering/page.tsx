@@ -5410,7 +5410,7 @@ export default function PlannerPage() {
     const handleMarkerFeatureClick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current) return; // urvalsritning: tryck = hörn, aldrig symbol-/pil-kort
       if (selectedSymbolRef.current || korvyFigurAktivRef.current || plusRadOppenRef.current) return;   // placerar en symbol / mäter / dockan är öppen: trycket är en PUNKT eller stänger dockan, inte ett kort
-      if (vinnandeKategoriForKarta(map, e.point) !== 'punkt') return;   // ytnummer/larm högre → avstå
+      if (vinnandeKategoriForKarta(map, e.point) !== 'symbol') return;   // bara larmet är högre (lib/klickPrioritet)
       featureClickedRef.current = true;
       const rawId = e.features?.[0]?.properties?.id;
       if (rawId == null) return;
@@ -9093,16 +9093,19 @@ export default function PlannerPage() {
   // Händelserna idle/moveend räcker INTE: i skördarflödet (objektlistan → körvy, ingen startsekvens) kom aldrig någon idle efter att
   // höjddatan laddats (0 idle på 6 s i testselen) → pricken stod kvar på 54 %. Därför även en billig kontroll var MARKHOJD_KONTROLL_MS:e ms (700)
   // (en uppslagning; gör inget så länge centerhöjden stämmer).
+  // GÄLLER ALLTID, inte bara körvyn (2026-11-11): i planeringsvyn och när föraren dragit kartan (följet pausat) stod centerhöjden kvar på 0 m
+  // (Vashult: marken 163 m, pitch 50°) → symbolerna ritades ~130 px ovanför sin plats medan trycket (unproject) träffade rätt plats. Man såg
+  // symbolen på ett ställe och fick ytans kort när man tryckte på den. jamkaMarkhojd rör bara höjden och aldrig en kamera som rör sig.
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady || !korvyActive || korvyFollowPaused) return;
+    if (!map || !mapLibreReady) return;
     const jamka = () => { if (!startKameraLasRef.current) jamkaMarkhojd(map); };
     map.on('idle', jamka);
     map.on('moveend', jamka);
     const iv = setInterval(jamka, MARKHOJD_KONTROLL_MS);
     jamka();
     return () => { clearInterval(iv); try { map.off('idle', jamka); map.off('moveend', jamka); } catch { /* */ } };
-  }, [mapLibreReady, korvyActive, korvyFollowPaused]);
+  }, [mapLibreReady]);
 
   // KÖRVY: fingret/musen drar kartan → pausa auto-följet ('dragstart' med originalEvent = äkta gest, inte vår easeTo).
   // Bunden en gång; dörrvaktar på korvyOppenRef (render-skriven). Följet återupptas av centrera-knappen och när körvyn stängs.
