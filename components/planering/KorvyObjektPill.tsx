@@ -15,6 +15,8 @@ export interface RaknareVy {
   antal: number;
   krav: number | null;
   status: KravStatus;
+  /** Hur många som borde sättas NU i området du står i (lib/omradeFramsteg). > 0 = orange "· 2 nu" i stället för "· efter". */
+  nu?: number;
 }
 
 export const PILL_HOJD_PX = 56;
@@ -23,9 +25,10 @@ function Raknare({ namn, ikon, vy, smal, onTryck, testid, handling }: {
   namn: string; ikon: React.ReactNode; vy: RaknareVy; smal: boolean; onTryck: () => void; testid: string; handling: string;
 }) {
   const { antal, krav, status } = vy;
-  const siffraFarg = status === 'efter' ? FARG.orange : status === 'uppfyllt' ? FARG.gron : FARG.text;
+  const nu = vy.nu ?? 0;
+  const siffraFarg = nu > 0 || status === 'efter' ? FARG.orange : status === 'uppfyllt' ? FARG.gron : FARG.text;
   const text = krav != null ? `${antal}/${krav}` : `${antal}`;
-  const aria = `${namn} ${antal}${krav != null ? ` av ${krav}` : ''}${status === 'efter' ? ', ligger efter' : status === 'uppfyllt' ? ', klart' : ''}. ${handling}`;
+  const aria = `${namn} ${antal}${krav != null ? ` av ${krav}` : ''}${nu > 0 ? `, ${nu} behövs nu` : status === 'efter' ? ', ligger efter' : status === 'uppfyllt' ? ', klart' : ''}. ${handling}`;
   return (
     <button
       type="button"
@@ -41,7 +44,8 @@ function Raknare({ namn, ikon, vy, smal, onTryck, testid, handling }: {
     >
       {smal ? <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center' }}>{ikon}</span> : <span>{namn}</span>}
       <b style={{ color: siffraFarg, ...TYP.rubrik, ...TNUM }}>{text}</b>
-      {status === 'efter' && <span style={{ color: FARG.orange, ...TYP.meta }}>· efter</span>}
+      {nu > 0 ? <span data-testid={`${testid}-nu`} style={{ color: FARG.orange, ...TYP.meta, fontWeight: 600 }}>· {nu} nu</span>
+        : status === 'efter' && <span style={{ color: FARG.orange, ...TYP.meta }}>· efter</span>}
       {status === 'uppfyllt' && <span aria-hidden="true" style={{ color: FARG.gron, ...TYP.rubrik }}>✓</span>}
     </button>
   );
@@ -56,7 +60,7 @@ export interface KvarDel { text: string; klar: string | null; onTryck: () => voi
 export interface MassaDel { etikett: string; varde: string; onTryck: () => void }
 
 export function KorvyObjektPill({
-  namn, hogstubbar, evighetstrad, smal, ikonHogstubbe, ikonEvighetstrad, orangeKant, prefix, kvar, massa, visaRaknare = true,
+  namn, namnUnder, namnHandling, hogstubbar, evighetstrad, smal, ikonHogstubbe, ikonEvighetstrad, orangeKant, prefix, kvar, massa, visaRaknare = true,
   onNamn, onHogstubbe, onEvighetstrad,
 }: {
   kvar?: KvarDel | null;
@@ -65,6 +69,10 @@ export function KorvyObjektPill({
   /** false på en skotare: Högstubbar/Evighetsträd hör till skördaren. Pillen är då bara namnet (+ Kvar · Klar när lassen går att räkna). */
   visaRaknare?: boolean;
   namn: string;
+  /** Liten rad under namnet: "Område 8" — området siffrorna gäller. */
+  namnUnder?: string | null;
+  /** Vad ett tryck på namnet gör (skärmläsaren): "Tryck för produktion". */
+  namnHandling?: string;
   hogstubbar: RaknareVy;
   evighetstrad: RaknareVy;
   /** telefon: ikon i stället för ordet, och pillen fyller bredden bredvid hem-knappen så namnet får plats */
@@ -84,7 +92,7 @@ export function KorvyObjektPill({
       <button
         type="button"
         data-testid="korvy-pill-namn"
-        aria-label={`${namn}. Tryck för objektinfo`}
+        aria-label={`${namn}${namnUnder ? `, ${namnUnder}` : ''}. ${namnHandling ?? 'Tryck för objektinfo'}`}
         onClick={onNamn}
         className="press-dim"
         style={{
@@ -92,8 +100,11 @@ export function KorvyObjektPill({
           border: 'none', background: 'transparent', color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left',
         }}
       >
-        <span style={{ ...(smal ? TYP.listtitel : TYP.rubrik), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {prefix}{namn}
+        <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <span style={{ ...(smal ? TYP.listtitel : TYP.rubrik), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {prefix}{namn}
+          </span>
+          {namnUnder && <span data-testid="korvy-pill-omrade" style={{ ...TYP.meta, color: FARG.text2, whiteSpace: 'nowrap' }}>{namnUnder}</span>}
         </span>
       </button>
       {visaRaknare && (

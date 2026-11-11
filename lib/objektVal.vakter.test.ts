@@ -45,7 +45,7 @@ describe('nya objektlistan med ett objekt bakom gäller bara planeringsvyn — i
 
   it('körvyns pill och dess objektinfo-ingång är orörda; körvyn får varken byt-pill, info-knapp eller Kör hit', () => {
     expect(page).toContain('{korvyActive && valtObjekt ? (\n            <KorvyObjektPill');
-    expect(page).toContain('onNamn={() => setTraktOversiktOpen(o => !o)}');
+    expect(page).toContain('onNamn={() => { if (produktionKan) { setTraktOversiktOpen(false); setProduktionOppen(true); } else setTraktOversiktOpen(o => !o); }}');
     // skotarkörvyn har EN ⓘ-knapp uppe till höger (platshållarens plats, objektinfo/väder) — skördarens körvy har ingen; namnet i pillen byter aldrig objekt
     expect(page).toContain('{objektListaVal || skotarKorvy || instruktionerAktiv ? (');   // + skördarens maskinläge (instruktionerAktiv = körvy i maskinläge): ⓘ på samma plats som skotarens
     expect(page.match(/data-testid="objektinfo-knapp"/g)).toHaveLength(1);
