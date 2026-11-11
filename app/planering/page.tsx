@@ -14194,6 +14194,10 @@ export default function PlannerPage() {
         const typTxt = valtObjekt.typ === 'slutavverkning' ? 'Slutavverkning' : valtObjekt.typ === 'gallring' ? 'Gallring' : (objektHuvudtyp(valtObjekt) ? typLabel(objektHuvudtyp(valtObjekt)) : (valtObjekt.typ || ''));
         const kortRoll: KortRoll = (isForare || (maskinlage && !isAdminRiktig)) ? 'forare' : 'planerare';
         const maskinSlag = (enhetRoll ?? minRoll) as 'skordare' | 'skotare' | null;
+        // Hur långt har skördaren kommit, per område och hela trakten (bara skördaren; inget nytt på kartan). Samma i Hela trakten och kortet.
+        const framstegVyKort = maskinSlag === 'skordare' && framsteg && framsteg.omraden.length > 0
+          ? framstegVy(framsteg, { typ: typTxt, idag: lokaltDatumStockholm(serverNu()), hela: { hogstubbar: { antal: miljoAntal.hogstubbar, krav: miljoKravVal.hogstubbar }, evighetstrad: { antal: miljoAntal.evighetstrad, krav: miljoKravVal.evighetstrad } } })
+          : null;
         // TILL FÖRAREN = bara Vidas direktiv (läsning). Planerarens egna texter (förardirektiv och det gamla fältet Anteckningar) är inte längre något man skriver:
         // finns sådan text kvar står den som en grå rad "Gamla anteckningar" — i planerarens kort och i förarens sammanfattning. Inget raderas.
         const forareTexter = tillForaren({ vida, vidaStruket: vidaStruket ?? [], onVaxla: isAdminRiktig && !maskinlage && vidaStruket != null ? (d: string) => { void vaxlaVidaDel(d); } : undefined, strykFel: vidaStrykFel });
@@ -14512,6 +14516,7 @@ export default function PlannerPage() {
             const nyaK = nyaKommentarer(oversiktSett, kk.rader.map((r) => ({ id: r.id, text: r.text })));
             return {
               under: oversiktUnder(typTxt, certTyper(valtObjekt.cert), arealHaKort),
+              framsteg: framstegVyKort,
               larm: { satt: larmVis.satt, koordinat: larmVis.koordinat, beskrivning: larmBeskr, onVisa: () => { stang(); larmVisaPunkt(larmVal.vald, true); }, visning: larmVis, onVisaPlats: (i: number) => { stang(); larmVisaPunkt(larmVal.alla[i], true); } },
               faror: faroLinjer,
               risker: forarRiskNu.risker,
@@ -14565,10 +14570,7 @@ export default function PlannerPage() {
           enkel: instruktionerAktiv ? (() => {
             const rader = ytaRader(traktGeo?.features, inst.paTrakten);
             const framstegGammal = framstegRad({ typ: typTxt, arealHa: arealHaKort, klartHa: maskinSlag === 'skordare' && avverkat?.harSpar ? avverkat.ha : null });
-            // Hur långt har skördaren kommit, per område och hela trakten (bara skördaren; inget nytt på kartan)
-            const fVy = maskinSlag === 'skordare' && framsteg && framsteg.omraden.length > 0
-              ? framstegVy(framsteg, { typ: typTxt, idag: lokaltDatumStockholm(serverNu()), hela: { hogstubbar: { antal: miljoAntal.hogstubbar, krav: miljoKravVal.hogstubbar }, evighetstrad: { antal: miljoAntal.evighetstrad, krav: miljoKravVal.evighetstrad } } })
-              : null;
+            const fVy = framstegVyKort;
             return {
               namn: valtObjekt.namn,
               under: fVy && framsteg?.harSpar ? fVy.under : framstegGammal.text,

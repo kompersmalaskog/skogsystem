@@ -23,6 +23,8 @@ import type { LarmVisning } from '@/lib/larmpunkter';
 import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
 import { KommentarVisning } from './KommentarRuta';
 import type { OmMiljoRad } from './OmTrakten';
+import { FramstegGrupp } from './ObjektKortEnkel';
+import type { FramstegVy } from '@/lib/omradeFramstegVy';
 
 export interface OversiktLarm { satt: boolean; koordinat: string; beskrivning: string; onVisa: () => void; visning?: LarmVisning; onVisaPlats?: (index: number) => void }
 
@@ -32,6 +34,8 @@ export interface TraktOversiktProps {
   under: string;
   /** Larmkoordinaten — ALLTID först (Martin 2026-11-05). null = sidan vet inte. */
   larm: OversiktLarm | null;
+  /** Hur långt skördaren kommit, per område (lib/omradeFramsteg) — bara skördaren, null annars. Står direkt efter larmet. */
+  framsteg?: FramstegVy | null;
   /** Vidas farliga linjer (kraftledning) — de egna farorna räknas ur markeringarna. */
   faror: string[];
   /** Planerarens riskbedömning (lib/riskbedomning). null = inte gjord. */
@@ -163,6 +167,9 @@ export default function TraktOversikt(p: TraktOversiktProps) {
             </Gruppkort>
           </section>
         )}
+
+        {/* Hur långt har du kommit — klar-dag, tempo, per område (Martin och Oskar 2026-11-11). Larmet står kvar först. */}
+        {p.framsteg && <FramstegGrupp f={p.framsteg} />}
 
         {/* 2. FAROR (röd) — en rad per fara med sin text; tryck = kortet på kartan. */}
         {harFaror && (

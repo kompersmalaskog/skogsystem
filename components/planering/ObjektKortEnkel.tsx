@@ -85,7 +85,7 @@ const Miljo = ({ rader }: { rader: RaknarText[] }) => (
 );
 
 /** HUR LÅNGT HAR DU KOMMIT — klar-dagen och tempot överst, en rad per område (ha och högstubbar/evighetsträd), sist hela trakten. Bara att läsa. */
-function FramstegGrupp({ f }: { f: FramstegVy }) {
+export function FramstegGrupp({ f }: { f: FramstegVy }) {
   const rad = { padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}`, display: 'flex', alignItems: 'center', gap: AVSTAND.m } as const;
   return (
     <div style={{ marginBottom: AVSTAND.m }}>
