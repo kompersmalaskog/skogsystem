@@ -8,7 +8,7 @@ import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import { basvagYta, type BasvagVal } from '@/lib/basvag';
 import { BasvagStart } from './BasvagFargVal';
 
-export interface LinjeTyp { id: string; name: string; color: string; color2?: string; striped?: boolean; dashed?: boolean }
+export interface LinjeTyp { id: string; name: string; color: string; color2?: string; striped?: boolean; dashed?: boolean; /** Egen provbit (CSS-bakgrund), t.ex. dikets fåra (DIKE_PROV_CSS). */ prov?: string }
 
 export function LinjeTypLista({ typer, steg, basvagOppen, basvagVal, onBasvagVal, onTryckBasvag, onStartaBasvag, startText, onVal }: {
   typer: readonly LinjeTyp[];
@@ -28,6 +28,7 @@ export function LinjeTypLista({ typer, steg, basvagOppen, basvagVal, onBasvagVal
         {typer.map((type) => {
           const basvag = type.id === 'mainRoad';
           const bakgrund = basvag ? basvagYta()
+            : type.prov ? type.prov
             : type.striped ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} ${AVSTAND.s - 2}px, ${type.color2} ${AVSTAND.s - 2}px, ${type.color2} ${AVSTAND.l - 4}px)`
             : type.color;
           return (

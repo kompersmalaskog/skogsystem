@@ -25,7 +25,7 @@ import {
 } from './kartstil';
 import { ZONE_COLORS } from './zone-colors';
 import { symbolDef } from './symboler';
-import { MAPLIBRE_SPACING_FAKTOR, KRAFTLEDNING_KANT_EXTRA, KRAFTLEDNING_STOLPE_AVSTAND_PX, KRAFTLEDNING_STOLPE_BILD, KRAFTLEDNING_SYMBOL_AVSTAND_PX, kraftledningLager, BASVAG_STRECK_DASH, linjeLager } from './kartstil';
+import { MAPLIBRE_SPACING_FAKTOR, KRAFTLEDNING_KANT_EXTRA, KRAFTLEDNING_STOLPE_AVSTAND_PX, KRAFTLEDNING_STOLPE_BILD, KRAFTLEDNING_SYMBOL_AVSTAND_PX, kraftledningLager, BASVAG_STRECK_DASH, linjeLager, DIKE } from './kartstil';
 import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR } from './larm/grupper';
 
 // Radslut normaliseras: filen kan ha CRLF pa Windows och LF pa Vercel, och
@@ -75,7 +75,7 @@ describe('LEGEND', () => {
   it('lib/kartstil.LEGEND ar identisk med LEGEND i planeringsvyn', () => {
     const block = mellan(KALLA, /const LEGEND = \{/, /\n\};/, 'LEGEND');
     const kalla: Record<string, string> = {};
-    for (const m of Array.from(block.matchAll(/^\s*(\w+):\s*(?:'([^']+)'|(FARG_\w+))/gm))) kalla[m[1]] = m[2] ?? FARG_KONSTANTER[m[3]] ?? saknas(m[3]);
+    for (const m of Array.from(block.matchAll(/^\s*(\w+):\s*(?:'([^']+)'|(FARG_\w+)|DIKE\.(\w+))/gm))) kalla[m[1]] = m[2] ?? (m[4] ? (DIKE as Record<string, string>)[m[4]] : undefined) ?? FARG_KONSTANTER[m[3]] ?? saknas(m[3] ?? m[4]);
     expect(Object.keys(kalla).length).toBeGreaterThan(5);
     expect(LEGEND).toEqual(kalla);
   });
@@ -104,6 +104,7 @@ describe('linjetyperna (lineTypeDefs)', () => {
       if (/kraftledning:\s*true/.test(rest)) o.kraftledning = true;
       if (/solid:\s*true/.test(rest)) o.solid = true;
       if (/tunn:\s*true/.test(rest)) o.tunn = true;
+      if (/dike:\s*true/.test(rest)) o.dike = true;
       return o;
     });
     expect(kalla.length).toBe(10);   // backRoad* (3) borttagna: backväg är en egenskap på vägen; + El-ledning som linje (powerline)

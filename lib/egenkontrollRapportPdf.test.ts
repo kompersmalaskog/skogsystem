@@ -308,11 +308,11 @@ describe('backväg i A4-kartan: dubbla tvärstreck (‖) i hinderänden', () => 
 
 describe('markeringsStil - farg ar aldrig ensam', () => {
   const linjer = ['mainRoad', 'ditch', 'stonewall', 'nature', 'trail', 'sideRoadRed', 'sideRoadBlue'];
-  it('inga tva linjetyper har samma farg, bredd OCH streckning - dike ar streckat, basvag heldragen', () => {
+  it('inga tva linjetyper har samma farg, bredd OCH streckning - diket ar en fara med vatten, basvag heldragen', () => {
     const stilar = linjer.map((t) => markeringsStil('linje', t)!);
     const nycklar = stilar.map((s) => `${s.farg}|${s.bredd}|${JSON.stringify(s.streck)}`);
     expect(new Set(nycklar).size).toBe(nycklar.length);
-    expect(markeringsStil('linje', 'ditch')!.streck).not.toBeNull();
+    expect(markeringsStil('linje', 'ditch')!.dike).toBe(true);
     expect(markeringsStil('linje', 'mainRoad')!.streck).toBeNull();
     expect(markeringsStil('linje', 'sideRoadRed')!.etikett).toBe('Stickväg');
   });

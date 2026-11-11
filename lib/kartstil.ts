@@ -48,8 +48,8 @@ export const LEGEND = {
   kultur: FARG_KULTUR,
   fornlamning: FARG_KULTUR,
   brant: FARG_FARA,
-  dike: '#06b6d4',
-  dikeKant: '#0e7490',
+  dike: '#38bdf8',     // dikets vatten (mitten av fåran) — se DIKE
+  dikeKant: '#5a4630', // dikets jordkant — se DIKE
   vit: '#fff',
 } as const;
 
@@ -128,6 +128,34 @@ export const NATURVARD_BREDD_STOPP: Stopp = [[5, 1.5], [11, 2], [15, 3], [17, 3.
 export const NATURVARD_KANT_STOPP: Stopp = [[5, 3], [11, 3.5], [15, 4.5], [17, 5]];
 export const NATURVARD_BREDD = zoomKurva(NATURVARD_BREDD_STOPP);
 export const NATURVARD_KANT_BREDD = zoomKurva(NATURVARD_KANT_STOPP);
+/**
+ * DIKET ser ut som en fåra med vatten i (Martin 2026-11-11: det turkosa, randiga diket blandades ihop med blå basväg och RISA).
+ * Utifrån och in: mörk kant, jordkant (brun), fåra (nästan svart) och en smal ljusblå vattenlinje — inga ränder.
+ * Lika bred som vägen (aldrig bredare), så vägarna fortfarande syns mest. EN källa: planeringsvyn, körvyn, egenkontrollens karta, teckenförklaringen och menyerna läser härifrån.
+ */
+export const DIKE = { kant: 'rgba(0,0,0,0.95)', jord: '#5a4630', fara: '#1a1209', vatten: '#38bdf8' } as const;
+export const DIKE_BREDD: Stopp = [[5, 2], [8, 2], [11, 3], [13, 4], [15, 6], [17, 7]];   // = vägens bredd; med kanten aldrig bredare än vägen
+/** Mörka kanten utanför jordkanten (px). */
+export const DIKE_KANT_EXTRA = 2;
+/** Fåran och vattnet som andel av jordkantens bredd. */
+export const DIKE_FARA_ANDEL = 0.65;
+export const DIKE_VATTEN_ANDEL = 0.35;
+/** Menyernas lilla provbit av diket (CSS): kant, jord, fåra, vatten, fåra, jord, kant — samma ordning som på kartan. */
+export const DIKE_PROV_CSS = `linear-gradient(to bottom, ${'#000'} 0 12%, ${DIKE.jord} 12% 28%, ${DIKE.fara} 28% 42%, ${DIKE.vatten} 42% 58%, ${DIKE.fara} 58% 72%, ${DIKE.jord} 72% 88%, ${'#000'} 88% 100%)`;
+
+/** Dikets fyra lager (kant, jord, fåra, vatten). `idBas` + '-kant' / '' / '-fara' / '-vatten' — ett lager med exakt `idBas` finns alltid. */
+export function dikeLager(kalla: string, idBas: string, filter: any, dim?: Dimning): any[] {
+  const bf = dim?.breddFaktor ?? 1;
+  const op = dim ? { 'line-opacity': dim.opacitet } : {};
+  const layout = { 'line-cap': 'round', 'line-join': 'round' };
+  const lager: any[] = [];
+  if (!dim?.utanKant) lager.push({ id: `${idBas}-kant`, type: 'line', source: kalla, filter, paint: { 'line-color': DIKE.kant, 'line-width': zoomKurva(DIKE_BREDD, bf, DIKE_KANT_EXTRA), ...op }, layout });
+  lager.push({ id: idBas, type: 'line', source: kalla, filter, paint: { 'line-color': DIKE.jord, 'line-width': zoomKurva(DIKE_BREDD, bf), ...op }, layout });
+  lager.push({ id: `${idBas}-fara`, type: 'line', source: kalla, filter, paint: { 'line-color': DIKE.fara, 'line-width': zoomKurva(DIKE_BREDD, bf * DIKE_FARA_ANDEL), ...op }, layout });
+  lager.push({ id: `${idBas}-vatten`, type: 'line', source: kalla, filter, paint: { 'line-color': DIKE.vatten, 'line-width': zoomKurva(DIKE_BREDD, bf * DIKE_VATTEN_ANDEL), ...op }, layout });
+  return lager;
+}
+
 export const STENMUR_BREDD: Stopp = [[5, 3], [8, 4], [11, 5], [13, 6], [15, 7], [17, 9]];
 /** Stenmur = gruppens färg (Kultur, brun) med KRAFTIG mörk kant — ingen egen nyans. Kanten är bredare än muren med så här många px (2,5 px per sida). */
 export const STENMUR_FARG = FARG_STENMUR;
@@ -172,6 +200,8 @@ export type LinjeStil = {
   /** Tunn linje (NATURVARD_BREDD) i stället för vägarnas bredd. */
   tunn?: boolean;
   stonewall?: boolean;
+  /** Dike: en fåra med vatten i (dikeLager). */
+  dike?: boolean;
   /** El-ledning ritad som linje: ritas som en ledning (kraftledningLager) — samma utseende som Vidas Kraftledning. */
   kraftledning?: boolean;
 };
@@ -184,7 +214,7 @@ export const LINJE_STIL: LinjeStil[] = [
   { id: 'sideRoadBlue', color: LEGEND.vatten },
   // Naturvård: tunn, heldragen grön — ingen röd rand (rött betyder fara, Martin 2026-10-28).
   { id: 'nature', color: LEGEND.naturvard, solid: true, tunn: true },
-  { id: 'ditch', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
+  { id: 'ditch', color: LEGEND.dike, dike: true },
   { id: 'trail', color: LEGEND.vit, dashed: true },
   { id: 'stonewall', color: STENMUR_FARG, stonewall: true },
   { id: 'powerline', color: FARG_FARA, kraftledning: true },
@@ -247,6 +277,8 @@ export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim
 
     // El-ledning som linje: ledningsutseendet (röd, mörk kant, stolpar, farosymbol) — samma funktion som Vidas Kraftledning.
     if (lt.kraftledning) { lager.push(...kraftledningLager(kalla, `${prefix}-lin-${lt.id}`, filter, true, dim)); continue; }
+
+    if (lt.dike) { lager.push(...dikeLager(kalla, `${prefix}-lin-${lt.id}`, filter, dim)); continue; }
 
     if (lt.stonewall) {
       if (!dim?.utanKant) {
