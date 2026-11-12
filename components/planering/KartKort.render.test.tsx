@@ -306,3 +306,31 @@ describe('KartKort — stänga', () => {
     expect(stang).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('KartKort — läsläge (öppnat ur förarens lista)', () => {
+  it('ingen mening, bara Kommentar kvar, inget Nederst, litet foto och en tydlig Tillbaka till listan sist', () => {
+    let tillbaka = 0;
+    visa({
+      tillbaka: { etikett: 'Lista', onClick: () => { tillbaka++; } },
+      rost: { onToggle: () => {}, spelar: false, sekunder: 0 },
+      foton: [{ id: 'f1', node: <img alt="" />, onTaBort: () => {} }],
+      children: <KartKortNederst><button data-testid="ta-bort-markering">Ta bort</button></KartKortNederst>,
+    });
+    expect(t('kartkort-mening')).toBeNull();
+    expect(t('kartkort-kommentar-ny')).not.toBeNull();
+    expect(t('kartkort-foto-lagg-till')).toBeNull();
+    expect(t('kartkort-rost')).toBeNull();
+    expect(t('ta-bort-markering')).toBeNull();
+    expect(t('kartkort-foto-ta-bort')).toBeNull();
+    expect(t('kartkort-foton')!.getAttribute('data-liten')).toBe('1');
+    expect(t('kartkort-tillbaka')!.textContent).toContain('Tillbaka till listan');
+    klick(t('kartkort-tillbaka'));
+    expect(tillbaka).toBe(1);
+  });
+  it('utan tillbaka (planeringsvyn) är kortet som förut', () => {
+    visa({ rost: { onToggle: () => {}, spelar: false, sekunder: 0 }, children: <KartKortNederst><button data-testid="ta-bort-markering">Ta bort</button></KartKortNederst> });
+    expect(t('kartkort-mening')).not.toBeNull();
+    expect(t('kartkort-rost')).not.toBeNull();
+    expect(t('ta-bort-markering')).not.toBeNull();
+  });
+});

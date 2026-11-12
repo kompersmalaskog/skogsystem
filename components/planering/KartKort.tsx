@@ -24,6 +24,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { GRUPPER, type FargGrupp } from '@/lib/larm/grupper';
 import { AVSTAND, FARG, IKON, KNAPP, RADIE, TRAFFYTA, TYP, VIKT, designCss } from '@/lib/design/tokens';
 import { kommentarPunkter } from '@/lib/kommentarPunkter';
+import { oversiktPanelBredd } from '@/lib/plusArk';
 import { KommentarPunkter, KommentarRuta, KommentarVisning } from './KommentarRuta';
 
 /** Svepet nedåt (px) som stänger kortet. */
@@ -111,19 +112,26 @@ export function KartKort(p: KartKortProps) {
   const harKommentarer = !!p.kommentarer && p.kommentarer.length > 0;
   const harVida = kommentarPunkter(p.vidaKommentar).length > 0;
   const harFoton = p.foton.length > 0;
-  const harAtgarder = kanKommentera || !!p.onLaggTillFoto || !!p.rost;
+  // LÄSLÄGE (Martin 2026-11-12): kortet öppnades ur förarens lista (Hela trakten). Föraren läser — han redigerar inte.
+  // Kortet ligger där listan satt (till höger på bred skärm, kartan syns), ingen mening som upprepar kommentaren, litet foto,
+  // bara "Kommentar" kvar av åtgärderna, inget "Ta bort", och vägen tillbaka till listan är en tydlig knapp.
+  const las = !!p.tillbaka;
+  const lasBred = las && typeof window !== 'undefined' && window.innerWidth >= 900;
+  const harAtgarder = kanKommentera || (!las && (!!p.onLaggTillFoto || !!p.rost));
   return (
     <div
       data-testid={p.testid ?? 'kartkort'}
       data-grupp={p.grupp}
-      style={{ position: 'fixed', inset: 0, background: `${FARG.bg}40`, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      data-las={las ? '1' : undefined}
+      style={{ position: 'fixed', inset: 0, background: lasBred ? 'transparent' : `${FARG.bg}40`, zIndex: 300, display: 'flex', alignItems: lasBred ? 'stretch' : 'flex-end', justifyContent: lasBred ? 'flex-end' : 'center', padding: lasBred ? AVSTAND.s : 0 }}
       onClick={p.onStang}
     >
       <style>{designCss}</style>
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: '100%', maxWidth: 560, maxHeight: '82vh', display: 'flex', flexDirection: 'column', background: FARG.kort, border: `1px solid ${FARG.linje}`, borderBottom: 'none',
+          width: '100%', maxWidth: lasBred ? oversiktPanelBredd(window.innerWidth) : 560, maxHeight: lasBred ? undefined : '82vh', display: 'flex', flexDirection: 'column', background: FARG.kort, border: `1px solid ${FARG.linje}`, borderBottom: lasBred ? undefined : 'none',
+          borderRadius: lasBred ? RADIE.sheet : undefined,
           borderTopLeftRadius: RADIE.sheet, borderTopRightRadius: RADIE.sheet, paddingBottom: 'env(safe-area-inset-bottom, 0px)', transform: `translateY(${svepY}px)`,
           transition: svepStart.current == null ? 'transform 0.25s cubic-bezier(0.32,0.72,0,1)' : 'none',
         }}
@@ -139,14 +147,6 @@ export function KartKort(p: KartKortProps) {
         </div>
 
         <div style={{ overflowY: 'auto', padding: `${AVSTAND.xs}px ${AVSTAND.xl}px ${AVSTAND.xl}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
-          {p.tillbaka && (
-            <button type="button" data-testid="kartkort-tillbaka" onClick={p.tillbaka.onClick}
-              style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: AVSTAND.xs, minHeight: TRAFFYTA.min, marginLeft: -AVSTAND.xs, marginBottom: -AVSTAND.s, padding: `0 ${AVSTAND.xs}px`,
-                border: 'none', background: 'none', color: FARG.bla, fontFamily: 'inherit', cursor: 'pointer', touchAction: 'manipulation', ...TYP.text }}>
-              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={FARG.bla} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6 L9 12 L15 18" /></svg>
-              {p.tillbaka.etikett}
-            </button>
-          )}
           {/* Huvud: ikon, "Namn · Grupp", larmregel (inte för Info — det larmar aldrig), ✕ */}
           <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.l }}>
             <span data-testid="kartkort-ikon" style={{ flexShrink: 0, display: 'flex' }}>{p.ikon}</span>
@@ -165,14 +165,14 @@ export function KartKort(p: KartKortProps) {
           {(harVida || (p.kommentarer && harKommentarer)) && (
             <KartKortKommentarer vida={p.vidaKommentar} rader={p.kommentarer ?? []} onAndra={p.onAndraKommentar} onRadera={p.onRaderaKommentar} />
           )}
-          {p.mening && <div data-testid="kartkort-mening" style={{ ...TYP.text, color: FARG.text2 }}>{p.mening}</div>}
+          {p.mening && !las && <div data-testid="kartkort-mening" style={{ ...TYP.text, color: FARG.text2 }}>{p.mening}</div>}
           {p.kalla && <div data-testid="kartkort-kalla" style={{ ...TYP.micro, color: FARG.text3 }}>{p.kalla}</div>}
 
           {p.malbild}
 
           {delar}
 
-          {harFoton && <KartKortFoton foton={p.foton} />}
+          {harFoton && <KartKortFoton foton={p.foton} liten={las} />}
 
           {/* Åtgärder: EN rad, tre lika knappar. Skriver man en kommentar ersätter skrivfältet raden på samma plats. */}
           {skriverNy && kanKommentera ? (
@@ -182,8 +182,8 @@ export function KartKort(p: KartKortProps) {
           ) : harAtgarder ? (
             <div data-testid="kartkort-atgarder" style={{ display: 'flex', gap: AVSTAND.s }}>
               {kanKommentera && <AtgardKnapp testid="kartkort-kommentar-ny" ikon="add_comment" text="Kommentar" onClick={() => setSkriverNy(true)} />}
-              {p.onLaggTillFoto && <AtgardKnapp testid="kartkort-foto-lagg-till" ikon="photo_camera" text={p.fotoKnapp ?? 'Foto'} onClick={p.onLaggTillFoto} disabled={p.fotoSparar} />}
-              {p.rost && (
+              {!las && p.onLaggTillFoto && <AtgardKnapp testid="kartkort-foto-lagg-till" ikon="photo_camera" text={p.fotoKnapp ?? 'Foto'} onClick={p.onLaggTillFoto} disabled={p.fotoSparar} />}
+              {!las && p.rost && (
                 <AtgardKnapp testid="kartkort-rost" ikon={p.rost.spelar ? 'stop' : 'mic'} text={p.rost.spelar ? `${p.rost.sekunder} s` : 'Röst'} onClick={p.rost.onToggle}
                   disabled={p.rost.disabled} farg={p.rost.spelar ? FARG.rod : undefined} puls={p.rost.spelar} />
               )}
@@ -192,7 +192,14 @@ export function KartKort(p: KartKortProps) {
           {p.fotoSparar && <div style={{ ...TYP.meta, color: FARG.text2 }}>Laddar upp…</div>}
           {p.fotoFel && <div data-testid="kartkort-foto-fel" style={{ ...TYP.meta, color: FARG.rod }}>{p.fotoFel}</div>}
 
-          {nederst}
+          {!las && nederst}
+          {p.tillbaka && (
+            <button type="button" data-testid="kartkort-tillbaka" onClick={p.tillbaka.onClick} className="press-dim"
+              style={{ ...KNAPP.sekundar, minHeight: TRAFFYTA.primar, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: AVSTAND.s, color: FARG.text }}>
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={FARG.text} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6 L9 12 L15 18" /></svg>
+              Tillbaka till {p.tillbaka.etikett.toLowerCase() === 'lista' ? 'listan' : p.tillbaka.etikett}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -315,22 +322,22 @@ function KommentarRadVy({ r, onAndra, onRadera }: { r: KartKortKommentar; onAndr
 }
 
 /** Fotona: bilderna med bildtext, författare och tid. Visas bara när det finns foton; "Foto" i åtgärdsraden lägger till. */
-export function KartKortFoton({ foton }: { foton: KartKortFoto[] }) {
+export function KartKortFoton({ foton, liten = false }: { foton: KartKortFoto[]; liten?: boolean }) {
   return (
-    <div data-testid="kartkort-foton">
-      <div style={rubrik}>Foto</div>
+    <div data-testid="kartkort-foton" data-liten={liten ? '1' : undefined} style={liten ? { maxWidth: 200 } : undefined}>
+      {!liten && <div style={rubrik}>Foto</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
         {foton.map((f) => (
           <div key={f.id} data-testid="kartkort-foto" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.s }}>
               <div style={{ flex: 1, minWidth: 0, borderRadius: RADIE.kort, overflow: 'hidden' }}>{f.node}</div>
-              {f.onTaBort && (
+              {f.onTaBort && !liten && (
                 <button type="button" aria-label="Ta bort foto" data-testid="kartkort-foto-ta-bort" onClick={f.onTaBort} className="press-dim"
                   style={{ ...KNAPP.sekundar, width: TRAFFYTA.min, padding: 0, color: FARG.rod }}>✕</button>
               )}
             </div>
             {f.av ? <div data-testid="kartkort-foto-av" style={{ ...TYP.meta, color: FARG.text3 }}>{f.av}</div> : null}
-            {f.onSparaText ? (
+            {f.onSparaText && !liten ? (
               <input type="text" defaultValue={f.text ?? ''} placeholder="Bildtext…" key={`${f.id}-${f.text ?? ''}`} data-testid="kartkort-foto-text"
                 onBlur={(e) => { if ((f.text ?? '') !== e.target.value.trim()) f.onSparaText?.(e.target.value); }}
                 style={{ width: '100%', boxSizing: 'border-box', padding: AVSTAND.s, borderRadius: RADIE.kort, background: FARG.fyllning, border: `1px solid ${FARG.linje}`, color: FARG.text, ...TYP.meta, fontFamily: 'inherit' }} />

@@ -15,6 +15,7 @@ import VadBetyderKartan, { type VadBetyderKartanProps } from './VadBetyderKartan
 import CertInfoVy from './CertInfoVy';
 import EgenkontrollVida, { type EgenkontrollVidaProps } from './EgenkontrollVida';
 import TraktOversikt, { type TraktOversiktProps } from './TraktOversikt';
+import { oversiktPanelBredd } from '@/lib/plusArk';
 import type { CertTyp } from '@/lib/certKrav';
 import { InstruktionLista } from './InstruktionKort';
 import { DIREKTIV_NYCKEL, type InstruktionerPaTrakten } from '@/lib/instruktioner/instruktioner';
@@ -105,7 +106,7 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
   const stangRam = () => { stangOm(); if (vy === 'om') { om.onTyp(null, ramLage); om.onNav(null); } onStang(); };
 
   return (
-    <InfoRam oppen={oppen} vy={vy} bredd={bredd} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : vy === 'risker' ? 'Risker på trakten' : vy === 'cert' ? 'Certifiering' : vy === 'oversikt' ? 'Hela trakten' : vy === 'egenkontroll' ? 'Egenkontroll' : 'Mer'} onStang={stangRam}>
+    <InfoRam oppen={oppen} vy={vy} bredd={(vy === 'oversikt' || (vy === 'om' && omFran === 'oversikt')) && typeof window !== 'undefined' ? oversiktPanelBredd(window.innerWidth) : bredd} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : vy === 'risker' ? 'Risker på trakten' : vy === 'cert' ? 'Certifiering' : vy === 'oversikt' ? 'Hela trakten' : vy === 'egenkontroll' ? 'Egenkontroll' : 'Mer'} onStang={stangRam}>
       {({ lage, sattDetent }) => (
         vy === 'oversikt' && oversikt ? (
           <TraktOversikt {...oversikt} namn={objektNamn} tillForaren={om.hela} markeringar={om.markeringar} miljo={om.miljo} ikon={om.ikon} objektId={objektId} onFoto={om.onFoto}

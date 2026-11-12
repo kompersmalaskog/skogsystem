@@ -139,10 +139,10 @@ describe('Hela trakten', () => {
     act(() => { q('oversikt-kart-4')!.click(); });
     expect(oppnade).toEqual(['4']);
   });
-  it('"Jag har läst allt" sparar kvittot och stänger; går det inte att spara stannar listan och säger det', async () => {
+  it('"Börja köra" sparar kvittot och stänger; går det inte att spara stannar listan och säger det', async () => {
     let stangd = 0; let ok = false;
     await montera(<TraktOversikt {...props({ onLast: async () => ok, onStang: () => { stangd++; } })} />);
-    expect(q('oversikt-last')!.textContent).toBe('Jag har läst allt');
+    expect(q('oversikt-last')!.textContent).toBe('Börja köra');
     await act(async () => { q('oversikt-last')!.click(); });
     expect(stangd).toBe(0);
     expect(q('oversikt-fel')).not.toBeNull();
@@ -150,10 +150,10 @@ describe('Hela trakten', () => {
     await act(async () => { q('oversikt-last')!.click(); });
     expect(stangd).toBe(1);
   });
-  it('redan läst → knappen heter "Till kartan" och sparar inget', async () => {
+  it('redan läst → knappen Börja köra sparar inget', async () => {
     let sparat = 0; let stangd = 0;
     await montera(<TraktOversikt {...props({ last: true, onLast: async () => { sparat++; return true; }, onStang: () => { stangd++; } })} />);
-    expect(q('oversikt-last')!.textContent).toBe('Till kartan');
+    expect(q('oversikt-last')!.textContent).toBe('Börja köra');
     await act(async () => { q('oversikt-last')!.click(); });
     expect(sparat).toBe(0);
     expect(stangd).toBe(1);

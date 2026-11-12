@@ -23,6 +23,9 @@ export const PANEL_MIN_BREDD_PX = 900;
 export const PANEL_BREDD_PX = 380;
 /** ⓘ-panelen i MASKINLÄGET (maskindatorn, 1280×800 och 1024×640): bredare än standardpanelen, som korten (larm- och instruktionskortet), så direktivet går att läsa med blicken tillbaka i arbetet. */
 export const INFO_PANEL_MASKIN_BREDD_PX = 420;
+/** HELA TRAKTEN (förarens genomgång) och kortet som öppnas ur den: halva skärmen när föraren står still och läser in sig (Martin 2026-11-12),
+ *  aldrig smalare än maskinpanelen och aldrig bredare än 640 px. Under 900 px är det ett ark i full bredd. */
+export const oversiktPanelBredd = (fonsterBredd: number): number => Math.max(INFO_PANEL_MASKIN_BREDD_PX, Math.min(640, Math.round(fonsterBredd * 0.5)));
 export const plusLage = (fonsterBredd: number): PlusLage => (fonsterBredd >= PANEL_MIN_BREDD_PX ? 'panel' : 'ark');
 
 // ── Arkets två lägen ──

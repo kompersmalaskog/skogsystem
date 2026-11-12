@@ -20,6 +20,7 @@ import { harFoto, type KartMarkering, type OmKommentar, type TillForarenPost } f
 import { byggOmGrupper, objektTitel, type TypRad } from '@/lib/omTrakten';
 import type { Risk } from '@/lib/riskbedomning';
 import { utanTextRad, type SkyddRad } from '@/lib/traktOversikt';
+import { faroMarkeringar } from '@/lib/faroNummer';
 import BrandriskRad from './BrandriskRad';
 import LarmVy from './LarmVy';
 import type { LarmVisning } from '@/lib/larmpunkter';
@@ -85,14 +86,17 @@ const Nytt = () => (
 );
 
 /** En sak på kartan med text: symbolen, vad det är, HELA texten, fotot. Hela raden öppnar kortet. */
-function KartRad({ m, forsta, ny, ikon, objektId, onOppna, onFoto }: { m: KartMarkering; forsta: boolean; ny: boolean; ikon: (m: KartMarkering) => React.ReactNode; objektId: string | null; onOppna: (m: KartMarkering) => void; onFoto: (src: string) => void }) {
+function KartRad({ m, forsta, ny, ikon, objektId, onOppna, onFoto, nr }: { m: KartMarkering; forsta: boolean; ny: boolean; ikon: (m: KartMarkering) => React.ReactNode; objektId: string | null; onOppna: (m: KartMarkering) => void; onFoto: (src: string) => void; nr?: number }) {
   const texter = kommentarerFor(m);
   return (
     <div style={{ borderTop: forsta ? 'none' : `1px solid ${FARG.linje}`, display: 'flex', alignItems: 'stretch' }}>
       <button type="button" data-testid={`oversikt-kart-${m.id}`} onClick={() => onOppna(m)} className="press-row"
         style={{ flex: 1, minWidth: 0, minHeight: TRAFFYTA.primar, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'flex-start', gap: AVSTAND.m,
           background: 'transparent', border: 'none', color: FARG.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
-        <span style={{ flexShrink: 0, display: 'inline-flex' }}>{ikon(m)}</span>
+        {nr != null ? (
+          // Samma nummer som på kartan (lib/faroNummer).
+          <span data-testid="oversikt-faro-nr" style={{ flexShrink: 0, width: AVSTAND.xxl, height: AVSTAND.xxl, borderRadius: RADIE.cirkel, background: FARG.rod, color: FARG.text, ...TYP.listtitel, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{nr}</span>
+        ) : <span style={{ flexShrink: 0, display: 'inline-flex' }}>{ikon(m)}</span>}
         <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
             <span style={{ ...TYP.meta, color: FARG.text2, flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{objektTitel(m)}</span>
@@ -123,7 +127,8 @@ export default function TraktOversikt(p: TraktOversiktProps) {
     () => byggOmGrupper(p.markeringar, null, p.miljo.map((m) => ({ id: m.id as 'hogstubbar' | 'evighetstrad', namn: m.namn, antal: m.antal, krav: m.krav, uppfyllt: m.uppfyllt })), []),
     [p.markeringar, p.miljo],
   );
-  const faroMark = (grupper.find((g) => g.grupp === 'faror')?.rader ?? []).flatMap((r) => r.markeringar);
+  // Farorna i samma ordning och med samma nummer som på kartan (lib/faroNummer).
+  const faroMark = useMemo(() => faroMarkeringar(p.markeringar), [p.markeringar]);
   const ovrigaRader: TypRad[] = grupper.filter((g) => g.grupp !== 'faror' && g.grupp !== 'vida').flatMap((g) => g.rader);
   const harText = (m: KartMarkering) => kommentarerFor(m).length > 0 || harFoto(m);
   // Allt med text, i listans ordning (en markering = en rad, aldrig "1 med text"). Hänsynen hör till "Vad ska sparas?".
@@ -200,7 +205,9 @@ export default function TraktOversikt(p: TraktOversiktProps) {
                     <span style={{ ...TYP.listtitel, color: FARG.rod, overflowWrap: 'anywhere' }}>{f}</span>
                   </div>
                 ))}
-                {faroMark.map((m, i) => kartRad(m, i, p.faror.length))}
+                {faroMark.map((m, i) => (
+                  <KartRad key={m.id} m={m} forsta={p.faror.length === 0 && i === 0} ny={p.nya.has(m.id)} ikon={p.ikon} objektId={p.objektId} onOppna={p.onOppna} onFoto={p.onFoto} nr={i + 1} />
+                ))}
                 {risker.length > 0 && (
                   <div data-testid="oversikt-risker" style={{ borderTop: p.faror.length + faroMark.length === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
                     {risker.map((r, i) => rad(r.nyckel, i, (
@@ -327,7 +334,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
         {fel && <div data-testid="oversikt-fel" style={{ ...TYP.text, color: FARG.orange, marginBottom: AVSTAND.s }}>Kunde inte spara – försök igen</div>}
         <button type="button" data-testid="oversikt-last" onClick={() => { void last(); }} disabled={sparar} className="press-scale"
           style={{ ...KNAPP.primar, width: '100%', minHeight: TRAFFYTA.primar, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation', opacity: sparar ? 0.6 : 1 }}>
-          {p.last ? 'Till kartan' : sparar ? 'Sparar …' : 'Jag har läst allt'}
+          {sparar ? 'Sparar …' : 'Börja köra'}
         </button>
       </div>
     </>
