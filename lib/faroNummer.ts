@@ -1,7 +1,7 @@
 // FARORNA MED NUMMER (Martin 2026-11-12, skissen "kartan är svaret"): samma nummer i förarens lista (Hela trakten) och på kartan.
 // EN ordning för båda: farogruppen ur byggOmGrupper (Om trakten), i den ordning listan visar dem. Numret är platsen i den ordningen, 1, 2, 3 …
-// Kartan ritar en röd ring med numret och en kort text bredvid (pratbubblan), bara medan listan eller kortet ur listan är öppet.
-// Texterna krockar aldrig: MapLibre visar inte en text som skulle ligga ovanpå en annan (numret visas alltid).
+// Kartan ritar en röd ring med numret, bara medan listan eller kortet ur listan är öppet. Ingen text bredvid (Martin 2026-11-12: den krockade med
+// symbolerna och namnen — texten står i listan).
 import { byggOmGrupper } from './omTrakten';
 import type { KartMarkering } from './objektKort';
 import { listaPunkt } from './kortFriYta';
@@ -41,10 +41,6 @@ export function faroNrLager(farg: { rod: string; vit: string; mork: string }): a
       layout: { 'text-field': ['to-string', ['get', 'nr']], 'text-size': 16, 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'], 'text-allow-overlap': true, 'text-ignore-placement': true,
         'symbol-z-order': 'source', 'symbol-sort-key': ['case', ['==', ['get', 'vald'], true], 1, 0] },
       paint: { 'text-color': farg.vit } },
-    { id: 'larm-faronr-bubbla', type: 'symbol', source: FARONR_KALLA,
-      layout: { 'text-field': ['get', 'text'], 'text-size': 15, 'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular'], 'text-anchor': 'left', 'text-offset': [1.5, 0],
-        'text-max-width': 14, 'text-allow-overlap': false, 'text-optional': true, 'symbol-sort-key': ['case', ['==', ['get', 'vald'], true], 0, ['get', 'nr']] },
-      paint: { 'text-color': farg.vit, 'text-halo-color': farg.mork, 'text-halo-width': 4 } },
   ];
 }
 
