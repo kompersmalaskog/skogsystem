@@ -10,7 +10,7 @@ const bv = (o: Partial<KartMarkering> & { id: string }) => M({ slag: 'linje', ty
 describe('grupper: Faror · Från Vida · Hänsyn · Vägar · Övrigt', () => {
   it('faror och vägar som förut; naturvård OCH kultur hör ihop under Hänsyn; resten är Övrigt', () => {
     const g = (slag: any, typ: string) => omGrupp({ slag, typ });
-    for (const t of ['warning', 'powerline', 'windfall']) expect(g('symbol', t)).toBe('faror');
+    for (const t of ['warning', 'powerline', 'windfall', 'huntingtower', 'groundcable']) expect(g('symbol', t)).toBe('faror');
     expect(g('zon', 'noentry')).toBe('faror');
     for (const t of ['highstump', 'eternitytree', 'naturecorner', 'culturemonument', 'culturestump']) expect(g('symbol', t)).toBe('hansyn');
     for (const t of ['nature', 'stonewall']) expect(g('linje', t)).toBe('hansyn');
