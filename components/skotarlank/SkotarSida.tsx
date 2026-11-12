@@ -589,7 +589,17 @@ export default function SkotarSida({ token }: { token: string }) {
 
       {!ritar && !placerar && (
         <div style={{ position: 'absolute', bottom: AVSTAND.xxl, right: AVSTAND.l }}>
-          <RundKnapp ikon="add" text="Meny" onClick={() => { setKort(null); setPanel('meny'); }} attr="plus" stor />
+          <RundKnapp ikon="menu" text="Meny" onClick={() => { setKort(null); setPanel('meny'); }} attr="plus" stor />
+        </div>
+      )}
+
+      {/* Zoom med ett finger: + och − i en smal stapel till höger, mitt på (Martin 2026-11-12 — maskindatorns
+          skärm nyper inte alltid). Syns också när han ritar; aldrig när ett ark är öppet. */}
+      {!panel && !kort && (
+        <div data-skotar-zoom="" style={{ position: 'absolute', right: AVSTAND.l, top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', width: KNAPP_PX, borderRadius: RADIE.kort, border: `1px solid ${FARG.linje}`, background: FARG.kort, boxShadow: '0 2px 8px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
+          <ZoomKnapp ikon="add" text="Zooma in" onClick={() => kartaRef.current?.zoomIn()} attr="zoom-in" />
+          <div aria-hidden="true" style={{ height: 1, margin: `0 ${AVSTAND.s}px`, background: FARG.linje }} />
+          <ZoomKnapp ikon="remove" text="Zooma ut" onClick={() => kartaRef.current?.zoomOut()} attr="zoom-ut" />
         </div>
       )}
 
@@ -815,6 +825,15 @@ function RundKnapp({ ikon, text, onClick, attr, stor, av, gron }: { ikon: string
     <button type="button" onClick={onClick} disabled={av} data-kartknapp={attr} aria-label={text} title={text}
       style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: px, height: px, flexShrink: 0, padding: 0, overflow: 'hidden', borderRadius: RADIE.cirkel, border: `1px solid ${FARG.linje}`, background: gron && !av ? FARG.gron : FARG.kort, color: FARG.text, cursor: av ? 'default' : 'pointer', opacity: av ? 0.4 : 1, boxShadow: '0 2px 8px rgba(0,0,0,0.5)', touchAction: 'manipulation' }}>
       <Ikon namn={ikon} farg="inherit" storlek={stor ? 36 : 30} />
+    </button>
+  );
+}
+
+function ZoomKnapp({ ikon, text, onClick, attr }: { ikon: string; text: string; onClick: () => void; attr: string }) {
+  return (
+    <button type="button" onClick={onClick} data-kartknapp={attr} aria-label={text} title={text}
+      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: KNAPP_PX, padding: 0, background: 'none', border: 'none', color: FARG.text, cursor: 'pointer', touchAction: 'manipulation' }}>
+      <Ikon namn={ikon} farg="inherit" storlek={28} />
     </button>
   );
 }
