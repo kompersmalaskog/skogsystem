@@ -8605,9 +8605,9 @@ export default function PlannerPage() {
     const pos = korvyEffectivePos ?? startPosRef.current;   // riktig fix går före den senast kända
     if (!map || !pos) return;   // saknas något nu → effekten kör om när position/karta finns (korvyEffectivePos i deps)
     // Öppnas "Hela trakten" av sig själv ska kartan INTE först flyga ner till maskinen och vrida sig, för att sedan zooma ut till trakten igen
-    // (Martin 2026-11-12: "när man börjar trakten flyger kartan lustigt"). Vänta högst 3 s på beslutet; vet vi inte då flyger vi som förut.
+    // (Martin 2026-11-12: "när man börjar trakten flyger kartan lustigt"). Vänta högst 8 s på beslutet (markeringar, kommentarer och kvitton läses; i testfliken tog det ~5 s); vet vi inte då flyger vi som förut.
     const beslut = oversiktKommerRef.current;
-    if (beslut === null && Date.now() - (flygVantarSedanRef.current ??= Date.now()) < 3000) return;
+    if (beslut === null && Date.now() - (flygVantarSedanRef.current ??= Date.now()) < 8000) return;
     startFlygGjordRef.current = true;   // EN flyTo, även om en GPS-tick landar innan fasen hunnit byta
     if (beslut === 'visa') {
       startKameraAssertGjordRef.current = true;   // ingen inramning på maskinen heller — överblicken ramar in trakten, Börja köra flyger ner
