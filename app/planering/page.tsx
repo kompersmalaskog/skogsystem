@@ -9563,8 +9563,7 @@ export default function PlannerPage() {
     if (!visa) return;
     if (traktOversiktOpen || objektListaOppen) return;
     setInfoStartVy('oversikt');
-    setTraktOversiktOpen(true);
-    visaHelaTrakten();
+    setTraktOversiktOpen(true);   // effekten på traktOversiktOpen ramar in hela trakten (en gång — två fitBounds i rad gav ett ryck)
   }, [oversiktAktiv, oversiktMaskinId, valtObjekt?.id, startKameraLasNu, markersLoaded, kk.laddad, traktGeoHamtadFor, oversiktSig, riskLast.lage, oversiktLast]); // eslint-disable-line react-hooks/exhaustive-deps
   const borjaKora = useCallback(() => {
     if (oversiktMaskinId && valtObjekt?.id) { sparaSett(oversiktMaskinId, String(valtObjekt.id), oversiktSig); setOversiktSett(new Set(oversiktSig)); }
