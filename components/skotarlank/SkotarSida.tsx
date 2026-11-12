@@ -141,6 +141,15 @@ export default function SkotarSida({ token }: { token: string }) {
   const [kort, setKort] = useState<TryckKort | null>(null);
   const [helskarm, setHelskarm] = useState(false);
   const [installera, setInstallera] = useState<{ prompt: () => Promise<void> } | null>(null);
+  // iPhone/iPad har ingen installationsfråga — där läggs sidan på hemskärmen via Dela. Visas bara när den inte redan körs som app.
+  const [iphoneApp, setIphoneApp] = useState(false);
+  useEffect(() => {
+    try {
+      const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const app = window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+      setIphoneApp(ios && !app);
+    } catch { /* bara en hjälptext */ }
+  }, []);
   // Rita runt: hörnen, om ringen är stängd, och svaret från servern.
   const [ritar, setRitar] = useState(false);
   const [ring, setRing] = useState<LngLat[]>([]);
@@ -483,6 +492,26 @@ export default function SkotarSida({ token }: { token: string }) {
     map.flyTo({ center: [p.lng, p.lat], zoom: Math.max(map.getZoom(), 16), duration: 500 });
   }, [gps.position]);
 
+  // Kartan följer maskinen (Martin 2026-11-12: maskindatorn kan inte dra i kartan). På från start; ett drag med
+  // fingret eller musen stänger av det, pilen i zoomstapeln slår på det igen. Gäller bara en färsk position.
+  const [folj, setFolj] = useState(true);
+  const forstaFolj = useRef(true);
+  useEffect(() => {
+    const map = kartaRef.current;
+    if (!map || !kartaKlar) return;
+    const avDrag = (e: { originalEvent?: unknown }) => { if (e.originalEvent) setFolj(false); };
+    map.on('dragstart', avDrag);
+    return () => { map.off('dragstart', avDrag); };
+  }, [kartaKlar]);
+  useEffect(() => {
+    const map = kartaRef.current;
+    const p = gps.position;
+    if (!map || !kartaKlar || !folj || !p || !gps.farsk) return;
+    if (forstaFolj.current) { forstaFolj.current = false; map.flyTo({ center: [p.lng, p.lat], zoom: Math.max(map.getZoom(), 16), duration: 500 }); return; }
+    map.easeTo({ center: [p.lng, p.lat], duration: 500 });
+  }, [gps.position, gps.farsk, folj, kartaKlar]);
+  const foljer = folj && !!gps.position && gps.farsk;
+
   // Synligheten följer valen.
   useEffect(() => {
     const map = kartaRef.current;
@@ -550,8 +579,9 @@ export default function SkotarSida({ token }: { token: string }) {
   })();
 
   return (
-    <main style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text, fontFamily: 'Inter, -apple-system, system-ui, sans-serif', overflow: 'hidden', touchAction: 'none' }}>
-      <div ref={behallare} style={{ position: 'absolute', inset: 0 }} data-skotar-karta="" data-klar={kartaKlar ? '' : undefined} />
+    <main style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text, fontFamily: 'Inter, -apple-system, system-ui, sans-serif', overflow: 'hidden' }}>
+      {/* touch-action: none bara på kartan — på <main> stoppade den all rullning i menyn och arken på pekskärm (Martin 2026-11-12). */}
+      <div ref={behallare} style={{ position: 'absolute', inset: 0, touchAction: 'none' }} data-skotar-karta="" data-klar={kartaKlar ? '' : undefined} />
 
       {/* Bara när något behöver sägas: annars syns ingenting ovanpå kartan. */}
       {(v.fel.length > 0 || gpsRad) && (
@@ -579,7 +609,20 @@ export default function SkotarSida({ token }: { token: string }) {
 
       {!ritar && !placerar && (
         <div style={{ position: 'absolute', bottom: AVSTAND.xxl, right: AVSTAND.l }}>
-          <RundKnapp ikon="add" text="Meny" onClick={() => { setKort(null); setPanel('meny'); }} attr="plus" stor />
+          <RundKnapp ikon="menu" text="Meny" onClick={() => { setKort(null); setPanel('meny'); }} attr="plus" stor />
+        </div>
+      )}
+
+      {/* Zoom med ett finger: + och − i en smal stapel till höger, mitt på (Martin 2026-11-12 — maskindatorns
+          skärm nyper inte alltid). Syns också när han ritar; aldrig när ett ark är öppet. */}
+      {!panel && !kort && (
+        <div data-skotar-zoom="" style={{ position: 'absolute', right: AVSTAND.l, top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', width: KNAPP_PX, borderRadius: RADIE.kort, border: `1px solid ${FARG.linje}`, background: FARG.kort, boxShadow: '0 2px 8px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
+          <ZoomKnapp ikon="add" text="Zooma in" onClick={() => kartaRef.current?.zoomIn()} attr="zoom-in" />
+          <div aria-hidden="true" style={{ height: 1, margin: `0 ${AVSTAND.s}px`, background: FARG.linje }} />
+          <ZoomKnapp ikon="remove" text="Zooma ut" onClick={() => kartaRef.current?.zoomOut()} attr="zoom-ut" />
+          <div aria-hidden="true" style={{ height: 1, margin: `0 ${AVSTAND.s}px`, background: FARG.linje }} />
+          <ZoomKnapp ikon="navigation" fylld={foljer} av={!gps.position || !gps.farsk} text={foljer ? 'Kartan följer maskinen' : 'Följ maskinen'}
+            onClick={() => { forstaFolj.current = false; setFolj(true); visaMig(); }} attr="folj" />
         </div>
       )}
 
@@ -677,17 +720,18 @@ export default function SkotarSida({ token }: { token: string }) {
       {panel === 'meny' && (
         <Ark rubrik={v.namn} stang="Klar" onStang={stangPanel}>
           <div data-skotar-meny="">
+            <Rad titel="Använd telefonen som GPS" under={telefonText(gps.telefon)} hoger={gps.telefon.typ === 'av' ? undefined : 'På'}
+              onTryck={() => { gps.sattPa(gps.telefon.typ === 'av'); if (gps.telefon.typ === 'av') stangPanel(); }} attr={{ 'data-meny': 'telefon-gps' }} />
             <Rad titel="Rita runt högar" under="Se vad som ligger kvar i ett område" onTryck={() => borjaRita()} attr={{ 'data-meny': 'rita' }} />
             <Rad titel="Nytt avlägg" under="Tryck sedan där det ska ligga" onTryck={() => { stangPanel(); setAvlaggRef(null); setPlacerar(true); }} attr={{ 'data-meny': 'avlagg' }} />
             <Rad titel="Kvar på trakten" hoger={kvar && kvar.kvarM3 > 0 ? `${tal(kvar.kvarM3)} m³fub` : undefined} onTryck={() => setPanel('kvar')} attr={{ 'data-meny': 'kvar' }} />
             <Rad titel="Om trakten" onTryck={() => setPanel('om')} attr={{ 'data-meny': 'om' }} />
             <Rad titel="Kartans färger" onTryck={() => setPanel('forklaring')} attr={{ 'data-meny': 'forklaring' }} />
             <Rad titel="Lager" under={BAS_NAMN[bas]} onTryck={() => setPanel('lager')} attr={{ 'data-meny': 'lager' }} />
-            <Rad titel="Visa hela trakten" onTryck={() => { stangPanel(); visaHela(true); }} attr={{ 'data-meny': 'hela' }} />
+            <Rad titel="Visa hela trakten" onTryck={() => { stangPanel(); setFolj(false); visaHela(true); }} attr={{ 'data-meny': 'hela' }} />
             {gps.position && <Rad titel="Visa var skotaren är" under={gps.farsk ? undefined : `Senast ${tid(gps.position.tid)}`} onTryck={() => { stangPanel(); visaMig(); }} attr={{ 'data-meny': 'var' }} />}
-            <Rad titel="Använd telefonen som GPS" under={telefonText(gps.telefon)} hoger={gps.telefon.typ === 'av' ? undefined : 'På'}
-              onTryck={() => { gps.sattPa(gps.telefon.typ === 'av'); if (gps.telefon.typ === 'av') stangPanel(); }} attr={{ 'data-meny': 'telefon-gps' }} />
-            <Rad titel={helskarm ? 'Lämna helskärm' : 'Helskärm'} onTryck={() => { stangPanel(); vaxlaHelskarm(); }} pil={false} sista={!installera} attr={{ 'data-meny': 'helskarm' }} />
+            <Rad titel={helskarm ? 'Lämna helskärm' : 'Helskärm'} onTryck={() => { stangPanel(); vaxlaHelskarm(); }} pil={false} sista={!installera && !iphoneApp} attr={{ 'data-meny': 'helskarm' }} />
+            {!installera && iphoneApp && <Rad titel="Lägg kartan som app" under="Tryck på Dela och sedan Lägg till på hemskärmen" pil={false} sista attr={{ 'data-meny': 'iphone-app' }} />}
             {installera && <Rad titel="Lägg kartan som app på datorn" onTryck={() => { void installera.prompt().finally(() => setInstallera(null)); }} pil={false} sista attr={{ 'data-meny': 'installera' }} />}
             <p style={{ margin: `${AVSTAND.l}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Håll fingret på kartan för att börja rita runt. Uppdaterad {klocka(v.uppdaterad)}.</p>
           </div>
@@ -804,6 +848,15 @@ function RundKnapp({ ikon, text, onClick, attr, stor, av, gron }: { ikon: string
     <button type="button" onClick={onClick} disabled={av} data-kartknapp={attr} aria-label={text} title={text}
       style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: px, height: px, flexShrink: 0, padding: 0, overflow: 'hidden', borderRadius: RADIE.cirkel, border: `1px solid ${FARG.linje}`, background: gron && !av ? FARG.gron : FARG.kort, color: FARG.text, cursor: av ? 'default' : 'pointer', opacity: av ? 0.4 : 1, boxShadow: '0 2px 8px rgba(0,0,0,0.5)', touchAction: 'manipulation' }}>
       <Ikon namn={ikon} farg="inherit" storlek={stor ? 36 : 30} />
+    </button>
+  );
+}
+
+function ZoomKnapp({ ikon, text, onClick, attr, fylld, av }: { ikon: string; text: string; onClick: () => void; attr: string; fylld?: boolean; av?: boolean }) {
+  return (
+    <button type="button" onClick={onClick} disabled={av} data-kartknapp={attr} aria-label={text} aria-pressed={fylld} title={text}
+      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: KNAPP_PX, padding: 0, background: 'none', border: 'none', color: fylld ? FARG.bla : FARG.text, cursor: av ? 'default' : 'pointer', opacity: av ? 0.35 : 1, touchAction: 'manipulation' }}>
+      <Ikon namn={ikon} farg="inherit" storlek={28} fylld={fylld} />
     </button>
   );
 }
