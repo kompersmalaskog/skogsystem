@@ -75,6 +75,8 @@ export interface TraktOversiktProps {
   onMer: () => void;
   /** En sort med flera på kartan ("Stenmur · 3"): samma typvy som i Om trakten — alla markeras på kartan. En enda öppnas med onOppna. */
   onSort?: (nyckel: string) => void;
+  /** "Vad betyder kartan" — det som finns på trakten, med symbolernas betydelse. */
+  onKarta?: () => void;
   onStang: () => void;
 }
 
@@ -352,7 +354,8 @@ export default function TraktOversikt(p: TraktOversiktProps) {
         )}
 
         <Gruppkort>
-          <RadKnapp ikon="more_horiz" forstaRad testid="oversikt-mer" etikett="Mer om trakten" under="Dokument, kartans färger, inställningar" onTryck={p.onMer} />
+          {p.onKarta && <RadKnapp ikon="map" forstaRad testid="oversikt-karta" etikett="Vad betyder kartan" onTryck={p.onKarta} />}
+          <RadKnapp ikon="more_horiz" forstaRad={!p.onKarta} testid="oversikt-mer" etikett="Mer om trakten" under="Dokument, inställningar" onTryck={p.onMer} />
         </Gruppkort>
       </div>
       <div style={{ flexShrink: 0, padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>

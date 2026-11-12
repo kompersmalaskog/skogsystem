@@ -82,6 +82,7 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
   const [omFran, setOmFran] = useState<'kort' | 'oversikt'>('kort');
   // En sort öppnad från överblicken ('Stenmur · 3'): typvyns tillbaka går till överblicken.
   const [sortFranOversikt, setSortFranOversikt] = useState(false);
+  const [kartaFran, setKartaFran] = useState<'kort' | 'oversikt'>('kort');
   // I MASKINLÄGET är "Hela trakten" det ⓘ öppnar (Martin 2026-11-05): ett ställe med allt. Kortet nås via "Mer om trakten".
   const forstaVy = (v: InfoVy): InfoVy => (v === 'kort' && oversikt ? 'oversikt' : v);
   const onCert = cert.length ? { etikett: `${cert.join(' och ')} – vad gäller?`, onTryck: () => { setCertFran('kort'); setVy('cert'); } } : undefined;
@@ -100,7 +101,7 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
   const [forraOppen, setForraOppen] = useState(oppen);
   if (oppen !== forraOppen) {
     setForraOppen(oppen);
-    if (oppen) { setVy(forstaVy(startVy)); setOmFran('kort'); setSortFranOversikt(false); setCertFran('kort'); setAterstall(startVy === 'om' ? om.start : undefined); setTypOppen(startVy === 'om' && !!om.start?.typ); }
+    if (oppen) { setVy(forstaVy(startVy)); setOmFran('kort'); setKartaFran('kort'); setSortFranOversikt(false); setCertFran('kort'); setAterstall(startVy === 'om' ? om.start : undefined); setTypOppen(startVy === 'om' && !!om.start?.typ); }
   }
   // Bred skärm: panelen ligger kvar medan en markering är framhävd. Stängs Om trakten (×, Esc eller ‹ tillbaka) lämnas framhävningen. På telefon stänger
   // "Visa ›" arket SJÄLV — det är inte en stängning att reagera på, så där släpps den först av kartan, raden eller "‹ Om trakten".
@@ -116,6 +117,7 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
             onStang={() => { oversikt.onStang(); onStang(); }}
             onCert={cert.length ? () => { setCertFran('oversikt'); setVy('cert'); } : undefined}
             onMer={() => setVy('kort')}
+            onKarta={karta ? () => { setKartaFran('oversikt'); setVy('karta'); } : undefined}
             onSort={(nyckel) => { setOmFran('oversikt'); setSortFranOversikt(true); setAterstall({ typ: nyckel, scrollLista: 0, scrollTyp: 0, q: '' }); setTypOppen(true); setVy('om'); }} />
         ) : vy === 'egenkontroll' && egenkontroll ? (
           <EgenkontrollVida {...egenkontroll.vy} objektNamn={objektNamn} onTillbaka={() => setVy('kort')} onStang={stangRam} />
@@ -148,7 +150,7 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
         ) : vy === 'cert' && cert.length ? (
           <CertInfoVy typer={cert} objektNamn={objektNamn} onTillbaka={() => setVy(certFran === 'oversikt' && oversikt ? 'oversikt' : 'kort')} onStang={stangRam} />
         ) : vy === 'karta' && karta ? (
-          <VadBetyderKartan {...karta} objektNamn={objektNamn} onTillbaka={() => setVy('kort')} onStang={stangRam} />
+          <VadBetyderKartan {...karta} objektNamn={objektNamn} onTillbaka={() => { setVy(kartaFran === 'oversikt' && oversikt ? 'oversikt' : 'kort'); setKartaFran('kort'); }} onStang={stangRam} />
         ) : (
           <MerMeny {...mer} objektNamn={objektNamn} onTillbaka={() => setVy('kort')} onStang={stangRam} />
         )
