@@ -254,7 +254,9 @@ export default function TraktOversikt(p: TraktOversiktProps) {
   return (
     <>
       <Huvud titel={p.namn} undertitel={p.under || undefined} onStang={() => { sparadScroll = null; p.onStang(); }} />
-      <div data-testid="oversikt-innehall" ref={innehallRef} onScroll={(e) => { sparadScroll = { objektId: p.objektId, top: (e.target as HTMLDivElement).scrollTop }; }} style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+      <div data-testid="oversikt-rulla" ref={innehallRef} onScroll={(e) => { sparadScroll = { objektId: p.objektId, top: (e.target as HTMLDivElement).scrollTop }; }} style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
+      {/* Inre omslag som inte krymper: direkt i en scrollande flex-kolumn trycktes sista kortet ihop till 0 px. */}
+      <div data-testid="oversikt-innehall" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l, flexShrink: 0 }}>
 
         {/* 1. OM NÅGOT HÄNDER — först, alltid. Koordinaten stort, avståndet i fågelväg. */}
         {p.larm && (
@@ -409,6 +411,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
           {p.onKarta && <RadKnapp ikon="map" forstaRad testid="oversikt-karta" etikett="Alla symboler och färger" onTryck={p.onKarta} />}
           <RadKnapp ikon="more_horiz" forstaRad={!p.onKarta} testid="oversikt-mer" etikett="Mer om trakten" onTryck={p.onMer} />
         </Gruppkort>
+      </div>
       </div>
       <div style={{ flexShrink: 0, padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>
         {fel && <div data-testid="oversikt-fel" style={{ ...TYP.text, color: FARG.orange, marginBottom: AVSTAND.s }}>Kunde inte spara – försök igen</div>}
