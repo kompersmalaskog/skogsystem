@@ -33,6 +33,8 @@ import { ritaRuta, RUTA_BILD, RUTA_STRACK } from '@/lib/skotarLass/avlaggKarta';
 import { laggTillTeckenBilder } from '@/lib/kommentarTecken';
 import { hallSkarmenVakenIWebblasare } from '@/lib/skarmVaken';
 import { useRitadSkotare } from '@/lib/skotarlank/useRitadSkotare';
+import { telefonText, useSkotarPosition } from '@/lib/skotarlank/useSkotarPosition';
+import { cirkelPolygon } from '@/lib/telefonGps';
 
 type Vy = Omit<Data, 'avlagg'> & {
   ok: true;
@@ -64,6 +66,7 @@ const LANGTRYCK_MS = 500;
 const LANGTRYCK_PX = 10;
 const ANGRA_MS = 5000;
 const RING_KALLA = 'sk-ring';
+const POS_KALLA = 'sk-position';
 
 type Omrade = { hogar: number; kvar: number; skordat: number; grupper: { grupp: string; namn: string; m3: number }[] };
 type Panel = null | 'meny' | 'kvar' | 'om' | 'lager' | 'forklaring';
@@ -164,6 +167,9 @@ export default function SkotarSida({ token }: { token: string }) {
   const ritarRef = useRef(false);
   ritarRef.current = ritar && !ringKlar;
   const svaljKlick = useRef(false);
+
+  // Telefonen som GPS: telefonen skickar, datorn hämtar och ritar pricken (lib/skotarlank/useSkotarPosition).
+  const gps = useSkotarPosition(token);
 
   // Valen minns per dator.
   useEffect(() => { setLager(las(LAGRING_LAGER, STANDARD_LAGER)); setBas(lasBas()); }, []);
@@ -446,6 +452,37 @@ export default function SkotarSida({ token }: { token: string }) {
     map.addLayer({ id: 'sk-ring-horn', type: 'circle', source: RING_KALLA, filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': ['case', ['get', 'forsta'], 9, 6], 'circle-color': FARG.bla, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
   }, [ritar, ring, ringKlar, kartaKlar]);
 
+  // Skotarens position: blå prick med vit kant och telefonens osäkerhet som en svag cirkel. Grå när den är gammal. Överst på kartan.
+  useEffect(() => {
+    const map = kartaRef.current;
+    if (!map || !kartaKlar) return;
+    const p = gps.position;
+    const fs: unknown[] = [];
+    if (p) {
+      if (p.noggrannhet != null && p.noggrannhet > 3) fs.push({ type: 'Feature', properties: { farsk: gps.farsk }, geometry: cirkelPolygon(p.lat, p.lng, p.noggrannhet) });
+      fs.push({ type: 'Feature', properties: { farsk: gps.farsk }, geometry: { type: 'Point', coordinates: [p.lng, p.lat] } });
+    }
+    const data = { type: 'FeatureCollection', features: fs };
+    const s = map.getSource(POS_KALLA) as maplibregl.GeoJSONSource | undefined;
+    if (s) {
+      s.setData(data as never);
+      // Ligger överst även när andra lager lagts till senare (rita runt, Ritad).
+      for (const id of ['sk-pos-osakerhet', 'sk-pos-osakerhet-kant', 'sk-pos-prick']) if (map.getLayer(id)) map.moveLayer(id);
+      return;
+    }
+    map.addSource(POS_KALLA, { type: 'geojson', data: data as never });
+    const farg = ['case', ['get', 'farsk'], FARG.bla, FARG.text3];
+    map.addLayer({ id: 'sk-pos-osakerhet', type: 'fill', source: POS_KALLA, filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': farg as never, 'fill-opacity': 0.15 } });
+    map.addLayer({ id: 'sk-pos-osakerhet-kant', type: 'line', source: POS_KALLA, filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'line-color': farg as never, 'line-opacity': 0.5, 'line-width': 1 } });
+    map.addLayer({ id: 'sk-pos-prick', type: 'circle', source: POS_KALLA, filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 10, 'circle-color': farg as never, 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 } });
+  }, [gps.position, gps.farsk, kartaKlar]);
+  const visaMig = useCallback(() => {
+    const map = kartaRef.current;
+    const p = gps.position;
+    if (!map || !p) return;
+    map.flyTo({ center: [p.lng, p.lat], zoom: Math.max(map.getZoom(), 16), duration: 500 });
+  }, [gps.position]);
+
   // Synligheten följer valen.
   useEffect(() => {
     const map = kartaRef.current;
@@ -498,6 +535,10 @@ export default function SkotarSida({ token }: { token: string }) {
   };
   const kvar = v.hogar;
   const stangPanel = () => setPanel(null);
+  // Raden överst: på telefonen som skickar säger den läget; på datorn bara när positionen är gammal.
+  const gpsRad: { text: string; varning: boolean } | null = gps.telefon.typ !== 'av'
+    ? { text: telefonText(gps.telefon), varning: ['langt', 'nekad', 'saknas', 'fel'].includes(gps.telefon.typ) }
+    : gps.position && !gps.farsk ? { text: `Telefonens position: senast ${tid(gps.position.tid)}`, varning: true } : null;
   const valtAvlagg = avlaggRef ? v.avlagg?.find((a) => a.ref === avlaggRef) ?? null : null;
   const visningAv = (namn: string) => v.sortiment.find((x) => x.namn === namn)?.visning ?? namn;
   // Planerarens eller Vidas text om avlägget (bara läsning).
@@ -512,10 +553,19 @@ export default function SkotarSida({ token }: { token: string }) {
     <main style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text, fontFamily: 'Inter, -apple-system, system-ui, sans-serif', overflow: 'hidden', touchAction: 'none' }}>
       <div ref={behallare} style={{ position: 'absolute', inset: 0 }} data-skotar-karta="" data-klar={kartaKlar ? '' : undefined} />
 
-      {/* Bara när något inte gick att läsa: annars syns ingenting ovanpå kartan. */}
-      {v.fel.length > 0 && (
-        <div role="status" data-skotar-fel="" style={{ position: 'absolute', top: AVSTAND.l, left: AVSTAND.l, right: AVSTAND.l, maxWidth: 520, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: 'rgba(28,28,30,0.92)', ...TYP.meta, color: FARG.orange }}>
-          Kunde inte läsa {v.fel.join(', ')}. Sidan försöker igen av sig själv.
+      {/* Bara när något behöver sägas: annars syns ingenting ovanpå kartan. */}
+      {(v.fel.length > 0 || gpsRad) && (
+        <div style={{ position: 'absolute', top: AVSTAND.l, left: AVSTAND.l, right: AVSTAND.l, maxWidth: 520, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+          {v.fel.length > 0 && (
+            <div role="status" data-skotar-fel="" style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: 'rgba(28,28,30,0.92)', ...TYP.meta, color: FARG.orange }}>
+              Kunde inte läsa {v.fel.join(', ')}. Sidan försöker igen av sig själv.
+            </div>
+          )}
+          {gpsRad && (
+            <div role="status" data-skotar-gps="" style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: 'rgba(28,28,30,0.92)', ...TYP.meta, color: gpsRad.varning ? FARG.orange : FARG.text }}>
+              {gpsRad.text}
+            </div>
+          )}
         </div>
       )}
 
@@ -634,6 +684,9 @@ export default function SkotarSida({ token }: { token: string }) {
             <Rad titel="Kartans färger" onTryck={() => setPanel('forklaring')} attr={{ 'data-meny': 'forklaring' }} />
             <Rad titel="Lager" under={BAS_NAMN[bas]} onTryck={() => setPanel('lager')} attr={{ 'data-meny': 'lager' }} />
             <Rad titel="Visa hela trakten" onTryck={() => { stangPanel(); visaHela(true); }} attr={{ 'data-meny': 'hela' }} />
+            {gps.position && <Rad titel="Visa var skotaren är" under={gps.farsk ? undefined : `Senast ${tid(gps.position.tid)}`} onTryck={() => { stangPanel(); visaMig(); }} attr={{ 'data-meny': 'var' }} />}
+            <Rad titel="Använd telefonen som GPS" under={telefonText(gps.telefon)} hoger={gps.telefon.typ === 'av' ? undefined : 'På'}
+              onTryck={() => { gps.sattPa(gps.telefon.typ === 'av'); if (gps.telefon.typ === 'av') stangPanel(); }} attr={{ 'data-meny': 'telefon-gps' }} />
             <Rad titel={helskarm ? 'Lämna helskärm' : 'Helskärm'} onTryck={() => { stangPanel(); vaxlaHelskarm(); }} pil={false} sista={!installera} attr={{ 'data-meny': 'helskarm' }} />
             {installera && <Rad titel="Lägg kartan som app på datorn" onTryck={() => { void installera.prompt().finally(() => setInstallera(null)); }} pil={false} sista attr={{ 'data-meny': 'installera' }} />}
             <p style={{ margin: `${AVSTAND.l}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Håll fingret på kartan för att börja rita runt. Uppdaterad {klocka(v.uppdaterad)}.</p>
