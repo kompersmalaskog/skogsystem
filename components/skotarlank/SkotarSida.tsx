@@ -492,6 +492,26 @@ export default function SkotarSida({ token }: { token: string }) {
     map.flyTo({ center: [p.lng, p.lat], zoom: Math.max(map.getZoom(), 16), duration: 500 });
   }, [gps.position]);
 
+  // Kartan följer maskinen (Martin 2026-11-12: maskindatorn kan inte dra i kartan). På från start; ett drag med
+  // fingret eller musen stänger av det, pilen i zoomstapeln slår på det igen. Gäller bara en färsk position.
+  const [folj, setFolj] = useState(true);
+  const forstaFolj = useRef(true);
+  useEffect(() => {
+    const map = kartaRef.current;
+    if (!map || !kartaKlar) return;
+    const avDrag = (e: { originalEvent?: unknown }) => { if (e.originalEvent) setFolj(false); };
+    map.on('dragstart', avDrag);
+    return () => { map.off('dragstart', avDrag); };
+  }, [kartaKlar]);
+  useEffect(() => {
+    const map = kartaRef.current;
+    const p = gps.position;
+    if (!map || !kartaKlar || !folj || !p || !gps.farsk) return;
+    if (forstaFolj.current) { forstaFolj.current = false; map.flyTo({ center: [p.lng, p.lat], zoom: Math.max(map.getZoom(), 16), duration: 500 }); return; }
+    map.easeTo({ center: [p.lng, p.lat], duration: 500 });
+  }, [gps.position, gps.farsk, folj, kartaKlar]);
+  const foljer = folj && !!gps.position && gps.farsk;
+
   // Synligheten följer valen.
   useEffect(() => {
     const map = kartaRef.current;
@@ -600,6 +620,9 @@ export default function SkotarSida({ token }: { token: string }) {
           <ZoomKnapp ikon="add" text="Zooma in" onClick={() => kartaRef.current?.zoomIn()} attr="zoom-in" />
           <div aria-hidden="true" style={{ height: 1, margin: `0 ${AVSTAND.s}px`, background: FARG.linje }} />
           <ZoomKnapp ikon="remove" text="Zooma ut" onClick={() => kartaRef.current?.zoomOut()} attr="zoom-ut" />
+          <div aria-hidden="true" style={{ height: 1, margin: `0 ${AVSTAND.s}px`, background: FARG.linje }} />
+          <ZoomKnapp ikon="navigation" fylld={foljer} av={!gps.position || !gps.farsk} text={foljer ? 'Kartan följer maskinen' : 'Följ maskinen'}
+            onClick={() => { forstaFolj.current = false; setFolj(true); visaMig(); }} attr="folj" />
         </div>
       )}
 
@@ -705,7 +728,7 @@ export default function SkotarSida({ token }: { token: string }) {
             <Rad titel="Om trakten" onTryck={() => setPanel('om')} attr={{ 'data-meny': 'om' }} />
             <Rad titel="Kartans färger" onTryck={() => setPanel('forklaring')} attr={{ 'data-meny': 'forklaring' }} />
             <Rad titel="Lager" under={BAS_NAMN[bas]} onTryck={() => setPanel('lager')} attr={{ 'data-meny': 'lager' }} />
-            <Rad titel="Visa hela trakten" onTryck={() => { stangPanel(); visaHela(true); }} attr={{ 'data-meny': 'hela' }} />
+            <Rad titel="Visa hela trakten" onTryck={() => { stangPanel(); setFolj(false); visaHela(true); }} attr={{ 'data-meny': 'hela' }} />
             {gps.position && <Rad titel="Visa var skotaren är" under={gps.farsk ? undefined : `Senast ${tid(gps.position.tid)}`} onTryck={() => { stangPanel(); visaMig(); }} attr={{ 'data-meny': 'var' }} />}
             <Rad titel={helskarm ? 'Lämna helskärm' : 'Helskärm'} onTryck={() => { stangPanel(); vaxlaHelskarm(); }} pil={false} sista={!installera && !iphoneApp} attr={{ 'data-meny': 'helskarm' }} />
             {!installera && iphoneApp && <Rad titel="Lägg kartan som app" under="Tryck på Dela och sedan Lägg till på hemskärmen" pil={false} sista attr={{ 'data-meny': 'iphone-app' }} />}
@@ -829,11 +852,11 @@ function RundKnapp({ ikon, text, onClick, attr, stor, av, gron }: { ikon: string
   );
 }
 
-function ZoomKnapp({ ikon, text, onClick, attr }: { ikon: string; text: string; onClick: () => void; attr: string }) {
+function ZoomKnapp({ ikon, text, onClick, attr, fylld, av }: { ikon: string; text: string; onClick: () => void; attr: string; fylld?: boolean; av?: boolean }) {
   return (
-    <button type="button" onClick={onClick} data-kartknapp={attr} aria-label={text} title={text}
-      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: KNAPP_PX, padding: 0, background: 'none', border: 'none', color: FARG.text, cursor: 'pointer', touchAction: 'manipulation' }}>
-      <Ikon namn={ikon} farg="inherit" storlek={28} />
+    <button type="button" onClick={onClick} disabled={av} data-kartknapp={attr} aria-label={text} aria-pressed={fylld} title={text}
+      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: KNAPP_PX, padding: 0, background: 'none', border: 'none', color: fylld ? FARG.bla : FARG.text, cursor: av ? 'default' : 'pointer', opacity: av ? 0.35 : 1, touchAction: 'manipulation' }}>
+      <Ikon namn={ikon} farg="inherit" storlek={28} fylld={fylld} />
     </button>
   );
 }
