@@ -9521,6 +9521,9 @@ export default function PlannerPage() {
       setKorvyFollowPaused(true);   // kartan visar hela trakten tills föraren trycker Börja köra (eller centrera)
       const bred = typeof window !== 'undefined' && window.innerWidth >= 900;
       const nere = !bred && typeof window !== 'undefined' ? Math.round(window.innerHeight * 0.5) : 0;
+      // Nollställ kartans kvarvarande padding först: raden i listan flyttar platsen bredvid kortet med en stor padding (friYtaPadding),
+      // och MapLibre LÄGGER fitBounds padding ovanpå den — då blev ytan liten och kartan zoomade ut till halva socknen (Martin 2026-11-12, "‹ Lista").
+      try { map.setPadding({ top: 0, bottom: 0, left: 0, right: 0 }); } catch { /* kartan är borta */ }
       try { map.fitBounds(gran, { padding: { top: AVSTAND.xxl * 3, left: AVSTAND.xxl * 1.5, right: AVSTAND.xxl * 1.5 + (bred ? INFO_PANEL_MASKIN_BREDD_PX + AVSTAND.l : 0), bottom: AVSTAND.xxl * 1.5 + nere }, maxZoom: 17, pitch: 0, bearing: 0, duration: 900 }); } catch { /* kartan är borta */ }
     }
   }, [traktGeo]); // eslint-disable-line react-hooks/exhaustive-deps
