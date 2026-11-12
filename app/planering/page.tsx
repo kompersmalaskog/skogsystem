@@ -5122,8 +5122,11 @@ export default function PlannerPage() {
       // Körvyn äger kameran (följer maskinen på körvyns zoom) → ingen zoom-ut över ALLA features (fastighet, bestånd):
       // med en stillastående position (testfliken) kommer ingen GPS-tick som rättar kameran efteråt.
       // Planeringsvyn (objektListaVal): kameran sveps av useObjektFlyg till TRAKTGRÄNSEN — inte över alla features (en stor fastighetsyta gav en regional fläck).
-      if (Number.isFinite(minLng) && !startKameraLasRef.current && !korvyOppenRef.current && !objektListaVal) {
-        try { map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, duration: 600, maxZoom: 16 }); } catch {}
+      // Finns Vidas traktgräns zoomar kartan till den, aldrig över alla features (Martin 2026-11-12, Lidhem i maskinläge:
+      // fastighet och bestånd långt bort gav en karta över halva socknen).
+      const granTrakt = traktGrans(fc);
+      if ((granTrakt || Number.isFinite(minLng)) && !startKameraLasRef.current && !korvyOppenRef.current && !objektListaVal) {
+        try { map.fitBounds(granTrakt ?? [[minLng, minLat], [maxLng, maxLat]], { padding: 60, duration: 600, maxZoom: 16 }); } catch {}
       }
     })();
     return () => { avbruten = true; };
