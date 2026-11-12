@@ -68,6 +68,8 @@ export interface TraktOversiktProps {
   onFoto: (src: string) => void;
   /** "Mer om trakten" — det vanliga kortet (dokument, kartans färger, Mer). */
   onMer: () => void;
+  /** "Alla symboler på trakten" — samma lista som Om trakten: alla sorter, också de utan text; ett tryck visar dem på kartan. */
+  onAlla?: () => void;
   onStang: () => void;
 }
 
@@ -304,7 +306,13 @@ export default function TraktOversikt(p: TraktOversiktProps) {
           </div>
         )}
 
-        {utan && (
+        {/* ALLA SYMBOLER (Martin 2026-11-12, Lidhem): också de utan text — en rad som öppnar listan per sort; ett tryck visar dem på kartan. */}
+        {p.onAlla && p.markeringar.length > 0 ? (
+          <Gruppkort>
+            <RadKnapp ikon="list" forstaRad testid="oversikt-alla" etikett={`Alla symboler på trakten (${p.markeringar.length})`}
+              under={utan ? `Utan text: ${utan}` : 'Tryck så visas de på kartan'} onTryck={p.onAlla} />
+          </Gruppkort>
+        ) : utan && (
           <section data-testid="oversikt-utan-text">
             <Rubrik>Utan text</Rubrik>
             <div style={{ ...TYP.text, color: FARG.text2, overflowWrap: 'anywhere' }}>{utan}</div>

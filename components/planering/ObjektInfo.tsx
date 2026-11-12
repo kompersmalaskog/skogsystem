@@ -111,7 +111,8 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
           <TraktOversikt {...oversikt} namn={objektNamn} tillForaren={om.hela} markeringar={om.markeringar} miljo={om.miljo} ikon={om.ikon} objektId={objektId} onFoto={om.onFoto}
             onStang={() => { oversikt.onStang(); onStang(); }}
             onCert={cert.length ? () => { setCertFran('oversikt'); setVy('cert'); } : undefined}
-            onMer={() => setVy('kort')} />
+            onMer={() => setVy('kort')}
+            onAlla={() => { setOmFran('oversikt'); setVy('om'); }} />
         ) : vy === 'egenkontroll' && egenkontroll ? (
           <EgenkontrollVida {...egenkontroll.vy} objektNamn={objektNamn} onTillbaka={() => setVy('kort')} onStang={stangRam} />
         ) : vy === 'klar' && klar ? (

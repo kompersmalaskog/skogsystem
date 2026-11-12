@@ -158,6 +158,15 @@ describe('Hela trakten', () => {
     expect(sparat).toBe(0);
     expect(stangd).toBe(1);
   });
+  it('"Alla symboler på trakten" visar antalet, säger vad som saknar text och öppnar listan', async () => {
+    let alla = 0;
+    await montera(<TraktOversikt {...props({ onAlla: () => { alla++; } })} />);
+    expect(q('oversikt-alla')!.textContent).toContain('Alla symboler på trakten (4)');
+    expect(q('oversikt-alla')!.textContent).toContain('Utan text: Avlägg 1');
+    expect(q('oversikt-utan-text')).toBeNull();
+    act(() => { q('oversikt-alla')!.click(); });
+    expect(alla).toBe(1);
+  });
   it('"Mer om trakten" finns längst ner', async () => {
     let mer = 0;
     await montera(<TraktOversikt {...props({ onMer: () => { mer++; } })} />);
