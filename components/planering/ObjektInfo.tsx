@@ -143,7 +143,9 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
             onPaTrakten={() => setVy('om')} onKarta={karta ? () => setVy('karta') : undefined} onCert={onCert} kartaSparad={kartaSparad}
             onEgenkontroll={egenkontroll ? { under: egenkontroll.under, onTryck: () => setVy('egenkontroll') } : undefined} />
         ) : vy === 'om' ? (
-          <OmTrakten {...om} start={aterstall} onVisa={(m) => om.onVisa(m, lage)} onSlapp={() => om.onSlapp('rad')} onTyp={(m) => { setTypOppen(!!m); om.onTyp(m, lage); }}
+          // Ur Hela trakten (förarens meny): ett objekt i sortens lista öppnar LÄSKORTET — stort, med foto och kommentar och "Tillbaka till listan" —
+          // också Vidas ytor (Martin 2026-11-12). Det lilla kortet är för kartan, när man kör.
+          <OmTrakten {...om} start={aterstall} vidaOppna={sortFranOversikt && oversikt ? undefined : om.vidaOppna} onVisa={(m) => (sortFranOversikt && oversikt ? oversikt.onOppna(m) : om.onVisa(m, lage))} onSlapp={() => om.onSlapp('rad')} onTyp={(m) => { setTypOppen(!!m); om.onTyp(m, lage); }}
             objektNamn={objektNamn} objektId={objektId} onTillbaka={tillbakaFranOm} typTillbaka={sortFranOversikt && oversikt ? { etikett: 'Hela trakten', onTryck: tillbakaFranOm } : undefined} onStang={stangRam} />
         ) : vy === 'risker' && forarRisker?.lista ? (
           <ForarRisker objektNamn={objektNamn} risker={forarRisker.lista} last={forarRisker.last} sparFel={riskFel}
