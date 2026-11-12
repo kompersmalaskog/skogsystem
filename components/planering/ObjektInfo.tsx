@@ -114,7 +114,6 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
       {({ lage, sattDetent }) => (
         vy === 'oversikt' && oversikt ? (
           <TraktOversikt {...oversikt} namn={objektNamn}
-            under={enkel?.under || oversikt.under} andel={enkel?.andel ?? null}
             korUpp={enkel?.ytor.filter((r) => r.nyckel.startsWith('korupp:'))} onYta={enkel ? (nyckel) => { sattDetent('halv'); enkel.onYta(nyckel, lage); } : undefined}
             onLast={async () => { const ok = await oversikt.onLast(); if (ok && direktiv && direktiv.nya > 0) instruktioner!.onSett([DIREKTIV_NYCKEL]); return ok; }} tillForaren={om.hela} markeringar={om.markeringar} miljo={om.miljo} ikon={om.ikon} objektId={objektId} onFoto={om.onFoto}
             onStang={() => { oversikt.onStang(); onStang(); }}

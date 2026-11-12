@@ -93,12 +93,12 @@ describe('Hela trakten', () => {
     act(() => { q('oversikt-cert-rad')!.click(); });
     expect(cert).toBe(1);
   });
-  it('ordningen: larm, gäller hela trakten, fara, sedan kartans färger — natur, kultur, blött, att göra, bra att veta; tom färg ritas inte', async () => {
+  it('ordningen: larm, fara, gäller hela trakten, sedan kartans färger — natur, kultur, blött, att göra, bra att veta; tom färg ritas inte', async () => {
     await montera(<TraktOversikt {...props({ faror: ['Kraftledning'], markeringar: [
       mark('3', 'landing', 'Avlägg'), mark('5', 'stonewall', 'Stenmur', '', 'linje'), mark('6', 'treetocut', 'Träd att avverka'), mark('7', 'naturecorner', 'Naturhörna'),
     ] })} />);
     const ord = [...q('oversikt-innehall')!.children].map((e) => e.getAttribute('data-testid')).filter(Boolean);
-    expect(ord.slice(0, 3)).toEqual(['oversikt-larm', 'oversikt-trakten', 'oversikt-faror']);
+    expect(ord.slice(0, 3)).toEqual(['oversikt-larm', 'oversikt-faror', 'oversikt-trakten']);
     const farger = ord.filter((t) => t!.startsWith('oversikt-farg-'));
     expect(farger).toEqual(farger.slice().sort((a, b) => ['natur', 'kultur', 'blott', 'att_gora', 'info'].indexOf(a!.slice(14)) - ['natur', 'kultur', 'blott', 'att_gora', 'info'].indexOf(b!.slice(14))));
     expect(farger).toContain('oversikt-farg-kultur');
@@ -164,14 +164,28 @@ describe('Hela trakten', () => {
     await montera(<TraktOversikt {...props({ last: true })} />);
     expect(q('oversikt-last')).toBeNull();
   });
-  it('stapeln under namnet och "Kör upp och backa" under Att göra; ett tryck flyger dit', async () => {
+  it('"Kör upp och backa" är EN rad under Att göra: en pil flyger dit direkt, flera fälls ut på plats; ingen stapel i menyn', async () => {
     const ytor: string[] = [];
-    await montera(<TraktOversikt {...props({ andel: 0.58, korUpp: [{ nyckel: 'korupp:1', bricka: 'Kör upp och backa', typ: '', grupp: 'ovrigt', text: 'Brant', osedd: true }], onYta: (n) => { ytor.push(n); } })} />);
-    expect(q('oversikt-stapel')!.getAttribute('aria-valuenow')).toBe('58');
-    const rad = q('oversikt-farg-att_gora')!.querySelector<HTMLElement>('[data-testid="yta-rad"]')!;
-    expect(rad.textContent).toContain('Kör upp och backa');
-    await act(async () => { rad.click(); });
+    const pil = (n: number) => ({ nyckel: `korupp:${n}`, bricka: 'Kör upp och backa', typ: '', grupp: 'ovrigt' as const, text: 'Brant', osedd: n === 1 });
+    await montera(<TraktOversikt {...props({ korUpp: [pil(1)], onYta: (n) => { ytor.push(n); } })} />);
+    expect(q('oversikt-stapel')).toBeNull();
+    const rad = q('oversikt-farg-att_gora')!.querySelector<HTMLElement>('[data-testid="oversikt-korupp-rad"]')!;
+    expect(rad.textContent).toContain('Kör upp och backa 1');
+    expect(rad.querySelector('[data-testid="oversikt-nytt"]')).not.toBeNull();
+    act(() => { rad.click(); });
     expect(ytor).toEqual(['korupp:1']);
+    act(() => { rot?.unmount(); }); ruta?.remove();
+    await montera(<TraktOversikt {...props({ korUpp: [pil(1), pil(2)], onYta: (n) => { ytor.push(n); } })} />);
+    expect(q('oversikt-korupp-rad')!.textContent).toContain('Kör upp och backa 2');
+    expect(qa('yta-rad').length).toBe(0);
+    act(() => { q('oversikt-korupp-rad')!.click(); });
+    expect(qa('yta-rad').length).toBe(2);
+    act(() => { qa('yta-rad')[1].click(); });
+    expect(ytor).toEqual(['korupp:1', 'korupp:2']);
+  });
+  it('inga målbilder på raderna (de finns under Alla symboler och färger och på kortet)', async () => {
+    await montera(<TraktOversikt {...props({ markeringar: [mark('5', 'stonewall', 'Stenmur', '', 'linje'), mark('3', 'landing', 'Avlägg')] })} />);
+    expect(q('oversikt-malbild')).toBeNull();
   });
   it('VARJE SORT står som EN rad, också utan text: "Stenmur 3" under Kultur med "1 med text", och flera öppnar sorten på kartan', async () => {
     const sorter: string[] = []; const oppnade: string[] = [];
