@@ -17,12 +17,13 @@ const tick = () => act(async () => { await new Promise(r => setTimeout(r, 0)); }
 
 const k = (o: Partial<Krav>): Krav => ({
   kravNr: '1.1.1', namn: 'Korrekta företagsuppgifter', sektionNr: 1, sektion: 'Företagsansvar', gallerOss: 'Ja',
-  underlag: 'Registreringsbevis', hurOfta: 'Vid förändring', varFinns: 'Bolagsverket', klar: false, uppladdadSe: false, kalla: null, ...o,
+  underlag: 'Registreringsbevis', hurOfta: 'Vid förändring', varFinns: 'Bolagsverket', klar: false, uppladdadSe: false, gallerNu: true, kalla: null, ...o,
 });
 const data = {
   krav: [
     k({}), k({ kravNr: '1.1.2', namn: 'Följer lagar', klar: true }), k({ kravNr: '1.2.1', namn: 'F-skatt', klar: true, uppladdadSe: true }),
     k({ kravNr: '1.4.1', namn: 'Korrekta tillstånd', gallerOss: 'Nej', varFinns: 'Inga utländska anställda' }),
+    k({ kravNr: '1.5.9', namn: 'Bortaliggning', gallerOss: 'Om aktuellt', klar: true, uppladdadSe: true }),
     k({ kravNr: '3.1.10', namn: 'Första hjälpen och HLR', sektionNr: 3, sektion: 'Kompetens', kalla: 'utbildning' }),
     k({ kravNr: '4.1.1', namn: 'Mer än ett led', sektionNr: 4, sektion: 'Underentreprenörer', klar: true, uppladdadSe: true }),
   ],
@@ -54,7 +55,11 @@ describe('Cert — en sektion', () => {
   it('kraven som gäller oss med status i ord; de som inte gäller ligger bakom en rad', () => {
     visa(1);
     const status = [...document.querySelectorAll('[data-cert-krav]')].map(e => `${e.getAttribute('data-cert-krav')} ${e.getAttribute('data-cert-status')}`);
-    expect(status).toEqual(['1.1.1 saknas', '1.1.2 ej_uppladdat', '1.2.1 klart']);
+    expect(status).toEqual(['1.1.1 saknas', '1.1.2 ej_uppladdat', '1.2.1 klart', '1.5.9 klart']);
+    // Saknas är grått; orange bara på "Inte uppladdat hos SE"
+    const farg = (nr: string) => (document.querySelector(`[data-cert-krav="${nr}"] span[style*="color"]`) as HTMLElement).style.color;
+    expect(farg('1.1.1')).toBe(farg('1.2.1'));
+    expect(farg('1.1.2')).not.toBe(farg('1.1.1'));
     expect(document.querySelector('[data-cert-krav="1.1.2"]')!.textContent).toContain('Inte uppladdat hos SE');
     expect(document.body.textContent).not.toContain('Korrekta tillstånd');
     expect(knapp('1 gäller inte er')).toBeTruthy();
@@ -86,5 +91,22 @@ describe('Cert — en sektion', () => {
     expect(knapp('Spara')).toBeUndefined();
     expect(document.querySelector('[data-cert-utb]')!.textContent).toContain('5 av 7 har HLR');
     expect([...document.querySelectorAll('a')].find(a => a.textContent === 'Öppna Utbildning')!.getAttribute('href')).toBe('/utbildning/typ/hlr');
+  });
+
+  it('"Om aktuellt": växeln Gäller oss just nu sparas, och ett avstängt krav går att öppna igen under gäller inte', async () => {
+    visa(1);
+    tryck(document.querySelector('[data-cert-krav="1.5.9"]'));
+    expect(vaxel('Gäller oss just nu')!.getAttribute('aria-checked')).toBe('true');
+    tryck(vaxel('Gäller oss just nu'));
+    expect(vaxel('Klart')).toBeNull(); // gäller inte: inga bockar att sätta
+    tryck(knapp('Spara'));
+    await tick();
+    expect(sparaKrav).toHaveBeenCalledWith('1.5.9', { klar: true, uppladdadSe: true, gallerNu: false });
+  });
+
+  it('ett krav som alltid gäller har ingen sådan växel', () => {
+    visa(1);
+    tryck(document.querySelector('[data-cert-krav="1.1.1"]'));
+    expect(vaxel('Gäller oss just nu')).toBeNull();
   });
 });

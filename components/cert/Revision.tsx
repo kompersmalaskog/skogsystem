@@ -5,8 +5,8 @@ import { useState } from 'react';
 import Sektion from '@/components/design/Sektion';
 import Svarsrad from '@/components/design/Svarsrad';
 import Rad from '@/components/design/Rad';
-import { AVSTAND, FARG, KNAPP, TYP } from '@/lib/design/tokens';
-import { STATUS_TEXT, byggVy, gallerInteText, kvarText, type Krav, type SektionVy } from '@/lib/cert/krav';
+import { AVSTAND, FARG, KNAPP, TRAFFYTA, TYP } from '@/lib/design/tokens';
+import { STATUS_TEXT, byggVy, gallerInteText, kurser, kvarText, type Krav, type SektionVy } from '@/lib/cert/krav';
 import type { RevisionData } from '@/lib/cert/data';
 import KravArk from './KravArk';
 
@@ -24,7 +24,7 @@ export default function Revision({ data, sektion, onSektion, onSparat }: Props) 
         <Svarsrad rubrik={oppen.namn} rad={oppen.kvar === 0 ? 'Klart' : `${oppen.kvar} kvar till revisionen`} stor />
         <KravLista s={oppen} onKrav={setValt} />
         {valt && (
-          <KravArk krav={valt} utb={data.utb[valt.kravNr]} onStang={() => setValt(null)} onSparat={() => { setValt(null); onSparat(); }} />
+          <KravArk krav={valt} utb={data.utb[valt.kravNr]} kurser={kurser(data.krav, data.utb)} onStang={() => setValt(null)} onSparat={() => { setValt(null); onSparat(); }} />
         )}
       </>
     );
@@ -51,7 +51,7 @@ function KravLista({ s, onKrav }: { s: SektionVy; onKrav: (k: Krav) => void }) {
       <Sektion rubrik="Krav" foljdAvLankar={harInte}>
         {s.rader.map(({ krav, status }, i) => (
           <Rad key={krav.kravNr} titel={krav.namn} dampad={status === 'klart'} sista={i === s.rader.length - 1}
-            under={<>{krav.kravNr} · <span style={{ color: status === 'klart' ? FARG.text2 : FARG.orange }}>{STATUS_TEXT[status]}</span></>}
+            under={<>{krav.kravNr} · <span style={{ color: status === 'ej_uppladdat' ? FARG.orange : FARG.text2 }}>{STATUS_TEXT[status]}</span></>}
             onTryck={() => onKrav(krav)} attr={{ 'data-cert-krav': krav.kravNr, 'data-cert-status': status }} />
         ))}
       </Sektion>
@@ -61,12 +61,19 @@ function KravLista({ s, onKrav }: { s: SektionVy; onKrav: (k: Krav) => void }) {
             style={{ ...KNAPP.lank, color: FARG.text2 }}>
             {gallerInteText(s.gallerInte.length)} {visaInte ? '▴' : '▾'}
           </button>
-          {visaInte && s.gallerInte.map(k => (
-            <div key={k.kravNr} style={{ padding: `${AVSTAND.s}px 0` }}>
+          {visaInte && s.gallerInte.map(k => {
+            const inne = <>
               <div style={{ ...TYP.text, color: FARG.text2 }}>{k.namn}</div>
               <div style={{ ...TYP.meta, color: FARG.text2 }}>{k.kravNr} · {k.varFinns}</div>
-            </div>
-          ))}
+            </>;
+            // Ett 'Om aktuellt'-krav som stängts av går att öppna och slå på igen; ett 'Nej' är bara text.
+            return k.gallerOss === 'Om aktuellt' ? (
+              <button key={k.kravNr} type="button" onClick={() => onKrav(k)} data-cert-krav={k.kravNr}
+                style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0` }}>
+                {inne}
+              </button>
+            ) : <div key={k.kravNr} style={{ padding: `${AVSTAND.s}px 0` }}>{inne}</div>;
+          })}
         </div>
       )}
     </>

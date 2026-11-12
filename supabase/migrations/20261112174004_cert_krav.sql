@@ -2,6 +2,7 @@
 -- klar och uppladdad_se. Raderna är data/se-kravlista.csv (78 krav, SE:s egna kravnummer) — en migration kan inte
 -- läsa en fil ur repot, så raderna står här; lib/cert/kravlista.test.ts kräver att filen och migrationen är lika.
 -- kalla = 'utbildning': kravet bockas inte av för hand, läget räknas ur Utbildning (3.1.1, 3.1.8–3.1.11).
+-- galler_nu: bara för 'Om aktuellt'-krav. Admin stänger av den när kravet inte gäller oss just nu (räknas då inte).
 -- Rör inga befintliga tabeller.
 
 create table public.cert_krav (
@@ -17,6 +18,7 @@ create table public.cert_krav (
   var_finns_idag text not null,
   klar boolean not null default false,
   uppladdad_se boolean not null default false,
+  galler_nu boolean not null default true,
   kalla text check (kalla is null or kalla = 'utbildning'),
   andrad timestamptz not null default now()
 );
