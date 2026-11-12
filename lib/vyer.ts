@@ -111,8 +111,8 @@ export const VYER: Vy[] = [
   { id: 'ekonomi', namn: 'Ekonomi', href: '/ekonomi', ikon: 'payments', grupp: 'admin', bara: 'admin', sokord: ['faktura', 'resultat'] },
   { id: 'objektoversikt', namn: 'Objektöversikt', href: '/admin/objektoversikt', ikon: 'timer', grupp: 'admin', bara: 'admin', sokord: ['tid', 'objekt', 'prognos'] },
   { id: 'markagarrapport', namn: 'Markägarrapport', href: '/admin/markagarrapport', ikon: 'summarize', grupp: 'admin', bara: 'admin' },
-  // Cert: certifieringen samlad. Först Behörigheter (läser Utbildning); dokument och påminnelser kommer i samma vy.
-  { id: 'cert', namn: 'Cert', href: '/cert', ikon: 'verified', grupp: 'admin', bara: 'admin', sokord: ['certifiering', 'behörighet', 'syn', 'hlr', 'adr', 'intyg', 'se'] },
+  // Cert: "Är vi redo för revisionen?" — SE:s kravlista. Intygen per person bor i Utbildning.
+  { id: 'cert', namn: 'Cert', href: '/cert', ikon: 'verified', grupp: 'admin', bara: 'admin', sokord: ['certifiering', 'revision', 'pefc', 'se', 'krav'] },
   { id: 'admin', namn: 'Admin', href: '/admin', ikon: 'shield', grupp: 'admin', bara: 'admin', sokord: ['lön', 'medarbetare'] },
 
   // Övrigt — kontomenyn
