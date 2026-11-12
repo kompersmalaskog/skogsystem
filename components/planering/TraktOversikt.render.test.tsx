@@ -85,11 +85,12 @@ describe('Hela trakten', () => {
       { id: 'evighetstrad', namn: 'Evighetsträd', antal: 1, krav: 11, uppfyllt: false },
       { id: 'hogstubbar', namn: 'Högstubbar', antal: 0, krav: 4, uppfyllt: false },
     ] })} />);
-    expect(q('oversikt-spara')!.textContent).toContain('Vad ska sparas?');
+    expect(q('oversikt-spara')!.textContent).toContain('Spara');
     expect(q('oversikt-cert-evighetstrad')!.textContent).toContain('Evighetsträd 1 av 11');
     expect(q('oversikt-cert-hogstubbar')!.textContent).toContain('Högstubbar 0 av 4');
     // Avlägget utan text står som sin egen rad på kartan, inte i en sammanfattning
-    expect(q('oversikt-sort-symbol-landing')!.textContent).toContain('Avlägg · 1 st');
+    expect(q('oversikt-sort-symbol-landing')!.textContent).toContain('Avlägg');
+    expect(q('oversikt-gora')!.contains(q('oversikt-sort-symbol-landing'))).toBe(true);
     expect(q('oversikt-utan-text')).toBeNull();
   });
   it('fyra frågor i den ordningen: om något händer, farligt, göra, sparas', async () => {
@@ -168,7 +169,7 @@ describe('Hela trakten', () => {
     })} />);
     const sten = ruta!.querySelector<HTMLElement>('[data-testid^="oversikt-sort-"][data-testid*="stonewall"]');
     expect(sten).not.toBeNull();
-    expect(sten!.textContent).toContain('Stenmur · 3 st');
+    expect(sten!.textContent).toContain('Stenmur 3');
     expect(q('oversikt-spara')!.contains(sten)).toBe(true);
     expect(sten!.textContent).toContain('Gammal mur');
     expect(q('oversikt-alla')).toBeNull();
@@ -176,6 +177,14 @@ describe('Hela trakten', () => {
     expect(sorter.length).toBe(1);
     act(() => { q('oversikt-sort-symbol-landing')!.querySelector('button')!.click(); });
     expect(oppnade).toEqual(['3']);
+  });
+  it('vägar och diken utan text står bara på kartan; jakttornet står under Spara med "slå inte sönder"', async () => {
+    await montera(<TraktOversikt {...props({ markeringar: [mark('21', 'bridge', 'Bro'), mark('22', 'huntingtower', 'Jakttorn'), mark('23', 'huntingtower', 'Jakttorn')] })} />);
+    expect(ruta!.textContent).not.toContain('Bro');
+    const torn = ruta!.querySelector<HTMLElement>('[data-testid*="huntingtower"]')!;
+    expect(q('oversikt-spara')!.contains(torn)).toBe(true);
+    expect(torn.textContent).toContain('slå inte sönder');
+    expect(q('oversikt-faror')).toBeNull();
   });
   it('certifieringen står ALLTID: inte certifierad, och okänd i orange', async () => {
     await montera(<TraktOversikt {...props({ cert: null, certLage: { lage: 'ingen', namn: '' } })} />);

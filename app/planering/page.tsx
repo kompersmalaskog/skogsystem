@@ -14571,6 +14571,7 @@ export default function PlannerPage() {
               onBrand: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
               cert: certRad(certTyper(valtObjekt.cert), miljoRader),
               certLage: certLage(valtObjekt.cert, certTyper(valtObjekt.cert)),
+              malbildRoll,
               helaTrakten,
               infor,
               nya: nyaMarkeringar(oversiktSett, (markers as any[]).map((m) => ({ id: m.id, type: m.type ?? null, lineType: m.lineType ?? null, zoneType: m.zoneType ?? null, comment: m.comment ?? null, photoPath: m.photoPath ?? null })), kk.rader.map((r) => ({ id: r.id, nyckel: r.yta_nyckel, text: r.text }))),

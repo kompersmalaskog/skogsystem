@@ -1,11 +1,12 @@
 'use client';
 
 // HELA TRAKTEN — det föraren läser när han börjar på en trakt (Martin 2026-11-05: "så enkelt att ett barn förstår direkt", "allt utskrivet").
-// FYRA FRÅGOR, uppifrån (Martin 2026-11-11, skissen "hela"): ALL information står kvar, bara dubbletterna är borta.
+// SÅ ENKEL ATT ETT BARN FÖRSTÅR (Martin 2026-11-12, skissen "enkel"): larmet överst och sedan TRE block, bara det föraren ska agera på.
 //   Om något händer   — larmkoordinaten, stor, och hur långt dit (fågelväg — appen ritar ingen väg dit).
-//   Vad är farligt?   — Vidas faror, farorna på kartan, riskbedömningen och brandrisken. Starkast på sidan.
-//   Vad ska du göra?  — Vidas text och texterna på trakten, inför jobbet, och det på kartan som inte ska sparas.
-//   Vad ska sparas?   — certifieringen ALLTID (två rader "Evighetsträd 1 av 11", "Inte certifierad …" eller "Certifiering saknas"),
+//   Akta dig          — Vidas faror, farorna på kartan (samma nummer som på kartan), riskbedömningen och brandrisken.
+//   Gör så här        — Vidas text och texterna på trakten, inför jobbet (GROT …) och avlägg, grind, ved, manuell fällning, blött.
+//   Vägar, diken, broar och annan info utan text står bara på kartan — "Alla symboler och färger" längst ner visar allt.
+//   Spara             — certifieringen ALLTID (två rader "Evighetsträd 1 av 11", "Inte certifierad …" eller "Certifiering saknas"),
 //                       skyddade områden och hänsynen på kartan.
 //   På kartan står VARJE SORT som en rad med antalet ("Stenmur · 3"), med eller utan text — texten under (Martin 2026-11-12, Lidhem).
 //   Sist: det som är kollat och i ordning som EN grå rad, Mer om trakten, "Börja köra".
@@ -14,7 +15,7 @@
 // Ingen meningsrad med siffror, inget "1 med text": det som är skrivet står där. Ett tryck på en rad på kartan öppnar samma kort som på kartan.
 // Ren presentation — sidan räknar, sparar kvittot och öppnar korten.
 
-import React, { useMemo, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import MarkeringFoto from '@/app/planering/MarkeringFoto';
 import { AVSTAND, FARG, IKON, KNAPP, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import type { SammanfattningRad } from '@/lib/klarTrakt';
@@ -23,6 +24,9 @@ import { byggOmGrupper, objektTitel, typRadText, type TypRad } from '@/lib/omTra
 import type { Risk } from '@/lib/riskbedomning';
 import type { CertLage, SkyddRad } from '@/lib/traktOversikt';
 import { faroMarkeringar } from '@/lib/faroNummer';
+import { gruppForLinje, gruppForSymbol, ytaDef, type FargGrupp } from '@/lib/larm/grupper';
+import { MALBILDER, malbildInnehall, malbildNyckel, type Maskinroll } from '@/lib/malbilder';
+import { MalbildBild, MalbildBlad } from '@/components/malbild/Malbild';
 import BrandriskRad from './BrandriskRad';
 import LarmVy from './LarmVy';
 import type { LarmVisning } from '@/lib/larmpunkter';
@@ -75,8 +79,10 @@ export interface TraktOversiktProps {
   onMer: () => void;
   /** En sort med flera på kartan ("Stenmur · 3"): samma typvy som i Om trakten — alla markeras på kartan. En enda öppnas med onOppna. */
   onSort?: (nyckel: string) => void;
-  /** "Vad betyder kartan" — det som finns på trakten, med symbolernas betydelse. */
+  /** "Alla symboler och färger" — det som finns på trakten, med symbolernas betydelse och målbilderna. */
   onKarta?: () => void;
+  /** Maskinens roll: skördarens eller skotarens målbild (lib/malbilder). */
+  malbildRoll?: Maskinroll | null;
   onStang: () => void;
 }
 
@@ -124,6 +130,28 @@ function KartRad({ m, forsta, ny, ikon, objektId, onOppna, onFoto, nr }: { m: Ka
   );
 }
 
+// Var listan stod när föraren öppnade en rad ("‹ Lista" tar tillbaka hit). Nollas när överblicken stängs på riktigt.
+let sparadScroll: { objektId: string | null; top: number } | null = null;
+
+/** En sorts grupp i färgspråket (lib/larm/grupper): avgör om raden hör till Spara, Gör så här eller bara kartan. */
+function sortGrupp(m: KartMarkering | undefined, r: TypRad): FargGrupp {
+  if (r.miljo) return 'natur';
+  if (!m) return 'info';
+  if (m.slag === 'symbol') return gruppForSymbol(m.typ);
+  if (m.slag === 'zon') return m.typ === 'protected' ? 'natur' : (ytaDef(m.typ)?.grupp ?? 'info');
+  if (m.slag === 'linje') return gruppForLinje(m.typ) ?? 'info';
+  return 'info';
+}
+/** Info som föraren ska göra något med (står under Gör så här även utan text). Vägar, diken, broar … står bara på kartan. */
+const GOR_INFO = new Set(['landing', 'gate', 'firewood', 'brashpile']);
+/** Saker man ska vara rädd om fast de inte är natur eller kultur. */
+const VAR_RADD_OM: Record<string, string> = { huntingtower: 'slå inte sönder' };
+const malbildFor = (m: KartMarkering | undefined): string | null => {
+  if (!m) return null;
+  const kalla = m.slag === 'symbol' ? 'symbol' : m.slag === 'zon' ? 'yta' : m.slag === 'linje' ? 'linje' : null;
+  return kalla ? malbildNyckel(kalla, m.typ) : null;
+};
+
 export default function TraktOversikt(p: TraktOversiktProps) {
   const [sparar, setSparar] = useState(false);
   const [fel, setFel] = useState(false);
@@ -144,9 +172,17 @@ export default function TraktOversikt(p: TraktOversiktProps) {
   // VARJE SORT PÅ KARTAN, med eller utan text (Martin 2026-11-12: "symbolerna som inte har text vill man ju se, som stenmuren").
   // En rad per sort med antalet; texterna står under. En sort med EN markering som har text är bara den raden (inget "Avlägg · 1 st" ovanför).
   // Högstubbar/evighetsträd står i certifieringsraderna när trakten är certifierad; ytorna (traktdelar, egna områden) står under "Vad ska du göra?" som text.
+  // TRE BLOCK (Martin 2026-11-12, skissen "enkel"): Akta dig · Spara · Gör så här. Vägar, diken och broar står bara på kartan (om de inte har text).
   const sorter = ovrigaRader.filter((r) => !r.ytaTyp && !(certifierad && p.cert && r.nyckel.startsWith('miljo:')) && (r.miljo ? r.miljo.satta > 0 : r.markeringar.length > 0));
-  const sparaSorter = sorter.filter((r) => r.grupp === 'hansyn');
-  const goraSorter = sorter.filter((r) => r.grupp !== 'hansyn');
+  const sparaSorter = sorter.filter((r) => { const g = sortGrupp(r.markeringar[0], r); return g === 'natur' || g === 'kultur' || !!VAR_RADD_OM[r.markeringar[0]?.typ ?? '']; });
+  const goraSorter = sorter.filter((r) => !sparaSorter.includes(r) && (sortGrupp(r.markeringar[0], r) === 'att_gora' || sortGrupp(r.markeringar[0], r) === 'blott' || GOR_INFO.has(r.markeringar[0]?.typ ?? '') || r.markeringar.some(harText)));
+  const [malbildOppen, setMalbildOppen] = useState<{ nyckel: string; namn: string } | null>(null);
+  // Listan står kvar där föraren var när han kommer tillbaka från en rad (Martin 2026-11-12).
+  const innehallRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const el = innehallRef.current;
+    if (el && sparadScroll && sparadScroll.objektId === p.objektId) el.scrollTop = sparadScroll.top;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Riskraden "Varning" säger bara att det finns en varning på kartan — den står redan under farorna.
   const risker = (p.risker ?? []).filter((r) => !(r.nyckel === 'varning' && faroMark.length > 0));
   const harFaror = p.faror.length > 0 || faroMark.length > 0 || risker.length > 0;
@@ -158,11 +194,11 @@ export default function TraktOversikt(p: TraktOversiktProps) {
   ].filter(Boolean) as string[];
 
   const last = async () => {
-    if (p.last) { p.onStang(); return; }
+    if (p.last) { sparadScroll = null; p.onStang(); return; }
     setSparar(true); setFel(false);
     const ok = await p.onLast();
     setSparar(false);
-    if (ok) p.onStang(); else setFel(true);
+    if (ok) { sparadScroll = null; p.onStang(); } else setFel(true);
   };
 
   if (larmVy && p.larm?.satt) {
@@ -175,21 +211,38 @@ export default function TraktOversikt(p: TraktOversiktProps) {
   const rad = (key: string, i: number, barn: React.ReactNode, testid?: string) => (
     <div key={key} data-testid={testid} style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>{barn}</div>
   );
-  // En sort: "Stenmur · 3" och under den det som är skrivet. Hela raden visar sorten på kartan (en ensam öppnas direkt).
+  // En sort: symbolen, namnet och antalet, målbilden till höger (ett tryck på den öppnar målbilden), och det som är skrivet under.
+  // Hela raden visar sorten på kartan (en ensam öppnas direkt).
   const sortBlock = (r: TypRad, forsta: boolean) => {
     const medText = r.markeringar.filter(harText);
-    if (!r.miljo && r.markeringar.length === 1 && medText.length === 1) return kartRad(medText[0], forsta ? 0 : 1);
     const m0 = r.markeringar[0];
+    const mb = malbildFor(m0);
+    const mbInnehall = mb && MALBILDER[mb] ? malbildInnehall(mb, p.malbildRoll ?? null) : null;
+    const radd = VAR_RADD_OM[m0?.typ ?? ''];
+    const antal = r.miljo ? r.miljo.satta : r.markeringar.length;
     return (
-      <div key={r.nyckel} data-testid={`oversikt-sort-${r.nyckel.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`}>
-        <button type="button" onClick={() => (r.markeringar.length === 1 ? p.onOppna(m0) : p.onSort?.(r.nyckel))} className="press-row"
-          style={{ width: '100%', minHeight: TRAFFYTA.primar, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none',
-            borderTop: forsta ? 'none' : `1px solid ${FARG.linje}`, color: FARG.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
-          {m0 && <span style={{ flexShrink: 0, display: 'inline-flex' }}>{p.ikon(m0)}</span>}
-          <span style={{ ...TYP.listtitel, flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{typRadText(r)}</span>
-          {r.markeringar.some((m) => p.nya.has(m.id)) && <Nytt />}
-          <Pil />
-        </button>
+      <div key={r.nyckel} data-testid={`oversikt-sort-${r.nyckel.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`} style={{ borderTop: forsta ? 'none' : `1px solid ${FARG.linje}` }}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <button type="button" onClick={() => (r.markeringar.length === 1 ? p.onOppna(m0) : p.onSort?.(r.nyckel))} className="press-row"
+            style={{ flex: 1, minWidth: 0, minHeight: TRAFFYTA.primar, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none',
+              color: FARG.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+            {m0 && <span style={{ flexShrink: 0, display: 'inline-flex' }}>{p.ikon(m0)}</span>}
+            <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
+              <span style={{ ...TYP.listtitel }}>{r.namn}</span>
+              {antal > 1 && <span style={{ ...TYP.listtitel, color: FARG.text2 }}> {antal}</span>}
+              {radd && <span style={{ ...TYP.text, color: FARG.text2 }}> – {radd}</span>}
+            </span>
+            {r.markeringar.some((m) => p.nya.has(m.id)) && <Nytt />}
+            {!mbInnehall && <Pil />}
+          </button>
+          {mbInnehall && mb && (
+            <button type="button" data-testid="oversikt-malbild" aria-label={`Så ska det se ut: ${r.namn}`} onClick={() => setMalbildOppen({ nyckel: mb, namn: r.namn })} className="press-dim"
+              style={{ flexShrink: 0, minHeight: TRAFFYTA.primar, padding: `${AVSTAND.xs}px ${AVSTAND.l}px ${AVSTAND.xs}px ${AVSTAND.s}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.s, background: 'transparent', border: 'none', cursor: 'pointer' }}>
+              <span style={{ width: AVSTAND.xxl * 2, display: 'block' }}><MalbildBild svg={mbInnehall.bild} rund={RADIE.rad} /></span>
+              <Pil />
+            </button>
+          )}
+        </div>
         {medText.map((m) => kartRad(m, 1))}
       </div>
     );
@@ -200,8 +253,8 @@ export default function TraktOversikt(p: TraktOversiktProps) {
 
   return (
     <>
-      <Huvud titel={p.namn} undertitel={p.under || undefined} onStang={p.onStang} />
-      <div data-testid="oversikt-innehall" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+      <Huvud titel={p.namn} undertitel={p.under || undefined} onStang={() => { sparadScroll = null; p.onStang(); }} />
+      <div data-testid="oversikt-innehall" ref={innehallRef} onScroll={(e) => { sparadScroll = { objektId: p.objektId, top: (e.target as HTMLDivElement).scrollTop }; }} style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
 
         {/* 1. OM NÅGOT HÄNDER — först, alltid. Koordinaten stort, avståndet i fågelväg. */}
         {p.larm && (
@@ -221,7 +274,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
         {/* 2. VAD ÄR FARLIGT? — Vidas faror, farorna på kartan, riskbedömningen, brandrisken. */}
         {(harFaror || p.brand) && (
           <section data-testid="oversikt-faror">
-            {harFaror && <Rubrik farg={FARG.rod}>Vad är farligt?</Rubrik>}
+            {harFaror && <Rubrik farg={FARG.rod}>Akta dig</Rubrik>}
             {harFaror && (
               <Gruppkort>
                 {p.faror.map((f, i) => (
@@ -252,7 +305,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
         {/* 3. VAD SKA DU GÖRA? — texterna i sin helhet, inför jobbet, och det på kartan som har text. */}
         {harGora && (
           <section data-testid="oversikt-gora" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-            <Rubrik>Vad ska du göra?</Rubrik>
+            <Rubrik>Gör så här</Rubrik>
             {(p.tillForaren.length > 0 || p.helaTrakten.length > 0) && (
               <div data-testid="oversikt-veta" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
                 {p.tillForaren.map((t) => {
@@ -286,7 +339,6 @@ export default function TraktOversikt(p: TraktOversiktProps) {
             )}
             {goraSorter.length > 0 && (
               <div data-testid="oversikt-pa-kartan">
-                <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>På kartan · tryck så visas platsen</div>
                 <Gruppkort>{goraSorter.map((r, i) => sortBlock(r, i === 0))}</Gruppkort>
               </div>
             )}
@@ -295,7 +347,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
 
         {/* 4. VAD SKA SPARAS? — certifieringen (ALLTID en rad), skyddade områden, hänsynen på kartan. */}
         <section data-testid="oversikt-spara">
-          <Rubrik farg={FARG.gron}>Vad ska sparas?</Rubrik>
+          <Rubrik farg={FARG.gron}>Spara</Rubrik>
           <Gruppkort>
             {certRader.map((m, i) => (
               <RadKnapp key={m.id} ikon={m.uppfyllt ? 'check_circle' : 'park'} farg={m.uppfyllt ? FARG.gron : FARG.orange} forstaRad={i === 0} testid={`oversikt-cert-${m.id}`}
@@ -354,8 +406,8 @@ export default function TraktOversikt(p: TraktOversiktProps) {
         )}
 
         <Gruppkort>
-          {p.onKarta && <RadKnapp ikon="map" forstaRad testid="oversikt-karta" etikett="Vad betyder kartan" onTryck={p.onKarta} />}
-          <RadKnapp ikon="more_horiz" forstaRad={!p.onKarta} testid="oversikt-mer" etikett="Mer om trakten" under="Dokument, inställningar" onTryck={p.onMer} />
+          {p.onKarta && <RadKnapp ikon="map" forstaRad testid="oversikt-karta" etikett="Alla symboler och färger" onTryck={p.onKarta} />}
+          <RadKnapp ikon="more_horiz" forstaRad={!p.onKarta} testid="oversikt-mer" etikett="Mer om trakten" onTryck={p.onMer} />
         </Gruppkort>
       </div>
       <div style={{ flexShrink: 0, padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>
@@ -365,6 +417,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
           {sparar ? 'Sparar …' : 'Börja köra'}
         </button>
       </div>
+      {malbildOppen && <MalbildBlad nyckel={malbildOppen.nyckel} roll={p.malbildRoll ?? null} namn={malbildOppen.namn} onStang={() => setMalbildOppen(null)} />}
     </>
   );
 }

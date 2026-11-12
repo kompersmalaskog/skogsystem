@@ -219,8 +219,8 @@ export function efektivPos(pos: { lat: number; lng: number } | null, ms: readonl
 /** Faror, vägar, övrigt — grunden för Om trakten (lib/omTrakten lägger hänsyn och "Från Vida" ovanpå). */
 export type MarkeringsGrupp = 'faror' | 'ovrigt' | 'vagar';
 // Det som kan göra illa: varning, el-ledning, vindfälle och "ej framkomlig". Manuell fällning och brant är information till den som fäller/kör, inte en fara att se upp för.
-// Jakttorn och markkabel (Röd sedan 2026-10-20) och El-ledning ritad som linje hör hit också (Martin 2026-11-12, Lidhem: jakttornen stod under "Vad ska du göra?").
-const FARA_SYMBOLER = new Set(['warning', 'powerline', 'windfall', 'huntingtower', 'groundcable']);
+// Markkabel (Röd sedan 2026-10-20) och El-ledning ritad som linje hör hit också (Martin 2026-11-12, Lidhem: jakttornen stod under "Vad ska du göra?").
+const FARA_SYMBOLER = new Set(['warning', 'powerline', 'windfall', 'groundcable']);
 const FARA_ZONER = new Set(['noentry']);
 const FARA_LINJER = new Set(['powerline']);
 const VAG_SYMBOLER = new Set(['road', 'turningpoint', 'bridge', 'corduroy', 'trail']);
