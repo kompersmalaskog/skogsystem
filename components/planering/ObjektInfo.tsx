@@ -110,10 +110,13 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
   const stangRam = () => { stangOm(); if (vy === 'om') { om.onTyp(null, ramLage); om.onNav(null); } onStang(); };
 
   return (
-    <InfoRam oppen={oppen} vy={vy} bredd={(vy === 'oversikt' || (vy === 'om' && omFran === 'oversikt')) && typeof window !== 'undefined' ? oversiktPanelBredd(window.innerWidth) : bredd} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : vy === 'risker' ? 'Risker på trakten' : vy === 'cert' ? 'Certifiering' : vy === 'oversikt' ? 'Hela trakten' : vy === 'egenkontroll' ? 'Egenkontroll' : 'Mer'} onStang={stangRam}>
+    <InfoRam oppen={oppen} vy={vy} bredd={oversikt && typeof window !== 'undefined' ? oversiktPanelBredd(window.innerWidth) : bredd} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : vy === 'risker' ? 'Risker på trakten' : vy === 'cert' ? 'Certifiering' : vy === 'oversikt' ? 'Hela trakten' : vy === 'egenkontroll' ? 'Egenkontroll' : 'Mer'} onStang={stangRam}>
       {({ lage, sattDetent }) => (
         vy === 'oversikt' && oversikt ? (
-          <TraktOversikt {...oversikt} namn={objektNamn} tillForaren={om.hela} markeringar={om.markeringar} miljo={om.miljo} ikon={om.ikon} objektId={objektId} onFoto={om.onFoto}
+          <TraktOversikt {...oversikt} namn={objektNamn}
+            under={enkel?.under || oversikt.under} andel={enkel?.andel ?? null}
+            korUpp={enkel?.ytor.filter((r) => r.nyckel.startsWith('korupp:'))} onYta={enkel ? (nyckel) => { sattDetent('halv'); enkel.onYta(nyckel, lage); } : undefined}
+            onLast={async () => { const ok = await oversikt.onLast(); if (ok && direktiv && direktiv.nya > 0) instruktioner!.onSett([DIREKTIV_NYCKEL]); return ok; }} tillForaren={om.hela} markeringar={om.markeringar} miljo={om.miljo} ikon={om.ikon} objektId={objektId} onFoto={om.onFoto}
             onStang={() => { oversikt.onStang(); onStang(); }}
             onCert={cert.length ? () => { setCertFran('oversikt'); setVy('cert'); } : undefined}
             onMer={() => setVy('kort')}
@@ -129,6 +132,7 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
             risker={forarRisker ? { ...riskRadUnder(forarRisker.lista, forarRisker.last), onOppna: forarRisker.lista ? () => { setRiskFel(false); setVy('risker'); } : null } : null}
             onYta={(nyckel) => { sattDetent('halv'); enkel.onYta(nyckel, lage); }}
             onOversikt={oversikt ? () => setVy('oversikt') : undefined}
+            merLage={oversikt ? { onTillbaka: () => setVy('oversikt') } : null}
             onEgenkontroll={egenkontroll ? { under: egenkontroll.under, onTryck: () => setVy('egenkontroll') } : undefined} />
         ) : vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner) ? (
           <ObjektKort {...kort} instruktioner={instruktioner && instruktioner.data.antal > 0 ? { antal: instruktioner.data.antal, nya: instruktioner.data.nya, onOppna: () => setVy('instruktioner') } : null}

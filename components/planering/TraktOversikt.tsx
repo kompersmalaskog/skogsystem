@@ -32,6 +32,8 @@ import LarmVy from './LarmVy';
 import type { LarmVisning } from '@/lib/larmpunkter';
 import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
 import { KommentarVisning } from './KommentarRuta';
+import { YtaRadVy } from './YtaRad';
+import type { YtaRad } from '@/lib/ytaRader';
 import type { OmMiljoRad } from './OmTrakten';
 
 export interface OversiktLarm { satt: boolean; koordinat: string; beskrivning: string; onVisa: () => void; visning?: LarmVisning; onVisaPlats?: (index: number) => void }
@@ -83,6 +85,11 @@ export interface TraktOversiktProps {
   onKarta?: () => void;
   /** Maskinens roll: skördarens eller skotarens målbild (lib/malbilder). */
   malbildRoll?: Maskinroll | null;
+  /** Hur stor del av trakten som är klar (0..1): grön stapel under namnet. null/saknas = ingen stapel. */
+  andel?: number | null;
+  /** "Kör upp och backa" (lib/ytaRader, nyckel korupp:…): rader under Gör så här; ett tryck flyger kartan dit. */
+  korUpp?: YtaRad[];
+  onYta?: (nyckel: string) => void;
   onStang: () => void;
 }
 
@@ -186,7 +193,8 @@ export default function TraktOversikt(p: TraktOversiktProps) {
   // Riskraden "Varning" säger bara att det finns en varning på kartan — den står redan under farorna.
   const risker = (p.risker ?? []).filter((r) => !(r.nyckel === 'varning' && faroMark.length > 0));
   const harFaror = p.faror.length > 0 || faroMark.length > 0 || risker.length > 0;
-  const harGora = p.tillForaren.length > 0 || p.helaTrakten.length > 0 || p.infor.length > 0 || goraSorter.length > 0;
+  const korUpp = p.onYta ? (p.korUpp ?? []) : [];
+  const harGora = p.tillForaren.length > 0 || p.helaTrakten.length > 0 || p.infor.length > 0 || goraSorter.length > 0 || korUpp.length > 0;
   // Det som är kollat och i ordning: EN grå rad längst ner.
   const kollat = [
     !harFaror && (p.risker ? 'inga faror eller risker' : 'inga faror utmärkta'),
@@ -254,6 +262,12 @@ export default function TraktOversikt(p: TraktOversiktProps) {
   return (
     <>
       <Huvud titel={p.namn} undertitel={p.under || undefined} onStang={() => { sparadScroll = null; p.onStang(); }} />
+      {p.andel != null && (
+        <div data-testid="oversikt-stapel" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(p.andel * 100)} aria-label="Klart på trakten"
+          style={{ flexShrink: 0, height: AVSTAND.s, borderRadius: RADIE.rad, background: FARG.fyllning, overflow: 'hidden', margin: `0 ${AVSTAND.l}px ${AVSTAND.m}px` }}>
+          <div style={{ width: `${Math.round(p.andel * 100)}%`, height: '100%', borderRadius: RADIE.rad, background: FARG.gron }} />
+        </div>
+      )}
       <div data-testid="oversikt-rulla" ref={innehallRef} onScroll={(e) => { sparadScroll = { objektId: p.objektId, top: (e.target as HTMLDivElement).scrollTop }; }} style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
       {/* Inre omslag som inte krymper: direkt i en scrollande flex-kolumn trycktes sista kortet ihop till 0 px. */}
       <div data-testid="oversikt-innehall" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l, flexShrink: 0 }}>
@@ -344,6 +358,11 @@ export default function TraktOversikt(p: TraktOversiktProps) {
                 <Gruppkort>{goraSorter.map((r, i) => sortBlock(r, i === 0))}</Gruppkort>
               </div>
             )}
+            {korUpp.length > 0 && (
+              <div data-testid="oversikt-korupp">
+                <Gruppkort>{korUpp.map((r, i) => <YtaRadVy key={r.nyckel} rad={r} onTryck={p.onYta!} forstaRad={i === 0} />)}</Gruppkort>
+              </div>
+            )}
           </section>
         )}
 
@@ -413,13 +432,14 @@ export default function TraktOversikt(p: TraktOversiktProps) {
         </Gruppkort>
       </div>
       </div>
-      <div style={{ flexShrink: 0, padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>
+      {/* "Börja köra" är kvittot: när föraren läst just det här finns bara krysset (Martin 2026-11-12). Ändras trakten kommer knappen tillbaka. */}
+      {!p.last && <div style={{ flexShrink: 0, padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>
         {fel && <div data-testid="oversikt-fel" style={{ ...TYP.text, color: FARG.orange, marginBottom: AVSTAND.s }}>Kunde inte spara – försök igen</div>}
         <button type="button" data-testid="oversikt-last" onClick={() => { void last(); }} disabled={sparar} className="press-scale"
           style={{ ...KNAPP.primar, width: '100%', minHeight: TRAFFYTA.primar, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation', opacity: sparar ? 0.6 : 1 }}>
           {sparar ? 'Sparar …' : 'Börja köra'}
         </button>
-      </div>
+      </div>}
       {malbildOppen && <MalbildBlad nyckel={malbildOppen.nyckel} roll={p.malbildRoll ?? null} namn={malbildOppen.namn} onStang={() => setMalbildOppen(null)} />}
     </>
   );

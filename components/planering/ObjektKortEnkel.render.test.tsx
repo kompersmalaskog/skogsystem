@@ -295,3 +295,16 @@ describe('KommentarVisning — etiketten för hela trakten', () => {
     expect(qa('kartkort-kommentar-kalla').map((e) => e.textContent)).toEqual(['Hela trakten · Vida', 'Vida · traktdirektiv']);
   });
 });
+
+describe('ObjektKortEnkel — "Mer om trakten" ur Hela trakten (EN meny, Martin 2026-11-12)', () => {
+  it('visar bara det som inte redan står i Hela trakten: inget larm, ingen "Det här gäller här", inga ytor, ingen Kartans färger — men dokument och Mer', async () => {
+    let tillbaka = 0;
+    await montera(<ObjektKortEnkel {...props({ faror: ['Brant terräng'], merLage: { onTillbaka: () => { tillbaka++; } }, onOversikt: () => {} })} />);
+    expect(q('info-titel')!.textContent).toBe('Mer om trakten');
+    for (const id of ['kort-larm', 'kort-visa-hela', 'kort-galler-rubrik', 'kort-faror', 'kort-till-foraren', 'kort-ytor', 'kort-stapel', 'kort-vad-betyder-kartan']) expect(q(id), id).toBeNull();
+    expect(q('kort-dokument')).not.toBeNull();
+    expect(q('kort-mer')).not.toBeNull();
+    act(() => { q('info-tillbaka')!.click(); });
+    expect(tillbaka).toBe(1);
+  });
+});

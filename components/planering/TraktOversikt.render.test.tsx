@@ -153,13 +153,18 @@ describe('Hela trakten', () => {
     await act(async () => { q('oversikt-last')!.click(); });
     expect(stangd).toBe(1);
   });
-  it('redan läst → knappen Börja köra sparar inget', async () => {
-    let sparat = 0; let stangd = 0;
-    await montera(<TraktOversikt {...props({ last: true, onLast: async () => { sparat++; return true; }, onStang: () => { stangd++; } })} />);
-    expect(q('oversikt-last')!.textContent).toBe('Börja köra');
-    await act(async () => { q('oversikt-last')!.click(); });
-    expect(sparat).toBe(0);
-    expect(stangd).toBe(1);
+  it('redan läst → ingen Börja köra-knapp, bara krysset (Martin 2026-11-12)', async () => {
+    await montera(<TraktOversikt {...props({ last: true })} />);
+    expect(q('oversikt-last')).toBeNull();
+  });
+  it('stapeln under namnet och "Kör upp och backa" under Gör så här; ett tryck flyger dit', async () => {
+    const ytor: string[] = [];
+    await montera(<TraktOversikt {...props({ andel: 0.58, korUpp: [{ nyckel: 'korupp:1', bricka: 'Kör upp och backa', typ: '', grupp: 'ovrigt', text: 'Brant', osedd: true }], onYta: (n) => { ytor.push(n); } })} />);
+    expect(q('oversikt-stapel')!.getAttribute('aria-valuenow')).toBe('58');
+    const rad = q('oversikt-gora')!.querySelector<HTMLElement>('[data-testid="yta-rad"]')!;
+    expect(rad.textContent).toContain('Kör upp och backa');
+    await act(async () => { rad.click(); });
+    expect(ytor).toEqual(['korupp:1']);
   });
   it('VARJE SORT står, också utan text: "Stenmur · 3" under Vad ska sparas?, och flera öppnar sorten på kartan', async () => {
     const sorter: string[] = []; const oppnade: string[] = [];

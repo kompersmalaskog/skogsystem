@@ -14402,7 +14402,8 @@ export default function PlannerPage() {
           stang();
         };
         // ⓘ-panelen är bredare i maskinläget (som korten); på telefon är det ett ark i full bredd.
-        const infoPanelBredd = (maskinlage || !!maskinSomParam) ? INFO_PANEL_MASKIN_BREDD_PX : PANEL_BREDD_PX;
+        // Maskinläget: EN bredd för alla vyer i ⓘ (Martin 2026-11-12: "menyn ska vara stor hela tiden") — samma som Hela trakten.
+        const infoPanelBredd = (maskinlage || !!maskinSomParam) ? (typeof window !== 'undefined' ? oversiktPanelBredd(window.innerWidth) : INFO_PANEL_MASKIN_BREDD_PX) : PANEL_BREDD_PX;
         objektInfoSenasteRef.current = {
           bredd: infoPanelBredd,
           objektNamn: valtObjekt.namn,

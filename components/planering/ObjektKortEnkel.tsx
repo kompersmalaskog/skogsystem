@@ -62,6 +62,11 @@ export interface ObjektKortEnkelProps {
   onOversikt?: () => void;
   /** Vidas egenkontroll: "Egenkontroll · 2 av 6 frågor". Saknas = ingen rad. */
   onEgenkontroll?: { under: string; onTryck: () => void };
+  /**
+   * "Mer om trakten" ur Hela trakten (Martin 2026-11-12: EN meny, samma överallt): bara det som inte redan står i Hela trakten —
+   * knappar, egenkontroll, certifiering, dokument, Mer och väder. Larm, faror, risker, direktiv och ytor visas inte en gång till.
+   */
+  merLage?: { onTillbaka: () => void } | null;
 }
 
 /** Den gröna stapeln: hur stor del av trakten som är klar. Ord och tal står bredvid (under namnet) — färgen är aldrig ensam. */
@@ -85,13 +90,15 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
   const larmFlera = p.larm.platser && p.larm.onVisaPlats && p.larm.platser.length > 1;
   const larmLista = larmFlera ? <LarmPlatser larm={{ namn: null, narmast: null, fagelvag: null, valjSjalv: false, kontroll: null, ...p.larm, platser: p.larm.platser! }} onVisa={p.larm.onVisaPlats!} /> : null;
   const n = p.knappar.length;
+  const mer = p.merLage ?? null;
   const harInnehall = !!p.risker || p.faror.length > 0 || !!p.grot || p.tillForaren.length > 0 || p.ytor.length > 0 || !!p.brand;
 
   return (
     <>
-      <Huvud titel={p.namn} undertitel={p.under} onStang={p.onStang} />
-      {p.andel != null && <Stapel andel={p.andel} />}
+      {mer ? <Huvud titel="Mer om trakten" undertitel={p.namn} tillbaka="Hela trakten" onTillbaka={mer.onTillbaka} onStang={p.onStang} /> : <Huvud titel={p.namn} undertitel={p.under} onStang={p.onStang} />}
+      {!mer && p.andel != null && <Stapel andel={p.andel} />}
       <div data-testid="kort-innehall" data-enkel="ja" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
+        {!mer && <>
         {/* OM NÅGOT HÄNDER — larmplatsen HÖGST UPP (Martin 2026-11-10: "man ska inte behöva leta"). Den närmaste maskinen, eller alla när positionen saknas. */}
         <div style={{ marginBottom: AVSTAND.m }}>
           <Gruppkort testid="kort-larm-grupp">
@@ -195,6 +202,7 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
           </div>
         )}
         {!harInnehall && <div data-testid="kort-galler-tomt" style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.l }}>Inget särskilt att tänka på här.</div>}
+        </>}
 
         {/* Knapprad bara när det finns knappar (skotare utan lassläge; skördaren i körvyn har inga) */}
         {n > 0 && (
@@ -211,8 +219,8 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
         {/* LÄNGST NER — en grupp rader: Egenkontroll · Kartans färger · Dokument · Mer (larmplatsen står överst) */}
         <Gruppkort testid="kort-uppdrag">
           {p.onEgenkontroll && <RadKnapp forstaRad testid="kort-egenkontroll" etikett="Egenkontroll" under={p.onEgenkontroll.under} onTryck={p.onEgenkontroll.onTryck} />}
-          {p.onKarta && <RadKnapp forstaRad={!p.onEgenkontroll} testid="kort-vad-betyder-kartan" etikett="Kartans färger" onTryck={p.onKarta} />}
-          {p.onCert && <RadKnapp forstaRad={!p.onEgenkontroll && !p.onKarta} testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}
+          {p.onKarta && !mer && <RadKnapp forstaRad={!p.onEgenkontroll} testid="kort-vad-betyder-kartan" etikett="Kartans färger" onTryck={p.onKarta} />}
+          {p.onCert && <RadKnapp forstaRad={!p.onEgenkontroll && !(p.onKarta && !mer)} testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}
           {p.dokument && (
             <>
               <RadKnapp testid="kort-dokument" etikett={`Dokument (${p.dokument.antal})`} onTryck={() => setDokOppen((v) => !v)}

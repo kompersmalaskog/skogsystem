@@ -9,10 +9,11 @@ const las = (rel: string) => readFileSync(join(rot, rel), 'utf8');
 const sida = las('app/planering/page.tsx');
 
 describe('panelens bredd', () => {
-  it('420 px i maskinläget, 380 som förut annars — och telefonen är ett ark i full bredd', () => {
+  it('maskinläget: EN bredd för alla vyer, samma som Hela trakten (Martin 2026-11-12); 380 som förut annars — och telefonen är ett ark i full bredd', () => {
     expect(INFO_PANEL_MASKIN_BREDD_PX).toBe(420);
     expect(PANEL_BREDD_PX).toBe(380);
-    expect(sida).toContain('const infoPanelBredd = (maskinlage || !!maskinSomParam) ? INFO_PANEL_MASKIN_BREDD_PX : PANEL_BREDD_PX;');
+    expect(sida).toContain("const infoPanelBredd = (maskinlage || !!maskinSomParam) ? (typeof window !== 'undefined' ? oversiktPanelBredd(window.innerWidth) : INFO_PANEL_MASKIN_BREDD_PX) : PANEL_BREDD_PX;");
+    expect(las('components/planering/ObjektInfo.tsx')).toContain("bredd={oversikt && typeof window !== 'undefined' ? oversiktPanelBredd(window.innerWidth) : bredd}");
     expect(sida).toMatch(/objektInfoSenasteRef\.current = \{\s*bredd: infoPanelBredd,/);
   });
   it('kamerans utrymme för framhävt objekt räknar med den bredd panelen faktiskt har', () => {
