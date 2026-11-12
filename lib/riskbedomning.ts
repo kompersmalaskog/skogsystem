@@ -1,7 +1,7 @@
 // RISKBEDÖMNING PER TRAKT — planeraren bedömer riskerna i "Klar med trakten?" innan maskinerna kommer, föraren läser och kvitterar.
 //
 // Tre delar, som Arbetsmiljöverket frågar efter (undersök · bedöm · åtgärda · dokumentera):
-//   1. RISKERNA: appen föreslår det den redan vet (kraftledning ur Vidas underlag och kartan, brant, blött, jakttorn, markkabel, ej framkomligt,
+//   1. RISKERNA: appen föreslår det den redan vet (kraftledning ur Vidas underlag och kartan, brant, blött, markkabel, ej framkomligt,
 //      motorsåg på trakten). Planeraren tar bort det som inte gäller och lägger till egna risker.
 //   2. EN ÅTGÄRD PER RISK — en mening i vanliga ord ("Fäll aldrig mot ledningen …").
 //   3. KVITTOT: planeraren trycker "Stämmer" (vem + när + fingeravtryck av listan); föraren trycker "Jag har läst" (tabellen trakt_risk_last, servertid).
@@ -85,7 +85,8 @@ export function foreslaRisker(i: RiskForslagIndata): Risk[] {
   if (har('symbol', 'wet') || har('zon', 'wet')) satt('blott', 'karta');
   if (i.barighet === 'dalig') satt('blott', 'forutsattningar');
   if (har('zon', 'noentry')) satt('ej_framkomlig', 'karta');
-  if (har('symbol', 'huntingtower')) satt('jakttorn', 'karta');
+  // Jakttorn föreslås inte (Martin 2026-11-12: det sitter aldrig någon i dem när vi kör; tornet är Info, inte fara).
+  // Nyckeln finns kvar i katalogen så att en sparad bedömning med jakttorn fortfarande går att läsa.
   if (i.manuellFallning) satt('motorsag', 'forutsattningar');
   if (har('symbol', 'manualfelling')) satt('motorsag', 'karta');
   if (har('symbol', 'warning')) satt('varning', 'karta');
