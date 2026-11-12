@@ -6,6 +6,7 @@ import type { PulsGeometri } from './larm/pulsKarta';
 import { ytaNyckel } from './traktGeometri';
 import { markerNyckel } from './kartkommentar';
 import { ARK_HOJD_ANDEL } from './objektKarta';
+import { korUppUr } from './korUpp';
 
 /** Hur länge ytan pulserar (ms) efter ett tryck på raden: kort, inte kvar. */
 export const YTA_PULS_MS = 3200;
@@ -41,6 +42,18 @@ export function ytaGeo(o: { nyckel: string; features: ReadonlyArray<any> | null 
     if (ytaNyckel(f?.properties) !== o.nyckel) continue;
     const bounds = geometriBounds(g);
     return bounds ? { geometri: g as PulsGeometri, bounds } : null;
+  }
+  // "Kör upp och backa" (nyckel korupp:<id>): pilen är en linje från start till slut — kartan flyger till den och pilen pulserar.
+  if (o.nyckel.startsWith('korupp:')) {
+    for (const m of o.markers) {
+      if (`korupp:${m?.id}` !== o.nyckel) continue;
+      const k = korUppUr(m);
+      if (!k) return null;
+      const geometri: PulsGeometri = { type: 'LineString', coordinates: [[k.start.lon, k.start.lat], [k.slut.lon, k.slut.lat]] };
+      const bounds = geometriBounds(geometri);
+      return bounds ? { geometri, bounds } : null;
+    }
+    return null;
   }
   for (const m of o.markers) {
     const nyckel = m?.lineType === 'boundary' ? `omrade:${m.id}` : markerNyckel(m?.id);

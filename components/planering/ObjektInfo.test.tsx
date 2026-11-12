@@ -460,6 +460,25 @@ describe('Om trakten — grupper och EN rad per typ', () => {
     expect(spion.visa).toEqual(['z-egen:ark']);   // vår yta framhävs på kartan
   });
 
+  it('UR HELA TRAKTEN (förarens meny): ett objekt i sortens lista öppnar läskortet — också Vidas yta, aldrig det lilla ytkortet (Martin 2026-11-12)', async () => {
+    const vida = (nr: number) => M({ id: `vida-yta:${nr}`, slag: 'zon', typ: 'protected', namn: 'Hänsynsyta', comment: `Sänka ${nr}`, kalla: 'vida', lat: 56.401 + nr / 1e4, lng: 14.7, geometri: [{ lat: 56.4, lng: 14.7 }, { lat: 56.4, lng: 14.701 }, { lat: 56.401, lng: 14.701 }] });
+    const egen = M({ id: 'z-egen', slag: 'zon', typ: 'protected', namn: 'Hänsyn', comment: 'Bok sparas', lat: 56.4011, lng: 14.7, skapad: 220 });
+    const p = sk({ markeringar: [vida(1), vida(2), egen] });
+    const litet: string[] = [], las: string[] = [];
+    p.om.vidaOppna = (id) => (id.startsWith('vida-yta:') ? () => { litet.push(id); } : undefined);
+    p.oversikt = { under: 'Slutavverkning', larm: null, faror: [], risker: null, skydd: { lage: 'inga', rader: [] }, brand: null, onBrand: () => {}, cert: null, helaTrakten: [], infor: [],
+      nya: new Set(), nyaTexter: new Set(), last: true, onLast: async () => true, onOppna: (m) => { las.push(m.id); }, onStang: () => {} };
+    await montera(p);
+    klicka(q('oversikt-sort-rad'));
+    const rader = qa('om-objekt');
+    expect(rader.length).toBe(3);
+    klicka(rader.find((r) => r.getAttribute('data-id') === 'vida-yta:2')!.querySelector('[data-testid="om-objekt-knapp"]'));
+    klicka(rader.find((r) => r.getAttribute('data-id') === 'z-egen')!.querySelector('[data-testid="om-objekt-knapp"]'));
+    expect(las).toEqual(['vida-yta:2', 'z-egen']);
+    expect(litet).toEqual([]);
+    expect(spion.visa).toEqual([]);
+  });
+
   it('Vidas avlägg och våra är EN rad: "Avlägg · 3 st"', async () => {
     const vidaAvl = (n: string) => M({ id: `vida-avlagg:${n}`, typ: 'landing', namn: 'Avlägg', kalla: 'vida', lat: 56.402, lng: 14.7 });
     await oppnaOm(sk({ markeringar: [...SK, vidaAvl('01-1'), vidaAvl('01-2'), M({ id: 'egen-avl', typ: 'landing', namn: 'Avlägg', lat: 56.4021, lng: 14.7, skapad: 230 })] }));
