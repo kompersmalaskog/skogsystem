@@ -131,6 +131,8 @@ export interface LarmVisning {
   namn: string | null;
   /** "Närmast dig · 850 m" — bara när den valts bland flera på positionen. */
   narmast: string | null;
+  /** "340 m fågelväg" — avståndet från där du står till den som gäller, när positionen är färsk och på trakten. Aldrig en väg (ingen rutt räknas). */
+  fagelvag: string | null;
   /** Flera larmplatser och ingen färsk position: kortet visar alla och ber föraren välja. */
   valjSjalv: boolean;
   /** Alla larmplatser när de är fler än en (tom annars), i samma ordning som `LarmVal.alla`. */
@@ -148,6 +150,7 @@ export function larmVisning(val: LarmVal, kontroller: readonly LarmKontrollRad[]
     koordinat: v ? larmKoordinatText(v) : '',
     namn: v?.namn ?? null,
     narmast: v && flera && val.avstandM != null ? `Närmast dig · ${avstandOrd(val.avstandM)}` : null,
+    fagelvag: v && val.avstandM != null ? `${avstandOrd(val.avstandM)} fågelväg` : null,
     valjSjalv: val.valjSjalv,
     platser: flera ? val.alla.map((p) => ({
       namn: p.namn ?? 'Larmplats',

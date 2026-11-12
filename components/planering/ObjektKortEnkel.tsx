@@ -83,7 +83,7 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
   const [dokOppen, setDokOppen] = useState(false);
   const [larmAllaOppen, setLarmAllaOppen] = useState(false);
   const larmFlera = p.larm.platser && p.larm.onVisaPlats && p.larm.platser.length > 1;
-  const larmLista = larmFlera ? <LarmPlatser larm={{ namn: null, narmast: null, valjSjalv: false, kontroll: null, ...p.larm, platser: p.larm.platser! }} onVisa={p.larm.onVisaPlats!} /> : null;
+  const larmLista = larmFlera ? <LarmPlatser larm={{ namn: null, narmast: null, fagelvag: null, valjSjalv: false, kontroll: null, ...p.larm, platser: p.larm.platser! }} onVisa={p.larm.onVisaPlats!} /> : null;
   const n = p.knappar.length;
   const harInnehall = !!p.risker || p.faror.length > 0 || !!p.grot || p.tillForaren.length > 0 || p.ytor.length > 0 || !!p.brand;
 

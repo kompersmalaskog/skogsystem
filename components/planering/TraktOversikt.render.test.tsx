@@ -80,16 +80,42 @@ describe('Hela trakten', () => {
     expect(ruta!.textContent).not.toMatch(/med text/);
     expect(ruta!.textContent).not.toMatch(/saker på kartan/);
   });
-  it('certifieringen säger i ord vad han ska göra, och det som saknar text är EN rad (utan det cert-raden redan säger)', async () => {
-    await montera(<TraktOversikt {...props()} />);
-    expect(q('oversikt-cert')!.textContent).toContain('PEFC: alla 26 evighetsträd och 8 högstubbar är utsatta – spara dem.');
+  it('certifieringen är korta rader under "Vad ska sparas?", och det som saknar text är EN rad (utan det cert-raderna redan säger)', async () => {
+    await montera(<TraktOversikt {...props({ miljo: [
+      { id: 'evighetstrad', namn: 'Evighetsträd', antal: 1, krav: 11, uppfyllt: false },
+      { id: 'hogstubbar', namn: 'Högstubbar', antal: 0, krav: 4, uppfyllt: false },
+    ] })} />);
+    expect(q('oversikt-spara')!.textContent).toContain('Vad ska sparas?');
+    expect(q('oversikt-cert-evighetstrad')!.textContent).toContain('Evighetsträd 1 av 11');
+    expect(q('oversikt-cert-hogstubbar')!.textContent).toContain('Högstubbar 0 av 4');
     expect(q('oversikt-utan-text')!.textContent).toBe('Utan textAvlägg 1');
+  });
+  it('fyra frågor i den ordningen: om något händer, farligt, göra, sparas', async () => {
+    await montera(<TraktOversikt {...props({ faror: ['Kraftledning'] })} />);
+    const ord = [...q('oversikt-innehall')!.children].map((e) => e.getAttribute('data-testid')).filter(Boolean);
+    const plats = (id: string) => ord.indexOf(id);
+    expect(plats('oversikt-larm')).toBe(0);
+    expect(plats('oversikt-faror')).toBeLessThan(plats('oversikt-gora'));
+    expect(plats('oversikt-gora')).toBeLessThan(plats('oversikt-spara'));
+  });
+  it('riskraden "Varning" står inte en gång till när varningen redan står under farorna', async () => {
+    const risker = [{ nyckel: 'varning', risk: 'Varning på kartan – läs texten', atgard: '', kalla: 'karta', allvarlig: true }] as any;
+    await montera(<TraktOversikt {...props({ risker, markeringar: [{ ...mark('9', 'warning', 'Varning'), kommentarer: [{ id: 'k9', text: 'Döda träd', forfattare: 'Martin' }] }] })} />);
+    expect(q('oversikt-faror')!.textContent).toContain('Döda träd');
+    expect(q('oversikt-risker')).toBeNull();
+  });
+  it('larmraden visar koordinaten och avståndet i fågelväg — aldrig avläggets kod', async () => {
+    const visning = { satt: true, koordinat: '56.81234, 15.12345', namn: 'inback skbv', narmast: null, fagelvag: '340 m fågelväg', valjSjalv: false, platser: [], kontroll: null };
+    await montera(<TraktOversikt {...props({ larm: { satt: true, koordinat: '56.81234, 15.12345', beskrivning: '', onVisa: () => {}, visning } })} />);
+    expect(q('oversikt-larm-koordinat')!.textContent).toBe('56.81234, 15.12345');
+    expect(q('oversikt-larm')!.textContent).toContain('340 m fågelväg');
+    expect(q('oversikt-larm')!.textContent).not.toContain('inback');
   });
   it('faror och skyddade områden: röda/orange rader när de finns, annars en bock så han vet att det är kollat', async () => {
     await montera(<TraktOversikt {...props()} />);
     expect(q('oversikt-faror')).toBeNull();
-    expect(q('oversikt-inga-faror')!.textContent).toContain('Inga faror');
-    expect(q('oversikt-inga-skydd')).not.toBeNull();
+    expect(q('oversikt-kollat')!.textContent).toContain('inga faror');
+    expect(q('oversikt-kollat')!.textContent).toContain('inga skyddade områden');
     act(() => { rot!.unmount(); }); ruta!.remove();
     await montera(<TraktOversikt {...props({ faror: ['Kraftledning'], skydd: { lage: 'finns', rader: [{ namn: 'Vattenskyddsområde', text: 'Ingen tankning' }] } })} />);
     expect(q('oversikt-faror')!.textContent).toContain('Kraftledning');
@@ -98,7 +124,7 @@ describe('Hela trakten', () => {
   });
   it('analysen aldrig körd → det sägs, aldrig "inga skyddade områden"', async () => {
     await montera(<TraktOversikt {...props({ skydd: { lage: 'inte', rader: [] } })} />);
-    expect(q('oversikt-inga-skydd')).toBeNull();
+    expect(q('oversikt-kollat')?.textContent ?? '').not.toContain('skyddade');
     expect(q('oversikt-skydd-okant')!.textContent).toContain('inte kontrollerade');
   });
   it('riskerna står med risk och åtgärd', async () => {
