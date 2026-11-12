@@ -3242,7 +3242,11 @@ export default function PlannerPage() {
   useBakgrundsNedladdning({ roll: testlage ? null : maskinlage ? 'maskin' : isAdminRiktig ? 'planerare' : null, maskinId: enhetMaskinId, oppenId: valtObjekt?.id ? String(valtObjekt.id) : null, ritad: mapType === 'ritad' });
   const startFixFarskSattRef = useRef(false);
   const startOversiktSattRef = useRef(false);                                        // översikten är satt (en gång)
-  const startFlygGjordRef = useRef(false);                                           // flygningen är gjord (EN flyTo)
+  const startFlygGjordRef = useRef(false);
+  // Ska 'Hela trakten' öppnas av sig själv på den här trakten? 'visa' = flygningen ner till maskinen hoppas över (kartan går rakt till hela trakten,
+  // Börja köra flyger sedan ner). null = vet inte än (markeringar/kvitton läses). Skrivs i render där överblickens beslut räknas.
+  const oversiktKommerRef = useRef<'visa' | 'inte' | null>(null);
+  const flygVantarSedanRef = useRef<number | null>(null);                                           // flygningen är gjord (EN flyTo)
   const startRadSenasteRef = useRef<string | null>(null);
   const startKameraLasRef = useRef(false);                                           // true → sekvensen äger kameran (läses av async-kod)
   const startPosRef = useRef<{ lat: number; lon: number } | null>(null);             // flygmålet när ingen riktig fix finns (SENAST KÄNDA position, aldrig i currentPosition)
@@ -8600,7 +8604,17 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     const pos = korvyEffectivePos ?? startPosRef.current;   // riktig fix går före den senast kända
     if (!map || !pos) return;   // saknas något nu → effekten kör om när position/karta finns (korvyEffectivePos i deps)
+    // Öppnas "Hela trakten" av sig själv ska kartan INTE först flyga ner till maskinen och vrida sig, för att sedan zooma ut till trakten igen
+    // (Martin 2026-11-12: "när man börjar trakten flyger kartan lustigt"). Vänta högst 3 s på beslutet; vet vi inte då flyger vi som förut.
+    const beslut = oversiktKommerRef.current;
+    if (beslut === null && Date.now() - (flygVantarSedanRef.current ??= Date.now()) < 3000) return;
     startFlygGjordRef.current = true;   // EN flyTo, även om en GPS-tick landar innan fasen hunnit byta
+    if (beslut === 'visa') {
+      startKameraAssertGjordRef.current = true;   // ingen inramning på maskinen heller — överblicken ramar in trakten, Börja köra flyger ner
+      setStartFlygStart(Date.now() - FLY_MS);      // direkt till 'landat': kameralåset släpps och överblicken öppnas
+      markeraStart('flygStart');
+      return;
+    }
     const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
     korvyZoomRef.current = KORVY_BASE_ZOOM;   // närhets-zoomen startar från bas (som körvyns egen setup)
     try {
@@ -8616,7 +8630,7 @@ export default function PlannerPage() {
     } catch { /* */ }
     setStartFlygStart(Date.now());
     markeraStart('flygStart');
-  }, [startFlygKlar, korvyEffectivePos]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [startFlygKlar, korvyEffectivePos, startSekvensNu]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Utzoomad utan RIKTIG fix: GPS-pricken DÄMPAD (en gång). Tänds av passiva watchern vid första giltiga fix.
   // (Senast känd position räknas inte — den är inte en fix. Testfliken har en utlagd position → ingen dämpning.)
@@ -9529,6 +9543,13 @@ export default function PlannerPage() {
     }
   }, [traktGeo]); // eslint-disable-line react-hooks/exhaustive-deps
   const oversiktAktiv = korvyActive && (maskinlage || !!maskinSomParam);   // = instruktionerAktiv (deklarerad längre ned)
+  // Startsekvensens flygning frågar om överblicken öppnas av sig själv (samma beslut som effekten nedan).
+  {
+    const id = valtObjekt?.id ? String(valtObjekt.id) : null;
+    const kanAvgora = !!oversiktMaskinId && !!id && markersLoaded && markersObjektIdRef.current === id && kk.laddad && traktGeoHamtadFor === valtObjekt?.id && riskLast.lage !== 'laddar';
+    oversiktKommerRef.current = !oversiktAktiv ? 'inte' : !kanAvgora ? null
+      : (riskLast.lage === 'ok' ? !oversiktLast : behoverVisas(lasSett(oversiktMaskinId!, id!), oversiktSig)) ? 'visa' : 'inte';
+  }
   useEffect(() => {
     if (!oversiktAktiv || !oversiktMaskinId || !valtObjekt?.id || startKameraLasNu) return;
     const oid = String(valtObjekt.id);
