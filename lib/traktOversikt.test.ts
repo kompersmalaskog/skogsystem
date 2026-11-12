@@ -110,3 +110,14 @@ describe('överblicken — kvitto, cert, skydd (2026-11-05)', async () => {
     expect(nyaKommentarer(null, [{ id: 'k1', text: 'x' }]).size).toBe(0);
   });
 });
+
+import { certLage } from './traktOversikt';
+describe('certLage', () => {
+  it('FSC/PEFC = certifierad, "Ej certifierad"/"None" = inte, tomt eller "Not known" = okänt', () => {
+    expect(certLage('FSC PEFC', ['PEFC', 'FSC'])).toEqual({ lage: 'cert', namn: 'PEFC och FSC' });
+    expect(certLage('Ej certifierad', []).lage).toBe('ingen');
+    expect(certLage('None', []).lage).toBe('ingen');
+    expect(certLage('Not known', []).lage).toBe('okand');
+    expect(certLage(null, []).lage).toBe('okand');
+  });
+});

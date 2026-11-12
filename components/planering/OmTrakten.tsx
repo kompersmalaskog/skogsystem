@@ -62,6 +62,8 @@ export interface OmTraktenProps {
   onNav: (n: OmNav | null) => void;
   /** typvyn öppnad (alla av typen markeras på kartan) eller stängd (null) */
   onTyp: (m: KartMarkering[] | null) => void;
+  /** Typvyn öppnad direkt från "Hela trakten": tillbaka går dit, inte till listan. */
+  typTillbaka?: { etikett: string; onTryck: () => void };
 }
 
 const nyckelSlug = (n: string) => n.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
@@ -121,7 +123,7 @@ export default function OmTrakten(p: OmTraktenProps) {
   if (typRad) {
     return (
       <>
-        <Huvud titel={typRadText(typRad)} tillbaka="Om trakten" onTillbaka={tillLista} onStang={p.onStang} />
+        <Huvud titel={typRadText(typRad)} tillbaka={p.typTillbaka?.etikett ?? 'Om trakten'} onTillbaka={p.typTillbaka ? () => { sparaScroll(); p.typTillbaka!.onTryck(); } : tillLista} onStang={p.onStang} />
         <div ref={scrollRef} data-testid="om-innehall" data-vy="typ" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.xxl}px` }}>
           {typRad.ytaTyp ? (
             <Gruppkort testid="om-typ-lista">

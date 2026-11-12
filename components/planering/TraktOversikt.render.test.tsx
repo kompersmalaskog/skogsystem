@@ -88,7 +88,9 @@ describe('Hela trakten', () => {
     expect(q('oversikt-spara')!.textContent).toContain('Vad ska sparas?');
     expect(q('oversikt-cert-evighetstrad')!.textContent).toContain('Evighetsträd 1 av 11');
     expect(q('oversikt-cert-hogstubbar')!.textContent).toContain('Högstubbar 0 av 4');
-    expect(q('oversikt-utan-text')!.textContent).toBe('Utan textAvlägg 1');
+    // Avlägget utan text står som sin egen rad på kartan, inte i en sammanfattning
+    expect(q('oversikt-sort-symbol-landing')!.textContent).toContain('Avlägg · 1 st');
+    expect(q('oversikt-utan-text')).toBeNull();
   });
   it('fyra frågor i den ordningen: om något händer, farligt, göra, sparas', async () => {
     await montera(<TraktOversikt {...props({ faror: ['Kraftledning'] })} />);
@@ -158,14 +160,29 @@ describe('Hela trakten', () => {
     expect(sparat).toBe(0);
     expect(stangd).toBe(1);
   });
-  it('"Alla symboler på trakten" visar antalet, säger vad som saknar text och öppnar listan', async () => {
-    let alla = 0;
-    await montera(<TraktOversikt {...props({ onAlla: () => { alla++; } })} />);
-    expect(q('oversikt-alla')!.textContent).toContain('Alla symboler på trakten (4)');
-    expect(q('oversikt-alla')!.textContent).toContain('Utan text: Avlägg 1');
-    expect(q('oversikt-utan-text')).toBeNull();
-    act(() => { q('oversikt-alla')!.click(); });
-    expect(alla).toBe(1);
+  it('VARJE SORT står, också utan text: "Stenmur · 3" under Vad ska sparas?, och flera öppnar sorten på kartan', async () => {
+    const sorter: string[] = []; const oppnade: string[] = [];
+    await montera(<TraktOversikt {...props({
+      markeringar: [mark('11', 'stonewall', 'Stenmur', '', 'linje'), mark('12', 'stonewall', 'Stenmur', '', 'linje'), mark('13', 'stonewall', 'Stenmur', 'Gammal mur', 'linje'), mark('3', 'landing', 'Avlägg')],
+      onSort: (n) => { sorter.push(n); }, onOppna: (m) => { oppnade.push(m.id); },
+    })} />);
+    const sten = ruta!.querySelector<HTMLElement>('[data-testid^="oversikt-sort-"][data-testid*="stonewall"]');
+    expect(sten).not.toBeNull();
+    expect(sten!.textContent).toContain('Stenmur · 3 st');
+    expect(q('oversikt-spara')!.contains(sten)).toBe(true);
+    expect(sten!.textContent).toContain('Gammal mur');
+    expect(q('oversikt-alla')).toBeNull();
+    act(() => { sten!.querySelector('button')!.click(); });
+    expect(sorter.length).toBe(1);
+    act(() => { q('oversikt-sort-symbol-landing')!.querySelector('button')!.click(); });
+    expect(oppnade).toEqual(['3']);
+  });
+  it('certifieringen står ALLTID: inte certifierad, och okänd i orange', async () => {
+    await montera(<TraktOversikt {...props({ cert: null, certLage: { lage: 'ingen', namn: '' } })} />);
+    expect(q('oversikt-cert-ingen')!.textContent).toContain('Inte certifierad');
+    act(() => { rot?.unmount(); }); ruta?.remove();
+    await montera(<TraktOversikt {...props({ cert: null, certLage: { lage: 'okand', namn: '' } })} />);
+    expect(q('oversikt-cert-okand')!.textContent).toContain('Certifiering saknas – fråga planeraren');
   });
   it('"Mer om trakten" finns längst ner', async () => {
     let mer = 0;

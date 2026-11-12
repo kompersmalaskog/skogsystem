@@ -5,8 +5,10 @@
 //   Om något händer   — larmkoordinaten, stor, och hur långt dit (fågelväg — appen ritar ingen väg dit).
 //   Vad är farligt?   — Vidas faror, farorna på kartan, riskbedömningen och brandrisken. Starkast på sidan.
 //   Vad ska du göra?  — Vidas text och texterna på trakten, inför jobbet, och det på kartan som inte ska sparas.
-//   Vad ska sparas?   — certifieringen som två rader ("Evighetsträd 1 av 11"), skyddade områden och hänsynen på kartan.
-//   Sist: det som är kollat och i ordning som EN grå rad, Utan text, Mer om trakten, "Jag har läst allt" / "Till kartan".
+//   Vad ska sparas?   — certifieringen ALLTID (två rader "Evighetsträd 1 av 11", "Inte certifierad …" eller "Certifiering saknas"),
+//                       skyddade områden och hänsynen på kartan.
+//   På kartan står VARJE SORT som en rad med antalet ("Stenmur · 3"), med eller utan text — texten under (Martin 2026-11-12, Lidhem).
+//   Sist: det som är kollat och i ordning som EN grå rad, Mer om trakten, "Börja köra".
 // Dubbletter som tas bort: riskraden "Varning på kartan" när varningen redan står under farorna, och avläggets namn
 // (Vidas kod, "inback skbv") på larmraden — namnet står kvar i "Om något händer".
 // Ingen meningsrad med siffror, inget "1 med text": det som är skrivet står där. Ett tryck på en rad på kartan öppnar samma kort som på kartan.
@@ -17,9 +19,9 @@ import MarkeringFoto from '@/app/planering/MarkeringFoto';
 import { AVSTAND, FARG, IKON, KNAPP, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import type { SammanfattningRad } from '@/lib/klarTrakt';
 import { harFoto, type KartMarkering, type OmKommentar, type TillForarenPost } from '@/lib/objektKort';
-import { byggOmGrupper, objektTitel, type TypRad } from '@/lib/omTrakten';
+import { byggOmGrupper, objektTitel, typRadText, type TypRad } from '@/lib/omTrakten';
 import type { Risk } from '@/lib/riskbedomning';
-import { utanTextRad, type SkyddRad } from '@/lib/traktOversikt';
+import type { CertLage, SkyddRad } from '@/lib/traktOversikt';
 import { faroMarkeringar } from '@/lib/faroNummer';
 import BrandriskRad from './BrandriskRad';
 import LarmVy from './LarmVy';
@@ -46,6 +48,8 @@ export interface TraktOversiktProps {
   onBrand: () => void;
   /** "PEFC: alla 26 evighetsträd och 8 högstubbar är utsatta – spara dem." (lib/traktOversikt.certRad). */
   cert: { text: string; klar: boolean } | null;
+  /** Är trakten certifierad? Står ALLTID i "Vad ska sparas?" (Martin 2026-11-12: "det står ju inget om cert"). Saknas = som certifierad med `cert`. */
+  certLage?: CertLage;
   onCert?: () => void;
   tillForaren: TillForarenPost[];
   /** Kommentarerna på själva trakten (traktdelar, egna områden) — de gäller hela trakten. */
@@ -69,8 +73,8 @@ export interface TraktOversiktProps {
   onFoto: (src: string) => void;
   /** "Mer om trakten" — det vanliga kortet (dokument, kartans färger, Mer). */
   onMer: () => void;
-  /** "Alla symboler på trakten" — samma lista som Om trakten: alla sorter, också de utan text; ett tryck visar dem på kartan. */
-  onAlla?: () => void;
+  /** En sort med flera på kartan ("Stenmur · 3"): samma typvy som i Om trakten — alla markeras på kartan. En enda öppnas med onOppna. */
+  onSort?: (nyckel: string) => void;
   onStang: () => void;
 }
 
@@ -131,20 +135,20 @@ export default function TraktOversikt(p: TraktOversiktProps) {
   const faroMark = useMemo(() => faroMarkeringar(p.markeringar), [p.markeringar]);
   const ovrigaRader: TypRad[] = grupper.filter((g) => g.grupp !== 'faror' && g.grupp !== 'vida').flatMap((g) => g.rader);
   const harText = (m: KartMarkering) => kommentarerFor(m).length > 0 || harFoto(m);
-  // Allt med text, i listans ordning (en markering = en rad, aldrig "1 med text"). Hänsynen hör till "Vad ska sparas?".
-  const sparasText = ovrigaRader.filter((r) => r.grupp === 'hansyn').flatMap((r) => r.markeringar).filter(harText);
-  const gorText = ovrigaRader.filter((r) => r.grupp !== 'hansyn').flatMap((r) => r.markeringar).filter(harText);
   // Certifieringen som rader: "Evighetsträd 1 av 11". Utan krav: bara antalet.
-  const certRader = p.cert ? p.miljo : [];
-  // Utan text: sorterna, med antalet som INTE har text. Högstubbar/evighetsträd står i certifieringsraderna när de finns.
-  const utan = utanTextRad(ovrigaRader
-    .filter((r) => !(p.cert && r.nyckel.startsWith('miljo:')) && !r.ytaTyp)
-    .map((r) => ({ namn: r.namn, antal: r.miljo ? r.miljo.satta : r.markeringar.filter((m) => !harText(m)).length })));
+  const certLage: CertLage = p.certLage ?? (p.cert ? { lage: 'cert', namn: '' } : { lage: 'okand', namn: '' });
+  const certifierad = certLage.lage === 'cert';
+  const certRader = certifierad && p.cert ? p.miljo : [];
+  // VARJE SORT PÅ KARTAN, med eller utan text (Martin 2026-11-12: "symbolerna som inte har text vill man ju se, som stenmuren").
+  // En rad per sort med antalet; texterna står under. En sort med EN markering som har text är bara den raden (inget "Avlägg · 1 st" ovanför).
+  // Högstubbar/evighetsträd står i certifieringsraderna när trakten är certifierad; ytorna (traktdelar, egna områden) står under "Vad ska du göra?" som text.
+  const sorter = ovrigaRader.filter((r) => !r.ytaTyp && !(certifierad && p.cert && r.nyckel.startsWith('miljo:')) && (r.miljo ? r.miljo.satta > 0 : r.markeringar.length > 0));
+  const sparaSorter = sorter.filter((r) => r.grupp === 'hansyn');
+  const goraSorter = sorter.filter((r) => r.grupp !== 'hansyn');
   // Riskraden "Varning" säger bara att det finns en varning på kartan — den står redan under farorna.
   const risker = (p.risker ?? []).filter((r) => !(r.nyckel === 'varning' && faroMark.length > 0));
   const harFaror = p.faror.length > 0 || faroMark.length > 0 || risker.length > 0;
-  const harGora = p.tillForaren.length > 0 || p.helaTrakten.length > 0 || p.infor.length > 0 || gorText.length > 0;
-  const harSpara = certRader.length > 0 || (!!p.cert && p.miljo.length === 0) || p.skydd.lage === 'finns' || sparasText.length > 0;
+  const harGora = p.tillForaren.length > 0 || p.helaTrakten.length > 0 || p.infor.length > 0 || goraSorter.length > 0;
   // Det som är kollat och i ordning: EN grå rad längst ner.
   const kollat = [
     !harFaror && (p.risker ? 'inga faror eller risker' : 'inga faror utmärkta'),
@@ -169,6 +173,25 @@ export default function TraktOversikt(p: TraktOversiktProps) {
   const rad = (key: string, i: number, barn: React.ReactNode, testid?: string) => (
     <div key={key} data-testid={testid} style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>{barn}</div>
   );
+  // En sort: "Stenmur · 3" och under den det som är skrivet. Hela raden visar sorten på kartan (en ensam öppnas direkt).
+  const sortBlock = (r: TypRad, forsta: boolean) => {
+    const medText = r.markeringar.filter(harText);
+    if (!r.miljo && r.markeringar.length === 1 && medText.length === 1) return kartRad(medText[0], forsta ? 0 : 1);
+    const m0 = r.markeringar[0];
+    return (
+      <div key={r.nyckel} data-testid={`oversikt-sort-${r.nyckel.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`}>
+        <button type="button" onClick={() => (r.markeringar.length === 1 ? p.onOppna(m0) : p.onSort?.(r.nyckel))} className="press-row"
+          style={{ width: '100%', minHeight: TRAFFYTA.primar, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none',
+            borderTop: forsta ? 'none' : `1px solid ${FARG.linje}`, color: FARG.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+          {m0 && <span style={{ flexShrink: 0, display: 'inline-flex' }}>{p.ikon(m0)}</span>}
+          <span style={{ ...TYP.listtitel, flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{typRadText(r)}</span>
+          {r.markeringar.some((m) => p.nya.has(m.id)) && <Nytt />}
+          <Pil />
+        </button>
+        {medText.map((m) => kartRad(m, 1))}
+      </div>
+    );
+  };
   const larmUnder = !p.larm ? '' : !p.larm.satt ? 'Larmkoordinat saknas – fråga planeraren'
     : p.larm.visning?.valjSjalv ? `${p.larm.visning.platser.length} larmplatser – välj den närmaste`
     : [p.larm.visning?.narmast ?? p.larm.visning?.fagelvag, 'Tryck så visas den på kartan'].filter(Boolean).join(' · ');
@@ -259,48 +282,63 @@ export default function TraktOversikt(p: TraktOversiktProps) {
                 </Gruppkort>
               </div>
             )}
-            {gorText.length > 0 && (
+            {goraSorter.length > 0 && (
               <div data-testid="oversikt-pa-kartan">
                 <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>På kartan · tryck så visas platsen</div>
-                <Gruppkort>{gorText.map((m, i) => kartRad(m, i))}</Gruppkort>
+                <Gruppkort>{goraSorter.map((r, i) => sortBlock(r, i === 0))}</Gruppkort>
               </div>
             )}
           </section>
         )}
 
-        {/* 4. VAD SKA SPARAS? — certifieringen, skyddade områden, hänsynen på kartan. */}
-        {harSpara && (
-          <section data-testid="oversikt-spara">
-            <Rubrik farg={FARG.gron}>Vad ska sparas?</Rubrik>
-            <Gruppkort>
-              {certRader.map((m, i) => (
-                <RadKnapp key={m.id} ikon={m.uppfyllt ? 'check_circle' : 'park'} farg={m.uppfyllt ? FARG.gron : FARG.orange} forstaRad={i === 0} testid={`oversikt-cert-${m.id}`}
-                  etikett={<span style={{ color: FARG.text }}>{m.krav != null ? `${m.namn} ${m.antal} av ${m.krav}` : `${m.namn} ${m.antal}`}</span>}
-                  under={i === 0 && p.onCert ? 'Vad certifieringen kräver' : undefined}
-                  onTryck={p.onCert ?? (() => {})} pil={!!p.onCert} />
-              ))}
-              {p.cert && p.miljo.length === 0 && (
-                <RadKnapp ikon={p.cert.klar ? 'check_circle' : 'park'} farg={p.cert.klar ? FARG.gron : FARG.orange} forstaRad testid="oversikt-cert-rad"
-                  etikett={<span style={{ color: FARG.text }}>{p.cert.text}</span>} onTryck={p.onCert ?? (() => {})} pil={!!p.onCert} />
-              )}
-              {p.skydd.lage === 'finns' && (
-                <div data-testid="oversikt-skydd" style={{ borderTop: p.cert ? `1px solid ${FARG.linje}` : 'none' }}>
-                  {p.skydd.rader.map((r, i) => rad(`${r.namn}-${i}`, i, (
-                    <>
-                      <div style={{ ...TYP.listtitel, overflowWrap: 'anywhere' }}>{r.namn}</div>
-                      {r.text && <div style={{ ...TYP.text, color: FARG.text2, overflowWrap: 'anywhere' }}>{r.text}</div>}
-                    </>
-                  )))}
-                </div>
-              )}
-              {sparasText.length > 0 && (
-                <div data-testid="oversikt-spara-kartan" style={{ borderTop: p.cert || p.skydd.lage === 'finns' ? `1px solid ${FARG.linje}` : 'none' }}>
-                  {sparasText.map((m, i) => kartRad(m, i))}
-                </div>
-              )}
-            </Gruppkort>
-          </section>
-        )}
+        {/* 4. VAD SKA SPARAS? — certifieringen (ALLTID en rad), skyddade områden, hänsynen på kartan. */}
+        <section data-testid="oversikt-spara">
+          <Rubrik farg={FARG.gron}>Vad ska sparas?</Rubrik>
+          <Gruppkort>
+            {certRader.map((m, i) => (
+              <RadKnapp key={m.id} ikon={m.uppfyllt ? 'check_circle' : 'park'} farg={m.uppfyllt ? FARG.gron : FARG.orange} forstaRad={i === 0} testid={`oversikt-cert-${m.id}`}
+                etikett={<span style={{ color: FARG.text }}>{m.krav != null ? `${m.namn} ${m.antal} av ${m.krav}` : `${m.namn} ${m.antal}`}</span>}
+                under={i === 0 && p.onCert ? 'Vad certifieringen kräver' : undefined}
+                onTryck={p.onCert ?? (() => {})} pil={!!p.onCert} />
+            ))}
+            {certifierad && p.cert && p.miljo.length === 0 && (
+              <RadKnapp ikon={p.cert.klar ? 'check_circle' : 'park'} farg={p.cert.klar ? FARG.gron : FARG.orange} forstaRad testid="oversikt-cert-rad"
+                etikett={<span style={{ color: FARG.text }}>{p.cert.text}</span>} onTryck={p.onCert ?? (() => {})} pil={!!p.onCert} />
+            )}
+            {certifierad && !p.cert && (
+              <RadKnapp ikon="park" forstaRad testid="oversikt-cert-rad"
+                etikett={<span style={{ color: FARG.text }}>{certLage.namn ? `${certLage.namn}-certifierad` : 'Certifierad'}</span>}
+                under="Kravet på högstubbar och evighetsträd kunde inte räknas – arealen saknas" onTryck={p.onCert ?? (() => {})} pil={!!p.onCert} />
+            )}
+            {certLage.lage === 'ingen' && (
+              <div data-testid="oversikt-cert-ingen" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.l}px` }}>
+                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.text2, width: AVSTAND.xxl, textAlign: 'center' }}>park</span>
+                <span style={{ ...TYP.text, color: FARG.text, overflowWrap: 'anywhere' }}>Inte certifierad – inga krav på högstubbar och evighetsträd</span>
+              </div>
+            )}
+            {certLage.lage === 'okand' && (
+              <div data-testid="oversikt-cert-okand" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.l}px` }}>
+                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.orange, width: AVSTAND.xxl, textAlign: 'center' }}>help</span>
+                <span style={{ ...TYP.text, color: FARG.orange, overflowWrap: 'anywhere' }}>Certifiering saknas – fråga planeraren</span>
+              </div>
+            )}
+            {p.skydd.lage === 'finns' && (
+              <div data-testid="oversikt-skydd" style={{ borderTop: `1px solid ${FARG.linje}` }}>
+                {p.skydd.rader.map((r, i) => rad(`${r.namn}-${i}`, i, (
+                  <>
+                    <div style={{ ...TYP.listtitel, overflowWrap: 'anywhere' }}>{r.namn}</div>
+                    {r.text && <div style={{ ...TYP.text, color: FARG.text2, overflowWrap: 'anywhere' }}>{r.text}</div>}
+                  </>
+                )))}
+              </div>
+            )}
+            {sparaSorter.length > 0 && (
+              <div data-testid="oversikt-spara-kartan" style={{ borderTop: `1px solid ${FARG.linje}` }}>
+                {sparaSorter.map((r, i) => sortBlock(r, i === 0))}
+              </div>
+            )}
+          </Gruppkort>
+        </section>
 
         {/* Skyddade områden aldrig kontrollerade: det sägs, aldrig "inga". */}
         {p.skydd.lage === 'inte' && <div data-testid="oversikt-skydd-okant" style={{ ...TYP.text, color: FARG.orange }}>Skyddade områden är inte kontrollerade – fråga planeraren</div>}
@@ -311,19 +349,6 @@ export default function TraktOversikt(p: TraktOversiktProps) {
             <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.text2 }}>check_circle</span>
             <span style={{ overflowWrap: 'anywhere' }}>Kollat: {kollat.join(' · ')}</span>
           </div>
-        )}
-
-        {/* ALLA SYMBOLER (Martin 2026-11-12, Lidhem): också de utan text — en rad som öppnar listan per sort; ett tryck visar dem på kartan. */}
-        {p.onAlla && p.markeringar.length > 0 ? (
-          <Gruppkort>
-            <RadKnapp ikon="list" forstaRad testid="oversikt-alla" etikett={`Alla symboler på trakten (${p.markeringar.length})`}
-              under={utan ? `Utan text: ${utan}` : 'Tryck så visas de på kartan'} onTryck={p.onAlla} />
-          </Gruppkort>
-        ) : utan && (
-          <section data-testid="oversikt-utan-text">
-            <Rubrik>Utan text</Rubrik>
-            <div style={{ ...TYP.text, color: FARG.text2, overflowWrap: 'anywhere' }}>{utan}</div>
-          </section>
         )}
 
         <Gruppkort>

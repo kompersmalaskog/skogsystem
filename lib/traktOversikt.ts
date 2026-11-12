@@ -156,6 +156,16 @@ export function certRad(cert: readonly string[], miljo: readonly CertMiljo[]): {
   return { text: `${namn}: ${delar.join('. ')}.`, klar: false };
 }
 
+// ── Certifieringen: står alltid, också när trakten inte är certifierad (Martin 2026-11-12) ─────────────────────────────
+/** cert = FSC/PEFC; ingen = uttryckligen inte certifierad ("Ej certifierad", "None", "Nej"); okand = uppgiften saknas ("Not known", tomt). */
+export interface CertLage { lage: 'cert' | 'ingen' | 'okand'; namn: string }
+export function certLage(cert: string | null | undefined, typer: readonly string[]): CertLage {
+  if (typer.length) return { lage: 'cert', namn: typer.join(' och ') };
+  const t = String(cert ?? '').trim().toLowerCase();
+  if (/^(ej\b|inte\b|nej$|none$|ingen)/.test(t)) return { lage: 'ingen', namn: '' };
+  return { lage: 'okand', namn: '' };
+}
+
 // ── Skyddade områden ur traktanalysen ─────────────────────────────────────────────────────────────────────────────────
 const SKYDD_NAMN: Record<string, string> = {
   vattenskydd: 'Vattenskyddsområde', fornlamning: 'Fornlämning', nyckelbiotop: 'Nyckelbiotop', biotopskydd: 'Biotopskydd',
