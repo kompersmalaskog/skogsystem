@@ -85,10 +85,13 @@ describe('Hela trakten', () => {
       { id: 'evighetstrad', namn: 'Evighetsträd', antal: 1, krav: 11, uppfyllt: false },
       { id: 'hogstubbar', namn: 'Högstubbar', antal: 0, krav: 4, uppfyllt: false },
     ] })} />);
-    expect(q('oversikt-spara')!.textContent).toContain('Vad ska sparas?');
+    expect(q('oversikt-spara')!.textContent).toContain('Spara');
     expect(q('oversikt-cert-evighetstrad')!.textContent).toContain('Evighetsträd 1 av 11');
     expect(q('oversikt-cert-hogstubbar')!.textContent).toContain('Högstubbar 0 av 4');
-    expect(q('oversikt-utan-text')!.textContent).toBe('Utan textAvlägg 1');
+    // Avlägget utan text står som sin egen rad på kartan, inte i en sammanfattning
+    expect(q('oversikt-sort-symbol-landing')!.textContent).toContain('Avlägg');
+    expect(q('oversikt-gora')!.contains(q('oversikt-sort-symbol-landing'))).toBe(true);
+    expect(q('oversikt-utan-text')).toBeNull();
   });
   it('fyra frågor i den ordningen: om något händer, farligt, göra, sparas', async () => {
     await montera(<TraktOversikt {...props({ faror: ['Kraftledning'] })} />);
@@ -139,10 +142,10 @@ describe('Hela trakten', () => {
     act(() => { q('oversikt-kart-4')!.click(); });
     expect(oppnade).toEqual(['4']);
   });
-  it('"Jag har läst allt" sparar kvittot och stänger; går det inte att spara stannar listan och säger det', async () => {
+  it('"Börja köra" sparar kvittot och stänger; går det inte att spara stannar listan och säger det', async () => {
     let stangd = 0; let ok = false;
     await montera(<TraktOversikt {...props({ onLast: async () => ok, onStang: () => { stangd++; } })} />);
-    expect(q('oversikt-last')!.textContent).toBe('Jag har läst allt');
+    expect(q('oversikt-last')!.textContent).toBe('Börja köra');
     await act(async () => { q('oversikt-last')!.click(); });
     expect(stangd).toBe(0);
     expect(q('oversikt-fel')).not.toBeNull();
@@ -150,13 +153,45 @@ describe('Hela trakten', () => {
     await act(async () => { q('oversikt-last')!.click(); });
     expect(stangd).toBe(1);
   });
-  it('redan läst → knappen heter "Till kartan" och sparar inget', async () => {
+  it('redan läst → knappen Börja köra sparar inget', async () => {
     let sparat = 0; let stangd = 0;
     await montera(<TraktOversikt {...props({ last: true, onLast: async () => { sparat++; return true; }, onStang: () => { stangd++; } })} />);
-    expect(q('oversikt-last')!.textContent).toBe('Till kartan');
+    expect(q('oversikt-last')!.textContent).toBe('Börja köra');
     await act(async () => { q('oversikt-last')!.click(); });
     expect(sparat).toBe(0);
     expect(stangd).toBe(1);
+  });
+  it('VARJE SORT står, också utan text: "Stenmur · 3" under Vad ska sparas?, och flera öppnar sorten på kartan', async () => {
+    const sorter: string[] = []; const oppnade: string[] = [];
+    await montera(<TraktOversikt {...props({
+      markeringar: [mark('11', 'stonewall', 'Stenmur', '', 'linje'), mark('12', 'stonewall', 'Stenmur', '', 'linje'), mark('13', 'stonewall', 'Stenmur', 'Gammal mur', 'linje'), mark('3', 'landing', 'Avlägg')],
+      onSort: (n) => { sorter.push(n); }, onOppna: (m) => { oppnade.push(m.id); },
+    })} />);
+    const sten = ruta!.querySelector<HTMLElement>('[data-testid^="oversikt-sort-"][data-testid*="stonewall"]');
+    expect(sten).not.toBeNull();
+    expect(sten!.textContent).toContain('Stenmur 3');
+    expect(q('oversikt-spara')!.contains(sten)).toBe(true);
+    expect(sten!.textContent).toContain('Gammal mur');
+    expect(q('oversikt-alla')).toBeNull();
+    act(() => { sten!.querySelector('button')!.click(); });
+    expect(sorter.length).toBe(1);
+    act(() => { q('oversikt-sort-symbol-landing')!.querySelector('button')!.click(); });
+    expect(oppnade).toEqual(['3']);
+  });
+  it('vägar och diken utan text står bara på kartan; jakttornet står under Spara med "slå inte sönder"', async () => {
+    await montera(<TraktOversikt {...props({ markeringar: [mark('21', 'bridge', 'Bro'), mark('22', 'huntingtower', 'Jakttorn'), mark('23', 'huntingtower', 'Jakttorn')] })} />);
+    expect(ruta!.textContent).not.toContain('Bro');
+    const torn = ruta!.querySelector<HTMLElement>('[data-testid*="huntingtower"]')!;
+    expect(q('oversikt-spara')!.contains(torn)).toBe(true);
+    expect(torn.textContent).toContain('slå inte sönder');
+    expect(q('oversikt-faror')).toBeNull();
+  });
+  it('certifieringen står ALLTID: inte certifierad, och okänd i orange', async () => {
+    await montera(<TraktOversikt {...props({ cert: null, certLage: { lage: 'ingen', namn: '' } })} />);
+    expect(q('oversikt-cert-ingen')!.textContent).toContain('Inte certifierad');
+    act(() => { rot?.unmount(); }); ruta?.remove();
+    await montera(<TraktOversikt {...props({ cert: null, certLage: { lage: 'okand', namn: '' } })} />);
+    expect(q('oversikt-cert-okand')!.textContent).toContain('Certifiering saknas – fråga planeraren');
   });
   it('"Mer om trakten" finns längst ner', async () => {
     let mer = 0;

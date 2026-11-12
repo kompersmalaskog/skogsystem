@@ -21,9 +21,9 @@ describe('Vad betyder kartan: bara det som finns på trakten', () => {
     expect(g.find((x) => x.grupp === 'kultur')!.rader[0].namn).toBe('Kulturlämning');
   });
   it('namn, grupp och mening kommer ur symbolkällan — ingen egen text', () => {
-    const [fara] = byggTeckenforklaring({ markeringar: [sym('huntingtower')] });
+    const [fara] = byggTeckenforklaring({ markeringar: [sym('groundcable')] });
     expect(fara).toMatchObject({ grupp: 'fara', namn: GRUPPER.fara.namn, farg: GRUPPER.fara.farg, form: 'triangel' });
-    expect(fara.rader[0]).toMatchObject({ namn: 'Jakttorn', forklaring: SYMBOL_FORKLARING.huntingtower });
+    expect(fara.rader[0]).toMatchObject({ namn: 'Markkabel', forklaring: SYMBOL_FORKLARING.groundcable });
   });
   it('ytor: egna (zoneType) och Vidas lager, med förbjudna ytor markerade', () => {
     const g = byggTeckenforklaring({

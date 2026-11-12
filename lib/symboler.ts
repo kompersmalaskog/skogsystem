@@ -98,7 +98,7 @@ export const SYMBOL_FORKLARING: Readonly<Record<string, string>> = {
   powerline: 'Ledning – håll avstånd och fäll inte åt det hållet.',
   warning: 'Något farligt här – läs kommentaren. Larmar varje gång.',
   steep: 'Brant – risk för att maskinen glider.',
-  huntingtower: 'Jakttorn – människor kan finnas i eller nära tornet.',
+  huntingtower: 'Jakttorn – slå inte sönder det.',
   groundcable: 'Nedgrävd kabel – kör försiktigt och gräv inte.',
   eternitytree: 'Ska stå kvar – fäll inte.',
   highstump: 'Hög stubbe som ska lämnas kvar.',

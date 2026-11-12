@@ -22,7 +22,7 @@ describe('appens förslag', () => {
 
   it('brant, blött och motorsåg ur förutsättningarna; alltid i katalogens ordning', () => {
     const r = foreslaRisker({ ...tom, terrang: 'brant', barighet: 'dalig', manuellFallning: true, markeringar: [{ slag: 'symbol', typ: 'huntingtower' }] });
-    expect(r.map((x) => x.nyckel)).toEqual(['brant', 'blott', 'jakttorn', 'motorsag']);
+    expect(r.map((x) => x.nyckel)).toEqual(['brant', 'blott', 'motorsag']);   // jakttorn föreslås inte (Martin 2026-11-12)
     expect(r.find((x) => x.nyckel === 'brant')!.kalla).toBe('forutsattningar');
   });
 
@@ -130,7 +130,7 @@ describe('Klar med trakten?', () => {
 });
 
 describe('allvarlig eller mindre allvarlig (AFS 2023:1 11 §)', () => {
-  const i: RiskForslagIndata = { markeringar: [{ slag: 'symbol', typ: 'powerline' }, { slag: 'symbol', typ: 'huntingtower' }], vidaKraftledning: false, terrang: null, barighet: null, manuellFallning: false };
+  const i: RiskForslagIndata = { markeringar: [{ slag: 'symbol', typ: 'powerline' }, { slag: 'symbol', typ: 'groundcable' }], vidaKraftledning: false, terrang: null, barighet: null, manuellFallning: false };
   const forslag = foreslaRisker(i);
 
   it('allt är allvarligt från början, och fingeravtrycket är detsamma som före ändringen', () => {
@@ -141,23 +141,23 @@ describe('allvarlig eller mindre allvarlig (AFS 2023:1 11 §)', () => {
 
   it('mindre allvarlig ändrar listan och gör ett godkännande ogiltigt; tillbaka till allvarlig gör det giltigt igen', () => {
     const godk = godkann(RISK_TOM, aktuellaRisker(forslag, RISK_TOM), 'm', '2026-11-05');
-    const mindre = sattAllvarlig(godk, 'jakttorn', false);
+    const mindre = sattAllvarlig(godk, 'markkabel', false);
     const lista = aktuellaRisker(forslag, mindre);
-    expect(lista.find((r) => r.nyckel === 'jakttorn')?.allvarlig).toBe(false);
+    expect(lista.find((r) => r.nyckel === 'markkabel')?.allvarlig).toBe(false);
     expect(riskLage(lista, mindre)).toBe('kvar');
-    const tillbaka = sattAllvarlig(mindre, 'jakttorn', true);
+    const tillbaka = sattAllvarlig(mindre, 'markkabel', true);
     expect(riskLage(aktuellaRisker(forslag, tillbaka), tillbaka)).toBe('godkand');
   });
 
   it('bara de allvarliga i hytten, allvarliga först i listan', () => {
     const rb = sattAllvarlig(RISK_TOM, 'kraftledning', false);
     const lista = aktuellaRisker(forslag, rb);
-    expect(allvarliga(lista).map((r) => r.nyckel)).toEqual(['jakttorn']);
-    expect(allvarligaForst(lista).map((r) => r.nyckel)).toEqual(['jakttorn', 'kraftledning']);
+    expect(allvarliga(lista).map((r) => r.nyckel)).toEqual(['markkabel']);
+    expect(allvarligaForst(lista).map((r) => r.nyckel)).toEqual(['markkabel', 'kraftledning']);
   });
 
   it('sparas och läses tillbaka; utan mindre sparas samma form som förut', () => {
-    const rb = sattAllvarlig(RISK_TOM, 'jakttorn', false);
+    const rb = sattAllvarlig(RISK_TOM, 'markkabel', false);
     expect(lasRiskbedomning(riskbedomningTillKolumn(rb))).toEqual(rb);
     const utan = taBortForslag(RISK_TOM, 'brant');
     expect(riskbedomningTillKolumn(utan)).toEqual({ bort: ['brant'], egna: [], godkand: null });

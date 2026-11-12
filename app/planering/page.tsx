@@ -155,7 +155,7 @@ import EnhetMaskinKort from '../../components/planering/EnhetMaskinKort'
 import { maskinVal } from '../../lib/enhetMaskinKort'
 import { hogarSynliga, vaxlaSkotarHogar } from '../../lib/skotarHogar'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
-import { INFO_PANEL_MASKIN_BREDD_PX, PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
+import { INFO_PANEL_MASKIN_BREDD_PX, oversiktPanelBredd, PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
 import { framhavBounds, framhavdFran, slappAtgard, type FramhavdMarkering, type SlappOrsak } from '../../lib/omTraktenFramhav'
 import type { OmNav } from '../../components/planering/OmTrakten'
 import { startaFramhavning, startaKartSlapp } from '../../lib/omTraktenFramhavKarta'
@@ -259,7 +259,8 @@ import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
 import { harFoto, komprimeraMarkeringFoto } from '@/lib/markeringFoto'
 import { narStyrka } from '../../lib/narStyrka'
 import { friYtaPadding, listaPunkt, LISTA_ZOOM } from '../../lib/kortFriYta'
-import { signaturer, lasSett, sparaSett, behoverVisas, nyaMarkeringar, nyaKommentarer, textNy, inforJobbet, oversiktUnder, oversiktUnderlag, harLastOversikt, certRad, skyddadeOmraden } from '../../lib/traktOversikt'
+import { FARONR_KALLA, faroNrData, faroNrLager, faroPunkter, type FaroPunkt } from '../../lib/faroNummer'
+import { signaturer, lasSett, sparaSett, behoverVisas, nyaMarkeringar, nyaKommentarer, textNy, inforJobbet, oversiktUnder, oversiktUnderlag, harLastOversikt, certRad, certLage, skyddadeOmraden } from '../../lib/traktOversikt'
 import { kommentarTecken, laggTillTeckenBilder, teckenHornLager, teckenFriLager, teckenPunkter, TECKEN_KALLA, TECKEN_HORN_LAGER } from '../../lib/kommentarTecken'
 import { FOTO_UPPE_EVENT, laggFotoIKo, prenumereraFotoKo, tomFotoForMarkering, vantandeFotoNycklar, type FotoUppeDetail } from '@/lib/markeringFotoKo'
 import { fotoNyckel } from '@/lib/fotoKo'
@@ -3241,7 +3242,11 @@ export default function PlannerPage() {
   useBakgrundsNedladdning({ roll: testlage ? null : maskinlage ? 'maskin' : isAdminRiktig ? 'planerare' : null, maskinId: enhetMaskinId, oppenId: valtObjekt?.id ? String(valtObjekt.id) : null, ritad: mapType === 'ritad' });
   const startFixFarskSattRef = useRef(false);
   const startOversiktSattRef = useRef(false);                                        // översikten är satt (en gång)
-  const startFlygGjordRef = useRef(false);                                           // flygningen är gjord (EN flyTo)
+  const startFlygGjordRef = useRef(false);
+  // Ska 'Hela trakten' öppnas av sig själv på den här trakten? 'visa' = flygningen ner till maskinen hoppas över (kartan går rakt till hela trakten,
+  // Börja köra flyger sedan ner). null = vet inte än (markeringar/kvitton läses). Skrivs i render där överblickens beslut räknas.
+  const oversiktKommerRef = useRef<'visa' | 'inte' | null>(null);
+  const flygVantarSedanRef = useRef<number | null>(null);                                           // flygningen är gjord (EN flyTo)
   const startRadSenasteRef = useRef<string | null>(null);
   const startKameraLasRef = useRef(false);                                           // true → sekvensen äger kameran (läses av async-kod)
   const startPosRef = useRef<{ lat: number; lon: number } | null>(null);             // flygmålet när ingen riktig fix finns (SENAST KÄNDA position, aldrig i currentPosition)
@@ -8599,7 +8604,17 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     const pos = korvyEffectivePos ?? startPosRef.current;   // riktig fix går före den senast kända
     if (!map || !pos) return;   // saknas något nu → effekten kör om när position/karta finns (korvyEffectivePos i deps)
+    // Öppnas "Hela trakten" av sig själv ska kartan INTE först flyga ner till maskinen och vrida sig, för att sedan zooma ut till trakten igen
+    // (Martin 2026-11-12: "när man börjar trakten flyger kartan lustigt"). Vänta högst 8 s på beslutet (markeringar, kommentarer och kvitton läses; i testfliken tog det ~5 s); vet vi inte då flyger vi som förut.
+    const beslut = oversiktKommerRef.current;
+    if (beslut === null && Date.now() - (flygVantarSedanRef.current ??= Date.now()) < 8000) return;
     startFlygGjordRef.current = true;   // EN flyTo, även om en GPS-tick landar innan fasen hunnit byta
+    if (beslut === 'visa') {
+      startKameraAssertGjordRef.current = true;   // ingen inramning på maskinen heller — överblicken ramar in trakten, Börja köra flyger ner
+      setStartFlygStart(Date.now() - FLY_MS);      // direkt till 'landat': kameralåset släpps och överblicken öppnas
+      markeraStart('flygStart');
+      return;
+    }
     const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
     korvyZoomRef.current = KORVY_BASE_ZOOM;   // närhets-zoomen startar från bas (som körvyns egen setup)
     try {
@@ -8615,7 +8630,7 @@ export default function PlannerPage() {
     } catch { /* */ }
     setStartFlygStart(Date.now());
     markeraStart('flygStart');
-  }, [startFlygKlar, korvyEffectivePos]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [startFlygKlar, korvyEffectivePos, startSekvensNu]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Utzoomad utan RIKTIG fix: GPS-pricken DÄMPAD (en gång). Tänds av passiva watchern vid första giltiga fix.
   // (Senast känd position räknas inte — den är inte en fix. Testfliken har en utlagd position → ingen dämpning.)
@@ -9524,10 +9539,17 @@ export default function PlannerPage() {
       // Nollställ kartans kvarvarande padding först: raden i listan flyttar platsen bredvid kortet med en stor padding (friYtaPadding),
       // och MapLibre LÄGGER fitBounds padding ovanpå den — då blev ytan liten och kartan zoomade ut till halva socknen (Martin 2026-11-12, "‹ Lista").
       try { map.setPadding({ top: 0, bottom: 0, left: 0, right: 0 }); } catch { /* kartan är borta */ }
-      try { map.fitBounds(gran, { padding: { top: AVSTAND.xxl * 3, left: AVSTAND.xxl * 1.5, right: AVSTAND.xxl * 1.5 + (bred ? INFO_PANEL_MASKIN_BREDD_PX + AVSTAND.l : 0), bottom: AVSTAND.xxl * 1.5 + nere }, maxZoom: 17, pitch: 0, bearing: 0, duration: 900 }); } catch { /* kartan är borta */ }
+      try { map.fitBounds(gran, { padding: { top: AVSTAND.xxl * 3, left: AVSTAND.xxl * 1.5, right: AVSTAND.xxl * 1.5 + (bred ? oversiktPanelBredd(window.innerWidth) + AVSTAND.l : 0), bottom: AVSTAND.xxl * 1.5 + nere }, maxZoom: 17, pitch: 0, bearing: 0, duration: 900 }); } catch { /* kartan är borta */ }
     }
   }, [traktGeo]); // eslint-disable-line react-hooks/exhaustive-deps
   const oversiktAktiv = korvyActive && (maskinlage || !!maskinSomParam);   // = instruktionerAktiv (deklarerad längre ned)
+  // Startsekvensens flygning frågar om överblicken öppnas av sig själv (samma beslut som effekten nedan).
+  {
+    const id = valtObjekt?.id ? String(valtObjekt.id) : null;
+    const kanAvgora = !!oversiktMaskinId && !!id && markersLoaded && markersObjektIdRef.current === id && kk.laddad && traktGeoHamtadFor === valtObjekt?.id && riskLast.lage !== 'laddar';
+    oversiktKommerRef.current = !oversiktAktiv ? 'inte' : !kanAvgora ? null
+      : (riskLast.lage === 'ok' ? !oversiktLast : behoverVisas(lasSett(oversiktMaskinId!, id!), oversiktSig)) ? 'visa' : 'inte';
+  }
   useEffect(() => {
     if (!oversiktAktiv || !oversiktMaskinId || !valtObjekt?.id || startKameraLasNu) return;
     const oid = String(valtObjekt.id);
@@ -9541,8 +9563,7 @@ export default function PlannerPage() {
     if (!visa) return;
     if (traktOversiktOpen || objektListaOppen) return;
     setInfoStartVy('oversikt');
-    setTraktOversiktOpen(true);
-    visaHelaTrakten();
+    setTraktOversiktOpen(true);   // effekten på traktOversiktOpen ramar in hela trakten (en gång — två fitBounds i rad gav ett ryck)
   }, [oversiktAktiv, oversiktMaskinId, valtObjekt?.id, startKameraLasNu, markersLoaded, kk.laddad, traktGeoHamtadFor, oversiktSig, riskLast.lage, oversiktLast]); // eslint-disable-line react-hooks/exhaustive-deps
   const borjaKora = useCallback(() => {
     if (oversiktMaskinId && valtObjekt?.id) { sparaSett(oversiktMaskinId, String(valtObjekt.id), oversiktSig); setOversiktSett(new Set(oversiktSig)); }
@@ -9568,6 +9589,20 @@ export default function PlannerPage() {
   // Listan öppen = kartan visar hela trakten, hur den än öppnades (första gången, ⓘ eller ‹ Lista). Martin 2026-11-05: "det zoomar ut för mycket".
   useEffect(() => { if (traktOversiktOpen && oversiktAktiv && (infoStartVy === 'oversikt' || infoStartVy === 'kort')) visaHelaTrakten(); }, [traktOversiktOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   // "‹ Lista": kortet stängs, listan öppnas och kartan går ut till HELA trakten igen tills nästa rad trycks (Martin 2026-11-05).
+  // FARORNA MED NUMMER PÅ KARTAN (lib/faroNummer, Martin 2026-11-12): samma nummer som i listan "Vad är farligt?", med en kort text bredvid.
+  // Bara medan Hela trakten — eller kortet som öppnats ur den — är öppen. Punkterna räknas i renderingen (faroPunkterRef) ur samma markeringar som listan.
+  const faroPunkterRef = useRef<FaroPunkt[]>([]);
+  const [faroVald, setFaroVald] = useState<string | null>(null);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const visa = oversiktAktiv && (traktOversiktOpen || oversiktAter);
+    try {
+      if (!map.getSource(FARONR_KALLA)) map.addSource(FARONR_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any });
+      for (const l of faroNrLager({ rod: FARG.rod, vit: FARG.text, mork: FARG.bg })) if (!map.getLayer(l.id)) map.addLayer(l);
+      (map.getSource(FARONR_KALLA) as any).setData(faroNrData(visa ? faroPunkterRef.current : [], faroVald));
+    } catch { /* kartan hann inte — listan fungerar ändå */ }
+  });   // varje rendering: billig setData, och punkterna följer markeringarna och kommentarerna utan egen beroendelista
   const tillbakaTillLista = oversiktAter ? { etikett: 'Lista', onClick: () => { setMarkerMenuOpen(null); setTraktInfo(null); setInfoStartVy('oversikt'); setTraktOversiktOpen(true); visaHelaTrakten(); } } : undefined;
   // "AVVERKAS – LARMA INTE" (Martin 2026-10-29): Vidas hänsynsytor som planeraren markerat larmar inte och räknas inte i fällningscirkeln (lib/vidaAvverkas).
   // Ytan ritas och instruktionen visas som förut — bara larmet tystnar. Går markeringarna inte att läsa larmar allt.
@@ -14236,6 +14271,7 @@ export default function PlannerPage() {
         const efter = (f: () => void) => () => { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(8); f(); stang(); };
         // Kortets "På trakten N markeringar" räknar SAMMA objekt som Om trakten-listan: våra + Vidas hänsynsytor/avlägg + traktdelar/egna områden.
         const omMarkeringar = [...kartMarkeringar, ...vidaHansynMark, ...vidaAvlaggMark];
+        faroPunkterRef.current = faroPunkter(omMarkeringar);
         const ovrigaYtor = ytor.filter((y) => y.typ !== 'hansyn');
         const sammanf = omSammanfattning(omMarkeringar, ovrigaYtor.map((y) => ({ harText: !!(y.vidaText || foersta(anteckningar[y.nyckel]?.text)) })));
         const merIn = byggMerGrupper({
@@ -14534,6 +14570,8 @@ export default function PlannerPage() {
               brand: Number.isFinite(Number(valtObjekt.lat)) && Number.isFinite(Number(valtObjekt.lng)) && valtObjekt.lat != null && valtObjekt.lng != null ? { lat: Number(valtObjekt.lat), lng: Number(valtObjekt.lng) } : null,
               onBrand: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
               cert: certRad(certTyper(valtObjekt.cert), miljoRader),
+              certLage: certLage(valtObjekt.cert, certTyper(valtObjekt.cert)),
+              malbildRoll,
               helaTrakten,
               infor,
               nya: nyaMarkeringar(oversiktSett, (markers as any[]).map((m) => ({ id: m.id, type: m.type ?? null, lineType: m.lineType ?? null, zoneType: m.zoneType ?? null, comment: m.comment ?? null, photoPath: m.photoPath ?? null })), kk.rader.map((r) => ({ id: r.id, nyckel: r.yta_nyckel, text: r.text }))),
@@ -14542,6 +14580,7 @@ export default function PlannerPage() {
               onLast: lasAlltOversikt,
               // En rad på kartan: listan stängs, kartan visar platsen och SAMMA kort som när man trycker på symbolen öppnas — med "‹ Lista" tillbaka.
               onOppna: (m: KartMarkering) => {
+                setFaroVald(m.id);
                 stang();
                 setKorvyFollowPaused(true);
                 setOversiktAter(true);

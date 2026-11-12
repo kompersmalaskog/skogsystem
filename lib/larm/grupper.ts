@@ -40,7 +40,9 @@ export const GRUPP_ORDNING: readonly FargGrupp[] = ['fara', 'natur', 'kultur', '
 /** Markeringssymbolens (lib/marker-icons) grupp. Okänd typ = Info (aldrig ett påhittat larm). */
 export const SYMBOL_GRUPP: Readonly<Record<string, FargGrupp>> = {
   // Fara
-  powerline: 'fara', warning: 'fara', steep: 'fara', huntingtower: 'fara', groundcable: 'fara',
+  powerline: 'fara', warning: 'fara', steep: 'fara', groundcable: 'fara',
+  // Jakttorn är INTE fara (Martin 2026-11-12): man vill bara inte slå sönder det — svart Info-symbol, larmar aldrig, påverkar inte fällningscirkeln.
+  huntingtower: 'info',
   // Natur
   eternitytree: 'natur', naturecorner: 'natur', highstump: 'natur',
   // Kultur
@@ -155,7 +157,7 @@ export const ytaText = (namn: string): string => `${namn} – Du är inne i ytan
 export type FallningGrupp = 'fara' | 'kultur' | 'natur';
 
 export const FALLNING_SYMBOL: Readonly<Record<string, FallningGrupp>> = {
-  powerline: 'fara', warning: 'fara', huntingtower: 'fara',   // Jakttorn (Röd); Markkabel ligger i marken och räknas inte
+  powerline: 'fara', warning: 'fara',   // Markkabel ligger i marken och räknas inte; Jakttorn är Info sedan 2026-11-12
   culturemonument: 'kultur', culturestump: 'kultur', odlingsrose: 'kultur',   // Odlingsröse larmar aldrig men färgar cirkeln brun: fäll inte på stenhögen
   naturecorner: 'natur', eternitytree: 'natur',
 };
