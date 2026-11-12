@@ -64,7 +64,7 @@ export interface ObjektKortEnkelProps {
   onEgenkontroll?: { under: string; onTryck: () => void };
   /**
    * "Mer om trakten" ur Hela trakten (Martin 2026-11-12: EN meny, samma överallt): bara det som inte redan står i Hela trakten —
-   * knappar, egenkontroll, certifiering, dokument, Mer och väder. Larm, faror, risker, direktiv och ytor visas inte en gång till.
+   * knappar, egenkontroll, dokument, Mer och väder (certifieringen står under Gäller hela trakten). Larm, faror, risker, direktiv och ytor visas inte en gång till.
    */
   merLage?: { onTillbaka: () => void } | null;
 }
@@ -220,7 +220,7 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
         <Gruppkort testid="kort-uppdrag">
           {p.onEgenkontroll && <RadKnapp forstaRad testid="kort-egenkontroll" etikett="Egenkontroll" under={p.onEgenkontroll.under} onTryck={p.onEgenkontroll.onTryck} />}
           {p.onKarta && !mer && <RadKnapp forstaRad={!p.onEgenkontroll} testid="kort-vad-betyder-kartan" etikett="Kartans färger" onTryck={p.onKarta} />}
-          {p.onCert && <RadKnapp forstaRad={!p.onEgenkontroll && !(p.onKarta && !mer)} testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}
+          {p.onCert && !mer && <RadKnapp forstaRad={!p.onEgenkontroll && !(p.onKarta && !mer)} testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}
           {p.dokument && (
             <>
               <RadKnapp testid="kort-dokument" etikett={`Dokument (${p.dokument.antal})`} onTryck={() => setDokOppen((v) => !v)}

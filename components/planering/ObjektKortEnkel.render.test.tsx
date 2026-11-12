@@ -299,9 +299,9 @@ describe('KommentarVisning — etiketten för hela trakten', () => {
 describe('ObjektKortEnkel — "Mer om trakten" ur Hela trakten (EN meny, Martin 2026-11-12)', () => {
   it('visar bara det som inte redan står i Hela trakten: inget larm, ingen "Det här gäller här", inga ytor, ingen Kartans färger — men dokument och Mer', async () => {
     let tillbaka = 0;
-    await montera(<ObjektKortEnkel {...props({ faror: ['Brant terräng'], merLage: { onTillbaka: () => { tillbaka++; } }, onOversikt: () => {} })} />);
+    await montera(<ObjektKortEnkel {...props({ faror: ['Brant terräng'], merLage: { onTillbaka: () => { tillbaka++; } }, onOversikt: () => {}, onCert: { etikett: 'PEFC – vad gäller?', onTryck: () => {} } })} />);
     expect(q('info-titel')!.textContent).toBe('Mer om trakten');
-    for (const id of ['kort-larm', 'kort-visa-hela', 'kort-galler-rubrik', 'kort-faror', 'kort-till-foraren', 'kort-ytor', 'kort-stapel', 'kort-vad-betyder-kartan']) expect(q(id), id).toBeNull();
+    for (const id of ['kort-larm', 'kort-visa-hela', 'kort-galler-rubrik', 'kort-faror', 'kort-till-foraren', 'kort-ytor', 'kort-stapel', 'kort-vad-betyder-kartan', 'kort-cert']) expect(q(id), id).toBeNull();
     expect(q('kort-dokument')).not.toBeNull();
     expect(q('kort-mer')).not.toBeNull();
     act(() => { q('info-tillbaka')!.click(); });
