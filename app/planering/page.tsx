@@ -252,7 +252,7 @@ import MenyRubrik from '../../components/planering/MenyRubrik'
 import { startaGpsKalla, hamtaEnGpsFix, senasteGiltigaGpsFix, sattFastGpsPosition, valjSerialPort, sattBaudValOchStartaOm, formateraFordrojning, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix, senasteTelefonFixar } from '../../lib/gpsKalla'
 import { BAUDRATER, hamtaBaudVal, hamtaHittadBaud, effektivBaud, type BaudVal } from '../../lib/gpsBaud'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
-import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
+import { wmsLayerGroups, wmsLayers, LAGER_UTAN_RAD, lagerUtanDubbletter } from '@/lib/mapLayers'
 import { markerIconDefs, getIconDef, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
 import { ZONE_COLORS } from '@/lib/zone-colors'
 import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
@@ -1421,6 +1421,7 @@ export default function PlannerPage() {
   
   // Overlay-lager — persistas i localStorage via useMapLayers
   const [overlays, setOverlays] = useMapLayers();
+  const [lagerTick, setLagerTick] = useState(0);   // höjs när körvyns whitelist har kört — lagereffekterna lägger då tillbaka förarens val
 
   // wmsLayerGroups + wmsLayers importeras nu från lib/mapLayers.ts
 
@@ -5026,10 +5027,13 @@ export default function PlannerPage() {
       if (id === 'fastighetsgranser') return;   // Lantmäteri-gränsen styrs av lagret "Fastighetsgränser" (effekten ovan), tillsammans med sin kant
       const layerId = `wms-layer-${id}`;
       if (map.getLayer(layerId)) {
-        map.setLayoutProperty(layerId, 'visibility', overlays[id] ? 'visible' : 'none');
+        // Ett lager utan rad i menyn (dubbletterna som togs bort) är aldrig tänt — ett gammalt sparat "på" går annars inte att släcka.
+        map.setLayoutProperty(layerId, 'visibility', overlays[id] && !LAGER_UTAN_RAD.has(id) ? 'visible' : 'none');
       }
     });
-  }, [overlays, mapLibreReady]);
+    // Körvyn: de kurerade skyddslagren är alltid tända där (defer-effekten) — menyvalet släcker dem inte.
+    if (korvyActive) for (const id of Array.from(KORVY_SKYDDSLAGER)) { try { if (map.getLayer('wms-layer-' + id)) map.setLayoutProperty('wms-layer-' + id, 'visibility', 'visible'); } catch { /* */ } }
+  }, [overlays, mapLibreReady, lagerTick, korvyActive]);
 
   // === Produktionshögar: Toggle visibility ===
   // Skotarläget: PÅ från början (lib/skotarHogar.ts). Alla andra vyer: lagret `produktionshogar` som förut.
@@ -5043,7 +5047,7 @@ export default function PlannerPage() {
     if (map.getLayer('hogar-hit')) map.setLayoutProperty('hogar-hit', 'visibility', vis);
     if (map.getLayer('hogar-circle')) map.setLayoutProperty('hogar-circle', 'visibility', tartor);
     if (map.getLayer('hogar-cluster')) map.setLayoutProperty('hogar-cluster', 'visibility', tartor);
-  }, [hogarPa, skotarKorvy, korvyActive, mapLibreReady]);
+  }, [hogarPa, skotarKorvy, korvyActive, mapLibreReady, lagerTick]);
 
   // === GROT-högar: Toggle visibility ===
   useEffect(() => {
@@ -5052,7 +5056,7 @@ export default function PlannerPage() {
     const vis = overlays.grothogar ? 'visible' : 'none';
     if (map.getLayer('grot-circle')) map.setLayoutProperty('grot-circle', 'visibility', vis);
     if (map.getLayer('grot-shadow')) map.setLayoutProperty('grot-shadow', 'visibility', vis);
-  }, [overlays.grothogar, mapLibreReady]);
+  }, [overlays.grothogar, mapLibreReady, lagerTick]);
 
   // === Trakt-geometri: hämta objekt_geometri, pumpa in + zooma till geometrins utsträckning ===
   const traktGeoVisadForRef = useRef<string | null>(null);   // objektet vars geometri ligger i källan (eller laddas): ett NYTT objekt tömmer källan direkt
@@ -9326,6 +9330,9 @@ export default function PlannerPage() {
       }
       korvyPrevVisRef.current = null;
     }
+    // DET FÖRAREN TÄNT I MENYN ÄR TÄNT PÅ KARTAN (Martin 2026-11-12, Oskars maskin: markfuktigheten kom inte upp och högarna försvann tills man släckte och tände).
+    // Whitelisten ovan släcker lager utan att titta på menyvalet; lagereffekterna (WMS, högar, GROT) körs därför om efteråt.
+    setLagerTick((t) => t + 1);
   }, [korvyActive, skotarKorvy, mapLibreReady, korvyBasKarta]);
 
   // === RITAD: det femte kartlagret, ritat av appen ur laserdatan (lib/hooks/useRitadKarta) ===
@@ -12738,10 +12745,9 @@ export default function PlannerPage() {
     // Trakt-geometri (envz) — datadrivna: visas BARA när lagret faktiskt har data.
     // Traktdelar har ingen knapp — de är alltid tända (kontexten för allt annat).
     ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsynsytor – Vida', desc: 'Hänsynsytor att spara', enabled: true }] : []),
-    ...(geoKategorier.has('nyckelbiotop') ? [{ id: 'traktNyckelbiotop', name: 'Nyckelbiotoper', desc: 'Skogsstyrelsens registrerade', enabled: true }] : []),
-    ...(geoKategorier.has('lamning') ? [{ id: 'traktLamning', name: 'Fornlämningar', desc: 'Riksantikvarieämbetet (RAÄ)', enabled: true }] : []),
+    ...(geoKategorier.has('nyckelbiotop') ? [{ id: 'traktNyckelbiotop', name: 'Nyckelbiotoper på trakten', desc: 'Ytorna som följde med trakten', enabled: true }] : []),
+    ...(geoKategorier.has('lamning') ? [{ id: 'traktLamning', name: 'Fornlämningar på trakten', desc: 'Lämningarna som följde med trakten', enabled: true }] : []),
     ...((geoTyper.has('linje') || geoTyper.has('punkt')) ? [{ id: 'korFara', name: 'Kör & fara', desc: 'Basväg, avlägg, larm & kraftledning', enabled: true }] : []),
-    { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
     { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
     // EN rad som styr ALLT fastighetsgräns: Vidas rågång (vektor) när Vida levererat fastighetsytor, annars Lantmäteriets gräns i samma vita stil. Släckt = vanlig karta.
     { id: 'fastighetsgrans', name: 'Fastighetsgränser', desc: 'Vita gränser och beteckningar, utanför trakten tonas ned', enabled: true },
@@ -12754,7 +12760,7 @@ export default function PlannerPage() {
     const ut: { id: string; name: string }[] = [];
     const lagg = (id: string, name: string) => { if (!sett.has(id)) { sett.add(id); ut.push({ id, name }); } };
     for (const o of overlayLista) if (o.enabled) lagg(o.id, o.name);
-    for (const g of wmsLayerGroups) for (const l of g.layers) if (l.meny !== false) lagg(l.id, l.name);
+    for (const g of wmsLayerGroups) for (const l of g.layers) if (l.meny !== false && !LAGER_UTAN_RAD.has(l.id)) lagg(l.id, l.name);
     lagg('brandrisk', 'Brandrisk');
     return ut;
   })();
@@ -12865,8 +12871,11 @@ export default function PlannerPage() {
         korvyKompass === 'aktiv', lagerBild('kompass'), () => { if (korvyKompass === 'aktiv') stoppaKompass(); else aktiveraKompass(true); })],
     });
     g.push({ id: 'overlay', rubrik: 'Overlay', rader: overlayLista.map((o) => medOp(vaxel(o.id, o.name, o.desc, lagerPa(o.id), lagerBild(o.id), () => { if (o.enabled) vaxlaLager(o.id); }))) });
+    // Varje lager står EN gång (Martin 2026-11-12): det som redan har en rad under Overlay får ingen rad till under sin myndighet, och en grupp utan rader ritas inte.
     for (const grp of wmsLayerGroups) {
-      g.push({ id: `wms-${grp.group}`, rubrik: grp.group, rader: grp.layers.filter((l) => l.meny !== false).map((l) => medOp(vaxel(l.id, l.name, l.desc, !!(overlays as any)[l.id], lagerBild(l.id, l.color), sla(l.id)))) });
+      const rader = lagerUtanDubbletter(grp.layers, overlayLista.map((o) => o.id));
+      if (rader.length === 0) continue;
+      g.push({ id: `wms-${grp.group}`, rubrik: grp.group, rader: rader.map((l) => medOp(vaxel(l.id, l.name, l.desc, !!(overlays as any)[l.id], lagerBild(l.id, l.color), sla(l.id)))) });
     }
     g.push({ id: 'smhi', rubrik: 'SMHI', rader: [vaxel('brandrisk', 'Brandrisk', 'SMHI prognos, uppdateras dagligen', !!(overlays as any).brandrisk, lagerBild('brandrisk'), sla('brandrisk'))] });
     g.push({
