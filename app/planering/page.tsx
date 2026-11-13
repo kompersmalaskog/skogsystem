@@ -90,6 +90,7 @@ import { byggRagang, fastighetsFall, gransVidTryck, gransRubrik, FASTIGHET_KORT_
 import { RAGANG_KALLOR, ragangKallor, ragangLager, lmGransLager, fastighetsSynlighet, tillampaFastighetsSynlighet, fastighetsCirkelPaint, forstaVektorLagerId, TRAKTGRANS_BREDD, TRAKTGRANS_KANT_BREDD, TRAKTGRANS_KANT_FARG } from '../../lib/fastighetsgransKarta'
 import { vidaEtikettPunkter, zonEtikettPunkter } from '../../lib/ytaEtikett'
 import { FARSKHET_GAMMAL_MIN, stampelSyns } from '../../lib/farskhet'
+import { arEgetEko, farskhetGransMin, LIVE_SAMLA_MS } from '../../lib/markeringLive'
 import { FastighetsgransKortVy } from '../../components/planering/FastighetsgransKort'
 import { kopplaFlyttaMig, kopplaLangtryckFlytt } from '../../lib/testPosition'
 import { GrindKortVy, LarmKortVy, SettRad, larmMalbild } from '../../components/planering/LarmKort'
@@ -1282,7 +1283,8 @@ export default function PlannerPage() {
   // Gammal data hämtas om av sig själv medan sidan syns (som Mail) — stämpeln på kartan visas bara när det inte lyckas.
   useEffect(() => {
     if (!valtObjekt?.id || markersUppdateradAt == null || document.visibilityState !== 'visible') return;
-    if ((Date.now() - markersUppdateradAt) / 60000 >= FARSKHET_GAMMAL_MIN) refetchMarkers(false);
+    // I maskinen är gränsen en minut (lib/markeringLive): reserven när realtime inte når fram. `maskinlage` deklareras längre ner – effekten körs efter hela renderingen.
+    if ((Date.now() - markersUppdateradAt) / 60000 >= farskhetGransMin(maskinlage, FARSKHET_GAMMAL_MIN)) refetchMarkers(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [farskhetTick]);
 
@@ -1309,12 +1311,24 @@ export default function PlannerPage() {
   // dessutom aldrig skrivas tillbaka i mellantiden.
   useEffect(() => {
     if (!valtObjekt?.id) return;
+    // NYA OCH ÄNDRADE markeringar (lib/markeringLive, Martin 2026-11-13): INSERT/UPDATE bär hela raden, så de filtreras på objektet hos servern.
+    // En skur samlas till EN hämtning (tvingad: den vanliga 5 s-spärren skulle annars tappa en symbol som kom strax efter en hämtning).
+    // Mitt eget eko (samma markering, samma ändringstid i minnet) hämtar ingenting.
+    let samla: ReturnType<typeof setTimeout> | null = null;
+    const nyEllerAndrad = (payload: { new?: unknown }) => {
+      if (arEgetEko(payload?.new, markersRef.current as any[])) return;
+      if (samla) clearTimeout(samla);
+      samla = setTimeout(() => { samla = null; refetchMarkers(true); }, LIVE_SAMLA_MS);
+    };
+    const filter = 'objekt_id=eq.' + valtObjekt.id;
     const channel = supabase.channel('markers-delete-' + valtObjekt.id)
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'planering_markeringar' }, () => {
         refetchMarkers(false);
       })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'planering_markeringar', filter }, nyEllerAndrad)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'planering_markeringar', filter }, nyEllerAndrad)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { if (samla) clearTimeout(samla); supabase.removeChannel(channel); };
   }, [valtObjekt?.id, refetchMarkers]);
 
   // === AUTOSPAR AV AVLÄGG / BRAND / TMA — gemensamt (lib/autosparBaslinje + avlaggSpar/brandSpar/tmaSpar) ===
@@ -12635,7 +12649,11 @@ export default function PlannerPage() {
     ljudCtx: () => korvyAudioCtxRef.current,
     bakgrund: hyttNotiserPa,
   });
-  const besokKortSynligt = besokHytt.vantar.length > 0 && !larm.kort && !lossningVisas;
+  // BESÖKET GÖMS ALDRIG AV ETT LARM (Martin 2026-11-13: besöket dröjde över en minut med honom stående bredvid maskinen). Förut väntade kortet tills
+  // larmkortet var borta – och en Fara har ingen Sett, så den håller platsen tills man passerat. En människa på trakten väntar inte på det:
+  // besökskortet ligger överst och larmkortet flyttas ner under det (höjden mäts, `besokKortHojd`). Lossningsflödet (förarens eget ark) går fortfarande före.
+  const besokKortSynligt = besokHytt.vantar.length > 0 && !lossningVisas;
+  const [besokKortHojd, setBesokKortHojd] = useState(0);
   // MASSAVEDENS LÄNGD (bara gallringsskördare, H8E, i maskinläget; Martin 2026-11-09): "Massa idag 4,5 m" i namnfältet, tryck = arket
   // med trädslag, fördelning och alla förare (lib/massaLangd). Skotare och Giant ser ingenting. Alla aktiva gallringsskördare läses så att förarna kan jämföras.
   const massaGallringsMaskiner = useMemo(
@@ -12706,6 +12724,7 @@ export default function PlannerPage() {
   // Påminnelsens hela instruktion stängs när påminnelsen försvinner (kört ut, larm/lossning visas): kommer man tillbaka börjar den som pill/bricka igen.
   useEffect(() => { if (!inst.paminnelse) setPaminnelseOppen(null); }, [inst.paminnelse]);
   // Instruktionskortet och påminnelsen sitter på samma plats (under objektpillen och larmets/grindens kort).
+  const larmTopBas = `env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px`;
   const instruktionTop = `calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px + ${grindKort ? GRIND_KORT_HOJD_PX + AVSTAND.s : 0}px)`;
   // LARMPLATSEN — "Kommer en ambulans hit?" (lib/larmKontroll, Martin 2026-11-10): i maskinen och för planeraren ute med telefonen,
   // en gång per larmplats som ingen bekräftat, när man står inom 50 m med färsk position. Allt annat överst (larm, lossning, besök,
@@ -15077,7 +15096,7 @@ export default function PlannerPage() {
           riktning={larm.kort.bearing != null ? korvyRiktning(larm.kort.bearing, korvyHeading) : null}
           roll={malbildRoll}
           onVisaMalbild={setLarmMalbildOppen}
-          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
+          top={`calc(${larmTopBas} + ${instruktionerAktiv && besokKortSynligt ? besokKortHojd + AVSTAND.s : 0}px)`}
         />
       )}
       {/* PRODUKTION — namnet i pillen (maskinläget): ringen, klar-dagen, bara det som avviker, Detaljer. */}
@@ -15133,10 +15152,11 @@ export default function PlannerPage() {
         <MassaArk rader={massaLangd.rader} fel={massaLangd.fel} idag={massaLangd.idag} jag={massaJag} maskinNamn={massaMaskinNamn}
           onForsok={massaLangd.forsokIgen} onStang={() => setMassaArkOppet(false)} />
       )}
-      {/* BESÖK PÅ TRAKTEN — orange kort högst upp i hytten tills Uppfattat (hooken useBesokHytt). Larm och lossningsflödet går före. */}
+      {/* BESÖK PÅ TRAKTEN — orange kort högst upp i hytten tills Uppfattat (hooken useBesokHytt). Göms aldrig av ett larm: larmkortet flyttas ner under det. Lossningsflödet går före. */}
       {instruktionerAktiv && besokKortSynligt && (
         <BesokKortHytt
-          top={instruktionTop}
+          top={larm.kort ? `calc(${larmTopBas})` : instruktionTop}
+          onHojd={setBesokKortHojd}
           besok={besokHytt.vantar[0]}
           fler={besokHytt.vantar.length - 1}
           sparar={besokHytt.sparar === besokHytt.vantar[0].id}

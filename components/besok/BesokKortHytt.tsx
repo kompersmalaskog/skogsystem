@@ -1,9 +1,9 @@
 'use client';
 
 // Besökskortet i hytten: ORANGE, högst upp — "Besök: Anna Svensson kommer ca 14:30", knapparna "Ring Anna" och "Uppfattat" (båda ≥ 56 px) och textraden "Stäng av när du ser hen".
-// Ligger kvar tills Uppfattat. Flera besök: det tidigaste visas, resten som "+N till". Ett ljud (hooken). Larm (fara) går före — det avgör sidan.
+// Ligger kvar tills Uppfattat. Flera besök: det tidigaste visas, resten som "+N till". Ett ljud (hooken). Ett larm gömmer aldrig kortet: sidan lägger larmkortet under (onHojd).
 
-import React from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import { AVSTAND, FARG, RADIE, TYP } from '@/lib/design/tokens';
 import { besokRubrik } from '@/lib/besok/status';
 import { kommerText } from '@/lib/besok/tid';
@@ -23,11 +23,25 @@ const KNAPP_STIL: React.CSSProperties = {
   fontFamily: 'inherit', textDecoration: 'none', touchAction: 'manipulation', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 
-export default function BesokKortHytt({ besok, fler, sparar, fel, onUppfattat, top }: {
+export default function BesokKortHytt({ besok, fler, sparar, fel, onUppfattat, top, onHojd }: {
   besok: HyttBesok; fler: number; sparar: boolean; fel: string | null; onUppfattat: () => void; top: string;
+  /** Kortets höjd i px (0 när det tas bort) – sidan flyttar ner larmkortet under det, så att besöket och en fara syns samtidigt. */
+  onHojd?: (px: number) => void;
 }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const hojdRef = useRef(onHojd);
+  hojdRef.current = onHojd;
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const mat = () => hojdRef.current?.(Math.ceil(el.getBoundingClientRect().height));
+    mat();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(mat) : null;
+    ro?.observe(el);
+    return () => { ro?.disconnect(); hojdRef.current?.(0); };
+  }, []);
   return (
-    <div data-testid="besok-kort" role="alert" style={{ position: 'fixed', left: AVSTAND.m, right: AVSTAND.m, top, zIndex: 130, maxWidth: 520, margin: '0 auto', background: FARG.orange, color: FARG.bg, borderRadius: RADIE.kort, padding: AVSTAND.l }}>
+    <div ref={ref} data-testid="besok-kort" role="alert" style={{ position: 'fixed', left: AVSTAND.m, right: AVSTAND.m, top, zIndex: 130, maxWidth: 520, margin: '0 auto', background: FARG.orange, color: FARG.bg, borderRadius: RADIE.kort, padding: AVSTAND.l }}>
       <div data-testid="besok-kort-rubrik" style={{ ...TYP.rubrik, overflowWrap: 'anywhere' }}>{besokRubrik(besok.namn, kommerText(besok.besokstid))}</div>
       {/* Numret är en KNAPP bredvid Uppfattat (ett tryck med handske) – inte en liten länk. */}
       <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.m }}>

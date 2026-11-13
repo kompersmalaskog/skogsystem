@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 
-vi.mock('next/dynamic', () => ({ default: () => (p: any) => <div data-testid="karta-stub" data-maskiner={p.data.maskiner.length} data-motorsag={p.data.motorsag.length} data-prickar={(p.data.prickar ?? []).length} /> }));
+vi.mock('next/dynamic', () => ({ default: () => (p: any) => <div data-testid="karta-stub" data-maskiner={p.data.maskiner.length} data-alder={p.data.maskiner.map((m: any) => m.alder + (m.gammal ? ' (gammal)' : '')).join(' | ')} data-motorsag={p.data.motorsag.length} data-prickar={(p.data.prickar ?? []).length} /> }));
 
 const hook = vi.hoisted(() => ({ ut: {} as any }));
 vi.mock('@/lib/hooks/useBesokPlanerare', () => ({ useBesokPlanerare: () => hook.ut }));
@@ -62,8 +62,19 @@ describe('markägarens länk: medan vi jobbar — "Ska du gå ut i skogen?"', ()
     vi.stubGlobal('fetch', vi.fn(async () => svar(200, nastaVy)));
   });
 
-  it('frågan överst, "Maskinerna arbetar här just nu", kartan MED maskinerna, regeln under kartan och EN knapp — inget om certifiering eller % klart', async () => {
+  it('GAMLA prickar: sidan påstår inte att maskinerna arbetar just nu, och kartan får åldern i klartext', async () => {
+    // Fixturens punkter är från 22 okt – långt över tio minuter gamla.
     await visa(<BesokKlient token={TOKEN} />);
+    expect(q('besok-arbetar')!.textContent).toBe('Maskinerna syntes här senast 13:42 – de kan vara kvar');
+    expect(q('besok-arbetar')!.getAttribute('data-farsk')).toBe('0');
+    expect(q('karta-stub')!.getAttribute('data-alder')).toBe('senast här 13:42 (gammal) | senast här 13:40 (gammal)');
+  });
+
+  it('frågan överst, "Maskinerna arbetar här just nu", kartan MED maskinerna, regeln under kartan och EN knapp — inget om certifiering eller % klart', async () => {
+    const nyss = new Date(Date.now() - 20000).toISOString();
+    nastaVy = vy({ maskiner: [{ roll: 'skordare', lat: 56.35, lng: 15.05, tid: nyss }, { roll: 'skotare', lat: 56.351, lng: 15.051, tid: nyss }] });
+    await visa(<BesokKlient token={TOKEN} />);
+    expect(q('karta-stub')!.getAttribute('data-alder')).toBe('nu | nu');
     expect(q('besok-sida')!.getAttribute('data-lage')).toBe('pagar');
     expect(q('besok-namn')!.textContent).toBe('Skälviken · Kompersmåla Skog avverkar åt Vida');
     expect(el!.querySelector('h1')!.textContent).toBe('Ska du gå ut i skogen?');
