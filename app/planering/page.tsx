@@ -263,7 +263,7 @@ import { harFoto, komprimeraMarkeringFoto } from '@/lib/markeringFoto'
 import { narStyrka } from '../../lib/narStyrka'
 import { friYtaPadding, listaPunkt, LISTA_ZOOM } from '../../lib/kortFriYta'
 import { FARONR_KALLA, faroNrData, faroNrLager, faroPunkter, type FaroPunkt } from '../../lib/faroNummer'
-import { signaturer, lasSett, sparaSett, behoverVisas, nyaMarkeringar, nyaKommentarer, textNy, inforJobbet, oversiktUnder, oversiktUnderlag, harLastOversikt, certRad, certLage, skyddadeOmraden } from '../../lib/traktOversikt'
+import { signaturer, lasSett, sparaSett, behoverVisas, baraEgetNytt, nyaMarkeringar, nyaKommentarer, textNy, inforJobbet, oversiktUnder, oversiktUnderlag, harLastOversikt, certRad, certLage, skyddadeOmraden } from '../../lib/traktOversikt'
 import { kommentarTecken, laggTillTeckenBilder, teckenHornLager, teckenFriLager, teckenPunkter, TECKEN_KALLA, TECKEN_HORN_LAGER } from '../../lib/kommentarTecken'
 import { FOTO_UPPE_EVENT, laggFotoIKo, prenumereraFotoKo, tomFotoForMarkering, vantandeFotoNycklar, type FotoUppeDetail } from '@/lib/markeringFotoKo'
 import { fotoNyckel } from '@/lib/fotoKo'
@@ -1891,6 +1891,7 @@ export default function PlannerPage() {
       { id: 'barighet', tiles: ['https://geo-netinfo.trafikverket.se/mapservice/wms.axd/NetInfo_1_8?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Barighet&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
       { id: 'kraftledningar', tiles: ['/api/wms-proxy?layer=kraftledningar&bbox={bbox-epsg-3857}&width=256&height=256'] },
       { id: 'sks_markfuktighet', tiles: ['/api/wms-proxy?layer=sks_markfuktighet&bbox={bbox-epsg-3857}&width=256&height=256'] },
+      { id: 'sks_diken', tiles: ['/api/wms-proxy?layer=sks_diken&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 0.9 },
       { id: 'sks_virkesvolym', tiles: ['/api/wms-proxy?layer=sks_virkesvolym&bbox={bbox-epsg-3857}&width=256&height=256'] },
       { id: 'sks_tradhojd', tiles: ['/api/wms-proxy?layer=sks_tradhojd&bbox={bbox-epsg-3857}&width=256&height=256'] },
       { id: 'sks_lutning', tiles: ['/api/wms-proxy?layer=sks_lutning&bbox={bbox-epsg-3857}&width=256&height=256'] },
@@ -5029,7 +5030,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
 
-    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet', 'lm_skuggning', 'lm_ortofoto', 'lm_ortofoto_ir', 'nmd_tradslag', 'fastighetsgranser', 'hydrografi'];
+    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_diken', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet', 'lm_skuggning', 'lm_ortofoto', 'lm_ortofoto_ir', 'nmd_tradslag', 'fastighetsgranser', 'hydrografi'];
 
     allWmsIds.forEach(id => {
       if (id === 'fastighetsgranser') return;   // Lantmäteri-gränsen styrs av lagret "Fastighetsgränser" (effekten ovan), tillsammans med sin kant
@@ -9542,6 +9543,8 @@ export default function PlannerPage() {
   const [larmPaKartan, setLarmPaKartan] = useState<{ lat: number; lng: number; namn: string | null } | null>(null);
   const [oversiktSett, setOversiktSett] = useState<Set<string> | null>(null);
   const oversiktKolladRef = useRef<string | null>(null);
+  // Vad föraren senast hade läst (eller själv stängt överblicken på) — jämförs mot för att se om det nya bara är hans eget.
+  const oversiktLastSigRef = useRef<{ oid: string; sig: Set<string>; last: boolean } | null>(null);
   useEffect(() => {
     setOversiktSett(oversiktMaskinId && valtObjekt?.id ? lasSett(oversiktMaskinId, String(valtObjekt.id)) : null);
   }, [oversiktMaskinId, valtObjekt?.id]);
@@ -9576,13 +9579,24 @@ export default function PlannerPage() {
     oversiktKolladRef.current = kollad;
     // Föraren har inte läst just det här (servern) — eller, går kvittona inte att läsa, enheten har inte sett det.
     const visa = riskLast.lage === 'ok' ? !oversiktLast : behoverVisas(lasSett(oversiktMaskinId, oid), oversiktSig);
-    if (!visa) return;
+    if (!visa) { oversiktLastSigRef.current = { oid, sig: new Set(oversiktSig), last: true }; return; }
+    // DET FÖRAREN SJÄLV SÄTTER ÖPPNAR ALDRIG ÖVERBLICKEN FÖR HONOM (Martin 2026-11-13, Oskar): är allt nytt sedan han senast hade läst trakten
+    // hans egna symboler eller kommentarer räknas det som läst direkt. Något nytt från någon annan → öppnas som vanligt.
+    const forra = oversiktLastSigRef.current;
+    const egnaKommentarer = new Set(kk.rader.filter((r) => !!currentMedarbetare?.id && r.skapad_av === currentMedarbetare.id).map((r) => String(r.id)));
+    if (forra && forra.oid === oid && baraEgetNytt(forra.sig, oversiktSig, korvyEgnaMarkorRef.current, egnaKommentarer)) {
+      oversiktLastSigRef.current = { oid, sig: new Set(oversiktSig), last: forra.last };
+      sparaSett(oversiktMaskinId, oid, oversiktSig); setOversiktSett(new Set(oversiktSig));
+      if (forra.last) void riskLast.kvittera(oversiktUnderlagNu, oversiktMaskinId);   // han hade läst allt; det enda nya är hans eget
+      return;
+    }
     if (traktOversiktOpen || objektListaOppen) return;
     setInfoStartVy('oversikt');
     setTraktOversiktOpen(true);   // effekten på traktOversiktOpen ramar in hela trakten (en gång — två fitBounds i rad gav ett ryck)
   }, [oversiktAktiv, oversiktMaskinId, valtObjekt?.id, startKameraLasNu, markersLoaded, kk.laddad, traktGeoHamtadFor, oversiktSig, riskLast.lage, oversiktLast]); // eslint-disable-line react-hooks/exhaustive-deps
   const borjaKora = useCallback(() => {
     if (oversiktMaskinId && valtObjekt?.id) { sparaSett(oversiktMaskinId, String(valtObjekt.id), oversiktSig); setOversiktSett(new Set(oversiktSig)); }
+    if (valtObjekt?.id && !oversiktLastSigRef.current?.last) oversiktLastSigRef.current = { oid: String(valtObjekt.id), sig: new Set(oversiktSig), last: false };
     setKorvyFollowPaused(false);   // följet tar över vid nästa GPS-punkt
     const map = mapInstanceRef.current;
     const pos = korvyEffectivePos;
@@ -12760,6 +12774,7 @@ export default function PlannerPage() {
     { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
     // EN rad som styr ALLT fastighetsgräns: Vidas rågång (vektor) när Vida levererat fastighetsytor, annars Lantmäteriets gräns i samma vita stil. Släckt = vanlig karta.
     { id: 'fastighetsgrans', name: 'Fastighetsgränser', desc: 'Vita gränser och beteckningar, utanför trakten tonas ned', enabled: true },
+    { id: 'sks_diken', name: 'Diken', desc: 'Riktiga diken ur laserskanningen (Skogsstyrelsen)', enabled: true },
     { id: 'hydrografi', name: 'Vattenvägar (beräknade)', desc: 'Var vatten rinner enligt terrängen — inte uppmätta diken (SKS)', enabled: true },
     // Körvyn: högstubbar/evighetsträd som små prickar — eget lager, PÅ som standard (saknad nyckel = på)
     ...(korvyActive ? [{ id: PRICK_LAGER_ID, name: 'Högstubbar och evighetsträd', desc: 'Små symboler på kartan (på som standard)', enabled: true }] : []),
