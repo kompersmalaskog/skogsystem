@@ -65,7 +65,7 @@ export const wmsLayerGroups: LayerGroup[] = [
     layers: [
       { id: 'nyckelbiotoper', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer', layers: 'Nyckelbiotop_Skogsstyrelsen', name: 'Nyckelbiotoper', color: '#a855f7', show3D: true, tiles: ['/api/wms-proxy?layer=nyckelbiotoper&bbox={bbox-epsg-3857}&width=256&height=256'] },
       { id: 'naturvarde', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer', layers: 'Objektnaturvarde_Skogsstyrelsen', name: 'Naturvärde', color: '#30d158', show3D: true, tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Objektnaturvarde_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
-      { id: 'sumpskog', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer', layers: 'Sumpskog_Skogsstyrelsen', name: 'Sumpskogar', color: '#3b82f6', show3D: true, tiles: ['/api/wms-proxy?layer=sumpskog&bbox={bbox-epsg-3857}&width=256&height=256'] },
+      { id: 'sumpskog', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer', layers: 'Sumpskog_Skogsstyrelsen', name: 'Sumpskog', color: '#3b82f6', show3D: true, tiles: ['/api/wms-proxy?layer=sumpskog&bbox={bbox-epsg-3857}&width=256&height=256'] },
       { id: 'biotopskydd', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer/WmsServer', layers: 'Biotopskydd_Skogsstyrelsen', name: 'Biotopskydd', color: '#166534', show3D: true, tiles: ['/api/wms-proxy?layer=biotopskydd&bbox={bbox-epsg-3857}&width=256&height=256'] },
       { id: 'naturvardsavtal', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNaturvardsavtal/MapServer/WmsServer', layers: 'Naturvardsavtal_Skogsstyrelsen', name: 'Naturvårdsavtal', color: '#14b8a6', show3D: true, tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNaturvardsavtal/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Naturvardsavtal_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
       { id: 'skoghistoria', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer', layers: 'SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen', name: 'Skog & historia', color: '#f59e0b', show3D: true, tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
@@ -135,7 +135,7 @@ export const wmsLayerGroups: LayerGroup[] = [
     group: 'Lantmäteriet',
     layers: [
       { id: 'lm_skuggning', url: '/api/wms-proxy', layers: 'terrangskuggning', name: 'Skuggning', color: '#78909C', proxyTarget: 'https://minkarta.lantmateriet.se/map/hojdmodell', show3D: true, tiles: ['/api/wms-proxy?layer=lm_skuggning&bbox={bbox-epsg-3857}&width=256&height=256'], tileOpacity: 0.35 },
-      { id: 'lm_ortofoto', url: '/api/wms-proxy', layers: 'Ortofoto_0.5', name: 'Ortofoto LM', color: '#8D6E63', proxyTarget: 'https://minkarta.lantmateriet.se/map/ortofoto', show3D: true, tiles: ['/api/wms-proxy?layer=lm_ortofoto&bbox={bbox-epsg-3857}&width=256&height=256'], tileOpacity: 1.0 },
+      { id: 'lm_ortofoto', url: '/api/wms-proxy', layers: 'Ortofoto_0.5', name: 'Ortofoto LM', meny: false, color: '#8D6E63', proxyTarget: 'https://minkarta.lantmateriet.se/map/ortofoto', show3D: true, tiles: ['/api/wms-proxy?layer=lm_ortofoto&bbox={bbox-epsg-3857}&width=256&height=256'], tileOpacity: 1.0 },
       // IR-ortofoto: falskfärg där lövkronor lyser rött → skiljer löv från barr. Ritunderlag, samma
       // öppna minkarta-väg. Flygår varierar per område (Kompersmåla-trakten: 2024). show3D=false → körvyn orörd.
       { id: 'lm_ortofoto_ir', url: '/api/wms-proxy', layers: 'Ortofoto_IR', name: 'Ortofoto IR (löv rött)', color: '#ff453a', proxyTarget: 'https://minkarta.lantmateriet.se/map/ortofoto', desc: '0,5 m falskfärg — lövkronor rött, barr mörkt. Flygår varierar (Kompersmåla ~2024).', show3D: false, tiles: ['/api/wms-proxy?layer=lm_ortofoto_ir&bbox={bbox-epsg-3857}&width=256&height=256'], tileOpacity: 1.0 },
@@ -250,4 +250,14 @@ export function buildKartStil(aktiv: BaskartaId = BASKARTA_DEFAULT): any {
       })),
     ],
   }
+}
+
+/** Lager som finns kvar som kartlager men inte har någon rad i planeringsvyns Lager-meny och därför aldrig är tända (Martin 2026-11-12, dubbletter):
+ *  `wetlands` är samma källa som `sumpskog`, och `lm_ortofoto` är samma bild som bakgrunden Flygfoto. Ett gammalt sparat "på" gäller inte. */
+export const LAGER_UTAN_RAD: ReadonlySet<string> = new Set(['wetlands', 'lm_ortofoto'])
+
+/** Raderna en myndighetsgrupp får i Lager-menyn: inte de utan rad (`meny: false`, LAGER_UTAN_RAD) och inte de som redan står under Overlay. Varje lager står EN gång. */
+export function lagerUtanDubbletter<T extends { id: string; meny?: false }>(lager: readonly T[], redanVisade: readonly string[]): T[] {
+  const sedda = new Set(redanVisade)
+  return lager.filter((l) => l.meny !== false && !LAGER_UTAN_RAD.has(l.id) && !sedda.has(l.id))
 }

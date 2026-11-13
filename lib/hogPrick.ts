@@ -9,9 +9,10 @@
 export function hogRadie(skala: number): unknown[] {
   const steg = (par: number[]) => ['interpolate', ['linear'], ['get', 'v'], ...par.map((x, i) => (i % 2 ? x * skala : x))];
   return ['interpolate', ['linear'], ['zoom'],
-    13, steg([0, 1, 2, 1.5, 10, 3, 30, 5]),
-    17, steg([0, 1.8, 1, 3, 5, 5.2, 15, 8, 40, 10.5]),
-    19, steg([0, 2.5, 1, 4, 5, 7.5, 15, 11, 40, 14])];
+    // Golvet höjt 2026-11-13 (Martin: "dom små är för små, man ser knappt dom"): minsta pricken är 4 px bred utzoomat (var 2), 6 på trakten, 8 nära.
+    13, steg([0, 2, 2, 2.5, 10, 3.5, 30, 5]),
+    17, steg([0, 3, 1, 3.8, 5, 5.5, 15, 8, 40, 10.5]),
+    19, steg([0, 4, 1, 5, 5, 7.5, 15, 11, 40, 14])];
 }
 export const HOG_HALV_BILD = 'skotar-hog-halv';
 export const HOG_HALV_PX = 64;
