@@ -15,7 +15,8 @@ describe('färskhetsstämpeln', () => {
   it('sidan använder regeln och hämtar om gammal data själv', () => {
     const src = readFileSync('app/planering/page.tsx', 'utf8');
     expect(src).toContain('if (!stampelSyns({ gammal, vantar: synkVantar })) return null;');
-    expect(src).toMatch(/>= FARSKHET_GAMMAL_MIN\) refetchMarkers\(false\)/);
+    // I maskinen är gränsen kortare (lib/markeringLive: en minut); planeringen behåller FARSKHET_GAMMAL_MIN.
+    expect(src).toMatch(/>= farskhetGransMin\(maskinlage, FARSKHET_GAMMAL_MIN\)\) refetchMarkers\(false\)/);
     expect(FARSKHET_GAMMAL_MIN).toBe(10);
   });
 });
