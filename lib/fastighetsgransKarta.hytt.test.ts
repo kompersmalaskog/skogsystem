@@ -428,8 +428,8 @@ describe('page.tsx ritar rågången med de delade specarna', () => {
     expect(sida).not.toMatch(/\{ id: 'fastighetsgranser', name: 'Fastighetsgränser'/);   // ingen andra menyrad för Lantmäteri
     // …och inte heller via den generella WMS-listan: Lantmäteri-lagret har `meny: false` och Lager-menyn (både katalogen för plusraden och grupperna) hoppar över sådana.
     expect(mapLayersKalla).toMatch(/id: 'fastighetsgranser', url: [^\n]*name: 'Fastighetsgränser'[^\n]*meny: false/);
-    expect(sida).toMatch(/for \(const g of wmsLayerGroups\) for \(const l of g\.layers\) if \(l\.meny !== false\) lagg\(l\.id, l\.name\);/);
-    expect(sida).toMatch(/rader: grp\.layers\.filter\(\(l\) => l\.meny !== false\)\.map/);
+    expect(sida).toMatch(/for \(const g of wmsLayerGroups\) for \(const l of g\.layers\) if \(l\.meny !== false && !LAGER_UTAN_RAD\.has\(l\.id\)\) lagg\(l\.id, l\.name\);/);
+    expect(sida).toMatch(/const rader = lagerUtanDubbletter\(grp\.layers, overlayLista\.map/);   // lagerUtanDubbletter filtrerar bort meny: false (lib/mapLayers)
     expect((sida.match(/name: 'Fastighetsgränser'/g) || []).length, 'EN rad med namnet Fastighetsgränser i planeringens meny').toBe(1);
     expect(sida).not.toMatch(/RAGANG_KALLOR\.pinne|ragang\?\.pinnar|trakt-ragang-pinne/);
     expect(sida).not.toMatch(/gränspinnar|Granne ·/);
