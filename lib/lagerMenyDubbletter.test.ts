@@ -39,6 +39,11 @@ describe('sidans koppling', () => {
     expect(sida).toMatch(/\[hogarPa, skotarKorvy, korvyActive, mapLibreReady, lagerTick\]/)
     expect(sida).toMatch(/\[overlays\.grothogar, mapLibreReady, lagerTick\]/)
   })
+  it('högarna är prickar överallt — tårtorna är alltid släckta, också i skördarens maskinläge (Martin 2026-11-13)', () => {
+    expect(sida).toMatch(/const tartor = 'none';/)
+    expect(sida).toMatch(/const visa = hogarPa;/)
+    expect(sida).not.toMatch(/const visa = prickLage && hogarPa;/)
+  })
   it('ett lager utan rad är aldrig tänt', () => {
     expect(sida).toMatch(/overlays\[id\] && !LAGER_UTAN_RAD\.has\(id\)/)
   })

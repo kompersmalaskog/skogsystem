@@ -5042,8 +5042,9 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const vis = hogarPa ? 'visible' : 'none';
-    // Skotarläget och planeringsvyn ritar högarna som prickar (skotar-hogar-dots, effekten efter useSkotarLass) — tårtorna och klustren göms där.
-    const tartor = hogarPa && !(skotarKorvy || !korvyActive) ? 'visible' : 'none';
+    // Högarna ritas som PRICKAR överallt (skotar-hogar-dots, effekten efter useSkotarLass) — också i skördarens maskinläge (Martin 2026-11-13:
+    // tårtorna täckte hela trakten och såg inte ut som i planeringen). Tårtorna och klustren är därför alltid släckta.
+    const tartor = 'none';
     if (map.getLayer('hogar-hit')) map.setLayoutProperty('hogar-hit', 'visibility', vis);
     if (map.getLayer('hogar-circle')) map.setLayoutProperty('hogar-circle', 'visibility', tartor);
     if (map.getLayer('hogar-cluster')) map.setLayoutProperty('hogar-cluster', 'visibility', tartor);
@@ -12480,7 +12481,7 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    const visa = prickLage && hogarPa;
+    const visa = hogarPa;   // samma prickar i planeringen, skotarläget och skördarens maskinläge (där utan lass och markeringar: högarna som de skördades)
     for (const id of ['skotar-hogar-dots', 'skotar-hogar-halv']) { try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visa ? 'visible' : 'none'); } catch { /* */ } }
     const src = map.getSource('skotar-hogar-source') as any;
     if (!src) return;
