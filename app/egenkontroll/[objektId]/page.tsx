@@ -104,7 +104,7 @@ import {
   type OrigoBeslut,
   type VidaGrans,
 } from '@/lib/egenkontrollOrigo';
-import { AVSLUTA_KONSEKVENS, anmarkningsText, kortDatum } from '../format';
+import { AVSLUTA_KONSEKVENS, anmarkningsText, gammalRundaNot, kortDatum } from '../format';
 import { AVSTAND, FARG, INAKTIV, KNAPP, KOLUMN, LAYOUT, RADIE, TRAFFYTA, TYP, designCss, medSafeBotten } from '@/lib/design/tokens';
 import KartHuvud, { underKartHuvud } from '@/components/design/KartHuvud';
 import KartKnapp from '@/components/design/KartKnapp';
@@ -113,6 +113,7 @@ import { CentreraKnapp } from '@/components/planering/CentreraKnapp';
 import RundArk from '../RundArk';
 import RundDock from '../RundDock';
 import BrickaRad from '../BrickaRad';
+import AvslutaRad from '../AvslutaRad';
 import { useKartPadding } from '../useKartPadding';
 import {
   ANGRA_MS, DOCK_SKYDD_MS, brickaSkyddNyckel, brickaTryck, byggBrickor, inomDockSkydd, kvarText, radSkyddNyckel, svarsDel,
@@ -130,7 +131,7 @@ import { useVagavstand } from '@/lib/hooks/useVagavstand';
 import { harKoordinat, startaNavigering } from '@/lib/navigera';
 import { fagelKm, kmText } from '@/lib/objektVal';
 import { GUL, statusEtikett } from '../svar';
-import { avslutaStatus } from '@/lib/egenkontrollAvsluta';
+import { avslutaStatus, sistaSvaret, visaAvslutaRad } from '@/lib/egenkontrollAvsluta';
 
 /** Hela meter. GPS:en under krontak ar 5-15 m - decimaler hade latsats om en
  *  precision som inte finns. Over en kilometer: en decimal i km. */
@@ -734,6 +735,11 @@ export default function EgenkontrollRundaPage() {
   // provytorna byggdes. Sa "kan avslutas" och "avslutaRunda tar emot det" kan inte vara oense.
   const avsl = avslutaStatus(allaPunkter, provytor);
   const kanAvsluta = !!vy?.egenkontroll && !rundanKlar && avsl.kan && ytorLasta;
+  // Gicks rundan for lange sedan for att i dag ska ga som besoksdag? Raknas nar bekraftelsen oppnas, inte vid varje rendering.
+  const gammalRundaNoten = useMemo(
+    () => (visaAvslutsdialog ? gammalRundaNot(sistaSvaret(allaPunkter)) : null),
+    [visaAvslutsdialog, allaPunkter],
+  );
 
   // --- BRICKORNA OCH DET MARKERADE ------------------------------------------
   const brickor = useMemo(() => byggBrickor(vy?.punkter ?? []), [vy?.punkter]);
@@ -1070,8 +1076,14 @@ export default function EgenkontrollRundaPage() {
       {/* AVSTEG 6/7 FRAN PLANERINGSVYN: AVSLUT LIGGER I ARKET OCH INTE I HUVUDET.
           Planeringsvyn lagger "Avsluta objekt" i en meny hogst upp (Mer). Har ar avslutet oåterkalleligt - rundan lases i databasen och blir
           rapporten till Vida - och det kommer EFTER allt annat: forst de som aterstar, sedan avslutet. Huvudet bar darfor bara talet (vad som
-          aterstar); knappen ligger sist i listan i arket och ar aldrig ett tryck fran kartan. En klar runda har ingen knapp alls - den ska
-          kannas last, inte som en knapp man inte far trycka pa. */}
+          aterstar) och knappen ligger sist i listan i arket. En klar runda har ingen knapp alls - den ska kannas last, inte som en knapp man
+          inte far trycka pa.
+
+          RATTAT 2026-11-13: knappen var ocksa ALDRIG ETT TRYCK FRAN KARTAN, och det var fel. Tre rundor stod fardiggangna och aldrig
+          avslutade (Ulfsnas 22 av 22 sedan 28 aug, Ravemala 25 av 25 sedan 17 okt, Krokshult 11 av 11 sedan 19 okt): man svarar i dockan,
+          huvudets tal byter till "Klart" - och sedan ligger avslutet bakom ett drag uppat som ingenting ber om. Nar rundan ar fardig visas
+          darfor raden "Rundan ar klar" ovanfor arket (AvslutaRad, regeln i visaAvslutaRad). Ordningen i arket ar orord, bekraftelsen ar
+          densamma, och en klar runda har fortfarande ingen knapp nagonstans. */}
       {rundanKlar ? (
         <>
           <div style={{ marginTop: AVSTAND.xxl, background: FARG.upphojt, borderRadius: RADIE.kort, padding: AVSTAND.l, display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
@@ -1234,6 +1246,13 @@ export default function EgenkontrollRundaPage() {
                       />
                     </div>
                   )}
+                </div>
+              )}
+              {/* RUNDAN AR KLAR: samma spar som Angra-kvittot, samma hojd. Angra gar forst (det handlar om svaret man
+                  just gav och star i 5 s) - sedan kommer avslutet. Regeln ar ren: visaAvslutaRad. */}
+              {visaAvslutaRad({ kan: kanAvsluta, klar: rundanKlar, angraVisas: !!angra, ritar: !!rita }) && (
+                <div style={kolumnStil(sidoBottom(TRAFFYTA.primar + AVSTAND.s))}>
+                  <AvslutaRad onAvsluta={() => setVisaAvslutsdialog(true)} avslutar={avslutar} />
                 </div>
               )}
               {angra && (
@@ -1484,6 +1503,14 @@ export default function EgenkontrollRundaPage() {
               <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.l }}>
                 Detta sparas som egenkontrollens dokument.
               </div>
+
+              {/* GICKS RUNDAN EN ANNAN DAG: slutdagen blir ALLTID i dag - ett datum vi inte matt hittas aldrig pa - men den som avslutar en
+                  runda fran i somras ska veta vad rapporten kommer att saga INNAN hen trycker. Texten och regeln ar rena (gammalRundaNot). */}
+              {gammalRundaNoten && (
+                <div role="note" data-testid="gammal-runda-not" style={{ ...TYP.meta, color: FARG.orange, marginBottom: AVSTAND.l }}>
+                  {gammalRundaNoten}
+                </div>
+              )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 18 }}>
                 <Sammanfattningsrad etikett="Punkter" varde={`${allaPunkter.length}`} />
