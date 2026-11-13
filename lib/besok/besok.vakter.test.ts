@@ -98,9 +98,12 @@ describe('planeringsvyn: besöken syns bara där de ska', () => {
   it('SMS-kortet bara för riktig admin i planeringsläget', () => {
     expect(page).toMatch(/besok: kortRoll === 'planerare' && isAdminRiktig && !maskinlage && !maskinSomParam && valtObjekt\.id/);
   });
-  it('hytthooken är aktiv bara i maskinläget (samma villkor som instruktionerna) och kortet viker för larm och lossning', () => {
+  it('hytthooken är aktiv bara i maskinläget (samma villkor som instruktionerna) kortet viker för lossning men aldrig för ett larm', () => {
     expect(page).toMatch(/useBesokHytt\(\{\s*aktiv: instruktionerAktiv,/);
-    expect(page).toContain('const besokKortSynligt = besokHytt.vantar.length > 0 && !larm.kort && !lossningVisas;');
+    // Besöket göms ALDRIG av ett larm (2026-11-13): kortet ligger överst och larmkortet flyttas ner under det.
+    expect(page).toContain('const besokKortSynligt = besokHytt.vantar.length > 0 && !lossningVisas;');
+    expect(page).toContain('+ ${instruktionerAktiv && besokKortSynligt ? besokKortHojd + AVSTAND.s : 0}px)`}');
+    expect(page).toContain('onHojd={setBesokKortHojd}');
     expect(page).toContain('{instruktionerAktiv && besokKortSynligt && (');
   });
   it('instruktionskortet väntar på besökskortet', () => {

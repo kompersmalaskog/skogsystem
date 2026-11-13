@@ -21,6 +21,7 @@ import { PRICK_FARG } from '@/lib/besok/farg';
 import { HUVUDREGEL, RINGREGEL, SKOTARARK_RUBRIK, SKOTARARK_TEXT, sakerhetsRader, type MaskinRoll } from '@/lib/besok/sakerhet';
 import { arBesokAktivt, klockslag } from '@/lib/besok/tid';
 import { VANTAR_TEXT, kvitteringsRader, maskinStatusRader } from '@/lib/besok/status';
+import { arbetarRad, maskinAlder } from '@/lib/besok/maskinAlder';
 import { CERT_FORKLARING, KARTA_UNGEFAR, type SkogRad } from '@/lib/besok/skogen';
 import { malbildInnehall } from '@/lib/malbilder';
 import { PUBLIK_POLL_MS } from '@/lib/besok/konstanter';
@@ -173,8 +174,12 @@ export default function BesokKlient({ token }: { token: string }) {
 
 function PagarVy({ vy, token, pagar, kvitto, onBesok, onSkotare }: { vy: Vy; token: string; pagar: boolean; kvitto: string | null; onBesok: () => void; onSkotare: () => void }) {
   const rader = useMemo(() => sakerhetsRader({ roller: vy.roller, harMotorsag: vy.harMotorsag }), [vy.roller, vy.harMotorsag]);
-  const karta: KartaData = useMemo(() => ({ token, mitt: vy.mitt, gran: vy.gran, maskiner: vy.maskiner, motorsag: vy.motorsag, ringM: vy.ringM }), [token, vy.mitt, vy.gran, vy.maskiner, vy.motorsag, vy.ringM]);
-  const arbetar = vy.maskiner.length > 0;
+  // Prickarnas ålder räknas om var 15:e sekund även när läsningen inte når fram – en prick får inte stå som "nu" för att nätet försvann.
+  const [nuMs, setNuMs] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNuMs(Date.now()), PUBLIK_POLL_MS); return () => clearInterval(t); }, []);
+  const maskiner = useMemo(() => vy.maskiner.map((m) => { const a = maskinAlder(m.tid, new Date(nuMs)); return { roll: m.roll, lat: m.lat, lng: m.lng, alder: a.text, gammal: a.gammal }; }), [vy.maskiner, nuMs]);
+  const karta: KartaData = useMemo(() => ({ token, mitt: vy.mitt, gran: vy.gran, maskiner, motorsag: vy.motorsag, ringM: vy.ringM }), [token, vy.mitt, vy.gran, maskiner, vy.motorsag, vy.ringM]);
+  const arbetar = arbetarRad(vy.maskiner.map((m) => m.tid), new Date(nuMs));
   return (
     <div data-testid="besok-sida" data-lage="pagar" style={{ ...ROT, paddingBottom: medSafeBotten(96) }}>
       <header style={{ paddingTop: TOPP }}>
@@ -185,9 +190,9 @@ function PagarVy({ vy, token, pagar, kvitto, onBesok, onSkotare }: { vy: Vy; tok
       {kvitto && <div data-testid="besok-kvitto" role="status" style={{ ...KORT, marginTop: AVSTAND.l, ...TYP.listtitel, color: FARG.gron }}>✓ {kvitto}</div>}
 
       {arbetar && (
-        <div data-testid="besok-arbetar" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.l, ...TYP.listtitel, color: FARG.gul }}>
-          <span aria-hidden="true" style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: '50%', background: FARG.gul, flexShrink: 0 }} />
-          Maskinerna arbetar här just nu
+        <div data-testid="besok-arbetar" data-farsk={arbetar.farsk ? '1' : '0'} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.l, ...TYP.listtitel, color: arbetar.farsk ? FARG.gul : FARG.text2 }}>
+          <span aria-hidden="true" style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: '50%', background: arbetar.farsk ? FARG.gul : FARG.text3, flexShrink: 0 }} />
+          {arbetar.text}
         </div>
       )}
 
