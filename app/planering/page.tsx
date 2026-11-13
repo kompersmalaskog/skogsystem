@@ -187,7 +187,7 @@ import { LINJE_TRAFF_PX, narmasteLinje, linjeAtgard, VIDA_LINJE_TRAFFLAGER, EGNA
 import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
 import { ritaEtikett, etikettBildId, ETIKETT_PIXELRATIO } from '../../lib/figurEtikettBild'
-import { FARG, FONT, DELFARG, TYP, RADIE, AVSTAND, IKON, TRAFFYTA, KNAPP } from '../../lib/design/tokens'
+import { FARG, FONT, DELFARG, TYP, RADIE, AVSTAND, IKON, TRAFFYTA, KNAPP, VIKT } from '../../lib/design/tokens'
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { stegaAvstamning, NYTT_AVSTAMNINGSMINNE, type AvstamningsMinne } from '../../lib/objektAvstamning'
 import { hamtaKandidatSvar, startaKandidatLaddning } from '../../lib/objektKandidater'
@@ -256,6 +256,8 @@ import { wmsLayerGroups, wmsLayers, LAGER_UTAN_RAD, lagerUtanDubbletter } from '
 import { lagerMaxZoom } from '@/lib/lagerRutor'
 import { fartPa } from '@/lib/fart/fartMatare'
 import { FartMatare } from '@/components/planering/FartMatare'
+import { SnitselPanel } from '@/components/planering/SnitselPanel'
+import { SNITSEL_FOLJ_PAUS_MS, SNITSEL_ZOOM } from '@/lib/snitselPanel'
 import { markerIconDefs, getIconDef, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
 import { ZONE_COLORS } from '@/lib/zone-colors'
 import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
@@ -2555,7 +2557,9 @@ export default function PlannerPage() {
   // Snitsel-läge: false = AVSTÅNDSLÄGET (mörk, i princip tom skärm — bara avståndet, det han
   // behöver när han går och tittar på marken). true = KARTLÄGET (ett tryck bort, för överblick
   // + symbolsättning). Inspelningen fortsätter i BÅDA. Default avståndsläget.
-  const [snitselKarta, setSnitselKarta] = useState(false);
+  // Gå-läget: meter överst, kartan under (components/planering/SnitselPanel). Höjden styr var kartans mitt hamnar.
+  const [snitselPanelH, setSnitselPanelH] = useState(0);
+  const snitselDragRef = useRef(0);
   // Efter sparad väg: kort bekräftelse högst upp + färgrutor i botten. INGEN helskärm —
   // den stal blicken mitt i arbetet och sa inget föraren inte redan visste.
   const [sparadToast, setSparadToast] = useState(false);
@@ -7283,7 +7287,7 @@ export default function PlannerPage() {
         (lng, lat) => map.project([lng, lat]),
       );
       if (!vald) return;
-      const atgard = linjeAtgard(vald.kandidat.data as any, markers, { stickvagMode, snitselKarta });
+      const atgard = linjeAtgard(vald.kandidat.data as any, markers, { stickvagMode, snitselKarta: true });   // kartan syns alltid i gå-läget
       if (!atgard) return;
       if (atgard.typ === 'vida') { oppnaVidaLinjeRef.current?.(atgard.props); return; }
       // Snitsel-KARTLÄGET: tryck på en stickväg = mät mot DEN (lås). Otvetydigt val när det är trångt. Tryck igen på samma → tillbaka till auto.
@@ -7330,7 +7334,7 @@ export default function PlannerPage() {
       map.off('mouseenter', 'zone-fill', onEnter);
       map.off('mouseleave', 'zone-fill', onLeave);
     };
-  }, [mapLibreReady, isDrawMode, isZoneMode, markers, markerMenuOpen, stickvagMode, snitselKarta, risaMarkMode, skotningDrawing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapLibreReady, isDrawMode, isZoneMode, markers, markerMenuOpen, stickvagMode, risaMarkMode, skotningDrawing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Centrera på GPS-position
   const centerOnMe = () => {
@@ -11356,6 +11360,25 @@ export default function PlannerPage() {
     }
   }, [gpsMapPosition, markers, stickvagMode, matVagId, autoRefId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // GÅ-LÄGET: kartan följer den som går och lägger positionen mitt i den synliga delen under meterpanelen. Drar man själv i kartan
+  // väntar följet en stund (SNITSEL_FOLJ_PAUS_MS). När läget lämnas tas kartans marginal bort igen.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !stickvagMode) return;
+    const drag = () => { snitselDragRef.current = Date.now(); };
+    map.on('dragstart', drag);
+    try { if (map.getZoom() < SNITSEL_ZOOM - 1) map.easeTo({ zoom: SNITSEL_ZOOM, pitch: 0, duration: 500 }); } catch { /* kartan är borta */ }
+    return () => {
+      try { map.off('dragstart', drag); map.easeTo({ padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 300 }); } catch { /* kartan är borta */ }
+    };
+  }, [stickvagMode, mapLibreReady]);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !stickvagMode || !gpsPosition) return;
+    if (Date.now() - snitselDragRef.current < SNITSEL_FOLJ_PAUS_MS) return;
+    try { map.easeTo({ center: [gpsPosition.lng, gpsPosition.lat], padding: { top: snitselPanelH, bottom: AVSTAND.xxl * 5, left: 0, right: 0 }, duration: 500 }); } catch { /* kartan är borta */ }
+  }, [stickvagMode, mapLibreReady, gpsPosition?.lat, gpsPosition?.lng, snitselPanelH]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Byte-larmet försvinner själv.
   useEffect(() => {
     if (!refByte) return;
@@ -11742,7 +11765,6 @@ export default function PlannerPage() {
     setLastUsedColorId(colorId);
     startGpsTracking(lineId);
     setStickvagMode(true);
-    setSnitselKarta(false);
     setMatVagId(null);
     setAutoRefId(null);
     setVisaFargval(false);
@@ -12837,7 +12859,7 @@ export default function PlannerPage() {
   // Symboler har sin flik. Rita linje/Rita yta: typlistan öppnas direkt, i körvyn OCH planeringsvyn (typ först, sedan ritning; se
   // trycktPlusPost). Mät sträcka/Mät yta startar mätfiguren (Klar visar talet, inget sparas). Spåra med GPS öppnar GPS-undermenyn (samma startGpsTracking).
   const byggRita = (): RitaKort[] => {
-    return [
+    const alla: RitaKort[] = [
       { id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje') },
       { id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta') },
       // Eget område (ersätter "Spara som › Yta"): samma markering — traktgräns med nummer. Ritmekaniken = tryck hörn, stäng på första hörnet.
@@ -12853,8 +12875,11 @@ export default function PlannerPage() {
       { id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta') },
       { id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); } },
       // Gallring (snitsla stickvägar) har flyttat hit från objektinfons meny — den är ett ritverktyg. Öppnar samma Gallring-ark som förut.
-      { id: 'stickvagar', titel: 'Snitsla stickvägar', ikon: 'stickvag', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('gallring'); setMenuOpen(true); } },
+      { id: 'stickvagar', titel: 'Gallring – snitsla stickvägar', ikon: 'stickvag', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('gallring'); setMenuOpen(true); } },
     ];
+    // På en gallringstrakt är snitslingen det man kom för: den står först (Martin 2026-11-13 hittade den inte sist i listan).
+    const gallring = objektHuvudtyp(valtObjekt as any) === 'gallring';
+    return gallring ? [...alla.filter((r) => r.id === 'stickvagar'), ...alla.filter((r) => r.id !== 'stickvagar')] : alla;
   };
 
   // Spårens förhandsfärg = linjens riktiga färg på kartan (lib/sparStil dampatSpar), inte en egen.
@@ -18984,43 +19009,10 @@ export default function PlannerPage() {
 
       {/* === GALLRING OVERLAY === */}
       {stickvagMode && !stickvagOversikt && !menuOpen && !isZoneMode && !isDrawMode && !showAvslutaBekraftelse && (() => {
-        // Avstånds-metrik beräknas EN gång, renderas i två lägen (mörk fullskärm / kompakt glas).
         const target = stickvagSettings?.targetDistance || 25;
         const tol = stickvagSettings?.tolerance || 3;
         const dist = getStickvagDistance();
-        const har = dist !== null;
-        const inom = har && Math.abs(dist - target) <= tol;
-        const osaker = gpsAccuracy != null && gpsAccuracy > 15;
-        const GRON = '#30d158', ORANGE = '#FF9F0A';
-        // Aldrig rött: att inte vara framme än är inget fel.
-        const farg = !har ? 'rgba(255,255,255,0.85)' : inom ? GRON : ORANGE;
-
-        // Mätarfönster: mål ±15 m. Smalt nog att pricken rör sig tydligt i det spann föraren
-        // faktiskt håller sig i. Utanför → pricken nålas vid kanten.
-        const SPAN = 15;
-        const lo = target - SPAN, hi = target + SPAN;
-        const pct = (v: number) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
-        const utanforSkala = har && (dist! < lo || dist! > hi);
-        const bandL = pct(target - tol), bandR = pct(target + tol);
-        const riktning = !har ? 'första vägen'
-          : inom ? 'inom mål'
-          : dist! < target ? `→ ${target - dist!} m ut`
-          : `← ${dist! - target} m in`;
         const vagNr = markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length;
-
-        // Mätaren som återanvänds i båda lägena (h = bandhöjd i px).
-        const matare = (h: number) => (
-          <div style={{ position: 'relative', height: h, borderRadius: h / 2, background: 'rgba(255,255,255,0.18)' }}>
-            <div style={{ position: 'absolute', top: 0, bottom: 0, left: bandL + '%', width: (bandR - bandL) + '%', background: 'rgba(48,209,88,0.55)', borderRadius: h / 2 }} />
-            {har && (
-              <div style={{
-                position: 'absolute', top: '50%', left: pct(dist!) + '%', transform: 'translate(-50%,-50%)',
-                width: h + 6, height: h + 6, borderRadius: (h + 6) / 2, background: inom ? GRON : ORANGE,
-                border: '2.5px solid #fff', boxShadow: '0 1px 6px rgba(0,0,0,0.8)',
-              }} />
-            )}
-          </div>
-        );
 
         // MÄTREFERENS-CHIP — visar MOT VILKEN väg (färg = förarens språk) och låser/auto på ETT tryck.
         // Låst ser TYDLIGT annorlunda ut än auto (färgad ram + tint + lås), inte bara ett litet hänglås.
@@ -19048,100 +19040,17 @@ export default function PlannerPage() {
 
         return (
           <>
-            {/* Opak mörk botten — BARA avståndsläget. Täcker karta + räknare + centrera + plus,
-                så skärmen visar EN sak. Kartan avmonteras inte (byte blir momentant, position live). */}
-            {!snitselKarta && (
-              <div style={{ position: 'fixed', inset: 0, background: '#0e0f11', zIndex: 500 }} />
-            )}
-
-            {/* Objektnamn litet uppe t.v. — bara avståndsläget (kartläget har objekt-pillen). */}
-            {!snitselKarta && valtObjekt?.namn && (
-              <div style={{
-                position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 20px)', left: 20, zIndex: 606,
-                fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.55)', maxWidth: '52vw',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none',
-              }}>{valtObjekt.namn}</div>
-            )}
-
-            {/* HÖRN-TOGGLE uppe t.h. — LÅNGT från Spara. Byter mellan avstånd och karta.
-                Medvetet i hörnet, aldrig i knappraden: en knapp bredvid Spara gav feltryck med handskar. */}
-            <button type="button" className="btn-press"
-              onClick={() => setSnitselKarta(v => !v)}
-              aria-label={snitselKarta ? 'Visa avstånd' : 'Visa karta'}
-              style={{
-                position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 14px)', right: 14, zIndex: 606,
-                height: 40, padding: '0 15px', borderRadius: 20, border: '1px solid rgba(255,255,255,0.18)',
-                background: 'rgba(28,28,30,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-                color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                display: 'flex', alignItems: 'center', gap: 7,
-              }}>
-              {snitselKarta ? '← Avstånd' : '🗺 Karta'}
-            </button>
+            {/* GÅ-LÄGET: meter stort högst upp, kartan under (Martin 2026-11-13). Ingen växel mellan avstånd och karta längre. */}
+            <SnitselPanel dist={dist} target={target} tol={tol} gpsNoggrannhetM={gpsAccuracy} chip={chip}
+              bytt={refByte && !last ? refByte.namn : null} onHojd={setSnitselPanelH} />
 
             {/* Kort bekräftelse — försvinner själv, kräver ingen kvittering */}
             {sparadToast && (
-              <div style={{
-                position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 66px)', left: '50%',
-                transform: 'translateX(-50%)', zIndex: 610, pointerEvents: 'none',
-                background: 'rgba(28,28,30,0.95)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-                border: '1px solid rgba(48,209,88,0.45)', borderRadius: 14, padding: '10px 18px',
-                fontSize: 14, fontWeight: 600, color: '#30d158', whiteSpace: 'nowrap',
+              <div data-testid="snitsel-sparad" style={{
+                position: 'fixed', top: snitselPanelH + AVSTAND.m, left: '50%', transform: 'translateX(-50%)', zIndex: 610, pointerEvents: 'none',
+                background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, ...TYP.meta, fontWeight: VIKT.halvfet, color: FARG.gron, whiteSpace: 'nowrap',
               }}>
                 Väg {vagNr} sparad
-              </div>
-            )}
-
-            {!snitselKarta ? (
-              /* ═══ AVSTÅNDSLÄGET — mörk, tom skärm, siffran äger hela ytan ═══ */
-              <div style={{
-                position: 'fixed', top: '38%', left: '50%', transform: 'translate(-50%,-50%)',
-                zIndex: 550, pointerEvents: 'none', textAlign: 'center', width: 'min(340px, 88vw)',
-              }}>
-                <div style={{ fontSize: 'clamp(84px, 27vw, 108px)', fontWeight: 500, color: farg, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-                  {har ? dist : '—'}
-                  <span style={{ fontSize: '28px', fontWeight: 400, color: 'rgba(255,255,255,0.4)', marginLeft: 6 }}>m</span>
-                </div>
-                <div style={{ fontSize: 16, color: 'rgba(255,255,255,0.65)', marginTop: 8 }}>mål {target} m · ±{tol}</div>
-                <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center' }}>{chip}</div>
-                {refByte && !last && (
-                  <div style={{ fontSize: 13, fontWeight: 700, color: ORANGE, marginTop: 6 }}>↷ referens bytt · mäter mot {refByte.namn}</div>
-                )}
-                <div style={{ height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>
-                  <span style={{ fontSize: 20, fontWeight: 700, color: !har ? 'rgba(255,255,255,0.45)' : inom ? GRON : ORANGE, whiteSpace: 'nowrap' }}>{riktning}</span>
-                </div>
-                <div style={{ marginTop: 14 }}>{matare(12)}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
-                  <span>för nära</span>
-                  {utanforSkala && <span style={{ color: ORANGE, fontWeight: 700 }}>utanför skalan</span>}
-                  <span>för långt</span>
-                </div>
-                <div style={{ marginTop: 16, fontSize: 12.5, fontWeight: 500, color: osaker ? ORANGE : 'rgba(255,255,255,0.45)' }}>
-                  {gpsAccuracy == null ? 'söker GPS…' : osaker ? `osäker position · ±${Math.round(gpsAccuracy)} m` : `GPS ±${Math.round(gpsAccuracy)} m`}
-                </div>
-              </div>
-            ) : (
-              /* ═══ KARTLÄGET — kartan syns bakom; avståndet i en kompakt mörk glas-panel (inte genomskinlig text) ═══ */
-              <div style={{
-                position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 64px)', left: '50%',
-                transform: 'translateX(-50%)', zIndex: 550, pointerEvents: 'none', width: 'min(360px, 92vw)',
-                background: 'rgba(20,20,22,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, padding: '12px 16px',
-                boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div style={{ fontSize: 44, fontWeight: 500, color: farg, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-                    {har ? dist : '—'}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)', marginLeft: 3 }}>m</span>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.55)' }}>mål {target} m · ±{tol}</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: !har ? 'rgba(255,255,255,0.45)' : inom ? GRON : ORANGE, whiteSpace: 'nowrap' }}>{riktning}</div>
-                  </div>
-                </div>
-                <div style={{ marginTop: 10, display: 'flex', justifyContent: 'center' }}>{chip}</div>
-                <div style={{ marginTop: 10 }}>{matare(7)}</div>
-                <div style={{ marginTop: 8, fontSize: 11.5, fontWeight: 500, color: osaker ? ORANGE : 'rgba(255,255,255,0.4)' }}>
-                  {gpsAccuracy == null ? 'söker GPS…' : osaker ? `osäker position · ±${Math.round(gpsAccuracy)} m` : `GPS ±${Math.round(gpsAccuracy)} m`}
-                </div>
               </div>
             )}
 
@@ -19189,7 +19098,7 @@ export default function PlannerPage() {
                     aria-label={gpsPaused ? 'Fortsätt' : 'Pausa'}
                     style={{
                       width: '64px', height: '64px', borderRadius: '32px', border: 'none',
-                      background: gpsPaused ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.15)',
+                      background: FARG.kort,
                       color: gpsPaused ? '#f59e0b' : '#fff', fontSize: '18px', cursor: 'pointer', fontFamily: 'inherit',
                     }}>{gpsPaused ? '▶' : '❚❚'}</button>
 
@@ -19265,7 +19174,6 @@ export default function PlannerPage() {
               setShowAvslutaBekraftelse(false);
               setVisaFargval(false);
               setSparadToast(false);
-              setSnitselKarta(false);
               setMatVagId(null);
               setAutoRefId(null);
               setStickvagMode(false);
