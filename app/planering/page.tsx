@@ -253,6 +253,8 @@ import { startaGpsKalla, hamtaEnGpsFix, senasteGiltigaGpsFix, sattFastGpsPositio
 import { BAUDRATER, hamtaBaudVal, hamtaHittadBaud, effektivBaud, type BaudVal } from '../../lib/gpsBaud'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
+import { fartPa } from '@/lib/fart/fartMatare'
+import { FartMatare } from '@/components/planering/FartMatare'
 import { markerIconDefs, getIconDef, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
 import { ZONE_COLORS } from '@/lib/zone-colors'
 import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
@@ -1416,6 +1418,9 @@ export default function PlannerPage() {
   // (lib/kartlager.ts, lib/hooks/useKartlager.ts) och gäller överallt där den här kartan visas — planeringsvyn, körvyn, skotarläget, maskinläget.
   // (Förut 'lantmateriet' = Karta som standard, och körvyn hade en egen växel Karta/Topokarta som inte sparades.)
   const [mapType, setMapType] = useKartlager();
+  // Fartmätaren (lib/fart/fartMatare): dold, slås på med ?fart=1 och sparas på enheten. Läses efter monteringen (ingen skillnad mot serverns HTML).
+  const [fartMatarePa, setFartMatarePa] = useState(false);
+  useEffect(() => { try { setFartMatarePa(fartPa(window.location.search, window.localStorage)); } catch { /* */ } }, []);
   // Reglagen i + › Lager (Kartan tydligare): bakgrundens Dämpad ↔ Skarp per bakgrund och varje överläggs Kartan syns ↔ Bara lagret. Sparas per enhet (lib/kartReglage).
   const kartReglage = useKartReglage();
   
@@ -13534,6 +13539,10 @@ export default function PlannerPage() {
   // grenen, så förarlistan visades utan gul rand/Avsluta — och sekvensen kunde inte täcka objektlistan.
   const maskinLager = (
     <>
+      {fartMatarePa && (
+        <FartMatare karta={() => mapInstanceRef.current} bakgrund={mapType} lager={overlays as Record<string, boolean | undefined>} topp={testlage ? TESTBANNER_HOJD_PX : 0}
+          namn={(id) => (wmsLayers as any[]).find((l) => l.id === id)?.name ?? ({ satellite: 'Flygfoto', lantmateriet: 'Karta', topographic: 'Topokarta', osm: 'OpenStreetMap' } as Record<string, string>)[id] ?? id} />
+      )}
       {/* === "ÖPPNA SOM MASKIN"-BANNER (neutral grå, över allt) — får aldrig förväxlas med skarpt läge. Inte orange: orange är hytten-kortets färg för ett besök. === */}
       {testlage && (
         <div style={{
