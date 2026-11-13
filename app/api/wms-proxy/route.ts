@@ -14,6 +14,12 @@ const WMS_LAYERS: Record<string, LayerConfig> = {
     layers: 'Markfuktighet_SLU_2_0',
     auth: true,
   },
+  // Skogsstyrelsens rikstäckande dikeskarta (ur laserskanningen, 1 m) — riktiga diken, inte beräknade vattenvägar.
+  sks_diken: {
+    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Diken_1_0/ImageServer/WMSServer',
+    layers: 'Diken_1_0',
+    auth: true,
+  },
   sks_virkesvolym: {
     url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer',
     layers: 'SkogligaGrunddata_3_1',

@@ -72,6 +72,21 @@ export function behoverVisas(sett: ReadonlySet<string> | null, sig: readonly str
   return sig.some((s) => !sett.has(s));
 }
 
+/**
+ * Är ALLT som är nytt sedan föraren senast hade läst trakten hans EGET — symboler han själv satt eller kommentarer han själv skrivit?
+ * Då ska överblicken inte öppnas för honom (Martin 2026-11-13, Oskar: "när han sätter ut symboler kommer inforutan upp direkt igen").
+ * En enda ny sak från någon annan (planeraren, en annan förare, Vida) → false: då ska den öppnas som vanligt.
+ */
+export function baraEgetNytt(forra: ReadonlySet<string> | null, sig: readonly string[], egnaMarkeringar: ReadonlySet<string>, egnaKommentarer: ReadonlySet<string>): boolean {
+  if (!forra) return false;
+  const nya = sig.filter((s) => !forra.has(s));
+  if (nya.length === 0) return false;
+  return nya.every((s) => {
+    const d = s.split(':');
+    return (d[0] === 'm' && egnaMarkeringar.has(d[1])) || (d[0] === 'k' && egnaKommentarer.has(d[1]));
+  });
+}
+
 /** Markeringarna som är nya sedan maskinen såg trakten (tom när den aldrig setts — då är allt "nytt" och inget märks). */
 export function nyaMarkeringar(sett: ReadonlySet<string> | null, markers: SignaturIndata['markers'], kommentarer: ReadonlyArray<{ id: string; nyckel: string; text?: string }> = []): Set<string> {
   const ut = new Set<string>();
