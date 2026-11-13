@@ -37,9 +37,9 @@ export function vadAndrades(
 }
 
 export interface Hamtning { namn: string; start: number; langd: number }
-/** Är det här en kartruta (och inte appens egna anrop)? Vår proxy, WMS-anrop och z/x/y-rutor. */
+/** Är det här en kartruta (och inte appens egna anrop)? Vår proxy, bakgrundens rutor (/api/forarkarta), WMS-anrop och z/x/y-rutor. */
 export function arKartruta(url: string): boolean {
-  return /wms-proxy|[?&]bbox=|service=wm[st]s?|\/\d{1,2}\/\d+\/\d+(\.\w+)?(\?|$)/i.test(url)
+  return /wms-proxy|\/api\/forarkarta\?|[?&]bbox=|service=wm[st]s?|\/\d{1,2}\/\d+\/\d+(\.\w+)?(\?|$)/i.test(url)
 }
 
 export interface Matning {

@@ -39,6 +39,7 @@ describe('arKartruta', () => {
     expect(arKartruta('https://x/api/wms-proxy?layer=a&bbox=1,2,3,4')).toBe(true)
     expect(arKartruta('https://minkarta.lantmateriet.se/map/ortofoto?SERVICE=WMS&BBOX=1,2,3,4')).toBe(true)
     expect(arKartruta('https://tile.openstreetmap.org/14/8861/5012.png')).toBe(true)
+    expect(arKartruta('https://x/api/forarkarta?lager=terrain&z=15&x=17700&y=9990')).toBe(true)   // bakgrundens rutor (2026-11-13: mätaren sa "inga hämtades")
     expect(arKartruta('https://x.supabase.co/rest/v1/objekt?select=id')).toBe(false)
     expect(arKartruta('https://x/api/version')).toBe(false)
   })

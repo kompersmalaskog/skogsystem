@@ -13541,7 +13541,7 @@ export default function PlannerPage() {
     <>
       {fartMatarePa && (
         <FartMatare karta={() => mapInstanceRef.current} bakgrund={mapType} lager={overlays as Record<string, boolean | undefined>} topp={testlage ? TESTBANNER_HOJD_PX : 0}
-          namn={(id) => (wmsLayers as any[]).find((l) => l.id === id)?.name ?? ({ satellite: 'Flygfoto', lantmateriet: 'Karta', topographic: 'Topokarta', osm: 'OpenStreetMap' } as Record<string, string>)[id] ?? id} />
+          namn={(id) => (wmsLayers as any[]).find((l) => l.id === id)?.name ?? (KARTLAGER_NAMN as Record<string, string>)[id] ?? id} />
       )}
       {/* === "ÖPPNA SOM MASKIN"-BANNER (neutral grå, över allt) — får aldrig förväxlas med skarpt läge. Inte orange: orange är hytten-kortets färg för ett besök. === */}
       {testlage && (
