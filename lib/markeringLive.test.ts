@@ -38,7 +38,9 @@ describe('sidan lyssnar på nya och ändrade markeringar', () => {
     expect(page).toContain("{ event: 'DELETE', schema: 'public', table: 'planering_markeringar' }")
   })
   it('hämtningen efter en händelse är tvingad (5 s-spärren får inte tappa en symbol) och mitt eget eko hoppas över', () => {
-    expect(page).toContain('samla = setTimeout(() => { samla = null; refetchMarkers(true); }, LIVE_SAMLA_MS);')
+    // Tre ställen: ny, ändrad (samma funktion) och borttagen – ingen av dem får gå via den strypta hämtningen.
+    expect(page.split('samla = setTimeout(() => { samla = null; refetchMarkers(true); }, LIVE_SAMLA_MS);').length - 1).toBe(2)
+    expect(page).not.toMatch(/event: 'DELETE'[^]{0,120}refetchMarkers\(false\)/)
     expect(page).toContain('if (arEgetEko(payload?.new, markersRef.current as any[])) return;')
   })
   it('reserven: i maskinen hämtas markeringarna om efter en minut', () => {

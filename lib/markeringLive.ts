@@ -7,7 +7,7 @@
  */
 
 /** Så länge samlas en skur av händelser (flera symboler i rad, en ritad väg som numreras om) till EN hämtning. */
-export const LIVE_SAMLA_MS = 1200;
+export const LIVE_SAMLA_MS = 400;
 
 /**
  * Reserven när realtime inte når fram (tappad anslutning, strypt flik): i maskinen hämtas markeringarna om när de är så här gamla.

@@ -1318,12 +1318,15 @@ export default function PlannerPage() {
     const nyEllerAndrad = (payload: { new?: unknown }) => {
       if (arEgetEko(payload?.new, markersRef.current as any[])) return;
       if (samla) clearTimeout(samla);
-      samla = setTimeout(() => { samla = null; refetchMarkers(true); }, LIVE_SAMLA_MS);
+      samla = setTimeout(() => { samla = null; refetchMarkers(true); }, LIVE_SAMLA_MS);   // vakt: nyEllerAndrad
     };
     const filter = 'objekt_id=eq.' + valtObjekt.id;
     const channel = supabase.channel('markers-delete-' + valtObjekt.id)
+      // En borttagning går samma väg (samlad, tvingad): med den vanliga 5 s-spärren tappades en borttagning som kom strax efter en hämtning
+      // – symbolen satt kvar på den andra skärmen (Martin 2026-11-13).
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'planering_markeringar' }, () => {
-        refetchMarkers(false);
+        if (samla) clearTimeout(samla);
+        samla = setTimeout(() => { samla = null; refetchMarkers(true); }, LIVE_SAMLA_MS);
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'planering_markeringar', filter }, nyEllerAndrad)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'planering_markeringar', filter }, nyEllerAndrad)
