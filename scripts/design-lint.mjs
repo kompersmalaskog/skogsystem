@@ -156,6 +156,8 @@ export const SKARPA = [
   "app/maskinvy/DagensObjekt.tsx",
   "app/maskinvy/Sidolista.tsx",
   "app/maskinvy/page.tsx",
+  // Uppföljningens detaljvy (2026-11-13): flyttad från egna V6-literaler till tokens — noll literaler.
+  "app/uppfoljning/UppfoljningVy.tsx",
   // Inventarier (2026-10-21): tokens från början, noll literaler.
   // Fordon (/kontroller, 2026-11-06): omgjord på tokens och components/design, noll literaler.
   "components/fordon/FordonLista.tsx",
