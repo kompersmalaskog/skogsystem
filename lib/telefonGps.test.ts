@@ -222,7 +222,10 @@ describe('sidans koppling (page.tsx kan inte monteras i test — källvakt)', ()
     expect(page).toContain('cirkelPolygon(draw!.lat, draw!.lon, Math.min(gpsAccuracy!, 5000))');
     expect(page).toContain('gpsAccuracy! > TELEFON_GPS.BRA_M');
     expect(page).toContain("map.setPaintProperty('gps-dot', 'circle-color', grov ? FARG.orange : FARG.bla);");
-    expect(page).toContain('}, [currentPosition, mapLibreReady, gpsFixFarsk, gpsAccuracy, gpsKallaTyp]);');
+    expect(page).toContain('}, [currentPosition, mapLibreReady, gpsFixFarsk, gpsAccuracy, gpsKallaTyp, stickvagMode]);');
+    // Gå-läget (snitsla stickvägar) har EN prick: den vanliga döljs medan mätpricken visas, och GPS-texten står bara i panelen.
+    expect(page).toContain("map.setLayoutProperty(id, 'visibility', stickvagMode ? 'none' : 'visible')");
+    expect(page).toContain('{isTracking && !stickvagMode && gpsAccuracy != null && (');
   });
   it('"Vid maskinen"/räknarna: telefonen tar medelvärde av bra fixar, maskindatorns serial-GPS tar EN position direkt som förut', () => {
     const ny = page.slice(page.indexOf('const placeraVidMaskinen = async'), page.indexOf('// ÅNGRA: tar bort markeringen'));

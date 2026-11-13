@@ -9784,13 +9784,18 @@ export default function PlannerPage() {
         map.setPaintProperty('gps-ring', 'circle-opacity', gpsFixFarsk ? 1 : 0.35);
         map.setPaintProperty('gps-dot', 'circle-opacity', gpsFixFarsk ? 1 : 0.35);
       } catch {}
+      // GÅ-LÄGET (snitsla stickvägar): EN prick. Mätpricken (den metertalet räknas från) ritas ovanpå kartan; den här döljs så länge,
+      // annars syns två prickar — och 2026-11-13 stod den här kvar medan mätpricken följde (Martin, i fält).
+      for (const id of ['gps-halo', 'gps-ring', 'gps-dot']) {
+        try { map.setLayoutProperty(id, 'visibility', stickvagMode ? 'none' : 'visible'); } catch { /* lagret saknas */ }
+      }
       if (draw) {
         console.log('[GPS-prick] setData + moveLayer', [draw.lon.toFixed(6), draw.lat.toFixed(6)]);
       }
     } catch (e) {
       console.error('[GPS-prick] source/layers update failed:', e);
     }
-  }, [currentPosition, mapLibreReady, gpsFixFarsk, gpsAccuracy, gpsKallaTyp]);
+  }, [currentPosition, mapLibreReady, gpsFixFarsk, gpsAccuracy, gpsKallaTyp, stickvagMode]);
 
   // === KÖRVY 3D-IMMERSION: setup engångsadditioner av sources/layers ===
   // Skapas vid mapLibreReady. Default visibility: 'none'. Toggleras av separat effekt.
@@ -16106,7 +16111,8 @@ export default function PlannerPage() {
               {/* GPS-prick - färg baserat på accuracy */}
               <circle
                 cx={gpx} cy={gpy} r={getConstrainedSize(12)}
-                fill={gpsAccuracy != null ? (gpsAccuracy < 5 ? '#30d158' : gpsAccuracy <= 10 ? '#f59e0b' : '#ff453a') : colors.blue}
+                data-testid="gps-matprick"
+                fill={stickvagMode ? FARG.bla : gpsAccuracy != null ? (gpsAccuracy < 5 ? '#30d158' : gpsAccuracy <= 10 ? '#f59e0b' : '#ff453a') : colors.blue}
                 stroke="#fff"
                 strokeWidth={getConstrainedSize(3)}
                 style={{ animation: 'pulse 1.5s infinite' }}
@@ -16393,7 +16399,8 @@ export default function PlannerPage() {
       {/* Kompass-rosen är borta (Martin 2026-10-04) — kompassen bor i Lager-menyn (rad "Kompass"); "rotera kartan" ligger kvar i Inställningar. */}
 
       {/* === GPS ACCURACY TEXT (vänster nere) === */}
-      {isTracking && gpsAccuracy != null && (
+      {/* Gå-läget har noggrannheten i panelen överst — en GPS-text, inte två. */}
+      {isTracking && !stickvagMode && gpsAccuracy != null && (
         <div style={{
           position: 'absolute',
           bottom: menuOpen ? menuHeight + 110 : 100,
