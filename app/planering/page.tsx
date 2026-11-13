@@ -275,6 +275,7 @@ import { useMarkeringarSynk } from '@/lib/hooks/useMarkeringarSynk'
 import type { ServerRad } from '@/lib/markeringSynk'
 import MarkeringFoto from './MarkeringFoto'
 import MaskinMeny from '@/components/startsida/MaskinMeny'
+import MaskinVyOvanpa from '@/components/startsida/MaskinVyOvanpa'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 import { optiLokalDag } from '@/lib/optiTid'
@@ -3898,6 +3899,8 @@ export default function PlannerPage() {
   // Hem-knappen i maskinläge öppnar maskinlådan (components/startsida/MaskinMeny.tsx) OVANPÅ kartan — appens meny
   // på maskindatorn, med "Byt objekt" överst. Kartan lämnas aldrig; startsidan nås inte från maskindatorn.
   const [maskinMenyOppen, setMaskinMenyOppen] = useState(false);
+  // En annan vy (Arbetsrapporten, Uppföljningen …) öppnad OVANPÅ kartan från lådan (lib/inbaddad): kartan stängs aldrig i maskinen.
+  const [vyOvanpa, setVyOvanpa] = useState<string | null>(null);
   // "Byt objekt" i lådan: tillbaka till objektlistan (förarlistan).
   // Samma stängning som "Annat objekt" på bekräftelsekortet: körvyn av, ingen vald roll, inget valt objekt.
   const tillObjektlistan = useCallback(() => {
@@ -13917,6 +13920,13 @@ export default function PlannerPage() {
           onBytObjekt={tillObjektlistan}
           onStang={() => setMaskinMenyOppen(false)}
           onSammaSida={(href) => { if (href.includes('installningar=1')) { setActiveCategory('settings'); setMenuOpen(true); } }}
+          onOppnaVy={setVyOvanpa}
+        />
+      )}
+      {maskinlage && vyOvanpa && (
+        <MaskinVyOvanpa href={vyOvanpa}
+          onHem={() => setVyOvanpa(null)}
+          onKarta={(href) => { setVyOvanpa(null); setMaskinMenyOppen(false); if (href.includes('installningar=1')) { setActiveCategory('settings'); setMenuOpen(true); } }}
         />
       )}
 
