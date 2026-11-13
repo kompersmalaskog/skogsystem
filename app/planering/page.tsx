@@ -258,6 +258,7 @@ import { fartPa } from '@/lib/fart/fartMatare'
 import { FartMatare } from '@/components/planering/FartMatare'
 import { SnitselPanel } from '@/components/planering/SnitselPanel'
 import { SNITSEL_FOLJ_PAUS_MS, SNITSEL_ZOOM } from '@/lib/snitselPanel'
+import { byggBand, kantAvstand, mittAvstand, STICKVAG_BREDD_M, type Band } from '@/lib/snitselBand'
 import { markerIconDefs, getIconDef, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
 import { ZONE_COLORS } from '@/lib/zone-colors'
 import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
@@ -2537,6 +2538,9 @@ export default function PlannerPage() {
   
   // Stickvägsavstånd
   const [stickvagMode, setStickvagMode] = useState(false); // Aktiv stickvägsvy
+  // Bandet att gå i: sidan av förra vägen. null = appen väljer (inne i trakten, där det inte redan går en väg); föraren byter med "Byt sida".
+  const [bandSida, setBandSida] = useState<1 | -1 | null>(null);
+  const bandCacheRef = useRef<{ nyckel: string; band: Band | null } | null>(null);
   const [stickvagOversikt, setStickvagOversikt] = useState(false); // Översiktsvy
   // Speglar markers + stickvagOversikt i refs så MapLibre-klick-handlern (symbol/pil-tap, bunden en
   // gång) alltid ser aktuellt läge utan stale closure.
@@ -9784,13 +9788,18 @@ export default function PlannerPage() {
         map.setPaintProperty('gps-ring', 'circle-opacity', gpsFixFarsk ? 1 : 0.35);
         map.setPaintProperty('gps-dot', 'circle-opacity', gpsFixFarsk ? 1 : 0.35);
       } catch {}
+      // GÅ-LÄGET (snitsla stickvägar): EN prick. Mätpricken (den metertalet räknas från) ritas ovanpå kartan; den här döljs så länge,
+      // annars syns två prickar — och 2026-11-13 stod den här kvar medan mätpricken följde (Martin, i fält).
+      for (const id of ['gps-halo', 'gps-ring', 'gps-dot']) {
+        try { map.setLayoutProperty(id, 'visibility', stickvagMode ? 'none' : 'visible'); } catch { /* lagret saknas */ }
+      }
       if (draw) {
         console.log('[GPS-prick] setData + moveLayer', [draw.lon.toFixed(6), draw.lat.toFixed(6)]);
       }
     } catch (e) {
       console.error('[GPS-prick] source/layers update failed:', e);
     }
-  }, [currentPosition, mapLibreReady, gpsFixFarsk, gpsAccuracy, gpsKallaTyp]);
+  }, [currentPosition, mapLibreReady, gpsFixFarsk, gpsAccuracy, gpsKallaTyp, stickvagMode]);
 
   // === KÖRVY 3D-IMMERSION: setup engångsadditioner av sources/layers ===
   // Skapas vid mapLibreReady. Default visibility: 'none'. Toggleras av separat effekt.
@@ -11338,6 +11347,38 @@ export default function PlannerPage() {
     if (!vag?.path || !pos) return null;
     return Math.round(getDistanceToPath(pos, vag.path).distance);
   };
+
+  // KANT TILL KANT (Martin 2026-11-13): siffran är skogen mellan vägkanterna, inte avståndet mellan mittlinjerna.
+  const getStickvagKant = (pos = gpsMapPosition): number | null => {
+    const vag = getMatVag(pos);
+    if (!vag?.path || !pos) return null;
+    return kantAvstand(getDistanceToPath(pos, vag.path).distance, STICKVAG_BREDD_M);
+  };
+  // BANDET ATT GÅ I (lib/snitselBand): nästa väg, ritad bredvid den man mäter mot så att målet står kvar som skog mellan kanterna.
+  const snitselBand = (): Band | null => {
+    const vag = getMatVag();
+    if (!vag?.path || vag.path.length < 2 || !(scale > 0)) return null;
+    const d = mittAvstand(stickvagSettings?.targetDistance || 25, STICKVAG_BREDD_M) / scale;
+    const iRing = (x: number, y: number, r: [number, number][]) => {
+      let inne = false;
+      for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+        if ((r[i][1] > y) !== (r[j][1] > y) && x < ((r[j][0] - r[i][0]) * (y - r[i][1])) / (r[j][1] - r[i][1]) + r[i][0]) inne = !inne;
+      }
+      return inne;
+    };
+    const inne = traktRingar.length
+      ? (p: Point) => { const ll = svgToLatLon(p.x, p.y); return traktRingar.some(r => iRing(ll.lon, ll.lat, r)); }
+      : undefined;
+    const ovriga = stickvagLinjer().filter(l => String(l.id) !== String(vag.id));
+    // Räknas om bara när något den beror på ändrats — kartan ritas om vid varje rörelse, bandet är detsamma.
+    const nyckel = [vag.id, vag.path.length, d, bandSida, traktRingar.length, ovriga.map(l => `${l.id}:${l.path!.length}`).join(',')].join('|');
+    if (bandCacheRef.current?.nyckel === nyckel) return bandCacheRef.current.band;
+    const band = byggBand(vag.path, d, { inne, andra: ovriga.map(l => l.path!) }, bandSida);
+    bandCacheRef.current = { nyckel, band };
+    return band;
+  };
+  // Ny väg att mäta mot → appen väljer sida igen.
+  useEffect(() => { setBandSida(null); }, [matVagId, autoRefId]);
 
   // AUTO-referensens hysteres + ärligt byte-larm. Byter BARA när en annan väg är TYDLIGT närmare
   // (annars hoppar siffran mellan lika nära vägar), och det SYNS när den byter — aldrig tyst.
@@ -16052,6 +16093,23 @@ export default function PlannerPage() {
                 {posS && cpS && (
                   <line x1={posS.x} y1={posS.y} x2={cpS.x} y2={cpS.y} stroke="#fff" strokeWidth={2} strokeDasharray="5,5" opacity={0.85} />
                 )}
+                {/* BANDET ATT GÅ I: brett som toleransen (GPS:en är inte exaktare än så), streckad mittlinje. */}
+                {(() => {
+                  const band = snitselBand();
+                  if (!band) return null;
+                  const a = svgToScreen(vag.path[0].x, vag.path[0].y), b = svgToScreen(vag.path[0].x + 10 / scale, vag.path[0].y);
+                  const pxPerM = a && b ? Math.hypot(b.x - a.x, b.y - a.y) / 10 : 0;
+                  const bredd = Math.max(AVSTAND.m, 2 * (stickvagSettings?.tolerance || 3) * pxPerM);
+                  return band.bitar.map((bit, i) => {
+                    const bd = bit.map((p, k) => { const sp = svgToScreen(p.x, p.y); return sp ? `${k === 0 ? 'M' : 'L'} ${sp.x} ${sp.y}` : ''; }).join(' ');
+                    return (
+                      <g key={i} data-testid="snitsel-band">
+                        <path d={bd} fill="none" stroke={FARG.text} strokeOpacity={0.22} strokeWidth={bredd} strokeLinecap="round" strokeLinejoin="round" />
+                        <path d={bd} fill="none" stroke={FARG.text} strokeOpacity={0.9} strokeWidth={2} strokeDasharray="7,7" />
+                      </g>
+                    );
+                  });
+                })()}
               </g>
             );
           })()}
@@ -16106,7 +16164,8 @@ export default function PlannerPage() {
               {/* GPS-prick - färg baserat på accuracy */}
               <circle
                 cx={gpx} cy={gpy} r={getConstrainedSize(12)}
-                fill={gpsAccuracy != null ? (gpsAccuracy < 5 ? '#30d158' : gpsAccuracy <= 10 ? '#f59e0b' : '#ff453a') : colors.blue}
+                data-testid="gps-matprick"
+                fill={stickvagMode ? FARG.bla : gpsAccuracy != null ? (gpsAccuracy < 5 ? '#30d158' : gpsAccuracy <= 10 ? '#f59e0b' : '#ff453a') : colors.blue}
                 stroke="#fff"
                 strokeWidth={getConstrainedSize(3)}
                 style={{ animation: 'pulse 1.5s infinite' }}
@@ -16393,7 +16452,8 @@ export default function PlannerPage() {
       {/* Kompass-rosen är borta (Martin 2026-10-04) — kompassen bor i Lager-menyn (rad "Kompass"); "rotera kartan" ligger kvar i Inställningar. */}
 
       {/* === GPS ACCURACY TEXT (vänster nere) === */}
-      {isTracking && gpsAccuracy != null && (
+      {/* Gå-läget har noggrannheten i panelen överst — en GPS-text, inte två. */}
+      {isTracking && !stickvagMode && gpsAccuracy != null && (
         <div style={{
           position: 'absolute',
           bottom: menuOpen ? menuHeight + 110 : 100,
@@ -19011,7 +19071,8 @@ export default function PlannerPage() {
       {stickvagMode && !stickvagOversikt && !menuOpen && !isZoneMode && !isDrawMode && !showAvslutaBekraftelse && (() => {
         const target = stickvagSettings?.targetDistance || 25;
         const tol = stickvagSettings?.tolerance || 3;
-        const dist = getStickvagDistance();
+        const dist = getStickvagKant();
+        const harBand = !!snitselBand();
         const vagNr = markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length;
 
         // MÄTREFERENS-CHIP — visar MOT VILKEN väg (färg = förarens språk) och låser/auto på ETT tryck.
@@ -19042,6 +19103,21 @@ export default function PlannerPage() {
           <>
             {/* GÅ-LÄGET: meter stort högst upp, kartan under (Martin 2026-11-13). Ingen växel mellan avstånd och karta längre. */}
             <SnitselPanel dist={dist} target={target} tol={tol} gpsNoggrannhetM={gpsAccuracy} chip={chip}
+              farg={(() => {
+                // Snitselfärgen. Mellan två vägar byter ett tryck färg (röd → gul → blå); medan man går visar den bara färgen.
+                const f = vagColors.find(c => c.id === lastUsedColorId) || vagColors[0];
+                const bytFarg = () => { const i = vagColors.findIndex(c => c.id === f.id); setLastUsedColorId(vagColors[(i + 1) % vagColors.length].id); };
+                return (
+                  <button type="button" data-testid="snitsel-farg" disabled={!visaFargval} onClick={bytFarg}
+                    aria-label={visaFargval ? `Snitselfärg ${f.name} – tryck för att byta` : `Snitselfärg ${f.name}`}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, borderRadius: RADIE.kort,
+                      border: 'none', background: FARG.kort, color: FARG.text, fontFamily: 'inherit', ...TYP.meta, fontWeight: VIKT.halvfet, cursor: visaFargval ? 'pointer' : 'default' }}>
+                    <span style={{ width: AVSTAND.l, height: AVSTAND.l, borderRadius: '50%', background: f.color }} />
+                    {f.name}
+                  </button>
+                );
+              })()}
+              onBytSida={harBand ? () => setBandSida(s => { const nu = snitselBand()?.sida ?? s ?? 1; return nu === 1 ? -1 : 1; }) : undefined}
               bytt={refByte && !last ? refByte.namn : null} onHojd={setSnitselPanelH} />
 
             {/* Kort bekräftelse — försvinner själv, kräver ingen kvittering */}
@@ -19054,62 +19130,22 @@ export default function PlannerPage() {
               </div>
             )}
 
-            {/* Pausad-indikator (paus syns även på knappen; extra tydlighet) */}
-            {gpsPaused && !visaFargval && (
-              <div style={{
-                position: 'fixed', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 132px)', left: '50%',
-                transform: 'translateX(-50%)', zIndex: 601,
-                background: 'rgba(245,158,11,0.22)', color: '#f59e0b',
-                padding: '7px 18px', borderRadius: 16, fontSize: 13, fontWeight: 600, pointerEvents: 'none',
-              }}>PAUSAD</div>
-            )}
-
-            {/* BOTTEN — Paus + Spara med gott om luft, eller efter sparad väg: Avsluta + tre färger.
-                Kart-toggeln sitter i HÖRNET, aldrig här (undviker feltryck med handskar). */}
+            {/* BOTTEN — EN knapp (Martin 2026-11-13). Medan man går: Klar. Efter en sparad väg: Nästa väg (samma färg; pillen överst byter)
+                och Avsluta som text. Ingen paus: går man runt en sten är det den gångna vägen som sparas. */}
             <div style={{
-              position: 'fixed', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 44px)',
-              left: 0, right: 0, zIndex: 600,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              gap: visaFargval ? '14px' : '96px', padding: '0 24px',
+              position: 'fixed', bottom: `calc(env(safe-area-inset-bottom, 0px) + ${AVSTAND.xl}px)`, left: 0, right: 0, zIndex: 600,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AVSTAND.s, padding: `0 ${AVSTAND.xl}px`, pointerEvents: 'none',
             }}>
-              {visaFargval ? (
-                <>
-                  <button type="button" onClick={() => { setVisaFargval(false); setShowAvslutaBekraftelse(true); }}
-                    style={{
-                      padding: '0 16px', height: '64px', borderRadius: '18px', border: '1px solid rgba(255,255,255,0.18)',
-                      background: 'rgba(28,28,30,0.9)', color: 'rgba(255,255,255,0.75)',
-                      fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
-                    }}>Avsluta</button>
-                  {vagColors.map(f => (
-                    <button key={f.id} type="button" className="btn-press"
-                      onClick={() => continueWithColor(f.id)}
-                      aria-label={`Nästa väg: ${f.name}`}
-                      style={{
-                        width: '64px', height: '64px', borderRadius: '18px', cursor: 'pointer',
-                        background: f.color, flexShrink: 0,
-                        border: lastUsedColorId === f.id ? '3px solid rgba(255,255,255,0.55)' : '3px solid transparent',
-                      }} />
-                  ))}
-                </>
-              ) : (
-                <>
-                  <button type="button" className="btn-press"
-                    onClick={() => { const n = !gpsPaused; setGpsPaused(n); gpsPausedRef.current = n; }}
-                    aria-label={gpsPaused ? 'Fortsätt' : 'Pausa'}
-                    style={{
-                      width: '64px', height: '64px', borderRadius: '32px', border: 'none',
-                      background: FARG.kort,
-                      color: gpsPaused ? '#f59e0b' : '#fff', fontSize: '18px', cursor: 'pointer', fontFamily: 'inherit',
-                    }}>{gpsPaused ? '▶' : '❚❚'}</button>
-
-                  <button type="button" className="btn-press"
-                    onClick={() => saveAndShowPopup()}
-                    aria-label="Spara vägen"
-                    style={{
-                      width: '76px', height: '76px', borderRadius: '38px', border: 'none',
-                      background: '#30d158', color: '#fff', fontSize: '30px', cursor: 'pointer', fontFamily: 'inherit',
-                    }}>✓</button>
-                </>
+              <button type="button" className="btn-press" data-testid="snitsel-klar"
+                onClick={() => (visaFargval ? continueWithColor(lastUsedColorId) : saveAndShowPopup())}
+                style={{ ...KNAPP.primar, width: 'min(260px, 100%)', pointerEvents: 'auto' }}>
+                {visaFargval ? 'Nästa väg' : 'Klar'}
+              </button>
+              {visaFargval && (
+                <button type="button" data-testid="snitsel-avsluta" onClick={() => { setVisaFargval(false); setShowAvslutaBekraftelse(true); }}
+                  style={{ ...KNAPP.tertiar, pointerEvents: 'auto', background: FARG.kort, borderRadius: RADIE.kort, padding: `0 ${AVSTAND.l}px`, color: FARG.text }}>
+                  Avsluta
+                </button>
               )}
             </div>
           </>

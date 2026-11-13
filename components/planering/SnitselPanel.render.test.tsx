@@ -17,7 +17,6 @@ describe('SnitselPanel', () => {
     expect(q('snitsel-riktning')!.textContent).toBe('Inom mål');
     expect(q('snitsel-panel')!.dataset.ton).toBe('inom');
     expect(q('snitsel-gps')!.textContent).toBe('GPS ±2 m');
-    expect(q('snitsel-prick')).not.toBeNull();
   });
   it('utanför målet säger hur långt, och utan väg står ett streck — aldrig 0', () => {
     rita(<SnitselPanel dist={12} target={20} tol={3} gpsNoggrannhetM={25} />);
@@ -26,7 +25,15 @@ describe('SnitselPanel', () => {
     expect(q('snitsel-gps')!.textContent).toContain('Osäker position');
     act(() => rot!.render(<SnitselPanel dist={null} target={20} tol={3} gpsNoggrannhetM={null} />));
     expect(q('snitsel-meter')!.textContent).toBe('–m');
-    expect(q('snitsel-prick')).toBeNull();
+  });
+  it('färgpillen och Byt sida ritas bara när sidan ger dem', () => {
+    let n = 0;
+    rita(<SnitselPanel dist={25} target={25} tol={3} gpsNoggrannhetM={3} />);
+    expect(q('snitsel-byt-sida')).toBeNull();
+    act(() => rot!.render(<SnitselPanel dist={25} target={25} tol={3} gpsNoggrannhetM={3} farg={<span data-testid="pill">Gul</span>} onBytSida={() => { n++; }} />));
+    expect(q('pill')!.textContent).toBe('Gul');
+    act(() => q('snitsel-byt-sida')!.click());
+    expect(n).toBe(1);
   });
   it('panelen ligger överst på skärmen och säger sin höjd till sidan', () => {
     let h = -1;
