@@ -9,7 +9,7 @@
 
 import { klustraStammar, type HogStam } from '@/lib/produktionshogar';
 import { draAvUttagFranHogar, type UttagRad } from '@/lib/skotat';
-import { FULL_STYRKA, hogGrupperKvar, type HogGruppKvar, hogarIOmrade, hogarKvar, medMarkeringar, type OmradeSvar, REST_ANDEL, REST_M3, REST_STYRKA, type HogIn, type HogMarkering } from '@/lib/skotarHogarKvar';
+import { FULL_STYRKA, hogGrupp, hogGrupperKvar, iRing, type HogGruppKvar, hogarIOmrade, hogarKvar, medMarkeringar, type OmradeSvar, REST_ANDEL, REST_M3, REST_STYRKA, type HogIn, type HogMarkering } from '@/lib/skotarHogarKvar';
 import { hogTradslagFarger } from '@/lib/tradslag';
 import type { Lass } from '@/lib/skotarLass/typer';
 
@@ -53,8 +53,18 @@ function hogarEfterUttag(perSort: ReturnType<typeof klustraStammar>, uttag: read
  * RITA RUNT: det som ligger kvar i högarna inne i ringen, per sortimentgrupp. SAMMA uträkning som skotarlägets "Högar i ett område"
  * (lib/skotarHogarKvar hogarIOmrade) på samma högar som kartan visar.
  */
-export function skotarOmrade(stammar: readonly Stam[], uttag: readonly UttagRad[], lass: readonly Lass[], markeringar: readonly HogMarkering[], ring: readonly [number, number][]): OmradeSvar {
-  return hogarIOmrade(hogarEfterUttag(klustraStammar(basStammar(stammar)), uttag), lass, markeringar, ring);
+export function skotarOmrade(stammar: readonly Stam[], uttag: readonly UttagRad[], lass: readonly Lass[], markeringar: readonly HogMarkering[], ring: readonly [number, number][]): OmradeSvar & { sortiment: { namn: string; grupp: string; m3: number }[] } {
+  const efterUttag = hogarEfterUttag(klustraStammar(basStammar(stammar)), uttag);
+  const svar = hogarIOmrade(efterUttag, lass, markeringar, ring);
+  // Sortimenten (med trädslag, "Massaved björk") inne i ringen, för raderna under varje grupp. Samma högar och avdrag som hogarIOmrade.
+  const hogIn: HogIn[] = efterUttag
+    .filter((f) => iRing({ lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }, ring))
+    .map((f) => ({ lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], sortimentVolym: JSON.parse(f.properties.sortimentVolymJson || '{}') }));
+  const kvar = medMarkeringar(hogIn, hogarKvar(hogIn, lass), markeringar);
+  const per = new Map<string, number>();
+  for (const k of kvar) for (const [namn, v] of Object.entries(k.kvar)) if (v > 0) per.set(namn, (per.get(namn) ?? 0) + v);
+  const sortiment = [...per].map(([namn, v]) => ({ namn, grupp: hogGrupp(namn), m3: Math.round(v * 10) / 10 })).filter((x) => x.m3 > 0).sort((a, b) => b.m3 - a.m3);
+  return { ...svar, sortiment };
 }
 
 /** Högarna med det som ligger kvar, per sortiment. Tomma högar (under 0,05 m³) finns inte med. `visa` ger sortimentets namn i klartext. */

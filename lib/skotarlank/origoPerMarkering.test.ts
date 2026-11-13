@@ -61,3 +61,18 @@ describe('högarna som skotarlägets prickar', () => {
     expect(okant.farg).toBe(KARTA_BLANDAT);
   });
 });
+
+import { skotarOmrade } from './hogar';
+describe('Rita runt: sortimenten med trädslag', () => {
+  it('ringen ger varje sortiment för sig, under sin grupp', () => {
+    const p = (sortiment: string, i: number) => ({ lat: 56.659 + i * 1e-6, lng: 15.356, volym: 1, tradslag: 'GRAN', sortiment });
+    const st = [p('Gran Massa: BmavFall_V3', 0), p('Gran Massa: BmavFall_V3', 1), p('Björk Massa: BjörkmavFall_V3', 2)];
+    const ring: [number, number][] = [[15.355, 56.658], [15.357, 56.658], [15.357, 56.660], [15.355, 56.660], [15.355, 56.658]];
+    const s = skotarOmrade(st, [], [], [], ring);
+    expect(s.sortiment).toEqual([
+      { namn: 'Gran Massa: BmavFall_V3', grupp: 'massa', m3: 2 },
+      { namn: 'Björk Massa: BjörkmavFall_V3', grupp: 'massa', m3: 1 },
+    ]);
+    expect(s.grupper.find((g) => g.grupp === 'massa')?.m3).toBe(3);
+  });
+});

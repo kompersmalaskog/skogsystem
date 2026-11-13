@@ -11,7 +11,7 @@
 // "Tagen" frågar vart det gick (bara när trakten har fler än ett avlägg) och servern skriver markeringen OCH volymen på avlägget i samma steg.
 // Det finns inget lasskort. Markeringarna sparas i samma tabell som våra förares, så de syns i planeringen och i våra skotare.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { AVSTAND, FARG, KNAPP, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
@@ -71,7 +71,7 @@ const ANGRA_MS = 5000;
 const RING_KALLA = 'sk-ring';
 const POS_KALLA = 'sk-position';
 
-type Omrade = { hogar: number; kvar: number; skordat: number; grupper: { grupp: string; namn: string; m3: number }[] };
+type Omrade = { hogar: number; kvar: number; skordat: number; grupper: { grupp: string; namn: string; m3: number }[]; sortiment?: { namn: string; grupp: string; m3: number }[] };
 type Panel = null | 'meny' | 'kvar' | 'om' | 'lager' | 'forklaring';
 /** Avlägget han senast körde till — står först när han väljer vart det gick. */
 const LAGRING_SENASTE_AVLAGG = 'skotarlank_senaste_avlagg_v1';
@@ -684,10 +684,22 @@ export default function SkotarSida({ token }: { token: string }) {
                         <span style={{ flex: 1 }}>{g.namn}</span><span>{tal(g.m3)} m³fub</span>
                       </>
                     );
-                    return valbar ? (
+                    // Under gruppen: sortimenten med trädslag ("Massaved björk"), som i högkortet.
+                    const under = (omrade.svar.sortiment ?? []).filter((x) => x.grupp === g.grupp);
+                    const underRader = under.length > 0 && (
+                      <div data-skotar-grupp-sortiment={g.grupp} style={{ paddingLeft: 24 + AVSTAND.m, paddingBottom: AVSTAND.s }}>
+                        {under.map((x) => (
+                          <div key={x.namn} style={{ display: 'flex', gap: AVSTAND.m, ...TYP.meta, color: FARG.text2, ...TNUM, padding: `2px 0` }}>
+                            <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{visningAv(x.namn)}</span><span style={{ whiteSpace: 'nowrap' }}>{tal(x.m3)} m³fub</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                    const knappEllerRad = valbar ? (
                       <button key={g.grupp} type="button" role="checkbox" aria-checked={vald} data-skotar-grupp={g.grupp}
                         onClick={() => setValdaGrupper((v) => (v.includes(g.grupp) ? v.filter((x) => x !== g.grupp) : [...v, g.grupp]))} style={{ ...rad, cursor: 'pointer' }}>{innehall}</button>
                     ) : <div key={g.grupp} style={rad}>{innehall}</div>;
+                    return <Fragment key={g.grupp}>{knappEllerRad}{underRader}</Fragment>;
                   })}
                   <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Bocka i det du har tagit. Inget ibockat = allt.</p>
                 </div>
