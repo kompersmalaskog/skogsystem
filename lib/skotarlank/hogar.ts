@@ -9,8 +9,8 @@
 
 import { klustraStammar, type HogStam } from '@/lib/produktionshogar';
 import { draAvUttagFranHogar, type UttagRad } from '@/lib/skotat';
-import { FULL_STYRKA, HOG_PRICK_FARG, hogarIOmrade, hogarKvar, medMarkeringar, type OmradeSvar, REST_ANDEL, REST_M3, REST_STYRKA, type HogIn, type HogMarkering } from '@/lib/skotarHogarKvar';
-import { tradslagLabel } from '@/lib/tradslag';
+import { FULL_STYRKA, hogGrupperKvar, type HogGruppKvar, hogarIOmrade, hogarKvar, medMarkeringar, type OmradeSvar, REST_ANDEL, REST_M3, REST_STYRKA, type HogIn, type HogMarkering } from '@/lib/skotarHogarKvar';
+import { hogTradslagFarger } from '@/lib/tradslag';
 import type { Lass } from '@/lib/skotarLass/typer';
 
 export type Stam = { lat: number; lng: number; volym: number; tradslag: string; sortiment: string | null };
@@ -24,8 +24,12 @@ export type SkotarHog = {
   m3: number;
   /** störst först */
   sortiment: HogSortiment[];
-  /** prickens färg: samma ljusa som maskinernas skotarläge (HOG_PRICK_FARG.alla) */
+  /** sortimentgrupperna (Timmer, Kubb, Massaved …), störst först — samma som appens högkort */
+  grupper: HogGruppKvar[];
+  /** prickens färg: högens trädslag som i planeringen och skotarläget (lib/tradslag hogTradslagFarger) */
   farg: string;
+  /** blandad hög: det andra trädslagets färg, ritas som en halv skiva */
+  farg2: string | null;
   /** prickens styrka: en hög där lassen tagit huvuddelen är en rest och nästan osynlig, som i skotarläget */
   a: number;
 };
@@ -34,7 +38,7 @@ export type HogarSvar = { hogar: SkotarHog[]; kvar: HogSortiment[]; kvarM3: numb
 const OKANT_SORT = '(okänt sortiment)';
 const sortNamn = (s: string | null) => (s && s.trim() ? s : OKANT_SORT);
 const basStammar = (stammar: readonly Stam[]): HogStam[] =>
-  stammar.map((s) => ({ lat: s.lat, lng: s.lng, total_volym: s.volym, tradslag: tradslagLabel(s.tradslag), sortiment: sortNamn(s.sortiment) }));
+  stammar.map((s) => ({ lat: s.lat, lng: s.lng, total_volym: s.volym, tradslag: s.tradslag || 'OKÄNT', sortiment: sortNamn(s.sortiment) }));
 
 /** Steg 1–2: högarna per sortiment efter planerarens uttag, som features (samma form som planeringsvyns högar). Varje hög bär sitt index `i`. */
 function hogarEfterUttag(perSort: ReturnType<typeof klustraStammar>, uttag: readonly UttagRad[]) {
@@ -55,7 +59,8 @@ export function skotarOmrade(stammar: readonly Stam[], uttag: readonly UttagRad[
 
 /** Högarna med det som ligger kvar, per sortiment. Tomma högar (under 0,05 m³) finns inte med. `visa` ger sortimentets namn i klartext. */
 export function skotarHogar(stammar: readonly Stam[], uttag: readonly UttagRad[], lass: readonly Lass[], markeringar: readonly HogMarkering[], visa: (namn: string) => string = (n) => n): HogarSvar {
-  const efterUttag = hogarEfterUttag(klustraStammar(basStammar(stammar)), uttag);
+  const kluster = klustraStammar(basStammar(stammar));
+  const efterUttag = hogarEfterUttag(kluster, uttag);
   const hogIn: HogIn[] = efterUttag.map((f) => ({ lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], sortimentVolym: JSON.parse(f.properties.sortimentVolymJson || '{}') }));
   const kvar = medMarkeringar(hogIn, hogarKvar(hogIn, lass), markeringar);
   const visning = (n: string) => (n === OKANT_SORT ? 'Okänt sortiment' : visa(n) || n);
@@ -73,7 +78,9 @@ export function skotarHogar(stammar: readonly Stam[], uttag: readonly UttagRad[]
     const fore0 = Object.values(hogIn[j].sortimentVolym).reduce((s, x) => s + Math.max(0, x), 0);
     const kvar0 = kvar[j].totalt;
     const rest = fore0 - kvar0 > 0.05 && (kvar0 < REST_M3 || kvar0 < fore0 * REST_ANDEL);
-    hogar.push({ lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], m3, sortiment, farg: HOG_PRICK_FARG.alla, a: rest ? REST_STYRKA : FULL_STYRKA });
+    // Färgen ur högens trädslag, som planeringsvyn (dim_tradslag.namn räknat per stam i klustret).
+    const farger = hogTradslagFarger(kluster[f.properties.i]?.tradslagCount ?? {});
+    hogar.push({ lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], m3, sortiment, grupper: hogGrupperKvar(kvar[j].kvar), farg: farger.farg, farg2: farger.farg2, a: rest ? REST_STYRKA : FULL_STYRKA });
   });
 
   // Hela trakten: hela m³ per sortiment, summan av de avrundade (raderna går att räkna ihop).

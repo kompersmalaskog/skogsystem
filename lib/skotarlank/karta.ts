@@ -5,8 +5,9 @@
 // som planeringen (hänsyn, nyckelbiotop, fornlämning, basväg, kraftledning som ledning, avlägg med Vidas nummer — inga ytnamn), skördarens körspår
 // som stråk (kartSpar, som skotarläget) och produktionshögarna som skotarlägets ljusa prickar.
 
-import { backvagFeatureUrData, backvagLager, BACKVAG_KALLA, kontextFeature, sparFeatures, SPAR_KALLA, vidaGransFeatures, vidaGransLager, VIDA_GRANS_KALLA } from '@/lib/egenkontrollkarta';
-import { kraftledningLager, linjeLager, pilLager, symbolLager, VIDA_BASVAG_FARG, zonFyllLager, zonKantLager, zonSnedstreckLager } from '@/lib/kartstil';
+import { backvagFeatureUrData, backvagLager, BACKVAG_KALLA, kontextFeature, sparFeatures, SPAR_KALLA, vidaGransFeatures, VIDA_GRANS_KALLA } from '@/lib/egenkontrollkarta';
+import { TRAKTGRANS_BREDD, TRAKTGRANS_KANT_BREDD, TRAKTGRANS_KANT_FARG } from '@/lib/fastighetsgransKarta';
+import { kraftledningLager, LEGEND, linjeLager, pilLager, symbolLager, VIDA_BASVAG_FARG, zonFyllLager, zonKantLager, zonSnedstreckLager } from '@/lib/kartstil';
 import { VAG_LINJETYPER } from '@/lib/backvag';
 import { HANSYNSYTA_FILTER, OVRIGT_YTA_FILTER, OVRIGT_YTA_STIL, snedstreckId } from '@/lib/ytaStil';
 import { FARG_KULTUR, FARG_NATUR, LINJE_GRUPP, SYMBOL_GRUPP, YTA } from '@/lib/larm/grupper';
@@ -19,6 +20,7 @@ import type { SkotarHog } from './hogar';
 import { kommentarTecken, linjeMitt } from '@/lib/kommentarTecken';
 import { inrePunkt } from '@/lib/ytaEtikett';
 import { RUTA_BILD } from '@/lib/skotarLass/avlaggKarta';
+import { hogRadie, HOG_HALV_BILD, HOG_HALV_RADIE_PX } from '@/lib/hogPrick';
 
 export type LngLat = [number, number];
 
@@ -94,7 +96,7 @@ export function kallor(d: Data) {
     });
   }
   const vida = d.vida.map((f, i) => ({ ...f, properties: { ...f.properties, vi: i } as Record<string, unknown> }));
-  const hogar = (d.hogar?.hogar ?? []).map((h, i) => ({ type: 'Feature', properties: { hi: i, v: h.m3, farg: h.farg, a: h.a }, geometry: { type: 'Point', coordinates: [h.lng, h.lat] } }));
+  const hogar = (d.hogar?.hogar ?? []).map((h, i) => ({ type: 'Feature', properties: { hi: i, v: h.m3, farg: h.farg, ...(h.farg2 ? { farg2: h.farg2 } : {}), a: h.a }, geometry: { type: 'Point', coordinates: [h.lng, h.lat] } }));
   return {
     [KALLA.mark]: fc(mark),
     [KALLA.tecken]: fc(tecken),
@@ -175,7 +177,13 @@ export function lagerSpec() {
     { id: 'sk-vida-raa-punkt', type: 'circle', source: KALLA.vida, filter: ['==', ['get', '_lager'], 'L_RAA_POINT_101'], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 7], 'circle-color': FARG_KULTUR, 'circle-stroke-color': '#1a1a1a', 'circle-stroke-width': 1.5 } },
   ];
   const skyddTecken = [friLager('sk-s', del('skydd'))];
-  const grans = [...vidaGransLager(), ...linjeLager(M, 'sk-g', null, undefined, { endast: ['boundary'] })];
+  // Traktgränsen som i planeringen (app/planering trakt-gr-*): röd/gul snitsel med mörk kant, samma bredd och färg.
+  const traktLinje = { 'line-cap': 'round', 'line-join': 'round' };
+  const grans = [
+    { id: 'sk-trakt-kant', type: 'line', source: VIDA_GRANS_KALLA, layout: traktLinje, paint: { 'line-color': TRAKTGRANS_KANT_FARG, 'line-width': TRAKTGRANS_KANT_BREDD } },
+    { id: 'sk-trakt-linje', type: 'line', source: VIDA_GRANS_KALLA, layout: traktLinje, paint: { 'line-color': LEGEND.fara, 'line-width': TRAKTGRANS_BREDD } },
+    { id: 'sk-trakt-rand', type: 'line', source: VIDA_GRANS_KALLA, layout: traktLinje, paint: { 'line-color': LEGEND.gul, 'line-width': TRAKTGRANS_BREDD, 'line-dasharray': [2, 2] } },
+    ...linjeLager(M, 'sk-g', null, undefined, { endast: ['boundary'] })];
   const vagar = [
     { id: 'sk-vida-basvag', type: 'line', source: KALLA.vida, filter: VIDA_BASVAG, paint: { 'line-color': ['coalesce', ['get', '_farg'], VIDA_BASVAG_FARG], 'line-width': 4 }, layout: { 'line-cap': 'round' } },
     ...linjeLager(M, 'sk-v', null, undefined, { endast: VAG_LINJETYPER }),
@@ -207,19 +215,22 @@ export function lagerSpec() {
     { id: 'sk-spar-kant', type: 'line', source: SPAR_KALLA.skordare, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': sp.kantFarg, 'line-width': sp.kantBredd, 'line-opacity': sp.kantOpacitet } },
     { id: 'sk-spar', type: 'line', source: SPAR_KALLA.skordare, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': sp.farg, 'line-width': sp.bredd, 'line-opacity': sp.opacitet } },
   ];
-  // Samma prickar som maskinernas skotarläge (app/planering/page.tsx laggTillHogPrickar): ljus prick med mörk kant, större = mer kvar, en rest nästan osynlig.
+  // Samma prickar som maskinernas skotarläge (app/planering/page.tsx laggTillHogPrickar): trädslagets färg (gran grön, tall orange, björk vit,
+  // blandat/okänt grå), blandad hög halv–halv, mörk kant, större = mer kvar, en rest nästan osynlig.
   const hogar = [{
     id: 'sk-hogar', type: 'circle', source: KALLA.hogar,
     paint: {
       'circle-color': ['get', 'farg'],
       'circle-stroke-color': 'rgba(0,0,0,0.75)',
       'circle-stroke-width': 1.5,
-      'circle-radius': ['interpolate', ['linear'], ['zoom'],
-        13, ['interpolate', ['linear'], ['get', 'v'], 0, 1, 2, 1.5, 10, 3, 30, 5],
-        17, ['interpolate', ['linear'], ['get', 'v'], 0, 1.5, 1, 2.5, 5, 4.5, 15, 7.5, 40, 10]],
+      'circle-radius': hogRadie(1),
       'circle-opacity': ['coalesce', ['get', 'a'], 0.95],
       'circle-stroke-opacity': ['coalesce', ['get', 'a'], 0.95],
     },
+  }, {
+    id: 'sk-hogar-halv', type: 'symbol', source: KALLA.hogar, filter: ['has', 'farg2'],
+    layout: { 'icon-image': HOG_HALV_BILD, 'icon-size': hogRadie(1 / HOG_HALV_RADIE_PX), 'icon-allow-overlap': true, 'icon-ignore-placement': true },
+    paint: { 'icon-color': ['get', 'farg2'], 'icon-opacity': ['coalesce', ['get', 'a'], 0.95] },
   }];
   return { skydd, skyddTecken, ovrigtYtor, ovrigtSymboler, grans, vagar, vagSymboler, faraLinjer, faraSymboler, spar, hogar };
 }
