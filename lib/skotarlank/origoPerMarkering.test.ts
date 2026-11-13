@@ -39,14 +39,40 @@ describe('origoPerMarkering', () => {
 });
 
 import { skotarHogar } from './hogar';
-import { FULL_STYRKA, HOG_PRICK_FARG } from '@/lib/skotarHogarKvar';
+import { FULL_STYRKA } from '@/lib/skotarHogarKvar';
+import { HOG_TRADSLAG_FARG, KARTA_BLANDAT, TALL_FARG } from '@/lib/tradslag';
+const KARTA_GRAN = HOG_TRADSLAG_FARG.GRAN;
 describe('högarna som skotarlägets prickar', () => {
-  it('ljus prick med full styrka på en orörd hög; sortimenten finns för kortet', () => {
-    const st = Array.from({ length: 6 }, (_, i) => ({ lat: 56.659 + i * 1e-6, lng: 15.356, volym: 0.4, tradslag: 'Gran', sortiment: 'Massa' }));
+  it('granens färg med full styrka på en orörd hög; sortimenten och grupperna finns för kortet', () => {
+    const st = Array.from({ length: 6 }, (_, i) => ({ lat: 56.659 + i * 1e-6, lng: 15.356, volym: 0.4, tradslag: 'GRAN', sortiment: 'Massa' }));
     const h = skotarHogar(st, [], [], []);
     expect(h.hogar.length).toBeGreaterThan(0);
-    expect(h.hogar[0].farg).toBe(HOG_PRICK_FARG.alla);
+    expect(h.hogar[0].farg).toBe(KARTA_GRAN);
+    expect(h.hogar[0].farg2).toBeNull();
+    expect(h.hogar[0].grupper[0].grupp).toBe('massa');
     expect(h.hogar[0].a).toBe(FULL_STYRKA);
     expect(h.hogar[0].sortiment[0].namn).toBe('Massa');
+  });
+  it('blandad hög ritas halv–halv som i planeringen; okänt trädslag är grått', () => {
+    const p = (ts: string, i: number) => ({ lat: 56.659 + i * 1e-6, lng: 15.356, volym: 0.4, tradslag: ts, sortiment: 'Massa' });
+    const blandad = skotarHogar([p('GRAN', 0), p('GRAN', 1), p('TALL', 2), p('TALL', 3)], [], [], []).hogar[0];
+    expect([blandad.farg, blandad.farg2].sort()).toEqual([KARTA_GRAN, TALL_FARG].sort());
+    const okant = skotarHogar([p('', 0), p('', 1)], [], [], []).hogar[0];
+    expect(okant.farg).toBe(KARTA_BLANDAT);
+  });
+});
+
+import { skotarOmrade } from './hogar';
+describe('Rita runt: sortimenten med trädslag', () => {
+  it('ringen ger varje sortiment för sig, under sin grupp', () => {
+    const p = (sortiment: string, i: number) => ({ lat: 56.659 + i * 1e-6, lng: 15.356, volym: 1, tradslag: 'GRAN', sortiment });
+    const st = [p('Gran Massa: BmavFall_V3', 0), p('Gran Massa: BmavFall_V3', 1), p('Björk Massa: BjörkmavFall_V3', 2)];
+    const ring: [number, number][] = [[15.355, 56.658], [15.357, 56.658], [15.357, 56.660], [15.355, 56.660], [15.355, 56.658]];
+    const s = skotarOmrade(st, [], [], [], ring);
+    expect(s.sortiment).toEqual([
+      { namn: 'Gran Massa: BmavFall_V3', grupp: 'massa', m3: 2 },
+      { namn: 'Björk Massa: BjörkmavFall_V3', grupp: 'massa', m3: 1 },
+    ]);
+    expect(s.grupper.find((g) => g.grupp === 'massa')?.m3).toBe(3);
   });
 });

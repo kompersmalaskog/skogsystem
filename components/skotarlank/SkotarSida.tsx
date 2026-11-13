@@ -11,7 +11,7 @@
 // "Tagen" frågar vart det gick (bara när trakten har fler än ett avlägg) och servern skriver markeringen OCH volymen på avlägget i samma steg.
 // Det finns inget lasskort. Markeringarna sparas i samma tabell som våra förares, så de syns i planeringen och i våra skotare.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { AVSTAND, FARG, KNAPP, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
@@ -30,6 +30,9 @@ import { KALLA, LAGER, STANDARD_LAGER, finns as finnsLager, kallor, lagerIdn, la
 import type { HogSortiment, SkotarHog } from '@/lib/skotarlank/hogar';
 import type { Avlagg } from '@/lib/skotarlank/avlagg';
 import { ritaRuta, RUTA_BILD, RUTA_STRACK } from '@/lib/skotarLass/avlaggKarta';
+import { hogHalvBild, HOG_HALV_BILD } from '@/lib/hogPrick';
+import { hogGrupp } from '@/lib/skotarHogarKvar';
+import { HOG_GRUPP_FARG, mestText } from '@/components/planering/HogKort';
 import { laggTillTeckenBilder } from '@/lib/kommentarTecken';
 import { hallSkarmenVakenIWebblasare } from '@/lib/skarmVaken';
 import { useRitadSkotare } from '@/lib/skotarlank/useRitadSkotare';
@@ -68,7 +71,7 @@ const ANGRA_MS = 5000;
 const RING_KALLA = 'sk-ring';
 const POS_KALLA = 'sk-position';
 
-type Omrade = { hogar: number; kvar: number; skordat: number; grupper: { grupp: string; namn: string; m3: number }[] };
+type Omrade = { hogar: number; kvar: number; skordat: number; grupper: { grupp: string; namn: string; m3: number }[]; sortiment?: { namn: string; grupp: string; m3: number }[] };
 type Panel = null | 'meny' | 'kvar' | 'om' | 'lager' | 'forklaring';
 /** Avlägget han senast körde till — står först när han väljer vart det gick. */
 const LAGRING_SENASTE_AVLAGG = 'skotarlank_senaste_avlagg_v1';
@@ -129,6 +132,8 @@ async function laggTillBilder(map: maplibregl.Map): Promise<void> {
     const ruta = ritaRuta();
     if (ruta && !map.hasImage(RUTA_BILD)) map.addImage(RUTA_BILD, ruta, { pixelRatio: 2, stretchX: RUTA_STRACK.stretchX.map((r) => [...r]) as never, stretchY: RUTA_STRACK.stretchY.map((r) => [...r]) as never, content: [...RUTA_STRACK.content] as never });
   } catch { /* fäller inte kartan */ }
+  // Blandad hög: andra trädslaget som en halv skiva (SDF, färgen ur datan) — samma bild som planeringen och skotarläget.
+  try { if (!map.hasImage(HOG_HALV_BILD)) map.addImage(HOG_HALV_BILD, hogHalvBild(), { sdf: true }); } catch { /* fäller inte kartan */ }
   laggTillTeckenBilder(map);
   await Promise.all(laddar);
 }
@@ -679,10 +684,22 @@ export default function SkotarSida({ token }: { token: string }) {
                         <span style={{ flex: 1 }}>{g.namn}</span><span>{tal(g.m3)} m³fub</span>
                       </>
                     );
-                    return valbar ? (
+                    // Under gruppen: sortimenten med trädslag ("Massaved björk"), som i högkortet.
+                    const under = (omrade.svar.sortiment ?? []).filter((x) => x.grupp === g.grupp);
+                    const underRader = under.length > 0 && (
+                      <div data-skotar-grupp-sortiment={g.grupp} style={{ paddingLeft: 24 + AVSTAND.m, paddingBottom: AVSTAND.s }}>
+                        {under.map((x) => (
+                          <div key={x.namn} style={{ display: 'flex', gap: AVSTAND.m, ...TYP.meta, color: FARG.text2, ...TNUM, padding: `2px 0` }}>
+                            <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{visningAv(x.namn)}</span><span style={{ whiteSpace: 'nowrap' }}>{tal(x.m3)} m³fub</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                    const knappEllerRad = valbar ? (
                       <button key={g.grupp} type="button" role="checkbox" aria-checked={vald} data-skotar-grupp={g.grupp}
                         onClick={() => setValdaGrupper((v) => (v.includes(g.grupp) ? v.filter((x) => x !== g.grupp) : [...v, g.grupp]))} style={{ ...rad, cursor: 'pointer' }}>{innehall}</button>
                     ) : <div key={g.grupp} style={rad}>{innehall}</div>;
+                    return <Fragment key={g.grupp}>{knappEllerRad}{underRader}</Fragment>;
                   })}
                   <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Bocka i det du har tagit. Inget ibockat = allt.</p>
                 </div>
@@ -816,8 +833,15 @@ function KortArk({ kort, token, sparar, fel, onStang, onTagen }: { kort: TryckKo
           <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s }}>
             <span style={{ ...TYP.tal }}>{tal(h.m3)}</span><span style={{ ...TYP.text }}>m³fub ligger kvar här</span>
           </div>
+          {mestText(h.grupper) && <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xs }}>{mestText(h.grupper)}</div>}
+          {h.grupper.length > 0 && (
+            // Fördelningen som i appens högkort (components/planering/HogKort): sortimentets färg, namnet och talet står alltid bredvid.
+            <div aria-hidden="true" data-skotar-hog-stapel="" style={{ display: 'flex', gap: 2, height: 14, marginTop: AVSTAND.m, borderRadius: RADIE.stapel, overflow: 'hidden' }}>
+              {h.grupper.map((g) => <div key={g.grupp} style={{ flex: `${g.m3} 1 0`, background: HOG_GRUPP_FARG[g.grupp] }} />)}
+            </div>
+          )}
           <div style={{ marginTop: AVSTAND.m }}>
-            {h.sortiment.map((t, i) => <SortimentRad key={t.namn} namn={t.visning} m3={t.m3} forsta={i === 0} />)}
+            {h.sortiment.map((t, i) => <SortimentRad key={t.namn} namn={t.visning} m3={t.m3} forsta={i === 0} farg={HOG_GRUPP_FARG[hogGrupp(t.namn)]} />)}
           </div>
           <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Det skördaren lade här, minus det som redan skotats. Ungefär — högen kan ligga några meter fel.</p>
           {fel && <p role="alert" style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.orange }}>{fel}</p>}
@@ -877,9 +901,10 @@ function Brytare({ namn, pa, kan, under, sista, onVaxla, id }: { namn: string; p
   );
 }
 
-function SortimentRad({ namn, m3, forsta }: { namn: string; m3: number; forsta: boolean }) {
+function SortimentRad({ namn, m3, forsta, farg }: { namn: string; m3: number; forsta: boolean; farg?: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.primar, borderTop: forsta ? 'none' : `1px solid ${FARG.linje}`, ...TYP.text, ...TNUM }}>
+      {farg && <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: farg, flexShrink: 0 }} />}
       <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{namn}</span><span style={{ whiteSpace: 'nowrap' }}>{tal(m3)} m³fub</span>
     </div>
   );
