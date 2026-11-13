@@ -13552,10 +13552,9 @@ export default function PlannerPage() {
   // grenen, så förarlistan visades utan gul rand/Avsluta — och sekvensen kunde inte täcka objektlistan.
   const maskinLager = (
     <>
-      {fartMatarePa && (
-        <FartMatare karta={() => mapInstanceRef.current} bakgrund={mapType} lager={overlays as Record<string, boolean | undefined>} topp={testlage ? TESTBANNER_HOJD_PX : 0}
-          namn={(id) => (wmsLayers as any[]).find((l) => l.id === id)?.name ?? (KARTLAGER_NAMN as Record<string, string>)[id] ?? id} />
-      )}
+      {/* Mäter alltid, tyst (lib/fart/fartLogg). Rutan syns bara med ?fart=1 — förarna ska inte se något på skärmen. */}
+      <FartMatare visa={fartMatarePa} karta={() => mapInstanceRef.current} bakgrund={mapType} lager={overlays as Record<string, boolean | undefined>} topp={testlage ? TESTBANNER_HOJD_PX : 0}
+        namn={(id) => (wmsLayers as any[]).find((l) => l.id === id)?.name ?? (KARTLAGER_NAMN as Record<string, string>)[id] ?? id} />
       {/* === "ÖPPNA SOM MASKIN"-BANNER (neutral grå, över allt) — får aldrig förväxlas med skarpt läge. Inte orange: orange är hytten-kortets färg för ett besök. === */}
       {testlage && (
         <div style={{

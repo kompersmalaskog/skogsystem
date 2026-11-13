@@ -1,9 +1,11 @@
 'use client';
-// Fartmätaren — visas BARA när den slagits på med ?fart=1 (lib/fart/fartMatare.ts). Mäter varje byte av bakgrund eller lager:
+// Fartmätaren — mäter ALLTID, tyst (raderna går till lib/fart/fartLogg), men RUTAN visas BARA när den slagits på med ?fart=1
+// (prop `visa`, lib/fart/fartMatare.ts). Mäter varje byte av bakgrund eller lager:
 // sidan (trycket → omritad sida), rutorna (→ kartan klar) och ritningen (långsammaste bildrutan). Rör ingenting i kartan.
 import { useEffect, useRef, useState } from 'react';
 import { FARG, FONT, TYP, RADIE, AVSTAND, VIKT } from '@/lib/design/tokens';
 import { FART_MAX_MS, FART_NYCKEL, matningRader, sammanfatta, vadAndrades, type Hamtning, type Matning } from '@/lib/fart/fartMatare';
+import { kartRad, laggTill, vyNamn } from '@/lib/fart/fartLogg';
 
 export interface FartMatareProps {
   /** Kartan (MapLibre) — bara `once('idle')`/`off` och `loaded()` används. */
@@ -13,6 +15,8 @@ export interface FartMatareProps {
   namn: (id: string) => string;
   /** Avstånd från skärmens överkant (testbannern, safe-area). */
   topp?: number;
+  /** Rutan på skärmen. Utan den mäts allt ändå, tyst. */
+  visa: boolean;
 }
 
 const enhetRad = (): string => {
@@ -70,7 +74,9 @@ export function FartMatare(p: FartMatareProps) {
       if (vakt) clearTimeout(vakt);
       try { karta?.off?.('idle', vidKlar); } catch { /* */ }
       setMater(null);
-      setRader((r) => [sammanfatta({ vad, tryck, ritad, klar: t, hamtningar: hamtRef.current, bildrutor }), ...r].slice(0, 5));
+      const m = sammanfatta({ vad, tryck, ritad, klar: t, hamtningar: hamtRef.current, bildrutor });
+      try { laggTill(kartRad(m, vyNamn(window.location.pathname))); } catch { /* mätningen får aldrig störa kartan */ }
+      setRader((r) => [m, ...r].slice(0, 5));
     };
     const vidKlar = () => klar(performance.now());
     const steg = (t: number) => { if (avbruten) return; bildrutor.push(t); ram = requestAnimationFrame(steg); };
@@ -88,7 +94,7 @@ export function FartMatare(p: FartMatareProps) {
     return () => { if (!avbruten) { avbruten = true; cancelAnimationFrame(ram); if (vakt) clearTimeout(vakt); try { karta?.off?.('idle', vidKlar); } catch { /* */ } setMater(null); } };
   }, [p.bakgrund, lagerNyckel]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (stangd) return null;
+  if (stangd || !p.visa) return null;
   const liten = { ...TYP.meta, color: FARG.text2 } as const;
   return (
     <div data-testid="fart-matare" style={{
