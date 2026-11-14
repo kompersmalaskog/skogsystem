@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import Ikon from '@/components/design/Ikon';
 import { Sheet, ConfirmDialog } from '@/components/Sheet';
-import { Kort, Rad } from '@/components/utbildning/ui';
+import { Kort, Rad, Toggle } from '@/components/utbildning/ui';
+import { lasIntygSe, sattIntygSe } from '@/lib/cert/data';
 import { AVSTAND, FARG, IKON, RADIE, TYP } from '@/lib/design/tokens';
 import { STATUS_META, formatDatum, visaNamn, type UtbildningStatusRad } from '@/lib/utbildning';
 
@@ -25,6 +26,25 @@ export default function BevisSheet({
   const [tarBort, setTarBort] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
   const [bevisFel, setBevisFel] = useState<string | null>(null);
+
+  // "Uppladdat hos SE" (cert_se): bara för utbildningar som är SE-krav. null = ingen växel (inget SE-krav, eller
+  // inte läst än). Sparas direkt, som resten av arket; går det inte går växeln tillbaka och felet sägs.
+  const [se, setSe] = useState<boolean | null>(null);
+  const [seFel, setSeFel] = useState<string | null>(null);
+  const bevisId = rad?.bevis_id ?? null;
+  const typId = rad?.utbildning_typ_id ?? null;
+  useEffect(() => {
+    let av = false;
+    setSe(null); setSeFel(null);
+    if (bevisId && typId) lasIntygSe(typId, bevisId).then(v => { if (!av) setSe(v); }).catch(() => { /* ingen växel */ });
+    return () => { av = true; };
+  }, [bevisId, typId]);
+  async function bytSe(pa: boolean) {
+    if (!bevisId) return;
+    setSe(pa); setSeFel(null);
+    try { await sattIntygSe(bevisId, pa); }
+    catch (e: any) { setSe(!pa); setSeFel(e?.message ?? 'Kunde inte spara "Uppladdat hos SE"'); }
+  }
 
   async function visaBevis() {
     if (!rad?.pdf_url) return;
@@ -89,9 +109,13 @@ export default function BevisSheet({
                   varde={<Ikon namn="picture_as_pdf" storlek={IKON.text} farg={FARG.text2} />}
                 />
               )}
+              {se !== null && (
+                <Rad titel="Uppladdat hos SE" pil="ingen" varde={<Toggle checked={se} onChange={bytSe} />} />
+              )}
               <Rad titel="Öppna utbildning" href={`/utbildning/typ/${rad.utbildning_typ_id}`} sista />
             </Kort>
 
+            {seFel && <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: `${AVSTAND.m}px 0 0` }}>{seFel}</p>}
             {bevisFel && <p style={{ ...TYP.meta, color: FARG.rod, margin: `${AVSTAND.m}px 0 0` }}>{bevisFel}</p>}
             {fel && <p style={{ ...TYP.meta, color: FARG.rod, margin: `${AVSTAND.m}px 0 0` }}>Kunde inte ta bort: {fel}</p>}
 

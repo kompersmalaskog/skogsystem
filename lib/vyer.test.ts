@@ -34,7 +34,7 @@ describe('vyregistret', () => {
     expect(hrefs.filter(h => !iRegistret.has(h))).toEqual([])
     // Gamla sidans tre admin-poster är spärrade här också — plus Objektöversikten, Åtgärder, Skyddsrond, Massaved och Så gör vi (godkännandet; föraren läser under Om något händer) — och inget annat.
     expect(VYER.filter(v => v.bara === 'admin').map(v => v.href).sort())
-      .toEqual(['/admin', '/admin/markagarrapport', '/admin/objektoversikt', '/atgarder', '/ekonomi', '/massaved', '/sa-gor-vi', '/skyddsrond'])
+      .toEqual(['/admin', '/admin/markagarrapport', '/admin/objektoversikt', '/atgarder', '/cert', '/ekonomi', '/massaved', '/sa-gor-vi', '/skyddsrond'])
   })
 
   it('den gamla startsidan är borta: Hem visar bara den nya (inga egna rutor i HomeClient)', () => {

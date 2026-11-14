@@ -1,0 +1,79 @@
+krav_nr,namn,se_sektion_nr,se_sektion,galler_oss,hog,underlag,hur_ofta,i_skogsystem,var_finns_idag
+1.1.1,Korrekta företagsuppgifter,1,Företagsansvar,Ja,Online,Registreringsbevis/utdrag från Bolagsverket,Vid förändring,Ladda upp,Bolagsverket – hämta registreringsbevis
+1.1.2,Följer lagar & bestämmelser,1,Företagsansvar,Ja,Skriva,Rutin för bevakning av regelverket,Vid förändring,Ladda upp,Skriven i Rutiner för PEFC
+1.2.1,F-skatt & moms,1,Företagsansvar,Ja,Mejla,F-skattebevis och utdrag från skattekontot,Vid förändring,Ladda upp,Redovisningsbyrån / Skatteverket
+1.2.2,Skatter & avgifter,1,Företagsansvar,Ja,Mejla,Utdrag ur skattekontot (arbetsgivaravgifter),Månatligen,Påminnelse,Redovisningsbyrån / Skatteverket
+1.2.3,Bokslut,1,Företagsansvar,Ja,Mejla,Senaste bokslut/årsredovisning,Årligen,Påminnelse,Redovisningsbyrån
+1.3.1,Försäkringar,1,Företagsansvar,Ja,Online,Foras årssammanställning,Årligen,Påminnelse,"Fora, Mina sidor"
+1.3.2,Försäkringar,1,Företagsansvar,Ja,Mejla,Ansvars- och arbetsskadeförsäkring,Årligen,Påminnelse,Länsförsäkringar
+1.4.1,Korrekta tillstånd,1,Företagsansvar,Nej,Inget,Uppehålls-/arbetstillstånd,Vid anställning,Ladda upp,Inga utländska anställda
+1.4.2,Beskattning,1,Företagsansvar,Nej,Inget,SINK-beslut / kontrolluppgift,Vid anställning,Ladda upp,Inga utländska anställda
+1.4.3,Vilket lands socialförsäkringssystem,1,Företagsansvar,Nej,Inget,A1-intyg,Vid anställning,Ladda upp,Inga utländska anställda
+1.4.4,Rätt till vårdförmåner,1,Företagsansvar,Nej,Inget,EU-kort/intyg,Vid anställning,Ladda upp,Inga utländska anställda
+1.4.5,Särskild försäkring,1,Företagsansvar,Nej,Inget,Försäkring för anställd utanför EU/EES,Vid anställning,Ladda upp,Inga utländska anställda
+1.4.6,Vetskap rättigheter & förmåner,1,Företagsansvar,Nej,Inget,Dokumenterat samtal,Vid anställning,Ladda upp,Inga utländska anställda
+1.5.1,Affärsavtal,1,Företagsansvar,Ja,Leta upp,Skriftliga avtal med uppdragsgivare,Vid förändring,Ladda upp,Avtalet med Vida
+1.5.2,PEFC skogsstandard,1,Företagsansvar,Ja,Leta upp,Avtal som hänvisar till PEFC,Vid förändring,Ladda upp,Avtalet med Vida – PEFC nämns
+1.5.3,Tillgång traktdirektiv,1,Företagsansvar,Ja,Online,Traktdirektiv per objekt,Varje objekt,Ladda upp,Vidas sida – ett exempel
+1.5.4,Följa och rapportera anpassningar/avsteg,1,Företagsansvar,Ja,Online,Rapporterade avsteg,Varje objekt,Ladda upp,Vidas system – skärmdump
+1.5.5,Vid brister,1,Företagsansvar,Ja,Online,Rapporterad brist till beställaren,Vid behov,Ladda upp,Vidas system – skärmdump
+1.5.6,Vid fortsatta brister,1,Företagsansvar,Ja,Inget,Avvikelseanmälan till SE,Vid behov,Ladda upp,Bara om Vida inte rättar bristen
+2.1.1,Affärsidé,2,SAM & beredskap,Ja,Skriva,Skriftlig affärsidé,Vid ändring,Ladda upp,Skriven i Rutiner för PEFC
+2.1.2,Kollektivavtal,2,SAM & beredskap,Ja,Leta upp,Kollektivavtal och lönebesked,Årligen (1 april),Påminnelse,Kollektivavtal finns (Fora)
+2.1.3,Anställningsavtal,2,SAM & beredskap,Ja,Leta upp,Anställningsavtal per anställd,Vid anställning,Ladda upp,Finns – samla in
+2.1.4,Befattningsbeskrivning,2,SAM & beredskap,Ja,Leta upp,Befattningsbeskrivning per anställd,Vid anställning,Ladda upp,Leta upp – annars skriv ny
+2.1.5,Arbetsplatsträff,2,SAM & beredskap,Ja,Möte,Protokoll från APT,Minst 2 ggr/år,Påminnelse,SAKNAS – håll APT före februari
+2.1.6,Samverkan med anställda,2,SAM & beredskap,Ja,Möte,APT-protokoll,Löpande,Påminnelse,SAKNAS – täcks av APT
+2.1.7,Medarbetarsamtal,2,SAM & beredskap,Ja,Möte,Dokumentation per anställd,1 ggr/år,Påminnelse,SAKNAS – före februari
+2.1.8,Geografisk spridd verksamhet,2,SAM & beredskap,Om aktuellt,Leta upp,Tillägg i anställningsavtalet,Vid anställning,Ladda upp,Bara vid bortaliggning
+2.1.9,Goda levnadsvillkor,2,SAM & beredskap,Om aktuellt,Leta upp,Dokumenterat boende,Löpande,Ladda upp,Bara vid bortaliggning
+2.2.1,Riskbedömning,2,SAM & beredskap,Ja,Appen,SAM-handlingsplan med riskbedömning,Löpande,Automatiskt,Finns i Skogsystem
+2.2.2,Årlig uppdatering av riskbedömning,2,SAM & beredskap,Ja,Möte,Uppdaterad riskbedömning,Årligen,Påminnelse,Finns i Skogsystem – gå igenom vid APT
+2.2.3,Utredning & anmälan,2,SAM & beredskap,Ja,Appen,Utredning av olyckor och tillbud,Vid händelse,Automatiskt,Finns i Skogsystem
+2.3.1,Säkerhetsrutiner,2,SAM & beredskap,Ja,Skriva,Säkerhets- och nödlägesrutiner,Vid förändring,Bygg i appen,Skriven i Rutiner för PEFC
+2.3.2,Företagshälsovård,2,SAM & beredskap,Ja,Mejla,Avtal med företagshälsovård,Vid förändring,Ladda upp,SAKNAS – teckna avtal
+2.3.3,Skyddsombud,2,SAM & beredskap,Om aktuellt,Möte,Anslag med skyddsombudets namn,Vid förändring,Ladda upp,Gränsfall – välj vid APT
+2.3.4,Skyddskommitté,2,SAM & beredskap,Nej,Inget,Protokoll (50+ anställda),Vid förändring,Ladda upp,Gäller inte
+2.3.5,Personalutrymme,2,SAM & beredskap,Ja,Möte,Dokumentation om koja,Vid förändring,Ladda upp,Skriv in i APT-protokollet
+2.4.1,Nödlägesrutiner,2,SAM & beredskap,Ja,Appen,Nödlägesanslag med larmkoordinater,Varje objekt + årligen,Automatiskt,Finns i Skogsystem
+2.4.2,Första hjälpen-utrustning,2,SAM & beredskap,Ja,Fota,Utrustning per maskin,Vid förändring,Automatiskt,Kontroll i Skogsystem
+3.1.1,SYN-kurs avverkning,3,Kompetens,Ja,Fota,Kompetensbevis per förare,Vart 5:e år,Påminnelse,Utbildning i Skogsystem
+3.1.2,SYN-kurs skyddsdikning/dikesrensning,3,Kompetens,Nej,Inget,Kompetensbevis,Vart 5:e år,Påminnelse,Gäller inte
+3.1.3,SYN-kurs markberedning,3,Kompetens,Nej,Inget,Kompetensbevis,Vart 5:e år,Påminnelse,Gäller inte
+3.1.4,SYN-kurs röjning/förröjning,3,Kompetens,Nej,Inget,Kompetensbevis,Vart 5:e år,Påminnelse,Gäller inte
+3.1.5,SYN-kurs plantering för planbasar,3,Kompetens,Nej,Inget,Kompetensbevis,Vart 5:e år,Påminnelse,Gäller inte
+3.1.6,Kompetens i skogsindelning,3,Kompetens,Nej,Inget,Kompetensbevis,Vart 5:e år,Påminnelse,Gäller inte
+3.1.7,SYN skogsbruksplanläggning,3,Kompetens,Nej,Inget,Kompetensbevis,Vart 5:e år,Påminnelse,Gäller inte
+3.1.8,Grundläggande naturvärdesbedömning,3,Kompetens,Ja,Mejla,Kompetensbevis för den som planerar hänsyn,Vart 5:e år,Påminnelse,Utbildning i Skogsystem
+3.1.9,ADR,3,Kompetens,Om aktuellt,Mejla,Kompetensbevis för den som kör farligt gods,Vart 5:e år,Påminnelse,Utbildning i Skogsystem
+3.1.10,Första hjälpen och HLR,3,Kompetens,Ja,Fota,Kompetensbevis per person,Vart 5:e år,Påminnelse,Utbildning i Skogsystem
+3.1.11,Utbildningsliggare,3,Kompetens,Ja,Appen,Liggare över personalens utbildningar,Årligen,Automatiskt,Utbildning i Skogsystem
+3.2.1,Rutiner fältarbete & kvalitetssäkring,3,Kompetens,Nej,Inget,Rutin för skogsbruksplanläggning,Vid förändring,Ladda upp,Gäller inte
+4.1.1,Mer än ett led,4,Underentreprenörer,Ja,Skriva,Avtal som förbjuder fler led,Om aktuellt,Ladda upp,Avtalsmall i Rutiner för PEFC
+4.1.2,Skriftlig överenskommelse,4,Underentreprenörer,Ja,Skriva,Avtal med underentreprenör,Vid förändring,Ladda upp,Avtalsmall i Rutiner för PEFC
+4.1.3,Underentreprenörens certifiering,4,Underentreprenörer,Ja,Online,UE:s PEFC-bevis,Årligen,Påminnelse,SE:s register – skärmdump
+4.1.4,Geografisk spridd verksamhet,4,Underentreprenörer,Om aktuellt,Skriva,Villkor vid bortaliggning,Om aktuellt,Ladda upp,Avtalsmall i Rutiner för PEFC
+4.1.5,Goda levnadsvillkor,4,Underentreprenörer,Om aktuellt,Skriva,Goda levnadsvillkor för UE,Om aktuellt,Ladda upp,Avtalsmall i Rutiner för PEFC
+4.1.6,Affärsavtal,4,Underentreprenörer,Ja,Skriva,Skriftligt affärsavtal med UE,Vid förändring,Ladda upp,Avtalsmall i Rutiner för PEFC
+5.1.1,Bränsle till motorsåg,5,Förebyggande miljöarbete,Ja,Leta upp,Faktura på alkylatbensin,Vid förändring,Ladda upp,Faktura
+5.1.2,Sågkedjeolja motorsåg,5,Förebyggande miljöarbete,Ja,Leta upp,Faktura på bio-kedjeolja,Vid förändring,Ladda upp,Faktura
+5.1.3,Bränsle till röjsåg,5,Förebyggande miljöarbete,Nej,Inget,Faktura på alkylatbensin,Vid förändring,Ladda upp,Gäller inte
+5.1.4,Hydraulolja,5,Förebyggande miljöarbete,Ja,Leta upp,Faktura på miljöanpassad hydraulolja,Vid förändring,Ladda upp,Panolin + OK-Q8 bio – fakturor
+5.1.5,Glykol,5,Förebyggande miljöarbete,Ja,Leta upp,Faktura på propylenglykol,Vid förändring,Ladda upp,Faktura
+5.1.6,Sågkedjeolja & smörjfett skördare,5,Förebyggande miljöarbete,Ja,Leta upp,Faktura på kedjeolja och fett,Vid förändring,Ladda upp,Faktura
+5.1.7,Motorernas steg,5,Förebyggande miljöarbete,Ja,Appen,Maskinlista med utsläppssteg,Vid förändring,Automatiskt,KOLLA om motorsteg finns per maskin
+5.1.8,Saneringsutrustning,5,Förebyggande miljöarbete,Ja,Fota,Foto per maskin,Vid förändring,Ladda upp,Finns i varje maskin
+5.1.9,Brandutrustning maskin,5,Förebyggande miljöarbete,Ja,Fota,Släckare/besiktning per maskin,Vid förändring,Ladda upp,Finns i varje maskin
+5.1.10,Förebyggande åtgärder mot skogsbrand,5,Förebyggande miljöarbete,Ja,Skriva,Rutin vid brandrisk,Vid behov,Ladda upp,Skriven i Rutiner för PEFC
+6.1.1,Farligt gods,6,Farligt gods & avfall,Ja,Fota,Godsdeklaration och ADR-instruktioner i fordon,Vid förändring,Ladda upp,KOLLA i bilarna
+6.1.2,Kemikalielista,6,Farligt gods & avfall,Ja,Appen,Ifylld kemikalielista,Vid förändring,Automatiskt,Byggd i Skogsystem – inte ifylld
+6.1.3,Säkerhetsdatablad,6,Farligt gods & avfall,Ja,Appen,Säkerhetsdatablad per produkt,Vid förändring,Automatiskt,Byggd i Skogsystem – inte ifylld
+6.1.4,Typgodkända förpackningar,6,Farligt gods & avfall,Ja,Fota,Typgodkännande på tankar,Vid förändring,Ladda upp,Fota skylten
+6.1.5,Besiktade tankar,6,Farligt gods & avfall,Ja,Leta upp,Besiktningsprotokoll,Vid behov,Påminnelse,Finns
+6.1.6,Plastförpackningar,6,Farligt gods & avfall,Ja,Online,Se SE:s information,Vid förändring,Ladda upp,KOLLA vad SE menar
+6.2.1,Farligt avfall,6,Farligt gods & avfall,Ja,Mejla,Serviceavtal som täcker avfall,Vid förändring,Ladda upp,Serviceföretaget
+6.2.2,Anmälan/tillstånd Länsstyrelsen,6,Farligt gods & avfall,Ja,Online,Anmälan för transport av farligt avfall,Vart 5:e år,Påminnelse,GÅTT UT – ansök på nytt
+6.2.3,Rapportering Naturvårdsverkets avfallsregister,6,Farligt gods & avfall,Ja,Mejla,Avtal där mottagaren rapporterar,Vid behov,Ladda upp,Serviceföretaget
+6.2.4,Transportdokument,6,Farligt gods & avfall,Om aktuellt,Inget,Transportdokument,Vid behov,Ladda upp,Bara när ni kör avfall själva
+6.2.5,Anteckningar farligt avfall,6,Farligt gods & avfall,Ja,Mejla,Loggbok/kvitton,Årligen,Påminnelse,Serviceföretagets kvitton
+6.2.6,Kontroll av mottagare,6,Farligt gods & avfall,Ja,Mejla,Mottagarens tillstånd,Vid behov,Ladda upp,Serviceföretaget – be om kopia
