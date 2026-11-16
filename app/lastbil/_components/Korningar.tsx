@@ -29,7 +29,6 @@ export function Anmarkningar({ s }: { s: Summa }) {
   const rader = [
     s.overlappande > 0 && `${s.overlappande} rundor överlappar i tid och kan vara dubbelräknade i summorna.`,
     s.ogiltiga > 0 && `${s.ogiltiga} ${s.ogiltiga === 1 ? 'runda har' : 'rundor har'} sluttid före start och ingår inte i summorna.`,
-    s.pagande > 0 && `${s.pagande} ${s.pagande === 1 ? 'runda pågår' : 'rundor pågår'} och räknas när de avslutats.`,
   ].filter(Boolean) as string[];
   if (!rader.length) return null;
   return <div>{rader.map(t => <p key={t} style={{ ...TYP.meta, color: FARG.orange, margin: `0 0 ${AVSTAND.xs}px` }}>{t}</p>)}</div>;
@@ -38,7 +37,7 @@ export function Anmarkningar({ s }: { s: Summa }) {
 /**
  * "Vad har bilen gjort?" — svaret först (omtag 2026-10-23, Martin: "så lätt att ett barn förstår"). Rubriken är frågan, sedan
  * "‹ Oktober 2026 ›", sedan svaret i ord ("Flyttat maskiner 5 gånger") med körda km dämpat under ("892 km i oktober"), sedan ETT kort
- * med alla rundor i månaden, nyast först. Inga filter och inga l/mil här — förbrukningen och uppdelningen bor i Uppföljning
+ * med alla AVSLUTADE rundor i månaden, nyast först (den pågående står i "Var är bilen?"). Inga filter och inga l/mil här — förbrukningen och uppdelningen bor i Uppföljning
  * (raden "Uppföljning ›" under listan). Detaljen ligger i arket. Alla rundor räknas på sin svenska startdag. Är månaden tom
  * öppnar "Senaste körning: <datum>" den senaste rundans ark.
  */
@@ -78,7 +77,8 @@ function Inre({ period, lage, onForsokIgen, onOppna, onOppnaAr, senaste, onOppna
   const rundor = lage.lage === 'klar' ? lage.rundor : null;
   const summa = useMemo(() => (rundor ? summera(rundor) : null), [rundor]);
   // ETT kort med alla rundor, nyast först (ingen veckoindelning, inget filter).
-  const synliga = useMemo(() => [...(rundor ?? [])].sort((a, b) => Date.parse(b.start) - Date.parse(a.start)), [rundor]);
+  // Den pågående körningen står i "Var är bilen?" (Kör nu), inte här: listan visar bara det bilen HAR gjort (Martin 2026-11-16).
+  const synliga = useMemo(() => (rundor ?? []).filter(r => !r.pagar).sort((a, b) => Date.parse(b.start) - Date.parse(a.start)), [rundor]);
 
   if (lage.lage === 'laddar') return <Status text="Läser körningar …" />;
   if (lage.lage === 'fel' || !rundor || !summa) {
@@ -103,7 +103,7 @@ function Inre({ period, lage, onForsokIgen, onOppna, onOppnaAr, senaste, onOppna
           <p data-tom style={{ ...TYP.meta, color: FARG.text2, margin: 0 }}>
             {`Inga rundor i ${periodKort(period)}. Körningarna lästes utan fel.`}
           </p>
-          {rundor.length === 0 && senaste && (
+          {synliga.length === 0 && senaste && (
             <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0, marginTop: AVSTAND.s }}>
               <TryckRad attr={{ 'data-senaste-korning': '' }} sista text={`Senaste körning: ${fmtDatum(senaste.start)}`} onTryck={() => onOppnaSenaste(senaste)} />
             </div>

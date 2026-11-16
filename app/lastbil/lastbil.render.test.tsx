@@ -814,11 +814,11 @@ describe("Körningar: kedjan, tom runda och aldrig 0 för saknade värden", () =
     expect(rundrad("b7243278")!.textContent).not.toMatch(/\b0 km/);
   });
 
-  it("en pågående runda visas, räknas inte och säger det", async () => {
+  it("en pågående runda står INTE i 'Vad har bilen gjort?' (den bor i 'Kör nu') och räknas inte (Martin 2026-11-16)", async () => {
     mock.extraRundor = [R("pagar", "2026-10-14T04:00:00Z", null, { status: "pagaende", auto_skapad: true })];
     await montera();
-    expect(rundrad("pagar")!.textContent).toContain("Pågår, räknas när den avslutats");
-    expect(text()).toContain("1 runda pågår och räknas när de avslutats.");
+    expect(rundrad("pagar")).toBeNull();
+    expect(text()).not.toContain("pågår och räknas");
     expect(document.querySelector('section[aria-label="Månaden"]')!.textContent).toContain("818 km");
   });
 
@@ -2735,6 +2735,20 @@ describe("Var är bilen? (förut Bilen nu)", () => {
     expect(lage()).toBe("Kör nu");
     expect(under()).toBe("Giant på flaket · 34 km · avfärd 06:41");
     expect(kort().querySelector("[data-sedd]")).toBeNull();                      // positionen är färsk (2 min): ingen "Senast sedd"
+  });
+
+  it("kör nu: ett tryck på läget öppnar körningens ark; parkerad bil har ingen sådan rad", async () => {
+    mock.extraRundor = [R("x", "2026-10-14T04:41:00Z", null, { status: "pagaende", auto_skapad: true })];
+    mock.api.body = { ...LAGE, parkerad: null, runda_pagar: true, oppen_runda_id: "x",
+      oppen_runda: { id: "x", starttid: "2026-10-14T04:41:00Z", live_km: 34, maskin: { namn: "Giant", lage: "flaket" }, pa_vag_hem: false, km_kvar: null },
+      position: { lat: 56.4, lng: 14.7, tidpunkt: "2026-10-14T09:58:00Z", alder_min: 2 } };
+    await nuFlik();
+    await klicka(kort().querySelector("[data-oppna-runda]") as HTMLElement);
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    await act(async () => { rot?.unmount(); }); rot = null;
+    mock.api.body = { ...LAGE };
+    await nuFlik();
+    expect(kort().querySelector("[data-oppna-runda]")).toBeNull();
   });
 
   it("låg diesel: en rad med orden ('tanka snart' / 'tanka nu') i orange/röd under tanken — och tar INTE över rubriken", async () => {
