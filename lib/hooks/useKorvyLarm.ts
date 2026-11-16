@@ -13,6 +13,8 @@ import { skaSpelaLjud, spelaLarmLjud, type SenastLjud } from '../larm/ljud';
 import type { Puls } from '../larm/pulsKarta';
 import { linjeObjekt, symbolObjekt, vidaObjekt, ytaObjekt } from '../larm/objekt';
 import { larmarInte } from '../egenYtaLarm';
+import { sammaMur, SAMMA_MUR_TYPER, type MurBit } from '../larm/sammaMur';
+import { laggTill, vyNamn } from '../fart/fartLogg';
 
 type LL = { lat: number; lon: number };
 type Geometri = { type: 'Point' | 'LineString' | 'Polygon' | 'MultiPolygon' | 'MultiLineString' | 'MultiPoint'; coordinates: any };
@@ -60,6 +62,14 @@ export interface KorvyLarmUt {
 
 const punkt = (ll: LL): [number, number] => [ll.lon, ll.lat];
 
+/**
+ * Larm till den tysta loggen (fart_logg, som GPS-händelserna): 'larm:visat' när ett kort kommer upp och 'larm:sett' när föraren trycker Sett.
+ * Så går det att se i efterhand om ett kvitterat larm kom tillbaka (Stefan 2026-11-16: "jag har sett men det kom ändå"). Ett fel här får aldrig röra larmet.
+ */
+function loggaLarm(handelse: 'visat' | 'sett', detalj: Record<string, string | number | null>): void {
+  try { laggTill({ slag: 'anrop', namn: `larm:${handelse}`, ms: 0, vy: typeof window !== 'undefined' ? vyNamn(window.location?.pathname ?? '/') : '/', detalj }); } catch { /* */ }
+}
+
 export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
   const [ut, setUt] = useState<{ kort: LarmKort | null; fler: LarmNasta[]; puls: Puls | null; settRad: KorvyLarmUt['settRad']; ringar: RingMedGeometri[]; passage: LarmPassage | null }>({ kort: null, fler: [], puls: null, settRad: null, ringar: [], passage: null });
   const senastLjudRef = useRef<SenastLjud | null>(null);
@@ -71,6 +81,9 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
   // På planerad väg (basväg/stickväg), med hysteres: på vid 7 m, av vid 11 m (lib/larm/passage).
   const paVagRef = useRef(false);
   const senastRef = useRef<{ objekt: Map<string, LarmObjekt> }>({ objekt: new Map() });
+  // Stenmursbitar som hänger ihop är EN mur (lib/larm/sammaMur): ett Sett gäller hela kedjan.
+  const kedjorRef = useRef<Map<string, string[]>>(new Map());
+  const visatKortRef = useRef<string | null>(null);
   const inpRef = useRef(inp);
   inpRef.current = inp;
 
@@ -103,6 +116,7 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
     const geom = new Map<string, Geometri>();
     const risaNu = new Set<string>();
     const vagar: LL[][] = [];
+    const murar: MurBit[] = [];
 
     for (const m of inp.markers) {
       // Larmkortets kommentar: den senaste med namn ("Daniel: Stolpe lutar"); finns ingen ny kommentar gäller markeringens äldre kommentarfält.
@@ -116,7 +130,7 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
         const ring = m.path.map((p: any) => inp.svgToLatLon(p.x, p.y));
         if (arPlaneradVag(m.lineType)) vagar.push(ring);
         const o = linjeObjekt({ id: m.id, lineType: m.lineType, comment: kommentar, koordinater: ring }, pos);
-        if (o) { objekt.push(o); geom.set(o.id, { type: 'LineString', coordinates: ring.map(punkt) }); }
+        if (o) { objekt.push(o); geom.set(o.id, { type: 'LineString', coordinates: ring.map(punkt) }); if (SAMMA_MUR_TYPER.has(m.lineType)) murar.push({ id: o.id, typ: m.lineType, hash: o.hash, koordinater: ring }); }
         if (m.lineType === 'mainRoad' && m.risaPath?.length > 1) {
           const rp: LL[] = m.risaPath.map((p: any) => inp.svgToLatLon(p.x, p.y));
           const id = 'risa-' + m.id;
@@ -143,6 +157,7 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
     }
 
     senastRef.current = { objekt: new Map(objekt.map((o) => [o.id, o])) };
+    kedjorRef.current = murar.length > 1 ? sammaMur(murar) : new Map();
     paVagRef.current = stegaPaVag(paVagRef.current, avstandTillPlaneradVagM(pos, vagar));
     const r = stegaLarm({ objekt, kvitt: kvittRef.current, forareId: inp.forare?.id ?? null, state: stateRef.current, paVag: paVagRef.current });
     stateRef.current = r.state;
@@ -152,6 +167,10 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
       spelaLarmLjud(inp.ljudCtx(), r.ljud);
       senastLjudRef.current = { tid: nu, ljud: r.ljud };
       if (r.vibration && typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(r.vibration);
+    }
+    if ((r.kort?.id ?? null) !== visatKortRef.current) {
+      visatKortRef.current = r.kort?.id ?? null;
+      if (r.kort) { const ko = senastRef.current.objekt.get(r.kort.id); loggaLarm('visat', { id: r.kort.id, typ: ko?.typ ?? null, grupp: ko?.grupp ?? null, okvitterad: r.kort.okvitterad ? 1 : 0, avstand: ko?.avstandM != null ? Math.round(ko.avstandM) : null }); }
     }
     const stor = r.kort ? geom.get(r.kort.id) : null;
     setUt({
@@ -170,16 +189,21 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
     const o = senastRef.current.objekt.get(rad.id);
     if (!o) return;
     const tid = new Date().toISOString();
-    stateRef.current = markeraSett(stateRef.current, rad.id);
+    // Hela muren: biten föraren står vid och de bitar som hänger ihop med den (lib/larm/sammaMur). Annars bara det ena objektet.
+    const kedja = (kedjorRef.current.get(rad.id) ?? [rad.id]).map((id) => senastRef.current.objekt.get(id)).filter((x): x is LarmObjekt => !!x);
+    for (const x of kedja) stateRef.current = markeraSett(stateRef.current, x.id);
     setUt((u) => (u.settRad?.id === rad.id ? { ...u, settRad: null } : u));
     setSettVersion((v) => v + 1);
+    loggaLarm('sett', { id: rad.id, typ: o.typ ?? null, grupp: o.grupp, bitar: kedja.length });
     if (!i.forare || !i.objektId) return;
-    kvittRef.current = medKvittens(kvittRef.current, rad.id, { hash: o.hash, forareId: i.forare.id, tid });
+    for (const x of kedja) kvittRef.current = medKvittens(kvittRef.current, x.id, { hash: x.hash, forareId: i.forare.id, tid });
     if (i.torr) return;   // testläget skriver inget i databasen
-    void sparaKvittens(i.db, {
-      objektId: i.objektId, markerId: rad.id, forareId: i.forare.id, forareNamn: i.forare.namn,
-      typ: o.typ ?? null, namn: o.namn, grupp: o.grupp, hash: o.hash,
-    }).then((fel) => { if (fel) console.error('[Körvy larm] kvittens, sparning:', fel); });
+    for (const x of kedja) {
+      void sparaKvittens(i.db, {
+        objektId: i.objektId, markerId: x.id, forareId: i.forare.id, forareNamn: i.forare.namn,
+        typ: x.typ ?? null, namn: x.namn, grupp: x.grupp, hash: x.hash,
+      }).then((fel) => { if (fel) console.error('[Körvy larm] kvittens, sparning:', fel); });
+    }
   }, [ut.settRad]);
 
   return { kort: ut.kort, fler: ut.fler, puls: ut.puls, settRad: ut.settRad, ringar: ut.ringar, passage: ut.passage, kvittera };

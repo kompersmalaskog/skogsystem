@@ -298,4 +298,31 @@ describe('useKorvyLarm — kopplingen till sidan', () => {
     mount(bas({ markers: [sym(1, 'culturemonument', 30)], db: felDb })); await tom();
     expect(ut.kort).toMatchObject({ namn: 'Kulturminne' });
   });
+
+  describe('stenmur ritad i flera bitar är EN mur (Stefan, Lidhem 12 nov)', () => {
+    const O = 1 / (111320 * Math.cos((POS.lat * Math.PI) / 180));   // en meter i longitud
+    const mur = (id: string, norrM: number, franM: number, tillM: number, comment?: string) => ({ id, isLine: true, lineType: 'stonewall', comment, path: [{ x: norr(norrM), y: POS.lon + franM * O }, { x: norr(norrM), y: POS.lon + tillM * O }] });
+
+    it('ett Sett kvitterar alla bitar som hänger ihop — men inte en mur långt bort', async () => {
+      const db = fakeDb([]);
+      const markers = [mur('m1', 20, -30, 0), mur('m2', 20, 3, 40), mur('m3', 20, 44, 80), mur('fjarran', 400, 0, 40)];
+      const rerender = mount(bas({ markers, db })); await tom();
+      expect(ut.kort).toMatchObject({ namn: 'Stenmur' });
+      await act(async () => { ut.kvittera(); }); await tom();
+      expect(db.upserts.map((u) => u.marker_id).sort()).toEqual(['m1', 'm2', 'm3']);
+      expect(ut.kort).toBeNull();                 // nästa bit av samma mur frågar inte
+      expect(ut.settRad).toBeNull();
+      // … men muren 400 m bort gör det när man kommer dit
+      rerender(bas({ markers, db, pos: { lat: norr(390), lon: POS.lon } })); await tom();
+      expect(ut.kort).toMatchObject({ namn: 'Stenmur', id: 'fjarran' });
+    });
+
+    it('en bit med egen kommentar läses för sig', async () => {
+      const db = fakeDb([]);
+      mount(bas({ markers: [mur('m1', 20, -30, 0), mur('m2', 20, 3, 40, 'Öppning här, kör igenom')], db })); await tom();
+      await act(async () => { ut.kvittera(); }); await tom();
+      expect(db.upserts).toHaveLength(1);
+      expect(ut.kort).toMatchObject({ namn: 'Stenmur' });   // den andra biten väntar på sitt eget Sett
+    });
+  });
 });
