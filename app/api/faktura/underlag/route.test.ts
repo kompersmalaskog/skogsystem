@@ -45,7 +45,9 @@ const skalviken = () => ({
     },
     volym: 1725.2,
     prisdatum: '2026-11-13',
-    avstand: { manuellt: null, lassVolym: 40, lassAntal: 2, kronor: 1680 },
+    // `null as number | null` med flit: ett naket null ger typen `null`, och
+    // då går provet nedan inte att skriva om fältet till 450 m.
+    avstand: { manuellt: null as number | null, lassVolym: 40, lassAntal: 2, kronor: 1680 },
   },
 });
 
