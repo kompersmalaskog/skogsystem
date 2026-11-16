@@ -177,7 +177,9 @@ export default function BesokKlient({ token }: { token: string }) {
 // ---- MEDAN VI JOBBAR: "Ska du gå ut i skogen?" -----------------------------------------------------------------------------------------------
 
 function PagarVy({ vy, token, pagar, kvitto, onBesok, onSkotare, onRad }: { vy: Vy; token: string; pagar: boolean; kvitto: string | null; onBesok: () => void; onSkotare: () => void; onRad: (r: SkogRad) => void }) {
-  const rader = useMemo(() => sakerhetsRader({ roller: vy.roller, harMotorsag: vy.harMotorsag }), [vy.roller, vy.harMotorsag]);
+  // Maskiner vars steg i loppet inte är klart får sin säkerhetsrad redan innan de kommit.
+  const kommer = useMemo(() => (vy.lopp?.steg ?? []).filter((x) => x.lage !== 'klar' && (x.id === 'skordare' || x.id === 'skotare')).map((x) => x.id as MaskinRoll), [vy.lopp]);
+  const rader = useMemo(() => sakerhetsRader({ roller: vy.roller, harMotorsag: vy.harMotorsag, kommer }), [vy.roller, vy.harMotorsag, kommer]);
   const karta: KartaData = useMemo(() => ({ token, mitt: vy.mitt, gran: vy.gran, maskiner: vy.maskiner, motorsag: vy.motorsag, ringM: vy.ringM }), [token, vy.mitt, vy.gran, vy.maskiner, vy.motorsag, vy.ringM]);
   const skogRader = vy.skog?.rader ?? [];
   return (

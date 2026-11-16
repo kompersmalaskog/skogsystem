@@ -134,6 +134,12 @@ describe('säkerhetsreglerna: en rad per fara med varför, bara det som finns �
   it('bara det som finns på trakten; travarna alltid; bara skotaren öppnar ett ark', () => {
     expect(sakerhetsRader({ roller: ['skordare'], harMotorsag: false }).map((r) => r.id)).toEqual(['skordare', 'lastbil', 'travar']);
     expect(sakerhetsRader({ roller: [], harMotorsag: false }).map((r) => r.id)).toEqual(['lastbil', 'travar']);
+    // en maskin som inte kommit än men väntas: raden finns, säger "kommer senare" och avståndet står i texten
+    const v = sakerhetsRader({ roller: ['skordare'], harMotorsag: false, kommer: ['skordare', 'skotare'] });
+    expect(v.map((r) => r.id)).toEqual(['skordare', 'skotare', 'lastbil', 'travar']);
+    expect(v[0].rubrik).toBe('Skördaren · 70 m');
+    expect(v[1].rubrik).toBe('Skotaren · kommer senare');
+    expect(v[1].text).toMatch(/^Håll 20 m när den är här\. Kranen svänger/);
     expect(sakerhetsRader({ roller: ['skordare', 'skotare'], harMotorsag: true }).filter((r) => r.ark).map((r) => r.id)).toEqual(['skotare']);
   });
   it('arkets enda text', () => { expect(SKOTARARK_TEXT).toBe('När skotaren backar med lass ser föraren ingenting bakom sig.'); });
