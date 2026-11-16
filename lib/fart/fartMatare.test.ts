@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { arKartruta, fartPa, FART_NYCKEL, matningRader, sammanfatta, tidText, vadAndrades } from './fartMatare'
+import { arKartruta, fartPa, FART_NYCKEL, matningRader, sammanfatta, tidText, vadAndrades, kartanKlar, KARTA_LUGN_MS } from './fartMatare'
 
 const minne = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v) }, removeItem: (k: string) => { m.delete(k) }, m } }
 
@@ -72,3 +72,22 @@ describe('tidText', () => {
     expect(tidText(12340)).toBe('12,3 s')
   })
 })
+
+describe('kartanKlar: klar utan att kartan behöver stå still (maskinläget)', () => {
+  const ruta = (start: number, langd: number) => ({ namn: 'https://x/wms-proxy?bbox=1', start, langd });
+  it('inga rutor hämtades (högar av/på): klar vid ritad, så fort det varit lugnt en stund', () => {
+    expect(kartanKlar({ nu: 1000 + KARTA_LUGN_MS - 1, ritad: 1000, rutornaLaddade: true, hamtningar: [] })).toBeNull();
+    expect(kartanKlar({ nu: 1000 + KARTA_LUGN_MS, ritad: 1000, rutornaLaddade: true, hamtningar: [] })).toBe(1000);
+  });
+  it('med rutor: klar när den SISTA rutan blev färdig, inte när vi märkte det', () => {
+    const h = [ruta(1010, 400), ruta(1020, 2500), { namn: 'https://x/rest/v1/objekt', start: 1100, langd: 9000 }];
+    expect(kartanKlar({ nu: 3600, ritad: 1000, rutornaLaddade: true, hamtningar: h })).toBeNull();     // sista rutan klar 3520: för nyss
+    expect(kartanKlar({ nu: 4100, ritad: 1000, rutornaLaddade: true, hamtningar: h })).toBe(3520);     // appens egna anrop räknas inte
+  });
+  it('rutor på väg: aldrig klar, hur länge det än varit lugnt', () => {
+    expect(kartanKlar({ nu: 99999, ritad: 1000, rutornaLaddade: false, hamtningar: [] })).toBeNull();
+  });
+  it('rutor från före bytet räknas inte', () => {
+    expect(kartanKlar({ nu: 2000, ritad: 1000, rutornaLaddade: true, hamtningar: [ruta(100, 5000)] })).toBe(1000);
+  });
+});

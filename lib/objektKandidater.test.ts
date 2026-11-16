@@ -3,6 +3,7 @@ import {
   byggKandidater, startaKandidatLaddning, hamtaKandidatSvar, KANDIDAT_STATUS, KANDIDAT_KOLUMNER,
   KANDIDAT_TIDSGRANS_MS, KANDIDAT_OMFORSOK_MS, KANDIDAT_UPPDATERA_MS, type KandidatSvar, type KandidatResultat,
 } from './objektKandidater';
+import { minnesLager } from './geometriCache';
 
 // KANDIDATLADDNINGEN. supabase-js KASTAR inte vid fel — den returnerar { data: null, error }. Förut lästes `data || []` och en tom lista räknades som
 // "laddat", så avstämningen utvärderades mot tomma kandidater (Oskar, Rottne 2026-10-07). Dessutom ger objekt_geometri (RLS: bara `authenticated`) TOMT
@@ -39,24 +40,46 @@ describe('byggKandidater: bara ett svar utan fel och med geometri räknas som la
   });
 });
 
-describe('hamtaKandidatSvar: samma frågor som förut (status oplanerad/planerad/pagaende, objekt_geometri)', () => {
-  it('läser oplanerad+planerad+pagaende och hela objekt_geometri, och lägger felen i svaret', async () => {
+describe('hamtaKandidatSvar: status oplanerad/planerad/pagaende, och geometrin via enhetens sparade kopia', () => {
+  const fejk = (geoFel = false) => {
     const anrop: string[] = [];
     const sb = {
+      anrop,
       from: (t: string) => ({
         select: (kol: string) => {
           anrop.push(`${t}:${kol}`);
-          const svar = t === 'objekt' ? { data: OBJ, error: null } : { data: null, error: { message: 'x' } };
+          const svar = t === 'objekt' ? { data: OBJ, error: null }
+            : geoFel ? { data: null, error: { message: 'x' } }
+            : kol.includes('geometri') ? { data: GEO, error: null } : { data: [{ objekt_id: 'a', id: 1, skapad: 't' }, { objekt_id: 'avslutad', id: 2, skapad: 't' }], error: null };
           return { in: (k: string, v: string[]) => { anrop.push(`in:${k}:${v.join(',')}`); return Promise.resolve(svar); }, then: (f: any) => Promise.resolve(svar).then(f) };
         },
       }),
     };
-    const s = await hamtaKandidatSvar(sb);
-    expect(anrop).toContain(`objekt:${KANDIDAT_KOLUMNER}`);
-    expect(anrop).toContain('in:status:oplanerad,planerad,pagaende');
-    expect(anrop).toContain('objekt_geometri:objekt_id,geometri');
+    return sb;
+  };
+  it('läser kandidaterna, EN versionsfråga, och bara kandidaternas geometri — aldrig hela tabellen', async () => {
+    const sb = fejk(); const lager = minnesLager();
+    const s = await hamtaKandidatSvar(sb, lager);
+    expect(sb.anrop).toContain(`objekt:${KANDIDAT_KOLUMNER}`);
+    expect(sb.anrop).toContain('in:status:oplanerad,planerad,pagaende');
+    expect(sb.anrop).toContain('objekt_geometri:objekt_id,id,skapad');
+    expect(sb.anrop).toContain('in:objekt_id:a');                 // inte 'avslutad', och inte objekt b som saknar geometri
     expect(KANDIDAT_STATUS).toEqual(['oplanerad', 'planerad', 'pagaende']);   // en maskin i en ännu oklarmarkerad trakt matchas ändå — planeringen spärrar aldrig förarna
+    expect(byggKandidater(s).kandidater.map((k) => [k.id, k.geometri !== null])).toEqual([['a', true], ['b', false]]);
+    // Nästa varv (var 5:e minut): ingen geometri hämtas.
+    const fore = sb.anrop.filter((x) => x.includes('geometri:objekt_id,geometri')).length;
+    const s2 = await hamtaKandidatSvar(sb, lager);
+    expect(sb.anrop.filter((x) => x.includes('geometri:objekt_id,geometri')).length).toBe(fore);
+    expect(byggKandidater(s2).ok).toBe(true);
+  });
+  it('felet läggs i svaret', async () => {
+    const s = await hamtaKandidatSvar(fejk(true), minnesLager());
     expect(s.geometri.error).toEqual({ message: 'x' });
+    expect(byggKandidater(s).orsak).toBe('geometri-fel');
+  });
+  it('kandidater finns men ingen av dem har geometri (bara privata jobb): ok, inte "geometri-tom"', () => {
+    expect(byggKandidater({ objekt: { data: OBJ, error: null }, geometri: { data: [], error: null }, geometriPaServern: 12 }).ok).toBe(true);
+    expect(byggKandidater({ objekt: { data: OBJ, error: null }, geometri: { data: [], error: null }, geometriPaServern: 0 }).orsak).toBe('geometri-tom');
   });
 });
 

@@ -4,7 +4,7 @@
 // sidan (trycket → omritad sida), rutorna (→ kartan klar) och ritningen (långsammaste bildrutan). Rör ingenting i kartan.
 import { useEffect, useRef, useState } from 'react';
 import { FARG, FONT, TYP, RADIE, AVSTAND, VIKT } from '@/lib/design/tokens';
-import { FART_MAX_MS, FART_NYCKEL, matningRader, sammanfatta, vadAndrades, type Hamtning, type Matning } from '@/lib/fart/fartMatare';
+import { FART_MAX_MS, FART_NYCKEL, kartanKlar, matningRader, sammanfatta, vadAndrades, type Hamtning, type Matning } from '@/lib/fart/fartMatare';
 import { kartRad, laggTill, vyNamn } from '@/lib/fart/fartLogg';
 
 export interface FartMatareProps {
@@ -65,6 +65,7 @@ export function FartMatare(p: FartMatareProps) {
     const bildrutor: number[] = [];
     let ram = 0;
     let vakt: ReturnType<typeof setTimeout> | null = null;
+    let koll: ReturnType<typeof setInterval> | null = null;
     const karta = pRef.current.karta();
     setMater(vad);
     const klar = (t: number | null) => {
@@ -72,6 +73,7 @@ export function FartMatare(p: FartMatareProps) {
       avbruten = true;
       cancelAnimationFrame(ram);
       if (vakt) clearTimeout(vakt);
+      if (koll) clearInterval(koll);
       try { karta?.off?.('idle', vidKlar); } catch { /* */ }
       setMater(null);
       const m = sammanfatta({ vad, tryck, ritad, klar: t, hamtningar: hamtRef.current, bildrutor });
@@ -89,9 +91,16 @@ export function FartMatare(p: FartMatareProps) {
         ram = requestAnimationFrame(steg);
         try { if (karta?.once) karta.once('idle', vidKlar); else klar(t); } catch { klar(t); }
         vakt = setTimeout(() => klar(null), FART_MAX_MS);
+        // 'idle' kommer aldrig medan något rör sig på kartan (maskinläget): då räknas kartan som klar när rutorna är laddade och det varit lugnt en stund.
+        koll = setInterval(() => {
+          let laddade = false;
+          try { laddade = karta?.areTilesLoaded?.() === true; } catch { /* */ }
+          const k = kartanKlar({ nu: performance.now(), ritad, rutornaLaddade: laddade, hamtningar: hamtRef.current });
+          if (k != null) klar(k);
+        }, 250);
       });
     });
-    return () => { if (!avbruten) { avbruten = true; cancelAnimationFrame(ram); if (vakt) clearTimeout(vakt); try { karta?.off?.('idle', vidKlar); } catch { /* */ } setMater(null); } };
+    return () => { if (!avbruten) { avbruten = true; cancelAnimationFrame(ram); if (vakt) clearTimeout(vakt); if (koll) clearInterval(koll); try { karta?.off?.('idle', vidKlar); } catch { /* */ } setMater(null); } };
   }, [p.bakgrund, lagerNyckel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (stangd || !p.visa) return null;

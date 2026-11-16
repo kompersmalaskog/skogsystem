@@ -354,6 +354,21 @@ Skotardata -> `fakt_lass`, `fakt_lass_sortiment`, `fakt_skotning_status`
 
 ---
 
+## Vidas geometri sparas på enheten — visa det sparade först (2026-11-16; `lib/geometriCache.ts`)
+
+Mätningen (`fart_logg`, 13–16 nov) visade att `objekt_geometri` var det segaste i appen: 591 sega läsningar, 24 minuters väntan på tre dagar. Två orsaker: maskinerna hämtade HELA tabellen (37 trakter, 6,8 MB) var 5:e minut för positionsvalet (`hamtaKandidatSvar`), och varje öppnad trakt hämtade sin geometri (upp till 760 kB) på nytt.
+
+- **Regeln:** en liten fråga (`objekt_id, id, skapad`) säger om det sparade gäller; geometrin hämtas bara när versionen ändrats. Lagret är IndexedDB (`skogsystem-geometri`), minnet som reserv; ett fel i lagret fäller aldrig en läsning.
+- **VERSION = radens id + skapad.** Importen (`/api/import-trakt`) tar bort raden och lägger in en ny, så versionen byts av sig själv. **En UPDATE av `geometri` för hand i SQL ändrar inte versionen — sätt `skapad = now()` i samma sats**, annars gäller det sparade på enheterna i upp till 7 dagar (`MAX_ALDER_MS`, skyddsnätet).
+- **Öppnad trakt (`app/planering/page.tsx`):** det sparade ritas DIREKT (`lasSparadGeometri`), sedan frågas servern (`lasGeometriMedCache`); samma version = ingen omritning och ingen ny zoom (`geoRitadRef`). **Svarar servern inte gäller det sparade** — larmen för kraftledning och hänsyn fungerar då också utan täckning (förut: ingen geometri och raden "Vidas lager saknas – larmar inte") — och sidan frågar igen när nätet kommer, annars om en minut (`geoOmTick`). Raden "Vidas lager saknas" visas bara när inget finns sparat.
+- **Ett TOMT svar utan fel rör aldrig det sparade** och ger tomt svar som förut, så reglerna i `lib/larm/vidaLager` (tomt för en Vida-trakt = fel, förnya sessionen) gäller oförändrade.
+- **Positionsvalet i maskinen (`lasGeometrierMedCache`):** bara KANDIDATERNAS geometri hämtas, och bara när den ändrats. Här används aldrig gammalt sparat vid fel — ett fel är ett fel och laddaren försöker igen som förut. `KandidatSvar.geometriPaServern` bär hur många objekt som har geometri på servern, så "kandidater finns men ingen har geometri" (bara privata jobb) inte läses som utgången session.
+- **Inte ändrat:** övriga läsare av `objekt_geometri` (gamla objektväljaren, Starta jobb, gallring, egenkontroll, bakgrundsnedladdningen, servern).
+- **Fartmätaren (`lib/fart/fartMatare.ts` `kartanKlar`):** i maskinläget rör sig alltid något på kartan, så MapLibres `idle` kom aldrig och varje lagerbyte loggades som 30 s (H8E -26 den 15 nov, också när inga rutor hämtades). Kartan räknas nu som klar när rutorna är laddade och ingen ruta blivit färdig på 500 ms; tiden är när den sista rutan blev klar. Rader i `fart_logg` med `slag = 'karta'` och `ms` ≈ 30 000 före den här ändringen är mätfel, inte väntan.
+- Tester: `lib/geometriCache.test.ts`, `lib/objektKandidater.test.ts`, `lib/fart/fartMatare.test.ts`. **Inte provat** i den inloggade sidan eller i en maskin — mät i `fart_logg` efter släpp: `db:objekt_geometri` ska nästan försvinna ur listan.
+
+---
+
 ## GPS-källa (Web Serial) — `lib/gpsKalla.ts`, `lib/gpsBaud.ts`
 
 Maskindatorns GPS kommer som NMEA över en COM-port (Web Serial). **Tre skydd som inte får tas bort:**

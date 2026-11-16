@@ -48,7 +48,9 @@ describe('objekt utan traktgräns: 300 m-regeln gäller överallt där "står ma
 describe('GROT-jobb som hör till ett virkesobjekt visar dess traktgräns, ytor/anteckningar och skördarspår', () => {
   it('traktgränsen hämtas för hor_till_objekt_id när det finns', () => {
     expect(page).toMatch(/const geoObjektId: string = \(valtObjekt as any\)\.hor_till_objekt_id \|\| valtObjekt\.id;/);
-    expect(page).toMatch(/\.from\('objekt_geometri'\)\.select\('geometri'\)\.eq\('objekt_id', geoObjektId\)/);
+    // Geometrin läses via enhetens sparade kopia (lib/geometriCache) — för VIRKESOBJEKTETS id, både det sparade och serverns.
+    expect(page).toMatch(/lasSparadGeometri\(geoObjektId\)/);
+    expect(page).toMatch(/lasGeometriMedCache\(supabase, geoObjektId\)/);
   });
   it('ytanteckningar och ytmedia hämtas för [jobbet, virkesobjektet] — jobbets egna vinner vid samma yta', () => {
     expect(n(page, /\.in\('objekt_id', ytaKontextIds\(valtObjekt\)\)/g)).toBe(2);
