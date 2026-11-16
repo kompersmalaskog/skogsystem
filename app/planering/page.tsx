@@ -129,6 +129,7 @@ import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunk
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
+import { MASKIN_PIL_BILD, MASKIN_PIL_BILD_GRA, MASKIN_PIL_PIXELRATIO, MASKIN_PIL_PX, MASKIN_PIL_UTTRYCK, maskinPilFarg, maskinPilSvg } from '../../lib/maskinPil'
 import { TOM_KURS, foljTid, kartRiktning, stegaKurs, type KursLage } from '../../lib/korvyKurs'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
 import { valjObjektForPosition, objektTraffPunkt, objektHuvudtyp, traktgransRingar, arTilldelad, type ObjektForVal } from '../../lib/objektPlats'
@@ -9806,7 +9807,8 @@ export default function PlannerPage() {
       // GÅ-LÄGET (snitsla stickvägar): EN prick. Mätpricken (den metertalet räknas från) ritas ovanpå kartan; den här döljs så länge,
       // annars syns två prickar — och 2026-11-13 stod den här kvar medan mätpricken följde (Martin, i fält).
       for (const id of ['gps-halo', 'gps-ring', 'gps-dot']) {
-        try { map.setLayoutProperty(id, 'visibility', stickvagMode ? 'none' : 'visible'); } catch { /* lagret saknas */ }
+        // KÖRVYN: maskinen är EN pil (lib/maskinPil) – den blå pricken ritas inte också.
+        try { map.setLayoutProperty(id, 'visibility', stickvagMode || korvyActive ? 'none' : 'visible'); } catch { /* lagret saknas */ }
       }
       if (draw) {
         console.log('[GPS-prick] setData + moveLayer', [draw.lon.toFixed(6), draw.lat.toFixed(6)]);
@@ -9814,7 +9816,7 @@ export default function PlannerPage() {
     } catch (e) {
       console.error('[GPS-prick] source/layers update failed:', e);
     }
-  }, [currentPosition, mapLibreReady, gpsFixFarsk, gpsAccuracy, gpsKallaTyp, stickvagMode]);
+  }, [currentPosition, mapLibreReady, gpsFixFarsk, gpsAccuracy, gpsKallaTyp, stickvagMode, korvyActive]);
 
   // === KÖRVY 3D-IMMERSION: setup engångsadditioner av sources/layers ===
   // Skapas vid mapLibreReady. Default visibility: 'none'. Toggleras av separat effekt.
@@ -9981,22 +9983,11 @@ export default function PlannerPage() {
       try { map.addLayer(spec); } catch (e) { console.error('[Körvy] ' + spec.id + ':', e); }
     }
 
-    // 5) Maskin-ikon: riktnings-KÄGLA + en liten blå pilspets med vit kant framför pricken (2026-10-28: maskinens riktning syntes för dåligt på foto).
-    //    Radiell gradient — starkast (#0a84ff 0.45) vid pricken, tonar ut till 0 framåt, ~55° spann.
-    //    Roterar med heading via maskin-symbol (icon-rotate). Prick + vit ring + skugga ligger i
-    //    maskin-ring / maskin-halo (cirkel-lager) nedan.
-    if (!map.hasImage('maskin-ikon')) {
-      const size = 96;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 96 96">
-        <defs>
-          <radialGradient id="kon" cx="48" cy="48" r="42" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stop-color="#0a84ff" stop-opacity="0.65"/>
-            <stop offset="1" stop-color="#0a84ff" stop-opacity="0"/>
-          </radialGradient>
-        </defs>
-        <path d="M48 48 L28.6 10.7 L67.4 10.7 Z" fill="url(#kon)"/>
-        <path d="M48 8 L64 38 L48 31 L32 38 Z" fill="#0a84ff" stroke="#ffffff" stroke-width="3.5" stroke-linejoin="round"/>
-      </svg>`;
+    // 5) MASKINEN ÄR EN PIL (lib/maskinPil, Martin 2026-11-16): blå pil med vit kant, grå utan färsk GPS. Roterar med kursen (icon-rotate).
+    //    Pricken, käglan och det blå strecket framåt är borta – fyra saker sa samma sak.
+    for (const [bild, gammal] of [[MASKIN_PIL_BILD, false], [MASKIN_PIL_BILD_GRA, true]] as const) {
+      if (map.hasImage(bild)) continue;
+      const size = MASKIN_PIL_PX;
       const img = new Image();
       img.onload = () => {
         try {
@@ -10006,14 +9997,11 @@ export default function PlannerPage() {
           if (!ctx) return;
           ctx.drawImage(img, 0, 0, size, size);
           const data = ctx.getImageData(0, 0, size, size);
-          if (!map.hasImage('maskin-ikon')) {
-            map.addImage('maskin-ikon', { width: size, height: size, data: new Uint8Array(data.data.buffer) });
-            console.log('[Körvy] maskin-ikon image added');
-          }
+          if (!map.hasImage(bild)) map.addImage(bild, { width: size, height: size, data: new Uint8Array(data.data.buffer) }, { pixelRatio: MASKIN_PIL_PIXELRATIO });
         } catch (e) { console.error('[Körvy] maskin-ikon canvas:', e); }
       };
       img.onerror = (e) => console.error('[Körvy] maskin-ikon image load:', e);
-      img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+      img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(maskinPilSvg(maskinPilFarg(gammal)));
     }
     if (!map.getSource('maskin-source')) {
       try {
@@ -10068,9 +10056,9 @@ export default function PlannerPage() {
           type: 'symbol',
           source: 'maskin-source',
           layout: {
-            'icon-image': 'maskin-ikon',
+            'icon-image': MASKIN_PIL_UTTRYCK as any,
             // Kägla-storlek (96px-bild) — modest "viskning", ej dominant. Vridbar känsla.
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.6, 17, 0.95, 19, 1.1],
+            'icon-size': 1,   // lika stor på skärmen vid varje zoom (44 px)
             'icon-rotate': ['get', 'heading'],
             'icon-rotation-alignment': 'map',
             'icon-pitch-alignment': 'viewport',
@@ -10372,7 +10360,9 @@ export default function PlannerPage() {
       const forsta = forstaVagLagerId(map.getStyle().layers.map((l: any) => l.id));
       if (map.getLayer(BASVAG_SKEN_ID) && forsta && forsta !== BASVAG_SKEN_ID) map.moveLayer(BASVAG_SKEN_ID, forsta);
     } catch {}
-    const layers = [BASVAG_SKEN_ID, 'gps-cone-fill', 'maskin-halo', 'maskin-ring', 'maskin-symbol', 'bg-korvy', 'hillshade-korvy'];
+    // Maskinen är EN pil (maskin-symbol). Käglan, strecket framåt (gps-cone-fill) och pricken (maskin-ring/-halo) tänds aldrig längre.
+    const layers = [BASVAG_SKEN_ID, 'maskin-symbol', 'bg-korvy', 'hillshade-korvy'];
+    for (const id of ['gps-cone-fill', 'maskin-halo', 'maskin-ring']) { try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none'); } catch {} }
     for (const id of layers) {
       try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch {}
     }
@@ -10419,27 +10409,6 @@ export default function PlannerPage() {
       }
     } catch (e) { console.error('[Körvy] setMaxPitch:', e); }
   }, [korvyActive, mapLibreReady]);
-
-  // === KÖRVY: uppdatera gps-cone-source (siktfält) vid varje GPS/heading-tick ===
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady || !korvyActive) return;
-    const pos = currentPosition as any;
-    if (!pos || pos.lat == null || pos.lon == null) return;
-    try {
-      const src = map.getSource('gps-cone-source') as any;
-      if (!src) return;
-      src.setData({
-        type: 'FeatureCollection',
-        features: [{
-          type: 'Feature' as const,
-          properties: {},
-          geometry: { type: 'Polygon' as const, coordinates: conePolygon(pos.lat, pos.lon, korvyHeading, 75, 8) },
-        }],
-      });
-    } catch (e) { console.error('[Körvy] gps-cone update:', e); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, korvyHeading, korvyActive, mapLibreReady]);
 
   // === KÖRVY: fällningscirkeln (30 m runt skördaren) — syns BARA när något skyddsvärt eller en fastighetsgräns ligger inom 30 m, i gruppens färg ===
   // Skotarläget har ingen cirkel. Orsaken (objektet som ger färgen) lyser upp i larm-fall-lagren. Tyst: inget ljud, inget kort.
@@ -10521,13 +10490,13 @@ export default function PlannerPage() {
         type: 'FeatureCollection',
         features: [{
           type: 'Feature' as const,
-          properties: { heading: korvyHeading },
+          properties: { heading: korvyHeading, gammal: !gpsFixFarsk && !testlage },
           geometry: { type: 'Point' as const, coordinates: [pos.lon, pos.lat] },
         }],
       });
     } catch (e) { console.error('[Körvy] maskin-source update:', e); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, korvyHeading, korvyActive, mapLibreReady]);
+  }, [currentPosition, korvyHeading, korvyActive, mapLibreReady, gpsFixFarsk, testlage]);
 
   // BATTERI: gps-halons puls-rAF-loop BORTTAGEN. Den körde alltid (båda vyer, gejtad bara på
   // mapLibreReady) och tvingade MapLibre-repaint 30 ggr/sek KONTINUERLIGT — även i stilla
