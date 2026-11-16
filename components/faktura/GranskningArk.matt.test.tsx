@@ -8,7 +8,11 @@
 // Granskningen körs vid skrivbordet och på iPad, inte i hytten — men 44 px är
 // 44 px, och summan till höger får aldrig lägga sig över etiketten till vänster
 // på en smal skärm.
+//
+// FAKTURA_SKRIV=<mapp> sparar skärmbilderna.
 import React, { act } from 'react';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
 import GranskningArk, { type GranskningProps, type Vy } from './GranskningArk';
@@ -58,6 +62,15 @@ const props = (vy: Vy): GranskningProps => ({
     ],
     avstandKr: 12, volym: 2186.79, prisdatum: '2026-07-31', sortiment: SORT,
   },
+  avstand: {
+    manuellt: null, lassVolym: 40, lassAntal: 2, kronor: 1680,
+    lass: [
+      { avstandM: 1538, volym: 20, kronor: 1120 },
+      { avstandM: 858, volym: 20, kronor: 560 },
+    ],
+    grundavstandM: 200, krPer100m: 4, giltigFran: '2025-06-03',
+  },
+  terrangKr: 0,
   summa: 254761, skotarAntal: 2186.79, skotarPris: 58.5,
   dimObjektIds: ['A_1'], voNummer: '11271849', onSparat: () => {},
 });
@@ -83,10 +96,11 @@ const sida = (inner: string) =>
 describe(`Granskningen — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chromium i miljön'}`, () => {
   it.skipIf(!CHROMIUM)('inga träffytor under 44 px, ingen sidscroll, och Spara syns utan att scrolla', async () => {
     const b = await CHROMIUM!.launch({});
+    const skriv = process.env.FAKTURA_SKRIV;
     const matt: string[] = [];
     try {
       for (const s of SKARMAR) {
-        for (const vy of ['sortiment', 'pris', 'ratta'] as Vy[]) {
+        for (const vy of ['sortiment', 'pris', 'ratta', 'terrang', 'avstand', 'kontraktsnr'] as Vy[]) {
           const p = await b.newPage({ viewport: { width: s.w, height: s.h } });
           await p.setContent(sida(html(vy)));
           const r = await p.evaluate((min: number) => {
@@ -115,6 +129,10 @@ describe(`Granskningen — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: inge
           // Spara ligger i arkets FOT, utanför det som rullar — den får aldrig
           // hamna under skärmkanten, annars ser man inte att man kan spara.
           if (r.sparaUnder != null) expect(r.sparaUnder, `${s.namn}: Spara under skärmkanten`).toBeLessThanOrEqual(0);
+          if (skriv) {
+            fs.mkdirSync(skriv, { recursive: true });
+            await p.screenshot({ path: path.join(skriv, `${vy}-${s.w}.png`), fullPage: true });
+          }
           await p.close();
         }
       }

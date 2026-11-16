@@ -395,3 +395,170 @@ export function byggRattaVy(i: RattaIndata): RattaVy {
 
   return { nuKr, nyKr, nuSumma: i.nuSumma, nySumma, mening, andrat };
 }
+
+/* ═════════════════════ Terräng och skotningsavstånd ═════════════════════ */
+//
+// Två uppgifter som appen INTE kan räkna fram, och som därför frågas på varje
+// trakt (lib/faktura/fattas). Båda är tillägg i kr/m³fub och båda går HELT
+// till skotaren (lib/ekonomi/prisPerM3) — därför samma vymodell för
+// förhandsbeskedet, precis som sortimentsrättningen: skillnaden på fakturan är
+// Δkr/m³fub × skotarens antal, utan omräkning av resten.
+
+export type TillaggVy = {
+  /** Tillägget nu och efter ändringen, kr/m³fub. */
+  nuKr: number;
+  nyKr: number;
+  /** Vad tillägget blir i kronor på trakten, nu och efter. */
+  nuKronor: number;
+  nyKronor: number;
+  /** Att fakturera nu och efter. null när skotarraden saknas. */
+  nuSumma: number | null;
+  nySumma: number | null;
+  /** Vad ändringen betyder, i ord. Tom sträng när inget ändras. */
+  mening: string;
+  andrat: boolean;
+};
+
+export type TillaggIndata = {
+  /** Tillägget som gäller nu, kr/m³fub. */
+  nuKr: number;
+  /** Tillägget det inställda värdet ger, kr/m³fub. */
+  nyKr: number;
+  volym: number;
+  nuSumma: number | null;
+  /** Skotarens antal — tillägget går helt dit, så det är multiplikatorn. */
+  skotarAntal: number | null;
+  skotarPris: number | null;
+};
+
+export function byggTillaggVy(i: TillaggIndata): TillaggVy {
+  // Avrundas till ören FÖRE multiplikationen, som sortimentsrättningen: det
+  // som visas som "+3,00 kr" ska vara exakt det som räknas upp till kronor.
+  const diffKr = Math.round((i.nyKr - i.nuKr) * 100) / 100;
+  const kanSumma = i.nuSumma != null && i.skotarAntal != null;
+  const nySumma = kanSumma ? i.nuSumma! + diffKr * i.skotarAntal! : null;
+  const andrat = diffKr !== 0;
+
+  let mening = '';
+  if (andrat && kanSumma) {
+    const kronor = Math.abs(nySumma! - i.nuSumma!);
+    const nyttSkotarpris = i.skotarPris != null ? i.skotarPris + diffKr : null;
+    mening = `${heltal(kronor)} kr ${diffKr < 0 ? 'mindre' : 'mer'}.`
+      + (nyttSkotarpris != null && i.skotarPris != null
+        ? ` Skotarens pris går från ${kr2(i.skotarPris)} till ${kr2(nyttSkotarpris)} per m³fub.`
+        : '');
+  }
+
+  return {
+    nuKr: i.nuKr,
+    nyKr: i.nyKr,
+    nuKronor: i.nuKr * i.volym,
+    nyKronor: i.nyKr * i.volym,
+    nuSumma: i.nuSumma,
+    nySumma,
+    mening,
+    andrat,
+  };
+}
+
+/* ───────────────────────────── Avståndet ───────────────────────────── */
+
+export type AvstandVy = {
+  /**
+   * Skärmens stora tal: avståndet som gäller — den manuella siffran när den är
+   * satt, annars det volymviktade snittet ur lassen. null utan både.
+   */
+  avstandM: number | null;
+  /** Vad talet är och varifrån det kommer. */
+  mening: string;
+  /** Hur tillägget räknas, i ord. Står alltid. */
+  raknasRad: string;
+  /** Prislistans villkor. null när ingen sats gäller uppslagsdagen. */
+  prislistaRad: string | null;
+  /** Vad tillägget blir i kronor på trakten, i ord. */
+  pengar: string;
+  /** Ett lass per rad, längst först. */
+  lassRader: { avstand: string; under: string }[];
+  /** Står när listan är kapad. null annars. */
+  merRad: string | null;
+  /** Står bara när avståndet är satt för hand. */
+  manuelltRad: string | null;
+};
+
+/** Så många lass visas; resten blir en rad som säger hur många de är. */
+export const LASS_SYNLIGA = 8;
+
+export type AvstandIndata = {
+  a: Granskningsunderlag['avstand'];
+  volym: number;
+  prisdatum: string;
+};
+
+/**
+ * Varför avståndstillägget blev som det blev.
+ *
+ * SNITTET ÄR VOLYMVIKTAT, inte ett snitt av snitt: ett lass som bär 20 m³ ska
+ * väga tjugo kubik. Det är också det tal som ligger närmast vad man skriver in
+ * om lassen stämmer, så det är rätt tal att föreslå i stegaren.
+ *
+ * TÄCKNINGEN SÄGS ALLTID. Tillägget summeras per lass på LASSETS egen volym
+ * och delas sedan på hela trakten (lib/faktura/hamtaUnderlag), så två lass på
+ * en stor trakt ger ett tillägg nära noll. Det är hela skälet till att den här
+ * skärmen finns: Skälviken har 1 725 m³ och två lass som bär 40.
+ */
+export function byggAvstandVy(i: AvstandIndata): AvstandVy {
+  const { a } = i;
+  const lassVolym = a.lass.reduce((s, l) => s + l.volym, 0);
+  const snitt = lassVolym > 0
+    ? a.lass.reduce((s, l) => s + l.avstandM * l.volym, 0) / lassVolym
+    : null;
+  const avstandM = a.manuellt ?? snitt;
+  const tackning = i.volym > 0 ? Math.round((lassVolym / i.volym) * 100) : 0;
+
+  const mening = a.manuellt != null
+    ? 'Avståndet är satt för hand och gäller hela trakten.'
+    : a.lass.length === 0
+      ? 'Inget lass har körsträcka, så tillägget blir 0 kr. Skriv in avståndet '
+        + 'enkel väg om du vet det.'
+      : `Snittet ur ${a.lass.length === 1 ? 'ett lass' : `${a.lass.length} lass`} `
+        + `med körsträcka. De bär ${m3(lassVolym)} av ${heltal(i.volym)} m³fub `
+        + `— ${tackning} % av trakten.`;
+
+  // Maskinen mäter sträckan sedan förra lossningen: ut i trakten, lasta,
+  // tillbaka. Ackordet räknar enkel väg, alltså halva. Det här är frågan
+  // Martin ställde, och den ska stå på skärmen — inte bara i koden.
+  const raknasRad = 'Maskinen mäter hela vägen ut och tillbaka. Ackordet '
+    + 'räknar enkel väg, så sträckan halveras.';
+
+  const prislistaRad = a.grundavstandM == null || a.krPer100m == null ? null
+    : [`${heltal(a.grundavstandM)} m ingår`,
+       `${kr2(a.krPer100m)} kr per påbörjad 100 m`,
+       datumIOrd(a.giltigFran) ? `gäller från ${datumIOrd(a.giltigFran)}` : null]
+      .filter(Boolean).join(' · ');
+
+  const krPerM3 = i.volym > 0 ? a.kronor / i.volym : 0;
+  const pengar = a.kronor === 0
+    ? 'Tillägget är 0 kr på den här trakten.'
+    : `${heltal(a.kronor)} kr på trakten · ${kr2(krPerM3)} kr/m³fub `
+      + '· tillägget går till skotaren';
+
+  const synliga = a.lass.slice(0, LASS_SYNLIGA);
+  const kvar = a.lass.length - synliga.length;
+
+  return {
+    avstandM,
+    mening,
+    raknasRad,
+    prislistaRad,
+    pengar,
+    lassRader: synliga.map(l => ({
+      avstand: `${heltal(l.avstandM)} m`,
+      under: `${m3(l.volym)} m³ · ${heltal(l.kronor)} kr`,
+    })),
+    merRad: kvar > 0 ? `och ${kvar} lass till` : null,
+    manuelltRad: a.manuellt != null
+      ? `Satt för hand till ${heltal(a.manuellt)} m.`
+        + (snitt != null ? ` Lassen säger ${heltal(snitt)} m i snitt.` : '')
+      : null,
+  };
+}

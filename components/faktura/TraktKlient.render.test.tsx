@@ -42,10 +42,36 @@ const svar = (fattas = skalvikenFattas()) => ({
     hinder: [],
     summa_kant: 176826,
     rader_utan_pris: 0,
-    granskning: null,
+    // Arken behöver underlaget. Lassen är Skälvikens riktiga: 1 715 och
+    // 3 076 m körsträcka (tur och retur) → 858 och 1 538 m enkel väg.
+    granskning: {
+      sortiment: {
+        rakning: { antal: 7, raknade: [], ejRaknade: [] },
+        anvant: 7, manuellt: false,
+        grundantal: 6, krPerExtra: 2, giltigFran: '2025-06-03',
+      },
+      volym: 1725.2,
+      prisdatum: '2026-11-13',
+      avstand: {
+        manuellt: null, lassVolym: 40, lassAntal: 2, kronor: 1680,
+        lass: [
+          { avstandM: 1538, volym: 20, kronor: 1120 },
+          { avstandM: 858, volym: 20, kronor: 560 },
+        ],
+        grundavstandM: 200, krPer100m: 4, giltigFran: '2025-06-03',
+      },
+      terrangKr: 0,
+    },
     fattas,
   }],
 });
+
+/** Tryck på en fattas-rad och låt React landa. */
+async function tryck(e: HTMLElement, nyckel: string) {
+  const r = e.querySelector(`[data-fattas="${nyckel}"]`) as HTMLElement;
+  await act(async () => { r.closest('button')!.click(); });
+  await act(async () => { await Promise.resolve(); });
+}
 
 let root: Root | null = null;
 let el: HTMLDivElement | null = null;
@@ -99,16 +125,41 @@ describe('Skälviken: kortet säger vad som fattas', () => {
       .toContain('+2,00 kr/m³fub · 3 450 kr');
   });
 
-  it('terräng och avstånd leder till Redigering, sortimentet till granskningen', async () => {
+  // Martin 2026-11-16: "ska jag redigera måste jag komma till den sidan direkt
+  // och kunna komma tillbaka till fakturan igen". Raden fyller i uppgiften HÄR
+  // — ingen av dem lämnar fakturan, så ingen av dem får vara en länk.
+  it('VARJE rad öppnar ett ark på fakturan — ingen länk till en annan vy', async () => {
     const e = await rita();
-    const lank = (n: string) => (e.querySelector(`[data-fattas="${n}"]`) as HTMLElement)
-      .closest('a')?.getAttribute('href');
-    expect(lank('avstand')).toBe('/redigering?objekt=11271860');
-    expect(lank('terrang')).toBe('/redigering?objekt=11271860');
-    // Sortimentet öppnar ett ark i vyn, alltså en knapp och ingen länk.
-    const s = e.querySelector('[data-fattas="sortiment"]') as HTMLElement;
-    expect(s.closest('a')).toBeNull();
-    expect(s.closest('button')).toBeTruthy();
+    for (const n of ['avstand', 'terrang', 'sortiment']) {
+      const r = e.querySelector(`[data-fattas="${n}"]`) as HTMLElement;
+      expect(r, n).toBeTruthy();
+      expect(r.closest('a'), n).toBeNull();
+      expect(r.closest('button'), n).toBeTruthy();
+    }
+  });
+
+  it('avståndsraden öppnar avståndsarket, inte sortimentets', async () => {
+    const e = await rita();
+    await tryck(e, 'avstand');
+    const t = text(e);
+    expect(t).toContain('Skotningsavstånd');
+    // Stegaren står på jämna hundra ur lassens volymviktade snitt (1 198 m).
+    expect(t).toContain('1 200');
+    expect(t).toContain('meter enkel väg');
+    // Frågan Martin ställde ska stå på skärmen, inte bara i koden.
+    expect(t).toContain('ut och tillbaka');
+    expect(t).toContain('räknar enkel väg');
+    // Lassen var för sig, längst först.
+    expect(t).toContain('1 538 m');
+    expect(t).toContain('858 m');
+    expect(t).toContain('200 m ingår');
+  });
+
+  it('terrängraden öppnar terrängarket', async () => {
+    const e = await rita();
+    await tryck(e, 'terrang');
+    expect(text(e)).toContain('Terrängtillägg');
+    expect(text(e)).toContain('kronor per kubik');
   });
 
   it('EN orange prick på förklaringen, aldrig en per rad', async () => {

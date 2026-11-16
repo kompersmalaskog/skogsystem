@@ -74,8 +74,16 @@ export type FattasPost = {
   text: string;
   /** Vad uppgiften är värd, i ord. null när det inte går att räkna. */
   varde: string | null;
-  /** Var den fylls i. null = ingen väg härifrån. */
-  var: 'redigering' | 'granskning' | null;
+  /**
+   * Vilket ark på TRAKTEN som öppnas. null = ingen väg härifrån.
+   *
+   * Varje uppgift fylls i på fakturan, inte i en annan vy (Martin 2026-11-16:
+   * "ska jag redigera måste jag komma till den sidan direkt och kunna komma
+   * tillbaka till fakturan igen"). Raden som förut ledde till
+   * /redigering?objekt=… öppnade hela redigeringsvyn, utan att peka ut fältet
+   * och utan väg tillbaka — och kontraktsnumret har inget fält där alls.
+   */
+  ark: 'avstand' | 'terrang' | 'sortiment' | 'kontraktsnr' | null;
 };
 
 const tal = (n: number, dec = 0) =>
@@ -111,7 +119,7 @@ export function byggFattas(d: FattasIndata): FattasPost[] {
       text: 'Numret står som artikel 8 på fakturan. Utan det går fakturan inte '
         + 'att följa upp mot Vidas avräkning.',
       varde: null,
-      var: 'redigering',
+      ark: 'kontraktsnr',
     });
   }
 
@@ -134,7 +142,7 @@ function avstandPost(d: FattasIndata): FattasPost | null {
       text: 'Inget lass har körsträcka, så tillägget blir 0 kr. Skriv in '
         + 'avståndet enkel väg.',
       varde: '0 kr',
-      var: 'redigering',
+      ark: 'avstand',
     };
   }
 
@@ -150,7 +158,7 @@ function avstandPost(d: FattasIndata): FattasPost | null {
       + 'Tillägget räknas bara på de lassen. Skriv in avståndet enkel väg om '
       + 'det inte stämmer.',
     varde: `${kr2(krPerM3)} kr/m³fub · ${tal(d.avstand.kronor)} kr`,
-    var: 'redigering',
+    ark: 'avstand',
   };
 }
 
@@ -163,7 +171,7 @@ function terrangPost(d: FattasIndata): FattasPost | null {
     text: 'Är marken normal? Svår eller blöt mark ger ett tillägg som går till '
       + 'skotaren.',
     varde: '0 kr',
-    var: 'redigering',
+    ark: 'terrang',
   };
 }
 
@@ -185,7 +193,7 @@ function sortimentPost(d: FattasIndata): FattasPost | null {
       rubrik: `Appen räknar ${anvant} sortiment`,
       text: 'Ingen sats i prislistan, så tillägget blir 0 kr. Stämmer antalet?',
       varde: null,
-      var: 'granskning',
+      ark: 'sortiment',
     };
   }
 
@@ -205,7 +213,7 @@ function sortimentPost(d: FattasIndata): FattasPost | null {
     varde: extra > 0
       ? `+${kr2(krPerM3)} kr/m³fub · ${tal(kronor)} kr`
       : '0 kr',
-    var: 'granskning',
+    ark: 'sortiment',
   };
 }
 

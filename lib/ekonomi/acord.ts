@@ -115,8 +115,21 @@ export function sortimentTillagg(antalGrupper: number, conf: SortConfig | null):
 export function skotAvstandKr(datum: string, skotningsavstandM: number, volymM3: number, avstandList: AvstandConfig[]): number {
   const cfg = avstandList.find(c => isValidOn(datum, c.giltig_fran, c.giltig_till));
   if (!cfg) return 0;
+  return skotAvstandKrPerM3(skotningsavstandM, cfg) * volymM3;
+}
+
+// STEGREGELN, ett enda ställe: hela påbörjade 100 m över grundavståndet.
+// Granskningen räknar fram vad ett avstånd man skriver in SKULLE kosta innan
+// något sparas, och måste göra det med exakt samma regel som priset — därför
+// är den här exporterad i stället för inlinad ovan.
+//
+// Avståndet in är SKOTNINGSAVSTÅND (enkelriktat). Samma regel som ovan:
+// halvera aldrig här.
+export function skotAvstandKrPerM3(
+  skotningsavstandM: number, cfg: Pick<AvstandConfig, 'grundavstand_m' | 'kr_per_100m'>,
+): number {
   const step = Math.max(0, Math.ceil((skotningsavstandM - cfg.grundavstand_m) / 100));
-  return step * cfg.kr_per_100m * volymM3;
+  return step * cfg.kr_per_100m;
 }
 
 // G15-timmar + timpeng för en maskins fakt_tid-rader. Timpriset slås upp

@@ -57,7 +57,7 @@ describe('Skälviken RP J-Hus -25 — trakten som ska faktureras 2026-11-16', ()
     expect(a.text).toContain('2 lass')
     expect(sp(a.text)).toContain('40 m³fub av 1 725 m³fub')
     expect(sp(a.varde)).toBe('0,97 kr/m³fub · 1 680 kr')
-    expect(a.var).toBe('redigering')
+    expect(a.ark).toBe('avstand')
   })
 
   it('sortimentet bär kronorna hela trakten: +2,00 kr/m³fub = 3 450 kr', () => {
@@ -65,7 +65,7 @@ describe('Skälviken RP J-Hus -25 — trakten som ska faktureras 2026-11-16', ()
     expect(s.rubrik).toBe('Appen räknar 7 sortiment')
     expect(s.text).toBe('1 över de 6 som ingår i priset. Stämmer det?')
     expect(sp(s.varde)).toBe('+2,00 kr/m³fub · 3 450 kr')
-    expect(s.var).toBe('granskning')
+    expect(s.ark).toBe('sortiment')
   })
 
   it('terrängen FRÅGAR, den påstår inte att något är fel', () => {
@@ -175,7 +175,7 @@ describe('kontraktsnummer', () => {
 
 describe('rubriken', () => {
   it('1 sak, inte "1 saker"', () => {
-    expect(fattasRubrik([{ nyckel: 'terrang', rubrik: '', text: '', varde: null, var: null }]))
+    expect(fattasRubrik([{ nyckel: 'terrang', rubrik: '', text: '', varde: null, ark: null }]))
       .toBe('1 sak att kolla')
   })
 })

@@ -69,7 +69,19 @@ export type Granskningsunderlag = {
     lassAntal: number;
     /** Kronorna appen räknat fram. */
     kronor: number;
+    /**
+     * Ett lass per post, längst först — så granskningen kan visa HUR talet
+     * blev till. `avstandM` är ENKEL VÄG (korstracka_m halverad), alltså det
+     * avstånd priset räknades på.
+     */
+    lass: { avstandM: number; volym: number; kronor: number }[];
+    /** Prislistans villkor. null = ingen sats gäller uppslagsdagen. */
+    grundavstandM: number | null;
+    krPer100m: number | null;
+    giltigFran: string | null;
   };
+  /** dim_objekt.terrang_kr_manuell i kr/m³fub. 0 = tom, inte "normal mark". */
+  terrangKr: number;
 };
 
 export type HamtatUnderlag = {
@@ -231,6 +243,21 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
   // bär. Se lib/faktura/fattas.
   const lassMedStracka = lass.filter((l: any) => (Number(l.korstracka_m) || 0) > 0);
   const lassVolymMedStracka = sum(lassMedStracka, 'volym_m3sub');
+  // Lassen var för sig, för granskningen: avståndet enkel väg och vad just det
+  // lasset bar. Längst först — det är det avståndet som förklarar tillägget.
+  // Byggs ur lassMedStracka, inte ur loopen nedan: den körs inte när den
+  // manuella siffran är satt, och då ska lassen ändå gå att se.
+  const lassRader = lassMedStracka
+    .map((l: any) => {
+      const avstandM = skotningsavstandM(l.korstracka_m);
+      return {
+        avstandM,
+        volym: Number(l.volym_m3sub) || 0,
+        kronor: skotAvstandKr(l.datum, avstandM, Number(l.volym_m3sub) || 0, avstList as any),
+      };
+    })
+    .sort((a, b) => b.avstandM - a.avstandM);
+  const avstConf = giltiga(avstRes.data)[0] as any ?? null;
   if (huvud.skotavstand_manuell != null) {
     skotKr = skotAvstandKr(uppslag, Number(huvud.skotavstand_manuell), volym, avstList as any);
     noter.push({ niva: 'info', text: `Avståndet kommer från skotavstand_manuell (${huvud.skotavstand_manuell} m), inte ur lassen.` });
@@ -428,6 +455,9 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     });
   }
 
+  // EN gång, två läsare: raden och granskningens terrängark.
+  const terrangKr = Number(huvud.terrang_kr_manuell) || 0;
+
   const underlag: VoUnderlag = {
     vo_nummer: voNummer,
     objektnamn: huvud.object_name || voNummer,
@@ -439,7 +469,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     volymM3fub: volym,
     medelstam,
     sortimentgrupper,
-    terrangKr: Number(huvud.terrang_kr_manuell) || 0,
+    terrangKr,
     skotAvstandKr: skotKr,
     andelSkordareManuell: huvud.acord_andel_skordare_manuell == null
       ? null : Number(huvud.acord_andel_skordare_manuell),
@@ -476,7 +506,12 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
       lassVolym: lassVolymMedStracka,
       lassAntal: lassMedStracka.length,
       kronor: skotKr,
+      lass: lassRader,
+      grundavstandM: avstConf ? Number(avstConf.grundavstand_m) : null,
+      krPer100m: avstConf ? Number(avstConf.kr_per_100m) : null,
+      giltigFran: avstConf?.giltig_fran ?? null,
     },
+    terrangKr,
   };
 
   return { underlag, noter, objektIds, granskning };
