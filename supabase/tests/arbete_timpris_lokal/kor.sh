@@ -13,8 +13,17 @@ DB="${DB:-arbetspris_test}"
 HAR="$(cd "$(dirname "$0")" && pwd)"
 ROT="$(cd "$HAR/../../.." && pwd)"
 
-echo "— migrationen —"
-su postgres -c "psql -q -v ON_ERROR_STOP=1 -d $DB -f $ROT/supabase/migrations/20261116120000_arbete_timpris.sql"
+# Migrationen slås upp på sitt NAMN, inte på sin version: prod stämplar
+# tidpunkten för körningen, och filen döps om till den versionen efteråt. Ett
+# hårdkodat tidsstämpel hade därför pekat på en fil som inte längre finns.
+MIG=( "$ROT"/supabase/migrations/*_arbete_timpris.sql )
+if [ "${#MIG[@]}" -ne 1 ] || [ ! -f "${MIG[0]}" ]; then
+  echo "FEL: hittade ${#MIG[@]} migrationer som matchar *_arbete_timpris.sql — ska vara exakt 1" >&2
+  exit 1
+fi
+
+echo "— migrationen (${MIG[0]##*/}) —"
+su postgres -c "psql -q -v ON_ERROR_STOP=1 -d $DB -f ${MIG[0]}"
 
 echo "— provet (rullas tillbaka) —"
 su postgres -c "psql -q -v ON_ERROR_STOP=1 -d $DB -f $HAR/test.sql"

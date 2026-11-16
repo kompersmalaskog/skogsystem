@@ -175,7 +175,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     if (r.error) throw new Error('Kunde inte läsa register: ' + r.error.message);
   }
   // arbete_timpris står MEDVETET utanför kastet ovan: tabellen finns inte
-  // förrän migrationen 20261116120000 är körd, och underlaget ska fungera
+  // förrän migrationen 20261116124352 är körd, och underlaget ska fungera
   // ändå. Utan satser prissätts det manuella arbetet inte — timmarna visas
   // utan belopp, som före den här ändringen, och noten säger varför.
   if (arbPrisRes.error) {
