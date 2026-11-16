@@ -263,6 +263,8 @@ export interface MerIn {
     avslutaKorvy: () => void; gps: () => void; data: () => void; andrasSpar: () => void;
     skotning: () => void; markeraUtkort: () => void;
     installningar: () => void; gpsKalla: (() => void) | null; forslag: () => void;
+    /** Brandriskpanelen. En fast väg in (2026-11-16): raden på ⓘ-kortet och eld-ikonen finns bara vid nivå 3 eller mer. */
+    brandrisk?: () => void;
   };
 }
 
@@ -293,8 +295,8 @@ export function byggMerGrupper(c: MerIn): { grupper: MerGrupp[]; planerarenBlock
 
   // ÖVRIGT — Vägdata, Trakt (bara Larm kvar). Vidas egenkontroll-checklista (checklist_items) är borttagen härifrån 2026-10-15 — datan och /egenkontroll rörs inte. I körvy och maskinläge (där startsidan inte nås) även
   // Inställningar, GPS-källa och Förslag. KARTLAGER/baskarta finns INTE här: lagervalet bor på ETT ställe i körvyn, + › Alla › Lager (ⓘ visar information, inga kartinställningar). Annars bor Inställningar och Förslag på startsidan.
-  const ovrigt: MerRad[] = [
-  ];
+  const ovrigt: MerRad[] = [];
+  if (c.go.brandrisk) ovrigt.push({ id: 'brandrisk', etikett: 'Brandrisk', under: 'Prognos, utrustning och larm', ikon: 'local_fire_department', onTryck: c.go.brandrisk });
   if (c.korvyAktiv || c.maskinlage) {
     ovrigt.push({ id: 'installningar', etikett: 'Inställningar', under: 'Kompass, tillstånd, karta', ikon: 'settings', onTryck: c.go.installningar });
     if (c.go.gpsKalla) ovrigt.push({ id: 'gps-kalla', etikett: 'GPS-källa', under: 'Serieport och baudrate', ikon: 'gps_fixed', onTryck: c.go.gpsKalla });
