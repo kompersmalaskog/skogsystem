@@ -63,7 +63,7 @@ const sym = (id: number, type: string, metersNorr: number, extra: any = {}) => (
 
 // Klockan styrs av testet: ljudfönstret (flera nya larm inom ~2 s = ett ljud) räknas mot Date.now().
 let klocka = 1_000_000;
-beforeEach(() => { document.body.innerHTML = ''; klocka += 60_000; vi.spyOn(Date, 'now').mockImplementation(() => klocka); });
+beforeEach(() => { document.body.innerHTML = ''; try { localStorage.clear(); } catch { /* */ } klocka += 60_000; vi.spyOn(Date, 'now').mockImplementation(() => klocka); });
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('useKorvyLarm — flera larm samtidigt', () => {
@@ -269,14 +269,15 @@ describe('useKorvyLarm — kopplingen till sidan', () => {
     expect(ut.ringar[0].geometri?.type).toBe('LineString');
   });
 
-  it('inkörning i Vidas Hänsynsyta: "kör inte här" — även efter kvittering', async () => {
+  it('inkörning i Vidas Hänsynsyta: "kör inte här" första gången — efter Sett bara den lilla raden', async () => {
     const o = 0.0006; // ~ 67 m
     const vida = { features: [{ type: 'Feature', properties: { _typ: 'hänsynsyta', _lager: 'L_TILLAGGSYTOR' }, geometry: { type: 'Polygon', coordinates: [[[POS.lon - o, POS.lat - o], [POS.lon + o, POS.lat - o], [POS.lon + o, POS.lat + o], [POS.lon - o, POS.lat + o], [POS.lon - o, POS.lat - o]]] } }] };
     const db = fakeDb([]);
     mount(bas({ vida, db })); await tom();
     expect(ut.kort).toMatchObject({ namn: 'Hänsyn', forbjuden: true, text: 'Du är inne i ytan, kör inte här', avstandM: null });
-    await act(async () => { ut.kvittera(); });
-    expect(ut.kort).toMatchObject({ forbjuden: true });
+    await act(async () => { ut.kvittera(); }); await tom();
+    expect(ut.kort).toBeNull();
+    expect(ut.passage).toMatchObject({ sedd: true });
   });
 
   it('Risa på basväg räknas som Blött (in vid 12 m, ut först vid 16 m)', async () => {
@@ -297,5 +298,106 @@ describe('useKorvyLarm — kopplingen till sidan', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mount(bas({ markers: [sym(1, 'culturemonument', 30)], db: felDb })); await tom();
     expect(ut.kort).toMatchObject({ namn: 'Kulturminne' });
+  });
+
+  describe('stenmur ritad i flera bitar är EN mur (Stefan, Lidhem 12 nov)', () => {
+    const O = 1 / (111320 * Math.cos((POS.lat * Math.PI) / 180));   // en meter i longitud
+    const mur = (id: string, norrM: number, franM: number, tillM: number, comment?: string) => ({ id, isLine: true, lineType: 'stonewall', comment, path: [{ x: norr(norrM), y: POS.lon + franM * O }, { x: norr(norrM), y: POS.lon + tillM * O }] });
+
+    it('ett Sett kvitterar alla bitar som hänger ihop — men inte en mur långt bort', async () => {
+      const db = fakeDb([]);
+      const markers = [mur('m1', 20, -30, 0), mur('m2', 20, 3, 40), mur('m3', 20, 44, 80), mur('fjarran', 400, 0, 40)];
+      const rerender = mount(bas({ markers, db })); await tom();
+      expect(ut.kort).toMatchObject({ namn: 'Stenmur' });
+      await act(async () => { ut.kvittera(); }); await tom();
+      expect(db.upserts.map((u) => u.marker_id).sort()).toEqual(['m1', 'm2', 'm3']);
+      expect(ut.kort).toBeNull();                 // nästa bit av samma mur frågar inte
+      expect(ut.settRad).toBeNull();
+      // … men muren 400 m bort gör det när man kommer dit
+      rerender(bas({ markers, db, pos: { lat: norr(390), lon: POS.lon } })); await tom();
+      expect(ut.kort).toMatchObject({ namn: 'Stenmur', id: 'fjarran' });
+    });
+
+    it('en bit med egen kommentar läses för sig', async () => {
+      const db = fakeDb([]);
+      mount(bas({ markers: [mur('m1', 20, -30, 0), mur('m2', 20, 3, 40, 'Öppning här, kör igenom')], db })); await tom();
+      await act(async () => { ut.kvittera(); }); await tom();
+      expect(db.upserts).toHaveLength(1);
+      expect(ut.kort).toMatchObject({ namn: 'Stenmur' });   // den andra biten väntar på sitt eget Sett
+    });
+  });
+
+  describe('EN varning per hinder (Martin 2026-11-16)', () => {
+    const bort = { lat: norr(-300), lon: POS.lon };
+    it('kortet visas, föraren kör därifrån UTAN att trycka Sett: nästa gång kommer inget kort — och ingenting skrivs som kvitterat', async () => {
+      const db = fakeDb([]); const markers = [sym(1, 'culturemonument', 30)];
+      const rerender = mount(bas({ markers, db })); await tom();
+      expect(ut.kort).toMatchObject({ namn: 'Kulturminne' });
+      rerender(bas({ markers, db, pos: bort })); await tom();
+      rerender(bas({ markers, db })); await tom();
+      expect(ut.kort).toBeNull(); expect(ut.settRad).toBeNull();
+      expect(ut.ringar.map((r) => r.id)).toEqual(['1']);   // ringen lyser fortfarande
+      expect(db.upserts).toHaveLength(0);                  // Sett-tabellen är beviset på att föraren själv tryckt
+    });
+
+    it('minnet finns kvar efter omstart av appen, och gäller bara den föraren', async () => {
+      const markers = [sym(1, 'culturemonument', 30)];
+      const rerender = mount(bas({ markers })); await tom();
+      rerender(bas({ markers, pos: bort })); await tom();
+      document.body.innerHTML = '';
+      mount(bas({ markers })); await tom();
+      expect(ut.kort).toBeNull();
+      document.body.innerHTML = '';
+      mount(bas({ markers, forare: { id: 'B', namn: 'Oskar' } })); await tom();
+      expect(ut.kort).toMatchObject({ namn: 'Kulturminne' });
+    });
+
+    it('står han kvar intill (arbetar längs muren) släpper kortet efter en halv minut', async () => {
+      const markers = [sym(1, 'culturemonument', 30)];
+      const rerender = mount(bas({ markers })); await tom();
+      expect(ut.kort).not.toBeNull();
+      klocka += 20_000; rerender(bas({ markers, pos: { lat: norr(1), lon: POS.lon } })); await tom();
+      expect(ut.kort).not.toBeNull();
+      klocka += 11_000; rerender(bas({ markers, pos: { lat: norr(2), lon: POS.lon } })); await tom();
+      expect(ut.kort).toBeNull();
+    });
+
+    it('ändrad kommentar: varnar en gång till', async () => {
+      const m = (c?: string) => [sym(1, 'culturemonument', 30, { comment: c })];
+      const rerender = mount(bas({ markers: m() })); await tom();
+      rerender(bas({ markers: m(), pos: bort })); await tom();
+      rerender(bas({ markers: m('Kolbotten – kör runt') })); await tom();
+      expect(ut.kort).toMatchObject({ namn: 'Kulturminne' });
+    });
+
+    it('Fara larmar varje gång, hur många gånger den än visats', async () => {
+      const markers = [sym(2, 'powerline', 30)];
+      const rerender = mount(bas({ markers })); await tom();
+      for (let i = 0; i < 3; i++) {
+        rerender(bas({ markers, pos: bort })); await tom();
+        klocka += 60_000; rerender(bas({ markers })); await tom();
+        expect(ut.kort).toMatchObject({ namn: 'El-ledning' });
+      }
+    });
+
+    it('förbjuden yta: kort första inkörningen, vid nästa bara raden "Du är i …" — inget kort', async () => {
+      const o = 0.0006;
+      const vida = { features: [{ type: 'Feature', properties: { _typ: 'hänsynsyta', _lager: 'L_TILLAGGSYTOR' }, geometry: { type: 'Polygon', coordinates: [[[POS.lon - o, POS.lat - o], [POS.lon + o, POS.lat - o], [POS.lon + o, POS.lat + o], [POS.lon - o, POS.lat + o], [POS.lon - o, POS.lat - o]]] } }] };
+      const rerender = mount(bas({ vida })); await tom();
+      expect(ut.kort).toMatchObject({ forbjuden: true });
+      klocka += 120_000; rerender(bas({ vida, pos: { lat: norr(5), lon: POS.lon } })); await tom();
+      expect(ut.kort).toMatchObject({ forbjuden: true });   // står kvar så länge han är inne första gången
+      rerender(bas({ vida, pos: bort })); await tom();
+      rerender(bas({ vida })); await tom();
+      expect(ut.kort).toBeNull();
+      expect(ut.passage).toMatchObject({ sedd: true });
+    });
+
+    it('testläget minns bara i minnet: ingenting sparas på enheten', async () => {
+      const markers = [sym(1, 'culturemonument', 30)];
+      const rerender = mount(bas({ markers, torr: true })); await tom();
+      rerender(bas({ markers, torr: true, pos: bort })); await tom();
+      expect(Object.keys(localStorage).filter((k) => k.startsWith('larm_visat'))).toEqual([]);
+    });
   });
 });

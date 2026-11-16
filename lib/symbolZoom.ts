@@ -24,6 +24,7 @@ const METER_PER_PX_ZOOM0 = 40075016.686 / 512;
 /** Lagren som bär symboler och etiketter (och deras osynliga träffytor, så ett tryck inte öppnar ett kort för något man inte ser). */
 export const SYMBOL_LAGER: readonly string[] = [
   'markers-layer', 'markers-hit',            // symboler (avlägg, högstubbe, fara …)
+  'markers-kommentar', 'markers-kommentar-fri',   // kommentar-tecknen (lib/kommentarTecken) följer symbolerna
   'arrows-layer', 'arrows-hit',              // pilar
   'trakt-punkt-circle', 'trakt-punkt-label', // Vidas punkter (avlägg, larm) och deras etiketter
   'trakt-hansyn-label', 'trakt-ovrigt-label', 'trakt-nb-label', 'trakt-raa-label', 'yta-nr-label', 'yta-nr-hit', 'zone-label',
@@ -34,7 +35,7 @@ export const SYMBOL_LAGER: readonly string[] = [
 ];
 
 /** Symbollager som medvetet INTE klipps: verktyg (rita/mät), maskinens position, körvyns egen etikett (körvy-bara), skotarens avläggsrutor (körvy-bara, ska alltid synas), backvägens tvärstreck (en del av vägens linje, ska synas på alla zoomnivåer). Varje `type: 'symbol'`-lager i page.tsx måste stå i någon av listorna. */
-export const SYMBOL_UNDANTAG: readonly string[] = ['figur-etikett', 'hornedit-nr', 'maskin-symbol', 'markers-korvy-label', 'skotar-avlagg-ruta', 'line-backvag', 'trakt-kraftledning-stolpar', 'trakt-kraftledning-symbol', 'line-powerline-stolpar', 'line-powerline-symbol', 'line-kor-pil', 'line-kor-siffra', 'line-kor-kvar', 'line-korupp-spets', 'line-korupp-ord', 'line-fall-trad'];
+export const SYMBOL_UNDANTAG: readonly string[] = ['figur-etikett', 'hornedit-nr', 'maskin-symbol', 'markers-korvy-label', 'skotar-avlagg-ruta', 'line-backvag', 'trakt-kraftledning-stolpar', 'trakt-kraftledning-symbol', 'line-powerline-stolpar', 'line-powerline-symbol', 'line-kor-pil', 'line-kor-siffra', 'line-kor-kvar', 'line-korupp-spets', 'line-korupp-ord', 'line-fall-trad', 'skotar-hogar-halv'];
 
 const rad = (g: number) => (g * Math.PI) / 180;
 

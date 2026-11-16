@@ -21,7 +21,7 @@ import { T } from '@/lib/listTema';
 import { DAGAR_FORE, type VaderSnapshot } from '@/lib/egenkontrollvader';
 import type { MaskinSnapshot } from '@/lib/egenkontroll';
 
-import { bandText, grader, mm, period, saknasKort, saknasLangt } from '@/lib/egenkontrollForutsattningar';
+import { bandText, grader, kallaText, mm, period, saknasKort, saknasLangt } from '@/lib/egenkontrollForutsattningar';
 
 function Rubrik({ children }: { children: React.ReactNode }) {
   return (
@@ -112,6 +112,17 @@ function Innehall({ vader, maskiner }: { vader: VaderSnapshot | null; maskiner: 
             {period(vader.skord_start, vader.skord_slut) && (
               <div style={{ color: T.t2 }}>
                 Skördat {period(vader.skord_start, vader.skord_slut)}
+                {kallaText(vader.skord_kalla) ? ` (${kallaText(vader.skord_kalla)})` : ''}
+              </div>
+            )}
+            {/* KALLAN SAGS UT nar datumen kommer ur korsparet. Den sammanfallda
+                raden ovan haller sig kort (tre fakta pa en telefon ryms inte med
+                ett tillagg till); har, och i A4-rapporten, star det i sin helhet.
+                Maskindatan ar normalfallet och far inget tillagg. */}
+            {kallaText(vader.skot_kalla) && (
+              <div style={{ color: T.t2 }}>
+                Skotningsdatumen kommer ur appens körspår — vilka dagar appen såg
+                skotaren på trakten, inte vilka dagar maskinens filer visar.
               </div>
             )}
           </div>

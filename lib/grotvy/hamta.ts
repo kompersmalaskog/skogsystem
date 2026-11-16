@@ -1,4 +1,4 @@
-// Hämtning för GROT-arket. Klienten injiceras: /oversikt-v2 skickar webbläsarens inloggade klient,
+// Hämtning för GROT-arket. Klienten injiceras: /oversikt skickar webbläsarens inloggade klient,
 // förvärmningsskriptet skickar en service-klient — samma frågor, samma lista.
 //
 // Alla frågor sorteras på en unik nyckel (PostgREST ger annars rader i godtycklig ordning över

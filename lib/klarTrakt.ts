@@ -3,7 +3,7 @@
 // Principen: appen fyller i det den kan, planeraren tittar och rättar. Det appen inte KAN veta (fältfrågorna) ställs alltid.
 // Kortet har tre delar; bara de två första räknas som "kvar":
 //   1. APPEN HAR FYLLT I — avlägg, basväg, bärighet, terräng, skotningsavstånd, skördare, skotare, prognos. Orange = kvar.
-//   2. HAR DU… — sex frågor, alltid ställda, varje trakt. Obesvarad = kvar.
+//   2. HAR DU… — sju frågor, alltid ställda, varje trakt. Obesvarad = kvar.
 //   3. MARKÄGARE & ÖVRIGT — räknas aldrig (ved, band, breddat …).
 // Basväg är kvar BARA när Vidas underlag har en basväg som ännu inte är ritad i appen. En trakt utan basväg visar "Ingen" och räknas som klar (många trakter
 // behöver ingen) — appen gissar aldrig att en basväg saknas.
@@ -26,7 +26,7 @@ export function arUnderPlanering(status: string | null | undefined): boolean {
 
 // ── Har du… ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export type HarDuId = 'gransar' | 'naturvarden' | 'kulturlamningar' | 'ledningar' | 'snitslat' | 'avlagg_hugga';
+export type HarDuId = 'gransar' | 'naturvarden' | 'kulturlamningar' | 'ledningar' | 'snitslat' | 'avlagg_hugga' | 'markagare';
 export type HarDuSvarVarde = 'ja' | 'behovs_inte' | 'inga' | 'nej';
 
 export interface HarDuFraga {
@@ -40,7 +40,8 @@ export interface HarDuFraga {
   nejVarde: Exclude<HarDuSvarVarde, 'ja'>;
 }
 
-/** De sex frågorna, i den ordning kortet visar dem. Ordlydelsen är planerarens (tavla 34). */
+/** Frågorna, i den ordning kortet visar dem. Ordlydelsen är planerarens (tavla 34). "Pratat med markägaren?" (Martin 2026-11-05) är en fråga planeraren svarar på själv —
+ *  den kopplas inte till besöks-SMS:et (det skickas än så länge bara till inköparna som test). */
 export const HAR_DU_FRAGOR: readonly HarDuFraga[] = [
   { id: 'gransar', kort: 'Gränser', fraga: 'Markerat gränserna?', ja: 'Ja', nej: 'Behövs inte', nejVarde: 'behovs_inte' },
   { id: 'naturvarden', kort: 'Naturvärden', fraga: 'Märkt naturvärden?', ja: 'Ja', nej: 'Inga hittade', nejVarde: 'inga' },
@@ -48,6 +49,7 @@ export const HAR_DU_FRAGOR: readonly HarDuFraga[] = [
   { id: 'ledningar', kort: 'El-ledningar', fraga: 'Markerat el-ledningar?', ja: 'Ja', nej: 'Inga finns', nejVarde: 'inga' },
   { id: 'snitslat', kort: 'Snitslad basväg', fraga: 'Snitslat basvägen?', ja: 'Ja', nej: 'Behövs inte', nejVarde: 'behovs_inte' },
   { id: 'avlagg_hugga', kort: 'Avlägget huggs', fraga: 'Ska avlägget huggas?', ja: 'Ja', nej: 'Nej', nejVarde: 'nej' },
+  { id: 'markagare', kort: 'Markägaren', fraga: 'Pratat med markägaren?', ja: 'Ja', nej: 'Nej', nejVarde: 'nej' },
 ];
 
 export interface HarDuPost { svar: HarDuSvarVarde; av: string | null; at: string }
@@ -361,7 +363,7 @@ export interface KlarStatus {
   forutsattningarKvar: number;
   /** hur många av skördare och skotare som saknas (0–2): Maskiner är ETT område */
   maskinerKvar: number;
-  /** antal OMRÅDEN som är kvar (inte antal fält) = antal steg i "Gå igenom": avlägg, basväg, Förutsättningar (bärighet + terräng + skotningsavstånd = ett), Maskiner (skördare + skotare = ett), medelstam, Har du … (alla sex frågorna = ett), prognos */
+  /** antal OMRÅDEN som är kvar (inte antal fält) = antal steg i "Gå igenom": avlägg, basväg, Förutsättningar (bärighet + terräng + skotningsavstånd = ett), Maskiner (skördare + skotare = ett), medelstam, varje obesvarad Har du-fråga (en rad var på sidan, 2026-11-05), prognos */
   antalKvar: number;
   klar: boolean;
 }
@@ -423,8 +425,9 @@ export function berakna(i: KlarIndata): KlarStatus {
   const frågorKvar = HAR_DU_FRAGOR.filter((f) => !i.harDu[f.id]).map((f) => f.id);
   const forutsattningarKvar = poster.filter((x) => FORUTSATTNING_IDS.includes(x.id) && x.kvar).length;
   const maskinerKvar = poster.filter((x) => MASKIN_IDS.includes(x.id) && x.kvar).length;
-  // Antalet räknas per OMRÅDE (= ett steg i "Gå igenom"): de tre förutsättningarna är ett, skördare + skotare är ett, och de sex frågorna är ett. Samma tal står i rubriken, i namnfältets chip och i objektlistan.
-  const omraden = poster.filter((x) => x.kvar && !FORUTSATTNING_IDS.includes(x.id) && !MASKIN_IDS.includes(x.id)).length + (forutsattningarKvar > 0 ? 1 : 0) + (maskinerKvar > 0 ? 1 : 0) + (frågorKvar.length > 0 ? 1 : 0);
+  // Antalet = raderna under "Kvar" på sidan: de tre förutsättningarna är en rad, skördare + skotare är en rad, och varje obesvarad fråga är en egen rad (svaras direkt på raden).
+  // Samma tal står i rubriken, i namnfältets chip och i objektlistan.
+  const omraden = poster.filter((x) => x.kvar && !FORUTSATTNING_IDS.includes(x.id) && !MASKIN_IDS.includes(x.id)).length + (forutsattningarKvar > 0 ? 1 : 0) + (maskinerKvar > 0 ? 1 : 0) + frågorKvar.length;
   return { poster, prognos, frågorKvar, forutsattningarKvar, maskinerKvar, antalKvar: omraden, klar: omraden === 0 };
 }
 

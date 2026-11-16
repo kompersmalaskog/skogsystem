@@ -1,257 +1,30 @@
 'use client'
 
-import Link from 'next/link'
-import { useState, useEffect } from 'react'
+// Hem: ALLTID den nya startsidan (Martin 2026-11-09). Den gamla startsidan med gröna och blå rutor är borttagen —
+// den visades när rollen inte gick att läsa inom 1,5 s, och i skogen med dålig täckning hände det ofta.
+//
+// Rollen styr bara vilka rutor som syns: admin får admins vyer, alla andra (också okänd roll) förarens.
+// Adminvyerna skyddar sig själva, så en okänd roll öppnar ingenting. Rollen minns per enhet och e-post
+// (`lib/sparadRoll`), så sidan visas direkt; tills den är känd första gången visas bara bakgrunden, högst 1,5 s.
+// Vyregistret (`lib/vyer.ts`) är det enda stället vyerna står.
+
 import { useDatahalsa } from './datahalsa/useDatahalsa'
 import Startsida from '@/components/startsida/Startsida'
-import { useStartsidaData, type StartsidaData } from '@/components/startsida/useStartsidaData'
-import type { Roll } from '@/lib/vyer'
-
-function getDatum() {
-  const now = new Date()
-  const dag = ['söndag', 'måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag'][now.getDay()]
-  const manad = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'][now.getMonth()]
-  return `${dag} ${now.getDate()} ${manad}`
-}
-
-const productionApps = [
-  { href: '/uppfoljning',   label: 'Uppföljning', icon: 'monitoring'         },
-  { href: '/uppfoljning/fordelning', label: 'Aptering', icon: 'content_cut'  },
-  { href: '/maskinvy',      label: 'Maskinvy',    icon: 'visibility'          },
-  { href: '/maskinvy?ny=1', label: 'Maskinvy 2',  icon: 'new_releases'        },
-  { href: '/starta-jobb',   label: 'Starta jobb', icon: 'power_settings_new'  },
-  { href: '/oversikt', label: 'Översikt', icon: 'dashboard' },
-  { href: '/gallring', label: 'Gallring', icon: 'forest' },
-  { href: '/kalibrering', label: 'Kalibrering', icon: 'straighten' },
-  { href: '/maskin-service', label: 'Servicelogg', icon: 'build' },
-]
-
-const adminApps = [
-  { href: '/egenkontroll', label: 'Egenkontroll', icon: 'fact_check' },
-  { href: '/arbetsrapport', label: 'Arbetsrapport', icon: 'description' },
-  // Planera = egen vy, trakten först (tid på en trakt utan att gå via dagen).
-  // Samma tabeller, kalender och lön som Arbetsrapport. Synlig för alla — ett
-  // sätt in, inte en roll. (Planering längre ned = traktplaneringen med karta.)
-  { href: '/planera', label: 'Planera', icon: 'edit_calendar' },
-  { href: '/planering', label: 'Planering', icon: 'event_note' },
-  { href: '/objekt', label: 'Objekt', icon: 'layers' },
-  { href: '/redigering', label: 'Objektdetaljer', icon: 'edit' },
-  { href: '/ledighet', label: 'Ledighet', icon: 'beach_access' },
-  { href: '/utbildning', label: 'Utbildning', icon: 'school' },
-  { href: '/forbattringsforslag', label: 'Feedback', icon: 'feedback' },
-  { href: '/helikopter', label: 'Helikopter', icon: 'flight' },
-  { href: '/helikopter-v2', label: 'Helikopter v2', icon: 'helicopter' },
-  { href: '/affarsuppfoljning/rakna', label: 'Affärsuppföljning', icon: 'business_center' },
-  { href: '/kontroller', label: 'Kontroller', icon: 'fact_check' },
-  { href: '/lastbil', label: 'Lastbilen', icon: 'pin_drop' },
-  { href: '/avtal', label: 'Avtal', icon: 'receipt_long' },
-  { href: '/personal', label: 'Personal', icon: 'badge' },
-  { href: '/om', label: 'Om appen', icon: 'info' },
-  // Planeringens inställningar (kompass, tillstånd, karta, GPS-källa) — flyttade hit från objektinfons meny. Länken öppnar inställningsarket i /planering.
-  { href: '/planering?installningar=1', label: 'Inställningar', icon: 'settings' },
-]
-
-const markagarrapportEntry = { href: '/admin/markagarrapport', label: 'Markägarrapport', icon: 'summarize' }
-const ekonomiAppEntry = { href: '/ekonomi', label: 'Ekonomi', icon: 'payments' }
-const adminAppEntry = { href: '/admin', label: 'Admin', icon: 'shield' }
-
-// ── Datahälsa-bannern — morgonkollen: BESKEDET direkt på hemskärmen ──
-// Samma hook som /datahalsa-vyn ⇒ beskedet kan aldrig betyda olika saker
-// på olika ställen. Grön prick = allt lugnt, utan att behöva klicka.
-function DatahalsaBanner() {
-  const { besked } = useDatahalsa()
-  const farg = besked.niva === 'gron' ? '#30d158'
-    : besked.niva === 'gul' ? '#ffd60a'
-    : besked.niva === 'rod' ? '#ff453a' : '#8e8e93'
-  return (
-    <Link href="/datahalsa" style={{ textDecoration: 'none' }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        background: '#141416', borderRadius: 14, padding: '13px 16px',
-        marginBottom: 28, border: '1px solid rgba(255,255,255,0.05)',
-      }}>
-        <span style={{
-          width: 10, height: 10, borderRadius: 5, background: farg, flexShrink: 0,
-          ...(besked.niva === 'laddar' ? { opacity: 0.4 } : {}),
-        }} />
-        <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', flex: 1 }}>
-          Datahälsa: {besked.rubrik}
-        </span>
-        <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#8e8e93' }}>chevron_right</span>
-      </div>
-    </Link>
-  )
-}
-
-// ── Räknarmärke ──────────────────────────────────────────────────────────
-// APPENS FÖRSTA BADGE — mönstret är nytt, inte etablerat. Ingen annan ikon
-// på startsidan bär en siffra idag. Innan nästa vy får ett märke: fundera på
-// om siffran faktiskt utlöser en handling. Är den bara stor och konstant blir
-// den brus, och då slutar alla märken att betyda något.
-//
-// Noll visas ALDRIG som "0" — märket försvinner helt och ikonen står kvar.
-// aria-label bär samma besked i text, så siffran inte bara är en färgfläck.
-function Raknarmarke({ antal, label }: { antal: number; label: string }) {
-  return (
-    <span
-      role="status"
-      aria-label={`${antal} ${label}`}
-      style={{
-        position: 'absolute', top: -5, right: -5,
-        minWidth: 21, height: 21, padding: '0 6px',
-        borderRadius: 11, boxSizing: 'border-box',
-        background: '#ff453a', color: '#fff',
-        fontSize: 12, fontWeight: 700, lineHeight: '21px', textAlign: 'center',
-        border: '2px solid #0d0d0f', // ringen lyfter märket från ikonen bakom
-      }}
-    >
-      {antal > 99 ? '99+' : antal}
-    </span>
-  )
-}
-
-// ── Nya startsidan (admin och förare) ───────────────────────────────────
-// Egen komponent så att datahälsans hook bara körs när den nya sidan visas.
-function NyStartsida({ roll, data }: { roll: Roll; data: StartsidaData }) {
-  const { besked } = useDatahalsa()
-  return (
-    <Startsida roll={roll} skyddsombud={data.skyddsombud} marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null, lass: data.vantandeLass, godkann: data.vantandeGodkannande, maskinkoll: data.maskinkollVantar, atgarder: data.atgarder?.antal ?? null, atgardStopp: data.atgarder?.stopp ?? null, personal: data.egnaUppgifter ? 1 : null, arbetsmiljo: data.arbetsmiljoMarke }}
-          egnaUppgifter={data.egnaUppgifter} introduktion={data.introduktion} arbetsmiljo={data.arbetsmiljo}
-      datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna}
-      konto={data.konto} onLoggaUt={data.loggaUt} />
-  )
-}
-
-function AppIcon({ href, label, icon, variant, badge, badgeLabel }: { href: string; label: string; icon: string; variant: 'production' | 'admin'; badge?: number; badgeLabel?: string }) {
-  const bgColor = variant === 'production' ? '#30d158' : '#0a84ff'
-
-  return (
-    <Link href={href} className="app-link" style={{ textDecoration: 'none' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-        <div style={{
-          position: 'relative',
-          width: 56, height: 56, borderRadius: 12,
-          background: bgColor,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'transform 150ms ease',
-        }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#fff' }}>{icon}</span>
-          {badge != null && badge > 0 && (
-            <Raknarmarke antal={badge} label={badgeLabel ?? label} />
-          )}
-        </div>
-        <span style={{
-          fontSize: 11, fontWeight: 500, color: '#fff',
-          textAlign: 'center', lineHeight: 1.3,
-          maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis',
-          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-        }}>
-          {label}
-        </span>
-      </div>
-    </Link>
-  )
-}
+import { useStartsidaData } from '@/components/startsida/useStartsidaData'
+import { visadRoll } from '@/lib/sparadRoll'
+import { FARG } from '@/lib/design/tokens'
 
 export default function HomeClient() {
-  const [datum, setDatum] = useState('')
-  useEffect(() => { setDatum(getDatum()) }, [])
-  // Roll, märken och favoriter: samma källa som maskinlådan (useStartsidaData). Märket visas först när siffran
-  // är känd (null = inget märke). Rollen avgör vilken startsida som visas; tills den är känd visas bara bakgrunden,
-  // så ingen ser den gamla sidan blinka förbi. Läsfel eller långsamt svar → den gamla sidan, som förut.
   const data = useStartsidaData()
-  const { roll, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande } = data
+  const { besked } = useDatahalsa()
 
-  // Märket per ruta — samma oavsett vilken lista rutan står i. (Förut satt egenkontrollens märke bara på
-  // Produktion-listan, men Egenkontroll står under Administration, så märket syntes aldrig.)
-  const marke = (href: string): { badge?: number; badgeLabel?: string } =>
-    href === '/egenkontroll' ? { badge: vantandeEgenkontroll ?? undefined, badgeLabel: 'objekt väntar på egenkontroll' }
-    : href === '/ledighet' ? { badge: ledighetPrick?.antal, badgeLabel: 'att göra i ledighet' }
-    : href === '/lastbil' ? { badge: ((vantandeLass ?? 0) + (vantandeGodkannande ?? 0)) || undefined, badgeLabel: 'att göra i Lastbilen' }
-    : {}
-
-  if (!rollKlar) return <div style={{ position: 'fixed', inset: 0, background: '#000' }} />
-  if (roll === 'admin' || roll === 'forare') return <NyStartsida roll={roll} data={data} />
-
-  const synligaAdminApps = (roll === 'admin')
-    ? [...adminApps, markagarrapportEntry, ekonomiAppEntry, adminAppEntry]
-    : adminApps
+  if (!data.rollKlar) return <div style={{ position: 'fixed', inset: 0, background: FARG.bg }} />
 
   return (
-    <div style={{
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      overflow: 'auto', WebkitOverflowScrolling: 'touch',
-      background: '#000',
-      fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text',system-ui,sans-serif",
-      WebkitFontSmoothing: 'antialiased',
-    }}>
-      <style>{`
-        .app-link:active > div > div:first-child {
-          transform: scale(0.9);
-        }
-        .material-symbols-outlined {
-          font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-        }
-      `}</style>
-
-      {/* Header */}
-      <header style={{
-        paddingTop: 'calc(48px + env(safe-area-inset-top))',
-        paddingBottom: 24, paddingLeft: 24, paddingRight: 24, textAlign: 'center',
-      }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', color: '#fff', margin: '0 0 4px' }}>Kompersmåla Skog</h1>
-        <div style={{ color: '#8e8e93', fontSize: 13, fontWeight: 500, textTransform: 'capitalize' }}>{datum}</div>
-      </header>
-
-      {/* Main */}
-      <main style={{ padding: '0 24px 140px', maxWidth: 500, margin: '0 auto' }}>
-
-        {/* Datahälsa — morgonkollen */}
-        <DatahalsaBanner />
-
-        {/* Produktion */}
-        <div style={{ marginBottom: 32 }}>
-          <h3 style={{
-            fontSize: 13, fontWeight: 600, color: '#8e8e93',
-            margin: '0 0 16px', paddingLeft: 4,
-          }}>Produktion</h3>
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: '24px 16px',
-          }}>
-            {productionApps.map(app => (
-              <AppIcon
-                key={app.href}
-                {...app}
-                variant="production"
-                {...marke(app.href)}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Administration */}
-        <div>
-          <h3 style={{
-            fontSize: 13, fontWeight: 600, color: '#8e8e93',
-            margin: '0 0 16px', paddingLeft: 4,
-          }}>Administration</h3>
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: '24px 16px',
-          }}>
-            {synligaAdminApps.map(app => (
-              <AppIcon
-                key={app.href}
-                {...app}
-                variant="admin"
-                {...marke(app.href)}
-              />
-            ))}
-          </div>
-        </div>
-
-      </main>
-    </div>
+    <Startsida roll={visadRoll(data.roll)} skyddsombud={data.skyddsombud}
+      marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null, lass: data.vantandeLass, godkann: data.vantandeGodkannande, maskinkoll: data.maskinkollVantar, atgarder: data.atgarder?.antal ?? null, atgardStopp: data.atgarder?.stopp ?? null, personal: data.egnaUppgifter ? 1 : null, arbetsmiljo: data.arbetsmiljoMarke }}
+      egnaUppgifter={data.egnaUppgifter} introduktion={data.introduktion} arbetsmiljo={data.arbetsmiljo}
+      datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna}
+      konto={data.konto} onLoggaUt={data.loggaUt} />
   )
 }

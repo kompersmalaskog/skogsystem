@@ -1,7 +1,7 @@
 // SMS till markägaren — texten är beställd ord för ord (Martin 2026-10-22). Appen skickar ALDRIG något: knappen öppnar telefonens Meddelanden med mottagare och text
-// ifyllda (sms:-länk, samma som `app/oversikt-v2/sms`); planeraren läser, ändrar och trycker själv på skicka.
+// ifyllda (sms:-länk, samma som `app/oversikt/sms`); planeraren läser, ändrar och trycker själv på skicka.
 
-import { arIos, forstaNamn, smsHref } from '@/app/oversikt-v2/sms';
+import { arIos, forstaNamn, smsHref } from '@/app/oversikt/sms';
 import { dagarMellan, idagStockholm } from '@/lib/grotvy/format';
 import { FORETAG_TELEFON } from './konstanter';
 
@@ -89,6 +89,26 @@ export function besokSmsText(a: SmsIndata): string {
     a.lank,
     '',
     'Vill du komma ut? Anmäl dig i länken först, så får förarna veta att du kommer. Gå aldrig fram till en maskin som arbetar förrän föraren har sett dig och stannat.',
+    '',
+    'Hälsningar',
+    `${av ? `${av}, ` : ''}Kompersmåla Skog`,
+    ...(tel ? [tel] : []),
+  ];
+  return rader.join('\n');
+}
+
+/** Andra SMS:et, när vi är klara (Martin 2026-11-16): det är då markägaren går ut på hygget och undrar. Samma länk — den visar nu "Varför ser det ut så här?". */
+export function besokKlarSmsText(a: Omit<SmsIndata, 'nar'>): string {
+  const mark = markagareFornamn(a.markagare);
+  const av = forstaNamn(a.avsandareNamn);
+  const fast = fastighetText(a.fastighet);
+  const tel = smsNummer(a);
+  const rader = [
+    mark ? `Hej ${mark}!` : 'Hej!',
+    `Nu är vi klara ${fast ? `på ${fast}` : 'i din skog'}. Virket ligger vid vägen och hämtas av Vida.`,
+    '',
+    'Här ser du vad vi lämnade kvar i skogen och varför:',
+    a.lank,
     '',
     'Hälsningar',
     `${av ? `${av}, ` : ''}Kompersmåla Skog`,

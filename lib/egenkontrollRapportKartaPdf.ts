@@ -18,6 +18,7 @@ import {
   HYTTSPAR_FARG, STAMMOLN_FARG, TRAKTGRANS_FARG, markeringsStil,
   type KartMarkering,
 } from './egenkontrollRapportKarta';
+import { DIKE } from './kartstil';
 
 type PdfLib = typeof import('pdf-lib');
 
@@ -151,6 +152,7 @@ export function ritaKarta(
     if (m.slag !== 'linje' || m.punkter.length < 2) continue;
     const st = markeringsStil('linje', m.typ); if (!st) continue;
     if (st.ledning) { ritaKraftledning(lib, sida, m.punkter.map(ap), st.farg, st.bredd); continue; }
+    if (st.dike) { ritaDike(lib, sida, SVG, bana(m.punkter, false), st.bredd); continue; }
     // Stenmur: KRAFTIG mörk kant under gruppens färg (som på kartan) — ingen andra nyans.
     if (m.typ === 'stonewall') sida.drawSvgPath(bana(m.punkter, false), { ...SVG, borderColor: lib.rgb(0.05, 0.05, 0.05), borderWidth: st.bredd + 2.2 });
     sida.drawSvgPath(bana(m.punkter, false), { ...SVG, borderColor: hex(lib, st.farg), borderWidth: st.bredd, ...(st.streck ? { borderDashArray: st.streck } : {}) });
@@ -417,6 +419,12 @@ export function ritaSymbol(lib: PdfLib, sida: PDFPage, typ: string, a: { x: numb
   sida.drawSvgPath(d.glyf, { x: ox + g.x * sc, y: oy - g.y * sc, scale: sc * g.skala, borderColor: lib.rgb(1, 1, 1), borderWidth: GLYF_LINJE_BREDD * sc * g.skala, borderLineCap: lib.LineCapStyle.Round });
 }
 
+/** DIKET i rapporten, som i appen (lib/kartstil dikeLager): mörk kant, jordkant, fåra och en smal blå vattenlinje — inga ränder. */
+function ritaDike(lib: PdfLib, sida: PDFPage, SVG: { x: number; y: number }, bana: string, bredd: number): void {
+  const lager: [string, number][] = [['#000000', bredd + 0.8], [DIKE.jord, bredd], [DIKE.fara, bredd * 0.6], [DIKE.vatten, bredd * 0.3]];
+  for (const [farg, b] of lager) sida.drawSvgPath(bana, { ...SVG, borderColor: hex(lib, farg), borderWidth: b, borderLineCap: lib.LineCapStyle.Round });
+}
+
 /** Snedstreckning (45°) i gruppens färg inuti en yta — ytor man inte får köra in i. Klipps mot ytans ring; `ring` är toppbaserade sidkoordinater. */
 export function ritaSnedstreck(lib: PdfLib, sida: PDFPage, ring: { x: number; y: number }[], farg: string, avstand = 4.5, tjocklek = 0.9): void {
   if (ring.length < 3) return;
@@ -471,6 +479,7 @@ export function ritaTeckenforklaring(
         sida.drawSvgPath(`M ${cx} ${mid - 3} L ${cx + PROV} ${mid - 3} L ${cx + PROV} ${mid + 3} L ${cx} ${mid + 3} Z`, { ...SVG, color: hex(lib, st.farg), opacity: st.snedstreck ? 0.08 : 0.16, borderColor: hex(lib, st.farg), borderWidth: 0.9, ...(st.streck ? { borderDashArray: st.streck } : {}) });
         if (st.snedstreck) ritaSnedstreck(lib, sida, [{ x: cx, y: mid - 3 }, { x: cx + PROV, y: mid - 3 }, { x: cx + PROV, y: mid + 3 }, { x: cx, y: mid + 3 }], st.farg, 3, 0.7);
       }
+      else if (st?.dike) ritaDike(lib, sida, SVG, `M ${cx} ${mid} L ${cx + PROV} ${mid}`, st.bredd);
       else if (st?.ledning) ritaKraftledning(lib, sida, [{ x: cx, y: mid }, { x: cx + PROV, y: mid }], st.farg, 1.1, { stolpeAvstand: 5, symbolAvstand: PROV, symbolStorlek: 6.5 });
       else if (st) sida.drawSvgPath(`M ${cx} ${mid} L ${cx + PROV} ${mid}`, { ...SVG, borderColor: hex(lib, st.farg), borderWidth: Math.min(st.bredd, 2.2), ...(st.streck ? { borderDashArray: st.streck } : {}) });
     }

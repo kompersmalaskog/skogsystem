@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { samlaOmraden, stegaInstruktion, TOMT_INSTRUKTION, kortAttVisa, arOsedd } from './instruktioner/instruktioner';
 import {
-  KORUPP_MIN_M, KORUPP_SKAL, KORUPP_SYNLIG_M, KORUPP_TYP, arKorUpp, arSkal, korUppData, korUppLager, korUppLangdM, korUppOrd, korUppText, korUppUr, nyKorUpp, skalNamn, snappaTillVag, synligaKorUpp,
+  KORUPP_MIN_M, KORUPP_SKAL, KORUPP_TYP, arKorUpp, arSkal, korUppData, korUppLager, korUppLangdM, korUppOrd, korUppText, korUppUr, nyKorUpp, skalNamn, snappaTillVag,
   type KorUppPos,
 } from './korUpp';
 import { fram } from './fallTrad';
@@ -69,21 +69,27 @@ describe('från vilken väg? — snäpp till närmaste väg', () => {
   it('en väg med en enda punkt (ingen sträcka) ger aldrig en träff', () => { expect(snappaTillVag([{ id: 'x', coords: [[15, 57]] }], { x: 0, y: 0 }, proj)).toBeNull(); });
 });
 
-describe('vad som syns var — maskinen', () => {
+describe('vad som syns var — maskinen (allt syns, det nära starkast)', () => {
   const nara = pil('nara', 'brant', fram(origo, 0, 50), fram(origo, 0, 90));
   const langt = pil('langt', 'inget', fram(origo, 0, 300), fram(origo, 0, 340));
-  it('planeringen ser alla', () => { expect(synligaKorUpp([nara, langt], 'planering', null)).toHaveLength(2); });
-  it('SKÖRDAREN ser bara de som ligger nära maskinen (80 m till närmaste punkt på pilen)', () => {
-    expect(KORUPP_SYNLIG_M).toBe(80);
-    expect(synligaKorUpp([nara, langt], 'skordare', origo).map((p) => p.id)).toEqual(['nara']);
-    expect(synligaKorUpp([pil('a', 'inget', fram(origo, 0, 79), fram(origo, 0, 120))], 'skordare', origo)).toHaveLength(1);
-    expect(synligaKorUpp([pil('a', 'inget', fram(origo, 0, 81), fram(origo, 0, 120))], 'skordare', origo)).toHaveLength(0);
+  const narAv = (fc: ReturnType<typeof korUppData>, id: string) => fc.features.filter((f) => f.properties.id === id).map((f) => f.properties.nar);
+  it('alla pilar ritas, också de långt bort', () => {
+    const fc = korUppData([nara, langt], origo);
+    expect(new Set(fc.features.map((f) => f.properties.id))).toEqual(new Set(['nara', 'langt']));
   });
-  it('utan position ser varken skördaren eller skotaren några; skotaren ser de nära (samma 80 m)', () => {
-    expect(synligaKorUpp([nara], 'skordare', null)).toEqual([]);
-    expect(synligaKorUpp([nara], 'skotare', null)).toEqual([]);
-    expect(synligaKorUpp([nara, langt], 'skotare', origo).map((p) => p.id)).toEqual(['nara']);
-    expect(synligaKorUpp([pil('pa-maskinen')], 'skotare', origo)).toHaveLength(1);
+  it('inom 80 m full styrka, längre bort svagare — aldrig osynlig', () => {
+    const fc = korUppData([nara, langt], origo);
+    expect(narAv(fc, 'nara').every((n) => n === 1)).toBe(true);
+    const n = narAv(fc, 'langt');
+    expect(n.every((v) => (v as number) < 1 && (v as number) >= 0.4)).toBe(true);
+  });
+  it('planeringen och maskinen utan GPS: full styrka på alla', () => {
+    expect(korUppData([langt]).features.every((f) => f.properties.nar === 1)).toBe(true);
+    expect(korUppData([langt], null).features.every((f) => f.properties.nar === 1)).toBe(true);
+  });
+  it('lagren läser styrkan', () => {
+    const json = JSON.stringify(korUppLager());
+    expect(json.match(/\["get","nar"\]/g)?.length).toBeGreaterThanOrEqual(4);
   });
 });
 

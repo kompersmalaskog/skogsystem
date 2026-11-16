@@ -50,3 +50,14 @@ describe('medelstamTabell', () => {
     expect(Object.values(rader[1].procent!).reduce((a, b) => a + b, 0)).toBe(100)
   })
 })
+
+describe('medelstamTabell per trädslag', () => {
+  const o = (id: string, ms: number, t: number) => ({ id, namn: id, typ: 'Slutavverkning' as const, forsta: null, stammar: 400, volym: 400 * ms,
+    timmer: 400 * ms * t, kubb: 0, massa: 400 * ms * (1 - t), medelstam: ms, rot20: null, stammar20: null, lov: 0 });
+  it('räknar på trädslagets objekt, inte på hela trakterna', () => {
+    const alla = [o('a', 0.5, 0.5), o('b', 0.5, 0.5), o('c', 0.5, 0.5)];
+    const gran = [o('g1', 0.5, 0.7), o('g2', 0.5, 0.7), o('g3', 0.5, 0.7)];
+    expect(medelstamTabell(alla, {}, false, null, [0.5])[0].procent?.timmer).toBe(50);
+    expect(medelstamTabell(alla, {}, false, null, [0.5], gran)[0].procent?.timmer).toBe(70);
+  });
+});

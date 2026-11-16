@@ -5,6 +5,8 @@ import AppRamverk from '../components/AppRamverk'
 export const metadata: Metadata = {
   title: 'Kompersmåla Skog',
   description: 'Skogsbruksverksamhet',
+  // Via metadata (inte en egen <link>) så att en sida kan ha ett eget manifest — skotarlänken installeras som sin egen app (/skotare/<token>).
+  manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -35,7 +37,6 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <link rel="manifest" href="/manifest.json" />
         <link rel="icon" type="image/png" href="/icon.png" />
         <link rel="apple-touch-icon" href="/icon.png" />
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" />

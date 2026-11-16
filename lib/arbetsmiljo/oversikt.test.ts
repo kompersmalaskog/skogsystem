@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { byggRader, startsidaAntal, svar, type Indata } from './oversikt';
 import { MASKINTYPER, TOM, lista, underlag, type Bedomning, type MaskinTyp } from './maskinRisk';
 import { byggPunkter, type Rond } from './skyddsrond';
+
+// Reglerna här gäller när arbetsmiljön har börjat (lib/arbetsmiljo/start.ts). Före start: start.test.ts.
+vi.mock('@/lib/arbetsmiljo/start', async (orig) => ({ ...(await orig<typeof import('@/lib/arbetsmiljo/start')>()), arbetsmiljoIgang: () => true }));
+
 
 const NU = new Date('2026-11-03T10:00:00Z');
 const tomma = () => Object.fromEntries(MASKINTYPER.map(t => [t, { ...TOM, bort: [], egna: [] }])) as unknown as Record<MaskinTyp, Bedomning>;

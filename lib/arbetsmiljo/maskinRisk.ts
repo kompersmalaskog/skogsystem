@@ -5,6 +5,11 @@
 // Riskerna och åtgärderna står HÄR (ändras här). Admin tar bort det som inte gäller hos oss, lägger till egna och trycker Stämmer; föraren
 // läser och trycker "Jag har läst". Godkännandet och kvittot gäller exakt listan (fingeravtryck) — ändras en text gäller de inte längre.
 // Ren logik, ingen React. Lagring: am_riskbedomning (en rad per typ) och am_riskbedomning_last (kvittot).
+//
+// ALLVARLIG ELLER MINDRE ALLVARLIG (2026-11-05, AFS 2023:1 11 §: dokumentationen ska säga OM riskerna är allvarliga). Allt är Allvarligt från
+// början; admin ändrar med ett tryck (`mindre` = nycklarna som är mindre allvarliga, kolumnen am_riskbedomning.mindre, migration
+// 20261110115944_am_riskbedomning_mindre.sql). En mindre allvarlig risk ändrar fingeravtrycket (`|mindre`); en allvarlig gör det inte, så
+// godkännanden och kvitton från före ändringen gäller som förut. Saknas kolumnen läses allt som Allvarligt och valet sparas inte.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -23,7 +28,7 @@ export const TYP_BESTAMD: Record<MaskinTyp, string> = {
   skordare: 'skördaren', skotare: 'skotaren', lastbil: 'lastbilen', motorsag: 'motorsågen', kemikalier: 'oljor och kemikalier',
 };
 
-export type MaskinRisk = { nyckel: string; risk: string; atgard: string; egen: boolean };
+export type MaskinRisk = { nyckel: string; risk: string; atgard: string; egen: boolean; allvarlig: boolean };
 
 const R = (nyckel: string, risk: string, atgard: string) => ({ nyckel, risk, atgard });
 
@@ -85,30 +90,33 @@ export type EgenRisk = { id: string; risk: string; atgard: string };
 export type Bedomning = {
   bort: string[];
   egna: EgenRisk[];
+  /** nycklar som admin sagt är MINDRE allvarliga (allt annat är allvarligt) */
+  mindre: string[];
   godkandUnderlag: string | null;
   godkandTid: string | null;
   godkandAv: string | null;
 };
 
-export const TOM: Bedomning = { bort: [], egna: [], godkandUnderlag: null, godkandTid: null, godkandAv: null };
+export const TOM: Bedomning = { bort: [], egna: [], mindre: [], godkandUnderlag: null, godkandTid: null, godkandAv: null };
 
 /** Listan som gäller: katalogen utom det som inte gäller, sedan de egna. */
 export function lista(typ: MaskinTyp, b: Bedomning): MaskinRisk[] {
   const bort = new Set(b.bort);
+  const mindre = new Set(b.mindre ?? []);
   return [
-    ...KATALOG[typ].filter(r => !bort.has(r.nyckel)).map(r => ({ ...r, egen: false })),
-    ...b.egna.map(e => ({ nyckel: `egen:${e.id}`, risk: e.risk, atgard: e.atgard, egen: true })),
+    ...KATALOG[typ].filter(r => !bort.has(r.nyckel)).map(r => ({ ...r, egen: false, allvarlig: !mindre.has(r.nyckel) })),
+    ...b.egna.map(e => ({ nyckel: `egen:${e.id}`, risk: e.risk, atgard: e.atgard, egen: true, allvarlig: !mindre.has(`egen:${e.id}`) })),
   ];
 }
 
 export function borttagna(typ: MaskinTyp, b: Bedomning): MaskinRisk[] {
   const bort = new Set(b.bort);
-  return KATALOG[typ].filter(r => bort.has(r.nyckel)).map(r => ({ ...r, egen: false }));
+  return KATALOG[typ].filter(r => bort.has(r.nyckel)).map(r => ({ ...r, egen: false, allvarlig: true }));
 }
 
 /** Fingeravtrycket. En ändrad text är en ny bedömning; ordningen spelar ingen roll. */
 export function underlag(risker: readonly MaskinRisk[]): string {
-  return risker.map(r => `${r.nyckel}=${r.risk.trim()}|${r.atgard.trim()}`).sort().join('§') || 'inga';
+  return risker.map(r => `${r.nyckel}=${r.risk.trim()}|${r.atgard.trim()}${r.allvarlig === false ? '|mindre' : ''}`).sort().join('§') || 'inga';
 }
 
 export const SE_OVER_DAGAR = 365;
@@ -135,12 +143,18 @@ export function antalText(n: number): string {
 // ── Ändringar (rena) ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 export function taBort(b: Bedomning, nyckel: string): Bedomning {
-  if (nyckel.startsWith('egen:')) return { ...b, egna: b.egna.filter(e => `egen:${e.id}` !== nyckel) };
+  if (nyckel.startsWith('egen:')) return { ...b, egna: b.egna.filter(e => `egen:${e.id}` !== nyckel), mindre: (b.mindre ?? []).filter(n => n !== nyckel) };
   return b.bort.includes(nyckel) ? b : { ...b, bort: [...b.bort, nyckel] };
 }
 
 export function taTillbaka(b: Bedomning, nyckel: string): Bedomning {
   return { ...b, bort: b.bort.filter(n => n !== nyckel) };
+}
+
+/** Allvarlig eller mindre allvarlig, ett tryck. */
+export function sattAllvarlig(b: Bedomning, nyckel: string, allvarlig: boolean): Bedomning {
+  const utan = (b.mindre ?? []).filter(n => n !== nyckel);
+  return { ...b, mindre: allvarlig ? utan : [...utan, nyckel] };
 }
 
 /** null = risk eller åtgärd saknas. */
@@ -152,10 +166,10 @@ export function laggTill(b: Bedomning, id: string, risk: string, atgard: string)
 
 // ── Lagring ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-type Rad = { maskintyp: string; bort: unknown; egna: unknown; godkand_underlag: string | null; godkand_tid: string | null; godkand_av: string | null };
+type Rad = { maskintyp: string; bort: unknown; egna: unknown; mindre?: unknown; godkand_underlag: string | null; godkand_tid: string | null; godkand_av: string | null };
 
 export function tolka(r: Partial<Rad> | null | undefined): Bedomning {
-  if (!r) return { ...TOM, bort: [], egna: [] };
+  if (!r) return { ...TOM, bort: [], egna: [], mindre: [] };
   const bort = Array.isArray(r.bort) ? r.bort.filter((x): x is string => typeof x === 'string') : [];
   const egna = Array.isArray(r.egna)
     ? r.egna.flatMap(e => {
@@ -163,12 +177,25 @@ export function tolka(r: Partial<Rad> | null | undefined): Bedomning {
       return x && typeof x.id === 'string' && typeof x.risk === 'string' && typeof x.atgard === 'string' ? [{ id: x.id, risk: x.risk, atgard: x.atgard }] : [];
     })
     : [];
-  return { bort, egna, godkandUnderlag: r.godkand_underlag ?? null, godkandTid: r.godkand_tid ?? null, godkandAv: r.godkand_av ?? null };
+  const mindre = Array.isArray(r.mindre) ? r.mindre.filter((x): x is string => typeof x === 'string') : [];
+  return { bort, egna, mindre, godkandUnderlag: r.godkand_underlag ?? null, godkandTid: r.godkand_tid ?? null, godkandAv: r.godkand_av ?? null };
 }
 
 /** Alla fyra. null = kunde inte läsas (aldrig "ingen bedömning gjord"). En typ utan rad är en bedömning ingen rört. */
+/** Saknas kolumnen `mindre` (migrationen ej körd)? */
+export function saknarMindre(error: { code?: string; message?: string } | null | undefined): boolean {
+  return !!error && (error.code === '42703' || error.code === 'PGRST204' || /mindre/.test(error.message ?? ''));
+}
+
+/** Går valet Allvarlig/Mindre allvarlig att spara? Sätts av läsningen; false = kolumnen saknas. */
+export let mindreKolumnFinns = true;
+
 export async function hamtaBedomningar(sb: SupabaseClient): Promise<Record<MaskinTyp, Bedomning> | null> {
-  const { data, error } = await sb.from('am_riskbedomning').select('maskintyp, bort, egna, godkand_underlag, godkand_tid, godkand_av');
+  let { data, error } = await sb.from('am_riskbedomning').select('maskintyp, bort, egna, mindre, godkand_underlag, godkand_tid, godkand_av');
+  if (saknarMindre(error)) {
+    mindreKolumnFinns = false;
+    ({ data, error } = await sb.from('am_riskbedomning').select('maskintyp, bort, egna, godkand_underlag, godkand_tid, godkand_av'));
+  } else if (!error) mindreKolumnFinns = true;
   if (error || !Array.isArray(data)) return null;
   const ut = {} as Record<MaskinTyp, Bedomning>;
   for (const t of MASKINTYPER) ut[t] = tolka((data as Rad[]).find(r => r.maskintyp === t));
@@ -177,16 +204,26 @@ export async function hamtaBedomningar(sb: SupabaseClient): Promise<Record<Maski
 
 /** Sparar bort och egna. Godkännandet rörs inte (databasen behåller det; listan räknas om i appen). */
 export async function sparaListan(sb: SupabaseClient, typ: MaskinTyp, b: Bedomning): Promise<boolean> {
-  const { error } = await sb.from('am_riskbedomning')
-    .upsert({ maskintyp: typ, bort: b.bort, egna: b.egna, godkand_underlag: b.godkandUnderlag }, { onConflict: 'maskintyp' });
+  const rad = { maskintyp: typ, bort: b.bort, egna: b.egna, godkand_underlag: b.godkandUnderlag };
+  return spara(sb, rad, b);
+}
+
+/** Skriver `mindre` bara när kolumnen finns; saknas den och något är mindre allvarligt är det ett fel (sägs), aldrig en tyst förlust. */
+async function spara(sb: SupabaseClient, rad: Record<string, unknown>, b: Bedomning): Promise<boolean> {
+  const mindre = b.mindre ?? [];
+  if (mindreKolumnFinns) {
+    const { error } = await sb.from('am_riskbedomning').upsert({ ...rad, mindre }, { onConflict: 'maskintyp' });
+    if (!saknarMindre(error)) return !error;
+    mindreKolumnFinns = false;
+  }
+  if (mindre.length > 0) return false;
+  const { error } = await sb.from('am_riskbedomning').upsert(rad, { onConflict: 'maskintyp' });
   return !error;
 }
 
 /** Stämmer: databasen sätter vem och när. */
 export async function godkann(sb: SupabaseClient, typ: MaskinTyp, b: Bedomning): Promise<boolean> {
-  const { error } = await sb.from('am_riskbedomning')
-    .upsert({ maskintyp: typ, bort: b.bort, egna: b.egna, godkand_underlag: underlag(lista(typ, b)) }, { onConflict: 'maskintyp' });
-  return !error;
+  return spara(sb, { maskintyp: typ, bort: b.bort, egna: b.egna, godkand_underlag: underlag(lista(typ, b)) }, b);
 }
 
 export type Kvitto = { medarbetareId: string; maskintyp: MaskinTyp; underlag: string; tid: string };

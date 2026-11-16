@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { harKoordinat, navigeringsUrl, startaNavigering } from './navigera';
+import { harKoordinat, navigeringsMal, navigeringsUrl, startaNavigering } from './navigera';
 
 describe('navigering', () => {
   it('samma adress som dagens "Navigera" (Google Maps vägbeskrivning mot koordinaten)', () => {
@@ -19,5 +19,16 @@ describe('navigering', () => {
     expect(harKoordinat({ lat: 56, lng: 14 })).toBe(true);
     expect(harKoordinat({ lat: undefined, lng: 14 })).toBe(false);
     expect(harKoordinat({ lat: NaN, lng: 14 })).toBe(false);
+  });
+  it('larmkoordinaten (infarten) går före objektets punkt — samma regel för bilknappen och Kör dit', () => {
+    const oppna = vi.fn();
+    const trakt = { lat: 56.4, lng: 14.7, larmkoordinat_lat: 56.41, larmkoordinat_lng: 14.69 };
+    expect(navigeringsMal(trakt)).toEqual({ lat: 56.41, lng: 14.69 });
+    startaNavigering(trakt, oppna);
+    expect(oppna).toHaveBeenCalledWith('https://www.google.com/maps/dir/?api=1&destination=56.41,14.69');
+    expect(navigeringsMal({ lat: 56.4, lng: 14.7, larmkoordinat_lat: null, larmkoordinat_lng: null })).toEqual({ lat: 56.4, lng: 14.7 });
+    expect(navigeringsMal({ lat: 56.4, lng: 14.7, larmkoordinat_lat: 0, larmkoordinat_lng: 0 })).toEqual({ lat: 56.4, lng: 14.7 });
+    expect(navigeringsMal({ lat: null, lng: null, larmkoordinat_lat: 56.41, larmkoordinat_lng: 14.69 })).toEqual({ lat: 56.41, lng: 14.69 });
+    expect(navigeringsMal(null)).toBeNull();
   });
 });

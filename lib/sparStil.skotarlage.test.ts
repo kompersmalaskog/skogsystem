@@ -13,12 +13,13 @@ describe('spåren i skotarläget', () => {
       expect(SKOTARSPAR_STRECK).toBeNull();
     }
   });
-  it('skördarens spår är svagare men samma färg och bredd', () => {
+  it('skördarens spår är lika starkt som annars (Martin 2026-11-11), samma färg och bredd', () => {
     const vanlig = dampatSpar('skordare', 'andras');
     const s = skotarlageSpar('skordare', 'andras');
     expect(s.farg).toBe(vanlig.farg);
     expect(s.bredd).toEqual(vanlig.bredd);
-    expect(s.opacitet).toEqual(['*', SKORDARSPAR_SVAGARE, vanlig.opacitet]);
+    expect(SKORDARSPAR_SVAGARE).toBe(1);
+    expect(s.opacitet).toEqual(vanlig.opacitet);
     expect(s.streck).toBeNull();
   });
   it('skördarens körvy berörs inte', () => {

@@ -132,9 +132,13 @@ export const HOG_VISA: readonly { id: HogVisa; namn: string }[] = [
   { id: 'massa', namn: 'Bara massa' },
   { id: 'energi', namn: 'Bara energi' },
 ];
-/** Prickens färg per val. Alla = neutral ljus. Orange används aldrig (det betyder tall). */
+/**
+ * Prickens färg per val (Martin 2026-11-06). Alla = trädslagets färg (featurens prickFarg); utan trädslag den neutrala ljusa.
+ * Ett valt sortiment visas ensamt, så färgen behöver inte skilja sortimenten åt — den ska synas på ALLA kartor (Flygfoto, Ritad, Mörk) och
+ * inte låna någon annans betydelse: VIT med svart kant. Förut var timmer gul (= snitseln), kubb turkos (= skotarens spår) och energi rosa.
+ */
 export const HOG_PRICK_FARG: Readonly<Record<HogVisa, string>> = {
-  alla: '#f3e6c4', timmer: '#ffd60a', kubb: '#64d2ff', massa: '#ffffff', energi: '#ff9fd0',
+  alla: '#f3e6c4', timmer: '#ffffff', kubb: '#ffffff', massa: '#ffffff', energi: '#ffffff',
 };
 
 /** Kvar i högen för ett val (m³). */
@@ -146,7 +150,29 @@ export function kvarFor(k: HogKvar, visa: HogVisa): number {
 }
 
 /** Det kartan ritar för en hög: där den ligger, hur mycket som ligger kvar för valet, prickens färg och styrka. */
-export interface HogPrick { nyckel: string; lng: number; lat: number; v: number; farg: string; /** 0–1 */ a: number }
+export interface HogPrick {
+  nyckel: string; lng: number; lat: number; v: number; farg: string;
+  /** Andra halvan för en blandad hög (bara Alla), annars null. */ farg2: string | null;
+  /** 0–1 */ a: number;
+  /** Det som ligger kvar per sortimentgrupp (m³, en decimal), största först — det ett tryck på högen visar. */
+  grupper?: HogGruppKvar[];
+}
+export interface HogGruppKvar { grupp: HogGrupp; namn: string; m3: number }
+
+/** Det som ligger kvar i en hög per sortimentgrupp: avrundat till en decimal per grupp, största först, grupper under 0,05 m³ visas inte. */
+export function hogGrupperKvar(kvar: Readonly<Record<string, number>>): HogGruppKvar[] {
+  const per = new Map<HogGrupp, number>();
+  for (const [namn, v] of Object.entries(kvar)) if (v > 0) per.set(hogGrupp(namn), (per.get(hogGrupp(namn)) ?? 0) + v);
+  return [...per.entries()]
+    .map(([grupp, m3]) => ({ grupp, namn: GRUPP_NAMN[grupp], m3: Math.round(m3 * 10) / 10 }))
+    .filter((g) => g.m3 > 0)
+    .sort((a, b) => b.m3 - a.m3);
+}
+/** "Timmer 4,2 · Massaved 2,1 m³" — samma ord som Kvar-listan. Tom lista: ''. */
+export function hogInnehallText(grupper: readonly HogGruppKvar[]): string {
+  if (!grupper.length) return '';
+  return grupper.map((g) => `${g.namn} ${g.m3.toFixed(1).replace('.', ',')}`).join(' · ') + ' m³';
+}
 
 /**
  * En hög där lassen tagit huvuddelen är en REST: mindre än REST_ANDEL av det som låg där (för valet) eller under REST_M3 kvar. Den ritas
@@ -163,21 +189,25 @@ export const hogNyckel = (lng: number, lat: number): string => `${lng.toFixed(6)
 
 /**
  * Prickarna i skotarläget ur högarna (planeringsvyns hogar-features, som redan bär `sortimentVolymJson`) och lassen.
- * En hög där inget av valt sortiment ligger kvar finns inte med (den har tonats bort).
+ * Alla sortiment: högens TRÄDSLAG i hela färger (`prickFarg`/`prickFarg2` på featuren, lib/tradslag hogTradslagFarger — Martin 2026-11-06, bild K);
+ * ett valt sortiment: sortimentets färg, en färg. En hög där inget av valt sortiment ligger kvar finns inte med (den har tonats bort).
  */
 export function hogPrickar(
-  features: readonly { geometry?: { coordinates?: number[] }; properties?: { sortimentVolymJson?: string } }[],
+  features: readonly { geometry?: { coordinates?: number[] }; properties?: { sortimentVolymJson?: string; prickFarg?: string; prickFarg2?: string | null } }[],
   lass: readonly Lass[],
   visa: HogVisa,
   markeringar: readonly HogMarkering[] = [],
 ): HogPrick[] {
   const hogar: HogIn[] = [];
+  const farger: { farg: string | null; farg2: string | null }[] = [];
+  const text = (x: unknown): string | null => (typeof x === 'string' && x ? x : null);
   for (const f of features) {
     const c = f?.geometry?.coordinates;
     if (!c || c.length < 2 || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
     let sv: Record<string, number> = {};
     try { sv = JSON.parse(f.properties?.sortimentVolymJson || '{}') || {}; } catch { sv = {}; }
     hogar.push({ lng: c[0], lat: c[1], sortimentVolym: sv });
+    farger.push({ farg: text(f.properties?.prickFarg), farg2: text(f.properties?.prickFarg2) });
   }
   const kvar = medMarkeringar(hogar, hogarKvar(hogar, lass), markeringar);
   const ut: HogPrick[] = [];
@@ -187,7 +217,10 @@ export function hogPrickar(
     const fore = kvarFor({ kvar: h.sortimentVolym, totalt: Object.values(h.sortimentVolym).reduce((s, x) => s + Math.max(0, x), 0), andel: 1 }, visa);
     const taget = fore - v > 0.05;
     const rest = taget && (v < REST_M3 || v < fore * REST_ANDEL);
-    ut.push({ nyckel: hogNyckel(h.lng, h.lat), lng: h.lng, lat: h.lat, v: Math.round(v * 100) / 100, farg: HOG_PRICK_FARG[visa], a: rest ? REST_STYRKA : FULL_STYRKA });
+    ut.push({ nyckel: hogNyckel(h.lng, h.lat), lng: h.lng, lat: h.lat, v: Math.round(v * 100) / 100,
+      farg: visa === 'alla' ? (farger[i].farg ?? HOG_PRICK_FARG.alla) : HOG_PRICK_FARG[visa],
+      farg2: visa === 'alla' && farger[i].farg ? farger[i].farg2 : null, a: rest ? REST_STYRKA : FULL_STYRKA,
+      grupper: hogGrupperKvar(kvar[i].kvar) });
   });
   return ut;
 }

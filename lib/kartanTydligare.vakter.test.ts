@@ -20,7 +20,7 @@ describe('reglagen är inkopplade i planeringssidan (planering OCH körvy/maskin
     expect(sida).toMatch(/reglage: bakgrundReglage\(t\.id, kartReglage\.styrkor, kartReglage\.setStyrka\)/);
     expect(sida).toMatch(/const medOp = \(rad: LagerRad\): LagerRad => \{ const reglage = overlayReglage\(rad\.id, kartReglage\.lagerOp, kartReglage\.setLagerOp\)/);
     expect(sida).toMatch(/rader: overlayLista\.map\(\(o\) => medOp\(vaxel\(/);
-    expect(sida).toMatch(/grp\.layers\.filter\(\(l\) => l\.meny !== false\)\.map\(\(l\) => medOp\(vaxel\(/);
+    expect(sida).toMatch(/rader: rader\.map\(\(l\) => medOp\(vaxel\(/);   // raderna = lagerUtanDubbletter(grp.layers, …) (lib/mapLayers)
     const prod = sida.slice(sida.indexOf("id: 'produktionsdata'"), sida.indexOf("id: 'produktionsdata'") + 1500);
     expect(prod).not.toContain('medOp(');
     const mark = sida.slice(sida.indexOf("id: 'markeringar', rubrik: 'Dina markeringar'"), sida.indexOf("id: 'markeringar', rubrik: 'Dina markeringar'") + 600);

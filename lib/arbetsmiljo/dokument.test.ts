@@ -80,6 +80,15 @@ describe('skyddsrondens dokument', () => {
       .toEqual({ status: 'Inte åtgärdad än · senast 25 november 2026', ton: 'brist' });
   });
 
+  it('vem ska göra den: förnamnet, "ingen ansvarig vald", och ingenting när det inte gick att läsa', () => {
+    const b = { svarId: 'x', status: 'oppen' as const, deadline: '2026-11-25', vadGjordes: null, stangdTid: null };
+    expect(atgardStatus({ ...b, ansvarig: 'Joacim Ringberg' }, '2026-11-20').status).toBe('Inte åtgärdad än · Joacim · senast 25 november 2026');
+    expect(atgardStatus({ ...b, ansvarig: null }, '2026-11-20').status).toBe('Inte åtgärdad än · ingen ansvarig vald · senast 25 november 2026');
+    expect(atgardStatus({ ...b, ansvarig: 'Joacim' }, '2026-11-26').status).toBe('Inte åtgärdad · Joacim · skulle vara klar 25 november 2026');
+    expect(atgardStatus({ ...b, deadline: null, ansvarig: 'Joacim' }, '2026-11-20').status).toBe('Inte åtgärdad än · Joacim');
+    expect(atgardStatus({ ...b, status: 'klar', vadGjordes: 'Bytt', stangdTid: '2026-11-21T10:00:00Z', ansvarig: 'Joacim' }, '2026-11-22').status).not.toContain('Joacim');
+  });
+
   it('varje punkt står med sitt svar, i områdets ordning', () => {
     const d = skyddsrondDokument(rond(), [], NU);
     const ensam = d.sektioner.find(s => s.rubrik === 'Ensamarbete')!;
@@ -109,7 +118,7 @@ describe('riskbedömningens dokument', () => {
       'Inte godkänd',
       'Inte godkänd',
     ]);
-    expect(d.sektioner[0].rader[0]).toEqual({ titel: 'Folk nära maskinen', text: 'Är någon närmare än 70 meter: stanna och vänta tills ni har pratat med varandra.' });
+    expect(d.sektioner[0].rader[0]).toEqual({ titel: 'Folk nära maskinen', text: 'Är någon närmare än 70 meter: stanna och vänta tills ni har pratat med varandra.', status: 'Allvarlig', ton: undefined });
   });
 
   it('visar vilka förare som läst, bara på godkända', () => {

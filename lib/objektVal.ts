@@ -229,3 +229,91 @@ export function anvandObjektLista(a: { maskinlage: boolean; maskinSom: boolean; 
 export function anvandObjektListaUtanObjekt(a: { maskinlage: boolean; maskinSom: boolean; korvyActive: boolean }): boolean {
   return a.maskinlage || anvandObjektLista(a);
 }
+
+// ---- Aktiva: typväljare -----------------------------------------------------------------------------------------------------------
+// Martin 2026-11-06: "dela upp den på slutavverkning gallring GROT energiklippning … så enkel så att ett barn förstår den direkt".
+// Överst i listan (inte i Avslutade) en rad: Alla · Slutavverkning 4 · Gallring 3 · GROT 1. Bara typer som finns, i FAST ordning (knapparna
+// hoppar aldrig när antalen ändras), och bara när det finns minst två typer — en typ ensam är ingen fråga. Alla är förvalt varje gång.
+
+/** Typerna bland de aktiva objekten, i fast ordning. Tom lista = visa ingen väljare. */
+export function aktivaTyper(objekt: readonly ListObjekt[]): { typ: AvslutadTyp; etikett: string; antal: number }[] {
+  const antal = new Map<AvslutadTyp, number>();
+  for (const o of objekt) { const t = avslutadTyp(o); antal.set(t, (antal.get(t) ?? 0) + 1); }
+  const typer = AVSLUTAD_TYP_ORDNING.filter((t) => (antal.get(t) ?? 0) > 0)
+    .map((t) => ({ typ: t, etikett: AVSLUTAD_TYP_ETIKETT[t], antal: antal.get(t)! }));
+  return typer.length >= 2 ? typer : [];
+}
+
+/** Vald typ om den finns bland typerna, annars null (= Alla). */
+export function giltigAktivTyp(typer: readonly { typ: AvslutadTyp }[], vald: AvslutadTyp | null | undefined): AvslutadTyp | null {
+  return vald && typer.some((t) => t.typ === vald) ? vald : null;
+}
+
+/** Objekten av en typ; null = alla. Ordningen behålls. */
+export function avTyp<T extends ListObjekt>(objekt: readonly T[], typ: AvslutadTyp | null): T[] {
+  return typ ? objekt.filter((o) => avslutadTyp(o) === typ) : [...objekt];
+}
+
+/** Raden under namnet när en typ är vald: typen står redan i väljaren, så den upprepas inte. */
+export function radMetaUtanTyp(o: ListObjekt): string {
+  return [(o.bolag ?? '').trim(), volymText(o.volym)].filter(Boolean).join(' · ');
+}
+
+// ---- Fasen på trakten (objekt.fas, skrivs av timjobbet objekt_status_ur_maskindata) -----------------------------------------------
+// Martin 2026-11-06: "jag vet ju inte om det är färdigskördat eller skotat". En kort etikett på raden; null = ingen etikett.
+export function fasText(o: { fas?: unknown; typ?: string | null }): { text: string; vantar: boolean } | null {
+  const virke = /slutavverk|gallring/i.test(String(o.typ ?? ''));
+  switch (o.fas) {
+    case 'skordas': return { text: 'Skördas', vantar: false };
+    case 'skotas': return { text: virke ? 'Skördat klart · skotas' : 'Skotas', vantar: false };
+    case 'vantar_skotare': return { text: 'Skördat klart · väntar på skotare', vantar: true };
+    default: return null;
+  }
+}
+
+/** Pågår delas efter fasen (Martin 2026-11-06: "så att ett barn förstår direkt"). Utan fas = 'pagar' (gamla rubriken). */
+export type PagarDel = 'skordas' | 'vantar' | 'skotas' | 'pagar';
+export const PAGAR_DELAR: readonly { id: PagarDel; rubrik: string; orange: boolean }[] = [
+  { id: 'skordas', rubrik: 'Skördas', orange: false },
+  { id: 'vantar', rubrik: 'Väntar på skotare', orange: true },
+  { id: 'skotas', rubrik: 'Skotas', orange: false },
+  { id: 'pagar', rubrik: 'Pågår', orange: false },
+];
+export function pagarDel(o: { fas?: unknown }): PagarDel {
+  return o.fas === 'skordas' ? 'skordas' : o.fas === 'vantar_skotare' ? 'vantar' : o.fas === 'skotas' ? 'skotas' : 'pagar';
+}
+
+// ---- Stegen på raden: Skörd och Skotning (Martin 2026-11-06: "så att ett barn förstår direkt") ----------------------------------------
+// Varje rad säger själv hur långt trakten kommit: ✓ klart (grön bock), pågår = vit text, inte börjat = bara grått ord (Martin: "är det inte färdigt ska det bara stå det"). Orange = något väntar: oplanerad, väntar på skotare.
+export type StegLage = 'pagar' | 'klar' | 'ej' | 'vantar';
+export type Steg = { id: 'plan' | 'skord' | 'skot'; lage: StegLage; text: string };
+
+/** Stegen för en trakt, eller null när fasen inte är känd (pågående utan fas). Planerad/oplanerad = båda ○. GROT och energiklippning skördas inte: bara skotningssteget. */
+export function fasSteg(o: { fas?: unknown; typ?: string | null; status?: string | null; klar_kvar_antal?: number | null }): Steg[] | null {
+  const virke = /slutavverk|gallring/i.test(String(o.typ ?? ''));
+  const st = String(o.status ?? '').trim().toLowerCase();
+  const avslutat = st === 'avslutat' || st === 'klar';
+  const oplanerad = !o.fas && (st === 'oplanerad' || st === '');
+  const planerad = !o.fas && st === 'planerad';
+  let skord: StegLage; let skot: StegLage;
+  if (avslutat) { skord = 'klar'; skot = 'klar'; }
+  else if (oplanerad || planerad) { skord = 'ej'; skot = 'ej'; }
+  else if (o.fas === 'skordas') { skord = 'pagar'; skot = 'ej'; }
+  else if (o.fas === 'vantar_skotare') { skord = 'klar'; skot = 'vantar'; }
+  else if (o.fas === 'skotas') { skord = 'klar'; skot = 'pagar'; }
+  else return null;
+  // Planeringen är första steget: klar = grön bock. Oplanerad = orange med vad som är kvar (det enda som kräver planeraren).
+  const kvar = o.klar_kvar_antal;
+  const plan: Steg = oplanerad
+    ? { id: 'plan', lage: 'vantar', text: typeof kvar === 'number' && kvar > 0 ? `Planering · ${kvar} kvar` : 'Planering' }
+    : { id: 'plan', lage: 'klar', text: 'Planerat' };
+  const skordText = skord === 'pagar' ? 'Skördas' : skord === 'klar' ? 'Skördat' : 'Skördning';
+  const skotText = skot === 'pagar' ? 'Skotas' : skot === 'klar' ? 'Skotat' : skot === 'vantar' ? 'Väntar på skotare' : 'Skotning';
+  const skotSteg: Steg = { id: 'skot', lage: skot, text: skotText };
+  return virke ? [plan, { id: 'skord', lage: skord, text: skordText }, skotSteg] : [plan, skotSteg];
+}
+
+/** Ordningen inom Pågår: skördas, väntar, skotas, sedan resten. */
+export function fasOrdning(o: { fas?: unknown }): number {
+  return ({ skordas: 0, vantar: 1, skotas: 2, pagar: 3 } as const)[pagarDel(o)];
+}

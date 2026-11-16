@@ -23,6 +23,8 @@ import { kostnadsstalleFor, harKrockandeKostnadsstalle } from '@/lib/ekonomi/kos
 import { medForestlink } from '@/lib/ekonomi/forestlink';
 import { raknaSortiment, type Sortimentsrakning } from '@/lib/ekonomi/sortimentAntal';
 import { maskinVisningsnamn, maskinNamnMap } from '@/lib/maskinNamn';
+import { lasDebiterbartArbete, tillArbetsposter } from '@/lib/faktura/lasManuellt';
+import { byggArbetsrader } from '@/lib/faktura/arbetspris';
 import type { VoUnderlag, Maskinrad } from '@/lib/faktura/radbyggare';
 
 type SB = { from: (t: string) => any };
@@ -52,6 +54,22 @@ export type Granskningsunderlag = {
   volym: number;
   /** Dagen prislistan slogs upp på (avräkningsdagen, annars idag). */
   prisdatum: string;
+  /**
+   * Skotningsavståndets underlag, för "Vad behöver du kolla?"
+   * (lib/faktura/fattas). Avståndet summeras per lass på LASSETS egen volym,
+   * så täckningen avgör om talet duger: Skälviken har 1 725 m³ skördat och
+   * två lass som bär 40 m³, och tillägget blir 0,97 kr/m³ i stället för ~40.
+   */
+  avstand: {
+    /** dim_objekt.skotavstand_manuell i meter. Satt = talet är ett svar. */
+    manuellt: number | null;
+    /** Volymen i de lass som HAR körsträcka. */
+    lassVolym: number;
+    /** Antal lass med körsträcka. */
+    lassAntal: number;
+    /** Kronorna appen räknat fram. */
+    kronor: number;
+  };
 };
 
 export type HamtatUnderlag = {
@@ -133,7 +151,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
 
   // ── Register och prislistor ────────────────────────────────────────────
   const [maskinRes, kstRes, timprisRes, acordRes, traktRes, sortConfRes, ovrigtRes, avstRes,
-         klassRes, bolagRes, objektRes] = await Promise.all([
+         klassRes, bolagRes, objektRes, arbPrisRes] = await Promise.all([
     sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, tillverkare, maskin_typ, forestlink'),
     sb.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod, giltig_fran, giltig_till'),
     sb.from('maskin_timpris').select('maskin_id, timpris, giltig_fran, giltig_till'),
@@ -148,10 +166,24 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     sb.from('vy_sortiment_klass').select('sortiment_id, namn, kundkod'),
     sb.from('bolag').select('namn, fortnox_kundnr'),
     sb.from('objekt').select('id, vo_nummer, kontraktsnummer').eq('vo_nummer', voNummer),
+    // Timpriset för VÅRT eget manuella arbete. KRONOR PER TIMME — skilt från
+    // acord_ovrigt, som är kronor per m³fub. Se lib/faktura/arbetspris.
+    sb.from('arbete_timpris').select('nyckel, timpris, giltig_fran, giltig_till'),
   ]);
   for (const r of [maskinRes, kstRes, timprisRes, acordRes, traktRes, sortConfRes,
                    ovrigtRes, avstRes, klassRes, bolagRes, objektRes]) {
     if (r.error) throw new Error('Kunde inte läsa register: ' + r.error.message);
+  }
+  // arbete_timpris står MEDVETET utanför kastet ovan: tabellen finns inte
+  // förrän migrationen 20261116124352 är körd, och underlaget ska fungera
+  // ändå. Utan satser prissätts det manuella arbetet inte — timmarna visas
+  // utan belopp, som före den här ändringen, och noten säger varför.
+  if (arbPrisRes.error) {
+    noter.push({
+      niva: 'varning',
+      text: 'Timpriset för manuellt arbete kunde inte läsas, så de timmarna '
+        + 'faktureras inte: ' + arbPrisRes.error.message,
+    });
   }
 
   const giltiga = (rader: any[] | null) =>
@@ -194,6 +226,11 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
   // Manuell siffra är redan ENKELRIKTAD; korstracka_m är tur och retur.
   const avstList = avstRes.data || [];
   let skotKr = 0;
+  // Lassens TÄCKNING, inte bara om lass finns: ett lass utan körsträcka ger
+  // noll steg och bidrar därför inte till tillägget, hur mycket volym det än
+  // bär. Se lib/faktura/fattas.
+  const lassMedStracka = lass.filter((l: any) => (Number(l.korstracka_m) || 0) > 0);
+  const lassVolymMedStracka = sum(lassMedStracka, 'volym_m3sub');
   if (huvud.skotavstand_manuell != null) {
     skotKr = skotAvstandKr(uppslag, Number(huvud.skotavstand_manuell), volym, avstList as any);
     noter.push({ niva: 'info', text: `Avståndet kommer från skotavstand_manuell (${huvud.skotavstand_manuell} m), inte ur lassen.` });
@@ -365,6 +402,32 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     }
   }
 
+  // ── Vårt eget manuella arbete ur arbetsrapporten ───────────────────────
+  // Timmarna är redan inskrivna av föraren (extra_tid, debiterbar). Det som
+  // fattades var priset: fakturan har burit "Man tim 16 à 490" för hand medan
+  // appen visade ett streck. ANDRAS fällning (Jacob 525, Isac 560, Kyrköns
+  // 475) ligger inte i extra_tid och prissätts inte här — se arbetspris.ts.
+  const arbSvar = await lasDebiterbartArbete(sb, voNummer);
+  if (arbSvar.status === 'fel') {
+    // Ärlig data eller ingen data: ett tystat läsfel blir timmar som aldrig
+    // faktureras, och det syns inte på fakturan.
+    noter.push({
+      niva: 'varning',
+      text: 'Det debiterbara arbetet ur arbetsrapporten kunde inte läsas, så '
+        + 'de timmarna är inte med: ' + arbSvar.fel,
+    });
+  }
+  const arbetsrader = arbSvar.status === 'ok'
+    ? byggArbetsrader(tillArbetsposter(arbSvar.poster), giltiga(arbPrisRes.data))
+    : [];
+  for (const r of arbetsrader.filter(r => r.timpris == null)) {
+    noter.push({
+      niva: 'varning',
+      text: `${r.etikett}: ${r.timmar} tim utan timsats — faktureras inte. `
+        + `Lägg in satsen för "${r.typ ?? 'okänd typ'}" i arbete_timpris.`,
+    });
+  }
+
   const underlag: VoUnderlag = {
     vo_nummer: voNummer,
     objektnamn: huvud.object_name || voNummer,
@@ -384,9 +447,17 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     sortKr, traktKr, kvalitetKr,
     maskiner,
     flyttar,
-    // Ingenting i appen samlar in manuella poster än (fällning, GROT-skotning,
-    // papp). De finns på Martins fakturor men har ingen källa här ännu.
-    manuellaPoster: [],
+    // VÅRT eget arbete, en rad per aktivitetstyp. En typ utan timsats blir en
+    // rad utan belopp ('vantar_leverantorsfaktura' hos radbyggaren) — timmarna
+    // syns, men de räknas inte in i summan. GROT-skotning och papp har ännu
+    // ingen källa i appen och står fortfarande bara på Martins fakturor.
+    manuellaPoster: arbetsrader.map(r => ({
+      etikett: r.etikett,
+      antal: r.timmar,
+      enhet: 'h' as const,
+      a_pris: r.timpris,
+      kalla: r.typ === 'manuellt' ? ('manuell_fallning' as const) : ('manuell' as const),
+    })),
   };
 
   const granskning: Granskningsunderlag = {
@@ -400,6 +471,12 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     },
     volym,
     prisdatum: uppslag,
+    avstand: {
+      manuellt: huvud.skotavstand_manuell == null ? null : Number(huvud.skotavstand_manuell),
+      lassVolym: lassVolymMedStracka,
+      lassAntal: lassMedStracka.length,
+      kronor: skotKr,
+    },
   };
 
   return { underlag, noter, objektIds, granskning };

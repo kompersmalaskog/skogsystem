@@ -38,7 +38,7 @@ describe('fällningscirkeln — radie och neutral', () => {
 
 describe('fällningscirkeln — färg per grupp', () => {
   it.each([
-    ['powerline', 'fara', FARG_FARA], ['warning', 'fara', FARG_FARA], ['huntingtower', 'fara', FARG_FARA],
+    ['powerline', 'fara', FARG_FARA], ['warning', 'fara', FARG_FARA],
     ['culturemonument', 'kultur', FARG_KULTUR], ['culturestump', 'kultur', FARG_KULTUR],
     ['naturecorner', 'natur', FARG_NATUR], ['eternitytree', 'natur', FARG_NATUR],
   ])('symbolen %s ger %s', (typ, grupp, farg) => {
@@ -55,19 +55,17 @@ describe('fällningscirkeln — färg per grupp', () => {
     expect(bedom([sym('x', 'eternitytree', 5)]).farg).toBe(GRUPPER.natur.farg);
   });
 
-  it('Jakttorn färgar cirkeln RÖD; Markkabel (ligger i marken) påverkar den inte', () => {
-    const u = bedom([sym('torn', 'huntingtower', 20)]);
-    expect(u.grupp).toBe('fara');
-    expect(u.farg).toBe(FARG_FARA);
+  it('Jakttorn och Markkabel påverkar inte cirkeln (jakttornet är ingen fara, Martin 2026-11-12)', () => {
+    expect(bedom([sym('torn', 'huntingtower', 20)]).grupp).toBeNull();
     expect(bedom([sym('kabel', 'groundcable', 5)]).grupp).toBeNull();
   });
 
-  it('Stenmur ger BRUN cirkel (Kultur), och Röd (Jakttorn) vinner över den', () => {
+  it('Stenmur ger BRUN cirkel (Kultur), och Röd (Varning) vinner över den', () => {
     const mur = linje('mur', 'stonewall', [[10, -50], [10, 50]]);
     expect(bedom([mur]).farg).toBe(FARG_KULTUR);
-    const u = bedom([mur, sym('torn', 'huntingtower', 25)]);
+    const u = bedom([mur, sym('varn', 'warning', 25)]);
     expect(u.grupp).toBe('fara');
-    expect(u.orsaker.map((o) => o.id)).toEqual(['torn']);
+    expect(u.orsaker.map((o) => o.id)).toEqual(['varn']);
   });
 
   it('Evighetsträd räknas fast det inte larmar', () => {
@@ -78,7 +76,7 @@ describe('fällningscirkeln — färg per grupp', () => {
     for (const typ of ['steep', 'wet', 'highstump', 'manualfelling', 'felloutside', 'landing', 'road', 'ditch', 'bridge']) {
       expect(bedom([sym('x', typ, 5)]).grupp, typ).toBeNull();
     }
-    expect(Object.keys(FALLNING_SYMBOL).sort()).toEqual(['culturemonument', 'culturestump', 'eternitytree', 'huntingtower', 'naturecorner', 'odlingsrose', 'powerline', 'warning']);
+    expect(Object.keys(FALLNING_SYMBOL).sort()).toEqual(['culturemonument', 'culturestump', 'eternitytree', 'naturecorner', 'odlingsrose', 'powerline', 'warning']);
     expect(FALLNING_SYMBOL.groundcable, 'Markkabel ligger i marken').toBeUndefined();
   });
 

@@ -6,6 +6,9 @@ export const BESOK_RING_M = { skordare: 70, skotare: 20, motorsag: 40 } as const
 /** Ringen runt maskinen i HYTTEN medan ett besök är aktivt — samma för alla maskiner. */
 export const HYTT_RING_M = 70;
 
+/** Länken lever så här många dagar efter att objektet avslutats: då visar sidan "Varför ser det ut så här?" (Martin 2026-11-10 — det är efter avverkningen markägaren undrar). */
+export const LANK_EFTER_AVSLUT_DAGAR = 60;
+
 /** Ett besök är aktivt till besökstiden + detta (minuter). Ringen i hytten ritas så länge; kortet ligger kvar tills Uppfattat. */
 export const BESOK_EFTERTID_MIN = 120;
 
@@ -35,6 +38,13 @@ export const PROGNOS = { TAKT_STABIL: 0.5, SENASTE_DAG_MAX: 3, HORISONT_MAX: 15 
 /** Företagets nummer. Står som sista rad i SMS:et när planeraren som skickar saknar eget nummer (medarbetare.telefon). SKA FYLLAS I – tomt = ingen nummerrad, och planerarkortet säger det.
  *  Format som det ska stå i SMS:et, t.ex. "0470-123 45". */
 export const FORETAG_TELEFON = '';
+
+/** TESTFAS i tre steg (Martin 2026-11-05): 1) bara oss (aktiva admin med telefon — Martin och Joacim) · 2) när det fungerar också inköparen
+ *  (INKOPARE_SMS_PA = true) · 3) när inköparna tycker det fungerar markägaren (MARKAGARE_SMS_PA = true). false = mottagaren går inte att välja. */
+export const INKOPARE_SMS_PA = false;
+/** Steg 2 gäller bara inköparna som är med i testet (Martin 2026-11-05). Jämförs på namnet ur traktdirektivet, utan hänsyn till versaler. */
+export const TEST_INKOPARE = ['Martin Hjert', 'Jan-Erik Gustafsson'];
+export const MARKAGARE_SMS_PA = false;
 
 /** Länken är en slumpad token av minst så här många tecken (databasen kräver detsamma). */
 export const TOKEN_MIN_TECKEN = 32;

@@ -1,4 +1,4 @@
-// GROT-arket i /oversikt-v2 — vilka trakter som väntar på GROT, i vilken ordning, och vad raden säger.
+// GROT-arket i /oversikt — vilka trakter som väntar på GROT, i vilken ordning, och vad raden säger.
 //
 // REN LOGIK: tar redan hämtade rader, returnerar listan. Ingen databas, ingen klocka (idag
 // skickas in) — så samma funktion körs i vyn, i v2:s kö och i förvärmningsskriptet, och
@@ -166,7 +166,7 @@ export function typFor(objekt: GrotObjektRad | null, dim: GrotDim): GrotTyp | nu
   return h === 'slutavverkning' || h === 'gallring' ? h : null;
 }
 
-/** Skotarens roll mot objekttyp. Speglar rollMatchar i oversikt-v2/nasta-v2: 'allt' tar allt,
+/** Skotarens roll mot objekttyp. Speglar rollMatchar i oversikt/nasta-v2: 'allt' tar allt,
  *  annars måste typen vara exakt rollen. Okänd typ → bara 'allt'. */
 export function rollMatcharTyp(roll: string | null | undefined, typ: string | null | undefined): boolean {
   if (roll === 'allt') return true;

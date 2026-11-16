@@ -3,35 +3,21 @@
 // korten i jsdom och mäter HTML:en i Chromium via Playwright. Finns ingen Chromium hoppas mätningen över (det står i testnamnet). MALBILD_HYTT_SKRIV=1 skriver ut höjderna.
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { KartKort, KartKortNederst, KortAtgarder, KortKnapp } from './KartKort';
 import { TraktAnalysRad, type Kontroll } from './TraktAnalysRad';
 import { BasvagFargVal } from './BasvagFargVal';
 import { BackvagVal } from './BackvagVal';
 import { MalbildRad } from '@/components/malbild/Malbild';
-import { FARG } from '@/lib/design/tokens';
+import { FARG, FONT } from '@/lib/design/tokens';
+import { hittaChromium } from '../../lib/testStod/chromium';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 const SKARMAR = [{ w: 390, h: 844 }, { w: 1280, h: 800 }, { w: 1024, h: 640 }];
 const MINDRE = [{ w: 375, h: 667 }, { w: 360, h: 740 }];
 
-function chromium(): { launch: (o: object) => Promise<any> } | null {
-  try {
-    const rot = execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    const kor = createRequire(path.join(rot, 'x.js'));
-    const pw = kor('playwright');
-    const mapp = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-    const ver = fs.readdirSync(mapp).filter((n) => /^chromium-\d+$/.test(n)).sort().pop();
-    const exe = ver && path.join(mapp, ver, 'chrome-linux', 'chrome');
-    if (!exe || !fs.existsSync(exe)) return null;
-    return { launch: (o) => pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox'], ...o }) };
-  } catch { return null; }
-}
+const chromium = () => hittaChromium();
 const CHROMIUM = chromium();
 
 function renderaHtml(el: React.ReactElement, efter?: () => void): string {
@@ -87,7 +73,7 @@ const FALL: { namn: string; html: () => string; kravUtanScroll: boolean }[] = [
 ];
 
 describe(`Kortet del 2 — mått i ${CHROMIUM ? 'Chromium' : 'HOPPAD ÖVER: ingen Chromium i miljön'}`, () => {
-  const sidaHtml = (html: string) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:${FARG.bg};color:#fff;font-family:system-ui,sans-serif}.material-symbols-outlined{display:inline-block;width:22px;height:22px;font-size:0;overflow:hidden}</style></head><body>${html}</body></html>`;
+  const sidaHtml = (html: string) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:${FARG.bg};color:#fff;font-family:${FONT}}.material-symbols-outlined{display:inline-block;width:22px;height:22px;font-size:0;overflow:hidden}</style></head><body>${html}</body></html>`;
 
   it.skipIf(!CHROMIUM)('höjder, träffytor (≥ 44 px), ingen sidscroll och kommentarerna överst — på telefon och maskindatorn', async () => {
     const b = await CHROMIUM!.launch({});

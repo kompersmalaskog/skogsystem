@@ -52,7 +52,11 @@ export function usePlatsData(aktiv: boolean) {
   }, [aktiv, nonce]);
 
   const forsokIgen = useCallback(() => setNonce(n => n + 1), []);
-  return { lage, forsokIgen };
+  /** En plats som just skapats ("+ Ny plats") läggs till i listan utan att allt läses om. */
+  const laggTill = useCallback((p: PlatsKandidat) => {
+    setLage(l => (l.lage === 'klar' ? { lage: 'klar', data: { ...l.data, platser: [p, ...l.data.platser] } } : l));
+  }, []);
+  return { lage, forsokIgen, laggTill };
 }
 
 /** Fågelväg i km mellan två punkter. */

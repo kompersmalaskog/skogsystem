@@ -55,14 +55,15 @@ describe('lagren', () => {
 describe('page.tsx: Ritad är kopplad på ett ställe', () => {
   const page = readFileSync(join(__dirname, '../../app/planering/page.tsx'), 'utf8');
   it('raden Ritad finns i Bakgrundskarta och säger vad som syns', () => {
-    expect(page).toContain("{ id: 'ritad', name: 'Ritad', desc: ritadStatusText(ritadStatus) },");
+    expect(page).toContain("{ id: 'ritad', name: 'Ritad', desc: mapType === 'ritad' ? ritadStatusText(ritadStatus) : 'Skogen ritad ur laserdatan' },");
+    expect(page).toContain("{ id: 'mork', name: 'Mörk', desc: mapType === 'mork' ? ritadStatusText(ritadStatus) :");
   });
   it('körvyn släpper igenom den ritade kartan bara när Ritad är vald', () => {
-    expect(page).toContain("if (korvyBasKarta === 'ritad') for (const id of RITAD_LAGER) SHOW.add(id);");
+    expect(page).toContain("if (arRitadKarta(korvyBasKarta)) for (const id of RITAD_LAGER) SHOW.add(id);");
     expect(page).not.toMatch(/KEEP_PREFIX = \[[^\]]*'ritad-'/);
   });
   it('hooken anropas efter körvyns whitelist (dess synlighet ska sättas sist)', () => {
-    expect(page.indexOf('useRitadKarta({')).toBeGreaterThan(page.indexOf("if (korvyBasKarta === 'ritad')"));
+    expect(page.indexOf('useRitadKarta({')).toBeGreaterThan(page.indexOf("if (arRitadKarta(korvyBasKarta))"));
   });
 });
 
@@ -84,5 +85,17 @@ describe('lite brant', () => {
     expect(andel(lite)).toBeCloseTo(andel(tat) / 2, 2);
     const forsta = (b: { data: Uint8ClampedArray }) => { for (let i = 0; i < b.data.length; i += 4) if (b.data[i + 3]) return [...b.data.slice(i, i + 4)]; };
     expect(forsta(lite)).toEqual(forsta(tat));
+  });
+});
+
+describe('blött bara i trakten (2026-11-06)', () => {
+  it('ytor mer än 50 m från trakten tas bort, de inne och nära blir kvar; utan trakt oförändrat', async () => {
+    const { blottMedTrakt } = await import('./lager');
+    const trakt: [number, number][][] = [[[15, 56], [15.002, 56], [15.002, 56.002], [15, 56.002], [15, 56]]];
+    const yta = (lng: number) => ({ type: 'Feature', properties: { k: 'blot' }, geometry: { type: 'Polygon', coordinates: [[[lng, 56.001], [lng + 0.0002, 56.001], [lng + 0.0002, 56.0012], [lng, 56.001]]] } });
+    const fc = { type: 'FeatureCollection', features: [yta(15.001), yta(15.0025), yta(15.01)] };
+    const ut = blottMedTrakt(fc, trakt);
+    expect(ut.features).toEqual([fc.features[0], fc.features[1]]);
+    expect(blottMedTrakt(fc, null)).toBe(fc);
   });
 });

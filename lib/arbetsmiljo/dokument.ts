@@ -4,7 +4,8 @@
 // Här byggs bara INNEHÅLLET (ren, testad): rubrik, fakta, svaret i en mening och avsnitt med rader. Varje text står också i appen, så
 // PDF:en och skärmen kan aldrig säga olika saker. Ritningen är lib/arbetsmiljo/pdf.ts.
 
-import { grupperaPunkter, antalBrister, type Rond, type SvarTyp } from './skyddsrond';
+import { allvarligaForst } from '@/lib/riskbedomning';
+import { grupperaPunkter, antalBrister, platsText, type Rond, type SvarTyp } from './skyddsrond';
 import {
   ALLA_LASER, MASKINTYPER, TYP_NAMN, lage, lastTid, lista, underlag,
   type Bedomning, type Kvitto, type MaskinTyp,
@@ -47,7 +48,11 @@ const fornamn = (n: string | null | undefined) => n?.trim().split(/\s+/)[0] || n
 // ── Skyddsronden ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Åtgärden som en brist blev (am_atgard, kalla 'skyddsrond'). */
-export type RondAtgard = { svarId: string; status: 'oppen' | 'klar'; deadline: string | null; vadGjordes: string | null; stangdTid: string | null };
+export type RondAtgard = {
+  svarId: string; status: 'oppen' | 'klar'; deadline: string | null; vadGjordes: string | null; stangdTid: string | null;
+  /** Vem som ska göra den. null = ingen vald; undefined = kunde inte läsas (då sägs ingenting om vem). */
+  ansvarig?: string | null;
+};
 
 const SVAR_ORD: Record<SvarTyp, string> = { ok: 'Bra', brist: 'Brist', galler_inte: 'Gäller inte' };
 const SVAR_TON: Record<SvarTyp, Ton> = { ok: 'bra', brist: 'brist', galler_inte: 'dampad' };
@@ -63,8 +68,10 @@ export function atgardStatus(a: RondAtgard | undefined, idag: string): { status:
     const nar = a.stangdTid ? ` ${langtDatum(a.stangdTid)}` : '';
     return { status: `Åtgärdad${nar}${a.vadGjordes ? ` – ${a.vadGjordes}` : ''}`, ton: 'bra' };
   }
-  if (a.deadline && a.deadline < idag) return { status: `Inte åtgärdad · skulle vara klar ${langtDatum(a.deadline)}`, ton: 'brist' };
-  return { status: a.deadline ? `Inte åtgärdad än · senast ${langtDatum(a.deadline)}` : 'Inte åtgärdad än', ton: 'brist' };
+  // Vem ska göra den (AFS 2023:1): förnamnet, "ingen ansvarig vald" när ingen är vald, ingenting när det inte gick att läsa.
+  const vem = a.ansvarig === undefined ? '' : ` · ${fornamn(a.ansvarig) ?? 'ingen ansvarig vald'}`;
+  if (a.deadline && a.deadline < idag) return { status: `Inte åtgärdad${vem} · skulle vara klar ${langtDatum(a.deadline)}`, ton: 'brist' };
+  return { status: a.deadline ? `Inte åtgärdad än${vem} · senast ${langtDatum(a.deadline)}` : `Inte åtgärdad än${vem}`, ton: 'brist' };
 }
 
 /**
@@ -91,7 +98,8 @@ export function skyddsrondDokument(rond: Rond, atgarder: readonly RondAtgard[] |
       rader: brister
         .map(({ p, s }) => {
           const st = atgarder ? atgardStatus(atgardFor(s?.id), idag) : null;
-          return { titel: p.text, text: s?.beskrivning ?? undefined, status: st?.status, ton: st?.ton };
+          const plats = platsText(s?.plats);
+          return { titel: p.text, text: [s?.beskrivning, plats].filter(Boolean).join(' · ') || undefined, status: st?.status, ton: st?.ton };
         })
         .sort((a, b) => Number(a.ton === 'bra') - Number(b.ton === 'bra')),
     });
@@ -151,7 +159,8 @@ export function riskDokument(
       : `Godkänd ${langtDatum(b.godkandTid!)}${av ? ` av ${av}` : ''}${l === 'se_over' ? ' – över ett år sedan, ska ses över' : ''}`;
     const rader: DokRad[] = risker.length === 0
       ? [{ titel: 'Inga risker', ton: 'dampad' }]
-      : risker.map(r => ({ titel: r.risk, text: r.atgard }));
+      // AFS 2023:1 11 §: dokumentationen ska säga OM risken är allvarlig. Allvarliga först.
+      : allvarligaForst(risker).map(r => ({ titel: r.risk, text: r.atgard, status: r.allvarlig ? 'Allvarlig' : 'Mindre allvarlig', ton: r.allvarlig ? undefined : 'dampad' as const }));
     if (forare && l !== 'aldrig' && l !== 'andrad') {
       const u = underlag(risker);
       const deras = ALLA_LASER.includes(t) ? [...forare] : forare.filter(f => f.typ === t);

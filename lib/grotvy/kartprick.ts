@@ -1,4 +1,4 @@
-// Kartprickens brådska i GROT-läget (/oversikt-v2). Ren logik — ingen webbläsare, inga färger.
+// Kartprickens brådska i GROT-läget (/oversikt). Ren logik — ingen webbläsare, inga färger.
 //
 // En trakt MED markägarens datum (grot_senast) är den som någon väntar på: pricken blir större och mörkare orange med
 // en liten datumetikett ('5 okt'). Har datumet passerat är pricken röd och etiketten säger 'försenad' (samma ord och

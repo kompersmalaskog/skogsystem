@@ -55,7 +55,7 @@ describe.skipIf(!HAR_PROD_ENV)("byggMeddelande — låsskärmstext", async () =>
     const m = await byggMeddelande({ typ: "grot_senast", mottagare_id: "x", payload: { namn: "Bjällerhult au + ga", senast: idag, dagar_fore: 7, mark_begransning: "dålig bärighet" } });
     expect(m.title).toBe("GROT · Bjällerhult au + ga");
     expect(m.body).toBe(`Ska vara bortkört senast ${kortDatum(idag, idag)} — dålig bärighet`);
-    expect(m.url).toBe("/oversikt-v2");
+    expect(m.url).toBe("/oversikt");
     const utan = await byggMeddelande({ typ: "grot_senast", mottagare_id: "x", payload: { namn: "Karsemåla AU 2025", senast: idag, dagar_fore: 2, mark_begransning: null } });
     expect(utan.body).toBe(`Ska vara bortkört senast ${kortDatum(idag, idag)}`);
   });

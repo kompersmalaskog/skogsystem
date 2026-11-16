@@ -33,6 +33,8 @@ const ALFA = new Set(["0.04", "0.08", "0.1", "0.10"]); // rgba(255,255,255,x) so
 
 /** Filer som är rättade mot tokens. Nya literaler här är fel, inte skuld. */
 export const SKARPA = [
+  // Brandriskpanelen (2026-11-16): omgjord mot tokens och components/design. Noll literaler.
+  "app/planering/brandrisk-panel.tsx",
   // Faktureringsvyn (2026-10-24): omgjord mot design.md — ram som markägarvyn, egen
   // adress per trakt, rena vymodeller och components/design. Noll literaler.
   "components/faktura/FakturaRam.tsx",
@@ -157,6 +159,14 @@ export const SKARPA = [
   "app/maskinvy/Sidolista.tsx",
   "app/maskinvy/page.tsx",
   // Inventarier (2026-10-21): tokens från början, noll literaler.
+  // Fordon (/kontroller, 2026-11-06): omgjord på tokens och components/design, noll literaler.
+  "components/fordon/FordonLista.tsx",
+  "components/fordon/FordonSida.tsx",
+  "components/fordon/FordonArk.tsx",
+  "components/fordon/RegistreraArk.tsx",
+  "components/fordon/delar.tsx",
+  "app/kontroller/page.tsx",
+  "app/kontroller/[id]/page.tsx",
   "components/inventarier/InventarierStart.tsx",
   "components/inventarier/PlatsSida.tsx",
   "components/inventarier/RadArk.tsx",

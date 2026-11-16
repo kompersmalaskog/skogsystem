@@ -69,6 +69,6 @@ export async function byggBesokNotis(
   if (rad.sms_skickat) return { typ: 'hoppa_over', orsak: 'Ej skickad — SMS till markägaren är redan bekräftat skickat' };
   return {
     typ: 'skicka',
-    meddelande: { title: `${rad.namn} startar ${nar}`, body: 'Skicka till markägaren?', url: besokNotisUrl(rad.id), tag: `besok-${rad.id}` },
+    meddelande: { title: `${rad.namn} startar ${nar}`, body: 'Skicka besökslänken?', url: besokNotisUrl(rad.id), tag: `besok-${rad.id}` },
   };
 }

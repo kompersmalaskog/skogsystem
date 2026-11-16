@@ -14,7 +14,6 @@
 //
 // KOPIOR SOM FINNS KVAR. Samma logik ligger i dag ocksa i:
 //   app/planering/page.tsx   (originalet)
-//   app/oversikt/SkordarKarta.tsx  (uttalad replik, med samma varning)
 // Den har filen ar identisk med dem i BERAKNINGEN. Den ar avsiktligt inte
 // inkopplad i de tva - forarkartan gar inte att verifiera visuellt i nagon
 // automatiserad miljo (MapLibre renderar inte i den inbaddade webblasaren), och

@@ -37,12 +37,15 @@ describe('EN rad längst ner per läge', () => {
     // fem lägen + sjätte: telefonens "‹ Om trakten" medan en markering från Om trakten är framhävd (framhav-list) — villkoret nedan stänger den när ett annat läge pågår.
     // Två av raderna (framhav-list, och placera-list för avlägg ur Klar med trakten?) är NedfaldList = KorvyNertillList med en "‹ tillbaka"-knapp först: samma stil, samma höjd.
     expect(antal(rader, '<KorvyNertillList')).toBe(5);
-    expect(antal(rader, '<NedfaldList')).toBe(4);   // placera (avlägg), rita (basväg), framhav, och frågan om Vidas avlägg (avlagg-granska-list, stapla)
+    expect(antal(rader, '<NedfaldList')).toBe(5);   // placera (avlägg), rita (basväg), framhav, frågan om Vidas avlägg (avlagg-granska-list, stapla) och larmplatsen (larm-list, "‹ Lista" till Hela trakten)
     expect(las('../components/planering/NedfaldList.tsx')).toContain('<KorvyNertillList');
   });
   it('framhävningens rad (Om trakten › Visa ›, telefon) visas aldrig samtidigt med ett annat nertill-läge eller med öppen objektinfo', () => {
     expect(page).toMatch(/const framhavListSynlig = !!framhavdMarkering && framhavdLageRef\.current === 'ark' && !traktOversiktOpen && !plusRadOppen && !menuOpen && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig;/);
     expect(page).toMatch(/\{framhavListSynlig && framhavdMarkering && \(\s*<NedfaldList\s+testid="framhav-list"/);
+  });
+  it('larmplatsens rad visas aldrig samtidigt med ett annat nertill-läge eller med öppen objektinfo', () => {
+    expect(page).toMatch(/\{larmPaKartan && !traktOversiktOpen && !plusRadOppen && !menuOpen && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && !framhavListSynlig && \(\(\) => \{/);
   });
   it('knapparna: ↩ ✓ × för rita, område och mät; bara × för placera och pil', () => {
     const rita = mellan(page, 'testid="rita-list"', 'testid="omrade-list"');

@@ -68,3 +68,18 @@ describe('jamkaMarkhojd', () => {
     expect(anrop).toHaveLength(1);
   });
 });
+
+// Vashult 2026-11-11: rättningen kördes bara i körvyn med följet på → i planeringsvyn (och när föraren dragit kartan) stod centerhöjden på 0 m,
+// marken låg på 163 m, och symbolerna ritades ~130 px ovanför sin plats medan trycket träffade rätt plats. Rättningen ska gälla ALLTID.
+describe('markhöjden rättas i alla lägen (källvakt mot planeringssidan)', () => {
+  it('effekten som anropar jamkaMarkhojd kräver bara en karta, inte körvyn', async () => {
+    const { readFileSync } = await import('node:fs');
+    const sida = readFileSync('app/planering/page.tsx', 'utf8');
+    const i = sida.indexOf('jamkaMarkhojd(map)');
+    expect(i).toBeGreaterThan(0);
+    const fore = sida.slice(sida.lastIndexOf('useEffect(', i), i);
+    expect(fore).toContain('if (!map || !mapLibreReady) return;');
+    expect(fore).not.toContain('korvyActive');
+    expect(fore).not.toContain('korvyFollowPaused');
+  });
+});

@@ -10,7 +10,7 @@ export type EjSettRapport = { ok: boolean; kandidater: number; koade: number; fe
 
 export async function koaBesokEjSett(sb: SupabaseClient, nu: Date = new Date()): Promise<EjSettRapport> {
   const fran = new Date(nu.getTime() - BESOK_EFTERTID_MIN * 60000).toISOString();
-  const b = await sb.from('objekt_besok').select('id, objekt_id, besokstid, skapad_at').gte('besokstid', fran);
+  const b = await sb.from('objekt_besok').select('id, objekt_id, besokstid, skapad_at').is('gatt_at', null).gte('besokstid', fran);   // besökaren har gått: ingen varning
   if (b.error) return { ok: false, kandidater: 0, koade: 0, fel: `objekt_besok: ${b.error.message}` };
   const besok = (b.data ?? []) as EjSettBesok[];
   if (besok.length === 0) return { ok: true, kandidater: 0, koade: 0 };

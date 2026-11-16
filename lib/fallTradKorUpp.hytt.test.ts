@@ -4,23 +4,13 @@
 // annat än när trädet är valt, och ingen gest på kartan (ett drag på trädet panorerar); kör upp-pilen har lika tjock linje vid varje zoom och draget från vägen blir en pil som börjar PÅ vägen. Själva lib-koden buntas med esbuild och körs i webbläsaren (inga kopior).
 // FALLTRAD_SKRIV=<mapp> sparar skärmbilderna. Finns ingen Chromium hoppas mätningen över.
 import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { hittaChromium, KARTA_ARGS } from './testStod/chromium';
 
-function chromium(): { launch: (o: object) => Promise<any> } | null {
-  try {
-    const rot = execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    const pw = createRequire(path.join(rot, 'x.js'))('playwright');
-    const mapp = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-    const ver = fs.readdirSync(mapp).filter((n) => /^chromium-\d+$/.test(n)).sort().pop();
-    const exe = ver && path.join(mapp, ver, 'chrome-linux', 'chrome');
-    if (!exe || !fs.existsSync(exe)) return null;
-    return { launch: (o) => pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'], ...o }) };
-  } catch { return null; }
-}
+const chromium = () => hittaChromium(KARTA_ARGS);
 const CHROMIUM = chromium();
 const MAPLIBRE = path.join(process.cwd(), 'node_modules/maplibre-gl/dist');
 
@@ -197,7 +187,8 @@ describe.skipIf(!CHROMIUM)('Fällträd — riktig Chromium + MapLibre', () => {
       for (const id of ['a', 'b', 'c']) expect((await matTrad(pg, id)).vita, `vita pixlar vid ${id} utan val`).toBe(0);
       await pg.evaluate(() => { const w = window as any; w.vald = 'b'; w.ritaOm(); });
       await taPixlar(pg);
-      expect((await matTrad(pg, 'b')).vita).toBeGreaterThan(150);
+      // Ringen följer trädets storlek: trädet krympte 76 → 52 px (Martin 2026-11-02), så ringen har ca 2/3 av de vita pixlarna mot förut (uppmätt 121).
+      expect((await matTrad(pg, 'b')).vita).toBeGreaterThan(90);
       expect((await matTrad(pg, 'a')).vita).toBe(0);
       expect((await matTrad(pg, 'c')).vita).toBe(0);
       await skriv(pg, 'trad_valt');

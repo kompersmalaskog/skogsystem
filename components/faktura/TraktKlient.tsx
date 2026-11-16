@@ -19,7 +19,9 @@ import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import { byggMaskinkort, pottMening, type MaskinRad } from '@/lib/faktura/traktVy';
 import type { ManuelltArbete } from '@/lib/faktura/lasManuellt';
+import { arbetsprisNot } from '@/lib/faktura/arbetspris';
 import type { Granskningsunderlag } from '@/lib/faktura/hamtaUnderlag';
+import { fattasRubrik, type FattasPost } from '@/lib/faktura/fattas';
 import GranskningArk, { type Vy } from '@/components/faktura/GranskningArk';
 import { fordelaTillagg, type Tillaggspost } from '@/lib/ekonomi/prisPerM3';
 import {
@@ -33,6 +35,7 @@ type Rader = MaskinRad & {
   a_pris: number | null
   status: string
   fel_kod: string | null
+  kalla: string
   prislista: { medelstam: number; klass: number; total: number; skordare: number; skotare: number } | null
 }
 
@@ -43,6 +46,7 @@ type Detalj = {
   rader: Rader[]; noter: { niva: string; text: string }[]; hinder: string[]
   summa_kant: number; rader_utan_pris: number
   granskning: Granskningsunderlag | null
+  fattas: FattasPost[]
 }
 
 const nr = (n: number, dec = 0) =>
@@ -51,8 +55,14 @@ const kr2 = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const tecknat = (n: number) => `${n > 0 ? '+' : ''}${kr2(n)}`;
 
-function Prick() {
-  return <span aria-hidden="true" style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, background: FARG.orange, flexShrink: 0, marginTop: AVSTAND.s }} />;
+/**
+ * EN orange prick på gruppens förklaring, aldrig en per rad — samma regel som
+ * högarna i listan (lib/faktura/listaVy). Raderna säger med ORD vad som
+ * fattas; pricken förstärker bara att gruppen behöver något.
+ * `inline` = i en rad som redan är centrerad (Sektions not), utan marginTop.
+ */
+function Prick({ inline }: { inline?: boolean } = {}) {
+  return <span aria-hidden="true" style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, background: FARG.orange, flexShrink: 0, marginTop: inline ? 0 : AVSTAND.s }} />;
 }
 
 /** En orange rad: texten säger hela saken, färgen förstärker bara. */
@@ -152,6 +162,30 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
         </p>
       )}
 
+      {d.fattas.length > 0 && (
+        <div style={{ marginTop: AVSTAND.xl }}>
+          <Sektion
+            rubrik={fattasRubrik(d.fattas)}
+            not={<><Prick inline />Appen fakturerar som det står här. Fyll i det du vet — eller lämna som det är.</>}
+          >
+            {d.fattas.map((p, i) => (
+              <Rad
+                key={p.nyckel}
+                attr={{ 'data-fattas': p.nyckel }}
+                titel={p.rubrik}
+                under={p.text}
+                hoger={p.varde ? <span style={TAL_FONT}>{p.varde}</span> : undefined}
+                href={p.var === 'redigering' && d.objekt_ids[0]
+                  ? `/redigering?objekt=${encodeURIComponent(d.objekt_ids[0])}`
+                  : undefined}
+                onTryck={p.var === 'granskning' ? () => setGranskning('sortiment') : undefined}
+                sista={i === d.fattas.length - 1}
+              />
+            ))}
+          </Sektion>
+        </div>
+      )}
+
       {d.hinder.map((h, i) => <Varning key={`h${i}`} text={h} />)}
       {d.noter.filter(n => n.niva === 'varning').map((n, i) => <Varning key={`n${i}`} text={n.text} />)}
 
@@ -221,7 +255,17 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
       {manuellt && (
         <Sektion
           rubrik="Manuellt arbete · ur arbetsrapporten"
-          not="Artikeln för manuell fällning finns inte i Fortnox än, så priset går inte att hämta. Avtalet säger 475 kr/tim."
+          // Posterna här är UNDERLAGET; pengarna står som en rad per sort under
+          // "Mer på fakturan". Noten räknas ur de raderna, så den aldrig kan
+          // påstå en sats som inte används.
+          not={arbetsprisNot(ovriga
+            .filter(r => r.kalla === 'manuell_fallning' || r.kalla === 'manuell')
+            .map(r => ({
+              etikett: r.benamning,
+              timmar: r.antal ?? 0,
+              timpris: r.a_pris ?? r.a_pris_beraknat,
+              typ: null,
+            })))}
         >
           {manuellt.poster.map((p, i) => (
             <Rad

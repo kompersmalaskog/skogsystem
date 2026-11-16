@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
       await loggaImportFel(service, sokvag, 'PDF_LAS', `Kunde inte läsa traktdirektiv-PDF: ${e?.message ?? e}`);
       return NextResponse.json({ error: 'Kunde inte läsa PDF' }, { status: 500 });
     }
-    const td = parseTraktdirektivText(text, traktnrFromFilename);
+    const td = parseTraktdirektivText(text, traktnrFromFilename, envzUttag?.falt.inkopare);
     // Avtalsform/åtgärd som INTE gick att läsa ur filen: tomma fält + en varning med råtexten (aldrig en gissning).
     varningar.push(...td.tolkningsvarningar);
 

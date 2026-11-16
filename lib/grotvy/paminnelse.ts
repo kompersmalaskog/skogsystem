@@ -82,7 +82,7 @@ export function paminnelseMeddelande(payload: Partial<PaminnelsePayload> | null 
   return {
     title: `GROT · ${namn}`,
     body: `Ska vara bortkört senast ${datum}${mark ? ` — ${mark}` : ''}`,
-    url: '/oversikt-v2',
+    url: '/oversikt',
     tag: `grot-senast-${namn}-${p.senast ?? ''}-${p.dagar_fore ?? ''}`,
   };
 }

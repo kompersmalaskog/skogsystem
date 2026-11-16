@@ -17,7 +17,8 @@ export function avlaggFeatures(avlagg: readonly Avlagg[], valtId: string | null)
   };
 }
 
-function ritaRuta(): ImageData | null {
+/** Rutans bild (vit, rundade hörn, mörk kant). Exporterad för skotarlänken (lib/skotarlank/karta.ts), som ritar avläggen likadant. */
+export function ritaRuta(): ImageData | null {
   const px = 40, c = document.createElement('canvas'); c.width = px; c.height = px;
   const g = c.getContext('2d');
   if (!g) return null;

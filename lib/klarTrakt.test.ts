@@ -29,17 +29,17 @@ describe('berakna — vad är kvar', () => {
     expect(s.forutsattningarKvar).toBe(0);
   });
 
-  it('en ny trakt: antalet räknas per OMRÅDE — Förutsättningar är ett, Har du … är ett', () => {
+  it('en ny trakt: Förutsättningar är en rad, Maskiner en rad, och varje obesvarad fråga en egen rad (svaras på raden)', () => {
     const s = berakna(indata({
       avlaggAntal: 0, basvagTexter: [], basvagForvantad: false, barighet: null, terrang: null, skotningsavstand: null, skordare: INGEN, skotare: INGEN, harDu: {},
       prognos: prognos({ skordare: INGEN, skotare: INGEN }), prognosGodkandUnderlag: null,
     }));
-    // avlägg, Förutsättningar (3 fält), Maskiner (skördare + skotare), prognos, Har du … (6 frågor) = 5 områden — samma som stegen i "Gå igenom"
-    expect(s.antalKvar).toBe(5);
+    // avlägg, Förutsättningar (3 fält), Maskiner (skördare + skotare), prognos = 4 rader + 7 frågor = 11
+    expect(s.antalKvar).toBe(4 + HAR_DU_FRAGOR.length);
     expect(s.maskinerKvar).toBe(2);
     expect(s.forutsattningarKvar).toBe(3);
     expect(s.poster.find((p) => p.id === 'basvag')?.kvar).toBe(false);   // ingen basväg väntad → "Ingen"
-    expect(s.frågorKvar).toHaveLength(6);
+    expect(s.frågorKvar).toHaveLength(HAR_DU_FRAGOR.length);
   });
 
   it('Förutsättningar räknas ned ("3 att välja" → "1 kvar") men är ETT område tills alla tre är valda', () => {
@@ -50,21 +50,21 @@ describe('berakna — vad är kvar', () => {
     const noll = berakna(indata());
     expect([noll.forutsattningarKvar, noll.antalKvar]).toEqual([0, 0]);
   });
-  it('alla sex frågorna är ETT område: en obesvarad eller sex ger samma bidrag till antalet', () => {
+  it('varje obesvarad fråga är en egen rad i antalet', () => {
     const harDu1 = alla(); delete harDu1.gransar;
     expect(berakna(indata({ harDu: harDu1 })).antalKvar).toBe(1);
-    expect(berakna(indata({ harDu: {} })).antalKvar).toBe(1);
+    expect(berakna(indata({ harDu: {} })).antalKvar).toBe(HAR_DU_FRAGOR.length);
   });
-  it('exemplet från Mölleryd: avlägg + Förutsättningar + Har du … = 3 områden (medelstam kom ur TD, prognosen godkänd)', () => {
+  it('exemplet från Mölleryd: avlägg + Förutsättningar + frågorna (medelstam kom ur TD, prognosen godkänd)', () => {
     const s = berakna(indata({ avlaggAntal: 0, barighet: null, terrang: null, skotningsavstand: null, harDu: {} }));
-    expect(s.antalKvar).toBe(3);
+    expect(s.antalKvar).toBe(2 + HAR_DU_FRAGOR.length);
   });
-  it('ett område som är kvar för flera fält räknas en gång: skotare + prognos + 3 frågor = 3 områden', () => {
+  it('ett område som är kvar för flera fält räknas en gång: skotare + prognos + 3 frågor = 5 rader', () => {
     let harDu = alla();
     harDu = { ...harDu }; delete harDu.snitslat; delete harDu.ledningar; delete harDu.gransar;
     const p = prognos({ skotare: INGEN });
     const s = berakna(indata({ skotare: INGEN, prognos: p, prognosGodkandUnderlag: null, harDu }));
-    expect(s.antalKvar).toBe(3);   // skotare, prognos, Har du …
+    expect(s.antalKvar).toBe(5);   // Maskiner, prognos, tre frågor
   });
 
   it('TRAKT UTAN BASVÄG: "Ingen" räknas som klart — appen gissar aldrig att en basväg saknas', () => {
@@ -112,7 +112,7 @@ describe('berakna — vad är kvar', () => {
 
   it('ett obesvarat svar och ett besvarat: bara det obesvarade räknas', () => {
     const s = berakna(indata({ harDu: sattHarDu({}, 'gransar', 'behovs_inte', null, NU) }));
-    expect(s.frågorKvar).toHaveLength(5);
+    expect(s.frågorKvar).toHaveLength(HAR_DU_FRAGOR.length - 1);
     expect(s.frågorKvar).not.toContain('gransar');
   });
 });
@@ -162,11 +162,11 @@ describe('prognos — "Stämmer" gäller bara för det underlag som godkändes',
 });
 
 describe('Har du… — svar med vem och när', () => {
-  it('sex frågor i tavlans ordning med tavlans ord', () => {
+  it('sju frågor i tavlans ordning med tavlans ord — sist "Pratat med markägaren?" (Martin 2026-11-05)', () => {
     expect(HAR_DU_FRAGOR.map((f) => f.fraga)).toEqual([
-      'Markerat gränserna?', 'Märkt naturvärden?', 'Kontrollerat kulturlämningar?', 'Markerat el-ledningar?', 'Snitslat basvägen?', 'Ska avlägget huggas?',
+      'Markerat gränserna?', 'Märkt naturvärden?', 'Kontrollerat kulturlämningar?', 'Markerat el-ledningar?', 'Snitslat basvägen?', 'Ska avlägget huggas?', 'Pratat med markägaren?',
     ]);
-    expect(HAR_DU_FRAGOR.map((f) => f.nej)).toEqual(['Behövs inte', 'Inga hittade', 'Inga hittade', 'Inga finns', 'Behövs inte', 'Nej']);
+    expect(HAR_DU_FRAGOR.map((f) => f.nej)).toEqual(['Behövs inte', 'Inga hittade', 'Inga hittade', 'Inga finns', 'Behövs inte', 'Nej', 'Nej']);
   });
   it('svaret bär vem och när; samma svar igen tar tillbaka det', () => {
     const a = sattHarDu({}, 'gransar', 'ja', 'm7', NU);

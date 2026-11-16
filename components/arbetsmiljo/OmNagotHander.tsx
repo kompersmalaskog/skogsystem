@@ -6,24 +6,31 @@
 // FUNGERAR UTAN TÄCKNING: inga ikoner från nätet (egna SVG), korten står i koden, numren och larmplatserna läses ur det enheten
 // sparade senast, positionen kommer från GPS. Bara själva rapporten kräver nät — då står det så och texten finns kvar.
 //
-// Lägen (adressen bär dem, så en omladdning hamnar rätt): start · ?kort=<id> · ?rapport=1[&kort=<id>] · kvitto.
+// Lägen (adressen bär dem, så en omladdning hamnar rätt): start · ?kort=<id> · ?instr=<id> · ?rapport=1[&kort=<id>] · kvitto.
+//
+// "Ska du göra något av det här?" = Så gör vi (lib/arbetsmiljo/saGorVi.ts): instruktionerna för farliga jobb, ETT tryck från
+// startsidan och maskinen. Bara godkända visas, och de sparas på enheten med resten (NodData.instruktioner) så de går att läsa
+// utan täckning. Admin godkänner och ändrar dem i /sa-gor-vi.
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { AVSTAND, FARG, INAKTIV, KNAPP, KORT, RADIE, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import {
-  hittaKort, kortMedAndringar, koordinatRader, koordinatText, lasNod, ringText, senasteObjektPaEnheten, slaIhopNod, sparaNod, telLank, valjLarmplats,
+  hittaKort, kortMedAndringar, koordinatRader, koordinatText, lasNod, ringText, senasteObjektPaEnheten, slaIhopNod, sparaNod, telLank, valjLarmplats, larmplatserUtanPosition,
   type NodData, type Position, type Rutinkort,
+  type Larmplats,
 } from '@/lib/arbetsmiljo/nod';
 import { TYP_VAL, aterstallKort, hamtaNodData, hamtaRapportor, rapporteraTillbud, sparaKort, type TillbudTyp } from '@/lib/arbetsmiljo/tillbud';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import Ark from '@/components/design/Ark';
 import Falt from '@/components/design/Falt';
 import { laggMaskinkollFoto } from '@/lib/maskinkoll/fotoKo';
+import { INSTR_IDN, hamtaKvitton, instruktion, kvittera, lage as instrLage, lastTid, synligForForare, underlag, type InstrId, type Instruktion, type Kvitto } from '@/lib/arbetsmiljo/saGorVi';
+import { datumText } from '@/lib/arbetsmiljo/introduktion';
 import { fotoSokvag } from '@/lib/maskinkoll/regler';
 
-type Lage = { vy: 'start' } | { vy: 'kort'; kort: Rutinkort } | { vy: 'rapport'; kort: Rutinkort | null } | { vy: 'kvitto'; typ: TillbudTyp };
+type Lage = { vy: 'start' } | { vy: 'kort'; kort: Rutinkort } | { vy: 'instr'; id: InstrId } | { vy: 'rapport'; kort: Rutinkort | null } | { vy: 'kvitto'; typ: TillbudTyp };
 
 function lasAdress(): Lage {
   if (typeof window === 'undefined') return { vy: 'start' };
@@ -31,14 +38,17 @@ function lasAdress(): Lage {
   const kort = hittaKort(p.get('kort'));
   if (p.get('rapport') === '1') return { vy: 'rapport', kort };
   if (kort) return { vy: 'kort', kort };
+  const instr = p.get('instr') as InstrId | null;
+  if (instr && INSTR_IDN.includes(instr)) return { vy: 'instr', id: instr };
   return { vy: 'start' };
 }
 
 function skrivAdress(l: Lage) {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
-  url.searchParams.delete('kort'); url.searchParams.delete('rapport');
+  url.searchParams.delete('kort'); url.searchParams.delete('rapport'); url.searchParams.delete('instr');
   if (l.vy === 'kort') url.searchParams.set('kort', l.kort.id);
+  if (l.vy === 'instr') url.searchParams.set('instr', l.id);
   if (l.vy === 'rapport') { url.searchParams.set('rapport', '1'); if (l.kort) url.searchParams.set('kort', l.kort.id); }
   window.history.replaceState(window.history.state, '', url.toString());
 }
@@ -83,6 +93,8 @@ export default function OmNagotHander() {
   const ga = useCallback((l: Lage) => { setLage(l); skrivAdress(l); if (typeof window !== 'undefined') window.scrollTo(0, 0); }, []);
 
   const larmplats = valjLarmplats(nod?.larmplatser ?? [], pos, pos ? null : senasteObjektPaEnheten());
+  // Utan position och flera larmplatser på trakten (Vida lägger en vid varje avlägg): alla, man läser upp den närmaste själv.
+  const flera = larmplatserUtanPosition(nod?.larmplatser ?? [], pos, pos ? null : senasteObjektPaEnheten());
   const kontakter = nod?.kontakter ?? [];
   // Korten med admins ändringar (sparade på enheten). Ett öppet kort visas alltid i sin senaste lydelse.
   const kortLista = kortMedAndringar(nod?.andringar);
@@ -90,6 +102,18 @@ export default function OmNagotHander() {
   const { medarbetare } = useCurrentMedarbetare();
   const arAdmin = medarbetare?.roll === 'admin';
   const [andrar, setAndrar] = useState<Rutinkort | null>(null);
+  // Så gör vi: bara godkända instruktioner, i appens ordning (det farligaste först).
+  const nu = new Date();
+  const g = nod?.instruktioner;
+  const instruktioner: Instruktion[] = g ? INSTR_IDN.filter(id => synligForForare(instrLage(id, g[id], nu))).map(id => instruktion(id, g[id])) : [];
+  const [kvitton, setKvitton] = useState<Kvitto[] | null>(null);
+  const jagId = medarbetare?.id ?? null;
+  useEffect(() => {
+    if (!jagId || arAdmin) return;
+    let vid = true;
+    hamtaKvitton(supabase).then(k => { if (vid) setKvitton(k); }).catch(() => {});
+    return () => { vid = false; };
+  }, [jagId, arAdmin]);
   const lasOm = useCallback(async () => {
     const d = await hamtaNodData(supabase).catch(() => null);
     if (d) { const ny = slaIhopNod(d, lasNod()); sparaNod(ny); setNod(ny); }
@@ -109,7 +133,7 @@ export default function OmNagotHander() {
         {lage.vy === 'start' && (
           <>
             {/* Ingen egen rubrik: toppfältet säger redan "Om något händer". Det viktigaste står först. */}
-            <Nodkort pos={pos} status={status} larmplats={larmplats} forst />
+            <Nodkort pos={pos} status={status} larmplats={larmplats} flera={flera} forst />
             <Etikett>Vad har hänt?</Etikett>
             <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
               {kortLista.map((k, i) => (
@@ -123,6 +147,18 @@ export default function OmNagotHander() {
               <RadKnapp sista onTryck={() => ga({ vy: 'rapport', kort: null })} attr={{ 'data-rapportera': '' }}
                 under="Något trasigt, nära att hända eller en skada">Rapportera</RadKnapp>
             </div>
+            {instruktioner.length > 0 && (
+              <>
+                <Etikett>Ska du göra något av det här?</Etikett>
+                <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
+                  {instruktioner.map((i, n) => (
+                    <RadKnapp key={i.id} sista={n === instruktioner.length - 1} onTryck={() => ga({ vy: 'instr', id: i.id })} attr={{ 'data-instr': i.id }}>
+                      {i.titel}
+                    </RadKnapp>
+                  ))}
+                </div>
+              </>
+            )}
             <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px ${AVSTAND.xs}px 0` }}>Korten fungerar utan täckning.</p>
           </>
         )}
@@ -130,7 +166,7 @@ export default function OmNagotHander() {
         {lage.vy === 'kort' && (
           <>
             <h1 style={{ ...TYP.titel, margin: 0 }}>{visat(lage.kort).titel}</h1>
-            <Nodkort pos={pos} status={status} larmplats={larmplats} kompakt />
+            <Nodkort pos={pos} status={status} larmplats={larmplats} flera={flera} kompakt />
             <ol data-steg style={{ listStyle: 'none', margin: `${AVSTAND.xl}px 0 0`, padding: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
               {visat(lage.kort).steg.map((s, i) => (
                 <li key={i} style={{ display: 'flex', gap: AVSTAND.m, alignItems: 'flex-start' }}>
@@ -157,6 +193,12 @@ export default function OmNagotHander() {
             )}
           </>
         )}
+        {lage.vy === 'instr' && (() => {
+          const i = instruktioner.find(x => x.id === lage.id);
+          if (!i) return <p style={{ ...TYP.text, color: FARG.text2, margin: 0 }}>Instruktionen finns inte här än.</p>;
+          return <InstrVy i={i} arAdmin={arAdmin} medarbetareId={medarbetare?.id ?? null} kvitton={kvitton}
+            onLast={k => setKvitton(kv => [...(kv ?? []), k])} />;
+        })()}
         {andrar && (
           <KortRedigerare kort={andrar} andrat={(nod?.andringar ?? []).some(a => a.id === andrar.id)}
             onStang={() => setAndrar(null)} onSparat={async () => { await lasOm(); setAndrar(null); }} />
@@ -181,12 +223,23 @@ export default function OmNagotHander() {
 }
 
 /** Ring 112 + det man läser upp. Larmplatsen (där ambulansen ska in) först om trakten har en, annars där man står. */
-function Nodkort({ pos, status, larmplats, kompakt, forst }: { pos: Position | null; status: 'soker' | 'ok' | 'saknas'; larmplats: ReturnType<typeof valjLarmplats>; kompakt?: boolean; forst?: boolean }) {
+function Nodkort({ pos, status, larmplats, flera = [], kompakt, forst }: { pos: Position | null; status: 'soker' | 'ok' | 'saknas'; larmplats: ReturnType<typeof valjLarmplats>; flera?: Larmplats[]; kompakt?: boolean; forst?: boolean }) {
   const huvud = larmplats ? { rubrik: `Larmplats · ${larmplats.namn}`, lat: larmplats.lat, lng: larmplats.lng, under: larmplats.beskrivning } : pos ? { rubrik: 'Här är du', lat: pos.lat, lng: pos.lng, under: null } : null;
   const rader = huvud ? koordinatRader(huvud.lat, huvud.lng) : null;
   return (
     <div data-nodkort style={{ ...KORT, marginTop: forst ? 0 : AVSTAND.l }}>
-      {huvud && rader ? (
+      {!huvud && flera.length > 1 ? (
+        <div data-larmplatser-alla>
+          <div style={{ ...TYP.micro, color: FARG.text2 }}>Larmplatser · {flera[0].namn}</div>
+          <div style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.s }}>Appen vet inte var du är – läs upp den som ligger närmast dig.</div>
+          {flera.map((l, i) => (
+            <div key={i} data-larmplats-rad style={{ marginTop: AVSTAND.m }}>
+              {l.beskrivning && <div style={{ ...TYP.text }}>{l.beskrivning}</div>}
+              <div style={{ ...TYP.rubrik, ...TNUM }}>{koordinatText(l.lat, l.lng)}</div>
+            </div>
+          ))}
+        </div>
+      ) : huvud && rader ? (
         <>
           <div style={{ ...TYP.micro, color: FARG.text2 }}>{huvud.rubrik}</div>
           <div data-koordinat={koordinatText(huvud.lat, huvud.lng)} style={{ ...(kompakt ? TYP.rubrik : TYP.tal), ...TNUM, marginTop: AVSTAND.s }}>
@@ -206,6 +259,50 @@ function Nodkort({ pos, status, larmplats, kompakt, forst }: { pos: Position | n
       <a href="tel:112" data-ring-112 style={{ ...KNAPP.primar, textDecoration: 'none', gap: AVSTAND.s, marginTop: AVSTAND.l }}>
         <Telefon farg={FARG.bg} /> Ring 112
       </a>
+    </div>
+  );
+}
+
+/** En instruktion: rubriken, när den gäller, stegen stora och numrerade (som rutinkorten), källan, och kvittot. */
+function InstrVy({ i, arAdmin, medarbetareId, kvitton, onLast }: { i: Instruktion; arAdmin: boolean; medarbetareId: string | null; kvitton: Kvitto[] | null; onLast: (k: Kvitto) => void }) {
+  const [sparar, setSparar] = useState(false);
+  const [fel, setFel] = useState<string | null>(null);
+  const tid = medarbetareId && kvitton ? lastTid(kvitton, medarbetareId, i) : null;
+  const las = async () => {
+    if (!medarbetareId) return;
+    setSparar(true); setFel(null);
+    const ok = await kvittera(supabase, medarbetareId, i).catch(() => false);
+    setSparar(false);
+    if (!ok) { setFel(typeof navigator !== 'undefined' && navigator.onLine === false ? 'Ingen täckning just nu. Tryck igen när du har täckning.' : 'Kunde inte spara. Försök igen.'); return; }
+    onLast({ medarbetareId, instruktion: i.id, underlag: underlag(i), tid: new Date().toISOString() });
+  };
+  return (
+    <div data-instr-vy={i.id}>
+      <h1 style={{ ...TYP.titel, margin: 0 }}>{i.titel}</h1>
+      <p style={{ ...TYP.text, color: FARG.text2, margin: `${AVSTAND.xs}px 0 0` }}>{i.nar}</p>
+      <ol data-steg style={{ listStyle: 'none', margin: `${AVSTAND.xl}px 0 0`, padding: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+        {i.steg.map((x, n) => (
+          <li key={n} style={{ display: 'flex', gap: AVSTAND.m, alignItems: 'flex-start' }}>
+            <span aria-hidden style={{ ...TYP.listtitel, ...TNUM, width: 32, height: 32, borderRadius: RADIE.cirkel, background: FARG.upphojt, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{n + 1}</span>
+            <span style={{ ...TYP.rubrik, fontWeight: 600 }}>{x}</span>
+          </li>
+        ))}
+      </ol>
+      {i.kalla && (
+        <a data-instr-kalla href={i.kalla.url} target="_blank" rel="noopener noreferrer"
+          onClick={e => { if (window.open(i.kalla!.url, '_blank', 'noopener')) e.preventDefault(); }}
+          style={{ ...TYP.meta, color: FARG.bla, display: 'inline-flex', alignItems: 'center', minHeight: TRAFFYTA.min, marginTop: AVSTAND.l, textDecoration: 'none' }}>
+          Källa: {i.kalla.text} ›
+        </a>
+      )}
+      {arAdmin ? (
+        <Link href={`/sa-gor-vi?id=${i.id}`} data-instr-andra style={{ ...KNAPP.lank, marginTop: AVSTAND.l, textDecoration: 'none' }}>Ändra eller godkänn i Så gör vi ›</Link>
+      ) : medarbetareId && kvitton ? (
+        tid
+          ? <p data-instr-last style={{ ...TYP.text, color: FARG.text2, margin: `${AVSTAND.xl}px 0 0` }}>Läst {datumText(tid)} ✓</p>
+          : <button type="button" data-instr-las disabled={sparar} onClick={() => void las()} style={{ ...KNAPP.primar, marginTop: AVSTAND.xl, ...(sparar ? INAKTIV : {}) }}>{sparar ? 'Sparar …' : 'Jag har läst'}</button>
+      ) : null}
+      {fel && <p role="alert" style={{ ...TYP.text, color: FARG.orange, margin: `${AVSTAND.s}px 0 0` }}>{fel}</p>}
     </div>
   );
 }

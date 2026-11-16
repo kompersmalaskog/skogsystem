@@ -9,10 +9,11 @@ const las = (rel: string) => readFileSync(join(rot, rel), 'utf8');
 const sida = las('app/planering/page.tsx');
 
 describe('panelens bredd', () => {
-  it('420 px i maskinläget, 380 som förut annars — och telefonen är ett ark i full bredd', () => {
+  it('maskinläget: EN bredd för alla vyer, samma som Hela trakten (Martin 2026-11-12); 380 som förut annars — och telefonen är ett ark i full bredd', () => {
     expect(INFO_PANEL_MASKIN_BREDD_PX).toBe(420);
     expect(PANEL_BREDD_PX).toBe(380);
-    expect(sida).toContain('const infoPanelBredd = (maskinlage || !!maskinSomParam) ? INFO_PANEL_MASKIN_BREDD_PX : PANEL_BREDD_PX;');
+    expect(sida).toContain("const infoPanelBredd = (maskinlage || !!maskinSomParam) ? (typeof window !== 'undefined' ? oversiktPanelBredd(window.innerWidth) : INFO_PANEL_MASKIN_BREDD_PX) : PANEL_BREDD_PX;");
+    expect(las('components/planering/ObjektInfo.tsx')).toContain("bredd={oversikt && typeof window !== 'undefined' ? oversiktPanelBredd(window.innerWidth) : bredd}");
     expect(sida).toMatch(/objektInfoSenasteRef\.current = \{\s*bredd: infoPanelBredd,/);
   });
   it('kamerans utrymme för framhävt objekt räknar med den bredd panelen faktiskt har', () => {
@@ -28,8 +29,10 @@ describe('panelens bredd', () => {
 
 describe('Vidas direktiv är instruktion nr 1', () => {
   it('sidan matar instruktionshooken med direktivet (objekt.anteckningar) — samma text som "Till föraren"', () => {
-    expect(sida).toMatch(/useInstruktioner\(\{[\s\S]*?direktiv: vidaDirektiv,/);
-    expect(sida).toContain("const forareTexter = tillForaren({ vida });");
+    // Hytten får det som GÄLLER (det planeraren strukit är borta — lib/vidaStruket); korten får hela texten med streck.
+    expect(sida).toMatch(/useInstruktioner\(\{[\s\S]*?direktiv: vidaGiltig,/);
+    expect(sida).toContain('const vidaGiltig = useMemo(() => giltigVidaText(vidaDirektiv, vidaStruket ?? []), [vidaDirektiv, vidaStruket]);');
+    expect(sida).toContain("const forareTexter = tillForaren({ vida, vidaStruket: vidaStruket ?? [],");
   });
   it('kortet får "✓ Sett" för direktivet bara i maskinläget (instruktioner kommer bara då)', () => {
     expect(sida).toContain('instruktioner: instruktionerAktiv ? { data: inst.paTrakten, onSett: inst.settOmraden } : null,');
@@ -42,7 +45,7 @@ describe('städad panel', () => {
   it('"Mer" är en rad längst ner i uppdraget, inte en knapp i knappraden', () => {
     expect(kort).toContain('testid="kort-mer"');
     expect(las('lib/objektKort.ts')).not.toMatch(/id: 'mer'/);
-    expect(las('lib/objektKort.ts')).toContain("export type KortKnappId = 'kor-hit' | 'korvy' | 'skotning' | 'utkort';");
+    expect(las('lib/objektKort.ts')).toContain("export type KortKnappId = 'korvy' | 'skotning' | 'utkort';");
     expect(kort.indexOf('testid="kort-dokument"')).toBeLessThan(kort.indexOf('testid="kort-mer"'));
     expect(kort).not.toContain('kort-knapp-mer');
   });
@@ -50,11 +53,14 @@ describe('städad panel', () => {
     expect(kort).toContain('{n > 0 && <div data-testid="kort-knappar"');
   });
   it('"Larmplats inte kontrollerad" bara i planeringsläget: sidan ger visaKontroll = planerare utanför maskinläge och testläge', () => {
-    expect(sida).toContain("visaKontroll: kortRoll === 'planerare' && !maskinlage && !maskinSomParam,");
+    // 2026-11-10: planerarens larmrad (med kontrollstatusen) och förarens (närmaste larmplatsen, utan status) är två grenar.
+    expect(sida).toContain("larm: kortRoll === 'planerare' && !maskinlage && !maskinSomParam ? {");
+    expect(sida).toContain('bekraftad: !!infoLarmBekraftad, visaKontroll: true,');
+    expect(sida).toContain('bekraftad: !!infoLarmBekraftad, visaKontroll: false,');
     expect(kort).toContain('{larm.visaKontroll && <span data-testid="kort-larm-status"');
   });
   it('"På trakten · N markeringar" har samma stil som övriga rader (ingen grå text-prefix)', () => {
-    expect(kort).toContain('etikett={`På trakten · ${p.paTrakten}`}');
+    expect(kort).toContain('etikett={`På trakten · ${paTrakten}`}');
     expect(kort).not.toMatch(/På trakten <\/span>/);
   });
   it('Till föraren ligger efter Faror och före Brandrisk, knapprad och uppdrag', () => {

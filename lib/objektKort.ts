@@ -18,25 +18,21 @@ export function objektRad(o: { typ?: string | null; avtalsform?: string | null; 
 
 // ── Knapprad efter roll ──────────────────────────────────────────────────────────────────────────────────────────────
 
-export type KortKnappId = 'kor-hit' | 'korvy' | 'skotning' | 'utkort';
+export type KortKnappId = 'korvy' | 'skotning' | 'utkort';
 export interface KortKnapp { id: KortKnappId; etikett: string }
 export type KortRoll = 'planerare' | 'forare';
 
 /**
- * Planerare: Kör hit. ("Inför maskin" kommer i en egen PR och visas först då — en knapp som inte finns får inte ligga där.)
- * Förare: Körvy · Skotning · Utkört. "Mer" är INTE en knapp här: den är en rad längst ner i uppdraget (ObjektKort), eftersom den inte är det viktigaste på kortet. Körvy-knappen försvinner medan körvyn redan är igång (Avsluta körvy ligger i Mer). En skördarförare har
+ * Planerare: inga knappar. "Kör hit" är borttagen (Martin 2026-11-05: "den använder vi aldrig"); vägbeskrivningen finns på objektlistans rad (bilen).
+ * Förare: Körvy. "Mer" är INTE en knapp här: den är en rad längst ner i uppdraget (ObjektKort), eftersom den inte är det viktigaste på kortet. Körvy-knappen försvinner medan körvyn redan är igång (Avsluta körvy ligger i Mer). En skördarförare har
  * ingen skotning att öppna eller markera utkört: Skotning och Utkört visas för skotare och när maskinen inte är känd.
  */
 export function kortKnappar(o: { roll: KortRoll; harKoordinat: boolean; korvyAktiv: boolean; maskinSlag: 'skordare' | 'skotare' | null; utanSkotning?: boolean }): KortKnapp[] {
-  if (o.roll === 'planerare') {
-    return [
-      ...(o.harKoordinat ? [{ id: 'kor-hit' as const, etikett: 'Kör hit' }] : []),
-    ];
-  }
+  if (o.roll === 'planerare') return [];
   return [
     ...(o.korvyAktiv ? [] : [{ id: 'korvy' as const, etikett: 'Körvy' }]),
-    // utanSkotning = skotarläget med lassrapportering i appen: det gamla skotningsverktyget (Skotning: sortiment och högar, Utkört: rita yta → Skotningsuttag) förvirrar där och visas inte.
-    ...(o.maskinSlag === 'skordare' || o.utanSkotning ? [] : [{ id: 'skotning' as const, etikett: 'Skotning' }, { id: 'utkort' as const, etikett: 'Utkört' }]),
+    // Det gamla skotningsverktyget (Skotning: sortimentlistan, Utkört: rita yta → Skotningsuttag) är BORTTAGET (Martin 2026-11-06):
+    // tryck på en hög (Tagen / Ligger kvar) och + › Rita & mät › Högar i ett område gör samma sak. Redan sparade uttag dras av som förut.
   ];
 }
 
@@ -80,7 +76,14 @@ export function extraBrickor(o: { barighet?: string | null; terrang?: string | n
 
 // ── Till föraren ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export interface TillForarenPost { id: string; avsandare: string; text: string }
+export interface TillForarenPost {
+  id: string; avsandare: string; text: string;
+  /** Bara Vidas text: delar planeraren strukit (lib/vidaStruket) — visas med streck, aldrig borttagna. */
+  struket?: readonly import('./vidaStruket').Struken[];
+  /** Bara Vidas text och bara planeraren: stryk/ta tillbaka en del. */
+  onVaxla?: (del: string) => void;
+  strykFel?: string | null;
+}
 
 export const AVSANDARE_VIDA = 'Vida';
 export const AVSANDARE_PLANERARE = 'Planerare';
@@ -89,11 +92,12 @@ export const AVSANDARE_PLANERARE = 'Planerare';
  * Vidas direktiv och planerarens egen text, var och en med vem som skrivit. Förardirektivet (planerarens korta körinstruktion) först, sedan Vida,
  * sedan planerarens "Att tänka på". Tomma texter utelämnas. Ingen författare lagras per text i databasen — planerarens text signeras med rollen.
  */
-export function tillForaren(o: { forardirektiv?: string | null; vida?: string | null; anteckningar?: string | null }): TillForarenPost[] {
+export function tillForaren(o: { forardirektiv?: string | null; vida?: string | null; anteckningar?: string | null;
+  vidaStruket?: readonly import('./vidaStruket').Struken[]; onVaxla?: (del: string) => void; strykFel?: string | null }): TillForarenPost[] {
   const rensa = (s: string | null | undefined) => String(s ?? '').trim();
   const ut: TillForarenPost[] = [];
   if (rensa(o.forardirektiv)) ut.push({ id: 'forardirektiv', avsandare: AVSANDARE_PLANERARE, text: rensa(o.forardirektiv) });
-  if (rensa(o.vida)) ut.push({ id: 'vida', avsandare: AVSANDARE_VIDA, text: rensa(o.vida) });
+  if (rensa(o.vida)) ut.push({ id: 'vida', avsandare: AVSANDARE_VIDA, text: rensa(o.vida), ...(o.vidaStruket?.length ? { struket: o.vidaStruket } : {}), ...(o.onVaxla ? { onVaxla: o.onVaxla } : {}), ...(o.strykFel ? { strykFel: o.strykFel } : {}) });
   if (rensa(o.anteckningar)) ut.push({ id: 'anteckningar', avsandare: AVSANDARE_PLANERARE, text: rensa(o.anteckningar) });
   return ut;
 }
@@ -215,14 +219,16 @@ export function efektivPos(pos: { lat: number; lng: number } | null, ms: readonl
 /** Faror, vägar, övrigt — grunden för Om trakten (lib/omTrakten lägger hänsyn och "Från Vida" ovanpå). */
 export type MarkeringsGrupp = 'faror' | 'ovrigt' | 'vagar';
 // Det som kan göra illa: varning, el-ledning, vindfälle och "ej framkomlig". Manuell fällning och brant är information till den som fäller/kör, inte en fara att se upp för.
-const FARA_SYMBOLER = new Set(['warning', 'powerline', 'windfall']);
+// Markkabel (Röd sedan 2026-10-20) och El-ledning ritad som linje hör hit också (Martin 2026-11-12, Lidhem: jakttornen stod under "Vad ska du göra?").
+const FARA_SYMBOLER = new Set(['warning', 'powerline', 'windfall', 'groundcable']);
 const FARA_ZONER = new Set(['noentry']);
+const FARA_LINJER = new Set(['powerline']);
 const VAG_SYMBOLER = new Set(['road', 'turningpoint', 'bridge', 'corduroy', 'trail']);
 const VAG_LINJER = new Set(['mainRoad', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'trail']);
 export function markeringsGrupp(m: Pick<KartMarkering, 'slag' | 'typ'>): MarkeringsGrupp {
   if (m.slag === 'symbol') return FARA_SYMBOLER.has(m.typ) ? 'faror' : VAG_SYMBOLER.has(m.typ) ? 'vagar' : 'ovrigt';
   if (m.slag === 'zon') return FARA_ZONER.has(m.typ) ? 'faror' : 'ovrigt';
-  return VAG_LINJER.has(m.typ) ? 'vagar' : 'ovrigt';
+  return FARA_LINJER.has(m.typ) ? 'faror' : VAG_LINJER.has(m.typ) ? 'vagar' : 'ovrigt';
 }
 
 /** Sökfältet i Om trakten: träffar text i kommentaren och symbolens namn (ingen skillnad på versaler). Tom sökning släpper igenom allt. */
@@ -253,13 +259,12 @@ export interface MerIn {
   utanSkotning?: boolean;
   status: string | null;
   korvy?: { gpsText: string; gpsProblem: boolean; dataText: string; andrasSparText: string | null };
-  vagdata?: { varde: string; misslyckad: boolean; kanKora: boolean } | null;
-  tillTrakt: boolean;
   go: {
-    skordarKorvy: () => void; skotarKorvy: () => void; avslutaKorvy: () => void; gps: () => void; data: () => void; andrasSpar: () => void;
-    skotning: () => void; markeraUtkort: () => void; genomgang: () => void;
-    vagdata: () => void; trakt: () => void;
+    avslutaKorvy: () => void; gps: () => void; data: () => void; andrasSpar: () => void;
+    skotning: () => void; markeraUtkort: () => void;
     installningar: () => void; gpsKalla: (() => void) | null; forslag: () => void;
+    /** Brandriskpanelen. En fast väg in (2026-11-16): raden på ⓘ-kortet och eld-ikonen finns bara vid nivå 3 eller mer. */
+    brandrisk?: () => void;
   };
 }
 
@@ -280,39 +285,24 @@ export function byggMerGrupper(c: MerIn): { grupper: MerGrupp[]; planerarenBlock
       ...(c.korvy.andrasSparText ? [{ id: 'andras-spar', etikett: c.korvy.andrasSparText, ikon: 'refresh', onTryck: c.go.andrasSpar }] : []),
       { id: 'avsluta-korvy', etikett: 'Avsluta körvy', ikon: 'close', onTryck: c.go.avslutaKorvy, farlig: true },
     );
-  } else if (c.arAdmin) {
-    korvy.push(
-      { id: 'skordarkorvy', etikett: 'Skördarkörvy', ikon: 'navigation', onTryck: c.go.skordarKorvy },
-      { id: 'skotarkorvy', etikett: 'Skotarkörvy', ikon: 'local_shipping', onTryck: c.go.skotarKorvy },
-    );
   }
   if (korvy.length) grupper.push({ id: 'korvy', titel: 'Körvy', rader: korvy });
 
-  // FÖRAREN — Markera utkört, Genomgång & kvittering (Briefing + Kvittera markeringar i ETT val: genomgången slutar med kvittering).
-  // Skotning-arket (sortiment, högar) ligger här för dem som inte har den som knapp på kortet — annars nås det inte alls.
-  const foraren: MerRad[] = [
-    ...(c.skotningFinnsSomKnapp || c.utanSkotning ? [] : [{ id: 'skotning', etikett: 'Skotning', under: 'Sortiment och högar', ikon: 'local_shipping', onTryck: c.go.skotning }]),
-    ...(c.utanSkotning ? [] : [{ id: 'markera-utkort', etikett: 'Markera utkört', under: 'Rita det som är utkört', ikon: 'edit', onTryck: c.go.markeraUtkort }]),
-    { id: 'genomgang', etikett: 'Genomgång & kvittering', under: 'Gå igenom trakten och kvittera markeringarna', ikon: 'menu_book', onTryck: c.go.genomgang },
-  ];
-  grupper.push({ id: 'foraren', titel: 'Föraren', rader: foraren });
-
-  // PLANERAREN — blocken (Visa som, tilldelning) ritas av komponenten.
-  const planerarenBlock = c.arAdmin || c.roll === 'planerare';
-  if (planerarenBlock) grupper.push({ id: 'planeraren', titel: 'Planeraren', rader: [] });
+  // STÄDAT 2026-11-10 (Martin): körvyerna utanför maskinläget (Skördar-/Skotarkörvy — körvyn bor i maskinerna, provas med /maskin?som=),
+  // Föraren › Genomgång & kvittering (den gamla briefingen som flög över trakten — ingen använde den; instruktionerna kvitteras vid inkörning),
+  // Planeraren › Visa som, och Övrigt › Trakt (larmplatsen ändras från raden Larmkoordinat på ⓘ-kortet). Vägdata är en rad på ⓘ-kortet.
+  const planerarenBlock = false;
 
   // ÖVRIGT — Vägdata, Trakt (bara Larm kvar). Vidas egenkontroll-checklista (checklist_items) är borttagen härifrån 2026-10-15 — datan och /egenkontroll rörs inte. I körvy och maskinläge (där startsidan inte nås) även
   // Inställningar, GPS-källa och Förslag. KARTLAGER/baskarta finns INTE här: lagervalet bor på ETT ställe i körvyn, + › Alla › Lager (ⓘ visar information, inga kartinställningar). Annars bor Inställningar och Förslag på startsidan.
-  const ovrigt: MerRad[] = [
-    ...(c.vagdata ? [{ id: 'vagdata', etikett: 'Vägdata', under: c.vagdata.varde, ikon: c.vagdata.misslyckad ? 'error' : 'route', onTryck: c.vagdata.kanKora ? c.go.vagdata : () => {}, farlig: c.vagdata.misslyckad }] : []),
-    ...(c.tillTrakt ? [{ id: 'trakt', etikett: 'Trakt', under: 'Larm', ikon: 'info', onTryck: c.go.trakt }] : []),
-  ];
+  const ovrigt: MerRad[] = [];
+  if (c.go.brandrisk) ovrigt.push({ id: 'brandrisk', etikett: 'Brandrisk', under: 'Prognos, utrustning och larm', ikon: 'local_fire_department', onTryck: c.go.brandrisk });
   if (c.korvyAktiv || c.maskinlage) {
     ovrigt.push({ id: 'installningar', etikett: 'Inställningar', under: 'Kompass, tillstånd, karta', ikon: 'settings', onTryck: c.go.installningar });
     if (c.go.gpsKalla) ovrigt.push({ id: 'gps-kalla', etikett: 'GPS-källa', under: 'Serieport och baudrate', ikon: 'gps_fixed', onTryck: c.go.gpsKalla });
     ovrigt.push({ id: 'forslag', etikett: 'Förslag', ikon: 'lightbulb', onTryck: c.go.forslag });
   }
-  grupper.push({ id: 'ovrigt', titel: 'Övrigt', rader: ovrigt });
+  if (ovrigt.length) grupper.push({ id: 'ovrigt', titel: 'Övrigt', rader: ovrigt });
 
   return { grupper, planerarenBlock, avslutaObjekt: c.status === 'pagaende' };
 }

@@ -93,7 +93,7 @@ export async function hyttBesok(sb: Sb, s: HyttSession, q: { objekt: unknown; ma
   if (!p.ok) return p.svar;
 
   const fran = new Date(nu.getTime() - BESOK_EFTERTID_MIN * 60000).toISOString();
-  const b = await sb.from('objekt_besok').select('id, namn, telefon, besokstid').eq('objekt_id', q.objekt).gte('besokstid', fran).order('besokstid', { ascending: true });
+  const b = await sb.from('objekt_besok').select('id, namn, telefon, besokstid').eq('objekt_id', q.objekt).is('gatt_at', null).gte('besokstid', fran).order('besokstid', { ascending: true });
   if (b.error) return FEL(503, 'Kunde inte läsa just nu');
   const besok = ((b.data ?? []) as HyttSvarBesok[]).filter((x) => arBesokAktivt(x.besokstid, nu));
   let kvitterade: string[] = [];

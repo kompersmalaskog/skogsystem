@@ -48,3 +48,29 @@ describe('td-parsern bär medelstam', () => {
     expect(r.tolkningsvarningar.some((v) => /Medelstam ur traktdirektivet kunde inte avgöras/.test(v))).toBe(true);
   });
 });
+
+// Riktig utläsning (unpdf, mergePages) av Vidas traktdirektiv Lidhem rp 2025 Britteberg, traktnr 885871 — sidan 1, där tabellen står.
+const BRITTEBERG = 'Traktdirektiv - Lidhem rp 2025 Britteberg Traktnr Kontraktsnr Ursprung Datum 885871 971064 (anges vid fakturering) Rotpost 2026-10-23 Säljare: Kontaktperson Inköpare VIDA Fastighetsbeteckning Cert ArbetsformLKF SKS-anmält: LINE 7:1 PEFC 076306 2024-06-24 Föryngringsavverkning Larmkoordinat: 6278453 493143 Öst/VästNord/Syd Traktdel-id Areal, ha TGL Fföträd/ha Medelstam Uttag m3fub 62E7J8333 4,9 0X0 0,48 632 Total 4,9 0,48 632 Anteckningar: Fornåkrar enligt karta Se traktdirektiv stämplingshandling. Sida 1 av 4';
+
+describe('Vidas traktdelstabell — medelstam ur Total-raden (riktig fil 2026-11-05)', () => {
+  it('Britteberg: 0,48', () => {
+    expect(tolkaMedelstam(BRITTEBERG)).toEqual({ medelstam: 0.48, varning: null });
+    expect(parseTraktdirektivText(BRITTEBERG, '885871').medelstam).toBe(0.48);
+  });
+  it('flera traktdelar: Total-radens (viktade) värde, inte en enskild del', () => {
+    const t = 'Traktdel-id Areal, ha TGL Fföträd/ha Medelstam Uttag m3fub A1 2,0 0X0 0,30 200 B2 3,0 0X0 0,60 600 Total 5,0 0,48 800 Anteckningar:';
+    expect(tolkaMedelstam(t).medelstam).toBe(0.48);
+  });
+  it('uttag med tusentalsavgränsare ("1 234") ändrar inget', () => {
+    expect(tolkaMedelstam('Medelstam Uttag m3fub X 12,3 0X0 0,52 1 234 Total 12,3 0,52 1 234 Anteckningar:').medelstam).toBe(0.52);
+  });
+  it('tom medelstamkolumn: arealen tas ALDRIG för medelstam', () => {
+    expect(tolkaMedelstam('Medelstam Uttag m3fub X 2,5 0X0 632 Total 2,5 632 Anteckningar:').medelstam).toBeNull();
+  });
+  it('orimligt värde → null', () => {
+    expect(tolkaMedelstam('Medelstam Uttag m3fub X 4,9 0X0 7,5 632 Total 4,9 7,5 632 Anteckningar:').medelstam).toBeNull();
+  });
+  it('utan tabell: oförändrat (ingen träff)', () => {
+    expect(tolkaMedelstam('Total 4,9 0,48 632').medelstam).toBeNull();
+  });
+});

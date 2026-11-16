@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import type { Viewport } from "next";
 import { autentisera, kanRedigera } from "@/lib/resurs-auth";
-import KontrollerClient from "./KontrollerClient";
+import FordonLista from "@/components/fordon/FordonLista";
 
-export const metadata = { title: "Kontroller" };
+export const metadata = { title: "Fordon" };
 export const dynamic = "force-dynamic";
 
 export const viewport: Viewport = {
@@ -15,5 +15,5 @@ export const viewport: Viewport = {
 export default async function Page() {
   const { user, roll } = await autentisera();
   if (!user) redirect("/login");
-  return <KontrollerClient kanRedigera={kanRedigera(roll)} />;
+  return <FordonLista kanRedigera={kanRedigera(roll)} />;
 }

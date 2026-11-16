@@ -31,7 +31,7 @@ describe('dikena (Naturvårdsverkets dikeskarta)', () => {
 
   it('rutan går till dike_i_ruta med rätt axlar, och routen frågar via rutans index (inte fyra kolumnfilter)', () => {
     expect(rutaArgument({ minLat: 56, maxLat: 57, minLon: 15, maxLon: 16 })).toEqual({ p_min_lng: 15, p_min_lat: 56, p_max_lng: 16, p_max_lat: 57 });
-    const route = fs.readFileSync(path.resolve(__dirname, '../../app/api/ritad-karta/diken/route.ts'), 'utf8');
+    const route = fs.readFileSync(path.resolve(__dirname, './serverHamta.ts'), 'utf8');
     expect(route).toContain("rpc('dike_i_ruta'");
     expect(route).not.toContain(".from('dike')");
     const mig = fs.readFileSync(path.resolve(__dirname, '../../supabase/migrations/20261103150307_ritad_dike_ruta.sql'), 'utf8');

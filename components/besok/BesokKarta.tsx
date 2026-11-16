@@ -1,20 +1,21 @@
 'use client';
 
-// Kartan på besökssidan: flygfoto (Lantmäteriet via besökslänkens egen kartproxy), traktgränsen, maskinerna med en etikett ("Skördare"/"Skotare" — inget förarnamn) och en ring runt varje maskin
+// Kartan på besökssidan (Din skog och besökets steg 1): flygfoto (Lantmäteriet via besökslänkens egen kartproxy), traktgränsen, maskinerna med en etikett ("Skördare"/"Skotare" — inget förarnamn) och en ring runt varje maskin
 // (avstånd per typ i lib/besok/konstanter), samt ringar runt motorsågsplatser. Ringarna ritas i verkliga meter. Färg bär inte ensam: ringen är streckad och maskinen har sitt namn.
 
 import React, { useEffect, useRef } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { cirkelPolygon } from '@/lib/telefonGps';
-import { BESOK_MASKINFARG } from '@/lib/besok/farg';
+import { BESOK_MASKINFARG, PRICK_FARG } from '@/lib/besok/farg';
 import { AVSTAND, FARG } from '@/lib/design/tokens';
 
 /** Skogsgrönt bakom flygfotot medan rutorna laddas (en kartfärg, ingen UI-färg). */
 const KART_BAKGRUND = '#1b2a17';
 import { ROLL_NAMN, type MaskinRoll } from '@/lib/besok/sakerhet';
 
-export type KartMaskin = { roll: MaskinRoll; lat: number; lng: number };
+/** `alder` = "nu" / "senast här 14:32" (lib/besok/maskinAlder) – står efter rollen i etiketten. `gammal` tonar ner pricken: den visar var maskinen VAR. */
+export type KartMaskin = { roll: MaskinRoll; lat: number; lng: number; alder?: string; gammal?: boolean };
 export type KartaData = {
   token: string;
   mitt: { lat: number; lng: number } | null;
@@ -22,7 +23,13 @@ export type KartaData = {
   maskiner: KartMaskin[];
   motorsag: { lat: number; lng: number }[];
   ringM: { skordare: number; skotare: number; motorsag: number };
+  /** "Din skog": evighetsträd och högstubbar som prickar, kantzonen som yta, veden som en nål. Aldrig maskiner på den kartan. */
+  prickar?: { typ: 'evighetstrad' | 'hogstubbe'; lat: number; lng: number }[];
+  kantzon?: [number, number][][];
+  ved?: { lat: number; lng: number } | null;
 };
+
+const KANTZON_FARG = FARG.bla;
 
 const fc = (features: unknown[]) => ({ type: 'FeatureCollection', features }) as unknown as GeoJSON.FeatureCollection;
 
@@ -37,9 +44,17 @@ function gransFc(d: KartaData) {
   return fc((d.gran ?? []).map((r) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: r } })));
 }
 
+function prickFc(d: KartaData) {
+  return fc((d.prickar ?? []).map((p) => ({ type: 'Feature', properties: { typ: p.typ }, geometry: { type: 'Point', coordinates: [p.lng, p.lat] } })));
+}
+function kantzonFc(d: KartaData) {
+  return fc((d.kantzon ?? []).map((r) => ({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [r] } })));
+}
+
 function passa(map: maplibregl.Map, d: KartaData) {
   const b = new maplibregl.LngLatBounds();
   let n = 0;
+  for (const p of d.prickar ?? []) { b.extend([p.lng, p.lat]); n++; }
   for (const r of d.gran ?? []) for (const p of r) { b.extend(p as [number, number]); n++; }
   for (const m of d.maskiner) { b.extend([m.lng, m.lat]); n++; }
   if (n === 0) { if (d.mitt) map.jumpTo({ center: [d.mitt.lng, d.mitt.lat], zoom: 15 }); return; }
@@ -73,8 +88,14 @@ export default function BesokKarta({ data, hojd = 340 }: { data: KartaData; hojd
     map.on('load', () => {
       map.addSource('gran', { type: 'geojson', data: gransFc(senaste.current) });
       map.addSource('ringar', { type: 'geojson', data: ringar(senaste.current) });
-      map.addLayer({ id: 'gran-kant', type: 'line', source: 'gran', paint: { 'line-color': FARG.bg, 'line-width': 5, 'line-opacity': 0.7 } });
-      map.addLayer({ id: 'gran', type: 'line', source: 'gran', paint: { 'line-color': '#fff', 'line-width': 2.5, 'line-dasharray': [2, 1.2] } });
+      // Traktgränsen heldragen och tunn (en streckad gräns på en utspridd trakt blev vita fläckar, Martin 2026-11-10).
+      map.addLayer({ id: 'gran-kant', type: 'line', source: 'gran', paint: { 'line-color': FARG.bg, 'line-width': 4, 'line-opacity': 0.6 } });
+      map.addLayer({ id: 'gran', type: 'line', source: 'gran', paint: { 'line-color': '#fff', 'line-width': 2 } });
+      map.addSource('kantzon', { type: 'geojson', data: kantzonFc(senaste.current) });
+      map.addSource('prickar', { type: 'geojson', data: prickFc(senaste.current) });
+      map.addLayer({ id: 'kantzon-fyll', type: 'fill', source: 'kantzon', paint: { 'fill-color': KANTZON_FARG, 'fill-opacity': 0.25 } });
+      map.addLayer({ id: 'kantzon-kant', type: 'line', source: 'kantzon', paint: { 'line-color': KANTZON_FARG, 'line-width': 2 } });
+      map.addLayer({ id: 'prickar', type: 'circle', source: 'prickar', paint: { 'circle-radius': 6, 'circle-color': ['match', ['get', 'typ'], 'hogstubbe', PRICK_FARG.hogstubbe, PRICK_FARG.evighetstrad], 'circle-stroke-color': FARG.bg, 'circle-stroke-width': 2 } });
       map.addLayer({ id: 'ringar-fyll', type: 'fill', source: 'ringar', paint: { 'fill-color': FARG.rod, 'fill-opacity': 0.14 } });
       map.addLayer({ id: 'ringar-linje', type: 'line', source: 'ringar', paint: { 'line-color': FARG.rod, 'line-width': 2.5, 'line-dasharray': [2, 1.5] } });
       klar.current = true;
@@ -88,13 +109,27 @@ export default function BesokKarta({ data, hojd = 340 }: { data: KartaData; hojd
 
   function uppdateraMarkorer(map: maplibregl.Map) {
     markorer.current.forEach((m) => m.remove());
-    markorer.current = senaste.current.maskiner.map((m) => {
+    const ved = senaste.current.ved;
+    const vedMarkor = ved ? [(() => {
+      const el = document.createElement('div');
+      el.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;pointer-events:none';
+      el.innerHTML = '<div style="padding:3px 8px;border-radius:10px;background:#000c;color:#fff;font:600 13px/1.2 Inter,system-ui,sans-serif;white-space:nowrap">Din ved</div><div style="width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid #000;box-shadow:0 0 0 1px #0007"></div>';
+      return new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([ved.lng, ved.lat]).addTo(map);
+    })()] : [];
+    markorer.current = [...vedMarkor, ...senaste.current.maskiner.map((m) => {
       const farg = BESOK_MASKINFARG[m.roll];
       const el = document.createElement('div');
       el.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;pointer-events:none';
-      el.innerHTML = `<div style="padding:3px 8px;border-radius:10px;background:#000c;color:#fff;font:600 13px/1.2 Inter,system-ui,sans-serif;white-space:nowrap">${ROLL_NAMN[m.roll]}</div><div style="width:16px;height:16px;border-radius:50%;background:${farg};border:3px solid #fff;box-shadow:0 0 0 1px #0007"></div>`;
+      el.dataset.maskin = m.roll;
+      if (m.gammal) el.dataset.gammal = '1';
+      // Gammal punkt: grå, ihålig prick – den visar var maskinen VAR, inte var den är. Åldern står alltid i etiketten (aldrig bara färg).
+      const prick = m.gammal
+        ? `<div style="width:16px;height:16px;border-radius:50%;background:transparent;border:3px solid #fffa;box-shadow:0 0 0 1px #0007"></div>`
+        : `<div style="width:16px;height:16px;border-radius:50%;background:${farg};border:3px solid #fff;box-shadow:0 0 0 1px #0007"></div>`;
+      el.innerHTML = `<div style="padding:3px 8px;border-radius:10px;background:#000c;color:#fff;font:600 13px/1.2 Inter,system-ui,sans-serif;white-space:nowrap"></div>${prick}`;
+      (el.firstChild as HTMLElement).textContent = m.alder ? `${ROLL_NAMN[m.roll]} · ${m.alder}` : ROLL_NAMN[m.roll];
       return new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([m.lng, m.lat]).addTo(map);
-    });
+    })];
   }
 
   // Nya positioner: flytta ringar och etiketter, passa inte om kartan (besökaren kan ha panorerat).
@@ -103,10 +138,12 @@ export default function BesokKarta({ data, hojd = 340 }: { data: KartaData; hojd
     if (!map || !klar.current) return;
     (map.getSource('gran') as maplibregl.GeoJSONSource | undefined)?.setData(gransFc(data));
     (map.getSource('ringar') as maplibregl.GeoJSONSource | undefined)?.setData(ringar(data));
+    (map.getSource('prickar') as maplibregl.GeoJSONSource | undefined)?.setData(prickFc(data));
+    (map.getSource('kantzon') as maplibregl.GeoJSONSource | undefined)?.setData(kantzonFc(data));
     uppdateraMarkorer(map);
     if (!forstaPassning.current && (data.gran || data.maskiner.length)) { forstaPassning.current = true; passa(map, data); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.gran, data.maskiner, data.motorsag, data.ringM]);
+  }, [data.gran, data.maskiner, data.motorsag, data.ringM, data.prickar, data.kantzon, data.ved]);
 
   return <div ref={behallare} data-testid="besok-karta" style={{ width: '100%', height: hojd, borderRadius: 12, overflow: 'hidden', background: KART_BAKGRUND }} />;
 }

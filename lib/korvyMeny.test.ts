@@ -13,7 +13,7 @@ describe('objektpillen: tre tryckytor i körvyn, planeringens gamla pill orörd'
     expect(page).toContain('{korvyActive && valtObjekt ? (\n            <KorvyObjektPill');
     expect(page).toContain('          ) : (\n          /* Objekt-pill (glasig).');
     // Namnet öppnar objektinfon — för skördare OCH skotare, exakt som före #831. Objekt byts med hemknappen (maskinlådan), aldrig av namnet.
-    expect(page).toContain("onNamn={() => setTraktOversiktOpen(o => !o)}");
+    expect(page).toContain("onNamn={() => { if (produktionKan) { setTraktOversiktOpen(false); setProduktionOppen(true); } else setTraktOversiktOpen(o => !o); }}");
     expect(page).not.toContain('skotarBytObjekt');
   });
   it('räknarna sätter en markering vid maskinen (aldrig en gammal/saknad position)', () => {
@@ -40,7 +40,7 @@ describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
     expect(page).toContain('{plusRadVisning && (\n        <PlusRad');
     expect(page).toContain('oppen={plusRadOppen}');
     expect(page).toContain('onSparaDocka={sparaDockaPlatser}');
-    expect(page).toContain('<ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} kartaSparad={nedladdningText(kartNedladdning)} />');   // Fler vals innehåll bor i objektinfons Mer
+    expect(page).toContain('<ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} cert={certTyper(valtObjekt?.cert)} egenkontroll={egenkontrollInfo} />');   // Fler vals innehåll bor i objektinfons Mer
     // den gamla plusmenyn (bottom sheet) och den gamla helskärms-Lager-menyn är borta — inga döda ingångar kvar
     expect(page).not.toContain('PLUS-MENY (bottom sheet)');
     expect(page).not.toContain('plusMenuOpen');
@@ -57,7 +57,7 @@ describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
     expect(page).toContain('id="gps-kalla-kort"');
     const mer = las('../lib/objektKort.ts');
     expect(mer).toContain('if (c.korvyAktiv || c.maskinlage) {');
-    expect(las('../app/HomeClient.tsx')).toContain("href: '/planering?installningar=1'");
+    expect(las('../lib/vyer.ts')).toContain("href: '/planering?installningar=1'");
   });
   it('fasta och användning sparas per maskin (ej i testläge)', () => {
     expect(page).toContain('const s = hamtaPlusRad(enhetMaskinId);');
@@ -115,21 +115,22 @@ describe('placering: en väg, exakt där trycket träffade, låst efteråt', () 
   });
 });
 
-describe('prickar: högstubbe/evighetsträd i körvyn', () => {
-  it('egen prick-lager på markers-source, symbolerna filtrerar bort dem, planeringen visar full symbol', () => {
+describe('högstubbe/evighetsträd i körvyn: små riktiga symboler (Martin 2026-11-04 — prickarna gick inte att känna igen)', () => {
+  it('prick-lagret finns kvar för odlingsrösen; högstubbe/evighetsträd ritas som små symboler (liten=true)', () => {
     expect(page).toContain("id: 'markers-prick',");
     expect(page).toContain("filter: ['==', ['get', 'prick'], true],");
     expect(page).toContain("filter: ['!=', ['get', 'prick'], true],");
-    expect(page).toContain("const prick = (korvyActive && arPrick(m.type)) || arAlltidPrick(m.type);");
+    expect(page).toContain("const prick = arAlltidPrick(m.type);");
+    expect(page).toContain("const liten = korvyActive && arPrick(m.type);");
     // Lagerordningen läggs av lib/lagerOrdning (förut en moveLayer-lista i sidan): prickarna är symboler och ligger över vägar och linjer, under etiketterna.
     expect(lagerRang({ id: 'markers-prick' })).toBe(lagerRang({ id: 'markers-layer' }));
     expect(lagerRang({ id: 'markers-prick' })).toBeGreaterThan(lagerRang({ id: 'line-stonewall-base' }));
     expect(lagerRang({ id: 'markers-prick' })).toBeLessThan(lagerRang({ id: 'markers-korvy-label' }));
   });
   it('lagret är På som standard och döljs av sitt eget reglage', () => {
-    expect(page).toContain('if (korvyActive && arPrick(m.type) && !prickarSynliga(overlays)) return false;');
+    expect(page).toContain('if (korvyActive && arPrick(m.type) && !prickarSynliga(overlays)) return false;   // lagret Högstubbar/evighetsträd avslaget i körvyn → dolda');
     expect(page).toContain('...(korvyActive ? [{ id: PRICK_LAGER_ID');
-    expect(page).toContain('overlays[PRICK_LAGER_ID]]');
+    expect(page).toContain('overlays[PRICK_LAGER_ID], kommentarNycklarText]');
   });
   it('inget proximitetskort för prickar; tryck → litet kort med Ta bort', () => {
     expect(page).toContain('const symbolMarkers = markers.filter((m): m is MedXY => harXY(m) && !!m.isMarker && !arPrick(m.type));');

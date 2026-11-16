@@ -40,7 +40,9 @@ export const GRUPP_ORDNING: readonly FargGrupp[] = ['fara', 'natur', 'kultur', '
 /** Markeringssymbolens (lib/marker-icons) grupp. Okänd typ = Info (aldrig ett påhittat larm). */
 export const SYMBOL_GRUPP: Readonly<Record<string, FargGrupp>> = {
   // Fara
-  powerline: 'fara', warning: 'fara', steep: 'fara', huntingtower: 'fara', groundcable: 'fara',
+  powerline: 'fara', warning: 'fara', steep: 'fara', groundcable: 'fara',
+  // Jakttorn är INTE fara (Martin 2026-11-12): man vill bara inte slå sönder det — svart Info-symbol, larmar aldrig, påverkar inte fällningscirkeln.
+  huntingtower: 'info',
   // Natur
   eternitytree: 'natur', naturecorner: 'natur', highstump: 'natur',
   // Kultur
@@ -50,9 +52,23 @@ export const SYMBOL_GRUPP: Readonly<Record<string, FargGrupp>> = {
   // Att göra (Manuell fällning är INTE fara längre)
   manualfelling: 'att_gora', felloutside: 'att_gora',
   // Info
-  gate: 'info', landing: 'info', firewood: 'info', brashpile: 'info', windfall: 'info', road: 'info', turningpoint: 'info',
+  gate: 'info', note: 'info', landing: 'info', firewood: 'info', brashpile: 'info', windfall: 'info', road: 'info', turningpoint: 'info',
   ditch: 'info', bridge: 'info', corduroy: 'info', trail: 'info', default: 'info',
 };
+
+/**
+ * SYMBOLER VARS LARM AVVIKER FRÅN GRUPPENS (Martin 2026-11-10). Info ("i") är mörk som övrig Info men VISAS EN GÅNG: kortet med kommentaren
+ * kommer när maskinen är nära tills föraren tryckt Sett, sedan tyst. INGET ljud och ingen vibration, ingen fällningscirkel.
+ * Skälet: Varning (röd, !) sattes på saker som bara var bra att veta och larmade då varje gång — fara ska betyda fara.
+ */
+export const SYMBOL_LARM: Readonly<Record<string, LarmRegel>> = { note: 'tills_kvitterat' };
+export const TYSTA_SYMBOLER: readonly string[] = ['note'];
+/** Larmregeln för ett objekt: symbolens egen när den har en (bara källan symbol), annars gruppens. */
+export function larmRegelFor(o: { grupp: FargGrupp; typ?: string | null; kalla?: string }): LarmRegel {
+  const egen = o.kalla === 'symbol' && o.typ ? SYMBOL_LARM[o.typ] : undefined;
+  return egen ?? GRUPPER[o.grupp].larm;
+}
+export const arTystSymbol = (o: { typ?: string | null; kalla?: string }): boolean => o.kalla === 'symbol' && !!o.typ && TYSTA_SYMBOLER.includes(o.typ);
 
 /** Larmar ALDRIG, oavsett vem som satte dem: förarens pillräknare och planerarens symboler av samma typ (Martin 2026-10-20). Ritas gröna (Natur) som förut. */
 export const LARMFRIA_SYMBOLER: readonly string[] = ['highstump', 'eternitytree', 'odlingsrose'];   // Odlingsröse: en fossil åker har dussintals — larm på varje vore brus (Martin 2026-11-01)
@@ -69,7 +85,7 @@ export const SYMBOL_NAMN: Readonly<Record<string, string>> = {
   highstump: 'Högstubbe', landing: 'Avlägg', brashpile: 'Rishög', windfall: 'Vindfälle', manualfelling: 'Manuell fällning', felloutside: 'Träd att avverka',
   powerline: 'El-ledning', road: 'Väg', turningpoint: 'Vändplats',
   ditch: 'Dike', bridge: 'Bro', corduroy: 'Kavling', wet: 'Fuktig mark', steep: 'Brant', trail: 'Stig / Led',
-  warning: 'Varning', firewood: 'Ved', huntingtower: 'Jakttorn', groundcable: 'Markkabel', gate: 'Grind',
+  warning: 'Varning', note: 'Info', firewood: 'Ved', huntingtower: 'Jakttorn', groundcable: 'Markkabel', gate: 'Grind',
 };
 /**
  * LARMREGELN I KLARTEXT, för kortet på kartan (samma kort för symboler, linjer, ytor och Vidas objekt). Gruppens regel (`GRUPPER[g].larm`) — utom
@@ -83,7 +99,8 @@ export function larmRegelText(o: { grupp: FargGrupp; typ?: string | null; forbju
   if (o.typ && LARMFRIA_SYMBOLER.includes(o.typ)) return LARM_REGEL_TEXT.aldrig;
   if (o.typ && YTA[o.typ]?.larmar === false) return LARM_REGEL_TEXT.aldrig;
   if (o.forbjuden) return LARM_REGEL_TEXT.alltid;
-  return LARM_REGEL_TEXT[GRUPPER[o.grupp].larm];
+  if (o.typ && TYSTA_SYMBOLER.includes(o.typ)) return 'Visas tills du tryckt Sett, inget ljud';
+  return LARM_REGEL_TEXT[(o.typ && SYMBOL_LARM[o.typ]) || GRUPPER[o.grupp].larm];
 }
 
 export const symbolNamn = (typ: string | null | undefined): string => (typ && SYMBOL_NAMN[typ]) || 'Markering';
@@ -140,7 +157,7 @@ export const ytaText = (namn: string): string => `${namn} – Du är inne i ytan
 export type FallningGrupp = 'fara' | 'kultur' | 'natur';
 
 export const FALLNING_SYMBOL: Readonly<Record<string, FallningGrupp>> = {
-  powerline: 'fara', warning: 'fara', huntingtower: 'fara',   // Jakttorn (Röd); Markkabel ligger i marken och räknas inte
+  powerline: 'fara', warning: 'fara',   // Markkabel ligger i marken och räknas inte; Jakttorn är Info sedan 2026-11-12
   culturemonument: 'kultur', culturestump: 'kultur', odlingsrose: 'kultur',   // Odlingsröse larmar aldrig men färgar cirkeln brun: fäll inte på stenhögen
   naturecorner: 'natur', eternitytree: 'natur',
 };

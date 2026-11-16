@@ -166,11 +166,15 @@ describe('ObjektKortEnkel — en rad per yta, kartans namn som bricka', () => {
 });
 
 describe('ObjektKortEnkel — längst ner EN grupp rader, och bort med det som inte hör hit', () => {
-  it('"Om något händer – ring 112" med larmkoordinaten · Kartans färger · Dokument (N) · Mer — i den ordningen i ETT kort', async () => {
+  it('"Om något händer – ring 112" HÖGST UPP i kortet (2026-11-10), sedan längst ner Kartans färger · Dokument (N) · Mer i ETT kort', async () => {
     await montera(<ObjektKortEnkel {...props()} />);
     const grupp = q('kort-uppdrag')!;
     const ids = Array.from(grupp.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid'));
-    expect(ids.filter((i) => ['kort-larm', 'kort-vad-betyder-kartan', 'kort-dokument', 'kort-mer'].includes(i!))).toEqual(['kort-larm', 'kort-vad-betyder-kartan', 'kort-dokument', 'kort-mer']);
+    expect(ids.filter((i) => ['kort-larm', 'kort-vad-betyder-kartan', 'kort-dokument', 'kort-mer'].includes(i!))).toEqual(['kort-vad-betyder-kartan', 'kort-dokument', 'kort-mer']);
+    // Larmplatsen är det första i kortet: före "Det här gäller här" och allt annat.
+    const allt = Array.from(q('kort-innehall')!.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid'));
+    expect(allt[0]).toBe('kort-larm-grupp');
+    expect(allt.indexOf('kort-larm')).toBeLessThan(allt.indexOf('kort-galler-rubrik'));
     expect(q('kort-larm')!.textContent).toContain('Om något händer – ring 112');
     expect(q('kort-larm-koordinat')!.textContent).toBe('Larmkoordinat 56.40012, 14.70123');
     expect(q('kort-vad-betyder-kartan')!.textContent).toBe('Kartans färger');
@@ -289,5 +293,18 @@ describe('KommentarVisning — etiketten för hela trakten', () => {
   it('Vidas direktiv kan heta "Hela trakten · Vida"; standard är oförändrad', async () => {
     await montera(<><KommentarVisning vida text="a. B." meningar vidaEtikett="Hela trakten · Vida" /><KommentarVisning vida text="c" /></>);
     expect(qa('kartkort-kommentar-kalla').map((e) => e.textContent)).toEqual(['Hela trakten · Vida', 'Vida · traktdirektiv']);
+  });
+});
+
+describe('ObjektKortEnkel — "Mer om trakten" ur Hela trakten (EN meny, Martin 2026-11-12)', () => {
+  it('visar bara det som inte redan står i Hela trakten: inget larm, ingen "Det här gäller här", inga ytor, ingen Kartans färger — men dokument och Mer', async () => {
+    let tillbaka = 0;
+    await montera(<ObjektKortEnkel {...props({ faror: ['Brant terräng'], merLage: { onTillbaka: () => { tillbaka++; } }, onOversikt: () => {}, onCert: { etikett: 'PEFC – vad gäller?', onTryck: () => {} } })} />);
+    expect(q('info-titel')!.textContent).toBe('Mer om trakten');
+    for (const id of ['kort-larm', 'kort-visa-hela', 'kort-galler-rubrik', 'kort-faror', 'kort-till-foraren', 'kort-ytor', 'kort-stapel', 'kort-vad-betyder-kartan', 'kort-cert']) expect(q(id), id).toBeNull();
+    expect(q('kort-dokument')).not.toBeNull();
+    expect(q('kort-mer')).not.toBeNull();
+    act(() => { q('info-tillbaka')!.click(); });
+    expect(tillbaka).toBe(1);
   });
 });

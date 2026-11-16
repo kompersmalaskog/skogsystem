@@ -18,10 +18,15 @@ const selectLista = (src: string) => Array.from(src.matchAll(/\.select\('([^']*)
 describe('besökssidan läser exakt de fält den visar', () => {
   const TILLATET = new Set([
     'objekt_id, aktiv',                                                                     // länken
-    'id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id, fastighetsbeteckning',  // objektet (volym används bara för procenten, skickas aldrig ut)
-    'typ, data',                                                                            // motorsåg
+    'id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id, fastighetsbeteckning, cert, areal, grot, ved_detaljer, typ, avslutad_timestamp',  // objektet (volym bara för procenten; cert/areal/grot/typ för "Varför ser det ut så här?"; ved för "Din ved"; avslutad_timestamp för hur länge länken lever)
+    'typ, data',                                                                            // motorsåg, evighetsträd, högstubbar, ved-nålen
+    'skordning_avslutad, skotning_avslutad, egen_skotning',                                 // loppet: är skördningen/skotningen klar (bara ja/nej lämnar servern)
+    'geometri',                                                                             // Vidas kant mot vatten (bara ytan)
+    'oppnad_av, oppnad_at',                                                                 // vem som skickade länken …
+    'namn, telefon',                                                                        // … och hans nummer: "Ring om något" (samma nummer som står i SMS:et; bara förnamnet lämnar servern)
     'roll, datum, points, uppdaterad_at',                                                   // maskinernas SENASTE punkt
-    'id, besokstid',                                                                        // markägarens egen anmälan
+    'id, besokstid',                                                                        // den nya anmälan
+    'id, besokstid, gatt_at',                                                               // markägarens egen anmälan (och om hen gått härifrån)
     'roll, kvitterad_at, maskin_id',                                                        // vilka maskiner som sett den (maskin_id matchar raden per maskin och lämnar aldrig servern)
     'id',                                                                                   // räkning av anmälningar i timmen
   ]);
@@ -37,7 +42,7 @@ describe('besökssidan läser exakt de fält den visar', () => {
     expect(svar).toContain('body: {');
   });
   it('servern använder service-klienten och rutterna läser ingen session', () => {
-    for (const f of ['app/api/besok/[token]/route.ts', 'app/api/besok/[token]/anmal/route.ts', 'app/api/besok/[token]/karta/route.ts']) {
+    for (const f of ['app/api/besok/[token]/route.ts', 'app/api/besok/[token]/anmal/route.ts', 'app/api/besok/[token]/karta/route.ts', 'app/api/besok/[token]/gatt/route.ts']) {
       const s = las(f);
       expect(s).toContain('tjanstKlient');
       expect(s).not.toMatch(/autentisera|kravInloggad|kravRoll|cookies\(/);
@@ -80,7 +85,7 @@ describe('ramverket hoppar över appens startare på besökssidan', () => {
 
 describe('besökssidans text', () => {
   it('ingen säkerhetstext skrivs i vyn — den kommer ur lib/besok/sakerhet.ts', () => {
-    for (const ord of ['Gå aldrig', 'Träd kan', 'motorsåg', 'Stanna minst', 'Vinka', 'reflexväst', 'backar', 'döda vinkeln']) expect(klient, ord).not.toContain(ord);
+    for (const ord of ['Gå aldrig', 'Träd kan', 'motorsåg', 'Kedjan', 'Kranen', 'Klättra', 'röda ringen', 'Stanna minst', 'Vinka', 'reflexväst', 'backar', 'döda vinkeln']) expect(klient, ord).not.toContain(ord);
     expect(klient).toContain("from '@/lib/besok/sakerhet'");
   });
   it('avstånd skrivs aldrig som tal i komponenter eller sidan — bara konstanterna', () => {
@@ -94,9 +99,12 @@ describe('planeringsvyn: besöken syns bara där de ska', () => {
   it('SMS-kortet bara för riktig admin i planeringsläget', () => {
     expect(page).toMatch(/besok: kortRoll === 'planerare' && isAdminRiktig && !maskinlage && !maskinSomParam && valtObjekt\.id/);
   });
-  it('hytthooken är aktiv bara i maskinläget (samma villkor som instruktionerna) och kortet viker för larm och lossning', () => {
+  it('hytthooken är aktiv bara i maskinläget (samma villkor som instruktionerna) kortet viker för lossning men aldrig för ett larm', () => {
     expect(page).toMatch(/useBesokHytt\(\{\s*aktiv: instruktionerAktiv,/);
-    expect(page).toContain('const besokKortSynligt = besokHytt.vantar.length > 0 && !larm.kort && !lossningVisas;');
+    // Besöket göms ALDRIG av ett larm (2026-11-13): kortet ligger överst och larmkortet flyttas ner under det.
+    expect(page).toContain('const besokKortSynligt = besokHytt.vantar.length > 0 && !lossningVisas;');
+    expect(page).toContain('+ ${instruktionerAktiv && besokKortSynligt ? besokKortHojd + AVSTAND.s : 0}px)`}');
+    expect(page).toContain('onHojd={setBesokKortHojd}');
     expect(page).toContain('{instruktionerAktiv && besokKortSynligt && (');
   });
   it('instruktionskortet väntar på besökskortet', () => {

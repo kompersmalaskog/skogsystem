@@ -8,7 +8,7 @@
 // Startsidan växer aldrig: Behöver dig och favoriterna har fast storlek, "Alla vyer" är grupperad och
 // ihopfälld på telefon, och sökningen hittar resten. Vyerna kommer ur lib/vyer.ts.
 //
-// Admin och förare ser den (HomeClient väljer; okänd roll får den gamla sidan). Inget tas bort. Favoriterna är rollens förinställda tills man
+// Admin och förare ser den (HomeClient visar den alltid; okänd roll får förarens vyer — den gamla sidan är borttagen). Inget tas bort. Favoriterna är rollens förinställda tills man
 // väljer själv under "Ändra" — de sparas per användare (lib/startsidaFavoriter.ts) och följer med mellan enheter.
 
 import Link from 'next/link'

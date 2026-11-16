@@ -2,17 +2,23 @@
 /**
  * Nya startsidan: montera den riktiga komponenten (jsdom) och kontrollera det som får användaren att lita på den —
  * att ingen vy försvinner, att Behöver dig bara visar det som väntar, att märken aldrig säger "0", sökningen och
- * kontomenyn. Plus HomeClient: admin och förare får den nya sidan; okänd roll den gamla.
+ * kontomenyn. Plus HomeClient: ALLTID den nya sidan — admin får admins vyer, alla andra förarens, och en sparad roll
+ * visas direkt utan att vänta på nätet.
  */
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const h = vi.hoisted(() => ({ roll: 'admin' as string | null, ek: 0, ledighet: 0, favoriter: null as string[] | null }))
+const h = vi.hoisted(() => ({ roll: 'admin' as string | null, ek: 0, ledighet: 0, favoriter: null as string[] | null, haenger: false }))
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
-    auth: { getUser: async () => ({ data: { user: { id: 'u1', email: 't@exempel.se' } } }) },
+    auth: {
+      // Nätet: hänger när h.haenger (dålig täckning) — sessionen läses alltid lokalt.
+      getUser: () => h.haenger ? new Promise(() => {}) : Promise.resolve({ data: { user: { id: 'u1', email: 't@exempel.se' } } }),
+      getSession: async () => ({ data: { session: { user: { id: 'u1', email: 't@exempel.se' } } } }),
+      signOut: async () => ({ error: null }),
+    },
     from: (tabell: string) => tabell === 'startsida_favoriter'
       ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: h.favoriter ? { vyer: h.favoriter } : null, error: null }) }) }) }
       : { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: h.roll ? { roll: h.roll } : null }) }) }) },
@@ -34,7 +40,8 @@ let el: HTMLDivElement | null = null
 
 beforeEach(() => {
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
-  h.roll = 'admin'; h.ek = 0; h.ledighet = 0; h.favoriter = null
+  h.roll = 'admin'; h.ek = 0; h.ledighet = 0; h.favoriter = null; h.haenger = false
+  try { localStorage.clear() } catch { /* ok */ }
   el = document.createElement('div'); document.body.appendChild(el)
 })
 afterEach(() => { act(() => { rot?.unmount() }); el?.remove(); rot = null; el = null })
@@ -265,20 +272,47 @@ describe('HomeClient väljer sida efter roll', () => {
     expect(sektion('Behöver dig')!.textContent).not.toContain('Datahälsa')
   })
 
-  it('rollen går inte att läsa → gamla startsidan, aldrig en tom skärm — och egenkontrollens märke syns där', async () => {
+  it('rollen går inte att läsa → NYA startsidan med förarens vyer, aldrig den gamla och aldrig adminvyer', async () => {
     h.roll = null; h.ek = 4
     await montera(<HomeClient />)
-    expect(sektion('Dina vyer')).toBeNull()
-    expect(document.body.textContent).toContain('Produktion')
-    expect(document.body.textContent).toContain('Administration')
-    const m = document.querySelector('a[href="/egenkontroll"] [role="status"]')
-    expect(m?.textContent).toBe('4')
+    expect(sektion('Dina vyer')).not.toBeNull()
+    expect(document.body.textContent).not.toContain('Administration')
+    expect(lankar()).not.toContain('/admin')
+    expect(sektion('Behöver dig')!.textContent).toContain('4 objekt väntar på egenkontroll')
   })
 
-  it('okänd rolltext (varken admin eller förare) → gamla startsidan', async () => {
+  it('okänd rolltext (varken admin eller förare) → nya startsidan med förarens vyer', async () => {
     h.roll = 'nagot-annat'
     await montera(<HomeClient />)
-    expect(sektion('Dina vyer')).toBeNull()
+    expect(sektion('Dina vyer')).not.toBeNull()
+    expect(lankar()).not.toContain('/admin')
+  })
+
+  it('dålig täckning: en sparad roll visas direkt — admin får sina vyer utan att vänta på nätet', async () => {
+    // Förra gången läste databasen rollen …
+    h.roll = 'admin'
+    await montera(<HomeClient />)
+    act(() => { rot?.unmount() }); rot = null
+    // … nu svarar nätet inte alls.
+    h.haenger = true
+    await montera(<HomeClient />)
+    expect(sektion('Dina vyer')).not.toBeNull()
+    expect(lankar(sektion('Dina vyer')!)).toContain('/ekonomi')
+  })
+
+  it('en annan användares sparade roll följer aldrig med (delad dator)', async () => {
+    localStorage.setItem('startsida_roll_v1', JSON.stringify({ epost: 'annan@exempel.se', roll: 'admin' }))
+    h.haenger = true
+    await montera(<HomeClient />)
+    expect(sektion('Dina vyer')).toBeNull()   // ingen egen sparad roll → väntar (högst 1,5 s) i stället för att gissa
+  })
+
+  it('databasen går före det sparade: admin som blivit förare får förarens vyer', async () => {
+    localStorage.setItem('startsida_roll_v1', JSON.stringify({ epost: 't@exempel.se', roll: 'admin' }))
+    h.roll = 'forare'
+    await montera(<HomeClient />)
+    expect(lankar()).not.toContain('/admin')
+    expect(JSON.parse(localStorage.getItem('startsida_roll_v1')!).roll).toBe('forare')
   })
 })
 

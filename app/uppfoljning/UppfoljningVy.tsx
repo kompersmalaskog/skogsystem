@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { type ObjektTyp, arRisjobb, typLabel } from '@/lib/objekt/typ';
 import { tradslagFarg } from '@/lib/tradslag';
 import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
+import { uppskattaGrotM3fub, GROT_UTTAGSFAKTOR_DEFAULT } from '@/lib/grot';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
 import type { SkotareMaskinStat } from './lib/transform';
@@ -63,6 +64,12 @@ export interface UppfoljningData {
   kvarPct: number;
   egenSkotning?: boolean;
   grotSkotning?: boolean;
+  // Grot-anpassat avverkningsobjekt: det ligger ris på hygget att köra ut.
+  // grotHamtad = datum då riset hämtades, null = det ligger kvar. Frikopplat
+  // från virkets skotningsstatus — ett objekt kan vara "Klart" (virket hemma)
+  // men ha ris kvar, och det ska synas ärligt.
+  grotAnpassad?: boolean;
+  grotHamtad?: string | null;
   externSkotning?: boolean;
   externForetag?: string;
   externPrisTyp?: 'm3' | 'timme';
@@ -385,6 +392,19 @@ function Svaret({ data }: { data: UppfoljningData }) {
   const skKor = !s.skKlar;
   const stKor = !s.stKlar && !s.externt && (s.stAktiv || visSkotat > 0);
 
+  // Grot-rad: bara på ett grot-anpassat AVVERKNINGSobjekt (själva risjobbet följs
+  // upp som eget objekt). Visas i BÅDE pågående och Klart-läge — ett objekt kan
+  // vara klart avverkat och skotat men ha riset kvar på hygget, och då får det
+  // inte se färdigt ut. Raden visar PLANEN: hur mycket ris som väntar (schablon
+  // ×0,35 på skördad volym, märkt "ca" — en gissning, aldrig mätt) + status.
+  // Utkörningens UTFALL följs på det egna GROT-objektet, inte här.
+  const visaGrot = !!data.grotAnpassad && !arRisjobb(data);
+  const grotEst = visaGrot ? uppskattaGrotM3fub(data.skordat, GROT_UTTAGSFAKTOR_DEFAULT) : null;
+  const grotStatus = data.grotHamtad ? `hämtat ${fmtISO(data.grotHamtad)}` : 'ligger kvar på hygget';
+  const grotText = grotEst != null
+    ? `Ris: ca ${Math.round(grotEst).toLocaleString('sv-SE')} m³fub · ${grotStatus}`
+    : `Riset ${grotStatus}`;
+
   return (
     <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
       <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: AVSTAND.l }}>
@@ -429,6 +449,11 @@ function Svaret({ data }: { data: UppfoljningData }) {
               dampad={s.externt || (!s.stKlar && !stKor)}
               suffix={stKor && klartOm != null ? klartOmNod(klartOm) : null}
             />
+          </div>
+        )}
+        {visaGrot && (
+          <div style={{ marginTop: AVSTAND.m, paddingTop: AVSTAND.s, borderTop: `0.5px solid ${V6_SEP}`, ...TYP.meta, color: FARG.text2 }}>
+            {grotText}
           </div>
         )}
       </div>
@@ -508,12 +533,23 @@ function MaskinCell({
 function RisRubrik({ data }: { data: UppfoljningData }) {
   const vol = Math.round(data.skotat);
   const harVol = vol > 0;
+  // Samma härledning som skotarens hjälte (Maskinkort): snitt/dag ur dagar med
+  // m³, "på trakten" ur alla lassdagar. Riset följs upp som skotaren, inte som
+  // en lägre kopia — bara m³fub-enheten och "rapporterat"-märket skiljer (volymen
+  // är förarens lassmätning, inte skördarmätt virke).
+  const lassDagar = data.lassPerDag || [];
+  const dagarMedM3 = lassDagar.filter(d => typeof d.m3 === 'number' && (d.m3 || 0) > 0);
+  const snitt = dagarMedM3.length > 0 ? Math.round(dagarMedM3.reduce((a, b) => a + (b.m3 || 0), 0) / dagarMedM3.length) : null;
+  const dagar = lassDagar.length > 0 ? lassDagar.length : null;
+  const idag = new Date().toISOString().slice(0, 10);
+  const statusOrd = data.skotareSlut ? `klar ${fmtISO(data.skotareSlut)}` : data.skotareLastDate === idag ? 'kör idag' : null;
+  const visaBotten = harVol && (snitt != null || dagar != null || !!data.skotareModell || !!data.operatorSkotare || !!statusOrd);
   return (
     <section style={{ padding: '0 24px 20px' }}>
       <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 18px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
           <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST }} />
-          <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Ris hämtat</span>
+          <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Ris utkört</span>
         </div>
         {harVol ? (
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, flexWrap: 'wrap' }}>
@@ -524,9 +560,23 @@ function RisRubrik({ data }: { data: UppfoljningData }) {
         ) : (
           <div style={{ fontSize: 15, color: V6_GREY, fontWeight: 600 }}>Inga lass registrerade än</div>
         )}
-        {(data.skotareModell || data.operatorSkotare) && (
-          <div style={{ marginTop: 12, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY }}>
-            {[data.skotareModell, data.operatorSkotare].filter(Boolean).join(' · ')}
+        {visaBotten && (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: 3, fontVariantNumeric: 'tabular-nums' }}>
+            {snitt != null && (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Snitt/dag</span><span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{snitt} m³</span>
+              </div>
+            )}
+            {dagar != null && (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>På trakten</span><span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{dagar} {dagar === 1 ? 'dag' : 'dagar'}</span>
+              </div>
+            )}
+            {(data.skotareModell || data.operatorSkotare || statusOrd) && (
+              <div style={{ marginTop: snitt != null || dagar != null ? 4 : 0, fontSize: 11, color: V6_GREY2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {[data.skotareModell, data.operatorSkotare, statusOrd].filter(Boolean).join(' · ')}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1342,8 +1392,11 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   // (harDjup=false) visas ingen rad.
   const hurDelar: string[] = [];
   if (!risjobb && visaSkotare) hurDelar.push('skotare');
-  if (!risjobb && hasProduktivitet) hurDelar.push('produktivitet');
-  if (!risjobb && hasProdPerDag) hurDelar.push('per dag');
+  // Risjobb följs upp som ett eget objekt: samma utkörnings-mått som skotaren
+  // (m³/G15h, lass/G15h, snittlass, skotningsavstånd, lass per dag). Komponenterna
+  // renderar redan bara forwarder-sidan när skördardata saknas.
+  if (hasProduktivitet) hurDelar.push('produktivitet');
+  if (hasProdPerDag) hurDelar.push('per dag');
   if (!risjobb && hasTradslagSort) hurDelar.push('trädslag');
   if (hasTidDiesel) hurDelar.push('tid & diesel');
   if (hasAvbrott) hurDelar.push('avbrott');
@@ -1386,8 +1439,8 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
               <SkotarePaObjektet data={data} />
             </Collapse>
           )}
-          {!risjobb && hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={visadData} /></Collapse>}
-          {!risjobb && hasProdPerDag && <Collapse title="Produktion per dag" varde={perDagVarde}><ProdPerDag data={visadData} /></Collapse>}
+          {hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={visadData} /></Collapse>}
+          {hasProdPerDag && <Collapse title={risjobb ? 'Utkört per dag' : 'Produktion per dag'} varde={perDagVarde}><ProdPerDag data={visadData} /></Collapse>}
           {!risjobb && hasTradslagSort && (
             <Collapse title="Trädslag & sortiment" varde={tradslagVarde}>
               <Tradslag tradslag={data.tradslag} />

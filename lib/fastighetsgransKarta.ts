@@ -138,7 +138,7 @@ export function forstaVektorLagerId(lager: ReadonlyArray<{ id: string; type: str
 // -- synlighet: EN funktion för ALLT som hör till lagret "Fastighetsgränser" ---------------------------------------------------------------
 // Martin 2026-10-22: lagret var inte tänt av honom men gränserna syntes. Därför finns synligheten på ETT ställe och i ren form, så den går att pröva i en riktig karta:
 // släckt lager = ingenting av detta syns (inga linjer, ingen nedtoning, inga beteckningar, ingen Lantmäteri-gräns). Undantaget är briefingens egen tändning av Lantmäteri-rastret
-// (`briefingLM`, TraktBriefing) som aldrig kommer från menyn. Fällningsvarningen i skördaren är inget lager och hör inte hit.
+// (`briefingLM`; den gamla briefingen är borttagen 2026-11-10, så inget tänder den längre) som aldrig kommer från menyn. Fällningsvarningen i skördaren är inget lager och hör inte hit.
 export interface FastighetsSynlighetIn {
   /** Lagerknappen "Fastighetsgränser" i menyn (overlays.fastighetsgrans). Enda källan. */
   lagerPa: boolean;

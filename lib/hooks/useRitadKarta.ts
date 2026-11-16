@@ -16,7 +16,8 @@ import { hamtaStammoln } from '@/lib/egenkontroll';
 import type { Rutnat } from '@/lib/ritadKarta/skog';
 import { omradeNyckel, valjOmrade, type Omrade, type OmradesKalla, type Ring } from '@/lib/ritadKarta/omrade';
 import { byggRitat, type Ritat } from '@/lib/ritadKarta/bygg';
-import { BLOTT_MONSTER, BLOTT_STRECK, BRANT_MONSTER, BRANT_LITE_MONSTER, brantLiteBild, RITAD_DOLJ_FYLLNING, blottLager, blottMonsterBild, RITAD_ID, RITAD_KALLA, RITAD_LAGER, RITAD_OSM_VAG_ID, brantLager, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
+import { sattDragt } from '@/lib/ritadKarta/mork';
+import { blottMedTrakt, BLOTT_MONSTER, BLOTT_STRECK, BRANT_MONSTER, BRANT_LITE_MONSTER, brantLiteBild, RITAD_DOLJ_FYLLNING, blottLager, blottMonsterBild, RITAD_ID, RITAD_KALLA, RITAD_LAGER, RITAD_OSM_VAG_ID, brantLager, grundKallor, grundLager, ritadSynlighet } from '@/lib/ritadKarta/lager';
 import { franBase64, type MarkRutnat } from '@/lib/ritadKarta/mark';
 import { snedstreckBild } from '@/lib/ytaStil';
 import { medReserv } from '@/lib/ritadKarta/reserv';
@@ -117,7 +118,7 @@ export async function forladdaRitad(objektId: string, punkt: { lat: number; lng:
 }
 
 /** Blött, brant och skuggning (lib/ritadKarta/mark.ts) ur serverns svar. Saknas något ritas skogen ändå och `saknas` säger vad. */
-async function tolkaMark(j: any | null): Promise<{ rutnat: MarkRutnat | null; skugga: CanvasImageSource | null; saknas: string[] }> {
+export async function tolkaMark(j: any | null): Promise<{ rutnat: MarkRutnat | null; skugga: CanvasImageSource | null; saknas: string[] }> {
   if (!j) return { rutnat: null, skugga: null, saknas: ['blött och brant'] };
   try {
     const rutnat: MarkRutnat = { minX: j.minX, maxY: j.maxY, bredd: j.bredd, hojd: j.hojd, rutaM: j.rutaM, fukt: franBase64(j.fukt), lutning: franBase64(j.lutning) };
@@ -149,7 +150,7 @@ function cachad<T extends { typ: string }>(cache: Map<string, Promise<T>>, nycke
 }
 
 
-function laggTillGrund(m: any) {
+export function laggTillGrund(m: any) {
   for (const [id, k] of Object.entries(grundKallor())) if (!m.getSource(id)) m.addSource(id, k);
   for (const l of grundLager()) if (!m.getLayer(l.id)) m.addLayer({ ...l, layout: { ...(l.layout ?? {}), visibility: 'none' } });
   if (!m.hasImage?.(BRANT_MONSTER)) m.addImage?.(BRANT_MONSTER, snedstreckBild('fara'));
@@ -163,7 +164,7 @@ function laggTillGrund(m: any) {
 }
 
 const TOM = { type: 'FeatureCollection', features: [] };
-function sattSkog(m: any, ritat: Ritat | null, vagar: VagFC | null, diken: DikeFC | null, paint: Record<string, number>) {
+export function sattSkog(m: any, ritat: Ritat | null, vagar: VagFC | null, diken: DikeFC | null, paint: Record<string, number>, trakt?: [number, number][][] | null) {
   m.getSource(RITAD_KALLA.nvdb)?.setData(vagar ?? TOM);
   m.getSource(RITAD_KALLA.diken)?.setData(diken ?? TOM);
   // Finns Trafikverkets vägar ritas OpenStreetMaps bara längre ut än OSM_TILL_ZOOM — annars blir samma väg två parallella vägar.
@@ -172,14 +173,16 @@ function sattSkog(m: any, ritat: Ritat | null, vagar: VagFC | null, diken: DikeF
   if (m.getLayer(RITAD_ID.skog)) m.removeLayer(RITAD_ID.skog);
   if (m.getSource(RITAD_KALLA.skog)) m.removeSource(RITAD_KALLA.skog);
   m.getSource(RITAD_KALLA.brant)?.setData(ritat ? ritat.brant : { type: 'FeatureCollection', features: [] });
-  m.getSource(RITAD_KALLA.blott)?.setData(ritat ? ritat.blott : { type: 'FeatureCollection', features: [] });
+  m.getSource(RITAD_KALLA.blott)?.setData(ritat ? blottMedTrakt(ritat.blott, trakt) : { type: 'FeatureCollection', features: [] });
   if (!ritat) return;
   m.addSource(RITAD_KALLA.skog, { type: 'image', url: ritat.url, coordinates: ritat.horn });
   m.addLayer({ id: RITAD_ID.skog, type: 'raster', source: RITAD_KALLA.skog, paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0, ...paint }, layout: { visibility: 'none' } });
 }
 
-export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar, punkt }: {
+export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar, punkt, mork = false }: {
   map: any | null; klar: boolean; vald: boolean; objektId: string | null; skogPaint: Record<string, number>;
+  /** Mörk (Tesla, lib/ritadKarta/mork): samma ritade karta i mörk drägt. */
+  mork?: boolean;
   /** Traktgränser planeraren ritat själv ([lng, lat][]); används när Vida saknar traktgräns. */
   egnaRingar?: Ring[] | null;
   /** Objektets punkt; ruta runt den när ingen gräns finns. */
@@ -190,6 +193,7 @@ export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar
   const [grundKlar, setGrundKlar] = useState(false);
   const ritatPaKartan = useRef<string | null>(null);
   const paintRef = useRef(skogPaint);
+  const traktRef = useRef<[number, number][][] | null>(null);
   paintRef.current = skogPaint;
 
   // Grunden: först när Ritad väljs.
@@ -217,6 +221,7 @@ export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar
       if (f.typ === 'fel') return klart(f);
       const omrade = valjOmrade({ vida: f.vida, egna: egnaRef.current, punkt: punktRef.current });
       if (!omrade) return klart({ typ: 'ingen-grans' });
+      traktRef.current = omrade.kalla === 'punkt' ? null : omrade.ringar;   // blött tonas utanför trakten — inte runt en gissad ruta
       cachad(laserCache, objektId + '|' + omradeNyckel(omrade), () => hamtaSkog(f, omrade), { typ: 'fel', text: 'Kunde inte hämta laserdatan' } as Svar).then(klart);
     });
     return () => { stopp = true; };
@@ -230,7 +235,7 @@ export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar
   useEffect(() => {
     if (!map || !grundKlar) return;
     if (ritatPaKartan.current === nyckel) return;
-    try { sattSkog(map, ritat, vagarPaKartan, dikenPaKartan, paintRef.current); ritatPaKartan.current = nyckel; } catch (e) { console.warn('[ritad] kunde inte rita skogen', e); }
+    try { sattSkog(map, ritat, vagarPaKartan, dikenPaKartan, paintRef.current, traktRef.current); ritatPaKartan.current = nyckel; } catch (e) { console.warn('[ritad] kunde inte rita skogen', e); }
   }, [map, grundKlar, nyckel, ritat, vagarPaKartan, dikenPaKartan]);
 
   // Reglaget Dämpad ↔ Skarp gäller skogsbilden.
@@ -238,6 +243,12 @@ export function useRitadKarta({ map, klar, vald, objektId, skogPaint, egnaRingar
     if (!map || !map.getLayer?.(RITAD_ID.skog)) return;
     for (const [k, v] of Object.entries(skogPaint)) { try { map.setPaintProperty(RITAD_ID.skog, k, v); } catch { /* */ } }
   }, [map, skogPaint, nyckel]);
+
+  // Drägten: Mörk eller Ritad (lib/ritadKarta/mork). Sätts när grunden lagts och när valet byts.
+  useEffect(() => {
+    if (!map || !grundKlar) return;
+    try { sattDragt(map, vald && mork); } catch (e) { console.warn('[ritad] drägten', e); }
+  }, [map, grundKlar, vald, mork, nyckel]);
 
   // Synligheten — körvyns whitelist släpper igenom RITAD_KORVY_LAGER (page.tsx), så den här effekten kan sätta allt.
   useEffect(() => {

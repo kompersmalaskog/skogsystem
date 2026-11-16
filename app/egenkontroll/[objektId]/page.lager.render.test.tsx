@@ -47,6 +47,7 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
     ...verklig,
     hamtaRunda: () => hamtaRunda(),
     kompletteraRunda: async () => ({ tillagda: [] }),
+    kompletteraVader: async () => ({ fyllt: false, skal: 'test' }),
     svaraPaPunkt: async (id: string, status: string) => ({ ...vyn.punkter.find((p: any) => p.id === id), status }),
     angraForstaSvaret: async () => ({}),
     hamtaFoton: async () => [],

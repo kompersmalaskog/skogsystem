@@ -131,5 +131,22 @@ export function sortimentFarg(sortiment: string): string {
 
 /** Dominerande trädslag per hög (maskinens versaler, normaliserade) → färg. */
 export const HOG_TRADSLAG_FARG: Readonly<Record<string, string>> = { GRAN: KARTA_GRAN, TALL: TALL_FARG, 'BJÖRK': KARTA_BJORK, 'ÖVR_LÖV': KARTA_OVR_LOV };
+/** En hög är ett trädslag när det är mer än så här stor andel av stammarna; annars är den blandad. */
+export const HOG_ETT_TRADSLAG_ANDEL = 0.7;
+/**
+ * Högens färger på kartan (Martin 2026-11-06, bild K: "kör på det som är hela färger"): ett trädslag → `farg` och `farg2` null;
+ * blandad → de två största trädslagens färger (ritas halv–halv). Okänt trädslag → den blandade färgen, aldrig en gissning.
+ * Granen är KARTA_GRAN (blågrön), inte Natur-gruppens klara gröna, så granhögarna inte tävlar med evighetsträd och naturhörna.
+ */
+export function hogTradslagFarger(tradslagCount: Readonly<Record<string, number>>): { farg: string; farg2: string | null } {
+  const sorted = Object.entries(tradslagCount).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const n = sorted.reduce((s, [, v]) => s + v, 0);
+  if (!n) return { farg: KARTA_BLANDAT, farg2: null };
+  const f1 = HOG_TRADSLAG_FARG[sorted[0][0]] ?? null;
+  if (sorted[0][1] / n > HOG_ETT_TRADSLAG_ANDEL) return { farg: f1 ?? KARTA_BLANDAT, farg2: null };
+  const f2 = sorted[1] ? HOG_TRADSLAG_FARG[sorted[1][0]] ?? null : null;
+  if (!f1 || !f2 || f1 === f2) return { farg: KARTA_BLANDAT, farg2: null };
+  return { farg: f1, farg2: f2 };
+}
 /** Gallringszonens trädslagsfärger (Tall/Gran/Löv) — samma palett som högarna. */
 export const GALLRING_FARG = { tall: TALL_FARG, gran: KARTA_GRAN, lov: KARTA_BJORK } as const;

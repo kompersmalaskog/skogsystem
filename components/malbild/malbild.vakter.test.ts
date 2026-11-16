@@ -28,7 +28,7 @@ describe('målbilderna är kopplade i sidan', () => {
     expect(sida).toMatch(/larmMalbild\(inst\.kort \? null : larm\.kort\) \? LARM_MALBILD_RAD_PX : 0/);   // larmkortet göms medan instruktionen visas (lib/instruktioner/ordning) — då räknas ingen bildhöjd
   });
   it('"Vad betyder kartan" får maskintypen', () => {
-    expect(sida).toMatch(/karta: \{ markeringar: markers, vida: vidaSlagIFeatures\(traktGeo\?\.features\), roll: malbildRoll \}/);
+    expect(sida).toMatch(/karta: \{ markeringar: markers, vida: vidaSlagIFeatures\(traktGeo\?\.features\), roll: malbildRoll, hogar: \(hogarFeaturesRef\.current\?\.length \?\? 0\) > 0 \}/);
   });
   it('skotarläget: avläggets målbild vid första lasset, utan att röra lasskortet', () => {
     expect(sida).toMatch(/<AvlaggForstaLasset[\s\S]{0,900}forstaLasset=\{[^}]*arForstaLassetPaTrakten\(sl\.lass, '', valtObjekt\.id, skotarMaskinId\)\}[\s\S]{0,120}position=\{currentPosition\}[\s\S]{0,60}avlagg=\{sl\.avlagg\}/);

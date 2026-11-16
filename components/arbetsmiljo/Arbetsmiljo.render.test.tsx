@@ -29,6 +29,10 @@ let mina: any[] | null = [];
 vi.mock('@/lib/arbetsmiljo/lagatBesked', async (orig) => ({ ...(await orig<typeof import('@/lib/arbetsmiljo/lagatBesked')>()), hamtaMinaRapporter: async () => mina }));
 import Arbetsmiljo from './Arbetsmiljo';
 
+// Reglerna här gäller när arbetsmiljön har börjat (lib/arbetsmiljo/start.ts). Före start: start.test.ts.
+vi.mock('@/lib/arbetsmiljo/start', async (orig) => ({ ...(await orig<typeof import('@/lib/arbetsmiljo/start')>()), arbetsmiljoIgang: () => true }));
+
+
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root; let el: HTMLDivElement;
 beforeEach(() => { mina = []; window.history.replaceState(null, '', '/arbetsmiljo'); el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el); });
@@ -45,7 +49,7 @@ describe('Arbetsmiljö', () => {
     const rader = Array.from(document.querySelectorAll('[data-am-rad]')).map(e => [e.getAttribute('data-am-rad'), e.getAttribute('href')]);
     expect(rader).toEqual([
       ['atgarder', '/atgarder'], ['skyddsrond', '/skyddsrond'], ['arshjul', null], ['riskbedomning', '/riskbedomning'],
-      ['maskinkoll', '/maskinkoll'], ['kemikalier', '/kemikalier'], ['avfall', '/farligt-avfall'], ['rapportera', '/om-nagot-hander?rapport=1'], ['introduktion', '/introduktion'],
+      ['maskinkoll', '/maskinkoll'], ['kemikalier', '/kemikalier'], ['sagorvi', '/sa-gor-vi'], ['avfall', '/farligt-avfall'], ['rapportera', '/om-nagot-hander?rapport=1'], ['introduktion', '/introduktion'],
     ]);
     expect(q('[data-am-rad="atgarder"]')!.textContent).toContain('2 att åtgärda');
     expect(q('[data-am-rad="riskbedomning"]')!.textContent).toContain('0 av 5 godkända');

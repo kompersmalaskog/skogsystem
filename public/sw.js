@@ -249,11 +249,68 @@ async function kartruta(req) {
   return svar;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// LAGRENS RUTOR (lib/lagerRutor, Martin 2026-11-13): markfuktighet, sumpskog, nyckelbiotoper … sparas på enheten när de visas och tas
+// ur det sparade FÖRST. Mätt: Markfuktighet = 54 rutor, över 5 MB och 6,6 s varje gång lagret tändes — andra gången kommer det nu direkt,
+// också utan täckning. Ett lager blir aldrig äldre än sin period (data som ändras 7 dagar, fasta kartor 30): cachens namn bär periodens
+// nummer, så en ny period hämtar på nytt; förra periodens rutor används bara när nätet saknas. Bara bilder sparas.
+const LAGER_CACHE = 'lagerrutor-v1';
+const LAGER_MAX = 4000;
+const LAGER_VARDAR = ['geodpags.skogsstyrelsen.se', 'inspire.msb.se', 'maps3.sgu.se', 'geo-netinfo.trafikverket.se'];
+const LAGER_FASTA = /sks_|lm_skuggning|nmd_|sumpskog|ackumulation|jord/i;   // kartor som inte ändras från vecka till vecka
+const DYGN_MS = 86400000;
+let lagerSparade = 0;
+
+function arLagerruta(url) {
+  let bbox = false;
+  url.searchParams.forEach((_, k) => { if (k.toLowerCase() === 'bbox') bbox = true; });
+  if (!bbox) return false;
+  if (url.origin === self.location.origin) return url.pathname === '/api/wms-proxy';
+  return LAGER_VARDAR.indexOf(url.hostname) !== -1;
+}
+
+async function lagerStada(nu) {
+  try {
+    const namn = await caches.keys();
+    for (const n of namn) {
+      const m = /^lagerrutor-v1-(\d+)-(\d+)$/.exec(n);
+      if (m && Number(m[2]) < Math.floor(nu / (Number(m[1]) * DYGN_MS)) - 1) await caches.delete(n);
+    }
+  } catch (_) { /* nästa gång */ }
+}
+
+async function lagerruta(req, url) {
+  const dagar = LAGER_FASTA.test(url.search) ? 30 : 7;
+  const nu = Date.now();
+  const period = Math.floor(nu / (dagar * DYGN_MS));
+  const namn = LAGER_CACHE + '-' + dagar + '-' + period;
+  try { const sparad = await (await caches.open(namn)).match(req.url); if (sparad) return sparad; } catch (_) { /* hämta som vanligt */ }
+  let svar;
+  try { svar = await fetch(req); }
+  catch (e) {
+    try { const gammal = await (await caches.open(LAGER_CACHE + '-' + dagar + '-' + (period - 1))).match(req.url); if (gammal) return gammal; } catch (_) { /* */ }
+    throw e;
+  }
+  if (arBild(svar)) {
+    try {
+      const c = await caches.open(namn);
+      await c.put(req.url, svar.clone());
+      if (++lagerSparade % 100 === 0) {
+        const nycklar = await c.keys();
+        for (let i = 0; i < nycklar.length - LAGER_MAX; i++) await c.delete(nycklar[i]);
+        lagerStada(nu);
+      }
+    } catch (_) { /* full — lagret visas ändå */ }
+  }
+  return svar;
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   let url;
   try { url = new URL(req.url); } catch (_) { return; }
+  if (arLagerruta(url)) { event.respondWith(lagerruta(req, url)); return; }
   if (url.hostname === OFM_HOST) {
     if (url.pathname.endsWith('.pbf')) { event.respondWith(vektorruta(req)); return; }
     if (url.pathname === '/planet') { event.respondWith(vektorKalla(req)); return; }

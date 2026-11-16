@@ -8,8 +8,15 @@ import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 import { MIN_STAMMAR, type Objekt, type Typ } from './berakna';
 
+export type Tradslag = 'gran' | 'tall';
+export const TRADSLAG: Tradslag[] = ['gran', 'tall'];
+
 type Rad = Record<string, unknown>;
-export type MedelstamUnderlag = { alla: Objekt[]; meta: Record<string, number | null>; uppdaterad: string | null; rotLasbar: boolean };
+export type MedelstamUnderlag = {
+  alla: Objekt[]; meta: Record<string, number | null>; uppdaterad: string | null; rotLasbar: boolean;
+  /** Slutavverkningarna räknade på ett trädslags egna stammar (utfall_objekt_tradslag). null = gick inte att läsa: då finns inget Gran/Tall-val. */
+  tradslag?: Record<Tradslag, Objekt[]> | null;
+};
 export type LasFel = { kod: string; text: string };
 
 const num = (v: unknown): number => Number(v);
@@ -32,13 +39,15 @@ async function allaRader(tabell: string, select: string, nyckel: string, filter?
 }
 
 export async function lasMedelstamUnderlag(): Promise<{ ok: true; d: MedelstamUnderlag } | { ok: false; fel: LasFel }> {
-  const [u, o, r, m] = await Promise.all([
+  const [u, o, r, m, t] = await Promise.all([
     allaRader('utfall_objekt', 'objekt_id,forsta,stammar,volym,timmer_m3,kubb_m3,massa_m3,lov_m3,medelstam,kontrollerad', 'objekt_id'),
     // Medelstamskurvan räknas BARA på Vida-objekt (Martin 2026-10-06). Objekt utan Vida i dim_objekt faller bort nedan.
     allaRader('dim_objekt', 'objekt_id,object_name,huvudtyp', 'objekt_id', q => q.in('huvudtyp', ['Slutavverkning', 'Gallring']).eq('bolag', 'Vida')),
     // Rötan är ett tillägg: går den inte att läsa (ingen policy, tabellen saknas) är det ett eget läge, inte ett fel.
     allaRader('stamplings_objekt', 'objekt_id,stammar20,rot20', 'objekt_id'),
     medAbortRetry(() => supabase.from('stamplings_meta').select('nyckel,varde')),
+    // Gran och tall var för sig (bara slutavverkning). Ett tillägg: ett läsfel tar bara bort valet, aldrig sidan.
+    allaRader('utfall_objekt_tradslag', 'objekt_id,slag,stammar,volym,timmer,kubb,massa,stammar20,rot20', 'objekt_id', q => q.order('slag', { ascending: true })),
   ]);
   const e = u.error ?? o.error;
   if (e) return { ok: false, fel: { kod: e.code ?? (arAbortFel(e) ? 'ABORT' : 'OKÄND'), text: e.message ?? String(e) } };
@@ -65,5 +74,30 @@ export async function lasMedelstamUnderlag(): Promise<{ ok: true; d: MedelstamUn
   }
   const meta: Record<string, number | null> = {};
   for (const x of ((m.data ?? []) as { nyckel: string; varde: string | number | null }[])) meta[x.nyckel] = x.varde == null ? null : Number(x.varde);
-  return { ok: true, d: { alla, meta, uppdaterad, rotLasbar: alla.some(a => a.rot20 != null) } };
+  const tradslag = t.error ? null : tradslagObjekt(t.data, namn, new Map(u.data.map(x => [String(x.objekt_id), x])));
+  return { ok: true, d: { alla, meta, uppdaterad, rotLasbar: alla.some(a => a.rot20 != null), tradslag } };
+}
+
+/**
+ * Ett objekt per slutavverkning och trädslag, räknat på trädslagets egna stammar: medelstammen är granarnas (tallarnas) egen,
+ * andelarna är av granens volym. Bara Vidas slutavverkningar (samma urval som sidan) och minst MIN_STAMMAR stammar av trädslaget.
+ * lov är 0: lövet hör inte till gran eller tall, så inget sådant objekt är lövdominerat.
+ */
+export function tradslagObjekt(rader: Rad[], dim: Map<string, Rad>, utfall: Map<string, Rad>): Record<Tradslag, Objekt[]> {
+  const ut: Record<Tradslag, Objekt[]> = { gran: [], tall: [] };
+  for (const x of rader) {
+    const slag = x.slag as Tradslag;
+    if (!TRADSLAG.includes(slag)) continue;
+    const d = dim.get(String(x.objekt_id));
+    if (!d || d.huvudtyp !== 'Slutavverkning') continue;
+    const stammar = num(x.stammar), volym = num(x.volym);
+    if (!(stammar >= MIN_STAMMAR) || !(volym > 0)) continue;
+    const f = utfall.get(String(x.objekt_id))?.forsta;
+    ut[slag].push({
+      id: String(x.objekt_id), namn: (d.object_name as string | null) ?? null, typ: 'Slutavverkning', forsta: f ? String(f) : null,
+      stammar, volym, timmer: num(x.timmer), kubb: num(x.kubb), massa: num(x.massa), medelstam: volym / stammar,
+      rot20: numEllerNull(x.rot20), stammar20: numEllerNull(x.stammar20), lov: 0,
+    });
+  }
+  return ut;
 }

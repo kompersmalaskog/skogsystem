@@ -1,4 +1,4 @@
-// FÖRVÄRMNING av route_cache för GROT-arket i /oversikt-v2.
+// FÖRVÄRMNING av route_cache för GROT-arket i /oversikt.
 //
 // GROT-listan visar "N km från <närmaste andra GROT-objekt>" som ORS-vägavstånd. Varje par kostar ett
 // ORS-anrop första gången (gratisplanen: 40/min, 2 000/dag); därefter ligger det i route_cache.

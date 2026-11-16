@@ -8,7 +8,12 @@
 // En koppling på objekt.vo_nummer ensamt tappar 2 034 av 2 687 minuter tyst —
 // samma felklass som dim_objekt_id, fran_objekt_id och matched_objekt_id, där
 // bryggan fanns som kolumn men var tom. Därför läses ALLA traktens nummer.
-import type { serverKlient } from './lasOversikt';
+/**
+ * Bara `from` används här. Typen är därför det minsta som räcker, så både
+ * sidans serverklient och radbyggarens `SB` (lib/faktura/hamtaUnderlag) kan
+ * skicka sin klient utan en cast som döljer vad funktionen rör.
+ */
+type Klient = { from: (tabell: string) => any };
 
 export type ManuellPost = {
   datum: string
@@ -16,9 +21,21 @@ export type ManuellPost = {
   aktivitet: string
   minuter: number
   kommentar: string | null
+  /** extra_tid.aktivitet_typ — nyckeln mot arbete_timpris (lib/faktura/arbetspris). */
+  typ: string | null
 }
 
 export type ManuelltArbete = { poster: ManuellPost[]; timmar: number }
+
+/**
+ * Tomt och trasigt är INTE samma sak. `lasManuelltArbete` returnerar null för
+ * båda, vilket duger för vyns sektion (ingen sektion ritas) men inte för
+ * priset: ett läsfel som tystas blir timmar som aldrig faktureras. Radbyggaren
+ * använder därför den här, som säger vilket det är.
+ */
+export type ArbeteSvar =
+  | { status: 'ok'; poster: ManuellPost[] }
+  | { status: 'fel'; fel: string }
 
 const AKTIVITET: Record<string, string> = {
   manuellt: 'Manuell fällning',
@@ -29,7 +46,7 @@ const AKTIVITET: Record<string, string> = {
 
 /** Alla nummer som pekar på samma trakt: traktens eget plus dess extranummer. */
 export async function traktensNummer(
-  sb: Awaited<ReturnType<typeof serverKlient>>,
+  sb: Klient,
   vo: string,
 ): Promise<string[]> {
   const nummer = new Set<string>([vo]);
@@ -42,10 +59,11 @@ export async function traktensNummer(
   return [...nummer];
 }
 
-export async function lasManuelltArbete(
-  sb: Awaited<ReturnType<typeof serverKlient>>,
+/** Läser posterna och säger om det gick. Tomt är `ok` med en tom lista. */
+export async function lasDebiterbartArbete(
+  sb: Klient,
   vo: string,
-): Promise<ManuelltArbete | null> {
+): Promise<ArbeteSvar> {
   const nummer = await traktensNummer(sb, vo);
   const { data, error } = await sb
     .from('extra_tid')
@@ -53,23 +71,45 @@ export async function lasManuelltArbete(
     .eq('debiterbar', true)
     .in('objekt_id', nummer)
     .order('datum');
-  // Ett läsfel här får inte fälla trakten: raderna uteblir och priset påverkas
-  // inte (det manuella prissätts inte av radbyggaren än ändå).
-  if (error || !data || data.length === 0) return null;
+  if (error) return { status: 'fel', fel: error.message };
 
-  const poster: ManuellPost[] = data.map(r => {
+  const poster: ManuellPost[] = (data ?? []).map((r: any) => {
     const m = r.medarbetare as unknown as { namn?: string } | { namn?: string }[] | null;
     const namn = Array.isArray(m) ? m[0]?.namn : m?.namn;
+    const typ = r.aktivitet_typ == null ? null : String(r.aktivitet_typ);
     return {
       datum: String(r.datum),
       forare: (namn ?? 'okänd').split(' ')[0],
-      aktivitet: r.aktivitet_text
-        || AKTIVITET[String(r.aktivitet_typ ?? '')]
-        || String(r.aktivitet_typ ?? 'Arbete'),
+      aktivitet: r.aktivitet_text || AKTIVITET[typ ?? ''] || (typ ?? 'Arbete'),
       minuter: Number(r.minuter) || 0,
       kommentar: r.kommentar ? String(r.kommentar) : null,
+      typ,
     };
   });
-  const minuter = poster.reduce((s, p) => s + p.minuter, 0);
-  return { poster, timmar: Math.round((minuter / 60) * 100) / 100 };
+  return { status: 'ok', poster };
+}
+
+/**
+ * ManuellPost → Arbetspost (lib/faktura/arbetspris). EN mappning, för att
+ * fälten heter olika: posten bär `aktivitet` (det som står på raden) och
+ * prissättningen vill `etikett`. Mappades den på varje anropsställe skulle
+ * ett glömt fält bli en rad som heter "Arbete" i stället för förarens text —
+ * och typfelet syns inte, eftersom klienten är `any`.
+ */
+export function tillArbetsposter(
+  poster: ManuellPost[],
+): { typ: string | null; etikett: string; minuter: number }[] {
+  return poster.map(p => ({ typ: p.typ, etikett: p.aktivitet, minuter: p.minuter }));
+}
+
+export async function lasManuelltArbete(
+  sb: Klient,
+  vo: string,
+): Promise<ManuelltArbete | null> {
+  const svar = await lasDebiterbartArbete(sb, vo);
+  // Ett läsfel här får inte fälla trakten: sektionen uteblir. Att det SAKNAS
+  // ett pris syns i stället på raderna, som radbyggaren bygger ur samma data.
+  if (svar.status === 'fel' || svar.poster.length === 0) return null;
+  const minuter = svar.poster.reduce((s, p) => s + p.minuter, 0);
+  return { poster: svar.poster, timmar: Math.round((minuter / 60) * 100) / 100 };
 }

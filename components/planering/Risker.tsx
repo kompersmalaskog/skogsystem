@@ -11,7 +11,8 @@
 
 import React, { useState } from 'react';
 import { AVSTAND, FARG, KNAPP, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
-import { KALLA_TEXT, riskAntalText, type Risk } from '@/lib/riskbedomning';
+import { KALLA_TEXT, allvarligaForst, riskAntalText, type Risk } from '@/lib/riskbedomning';
+import { AllvarligText, AllvarligVal } from '@/components/arbetsmiljo/Allvarlig';
 import { Huvud } from './infoDelar';
 import { Etikett, Falt } from './klarDelar';
 import { SettKnapp } from './InstruktionKort';
@@ -32,18 +33,27 @@ export interface RiskerProps {
   onTaBort: (nyckel: string) => void;
   onAterstall: (nyckel: string) => void;
   onLaggTill: (risk: string, atgard: string) => void;
+  /** Allvarlig eller mindre allvarlig (AFS 2023:1 11 §). Saknas = går inte att ändra här. */
+  onAllvarlig?: (nyckel: string, allvarlig: boolean) => void;
 }
 
 const knappStil: React.CSSProperties = { ...KNAPP.tertiar, minHeight: TRAFFYTA.min, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation', flexShrink: 0 };
 
-/** En risk: vad, vad man gör, och varifrån den kom. */
-export function RiskRad({ r, forst, hoger }: { r: Risk; forst: boolean; hoger?: React.ReactNode }) {
+/** En risk: vad, vad man gör, hur allvarlig och varifrån den kom. Med `onAllvarlig` blir allvaret ett val (planeraren). */
+export function RiskRad({ r, forst, hoger, onAllvarlig }: { r: Risk; forst: boolean; hoger?: React.ReactNode; onAllvarlig?: (allvarlig: boolean) => void }) {
   return (
     <div data-testid={`risk-${r.nyckel}`} style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: forst ? 'none' : `1px solid ${FARG.linje}` }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ ...TYP.listtitel, color: FARG.text, overflowWrap: 'anywhere' }}>{r.risk}</div>
         <div data-testid={`risk-${r.nyckel}-atgard`} style={{ ...TYP.text, color: FARG.text, marginTop: AVSTAND.xs, overflowWrap: 'anywhere' }}>{r.atgard}</div>
-        <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.xs }}>{KALLA_TEXT[r.kalla]}</div>
+        {onAllvarlig ? (
+          <>
+            <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.xs }}>{KALLA_TEXT[r.kalla]}</div>
+            <div data-testid={`risk-${r.nyckel}-allvar`} style={{ marginTop: AVSTAND.s }}><AllvarligVal allvarlig={r.allvarlig} onVal={onAllvarlig} /></div>
+          </>
+        ) : (
+          <div style={{ ...TYP.meta, marginTop: AVSTAND.xs }}><AllvarligText allvarlig={r.allvarlig} efter={KALLA_TEXT[r.kalla]} /></div>
+        )}
       </div>
       {hoger}
     </div>
@@ -67,7 +77,7 @@ export function RiskerBody({ r }: { r: RiskerProps }) {
       ) : (
         <Kort testid="risker-lista">
           {r.lista.map((x, k) => (
-            <RiskRad key={x.nyckel} r={x} forst={k === 0} hoger={
+            <RiskRad key={x.nyckel} r={x} forst={k === 0} onAllvarlig={r.onAllvarlig ? (a) => r.onAllvarlig!(x.nyckel, a) : undefined} hoger={
               <button type="button" data-testid={`risk-${x.nyckel}-bort`} onClick={() => r.onTaBort(x.nyckel)} className="press-dim" style={knappStil}>
                 {x.kalla === 'planerare' ? 'Ta bort' : 'Gäller inte'}
               </button>
@@ -143,7 +153,7 @@ export function ForarRisker(p: ForarRiskerProps) {
           <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.l }}>Planeraren har inte hittat några särskilda risker här. Ta det lugnt ändå.</div>
         ) : (
           <Kort testid="forar-risker-lista">
-            {p.risker.map((x, k) => <RiskRad key={x.nyckel} r={x} forst={k === 0} />)}
+            {allvarligaForst(p.risker).map((x, k) => <RiskRad key={x.nyckel} r={x} forst={k === 0} />)}
           </Kort>
         )}
         <div style={{ marginTop: AVSTAND.l }}>

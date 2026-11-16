@@ -1,6 +1,6 @@
 // RITAD KARTA, steg 1 (Martin 2026-10-28/29: "som Apple-kartan och Snapchat"). Skogen ritad ur laserdatan i stället för flygfoto.
 //
-// Rena funktioner — läsningen mot Skogsstyrelsen bor i app/api/ritad-karta/laser/route.ts, sidan i app/karta-ritad.
+// Rena funktioner — läsningen mot Skogsstyrelsen bor i lib/ritadKarta/serverHamta.ts (anropad av app/api/ritad-karta/laser), sidan i app/karta-ritad.
 //  - Rutnätet är Skogsstyrelsens Skogliga grunddata (10 m rutor, SWEREF99 TM, rad 0 = norr): medelhöjd i dm och skanningsdag.
 //  - Höjden ger en skogsklass: öppet/hygge, ungskog, gallringsskog, mogen skog (KLASS_GRANS). Lasern kan inte skilja hygge från åker —
 //    det kräver marktäckedata (NMD), nästa steg.

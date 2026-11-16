@@ -32,7 +32,8 @@ describe('RITNINGEN går genom utjämningen — på exakt de fyra ritställena',
 describe('SPARAD DATA och ANALYSER är RÅDATA', () => {
   it('avverkad areal räknas på hyttsparTillLinjer (rådata) — både de hämtade raderna och live-punkterna', () => {
     expect(page).toContain("const live = roll === 'skordare' ? hyttsparTillLinjer(hyttsparPointsRef.current as any) : [];");
-    expect(page).toMatch(/skordarSparRef\.current = \(data \|\| \[\]\)\.flatMap\(\(r: any\) => hyttsparTillLinjer\(Array\.isArray\(r\.points\) \? r\.points : \[\]\)\)/);
+    expect(page).toMatch(/skordarSparDagRef\.current = \(data \|\| \[\]\)\.map\(\(r: any\) => \(\{ datum: String\(r\.datum \?\? ''\), segment: hyttsparTillLinjer\(Array\.isArray\(r\.points\) \? r\.points : \[\]\) \}\)\)/);   // per dag (tempot per område)
+    expect(page).toContain('skordarSparRef.current = skordarSparDagRef.current.flatMap((d) => d.segment);');
     expect(page).toContain('avverkadAreaM2(segment, { ringar })');
     expect(forekomster(/hyttsparTillLinjer\(/g)).toBe(2);   // exakt de två analysställena — inget annat använder rådata-segmenteringen
   });

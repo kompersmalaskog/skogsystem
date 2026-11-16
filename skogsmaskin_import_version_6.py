@@ -5145,6 +5145,10 @@ def auto_status_pagaende(data: Dict) -> None:
 
 
 # ── AUTO-AVSLUT (filerna vet) ──────────────────────────────────────────────────────────────────
+# Skotarens lass: Opti + appen, aldrig dubbelt (samma vy som helikoptern, migration 20261027183608).
+LASS_KALLA = 'helikopter_lass'
+
+
 def _rest_get(table: str, params: Dict) -> list:
     """GET mot PostgREST, tom lista vid fel. SUPABASE_HEADERS måste vara satta (init_supabase)."""
     try:
@@ -5175,8 +5179,11 @@ def utvardera_avslut(oid, vo) -> Dict:
     """REN utvärdering (bara läsningar) av auto-avslut-regeln för ETT objekt (importens objekt_id = oid).
     Delad av auto_avslut (importen) och scripts/auto-avslut-dry-run.py. Skriver inget.
       skordning_avslutad = skördarens sista hpr-datum NÄR samma skördare producerat på annat objekt efter.
-      skotning_avslutad  = skotarens sista fpr-datum NÄR skotaren flyttat OCH backen (lib/skotat: utan
-                           omlastning, klamp ≥0) < 15 m³fub. skotat=0 → ALDRIG. Egen skotning = skördning."""
+      skotning_avslutad  = skotarens sista lass-datum NÄR skotaren flyttat OCH backen (lib/skotat: utan
+                           omlastning, klamp ≥0) < 15 m³fub. skotat=0 → ALDRIG. Egen skotning = skördning.
+    LASSEN LÄSES UR VYN helikopter_lass (Opti-filer + appens Klar-lass, per maskin+objekt+dag den källa
+    som har mest — aldrig summan), INTE ur fakt_lass. Elefanten rapporterar i appen sedan 2026-10-20 och
+    810E bara där: med fakt_lass ensam såg Skälviken 40 m³ skotat när det var 700 (2026-11-04)."""
     dim = _rest_get('dim_objekt', {'select': 'skordning_avslutad,skotning_avslutad,egen_skotning,object_name', 'objekt_id': f'eq.{oid}'})
     d = dim[0] if dim else {}
     bef_skord = d.get('skordning_avslutad'); bef_skot = d.get('skotning_avslutad')
@@ -5190,7 +5197,7 @@ def utvardera_avslut(oid, vo) -> Dict:
         skotat = _resolve_egen_skotning(obj_niv[0], 0.0)
     else:
         matt: Dict[str, float] = {}
-        for r in _rest_get('fakt_lass', {'select': 'maskin_id,volym_m3sub', 'objekt_id': f'eq.{oid}'}):
+        for r in _rest_get(LASS_KALLA, {'select': 'maskin_id,volym_m3sub', 'objekt_id': f'eq.{oid}'}):
             m = r.get('maskin_id')
             if m:
                 matt[m] = matt.get(m, 0.0) + float(r.get('volym_m3sub') or 0)
@@ -5219,9 +5226,9 @@ def utvardera_avslut(oid, vo) -> Dict:
     if egen:
         skot_rule = final_skord  # egen skotning = skördning
     else:
-        sf = _rest_get('fakt_lass', {'select': 'maskin_id,datum', 'objekt_id': f'eq.{oid}', 'order': 'datum.desc', 'limit': '1'})
+        sf = _rest_get(LASS_KALLA, {'select': 'maskin_id,datum', 'objekt_id': f'eq.{oid}', 'order': 'datum.desc', 'limit': '1'})
         if sf and skotat > 0 and sf[0].get('maskin_id') and sf[0].get('datum'):  # skotat=0 → sätts aldrig
-            flytt2 = _rest_get('fakt_lass', {'select': 'objekt_id,datum', 'maskin_id': f"eq.{sf[0]['maskin_id']}", 'objekt_id': f'neq.{oid}', 'datum': f"gt.{sf[0]['datum']}", 'order': 'datum.desc', 'limit': '1'})
+            flytt2 = _rest_get(LASS_KALLA, {'select': 'objekt_id,datum', 'maskin_id': f"eq.{sf[0]['maskin_id']}", 'objekt_id': f'neq.{oid}', 'datum': f"gt.{sf[0]['datum']}", 'order': 'datum.desc', 'limit': '1'})
             if flytt2 and backen < 15:
                 skot_rule = sf[0]['datum']; skot_nu_pa = _nu_pa(flytt2[0].get('objekt_id'))
     final_skot = bef_skot or skot_rule
@@ -5298,11 +5305,175 @@ def ar_kundjobb(oid, vo) -> bool:
     return _bolag_satt(oid, vo)
 
 
+# ── AVSLUT PER OPERATIVT OBJEKT (raden i planeringen) ──────────────────────────────────────────────
+# Enheten är objekt-raden (det föraren och planeraren ser), inte en enskild dim_objekt-nyckel. Alla
+# dim-nycklar som hör till raden (vo_nummer + dim_objekt_id) räknas ihop — då fungerar också PRIVATA objekt
+# vi skapar själva (P-nummer), där skördarens och skotarens filer får varsin per-maskin-nyckel
+# (R64428_54, A030353_185 …) och därför aldrig kunde jämföras (Martin 2026-11-05: "det ska gälla samma på
+# privatobjekten"). En maskin är klar med sin del när den jobbar på ett ANNAT objekt efter sin sista dag här:
+# en fil/ett lass där, eller appens GPS-spår där (hyttspar, ≥ GPS_MIN_PUNKTER punkter). Skotaren dessutom
+# backen < 15 m³fub. GPS-spåret HÄR räknas aldrig som aktivitet (föraren kan ha glömt byta objekt i appen) —
+# sista dagen här är alltid filernas/lassens. När en del är klar tas den rollens maskiner ur objektets kö.
+GPS_MIN_PUNKTER = 50
+AVSLUT_UTOM_TYP = ('grot', 'energiklippning')  # ingen skördare, backen säger inget → egen regel senare
+
+
+def _in_lista(ids) -> str:
+    return 'in.(' + ','.join(f'"{i}"' for i in ids) + ')'
+
+
+def _flyttat_fran(maskin_id, efter, dim_ids, objekt_uuid, kalla, roll) -> Optional[str]:
+    """Var jobbar maskinen EFTER datumet `efter`, på något annat än det här objektet? None = inte flyttat."""
+    r = _rest_get(kalla, {'select': 'objekt_id,datum', 'maskin_id': f'eq.{maskin_id}',
+                          'objekt_id': 'not.' + _in_lista(dim_ids), 'datum': f'gt.{efter}',
+                          'order': 'datum.asc', 'limit': '1'})
+    if r:
+        nd = _rest_get('dim_objekt', {'select': 'object_name', 'objekt_id': f"eq.{r[0]['objekt_id']}"})
+        return ((nd[0].get('object_name') if nd else None) or r[0]['objekt_id']) + f" ({r[0]['datum']})"
+    g = _rest_get('hyttspar', {'select': 'objekt_id,datum', 'maskin_id': f'eq.{maskin_id}', 'roll': f'eq.{roll}',
+                               'objekt_id': f'neq.{objekt_uuid}', 'datum': f'gt.{efter}',
+                               'antal_punkter': f'gte.{GPS_MIN_PUNKTER}', 'order': 'datum.asc', 'limit': '1'})
+    if g:
+        no = _rest_get('objekt', {'select': 'namn', 'id': f"eq.{g[0]['objekt_id']}"})
+        return ((no[0].get('namn') if no else None) or 'annat objekt') + f" (GPS {g[0]['datum']})"
+    return None
+
+
+def _skotat_for(oid) -> float:
+    """Egen skotad volym på EN dim-nyckel (samma räkning som utvardera_avslut)."""
+    obj_niv = _rest_get('skotare_objekt_manuell', {'select': 'volym_egen_skotning,volym_m3,ar_omlastning,volym_omlastning', 'objekt_id': f'eq.{oid}', 'maskin_id': 'is.null'})
+    if obj_niv:
+        return _resolve_egen_skotning(obj_niv[0], 0.0)
+    matt: Dict[str, float] = {}
+    for r in _rest_get(LASS_KALLA, {'select': 'maskin_id,volym_m3sub', 'objekt_id': f'eq.{oid}'}):
+        if r.get('maskin_id'):
+            matt[r['maskin_id']] = matt.get(r['maskin_id'], 0.0) + float(r.get('volym_m3sub') or 0)
+    man: Dict[str, Dict] = {}
+    for r in _rest_get('skotare_objekt_manuell', {'select': 'maskin_id,volym_egen_skotning,volym_m3,ar_omlastning,volym_omlastning', 'objekt_id': f'eq.{oid}', 'maskin_id': 'not.is.null'}):
+        if r.get('maskin_id'):
+            man[r['maskin_id']] = r
+    return sum(_resolve_egen_skotning(man.get(m), matt.get(m, 0.0)) for m in (set(matt) | set(man)))
+
+
+def utvardera_operativt(rad: Dict) -> Optional[Dict]:
+    """REN utvärdering (bara läsningar) för en objekt-rad. None = regeln gäller inte raden (GROT/
+    energiklippning, eller inga dim-nycklar) → anroparen faller tillbaka på den gamla regeln."""
+    if (rad.get('typ') or '').strip().lower() in AVSLUT_UTOM_TYP:
+        return None
+    vo = (rad.get('vo_nummer') or '').strip()
+    ors = [f'vo_nummer.eq.{vo}'] if vo else []
+    if rad.get('dim_objekt_id'):
+        ors.append(f"objekt_id.eq.{rad['dim_objekt_id']}")
+    if not ors:
+        return None
+    dims = _rest_get('dim_objekt', {'select': 'objekt_id,skordning_avslutad,skotning_avslutad,egen_skotning', 'or': f"({','.join(ors)})"})
+    ids = sorted({d['objekt_id'] for d in dims if d.get('objekt_id')})
+    if not ids:
+        return None
+    bef_skord = max((d['skordning_avslutad'] for d in dims if d.get('skordning_avslutad')), default=None)
+    bef_skot = max((d['skotning_avslutad'] for d in dims if d.get('skotning_avslutad')), default=None)
+    egen = any(d.get('egen_skotning') is True for d in dims)
+
+    skordat = sum(float(p.get('volym_m3sub') or 0) for p in _rest_get('vy_uppf_prod_per_objekt', {'select': 'volym_m3sub', 'objekt_id': _in_lista(ids)}))
+    skotat = sum(_skotat_for(i) for i in ids)
+    backen = max(0.0, skordat - skotat)
+
+    skord_rule = skord_nu_pa = None
+    sh = _rest_get('fakt_sortiment', {'select': 'maskin_id,datum', 'objekt_id': _in_lista(ids), 'order': 'datum.desc', 'limit': '1'})
+    if sh and sh[0].get('maskin_id') and sh[0].get('datum'):
+        skord_nu_pa = _flyttat_fran(sh[0]['maskin_id'], sh[0]['datum'], ids, rad['id'], 'fakt_sortiment', 'skordare')
+        if skord_nu_pa:
+            skord_rule = sh[0]['datum']
+    final_skord = bef_skord or skord_rule
+
+    skot_rule = skot_nu_pa = None
+    if egen:
+        skot_rule = final_skord
+    else:
+        sf = _rest_get(LASS_KALLA, {'select': 'maskin_id,datum', 'objekt_id': _in_lista(ids), 'order': 'datum.desc', 'limit': '1'})
+        if sf and skotat > 0 and sf[0].get('maskin_id') and sf[0].get('datum') and backen < 15:
+            skot_nu_pa = _flyttat_fran(sf[0]['maskin_id'], sf[0]['datum'], ids, rad['id'], LASS_KALLA, 'skotare')
+            if skot_nu_pa:
+                skot_rule = sf[0]['datum']
+    final_skot = bef_skot or skot_rule
+
+    return {'id': rad['id'], 'namn': rad.get('namn') or vo, 'status': rad.get('status'), 'ids': ids,
+            'skordat': skordat, 'skotat': skotat, 'backen': backen,
+            'skord_rule': skord_rule, 'skot_rule': skot_rule, 'skord_nu_pa': skord_nu_pa, 'skot_nu_pa': skot_nu_pa,
+            'satter_skord': bool(skord_rule) and not bef_skord, 'satter_skot': bool(skot_rule) and not bef_skot,
+            'skord_klar': bool(final_skord), 'skot_klar': bool(final_skot),
+            'blir_avslutat': bool(final_skord) and bool(final_skot)}
+
+
+def _roll_maskiner(maskin_typ: str) -> List[str]:
+    return [m['maskin_id'] for m in _rest_get('dim_maskin', {'select': 'maskin_id', 'maskin_typ': f'eq.{maskin_typ}'}) if m.get('maskin_id')]
+
+
+def avslut_operativt(rad: Dict) -> bool:
+    """Kör regeln på en objekt-rad. False = regeln gäller inte (anroparen tar den gamla). Egna fel fäller aldrig."""
+    try:
+        r = utvardera_operativt(rad)
+    except Exception as e:
+        logger.warning(f"  Auto-avslut: kunde inte pröva {rad.get('namn')} ({e})")
+        return True  # försök inte den gamla regeln på ett halvläst objekt
+    if r is None:
+        return False
+    skriv = AUTO_AVSLUT_LAGE == 'skriv'
+    tagg = '' if skriv else '[logga] '
+    hdr = {**SUPABASE_HEADERS, 'Prefer': 'return=minimal'}
+    for falt, satter, datum, var in (('skordning_avslutad', r['satter_skord'], r['skord_rule'], r['skord_nu_pa']),
+                                     ('skotning_avslutad', r['satter_skot'], r['skot_rule'], r['skot_nu_pa'])):
+        if not satter:
+            continue
+        logger.info(f"Auto-avslut {tagg}{'satte' if skriv else 'skulle satt'} {falt} {datum} på {r['namn']}"
+                    f" (maskinen nu på {var}; backen {r['backen']:.0f} m³)")
+        if skriv:
+            try:
+                requests.patch(f"{SUPABASE_URL}/rest/v1/dim_objekt?objekt_id={_in_lista(r['ids'])}&{falt}=is.null",
+                               headers=hdr, json={falt: datum}, timeout=10)
+            except Exception as e:
+                logger.warning(f"  Auto-avslut: PATCH {falt} {r['namn']} misslyckades ({e})")
+    if r['blir_avslutat']:
+        if r['status'] != 'avslutat':
+            logger.info(f"Auto-avslut {tagg}{r['namn']} avslutat (skördning och skotning klara)")
+            if skriv:
+                from datetime import datetime, timezone
+                try:  # triggern maskin_ko_ur_vid_avslut tar objektet ur alla köer
+                    requests.patch(f"{SUPABASE_URL}/rest/v1/objekt?id=eq.{r['id']}", headers=hdr,
+                                   json={'status': 'avslutat', 'avslutad_timestamp': datetime.now(timezone.utc).isoformat()}, timeout=10)
+                except Exception as e:
+                    logger.warning(f"  Auto-avslut: avslut {r['namn']} misslyckades ({e})")
+        return True
+    # En del klar → den rollens maskiner ur objektets kö (annars står trakten som "nästa" för en maskin som lämnat den).
+    for klar, typ, roll in ((r['skord_klar'], 'Harvester', 'skördare'), (r['skot_klar'], 'Forwarder', 'skotare')):
+        if not klar:
+            continue
+        maskiner = _roll_maskiner(typ)
+        if not maskiner:
+            continue
+        rader = _rest_get('maskin_ko', {'select': 'id,maskin_id', 'objekt_id': f"eq.{r['id']}", 'maskin_id': _in_lista(maskiner)})
+        for k in rader:
+            logger.info(f"Auto-avslut {tagg}{'tog' if skriv else 'skulle tagit'} {r['namn']} ur kön för {k['maskin_id']} ({roll} klar)")
+            if skriv:
+                try:
+                    requests.delete(f"{SUPABASE_URL}/rest/v1/maskin_ko?id=eq.{k['id']}", headers=hdr, timeout=10)
+                except Exception as e:
+                    logger.warning(f"  Auto-avslut: DELETE kö {r['namn']} misslyckades ({e})")
+    return True
+
+
+def _operativa_rader(oid, vo) -> List[Dict]:
+    ors = [f'dim_objekt_id.eq.{oid}']
+    if vo:
+        ors.insert(0, f'vo_nummer.eq.{vo}')
+    return _rest_get('objekt', {'select': 'id,namn,status,typ,vo_nummer,dim_objekt_id', 'or': f"({','.join(ors)})"})
+
+
 def auto_avslut(data: Dict) -> None:
-    """Prod-fil in → sätt skordning/skotning_avslutad när maskinen flyttat vidare (filerna vet) och
-    avsluta när båda är satta. SKRÄPFILTER (ar_kundjobb): bolag satt OCH inte en per-maskin-nyckel
-    (<maskin_id>_<n>). En människas satta flaggor rörs ALDRIG. Styrs av AUTO_AVSLUT_LAGE. Egna fel får
-    aldrig fälla importen."""
+    """Prod-fil in → sätt skordning/skotning_avslutad när maskinen flyttat vidare och avsluta när båda är
+    satta. Har filens objekt en objekt-rad (planeringen) gäller avslut_operativt för raden — oavsett bolag
+    och per-maskin-nyckel. Annars den gamla regeln per dim-nyckel med SKRÄPFILTRET (ar_kundjobb). En
+    människas satta flaggor rörs ALDRIG. Styrs av AUTO_AVSLUT_LAGE. Egna fel får aldrig fälla importen."""
     try:
         import urllib.parse
         tagg = '' if AUTO_AVSLUT_LAGE == 'skriv' else '[logga] '
@@ -5312,6 +5483,9 @@ def auto_avslut(data: Dict) -> None:
             if not oid or oid in sedda:
                 continue
             sedda.add(oid)
+            rader = [r for r in _operativa_rader(oid, vo) if r.get('status') != 'avslutat']
+            if rader and all(avslut_operativt(r) for r in rader):
+                continue
             if not ar_kundjobb(oid, vo):  # bolag tomt (flytt/service/bärgning/egen skog) ELLER per-maskin-nyckel → aldrig
                 continue
             r = utvardera_avslut(oid, vo)
@@ -5338,6 +5512,68 @@ def auto_avslut(data: Dict) -> None:
                 _avsluta_objekt_rest(oid, vo, r['namn'], tagg)
     except Exception as e:
         logger.warning(f"  Auto-avslut: oväntat fel ({e})")
+
+
+# ── STATUS-SVEP (alla öppna objekt, inte bara de en fil rör) ─────────────────────────────────────
+# auto_status_pagaende/auto_avslut körs annars bara när en FIL kommer in på objektet. Lass som föraren
+# rapporterar i appen (Elefant, 810E) ger ingen fil, och en trakt vars sista lass kom i appen prövades
+# aldrig — Mölleryd hade båda flaggorna satta 26 okt och stod som pågående 4 nov. Svepet kör SAMMA två
+# regler (samma lägen, samma skrivningar, inget nytt sätt att skriva) på varje öppet objekt med aktivitet.
+STATUS_SVEP_SEK = 15 * 60
+
+
+def _svep_maskiner(oid) -> set:
+    """Maskiner med aktivitet på importens objekt_id: senaste skördaren + alla skotare i helikopter_lass."""
+    m = set()
+    for r in _rest_get('fakt_produktion', {'select': 'maskin_id', 'objekt_id': f'eq.{oid}', 'order': 'datum.desc', 'limit': '1'}):
+        if r.get('maskin_id'):
+            m.add(r['maskin_id'])
+    for r in _rest_get(LASS_KALLA, {'select': 'maskin_id', 'objekt_id': f'eq.{oid}'}):
+        if r.get('maskin_id'):
+            m.add(r['maskin_id'])
+    return m
+
+
+def status_svep() -> None:
+    """Pröva statusreglerna på alla planerade/oplanerade/pågående objekt. Egna fel får aldrig fälla importen."""
+    try:
+        kandidater = _rest_get('objekt', {'select': 'id,namn,typ,vo_nummer,dim_objekt_id,status',
+                                          'status': 'in.(planerad,oplanerad,pagaende)'})
+        provade = 0
+        sedda = set()
+        for o in kandidater:
+            # Avslut per objekt-rad (alla dess dim-nycklar ihop); GROT/energiklippning faller till den gamla nedan.
+            ny_regel = avslut_operativt(o)
+            if ny_regel:
+                provade += 1
+            vo = (o.get('vo_nummer') or '').strip() or None
+            ors = []
+            if vo:
+                ors.append(f'vo_nummer.eq.{vo}')
+            if o.get('dim_objekt_id'):
+                ors.append(f"objekt_id.eq.{o['dim_objekt_id']}")
+            if not ors:
+                continue
+            for d in _rest_get('dim_objekt', {'select': 'objekt_id', 'or': f"({','.join(ors)})"}):
+                oid = d.get('objekt_id')
+                if not oid or oid in sedda:
+                    continue
+                sedda.add(oid)
+                maskiner = sorted(_svep_maskiner(oid))
+                if not maskiner:
+                    continue  # ingen aktivitet → inget att pröva
+                objekt_rad = [{'objekt_id': oid, 'vo_nummer': vo}]
+                # Status per maskin (varje maskin matas av sin egen kö-rad), avslut EN gång per objekt
+                # (annars dubbla loggrader och en falsk "produktion på avslutat objekt" från nästa maskin).
+                for maskin_id in maskiner:
+                    auto_status_pagaende({'maskin': {'maskin_id': maskin_id}, 'filnamn': 'status-svep', 'objekt': objekt_rad})
+                if not ny_regel:
+                    auto_avslut({'maskin': {'maskin_id': maskiner[0]}, 'filnamn': 'status-svep', 'objekt': objekt_rad})
+                    provade += 1
+        logger.info(f"Status-svep: {len(kandidater)} öppna objekt, {provade} prövningar "
+                    f"(status {AUTO_STATUS_LAGE}, avslut {AUTO_AVSLUT_LAGE})")
+    except Exception as e:
+        logger.warning(f"  Status-svep: oväntat fel ({e})")
 
 
 def har_namn(sortiment: Dict) -> bool:
@@ -6507,8 +6743,12 @@ def start_watching():
     observer.start()
     
     try:
+        senaste_svep = time.monotonic()
         while True:
             time.sleep(1)
+            if time.monotonic() - senaste_svep >= STATUS_SVEP_SEK:
+                senaste_svep = time.monotonic()
+                status_svep()
     except KeyboardInterrupt:
         observer.stop()
         logger.info("\nÖvervakning avslutad.")
@@ -6613,7 +6853,10 @@ def main():
 
     # Processa befintliga filer först
     process_existing_files()
-    
+
+    # Pröva statusreglerna på alla öppna objekt (också de vars lass bara finns i appen)
+    status_svep()
+
     # Starta övervakning
     print("\n" + "="*50)
     print("Vill du starta automatisk övervakning?")

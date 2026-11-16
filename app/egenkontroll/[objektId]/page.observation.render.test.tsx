@@ -46,6 +46,7 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
     hamtaRunda: () => hamtaRunda(),
     // Ryggraden: kompletteringen vid oppning ar inte det som provas har - en deterministisk stubb, aldrig ett riktigt nat-anrop.
     kompletteraRunda: async () => ({ tillagda: [] }),
+    kompletteraVader: async () => ({ fyllt: false, skal: 'test' }),
     hamtaFoton: async () => [{ id: 'f1', egenkontroll_id: 'runda-1', punkt_id: 'o1', provyta_id: null, sokvag: 'runda-1/o1-1.jpg', tackningsgrad: null, lat: null, lng: null, tagen: null, skapad: '2026-10-17T09:00:00Z' }],
     hamtaProvytor: async () => [],
     hamtaNoteringar: async () => [],

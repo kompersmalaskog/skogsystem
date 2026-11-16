@@ -14,9 +14,11 @@ import Falt from '@/components/design/Falt';
 import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning';
 import { AVSTAND, FARG, KNAPP, RADIE, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT, designCss, kolumnRot } from '@/lib/design/tokens';
 import { datumText } from '@/lib/arbetsmiljo/introduktion';
+import { allvarligaForst } from '@/lib/riskbedomning';
+import { AllvarligText, AllvarligVal } from './Allvarlig';
 import {
   ALLA_LASER, MASKINTYPER, TYP_BESTAMD, TYP_NAMN, antalText, attLasa, borttagna, godkann, hamtaBedomningar, hamtaKvitton, kvittera, lage, laggTill, lastTid, lista,
-  sparaListan, synligForForare, taBort, taTillbaka, typForMaskin, underlag,
+  mindreKolumnFinns, sattAllvarlig, sparaListan, synligForForare, taBort, taTillbaka, typForMaskin, underlag,
   type Bedomning, type Kvitto, type Lage, type MaskinRisk, type MaskinTyp,
 } from '@/lib/arbetsmiljo/maskinRisk';
 
@@ -219,7 +221,9 @@ export default function MaskinRisker() {
               {arAdmin && l !== 'godkand' && (
                 <div data-testid="mr-lage" style={{ ...TYP.text, color: FARG.orange, marginBottom: AVSTAND.l }}>{LAGE_TEXT[l]}</div>
               )}
-              <RiskLista risker={risker} hoger={arAdmin ? (r) => (
+              <RiskLista risker={arAdmin ? risker : allvarligaForst(risker)}
+                onAllvarlig={arAdmin && mindreKolumnFinns && !sparar ? (r, ja) => spara(valt, sattAllvarlig(b, r.nyckel, ja)) : undefined}
+                hoger={arAdmin ? (r) => (
                 <button type="button" data-testid={`mr-bort-${r.nyckel}`} disabled={sparar} onClick={() => spara(valt, taBort(b, r.nyckel))}
                   style={{ ...KNAPP.tertiar, minHeight: TRAFFYTA.min, flexShrink: 0 }}>{r.egen ? 'Ta bort' : 'Gäller inte'}</button>
               ) : undefined} />
@@ -279,7 +283,7 @@ export default function MaskinRisker() {
   );
 }
 
-function RiskLista({ risker, hoger }: { risker: MaskinRisk[]; hoger?: (r: MaskinRisk) => ReactNode }) {
+function RiskLista({ risker, hoger, onAllvarlig }: { risker: MaskinRisk[]; hoger?: (r: MaskinRisk) => ReactNode; onAllvarlig?: (r: MaskinRisk, allvarlig: boolean) => void }) {
   if (risker.length === 0) return <div style={{ ...TYP.text, color: FARG.text2 }}>Inga risker kvar. Lägg till eller ta tillbaka.</div>;
   return (
     <div style={{ background: FARG.upphojt, borderRadius: RADIE.kort, overflow: 'hidden' }}>
@@ -288,6 +292,9 @@ function RiskLista({ risker, hoger }: { risker: MaskinRisk[]; hoger?: (r: Maskin
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ ...TYP.listtitel, color: FARG.text }}>{r.risk}</div>
             <div style={{ ...TYP.text, color: FARG.text, marginTop: AVSTAND.xs }}>{r.atgard}</div>
+            {onAllvarlig
+              ? <div data-testid={`mr-allvar-${r.nyckel}`} style={{ marginTop: AVSTAND.s }}><AllvarligVal allvarlig={r.allvarlig} onVal={(ja) => onAllvarlig(r, ja)} /></div>
+              : <div style={{ ...TYP.meta, marginTop: AVSTAND.xs }}><AllvarligText allvarlig={r.allvarlig} /></div>}
           </div>
           {hoger?.(r)}
         </div>

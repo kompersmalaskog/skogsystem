@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import type { Viewport } from "next";
 import { autentisera, kanRedigera } from "@/lib/resurs-auth";
-import ResursSida from "./ResursSida";
+import FordonSida from "@/components/fordon/FordonSida";
 
-export const metadata = { title: "Kontroller" };
+export const metadata = { title: "Fordon" };
 export const dynamic = "force-dynamic";
 
 export const viewport: Viewport = {
@@ -16,5 +16,5 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const { id } = await params;
   const { user, roll } = await autentisera();
   if (!user) redirect("/login");
-  return <ResursSida id={id} kanRedigera={kanRedigera(roll)} />;
+  return <FordonSida id={id} kanRedigera={kanRedigera(roll)} />;
 }

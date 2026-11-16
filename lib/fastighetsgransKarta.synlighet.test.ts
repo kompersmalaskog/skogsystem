@@ -5,8 +5,6 @@
 //   FEL 2 — "nedtoningen ser omvänd ut": urvalet var rätt men styrkan för svag mot ett flygfoto. Här prövas att traktdelarna är LJUSARE än varje nedtonad fastighet, på mörk och ljus
 //           bakgrund, med de riktiga polygonerna (hela uppsättningen, md5-kontrollerad mot prod).
 // Funktionerna som körs i webbläsaren är de RIKTIGA (lib/fastighetsgransKarta.ts buntad med esbuild), inte en kopia. Finns ingen Chromium hoppas kartdelen över.
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -14,18 +12,9 @@ import { build } from 'esbuild';
 import { byggRagang, provpunkter, traktdelarUr } from './fastighetsgrans';
 import { DEFAULT_MAP_LAYERS, lasSparadeLager } from './hooks/useMapLayers';
 import { LM_GRANS, NEDTONING_UTANFOR, RAGANG_LAGER_ORDNING, ragangLager, fastighetsSynlighet } from './fastighetsgransKarta';
+import { hittaChromium, KARTA_ARGS } from './testStod/chromium';
 
-function chromium(): { launch: (o: object) => Promise<any> } | null {
-  try {
-    const rot = execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    const pw = createRequire(path.join(rot, 'x.js'))('playwright');
-    const mapp = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-    const ver = fs.readdirSync(mapp).filter((n) => /^chromium-\d+$/.test(n)).sort().pop();
-    const exe = ver && path.join(mapp, ver, 'chrome-linux', 'chrome');
-    if (!exe || !fs.existsSync(exe)) return null;
-    return { launch: (o) => pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'], ...o }) };
-  } catch { return null; }
-}
+const chromium = () => hittaChromium(KARTA_ARGS);
 const CHROMIUM = process.env.FASTIGHET_UTAN_CHROMIUM ? null : chromium();
 const MAPLIBRE = path.join(process.cwd(), 'node_modules/maplibre-gl/dist');
 const FC = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'lib/__fixtures__/fastighetsgrans_stankelsmala.json'), 'utf8'));

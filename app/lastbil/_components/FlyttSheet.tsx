@@ -20,6 +20,7 @@ import TidArk from './TidArk';
 import { fakturerasPaTid, sparadMin, useTraillertid } from './useTraillertid';
 import { fmtTid, timmarForFaktura } from '@/lib/flytt/traillertid';
 import { usePlatsData, type PlatsData, type PlatsKandidat } from './usePlatsData';
+import { giltigPosition, nyPlatsNamn, skapaFlyttplats, type Position } from './nyPlats';
 
 type Vy = 'huvud' | 'maskin' | 'fran' | 'till' | 'typ' | 'stryk';
 type Plats = { objekt: string | null; plats: string | null };
@@ -102,8 +103,24 @@ function ValAlternativ({ namn, sub, valt, onTryck }: { namn: string; sub?: strin
   );
 }
 
-function PlatsValjare({ platser, valt, onVal }: { platser: readonly PlatsKandidat[]; valt: Plats; onVal: (p: Plats) => void }) {
+function PlatsValjare({ platser, valt, onVal, dar, darOrd, onNy }: {
+  platser: readonly PlatsKandidat[]; valt: Plats; onVal: (p: Plats) => void;
+  /** Där bilen stod (lastade/lossade): den nya platsens position. */
+  dar: Position | null; darOrd: string;
+  /** "+ Ny plats": skapar platsen och väljer den. Returnerar felet, eller null när det gick. */
+  onNy: (namn: string) => Promise<string | null>;
+}) {
   const [sok, setSok] = useState('');
+  const [nySparar, setNySparar] = useState(false);
+  const [nyFel, setNyFel] = useState<string | null>(null);
+  const nyNamn = nyPlatsNamn(sok, platser);
+  async function skapaNy() {
+    if (!nyNamn || nySparar) return;
+    setNySparar(true); setNyFel(null);
+    const fel = await onNy(nyNamn);
+    setNySparar(false);
+    if (fel) setNyFel(`Kunde inte spara platsen: ${fel}`);
+  }
   const traffar = useMemo(() => {
     const q = sok.trim().toLocaleLowerCase('sv');
     if (!q) return platser.filter(p => p.slag === 'plats');
@@ -118,9 +135,17 @@ function PlatsValjare({ platser, valt, onVal }: { platser: readonly PlatsKandida
         {traffar.map(p => <ValAlternativ key={`${p.slag}:${p.id}`} namn={p.namn} sub={p.slag === 'plats' ? 'Plats' : 'Trakt'} valt={ärValt(p)}
           onTryck={() => onVal(p.slag === 'objekt' ? { objekt: p.id, plats: null } : { objekt: null, plats: p.id })} />)}
         {traffar.length === 0 && <p style={{ ...TYP.meta, color: FARG.text2, margin: 0, padding: `${AVSTAND.m}px 0` }}>Ingen träff på "{sok.trim()}".</p>}
+        {nyNamn && (
+          <div data-ny-plats>
+            <ValAlternativ namn={nySparar ? 'Sparar …' : `+ Ny plats: ${nyNamn}`}
+              sub={dar ? `Sparas där bilen ${darOrd}` : `Utan position — bilens plats när den ${darOrd} saknas`}
+              valt={false} onTryck={skapaNy} />
+          </div>
+        )}
         <ValAlternativ namn="Okänd plats" valt={!valt.objekt && !valt.plats} onTryck={() => onVal({ objekt: null, plats: null })} />
       </div>
-      {!sok.trim() && <p style={{ ...TYP.meta, color: FARG.text2, margin: 0 }}>Skriv för att söka bland {antalTrakter} trakter.</p>}
+      {nyFel && <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>{nyFel}</p>}
+      {!sok.trim() && <p style={{ ...TYP.meta, color: FARG.text2, margin: 0 }}>Skriv för att söka bland {antalTrakter} trakter — eller skriv namnet på en ny plats.</p>}
     </div>
   );
 }
@@ -202,6 +227,13 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   // Tiden (flytt över 3 mil) bor här, under FAKTURA: "Tid · 2 h 17 min ›" öppnar tidsvyn i samma ark (Martin 2026-10-24: ett kort = ett tryck).
   const [tidVy, setTidVy] = useState(false);
   const [tidSparadMin, setTidSparadMin] = useState<number | null>(null);
+  /** Kvittot efter att tiden sparats: "Sparad nu" under raden en stund, så man ser att trycket gick fram. */
+  const [tidKvitto, setTidKvitto] = useState(false);
+  useEffect(() => {
+    if (!tidKvitto) return;
+    const t = setTimeout(() => setTidKvitto(false), 6000);
+    return () => clearTimeout(t);
+  }, [tidKvitto]);
   const tidUnderlag = useMemo(() => (u ? [u] : null), [u]);
   const tidLas = useTraillertid(tidUnderlag);
 
@@ -258,11 +290,11 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   const tidForslag = u ? (tidLas.lage.lage === 'klar' ? tidLas.lage.forslag.get(u.id) ?? null : tidLas.lage.lage === 'fel' ? null : undefined) : undefined;
   if (tidVy && u) {
     return (
-      <TidArk maskin={titel} forslag={tidForslag ?? null} sparadMin={tidMin} last={!!u.fakturerad_tid}
+      <TidArk maskin={titel} forslag={tidForslag} sparadMin={tidMin} last={!!u.fakturerad_tid}
         onStang={() => setTidVy(false)}
         onSpara={async min => {
           const svar = await sparaTraillertid(u.id, timmarForFaktura(min));
-          if (svar.ok) { setTidSparadMin(min); setTidVy(false); onAndrad(); } else if (svar.utdaterad) onAndrad();
+          if (svar.ok) { setTidSparadMin(min); setTidKvitto(true); setTidVy(false); onAndrad(); } else if (svar.utdaterad) onAndrad();
           return svar;
         }} />
     );
@@ -270,11 +302,12 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   const tidRad = u && fakturerasPaTid(u) ? (
     <ValRad etikett="Tid" onTryck={u.fakturerad_tid ? undefined : () => setTidVy(true)}
       varde={tidMin != null ? fmtTid(tidMin) : tidForslag === undefined ? 'Läser …' : 'Saknas'}
-      notis={tidMin != null ? null
+      notis={tidKvitto ? `Sparad nu — ${tidMin != null ? fmtTid(tidMin) : ''} faktureras`
+        : tidMin != null ? null
         : tidForslag?.lage === 'ok' ? `Förslag ${fmtTid(tidForslag.min)} — tryck för att spara`
         : tidForslag?.lage === 'saknas' ? `${tidForslag.orsak} — ställ in tiden själv`
         : tidForslag === null ? 'Kunde inte läsa rundan — ställ in tiden själv' : null}
-      notisFarg={FARG.orange} />
+      notisFarg={tidKvitto ? FARG.gron : FARG.orange} />
   ) : null;
 
   // ── Låst: allt läsbart, inga chevrons, inga redigeringsknappar, en grå rad som säger varför ──
@@ -478,7 +511,17 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
     innehall = <MaskinValjare maskiner={data!.maskiner} maskinId={f.maskinId} extern={f.extern} onVal={v => { set({ maskinId: v.maskinId, extern: v.extern }); setVy('huvud'); }} />;
   } else if (vy === 'fran' || vy === 'till') {
     const valt = vy === 'fran' ? f.fran : f.till;
-    innehall = <PlatsValjare platser={data!.platser} valt={valt} onVal={p => { set(vy === 'fran' ? { fran: p } : { till: p }); setVy('huvud'); }} />;
+    const dar = vy === 'fran' ? giltigPosition(flytt.fran_lat, flytt.fran_lng) : giltigPosition(flytt.till_lat, flytt.till_lng);
+    const valjPlats = (p: Plats) => { set(vy === 'fran' ? { fran: p } : { till: p }); setVy('huvud'); };
+    innehall = <PlatsValjare platser={data!.platser} valt={valt} onVal={valjPlats}
+      dar={dar} darOrd={vy === 'fran' ? 'lastade' : 'lossade'}
+      onNy={async nyttNamn => {
+        const svar = await skapaFlyttplats(nyttNamn, dar, namn);
+        if (!svar.ok) return svar.fel;
+        platsLage.laggTill(svar.plats);
+        valjPlats({ objekt: null, plats: svar.plats.id });
+        return null;
+      }} />;
   } else if (vy === 'typ') {
     innehall = (
       <div role="listbox" aria-label="Typ" style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>

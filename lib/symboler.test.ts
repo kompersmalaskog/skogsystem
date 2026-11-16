@@ -31,8 +31,8 @@ describe('formen säger allvar', () => {
   it('symbolens form kommer ur gruppen — varje symbol, utan undantag', () => {
     for (const typ of SYMBOL_TYPER) expect(symbolDef(typ).form, typ).toBe(GRUPPER[SYMBOL_GRUPP[typ] ?? 'info'].form);
   });
-  it('Jakttorn och Markkabel är Röda (triangel), Grind är Info (cirkel)', () => {
-    expect([symbolDef('huntingtower').grupp, symbolDef('huntingtower').form]).toEqual(['fara', 'triangel']);
+  it('Markkabel är Röd (triangel); Jakttorn och Grind är Info (cirkel) — jakttornet är ingen fara (Martin 2026-11-12)', () => {
+    expect([symbolDef('huntingtower').grupp, symbolDef('huntingtower').form]).toEqual(['info', 'cirkel']);
     expect([symbolDef('groundcable').grupp, symbolDef('groundcable').form]).toEqual(['fara', 'triangel']);
     expect([symbolDef('gate').grupp, symbolDef('gate').form]).toEqual(['info', 'cirkel']);
   });
@@ -128,8 +128,6 @@ describe('inga kopior av glyfer, former och färger', () => {
     for (const [t, f] of Object.entries(SYMBOL_FORKLARING)) expect(String(f).toLowerCase(), t).not.toContain('lastbil');
   });
   it('de gamla kopiorna är borta: briefingens ICON_SVG/ICON_BG och markeringsikonernas egna SVG-banor', () => {
-    const briefing = lasa('app/planering/TraktBriefing.tsx');
-    expect(briefing).not.toMatch(/ICON_SVG|ICON_BG\b/);
     expect(lasa('lib/marker-icons.ts')).not.toMatch(/<path d="M/);
   });
   it('symbol- och ytkoden skriver ingen grupp-hex själv (färgen kommer ur lib/larm/grupper)', () => {

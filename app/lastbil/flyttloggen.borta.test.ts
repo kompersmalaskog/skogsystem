@@ -44,10 +44,10 @@ describe('Flyttloggen är riven (steg 4)', () => {
   });
 
   it('hemskärmen har inget Flyttlogg-kort och inget Maskinflytt-kort (steg 3) — bara Lastbilen', () => {
-    const hem = readFileSync(join(ROT, 'app', 'HomeClient.tsx'), 'utf8');
-    expect(hem).not.toMatch(/label: 'Flyttlogg'/);
+    const hem = readFileSync(join(ROT, 'lib', 'vyer.ts'), 'utf8');
+    expect(hem).not.toMatch(/namn: 'Flyttlogg'/);
     expect(hem).toContain("href: '/lastbil'");
-    expect(hem).not.toMatch(/label: 'Maskinflytt'/);
+    expect(hem).not.toMatch(/namn: 'Maskinflytt'/);
   });
 
   it('den döda vyn är borta', () => {

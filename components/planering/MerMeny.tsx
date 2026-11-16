@@ -19,6 +19,8 @@ export interface MerMenyProps {
   grupper: MerGrupp[];
   planerare: PlanerarData | null;
   avsluta: (() => void) | null;
+  /** Objektet avslutades av appen (maskinerna gick vidare). Planeraren kan säga "Inte klar – fortsätt". null = ingen rad. */
+  fortsatt?: { skal: string; onTryck: () => void; sparar?: boolean; fel?: string | null } | null;
   onTillbaka: () => void;
   onStang: () => void;
 }
@@ -27,7 +29,7 @@ function Rad({ r, forst }: { r: MerRad; forst: boolean }) {
   return <RadKnapp forstaRad={forst} testid={`mer-${r.id}`} ikon={r.ikon} etikett={r.etikett} under={r.under} farg={r.farlig ? FARG.rod : undefined} onTryck={r.onTryck} pil={!r.farlig} />;
 }
 
-export default function MerMeny({ objektNamn, grupper, planerare, avsluta, onTillbaka, onStang }: MerMenyProps) {
+export default function MerMeny({ objektNamn, grupper, planerare, avsluta, fortsatt, onTillbaka, onStang }: MerMenyProps) {
   return (
     <>
       <Huvud titel="Mer" tillbaka={objektNamn} onTillbaka={onTillbaka} onStang={onStang} />
@@ -66,6 +68,15 @@ export default function MerMeny({ objektNamn, grupper, planerare, avsluta, onTil
             </section>
           );
         })}
+        {fortsatt && (
+          <section data-testid="mer-grupp-fortsatt">
+            <Rubrik>Avslutad av appen</Rubrik>
+            <Gruppkort>
+              <RadKnapp forstaRad testid="mer-fortsatt" ikon="replay" etikett={fortsatt.sparar ? 'Sparar …' : 'Inte klar – fortsätt'}
+                under={fortsatt.fel ?? fortsatt.skal} farg={fortsatt.fel ? FARG.orange : undefined} onTryck={fortsatt.sparar ? () => {} : fortsatt.onTryck} pil={false} />
+            </Gruppkort>
+          </section>
+        )}
         {avsluta && (
           <section data-testid="mer-grupp-avsluta">
             <Gruppkort>

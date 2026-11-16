@@ -2,7 +2,7 @@
 
 // Appens ramverk runt varje sida: toppfält, versionskoll, startvakt, push, köerna och innehållet under toppfältet.
 // UNDANTAG: besökssidan för markägaren (/besok/<token>) är öppen utan inloggning och ska inte ha något av det här — inget toppfält med hemknapp, inga köer, ingen push-registrering,
-// ingen medarbetarlookup. Där renderas bara sidan själv.
+// ingen medarbetarlookup. Där renderas bara sidan själv. Samma för skotarlänken (/skotare/<token>, en extern skotare).
 
 import React from 'react'
 import { usePathname } from 'next/navigation'
@@ -14,15 +14,18 @@ import MarkeringSynkStartare from './MarkeringSynkStartare'
 import KartkommentarStartare from './KartkommentarStartare'
 import SkotarLassStartare from './SkotarLassStartare'
 import NodStartare from './NodStartare'
+import FartLoggStartare from './FartLoggStartare'
 import VersionChecker from './VersionChecker'
 import AppStartVakt from './AppStartVakt'
 import { CurrentMedarbetareProvider } from '@/lib/CurrentMedarbetareContext'
 import { LAYOUT } from '@/lib/design/tokens'
 import { arBesoksSida } from '@/lib/besok/offentlig'
+import { arSkotarSida } from '@/lib/skotarlank/offentlig'
 
 export default function AppRamverk({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? ''
   if (arBesoksSida(pathname)) return <>{children}</>
+  if (arSkotarSida(pathname)) return <>{children}</>
   return (
     <>
       <TopBar />
@@ -35,6 +38,7 @@ export default function AppRamverk({ children }: { children: React.ReactNode }) 
       <KartkommentarStartare />
       <SkotarLassStartare />
       <NodStartare />
+      <FartLoggStartare />
       <CurrentMedarbetareProvider>
         {/* Innehållet börjar under toppfältet — samma mått som TopBar (tokens LAYOUT). */}
         <div style={{ paddingTop: LAYOUT.topbar }}>

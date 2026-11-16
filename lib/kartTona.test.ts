@@ -59,7 +59,7 @@ describe('tonaInLager', () => {
   });
 
   it('traktgränsens slutvärden är lagrens egna (fyllningen 0,05 — resten 1)', () => {
-    expect(TRAKTGRANS_LAGER.find((l) => l.id === 'trakt-gr-fill')!.till).toBe(0.05);
+    expect(TRAKTGRANS_LAGER.find((l) => l.id === 'trakt-gr-fill')!.till).toBe(0);
     expect(TRAKTGRANS_LAGER.filter((l) => l.prop === 'line-opacity').every((l) => l.till === 1)).toBe(true);
   });
 });

@@ -5,13 +5,12 @@
 // Hoppas över om det inte finns någon Chromium — det står i testnamnet. PERSONAL_SKRIV=<mapp> sparar skärmbilderna.
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import PersonalClient, { PERSONAL_DELAD_FRAN_PX } from './PersonalClient';
-import { FARG, KOLUMN, TRAFFYTA } from '@/lib/design/tokens';
+import { FARG, KOLUMN, TRAFFYTA, FONT } from '@/lib/design/tokens';
+import { hittaChromium } from '../../lib/testStod/chromium';
 
 vi.mock('@/lib/arbetsmiljo/introduktion', async (orig) => ({
   ...(await orig<typeof import('@/lib/arbetsmiljo/introduktion')>()),
@@ -28,21 +27,7 @@ const SKARMAR = [
   { namn: 'dator 1440', w: 1440, h: 900 },
 ];
 
-function chromium(): { launch: (o: object) => Promise<any> } | null {
-  for (const las of [
-    () => createRequire(import.meta.url)('playwright'),
-    () => createRequire(path.join(
-      execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(), 'x.js'))('playwright'),
-  ]) {
-    try {
-      const pw = las();
-      const exe = pw.chromium.executablePath();
-      if (!exe || !fs.existsSync(exe)) continue;
-      return { launch: (o) => pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox'], ...o }) };
-    } catch { /* nästa väg */ }
-  }
-  return null;
-}
+const chromium = () => hittaChromium();
 const CHROMIUM = chromium();
 
 // Långa namn och långa statusrader — det är där en rad krockar först.
@@ -75,7 +60,7 @@ async function html(adress: string): Promise<string> {
 const sida = (inner: string) =>
   `<!doctype html><html><head><meta charset="utf-8">`
   + `<meta name="viewport" content="width=device-width,initial-scale=1">`
-  + `<style>html,body{margin:0;background:${FARG.bg};color:${FARG.text};font-family:system-ui,sans-serif}`
+  + `<style>html,body{margin:0;background:${FARG.bg};color:${FARG.text};font-family:${FONT}}`
   // Ikonfonten finns inte här: behåll glyfens ruta så att raden mäts lika bred som den riktiga.
   + `.material-symbols-outlined{font-size:0 !important;display:inline-block;width:18px;height:18px}</style></head>`
   + `<body>${inner}</body></html>`;

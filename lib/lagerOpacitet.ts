@@ -13,7 +13,7 @@ import { LAGER_OP_MAX, LAGER_OP_MIN, REGLAGE_STEG, STYRKA_MAX, STYRKA_MIN, opaci
 export const RASTER_STANDARD: Record<string, number> = {
   nyckelbiotoper: 0.7, naturvarde: 0.7, sumpskog: 0.7, wetlands: 0.7, biotopskydd: 0.7, naturvardsavtal: 0.7, skoghistoria: 0.7, avverkningsanmalan: 0.7,
   utfordavverkning: 0.7, fornlamningar: 0.7, naturreservat: 0.7, natura2000: 0.7, vattenskydd: 0.7, oversvamning: 0.7, jordarter: 0.7, barighet: 0.7,
-  kraftledningar: 0.7, sks_markfuktighet: 0.7, sks_virkesvolym: 0.7, sks_tradhojd: 0.7, sks_lutning: 0.7, sks_gallringsindex: 0.7,
+  kraftledningar: 0.7, sks_markfuktighet: 0.7, sks_diken: 0.9, sks_virkesvolym: 0.7, sks_tradhojd: 0.7, sks_lutning: 0.7, sks_gallringsindex: 0.7,
   lm_skuggning: 0.35, lm_ortofoto: 1, lm_ortofoto_ir: 1, nmd_tradslag: 0.65, hydrografi: 0.7,
   korbarhet: 0.7, vidaKartbild: 0.8,
 };

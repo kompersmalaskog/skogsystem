@@ -181,7 +181,7 @@ export default function LastbilVy() {
                     <p role="status" data-lass-kvitto style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px ${AVSTAND.xs}px 0` }}>{kvitto}</p>
                   )}
                 </div>
-                <BilenNuKort lage={nu.lage} onForsokIgen={nu.forsokIgen} />
+                <BilenNuKort lage={nu.lage} onForsokIgen={nu.forsokIgen} onOppnaRunda={setValdRunda} />
                 {arAdmin && (
                   <>
                     {harAttGora && (

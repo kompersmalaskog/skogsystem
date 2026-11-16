@@ -31,7 +31,9 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { SIDA, DAMPAD, SEKUNDAR, TEXT, LINJE, TAL, nf, nf0, nf1, kortObjekt,
          Tillbakarad, Rubrikrad, Stort, Damp, Kontroll, Mening, Rad, Rader, Teknisk, Stycken } from '@/components/Ytform';
 import { Sortimentstapel, Teckenforklaring, VadPosternaBestarAv, sortimentFarg } from '@/components/Sortimentstapel';
-import { RADIE } from '@/lib/design/tokens';
+import { RADIE, AVSTAND } from '@/lib/design/tokens';
+import Flikkontroll from '@/components/design/Flikkontroll';
+import type { Tradslag } from '@/lib/medelstam/las';
 import {
   TYPER, SORTIMENT, SORTIMENT_NAMN, FONSTER_REL, RUBRIKTAL, MIN_OBJEKT, MIN_STAMMAR, tolkaMedelstam, heltalTill100, andelarAv, delaUrval, LOV_GRANS, utfall, kurva,
   planarUt, rotaLutning, rotaMedian, type Objekt, type Typ, type Platå, type Andelar, type Sortiment,
@@ -49,7 +51,13 @@ const decimaler = (t: Typ) => (t === 'Slutavverkning' ? 2 : 3);
 /** Under så här många procent timmer räknas ett objekts timmer som "nästan inget" — används i förklaringen av gallringens rubriktal. */
 const LAGT_TIMMER_PCT = 3;
 
-type Lokalt = { typ: Typ; ms: Partial<Record<Typ, string>>; rot: string };
+/** Alla trädslag, eller bara gran eller tall (bara slutavverkning). */
+type Val = 'alla' | Tradslag;
+const VAL: readonly (readonly [Val, string])[] = [['alla', 'Alla'], ['gran', 'Gran'], ['tall', 'Tall']];
+/** Medelstamsfältet minns ett värde per avverkningstyp och per trädslag — granens medelstam är inte traktens. */
+type MsNyckel = Typ | Tradslag;
+
+type Lokalt = { typ: Typ; ms: Partial<Record<MsNyckel, string>>; rot: string; tradslag?: Val };
 
 // localStorage är en bekvämlighet per webbläsare, aldrig sanning: läs i try/catch och klara oss utan.
 function lasLokalt(): Partial<Lokalt> {
@@ -173,13 +181,16 @@ export type Props = {
   vy: Vy;
   fran?: Vy;                      // skärmen man kom från till en undernivå (Så räknas, Utanför) — dit leder ‹
   gaTill: (vy: Vy, fran?: Vy) => void;
-  start?: { typ?: Typ; ms?: string; rot?: string };   // för rendering utan lagring (verifiering)
+  start?: { typ?: Typ; ms?: string; rot?: string; tradslag?: Val };   // för rendering utan lagring (verifiering)
   msAdress?: string | null;       // ?ms=0,50 från Räknas tabell: öppna slutavverkning på just den medelstammen
+  tradslag?: Record<Tradslag, Objekt[]> | null;   // gran och tall var för sig (slutavverkning); null/saknas = inget val
+  tsAdress?: Tradslag | null;     // ?ts=gran från Räknas tabell: öppna på granens medelstam
 };
 
-export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fran, gaTill, start, msAdress }: Props) {
+export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fran, gaTill, start, msAdress, tradslag, tsAdress }: Props) {
   const [typ, setTyp] = useState<Typ>(start?.typ ?? 'Slutavverkning');
-  const [msText, setMsText] = useState<Partial<Record<Typ, string>>>(start?.ms != null ? { [start.typ ?? 'Slutavverkning']: start.ms } : {});
+  const [valTs, setValTs] = useState<Val>(start?.tradslag ?? 'alla');
+  const [msText, setMsText] = useState<Partial<Record<MsNyckel, string>>>(start?.ms != null ? { [start.tradslag && start.tradslag !== 'alla' ? start.tradslag : (start.typ ?? 'Slutavverkning')]: start.ms } : {});
   const [rotVal, setRotVal] = useState<string>(start?.rot ?? '');     // '' = medianen ur datan
   const [laddatLokalt, setLaddatLokalt] = useState(false);
 
@@ -189,30 +200,38 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fra
       if (l.typ && TYPER.includes(l.typ)) setTyp(l.typ);
       if (l.ms) setMsText(l.ms);
       if (typeof l.rot === 'string') setRotVal(l.rot);
+      if (l.tradslag && VAL.some(([v]) => v === l.tradslag)) setValTs(l.tradslag);
       if (msAdress && tolkaMedelstam(msAdress) != null) {
         setTyp('Slutavverkning');
-        setMsText(t => ({ ...t, Slutavverkning: msAdress }));
+        setValTs(tsAdress ?? 'alla');
+        setMsText(t => ({ ...t, [tsAdress ?? 'Slutavverkning']: msAdress }));
       }
     }
     setLaddatLokalt(true);
-  }, [start, msAdress]);
-  useEffect(() => { if (laddatLokalt && !start) sparaLokalt({ typ, ms: msText, rot: rotVal }); }, [typ, msText, rotVal, laddatLokalt, start]);
+  }, [start, msAdress, tsAdress]);
+  useEffect(() => { if (laddatLokalt && !start) sparaLokalt({ typ, ms: msText, rot: rotVal, tradslag: valTs }); }, [typ, msText, rotVal, valTs, laddatLokalt, start]);
 
   const urval = useMemo(() => delaUrval(alla), [alla]);       // lövdominerade objekt ligger i urval.utanfor — redovisas, räknas inte
-  const objTyp = useMemo(() => urval.med.filter(o => o.typ === typ), [urval, typ]);
-  const utanforTyp = useMemo(() => urval.utanfor.filter(o => o.typ === typ).sort((a, b) => (b.lov ?? 0) / b.volym - (a.lov ?? 0) / a.volym), [urval, typ]);
-  const fonster = FONSTER_REL;
   const slut = typ === 'Slutavverkning';
+  // Gran eller tall: varje slutavverkning räknad på trädslagets egna stammar. Bara slutavverkning — gallringen har inga celler per trädslag.
+  const ts: Tradslag | null = slut && tradslag && valTs !== 'alla' ? valTs : null;
+  const tsObjekt = ts && tradslag ? tradslag[ts] : null;
+  const objTyp = useMemo(() => tsObjekt ?? urval.med.filter(o => o.typ === typ), [tsObjekt, urval, typ]);
+  const utanforTyp = useMemo(() => ts ? [] : urval.utanfor.filter(o => o.typ === typ).sort((a, b) => (b.lov ?? 0) / b.volym - (a.lov ?? 0) / a.volym), [ts, urval, typ]);
+  const msNyckel: MsNyckel = ts ?? typ;
+  const tsNamn = ts === 'gran' ? 'gran' : ts === 'tall' ? 'tall' : null;
+  const fonster = FONSTER_REL;
   const rubrik: Sortiment = RUBRIKTAL[typ];
   const rubrikNamn = SORTIMENT_NAMN[rubrik].toLowerCase();
   const dec = decimaler(typ);
   const ms = (x: number) => nf(x, dec);
-  const lutning = useMemo(() => (slut ? rotaLutning(urval.med) : null), [urval, slut]);
-  const median = meta.rot20_median ?? rotaMedian(urval.med);
+  // Röta: för ett trädslag skattas lutning och median på trädslagets egna objekt (tall har för få objekt för en lutning).
+  const lutning = useMemo(() => (slut ? rotaLutning(tsObjekt ?? urval.med) : null), [tsObjekt, urval, slut]);
+  const median = tsObjekt ? rotaMedian(tsObjekt) : (meta.rot20_median ?? rotaMedian(urval.med));
   const rotNum = rotVal === '' ? median : Number(rotVal) / 100;
   const kanRota = slut && rotLasbar && lutning != null && median != null;
 
-  const text = msText[typ] ?? forvalMs(objTyp, dec);
+  const text = msText[msNyckel] ?? forvalMs(objTyp, dec);
   const m = tolkaMedelstam(text);
   const u = useMemo(() => (m == null ? null : utfall(objTyp, m, kanRota ? rotNum : null, kanRota ? lutning : null, fonster)), [objTyp, m, kanRota, rotNum, lutning, fonster]);
 
@@ -231,6 +250,12 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fra
         <Tillbakarad href={fran && fran !== 'huvud' ? `${BAS}?vy=${fran}` : BAS} text={tillbakaText} />
         <Stycken>
           <p style={para}>Kurvan räknas bara på objekt som levereras till Vida.</p>
+          {tsNamn && (
+            <p style={para}>
+              {stor(tsNamn)}: varje slutavverkning räknas bara på sina {tsNamn === 'gran' ? 'granar' : 'tallar'}. Medelstammen är {tsNamn === 'gran' ? 'granarnas' : 'tallarnas'} egen
+              (volym delat med antal), andelarna är av {tsNamn}ens volym, och bara objekt med minst {nf0(MIN_STAMMAR)} {tsNamn === 'gran' ? 'granar' : 'tallar'} är med.
+            </p>
+          )}
           {u && !u.forFa && (
             <p style={para}>Fönstret just nu är {intervall.replace(' och ', '–')} m³/stam, ±{nf0(100 * fonster)} % av {ms(u.m)}. Objekten i fönstret ligger inom det.</p>
           )}
@@ -246,7 +271,7 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fra
           )}
           {slut && !kanRota && (
             <p style={para}>
-              Rötan går inte att räkna in: {!rotLasbar ? 'objektens rötandel är inte läsbar för din inloggning ännu' : 'för få slutavverkningar med mätt röta'}.
+              Rötan går inte att räkna in: {!rotLasbar ? 'objektens rötandel är inte läsbar för din inloggning ännu' : tsNamn ? `för få objekt med ${tsNamn} för att skatta hur rötan påverkar` : 'för få slutavverkningar med mätt röta'}.
               Talen är fönstrets rena volymvägda snitt, utan justering för röta.
             </p>
           )}
@@ -272,7 +297,7 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fra
           Andelen är volymvägd: summan av sortimentets volym delad med summan av volymen för objekten inom ±{nf0(100 * fonster)} % av vald
           medelstam — inte medianen av deras procenttal. Färre än {nf0(MIN_OBJEKT)} objekt ger inget tal. Spannet är lägsta–högsta objekt.
           {kanRota && lutning && ` Röta: lutningen är skattad över ${nf0(lutning.n)} slutavverkningar — timmer ${nf(lutning.koef.timmer / 100, 2)} procentenheter per procentenhet röta — och fönstret flyttas från sin egen röta till den valda.`}
-          {' '}Bygger på {nf0(objTyp.length)} {typMany(typ)}{Number.isFinite(sedan) ? ` sedan ${sedan}` : ''}, minst {nf0(MIN_STAMMAR)} stammar var
+          {' '}Bygger på {nf0(objTyp.length)} {typMany(typ)}{tsNamn ? ` med ${tsNamn}` : ''}{Number.isFinite(sedan) ? ` sedan ${sedan}` : ''}, minst {nf0(MIN_STAMMAR)} stammar var
           {utanforTyp.length > 0 ? ` (${nf0(utanforTyp.length)} lövdominerat utanför)` : ''}
           {uppdaterad ? `, uppdaterat ${new Date(uppdaterad).toLocaleDateString('sv-SE')}` : ''}.
         </Teknisk>
@@ -329,7 +354,7 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fra
     return (
       <div style={SIDA}>
         <Tillbakarad href={BAS} text={tillbakaText} />
-        <Stort tal={nf0(objTyp.length)} ordrad={`${typMany(typ)} längs medelstamsaxeln`} />
+        <Stort tal={nf0(objTyp.length)} ordrad={`${typMany(typ)}${tsNamn ? ` med ${tsNamn}` : ''} längs medelstamsaxeln`} />
         <div style={{ margin: '0 16px' }}>
           {objTyp.length > 0 && <Kurvdiagram objekt={objTyp} m={m} ms={ms} />}
           <Teckenforklaring />
@@ -347,7 +372,7 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fra
   const h: Andelar | null = u && !u.forFa && u.andel ? heltalTill100(u.andel) : null;
   const sp = u?.spann ?? null;
   const intSpann = (s: Sortiment) => (sp ? `${nf0(sp[s][0])}–${nf0(sp[s][1])} %` : '–');
-  const ordrad = m == null ? 'skriv en medelstam' : u?.forFa ? 'för få objekt här' : `av volymen blir ${rubrikNamn}`;
+  const ordrad = m == null ? 'skriv en medelstam' : u?.forFa ? 'för få objekt här' : `av ${tsNamn ? `${tsNamn}ens volym` : 'volymen'} blir ${rubrikNamn}`;
   const finns = objTyp.length > 0;
 
   return (
@@ -356,17 +381,22 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fra
       <Rubrikrad text={typ} value={typ} label="Avverkningstyp" onChange={v => setTyp(v as Typ)}>
         {TYPER.map(t => <option key={t} value={t}>{t}</option>)}
       </Rubrikrad>
+      {slut && tradslag && (
+        <div style={{ margin: `${AVSTAND.s}px ${AVSTAND.l}px 0` }}>
+          <Flikkontroll flikar={VAL} aktiv={valTs} onVal={setValTs} />
+        </div>
+      )}
 
       {!finns ? (
-        <Stort tal="–" ordrad={`inga ${typMany(typ)} räknade`}>
+        <Stort tal="–" ordrad={`inga ${typMany(typ)}${tsNamn ? ` med ${tsNamn}` : ''} räknade`}>
           <Damp>Tabellen fylls efter nästa import.</Damp>
         </Stort>
       ) : (
         <>
-          <Falt etikett="Medelstam" sub={m == null && text.trim() ? 'Skriv medelstammen som ett tal, till exempel 0,47.' : undefined}>
+          <Falt etikett={tsNamn ? `Medelstam ${tsNamn}` : 'Medelstam'} sub={m == null && text.trim() ? 'Skriv medelstammen som ett tal, till exempel 0,47.' : undefined}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <input value={text} inputMode="decimal" onFocus={e => e.target.select()} aria-label="Medelstam i kubikmeter per stam" placeholder={forvalMs(objTyp, dec)}
-                onChange={e => setMsText(t => ({ ...t, [typ]: e.target.value }))} style={RUTA} />
+                onChange={e => setMsText(t => ({ ...t, [msNyckel]: e.target.value }))} style={RUTA} />
               <span style={{ fontSize: 13, color: DAMPAD }}>m³ per stam</span>
             </div>
             {/* Remsan visas när underlaget är för tunt — då är den vägen till en medelstam som har objekt. Annars bor den i Så räknas. */}

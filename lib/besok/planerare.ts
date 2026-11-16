@@ -1,7 +1,7 @@
 // Planerarens sida av besöksflödet: raderna i loggen ("Besök") och SMS-raden. Rena funktioner — hooken läser, komponenten ritar.
 
 import { loggTid, klockslag } from './tid';
-import { forstaNamn } from '@/app/oversikt-v2/sms';
+import { forstaNamn } from '@/app/oversikt/sms';
 
 export type BesokRad = { id: string; namn: string; telefon: string; besokstid: string; skapad_at: string };
 export type KvittensRad = { besok_id: string; maskin_id: string; roll: string | null; forare_id: string | null; kvitterad_at: string; testlage: boolean };

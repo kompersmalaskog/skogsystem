@@ -44,3 +44,16 @@ describe('ytaKameraPadding — ytan hamnar i den del av kartan som syns', () => 
     expect(ytaKameraPadding('ark', o)).toEqual({ top: 96, bottom: Math.round(844 * ARK_HOJD_ANDEL) + 64, left: 64, right: 64 });
   });
 });
+
+describe('ytaGeo — "Kör upp och backa" (Martin 2026-11-12: raden gick inte att trycka på)', () => {
+  const pil = { id: 77, isArrow: true, arrowType: 'koruppbacka', lng: 14.7, lat: 56.4, lng2: 14.701, lat2: 56.401, skal: 'brant' };
+  const svg = () => ({ lat: 0, lon: 0 });
+  it('pilen är en linje från start till slut, med ram runt den', () => {
+    const g = ytaGeo({ nyckel: 'korupp:77', features: [], markers: [pil], svgToLatLon: svg })!;
+    expect(g.geometri).toEqual({ type: 'LineString', coordinates: [[14.7, 56.4], [14.701, 56.401]] });
+    expect(g.bounds).toEqual([[14.7, 56.4], [14.701, 56.401]]);
+  });
+  it('pilen borta → null (raden gör ingenting)', () => {
+    expect(ytaGeo({ nyckel: 'korupp:78', features: [], markers: [pil], svgToLatLon: svg })).toBeNull();
+  });
+});
