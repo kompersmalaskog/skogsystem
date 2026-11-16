@@ -40,21 +40,21 @@ describe('numreraObjekt — när får en yta en siffra på kartan?', () => {
     expect([n.bitNr.get('nord:0'), n.bitNr.get('syd:0')]).toEqual([1, 2]);
   });
 
-  it('har objektet Vidas hänsyn-nummer visas siffror även för EN yta (Vidas nummer är facit)', () => {
-    const n = numreraObjekt({ hansynLopnr: [1, 2], bitar: [bit('a:0', 56.2, 14.9)], granser: [] });
-    expect(n.visaBitNummer).toBe(true);
-    expect(n.bitNr.get('a:0')).toBe(3);   // vidaMax + 1
+  it('Skälviken (Martin 2026-11-01): hänsyn 3–9 och EN del → delen får ingen siffra (inte "8"); hänsyn påverkar inte områdena', () => {
+    const n = numreraObjekt({ hansynLopnr: [3, 4, 5, 6, 7, 8, 9], bitar: [bit('a:0', 56.2, 14.9)], granser: [] });
+    expect(n.visaBitNummer).toBe(false);
+    expect(n.bitNr.get('a:0')).toBe(1);
   });
 
-  it('Hålabäck au 2025 (prod): hänsyn 1–5 + tre delar → delarna 6, 7, 8 och nästa lediga område 9', () => {
+  it('Hålabäck au 2025 (prod): hänsyn 1–5 + tre delar → delarna 1, 2, 3 (egen serie) och nästa lediga område 4', () => {
     const n = numreraObjekt({
       hansynLopnr: [1, 2, 3, 4, 5],
       bitar: [bit('131940:0', 56.357, 15.051), bit('131966:0', 56.353, 15.0505), bit('131966:1', 56.353, 15.0597)],
       granser: [],
     });
-    expect(Array.from(n.bitNr.entries())).toEqual([['131940:0', 6], ['131966:0', 7], ['131966:1', 8]]);
+    expect(Array.from(n.bitNr.entries())).toEqual([['131940:0', 1], ['131966:0', 2], ['131966:1', 3]]);
     expect(n.visaBitNummer).toBe(true);
-    expect(n.nastaGransNr).toBe(9);
+    expect(n.nastaGransNr).toBe(4);
   });
 
   it('en "Justera gräns"-kopia av den enda delen är SAMMA yta (ärver numret, räknas inte som egen) → fortfarande ensam yta', () => {
@@ -78,16 +78,16 @@ describe('numreraObjekt — när får en yta en siffra på kartan?', () => {
 
 describe('egna ritade ytor i nummerserien', () => {
   const bit = (partKey: string, lat: number, lng: number) => ({ partKey, centroid: { lat, lng } });
-  it('fortsätter efter Vidas hänsyn och traktdelarna (Skälviken: Vida 3–7, en del = 8, egen Hänsyn = 9)', () => {
+  it('fortsätter efter Vidas hänsyn, i en egen serie (Skälviken: Vida 3–7, egen Hänsyn = 8; delen är område 1)', () => {
     const n = numreraObjekt({ hansynLopnr: [3, 4, 5, 6, 7], bitar: [bit('a:0', 56.2, 14.9)], granser: [], zoner: [{ id: 1761000000000 }] });
-    expect(n.bitNr.get('a:0')).toBe(8);
-    expect(n.zonNr.get('1761000000000')).toBe(9);
+    expect(n.bitNr.get('a:0')).toBe(1);
+    expect(n.zonNr.get('1761000000000')).toBe(8);
     expect(n.visaZonNummer).toBe(true);
   });
-  it('nästa nya område hoppar över ytans nummer', () => {
+  it('områdena och ytorna delar inte nummer: nästa nya område tar 1 även när en yta heter 2', () => {
     const n = numreraObjekt({ hansynLopnr: [1], bitar: [], granser: [], zoner: [{ id: 5 }] });
     expect(n.zonNr.get('5')).toBe(2);
-    expect(n.nastaGransNr).toBe(3);
+    expect(n.nastaGransNr).toBe(1);
   });
   it('en del och en ritad yta: ingen siffra på någon av dem (traktdelen får inte plötsligt en siffra)', () => {
     const n = numreraObjekt({ hansynLopnr: [], bitar: [bit('a:0', 56.2, 14.9)], granser: [], zoner: [{ id: 5 }] });
