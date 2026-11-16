@@ -51,7 +51,7 @@ describe('vad besökssidan får: exakt de fält sidan visar', () => {
     const sb = varld({ tabeller: { hyttspar: [punkt('skordare', 56.351, 15.051, min(2)), punkt('skotare', 56.349, 15.049, min(5))] } });
     const r = await publikVy(sb, TOKEN, { nu: NU });
     expect(r.status).toBe(200);
-    expect(Object.keys(r.body).sort()).toEqual(['besok', 'framsteg', 'gallring', 'gran', 'harMotorsag', 'klarDatum', 'lage', 'maskiner', 'mitt', 'motorsag', 'namn', 'ok', 'ring', 'ringM', 'roller', 'skog', 'uppdaterad', 'utforare']);
+    expect(Object.keys(r.body).sort()).toEqual(['besok', 'framsteg', 'gallring', 'gran', 'harMotorsag', 'klarDatum', 'lage', 'lopp', 'maskiner', 'mitt', 'motorsag', 'namn', 'ok', 'ring', 'ringM', 'roller', 'skog', 'uppdaterad', 'utforare']);
     expect(r.body.lage).toBe('pagar');
     const json = JSON.stringify(r.body);
     for (const hemligt of ['Hemligsson', '0709999999', '11251359', '1000', 'forare_id', 'Stefan', 'points', 'volym', 'token', 'uppdaterad_at']) expect(json.includes(hemligt), hemligt).toBe(false);

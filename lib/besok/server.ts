@@ -19,6 +19,7 @@ import { maskinEtikett, maskinerPaObjekt } from './maskinerPaBesok';
 import { arKantzon, certIntro, harVed, skogRader, tolkaCert, type SkogRad } from './skogen';
 import { raknaMiljo, tolkaAreal } from '@/lib/miljokrav';
 import { lasVed, vedSammanfattning } from '@/lib/klarTrakt';
+import { byggLopp } from './lopp';
 
 type Sb = SupabaseClient;
 export type Svar = { status: number; body: Record<string, unknown> };
@@ -88,7 +89,9 @@ export type PublikSkog = {
   kantzon: [number, number][][];
   ved: { text: string; plats: Pos | null } | null;
 };
-type Tung = { gran: [number, number][][] | null; motorsag: Pos[]; harMotorsag: boolean; framsteg: { procent: number | null; klartCa: string | null }; skog: PublikSkog; ring: { namn: string; telefon: string } | null };
+type Tung = { gran: [number, number][][] | null; motorsag: Pos[]; harMotorsag: boolean; framsteg: { procent: number | null; klartCa: string | null }; skog: PublikSkog; ring: { namn: string; telefon: string } | null;
+  /** underlaget till loppet: har maskinerna kört något, och är delarna avslutade (dim_objekt). Inga volymer. */
+  gjort: { skordat: boolean; skotat: boolean; skordningKlar: boolean; skotningKlar: boolean; egenSkotning: boolean } };
 
 
 async function tungDel(sb: Sb, o: ObjektRad, nu: Date): Promise<Tung> {
@@ -102,6 +105,7 @@ async function tungDel(sb: Sb, o: ObjektRad, nu: Date): Promise<Tung> {
   const prickar: Prick[] = [];
   let antal = { evighetstrad: 0, hogstubbar: 0 };
   let vedPin: Pos | null = null;
+  let harKultur = false;
   const m = await sb.from('planering_markeringar').select('typ, data').eq('objekt_id', o.id);
   if (!m.error && Array.isArray(m.data)) {
     const rader = m.data as { typ: string | null; data: Record<string, unknown> | null }[];
@@ -110,6 +114,7 @@ async function tungDel(sb: Sb, o: ObjektRad, nu: Date): Promise<Tung> {
     const natur = rader.filter((r) => ['eternitytree', 'naturecorner', 'highstump'].includes(typ(r)));
     const ved = rader.filter((r) => typ(r) === 'firewood');
     harMotorsag = fall.length > 0;
+    harKultur = rader.some((r) => ['culturemonument', 'culturestump'].includes(typ(r)) || ['culture', 'fornlamning'].includes(String((r.data as { zoneType?: unknown } | null)?.zoneType ?? '')));
     antal = raknaMiljo(natur.map((r) => ({ type: typ(r), antal: (r.data as { antal?: number } | null)?.antal ?? null })));
     if (fall.length || natur.length || ved.length) {
       const beslut = beslutaOrigo({ objekt: { lat: o.lat, lng: o.lng, kartbild_bounds: o.kartbild_bounds }, punkter: markeringsPunkter(rader), granser: markeringsGranser(rader), vida });
@@ -134,6 +139,7 @@ async function tungDel(sb: Sb, o: ObjektRad, nu: Date): Promise<Tung> {
   if (!g.error && Array.isArray(g.data)) {
     for (const rad of g.data as { geometri?: { features?: unknown[] } | null }[]) {
       for (const f of (rad?.geometri?.features ?? []) as { properties?: Record<string, unknown>; geometry?: { type?: string; coordinates?: unknown } }[]) {
+        if (String(f?.properties?._typ ?? '') === 'fornlämning') harKultur = true;
         if (!arKantzon(f?.properties)) continue;
         const geo = f.geometry;
         const polys = geo?.type === 'Polygon' ? [geo.coordinates] : geo?.type === 'MultiPolygon' ? (geo.coordinates as unknown[]) : [];
@@ -147,7 +153,7 @@ async function tungDel(sb: Sb, o: ObjektRad, nu: Date): Promise<Tung> {
   const ved = harVed(vedRaw) ? { text: vedSammanfattning(lasVed(vedRaw)).replace(/^Ved:\s*/, ''), plats: vedPin ?? (() => { const v = lasVed(vedRaw); return v.lat != null && v.lng != null ? { lat: v.lat, lng: v.lng } : null; })() } : null;
   const skog: PublikSkog = {
     intro: certIntro(cert),
-    rader: skogRader({ typ: o.typ ?? null, cert, arealHa: tolkaAreal(o.areal), grot: !!o.grot, evighetstrad: antal.evighetstrad, hogstubbar: antal.hogstubbar, harEvighetstradPos: prickar.some((p) => p.typ === 'evighetstrad'), harHogstubbePos: prickar.some((p) => p.typ === 'hogstubbe'), harKantzon: kantzon.length > 0 }),
+    rader: skogRader({ typ: o.typ ?? null, cert, arealHa: tolkaAreal(o.areal), grot: !!o.grot, evighetstrad: antal.evighetstrad, hogstubbar: antal.hogstubbar, harEvighetstradPos: prickar.some((p) => p.typ === 'evighetstrad'), harHogstubbePos: prickar.some((p) => p.typ === 'hogstubbe'), harKantzon: kantzon.length > 0, harKultur }),
     prickar: certIntro(cert) && String(o.typ ?? '').toLowerCase() === 'slutavverkning' ? prickar : [],
     kantzon: certIntro(cert) ? kantzon : [],
     ved,
@@ -155,6 +161,7 @@ async function tungDel(sb: Sb, o: ObjektRad, nu: Date): Promise<Tung> {
 
   // Framsteg: volymer summeras av databasen (besok_volymer) och lämnar aldrig servern. Går funktionen inte att anropa (migrationen ej körd) utelämnas framsteget — ärligt tomt.
   let framsteg: Tung['framsteg'] = { procent: null, klartCa: null };
+  const gjort: Tung['gjort'] = { skordat: false, skotat: false, skordningKlar: false, skotningKlar: false, egenSkotning: false };
   try {
     const alt = await hamtaAltNummer(sb, o.id);
     const ids = Array.from(new Set([...(o.vo_nummer ? hogarObjektIds(o.vo_nummer, alt) : []), ...(o.dim_objekt_id ? [o.dim_objekt_id] : [])]));
@@ -165,7 +172,16 @@ async function tungDel(sb: Sb, o: ObjektRad, nu: Date): Promise<Tung> {
         const dagar = (kalla: string): DagVolym[] => rader.filter((r) => r.kalla === kalla).map((r) => ({ datum: String(r.datum).slice(0, 10), m3: Number(r.m3) }));
         const sk = dagar('skordat'), st = dagar('skotat');
         const summa = (d: DagVolym[]) => d.reduce((s, x) => s + (Number.isFinite(x.m3) ? x.m3 : 0), 0);
+        gjort.skordat = summa(sk) > 0; gjort.skotat = summa(st) > 0;
         framsteg = beraknaFramsteg({ planeradM3: o.volym, skordatM3: sk.length ? summa(sk) : null, skotatM3: summa(st), skordatPerDag: sk, skotatPerDag: st, idag: idagStockholm(nu) });
+      }
+      // Avslutsdatumen per del (sätts av sig själva när maskinen gått vidare). Går de inte att läsa står stegen som "pågår".
+      const dm = await sb.from('dim_objekt').select('skordning_avslutad, skotning_avslutad, egen_skotning').in('objekt_id', ids);
+      if (!dm.error && Array.isArray(dm.data)) {
+        const dr = dm.data as { skordning_avslutad?: string | null; skotning_avslutad?: string | null; egen_skotning?: boolean | null }[];
+        gjort.skordningKlar = dr.some((x) => !!x.skordning_avslutad);
+        gjort.skotningKlar = dr.some((x) => !!x.skotning_avslutad);
+        gjort.egenSkotning = dr.some((x) => x.egen_skotning === true);
       }
     }
   } catch { /* framsteget utelämnas */ }
@@ -181,7 +197,7 @@ async function tungDel(sb: Sb, o: ObjektRad, nu: Date): Promise<Tung> {
   }
   if (!ring && FORETAG_TELEFON.trim()) ring = { namn: 'Kompersmåla Skog', telefon: FORETAG_TELEFON.trim() };
 
-  return { gran, motorsag, harMotorsag, framsteg, skog, ring };
+  return { gran, motorsag, harMotorsag, framsteg, skog, ring, gjort };
 }
 
 // ---- Maskinerna på trakten (hyttspårets SENASTE punkt per roll) -----------------------------------------------------------------------------
@@ -272,6 +288,7 @@ export async function publikVy(sb: Sb, token: string, opt: { besokId?: string | 
       besok,
       skog: tung.skog,
       ring: tung.ring,
+      lopp: byggLopp({ gallring: String(o.typ ?? '').toLowerCase() === 'gallring', avslutat: klar, harSkordat: tung.gjort.skordat, harSkotat: tung.gjort.skotat, skordningKlar: tung.gjort.skordningKlar, skotningKlar: tung.gjort.skotningKlar, egenSkotning: tung.gjort.egenSkotning, roller }),
     },
   };
 }

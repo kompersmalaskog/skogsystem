@@ -3,7 +3,9 @@
 // Markägarens länk (/besok/<token>): öppen utan inloggning, telefon, svart iOS-stil. EN länk, TVÅ lägen efter NÄR man öppnar den (Martin 2026-11-10):
 //  • MEDAN VI JOBBAR — "Ska du gå ut i skogen?": kartan med maskinerna och deras röda ringar, regeln under kartan, en rad per fara med VARFÖR
 //    (lib/besok/sakerhet), vem man ringer och EN knapp "Anmäl besök" → anmälan → under besöket (vilka maskiner som sett det, "Jag har gått härifrån").
-//    Inget om certifiering här, och inget "% klart".
+//    Inget "% klart" och inget klart-datum. Överst LOPPET (lib/besok/lopp, Martin 2026-11-16): var i kedjan är vi — rubriken är svaret ("Skördaren arbetar nu").
+//    Längst ner "Det här kommer du att se": samma saker som förklaras när vi är klara, som bilder, så att markägaren vet innan han ser hygget.
+//    Säkerheten ligger kvar FÖRE det. Inga antal medan vi jobbar (de växer) — kvittot kommer när vi är klara.
 //  • NÄR VI ÄR KLARA — "Varför ser det ut så här?": kartan och bara de rader som gäller trakten (lib/besok/skogen). Länken lever 60 dagar efter avslut.
 //    Kommer man tillbaka till länken under ett pågående besök öppnas besöket direkt.
 // Inga förarnamn, inga spår, inga volymer, ingen röta, inget klart-datum. Texterna står i lib/besok (sakerhet, skogen, status) — inte här.
@@ -24,6 +26,8 @@ import { VANTAR_TEXT, kvitteringsRader, maskinStatusRader } from '@/lib/besok/st
 import { CERT_FORKLARING, KARTA_UNGEFAR, type SkogRad } from '@/lib/besok/skogen';
 import { malbildInnehall } from '@/lib/malbilder';
 import { PUBLIK_POLL_MS } from '@/lib/besok/konstanter';
+import { LAGE_ORD, type Lopp } from '@/lib/besok/lopp';
+import { SKOG_BILD } from '@/lib/besok/bilder';
 
 const BesokKarta = dynamic(() => import('./BesokKarta'), { ssr: false, loading: () => <div style={{ height: 300, borderRadius: RADIE.kort, background: FARG.kort }} /> });
 
@@ -48,6 +52,7 @@ type Vy = {
   besok: { id: string; besokstid: string; gatt?: string | null; kvitteringar: { roll: MaskinRoll; tid: string }[]; maskiner?: { etikett: string; roll: MaskinRoll; tid: string | null }[] } | null;
   skog?: { intro: string | null; rader: SkogRad[]; prickar: (Pos & { typ: 'evighetstrad' | 'hogstubbe' })[]; kantzon: [number, number][][]; ved: { text: string; plats: Pos | null } | null };
   ring?: { namn: string; telefon: string } | null;
+  lopp?: Lopp | null;
 };
 type Slut = { fel: string; status: number };
 /** skog = sidan (medan vi jobbar eller när vi är klara) · anmal/under = besökets två steg. */
@@ -143,7 +148,7 @@ export default function BesokKlient({ token }: { token: string }) {
   if (vy.lage === 'klar') sida = <KlarVy vy={vy} token={token} onRad={setRad} onCert={() => setCertArk(true)} />;
   else if (lage === 'anmal') sida = <AnmalSteg token={token} onTillbaka={() => setLage('skog')} onSkickat={(id) => { sparaAnmalan(token, id); startBeslut.current = true; setBesokId(id); setLage('under'); }} />;
   else if (lage === 'under') sida = <UnderSteg vy={vy} token={token} onTillbaka={() => setLage('skog')} onGatt={() => { glomAnmalan(token); setBesokId(null); setLage('skog'); setKvitto('Tack! Förarna vet att du har gått.'); }} />;
-  else sida = <PagarVy vy={vy} token={token} pagar={pagar} kvitto={kvitto} onBesok={() => { setKvitto(null); setLage(pagar ? 'under' : 'anmal'); }} onSkotare={() => setSkotarArk(true)} />;
+  else sida = <PagarVy vy={vy} token={token} pagar={pagar} kvitto={kvitto} onBesok={() => { setKvitto(null); setLage(pagar ? 'under' : 'anmal'); }} onSkotare={() => setSkotarArk(true)} onRad={setRad} />;
 
   return (
     <>
@@ -157,7 +162,7 @@ export default function BesokKlient({ token }: { token: string }) {
           </div>
         </Ark>
       )}
-      {rad && <SkogArk rad={rad} vy={vy} token={token} onStang={() => setRad(null)} />}
+      {rad && <SkogArk rad={rad} vy={vy} token={token} kvitto={vy.lage === 'klar'} onStang={() => setRad(null)} />}
       {certArk && (
         <Ark rubrik={CERT_FORKLARING.rubrik} stang="Klar" onStang={() => setCertArk(false)}>
           <div data-testid="besok-certark" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m, paddingBottom: AVSTAND.m }}>
@@ -171,27 +176,24 @@ export default function BesokKlient({ token }: { token: string }) {
 
 // ---- MEDAN VI JOBBAR: "Ska du gå ut i skogen?" -----------------------------------------------------------------------------------------------
 
-function PagarVy({ vy, token, pagar, kvitto, onBesok, onSkotare }: { vy: Vy; token: string; pagar: boolean; kvitto: string | null; onBesok: () => void; onSkotare: () => void }) {
+function PagarVy({ vy, token, pagar, kvitto, onBesok, onSkotare, onRad }: { vy: Vy; token: string; pagar: boolean; kvitto: string | null; onBesok: () => void; onSkotare: () => void; onRad: (r: SkogRad) => void }) {
   const rader = useMemo(() => sakerhetsRader({ roller: vy.roller, harMotorsag: vy.harMotorsag }), [vy.roller, vy.harMotorsag]);
   const karta: KartaData = useMemo(() => ({ token, mitt: vy.mitt, gran: vy.gran, maskiner: vy.maskiner, motorsag: vy.motorsag, ringM: vy.ringM }), [token, vy.mitt, vy.gran, vy.maskiner, vy.motorsag, vy.ringM]);
-  const arbetar = vy.maskiner.length > 0;
+  const skogRader = vy.skog?.rader ?? [];
   return (
     <div data-testid="besok-sida" data-lage="pagar" style={{ ...ROT, paddingBottom: medSafeBotten(96) }}>
       <header style={{ paddingTop: TOPP }}>
         <div data-testid="besok-namn" style={{ ...TYP.meta, color: FARG.text2 }}>{vy.namn} · {vy.utforare}</div>
-        <h1 style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.titel }}>Ska du gå ut i skogen?</h1>
+        <h1 data-testid="besok-lopp-rubrik" style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.titel }}>{vy.lopp?.rubrik ?? 'Ska du gå ut i skogen?'}</h1>
       </header>
+
+      {vy.lopp && <LoppKort lopp={vy.lopp} />}
 
       {kvitto && <div data-testid="besok-kvitto" role="status" style={{ ...KORT, marginTop: AVSTAND.l, ...TYP.listtitel, color: FARG.gron }}>✓ {kvitto}</div>}
 
-      {arbetar && (
-        <div data-testid="besok-arbetar" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.l, ...TYP.listtitel, color: FARG.gul }}>
-          <span aria-hidden="true" style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: '50%', background: FARG.gul, flexShrink: 0 }} />
-          Maskinerna arbetar här just nu
-        </div>
-      )}
+      {vy.lopp && <Rubrik>Ska du gå ut i skogen?</Rubrik>}
 
-      <section style={{ marginTop: AVSTAND.m }}>
+      <section style={{ marginTop: vy.lopp ? 0 : AVSTAND.m }}>
         <BesokKarta data={karta} hojd={280} />
         <div data-testid="besok-ringregel" style={{ display: 'flex', gap: AVSTAND.s, alignItems: 'flex-start', marginTop: AVSTAND.s, ...TYP.text }}>
           <span aria-hidden="true" style={{ width: AVSTAND.m, height: AVSTAND.m, marginTop: AVSTAND.xs, borderRadius: '50%', border: `2px dashed ${FARG.rod}`, flexShrink: 0, boxSizing: 'border-box' }} />
@@ -218,10 +220,61 @@ function PagarVy({ vy, token, pagar, kvitto, onBesok, onSkotare }: { vy: Vy; tok
 
       {vy.ring && <RingRad ring={vy.ring} />}
 
+      {skogRader.length > 0 && (
+        <section data-testid="besok-kommer-se">
+          <Rubrik>Det här kommer du att se</Rubrik>
+          <SkogKort rader={skogRader} onRad={onRad} max={SKOGKORT_MAX} />
+          {!vy.gallring && vy.skog?.intro && <p data-testid="besok-meningen" style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Det är meningen. {vy.skog.intro}</p>}
+        </section>
+      )}
+
       <FastKnapp>
         <button type="button" data-testid="besok-kommer" onClick={onBesok} style={KNAPP.primar}>{pagar ? 'Ditt besök' : 'Anmäl besök'}</button>
       </FastKnapp>
     </div>
+  );
+}
+
+/** Loppet: var i kedjan är vi? Grön bock = klart, vit = pågår, grå ring = kommer sen. Ordet står alltid bredvid — färgen bär aldrig ensam. */
+function LoppKort({ lopp }: { lopp: Lopp }) {
+  return (
+    <section data-testid="besok-lopp" style={{ ...KORT, marginTop: AVSTAND.l, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
+      {lopp.steg.map((s) => (
+        <div key={s.id} data-testid={`besok-steg-${s.id}`} data-lage={s.lage} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
+          <span aria-hidden="true" style={{ width: AVSTAND.xl, height: AVSTAND.xl, borderRadius: '50%', flexShrink: 0, boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', background: s.lage === 'klar' ? FARG.gron : s.lage === 'pagar' ? FARG.text : 'transparent', border: s.lage === 'vantar' ? `2px solid ${FARG.text3}` : 'none' }}>
+            {s.lage === 'klar' && <Ikon namn="check" storlek={AVSTAND.l} farg={FARG.bg} />}
+          </span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', ...TYP.listtitel, color: s.lage === 'vantar' ? FARG.text2 : FARG.text }}>{s.namn}</span>
+            <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{s.text}</span>
+          </span>
+          <span style={{ ...TYP.meta, color: s.lage === 'klar' ? FARG.gron : s.lage === 'pagar' ? FARG.text : FARG.text2, whiteSpace: 'nowrap' }}>{LAGE_ORD[s.lage]}</span>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/** Så många kort visas medan vi jobbar innan resten ligger bakom "Visa fler" — fyra är vad man orkar se. */
+export const SKOGKORT_MAX = 4;
+
+/** "Det här kommer du att se" / "Det här lämnade vi": en bild per sak med ett par ord. Ett tryck öppnar förklaringen. `medVarde` = kvittot (bara när vi är klara). */
+function SkogKort({ rader, onRad, max, medVarde = false }: { rader: SkogRad[]; onRad: (r: SkogRad) => void; max?: number; medVarde?: boolean }) {
+  const [alla, setAlla] = useState(false);
+  const visas = !alla && max != null && rader.length > max ? rader.slice(0, max) : rader;
+  return (
+    <>
+      <div data-testid="besok-skogkort" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: AVSTAND.s }}>
+        {visas.map((r) => (
+          <button key={r.id} type="button" data-testid={`besok-skograd-${r.id}`} onClick={() => onRad(r)} style={{ display: 'block', minHeight: TRAFFYTA.min, padding: AVSTAND.s, background: FARG.kort, border: 'none', borderRadius: RADIE.kort, color: FARG.text, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}>
+            <span aria-hidden="true" style={{ display: 'block', lineHeight: 0, borderRadius: RADIE.rad, overflow: 'hidden', background: FARG.upphojt }} dangerouslySetInnerHTML={{ __html: SKOG_BILD[r.id] }} />
+            <span style={{ display: 'block', marginTop: AVSTAND.s, ...TYP.listtitel }}>{medVarde && r.varde ? `${r.varde} ${r.namn.toLowerCase()}` : r.namn}</span>
+            <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{r.varfor}</span>
+          </button>
+        ))}
+      </div>
+      {visas.length < rader.length && <button type="button" data-testid="besok-skogkort-fler" onClick={() => setAlla(true)} style={{ ...KNAPP.lank, paddingLeft: 0, minHeight: TRAFFYTA.min }}>Visa {rader.length - visas.length} till</button>}
+    </>
   );
 }
 
@@ -271,19 +324,10 @@ function KlarVy({ vy, token, onRad, onCert }: { vy: Vy; token: string; onRad: (r
       </section>
 
       {rader.length > 0 && (
-        <section data-testid="besok-skogen" style={{ marginTop: AVSTAND.l, background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
-          {rader.map((r, i) => (
-            <button key={r.id} type="button" data-testid={`besok-skograd-${r.id}`} onClick={() => onRad(r)} style={{ ...radStil(i === 0), cursor: 'pointer' }}>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', ...TYP.listtitel }}>{r.namn}</span>
-                <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{r.varfor}</span>
-              </span>
-              {r.varde && <span style={{ ...TYP.listtitel, ...TNUM, whiteSpace: 'nowrap' }}>{r.varde}</span>}
-              <Ikon namn="chevron_right" farg={FARG.text3} />
-            </button>
-          ))}
+        <section data-testid="besok-skogen" style={{ marginTop: AVSTAND.l }}>
+          <SkogKort rader={rader} onRad={onRad} medVarde />
           {!vy.gallring && skog?.intro && (
-            <button type="button" data-testid="besok-cert" onClick={onCert} style={{ ...radStil(false), cursor: 'pointer' }}>
+            <button type="button" data-testid="besok-cert" onClick={onCert} style={{ ...radStil(true), marginTop: AVSTAND.s, background: FARG.kort, borderRadius: RADIE.kort, cursor: 'pointer' }}>
               <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text2 }}>{CERT_FORKLARING.rubrik}</span>
               <Ikon namn="chevron_right" farg={FARG.text3} />
             </button>
@@ -309,22 +353,22 @@ function Tecken({ farg, text }: { farg: string; text: string }) {
 }
 
 /** Arket bakom en rad: tecknad bild (bara "Så ska det se ut"), förklaringen, kravet dämpat och kartan med bara den saken. */
-function SkogArk({ rad, vy, token, onStang }: { rad: SkogRad; vy: Vy; token: string; onStang: () => void }) {
+function SkogArk({ rad, vy, token, kvitto, onStang }: { rad: SkogRad; vy: Vy; token: string; kvitto: boolean; onStang: () => void }) {
   const bild = rad.malbild ? malbildInnehall(rad.malbild, null)?.bild ?? null : null;
   const skog = vy.skog;
   const karta: KartaData | null = useMemo(() => {
-    if (!rad.karta || !skog) return null;
+    if (!kvitto || !rad.karta || !skog) return null;   // medan vi jobbar växer antalen: kartan och talet hör till kvittot
     const prickar = rad.id === 'evighetstrad' || rad.id === 'hogstubbe' ? skog.prickar.filter((p) => p.typ === rad.id) : [];
     const kantzon = rad.id === 'kantzon' ? skog.kantzon : [];
     return { token, mitt: vy.mitt, gran: vy.gran, maskiner: [], motorsag: [], ringM: vy.ringM, prickar, kantzon, ved: null };
-  }, [rad, skog, token, vy.mitt, vy.gran, vy.ringM]);
+  }, [kvitto, rad, skog, token, vy.mitt, vy.gran, vy.ringM]);
   return (
     <Ark rubrik={rad.namn} stang="Klar" onStang={onStang}>
       <div data-testid={`besok-skogark-${rad.id}`} style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m, paddingBottom: AVSTAND.m }}>
         {bild && <MalbildBild svg={bild} testid="besok-skogark-bild" />}
         <p style={{ margin: 0, ...TYP.text }}>{rad.forklaring}</p>
         {rad.krav && <div style={{ ...TYP.meta, color: FARG.text2 }}>{rad.krav}</div>}
-        {rad.varde && <div style={{ ...TYP.listtitel, ...TNUM }}>På din trakt: {rad.varde}</div>}
+        {kvitto && rad.varde && <div style={{ ...TYP.listtitel, ...TNUM }}>På din trakt: {rad.varde}</div>}
         {karta && (
           <>
             <BesokKarta data={karta} hojd={240} />

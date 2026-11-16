@@ -14525,6 +14525,7 @@ export default function PlannerPage() {
               markagare: valtObjekt.markagare ?? null, markagareTel: valtObjekt.markagare_tel ?? null, fastighet: valtObjekt.fastighetsbeteckning ?? null,
               inkopare: valtObjekt.inkopare ?? null, inkopareTel: valtObjekt.inkopare_tel ?? null,
               planeradStart: valtObjekt.planerad_start ?? null, faktiskStart: valtObjekt.faktisk_start ?? null, pagaendeStartad: valtObjekt.pagaende_startad_timestamp ?? null,
+              avslutad: valtObjekt.avslutad_timestamp ?? null,
               fokusSms: besokFokus,
             } satisfies BesokPlanerareProps : null,
             // Skotare utifrån: samma villkor som besöket — bara planeraren (riktig admin) i planeringsläget.
