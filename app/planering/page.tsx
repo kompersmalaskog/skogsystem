@@ -129,7 +129,7 @@ import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunk
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
-import { MASKIN_PIL_BILD, MASKIN_PIL_BILD_GRA, MASKIN_PIL_PIXELRATIO, MASKIN_PIL_PX, MASKIN_PIL_UTTRYCK, maskinPilFarg, maskinPilSvg } from '../../lib/maskinPil'
+import { MASKIN_PIL_BILD, MASKIN_PIL_BILD_GRA, MASKIN_PIL_BILD_GUL, maskinPilLage, MASKIN_PIL_PIXELRATIO, MASKIN_PIL_PX, MASKIN_PIL_UTTRYCK, maskinPilFarg, maskinPilSvg } from '../../lib/maskinPil'
 import { TOM_KURS, foljTid, kartRiktning, stegaKurs, type KursLage } from '../../lib/korvyKurs'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
 import { valjObjektForPosition, objektTraffPunkt, objektHuvudtyp, traktgransRingar, arTilldelad, type ObjektForVal } from '../../lib/objektPlats'
@@ -9780,7 +9780,8 @@ export default function PlannerPage() {
       }
       // Osäkerhetscirkeln: bara telefonens GPS med uppmätt noggrannhet; grov = orange och tydligare
       try {
-        const visaCirkel = draw && gpsKallaTyp === 'geolocation' && gpsAccuracy != null && Number.isFinite(gpsAccuracy) && gpsAccuracy > 0;
+        // KÖRVYN har ingen osäkerhetscirkel (Martin 2026-11-16): där blir PILEN gul när positionen är dålig (lib/maskinPil) – en sak att titta på, inte två cirklar.
+        const visaCirkel = draw && !korvyActive && gpsKallaTyp === 'geolocation' && gpsAccuracy != null && Number.isFinite(gpsAccuracy) && gpsAccuracy > 0;
         const grov = visaCirkel && gpsAccuracy! > TELEFON_GPS.BRA_M;
         (map.getSource('gps-osakerhet') as any)?.setData(visaCirkel
           ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: cirkelPolygon(draw!.lat, draw!.lon, Math.min(gpsAccuracy!, 5000)) }] }
@@ -9985,7 +9986,7 @@ export default function PlannerPage() {
 
     // 5) MASKINEN ÄR EN PIL (lib/maskinPil, Martin 2026-11-16): blå pil med vit kant, grå utan färsk GPS. Roterar med kursen (icon-rotate).
     //    Pricken, käglan och det blå strecket framåt är borta – fyra saker sa samma sak.
-    for (const [bild, gammal] of [[MASKIN_PIL_BILD, false], [MASKIN_PIL_BILD_GRA, true]] as const) {
+    for (const [bild, lage] of [[MASKIN_PIL_BILD, 'bra'], [MASKIN_PIL_BILD_GUL, 'grov'], [MASKIN_PIL_BILD_GRA, 'gammal']] as const) {
       if (map.hasImage(bild)) continue;
       const size = MASKIN_PIL_PX;
       const img = new Image();
@@ -10001,7 +10002,7 @@ export default function PlannerPage() {
         } catch (e) { console.error('[Körvy] maskin-ikon canvas:', e); }
       };
       img.onerror = (e) => console.error('[Körvy] maskin-ikon image load:', e);
-      img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(maskinPilSvg(maskinPilFarg(gammal)));
+      img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(maskinPilSvg(maskinPilFarg(lage)));
     }
     if (!map.getSource('maskin-source')) {
       try {
@@ -10490,13 +10491,13 @@ export default function PlannerPage() {
         type: 'FeatureCollection',
         features: [{
           type: 'Feature' as const,
-          properties: { heading: korvyHeading, gammal: !gpsFixFarsk && !testlage },
+          properties: { heading: korvyHeading, lage: maskinPilLage({ farsk: gpsFixFarsk || !!testlage, noggrannhetM: gpsKallaTyp === 'geolocation' && !testlage ? gpsAccuracy : null }) },
           geometry: { type: 'Point' as const, coordinates: [pos.lon, pos.lat] },
         }],
       });
     } catch (e) { console.error('[Körvy] maskin-source update:', e); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, korvyHeading, korvyActive, mapLibreReady, gpsFixFarsk, testlage]);
+  }, [currentPosition, korvyHeading, korvyActive, mapLibreReady, gpsFixFarsk, testlage, gpsAccuracy, gpsKallaTyp]);
 
   // BATTERI: gps-halons puls-rAF-loop BORTTAGEN. Den körde alltid (båda vyer, gejtad bara på
   // mapLibreReady) och tvingade MapLibre-repaint 30 ggr/sek KONTINUERLIGT — även i stilla
