@@ -19,6 +19,7 @@ import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import { byggMaskinkort, pottMening, type MaskinRad } from '@/lib/faktura/traktVy';
 import type { ManuelltArbete } from '@/lib/faktura/lasManuellt';
+import { arbetsprisNot } from '@/lib/faktura/arbetspris';
 import type { Granskningsunderlag } from '@/lib/faktura/hamtaUnderlag';
 import { fattasRubrik, type FattasPost } from '@/lib/faktura/fattas';
 import GranskningArk, { type Vy } from '@/components/faktura/GranskningArk';
@@ -34,6 +35,7 @@ type Rader = MaskinRad & {
   a_pris: number | null
   status: string
   fel_kod: string | null
+  kalla: string
   prislista: { medelstam: number; klass: number; total: number; skordare: number; skotare: number } | null
 }
 
@@ -253,7 +255,17 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
       {manuellt && (
         <Sektion
           rubrik="Manuellt arbete · ur arbetsrapporten"
-          not="Artikeln för manuell fällning finns inte i Fortnox än, så priset går inte att hämta. Avtalet säger 475 kr/tim."
+          // Posterna här är UNDERLAGET; pengarna står som en rad per sort under
+          // "Mer på fakturan". Noten räknas ur de raderna, så den aldrig kan
+          // påstå en sats som inte används.
+          not={arbetsprisNot(ovriga
+            .filter(r => r.kalla === 'manuell_fallning' || r.kalla === 'manuell')
+            .map(r => ({
+              etikett: r.benamning,
+              timmar: r.antal ?? 0,
+              timpris: r.a_pris ?? r.a_pris_beraknat,
+              typ: null,
+            })))}
         >
           {manuellt.poster.map((p, i) => (
             <Rad
