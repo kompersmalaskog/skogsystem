@@ -28,13 +28,13 @@ import { AVSTAND, FARG, FONT, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, T
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
-  hamtaBolag, hamtaEgenSkotningTrakter, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, tilldelaMaskin,
+  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, tilldelaMaskin,
   type BolagRad, type FastData, type Manadsdata, type MaskinLage, type Typ,
 } from '../_lib/queries'
 import { TYPER, TYP_NAMN, globalaArbetsdagar, manadStatus, maskinNamn, planeringStoppText, raknaSpar, sparTakter, valjBas, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, manadRubrik, relativTid } from '../_lib/format'
 import { medFoljandePrognos, medUppskattadPrognos } from '../_lib/klar'
-import { byggTavla, flyttVal, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
+import { EGEN_SKOTNING, byggTavla, flyttVal, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
 import { planHref } from '../_lib/manadsplan'
@@ -205,6 +205,21 @@ export default function HelikopterVy() {
     return () => { avbruten = true }
   }, [traktIds, version])
 
+  // Skördat på egen skotning, per skördare: spårens egna tal räknar inte med de trakterna, men skördaren har gjort jobbet.
+  // null = inte läst än (eller kunde inte läsas: då står skördaren utan den volymen, och det loggas).
+  const [egetRader, setEgetRader] = useState<{ objekt_id: string; maskin_id: string; volym: number }[] | null>(null)
+  const egnaDimIds = useMemo(() => (manadsdata ? (manadsdata.egenSkotning ?? []).map(e => e.objekt_id).sort().join('|') : null), [manadsdata])
+  useEffect(() => {
+    setEgetRader(null)
+    if (egnaDimIds == null) return
+    let avbruten = false
+    hamtaEgetSkordat(ar, manad, egnaDimIds === '' ? [] : egnaDimIds.split('|')).then(r => {
+      if (avbruten) return
+      if (r.error != null) { console.error('[helikopter] eget skördat', r.error); setEgetRader([]) } else setEgetRader(r.data)
+    })
+    return () => { avbruten = true }
+  }, [egnaDimIds, ar, manad])
+
   // ── Räkningen (allt som står på sidan) ──
   const dagar = useMemo(() => (manadsdata ? globalaArbetsdagar(manadsdata.arbetsdagar) : null), [manadsdata])
   const spar: SparLage[] = useMemo(() => {
@@ -228,8 +243,17 @@ export default function HelikopterVy() {
     const klarKlar = status !== 'avslutad' && klarData != null && egna != null
     const stopp: Record<string, string | null> = {}
     for (const m of manadsdata.maskinStopp ?? []) stopp[m.maskin_id] = status === 'avslutad' ? null : (planeringStoppText(m)?.split(' · ')[0] ?? null) // bara "Står 26–30 okt" — orsaken står i ledighetsvyn
-    return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), stopp }
-  }, [manadsdata, spar, maskinUtfall, status, klarData, egna])
+    // Egen skotning räknas mot beställningen bara för bolag som har en (som spårets egna tal).
+    const dim = new Map((manadsdata.egenSkotning ?? []).map(e => [e.objekt_id, e]))
+    const egetSkordat = (egetRader ?? []).flatMap(r => {
+      const e = dim.get(r.objekt_id)
+      const sp = spar.find(x => x.typ === e?.typ)
+      if (!e || !sp) return []
+      if (sp.bestallt > 0 && !sp.bolag.some(b => b.toLowerCase() === (e.bolag ?? '').toLowerCase())) return []
+      return [{ typ: sp.typ, maskin_id: r.maskin_id, volym: r.volym }]
+    })
+    return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), egetSkordat, stopp }
+  }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader])
   const tavla = useMemo(() => (tavlaIn ? byggTavla(tavlaIn) : null), [tavlaIn])
   const utanTypSumma = Math.round((manadsdata?.utanTyp ?? []).reduce((a, r) => a + r.volym, 0))
 
@@ -244,7 +268,7 @@ export default function HelikopterVy() {
   const dinMaskin = maskinId && fast ? (fast.maskiner.find(m => m.maskin_id === maskinId) ?? null) : null
   const fel = fastFel ?? manadFel
   const laddar = laddarManad || (!fast && !fastFel)
-  const kolar = status !== 'avslutad' && !klar.fel && (klar.laddar || (klar.data != null && egna == null))
+  const kolar = (status !== 'avslutad' && !klar.fel && (klar.laddar || (klar.data != null && egna == null))) || (manadsdata != null && egetRader == null)
   const klart = !fel && !laddar && !kolar && fast != null && manadsdata != null && dagar != null && tavla != null
 
   // ── Arken ──
@@ -258,8 +282,20 @@ export default function HelikopterVy() {
   // Flytten skrivs till objektet (samma kolumn som planeringsverktyget) och underlaget läses om; ett fel visas i arket.
   const flytta = async (maskinId: string): Promise<string | null> => {
     if (!flyttaVal) return 'Ingen trakt vald'
-    const r = await tilldelaMaskin(flyttaVal.objekt_id, flyttaVal.roll, maskinId)
-    if (r.error) return r.error
+    const varEgen = flyttaVal.roll === 'skotare' && (egna?.has(flyttaVal.objekt_id) ?? false)
+    if (maskinId === EGEN_SKOTNING) {
+      const r = await sattEgenSkotning(flyttaVal.objekt_id, true)
+      if (r.error) return r.error
+    } else {
+      if (varEgen) {
+        const e = await sattEgenSkotning(flyttaVal.objekt_id, false)
+        if (e.error) return e.error
+      }
+      const r = await tilldelaMaskin(flyttaVal.objekt_id, flyttaVal.roll, maskinId)
+      if (r.error) return r.error
+    }
+    // Egen skotning ändrar också månadens tal (spåren räknar inte med de trakterna): läs om allt.
+    if (maskinId === EGEN_SKOTNING || varEgen) setVersion(v => v + 1)
     await klar.ladda()
     return null
   }

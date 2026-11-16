@@ -14,7 +14,7 @@ import { fmt } from '../_lib/format'
 
 const q = vi.hoisted(() => ({
   hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaManuellaMaskiner: vi.fn(), hamtaSenasteLass: vi.fn(), hamtaMaskinLage: vi.fn(),
-  hamtaMaskiner: vi.fn(), hamtaMaskinTakter: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaPrognosFacit: vi.fn(async () => ({ data: [], error: null })), tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), skickaVeckoNotis: vi.fn(), params: '', replace: vi.fn(),
+  hamtaMaskiner: vi.fn(), hamtaMaskinTakter: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaPrognosFacit: vi.fn(async () => ({ data: [], error: null })), tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), hamtaEgetSkordat: vi.fn(async () => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(), params: '', replace: vi.fn(),
 }))
 vi.mock('../_lib/queries', () => q)
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(q.params), useRouter: () => ({ replace: q.replace }) }))
@@ -81,6 +81,8 @@ beforeEach(() => {
   q.hamtaHistorik.mockResolvedValue({ data: lasHistorik(historikOkt), error: null })
   q.hamtaKlar.mockResolvedValue({ data: lasKlar(structuredClone(klarOkt)), error: null })
   q.hamtaEgenSkotningTrakter.mockResolvedValue({ data: new Set(), error: null })
+  q.hamtaEgetSkordat.mockResolvedValue({ data: [], error: null })
+  q.sattEgenSkotning.mockResolvedValue({ error: null })
 })
 afterEach(async () => { await act(async () => { root?.unmount() }); cont?.remove(); root = null })
 const text = () => cont.textContent ?? ''
@@ -155,15 +157,26 @@ describe('/helikopter — tavlan', () => {
     expect(cont.querySelector('[data-flytta]')).toBeNull()
   })
 
-  it('egen skotning: trakten står aldrig som "Ingen maskin" och räknas inte', async () => {
+  it('egen skotning: aldrig "Ingen maskin" — skördaren får volymen, markägaren en egen rad, och valet går att göra', async () => {
     const d = lasKlar(structuredClone(klarOkt))
     const egna = new Set(d.trakter.filter(t => t.namn.startsWith('Trestensdal')).map(t => t.objekt_id))
     q.hamtaEgenSkotningTrakter.mockResolvedValue({ data: egna, error: null })
-    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter, egenSkotning: [{ objekt_id: 'dimT', namn: 'Trestensdal', vo_nummer: null, typ: 'gallring', bolag: manadsdata().spar.find((r: any) => r.typ === 'gallring')?.bolag?.[0] ?? null, skordat: 178, senast_datum: null }] }), error: null })
+    q.hamtaEgetSkordat.mockResolvedValue({ data: [{ objekt_id: 'dimT', maskin_id: 'R64428', volym: 178 }], error: null })
     await monter()
     const utan = Array.from(block('gallring', 'skotare').querySelectorAll('[data-utan]')).map(e => e.textContent ?? '')
     expect(utan.length).toBeGreaterThan(0)
     expect(utan.some(u => u.includes('Trestensdal'))).toBe(false)
+    // Markägarens rad: det skördaren fällt där — och skördaren har fått samma volym.
+    expect(block('gallring', 'skotare').querySelector('[data-nu="markagare"]')?.textContent).toBe(fmt(178))
+    expect(block('gallring', 'skotare').textContent).toContain('Markägaren skotar')
+    // Välj egen skotning på en trakt utan maskin.
+    await act(async () => { (block('gallring', 'skotare').querySelector('[data-utan] button') as HTMLButtonElement).click() })
+    await act(async () => { (document.querySelector('[data-val="egen"]') as HTMLButtonElement).click() })
+    expect(document.querySelector('[data-flytta]')?.textContent).toBe('Välj egen skotning')
+    await act(async () => { (document.querySelector('[data-flytta]') as HTMLButtonElement).click() })
+    expect(q.sattEgenSkotning).toHaveBeenCalledWith(expect.any(String), true)
+    expect(q.tilldelaMaskin).not.toHaveBeenCalled()
   })
 
   it('utfallet per maskin kunde inte läsas: spårets summor står kvar', async () => {

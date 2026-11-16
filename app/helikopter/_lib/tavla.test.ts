@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { byggTavla, flyttVal, ko, kvarVolym, type TavlaIndata } from './tavla'
+import { EGEN_SKOTNING, byggTavla, flyttVal, ko, kvarVolym, type TavlaIndata } from './tavla'
 import type { KlarData, KlarMaskin, KlarTrakt } from './klar'
 import type { SparLage } from './berakningar'
 
@@ -88,7 +88,7 @@ describe('tavlan', () => {
   })
   it('flytta: varje val säger vad det ger, och nuvarande står först', () => {
     const v = flyttVal(ind, 'Edestad', 'skotare')!
-    expect(v.val.map(x => [x.namn, x.nuvarande, x.ord])).toEqual([['Elefant', true, 'Fattas 200'], ['Wisent', false, 'Hinner']])
+    expect(v.val.map(x => [x.namn, x.nuvarande, x.ord])).toEqual([['Elefant', true, 'Fattas 200'], ['Wisent', false, 'Hinner'], ['Egen skotning', false, expect.any(String)]])
     // Wisent tar Edestad (10 dagar, GROT före tar noll): Elefant 200 + 300, Wisent 600 → 1 100; "ca" för att GROT saknar prognos.
     const efter = byggTavla({ ...ind, flytt: { objekt_id: 'Edestad', roll: 'skotare', maskin_id: 'Wisent' } })
     expect(efter.spar[0].block[1]).toMatchObject({ landar: 1100, ca: true })
@@ -112,16 +112,35 @@ describe('egen skotning', () => {
     trakt('Santhe', 'skotare', null, { typ: 'gallring', rest_volym: 1620, timmar: null }),
     trakt('Rimshult', 'skordare', 'H8E', { typ: 'gallring', volym: 45, timmar: 8 }),
   ]
-  const t = byggTavla(bas({
-    spar: [spar('gallring', { bestallt: 1000, skordat: 242 })],
-    utfall: [{ typ: 'gallring', maskin_id: 'H8E', roll: 'skordare', volym: 242 }],
+  const ind = bas({
+    // Spårets egna tal (SQL) räknar inte med egen skotning: 38 är Vashult, Santhes 204 kommer som egetSkordat.
+    spar: [spar('gallring', { bestallt: 1000, skordat: 38 })],
+    utfall: [{ typ: 'gallring', maskin_id: 'H8E', roll: 'skordare', volym: 38 }],
+    egetSkordat: [{ typ: 'gallring', maskin_id: 'H8E', volym: 204 }],
     klar: klar(maskiner, trakter), egna: new Set(['Santhe']),
-  }))
-  it('räknas inte mot beställningen och är aldrig "ingen skotare"', () => {
-    // Santhe tar 5 dagar före Rimshult men ger ingen volym: 242 + 45.
-    expect(t.spar[0].block[0].maskiner[0]).toMatchObject({ nu: 242, landar: 287 })
-    expect(t.spar[0].block[1].utan).toEqual([])
-    expect(t.spar[0].block[0].maskiner[0].trakter.map(x => [x.namn, x.utanfor])).toEqual([['Santhe', true], ['Rimshult', false]])
+  })
+  const t = byggTavla(ind)
+  it('skördaren får med det hon fällt, och det hon hinner fälla, på egen skotning', () => {
+    const m = t.spar[0].block[0].maskiner[0]
+    expect(m.nu).toBe(242)
+    expect(m.landar).toBeGreaterThan(242 + 45)
+    expect(m.trakter.map(x => [x.namn, x.utanfor])).toEqual([['Santhe', false], ['Rimshult', false]])
+    expect(t.spar[0].block[0].nu).toBe(242)
+  })
+  it('skotat: aldrig "ingen maskin" — en rad Markägaren skotar som räknas in i summan', () => {
+    const b = t.spar[0].block[1]
+    expect(b.utan).toEqual([])
+    expect(b.markagare).toMatchObject({ nu: 204 })
+    expect(b.markagare!.trakter.map(x => x.namn)).toEqual(['Santhe'])
+    expect(b.nu).toBe(204)
+    // Det markägaren landar på = det skördaren landar på där: summan går att räkna ihop.
+    expect(b.landar).toBe(b.markagare!.landar)
+    expect(b.markagare!.landar).toBe(t.spar[0].block[0].maskiner[0].landar! - 38 - 45)
+  })
+  it('valet Egen skotning finns för skotaren, och står först när det gäller', () => {
+    const v = flyttVal(ind, 'Santhe', 'skotare')!
+    expect(v.val[0]).toMatchObject({ maskin_id: EGEN_SKOTNING, namn: 'Egen skotning', nuvarande: true })
+    expect(flyttVal(ind, 'Santhe', 'skordare')!.val.some(x => x.maskin_id === EGEN_SKOTNING)).toBe(false)
   })
 })
 

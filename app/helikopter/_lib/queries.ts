@@ -6,6 +6,7 @@
 import { supabase } from '@/lib/supabase'
 import { medAbortRetry } from '@/lib/supabaseRetry'
 import { hamtaAlla } from '@/lib/supabaseAlla'
+import { sparaSkotning } from '@/lib/startaJobbSkotning'
 import { G15_TOM, g15Tabell, type G15DagRad, type G15Tabell } from '@/lib/helikopterG15'
 import type { VeckolageData } from './veckolage'
 import { lasHistorik, lasManadsfacit, type Historik, type Manadsfacit } from './manadsfacit'
@@ -586,5 +587,51 @@ export async function hamtaEgenSkotningTrakter(objektIds: string[]): Promise<Sva
     return { data: ut, error: null }
   } catch (e) {
     return { data: null, error: felText(e) }
+  }
+}
+
+/** Skördat i månaden per skördare på maskinobjekt med egen skotning (spårens egna tal räknar inte med dem). */
+export async function hamtaEgetSkordat(ar: number, manad: number, dimIds: string[]): Promise<Svar<{ objekt_id: string; maskin_id: string; volym: number }[]>> {
+  if (dimIds.length === 0) return { data: [], error: null }
+  try {
+    const fran = `${ar}-${String(manad).padStart(2, '0')}-01`
+    const till = manad === 12 ? `${ar + 1}-01-01` : `${ar}-${String(manad + 1).padStart(2, '0')}-01`
+    const r = await hamtaAlla<any>(() => supabase.from('fakt_produktion').select('id, objekt_id, maskin_id, volym_m3sub').in('objekt_id', dimIds).gte('datum', fran).lt('datum', till) as any, 'id')
+    if (r.error) return { data: null, error: felText(r.error) }
+    const per = new Map<string, { objekt_id: string; maskin_id: string; volym: number }>()
+    for (const x of r.data) {
+      if (!x.maskin_id) continue
+      const k = `${x.objekt_id}|${x.maskin_id}`
+      const rad = per.get(k) ?? { objekt_id: String(x.objekt_id), maskin_id: String(x.maskin_id), volym: 0 }
+      rad.volym += Number(x.volym_m3sub) || 0
+      per.set(k, rad)
+    }
+    return { data: [...per.values()], error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Sätter eller tar bort egen skotning på trakten: jobbet och alla maskinobjekt med samma nummer (lib/startaJobbSkotning). Bara admin. */
+export async function sattEgenSkotning(objektId: string, egen: boolean): Promise<{ error: string | null }> {
+  try {
+    const o = await supabase.from('objekt').select('id, vo_nummer, dim_objekt_id').eq('id', objektId).maybeSingle()
+    if (o.error) return { error: felText(o.error) }
+    if (!o.data) return { error: 'Trakten finns inte längre' }
+    const nycklar = [o.data.dim_objekt_id, o.data.vo_nummer].filter((v): v is string => typeof v === 'string' && v !== '')
+    const dim = new Set<string>()
+    if (nycklar.length) {
+      const [a, b] = await Promise.all([
+        supabase.from('dim_objekt').select('objekt_id').in('objekt_id', nycklar),
+        o.data.vo_nummer ? supabase.from('dim_objekt').select('objekt_id').eq('vo_nummer', o.data.vo_nummer) : Promise.resolve({ data: [], error: null }),
+      ])
+      if (a.error) return { error: felText(a.error) }
+      if (b.error) return { error: felText(b.error) }
+      for (const r of [...(a.data ?? []), ...(b.data ?? [])] as any[]) dim.add(String(r.objekt_id))
+    }
+    const r = await sparaSkotning(supabase as any, { jobbId: objektId, dimIds: [...dim] }, egen)
+    return { error: r.ok ? null : r.fel }
+  } catch (e) {
+    return { error: felText(e) }
   }
 }

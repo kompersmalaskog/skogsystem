@@ -10,6 +10,7 @@ import Sektion from '@/components/design/Sektion'
 import Ikon from '@/components/design/Ikon'
 import { fmt } from '../_lib/format'
 import type { KlarRoll } from '../_lib/klar'
+import { EGEN_SKOTNING } from '../_lib/tavla'
 import type { FlyttVal, Tavla as TavlaVy, TavlaBlock, TavlaMaskin, TavlaOvrig, TavlaSpar, TavlaTrakt } from '../_lib/tavla'
 import { StatusOrd } from './Status'
 
@@ -37,22 +38,22 @@ function TraktRad({ t, onTryck }: { t: TavlaTrakt; onTryck?: () => void }) {
     </span>
   )
   if (!onTryck) return <div data-trakt={t.objekt_id}>{inne}</div>
-  return <button type="button" onClick={onTryck} style={KNAPP_RAD} data-trakt={t.objekt_id} aria-label={`${t.namn}, klar ${t.klar}. Flytta`}>{inne}</button>
+  return <button type="button" onClick={onTryck} style={KNAPP_RAD} data-trakt={t.objekt_id} aria-label={`${t.namn}${t.klar ? `, klar ${t.klar}` : ''}. Flytta`}>{inne}</button>
 }
 
-function MaskinRad({ m, medLandar, oppen, onVaxla, onTrakt }: { m: TavlaMaskin; medLandar: boolean; oppen: boolean; onVaxla: () => void; onTrakt?: (v: TraktVal) => void }) {
+function MaskinRad({ m, medLandar, oppen, onVaxla, onTrakt, dampad }: { m: TavlaMaskin; medLandar: boolean; oppen: boolean; onVaxla: () => void; onTrakt?: (v: TraktVal) => void; dampad?: boolean }) {
   const harTrakter = m.trakter.length > 0
   const rad = (
     <span style={{ ...rutnat(medLandar), minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0` }}>
       <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.listtitel, color: FARG.text }}>
-          <RollPrick roll={m.roll} />
+        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...(dampad ? TYP.text : TYP.listtitel), color: dampad ? FARG.text2 : FARG.text }}>
+          {!dampad && <RollPrick roll={m.roll} />}
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.namn}</span>
           {harTrakter && <Ikon namn={oppen ? 'expand_less' : 'expand_more'} storlek={IKON.text} farg={FARG.text3} />}
         </span>
         {m.stopp && <span style={{ ...TYP.meta, color: FARG.text2, paddingLeft: AVSTAND.l }}>{m.stopp}</span>}
       </span>
-      <span style={{ ...TYP.text, ...HOGER, fontWeight: VIKT.fet, color: FARG.text }} data-nu={m.maskin_id}>{fmt(m.nu)}</span>
+      <span style={{ ...TYP.text, ...HOGER, fontWeight: dampad ? VIKT.normal : VIKT.fet, color: dampad ? FARG.text2 : FARG.text }} data-nu={m.maskin_id}>{fmt(m.nu)}</span>
       {medLandar && <span style={{ ...TYP.text, ...HOGER, color: FARG.text2 }} data-landar={m.maskin_id}>{m.landar == null ? '–' : fmt(m.landar)}</span>}
     </span>
   )
@@ -94,6 +95,8 @@ function Block({ b, medLandar, oppna, vaxla, onTrakt }: { b: TavlaBlock; medLand
           </div>
         )
       })}
+      {b.markagare && <MaskinRad m={{ maskin_id: 'markagare', namn: 'Markägaren skotar', roll: 'skotare', nu: b.markagare.nu, landar: b.markagare.landar, ca: false, stopp: null, trakter: b.markagare.trakter }}
+        dampad medLandar={medLandar} oppen={oppna.has(`${b.roll}:markagare`)} onVaxla={() => vaxla(`${b.roll}:markagare`)} onTrakt={onTrakt} />}
       <div style={{ ...rutnat(medLandar), borderTop: LINJE, minHeight: TRAFFYTA.min }} data-summa={b.roll}>
         <StatusOrd ton={b.ton} ord={b.ord} />
         <span style={{ ...TYP.text, ...HOGER, fontWeight: VIKT.fet, color: FARG.text }}>{fmt(b.nu)}</span>
@@ -180,7 +183,7 @@ export function FlyttaSheet({ open, onClose, namn, val, onFlytta }: {
         })}
       </Sektion>
       <button type="button" onClick={flytta} disabled={!kan} aria-busy={lage.skickar} style={{ ...KNAPP.primar, ...(kan ? null : INAKTIV) }} data-flytta="">
-        {lage.skickar ? 'Flyttar…' : valdRad && !valdRad.nuvarande ? `Flytta till ${valdRad.namn}` : 'Flytta'}
+        {lage.skickar ? 'Flyttar…' : valdRad && !valdRad.nuvarande ? (valdRad.maskin_id === EGEN_SKOTNING ? 'Välj egen skotning' : `Flytta till ${valdRad.namn}`) : 'Flytta'}
       </button>
       {lage.fel && <p role="status" style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.m }}>{lage.fel}</p>}
     </Sheet>

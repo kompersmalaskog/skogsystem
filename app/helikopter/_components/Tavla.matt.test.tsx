@@ -16,7 +16,7 @@ import { hittaChromium } from '../../../lib/testStod/chromium'
 
 const q = vi.hoisted(() => ({
   hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaMaskinLage: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaPrognosFacit: vi.fn(),
-  tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), skickaVeckoNotis: vi.fn(),
+  tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), hamtaEgetSkordat: vi.fn(async () => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(),
 }))
 vi.mock('../_lib/queries', () => q)
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams('ar=2026&manad=10'), useRouter: () => ({ replace: () => {} }) }))
@@ -50,6 +50,8 @@ async function html(klick: string[]): Promise<string> {
   q.hamtaHistorik.mockResolvedValue({ data: lasHistorik(historikOkt), error: null })
   q.hamtaKlar.mockResolvedValue({ data: lasKlar(structuredClone(klarOkt)), error: null })
   q.hamtaEgenSkotningTrakter.mockResolvedValue({ data: new Set(), error: null })
+  q.hamtaEgetSkordat.mockResolvedValue({ data: [], error: null })
+  q.sattEgenSkotning.mockResolvedValue({ error: null })
   document.body.innerHTML = ''
   const c = document.createElement('div'); document.body.appendChild(c)
   const r = createRoot(c)
