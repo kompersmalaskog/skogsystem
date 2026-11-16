@@ -44,6 +44,10 @@ const M = [
   ["bara traktens eget nummer läses (alt-numren tappas)", ".in('objekt_id', nummer)", ".eq('objekt_id', vo)", LAS],
   ["extranumren hämtas aldrig", "for (const r of alt ?? []) if (r.nummer) nummer.add(String(r.nummer));", "", LAS],
 
+  // ── mappningen ManuellPost → Arbetspost ──
+  ["posterna skickas rakt in (etiketten blir undefined)", "byggArbetsrader(tillArbetsposter(arbSvar.poster), giltiga(arbPrisRes.data))", "byggArbetsrader(arbSvar.poster as any, giltiga(arbPrisRes.data))", HAMTA],
+  ["mappningen tappar etiketten", "return poster.map(p => ({ typ: p.typ, etikett: p.aktivitet, minuter: p.minuter }));", "return poster.map(p => ({ typ: p.typ, etikett: '', minuter: p.minuter }));", LAS],
+
   // ── arbete_timpris utanför kastet ──
   ["arbete_timpris fäller underlaget innan migrationen är körd", "ovrigtRes, avstRes, klassRes, bolagRes, objektRes]) {", "ovrigtRes, avstRes, klassRes, bolagRes, objektRes, arbPrisRes]) {", HAMTA],
   ["ett läsfel på timpriset sägs inte", "if (arbPrisRes.error) {", "if (false && arbPrisRes.error) {", HAMTA],

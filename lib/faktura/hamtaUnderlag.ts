@@ -23,7 +23,7 @@ import { kostnadsstalleFor, harKrockandeKostnadsstalle } from '@/lib/ekonomi/kos
 import { medForestlink } from '@/lib/ekonomi/forestlink';
 import { raknaSortiment, type Sortimentsrakning } from '@/lib/ekonomi/sortimentAntal';
 import { maskinVisningsnamn, maskinNamnMap } from '@/lib/maskinNamn';
-import { lasDebiterbartArbete } from '@/lib/faktura/lasManuellt';
+import { lasDebiterbartArbete, tillArbetsposter } from '@/lib/faktura/lasManuellt';
 import { byggArbetsrader } from '@/lib/faktura/arbetspris';
 import type { VoUnderlag, Maskinrad } from '@/lib/faktura/radbyggare';
 
@@ -397,7 +397,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     });
   }
   const arbetsrader = arbSvar.status === 'ok'
-    ? byggArbetsrader(arbSvar.poster, giltiga(arbPrisRes.data) as any)
+    ? byggArbetsrader(tillArbetsposter(arbSvar.poster), giltiga(arbPrisRes.data))
     : [];
   for (const r of arbetsrader.filter(r => r.timpris == null)) {
     noter.push({
@@ -435,7 +435,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
       antal: r.timmar,
       enhet: 'h' as const,
       a_pris: r.timpris,
-      kalla: (r.typ === 'manuellt' ? 'manuell_fallning' : 'manuell') as const,
+      kalla: r.typ === 'manuellt' ? ('manuell_fallning' as const) : ('manuell' as const),
     })),
   };
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { byggArbetsrader, arbetsprisNot, timmar, type Arbetspost, type Timprisrad } from './arbetspris'
-import { lasDebiterbartArbete } from './lasManuellt'
+import { lasDebiterbartArbete, tillArbetsposter } from './lasManuellt'
 
 /** Den enda sats Martin bekräftat (2026-11-16). */
 const PRISER: Timprisrad[] = [{ nyckel: 'manuellt', timpris: 490 }]
@@ -218,9 +218,32 @@ describe('frågan mot databasen — FÄLLAN som tappade 2 034 av 2 687 minuter',
     const svar = await lasDebiterbartArbete(sb as any, '11271849')
     if (svar.status !== 'ok') throw new Error('läsningen felade')
     expect(svar.poster[0]).toMatchObject({ typ: 'manuellt', minuter: 360, forare: 'Stefan' })
-    expect(byggArbetsrader(
-      svar.poster.map(p => ({ typ: p.typ, etikett: p.aktivitet, minuter: p.minuter })),
-      PRISER,
-    )[0].timpris).toBe(490)
+    // SAMMA mappning som hamtaUnderlag använder — inte en egen kopia här,
+    // för då kan de glida isär utan att något blir rött.
+    expect(byggArbetsrader(tillArbetsposter(svar.poster), PRISER)[0].timpris).toBe(490)
+  })
+})
+
+describe('mappningen ManuellPost → Arbetspost', () => {
+  // Fälten heter olika: posten bär `aktivitet`, prissättningen vill `etikett`.
+  // Glöms mappningen läser byggArbetsrader p.etikett = undefined, och raden
+  // heter "Arbete" i stället för förarens egen text. Typfelet syns inte,
+  // eftersom supabase-klienten är `any` hela vägen in.
+  it('aktivitet blir etikett', () => {
+    const ut = tillArbetsposter([
+      { datum: '2026-10-01', forare: 'Stefan', aktivitet: 'Röjning av stickväg',
+        minuter: 120, kommentar: null, typ: 'rojning' },
+    ])
+    expect(ut).toEqual([{ typ: 'rojning', etikett: 'Röjning av stickväg', minuter: 120 }])
+  })
+
+  it('en okänd typ behåller förarens text på fakturaraden', () => {
+    const rader = byggArbetsrader(tillArbetsposter([
+      { datum: '2026-10-01', forare: 'Stefan', aktivitet: 'Röjning av stickväg',
+        minuter: 120, kommentar: null, typ: 'rojning' },
+    ]), PRISER)
+    expect(rader[0].etikett).toBe('Röjning av stickväg')
+    expect(rader[0].etikett).not.toBe('Arbete')
+    expect(rader[0].timpris).toBeNull()
   })
 })

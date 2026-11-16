@@ -43,7 +43,15 @@ describe('satsen bor i databasen, aldrig i koden', () => {
   })
 
   it('satserna filtreras på uppslagsdagen, som alla andra prislistor', () => {
-    expect(HAMTA).toMatch(/byggArbetsrader\(arbSvar\.poster, giltiga\(arbPrisRes\.data\)/)
+    expect(HAMTA).toMatch(/byggArbetsrader\([\s\S]{0,80}?giltiga\(arbPrisRes\.data\)/)
+  })
+
+  it('posterna går genom tillArbetsposter — aldrig rakt in', () => {
+    // ManuellPost bär `aktivitet`, Arbetspost vill `etikett`. Skickas posterna
+    // rakt in läser byggArbetsrader p.etikett = undefined och raden heter
+    // "Arbete". Klienten är `any`, så tsc fångar det inte heller.
+    expect(HAMTA).toMatch(/byggArbetsrader\(tillArbetsposter\(arbSvar\.poster\)/)
+    expect(HAMTA).not.toMatch(/byggArbetsrader\(arbSvar\.poster/)
   })
 })
 

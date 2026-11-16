@@ -1116,10 +1116,45 @@ Gor sa har:
    Obs: `incremental: true` sparar resultat i `tsconfig.tsbuildinfo`; andrar du `tsconfig.json`
    sjalv, ta bort den filen forst, annars kan en gammal korning visas igen.
 
+### tsc tar slut pa minne och ser ut som 0 fel (2026-11-16)
+
+Samma falska nolla, annan orsak — och den har tander, for `node_modules` fanns
+och binaren var riktig tsc 5.9.3. **Repot ar sa stort att `tsc` slar i nodes
+standardgrans for heapen (~2 GB) och kraschar:**
+
+    FATAL ERROR: Ineffective mark-compacts near heap limit
+    Allocation failed - JavaScript heap out of memory
+    exitkod 134
+
+Krasch-utdata innehaller inte strangen `error TS`. Ett
+`tsc … 2>&1 | grep -c "error TS"` svarar darfor **0**, och det ser identiskt ut
+med en ren korning. I PR #1175 gick tre riktiga typfel igenom pa det viset
+(varav ett dolde en verklig bugg: posterna skickades till `byggArbetsrader`
+utan mappning, sa fakturaraden hade hetat "Arbete" i stallet for forarens
+text) och upptacktes forst av CI.
+
+**Reglerna:**
+
+1. **Hoj heapen:** `NODE_OPTIONS=--max-old-space-size=6144`.
+2. **Kontrollera EXITKODEN, aldrig bara antalet trafftar i utdata.** Ett
+   `grep -c` pa en pipe doljer bade kraschen och exitkoden — `$?` blir grepens.
+   Skriv till en fil, las `$?` direkt efter `tsc`, och rapportera bada:
+
+       NODE_OPTIONS=--max-old-space-size=6144 ./node_modules/.bin/tsc \
+         --noEmit -p tsconfig.json > /tmp/tsc.txt 2>&1; KOD=$?
+       echo "exitkod: $KOD  fel: $(grep -c 'error TS' /tmp/tsc.txt)"
+
+   **Exitkod 0 OCH 0 fel** ar det enda svar som betyder ren. Exitkod 134 eller 1
+   med 0 traffar betyder att korningen inte blev av.
+3. CI (`.github/workflows/tsc.yml`) kor pa en storre maskin och far ingen OOM —
+   darfor ar CI rott nar den lokala korningen "var gron". Litar du pa en lokal
+   nolla utan exitkod skickar du typfel till CI varje gang.
+
 Samma princip galler all verifiering: **ett verktyg som svarar "inga fel" utan
 att ha kort ar samma sak som ett verktyg som ljuger.** Kontrollera att det
-faktiskt kordes innan du litar pa nollan. Se ocksa STATUS.md om
-pagineringsbuggen, dar ett testverktyg gav 8 falsklarm av samma familj.
+faktiskt kordes innan du litar pa nollan — exitkoden ar det billigaste beviset.
+Se ocksa STATUS.md om pagineringsbuggen, dar ett testverktyg gav 8 falsklarm av
+samma familj.
 
 ### Rendera innan leverans — hooks och nya lägen
 `tsc`, design-lint och tester fångar INTE hook-ordning. 2026-10-02 kraschade hela arbetsrapporten (React #310) eftersom en `useEffect` lagts efter `if(!medarbetare) return` — allt var grönt, sidan gick inte att öppna. Regel: **hooks ligger ALLTID före tidiga returer** i en komponent, och en ändring som lägger till hooks eller ett nytt läge (`steg`) i en stor vy ska köras genom en rendering innan PR:en rapporteras klar.

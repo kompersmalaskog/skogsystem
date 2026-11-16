@@ -73,7 +73,7 @@ export async function lasDebiterbartArbete(
     .order('datum');
   if (error) return { status: 'fel', fel: error.message };
 
-  const poster: ManuellPost[] = (data ?? []).map(r => {
+  const poster: ManuellPost[] = (data ?? []).map((r: any) => {
     const m = r.medarbetare as unknown as { namn?: string } | { namn?: string }[] | null;
     const namn = Array.isArray(m) ? m[0]?.namn : m?.namn;
     const typ = r.aktivitet_typ == null ? null : String(r.aktivitet_typ);
@@ -87,6 +87,19 @@ export async function lasDebiterbartArbete(
     };
   });
   return { status: 'ok', poster };
+}
+
+/**
+ * ManuellPost → Arbetspost (lib/faktura/arbetspris). EN mappning, för att
+ * fälten heter olika: posten bär `aktivitet` (det som står på raden) och
+ * prissättningen vill `etikett`. Mappades den på varje anropsställe skulle
+ * ett glömt fält bli en rad som heter "Arbete" i stället för förarens text —
+ * och typfelet syns inte, eftersom klienten är `any`.
+ */
+export function tillArbetsposter(
+  poster: ManuellPost[],
+): { typ: string | null; etikett: string; minuter: number }[] {
+  return poster.map(p => ({ typ: p.typ, etikett: p.aktivitet, minuter: p.minuter }));
 }
 
 export async function lasManuelltArbete(
