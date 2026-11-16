@@ -3,6 +3,7 @@ import { serverSupabase } from '@/lib/lonesystem/server';
 import { kravRoll, ADMIN_ROLLER } from '@/lib/auth/server';
 import { hamtaVoUnderlag, type Granskningsunderlag } from '@/lib/faktura/hamtaUnderlag';
 import { byggRader, garAttSkicka, type FakturaRad } from '@/lib/faktura/radbyggare';
+import { byggFattas, type FattasPost } from '@/lib/faktura/fattas';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,6 +50,13 @@ type Resultat = {
   rader_utan_pris: number;
   /** Underlaget bakom talen. null bara när VO:t inte gick att läsa. */
   granskning: Granskningsunderlag | null;
+  /**
+   * Vad Martin behöver kolla innan trakten faktureras — uppgifter appen inte
+   * kan räkna fram själv (terräng, skotningsavstånd, antal sortiment) och vad
+   * de är värda i kronor. Räknas HÄR, så vyn bara ritar och de två inte kan
+   * glida isär. Se lib/faktura/fattas.
+   */
+  fattas: FattasPost[];
   fel?: string;
 };
 
@@ -92,6 +100,20 @@ export async function POST(req: NextRequest) {
           summa_kant: medPris.reduce((s, r) => s + (r.a_pris ?? r.a_pris_beraknat)! * r.antal!, 0),
           rader_utan_pris: rader.length - medPris.length,
           granskning,
+          fattas: byggFattas({
+            timpeng: underlag.timpeng,
+            kontraktsnummer: underlag.kontraktsnummer,
+            volymM3fub: underlag.volymM3fub,
+            terrangKr: underlag.terrangKr,
+            avstand: granskning.avstand,
+            sortiment: {
+              manuellt: granskning.sortiment.manuellt,
+              anvant: granskning.sortiment.anvant,
+              raknat: granskning.sortiment.rakning.antal,
+              grundantal: granskning.sortiment.grundantal,
+              krPerExtra: granskning.sortiment.krPerExtra,
+            },
+          }),
         });
       } catch (e: any) {
         // Ett VO som inte går att läsa får INTE tysta de andra, och det får
@@ -103,6 +125,10 @@ export async function POST(req: NextRequest) {
           rader: [], noter: [], hinder: [e?.message || String(e)],
           gar_att_skicka: false, summa_kant: 0, rader_utan_pris: 0,
           granskning: null,
+          // Ett VO som inte gick att läsa har inget vi VET fattas — en tom
+          // lista här är inte "allt är ifyllt", det är felraden ovan som
+          // gäller. Att gissa poster på ett oläst underlag vore värre.
+          fattas: [],
           fel: e?.message || String(e),
         });
       }
