@@ -33,6 +33,7 @@ import { rensaSenastePlanering } from '../../lib/senastePlanering'
 import { anvandObjektLista, anvandObjektListaUtanObjekt } from '../../lib/objektVal'
 import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
+import { nivaFarg, nivaKort } from '@/lib/brandriskVy'
 import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/ObjektInfo'
 import { planerarRiskRad } from '../../components/planering/Risker'
 import { type BesokPlanerareProps } from '../../components/besok/BesokPlanerare'
@@ -14380,6 +14381,7 @@ export default function PlannerPage() {
             installningar: efter(() => oppnaInst(false)),
             gpsKalla: webSerialStott ? efter(() => oppnaInst(true)) : null,
             forslag: efter(() => { window.location.href = '/forbattringsforslag'; }),
+            brandrisk: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
           },
         });
         // ── Klar med trakten? ── (bara planerare, bara medan trakten planeras)
@@ -17573,45 +17575,16 @@ export default function PlannerPage() {
         />
       )}
 
-      {/* === SMHI BRANDRISK-BADGE === */}
-      {overlays.brandrisk && brandriskData && (
-        <div style={{
-          position: 'absolute',
-          top: 60,
-          right: 12,
-          background: '#0a0a0a',
-          border: '1px solid rgba(255,255,255,0.12)',
-          borderRadius: '14px',
-          padding: '10px 14px',
-          zIndex: 200,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-        }}>
-          <div style={{
-            width: '10px',
-            height: '10px',
-            borderRadius: '50%',
-            background: brandriskData.fwiindex <= 0 ? '#30d158'
-              : brandriskData.fwiindex <= 2 ? '#eab308'
-              : brandriskData.fwiindex <= 3 ? '#f97316'
-              : '#ff453a',
-            flexShrink: 0,
-          }} />
-          <div>
-            <div style={{ fontSize: '13px', color: '#fff', fontWeight: '500' }}>
-              {brandriskData.fwiindex <= 0 ? 'Ingen brandrisk'
-                : brandriskData.fwiindex <= 1 ? 'Liten brandrisk'
-                : brandriskData.fwiindex <= 2 ? 'Normal brandrisk'
-                : brandriskData.fwiindex <= 3 ? 'Stor brandrisk'
-                : brandriskData.fwiindex <= 4 ? 'Mycket stor brandrisk'
-                : 'Extrem brandrisk'}
-            </div>
-            <div style={{ fontSize: '13px', color: '#8e8e93', marginTop: '2px' }}>
-              SMHI FWI: {brandriskData.fwi.toFixed(1)} {brandriskData.grassfire > 0 ? '| Gräsbrandsrisk' : ''}
-            </div>
-          </div>
-        </div>
+      {/* === SMHI BRANDRISK-BADGE === (lagret Brandrisk under + › Lager). Samma ord och färger som panelen (lib/brandriskVy); ett tryck öppnar den. */}
+      {overlays.brandrisk && brandriskData && brandriskData.fwiindex >= 1 && (
+        <button type="button" data-testid="brandrisk-lagerruta" onClick={() => { setActiveCategory('brandrisk'); setMenuOpen(true); }}
+          style={{ position: 'absolute', top: 60, right: AVSTAND.m, zIndex: 200, display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px ${AVSTAND.m}px`, background: FARG.kort, border: 'none', borderRadius: RADIE.kort, color: FARG.text, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
+          <span aria-hidden="true" style={{ flexShrink: 0, width: AVSTAND.m, height: AVSTAND.m, borderRadius: RADIE.cirkel, background: nivaFarg(Math.round(brandriskData.fwiindex)) }} />
+          <span>
+            <span style={{ display: 'block', ...TYP.listtitel }}>{nivaKort(Math.round(brandriskData.fwiindex))} brandrisk</span>
+            <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>Idag · tryck för prognos</span>
+          </span>
+        </button>
       )}
 
       {/* === GPS-SPÅRNINGS-INDIKATOR === */}
@@ -19825,29 +19798,13 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* Brandrisk: eld-ikon som HTML-overlay (alltid synlig vid FWI >= 3) */}
+      {/* Brandrisk: knapp på kartan vid nivå 3 eller mer, eller vid eldningsförbud. Färgen är nivåns (lib/brandriskVy), ordet står i panelen den öppnar. */}
       {(brandRisk?.status === 'done' && ((brandRisk.currentIdx ?? 0) >= 3 || brandEldningsforbud)) && activeCategory !== 'brandrisk' && (
-        <div
+        <button type="button" data-testid="brandrisk-kartknapp" aria-label={`${nivaKort(brandRisk.currentIdx ?? 0)} brandrisk – öppna`}
           onClick={() => { setActiveCategory('brandrisk'); setMenuOpen(true); }}
-          style={{
-            position: 'absolute',
-            right: 16,
-            top: 80,
-            width: '36px',
-            height: '36px',
-            borderRadius: '10px',
-            background: (brandRisk?.currentIdx ?? 0) >= 5 ? 'rgba(239,68,68,0.9)' : 'rgba(234,179,8,0.9)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            zIndex: 100,
-
-            pointerEvents: 'auto',
-          }}
-        >
-          <span style={{ fontSize: '20px' }}>{'\u{1F525}'}</span>
-        </div>
+          style={{ position: 'absolute', right: AVSTAND.l, top: 80, width: TRAFFYTA.min, height: TRAFFYTA.min, padding: 0, border: 'none', borderRadius: RADIE.kort, background: FARG.kort, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 100, pointerEvents: 'auto' }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, lineHeight: 1, color: brandEldningsforbud ? FARG.rod : nivaFarg(brandRisk.currentIdx ?? 0) }}>local_fire_department</span>
+        </button>
       )}
 
       {/* TMA: Varning visas som pulserande röd linje på kartan (MapLibre layer, klickbar) */}
