@@ -15,6 +15,8 @@ import { linjeObjekt, symbolObjekt, vidaObjekt, ytaObjekt } from '../larm/objekt
 import { larmarInte } from '../egenYtaLarm';
 import { sammaMur, SAMMA_MUR_TYPER, type MurBit } from '../larm/sammaMur';
 import { laggTill, vyNamn } from '../fart/fartLogg';
+import { lasVisat, sparaVisat, visadeNu, VISAT_EFTER_MS, type VisatKarta } from '../larm/visat';
+import { arFara } from '../larm/larm';
 
 type LL = { lat: number; lon: number };
 type Geometri = { type: 'Point' | 'LineString' | 'Polygon' | 'MultiPolygon' | 'MultiLineString' | 'MultiPoint'; coordinates: any };
@@ -84,6 +86,24 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
   // Stenmursbitar som hänger ihop är EN mur (lib/larm/sammaMur): ett Sett gäller hela kedjan.
   const kedjorRef = useRef<Map<string, string[]>>(new Map());
   const visatKortRef = useRef<string | null>(null);
+  // EN VARNING PER HINDER (lib/larm/visat): hinder föraren redan varnats för, och korten som visas just nu (id → när de kom upp).
+  const visatRef = useRef<VisatKarta>({});
+  const uppeRef = useRef<Map<string, { hash: string; sedan: number; forbjuden: boolean }>>(new Map());
+  const visatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    uppeRef.current = new Map();
+    visatRef.current = inp.objektId && inp.forare?.id && !inp.torr ? lasVisat(inp.objektId, inp.forare.id) : {};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inp.objektId, inp.forare?.id]);
+  useEffect(() => () => { if (visatTimerRef.current) clearTimeout(visatTimerRef.current); }, []);
+  /** Hindret (och resten av samma mur) räknas som varnat. Testläget minns bara i minnet. */
+  const markeraVisat = useCallback((id: string) => {
+    const i = inpRef.current;
+    const ny = { ...visatRef.current };
+    for (const x of kedjorRef.current.get(id) ?? [id]) { const o = senastRef.current.objekt.get(x); if (o && !arFara(o)) ny[x] = o.hash; }
+    visatRef.current = ny;
+    if (i.objektId && i.forare?.id && !i.torr) sparaVisat(i.objektId, i.forare.id, ny);
+  }, []);
   const inpRef = useRef(inp);
   inpRef.current = inp;
 
@@ -159,8 +179,25 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
     senastRef.current = { objekt: new Map(objekt.map((o) => [o.id, o])) };
     kedjorRef.current = murar.length > 1 ? sammaMur(murar) : new Map();
     paVagRef.current = stegaPaVag(paVagRef.current, avstandTillPlaneradVagM(pos, vagar));
-    const r = stegaLarm({ objekt, kvitt: kvittRef.current, forareId: inp.forare?.id ?? null, state: stateRef.current, paVag: paVagRef.current });
+    // Kort som stått uppe i VISAT_EFTER_MS, eller som maskinen kört ifrån, är varnade — FÖRE stegningen, så att de inte larmar en gång till i samma steg.
+    const nuMs = Date.now();
+    for (const [id, u] of Array.from(uppeRef.current)) {
+      const o = objekt.find((x) => x.id === id);
+      const kvar = !!o && (o.kalla === 'yta' ? !!o.inne : (o.avstandM ?? Infinity) <= 50);
+      // En förbjuden yta står kvar som kort så länge maskinen är inne första gången; övriga hinder släpper efter en halv minut.
+      if (!kvar || (!u.forbjuden && nuMs - u.sedan >= VISAT_EFTER_MS)) { markeraVisat(id); uppeRef.current.delete(id); }
+    }
+    const r = stegaLarm({ objekt, kvitt: kvittRef.current, forareId: inp.forare?.id ?? null, state: stateRef.current, paVag: paVagRef.current, visade: visadeNu(visatRef.current, objekt) });
     stateRef.current = r.state;
+    // Det stora kortet har nu visats: börja räkna. (Fara räknas aldrig — den larmar alltid.)
+    if (r.kort && r.kort.okvitterad && r.kort.grupp !== 'fara' && !uppeRef.current.has(r.kort.id)) {
+      const ko = objekt.find((x) => x.id === r.kort!.id);
+      if (ko) uppeRef.current.set(ko.id, { hash: ko.hash, sedan: nuMs, forbjuden: !!ko.forbjuden });
+      if (ko && !ko.forbjuden) {
+        if (visatTimerRef.current) clearTimeout(visatTimerRef.current);
+        visatTimerRef.current = setTimeout(() => setSettVersion((v) => v + 1), VISAT_EFTER_MS + 50);
+      }
+    }
     // Ett ljud per ny sak, men flera nya inom ~2 s ger bara ett (ett starkare får ersätta ett svagare).
     const nu = Date.now();
     if (r.ljud && skaSpelaLjud(r.ljud, nu, senastLjudRef.current)) {
@@ -192,6 +229,7 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
     // Hela muren: biten föraren står vid och de bitar som hänger ihop med den (lib/larm/sammaMur). Annars bara det ena objektet.
     const kedja = (kedjorRef.current.get(rad.id) ?? [rad.id]).map((id) => senastRef.current.objekt.get(id)).filter((x): x is LarmObjekt => !!x);
     for (const x of kedja) stateRef.current = markeraSett(stateRef.current, x.id);
+    markeraVisat(rad.id); uppeRef.current.delete(rad.id);
     setUt((u) => (u.settRad?.id === rad.id ? { ...u, settRad: null } : u));
     setSettVersion((v) => v + 1);
     loggaLarm('sett', { id: rad.id, typ: o.typ ?? null, grupp: o.grupp, bitar: kedja.length });
@@ -204,7 +242,7 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
         typ: x.typ ?? null, namn: x.namn, grupp: x.grupp, hash: x.hash,
       }).then((fel) => { if (fel) console.error('[Körvy larm] kvittens, sparning:', fel); });
     }
-  }, [ut.settRad]);
+  }, [ut.settRad, markeraVisat]);
 
   return { kort: ut.kort, fler: ut.fler, puls: ut.puls, settRad: ut.settRad, ringar: ut.ringar, passage: ut.passage, kvittera };
 }

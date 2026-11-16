@@ -4,6 +4,7 @@
 // raden högst upp: "Passage genom [Hänsyn 6]". Samma plats och samma bricka som påminnelsen i ytan (YtaPaminnelse). Ingen knapp. Försvinner när maskinen lämnat ytan;
 // kör den av vägen kommer det riktiga larmkortet (lib/larm/passage, lib/larm/larm `arPassage`).
 
+// EN VARNING PER HINDER (2026-11-16): samma rad visas, med texten "Du är i [Hänsyn 6]", när maskinen kör in i en förbjuden yta den redan varnats för (`sedd`).
 import React from 'react';
 import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import type { LarmPassage } from '@/lib/larm/larm';
@@ -17,14 +18,14 @@ export function PassageRad({ passage, top }: { passage: LarmPassage; top: string
         role="status"
         data-testid="larm-passage"
         data-id={passage.id}
-        aria-label={passageText(passage.namn)}
+        aria-label={passage.sedd ? `Du är i ${passage.namn}` : passageText(passage.namn)}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s, maxWidth: '100%', minHeight: TRAFFYTA.min, boxSizing: 'border-box',
           padding: `${AVSTAND.xs}px ${AVSTAND.xs}px ${AVSTAND.xs}px ${AVSTAND.m}px`, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.sheet,
           background: FARG.kort, color: FARG.text, ...TYP.text, whiteSpace: 'nowrap', boxShadow: '0 8px 30px rgba(0,0,0,0.6)',
         }}
       >
-        <span>Passage genom</span>
+        <span>{passage.sedd ? 'Du är i' : 'Passage genom'}</span>
         <YtaBricka bricka={passage.namn} grupp={passage.grupp} testid="larm-passage-bricka" />
       </div>
     </div>

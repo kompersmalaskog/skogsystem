@@ -19,7 +19,7 @@ const filer = (dir: string): string[] => readdirSync(dir).flatMap((n) => {
 describe('ingen Sett på fara', () => {
   it('Sett-raden gäller aldrig en Röd (harSettRad stänger ute fara) och stegaLarm bortser från kvittens och sett på en Röd', () => {
     expect(larm).toContain('return !arFara(o) && larmar({ ...o, undantagen: false }, false) && !o.undantagen;');
-    expect(larm).toContain('const kvitterad = !fara && arKvitterad(o, inp.kvitt, inp.forareId);');
+    expect(larm).toContain('const kvitteradSjalv = !fara && arKvitterad(o, inp.kvitt, inp.forareId);');
     expect(larm).toContain('if (inp.state.sett[o.id] && !fara) nyaSett[o.id] = true;');
     expect(larm).toContain('sett: !fara && !!inp.state.sett[o.id]');
   });

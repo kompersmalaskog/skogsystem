@@ -5,6 +5,9 @@
 //                       verkan: Röd behandlas som okvitterad, ligger alltid överst och sjunker aldrig.
 //   Grön, Brun, Blå     larmar tills FÖRAREN kvitterat (samma innehåll). Efter det: inget ljud, inget kort, bara ring i gruppens färg när man är nära.
 //   Lila, Mörk          larmar aldrig.
+//   EN VARNING PER HINDER (Martin 2026-11-16, gäller före raderna nedan): allt utom Fara varnar EN gång. Har föraren tryckt Sett, eller har kortet visats
+//                       och han kört därifrån (lib/larm/visat), larmar hindret inte igen. En förbjuden yta som redan är varnad ger vid nästa inkörning
+//                       inget kort och inget ljud, bara den lilla raden "Du är i Hänsyn 6". Ej framkomlig är Fara och larmar alltid.
 //   Förbjudna ytor      (Hänsyn, Nyckelbiotop, Fornlämning, Ej framkomlig) larmar ALLTID vid inkörning, även kvitterade —
 //                       UTOM när maskinen står på en planerad väg (basväg/stickväg) genom ytan: då inget kort och inget ljud, bara raden "Passage genom Hänsyn 6"
 //                       (lib/larm/passage). Av vägen men kvar i ytan → det riktiga larmet. Röd fara (Ej framkomlig) larmar alltid, väg eller inte.
@@ -106,7 +109,11 @@ export interface LarmRing { id: string; kalla: LarmKalla; grupp: FargGrupp; farg
 export type LarmLjud = 'nara' | 'mycket_nara';
 
 /** Den lilla raden "Passage genom Hänsyn 6": maskinen står på en planerad väg inne i en förbjuden yta. Inget kort, inget ljud. */
-export interface LarmPassage { id: string; namn: string; grupp: FargGrupp; farg: string }
+export interface LarmPassage {
+  id: string; namn: string; grupp: FargGrupp; farg: string;
+  /** Inte en passage på väg, utan en förbjuden yta föraren redan varnats för: samma lilla rad, texten "Du är i …". */
+  sedd?: true;
+}
 
 export interface LarmUtfall {
   state: LarmState;
@@ -213,7 +220,12 @@ function kortText(o: LarmObjekt): string | null {
 const VIBRATION: Record<LarmLjud, number[]> = { nara: [30, 50, 30], mycket_nara: [80, 40, 80] };
 const VIBRATION_YTA = [100, 50, 100];
 
-export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensKarta; forareId: string | null; state: LarmState; paVag?: boolean }): LarmUtfall {
+/**
+ * `visade` = objekt föraren redan varnats för EN gång (lib/larm/visat, per enhet): de räknas som kvitterade fast ingen tryckt Sett.
+ * EN VARNING PER HINDER (Martin 2026-11-16: "annars blir medarbetarna sura … dom får trycka en massa gånger"): allt utom Fara varnar en gång.
+ * En förbjuden yta som redan är varnad ger inget kort och inget ljud vid nästa inkörning, bara den lilla raden "Du är i Hänsyn 6". Fara larmar alltid.
+ */
+export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensKarta; forareId: string | null; state: LarmState; paVag?: boolean; visade?: ReadonlySet<string> }): LarmUtfall {
   const nyaSteg: Record<string, Steg> = {};
   const nyaSett: Record<string, true> = {};
   const ringar: LarmRing[] = [];
@@ -236,7 +248,13 @@ export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensK
     // En Röd kvitteras aldrig: en gammal kvittens i databasen (och ett "sett" i minnet) har ingen verkan på den.
     const fara = arFara(o);
     if (inp.state.sett[o.id] && !fara) nyaSett[o.id] = true;
-    const kvitterad = !fara && arKvitterad(o, inp.kvitt, inp.forareId);
+    const kvitteradSjalv = !fara && arKvitterad(o, inp.kvitt, inp.forareId);
+    const kvitterad = kvitteradSjalv || (!fara && !!inp.visade?.has(o.id));
+    // Förbjuden yta som föraren redan varnats för: ingen ny varning, bara raden. (Sett i den här inkörningen räknas också — kortet ska inte stå kvar.)
+    if (o.forbjuden && !fara && o.kalla === 'yta' && (kvitterad || inp.state.sett[o.id])) {
+      passage = passage ?? { id: o.id, namn: o.bricka ?? o.namn, grupp: o.grupp, farg: GRUPPER[o.grupp].farg, sedd: true };
+      continue;
+    }
     if (harRing(o) && o.kalla !== 'yta') ringar.push({ id: o.id, kalla: o.kalla, grupp: o.grupp, farg: GRUPPER[o.grupp].farg, steg, kvitterad, roll: 'ovrig' });
     if (!larmar(o, kvitterad)) continue;
     aktiva.push({ o, steg, kvitterad, sett: !fara && !!inp.state.sett[o.id] });
