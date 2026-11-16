@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FARG } from '@/lib/design/tokens';
-import { arLag, beredskapRubrik, brandSvar, idagForst, nivaFarg, nivaSiffra, visaSamrad, visaUtrustning } from './brandriskVy';
+import { arLag, brandSvar, gorSaHar, idagForst, nivaFarg, nivaSiffra, svarRad } from './brandriskVy';
 
 const dag = (f: (h: number) => number) => Array.from({ length: 24 }, (_, h) => f(h));
 // 1 på natten, 3 på förmiddag/kväll, 4 kl 14–17
@@ -55,14 +55,27 @@ describe('svaret i ord', () => {
   });
 });
 
-describe('beredskapen', () => {
-  it('rubriken byter med nivån', () => {
-    expect(beredskapRubrik(4)).toBe('Vad gör vi vid stor brandrisk?');
-    expect(beredskapRubrik(1)).toBe('Vad gör vi vid mycket liten brandrisk?');
+describe('första skärmen: en mening och bara det som gäller', () => {
+  const s = (nuTimme: number, nuNiva: number, idag = true) => brandSvar(VANLIG, { idag, nuTimme, nuNiva })!.kort;
+  it('en kort mening om när — utan dagsdel och utan nivåord', () => {
+    expect(s(11, 3)).toBe('Farligast kl 14 till 17.');
+    expect(s(15, 4)).toBe('Farligast nu, till kl 17.');
+    expect(s(19, 3)).toBe('Lugnare nu. Farligast var kl 14 till 17.');
+    expect(s(15, 4, false)).toBe('Farligast kl 14 till 17.');
+    expect(brandSvar(dag((h) => (h >= 16 ? 5 : 2)), { idag: true, nuTimme: 18, nuNiva: 5 })!.kort).toBe('Farligast nu, hela kvällen.');
+    expect(brandSvar(dag((h) => (h === 15 ? 4 : 3)), { idag: false, nuTimme: 0, nuNiva: 1 })!.kort).toBe('Farligast kl 15.');
   });
-  it('utrustning från måttlig eller vid eldningsförbud, samråd från stor', () => {
-    expect([visaUtrustning(2, false), visaUtrustning(3, false), visaUtrustning(1, true)]).toEqual([false, true, true]);
-    expect([visaSamrad(3), visaSamrad(4)]).toEqual([false, true]);
+  it('liten risk: "Inget särskilt att göra." — ingen tid', () => {
+    expect(svarRad(2, brandSvar(dag(() => 2), { idag: true, nuTimme: 10, nuNiva: 2 }))).toBe('Inget särskilt att göra.');
+    expect(svarRad(4, brandSvar(VANLIG, { idag: true, nuTimme: 11, nuNiva: 3 }))).toBe('Farligast kl 14 till 17.');
+    expect(svarRad(4, null)).toBe('');
+  });
+  it('Gör så här: utrustning från måttlig eller vid eldningsförbud, samråd från stor, inga band vid 5E; inget vid liten risk', () => {
+    expect(gorSaHar(2, false)).toEqual([]);
+    expect(gorSaHar(1, true)).toEqual(['Släckare, kratta och spade med']);
+    expect(gorSaHar(3, false)).toEqual(['Släckare, kratta och spade med']);
+    expect(gorSaHar(4, false)).toEqual(['Släckare, kratta och spade med', 'Prata med uppdragsgivaren först']);
+    expect(gorSaHar(6, false)).toEqual(['Släckare, kratta och spade med', 'Prata med uppdragsgivaren först', 'Inga band']);
   });
   it('idag står först', () => {
     const d = [{ date: '2026-11-15' }, { date: '2026-11-16' }, { date: '2026-11-17' }];

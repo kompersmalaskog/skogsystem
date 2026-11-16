@@ -1,6 +1,6 @@
 "use client";
-// Brandriskpanelen (omtag 2026-11-16, Martin: "samma design som resten av appen"). Svaret först, i ord; sedan idag timme för timme, veckan,
-// vad vi gör vid den här nivån, och sist förklaringarna. Allt på lib/design/tokens och components/design — orden, färgerna och reglerna bor i
+// Brandriskpanelen (omtag 2026-11-16, Martin: "så lätt att ett barn förstår det direkt"). Första skärmen är FYRA saker: svaret en gång, veckan som en rad
+// prickar, "Gör så här" (bara det som gäller vid nivån) och "Om det börjar brinna". Allt annat ligger bakom Mer. Allt på lib/design/tokens och components/design — orden, färgerna och reglerna bor i
 // lib/brandriskVy.ts. Ingen beräkning och ingen hämtning är ändrad: samma SMHI-data (fwif1g) och samma props som förut.
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -10,7 +10,7 @@ import Sektion from "@/components/design/Sektion";
 import Rad from "@/components/design/Rad";
 import Falt from "@/components/design/Falt";
 import Ikon from "@/components/design/Ikon";
-import { DAGNAMN, NIVA, NIVAER, arLag, beredskapRubrik, brandSvar, idagForst, nivaFarg, nivaKort, nivaSiffra, visaSamrad, visaUtrustning } from "@/lib/brandriskVy";
+import { DAGNAMN, NIVA, NIVAER, arLag, brandSvar, gorSaHar, idagForst, nivaFarg, nivaKort, nivaSiffra, svarRad } from "@/lib/brandriskVy";
 
 interface DocItem { title: string; sub: string; url: string; }
 interface DocGroup { group: string; items: DocItem[]; }
@@ -60,8 +60,9 @@ const tt = (h: number) => h.toString().padStart(2, '0');
 const faltStil: React.CSSProperties = { width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, background: FARG.fyllning, border: 'none', outline: 'none', borderRadius: RADIE.rad, color: FARG.text, ...TYP.text, fontFamily: 'inherit', colorScheme: 'dark' };
 const etikettStil: React.CSSProperties = { display: 'block', ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs };
 
-function Prick({ niva }: { niva: number }) {
-  return <span aria-hidden="true" style={{ display: 'inline-block', flexShrink: 0, width: AVSTAND.m, height: AVSTAND.m, borderRadius: RADIE.cirkel, background: nivaFarg(niva) }} />;
+function Prick({ niva, stor }: { niva: number; stor?: boolean }) {
+  const d = stor ? AVSTAND.l : AVSTAND.m;
+  return <span aria-hidden="true" style={{ display: 'inline-block', flexShrink: 0, width: d, height: d, borderRadius: RADIE.cirkel, background: nivaFarg(niva) }} />;
 }
 
 /** En rad som fälls ut på plats. En i taget (panelen håller vilken). */
@@ -150,6 +151,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
   const [activeDay, setActiveDay] = useState(0);
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const [oppen, setOppen] = useState<string | null>(null);
+  const [vy, setVy] = useState<'start' | 'brinner' | 'mer'>('start');
   const [kopierat, setKopierat] = useState(false);
   const refreshRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchRef = useRef<string>('');
@@ -221,178 +223,193 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
 
   const nu = new Date();
   const nuTimme = nu.getHours();
-  const nuNiva = data.currentIdx;
-  const dagar = idagForst(data.daily, nu.toISOString().split('T')[0]).slice(0, 7);
+  const dagar = idagForst(data.daily, nu.toISOString().split('T')[0]).slice(0, 5);
   const idagTimmar = dagar[0]?.hourlyIdx?.length ? dagar[0].hourlyIdx : data.todayHourlyIdx;
-  const svarIdag = brandSvar(idagTimmar, { idag: true, nuTimme, nuNiva });
+  const idag = activeDay === 0;
   const valdDag = dagar[activeDay] ?? dagar[0];
-  const timmar = activeDay === 0 ? idagTimmar : (valdDag?.hourlyIdx ?? []);
-  const svarVald = activeDay === 0 ? null : brandSvar(timmar, { idag: false, nuTimme, nuNiva });
-  const dagNamn = (i: number) => (i === 0 ? 'Idag' : (DAGNAMN[dagar[i]?.dayName] ?? dagar[i]?.dayName ?? ''));
+  const timmar = idag ? idagTimmar : (valdDag?.hourlyIdx ?? []);
+  // Svaret gäller nu (idag) eller dagens topp (en annan dag). "Gör så här" följer dagens TOPP: det som krävs i eftermiddag ska vara med från morgonen.
+  const visadNiva = idag ? data.currentIdx : (valdDag?.fwiIndex ?? data.currentIdx);
+  const toppNiva = Math.max(visadNiva, valdDag?.fwiIndex ?? 0);
+  const svar = brandSvar(timmar, { idag, nuTimme, nuNiva: data.currentIdx });
+  const gor = gorSaHar(toppNiva, eldningsforbud);
+  const dagOrd = (i: number) => (i === 0 ? 'Idag' : (DAGNAMN[dagar[i]?.dayName] ?? dagar[i]?.dayName ?? ''));
   const uppdaterad = new Date(data.updatedAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
   const utrustningKlar = brandUtrustning.filter(Boolean).length;
   const harLarm = !!(larmLat && larmLng);
+  const tillbaka = (
+    <button type="button" data-testid="brand-tillbaka" onClick={() => { setVy('start'); setOppen(null); }} style={{ ...KNAPP.lank, marginBottom: AVSTAND.s }}>‹ Brandrisk</button>
+  );
+  const grupp: React.CSSProperties = { ...KORT, paddingTop: 0, paddingBottom: 0, marginTop: AVSTAND.m };
 
-  return (
-    <div style={rot}>
-      {/* SVARET — i ord */}
-      <header data-testid="brand-svar" data-niva={nuNiva} style={{ marginBottom: AVSTAND.xl }}>
-        <div style={{ ...TYP.meta, color: FARG.text2 }}>{koordFranObjekt && objektNamn ? `${objektNamn} · ` : 'Kartans mitt · '}just nu kl {tt(nuTimme)}</div>
-        <h2 style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.s}px`, ...TYP.titel }}>{nivaKort(nuNiva)} brandrisk</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.text }}><Prick niva={nuNiva} />Nivå {nivaSiffra(nuNiva)}</div>
-        {eldningsforbud && <div data-testid="brand-forbud-rad" style={{ marginTop: AVSTAND.s, ...TYP.listtitel, color: FARG.rod }}>Eldningsförbud råder</div>}
-        {svarIdag && (
-          <div style={{ marginTop: AVSTAND.m, padding: AVSTAND.l, background: FARG.upphojt, borderRadius: RADIE.kort }}>
-            <div style={TYP.listtitel}>{svarIdag.rubrik}</div>
-            <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xs }}>{svarIdag.mening}</div>
-          </div>
-        )}
-      </header>
-
-      {/* TIMME FÖR TIMME */}
-      <Sektion rubrik={`${dagNamn(activeDay)} timme för timme`} not={selectedHour === null ? 'Tryck på en timme för att se nivån.' : undefined}>
-        <div data-testid="brand-band" style={{ padding: `${AVSTAND.l}px 0` }}>
-          {svarVald && <div style={{ ...TYP.text, marginBottom: AVSTAND.m }}>{svarVald.rubrik}. <span style={{ color: FARG.text2 }}>{svarVald.mening}</span></div>}
-          <div style={{ position: 'relative', paddingTop: AVSTAND.l + AVSTAND.xs }}>
-            {activeDay === 0 && (
-              <div aria-hidden="true" style={{ position: 'absolute', top: 0, left: `${((nuTimme + 0.5) / 24) * 100}%`, transform: 'translateX(-50%)', ...TYP.meta, color: FARG.text, whiteSpace: 'nowrap' }}>nu ▾</div>
-            )}
-            <div style={{ display: 'flex', gap: AVSTAND.xs / 2, borderRadius: RADIE.rad, overflow: 'hidden' }}>
-              {timmar.map((niva, h) => (
-                <button key={h} type="button" aria-label={`kl ${tt(h)}: ${nivaKort(niva)} brandrisk`} aria-pressed={selectedHour === h} onClick={() => setSelectedHour(selectedHour === h ? null : h)}
-                  style={{ flex: 1, minWidth: 0, height: TRAFFYTA.min, padding: 0, border: 'none', cursor: 'pointer', background: nivaFarg(niva), opacity: selectedHour === null || selectedHour === h ? 1 : 0.4 }} />
-              ))}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: AVSTAND.xs, ...TYP.meta, ...TNUM, color: FARG.text2 }}>
-              <span>00</span><span>06</span><span>12</span><span>18</span><span>24</span>
-            </div>
-          </div>
-          {selectedHour !== null && (
-            <div data-testid="brand-timme" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.m, ...TYP.text }}>
-              <Prick niva={timmar[selectedHour]} />Kl {tt(selectedHour)}: {nivaKort(timmar[selectedHour]).toLowerCase()} brandrisk · nivå {nivaSiffra(timmar[selectedHour])}
-            </div>
-          )}
-        </div>
-      </Sektion>
-
-      {/* VECKAN */}
-      <Sektion rubrik="Veckan" not="Tryck på en dag för att se dess timmar och väder.">
-        {dagar.map((d, i) => {
-          const vald = activeDay === i;
-          return (
-            <Rad key={d.date} sista={i === dagar.length - 1} dampad={arLag(d.fwiIndex) && !vald} pil={false}
-              titel={<span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}><Prick niva={d.fwiIndex} />{i === 0 ? 'Idag' : d.dayName} · {nivaKort(d.fwiIndex)}{d.rain ? ' · regn' : ''}</span>}
-              under={vald ? `${d.temp} · vind ${d.wind} · ${d.humidity.toLowerCase()}` : undefined}
-              hoger={<span style={{ ...TYP.meta, color: FARG.text2 }}>topp kl {tt(d.peakHour)}</span>}
-              onTryck={() => { setActiveDay(i); setSelectedHour(null); }}
-              attr={{ 'data-testid': `brand-dag-${i}`, 'aria-pressed': String(vald), 'data-niva': String(d.fwiIndex) }} />
-          );
-        })}
-      </Sektion>
-
-      {/* VAD GÖR VI */}
-      <Sektion rubrik={beredskapRubrik(nuNiva)}>
-        <Rad titel="Eldningsförbud" under={eldningsforbud ? 'Råder nu' : 'Slå på om kommunen har förbud'} pil={false} hoger={<Brytare pa={eldningsforbud} onVaxla={() => onEldningsforbudChange(!eldningsforbud)} etikett="Eldningsförbud" />} />
-        {visaSamrad(nuNiva) && <Rad titel="Samråd med uppdragsgivaren" under="Krävs vid stor brandrisk. Görs och sparas i Forest Link." attr={{ 'data-testid': 'brand-samrad' }} />}
-        {visaUtrustning(nuNiva, eldningsforbud) && (
-          <Utfall id="utrustning" oppen={oppen} onVaxla={vaxla} titel="Utrustning" hoger={<span style={{ ...TYP.meta, color: utrustningKlar === brandUtrustning.length ? FARG.gron : FARG.text2 }}>{utrustningKlar} av {brandUtrustning.length}</span>}>
-            {UTRUSTNING.map((text, i) => <Bock key={i} pa={!!brandUtrustning[i]} text={text} onTryck={() => { const n = [...brandUtrustning]; n[i] = !n[i]; onUtrustningChange(n); }} />)}
-            <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>Enligt Brandskyddsföreningens SBF 127.</div>
-          </Utfall>
-        )}
-        <Utfall id="larm" oppen={oppen} onVaxla={vaxla} titel="Om det börjar brinna" hoger={<span style={{ ...TYP.meta, color: FARG.text2 }}>Ring 112</span>}>
+  // ── OM DET BÖRJAR BRINNA ──
+  if (vy === 'brinner') {
+    return (
+      <div style={rot} data-testid="brand-vy-brinner">
+        {tillbaka}
+        <h2 style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.titel }}>Ring 112</h2>
+        <div style={{ ...KORT, marginBottom: AVSTAND.xl }}>
           {harLarm ? (
             <>
-              <div style={etikettStil}>Larmkoordinat</div>
+              <div style={etikettStil}>Hit ska räddningstjänsten</div>
               <div data-testid="brand-koordinat" style={{ ...TYP.rubrik, ...TNUM }}>{larmLat}°N, {larmLng}°E</div>
-              <div style={{ ...TYP.meta, marginTop: AVSTAND.xs, color: larmBekraftad ? FARG.text2 : FARG.orange }}>
-                {larmKalla === 'td' ? 'Från traktdirektivet' : larmKalla === 'egen' ? 'Egen' : 'Källan är inte angiven'} · {larmBekraftad ? 'kontrollerad på plats' : 'inte kontrollerad på plats'}
-              </div>
+              {!larmBekraftad && <div style={{ ...TYP.meta, marginTop: AVSTAND.xs, color: FARG.orange }}>Platsen är inte kontrollerad på plats</div>}
+              {larmBeskrivning && <div style={{ ...TYP.text, marginTop: AVSTAND.s, whiteSpace: 'pre-wrap' }}>{larmBeskrivning}</div>}
               <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.m }}>
                 <button type="button" style={KNAPP.sekundar} onClick={() => { navigator.clipboard?.writeText(`${larmLat}, ${larmLng}`).then(() => setKopierat(true)).catch(() => {}); }}>{kopierat ? 'Kopierat' : 'Kopiera'}</button>
                 <a href={`https://www.google.com/maps/dir/?api=1&destination=${larmLat},${larmLng}`} target="_blank" rel="noopener noreferrer" style={{ ...KNAPP.sekundar, textDecoration: 'none' }}>Visa vägen</a>
               </div>
-              {larmBeskrivning && (<><div style={{ ...etikettStil, marginTop: AVSTAND.l }}>Tillfartsväg</div><div style={{ ...TYP.text, whiteSpace: 'pre-wrap' }}>{larmBeskrivning}</div></>)}
             </>
           ) : (
-            <div style={{ ...TYP.text, color: FARG.orange }}>Larmkoordinaten är inte satt. Den sätts under Mer › Trakt.</div>
+            <div style={{ ...TYP.text, color: FARG.orange }}>Larmkoordinaten är inte satt för den här trakten.</div>
           )}
-          <div style={{ ...etikettStil, marginTop: AVSTAND.l }}>Säg det här när du ringer</div>
+        </div>
+        <Sektion rubrik="Säg det här">
           {VID_LARM.map((text, i) => <Bock key={i} pa={!!brandLarmChecklista[i]} text={text} onTryck={() => { const n = [...brandLarmChecklista]; n[i] = !n[i]; onLarmChecklistaChange(n); }} />)}
-        </Utfall>
-        <Utfall id="kontakter" oppen={oppen} onVaxla={vaxla} titel="Kontakter">
-          {KONTAKTER.map((k) => {
-            const namn = (brandKontakter as Record<string, string>)[k.namn] ?? '';
-            const tel = (brandKontakter as Record<string, string>)[k.tel] ?? '';
-            return (
-              <div key={k.namn}>
-                <Falt etikett={k.etikett} value={namn} onChange={(v) => onKontakterChange({ ...brandKontakter, [k.namn]: v })} placeholder="Namn" />
-                <Falt etikett={k.telEtikett} typ={k.telEtikett === 'Telefon' ? 'tel' : 'text'} value={tel} onChange={(v) => onKontakterChange({ ...brandKontakter, [k.tel]: v })}
-                  stod={tel && k.telEtikett === 'Telefon' ? <a href={`tel:${tel}`} style={{ color: FARG.bla, textDecoration: 'none' }}>Ring {tel}</a> : undefined} />
-              </div>
-            );
-          })}
-        </Utfall>
-        <Utfall id="tillbud" oppen={oppen} onVaxla={vaxla} titel="Rapportera tillbud" hoger={brandTillbud.length ? <span style={{ ...TYP.meta, color: FARG.text2 }}>{brandTillbud.length} sparade</span> : undefined}>
-          <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.l }}>Alla brandtillbud ska rapporteras till uppdragsgivaren, hur små de än är.</div>
-          <label style={etikettStil}>När hände det?</label>
-          <input type="datetime-local" value={brandNewTillbud.datum} onChange={(e) => onNewTillbudChange({ ...brandNewTillbud, datum: e.target.value })} style={{ ...faltStil, marginBottom: AVSTAND.l }} />
-          <label style={etikettStil}>Vad hände?</label>
-          <textarea value={brandNewTillbud.beskrivning} onChange={(e) => onNewTillbudChange({ ...brandNewTillbud, beskrivning: e.target.value })} rows={2} style={{ ...faltStil, resize: 'vertical', marginBottom: AVSTAND.l }} />
-          <label style={etikettStil}>Vad gjorde ni?</label>
-          <textarea value={brandNewTillbud.atgard} onChange={(e) => onNewTillbudChange({ ...brandNewTillbud, atgard: e.target.value })} rows={2} style={{ ...faltStil, resize: 'vertical', marginBottom: AVSTAND.l }} />
-          <Falt etikett="Rapporterat till" value={brandNewTillbud.rapporteradTill} onChange={(v) => onNewTillbudChange({ ...brandNewTillbud, rapporteradTill: v })} placeholder="Namn" />
-          <button type="button" data-testid="brand-spara-tillbud" onClick={onSaveTillbud} style={KNAPP.primar}>Spara tillbud</button>
-          {brandTillbud.length > 0 && (
-            <div style={{ marginTop: AVSTAND.l }}>
-              <div style={etikettStil}>Tidigare tillbud</div>
-              {brandTillbud.map((t, i) => <div key={i} style={{ ...TYP.text, padding: `${AVSTAND.s}px 0`, borderTop: `1px solid ${FARG.linje}` }}><span style={{ color: FARG.text2 }}>{new Date(t.datum).toLocaleDateString('sv-SE')}</span> · {t.beskrivning}</div>)}
-            </div>
-          )}
-        </Utfall>
-        <Utfall id="efterkontroll" oppen={oppen} onVaxla={vaxla} sista titel="Efterkontroll" hoger={<span style={{ ...TYP.meta, color: brandEfterkontroll.kvitterad ? FARG.gron : FARG.text2 }}>{brandEfterkontroll.kvitterad ? 'Gjord' : 'Inte gjord'}</span>}>
-          <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.l }}>Gå över trakten när arbetet är slut och se att inget glöder.</div>
-          <label style={etikettStil}>När?</label>
-          <input type="datetime-local" value={brandEfterkontroll.datum} onChange={(e) => onEfterkontrollChange({ ...brandEfterkontroll, datum: e.target.value })} style={{ ...faltStil, marginBottom: AVSTAND.l }} />
-          <label style={etikettStil}>Anteckning</label>
-          <textarea value={brandEfterkontroll.noteringar} onChange={(e) => onEfterkontrollChange({ ...brandEfterkontroll, noteringar: e.target.value })} rows={2} style={{ ...faltStil, resize: 'vertical', marginBottom: AVSTAND.l }} />
-          <button type="button" data-testid="brand-efterkontroll-knapp" onClick={() => onEfterkontrollChange({ ...brandEfterkontroll, kvitterad: !brandEfterkontroll.kvitterad })} style={brandEfterkontroll.kvitterad ? KNAPP.sekundar : KNAPP.primar}>
-            {brandEfterkontroll.kvitterad ? 'Ångra – inte gjord' : 'Efterkontrollen är gjord'}
-          </button>
-        </Utfall>
-      </Sektion>
+        </Sektion>
+      </div>
+    );
+  }
 
-      {/* MER */}
-      <Sektion rubrik="Mer" not={`Prognos från SMHI · uppdaterad ${uppdaterad}. Bedöm alltid själv på plats.`}>
-        <Utfall id="nivaer" oppen={oppen} onVaxla={vaxla} titel="Vad betyder nivåerna?">
-          {NIVAER.map((n) => (
-            <div key={n} style={{ display: 'flex', gap: AVSTAND.m, padding: `${AVSTAND.s}px 0` }}>
-              <span style={{ paddingTop: AVSTAND.xs }}><Prick niva={n} /></span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={TYP.listtitel}>{nivaSiffra(n)} · {NIVA[n].kort}</div>
-                <div style={{ ...TYP.text, color: FARG.text2 }}>{NIVA[n].text}</div>
+  // ── MER ──
+  if (vy === 'mer') {
+    return (
+      <div style={rot} data-testid="brand-vy-mer">
+        {tillbaka}
+        <div style={{ ...grupp, marginTop: 0, marginBottom: AVSTAND.xl }}>
+          <Utfall id="timmar" oppen={oppen} onVaxla={vaxla} titel={`${dagOrd(activeDay)} timme för timme`}>
+            <div data-testid="brand-band" style={{ position: 'relative', paddingTop: AVSTAND.l + AVSTAND.xs }}>
+              {idag && <div aria-hidden="true" style={{ position: 'absolute', top: 0, left: `${((nuTimme + 0.5) / 24) * 100}%`, transform: 'translateX(-50%)', ...TYP.meta, color: FARG.text, whiteSpace: 'nowrap' }}>nu ▾</div>}
+              <div style={{ display: 'flex', gap: AVSTAND.xs / 2, borderRadius: RADIE.rad, overflow: 'hidden' }}>
+                {timmar.map((niva, h) => (
+                  <button key={h} type="button" aria-label={`kl ${tt(h)}: ${nivaKort(niva)} brandrisk`} aria-pressed={selectedHour === h} onClick={() => setSelectedHour(selectedHour === h ? null : h)}
+                    style={{ flex: 1, minWidth: 0, height: TRAFFYTA.min, padding: 0, border: 'none', cursor: 'pointer', background: nivaFarg(niva), opacity: selectedHour === null || selectedHour === h ? 1 : 0.4 }} />
+                ))}
               </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: AVSTAND.xs, ...TYP.meta, ...TNUM, color: FARG.text2 }}><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
             </div>
-          ))}
-          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>Just nu: FWI {data.currentFwi}. FWI är SMHI:s mått på hur lätt det brinner.</div>
-        </Utfall>
-        <Utfall id="kallor" oppen={oppen} onVaxla={vaxla} sista titel="Källor och dokument">
-          {DOCS.map((g) => (
-            <div key={g.group} style={{ marginBottom: AVSTAND.m }}>
-              <div style={etikettStil}>{g.group}</div>
-              {g.items.map((doc) => (
-                <a key={doc.url} href={doc.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, padding: `${AVSTAND.xs}px 0`, textDecoration: 'none' }}>
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'block', ...TYP.text, color: FARG.bla }}>{doc.title}</span>
-                    <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{doc.sub}</span>
-                  </span>
-                  <Ikon namn="open_in_new" storlek={IKON.text} farg={FARG.text3} />
-                </a>
-              ))}
+            <div data-testid="brand-timme" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.m, ...TYP.text, color: selectedHour === null ? FARG.text2 : FARG.text }}>
+              {selectedHour === null ? 'Tryck på en timme.' : <><Prick niva={timmar[selectedHour]} />Kl {tt(selectedHour)}: {nivaKort(timmar[selectedHour]).toLowerCase()} brandrisk</>}
             </div>
-          ))}
-        </Utfall>
-      </Sektion>
+            {valdDag && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>{valdDag.temp} · vind {valdDag.wind} · {valdDag.humidity.toLowerCase()}{valdDag.rain ? ' · regn' : ''}</div>}
+          </Utfall>
+          <Rad titel="Eldningsförbud" under={eldningsforbud ? 'Råder nu' : 'Slå på om kommunen har förbud'} pil={false} hoger={<Brytare pa={eldningsforbud} onVaxla={() => onEldningsforbudChange(!eldningsforbud)} etikett="Eldningsförbud" />} />
+          <Utfall id="utrustning" oppen={oppen} onVaxla={vaxla} titel="Utrustning" hoger={<span style={{ ...TYP.meta, color: FARG.text2 }}>{utrustningKlar} av {brandUtrustning.length}</span>}>
+            {UTRUSTNING.map((text, i) => <Bock key={i} pa={!!brandUtrustning[i]} text={text} onTryck={() => { const n = [...brandUtrustning]; n[i] = !n[i]; onUtrustningChange(n); }} />)}
+          </Utfall>
+          <Utfall id="kontakter" oppen={oppen} onVaxla={vaxla} titel="Kontakter">
+            {KONTAKTER.map((k) => {
+              const namn = (brandKontakter as Record<string, string>)[k.namn] ?? '';
+              const tel = (brandKontakter as Record<string, string>)[k.tel] ?? '';
+              return (
+                <div key={k.namn}>
+                  <Falt etikett={k.etikett} value={namn} onChange={(v) => onKontakterChange({ ...brandKontakter, [k.namn]: v })} placeholder="Namn" />
+                  <Falt etikett={k.telEtikett} typ={k.telEtikett === 'Telefon' ? 'tel' : 'text'} value={tel} onChange={(v) => onKontakterChange({ ...brandKontakter, [k.tel]: v })}
+                    stod={tel && k.telEtikett === 'Telefon' ? <a href={`tel:${tel}`} style={{ color: FARG.bla, textDecoration: 'none' }}>Ring {tel}</a> : undefined} />
+                </div>
+              );
+            })}
+          </Utfall>
+          <Utfall id="tillbud" oppen={oppen} onVaxla={vaxla} titel="Rapportera tillbud" hoger={brandTillbud.length ? <span style={{ ...TYP.meta, color: FARG.text2 }}>{brandTillbud.length} sparade</span> : undefined}>
+            <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.l }}>Alla brandtillbud ska rapporteras till uppdragsgivaren, hur små de än är.</div>
+            <label style={etikettStil}>När hände det?</label>
+            <input type="datetime-local" value={brandNewTillbud.datum} onChange={(e) => onNewTillbudChange({ ...brandNewTillbud, datum: e.target.value })} style={{ ...faltStil, marginBottom: AVSTAND.l }} />
+            <label style={etikettStil}>Vad hände?</label>
+            <textarea value={brandNewTillbud.beskrivning} onChange={(e) => onNewTillbudChange({ ...brandNewTillbud, beskrivning: e.target.value })} rows={2} style={{ ...faltStil, resize: 'vertical', marginBottom: AVSTAND.l }} />
+            <label style={etikettStil}>Vad gjorde ni?</label>
+            <textarea value={brandNewTillbud.atgard} onChange={(e) => onNewTillbudChange({ ...brandNewTillbud, atgard: e.target.value })} rows={2} style={{ ...faltStil, resize: 'vertical', marginBottom: AVSTAND.l }} />
+            <Falt etikett="Rapporterat till" value={brandNewTillbud.rapporteradTill} onChange={(v) => onNewTillbudChange({ ...brandNewTillbud, rapporteradTill: v })} placeholder="Namn" />
+            <button type="button" data-testid="brand-spara-tillbud" onClick={onSaveTillbud} style={KNAPP.primar}>Spara tillbud</button>
+            {brandTillbud.length > 0 && (
+              <div style={{ marginTop: AVSTAND.l }}>
+                <div style={etikettStil}>Tidigare tillbud</div>
+                {brandTillbud.map((t, i) => <div key={i} style={{ ...TYP.text, padding: `${AVSTAND.s}px 0`, borderTop: `1px solid ${FARG.linje}` }}><span style={{ color: FARG.text2 }}>{new Date(t.datum).toLocaleDateString('sv-SE')}</span> · {t.beskrivning}</div>)}
+              </div>
+            )}
+          </Utfall>
+          <Utfall id="efterkontroll" oppen={oppen} onVaxla={vaxla} titel="Efterkontroll" hoger={<span style={{ ...TYP.meta, color: FARG.text2 }}>{brandEfterkontroll.kvitterad ? 'Gjord' : 'Inte gjord'}</span>}>
+            <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.l }}>Gå över trakten när arbetet är slut och se att inget glöder.</div>
+            <label style={etikettStil}>När?</label>
+            <input type="datetime-local" value={brandEfterkontroll.datum} onChange={(e) => onEfterkontrollChange({ ...brandEfterkontroll, datum: e.target.value })} style={{ ...faltStil, marginBottom: AVSTAND.l }} />
+            <label style={etikettStil}>Anteckning</label>
+            <textarea value={brandEfterkontroll.noteringar} onChange={(e) => onEfterkontrollChange({ ...brandEfterkontroll, noteringar: e.target.value })} rows={2} style={{ ...faltStil, resize: 'vertical', marginBottom: AVSTAND.l }} />
+            <button type="button" data-testid="brand-efterkontroll-knapp" onClick={() => onEfterkontrollChange({ ...brandEfterkontroll, kvitterad: !brandEfterkontroll.kvitterad })} style={brandEfterkontroll.kvitterad ? KNAPP.sekundar : KNAPP.primar}>
+              {brandEfterkontroll.kvitterad ? 'Ångra – inte gjord' : 'Efterkontrollen är gjord'}
+            </button>
+          </Utfall>
+          <Utfall id="nivaer" oppen={oppen} onVaxla={vaxla} titel="Vad betyder nivåerna?">
+            {NIVAER.map((n) => (
+              <div key={n} style={{ display: 'flex', gap: AVSTAND.m, padding: `${AVSTAND.s}px 0` }}>
+                <span style={{ paddingTop: AVSTAND.xs }}><Prick niva={n} /></span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={TYP.listtitel}>{nivaSiffra(n)} · {NIVA[n].kort}</div>
+                  <div style={{ ...TYP.text, color: FARG.text2 }}>{NIVA[n].text}</div>
+                </div>
+              </div>
+            ))}
+            <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>Just nu: nivå {nivaSiffra(data.currentIdx)}, FWI {data.currentFwi}. FWI är SMHI:s mått på hur lätt det brinner.</div>
+          </Utfall>
+          <Utfall id="kallor" oppen={oppen} onVaxla={vaxla} sista titel="Källor och dokument">
+            {DOCS.map((g) => (
+              <div key={g.group} style={{ marginBottom: AVSTAND.m }}>
+                <div style={etikettStil}>{g.group}</div>
+                {g.items.map((doc) => (
+                  <a key={doc.url} href={doc.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, padding: `${AVSTAND.xs}px 0`, textDecoration: 'none' }}>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', ...TYP.text, color: FARG.bla }}>{doc.title}</span>
+                      <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{doc.sub}</span>
+                    </span>
+                    <Ikon namn="open_in_new" storlek={IKON.text} farg={FARG.text3} />
+                  </a>
+                ))}
+              </div>
+            ))}
+          </Utfall>
+        </div>
+        <div style={{ ...TYP.meta, color: FARG.text2, margin: `0 ${AVSTAND.xs}px` }}>Prognos från SMHI · uppdaterad {uppdaterad}. Bedöm alltid själv på plats.</div>
+      </div>
+    );
+  }
+
+  // ── FÖRSTA SKÄRMEN: fyra saker ──
+  return (
+    <div style={rot} data-testid="brand-vy-start">
+      <header data-testid="brand-svar" data-niva={visadNiva}>
+        {(!idag || !(koordFranObjekt && objektNamn)) && <div data-testid="brand-ovan" style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>{[idag ? null : dagOrd(activeDay), koordFranObjekt && objektNamn ? null : 'Gäller kartans mitt'].filter(Boolean).join(' · ')}</div>}
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, margin: 0, ...TYP.titel }}><Prick niva={visadNiva} stor />{nivaKort(visadNiva)} brandrisk</h2>
+        <div data-testid="brand-svar-rad" style={{ ...TYP.text, marginTop: AVSTAND.s, color: arLag(toppNiva) ? FARG.text2 : FARG.text }}>{svarRad(toppNiva, svar)}</div>
+        {eldningsforbud && <div data-testid="brand-forbud-rad" style={{ marginTop: AVSTAND.s, ...TYP.listtitel, color: FARG.rod }}>Eldningsförbud råder</div>}
+      </header>
+
+      <div data-testid="brand-vecka" style={{ ...KORT, display: 'flex', padding: `${AVSTAND.xs}px ${AVSTAND.xs}px`, marginTop: AVSTAND.l }}>
+        {dagar.map((d, i) => {
+          const vald = activeDay === i;
+          return (
+            <button key={d.date} type="button" data-testid={`brand-dag-${i}`} data-niva={d.fwiIndex} aria-pressed={vald} aria-label={`${dagOrd(i)}: ${nivaKort(d.fwiIndex)} brandrisk`}
+              onClick={() => { setActiveDay(i); setSelectedHour(null); }}
+              style={{ flex: 1, minWidth: 0, minHeight: TRAFFYTA.primar + AVSTAND.l, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: AVSTAND.s, padding: 0, border: 'none', borderRadius: RADIE.rad, cursor: 'pointer', fontFamily: 'inherit', background: vald ? FARG.upphojt : 'none', color: vald || !arLag(d.fwiIndex) ? FARG.text : FARG.text2, ...TYP.meta }}>
+              <Prick niva={d.fwiIndex} stor />
+              {i === 0 ? 'Idag' : d.dayName}
+            </button>
+          );
+        })}
+      </div>
+
+      {gor.length > 0 && (
+        <section aria-label="Gör så här" data-testid="brand-gor" style={{ marginTop: AVSTAND.xl }}>
+          <h3 style={{ ...TYP.micro, color: FARG.text2, margin: `0 0 ${AVSTAND.xs}px ${AVSTAND.xs}px` }}>Gör så här</h3>
+          <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
+            {gor.map((text, i) => <Rad key={text} titel={text} sista={i === gor.length - 1} />)}
+          </div>
+        </section>
+      )}
+
+      <div style={{ ...grupp, marginTop: AVSTAND.xl }}>
+        <Rad sista titel={<span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}><Ikon namn="local_fire_department" farg={FARG.rod} />Om det börjar brinna</span>} hoger={<span style={{ ...TYP.meta, color: FARG.text2 }}>112</span>} onTryck={() => setVy('brinner')} attr={{ 'data-testid': 'brand-rad-brinner' }} />
+      </div>
+      <div style={grupp}>
+        <Rad sista titel="Mer" onTryck={() => setVy('mer')} attr={{ 'data-testid': 'brand-rad-mer' }} />
+      </div>
     </div>
   );
 }

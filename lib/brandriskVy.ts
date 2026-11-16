@@ -41,7 +41,7 @@ export function idagForst<T extends { date: string }>(dagar: readonly T[], idagI
   return i > 0 ? [...dagar.slice(i), ...dagar.slice(0, i)] : [...dagar];
 }
 
-export type BrandSvar = { rubrik: string; mening: string; toppNiva: number; toppStart: number; toppSlut: number };
+export type BrandSvar = { rubrik: string; mening: string; /** EN kort mening för första skärmen */ kort: string; toppNiva: number; toppStart: number; toppSlut: number };
 
 /**
  * Svaret i ord för en dag: när är det farligast, och vad händer sedan. Fem lägen — rubriken och meningen kan aldrig säga emot varandra.
@@ -93,17 +93,30 @@ export function brandSvar(timmar: readonly number[], a: { idag: boolean; nuTimme
     rubrik = farligast;
     mening = `Just nu ${nu.toLowerCase()} brandrisk – stiger snart till ${topp.toLowerCase()}.`;
   }
-  return { rubrik, mening, toppNiva, toppStart, toppSlut };
+  // Första skärmens enda mening: när, utan dagsdel och utan nivåord (nivån står redan i rubriken).
+  const tid = toppStart === toppSlut ? `kl ${tt(toppStart)}` : toppKl;
+  const kort = !a.idag || (a.nuNiva < toppNiva && toppKvar) ? `Farligast ${tid}.`
+    : a.nuNiva >= toppNiva ? (toppSlut >= 21 ? 'Farligast nu, hela kvällen.' : toppSlut > a.nuTimme ? `Farligast nu, till ${slutKl}.` : `Farligast var ${tid}.`)
+    : `Lugnare nu. Farligast var ${tid}.`;
+  return { rubrik, mening, kort, toppNiva, toppStart, toppSlut };
 }
 
-/** Rubriken över beredskapen byter med nivån: "Vad gör vi vid stor brandrisk?". */
-export const beredskapRubrik = (niva: number): string => {
-  const ord = nivaKort(niva).toLowerCase();
-  return ord ? `Vad gör vi vid ${ord} brandrisk?` : 'Vad gör vi?';
-};
+/**
+ * "Gör så här" (Martin 2026-11-16: så lätt att ett barn förstår): bara det som gäller vid just den nivån, som korta rader. Inget vid liten risk.
+ * Reglerna är de panelen alltid haft: utrustning från måttlig (3) eller vid eldningsförbud, samråd från stor (4), inga band vid 5E.
+ */
+export function gorSaHar(niva: number, eldningsforbud: boolean): string[] {
+  const rader: string[] = [];
+  if (niva >= 3 || eldningsforbud) rader.push('Släckare, kratta och spade med');
+  if (niva >= 4) rader.push('Prata med uppdragsgivaren först');
+  if (niva >= 6) rader.push('Inga band');
+  return rader;
+}
 
-/** Utrustning och samråd gäller från måttlig risk (3) resp. stor (4), eller vid eldningsförbud. */
-export const visaUtrustning = (niva: number, eldningsforbud: boolean): boolean => niva >= 3 || eldningsforbud;
-export const visaSamrad = (niva: number): boolean => niva >= 4;
+/** Raden under svaret: EN mening. Liten risk: inget att göra. Annars när det är farligast. */
+export function svarRad(niva: number, svar: BrandSvar | null): string {
+  if (arLag(niva)) return 'Inget särskilt att göra.';
+  return svar ? svar.kort : '';
+}
 
 export const DAGNAMN: Readonly<Record<string, string>> = { 'Mån': 'Måndag', 'Tis': 'Tisdag', 'Ons': 'Onsdag', 'Tor': 'Torsdag', 'Fre': 'Fredag', 'Lör': 'Lördag', 'Sön': 'Söndag' };
