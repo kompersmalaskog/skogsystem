@@ -22,7 +22,7 @@ export type KlickKategori = 'larm' | 'symbol' | 'yta-nr' | 'punkt' | 'linje' | '
 // Kategori → dess kart-lager. Ett lager får bara stå i EN kategori.
 export const KLICK_LAGER: { kategori: KlickKategori; lager: string[] }[] = [
   { kategori: 'larm',   lager: ['larm-pin-hit'] },
-  { kategori: 'symbol', lager: ['markers-hit', 'arrows-hit', 'line-fall-trad', 'line-korupp-traff'] },
+  { kategori: 'symbol', lager: ['markers-avvikelse', 'markers-hit', 'arrows-hit', 'line-fall-trad', 'line-korupp-traff'] },
   { kategori: 'yta-nr', lager: ['yta-nr-hit'] },
   {
     kategori: 'punkt',
