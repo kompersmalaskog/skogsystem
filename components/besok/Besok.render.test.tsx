@@ -125,6 +125,12 @@ describe('markägarens länk: medan vi jobbar — "Ska du gå ut i skogen?"', ()
     expect(q('besok-rad-skotare')!.textContent).toContain('Kranen svänger');
     expect(q('besok-rad-travar')!.textContent).toContain('Klättra aldrig');
     expect(q('besok-rad-lastbil')!.textContent).toContain('Stå aldrig nära när de lastar');
+    // varje säkerhetsrad har en bild av det man inte får göra (Martin 2026-11-16), med rött kryss
+    for (const id of ['skordare', 'skotare', 'motorsag', 'lastbil', 'travar']) {
+      const bild = q(`besok-fara-${id}`)!;
+      expect(bild.querySelector('svg')).not.toBeNull();
+      expect(bild.innerHTML).toContain('#ff453a');
+    }
     expect(q('besok-rad-skordare')!.tagName).toBe('DIV');
     await tryck(q('besok-rad-skotare'));
     const ark = q('besok-skotarark')!;

@@ -27,7 +27,7 @@ import { CERT_FORKLARING, KARTA_UNGEFAR, type SkogRad } from '@/lib/besok/skogen
 import { malbildInnehall } from '@/lib/malbilder';
 import { PUBLIK_POLL_MS } from '@/lib/besok/konstanter';
 import { LAGE_ORD, type Lopp } from '@/lib/besok/lopp';
-import { SKOG_BILD } from '@/lib/besok/bilder';
+import { SAKERHET_BILD, SKOG_BILD } from '@/lib/besok/bilder';
 
 const BesokKarta = dynamic(() => import('./BesokKarta'), { ssr: false, loading: () => <div style={{ height: 300, borderRadius: RADIE.kort, background: FARG.kort }} /> });
 
@@ -207,6 +207,7 @@ function PagarVy({ vy, token, pagar, kvitto, onBesok, onSkotare, onRad }: { vy: 
         {rader.map((r, i) => {
           const inre = (
             <>
+              <span aria-hidden="true" data-testid={`besok-fara-${r.id}`} style={{ flexShrink: 0, width: 88, lineHeight: 0, borderRadius: RADIE.rad, overflow: 'hidden', background: FARG.upphojt }} dangerouslySetInnerHTML={{ __html: SAKERHET_BILD[r.id] }} />
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block', ...TYP.listtitel }}>{r.rubrik}</span>
                 <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{r.text}</span>

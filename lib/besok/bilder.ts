@@ -40,3 +40,45 @@ export const SKOG_BILD: Readonly<Record<SkogRadId, string>> = {
   ),
   basta: ram(`${gran(26, 8, 14)}${gran(72, 8, 14)}${stubbe(8)}${stubbe(49)}${stubbe(92)}`, 'De bästa träden står kvar med luft omkring sig'),
 };
+
+// Säkerhetens bilder (Martin 2026-11-16): varje bild visar det man INTE får göra, med ett rött kryss över. Rött används bara här — det är fara.
+// Samma regel som ovan: en sak per bild, ingen text i bilden; texten bredvid säger varför.
+const FARA = '#ff453a';
+const MANNISKA = '#f2f2f7';
+const MASKIN = '#636366';
+const HJUL = '#1c1c1e';
+
+const person = (x: number, liten = false) => {
+  const h = liten ? 14 : 20;
+  const y = 54 - h;
+  return `<circle cx="${x}" cy="${y}" r="${liten ? 2.6 : 3.4}" fill="${MANNISKA}"/><path d="M${x} ${y + 4} L${x} ${y + h * 0.62} M${x} ${y + h * 0.62} L${x - 3.5} 54 M${x} ${y + h * 0.62} L${x + 3.5} 54 M${x - 4} ${y + h * 0.4} L${x + 4} ${y + h * 0.4}" stroke="${MANNISKA}" stroke-width="2.2" stroke-linecap="round" fill="none"/>`;
+};
+const kryss = (x: number, y: number, r = 11) =>
+  `<path d="M${x - r} ${y - r} L${x + r} ${y + r} M${x + r} ${y - r} L${x - r} ${y + r}" stroke="${FARA}" stroke-width="4.5" stroke-linecap="round" fill="none"/>`;
+const maskin = (x: number, bredd = 34) =>
+  `<rect x="${x}" y="30" width="${bredd}" height="18" rx="3" fill="${MASKIN}"/><rect x="${x + 4}" y="20" width="13" height="12" rx="2" fill="${MASKIN}"/><circle cx="${x + 7}" cy="50" r="5" fill="${HJUL}" stroke="${STEN}" stroke-width="1.5"/><circle cx="${x + bredd - 7}" cy="50" r="5" fill="${HJUL}" stroke="${STEN}" stroke-width="1.5"/>`;
+
+export type SakerhetBildId = 'skordare' | 'skotare' | 'motorsag' | 'lastbil' | 'travar';
+
+export const SAKERHET_BILD: Readonly<Record<SakerhetBildId, string>> = {
+  skordare: ram(
+    `${maskin(8)}<path d="M40 26 L62 16 L66 34" stroke="${MASKIN}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><ellipse cx="50" cy="54" rx="46" ry="7" fill="none" stroke="${FARA}" stroke-width="1.8" stroke-dasharray="5 4"/>${person(80)}${kryss(80, 42)}`,
+    'Gå inte in i ringen runt skördaren',
+  ),
+  skotare: ram(
+    `${maskin(44, 46)}<rect x="66" y="22" width="22" height="8" rx="3" fill="${STAM}"/><rect x="66" y="14" width="22" height="7" rx="3" fill="${STAM}"/>${person(20)}${kryss(20, 42)}`,
+    'Stå inte bakom skotaren',
+  ),
+  motorsag: ram(
+    `${stubbe(78, 6)}<path d="M76 47 L44 22" stroke="${STAM}" stroke-width="5" stroke-linecap="round"/><polygon points="30,11 60,20 44,40" fill="${GRON}"/><path d="M64 14 L58 20 M70 20 L63 25" stroke="${STEN2}" stroke-width="1.8" stroke-linecap="round"/>${person(22)}${kryss(22, 42)}`,
+    'Stå inte där trädet faller',
+  ),
+  lastbil: ram(
+    `<rect x="34" y="34" width="46" height="5" fill="${MASKIN}"/><rect x="80" y="24" width="14" height="24" rx="3" fill="${MASKIN}"/><circle cx="42" cy="50" r="5" fill="${HJUL}" stroke="${STEN}" stroke-width="1.5"/><circle cx="66" cy="50" r="5" fill="${HJUL}" stroke="${STEN}" stroke-width="1.5"/><circle cx="87" cy="50" r="5" fill="${HJUL}" stroke="${STEN}" stroke-width="1.5"/><path d="M76 34 L58 8 L44 18" stroke="${MASKIN}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="34" y="18" width="20" height="5" rx="2.5" fill="${STAM}"/>${person(16)}${kryss(16, 42)}`,
+    'Stå inte nära timmerbilen när den lastar',
+  ),
+  travar: ram(
+    `<circle cx="40" cy="48" r="6" fill="${STAM}"/><circle cx="52" cy="48" r="6" fill="${STAM}"/><circle cx="64" cy="48" r="6" fill="${STAM}"/><circle cx="76" cy="48" r="6" fill="${STAM}"/><circle cx="46" cy="38" r="6" fill="${STAM}"/><circle cx="58" cy="38" r="6" fill="${STAM}"/><circle cx="70" cy="38" r="6" fill="${STAM}"/><circle cx="52" cy="28" r="6" fill="${STAM}"/><circle cx="64" cy="28" r="6" fill="${STAM}"/><g transform="translate(0 -32)">${person(58, true)}</g>${kryss(58, 18, 10)}`,
+    'Klättra inte på virkestravarna',
+  ),
+};
