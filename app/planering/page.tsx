@@ -10,6 +10,8 @@ import { avslutaMedPosition, medelAvSenaste } from '@/lib/gpsSparLinje'
 import { OMRADE_SPAR, arYtSparning, slutRing as slutGpsRing, ytaSparId, ytaTypAv } from '@/lib/gpsSparYta'
 import { YtaSparLista } from '@/components/planering/YtaSparLista'
 import { gpsSaknas } from '@/lib/gpsSaknas'
+import { loggaGps } from '@/lib/gpsKalla'
+import { sparaHyttsparSession, type HyttsparRefs } from '@/lib/hyttsparSpara'
 import { larmpunkterUr, valjLarmpunkt, larmVisning, POS_FARSK_MS, type Larmpunkt } from '@/lib/larmpunkter'
 import { fragaOm } from '@/lib/larmKontroll'
 import { useLarmKontroll } from '@/lib/hooks/useLarmKontroll'
@@ -4041,6 +4043,17 @@ export default function PlannerPage() {
     return hallSkarmenVakenIWebblasare();
   }, [!!valtObjekt, korvyActive]);   // eslint-disable-line react-hooks/exhaustive-deps
   const korvyOppnadMsRef = useRef<number | null>(null);
+  // GPS saknas → loggas tyst (lib/gpsKalla loggaGps → fart_logg), så att orsaken går att se i efterhand: när den försvann och hur länge den var borta.
+  // Gäller både COM-porten och telefonens/iPadens GPS. Oskar 16 nov: 1,5 h utan position, och ingenting i någon logg.
+  const gpsSaknasSedanRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (gpsSaknasNu) {
+      if (gpsSaknasSedanRef.current == null) { gpsSaknasSedanRef.current = senasteGiltigFixRef.current ?? Date.now(); loggaGps('saknas', Date.now() - gpsSaknasSedanRef.current); }
+    } else if (gpsSaknasSedanRef.current != null) {
+      if (korvyActive) loggaGps('fix-tillbaka', Date.now() - gpsSaknasSedanRef.current);
+      gpsSaknasSedanRef.current = null;
+    }
+  }, [gpsSaknasNu, korvyActive]);
   useEffect(() => {
     if (!korvyActive) { korvyOppnadMsRef.current = null; setGpsSaknasNu(false); return; }
     korvyOppnadMsRef.current = Date.now();
@@ -4302,6 +4315,8 @@ export default function PlannerPage() {
   const hyttsparInitKlarRef = useRef(false);   // livscykelns resume-koll klar → ackumuleringen får skapa raden vid första punkten (undviker race)
   const hyttsparSkaparRef = useRef(false);     // true medan raden skapas vid första GPS-punkten (async-fönster → ingen dubbel-insert)
   const hyttsparSyncedRef = useRef(0);         // antal RAW-punkter (av hyttsparPointsRef) som redan lagrats server-side → append skickar bara resten
+  // Samma refar som ett objekt, till lib/hyttsparSpara (refarna är stabila, så objektet byggs en gång).
+  const hyttsparRefs = useRef<HyttsparRefs>({ rowId: hyttsparRowIdRef, points: hyttsparPointsRef, lastFix: hyttsparLastFixRef, datum: hyttsparDatumRef, ctx: hyttsparCtxRef, initKlar: hyttsparInitKlarRef, synced: hyttsparSyncedRef, dirty: hyttsparDirtyRef }).current;
   const [hyttsparBasVersion, setHyttsparBasVersion] = useState(0);   // bump när dagens redan loggade punkter laddats → rita om basen (även om kartlagret inte fanns vid livscykel-ritningen)
   const egetHistRef = useRef<any[]>([]);   // tidigare dagars eget-spår (dämpade segment) → eget hist-lager, ritas separat från dagens (fulla) live-spår
   const andrasFeaturesRef = useRef<any[]>([]);   // andra maskinens spår — hämtas även INNAN kartan finns (maskinläge: körvyn öppnas först) och ritas när källan skapats
@@ -4350,37 +4365,8 @@ export default function PlannerPage() {
   // final=true → status completed (rör INTE points → ingen tung skrivning). Läser bara refs (stabil).
   const sparaHyttspar = useCallback(async (final: boolean) => {
     if (testlageAktivRef.current) return;   // TESTLÄGE: logga aldrig hyttspår
-    const id = hyttsparRowIdRef.current;
-    if (!id) {
-      // Ingen rad skapades (öppna-och-stäng utan GPS-punkter). Vid stängning: nollställ
-      // loggningskontexten så ackumuleringen no-op:ar tills körvyn öppnas igen.
-      if (final) { hyttsparPointsRef.current = []; hyttsparLastFixRef.current = null; hyttsparDatumRef.current = null; hyttsparCtxRef.current = null; hyttsparInitKlarRef.current = false; hyttsparSyncedRef.current = 0; }
-      return;
-    }
-    // Nya (osynkade) punkter sedan senast — tunnas relativt sista sända punkten (RDP 3 m) så raka
-    // sträckor komprimeras även över batch-gränsen; ankaret (redan lagrat) droppas.
-    const raw = hyttsparPointsRef.current;
-    const consumed = raw.length - hyttsparSyncedRef.current;   // fångas FÖRE await (arrayen är append-only inom passet)
-    if (consumed > 0) {
-      const osynkade = raw.slice(hyttsparSyncedRef.current);
-      const ankar = hyttsparSyncedRef.current > 0 ? raw[hyttsparSyncedRef.current - 1] : null;
-      const tunnad = ankar ? rdpThin([ankar, ...osynkade], 3).slice(1) : rdpThin(osynkade, 3);
-      if (tunnad.length > 0) {
-        try {
-          const { error } = await supabase.rpc('hyttspar_append', { p_id: id, p_punkter: tunnad });
-          if (error) { console.error('[Hyttspår] append-fel:', error.message); }   // synced ej framflyttad → skickas om
-          else { hyttsparSyncedRef.current += consumed; }
-        } catch (e) { console.error('[Hyttspår] append-undantag:', e); }
-      } else {
-        hyttsparSyncedRef.current += consumed;   // allt bortgallrat (kollinjärt) → markera konsumerat
-      }
-    }
-    hyttsparDirtyRef.current = false;
-    if (final) {
-      try { await supabase.from('hyttspar').update({ status: 'completed', avslutad_at: new Date().toISOString(), uppdaterad_at: new Date().toISOString() }).eq('id', id); }
-      catch (e) { console.error('[Hyttspår] final-status-fel:', e); }
-      hyttsparRowIdRef.current = null; hyttsparPointsRef.current = []; hyttsparLastFixRef.current = null; hyttsparDatumRef.current = null; hyttsparCtxRef.current = null; hyttsparInitKlarRef.current = false; hyttsparSyncedRef.current = 0;
-    }
+    // lib/hyttsparSpara: ett avslut nollställer SYNKRONT, före anropen mot servern — annars nollställde avslutet av det gamla spåret det nya (objektbyte).
+    await sparaHyttsparSession(hyttsparRefs, supabase as any, final, rdpThin);
   }, []);
 
   // DAGSBYTE: en punkt hamnar på ett NYTT lokalt datum (Europe/Stockholm) → försegla gamla raden
@@ -4402,10 +4388,12 @@ export default function PlannerPage() {
       try { await supabase.from('hyttspar').update({ status: 'completed', avslutad_at: avslutadAt, uppdaterad_at: new Date().toISOString() }).eq('id', gamlaId); }
       catch (e) { console.error('[Hyttspår] dagsbyte-försegling:', e); }
     }
+    if (hyttsparCtxRef.current !== ctx) return;   // loggningen byttes medan gamla dagen förseglades
     if (!ctx) { hyttsparRowIdRef.current = null; hyttsparSyncedRef.current = 0; return; }
     hyttsparDatumRef.current = nyttDatum;
     try {
       const { data: befintlig } = await filtreraHyttsparRad(supabase.from('hyttspar').select('id, points') as any, ctx, nyttDatum).maybeSingle();
+      if (hyttsparCtxRef.current !== ctx) return;
       if (befintlig) {
         const bas = Array.isArray(befintlig.points) ? befintlig.points : [];
         hyttsparRowIdRef.current = befintlig.id;
@@ -4418,6 +4406,7 @@ export default function PlannerPage() {
         const { data: ny, error } = await supabase.from('hyttspar')
           .insert(hyttsparInsertRad(ctx, nyttDatum, hyttsparPointsRef.current))
           .select('id').single();
+        if (hyttsparCtxRef.current !== ctx) return;
         if (error || !ny) { console.error('[Hyttspår] dagsbyte-insert:', error?.message); hyttsparRowIdRef.current = null; hyttsparSyncedRef.current = 0; return; }
         hyttsparRowIdRef.current = ny.id;
         hyttsparSyncedRef.current = 1;   // forstaPunkt lagrad via insert
@@ -4437,6 +4426,7 @@ export default function PlannerPage() {
     const forstaPunkt = { lat: cand.lat, lng: cand.lon, tid: new Date(cand.ts).toISOString() };
     try {
       const { data: befintlig } = await filtreraHyttsparRad(supabase.from('hyttspar').select('id, points') as any, ctx, datum).maybeSingle();
+      if (hyttsparCtxRef.current !== ctx) return;   // loggningen byttes medan vi frågade (objektbyte): den här punkten hör till det gamla spåret
       if (befintlig) {
         const bas = Array.isArray(befintlig.points) ? befintlig.points : [];
         hyttsparPointsRef.current = [...bas, forstaPunkt];
@@ -4450,6 +4440,7 @@ export default function PlannerPage() {
           .insert(hyttsparInsertRad(ctx, datum, hyttsparPointsRef.current))
           .select('id').single();
         if (error || !ny) { console.error('[Hyttspår] första-punkt-insert:', error?.message); return; }
+        if (hyttsparCtxRef.current !== ctx) return;   // bytt under tiden: raden finns på servern, men den nya loggningen får inte peka på den
         hyttsparRowIdRef.current = ny.id;
         hyttsparSyncedRef.current = 1;   // forstaPunkt lagrad via insert
       }
@@ -4498,7 +4489,12 @@ export default function PlannerPage() {
         }
         // Saknas dagens rad skapas INGEN rad vid öppning — den skapas vid FÖRSTA GPS-punkten
         // (ackumuleringen nedan). Öppna-och-stäng utan punkter lämnar då ingen tom rad.
-        if (avbruten) { sparaHyttspar(true); return; }
+        // Stängd/bytt medan raden återupptogs: städningen har redan avslutat spåret. Ett avslut till här kunde nollställa NÄSTA spår (objektbyte).
+        // Radens status sätts tillbaka om vår 'recording' hann skrivas efter städningens 'completed' — och bara om ingen ny loggning tagit över raden.
+        if (avbruten) {
+          if (befintlig && hyttsparRowIdRef.current !== befintlig.id) { try { await supabase.from('hyttspar').update({ status: 'completed', uppdaterad_at: new Date().toISOString() }).eq('id', befintlig.id); } catch { /* */ } }
+          return;
+        }
         hyttsparLastFixRef.current = null;
         hyttsparInitKlarRef.current = true;   // resume-kollen klar → ackumuleringen får skapa raden vid första punkten
         uppdateraHyttsparLager();

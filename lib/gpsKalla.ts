@@ -8,6 +8,7 @@
 // användaren uttryckligen beviljat vår origin via requestPort() → getPorts() innehåller bara dem.
 // COM6/COM7 (FL/Opti4G) beviljas aldrig till oss och rörs därför aldrig.
 
+import { laggTill, vyNamn } from './fart/fartLogg';
 import { SERIAL_FLAGG, harWebSerial, serialGpsVald, glomSerialGps, antalBeviljadeSerialPortar } from './gpsSerialFlagga';
 import { BAUD_PROVORDNING, effektivBaud, hamtaBaudVal, sattBaudVal, sattHittadBaud, type BaudVal } from './gpsBaud';
 import { OKORRIGERAD, klockaKorr, startaKlockSynk, type KlockaKorr } from './serverKlocka';
@@ -347,6 +348,20 @@ function aktuellTyp(): GpsKallaTyp {
 function notifiera(fix: GpsFix) { senasteFix = fix; for (const a of Array.from(abonnenter)) { try { a(fix); } catch { /* */ } } }
 
 // Öppna den underliggande källan EN gång (serial eller geolocation). notifiera() sprider till abonnenter.
+/** Så länge får en öppen port vara tyst (ingen giltig NMEA-mening) innan den stängs och öppnas igen. Dubblas per omstart utan resultat. */
+export const GPS_TYST_MS = 30_000;
+export const GPS_TYST_MAX_MS = 300_000;
+/** Gränserna som ett objekt, så att ett test kan köra vakten på millisekunder i stället för en halv minut. Ändras aldrig i appen. */
+export const GPS_TYST = { ms: GPS_TYST_MS, maxMs: GPS_TYST_MAX_MS, kollMs: 5_000 };
+/**
+ * GPS-händelser till den tysta loggen (fart_logg, lib/fart/fartLogg) så att orsaken syns i efterhand: 'gps:tyst-omstart', 'gps:tillbaka',
+ * 'gps:fordrojd', 'gps:port-gick-inte-oppna' (+ 'gps:saknas' från körvyn). ms = hur länge. Loggas som slag 'anrop' — tabellen har ingen egen
+ * sort för GPS och en ny kräver en migration; namnet börjar alltid på 'gps:'. Ett fel här får aldrig röra GPS:en.
+ */
+export function loggaGps(handelse: string, ms: number): void {
+  try { laggTill({ slag: 'anrop', namn: `gps:${handelse}`, ms: Math.max(0, Math.min(ms, 600_000)), vy: typeof window !== 'undefined' ? vyNamn(window.location?.pathname ?? '/') : '/' }); } catch { /* */ }
+}
+
 function startaUnderliggande(highAccuracy: boolean): { stop(): void; stoppaOchVanta?(): Promise<void> } {
   // --- Fast läge (testflik): ingen riktig källa — bara den utlagda positionen (om den redan satts) ---
   // Sätts som senaste fix utan notifiera(): startaGpsKalla levererar senasteFix till den nya abonnenten direkt
@@ -370,6 +385,16 @@ function startaUnderliggande(highAccuracy: boolean): { stop(): void; stoppaOchVa
     let omstart = false;
     /** Snabba omförsök efter en connect-händelse: Windows kan annonsera porten strax innan den går att öppna. */
     let snabbaForsok = 0;
+    // TYST PORT (Oskar, R64428, 2026-11-16): porten stod öppen men inget kom på 1,5 h — read() väntar då för evigt och ingenting öppnade om den.
+    // Kommer ingen giltig NMEA-mening på `tystGransMs` stängs porten och öppnas igen. Gränsen dubblas för varje omstart utan resultat (30 s → 5 min)
+    // och går tillbaka till 30 s vid första giltiga meningen. En mottagare utan satelliter skickar fortfarande meningar — den startas inte om.
+    let tystGransMs = GPS_TYST.ms;
+    /** Senaste omstarten berodde på tystnad → öppna igen efter 1 s, inte 10. */
+    let tystOmstart = false;
+    /** När porten först tystnade (över omstarter), för loggen. null = data kommer. */
+    let tystSedanMs: number | null = null;
+    /** Porten gick inte att öppna: loggas EN gång per avbrott. */
+    let oppnaFelLoggat = false;
     const kor = async () => {
       if (avbryt.current || korar) return;
       korar = true;
@@ -378,7 +403,9 @@ function startaUnderliggande(highAccuracy: boolean): { stop(): void; stoppaOchVa
       if (avbryt.current) return;
       if (omstart) { omstart = false; pagaende = kor(); return; }
       // Tappad → connect-händelsen (nedan) återansluter direkt utan timer; en timer i ett dolt Chrome-fönster stryps till ~60 s. Reservtimern (10 s) behövs bara om händelsen uteblir.
-      const vantaMs = !oppnad && snabbaForsok > 0 ? (snabbaForsok--, 1000) : 10000;
+      if (!oppnad && !oppnaFelLoggat) { oppnaFelLoggat = true; loggaGps('port-gick-inte-oppna', 0); }
+      const snabbt = tystOmstart; tystOmstart = false;
+      const vantaMs = snabbt ? 1000 : !oppnad && snabbaForsok > 0 ? (snabbaForsok--, 1000) : 10000;
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = setTimeout(() => { pagaende = kor(); }, vantaMs);
     };
@@ -393,11 +420,26 @@ function startaUnderliggande(highAccuracy: boolean): { stop(): void; stoppaOchVa
         try { await port.open({ baudRate: effektivBaud() }); } catch { continue; }   // upptagen/öppen → nästa
         aktivPort = port;
         oppnad = true;
+        oppnaFelLoggat = false;
+        let senasteRadMs = Date.now();
+        let vakt: any = null;
         let buffert = '';
         const dec = new TextDecoder();
         try {
           const reader = port.readable.getReader();
           aktivReader = reader;
+          // Vakten: tyst för länge → avbryt läsningen (väcker en read() som hängt sig), så stängs porten nedan och `kor` öppnar den igen.
+          vakt = setInterval(() => {
+            const tyst = Date.now() - senasteRadMs;
+            if (avbryt.current || tyst < tystGransMs) return;
+            if (tystSedanMs == null) tystSedanMs = senasteRadMs;
+            loggaGps('tyst-omstart', tyst);
+            console.warn(`[GPS] porten har varit tyst i ${Math.round(tyst / 1000)} s — stänger och öppnar den igen`);
+            tystOmstart = true;
+            tystGransMs = Math.min(tystGransMs * 2, GPS_TYST.maxMs);
+            clearInterval(vakt); vakt = null;
+            try { void reader.cancel(); } catch { /* */ }
+          }, GPS_TYST.kollMs);
           try {
             while (!avbryt.current) {
               const { value, done } = await reader.read();
@@ -408,19 +450,24 @@ function startaUnderliggande(highAccuracy: boolean): { stop(): void; stoppaOchVa
                 const rad = buffert.slice(0, nl).trim();
                 buffert = buffert.slice(nl + 1);
                 if (!rad.startsWith('$') || !nmeaChecksumOk(rad)) continue;
+                senasteRadMs = Date.now();
+                if (tystSedanMs != null) { loggaGps('tillbaka', senasteRadMs - tystSedanMs); tystSedanMs = null; }
+                tystGransMs = GPS_TYST.ms;
                 const kk = klockaKorr();   // per mening: avvikelsen uppdateras var 10:e minut
                 const nuMs = Date.now();
                 state = matNmeaRad(state, rad, nuMs, kk);
                 const fix = nmeaStateTillFix(state, nuMs, FIX_MAX_ALDER_MS, FORDROJD_MAX_MS, kk);
                 // Loggas EN gång per fördröjd period (inte per mening, det är hundratals i sekunden på en uppbyggd kö)
-                if (fix.fordrojd && !loggadFordrojd) { loggadFordrojd = true; console.warn(`[GPS] data fördröjd: NMEA-tiden ligger ${Math.round((fix.nmeaAlderMs ?? 0) / 1000)} s efter verklig tid (klockavvikelse ${Math.round(kk.offsetMs / 1000)} s, ${effektivBaud()} baud) — räknas som ingen fix`); }
+                if (fix.fordrojd && !loggadFordrojd) { loggadFordrojd = true; loggaGps('fordrojd', fix.nmeaAlderMs ?? 0); console.warn(`[GPS] data fördröjd: NMEA-tiden ligger ${Math.round((fix.nmeaAlderMs ?? 0) / 1000)} s efter verklig tid (klockavvikelse ${Math.round(kk.offsetMs / 1000)} s, ${effektivBaud()} baud) — räknas som ingen fix`); }
                 else if (!fix.fordrojd) loggadFordrojd = false;
                 notifiera(fix);
               }
             }
-          } finally { aktivReader = null; try { reader.releaseLock(); } catch { /* */ } }
+          } finally { aktivReader = null; if (vakt) { clearInterval(vakt); vakt = null; } try { reader.releaseLock(); } catch { /* */ } }
         } catch { /* läsfel → porten tappades */ }
-        try { await port.close(); } catch { /* */ }
+        if (vakt) { clearInterval(vakt); vakt = null; }
+        // En port som hängt sig kan också hänga i close(): vänta högst 3 s, annars kommer vi aldrig vidare till nästa försök.
+        try { await Promise.race([port.close(), new Promise((res) => setTimeout(res, 3000))]); } catch { /* */ }
         aktivPort = null;
         break;
       }
