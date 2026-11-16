@@ -4,6 +4,7 @@ import {
   snyggtNamn, datumIOrd, ord, heltalTill100, LASS_SYNLIGA,
 } from './granskningVy';
 import { skotAvstandKr, skotAvstandKrPerM3 } from '@/lib/ekonomi/acord';
+import type { Lasskalla } from '@/lib/faktura/lassAvstand';
 import { raknaSortiment, type SortimentRad } from '@/lib/ekonomi/sortimentAntal';
 
 // FACIT ur prod 2026-10-25. Samma rader som lib/ekonomi/sortimentAntal.test.ts
@@ -285,9 +286,10 @@ const SKALVIKEN_AVSTAND = {
   lassAntal: 2,
   kronor: 1680,
   lass: [
-    { avstandM: 1538, volym: 20, kronor: 1120 },
-    { avstandM: 858, volym: 20, kronor: 560 },
+    { avstandM: 1538, volym: 20, kronor: 1120, kalla: 'opti' as const },
+    { avstandM: 858, volym: 20, kronor: 560, kalla: 'opti' as const },
   ],
+  kallor: ['opti'] as Lasskalla[],
   grundavstandM: 200 as number | null,
   krPer100m: 4 as number | null,
   giltigFran: '2025-06-03' as string | null,
@@ -336,7 +338,7 @@ describe('avståndet: 1 680 kr på 1 725 m³ är 0,97 kr/m³fub', () => {
 
   it('en lång lista kapas och SÄGER hur många som inte visas', () => {
     const lass = Array.from({ length: LASS_SYNLIGA + 3 }, (_, i) =>
-      ({ avstandM: 1000 - i * 10, volym: 20, kronor: 100 }));
+      ({ avstandM: 1000 - i * 10, volym: 20, kronor: 100, kalla: 'opti' as const }));
     const v = byggAvstandVy({
       a: { ...SKALVIKEN_AVSTAND, lass, lassAntal: lass.length, lassVolym: lass.length * 20 },
       volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13',

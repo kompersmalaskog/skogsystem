@@ -514,7 +514,8 @@ function Avstand(p: GranskningProps) {
       )}
 
       {vy.lassRader.length > 0 && (
-        <Sektion rubrik="Så räknade appen" not={vy.merRad ?? undefined}>
+        <Sektion rubrik="Så räknade appen"
+          not={[vy.kallaRad, vy.merRad].filter(Boolean).join(' ') || undefined}>
           {vy.lassRader.map((r, i) => (
             <Rad key={i} pil={false} titel={r.avstand} under={r.under}
               sista={i === vy.lassRader.length - 1} />

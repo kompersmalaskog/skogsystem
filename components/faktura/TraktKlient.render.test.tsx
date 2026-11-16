@@ -55,10 +55,11 @@ const svar = (fattas = skalvikenFattas()) => ({
       avstand: {
         manuellt: null, lassVolym: 40, lassAntal: 2, kronor: 1680,
         lass: [
-          { avstandM: 1538, volym: 20, kronor: 1120 },
-          { avstandM: 858, volym: 20, kronor: 560 },
+          { avstandM: 1538, volym: 20, kronor: 1120, kalla: 'opti' as const },
+          { avstandM: 858, volym: 20, kronor: 560, kalla: 'opti' as const },
         ],
-        grundavstandM: 200, krPer100m: 4, giltigFran: '2025-06-03',
+        kallor: ['opti' as const],
+  grundavstandM: 200, krPer100m: 4, giltigFran: '2025-06-03',
       },
       terrangKr: 0,
     },

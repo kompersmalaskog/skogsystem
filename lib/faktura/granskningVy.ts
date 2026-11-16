@@ -24,6 +24,7 @@
 
 import { virkesGrupp } from '@/lib/markagarrapport/pris';
 import type { Granskningsunderlag } from '@/lib/faktura/hamtaUnderlag';
+import type { Lasskalla } from '@/lib/faktura/lassAvstand';
 import type { TradslagPerSortiment, TradslagsAndel } from '@/lib/faktura/lasTradslag';
 import type { Tillaggspost } from '@/lib/ekonomi/prisPerM3';
 
@@ -477,8 +478,14 @@ export type AvstandVy = {
   prislistaRad: string | null;
   /** Vad tillägget blir i kronor på trakten, i ord. */
   pengar: string;
-  /** Ett lass per rad, längst först. */
+  /** Ett lass per rad, längst först. `kalla` står bara när båda källorna finns. */
   lassRader: { avstand: string; under: string }[];
+  /**
+   * Var lassen kommer ifrån, i ord. null när det inte finns några.
+   * Står alltid när appens lass är med — det är inte självklart att en
+   * skotare som rapporterar i appen bär avståndet alls.
+   */
+  kallaRad: string | null;
   /** Står när listan är kapad. null annars. */
   merRad: string | null;
   /** Står bara när avståndet är satt för hand. */
@@ -487,6 +494,31 @@ export type AvstandVy = {
 
 /** Så många lass visas; resten blir en rad som säger hur många de är. */
 export const LASS_SYNLIGA = 8;
+
+const KALLA_ORD: Record<Lasskalla, string> = { app: 'appen', opti: 'Opti' };
+
+/**
+ * Var lassen kommer ifrån.
+ *
+ * Appens lass är förarens egna registreringar med GPS-spåret sedan förra
+ * lossningen — samma sträcka Opti mäter, och den meningen ska stå: fakturan
+ * läste bara Opti fram till 2026-11-16, och att en skotare som rapporterar i
+ * appen numera bär avståndstillägget är inte självklart för den som läser.
+ */
+function kallaText(kallor: Lasskalla[]): string | null {
+  if (!kallor.length) return null;
+  const app = kallor.includes('app');
+  const opti = kallor.includes('opti');
+  if (app && opti) {
+    return 'Lassen kommer ur både appen och Opti. Per maskin och dag räknas '
+      + 'den källa som har mest volym — aldrig båda, så ingen dag räknas dubbelt.';
+  }
+  if (app) {
+    return 'Lassen är förarens egna registreringar i appen. Sträckan är '
+      + 'GPS-spåret sedan förra lossningen — samma sträcka Opti mäter.';
+  }
+  return 'Lassen kommer ur Optis filer.';
+}
 
 export type AvstandIndata = {
   a: Granskningsunderlag['avstand'];
@@ -521,7 +553,7 @@ export function byggAvstandVy(i: AvstandIndata): AvstandVy {
       ? 'Inget lass har körsträcka, så tillägget blir 0 kr. Skriv in avståndet '
         + 'enkel väg om du vet det.'
       : `Snittet ur ${a.lass.length === 1 ? 'ett lass' : `${a.lass.length} lass`} `
-        + `med körsträcka. De bär ${m3(lassVolym)} av ${heltal(i.volym)} m³fub `
+        + `med mätt sträcka. De bär ${m3(lassVolym)} av ${heltal(i.volym)} m³fub `
         + `— ${tackning} % av trakten.`;
 
   // Maskinen mäter sträckan sedan förra lossningen: ut i trakten, lasta,
@@ -544,6 +576,9 @@ export function byggAvstandVy(i: AvstandIndata): AvstandVy {
 
   const synliga = a.lass.slice(0, LASS_SYNLIGA);
   const kvar = a.lass.length - synliga.length;
+  // Källan skrivs på raden bara när båda finns — annars står den en gång i
+  // kallaRad, och ett "Opti" på varje rad vore brus.
+  const bada = a.kallor.length > 1;
 
   return {
     avstandM,
@@ -553,8 +588,10 @@ export function byggAvstandVy(i: AvstandIndata): AvstandVy {
     pengar,
     lassRader: synliga.map(l => ({
       avstand: `${heltal(l.avstandM)} m`,
-      under: `${m3(l.volym)} m³ · ${heltal(l.kronor)} kr`,
+      under: [`${m3(l.volym)} m³`, `${heltal(l.kronor)} kr`,
+              bada ? KALLA_ORD[l.kalla] : null].filter(Boolean).join(' · '),
     })),
+    kallaRad: kallaText(a.kallor),
     merRad: kvar > 0 ? `och ${kvar} lass till` : null,
     manuelltRad: a.manuellt != null
       ? `Satt för hand till ${heltal(a.manuellt)} m.`
