@@ -134,7 +134,8 @@ describe('förladdning — hämtningen startar medan appen ännu startar', () =>
   it('spårets objekts trakt-geometri förladdas så fort objektet är känt — innan punkterna kommit', async () => {
     const { db, logg } = fejk();
     await forladdaSparStart(db, 'A130743');
-    const geoRad = logg.findIndex((l) => l.startsWith('objekt_geometri|geometri|'));
+    // Geometrin går via enhetens sparade kopia (lib/geometriCache): första frågan är den lilla versionsfrågan.
+    const geoRad = logg.findIndex((l) => l.startsWith('objekt_geometri|objekt_id,id,skapad|'));
     const punktRad = logg.findIndex((l) => l.startsWith('hyttspar|points'));
     expect(geoRad).toBeGreaterThan(-1);
     expect(geoRad).toBeLessThan(punktRad);

@@ -37,6 +37,21 @@ export function vadAndrades(
 }
 
 export interface Hamtning { namn: string; start: number; langd: number }
+
+/** Så länge ska kartan ha varit lugn (inga rutor på väg, ingen ny ruta klar) för att räknas som klar utan 'idle'. */
+export const KARTA_LUGN_MS = 500
+/**
+ * Är kartan klar fast den aldrig blir "stilla"? I maskinläget rör sig alltid något (positionen, larmets puls, pilarna på vägen), så MapLibres
+ * 'idle' kommer aldrig och mätningen slog i taket (30 s) för varje lagerbyte — H8E -26 den 15 nov, också när inga rutor hämtades alls.
+ * Klar = kartan säger att alla rutor är laddade OCH ingen kartruta har blivit färdig de senaste KARTA_LUGN_MS. Svaret är tiden då den SENASTE rutan
+ * blev klar (eller `ritad` när inga hämtades) — inte tiden då vi märkte det.
+ */
+export function kartanKlar(i: { nu: number; ritad: number; rutornaLaddade: boolean; hamtningar: readonly Hamtning[] }): number | null {
+  if (!i.rutornaLaddade) return null
+  let sist = i.ritad
+  for (const h of i.hamtningar) if (arKartruta(h.namn) && h.start >= i.ritad - 1) sist = Math.max(sist, h.start + h.langd)
+  return i.nu - sist >= KARTA_LUGN_MS ? sist : null
+}
 /** Är det här en kartruta (och inte appens egna anrop)? Vår proxy, bakgrundens rutor (/api/forarkarta), WMS-anrop och z/x/y-rutor. */
 export function arKartruta(url: string): boolean {
   return /wms-proxy|\/api\/forarkarta\?|[?&]bbox=|service=wm[st]s?|\/\d{1,2}\/\d+\/\d+(\.\w+)?(\?|$)/i.test(url)

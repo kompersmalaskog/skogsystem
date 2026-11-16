@@ -10,6 +10,8 @@
 // Därför: ett försök räknas bara som lyckat om båda frågorna svarade UTAN fel OCH geometrin inte är tom; annars försöker vi igen (backoff, tidsgräns
 // per försök) tills det går, och laddar om med jämna mellanrum så att tilldelningar/status inte blir gamla.
 
+import { lasGeometrierMedCache, type GeoLager } from './geometriCache';
+
 export const KANDIDAT_KOLUMNER = 'id,namn,typ,grot,status,areal,lat,lng,volym,volym_planerad,volym_skordad,volym_skotad,skotare_maskin_id,skordare_maskin_id,pagaende_startad_timestamp';
 // 'oplanerad' ingår: en maskin som står i en trakt ingen hunnit klarplanera ska ändå matchas (förarna spärras aldrig av planeringen).
 export const KANDIDAT_STATUS: readonly string[] = ['oplanerad', 'planerad', 'pagaende'];
@@ -23,6 +25,8 @@ export const KANDIDAT_UPPDATERA_MS = 5 * 60_000;
 export interface KandidatSvar {
   objekt: { data: any[] | null; error: unknown };
   geometri: { data: any[] | null; error: unknown };
+  /** Antal objekt med geometri på servern (alla, inte bara kandidaterna). Saknas fältet räknas raderna i `geometri.data`. */
+  geometriPaServern?: number;
 }
 
 export interface KandidatResultat {
@@ -39,19 +43,23 @@ export function byggKandidater(svar: KandidatSvar): KandidatResultat {
   if (svar.geometri.error) return { ok: false, orsak: 'geometri-fel', kandidater: [] };
   const rader = svar.objekt.data || [];
   const geo = svar.geometri.data || [];
-  if (rader.length > 0 && geo.length === 0) return { ok: false, orsak: 'geometri-tom', kandidater: [] };
+  if (rader.length > 0 && (svar.geometriPaServern ?? geo.length) === 0) return { ok: false, orsak: 'geometri-tom', kandidater: [] };
   const geoMap = new Map<string, any>();
   for (const g of geo) geoMap.set(g.objekt_id, g.geometri);
   return { ok: true, orsak: null, kandidater: rader.map((r) => ({ ...r, geometri: geoMap.get(r.id) ?? null })) };
 }
 
-/** De två frågorna mot databasen (parallellt). Fel läggs i svaret — supabase-js kastar inte, men nätfel kan ändå kasta → fångas av laddaren. */
-export async function hamtaKandidatSvar(supabase: any): Promise<KandidatSvar> {
-  const [o, g] = await Promise.all([
-    supabase.from('objekt').select(KANDIDAT_KOLUMNER).in('status', [...KANDIDAT_STATUS]),
-    supabase.from('objekt_geometri').select('objekt_id,geometri'),
-  ]);
-  return { objekt: { data: o.data, error: o.error }, geometri: { data: g.data, error: g.error } };
+/**
+ * Frågorna mot databasen. Fel läggs i svaret — supabase-js kastar inte, men nätfel kan ändå kasta → fångas av laddaren.
+ * Geometrin går via enhetens sparade kopia (lib/geometriCache): en liten versionsfråga varje gång, och bara KANDIDATERNAS geometri hämtas, och bara
+ * när den ändrats. Förut hämtades hela tabellen (37 trakter, 6,8 MB) var 5:e minut i varje maskin — det segaste i hela appen enligt fart_logg.
+ */
+export async function hamtaKandidatSvar(supabase: any, lager?: GeoLager): Promise<KandidatSvar> {
+  const o = await supabase.from('objekt').select(KANDIDAT_KOLUMNER).in('status', [...KANDIDAT_STATUS]);
+  if (o.error) return { objekt: { data: o.data, error: o.error }, geometri: { data: null, error: null } };
+  const ids = (o.data || []).map((r: any) => String(r.id));
+  const g = await lasGeometrierMedCache(supabase, ids, lager);
+  return { objekt: { data: o.data, error: o.error }, geometri: { data: g.data, error: g.error }, geometriPaServern: g.paServern };
 }
 
 /**

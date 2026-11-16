@@ -5,6 +5,7 @@
 //   3. punkterna för DEN valda raden + hela objekt-raden, parallellt
 // Tar klienten som parameter (inte en importerad singleton) så anropet kan köras mot prod från ett skript.
 
+import { lasGeometriMedCache } from './geometriCache';
 import {
   valjSenasteSpar, senastePunkt, senasteKurs, valjStartPosition,
   type HyttsparIndexRad, type ObjektTilldelning, type StartPosition,
@@ -78,7 +79,7 @@ export function taForladdadSparStart(maskinId: string): Promise<SparStart | null
 
 /** Trakt-geometrin för ett objekt, hämtad i förväg (samma svar som trakt-geometri-effekten annars hämtar själv). */
 export function forladdaTraktGeo(db: DbLike, objektId: string): Promise<any> {
-  const p = Promise.resolve(db.from('objekt_geometri').select('geometri').eq('objekt_id', objektId).maybeSingle());
+  const p = lasGeometriMedCache(db as any, objektId);
   forladdadeGeo.set(objektId, p);
   return p;
 }

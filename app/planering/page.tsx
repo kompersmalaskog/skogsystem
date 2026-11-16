@@ -195,6 +195,7 @@ import { FARG, FONT, DELFARG, TYP, RADIE, AVSTAND, IKON, TRAFFYTA, KNAPP, VIKT }
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { stegaAvstamning, NYTT_AVSTAMNINGSMINNE, type AvstamningsMinne } from '../../lib/objektAvstamning'
 import { hamtaKandidatSvar, startaKandidatLaddning } from '../../lib/objektKandidater'
+import { lasGeometriMedCache, lasSparadGeometri } from '../../lib/geometriCache'
 import { FRAGA_HOPPAD_NYCKEL, MENY_VALD_NYCKEL } from '../../lib/appStart'
 import { valbaraMaskiner, rollForMaskin, startHinder, type RegisterStatus } from '../../lib/maskinFraga'
 import { hamtaSenasteObjekt, sattSenasteObjekt, rensaSenasteObjekt } from '../../lib/senasteObjekt'
@@ -5102,20 +5103,24 @@ export default function PlannerPage() {
   }, [overlays.grothogar, mapLibreReady, lagerTick]);
 
   // === Trakt-geometri: hämta objekt_geometri, pumpa in + zooma till geometrins utsträckning ===
+  const [geoOmTick, setGeoOmTick] = useState(0);   // det sparade gällde utan att servern svarat: fråga igen (lib/geometriCache)
+  const geoRitadRef = useRef<{ id: string; version: string | null } | null>(null);   // vilken version av geometrin som ligger ritad för vilket objekt
   const traktGeoVisadForRef = useRef<string | null>(null);   // objektet vars geometri ligger i källan (eller laddas): ett NYTT objekt tömmer källan direkt
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const src = map.getSource('trakt-geo-source') as any;
     if (!src) return;
-    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); setTraktGeoHamtadFor(null); vidaFel.rapportera('finns'); traktGeoVisadForRef.current = null; return; }
+    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); setTraktGeoHamtadFor(null); vidaFel.rapportera('finns'); traktGeoVisadForRef.current = null; geoRitadRef.current = null; return; }
     // Byte av trakt: den gamla traktens gräns och ytor tas bort DIREKT — annars ligger de kvar på den nya traktens plats tills svaret kommit.
     if (traktGeoVisadForRef.current !== valtObjekt.id) {
       traktGeoVisadForRef.current = valtObjekt.id;
+      geoRitadRef.current = null;
       src.setData({ type: 'FeatureCollection', features: [] });
       setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); setTraktGeoHamtadFor(null);
     }
     let avbruten = false;
+    const stada: (() => void)[] = [];
     (async () => {
       // Startflödet och /maskin-sidan kan ha förladdat just det här objektets geometri (parallellt med kartans laddning). EN gång.
       // GROT-jobb som hör till ett virkesobjekt visar VIRKESOBJEKTETS traktgräns (och därmed dess ytor): objekt.hor_till_objekt_id (Starta jobb).
@@ -5125,14 +5130,81 @@ export default function PlannerPage() {
       // "Vidas lager saknas …" och sidan försöker igen, `vidaFel.forsok`). Ett hämtfel får aldrig se ut som "trakten har ingen geometri".
       // En Vida-trakt (numeriskt vo_nummer) har alltid traktgräns: tomt svar = fel (utgången session ger tomma rader UTAN fel), och sessionen förnyas före nytt försök.
       // Ett P-VO-jobb (privat / väntar på Vida): tomt = saknas på riktigt, ingen rad.
+      // Rita en geometri: källan, tillstånden och (första gången) kameran. Anropas högst två gånger per trakt — först med det sparade, sedan bara om servern har en nyare.
+      const visa = (fcIn: any, zooma: boolean) => {
+        let fc: any = fcIn;
+        // Varje feature får sin stabila nyckel (`_nyckel`, lib/vidaNycklar): vår kommentar och våra foton på Vidas objekt sparas hos oss under den nyckeln.
+        fc = medVidaNycklar(fc);
+        // Fokus på trakten: det som ligger helt utanför trakten (> 50 m från traktgränsen) ritas svagt och utan etikett (lib/fokusTrakt). Bara utseendet — larm och kort läser samma geometri.
+        fc = medFokus(fc);
+        src.setData(fc);
+        setTraktGeo(fc);
+        setTraktGeoHamtadFor(valtObjekt.id);     // svaret kom: geometri FINNS (batchas med setTraktGeo ovan)
+        // Vilka _typ finns faktiskt (driver knapparna — iterera över det som kom, aldrig anta).
+        const typer = new Set<string>();
+        // Referenskategorier klassade på _lager (nyckelbiotop/lämning syns inte i _typ='okänt').
+        const kategorier = new Set<TraktKategori>();
+        for (const f of fc.features) {
+          const t = f?.properties?._typ; if (t) typer.add(arOvrigYta(f?.properties) ? 'ovrigtyta' : t);   // Övrigt (TYP 71) är ingen hänsynsyta: knappen "Hänsynsytor" visas inte för den
+          const { kategori } = klassaTraktFeature(f?.properties);
+          if (kategori !== 'ignorera') kategorier.add(kategori);
+        }
+        setGeoTyper(typer);
+        setGeoKategorier(kategorier);
+        // Zooma till geometrins utsträckning (inte till pinen) — bbox över alla features.
+        let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+        const scan = (c: any): void => {
+          if (typeof c[0] === 'number') {
+            if (c[0] < minLng) minLng = c[0]; if (c[0] > maxLng) maxLng = c[0];
+            if (c[1] < minLat) minLat = c[1]; if (c[1] > maxLat) maxLat = c[1];
+          } else { for (const x of c) scan(x); }
+        };
+        for (const f of fc.features) if (f?.geometry?.coordinates) scan(f.geometry.coordinates);
+        // Maskindatorns startsekvens äger kameran (svart → översikt över TRAKTGRÄNSEN → EN flyTo). Den här
+        // fitBounds landar asynkront efter DB-svaret och zoomar dessutom över ALLA features (fastighet, bestånd);
+        // den skulle avbryta flygningen → tyst medan sekvensen äger kameran. Vanliga appen: oförändrat.
+        // Körvyn äger kameran (följer maskinen på körvyns zoom) → ingen zoom-ut över ALLA features (fastighet, bestånd):
+        // med en stillastående position (testfliken) kommer ingen GPS-tick som rättar kameran efteråt.
+        // Planeringsvyn (objektListaVal): kameran sveps av useObjektFlyg till TRAKTGRÄNSEN — inte över alla features (en stor fastighetsyta gav en regional fläck).
+        // Finns Vidas traktgräns zoomar kartan till den, aldrig över alla features (Martin 2026-11-12, Lidhem i maskinläge:
+        // fastighet och bestånd långt bort gav en karta över halva socknen).
+        const granTrakt = traktGrans(fc);
+        if (zooma && (granTrakt || Number.isFinite(minLng)) && !startKameraLasRef.current && !korvyOppenRef.current && !objektListaVal) {
+          try { map.fitBounds(granTrakt ?? [[minLng, minLat], [maxLng, maxLat]], { padding: 60, duration: 600, maxZoom: 16 }); } catch {}
+        }
+      };
+      // VISA DET SPARADE FÖRST (lib/geometriCache, Martin 2026-11-16): geometrin som ligger på enheten ritas direkt, utan nät. Servern får sedan säga om den gäller.
+      const sparad = await lasSparadGeometri(geoObjektId);
+      if (avbruten) return;
+      // Ett nytt varv för SAMMA trakt (omfrågan, nytt försök): det som redan ligger ritat ritas inte om och kameran rörs inte.
+      const ritad = geoRitadRef.current;
+      let visadVersion: string | null = ritad && ritad.id === valtObjekt.id ? ritad.version : null;
+      if (!visadVersion && sparad?.geometri && Array.isArray(sparad.geometri.features) && sparad.geometri.features.length > 0) {
+        visa(sparad.geometri, true);
+        visadVersion = sparad.version;
+        geoRitadRef.current = { id: valtObjekt.id, version: sparad.version };
+        vidaFel.rapportera('finns');
+      }
+      // Fråga igen senare när det sparade fick gälla utan att servern svarat (ingen täckning): när nätet kommer, annars om en minut.
+      const fragaSenare = () => {
+        const om = () => setGeoOmTick((n) => n + 1);
+        const t = setTimeout(om, 60_000);
+        window.addEventListener('online', om, { once: true });
+        stada.push(() => { clearTimeout(t); window.removeEventListener('online', om); });
+      };
+      let gammal = false;
+      let version: string | null = null;
       const svar = await lasVidaLager(
-        () => forladdad ?? supabase.from('objekt_geometri').select('geometri').eq('objekt_id', geoObjektId).maybeSingle(),
+        async () => { const r: any = await (forladdad ?? lasGeometriMedCache(supabase, geoObjektId)); gammal = r?.gammal === true; version = r?.version ?? null; return r; },
         { forvantas: arVidaVo((valtObjekt as any).vo_nummer), forny: fornyaSessionVida },
       );
       if (avbruten) return;
+      // Hämtningen föll men det sparade är redan ritat: det får ligga kvar (larmen fungerar), och vi frågar igen. Aldrig en tom karta för att nätet saknas.
+      if (svar.status === 'fel' && visadVersion) { console.warn('[Vidas lager] servern svarade inte, det sparade gäller:', svar.orsak); fragaSenare(); return; }
       vidaFel.rapportera(svar.status);
       if (svar.status === 'fel') console.error('[Vidas lager] hämtning misslyckades:', svar.orsak);
       if (svar.status !== 'finns') {
+        geoRitadRef.current = null;
         src.setData({ type: 'FeatureCollection', features: [] });
         setGeoTyper(new Set());
         setGeoKategorier(new Set());
@@ -5140,49 +5212,14 @@ export default function PlannerPage() {
         setTraktGeoHamtadFor(valtObjekt.id);   // svaret kom (eller hämtningen föll): startsekvensen väntar annars i onödan. Felet syns i vidaFel, inte här.
         return;
       }
-      let fc: any = svar.fc;
-      // Varje feature får sin stabila nyckel (`_nyckel`, lib/vidaNycklar): vår kommentar och våra foton på Vidas objekt sparas hos oss under den nyckeln.
-      fc = medVidaNycklar(fc);
-      // Fokus på trakten: det som ligger helt utanför trakten (> 50 m från traktgränsen) ritas svagt och utan etikett (lib/fokusTrakt). Bara utseendet — larm och kort läser samma geometri.
-      fc = medFokus(fc);
-      src.setData(fc);
-      setTraktGeo(fc);
-      setTraktGeoHamtadFor(valtObjekt.id);     // svaret kom: geometri FINNS (batchas med setTraktGeo ovan)
-      // Vilka _typ finns faktiskt (driver knapparna — iterera över det som kom, aldrig anta).
-      const typer = new Set<string>();
-      // Referenskategorier klassade på _lager (nyckelbiotop/lämning syns inte i _typ='okänt').
-      const kategorier = new Set<TraktKategori>();
-      for (const f of fc.features) {
-        const t = f?.properties?._typ; if (t) typer.add(arOvrigYta(f?.properties) ? 'ovrigtyta' : t);   // Övrigt (TYP 71) är ingen hänsynsyta: knappen "Hänsynsytor" visas inte för den
-        const { kategori } = klassaTraktFeature(f?.properties);
-        if (kategori !== 'ignorera') kategorier.add(kategori);
-      }
-      setGeoTyper(typer);
-      setGeoKategorier(kategorier);
-      // Zooma till geometrins utsträckning (inte till pinen) — bbox över alla features.
-      let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
-      const scan = (c: any): void => {
-        if (typeof c[0] === 'number') {
-          if (c[0] < minLng) minLng = c[0]; if (c[0] > maxLng) maxLng = c[0];
-          if (c[1] < minLat) minLat = c[1]; if (c[1] > maxLat) maxLat = c[1];
-        } else { for (const x of c) scan(x); }
-      };
-      for (const f of fc.features) if (f?.geometry?.coordinates) scan(f.geometry.coordinates);
-      // Maskindatorns startsekvens äger kameran (svart → översikt över TRAKTGRÄNSEN → EN flyTo). Den här
-      // fitBounds landar asynkront efter DB-svaret och zoomar dessutom över ALLA features (fastighet, bestånd);
-      // den skulle avbryta flygningen → tyst medan sekvensen äger kameran. Vanliga appen: oförändrat.
-      // Körvyn äger kameran (följer maskinen på körvyns zoom) → ingen zoom-ut över ALLA features (fastighet, bestånd):
-      // med en stillastående position (testfliken) kommer ingen GPS-tick som rättar kameran efteråt.
-      // Planeringsvyn (objektListaVal): kameran sveps av useObjektFlyg till TRAKTGRÄNSEN — inte över alla features (en stor fastighetsyta gav en regional fläck).
-      // Finns Vidas traktgräns zoomar kartan till den, aldrig över alla features (Martin 2026-11-12, Lidhem i maskinläge:
-      // fastighet och bestånd långt bort gav en karta över halva socknen).
-      const granTrakt = traktGrans(fc);
-      if ((granTrakt || Number.isFinite(minLng)) && !startKameraLasRef.current && !korvyOppenRef.current && !objektListaVal) {
-        try { map.fitBounds(granTrakt ?? [[minLng, minLat], [maxLng, maxLat]], { padding: 60, duration: 600, maxZoom: 16 }); } catch {}
-      }
+      if (gammal) fragaSenare();
+      // Samma version som redan ritats: ingenting att göra (ingen omritning, ingen ny zoom).
+      if (visadVersion && version === visadVersion) return;
+      visa(svar.fc, !visadVersion);
+      geoRitadRef.current = { id: valtObjekt.id, version };
     })();
-    return () => { avbruten = true; };
-  }, [valtObjekt?.id, (valtObjekt as any)?.hor_till_objekt_id, mapLibreReady, vidaFel.forsok]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { avbruten = true; stada.forEach((f) => f()); };
+  }, [valtObjekt?.id, (valtObjekt as any)?.hor_till_objekt_id, mapLibreReady, vidaFel.forsok, geoOmTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === Hänsynsytor: i KÖRVYN lätt fyllning (≤ 0,15) och kanten bär färgen; planeringsvyn oförändrad ===
   useEffect(() => {
