@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Ark from '@/components/design/Ark';
 import Sektion from '@/components/design/Sektion';
 import LastbilKarta from '@/components/LastbilKarta';
-import { AVSTAND, FARG, KNAPP, KORT, TNUM, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, KNAPP, KORT, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import { kontaktRadArk, lageSvar, lampaRubrik, matareText, serviceRad, sistSedd, tankOrd, tankSvar, type TankDel } from './nu';
 import type { NuLage } from './useLastbilNu';
 
@@ -25,7 +25,11 @@ function Status({ text, rollAlert }: { text: string; rollAlert?: boolean }) {
  *   Länken "Visa var den står" öppnar kartarket — där bor också mätare och motortimmar.
  * Läsfel är ett fel med "Försök igen"; saknade värden står som "saknas i datan", aldrig 0.
  */
-export default function BilenNuKort({ lage, onForsokIgen }: { lage: NuLage; onForsokIgen: () => void }) {
+export default function BilenNuKort({ lage, onForsokIgen, onOppnaRunda }: {
+  lage: NuLage; onForsokIgen: () => void;
+  /** Medan bilen kör: ett tryck på läget öppnar körningens ark (den pågående rundan står inte i listan "Vad har bilen gjort?"). */
+  onOppnaRunda?: (r: { id: string; start: string }) => void;
+}) {
   const [platsArk, setPlatsArk] = useState(false);
 
   const innehall = (() => {
@@ -65,11 +69,28 @@ export default function BilenNuKort({ lage, onForsokIgen }: { lage: NuLage; onFo
             <div style={{ ...TYP.meta, color: FARG.text2 }}>{lampa.under}</div>
           </div>
         )}
-        <div data-lage style={{ ...TYP.rubrik, color: FARG.text, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
-          {oppen && <span className="puls" aria-hidden style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: '50%', background: FARG.text, flex: 'none' }} />}
-          <span>{svar.rubrik}</span>
-        </div>
-        {svar.under && <div data-lage-under style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.xs }}>{svar.under}</div>}
+        {(() => {
+          const lageText = (
+            <>
+              <div data-lage style={{ ...TYP.rubrik, color: FARG.text, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+                {oppen && <span className="puls" aria-hidden style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: '50%', background: FARG.text, flex: 'none' }} />}
+                <span>{svar.rubrik}</span>
+              </div>
+              {svar.under && <div data-lage-under style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.xs }}>{svar.under}</div>}
+            </>
+          );
+          const runda = data.oppen_runda;
+          if (!runda?.starttid || !onOppnaRunda) return lageText;
+          const start = runda.starttid;
+          // Den pågående körningen står bara här (inte i listan): hela läget är en rad som öppnar arket.
+          return (
+            <button type="button" data-oppna-runda onClick={() => onOppnaRunda({ id: runda.id, start })} aria-label={`${svar.rubrik} – visa körningen`}
+              style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', width: '100%', minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+              <span style={{ flex: 1, minWidth: 0 }}>{lageText}</span>
+              <span className="material-symbols-outlined" aria-hidden style={{ color: FARG.text3, flex: 'none' }}>chevron_right</span>
+            </button>
+          );
+        })()}
         <div data-tank data-niva={tank.niva} style={{ ...TYP.text, ...TNUM, color: NIVA_FARG[tank.niva], marginTop: AVSTAND.m }}>{tank.text}</div>
         {tankOrd(data).map((d, i) => (
           <div key={i} data-tank-ord={d.niva} style={{ ...TYP.meta, color: NIVA_FARG[d.niva], marginTop: AVSTAND.xs }}>{d.ord}</div>
