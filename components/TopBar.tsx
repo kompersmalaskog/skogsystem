@@ -68,6 +68,8 @@ const pageNames: Record<string, string> = {
   '/ekonomi/installningar': 'Inställningar',
 }
 
+import { arInbaddad, sagTillKartan } from '@/lib/inbaddad'
+
 export default function TopBar() {
   const pathname = usePathname()
   const isHome = pathname === '/'
@@ -146,7 +148,8 @@ export default function TopBar() {
           ‹ Arbetsmiljö
         </Link>
       ) : !isHome && !hideHome ? (
-        <Link href="/" style={{
+        <Link href="/" onClick={(e) => { if (arInbaddad()) { e.preventDefault(); sagTillKartan({ typ: 'hem' }); } }} style={{
+          // I maskinen ligger vyn ovanpå kartan (lib/inbaddad): hem = stäng rutan, tillbaka till appens låda — aldrig en ny start av kartan.
           // Träffytan är appens minimiyta (44 px); den synliga rutan (36 px, vänsterkant 12 px) ligger centrerad i den och ser ut som förut.
           position: 'absolute',
           left: 12 - (TRAFFYTA.min - 36) / 2,

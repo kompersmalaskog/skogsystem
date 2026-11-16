@@ -129,6 +129,18 @@ describe('Maskinlådan', () => {
     expect(s.anrop).toEqual(['stang', 'samma:/planering', 'stang', 'samma:/planering?installningar=1'])
   })
 
+  it('i maskinen öppnas en annan vy OVANPÅ kartan: länken navigerar inte, lådan ligger kvar', async () => {
+    const s = spion()
+    const oppnade: string[] = []
+    await montera({ ...s.props, onOppnaVy: (href: string) => oppnade.push(href) })
+    const kal = sektion('Dina vyer')!.querySelector('a[href="/kalibrering"]')!
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true })
+    await act(async () => { kal.dispatchEvent(ev) })
+    expect(ev.defaultPrevented).toBe(true)
+    expect(oppnade).toEqual(['/kalibrering'])
+    expect(s.anrop).toEqual([])   // varken stängd eller "samma sida"
+  })
+
   it('en länk till en annan vy navigerar som vanligt', async () => {
     const s = spion()
     await montera(s.props)

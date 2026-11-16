@@ -19,6 +19,7 @@ import { useStartsidaData } from '@/components/startsida/useStartsidaData'
 import { useDatahalsa } from '@/app/datahalsa/useDatahalsa'
 import { AVSTAND, FARG, FONT, IKON, KNAPP, KORT, RORELSE, TRAFFYTA, TYP, overgang } from '@/lib/design/tokens'
 import type { Roll } from '@/lib/vyer'
+import { oppnasOvanpa } from '@/lib/inbaddad'
 
 /** Från den här skärmbredden är lådan en panel från vänster med kartan synlig bredvid; under den fyller den skärmen. */
 export const LADA_PANEL_FRAN = 900
@@ -41,7 +42,7 @@ function useFonsterBredd(): number {
   return b
 }
 
-export default function MaskinMeny({ maskinNamn, objektNamn, onBytObjekt, onStang, onSammaSida }: {
+export default function MaskinMeny({ maskinNamn, objektNamn, onBytObjekt, onStang, onSammaSida, onOppnaVy }: {
   /** Maskinens visningsnamn ur dim_maskin (tom = okänd). */
   maskinNamn: string
   /** Öppet objekt, null = inget valt. */
@@ -50,6 +51,8 @@ export default function MaskinMeny({ maskinNamn, objektNamn, onBytObjekt, onStan
   onStang: () => void
   /** En länk till /planering trycktes (href med eventuell query). Lådan har redan stängts. */
   onSammaSida: (href: string) => void
+  /** En länk till en annan vy trycktes: den öppnas OVANPÅ kartan (lib/inbaddad) — kartan stängs aldrig. Lådan ligger kvar under. */
+  onOppnaVy?: (href: string) => void
 }) {
   const data = useStartsidaData()
   const { besked } = useDatahalsa()
@@ -85,7 +88,14 @@ export default function MaskinMeny({ maskinNamn, objektNamn, onBytObjekt, onStan
     const href = a?.getAttribute('href')
     if (!href) return
     const sokvag = href.split('?')[0].split('#')[0]
-    if (sokvag !== '/planering') return
+    if (sokvag !== '/planering') {
+      // Alla andra vyer: ovanpå kartan, inte i stället för den (ny flik och liknande lämnas ifred).
+      if (!onOppnaVy || !oppnasOvanpa(href) || a?.getAttribute('target') === '_blank' || e.metaKey || e.ctrlKey) return
+      e.preventDefault()
+      e.stopPropagation()
+      onOppnaVy(href)
+      return
+    }
     e.preventDefault()
     e.stopPropagation()
     onStang()
