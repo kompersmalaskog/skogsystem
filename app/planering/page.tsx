@@ -129,6 +129,7 @@ import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunk
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
+import { TOM_KURS, foljTid, kartRiktning, stegaKurs, type KursLage } from '../../lib/korvyKurs'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
 import { valjObjektForPosition, objektTraffPunkt, objektHuvudtyp, traktgransRingar, arTilldelad, type ObjektForVal } from '../../lib/objektPlats'
 import { tolkaSparadPosition, MASKINPOS_NYCKEL, sparObjektGiltigt, valjPosObjekt, valjTilldelatObjekt, valjFlygPos } from '../../lib/maskinPosition'
@@ -3462,7 +3463,11 @@ export default function PlannerPage() {
         setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
         // GPS-KURSEN (NMEA VTG/RMC) matar körvyns rotation när kompassen saknas (maskindator).
         // Utan detta stod kartan norr-upp på PC (deviceorientation finns inte där).
-        if (fix.kurs != null) setGpsHeading(((fix.kurs % 360) + 360) % 360);
+        // LUGN KURS (lib/korvyKurs, Martin 2026-11-16): kursen räknas ur hur maskinen FLYTTAT SIG, inte rakt ur GPS:ens kurs vid varje fix – den
+        // hoppar av bruset när maskinen står still och arbetar, och då snurrade pilen och kartan. GPS:ens egen kurs används bara tills maskinen rört sig.
+        const kl = stegaKurs(kursLageRef.current, { lat: fix.lat, lon: fix.lng });
+        if (kl !== kursLageRef.current) { kursLageRef.current = kl; if (kl.kurs != null) setGpsHeading(kl.kurs); }
+        else if (kl.kurs == null && fix.kurs != null) { const k0 = ((fix.kurs % 360) + 360) % 360; setGpsHeading((p) => p ?? k0); }
         sisteGiltig.t = Date.now();
         setGpsFixFarsk(true);
         setGpsFordrojdMs(null);
@@ -4225,6 +4230,7 @@ export default function PlannerPage() {
   // GPS-heading (pos.coords.heading) — sätts när användaren rör sig (speed >= ~1 m/s).
   // Föredras framför deviceHeading i Körvy eftersom det är faktisk färdriktning, inte enhetens orientering.
   const [gpsHeading, setGpsHeading] = useState<number | null>(null);
+  const kursLageRef = useRef<KursLage>(TOM_KURS);
   // Spara mapType före Körvy så vi kan återställa vid avsluta
   const korvyPrevMapTypeRef = useRef<typeof mapType | null>(null);
   // Nästa-kö (3 närmaste framåt) + akut varning
@@ -9070,7 +9076,10 @@ export default function PlannerPage() {
   const korvyHeading: number = valjKorvyHeading({ serialAktiv: serialGpsAktiv || !!testlage || maskinlage, kompassAktiv: kartRoterar, gpsKurs: gpsHeading, deviceHeading });
   // Kart-bearing: "Rotera kartan"-toggeln (compassMode) styr om kartan följer färdriktningen
   // (heading-up) eller ligger norr-upp. På maskindatorn ger den nu rotation via GPS-kursen.
-  const kartBearing: number = kartRoterar ? korvyHeading : 0;
+  // Kartan vrids inte för småändringar (lib/korvyKurs kartRiktning): under några grader står den kvar, så den inte gungar på rak väg.
+  const kartBearingRef = useRef<number | null>(null);
+  const kartBearing: number = kartRoterar ? kartRiktning(kartBearingRef.current, korvyHeading) : 0;
+  kartBearingRef.current = kartRoterar ? kartBearing : null;
 
   // 1) Camera setup när korvyActive togglas: spara nuvarande kamera, sätt 3D-perspektiv. Avsluta → restore.
   useEffect(() => {
@@ -9117,6 +9126,7 @@ export default function PlannerPage() {
   }, [korvyActive, mapLibreReady]);
 
   // 2) GPS-following + heading när korvyActive (mjuk easing per uppdatering, behåll offset)
+  const foljForraRef = useRef<number>(0);
   useEffect(() => {
     if (!korvyActive) return;
     // Har föraren dragit i kartan pausas följet tills centrera-knappen trycks (gäller alla körvyer).
@@ -9134,13 +9144,18 @@ export default function PlannerPage() {
     // mot mål-zoomen → mjuk glidning som dämpar GPS-jitter så zoomen aldrig studsar runt en tröskel.
     const rawZoom = korvyProximityZoom(korvyNextItems[0]?.dist ?? null);
     korvyZoomRef.current += (rawZoom - korvyZoomRef.current) * 0.35;
+    const nuMs = Date.now();
     map.easeTo({
       center: [pos.lon, pos.lat],   // pricken centreras; padding.top skjuter ner den i nedre tredjedelen
       bearing: kartBearing,
       zoom: korvyZoomRef.current,
       padding: { top: topPad, bottom: 0, left: 0, right: 0 },
-      duration: 500,
+      // LUGN GLIDNING (lib/korvyKurs foljTid): kartan glider lika länge som det gått sedan förra punkten, i jämn fart. Förut 500 ms med
+      // in- och utbromsning per punkt – en punkt i sekunden gav då ryck: flytta, stå, flytta, stå.
+      duration: foljTid(foljForraRef.current ? nuMs - foljForraRef.current : null),
+      easing: (t: number) => t,
     });
+    foljForraRef.current = nuMs;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, korvyHeading, kartBearing, korvyActive, korvyNextItems, korvyFollowPaused, startKameraLasNu]);
 
@@ -9980,7 +9995,7 @@ export default function PlannerPage() {
           </radialGradient>
         </defs>
         <path d="M48 48 L28.6 10.7 L67.4 10.7 Z" fill="url(#kon)"/>
-        <path d="M48 22 L57 39 L48 34.5 L39 39 Z" fill="#0a84ff" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="M48 8 L64 38 L48 31 L32 38 Z" fill="#0a84ff" stroke="#ffffff" stroke-width="3.5" stroke-linejoin="round"/>
       </svg>`;
       const img = new Image();
       img.onload = () => {
@@ -10055,7 +10070,7 @@ export default function PlannerPage() {
           layout: {
             'icon-image': 'maskin-ikon',
             // Kägla-storlek (96px-bild) — modest "viskning", ej dominant. Vridbar känsla.
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 17, 0.75, 19, 0.9],
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.6, 17, 0.95, 19, 1.1],
             'icon-rotate': ['get', 'heading'],
             'icon-rotation-alignment': 'map',
             'icon-pitch-alignment': 'viewport',
@@ -10426,14 +10441,16 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, korvyHeading, korvyActive, mapLibreReady]);
 
-  // === KÖRVY: fällningscirkeln (30 m runt skördaren) — alltid synlig men svag, tar gruppens färg när något skyddsvärt ligger inom 30 m ===
+  // === KÖRVY: fällningscirkeln (30 m runt skördaren) — syns BARA när något skyddsvärt eller en fastighetsgräns ligger inom 30 m, i gruppens färg ===
   // Skotarläget har ingen cirkel. Orsaken (objektet som ger färgen) lyser upp i larm-fall-lagren. Tyst: inget ljud, inget kort.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const pos = currentPosition as any;
     try {
-      const visa = korvyActive && !skotarKorvy && pos && pos.lat != null && pos.lon != null;
+      // CIRKELN SYNS BARA NÄR DEN GÄLLER (Martin 2026-11-16): något skyddsvärt (fara, kultur, natur) eller en fastighetsgräns inom 30 m.
+      // Förut låg den alltid kvar, svag och vit – en cirkel som alltid är där slutar man se. Bara skördaren (skotaren har ingen).
+      const visa = korvyActive && !skotarKorvy && pos && pos.lat != null && pos.lon != null && (!!fall.grupp || !!fgFall);
       const src = map.getSource('gps-radie-source') as any;
       if (src) {
         src.setData(visa
