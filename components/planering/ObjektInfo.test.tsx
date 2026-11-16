@@ -775,12 +775,13 @@ describe('Mer', () => {
     expect(q('objekt-info')!.getAttribute('data-vy')).toBe('kort');
   });
 
-  it('inga gamla menyval: Byt objekt, Brandrisk, Gallring, Genomgång, Visa som, Vägdata, körvyerna', async () => {
+  it('inga gamla menyval: Byt objekt, Gallring, Genomgång, Visa som, Vägdata, körvyerna — Brandrisk finns (fast väg in, 2026-11-16)', async () => {
     await montera(props());
     klicka(q('kort-mer'));
     const text = q('mer-innehall')!.textContent!;
     // (körvyn är igång i propsen, så Inställningar och Förslag finns här med rätta — de nås inte från startsidan i körvyn)
-    for (const bort of ['Byt objekt', 'Brandrisk', 'Gallring', 'Briefing', 'Kvittera markeringar', 'Genomgång & kvittering', 'Visa som', 'Vägdata', 'Skördarkörvy', 'Skotarkörvy']) expect(text, bort).not.toContain(bort);
+    expect(text).toContain('Brandrisk');
+    for (const bort of ['Byt objekt', 'Gallring', 'Briefing', 'Kvittera markeringar', 'Genomgång & kvittering', 'Visa som', 'Vägdata', 'Skördarkörvy', 'Skotarkörvy']) expect(text, bort).not.toContain(bort);
   });
 });
 
