@@ -1,6 +1,6 @@
 // Små bilder till korten "Det här kommer du att se" på markägarens länk (Martin 2026-11-16: en bild förstår man direkt, en textrad måste man läsa).
 // Avsiktligt enkla: mark, stam, krona — en sak per bild, ingen text i bilden. Den detaljerade bilden ("Så ska det se ut", lib/malbilder) ligger kvar i arket bakom kortet.
-// SVG som text (ritas med dangerouslySetInnerHTML): inga externa filer, fungerar utan täckning. Färgerna är bildens egna, som i lib/malbilder.
+// SVG som text, byggd bara ur konstanterna här (aldrig användartext): inga externa filer, fungerar utan täckning. Färgerna är bildens egna, som i lib/malbilder.
 
 import type { SkogRadId } from './skogen';
 
