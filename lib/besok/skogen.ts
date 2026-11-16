@@ -29,6 +29,8 @@ export type SkogRad = {
   forklaring: string;
   /** Kravet, dämpat i arket. */
   krav: string;
+  /** Kravet som ett tal för just den här trakten ("Minst 37") — står på kortet redan medan vi jobbar (Martin 2026-11-16). Bara det vi räknar och bara när arealen är känd. */
+  minst?: number | null;
   /** Finns något att visa på kartan för just den här raden? */
   karta: boolean;
 };
@@ -114,12 +116,12 @@ export function skogRader(d: SkogIndata): SkogRad[] {
     {
       id: 'evighetstrad', namn: 'Evighetsträd', varfor: 'Får aldrig avverkas', varde: antalText(d.evighetstrad), malbild: 'evighetstrad',
       forklaring: 'Grova och gamla träd som står kvar för alltid. De blir hem åt fåglar, insekter och lavar i hundratals år.',
-      krav: kravEv != null ? `Kravet: minst ${EVIGHETSTRAD_PER_HA} per hektar, ${kravEv} på din trakt` : `Kravet: minst ${EVIGHETSTRAD_PER_HA} per hektar`, karta: d.harEvighetstradPos,
+      krav: kravEv != null ? `Kravet: minst ${EVIGHETSTRAD_PER_HA} per hektar, ${kravEv} på din trakt` : `Kravet: minst ${EVIGHETSTRAD_PER_HA} per hektar`, karta: d.harEvighetstradPos, minst: kravEv,
     },
     {
       id: 'hogstubbe', namn: 'Högstubbar', varfor: 'Hem åt insekter och hackspett', varde: antalText(d.hogstubbar), malbild: 'hogstubbe',
       forklaring: 'Träd som kapas högt och får stå kvar och dö. Död ved är det som flest arter i skogen lever av.',
-      krav: kravHs != null ? `Kravet: minst ${HOGSTUBBAR_PER_HA} per hektar, ${kravHs} på din trakt` : `Kravet: minst ${HOGSTUBBAR_PER_HA} per hektar`, karta: d.harHogstubbePos,
+      krav: kravHs != null ? `Kravet: minst ${HOGSTUBBAR_PER_HA} per hektar, ${kravHs} på din trakt` : `Kravet: minst ${HOGSTUBBAR_PER_HA} per hektar`, karta: d.harHogstubbePos, minst: kravHs,
     },
   ];
   r.push(...kultur);

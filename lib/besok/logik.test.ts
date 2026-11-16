@@ -125,14 +125,15 @@ describe('säkerhetsreglerna: en rad per fara med varför, bara det som finns �
   });
   it('rader i fast ordning: skördare, skotare, motorsåg, virkestravar — avståndet ur konstanten', () => {
     const alla = sakerhetsRader({ roller: ['skordare', 'skotare'], harMotorsag: true });
-    expect(alla.map((r) => r.id)).toEqual(['skordare', 'skotare', 'motorsag', 'travar']);
+    expect(alla.map((r) => r.id)).toEqual(['skordare', 'skotare', 'motorsag', 'lastbil', 'travar']);
     expect(alla[0]).toMatchObject({ rubrik: `Skördaren · ${BESOK_RING_M.skordare} m`, text: 'Kedjan kan gå av och slungas långt. Träd kan falla åt fel håll.' });
     expect(alla[1]).toMatchObject({ rubrik: `Skotaren · ${BESOK_RING_M.skotare} m`, text: 'Kranen svänger runt maskinen, och föraren ser dåligt bakåt.' });
-    expect(alla[3]).toMatchObject({ rubrik: 'Virkestravarna', text: 'Klättra aldrig på dem. De kan rasa.' });
+    expect(alla[4]).toMatchObject({ rubrik: 'Virkestravarna', text: 'Klättra aldrig på dem. De kan rasa.' });
+    expect(alla[3]).toMatchObject({ rubrik: 'Timmerbilarna', text: 'De hämtar virket vid vägen. Stå aldrig nära när de lastar.' });
   });
   it('bara det som finns på trakten; travarna alltid; bara skotaren öppnar ett ark', () => {
-    expect(sakerhetsRader({ roller: ['skordare'], harMotorsag: false }).map((r) => r.id)).toEqual(['skordare', 'travar']);
-    expect(sakerhetsRader({ roller: [], harMotorsag: false }).map((r) => r.id)).toEqual(['travar']);
+    expect(sakerhetsRader({ roller: ['skordare'], harMotorsag: false }).map((r) => r.id)).toEqual(['skordare', 'lastbil', 'travar']);
+    expect(sakerhetsRader({ roller: [], harMotorsag: false }).map((r) => r.id)).toEqual(['lastbil', 'travar']);
     expect(sakerhetsRader({ roller: ['skordare', 'skotare'], harMotorsag: true }).filter((r) => r.ark).map((r) => r.id)).toEqual(['skotare']);
   });
   it('arkets enda text', () => { expect(SKOTARARK_TEXT).toBe('När skotaren backar med lass ser föraren ingenting bakom sig.'); });

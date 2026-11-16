@@ -22,6 +22,13 @@ describe('kulturstubbar på markägarens länk', () => {
   it('grova toppar: förklaringen är att de blir ny död ved när riset tas ut', () => {
     expect(skogRader(grund).find((x) => x.id === 'toppar')!.forklaring).toMatch(/riset tas ut.*ny död ved/);
   });
+  it('kravet som tal följer med på det vi räknar (3,6 ha → 36 träd, 11 stubbar) och saknas utan areal', () => {
+    const r = skogRader(grund);
+    expect(r.find((x) => x.id === 'evighetstrad')!.minst).toBe(36);
+    expect(r.find((x) => x.id === 'hogstubbe')!.minst).toBe(11);
+    expect(skogRader({ ...grund, arealHa: null })[0].minst).toBeNull();
+    expect(r.find((x) => x.id === 'toppar')!.minst ?? null).toBeNull();
+  });
   it('varje rad som kan visas har en bild', () => {
     for (const typ of ['slutavverkning', 'gallring']) for (const r of skogRader({ ...grund, typ, harKultur: true, harKantzon: true, arealHa: 9 })) expect(SKOG_BILD[r.id]).toContain('<svg');
   });

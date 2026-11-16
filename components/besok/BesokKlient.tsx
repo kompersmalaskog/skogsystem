@@ -269,7 +269,7 @@ function SkogKort({ rader, onRad, max, medVarde = false }: { rader: SkogRad[]; o
           <button key={r.id} type="button" data-testid={`besok-skograd-${r.id}`} onClick={() => onRad(r)} style={{ display: 'block', minHeight: TRAFFYTA.min, padding: AVSTAND.s, background: FARG.kort, border: 'none', borderRadius: RADIE.kort, color: FARG.text, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}>
             <span aria-hidden="true" style={{ display: 'block', lineHeight: 0, borderRadius: RADIE.rad, overflow: 'hidden', background: FARG.upphojt }} dangerouslySetInnerHTML={{ __html: SKOG_BILD[r.id] }} />
             <span style={{ display: 'block', marginTop: AVSTAND.s, ...TYP.listtitel }}>{medVarde && r.varde ? `${r.varde} ${r.namn.toLowerCase()}` : r.namn}</span>
-            <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{r.varfor}</span>
+            <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{!medVarde && r.minst != null ? `Minst ${r.minst} · ${r.varfor[0].toLowerCase()}${r.varfor.slice(1)}` : r.varfor}</span>
           </button>
         ))}
       </div>

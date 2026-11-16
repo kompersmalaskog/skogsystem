@@ -12,14 +12,16 @@ export const RINGREGEL = 'Gå aldrig in i den röda ringen. Vänta tills förare
 /** Det kortaste sättet att säga regeln (kortet under besöket). */
 export const HUVUDREGEL = { rubrik: 'Gå aldrig fram till en maskin' } as const;
 
-export type SakerhetsRad = { id: 'skordare' | 'skotare' | 'motorsag' | 'travar'; rubrik: string; text: string; /** tryck på raden öppnar arket med bilden (bara skotaren) */ ark: boolean };
+export type SakerhetsRad = { id: 'skordare' | 'skotare' | 'motorsag' | 'lastbil' | 'travar'; rubrik: string; text: string; /** tryck på raden öppnar arket med bilden (bara skotaren) */ ark: boolean };
 
-/** I fast ordning: skördare, skotare, motorsåg, virkestravar. Maskinerna och motorsågen bara när de finns på trakten nu. */
+/** I fast ordning: skördare, skotare, motorsåg, timmerbilar, virkestravar. Maskinerna och motorsågen bara när de finns på trakten nu.
+ *  Timmerbilarna står alltid med (Martin 2026-11-16): de kommer när som helst och vi vet inte när. */
 export function sakerhetsRader(a: { roller: MaskinRoll[]; harMotorsag: boolean }): SakerhetsRad[] {
   const rader: SakerhetsRad[] = [];
   if (a.roller.includes('skordare')) rader.push({ id: 'skordare', rubrik: `Skördaren · ${BESOK_RING_M.skordare} m`, text: 'Kedjan kan gå av och slungas långt. Träd kan falla åt fel håll.', ark: false });
   if (a.roller.includes('skotare')) rader.push({ id: 'skotare', rubrik: `Skotaren · ${BESOK_RING_M.skotare} m`, text: 'Kranen svänger runt maskinen, och föraren ser dåligt bakåt.', ark: true });
   if (a.harMotorsag) rader.push({ id: 'motorsag', rubrik: `Motorsåg · ${BESOK_RING_M.motorsag} m`, text: 'Någon fäller träd för hand här.', ark: false });
+  rader.push({ id: 'lastbil', rubrik: 'Timmerbilarna', text: 'De hämtar virket vid vägen. Stå aldrig nära när de lastar.', ark: false });
   rader.push({ id: 'travar', rubrik: 'Virkestravarna', text: 'Klättra aldrig på dem. De kan rasa.', ark: false });
   return rader;
 }

@@ -93,13 +93,19 @@ describe('markägarens länk: medan vi jobbar — "Ska du gå ut i skogen?"', ()
 
   it('"Det här kommer du att se": bilder med ett par ord längst ner, högst fyra, INGA antal medan vi jobbar — och arket visar varken tal eller karta', async () => {
     await visa(<BesokKlient token={TOKEN} />);
-    const sek = q('besok-kommer-se')!;
+    let sek = q('besok-kommer-se')!;
     expect(sek.querySelector('h2')!.textContent).toBe('Det här kommer du att se');
     const kort = Array.from(sek.querySelectorAll('[data-testid^="besok-skograd-"]'));
     expect(kort.length).toBeGreaterThan(0);
     expect(kort.length).toBeLessThanOrEqual(4);
     for (const k of kort) expect(k.querySelector('svg')).not.toBeNull();
     expect(q('besok-skograd-evighetstrad')!.textContent).toBe('EvighetsträdFår aldrig avverkas');
+    // kravet står på kortet från start när arealen är känd — antalet som sparats kommer först i kvittot
+    act(() => { rot!.unmount(); }); el!.remove();
+    nastaVy = vy({ skog: { ...SKOG, rader: SKOG.rader.map((r: any) => (r.id === 'evighetstrad' ? { ...r, minst: 37 } : r)) } });
+    await visa(<BesokKlient token={TOKEN} />);
+    expect(q('besok-skograd-evighetstrad')!.textContent).toBe('EvighetsträdMinst 37 · får aldrig avverkas');
+    sek = q('besok-kommer-se')!;
     expect(sek.textContent).not.toMatch(/\d+ evighetsträd|\d+ högstubbar/i);
     expect(q('besok-meningen')!.textContent).toMatch(/^Det är meningen\. Din skog är/);
     // säkerheten står FÖRE förklaringen
@@ -113,11 +119,12 @@ describe('markägarens länk: medan vi jobbar — "Ska du gå ut i skogen?"', ()
   it('en rad per fara med VARFÖR: skördare (kedjan), skotare (kranen, öppnar arket), motorsåg och virkestravarna', async () => {
     await visa(<BesokKlient token={TOKEN} />);
     const rader = Array.from(el!.querySelectorAll('[data-testid^="besok-rad-"]')).map((n) => n.getAttribute('data-testid'));
-    expect(rader).toEqual(['besok-rad-skordare', 'besok-rad-skotare', 'besok-rad-motorsag', 'besok-rad-travar']);
+    expect(rader).toEqual(['besok-rad-skordare', 'besok-rad-skotare', 'besok-rad-motorsag', 'besok-rad-lastbil', 'besok-rad-travar']);
     expect(q('besok-rad-skordare')!.textContent).toContain('Kedjan kan gå av');
     expect(q('besok-rad-skordare')!.textContent).toContain('70 m');
     expect(q('besok-rad-skotare')!.textContent).toContain('Kranen svänger');
     expect(q('besok-rad-travar')!.textContent).toContain('Klättra aldrig');
+    expect(q('besok-rad-lastbil')!.textContent).toContain('Stå aldrig nära när de lastar');
     expect(q('besok-rad-skordare')!.tagName).toBe('DIV');
     await tryck(q('besok-rad-skotare'));
     const ark = q('besok-skotarark')!;
@@ -128,7 +135,7 @@ describe('markägarens länk: medan vi jobbar — "Ska du gå ut i skogen?"', ()
   it('inga maskiner igång: bara virkestravarna', async () => {
     nastaVy = vy({ maskiner: [], roller: [], harMotorsag: false });
     await visa(<BesokKlient token={TOKEN} />);
-    expect(Array.from(el!.querySelectorAll('[data-testid^="besok-rad-"]')).map((n) => n.getAttribute('data-testid'))).toEqual(['besok-rad-travar']);
+    expect(Array.from(el!.querySelectorAll('[data-testid^="besok-rad-"]')).map((n) => n.getAttribute('data-testid'))).toEqual(['besok-rad-lastbil', 'besok-rad-travar']);
   });
 
   it('vem man ringer, med numret', async () => {
