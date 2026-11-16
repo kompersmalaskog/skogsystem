@@ -7,9 +7,10 @@ const kor = (objekt: LarmObjekt[], kvitt = new Map<string, any>(), state = TOMT_
 
 describe('LarmKort.okvitterad', () => {
   it('ett larm som ingen kvitterat: okvitterad', () => expect(kor([o()]).kort!.okvitterad).toBe(true));
-  it('efter kvittering (samma innehåll): inte okvitterad', () => {
+  it('efter kvittering (samma innehåll): inget kort alls — en varning per hinder (2026-11-16)', () => {
     const k = new Map([['y1', { hash: o().hash, forareId: 'f1' }]]);
-    expect(kor([o()], k).kort!.okvitterad).toBe(false);
+    const u = kor([o()], k);
+    expect(u.kort).toBeNull(); expect(u.passage).toMatchObject({ sedd: true });
   });
   it('ändrat innehåll (ny kommentar) gör kvitteringen ogiltig: okvitterad igen', () => {
     const k = new Map([['y1', { hash: o().hash, forareId: 'f1' }]]);
@@ -22,6 +23,10 @@ describe('LarmKort.okvitterad', () => {
   it('"Sett" under den här passagen: inte okvitterad', () => {
     const forsta = kor([o()]);
     const sett = kor([o()], new Map(), markeraSett(forsta.state, 'y1'));
-    expect(sett.kort!.okvitterad).toBe(false);
+    expect(sett.kort).toBeNull();   // förbjuden yta: kortet blir den lilla raden
+    // ett vanligt hinder står kvar under passagen, men räknas inte längre som okvitterat
+    const s = o({ id: 's1', kalla: 'symbol', forbjuden: false, inne: undefined, avstandM: 20, typ: 'culturemonument', grupp: 'kultur' });
+    const a = kor([s]);
+    expect(kor([s], new Map(), markeraSett(a.state, 's1')).kort!.okvitterad).toBe(false);
   });
 });

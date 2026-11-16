@@ -136,14 +136,21 @@ describe('avstånd, ljud och pulsering', () => {
   });
 });
 
-describe('ytor man inte får köra in i larmar ALLTID vid inkörning', () => {
+describe('ytor man inte får köra in i: EN varning, sedan bara raden (Martin 2026-11-16) — Fara larmar alltid', () => {
   for (const [namn, grupp] of [['Hänsyn', 'natur'], ['Nyckelbiotop', 'natur'], ['Fornlämning', 'kultur'], ['Ej framkomlig', 'fara']] as [string, FargGrupp][]) {
-    it(`${namn}: okvitterad och kvitterad, samma förare, ger kortet "Du är inne i ytan, kör inte här" och ljud`, () => {
+    it(`${namn}: första gången (och för en annan förare) kortet "Du är inne i ytan, kör inte här" och ljud`, () => {
       const o = yta(grupp, true, true, { namn });
-      for (const kvitt of [INGEN, kv(o), kv(o, B)]) {
+      for (const kvitt of [INGEN, kv(o, B)]) {
         const u = steg([o], kvitt);
         expect(u.kort).toMatchObject({ namn, text: 'Du är inne i ytan, kör inte här', forbjuden: true, avstandM: null });
         expect(u.ljud).toBe('nara');
+      }
+    });
+    it(`${namn}: redan varnad (Sett, eller visad en gång) — ${grupp === 'fara' ? 'Fara larmar ändå' : 'inget kort, inget ljud, bara raden "Du är i …"'}`, () => {
+      const o = yta(grupp, true, true, { namn });
+      for (const u of [steg([o], kv(o)), stegaLarm({ objekt: [o], kvitt: INGEN, forareId: A, state: TOMT_LARM, visade: new Set([o.id]) })]) {
+        if (grupp === 'fara') { expect(u.kort).toMatchObject({ namn, forbjuden: true }); expect(u.ljud).toBe('nara'); expect(u.passage).toBeNull(); }
+        else { expect(u.kort).toBeNull(); expect(u.ljud).toBeNull(); expect(u.settRad).toBeNull(); expect(u.passage).toMatchObject({ id: o.id, sedd: true }); }
       }
     });
   }
@@ -244,10 +251,22 @@ describe('vem får kortet, och "Sett"-raden', () => {
     const o = sym('fara', 30);
     expect(steg([o], kv(o)).settRad).toBeNull();
   });
-  it('förbjuden yta får Sett-rad (bevis) men tystas aldrig', () => {
+  it('förbjuden yta får Sett-rad första gången; efter Sett blir kortet den lilla raden', () => {
     const o = yta('kultur', true, true);
-    expect(steg([o]).settRad).not.toBeNull();
-    expect(steg([o], kv(o)).kort).not.toBeNull();
+    const forsta = steg([o]);
+    expect(forsta.settRad).not.toBeNull();
+    const efter = steg([o], INGEN, A, markeraSett(forsta.state, o.id));
+    expect(efter.kort).toBeNull(); expect(efter.passage).toMatchObject({ sedd: true });
+  });
+  it('visad en gång (utan Sett): Natur, Kultur och Blött larmar inte igen — men Fara gör det', () => {
+    for (const g of ['natur', 'kultur', 'blott'] as FargGrupp[]) {
+      const o = sym(g, 20);
+      const u = stegaLarm({ objekt: [o], kvitt: INGEN, forareId: A, state: TOMT_LARM, visade: new Set([o.id]) });
+      expect(u.kort, g).toBeNull(); expect(u.ljud, g).toBeNull(); expect(u.ringar.length, g).toBe(1);   // ringen lyser fortfarande
+    }
+    const fara = sym('fara', 20);
+    const u = stegaLarm({ objekt: [fara], kvitt: INGEN, forareId: A, state: TOMT_LARM, visade: new Set([fara.id]) });
+    expect(u.kort).not.toBeNull(); expect(u.ljud).toBe('nara');
   });
 });
 

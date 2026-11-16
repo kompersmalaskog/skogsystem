@@ -67,7 +67,8 @@ describe('mot den riktiga larmmotorn: Röd (fara) har ingen Sett — instruktion
     let r = kor([y, e]);
     expect(r.kort?.namn).toBe('El-ledning');            // Röd vinner det stora kortet
     r = kor([y, e], markeraSett(r.state, 'h'));
-    expect(r.fler.map((f) => f.namn)).toEqual(['Hänsyn']);
+    expect(r.fler).toEqual([]);                          // en varning per hinder (2026-11-16): ytan är varnad och blir den lilla raden
+    expect(r.kort?.namn).toBe('El-ledning');
     expect(holler(r)).toBe(true);
   });
   it('Ej framkomlig (Röd och förbjuden yta): ingen Sett-rad, håller platsen medan man är inne', () => {
