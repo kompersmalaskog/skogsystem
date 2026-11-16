@@ -1,13 +1,13 @@
 'use client';
 
 // Brandrisk: EN rad, och bara när någon av de fem dagarna är 3 eller högre. "Brandrisk 3 på onsdag", 4 orange, 5 röd, 5E "Brandrisk 5E på torsdag – inga band".
-// Står direkt under Faror — i ⓘ-kortet och i Om trakten. SAMMA data (SMHI fwif1g via lib/smhi-brandrisk) och SAMMA färger (MCF_COLORS) som brandriskpanelen,
+// Står direkt under Faror — i ⓘ-kortet och i Om trakten. SAMMA data (SMHI fwif1g via lib/smhi-brandrisk) och SAMMA färger (nivaFarg i lib/brandriskVy) som brandriskpanelen,
 // som öppnas av ett tryck och visar dagarna i detalj. Färgen bär aldrig ensam: klassen och dagen står som ord. Misslyckas hämtningen står det (appen gissar aldrig en
 // brandrisk); låg risk (1–2) eller laddning ger ingen rad alls — då finns inget att se upp för.
 
 import React, { useEffect, useState } from 'react';
 import { fetchSmhiFwi } from '@/lib/smhi-brandrisk';
-import { MCF_COLORS } from '@/app/planering/brandrisk-panel';
+import { nivaFarg } from '@/lib/brandriskVy';
 import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import { femDagar, type BrandDag } from '@/lib/objektKort';
 import { brandRadText } from '@/lib/omTrakten';
@@ -53,7 +53,7 @@ export default function BrandriskRad({ lat, lng, onOppna, luftUnder = 0 }: { lat
       <button type="button" data-testid="info-brandrisk" data-klass={rad?.klass ?? ''} data-ton={rad?.ton ?? 'fel'} onClick={onOppna} className="press-row"
         style={{ width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none',
           color: farg, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation', ...TYP.listtitel }}>
-        {rad && <span aria-hidden="true" style={{ flexShrink: 0, width: AVSTAND.m, height: AVSTAND.m, borderRadius: RADIE.cirkel, background: MCF_COLORS[rad.klass] ?? FARG.text3 }} />}
+        {rad && <span aria-hidden="true" style={{ flexShrink: 0, width: AVSTAND.m, height: AVSTAND.m, borderRadius: RADIE.cirkel, background: nivaFarg(rad.klass) }} />}
         <span data-testid="info-brandrisk-text" style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{rad ? rad.text : 'Brandrisk kunde inte hämtas — öppna för att försöka igen'}</span>
         <Pil />
       </button>
