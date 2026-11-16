@@ -157,6 +157,13 @@ describe('Mer', () => {
     expect(m.planerarenBlock).toBe(false);
     for (const status of ['pagaende']) expect(byggMerGrupper(bas({ status })).avslutaObjekt).toBe(true);
   });
+  it('Brandrisk är en fast väg in under Övrigt, först — i planeringen och i körvyn (Martin 2026-11-16)', () => {
+    const brandrisk = fn();
+    for (const o of [{}, { korvyAktiv: true, korvy: { gpsText: '', gpsProblem: false, dataText: '', andrasSparText: null } }] as Partial<MerIn>[]) {
+      const m = byggMerGrupper(bas({ ...o, go: { ...go(), brandrisk } }));
+      expect(id(m, 'ovrigt')![0]).toBe('brandrisk');
+    }
+  });
   it('förare utan körvy: inga grupper', () => {
     const m = byggMerGrupper(bas({ roll: 'forare', arAdmin: false, skotningFinnsSomKnapp: true }));
     expect(m.grupper).toEqual([]);

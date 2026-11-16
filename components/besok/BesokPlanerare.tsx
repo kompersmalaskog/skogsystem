@@ -8,7 +8,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AVSTAND, FARG, KNAPP, RADIE, TYP } from '@/lib/design/tokens';
 import { Gruppkort, RadKnapp, Rubrik } from '@/components/planering/infoDelar';
 import { useBesokPlanerare } from '@/lib/hooks/useBesokPlanerare';
-import { besokSmsText, arIos, arMobil, narOrd, smsNummer } from '@/lib/besok/sms';
+import { besokSmsText, besokKlarSmsText, arIos, arMobil, narOrd, smsNummer } from '@/lib/besok/sms';
 import { besoksUrl } from '@/lib/besok/offentlig';
 import { loggRader, smsLage } from '@/lib/besok/planerare';
 import { markagareFornamn } from '@/lib/besok/sms';
@@ -42,6 +42,8 @@ export interface BesokPlanerareProps {
   planeradStart: string | null;
   faktiskStart: string | null;
   pagaendeStartad: string | null;
+  /** objekt.avslutad_timestamp — när trakten är klar går ett ANDRA SMS ("Nu är vi klara"), och bara SMS-händelser efter avslutet räknas för det. */
+  avslutad?: string | null;
   /** inköparen ur traktdirektivet (objekt.inkopare / inkopare_tel) — mottagare i testfasen */
   inkopare?: string | null;
   inkopareTel?: string | null;
@@ -84,7 +86,7 @@ export function smsLank(tel: string | null | undefined, text: string, ios: boole
 
 export default function BesokPlanerare(p: BesokPlanerareProps) {
   const avslutat = p.status === 'avslutat' || p.status === 'klar';
-  const d = useBesokPlanerare({ objektId: p.objektId, aktiv: true, skapaLank: !avslutat });
+  const d = useBesokPlanerare({ objektId: p.objektId, aktiv: true, skapaLank: true });
   const [loggOppen, setLoggOppen] = useState(false);
   const [meddelande, setMeddelande] = useState<string | null>(null);
   const [valjer, setValjer] = useState(false);
@@ -96,7 +98,10 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
   const rader = useMemo(() => loggRader(d.besok, d.kvittenser, { maskin: (id) => d.maskinNamn[id] ?? id, person: (id) => { const n = person(id); return n ? n.split(' ')[0] : null; } }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [d.besok, d.kvittenser, d.maskinNamn, d.personNamn]);
-  const lage = smsLage(d.sms, person);
+  // Klart-SMS:et har sin egen status: det som skickades när vi började säger inget om det.
+  const avslutMs = p.avslutad ? Date.parse(p.avslutad) : NaN;
+  const smsNu = avslutat ? d.sms.filter((x) => Number.isFinite(avslutMs) && Date.parse(x.oppnad_at) >= avslutMs) : d.sms;
+  const lage = smsLage(smsNu, person);
   const smsStatus = lage.text;
   const mobil = p.mobil ?? (typeof navigator === 'undefined' ? true : arMobil(navigator.userAgent, navigator.maxTouchPoints));
 
@@ -109,13 +114,14 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
     );
   }
 
-  const lankKlar = !!d.lank && d.lank.aktiv && !avslutat;
+  const lankKlar = !!d.lank && d.lank.aktiv;
   const markagareSms = p.markagareSms ?? MARKAGARE_SMS_PA;
   const inkopareSms = p.inkopareSms ?? INKOPARE_SMS_PA;
   const mottagare = smsMottagare({ markagareSms, inkopareSms, markagare: p.markagare, markagareTel: p.markagareTel, inkopare: p.inkopare ?? null, inkopareTel: p.inkopareTel ?? null, oss: d.testMottagare ?? [] });
 
   /** Texten som skickas/kopieras – samma för båda vägarna. */
   function byggText(lank: string): string {
+    if (avslutat) return besokKlarSmsText({ markagare: p.markagare, fastighet: p.fastighet, lank, avsandareNamn: d.avsandare?.namn, avsandareTelefon: d.avsandare?.telefon, foretagTelefon: p.foretagTelefon });
     return besokSmsText({
       markagare: p.markagare, fastighet: p.fastighet,
       nar: narOrd({ planeradStart: p.planeradStart, faktiskStart: p.faktiskStart, pagaendeStartad: p.pagaendeStartad, status: p.status }),
@@ -124,7 +130,7 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
   }
   const loggInfo = (m: { namn: string | null; tel: string | null }) => ({ avsandareId: d.avsandare?.id ?? null, mottagareNamn: m.namn, mottagareNummer: telNummer(m.tel) });
   /** Svaret på "Skickade du SMS:et?" gäller den mottagare som senast öppnades/kopierades (ur loggen, så det håller efter en omladdning). */
-  const senaste = d.sms[0] ? { namn: d.sms[0].mottagare_namn ?? null, tel: d.sms[0].mottagare_nummer ?? null } : { namn: null, tel: null };
+  const senaste = smsNu[0] ? { namn: d.sms[0].mottagare_namn ?? null, tel: d.sms[0].mottagare_nummer ?? null } : { namn: null, tel: null };
 
   function skicka(m: SmsMottagare) {
     if (!d.lank) return;   // knappen anropar bara skicka() när lankKlar (länk på, trakten ej avslutad) — ENDA stället som avgör det
@@ -162,9 +168,9 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
       <Rubrik>Besök på trakten</Rubrik>
       <Gruppkort>
         <div ref={smsRef} style={p.fokusSms ? { outline: `2px solid ${FARG.text}`, outlineOffset: -2, borderRadius: RADIE.kort } : undefined}>
-          <RadKnapp forstaRad testid="kort-besok-sms" ikon={mobil ? 'sms' : 'content_copy'} etikett={mobil ? 'Skicka besökslänken' : 'Kopiera SMS-text och länk'}
-            under={avslutat ? 'Trakten är avslutad' : !d.lank ? 'Förbereder länken …' : !d.lank.aktiv ? 'Länken är avstängd — slå på den först' : [markagareSms ? null : inkopareSms ? 'Test – bara till inköparen och oss' : 'Test – bara till oss', smsStatus].filter(Boolean).join(' · ')}
-            onTryck={() => (lankKlar ? setValjer((v) => !v) : setMeddelande(avslutat ? 'Trakten är avslutad.' : 'Länken är inte klar än.'))} />
+          <RadKnapp forstaRad testid="kort-besok-sms" ikon={mobil ? 'sms' : 'content_copy'} etikett={avslutat ? (mobil ? 'Skicka att vi är klara' : 'Kopiera klart-SMS och länk') : mobil ? 'Skicka besökslänken' : 'Kopiera SMS-text och länk'}
+            under={!d.lank ? 'Förbereder länken …' : !d.lank.aktiv ? 'Länken är avstängd — slå på den först' : [markagareSms ? null : inkopareSms ? 'Test – bara till inköparen och oss' : 'Test – bara till oss', smsStatus].filter(Boolean).join(' · ')}
+            onTryck={() => (lankKlar ? setValjer((v) => !v) : setMeddelande('Länken är inte klar än.'))} />
         </div>
         {valjer && lankKlar && (
           <div data-testid="kort-besok-mottagare">
@@ -174,7 +180,7 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
             ))}
           </div>
         )}
-        {lage.typ === 'obekraftad' && !avslutat && (
+        {lage.typ === 'obekraftad' && (
           <div data-testid="kort-besok-sms-fraga" style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.m}px`, borderTop: `1px solid ${FARG.linje}` }}>
             <div style={{ ...TYP.listtitel }}>Skickade du SMS:et?</div>
             <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.s }}>
@@ -189,7 +195,7 @@ export default function BesokPlanerare(p: BesokPlanerareProps) {
           </div>
         )}
         <RadKnapp testid="kort-besok-sida" ikon="open_in_new" etikett="Visa som markägaren" under="Öppnar besökssidan"
-          onTryck={() => { if (d.lank && !avslutat) { const url = besoksUrl(p.origin ?? window.location.origin, d.lank.token); (p.oppnaSida ?? ((u: string) => { window.open(u, '_blank', 'noopener'); }))(url); } }} />
+          onTryck={() => { if (d.lank) { const url = besoksUrl(p.origin ?? window.location.origin, d.lank.token); (p.oppnaSida ?? ((u: string) => { window.open(u, '_blank', 'noopener'); }))(url); } }} />
         <RadKnapp testid="kort-besok-lank" ikon="link" etikett="Länk till markägaren" pil={false}
           hoger={<span data-testid="kort-besok-lank-lage" style={{ ...TYP.listtitel, color: d.lank?.aktiv ? FARG.gron : FARG.text2 }}>{d.lank ? (d.lank.aktiv ? 'På' : 'Av') : '…'}</span>}
           onTryck={vaxlaLank} />

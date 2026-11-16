@@ -153,6 +153,9 @@ vi.mock("@/lib/supabase", () => {
     private kolumner = "";
     select(k?: string) { this.kolumner = k ?? ""; return this; }
     update(v: Record<string, unknown>) { this.uppd = v; return this; }
+    private ny: Record<string, unknown> | null = null;
+    insert(v: Record<string, unknown>) { this.ny = v; return this; }
+    single() { this.en = true; return this; }
     eq(k: string, v: unknown) { this.filt.push(r => r[k] === v); return this; }
     is(k: string, v: unknown) { this.filt.push(r => (v === null ? r[k] == null : r[k] === v)); return this; }
     not(k: string, _o: string, v: unknown) { this.filt.push(r => (v === null ? r[k] != null : r[k] !== v)); return this; }
@@ -188,6 +191,11 @@ vi.mock("@/lib/supabase", () => {
     }
     private kor(fran = 0, till = Infinity) {
       if (this.uppd) return this.skriv();
+      if (this.ny) {
+        mock.skrivningar.push({ tabell: this.tabell, varden: this.ny });
+        if (mock.skrivFel) return { data: null, error: { message: "boom" } };
+        return { data: { id: "ny-plats-1", ...this.ny }, error: null };
+      }
       mock.anrop.push(this.tabell);
       if (this.tabell === "fakturaunderlag_flytt" && mock.vantarFel && this.filt.length >= 3) return { data: null, error: { message: "boom" } };
       if (this.tabell === "fakturaunderlag_flytt" && mock.underlagFel) return { data: null, error: { message: "boom" } };
@@ -806,11 +814,11 @@ describe("Körningar: kedjan, tom runda och aldrig 0 för saknade värden", () =
     expect(rundrad("b7243278")!.textContent).not.toMatch(/\b0 km/);
   });
 
-  it("en pågående runda visas, räknas inte och säger det", async () => {
+  it("en pågående runda står INTE i 'Vad har bilen gjort?' (den bor i 'Kör nu') och räknas inte (Martin 2026-11-16)", async () => {
     mock.extraRundor = [R("pagar", "2026-10-14T04:00:00Z", null, { status: "pagaende", auto_skapad: true })];
     await montera();
-    expect(rundrad("pagar")!.textContent).toContain("Pågår, räknas när den avslutats");
-    expect(text()).toContain("1 runda pågår och räknas när de avslutats.");
+    expect(rundrad("pagar")).toBeNull();
+    expect(text()).not.toContain("pågår och räknas");
     expect(document.querySelector('section[aria-label="Månaden"]')!.textContent).toContain("818 km");
   });
 
@@ -1581,6 +1589,43 @@ describe("Flytten (sheet): FLYTTEN går via ratta_flytt, med bara de nycklar som
     await skrivText(anledningS(), "valde fel trakt");
     await klicka(sparaS());
     expect(mock.rpc[0].args.p_andringar).toEqual({ till_objekt_id: "o-tjuvon", till_plats_id: null });
+  });
+
+  it("+ Ny plats: man skriver namnet, positionen är där bilen lossade, platsen väljs direkt och ratta_flytt får plats-id:t (Martin 2026-11-16)", async () => {
+    await oppnaFakturering();
+    await oppnaS("og1", "Elefant 26");
+    await klicka(valRad("Till")!);
+    const sok = () => dlg()!.querySelector('input[aria-label="Sök trakt eller plats"]') as HTMLInputElement;
+    expect(dlg()!.textContent).toContain("eller skriv namnet på en ny plats");
+    // En befintlig trakt med exakt det namnet erbjuds aldrig som ny
+    await skrivIn(sok(), "Tjuvön AU 2026");
+    expect(dlg()!.querySelector("[data-ny-plats]")).toBeNull();
+    await skrivIn(sok(), "Skogsdag Tingsryd");
+    expect(dlg()!.textContent).toContain('Ingen träff på "Skogsdag Tingsryd"');
+    const ny = dlg()!.querySelector("[data-ny-plats]")!;
+    expect(ny.textContent).toContain("+ Ny plats: Skogsdag Tingsryd");
+    expect(ny.textContent).toContain("Sparas där bilen lossade");
+    await klicka(ny.querySelector("button")!);
+    const skriv = mock.skrivningar.find(w => w.tabell === "flyttplats")!;
+    expect(skriv.varden.namn).toBe("Skogsdag Tingsryd");
+    expect(skriv.varden.typ).toBe("annat");
+    expect(typeof skriv.varden.lat).toBe("number");
+    expect(typeof skriv.varden.lng).toBe("number");
+    expect(valRad("Till")!.textContent).toContain("Skogsdag Tingsryd");
+    await skrivText(anledningS(), "skogsdag");
+    await klicka(sparaS());
+    expect(mock.rpc[0].args.p_andringar).toEqual({ till_objekt_id: null, till_plats_id: "ny-plats-1" });
+  });
+
+  it("+ Ny plats som inte går att spara: felet sägs i väljaren, inget väljs", async () => {
+    await oppnaFakturering();
+    await oppnaS("og1", "Elefant 26");
+    await klicka(valRad("Till")!);
+    await skrivIn(dlg()!.querySelector('input[aria-label="Sök trakt eller plats"]') as HTMLInputElement, "Skogsdag Tingsryd");
+    mock.skrivFel = true;
+    await klicka(dlg()!.querySelector("[data-ny-plats] button") as HTMLElement);
+    expect(dlg()!.getAttribute("aria-label")).toBe("Till");
+    expect(dlg()!.textContent).toContain("Kunde inte spara platsen: boom");
   });
 
   it("typ → Service: 'Blir inte fakturerbar — underlaget stryks' innan man sparar; skickar bara flytt_typ; inget FAKTURA-steg; tillbaka till Produktion tar bort beskedet", async () => {
@@ -2690,6 +2735,20 @@ describe("Var är bilen? (förut Bilen nu)", () => {
     expect(lage()).toBe("Kör nu");
     expect(under()).toBe("Giant på flaket · 34 km · avfärd 06:41");
     expect(kort().querySelector("[data-sedd]")).toBeNull();                      // positionen är färsk (2 min): ingen "Senast sedd"
+  });
+
+  it("kör nu: ett tryck på läget öppnar körningens ark; parkerad bil har ingen sådan rad", async () => {
+    mock.extraRundor = [R("x", "2026-10-14T04:41:00Z", null, { status: "pagaende", auto_skapad: true })];
+    mock.api.body = { ...LAGE, parkerad: null, runda_pagar: true, oppen_runda_id: "x",
+      oppen_runda: { id: "x", starttid: "2026-10-14T04:41:00Z", live_km: 34, maskin: { namn: "Giant", lage: "flaket" }, pa_vag_hem: false, km_kvar: null },
+      position: { lat: 56.4, lng: 14.7, tidpunkt: "2026-10-14T09:58:00Z", alder_min: 2 } };
+    await nuFlik();
+    await klicka(kort().querySelector("[data-oppna-runda]") as HTMLElement);
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    await act(async () => { rot?.unmount(); }); rot = null;
+    mock.api.body = { ...LAGE };
+    await nuFlik();
+    expect(kort().querySelector("[data-oppna-runda]")).toBeNull();
   });
 
   it("låg diesel: en rad med orden ('tanka snart' / 'tanka nu') i orange/röd under tanken — och tar INTE över rubriken", async () => {

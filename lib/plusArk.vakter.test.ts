@@ -264,10 +264,11 @@ describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat —
     expect(existsSync(new URL('../app/planering/TraktBriefing.tsx', import.meta.url))).toBe(false);
     expect(page).not.toContain('briefingMode');
   });
-  it('borta ur menyn: Byt objekt (namnet och ⌂ gör det), Brandrisk (kortet och lagret), Gallring (ligger i +), Inställningar och Förslag (startsidan, utom maskindator/körvy)', () => {
+  it('borta ur menyn: Byt objekt (namnet och ⌂ gör det), Gallring (ligger i +), Inställningar och Förslag (startsidan, utom maskindator/körvy)', () => {
     expect(page).not.toContain("label: 'Byt objekt'");
     expect(mer).not.toContain('Byt objekt');
-    expect(mer).not.toContain("etikett: 'Brandrisk'");
+    // Brandrisk är TILLBAKA i Mer (Martin 2026-11-16): raden på ⓘ-kortet och knappen på kartan finns bara vid nivå 3 eller mer, så panelen gick inte att nå resten av året.
+    expect(mer).toContain("etikett: 'Brandrisk'");
     expect(mer).not.toContain("etikett: 'Gallring'");
     expect(las('../lib/vyer.ts')).toContain("href: '/planering?installningar=1'");
     expect(page).toContain("u.searchParams.get('installningar') !== '1'");
