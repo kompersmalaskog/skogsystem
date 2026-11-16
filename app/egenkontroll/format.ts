@@ -1,5 +1,7 @@
 // Presentation for egenkontrollvyerna. Ren formatering - ingen datalogik.
 
+import { arGammalRunda } from '@/lib/egenkontrollAvsluta';
+
 const MANADER = [
   'jan', 'feb', 'mar', 'apr', 'maj', 'jun',
   'jul', 'aug', 'sep', 'okt', 'nov', 'dec',
@@ -66,3 +68,18 @@ export function anmarkningsText(avvikelser: number, battre: number): string {
  * själva bekräftelsen och inte bara i en hjälprad.
  */
 export const AVSLUTA_KONSEKVENS = 'Rundan låses och kan inte ändras.';
+
+/** Rubriken på raden som säger att rundan är färdiggången. Svaret först: rundan ÄR klar, det som återstår är att avsluta den. */
+export const AVSLUTA_RAD_RUBRIK = 'Rundan är klar';
+
+/**
+ * Noten i bekräftelsen när sista svaret ligger längre bak än GAMMAL_RUNDA_DAGAR.
+ *
+ * Avslutet sätter slutdagen till i dag — alltid, utan undantag: ett datum man inte har mätt ska inte hittas på. Men den som avslutar
+ * Ulfsnäs i november ska veta att rapporten kommer att säga "28 aug – 13 nov" innan hen trycker, inte efteråt. Null när rundan gicks nyss
+ * (då är i dag besöksdagen) eller när ingen punkt är besvarad.
+ */
+export function gammalRundaNot(sistaSvar: string | null, nu: Date = new Date()): string | null {
+  if (!arGammalRunda(sistaSvar, nu)) return null;
+  return `Sista svaret skrevs ${kortDatum(sistaSvar as string)}. Rundan avslutas i dag, så i dag blir slutdagen i rapporten.`;
+}
