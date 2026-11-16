@@ -1,0 +1,284 @@
+// TAVLAN — helikopterns förstasida (Martin 2026-11-16: "hur ligger vi till mot beställningen, hur går det för varje maskin, hur ser prognosen ut").
+//
+// Ett kort per spår (slutavverkning, gallring) med två block: Skördat och Skotat. I varje block en rad per maskin med två tal:
+//   NU     = det maskinen gjort i månaden (helikopter_ny_takt.volym_manad — samma lass och stammar som spårets summa)
+//   LANDAR = nu + det maskinens KÖ hinner före månadens sista arbetsdag
+// Landar räknas på prognosen PER TRAKT i körordning (samma underlag som klar-datumen: planerarens prognos, annars appens G15-förslag,
+// och uppmätt takt när maskinen börjat) — ALDRIG takt × dagar: en seg trakt eller en slutspurt ligger redan i traktens egen prognos.
+// Sist i blocket: summan mot beställt ("Hinner" / "Fattas ca 800" / "1 200 över").
+//
+// Regler:
+//  · en trakt som slutar efter månadens sista arbetsdag räknas med den DEL som hinns (dagar i månaden / traktens dagar);
+//  · en trakt utan prognos (GROT, eller inget förslag) tar noll dagar i räkningen och märker maskinens tal som osäkert ("ca") — den göms aldrig;
+//  · egen skotning (markägaren skotar) räknas inte mot beställningen, varken skördat eller skotat, och är aldrig "ingen skotare";
+//  · trakter utan maskin räknas inte in i Landar — de står som egna rader, och ett tryck ger dem en maskin;
+//  · summan är summan av de avrundade raderna som visas.
+// Inga imports av React eller Supabase.
+import { TYP_NAMN, oskotatKvar, type ManadStatus, type SparLage } from './berakningar'
+import { fmt, fmtDag, kortNamn } from './format'
+import { KLAR_TYP_NAMN, arVirke, dagarBehov, kanTa, type Flytt, type KlarData, type KlarMaskin, type KlarRoll, type KlarTrakt } from './klar'
+import type { Typ } from './queries'
+import type { Ton } from './kort'
+
+/** Mer än så här över beställt på skördat sägs (Martin: "vi får inte producera hur mycket som helst"). */
+export const OVER_GRANS = 0.05
+
+export type TavlaUtfall = { typ: Typ; maskin_id: string; roll: KlarRoll; volym: number }
+
+export type KoRad = {
+  trakt: KlarTrakt
+  /** Arbetsdagar trakten tar på maskinen; null = går inte att räkna. */
+  dagar: number | null
+  fran: string | null
+  till: string | null
+  /** 0–1: hur stor del av det som är kvar som hinns före månadens sista arbetsdag. */
+  andelIManaden: number
+  /** Volymen som är kvar för rollen. */
+  kvar: number
+  egen: boolean
+}
+
+/** Volymen som är kvar att göra för rollen: skotarens rest, eller skördarens volym minus det skördade. */
+export function kvarVolym(t: KlarTrakt): number {
+  if (t.roll === 'skotare') return Math.max(t.rest_volym ?? 0, 0)
+  return Math.max((t.volym ?? 0) - t.utfort_volym, 0)
+}
+
+const klar6 = (x: number) => Math.round(x * 1e6) / 1e6
+
+/** Maskinens kö i körordning, med hur mycket av varje trakt som hinns i månaden. Tolerant: en trakt utan prognos tar noll dagar. */
+export function ko(m: KlarMaskin, trakter: KlarTrakt[], sistaArbetsdag: string, egna: ReadonlySet<string>): KoRad[] {
+  const ordnade = trakter
+    .filter(t => (m.manuell ? t.rest_volym == null || t.rest_volym > 0 : t.timmar == null || t.timmar > 0))
+    .sort((a, b) => a.sortn - b.sortn)
+  const dagarIManaden = m.dagar.filter(d => d <= sistaArbetsdag).length
+  let summa = 0
+  return ordnade.map(t => {
+    const dg = dagarBehov(m, t)
+    const foer = klar6(summa)
+    summa += dg ?? 0
+    const slut = klar6(summa)
+    const andel = dg == null || dg <= 0 ? (foer < dagarIManaden ? 1 : 0) : Math.max(0, Math.min(1, (dagarIManaden - foer) / dg))
+    return {
+      trakt: t, dagar: dg,
+      fran: dg == null ? null : (m.dagar[Math.floor(foer)] ?? null),
+      till: dg == null ? null : (m.dagar[Math.max(Math.ceil(slut), 1) - 1] ?? null),
+      andelIManaden: andel, kvar: kvarVolym(t), egen: egna.has(t.objekt_id),
+    }
+  })
+}
+
+// ── Vymodellen ──────────────────────────────────────────────────────────────
+export type TavlaTrakt = {
+  objekt_id: string
+  roll: KlarRoll
+  namn: string
+  /** "19 nov" · "ca 19 nov" · "?" */
+  klar: string
+  /** Slutar efter månadens sista arbetsdag. */
+  efter: boolean
+  /** Räknas inte mot beställningen (annat spår, GROT, egen skotning) — dämpad. */
+  utanfor: boolean
+}
+
+export type TavlaMaskin = {
+  maskin_id: string
+  namn: string
+  roll: KlarRoll
+  nu: number
+  /** null = månaden är avslutad (ingen prognos) eller underlaget saknas. */
+  landar: number | null
+  /** Landar bygger på ett förslag eller en trakt utan prognos. */
+  ca: boolean
+  /** "Står 26–30 okt" — bara när maskinen står. */
+  stopp: string | null
+  trakter: TavlaTrakt[]
+}
+
+export type TavlaUtan = { objekt_id: string; roll: KlarRoll; namn: string; volym: number }
+
+export type TavlaBlock = {
+  roll: KlarRoll
+  rubrik: 'Skördat' | 'Skotat'
+  maskiner: TavlaMaskin[]
+  /** Trakter i spåret som ingen maskin har för rollen. */
+  utan: TavlaUtan[]
+  nu: number
+  landar: number | null
+  ca: boolean
+  ord: string
+  ton: Ton
+  /** Landar − beställt (negativt = fattas). null utan beställning eller prognos. */
+  diff: number | null
+}
+
+export type TavlaSpar = {
+  typ: Typ
+  namn: string
+  bestallt: number
+  block: [TavlaBlock, TavlaBlock]
+  /** Ingående oskotat + skördat − skotat. */
+  kvarISkogen: number
+}
+
+export type TavlaOvrig = { maskin_id: string; namn: string; roll: KlarRoll; trakter: TavlaTrakt[] }
+
+export type Tavla = {
+  svar: { rubrik: string; avvikelse: boolean }
+  spar: TavlaSpar[]
+  /** Maskiner vars kö bara har sådant som inte räknas mot beställningen (GROT, energiklippning, egen skotning). */
+  ovrigt: TavlaOvrig[]
+}
+
+export type TavlaIndata = {
+  status: ManadStatus
+  spar: SparLage[]
+  /** Maskinernas volym i månaden per spår. null = kunde inte läsas: blocken visar då spårets summa utan maskinrader. */
+  utfall: TavlaUtfall[] | null
+  /** Underlaget för köerna (med förslag och följande prognos). null = avslutad månad eller kunde inte läsas. */
+  klar: KlarData | null
+  /** Trakter där markägaren skotar själv. */
+  egna: ReadonlySet<string>
+  /** Stopptext per maskin. */
+  stopp?: Record<string, string | null>
+  flytt?: Flytt
+}
+
+function traktNamn(t: KlarTrakt): string {
+  return `${arVirke(t.typ) ? '' : `${KLAR_TYP_NAMN[t.typ]} `}${kortNamn(t.namn.replace(/[.\s]+$/, ''))}`
+}
+
+function traktVy(r: KoRad, typ: Typ | null, sista: string): TavlaTrakt {
+  const osaker = r.trakt.uppskattad === true && !r.trakt.foljer
+  return {
+    objekt_id: r.trakt.objekt_id, roll: r.trakt.roll, namn: traktNamn(r.trakt),
+    klar: r.till == null ? '?' : `${osaker ? 'ca ' : ''}${fmtDag(r.till)}`,
+    efter: r.till != null && r.till > sista,
+    utanfor: typ == null || r.trakt.typ !== typ || r.egen,
+  }
+}
+
+function dom(roll: KlarRoll, landar: number | null, nu: number, bestallt: number, ca: boolean, status: ManadStatus): Pick<TavlaBlock, 'ord' | 'ton' | 'diff'> {
+  if (bestallt <= 0) return { ord: 'Ingen beställning', ton: 'dampad', diff: null }
+  const tal = landar ?? nu
+  const diff = tal - bestallt
+  const c = ca && landar != null ? 'ca ' : ''
+  if (nu >= bestallt && diff <= bestallt * OVER_GRANS) return { ord: 'Klar', ton: 'gron', diff }
+  if (diff < 0) {
+    if (status === 'avslutad') return { ord: `Fattades ${fmt(-diff)}`, ton: 'orange', diff }
+    return { ord: `Fattas ${c}${fmt(-diff)}`, ton: 'orange', diff }
+  }
+  // Över beställt är bara skördarens sak ("vi får inte producera hur mycket som helst"); skotaren som hinner mer än beställt hinner.
+  if (roll === 'skordare' && diff > bestallt * OVER_GRANS) return { ord: `${c}${fmt(diff)} över`, ton: 'orange', diff }
+  return { ord: status === 'avslutad' ? 'Klar' : 'Hinner', ton: 'gron', diff }
+}
+
+export function byggTavla(d: TavlaIndata): Tavla {
+  const klar = d.klar
+  const trakter = klar
+    ? (d.flytt ? klar.trakter.map(t => (t.objekt_id === d.flytt!.objekt_id && t.roll === d.flytt!.roll ? { ...t, maskin_id: d.flytt!.maskin_id } : t)) : klar.trakter)
+        // Egen skotning: skotarrollen finns inte hos oss.
+        .filter(t => !(t.roll === 'skotare' && d.egna.has(t.objekt_id)))
+    : []
+  const sista = klar?.sista_arbetsdag ?? ''
+  const koer = new Map<string, KoRad[]>()
+  for (const m of klar?.maskiner ?? []) koer.set(m.maskin_id, ko(m, trakter.filter(t => t.maskin_id === m.maskin_id), sista, d.egna))
+  const kanda = new Set((klar?.maskiner ?? []).map(m => m.maskin_id))
+  const iNagotSpar = new Set<string>()
+
+  // Slutavverkning först: den stora beställningen.
+  const spar: TavlaSpar[] = [...d.spar].sort((a, b) => Number(b.typ === 'slutavverkning') - Number(a.typ === 'slutavverkning')).map(s => {
+    const block = (['skordare', 'skotare'] as const).map((roll): TavlaBlock => {
+      const utfall = (d.utfall ?? []).filter(u => u.typ === s.typ && u.roll === roll && u.volym > 0)
+      const ids: string[] = []
+      for (const m of klar?.maskiner ?? []) {
+        if (m.roll !== roll) continue
+        const harKo = (koer.get(m.maskin_id) ?? []).some(r => r.trakt.typ === s.typ && !r.egen)
+        if (harKo || utfall.some(u => u.maskin_id === m.maskin_id)) ids.push(m.maskin_id)
+      }
+      for (const u of utfall) if (!ids.includes(u.maskin_id)) ids.push(u.maskin_id)
+      const maskiner = ids.map((id): TavlaMaskin => {
+        iNagotSpar.add(id)
+        const m = klar?.maskiner.find(x => x.maskin_id === id) ?? null
+        const rader = koer.get(id) ?? []
+        const nu = Math.round(utfall.find(u => u.maskin_id === id)?.volym ?? 0)
+        const egnaRader = rader.filter(r => r.trakt.typ === s.typ && !r.egen)
+        const tillkommer = egnaRader.reduce((sum, r) => sum + r.kvar * r.andelIManaden, 0)
+        // Osäkert: en trakt före eller i spårets del av kön saknar prognos, eller bygger på ett förslag.
+        const ca = rader.some(r => r.dagar == null) || egnaRader.some(r => r.trakt.uppskattad === true && !r.trakt.foljer)
+        return {
+          maskin_id: id, namn: m?.namn ?? id, roll, nu,
+          landar: klar ? Math.round(nu + tillkommer) : null, ca: klar ? ca : false,
+          stopp: d.stopp?.[id] ?? null,
+          trakter: rader.map(r => traktVy(r, s.typ, sista)),
+        }
+      })
+      const utan: TavlaUtan[] = trakter
+        .filter(t => t.typ === s.typ && t.roll === roll && (t.maskin_id == null || !kanda.has(t.maskin_id)) && !d.egna.has(t.objekt_id))
+        .sort((a, b) => a.sortn - b.sortn)
+        .map(t => ({ objekt_id: t.objekt_id, roll, namn: traktNamn(t), volym: Math.round(kvarVolym(t)) }))
+      const harRader = d.utfall != null
+      const nu = harRader ? maskiner.reduce((a, m) => a + m.nu, 0) : Math.round(roll === 'skordare' ? s.skordat : s.skotat)
+      const landar = klar && d.status !== 'avslutad' ? (harRader ? maskiner.reduce((a, m) => a + (m.landar ?? m.nu), 0) : null) : null
+      const ca = maskiner.some(m => m.ca)
+      return { roll, rubrik: roll === 'skordare' ? 'Skördat' : 'Skotat', maskiner, utan, nu, landar, ca, ...dom(roll, landar, nu, s.bestallt, ca, d.status) }
+    }) as [TavlaBlock, TavlaBlock]
+    return { typ: s.typ, namn: TYP_NAMN[s.typ], bestallt: s.bestallt, block, kvarISkogen: Math.round(oskotatKvar(s)) }
+  })
+
+  const ovrigt: TavlaOvrig[] = (klar?.maskiner ?? [])
+    .filter(m => !iNagotSpar.has(m.maskin_id) && (koer.get(m.maskin_id) ?? []).length > 0)
+    .map(m => ({ maskin_id: m.maskin_id, namn: m.namn, roll: m.roll, trakter: (koer.get(m.maskin_id) ?? []).map(r => ({ ...traktVy(r, null, sista), utanfor: false })) }))
+
+  return { svar: tavlaSvar(spar, d.status), spar, ovrigt }
+}
+
+/** EN mening: det som fattas (skotat = det som levereras), annars skördaren över, annars att vi hinner. */
+export function tavlaSvar(spar: TavlaSpar[], status: ManadStatus): Tavla['svar'] {
+  const med = spar.filter(s => s.bestallt > 0)
+  if (med.length === 0) return { rubrik: 'Ingen beställning inlagd', avvikelse: false }
+  const fattas = med.filter(s => (s.block[1].diff ?? 0) < 0 && s.block[1].ton === 'orange')
+  if (fattas.length > 0) {
+    const delar = fattas.map((s, i) => {
+      const b = s.block[1]
+      const tal = `${b.ca && b.landar != null ? 'ca ' : ''}${fmt(-(b.diff as number))}`
+      return i === 0 ? `${s.namn} ${status === 'avslutad' ? 'fattades' : 'fattas'} ${tal}` : `${s.namn.toLowerCase()} ${tal}`
+    })
+    return { rubrik: delar.join(' · '), avvikelse: true }
+  }
+  if (status === 'avslutad') return { rubrik: 'Beställningen blev klar', avvikelse: false }
+  const over = med.filter(s => s.block[0].ton === 'orange' && (s.block[0].diff ?? 0) > 0)
+  if (over.length > 0) return { rubrik: `Skördaren går ${fmt(over[0].block[0].diff as number)} över på ${over[0].namn.toLowerCase()}`, avvikelse: true }
+  if (status === 'kommande') return { rubrik: 'Vi hinner med beställningen', avvikelse: false }
+  if (med.every(s => s.block[1].ord === 'Klar')) return { rubrik: 'Beställningen är klar', avvikelse: false }
+  return { rubrik: 'Vi hinner med beställningen', avvikelse: false }
+}
+
+// ── Flytta en trakt ─────────────────────────────────────────────────────────
+export type FlyttVal = {
+  maskin_id: string
+  namn: string
+  nuvarande: boolean
+  /** Vad som gäller OM maskinen tar trakten: spårets dom för rollen ("Hinner", "Fattas ca 800") eller, utanför beställningen, klar-datumet. */
+  ord: string
+  ton: Ton
+}
+
+/** Maskinerna som kan ta trakten, och vad varje val ger. Den som har trakten nu står först. */
+export function flyttVal(d: TavlaIndata, objektId: string, roll: KlarRoll): { namn: string; val: FlyttVal[] } | null {
+  const klar = d.klar
+  const t = klar?.trakter.find(x => x.objekt_id === objektId && x.roll === roll)
+  if (!klar || !t) return null
+  const val = klar.maskiner
+    .filter(m => m.roll === roll && kanTa(m, t))
+    .map((m): FlyttVal => {
+      const tavla = byggTavla({ ...d, flytt: { objekt_id: objektId, roll, maskin_id: m.maskin_id } })
+      const sp = arVirke(t.typ) && !d.egna.has(objektId) ? tavla.spar.find(s => s.typ === t.typ) : null
+      const b = sp ? sp.block[roll === 'skordare' ? 0 : 1] : null
+      if (b && sp && sp.bestallt > 0) return { maskin_id: m.maskin_id, namn: m.namn, nuvarande: t.maskin_id === m.maskin_id, ord: b.ord, ton: b.ton }
+      const rad = [...tavla.spar.flatMap(s => s.block.flatMap(x => x.maskiner)), ...tavla.ovrigt].find(x => x.maskin_id === m.maskin_id)?.trakter.find(x => x.objekt_id === objektId)
+      return { maskin_id: m.maskin_id, namn: m.namn, nuvarande: t.maskin_id === m.maskin_id, ord: rad ? `Klar ${rad.klar}` : '–', ton: rad?.efter ? 'orange' : 'dampad' }
+    })
+    .sort((a, b) => Number(b.nuvarande) - Number(a.nuvarande))
+  return { namn: traktNamn(t), val }
+}

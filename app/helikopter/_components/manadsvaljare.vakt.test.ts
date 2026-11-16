@@ -32,16 +32,16 @@ describe('månadsväljaren i HelikopterVy', () => {
     expect(kalla).not.toMatch(/sp\.get\('flik'\)/)
   })
 
-  it('status visas som prick + ord, aldrig som färgat tal eller färgad stapel', () => {
-    const skotat = readFileSync(join(__dirname, 'SkotatSektion.tsx'), 'utf8')
-    expect(skotat).toContain('StatusOrd')
-    expect(skotat).not.toMatch(/Matare[^/]*farg=/)
-    expect(skotat).not.toMatch(/TYP\.tal[^}]*FARG\.(orange|gron)/)
+  it('status visas som prick + ord, aldrig som färgat tal', () => {
+    const tavla = readFileSync(join(__dirname, 'Tavla.tsx'), 'utf8')
+    expect(tavla).toContain('StatusOrd')
+    expect(tavla).not.toMatch(/data-(nu|landar)[^>]*FARG\.(orange|gron)/)
+    expect(tavla).not.toMatch(/fontWeight: VIKT\.fet, color: FARG\.(orange|gron)/)
   })
 
-  it('sidan ritar inga traktlistor och inga maskinkort: trakterna ligger bakom trycket, maskinernas m³ bakom Mer', () => {
+  it('sidan räknar inget själv: tavlan byggs i _lib/tavla.ts och ritas av Tavla', () => {
+    expect(kalla).toContain('byggTavla(')
+    expect(kalla).toContain('<Tavla ')
     expect(kalla).not.toContain('<MaskinSektion')
-    const klar = readFileSync(join(__dirname, 'KlarSektion.tsx'), 'utf8')
-    expect(klar).not.toContain('trakter.map')
   })
 })

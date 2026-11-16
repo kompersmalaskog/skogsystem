@@ -563,3 +563,28 @@ export async function tilldelaMaskin(objektId: string, roll: KlarRoll, maskinId:
     return { error: felText(e) }
   }
 }
+
+/**
+ * Trakter där markägaren skotar själv (objekt.egen_skotning, eller dim_objekt.egen_skotning på traktens maskinobjekt/VO).
+ * Tavlan räknar dem inte mot beställningen och visar dem aldrig som "ingen skotare".
+ */
+export async function hamtaEgenSkotningTrakter(objektIds: string[]): Promise<Svar<Set<string>>> {
+  if (objektIds.length === 0) return { data: new Set(), error: null }
+  try {
+    const [o, d] = await Promise.all([
+      medAbortRetry(() => supabase.from('objekt').select('id, vo_nummer, dim_objekt_id, egen_skotning').in('id', objektIds)),
+      medAbortRetry(() => supabase.from('dim_objekt').select('objekt_id, vo_nummer').eq('egen_skotning', true)),
+    ])
+    if (o.error) return { data: null, error: felText(o.error) }
+    if (d.error) return { data: null, error: felText(d.error) }
+    const dimId = new Set((d.data ?? []).map((r: any) => String(r.objekt_id)))
+    const dimVo = new Set((d.data ?? []).map((r: any) => r.vo_nummer).filter((v: unknown): v is string => typeof v === 'string' && v !== ''))
+    const ut = new Set<string>()
+    for (const r of (o.data ?? []) as any[]) {
+      if (r.egen_skotning === true || (r.dim_objekt_id && dimId.has(String(r.dim_objekt_id))) || (r.vo_nummer && (dimVo.has(r.vo_nummer) || dimId.has(r.vo_nummer)))) ut.add(String(r.id))
+    }
+    return { data: ut, error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
