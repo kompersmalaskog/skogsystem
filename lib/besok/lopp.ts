@@ -37,15 +37,16 @@ export const RUBRIK = {
   klart: 'Vi är klara',
 } as const;
 
-const lage = (klar: boolean, igang: boolean): StegLage => (klar ? 'klar' : igang ? 'pagar' : 'vantar');
+/** Står maskinen på trakten nu PÅGÅR steget, vad avslutsdatumet än säger — maskinen har kommit tillbaka, och rubriken får aldrig säga emot steget. */
+const lage = (klar: boolean, igang: boolean, harNu: boolean): StegLage => (harNu ? 'pagar' : klar ? 'klar' : igang ? 'pagar' : 'vantar');
 
 export function byggLopp(d: LoppIndata): Lopp {
   const skordareHar = d.roller.includes('skordare');
   const skotareHar = d.roller.includes('skotare');
   const steg: LoppSteg[] = [
-    { id: 'skordare', namn: 'Skördaren', text: d.gallring ? 'Gallrar skogen' : 'Fäller träden', lage: lage(d.avslutat || d.skordningKlar, d.harSkordat || skordareHar) },
+    { id: 'skordare', namn: 'Skördaren', text: d.gallring ? 'Gallrar skogen' : 'Fäller träden', lage: lage(d.avslutat || d.skordningKlar, d.harSkordat, skordareHar && !d.avslutat) },
   ];
-  if (!d.egenSkotning) steg.push({ id: 'skotare', namn: 'Skotaren', text: 'Kör ut virket till vägen', lage: lage(d.avslutat || d.skotningKlar, d.harSkotat || skotareHar) });
+  if (!d.egenSkotning) steg.push({ id: 'skotare', namn: 'Skotaren', text: 'Kör ut virket till vägen', lage: lage(d.avslutat || d.skotningKlar, d.harSkotat, skotareHar && !d.avslutat) });
   steg.push({ id: 'klart', namn: 'Klart', text: d.egenSkotning ? 'Vi är klara i din skog' : 'Allt virke ligger vid vägen', lage: d.avslutat ? 'klar' : 'vantar' });
 
   let rubrik: string;

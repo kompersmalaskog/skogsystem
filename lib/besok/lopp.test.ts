@@ -29,6 +29,11 @@ describe('loppet på markägarens länk', () => {
     expect(l.rubrik).toBe(RUBRIK.ingenNu);
     expect(l.steg[0].lage).toBe('pagar');
   });
+  it('skördningen står som klar men skördaren är här igen: steget pågår — rubriken och steget säger samma sak', () => {
+    const l = byggLopp({ ...grund, harSkordat: true, skordningKlar: true, roller: ['skordare'] });
+    expect(l.rubrik).toBe('Skördaren arbetar nu');
+    expect(l.steg[0].lage).toBe('pagar');
+  });
   it('avslutat objekt: allt klart', () => {
     expect(byggLopp({ ...grund, avslutat: true }).rubrik).toBe('Vi är klara');
     expect(lagen({ avslutat: true })).toEqual(['skordare:klar', 'skotare:klar', 'klart:klar']);
