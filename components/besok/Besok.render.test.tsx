@@ -62,28 +62,75 @@ describe('markägarens länk: medan vi jobbar — "Ska du gå ut i skogen?"', ()
     vi.stubGlobal('fetch', vi.fn(async () => svar(200, nastaVy)));
   });
 
-  it('frågan överst, "Maskinerna arbetar här just nu", kartan MED maskinerna, regeln under kartan och EN knapp — inget om certifiering eller % klart', async () => {
+  it('utan lopp i svaret (äldre server): frågan överst, kartan MED maskinerna, regeln under kartan och EN knapp — inget % klart', async () => {
     await visa(<BesokKlient token={TOKEN} />);
     expect(q('besok-sida')!.getAttribute('data-lage')).toBe('pagar');
     expect(q('besok-namn')!.textContent).toBe('Skälviken · Kompersmåla Skog avverkar åt Vida');
     expect(el!.querySelector('h1')!.textContent).toBe('Ska du gå ut i skogen?');
-    expect(q('besok-arbetar')!.textContent).toBe('Maskinerna arbetar här just nu');
+    expect(q('besok-lopp')).toBeNull();
     expect(q('karta-stub')!.getAttribute('data-maskiner')).toBe('2');
     expect(q('besok-ringregel')!.textContent).toBe(RINGREGEL);
     expect(q('besok-kommer')!.textContent).toBe('Anmäl besök');
-    expect(el!.querySelectorAll('button[data-testid="besok-kommer"], [data-testid="besok-arbetar"] button')).toHaveLength(1);
+    expect(el!.querySelectorAll('button[data-testid="besok-kommer"]')).toHaveLength(1);
     expect(q('besok-skogen')).toBeNull();
-    expect(q('besok-sida')!.textContent).not.toMatch(/% klart|certifier|Evighetsträd|röta|m³/i);
+    expect(q('besok-sida')!.textContent).not.toMatch(/% klart|röta|m³/i);
+  });
+
+  it('LOPPET: rubriken är svaret, tre steg med ordet bredvid, och frågan om skogen står kvar före säkerheten', async () => {
+    nastaVy = vy({ lopp: { rubrik: 'Skördaren arbetar nu', steg: [
+      { id: 'skordare', namn: 'Skördaren', text: 'Fäller träden', lage: 'pagar' },
+      { id: 'skotare', namn: 'Skotaren', text: 'Kör ut virket till vägen', lage: 'vantar' },
+      { id: 'klart', namn: 'Klart', text: 'Allt virke ligger vid vägen', lage: 'vantar' },
+    ] } });
+    await visa(<BesokKlient token={TOKEN} />);
+    expect(el!.querySelector('h1')!.textContent).toBe('Skördaren arbetar nu');
+    expect(Array.from(el!.querySelectorAll('[data-testid^="besok-steg-"]')).map((n) => `${n.getAttribute('data-testid')}:${n.getAttribute('data-lage')}`)).toEqual(['besok-steg-skordare:pagar', 'besok-steg-skotare:vantar', 'besok-steg-klart:vantar']);
+    expect(q('besok-steg-skordare')!.textContent).toContain('Pågår');
+    expect(q('besok-steg-skotare')!.textContent).toContain('Kommer sen');
+    expect(q('besok-lopp')!.textContent).not.toMatch(/%|\d{1,2} (nov|okt)/);
+    expect(el!.querySelector('h2')!.textContent).toBe('Ska du gå ut i skogen?');
+  });
+
+  it('"Det här kommer du att se": bilder med ett par ord längst ner, högst fyra, INGA antal medan vi jobbar — och arket visar varken tal eller karta', async () => {
+    await visa(<BesokKlient token={TOKEN} />);
+    let sek = q('besok-kommer-se')!;
+    expect(sek.querySelector('h2')!.textContent).toBe('Det här kommer du att se');
+    const kort = Array.from(sek.querySelectorAll('[data-testid^="besok-skograd-"]'));
+    expect(kort.length).toBeGreaterThan(0);
+    expect(kort.length).toBeLessThanOrEqual(4);
+    for (const k of kort) expect(k.querySelector('svg')).not.toBeNull();
+    expect(q('besok-skograd-evighetstrad')!.textContent).toBe('EvighetsträdFår aldrig avverkas');
+    // kravet står på kortet från start när arealen är känd — antalet som sparats kommer först i kvittot
+    act(() => { rot!.unmount(); }); el!.remove();
+    nastaVy = vy({ skog: { ...SKOG, rader: SKOG.rader.map((r: any) => (r.id === 'evighetstrad' ? { ...r, minst: 37 } : r)) } });
+    await visa(<BesokKlient token={TOKEN} />);
+    expect(q('besok-skograd-evighetstrad')!.textContent).toBe('EvighetsträdMinst 37 · får aldrig avverkas');
+    sek = q('besok-kommer-se')!;
+    expect(sek.textContent).not.toMatch(/\d+ evighetsträd|\d+ högstubbar/i);
+    expect(q('besok-meningen')!.textContent).toMatch(/^Det är meningen\. Din skog är/);
+    // säkerheten står FÖRE förklaringen
+    expect(q('besok-har-just-nu')!.compareDocumentPosition(sek) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await tryck(q('besok-skograd-evighetstrad'));
+    const ark = q('besok-skogark-evighetstrad')!;
+    expect(ark.textContent).not.toContain('På din trakt');
+    expect(ark.querySelector('[data-testid="karta-stub"]')).toBeNull();
   });
 
   it('en rad per fara med VARFÖR: skördare (kedjan), skotare (kranen, öppnar arket), motorsåg och virkestravarna', async () => {
     await visa(<BesokKlient token={TOKEN} />);
     const rader = Array.from(el!.querySelectorAll('[data-testid^="besok-rad-"]')).map((n) => n.getAttribute('data-testid'));
-    expect(rader).toEqual(['besok-rad-skordare', 'besok-rad-skotare', 'besok-rad-motorsag', 'besok-rad-travar']);
+    expect(rader).toEqual(['besok-rad-skordare', 'besok-rad-skotare', 'besok-rad-motorsag', 'besok-rad-lastbil', 'besok-rad-travar']);
     expect(q('besok-rad-skordare')!.textContent).toContain('Kedjan kan gå av');
     expect(q('besok-rad-skordare')!.textContent).toContain('70 m');
     expect(q('besok-rad-skotare')!.textContent).toContain('Kranen svänger');
     expect(q('besok-rad-travar')!.textContent).toContain('Klättra aldrig');
+    expect(q('besok-rad-lastbil')!.textContent).toContain('Stå aldrig nära när de lastar');
+    // varje säkerhetsrad har en bild av det man inte får göra (Martin 2026-11-16), med rött kryss
+    for (const id of ['skordare', 'skotare', 'motorsag', 'lastbil', 'travar']) {
+      const bild = q(`besok-fara-${id}`)!;
+      expect(bild.querySelector('svg')).not.toBeNull();
+      expect(bild.innerHTML).toContain('#ff453a');
+    }
     expect(q('besok-rad-skordare')!.tagName).toBe('DIV');
     await tryck(q('besok-rad-skotare'));
     const ark = q('besok-skotarark')!;
@@ -91,11 +138,10 @@ describe('markägarens länk: medan vi jobbar — "Ska du gå ut i skogen?"', ()
     expect(ark.querySelector('p')!.textContent).toBe(SKOTARARK_TEXT);
   });
 
-  it('inga maskiner igång: ingen gul rad och bara virkestravarna', async () => {
+  it('inga maskiner igång: bara virkestravarna', async () => {
     nastaVy = vy({ maskiner: [], roller: [], harMotorsag: false });
     await visa(<BesokKlient token={TOKEN} />);
-    expect(q('besok-arbetar')).toBeNull();
-    expect(Array.from(el!.querySelectorAll('[data-testid^="besok-rad-"]')).map((n) => n.getAttribute('data-testid'))).toEqual(['besok-rad-travar']);
+    expect(Array.from(el!.querySelectorAll('[data-testid^="besok-rad-"]')).map((n) => n.getAttribute('data-testid'))).toEqual(['besok-rad-lastbil', 'besok-rad-travar']);
   });
 
   it('vem man ringer, med numret', async () => {
@@ -388,7 +434,7 @@ describe('planerarens kort: Skicka till markägaren (när markägaren slås på)
     await tryck(q('kort-besok-till-markagare'));
     expect((nav.mock.calls[0][0] as string).startsWith('sms:&body=')).toBe(true);
   });
-  it('avstängd länk, avslutad trakt eller ingen länk än: ingenting öppnas', async () => {
+  it('avstängd länk eller ingen länk än: ingenting öppnas', async () => {
     const nav = vi.fn();
     hook.ut = { ...grund(), lank: { token: TOKEN, aktiv: false } };
     await visa(<BesokPlanerare {...props} navigera={nav} />);
@@ -396,15 +442,23 @@ describe('planerarens kort: Skicka till markägaren (när markägaren slås på)
     expect(nav).not.toHaveBeenCalled();
     expect(q('kort-besok-sms')!.textContent).toContain('Länken är avstängd');
     act(() => { rot!.unmount(); }); el!.remove();
-    hook.ut = grund();
-    await visa(<BesokPlanerare {...props} status="avslutat" navigera={nav} />);
-    await skickaTill();
-    expect(nav).not.toHaveBeenCalled();
-    act(() => { rot!.unmount(); }); el!.remove();
     hook.ut = { ...grund(), lank: null };
     await visa(<BesokPlanerare {...props} navigera={nav} />);
     await skickaTill();
     expect(nav).not.toHaveBeenCalled();
+  });
+  it('avslutad trakt: ett ANDRA SMS — "Nu är vi klara" med samma länk, och startens SMS räknas inte som dess status', async () => {
+    const nav = vi.fn();
+    hook.ut = { ...grund(), sms: [sms('skickad')] };
+    await visa(<BesokPlanerare {...props} status="avslutat" avslutad="2099-01-01T00:00:00Z" navigera={nav} origin="https://app.test" />);
+    expect(q('kort-besok-sms')!.textContent).toContain('Skicka att vi är klara');
+    expect(q('kort-besok-sms')!.textContent).not.toContain('Skickat');
+    await skickaTill();
+    const href = decodeURIComponent(nav.mock.calls[0][0] as string);
+    expect(href).toContain('Nu är vi klara');
+    expect(href).toContain('vad vi lämnade kvar i skogen och varför');
+    expect(href).toContain(`https://app.test/besok/${TOKEN}`);
+    expect(href).not.toContain('börjar avverka');
   });
   it('visar när SMS:et senast öppnades och av vem – och att det INTE är bekräftat skickat', async () => {
     hook.ut = { ...grund(), sms: [sms('oppnad')] };

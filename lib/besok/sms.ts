@@ -96,3 +96,23 @@ export function besokSmsText(a: SmsIndata): string {
   ];
   return rader.join('\n');
 }
+
+/** Andra SMS:et, när vi är klara (Martin 2026-11-16): det är då markägaren går ut på hygget och undrar. Samma länk — den visar nu "Varför ser det ut så här?". */
+export function besokKlarSmsText(a: Omit<SmsIndata, 'nar'>): string {
+  const mark = markagareFornamn(a.markagare);
+  const av = forstaNamn(a.avsandareNamn);
+  const fast = fastighetText(a.fastighet);
+  const tel = smsNummer(a);
+  const rader = [
+    mark ? `Hej ${mark}!` : 'Hej!',
+    `Nu är vi klara ${fast ? `på ${fast}` : 'i din skog'}. Virket ligger vid vägen och hämtas av Vida.`,
+    '',
+    'Här ser du vad vi lämnade kvar i skogen och varför:',
+    a.lank,
+    '',
+    'Hälsningar',
+    `${av ? `${av}, ` : ''}Kompersmåla Skog`,
+    ...(tel ? [tel] : []),
+  ];
+  return rader.join('\n');
+}

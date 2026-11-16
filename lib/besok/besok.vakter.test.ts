@@ -20,6 +20,7 @@ describe('besökssidan läser exakt de fält den visar', () => {
     'objekt_id, aktiv',                                                                     // länken
     'id, namn, vo_nummer, status, bolag, lat, lng, kartbild_bounds, volym, dim_objekt_id, fastighetsbeteckning, cert, areal, grot, ved_detaljer, typ, avslutad_timestamp',  // objektet (volym bara för procenten; cert/areal/grot/typ för "Varför ser det ut så här?"; ved för "Din ved"; avslutad_timestamp för hur länge länken lever)
     'typ, data',                                                                            // motorsåg, evighetsträd, högstubbar, ved-nålen
+    'skordning_avslutad, skotning_avslutad, egen_skotning',                                 // loppet: är skördningen/skotningen klar (bara ja/nej lämnar servern)
     'geometri',                                                                             // Vidas kant mot vatten (bara ytan)
     'oppnad_av, oppnad_at',                                                                 // vem som skickade länken …
     'namn, telefon',                                                                        // … och hans nummer: "Ring om något" (samma nummer som står i SMS:et; bara förnamnet lämnar servern)

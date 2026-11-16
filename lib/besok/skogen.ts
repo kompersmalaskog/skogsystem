@@ -14,7 +14,7 @@
 
 import { EVIGHETSTRAD_PER_HA, HOGSTUBBAR_PER_HA } from '@/lib/miljokrav';
 
-export type SkogRadId = 'evighetstrad' | 'hogstubbe' | 'toppar' | 'ris' | 'kantzon' | 'spridda' | 'stickvagar' | 'basta';
+export type SkogRadId = 'evighetstrad' | 'hogstubbe' | 'kulturstubbe' | 'toppar' | 'ris' | 'kantzon' | 'spridda' | 'stickvagar' | 'basta';
 
 export type SkogRad = {
   id: SkogRadId;
@@ -29,6 +29,8 @@ export type SkogRad = {
   forklaring: string;
   /** Kravet, dämpat i arket. */
   krav: string;
+  /** Kravet som ett tal för just den här trakten ("Minst 37") — står på kortet redan medan vi jobbar (Martin 2026-11-16). Bara det vi räknar och bara när arealen är känd. */
+  minst?: number | null;
   /** Finns något att visa på kartan för just den här raden? */
   karta: boolean;
 };
@@ -75,6 +77,8 @@ export type SkogIndata = {
   harEvighetstradPos: boolean;
   harHogstubbePos: boolean;
   harKantzon: boolean;
+  /** trakten har en kulturlämning (planerarens symbol/yta eller RAÄ i Vidas leverans) */
+  harKultur?: boolean;
 };
 
 /** Gallringens två rader — gäller alla gallringar, certifierade eller inte. */
@@ -91,29 +95,40 @@ export const GALLRING_RADER: SkogRad[] = [
   },
 ];
 
+/** Stubbar i brösthöjd runt en lämning (Martin 2026-11-16: 1,3–1,5 m, "man brukar säga brösthöjd"). */
+export const KULTURSTUBBE_RAD: SkogRad = {
+  id: 'kulturstubbe', namn: 'Stubbar i brösthöjd', varfor: 'Visar var gamla lämningar är', varde: null, malbild: 'kulturlamning',
+  forklaring: 'Runt gamla lämningar, som husgrunder och kolbottnar, lämnar vi stubbar i brösthöjd, ungefär 1,3–1,5 meter. De visar var lämningen är så att ingen kör sönder den.',
+  krav: '', karta: false,
+};
+
 /** Raderna under "Varför ser det ut så här?", i den ordning de visas. Tom lista = inga rader. */
 export function skogRader(d: SkogIndata): SkogRad[] {
   const typ = String(d.typ ?? '').toLowerCase();
   if (typ === 'gallring') return GALLRING_RADER;
-  if (typ !== 'slutavverkning' || !arCert(d.cert)) return [];
+  if (typ !== 'slutavverkning') return [];
+  // Kulturstubbar gäller alla avverkningar med en lämning, certifierade eller inte (Martin 2026-11-16).
+  const kultur: SkogRad[] = d.harKultur ? [KULTURSTUBBE_RAD] : [];
+  if (!arCert(d.cert)) return kultur;
   const kravEv = d.arealHa != null ? Math.ceil(Math.round(d.arealHa * EVIGHETSTRAD_PER_HA * 1e6) / 1e6) : null;
   const kravHs = d.arealHa != null ? Math.ceil(Math.round(d.arealHa * HOGSTUBBAR_PER_HA * 1e6) / 1e6) : null;
   const r: SkogRad[] = [
     {
       id: 'evighetstrad', namn: 'Evighetsträd', varfor: 'Får aldrig avverkas', varde: antalText(d.evighetstrad), malbild: 'evighetstrad',
       forklaring: 'Grova och gamla träd som står kvar för alltid. De blir hem åt fåglar, insekter och lavar i hundratals år.',
-      krav: kravEv != null ? `Kravet: minst ${EVIGHETSTRAD_PER_HA} per hektar, ${kravEv} på din trakt` : `Kravet: minst ${EVIGHETSTRAD_PER_HA} per hektar`, karta: d.harEvighetstradPos,
+      krav: kravEv != null ? `Kravet: minst ${EVIGHETSTRAD_PER_HA} per hektar, ${kravEv} på din trakt` : `Kravet: minst ${EVIGHETSTRAD_PER_HA} per hektar`, karta: d.harEvighetstradPos, minst: kravEv,
     },
     {
       id: 'hogstubbe', namn: 'Högstubbar', varfor: 'Hem åt insekter och hackspett', varde: antalText(d.hogstubbar), malbild: 'hogstubbe',
       forklaring: 'Träd som kapas högt och får stå kvar och dö. Död ved är det som flest arter i skogen lever av.',
-      krav: kravHs != null ? `Kravet: minst ${HOGSTUBBAR_PER_HA} per hektar, ${kravHs} på din trakt` : `Kravet: minst ${HOGSTUBBAR_PER_HA} per hektar`, karta: d.harHogstubbePos,
+      krav: kravHs != null ? `Kravet: minst ${HOGSTUBBAR_PER_HA} per hektar, ${kravHs} på din trakt` : `Kravet: minst ${HOGSTUBBAR_PER_HA} per hektar`, karta: d.harHogstubbePos, minst: kravHs,
     },
   ];
+  r.push(...kultur);
   if (d.cert.fsc && d.grot) r.push(
     {
       id: 'toppar', namn: 'Grova toppar', varfor: 'Ligger kvar med flit – inte slarv', varde: null, malbild: null,
-      forklaring: 'En del grova toppar lämnas på hygget. Död ved på marken behövs för svampar och insekter.',
+      forklaring: 'När riset tas ut som bränsle lämnar vi de grova topparna. De blir ny död ved åt svampar och insekter.',
       krav: 'FSC: när riset tas ut ska grova toppar ligga kvar', karta: false,
     },
     {
