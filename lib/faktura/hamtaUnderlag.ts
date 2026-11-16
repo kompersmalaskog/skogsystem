@@ -52,6 +52,22 @@ export type Granskningsunderlag = {
   volym: number;
   /** Dagen prislistan slogs upp på (avräkningsdagen, annars idag). */
   prisdatum: string;
+  /**
+   * Skotningsavståndets underlag, för "Vad behöver du kolla?"
+   * (lib/faktura/fattas). Avståndet summeras per lass på LASSETS egen volym,
+   * så täckningen avgör om talet duger: Skälviken har 1 725 m³ skördat och
+   * två lass som bär 40 m³, och tillägget blir 0,97 kr/m³ i stället för ~40.
+   */
+  avstand: {
+    /** dim_objekt.skotavstand_manuell i meter. Satt = talet är ett svar. */
+    manuellt: number | null;
+    /** Volymen i de lass som HAR körsträcka. */
+    lassVolym: number;
+    /** Antal lass med körsträcka. */
+    lassAntal: number;
+    /** Kronorna appen räknat fram. */
+    kronor: number;
+  };
 };
 
 export type HamtatUnderlag = {
@@ -194,6 +210,11 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
   // Manuell siffra är redan ENKELRIKTAD; korstracka_m är tur och retur.
   const avstList = avstRes.data || [];
   let skotKr = 0;
+  // Lassens TÄCKNING, inte bara om lass finns: ett lass utan körsträcka ger
+  // noll steg och bidrar därför inte till tillägget, hur mycket volym det än
+  // bär. Se lib/faktura/fattas.
+  const lassMedStracka = lass.filter((l: any) => (Number(l.korstracka_m) || 0) > 0);
+  const lassVolymMedStracka = sum(lassMedStracka, 'volym_m3sub');
   if (huvud.skotavstand_manuell != null) {
     skotKr = skotAvstandKr(uppslag, Number(huvud.skotavstand_manuell), volym, avstList as any);
     noter.push({ niva: 'info', text: `Avståndet kommer från skotavstand_manuell (${huvud.skotavstand_manuell} m), inte ur lassen.` });
@@ -400,6 +421,12 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     },
     volym,
     prisdatum: uppslag,
+    avstand: {
+      manuellt: huvud.skotavstand_manuell == null ? null : Number(huvud.skotavstand_manuell),
+      lassVolym: lassVolymMedStracka,
+      lassAntal: lassMedStracka.length,
+      kronor: skotKr,
+    },
   };
 
   return { underlag, noter, objektIds, granskning };
