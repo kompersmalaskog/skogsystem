@@ -14,7 +14,8 @@ import { AVSTAND, FARG } from '@/lib/design/tokens';
 const KART_BAKGRUND = '#1b2a17';
 import { ROLL_NAMN, type MaskinRoll } from '@/lib/besok/sakerhet';
 
-export type KartMaskin = { roll: MaskinRoll; lat: number; lng: number };
+/** `alder` = "nu" / "senast här 14:32" (lib/besok/maskinAlder) – står efter rollen i etiketten. `gammal` tonar ner pricken: den visar var maskinen VAR. */
+export type KartMaskin = { roll: MaskinRoll; lat: number; lng: number; alder?: string; gammal?: boolean };
 export type KartaData = {
   token: string;
   mitt: { lat: number; lng: number } | null;
@@ -119,7 +120,14 @@ export default function BesokKarta({ data, hojd = 340 }: { data: KartaData; hojd
       const farg = BESOK_MASKINFARG[m.roll];
       const el = document.createElement('div');
       el.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;pointer-events:none';
-      el.innerHTML = `<div style="padding:3px 8px;border-radius:10px;background:#000c;color:#fff;font:600 13px/1.2 Inter,system-ui,sans-serif;white-space:nowrap">${ROLL_NAMN[m.roll]}</div><div style="width:16px;height:16px;border-radius:50%;background:${farg};border:3px solid #fff;box-shadow:0 0 0 1px #0007"></div>`;
+      el.dataset.maskin = m.roll;
+      if (m.gammal) el.dataset.gammal = '1';
+      // Gammal punkt: grå, ihålig prick – den visar var maskinen VAR, inte var den är. Åldern står alltid i etiketten (aldrig bara färg).
+      const prick = m.gammal
+        ? `<div style="width:16px;height:16px;border-radius:50%;background:transparent;border:3px solid #fffa;box-shadow:0 0 0 1px #0007"></div>`
+        : `<div style="width:16px;height:16px;border-radius:50%;background:${farg};border:3px solid #fff;box-shadow:0 0 0 1px #0007"></div>`;
+      el.innerHTML = `<div style="padding:3px 8px;border-radius:10px;background:#000c;color:#fff;font:600 13px/1.2 Inter,system-ui,sans-serif;white-space:nowrap"></div>${prick}`;
+      (el.firstChild as HTMLElement).textContent = m.alder ? `${ROLL_NAMN[m.roll]} · ${m.alder}` : ROLL_NAMN[m.roll];
       return new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([m.lng, m.lat]).addTo(map);
     })];
   }

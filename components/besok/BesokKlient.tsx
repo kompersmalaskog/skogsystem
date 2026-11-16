@@ -23,6 +23,7 @@ import { PRICK_FARG } from '@/lib/besok/farg';
 import { HUVUDREGEL, RINGREGEL, SKOTARARK_RUBRIK, SKOTARARK_TEXT, sakerhetsRader, type MaskinRoll } from '@/lib/besok/sakerhet';
 import { arBesokAktivt, klockslag } from '@/lib/besok/tid';
 import { VANTAR_TEXT, kvitteringsRader, maskinStatusRader } from '@/lib/besok/status';
+import { arbetarRad, maskinAlder } from '@/lib/besok/maskinAlder';
 import { CERT_FORKLARING, KARTA_UNGEFAR, type SkogRad } from '@/lib/besok/skogen';
 import { malbildInnehall } from '@/lib/malbilder';
 import { PUBLIK_POLL_MS } from '@/lib/besok/konstanter';
@@ -180,7 +181,14 @@ function PagarVy({ vy, token, pagar, kvitto, onBesok, onSkotare, onRad }: { vy: 
   // Maskiner vars steg i loppet inte är klart får sin säkerhetsrad redan innan de kommit.
   const kommer = useMemo(() => (vy.lopp?.steg ?? []).filter((x) => x.lage !== 'klar' && (x.id === 'skordare' || x.id === 'skotare')).map((x) => x.id as MaskinRoll), [vy.lopp]);
   const rader = useMemo(() => sakerhetsRader({ roller: vy.roller, harMotorsag: vy.harMotorsag, kommer }), [vy.roller, vy.harMotorsag, kommer]);
-  const karta: KartaData = useMemo(() => ({ token, mitt: vy.mitt, gran: vy.gran, maskiner: vy.maskiner, motorsag: vy.motorsag, ringM: vy.ringM }), [token, vy.mitt, vy.gran, vy.maskiner, vy.motorsag, vy.ringM]);
+  // Prickarnas ålder räknas om var 15:e sekund även när läsningen inte når fram – en prick får inte stå som "nu" för att nätet försvann.
+  const [nuMs, setNuMs] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNuMs(Date.now()), PUBLIK_POLL_MS); return () => clearInterval(t); }, []);
+  const maskiner = useMemo(() => vy.maskiner.map((m) => { const a = maskinAlder(m.tid, new Date(nuMs)); return { roll: m.roll, lat: m.lat, lng: m.lng, alder: a.text, gammal: a.gammal }; }), [vy.maskiner, nuMs]);
+  const karta: KartaData = useMemo(() => ({ token, mitt: vy.mitt, gran: vy.gran, maskiner, motorsag: vy.motorsag, ringM: vy.ringM }), [token, vy.mitt, vy.gran, maskiner, vy.motorsag, vy.ringM]);
+  const arbetar = arbetarRad(vy.maskiner.map((m) => m.tid), new Date(nuMs));
+  // Med loppet säger rubriken redan vem som arbetar – raden behövs bara när prickarna är GAMLA (då ska sidan inte påstå "nu" utan att säga det).
+  const visaArbetar = arbetar && (!vy.lopp || !arbetar.farsk);
   const skogRader = vy.skog?.rader ?? [];
   return (
     <div data-testid="besok-sida" data-lage="pagar" style={{ ...ROT, paddingBottom: medSafeBotten(96) }}>
@@ -194,6 +202,13 @@ function PagarVy({ vy, token, pagar, kvitto, onBesok, onSkotare, onRad }: { vy: 
       {kvitto && <div data-testid="besok-kvitto" role="status" style={{ ...KORT, marginTop: AVSTAND.l, ...TYP.listtitel, color: FARG.gron }}>✓ {kvitto}</div>}
 
       {vy.lopp && <Rubrik>Ska du gå ut i skogen?</Rubrik>}
+
+      {visaArbetar && arbetar && (
+        <div data-testid="besok-arbetar" data-farsk={arbetar.farsk ? '1' : '0'} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: vy.lopp ? 0 : AVSTAND.l, marginBottom: vy.lopp ? AVSTAND.s : 0, ...TYP.listtitel, color: arbetar.farsk ? FARG.gul : FARG.text2 }}>
+          <span aria-hidden="true" style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: '50%', background: arbetar.farsk ? FARG.gul : FARG.text3, flexShrink: 0 }} />
+          {arbetar.text}
+        </div>
+      )}
 
       <section style={{ marginTop: vy.lopp ? 0 : AVSTAND.m }}>
         <BesokKarta data={karta} hojd={280} />
