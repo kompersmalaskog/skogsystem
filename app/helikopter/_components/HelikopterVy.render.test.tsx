@@ -109,6 +109,9 @@ describe('/helikopter — tavlan', () => {
     expect(sk.querySelector('[data-nu="PONS20SDJAA270231"]')?.textContent).toBe(fmt(4800))
     expect(sk.querySelector('[data-landar="PONS20SDJAA270231"]')?.textContent).toBe(fmt(6534))
     expect(sk.querySelector('[data-summa]')?.textContent).toContain('över')
+    // En ensam maskin ÄR summan: talen står en gång, på maskinens rad.
+    expect(sk.querySelector('[data-summa]')?.textContent).not.toContain(fmt(4800))
+    expect(cont.querySelector('[data-spar="slutavverkning"]')?.textContent?.match(/Landar/g)?.length).toBe(1)
     // Elefant: 3 000 skotat. Skälviken 100 h på 7,59 h/dag = 13,2 dagar; föraren är ledig 26–30 okt, så 5 dagar hinns: 3 000 + 1 734 × 5/13,17 = 3 658.
     const so = block('slutavverkning', 'skotare')
     expect(so.querySelector('[data-nu="A130743"]')?.textContent).toBe(fmt(3000))
@@ -164,12 +167,17 @@ describe('/helikopter — tavlan', () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter, egenSkotning: [{ objekt_id: 'dimT', namn: 'Trestensdal', vo_nummer: null, typ: 'gallring', bolag: manadsdata().spar.find((r: any) => r.typ === 'gallring')?.bolag?.[0] ?? null, skordat: 178, senast_datum: null }] }), error: null })
     q.hamtaEgetSkordat.mockResolvedValue({ data: [{ objekt_id: 'dimT', maskin_id: 'R64428', volym: 178 }], error: null })
     await monter()
+    // Flera trakter utan maskin står på EN rad som fälls ut.
+    const grupp = block('gallring', 'skotare').querySelector('[data-utan-grupp] button') as HTMLButtonElement
+    expect(grupp.textContent).toContain('trakter utan maskin')
+    expect(block('gallring', 'skotare').querySelector('[data-utan]')).toBeNull()
+    await act(async () => { grupp.click() })
     const utan = Array.from(block('gallring', 'skotare').querySelectorAll('[data-utan]')).map(e => e.textContent ?? '')
     expect(utan.length).toBeGreaterThan(0)
     expect(utan.some(u => u.includes('Trestensdal'))).toBe(false)
     // Markägarens rad: det skördaren fällt där — och skördaren har fått samma volym.
     expect(block('gallring', 'skotare').querySelector('[data-nu="markagare"]')?.textContent).toBe(fmt(178))
-    expect(block('gallring', 'skotare').textContent).toContain('Markägaren skotar')
+    expect(block('gallring', 'skotare').querySelector('[data-maskin="markagare"]')?.textContent).toContain('Egen skotning')
     // Välj egen skotning på en trakt utan maskin.
     await act(async () => { (block('gallring', 'skotare').querySelector('[data-utan] button') as HTMLButtonElement).click() })
     await act(async () => { (document.querySelector('[data-val="egen"]') as HTMLButtonElement).click() })
