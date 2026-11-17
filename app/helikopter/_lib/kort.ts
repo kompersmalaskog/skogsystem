@@ -10,7 +10,7 @@
 //     på RPC:ns underlag, så att en trakt utan prognos kan få G15-förslaget ("ca 5 nov").
 // Inga ·-kedjor, inga traktlistor, inga förklaringsrader med åtta fakta.
 import type { Maskin, MaskinStopp, PlaneringObjekt, Typ, UtanTypRad, Arbetsdagar, EgenSkotningRad } from './queries'
-import { KLAR_TYP_NAMN, arVirke, bastaFlytt, bestamdNamn, senasteKlar, type FlyttForslag, type KlarData, type KlarTrakt, type MaskinPlan } from './klar'
+import { KLAR_TYP_NAMN, MATT_VISA_FRAN, arVirke, bastaFlytt, bestamdNamn, senasteKlar, type FlyttForslag, type KlarData, type KlarTrakt, type MaskinPlan } from './klar'
 import { skillnadText } from '@/lib/prognosFoljer'
 import {
   PROGNOS_FRAN_ARBETSDAG, TYPER, TYP_NAMN, landarRoller, maskinNamn, otilldelade, planeringStoppText,
@@ -247,12 +247,21 @@ export type KlarRad = {
 }
 
 /** Raden under trakten i arket: följer takten (uppmätt) går före "räknat på liknande trakter" (gissat). */
-export function traktUnder(t: Pick<KlarTrakt, 'uppskattad' | 'foljer'>): string | null {
+export function traktUnder(t: Pick<KlarTrakt, 'uppskattad' | 'foljer' | 'matt'>): string | null {
+  const volym = mattText(t.matt)
   if (t.foljer) {
     const s = skillnadText(t.foljer.skillnad)
-    return s ? `Följer takten på trakten · ${s}` : 'Följer takten på trakten'
+    return [s ? `Följer takten på trakten · ${s}` : 'Följer takten på trakten', volym].filter(Boolean).join(' · ')
   }
-  return t.uppskattad ? 'Prognos räknad på liknande trakter' : null
+  return volym ?? (t.uppskattad ? 'Prognos räknad på liknande trakter' : null)
+}
+
+/** "Volymen mätt på trakten: 1 240 m³fub (Vida 1 620)" — bara när den skiljer sig märkbart från den som stod där. */
+export function mattText(m: KlarTrakt['matt']): string | null {
+  if (!m) return null
+  if (m.vida != null && m.vida > 0 && Math.abs(m.total / m.vida - 1) < MATT_VISA_FRAN) return null
+  const vida = m.vida != null && m.vida > 0 ? ` (Vida ${fmt(m.vida)})` : ''
+  return `${m.klar ? 'Skördat' : 'Volymen mätt på trakten'}: ${fmt(m.total)} m³fub${vida}`
 }
 
 export function klarRader(klar: KlarData, planer: Record<string, MaskinPlan>, stopp: MaskinStopp[] | null): KlarRad[] {

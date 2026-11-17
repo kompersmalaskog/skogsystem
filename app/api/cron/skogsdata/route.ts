@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ADMIN_ROLLER, kravRoll } from '@/lib/auth/server';
 import { korSkogsdata } from '@/lib/skogsdata/server';
+import { korUttag, type UttagSvar } from '@/lib/skogsdata/uttagServer';
 
 /**
  * GET /api/cron/skogsdata — hämtar laserdata, lutning och markfuktighet per trakt (Vidas traktgräns) och sparar i objekt_skogsdata
@@ -15,6 +16,8 @@ export const maxDuration = 60;
 
 /** Börja inte på en ny trakt efter så här lång tid — ett utsnitt tar upp till 20 s (tjänsternas tidsgräns) och funktionen får 60. */
 const BUDGET_MS = 35_000;
+/** Uttaget börjar inte på en ny trakt efter så här lång tid från start. */
+const UTTAG_TILL_MS = 50_000;
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -24,7 +27,16 @@ export async function GET(req: NextRequest) {
     if (!vakt.ok) return vakt.res;
   }
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
+  const start = Date.now();
   const svar = await korSkogsdata(sb, { budgetMs: BUDGET_MS });
   if (svar.fel.length) console.error('[cron/skogsdata]', svar.fel);
-  return NextResponse.json(svar, { status: svar.ok || svar.hamtade.length ? 200 : 500 });
+  // Uttaget (stammarna mot laserdatan) och frysningen av appens prognos — på den tid som är kvar. Ett fel här fäller inte hämtningen.
+  let uttag: UttagSvar = { raknade: [], kvar: 0, frysta: [], fel: [] };
+  try {
+    uttag = await korUttag(sb, { budgetMs: Math.max(0, UTTAG_TILL_MS - (Date.now() - start)) });
+  } catch (e) {
+    uttag.fel.push((e as Error)?.message ?? 'okänt fel');
+  }
+  if (uttag.fel.length) console.error('[cron/skogsdata] uttag', uttag.fel);
+  return NextResponse.json({ ...svar, uttag }, { status: svar.ok || svar.hamtade.length ? 200 : 500 });
 }

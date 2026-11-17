@@ -228,6 +228,14 @@ describe('traktUnder — raden under trakten i Klar-arket', () => {
     expect(traktUnder({ uppskattad: true, foljer: { restPlanH: 10, skillnad: 0.12, utfortH: 8 } })).toBe('Följer takten på trakten · 12 % fortare än prognosen')
     expect(traktUnder({ foljer: { restPlanH: null, skillnad: null, utfortH: 8 } })).toBe('Följer takten på trakten')
   })
+  it('uppmätt volym sägs med Vidas tal bredvid — bara när den skiljer sig märkbart', () => {
+    expect(traktUnder({ matt: { total: 1240, vida: 1620, klar: false } })).toBe(`Volymen mätt på trakten: ${fmt(1240)} m³fub (Vida ${fmt(1620)})`)
+    expect(traktUnder({ foljer: { restPlanH: 10, skillnad: 0.12, utfortH: 8 }, matt: { total: 1240, vida: 1620, klar: false } }))
+      .toBe(`Följer takten på trakten · 12 % fortare än prognosen · Volymen mätt på trakten: ${fmt(1240)} m³fub (Vida ${fmt(1620)})`)
+    expect(traktUnder({ matt: { total: 733, vida: 1620, klar: true } })).toBe(`Skördat: 733 m³fub (Vida ${fmt(1620)})`)
+    expect(traktUnder({ uppskattad: true, matt: { total: 1600, vida: 1620, klar: false } })).toBe('Prognos räknad på liknande trakter')
+    expect(traktUnder({ matt: { total: 900, vida: null, klar: false } })).toBe('Volymen mätt på trakten: 900 m³fub')
+  })
 })
 
 describe('egenSkotningVy — en egen rubrik, inget annat (Martin 2026-10-25)', () => {
