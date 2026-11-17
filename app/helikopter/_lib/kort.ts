@@ -261,7 +261,7 @@ export function mattText(m: KlarTrakt['matt']): string | null {
   if (!m) return null
   if (m.vida != null && m.vida > 0 && Math.abs(m.total / m.vida - 1) < MATT_VISA_FRAN) return null
   const vida = m.vida != null && m.vida > 0 ? ` (Vida ${fmt(m.vida)})` : ''
-  return `${m.klar ? 'Skördat' : 'Volymen mätt på trakten'}: ${fmt(m.total)} m³fub${vida}`
+  return `${m.klar ? 'Skördat' : 'Volymen räknad på det skördaren gjort'}: ${fmt(m.total)} m³fub${vida}`
 }
 
 export function klarRader(klar: KlarData, planer: Record<string, MaskinPlan>, stopp: MaskinStopp[] | null): KlarRad[] {

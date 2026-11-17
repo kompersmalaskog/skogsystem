@@ -289,18 +289,34 @@ export function medUppskattadPrognos(d: KlarData, utfall: UtfallRad[] | null, sk
 /** Under så här stor skillnad mot Vidas volym sägs inget om den uppmätta (den ändrar ändå bara lite). */
 export const MATT_VISA_FRAN = 0.05
 
+/** Den uppmätta volymen väger fullt först när skördaren gått så här stor del av traktens yta; före det vägs den ihop med Vidas volym. */
+export const MATT_FULL_ANDEL = 0.5
+
 /**
  * VOLYMEN MÄTS PÅ TRAKTEN (2026-11-17, lib/skogsdata/uttag): när skördaren gått en bit vet vi uttaget där, och lasern säger hur mycket som står
- * i resten. Traktens volym (Vidas uppskattning) byts då mot skördat + resten × uttaget — för båda rollerna, för det är samma virke skotaren ska
- * köra ut. Är skördningen klar är volymen det som skördats. Körs FÖRE medFoljandePrognos, som räknar resten av timmarna på den volymen.
- * Utan uppmätt uttag (för lite gått, ingen laserdata, okänd trakt) ändras inget.
+ * i resten. Traktens volym byts då mot skördat + resten × uttaget — för båda rollerna, för det är samma virke skotaren ska köra ut.
+ * Körs FÖRE medFoljandePrognos, som räknar resten av timmarna på den volymen. Utan uppmätt uttag ändras inget.
+ *
+ * FACIT (provet på 22 avslutade trakter, prod 2026-11-17 — objekt_skogsdata.uttag.prov) styr två regler:
+ *  · BARA GALLRING. I slutavverkning träffar Vidas volym bättre (medianfel ca 4 %) än den uppmätta vid halva trakten (ca 17 %) — där tas allt,
+ *    och det som inte gås är hänsyn, inte virke. I gallring är det tvärtom: Vida ca 23 %, uppmätt vid halva trakten ca 9 %.
+ *  · VÄGS IN EFTER HUR MYCKET SOM ÄR GÅTT. Vid en fjärdedel av trakten är den uppmätta inte bättre än Vidas (ca 26 % mot 23 %), men de två
+ *    tillsammans är det (ca 16 %). Vikten växer därför rakt med andelen gådd yta och är full vid MATT_FULL_ANDEL. Saknas Vidas volym gäller
+ *    den uppmätta ensam.
+ * Är skördningen klar är volymen det som skördats — för båda typerna.
  */
 export function medMattVolym(d: KlarData, skog: Map<string, SkogKort> | null): KlarData {
   if (!skog || skog.size === 0) return d
   const trakter = d.trakter.map(t => {
     if (!arVirke(t.typ)) return t
     const u = skog.get(t.objekt_id)?.uttag
-    const total = !u ? null : u.klar ? (u.skordat > 0 ? Math.round(u.skordat) : null) : u.matt?.total ?? null
+    let total: number | null = null
+    if (u?.klar) total = u.skordat > 0 ? Math.round(u.skordat) : null
+    else if (u?.matt && t.typ === 'gallring') {
+      const yta = u.matt.gattHa + u.matt.kvarHa
+      const vikt = t.volym != null && t.volym > 0 && yta > 0 ? Math.min(1, u.matt.gattHa / yta / MATT_FULL_ANDEL) : 1
+      total = Math.round(vikt * u.matt.total + (1 - vikt) * (t.volym ?? 0))
+    }
     if (total == null || !(total > 0)) return t
     const rest = t.roll === 'skotare' ? Math.max(0, Math.round((total - t.utfort_volym) * 10) / 10) : t.rest_volym
     return { ...t, volym: total, rest_volym: rest, matt: { total, vida: t.volym, klar: u!.klar } }
