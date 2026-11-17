@@ -31,7 +31,7 @@ describe('Trakter', () => {
     if (process.env.TRAKTER_HTML) writeFileSync(process.env.TRAKTER_HTML, el.innerHTML);
     expect([...el.querySelectorAll('h3')].map((h) => h.textContent)).toEqual(['Pågår · 3', 'Planerade · 2']);
     // samma steg som Planeringens lista
-    expect(el.textContent).toContain('✓ Planerat'); expect(el.textContent).toContain('Skördas'); expect(el.textContent).toContain('Väntar på skotare');
+    expect(el.textContent).not.toContain('✓ Planerat'); expect(el.textContent).toContain('Skördas nu'); expect(el.textContent).toContain('Väntar på skotare');
     expect(el.textContent).toContain('Oplanerade · 1');
     expect(el.textContent).not.toContain('Hönshylte');
     expect(el.textContent).toContain('Fossil åker – kräver barmark');

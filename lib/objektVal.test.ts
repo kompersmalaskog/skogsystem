@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { anvandObjektLista, anvandObjektListaUtanObjekt, maskinRang, arSkotningKvar, avslutadMeta, avslutadTyp, avslutadeAvTyp, avslutadeTyper, avslutsDatum, valdAvslutadTyp, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, sokTraff, statusGrupp, volymText, type ListObjekt } from './objektVal';
+import { fasSteg, stegLage, anvandObjektLista, anvandObjektListaUtanObjekt, maskinRang, arSkotningKvar, avslutadMeta, avslutadTyp, avslutadeAvTyp, avslutadeTyper, avslutsDatum, valdAvslutadTyp, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, sokTraff, statusGrupp, volymText, type ListObjekt } from './objektVal';
 
 const o = (id: string, status: string | null, extra: Partial<ListObjekt> = {}): ListObjekt => ({ id, namn: id, status, ...extra });
 
@@ -255,5 +255,23 @@ describe('aktiva: typväljaren', () => {
     expect(giltigAktivTyp(typer, 'gallring')).toBe('gallring');
     expect(avTyp(lista, 'gallring').map((x) => x.id)).toEqual(['a', 'c']);
     expect(avTyp(lista, null).map((x) => x.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('stegLage: raden säger ETT läge (Martin 2026-11-17)', () => {
+  const l = (o: Parameters<typeof fasSteg>[0]) => stegLage(fasSteg(o));
+  it('var trakten är nu — aldrig kedjan', () => {
+    expect(l({ fas: 'skordas', typ: 'slutavverkning', status: 'pagaende' })).toEqual({ id: 'skord', text: 'Skördas nu', ton: 'gron' });
+    expect(l({ fas: 'vantar_skotare', typ: 'gallring', status: 'pagaende' })).toEqual({ id: 'skot', text: 'Väntar på skotare', ton: 'orange' });
+    expect(l({ fas: 'skotas', typ: 'grot', status: 'pagaende' })).toEqual({ id: 'skot', text: 'Skotas nu', ton: 'gron' });
+  });
+  it('det som väntar går före det som är klart; oplanerad säger vad som är kvar', () => {
+    expect(l({ typ: 'gallring', status: 'oplanerad', klar_kvar_antal: 4 })).toEqual({ id: 'plan', text: 'Planering · 4 kvar', ton: 'orange' });
+    expect(l({ typ: 'gallring', status: 'planerad' })).toEqual({ id: 'plan', text: 'Planerad', ton: 'gra' });
+    expect(l({ typ: 'gallring', status: 'avslutat' })).toEqual({ id: 'skot', text: 'Klar', ton: 'gron' });
+  });
+  it('utan känd fas: inget läge (raden som förut)', () => {
+    expect(l({ typ: 'gallring', status: 'pagaende' })).toBeNull();
+    expect(stegLage([])).toBeNull();
   });
 });
