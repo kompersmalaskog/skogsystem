@@ -13260,12 +13260,12 @@ export default function PlannerPage() {
   });
 
   // Objektlistan öppen (och kartan tar trycken): det valda objektets markeringar — symboler, linjer, zoner, pilar, etiketter, traktgräns, högar, spår —
-  // göms så att BARA prickarna syns (lib/objektKartaDolj). De kommer tillbaka när listan stängs eller ett objekt väljs. Baskartan, prickarna och
-  // förarens egen position rörs inte.
+  // göms så att BARA prickarna syns (lib/objektKartaDolj), och det gör också underlagen från Lager-menyn och användarens egen bakgrund: översikten är
+  // alltid Lantmäteriets karta i standardstyrka. Allt kommer tillbaka när listan stängs eller ett objekt väljs.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || !(objektKartaTryck && objektListaOppen)) return;
-    const d = skapaLagerDoljare(map, { visaKarta: arRitadKarta(mapType) });   // Ritad är ingen översiktskarta: Lantmäteriets karta medan listan är öppen
+    const d = skapaLagerDoljare(map);   // översikten är alltid Lantmäteriets karta utan lager (lib/objektKartaDolj)
     d.dolj();
     map.on('styledata', d.dolj);       // lager som skapas eller tänds medan listan är öppen göms också
     return () => { try { map.off('styledata', d.dolj); } catch { /* kartan är borta */ } d.aterstall(); };
@@ -13903,7 +13903,7 @@ export default function PlannerPage() {
         <>
           {visaListan ? (
             // Kartan med alla objekt som prickar och listan ovanpå (lib/objektKarta) — aldrig en svart tom yta. Listan går inte att stänga här.
-            <ObjektKartaTom kartlager={mapType} kartlagerStyrka={styrkaFor(kartReglage.styrkor, mapType)} onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} maskin={listMaskin} />
+            <ObjektKartaTom onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} maskin={listMaskin} />
           ) : (
             <div data-testid="planering-utan-objekt" style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text2, fontFamily: FONT, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta }}>
               Hämtar objekt…
