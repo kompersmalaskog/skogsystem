@@ -56,7 +56,7 @@ import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, emptyResult, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
-import { beraknaG15Forslag, forslagKalla, prestation, prestationVarning, snittTypOrd, type UtfallRad } from '../../lib/g15Forslag'
+import { beraknaG15Forslag, forslagKalla, prestation, prestationVarning, skotarKlass, snittTypOrd, utfallUrRpc, type UtfallRad } from '../../lib/g15Forslag'
 import { lasSkogKort, medLaser } from '../../lib/skogsdata/las'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
@@ -2861,19 +2861,17 @@ export default function PlannerPage() {
     let avbruten = false;
     (async () => {
       try {
-        const { data, error } = await supabase.rpc('prognos_utfall');
+        // prognos_utfall_2 bär också skotarens maskin (migration 20261117131822); saknas den läses den gamla — då räknas skotaren som snitt.
+        let { data, error } = await supabase.rpc('prognos_utfall_2');
+        if (error) ({ data, error } = await supabase.rpc('prognos_utfall'));
         if (avbruten) return;
         if (error || !Array.isArray(data)) { console.error('[G15-förslag] utfall:', error?.message ?? 'oväntat svar'); setPrognosUtfall({ lage: 'fel', rader: [] }); return; }
-        const tal = (v: unknown): number | null => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) ? n : null; };
         // Laserns medeldiameter per trakt (objekt_skogsdata): medelstam ur laserskanningen när trakten saknar en. Går den inte att läsa räknas förslaget som förut.
         const skog = await lasSkogKort(supabase).catch(() => ({ data: null, error: 'kastade' }));
         if (avbruten) return;
         if (skog.error) console.error('[G15-förslag] objekt_skogsdata:', skog.error);
         setLaserDia(new Map([...(skog.data ?? new Map())].map(([id, k]) => [id, k.diaCm])));
-        setPrognosUtfall({ lage: 'ok', rader: medLaser(data.map((r: any): UtfallRad => ({
-          typ: r.typ ?? null, volymObjekt: tal(r.volym_objekt), skordadM3: tal(r.skordad_m3), stammar: tal(r.stammar), skordareG15: tal(r.skordare_g15), skotareG15: tal(r.skotare_g15),
-          objektId: r.objekt_id != null ? String(r.objekt_id) : null,
-        })), skog.data) });
+        setPrognosUtfall({ lage: 'ok', rader: medLaser(data.map(utfallUrRpc), skog.data) });
       } catch (e: any) {
         if (!avbruten) { console.error('[G15-förslag] utfall kastade:', e?.message ?? e); setPrognosUtfall({ lage: 'fel', rader: [] }); }
       }
@@ -4136,9 +4134,11 @@ export default function PlannerPage() {
   // värdet (manuell_prognos) går alltid före, och förslaget sparas på objektet först vid Stämmer (klarStammer), så att titta på kortet ändrar inget i databasen.
   const g15Forslag = useMemo(() => beraknaG15Forslag(
     { typ: (valtObjekt?.typ as string) ?? null, volym: klarTal(infoVolym), medelstam: klarTal(klarFalt.medelstam), basvagTimmar: infoBasvagKravs ? klarTal(infoBasvagTimmar) : null,
-      laserDiaCm: laserDia.get(String(valtObjekt?.id ?? '')) ?? null },
+      laserDiaCm: laserDia.get(String(valtObjekt?.id ?? '')) ?? null,
+      // Skotarens sort (vald egen maskin): förslaget räknas på trakter som samma sorts skotare kört. Extern eller ingen vald = snittet.
+      skotareKlass: klarSkotare.utforare === 'extern' ? null : skotarKlass(dimMaskiner.find((m) => m.maskin_id === klarSkotare.maskinId)?.modell ?? null) },
     prognosUtfall.rader,
-  ), [valtObjekt?.typ, valtObjekt?.id, laserDia, infoVolym, klarFalt.medelstam, infoBasvagKravs, infoBasvagTimmar, prognosUtfall.rader]);  // eslint-disable-line react-hooks/exhaustive-deps
+  ), [valtObjekt?.typ, valtObjekt?.id, laserDia, klarSkotare.maskinId, klarSkotare.utforare, dimMaskiner, infoVolym, klarFalt.medelstam, infoBasvagKravs, infoBasvagTimmar, prognosUtfall.rader]);  // eslint-disable-line react-hooks/exhaustive-deps
   const g15Tim = (roll: 'skordare' | 'skotare'): number | null => {
     const skrivet = (manuellPrognos?.[roll] ?? '').toString().trim();
     if (skrivet !== '') return klarTal(skrivet);

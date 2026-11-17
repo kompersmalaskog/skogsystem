@@ -67,7 +67,7 @@ describe('frysAppPrognos (mot fake)', () => {
     expect(r.status).toBe('fryst')
     expect(f.skrivningar).toHaveLength(1)
     expect(f.skrivningar[0].app_prognos.skordare).toBe(Math.round(500 / 40))
-    expect(f.rpc).toHaveBeenCalledWith('prognos_utfall')
+    expect(f.rpc).toHaveBeenCalledWith('prognos_utfall_2')
   })
   it('importen väntar på laserdatan: trakt utan medelstam och utan rad i objekt_skogsdata hoppas över, timjobbet fryser den sedan', async () => {
     const f = fake({ objekt })

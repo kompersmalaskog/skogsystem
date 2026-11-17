@@ -13,7 +13,7 @@ import type { VeckolageData } from './veckolage'
 import { lasHistorik, lasManadsfacit, type Historik, type Manadsfacit } from './manadsfacit'
 import { normStopp, normTakt } from './maskinData'
 import { lasKlar, type KlarData, type KlarRoll } from './klar'
-import type { UtfallRad } from '@/lib/g15Forslag'
+import { utfallUrRpc, type UtfallRad } from '@/lib/g15Forslag'
 import type { FacitRad } from './traffsakerhet'
 
 export type Typ = 'slutavverkning' | 'gallring'
@@ -516,7 +516,19 @@ export async function hamtaKlar(ar: number, manad: number, idag: string): Promis
   const r = await rpc<unknown>('helikopter_ny_klar', { p_ar: ar, p_manad: manad, p_idag: idag })
   if (r.error) return { data: null, error: r.error }
   try {
-    return { data: lasKlar(r.data), error: null }
+    const data = lasKlar(r.data)
+    // Maskinernas modell (dim_maskin): skotarens sort styr vilka trakter G15-förslaget räknas på. Ett tillägg — går det inte att läsa räknas skotaren som snitt, som förut.
+    try {
+      const m = await supabase.from('dim_maskin').select('maskin_id, modell')
+      if (m.error) console.error('[helikopter] dim_maskin.modell', m.error.message)
+      else {
+        const modell = new Map((m.data ?? []).map((x: any) => [String(x.maskin_id), (x.modell ?? null) as string | null]))
+        data.maskiner = data.maskiner.map(k => ({ ...k, modell: modell.get(k.maskin_id) ?? null }))
+      }
+    } catch (e) {
+      console.error('[helikopter] dim_maskin.modell', e)
+    }
+    return { data, error: null }
   } catch (e) {
     console.error('[helikopter] helikopter_ny_klar gav ett svar vi inte förstår', e)
     return { data: null, error: felText(e) }
@@ -525,16 +537,12 @@ export async function hamtaKlar(ar: number, manad: number, idag: string): Promis
 
 /** Uppmätt utfall per avslutad trakt (RPC prognos_utfall) — underlaget för G15-förslaget när en trakt saknar prognos. Ett fel är ett fel, aldrig en tom lista. */
 export async function hamtaPrognosUtfall(): Promise<Svar<UtfallRad[]>> {
-  const r = await rpc<any[]>('prognos_utfall', {})
+  // prognos_utfall_2 bär också skotarens maskin (migration 20261117131822); saknas den (äldre databas) läses den gamla — då räknas skotaren som snitt.
+  let r = await rpc<any[]>('prognos_utfall_2', {})
+  if (r.error) r = await rpc<any[]>('prognos_utfall', {})
   if (r.error) return { data: null, error: r.error }
   if (!Array.isArray(r.data)) return { data: null, error: 'prognos_utfall gav ett oväntat svar' }
-  return {
-    data: r.data.map((x: any): UtfallRad => ({
-      typ: x.typ ?? null, volymObjekt: talEllerNull(x.volym_objekt), skordadM3: talEllerNull(x.skordad_m3), stammar: talEllerNull(x.stammar),
-      skordareG15: talEllerNull(x.skordare_g15), skotareG15: talEllerNull(x.skotare_g15), objektId: x.objekt_id != null ? String(x.objekt_id) : null,
-    })),
-    error: null,
-  }
+  return { data: r.data.map(utfallUrRpc), error: null }
 }
 
 /** Laserns medeldiameter och det uppmätta uttaget per trakt (objekt_skogsdata) — underlag för prognosen. Ett fel är ett fel: då räknas prognosen som utan laserdata. */

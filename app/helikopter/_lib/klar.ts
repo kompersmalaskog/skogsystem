@@ -20,7 +20,7 @@
 import { TYP_NAMN, klararTyp } from './berakningar'
 import { MANAD_NAMN, fmt, fmtDag, kortNamn } from './format'
 import type { Maskin, Typ } from './queries'
-import { beraknaG15Forslag, type UtfallRad } from '@/lib/g15Forslag'
+import { beraknaG15Forslag, skotarKlass, type UtfallRad } from '@/lib/g15Forslag'
 import { foljPrognos } from '@/lib/prognosFoljer'
 import { medLaser, type SkogKort } from '@/lib/skogsdata/las'
 
@@ -76,6 +76,8 @@ export type KlarMaskin = {
   namn: string
   roll: KlarRoll
   klarar_typ: string
+  /** dim_maskin.modell — läggs på av hamtaKlar; skotarens sort (skotarKlass) styr vilka trakter G15-förslaget räknas på. Saknas = snittet. */
+  modell?: string | null
   manuell: boolean
   g15_per_dag: number
   ej_matt: boolean
@@ -276,9 +278,11 @@ export function senasteKlar(planer: Record<string, MaskinPlan>): string | null {
 export function medUppskattadPrognos(d: KlarData, utfall: UtfallRad[] | null, skog: Map<string, SkogKort> | null = null): KlarData {
   if (!utfall || utfall.length === 0) return d
   const manuella = new Set(d.maskiner.filter(m => m.manuell).map(m => m.maskin_id))
+  const klass = new Map(d.maskiner.map(m => [m.maskin_id, skotarKlass(m.modell)] as const))
   const trakter = d.trakter.map(t => {
     if (t.timmar != null || !arVirke(t.typ) || t.volym == null || t.volym <= 0 || (t.maskin_id != null && manuella.has(t.maskin_id))) return t
-    const f = beraknaG15Forslag({ typ: t.typ, volym: t.volym, medelstam: t.medelstam, laserDiaCm: skog?.get(t.objekt_id)?.diaCm ?? null }, utfall)[t.roll]
+    const f = beraknaG15Forslag({ typ: t.typ, volym: t.volym, medelstam: t.medelstam, laserDiaCm: skog?.get(t.objekt_id)?.diaCm ?? null,
+      skotareKlass: t.roll === 'skotare' && t.maskin_id != null ? klass.get(t.maskin_id) ?? null : null }, utfall)[t.roll]
     if (!f.ok) return t
     const andel = t.roll === 'skotare' && t.rest_volym != null ? Math.max(0, Math.min(1, t.rest_volym / t.volym)) : 1
     return { ...t, timmar: Math.round(f.forslag.g15 * andel * 100) / 100, prognos_h: f.forslag.g15, saknar_prognos: false, uppskattad: true }
