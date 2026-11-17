@@ -64,11 +64,11 @@ const nerOchKlick = (ner: [number, number]) => act(() => {
   h.karta.canvas.dispatchEvent(new MouseEvent('click', { clientX: ner[0], clientY: ner[1], bubbles: true, cancelable: true }));
 });
 
-async function montera(kartlager?: 'satellite' | 'lantmateriet' | 'terrain' | 'osm' | 'ritad') {
+async function montera() {
   behallare = document.createElement('div');
   document.body.appendChild(behallare);
   rot = createRoot(behallare);
-  await act(async () => { rot!.render(<ObjektKartaTom onValj={(o) => spion.valj.push(o.id)} onNavigera={() => {}} kartlager={kartlager} />); });
+  await act(async () => { rot!.render(<ObjektKartaTom onValj={(o) => spion.valj.push(o.id)} onNavigera={() => {}} />); });
   await flush();
 }
 
@@ -83,19 +83,14 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => { rot?.unmount(); }); behallare?.remove(); rot = null; document.body.innerHTML = ''; vi.useRealTimers(); });
 
 describe('utan valt objekt: kartan syns, aldrig en svart tom yta', () => {
-  it('en karta med Lantmäteriets bas monteras (inte en svart yta med text) och listan ligger ovanpå — Flygfoto som standard', async () => {
+  it('en karta med Lantmäteriets bas monteras (inte en svart yta med text) och listan ligger ovanpå — alltid Karta', async () => {
     await montera();
     expect(q('planering-utan-objekt-karta')).not.toBeNull();
     expect(q('fake-maplibre')).not.toBeNull();
-    expect(h.kartaProps.mapStyle).toEqual(tomKartaStil('satellite'));
-    expect(h.kartaProps.mapStyle.layers.map((l: any) => l.id)).toContain('satellite-layer');
+    expect(h.kartaProps.mapStyle).toEqual(tomKartaStil('lantmateriet'));
+    expect(h.kartaProps.mapStyle.layers.map((l: any) => l.id)).not.toContain('satellite-layer');
     expect(q('objekt-lista')).not.toBeNull();
     expect(q('objekt-lista')!.getAttribute('data-oppen')).toBe('1');
-  });
-
-  it('med Ritad vald visas Lantmäteriets karta (Ritad har inga ortnamn) — användarens val ändras inte', async () => {
-    await montera('ritad');
-    expect(h.kartaProps.mapStyle).toEqual(tomKartaStil('lantmateriet'));
   });
 
   it('alla aktiva objekt med koordinat blir prickar på kartan, kameran zoomar ut över dem', async () => {
@@ -190,11 +185,16 @@ describe('utan valt objekt: kartan syns, aldrig en svart tom yta', () => {
   });
 });
 
-describe('kartan utan objekt följer användarens kartlager', () => {
-  it.each([['satellite', 'satellite-layer'], ['lantmateriet', 'lm-layer'], ['terrain', 'terrain-layer'], ['osm', 'osm-layer']] as const)('%s → %s', async (lager, lagerId) => {
-    await montera(lager);
-    expect(h.kartaProps.mapStyle.layers.map((l: any) => l.id)).toEqual(['bg', lagerId]);
+describe('kartan utan objekt är samma karta varje gång (Martin 2026-11-17)', () => {
+  it('alltid Lantmäteriets karta — inget annat lager, oavsett användarens kartval', async () => {
+    await montera();
+    expect(h.kartaProps.mapStyle.layers.map((l: any) => l.id)).toEqual(['bg', 'lm-layer']);
     expect(Object.keys(h.kartaProps.mapStyle.sources)).toHaveLength(1);
+  });
+  it('komponenten tar inget kartval alls', () => {
+    const kalla = readFileSync(resolve(__dirname, './ObjektKartaTom.tsx'), 'utf8');
+    expect(kalla).not.toMatch(/kartlager\??:|kartlagerStyrka/);
+    expect(kalla).toContain("tomKartaStil('lantmateriet')");
   });
 });
 
@@ -203,7 +203,7 @@ describe('sidan: tomläget är kopplat dit det ska', () => {
   it('tomläget visar kartan (ObjektKartaTom) när listan ska visas — bara den svarta "Hämtar objekt…"-ytan medan minnet/adressen läses', () => {
     const i = sida.indexOf('// Visa objektväljaren om inget objekt är valt');
     const block = sida.slice(i, i + 2600);
-    expect(block).toMatch(/visaListan \? \(\s*(\/\/[^\n]*\n\s*)*<ObjektKartaTom kartlager=\{mapType\} kartlagerStyrka=\{styrkaFor\(kartReglage\.styrkor, mapType\)\} onValj=\{maskinlage \? valjObjektIMaskin : valjObjektUrLista\}/);
+    expect(block).toMatch(/visaListan \? \(\s*(\/\/[^\n]*\n\s*)*<ObjektKartaTom onValj=\{maskinlage \? valjObjektIMaskin : valjObjektUrLista\}/);
     expect(block).toMatch(/Hämtar objekt…/);
     expect(block).not.toMatch(/<ObjektLista oppen kanStangas=\{false\}/);   // den bara-listan-på-svart-vägen är borta
   });

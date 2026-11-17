@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { arBehalld, skapaLagerDoljare } from './objektKartaDolj';
+import { arBehalld, skapaLagerDoljare, OVERSIKT_PAINT } from './objektKartaDolj';
 import { RITAD_ID, RITAD_LAGER } from './ritadKarta/lager';
 
-function fakeKarta(lager: Record<string, string | undefined>) {
+function fakeKarta(lager: Record<string, string | undefined>, paint: Record<string, number> = {}) {
   const vis: Record<string, string | undefined> = { ...lager };
+  const lmPaint: Record<string, any> = { ...paint };
   const k: any = {
-    vis,
+    vis, lmPaint,
+    getPaintProperty: (id: string, p: string) => (id === 'lm-layer' ? lmPaint[p] : undefined),
+    setPaintProperty: (id: string, p: string, v: any) => { if (id === 'lm-layer') lmPaint[p] = v; },
     getStyle: () => ({ layers: Object.keys(vis).map((id) => ({ id })) }),
     getLayoutProperty: (id: string, p: string) => (p === 'visibility' ? vis[id] : undefined),
     setLayoutProperty: (id: string, p: string, v: string) => { if (p === 'visibility') vis[id] = v; },
@@ -15,7 +18,8 @@ function fakeKarta(lager: Record<string, string | undefined>) {
 }
 
 const OBJEKTLAGER = ['markers-layer', 'arrows-layer', 'line-mainroad-base', 'zone-fill', 'trakt-gr-line', 'trakt-punkt-circle', 'hogar-circle', 'vida-layer', 'planspar-skordare-line', 'larm-pin'];
-const BAS = ['bg', 'lm-layer', 'satellite-layer', 'terrain-layer', 'wms-layer-korbarhet'];
+const BAS = ['bg', 'lm-layer'];
+const UNDERLAG = ['satellite-layer', 'osm-layer', 'terrain-layer', 'lm-skuggning-layer', 'sks-markfuktighet-layer', 'wms-layer-korbarhet', 'wms-layer-sks_markfuktighet', 'hillshade-korvy'];
 const BEHALL = ['objlista-prick', 'objlista-ring', 'objlista-namn', 'maskin-symbol', 'gps-puck'];
 
 describe('göm det valda objektets markeringar medan listan är öppen', () => {
@@ -83,25 +87,49 @@ describe('göm det valda objektets markeringar medan listan är öppen', () => {
   });
 });
 
+describe('översikten är samma karta varje gång (Martin 2026-11-17: "översikten går på lagerna")', () => {
+  it('underlagen från Lager-menyn och användarens egen bakgrund göms — bara Lantmäteriets karta, prickarna och positionen syns', () => {
+    const k = fakeKarta(Object.fromEntries([...UNDERLAG, ...BAS, ...BEHALL].map((id) => [id, 'visible'])));
+    skapaLagerDoljare(k).dolj();
+    for (const id of UNDERLAG) { expect(k.vis[id], id).toBe('none'); expect(arBehalld(id), id).toBe(false); }
+    for (const id of [...BAS, ...BEHALL]) expect(k.vis[id], id).toBe('visible');
+  });
+  it('flygfoto valt: kartan tänds och flygfotot släcks, och allt återställs exakt', () => {
+    const k = fakeKarta({ 'lm-layer': 'none', 'satellite-layer': 'visible', 'wms-layer-sks_markfuktighet': 'visible', 'wms-layer-nmd': 'none', 'objlista-prick': 'visible' });
+    const d = skapaLagerDoljare(k);
+    d.dolj(); d.dolj();                     // styledata igen: sparat skrivs inte över
+    expect(k.vis).toMatchObject({ 'lm-layer': 'visible', 'satellite-layer': 'none', 'wms-layer-sks_markfuktighet': 'none', 'objlista-prick': 'visible' });
+    d.aterstall();
+    expect(k.vis).toMatchObject({ 'lm-layer': 'none', 'satellite-layer': 'visible', 'wms-layer-sks_markfuktighet': 'visible', 'wms-layer-nmd': 'none' });
+  });
+  it('kartan får standardstyrkan medan listan är öppen, och användarens reglage kommer tillbaka', () => {
+    const egen = { 'raster-brightness-max': 0.72, 'raster-contrast': -0.06, 'raster-saturation': -0.6, 'raster-opacity': 0.9 };   // Dämpad
+    const k = fakeKarta({ 'lm-layer': 'visible' }, egen);
+    const d = skapaLagerDoljare(k);
+    d.dolj();
+    expect(k.lmPaint).toEqual({ ...OVERSIKT_PAINT });
+    k.lmPaint['raster-saturation'] = -0.6;  // en effekt skriver användarens värde igen medan listan är öppen
+    d.dolj();
+    expect(k.lmPaint).toEqual({ ...OVERSIKT_PAINT });
+    d.aterstall();
+    expect(k.lmPaint).toEqual(egen);
+  });
+});
+
 describe('Ritad vald: listan visar Lantmäteriets karta (Martin 2026-11-01: "det ska ju vara en riktig karta")', () => {
   const lager = () => ({ ...Object.fromEntries(RITAD_LAGER.map((id) => [id, 'visible'])), 'lm-layer': 'none', 'satellite-layer': 'none', 'objlista-prick': 'visible' });
   it('kartan tänds, Ritads lager göms, och allt återställs exakt', () => {
     const k = fakeKarta(lager());
-    const d = skapaLagerDoljare(k, { visaKarta: true });
+    const d = skapaLagerDoljare(k);
     d.dolj();
     expect(k.vis['lm-layer']).toBe('visible');
     expect(k.vis['satellite-layer']).toBe('none');
     for (const id of RITAD_LAGER) expect(k.vis[id]).toBe('none');
     expect(k.vis['objlista-prick']).toBe('visible');
-    d.dolj();                               // styledata igen: inget ändras, sparat skrivs inte över
+    d.dolj();
     d.aterstall();
     expect(k.vis['lm-layer']).toBe('none');
     for (const id of RITAD_LAGER) expect(k.vis[id]).toBe('visible');
-  });
-  it('utan visaKarta rörs kartan inte', () => {
-    const k = fakeKarta(lager());
-    skapaLagerDoljare(k).dolj();
-    expect(k.vis['lm-layer']).toBe('none');
-    expect(k.vis[RITAD_ID.bakgrund]).toBe('none');
+    expect(RITAD_ID.bakgrund).toBeTruthy();
   });
 });

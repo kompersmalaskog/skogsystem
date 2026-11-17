@@ -26,8 +26,8 @@ describe('reglagen är inkopplade i planeringssidan (planering OCH körvy/maskin
     const mark = sida.slice(sida.indexOf("id: 'markeringar', rubrik: 'Dina markeringar'"), sida.indexOf("id: 'markeringar', rubrik: 'Dina markeringar'") + 600);
     expect(mark).not.toContain('medOp(');
   });
-  it('kartan utan valt objekt får samma styrka som planeringsvyn', () => {
-    expect(sida).toMatch(/<ObjektKartaTom kartlager=\{mapType\} kartlagerStyrka=\{styrkaFor\(kartReglage\.styrkor, mapType\)\}/);
+  it('kartan utan valt objekt är översikten: samma karta varje gång, inget kartval och inget reglage (Martin 2026-11-17)', () => {
+    expect(sida).not.toMatch(/<ObjektKartaTom [^>]*kartlager/);
   });
   it('reglaget sitter i Lager-arket och ingen annanstans: ingen ny knapp, rad eller ruta på kartan', () => {
     for (const f of ['components/planering/KartKort.tsx', 'components/planering/ObjektInfo.tsx', 'components/planering/KorvyNertillList.tsx']) {

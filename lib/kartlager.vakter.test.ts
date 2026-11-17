@@ -51,8 +51,8 @@ describe('kartlagret per användare: planeringssidan', () => {
       "layout: { visibility: (mapType === 'terrain' ? 'visible' : 'none')",
     ]) expect(page, rad).toContain(rad);
   });
-  it('kartan utan valt objekt (maskinläget, första gången) får samma lager', () => {
-    expect(page).toContain('<ObjektKartaTom kartlager={mapType}');
+  it('kartan utan valt objekt (maskinläget, första gången) är översikten — den följer INTE kartvalet (Martin 2026-11-17)', () => {
+    expect(page).not.toMatch(/<ObjektKartaTom [^>]*kartlager/);
   });
   it('varje byte går genom setMapType (hookens välj) — Lager-listan och Karttyp-raden sparar därmed också', () => {
     expect(page).toContain("onTryck: () => setMapType(t.id),");

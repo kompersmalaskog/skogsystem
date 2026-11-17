@@ -14,17 +14,15 @@ import ObjektLista, { type ListaObjekt, type ObjektListaProps } from './ObjektLi
 import { useObjektPrickar } from '@/lib/hooks/useObjektPrickar';
 import { useMaskinerNu } from '@/lib/hooks/useMaskinerNu';
 import { TOM_KARTA_START, tomKartaStil, type KartPrickar } from '@/lib/objektKarta';
-import { STANDARD_KARTLAGER, type Kartlager } from '@/lib/kartlager';
 import { FARG } from '@/lib/design/tokens';
 
 const MapLibreMap = dynamic(() => import('@/components/MapLibreMap'), { ssr: false });
 
-export default function ObjektKartaTom({ onValj, onNavigera, maskin, kartlager = STANDARD_KARTLAGER, kartlagerStyrka }: { onValj: (o: ListaObjekt) => void; onNavigera: (o: ListaObjekt) => void; maskin?: ObjektListaProps['maskin']; kartlager?: Kartlager; kartlagerStyrka?: number }) {
+export default function ObjektKartaTom({ onValj, onNavigera, maskin }: { onValj: (o: ListaObjekt) => void; onNavigera: (o: ListaObjekt) => void; maskin?: ObjektListaProps['maskin'] }) {
   const [karta, setKarta] = useState<any | null>(null);
   const [prickar, setPrickar] = useState<KartPrickar | null>(null);
-  // Samma bakgrundskarta som planeringsvyn (användarens sparade kartlager). Kartan byggs om bara när lagret byts.
-  // Ritad är ingen översiktskarta (inga ortnamn) — här visas Lantmäteriets karta i stället (Martin 2026-11-01). Användarens val ändras inte.
-  const stil = useMemo(() => (kartlager === 'ritad' || kartlager === 'mork' ? tomKartaStil('lantmateriet') : tomKartaStil(kartlager, kartlagerStyrka)), [kartlager, kartlagerStyrka]);
+  // Översikten är samma karta varje gång (Martin 2026-11-17): Lantmäteriets karta i standardstyrka, oavsett användarens kartval och reglage.
+  const stil = useMemo(() => tomKartaStil('lantmateriet'), []);
   useObjektPrickar({ map: karta, aktiv: true, prickar, aterstall: false });
   // Maskinerna där de senast hördes (Martin 2026-11-05) — samma prickar som på planeringskartan. Den egna maskinen (maskinläget) ritas inte.
   useMaskinerNu({ map: karta, aktiv: true, utan: maskin?.maskinId ?? null });
