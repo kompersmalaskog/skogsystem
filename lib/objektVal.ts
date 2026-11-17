@@ -313,6 +313,24 @@ export function fasSteg(o: { fas?: unknown; typ?: string | null; status?: string
   return virke ? [plan, { id: 'skord', lage: skord, text: skordText }, skotSteg] : [plan, skotSteg];
 }
 
+// ---- ETT läge per rad (Martin 2026-11-17: "så att ett barn förstår det direkt") ----------------------------------------------------------
+// Raden sa förut hela kedjan — "✓ Planerat · ✓ Skördat · Väntar på skotare" — tre statusord för en sak. Nu säger den bara var trakten ÄR:
+// prick + ord. Orange = trakten väntar på någon (planeraren eller skotaren), grön = en maskin jobbar där eller allt är klart, grå = inget har
+// börjat. Kedjan är alltid densamma (planera → skörda → skota), så det som redan är gjort behöver inte stå. Stegen räknas som förut av `fasSteg`.
+export type LageTon = 'gron' | 'orange' | 'gra';
+export type RadLage = { id: Steg['id']; text: string; ton: LageTon };
+
+/** Det enda raden säger: det som väntar går först, sedan det som pågår, sedan klart, annars planerad. Null utan steg. */
+export function stegLage(steg: Steg[] | null | undefined): RadLage | null {
+  if (!steg || !steg.length) return null;
+  const vantar = steg.find((x) => x.lage === 'vantar');
+  if (vantar) return { id: vantar.id, text: vantar.text, ton: 'orange' };
+  const pagar = steg.find((x) => x.lage === 'pagar');
+  if (pagar) return { id: pagar.id, text: `${pagar.text} nu`, ton: 'gron' };
+  if (steg.every((x) => x.lage === 'klar')) return { id: 'skot', text: 'Klar', ton: 'gron' };
+  return { id: 'plan', text: 'Planerad', ton: 'gra' };
+}
+
 /** Ordningen inom Pågår: skördas, väntar, skotas, sedan resten. */
 export function fasOrdning(o: { fas?: unknown }): number {
   return ({ skordas: 0, vantar: 1, skotas: 2, pagar: 3 } as const)[pagarDel(o)];

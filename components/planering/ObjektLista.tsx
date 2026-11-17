@@ -16,7 +16,7 @@
 // Utan valt objekt (första gången / objektet borttaget) är listan det enda som finns: `kanStangas=false` → ingen ×, inget stängs.
 // Ren presentation + datahämtning; vad ett val GÖR (öppna objektet, flytta kartan) avgör sidan.
 
-import { FasSteg } from '@/components/objekt/FasSteg';
+import { FasSteg, fasStegText } from '@/components/objekt/FasSteg';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaEnGpsFix } from '@/lib/gpsKalla';
@@ -296,7 +296,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         tabIndex={0}
         data-testid={`objekt-rad-${o.id}`}
         aria-current={aktuell ? 'true' : undefined}
-        aria-label={`${o.namn ?? 'Objekt'}${meta ? `, ${meta}` : ''}${egen ? ', den här maskinen' : ''}${steg ? `, ${steg.map((x) => (x.lage === 'klar' ? `${x.text} klart` : x.text)).join(', ')}` : ''}${planEtikett ? `, ${planEtikett}` : ''}${mark ? `, ${mark.text}` : ''}`}
+        aria-label={`${o.namn ?? 'Objekt'}${meta ? `, ${meta}` : ''}${egen ? ', den här maskinen' : ''}${steg && steg.length ? `, ${fasStegText(steg)}` : ''}${planEtikett ? `, ${planEtikett}` : ''}${mark ? `, ${mark.text}` : ''}`}
         onClick={() => onValj(o)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onValj(o); } }}
         className="press-row"
