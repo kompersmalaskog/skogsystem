@@ -31,6 +31,25 @@ export type TavlaEgetSkordat = { typ: Typ; maskin_id: string; volym: number }
 /** Valet "Egen skotning" i Vem ska ta den? */
 export const EGEN_SKOTNING = 'egen'
 
+/** Allt en maskin gjort i månaden på ett maskinobjekt (queries.hamtaMaskinObjekt). */
+export type TavlaMaskinObjekt = { maskin_id: string; roll: KlarRoll; objekt_id: string; namn: string | null; typ: string | null; bolag: string | null; egen_skotning: boolean; volym: number }
+/** Det maskinen gjort i månaden som INTE räknas mot beställningen: privata jobb, GROT, objekt utan typ. */
+export type TavlaUtanfor = { maskin_id: string; roll: KlarRoll; namn: string; volym: number }
+
+/** Vad av maskinernas arbete som ligger utanför beställningen. Samma regel som spårens egna tal: objektets typ är ett spår, och
+ *  finns en beställning för spåret räknas bara de beställda bolagen. Egen skotning räknas för skördaren, aldrig för en skotare. */
+export function utanforBestallning(rader: TavlaMaskinObjekt[], spar: Pick<SparLage, 'typ' | 'bestallt' | 'bolag'>[]): TavlaUtanfor[] {
+  return rader.flatMap(r => {
+    const typ = (r.typ ?? '').toLowerCase()
+    const sp = spar.find(s => s.typ === typ)
+    const bolagOk = sp != null && (sp.bestallt <= 0 || sp.bolag.some(b => b.toLowerCase() === (r.bolag ?? '').toLowerCase()))
+    const raknas = bolagOk && !(r.roll === 'skotare' && r.egen_skotning)
+    const volym = Math.round(r.volym)
+    if (raknas || volym <= 0) return []
+    return [{ maskin_id: r.maskin_id, roll: r.roll, namn: kortNamn((r.namn ?? 'Okänt objekt').replace(/[.\s]+$/, '')), volym }]
+  })
+}
+
 export type KoRad = {
   trakt: KlarTrakt
   /** Arbetsdagar trakten tar på maskinen; null = går inte att räkna. */
@@ -99,6 +118,8 @@ export type TavlaMaskin = {
   /** "Står 26–30 okt" — bara när maskinen står. */
   stopp: string | null
   trakter: TavlaTrakt[]
+  /** Det maskinen gjort i månaden utanför beställningen (störst först). null = inget, eller underlaget kunde inte läsas. */
+  utanfor: { volym: number; trakter: { namn: string; volym: number }[] } | null
 }
 
 export type TavlaUtan = { objekt_id: string; roll: KlarRoll; namn: string; volym: number }
@@ -149,6 +170,8 @@ export type TavlaIndata = {
   egna: ReadonlySet<string>
   /** Skördat i månaden på egen skotning, redan filtrerat till spårets beställning. */
   egetSkordat?: TavlaEgetSkordat[]
+  /** Det maskinerna gjort utanför beställningen (utanforBestallning). Utelämnat = inte läst: ingen rad, aldrig "0". */
+  utanfor?: TavlaUtanfor[]
   /** Stopptext per maskin. */
   stopp?: Record<string, string | null>
   flytt?: Flytt
@@ -195,6 +218,15 @@ export function byggTavla(d: TavlaIndata): Tavla {
   for (const m of klar?.maskiner ?? []) koer.set(m.maskin_id, ko(m, trakter.filter(t => t.maskin_id === m.maskin_id), sista, d.egna))
   const kanda = new Set((klar?.maskiner ?? []).map(m => m.maskin_id))
   const iNagotSpar = new Set<string>()
+  // Utanför beställningen står EN gång per maskin: i det första spåret hon syns i.
+  const utanforVisad = new Set<string>()
+  const utanforFor = (id: string, roll: KlarRoll): TavlaMaskin['utanfor'] => {
+    const k = `${roll}:${id}`
+    if (utanforVisad.has(k)) return null
+    utanforVisad.add(k)
+    const rader = (d.utanfor ?? []).filter(u => u.maskin_id === id && u.roll === roll).sort((a, b) => b.volym - a.volym)
+    return rader.length === 0 ? null : { volym: rader.reduce((a, u) => a + u.volym, 0), trakter: rader.map(u => ({ namn: u.namn, volym: u.volym })) }
+  }
 
   // Slutavverkning först: den stora beställningen.
   const spar: TavlaSpar[] = [...d.spar].sort((a, b) => Number(b.typ === 'slutavverkning') - Number(a.typ === 'slutavverkning')).map(s => {
@@ -229,6 +261,7 @@ export function byggTavla(d: TavlaIndata): Tavla {
           landar: klar ? Math.round(nu + tillkommer) : null, ca: klar ? ca : false,
           stopp: d.stopp?.[id] ?? null,
           trakter: rader.map(r => traktVy(r, s.typ, sista)),
+          utanfor: utanforFor(id, roll),
         }
       })
       const utan: TavlaUtan[] = trakter

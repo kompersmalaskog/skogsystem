@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // TAVLAN MÄTT I RIKTIG CHROMIUM (jsdom räknar ingen layout). Sidan renderas i jsdom mot prod-formade svar, HTML:en mäts i Chromium:
-// ingen sidscroll, inga träffytor under 44 px, och talen i kolumnerna Nu och Landar står rakt under varandra.
+// ingen sidscroll, inga träffytor under 44 px, och talen i kolumnerna Nu och Månadens slut står rakt under varandra.
 // Hoppas över utan Chromium. TAVLA_SKRIV=<mapp> sparar bilderna.
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -16,7 +16,7 @@ import { hittaChromium } from '../../../lib/testStod/chromium'
 
 const q = vi.hoisted(() => ({
   hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaMaskinLage: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaPrognosFacit: vi.fn(),
-  tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), hamtaEgetSkordat: vi.fn(async () => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(),
+  tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), hamtaMaskinObjekt: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgetSkordat: vi.fn(async () => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(),
 }))
 vi.mock('../_lib/queries', () => q)
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams('ar=2026&manad=10'), useRouter: () => ({ replace: () => {} }) }))
@@ -51,6 +51,7 @@ async function html(klick: string[]): Promise<string> {
   q.hamtaKlar.mockResolvedValue({ data: lasKlar(structuredClone(klarOkt)), error: null })
   q.hamtaEgenSkotningTrakter.mockResolvedValue({ data: new Set(), error: null })
   q.hamtaEgetSkordat.mockResolvedValue({ data: [], error: null })
+  q.hamtaMaskinObjekt.mockResolvedValue({ data: [{ maskin_id: 'R64428', roll: 'skordare', objekt_id: 'p1', namn: 'Kjell-Erik Lindström Steglehylte', typ: 'Gallring', bolag: 'Privat', egen_skotning: false, volym: 270 }], error: null })
   q.sattEgenSkotning.mockResolvedValue({ error: null })
   document.body.innerHTML = ''
   const c = document.createElement('div'); document.body.appendChild(c)
@@ -97,11 +98,17 @@ describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chro
             return new Set(x).size
           }).filter(n => n > 1).length,
           utanfor: Array.from(document.querySelectorAll('[data-spar] *')).filter(e => e.getBoundingClientRect().right > window.innerWidth + 0.5).length,
+          // Inget i kortet får sticka ut förbi stapelns högerkant (rubriken "Månadens slut" gjorde det innan den bröts på två rader).
+          forbi: Array.from(document.querySelectorAll('[data-spar]')).map(k => {
+            const h = Math.max(...Array.from(k.querySelectorAll('[data-stapel]')).map(e => e.getBoundingClientRect().right))
+            return Array.from(k.querySelectorAll('span')).filter(e => (e as HTMLElement).offsetParent !== null && e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).textOverflow !== 'ellipsis' || e.getBoundingClientRect().right > h + 1).length
+          }).reduce((a, n) => a + n, 0),
         }), TRAFFYTA.min)
         expect(r.sidscroll, `${v.namn} ${s.w}: sidscroll`).toBe(false)
         expect(r.sma, `${v.namn} ${s.w}: små träffytor ${JSON.stringify(r.sma)}`).toEqual([])
         expect(r.sneda, `${v.namn} ${s.w}: sneda kolumner`).toBe(0)
         expect(r.utanfor, `${v.namn} ${s.w}: utanför skärmen`).toBe(0)
+        expect(r.forbi, `${v.namn} ${s.w}: text förbi kortets kant`).toBe(0)
         if (skriv) { fs.mkdirSync(skriv, { recursive: true }); await p.screenshot({ path: path.join(skriv, `${v.namn}-${s.w}.png`), fullPage: v.namn !== 'flytta' }) }
         await p.close()
       }

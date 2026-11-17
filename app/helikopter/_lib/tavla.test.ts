@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { EGEN_SKOTNING, byggTavla, flyttVal, ko, kvarVolym, type TavlaIndata } from './tavla'
+import { EGEN_SKOTNING, byggTavla, flyttVal, ko, kvarVolym, utanforBestallning, type TavlaIndata } from './tavla'
 import type { KlarData, KlarMaskin, KlarTrakt } from './klar'
 import type { SparLage } from './berakningar'
 
@@ -156,5 +156,26 @@ describe('utan kö', () => {
   })
   it('ingen beställning', () => {
     expect(byggTavla(bas({ spar: [spar('gallring', { bestallt: 0 })] })).svar.rubrik).toBe('Ingen beställning inlagd')
+  })
+})
+
+describe('utanforBestallning', () => {
+  const spar = [{ typ: 'gallring' as const, bestallt: 1000, bolag: ['Vida'] }, { typ: 'slutavverkning' as const, bestallt: 0, bolag: [] }]
+  const rad = (x: Partial<Parameters<typeof utanforBestallning>[0][number]>) => ({ maskin_id: 'H', roll: 'skordare' as const, objekt_id: 'o', namn: 'Trakt', typ: 'Gallring', bolag: 'Vida', egen_skotning: false, volym: 100, ...x })
+  it('H8E november 2026: Vidas gallringar räknas (också egen skotning för skördaren), de privata står utanför', () => {
+    const ut = utanforBestallning([
+      rad({ namn: 'Gallring Santhe 2026.', egen_skotning: true, volym: 216 }),
+      rad({ namn: 'Vashult gallring 2026', volym: 38 }),
+      rad({ namn: 'Kjell-Erik Lindström Steglehylte', bolag: 'Privat', volym: 114 }),
+      rad({ namn: 'Patrik Andersson Bjällerhult', bolag: 'Privat', egen_skotning: true, volym: 109 }),
+      rad({ namn: 'Kompersmåla Ga Avd 210', bolag: 'Privat', volym: 47 }),
+    ], spar)
+    expect(ut.map(u => u.volym)).toEqual([114, 109, 47])
+    expect(ut.reduce((a, u) => a + u.volym, 0)).toBe(270)
+  })
+  it('utan beställning räknas alla bolag; GROT, okänd typ och skotarens lass på egen skotning står utanför; noll visas inte', () => {
+    expect(utanforBestallning([rad({ typ: 'Slutavverkning', bolag: 'Privat' })], spar)).toEqual([])
+    expect(utanforBestallning([rad({ typ: 'Grot' }), rad({ typ: null }), rad({ roll: 'skotare', egen_skotning: true }), rad({ bolag: 'Privat', volym: 0.2 })], spar).length).toBe(3)
+    expect(utanforBestallning([rad({ bolag: 'vida' })], spar)).toEqual([])
   })
 })

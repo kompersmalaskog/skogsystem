@@ -612,6 +612,50 @@ export async function hamtaEgetSkordat(ar: number, manad: number, dimIds: string
   }
 }
 
+/** Allt maskinerna gjort i månaden per maskinobjekt — underlaget för "utanför beställningen" (tavlan avgör vad som räknas).
+ *  Skördare ur fakt_produktion, skotare ur helikopter_lass (Opti och appen, aldrig dubbelt). Exkluderade objekt (flyttobjekt) är inte med. */
+export type MaskinObjektRad = { maskin_id: string; roll: KlarRoll; objekt_id: string; namn: string | null; typ: string | null; bolag: string | null; egen_skotning: boolean; volym: number }
+export async function hamtaMaskinObjekt(ar: number, manad: number): Promise<Svar<MaskinObjektRad[]>> {
+  try {
+    const fran = `${ar}-${String(manad).padStart(2, '0')}-01`
+    const till = manad === 12 ? `${ar + 1}-01-01` : `${ar}-${String(manad + 1).padStart(2, '0')}-01`
+    const [p, l] = await Promise.all([
+      hamtaAlla<any>(() => supabase.from('fakt_produktion').select('id, objekt_id, maskin_id, volym_m3sub').gte('datum', fran).lt('datum', till) as any, 'id'),
+      supabase.from('helikopter_lass').select('objekt_id, maskin_id, volym_m3sub').gte('datum', fran).lt('datum', till).limit(1000),
+    ])
+    if (p.error) return { data: null, error: felText(p.error) }
+    if (l.error) return { data: null, error: felText(l.error) }
+    // 1 000 rader är PostgREST:s tak: då är svaret kanske avkapat, och en halv summa visas aldrig.
+    if ((l.data ?? []).length >= 1000) return { data: null, error: 'För många lass för en läsning' }
+    const per = new Map<string, { maskin_id: string; roll: KlarRoll; objekt_id: string; volym: number }>()
+    const lagg = (roll: KlarRoll, x: any) => {
+      if (!x.maskin_id || x.objekt_id == null) return
+      const k = `${roll}|${x.maskin_id}|${x.objekt_id}`
+      const rad = per.get(k) ?? { maskin_id: String(x.maskin_id), roll, objekt_id: String(x.objekt_id), volym: 0 }
+      rad.volym += Number(x.volym_m3sub) || 0
+      per.set(k, rad)
+    }
+    for (const x of p.data) lagg('skordare', x)
+    for (const x of (l.data ?? []) as any[]) lagg('skotare', x)
+    const ids = [...new Set([...per.values()].map(r => r.objekt_id))]
+    const dim = new Map<string, any>()
+    for (let i = 0; i < ids.length; i += 200) {
+      const d = await supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, bolag, egen_skotning, exkludera').in('objekt_id', ids.slice(i, i + 200))
+      if (d.error) return { data: null, error: felText(d.error) }
+      for (const x of (d.data ?? []) as any[]) dim.set(String(x.objekt_id), x)
+    }
+    return {
+      data: [...per.values()].filter(r => dim.get(r.objekt_id)?.exkludera !== true).map(r => {
+        const d = dim.get(r.objekt_id)
+        return { ...r, namn: d?.object_name ?? null, typ: d?.huvudtyp ?? null, bolag: d?.bolag ?? null, egen_skotning: d?.egen_skotning === true }
+      }),
+      error: null,
+    }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
+
 /** Sätter eller tar bort egen skotning på trakten: jobbet och alla maskinobjekt med samma nummer (lib/startaJobbSkotning). Bara admin. */
 export async function sattEgenSkotning(objektId: string, egen: boolean): Promise<{ error: string | null }> {
   try {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * /helikopter monteras på riktigt (jsdom, queries utbytta mot prod-formade svar) som EN sida: svaret, tavlan (ett kort per spår med
- * Skördat och Skotat, en rad per maskin med Nu och Landar, summan mot beställt), flytta en trakt, Mer, och att ett fel är ett fel.
+ * Skördat och Skotat, en stapel mot beställt och en rad per maskin med Nu och Månadens slut), flytta en trakt, Mer, och att ett fel är ett fel.
  */
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -14,7 +14,7 @@ import { fmt } from '../_lib/format'
 
 const q = vi.hoisted(() => ({
   hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaManuellaMaskiner: vi.fn(), hamtaSenasteLass: vi.fn(), hamtaMaskinLage: vi.fn(),
-  hamtaMaskiner: vi.fn(), hamtaMaskinTakter: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaPrognosFacit: vi.fn(async () => ({ data: [], error: null })), tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), hamtaEgetSkordat: vi.fn(async (): Promise<{ data: { objekt_id: string; maskin_id: string; volym: number }[]; error: null }> => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(), params: '', replace: vi.fn(),
+  hamtaMaskiner: vi.fn(), hamtaMaskinTakter: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaPrognosFacit: vi.fn(async () => ({ data: [], error: null })), tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), hamtaMaskinObjekt: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgetSkordat: vi.fn(async (): Promise<{ data: { objekt_id: string; maskin_id: string; volym: number }[]; error: null }> => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(), params: '', replace: vi.fn(),
 }))
 vi.mock('../_lib/queries', () => q)
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(q.params), useRouter: () => ({ replace: q.replace }) }))
@@ -82,6 +82,7 @@ beforeEach(() => {
   q.hamtaKlar.mockResolvedValue({ data: lasKlar(structuredClone(klarOkt)), error: null })
   q.hamtaEgenSkotningTrakter.mockResolvedValue({ data: new Set(), error: null })
   q.hamtaEgetSkordat.mockResolvedValue({ data: [], error: null })
+  q.hamtaMaskinObjekt.mockResolvedValue({ data: [], error: null })
   q.sattEgenSkotning.mockResolvedValue({ error: null })
 })
 afterEach(async () => { await act(async () => { root?.unmount() }); cont?.remove(); root = null })
@@ -97,7 +98,7 @@ const block = (typ: string, roll: string) => cont.querySelector(`[data-spar="${t
 const SKALVIKEN = '84fa6474'
 
 describe('/helikopter — tavlan', () => {
-  it('svaret och ett kort per spår: Skördat och Skotat, en rad per maskin med Nu och Landar, summan mot beställt', async () => {
+  it('svaret och ett kort per spår: Skördat och Skotat, en stapel mot beställt och en rad per maskin med Nu och Månadens slut', async () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
     expect(text()).toContain('Oktober 2026')
@@ -109,14 +110,20 @@ describe('/helikopter — tavlan', () => {
     expect(sk.querySelector('[data-nu="PONS20SDJAA270231"]')?.textContent).toBe(fmt(4800))
     expect(sk.querySelector('[data-landar="PONS20SDJAA270231"]')?.textContent).toBe(fmt(6534))
     expect(sk.querySelector('[data-summa]')?.textContent).toContain('över')
-    // En ensam maskin ÄR summan: talen står en gång, på maskinens rad.
-    expect(sk.querySelector('[data-summa]')?.textContent).not.toContain(fmt(4800))
-    expect(cont.querySelector('[data-spar="slutavverkning"]')?.textContent?.match(/Landar/g)?.length).toBe(1)
+    // Stapeln mot beställt: texten under säger nu och månadens slut av beställt; går det över står ett streck vid beställt.
+    expect(sk.querySelector('[data-stapeltext]')?.textContent).toBe(`Nu ${fmt(4800)}Månadens slut ${fmt(6534)} av ${fmt(5000)}`)
+    expect(sk.querySelector('[data-stapel-bestallt]')).not.toBeNull()
+    expect((sk.querySelector('[data-stapel-nu]') as HTMLElement).style.width).toBe(`${(4800 / 6534) * 100}%`)
+    // Ordet Landar finns inte kvar: kolumnen heter Månadens slut.
+    expect(cont.querySelector('[data-spar="slutavverkning"]')?.textContent).not.toContain('Landar')
     // Elefant: 3 000 skotat. Skälviken 100 h på 7,59 h/dag = 13,2 dagar; föraren är ledig 26–30 okt, så 5 dagar hinns: 3 000 + 1 734 × 5/13,17 = 3 658.
     const so = block('slutavverkning', 'skotare')
     expect(so.querySelector('[data-nu="A130743"]')?.textContent).toBe(fmt(3000))
     expect(so.querySelector('[data-landar="A130743"]')?.textContent).toBe(fmt(3658))
     expect(so.querySelector('[data-summa]')?.textContent).toContain(`Fattas ${fmt(1342)}`)
+    // Under beställt: inget streck, luckan i stapeln är det som fattas.
+    expect(so.querySelector('[data-stapel-bestallt]')).toBeNull()
+    expect((so.querySelector('[data-stapel-slut]') as HTMLElement).style.width).toBe(`${(3658 / 5000) * 100}%`)
     expect(cont.querySelector('main h2')?.textContent).toBe(`Slutavverkning fattas ${fmt(1342)} · gallring ${fmt(200)}`)
     // Trakter utan maskin står som egna rader.
     expect(so.querySelector('[data-utan]')?.textContent).toContain('Ingen maskin')
@@ -189,8 +196,35 @@ describe('/helikopter — tavlan', () => {
 
   it('utfallet per maskin kunde inte läsas: spårets summor står kvar', async () => {
     await monter() // takter: null
-    expect(block('slutavverkning', 'skotare').querySelector('[data-summa]')?.textContent).toContain(fmt(3000))
-    expect(block('gallring', 'skordare').querySelector('[data-summa]')?.textContent).toContain(fmt(900))
+    expect(block('slutavverkning', 'skotare').querySelector('[data-stapeltext]')?.textContent).toContain(fmt(3000))
+    expect(block('gallring', 'skordare').querySelector('[data-stapeltext]')?.textContent).toContain(fmt(900))
+  })
+
+  it('utanför beställningen: står under maskinen i ord, trakterna när hon fälls ut — aldrig i talkolumnerna, och ingen rad när det inte gick att läsa', async () => {
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
+    q.hamtaMaskinObjekt.mockResolvedValue({ data: [
+      { maskin_id: 'PONS20SDJAA270231', roll: 'skordare', objekt_id: 'a', namn: 'Skälviken RP J-Hus -25', typ: 'Slutavverkning', bolag: 'Vida', egen_skotning: false, volym: 4800 },
+      { maskin_id: 'PONS20SDJAA270231', roll: 'skordare', objekt_id: 'b', namn: 'Kjell-Erik Lindström Steglehylte', typ: 'Slutavverkning', bolag: 'Privat', egen_skotning: false, volym: 114.4 },
+      { maskin_id: 'PONS20SDJAA270231', roll: 'skordare', objekt_id: 'c', namn: 'GROT Brokamåla', typ: 'Grot', bolag: 'Vida', egen_skotning: false, volym: 46 },
+    ], error: null })
+    await monter()
+    const giant = block('slutavverkning', 'skordare').querySelector('[data-maskin="PONS20SDJAA270231"]') as HTMLElement
+    expect(giant.querySelector('[data-utanfor]')?.textContent).toBe(`${fmt(160)} utanför beställningen`)
+    expect(giant.querySelector('[data-nu]')?.textContent).toBe(fmt(4800))
+    expect(giant.querySelector('[data-utanfor-lista]')).toBeNull()
+    await act(async () => { (giant.querySelector('button') as HTMLButtonElement).click() })
+    const lista = giant.querySelector('[data-utanfor-lista]')?.textContent ?? ''
+    expect(lista).toContain('Skördat utanför beställningen')
+    expect(lista.indexOf('Steglehylte')).toBeLessThan(lista.indexOf('Brokamåla'))
+    expect(lista).not.toContain('Skälviken')
+  })
+
+  it('utanför beställningen kunde inte läsas: ingen rad — aldrig "0 utanför"', async () => {
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
+    q.hamtaMaskinObjekt.mockResolvedValue({ data: null, error: 'nät' } as never)
+    await monter()
+    expect(cont.querySelector('[data-maskin]')).not.toBeNull()
+    expect(cont.querySelector('[data-utanfor]')).toBeNull()
   })
 
   it('köerna kunde inte läsas: en rad säger det, och Nu står kvar', async () => {
@@ -213,7 +247,7 @@ describe('/helikopter — tavlan', () => {
     expect(cont.querySelector('[data-spar]')).not.toBeNull()
   })
 
-  it('en annan månad: Idag-knappen finns, sidokolumnen länkar månaderna, och en avslutad månad har ingen Landar', async () => {
+  it('en annan månad: Idag-knappen finns, sidokolumnen länkar månaderna, och en avslutad månad har ingen Månadens slut', async () => {
     q.params = 'ar=2026&manad=9'
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()

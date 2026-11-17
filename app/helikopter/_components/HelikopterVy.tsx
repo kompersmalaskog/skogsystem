@@ -28,13 +28,13 @@ import { AVSTAND, FARG, FONT, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, T
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
-  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, tilldelaMaskin,
+  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, tilldelaMaskin,
   type BolagRad, type FastData, type Manadsdata, type MaskinLage, type Typ,
 } from '../_lib/queries'
 import { TYPER, TYP_NAMN, globalaArbetsdagar, manadStatus, maskinNamn, planeringStoppText, raknaSpar, sparTakter, valjBas, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, manadRubrik, relativTid } from '../_lib/format'
 import { medFoljandePrognos, medUppskattadPrognos } from '../_lib/klar'
-import { EGEN_SKOTNING, byggTavla, flyttVal, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
+import { EGEN_SKOTNING, byggTavla, flyttVal, utanforBestallning, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
 import { planHref } from '../_lib/manadsplan'
@@ -220,6 +220,18 @@ export default function HelikopterVy() {
     return () => { avbruten = true }
   }, [egnaDimIds, ar, manad])
 
+  // Allt maskinerna gjort i månaden per objekt: det som inte räknas mot beställningen står under maskinen. null = inte läst (ingen rad).
+  const [maskinObjekt, setMaskinObjekt] = useState<MaskinObjektRad[] | null>(null)
+  useEffect(() => {
+    setMaskinObjekt(null)
+    let avbruten = false
+    hamtaMaskinObjekt(ar, manad).then(r => {
+      if (avbruten) return
+      if (r.error != null) console.error('[helikopter] utanför beställningen', r.error); else setMaskinObjekt(r.data)
+    })
+    return () => { avbruten = true }
+  }, [ar, manad, version])
+
   // ── Räkningen (allt som står på sidan) ──
   const dagar = useMemo(() => (manadsdata ? globalaArbetsdagar(manadsdata.arbetsdagar) : null), [manadsdata])
   const spar: SparLage[] = useMemo(() => {
@@ -252,8 +264,8 @@ export default function HelikopterVy() {
       if (sp.bestallt > 0 && !sp.bolag.some(b => b.toLowerCase() === (e.bolag ?? '').toLowerCase())) return []
       return [{ typ: sp.typ, maskin_id: r.maskin_id, volym: r.volym }]
     })
-    return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), egetSkordat, stopp }
-  }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader])
+    return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), egetSkordat, stopp, utanfor: maskinObjekt ? utanforBestallning(maskinObjekt, spar) : undefined }
+  }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader, maskinObjekt])
   const tavla = useMemo(() => (tavlaIn ? byggTavla(tavlaIn) : null), [tavlaIn])
   const utanTypSumma = Math.round((manadsdata?.utanTyp ?? []).reduce((a, r) => a + r.volym, 0))
 

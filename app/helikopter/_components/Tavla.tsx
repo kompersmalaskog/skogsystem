@@ -1,7 +1,8 @@
 'use client'
 
-// TAVLAN — ett kort per spår: Skördat och Skotat med domen i rubriken, en rad per maskin med NU och LANDAR.
-// Summan står i blockets rubrikrad, och bara när blocket har fler än en rad (en ensam maskin ÄR summan).
+// TAVLAN — ett kort per spår: Skördat och Skotat, var sin STAPEL mot beställt (ljust = gjort, mörkare = hinns, luckan = fattas),
+// domen i ord bredvid rubriken, och under stapeln en rad per maskin med NU och MÅNADENS SLUT.
+// Trakter utan maskin och det som körts utanför beställningen står i ord, aldrig i talkolumnerna. Kvar i skogen har ett eget kort.
 // Allt som står här räknas i _lib/tavla.ts; den här filen ritar. Ett tryck på en maskin visar hennes trakter, ett tryck på en trakt flyttar den.
 import { useState } from 'react'
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens'
@@ -16,10 +17,13 @@ import type { FlyttVal, Tavla as TavlaVy, TavlaBlock, TavlaMaskin, TavlaOvrig, T
 import { StatusOrd } from './Status'
 
 const LINJE = `1px solid ${FARG.linje}`
-const TAL_KOLUMN = AVSTAND.xxl * 2 + AVSTAND.s
+// Rubriken "Månadens slut" bryts på två rader i sin kolumn, så kolumnerna kan vara smala och namnet får plats på telefon.
+const NU_KOLUMN = AVSTAND.xxl * 2
+const SLUT_KOLUMN = AVSTAND.xxl * 2 + AVSTAND.l
 const rutnat = (medLandar: boolean) => ({
-  display: 'grid', gridTemplateColumns: medLandar ? `minmax(0, 1fr) ${TAL_KOLUMN}px ${TAL_KOLUMN}px` : `minmax(0, 1fr) ${TAL_KOLUMN}px`, columnGap: AVSTAND.s, alignItems: 'center',
+  display: 'grid', gridTemplateColumns: medLandar ? `minmax(0, 1fr) ${NU_KOLUMN}px ${SLUT_KOLUMN}px` : `minmax(0, 1fr) ${NU_KOLUMN}px`, columnGap: AVSTAND.s, alignItems: 'center',
 } as const)
+const STAPEL_HOJD = AVSTAND.s
 const KNAPP_RAD = { width: '100%', background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer' } as const
 const HOGER = { textAlign: 'right', ...TNUM } as const
 
@@ -43,7 +47,7 @@ function TraktRad({ t, onTryck }: { t: TavlaTrakt; onTryck?: () => void }) {
 }
 
 function MaskinRad({ m, medLandar, oppen, onVaxla, onTrakt, dampad }: { m: TavlaMaskin; medLandar: boolean; oppen: boolean; onVaxla: () => void; onTrakt?: (v: TraktVal) => void; dampad?: boolean }) {
-  const harTrakter = m.trakter.length > 0
+  const harTrakter = m.trakter.length > 0 || m.utanfor != null
   const rad = (
     <span style={{ ...rutnat(medLandar), minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0` }}>
       <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -53,6 +57,7 @@ function MaskinRad({ m, medLandar, oppen, onVaxla, onTrakt, dampad }: { m: Tavla
           {harTrakter && <Ikon namn={oppen ? 'expand_less' : 'expand_more'} storlek={IKON.text} farg={FARG.text3} />}
         </span>
         {m.stopp && <span style={{ ...TYP.meta, color: FARG.text2, paddingLeft: AVSTAND.l }}>{m.stopp}</span>}
+        {m.utanfor && <span style={{ ...TYP.meta, color: FARG.text2, paddingLeft: AVSTAND.l }} data-utanfor={m.maskin_id}>{fmt(m.utanfor.volym)} utanför beställningen</span>}
       </span>
       <span style={{ ...TYP.text, ...HOGER, fontWeight: dampad ? VIKT.normal : VIKT.fet, color: dampad ? FARG.text2 : FARG.text }} data-nu={m.maskin_id}>{fmt(m.nu)}</span>
       {medLandar && <span style={{ ...TYP.text, ...HOGER, color: FARG.text2 }} data-landar={m.maskin_id}>{m.landar == null ? '–' : fmt(m.landar)}</span>}
@@ -64,21 +69,49 @@ function MaskinRad({ m, medLandar, oppen, onVaxla, onTrakt, dampad }: { m: Tavla
       {oppen && (
         <div style={{ paddingBottom: AVSTAND.s }}>
           {m.trakter.map(t => <TraktRad key={`${t.objekt_id}:${t.roll}`} t={t} onTryck={onTrakt ? () => onTrakt({ objekt_id: t.objekt_id, roll: t.roll }) : undefined} />)}
+          {m.utanfor && (
+            <div data-utanfor-lista={m.maskin_id}>
+              <div style={{ ...TYP.micro, color: FARG.text3, padding: `${AVSTAND.s}px 0 0 ${AVSTAND.l}px` }}>{m.roll === 'skordare' ? 'Skördat' : 'Skotat'} utanför beställningen</div>
+              {m.utanfor.trakter.map((u, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: AVSTAND.xxl, paddingLeft: AVSTAND.l }}>
+                  <span style={{ ...TYP.text, color: FARG.text3, minWidth: 0, overflowWrap: 'anywhere' }}>{u.namn}</span>
+                  <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2, flexShrink: 0 }}>{fmt(u.volym)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-function UtanRad({ u, medLandar, onTrakt, inne }: { u: TavlaBlock['utan'][number]; medLandar: boolean; onTrakt?: (v: TraktVal) => void; inne?: boolean }) {
+/** Stapeln mot beställt: ljust = gjort nu, mörkare = hinns före månadens slut, tomt = fattas. Går det över beställt står ett streck där beställt ligger. */
+function Stapel({ nu, landar, bestallt }: { nu: number; landar: number | null; bestallt: number }) {
+  const slut = Math.max(landar ?? nu, nu)
+  const skala = Math.max(bestallt, slut, 1)
+  const pct = (x: number) => `${Math.max(0, Math.min(100, (x / skala) * 100))}%`
+  return (
+    <div role="img" aria-label={`${fmt(nu)} nu${landar != null ? `, ${fmt(slut)} vid månadens slut` : ''}, beställt ${fmt(bestallt)}`}
+      style={{ position: 'relative', height: STAPEL_HOJD, borderRadius: STAPEL_HOJD / 2, background: FARG.upphojt, overflow: 'hidden' }} data-stapel="">
+      <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: pct(slut), background: FARG.text3 }} data-stapel-slut="" />
+      <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: pct(nu), background: FARG.text2 }} data-stapel-nu="" />
+      {skala > bestallt && <span style={{ position: 'absolute', left: pct(bestallt), top: 0, bottom: 0, width: AVSTAND.xs / 2, background: FARG.text }} data-stapel-bestallt="" />}
+    </div>
+  )
+}
+
+function UtanRad({ u, onTrakt, inne }: { u: TavlaBlock['utan'][number]; onTrakt?: (v: TraktVal) => void; inne?: boolean }) {
+  // Volymen står i ord efter namnet — aldrig i talkolumnerna: den är varken gjord eller på väg.
   const rad = (
-    <span style={{ ...rutnat(medLandar), minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0`, paddingLeft: inne ? AVSTAND.l : 0 }}>
+    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0`, paddingLeft: inne ? AVSTAND.l : 0 }}>
       <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <span style={{ ...TYP.text, color: inne ? FARG.text2 : FARG.text, overflowWrap: 'anywhere' }}>{u.namn}</span>
-        {!inne && <StatusOrd ton="orange" ord="Ingen maskin" />}
+        {!inne && <StatusOrd ton="orange" ord={`Ingen maskin · ${fmt(u.volym)} m³`} />}
       </span>
-      <span style={{ ...TYP.text, ...HOGER, color: FARG.text3 }}>{fmt(u.volym)}</span>
-      {medLandar && <span style={{ display: 'flex', justifyContent: 'flex-end' }}>{onTrakt && <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />}</span>}
+      <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...TYP.meta, ...TNUM, color: FARG.text2, flexShrink: 0 }}>
+        {inne && `${fmt(u.volym)} m³`}{onTrakt && <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />}
+      </span>
     </span>
   )
   return (
@@ -88,39 +121,37 @@ function UtanRad({ u, medLandar, onTrakt, inne }: { u: TavlaBlock['utan'][number
   )
 }
 
-function Block({ b, medLandar, oppna, vaxla, onTrakt }: { b: TavlaBlock; medLandar: boolean; oppna: Set<string>; vaxla: (id: string) => void; onTrakt?: (v: TraktVal) => void }) {
-  // En ensam maskinrad ÄR summan: då står talen bara på raden, och domen i blockets rubrik.
-  const rader = [...b.maskiner.map(m => ({ nu: m.nu, landar: m.landar })), ...(b.markagare ? [b.markagare] : [])]
-  const ensam = rader.length === 1 && rader[0].nu === b.nu && (rader[0].landar ?? null) === (b.landar ?? null)
+function Block({ b, bestallt, medLandar, oppna, vaxla, onTrakt }: { b: TavlaBlock; bestallt: number; medLandar: boolean; oppna: Set<string>; vaxla: (id: string) => void; onTrakt?: (v: TraktVal) => void }) {
   const utanOppen = oppna.has(`${b.roll}:utan`)
   const utanSumma = b.utan.reduce((n, u) => n + Math.round(u.volym), 0)
   return (
-    <div data-block={b.roll} style={{ paddingBottom: AVSTAND.s }}>
-      <div style={{ ...rutnat(medLandar), minHeight: TRAFFYTA.min }} data-summa={b.roll}>
-        <span style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: AVSTAND.s, minWidth: 0 }}>
-          <span style={{ ...TYP.micro, color: FARG.text2 }}>{b.rubrik}</span>
-          <StatusOrd ton={b.ton} ord={b.ord} />
-        </span>
-        <span style={{ ...TYP.text, ...HOGER, fontWeight: VIKT.fet, color: FARG.text }}>{ensam ? '' : fmt(b.nu)}</span>
-        {medLandar && <span style={{ ...TYP.text, ...HOGER, fontWeight: VIKT.fet, color: FARG.text }}>{ensam ? '' : b.landar == null ? '–' : fmt(b.landar)}</span>}
+    <div data-block={b.roll} style={{ paddingBottom: AVSTAND.m }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min }} data-summa={b.roll}>
+        <span style={{ ...TYP.micro, color: FARG.text2 }}>{b.rubrik}</span>
+        <StatusOrd ton={b.ton} ord={b.ord} />
       </div>
+      {bestallt > 0 && (
+        <>
+          <Stapel nu={b.nu} landar={b.landar} bestallt={bestallt} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.m, ...TYP.meta, ...TNUM, color: FARG.text2, padding: `${AVSTAND.xs}px 0 ${AVSTAND.s}px` }} data-stapeltext={b.roll}>
+            <span>Nu {fmt(b.nu)}</span>
+            <span>{b.landar != null ? `Månadens slut ${fmt(b.landar)}` : fmt(b.nu)} av {fmt(bestallt)}</span>
+          </div>
+        </>
+      )}
       {b.maskiner.map(m => <MaskinRad key={m.maskin_id} m={m} medLandar={medLandar} oppen={oppna.has(`${b.roll}:${m.maskin_id}`)} onVaxla={() => vaxla(`${b.roll}:${m.maskin_id}`)} onTrakt={onTrakt} />)}
-      {b.markagare && <MaskinRad m={{ maskin_id: 'markagare', namn: 'Egen skotning', roll: 'skotare', nu: b.markagare.nu, landar: b.markagare.landar, ca: false, stopp: null, trakter: b.markagare.trakter }}
+      {b.markagare && <MaskinRad m={{ maskin_id: 'markagare', namn: 'Egen skotning', roll: 'skotare', nu: b.markagare.nu, landar: b.markagare.landar, ca: false, stopp: null, trakter: b.markagare.trakter, utanfor: null }}
         dampad medLandar={medLandar} oppen={oppna.has(`${b.roll}:markagare`)} onVaxla={() => vaxla(`${b.roll}:markagare`)} onTrakt={onTrakt} />}
-      {b.utan.length === 1 && <UtanRad u={b.utan[0]} medLandar={medLandar} onTrakt={onTrakt} />}
+      {b.utan.length === 1 && <UtanRad u={b.utan[0]} onTrakt={onTrakt} />}
       {b.utan.length > 1 && (
         <div style={{ borderTop: LINJE }} data-utan-grupp={b.roll}>
           <button type="button" onClick={() => vaxla(`${b.roll}:utan`)} aria-expanded={utanOppen} style={KNAPP_RAD}>
-            <span style={{ ...rutnat(medLandar), minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0` }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minWidth: 0 }}>
-                <StatusOrd ton="orange" ord={`${b.utan.length} trakter utan maskin`} />
-                <Ikon namn={utanOppen ? 'expand_less' : 'expand_more'} storlek={IKON.text} farg={FARG.text3} />
-              </span>
-              <span style={{ ...TYP.text, ...HOGER, color: FARG.text3 }}>{fmt(utanSumma)}</span>
-              {medLandar && <span />}
+            <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0` }}>
+              <StatusOrd ton="orange" ord={`${b.utan.length} trakter utan maskin · ${fmt(utanSumma)} m³`} />
+              <Ikon namn={utanOppen ? 'expand_less' : 'expand_more'} storlek={IKON.text} farg={FARG.text3} />
             </span>
           </button>
-          {utanOppen && <div style={{ paddingBottom: AVSTAND.s }}>{b.utan.map(u => <UtanRad key={u.objekt_id} u={u} medLandar={medLandar} onTrakt={onTrakt} inne />)}</div>}
+          {utanOppen && <div style={{ paddingBottom: AVSTAND.s }}>{b.utan.map(u => <UtanRad key={u.objekt_id} u={u} onTrakt={onTrakt} inne />)}</div>}
         </div>
       )}
     </div>
@@ -132,18 +163,28 @@ function SparKort({ s, oppna, vaxla, onTrakt }: { s: TavlaSpar; oppna: Set<strin
   return (
     <Sektion rubrik={s.bestallt > 0 ? `${s.namn} · beställt ${fmt(s.bestallt)}` : s.namn}>
       <div data-spar={s.typ}>
-        <div style={{ ...rutnat(medLandar), ...TYP.micro, color: FARG.text3, paddingTop: AVSTAND.m }}>
+        <div style={{ ...rutnat(medLandar), alignItems: 'end', ...TYP.micro, color: FARG.text3, paddingTop: AVSTAND.m }}>
           <span />
           <span style={HOGER}>Nu</span>
-          {medLandar && <span style={HOGER}>Landar</span>}
+          {medLandar && <span style={HOGER}>Månadens slut</span>}
         </div>
-        <Block b={s.block[0]} medLandar={medLandar} oppna={oppna} vaxla={id => vaxla(`${s.typ}:${id}`)} onTrakt={onTrakt} />
-        <Block b={s.block[1]} medLandar={medLandar} oppna={oppna} vaxla={id => vaxla(`${s.typ}:${id}`)} onTrakt={onTrakt} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min, borderTop: LINJE, ...TYP.meta, color: FARG.text2 }} data-kvar={s.typ}>
-          <span>Kvar att skota i skogen</span>
-          <span style={{ ...TYP.text, ...TNUM, color: FARG.text }}>{fmt(s.kvarISkogen)}</span>
-        </div>
+        <Block b={s.block[0]} bestallt={s.bestallt} medLandar={medLandar} oppna={oppna} vaxla={id => vaxla(`${s.typ}:${id}`)} onTrakt={onTrakt} />
+        <Block b={s.block[1]} bestallt={s.bestallt} medLandar={medLandar} oppna={oppna} vaxla={id => vaxla(`${s.typ}:${id}`)} onTrakt={onTrakt} />
       </div>
+    </Sektion>
+  )
+}
+
+/** Virket som ligger kvar i skogen (ingående oskotat + skördat − skotat) — eget kort, så det inte läses som det som fattas mot beställningen. */
+function KvarKort({ spar }: { spar: TavlaSpar[] }) {
+  return (
+    <Sektion rubrik="Kvar att skota i skogen">
+      {spar.map((s, i) => (
+        <div key={s.typ} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min, borderTop: i > 0 ? LINJE : 'none', ...TYP.text, color: FARG.text }} data-kvar={s.typ}>
+          <span>{s.namn}</span>
+          <span style={TNUM}>{fmt(s.kvarISkogen)}</span>
+        </div>
+      ))}
     </Sektion>
   )
 }
@@ -171,6 +212,7 @@ export default function Tavla({ tavla, onTrakt }: { tavla: TavlaVy; onTrakt?: (v
     <>
       {tavla.spar.map(s => <SparKort key={s.typ} s={s} oppna={forSpar(s.typ)} vaxla={vaxla} onTrakt={onTrakt} />)}
       {tavla.ovrigt.length > 0 && <OvrigtKort rader={tavla.ovrigt} onTrakt={onTrakt} />}
+      {tavla.spar.length > 0 && <KvarKort spar={tavla.spar} />}
     </>
   )
 }
