@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { medAbortRetry } from '@/lib/supabaseRetry'
 import { hamtaAlla } from '@/lib/supabaseAlla'
 import { lasSkogKort, type SkogKort } from '@/lib/skogsdata/las'
+import { sparaSkotning } from '@/lib/startaJobbSkotning'
 import { G15_TOM, g15Tabell, type G15DagRad, type G15Tabell } from '@/lib/helikopterG15'
 import type { VeckolageData } from './veckolage'
 import { lasHistorik, lasManadsfacit, type Historik, type Manadsfacit } from './manadsfacit'
@@ -570,6 +571,121 @@ export async function tilldelaMaskin(objektId: string, roll: KlarRoll, maskinId:
     if (!data || data.length === 0) return { error: 'Ändringen sparades inte (saknar behörighet eller trakten finns inte längre)' }
     if ((data[0] as any)[kolumn] !== maskinId) return { error: 'Ändringen sparades inte' }
     return { error: null }
+  } catch (e) {
+    return { error: felText(e) }
+  }
+}
+
+/**
+ * Trakter där markägaren skotar själv (objekt.egen_skotning, eller dim_objekt.egen_skotning på traktens maskinobjekt/VO).
+ * Tavlan räknar dem inte mot beställningen och visar dem aldrig som "ingen skotare".
+ */
+export async function hamtaEgenSkotningTrakter(objektIds: string[]): Promise<Svar<Set<string>>> {
+  if (objektIds.length === 0) return { data: new Set(), error: null }
+  try {
+    const [o, d] = await Promise.all([
+      medAbortRetry(() => supabase.from('objekt').select('id, vo_nummer, dim_objekt_id, egen_skotning').in('id', objektIds)),
+      medAbortRetry(() => supabase.from('dim_objekt').select('objekt_id, vo_nummer').eq('egen_skotning', true)),
+    ])
+    if (o.error) return { data: null, error: felText(o.error) }
+    if (d.error) return { data: null, error: felText(d.error) }
+    const dimId = new Set((d.data ?? []).map((r: any) => String(r.objekt_id)))
+    const dimVo = new Set((d.data ?? []).map((r: any) => r.vo_nummer).filter((v: unknown): v is string => typeof v === 'string' && v !== ''))
+    const ut = new Set<string>()
+    for (const r of (o.data ?? []) as any[]) {
+      if (r.egen_skotning === true || (r.dim_objekt_id && dimId.has(String(r.dim_objekt_id))) || (r.vo_nummer && (dimVo.has(r.vo_nummer) || dimId.has(r.vo_nummer)))) ut.add(String(r.id))
+    }
+    return { data: ut, error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Skördat i månaden per skördare på maskinobjekt med egen skotning (spårens egna tal räknar inte med dem). */
+export async function hamtaEgetSkordat(ar: number, manad: number, dimIds: string[]): Promise<Svar<{ objekt_id: string; maskin_id: string; volym: number }[]>> {
+  if (dimIds.length === 0) return { data: [], error: null }
+  try {
+    const fran = `${ar}-${String(manad).padStart(2, '0')}-01`
+    const till = manad === 12 ? `${ar + 1}-01-01` : `${ar}-${String(manad + 1).padStart(2, '0')}-01`
+    const r = await hamtaAlla<any>(() => supabase.from('fakt_produktion').select('id, objekt_id, maskin_id, volym_m3sub').in('objekt_id', dimIds).gte('datum', fran).lt('datum', till) as any, 'id')
+    if (r.error) return { data: null, error: felText(r.error) }
+    const per = new Map<string, { objekt_id: string; maskin_id: string; volym: number }>()
+    for (const x of r.data) {
+      if (!x.maskin_id) continue
+      const k = `${x.objekt_id}|${x.maskin_id}`
+      const rad = per.get(k) ?? { objekt_id: String(x.objekt_id), maskin_id: String(x.maskin_id), volym: 0 }
+      rad.volym += Number(x.volym_m3sub) || 0
+      per.set(k, rad)
+    }
+    return { data: [...per.values()], error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Allt maskinerna gjort i månaden per maskinobjekt — underlaget för "utanför beställningen" (tavlan avgör vad som räknas).
+ *  Skördare ur fakt_produktion, skotare ur helikopter_lass (Opti och appen, aldrig dubbelt). Exkluderade objekt (flyttobjekt) är inte med. */
+export type MaskinObjektRad = { maskin_id: string; roll: KlarRoll; objekt_id: string; namn: string | null; typ: string | null; bolag: string | null; egen_skotning: boolean; volym: number }
+export async function hamtaMaskinObjekt(ar: number, manad: number): Promise<Svar<MaskinObjektRad[]>> {
+  try {
+    const fran = `${ar}-${String(manad).padStart(2, '0')}-01`
+    const till = manad === 12 ? `${ar + 1}-01-01` : `${ar}-${String(manad + 1).padStart(2, '0')}-01`
+    const [p, l] = await Promise.all([
+      hamtaAlla<any>(() => supabase.from('fakt_produktion').select('id, objekt_id, maskin_id, volym_m3sub').gte('datum', fran).lt('datum', till) as any, 'id'),
+      supabase.from('helikopter_lass').select('objekt_id, maskin_id, volym_m3sub').gte('datum', fran).lt('datum', till).limit(1000),
+    ])
+    if (p.error) return { data: null, error: felText(p.error) }
+    if (l.error) return { data: null, error: felText(l.error) }
+    // 1 000 rader är PostgREST:s tak: då är svaret kanske avkapat, och en halv summa visas aldrig.
+    if ((l.data ?? []).length >= 1000) return { data: null, error: 'För många lass för en läsning' }
+    const per = new Map<string, { maskin_id: string; roll: KlarRoll; objekt_id: string; volym: number }>()
+    const lagg = (roll: KlarRoll, x: any) => {
+      if (!x.maskin_id || x.objekt_id == null) return
+      const k = `${roll}|${x.maskin_id}|${x.objekt_id}`
+      const rad = per.get(k) ?? { maskin_id: String(x.maskin_id), roll, objekt_id: String(x.objekt_id), volym: 0 }
+      rad.volym += Number(x.volym_m3sub) || 0
+      per.set(k, rad)
+    }
+    for (const x of p.data) lagg('skordare', x)
+    for (const x of (l.data ?? []) as any[]) lagg('skotare', x)
+    const ids = [...new Set([...per.values()].map(r => r.objekt_id))]
+    const dim = new Map<string, any>()
+    for (let i = 0; i < ids.length; i += 200) {
+      const d = await supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, bolag, egen_skotning, exkludera').in('objekt_id', ids.slice(i, i + 200))
+      if (d.error) return { data: null, error: felText(d.error) }
+      for (const x of (d.data ?? []) as any[]) dim.set(String(x.objekt_id), x)
+    }
+    return {
+      data: [...per.values()].filter(r => dim.get(r.objekt_id)?.exkludera !== true).map(r => {
+        const d = dim.get(r.objekt_id)
+        return { ...r, namn: d?.object_name ?? null, typ: d?.huvudtyp ?? null, bolag: d?.bolag ?? null, egen_skotning: d?.egen_skotning === true }
+      }),
+      error: null,
+    }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Sätter eller tar bort egen skotning på trakten: jobbet och alla maskinobjekt med samma nummer (lib/startaJobbSkotning). Bara admin. */
+export async function sattEgenSkotning(objektId: string, egen: boolean): Promise<{ error: string | null }> {
+  try {
+    const o = await supabase.from('objekt').select('id, vo_nummer, dim_objekt_id').eq('id', objektId).maybeSingle()
+    if (o.error) return { error: felText(o.error) }
+    if (!o.data) return { error: 'Trakten finns inte längre' }
+    const nycklar = [o.data.dim_objekt_id, o.data.vo_nummer].filter((v): v is string => typeof v === 'string' && v !== '')
+    const dim = new Set<string>()
+    if (nycklar.length) {
+      const [a, b] = await Promise.all([
+        supabase.from('dim_objekt').select('objekt_id').in('objekt_id', nycklar),
+        o.data.vo_nummer ? supabase.from('dim_objekt').select('objekt_id').eq('vo_nummer', o.data.vo_nummer) : Promise.resolve({ data: [], error: null }),
+      ])
+      if (a.error) return { error: felText(a.error) }
+      if (b.error) return { error: felText(b.error) }
+      for (const r of [...(a.data ?? []), ...(b.data ?? [])] as any[]) dim.add(String(r.objekt_id))
+    }
+    const r = await sparaSkotning(supabase as any, { jobbId: objektId, dimIds: [...dim] }, egen)
+    return { error: r.ok ? null : r.fel }
   } catch (e) {
     return { error: felText(e) }
   }

@@ -28,14 +28,14 @@ import { AVSTAND, FARG, FONT, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, T
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
-  hamtaBolag, hamtaFast, hamtaManadsdata, hamtaManuellaMaskiner, hamtaMaskinLage, hamtaMaskiner, hamtaPrognosUtfall, hamtaSenasteLass, hamtaSkogKort, tilldelaMaskin,
-  type BolagRad, type FastData, type Manadsdata, type MaskinLage, type MaskinManad, type Typ,
+  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, hamtaSkogKort, tilldelaMaskin,
+  type BolagRad, type FastData, type Manadsdata, type MaskinLage, type Typ,
 } from '../_lib/queries'
-import { TYPER, TYP_NAMN, globalaArbetsdagar, kapacitetsMaskiner, manadStatus, maskinNamn, planeratPerTyp, raknaSpar, valjBas, type PlaneratResultat, type SparLage } from '../_lib/berakningar'
-import { MANAD_NAMN, manadRubrik, relativTid } from '../_lib/format'
-import { egenSkotningVy, gorDetta, klarRader, sidSvar, sparKort, type GorRad, type KlarRad } from '../_lib/kort'
-import { bastaFlytt, medPrognoser, raknaAlla, type FlyttForslag } from '../_lib/klar'
+import { TYPER, TYP_NAMN, globalaArbetsdagar, manadStatus, maskinNamn, planeringStoppText, raknaSpar, sparTakter, valjBas, type SparLage } from '../_lib/berakningar'
+import { MANAD_NAMN, fmt, manadRubrik, relativTid } from '../_lib/format'
+import { medPrognoser } from '../_lib/klar'
 import type { SkogKort } from '@/lib/skogsdata/las'
+import { EGEN_SKOTNING, byggTavla, flyttVal, utanforBestallning, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
 import { planHref } from '../_lib/manadsplan'
@@ -44,20 +44,12 @@ import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar } from './Tillstand'
 import { HK_CSS } from './Lista'
 import { PanelContext, type PanelPost } from './PanelVal'
-import SkotatSektion from './SkotatSektion'
-import GorDettaSektion from './GorDettaSektion'
-import EgenSkotningSektion from './EgenSkotningSektion'
-import KlarSektion from './KlarSektion'
-import { AllaSakerSheet, FlyttSheet, MaskinTrakterSheet } from './GorSheets'
-import { DinMaskinSektion, MaskinerManadSheet, VeckoNotisSektion } from './MaskinSektion'
+import Tavla, { FlyttaSheet, type TraktVal } from './Tavla'
+import { DinMaskinSektion, VeckoNotisSektion } from './MaskinSektion'
 import Manadssida, { helikopterHref } from './Manadssida'
 import HistorikInnehall from './HistorikInnehall'
-import MaskinerSheet from './MaskinerSheet'
 import UtanTypSheet from './UtanTypSheet'
-import EjTilldeladeSheet from './EjTilldeladeSheet'
-import MotBestallningSheet from './MotBestallningSheet'
 import BolagSheet from './BolagSheet'
-import SkordatSheet from './SkordatSheet'
 import TraffsakerhetSheet from './TraffsakerhetSheet'
 
 /** Från denna bredd står månaderna som sidokolumn. Samma som markägarrapporten. */
@@ -83,7 +75,7 @@ const css = `
 }
 `
 
-type Ark = 'maskiner' | 'maskiner_manad' | 'traffsakerhet' | 'utan' | 'ej' | 'best' | 'skordat' | 'historik' | 'alla' | 'flytt' | 'veckor' | 'bolagval' | `bolag:${Typ}` | `maskin:${string}`
+type Ark = 'traffsakerhet' | 'utan' | 'historik' | 'veckor' | 'bolagval' | 'notis' | `bolag:${Typ}` | `flytta:${string}`
 
 export default function HelikopterVy() {
   const sp = useSearchParams()
@@ -122,15 +114,11 @@ export default function HelikopterVy() {
   const [version, setVersion] = useState(0)
   const [fast, setFast] = useState<FastData | null>(null)
   const [fastFel, setFastFel] = useState<string | null>(null)
-  const [manuella, setManuella] = useState<Set<string>>(() => new Set())
-  const [senasteLass, setSenasteLass] = useState<Record<string, string | null> | null>(null)
   const [manadsdata, setManadsdata] = useState<Manadsdata | null>(null)
   const [manadFel, setManadFel] = useState<string | null>(null)
   const [laddarManad, setLaddarManad] = useState(true)
   const [bolag, setBolag] = useState<{ nyckel: string; rader: BolagRad[] } | null>(null)
   const [bolagFel, setBolagFel] = useState<string | null>(null)
-  const [maskinerManad, setMaskinerManad] = useState<{ nyckel: string; rader: MaskinManad[] } | null>(null)
-  const [maskinerFel, setMaskinerFel] = useState<string | null>(null)
   const [maskinLage, setMaskinLage] = useState<MaskinLage | null>(null)
   const [maskinLageFel, setMaskinLageFel] = useState<string | null>(null)
 
@@ -141,14 +129,6 @@ export default function HelikopterVy() {
       if (avbruten) return
       if (r.error != null) setFastFel(r.error)
       else setFast(r.data)
-    })
-    hamtaManuellaMaskiner().then(async m => {
-      if (avbruten) return
-      setManuella(m)
-      if (m.size === 0) { setSenasteLass({}); return }
-      const r = await hamtaSenasteLass(Array.from(m))
-      if (avbruten) return
-      setSenasteLass(r.error != null ? null : r.data)
     })
     return () => { avbruten = true }
   }, [version])
@@ -181,19 +161,6 @@ export default function HelikopterVy() {
   }, [maskinId, idag, version])
 
   const nyckel = `${ar}-${manad}`
-  const maskinerOppet = panel?.agare === 'sida' && panel.val === 'maskiner_manad'
-  useEffect(() => {
-    if (!maskinerOppet || maskinerManad?.nyckel === nyckel) return
-    let avbruten = false
-    setMaskinerFel(null)
-    hamtaMaskiner(ar, manad, idag).then(r => {
-      if (avbruten) return
-      if (r.error != null) setMaskinerFel(r.error)
-      else setMaskinerManad({ nyckel, rader: r.data })
-    })
-    return () => { avbruten = true }
-  }, [maskinerOppet, ar, manad, idag, maskinerManad, nyckel, version])
-
   // Utfallet bakom G15-förslaget — en gång. null = inte läst eller kunde inte läsas: trakter utan prognos får då "?" som förut.
   const [utfall, setUtfall] = useState<UtfallRad[] | null>(null)
   useEffect(() => {
@@ -236,8 +203,47 @@ export default function HelikopterVy() {
   // Underlaget med uppskattade prognoser, och planerna (klar-datum per maskin) räknade ur det — SAMMA räkning som flyttförslaget.
   // G15-förslag för trakter utan prognos, sedan den FÖLJANDE prognosen för trakter maskinen redan kört på (lib/prognosFoljer) — i den ordningen.
   const klarData = useMemo(() => (klar.data ? medPrognoser(klar.data, utfall, skog) : null), [klar.data, utfall, skog])
-  const planer = useMemo(() => (klarData ? raknaAlla(klarData) : null), [klarData])
-  const flytt = useMemo<FlyttForslag | null>(() => (klarData && status !== 'avslutad' ? bastaFlytt(klarData) : null), [klarData, status])
+
+  // Trakter där markägaren skotar själv: räknas inte mot beställningen och är aldrig "ingen skotare". null = inte läst än.
+  const [egna, setEgna] = useState<Set<string> | null>(null)
+  const traktIds = useMemo(() => (klar.data ? Array.from(new Set(klar.data.trakter.map(t => t.objekt_id))).sort().join(',') : null), [klar.data])
+  useEffect(() => {
+    setEgna(null)
+    if (traktIds == null) return
+    let avbruten = false
+    hamtaEgenSkotningTrakter(traktIds === '' ? [] : traktIds.split(',')).then(r => {
+      if (avbruten) return
+      if (r.error != null) { console.error('[helikopter] egen skotning', r.error); setEgna(new Set()) } else setEgna(r.data)
+    })
+    return () => { avbruten = true }
+  }, [traktIds, version])
+
+  // Skördat på egen skotning, per skördare: spårens egna tal räknar inte med de trakterna, men skördaren har gjort jobbet.
+  // null = inte läst än (eller kunde inte läsas: då står skördaren utan den volymen, och det loggas).
+  const [egetRader, setEgetRader] = useState<{ objekt_id: string; maskin_id: string; volym: number }[] | null>(null)
+  const egnaDimIds = useMemo(() => (manadsdata ? (manadsdata.egenSkotning ?? []).map(e => e.objekt_id).sort().join('|') : null), [manadsdata])
+  useEffect(() => {
+    setEgetRader(null)
+    if (egnaDimIds == null) return
+    let avbruten = false
+    hamtaEgetSkordat(ar, manad, egnaDimIds === '' ? [] : egnaDimIds.split('|')).then(r => {
+      if (avbruten) return
+      if (r.error != null) { console.error('[helikopter] eget skördat', r.error); setEgetRader([]) } else setEgetRader(r.data)
+    })
+    return () => { avbruten = true }
+  }, [egnaDimIds, ar, manad])
+
+  // Allt maskinerna gjort i månaden per objekt: det som inte räknas mot beställningen står under maskinen. null = inte läst (ingen rad).
+  const [maskinObjekt, setMaskinObjekt] = useState<MaskinObjektRad[] | null>(null)
+  useEffect(() => {
+    setMaskinObjekt(null)
+    let avbruten = false
+    hamtaMaskinObjekt(ar, manad).then(r => {
+      if (avbruten) return
+      if (r.error != null) console.error('[helikopter] utanför beställningen', r.error); else setMaskinObjekt(r.data)
+    })
+    return () => { avbruten = true }
+  }, [ar, manad, version])
 
   // ── Räkningen (allt som står på sidan) ──
   const dagar = useMemo(() => (manadsdata ? globalaArbetsdagar(manadsdata.arbetsdagar) : null), [manadsdata])
@@ -248,26 +254,33 @@ export default function HelikopterVy() {
       return rad ? raknaSpar(rad, dagar, manadsdata.takter) : null
     }).filter((x): x is SparLage => x != null)
   }, [manadsdata, dagar])
-  const antalPlanerade = useMemo(() => {
-    const n: Record<Typ, number> = { gallring: 0, slutavverkning: 0 }
-    for (const o of manadsdata?.planering ?? []) if (o.typ === 'gallring' || o.typ === 'slutavverkning') n[o.typ as Typ]++
-    return n
-  }, [manadsdata])
-  const kort = useMemo(() => spar.map(s => sparKort(s, status, antalPlanerade[s.typ])), [spar, status, antalPlanerade])
-  const svar = useMemo(() => sidSvar(kort, status), [kort, status])
-  const plan = useMemo<Record<Typ, PlaneratResultat>>(() => {
-    const ut = {} as Record<Typ, PlaneratResultat>
-    for (const t of TYPER) ut[t] = planeratPerTyp(manadsdata?.planering ?? [], t, spar.find(s => s.typ === t)?.bestallt ?? 0, fast?.avvikelse ?? [])
-    return ut
-  }, [manadsdata, spar, fast])
-  const gor = useMemo<GorRad[]>(() => {
-    if (!fast || !manadsdata) return []
-    return gorDetta({
-      status, maskinStopp: manadsdata.maskinStopp, manuella, maskiner: fast.maskiner, senasteLass, arbetsdagar: manadsdata.arbetsdagar,
-      rapportdagar: manadsdata.rapportdagar, idag, manadNamn, utanTyp: manadsdata.utanTyp, planering: manadsdata.planering, plan, klar: klarData, planer,
+  // Maskinernas volym i månaden per spår (samma rader som spårets summa). null = kunde inte läsas.
+  const maskinUtfall = useMemo<TavlaUtfall[] | null>(() => {
+    if (!manadsdata || manadsdata.takter == null) return null
+    return TYPER.flatMap(t => {
+      const rad = valjBas(manadsdata.spar, t)
+      return rad ? sparTakter(rad, manadsdata.takter).map(m => ({ typ: t, maskin_id: m.maskin_id, roll: m.roll, volym: m.volym_manad })) : []
     })
-  }, [fast, manadsdata, status, manuella, senasteLass, idag, manadNamn, plan, klarData, planer])
-  const klarVy = useMemo(() => (klarData && planer ? klarRader(klarData, planer, manadsdata?.maskinStopp ?? null) : null), [klarData, planer, manadsdata])
+  }, [manadsdata])
+  const tavlaIn = useMemo<TavlaIndata | null>(() => {
+    if (!manadsdata || spar.length === 0) return null
+    // Kön väntar på egen skotning-svaret, så en trakt aldrig hinner blinka som "ingen maskin".
+    const klarKlar = status !== 'avslutad' && klarData != null && egna != null
+    const stopp: Record<string, string | null> = {}
+    for (const m of manadsdata.maskinStopp ?? []) stopp[m.maskin_id] = status === 'avslutad' ? null : (planeringStoppText(m)?.split(' · ')[0] ?? null) // bara "Står 26–30 okt" — orsaken står i ledighetsvyn
+    // Egen skotning räknas mot beställningen bara för bolag som har en (som spårets egna tal).
+    const dim = new Map((manadsdata.egenSkotning ?? []).map(e => [e.objekt_id, e]))
+    const egetSkordat = (egetRader ?? []).flatMap(r => {
+      const e = dim.get(r.objekt_id)
+      const sp = spar.find(x => x.typ === e?.typ)
+      if (!e || !sp) return []
+      if (sp.bestallt > 0 && !sp.bolag.some(b => b.toLowerCase() === (e.bolag ?? '').toLowerCase())) return []
+      return [{ typ: sp.typ, maskin_id: r.maskin_id, volym: r.volym }]
+    })
+    return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), egetSkordat, stopp, utanfor: maskinObjekt ? utanforBestallning(maskinObjekt, spar) : undefined }
+  }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader, maskinObjekt])
+  const tavla = useMemo(() => (tavlaIn ? byggTavla(tavlaIn) : null), [tavlaIn])
+  const utanTypSumma = Math.round((manadsdata?.utanTyp ?? []).reduce((a, r) => a + r.volym, 0))
 
   const underrad = !dagar
     ? ''
@@ -280,26 +293,38 @@ export default function HelikopterVy() {
   const dinMaskin = maskinId && fast ? (fast.maskiner.find(m => m.maskin_id === maskinId) ?? null) : null
   const fel = fastFel ?? manadFel
   const laddar = laddarManad || (!fast && !fastFel)
-  const klart = !fel && !laddar && fast != null && manadsdata != null && dagar != null
+  const kolar = (status !== 'avslutad' && !klar.fel && (klar.laddar || (klar.data != null && egna == null))) || (manadsdata != null && egetRader == null)
+  const klart = !fel && !laddar && !kolar && fast != null && manadsdata != null && dagar != null && tavla != null
 
   // ── Arken ──
-  // Sidans egna ark ligger i samma PanelContext som arkens egna val (ägare 'sida'), så bara ETT är öppet. Läses direkt ur tillståndet:
-  // den här komponenten står utanför sin egen Provider.
+  // Sidans egna ark ligger i samma PanelContext som arkens egna val (ägare 'sida'), så bara ETT är öppet.
   const ark: Ark | null = panel?.agare === 'sida' ? (panel.val as Ark) : null
   const setArk = useCallback((v: Ark | null) => setPanel(v == null ? null : { agare: 'sida', val: v }), [])
-  const oppnaGor = (r: GorRad) => {
-    if (r.oppnar === 'ladda_om') { window.location.reload(); return }
-    setArk(r.oppnar)
-  }
   const stang = () => setArk(null)
-  const valdMaskin: KlarRad | null = ark && ark.startsWith('maskin:') ? (klarVy?.find(r => r.maskin_id === ark.slice(7)) ?? null) : null
-  // Flytten skrivs till objektet (samma kolumn som planeringsverktyget) och klar-underlaget läses om; ett fel visas i arket.
-  const flytta = async (f: FlyttForslag): Promise<string | null> => {
-    const r = await tilldelaMaskin(f.objekt_id, f.roll, f.till.maskin_id)
-    if (r.error) return r.error
+  // Flytta en trakt: "flytta:<roll>:<objekt_id>". Valen räknas om på samma underlag som tavlan.
+  const flyttaVal: TraktVal | null = ark && ark.startsWith('flytta:') ? { roll: ark.split(':')[1] as TraktVal['roll'], objekt_id: ark.split(':').slice(2).join(':') } : null
+  const flyttaVy = useMemo(() => (flyttaVal && tavlaIn ? flyttVal(tavlaIn, flyttaVal.objekt_id, flyttaVal.roll) : null), [flyttaVal?.objekt_id, flyttaVal?.roll, tavlaIn]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Flytten skrivs till objektet (samma kolumn som planeringsverktyget) och underlaget läses om; ett fel visas i arket.
+  const flytta = async (maskinId: string): Promise<string | null> => {
+    if (!flyttaVal) return 'Ingen trakt vald'
+    const varEgen = flyttaVal.roll === 'skotare' && (egna?.has(flyttaVal.objekt_id) ?? false)
+    if (maskinId === EGEN_SKOTNING) {
+      const r = await sattEgenSkotning(flyttaVal.objekt_id, true)
+      if (r.error) return r.error
+    } else {
+      if (varEgen) {
+        const e = await sattEgenSkotning(flyttaVal.objekt_id, false)
+        if (e.error) return e.error
+      }
+      const r = await tilldelaMaskin(flyttaVal.objekt_id, flyttaVal.roll, maskinId)
+      if (r.error) return r.error
+    }
+    // Egen skotning ändrar också månadens tal (spåren räknar inte med de trakterna): läs om allt.
+    if (maskinId === EGEN_SKOTNING || varEgen) setVersion(v => v + 1)
     await klar.ladda()
     return null
   }
+  const kanFlytta = arAdmin && status !== 'avslutad'
 
   // Månadspilarna är blå (navigerar). Mellan pilarna står alltid månaden man tittar på; Idag är en egen liten länk (KNAPP.tertiar)
   // som bara finns när vald månad inte är innevarande — samma mönster som ledighetens kalender.
@@ -345,35 +370,30 @@ export default function HelikopterVy() {
                 fel ? <Fel onRetry={() => setVersion(v => v + 1)} /> : <Laddar vad={manadNamn} />
               ) : (
                 <>
-                  <Svarsrad rubrik={svar.rubrik} avvikelse={svar.avvikelse} />
+                  <Svarsrad rubrik={tavla.svar.rubrik} avvikelse={tavla.svar.avvikelse} />
+                  {status !== 'avslutad' && klar.fel && (
+                    <RadGrupp><RadLank orange text="Kunde inte läsa maskinernas trakter" smakprov="försök igen" onClick={() => void klar.ladda()} sista /></RadGrupp>
+                  )}
                   <div className="hk-rutnat">
-                    <SkotatSektion kort={kort} />
-                    <EgenSkotningSektion rader={manadsdata.egenSkotning == null ? null : egenSkotningVy(manadsdata.egenSkotning)} onRetry={() => setVersion(v => v + 1)} />
-                    <GorDettaSektion rader={gor} onOppna={oppnaGor} onAlla={() => setArk('alla')} />
-                    {status !== 'avslutad' && (
-                      <KlarSektion rader={klarVy} fel={klar.fel} laddar={klar.laddar} sistaArbetsdag={klar.data?.sista_arbetsdag ?? null} onRetry={() => void klar.ladda()} onOppna={r => setArk(`maskin:${r.maskin_id}`)} />
-                    )}
+                    <Tavla tavla={tavla} onTrakt={kanFlytta ? v => setArk(`flytta:${v.roll}:${v.objekt_id}`) : undefined} />
                     {dinMaskin && <DinMaskinSektion maskinNamn={maskinNamn(dinMaskin)} lage={maskinLage} fel={maskinLageFel} onRetry={() => setVersion(v => v + 1)} />}
                     <Sektion rubrik="Mer" kort={false}>
                       <RadGrupp marginBottom={0}>
-                        <RadLank text="Skördat" onClick={() => setArk('skordat')} />
-                        <RadLank text="Maskiner" smakprov="m³fub i månaden" onClick={() => setArk('maskiner_manad')} />
-                        <RadLank text="Takt och stopp" onClick={() => setArk('maskiner')} />
-                        <RadLank text="Träffsäkerhet" smakprov="prognos mot utfall" onClick={() => setArk('traffsakerhet')} />
+                        {manadsdata.utanTyp == null && <RadLank orange text="Objekt utan typ kunde inte läsas" smakprov="ladda om" onClick={() => setVersion(v => v + 1)} />}
+                        {utanTypSumma > 0 && <RadLank orange text={`${fmt(utanTypSumma)} m³fub saknar typ`} smakprov="räknas inte" onClick={() => setArk('utan')} />}
+                        <RadLank text="Träffsäkerhet" onClick={() => setArk('traffsakerhet')} />
                         <RadLank text="Veckor" onClick={() => setArk('veckor')} />
                         <RadLank text="Per bolag" onClick={() => setArk('bolagval')} />
-                        {status !== 'avslutad' && <RadLank text="Månadsplan" smakprov="dela som A4" href={planHref(ar, manad)} />}
-                        {status === 'avslutad' && <RadLank text="Månadsfacit" smakprov="dela som A4" href={facitHref(ar, manad)} />}
+                        {status !== 'avslutad' && <RadLank text="Månadsplan" href={planHref(ar, manad)} />}
+                        {status === 'avslutad' && <RadLank text="Månadsfacit" href={facitHref(ar, manad)} />}
+                        {arAdmin && <RadLank text="Onsdagsnotis" onClick={() => setArk('notis')} />}
                         {/* Från 1100 px står månaderna i sidokolumnen; under det nås de här. */}
                         {fonsterBredd < SIDOKOLUMN_FRAN_PX && <RadLank text="Tidigare månader" onClick={() => setArk('historik')} />}
                       </RadGrupp>
                     </Sektion>
-                    {arAdmin && <VeckoNotisSektion />}
                   </div>
 
-                  <SkordatSheet open={ark === 'skordat'} onClose={stang} spar={spar} status={status} />
                   <TraffsakerhetSheet open={ark === 'traffsakerhet'} onClose={stang} />
-                  <MaskinerManadSheet open={ark === 'maskiner_manad'} onClose={stang} maskiner={maskinerManad?.nyckel === nyckel ? maskinerManad.rader : null} fel={maskinerFel} onRetry={() => { setMaskinerManad(null); setVersion(v => v + 1) }} manadNamn={manadNamn} manuella={manuella} />
                   {/* Veckor och Per bolag: ett spår i taget — valet i ett litet ark så Mer inte blir en lång lista. */}
                   {(ark === 'veckor' || ark === 'bolagval') && (
                     <Sheet open onClose={stang} title={ark === 'veckor' ? 'Veckor' : 'Per bolag'}>
@@ -384,13 +404,9 @@ export default function HelikopterVy() {
                       </RadGrupp>
                     </Sheet>
                   )}
-                  <AllaSakerSheet open={ark === 'alla'} onClose={stang} rader={gor} onOppna={oppnaGor} />
-                  <MaskinTrakterSheet open={valdMaskin != null} onClose={stang} rad={valdMaskin} />
-                  <FlyttSheet open={ark === 'flytt'} onClose={stang} forslag={flytt} planer={planer} onFlytta={flytta} />
-                  <MaskinerSheet open={ark === 'maskiner'} onClose={stang} spar={spar} status={status} maskiner={kapacitetsMaskiner(fast.maskiner, idag)} idag={idag} stopp={manadsdata.maskinStopp} />
+                  {flyttaVal && flyttaVy && <FlyttaSheet key={ark} open onClose={stang} namn={flyttaVy.namn} val={flyttaVy.val} onFlytta={flytta} />}
+                  {ark === 'notis' && <Sheet open onClose={stang} title="Onsdagsnotis"><VeckoNotisSektion /></Sheet>}
                   <UtanTypSheet open={ark === 'utan'} onClose={stang} rader={manadsdata.utanTyp ?? []} manadNamn={manadNamn} />
-                  <EjTilldeladeSheet open={ark === 'ej'} onClose={stang} objekt={manadsdata.planering} ar={ar} manad={manad} />
-                  <MotBestallningSheet open={ark === 'best'} onClose={stang} plan={plan} spar={spar} objekt={manadsdata.planering} avvikelse={fast.avvikelse} />
                   {bolagTyp && (
                     <BolagSheet
                       open onClose={stang} typ={bolagTyp}
