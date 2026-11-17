@@ -10,7 +10,8 @@
 // och skälet sägs. Ett läsfel är ett fel — aldrig en tyst "ingen prognos".
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { beraknaG15Forslag, type Metod, type UtfallRad } from '@/lib/g15Forslag'
+import { beraknaG15Forslag, skotarKlass, utfallUrRpc, type Metod, type UtfallRad } from '@/lib/g15Forslag'
+import { lasSkogKort, medLaser } from '@/lib/skogsdata/las'
 
 export type AppPrognos = {
   skordare?: number
@@ -20,15 +21,21 @@ export type AppPrognos = {
   /** Antal trakter bakom talet, per roll. */
   antal: Partial<Record<'skordare' | 'skotare', number>>
   raknad: string
-  kalla: 'import' | 'frys'
+  kalla: 'import' | 'frys' | 'laser'
+  /** Skördarens timmar UTAN laserdatan (snittet över typen) — sparas bara när metoden är 'laser', så de två går att jämföra mot utfallet. */
+  utanLaser?: number
 }
 
-export type FrysIndata = { typ: string | null; volym: number | null; medelstam: number | null; basvagTimmar?: number | null }
+export type FrysIndata = { typ: string | null; volym: number | null; medelstam: number | null; basvagTimmar?: number | null; laserDiaCm?: number | null; skotareKlass?: string | null }
 
 /** Ren: appens prognos ur utfallet, eller null när ingen roll får ett förslag. */
 export function beraknaAppPrognos(o: FrysIndata, utfall: UtfallRad[], nu: Date, kalla: AppPrognos['kalla']): AppPrognos | null {
-  const f = beraknaG15Forslag({ typ: o.typ, volym: o.volym, medelstam: o.medelstam, basvagTimmar: o.basvagTimmar ?? null }, utfall)
+  const f = beraknaG15Forslag({ typ: o.typ, volym: o.volym, medelstam: o.medelstam, basvagTimmar: o.basvagTimmar ?? null, laserDiaCm: o.laserDiaCm ?? null, skotareKlass: o.skotareKlass ?? null }, utfall)
   const ut: AppPrognos = { metod: {}, antal: {}, raknad: nu.toISOString(), kalla }
+  if (f.skordare.ok && f.skordare.forslag.metod === 'laser') {
+    const utan = beraknaG15Forslag({ typ: o.typ, volym: o.volym, medelstam: null, basvagTimmar: o.basvagTimmar ?? null }, utfall).skordare
+    if (utan.ok) ut.utanLaser = utan.forslag.g15
+  }
   for (const roll of ['skordare', 'skotare'] as const) {
     const r = f[roll]
     if (!r.ok) continue
@@ -52,22 +59,17 @@ export function lasAppPrognos(raw: unknown): Partial<Record<'skordare' | 'skotar
 
 export type FrysUtfall =
   | { status: 'fryst'; prognos: AppPrognos }
-  | { status: 'hoppad'; skal: 'redan_fryst' | 'inte_virke' | 'ingen_volym' | 'maskinen_har_borjat' | 'inget_forslag' }
+  | { status: 'hoppad'; skal: 'redan_fryst' | 'inte_virke' | 'ingen_volym' | 'maskinen_har_borjat' | 'inget_forslag' | 'vantar_pa_laser' }
   | { status: 'fel'; fel: string }
 
 /** Utfallet ur RPC:n prognos_utfall, i formen beraknaG15Forslag vill ha. */
 export async function hamtaUtfall(sb: SupabaseClient): Promise<{ data: UtfallRad[] | null; error: string | null }> {
-  const r = await sb.rpc('prognos_utfall')
+  // prognos_utfall_2 bär också skotarens maskin; saknas den (äldre databas) läses den gamla — då räknas skotaren som snitt.
+  let r = await sb.rpc('prognos_utfall_2')
+  if (r.error) r = await sb.rpc('prognos_utfall')
   if (r.error) return { data: null, error: r.error.message }
   if (!Array.isArray(r.data)) return { data: null, error: 'prognos_utfall gav ett oväntat svar' }
-  const tal = (v: unknown) => { const n = Number(v); return v == null || !Number.isFinite(n) ? null : n }
-  return {
-    data: r.data.map((x: any): UtfallRad => ({
-      typ: x.typ ?? null, volymObjekt: tal(x.volym_objekt), skordadM3: tal(x.skordad_m3), stammar: tal(x.stammar),
-      skordareG15: tal(x.skordare_g15), skotareG15: tal(x.skotare_g15),
-    })),
-    error: null,
-  }
+  return { data: r.data.map(utfallUrRpc), error: null }
 }
 
 /** Finns G15-tid på trakten (fakt_tid under dess dim_objekt-rader: samma koppling som helikopter_ny_klar)? Ett läsfel kastar. */
@@ -88,9 +90,13 @@ async function maskinenHarBorjat(sb: SupabaseClient, o: { vo_nummer: string | nu
 /**
  * Fryser appens prognos på ett objekt. Skriver bara när app_prognos är NULL (vakt i UPDATE:n också) och maskinen inte börjat. `utfall` kan
  * skickas in (engångsfyllningen läser det en gång för alla objekt), annars läses det här.
+ *
+ * LASERDATAN (2026-11-17): saknar trakten medelstam härleds den ur laserskanningen (objekt_skogsdata, lib/g15Forslag 'laser'). Den hämtas av
+ * timjobbet /api/cron/skogsdata, alltså EFTER importen. `vantaPaLaser` (importen) hoppar därför över en trakt utan medelstam som ännu saknar
+ * laserdata — timjobbet fryser den när datan finns (eller när trakten visat sig sakna traktgräns). Går laserdatan inte att läsa räknas utan den.
  */
-export async function frysAppPrognos(sb: SupabaseClient, objektId: string, opts: { utfall?: UtfallRad[]; kalla: AppPrognos['kalla']; nu?: Date }): Promise<FrysUtfall> {
-  const o = await sb.from('objekt').select('id, typ, volym, medelstam, basvag_timmar, app_prognos, vo_nummer, dim_objekt_id').eq('id', objektId).maybeSingle()
+export async function frysAppPrognos(sb: SupabaseClient, objektId: string, opts: { utfall?: UtfallRad[]; kalla: AppPrognos['kalla']; nu?: Date; vantaPaLaser?: boolean }): Promise<FrysUtfall> {
+  const o = await sb.from('objekt').select('id, typ, volym, medelstam, basvag_timmar, app_prognos, vo_nummer, dim_objekt_id, skotare_maskin_id').eq('id', objektId).maybeSingle()
   if (o.error) return { status: 'fel', fel: `objekt: ${o.error.message}` }
   if (!o.data) return { status: 'fel', fel: 'objektet finns inte' }
   const rad: any = o.data
@@ -111,8 +117,24 @@ export async function frysAppPrognos(sb: SupabaseClient, objektId: string, opts:
     utfall = u.data
   }
   const medelstam = Number(rad.medelstam)
+  const harMedelstam = Number.isFinite(medelstam) && medelstam > 0
   const basvag = Number(rad.basvag_timmar)
-  const prognos = beraknaAppPrognos({ typ, volym, medelstam: Number.isFinite(medelstam) && medelstam > 0 ? medelstam : null, basvagTimmar: Number.isFinite(basvag) ? basvag : null }, utfall, opts.nu ?? new Date(), opts.kalla)
+  let laserDiaCm: number | null = null
+  if (!harMedelstam) {
+    const skog = await lasSkogKort(sb)
+    if (skog.error) console.error('[appPrognos] objekt_skogsdata', skog.error)
+    laserDiaCm = skog.data?.get(objektId)?.diaCm ?? null
+    if (opts.vantaPaLaser && skog.data && !skog.data.has(objektId)) return { status: 'hoppad', skal: 'vantar_pa_laser' }
+    utfall = medLaser(utfall, skog.data)
+  }
+  // Skotarens sort (vald maskin på trakten): förslaget räknas då på trakter som samma sorts skotare kört. Ingen vald, eller läsfel = snittet som förut.
+  let skotareKlass: string | null = null
+  if (rad.skotare_maskin_id) {
+    const m = await sb.from('dim_maskin').select('modell').eq('maskin_id', rad.skotare_maskin_id).maybeSingle()
+    if (m.error) console.error('[appPrognos] dim_maskin', m.error.message)
+    skotareKlass = skotarKlass((m.data as any)?.modell ?? null)
+  }
+  const prognos = beraknaAppPrognos({ typ, volym, medelstam: harMedelstam ? medelstam : null, basvagTimmar: Number.isFinite(basvag) ? basvag : null, laserDiaCm, skotareKlass }, utfall, opts.nu ?? new Date(), opts.kalla)
   if (!prognos) return { status: 'hoppad', skal: 'inget_forslag' }
   const w = await sb.from('objekt').update({ app_prognos: prognos }).eq('id', objektId).is('app_prognos', null).select('app_prognos')
   if (w.error) return { status: 'fel', fel: `skrivning: ${w.error.message}` }

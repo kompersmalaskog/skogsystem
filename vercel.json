@@ -55,6 +55,10 @@
       "schedule": "23 * * * *"
     },
     {
+      "path": "/api/cron/skogsdata",
+      "schedule": "37 * * * *"
+    },
+    {
       "path": "/api/cron/kalibrering-grepp",
       "schedule": "10,40 * * * *"
     },

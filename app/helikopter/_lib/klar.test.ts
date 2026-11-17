@@ -3,7 +3,7 @@ import { fmt, fmtDag } from './format'
 import fixtur from './__fixtures__/klar_2026-10-17.json'
 import fixtur11 from './__fixtures__/klar_2026-11_fran_2026-10-17.json'
 import {
-  bastaFlytt, dagarSaknas, flyttText, klarSvar, lasKlar, maskinHoger, maskinUnderrad, medFoljandePrognos, otilldelade, raknaAlla, raknaMaskin, valForTrakt,
+  bastaFlytt, dagarSaknas, flyttText, klarSvar, lasKlar, maskinHoger, maskinUnderrad, medFoljandePrognos, medMattVolym, medPrognoser, otilldelade, raknaAlla, raknaMaskin, valForTrakt,
   type KlarData, type KlarMaskin, type KlarTrakt,
 } from './klar'
 
@@ -288,5 +288,56 @@ describe('lasKlar', () => {
     const trasig = structuredClone(fixtur) as any
     trasig.trakter[0].sortn = 'x'
     expect(() => lasKlar(trasig)).toThrow(/sortn/)
+  })
+})
+
+describe('medMattVolym — volymen mäts på trakten (laser × uppmätt uttag)', () => {
+  const m = maskin({ maskin_id: 'M', roll: 'skordare' })
+  const uttag = (o: Partial<import('@/lib/skogsdata/uttag').SparatUttag>) => ({ antal: 500, raknad: '', skordat: 400, klar: false, matt: null, ...o })
+  const matt = { stammar: 500, skordat: 400, medelstam: 0.05, gattHa: 8, kvarHa: 7, laserGatt: 800, laserKvar: 1600, uttag: 0.5, total: 1200 }
+  it('gallring, över halva ytan gådd: Vidas volym byts mot den uppmätta, och prognosens takt räknas fortfarande på Vidas', () => {
+    // Vida: 1 620 m³ på 162 tim = 10 m³/tim. Uppmätt: 400 m³ på 80 tim = 5 m³/tim. Viktat (8 tim prior): (10×8 + 5×80)/88 = 5,4545
+    const d = data({ maskiner: [m], trakter: [trakt({ objekt_id: 'a', typ: 'gallring', roll: 'skordare', maskin_id: 'M', volym: 1620, prognos_h: 162, timmar: 82, utfort_h: 80, utfort_volym: 400 })] })
+    const skog = new Map([['a', { diaCm: 17, uttag: uttag({ matt }) }]])
+    const t = medPrognoser(d, null, skog).trakter[0]
+    expect(t.volym).toBe(1200)
+    expect(t.matt).toEqual({ total: 1200, vida: 1620, klar: false })
+    expect(t.timmar).toBeCloseTo(800 / (480 / 88), 1)             // (1200 − 400) / 5,4545 = 146,67
+    // utan uppmätt volym hade resten räknats på Vidas 1 620: (1620 − 400) / 5,4545 = 223,67
+    expect(medPrognoser(d, null, null).trakter[0].timmar).toBeCloseTo(1220 / (480 / 88), 1)
+  })
+  it('en fjärdedel av ytan gådd: den uppmätta väger hälften, Vidas hälften (provet: tillsammans träffar de bäst)', () => {
+    const d = data({ maskiner: [m], trakter: [trakt({ objekt_id: 'a', typ: 'gallring', roll: 'skordare', maskin_id: 'M', volym: 1620 })] })
+    const tidig = { ...matt, gattHa: 3.75, kvarHa: 11.25 }
+    expect(medMattVolym(d, new Map([['a', { diaCm: null, uttag: uttag({ matt: tidig }) }]])).trakter[0].volym).toBe(1410)
+    // utan Vidas volym gäller den uppmätta ensam
+    const utan = data({ maskiner: [m], trakter: [trakt({ objekt_id: 'a', typ: 'gallring', roll: 'skordare', maskin_id: 'M', volym: null })] })
+    expect(medMattVolym(utan, new Map([['a', { diaCm: null, uttag: uttag({ matt: tidig }) }]])).trakter[0].volym).toBe(1200)
+  })
+  it('slutavverkning: Vidas volym står kvar medan skördaren kör (provet: Vida träffar bättre där)', () => {
+    const d = data({ maskiner: [m], trakter: [trakt({ objekt_id: 'a', roll: 'skordare', maskin_id: 'M', volym: 1620 })] })
+    const t = medMattVolym(d, new Map([['a', { diaCm: null, uttag: uttag({ matt }) }]])).trakter[0]
+    expect(t.volym).toBe(1620); expect(t.matt).toBeUndefined()
+  })
+  it('skotare: kvar att skota = uppmätt total − skotat', () => {
+    const d = data({ maskiner: [maskin({ maskin_id: 'S' })], trakter: [trakt({ objekt_id: 'a', typ: 'gallring', maskin_id: 'S', volym: 1620, rest_volym: 1520, utfort_volym: 100 })] })
+    const t = medMattVolym(d, new Map([['a', { diaCm: null, uttag: uttag({ matt }) }]])).trakter[0]
+    expect(t.rest_volym).toBe(1100)
+  })
+  it('skördningen klar: volymen är det som skördats', () => {
+    const d = data({ maskiner: [m], trakter: [trakt({ objekt_id: 'a', roll: 'skordare', maskin_id: 'M', volym: 1620 })] })
+    const t = medMattVolym(d, new Map([['a', { diaCm: null, uttag: uttag({ klar: true, skordat: 733.4, matt }) }]])).trakter[0]
+    expect(t.volym).toBe(733)
+    expect(t.matt!.klar).toBe(true)
+  })
+  it('inget uppmätt (för lite gått), GROT, okänd trakt eller ingen laserdata: orört', () => {
+    const d = data({ maskiner: [m], trakter: [
+      trakt({ objekt_id: 'a', typ: 'gallring', roll: 'skordare', maskin_id: 'M', volym: 1620 }),
+      trakt({ objekt_id: 'g', typ: 'grot', maskin_id: 'M', volym: 300 }),
+      trakt({ objekt_id: 'x', roll: 'skordare', maskin_id: 'M', volym: 500 }),
+    ] })
+    const skog = new Map([['a', { diaCm: 17, uttag: uttag({ matt: null }) }], ['g', { diaCm: null, uttag: uttag({ matt }) }]])
+    expect(medMattVolym(d, skog).trakter.map(t => [t.volym, t.matt])).toEqual([[1620, undefined], [300, undefined], [500, undefined]])
+    expect(medMattVolym(d, null)).toBe(d)
   })
 })

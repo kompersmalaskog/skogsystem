@@ -20,8 +20,9 @@
 import { TYP_NAMN, klararTyp } from './berakningar'
 import { MANAD_NAMN, fmt, fmtDag, kortNamn } from './format'
 import type { Maskin, Typ } from './queries'
-import { beraknaG15Forslag, type UtfallRad } from '@/lib/g15Forslag'
+import { beraknaG15Forslag, skotarKlass, type UtfallRad } from '@/lib/g15Forslag'
 import { foljPrognos } from '@/lib/prognosFoljer'
+import { medLaser, type SkogKort } from '@/lib/skogsdata/las'
 
 /** Trakttyperna i en maskins kö: virke (räknas mot beställningen) och GROT/energiklippning (räknas bara i kön). */
 export type KlarTyp = Typ | 'grot' | 'energiklippning'
@@ -64,6 +65,8 @@ export type KlarTrakt = {
   uppskattad?: boolean
   /** timmar räknas på traktens egen takt (medFoljandePrognos): resten enligt prognosen rakt av, och uppmätt takt mot prognosens. */
   foljer?: { restPlanH: number | null; skillnad: number | null; utfortH: number }
+  /** `volym` är uppmätt på trakten (medMattVolym): laserns volym × uttaget skördaren faktiskt gjort. `vida` = volymen som stod där förut. */
+  matt?: { total: number; vida: number | null; klar: boolean }
 }
 
 export type KlarMaskinTrakt = { objekt_id: string; fran: string | null; till: string | null }
@@ -73,6 +76,8 @@ export type KlarMaskin = {
   namn: string
   roll: KlarRoll
   klarar_typ: string
+  /** dim_maskin.modell — läggs på av hamtaKlar; skotarens sort (skotarKlass) styr vilka trakter G15-förslaget räknas på. Saknas = snittet. */
+  modell?: string | null
   manuell: boolean
   g15_per_dag: number
   ej_matt: boolean
@@ -270,15 +275,55 @@ export function senasteKlar(planer: Record<string, MaskinPlan>): string | null {
  * datum i stället för "?". Skotarens rest skalas med det som är kvar att skota (rest_volym / volym). Manuell maskin (810E) räknar på volym
  * och rörs inte; GROT/energiklippning har inget förslag; utan utfall (null = kunde inte läsas) ändras inget.
  */
-export function medUppskattadPrognos(d: KlarData, utfall: UtfallRad[] | null): KlarData {
+export function medUppskattadPrognos(d: KlarData, utfall: UtfallRad[] | null, skog: Map<string, SkogKort> | null = null): KlarData {
   if (!utfall || utfall.length === 0) return d
   const manuella = new Set(d.maskiner.filter(m => m.manuell).map(m => m.maskin_id))
+  const klass = new Map(d.maskiner.map(m => [m.maskin_id, skotarKlass(m.modell)] as const))
   const trakter = d.trakter.map(t => {
     if (t.timmar != null || !arVirke(t.typ) || t.volym == null || t.volym <= 0 || (t.maskin_id != null && manuella.has(t.maskin_id))) return t
-    const f = beraknaG15Forslag({ typ: t.typ, volym: t.volym, medelstam: t.medelstam }, utfall)[t.roll]
+    const f = beraknaG15Forslag({ typ: t.typ, volym: t.volym, medelstam: t.medelstam, laserDiaCm: skog?.get(t.objekt_id)?.diaCm ?? null,
+      skotareKlass: t.roll === 'skotare' && t.maskin_id != null ? klass.get(t.maskin_id) ?? null : null }, utfall)[t.roll]
     if (!f.ok) return t
     const andel = t.roll === 'skotare' && t.rest_volym != null ? Math.max(0, Math.min(1, t.rest_volym / t.volym)) : 1
     return { ...t, timmar: Math.round(f.forslag.g15 * andel * 100) / 100, prognos_h: f.forslag.g15, saknar_prognos: false, uppskattad: true }
+  })
+  return { ...d, trakter }
+}
+
+/** Under så här stor skillnad mot Vidas volym sägs inget om den uppmätta (den ändrar ändå bara lite). */
+export const MATT_VISA_FRAN = 0.05
+
+/** Den uppmätta volymen väger fullt först när skördaren gått så här stor del av traktens yta; före det vägs den ihop med Vidas volym. */
+export const MATT_FULL_ANDEL = 0.5
+
+/**
+ * VOLYMEN MÄTS PÅ TRAKTEN (2026-11-17, lib/skogsdata/uttag): när skördaren gått en bit vet vi uttaget där, och lasern säger hur mycket som står
+ * i resten. Traktens volym byts då mot skördat + resten × uttaget — för båda rollerna, för det är samma virke skotaren ska köra ut.
+ * Körs FÖRE medFoljandePrognos, som räknar resten av timmarna på den volymen. Utan uppmätt uttag ändras inget.
+ *
+ * FACIT (provet på 22 avslutade trakter, prod 2026-11-17 — objekt_skogsdata.uttag.prov) styr två regler:
+ *  · BARA GALLRING. I slutavverkning träffar Vidas volym bättre (medianfel ca 4 %) än den uppmätta vid halva trakten (ca 17 %) — där tas allt,
+ *    och det som inte gås är hänsyn, inte virke. I gallring är det tvärtom: Vida ca 23 %, uppmätt vid halva trakten ca 9 %.
+ *  · VÄGS IN EFTER HUR MYCKET SOM ÄR GÅTT. Vid en fjärdedel av trakten är den uppmätta inte bättre än Vidas (ca 26 % mot 23 %), men de två
+ *    tillsammans är det (ca 16 %). Vikten växer därför rakt med andelen gådd yta och är full vid MATT_FULL_ANDEL. Saknas Vidas volym gäller
+ *    den uppmätta ensam.
+ * Är skördningen klar är volymen det som skördats — för båda typerna.
+ */
+export function medMattVolym(d: KlarData, skog: Map<string, SkogKort> | null): KlarData {
+  if (!skog || skog.size === 0) return d
+  const trakter = d.trakter.map(t => {
+    if (!arVirke(t.typ)) return t
+    const u = skog.get(t.objekt_id)?.uttag
+    let total: number | null = null
+    if (u?.klar) total = u.skordat > 0 ? Math.round(u.skordat) : null
+    else if (u?.matt && t.typ === 'gallring') {
+      const yta = u.matt.gattHa + u.matt.kvarHa
+      const vikt = t.volym != null && t.volym > 0 && yta > 0 ? Math.min(1, u.matt.gattHa / yta / MATT_FULL_ANDEL) : 1
+      total = Math.round(vikt * u.matt.total + (1 - vikt) * (t.volym ?? 0))
+    }
+    if (total == null || !(total > 0)) return t
+    const rest = t.roll === 'skotare' ? Math.max(0, Math.round((total - t.utfort_volym) * 10) / 10) : t.rest_volym
+    return { ...t, volym: total, rest_volym: rest, matt: { total, vida: t.volym, klar: u!.klar } }
   })
   return { ...d, trakter }
 }
@@ -292,11 +337,19 @@ export function medFoljandePrognos(d: KlarData): KlarData {
   const manuella = new Set(d.maskiner.filter(m => m.manuell).map(m => m.maskin_id))
   const trakter = d.trakter.map(t => {
     if (!arVirke(t.typ) || (t.maskin_id != null && manuella.has(t.maskin_id))) return t
-    const f = foljPrognos({ volym: t.volym, prognosH: t.prognos_h, utfortH: t.utfort_h, utfortVolym: t.utfort_volym })
+    const f = foljPrognos({ volym: t.volym, prognosH: t.prognos_h, utfortH: t.utfort_h, utfortVolym: t.utfort_volym, prognosVolym: t.matt?.vida ?? null })
     if (!f) return t
     return { ...t, timmar: f.restH, saknar_prognos: false, foljer: { restPlanH: f.restPlanH, skillnad: f.skillnad, utfortH: f.utfortH } }
   })
   return { ...d, trakter }
+}
+
+/**
+ * Hela kedjan i den ordning den ska gå — EN funktion för sidan och månadsplanen: G15-förslag (med laserns medelstam när trakten saknar en),
+ * uppmätt volym, och sist prognosen som följer trakten. `skog` null = laserdatan kunde inte läsas: då räknas allt som före laserdatan.
+ */
+export function medPrognoser(d: KlarData, utfall: UtfallRad[] | null, skog: Map<string, SkogKort> | null): KlarData {
+  return medFoljandePrognos(medMattVolym(medUppskattadPrognos(d, utfall ? medLaser(utfall, skog) : utfall, skog), skog))
 }
 
 /** Trakter vars roll saknar maskin bland våra kapacitetsmaskiner (ingen vald, eller en vi inte räknar på) — de får inte försvinna tyst. */

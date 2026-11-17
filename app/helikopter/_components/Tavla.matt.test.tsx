@@ -15,7 +15,7 @@ import { FARG, FONT, TRAFFYTA } from '@/lib/design/tokens'
 import { hittaChromium } from '../../../lib/testStod/chromium'
 
 const q = vi.hoisted(() => ({
-  hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaMaskinLage: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaPrognosFacit: vi.fn(),
+  hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaMaskinLage: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaSkogKort: vi.fn(async () => ({ data: new Map(), error: null })), hamtaPrognosFacit: vi.fn(),
   tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), hamtaMaskinObjekt: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgetSkordat: vi.fn(async () => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(),
 }))
 vi.mock('../_lib/queries', () => q)

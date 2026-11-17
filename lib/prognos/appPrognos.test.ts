@@ -67,7 +67,16 @@ describe('frysAppPrognos (mot fake)', () => {
     expect(r.status).toBe('fryst')
     expect(f.skrivningar).toHaveLength(1)
     expect(f.skrivningar[0].app_prognos.skordare).toBe(Math.round(500 / 40))
-    expect(f.rpc).toHaveBeenCalledWith('prognos_utfall')
+    expect(f.rpc).toHaveBeenCalledWith('prognos_utfall_2')
+  })
+  it('importen väntar på laserdatan: trakt utan medelstam och utan rad i objekt_skogsdata hoppas över, timjobbet fryser den sedan', async () => {
+    const f = fake({ objekt })
+    const r = await frysAppPrognos(f.sb, 'o1', { kalla: 'import', nu, vantaPaLaser: true })
+    expect(r).toEqual({ status: 'hoppad', skal: 'vantar_pa_laser' })
+    expect(f.skrivningar).toHaveLength(0)
+    // med medelstam behövs ingen laserdata: fryses direkt
+    const g = fake({ objekt: { ...objekt, medelstam: 0.5 } })
+    expect((await frysAppPrognos(g.sb, 'o1', { kalla: 'import', nu, vantaPaLaser: true })).status).not.toBe('hoppad')
   })
   it('redan fryst / inte virke / ingen volym / maskinen har börjat → hoppad, ingen skrivning', async () => {
     const fall: [Parameters<typeof fake>[0], string][] = [

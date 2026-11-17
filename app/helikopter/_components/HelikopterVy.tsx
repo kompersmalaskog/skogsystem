@@ -28,12 +28,13 @@ import { AVSTAND, FARG, FONT, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, T
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
-  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, tilldelaMaskin,
+  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, hamtaSkogKort, tilldelaMaskin,
   type BolagRad, type FastData, type Manadsdata, type MaskinLage, type Typ,
 } from '../_lib/queries'
 import { TYPER, TYP_NAMN, globalaArbetsdagar, manadStatus, maskinNamn, planeringStoppText, raknaSpar, sparTakter, valjBas, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, manadRubrik, relativTid } from '../_lib/format'
-import { medFoljandePrognos, medUppskattadPrognos } from '../_lib/klar'
+import { medPrognoser } from '../_lib/klar'
+import type { SkogKort } from '@/lib/skogsdata/las'
 import { EGEN_SKOTNING, byggTavla, flyttVal, utanforBestallning, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
@@ -172,6 +173,18 @@ export default function HelikopterVy() {
     return () => { avbruten = true }
   }, [version])
 
+  // Laserdatan och det uppmätta uttaget per trakt (objekt_skogsdata) — en gång. null = inte läst eller kunde inte läsas: prognosen räknas då utan.
+  const [skog, setSkog] = useState<Map<string, SkogKort> | null>(null)
+  useEffect(() => {
+    let avbruten = false
+    hamtaSkogKort().then(r => {
+      if (avbruten) return
+      if (r.error != null) console.error('[helikopter] objekt_skogsdata', r.error)
+      else setSkog(r.data)
+    })
+    return () => { avbruten = true }
+  }, [version])
+
   // Per bolag — först när arket öppnas, cachat per månad.
   const bolagOppet = panel?.agare === 'sida' && panel.val.startsWith('bolag:')
   useEffect(() => {
@@ -189,7 +202,7 @@ export default function HelikopterVy() {
   const klar = useKlar(ar, manad, idag, status !== 'avslutad')
   // Underlaget med uppskattade prognoser, och planerna (klar-datum per maskin) räknade ur det — SAMMA räkning som flyttförslaget.
   // G15-förslag för trakter utan prognos, sedan den FÖLJANDE prognosen för trakter maskinen redan kört på (lib/prognosFoljer) — i den ordningen.
-  const klarData = useMemo(() => (klar.data ? medFoljandePrognos(medUppskattadPrognos(klar.data, utfall)) : null), [klar.data, utfall])
+  const klarData = useMemo(() => (klar.data ? medPrognoser(klar.data, utfall, skog) : null), [klar.data, utfall, skog])
 
   // Trakter där markägaren skotar själv: räknas inte mot beställningen och är aldrig "ingen skotare". null = inte läst än.
   const [egna, setEgna] = useState<Set<string> | null>(null)
