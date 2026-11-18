@@ -126,6 +126,21 @@ export type TavlaMaskin = {
 
 export type TavlaUtan = { objekt_id: string; roll: KlarRoll; namn: string; volym: number }
 
+/** Takten som krävs för att nå beställningen mot takten maskinerna går på sina trakter (m³ per arbetsdag). */
+export type TavlaTakt = {
+  /** Beställt − gjort, delat med arbetsdagar kvar. */
+  kravs: number
+  /** Det maskinerna tillsammans hinner per dag på sina trakter i kön; null = ingen maskin har prognos. */
+  nu: number | null
+  dagarKvar: number
+  /** Någon maskins takt saknas (en trakt utan prognos) — talet är ett minimum, "ca". */
+  ca: boolean
+  /** null = går inte att avgöra (takt saknas). */
+  hinner: boolean | null
+  /** Arbetsdagar som fattas om takten hålls; null om den hinner eller inte går att räkna. */
+  fattasDagar: number | null
+}
+
 export type TavlaBlock = {
   roll: KlarRoll
   rubrik: 'Skördat' | 'Skotat'
@@ -141,6 +156,8 @@ export type TavlaBlock = {
   ton: Ton
   /** Landar − beställt (negativt = fattas). null utan beställning eller prognos. */
   diff: number | null
+  /** Takten som krävs. null = månaden är inte pågående, ingen beställning, inget kvar att göra eller inga arbetsdagar kvar. */
+  takt: TavlaTakt | null
 }
 
 /** Räcker trakterna? Skogen som finns kvar att ta (gjort + kvar i inlagda trakter) mot beställningen, per roll. */
@@ -350,7 +367,8 @@ export function byggTavla(d: TavlaIndata): Tavla {
       const nu = (harRader ? maskiner.reduce((a, m) => a + m.nu, 0) : Math.round(roll === 'skordare' ? s.skordat + egetSumma : s.skotat)) + (markagare?.nu ?? 0)
       const landar = klar && d.status !== 'avslutad' ? (harRader ? maskiner.reduce((a, m) => a + (m.landar ?? m.nu), 0) + (markagare ? (markagare.landar ?? markagare.nu) : 0) : null) : null
       const ca = maskiner.some(m => m.ca)
-      return { roll, rubrik: roll === 'skordare' ? 'Skördat' : 'Skotat', maskiner, utan, markagare, nu, landar, ca, ...dom(roll, landar, nu, s.bestallt, ca, d.status) }
+      const takt = taktKrav(s.bestallt, nu, d.status, klar, roll, ids.map(id => (koer.get(id) ?? []).filter(raknas)))
+      return { roll, rubrik: roll === 'skordare' ? 'Skördat' : 'Skotat', maskiner, utan, markagare, nu, landar, ca, takt, ...dom(roll, landar, nu, s.bestallt, ca, d.status) }
     }) as [TavlaBlock, TavlaBlock]
     return { typ: s.typ, namn: TYP_NAMN[s.typ], bestallt: s.bestallt, block, racker: racker(s.typ, s.bestallt, block, trakter, d.status, klar != null, new Map([...koer.values()].flat().filter(r => r.trakt.roll === 'skordare').map(r => [r.trakt.objekt_id, r]))), kvarISkogen: Math.round(oskotatKvar(s)) }
   })
@@ -360,6 +378,26 @@ export function byggTavla(d: TavlaIndata): Tavla {
     .map(m => ({ maskin_id: m.maskin_id, namn: m.namn, roll: m.roll, trakter: (koer.get(m.maskin_id) ?? []).map(r => ({ ...traktVy(r, null, sista), utanfor: false })) }))
 
   return { svar: tavlaSvar(spar, d.status), gor: tavlaGor(spar), spar, ovrigt }
+}
+
+/** Takten som krävs mot takten som går. Takten som går = per maskin kvar volym / dagar för trakterna i kön (samma dagar som klardatumen), summerad över maskinerna som kör parallellt. */
+function taktKrav(bestallt: number, nu: number, status: ManadStatus, klar: KlarData | null, roll: KlarRoll, perMaskin: KoRad[][]): TavlaTakt | null {
+  if (!klar || status !== 'pagaende' || bestallt <= 0) return null
+  const behov = Math.max(0, bestallt - nu)
+  const dagarKvar = Math.max(0, ...klar.maskiner.filter(m => m.roll === roll).map(m => m.dagar.filter(x => x <= klar.sista_arbetsdag).length))
+  if (behov <= 0 || dagarKvar <= 0) return null
+  let tot = 0, harNagon = false, ca = false
+  for (const rader of perMaskin) {
+    if (rader.length === 0) continue
+    const med = rader.filter(r => r.dagar != null && r.dagar > 0)
+    if (med.length < rader.length) ca = true
+    const dagar = med.reduce((a, r) => a + (r.dagar as number), 0)
+    if (dagar > 0) { tot += med.reduce((a, r) => a + r.kvar, 0) / dagar; harNagon = true }
+  }
+  const kravs = behov / dagarKvar
+  if (!harNagon || !(tot > 0)) return { kravs, nu: null, dagarKvar, ca: true, hinner: null, fattasDagar: null }
+  const hinner = tot >= kravs
+  return { kravs, nu: tot, dagarKvar, ca, hinner, fattasDagar: hinner ? null : behov / tot - dagarKvar }
 }
 
 /** Räcker trakterna: det som är gjort + det som är kvar i inlagda trakter, mot beställt. Skotaren räknar inte egen skotning (den är inte vår). */

@@ -426,7 +426,7 @@ export default function HelikopterVy() {
                       </RadGrupp>
                     </Sheet>
                   )}
-                  {behovSpar && behov && <BehovSheet key={ark} open onClose={stang} namn={behovSpar.namn} behov={behov} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} manadNamn={manadNamn.toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} />}
+                  {behovSpar && behov && <BehovSheet key={ark} open onClose={stang} namn={behovSpar.namn} behov={behov} takt={behovSpar.block[0].takt} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} manadNamn={manadNamn.toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} />}
                   {flyttaVal && flyttaVy && <FlyttaSheet key={ark} open onClose={stang} namn={flyttaVy.namn} val={flyttaVy.val} onFlytta={flytta} />}
                   {ark === 'notis' && <Sheet open onClose={stang} title="Onsdagsnotis"><VeckoNotisSektion /></Sheet>}
                   <UtanTypSheet open={ark === 'utan'} onClose={stang} rader={manadsdata.utanTyp ?? []} manadNamn={manadNamn} />

@@ -175,6 +175,41 @@ describe('räcker trakterna', () => {
     expect(nb.behovs[0].dagar).toBeNull()
     expect(nb.dagarBehovs).toBeNull()
   })
+  it('takt: beställt − gjort delat med arbetsdagar kvar, mot det maskinen hinner per dag på sina trakter', () => {
+    const g = t.spar.find(x => x.typ === 'gallring')!.block[0].takt!
+    expect(g).toMatchObject({ dagarKvar: 10, hinner: true, ca: false })
+    expect(g.kravs).toBeCloseTo(713 / 10, 5)
+    // R64428: 1 371 + 259 + 255 = 1 885 m³ på 3 × 2 dagar.
+    expect(g.nu).toBeCloseTo(1885 / 6, 5)
+    const sa = t.spar.find(x => x.typ === 'slutavverkning')!.block[0].takt!
+    expect(sa.kravs).toBeCloseTo(1063 / 10, 5)
+  })
+  it('takt: går takten inte att hålla sägs det och dagarna som fattas räknas', () => {
+    const tt = byggTavla(bas({
+      spar: [spar('slutavverkning', { bestallt: 5000 })],
+      utfall: [{ typ: 'slutavverkning', maskin_id: 'Giant', roll: 'skordare', volym: 3937 }],
+      klar: klar(maskiner, [trakt('A', 'skordare', 'Giant', { volym: 2000, timmar: 160 })]),
+    }))
+    const k = tt.spar[0].block[0].takt!
+    // Behov 1 063 på 10 dagar = 106/dag; maskinen hinner 2 000 m³ / 20 dagar = 100/dag.
+    expect(k.hinner).toBe(false)
+    expect(k.nu).toBeCloseTo(100, 5)
+    expect(k.fattasDagar).toBeCloseTo(1063 / 100 - 10, 5)
+  })
+  it('takt: ingen prognos på trakten ger "takt saknas", aldrig 0; ingen takt när beställningen är gjord eller månaden inte pågår', () => {
+    const utan = byggTavla(bas({
+      spar: [spar('gallring', { bestallt: 1000 })],
+      utfall: [{ typ: 'gallring', maskin_id: 'R64428', roll: 'skordare', volym: 287 }],
+      klar: klar(maskiner, [trakt('Santhe', 'skordare', 'R64428', { typ: 'gallring', volym: 1620, utfort_volym: 249, timmar: null })]),
+    }))
+    expect(utan.spar[0].block[0].takt).toMatchObject({ nu: null, hinner: null, ca: true })
+    const klart = byggTavla(bas({
+      spar: [spar('gallring', { bestallt: 200 })],
+      utfall: [{ typ: 'gallring', maskin_id: 'R64428', roll: 'skordare', volym: 287 }],
+      klar: klar(maskiner, [trakt('Santhe', 'skordare', 'R64428', { typ: 'gallring' })]),
+    }))
+    expect(klart.spar[0].block[0].takt).toBeNull()
+  })
   it('dagarText: alltid ca, och en halv dag är inte 0', () => {
     expect(dagarText(0.2)).toBe('under en halv dag')
     expect(dagarText(1)).toBe('ca 1 arbetsdag')

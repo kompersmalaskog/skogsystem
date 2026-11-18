@@ -14,7 +14,7 @@ import Ikon from '@/components/design/Ikon'
 import { fmt } from '../_lib/format'
 import type { KlarRoll } from '../_lib/klar'
 import { EGEN_SKOTNING, dagarText } from '../_lib/tavla'
-import type { FlyttVal, Tavla as TavlaVy, TavlaBehov, TavlaBlock, TavlaGor, TavlaMaskin, TavlaOvrig, TavlaSpar, TavlaTrakt } from '../_lib/tavla'
+import type { FlyttVal, Tavla as TavlaVy, TavlaBehov, TavlaBlock, TavlaGor, TavlaMaskin, TavlaOvrig, TavlaSpar, TavlaTakt, TavlaTrakt } from '../_lib/tavla'
 import { StatusOrd } from './Status'
 
 const LINJE = `1px solid ${FARG.linje}`
@@ -125,6 +125,14 @@ function UtanRad({ u, onTrakt, inne }: { u: TavlaBlock['utan'][number]; onTrakt?
   )
 }
 
+/** "Måste hålla 89 m³/dag · går 61" — orange när takten inte räcker; saknas takten sägs det. */
+export function taktText(t: TavlaTakt): { ord: string; ton: 'orange' | 'gron' | 'dampad' } {
+  const kravs = `Måste hålla ${fmt(Math.ceil(t.kravs))} m³/dag`
+  if (t.nu == null) return { ord: `${kravs} · takt saknas`, ton: 'dampad' }
+  const nu = `${t.ca ? 'går minst ' : 'går '}${fmt(Math.round(t.nu))}`
+  return { ord: `${kravs} · ${nu}`, ton: t.hinner ? 'gron' : 'orange' }
+}
+
 function Block({ b, bestallt, medLandar, oppna, vaxla, onTrakt }: { b: TavlaBlock; bestallt: number; medLandar: boolean; oppna: Set<string>; vaxla: (id: string) => void; onTrakt?: (v: TraktVal) => void }) {
   const utanOppen = oppna.has(`${b.roll}:utan`)
   const radOppen = oppna.has(`${b.roll}:rad`)
@@ -148,6 +156,11 @@ function Block({ b, bestallt, medLandar, oppna, vaxla, onTrakt }: { b: TavlaBloc
               <span>Gjort {fmt(b.nu)}</span>
               <span>{b.landar != null ? `Prognos ${fmt(b.landar)}` : fmt(b.nu)} av {fmt(bestallt)}</span>
             </span>
+            {b.takt && (
+              <span style={{ display: 'block', padding: `0 0 ${AVSTAND.s}px` }} data-takt={b.roll}>
+                <StatusOrd ton={taktText(b.takt).ton} ord={taktText(b.takt).ord} />
+              </span>
+            )}
           </>
         )}
       </button>
@@ -358,8 +371,8 @@ export function FlyttaSheet({ open, onClose, namn, val, onFlytta }: {
 }
 
 /** "Gallring behöver 713 m³ till": trakterna som behövs, och de som kan vänta. Admin väljer vilka som flyttas till nästa månad. */
-export function BehovSheet({ open, onClose, namn, behov, nastaNamn, manadNamn, kanFlytta, onFlytta }: {
-  open: boolean; onClose: () => void; namn: string; behov: TavlaBehov; nastaNamn: string; manadNamn: string; kanFlytta: boolean
+export function BehovSheet({ open, onClose, namn, behov, takt, nastaNamn, manadNamn, kanFlytta, onFlytta }: {
+  open: boolean; onClose: () => void; namn: string; behov: TavlaBehov; takt?: TavlaTakt | null; nastaNamn: string; manadNamn: string; kanFlytta: boolean
   onFlytta: (objektIds: string[]) => Promise<string | null>
 }) {
   const flyttbara = behov.inte.filter(t => t.flyttbar)
@@ -380,6 +393,13 @@ export function BehovSheet({ open, onClose, namn, behov, nastaNamn, manadNamn, k
   return (
     <Sheet open onClose={onClose} title={rubrik}>
       <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px` }} data-behov-under="">Beställt {fmt(behov.bestallt)} · gjort {fmt(behov.nu)}. {under}</p>
+      {takt && (
+        <Sektion rubrik="Takten" not={takt.hinner === false && takt.fattasDagar != null ? `Hålls takten fattas ca ${Math.max(1, Math.round(takt.fattasDagar))} arbetsdagar. ${takt.dagarKvar} arbetsdagar kvar i månaden.` : `${takt.dagarKvar} arbetsdagar kvar i månaden.`}>
+          <div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-takt-ark="">
+            <StatusOrd ton={taktText(takt).ton} ord={taktText(takt).ord} />
+          </div>
+        </Sektion>
+      )}
       {behov.behovs.length > 0 && (
         <Sektion rubrik="De här behövs" not={behov.dagarBehovs != null ? `Allt som behövs tar ${dagarText(behov.dagarBehovs)}.` : undefined}>
           <div data-behovs="">

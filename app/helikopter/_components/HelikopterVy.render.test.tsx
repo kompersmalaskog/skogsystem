@@ -283,6 +283,7 @@ describe('/helikopter — tavlan', () => {
     const under = document.querySelector('[data-behov-under]') as HTMLElement
     expect(under.textContent).toContain(`Beställt ${fmt(1000)} · gjort ${fmt(900)}`)
     expect(document.querySelector('[data-behovs]')?.textContent).toContain('Tar resten av behovet')
+    expect(document.querySelector('[data-takt-ark]')?.textContent ?? '').toMatch(/Måste hålla|takt saknas/)
     // Tid per trakt: maskinens dagar, aldrig ett påhittat tal.
     expect(document.querySelector('[data-behovs] [data-tid]')?.textContent).toMatch(/arbetsdag|Tid saknas/)
     const inte = Array.from(document.querySelectorAll('[data-inte-rad]')) as HTMLElement[]
