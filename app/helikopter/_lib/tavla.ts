@@ -18,7 +18,7 @@
 // Inga imports av React eller Supabase.
 import { TYP_NAMN, oskotatKvar, type ManadStatus, type SparLage } from './berakningar'
 import { fmt, fmtDag, kortNamn } from './format'
-import { KLAR_TYP_NAMN, arVirke, dagarBehov, kanTa, type Flytt, type KlarData, type KlarMaskin, type KlarRoll, type KlarTrakt } from './klar'
+import { KLAR_TYP_NAMN, MATT_VISA_FRAN, arVirke, dagarBehov, kanTa, type Flytt, type KlarData, type KlarMaskin, type KlarRoll, type KlarTrakt } from './klar'
 import type { Typ } from './queries'
 import type { Ton } from './kort'
 
@@ -104,6 +104,8 @@ export type TavlaTrakt = {
   efter: boolean
   /** Räknas inte mot beställningen (annat spår, GROT, egen skotning) — dämpad. */
   utanfor: boolean
+  /** "Vida sa 1 620 · ser ut att bli 1 240" — bara när den uppmätta volymen skiljer minst 5 % från Vidas. */
+  volym?: string | null
 }
 
 export type TavlaMaskin = {
@@ -177,6 +179,13 @@ export type TavlaIndata = {
   flytt?: Flytt
 }
 
+/** Raden under trakten: Vidas volym mot den som räknats på det skördaren gjort. Tyst när de är nära varandra. */
+export function vidaMotMatt(m: KlarTrakt['matt']): string | null {
+  if (!m || m.vida == null || m.vida <= 0) return null
+  if (Math.abs(m.total / m.vida - 1) < MATT_VISA_FRAN) return null
+  return `Vida sa ${fmt(m.vida)} · ${m.klar ? 'blev' : 'ser ut att bli'} ${fmt(m.total)}`
+}
+
 function traktNamn(t: KlarTrakt): string {
   return `${arVirke(t.typ) ? '' : `${KLAR_TYP_NAMN[t.typ]} `}${kortNamn(t.namn.replace(/[.\s]+$/, ''))}`
 }
@@ -188,6 +197,7 @@ function traktVy(r: KoRad, typ: Typ | null, sista: string): TavlaTrakt {
     klar: r.till == null ? '?' : `${osaker ? 'ca ' : ''}${fmtDag(r.till)}`,
     efter: r.till != null && r.till > sista,
     utanfor: typ == null || r.trakt.typ !== typ,
+    volym: vidaMotMatt(r.trakt.matt),
   }
 }
 

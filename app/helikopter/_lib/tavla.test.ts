@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { EGEN_SKOTNING, byggTavla, flyttVal, ko, kvarVolym, utanforBestallning, type TavlaIndata } from './tavla'
+import { EGEN_SKOTNING, byggTavla, flyttVal, ko, kvarVolym, utanforBestallning, vidaMotMatt, type TavlaIndata } from './tavla'
 import type { KlarData, KlarMaskin, KlarTrakt } from './klar'
+import { fmt } from './format'
 import type { SparLage } from './berakningar'
 
 // November 2026 i liten skala: 10 arbetsdagar kvar (16–27 nov), sista arbetsdagen 27 nov.
@@ -177,5 +178,17 @@ describe('utanforBestallning', () => {
     expect(utanforBestallning([rad({ typ: 'Slutavverkning', bolag: 'Privat' })], spar)).toEqual([])
     expect(utanforBestallning([rad({ typ: 'Grot' }), rad({ typ: null }), rad({ roll: 'skotare', egen_skotning: true }), rad({ bolag: 'Privat', volym: 0.2 })], spar).length).toBe(3)
     expect(utanforBestallning([rad({ bolag: 'vida' })], spar)).toEqual([])
+  })
+})
+
+describe('vidaMotMatt', () => {
+  it('säger Vidas volym mot den uppmätta när de skiljer minst 5 %', () => {
+    expect(vidaMotMatt({ total: 1240, vida: 1620, klar: false })).toBe(`Vida sa ${fmt(1620)} · ser ut att bli ${fmt(1240)}`)
+    expect(vidaMotMatt({ total: 1240, vida: 1620, klar: true })).toBe(`Vida sa ${fmt(1620)} · blev ${fmt(1240)}`)
+  })
+  it('är tyst när de är nära, när Vidas volym saknas och utan mätning', () => {
+    expect(vidaMotMatt({ total: 1670, vida: 1620, klar: false })).toBeNull()
+    expect(vidaMotMatt({ total: 900, vida: null, klar: false })).toBeNull()
+    expect(vidaMotMatt(undefined)).toBeNull()
   })
 })

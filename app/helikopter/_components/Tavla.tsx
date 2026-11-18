@@ -36,7 +36,10 @@ function RollPrick({ roll }: { roll: KlarRoll }) {
 function TraktRad({ t, onTryck }: { t: TavlaTrakt; onTryck?: () => void }) {
   const inne = (
     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min, paddingLeft: AVSTAND.l }}>
-      <span style={{ ...TYP.text, color: t.utanfor ? FARG.text3 : FARG.text2, minWidth: 0, overflowWrap: 'anywhere' }}>{t.namn}</span>
+      <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, padding: t.volym ? `${AVSTAND.xs}px 0` : 0 }}>
+        <span style={{ ...TYP.text, color: t.utanfor ? FARG.text3 : FARG.text2, overflowWrap: 'anywhere' }}>{t.namn}</span>
+        {t.volym && <span style={{ ...TYP.meta, ...TNUM, color: FARG.text3, textAlign: 'left' }} data-trakt-volym={t.objekt_id}>{t.volym}</span>}
+      </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...TYP.meta, ...TNUM, color: t.efter ? FARG.orange : FARG.text2, flexShrink: 0 }}>
         {t.klar}{onTryck && <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />}
       </span>
