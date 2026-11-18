@@ -46,7 +46,7 @@ export default function KontrollerFlik({ d, ark }: { d: KalibreringData; ark: Ka
             <Rad key={r.filnamn} sista={i === rader.length - 1}
               attr={{ 'data-kontroll-rad': r.filnamn, 'aria-current': r.filnamn === valdFil ? 'true' : 'false' }}
               titel={<span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}>{r.filnamn === valdFil && <Prick farg={FARG.text} />}<span>{r.rubrik}</span></span>}
-              under={<><div>{r.rad1}</div><div>{r.urval && <>{r.urval} · </>}<span style={{ color: r.vaderSaknas ? FARG.text3 : FARG.text2 }}>{r.vader}</span></div></>}
+              under={<><div>{r.rad1}</div><div>{r.urval && <>{r.urval} · </>}<span style={{ color: r.vaderSaknas ? FARG.text3 : r.kallt ? FARG.orange : FARG.text2 }}>{r.vader}</span></div></>}
               onTryck={() => ark.oppnaKontroll(r.filnamn, true)} />
           ))}
         </Sektion>

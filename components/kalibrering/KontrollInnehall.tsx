@@ -67,6 +67,7 @@ export default function KontrollInnehall({ data, bedomning, halv, onVisaStockar,
       {/* Svaret i klartext */}
       <div style={{ marginTop: AVSTAND.l }}>
         <Svarsrad rubrik={svar.rubrik} avvikelse={svar.avvikelse} />
+        {huvud.kyla && <div data-kyla="" style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.s }}>{huvud.kyla}</div>}
       </div>
 
       {/* Längd och diameter mätta på samma sätt */}

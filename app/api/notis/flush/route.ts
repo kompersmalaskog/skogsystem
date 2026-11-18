@@ -28,6 +28,7 @@ import { AM_TILLBUD, arTillbudNotis, byggTillbudNotis, type HamtaTillbud } from 
 import { AM_KEMIKALIE, arKemikalieNotis, byggKemikalieNotis, type HamtaKemikalie } from "@/lib/arbetsmiljo/kemikalieNotis";
 import { AM_ANMAL, arAnmalNotis, byggAnmalNotis, koaAnmalPaminnelse, type HamtaAnmal } from "@/lib/arbetsmiljo/anmalNotis";
 import { AM_LAGAT, arLagatNotis, byggLagatNotis, koaLagatBesked, type HamtaLagat } from "@/lib/arbetsmiljo/lagatBesked";
+import { KALIB_MATDON, arMatdonNotis, byggMatdonNotis, koaMatdonPaminnelse, lasMatdon } from "@/lib/kalibrering/matdonNotis";
 import { AM_ARSHJUL, arArshjulNotis, byggArshjulNotis, koaArshjulPaminnelse, lasArshjul } from "@/lib/arbetsmiljo/arshjulNotis";
 import { LARMPLATS_NEJ, arLarmplatsNejNotis, byggLarmplatsNejNotis, koaLarmplatsNej, type HamtaNej } from "@/lib/larmKontrollNotis";
 import { larmpunkterUr, SAMMA_PUNKT_M } from "@/lib/larmpunkter";
@@ -140,6 +141,14 @@ async function flush() {
     console.error("[notis/flush] årshjul-påminnelse:", e);
   }
 
+  // Kalibrering: klave och måttband — en push i kvartalet per maskin när de inte kollats (lib/kalibrering/matdonNotis).
+  try {
+    const md = await koaMatdonPaminnelse(supabase);
+    if (!md.ok) console.error("[notis/flush] klave-påminnelse:", md.fel);
+  } catch (e) {
+    console.error("[notis/flush] klave-påminnelse:", e);
+  }
+
   // Larmplatsen: någon svarade "Nej, ambulansen kommer inte fram" → planerarna får veta det (lib/larmKontrollNotis). Ett fel stoppar aldrig kön.
   try {
     const ln = await koaLarmplatsNej(supabase);
@@ -155,7 +164,7 @@ async function flush() {
     // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
     // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts), liksom lönenotiserna (lib/lonesystem/granskaNotis.ts).
-    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_KEMIKALIE, AM_ANMAL, AM_LAGAT, AM_ARSHJUL, LARMPLATS_NEJ, ...LON_NOTIS_TYPER]))
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_KEMIKALIE, AM_ANMAL, AM_LAGAT, AM_ARSHJUL, LARMPLATS_NEJ, KALIB_MATDON, ...LON_NOTIS_TYPER]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -230,10 +239,11 @@ async function flush() {
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
       // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arKemikalieNotis(n.typ) || arAnmalNotis(n.typ) || arLagatNotis(n.typ) || arArshjulNotis(n.typ) || arLarmplatsNejNotis(n.typ)) {
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arKemikalieNotis(n.typ) || arAnmalNotis(n.typ) || arLagatNotis(n.typ) || arArshjulNotis(n.typ) || arLarmplatsNejNotis(n.typ) || arMatdonNotis(n.typ)) {
         // Maskinen ska stå (lib/arbetsmiljo/stoppNotis): borta, åtgärdad eller inte längre stopp → hoppas över.
         // Tillbud/olycka (lib/arbetsmiljo/tillbudNotis): borta eller redan åtgärdad → hoppas över.
-        const u = arLarmplatsNejNotis(n.typ) ? await byggLarmplatsNejNotis(n, hamtaNej)
+        const u = arMatdonNotis(n.typ) ? await byggMatdonNotis(n, lasMatdon(supabase))
+          : arLarmplatsNejNotis(n.typ) ? await byggLarmplatsNejNotis(n, hamtaNej)
           : arArshjulNotis(n.typ) ? await byggArshjulNotis(n, () => lasArshjul(supabase, new Date()))
           : arLagatNotis(n.typ) ? await byggLagatNotis(n, hamtaLagat)
           : arAnmalNotis(n.typ) ? await byggAnmalNotis(n, hamtaAnmal)
