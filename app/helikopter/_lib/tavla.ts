@@ -18,7 +18,7 @@
 // Inga imports av React eller Supabase.
 import { TYP_NAMN, oskotatKvar, type ManadStatus, type SparLage } from './berakningar'
 import { fmt, fmtDag, kortNamn } from './format'
-import { KLAR_TYP_NAMN, MATT_VISA_FRAN, arVirke, dagarBehov, kanTa, type Flytt, type KlarData, type KlarMaskin, type KlarRoll, type KlarTrakt } from './klar'
+import { KLAR_TYP_NAMN, MATT_VISA_FRAN, arVirke, dagarBehov, kanValjas, type Flytt, type KlarData, type KlarMaskin, type KlarRoll, type KlarTrakt } from './klar'
 import type { Typ } from './queries'
 import type { Ton } from './kort'
 
@@ -508,7 +508,7 @@ export function flyttVal(d: TavlaIndata, objektId: string, roll: KlarRoll): { na
   const arEgen = roll === 'skotare' && d.egna.has(objektId)
   const utan = new Set([...d.egna].filter(x => x !== objektId))
   const val = klar.maskiner
-    .filter(m => m.roll === roll && kanTa(m, t))
+    .filter(m => m.roll === roll && kanValjas(m, t))
     .map((m): FlyttVal => {
       const tavla = byggTavla({ ...d, egna: utan, flytt: { objekt_id: objektId, roll, maskin_id: m.maskin_id } })
       const sp = arVirke(t.typ) ? tavla.spar.find(s => s.typ === t.typ) : null

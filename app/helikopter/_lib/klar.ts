@@ -200,6 +200,11 @@ export function kanTa(m: KlarMaskin, t: Pick<KlarTrakt, 'typ'>): boolean {
   return klararTraktTyp(m, t.typ) && (!m.manuell || manuellTakt(m, t.typ) > 0)
 }
 
+/** Kan man VÄLJA maskinen åt trakten? Rätt typ räcker: 810E ska kunna läggas på en slutavverkning även innan den har en snittakt där — då saknas tid och datum (ingen gissad takt), men valet är fritt. Förslag (flyttförslag) använder fortfarande `kanTa`. */
+export function kanValjas(m: Pick<KlarMaskin, 'klarar_typ'>, t: Pick<KlarTrakt, 'typ'>): boolean {
+  return klararTraktTyp(m, t.typ)
+}
+
 /** Dagar en trakt tar på maskinen; null = det går inte att räkna (prognos, volym eller takt saknas). */
 /** Den manuella maskinens snittakt för en typ; GROT/energiklippning har ingen (0). */
 function manuellTakt(m: Pick<KlarMaskin, 'takt'>, t: KlarTyp): number {
@@ -523,7 +528,7 @@ export function valForTrakt(d: KlarData, objektId: string, r: KlarRoll): ValRad[
   const t = d.trakter.find(x => x.objekt_id === objektId && x.roll === r)
   if (!t) return []
   return d.maskiner
-    .filter(m => m.roll === r && kanTa(m, t))
+    .filter(m => m.roll === r && kanValjas(m, t))
     .map(m => {
       const p = raknaAlla(d, { objekt_id: objektId, roll: r, maskin_id: m.maskin_id })[m.maskin_id]
       return { maskin: m, nuvarande: t.maskin_id === m.maskin_id, klar: p.klar, saknar: p.saknar, efterManad: p.efterManad }

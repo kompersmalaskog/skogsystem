@@ -114,10 +114,11 @@ describe('räkningen', () => {
     const p = raknaMaskin(m, [trakt({ objekt_id: 'g', typ: 'gallring', rest_volym: 120, timmar: null, saknar_prognos: true })], '2026-11-30')
     expect(p.rader[0].dagar).toBeCloseTo(2.4)
     expect(p.klar).toBe(m.dagar[2])
-    // ingen takt för slutavverkning → går inte att räkna, och maskinen erbjuds inte för en slutavverkning
+    // ingen takt för slutavverkning → går inte att räkna (aldrig en gissad takt), men maskinen kan ändå VÄLJAS (Martin 2026-11-18: 810E ska köra tre slutavverkningar)
     expect(raknaMaskin(m, [trakt({ objekt_id: 's', rest_volym: 120 })], '2026-11-30').saknar).toBe(true)
     const d = data({ maskiner: [m, maskin({ maskin_id: 'B' })], trakter: [trakt({ objekt_id: 's', maskin_id: 'B' })] })
-    expect(valForTrakt(d, 's', 'skotare').map(r => r.maskin.maskin_id)).toEqual(['B'])
+    expect(valForTrakt(d, 's', 'skotare').map(r => r.maskin.maskin_id)).toEqual(['JD', 'B'])
+    expect(valForTrakt(d, 's', 'skotare').find(r => r.maskin.maskin_id === 'JD')).toMatchObject({ saknar: true, klar: null })
   })
 
   it('klar trakt (inget kvar) ligger inte i kön', () => {

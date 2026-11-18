@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { kanTa, kanValjas } from './klar'
 import { EGEN_SKOTNING, byggTavla, dagarText, flyttVal, ko, kvarVolym, utanforBestallning, vidaMotMatt, type TavlaIndata } from './tavla'
 import type { KlarData, KlarMaskin, KlarTrakt } from './klar'
 import { fmt } from './format'
@@ -209,6 +210,18 @@ describe('räcker trakterna', () => {
       klar: klar(maskiner, [trakt('Santhe', 'skordare', 'R64428', { typ: 'gallring' })]),
     }))
     expect(klart.spar[0].block[0].takt).toBeNull()
+  })
+  it('810E (manuell, bara gallringstakt) kan väljas åt en slutavverkning — utan tid, aldrig med gissad takt', () => {
+    const jd = maskin('JD810E', 'skotare', { manuell: true, takt: { gallring: 10 } })
+    const d = bas({
+      spar: [spar('slutavverkning', { bestallt: 5000 })],
+      klar: klar([...maskiner, jd], trakter),
+    })
+    const v = flyttVal(d, trakter.find(x => x.namn === 'Edestad' && x.roll === 'skotare')!.objekt_id, 'skotare')!
+    expect(v.val.map(x => x.maskin_id)).toContain('JD810E')
+    // Förslagen (kanTa) ger den fortfarande inte slutavverkning utan takt.
+    expect(kanTa(jd, { typ: 'slutavverkning' })).toBe(false)
+    expect(kanValjas(jd, { typ: 'slutavverkning' })).toBe(true)
   })
   it('dagarText: alltid ca, och en halv dag är inte 0', () => {
     expect(dagarText(0.2)).toBe('under en halv dag')
