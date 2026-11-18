@@ -84,7 +84,7 @@ describe('hooken och listan', () => {
   });
 
   it('arket på telefon: halv ↔ hel via plus-arkets regler, och ett halvt ark som dras ned stänger (valjListdetent)', () => {
-    expect(lista).toContain("import { PANEL_BREDD_PX, arketTarDraget, dragHojd, valjListdetent, type Detent } from '@/lib/plusArk';");
+    expect(lista).toContain("import { PANEL_BREDD_PX, arketTarDraget, dragHojd, valjListdetent, type ListDetent } from '@/lib/plusArk';");
     expect(lista).toContain('const nasta = valjListdetent(detent, e.clientY - d.y0, kanStangas);');
     expect(lista).toContain("if (nasta === 'stang') onStang(); else setDetent(nasta);");
     expect(lista).toContain("const draggbar = kartaTryck && lage === 'ark';");

@@ -21,7 +21,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaEnGpsFix } from '@/lib/gpsKalla';
 import { AVSTAND, FARG, RADIE, RORELSE, TNUM, TRAFFYTA, TYP, VIKT, medSafeBotten } from '@/lib/design/tokens';
-import { PANEL_BREDD_PX, arketTarDraget, dragHojd, valjListdetent, type Detent } from '@/lib/plusArk';
+import { PANEL_BREDD_PX, arketTarDraget, dragHojd, valjListdetent, type ListDetent } from '@/lib/plusArk';
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import { useVagavstand } from '@/lib/hooks/useVagavstand';
 import { oplaneradRadText } from '@/lib/klarTrakt';
@@ -63,6 +63,7 @@ export interface ObjektListaProps {
 }
 
 const GREPP_HOJD_PX = AVSTAND.xl + AVSTAND.xs;   // arkets grepp (samma mått som plus-arkets)
+const LAG_HOJD_PX = GREPP_HOJD_PX + AVSTAND.xl + AVSTAND.s;   // lågt läge: greppet + rubrikraden ("Välj objekt") — resten av arket är neddraget
 const DRAG_START_PX = 8;                         // kortare än så är det ett tryck på greppet, inte ett drag
 const FALLBACK_POS = { lat: 56.40, lng: 14.70 };   // verksamhetens mitt när ingen GPS-fix finns (som den gamla väljaren)
 
@@ -102,7 +103,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   const [skotKvarKlar, setSkotKvarKlar] = useState(false);                               // frågan har besvarats (även med fel) minst en gång
   const [geometri, setGeometri] = useState<Map<string, any> | null>(null);               // null = ej laddad → ingen "Här"
   // Telefon: arket öppnas på halv höjd, dras upp till nästan full och ner igen; ett halvt ark som dras ned stängs. Som plus-arket, utom stängningen.
-  const [detent, setDetent] = useState<Detent>('halv');
+  const [detent, setDetent] = useState<ListDetent>('halv');
   const [dragPx, setDragPx] = useState<number | null>(null);
   const drag = useRef<{ y0: number; h0: number; flyttat: boolean } | null>(null);
   const arkRef = useRef<HTMLDivElement>(null);
@@ -134,7 +135,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
       if (!d.tar) return;
       if (e.cancelable) e.preventDefault();
       if (Math.abs(dy) > DRAG_START_PX) d.flyttat = true;
-      if (d.flyttat) setDragPx(dragHojd(d.h0, dy, window.innerHeight));
+      if (d.flyttat) setDragPx(dragHojd(d.h0, dy, window.innerHeight, LAG_HOJD_PX));
     };
     const slut = (e: TouchEvent) => {
       const g = d; d = null;
@@ -474,7 +475,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
       )}
       <div ref={listRef} data-testid="objekt-lista-innehall" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', paddingBottom: medSafeBotten(AVSTAND.l),
         // Halvt ark: ett drag var som helst lyfter arket (listan rullar först när arket är uppe).
-        touchAction: draHelaArket && detent === 'halv' ? 'pan-x' : undefined }}>
+        touchAction: draHelaArket && detent !== 'hel' ? 'pan-x' : undefined }}>
         {tomText ? (
           <div style={{ ...TYP.meta, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xxl}px ${AVSTAND.l}px` }}>{tomText}</div>
         ) : visaAvslutade ? (
@@ -518,6 +519,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   const arkHojd = !kartaTryck ? '85%'
     : dragPx != null ? `${dragPx}px`
     : detent === 'hel' ? `calc(100% - env(safe-area-inset-top, 0px) - ${AVSTAND.s}px)`
+    : detent === 'lag' ? `calc(${LAG_HOJD_PX}px + env(safe-area-inset-bottom, 0px))`
     : ARK_HOJD_PROCENT;
   const gripDown = (e: React.PointerEvent) => {
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* */ }
@@ -527,13 +529,13 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     const d = drag.current; if (!d) return;
     const dy = e.clientY - d.y0;
     if (Math.abs(dy) > DRAG_START_PX) d.flyttat = true;
-    if (d.flyttat) setDragPx(dragHojd(d.h0, dy, fonsterH()));
+    if (d.flyttat) setDragPx(dragHojd(d.h0, dy, fonsterH(), LAG_HOJD_PX));
   };
   const gripUp = (e: React.PointerEvent) => {
     const d = drag.current; drag.current = null;
     setDragPx(null);
     if (!d) return;
-    if (!d.flyttat) { setDetent(detent === 'halv' ? 'hel' : 'halv'); return; }   // tryck på greppet växlar halv ↔ hel
+    if (!d.flyttat) { setDetent(detent === 'halv' ? 'hel' : 'halv'); return; }   // tryck på greppet: halv → hel, hel → halv, lågt → halv
     const nasta = valjListdetent(detent, e.clientY - d.y0, kanStangas);
     if (nasta === 'stang') onStang(); else setDetent(nasta);
   };
@@ -568,11 +570,12 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         data-detent={draggbar ? detent : undefined}
         aria-hidden={oppen ? undefined : true}
         ref={arkRef}
-        style={{ position: 'fixed', zIndex: 650, boxSizing: 'border-box', background: FARG.kort, color: FARG.text, fontFamily: 'inherit', display: 'flex', flexDirection: 'column', overscrollBehavior: 'contain',
+        onClick={draggbar && detent === 'lag' ? () => setDetent('halv') : undefined}
+        style={{ position: 'fixed', zIndex: 650, overflow: draggbar ? 'hidden' : undefined, boxSizing: 'border-box', background: FARG.kort, color: FARG.text, fontFamily: 'inherit', display: 'flex', flexDirection: 'column', overscrollBehavior: 'contain',
           pointerEvents: oppen ? 'auto' : 'none', transition: overgang, ...ram }}
       >
         {draggbar && (
-          <button type="button" aria-label={detent === 'halv' ? 'Dra upp listan' : 'Dra ned listan'} data-testid="objekt-lista-grepp"
+          <button type="button" aria-label={detent === 'hel' ? 'Dra ned listan' : 'Dra upp listan'} data-testid="objekt-lista-grepp"
             onPointerDown={gripDown} onPointerMove={gripMove} onPointerUp={gripUp} onPointerCancel={() => { drag.current = null; setDragPx(null); }}
             style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: GREPP_HOJD_PX, padding: 0, border: 'none', background: 'transparent', cursor: 'grab', touchAction: 'none' }}>
             <span style={{ width: AVSTAND.xxl + AVSTAND.s, height: AVSTAND.xs, borderRadius: AVSTAND.xs, background: FARG.text3 }} />

@@ -45,6 +45,10 @@ describe('arketTarDraget — dra var som helst på objektlistans ark (2026-11-18
     expect(arketTarDraget('halv', 0, 30)).toBe(true);
     expect(arketTarDraget('halv', 120, -30)).toBe(true);
   });
+  it('lågt ark: varje lodrätt drag är arkets', () => {
+    expect(arketTarDraget('lag', 0, -30)).toBe(true);
+    expect(arketTarDraget('lag', 0, 30)).toBe(true);
+  });
   it('helt ark: listan rullar — utom när den står högst upp och fingret drar nedåt', () => {
     expect(arketTarDraget('hel', 0, 30)).toBe(true);
     expect(arketTarDraget('hel', 0, -30)).toBe(false);
@@ -64,9 +68,17 @@ describe('valjListdetent — objektlistans ark: halv ↔ hel, och ett halvt ark 
     expect(valjListdetent('halv', 400, true)).toBe('stang');
     expect(valjListdetent('halv', T - 1, true)).toBe('halv');
   });
-  it('listan som inte går att stänga (inget objekt valt): halvt ark dras ned → far tillbaka, aldrig stäng', () => {
-    expect(valjListdetent('halv', 400, false)).toBe('halv');
+  it('listan som inte går att stänga (inget objekt valt): halvt ark dras ned → LÅGT läge (kartan syns), aldrig stäng', () => {
+    expect(valjListdetent('halv', 400, false)).toBe('lag');
+    expect(valjListdetent('halv', T, false)).toBe('lag');
+    expect(valjListdetent('halv', T - 1, false)).toBe('halv');
     expect(valjListdetent('halv', -T, false)).toBe('hel');
+  });
+  it('lågt ark dras uppåt över tröskeln → halvt; annars kvar lågt; ett drag nedåt stänger aldrig', () => {
+    expect(valjListdetent('lag', -T, false)).toBe('halv');
+    expect(valjListdetent('lag', -(T - 1), false)).toBe('lag');
+    expect(valjListdetent('lag', 400, false)).toBe('lag');
+    expect(valjListdetent('lag', 400, true)).toBe('lag');
   });
   it('helt ark dras nedåt över tröskeln → halvt (inte stäng direkt), under → kvar helt', () => {
     expect(valjListdetent('hel', T, true)).toBe('halv');
@@ -153,5 +165,13 @@ describe('Redigera — arbetskopian', () => {
     expect(arAndrad(sex, sex.slice())).toBe(false);
     expect(arAndrad(sex, sex.slice().reverse())).toBe(true);
     expect(arAndrad(sex, sex.slice(0, 5))).toBe(true);
+  });
+});
+
+describe('dragHojd — lägsta höjd kan sänkas (lågt läge i objektlistan)', () => {
+  it('standard 30 % av fönstret; med minHojd följer arket fingret ända ned till den', () => {
+    expect(dragHojd(400, 900, 800)).toBe(240);
+    expect(dragHojd(400, 900, 800, 80)).toBe(80);
+    expect(dragHojd(80, -100, 800, 80)).toBe(180);
   });
 });

@@ -374,10 +374,12 @@ describe('telefon: arket halv ↔ hel, dras ned för att stänga', () => {
     expect(hojd()).toBe('50%');
   });
 
-  it('inget objekt valt (kanStangas=false): drag upp fungerar, drag ned stänger inget (far tillbaka)', async () => {
+  it('inget objekt valt (kanStangas=false): drag ned sänker arket till LÅGT läge (kartan syns) men stänger aldrig; upp igen → halvt → hel', async () => {
     await montera({ kartaTryck: true, kanStangas: false });
     await dra(500, 600);
     expect(spion.stang).toBe(0);
+    expect(q('objekt-lista')!.getAttribute('data-detent')).toBe('lag');
+    await dra(500, 300);
     expect(q('objekt-lista')!.getAttribute('data-detent')).toBe('halv');
     await dra(500, 300);
     expect(q('objekt-lista')!.getAttribute('data-detent')).toBe('hel');
