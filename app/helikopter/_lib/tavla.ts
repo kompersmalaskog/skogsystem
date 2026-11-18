@@ -151,6 +151,10 @@ export type TavlaBehovRad = {
   kvar: number
   /** Hur mycket av trakten som behövs för beställningen (≤ kvar). */
   behovs: number
+  /** Arbetsdagar maskinen behöver för det som behövs (behovs-raden) eller för hela resten (inte-raden); null = prognos saknas, aldrig 0. */
+  dagar: number | null
+  /** "ca 2 dec" när klardatumet går att räkna, annars null. */
+  till: string | null
 }
 
 /** Vilka trakter som behövs för att nå beställningen, i körordning, och vilka som kan vänta. Bara skördaren (trakten flyttas som helhet). */
@@ -162,6 +166,8 @@ export type TavlaBehov = {
   /** Det som saknas även om alla trakter körs. 0 = skogen räcker. */
   saknas: number
   behovs: TavlaBehovRad[]
+  /** Summa arbetsdagar för "behövs"-trakterna; null när någon saknar prognos (summan vore för snäll). */
+  dagarBehovs: number | null
   /** Behövs inte i månaden. `flyttbar` = trakten kan flyttas: inte förra månadens och inte påbörjad. */
   inte: (TavlaBehovRad & { flyttbar: boolean })[]
 }
@@ -346,7 +352,7 @@ export function byggTavla(d: TavlaIndata): Tavla {
       const ca = maskiner.some(m => m.ca)
       return { roll, rubrik: roll === 'skordare' ? 'Skördat' : 'Skotat', maskiner, utan, markagare, nu, landar, ca, ...dom(roll, landar, nu, s.bestallt, ca, d.status) }
     }) as [TavlaBlock, TavlaBlock]
-    return { typ: s.typ, namn: TYP_NAMN[s.typ], bestallt: s.bestallt, block, racker: racker(s.typ, s.bestallt, block, trakter, d.status, klar != null), kvarISkogen: Math.round(oskotatKvar(s)) }
+    return { typ: s.typ, namn: TYP_NAMN[s.typ], bestallt: s.bestallt, block, racker: racker(s.typ, s.bestallt, block, trakter, d.status, klar != null, new Map([...koer.values()].flat().filter(r => r.trakt.roll === 'skordare').map(r => [r.trakt.objekt_id, r]))), kvarISkogen: Math.round(oskotatKvar(s)) }
   })
 
   const ovrigt: TavlaOvrig[] = (klar?.maskiner ?? [])
@@ -357,14 +363,14 @@ export function byggTavla(d: TavlaIndata): Tavla {
 }
 
 /** Räcker trakterna: det som är gjort + det som är kvar i inlagda trakter, mot beställt. Skotaren räknar inte egen skotning (den är inte vår). */
-function racker(typ: Typ, bestallt: number, block: TavlaBlock[], trakter: KlarTrakt[], status: ManadStatus, harKo: boolean): TavlaRacker[] {
+function racker(typ: Typ, bestallt: number, block: TavlaBlock[], trakter: KlarTrakt[], status: ManadStatus, harKo: boolean, koPerTrakt: Map<string, KoRad>): TavlaRacker[] {
   if (bestallt <= 0 || status === 'avslutad' || !harKo) return []
   return block.map((b): TavlaRacker => {
     const lista = trakter.filter(t => t.typ === typ && t.roll === b.roll)
     const kvar = lista.reduce((a, t) => a + kvarVolym(t), 0)
     const diff = Math.round(b.nu + kvar - bestallt)
     const rubrik = b.roll === 'skordare' ? 'Skördare' : 'Skotare'
-    const behov = b.roll === 'skordare' ? behovLista(lista, bestallt, b.nu) : null
+    const behov = b.roll === 'skordare' ? behovLista(lista, bestallt, b.nu, koPerTrakt) : null
     if (diff < 0) return { roll: b.roll, rubrik, diff, ord: `Saknar ${fmt(-diff)}`, ton: 'orange', behov }
     if (diff > bestallt * FOR_MYCKET) return { roll: b.roll, rubrik, diff, ord: `${fmt(diff)} för mycket`, ton: 'dampad', behov }
     return { roll: b.roll, rubrik, diff, ord: 'Räcker', ton: 'gron', behov }
@@ -372,19 +378,34 @@ function racker(typ: Typ, bestallt: number, block: TavlaBlock[], trakter: KlarTr
 }
 
 /** Trakterna i körordning: de första som tillsammans täcker behovet behövs, resten kan vänta. */
-function behovLista(lista: KlarTrakt[], bestallt: number, nu: number): TavlaBehov {
+function behovLista(lista: KlarTrakt[], bestallt: number, nu: number, koPerTrakt: Map<string, KoRad>): TavlaBehov {
   const behov = Math.max(0, Math.round(bestallt - nu))
   let summa = 0
   const behovs: TavlaBehovRad[] = []
   const inte: TavlaBehov['inte'] = []
+  // Tiden: maskinens egna dagar för trakten (samma som kön), delad efter hur stor del som behövs. Saknas prognos är den null, aldrig 0.
+  const tid = (t: KlarTrakt, del: number): Pick<TavlaBehovRad, 'dagar' | 'till'> => {
+    const r = koPerTrakt.get(t.objekt_id)
+    if (!r || r.dagar == null) return { dagar: null, till: null }
+    const osaker = t.uppskattad === true && !t.foljer
+    return { dagar: r.dagar * del, till: r.till == null ? null : `${osaker ? 'ca ' : ''}${fmtDag(r.till)}` }
+  }
   for (const t of [...lista].sort((a, b) => a.sortn - b.sortn)) {
     const kvar = Math.round(kvarVolym(t))
     if (kvar <= 0) continue
-    if (summa >= behov) inte.push({ objekt_id: t.objekt_id, namn: traktNamn(t), kvar, behovs: 0, flyttbar: !t.forra_manaden && t.utfort_volym <= 0 })
-    else behovs.push({ objekt_id: t.objekt_id, namn: traktNamn(t), kvar, behovs: Math.min(kvar, Math.round(behov - summa)) })
+    if (summa >= behov) inte.push({ objekt_id: t.objekt_id, namn: traktNamn(t), kvar, behovs: 0, ...tid(t, 1), flyttbar: !t.forra_manaden && t.utfort_volym <= 0 })
+    else { const b = Math.min(kvar, Math.round(behov - summa)); behovs.push({ objekt_id: t.objekt_id, namn: traktNamn(t), kvar, behovs: b, ...tid(t, b / kvar) }) }
     summa += kvar
   }
-  return { bestallt, nu: Math.round(nu), behov, saknas: Math.max(0, Math.round(behov - summa)), behovs, inte }
+  const dagarBehovs = behovs.length > 0 && behovs.every(b => b.dagar != null) ? behovs.reduce((a, b) => a + (b.dagar as number), 0) : null
+  return { bestallt, nu: Math.round(nu), behov, saknas: Math.max(0, Math.round(behov - summa)), behovs, dagarBehovs, inte }
+}
+
+/** "ca 9 arbetsdagar" · "ca 1 dag" · "under en dag". Alltid "ca": det är en prognos. */
+export function dagarText(d: number): string {
+  if (d < 0.5) return 'under en halv dag'
+  if (d < 1.5) return 'ca 1 arbetsdag'
+  return `ca ${Math.round(d)} arbetsdagar`
 }
 
 /** Det du kan göra: ny trakt när skogen tar slut, välj maskin åt trakter utan, flytta till nästa månad när för mycket är inlagt. Saknas först. */

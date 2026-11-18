@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { EGEN_SKOTNING, byggTavla, flyttVal, ko, kvarVolym, utanforBestallning, vidaMotMatt, type TavlaIndata } from './tavla'
+import { EGEN_SKOTNING, byggTavla, dagarText, flyttVal, ko, kvarVolym, utanforBestallning, vidaMotMatt, type TavlaIndata } from './tavla'
 import type { KlarData, KlarMaskin, KlarTrakt } from './klar'
 import { fmt } from './format'
 import type { SparLage } from './berakningar'
@@ -159,6 +159,26 @@ describe('räcker trakterna', () => {
     const b = rad('slutavverkning', 'skordare').behov!
     expect(b).toMatchObject({ behov: 1063, saknas: 378, inte: [] })
     expect(b.behovs.reduce((a, x) => a + x.kvar, 0)).toBe(685)
+  })
+  it('tid per trakt: maskinens dagar, delat efter hur mycket av trakten som behövs; saknad prognos är null, aldrig 0', () => {
+    const b = rad('gallring', 'skordare').behov!
+    // Varje trakt = 16 h på en maskin med 8 h/dag = 2 dagar. Santhe behövs till 713 av 1 371 → 2 × 713/1371.
+    expect(b.behovs[0].dagar).toBeCloseTo(2 * 713 / 1371, 5)
+    expect(b.dagarBehovs).toBeCloseTo(2 * 713 / 1371, 5)
+    expect(b.inte.map(x => x.dagar)).toEqual([2, 2])
+    const utanTid = byggTavla(bas({
+      spar: [spar('gallring', { bestallt: 1000 })],
+      utfall: [{ typ: 'gallring', maskin_id: 'R64428', roll: 'skordare', volym: 287 }],
+      klar: klar(maskiner, [trakt('Santhe', 'skordare', 'R64428', { typ: 'gallring', volym: 1620, utfort_volym: 249, timmar: null })]),
+    }))
+    const nb = utanTid.spar[0].racker.find(r => r.roll === 'skordare')!.behov!
+    expect(nb.behovs[0].dagar).toBeNull()
+    expect(nb.dagarBehovs).toBeNull()
+  })
+  it('dagarText: alltid ca, och en halv dag är inte 0', () => {
+    expect(dagarText(0.2)).toBe('under en halv dag')
+    expect(dagarText(1)).toBe('ca 1 arbetsdag')
+    expect(dagarText(8.6)).toBe('ca 9 arbetsdagar')
   })
   it('skotaren har ingen behovslista (trakten flyttas som helhet via skördaren)', () => {
     expect(rad('slutavverkning', 'skotare').behov).toBeNull()

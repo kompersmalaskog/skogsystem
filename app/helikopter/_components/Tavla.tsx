@@ -13,7 +13,7 @@ import Sektion from '@/components/design/Sektion'
 import Ikon from '@/components/design/Ikon'
 import { fmt } from '../_lib/format'
 import type { KlarRoll } from '../_lib/klar'
-import { EGEN_SKOTNING } from '../_lib/tavla'
+import { EGEN_SKOTNING, dagarText } from '../_lib/tavla'
 import type { FlyttVal, Tavla as TavlaVy, TavlaBehov, TavlaBlock, TavlaGor, TavlaMaskin, TavlaOvrig, TavlaSpar, TavlaTrakt } from '../_lib/tavla'
 import { StatusOrd } from './Status'
 
@@ -381,13 +381,16 @@ export function BehovSheet({ open, onClose, namn, behov, nastaNamn, manadNamn, k
     <Sheet open onClose={onClose} title={rubrik}>
       <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px` }} data-behov-under="">Beställt {fmt(behov.bestallt)} · gjort {fmt(behov.nu)}. {under}</p>
       {behov.behovs.length > 0 && (
-        <Sektion rubrik="De här behövs">
+        <Sektion rubrik="De här behövs" not={behov.dagarBehovs != null ? `Allt som behövs tar ${dagarText(behov.dagarBehovs)}.` : undefined}>
           <div data-behovs="">
             {behov.behovs.map((t, i) => (
               <div key={t.objekt_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.xs}px 0`, borderTop: i > 0 ? LINJE : 'none' }} data-behovs-rad={t.objekt_id}>
                 <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                   <span style={{ ...TYP.text, color: FARG.text, overflowWrap: 'anywhere' }}>{t.namn}</span>
                   {t.behovs < t.kvar && <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>Tar resten av behovet · {fmt(t.behovs)} av {fmt(t.kvar)} kvar</span>}
+                  <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }} data-tid="">
+                    {t.dagar == null ? 'Tid saknas · ingen prognos' : `${dagarText(t.dagar)}${t.till && t.behovs >= t.kvar ? ` · klar ${t.till}` : ''}`}
+                  </span>
                 </span>
                 <span style={{ ...TYP.text, ...TNUM, color: FARG.text, fontWeight: VIKT.fet }}>{fmt(t.behovs)}</span>
               </div>
@@ -415,7 +418,10 @@ export function BehovSheet({ open, onClose, namn, behov, nastaNamn, manadNamn, k
                       {pa && <Ikon namn="check" storlek={IKON.text} farg={FARG.bg} />}
                     </span>
                   )}
-                  <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text2, overflowWrap: 'anywhere' }}>{t.namn}</span>
+                  <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ ...TYP.text, color: FARG.text2, overflowWrap: 'anywhere' }}>{t.namn}</span>
+                    <span style={{ ...TYP.meta, ...TNUM, color: FARG.text3 }} data-tid="">{t.dagar == null ? 'Tid saknas · ingen prognos' : dagarText(t.dagar)}</span>
+                  </span>
                   <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2, flexShrink: 0 }}>{fmt(t.kvar)}</span>
                 </span>
               )
