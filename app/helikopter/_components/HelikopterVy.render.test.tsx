@@ -282,8 +282,9 @@ describe('/helikopter — tavlan', () => {
     await act(async () => { knapp.click() })
     expect(document.querySelector('[data-skot-under]')?.textContent).toContain('Beställt')
     // Först: de trakter som måste skotas för beställningen — ingen klardatum.
-    expect(document.querySelector('[data-skot-behovs]')).not.toBeNull()
-    expect(document.querySelector('[data-skot-behovs]')?.textContent).not.toMatch(/klar /)
+    // Trakter med skotare och trakter utan står var för sig; ingen klardatum i någon av dem.
+    expect(document.querySelector('[data-skot-behovs], [data-skot-utan], [data-skot-inte]')).not.toBeNull()
+    for (const el of Array.from(document.querySelectorAll('[data-skot-behovs], [data-skot-utan], [data-skot-inte]'))) expect(el.textContent).not.toMatch(/klar /)
     const rader = Array.from(document.querySelectorAll('[data-skot-rad]')) as HTMLElement[]
     expect(rader.length).toBeGreaterThan(0)
     for (const r of rader) expect(r.querySelector('[data-tid]')?.textContent).toMatch(/Ingen skotare|\S/)

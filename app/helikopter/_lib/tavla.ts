@@ -195,8 +195,10 @@ export type TavlaSkot = {
   nu: number
   /** Beställt − skotat (aldrig under 0). */
   behov: number
-  /** Det som saknas även om alla trakter skotas. 0 = skogen räcker. */
+  /** Det som saknas även om ALLA trakter med skotare skotas. 0 = trakterna med skotare räcker. */
   saknas: number
+  /** Kvar i trakter som saknar skotare — skotas inte om ingen väljs. */
+  utanSumma: number
   /** `behovs` = hur mycket av trakten som behöver skotas för beställningen (≤ kvar); 0 = behövs inte i månaden. */
   rader: { objekt_id: string; namn: string; kvar: number; behovs: number; maskin: string | null; dagar: number | null; till: string | null }[]
 }
@@ -433,17 +435,20 @@ function racker(typ: Typ, bestallt: number, block: TavlaBlock[], trakter: KlarTr
 function skotLista(lista: KlarTrakt[], bestallt: number, nu: number, skotKo: Map<string, KoRad>, maskinNamn: Map<string, string>): TavlaSkot {
   const behov = Math.max(0, Math.round(bestallt - nu))
   const rader: TavlaSkot['rader'] = []
-  let summa = 0
+  // Bara trakter MED skotare räknas som skotade: en trakt utan maskin körs inte av sig själv.
+  let summaMed = 0
+  let utanSumma = 0
   for (const t of [...lista].sort((a, b) => a.sortn - b.sortn)) {
     const kvar = Math.round(kvarVolym(t))
     if (kvar <= 0) continue
-    const behovs = summa >= behov ? 0 : Math.min(kvar, behov - summa)
-    summa += kvar
+    const maskin = t.maskin_id ? (maskinNamn.get(t.maskin_id) ?? null) : null
+    let behovs = 0
+    if (maskin != null) { behovs = summaMed >= behov ? 0 : Math.min(kvar, behov - summaMed); summaMed += kvar } else utanSumma += kvar
     const r = skotKo.get(t.objekt_id)
     const osaker = t.uppskattad === true && !t.foljer
-    rader.push({ objekt_id: t.objekt_id, namn: traktNamn(t), kvar, behovs, maskin: t.maskin_id ? (maskinNamn.get(t.maskin_id) ?? null) : null, dagar: r?.dagar ?? null, till: r?.till ? `${osaker ? 'ca ' : ''}${fmtDag(r.till)}` : null })
+    rader.push({ objekt_id: t.objekt_id, namn: traktNamn(t), kvar, behovs, maskin, dagar: r?.dagar ?? null, till: r?.till ? `${osaker ? 'ca ' : ''}${fmtDag(r.till)}` : null })
   }
-  return { bestallt, nu: Math.round(nu), behov, saknas: Math.max(0, Math.round(behov - summa)), rader }
+  return { bestallt, nu: Math.round(nu), behov, saknas: Math.max(0, Math.round(behov - summaMed)), utanSumma, rader }
 }
 
 /** Trakterna i körordning: de första som tillsammans täcker behovet behövs, resten kan vänta. */

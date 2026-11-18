@@ -469,27 +469,29 @@ export function BehovSheet({ open, onClose, namn, behov, takt, nastaNamn, manadN
 }
 
 
-/** Skotarens ark: vilka trakter som måste skotas för beställningen (i körordning tills behovet är täckt), hur mycket av var och en, och vilka som kan vänta. Trakt utan skotare är en åtgärd: tryck = välj skotare. */
+/** Skotarens ark: vilka trakter som skotas för beställningen (bara trakter MED skotare räknas — en trakt utan maskin körs inte), vilka som saknar skotare (tryck = välj) och vilka som kan vänta. */
 export function SkotSheet({ onClose, namn, skot, takt, onTrakt }: { onClose: () => void; namn: string; skot: TavlaSkot; takt?: TavlaTakt | null; onTrakt?: (v: TraktVal) => void }) {
-  const behovs = skot.rader.filter(r => r.behovs > 0)
-  const inte = skot.rader.filter(r => r.behovs <= 0)
-  const utanSkotare = behovs.filter(r => r.maskin == null).length
-  const under = skot.saknas > 0 ? 'Trakterna räcker inte.' : 'Trakterna räcker.'
-  const rad = (t: TavlaSkot['rader'][number], i: number, behovd: boolean) => {
-    const valbar = onTrakt != null && t.maskin == null
-    const delvis = behovd && t.behovs < t.kvar
+  const skotas = skot.rader.filter(r => r.maskin != null && r.behovs > 0)
+  const utan = skot.rader.filter(r => r.maskin == null)
+  const inte = skot.rader.filter(r => r.maskin != null && r.behovs <= 0)
+  const under = skot.saknas > 0 ? 'Trakterna med skotare räcker inte.' : 'Trakterna med skotare räcker.'
+  const raddTid = (t: TavlaSkot['rader'][number], del: number) => (t.dagar == null ? '' : ` · ${dagarText(t.dagar * del)}`)
+  const rad = (t: TavlaSkot['rader'][number], i: number, typ: 'skotas' | 'utan' | 'inte') => {
+    const valbar = onTrakt != null && typ === 'utan'
+    const delvis = typ === 'skotas' && t.behovs < t.kvar
+    const tal = typ === 'skotas' ? t.behovs : t.kvar
     const inne = (
       <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.xs}px 0` }}>
         <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <span style={{ ...TYP.text, color: behovd ? FARG.text : FARG.text2, overflowWrap: 'anywhere' }}>{t.namn}</span>
+          <span style={{ ...TYP.text, color: typ === 'inte' ? FARG.text2 : FARG.text, overflowWrap: 'anywhere' }}>{t.namn}</span>
           {delvis && <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>Tar resten av behovet · {fmt(t.behovs)} av {fmt(t.kvar)} kvar</span>}
           <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }} data-tid="">
-            {t.maskin ?? 'Ingen skotare'}{t.dagar == null ? '' : ` · ${dagarText(t.dagar * (behovd ? t.behovs / t.kvar : 1))}`}
+            {t.maskin ?? 'Ingen skotare'}{typ === 'utan' ? '' : raddTid(t, typ === 'skotas' ? t.behovs / t.kvar : 1)}
           </span>
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
-          {t.maskin == null && behovd && <StatusOrd ton="orange" ord="Välj skotare" />}
-          <span style={{ ...TYP.text, ...TNUM, color: behovd ? FARG.text : FARG.text2, fontWeight: behovd ? VIKT.fet : undefined }}>{fmt(behovd ? t.behovs : t.kvar)}</span>
+          {typ === 'utan' && <StatusOrd ton="orange" ord="Välj skotare" />}
+          <span style={{ ...TYP.text, ...TNUM, color: typ === 'inte' ? FARG.text2 : FARG.text, fontWeight: typ === 'skotas' ? VIKT.fet : undefined }}>{fmt(tal)}</span>
           {valbar && <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />}
         </span>
       </span>
@@ -500,6 +502,9 @@ export function SkotSheet({ onClose, namn, skot, takt, onTrakt }: { onClose: () 
       </div>
     )
   }
+  const saknasText = skot.utanSumma >= skot.saknas
+    ? `Det saknas ca ${fmt(skot.saknas)} m³ · välj skotare på trakterna ovan`
+    : `Det saknas ca ${fmt(skot.saknas)} m³ · välj skotare ovan och lägg in en ny trakt`
   return (
     <Sheet open onClose={onClose} title={skot.behov > 0 ? `${namn} · skotaren behöver ${fmt(skot.behov)} m³ till` : `${namn} · skotaren är klar med beställningen`}>
       <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px` }} data-skot-under="">Beställt {fmt(skot.bestallt)} · skotat {fmt(skot.nu)}. {skot.behov > 0 ? under : ''}</p>
@@ -510,13 +515,16 @@ export function SkotSheet({ onClose, namn, skot, takt, onTrakt }: { onClose: () 
           </div>
         </Sektion>
       )}
-      {behovs.length > 0 && (
-        <Sektion rubrik="De här måste skotas" not={utanSkotare > 0 && onTrakt ? `${utanSkotare} av dem har ingen skotare — tryck på trakten för att välja.` : undefined}>
-          <div data-skot-behovs="">{behovs.map((t, i) => rad(t, i, true))}</div>
+      {skotas.length > 0 && (
+        <Sektion rubrik="De här skotas"><div data-skot-behovs="">{skotas.map((t, i) => rad(t, i, 'skotas'))}</div></Sektion>
+      )}
+      {utan.length > 0 && (
+        <Sektion rubrik="Saknar skotare" not={`Skotas inte om ingen skotare väljs. Tillsammans ${fmt(skot.utanSumma)} m³.${onTrakt ? ' Tryck på en trakt för att välja.' : ''}`}>
+          <div data-skot-utan="">{utan.map((t, i) => rad(t, i, 'utan'))}</div>
         </Sektion>
       )}
-      {skot.saknas > 0 && <Sektion rubrik="Saknas"><div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-skot-saknas=""><StatusOrd ton="orange" ord={`Det saknas ca ${fmt(skot.saknas)} m³ · lägg in en ny trakt`} /></div></Sektion>}
-      {inte.length > 0 && <Sektion rubrik="Behövs inte i månaden"><div data-skot-inte="">{inte.map((t, i) => rad(t, i, false))}</div></Sektion>}
+      {skot.saknas > 0 && <Sektion rubrik="Saknas"><div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-skot-saknas=""><StatusOrd ton="orange" ord={saknasText} /></div></Sektion>}
+      {inte.length > 0 && <Sektion rubrik="Behövs inte i månaden"><div data-skot-inte="">{inte.map((t, i) => rad(t, i, 'inte'))}</div></Sektion>}
     </Sheet>
   )
 }

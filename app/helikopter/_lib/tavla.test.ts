@@ -230,10 +230,23 @@ describe('räcker trakterna', () => {
     expect(edestad).toMatchObject({ kvar: 4000, maskin: 'Elefant' })
     expect(edestad.dagar).not.toBeNull()
     expect(sk.rader.find(r => r.namn === 'Krokshult')).toMatchObject({ kvar: 221, maskin: null, dagar: null, till: null })
-    // Behov 3 495: Edestad (4 000 kvar) täcker allt → Krokshult (221, utan skotare) behövs inte.
+    // Behov 3 495: Edestad (4 000 kvar, MED skotare) täcker allt. Krokshult saknar skotare → räknas aldrig som skotad.
     expect(edestad.behovs).toBe(3495)
     expect(sk.rader.find(r => r.namn === 'Krokshult')!.behovs).toBe(0)
+    expect(sk.utanSumma).toBe(221)
     expect(rad('slutavverkning', 'skordare').skot).toBeNull()
+  })
+  it('skotare: en trakt utan skotare täcker inte behovet — saknas räknas bara på trakter med skotare', () => {
+    const d = bas({
+      spar: [spar('slutavverkning', { bestallt: 5000 })],
+      utfall: [{ typ: 'slutavverkning', maskin_id: 'Elefant', roll: 'skotare', volym: 4000 }],
+      klar: klar(maskiner, [trakt('A', 'skotare', 'Elefant', { rest_volym: 500 }), trakt('B', 'skotare', null, { rest_volym: 900 })]),
+    })
+    const sk = byggTavla(d).spar[0].racker.find(r => r.roll === 'skotare')!.skot!
+    // Behov 1 000; A (med skotare) ger 500 → saknas 500 trots att B (900, utan skotare) finns.
+    expect(sk).toMatchObject({ behov: 1000, saknas: 500, utanSumma: 900 })
+    expect(sk.rader.find(r => r.namn === 'A')!.behovs).toBe(500)
+    expect(sk.rader.find(r => r.namn === 'B')!.behovs).toBe(0)
   })
   it('dagarText: alltid ca, och en halv dag är inte 0', () => {
     expect(dagarText(0.2)).toBe('under en halv dag')
