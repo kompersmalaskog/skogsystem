@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DETENT_TARSKEL_PX, FLIKAR, arAndrad, arFlikId, dragHojd, flyttaPlats, laggTillPlats, ligger, platsUnderFinger, redigeringTillState,
-  startaRedigering, taBortPlats, valjDetent, valjListdetent,
+  startaRedigering, taBortPlats, valjDetent, valjListdetent, arketTarDraget,
 } from './plusArk';
 import { MAX_FASTA, STANDARD_ORDNING, type PlusPost, type PlusRadState } from './plusRad';
 
@@ -36,6 +36,20 @@ describe('valjDetent — arket halv ↔ hel', () => {
     expect(valjDetent('hel', DETENT_TARSKEL_PX)).toBe('halv');
     expect(valjDetent('hel', DETENT_TARSKEL_PX - 1)).toBe('hel');
     expect(valjDetent('hel', -200)).toBe('hel');
+  });
+});
+
+describe('arketTarDraget — dra var som helst på objektlistans ark (2026-11-18)', () => {
+  it('halvt ark: varje lodrätt drag är arkets (upp lyfter, ner stänger)', () => {
+    expect(arketTarDraget('halv', 0, -30)).toBe(true);
+    expect(arketTarDraget('halv', 0, 30)).toBe(true);
+    expect(arketTarDraget('halv', 120, -30)).toBe(true);
+  });
+  it('helt ark: listan rullar — utom när den står högst upp och fingret drar nedåt', () => {
+    expect(arketTarDraget('hel', 0, 30)).toBe(true);
+    expect(arketTarDraget('hel', 0, -30)).toBe(false);
+    expect(arketTarDraget('hel', 200, 30)).toBe(false);
+    expect(arketTarDraget('hel', 200, -30)).toBe(false);
   });
 });
 
