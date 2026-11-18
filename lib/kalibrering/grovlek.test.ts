@@ -36,6 +36,15 @@ describe('byggGrovlekRader — en stam, en stock', () => {
     expect(r).toEqual([{ manad: '2026-10', tradslag: 'Gran', klass: '200-249', filnamn: 'a.hqc', n: 3, traff: 2, summa: 4 }]);
   });
 
+  it('Skogforsk: en stock vars längd avviker mer än 10 cm ger ingen diameter; utan längd räknas den', () => {
+    const r = byggGrovlekRader({
+      stockar: [stock(1, { maskin_langd_cm: 512, operator_langd_cm: 500 }), stock(2, { harvest_date: 'b', maskin_langd_cm: 510, operator_langd_cm: 500 }), stock(3, { harvest_date: 'c' })],
+      punkter: [punkt(1, 210, 3), punkt(2, 210, 3), punkt(3, 210, 3)], filTradslag, tolerans: 4,
+    });
+    expect(r.map(x => x.n)).toEqual([1, 1]);
+    expect(r).toHaveLength(2);
+  });
+
   it('tolerans kommer utifrån: ±2 ger en annan träff på samma punkter', () => {
     const r = byggGrovlekRader({ stockar: [stock(1)], punkter: [punkt(1, 210, 3), punkt(1, 205, -1)], filTradslag, tolerans: 2 });
     expect(r[0].traff).toBe(1);

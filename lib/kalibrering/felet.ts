@@ -12,7 +12,7 @@
  * Servern bygger underlaget med `byggFeletUnderlag`; klienten väljer period och bygger raderna med `varSitterFelet`. Allt här är rent.
  */
 import type { DiaPunkt } from './diameterpunkter';
-import { fysiskaStockar, GROVLEK_MIN_STAMMAR, stamNyckel, type StockRad } from './grovlek';
+import { fysiskaStockar, GROVLEK_MIN_STAMMAR, langdForStorForDiameter, LANGDFEL_MAX_CM, stamNyckel, type StockRad } from './grovlek';
 import { rundaMedTecken } from './rutnat';
 import { fmtDagMan } from './datum';
 import type { ToneToken } from './bedomning';
@@ -49,19 +49,22 @@ export type FeletResp = {
   rot: FeletRot[];
   /** Senaste kalibreringen (svensk dag, ur fakt_kalibrering_historik, längd eller diameter). null = ingen känd. */
   senasteKalibrering: string | null;
+  /** Kontrolldagen för varje stock vars diameter lämnades bort för att längden avvek över LANGDFEL_MAX_CM. Saknas = inga. */
+  bortLangdfel?: string[];
 };
 
 export type FeletStock = StockRad & { maskin_langd_cm: number | null; operator_langd_cm: number | null };
 
 /** Underlaget: en rad per stam och grovlek (diameter) och en per stam (rotstocken). Datum = kontrollens. Saknar kontrollen trädslag får rotstocken ingen rad. */
-export function byggFeletUnderlag(args: { stockar: FeletStock[]; punkter: DiaPunkt[]; filTradslag: Map<string, string>; tolDia: number }): { dia: FeletDia[]; rot: FeletRot[] } {
+export function byggFeletUnderlag(args: { stockar: FeletStock[]; punkter: DiaPunkt[]; filTradslag: Map<string, string>; tolDia: number }): { dia: FeletDia[]; rot: FeletRot[]; bortLangdfel: string[] } {
   const { stockar, punkter, filTradslag, tolDia } = args;
   const behallna = fysiskaStockar(stockar);
   const stock = new Map(behallna.map(s => [s.id, s]));
   const dia = new Map<string, FeletDia>();
+  const bortLangdfel = behallna.filter(s => langdForStorForDiameter(s)).map(s => s.kontroll_datum.slice(0, 10));
   for (const p of punkter) {
     const s = stock.get(p.stockId);
-    if (!s) continue;
+    if (!s || langdForStorForDiameter(s)) continue;
     const grupp = feletGrupp(p.operator_mm);
     const stam = stamNyckel(s);
     const k = `${stam}|${grupp}`;
@@ -81,7 +84,7 @@ export function byggFeletUnderlag(args: { stockar: FeletStock[]; punkter: DiaPun
     sedda.add(stam);
     rot.push({ stam, datum: s.kontroll_datum.slice(0, 10), tradslag: tradslagLabel(tr), avvikCm: Number(s.maskin_langd_cm) - Number(s.operator_langd_cm) });
   }
-  return { dia: Array.from(dia.values()), rot };
+  return { dia: Array.from(dia.values()), rot, bortLangdfel };
 }
 
 // === Vyn ===
@@ -134,7 +137,9 @@ export function varSitterFelet(args: {
   const rot = resp.rot.filter(r => iPerioden(r.datum));
   const antal = new Set([...dia.map(r => r.stam), ...rot.map(r => r.stam)]).size;
   const periodText = period === 'kalibrering' && kal ? `sedan kalibreringen ${fmtDagMan(kal)}` : 'senaste 90 dagarna';
-  const not = `${stammarText(antal)} ${periodText}`;
+  const bort = (resp.bortLangdfel ?? []).filter(iPerioden).length;
+  const not = `${stammarText(antal)} ${periodText}`
+    + (bort > 0 ? ` · ${bort === 1 ? '1 stock' : `${bort} stockar`} räknas inte, längden var mer än ${LANGDFEL_MAX_CM} cm fel` : '');
 
   const diaKrav = krav(trosklar, 'diameter');
   const langdKrav = krav(trosklar, 'langd');
@@ -187,9 +192,13 @@ export function varSitterFelet(args: {
 
   const varst = flaggade[0];
   const sr = varst ? rundaMedTecken(varst.snittMm) : 0;
-  const mening = varst && Math.abs(sr) >= FELET_SNITT_MM
-    ? `Maskinen tror att ${GRUPP_NAMN[varst.grupp].plural} är ${sr > 0 ? 'grövre' : 'klenare'} än de är.`
-    : null;
+  // Rätt i snitt men under målet: felet går åt båda hållen. Det går inte att kalibrera bort — Skogforsk: låg träff utan systematiskt fel
+  // tyder på något mekaniskt (mäthjul, givare, knivar, tryck). Ett påstående om datan, aldrig en uppmaning.
+  const mening = !varst ? null
+    : Math.abs(sr) >= FELET_SNITT_MM ? `Maskinen tror att ${GRUPP_NAMN[varst.grupp].plural} är ${sr > 0 ? 'grövre' : 'klenare'} än de är.`
+    : sr === 0 && diaKrav != null && Math.round(varst.traffPct) < diaKrav.mal
+      ? `Felet på ${GRUPP_NAMN[varst.grupp].plural} hoppar åt båda hållen. Det brukar bero på något i aggregatet, inte på kalibreringen.`
+      : null;
 
   const synliga = rader.slice(0, FELET_MAX_RADER);
   return {

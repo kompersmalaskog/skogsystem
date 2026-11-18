@@ -85,10 +85,10 @@ export async function GET(req: NextRequest) {
     stam_nummer: s.stam_nummer, stock_nummer: s.stock_nummer, machine_measurement_date: s.machine_measurement_date ?? null,
     operator_measurement_date: s.operator_measurement_date ?? null, maskin_langd_cm: s.maskin_langd_cm, operator_langd_cm: s.operator_langd_cm,
   }));
-  const { dia, rot } = byggFeletUnderlag({ stockar, punkter: punktRes.data, filTradslag, tolDia });
+  const { dia, rot, bortLangdfel } = byggFeletUnderlag({ stockar, punkter: punktRes.data, filTradslag, tolDia });
 
   return NextResponse.json({
-    ok: true, maskin_id: maskinId, tolDia, tolLangd, dia, rot,
+    ok: true, maskin_id: maskinId, tolDia, tolLangd, dia, rot, bortLangdfel,
     senasteKalibrering: kal?.[0]?.datum ? svenskDag(String(kal[0].datum)) : null,
   } satisfies FeletResp);
 }

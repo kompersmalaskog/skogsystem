@@ -74,7 +74,20 @@ describe('varSitterFelet', () => {
   it('rätt i snitt men under målet: "spretar åt båda hållen" (Scorpionens grova stockar 2026-11-18: +0,4 mm, 74 % rätt)', () => {
     const vy = varSitterFelet({ resp: resp({ dia: stammar('grov', 50, 0.4, '2026-11-05', 13) }), period: 'fonster', fonster: FONSTER, trosklar: VIDA });
     expect(vy.rader.map(r => [r.titel, r.varde, r.ord, r.ton])).toEqual([['Grova stockar', 'spretar åt båda hållen', '74 % rätt', 'hot']]);
-    expect(vy.mening).toBeNull();
+    // Skogforsk: låg träff utan systematiskt fel går inte att kalibrera bort — det tyder på något mekaniskt.
+    expect(vy.mening).toBe('Felet på grova stockar hoppar åt båda hållen. Det brukar bero på något i aggregatet, inte på kalibreringen.');
+  });
+
+  it('ett systematiskt fel säger aldrig "aggregatet" — det går att kalibrera', () => {
+    const vy = varSitterFelet({ resp: resp({ dia: stammar('klen', 10, 4, '2026-11-05', 6) }), period: 'fonster', fonster: FONSTER, trosklar: VIDA });
+    expect(vy.mening).toBe('Maskinen tror att klena stockar är grövre än de är.');
+  });
+
+  it('stockar med längdfel över 10 cm sägs i noten, bara de i perioden', () => {
+    const vy = varSitterFelet({ resp: resp({ dia: stammar('klen', 8, 0), bortLangdfel: ['2026-11-05', '2026-11-06', '2025-01-01'] }), period: 'fonster', fonster: FONSTER, trosklar: VIDA });
+    expect(vy.not).toBe('8 stammar senaste 90 dagarna · 2 stockar räknas inte, längden var mer än 10 cm fel');
+    const ingen = varSitterFelet({ resp: resp({ dia: stammar('klen', 8, 0) }), period: 'fonster', fonster: FONSTER, trosklar: VIDA });
+    expect(ingen.not).toBe('8 stammar senaste 90 dagarna');
   });
 
   it('högst tre rader', () => {
@@ -106,5 +119,13 @@ describe('byggFeletUnderlag', () => {
       { stam: '2026-11-05T09:00:00', datum: '2026-11-05', grupp: 'klen', n: 2, traff: 1, summa: 8 },
     ]);
     expect(u.rot).toEqual([{ stam: '2026-11-05T09:00:00', datum: '2026-11-05', tradslag: 'Gran', avvikCm: 1 }]);
+    expect(u.bortLangdfel).toEqual([]);
+  });
+
+  it('Skogforsk: en stock vars längd avviker mer än 10 cm ger ingen diameter, 10 cm exakt räknas', () => {
+    const stockar = [stock(1, { maskin_langd_cm: 561 }), stock(2, { harvest_date: 'b', maskin_langd_cm: 560 })];
+    const u = byggFeletUnderlag({ stockar, punkter: [punkt(1, 120, 5), punkt(2, 120, 3)], filTradslag: new Map([['f.hqc', 'GRAN']]), tolDia: 4 });
+    expect(u.dia.map(d => d.stam)).toEqual(['b']);
+    expect(u.bortLangdfel).toEqual(['2026-11-05']);
   });
 });
