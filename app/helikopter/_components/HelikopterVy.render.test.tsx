@@ -96,11 +96,15 @@ const takter = [
 ]
 const block = (typ: string, roll: string) => cont.querySelector(`[data-spar="${typ}"] [data-block="${roll}"]`) as HTMLElement
 const SKALVIKEN = '84fa6474'
+/** Detaljerna (maskiner, trakter) ligger bakom ett tryck på raden Skördare/Skotare. */
+async function oppnaRader() { for (const b of Array.from(cont.querySelectorAll('[data-rad-vaxla]')) as HTMLElement[]) await act(async () => { b.click() }) }
+async function oppnaMer() { await act(async () => { (cont.querySelector('[data-mer] button') as HTMLElement).click() }) }
 
 describe('/helikopter — tavlan', () => {
   it('svaret och ett kort per spår: Skördat och Skotat, en stapel mot beställt och en rad per maskin med Nu och Månadens slut', async () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
+    await oppnaRader()
     expect(text()).toContain('Oktober 2026')
     expect(text()).toContain('10 arbetsdagar kvar')
     expect(sektion(`Slutavverkning · beställt ${fmt(5000)}`)).not.toBeNull()
@@ -111,10 +115,10 @@ describe('/helikopter — tavlan', () => {
     expect(sk.querySelector('[data-landar="PONS20SDJAA270231"]')?.textContent).toBe(fmt(6534))
     expect(sk.querySelector('[data-summa]')?.textContent).toContain('över')
     // Stapeln mot beställt: texten under säger nu och månadens slut av beställt; går det över står ett streck vid beställt.
-    expect(sk.querySelector('[data-stapeltext]')?.textContent).toBe(`Nu ${fmt(4800)}Månadens slut ${fmt(6534)} av ${fmt(5000)}`)
+    expect(sk.querySelector('[data-stapeltext]')?.textContent).toBe(`Gjort ${fmt(4800)}Prognos ${fmt(6534)} av ${fmt(5000)}`)
     expect(sk.querySelector('[data-stapel-bestallt]')).not.toBeNull()
     expect((sk.querySelector('[data-stapel-nu]') as HTMLElement).style.width).toBe(`${(4800 / 6534) * 100}%`)
-    // Ordet Landar finns inte kvar: kolumnen heter Månadens slut.
+    // Ordet Landar finns inte kvar: kolumnen heter Prognos.
     expect(cont.querySelector('[data-spar="slutavverkning"]')?.textContent).not.toContain('Landar')
     // Elefant: 3 000 skotat. Skälviken 100 h på 7,59 h/dag = 13,2 dagar; föraren är ledig 26–30 okt, så 5 dagar hinns: 3 000 + 1 734 × 5/13,17 = 3 658.
     const so = block('slutavverkning', 'skotare')
@@ -127,7 +131,8 @@ describe('/helikopter — tavlan', () => {
     expect(cont.querySelector('main h2')?.textContent).toBe(`Slutavverkning fattas ${fmt(1342)} · gallring ${fmt(200)}`)
     // Trakter utan maskin står som egna rader.
     expect(so.querySelector('[data-utan]')?.textContent).toContain('Ingen maskin')
-    // Kvar i skogen = ingående + skördat − skotat.
+    // Kvar i skogen = ingående + skördat − skotat (bakom Mer om tavlan).
+    await oppnaMer()
     expect(cont.querySelector('[data-kvar="slutavverkning"]')?.textContent).toContain(fmt(1800))
     // De gamla korten är borta, inga flikar.
     for (const n of ['Skotat', 'Gör detta', 'När blir maskinerna klara?', 'Egen skotning', 'Onsdagsnotis']) expect(sektion(n)).toBeNull()
@@ -143,6 +148,7 @@ describe('/helikopter — tavlan', () => {
   it('ett tryck på en maskin visar hennes trakter; ett tryck på en trakt flyttar den med EN knapp som skriver och läser om', async () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
+    await oppnaRader()
     const so = block('slutavverkning', 'skotare')
     expect(so.querySelector('[data-trakt]')).toBeNull()
     await act(async () => { (so.querySelector('[data-maskin="A130743"] button') as HTMLButtonElement).click() })
@@ -174,6 +180,7 @@ describe('/helikopter — tavlan', () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter, egenSkotning: [{ objekt_id: 'dimT', namn: 'Trestensdal', vo_nummer: null, typ: 'gallring', bolag: manadsdata().spar.find((r: any) => r.typ === 'gallring')?.bolag?.[0] ?? null, skordat: 178, senast_datum: null }] }), error: null })
     q.hamtaEgetSkordat.mockResolvedValue({ data: [{ objekt_id: 'dimT', maskin_id: 'R64428', volym: 178 }], error: null })
     await monter()
+    await oppnaRader()
     // Flera trakter utan maskin står på EN rad som fälls ut.
     const grupp = block('gallring', 'skotare').querySelector('[data-utan-grupp] button') as HTMLButtonElement
     expect(grupp.textContent).toContain('trakter utan maskin')
@@ -208,6 +215,7 @@ describe('/helikopter — tavlan', () => {
       { maskin_id: 'PONS20SDJAA270231', roll: 'skordare', objekt_id: 'c', namn: 'GROT Brokamåla', typ: 'Grot', bolag: 'Vida', egen_skotning: false, volym: 46 },
     ], error: null })
     await monter()
+    await oppnaRader()
     const giant = block('slutavverkning', 'skordare').querySelector('[data-maskin="PONS20SDJAA270231"]') as HTMLElement
     expect(giant.querySelector('[data-utanfor]')?.textContent).toBe(`${fmt(160)} utanför beställningen`)
     expect(giant.querySelector('[data-nu]')?.textContent).toBe(fmt(4800))
@@ -223,6 +231,7 @@ describe('/helikopter — tavlan', () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     q.hamtaMaskinObjekt.mockResolvedValue({ data: null, error: 'nät' } as never)
     await monter()
+    await oppnaRader()
     expect(cont.querySelector('[data-maskin]')).not.toBeNull()
     expect(cont.querySelector('[data-utanfor]')).toBeNull()
   })
@@ -231,6 +240,7 @@ describe('/helikopter — tavlan', () => {
     q.hamtaKlar.mockResolvedValue({ data: null, error: 'nät' })
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
+    await oppnaRader()
     expect(text()).toContain('Kunde inte läsa maskinernas trakter')
     expect(block('slutavverkning', 'skotare').querySelector('[data-nu="A130743"]')?.textContent).toBe(fmt(3000))
     expect(cont.querySelector('[data-landar]')).toBeNull()

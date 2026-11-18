@@ -74,11 +74,13 @@ const sida = (inner: string) =>
 
 describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chromium i miljön'}`, () => {
   it.skipIf(!CHROMIUM)('ingen sidscroll, inga träffytor under 44 px, talen i raka kolumner', async () => {
+    const rad = '[data-spar="slutavverkning"] [data-rad-vaxla="skotare"]'
     const maskin = '[data-spar="slutavverkning"] [data-block="skotare"] [data-maskin="A130743"] button'
     const vyer = [
       { namn: 'sida', html: await html([]) },
-      { namn: 'oppen', html: await html([maskin]) },
-      { namn: 'flytta', html: await html([maskin, '[data-spar="slutavverkning"] [data-block="skotare"] [data-trakt]']) },
+      { namn: 'gor', html: await html(['[data-gor-rad="utan"] button']) },
+      { namn: 'oppen', html: await html([rad, maskin]) },
+      { namn: 'flytta', html: await html([rad, maskin, '[data-spar="slutavverkning"] [data-block="skotare"] [data-trakt]']) },
     ]
     const b = await CHROMIUM!.launch({})
     const skriv = process.env.TAVLA_SKRIV

@@ -143,11 +143,33 @@ export type TavlaBlock = {
   diff: number | null
 }
 
+/** Räcker trakterna? Skogen som finns kvar att ta (gjort + kvar i inlagda trakter) mot beställningen, per roll. */
+export type TavlaRacker = {
+  roll: KlarRoll
+  rubrik: 'Skördare' | 'Skotare'
+  /** gjort + kvar − beställt (negativt = trakterna räcker inte). Enheten är m³ och står i rubriken. */
+  diff: number
+  /** "Räcker" · "Saknar 378 m³" · "1 479 m³ för mycket" */
+  ord: string
+  ton: Ton
+}
+
+/** Något planeraren kan göra något åt. */
+export type TavlaGor =
+  | { slag: 'saknas'; text: string; under: string }
+  | { slag: 'utan'; roll: KlarRoll; text: string; under: string; trakter: TavlaUtan[] }
+  | { slag: 'formycket'; text: string; under: string }
+
+/** Mer än så här över beställt är för mycket inlagt för månaden. */
+export const FOR_MYCKET = 0.2
+
 export type TavlaSpar = {
   typ: Typ
   namn: string
   bestallt: number
   block: [TavlaBlock, TavlaBlock]
+  /** Tom i en avslutad månad, utan beställning eller när köerna inte gick att läsa. */
+  racker: TavlaRacker[]
   /** Ingående oskotat + skördat − skotat. */
   kvarISkogen: number
 }
@@ -156,6 +178,8 @@ export type TavlaOvrig = { maskin_id: string; namn: string; roll: KlarRoll; trak
 
 export type Tavla = {
   svar: { rubrik: string; avvikelse: boolean }
+  /** "Vad kan du göra?" — bara det som finns. */
+  gor: TavlaGor[]
   spar: TavlaSpar[]
   /** Maskiner vars kö bara har sådant som inte räknas mot beställningen (GROT, energiklippning, egen skotning). */
   ovrigt: TavlaOvrig[]
@@ -298,14 +322,50 @@ export function byggTavla(d: TavlaIndata): Tavla {
       const ca = maskiner.some(m => m.ca)
       return { roll, rubrik: roll === 'skordare' ? 'Skördat' : 'Skotat', maskiner, utan, markagare, nu, landar, ca, ...dom(roll, landar, nu, s.bestallt, ca, d.status) }
     }) as [TavlaBlock, TavlaBlock]
-    return { typ: s.typ, namn: TYP_NAMN[s.typ], bestallt: s.bestallt, block, kvarISkogen: Math.round(oskotatKvar(s)) }
+    return { typ: s.typ, namn: TYP_NAMN[s.typ], bestallt: s.bestallt, block, racker: racker(s.typ, s.bestallt, block, trakter, d.status, klar != null), kvarISkogen: Math.round(oskotatKvar(s)) }
   })
 
   const ovrigt: TavlaOvrig[] = (klar?.maskiner ?? [])
     .filter(m => !iNagotSpar.has(m.maskin_id) && (koer.get(m.maskin_id) ?? []).length > 0)
     .map(m => ({ maskin_id: m.maskin_id, namn: m.namn, roll: m.roll, trakter: (koer.get(m.maskin_id) ?? []).map(r => ({ ...traktVy(r, null, sista), utanfor: false })) }))
 
-  return { svar: tavlaSvar(spar, d.status), spar, ovrigt }
+  return { svar: tavlaSvar(spar, d.status), gor: tavlaGor(spar), spar, ovrigt }
+}
+
+/** Räcker trakterna: det som är gjort + det som är kvar i inlagda trakter, mot beställt. Skotaren räknar inte egen skotning (den är inte vår). */
+function racker(typ: Typ, bestallt: number, block: TavlaBlock[], trakter: KlarTrakt[], status: ManadStatus, harKo: boolean): TavlaRacker[] {
+  if (bestallt <= 0 || status === 'avslutad' || !harKo) return []
+  return block.map((b): TavlaRacker => {
+    const kvar = trakter.filter(t => t.typ === typ && t.roll === b.roll).reduce((a, t) => a + kvarVolym(t), 0)
+    const diff = Math.round(b.nu + kvar - bestallt)
+    const rubrik = b.roll === 'skordare' ? 'Skördare' : 'Skotare'
+    if (diff < 0) return { roll: b.roll, rubrik, diff, ord: `Saknar ${fmt(-diff)}`, ton: 'orange' }
+    if (diff > bestallt * FOR_MYCKET) return { roll: b.roll, rubrik, diff, ord: `${fmt(diff)} för mycket`, ton: 'dampad' }
+    return { roll: b.roll, rubrik, diff, ord: 'Räcker', ton: 'gron' }
+  })
+}
+
+/** Det du kan göra: ny trakt när skogen tar slut, välj maskin åt trakter utan, flytta till nästa månad när för mycket är inlagt. Saknas först. */
+function tavlaGor(spar: TavlaSpar[]): TavlaGor[] {
+  const saknas: TavlaGor[] = []
+  const utan: TavlaGor[] = []
+  const formycket: TavlaGor[] = []
+  for (const s of spar) {
+    // EN rad per spår när skogen tar slut, med skördare och skotare på samma rad.
+    const brist = s.racker.filter(r => r.ton === 'orange')
+    if (brist.length > 0) saknas.push({ slag: 'saknas', text: `Lägg in en ny trakt i ${s.namn.toLowerCase()}`, under: brist.map((r, i) => `${i === 0 ? r.rubrik : r.rubrik.toLowerCase()} saknar ${fmt(-r.diff)} m³`).join(' · ') })
+    for (const r of s.racker) {
+      if (r.ton === 'dampad' && r.roll === 'skordare') formycket.push({ slag: 'formycket', text: `${s.namn} har för mycket inlagt`, under: `Ca ${fmt(r.diff)} m³ över beställt · flytta en trakt till nästa månad` })
+    }
+    for (const b of s.block) {
+      if (b.utan.length === 0) continue
+      const antal = b.utan.length
+      const vol = b.utan.reduce((a, u) => a + Math.round(u.volym), 0)
+      const vem = b.roll === 'skordare' ? 'skördare' : 'skotare'
+      utan.push({ slag: 'utan', roll: b.roll, text: antal === 1 ? `1 trakt har ingen ${vem}` : `${antal} trakter har ingen ${vem}`, under: `${s.namn} · ${fmt(vol)} m³ · välj maskin`, trakter: b.utan })
+    }
+  }
+  return [...saknas, ...utan, ...formycket]
 }
 
 /** EN mening: det som fattas (skotat = det som levereras), annars skördaren över, annars att vi hinner. */

@@ -106,6 +106,56 @@ describe('tavlan', () => {
   })
 })
 
+describe('räcker trakterna', () => {
+  const maskiner = [maskin('Giant', 'skordare'), maskin('R64428', 'skordare'), maskin('Elefant', 'skotare')]
+  // November 2026 (prod 2026-11-18): Giant har 3 937 skördat och bara 687 kvar i sina tre trakter — beställt 5 000. Gallring: 287 skördat, ca 2 190 kvar inlagt mot 1 000.
+  const trakter = [
+    trakt('Krokshult', 'skordare', 'Giant', { volym: 221, utfort_volym: 2 }),
+    trakt('Tröjemåla 1:115', 'skordare', 'Giant', { volym: 321 }),
+    trakt('Tröjemåla', 'skordare', 'Giant', { volym: 145 }),
+    trakt('Santhe', 'skordare', 'R64428', { typ: 'gallring', volym: 1620, utfort_volym: 249 }),
+    trakt('Söftesmåla', 'skordare', 'R64428', { typ: 'gallring', volym: 259 }),
+    trakt('Hönshylte', 'skordare', 'R64428', { typ: 'gallring', volym: 255 }),
+    trakt('Edestad', 'skotare', 'Elefant', { rest_volym: 4000 }),
+    trakt('Krokshult', 'skotare', null, { rest_volym: 221 }),
+    trakt('Santhe', 'skotare', 'Elefant', { typ: 'gallring', rest_volym: 1620 }),
+  ]
+  const t = byggTavla(bas({
+    spar: [spar('slutavverkning', { bestallt: 5000 }), spar('gallring', { bestallt: 1000 })],
+    utfall: [
+      { typ: 'slutavverkning', maskin_id: 'Giant', roll: 'skordare', volym: 3937 }, { typ: 'slutavverkning', maskin_id: 'Elefant', roll: 'skotare', volym: 1505 },
+      { typ: 'gallring', maskin_id: 'R64428', roll: 'skordare', volym: 287 },
+    ],
+    klar: klar(maskiner, trakter),
+  }))
+  const rad = (typ: string, roll: string) => t.spar.find(s => s.typ === typ)!.racker.find(r => r.roll === roll)!
+
+  it('slutavverkning skördat: skogen tar slut — saknar 378 mot beställt', () => {
+    expect(rad('slutavverkning', 'skordare')).toMatchObject({ diff: -378, ord: `Saknar ${fmt(378)}`, ton: 'orange' })
+  })
+  it('gallring skördat: för mycket inlagt — räcker och mer därtill', () => {
+    expect(rad('gallring', 'skordare')).toMatchObject({ ton: 'dampad' })
+    expect(rad('gallring', 'skordare').ord).toBe(`${fmt(rad('gallring', 'skordare').diff)} för mycket`)
+    expect(rad('gallring', 'skordare').diff).toBe(Math.round(287 + (1620 - 249) + 259 + 255 - 1000))
+  })
+  it('skotaren: skog nog, även den som saknar maskin räknas som skog att ta', () => {
+    expect(rad('slutavverkning', 'skotare')).toMatchObject({ ord: 'Räcker', ton: 'gron' })
+  })
+  it('Vad kan du göra: saknas först, sedan trakter utan maskin, sist för mycket', () => {
+    expect(t.gor.map(g => g.slag)).toEqual(['saknas', 'utan', 'formycket'])
+    expect(t.gor[0]).toMatchObject({ text: 'Lägg in en ny trakt i slutavverkning', under: `Skördare saknar ${fmt(378)} m³` })
+    expect(t.gor[1]).toMatchObject({ slag: 'utan', text: '1 trakt har ingen skotare' })
+    expect(t.gor[2].text).toBe('Gallring har för mycket inlagt')
+  })
+  it('ingen rad i en avslutad månad, utan beställning eller utan köer', () => {
+    const ind = bas({ spar: [spar('slutavverkning', { bestallt: 5000 })], utfall: [], klar: klar(maskiner, trakter) })
+    expect(byggTavla({ ...ind, status: 'avslutad' }).spar[0].racker).toEqual([])
+    expect(byggTavla({ ...ind, klar: null }).spar[0].racker).toEqual([])
+    expect(byggTavla({ ...ind, spar: [spar('slutavverkning', { bestallt: 0 })] }).spar[0].racker).toEqual([])
+    expect(byggTavla({ ...ind, klar: null }).gor).toEqual([])
+  })
+})
+
 describe('egen skotning', () => {
   const maskiner = [maskin('H8E', 'skordare')]
   const trakter = [
