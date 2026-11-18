@@ -197,10 +197,11 @@ describe('färgerna betyder EN sak var (Martin 2026-11-06)', () => {
     const p = per(byggPrickar(grupperaObjekt(O), [], null, false));
     expect([p.skord.farg, p.vantar.farg, p.skot.farg, p.plan.farg]).toEqual(['gron', 'gra', 'gron', 'gra']);
   });
-  it('orange ring = fossil åker eller vattenskydd; nyckelbiotop eller ingen analys ger ingen ring', () => {
+  it('orange ring = analysen har hittat något (också nyckelbiotop); ingen analys eller inget hittat ger ingen ring', () => {
     const p = per(byggPrickar(grupperaObjekt(O), [], null, false));
-    expect([p.skord.varning, p.vantar.varning, p.skot.varning, p.plan.varning]).toEqual([false, true, true, false]);
+    expect([p.skord.varning, p.vantar.varning, p.skot.varning, p.plan.varning]).toEqual([false, true, true, true]);
     expect(harVarning({ trakt_analys: ana([], ) })).toBe(false);
+    expect(harVarning({})).toBe(false);
   });
   it('ringen ritas i orange och bara för varning = 1', () => {
     expect(PRICK_LAGER_SPEC.varning.filter).toEqual(['==', ['get', 'varning'], 1]);

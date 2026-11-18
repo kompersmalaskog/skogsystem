@@ -3,7 +3,7 @@
 // (Martin 2026-11-06: "jag vill ju bara ha varning på det som är innanför trakten". Den tillfälliga läsningen av Planeringens sparade lista,
 // trakt_data.beraknad.restriktioner, är borta — den sökte i en ruta runt trakten och hade dubbletter.)
 //
-//   Ringen på kartan, raden i listorna och under trakten i planen = `listRad` (en rad: fossil åker / vattenskydd; skydd syns i trakten)
+//   Ringen på kartan, raden i listorna och under trakten i planen = `listRad` (en rad med allt som hittats, högst tre sorter)
 //   Texten om trakten (Min plan, arket) = `markenRader` (ett märke per sort)
 //   Inte analyserad än = "Inte kontrollerad än" i texten om trakten (aldrig tomt där); ingen ring och ingen rad i listorna.
 
@@ -22,7 +22,7 @@ export function analysRader(a: TraktAnalys): { text: string; farg: string | null
   return markenRader(a).map((r) => ({ text: r.text, farg: r.kategori ? fyndFarg(r.kategori) : null, fel: !r.kategori }));
 }
 
-/** Ordet på kartan, i listorna och under trakten i planen — bara fossil åker/vattenskydd (det som ändrar hur man kör). null = inget. */
+/** Ordet på kartan, i listorna och under trakten i planen — samma rad som objektlistan (allt som hittats). null = inget. */
 export function analysKortOrd(a: TraktAnalys): string | null {
   const r = listRad(a);
   return r && r.kategori ? r.text : null;

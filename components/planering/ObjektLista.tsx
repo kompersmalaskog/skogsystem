@@ -328,7 +328,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
               style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs + AVSTAND.xs / 2, ...TYP.meta, color: mark.kategori ? FARG.text2 : FARG.text3 }}>
               {mark.kategori && (
                 <span aria-hidden="true" style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, flexShrink: 0,
-                  background: mark.kategori === 'vattenskydd' ? GRUPPER.blott.farg : GRUPPER.kultur.farg }} />
+                  background: mark.kategori === 'vattenskydd' ? GRUPPER.blott.farg : mark.kategori === 'skydd' ? GRUPPER.natur.farg : GRUPPER.kultur.farg }} />
               )}
               {mark.text}
             </span>
