@@ -449,7 +449,7 @@ describe('samma körning, tre mått', () => {
     const r = vy(SKALVIKEN_CYKEL);
     expect(r.jamforRader.map(x => [x.etikett, x.varde])).toEqual([
       ['Halva cykeln', '739 m'],
-      ['Hem med lasset', '660 m'],
+      ['Efter vändpunkten', '660 m'],
       ['Vid avlägget', '250 m'],
     ]);
   });
@@ -459,9 +459,14 @@ describe('samma körning, tre mått', () => {
     expect(r.jamforRader[0].not).toMatch(/räknas priset på/i);
   });
 
-  it('förklarar vad hemresan och landningsarbetet ÄR, i ord', () => {
+  it('förklarar vad talen ÄR, i ord', () => {
     const r = vy(SKALVIKEN_CYKEL);
-    expect(r.jamforRader[1].not).toMatch(/med virket/i);
+    // ÄRLIG ETIKETT: talet är inte hemresan. Säger texten "hem med virket"
+    // ljuger den på 13 % av lassen, där kryssandet efter vändpunkten är mer
+    // än halva cykeln.
+    expect(r.jamforRader[1].etikett).not.toMatch(/hem/i);
+    expect(r.jamforRader[1].not).toMatch(/längst från avlägget/i);
+    expect(r.jamforRader[1].not).toMatch(/kryssar/i);
     expect(r.jamforRader[2].not).toMatch(/sortering och läggning/i);
     // Landningsarbetet ingår i priset — det ska stå, annars ser raden ut som
     // ett avdrag som redan är gjort.

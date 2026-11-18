@@ -15,8 +15,15 @@
 // Uppmätt på Skälviken (85 app-lass, 1 553 m³, volymviktat):
 //
 //   377 m   fågelväg till virket (stamhögarna ur detalj_stam)
-//   660 m   `hemMedLassM` — körd väg från vändpunkten hem med lasset
+//   660 m   `hemMedLassM` — all körning efter den yttersta punkten
 //   739 m   `enkelVagM` = cykel 1 477 ÷ 2 — Optis sätt att räkna
+//
+// `hemMedLassM` ÄR INTE HEMRESAN, trots SQL-kolumnens namn (`hem_med_lass_m`,
+// som står kvar — migrationen är körd). Det är all körning efter den punkt som
+// låg längst från lossningen, så kryssar maskinen innan den åker hem räknas
+// det med: uppmätt i prod 2026-11-18 är det mer än halva cykeln på 18 av 141
+// lass (snitt 38 % av cykeln, max 67 %). Vyn kallar det därför "Efter
+// vändpunkten", aldrig "hem" — ett tal får inte heta något det inte är.
 //
 // På Brokamåla och Tjuvön, de två trakter där Martin satt avståndet för hand,
 // SAMMANFALLER fågelväg och cykel ÷ 2 — båda trakterna är långa smala remsor
@@ -34,6 +41,15 @@
 //
 // HALVERINGEN SKER PÅ ETT STÄLLE: `skotningsavstandM` (lib/skotningsavstand).
 // SQL-funktionen returnerar hela cykeln, aldrig halva. Aldrig två gånger.
+//
+// KÄND BEGRÄNSNING, mätt 2026-11-18: 30 av 106 skotarspår i `hyttspar` saknar
+// `maskin_id`. Funktionen joinar på maskin, så ett sådant spår matchar inget
+// lass och punkterna tappas — lasset blir `inga_punkter` och bär 0 kr. Det
+// drabbar INGEN trakt i dag: alla 13 trakter med maskinlösa spår har noll
+// bekräftade lass (spåren är från september, lassrapporteringen började 20
+// oktober). Att gissa maskin ur objektet vore att gissa, och `inga_punkter`
+// syns i granskningen, så det är försiktigt och inte tyst. Börjar det hända på
+// en trakt med lass: mät om, och lös det i importen — inte med en gissning här.
 
 import { skotningsavstandM } from '@/lib/skotningsavstand';
 import type { AvstandsLass } from '@/lib/faktura/lassAvstand';

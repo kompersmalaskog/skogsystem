@@ -585,9 +585,14 @@ export function byggAvstandVy(i: AvstandIndata): AvstandVy {
     });
     if (c.hemMedLassM != null) {
       jamforRader.push({
-        etikett: 'Hem med lasset',
+        etikett: 'Efter vändpunkten',
+        // ÄRLIG ETIKETT: talet är inte "hemresan". Det är all körning efter
+        // den punkt som låg längst från avlägget, och kryssar maskinen innan
+        // den åker hem räknas det med — på 18 av 141 lass i prod är det mer
+        // än halva cykeln (max 67 %). Se lib/faktura/lassCykel.
         varde: `${heltal(c.hemMedLassM)} m`,
-        not: 'Så långt maskinen körde med virket på, från den punkt den vände.',
+        not: 'All körning efter den punkt som låg längst från avlägget. '
+          + 'Oftast hemresan, men kryssar maskinen innan den åker hem räknas det med.',
       });
     }
     if (c.vidAvlaggetM != null) {
