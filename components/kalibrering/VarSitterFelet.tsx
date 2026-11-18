@@ -48,9 +48,15 @@ export default function VarSitterFelet({ d }: { d: KalibreringData }) {
         <Fyll><Lugn marginTop={0}>{vy.tom}</Lugn></Fyll>
       ) : (
         vy.rader.map((r, i) => (
-          <Rad key={r.key} sista={i === vy.rader.length - 1} titel={r.titel} under={r.under}
+          <Rad key={r.key} sista={i === vy.rader.length - 1 && !vy.langdRad} titel={r.titel} under={r.under}
             hoger={<TonVarde ton={r.ton} dampadOk>{r.varde}</TonVarde>} hogerUnder={r.ord || undefined} />
         ))
+      )}
+      {vy.langdRad && (
+        <div data-rad="langd">
+          <Rad sista titel={vy.langdRad.titel} under={vy.langdRad.under}
+            hoger={<TonVarde ton={vy.langdRad.ton} dampadOk>{vy.langdRad.varde}</TonVarde>} hogerUnder={vy.langdRad.ord || undefined} />
+        </div>
       )}
       </Sektion>
   );

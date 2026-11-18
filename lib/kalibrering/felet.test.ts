@@ -1,7 +1,7 @@
 // Var sitter felet? — Vidas rapport 2026-11-16 (Scorpion, Stefan, 12 klavstammar 2–13 nov): klena stockar mäts grovt, grova något klent, rotstocken på gran
 // en aning lång. Fixturen här har samma form: talen är valda så att svaret går att räkna för hand.
 import { describe, expect, it } from 'vitest';
-import { byggFeletUnderlag, feletGrupp, varSitterFelet, type FeletResp, type FeletStock } from './felet';
+import { byggFeletUnderlag, feletGrupp, langdMotKlass, varSitterFelet, type FeletResp, type FeletStock } from './felet';
 import type { KravRow } from './typer';
 import type { DiaPunkt } from './diameterpunkter';
 
@@ -127,5 +127,58 @@ describe('byggFeletUnderlag', () => {
     const u = byggFeletUnderlag({ stockar, punkter: [punkt(1, 120, 5), punkt(2, 120, 3)], filTradslag: new Map([['f.hqc', 'GRAN']]), tolDia: 4 });
     expect(u.dia.map(d => d.stam)).toEqual(['b']);
     expect(u.bortLangdfel).toEqual(['2026-11-05']);
+  });
+});
+
+// Längden mot beställt (Martin 2026-11-18): klassgränsen är vad stocken MINST måste vara; föraren lägger 3–6 cm övermål i skördaren.
+describe('längden mot beställt', () => {
+  const VISLANDA = [[372, 433, 440, 494, 546], [372, 433, 440, 494, 548]];
+
+  it('måttbandet över gränsen = inte för kort, övermålet räknas mot maskinens klass', () => {
+    expect(langdMotKlass(438, 437, VISLANDA)).toEqual({ kort: false, overCm: 4 });
+  });
+  it('måttbandet under gränsen = för kort (hamnar i en lägre klass)', () => {
+    expect(langdMotKlass(436, 431, VISLANDA)).toEqual({ kort: true, overCm: -2 });
+  });
+  it('kubb under enda klassen = för kort', () => {
+    expect(langdMotKlass(308, 303, [[305]])).toEqual({ kort: true, overCm: -2 });
+  });
+  it('matriserna säger olika (546 eller 548) = inte bedömd, inget övermål', () => {
+    expect(langdMotKlass(550, 547, VISLANDA)).toEqual({ kort: null, overCm: null });
+  });
+  it('omätt eller kortare än minsta klassen hos maskinen = ingen bedömning', () => {
+    expect(langdMotKlass(440, 0, VISLANDA)).toBeNull();
+    expect(langdMotKlass(300, 298, VISLANDA)).toBeNull();
+    expect(langdMotKlass(440, 437, [])).toBeNull();
+  });
+
+  const L = (n: number, o: Partial<{ kort: boolean | null; overCm: number | null; datum: string }> = {}) =>
+    Array.from({ length: n }, () => ({ datum: '2026-11-05', kort: false, overCm: 4, ...o }));
+  const vy = (langd: FeletResp['langd']) => varSitterFelet({ resp: resp({ langd }), period: 'fonster', fonster: FONSTER, trosklar: VIDA }).langdRad;
+
+  it('inga korta: "Ingen för kort" och övermålet i snitt', () => {
+    expect(vy(L(10))).toMatchObject({ titel: 'Längden mot beställt', under: '10 stockar timmer och kubb', varde: 'Ingen för kort', ord: 'övermål 4 cm i snitt', ton: 'ok' });
+  });
+  it('korta räknas och blir orange; de korta räknas inte i övermålet', () => {
+    expect(vy([...L(9), ...L(2, { kort: true, overCm: -3 })])).toMatchObject({ varde: '2 för korta', ord: 'övermål 4 cm i snitt', ton: 'hi' });
+  });
+  it('obedömda räknas inte; under 8 bedömda stockar ingen rad; stockar utanför perioden räknas inte', () => {
+    expect(vy([...L(7), ...L(5, { kort: null })])).toBeNull();
+    expect(vy([...L(7), ...L(5, { datum: '2026-01-01' })])).toBeNull();
+  });
+  it('läsfel är ett fel, äldre server ingen rad', () => {
+    expect(vy(null)).toMatchObject({ varde: 'Kunde inte läsas' });
+    expect(vy(undefined)).toBeNull();
+  });
+  it('byggFeletUnderlag: bara stockar vars sortiment har klasser, dubbletter en gång', () => {
+    const s = (id: number, namn: string | null, m: number, o: number): FeletStock => ({
+      id, filnamn: 'f', kontroll_datum: '2026-11-05', harvest_date: `2026-11-05T10:0${id}:00Z`, stam_nummer: 1, stock_nummer: 1,
+      machine_measurement_date: null, operator_measurement_date: null, maskin_langd_cm: m, operator_langd_cm: o, sortiment_namn: namn,
+    });
+    const ut = byggFeletUnderlag({
+      stockar: [s(1, 'Vislanda Tall_V3', 438, 437), s(2, 'BmavFall_V3', 434, 429), s(3, 'Vislanda Tall_V3', 436, 431)],
+      punkter: [], filTradslag: new Map(), tolDia: 4, klasser: new Map([['Vislanda Tall_V3', VISLANDA]]),
+    });
+    expect(ut.langd).toEqual([{ datum: '2026-11-05', kort: false, overCm: 4 }, { datum: '2026-11-05', kort: true, overCm: -2 }]);
   });
 });

@@ -35,6 +35,7 @@ const d = (over: Record<string, unknown> = {}) => ({
     ok: true, maskin_id: 'M', tolDia: 4, tolLangd: 2, senasteKalibrering: '2026-10-20',
     dia: Array.from({ length: 10 }, (_, i) => ({ stam: `k${i}`, datum: '2026-10-21', grupp: 'klen', n: 1, traff: i < 5 ? 0 : 1, summa: 4 })),
     rot: Array.from({ length: 10 }, (_, i) => ({ stam: `r${i}`, datum: '2026-10-21', tradslag: 'Gran', avvikCm: 1 })),
+    langd: [...Array.from({ length: 11 }, () => ({ datum: '2026-10-21', kort: false, overCm: 4 })), { datum: '2026-10-21', kort: true, overCm: -2 }],
   },
   filteredKalib: [
     { filnamn: 'a.hqc', datum: '2026-10-21T00:00:00', weather_at_harvest: { temperature_c: -9 } },
@@ -117,6 +118,15 @@ describe('Läget — svaret, kraven och trädslagen, inget mer', () => {
     expect(s.textContent).toContain('20 stammar sedan kalibreringen 20 okt');
     expect(h.textContent).toContain('Under kravet');
     expect(radtitlar(sektion(h, 'Vidas krav')!)[1]).toContain('77 %');
+  });
+
+  it('Var sitter felet?: längden mot beställt — för korta stockar och övermålet', () => {
+    const h = montera(createElement(LagetFlik, { d: d(), ark }));
+    const rad = sektion(h, 'Var sitter felet?')!.querySelector('[data-rad="langd"]')!;
+    expect(rad.textContent).toContain('Längden mot beställt');
+    expect(rad.textContent).toContain('12 stockar timmer och kubb');
+    expect(rad.textContent).toContain('1 för kort');
+    expect(rad.textContent).toContain('övermål 4 cm i snitt');
   });
 
   it('Var sitter felet? kunde inte läsas: säger det, resten av Läget står kvar', () => {

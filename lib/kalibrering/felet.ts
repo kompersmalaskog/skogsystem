@@ -51,13 +51,49 @@ export type FeletResp = {
   senasteKalibrering: string | null;
   /** Kontrolldagen för varje stock vars diameter lämnades bort för att längden avvek över LANGDFEL_MAX_CM. Saknas = inga. */
   bortLangdfel?: string[];
+  /** Timmer, klentimmer och kubb mot sina längdklasser, en rad per fysisk stock. null = klasserna gick inte att läsa; saknas = äldre server. */
+  langd?: FeletLangd[] | null;
 };
 
-export type FeletStock = StockRad & { maskin_langd_cm: number | null; operator_langd_cm: number | null };
+export type FeletStock = StockRad & { maskin_langd_cm: number | null; operator_langd_cm: number | null; sortiment_namn?: string | null };
+
+/**
+ * LÄNGDEN MOT BESTÄLLT (Martin 2026-11-18): klassens undre gräns (372, 433, 494 …) är vad stocken MINST måste vara. Föraren lägger 3–6 cm övermål i
+ * skördaren eftersom mätningen inte är exakt. Måttbandet under gränsen = stocken blev för kort och hamnar i en lägre klass, vilket kostar pengar.
+ *
+ * Kontrollfilen säger bara sortimentets NAMN, och samma namn kan ha flera matriser med lite olika längder (546 eller 548). Därför försiktigt:
+ * "för kort" bara när stocken är för kort i ALLA matriser med namnet, övermålet bara när alla matriser ger samma klass. Annars räknas stocken inte.
+ * Bara timmer, klentimmer och kubb — massaveden och energin räknas inte här.
+ */
+export const LANGD_GRUPPER = ['Timmer', 'Klentimmer', 'Kubb'] as const;
+/** En stock mot sina längdklasser. `kort` null = matriserna säger olika; `overCm` null = matriserna ger olika klass. */
+export type FeletLangd = { datum: string; kort: boolean | null; overCm: number | null };
+
+/** Maskinens tänkta klass (största gränsen ≤ maskinens längd) mot måttbandets. null = stocken går inte att bedöma (ingen matris, ingen klass, omätt). */
+export function langdMotKlass(maskinCm: number | null, operatorCm: number | null, matriser: number[][]): { kort: boolean | null; overCm: number | null } | null {
+  if (maskinCm == null || operatorCm == null || maskinCm <= 0 || operatorCm <= 0 || matriser.length === 0) return null;
+  const klass = (lim: number[], v: number) => { let k: number | null = null; for (const l of lim) if (l <= v && (k == null || l > k)) k = l; return k; };
+  const utfall = matriser.map(lim => {
+    const km = klass(lim, maskinCm);
+    if (km == null) return null;
+    const ko = klass(lim, operatorCm);
+    return { km, kort: ko == null || ko < km };
+  });
+  if (utfall.some(u => u == null)) return null;
+  const u = utfall as { km: number; kort: boolean }[];
+  const allaKort = u.every(x => x.kort);
+  const ingenKort = u.every(x => !x.kort);
+  const enKlass = u.every(x => x.km === u[0].km);
+  return { kort: allaKort ? true : ingenKort ? false : null, overCm: enKlass ? operatorCm - u[0].km : null };
+}
 
 /** Underlaget: en rad per stam och grovlek (diameter) och en per stam (rotstocken). Datum = kontrollens. Saknar kontrollen trädslag får rotstocken ingen rad. */
-export function byggFeletUnderlag(args: { stockar: FeletStock[]; punkter: DiaPunkt[]; filTradslag: Map<string, string>; tolDia: number }): { dia: FeletDia[]; rot: FeletRot[]; bortLangdfel: string[] } {
-  const { stockar, punkter, filTradslag, tolDia } = args;
+export function byggFeletUnderlag(args: {
+  stockar: FeletStock[]; punkter: DiaPunkt[]; filTradslag: Map<string, string>; tolDia: number;
+  /** Längdklasserna per sortimentnamn (utan "Timmer: "), en lista per matris. Saknas = ingen längdrad. */
+  klasser?: Map<string, number[][]>;
+}): { dia: FeletDia[]; rot: FeletRot[]; bortLangdfel: string[]; langd: FeletLangd[] } {
+  const { stockar, punkter, filTradslag, tolDia, klasser } = args;
   const behallna = fysiskaStockar(stockar);
   const stock = new Map(behallna.map(s => [s.id, s]));
   const dia = new Map<string, FeletDia>();
@@ -84,7 +120,16 @@ export function byggFeletUnderlag(args: { stockar: FeletStock[]; punkter: DiaPun
     sedda.add(stam);
     rot.push({ stam, datum: s.kontroll_datum.slice(0, 10), tradslag: tradslagLabel(tr), avvikCm: Number(s.maskin_langd_cm) - Number(s.operator_langd_cm) });
   }
-  return { dia: Array.from(dia.values()), rot, bortLangdfel };
+  const langd: FeletLangd[] = [];
+  if (klasser) {
+    for (const s of behallna) {
+      const m = s.sortiment_namn ? klasser.get(s.sortiment_namn.trim()) : undefined;
+      if (!m) continue;
+      const r = langdMotKlass(s.maskin_langd_cm, s.operator_langd_cm, m);
+      if (r) langd.push({ datum: s.kontroll_datum.slice(0, 10), ...r });
+    }
+  }
+  return { dia: Array.from(dia.values()), rot, bortLangdfel, langd };
 }
 
 // === Vyn ===
@@ -107,6 +152,8 @@ export type FeletVy = {
   not: string;
   /** Inga rader att visa (för få stammar) — texten som står i stället. */
   tom: string | null;
+  /** Längden mot beställt (timmer och kubb). null = för få stockar eller äldre server. */
+  langdRad: FeletRad | null;
 };
 
 const krav = (trosklar: KravRow[], variabel: string) => {
@@ -202,9 +249,28 @@ export function varSitterFelet(args: {
 
   const synliga = rader.slice(0, FELET_MAX_RADER);
   return {
+    langdRad: langdRad(resp.langd, iPerioden),
     rader: synliga,
     mening,
     not,
     tom: synliga.length === 0 ? `För få stammar för att säga var felet sitter – ${stammarText(antal)} ${periodText}.` : null,
+  };
+}
+
+/** "Längden mot beställt · 245 stockar · Ingen för kort · övermål 4 cm i snitt". Läsfel → en rad som säger det. Under 8 bedömda stockar → ingen rad. */
+function langdRad(langd: FeletLangd[] | null | undefined, iPerioden: (d: string) => boolean): FeletRad | null {
+  const titel = 'Längden mot beställt';
+  if (langd === undefined) return null;
+  if (langd === null) return { key: 'langd', titel, under: 'timmer och kubb', varde: 'Kunde inte läsas', ord: '', ton: 'ok' };
+  const lista = langd.filter(l => iPerioden(l.datum) && l.kort != null);
+  if (lista.length < FELET_MIN_STAMMAR) return null;
+  const korta = lista.filter(l => l.kort).length;
+  const over = lista.filter(l => !l.kort && l.overCm != null).map(l => l.overCm as number);
+  const snitt = over.length > 0 ? Math.round(over.reduce((a, b) => a + b, 0) / over.length) : null;
+  return {
+    key: 'langd', titel, under: `${lista.length} stockar timmer och kubb`,
+    varde: korta === 0 ? 'Ingen för kort' : korta === 1 ? '1 för kort' : `${korta} för korta`,
+    ord: snitt != null ? `övermål ${snitt} cm i snitt` : '',
+    ton: korta > 0 ? 'hi' : 'ok',
   };
 }
