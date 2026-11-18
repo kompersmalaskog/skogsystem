@@ -144,6 +144,28 @@ export type TavlaBlock = {
 }
 
 /** Räcker trakterna? Skogen som finns kvar att ta (gjort + kvar i inlagda trakter) mot beställningen, per roll. */
+export type TavlaBehovRad = {
+  objekt_id: string
+  namn: string
+  /** Volymen som är kvar att ta för rollen. */
+  kvar: number
+  /** Hur mycket av trakten som behövs för beställningen (≤ kvar). */
+  behovs: number
+}
+
+/** Vilka trakter som behövs för att nå beställningen, i körordning, och vilka som kan vänta. Bara skördaren (trakten flyttas som helhet). */
+export type TavlaBehov = {
+  bestallt: number
+  nu: number
+  /** Beställt − gjort (aldrig under 0). */
+  behov: number
+  /** Det som saknas även om alla trakter körs. 0 = skogen räcker. */
+  saknas: number
+  behovs: TavlaBehovRad[]
+  /** Behövs inte i månaden. `flyttbar` = trakten kan flyttas: inte förra månadens och inte påbörjad. */
+  inte: (TavlaBehovRad & { flyttbar: boolean })[]
+}
+
 export type TavlaRacker = {
   roll: KlarRoll
   rubrik: 'Skördare' | 'Skotare'
@@ -152,6 +174,8 @@ export type TavlaRacker = {
   /** "Räcker" · "Saknar 378 m³" · "1 479 m³ för mycket" */
   ord: string
   ton: Ton
+  /** Vilka trakter som behövs. Bara för skördaren. */
+  behov: TavlaBehov | null
 }
 
 /** Något planeraren kan göra något åt. */
@@ -336,13 +360,31 @@ export function byggTavla(d: TavlaIndata): Tavla {
 function racker(typ: Typ, bestallt: number, block: TavlaBlock[], trakter: KlarTrakt[], status: ManadStatus, harKo: boolean): TavlaRacker[] {
   if (bestallt <= 0 || status === 'avslutad' || !harKo) return []
   return block.map((b): TavlaRacker => {
-    const kvar = trakter.filter(t => t.typ === typ && t.roll === b.roll).reduce((a, t) => a + kvarVolym(t), 0)
+    const lista = trakter.filter(t => t.typ === typ && t.roll === b.roll)
+    const kvar = lista.reduce((a, t) => a + kvarVolym(t), 0)
     const diff = Math.round(b.nu + kvar - bestallt)
     const rubrik = b.roll === 'skordare' ? 'Skördare' : 'Skotare'
-    if (diff < 0) return { roll: b.roll, rubrik, diff, ord: `Saknar ${fmt(-diff)}`, ton: 'orange' }
-    if (diff > bestallt * FOR_MYCKET) return { roll: b.roll, rubrik, diff, ord: `${fmt(diff)} för mycket`, ton: 'dampad' }
-    return { roll: b.roll, rubrik, diff, ord: 'Räcker', ton: 'gron' }
+    const behov = b.roll === 'skordare' ? behovLista(lista, bestallt, b.nu) : null
+    if (diff < 0) return { roll: b.roll, rubrik, diff, ord: `Saknar ${fmt(-diff)}`, ton: 'orange', behov }
+    if (diff > bestallt * FOR_MYCKET) return { roll: b.roll, rubrik, diff, ord: `${fmt(diff)} för mycket`, ton: 'dampad', behov }
+    return { roll: b.roll, rubrik, diff, ord: 'Räcker', ton: 'gron', behov }
   })
+}
+
+/** Trakterna i körordning: de första som tillsammans täcker behovet behövs, resten kan vänta. */
+function behovLista(lista: KlarTrakt[], bestallt: number, nu: number): TavlaBehov {
+  const behov = Math.max(0, Math.round(bestallt - nu))
+  let summa = 0
+  const behovs: TavlaBehovRad[] = []
+  const inte: TavlaBehov['inte'] = []
+  for (const t of [...lista].sort((a, b) => a.sortn - b.sortn)) {
+    const kvar = Math.round(kvarVolym(t))
+    if (kvar <= 0) continue
+    if (summa >= behov) inte.push({ objekt_id: t.objekt_id, namn: traktNamn(t), kvar, behovs: 0, flyttbar: !t.forra_manaden && t.utfort_volym <= 0 })
+    else behovs.push({ objekt_id: t.objekt_id, namn: traktNamn(t), kvar, behovs: Math.min(kvar, Math.round(behov - summa)) })
+    summa += kvar
+  }
+  return { bestallt, nu: Math.round(nu), behov, saknas: Math.max(0, Math.round(behov - summa)), behovs, inte }
 }
 
 /** Det du kan göra: ny trakt när skogen tar slut, välj maskin åt trakter utan, flytta till nästa månad när för mycket är inlagt. Saknas först. */

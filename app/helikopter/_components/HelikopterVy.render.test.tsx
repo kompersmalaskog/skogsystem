@@ -19,9 +19,11 @@ const q = vi.hoisted(() => ({
 vi.mock('../_lib/queries', () => q)
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(q.params), useRouter: () => ({ replace: q.replace }) }))
 vi.mock('@/lib/CurrentMedarbetareContext', () => ({ useCurrentMedarbetare: () => ({ medarbetare: { id: 'm1', roll: 'admin', maskin_id: null } }) }))
+vi.mock('@/lib/objekt/data', () => ({ flyttaObjekt: vi.fn(async () => undefined) }))
 vi.mock('@/lib/datumLokal', () => ({ ymdLokal: () => '2026-10-17' }))
 
 import HelikopterVy from './HelikopterVy'
+import { flyttaObjekt } from '@/lib/objekt/data'
 
 const okt = {
   maskin_id: null, totalt: 22, gangna: 12, kvar: 10,
@@ -67,6 +69,7 @@ async function monter() {
   for (let i = 0; i < 4; i++) await act(async () => { await Promise.resolve() })
 }
 beforeEach(() => {
+  ;(flyttaObjekt as unknown as ReturnType<typeof vi.fn>).mockClear()
   for (const f of Object.values(q)) if (typeof f === 'function' && 'mockReset' in f) (f as ReturnType<typeof vi.fn>).mockReset()
   q.params = 'ar=2026&manad=10'
   q.hamtaFast.mockResolvedValue({ data: fast, error: null })
@@ -269,5 +272,44 @@ describe('/helikopter — tavlan', () => {
     expect(cont.querySelector('[data-landar]')).toBeNull()
     expect(q.hamtaKlar).not.toHaveBeenCalled()
     expect(sektion('Mer')!.textContent).toContain('Månadsfacit')
+  })
+
+  it('Räcker trakterna?: skördarens rad öppnar vilka trakter som behövs, och trakter som kan vänta flyttas till nästa månad (admin)', async () => {
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
+    await monter()
+    expect(cont.querySelector('[data-racker-rad="gallring:skotare"] button')).toBeNull()
+    const knapp0 = cont.querySelector('[data-racker-rad="gallring:skordare"] button') as HTMLButtonElement
+    await act(async () => { knapp0.click() })
+    const under = document.querySelector('[data-behov-under]') as HTMLElement
+    expect(under.textContent).toContain(`Beställt ${fmt(1000)} · gjort ${fmt(900)}`)
+    expect(document.querySelector('[data-behovs]')?.textContent).toContain('Tar resten av behovet')
+    const inte = Array.from(document.querySelectorAll('[data-inte-rad]')) as HTMLElement[]
+    expect(inte.length).toBeGreaterThan(0)
+    // Allt som kan flyttas är förvalt; knappen säger vad den gör och vart.
+    const flytta = document.querySelector('[data-flytta-manad]') as HTMLButtonElement
+    expect(flytta.textContent).toBe(`Flytta ${inte.length} trakt${inte.length === 1 ? '' : 'er'} till november · ${fmt(100)} m³`)
+    // Avmarkera en: knappen ändras (eller blir inaktiv när ingen är vald).
+    await act(async () => { (inte[0].querySelector('button') as HTMLButtonElement).click() })
+    expect(flytta.disabled).toBe(inte.length === 1)
+    await act(async () => { (inte[0].querySelector('button') as HTMLButtonElement).click() })
+    expect(flytta.disabled).toBe(false)
+    await act(async () => { flytta.click() })
+    for (let i = 0; i < 4; i++) await act(async () => { await Promise.resolve() })
+    // Flytten skrivs till objektets planerade månad (samma fält som Objekt-vyn): nästa månad efter den som visas.
+    const mock = flyttaObjekt as unknown as ReturnType<typeof vi.fn>
+    expect(mock).toHaveBeenCalledTimes(inte.length)
+    expect(mock.mock.calls.map(c => c[0]).sort()).toEqual(inte.map(e => e.getAttribute('data-inte-rad')).sort())
+    expect(mock.mock.calls[0][1]).toEqual({ ar: 2026, manad: 11 })
+    expect(document.querySelector('[data-behov-under]')).toBeNull()
+  })
+  it('flytten faller: arket säger felet och stannar öppet', async () => {
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
+    ;(flyttaObjekt as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Objektet flyttades inte. Försök igen.'))
+    await monter()
+    await act(async () => { (cont.querySelector('[data-racker-rad="gallring:skordare"] button') as HTMLButtonElement).click() })
+    await act(async () => { (document.querySelector('[data-flytta-manad]') as HTMLButtonElement).click() })
+    for (let i = 0; i < 4; i++) await act(async () => { await Promise.resolve() })
+    expect(document.body.textContent).toContain('Objektet flyttades inte. Försök igen.')
+    expect(document.querySelector('[data-behov-under]')).not.toBeNull()
   })
 })

@@ -44,7 +44,9 @@ import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar } from './Tillstand'
 import { HK_CSS } from './Lista'
 import { PanelContext, type PanelPost } from './PanelVal'
-import Tavla, { FlyttaSheet, type TraktVal } from './Tavla'
+import Tavla, { BehovSheet, FlyttaSheet, type TraktVal } from './Tavla'
+import { flyttaObjekt } from '@/lib/objekt/data'
+import { stegaManad } from '@/lib/objekt/manad'
 import { DinMaskinSektion, VeckoNotisSektion } from './MaskinSektion'
 import Manadssida, { helikopterHref } from './Manadssida'
 import HistorikInnehall from './HistorikInnehall'
@@ -75,7 +77,7 @@ const css = `
 }
 `
 
-type Ark = 'traffsakerhet' | 'utan' | 'historik' | 'veckor' | 'bolagval' | 'notis' | `bolag:${Typ}` | `flytta:${string}`
+type Ark = `behov:${Typ}` | 'traffsakerhet' | 'utan' | 'historik' | 'veckor' | 'bolagval' | 'notis' | `bolag:${Typ}` | `flytta:${string}`
 
 export default function HelikopterVy() {
   const sp = useSearchParams()
@@ -325,6 +327,26 @@ export default function HelikopterVy() {
     return null
   }
   const kanFlytta = arAdmin && status !== 'avslutad'
+  // Vilka trakter som behövs (skördarens rad i "Räcker trakterna?"). Flytten gäller trakten som helhet och skrivs till objektets planerade månad,
+  // samma fält som Objekt-vyn — så ändringen syns i båda.
+  const behovTyp = ark && ark.startsWith('behov:') ? (ark.slice(6) as Typ) : null
+  const behovSpar = behovTyp && tavla ? tavla.spar.find(x => x.typ === behovTyp) ?? null : null
+  const behov = behovSpar?.racker.find(r => r.roll === 'skordare')?.behov ?? null
+  const nastaManad = stegaManad({ ar, manad }, 1)
+  const flyttaTillNasta = async (ids: string[]): Promise<string | null> => {
+    let flyttade = 0
+    try {
+      for (const id of ids) { await flyttaObjekt(id, nastaManad); flyttade++ }
+    } catch (e) {
+      // Arket ska stå kvar med felet: läs bara om trakterna om något hann flyttas (hela sidan laddas inte om).
+      if (flyttade > 0) await klar.ladda()
+      const fel = e instanceof Error ? e.message : 'Kunde inte flytta. Försök igen.'
+      return flyttade > 0 ? `${flyttade} av ${ids.length} flyttades. ${fel}` : fel
+    }
+    setVersion(v => v + 1)
+    await klar.ladda()
+    return null
+  }
 
   // Månadspilarna är blå (navigerar). Mellan pilarna står alltid månaden man tittar på; Idag är en egen liten länk (KNAPP.tertiar)
   // som bara finns när vald månad inte är innevarande — samma mönster som ledighetens kalender.
@@ -375,7 +397,7 @@ export default function HelikopterVy() {
                     <RadGrupp><RadLank orange text="Kunde inte läsa maskinernas trakter" smakprov="försök igen" onClick={() => void klar.ladda()} sista /></RadGrupp>
                   )}
                   <div className="hk-rutnat">
-                    <Tavla tavla={tavla} onTrakt={kanFlytta ? v => setArk(`flytta:${v.roll}:${v.objekt_id}`) : undefined} />
+                    <Tavla tavla={tavla} onTrakt={kanFlytta ? v => setArk(`flytta:${v.roll}:${v.objekt_id}`) : undefined} onBehov={typ => setArk(`behov:${typ}`)} />
                     {dinMaskin && <DinMaskinSektion maskinNamn={maskinNamn(dinMaskin)} lage={maskinLage} fel={maskinLageFel} onRetry={() => setVersion(v => v + 1)} />}
                     <Sektion rubrik="Mer" kort={false}>
                       <RadGrupp marginBottom={0}>
@@ -404,6 +426,7 @@ export default function HelikopterVy() {
                       </RadGrupp>
                     </Sheet>
                   )}
+                  {behovSpar && behov && <BehovSheet key={ark} open onClose={stang} namn={behovSpar.namn} behov={behov} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} manadNamn={manadNamn.toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} />}
                   {flyttaVal && flyttaVy && <FlyttaSheet key={ark} open onClose={stang} namn={flyttaVy.namn} val={flyttaVy.val} onFlytta={flytta} />}
                   {ark === 'notis' && <Sheet open onClose={stang} title="Onsdagsnotis"><VeckoNotisSektion /></Sheet>}
                   <UtanTypSheet open={ark === 'utan'} onClose={stang} rader={manadsdata.utanTyp ?? []} manadNamn={manadNamn} />

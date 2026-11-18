@@ -147,6 +147,36 @@ describe('räcker trakterna', () => {
     expect(t.gor[1]).toMatchObject({ slag: 'utan', text: '1 trakt har ingen skotare' })
     expect(t.gor[2].text).toBe('Gallring har för mycket inlagt')
   })
+  it('vilka trakter som behövs: de första i körordning som täcker behovet, resten kan vänta (gallring november)', () => {
+    const b = rad('gallring', 'skordare').behov!
+    // Behov = 1 000 − 287 = 713. Santhe (kvar 1 371) täcker allt; Söftesmåla och Hönshylte behövs inte.
+    expect(b).toMatchObject({ bestallt: 1000, nu: 287, behov: 713, saknas: 0 })
+    expect(b.behovs.map(x => [x.namn, x.behovs, x.kvar])).toEqual([['Santhe', 713, 1371]])
+    expect(b.inte.map(x => x.namn).sort()).toEqual(['Hönshylte', 'Söftesmåla'])
+    expect(b.inte.every(x => x.flyttbar)).toBe(true)
+  })
+  it('slutavverkning: alla tre behövs och det saknas ändå', () => {
+    const b = rad('slutavverkning', 'skordare').behov!
+    expect(b).toMatchObject({ behov: 1063, saknas: 378, inte: [] })
+    expect(b.behovs.reduce((a, x) => a + x.kvar, 0)).toBe(685)
+  })
+  it('skotaren har ingen behovslista (trakten flyttas som helhet via skördaren)', () => {
+    expect(rad('slutavverkning', 'skotare').behov).toBeNull()
+  })
+  it('en påbörjad trakt eller förra månadens går inte att flytta', () => {
+    const t2 = byggTavla(bas({
+      spar: [spar('gallring', { bestallt: 100 })],
+      utfall: [{ typ: 'gallring', maskin_id: 'R64428', roll: 'skordare', volym: 100 }],
+      klar: klar(maskiner, [
+        trakt('Klar', 'skordare', 'R64428', { typ: 'gallring', volym: 50 }),
+        trakt('Påbörjad', 'skordare', 'R64428', { typ: 'gallring', volym: 200, utfort_volym: 30 }),
+        trakt('Förra', 'skordare', 'R64428', { typ: 'gallring', volym: 80, forra_manaden: true }),
+        trakt('Ny', 'skordare', 'R64428', { typ: 'gallring', volym: 90 }),
+      ]),
+    }))
+    const inte = t2.spar[0].racker.find(r => r.roll === 'skordare')!.behov!.inte
+    expect(Object.fromEntries(inte.map(x => [x.namn, x.flyttbar]))).toEqual({ Klar: true, Påbörjad: false, Förra: false, Ny: true })
+  })
   it('ingen rad i en avslutad månad, utan beställning eller utan köer', () => {
     const ind = bas({ spar: [spar('slutavverkning', { bestallt: 5000 })], utfall: [], klar: klar(maskiner, trakter) })
     expect(byggTavla({ ...ind, status: 'avslutad' }).spar[0].racker).toEqual([])
