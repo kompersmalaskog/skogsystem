@@ -753,3 +753,15 @@ describe('stegen på raden: Skörd och Skotning (objekt.fas från timjobbet)', (
     expect(behallare!.querySelector('[data-testid^="objekt-steg-"]')).toBeNull();
   });
 });
+
+describe('dra var som helst på arket (2026-11-18) — bara planeringsvyn, aldrig maskinen', () => {
+  const kalla = readFileSync(resolve(__dirname, 'ObjektLista.tsx'), 'utf8');
+  it('hela arket dras bara utan maskin, och lyssnaren på touchmove är inte passiv', () => {
+    expect(kalla).toMatch(/const draHelaArket = draggbar && !maskin;/);
+    expect(kalla).toMatch(/addEventListener\('touchmove', flytta, \{ passive: false \}\)/);
+    expect(kalla).toMatch(/arketTarDraget\(lageNu\.current\.detent, listRef\.current\?\.scrollTop \?\? 0, dy\)/);
+  });
+  it('hooks ligger före den tidiga returen (React #310)', () => {
+    expect(kalla.indexOf("ark.addEventListener('touchstart'")).toBeLessThan(kalla.indexOf('if (!oppen && utglidet) return null;'));
+  });
+});

@@ -57,6 +57,18 @@ export function valjListdetent(nu: Detent, dy: number, kanStangas: boolean, tars
   return dy >= tarskel ? 'halv' : 'hel';
 }
 
+/**
+ * DRA VAR SOM HELST PÅ ARKET (objektlistan på telefon, Martin 2026-11-18: "man kan ju dra upp och ner på listan men den funkar dåligt").
+ * Förut gick arket bara att dra i det smala greppet; ett drag på listan rullade listan inuti det halva arket. Nu som Apple Kartor:
+ *   halvt ark  → varje lodrätt drag flyttar ARKET (listan rullar inte förrän arket är uppe)
+ *   helt ark   → listan rullar; står den längst upp och fingret går NEDÅT följer arket med ner
+ * `dy` > 0 = fingret har gått nedåt. Avgörs vid dragets FÖRSTA rörelse — iOS låter inte en rullning avbrytas när den väl börjat.
+ */
+export function arketTarDraget(detent: Detent, listansScrollTop: number, dy: number): boolean {
+  if (detent === 'halv') return true;
+  return listansScrollTop <= 0 && dy > 0;
+}
+
 /** Arkets höjd i px under ett pågående drag: följer fingret men aldrig under 30 % eller över fönstret. */
 export function dragHojd(startHojd: number, dy: number, fonsterHojd: number): number {
   const min = Math.round(fonsterHojd * 0.3);
