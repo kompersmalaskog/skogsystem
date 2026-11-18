@@ -21,7 +21,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaEnGpsFix } from '@/lib/gpsKalla';
 import { AVSTAND, FARG, RADIE, RORELSE, TNUM, TRAFFYTA, TYP, VIKT, medSafeBotten } from '@/lib/design/tokens';
-import { PANEL_BREDD_PX, dragHojd, valjListdetent, type Detent } from '@/lib/plusArk';
+import { PANEL_BREDD_PX, arketTarDraget, dragHojd, valjListdetent, type Detent } from '@/lib/plusArk';
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import { useVagavstand } from '@/lib/hooks/useVagavstand';
 import { oplaneradRadText } from '@/lib/klarTrakt';
@@ -83,6 +83,9 @@ const Bil = () => (
 
 export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavigera, onStang, onPrickar, kartaTryck = false, maskin }: ObjektListaProps) {
   const lage = useSkarmLage(oppen);
+  const draggbar = kartaTryck && lage === 'ark';
+  // Dra var som helst på arket — inte i maskinen (Martin 2026-11-18: "rör inget i maskinen"): där gäller bara greppet, som förut.
+  const draHelaArket = draggbar && !maskin;
   const [inne, setInne] = useState(false);
   const [utglidet, setUtglidet] = useState(!oppen);   // monterad stängd (sidan lämnar den monterad) → inget i DOM från början
   const [sok, setSok] = useState('');
@@ -103,8 +106,58 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   const [dragPx, setDragPx] = useState<number | null>(null);
   const drag = useRef<{ y0: number; h0: number; flyttat: boolean } | null>(null);
   const arkRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const stangRef = useRef(onStang);
   stangRef.current = onStang;
+
+  // DRA VAR SOM HELST (telefon): egna touch-lyssnare på hela arket, inte passiva — annars kan rullningen inte hejdas när arket ska följa fingret.
+  // Greppet har sina egna pekarhändelser (och fungerar med mus); ett drag som börjar där hoppas över här.
+  const lageNu = useRef({ detent, kanStangas });
+  lageNu.current = { detent, kanStangas };
+  const nyssDraget = useRef(0);
+  useEffect(() => {
+    const ark = arkRef.current;
+    if (!ark || !draHelaArket || !oppen) return;
+    let d: { y0: number; x0: number; h0: number; tar: boolean | null; flyttat: boolean } | null = null;
+    const start = (e: TouchEvent) => {
+      if (e.touches.length !== 1 || (e.target as HTMLElement | null)?.closest?.('[data-testid="objekt-lista-grepp"]')) { d = null; return; }
+      d = { y0: e.touches[0].clientY, x0: e.touches[0].clientX, h0: ark.getBoundingClientRect().height, tar: null, flyttat: false };
+    };
+    const flytta = (e: TouchEvent) => {
+      if (!d || e.touches.length !== 1) return;
+      const dy = e.touches[0].clientY - d.y0, dx = e.touches[0].clientX - d.x0;
+      if (d.tar === null) {
+        if (Math.abs(dx) > Math.abs(dy)) { d.tar = false; return; }                       // vågrätt (typraden) → inte vårt
+        if (dy === 0) return;
+        d.tar = arketTarDraget(lageNu.current.detent, listRef.current?.scrollTop ?? 0, dy);
+      }
+      if (!d.tar) return;
+      if (e.cancelable) e.preventDefault();
+      if (Math.abs(dy) > DRAG_START_PX) d.flyttat = true;
+      if (d.flyttat) setDragPx(dragHojd(d.h0, dy, window.innerHeight));
+    };
+    const slut = (e: TouchEvent) => {
+      const g = d; d = null;
+      if (!g || !g.tar) return;
+      setDragPx(null);
+      if (!g.flyttat) return;
+      nyssDraget.current = Date.now();
+      const y = e.changedTouches[0]?.clientY ?? g.y0;
+      const nasta = valjListdetent(lageNu.current.detent, y - g.y0, lageNu.current.kanStangas);
+      if (nasta === 'stang') stangRef.current(); else setDetent(nasta);
+    };
+    // Ett drag som slutar på en rad får inte räknas som ett tryck på raden.
+    const klick = (e: MouseEvent) => { if (Date.now() - nyssDraget.current < 350) { e.preventDefault(); e.stopPropagation(); } };
+    ark.addEventListener('touchstart', start, { passive: true });
+    ark.addEventListener('touchmove', flytta, { passive: false });
+    ark.addEventListener('touchend', slut);
+    ark.addEventListener('touchcancel', slut);
+    ark.addEventListener('click', klick, true);
+    return () => {
+      ark.removeEventListener('touchstart', start); ark.removeEventListener('touchmove', flytta);
+      ark.removeEventListener('touchend', slut); ark.removeEventListener('touchcancel', slut); ark.removeEventListener('click', klick, true);
+    };
+  }, [draHelaArket, oppen]);
 
   // Varje öppning börjar rent: tom sökning, aktiva objekt (inte Avslutade), rörelsen in från kanten.
   useEffect(() => {
@@ -419,7 +472,9 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
           })}
         </div>
       )}
-      <div data-testid="objekt-lista-innehall" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', paddingBottom: medSafeBotten(AVSTAND.l) }}>
+      <div ref={listRef} data-testid="objekt-lista-innehall" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', paddingBottom: medSafeBotten(AVSTAND.l),
+        // Halvt ark: ett drag var som helst lyfter arket (listan rullar först när arket är uppe).
+        touchAction: draHelaArket && detent === 'halv' ? 'pan-x' : undefined }}>
         {tomText ? (
           <div style={{ ...TYP.meta, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xxl}px ${AVSTAND.l}px` }}>{tomText}</div>
         ) : visaAvslutade ? (
@@ -459,7 +514,6 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     </>
   );
 
-  const draggbar = kartaTryck && lage === 'ark';
   const fonsterH = () => (typeof window !== 'undefined' ? window.innerHeight : 800);
   const arkHojd = !kartaTryck ? '85%'
     : dragPx != null ? `${dragPx}px`

@@ -2,17 +2,20 @@
 
 // Planeringsvyns objekt: vilket objekt som öppnas vid start, objektet i adressen och minnet av senast valda.
 //
-//  START (en gång):  ?objekt=<id> i adressen → annars senaste objektet (minnet) → annars inget (listan öppnas).
+//  START (en gång):  ?objekt=<id> i adressen → annars inget (LISTAN öppnas). Martin 2026-11-18: "hamnar i listan att välja objekt istället
+//                    för på den trakt jag var senast på" — förut öppnades senaste objektet ur minnet, och man fick byta nästan varje gång.
+//                    Kommer man tillbaka efter ett appbyte laddar iOS om sidan på SAMMA adress, och den bär ?objekt= → trakten står kvar.
 //                    Finns objektet inte längre rensas minnet/parametern och listan öppnas. Ett hämtfel (nätet) rensar ingenting.
 //  OBJEKT → ADRESS:  valt objekt skrivs till ?objekt=. Från "inget objekt" till ett objekt = replaceState (bakåtknappen går till föregående sida);
 //                    från ett objekt till ett annat = pushState (bakåt tar tillbaka förra objektet).
 //  BAKÅT/FRAMÅT:     popstate på samma sida följer adressen. Lämnar man sidan (startsidan) sker ingenting.
-//  MINNE:            varje valt objekt sparas (lib/senastePlanering, per enhet och medarbetare).
+//  MINNE:            varje valt objekt sparas (lib/senastePlanering, per enhet och medarbetare) men LÄSES inte längre vid start.
+//                    Det skrivs kvar så att beslutet går att ändra tillbaka utan att minnet är tomt.
 //
 // `aktiv=false` (maskinläge, /maskin, maskinfrågan) → hooken gör ingenting alls. Hooken känner inte till kartan; sidan äger valt objekt.
 
 import { useEffect, useRef, useState } from 'react';
-import { hamtaSenastePlanering, objektIdUrUrl, planeringsUrl, rensaSenastePlanering, sattSenastePlanering } from '../senastePlanering';
+import { objektIdUrUrl, planeringsUrl, rensaSenastePlanering, sattSenastePlanering } from '../senastePlanering';
 
 export type HamtaObjektSvar<T> = { typ: 'hittad'; objekt: T } | { typ: 'saknas' } | { typ: 'fel' };
 
@@ -65,7 +68,7 @@ export function usePlaneringsObjekt<T extends { id: string }>(opts: PlaneringsOb
     startPath.current = window.location.pathname;
     if (hoppaStartval) { setStartKlar(true); return; }
     const urlId = objektIdUrUrl(window.location.search);
-    const id = urlId ?? hamtaSenastePlanering(anvandarId);
+    const id = urlId;
     if (!id) { setStartKlar(true); return; }
     (async () => {
       const r = await medTidsgrans(optsRef.current.hamtaObjekt(id));
