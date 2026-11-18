@@ -1,5 +1,5 @@
 'use client';
-// LÄGET — "Är vi godkända?" Så enkelt att den läses på tre sekunder: svaret, Vidas krav (sämst först) och trädslagen. Inget annat.
+// LÄGET — "Är vi godkända?" Så enkelt att den läses på tre sekunder: svaret, Vidas krav (sämst först), var felet sitter och trädslagen. Inget annat.
 // Appen visar läget; maskinen (Opti) föreslår kalibreringen. Kortet "Gör så här", det stora talet och åtgärderna är borta härifrån (2026-10-25,
 // Martin: "plocka bort det … bygg så man kan kolla på datan, sen säger maskinen vad du ska göra"). Åtgärderna bor i Över tid, under kurvorna.
 // Domen bygger alltid på det rullande fönstret (90 dagar), aldrig på en enda dag. Räknandet bor i lib/kalibrering/laget — siffrorna är desamma som förut.
@@ -15,6 +15,7 @@ import { cap } from '@/lib/kalibrering/text';
 import { Fyll, Lugn, TonVarde } from './delar';
 import Rubrik from './Rubrik';
 import TraffText from './TraffText';
+import VarSitterFelet from './VarSitterFelet';
 
 function Laddar({ d, text }: { d: KalibreringData; text: string }) {
   return d.bedomningFel
@@ -60,6 +61,8 @@ function Innehall({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
           ))}
         </Sektion>
       )}
+
+      {harProfil && <VarSitterFelet d={d} />}
 
       <PerTradslag d={d} ark={ark} />
     </>
