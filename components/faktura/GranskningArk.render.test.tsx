@@ -309,6 +309,48 @@ describe('skotningsavståndet', () => {
     expect(t.indexOf('1 538 m')).toBeLessThan(t.indexOf('858 m'));
   });
 
+  // SAMMA KÖRNING, TRE MÅTT — raderna ska RITAS, inte bara finnas i modellen.
+  // Skälvikens riktiga cykel ur prod 2026-11-18.
+  const MED_CYKEL = {
+    ...PROPS_AVSTAND,
+    cykel: {
+      lass: 85, medCykel: 70, volym: 1553, volymMedCykel: 1278,
+      cykelM: 1477, enkelVagM: 738.5, hemMedLassM: 660, vidAvlaggetM: 250,
+      ytterstM: 416, utan: { fonster_for_langt: 14, forsta_lasset: 1 },
+    },
+  };
+
+  it('ritar de tre måtten med sina tal', () => {
+    rita(props({ vy: 'avstand', avstand: MED_CYKEL }));
+    const t = txt();
+    expect(t).toContain('Samma körning, tre mått');
+    expect(t).toContain('Halva cykeln');
+    expect(t).toContain('739 m');
+    expect(t).toContain('Efter vändpunkten');
+    expect(t).toContain('660 m');
+    expect(t).toContain('Vid avlägget');
+    expect(t).toContain('250 m');
+  });
+
+  it('säger aldrig att talet är hemresan — det är det inte', () => {
+    rita(props({ vy: 'avstand', avstand: MED_CYKEL }));
+    // 'Hem med lasset' hade ljugit på 13 % av lassen (se lib/faktura/lassCykel).
+    expect(txt()).not.toContain('Hem med lasset');
+  });
+
+  it('säger hur många lass som saknar cykel och att de bär 0 kr', () => {
+    rita(props({ vy: 'avstand', avstand: MED_CYKEL }));
+    const t = txt();
+    expect(t).toContain('70 av 85');
+    expect(t).toContain('0 kr');
+    expect(t).toContain('3 timmar');
+  });
+
+  it('utan app-lass ritas inga mått — inte tre nollor', () => {
+    rita(props({ vy: 'avstand' }));
+    expect(txt()).not.toContain('Samma körning, tre mått');
+  });
+
   it('förhandsbeskedet räknar med SAMMA stegregel som priset', () => {
     rita(props({ vy: 'avstand' }));
     // 1 200 m → ceil((1200−200)/100) = 10 steg × 4 kr = 40,00 kr/m³fub,

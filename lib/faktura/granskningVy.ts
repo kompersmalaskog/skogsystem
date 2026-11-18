@@ -599,8 +599,11 @@ export function byggAvstandVy(i: AvstandIndata): AvstandVy {
       jamforRader.push({
         etikett: 'Vid avlägget',
         varde: `${heltal(c.vidAvlaggetM)} m`,
+        // EXAKT: landningsarbetet ligger i hela cykeln, så HÄLFTEN av det
+        // ligger i talet priset räknas på. "Ingår i halva cykeln" hade varit
+        // slarvigt — 250 m ingår inte i 739, 125 m gör det.
         not: 'Körning inom 60 m från lossningen — sortering och läggning, '
-          + 'inte skotning. Ingår i halva cykeln ovan.',
+          + 'inte skotning. Ligger i cykeln, så hälften av det räknas in i talet ovan.',
       });
     }
   }

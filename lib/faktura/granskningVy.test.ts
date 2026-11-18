@@ -469,8 +469,10 @@ describe('samma körning, tre mått', () => {
     expect(r.jamforRader[1].not).toMatch(/kryssar/i);
     expect(r.jamforRader[2].not).toMatch(/sortering och läggning/i);
     // Landningsarbetet ingår i priset — det ska stå, annars ser raden ut som
-    // ett avdrag som redan är gjort.
-    expect(r.jamforRader[2].not).toMatch(/ingår/i);
+    // ett avdrag som redan är gjort. Och det ska stå EXAKT: 250 m ligger i
+    // cykeln, alltså 125 m i talet priset räknas på.
+    expect(r.jamforRader[2].not).toMatch(/hälften/i);
+    expect(r.jamforRader[2].not).not.toMatch(/ingår i halva cykeln/i);
   });
 
   it('säger hur många lass som saknar cykel och varför', () => {
