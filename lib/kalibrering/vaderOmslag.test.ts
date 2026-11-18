@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { _tomSmhiObsCache, narmasteStationer, slaIhopObs, tolkaObservationer, tolkaStationer, type TempObs } from '@/lib/smhi-obs';
 import { OMSLAG_MIN_GRADER, medelTemp, omslagText, vaderKlass, vaderLage, vaderRad } from './vaderOmslag';
-import { byggVaderNotis, dagsAttKollaVader, koaVaderOmslag, lasVaderLage, vaderDedup } from './vaderServer';
+import { byggVaderNotis, dagsAttKollaVader, iMorgonfonstret, koaVaderOmslag, lasVaderLage, vaderDedup } from './vaderServer';
 
 const TIM = 3_600_000;
 const nu = Date.parse('2026-11-18T10:00:00Z');
@@ -84,7 +84,7 @@ describe('SMHI-tolkningen', () => {
 });
 
 // En liten falsk databas och ett falskt SMHI för hela kedjan.
-function fakeSb(o: { kontrollMs?: number | null; notisFinns?: boolean; inserts?: unknown[] } = {}) {
+function fakeSb(o: { kontrollMs?: number | null; notisFinns?: boolean; inserts?: unknown[]; startIso?: string | null } = {}) {
   const kontrollIso = o.kontrollMs == null ? null : new Date(o.kontrollMs).toISOString();
   const svar = (data: unknown) => {
     const q: any = { data, error: null };
@@ -99,6 +99,7 @@ function fakeSb(o: { kontrollMs?: number | null; notisFinns?: boolean; inserts?:
       if (t === 'detalj_kontroll_stock') return svar(kontrollIso ? [{ filnamn: 'f', operator_measurement_date: kontrollIso, tid_ar_utc: true }] : []);
       if (t === 'fakt_kalibrering') return svar([{ weather_at_harvest: null }]);
       if (t === 'dim_maskin') return svar([{ maskin_id: 'PONS', aktiv_till: null, visningsnamn: 'Giant' }]);
+      if (t === 'hyttspar') return svar(o.startIso === null ? [] : [{ skapad_at: o.startIso ?? '2026-11-18T09:20:00Z' }]);
       if (t === 'notis_kö') return svar(o.notisFinns ? [{ id: 1 }] : []);
       if (t === 'medarbetare') return svar([{ id: 'stefan', aktiv: true }]);
       return svar([]);
@@ -117,18 +118,31 @@ describe('kedjan: läsning, pushen', () => {
   beforeEach(() => _tomSmhiObsCache());
   const dags = new Date('2026-11-18T10:01:00Z'); // 11:01 svensk tid, första kvarten
 
-  it('bara 06–20 svensk tid och var kvart', () => {
-    expect(dagsAttKollaVader(new Date('2026-11-18T04:59:00Z'))).toBe(false); // 05:59
+  it('var kvart', () => {
     expect(dagsAttKollaVader(new Date('2026-11-18T05:00:00Z'))).toBe(true);
     expect(dagsAttKollaVader(new Date('2026-11-18T05:07:00Z'))).toBe(false);
-    expect(dagsAttKollaVader(new Date('2026-11-18T19:00:00Z'))).toBe(false); // 20:00
   });
-  it('omslag → köar en push per förare med kontrollen i nyckeln', async () => {
+  it('morgonfönstret: från starten och två timmar framåt, inte innan och inte utan start', () => {
+    const start = Date.parse('2026-11-18T06:00:00Z');
+    expect(iMorgonfonstret(start, new Date('2026-11-18T06:00:00Z'))).toBe(true);
+    expect(iMorgonfonstret(start, new Date('2026-11-18T08:00:00Z'))).toBe(true);
+    expect(iMorgonfonstret(start, new Date('2026-11-18T08:01:00Z'))).toBe(false);
+    expect(iMorgonfonstret(null, new Date('2026-11-18T06:30:00Z'))).toBe(false);
+  });
+  it('omslag på morgonen → en push per förare och dag', async () => {
     const inserts: any[] = [];
     const r = await koaVaderOmslag(fakeSb({ kontrollMs: kontroll, inserts }), dags, fakeSmhi(serie(3, -8)));
     expect(r).toMatchObject({ ok: true, koade: 1 });
-    expect(inserts[0]).toMatchObject({ mottagare_id: 'stefan', typ: 'kalib_vader', skickas_at: 'infinity', dedup_nyckel: vaderDedup('PONS', kontroll, -8) });
+    expect(inserts[0]).toMatchObject({ mottagare_id: 'stefan', typ: 'kalib_vader', skickas_at: 'infinity', dedup_nyckel: 'vader:PONS:2026-11-18' });
+    expect(vaderDedup('PONS', dags)).toBe('vader:PONS:2026-11-18');
     expect(inserts[0].payload).toEqual({ maskin_id: 'PONS', kontroll_ms: kontroll });
+  });
+  it('mitt på dagen (startade för länge sedan) eller inte startad idag → ingen push, trots omslag', async () => {
+    const a: any[] = [];
+    await koaVaderOmslag(fakeSb({ kontrollMs: kontroll, inserts: a, startIso: '2026-11-18T05:30:00Z' }), dags, fakeSmhi(serie(3, -8)));
+    _tomSmhiObsCache();
+    await koaVaderOmslag(fakeSb({ kontrollMs: kontroll, inserts: a, startIso: null }), dags, fakeSmhi(serie(3, -8)));
+    expect(a.length).toBe(0);
   });
   it('redan köad eller inget omslag → ingen ny', async () => {
     const a: any[] = [];
