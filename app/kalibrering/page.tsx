@@ -43,11 +43,12 @@ export default function KalibreringPage() {
   const { setValdMaskin, loading } = d;
   useEffect(() => {
     if (matdonOppnad.current || loading || typeof window === 'undefined') return;
-    const maskin = new URLSearchParams(window.location.search).get('matdon');
+    const q = new URLSearchParams(window.location.search);
+    const maskin = q.get('matdon') ?? q.get('maskin'); // ?maskin= = väderpushen: bara rätt maskin, Läget visar vädret
     if (!maskin) return;
     matdonOppnad.current = true;
     setValdMaskin(maskin);
-    oppnaMatdon();
+    if (q.get('matdon')) oppnaMatdon();
   }, [loading, setValdMaskin, oppnaMatdon]);
 
   if (d.loading) return <LaddarSkarm />;
