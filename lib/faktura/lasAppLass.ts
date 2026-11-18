@@ -17,14 +17,28 @@
 //
 // ETT LÄSFEL ÄR ETT FEL. Funktionen kastar i stället för att svara med en tom
 // lista: en tyst nolla här blir ett avståndstillägg på 0 kr som ser mätt ut.
-// ENDA undantaget är att funktionen inte FINNS (migrationen inte körd) — då
-// får lassen `skal: 'kunde_inte_lasas'`, bär 0 kr och säger det i granskningen,
-// så underlaget fungerar men aldrig med ett gissat avstånd.
+//
+// ENDA undantaget är att funktionen inte FINNS (migrationen inte körd). Då
+// svarar den `tillganglig: false` och underlaget lägger en VARNING — för
+// tystnaden går åt FEL håll: utan appens lass vinner Optis, och på Skälviken
+// är Optis två lass (858 och 1 538 m enkel väg) mycket längre än cykeln ur
+// hyttspåret. Avståndet hade blivit 1 198 m i stället för 739, alltså för
+// HÖGT. En sådan faktura ska aldrig gå till Vida utan att det står varför.
 
 import { cykelTillAvstandsLass, type CykelSkal, type LassCykel } from '@/lib/faktura/lassCykel';
 import type { AvstandsLass } from '@/lib/faktura/lassAvstand';
 
 type SB = { rpc: (namn: string, args: Record<string, unknown>) => any };
+
+export type LasCykelSvar = {
+  rader: LassCykel[];
+  /**
+   * false = SQL-funktionen finns inte (migrationen inte körd). Då finns inga
+   * app-lass, och underlaget MÅSTE säga det: utan dem bär Optis lass
+   * avståndet ensamma, och det kan bli för högt — aldrig tyst.
+   */
+  tillganglig: boolean;
+};
 
 const SKAL: ReadonlySet<string> = new Set<CykelSkal>([
   'ok', 'forsta_lasset', 'fonster_for_langt', 'inga_punkter', 'saknar_lossning',
@@ -49,9 +63,9 @@ function tal(x: unknown): number | null {
  * ligga under ett annat av traktens nummer än det vi slog upp på (Mölleryd
  * har 11271883 och 11166477). Att läsa på ett nummer tappar lassen TYST.
  */
-export async function lasLassCykel(sb: SB, nummer: string[]): Promise<LassCykel[]> {
+export async function lasLassCykel(sb: SB, nummer: string[]): Promise<LasCykelSvar> {
   const unika = Array.from(new Set(nummer.filter(Boolean)));
-  if (!unika.length) return [];
+  if (!unika.length) return { rader: [], tillganglig: true };
 
   const { data, error } = await sb.rpc('skotar_lass_cykel', { p_vo: unika });
 
@@ -59,12 +73,12 @@ export async function lasLassCykel(sb: SB, nummer: string[]): Promise<LassCykel[
     if (!funktionenSaknas(error)) {
       throw new Error('Kunde inte läsa skotarlassens cykel: ' + error.message);
     }
-    // Funktionen finns inte. Hellre inget avstånd än ett ur den trasiga
-    // spårkopian: lassen räknas som lass (de vägs mot Opti) men bär 0 kr.
-    return [];
+    // Funktionen finns inte. Inga app-lass alls — och det MÅSTE sägas, för då
+    // bär Optis lass avståndet ensamma och talet kan bli för högt.
+    return { rader: [], tillganglig: false };
   }
 
-  return (data || []).map((r: any): LassCykel => ({
+  const rader = (data || []).map((r: any): LassCykel => ({
     lassId: String(r.lass_id),
     voNummer: r.vo_nummer ?? null,
     maskinId: r.maskin_id ?? null,
@@ -77,9 +91,11 @@ export async function lasLassCykel(sb: SB, nummer: string[]): Promise<LassCykel[
     ytterstM: tal(r.ytterst_m),
     skal: SKAL.has(r.skal) ? (r.skal as CykelSkal) : 'inga_punkter',
   }));
+
+  return { rader, tillganglig: true };
 }
 
 /** Samma lass som `lasLassCykel`, med avståndet som enkel väg. */
 export async function lasAppLass(sb: SB, nummer: string[]): Promise<AvstandsLass[]> {
-  return cykelTillAvstandsLass(await lasLassCykel(sb, nummer));
+  return cykelTillAvstandsLass((await lasLassCykel(sb, nummer)).rader);
 }

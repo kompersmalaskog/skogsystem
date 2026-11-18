@@ -284,7 +284,20 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
   // Appens cykler → lass med avståndet som enkel väg. Lass utan cykel följer
   // med med `avstandM: null`: de kördes, så de väger när källorna jämförs,
   // men bär 0 kr.
-  const appLass = cykelTillAvstandsLass(appCykel);
+  const appLass = cykelTillAvstandsLass(appCykel.rader);
+  // SÄGS ALLTID när cykeln inte gick att läsa. Tystnaden går åt FEL håll:
+  // utan appens lass bär Optis avståndet ensamma, och Optis lass är ofta de
+  // längsta (Skälviken: 1 198 m mot cykelns 739). Ett för högt tillägg till
+  // Vida är värre än inget.
+  if (!appCykel.tillganglig) {
+    noter.push({
+      niva: 'varning',
+      text: 'Skotarlassens cykel kunde inte läsas (migrationen '
+        + '20261118100350_skotar_lass_cykel är inte körd), så appens lass '
+        + 'räknas inte i skotningsavståndet. Finns Opti-lass bär de talet '
+        + 'ensamma, och det kan då bli för högt.',
+    });
+  }
   const valdaLass = valjLassKalla([...optiLass, ...appLass]);
   // Lassens TÄCKNING, inte bara om lass finns: ett lass utan mätt sträcka ger
   // noll steg och bidrar därför inte till tillägget, hur mycket volym det än
@@ -563,7 +576,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
       kronor: skotKr,
       lass: lassRader,
       kallor,
-      cykel: appCykel.length ? sammanstallCykel(appCykel) : null,
+      cykel: appCykel.rader.length ? sammanstallCykel(appCykel.rader) : null,
       grundavstandM: avstConf ? Number(avstConf.grundavstand_m) : null,
       krPer100m: avstConf ? Number(avstConf.kr_per_100m) : null,
       giltigFran: avstConf?.giltig_fran ?? null,

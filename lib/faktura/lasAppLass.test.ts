@@ -93,19 +93,30 @@ describe('appens lass för en trakt', () => {
     ]) {
       const { sb } = fejk(null, fel);
       await expect(lasAppLass(sb as any, ['X'])).resolves.toEqual([]);
+      // … men den SÄGER det, så underlaget kan varna: utan appens lass bär
+      // Optis avståndet ensamma och talet kan bli för HÖGT.
+      expect((await lasLassCykel(sb as any, ['X'])).tillganglig).toBe(false);
     }
+  });
+
+  it('ett lyckat svar är tillgängligt', async () => {
+    const { sb } = fejk([rad()]);
+    expect((await lasLassCykel(sb as any, ['X'])).tillganglig).toBe(true);
+    // Inga nummer frågar inte, och det är inte ett saknat funktion-fall.
+    const tom = fejk([]);
+    expect((await lasLassCykel(tom.sb as any, [])).tillganglig).toBe(true);
   });
 
   it('okänt skäl läses som inga_punkter, aldrig som ok', async () => {
     const { sb } = fejk([rad({ skal: 'nytt_skal_fran_framtiden', cykel_m: 1000 })]);
-    const c = await lasLassCykel(sb as any, ['X']);
+    const c = (await lasLassCykel(sb as any, ['X'])).rader;
     expect(c[0].skal).toBe('inga_punkter');
     expect((await lasAppLass(sb as any, ['X']))[0].avstandM).toBeNull();
   });
 
   it('delarna följer med för granskningen', async () => {
     const { sb } = fejk([rad()]);
-    const c = await lasLassCykel(sb as any, ['X']);
+    const c = (await lasLassCykel(sb as any, ['X'])).rader;
     expect(c[0]).toMatchObject({
       lassId: 'L1', voNummer: '11271860', cykelM: 1000,
       vidAvlaggetM: 200, hemMedLassM: 400, ytterstM: 350, punkter: 120, skal: 'ok',
@@ -124,6 +135,15 @@ describe('källvakter: hur det är kopplat', () => {
 
   it('underlaget läser appens lass på VO plus dim-numren', () => {
     expect(HAMTA).toMatch(/lasLassCykel\(sb, \[voNummer, \.\.\.objektIds\]\)/);
+  });
+
+  it('underlaget VARNAR när cykeln inte gick att läsa — aldrig tyst', () => {
+    expect(HAMTA).toContain('!appCykel.tillganglig');
+    // Varningen ligger i samma block som flaggan, och den säger åt vilket håll
+    // tystnaden lutar: utan appens lass kan talet bli för HÖGT.
+    const block = HAMTA.slice(HAMTA.indexOf('!appCykel.tillganglig'));
+    expect(block.slice(0, 700)).toContain("niva: 'varning'");
+    expect(block.slice(0, 700)).toContain('kan då bli för högt');
   });
 
   it('källorna vägs mot varandra — aldrig summerade', () => {
