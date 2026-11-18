@@ -51,6 +51,7 @@ const PROPS_AVSTAND: GranskningProps['avstand'] = {
     { avstandM: 858, volym: 20, kronor: 560, kalla: 'opti' as const },
   ],
   kallor: ['opti' as const],
+  cykel: null,
   grundavstandM: 200, krPer100m: 4, giltigFran: '2025-06-03',
 };
 
@@ -402,7 +403,7 @@ describe('en skrivning som inte ändrar något går inte att trycka fram', () =>
       // sparas (null) är det som redan står.
       avstand: {
         manuellt: null, lassVolym: 0, lassAntal: 0, kronor: 0, lass: [],
-        kallor: [], grundavstandM: null, krPer100m: null, giltigFran: null,
+        kallor: [], cykel: null, grundavstandM: null, krPer100m: null, giltigFran: null,
       },
     }));
     expect((knappar().find(k => k.textContent === 'Spara') as HTMLButtonElement).disabled).toBe(true);
