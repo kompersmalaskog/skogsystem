@@ -274,10 +274,22 @@ describe('/helikopter — tavlan', () => {
     expect(sektion('Mer')!.textContent).toContain('Månadsfacit')
   })
 
+  it('Räcker trakterna?: skotarens rad öppnar sina trakter med kvar-volym, vem som tar den och tid', async () => {
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
+    await monter()
+    const knapp = cont.querySelector('[data-racker-rad="gallring:skotare"] button') as HTMLButtonElement
+    expect(knapp).not.toBeNull()
+    await act(async () => { knapp.click() })
+    expect(document.querySelector('[data-skot-under]')?.textContent).toContain('Beställt')
+    const rader = Array.from(document.querySelectorAll('[data-skot-rad]')) as HTMLElement[]
+    expect(rader.length).toBeGreaterThan(0)
+    // Varje trakt säger vem som tar den (eller "Ingen skotare") och tid eller "tid saknas" — aldrig tomt.
+    for (const r of rader) expect(r.querySelector('[data-tid]')?.textContent).toMatch(/Ingen skotare|·/)
+  })
+
   it('Räcker trakterna?: skördarens rad öppnar vilka trakter som behövs, och trakter som kan vänta flyttas till nästa månad (admin)', async () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
-    expect(cont.querySelector('[data-racker-rad="gallring:skotare"] button')).toBeNull()
     const knapp0 = cont.querySelector('[data-racker-rad="gallring:skordare"] button') as HTMLButtonElement
     await act(async () => { knapp0.click() })
     const under = document.querySelector('[data-behov-under]') as HTMLElement

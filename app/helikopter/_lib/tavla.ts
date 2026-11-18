@@ -189,6 +189,17 @@ export type TavlaBehov = {
   inte: (TavlaBehovRad & { flyttbar: boolean })[]
 }
 
+/** Skotarens trakter i spåret, i körordning: vad som är kvar, vem som tar den och hur lång tid. Bara läsning — skördaren avgör vad som flyttas. */
+export type TavlaSkot = {
+  bestallt: number
+  nu: number
+  /** Beställt − skotat (aldrig under 0). */
+  behov: number
+  /** Det som saknas även om alla trakter skotas. 0 = skogen räcker. */
+  saknas: number
+  rader: { objekt_id: string; namn: string; kvar: number; maskin: string | null; dagar: number | null; till: string | null }[]
+}
+
 export type TavlaRacker = {
   roll: KlarRoll
   rubrik: 'Skördare' | 'Skotare'
@@ -199,6 +210,8 @@ export type TavlaRacker = {
   ton: Ton
   /** Vilka trakter som behövs. Bara för skördaren. */
   behov: TavlaBehov | null
+  /** Skotarens trakter. Bara för skotaren. */
+  skot: TavlaSkot | null
 }
 
 /** Något planeraren kan göra något åt. */
@@ -370,7 +383,7 @@ export function byggTavla(d: TavlaIndata): Tavla {
       const takt = taktKrav(s.bestallt, nu, d.status, klar, roll, ids.map(id => (koer.get(id) ?? []).filter(raknas)))
       return { roll, rubrik: roll === 'skordare' ? 'Skördat' : 'Skotat', maskiner, utan, markagare, nu, landar, ca, takt, ...dom(roll, landar, nu, s.bestallt, ca, d.status) }
     }) as [TavlaBlock, TavlaBlock]
-    return { typ: s.typ, namn: TYP_NAMN[s.typ], bestallt: s.bestallt, block, racker: racker(s.typ, s.bestallt, block, trakter, d.status, klar != null, new Map([...koer.values()].flat().filter(r => r.trakt.roll === 'skordare').map(r => [r.trakt.objekt_id, r]))), kvarISkogen: Math.round(oskotatKvar(s)) }
+    return { typ: s.typ, namn: TYP_NAMN[s.typ], bestallt: s.bestallt, block, racker: racker(s.typ, s.bestallt, block, trakter, d.status, klar != null, new Map([...koer.values()].flat().filter(r => r.trakt.roll === 'skordare').map(r => [r.trakt.objekt_id, r])), new Map([...koer.values()].flat().filter(r => r.trakt.roll === 'skotare').map(r => [r.trakt.objekt_id, r])), new Map((klar?.maskiner ?? []).map(m => [m.maskin_id, m.namn]))), kvarISkogen: Math.round(oskotatKvar(s)) }
   })
 
   const ovrigt: TavlaOvrig[] = (klar?.maskiner ?? [])
@@ -401,7 +414,7 @@ function taktKrav(bestallt: number, nu: number, status: ManadStatus, klar: KlarD
 }
 
 /** Räcker trakterna: det som är gjort + det som är kvar i inlagda trakter, mot beställt. Skotaren räknar inte egen skotning (den är inte vår). */
-function racker(typ: Typ, bestallt: number, block: TavlaBlock[], trakter: KlarTrakt[], status: ManadStatus, harKo: boolean, koPerTrakt: Map<string, KoRad>): TavlaRacker[] {
+function racker(typ: Typ, bestallt: number, block: TavlaBlock[], trakter: KlarTrakt[], status: ManadStatus, harKo: boolean, koPerTrakt: Map<string, KoRad>, skotKo: Map<string, KoRad>, maskinNamn: Map<string, string>): TavlaRacker[] {
   if (bestallt <= 0 || status === 'avslutad' || !harKo) return []
   return block.map((b): TavlaRacker => {
     const lista = trakter.filter(t => t.typ === typ && t.roll === b.roll)
@@ -409,10 +422,26 @@ function racker(typ: Typ, bestallt: number, block: TavlaBlock[], trakter: KlarTr
     const diff = Math.round(b.nu + kvar - bestallt)
     const rubrik = b.roll === 'skordare' ? 'Skördare' : 'Skotare'
     const behov = b.roll === 'skordare' ? behovLista(lista, bestallt, b.nu, koPerTrakt) : null
-    if (diff < 0) return { roll: b.roll, rubrik, diff, ord: `Saknar ${fmt(-diff)}`, ton: 'orange', behov }
-    if (diff > bestallt * FOR_MYCKET) return { roll: b.roll, rubrik, diff, ord: `${fmt(diff)} för mycket`, ton: 'dampad', behov }
-    return { roll: b.roll, rubrik, diff, ord: 'Räcker', ton: 'gron', behov }
+    const skot = b.roll === 'skotare' ? skotLista(lista, bestallt, b.nu, skotKo, maskinNamn) : null
+    if (diff < 0) return { roll: b.roll, rubrik, diff, ord: `Saknar ${fmt(-diff)}`, ton: 'orange', behov, skot }
+    if (diff > bestallt * FOR_MYCKET) return { roll: b.roll, rubrik, diff, ord: `${fmt(diff)} för mycket`, ton: 'dampad', behov, skot }
+    return { roll: b.roll, rubrik, diff, ord: 'Räcker', ton: 'gron', behov, skot }
   })
+}
+
+function skotLista(lista: KlarTrakt[], bestallt: number, nu: number, skotKo: Map<string, KoRad>, maskinNamn: Map<string, string>): TavlaSkot {
+  const behov = Math.max(0, Math.round(bestallt - nu))
+  const rader: TavlaSkot['rader'] = []
+  let summa = 0
+  for (const t of [...lista].sort((a, b) => a.sortn - b.sortn)) {
+    const kvar = Math.round(kvarVolym(t))
+    if (kvar <= 0) continue
+    summa += kvar
+    const r = skotKo.get(t.objekt_id)
+    const osaker = t.uppskattad === true && !t.foljer
+    rader.push({ objekt_id: t.objekt_id, namn: traktNamn(t), kvar, maskin: t.maskin_id ? (maskinNamn.get(t.maskin_id) ?? null) : null, dagar: r?.dagar ?? null, till: r?.till ? `${osaker ? 'ca ' : ''}${fmtDag(r.till)}` : null })
+  }
+  return { bestallt, nu: Math.round(nu), behov, saknas: Math.max(0, Math.round(behov - summa)), rader }
 }
 
 /** Trakterna i körordning: de första som tillsammans täcker behovet behövs, resten kan vänta. */

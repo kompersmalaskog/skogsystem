@@ -44,7 +44,7 @@ import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar } from './Tillstand'
 import { HK_CSS } from './Lista'
 import { PanelContext, type PanelPost } from './PanelVal'
-import Tavla, { BehovSheet, FlyttaSheet, type TraktVal } from './Tavla'
+import Tavla, { BehovSheet, FlyttaSheet, SkotSheet, type TraktVal } from './Tavla'
 import { flyttaObjekt } from '@/lib/objekt/data'
 import { stegaManad } from '@/lib/objekt/manad'
 import { DinMaskinSektion, VeckoNotisSektion } from './MaskinSektion'
@@ -77,7 +77,7 @@ const css = `
 }
 `
 
-type Ark = `behov:${Typ}` | 'traffsakerhet' | 'utan' | 'historik' | 'veckor' | 'bolagval' | 'notis' | `bolag:${Typ}` | `flytta:${string}`
+type Ark = `behov:${Typ}` | `skot:${Typ}` | 'traffsakerhet' | 'utan' | 'historik' | 'veckor' | 'bolagval' | 'notis' | `bolag:${Typ}` | `flytta:${string}`
 
 export default function HelikopterVy() {
   const sp = useSearchParams()
@@ -332,6 +332,9 @@ export default function HelikopterVy() {
   const behovTyp = ark && ark.startsWith('behov:') ? (ark.slice(6) as Typ) : null
   const behovSpar = behovTyp && tavla ? tavla.spar.find(x => x.typ === behovTyp) ?? null : null
   const behov = behovSpar?.racker.find(r => r.roll === 'skordare')?.behov ?? null
+  const skotTyp = ark && ark.startsWith('skot:') ? (ark.slice(5) as Typ) : null
+  const skotSpar = skotTyp && tavla ? tavla.spar.find(x => x.typ === skotTyp) ?? null : null
+  const skot = skotSpar?.racker.find(r => r.roll === 'skotare')?.skot ?? null
   const nastaManad = stegaManad({ ar, manad }, 1)
   const flyttaTillNasta = async (ids: string[]): Promise<string | null> => {
     let flyttade = 0
@@ -397,7 +400,7 @@ export default function HelikopterVy() {
                     <RadGrupp><RadLank orange text="Kunde inte läsa maskinernas trakter" smakprov="försök igen" onClick={() => void klar.ladda()} sista /></RadGrupp>
                   )}
                   <div className="hk-rutnat">
-                    <Tavla tavla={tavla} onTrakt={kanFlytta ? v => setArk(`flytta:${v.roll}:${v.objekt_id}`) : undefined} onBehov={typ => setArk(`behov:${typ}`)} />
+                    <Tavla tavla={tavla} onTrakt={kanFlytta ? v => setArk(`flytta:${v.roll}:${v.objekt_id}`) : undefined} onBehov={typ => setArk(`behov:${typ}`)} onSkot={typ => setArk(`skot:${typ}`)} />
                     {dinMaskin && <DinMaskinSektion maskinNamn={maskinNamn(dinMaskin)} lage={maskinLage} fel={maskinLageFel} onRetry={() => setVersion(v => v + 1)} />}
                     <Sektion rubrik="Mer" kort={false}>
                       <RadGrupp marginBottom={0}>
@@ -426,6 +429,7 @@ export default function HelikopterVy() {
                       </RadGrupp>
                     </Sheet>
                   )}
+                  {skotSpar && skot && <SkotSheet key={ark} onClose={stang} namn={skotSpar.namn} skot={skot} takt={skotSpar.block[1].takt} onTrakt={kanFlytta ? v => setArk(`flytta:${v.roll}:${v.objekt_id}`) : undefined} />}
                   {behovSpar && behov && <BehovSheet key={ark} open onClose={stang} namn={behovSpar.namn} behov={behov} takt={behovSpar.block[0].takt} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} manadNamn={manadNamn.toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} />}
                   {flyttaVal && flyttaVy && <FlyttaSheet key={ark} open onClose={stang} namn={flyttaVy.namn} val={flyttaVy.val} onFlytta={flytta} />}
                   {ark === 'notis' && <Sheet open onClose={stang} title="Onsdagsnotis"><VeckoNotisSektion /></Sheet>}

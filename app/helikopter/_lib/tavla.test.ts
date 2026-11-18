@@ -223,6 +223,15 @@ describe('räcker trakterna', () => {
     expect(kanTa(jd, { typ: 'slutavverkning' })).toBe(false)
     expect(kanValjas(jd, { typ: 'slutavverkning' })).toBe(true)
   })
+  it('skotarens lista: trakterna i körordning med kvar, maskin och tid; trakt utan skotare har ingen maskin', () => {
+    const sk = rad('slutavverkning', 'skotare').skot!
+    expect(sk).toMatchObject({ bestallt: 5000, nu: 1505, behov: 3495, saknas: 0 })
+    const edestad = sk.rader.find(r => r.namn === 'Edestad')!
+    expect(edestad).toMatchObject({ kvar: 4000, maskin: 'Elefant' })
+    expect(edestad.dagar).not.toBeNull()
+    expect(sk.rader.find(r => r.namn === 'Krokshult')).toMatchObject({ kvar: 221, maskin: null, dagar: null, till: null })
+    expect(rad('slutavverkning', 'skordare').skot).toBeNull()
+  })
   it('dagarText: alltid ca, och en halv dag är inte 0', () => {
     expect(dagarText(0.2)).toBe('under en halv dag')
     expect(dagarText(1)).toBe('ca 1 arbetsdag')

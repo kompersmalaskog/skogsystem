@@ -14,7 +14,7 @@ import Ikon from '@/components/design/Ikon'
 import { fmt } from '../_lib/format'
 import type { KlarRoll } from '../_lib/klar'
 import { EGEN_SKOTNING, dagarText } from '../_lib/tavla'
-import type { FlyttVal, Tavla as TavlaVy, TavlaBehov, TavlaBlock, TavlaGor, TavlaMaskin, TavlaOvrig, TavlaSpar, TavlaTakt, TavlaTrakt } from '../_lib/tavla'
+import type { FlyttVal, Tavla as TavlaVy, TavlaBehov, TavlaBlock, TavlaGor, TavlaMaskin, TavlaOvrig, TavlaSkot, TavlaSpar, TavlaTakt, TavlaTrakt } from '../_lib/tavla'
 import { StatusOrd } from './Status'
 
 const LINJE = `1px solid ${FARG.linje}`
@@ -265,14 +265,14 @@ function GorKort({ gor, onTrakt }: { gor: TavlaGor[]; onTrakt?: (v: TraktVal) =>
 }
 
 /** "Räcker trakterna?" — finns det skog nog kvar i inlagda trakter för beställningen? Skild från "hinner maskinen". Skördarens rad öppnar vilka trakter som behövs. */
-function RackerKort({ spar, onBehov }: { spar: TavlaSpar[]; onBehov?: (typ: TavlaSpar['typ']) => void }) {
+function RackerKort({ spar, onBehov, onSkot }: { spar: TavlaSpar[]; onBehov?: (typ: TavlaSpar['typ']) => void; onSkot?: (typ: TavlaSpar['typ']) => void }) {
   const rader = spar.flatMap(s => s.racker.map(r => ({ spar: s, r })))
   if (rader.length === 0) return null
   return (
     <Sektion rubrik="Räcker trakterna?" not="Skog som finns kvar i inlagda trakter, mot det som behövs för beställningen. Alla tal är m³.">
       <div data-racker="">
         {rader.map(({ spar: s, r }, i) => {
-          const kan = onBehov != null && r.behov != null
+          const kan = r.roll === 'skordare' ? onBehov != null && r.behov != null : onSkot != null && r.skot != null
           const inne = (
             <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', columnGap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.xs}px 0` }}>
               <span style={{ ...TYP.text, color: FARG.text, whiteSpace: 'nowrap' }}>{r.rubrik} · {s.namn.toLowerCase()}</span>
@@ -284,7 +284,7 @@ function RackerKort({ spar, onBehov }: { spar: TavlaSpar[]; onBehov?: (typ: Tavl
           )
           return (
             <div key={`${s.typ}:${r.roll}`} style={{ borderTop: i > 0 ? LINJE : 'none' }} data-racker-rad={`${s.typ}:${r.roll}`}>
-              {kan ? <button type="button" onClick={() => onBehov!(s.typ)} style={KNAPP_RAD} aria-label={`${s.namn}, ${r.rubrik.toLowerCase()}: ${r.ord}. Visa vilka trakter som behövs`}>{inne}</button> : inne}
+              {kan ? <button type="button" onClick={() => (r.roll === 'skordare' ? onBehov! : onSkot!)(s.typ)} style={KNAPP_RAD} aria-label={`${s.namn}, ${r.rubrik.toLowerCase()}: ${r.ord}. Visa trakterna`}>{inne}</button> : inne}
             </div>
           )
         })}
@@ -314,7 +314,7 @@ function MerKort({ tavla, onTrakt }: { tavla: TavlaVy; onTrakt?: (v: TraktVal) =
 }
 
 /** Korten i tavlan: ett per spår, och "GROT och övrigt" när en maskin bara har sådant. */
-export default function Tavla({ tavla, onTrakt, onBehov }: { tavla: TavlaVy; onTrakt?: (v: TraktVal) => void; onBehov?: (typ: TavlaSpar['typ']) => void }) {
+export default function Tavla({ tavla, onTrakt, onBehov, onSkot }: { tavla: TavlaVy; onTrakt?: (v: TraktVal) => void; onBehov?: (typ: TavlaSpar['typ']) => void; onSkot?: (typ: TavlaSpar['typ']) => void }) {
   const [oppna, setOppna] = useState<Set<string>>(() => new Set())
   const vaxla = (id: string) => setOppna(f => { const n = new Set(f); if (n.has(id)) n.delete(id); else n.add(id); return n })
   // Nyckeln bär spåret, så samma maskin kan stå öppen i ett spår och stängd i ett annat.
@@ -322,7 +322,7 @@ export default function Tavla({ tavla, onTrakt, onBehov }: { tavla: TavlaVy; onT
   return (
     <>
       {tavla.gor.length > 0 && <GorKort gor={tavla.gor} onTrakt={onTrakt} />}
-      <RackerKort spar={tavla.spar} onBehov={onBehov} />
+      <RackerKort spar={tavla.spar} onBehov={onBehov} onSkot={onSkot} />
       {tavla.spar.map(s => <SparKort key={s.typ} s={s} oppna={forSpar(s.typ)} vaxla={vaxla} onTrakt={onTrakt} />)}
       <MerKort tavla={tavla} onTrakt={onTrakt} />
     </>
@@ -464,6 +464,50 @@ export function BehovSheet({ open, onClose, namn, behov, takt, nastaNamn, manadN
           {lage.fel && <p role="status" style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.m }}>{lage.fel}</p>}
         </>
       )}
+    </Sheet>
+  )
+}
+
+
+/** Skotarens ark: vilka trakter som ska skotas, hur mycket som är kvar på var och en, vem som tar den och hur lång tid. Trakter utan skotare överst — där kan du välja maskin. */
+export function SkotSheet({ onClose, namn, skot, takt, onTrakt }: { onClose: () => void; namn: string; skot: TavlaSkot; takt?: TavlaTakt | null; onTrakt?: (v: TraktVal) => void }) {
+  const utan = skot.rader.filter(r => r.maskin == null)
+  const med = skot.rader.filter(r => r.maskin != null)
+  const under = skot.saknas > 0 ? 'Trakterna räcker inte.' : 'Trakterna räcker.'
+  const rad = (t: TavlaSkot['rader'][number], i: number, valbar: boolean) => {
+    const inne = (
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.xs}px 0` }}>
+        <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <span style={{ ...TYP.text, color: FARG.text, overflowWrap: 'anywhere' }}>{t.namn}</span>
+          <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }} data-tid="">
+            {t.maskin ?? 'Ingen skotare'} · {t.dagar == null ? 'tid saknas' : dagarText(t.dagar)}{t.till ? ` · klar ${t.till}` : ''}
+          </span>
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
+          <span style={{ ...TYP.text, ...TNUM, color: FARG.text, fontWeight: VIKT.fet }}>{fmt(t.kvar)}</span>
+          {valbar && <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />}
+        </span>
+      </span>
+    )
+    return (
+      <div key={t.objekt_id} style={{ borderTop: i > 0 ? LINJE : 'none' }} data-skot-rad={t.objekt_id}>
+        {valbar ? <button type="button" onClick={() => onTrakt!({ objekt_id: t.objekt_id, roll: 'skotare' })} style={KNAPP_RAD}>{inne}</button> : inne}
+      </div>
+    )
+  }
+  return (
+    <Sheet open onClose={onClose} title={skot.behov > 0 ? `${namn} · skotaren behöver ${fmt(skot.behov)} m³ till` : `${namn} · skotaren är klar med beställningen`}>
+      <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px` }} data-skot-under="">Beställt {fmt(skot.bestallt)} · skotat {fmt(skot.nu)}. {skot.behov > 0 ? under : ''}</p>
+      {takt && (
+        <Sektion rubrik="Takten" not={takt.hinner === false && takt.fattasDagar != null ? `Hålls takten fattas ca ${Math.max(1, Math.round(takt.fattasDagar))} arbetsdagar. ${takt.dagarKvar} arbetsdagar kvar i månaden.` : `${takt.dagarKvar} arbetsdagar kvar i månaden.`}>
+          <div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-takt-ark="">
+            <StatusOrd ton={taktText(takt).ton} ord={taktText(takt).ord} />
+          </div>
+        </Sektion>
+      )}
+      {utan.length > 0 && <Sektion rubrik="Saknar skotare" not={onTrakt ? 'Tryck på en trakt för att välja skotare.' : undefined}><div data-skot-utan="">{utan.map((t, i) => rad(t, i, onTrakt != null))}</div></Sektion>}
+      {med.length > 0 && <Sektion rubrik="Har skotare"><div data-skot-med="">{med.map((t, i) => rad(t, i, false))}</div></Sektion>}
+      {skot.saknas > 0 && <Sektion rubrik="Saknas"><div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-skot-saknas=""><StatusOrd ton="orange" ord={`Det saknas ca ${fmt(skot.saknas)} m³ · lägg in en ny trakt`} /></div></Sektion>}
     </Sheet>
   )
 }
