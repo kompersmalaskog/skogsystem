@@ -264,14 +264,20 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   };
   const raderKvar = kvar.filter((s) => s !== 'harDu');
   const fragorKvar = HAR_DU_FRAGOR.filter((f) => status.frågorKvar.includes(f.id));
+  // Rubrikerna: vad man gör på kartan, vad man väljer, vad man kollar på plats.
+  const grupper = ([
+    { id: 'karta', rubrik: 'Rita på kartan', steg: raderKvar.filter((s) => s === 'avlagg' || s === 'basvag') },
+    { id: 'valj', rubrik: 'Välj', steg: raderKvar.filter((s) => s !== 'avlagg' && s !== 'basvag') },
+    { id: 'plats', rubrik: 'Kolla på plats', steg: [] as StegId[] },
+  ] as const).filter((g) => g.steg.length > 0 || (g.id === 'plats' && fragorKvar.length > 0));
   const antalKlara = status.poster.filter((x) => !x.kvar).length + (HAR_DU_FRAGOR.length - status.frågorKvar.length);
 
-  const lageText = planerad ? 'Klar för maskin ✓' : status.klar ? 'Redo att skicka' : `${status.antalKvar} kvar`;
+  const lageText = planerad ? 'Klar för maskin ✓' : status.klar ? 'Redo att skicka' : `${status.antalKvar} steg kvar`;
   const lageFarg = planerad ? FARG.gron : status.klar ? FARG.text : FARG.orange;
   const undertitel = (
     <>
       <span data-testid="klar-status" style={{ color: lageFarg, ...TYP.listtitel }}>{lageText}</span>
-      {planerad && status.antalKvar > 0 && <span style={{ color: FARG.orange }}> · {status.antalKvar} kvar</span>}
+      {planerad && status.antalKvar > 0 && <span style={{ color: FARG.orange }}> · {status.antalKvar} steg kvar</span>}
       {visaSe && p.faktaRad && <div data-testid="klar-fakta" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs, fontWeight: 400 }}>{p.faktaRad}</div>}
     </>
   );
@@ -334,33 +340,38 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
               )}
             </Gruppkort>
 
-            {/* KVAR — en rad per sak. Frågorna svaras på raden; resten gör sin sak eller öppnar sitt steg. */}
-            <section data-testid="klar-behover" style={{ marginTop: AVSTAND.sektion }}>
-              <Rubrik>Kvar</Rubrik>
-              <Gruppkort testid="klar-del1">
-                {raderKvar.map((s, k) => (
-                  <div key={s} data-testid={`klar-post-${s}`} data-kvar="1" style={{ borderTop: k === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
-                    <button type="button" data-testid={`klar-rad-${s}`} onClick={() => gor(s)} className="press-row" style={RAD}>
-                      <span style={{ flex: 1, minWidth: 0 }}>{STEG_NAMN[s]}</span>
-                      <span data-testid={`klar-rad-${s}-varde`} style={{ ...TYP.listtitel, color: FARG.orange, textAlign: 'right' }}>{uppmaning(s)}</span>
-                      <Pil />
-                    </button>
-                  </div>
-                ))}
-                {fragorKvar.map((f, k) => (
-                  <div key={f.id} data-testid={`klar-post-fraga-${f.id}`} data-kvar="1"
-                    style={{ borderTop: raderKvar.length === 0 && k === 0 ? 'none' : `1px solid ${FARG.linje}`, padding: `${AVSTAND.s}px ${AVSTAND.l}px` }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.primar }}>
-                      <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text }}>{f.fraga}</span>
-                      <SvarKnapp testid={`klar-fraga-${f.id}-ja`} onTryck={() => p.onHarDu(f.id, 'ja')}>{f.ja}</SvarKnapp>
-                      <SvarKnapp testid={`klar-fraga-${f.id}-nej`} onTryck={() => p.onHarDu(f.id, f.nejVarde)}>{f.nej}</SvarKnapp>
-                    </div>
-                    {p.varningar.filter((v) => v.fraga === f.id).map((v, i) => (
-                      <div key={i} data-testid={`klar-varning-${f.id}`} style={{ ...TYP.meta, color: FARG.orange, paddingBottom: AVSTAND.xs }}>{v.text}</div>
+            {/* KVAR — tre rubriker efter VAR man gör saken (Martin 2026-11-18: "så ett barn förstår direkt"): på kartan · välj · på plats.
+                Rubriker utan innehåll ritas aldrig. Frågorna (Kolla på plats) svaras direkt på raden. */}
+            <section data-testid="klar-behover">
+              {grupper.map((g) => (
+                <div key={g.id} data-testid={`klar-grupp-${g.id}`} style={{ marginTop: AVSTAND.sektion }}>
+                  <Rubrik>{g.rubrik}</Rubrik>
+                  <Gruppkort testid={g.id === 'karta' ? 'klar-del1' : `klar-del-${g.id}`}>
+                    {g.steg.map((s, k) => (
+                      <div key={s} data-testid={`klar-post-${s}`} data-kvar="1" style={{ borderTop: k === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
+                        <button type="button" data-testid={`klar-rad-${s}`} onClick={() => gor(s)} className="press-row" style={RAD}>
+                          <span style={{ flex: 1, minWidth: 0 }}>{STEG_NAMN[s]}</span>
+                          <span data-testid={`klar-rad-${s}-varde`} style={{ ...TYP.listtitel, color: FARG.orange, textAlign: 'right' }}>{uppmaning(s)}</span>
+                          <Pil />
+                        </button>
+                      </div>
                     ))}
-                  </div>
-                ))}
-              </Gruppkort>
+                    {g.id === 'plats' && fragorKvar.map((f, k) => (
+                      <div key={f.id} data-testid={`klar-post-fraga-${f.id}`} data-kvar="1"
+                        style={{ borderTop: k === 0 ? 'none' : `1px solid ${FARG.linje}`, padding: `${AVSTAND.s}px ${AVSTAND.l}px` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.primar }}>
+                          <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text }}>{f.fraga}</span>
+                          <SvarKnapp testid={`klar-fraga-${f.id}-ja`} onTryck={() => p.onHarDu(f.id, 'ja')}>{f.ja}</SvarKnapp>
+                          <SvarKnapp testid={`klar-fraga-${f.id}-nej`} onTryck={() => p.onHarDu(f.id, f.nejVarde)}>{f.nej}</SvarKnapp>
+                        </div>
+                        {p.varningar.filter((v) => v.fraga === f.id).map((v, i) => (
+                          <div key={i} data-testid={`klar-varning-${f.id}`} style={{ ...TYP.meta, color: FARG.orange, paddingBottom: AVSTAND.xs }}>{v.text}</div>
+                        ))}
+                      </div>
+                    ))}
+                  </Gruppkort>
+                </div>
+              ))}
             </section>
           </div>
         )}
