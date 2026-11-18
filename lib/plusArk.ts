@@ -43,15 +43,23 @@ export function valjDetent(nu: Detent, dy: number, tarskel: number = DETENT_TARS
   return dy >= tarskel ? 'halv' : 'hel';
 }
 
+/** Objektlistans tre lägen: LÅG (bara greppet och rubriken — kartan syns, Martin 2026-11-18), halv och hel. */
+export type ListDetent = Detent | 'lag';
+
 /**
  * Objektlistans ark (telefon): som `valjDetent`, men ett halvt ark som dras NED över tröskeln STÄNGS (`kanStangas`) — listan har inget annat sätt att
  * stängas med fingret nu när ett tryck på kartan inte stänger. Plus-arket far tillbaka i stället (det stängs med krysset). Utan `kanStangas`
- * (inget objekt valt, listan är det enda som finns) far ett halvt ark som dras ned tillbaka.
+ * (inget objekt valt, listan är det enda som finns) sjunker ett halvt ark som dras ned till LÅGT läge i stället: kartan syns, listan är en smal
+ * list med greppet kvar att dra eller trycka på. Ett lågt ark dras upp till halvt.
  */
-export function valjListdetent(nu: Detent, dy: number, kanStangas: boolean, tarskel: number = DETENT_TARSKEL_PX): Detent | 'stang' {
+// Med kanStangas=true kan ett halvt ark aldrig bli lågt: InfoRam och kontrollbladet får samma typ och samma regel som förut.
+export function valjListdetent(nu: Detent, dy: number, kanStangas: true, tarskel?: number): Detent | 'stang';
+export function valjListdetent(nu: ListDetent, dy: number, kanStangas: boolean, tarskel?: number): ListDetent | 'stang';
+export function valjListdetent(nu: ListDetent, dy: number, kanStangas: boolean, tarskel: number = DETENT_TARSKEL_PX): ListDetent | 'stang' {
+  if (nu === 'lag') return dy <= -tarskel ? 'halv' : 'lag';
   if (nu === 'halv') {
     if (dy <= -tarskel) return 'hel';
-    if (dy >= tarskel) return kanStangas ? 'stang' : 'halv';
+    if (dy >= tarskel) return kanStangas ? 'stang' : 'lag';
     return 'halv';
   }
   return dy >= tarskel ? 'halv' : 'hel';
@@ -64,14 +72,14 @@ export function valjListdetent(nu: Detent, dy: number, kanStangas: boolean, tars
  *   helt ark   → listan rullar; står den längst upp och fingret går NEDÅT följer arket med ner
  * `dy` > 0 = fingret har gått nedåt. Avgörs vid dragets FÖRSTA rörelse — iOS låter inte en rullning avbrytas när den väl börjat.
  */
-export function arketTarDraget(detent: Detent, listansScrollTop: number, dy: number): boolean {
-  if (detent === 'halv') return true;
+export function arketTarDraget(detent: ListDetent, listansScrollTop: number, dy: number): boolean {
+  if (detent !== 'hel') return true;
   return listansScrollTop <= 0 && dy > 0;
 }
 
 /** Arkets höjd i px under ett pågående drag: följer fingret men aldrig under 30 % eller över fönstret. */
-export function dragHojd(startHojd: number, dy: number, fonsterHojd: number): number {
-  const min = Math.round(fonsterHojd * 0.3);
+export function dragHojd(startHojd: number, dy: number, fonsterHojd: number, minHojd?: number): number {
+  const min = minHojd ?? Math.round(fonsterHojd * 0.3);
   return Math.max(min, Math.min(fonsterHojd, Math.round(startHojd - dy)));
 }
 
