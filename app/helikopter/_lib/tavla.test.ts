@@ -230,6 +230,9 @@ describe('räcker trakterna', () => {
     expect(edestad).toMatchObject({ kvar: 4000, maskin: 'Elefant' })
     expect(edestad.dagar).not.toBeNull()
     expect(sk.rader.find(r => r.namn === 'Krokshult')).toMatchObject({ kvar: 221, maskin: null, dagar: null, till: null })
+    // Behov 3 495: Edestad (4 000 kvar) täcker allt → Krokshult (221, utan skotare) behövs inte.
+    expect(edestad.behovs).toBe(3495)
+    expect(sk.rader.find(r => r.namn === 'Krokshult')!.behovs).toBe(0)
     expect(rad('slutavverkning', 'skordare').skot).toBeNull()
   })
   it('dagarText: alltid ca, och en halv dag är inte 0', () => {

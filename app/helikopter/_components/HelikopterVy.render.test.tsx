@@ -281,10 +281,12 @@ describe('/helikopter — tavlan', () => {
     expect(knapp).not.toBeNull()
     await act(async () => { knapp.click() })
     expect(document.querySelector('[data-skot-under]')?.textContent).toContain('Beställt')
+    // Först: de trakter som måste skotas för beställningen — ingen klardatum.
+    expect(document.querySelector('[data-skot-behovs]')).not.toBeNull()
+    expect(document.querySelector('[data-skot-behovs]')?.textContent).not.toMatch(/klar /)
     const rader = Array.from(document.querySelectorAll('[data-skot-rad]')) as HTMLElement[]
     expect(rader.length).toBeGreaterThan(0)
-    // Varje trakt säger vem som tar den (eller "Ingen skotare") och tid eller "tid saknas" — aldrig tomt.
-    for (const r of rader) expect(r.querySelector('[data-tid]')?.textContent).toMatch(/Ingen skotare|·/)
+    for (const r of rader) expect(r.querySelector('[data-tid]')?.textContent).toMatch(/Ingen skotare|\S/)
   })
 
   it('Räcker trakterna?: skördarens rad öppnar vilka trakter som behövs, och trakter som kan vänta flyttas till nästa månad (admin)', async () => {

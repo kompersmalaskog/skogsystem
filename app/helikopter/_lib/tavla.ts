@@ -197,7 +197,8 @@ export type TavlaSkot = {
   behov: number
   /** Det som saknas även om alla trakter skotas. 0 = skogen räcker. */
   saknas: number
-  rader: { objekt_id: string; namn: string; kvar: number; maskin: string | null; dagar: number | null; till: string | null }[]
+  /** `behovs` = hur mycket av trakten som behöver skotas för beställningen (≤ kvar); 0 = behövs inte i månaden. */
+  rader: { objekt_id: string; namn: string; kvar: number; behovs: number; maskin: string | null; dagar: number | null; till: string | null }[]
 }
 
 export type TavlaRacker = {
@@ -436,10 +437,11 @@ function skotLista(lista: KlarTrakt[], bestallt: number, nu: number, skotKo: Map
   for (const t of [...lista].sort((a, b) => a.sortn - b.sortn)) {
     const kvar = Math.round(kvarVolym(t))
     if (kvar <= 0) continue
+    const behovs = summa >= behov ? 0 : Math.min(kvar, behov - summa)
     summa += kvar
     const r = skotKo.get(t.objekt_id)
     const osaker = t.uppskattad === true && !t.foljer
-    rader.push({ objekt_id: t.objekt_id, namn: traktNamn(t), kvar, maskin: t.maskin_id ? (maskinNamn.get(t.maskin_id) ?? null) : null, dagar: r?.dagar ?? null, till: r?.till ? `${osaker ? 'ca ' : ''}${fmtDag(r.till)}` : null })
+    rader.push({ objekt_id: t.objekt_id, namn: traktNamn(t), kvar, behovs, maskin: t.maskin_id ? (maskinNamn.get(t.maskin_id) ?? null) : null, dagar: r?.dagar ?? null, till: r?.till ? `${osaker ? 'ca ' : ''}${fmtDag(r.till)}` : null })
   }
   return { bestallt, nu: Math.round(nu), behov, saknas: Math.max(0, Math.round(behov - summa)), rader }
 }

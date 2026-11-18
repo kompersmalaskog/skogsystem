@@ -469,22 +469,27 @@ export function BehovSheet({ open, onClose, namn, behov, takt, nastaNamn, manadN
 }
 
 
-/** Skotarens ark: vilka trakter som ska skotas, hur mycket som är kvar på var och en, vem som tar den och hur lång tid. Trakter utan skotare överst — där kan du välja maskin. */
+/** Skotarens ark: vilka trakter som måste skotas för beställningen (i körordning tills behovet är täckt), hur mycket av var och en, och vilka som kan vänta. Trakt utan skotare är en åtgärd: tryck = välj skotare. */
 export function SkotSheet({ onClose, namn, skot, takt, onTrakt }: { onClose: () => void; namn: string; skot: TavlaSkot; takt?: TavlaTakt | null; onTrakt?: (v: TraktVal) => void }) {
-  const utan = skot.rader.filter(r => r.maskin == null)
-  const med = skot.rader.filter(r => r.maskin != null)
+  const behovs = skot.rader.filter(r => r.behovs > 0)
+  const inte = skot.rader.filter(r => r.behovs <= 0)
+  const utanSkotare = behovs.filter(r => r.maskin == null).length
   const under = skot.saknas > 0 ? 'Trakterna räcker inte.' : 'Trakterna räcker.'
-  const rad = (t: TavlaSkot['rader'][number], i: number, valbar: boolean) => {
+  const rad = (t: TavlaSkot['rader'][number], i: number, behovd: boolean) => {
+    const valbar = onTrakt != null && t.maskin == null
+    const delvis = behovd && t.behovs < t.kvar
     const inne = (
       <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.xs}px 0` }}>
         <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <span style={{ ...TYP.text, color: FARG.text, overflowWrap: 'anywhere' }}>{t.namn}</span>
+          <span style={{ ...TYP.text, color: behovd ? FARG.text : FARG.text2, overflowWrap: 'anywhere' }}>{t.namn}</span>
+          {delvis && <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>Tar resten av behovet · {fmt(t.behovs)} av {fmt(t.kvar)} kvar</span>}
           <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }} data-tid="">
-            {t.maskin ?? 'Ingen skotare'} · {t.dagar == null ? 'tid saknas' : dagarText(t.dagar)}{t.till ? ` · klar ${t.till}` : ''}
+            {t.maskin ?? 'Ingen skotare'}{t.dagar == null ? '' : ` · ${dagarText(t.dagar * (behovd ? t.behovs / t.kvar : 1))}`}
           </span>
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
-          <span style={{ ...TYP.text, ...TNUM, color: FARG.text, fontWeight: VIKT.fet }}>{fmt(t.kvar)}</span>
+          {t.maskin == null && behovd && <StatusOrd ton="orange" ord="Välj skotare" />}
+          <span style={{ ...TYP.text, ...TNUM, color: behovd ? FARG.text : FARG.text2, fontWeight: behovd ? VIKT.fet : undefined }}>{fmt(behovd ? t.behovs : t.kvar)}</span>
           {valbar && <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />}
         </span>
       </span>
@@ -505,9 +510,13 @@ export function SkotSheet({ onClose, namn, skot, takt, onTrakt }: { onClose: () 
           </div>
         </Sektion>
       )}
-      {utan.length > 0 && <Sektion rubrik="Saknar skotare" not={onTrakt ? 'Tryck på en trakt för att välja skotare.' : undefined}><div data-skot-utan="">{utan.map((t, i) => rad(t, i, onTrakt != null))}</div></Sektion>}
-      {med.length > 0 && <Sektion rubrik="Har skotare"><div data-skot-med="">{med.map((t, i) => rad(t, i, false))}</div></Sektion>}
+      {behovs.length > 0 && (
+        <Sektion rubrik="De här måste skotas" not={utanSkotare > 0 && onTrakt ? `${utanSkotare} av dem har ingen skotare — tryck på trakten för att välja.` : undefined}>
+          <div data-skot-behovs="">{behovs.map((t, i) => rad(t, i, true))}</div>
+        </Sektion>
+      )}
       {skot.saknas > 0 && <Sektion rubrik="Saknas"><div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-skot-saknas=""><StatusOrd ton="orange" ord={`Det saknas ca ${fmt(skot.saknas)} m³ · lägg in en ny trakt`} /></div></Sektion>}
+      {inte.length > 0 && <Sektion rubrik="Behövs inte i månaden"><div data-skot-inte="">{inte.map((t, i) => rad(t, i, false))}</div></Sektion>}
     </Sheet>
   )
 }
