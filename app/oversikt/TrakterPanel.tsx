@@ -44,7 +44,7 @@ function TraktGrupp({ rubrik, rader, valt, onValj, hopfalld }: { rubrik: string;
               {r.under && <span style={{ ...TYP.meta, color: r.underOrange ? FARG.orange : FARG.text2 }}>{r.under}</span>}
               {r.fynd && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...TYP.meta, color: r.fynd.kategori ? FARG.text2 : FARG.text3 }}>
-                  {r.fynd.kategori && <span aria-hidden="true" style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, flexShrink: 0, background: r.fynd.kategori === 'vattenskydd' ? GRUPPER.blott.farg : GRUPPER.kultur.farg }} />}
+                  {r.fynd.kategori && <span aria-hidden="true" style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, flexShrink: 0, background: r.fynd.kategori === 'vattenskydd' ? GRUPPER.blott.farg : r.fynd.kategori === 'skydd' ? GRUPPER.natur.farg : GRUPPER.kultur.farg }} />}
                   {r.fynd.text}
                 </span>
               )}

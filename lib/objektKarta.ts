@@ -62,10 +62,9 @@ const FARG_PRICK: Record<PrickFarg, string> = { gron: FARG.gron, gra: FARG.text3
 const prickFarg = (o: ListObjekt & { fas?: unknown }, g: ReturnType<typeof effektivGrupp>): PrickFarg =>
   g === 'pagar' && pagarDel({ fas: o.fas }) !== 'vantar' ? 'gron' : 'gra';
 
-/** Orange ring: traktanalysen har hittat fossil åker eller vattenskydd (samma som raden i listan, lib/traktAnalys/markning). */
+/** Orange ring: traktanalysen har hittat något (samma som raden i listan, lib/traktAnalys/markning). "Ej kontrollerad" ger ingen ring. */
 export function harVarning(o: { trakt_analys?: unknown }): boolean {
-  const k = listRad(lasTraktAnalys({ trakt_analys: o.trakt_analys }))?.kategori;
-  return k === 'barmark' || k === 'vattenskydd';
+  return !!listRad(lasTraktAnalys({ trakt_analys: o.trakt_analys }))?.kategori;
 }
 
 /** Prick-listan ur listans grupper. `avslutadeVald` = bara i Avslutade-vyn: de avslutade objekten listan visar (vald typ, eller alla typer vid sökning). */
