@@ -22,16 +22,16 @@ async function montera(svar: unknown, ok = true) {
 }
 
 describe('Frost', () => {
-  it('lika flytt i alla grovlekar → svaret säger att hela kurvan flyttat sig, tabellen visar talen', async () => {
+  it('visar tabellen med talen — inga slutsatser och inga råd', async () => {
     const resp: FrostResp = { ok: true, maskin_id: 'PONS', utanVader: 3, rader: [
       ...stammar('klen', 'varmt', 10, 0), ...stammar('klen', 'fruset', 10, 2),
       ...stammar('mellan', 'varmt', 10, 1), ...stammar('mellan', 'fruset', 10, 3),
     ] };
     const h = await montera(resp);
-    expect(h.querySelector('[data-frost-svar]')!.textContent).toContain('hela kurvan har flyttat sig');
+    expect(h.querySelector('[data-frost-svar]')).toBeNull();
+    expect(h.textContent).not.toMatch(/hela kurvan|flytta|gör en kontroll/i);
     expect(h.querySelector('[data-frost-cell="klen-fruset"]')!.textContent).toContain('+2,0 mm');
     expect(h.querySelector('[data-frost-cell="grov-varmt"]')!.textContent).toContain('–');
-    expect(h.querySelector('[data-frost-kallt]')).toBeNull();
     expect(h.textContent).toContain('3 stammar har inget väder än');
     expect(h.textContent).not.toMatch(/justera|ändra kurvan|minska|öka/i);
   });

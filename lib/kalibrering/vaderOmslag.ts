@@ -10,7 +10,7 @@
  *   fruset 0 till −7   · virket fryser
  *   kallt  −7 och under · sträng kyla
  * Omslag = läget nu (snitt senaste 6 timmarna) är ett annat än när maskinen slutade (snitt 4 h före till 1 h efter) OCH skillnaden är minst 4 grader —
- * annars skulle en dag som svänger runt noll ge en varning varje dag. Appen föreslår ingen justering, bara en kontrollmätning.
+ * annars skulle en dag som svänger runt noll ge en varning varje dag. Appen säger bara att vädret har slagit om — inga råd (Martin 2026-11-19: samla in data först).
  */
 import type { TempObs } from '@/lib/smhi-obs';
 import { KALL_GRANS_C, grader } from './kontrollLista';
@@ -77,12 +77,12 @@ export function slutDagOrd(slutMs: number, nuMs: number): string {
   return `${s.d} ${MANAD[s.m - 1]}`;
 }
 
-/** Pushens text. null = inget omslag. */
+/** Pushens text: bara att vädret har slagit om, inget råd. null = inget omslag. */
 export function omslagText(namn: string, l: VaderLage, slutMs: number | null, nuMs: number): { title: string; body: string } | null {
   if (!l.omslag || l.nu == null || l.vidSlut == null || slutMs == null) return null;
   return {
-    title: `Gör en kontrollmätning · ${namn}`,
-    body: `När maskinen slutade ${slutDagOrd(slutMs, nuMs)} var det ${grader(l.vidSlut)}, nu ${grader(l.nu)} – ${omslagOrd(l)}. Mät längd och diameter innan du kör.`,
+    title: `Vädret har slagit om · ${namn}`,
+    body: `När maskinen slutade ${slutDagOrd(slutMs, nuMs)} var det ${grader(l.vidSlut)}, nu ${grader(l.nu)} – ${omslagOrd(l)}.`,
   };
 }
 
@@ -94,5 +94,5 @@ export function vaderRad(l: VaderLage, slutMs: number | null, nuMs: number, kont
   const da = `${grader(l.vidSlut)} när maskinen slutade ${slutDagOrd(slutMs, nuMs)}`;
   if (!l.omslag) return { varde, under: da, orange: false };
   if (kontrollIdag) return { varde, under: `${da} · kontroll gjord ${kontrollIdag}`, orange: false };
-  return { varde, under: `${da} · gör en kontroll`, orange: true };
+  return { varde, under: `${da} · vädret har slagit om`, orange: true };
 }

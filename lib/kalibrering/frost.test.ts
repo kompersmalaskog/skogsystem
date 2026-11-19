@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { _tomEra5Cache, hamtaEra5, rutaAv, tolkaEra5 } from './era5';
-import { frostCellText, frostSvar, frostVy, virketsLage, type FrostRad } from './frost';
+import { frostCellText, frostVy, virketsLage, type FrostRad } from './frost';
 import { frostRader, type FrostStock } from './frostServer';
 import type { FeletDia } from './felet';
 
@@ -27,33 +27,18 @@ describe('virkets läge = dygnet FÖRE mätningen, inte timmen', () => {
   });
 });
 
-describe('svaret: flyttar frosten hela kurvan?', () => {
-  it('lika mycket i alla grovlekar → hela kurvan har flyttat sig ca 2 mm', () => {
-    const v = frostVy([
-      ...stammar('klen', 'varmt', 10, 0), ...stammar('klen', 'fruset', 10, 2),
-      ...stammar('mellan', 'varmt', 10, 1), ...stammar('mellan', 'fruset', 10, 3),
-      ...stammar('grov', 'varmt', 10, -1), ...stammar('grov', 'fruset', 10, 1.4),
-    ]);
-    expect(v.fruset).toBe('Med fruset virke mäter maskinen ca 2,1 mm grövre i alla grovlekar – hela kurvan har flyttat sig lika mycket.');
-    expect(v.kallt).toBeNull();
+describe('tabellen: bara data, inga slutsatser', () => {
+  it('snitt per grovlek och läge (Giant 2026-11-19: +1,9 / +2,2 för klena)', () => {
+    const v = frostVy([...stammar('klen', 'varmt', 20, 1.9), ...stammar('klen', 'fruset', 20, 2.2)]);
+    expect(frostCellText(v.tabell[0].celler.varmt)).toBe('+1,9 mm');
+    expect(frostCellText(v.tabell[0].celler.fruset)).toBe('+2,2 mm');
+    expect(v.stammar).toEqual({ varmt: 20, fruset: 20, kallt: 0 });
+    expect(Object.keys(v)).toEqual(['tabell', 'stammar']); // inget svar i ord, inget råd
   });
-  it('olika mycket (Giant 2026-11-19: +0,3 / +0,6 / −3,9) → går inte att flytta hela kurvan', () => {
-    const v = frostVy([
-      ...stammar('klen', 'varmt', 20, 1.9), ...stammar('klen', 'fruset', 20, 2.2),
-      ...stammar('mellan', 'varmt', 20, 0.4), ...stammar('mellan', 'fruset', 20, 1.0),
-      ...stammar('grov', 'varmt', 20, 1.2), ...stammar('grov', 'fruset', 10, -2.7),
-    ]);
-    expect(v.fruset).toContain('olika mycket för olika grovlekar');
-  });
-  it('ingen skillnad → säger det', () => {
-    const v = frostVy([...stammar('klen', 'varmt', 9, 1), ...stammar('klen', 'fruset', 9, 1.3), ...stammar('mellan', 'varmt', 9, 0), ...stammar('mellan', 'fruset', 9, 0.4)]);
-    expect(v.fruset).toBe('Med fruset virke mäter maskinen som annars – ingen skillnad att se.');
-  });
-  it('under 8 stammar räknas inte — för lite fruset → säger att svaret kommer', () => {
-    const v = frostVy([...stammar('klen', 'varmt', 20, 0), ...stammar('klen', 'fruset', 7, 3), ...stammar('mellan', 'varmt', 20, 0), ...stammar('mellan', 'fruset', 7, 3)]);
+  it('under 8 stammar → "–", aldrig ett tal på för lite', () => {
+    const v = frostVy([...stammar('klen', 'fruset', 7, 3)]);
     expect(v.tabell[0].celler.fruset).toEqual({ stammar: 7, snittMm: null });
     expect(frostCellText(v.tabell[0].celler.fruset)).toBe('–');
-    expect(v.fruset).toBe('För lite fruset virke än för att säga något – svaret kommer under vintern.');
   });
   it('en stam räknas en gång: snittet är stammarnas egna snitt, inte punkternas', () => {
     const rader: FrostRad[] = [
@@ -61,10 +46,6 @@ describe('svaret: flyttar frosten hela kurvan?', () => {
       { stam: 'lang', grupp: 'klen', lage: 'varmt', n: 40, summa: 40 * 8 }, // en lång stam med 40 punkter väger som en
     ];
     expect(frostVy(rader).tabell[0].celler.varmt.snittMm).toBe(1);
-  });
-  it('sträng kyla får en egen mening bara när den finns', () => {
-    expect(frostVy([...stammar('klen', 'kallt', 2, 5)]).kallt).toContain('sträng kyla');
-    expect(frostSvar([], 'kallt')).toContain('För lite sträng kyla');
   });
   it('cellen med tecken och komma', () => {
     expect(frostCellText({ stammar: 9, snittMm: 1.94 })).toBe('+1,9 mm');

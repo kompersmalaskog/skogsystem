@@ -1,6 +1,6 @@
 'use client';
-// FROST — "Flyttar frosten hela kurvan?" Maskinens fel mot klaven per grovlek och virkets läge (varmt / fruset / sträng kyla, dygnet före kontrollen), och svaret i ord:
-// ändras felet lika mycket i alla grovlekar när det fryser (då räcker det att flytta hela kurvan) eller olika mycket (då gör det inte det). Appen föreslår ingen justering.
+// FROST — "Hur mäter maskinen när det fryser?" Maskinens fel mot klaven per grovlek och virkets läge (varmt / fruset / sträng kyla, dygnet före kontrollen).
+// Bara datan — inga slutsatser och inga råd (Martin 2026-11-19: samla in data först).
 // Räkningen i lib/kalibrering/frost.ts, underlaget /api/kalibrering/frost (hela maskinens historik, ERA5 för dygnet före).
 import { useEffect, useState } from 'react';
 import Sektion from '@/components/design/Sektion';
@@ -44,7 +44,7 @@ export default function FrostVinkel({ maskin }: { maskin: string | null }) {
   const vy = frostVy(svar.rader);
   const visa = LAGEN.filter(([l]) => l !== 'kallt' || vy.stammar.kallt > 0);
   return (
-    <Sektion rubrik="Flyttar frosten hela kurvan?" not={(
+    <Sektion rubrik="Hur mäter maskinen när det fryser?" not={(
       <span>
         Maskinen minus klaven, snitt per stam. Läget är virkets: snittet av dygnet före kontrollen — varmt över 0 °C, fruset 0 till −7, sträng kyla −7 och kallare.
         {' '}Under {GROVLEK_MIN_STAMMAR} stammar visas –.
@@ -52,9 +52,7 @@ export default function FrostVinkel({ maskin }: { maskin: string | null }) {
       </span>
     )}>
       <Fyll>
-        <div data-frost-svar style={{ ...TYP.listtitel, color: FARG.text }}>{vy.fruset}</div>
-        {vy.kallt && <div data-frost-kallt style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xs }}>{vy.kallt}</div>}
-        <div role="table" style={{ display: 'grid', gridTemplateColumns: `minmax(0, 1.3fr) repeat(${visa.length}, minmax(0, 1fr))`, columnGap: AVSTAND.s, rowGap: AVSTAND.m, marginTop: AVSTAND.l, ...TNUM }}>
+        <div role="table" style={{ display: 'grid', gridTemplateColumns: `minmax(0, 1.3fr) repeat(${visa.length}, minmax(0, 1fr))`, columnGap: AVSTAND.s, rowGap: AVSTAND.m, ...TNUM }}>
           <div role="columnheader" />
           {visa.map(([l, namn]) => <div key={l} role="columnheader" style={{ ...TYP.meta, color: FARG.text2, textAlign: 'right' }}>{namn}</div>)}
           {vy.tabell.map(rad => (

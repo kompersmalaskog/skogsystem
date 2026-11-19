@@ -24,14 +24,14 @@ describe('regeln', () => {
     expect(medelTemp([{ ms: 1, temp: -5 }], 0, 10)).toBeNull();
     expect(medelTemp([{ ms: 1, temp: -6 }, { ms: 2, temp: -4 }, { ms: 3, temp: -5 }], 0, 10)).toBe(-5);
   });
-  it('+3 när maskinen slutade igår, −6 nu → omslag: virket har frusit, mät innan du kör', () => {
+  it('+3 när maskinen slutade igår, −6 nu → omslag: säger bara att vädret slagit om, inget råd', () => {
     const l = vaderLage({ obs: serie(3, -6), slutMs: slut, nuMs: nu });
     expect(l).toEqual({ nu: -6, vidSlut: 3, omslag: true });
     expect(omslagText('Giant', l, slut, nu)).toEqual({
-      title: 'Gör en kontrollmätning · Giant',
-      body: 'När maskinen slutade igår var det 3 °C, nu −6 °C – virket har frusit. Mät längd och diameter innan du kör.',
+      title: 'Vädret har slagit om · Giant',
+      body: 'När maskinen slutade igår var det 3 °C, nu −6 °C – virket har frusit.',
     });
-    expect(vaderRad(l, slut, nu)).toEqual({ varde: '−6 °C nu', under: '3 °C när maskinen slutade igår · gör en kontroll', orange: true });
+    expect(vaderRad(l, slut, nu)).toEqual({ varde: '−6 °C nu', under: '3 °C när maskinen slutade igår · vädret har slagit om', orange: true });
   });
   it('JÄMFÖR MED IGÅR, INTE MED SENASTE KONTROLLEN: ett omslag under natten syns oavsett när kontrollen gjordes', () => {
     // Senaste kontrollen kan ha gjorts i förra veckan i minusgrader — det spelar ingen roll, det som räknas är kvällen före.
