@@ -17,7 +17,7 @@ import { Suspense, useEffect, useLayoutEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import PlannerPage from '../planering/page';
 import { MaskinSomContext } from '@/lib/maskinSomContext';
-import { MASKIN_SOM_PARAM } from '@/lib/maskinSom';
+import { MASKIN_SOM_PARAM, MASKIN_SOM_SESSION } from '@/lib/maskinSom';
 import { StartSvartSkarm } from '@/components/maskin/StartSkarmar';
 import { startaFastGpsLage, stoppaFastGpsLage } from '@/lib/gpsKalla';
 import { forladdaSparStart } from '@/lib/maskinPositionDb';
@@ -33,6 +33,8 @@ function MaskinInnehall() {
   useForeGps(() => {
     if (!som) return;
     startaFastGpsLage();
+    // Testläget minns vilken maskin admin visar som, så Hem i andra vyer (Arbetsrapport m.fl.) leder tillbaka till maskinlådan (TopBar).
+    try { sessionStorage.setItem(MASKIN_SOM_SESSION, som); } catch { /* */ }
     // Kartans kod + positionen hämtas nu, inte först när ett objekt är valt. Misslyckas något hämtar PlannerPage själv.
     try { void import('@/components/MapLibreMap'); } catch { /* */ }
     try { void forladdaSparStart(supabase, som); } catch { /* */ }

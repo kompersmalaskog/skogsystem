@@ -9,6 +9,7 @@ import { FARG, LAYOUT, TRAFFYTA, TYP } from '@/lib/design/tokens' // toppfältet
 import { VYER } from '@/lib/vyer'
 import { MENY_VALD_NYCKEL } from '@/lib/appStart'
 import { hamtaEnhetMaskin } from '@/lib/enhetMaskin'
+import { MASKIN_SOM_SESSION } from '@/lib/maskinSom'
 
 // Arbetsmiljöns delar (Kemikalier, Så gör vi, Riskbedömning …) nås från sidan Arbetsmiljö.
 // Där är vägen ut "‹ Arbetsmiljö", inte hem — annars måste man börja om från startsidan
@@ -78,6 +79,8 @@ function vilMeny(e?: ReactMouseEvent) {
   // med lådan öppen, och "Till kartan" stänger den utan att kartan laddas om.
   try {
     if (hamtaEnhetMaskin()) { e?.preventDefault(); window.location.assign('/planering?maskinmeny=1'); return }
+    const som = sessionStorage.getItem(MASKIN_SOM_SESSION);   // admin som testar som en maskin (/maskin?som=)
+    if (som) { e?.preventDefault(); window.location.assign(`/maskin?som=${encodeURIComponent(som)}&maskinmeny=1`); return }
   } catch { /* */ }
   try { sessionStorage.setItem(MENY_VALD_NYCKEL, '1') } catch { /* ingen sessionStorage */ }
 }
