@@ -19,11 +19,11 @@ const q = vi.hoisted(() => ({
 vi.mock('../_lib/queries', () => q)
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(q.params), useRouter: () => ({ replace: q.replace }) }))
 vi.mock('@/lib/CurrentMedarbetareContext', () => ({ useCurrentMedarbetare: () => ({ medarbetare: { id: 'm1', roll: 'admin', maskin_id: null } }) }))
-vi.mock('@/lib/objekt/data', () => ({ flyttaObjekt: vi.fn(async () => undefined) }))
+vi.mock('@/lib/objekt/data', () => ({ flyttaObjekt: vi.fn(async () => undefined), sattOrdning: vi.fn(async () => undefined) }))
 vi.mock('@/lib/datumLokal', () => ({ ymdLokal: () => '2026-10-17' }))
 
 import HelikopterVy from './HelikopterVy'
-import { flyttaObjekt } from '@/lib/objekt/data'
+import { flyttaObjekt, sattOrdning } from '@/lib/objekt/data'
 
 const okt = {
   maskin_id: null, totalt: 22, gangna: 12, kvar: 10,
@@ -287,7 +287,7 @@ describe('/helikopter — tavlan', () => {
     for (const el of Array.from(document.querySelectorAll('[data-skot-behovs], [data-skot-utan], [data-skot-inte]'))) expect(el.textContent).not.toMatch(/klar /)
     const rader = Array.from(document.querySelectorAll('[data-skot-rad]')) as HTMLElement[]
     expect(rader.length).toBeGreaterThan(0)
-    for (const r of rader) expect(r.querySelector('[data-tid]')?.textContent).toMatch(/Ingen skotare|\S/)
+    for (const r of rader) expect(r.querySelector('[data-maskin-rad]')?.textContent).toMatch(/\S/)
   })
 
   it('Räcker trakterna?: skördarens rad öppnar vilka trakter som behövs, och trakter som kan vänta flyttas till nästa månad (admin)', async () => {
@@ -319,6 +319,43 @@ describe('/helikopter — tavlan', () => {
     expect(mock.mock.calls.map(c => c[0]).sort()).toEqual(inte.map(e => e.getAttribute('data-inte-rad')).sort())
     expect(mock.mock.calls[0][1]).toEqual({ ar: 2026, manad: 11 })
     expect(document.querySelector('[data-behov-under]')).toBeNull()
+  })
+  it('ordning: pil ändrar förhandsvisningen, Spara skriver ordningen, Ångra ställer tillbaka', async () => {
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
+    const mock = sattOrdning as unknown as ReturnType<typeof vi.fn>
+    mock.mockClear()
+    await monter()
+    await act(async () => { (cont.querySelector('[data-racker-rad="gallring:skordare"] button') as HTMLButtonElement).click() })
+    const forst = () => Array.from(document.querySelectorAll('[data-trakt-rad]')).map(e => e.getAttribute('data-trakt-rad'))
+    const f0 = forst()
+    expect(f0.length).toBeGreaterThan(1)
+    expect(document.querySelector('[data-ordning-bar]')).toBeNull()
+    // Första raden kan inte flyttas upp; ned byter plats med nästa.
+    const rad0 = document.querySelector('[data-behovs-rad] [data-pil="keyboard_arrow_up"]') as HTMLButtonElement
+    expect(rad0.disabled).toBe(true)
+    await act(async () => { (document.querySelector('[data-behovs-rad] [data-pil="keyboard_arrow_down"]') as HTMLButtonElement).click() })
+    expect(document.querySelector('[data-ordning-bar]')).not.toBeNull()
+    expect(forst()[0]).toBe(f0[1])
+    // Ångra: tillbaka, ingenting skrivet.
+    await act(async () => { (document.querySelector('[data-angra-ordning]') as HTMLButtonElement).click() })
+    expect(forst()).toEqual(f0)
+    expect(mock).not.toHaveBeenCalled()
+    // Ändra igen och spara: hela ordningen skrivs, i den ordning som visas.
+    await act(async () => { (document.querySelector('[data-behovs-rad] [data-pil="keyboard_arrow_down"]') as HTMLButtonElement).click() })
+    await act(async () => { (document.querySelector('[data-spara-ordning]') as HTMLButtonElement).click() })
+    for (let i = 0; i < 4; i++) await act(async () => { await Promise.resolve() })
+    expect(mock).toHaveBeenCalledTimes(1)
+    const skrivna = mock.mock.calls[0][0] as string[]
+    expect(skrivna.indexOf(f0[1] as string)).toBeLessThan(skrivna.indexOf(f0[0] as string))
+  })
+  it('byt maskin: trakten är ett tryck och leder till "Vem ska ta den?"', async () => {
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
+    await monter()
+    await act(async () => { (cont.querySelector('[data-racker-rad="gallring:skordare"] button') as HTMLButtonElement).click() })
+    const knapp = document.querySelector('[data-behovs-rad] button[aria-label$="byt maskin"]') as HTMLButtonElement
+    expect(knapp).not.toBeNull()
+    await act(async () => { knapp.click() })
+    expect(document.body.textContent).toContain('Vem ska ta den?')
   })
   it('flytten faller: arket säger felet och stannar öppet', async () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })

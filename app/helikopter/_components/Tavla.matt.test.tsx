@@ -80,6 +80,9 @@ describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chro
       { namn: 'sida', html: await html([]) },
       { namn: 'gor', html: await html(['[data-gor-rad="utan"] button']) },
       { namn: 'oppen', html: await html([rad, maskin]) },
+      { namn: 'behov', html: await html(['[data-racker-rad="slutavverkning:skordare"] button']) },
+      { namn: 'behov-ordning', html: await html(['[data-racker-rad="slutavverkning:skordare"] button', '[data-trakt-rad] [data-pil="keyboard_arrow_down"]']) },
+      { namn: 'skot', html: await html(['[data-racker-rad="slutavverkning:skotare"] button']) },
       { namn: 'flytta', html: await html([rad, maskin, '[data-spar="slutavverkning"] [data-block="skotare"] [data-trakt]']) },
     ]
     const b = await CHROMIUM!.launch({})

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { kanTa, kanValjas } from './klar'
-import { EGEN_SKOTNING, byggTavla, dagarText, flyttVal, ko, kvarVolym, utanforBestallning, vidaMotMatt, type TavlaIndata } from './tavla'
+import { EGEN_SKOTNING, byggTavla, dagarText, flyttaPlats, medOrdning, slutordning, flyttVal, ko, kvarVolym, utanforBestallning, vidaMotMatt, type TavlaIndata } from './tavla'
 import type { KlarData, KlarMaskin, KlarTrakt } from './klar'
 import { fmt } from './format'
 import type { SparLage } from './berakningar'
@@ -247,6 +247,31 @@ describe('räcker trakterna', () => {
     expect(sk).toMatchObject({ behov: 1000, saknas: 500, utanSumma: 900 })
     expect(sk.rader.find(r => r.namn === 'A')!.behovs).toBe(500)
     expect(sk.rader.find(r => r.namn === 'B')!.behovs).toBe(0)
+  })
+  it('ordning: trakterna tar över varandras platser och köerna, tiderna och "behövs" räknas om på den nya', () => {
+    const santhe = trakter.find(x => x.namn === 'Santhe' && x.roll === 'skordare')!
+    const sof = trakter.find(x => x.namn === 'Söftesmåla' && x.roll === 'skordare')!
+    // Utgångsläge: Santhe först (behov 713 täcks av Santhe), Söftesmåla kan vänta.
+    expect(rad('gallring', 'skordare').behov!.behovs.map(x => x.namn)).toEqual(['Santhe'])
+    const ny = byggTavla(bas({
+      spar: [spar('slutavverkning', { bestallt: 5000 }), spar('gallring', { bestallt: 1000 })],
+      utfall: [{ typ: 'gallring', maskin_id: 'R64428', roll: 'skordare', volym: 287 }],
+      klar: klar(maskiner, trakter),
+      ordning: [sof.objekt_id, santhe.objekt_id],
+    }))
+    const b = ny.spar.find(x => x.typ === 'gallring')!.racker.find(r => r.roll === 'skordare')!.behov!
+    // Söftesmåla (259) tas först → Santhe behövs bara för resten (454); Hönshylte kan fortfarande vänta.
+    expect(b.behovs.map(x => [x.namn, x.behovs])).toEqual([['Söftesmåla', 259], ['Santhe', 454]])
+    expect(b.inte.map(x => x.namn)).toEqual(['Hönshylte'])
+  })
+  it('ordning: medOrdning rör bara de nämnda, flyttaPlats byter med grannen, slutordning ger hela ordningen', () => {
+    const t = [{ ...trakter[0], objekt_id: 'a', sortn: 1 }, { ...trakter[1], objekt_id: 'b', sortn: 2 }, { ...trakter[2], objekt_id: 'c', sortn: 3 }]
+    expect(slutordning(t, undefined)).toEqual(['a', 'b', 'c'])
+    expect(slutordning(t, ['c', 'a'])).toEqual(['c', 'b', 'a'])
+    expect(medOrdning(t, undefined)).toBe(t)
+    expect(flyttaPlats(['a', 'b', 'c'], 0, 1)).toEqual(['b', 'a', 'c'])
+    expect(flyttaPlats(['a', 'b', 'c'], 0, -1)).toEqual(['a', 'b', 'c'])
+    expect(flyttaPlats(['a', 'b', 'c'], 2, 1)).toEqual(['a', 'b', 'c'])
   })
   it('dagarText: alltid ca, och en halv dag är inte 0', () => {
     expect(dagarText(0.2)).toBe('under en halv dag')
