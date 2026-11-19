@@ -114,11 +114,30 @@ const EGNA: KlarFixtur = { skordare: EGEN('R64101'), skotare: EGEN('A110148'), s
 /** Allt ifyllt utom att prognosen inte är godkänd: prognosen är det enda som är kvar. */
 const BARA_PROGNOS: KlarFixtur = { ...KLAR, godkand: false };
 
+describe('GÖRA: tre rubriker efter var man gör saken (Martin 2026-11-18)', () => {
+  it('Rita på kartan · Välj · Kolla på plats — i den ordningen, med rätt rader under var och en', () => {
+    montera({});
+    const grupp = (id: string) => Array.from(q(`klar-grupp-${id}`)!.querySelectorAll('[data-kvar="1"]')).map((e) => e.getAttribute('data-testid')!.replace('klar-post-', ''));
+    expect(Array.from(q('klar-behover')!.children).map((e) => e.getAttribute('data-testid'))).toEqual(['klar-grupp-karta', 'klar-grupp-valj', 'klar-grupp-plats']);
+    expect(grupp('karta')).toContain('avlagg');
+    expect(grupp('karta').every((s) => s === 'avlagg' || s === 'basvag')).toBe(true);
+    expect(grupp('valj').every((s) => !['avlagg', 'basvag'].includes(s))).toBe(true);
+    expect(grupp('plats').every((s) => s.startsWith('fraga-'))).toBe(true);
+    expect(grupp('plats').length).toBe(HAR_DU_FRAGOR.length);
+  });
+  it('en rubrik utan något kvar ritas inte', () => {
+    montera({ ...KLAR, godkand: false });
+    expect(finns('klar-grupp-karta')).toBe(false);
+    expect(finns('klar-grupp-plats')).toBe(false);
+    expect(finns('klar-grupp-valj')).toBe(true);
+  });
+});
+
 describe('GÖRA: EN sida — "N klara ✓", sedan det som är kvar (Martin 2026-11-05: inga steg att gå igenom)', () => {
   it('rubriken är traktens namn; under den "N kvar" i orange — en rad per sak, varje obesvarad fråga en egen rad', () => {
     montera({});
     const st = klarProps({}).status;
-    expect(text('klar-status')).toBe(`${st.antalKvar} kvar`);
+    expect(text('klar-status')).toBe(`${st.antalKvar} steg kvar`);
     expect(st.antalKvar).toBe(4 + HAR_DU_FRAGOR.length);
     expect(q('klar-status')!.style.color).toBe(orange());
     expect(behallare!.textContent).toContain('Skälviken');
@@ -139,10 +158,10 @@ describe('GÖRA: EN sida — "N klara ✓", sedan det som är kvar (Martin 2026-
     const fore = klarProps({}).status.antalKvar;
     klicka(q('klar-fraga-markagare-ja'));
     expect(finns('klar-post-fraga-markagare')).toBe(false);
-    expect(text('klar-status')).toBe(`${fore - 1} kvar`);
+    expect(text('klar-status')).toBe(`${fore - 1} steg kvar`);
     klicka(q('klar-fraga-gransar-nej'));
     expect(finns('klar-post-fraga-gransar')).toBe(false);
-    expect(text('klar-status')).toBe(`${fore - 2} kvar`);
+    expect(text('klar-status')).toBe(`${fore - 2} steg kvar`);
   });
   it('Avlägg och Basväg gör saken direkt — ingen mellanskärm', () => {
     montera({ basvagForvantad: true });
@@ -281,7 +300,7 @@ describe('Vidas avlägg räknas som avlägg', () => {
     expect(vit('klar-steg-nasta')).toBe(true);
     klicka(q('klar-steg-nasta'));
     expect(kvarRader()).not.toContain('avlagg');
-    expect(text('klar-status')).toBe(`${3 + HAR_DU_FRAGOR.length} kvar`);
+    expect(text('klar-status')).toBe(`${3 + HAR_DU_FRAGOR.length} steg kvar`);
   });
   it('Lägg till eget ber sidan placera ett (samma list nertill som för vanliga avlägg); frågan står kvar', () => {
     montera({ ...VIDA });
@@ -452,7 +471,7 @@ describe('planerad trakt', () => {
   it('något nytt kvar efter att trakten skickats: Kvar-listan med den raden + "· 1 kvar" i rubriken', () => {
     montera({ ...KLAR, objektStatus: 'planerad', harDu: sattHarDu(ALLA_SVAR() ?? {}, 'gransar', 'ja', 'm1', 'T') });   // samma svar igen tar tillbaka det → en fråga obesvarad
     expect(text('klar-status')).toContain('Klar för maskin ✓');
-    expect(q('klar-status')!.parentElement!.textContent).toContain('· 1 kvar');
+    expect(q('klar-status')!.parentElement!.textContent).toContain('· 1 steg kvar');
     expect(kvarRader()).toEqual(['fraga-gransar']);
     klicka(q('klar-fraga-gransar-ja'));
     expect(finns('klar-se')).toBe(true);                                    // inget kvar → sammanställningen
