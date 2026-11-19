@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { CURRENT_VERSION } from '@/lib/changelog'
 import { FARG, LAYOUT, TRAFFYTA, TYP } from '@/lib/design/tokens' // toppfältets höjd bor BARA i tokens
 import { VYER } from '@/lib/vyer'
+import { MENY_VALD_NYCKEL } from '@/lib/appStart'
 
 // Arbetsmiljöns delar (Kemikalier, Så gör vi, Riskbedömning …) nås från sidan Arbetsmiljö.
 // Där är vägen ut "‹ Arbetsmiljö", inte hem — annars måste man börja om från startsidan
@@ -66,6 +67,12 @@ const pageNames: Record<string, string> = {
   '/ekonomi/fakturaunderlag': 'Fakturaunderlag',
   '/ekonomi/prislista': 'Prislista',
   '/ekonomi/installningar': 'Inställningar',
+}
+
+/** Hem-knappen är "tillbaka till appens meny". På en maskindator med vald maskin skickar startvakten annars `/` rakt till kartan (Martin 2026-11-19:
+ *  trycker man hem i Arbetsrapport ska man hamna i menyn, inte i kartan). Flaggan gäller resten av sessionen, precis som "Till appen". */
+function vilMeny() {
+  try { sessionStorage.setItem(MENY_VALD_NYCKEL, '1') } catch { /* ingen sessionStorage */ }
 }
 
 export default function TopBar() {
@@ -146,7 +153,7 @@ export default function TopBar() {
           ‹ Arbetsmiljö
         </Link>
       ) : !isHome && !hideHome ? (
-        <Link href="/" style={{
+        <Link href="/" onClick={vilMeny} style={{
           // Träffytan är appens minimiyta (44 px); den synliga rutan (36 px, vänsterkant 12 px) ligger centrerad i den och ser ut som förut.
           position: 'absolute',
           left: 12 - (TRAFFYTA.min - 36) / 2,
