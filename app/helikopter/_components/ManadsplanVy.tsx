@@ -12,8 +12,9 @@ import { AVSTAND, FARG, IKON, INAKTIV, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT } fro
 import { ymdLokal } from '@/lib/datumLokal'
 import { arHelgEllerRod } from '../_lib/klarRutnat'
 import { planModell } from '../_lib/manadsplan'
-import { medFoljandePrognos, medUppskattadPrognos } from '../_lib/klar'
-import { hamtaPrognosUtfall } from '../_lib/queries'
+import { medPrognoser } from '../_lib/klar'
+import type { SkogKort } from '@/lib/skogsdata/las'
+import { hamtaPrognosUtfall, hamtaSkogKort } from '../_lib/queries'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { useKlar } from '../_lib/useKlar'
 import type { DelaResultat } from '../_lib/veckolageDela'
@@ -50,9 +51,20 @@ export default function ManadsplanVy() {
     })
     return () => { avbruten = true }
   }, [])
+  // Laserdatan och det uppmätta uttaget (objekt_skogsdata) — som sidan. null = kunde inte läsas: prognosen räknas då utan.
+  const [skog, setSkog] = useState<Map<string, SkogKort> | null | undefined>(undefined)
+  useEffect(() => {
+    let avbruten = false
+    hamtaSkogKort().then(r => {
+      if (avbruten) return
+      if (r.error != null) console.error('[manadsplan] objekt_skogsdata', r.error)
+      setSkog(r.error != null ? null : r.data)
+    })
+    return () => { avbruten = true }
+  }, [])
   const modell = useMemo(
-    () => (data && utfall !== undefined ? planModell(medFoljandePrognos(medUppskattadPrognos(data, utfall)), { idag }) : null),
-    [data, utfall, idag],
+    () => (data && utfall !== undefined && skog !== undefined ? planModell(medPrognoser(data, utfall, skog), { idag }) : null),
+    [data, utfall, skog, idag],
   )
 
   async function delaBild() {

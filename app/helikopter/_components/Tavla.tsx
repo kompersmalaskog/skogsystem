@@ -1,19 +1,21 @@
 'use client'
 
-// TAVLAN — ett kort per spår: Skördat och Skotat, var sin STAPEL mot beställt (ljust = gjort, mörkare = hinns, luckan = fattas),
+// TAVLAN — uppifrån: Vad kan du göra? · Räcker trakterna? · ett kort per spår med EN rad för Skördare och EN för Skotare (stapel mot beställt, gjort och prognos);
+// maskiner, trakter och klar-datum ligger bakom ett tryck på raden. Förut: ett kort per spår: Skördat och Skotat, var sin STAPEL mot beställt (ljust = gjort, mörkare = hinns, luckan = fattas),
 // domen i ord bredvid rubriken, och under stapeln en rad per maskin med NU och MÅNADENS SLUT.
 // Trakter utan maskin och det som körts utanför beställningen står i ord, aldrig i talkolumnerna. Kvar i skogen har ett eget kort.
 // Allt som står här räknas i _lib/tavla.ts; den här filen ritar. Ett tryck på en maskin visar hennes trakter, ett tryck på en trakt flyttar den.
-import { useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens'
 import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil'
-import { Sheet } from '@/components/Sheet'
+import { Sheet, SheetLageContext } from '@/components/Sheet'
+import { oversiktPanelBredd } from '@/lib/plusArk'
 import Sektion from '@/components/design/Sektion'
 import Ikon from '@/components/design/Ikon'
 import { fmt } from '../_lib/format'
 import type { KlarRoll } from '../_lib/klar'
-import { EGEN_SKOTNING } from '../_lib/tavla'
-import type { FlyttVal, Tavla as TavlaVy, TavlaBlock, TavlaMaskin, TavlaOvrig, TavlaSpar, TavlaTrakt } from '../_lib/tavla'
+import { EGEN_SKOTNING, dagarText, flyttaPlats } from '../_lib/tavla'
+import type { FlyttVal, Tavla as TavlaVy, TavlaBehov, TavlaBlock, TavlaGor, TavlaMaskin, TavlaOvrig, TavlaSkot, TavlaSpar, TavlaTakt, TavlaTrakt } from '../_lib/tavla'
 import { StatusOrd } from './Status'
 
 const LINJE = `1px solid ${FARG.linje}`
@@ -36,7 +38,10 @@ function RollPrick({ roll }: { roll: KlarRoll }) {
 function TraktRad({ t, onTryck }: { t: TavlaTrakt; onTryck?: () => void }) {
   const inne = (
     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min, paddingLeft: AVSTAND.l }}>
-      <span style={{ ...TYP.text, color: t.utanfor ? FARG.text3 : FARG.text2, minWidth: 0, overflowWrap: 'anywhere' }}>{t.namn}</span>
+      <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, padding: t.volym ? `${AVSTAND.xs}px 0` : 0 }}>
+        <span style={{ ...TYP.text, color: t.utanfor ? FARG.text3 : FARG.text2, overflowWrap: 'anywhere' }}>{t.namn}</span>
+        {t.volym && <span style={{ ...TYP.meta, ...TNUM, color: FARG.text3, textAlign: 'left' }} data-trakt-volym={t.objekt_id}>{t.volym}</span>}
+      </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...TYP.meta, ...TNUM, color: t.efter ? FARG.orange : FARG.text2, flexShrink: 0 }}>
         {t.klar}{onTryck && <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />}
       </span>
@@ -92,7 +97,7 @@ function Stapel({ nu, landar, bestallt }: { nu: number; landar: number | null; b
   const skala = Math.max(bestallt, slut, 1)
   const pct = (x: number) => `${Math.max(0, Math.min(100, (x / skala) * 100))}%`
   return (
-    <div role="img" aria-label={`${fmt(nu)} nu${landar != null ? `, ${fmt(slut)} vid månadens slut` : ''}, beställt ${fmt(bestallt)}`}
+    <div role="img" aria-label={`${fmt(nu)} gjort${landar != null ? `, prognos ${fmt(slut)}` : ''}, beställt ${fmt(bestallt)}`}
       style={{ position: 'relative', height: STAPEL_HOJD, borderRadius: STAPEL_HOJD / 2, background: FARG.upphojt, overflow: 'hidden' }} data-stapel="">
       <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: pct(slut), background: FARG.text3 }} data-stapel-slut="" />
       <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: pct(nu), background: FARG.text2 }} data-stapel-nu="" />
@@ -121,37 +126,69 @@ function UtanRad({ u, onTrakt, inne }: { u: TavlaBlock['utan'][number]; onTrakt?
   )
 }
 
+/** "Måste hålla 89 m³/dag · går 61" — orange när takten inte räcker; saknas takten sägs det. */
+export function taktText(t: TavlaTakt): { ord: string; ton: 'orange' | 'gron' | 'dampad' } {
+  const kravs = `Måste hålla ${fmt(Math.ceil(t.kravs))} m³/dag`
+  if (t.nu == null) return { ord: `${kravs} · takt saknas`, ton: 'dampad' }
+  const nu = `${t.ca ? 'går minst ' : 'går '}${fmt(Math.round(t.nu))}`
+  return { ord: `${kravs} · ${nu}`, ton: t.hinner ? 'gron' : 'orange' }
+}
+
 function Block({ b, bestallt, medLandar, oppna, vaxla, onTrakt }: { b: TavlaBlock; bestallt: number; medLandar: boolean; oppna: Set<string>; vaxla: (id: string) => void; onTrakt?: (v: TraktVal) => void }) {
   const utanOppen = oppna.has(`${b.roll}:utan`)
+  const radOppen = oppna.has(`${b.roll}:rad`)
   const utanSumma = b.utan.reduce((n, u) => n + Math.round(u.volym), 0)
+  const harDetaljer = b.maskiner.length > 0 || b.markagare != null || b.utan.length > 0
   return (
     <div data-block={b.roll} style={{ paddingBottom: AVSTAND.m }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min }} data-summa={b.roll}>
-        <span style={{ ...TYP.micro, color: FARG.text2 }}>{b.rubrik}</span>
-        <StatusOrd ton={b.ton} ord={b.ord} />
-      </div>
-      {bestallt > 0 && (
-        <>
-          <Stapel nu={b.nu} landar={b.landar} bestallt={bestallt} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.m, ...TYP.meta, ...TNUM, color: FARG.text2, padding: `${AVSTAND.xs}px 0 ${AVSTAND.s}px` }} data-stapeltext={b.roll}>
-            <span>Nu {fmt(b.nu)}</span>
-            <span>{b.landar != null ? `Månadens slut ${fmt(b.landar)}` : fmt(b.nu)} av {fmt(bestallt)}</span>
-          </div>
-        </>
-      )}
-      {b.maskiner.map(m => <MaskinRad key={m.maskin_id} m={m} medLandar={medLandar} oppen={oppna.has(`${b.roll}:${m.maskin_id}`)} onVaxla={() => vaxla(`${b.roll}:${m.maskin_id}`)} onTrakt={onTrakt} />)}
-      {b.markagare && <MaskinRad m={{ maskin_id: 'markagare', namn: 'Egen skotning', roll: 'skotare', nu: b.markagare.nu, landar: b.markagare.landar, ca: false, stopp: null, trakter: b.markagare.trakter, utanfor: null }}
-        dampad medLandar={medLandar} oppen={oppna.has(`${b.roll}:markagare`)} onVaxla={() => vaxla(`${b.roll}:markagare`)} onTrakt={onTrakt} />}
-      {b.utan.length === 1 && <UtanRad u={b.utan[0]} onTrakt={onTrakt} />}
-      {b.utan.length > 1 && (
-        <div style={{ borderTop: LINJE }} data-utan-grupp={b.roll}>
-          <button type="button" onClick={() => vaxla(`${b.roll}:utan`)} aria-expanded={utanOppen} style={KNAPP_RAD}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0` }}>
-              <StatusOrd ton="orange" ord={`${b.utan.length} trakter utan maskin · ${fmt(utanSumma)} m³`} />
-              <Ikon namn={utanOppen ? 'expand_less' : 'expand_more'} storlek={IKON.text} farg={FARG.text3} />
+      {/* EN rad per roll: namn, dom i ord, stapel, och två tal. Allt annat bakom ett tryck. */}
+      <button type="button" onClick={() => vaxla(`${b.roll}:rad`)} aria-expanded={radOppen} disabled={!harDetaljer && bestallt <= 0} data-rad-vaxla={b.roll} style={KNAPP_RAD}>
+        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min }} data-summa={b.roll}>
+          <span style={{ ...TYP.listtitel, color: FARG.text }}>{b.rubrik}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
+            <StatusOrd ton={b.ton} ord={b.ord} />
+            {harDetaljer && <Ikon namn={radOppen ? 'expand_less' : 'chevron_right'} storlek={IKON.text} farg={FARG.text3} />}
+          </span>
+        </span>
+        {bestallt > 0 && (
+          <>
+            <Stapel nu={b.nu} landar={b.landar} bestallt={bestallt} />
+            <span style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.m, ...TYP.meta, ...TNUM, color: FARG.text2, padding: `${AVSTAND.xs}px 0 ${AVSTAND.s}px` }} data-stapeltext={b.roll}>
+              <span>Gjort {fmt(b.nu)}</span>
+              <span>{b.landar != null ? `Prognos ${fmt(b.landar)}` : fmt(b.nu)} av {fmt(bestallt)}</span>
             </span>
-          </button>
-          {utanOppen && <div style={{ paddingBottom: AVSTAND.s }}>{b.utan.map(u => <UtanRad key={u.objekt_id} u={u} onTrakt={onTrakt} inne />)}</div>}
+            {b.takt && (
+              <span style={{ display: 'block', padding: `0 0 ${AVSTAND.s}px` }} data-takt={b.roll}>
+                <StatusOrd ton={taktText(b.takt).ton} ord={taktText(b.takt).ord} />
+              </span>
+            )}
+          </>
+        )}
+      </button>
+      {radOppen && (
+        <div data-detaljer={b.roll}>
+          {medLandar && (
+            <div style={{ ...rutnat(true), alignItems: 'end', ...TYP.micro, color: FARG.text3, paddingTop: AVSTAND.s }}>
+              <span />
+              <span style={HOGER}>Gjort</span>
+              <span style={HOGER}>Prognos</span>
+            </div>
+          )}
+          {b.maskiner.map(m => <MaskinRad key={m.maskin_id} m={m} medLandar={medLandar} oppen={oppna.has(`${b.roll}:${m.maskin_id}`)} onVaxla={() => vaxla(`${b.roll}:${m.maskin_id}`)} onTrakt={onTrakt} />)}
+          {b.markagare && <MaskinRad m={{ maskin_id: 'markagare', namn: 'Egen skotning', roll: 'skotare', nu: b.markagare.nu, landar: b.markagare.landar, ca: false, stopp: null, trakter: b.markagare.trakter, utanfor: null }}
+            dampad medLandar={medLandar} oppen={oppna.has(`${b.roll}:markagare`)} onVaxla={() => vaxla(`${b.roll}:markagare`)} onTrakt={onTrakt} />}
+          {b.utan.length === 1 && <UtanRad u={b.utan[0]} onTrakt={onTrakt} />}
+          {b.utan.length > 1 && (
+            <div style={{ borderTop: LINJE }} data-utan-grupp={b.roll}>
+              <button type="button" onClick={() => vaxla(`${b.roll}:utan`)} aria-expanded={utanOppen} style={KNAPP_RAD}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0` }}>
+                  <StatusOrd ton="orange" ord={`${b.utan.length} trakter utan maskin · ${fmt(utanSumma)} m³`} />
+                  <Ikon namn={utanOppen ? 'expand_less' : 'expand_more'} storlek={IKON.text} farg={FARG.text3} />
+                </span>
+              </button>
+              {utanOppen && <div style={{ paddingBottom: AVSTAND.s }}>{b.utan.map(u => <UtanRad key={u.objekt_id} u={u} onTrakt={onTrakt} inne />)}</div>}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -163,11 +200,6 @@ function SparKort({ s, oppna, vaxla, onTrakt }: { s: TavlaSpar; oppna: Set<strin
   return (
     <Sektion rubrik={s.bestallt > 0 ? `${s.namn} · beställt ${fmt(s.bestallt)}` : s.namn}>
       <div data-spar={s.typ}>
-        <div style={{ ...rutnat(medLandar), alignItems: 'end', ...TYP.micro, color: FARG.text3, paddingTop: AVSTAND.m }}>
-          <span />
-          <span style={HOGER}>Nu</span>
-          {medLandar && <span style={HOGER}>Månadens slut</span>}
-        </div>
         <Block b={s.block[0]} bestallt={s.bestallt} medLandar={medLandar} oppna={oppna} vaxla={id => vaxla(`${s.typ}:${id}`)} onTrakt={onTrakt} />
         <Block b={s.block[1]} bestallt={s.bestallt} medLandar={medLandar} oppna={oppna} vaxla={id => vaxla(`${s.typ}:${id}`)} onTrakt={onTrakt} />
       </div>
@@ -202,17 +234,126 @@ function OvrigtKort({ rader, onTrakt }: { rader: TavlaOvrig[]; onTrakt?: (v: Tra
   )
 }
 
+
+/** "Vad kan du göra?" — bara det som finns. Trakter utan maskin öppnas på plats, och ett tryck på en trakt väljer maskin. */
+function GorKort({ gor, onTrakt }: { gor: TavlaGor[]; onTrakt?: (v: TraktVal) => void }) {
+  const [oppen, setOppen] = useState<number | null>(null)
+  return (
+    <Sektion rubrik="Vad kan du göra?">
+      <div data-gor="">
+        {gor.map((g, i) => {
+          const rad = (
+            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.primar, padding: `${AVSTAND.s}px 0` }}>
+              <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{ ...TYP.listtitel, color: FARG.text }}>{g.text}</span>
+                <span style={{ ...TYP.meta, color: g.slag === 'formycket' ? FARG.text2 : FARG.orange }}>{g.under}</span>
+              </span>
+              {g.slag === 'utan' && <Ikon namn={oppen === i ? 'expand_less' : 'chevron_right'} storlek={IKON.text} farg={FARG.text3} />}
+            </span>
+          )
+          return (
+            <div key={`${g.slag}:${i}`} style={{ borderTop: i > 0 ? LINJE : 'none' }} data-gor-rad={g.slag}>
+              {g.slag === 'utan'
+                ? <button type="button" onClick={() => setOppen(oppen === i ? null : i)} aria-expanded={oppen === i} style={KNAPP_RAD}>{rad}</button>
+                : rad}
+              {g.slag === 'utan' && oppen === i && <div style={{ paddingBottom: AVSTAND.s }}>{g.trakter.map(u => <UtanRad key={u.objekt_id} u={u} onTrakt={onTrakt} inne />)}</div>}
+            </div>
+          )
+        })}
+      </div>
+    </Sektion>
+  )
+}
+
+/** "Räcker trakterna?" — finns det skog nog kvar i inlagda trakter för beställningen? Skild från "hinner maskinen". Skördarens rad öppnar vilka trakter som behövs. */
+/** Trakterna som måste köras för beställningen, direkt under raden: namn, maskin, tid och m³. */
+function MasteTrakter({ r }: { r: TavlaSpar['racker'][number] }) {
+  const rader: { id: string; namn: string; maskin: string | null; dagar: number | null; m3: number }[] = r.roll === 'skordare'
+    ? (r.behov?.behovs ?? []).map(t => ({ id: t.objekt_id, namn: t.namn, maskin: t.maskin, dagar: t.dagar, m3: t.behovs }))
+    : (r.skot?.rader ?? []).filter(t => t.maskin != null && t.behovs > 0).map(t => ({ id: t.objekt_id, namn: t.namn, maskin: t.maskin, dagar: t.dagar == null ? null : t.dagar * (t.behovs / t.kvar), m3: t.behovs }))
+  const utan = r.roll === 'skotare' ? r.skot?.utanSumma ?? 0 : 0
+  if (rader.length === 0 && utan <= 0) return null
+  const dagar = rader.every(t => t.dagar != null) && rader.length > 0 ? rader.reduce((a, t) => a + (t.dagar ?? 0), 0) : null
+  return (
+    <div data-maste={`${r.roll}`} style={{ paddingBottom: AVSTAND.s }}>
+      <div style={{ ...TYP.micro, color: FARG.text2, padding: `${AVSTAND.xs}px 0` }}>
+        Måste {r.roll === 'skordare' ? 'köras' : 'skotas'}{dagar != null ? ` · ${dagarText(dagar)}` : ''}
+      </div>
+      {rader.map(t => (
+        <div key={t.id} data-maste-rad={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: AVSTAND.m, padding: `${AVSTAND.xs}px 0` }}>
+          <span style={{ minWidth: 0 }}>
+            <span style={{ ...TYP.text, color: FARG.text, overflowWrap: 'anywhere' }}>{t.namn}</span>
+            <span style={{ ...TYP.meta, color: FARG.text2, display: 'block' }}>{t.maskin ?? 'Ingen maskin'}{t.dagar != null ? ` · ${dagarText(t.dagar)}` : ' · tid saknas'}</span>
+          </span>
+          <span style={{ ...TYP.text, ...TNUM, color: FARG.text, whiteSpace: 'nowrap' }}>{fmt(t.m3)} m³</span>
+        </div>
+      ))}
+      {utan > 0 && <div style={{ ...TYP.meta, color: FARG.orange, padding: `${AVSTAND.xs}px 0` }}>{fmt(utan)} m³ ligger i trakter utan skotare och skotas inte förrän någon väljs.</div>}
+    </div>
+  )
+}
+
+function RackerKort({ spar, onBehov, onSkot }: { spar: TavlaSpar[]; onBehov?: (typ: TavlaSpar['typ']) => void; onSkot?: (typ: TavlaSpar['typ']) => void }) {
+  const rader = spar.flatMap(s => s.racker.map(r => ({ spar: s, r })))
+  if (rader.length === 0) return null
+  return (
+    <Sektion rubrik="Räcker trakterna?" not="Skog som finns kvar i inlagda trakter, mot det som behövs för beställningen. Alla tal är m³.">
+      <div data-racker="">
+        {rader.map(({ spar: s, r }, i) => {
+          const kan = r.roll === 'skordare' ? onBehov != null && r.behov != null : onSkot != null && r.skot != null
+          const inne = (
+            <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', columnGap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.xs}px 0` }}>
+              <span style={{ ...TYP.text, color: FARG.text, whiteSpace: 'nowrap' }}>{r.rubrik} · {s.namn.toLowerCase()}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
+                <StatusOrd ton={r.ton} ord={r.ord} />
+                {kan && <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />}
+              </span>
+            </span>
+          )
+          return (
+            <div key={`${s.typ}:${r.roll}`} style={{ borderTop: i > 0 ? LINJE : 'none' }} data-racker-rad={`${s.typ}:${r.roll}`}>
+              {kan ? <button type="button" onClick={() => (r.roll === 'skordare' ? onBehov! : onSkot!)(s.typ)} style={KNAPP_RAD} aria-label={`${s.namn}, ${r.rubrik.toLowerCase()}: ${r.ord}. Visa trakterna`}>{inne}</button> : inne}
+              <MasteTrakter r={r} />
+            </div>
+          )
+        })}
+      </div>
+    </Sektion>
+  )
+}
+
+/** Resten: GROT och övrigt samt det som ligger kvar i skogen, bakom en rad. */
+function MerKort({ tavla, onTrakt }: { tavla: TavlaVy; onTrakt?: (v: TraktVal) => void }) {
+  const [oppen, setOppen] = useState(false)
+  if (tavla.ovrigt.length === 0 && tavla.spar.length === 0) return null
+  return (
+    <div data-mer="">
+      <button type="button" onClick={() => setOppen(o => !o)} aria-expanded={oppen} style={{ ...KNAPP_RAD, display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: TRAFFYTA.primar, ...TYP.text, color: FARG.text2 }}>
+        <span>{oppen ? 'Dölj' : 'GROT och kvar i skogen'}</span>
+        <Ikon namn={oppen ? 'expand_less' : 'chevron_right'} storlek={IKON.text} farg={FARG.text3} />
+      </button>
+      {oppen && (
+        <>
+          {tavla.ovrigt.length > 0 && <OvrigtKort rader={tavla.ovrigt} onTrakt={onTrakt} />}
+          {tavla.spar.length > 0 && <KvarKort spar={tavla.spar} />}
+        </>
+      )}
+    </div>
+  )
+}
+
 /** Korten i tavlan: ett per spår, och "GROT och övrigt" när en maskin bara har sådant. */
-export default function Tavla({ tavla, onTrakt }: { tavla: TavlaVy; onTrakt?: (v: TraktVal) => void }) {
+export default function Tavla({ tavla, onTrakt, onBehov, onSkot }: { tavla: TavlaVy; onTrakt?: (v: TraktVal) => void; onBehov?: (typ: TavlaSpar['typ']) => void; onSkot?: (typ: TavlaSpar['typ']) => void }) {
   const [oppna, setOppna] = useState<Set<string>>(() => new Set())
   const vaxla = (id: string) => setOppna(f => { const n = new Set(f); if (n.has(id)) n.delete(id); else n.add(id); return n })
   // Nyckeln bär spåret, så samma maskin kan stå öppen i ett spår och stängd i ett annat.
   const forSpar = (typ: string) => new Set([...oppna].filter(k => k.startsWith(`${typ}:`)).map(k => k.slice(typ.length + 1)))
   return (
     <>
+      {tavla.gor.length > 0 && <GorKort gor={tavla.gor} onTrakt={onTrakt} />}
+      <RackerKort spar={tavla.spar} onBehov={onBehov} onSkot={onSkot} />
       {tavla.spar.map(s => <SparKort key={s.typ} s={s} oppna={forSpar(s.typ)} vaxla={vaxla} onTrakt={onTrakt} />)}
-      {tavla.ovrigt.length > 0 && <OvrigtKort rader={tavla.ovrigt} onTrakt={onTrakt} />}
-      {tavla.spar.length > 0 && <KvarKort spar={tavla.spar} />}
+      <MerKort tavla={tavla} onTrakt={onTrakt} />
     </>
   )
 }
@@ -254,6 +395,243 @@ export function FlyttaSheet({ open, onClose, namn, val, onFlytta }: {
         {lage.skickar ? 'Flyttar…' : valdRad && !valdRad.nuvarande ? (valdRad.maskin_id === EGEN_SKOTNING ? 'Välj egen skotning' : `Flytta till ${valdRad.namn}`) : 'Flytta'}
       </button>
       {lage.fel && <p role="status" style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.m }}>{lage.fel}</p>}
+    </Sheet>
+  )
+}
+
+/** Ändra ordningen: en förhandsvisning som sparas först när du trycker Spara. */
+export type OrdningsStyrning = {
+  /** Trakterna i ny ordning (objekt_id) — de tar över varandras platser. */
+  onOrdning: (ids: string[]) => void
+  andrad: boolean
+  onSpara: () => Promise<string | null>
+  onAngra: () => void
+}
+
+/** Trakt-arken på bred skärm: en panel som tar halva fönstret (420–720 px), så raderna rymmer allt på en rad. */
+const TRAKT_PANEL_MAX_PX = 720
+function useTraktPanelBredd(): number | undefined {
+  const lage = useContext(SheetLageContext)
+  const [b, setB] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    const rakna = () => setB(Math.min(TRAKT_PANEL_MAX_PX, oversiktPanelBredd(window.innerWidth)))
+    rakna()
+    window.addEventListener('resize', rakna)
+    return () => window.removeEventListener('resize', rakna)
+  }, [])
+  return lage === 'panel' ? b : undefined
+}
+
+/** En rad per trakt: nummer, namn och maskin (tryck = byt maskin), siffran, pilar. */
+function OrdnadTraktRad({ nr, namn, under, maskin, ingen, ton, tal, kryss, onMaskin, upp, ner, id }: {
+  nr: number; namn: string; under: string[]; maskin: string | null; ingen: string; ton: 'full' | 'dampad'; tal: number
+  kryss?: { pa: boolean; onToggle: () => void } | null
+  onMaskin?: () => void
+  upp?: (() => void) | null; ner?: (() => void) | null
+  id: string
+}) {
+  const text = ton === 'full' ? FARG.text : FARG.text2
+  const bred = useContext(SheetLageContext) === 'panel'
+  const maskinText = `${maskin ?? ingen}${onMaskin ? ' ›' : ''}`
+  const maskinFarg = maskin ? FARG.text2 : FARG.orange
+  // Bred panel: allt på EN rad — nummer, namn, maskin, tid. Smal: namnet med maskinen och tiden under.
+  const namnBlock = bred ? (
+    <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minWidth: 0 }}>
+      <span style={{ ...TYP.meta, ...TNUM, color: FARG.text3, minWidth: AVSTAND.l }} data-nr="">{nr}</span>
+      <span style={{ ...TYP.text, color: text, overflowWrap: 'anywhere', flex: '1 1 0', minWidth: 0 }}>{namn}</span>
+      <span style={{ ...TYP.meta, ...TNUM, color: maskinFarg, flex: '0 0 auto', whiteSpace: 'nowrap' }} data-maskin-rad="">{maskinText}</span>
+      <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2, flex: '0 1 200px', textAlign: 'right' }} data-tid="">{under.join(' · ')}</span>
+    </span>
+  ) : (
+    <span style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.s, minWidth: 0 }}>
+      <span style={{ ...TYP.meta, ...TNUM, color: FARG.text3, minWidth: AVSTAND.l, paddingTop: AVSTAND.xs / 2 }} data-nr="">{nr}</span>
+      <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+        <span style={{ ...TYP.text, color: text, overflowWrap: 'anywhere' }}>{namn}</span>
+        {under.map((u, k) => <span key={k} style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }} data-tid="">{u}</span>)}
+        <span style={{ ...TYP.meta, ...TNUM, color: maskinFarg }} data-maskin-rad="">{maskinText}</span>
+      </span>
+    </span>
+  )
+  const pil = (namnIkon: string, etikett: string, on: (() => void) | null | undefined) => (
+    <button type="button" aria-label={`${etikett}: ${namn}`} onClick={on ?? undefined} disabled={!on} style={{ ...KNAPP_RAD, width: TRAFFYTA.min, height: TRAFFYTA.min, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: on ? 1 : 0.25, flexShrink: 0 }} data-pil={namnIkon}>
+      <Ikon namn={namnIkon} storlek={IKON.rad} farg={FARG.text2} />
+    </button>
+  )
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, minHeight: TRAFFYTA.min, padding: `${AVSTAND.xs}px 0` }} data-trakt-rad={id}>
+      {kryss && (
+        <button type="button" role="checkbox" aria-checked={kryss.pa} aria-label={`Flytta ${namn}`} onClick={kryss.onToggle} style={{ ...KNAPP_RAD, width: TRAFFYTA.min, height: TRAFFYTA.min, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <span aria-hidden="true" style={{ width: AVSTAND.l + AVSTAND.xs, height: AVSTAND.l + AVSTAND.xs, borderRadius: '50%', boxSizing: 'border-box', border: `2px solid ${kryss.pa ? FARG.text : FARG.text3}`, background: kryss.pa ? FARG.text : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {kryss.pa && <Ikon namn="check" storlek={IKON.text} farg={FARG.bg} />}
+          </span>
+        </button>
+      )}
+      {onMaskin
+        ? <button type="button" onClick={onMaskin} style={{ ...KNAPP_RAD, flex: 1, minWidth: 0, minHeight: TRAFFYTA.min }} aria-label={`${namn}: byt maskin`}>{namnBlock}</button>
+        : <div style={{ flex: 1, minWidth: 0 }}>{namnBlock}</div>}
+      <span style={{ ...TYP.text, ...TNUM, color: text, fontWeight: ton === 'full' ? VIKT.fet : undefined, flexShrink: 0 }}>{fmt(tal)}</span>
+      {(upp !== undefined || ner !== undefined) && <span style={{ display: 'flex', flexShrink: 0 }}>{pil('keyboard_arrow_up', 'Flytta upp', upp)}{pil('keyboard_arrow_down', 'Flytta ned', ner)}</span>}
+    </div>
+  )
+}
+
+/** "Ordningen är ändrad · Spara ordning": EN primär knapp, Ångra som tertiär. Raderna ovan visar redan den nya ordningen. */
+function OrdningsBar({ st, primar }: { st: OrdningsStyrning; primar: boolean }) {
+  const [lage, setLage] = useState<{ skickar: boolean; fel: string | null }>({ skickar: false, fel: null })
+  if (!st.andrad) return null
+  async function spara() {
+    setLage({ skickar: true, fel: null })
+    const fel = await st.onSpara()
+    setLage({ skickar: false, fel })
+  }
+  return (
+    <div style={{ margin: `0 0 ${AVSTAND.l}px` }} data-ordning-bar="">
+      <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.s}px` }}>Ordningen är ändrad. Tider och vilka trakter som behövs är räknade på den nya.</p>
+      <button type="button" onClick={spara} disabled={lage.skickar} aria-busy={lage.skickar} style={{ ...(primar ? KNAPP.primar : KNAPP.sekundar), ...(lage.skickar ? INAKTIV : null) }} data-spara-ordning="">{lage.skickar ? 'Sparar…' : 'Spara ordning'}</button>
+      <button type="button" onClick={st.onAngra} style={{ ...KNAPP.tertiar, width: '100%' }} data-angra-ordning="">Ångra</button>
+      {lage.fel && <p role="status" style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.s }}>{lage.fel}</p>}
+    </div>
+  )
+}
+
+/** Pilarna för en rad i gruppen: flytta upp/ned bland dem som går att flytta. Förra månadens står kvar. */
+function pilar(grupp: string[], id: string, st?: OrdningsStyrning) {
+  if (!st) return {}
+  const k = grupp.indexOf(id)
+  if (k < 0) return { upp: null, ner: null }
+  return { upp: k > 0 ? () => st.onOrdning(flyttaPlats(grupp, k, -1)) : null, ner: k < grupp.length - 1 ? () => st.onOrdning(flyttaPlats(grupp, k, 1)) : null }
+}
+
+/** "Gallring behöver 713 m³ till": trakterna som behövs, och de som kan vänta. Admin väljer vilka som flyttas till nästa månad och kan ändra ordning och maskin. */
+export function BehovSheet({ open, onClose, namn, behov, takt, nastaNamn, manadNamn, kanFlytta, onFlytta, ordning, onTrakt }: {
+  open: boolean; onClose: () => void; namn: string; behov: TavlaBehov; takt?: TavlaTakt | null; nastaNamn: string; manadNamn: string; kanFlytta: boolean
+  onFlytta: (objektIds: string[]) => Promise<string | null>
+  ordning?: OrdningsStyrning
+  onTrakt?: (v: TraktVal) => void
+}) {
+  const panelBredd = useTraktPanelBredd()
+  const flyttbara = behov.inte.filter(t => t.flyttbar)
+  // Avmarkerade, inte markerade: när ordningen ändras och en annan trakt hamnar under "Behövs inte" är den förvald.
+  const [bort, setBort] = useState<Set<string>>(() => new Set())
+  const [lage, setLage] = useState<{ skickar: boolean; fel: string | null }>({ skickar: false, fel: null })
+  if (!open) return null
+  const valda = new Set(flyttbara.filter(t => !bort.has(t.objekt_id)).map(t => t.objekt_id))
+  const vaxla = (id: string) => setBort(f => { const n = new Set(f); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const antal = valda.size
+  const volym = flyttbara.filter(t => valda.has(t.objekt_id)).reduce((a, t) => a + t.kvar, 0)
+  async function flytta() {
+    setLage({ skickar: true, fel: null })
+    const fel = await onFlytta([...valda])
+    if (fel) setLage({ skickar: false, fel })
+    else { setLage({ skickar: false, fel: null }); onClose() }
+  }
+  const rubrik = behov.behov > 0 ? `${namn} behöver ${fmt(behov.behov)} m³ till` : `${namn} är klar med beställningen`
+  const under = behov.saknas > 0 ? 'Trakterna räcker inte.' : behov.inte.length > 0 ? 'Det är för mycket inlagt.' : 'Trakterna räcker.'
+  // Ordningen: alla som går att flytta, i den ordning de tas. Förra månadens står kvar.
+  const grupp = [...behov.behovs, ...behov.inte].filter(t => !t.fast).map(t => t.objekt_id)
+  const nr = new Map([...behov.behovs, ...behov.inte].map((t, i) => [t.objekt_id, i + 1]))
+  const onMaskin = (id: string) => (onTrakt ? () => onTrakt({ objekt_id: id, roll: 'skordare' }) : undefined)
+  return (
+    <Sheet open onClose={onClose} title={rubrik} panelBredd={panelBredd}>
+      <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px` }} data-behov-under="">Beställt {fmt(behov.bestallt)} · gjort {fmt(behov.nu)}. {under}</p>
+      {ordning && <OrdningsBar st={ordning} primar />}
+      {takt && (
+        <Sektion rubrik="Takten" not={takt.hinner === false && takt.fattasDagar != null ? `Hålls takten fattas ca ${Math.max(1, Math.round(takt.fattasDagar))} arbetsdagar. ${takt.dagarKvar} arbetsdagar kvar i månaden.` : `${takt.dagarKvar} arbetsdagar kvar i månaden.`}>
+          <div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-takt-ark="">
+            <StatusOrd ton={taktText(takt).ton} ord={taktText(takt).ord} />
+          </div>
+        </Sektion>
+      )}
+      {behov.behovs.length > 0 && (
+        <Sektion rubrik="De här behövs" not={[behov.dagarBehovs != null ? `Allt som behövs tar ${dagarText(behov.dagarBehovs)}.` : null, ordning ? 'Pilarna ändrar i vilken ordning trakterna tas. Tryck på en trakt för att byta maskin.' : null].filter(Boolean).join(' ') || undefined}>
+          <div data-behovs="">
+            {behov.behovs.map((t, i) => (
+              <div key={t.objekt_id} style={{ borderTop: i > 0 ? LINJE : 'none' }} data-behovs-rad={t.objekt_id}>
+                <OrdnadTraktRad id={t.objekt_id} nr={nr.get(t.objekt_id) ?? i + 1} namn={t.namn} maskin={t.maskin} ingen="Ingen skördare" ton="full" tal={t.behovs} onMaskin={onMaskin(t.objekt_id)}
+                  under={[...(t.behovs < t.kvar ? [`Tar resten av behovet · ${fmt(t.behovs)} av ${fmt(t.kvar)} kvar`] : []), t.dagar == null ? 'Tid saknas · ingen prognos' : `${dagarText(t.dagar)}${t.till && t.behovs >= t.kvar ? ` · klar ${t.till}` : ''}`]}
+                  {...pilar(grupp, t.objekt_id, ordning)} />
+              </div>
+            ))}
+            {behov.saknas > 0 && (
+              <div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center', borderTop: LINJE }} data-behov-saknas="">
+                <StatusOrd ton="orange" ord={`Det saknas ca ${fmt(behov.saknas)} m³ · lägg in en ny trakt`} />
+              </div>
+            )}
+          </div>
+        </Sektion>
+      )}
+      {behov.behovs.length === 0 && behov.saknas > 0 && (
+        <Sektion rubrik="De här behövs"><div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-behov-saknas=""><StatusOrd ton="orange" ord={`Det saknas ca ${fmt(behov.saknas)} m³ · lägg in en ny trakt`} /></div></Sektion>
+      )}
+      {behov.inte.length > 0 && (
+        <Sektion rubrik={`Behövs inte i ${manadNamn}`} not={kanFlytta && flyttbara.length > 0 ? `Välj vilka som ska flyttas till ${nastaNamn}. De som redan är påbörjade går inte att flytta här.` : undefined}>
+          <div data-inte="">
+            {behov.inte.map((t, i) => (
+              <div key={t.objekt_id} style={{ borderTop: i > 0 ? LINJE : 'none' }} data-inte-rad={t.objekt_id}>
+                <OrdnadTraktRad id={t.objekt_id} nr={nr.get(t.objekt_id) ?? behov.behovs.length + i + 1} namn={t.namn} maskin={t.maskin} ingen="Ingen skördare" ton="dampad" tal={t.kvar} onMaskin={onMaskin(t.objekt_id)}
+                  under={[t.dagar == null ? 'Tid saknas · ingen prognos' : dagarText(t.dagar)]}
+                  kryss={kanFlytta && t.flyttbar ? { pa: valda.has(t.objekt_id), onToggle: () => vaxla(t.objekt_id) } : null}
+                  {...pilar(grupp, t.objekt_id, ordning)} />
+              </div>
+            ))}
+          </div>
+        </Sektion>
+      )}
+      {kanFlytta && flyttbara.length > 0 && (
+        <>
+          <button type="button" onClick={flytta} disabled={antal === 0 || lage.skickar} aria-busy={lage.skickar} style={{ ...(ordning?.andrad ? KNAPP.sekundar : KNAPP.primar), ...(antal === 0 || lage.skickar ? INAKTIV : null) }} data-flytta-manad="">
+            {lage.skickar ? 'Flyttar…' : antal === 0 ? `Välj trakter att flytta` : antal === 1 ? `Flytta 1 trakt till ${nastaNamn} · ${fmt(volym)} m³` : `Flytta ${antal} trakter till ${nastaNamn} · ${fmt(volym)} m³`}
+          </button>
+          {lage.fel && <p role="status" style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.m }}>{lage.fel}</p>}
+        </>
+      )}
+    </Sheet>
+  )
+}
+
+/** Skotarens ark: vilka trakter som skotas för beställningen (bara trakter MED skotare räknas — en trakt utan maskin körs inte), vilka som saknar skotare (tryck = välj) och vilka som kan vänta. Admin ändrar ordning och maskin. */
+export function SkotSheet({ onClose, namn, skot, takt, onTrakt, ordning }: { onClose: () => void; namn: string; skot: TavlaSkot; takt?: TavlaTakt | null; onTrakt?: (v: TraktVal) => void; ordning?: OrdningsStyrning }) {
+  const panelBredd = useTraktPanelBredd()
+  const skotas = skot.rader.filter(r => r.maskin != null && r.behovs > 0)
+  const utan = skot.rader.filter(r => r.maskin == null)
+  const inte = skot.rader.filter(r => r.maskin != null && r.behovs <= 0)
+  const under = skot.saknas > 0 ? 'Trakterna med skotare räcker inte.' : 'Trakterna med skotare räcker.'
+  // Ordning: bland dem med skotare (skotas + kan vänta) och bland dem utan, var för sig.
+  const medGrupp = [...skotas, ...inte].filter(t => !t.fast).map(t => t.objekt_id)
+  const utanGrupp = utan.filter(t => !t.fast).map(t => t.objekt_id)
+  const nr = new Map(skot.rader.map((t, i) => [t.objekt_id, i + 1]))
+  const rad = (t: TavlaSkot['rader'][number], i: number, typ: 'skotas' | 'utan' | 'inte') => (
+    <div key={t.objekt_id} style={{ borderTop: i > 0 ? LINJE : 'none' }} data-skot-rad={t.objekt_id}>
+      <OrdnadTraktRad id={t.objekt_id} nr={nr.get(t.objekt_id) ?? i + 1} namn={t.namn} maskin={t.maskin} ingen="Ingen skotare" ton={typ === 'inte' ? 'dampad' : 'full'} tal={typ === 'skotas' ? t.behovs : t.kvar}
+        onMaskin={onTrakt ? () => onTrakt({ objekt_id: t.objekt_id, roll: 'skotare' }) : undefined}
+        under={[...(typ === 'skotas' && t.behovs < t.kvar ? [`Tar resten av behovet · ${fmt(t.behovs)} av ${fmt(t.kvar)} kvar`] : []), ...(typ !== 'utan' && t.dagar != null ? [dagarText(t.dagar * (typ === 'skotas' ? t.behovs / t.kvar : 1))] : [])]}
+        {...pilar(typ === 'utan' ? utanGrupp : medGrupp, t.objekt_id, ordning)} />
+    </div>
+  )
+  const saknasText = skot.utanSumma >= skot.saknas
+    ? `Det saknas ca ${fmt(skot.saknas)} m³ · välj skotare på trakterna ovan`
+    : `Det saknas ca ${fmt(skot.saknas)} m³ · välj skotare ovan och lägg in en ny trakt`
+  return (
+    <Sheet open onClose={onClose} panelBredd={panelBredd} title={skot.behov > 0 ? `${namn} · skotaren behöver ${fmt(skot.behov)} m³ till` : `${namn} · skotaren är klar med beställningen`}>
+      <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px` }} data-skot-under="">Beställt {fmt(skot.bestallt)} · skotat {fmt(skot.nu)}. {skot.behov > 0 ? under : ''}</p>
+      {ordning && <OrdningsBar st={ordning} primar />}
+      {takt && (
+        <Sektion rubrik="Takten" not={takt.hinner === false && takt.fattasDagar != null ? `Hålls takten fattas ca ${Math.max(1, Math.round(takt.fattasDagar))} arbetsdagar. ${takt.dagarKvar} arbetsdagar kvar i månaden.` : `${takt.dagarKvar} arbetsdagar kvar i månaden.`}>
+          <div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-takt-ark="">
+            <StatusOrd ton={taktText(takt).ton} ord={taktText(takt).ord} />
+          </div>
+        </Sektion>
+      )}
+      {skotas.length > 0 && (
+        <Sektion rubrik="De här skotas" not={ordning ? 'Pilarna ändrar i vilken ordning trakterna tas. Tryck på en trakt för att byta maskin.' : undefined}><div data-skot-behovs="">{skotas.map((t, i) => rad(t, i, 'skotas'))}</div></Sektion>
+      )}
+      {utan.length > 0 && (
+        <Sektion rubrik="Saknar skotare" not={`Skotas inte om ingen skotare väljs. Tillsammans ${fmt(skot.utanSumma)} m³.${onTrakt ? ' Tryck på en trakt för att välja.' : ''}`}>
+          <div data-skot-utan="">{utan.map((t, i) => rad(t, i, 'utan'))}</div>
+        </Sektion>
+      )}
+      {skot.saknas > 0 && <Sektion rubrik="Saknas"><div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-skot-saknas=""><StatusOrd ton="orange" ord={saknasText} /></div></Sektion>}
+      {inte.length > 0 && <Sektion rubrik="Behövs inte i månaden"><div data-skot-inte="">{inte.map((t, i) => rad(t, i, 'inte'))}</div></Sektion>}
     </Sheet>
   )
 }

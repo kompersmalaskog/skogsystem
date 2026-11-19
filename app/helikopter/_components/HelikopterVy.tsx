@@ -28,13 +28,14 @@ import { AVSTAND, FARG, FONT, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, T
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
-  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, tilldelaMaskin,
+  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, hamtaSkogKort, tilldelaMaskin,
   type BolagRad, type FastData, type Manadsdata, type MaskinLage, type Typ,
 } from '../_lib/queries'
 import { TYPER, TYP_NAMN, globalaArbetsdagar, manadStatus, maskinNamn, planeringStoppText, raknaSpar, sparTakter, valjBas, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, manadRubrik, relativTid } from '../_lib/format'
-import { medFoljandePrognos, medUppskattadPrognos } from '../_lib/klar'
-import { EGEN_SKOTNING, byggTavla, flyttVal, utanforBestallning, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
+import { medPrognoser } from '../_lib/klar'
+import type { SkogKort } from '@/lib/skogsdata/las'
+import { EGEN_SKOTNING, byggTavla, flyttVal, slutordning, utanforBestallning, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
 import { planHref } from '../_lib/manadsplan'
@@ -43,7 +44,9 @@ import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar } from './Tillstand'
 import { HK_CSS } from './Lista'
 import { PanelContext, type PanelPost } from './PanelVal'
-import Tavla, { FlyttaSheet, type TraktVal } from './Tavla'
+import Tavla, { BehovSheet, FlyttaSheet, SkotSheet, type OrdningsStyrning, type TraktVal } from './Tavla'
+import { flyttaObjekt, sattOrdning } from '@/lib/objekt/data'
+import { stegaManad } from '@/lib/objekt/manad'
 import { DinMaskinSektion, VeckoNotisSektion } from './MaskinSektion'
 import Manadssida, { helikopterHref } from './Manadssida'
 import HistorikInnehall from './HistorikInnehall'
@@ -74,7 +77,7 @@ const css = `
 }
 `
 
-type Ark = 'traffsakerhet' | 'utan' | 'historik' | 'veckor' | 'bolagval' | 'notis' | `bolag:${Typ}` | `flytta:${string}`
+type Ark = `behov:${Typ}` | `skot:${Typ}` | 'traffsakerhet' | 'utan' | 'historik' | 'veckor' | 'bolagval' | 'notis' | `bolag:${Typ}` | `flytta:${string}`
 
 export default function HelikopterVy() {
   const sp = useSearchParams()
@@ -105,7 +108,11 @@ export default function HelikopterVy() {
 
   // EN öppen sheet/panel åt gången (PanelContext delas med arken som själva läser usePanelVal).
   const [panel, setPanel] = useState<PanelPost>(null)
-  useEffect(() => { setPanel(null) }, [ar, manad])
+  // Förhandsvisad körordning (alla trakter, objekt_id, första först): sparas först när du trycker Spara ordning.
+  const [nyOrdning, setNyOrdning] = useState<string[] | null>(null)
+  // Arket som öppnade "Vem ska ta den?": dit går man tillbaka efteråt.
+  const [fran, setFran] = useState<Ark | null>(null)
+  useEffect(() => { setPanel(null); setNyOrdning(null) }, [ar, manad])
   const panelStyrning = useMemo(() => ({ panel, satt: setPanel }), [panel])
 
   const { medarbetare } = useCurrentMedarbetare()
@@ -172,6 +179,18 @@ export default function HelikopterVy() {
     return () => { avbruten = true }
   }, [version])
 
+  // Laserdatan och det uppmätta uttaget per trakt (objekt_skogsdata) — en gång. null = inte läst eller kunde inte läsas: prognosen räknas då utan.
+  const [skog, setSkog] = useState<Map<string, SkogKort> | null>(null)
+  useEffect(() => {
+    let avbruten = false
+    hamtaSkogKort().then(r => {
+      if (avbruten) return
+      if (r.error != null) console.error('[helikopter] objekt_skogsdata', r.error)
+      else setSkog(r.data)
+    })
+    return () => { avbruten = true }
+  }, [version])
+
   // Per bolag — först när arket öppnas, cachat per månad.
   const bolagOppet = panel?.agare === 'sida' && panel.val.startsWith('bolag:')
   useEffect(() => {
@@ -189,7 +208,7 @@ export default function HelikopterVy() {
   const klar = useKlar(ar, manad, idag, status !== 'avslutad')
   // Underlaget med uppskattade prognoser, och planerna (klar-datum per maskin) räknade ur det — SAMMA räkning som flyttförslaget.
   // G15-förslag för trakter utan prognos, sedan den FÖLJANDE prognosen för trakter maskinen redan kört på (lib/prognosFoljer) — i den ordningen.
-  const klarData = useMemo(() => (klar.data ? medFoljandePrognos(medUppskattadPrognos(klar.data, utfall)) : null), [klar.data, utfall])
+  const klarData = useMemo(() => (klar.data ? medPrognoser(klar.data, utfall, skog) : null), [klar.data, utfall, skog])
 
   // Trakter där markägaren skotar själv: räknas inte mot beställningen och är aldrig "ingen skotare". null = inte läst än.
   const [egna, setEgna] = useState<Set<string> | null>(null)
@@ -264,8 +283,8 @@ export default function HelikopterVy() {
       if (sp.bestallt > 0 && !sp.bolag.some(b => b.toLowerCase() === (e.bolag ?? '').toLowerCase())) return []
       return [{ typ: sp.typ, maskin_id: r.maskin_id, volym: r.volym }]
     })
-    return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), egetSkordat, stopp, utanfor: maskinObjekt ? utanforBestallning(maskinObjekt, spar) : undefined }
-  }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader, maskinObjekt])
+    return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), egetSkordat, stopp, utanfor: maskinObjekt ? utanforBestallning(maskinObjekt, spar) : undefined, ordning: nyOrdning ?? undefined }
+  }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader, maskinObjekt, nyOrdning])
   const tavla = useMemo(() => (tavlaIn ? byggTavla(tavlaIn) : null), [tavlaIn])
   const utanTypSumma = Math.round((manadsdata?.utanTyp ?? []).reduce((a, r) => a + r.volym, 0))
 
@@ -312,6 +331,55 @@ export default function HelikopterVy() {
     return null
   }
   const kanFlytta = arAdmin && status !== 'avslutad'
+  const grundOrdning = useMemo(() => (klarData ? slutordning(klarData.trakter, undefined) : []), [klarData])
+  const ordningSt: OrdningsStyrning | undefined = kanFlytta && klarData
+    ? {
+        onOrdning: ids => {
+          // Gruppens nya inbördes ordning tar över gruppens platser i den hela ordningen (tidigare ändringar behålls).
+          const full = slutordning(klarData.trakter, nyOrdning ?? undefined)
+          const grupp = new Set(ids)
+          const platser = full.flatMap((id, i) => (grupp.has(id) ? [i] : []))
+          const ny = [...full]
+          platser.forEach((pos, k) => { ny[pos] = ids[k] })
+          setNyOrdning(ny)
+        },
+        andrad: nyOrdning != null && nyOrdning.join('|') !== grundOrdning.join('|'),
+        onAngra: () => setNyOrdning(null),
+        onSpara: async () => {
+          try { await sattOrdning(slutordning(klarData.trakter, nyOrdning ?? undefined)) }
+          catch (e) { return e instanceof Error ? e.message : 'Ordningen sparades inte. Försök igen.' }
+          await klar.ladda()
+          setNyOrdning(null)
+          return null
+        },
+      }
+    : undefined
+  const stangArk = () => { setNyOrdning(null); setFran(null); setArk(null) }
+  // Byt maskin på en trakt ur ett ark: "Vem ska ta den?" öppnas och du kommer tillbaka till arket.
+  const bytMaskin = kanFlytta ? (v: TraktVal) => { setFran(ark); setArk(`flytta:${v.roll}:${v.objekt_id}`) } : undefined
+  // Vilka trakter som behövs (skördarens rad i "Räcker trakterna?"). Flytten gäller trakten som helhet och skrivs till objektets planerade månad,
+  // samma fält som Objekt-vyn — så ändringen syns i båda.
+  const behovTyp = ark && ark.startsWith('behov:') ? (ark.slice(6) as Typ) : null
+  const behovSpar = behovTyp && tavla ? tavla.spar.find(x => x.typ === behovTyp) ?? null : null
+  const behov = behovSpar?.racker.find(r => r.roll === 'skordare')?.behov ?? null
+  const skotTyp = ark && ark.startsWith('skot:') ? (ark.slice(5) as Typ) : null
+  const skotSpar = skotTyp && tavla ? tavla.spar.find(x => x.typ === skotTyp) ?? null : null
+  const skot = skotSpar?.racker.find(r => r.roll === 'skotare')?.skot ?? null
+  const nastaManad = stegaManad({ ar, manad }, 1)
+  const flyttaTillNasta = async (ids: string[]): Promise<string | null> => {
+    let flyttade = 0
+    try {
+      for (const id of ids) { await flyttaObjekt(id, nastaManad); flyttade++ }
+    } catch (e) {
+      // Arket ska stå kvar med felet: läs bara om trakterna om något hann flyttas (hela sidan laddas inte om).
+      if (flyttade > 0) await klar.ladda()
+      const fel = e instanceof Error ? e.message : 'Kunde inte flytta. Försök igen.'
+      return flyttade > 0 ? `${flyttade} av ${ids.length} flyttades. ${fel}` : fel
+    }
+    setVersion(v => v + 1)
+    await klar.ladda()
+    return null
+  }
 
   // Månadspilarna är blå (navigerar). Mellan pilarna står alltid månaden man tittar på; Idag är en egen liten länk (KNAPP.tertiar)
   // som bara finns när vald månad inte är innevarande — samma mönster som ledighetens kalender.
@@ -362,7 +430,7 @@ export default function HelikopterVy() {
                     <RadGrupp><RadLank orange text="Kunde inte läsa maskinernas trakter" smakprov="försök igen" onClick={() => void klar.ladda()} sista /></RadGrupp>
                   )}
                   <div className="hk-rutnat">
-                    <Tavla tavla={tavla} onTrakt={kanFlytta ? v => setArk(`flytta:${v.roll}:${v.objekt_id}`) : undefined} />
+                    <Tavla tavla={tavla} onTrakt={kanFlytta ? v => setArk(`flytta:${v.roll}:${v.objekt_id}`) : undefined} onBehov={typ => setArk(`behov:${typ}`)} onSkot={typ => setArk(`skot:${typ}`)} />
                     {dinMaskin && <DinMaskinSektion maskinNamn={maskinNamn(dinMaskin)} lage={maskinLage} fel={maskinLageFel} onRetry={() => setVersion(v => v + 1)} />}
                     <Sektion rubrik="Mer" kort={false}>
                       <RadGrupp marginBottom={0}>
@@ -391,7 +459,9 @@ export default function HelikopterVy() {
                       </RadGrupp>
                     </Sheet>
                   )}
-                  {flyttaVal && flyttaVy && <FlyttaSheet key={ark} open onClose={stang} namn={flyttaVy.namn} val={flyttaVy.val} onFlytta={flytta} />}
+                  {skotSpar && skot && <SkotSheet key={ark} onClose={stangArk} namn={skotSpar.namn} skot={skot} takt={skotSpar.block[1].takt} onTrakt={bytMaskin} ordning={ordningSt} />}
+                  {behovSpar && behov && <BehovSheet key={ark} open onClose={stangArk} ordning={ordningSt} onTrakt={bytMaskin} namn={behovSpar.namn} behov={behov} takt={behovSpar.block[0].takt} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} manadNamn={manadNamn.toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} />}
+                  {flyttaVal && flyttaVy && <FlyttaSheet key={ark} open onClose={() => { const tillbaka = fran; setFran(null); setArk(tillbaka) }} namn={flyttaVy.namn} val={flyttaVy.val} onFlytta={flytta} />}
                   {ark === 'notis' && <Sheet open onClose={stang} title="Onsdagsnotis"><VeckoNotisSektion /></Sheet>}
                   <UtanTypSheet open={ark === 'utan'} onClose={stang} rader={manadsdata.utanTyp ?? []} manadNamn={manadNamn} />
                   {bolagTyp && (

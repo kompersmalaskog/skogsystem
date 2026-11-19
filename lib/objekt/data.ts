@@ -191,6 +191,18 @@ export async function flyttaObjekt(objektId: string, till: Manad): Promise<void>
   if ((data ?? []).length !== 1) throw new Error('Objektet flyttades inte. Försök igen.');
 }
 
+/**
+ * Skriv körordningen: objekten i den ordning de ska tas (första först) får ordning 1, 2, 3 … — samma fält som listan i Objekt-vyn sorteras på
+ * och som helikopterns körordning läser. Ett fel (eller ett objekt som inte skrevs) stoppar och visas som det är.
+ */
+export async function sattOrdning(idsIOrdning: string[]): Promise<void> {
+  for (let i = 0; i < idsIOrdning.length; i++) {
+    const { data, error } = await supabase.from('objekt').update({ ordning: i + 1 }).eq('id', idsIOrdning[i]).select('id');
+    if (error) throw new Error(error.message);
+    if ((data ?? []).length !== 1) throw new Error('Ordningen sparades inte för alla trakter. Försök igen.');
+  }
+}
+
 /** Ta bort ett felimporterat objekt. Anroparen har redan fått en bekräftelse. Ett fel (t.ex. att något hänger ihop med objektet) visas som det är. */
 export async function taBortObjekt(objektId: string): Promise<void> {
   const { data, error } = await supabase.from('objekt').delete().eq('id', objektId).select('id');

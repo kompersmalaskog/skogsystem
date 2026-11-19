@@ -55,7 +55,7 @@ describe('kortet och sidan', () => {
     expect(steg).toContain('data-testid="klar-ved-lage"');
   });
   it('G15-förslag: ur UPPMÄTT utfall (RPC prognos_utfall), förifyllt, sparat först vid Stämmer; inga "Använd förslaget"/förslagsruta och inga planerade timmar som underlag', () => {
-    expect(page).toContain("supabase.rpc('prognos_utfall')");
+    expect(page).toContain("supabase.rpc('prognos_utfall_2')");   // med skotarens maskin; den äldre prognos_utfall är reserven
     expect(page).toContain('beraknaG15Forslag(');
     expect(page).not.toContain('klarAnvandForslag');
     expect(page).not.toContain('onAnvandForslag');

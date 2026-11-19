@@ -15,7 +15,7 @@ import { FARG, FONT, TRAFFYTA } from '@/lib/design/tokens'
 import { hittaChromium } from '../../../lib/testStod/chromium'
 
 const q = vi.hoisted(() => ({
-  hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaMaskinLage: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaPrognosFacit: vi.fn(),
+  hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaMaskinLage: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaSkogKort: vi.fn(async () => ({ data: new Map(), error: null })), hamtaPrognosFacit: vi.fn(),
   tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), hamtaMaskinObjekt: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgetSkordat: vi.fn(async () => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(),
 }))
 vi.mock('../_lib/queries', () => q)
@@ -74,11 +74,16 @@ const sida = (inner: string) =>
 
 describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chromium i miljön'}`, () => {
   it.skipIf(!CHROMIUM)('ingen sidscroll, inga träffytor under 44 px, talen i raka kolumner', async () => {
+    const rad = '[data-spar="slutavverkning"] [data-rad-vaxla="skotare"]'
     const maskin = '[data-spar="slutavverkning"] [data-block="skotare"] [data-maskin="A130743"] button'
     const vyer = [
       { namn: 'sida', html: await html([]) },
-      { namn: 'oppen', html: await html([maskin]) },
-      { namn: 'flytta', html: await html([maskin, '[data-spar="slutavverkning"] [data-block="skotare"] [data-trakt]']) },
+      { namn: 'gor', html: await html(['[data-gor-rad="utan"] button']) },
+      { namn: 'oppen', html: await html([rad, maskin]) },
+      { namn: 'behov', html: await html(['[data-racker-rad="slutavverkning:skordare"] button']) },
+      { namn: 'behov-ordning', html: await html(['[data-racker-rad="slutavverkning:skordare"] button', '[data-trakt-rad] [data-pil="keyboard_arrow_down"]']) },
+      { namn: 'skot', html: await html(['[data-racker-rad="slutavverkning:skotare"] button']) },
+      { namn: 'flytta', html: await html([rad, maskin, '[data-spar="slutavverkning"] [data-block="skotare"] [data-trakt]']) },
     ]
     const b = await CHROMIUM!.launch({})
     const skriv = process.env.TAVLA_SKRIV
