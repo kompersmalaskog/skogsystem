@@ -547,7 +547,7 @@ export async function POST(request: NextRequest) {
     // (import_fel) men fäller aldrig importen; en redan fryst trakt (omimport) eller en trakt maskinen kört på lämnas orörd.
     if (saved?.id) {
       try {
-        const frys = await frysAppPrognos(service, saved.id, { kalla: 'import' });
+        const frys = await frysAppPrognos(service, saved.id, { kalla: 'import', vantaPaLaser: true });
         if (frys.status === 'fryst') varningar.push(appPrognosText(frys.prognos));
         else if (frys.status === 'fel') await loggaImportFel(service, sokvag, 'APP_PROGNOS', frys.fel);
       } catch (e: any) {

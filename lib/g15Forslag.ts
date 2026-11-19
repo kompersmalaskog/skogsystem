@@ -14,6 +14,12 @@
 // UTESLUTNING: en trakt vars skördade volym avviker mycket från objektets volym (0,7–1,4 av `objekt.volym`) räknas inte med — då är datan ofullständig (Kroksjömåla:
 // 315 av 860 m³, Bågskyttebanan 1 687 av 3 495). Trakter utan känd objektvolym kan inte testas och behålls. G15 under 8 tim räknas inte (för kort för en tillförlitlig kvot).
 //
+// MEDELSTAM UR LASERSKANNINGEN (2026-11-17): saknar trakten medelstam (Vida fyller sällan i den på gallringar, och när de gör det stämmer den dåligt —
+// Santhe 0,13 mot verkliga 0,044) härleds den ur Skogsstyrelsens laserdata: grundytevägd medeldiameter inom traktgränsen (objekt_skogsdata).
+// Sambandet diameter → medelstam räknas ur VÅRA EGNA avslutade trakter av samma typ (minst LASER_MIN_PAR, robust linje i log-log, Theil–Sen),
+// så det blir bättre av sig självt när fler trakter blir klara. Det är en grov uppskattning (uttaget i en gallring syns inte i lasern) — metoden
+// heter 'laser' och intervallet är uppmätt på samma sätt som för övriga: varje trakt förutsägs ur de andra, hela kedjan.
+//
 // Gamla prognoser (Jockes planerade timmar i manuell_prognos) används inte som underlag.
 
 export const G15_MIN_TRAKTER = 3;
@@ -22,6 +28,8 @@ export const G15_VOLYMFONSTER = { lag: 0.7, hog: 1.4 } as const;
 /** Medelstam ±25 %: förhållandet jämförbar/mål ska ligga mellan 1/1,25 och 1,25. */
 export const G15_MEDELSTAMBAND = 1.25;
 export const G15_MIN_FEL = 5;
+/** Minst så många avslutade trakter av typen med både laserdiameter och uppmätt medelstam, annars ingen laser-medelstam. */
+export const LASER_MIN_PAR = 5;
 
 export interface UtfallRad {
   typ: string | null;
@@ -32,6 +40,10 @@ export interface UtfallRad {
   stammar: number | null;
   skordareG15: number | null;
   skotareG15: number | null;
+  /** objekt.id — för att kunna lägga laserdatan på raden (lib/skogsdata/las). */
+  objektId?: string | null;
+  /** Laserns grundytevägda medeldiameter inom traktgränsen (cm). */
+  laserDiaCm?: number | null;
 }
 
 export interface G15Indata {
@@ -40,9 +52,11 @@ export interface G15Indata {
   medelstam: number | null;
   /** engångstid för basvägsanläggning, läggs på SKOTARENS förslag (som förut) */
   basvagTimmar?: number | null;
+  /** Laserns medeldiameter för trakten (cm) — används bara när medelstam saknas. */
+  laserDiaCm?: number | null;
 }
 
-export type Metod = 'medelstam' | 'snitt-medelstam-saknas' | 'snitt-typ';
+export type Metod = 'medelstam' | 'laser' | 'snitt-medelstam-saknas' | 'snitt-typ';
 
 export interface RollForslag {
   /** G15-timmar, avrundat */
@@ -56,6 +70,8 @@ export interface RollForslag {
   /** medelstam hos de jämförbara (bara metod 'medelstam') */
   medelstamSpann: { lag: number; hog: number } | null;
   metod: Metod;
+  /** Medelstammen härledd ur laserskanningen (bara metod 'laser'). */
+  laserMedelstam?: number;
   basvagTim: number;
   typ: string;
 }
@@ -74,7 +90,7 @@ export function percentil(xs: number[], p: number): number {
 }
 const median = (xs: number[]) => percentil(xs, 0.5);
 
-interface Trakt { rate: number; medelstam: number | null }
+interface Trakt { rate: number; medelstam: number | null; dia: number | null }
 
 const arPos = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
 
@@ -93,7 +109,33 @@ function underlag(rader: UtfallRad[], typ: string, roll: 'skordare' | 'skotare')
     const g15 = roll === 'skordare' ? r.skordareG15 : r.skotareG15;
     if (!arPos(r.skordadM3) || !arPos(g15) || g15 < G15_MIN_TIM) continue;
     const medelstam = arPos(r.stammar) ? r.skordadM3 / r.stammar : null;
-    ut.push({ rate: r.skordadM3 / g15, medelstam });
+    ut.push({ rate: r.skordadM3 / g15, medelstam, dia: arPos(r.laserDiaCm) ? r.laserDiaCm : null });
+  }
+  return ut;
+}
+
+/**
+ * Laserdiameter (cm) → medelstam (m³fub/stam), ur par av uppmätta värden. Robust linje i log-log (Theil–Sen: medianen av alla parvisa lutningar),
+ * så en udda trakt inte drar med sig sambandet. null = för få par, eller ett samband som inte stiger med grovleken (då är det inget samband).
+ */
+export function laserModell(par: { dia: number; medelstam: number }[]): ((dia: number) => number) | null {
+  if (par.length < LASER_MIN_PAR) return null;
+  const p = par.map((x) => ({ x: Math.log(x.dia), y: Math.log(x.medelstam) }));
+  const lut: number[] = [];
+  for (let i = 0; i < p.length; i++) for (let j = i + 1; j < p.length; j++) if (p[i].x !== p[j].x) lut.push((p[j].y - p[i].y) / (p[j].x - p[i].x));
+  if (lut.length === 0) return null;
+  const b = median(lut);
+  if (!(b > 0)) return null;
+  const a = median(p.map((q) => q.y - b * q.x));
+  return (dia) => Math.exp(a + b * Math.log(dia));
+}
+
+/** Paren diameter/medelstam bland avslutade trakter av typen (alla med stammar och laserdata — också de med för lite G15). */
+function laserPar(rader: UtfallRad[], typ: string): { dia: number; medelstam: number }[] {
+  const ut: { dia: number; medelstam: number }[] = [];
+  for (const r of rader) {
+    if ((r.typ ?? '').trim().toLowerCase() !== typ) continue;
+    if (arPos(r.laserDiaCm) && arPos(r.skordadM3) && arPos(r.stammar)) ut.push({ dia: r.laserDiaCm, medelstam: r.skordadM3 / r.stammar });
   }
   return ut;
 }
@@ -137,21 +179,36 @@ export function beraknaG15Forslag(inp: G15Indata, rader: UtfallRad[]): G15Forsla
   // ── Skördare ──
   let skordare: RollResultat;
   const sk = underlag(rader, typ, 'skordare');
-  if (arPos(inp.medelstam)) {
-    const ms = inp.medelstam;
+  const par = arPos(inp.medelstam) ? [] : laserPar(rader, typ);
+  const modell = !arPos(inp.medelstam) && arPos(inp.laserDiaCm) ? laserModell(par) : null;
+  const laserRa = modell && arPos(inp.laserDiaCm) ? modell(inp.laserDiaCm) : null;
+  // För få trakter med liknande medelstam: laserns gissning hjälper inte — då gäller snittet över typen, som förut.
+  const laserMs = laserRa != null && jamforbara(sk, laserRa).length >= G15_MIN_TRAKTER ? laserRa : null;
+  if (arPos(inp.medelstam) || laserMs != null) {
+    const urLaser = !arPos(inp.medelstam);
+    const ms = urLaser ? (laserMs as number) : (inp.medelstam as number);
     const jam = jamforbara(sk, ms);
     if (jam.length < G15_MIN_TRAKTER) {
       skordare = tomt('for-fa', jam.length, `Färre än ${G15_MIN_TRAKTER} jämförbara trakter (medelstam ${fmtMs(ms / G15_MEDELSTAMBAND)}–${fmtMs(ms * G15_MEDELSTAMBAND)}) — inget förslag`);
     } else {
       const pred = median(jam.map((t) => t.rate));
-      const fel = prediktionsfel(sk.filter((t) => t.medelstam != null), (ov, mal) => {
-        const j = jamforbara(ov, mal.medelstam!);
-        return j.length >= G15_MIN_TRAKTER ? median(j.map((t) => t.rate)) : null;
-      });
+      const fel = urLaser
+        // Hela kedjan: trakten förutsägs ur de ÖVRIGA — både sambandet diameter → medelstam och de jämförbara trakterna.
+        ? prediktionsfel(sk.filter((t) => t.medelstam != null && t.dia != null), (ov, mal) => {
+          const m = laserModell(ov.filter((t) => t.medelstam != null && t.dia != null).map((t) => ({ dia: t.dia!, medelstam: t.medelstam! })));
+          if (!m) return null;
+          const j = jamforbara(ov, m(mal.dia!));
+          return j.length >= G15_MIN_TRAKTER ? median(j.map((t) => t.rate)) : null;
+        })
+        : prediktionsfel(sk.filter((t) => t.medelstam != null), (ov, mal) => {
+          const j = jamforbara(ov, mal.medelstam!);
+          return j.length >= G15_MIN_TRAKTER ? median(j.map((t) => t.rate)) : null;
+        });
       const mss = jam.map((t) => t.medelstam!);
       skordare = { ok: true, forslag: {
         g15: Math.round(volym / pred), m3PerG15: pred, intervall: intervallTim(volym, pred, fel, 0), antal: jam.length,
-        medelstamSpann: { lag: Math.min(...mss), hog: Math.max(...mss) }, metod: 'medelstam', basvagTim: 0, typ,
+        medelstamSpann: { lag: Math.min(...mss), hog: Math.max(...mss) }, metod: urLaser ? 'laser' : 'medelstam',
+        ...(urLaser ? { laserMedelstam: Math.round(ms * 1000) / 1000 } : {}), basvagTim: 0, typ,
       } };
     }
   } else if (sk.length >= G15_MIN_TRAKTER) {
@@ -190,6 +247,7 @@ export function fmtMs(v: number): string {
 export function forslagKalla(f: RollForslag): string {
   const intervall = f.intervall ? `troligen ${f.intervall.lag}–${f.intervall.hog}` : 'spridning ej bedömd (för få trakter)';
   const typOrd = f.typ === 'gallring' ? 'gallringar' : 'slutavverkningar';
+  if (f.metod === 'laser' && f.laserMedelstam != null) return `Medelstam ca ${fmtMs(f.laserMedelstam)} ur laserskanningen · ${intervall} · ur ${f.antal} liknande trakter`;
   if (f.metod === 'medelstam' && f.medelstamSpann) return `${intervall} · ur ${f.antal} trakter med medelstam ${fmtMs(f.medelstamSpann.lag)}–${fmtMs(f.medelstamSpann.hog)}`;
   if (f.metod === 'snitt-medelstam-saknas') return `Medelstam saknas – snitt över alla trakter · ur ${f.antal} ${typOrd} · ${intervall}`;
   return `${intervall} · ur ${f.antal} ${typOrd} (snitt)`;

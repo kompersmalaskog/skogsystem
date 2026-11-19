@@ -57,6 +57,7 @@ import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, emptyResult, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaG15Forslag, forslagKalla, prestation, prestationVarning, snittTypOrd, type UtfallRad } from '../../lib/g15Forslag'
+import { lasSkogKort, medLaser } from '../../lib/skogsdata/las'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
 import { strakFeatures } from '../../lib/strak'
@@ -2634,6 +2635,7 @@ export default function PlannerPage() {
   // G15-förslaget (Klar med trakten?): underlaget är UPPMÄTT utfall per avslutat objekt (RPC prognos_utfall: skördad volym, stammar, G15 för skördare/skotare).
   // Hämtas EN gång; förslaget räknas i lib/g15Forslag och planeraren kan alltid skriva över. 'fel' = RPC:n saknas/svarade fel → förslaget är tomt och det SÄGS.
   const [prognosUtfall, setPrognosUtfall] = useState<{ lage: 'laddar' | 'ok' | 'fel'; rader: UtfallRad[] }>({ lage: 'laddar', rader: [] });
+  const [laserDia, setLaserDia] = useState<Map<string, number | null>>(new Map());
   
   // Beräkna terräng/bärighet från zoner automatiskt
   // beraknaForhallanden borttagen — Förhållanden-sektionen (sliders) slopad i Trakt-hopslagningen
@@ -2863,9 +2865,15 @@ export default function PlannerPage() {
         if (avbruten) return;
         if (error || !Array.isArray(data)) { console.error('[G15-förslag] utfall:', error?.message ?? 'oväntat svar'); setPrognosUtfall({ lage: 'fel', rader: [] }); return; }
         const tal = (v: unknown): number | null => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) ? n : null; };
-        setPrognosUtfall({ lage: 'ok', rader: data.map((r: any): UtfallRad => ({
+        // Laserns medeldiameter per trakt (objekt_skogsdata): medelstam ur laserskanningen när trakten saknar en. Går den inte att läsa räknas förslaget som förut.
+        const skog = await lasSkogKort(supabase).catch(() => ({ data: null, error: 'kastade' }));
+        if (avbruten) return;
+        if (skog.error) console.error('[G15-förslag] objekt_skogsdata:', skog.error);
+        setLaserDia(new Map([...(skog.data ?? new Map())].map(([id, k]) => [id, k.diaCm])));
+        setPrognosUtfall({ lage: 'ok', rader: medLaser(data.map((r: any): UtfallRad => ({
           typ: r.typ ?? null, volymObjekt: tal(r.volym_objekt), skordadM3: tal(r.skordad_m3), stammar: tal(r.stammar), skordareG15: tal(r.skordare_g15), skotareG15: tal(r.skotare_g15),
-        })) });
+          objektId: r.objekt_id != null ? String(r.objekt_id) : null,
+        })), skog.data) });
       } catch (e: any) {
         if (!avbruten) { console.error('[G15-förslag] utfall kastade:', e?.message ?? e); setPrognosUtfall({ lage: 'fel', rader: [] }); }
       }
@@ -4127,9 +4135,10 @@ export default function PlannerPage() {
   // G15-FÖRSLAG ur uppmätt utfall (lib/g15Forslag): skördare mot trakter med liknande medelstam, skotare som snitt per typ. Fälten är förifyllda med förslaget — det SKRIVNA
   // värdet (manuell_prognos) går alltid före, och förslaget sparas på objektet först vid Stämmer (klarStammer), så att titta på kortet ändrar inget i databasen.
   const g15Forslag = useMemo(() => beraknaG15Forslag(
-    { typ: (valtObjekt?.typ as string) ?? null, volym: klarTal(infoVolym), medelstam: klarTal(klarFalt.medelstam), basvagTimmar: infoBasvagKravs ? klarTal(infoBasvagTimmar) : null },
+    { typ: (valtObjekt?.typ as string) ?? null, volym: klarTal(infoVolym), medelstam: klarTal(klarFalt.medelstam), basvagTimmar: infoBasvagKravs ? klarTal(infoBasvagTimmar) : null,
+      laserDiaCm: laserDia.get(String(valtObjekt?.id ?? '')) ?? null },
     prognosUtfall.rader,
-  ), [valtObjekt?.typ, infoVolym, klarFalt.medelstam, infoBasvagKravs, infoBasvagTimmar, prognosUtfall.rader]);  // eslint-disable-line react-hooks/exhaustive-deps
+  ), [valtObjekt?.typ, valtObjekt?.id, laserDia, infoVolym, klarFalt.medelstam, infoBasvagKravs, infoBasvagTimmar, prognosUtfall.rader]);  // eslint-disable-line react-hooks/exhaustive-deps
   const g15Tim = (roll: 'skordare' | 'skotare'): number | null => {
     const skrivet = (manuellPrognos?.[roll] ?? '').toString().trim();
     if (skrivet !== '') return klarTal(skrivet);
