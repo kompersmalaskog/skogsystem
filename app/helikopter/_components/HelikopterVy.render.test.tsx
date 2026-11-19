@@ -294,16 +294,22 @@ describe('/helikopter — tavlan', () => {
     await act(async () => { (cont.querySelector('[data-racker-rad="gallring:skordare"] button') as HTMLButtonElement).click() })
     const sida = cont.querySelector('[data-planera="gallring"]')
     expect(sida).not.toBeNull()
-    expect(sida!.querySelector('[data-planera-kolumn="skordare"]')).not.toBeNull()
-    expect(sida!.querySelector('[data-planera-kolumn="skotare"]')).not.toBeNull()
+    // Skördarens rad öppnar sidan på Skördare; Skotare är en växel på samma sida, inte en kolumn bredvid.
+    const flik = (namn: string) => Array.from(sida!.querySelectorAll('[role="tab"]')).find(b => b.textContent === namn) as HTMLButtonElement
+    expect(flik('Skördare').getAttribute('aria-selected')).toBe('true')
+    expect(sida!.querySelector('[data-planera-svar="skordare"]')).not.toBeNull()
+    expect(sida!.querySelector('[data-planera-svar="skotare"]')).toBeNull()
+    await act(async () => { flik('Skotare').click() })
+    expect(cont.querySelector('[data-planera-svar="skotare"]')).not.toBeNull()
     // Hela sidan, inte ett ark ovanpå tavlan: tavlans kort är borta och ingen dialog är öppen.
     expect(cont.querySelector('[data-racker]')).toBeNull()
     expect(document.querySelector('[role="dialog"]')).toBeNull()
-    // Skotarens rad leder till samma sida.
-    await act(async () => { (sida!.querySelector('[data-planera-tillbaka]') as HTMLButtonElement).click() })
+    await act(async () => { (cont.querySelector('[data-planera-tillbaka]') as HTMLButtonElement).click() })
     expect(cont.querySelector('[data-planera]')).toBeNull()
+    // Skotarens rad öppnar samma sida, men på Skotare.
     await act(async () => { (cont.querySelector('[data-racker-rad="gallring:skotare"] button') as HTMLButtonElement).click() })
-    expect(cont.querySelector('[data-planera="gallring"]')).not.toBeNull()
+    const sida2 = cont.querySelector('[data-planera="gallring"]')!
+    expect(Array.from(sida2.querySelectorAll('[role="tab"]')).find(b => b.textContent === 'Skotare')!.getAttribute('aria-selected')).toBe('true')
   })
 
   it('Räcker trakterna?: skotarens rad öppnar sina trakter med kvar-volym, vem som tar den och tid', async () => {
@@ -312,7 +318,7 @@ describe('/helikopter — tavlan', () => {
     const knapp = cont.querySelector('[data-racker-rad="gallring:skotare"] button') as HTMLButtonElement
     expect(knapp).not.toBeNull()
     await act(async () => { knapp.click() })
-    expect(document.querySelector('[data-skot-under]')?.textContent).toContain('Beställt')
+    expect(document.querySelector('[data-planera-svar="skotare"]')?.textContent).toMatch(/Skotaren (behöver|är klar)/)
     // Först: de trakter som måste skotas för beställningen — ingen klardatum.
     // Trakter med skotare och trakter utan står var för sig; ingen klardatum i någon av dem.
     expect(document.querySelector('[data-skot-behovs], [data-skot-utan], [data-skot-inte]')).not.toBeNull()
@@ -328,8 +334,9 @@ describe('/helikopter — tavlan', () => {
     const knapp0 = cont.querySelector('[data-racker-rad="gallring:skordare"] button') as HTMLButtonElement
     await act(async () => { knapp0.click() })
     const under = document.querySelector('[data-behov-under]') as HTMLElement
-    expect(under.textContent).toContain(`Beställt ${fmt(1000)} · gjort ${fmt(900)}`)
-    expect(document.querySelector('[data-behovs]')?.textContent).toContain('Tar resten av behovet')
+    expect(document.querySelector('[data-planera-svar="skordare"]')?.textContent).toContain(`Skördaren behöver ${fmt(100)} m³ till`)
+    expect(under.textContent).toMatch(/räcker|saknas|för mycket/)
+    expect(document.querySelector('[data-behovs]')?.textContent).toContain('Behövs')
     expect(document.querySelector('[data-takt-ark]')?.textContent ?? '').toMatch(/Måste hålla|takt saknas/)
     // Tid per trakt: maskinens dagar, aldrig ett påhittat tal.
     expect(document.querySelector('[data-behovs] [data-tid]')?.textContent).toMatch(/arbetsdag|Tid saknas/)

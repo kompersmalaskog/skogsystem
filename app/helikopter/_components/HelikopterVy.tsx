@@ -70,8 +70,6 @@ const css = `
 .hk-sidan { container-type: inline-size; max-width: ${KOLUMN.bred + 2 * AVSTAND.sidmarginal}px; margin: 0 auto; box-sizing: border-box; padding: 0 ${AVSTAND.sidmarginal}px ${AVSTAND.xxl * 2}px; }
 .hk-rutnat { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: ${AVSTAND.xl}px; align-items: start; }
 @container (min-width: ${TVA_KOLUMNER_PX}px) { .hk-rutnat { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.hk-plan { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: ${AVSTAND.xl}px; align-items: start; }
-@container (min-width: ${TVA_KOLUMNER_PX}px) { .hk-plan { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container (min-width: ${TRE_KOLUMNER_PX}px) { .hk-rutnat { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (min-width: ${SIDOKOLUMN_FRAN_PX}px) {
   .hk-sida { display: block; width: ${SIDOKOLUMN_BREDD_PX}px; flex-shrink: 0; box-sizing: border-box; border-right: 1px solid ${FARG.linje};
@@ -435,7 +433,7 @@ export default function HelikopterVy() {
                     <RadGrupp><RadLank orange text="Kunde inte läsa maskinernas trakter" smakprov="försök igen" onClick={() => void klar.ladda()} sista /></RadGrupp>
                   )}
                   {planeraSpar ? (
-                    <PlaneraSida spar={planeraSpar} manadNamn={MANAD_NAMN[manad - 1].toLowerCase()} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} ordning={ordningSt} onTrakt={bytMaskin} onTillbaka={stangArk} />
+                    <PlaneraSida key={ark} start={behovTyp ? 'skordare' : 'skotare'} spar={planeraSpar} manadNamn={MANAD_NAMN[manad - 1].toLowerCase()} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} ordning={ordningSt} onTrakt={bytMaskin} onTillbaka={stangArk} />
                   ) : (
                   <div className="hk-rutnat">
                     <Tavla tavla={tavla} onTrakt={kanFlytta ? v => setArk(`flytta:${v.roll}:${v.objekt_id}`) : undefined} onBehov={typ => setArk(`behov:${typ}`)} onSkot={typ => setArk(`skot:${typ}`)} />
