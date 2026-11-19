@@ -117,3 +117,12 @@ describe('sortiment', () => {
     expect(valbaraSortiment(s, true).map((x) => x.nyckel)).toEqual(['k', VED_MARKAGARE_NYCKEL]);
   });
 });
+
+describe('breddat eller smalt lastrum', () => {
+  it('sattBreddat byter och stämplar; nytt lass får förra lassets val', async () => {
+    const m = await import('./lassModell');
+    const l = { id: 'a', delar: [], status: 'foreslaget', breddat: false, andrad: '' } as any;
+    expect(m.sattBreddat(l, true, 1000).breddat).toBe(true);
+    expect(m.sattBreddat(l, true, 1000).andrad).not.toBe('');
+  });
+});
