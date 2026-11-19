@@ -97,6 +97,7 @@ export function AndraLassArk({ lass, delNr, utkast, avlagg, valbara, alla, onLas
             </div>
           )}
 
+          <div style={{ ...smaRubrik, marginTop: AVSTAND.m }}>Lastrum</div>
           <div role="radiogroup" aria-label="Lastrum" data-testid="andra-lastrum" style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.s }}>
             {([[false, 'Smalt'], [true, 'Breddat']] as const).map(([b, text]) => {
               const vald = !!lass.breddat === b;
