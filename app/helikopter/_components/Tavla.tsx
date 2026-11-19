@@ -410,6 +410,8 @@ export type OrdningsStyrning = {
 
 /** Trakt-arken på bred skärm: en panel som tar halva fönstret (420–720 px), så raderna rymmer allt på en rad. */
 const TRAKT_PANEL_MAX_PX = 720
+/** Från denna panelbredd ryms nummer, namn, maskin, tid, m³ och pilar på en rad. */
+const BRED_RAD_MIN_PX = 560
 function useTraktPanelBredd(): number | undefined {
   const lage = useContext(SheetLageContext)
   const [b, setB] = useState<number | undefined>(undefined)
@@ -431,7 +433,9 @@ function OrdnadTraktRad({ nr, namn, under, maskin, ingen, ton, tal, kryss, onMas
   id: string
 }) {
   const text = ton === 'full' ? FARG.text : FARG.text2
-  const bred = useContext(SheetLageContext) === 'panel'
+  // Allt på en rad kräver en bred panel; i den smala (380) eller i ett ark står tiden och maskinen under namnet.
+  const panelB = useTraktPanelBredd()
+  const bred = panelB != null && panelB >= BRED_RAD_MIN_PX
   const maskinText = `${maskin ?? ingen}${onMaskin ? ' ›' : ''}`
   const maskinFarg = maskin ? FARG.text2 : FARG.orange
   // Bred panel: allt på EN rad — nummer, namn, maskin, tid. Smal: namnet med maskinen och tiden under.
@@ -503,18 +507,22 @@ function pilar(grupp: string[], id: string, st?: OrdningsStyrning) {
 }
 
 /** "Gallring behöver 713 m³ till": trakterna som behövs, och de som kan vänta. Admin väljer vilka som flyttas till nästa månad och kan ändra ordning och maskin. */
-export function BehovSheet({ open, onClose, namn, behov, takt, nastaNamn, manadNamn, kanFlytta, onFlytta, ordning, onTrakt }: {
-  open: boolean; onClose: () => void; namn: string; behov: TavlaBehov; takt?: TavlaTakt | null; nastaNamn: string; manadNamn: string; kanFlytta: boolean
+type BehovProps = {
+  onClose: () => void; namn: string; behov: TavlaBehov; takt?: TavlaTakt | null; nastaNamn: string; manadNamn: string; kanFlytta: boolean
   onFlytta: (objektIds: string[]) => Promise<string | null>
   ordning?: OrdningsStyrning
   onTrakt?: (v: TraktVal) => void
-}) {
-  const panelBredd = useTraktPanelBredd()
+  /** Ordningsraden (Spara/Ångra) står en gång överst på sidan i stället för i varje kolumn. */
+  utanBar?: boolean
+  /** Rubriken som en rad överst i innehållet (på sidan; i arket är den arkets titel). */
+  synligRubrik?: boolean
+}
+
+function BehovInnehall({ onClose, namn, behov, takt, nastaNamn, manadNamn, kanFlytta, onFlytta, ordning, onTrakt, utanBar, synligRubrik }: BehovProps) {
   const flyttbara = behov.inte.filter(t => t.flyttbar)
   // Avmarkerade, inte markerade: när ordningen ändras och en annan trakt hamnar under "Behövs inte" är den förvald.
   const [bort, setBort] = useState<Set<string>>(() => new Set())
   const [lage, setLage] = useState<{ skickar: boolean; fel: string | null }>({ skickar: false, fel: null })
-  if (!open) return null
   const valda = new Set(flyttbara.filter(t => !bort.has(t.objekt_id)).map(t => t.objekt_id))
   const vaxla = (id: string) => setBort(f => { const n = new Set(f); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const antal = valda.size
@@ -532,9 +540,10 @@ export function BehovSheet({ open, onClose, namn, behov, takt, nastaNamn, manadN
   const nr = new Map([...behov.behovs, ...behov.inte].map((t, i) => [t.objekt_id, i + 1]))
   const onMaskin = (id: string) => (onTrakt ? () => onTrakt({ objekt_id: id, roll: 'skordare' }) : undefined)
   return (
-    <Sheet open onClose={onClose} title={rubrik} panelBredd={panelBredd}>
+    <>
+      {synligRubrik && <h2 style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.rubrik, color: FARG.text }}>{rubrik}</h2>}
       <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px` }} data-behov-under="">Beställt {fmt(behov.bestallt)} · gjort {fmt(behov.nu)}. {under}</p>
-      {ordning && <OrdningsBar st={ordning} primar />}
+      {ordning && !utanBar && <OrdningsBar st={ordning} primar />}
       {takt && (
         <Sektion rubrik="Takten" not={takt.hinner === false && takt.fattasDagar != null ? `Hålls takten fattas ca ${Math.max(1, Math.round(takt.fattasDagar))} arbetsdagar. ${takt.dagarKvar} arbetsdagar kvar i månaden.` : `${takt.dagarKvar} arbetsdagar kvar i månaden.`}>
           <div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-takt-ark="">
@@ -554,14 +563,14 @@ export function BehovSheet({ open, onClose, namn, behov, takt, nastaNamn, manadN
             ))}
             {behov.saknas > 0 && (
               <div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center', borderTop: LINJE }} data-behov-saknas="">
-                <StatusOrd ton="orange" ord={`Det saknas ca ${fmt(behov.saknas)} m³ · lägg in en ny trakt`} />
+                <StatusOrd bryt ton="orange" ord={`Det saknas ca ${fmt(behov.saknas)} m³ · lägg in en ny trakt`} />
               </div>
             )}
           </div>
         </Sektion>
       )}
       {behov.behovs.length === 0 && behov.saknas > 0 && (
-        <Sektion rubrik="De här behövs"><div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-behov-saknas=""><StatusOrd ton="orange" ord={`Det saknas ca ${fmt(behov.saknas)} m³ · lägg in en ny trakt`} /></div></Sektion>
+        <Sektion rubrik="De här behövs"><div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-behov-saknas=""><StatusOrd bryt ton="orange" ord={`Det saknas ca ${fmt(behov.saknas)} m³ · lägg in en ny trakt`} /></div></Sektion>
       )}
       {behov.inte.length > 0 && (
         <Sektion rubrik={`Behövs inte i ${manadNamn}`} not={kanFlytta && flyttbara.length > 0 ? `Välj vilka som ska flyttas till ${nastaNamn}. De som redan är påbörjade går inte att flytta här.` : undefined}>
@@ -585,13 +594,23 @@ export function BehovSheet({ open, onClose, namn, behov, takt, nastaNamn, manadN
           {lage.fel && <p role="status" style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.m }}>{lage.fel}</p>}
         </>
       )}
-    </Sheet>
+    </>
   )
 }
 
-/** Skotarens ark: vilka trakter som skotas för beställningen (bara trakter MED skotare räknas — en trakt utan maskin körs inte), vilka som saknar skotare (tryck = välj) och vilka som kan vänta. Admin ändrar ordning och maskin. */
-export function SkotSheet({ onClose, namn, skot, takt, onTrakt, ordning }: { onClose: () => void; namn: string; skot: TavlaSkot; takt?: TavlaTakt | null; onTrakt?: (v: TraktVal) => void; ordning?: OrdningsStyrning }) {
+export function BehovSheet(p: BehovProps & { open: boolean }) {
   const panelBredd = useTraktPanelBredd()
+  if (!p.open) return null
+  const rubrik = p.behov.behov > 0 ? `${p.namn} behöver ${fmt(p.behov.behov)} m³ till` : `${p.namn} är klar med beställningen`
+  return <Sheet open onClose={p.onClose} title={rubrik} panelBredd={panelBredd}><BehovInnehall {...p} /></Sheet>
+}
+
+/** Skotarens ark: vilka trakter som skotas för beställningen (bara trakter MED skotare räknas — en trakt utan maskin körs inte), vilka som saknar skotare (tryck = välj) och vilka som kan vänta. Admin ändrar ordning och maskin. */
+const skotRubrik = (namn: string, skot: TavlaSkot) => (skot.behov > 0 ? `${namn} · skotaren behöver ${fmt(skot.behov)} m³ till` : `${namn} · skotaren är klar med beställningen`)
+
+type SkotProps = { onClose: () => void; namn: string; skot: TavlaSkot; takt?: TavlaTakt | null; onTrakt?: (v: TraktVal) => void; ordning?: OrdningsStyrning; utanBar?: boolean; synligRubrik?: boolean }
+
+function SkotInnehall({ namn, skot, takt, onTrakt, ordning, utanBar, synligRubrik }: SkotProps) {
   const skotas = skot.rader.filter(r => r.maskin != null && r.behovs > 0)
   const utan = skot.rader.filter(r => r.maskin == null)
   const inte = skot.rader.filter(r => r.maskin != null && r.behovs <= 0)
@@ -599,7 +618,8 @@ export function SkotSheet({ onClose, namn, skot, takt, onTrakt, ordning }: { onC
   // Ordning: bland dem med skotare (skotas + kan vänta) och bland dem utan, var för sig.
   const medGrupp = [...skotas, ...inte].filter(t => !t.fast).map(t => t.objekt_id)
   const utanGrupp = utan.filter(t => !t.fast).map(t => t.objekt_id)
-  const nr = new Map(skot.rader.map((t, i) => [t.objekt_id, i + 1]))
+  // Numren räknas i varje lista för sig (de med skotare, de utan), så första raden alltid är 1.
+  const nr = new Map([...[...skotas, ...inte].map((t, i) => [t.objekt_id, i + 1] as const), ...utan.map((t, i) => [t.objekt_id, i + 1] as const)])
   const rad = (t: TavlaSkot['rader'][number], i: number, typ: 'skotas' | 'utan' | 'inte') => (
     <div key={t.objekt_id} style={{ borderTop: i > 0 ? LINJE : 'none' }} data-skot-rad={t.objekt_id}>
       <OrdnadTraktRad id={t.objekt_id} nr={nr.get(t.objekt_id) ?? i + 1} namn={t.namn} maskin={t.maskin} ingen="Ingen skotare" ton={typ === 'inte' ? 'dampad' : 'full'} tal={typ === 'skotas' ? t.behovs : t.kvar}
@@ -612,9 +632,10 @@ export function SkotSheet({ onClose, namn, skot, takt, onTrakt, ordning }: { onC
     ? `Det saknas ca ${fmt(skot.saknas)} m³ · välj skotare på trakterna ovan`
     : `Det saknas ca ${fmt(skot.saknas)} m³ · välj skotare ovan och lägg in en ny trakt`
   return (
-    <Sheet open onClose={onClose} panelBredd={panelBredd} title={skot.behov > 0 ? `${namn} · skotaren behöver ${fmt(skot.behov)} m³ till` : `${namn} · skotaren är klar med beställningen`}>
+    <>
+      {synligRubrik && <h2 style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.rubrik, color: FARG.text }}>{skotRubrik(namn, skot)}</h2>}
       <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px` }} data-skot-under="">Beställt {fmt(skot.bestallt)} · skotat {fmt(skot.nu)}. {skot.behov > 0 ? under : ''}</p>
-      {ordning && <OrdningsBar st={ordning} primar />}
+      {ordning && !utanBar && <OrdningsBar st={ordning} primar />}
       {takt && (
         <Sektion rubrik="Takten" not={takt.hinner === false && takt.fattasDagar != null ? `Hålls takten fattas ca ${Math.max(1, Math.round(takt.fattasDagar))} arbetsdagar. ${takt.dagarKvar} arbetsdagar kvar i månaden.` : `${takt.dagarKvar} arbetsdagar kvar i månaden.`}>
           <div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-takt-ark="">
@@ -630,8 +651,56 @@ export function SkotSheet({ onClose, namn, skot, takt, onTrakt, ordning }: { onC
           <div data-skot-utan="">{utan.map((t, i) => rad(t, i, 'utan'))}</div>
         </Sektion>
       )}
-      {skot.saknas > 0 && <Sektion rubrik="Saknas"><div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-skot-saknas=""><StatusOrd ton="orange" ord={saknasText} /></div></Sektion>}
+      {skot.saknas > 0 && <Sektion rubrik="Saknas"><div style={{ minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center' }} data-skot-saknas=""><StatusOrd bryt ton="orange" ord={saknasText} /></div></Sektion>}
       {inte.length > 0 && <Sektion rubrik="Behövs inte i månaden"><div data-skot-inte="">{inte.map((t, i) => rad(t, i, 'inte'))}</div></Sektion>}
-    </Sheet>
+    </>
+  )
+}
+
+export function SkotSheet(p: SkotProps) {
+  const panelBredd = useTraktPanelBredd()
+  return <Sheet open onClose={p.onClose} panelBredd={panelBredd} title={skotRubrik(p.namn, p.skot)}><SkotInnehall {...p} /></Sheet>
+}
+
+/** Planera: en hel sida för ett spår. Skördare och skotare sida vid sida, samma trakter, ordning och maskin ändras direkt på raden. */
+export function PlaneraSida({ spar, manadNamn, nastaNamn, kanFlytta, onFlytta, ordning, onTrakt, onTillbaka }: {
+  spar: TavlaSpar; manadNamn: string; nastaNamn: string; kanFlytta: boolean
+  onFlytta: (objektIds: string[]) => Promise<string | null>
+  ordning?: OrdningsStyrning; onTrakt?: (v: TraktVal) => void; onTillbaka: () => void
+}) {
+  const skord = spar.racker.find(r => r.roll === 'skordare') ?? null
+  const skot = spar.racker.find(r => r.roll === 'skotare') ?? null
+  return (
+    <div data-planera={spar.typ}>
+      <button type="button" onClick={onTillbaka} style={{ ...KNAPP.lank, minHeight: TRAFFYTA.min, padding: 0, display: 'flex', alignItems: 'center', gap: AVSTAND.xs }} data-planera-tillbaka="">
+        <Ikon namn="chevron_left" farg={FARG.bla} />Tavlan
+      </button>
+      <h1 style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.titel, color: FARG.text }}>{spar.namn}</h1>
+      <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.m }}>Planera trakterna · {manadNamn}</div>
+      <div style={{ marginBottom: AVSTAND.l }} data-planera-svar="">
+        {[skord, skot].filter((r): r is TavlaSpar['racker'][number] => r != null).map(r => (
+          <div key={r.roll} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: TRAFFYTA.min, gap: AVSTAND.m }}>
+            <span style={{ ...TYP.text, color: FARG.text }}>{r.rubrik}</span>
+            <StatusOrd ton={r.ton} ord={r.ord} />
+          </div>
+        ))}
+      </div>
+      {ordning && <OrdningsBar st={ordning} primar />}
+      {/* Raderna i kolumnerna är smala även på bred skärm: SheetLage 'ark' ger dem namn med maskin och tid under. */}
+      <SheetLageContext.Provider value="ark">
+        <div className="hk-plan">
+          {skord?.behov && (
+            <section data-planera-kolumn="skordare" style={{ minWidth: 0 }}>
+              <BehovInnehall onClose={onTillbaka} namn={spar.namn} behov={skord.behov} takt={spar.block[0].takt} nastaNamn={nastaNamn} manadNamn={manadNamn} kanFlytta={kanFlytta} onFlytta={onFlytta} ordning={ordning} onTrakt={onTrakt} utanBar synligRubrik />
+            </section>
+          )}
+          {skot?.skot && (
+            <section data-planera-kolumn="skotare" style={{ minWidth: 0 }}>
+              <SkotInnehall onClose={onTillbaka} namn={spar.namn} skot={skot.skot} takt={spar.block[1].takt} onTrakt={onTrakt} ordning={ordning} utanBar synligRubrik />
+            </section>
+          )}
+        </div>
+      </SheetLageContext.Provider>
+    </div>
   )
 }

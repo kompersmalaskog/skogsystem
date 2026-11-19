@@ -287,6 +287,25 @@ describe('/helikopter — tavlan', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
 
+  it('Planera: skördarens och skotarens rad öppnar SAMMA hela sida med båda kolumnerna, och Tavlan tar tillbaka', async () => {
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
+    await monter()
+    expect(cont.querySelector('[data-planera]')).toBeNull()
+    await act(async () => { (cont.querySelector('[data-racker-rad="gallring:skordare"] button') as HTMLButtonElement).click() })
+    const sida = cont.querySelector('[data-planera="gallring"]')
+    expect(sida).not.toBeNull()
+    expect(sida!.querySelector('[data-planera-kolumn="skordare"]')).not.toBeNull()
+    expect(sida!.querySelector('[data-planera-kolumn="skotare"]')).not.toBeNull()
+    // Hela sidan, inte ett ark ovanpå tavlan: tavlans kort är borta och ingen dialog är öppen.
+    expect(cont.querySelector('[data-racker]')).toBeNull()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    // Skotarens rad leder till samma sida.
+    await act(async () => { (sida!.querySelector('[data-planera-tillbaka]') as HTMLButtonElement).click() })
+    expect(cont.querySelector('[data-planera]')).toBeNull()
+    await act(async () => { (cont.querySelector('[data-racker-rad="gallring:skotare"] button') as HTMLButtonElement).click() })
+    expect(cont.querySelector('[data-planera="gallring"]')).not.toBeNull()
+  })
+
   it('Räcker trakterna?: skotarens rad öppnar sina trakter med kvar-volym, vem som tar den och tid', async () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
