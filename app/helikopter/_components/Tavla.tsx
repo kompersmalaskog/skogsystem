@@ -265,6 +265,33 @@ function GorKort({ gor, onTrakt }: { gor: TavlaGor[]; onTrakt?: (v: TraktVal) =>
 }
 
 /** "Räcker trakterna?" — finns det skog nog kvar i inlagda trakter för beställningen? Skild från "hinner maskinen". Skördarens rad öppnar vilka trakter som behövs. */
+/** Trakterna som måste köras för beställningen, direkt under raden: namn, maskin, tid och m³. */
+function MasteTrakter({ r }: { r: TavlaSpar['racker'][number] }) {
+  const rader: { id: string; namn: string; maskin: string | null; dagar: number | null; m3: number }[] = r.roll === 'skordare'
+    ? (r.behov?.behovs ?? []).map(t => ({ id: t.objekt_id, namn: t.namn, maskin: t.maskin, dagar: t.dagar, m3: t.behovs }))
+    : (r.skot?.rader ?? []).filter(t => t.maskin != null && t.behovs > 0).map(t => ({ id: t.objekt_id, namn: t.namn, maskin: t.maskin, dagar: t.dagar == null ? null : t.dagar * (t.behovs / t.kvar), m3: t.behovs }))
+  const utan = r.roll === 'skotare' ? r.skot?.utanSumma ?? 0 : 0
+  if (rader.length === 0 && utan <= 0) return null
+  const dagar = rader.every(t => t.dagar != null) && rader.length > 0 ? rader.reduce((a, t) => a + (t.dagar ?? 0), 0) : null
+  return (
+    <div data-maste={`${r.roll}`} style={{ paddingBottom: AVSTAND.s }}>
+      <div style={{ ...TYP.micro, color: FARG.text2, padding: `${AVSTAND.xs}px 0` }}>
+        Måste {r.roll === 'skordare' ? 'köras' : 'skotas'}{dagar != null ? ` · ${dagarText(dagar)}` : ''}
+      </div>
+      {rader.map(t => (
+        <div key={t.id} data-maste-rad={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: AVSTAND.m, padding: `${AVSTAND.xs}px 0` }}>
+          <span style={{ minWidth: 0 }}>
+            <span style={{ ...TYP.text, color: FARG.text, overflowWrap: 'anywhere' }}>{t.namn}</span>
+            <span style={{ ...TYP.meta, color: FARG.text2, display: 'block' }}>{t.maskin ?? 'Ingen maskin'}{t.dagar != null ? ` · ${dagarText(t.dagar)}` : ' · tid saknas'}</span>
+          </span>
+          <span style={{ ...TYP.text, ...TNUM, color: FARG.text, whiteSpace: 'nowrap' }}>{fmt(t.m3)} m³</span>
+        </div>
+      ))}
+      {utan > 0 && <div style={{ ...TYP.meta, color: FARG.orange, padding: `${AVSTAND.xs}px 0` }}>{fmt(utan)} m³ ligger i trakter utan skotare och skotas inte förrän någon väljs.</div>}
+    </div>
+  )
+}
+
 function RackerKort({ spar, onBehov, onSkot }: { spar: TavlaSpar[]; onBehov?: (typ: TavlaSpar['typ']) => void; onSkot?: (typ: TavlaSpar['typ']) => void }) {
   const rader = spar.flatMap(s => s.racker.map(r => ({ spar: s, r })))
   if (rader.length === 0) return null
@@ -285,6 +312,7 @@ function RackerKort({ spar, onBehov, onSkot }: { spar: TavlaSpar[]; onBehov?: (t
           return (
             <div key={`${s.typ}:${r.roll}`} style={{ borderTop: i > 0 ? LINJE : 'none' }} data-racker-rad={`${s.typ}:${r.roll}`}>
               {kan ? <button type="button" onClick={() => (r.roll === 'skordare' ? onBehov! : onSkot!)(s.typ)} style={KNAPP_RAD} aria-label={`${s.namn}, ${r.rubrik.toLowerCase()}: ${r.ord}. Visa trakterna`}>{inne}</button> : inne}
+              <MasteTrakter r={r} />
             </div>
           )
         })}

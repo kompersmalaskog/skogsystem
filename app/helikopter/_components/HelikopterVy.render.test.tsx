@@ -274,6 +274,19 @@ describe('/helikopter — tavlan', () => {
     expect(sektion('Mer')!.textContent).toContain('Månadsfacit')
   })
 
+  it('Räcker trakterna?: trakterna som måste köras och skotas står direkt på kortet, utan att öppna något', async () => {
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
+    await monter()
+    const skord = cont.querySelector('[data-maste="skordare"]')
+    expect(skord).not.toBeNull()
+    expect(skord!.textContent).toContain('Måste köras')
+    expect(skord!.querySelectorAll('[data-maste-rad]').length).toBeGreaterThan(0)
+    expect(skord!.textContent).toMatch(/m³/)
+    const skot = cont.querySelector('[data-maste="skotare"]')
+    expect(skot == null || skot.textContent!.includes('Måste skotas') || skot.textContent!.includes('utan skotare')).toBe(true)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+  })
+
   it('Räcker trakterna?: skotarens rad öppnar sina trakter med kvar-volym, vem som tar den och tid', async () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
