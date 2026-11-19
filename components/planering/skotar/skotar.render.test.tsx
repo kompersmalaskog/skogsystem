@@ -110,6 +110,7 @@ describe('AndraLassArk', () => {
   it('Smalt | Breddat är en av två: vald följer lasset och ett tryck byter', async () => {
     const onBreddat = vi.fn();
     await rendera(lass(), { onBreddat });
+    expect(q('andra-lass')?.textContent).toContain('Lastrum');
     expect(q('lastrum-smalt')?.getAttribute('aria-checked')).toBe('true');
     expect(q('lastrum-breddat')?.getAttribute('aria-checked')).toBe('false');
     await tryck('lastrum-breddat');
