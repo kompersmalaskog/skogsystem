@@ -75,17 +75,13 @@ const sida = (inner: string) =>
 
 describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chromium i miljön'}`, () => {
   it.skipIf(!CHROMIUM)('ingen sidscroll, inga träffytor under 44 px, talen i raka kolumner', async () => {
-    const rad = '[data-spar="slutavverkning"] [data-rad-vaxla="skotare"]'
-    const maskin = '[data-spar="slutavverkning"] [data-block="skotare"] [data-maskin="A130743"] button'
+    const kort = (typ: string, roll: string) => `[data-lage-kort="${typ}:${roll}"]`
     const vyer = [
       { namn: 'sida', html: await html([]) },
-      { namn: 'gor', html: await html(['[data-gor-rad="utan"] button']) },
-      { namn: 'oppen', html: await html([rad, maskin]) },
-      { namn: 'behov', html: await html(['[data-racker-rad="slutavverkning:skordare"] button']) },
-      { namn: 'behov-ordning', html: await html(['[data-racker-rad="slutavverkning:skordare"] button', '[data-trakt-rad] [data-pil="keyboard_arrow_down"]']) },
-      { namn: 'skot', html: await html(['[data-racker-rad="slutavverkning:skotare"] button']) },
+      { namn: 'behov', html: await html([kort('slutavverkning', 'skordare')]) },
+      { namn: 'behov-ordning', html: await html([kort('slutavverkning', 'skordare'), '[data-trakt-rad] [data-pil="keyboard_arrow_down"]']) },
+      { namn: 'skot', html: await html([kort('slutavverkning', 'skotare')]) },
       { namn: 'manader', html: await html([], 'ar=2026&manad=10&sida=manader') },
-      { namn: 'flytta', html: await html([rad, maskin, '[data-spar="slutavverkning"] [data-block="skotare"] [data-trakt]']) },
     ]
     const b = await CHROMIUM!.launch({})
     const skriv = process.env.TAVLA_SKRIV
@@ -109,22 +105,13 @@ describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chro
             .filter(e => (e as HTMLElement).offsetParent !== null)
             .map(e => ({ t: (e.textContent || e.getAttribute('aria-label') || '?').trim().slice(0, 24), h: Math.round(e.getBoundingClientRect().height) }))
             .filter(x => x.h + 0.5 < min),
-          // Högerkanten på alla Nu-tal i ett block ska vara densamma (kolumnen står rak).
-          sneda: Array.from(document.querySelectorAll('[data-block]')).map(bl => {
-            const x = Array.from(bl.querySelectorAll('[data-nu]')).map(e => Math.round(e.getBoundingClientRect().right))
-            return new Set(x).size
-          }).filter(n => n > 1).length,
-          utanfor: Array.from(document.querySelectorAll('[data-spar] *')).filter(e => e.getBoundingClientRect().right > window.innerWidth + 0.5).length,
-          // Inget i kortet får sticka ut förbi stapelns högerkant (rubriken "Månadens slut" gjorde det innan den bröts på två rader).
-          forbi: Array.from(document.querySelectorAll('[data-spar]')).map(k => {
-            const h = Math.max(...Array.from(k.querySelectorAll('[data-stapel]')).map(e => e.getBoundingClientRect().right))
-            return Array.from(k.querySelectorAll('span')).filter(e => (e as HTMLElement).offsetParent !== null && e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).textOverflow !== 'ellipsis' || e.getBoundingClientRect().right > h + 1).length
-          }).reduce((a, n) => a + n, 0),
+          utanfor: Array.from(document.querySelectorAll('[data-lage] *, [data-planera] *')).filter(e => e.getBoundingClientRect().right > window.innerWidth + 0.5).length,
+          // Stapeln och ordet står i kortet: inget i ett Läget-kort sticker ut förbi kortets kant.
+          forbi: Array.from(document.querySelectorAll('[data-lage-kort]')).filter(k => Array.from(k.querySelectorAll('span')).some(e => e.getBoundingClientRect().right > k.getBoundingClientRect().right + 0.5 && !e.hasAttribute('data-i-fas'))).length,
         }), TRAFFYTA.min)
         expect(r.sidscroll, `${v.namn} ${s.w}: sidscroll`).toBe(false)
         expect(r.meny.fel, `${v.namn} ${s.w}: menyn`).toBeNull()
         expect(r.sma, `${v.namn} ${s.w}: små träffytor ${JSON.stringify(r.sma)}`).toEqual([])
-        expect(r.sneda, `${v.namn} ${s.w}: sneda kolumner`).toBe(0)
         expect(r.utanfor, `${v.namn} ${s.w}: utanför skärmen`).toBe(0)
         expect(r.forbi, `${v.namn} ${s.w}: text förbi kortets kant`).toBe(0)
         if (skriv) { fs.mkdirSync(skriv, { recursive: true }); await p.screenshot({ path: path.join(skriv, `${v.namn}-${s.w}.png`), fullPage: v.namn !== 'flytta' }) }
