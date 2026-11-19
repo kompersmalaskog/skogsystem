@@ -13106,7 +13106,7 @@ export default function PlannerPage() {
       });
     }
     if (skotarLassAktiv) {
-      g.push({ id: 'skotad-trakt', rubrik: 'Trakten', rader: [{ id: 'registrera-lass', namn: 'Registrera lass', under: 'Där inget avlägg finns – lossar du vid ett avlägg trycker du på Lossa nere vid kartan', typ: 'knapp', onTryck: () => { stangPlus(); skotarLass.registreraLass(); } }, { id: 'fardigskotad', namn: 'Trakten färdigskotad', under: skotarLass.avslut ? 'Redan avslutad' : 'Skotat sätts lika med skördat', typ: 'knapp', onTryck: () => { stangPlus(); setSkotarFardigOppet(true); } }] });
+      g.push({ id: 'skotad-trakt', rubrik: 'Trakten', rader: [{ id: 'registrera-lass', namn: 'Registrera lass', under: 'Där inget avlägg finns – lossar du vid ett avlägg trycker du på Lossa nere vid kartan', typ: 'knapp', onTryck: () => { stangPlus(); skotarLass.registreraLass(); } }, { id: 'lagg-till-lass', namn: 'Lägg till lass i efterhand', under: 'Om du kom på att ett lass inte registrerades', typ: 'knapp', onTryck: () => { stangPlus(); skotarLass.laggTillLass(); } }, { id: 'fardigskotad', namn: 'Trakten färdigskotad', under: skotarLass.avslut ? 'Redan avslutad' : 'Skotat sätts lika med skördat', typ: 'knapp', onTryck: () => { stangPlus(); setSkotarFardigOppet(true); } }] });
     }
     return g;
   };
@@ -15157,6 +15157,7 @@ export default function PlannerPage() {
               <KvarArk
                 kvar={sl.kvar} sammanfattning={sl.sammanfattning} dagens={dagens} idagText={sl.idag.text} vantande={sl.vantande}
                 onLass={(l) => { setSkotarKvarOppet(false); sl.oppnaAndra(l.id); }}
+                onLaggTill={() => { setSkotarKvarOppet(false); sl.laggTillLass(); }}
                 onStang={() => setSkotarKvarOppet(false)}
               />
             )}
