@@ -116,6 +116,8 @@ export function AndraLassArk({ lass, delNr, utkast, avlagg, valbara, alla, onLas
               <StegKnapp tecken="−" etikett={`Ett m³ mindre ${r.namn}`} testid={`minus-${r.nyckel}`} onSteg={() => onRad(r, -1)} />
               <SiffraKnapp varde={heltM3(r.m3)} etikett={r.namn} testid={`andra-siffra-${r.nyckel}`} onOppna={() => setSkriver(r)} />
               <StegKnapp tecken="+" etikett={`Ett m³ mer ${r.namn}`} testid={`plus-${r.nyckel}`} onSteg={() => onRad(r, +1)} />
+              <button type="button" aria-label={`Ta bort ${r.namn}`} data-testid={`ta-bort-${r.nyckel}`} onClick={() => onRad(r, -heltM3(r.m3))}
+                style={{ ...knappStor, width: TRYCK_PX, minWidth: TRYCK_PX, padding: 0, background: 'transparent', color: FARG.rod }}>✕</button>
             </div>
           ))}
 

@@ -118,6 +118,15 @@ describe('AndraLassArk', () => {
     await rendera({ ...lass(), breddat: true });
     expect(q('lastrum-breddat')?.getAttribute('aria-checked')).toBe('true');
   });
+  it('✕ tar bort hela sortimentet (alla m³ på raden) med ett tryck', async () => {
+    const onRad = vi.fn();
+    await rendera(lass(), { onRad });
+    const m3 = lass().delar[0].rader.find((r) => r.nyckel === 'talltimmer')!.m3;
+    await tryck('ta-bort-talltimmer');
+    expect(onRad).toHaveBeenCalledTimes(1);
+    expect(onRad.mock.calls[0][0].nyckel).toBe('talltimmer');
+    expect(onRad.mock.calls[0][1]).toBe(-Math.round(m3));
+  });
   it('Klar är grå utan sortiment/avlägg och aktiv när lasset går att bekräfta', async () => {
     const tomt = lass({ status: 'vantar_forare' }); tomt.delar[0].rader = [];
     await rendera(tomt);
@@ -272,7 +281,7 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
       expect(nio.siffra.shrink).toBe('0'); expect(nio.minus.shrink).toBe('0'); expect(nio.plus.shrink).toBe('0');
       expect(nio.minus.w).toBe('56px'); expect(nio.plus.w).toBe('56px'); expect(nio.minus.h).toBe('56px');
       expect(parseFloat(nio.gap)).toBeGreaterThanOrEqual(12);
-      expect(nio.ordning).toEqual(['namn', 'minus-talltimmer', 'andra-siffra-talltimmer', 'plus-talltimmer']);
+      expect(nio.ordning).toEqual(['namn', 'minus-talltimmer', 'andra-siffra-talltimmer', 'plus-talltimmer', 'ta-bort-talltimmer']);
       expect(nio.tabell).toBe('tabular-nums');
     });
   });

@@ -389,6 +389,14 @@ export function useSkotarLass(i: SkotarLassIn) {
     startaUtkast(a, { lat: a.lat, lng: a.lng });
   }, [startaUtkast]);
 
+  /** Lägg till ett lass i efterhand: ett utkast utan avlägg (föraren väljer det i lasskortet). Inget sparas förrän Klar. */
+  const laggTillLass = useCallback(() => {
+    if (utkastRef.current) return;
+    const p = senastePosRef.current;
+    const a0 = avlaggRef.current[0];
+    startaUtkast(null, p ? { lat: p.lat, lng: p.lng } : a0 ? { lat: a0.lat, lng: a0.lng } : { lat: 0, lng: 0 });
+  }, [startaUtkast]);
+
   /** + › Registrera lass — där inget avlägg finns (eller knappen inte syns): ett utkast vid närmaste avlägg, och finns inget avlägg inom zonen (50 m) frågas "Nytt avlägg här?" —
    *  då läggs avlägget MITT PÅ STOPPET och märks (viaLossaHar). Ett lass kopplat till ett avlägg 200 m bort vore fel. */
   const registreraLass = useCallback(() => {
@@ -425,7 +433,7 @@ export function useSkotarLass(i: SkotarLassIn) {
   const andraLass = andra ? hamtaLass(andra.lassId) : null;
 
   return {
-    provkorLossning, registreraLass, lossaVidAvlagg, lossaKnapp, lossaVal, iZon, utkast, andraLass,
+    provkorLossning, registreraLass, laggTillLass, lossaVidAvlagg, lossaKnapp, lossaVal, iZon, utkast, andraLass,
     lass, avlagg, nyttAvlagg, andra, vantande, skordat, skordatLaddat, ingetSkordat, kvar, sammanfattning, idag, valbara, allaSortiment: sortimentval.alla, sortimentKalla: sortimentval.kalla, lasOmSortiment, avslut, skotningAvslutad,
     oppnaAndra, stangAndra, avbrytAndra, andraRad, valjAvlagg, valjBreddat, strykLass, svaraNyttAvlagg, fardigskotad, laddaOm: ladda,
   };
