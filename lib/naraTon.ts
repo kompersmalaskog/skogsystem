@@ -3,6 +3,9 @@
 // (kraftledning, stenmur …), symboler, högar och larmplatsen ligger ovanpå (lib/lagerOrdning) och är alltid fulla.
 import { FARG } from './design/tokens';
 
+/** AVSTÄNGD (Martin 2026-11-19, Elefanten: "cirklar, mörkare och mörkare – det ska inte vara där"). Tre mörka ringar runt maskinen blev ett mönster att titta på i stället för kartan. Koden finns kvar; slås på här. */
+export const NARA_TON_PA = false;
+
 export const NARA_TON_LAGER = 'skotar-nara-ton';
 export const NARA_TON_KALLA = 'skotar-nara-ton-source';
 export const NARA_TON_FARG = FARG.bg;

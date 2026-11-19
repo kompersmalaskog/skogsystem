@@ -237,7 +237,7 @@ import { LinjeRedList, type RedVal } from '../../components/planering/LinjeRedLi
 import { KORUPP_TYP, KORUPP_KALLA, KORUPP_SPETS_BILD, KORUPP_SPETS_MATT, KORUPP_KANT_LAGER, KORUPP_TRAFF_LAGER, arKorUpp, korUppUr, korUppData, korUppLager, ritaSpetsBild, nyKorUpp, KORUPP_SKAL, korUppText, type KorUppPos, type Skal, type SnappVag } from '../../lib/korUpp'
 import { statusPerVag, korVagUr, tryckPaVag, borjaOm, medKor, foreslaOrdning, nyTackning, laggTillFix, tackningStatus, ordnade, type KorVag, type KorPatchar, type Tackning, type LngLat as KorLngLat } from '../../lib/korordning'
 import { KorordningPanel, type KorRad } from '../../components/planering/KorordningPanel'
-import { NARA_FLYTT_M, NARA_TON_FARG, NARA_TON_KALLA, NARA_TON_LAGER, meterMellan, naraTonYta } from '../../lib/naraTon'
+import { NARA_FLYTT_M, NARA_TON_PA, NARA_TON_FARG, NARA_TON_KALLA, NARA_TON_LAGER, meterMellan, naraTonYta } from '../../lib/naraTon'
 import { UTANFOR_TON_FARG, UTANFOR_TON_OPACITET, UTANFOR_TON_PA, tonPaint, UTANFOR_TON_LAGER, UTANFOR_TON_KALLA, INGEN_TON, byggTonYta, traktPolygoner, tonPolygonerMedEgna } from '../../lib/traktTon'
 import { PLANSPAR_LAGER, PLANSPAR_NYCKEL, planSparPa, vaxlaPlanSpar } from '../../lib/planSparLager'
 import { KLART_FARG, KLART_YTA_KANT_BREDD, KLART_YTA_KANT_OPACITET, KLART_KALLA, KLART_KANT_LAGER, INGA_YTOR, skotadeYtor } from '../../lib/kartKlart'
@@ -9476,7 +9476,7 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    const pos = skotarKorvy && currentPosition ? { lat: currentPosition.lat, lng: currentPosition.lon } : null;
+    const pos = NARA_TON_PA && skotarKorvy && currentPosition ? { lat: currentPosition.lat, lng: currentPosition.lon } : null;
     try {
       if (!map.getSource(NARA_TON_KALLA)) map.addSource(NARA_TON_KALLA, { type: 'geojson', data: naraTonYta(null) });
       if (!map.getLayer(NARA_TON_LAGER)) map.addLayer({ id: NARA_TON_LAGER, type: 'fill', source: NARA_TON_KALLA, paint: { 'fill-color': NARA_TON_FARG, 'fill-opacity': ['get', 'op'] } });

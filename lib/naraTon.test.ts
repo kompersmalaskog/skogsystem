@@ -33,3 +33,12 @@ describe('nära-tonen i lagerordningen', () => {
     expect(ton).toBeLessThan(r('larm-pin', 'symbol'));
   });
 });
+
+import { NARA_TON_PA } from './naraTon';
+import { readFileSync } from 'node:fs';
+describe('nedtoningen runt maskinen är avstängd (Martin 2026-11-19)', () => {
+  it('flaggan är av och sidan ritar ingen ring utan den', () => {
+    expect(NARA_TON_PA).toBe(false);
+    expect(readFileSync('app/planering/page.tsx', 'utf8')).toContain('const pos = NARA_TON_PA && skotarKorvy && currentPosition');
+  });
+});
