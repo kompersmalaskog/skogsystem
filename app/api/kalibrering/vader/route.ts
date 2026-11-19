@@ -4,7 +4,7 @@ import { kravInloggad } from "@/lib/auth/server";
 import { lasVaderLage, type VaderSvar } from "@/lib/kalibrering/vaderServer";
 
 /**
- * GET /api/kalibrering/vader?maskin_id=X — vädret vid maskinen nu och vid senaste kontrollen (SMHI:s närmaste station), för Läget › Kontrollerna.
+ * GET /api/kalibrering/vader?maskin_id=X — vädret vid maskinen nu och när den slutade förra arbetsdagen (SMHI:s närmaste station), för Läget › Kontrollerna.
  * Alla inloggade (förarna ska se det). Regeln i lib/kalibrering/vaderOmslag, läsningen i lib/kalibrering/vaderServer (samma som pushen).
  */
 export const runtime = "nodejs";

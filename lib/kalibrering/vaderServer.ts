@@ -1,21 +1,20 @@
 /**
- * Väderkollen på servern: "har vädret ändrat sig sedan senaste kontrollen?" (lib/kalibrering/vaderOmslag har regeln).
+ * Väderkollen på servern: "har vädret slagit om sedan maskinen körde senast?" (lib/kalibrering/vaderOmslag har regeln).
  * EN läsning (`lasVaderLage`) för Läget-raden (/api/kalibrering/vader) och pushen `kalib_vader` (/api/notis/flush).
  *
- * Maskinens position = sista hyttspårspunkten (RPC maskin_senaste_position). Senaste kontrollen = senaste operatörsmätningen i
- * detalj_kontroll_stock (Opti-tid via lib/optiTid, aldrig rått). Stationen = närmaste aktiva SMHI-station inom 60 km som har värden.
+ * Maskinens position = sista hyttspårspunkten (RPC maskin_senaste_position). "Då" = när maskinen SLUTADE förra arbetsdagen (senaste hyttspårsraden före
+ * idag, högst en vecka bakåt) — Martin 2026-11-19: inte senaste kontrollen, för har det slagit om under kvällen ska man mäta direkt på morgonen.
+ * Stationen = närmaste aktiva SMHI-station inom 60 km som har värden.
  *
- * Pushen: på MORGONEN när föraren startar (Martin 2026-11-18) — det är vädret som slagit om över natten som ställer till det, och en
- * push mitt på dagen (solen tinar barken och det fryser igen till kvällen) vore tjat. Start = dagens första hyttspårsrad för maskinen
- * (hyttspar.skapad_at, svensk dag); omslaget prövas bara inom START_FONSTER_MS efter starten, högst en push per maskin och dag
+ * Pushen: på MORGONEN när föraren startar — en push mitt på dagen (solen tinar barken och det fryser igen till kvällen) vore tjat. Start = dagens första
+ * hyttspårsrad för maskinen (hyttspar.skapad_at, svensk dag); omslaget prövas bara inom START_FONSTER_MS efter starten, högst en push per maskin och dag
  * (dedup `vader:<maskin>:<dag>`), till förarna med maskinen (medarbetare.maskin_id). Under dagen syns vädret bara i Läget. Köas med skickas_at = 'infinity'
- * (den gamla flushen på production skickar okända typer som en generisk "Notis"). Texten byggs FÄRSKT: inget omslag längre eller en ny
- * kontroll sedan köandet → ingen push, läsfel → uppskjuts, köad för mer än 6 h sedan → hoppas över.
+ * (den gamla flushen på production skickar okända typer som en generisk "Notis"). Texten byggs FÄRSKT: inget omslag längre eller en kontroll gjord sedan
+ * köandet → ingen push, läsfel → uppskjuts, köad för mer än 6 h sedan → hoppas över.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { optiTidUtcMs } from '@/lib/optiTid';
 import { hamtaObservationer, hamtaStationer, narmasteStationer } from '@/lib/smhi-obs';
-import { fmtDagMan } from './datum';
 import { svenskDag } from './matdon';
 import { omslagText, vaderLage, type VaderLage } from './vaderOmslag';
 
@@ -24,27 +23,52 @@ export const arVaderNotis = (typ: unknown): typ is typeof KALIB_VADER => typ ===
 export const VADER_MAX_ALDER_MS = 6 * 3_600_000;
 /** Hur länge efter starten på morgonen omslaget prövas. Efter det är det dag, och då pushar vi inte. */
 export const START_FONSTER_MS = 2 * 3_600_000;
+/** Så långt bakåt letas förra arbetsdagen (en helg och en ledig dag ryms). */
+export const SLUT_MAX_DAGAR = 7;
 const POSITION_MAX_ALDER_MS = 14 * 86_400_000;
 
 export type VaderSvar =
-  | { ok: true; lage: VaderLage; station: string | null; kontrollMs: number | null; kontrollDag: string | null }
+  | {
+    ok: true; lage: VaderLage; station: string | null;
+    /** När maskinen slutade förra arbetsdagen. null = ingen arbetsdag senaste veckan. */
+    slutMs: number | null;
+    /** Senaste kontrollmätningen (operatörens mätning). null = ingen. */
+    kontrollMs: number | null;
+    /** Klockslaget för en kontroll gjord sedan maskinen startade idag (svensk tid). null = ingen idag. */
+    kontrollIdag: string | null;
+  }
   | { ok: false; orsak: 'position' | 'station' | 'las'; fel?: string };
 
-/** Senaste kontrollens tid (ms) och kontrollens eget väder (ERA5) som reserv. */
-async function senasteKontroll(sb: SupabaseClient, maskin: string): Promise<{ ms: number | null; temp: number | null } | null> {
-  const r = await sb.from('detalj_kontroll_stock').select('filnamn,operator_measurement_date,tid_ar_utc')
+const klockslag = (ms: number) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+const dagMinus = (dag: string, n: number) => new Date(Date.parse(`${dag}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+
+/** Senaste kontrollmätningens tid (ms). null = ingen; undefined = läsfel. */
+async function senasteKontroll(sb: SupabaseClient, maskin: string): Promise<number | null | undefined> {
+  const r = await sb.from('detalj_kontroll_stock').select('operator_measurement_date,tid_ar_utc')
     .eq('maskin_id', maskin).not('operator_measurement_date', 'is', null)
     .order('operator_measurement_date', { ascending: false }).limit(50);
-  if (r.error) return null;
-  let bast: { ms: number; filnamn: string } | null = null;
-  for (const x of (r.data ?? []) as { filnamn: string; operator_measurement_date: string; tid_ar_utc: boolean | null }[]) {
+  if (r.error) return undefined;
+  let bast: number | null = null;
+  for (const x of (r.data ?? []) as { operator_measurement_date: string; tid_ar_utc: boolean | null }[]) {
     const ms = optiTidUtcMs(x.operator_measurement_date, x.tid_ar_utc);
-    if (ms != null && (!bast || ms > bast.ms)) bast = { ms, filnamn: x.filnamn };
+    if (ms != null && (bast == null || ms > bast)) bast = ms;
   }
-  if (!bast) return { ms: null, temp: null };
-  const k = await sb.from('fakt_kalibrering').select('weather_at_harvest').eq('filnamn', bast.filnamn).limit(1);
-  const w = (k.data?.[0] as { weather_at_harvest?: { temperature_c?: number | null } | null } | undefined)?.weather_at_harvest;
-  return { ms: bast.ms, temp: typeof w?.temperature_c === 'number' ? w.temperature_c : null };
+  return bast;
+}
+
+/** När maskinen slutade förra arbetsdagen: sista skrivningen i hyttspåret en dag före idag (högst SLUT_MAX_DAGAR bakåt). null = ingen; undefined = läsfel. */
+export async function slutForraDagen(sb: SupabaseClient, maskin: string, nu: Date): Promise<number | null | undefined> {
+  const idag = svenskDag(nu.toISOString());
+  const r = await sb.from('hyttspar').select('skapad_at,uppdaterad_at').eq('maskin_id', maskin)
+    .lt('datum', idag).gte('datum', dagMinus(idag, SLUT_MAX_DAGAR))
+    .order('datum', { ascending: false }).limit(50);
+  if (r.error) return undefined;
+  let bast: number | null = null;
+  for (const x of (r.data ?? []) as { skapad_at: string | null; uppdaterad_at: string | null }[]) {
+    const ms = Date.parse(x.uppdaterad_at ?? x.skapad_at ?? '');
+    if (Number.isFinite(ms) && ms < nu.getTime() && (bast == null || ms > bast)) bast = ms;
+  }
+  return bast;
 }
 
 export async function lasVaderLage(sb: SupabaseClient, maskin: string, nu = new Date(), hamta: typeof fetch = fetch): Promise<VaderSvar> {
@@ -54,20 +78,19 @@ export async function lasVaderLage(sb: SupabaseClient, maskin: string, nu = new 
     .find(x => x.maskin_id === maskin && x.lat != null && x.lng != null);
   if (!p || (p.tid && nu.getTime() - Date.parse(p.tid) > POSITION_MAX_ALDER_MS)) return { ok: false, orsak: 'position' };
 
-  const kontroll = await senasteKontroll(sb, maskin);
-  if (!kontroll) return { ok: false, orsak: 'las', fel: 'kontroller' };
+  const [kontrollMs, slutMs, startMs] = await Promise.all([senasteKontroll(sb, maskin), slutForraDagen(sb, maskin, nu), startIdag(sb, maskin, nu)]);
+  if (kontrollMs === undefined) return { ok: false, orsak: 'las', fel: 'kontroller' };
+  if (slutMs === undefined || startMs === undefined) return { ok: false, orsak: 'las', fel: 'hyttspar' };
+  const kontrollIdag = kontrollMs != null && startMs != null && kontrollMs >= startMs ? klockslag(kontrollMs) : null;
 
   const stationer = await hamtaStationer(hamta, nu.getTime());
   if (!stationer) return { ok: false, orsak: 'station' };
   for (const s of narmasteStationer({ lat: p.lat!, lon: p.lng! }, stationer).slice(0, 3)) {
     const obs = await hamtaObservationer(s.key, hamta, nu.getTime());
     if (!obs) continue;
-    const lage = vaderLage({ obs, kontrollMs: kontroll.ms, kontrollTemp: kontroll.temp, nuMs: nu.getTime() });
+    const lage = vaderLage({ obs, slutMs, nuMs: nu.getTime() });
     if (lage.nu == null) continue; // stationen har inga färska värden — prova nästa
-    return {
-      ok: true, lage, station: s.namn, kontrollMs: kontroll.ms,
-      kontrollDag: kontroll.ms != null ? fmtDagMan(svenskDag(new Date(kontroll.ms).toISOString())) : null,
-    };
+    return { ok: true, lage, station: s.namn, slutMs, kontrollMs, kontrollIdag };
   }
   return { ok: false, orsak: 'station' };
 }
@@ -110,10 +133,10 @@ export async function byggVaderNotis(
   const d = await hamta(maskin);
   if (!d || (!d.svar.ok && d.svar.orsak === 'las')) return { typ: 'uppskjut' };
   if (!d.svar.ok) return { typ: 'hoppa_over', orsak: 'Ej skickad — vädret går inte att läsa för maskinen' };
-  const koadKontroll = typeof n.payload?.kontroll_ms === 'number' ? n.payload.kontroll_ms : null;
-  if (koadKontroll != null && d.svar.kontrollMs != null && d.svar.kontrollMs > koadKontroll) return { typ: 'hoppa_over', orsak: 'Ej skickad — en ny kontroll är gjord' };
-  const text = omslagText(d.namn, d.svar.lage, d.svar.kontrollDag);
-  if (!text) return { typ: 'hoppa_over', orsak: 'Ej skickad — vädret är som vid senaste kontrollen igen' };
+  const koadMs = typeof n.payload?.koad_ms === 'number' ? n.payload.koad_ms : (Number.isFinite(koad) ? koad : null);
+  if (koadMs != null && d.svar.kontrollMs != null && d.svar.kontrollMs > koadMs) return { typ: 'hoppa_over', orsak: 'Ej skickad — en kontroll är gjord' };
+  const text = omslagText(d.namn, d.svar.lage, d.svar.slutMs, nu.getTime());
+  if (!text) return { typ: 'hoppa_over', orsak: 'Ej skickad — vädret är som när maskinen slutade igen' };
   return { typ: 'skicka', meddelande: { ...text, url: `/kalibrering?maskin=${encodeURIComponent(maskin)}`, tag: n.dedup_nyckel ?? `vader:${maskin}` } };
 }
 
@@ -153,7 +176,7 @@ export async function koaVaderOmslag(sb: SupabaseClient, nu: Date = new Date(), 
     let svar: VaderSvar;
     try { svar = await lasVaderLage(sb, maskin, nu, hamta); } catch (e) { fel.push(`${maskin}: ${(e as Error).message}`); continue; }
     if (!svar.ok) { if (svar.orsak === 'las') fel.push(`${maskin}: ${svar.fel}`); continue; }
-    if (!svar.lage.omslag || svar.kontrollMs == null || svar.lage.nu == null) continue;
+    if (!svar.lage.omslag || svar.slutMs == null || svar.lage.nu == null || svar.kontrollIdag) continue;
 
     const f = await sb.from('medarbetare').select('id, aktiv').eq('maskin_id', maskin);
     if (f.error) { fel.push(`${maskin}: ${f.error.message}`); continue; }
@@ -161,7 +184,7 @@ export async function koaVaderOmslag(sb: SupabaseClient, nu: Date = new Date(), 
     if (mottagare.length === 0) continue;
 
     const ins = await sb.from('notis_kö')
-      .upsert(mottagare.map(x => ({ mottagare_id: x.id, typ: KALIB_VADER, payload: { maskin_id: maskin, kontroll_ms: svar.kontrollMs }, skickas_at: 'infinity', dedup_nyckel: dedup })),
+      .upsert(mottagare.map(x => ({ mottagare_id: x.id, typ: KALIB_VADER, payload: { maskin_id: maskin, koad_ms: nu.getTime() }, skickas_at: 'infinity', dedup_nyckel: dedup })),
         { onConflict: 'typ,mottagare_id,dedup_nyckel', ignoreDuplicates: true })
       .select('dedup_nyckel');
     if (ins.error) { fel.push(`${maskin}: ${ins.error.message}`); continue; }
