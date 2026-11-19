@@ -34,4 +34,29 @@ describe('Hem-knappen', () => {
     // och med flaggan satt gäller inget startbeslut på "/"
     expect(startbeslutGaller({ pathname: '/', menyParam: false, menyValdISessionen: true, appStartSettRedan: true })).toBe(false);
   });
+  it('på en maskindator (vald maskin) går hem till maskinlådan över kartan, inte till helsidan', () => {
+    localStorage.setItem('enhet_maskin_id', 'A130743');
+    const assign = vi.fn();
+    const orig = window.location;
+    Object.defineProperty(window, 'location', { value: { ...orig, assign }, writable: true, configurable: true });
+    const a = Array.from(container.querySelectorAll('a')).find((x) => x.getAttribute('href') === '/')!;
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+    act(() => { a.dispatchEvent(ev); });
+    expect(ev.defaultPrevented).toBe(true);
+    expect(assign).toHaveBeenCalledWith('/planering?maskinmeny=1');
+    Object.defineProperty(window, 'location', { value: orig, writable: true, configurable: true });
+    localStorage.clear();
+  });
+  it('admin som testar som en maskin (/maskin?som=) går hem till maskinlådan i testläget', () => {
+    sessionStorage.setItem('maskin_som_session_v1', 'A130743');
+    const assign = vi.fn();
+    const orig = window.location;
+    Object.defineProperty(window, 'location', { value: { ...orig, assign }, writable: true, configurable: true });
+    const a = Array.from(container.querySelectorAll('a')).find((x) => x.getAttribute('href') === '/')!;
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+    act(() => { a.dispatchEvent(ev); });
+    expect(ev.defaultPrevented).toBe(true);
+    expect(assign).toHaveBeenCalledWith('/maskin?som=A130743&maskinmeny=1');
+    Object.defineProperty(window, 'location', { value: orig, writable: true, configurable: true });
+  });
 });
