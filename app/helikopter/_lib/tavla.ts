@@ -419,7 +419,7 @@ export function byggTavla(d: TavlaIndata): Tavla {
       const takt = taktKrav(s.bestallt, nu, d.status, klar, roll, ids.map(id => (koer.get(id) ?? []).filter(raknas)))
       return { roll, rubrik: roll === 'skordare' ? 'Skördat' : 'Skotat', maskiner, utan, markagare, nu, landar, ca, takt, ...dom(roll, landar, nu, s.bestallt, ca, d.status) }
     }) as [TavlaBlock, TavlaBlock]
-    return { typ: s.typ, namn: TYP_NAMN[s.typ], bestallt: s.bestallt, block, racker: racker(s.typ, s.bestallt, block, trakter, d.status, klar != null, new Map([...koer.values()].flat().filter(r => r.trakt.roll === 'skordare').map(r => [r.trakt.objekt_id, r])), new Map([...koer.values()].flat().filter(r => r.trakt.roll === 'skotare').map(r => [r.trakt.objekt_id, r])), new Map((klar?.maskiner ?? []).map(m => [m.maskin_id, m.namn]))), kvarISkogen: Math.round(oskotatKvar(s)) }
+    return { typ: s.typ, namn: TYP_NAMN[s.typ], bestallt: s.bestallt, block, racker: racker(s.typ, s.bestallt, block, trakter, d.egna, d.status, klar != null, new Map([...koer.values()].flat().filter(r => r.trakt.roll === 'skordare').map(r => [r.trakt.objekt_id, r])), new Map([...koer.values()].flat().filter(r => r.trakt.roll === 'skotare').map(r => [r.trakt.objekt_id, r])), new Map((klar?.maskiner ?? []).map(m => [m.maskin_id, m.namn]))), kvarISkogen: Math.round(oskotatKvar(s)) }
   })
 
   const ovrigt: TavlaOvrig[] = (klar?.maskiner ?? [])
@@ -449,16 +449,21 @@ function taktKrav(bestallt: number, nu: number, status: ManadStatus, klar: KlarD
   return { kravs, nu: tot, dagarKvar, ca, hinner, fattasDagar: hinner ? null : behov / tot - dagarKvar }
 }
 
-/** Räcker trakterna: det som är gjort + det som är kvar i inlagda trakter, mot beställt. Skotaren räknar inte egen skotning (den är inte vår). */
-function racker(typ: Typ, bestallt: number, block: TavlaBlock[], trakter: KlarTrakt[], status: ManadStatus, harKo: boolean, koPerTrakt: Map<string, KoRad>, skotKo: Map<string, KoRad>, maskinNamn: Map<string, string>): TavlaRacker[] {
+/** Räcker trakterna: det som är gjort + det som är kvar i inlagda trakter, mot beställt.
+ *  Egen skotning räknas åt BÅDA håll (Martin 2026-11-19): markägaren skotar det vi fäller, så trakten är skotad i månaden. Skotaren får därför
+ *  trakten med i sin lista som "Egen skotning" (skördarens kvar och tid) — annars sa skotaren "saknar 659" medan skördaren hade 751 för mycket. */
+function racker(typ: Typ, bestallt: number, block: TavlaBlock[], trakter: KlarTrakt[], egna: ReadonlySet<string>, status: ManadStatus, harKo: boolean, koPerTrakt: Map<string, KoRad>, skotKo: Map<string, KoRad>, maskinNamn: Map<string, string>): TavlaRacker[] {
   if (bestallt <= 0 || status === 'avslutad' || !harKo) return []
   return block.map((b): TavlaRacker => {
-    const lista = trakter.filter(t => t.typ === typ && t.roll === b.roll)
+    const egnaTrakter = b.roll === 'skotare' ? trakter.filter(t => t.typ === typ && t.roll === 'skordare' && egna.has(t.objekt_id)).map((t): KlarTrakt => ({ ...t, roll: 'skotare', maskin_id: EGEN_SKOTNING, rest_volym: kvarVolym(t) })) : []
+    const lista = [...trakter.filter(t => t.typ === typ && t.roll === b.roll), ...egnaTrakter]
     const kvar = lista.reduce((a, t) => a + kvarVolym(t), 0)
     const diff = Math.round(b.nu + kvar - bestallt)
     const rubrik = b.roll === 'skordare' ? 'Skördare' : 'Skotare'
     const behov = b.roll === 'skordare' ? behovLista(lista, bestallt, b.nu, koPerTrakt, maskinNamn) : null
-    const skot = b.roll === 'skotare' ? skotLista(lista, bestallt, b.nu, skotKo, maskinNamn) : null
+    const skot = b.roll === 'skotare'
+      ? skotLista(lista, bestallt, b.nu, new Map([...skotKo, ...egnaTrakter.flatMap(t => { const r = koPerTrakt.get(t.objekt_id); return r ? [[t.objekt_id, r] as const] : [] })]), new Map([...maskinNamn, [EGEN_SKOTNING, 'Egen skotning']]))
+      : null
     if (diff < 0) return { roll: b.roll, rubrik, diff, ord: `Saknar ${fmt(-diff)}`, ton: 'orange', behov, skot }
     if (diff > bestallt * FOR_MYCKET) return { roll: b.roll, rubrik, diff, ord: `${fmt(diff)} för mycket`, ton: 'dampad', behov, skot }
     return { roll: b.roll, rubrik, diff, ord: 'Räcker', ton: 'gron', behov, skot }
