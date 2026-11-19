@@ -138,7 +138,7 @@ import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunk
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
-import { MASKIN_PIL_BILD, MASKIN_PIL_BILD_GRA, MASKIN_PIL_BILD_GUL, maskinPilLage, MASKIN_PIL_PIXELRATIO, MASKIN_PIL_PX, MASKIN_PIL_UTTRYCK, maskinPilFarg, maskinPilSvg } from '../../lib/maskinPil'
+import { MASKIN_PIL_BILD, MASKIN_PIL_BILD_GRA, MASKIN_PIL_BILD_ORANGE, maskinPilLage, MASKIN_PIL_PIXELRATIO, MASKIN_PIL_PX, MASKIN_PIL_UTTRYCK, maskinPilFarg, maskinPilSvg } from '../../lib/maskinPil'
 import { TOM_KURS, foljTid, kartRiktning, stegaKurs, type KursLage } from '../../lib/korvyKurs'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
 import { valjObjektForPosition, objektTraffPunkt, objektHuvudtyp, traktgransRingar, arTilldelad, type ObjektForVal } from '../../lib/objektPlats'
@@ -10107,7 +10107,7 @@ export default function PlannerPage() {
 
     // 5) MASKINEN ÄR EN PIL (lib/maskinPil, Martin 2026-11-16): blå pil med vit kant, grå utan färsk GPS. Roterar med kursen (icon-rotate).
     //    Pricken, käglan och det blå strecket framåt är borta – fyra saker sa samma sak.
-    for (const [bild, lage] of [[MASKIN_PIL_BILD, 'bra'], [MASKIN_PIL_BILD_GUL, 'grov'], [MASKIN_PIL_BILD_GRA, 'gammal']] as const) {
+    for (const [bild, lage] of [[MASKIN_PIL_BILD, 'bra'], [MASKIN_PIL_BILD_ORANGE, 'grov'], [MASKIN_PIL_BILD_GRA, 'gammal']] as const) {
       if (map.hasImage(bild)) continue;
       const size = MASKIN_PIL_PX;
       const img = new Image();
@@ -10488,15 +10488,13 @@ export default function PlannerPage() {
     for (const id of layers) {
       try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch {}
     }
-    // ÄNDRING 1: markers-layer pitch/rotation-alignment togglas runtime så symbolerna
-    // står upp i terrängen i körvy ('map') men förblir billboards i planeringsvyn
-    // ('viewport'). Layer-definitionen (rad ~993-1013) lämnas orörd.
+    // Symbolerna är alltid billboards ('viewport'): raka mot skärmen, aldrig på sniskan eller roterade med kartan. Layer-definitionen (rad ~993-1013) lämnas orörd.
     // Edge-case: om markers-layer ännu inte finns (icons laddas async i marker-symbol-
     // setupen) hoppas toggle över — körvy fortsätter med viewport-default tills layern
     // dyker upp och nästa korvyActive-flip applicerar map-alignment.
     try {
       if (map.getLayer('markers-layer')) {
-        const align = korvyActive ? 'map' : 'viewport';
+        const align = 'viewport';   // RAKA symboler överallt (Martin 2026-11-19): 'map' lade dem på sniskan i 3D och snurrade dem med kartan
         map.setLayoutProperty('markers-layer', 'icon-pitch-alignment', align);
         map.setLayoutProperty('markers-layer', 'icon-rotation-alignment', align);
       }
@@ -10612,7 +10610,7 @@ export default function PlannerPage() {
         type: 'FeatureCollection',
         features: [{
           type: 'Feature' as const,
-          properties: { heading: korvyHeading, lage: maskinPilLage({ farsk: gpsFixFarsk || !!testlage, noggrannhetM: gpsKallaTyp === 'geolocation' && !testlage ? gpsAccuracy : null }) },
+          properties: { heading: korvyHeading, lage: maskinPilLage({ farsk: gpsFixFarsk || !!testlage, noggrannhetM: testlage ? null : gpsAccuracy }) },
           geometry: { type: 'Point' as const, coordinates: [pos.lon, pos.lat] },
         }],
       });
