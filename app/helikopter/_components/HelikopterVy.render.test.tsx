@@ -72,6 +72,8 @@ beforeEach(() => {
   ;(flyttaObjekt as unknown as ReturnType<typeof vi.fn>).mockClear()
   for (const f of Object.values(q)) if (typeof f === 'function' && 'mockReset' in f) (f as ReturnType<typeof vi.fn>).mockReset()
   q.params = 'ar=2026&manad=10'
+  // Routern byter adress på riktigt: sidan läser om parametrarna när den ritas om (menyn, Planera).
+  q.replace.mockImplementation((href: string) => { q.params = href.split('?')[1] ?? '' })
   q.hamtaFast.mockResolvedValue({ data: fast, error: null })
   q.hamtaManadsdata.mockResolvedValue({ data: manadsdata(), error: null })
   q.hamtaManuellaMaskiner.mockResolvedValue(new Set())
@@ -89,6 +91,8 @@ beforeEach(() => {
   q.sattEgenSkotning.mockResolvedValue({ error: null })
 })
 afterEach(async () => { await act(async () => { root?.unmount() }); cont?.remove(); root = null })
+/** Routern i testet byter bara q.params; sidan läser dem när den ritas om. */
+async function ritaOm() { await act(async () => { root!.render(<HelikopterVy />) }); for (let i = 0; i < 3; i++) await act(async () => { await Promise.resolve() }) }
 const text = () => cont.textContent ?? ''
 const sektion = (namn: string) => cont.querySelector(`section[aria-label="${namn}"]`) as HTMLElement | null
 
@@ -260,53 +264,78 @@ describe('/helikopter — tavlan', () => {
     expect(cont.querySelector('[data-spar]')).not.toBeNull()
   })
 
-  it('en annan månad: Idag-knappen finns, sidokolumnen länkar månaderna, och en avslutad månad har ingen Månadens slut', async () => {
+  it('en annan månad: Idag-knappen finns, och en avslutad månad har ingen Månadens slut men länk till facit', async () => {
     q.params = 'ar=2026&manad=9'
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
     expect(Array.from(cont.querySelectorAll('button')).some(b => b.textContent === 'Idag')).toBe(true)
-    const vald = cont.querySelector('[data-manad="2026-9"]') as HTMLAnchorElement
-    expect(vald.getAttribute('aria-current')).toBe('page')
-    expect(vald.getAttribute('href')).toBe('/helikopter?ar=2026&manad=9')
-    expect(cont.querySelector('[data-manad="2026-10"]')?.textContent).toContain('pågår')
     expect(cont.querySelector('[data-landar]')).toBeNull()
     expect(q.hamtaKlar).not.toHaveBeenCalled()
     expect(sektion('Mer')!.textContent).toContain('Månadsfacit')
   })
 
-  it('Räcker trakterna?: trakterna som måste köras och skotas står direkt på kortet, utan att öppna något', async () => {
+  it('menyn: tre sidor, Läget nu vald som standard, och ett tryck byter adress med månaden kvar', async () => {
+    await monter()
+    const meny = Array.from(cont.querySelectorAll('[data-meny]')) as HTMLButtonElement[]
+    expect(meny.map(b => b.querySelector('.hk-nav-text')!.textContent)).toEqual(['Läget nu', 'Planera', 'Månader'])
+    expect(meny[0].getAttribute('aria-current')).toBe('page')
+    expect(cont.querySelector('[data-sida="laget"]')).not.toBeNull()
+    await act(async () => { meny[2].click() })
+    expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10&sida=manader', { scroll: false })
+    await ritaOm()
+    expect(cont.querySelector('[data-meny="manader"]')!.getAttribute('aria-current')).toBe('page')
+    await act(async () => { (cont.querySelector('[data-meny="laget"]') as HTMLButtonElement).click() })
+    expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10', { scroll: false })
+  })
+
+  it('Månader: hur gick det? — procenten per månad står på sin egen sida, inte i en sidokolumn', async () => {
+    q.params = 'ar=2026&manad=10&sida=manader'
+    await monter()
+    const sida = cont.querySelector('[data-sida="manader"]')!
+    expect(sida).not.toBeNull()
+    expect(sida.textContent).toMatch(/%/)
+    expect(sida.querySelector('a[href*="/helikopter/manad?"]')).not.toBeNull()
+    expect(cont.querySelector('[data-sida="laget"]')).toBeNull()
+    expect(cont.querySelector('.hk-sida')).toBeNull()
+  })
+
+  it('Läget nu har inga trakt-listor — de bor i Planera — och raderna leder dit', async () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
-    const skord = cont.querySelector('[data-maste="skordare"]')
-    expect(skord).not.toBeNull()
-    expect(skord!.textContent).toContain('Måste köras')
-    expect(skord!.querySelectorAll('[data-maste-rad]').length).toBeGreaterThan(0)
-    expect(skord!.textContent).toMatch(/m³/)
-    const skot = cont.querySelector('[data-maste="skotare"]')
-    expect(skot == null || skot.textContent!.includes('Måste skotas') || skot.textContent!.includes('utan skotare')).toBe(true)
+    expect(cont.querySelector('[data-maste]')).toBeNull()
+    expect(cont.querySelector('[data-racker-rad="gallring:skordare"] button')).not.toBeNull()
+    await act(async () => { (cont.querySelector('[data-racker-rad="gallring:skordare"] button') as HTMLButtonElement).click() })
+    expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10&sida=planera', { scroll: false })
     expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
 
-  it('Planera: skördarens och skotarens rad öppnar SAMMA hela sida med båda kolumnerna, och Tavlan tar tillbaka', async () => {
+  it('Planera: en sida i menyn — spåret och Skördare | Skotare är växlar, och skotarens rad öppnar den på Skotare', async () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
     expect(cont.querySelector('[data-planera]')).toBeNull()
     await act(async () => { (cont.querySelector('[data-racker-rad="gallring:skordare"] button') as HTMLButtonElement).click() })
-    const sida = cont.querySelector('[data-planera="gallring"]')
+    expect(cont.querySelector('[data-meny="planera"]')!.getAttribute('aria-current')).toBe('page')
+    const sida = cont.querySelector('[data-sida="planera"] [data-planera="gallring"]')!
     expect(sida).not.toBeNull()
     // Skördarens rad öppnar sidan på Skördare; Skotare är en växel på samma sida, inte en kolumn bredvid.
-    const flik = (namn: string) => Array.from(sida!.querySelectorAll('[role="tab"]')).find(b => b.textContent === namn) as HTMLButtonElement
+    const flik = (namn: string) => Array.from(sida.querySelectorAll('[role="tab"]')).find(b => b.textContent === namn) as HTMLButtonElement
     expect(flik('Skördare').getAttribute('aria-selected')).toBe('true')
-    expect(sida!.querySelector('[data-planera-svar="skordare"]')).not.toBeNull()
-    expect(sida!.querySelector('[data-planera-svar="skotare"]')).toBeNull()
+    expect(sida.querySelector('[data-planera-svar="skordare"]')).not.toBeNull()
+    expect(sida.querySelector('[data-planera-svar="skotare"]')).toBeNull()
     await act(async () => { flik('Skotare').click() })
     expect(cont.querySelector('[data-planera-svar="skotare"]')).not.toBeNull()
-    // Hela sidan, inte ett ark ovanpå tavlan: tavlans kort är borta och ingen dialog är öppen.
+    // Hela sidan, inte ett ark: tavlans kort är borta, ingen dialog, ingen Tillbaka-knapp (menyn är vägen).
     expect(cont.querySelector('[data-racker]')).toBeNull()
     expect(document.querySelector('[role="dialog"]')).toBeNull()
-    await act(async () => { (cont.querySelector('[data-planera-tillbaka]') as HTMLButtonElement).click() })
+    expect(cont.querySelector('[data-planera-tillbaka]')).toBeNull()
+    // Två spår: en växel överst byter spår.
+    const spar = cont.querySelector('[data-planera-spar]')!
+    await act(async () => { (Array.from(spar.querySelectorAll('[role="tab"]')).find(b => b.textContent === 'Slutavverkning') as HTMLButtonElement).click() })
+    expect(cont.querySelector('[data-planera="slutavverkning"]')).not.toBeNull()
+    // Tillbaka på Läget nu via menyn, och skotarens rad öppnar Planera på Skotare.
+    await act(async () => { (cont.querySelector('[data-meny="laget"]') as HTMLButtonElement).click() })
+    await ritaOm()
     expect(cont.querySelector('[data-planera]')).toBeNull()
-    // Skotarens rad öppnar samma sida, men på Skotare.
     await act(async () => { (cont.querySelector('[data-racker-rad="gallring:skotare"] button') as HTMLButtonElement).click() })
     const sida2 = cont.querySelector('[data-planera="gallring"]')!
     expect(Array.from(sida2.querySelectorAll('[role="tab"]')).find(b => b.textContent === 'Skotare')!.getAttribute('aria-selected')).toBe('true')
@@ -357,7 +386,8 @@ describe('/helikopter — tavlan', () => {
     expect(mock).toHaveBeenCalledTimes(inte.length)
     expect(mock.mock.calls.map(c => c[0]).sort()).toEqual(inte.map(e => e.getAttribute('data-inte-rad')).sort())
     expect(mock.mock.calls[0][1]).toEqual({ ar: 2026, manad: 11 })
-    expect(document.querySelector('[data-behov-under]')).toBeNull()
+    // Efter flytten står man kvar på Planera (menyn är vägen härifrån), inte på en tavla man inte bad om.
+    expect(document.querySelector('[data-sida="planera"] [data-planera]')).not.toBeNull()
   })
   it('ordning: pil ändrar förhandsvisningen, Spara skriver ordningen, Ångra ställer tillbaka', async () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })

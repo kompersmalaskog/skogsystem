@@ -16,10 +16,10 @@ import { hittaChromium } from '../../../lib/testStod/chromium'
 
 const q = vi.hoisted(() => ({
   hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaMaskinLage: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaSkogKort: vi.fn(async () => ({ data: new Map(), error: null })), hamtaPrognosFacit: vi.fn(),
-  tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), hamtaMaskinObjekt: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgetSkordat: vi.fn(async () => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(),
+  tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), hamtaMaskinObjekt: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgetSkordat: vi.fn(async () => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(), params: 'ar=2026&manad=10',
 }))
 vi.mock('../_lib/queries', () => q)
-vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams('ar=2026&manad=10'), useRouter: () => ({ replace: () => {} }) }))
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(q.params), useRouter: () => ({ replace: (href: string) => { q.params = href.split('?')[1] ?? '' } }) }))
 vi.mock('@/lib/CurrentMedarbetareContext', () => ({ useCurrentMedarbetare: () => ({ medarbetare: { id: 'm1', roll: 'admin', maskin_id: null } }) }))
 vi.mock('@/lib/datumLokal', () => ({ ymdLokal: () => '2026-10-17' }))
 
@@ -42,8 +42,9 @@ const data = {
   maskinStopp: [{ maskin_id: 'A130743', namn: 'Elefant 26', roll: 'skotare', stopp_fran: '2026-10-26', stopp_till: '2026-10-30', stopp_orsak: 'ledig:Daniel', stopp_status: 'kommande', stopp_kor_igen: '2026-11-02', stopp_dagar: 5, stopp_dagar_gangna: 0, stopp_dagar_manad: 5, stopp_orsaker_manad: [], oforklarade_datum: [], takt_fran: null }],
 }
 
-async function html(klick: string[]): Promise<string> {
-  for (const f of Object.values(q)) f.mockReset()
+async function html(klick: string[], params = 'ar=2026&manad=10'): Promise<string> {
+  for (const f of Object.values(q)) if (typeof f !== 'string') f.mockReset()
+  q.params = params
   q.hamtaFast.mockResolvedValue({ data: { maskiner: [], senasteData: '2026-10-17T06:00:00Z', avvikelse: [], g15: {} }, error: null })
   q.hamtaManadsdata.mockResolvedValue({ data, error: null })
   q.hamtaPrognosUtfall.mockResolvedValue({ data: [], error: null })
@@ -83,6 +84,7 @@ describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chro
       { namn: 'behov', html: await html(['[data-racker-rad="slutavverkning:skordare"] button']) },
       { namn: 'behov-ordning', html: await html(['[data-racker-rad="slutavverkning:skordare"] button', '[data-trakt-rad] [data-pil="keyboard_arrow_down"]']) },
       { namn: 'skot', html: await html(['[data-racker-rad="slutavverkning:skotare"] button']) },
+      { namn: 'manader', html: await html([], 'ar=2026&manad=10&sida=manader') },
       { namn: 'flytta', html: await html([rad, maskin, '[data-spar="slutavverkning"] [data-block="skotare"] [data-trakt]']) },
     ]
     const b = await CHROMIUM!.launch({})
@@ -93,7 +95,17 @@ describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chro
         await p.setContent(sida(v.html))
         const r = await p.evaluate((min: number) => ({
           sidscroll: document.documentElement.scrollWidth > window.innerWidth,
-          sma: Array.from(document.querySelectorAll('main a, main button, [role="dialog"] button'))
+          // Menyn: från 1000 px en kolumn till vänster som innehållet står till höger om; under det en bottenrad som innehållet har luft ovanför.
+          meny: (() => {
+            const n = document.querySelector('.hk-nav'); const inne = document.querySelector('.hk-innehall'); const sid = document.querySelector('.hk-sidan')
+            if (!n || !inne || !sid) return { fel: 'saknas' }
+            const nr = n.getBoundingClientRect(); const last = Array.from(sid.children).pop()!.getBoundingClientRect()
+            const bred = window.innerWidth >= 1000
+            return bred
+              ? { fel: inne.getBoundingClientRect().left + 0.5 < nr.right ? `innehållet börjar ${Math.round(inne.getBoundingClientRect().left)} men menyn slutar ${Math.round(nr.right)}` : null }
+              : { fel: sid.getBoundingClientRect().bottom - last.bottom + 0.5 < nr.height ? `${Math.round(sid.getBoundingClientRect().bottom - last.bottom)} px luft under innehållet, bottenraden är ${Math.round(nr.height)}` : null }
+          })(),
+          sma: Array.from(document.querySelectorAll('main a, main button, .hk-nav button, [role="dialog"] button'))
             .filter(e => (e as HTMLElement).offsetParent !== null)
             .map(e => ({ t: (e.textContent || e.getAttribute('aria-label') || '?').trim().slice(0, 24), h: Math.round(e.getBoundingClientRect().height) }))
             .filter(x => x.h + 0.5 < min),
@@ -110,6 +122,7 @@ describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chro
           }).reduce((a, n) => a + n, 0),
         }), TRAFFYTA.min)
         expect(r.sidscroll, `${v.namn} ${s.w}: sidscroll`).toBe(false)
+        expect(r.meny.fel, `${v.namn} ${s.w}: menyn`).toBeNull()
         expect(r.sma, `${v.namn} ${s.w}: små träffytor ${JSON.stringify(r.sma)}`).toEqual([])
         expect(r.sneda, `${v.namn} ${s.w}: sneda kolumner`).toBe(0)
         expect(r.utanfor, `${v.namn} ${s.w}: utanför skärmen`).toBe(0)
