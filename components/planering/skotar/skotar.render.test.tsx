@@ -566,7 +566,7 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
     const onB = vi.fn(); const onK = vi.fn();
     await visa(<FardigskotadKort kontroll={stor} klar={false} onKarta={onK} onBekrafta={onB} onAvbryt={vi.fn()} />);
     expect(q('fardigskotad')?.getAttribute('data-fraga')).toBe('ja');
-    expect(q('fardigskotad-text')?.textContent).toMatch(/Enligt skördaren ~130 m³ kvar – Talltimmer ~90, Massaved gran ~40/);
+    expect(q('fardigskotad-text')?.textContent).toMatch(/Enligt skördaren ~127 m³ kvar – Talltimmer ~90, Massaved gran ~37/); // björkmassan (3 m³, ett namn skördaren inte har) dras av granmassan i samma grupp; kubben (5 m³) har ingen grupp att hamna i
     await tryck('fardigskotad-karta'); await tryck('fardigskotad-anda');
     expect(onK).toHaveBeenCalled(); expect(onB).toHaveBeenCalled();
     const litet = farduskotatKontroll(beraknaKvar([{ nyckel: 'talltimmer', namn: 'T', m3: 100 }], [lass({ status: 'bekraftat', delar: [{ ...lass().delar[0], rader: [{ nyckel: 'talltimmer', namn: 'T', m3: 99 }] }] })]));

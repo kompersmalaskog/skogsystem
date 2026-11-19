@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beraknaKvar, harSkordat, datumText, farduskotatKontroll, idagText, klarDatum, kvarSammanfattning, perDag, skalningsfaktorer, snittPerDag } from './kvar';
+import { beraknaKvar, gruppAvNamn, harSkordat, datumText, farduskotatKontroll, idagText, klarDatum, kvarSammanfattning, perDag, skalningsfaktorer, snittPerDag } from './kvar';
 import { lassTotalM3 } from './lassModell';
 import type { Lass } from './typer';
 
@@ -126,5 +126,33 @@ describe('harSkordat', () => {
     expect(harSkordat([])).toBe(false);
     expect(harSkordat([S('tall', 0), S('massa', 0)])).toBe(false);
     expect(harSkordat([S('tall', 0), S('massa', 0.4)])).toBe(true);
+  });
+});
+
+describe('kvar: lass rapporterade på ett namn skördaren inte har (Edestad 2026-11-18)', () => {
+  const skordat = [S('timmer: vislanda_195_1-2_v3', 371.7), S('massa: bmavfall_v3', 131.9), S('kubb: alvesta305_v3', 65.6)].map((x, i) => ({ ...x, namn: ['Timmer: Vislanda_195_1-2_V3', 'Massa: BmavFall_V3', 'Kubb: Alvesta305_V3'][i] }));
+  it('"Gran timmer · Urshult" dras av skördarens timmer, så Kvar sjunker', () => {
+    const k = beraknaKvar(skordat, [lass('d', [['gran timmer · urshult', 312]])]);
+    expect(k.rader.find((r) => r.nyckel.startsWith('timmer'))).toMatchObject({ skotat: 312, kvar: 371.7 - 312 });
+    expect(k.rader.find((r) => r.nyckel.startsWith('massa'))!.skotat).toBe(0);
+    expect(Math.round(k.kvarTotal * 10) / 10).toBe(Math.round((569.2 - 312) * 10) / 10 + 0);
+  });
+  it('en exakt träff räknas som förut, och överskottet i en grupp flyttas aldrig till en annan', () => {
+    const k = beraknaKvar(skordat, [lass('d', [['gran timmer · urshult', 400], ['massa: bmavfall_v3', 16]])]);
+    expect(k.rader.find((r) => r.nyckel.startsWith('timmer'))).toMatchObject({ skotat: 371.7, kvar: 0 });
+    expect(k.rader.find((r) => r.nyckel.startsWith('massa'))).toMatchObject({ skotat: 16 });
+    expect(k.rader.find((r) => r.nyckel.startsWith('kubb'))!.skotat).toBe(0);
+  });
+  it('gruppen avgörs ur namnet', () => {
+    expect(['Timmer: X', 'Gran timmer · Urshult', 'Massa: BmavFall_V3', 'Kubb: Alvesta305_V3', 'Energi: Engved', 'Okänt'].map(gruppAvNamn)).toEqual(['timmer', 'timmer', 'massa', 'kubb', 'energi', null]);
+  });
+});
+
+describe('kvar: namn utan grupp som är lika räknas inte som samma sortiment', () => {
+  it('"Kubb: Tall_V3" dras inte av "Timmer: Tall_V3"', () => {
+    const l = lass('d', [['x', 1]]);
+    const kubb: Lass = { ...l, delar: [{ ...l.delar[0], rader: [{ nyckel: 'tallkubb', namn: 'Kubb: Tall_V3', m3: 5 }] }] };
+    const k = beraknaKvar([{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 100 }], [kubb]);
+    expect(k.rader[0]).toMatchObject({ skotat: 0, kvar: 100 });
   });
 });

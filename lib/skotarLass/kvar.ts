@@ -6,7 +6,7 @@
 // de som är struken räknas aldrig, och inte heller de som den gamla självbekräftelsen satte (bekraftad_av 'auto') förrän en planerare granskat dem. Kvar blir aldrig negativt: skotat mer än skördat på ett sortiment är "klart", aldrig "X över".
 import { arOklassat, sortimentNyckel, type SkordatSortiment } from './sortiment';
 import { heltM3, lassTotalM3, raknasSomSkotat } from './lassModell';
-import { appStartPerMaskin, fordelaOpti, optiPerDag, raknadeOptiLass, type OptiLass } from './opti';
+import { appStartPerMaskin, fordelaOpti, namnNyckel, optiPerDag, raknadeOptiLass, type OptiLass } from './opti';
 import type { Lass } from './typer';
 
 export interface KvarSortiment {
@@ -55,15 +55,63 @@ export function skotatPerSortiment(lass: readonly Lass[]): Map<string, { namn: s
   return per;
 }
 
+/** Sortimentets grupp ur namnet ("Timmer: Vislanda…", "Gran timmer · Urshult", "Massa: BmavFall", "Kubb: …", "Energi: …"); null = går inte att avgöra. */
+export function gruppAvNamn(namn: string): 'timmer' | 'kubb' | 'massa' | 'energi' | null {
+  const n = String(namn ?? '').toLowerCase();
+  if (/energi|engved|avkap|grot|flis/.test(n)) return 'energi';
+  if (/massa|bmav|hemved|massaved/.test(n)) return 'massa';
+  if (/kubb/.test(n)) return 'kubb';
+  if (/timmer|klentimmer|stamblock|karbenning|stödlängd/.test(n)) return 'timmer';
+  return null;
+}
+
+/**
+ * Appens lass räknas mot skördarens sortiment: exakt träff på nyckeln eller namnet först (överskott där är "klart"), resten (ett namn skördaren inte har — "Gran timmer · Urshult" mot
+ * "Timmer: Vislanda_195_1-2_V3") fördelas inom SAMMA grupp, mest kvar först. Utan det drogs aldrig ett lass av som rapporterats på ett
+ * annat namn, och Kvar stod kvar på allt skördat (Edestad 2026-11-18: 360 m³ skotat, Kvar ~589 = skördat). Överskott utöver gruppens skördade volym är "klart", aldrig minus.
+ * Ett namn utan känd grupp fördelas på vilket sortiment som helst. Returnerar skotat per skördat-nyckel.
+ */
+export function fordelaApp(skordat: readonly SkordatSortiment[], app: ReadonlyMap<string, { namn: string; m3: number }>): Map<string, number> {
+  const per = new Map<string, number>();
+  const rest = new Map(skordat.map((s) => [s.nyckel, s.m3]));
+  const namnPer = new Map(skordat.map((s) => [namnNyckel(s.namn), s]));
+  const over: Array<{ namn: string; m3: number }> = [];
+  for (const [nyckel, g] of app) {
+    // Namnträffen gäller bara inom samma grupp: "Kubb: Tall_V3" är inte "Timmer: Tall_V3" fast namnen utan grupp är lika.
+    const lik = namnPer.get(namnNyckel(g.namn));
+    const likOk = lik && (gruppAvNamn(lik.namn) === gruppAvNamn(g.namn) || gruppAvNamn(lik.namn) == null || gruppAvNamn(g.namn) == null);
+    const mal = rest.has(nyckel) ? nyckel : likOk ? lik!.nyckel : undefined;
+    if (mal == null) { over.push({ namn: g.namn, m3: g.m3 }); continue; }
+    const tar = Math.min(g.m3, rest.get(mal)!);
+    per.set(mal, (per.get(mal) ?? 0) + tar);
+    rest.set(mal, rest.get(mal)! - tar);
+    // överskott på en exakt träff försvinner: det sortimentet är skotat, och volymen är inte ett annat sortiments
+  }
+  for (const o of over) {
+    const grupp = gruppAvNamn(o.namn);
+    let kvar = o.m3;
+    const kand = skordat.filter((s) => !arOklassat(s.nyckel) && (grupp == null || gruppAvNamn(s.namn) === grupp)).sort((a, b) => (rest.get(b.nyckel)! - rest.get(a.nyckel)!));
+    for (const s of kand) {
+      if (kvar <= 0.0001) break;
+      const tar = Math.min(kvar, rest.get(s.nyckel)!);
+      if (tar <= 0) continue;
+      per.set(s.nyckel, (per.get(s.nyckel) ?? 0) + tar);
+      rest.set(s.nyckel, rest.get(s.nyckel)! - tar);
+      kvar -= tar;
+    }
+  }
+  return per;
+}
+
 /**
  * Kvar per sortiment. `opti` är trakten Opti-lass (alla maskiner): de som ligger före maskinens första app-lass räknas, resten inte.
  * Utan Opti-lass (tom lista) är det som förut: bara appens lass.
  */
 export function beraknaKvar(skordat: readonly SkordatSortiment[], lass: readonly Lass[], opti: readonly OptiLass[] = []): Kvar {
-  const app = skotatPerSortiment(lass);
+  const app = fordelaApp(skordat, skotatPerSortiment(lass));
   const optiSkotat = fordelaOpti(skordat, raknadeOptiLass(opti, appStartPerMaskin(lass)));
   const rader: KvarSortiment[] = skordat.map((s) => {
-    const skotatApp = app.get(s.nyckel)?.m3 ?? 0;
+    const skotatApp = app.get(s.nyckel) ?? 0;
     const skotatOpti = optiSkotat.get(s.nyckel) ?? 0;
     const skotat = Math.min(s.m3, skotatApp + skotatOpti);
     const kvar = Math.max(0, s.m3 - skotat);
