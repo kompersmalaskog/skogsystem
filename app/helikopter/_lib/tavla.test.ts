@@ -336,6 +336,22 @@ describe('egen skotning', () => {
     expect(b.landar).toBe(b.markagare!.landar)
     expect(b.markagare!.landar).toBe(t.spar[0].block[0].maskiner[0].landar! - 38 - 45)
   })
+  it('Räcker trakterna: egen skotning räknas åt båda hållen — skotaren säger aldrig "saknar" för skog som markägaren skotar', () => {
+    const r = t.spar[0].racker
+    const skord = r.find(x => x.roll === 'skordare')!
+    const skot = r.find(x => x.roll === 'skotare')!
+    expect(skord.diff).toBeGreaterThan(0)
+    // Samma trakt, samma skog: skotaren ser den också, så de två raderna kan inte säga emot varandra.
+    expect(skot.diff).toBeGreaterThan(0)
+    expect(skot.ord).not.toMatch(/Saknar/)
+    expect(skot.skot!.saknas).toBe(0)
+    expect(skot.skot!.utanSumma).toBe(0)
+    const rad = skot.skot!.rader.find(x => x.namn.includes('Santhe'))!
+    expect(rad.maskin).toBe('Egen skotning')
+    expect(rad.kvar).toBeGreaterThan(0)
+    // Tavlans "Vad kan du göra" ber inte om en ny trakt när skogen räcker.
+    expect(t.gor.some(g => g.slag === 'saknas')).toBe(false)
+  })
   it('valet Egen skotning finns för skotaren, och står först när det gäller', () => {
     const v = flyttVal(ind, 'Santhe', 'skotare')!
     expect(v.val[0]).toMatchObject({ maskin_id: EGEN_SKOTNING, namn: 'Egen skotning', nuvarande: true })
