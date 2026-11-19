@@ -5,7 +5,7 @@
 //
 // Maskinen är alltid EN (förarens egen som start; "Giant ▾" i rubriken byter) — det finns ingen sammanslagen bedömning av flera maskiner.
 // Bredd: telefon = en kolumn och blad nerifrån; från 760 px (iPad stående) är Kontroller och Objekt lista till vänster och detalj till höger (som Mail).
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Bottenmeny, { bottenmenyPadding, type BottenmenyPost } from '@/components/design/Bottenmeny';
 import Svarsrad from '@/components/design/Svarsrad';
 import Tillstand from '@/components/design/Tillstand';
@@ -37,6 +37,18 @@ export default function KalibreringPage() {
   const v = useKalibreringVy();
   const ark = useKalibreringArk(d.speciesData);
   const bred = useMatchMedia(`(min-width: ${MASTER_DETAIL_FRAN_PX}px)`);
+  // Pushen "Kolla klaven och måttbandet" öppnar /kalibrering?matdon=<maskin_id>: rätt maskin och arket direkt, en gång.
+  const matdonOppnad = useRef(false);
+  const { oppnaMatdon } = ark;
+  const { setValdMaskin, loading } = d;
+  useEffect(() => {
+    if (matdonOppnad.current || loading || typeof window === 'undefined') return;
+    const maskin = new URLSearchParams(window.location.search).get('matdon');
+    if (!maskin) return;
+    matdonOppnad.current = true;
+    setValdMaskin(maskin);
+    oppnaMatdon();
+  }, [loading, setValdMaskin, oppnaMatdon]);
 
   if (d.loading) return <LaddarSkarm />;
   if (d.fetchError && d.allKalib.length === 0) return <FelSkarm text={d.fetchError} onForsok={d.fetchData} />;
