@@ -14,7 +14,7 @@ import { fmt } from '../_lib/format'
 
 const q = vi.hoisted(() => ({
   hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaManuellaMaskiner: vi.fn(), hamtaSenasteLass: vi.fn(), hamtaMaskinLage: vi.fn(),
-  hamtaMaskiner: vi.fn(), hamtaMaskinTakter: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaSkogKort: vi.fn(async () => ({ data: new Map(), error: null })), hamtaPrognosFacit: vi.fn(async () => ({ data: [], error: null })), tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaEgenSkotningTrakter: vi.fn(), hamtaMaskinObjekt: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgetSkordat: vi.fn(async (): Promise<{ data: { objekt_id: string; maskin_id: string; volym: number }[]; error: null }> => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(), params: '', replace: vi.fn(),
+  hamtaMaskiner: vi.fn(), hamtaMaskinTakter: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaSkogKort: vi.fn(async () => ({ data: new Map(), error: null })), hamtaPrognosFacit: vi.fn(async () => ({ data: [], error: null })), tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaSenasteArbete: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgenSkotningTrakter: vi.fn(), hamtaMaskinObjekt: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgetSkordat: vi.fn(async (): Promise<{ data: { objekt_id: string; maskin_id: string; volym: number }[]; error: null }> => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(), params: '', replace: vi.fn(),
 }))
 vi.mock('../_lib/queries', () => q)
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(q.params), useRouter: () => ({ replace: q.replace }) }))
@@ -131,6 +131,15 @@ describe('/helikopter — tavlan', () => {
     for (const n of ['Träffsäkerhet', 'Veckor', 'Per bolag', 'Månadsplan', 'Onsdagsnotis']) expect(mer.textContent).toContain(n)
     const plan = Array.from(mer.querySelectorAll('a')).find(a => a.textContent?.includes('Månadsplan'))
     expect(plan?.getAttribute('href')).toBe('/helikopter/manadsplan?ar=2026&manad=10')
+  })
+
+  it('kör annat: en skotare som arbetat bara utanför kön får en rad på kortet och ingen prognos', async () => {
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
+    q.hamtaSenasteArbete.mockResolvedValue({ data: [{ maskin_id: 'A130743', pa: [] }], error: null })
+    await monter()
+    const rad = cont.querySelector('[data-lage-kort="slutavverkning:skotare"] [data-kor-annat]')
+    expect(rad?.textContent).toMatch(/kör annat just nu/)
+    expect(cont.querySelector('[data-lage-kort="slutavverkning:skordare"] [data-kor-annat]')).toBeNull()
   })
 
   it('utfallet per maskin kunde inte läsas: korten står kvar med gjort, utan prognos', async () => {

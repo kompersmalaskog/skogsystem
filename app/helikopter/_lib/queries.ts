@@ -698,3 +698,47 @@ export async function sattEgenSkotning(objektId: string, egen: boolean): Promise
     return { error: felText(e) }
   }
 }
+
+/** Var maskinerna faktiskt arbetat de senaste dagarna, i köns egna id (objekt.id): `pa` = de köade trakter de arbetat på, tomt = arbetat, men inte på något i kön.
+ *  Skördare ur fakt_produktion, skotare ur helikopter_lass. En maskin utan rader i fönstret är inte med (okänt, inte "kör annat"). */
+export type SenasteArbete = { maskin_id: string; pa: string[] }
+export async function hamtaSenasteArbete(fran: string, koIds: string[]): Promise<Svar<SenasteArbete[]>> {
+  try {
+    const [p, l, o] = await Promise.all([
+      supabase.from('fakt_produktion').select('maskin_id, objekt_id').gte('datum', fran).limit(1000),
+      supabase.from('helikopter_lass').select('maskin_id, objekt_id').gte('datum', fran).limit(1000),
+      koIds.length === 0 ? Promise.resolve({ data: [], error: null }) : supabase.from('objekt').select('id, vo_nummer, dim_objekt_id').in('id', koIds),
+    ])
+    if (p.error) return { data: null, error: felText(p.error) }
+    if (l.error) return { data: null, error: felText(l.error) }
+    if (o.error) return { data: null, error: felText(o.error) }
+    if ((p.data ?? []).length >= 1000 || (l.data ?? []).length >= 1000) return { data: null, error: 'För många rader för en läsning' }
+    const rader = [...(p.data ?? []), ...(l.data ?? [])] as { maskin_id: string | null; objekt_id: string | null }[]
+    const dimIds = [...new Set(rader.map(r => r.objekt_id).filter((v): v is string => !!v).map(String))]
+    const dim = new Map<string, string | null>()
+    for (let i = 0; i < dimIds.length; i += 200) {
+      const d = await supabase.from('dim_objekt').select('objekt_id, vo_nummer').in('objekt_id', dimIds.slice(i, i + 200))
+      if (d.error) return { data: null, error: felText(d.error) }
+      for (const x of (d.data ?? []) as any[]) dim.set(String(x.objekt_id), x.vo_nummer ? String(x.vo_nummer) : null)
+    }
+    // Köns trakt ↔ maskinobjekt: samma koppling som egen skotning (dim_objekt_id eller vo_nummer).
+    const koPerNyckel = new Map<string, string>()
+    for (const x of (o.data ?? []) as any[]) {
+      if (x.dim_objekt_id) koPerNyckel.set(`d:${x.dim_objekt_id}`, String(x.id))
+      if (x.vo_nummer) koPerNyckel.set(`v:${x.vo_nummer}`, String(x.id))
+    }
+    const per = new Map<string, Set<string>>()
+    for (const r of rader) {
+      if (!r.maskin_id) continue
+      const s = per.get(String(r.maskin_id)) ?? new Set<string>()
+      per.set(String(r.maskin_id), s)
+      if (r.objekt_id == null) continue
+      const vo = dim.get(String(r.objekt_id))
+      const ko = koPerNyckel.get(`d:${r.objekt_id}`) ?? (vo ? koPerNyckel.get(`v:${vo}`) : undefined) ?? koPerNyckel.get(`v:${r.objekt_id}`)
+      if (ko) s.add(ko)
+    }
+    return { data: [...per.entries()].map(([maskin_id, s]) => ({ maskin_id, pa: [...s] })), error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}

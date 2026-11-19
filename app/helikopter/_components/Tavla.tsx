@@ -175,7 +175,7 @@ function Block({ b, bestallt, medLandar, oppna, vaxla, onTrakt }: { b: TavlaBloc
             </div>
           )}
           {b.maskiner.map(m => <MaskinRad key={m.maskin_id} m={m} medLandar={medLandar} oppen={oppna.has(`${b.roll}:${m.maskin_id}`)} onVaxla={() => vaxla(`${b.roll}:${m.maskin_id}`)} onTrakt={onTrakt} />)}
-          {b.markagare && <MaskinRad m={{ maskin_id: 'markagare', namn: 'Egen skotning', roll: 'skotare', nu: b.markagare.nu, landar: b.markagare.landar, ca: false, stopp: null, trakter: b.markagare.trakter, utanfor: null }}
+          {b.markagare && <MaskinRad m={{ maskin_id: 'markagare', namn: 'Egen skotning', roll: 'skotare', nu: b.markagare.nu, landar: b.markagare.landar, ca: false, korAnnat: false, stopp: null, trakter: b.markagare.trakter, utanfor: null }}
             dampad medLandar={medLandar} oppen={oppna.has(`${b.roll}:markagare`)} onVaxla={() => vaxla(`${b.roll}:markagare`)} onTrakt={onTrakt} />}
           {b.utan.length === 1 && <UtanRad u={b.utan[0]} onTrakt={onTrakt} />}
           {b.utan.length > 1 && (

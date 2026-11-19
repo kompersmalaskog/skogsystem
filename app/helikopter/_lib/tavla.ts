@@ -117,6 +117,8 @@ export type TavlaMaskin = {
   landar: number | null
   /** Landar bygger på ett förslag eller en trakt utan prognos. */
   ca: boolean
+  /** Maskinen har de senaste dagarna bara arbetat på annat än spårets köade trakter (energiklippning, GROT, annan trakt): prognosen lägger inget på den. */
+  korAnnat: boolean
   /** "Står 26–30 okt" — bara när maskinen står. */
   stopp: string | null
   trakter: TavlaTrakt[]
@@ -145,6 +147,8 @@ export type TavlaBlock = {
   roll: KlarRoll
   rubrik: 'Skördat' | 'Skotat'
   maskiner: TavlaMaskin[]
+  /** Namnen på maskinerna som kör annat just nu (se TavlaMaskin.korAnnat). */
+  korAnnat: string[]
   /** Trakter i spåret som ingen maskin har för rollen. */
   utan: TavlaUtan[]
   /** Bara Skotat: det markägaren skotar själv (= det skördaren fällt där). null = ingen egen skotning i spåret. */
@@ -267,6 +271,8 @@ export type TavlaIndata = {
   utanfor?: TavlaUtanfor[]
   /** Stopptext per maskin. */
   stopp?: Record<string, string | null>
+  /** Var maskinerna arbetat de senaste dagarna (köns trakt-id). Utelämnat = inte läst: ingen avkänning, prognosen som förut. */
+  senaste?: { maskin_id: string; pa: string[] }[]
   flytt?: Flytt
   /** Förhandsvisning: trakterna i NY ordning (objekt_id). De tar över varandras platser i körordningen; övriga rörs inte. */
   ordning?: string[]
@@ -383,12 +389,16 @@ export function byggTavla(d: TavlaIndata): Tavla {
         const rader = koer.get(id) ?? []
         const nu = Math.round(utfall.find(u => u.maskin_id === id)?.volym ?? 0)
         const egnaRader = rader.filter(raknas)
-        const tillkommer = egnaRader.reduce((sum, r) => sum + r.kvar * r.andelIManaden, 0)
+        // Kör annat: arbete de senaste dagarna, men inte på någon av köns trakter i spåret → ingen prognos läggs på maskinen.
+        const sen = d.senaste?.find(x => x.maskin_id === id)
+        const korAnnat = d.status !== 'avslutad' && sen != null && egnaRader.length > 0 && !egnaRader.some(r => sen.pa.includes(r.trakt.objekt_id))
+        const tillkommer = korAnnat ? 0 : egnaRader.reduce((sum, r) => sum + r.kvar * r.andelIManaden, 0)
         // Osäkert: en trakt före eller i spårets del av kön saknar prognos, eller bygger på ett förslag.
-        const ca = rader.some(r => r.dagar == null) || egnaRader.some(r => r.trakt.uppskattad === true && !r.trakt.foljer)
+        const ca = !korAnnat && (rader.some(r => r.dagar == null) || egnaRader.some(r => r.trakt.uppskattad === true && !r.trakt.foljer))
         return {
           maskin_id: id, namn: m?.namn ?? id, roll, nu,
           landar: klar ? Math.round(nu + tillkommer) : null, ca: klar ? ca : false,
+          korAnnat,
           stopp: d.stopp?.[id] ?? null,
           trakter: rader.map(r => traktVy(r, s.typ, sista)),
           utanfor: utanforFor(id, roll),
@@ -417,7 +427,7 @@ export function byggTavla(d: TavlaIndata): Tavla {
       const landar = klar && d.status !== 'avslutad' ? (harRader ? maskiner.reduce((a, m) => a + (m.landar ?? m.nu), 0) + (markagare ? (markagare.landar ?? markagare.nu) : 0) : null) : null
       const ca = maskiner.some(m => m.ca)
       const takt = taktKrav(s.bestallt, nu, d.status, klar, roll, ids.map(id => (koer.get(id) ?? []).filter(raknas)))
-      return { roll, rubrik: roll === 'skordare' ? 'Skördat' : 'Skotat', maskiner, utan, markagare, nu, landar, ca, takt, ...dom(roll, landar, nu, s.bestallt, ca, d.status) }
+      return { roll, rubrik: roll === 'skordare' ? 'Skördat' : 'Skotat', maskiner, korAnnat: maskiner.filter(m => m.korAnnat).map(m => m.namn), utan, markagare, nu, landar, ca, takt, ...dom(roll, landar, nu, s.bestallt, ca, d.status) }
     }) as [TavlaBlock, TavlaBlock]
     return { typ: s.typ, namn: TYP_NAMN[s.typ], bestallt: s.bestallt, block, racker: racker(s.typ, s.bestallt, block, trakter, d.egna, d.status, klar != null, new Map([...koer.values()].flat().filter(r => r.trakt.roll === 'skordare').map(r => [r.trakt.objekt_id, r])), new Map([...koer.values()].flat().filter(r => r.trakt.roll === 'skotare').map(r => [r.trakt.objekt_id, r])), new Map((klar?.maskiner ?? []).map(m => [m.maskin_id, m.namn]))), kvarISkogen: Math.round(oskotatKvar(s)) }
   })
