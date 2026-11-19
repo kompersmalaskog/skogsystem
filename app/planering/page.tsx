@@ -15148,6 +15148,7 @@ export default function PlannerPage() {
                 lass={andraLass} delNr={sl.andra.delNr} utkast={sl.utkast?.id === andraLass.id} avlagg={sl.avlagg} valbara={sl.valbara} alla={sl.allaSortiment} onLasOm={sl.lasOmSortiment}
                 onRad={(rad, delta) => sl.andraRad(sl.andra!.delNr, rad, delta)}
                 onAvlagg={(a) => sl.valjAvlagg(andraLass.id, sl.andra!.delNr, a)}
+                onBreddat={(b) => sl.valjBreddat(andraLass.id, b)}
                 onKlar={() => sl.stangAndra(true)}
                 onAvbryt={sl.avbrytAndra}
                 onTaBort={() => sl.strykLass(andraLass.id)}

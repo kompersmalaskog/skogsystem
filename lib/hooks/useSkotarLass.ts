@@ -20,7 +20,7 @@ import { avlaggFlytt, stoppMitt } from '@/lib/skotarLass/lossaHar';
 import { avstand } from '@/lib/skotarLass/geo';
 import { avlaggIZon, ZON, type ZonTraff } from '@/lib/skotarLass/zon';
 import {
-  andraRad as andraRadModell, bekrafta, bytAvlagg, forraLass, kanBekrafta, nastaLassNummer, skapaLass, stryk,
+  andraRad as andraRadModell, bekrafta, bytAvlagg, sattBreddat, forraLass, kanBekrafta, nastaLassNummer, skapaLass, stryk,
   type LassKontext,
 } from '@/lib/skotarLass/lassModell';
 import { beraknaKvar, harSkordat, idagText, kvarSammanfattning, skalningsfaktorer, type Kvar, type KvarSammanfattning } from '@/lib/skotarLass/kvar';
@@ -300,6 +300,12 @@ export function useSkotarLass(i: SkotarLassIn) {
     if (l) spara(andraRadModell(l, delNr, rad, delta, serverNu()));
   }, [andra, spara]);
 
+  /** Breddat eller smalt lastrum på lasset som ändras (en av två). */
+  const valjBreddat = useCallback((lassId: string, breddat: boolean) => {
+    const l = hamtaLass(lassId);
+    if (l) spara(sattBreddat(l, breddat, serverNu()));
+  }, [spara]);
+
   const valjAvlagg = useCallback((lassId: string, delNr: number, a: Avlagg) => {
     const l = hamtaLass(lassId);
     if (l) spara(bytAvlagg(l, delNr, a, serverNu()));
@@ -421,7 +427,7 @@ export function useSkotarLass(i: SkotarLassIn) {
   return {
     provkorLossning, registreraLass, lossaVidAvlagg, lossaKnapp, lossaVal, iZon, utkast, andraLass,
     lass, avlagg, nyttAvlagg, andra, vantande, skordat, skordatLaddat, ingetSkordat, kvar, sammanfattning, idag, valbara, allaSortiment: sortimentval.alla, sortimentKalla: sortimentval.kalla, lasOmSortiment, avslut, skotningAvslutad,
-    oppnaAndra, stangAndra, avbrytAndra, andraRad, valjAvlagg, strykLass, svaraNyttAvlagg, fardigskotad, laddaOm: ladda,
+    oppnaAndra, stangAndra, avbrytAndra, andraRad, valjAvlagg, valjBreddat, strykLass, svaraNyttAvlagg, fardigskotad, laddaOm: ladda,
   };
 }
 

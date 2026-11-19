@@ -21,7 +21,7 @@ import { medSafeBotten } from '@/lib/design/tokens';
 /** Så många sortiment visas direkt under Lägg till; resten ligger bakom "Fler ›". */
 export const TILLAGG_SYNLIGA = 8;
 
-export function AndraLassArk({ lass, delNr, utkast, avlagg, valbara, alla, onLasOm, onRad, onAvlagg, onKlar, onAvbryt, onTaBort }: {
+export function AndraLassArk({ lass, delNr, utkast, avlagg, valbara, alla, onLasOm, onRad, onAvlagg, onBreddat, onKlar, onAvbryt, onTaBort }: {
   lass: Lass;
   /** Lasset är ett nytt utkast (inte sparat än): Avbryt kastar det, så "ta bort lasset" behövs inte. */
   utkast?: boolean;
@@ -35,6 +35,8 @@ export function AndraLassArk({ lass, delNr, utkast, avlagg, valbara, alla, onLas
   onLasOm?: () => void;
   onRad: (rad: Pick<SortimentRad, 'nyckel' | 'namn'>, delta: number) => void;
   onAvlagg: (a: Avlagg) => void;
+  /** Breddat eller smalt lastrum — en av två. */
+  onBreddat: (breddat: boolean) => void;
   onKlar: () => void;
   onAvbryt: () => void;
   onTaBort: () => void;
@@ -94,6 +96,16 @@ export function AndraLassArk({ lass, delNr, utkast, avlagg, valbara, alla, onLas
               ))}
             </div>
           )}
+
+          <div role="radiogroup" aria-label="Lastrum" data-testid="andra-lastrum" style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.s }}>
+            {([[false, 'Smalt'], [true, 'Breddat']] as const).map(([b, text]) => {
+              const vald = !!lass.breddat === b;
+              return (
+                <button key={text} type="button" role="radio" aria-checked={vald} data-testid={`lastrum-${b ? 'breddat' : 'smalt'}`} onClick={() => onBreddat(b)}
+                  style={{ ...knappStor, flex: 1, background: vald ? FARG.text : FARG.fyllning, color: vald ? FARG.bg : FARG.text }}>{text}</button>
+              );
+            })}
+          </div>
 
           <div style={avdelare} />
           {rader.length === 0 && !listaSaknas && <div style={{ ...meta, padding: `${AVSTAND.s}px 0` }}>Inga sortiment ännu — lägg till nedan.</div>}

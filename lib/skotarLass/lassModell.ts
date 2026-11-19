@@ -108,7 +108,7 @@ export function skapaLass(i: NyttLassIn): Lass {
   const lass: Lass = {
     id: nyId(), objektId: i.ctx.objektId, voNummer: i.ctx.voNummer, maskinId: i.ctx.maskinId, medarbetareId: i.ctx.medarbetareId,
     lassNummer: i.lassNummer, datum: lokaltDatumStockholm(i.ts), delar: [del],
-    status: 'foreslaget', bekraftadAv: null, bekraftadTid: null, sparPunkter: i.sparPunkter, vagar: i.vagar, skapad: iso, andrad: iso,
+    status: 'foreslaget', bekraftadAv: null, bekraftadTid: null, breddat: !!i.forra?.breddat, sparPunkter: i.sparPunkter, vagar: i.vagar, skapad: iso, andrad: iso,
   };
   const krav = behoverForare(lass, !!i.forra);
   return krav.behover ? { ...lass, status: 'vantar_forare' } : lass;
@@ -135,6 +135,11 @@ export function andraRad(l: Lass, delNr: number, rad: { nyckel: string; namn: st
 export function sattRad(l: Lass, delNr: number, rad: { nyckel: string; namn: string }, m3: number, nu: number): Lass {
   const nuVarde = l.delar.find((d) => d.delNr === delNr)?.rader.find((r) => r.nyckel === rad.nyckel)?.m3 ?? 0;
   return andraRad(l, delNr, rad, heltM3(m3) - nuVarde, nu);
+}
+
+/** Breddat eller smalt lastrum — en av två. */
+export function sattBreddat(l: Lass, breddat: boolean, nu: number): Lass {
+  return stampla({ ...l, breddat }, nu);
 }
 
 export function bytAvlagg(l: Lass, delNr: number, avlagg: Avlagg, nu: number): Lass {

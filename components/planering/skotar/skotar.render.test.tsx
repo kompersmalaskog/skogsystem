@@ -92,7 +92,7 @@ describe('LossaKnapp', () => {
 describe('AndraLassArk', () => {
   const valbara = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 0 }, { nyckel: 'granmassa', namn: 'Massa: Gran_V3', m3: 0 }, { nyckel: 'ved_markagare', namn: 'Ved markägare', m3: 0 }];
   const rendera = (l: Lass, fn: Partial<Parameters<typeof AndraLassArk>[0]> = {}) => visa(
-    <AndraLassArk lass={l} delNr={1} avlagg={[A2, A3]} valbara={valbara} onRad={vi.fn()} onAvlagg={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} {...fn} />);
+    <AndraLassArk lass={l} delNr={1} avlagg={[A2, A3]} valbara={valbara} onRad={vi.fn()} onAvlagg={vi.fn()} onBreddat={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} {...fn} />);
   it('summan överst, en rad per sortiment med − och +, tillägg för det som saknas inkl. Ved markägare', async () => {
     await rendera(lass());
     expect(q('andra-summa')?.textContent).toContain('18');
@@ -106,6 +106,16 @@ describe('AndraLassArk', () => {
     await rendera(lass(), { onRad });
     await tryck('plus-talltimmer'); await tryck('minus-talltimmer'); await tryck('tillagg-granmassa');
     expect(onRad.mock.calls.map((c) => c[1])).toEqual([1, -1, 1]);
+  });
+  it('Smalt | Breddat är en av två: vald följer lasset och ett tryck byter', async () => {
+    const onBreddat = vi.fn();
+    await rendera(lass(), { onBreddat });
+    expect(q('lastrum-smalt')?.getAttribute('aria-checked')).toBe('true');
+    expect(q('lastrum-breddat')?.getAttribute('aria-checked')).toBe('false');
+    await tryck('lastrum-breddat');
+    expect(onBreddat).toHaveBeenCalledWith(true);
+    await rendera({ ...lass(), breddat: true });
+    expect(q('lastrum-breddat')?.getAttribute('aria-checked')).toBe('true');
   });
   it('Klar är grå utan sortiment/avlägg och aktiv när lasset går att bekräfta', async () => {
     const tomt = lass({ status: 'vantar_forare' }); tomt.delar[0].rader = [];
@@ -141,7 +151,7 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
   const sortiment = (n: number) => Array.from({ length: n }, (_, i) => ({ nyckel: `s${i}`, namn: `Massa: Sort${i}_V3`, m3: 0 }));
   const valbara = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 0 }];
   const rendera = (fn: Partial<Parameters<typeof AndraLassArk>[0]> = {}) => visa(
-    <AndraLassArk lass={lass()} delNr={1} avlagg={[A2, A3]} valbara={valbara} onRad={vi.fn()} onAvlagg={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} {...fn} />);
+    <AndraLassArk lass={lass()} delNr={1} avlagg={[A2, A3]} valbara={valbara} onRad={vi.fn()} onAvlagg={vi.fn()} onBreddat={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} {...fn} />);
   const pekare = async (id: string, typ: 'pointerdown' | 'pointerup' | 'pointercancel') => {
     const e = q(id); if (!e) throw new Error(`saknas: ${id}`);
     await act(async () => { e.dispatchEvent(new MouseEvent(typ, { bubbles: true, cancelable: true })); });
@@ -337,7 +347,7 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
       return <AndraLassArk lass={l} delNr={1} avlagg={[A2, A3]}
         valbara={[{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 0 }, { nyckel: 'granmassa', namn: 'Massa: Gran_V3', m3: 0 }]}
         onRad={(rad, d) => setL((x) => andraRadModell(x, 1, rad, d, NU))}
-        onAvlagg={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} />;
+        onAvlagg={vi.fn()} onBreddat={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} />;
     }
     it('1 m³ kvar → − → raden är borta (ingen egen ta-bort-knapp) och sortimentet finns under Lägg till', async () => {
       const l = lass(); l.delar[0].rader = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 1 }];
@@ -551,7 +561,7 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
       expect(smaTexter()).toEqual([]);
     });
     it('Ändra lass, Färdigskotad och väder', async () => {
-      await visa(<AndraLassArk lass={lass()} delNr={1} avlagg={[A2, A3]} valbara={[{ nyckel: 'kubb', namn: 'Kubb: Tall_V3', m3: 0 }]} onRad={vi.fn()} onAvlagg={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} />);
+      await visa(<AndraLassArk lass={lass()} delNr={1} avlagg={[A2, A3]} valbara={[{ nyckel: 'kubb', namn: 'Kubb: Tall_V3', m3: 0 }]} onRad={vi.fn()} onAvlagg={vi.fn()} onBreddat={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} />);
       expect(smaTexter()).toEqual([]);
       const kv = beraknaKvar([{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 100 }], []);
       await visa(<FardigskotadKort kontroll={farduskotatKontroll(kv)} klar={false} onKarta={vi.fn()} onBekrafta={vi.fn()} onAvbryt={vi.fn()} />);
