@@ -44,7 +44,7 @@ import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar } from './Tillstand'
 import { HK_CSS } from './Lista'
 import { PanelContext, type PanelPost } from './PanelVal'
-import Tavla, { BehovSheet, FlyttaSheet, SkotSheet, type OrdningsStyrning, type TraktVal } from './Tavla'
+import Tavla, { FlyttaSheet, PlaneraSida, type OrdningsStyrning, type TraktVal } from './Tavla'
 import { flyttaObjekt, sattOrdning } from '@/lib/objekt/data'
 import { stegaManad } from '@/lib/objekt/manad'
 import { DinMaskinSektion, VeckoNotisSektion } from './MaskinSektion'
@@ -365,6 +365,9 @@ export default function HelikopterVy() {
   const skotTyp = ark && ark.startsWith('skot:') ? (ark.slice(5) as Typ) : null
   const skotSpar = skotTyp && tavla ? tavla.spar.find(x => x.typ === skotTyp) ?? null : null
   const skot = skotSpar?.racker.find(r => r.roll === 'skotare')?.skot ?? null
+  // Skördarens och skotarens rad öppnar SAMMA sida: Planera för spåret.
+  const planeraTyp = behovTyp ?? skotTyp
+  const planeraSpar = planeraTyp && tavla ? tavla.spar.find(x => x.typ === planeraTyp) ?? null : null
   const nastaManad = stegaManad({ ar, manad }, 1)
   const flyttaTillNasta = async (ids: string[]): Promise<string | null> => {
     let flyttade = 0
@@ -425,10 +428,13 @@ export default function HelikopterVy() {
                 fel ? <Fel onRetry={() => setVersion(v => v + 1)} /> : <Laddar vad={manadNamn} />
               ) : (
                 <>
-                  <Svarsrad rubrik={tavla.svar.rubrik} avvikelse={tavla.svar.avvikelse} />
+                  {!planeraSpar && <Svarsrad rubrik={tavla.svar.rubrik} avvikelse={tavla.svar.avvikelse} />}
                   {status !== 'avslutad' && klar.fel && (
                     <RadGrupp><RadLank orange text="Kunde inte läsa maskinernas trakter" smakprov="försök igen" onClick={() => void klar.ladda()} sista /></RadGrupp>
                   )}
+                  {planeraSpar ? (
+                    <PlaneraSida key={ark} start={behovTyp ? 'skordare' : 'skotare'} spar={planeraSpar} manadNamn={MANAD_NAMN[manad - 1].toLowerCase()} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} ordning={ordningSt} onTrakt={bytMaskin} onTillbaka={stangArk} />
+                  ) : (
                   <div className="hk-rutnat">
                     <Tavla tavla={tavla} onTrakt={kanFlytta ? v => setArk(`flytta:${v.roll}:${v.objekt_id}`) : undefined} onBehov={typ => setArk(`behov:${typ}`)} onSkot={typ => setArk(`skot:${typ}`)} />
                     {dinMaskin && <DinMaskinSektion maskinNamn={maskinNamn(dinMaskin)} lage={maskinLage} fel={maskinLageFel} onRetry={() => setVersion(v => v + 1)} />}
@@ -447,6 +453,7 @@ export default function HelikopterVy() {
                       </RadGrupp>
                     </Sektion>
                   </div>
+                  )}
 
                   <TraffsakerhetSheet open={ark === 'traffsakerhet'} onClose={stang} />
                   {/* Veckor och Per bolag: ett spår i taget — valet i ett litet ark så Mer inte blir en lång lista. */}
@@ -459,8 +466,6 @@ export default function HelikopterVy() {
                       </RadGrupp>
                     </Sheet>
                   )}
-                  {skotSpar && skot && <SkotSheet key={ark} onClose={stangArk} namn={skotSpar.namn} skot={skot} takt={skotSpar.block[1].takt} onTrakt={bytMaskin} ordning={ordningSt} />}
-                  {behovSpar && behov && <BehovSheet key={ark} open onClose={stangArk} ordning={ordningSt} onTrakt={bytMaskin} namn={behovSpar.namn} behov={behov} takt={behovSpar.block[0].takt} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} manadNamn={manadNamn.toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} />}
                   {flyttaVal && flyttaVy && <FlyttaSheet key={ark} open onClose={() => { const tillbaka = fran; setFran(null); setArk(tillbaka) }} namn={flyttaVy.namn} val={flyttaVy.val} onFlytta={flytta} />}
                   {ark === 'notis' && <Sheet open onClose={stang} title="Onsdagsnotis"><VeckoNotisSektion /></Sheet>}
                   <UtanTypSheet open={ark === 'utan'} onClose={stang} rader={manadsdata.utanTyp ?? []} manadNamn={manadNamn} />
