@@ -5,10 +5,11 @@
 // domen i ord bredvid rubriken, och under stapeln en rad per maskin med NU och MÅNADENS SLUT.
 // Trakter utan maskin och det som körts utanför beställningen står i ord, aldrig i talkolumnerna. Kvar i skogen har ett eget kort.
 // Allt som står här räknas i _lib/tavla.ts; den här filen ritar. Ett tryck på en maskin visar hennes trakter, ett tryck på en trakt flyttar den.
-import { useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens'
 import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil'
-import { Sheet } from '@/components/Sheet'
+import { Sheet, SheetLageContext } from '@/components/Sheet'
+import { oversiktPanelBredd } from '@/lib/plusArk'
 import Sektion from '@/components/design/Sektion'
 import Ikon from '@/components/design/Ikon'
 import { fmt } from '../_lib/format'
@@ -407,6 +408,20 @@ export type OrdningsStyrning = {
   onAngra: () => void
 }
 
+/** Trakt-arken på bred skärm: en panel som tar halva fönstret (420–720 px), så raderna rymmer allt på en rad. */
+const TRAKT_PANEL_MAX_PX = 720
+function useTraktPanelBredd(): number | undefined {
+  const lage = useContext(SheetLageContext)
+  const [b, setB] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    const rakna = () => setB(Math.min(TRAKT_PANEL_MAX_PX, oversiktPanelBredd(window.innerWidth)))
+    rakna()
+    window.addEventListener('resize', rakna)
+    return () => window.removeEventListener('resize', rakna)
+  }, [])
+  return lage === 'panel' ? b : undefined
+}
+
 /** En rad per trakt: nummer, namn och maskin (tryck = byt maskin), siffran, pilar. */
 function OrdnadTraktRad({ nr, namn, under, maskin, ingen, ton, tal, kryss, onMaskin, upp, ner, id }: {
   nr: number; namn: string; under: string[]; maskin: string | null; ingen: string; ton: 'full' | 'dampad'; tal: number
@@ -416,13 +431,24 @@ function OrdnadTraktRad({ nr, namn, under, maskin, ingen, ton, tal, kryss, onMas
   id: string
 }) {
   const text = ton === 'full' ? FARG.text : FARG.text2
-  const namnBlock = (
+  const bred = useContext(SheetLageContext) === 'panel'
+  const maskinText = `${maskin ?? ingen}${onMaskin ? ' ›' : ''}`
+  const maskinFarg = maskin ? FARG.text2 : FARG.orange
+  // Bred panel: allt på EN rad — nummer, namn, maskin, tid. Smal: namnet med maskinen och tiden under.
+  const namnBlock = bred ? (
+    <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minWidth: 0 }}>
+      <span style={{ ...TYP.meta, ...TNUM, color: FARG.text3, minWidth: AVSTAND.l }} data-nr="">{nr}</span>
+      <span style={{ ...TYP.text, color: text, overflowWrap: 'anywhere', flex: '1 1 0', minWidth: 0 }}>{namn}</span>
+      <span style={{ ...TYP.meta, ...TNUM, color: maskinFarg, flex: '0 0 auto', whiteSpace: 'nowrap' }} data-maskin-rad="">{maskinText}</span>
+      <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2, flex: '0 1 200px', textAlign: 'right' }} data-tid="">{under.join(' · ')}</span>
+    </span>
+  ) : (
     <span style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.s, minWidth: 0 }}>
       <span style={{ ...TYP.meta, ...TNUM, color: FARG.text3, minWidth: AVSTAND.l, paddingTop: AVSTAND.xs / 2 }} data-nr="">{nr}</span>
       <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
         <span style={{ ...TYP.text, color: text, overflowWrap: 'anywhere' }}>{namn}</span>
         {under.map((u, k) => <span key={k} style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }} data-tid="">{u}</span>)}
-        <span style={{ ...TYP.meta, ...TNUM, color: maskin ? FARG.text2 : FARG.orange }} data-maskin-rad="">{maskin ?? ingen}{onMaskin ? ' ›' : ''}</span>
+        <span style={{ ...TYP.meta, ...TNUM, color: maskinFarg }} data-maskin-rad="">{maskinText}</span>
       </span>
     </span>
   )
@@ -483,6 +509,7 @@ export function BehovSheet({ open, onClose, namn, behov, takt, nastaNamn, manadN
   ordning?: OrdningsStyrning
   onTrakt?: (v: TraktVal) => void
 }) {
+  const panelBredd = useTraktPanelBredd()
   const flyttbara = behov.inte.filter(t => t.flyttbar)
   // Avmarkerade, inte markerade: när ordningen ändras och en annan trakt hamnar under "Behövs inte" är den förvald.
   const [bort, setBort] = useState<Set<string>>(() => new Set())
@@ -505,7 +532,7 @@ export function BehovSheet({ open, onClose, namn, behov, takt, nastaNamn, manadN
   const nr = new Map([...behov.behovs, ...behov.inte].map((t, i) => [t.objekt_id, i + 1]))
   const onMaskin = (id: string) => (onTrakt ? () => onTrakt({ objekt_id: id, roll: 'skordare' }) : undefined)
   return (
-    <Sheet open onClose={onClose} title={rubrik}>
+    <Sheet open onClose={onClose} title={rubrik} panelBredd={panelBredd}>
       <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px` }} data-behov-under="">Beställt {fmt(behov.bestallt)} · gjort {fmt(behov.nu)}. {under}</p>
       {ordning && <OrdningsBar st={ordning} primar />}
       {takt && (
@@ -564,6 +591,7 @@ export function BehovSheet({ open, onClose, namn, behov, takt, nastaNamn, manadN
 
 /** Skotarens ark: vilka trakter som skotas för beställningen (bara trakter MED skotare räknas — en trakt utan maskin körs inte), vilka som saknar skotare (tryck = välj) och vilka som kan vänta. Admin ändrar ordning och maskin. */
 export function SkotSheet({ onClose, namn, skot, takt, onTrakt, ordning }: { onClose: () => void; namn: string; skot: TavlaSkot; takt?: TavlaTakt | null; onTrakt?: (v: TraktVal) => void; ordning?: OrdningsStyrning }) {
+  const panelBredd = useTraktPanelBredd()
   const skotas = skot.rader.filter(r => r.maskin != null && r.behovs > 0)
   const utan = skot.rader.filter(r => r.maskin == null)
   const inte = skot.rader.filter(r => r.maskin != null && r.behovs <= 0)
@@ -584,7 +612,7 @@ export function SkotSheet({ onClose, namn, skot, takt, onTrakt, ordning }: { onC
     ? `Det saknas ca ${fmt(skot.saknas)} m³ · välj skotare på trakterna ovan`
     : `Det saknas ca ${fmt(skot.saknas)} m³ · välj skotare ovan och lägg in en ny trakt`
   return (
-    <Sheet open onClose={onClose} title={skot.behov > 0 ? `${namn} · skotaren behöver ${fmt(skot.behov)} m³ till` : `${namn} · skotaren är klar med beställningen`}>
+    <Sheet open onClose={onClose} panelBredd={panelBredd} title={skot.behov > 0 ? `${namn} · skotaren behöver ${fmt(skot.behov)} m³ till` : `${namn} · skotaren är klar med beställningen`}>
       <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px` }} data-skot-under="">Beställt {fmt(skot.bestallt)} · skotat {fmt(skot.nu)}. {skot.behov > 0 ? under : ''}</p>
       {ordning && <OrdningsBar st={ordning} primar />}
       {takt && (
