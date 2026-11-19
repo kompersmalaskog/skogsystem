@@ -2,7 +2,7 @@
 // De bor SEPARAT från Objektinfo-autosparet (lib/objektInfoSpar): de sparas direkt vid ett tryck (ett svar, ett godkännande), och en
 // databas där migrationen inte körts ännu ska inte få hela Trakt-formuläret att sluta spara. Rena funktioner → enhetstestbara.
 
-import { lasHarDu, lasVed, lasVidaAvlagg, vedTillKolumn, VED_TOM, type HarDuSvar, type VedDetaljer, type VidaAvlaggBekraftelse } from './klarTrakt';
+import { lasHarDu, lasVed, lasVidaAvlagg, lasLarmplats, vedTillKolumn, VED_TOM, type HarDuSvar, type VedDetaljer, type VidaAvlaggBekraftelse, type LarmplatsBekraftelse } from './klarTrakt';
 import { parseSvNum } from './objektInfoSpar';
 import { lasRiskbedomning, riskbedomningTillKolumn, RISK_TOM, type Riskbedomning } from './riskbedomning';
 
@@ -16,6 +16,8 @@ export interface KlarFalt {
   harDu: HarDuSvar;
   /** Stämmer på Vidas avlägg — bor i har_du_svar under `vida_avlagg` */
   vidaAvlagg: VidaAvlaggBekraftelse | null;
+  /** Stämmer på larmplatserna — bor i har_du_svar under `larmplats` */
+  larmplats: LarmplatsBekraftelse | null;
   ved: VedDetaljer;
   prognosGodkand: PrognosGodkand;
   /** senast beräknat antal kvar (kortet skriver det; listorna visar det) — null = aldrig beräknat */
@@ -25,7 +27,7 @@ export interface KlarFalt {
 }
 
 export const KLAR_TOM: KlarFalt = {
-  medelstam: '', harDu: {}, vidaAvlagg: null, ved: { ...VED_TOM }, prognosGodkand: { av: null, at: null, underlag: null }, klarKvarAntal: null, riskbedomning: RISK_TOM,
+  medelstam: '', harDu: {}, vidaAvlagg: null, larmplats: null, ved: { ...VED_TOM }, prognosGodkand: { av: null, at: null, underlag: null }, klarKvarAntal: null, riskbedomning: RISK_TOM,
 };
 
 export function radTillKlarFalt(r: any): KlarFalt {
@@ -33,6 +35,7 @@ export function radTillKlarFalt(r: any): KlarFalt {
     medelstam: r?.medelstam != null ? String(r.medelstam).replace('.', ',') : '',
     harDu: lasHarDu(r?.har_du_svar),
     vidaAvlagg: lasVidaAvlagg(r?.har_du_svar),
+    larmplats: lasLarmplats(r?.har_du_svar),
     ved: lasVed(r?.ved_detaljer),
     prognosGodkand: {
       av: typeof r?.prognos_godkand_av === 'string' ? r.prognos_godkand_av : null,
@@ -45,14 +48,15 @@ export function radTillKlarFalt(r: any): KlarFalt {
 }
 
 /** Bara de fält som ändrats → kolumner. Tomt svar skrivs som NULL (aldrig {} / ''): obesvarat är null. */
-export function klarFaltTillKolumner(patch: Partial<KlarFalt>, nuvarande: Pick<KlarFalt, 'harDu' | 'vidaAvlagg'> = KLAR_TOM): Record<string, unknown> {
+export function klarFaltTillKolumner(patch: Partial<KlarFalt>, nuvarande: Pick<KlarFalt, 'harDu' | 'vidaAvlagg'> & { larmplats?: LarmplatsBekraftelse | null } = KLAR_TOM): Record<string, unknown> {
   const k: Record<string, unknown> = {};
   if ('medelstam' in patch) k.medelstam = parseSvNum(patch.medelstam ?? '');
-  if ('harDu' in patch || 'vidaAvlagg' in patch) {
+  if ('harDu' in patch || 'vidaAvlagg' in patch || 'larmplats' in patch) {
     // har_du_svar bär både de sex svaren och Stämmer på Vidas avlägg: skriv alltid båda, så det ena inte skriver bort det andra
     const harDu = 'harDu' in patch ? (patch.harDu ?? {}) : nuvarande.harDu;
     const vida = 'vidaAvlagg' in patch ? (patch.vidaAvlagg ?? null) : nuvarande.vidaAvlagg;
-    k.har_du_svar = Object.keys(harDu).length > 0 || vida ? { ...harDu, ...(vida ? { vida_avlagg: vida } : {}) } : null;
+    const larm = 'larmplats' in patch ? (patch.larmplats ?? null) : (nuvarande.larmplats ?? null);
+    k.har_du_svar = Object.keys(harDu).length > 0 || vida || larm ? { ...harDu, ...(vida ? { vida_avlagg: vida } : {}), ...(larm ? { larmplats: larm } : {}) } : null;
   }
   if ('ved' in patch && patch.ved) k.ved_detaljer = vedTillKolumn(patch.ved);
   if ('prognosGodkand' in patch && patch.prognosGodkand) {

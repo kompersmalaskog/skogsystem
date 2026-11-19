@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, HAR_DU_FRAGOR, kvarChip, kvittoMedKvar, lasHarDu, lasVed,
-  medStandardMaskin, oplaneradRadText, standardMaskin, avlaggText, vidaAvlaggBekraftat, vidaAvlaggUr, lasVidaAvlagg, vidaBasvagFinns, prognosLage, prognosUnderlag, sattHarDu, utforareLage, vedSammanfattning, vedTillKolumn, VED_TOM,
+  medStandardMaskin, oplaneradRadText, standardMaskin, avlaggText, vidaAvlaggBekraftat, vidaAvlaggUr, lasVidaAvlagg, lasLarmplats, larmplatsBekraftat, larmplatsFraga, vidaBasvagFinns, prognosLage, prognosUnderlag, sattHarDu, utforareLage, vedSammanfattning, vedTillKolumn, VED_TOM,
   type HarDuSvar, type KlarIndata, type PrognosIndata, type UtforareVal,
 } from './klarTrakt';
 
@@ -371,5 +371,23 @@ describe('Vidas avlägg (objekt_geometri, L_TILLAGGSPUNKTER)', () => {
     expect(rad({ vidaAvlagg: ['01-1', '01-2'] })).toBe('2 från Vida');
     expect(rad({ vidaAvlagg: ['01-1'], avlaggAntal: 1 })).toBe('1 från Vida + 1 eget');
     expect(rad({ avlaggAntal: 2 })).toBe('2 på kartan');
+  });
+});
+
+describe('larmplats: planerarens godkännande', () => {
+  it('lasLarmplats läser bara en hel bekräftelse', () => {
+    expect(lasLarmplats({ larmplats: { nycklar: ['56.40000,14.70000'], av: 'm1', at: NU } })).toEqual({ nycklar: ['56.40000,14.70000'], av: 'm1', at: NU });
+    for (const rent of [null, undefined, 'x', [], {}, { larmplats: 'ja' }, { larmplats: { nycklar: 'x', at: NU } }, { larmplats: { nycklar: ['a'] } }]) expect(lasLarmplats(rent), JSON.stringify(rent)).toBeNull();
+  });
+  it('gäller bara exakt de larmplatser som visades, och aldrig utan larmplats', () => {
+    const bek = { nycklar: ['a', 'b'], av: 'm1', at: NU };
+    expect(larmplatsBekraftat(['b', 'a'], bek)).toBe(true);
+    expect(larmplatsBekraftat(['a', 'b', 'c'], bek)).toBe(false);
+    expect(larmplatsBekraftat(['a'], bek)).toBe(false);
+    expect(larmplatsBekraftat([], bek)).toBe(false);
+    expect(larmplatsBekraftat(['a'], null)).toBe(false);
+  });
+  it('frågan följer antalet', () => {
+    expect(larmplatsFraga(2).text).toBe('Vida har lagt 2 larmplatser. Ligger de rätt?');
   });
 });

@@ -13,7 +13,7 @@ import { gpsSaknas } from '@/lib/gpsSaknas'
 import { loggaGps } from '@/lib/gpsKalla'
 import { sparaHyttsparSession, type HyttsparRefs } from '@/lib/hyttsparSpara'
 import { larmpunkterUr, valjLarmpunkt, larmVisning, POS_FARSK_MS, type Larmpunkt } from '@/lib/larmpunkter'
-import { fragaOm } from '@/lib/larmKontroll'
+import { fragaOm, punktNyckel as larmPunktNyckel } from '@/lib/larmKontroll'
 import { useLarmKontroll } from '@/lib/hooks/useLarmKontroll'
 import LarmKontrollKort from '@/components/planering/LarmKontrollKort'
 import { useGpsSaknasLang } from '@/lib/hooks/useGpsSaknasLang'
@@ -68,7 +68,7 @@ import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
 import { useKlarFalt } from '../../lib/hooks/useKlarFalt'
 import {
-  arUnderPlanering, avlaggText, vidaAvlaggFraga, berakna, forarSammanfattning, harDuVarningar, medStandardMaskin, standardMaskin, utforareLage, vidaBasvagFinns, vidaAvlaggUr, vidaAvlaggBekraftat, kvarChip, kvittoMedKvar, prognosUnderlag, sattHarDu, STATUS_PLANERAD, vedSammanfattning,
+  arUnderPlanering, avlaggText, vidaAvlaggFraga, berakna, forarSammanfattning, harDuVarningar, medStandardMaskin, standardMaskin, utforareLage, vidaBasvagFinns, vidaAvlaggUr, vidaAvlaggBekraftat, larmplatsBekraftat, larmplatsFraga, kvarChip, kvittoMedKvar, prognosUnderlag, sattHarDu, STATUS_PLANERAD, vedSammanfattning,
   type HarDuId, type HarDuSvarVarde, type KlarIndata, type PrognosIndata, type UtforareVal, type VedDetaljer,
 } from '../../lib/klarTrakt'
 import type { KlarPatch, KlarVy, MaskinPrognos } from '../../components/planering/KlarMedTrakten'
@@ -4081,6 +4081,8 @@ export default function PlannerPage() {
   // Avläggssteget med Vidas avlägg visas på kartan: arket stängs, kartan zoomar in på avläggen och framhäver dem, och en list nertill frågar "Vida har lagt 2 avlägg. Ligger de rätt?".
   // `klarEfterRef` = vyn kortet öppnas i när frågan är besvarad (nästa steg, eller dit man kom ifrån).
   const [klarGranskaAvlagg, setKlarGranskaAvlagg] = useState(false);
+  // Larmplatserna på kartan (Klar med trakten? › Larmplats): samma mönster som avläggen — arket krymper, kartan visar nålarna med ringar, en list frågar "Ligger de rätt?".
+  const [klarGranskaLarm, setKlarGranskaLarm] = useState(false);
   const klarEfterRef = useRef<KlarVy | null>(null);
   // Kartvyn före frågan om Vidas avlägg: "Ja" och tillbaka släpper listen och kartan går tillbaka dit den var ("Lägg till eget" stannar kvar vid avläggen för placeringen).
   const klarKameraForeRef = useRef<{ center: any; zoom: number; bearing: number; pitch: number } | null>(null);
@@ -4124,6 +4126,9 @@ export default function PlannerPage() {
   const klarVidaPunkter = useMemo(() => vidaAvlaggUr(traktGeo?.features), [traktGeo]);
   const klarVidaAvlagg = useMemo(() => klarVidaPunkter.map((a) => a.nummer), [klarVidaPunkter]);
   const klarVidaBekraftat = vidaAvlaggBekraftat(klarVidaAvlagg, klarFalt.vidaAvlagg);
+  // Larmplatserna (Vidas + objektets egen): kvar tills planeraren godkänt exakt de som finns (lib/klarTrakt larmplatsBekraftat). Måste vara klara före Klar för maskin.
+  const klarLarmNycklar = useMemo(() => larmPunkterAlla.map(larmPunktNyckel), [larmPunkterAlla]);
+  const klarLarmBekraftat = larmplatsBekraftat(klarLarmNycklar, klarFalt.larmplats);
   // G15-FÖRSLAG ur uppmätt utfall (lib/g15Forslag): skördare mot trakter med liknande medelstam, skotare som snitt per typ. Fälten är förifyllda med förslaget — det SKRIVNA
   // värdet (manuell_prognos) går alltid före, och förslaget sparas på objektet först vid Stämmer (klarStammer), så att titta på kortet ändrar inget i databasen.
   const g15Forslag = useMemo(() => beraknaG15Forslag(
@@ -4161,6 +4166,7 @@ export default function PlannerPage() {
   const forarRiskNu = forarRisk(riskLista, klarFalt.riskbedomning, riskLast.kvitton.filter((k) => k.medarbetareId === currentMedarbetare?.id).map((k) => k.underlag));
   const klarIn: KlarIndata = {
     risker: { antal: riskLista.length, kvar: !riskGodkand },
+    larmplatser: { antal: klarLarmNycklar.length, bekraftat: klarLarmBekraftat },
     avlaggAntal: klarAvlaggAntal, vidaAvlagg: klarVidaAvlagg, vidaAvlaggBekraftat: klarVidaBekraftat, basvagTexter: klarBasvagTexterTop, basvagForvantad: vidaBasvagFinns(traktGeo?.features), basvagKravs: infoBasvagKravs, barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
     skordare: klarSkordare, skotare: klarSkotare, prognos: klarPrognosIn, prognosGodkandUnderlag: klarFalt.prognosGodkand.underlag, harDu: klarFalt.harDu,
   };
@@ -4183,11 +4189,34 @@ export default function PlannerPage() {
   }, [klarGaller, klarDataKlart, klarStatus.antalKvar, klarFalt.klarKvarAntal, testlage]);
   useEffect(() => { if (!traktOversiktOpen) setKlarStartMedVed(false); }, [traktOversiktOpen]);
   // Kortets minne (vy + steg) lever bara medan arket är öppet eller kartan väntar på ett avlägg — en vanlig stängning börjar nästa öppning från början.
-  useEffect(() => { if (!traktOversiktOpen && !klarAterAvlagg && !klarAterBasvag && !klarGranskaAvlagg) klarVyRef.current = null; }, [traktOversiktOpen, klarAterAvlagg, klarAterBasvag, klarGranskaAvlagg]);
+  useEffect(() => { if (!traktOversiktOpen && !klarAterAvlagg && !klarAterBasvag && !klarGranskaAvlagg && !klarGranskaLarm) klarVyRef.current = null; }, [traktOversiktOpen, klarAterAvlagg, klarAterBasvag, klarGranskaAvlagg, klarGranskaLarm]);
   useEffect(() => {   // sparar kartvyn INNAN zoomen nedan (effekter körs i ordning)
     const map = mapInstanceRef.current;
-    if (klarGranskaAvlagg && map) { try { klarKameraForeRef.current = { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() }; } catch { /* kartan hann inte */ } }
-  }, [klarGranskaAvlagg]);
+    if ((klarGranskaAvlagg || klarGranskaLarm) && map) { try { klarKameraForeRef.current = { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() }; } catch { /* kartan hann inte */ } }
+  }, [klarGranskaAvlagg, klarGranskaLarm]);
+  // Larmplatserna på kartan medan frågan står: kartan zoomar in på dem och en ring (blå med vit kant, som avläggens) ligger runt varje nål.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!klarGranskaLarm || !map || !mapLibreReady || larmPunkterAlla.length === 0) return;
+    const fc = { type: 'FeatureCollection', features: larmPunkterAlla.map((a) => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [a.lng, a.lat] } })) };
+    let foreVis: any = null;
+    try {
+      if (map.getLayer('larm-pin')) { foreVis = map.getLayoutProperty('larm-pin', 'visibility'); map.setLayoutProperty('larm-pin', 'visibility', 'visible'); }
+      if (!map.getSource('larm-granska-source')) map.addSource('larm-granska-source', { type: 'geojson', data: fc as any });
+      else (map.getSource('larm-granska-source') as any).setData(fc);
+      if (!map.getLayer('larm-granska-vit')) map.addLayer({ id: 'larm-granska-vit', type: 'circle', source: 'larm-granska-source', paint: { 'circle-radius': 27, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 8, 'circle-stroke-color': '#ffffff', 'circle-pitch-alignment': 'viewport' } });
+      if (!map.getLayer('larm-granska-ring')) map.addLayer({ id: 'larm-granska-ring', type: 'circle', source: 'larm-granska-source', paint: { 'circle-radius': 27, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 4, 'circle-stroke-color': FARG.bla, 'circle-pitch-alignment': 'viewport' } });
+      const lng = larmPunkterAlla.map((a) => a.lng); const lat = larmPunkterAlla.map((a) => a.lat);
+      map.fitBounds([[Math.min(...lng), Math.min(...lat)], [Math.max(...lng), Math.max(...lat)]], { padding: { top: 7 * AVSTAND.xxl, bottom: 280, left: 70, right: 70 }, maxZoom: 18, duration: 800 });
+    } catch { /* kartan hann inte — listen frågar ändå */ }
+    return () => {
+      try {
+        for (const id of ['larm-granska-ring', 'larm-granska-vit']) if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getSource('larm-granska-source')) map.removeSource('larm-granska-source');
+        if (foreVis != null && map.getLayer('larm-pin')) map.setLayoutProperty('larm-pin', 'visibility', foreVis);
+      } catch { /* kartan är borta */ }
+    };
+  }, [klarGranskaLarm, mapLibreReady, larmPunkterAlla]);
   // Vidas avlägg på kartan medan frågan står: kartan zoomar in på dem (så att de syns ovanför listen) och en blå ring med vit kant ligger runt varje. Vidas lager (symbol + nummer) tvingas synliga så länge.
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -13250,7 +13279,7 @@ export default function PlannerPage() {
   const objektKartaTryck = objektListaVal && mapLibreReady && !kartLageIgang;
   // Förslaget vägsymbol → vägfärg står nertill bara när inget annat pågår där (ritläge, meny, listor, körordning, framhävning …).
   const vagForslagListSynlig = harVagForslag(vagForslag) && !kartLageIgang && !menuOpen && !objektListaOppen && !traktOversiktOpen && !framhavListSynlig
-    && !korLage && !klarGranskaAvlagg && markerMenuOpen == null;
+    && !korLage && !klarGranskaAvlagg && !klarGranskaLarm && markerMenuOpen == null;
   useEffect(() => { setVagSpokeAktiv(vagForslagListSynlig); }, [vagForslagListSynlig]);
   const { markeraVal: markeraListVal } = useObjektPrickar({
     map: objektKartaTryck ? mapInstanceRef.current : null,
@@ -14863,6 +14892,11 @@ export default function PlannerPage() {
             vidaAvlagg: klarVidaAvlagg, vidaAvlaggBekraftat: klarVidaBekraftat, avlaggEgna: klarAvlaggAntal,
             onBekraftaVidaAvlagg: () => { void klarHook.spara({ vidaAvlagg: { nummer: klarVidaAvlagg, av: currentMedarbetare?.id ?? null, at: new Date().toISOString() } }); },
             onGranskaAvlagg: (efter: KlarVy) => { klarEfterRef.current = efter; setKlarGranskaAvlagg(true); stang(); },
+            larmplats: {
+              antal: klarLarmNycklar.length, bekraftat: klarLarmBekraftat,
+              onGranska: (efter: KlarVy) => { klarEfterRef.current = efter; setKlarGranskaLarm(true); stang(); },
+              onBekrafta: () => { void klarHook.spara({ larmplats: { nycklar: klarLarmNycklar, av: currentMedarbetare?.id ?? null, at: new Date().toISOString() } }); },
+            },
             basvag: { texter: klarBasvagTexter, kravs: infoBasvagKravs, timmar: infoBasvagTimmar, sammanfattning: basvagSammanfattning(kartMarkeringar.filter(arBasvagMark).map((m) => m.langdM)) },
             barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
             skordare: klarSkordare, skotare: klarSkotare,
@@ -15479,6 +15513,27 @@ export default function PlannerPage() {
           ]}
         />
       ))}
+      {/* LARMPLATSERNA (Klar med trakten? › Larmplats): arket har krympt hit, kartan visar nålarna med ringar. EN fråga, två svar; tillbaka = till kortet. Måste godkännas före Klar för maskin. */}
+      {klarGranskaLarm && !traktOversiktOpen && !selectedSymbol && (() => {
+        const fraga = larmplatsFraga(klarLarmNycklar.length);
+        const oppnaKortet = (vy: KlarVy | null) => { klarAterstallKamera(); klarVyRef.current = vy; setKlarGranskaLarm(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); };
+        return (
+          <NedfaldList
+            testid="larm-granska-list"
+            smal={smalSkarm}
+            stapla
+            text={klarLarmBekraftat ? `Larmplats ✓ · ${klarLarmNycklar.length === 1 ? '1 larmplats' : `${klarLarmNycklar.length} larmplatser`}` : fraga.text}
+            tillbaka={{ etikett: '‹ Klar med trakten?', onClick: () => oppnaKortet({ v: 'kort' }), testid: 'larm-granska-tillbaka' }}
+            extra={[
+              { etikett: klarLarmBekraftat ? 'Klart' : fraga.ja, primar: true, testid: 'larm-granska-ja', onClick: () => {
+                if (!klarLarmBekraftat) { void klarHook.spara({ larmplats: { nycklar: klarLarmNycklar, av: currentMedarbetare?.id ?? null, at: new Date().toISOString() } }); if (klarGaller) visaKvitto('Larmplats ✓', 'ok'); }
+                oppnaKortet(klarEfterRef.current);
+              } },
+              { etikett: 'Ändra', testid: 'larm-granska-andra', onClick: () => { klarKameraForeRef.current = null; klarVyRef.current = klarEfterRef.current; setKlarGranskaLarm(false); setTraktOpen(true); } },
+            ]}
+          />
+        );
+      })()}
       {/* AVLÄGGEN FRÅN VIDA (Klar med trakten? › Avlägg): arket har krympt hit, kartan visar avläggen med deras nummer som etiketter. EN fråga, två svar; tillbaka = till kortet. */}
       {klarGranskaAvlagg && !traktOversiktOpen && !selectedSymbol && (() => {
         const fraga = vidaAvlaggFraga(klarVidaAvlagg.length);

@@ -756,3 +756,32 @@ describe('ved', () => {
   });
 });
 
+describe('Larmplats: planeraren måste godkänna den (Martin 2026-11-19)', () => {
+  it('utan larmfält finns inget larmplatssteg (äldre anropare)', () => {
+    montera(KLAR);
+    expect(finns('klar-rad-larmplats')).toBe(false);
+  });
+  it('en larmplats som inte är godkänd är en rad under "Rita på kartan" och ett tryck ber sidan visa den', () => {
+    const granska: any[] = [];
+    montera({ ...KLAR, larm: { antal: 1, bekraftat: false } }, { larmplats: { antal: 1, bekraftat: false, onGranska: (e) => { granska.push(e); }, onBekrafta: () => {} } });
+    expect(q('klar-grupp-karta')!.contains(q('klar-rad-larmplats'))).toBe(true);
+    expect(text('klar-rad-larmplats-varde')).toBe('Titta');
+    klicka(q('klar-rad-larmplats'));
+    expect(granska.length).toBe(1);
+  });
+  it('Klar för maskin är spärrad med en rad som säger varför, tills larmplatsen är godkänd', () => {
+    montera({ ...KLAR, larm: { antal: 1, bekraftat: false } }, { larmplats: { antal: 1, bekraftat: false, onBekrafta: () => {} } });
+    expect(text('klar-maste')).toContain('Larmplats');
+    expect((q('klar-for-maskin') as HTMLButtonElement | null)?.disabled ?? true).toBe(true);
+  });
+  it('godkänd larmplats: inte kvar och Klar för maskin är öppen', () => {
+    montera({ ...KLAR, larm: { antal: 1, bekraftat: true } }, { larmplats: { antal: 1, bekraftat: true, onBekrafta: () => {} } });
+    expect(finns('klar-rad-larmplats')).toBe(false);
+    expect(finns('klar-maste')).toBe(false);
+    expect((q('klar-for-maskin') as HTMLButtonElement).disabled).toBe(false);
+  });
+  it('ingen larmplats alls: raden säger Saknas', () => {
+    montera({ ...KLAR, larm: { antal: 0, bekraftat: false } }, { larmplats: { antal: 0, bekraftat: false, onBekrafta: () => {} } });
+    expect(text('klar-rad-larmplats-varde')).toBe('Saknas');
+  });
+});

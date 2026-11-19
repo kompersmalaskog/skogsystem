@@ -321,7 +321,38 @@ export function vidaAvlaggBekraftat(nummer: readonly string[], bek: VidaAvlaggBe
   return a.length === b.length && a.every((x, k) => x === b[k]);
 }
 
-export type PostId = 'avlagg' | 'basvag' | 'barighet' | 'terrang' | 'skotningsavstand' | 'skordare' | 'skotare' | 'medelstam' | 'risker' | 'prognos';
+// ── Larmplatsen ──────────────────────────────────────────────────────────────────────────────────────────────────────
+// Där räddningstjänsten möts om något händer (lib/larmpunkter: Vida lägger en per avlägg). Planeraren ska titta på dem och godkänna dem innan trakten går till maskin
+// (Martin 2026-11-19). Bekräftelsen bor i objekt.har_du_svar under nyckeln `larmplats` (ingen ny kolumn) och gäller bara exakt de punkter som visades:
+// flyttas eller tillkommer en larmplats måste planeraren titta igen.
+
+/** Planerarens "Stämmer" för larmplatserna: nycklarna ("lat,lng" på ~1 m) som bekräftades, av vem och när. */
+export interface LarmplatsBekraftelse { nycklar: string[]; av: string | null; at: string }
+
+export function lasLarmplats(raw: unknown): LarmplatsBekraftelse | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const v = (raw as Record<string, unknown>).larmplats;
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (!Array.isArray(o.nycklar) || typeof o.at !== 'string') return null;
+  return { nycklar: o.nycklar.map(String), av: typeof o.av === 'string' ? o.av : null, at: o.at };
+}
+
+/** Bekräftelsen gäller bara exakt de larmplatser som visades. Inga larmplatser = inget att bekräfta (och därmed aldrig "klart"). */
+export function larmplatsBekraftat(nycklar: readonly string[], bek: LarmplatsBekraftelse | null): boolean {
+  if (!bek || nycklar.length === 0) return false;
+  const a = [...nycklar].sort(); const b = [...bek.nycklar].sort();
+  return a.length === b.length && a.every((x, k) => x === b[k]);
+}
+
+/** Frågan på kartan och i steget, utan koordinater. */
+export function larmplatsFraga(n: number): { text: string; ja: string } {
+  return n === 1
+    ? { text: 'Vida har lagt 1 larmplats. Ligger den rätt?', ja: 'Ja, den ligger rätt' }
+    : { text: `Vida har lagt ${n} larmplatser. Ligger de rätt?`, ja: 'Ja, de ligger rätt' };
+}
+
+export type PostId = 'avlagg' | 'larmplats' | 'basvag' | 'barighet' | 'terrang' | 'skotningsavstand' | 'skordare' | 'skotare' | 'medelstam' | 'risker' | 'prognos';
 
 export interface Post {
   id: PostId;
@@ -337,6 +368,8 @@ export interface KlarIndata {
   vidaAvlagg?: string[];
   /** planeraren har tryckt Stämmer på exakt de här avläggen */
   vidaAvlaggBekraftat?: boolean;
+  /** antal larmplatser (Vidas + objektets egen) och om planeraren godkänt exakt dem. Saknas = steget finns inte (äldre anropare). */
+  larmplatser?: { antal: number; bekraftat: boolean };
   /** basvägslinjerna ("Röd 640 m") i den ordning de ritats — redan formaterade av anroparen */
   basvagTexter: string[];
   /** Vidas underlag (traktgeometrin) har en basväg — då är den kvar tills den ritats i appen. false = ingen basväg väntas: "Ingen" är klart. */
@@ -402,6 +435,12 @@ function avlaggPost(i: KlarIndata): Post {
   return { id: 'avlagg', etikett: 'Avlägg', varde: klart ? avlaggText(vida.length, i.avlaggAntal) : null, kvar: !klart };
 }
 
+/** Larmplats: kvar tills planeraren godkänt exakt de larmplatser som finns. Finns ingen larmplats är den kvar (en trakt utan plats där ambulansen möts är inte klar). */
+function larmplatsPost(l: { antal: number; bekraftat: boolean }): Post {
+  if (l.antal === 0) return { id: 'larmplats', etikett: 'Larmplats', varde: null, kvar: true };
+  return { id: 'larmplats', etikett: 'Larmplats', varde: l.bekraftat ? (l.antal === 1 ? '1 larmplats' : `${l.antal} larmplatser`) : null, kvar: !l.bekraftat };
+}
+
 export function berakna(i: KlarIndata): KlarStatus {
   const sk = utforareLage(i.skordare);
   const st = utforareLage(i.skotare);
@@ -409,6 +448,7 @@ export function berakna(i: KlarIndata): KlarStatus {
 
   const poster: Post[] = [
     avlaggPost(i),
+    ...(i.larmplatser ? [larmplatsPost(i.larmplatser)] : []),
     // Basväg: kvar bara om Vida har en och ingen är ritad. Ingen väntad basväg + ingen ritad = "Ingen" = klart.
     { id: 'basvag', etikett: 'Basväg', varde: i.basvagTexter.length > 0 ? i.basvagTexter.join(' · ') : i.basvagForvantad ? null : 'Ingen', kvar: i.basvagTexter.length === 0 && i.basvagForvantad },
     { id: 'barighet', etikett: 'Bärighet', varde: i.barighet ? (BARIGHET[i.barighet] ?? i.barighet) : null, kvar: !i.barighet },
