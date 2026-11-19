@@ -28,7 +28,7 @@ import { AVSTAND, FARG, FONT, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, T
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
-  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, hamtaSkogKort, tilldelaMaskin,
+  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, hamtaSenasteArbete, type SenasteArbete, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, hamtaSkogKort, tilldelaMaskin,
   type BolagRad, type FastData, type Manadsdata, type MaskinLage, type Typ,
 } from '../_lib/queries'
 import { TYPER, TYP_NAMN, globalaArbetsdagar, manadStatus, maskinNamn, planeringStoppText, raknaSpar, sparTakter, valjBas, type SparLage } from '../_lib/berakningar'
@@ -252,6 +252,21 @@ export default function HelikopterVy() {
     return () => { avbruten = true }
   }, [ar, manad, version])
 
+  // Var maskinerna arbetat de senaste 3 dagarna: bara i pågående månad, och först när köerna finns. Ett fel säger ingenting — prognosen som förut.
+  const [senaste, setSenaste] = useState<SenasteArbete[] | null>(null)
+  const koIds = klarData && status === 'pagaende' ? klarData.trakter.map(t => t.objekt_id).join(',') : ''
+  useEffect(() => {
+    setSenaste(null)
+    if (!koIds) return
+    let avbruten = false
+    const fran = new Date(); fran.setDate(fran.getDate() - 3)
+    hamtaSenasteArbete(ymdLokal(fran), koIds.split(',')).then(r => {
+      if (avbruten) return
+      if (r.error != null) console.error('[helikopter] senaste arbete', r.error); else setSenaste(r.data)
+    })
+    return () => { avbruten = true }
+  }, [koIds, version])
+
   // ── Räkningen (allt som står på sidan) ──
   const dagar = useMemo(() => (manadsdata ? globalaArbetsdagar(manadsdata.arbetsdagar) : null), [manadsdata])
   const spar: SparLage[] = useMemo(() => {
@@ -284,8 +299,8 @@ export default function HelikopterVy() {
       if (sp.bestallt > 0 && !sp.bolag.some(b => b.toLowerCase() === (e.bolag ?? '').toLowerCase())) return []
       return [{ typ: sp.typ, maskin_id: r.maskin_id, volym: r.volym }]
     })
-    return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), egetSkordat, stopp, utanfor: maskinObjekt ? utanforBestallning(maskinObjekt, spar) : undefined, ordning: nyOrdning ?? undefined }
-  }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader, maskinObjekt, nyOrdning])
+    return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), egetSkordat, stopp, senaste: senaste ?? undefined, utanfor: maskinObjekt ? utanforBestallning(maskinObjekt, spar) : undefined, ordning: nyOrdning ?? undefined }
+  }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader, maskinObjekt, senaste, nyOrdning])
   const tavla = useMemo(() => (tavlaIn ? byggTavla(tavlaIn) : null), [tavlaIn])
   const utanTypSumma = Math.round((manadsdata?.utanTyp ?? []).reduce((a, r) => a + r.volym, 0))
 

@@ -304,6 +304,37 @@ describe('räcker trakterna', () => {
   })
 })
 
+describe('kör annat', () => {
+  const maskiner = [maskin('Elefant', 'skotare'), maskin('Wisent', 'skotare')]
+  const trakter = [
+    trakt('Arvidstorp', 'skotare', 'Elefant', { rest_volym: 300, timmar: 40 }),
+    trakt('Bondeskog', 'skotare', 'Wisent', { rest_volym: 300, timmar: 40 }),
+  ]
+  const ind = (senaste?: { maskin_id: string; pa: string[] }[]) => bas({
+    spar: [spar('slutavverkning', { bestallt: 1000, skordat: 700, skotat: 200 })],
+    utfall: [{ typ: 'slutavverkning', maskin_id: 'Elefant', roll: 'skotare', volym: 200 }],
+    klar: klar(maskiner, trakter), senaste,
+  })
+  const wisent = (senaste?: { maskin_id: string; pa: string[] }[]) => byggTavla(ind(senaste)).spar[0].block[1].maskiner.find(m => m.namn === 'Wisent')!
+  it('Wisent kör energiklippning, inte Bondeskog: ingen prognos läggs på honom, och kortet säger det', () => {
+    const b = byggTavla(ind([{ maskin_id: 'Wisent', pa: [] }, { maskin_id: 'Elefant', pa: ['Arvidstorp'] }])).spar[0].block[1]
+    expect(b.maskiner.find(m => m.namn === 'Wisent')).toMatchObject({ korAnnat: true, landar: 0, ca: false })
+    expect(b.maskiner.find(m => m.namn === 'Elefant')?.korAnnat).toBe(false)
+    expect(b.korAnnat).toEqual(['Wisent'])
+  })
+  it('arbetar han på Bondeskog räknas han med; okänt (ingen avläsning, eller inga rader) ändrar ingenting', () => {
+    expect(wisent([{ maskin_id: 'Wisent', pa: ['Bondeskog'] }]).korAnnat).toBe(false)
+    expect(wisent([{ maskin_id: 'Wisent', pa: ['Bondeskog'] }]).landar).toBeGreaterThan(0)
+    expect(wisent(undefined)).toMatchObject({ korAnnat: false })
+    expect(wisent([]).korAnnat).toBe(false)
+    expect(wisent(undefined).landar).toBe(wisent([{ maskin_id: 'Elefant', pa: [] }]).landar)
+  })
+  it('avslutad månad: ingen avkänning', () => {
+    const t = byggTavla({ ...ind([{ maskin_id: 'Wisent', pa: [] }]), status: 'avslutad' })
+    expect(t.spar[0].block[1].korAnnat).toEqual([])
+  })
+})
+
 describe('egen skotning', () => {
   const maskiner = [maskin('H8E', 'skordare')]
   const trakter = [

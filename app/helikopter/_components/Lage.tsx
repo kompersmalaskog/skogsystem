@@ -35,6 +35,9 @@ function LageKort({ spar, b, iFas, onOppna }: { spar: TavlaSpar; b: TavlaBlock; 
         <span style={{ position: 'absolute', left: 0, top: 0, height: STAPEL_HOJD, width: pst(b.nu, spar.bestallt), background: farg, borderRadius: STAPEL_HOJD / 2 }} />
         {iFas != null && <span data-i-fas="" style={{ position: 'absolute', left: `${Math.round(iFas * 100)}%`, top: -AVSTAND.xs, width: 2, height: STAPEL_HOJD + AVSTAND.s, background: FARG.text }} />}
       </span>
+      {b.korAnnat.length > 0 && (
+        <span data-kor-annat="" style={{ ...TYP.meta, color: FARG.orange }}>{b.korAnnat.join(' och ')} kör annat just nu — räknas inte in i prognosen</span>
+      )}
       <span style={{ display: 'flex', justifyContent: 'space-between', ...TYP.meta, ...TNUM, color: FARG.text2 }}>
         <span>{fmt(b.nu)} gjort</span>
         {b.landar != null && <span>landar {b.ca ? 'ca ' : ''}{fmt(b.landar)}</span>}
