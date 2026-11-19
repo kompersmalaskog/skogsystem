@@ -65,6 +65,8 @@ export interface Lass {
    */
   bekraftadAv: 'auto' | 'forare' | 'planerare' | null;
   bekraftadTid: string | null;
+  /** Lastrummet var breddat (true) eller smalt (false/saknas) — en av två, aldrig båda. Nya lass får förra lassets val. */
+  breddat?: boolean;
   /** Spårdelen sedan förra lossningen (tunnad). Används för "kvar per väg" i nästa steg. */
   sparPunkter: SparPunkt[];
   vagar: VagTid[];

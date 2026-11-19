@@ -6,7 +6,7 @@ export function lassTillPayload(l: Lass): Record<string, unknown> {
   return {
     lass: {
       id: l.id, objekt_id: l.objektId, vo_nummer: l.voNummer, maskin_id: l.maskinId, medarbetare_id: l.medarbetareId,
-      lass_nummer: l.lassNummer, datum: l.datum, status: l.status, bekraftad_av: l.bekraftadAv, bekraftad_tid: l.bekraftadTid,
+      lass_nummer: l.lassNummer, datum: l.datum, status: l.status, bekraftad_av: l.bekraftadAv, bekraftad_tid: l.bekraftadTid, breddat: !!l.breddat,
       spar: l.sparPunkter, vagar: l.vagar, skapad: l.skapad, andrad: l.andrad,
     },
     delar: l.delar.map((d) => ({
@@ -18,7 +18,8 @@ export function lassTillPayload(l: Lass): Record<string, unknown> {
 
 /** Kolumnerna lasset läses med (inbäddade delar och sortiment). */
 export const LASS_SELECT =
-  'id, objekt_id, vo_nummer, maskin_id, medarbetare_id, lass_nummer, datum, status, bekraftad_av, bekraftad_tid, spar, vagar, skapad, andrad, ' +
+  // '*' (inte en kolumnlista): kolumnen breddat finns först när migrationen körts, och läsningen får aldrig falla för att den saknas.
+  '*, ' +
   'skotar_lass_del(del_nr, avlagg_id, avlagg_nummer, lossad_tid, lat, lng, skotar_lass_sortiment(sortiment_nyckel, sortiment_namn, m3_forare))';
 
 const STATUS: readonly LassStatus[] = ['foreslaget', 'vantar_forare', 'bekraftat', 'struket'];
@@ -40,6 +41,7 @@ export function lassFranServer(r: any): Lass | null {
     status: STATUS.includes(r.status) ? r.status : 'bekraftat',
     bekraftadAv: r.bekraftad_av === 'auto' || r.bekraftad_av === 'forare' || r.bekraftad_av === 'planerare' ? r.bekraftad_av : null,
     bekraftadTid: r.bekraftad_tid ? new Date(r.bekraftad_tid).toISOString() : null,
+    breddat: r.breddat === true,
     sparPunkter: Array.isArray(r.spar) ? r.spar : [], vagar: Array.isArray(r.vagar) ? r.vagar : [],
     skapad: new Date(r.skapad).toISOString(), andrad: new Date(r.andrad).toISOString(),
   };
