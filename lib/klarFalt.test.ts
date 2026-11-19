@@ -65,3 +65,12 @@ describe('Stämmer på Vidas avlägg bor i har_du_svar utan att skriva bort svar
     expect(klarFaltTillKolumner({ harDu: {} }, { harDu: svar, vidaAvlagg: null })).toEqual({ har_du_svar: null });
   });
 });
+
+describe('larmplats i har_du_svar', () => {
+  it('skrivs bredvid harDu och vida_avlagg utan att radera dem', () => {
+    const bek = { nycklar: ['56.40000,14.70000'], av: 'm1', at: '2026-11-19T10:00:00.000Z' };
+    const k = klarFaltTillKolumner({ larmplats: bek }, { harDu: {}, vidaAvlagg: { nummer: ['1'], av: 'm1', at: 'a' } }) as any;
+    expect(k.har_du_svar.larmplats).toEqual(bek);
+    expect(k.har_du_svar.vida_avlagg).toBeTruthy();
+  });
+});

@@ -13,7 +13,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { AVSTAND, FARG, KNAPP, RADIE, TRAFFYTA, TYP, medSafeBotten } from '@/lib/design/tokens';
-import { HAR_DU_FRAGOR, type HarDuId, type HarDuSvar, type HarDuSvarVarde, type KlarStatus, type UtforareVal, type Varning, type VedDetaljer } from '@/lib/klarTrakt';
+import { HAR_DU_FRAGOR, larmplatsFraga, type HarDuId, type HarDuSvar, type HarDuSvarVarde, type KlarStatus, type UtforareVal, type Varning, type VedDetaljer } from '@/lib/klarTrakt';
 import { STEG_NAMN, genomgangSteg, kvarSteg, type StegId } from '@/lib/klarSteg';
 import type { PrestationVarning } from '@/lib/g15Forslag';
 import { Gruppkort, Huvud, Pil, Rubrik } from './infoDelar';
@@ -114,6 +114,12 @@ export interface KlarMedTraktenProps {
    * `efter` = vyn kortet ska öppnas i när listen är besvarad (nästa steg, eller dit man kom ifrån). Saknas funktionen (riggen, tester) visas samma fråga i steget.
    */
   onGranskaAvlagg?: (efter: KlarVy) => void;
+  /**
+   * Larmplatsen: planeraren ska titta på nålarna och godkänna dem innan trakten går till maskin (Martin 2026-11-19). `antal` = Vidas + objektets egen.
+   * `onGranska` visar dem på KARTAN (som Vidas avlägg): arket krymper, kartan zoomar in, en list nertill frågar "Ligger de rätt?". Saknas funktionen (riggen) står frågan i steget.
+   * Saknas `larmplats` helt finns steget inte (äldre anropare).
+   */
+  larmplats?: { antal: number; bekraftat: boolean; onGranska?: (efter: KlarVy) => void; onBekrafta: () => void; onAndra?: () => void } | null;
   /** Riskbedömningen (lib/riskbedomning). Saknas/null = steget finns inte. */
   risker?: (RiskerProps & { onStammer: () => void }) | null;
   onAndra: (patch: KlarPatch) => void;
@@ -139,6 +145,7 @@ export type KlarVy = Vy;
 const OVRIGT_ETT: Vy = { v: 'steg', flode: { typ: 'ett', steg: 'ovrigt', till: 'kort' } };
 
 const UNDER: Partial<Record<StegId, string>> = {
+  larmplats: 'Var möts ambulansen om något händer?',
   forutsattningar: 'Hur ser trakten ut för maskinerna?',
   risker: 'Vad kan gå fel här, och vad gör man då? Föraren läser det innan maskinen börjar.',
   maskiner: 'Vem kör?',
@@ -159,10 +166,10 @@ function SvarKnapp({ testid, onTryck, children }: { testid: string; onTryck: () 
 }
 
 /** Säger åt sidan att visa avläggen på kartan (en gång när steget öppnas); ritar ingenting — arket stängs av sidan. */
-function AvlaggGranska({ efter, onGranska }: { efter: Vy; onGranska: (efter: Vy) => void }) {
+function AvlaggGranska({ efter, onGranska, testid = 'klar-avlagg-granska' }: { efter: Vy; onGranska: (efter: Vy) => void; testid?: string }) {
   useEffect(() => { onGranska(efter); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  return <div data-testid="klar-avlagg-granska" />;
+  return <div data-testid={testid} />;
 }
 
 export default function KlarMedTrakten(p: KlarMedTraktenProps) {
@@ -178,6 +185,8 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   const extern = status.prognos.lage === 'extern';
 
   const tillKort = () => setVy({ v: 'kort' });
+  // Larmplatsen MÅSTE vara godkänd innan trakten går till maskin (Martin 2026-11-19) — det enda som spärrar Klar för maskin.
+  const larmSpar = kvar.includes('larmplats');
 
   if (vy.v === 'ved') {
     const efter = vy.efter;
@@ -213,6 +222,9 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
     // Vidas avlägg visas på kartan: arket ger plats (sidan sköter listen), kortet öppnas igen i `efter`.
     if (steg === 'avlagg' && (p.vidaAvlagg ?? []).length > 0 && p.onGranskaAvlagg) return <AvlaggGranska efter={nastaVy()} onGranska={p.onGranskaAvlagg} />;
 
+    // Larmplatserna visas på kartan: arket ger plats (sidan sköter listen), kortet öppnas igen i `efter`.
+    if (steg === 'larmplats' && (p.larmplats?.antal ?? 0) > 0 && p.larmplats?.onGranska) return <AvlaggGranska testid="klar-larm-granska" efter={nastaVy()} onGranska={p.larmplats.onGranska} />;
+
     const ram = (rubrik: string, body: React.ReactNode, primar: React.ReactNode) => (
       <StegRam namn={p.namn} onTillbaka={tillbaka} delar={delar} rubrik={rubrik} under={UNDER[steg]} knappar={primar}
         foregaende={alla ? { onTryck: foregaende, disabled: idx === 0 } : null} hoppa={alla && steg !== 'sammanfattning' ? { onTryck: nasta } : null}>
@@ -225,6 +237,15 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
 
     switch (steg) {
       case 'avlagg': return ram(STEG_NAMN.avlagg, <AvlaggBody p={p} kartaYta={p.kartaYta} />, nastaKnapp);
+      case 'larmplats': {
+        const l = p.larmplats;
+        if (!l || l.antal === 0) {
+          return ram(STEG_NAMN.larmplats, <p data-testid="klar-larm-saknas" style={{ ...TYP.text, color: FARG.orange, margin: 0 }}>Ingen larmplats finns. Lägg en under ⓘ › Mer › Larmkoordinat — utan den vet ingen var ambulansen ska mötas.</p>, nastaKnapp);
+        }
+        const fraga = larmplatsFraga(l.antal);
+        return ram(STEG_NAMN.larmplats, <p style={{ ...TYP.text, color: FARG.text, margin: 0 }}>{fraga.text}</p>,
+          l.bekraftat ? nastaKnapp : <StorKnapp testid="klar-larm-ja" onTryck={() => { l.onBekrafta(); nasta(); }}>{fraga.ja}</StorKnapp>);
+      }
       case 'basvag': return ram(STEG_NAMN.basvag, <BasvagBody p={p} />, nastaKnapp);
       case 'forutsattningar': return ram(STEG_NAMN.forutsattningar, <ForutsBody p={p} />, nastaKnapp);
       case 'maskiner': return ram(STEG_NAMN.maskiner, <MaskinerBody p={p} />, nastaKnapp);
@@ -245,7 +266,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
         return ram(STEG_NAMN.sammanfattning, <KlarSe p={p} utanPadding onOppna={(s, f) => setVy({ v: 'steg', flode: { typ: 'ett', steg: s, fraga: f, till: 'kort' } })} />,
           planerad
             ? <StorKnapp testid="klar-steg-nasta" onTryck={tillKort}>Klar</StorKnapp>
-            : <StorKnapp testid="klar-for-maskin" variant="gron" disabled={p.klarSparar} onTryck={() => { p.onKlarForMaskin(); tillKort(); }}>{p.klarSparar ? 'Skickar …' : 'Klar för maskin'}</StorKnapp>);
+            : <StorKnapp testid="klar-for-maskin" variant="gron" disabled={p.klarSparar || larmSpar} onTryck={() => { p.onKlarForMaskin(); tillKort(); }}>{p.klarSparar ? 'Skickar …' : 'Klar för maskin'}</StorKnapp>);
       default: return null;
     }
   }
@@ -256,6 +277,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   // Avlägg och Basväg gör saken direkt; resten öppnar sitt steg.
   const gor = (s: StegId) => {
     if (s === 'basvag') { p.onRitaBasvag(); return; }
+    if (s === 'larmplats' && (p.larmplats?.antal ?? 0) > 0 && p.larmplats?.onGranska) { p.larmplats.onGranska({ v: 'kort' }); return; }
     if (s === 'avlagg') {
       if ((p.vidaAvlagg ?? []).length > 0 && p.onGranskaAvlagg) { p.onGranskaAvlagg({ v: 'kort' }); return; }
       if ((p.vidaAvlagg ?? []).length === 0) { p.onPlaceraAvlagg(); return; }
@@ -266,8 +288,8 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   const fragorKvar = HAR_DU_FRAGOR.filter((f) => status.frågorKvar.includes(f.id));
   // Rubrikerna: vad man gör på kartan, vad man väljer, vad man kollar på plats.
   const grupper = ([
-    { id: 'karta', rubrik: 'Rita på kartan', steg: raderKvar.filter((s) => s === 'avlagg' || s === 'basvag') },
-    { id: 'valj', rubrik: 'Välj', steg: raderKvar.filter((s) => s !== 'avlagg' && s !== 'basvag') },
+    { id: 'karta', rubrik: 'Rita på kartan', steg: raderKvar.filter((s) => s === 'avlagg' || s === 'larmplats' || s === 'basvag') },
+    { id: 'valj', rubrik: 'Välj', steg: raderKvar.filter((s) => s !== 'avlagg' && s !== 'larmplats' && s !== 'basvag') },
     { id: 'plats', rubrik: 'Kolla på plats', steg: [] as StegId[] },
   ] as const).filter((g) => g.steg.length > 0 || (g.id === 'plats' && fragorKvar.length > 0));
   const antalKlara = status.poster.filter((x) => !x.kvar).length + (HAR_DU_FRAGOR.length - status.frågorKvar.length);
@@ -286,6 +308,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   const uppmaning = (s: StegId): string => {
     switch (s) {
       case 'avlagg': return (p.vidaAvlagg ?? []).length > 0 ? 'Bekräfta' : 'Placera';
+      case 'larmplats': return (p.larmplats?.antal ?? 0) === 0 ? 'Saknas' : 'Titta';
       case 'basvag': return 'Rita';
       case 'forutsattningar': return status.forutsattningarKvar === 3 ? '3 att välja' : `${status.forutsattningarKvar} kvar`;
       case 'maskiner': return 'Välj';
@@ -379,9 +402,12 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
 
       {/* ── KLAR FÖR MASKIN — spärrar aldrig ─────────────────────────────────────────────────────────────────────────── */}
       <div style={{ flexShrink: 0, padding: `${AVSTAND.m}px ${AVSTAND.l}px ${medSafeBotten(AVSTAND.l)}`, borderTop: `1px solid ${FARG.linje}` }}>
+        {!planerad && larmSpar && (
+          <div data-testid="klar-maste" style={{ ...TYP.meta, color: FARG.orange, textAlign: 'center', paddingBottom: AVSTAND.s }}>Måste vara klar först: Larmplats</div>
+        )}
         {planerad ? null : (
-          <button type="button" data-testid="klar-for-maskin" data-klar={status.klar ? '1' : '0'} onClick={p.onKlarForMaskin} disabled={p.klarSparar} className="press-scale"
-            style={{ ...KNAPP.primar, background: status.klar ? FARG.gron : FARG.fyllning, color: status.klar ? FARG.bg : FARG.text, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation', ...(p.klarSparar ? { opacity: 0.4 } : null) }}>
+          <button type="button" data-testid="klar-for-maskin" data-klar={status.klar ? '1' : '0'} onClick={p.onKlarForMaskin} disabled={p.klarSparar || larmSpar} className="press-scale"
+            style={{ ...KNAPP.primar, background: status.klar ? FARG.gron : FARG.fyllning, color: status.klar ? FARG.bg : FARG.text, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation', ...(p.klarSparar || larmSpar ? { opacity: 0.4 } : null) }}>
             {p.klarSparar ? 'Skickar …' : 'Klar för maskin'}
           </button>
         )}
