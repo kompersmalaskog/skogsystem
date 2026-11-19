@@ -98,11 +98,11 @@ describe('SMHI-tolkningen', () => {
 });
 
 // En liten falsk databas och ett falskt SMHI för hela kedjan.
-function fakeSb(o: { kontrollMs?: number | null; notisFinns?: boolean; inserts?: unknown[]; startIso?: string | null; slutIso?: string | null } = {}) {
+function fakeSb(o: { kontrollMs?: number | null; notisFinns?: boolean; inserts?: unknown[]; startIso?: string | null; slutIso?: string | null; subs?: unknown[] } = {}) {
   const kontrollIso = o.kontrollMs == null ? null : new Date(o.kontrollMs).toISOString();
   const svar = (data: unknown, hytt = false) => {
     const q: any = { data, error: null };
-    for (const m of ['select', 'eq', 'not', 'order', 'limit', 'maybeSingle', 'gte']) q[m] = () => q;
+    for (const m of ['select', 'eq', 'not', 'order', 'limit', 'maybeSingle', 'gte', 'delete', 'in']) q[m] = () => q;
     // hyttspar: .lt('datum', idag) = förra arbetsdagen, annars dagens start
     q.lt = () => { if (hytt) q.data = o.slutIso === null ? [] : [{ skapad_at: '2026-11-17T06:00:00Z', uppdaterad_at: o.slutIso ?? new Date(slut).toISOString() }]; return q; };
     q.upsert = (rader: unknown[]) => { o.inserts?.push(...rader); return svar((rader as unknown[]).map(() => ({ dedup_nyckel: 'x' }))); };
@@ -117,6 +117,7 @@ function fakeSb(o: { kontrollMs?: number | null; notisFinns?: boolean; inserts?:
       if (t === 'hyttspar') return svar(o.startIso === null ? [] : [{ skapad_at: o.startIso ?? '2026-11-18T09:20:00Z' }], true);
       if (t === 'notis_kö') return svar(o.notisFinns ? [{ id: 1 }] : []);
       if (t === 'medarbetare') return svar([{ id: 'stefan', aktiv: true }]);
+      if (t === 'push_subscriptions') return svar(o.subs ?? []);
       return svar([]);
     },
   } as any;
@@ -169,6 +170,24 @@ describe('kedjan: läsning, pushen', () => {
     await koaVaderOmslag(fakeSb({ inserts: a, startIso: null }), dags, fakeSmhi(serie(3, -6)));
     expect(a.length).toBe(0);
   });
+  it('MASKINEN får notisen samtidigt — i hytten, oavsett vem som är inloggad där; en gång (inte när raden redan finns)', async () => {
+    const skickat: { sub: unknown; payload: any }[] = [];
+    const skicka = async (sub: unknown, payload: string) => { skickat.push({ sub, payload: JSON.parse(payload) }); };
+    await koaVaderOmslag(fakeSb({ inserts: [], subs: [{ id: 's1', subscription: 'giant-dator' }] }), dags, fakeSmhi(serie(3, -6)), skicka);
+    expect(skickat).toHaveLength(1);
+    expect(skickat[0].sub).toBe('giant-dator');
+    expect(skickat[0].payload.hyttNotis).toMatchObject({ typ: 'vader', tag: 'vader-PONS-2026-11-18', titel: 'Vädret har slagit om', data: { hytt: true, maskinId: 'PONS' } });
+    expect(skickat[0].payload.hyttNotis.text).toMatch(/^När maskinen slutade igår var det 3 °C, nu −6 °C/);
+    _tomSmhiObsCache();
+    await koaVaderOmslag(fakeSb({ inserts: [], notisFinns: true, subs: [{ id: 's1', subscription: 'giant-dator' }] }), dags, fakeSmhi(serie(3, -6)), skicka);
+    expect(skickat).toHaveLength(1);
+  });
+  it('en push som faller stoppar inte köandet till förarna', async () => {
+    const inserts: any[] = [];
+    const r = await koaVaderOmslag(fakeSb({ inserts, subs: [{ id: 's1', subscription: 'x' }] }), dags, fakeSmhi(serie(3, -6)), async () => { throw new Error('nät'); });
+    expect(inserts).toHaveLength(1);
+    expect(r.koade).toBe(1);
+  });
   it('redan köad, inget omslag eller ingen arbetsdag senaste veckan → ingen ny', async () => {
     const a: any[] = [];
     await koaVaderOmslag(fakeSb({ notisFinns: true, inserts: a }), dags, fakeSmhi(serie(3, -6)));
@@ -186,7 +205,7 @@ describe('kedjan: läsning, pushen', () => {
   it('byggNotis: kontroll gjord sedan köandet → hoppas över, inget omslag → hoppas över, läsfel → uppskjuts', async () => {
     const n = { payload: { maskin_id: 'PONS', koad_ms: nu }, skapad_at: new Date(nu).toISOString() };
     const omslag = vaderLage({ obs: serie(3, -6), slutMs: slut, nuMs: nu });
-    const ok = { ok: true as const, lage: omslag, station: 'Växjö A', slutMs: slut, kontrollMs: null, kontrollIdag: null };
+    const ok = { ok: true as const, lage: omslag, station: 'Växjö A', slutMs: slut, kontrollMs: null, kontrollIdag: null, startMs: null };
     const u = await byggVaderNotis(n, async () => ({ namn: 'Giant', svar: ok }), new Date(nu));
     expect(u.typ === 'skicka' && u.meddelande.url).toBe('/kalibrering?maskin=PONS');
     expect(u.typ === 'skicka' && u.meddelande.body).toContain('När maskinen slutade igår');

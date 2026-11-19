@@ -41,11 +41,11 @@ describe('notisens innehåll', () => {
     expect(visa).toContain('reg.showNotification');
     expect(visa).toContain('if (!d?.hytt) continue;');
   });
-  it('bara fyra sorter ger notis i appens logik: fara, besök, område, GPS saknas (+ test)', () => {
-    expect(notiser).toContain("export type NotisTyp = 'fara' | 'besok' | 'omrade' | 'gps' | 'test';");
+  it('bara fyra sorter ger notis i appens logik: fara, besök, område, GPS saknas (+ test); vädret kommer bara från servern', () => {
+    expect(notiser).toContain("export type NotisTyp = 'fara' | 'besok' | 'omrade' | 'gps' | 'test' | 'vader';");
   });
   it('ordningen är område, besök, fara, GPS saknas: den senast skapade hamnar överst i Windows', () => {
-    expect(notiser).toContain("const RANG: Record<NotisTyp, number> = { omrade: 0, besok: 1, fara: 2, test: 3, gps: 4 };");
+    expect(notiser).toContain("const RANG: Record<NotisTyp, number> = { vader: 0, omrade: 0, besok: 1, fara: 2, test: 3, gps: 4 };");
   });
   it('GPS-notisen: styrs av useGpsSaknasLang (30 s, ingen polling), aldrig i testläget, och nollas av varje giltig fix', () => {
     expect(sida).toContain('useGpsSaknasLang(instruktionerAktiv && hyttNotiserPa && !testlage)');

@@ -17,6 +17,8 @@ import { optiTidUtcMs } from '@/lib/optiTid';
 import { hamtaObservationer, hamtaStationer, narmasteStationer } from '@/lib/smhi-obs';
 import { svenskDag } from './matdon';
 import { omslagText, vaderLage, type VaderLage } from './vaderOmslag';
+import { skickaTillMaskin, type PushSkick } from '@/lib/hytt/maskinPush';
+import { vaderHyttNotis } from '@/lib/hytt/notiser';
 
 export const KALIB_VADER = 'kalib_vader';
 export const arVaderNotis = (typ: unknown): typ is typeof KALIB_VADER => typ === KALIB_VADER;
@@ -36,6 +38,8 @@ export type VaderSvar =
     kontrollMs: number | null;
     /** Klockslaget för en kontroll gjord sedan maskinen startade idag (svensk tid). null = ingen idag. */
     kontrollIdag: string | null;
+    /** När maskinen startade idag (dagens första hyttspårsrad). null = inte startad idag. Kortet i hytten visas bara i morgonfönstret efter den. */
+    startMs: number | null;
   }
   | { ok: false; orsak: 'position' | 'station' | 'las'; fel?: string };
 
@@ -90,7 +94,7 @@ export async function lasVaderLage(sb: SupabaseClient, maskin: string, nu = new 
     if (!obs) continue;
     const lage = vaderLage({ obs, slutMs, nuMs: nu.getTime() });
     if (lage.nu == null) continue; // stationen har inga färska värden — prova nästa
-    return { ok: true, lage, station: s.namn, slutMs, kontrollMs, kontrollIdag };
+    return { ok: true, lage, station: s.namn, slutMs, kontrollMs, kontrollIdag, startMs };
   }
   return { ok: false, orsak: 'station' };
 }
@@ -153,8 +157,13 @@ export function lasVader(sb: SupabaseClient): HamtaVader {
 
 export type VaderKoRapport = { ok: boolean; koade: number; hoppade?: string; fel?: string };
 
-/** Producenten. Fel kvart → inga läsningar. Bara maskiner i morgonfönstret läser vädret. Ett fel för en maskin stoppar inte de andra. */
-export async function koaVaderOmslag(sb: SupabaseClient, nu: Date = new Date(), hamta: typeof fetch = fetch): Promise<VaderKoRapport> {
+/**
+ * Producenten. Fel kvart → inga läsningar. Bara maskiner i morgonfönstret läser vädret. Ett fel för en maskin stoppar inte de andra.
+ * `skicka` (från flushen): samtidigt som förarnas rader köas går en push till MASKINENS egna prenumerationer (push_subscriptions.maskin_id, lib/hytt/maskinPush),
+ * så notisen kommer i hytten oavsett vem som är inloggad där. Bara när raderna är NYA (dedupen är förarnas rader) — en maskin utan kopplad förare får alltså ingen
+ * push, men kortet i hytten visas ändå. Best effort: ett fel i maskinpushen stoppar aldrig köandet.
+ */
+export async function koaVaderOmslag(sb: SupabaseClient, nu: Date = new Date(), hamta: typeof fetch = fetch, skicka?: PushSkick): Promise<VaderKoRapport> {
   if (!dagsAttKollaVader(nu)) return { ok: true, koade: 0, hoppade: 'inte dags' };
   const idag = svenskDag(nu.toISOString());
   const mk = await sb.from('dim_maskin').select('maskin_id, aktiv_till').eq('maskin_typ', 'Harvester');
@@ -188,7 +197,15 @@ export async function koaVaderOmslag(sb: SupabaseClient, nu: Date = new Date(), 
         { onConflict: 'typ,mottagare_id,dedup_nyckel', ignoreDuplicates: true })
       .select('dedup_nyckel');
     if (ins.error) { fel.push(`${maskin}: ${ins.error.message}`); continue; }
-    koade += (ins.data ?? []).length;
+    const nya = (ins.data ?? []).length;
+    koade += nya;
+    if (skicka && nya > 0) {
+      const text = omslagText('', svar.lage, svar.slutMs, nu.getTime());
+      if (text) {
+        try { await skickaTillMaskin(sb, skicka, maskin, vaderHyttNotis(maskin, text.body, svenskDag(nu.toISOString()))); }
+        catch (e) { fel.push(`${maskin}: maskinpush ${(e as Error).message}`); }
+      }
+    }
   }
   return fel.length ? { ok: false, koade, fel: fel.join('; ') } : { ok: true, koade };
 }

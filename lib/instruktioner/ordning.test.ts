@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { avlaggsradLedig, instruktionBlockerad, larmHallerPlatsen } from './ordning';
+import { avlaggsradLedig, instruktionBlockerad, larmHallerPlatsen, vaderKortLedigt } from './ordning';
 import { markeraSett, stegaLarm, TOMT_LARM } from '../larm/larm';
 
 describe('instruktionBlockerad — lossning och larm går före', () => {
@@ -88,5 +88,17 @@ describe('mot den riktiga larmmotorn: Röd (fara) har ingen Sett — instruktion
     expect(r.kort?.id).toBe('ej');                        // den setta hänsynsytan sjunker, Röd tar det stora kortet
     expect(r.settRad).toBeNull();
     expect(holler(r)).toBe(true);
+  });
+});
+
+describe('väderkortet i hytten', () => {
+  const fri = { harKort: true, larmVisas: false, lossningVisas: false, besokVisas: false, riskVisas: false };
+  it('visas bara när inget viktigare har platsen: fara, lossning, besök och risker går före', () => {
+    expect(vaderKortLedigt(fri)).toBe(true);
+    expect(vaderKortLedigt({ ...fri, harKort: false })).toBe(false);
+    expect(vaderKortLedigt({ ...fri, larmVisas: true })).toBe(false);
+    expect(vaderKortLedigt({ ...fri, lossningVisas: true })).toBe(false);
+    expect(vaderKortLedigt({ ...fri, besokVisas: true })).toBe(false);
+    expect(vaderKortLedigt({ ...fri, riskVisas: true })).toBe(false);
   });
 });

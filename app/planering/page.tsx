@@ -83,8 +83,10 @@ import { brandAttSkriva, brandKolumnerFranVarden, brandVardenFranRader, type Bra
 import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type TmaBaslinje, type TmaDbRad } from '../../lib/tmaSpar'
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
 import { useInstruktioner } from '../../lib/hooks/useInstruktioner'
-import { avlaggsradLedig, instruktionBlockerad, larmHallerPlatsen, riskKortLedigt } from '../../lib/instruktioner/ordning'
+import { avlaggsradLedig, instruktionBlockerad, larmHallerPlatsen, riskKortLedigt, vaderKortLedigt } from '../../lib/instruktioner/ordning'
 import RiskKortHytt from '../../components/planering/RiskKortHytt'
+import VaderKortHytt from '../../components/planering/VaderKortHytt'
+import { useVaderHytt } from '../../lib/hooks/useVaderHytt'
 import { PULS_KALLA, pulsData, pulsFas, pulsLagerSpecar, pulsPaint, type Puls } from '../../lib/larm/pulsKarta'
 import { ytaRader } from '../../lib/ytaRader'
 import { rensaVidaNamn, brickaFarg } from '../../lib/ytaNamn'
@@ -12765,6 +12767,9 @@ export default function PlannerPage() {
   const riskKortData = instruktionerAktiv && korvyActive && klarDataKlart && !!valtObjekt?.id && traktGeoHamtadFor === String(valtObjekt.id) && riskLast.lage === 'ok'
     && !!forarRiskNu.risker && allvarliga(forarRiskNu.risker).length > 0 && !forarRiskNu.last ? forarRiskNu : null;
   const riskKortSynligt = riskKortLedigt({ harOlasta: !!riskKortData, larmVisas: !!larm.kort, lossningVisas, besokVisas: besokKortSynligt });
+  // VÄDRET I HYTTEN (Martin 2026-11-19): skördaren, på morgonen, när vädret slagit om sedan maskinen slutade förra arbetsdagen — tills "Sett" eller en kontroll (lib/kalibrering/vaderHytt).
+  const vaderHytt = useVaderHytt({ aktiv: instruktionerAktiv && !skotarKorvy, maskinId: besokMaskinId, torr: !!testlage });
+  const vaderKortSynligt = vaderKortLedigt({ harKort: !!vaderHytt.kort, larmVisas: !!larm.kort, lossningVisas, besokVisas: besokKortSynligt, riskVisas: riskKortSynligt });
   // === BESÖK: 70 m-ring runt maskinen medan ett besök är aktivt (till besökstid + 2 h) ===
   // Egen källa och egna lager (prefixet larm- hör till körvyns whitelist). Ritas för skördare och skotare, i körvy/maskinläge. Rött + streckat: en gräns att hålla utanför, inte en färg som bär ensam.
   useEffect(() => {
@@ -12795,8 +12800,8 @@ export default function PlannerPage() {
     objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id) } : null,
     db: supabase,
-    blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' || larm.fler.some((x) => x.grupp === 'fara') }), lossningVisas }) || besokKortSynligt || riskKortSynligt,
-    blockeradPaminnelse: !!larm.kort || lossningVisas || besokKortSynligt || riskKortSynligt,   // larm och lossningskort går före påminnelsen: den göms medan något av dem visas och kommer tillbaka efteråt
+    blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' || larm.fler.some((x) => x.grupp === 'fara') }), lossningVisas }) || besokKortSynligt || riskKortSynligt || vaderKortSynligt,
+    blockeradPaminnelse: !!larm.kort || lossningVisas || besokKortSynligt || riskKortSynligt || vaderKortSynligt,   // larm och lossningskort går före påminnelsen: den göms medan något av dem visas och kommer tillbaka efteråt
     torr: !!testlage,
   });
   // NOTISER I HYTTEN: fara, besök och område som Windows-notis när fönstret inte är framme (synligt OCH valt). Ett tillägg — korten i appen fungerar som förut. Passiv när brytaren är av.
@@ -12827,7 +12832,7 @@ export default function PlannerPage() {
   const larmKontrollPunkt = larmKontrollGaller
     ? fragaOm(larmPunkterAlla, larmKontroll.rader, gpsNu({ korvyAktiv: korvyActive, korvyPos: korvyEffectivePos, position: currentPosition }), larmKontrollFarsk, larmKontroll.avfardade)
     : null;
-  const larmKontrollSynlig = !!larmKontrollPunkt && !larm.kort && !lossningVisas && !besokKortSynligt && !riskKortSynligt && !inst.kort && !inst.paminnelse && !grindKort
+  const larmKontrollSynlig = !!larmKontrollPunkt && !larm.kort && !lossningVisas && !besokKortSynligt && !riskKortSynligt && !vaderKortSynligt && !inst.kort && !inst.paminnelse && !grindKort
     && !traktOversiktOpen && !plusRadOppen && !menuOpen;
   // Lästes kommentarerna på annat håll — kartkortet (Vidas objekt eller egen markering) eller ⓘ (ett framhävt objekt) — räknas de som sedda och visas inte igen vid inkörning.
   // Kartkortet (KartKort) rörs inte: sidan ser bara vilket objekts kort som är öppet.
@@ -15279,8 +15284,12 @@ export default function PlannerPage() {
           }}
         />
       )}
+      {/* VÄDRET HAR SLAGIT OM — skördaren på morgonen, tills "Sett" eller en kontroll. Larm, lossning, besök och risker går före; instruktionerna väntar på det. */}
+      {vaderKortSynligt && vaderHytt.kort && (
+        <VaderKortHytt kort={vaderHytt.kort} top={instruktionTop} onSett={vaderHytt.sett} />
+      )}
       {/* TILLÅT NOTISER: en gång vid start i maskinen, bara om Chrome inte frågat. Larm, besök och lossning går före. */}
-      <HyttNotisTillat aktiv={instruktionerAktiv && hyttNotiserPa} dolj={!!larm.kort || besokKortSynligt || lossningVisas || !!inst.kort || riskKortSynligt} top={instruktionTop} />
+      <HyttNotisTillat aktiv={instruktionerAktiv && hyttNotiserPa} dolj={!!larm.kort || besokKortSynligt || lossningVisas || !!inst.kort || riskKortSynligt || vaderKortSynligt} top={instruktionTop} />
       {korvyActive && inst.kort && (
         <InstruktionKortVy
           kort={inst.kort}

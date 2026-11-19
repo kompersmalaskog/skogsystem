@@ -150,9 +150,9 @@ async function flush() {
     console.error("[notis/flush] klave-påminnelse:", e);
   }
 
-  // Kalibrering: vädret har ändrat sig sedan senaste kontrollen (SMHI:s station närmast maskinen) → förarna gör en kontrollmätning (lib/kalibrering/vaderServer).
+  // Kalibrering: vädret har slagit om sedan maskinen slutade förra arbetsdagen (SMHI:s station närmast maskinen) → förarna och MASKINEN får veta (lib/kalibrering/vaderServer).
   try {
-    const vd = await koaVaderOmslag(supabase);
+    const vd = await koaVaderOmslag(supabase, new Date(), fetch, async (sub, payload) => { await webpush.sendNotification(sub as any, payload); });
     if (!vd.ok) console.error("[notis/flush] väder-omslag:", vd.fel);
   } catch (e) {
     console.error("[notis/flush] väder-omslag:", e);
