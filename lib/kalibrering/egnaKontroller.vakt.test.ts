@@ -22,6 +22,7 @@ const UPPSLAG = new Set([
   'app/api/kalibrering/felet/route.ts',
   'app/api/kalibrering/objekt/route.ts',
   'app/api/kalibrering/kontroll/route.ts',
+  'lib/kalibrering/vaderServer.ts', // senaste stocken → kontrollens väder per filnamn
 ]);
 
 function filer(dir: string, ut: string[] = []): string[] {

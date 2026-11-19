@@ -2,7 +2,8 @@
 // LÄGET — "Är vi godkända?" Så enkelt att den läses på tre sekunder: svaret, Vidas krav (sämst först), var felet sitter och trädslagen. Inget annat.
 // Appen visar läget; maskinen (Opti) föreslår kalibreringen. Kortet "Gör så här", det stora talet och åtgärderna är borta härifrån (2026-10-25,
 // Martin: "plocka bort det … bygg så man kan kolla på datan, sen säger maskinen vad du ska göra"). Åtgärderna bor i Över tid, under kurvorna.
-// Sist "Kontrollerna" (2026-11-18, Skogforsk): hur många, hur många slumpvalda, hur många i sträng kyla — och när klaven och måttbandet kollades.
+// Sist "Kontrollerna" (2026-11-18, Skogforsk): hur många, hur många slumpvalda, hur många i sträng kyla, vädret nu mot vid senaste kontrollen
+// (SMHI, VaderRad) — och när klaven och måttbandet kollades. Överst "Idag · 1 av 2" (lib/kalibrering/idag): två kontroller om dagen.
 // Domen bygger alltid på det rullande fönstret (90 dagar), aldrig på en enda dag. Räknandet bor i lib/kalibrering/laget — siffrorna är desamma som förut.
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
@@ -12,6 +13,7 @@ import { FARG, KNAPP, TYP } from '@/lib/design/tokens';
 import type { KalibreringArk } from '@/lib/hooks/useKalibreringArk';
 import type { KalibreringData } from '@/lib/hooks/useKalibreringData';
 import { fmtDagMan } from '@/lib/kalibrering/datum';
+import { kontrollerIdag } from '@/lib/kalibrering/idag';
 import { KALL_GRANS_C, grader, kontrollSammanfattning } from '@/lib/kalibrering/kontrollLista';
 import { fonsterKort, kalibreringsDom, kravRader, kravSorterade } from '@/lib/kalibrering/laget';
 import { matdonLage } from '@/lib/kalibrering/matdon';
@@ -19,6 +21,7 @@ import { cap } from '@/lib/kalibrering/text';
 import { Fyll, Lugn, TonVarde } from './delar';
 import Rubrik from './Rubrik';
 import TraffText from './TraffText';
+import VaderRad from './VaderRad';
 import VarSitterFelet from './VarSitterFelet';
 
 function Laddar({ d, text }: { d: KalibreringData; text: string }) {
@@ -100,11 +103,15 @@ function Kontrollerna({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
   const b = d.bedomning!;
   const s = b.fonster ? kontrollSammanfattning(d.filteredKalib, d.tider, b.fonster.fran) : null;
   const m = d.matdon === undefined ? null : matdonLage(d.matdon);
+  const idag = kontrollerIdag(d.filteredKalib, d.tider, new Date());
   return (
     <Sektion rubrik="Kontrollerna">
       {s && s.senaste && (
         <Rad titel="Senaste kontrollen" pil={false} hoger={fmtDagMan(s.senaste)} attr={{ 'data-rad': 'senaste' }} />
       )}
+      <Rad titel="Idag" under="Kontrollera helst två gånger om dagen" pil={false} attr={{ 'data-rad': 'idag' }}
+        hoger={<span style={{ color: idag.sen ? FARG.orange : FARG.text2 }}>{idag.text}</span>}
+        hogerUnder={idag.under ?? undefined} />
       {s && b.fonster && (
         <Rad titel={`Senaste ${b.fonster.dagar} dagarna`} pil={false} attr={{ 'data-rad': 'antal' }}
           hoger={`${s.antal} ${s.antal === 1 ? 'kontroll' : 'kontroller'}`}
@@ -114,6 +121,7 @@ function Kontrollerna({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
         <Rad titel="I sträng kyla" under={`Under ${grader(KALL_GRANS_C)} mäter maskinen ofta annorlunda`} pil={false} attr={{ 'data-rad': 'kyla' }}
           hoger={<span style={{ color: FARG.orange }}>{`${s.kalla} av ${s.antal}`}</span>} />
       )}
+      <VaderRad maskin={d.effektiv} />
       <Rad sista titel="Klave och måttband" onTryck={ark.oppnaMatdon} attr={{ 'data-rad': 'matdon' }}
         hoger={d.matdonFel ? <span style={{ color: FARG.text3 }}>Kunde inte läsas</span> : m ? <span style={{ color: m.dags ? FARG.orange : FARG.text2 }}>{m.varde}</span> : <span style={{ color: FARG.text3 }}>Läser…</span>}
         hogerUnder={m?.under ?? undefined} />
