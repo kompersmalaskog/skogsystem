@@ -3196,6 +3196,17 @@ export default function PlannerPage() {
       window.history.replaceState(null, '', u.pathname + u.search + u.hash);
     } catch { /* */ }
   }, []);
+  // ?maskinmeny=1: Hem från en annan vy (Arbetsrapport m.fl.) på maskindatorn öppnar maskinlådan över kartan. Parametern tas bort direkt.
+  const [maskinMenyBegard, setMaskinMenyBegard] = useState(false);
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href);
+      if (u.searchParams.get('maskinmeny') !== '1') return;
+      setMaskinMenyBegard(true);
+      u.searchParams.delete('maskinmeny');
+      window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch { /* */ }
+  }, []);
   const valjEnhetMaskin = useCallback((maskinId: string | null) => {
     sattEnhetMaskin(maskinId);
     setEnhetMaskinIdState(maskinId);
@@ -3931,6 +3942,7 @@ export default function PlannerPage() {
   // Hem-knappen i maskinläge öppnar maskinlådan (components/startsida/MaskinMeny.tsx) OVANPÅ kartan — appens meny
   // på maskindatorn, med "Byt objekt" överst. Kartan lämnas aldrig; startsidan nås inte från maskindatorn.
   const [maskinMenyOppen, setMaskinMenyOppen] = useState(false);
+  useEffect(() => { if (maskinMenyBegard && maskinlage) { setMaskinMenyOppen(true); setMaskinMenyBegard(false); } }, [maskinMenyBegard, maskinlage]);
   // "Byt objekt" i lådan: tillbaka till objektlistan (förarlistan).
   // Samma stängning som "Annat objekt" på bekräftelsekortet: körvyn av, ingen vald roll, inget valt objekt.
   const tillObjektlistan = useCallback(() => {
