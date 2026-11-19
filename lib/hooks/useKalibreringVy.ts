@@ -7,7 +7,7 @@ import { useState } from 'react';
 import type { LagetSteg } from '@/lib/kalibrering/diagnos';
 
 /** Över tid: fyra vinklar. Träff (träffar den rätt?), Spridning (flaxar den?), Per grovlek (var sitter felen?) och Greppet (släpper det oftare? — ersätter tryckmätaren). */
-export type TidMatt = 'traff' | 'sprid' | 'grovlek' | 'grepp';
+export type TidMatt = 'traff' | 'sprid' | 'grovlek' | 'grepp' | 'frost';
 
 export function useKalibreringVy() {
   const [tidMatt, setTidMatt] = useState<TidMatt>('traff');

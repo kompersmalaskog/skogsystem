@@ -1,5 +1,5 @@
 'use client';
-// ÖVER TID — "Blir det bättre?" Fyra vinklar på historiken, med ett tidssteg (Månad · Kvartal · År) som gäller alla: Träff och Spridning (kurvor, åtgärderna som lodräta streck),
+// ÖVER TID — "Blir det bättre?" Fem vinklar (Frost: flyttar frosten hela kurvan?) på historiken, med ett tidssteg (Månad · Kvartal · År) som gäller alla: Träff och Spridning (kurvor, åtgärderna som lodräta streck),
 // Per grovlek (var sitter felen? — rutnät grovlek × månad mot klaven) och Greppet (släpper det oftare? — maskinens egna stamprofiler, alla stammar; ersätter tryckmätaren).
 // Träff och Spridning är gamla Trend (Läget, Flaxar den?) och det som låg i Senaste › Siffror — talen är desamma.
 import { useEffect } from 'react';
@@ -19,6 +19,7 @@ import { MATT } from '@/lib/kalibrering/ordlista';
 import type { DiagnosResp } from '@/lib/kalibrering/typer';
 import { Fyll, Lugn, Meta, Prick, Status } from './delar';
 import AtgarderSektion from './AtgarderSektion';
+import FrostVinkel from './FrostVinkel';
 import GreppVinkel from './GreppVinkel';
 import GrovlekVinkel from './GrovlekVinkel';
 import Procentrad from './Procentrad';
@@ -26,7 +27,7 @@ import Rubrik from './Rubrik';
 import StabilitetTabell from './StabilitetTabell';
 import TidsDiagram, { MARKOR_FARG } from './TidsDiagram';
 
-const MATT_FLIKAR: readonly (readonly [TidMatt, string])[] = [['traff', 'Träff'], ['sprid', 'Spridning'], ['grovlek', 'Per grovlek'], ['grepp', 'Greppet']];
+const MATT_FLIKAR: readonly (readonly [TidMatt, string])[] = [['traff', 'Träff'], ['sprid', 'Spridning'], ['grovlek', 'Per grovlek'], ['grepp', 'Greppet'], ['frost', 'Frost']];
 const STEG: readonly (readonly [LagetSteg, string])[] = [['manad', 'Månad'], ['kvartal', 'Kvartal'], ['ar', 'År']];
 
 /** Vad de lodräta strecken i kurvorna betyder — bara de sorter som finns. Färgen bär aldrig ensam: ordet står bredvid. */
@@ -141,7 +142,7 @@ export default function OverTidFlik({ d, v, ark }: { d: KalibreringData; v: Kali
       <Rubrik d={d} fraga="Blir det bättre?" />
       <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s, marginBottom: AVSTAND.xl }}>
         <Flikkontroll flikar={MATT_FLIKAR} aktiv={v.tidMatt} onVal={v.setTidMatt} />
-        <Flikkontroll flikar={STEG} aktiv={v.lagetSteg} onVal={v.setLagetSteg} />
+        {v.tidMatt !== 'frost' && <Flikkontroll flikar={STEG} aktiv={v.lagetSteg} onVal={v.setLagetSteg} />}
       </div>
       {kurva && !diag ? (
         d.diagnosFel
@@ -158,6 +159,7 @@ export default function OverTidFlik({ d, v, ark }: { d: KalibreringData; v: Kali
           {v.tidMatt === 'sprid' && diag && <Sprid d={d} v={v} diag={diag} />}
           {v.tidMatt === 'grovlek' && <GrovlekVinkel d={d} v={v} ark={ark} />}
           {v.tidMatt === 'grepp' && <GreppVinkel d={d} v={v} />}
+          {v.tidMatt === 'frost' && <FrostVinkel maskin={effektiv} />}
         </Tillstand>
       )}
       {/* Åtgärderna under kurvorna: där syns om de hjälpte. Kräver Läget-bedömningen (före → efter räknas där). */}

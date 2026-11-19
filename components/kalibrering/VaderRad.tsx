@@ -1,6 +1,6 @@
 'use client';
-// Läget › Kontrollerna › "Vädret": temperaturen vid maskinen nu och vid senaste kontrollen (SMHI:s närmaste station, /api/kalibrering/vader).
-// Orange "gör en kontroll" när vädret slagit om (lib/kalibrering/vaderOmslag) — samma regel som pushen till föraren.
+// Läget › Kontrollerna › "Vädret": temperaturen vid maskinen nu och när den slutade förra arbetsdagen (SMHI:s närmaste station, /api/kalibrering/vader).
+// Orange "gör en kontroll" när vädret slagit om (lib/kalibrering/vaderOmslag) och ingen kontroll är gjord sedan maskinen startade idag — samma regel som pushen.
 // Ingen position eller ingen station = ingen rad (inget att säga); läsfel = "Kunde inte läsas", aldrig en gissad temperatur.
 import { useEffect, useState } from 'react';
 import Rad from '@/components/design/Rad';
@@ -26,7 +26,7 @@ export default function VaderRad({ maskin, sista }: { maskin: string | null; sis
     if (svar.orsak !== 'las') return null;
     return <Rad sista={sista} titel="Vädret" pil={false} attr={{ 'data-rad': 'vader' }} hoger={<span style={{ color: FARG.text3 }}>Kunde inte läsas</span>} />;
   }
-  const r = vaderRad(svar.lage);
+  const r = vaderRad(svar.lage, svar.slutMs, Date.now(), svar.kontrollIdag);
   if (!r) return null;
   return (
     <Rad sista={sista} titel="Vädret" pil={false} attr={{ 'data-rad': 'vader' }}

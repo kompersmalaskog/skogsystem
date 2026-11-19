@@ -1,17 +1,16 @@
 /**
- * "Har vädret ändrat sig sedan senaste kontrollen?" (Kalibrering, 2026-11-18, Martin: "vädret måste komma i realtid så maskinen får en varning –
- * kolla längden, för vädret har ändrat sig"). Skogforsk: fruset virke mäts annorlunda än ofruset, så efter ett väderomslag ska man
- * kontrollmäta i stället för att vänta på nästa planerade kontroll.
+ * "Har vädret slagit om sedan maskinen körde senast?" (Kalibrering, Martin 2026-11-18/19). Skogforsk: fruset virke mäts annorlunda än ofruset.
+ * Martin 2026-11-19: jämför INTE med senaste kontrollen — har det slagit om under kvällen eller natten ska föraren mäta direkt på morgonen.
+ * Jämförelsen är därför "nu" mot när maskinen SLUTADE förra arbetsdagen (igår, eller i fredags efter en helg).
  *
- * Underlaget är SMHI:s timvärden från stationen närmast maskinen (lib/smhi-obs), samma station för "då" och "nu" — så det fungerar samma
- * dag, inte efter ERA5-arkivets fem dagar. Saknas stationens värde vid kontrollen används kontrollens eget väder (weather_at_harvest).
+ * Underlaget är SMHI:s timvärden från stationen närmast maskinen (lib/smhi-obs), samma station för "då" och "nu".
  *
  * Tre lägen, gränserna ur appens befintliga regel (KALL_GRANS_C = −7 °C, "I sträng kyla"):
  *   varmt  över 0 °C   · ofruset virke
  *   fruset 0 till −7   · virket fryser
  *   kallt  −7 och under · sträng kyla
- * Omslag = läget nu (snitt senaste 6 timmarna) är ett annat än vid kontrollen (snitt 6 h före till 1 h efter) OCH skillnaden är minst 4 grader —
- * annars skulle en dag som svänger runt noll ge en varning varje timme. Appen föreslår ingen justering, bara en kontrollmätning.
+ * Omslag = läget nu (snitt senaste 6 timmarna) är ett annat än när maskinen slutade (snitt 4 h före till 1 h efter) OCH skillnaden är minst 4 grader —
+ * annars skulle en dag som svänger runt noll ge en varning varje dag. Appen säger bara att vädret har slagit om — inga råd (Martin 2026-11-19: samla in data först).
  */
 import type { TempObs } from '@/lib/smhi-obs';
 import { KALL_GRANS_C, grader } from './kontrollLista';
@@ -20,6 +19,8 @@ export type VaderKlass = 'varmt' | 'fruset' | 'kallt';
 
 export const OMSLAG_MIN_GRADER = 4;
 export const NU_FONSTER_H = 6;
+/** Hur länge före slutet förra arbetsdagen temperaturen räknas (eftermiddagen när man slutade). */
+export const SLUT_FONSTER_H = 4;
 export const MIN_VARDEN = 3;
 const TIM = 3_600_000;
 
@@ -35,49 +36,63 @@ export function medelTemp(obs: readonly TempObs[], franMs: number, tillMs: numbe
 export type VaderLage = {
   /** Snitt senaste 6 h. null = stationen har inga färska värden. */
   nu: number | null;
-  /** Temperaturen vid senaste kontrollen. null = okänd. */
-  vidKontroll: number | null;
-  kalla: 'station' | 'kontroll' | null;
+  /** Temperaturen när maskinen slutade förra arbetsdagen. null = okänd (ingen arbetsdag senaste veckan, eller inga värden). */
+  vidSlut: number | null;
   omslag: boolean;
 };
 
-export function vaderLage(a: { obs: readonly TempObs[]; kontrollMs: number | null; kontrollTemp: number | null; nuMs: number }): VaderLage {
+export function vaderLage(a: { obs: readonly TempObs[]; slutMs: number | null; nuMs: number }): VaderLage {
   const nu = medelTemp(a.obs, a.nuMs - NU_FONSTER_H * TIM, a.nuMs);
-  let vidKontroll: number | null = null;
-  let kalla: VaderLage['kalla'] = null;
-  if (a.kontrollMs != null) {
-    vidKontroll = medelTemp(a.obs, a.kontrollMs - NU_FONSTER_H * TIM, a.kontrollMs + TIM);
-    if (vidKontroll != null) kalla = 'station';
-  }
-  if (vidKontroll == null && a.kontrollTemp != null) { vidKontroll = a.kontrollTemp; kalla = 'kontroll'; }
-  const omslag = nu != null && vidKontroll != null
-    && vaderKlass(nu) !== vaderKlass(vidKontroll)
-    && Math.abs(nu - vidKontroll) >= OMSLAG_MIN_GRADER;
-  return { nu, vidKontroll, kalla, omslag };
+  const vidSlut = a.slutMs != null ? medelTemp(a.obs, a.slutMs - SLUT_FONSTER_H * TIM, a.slutMs + TIM) : null;
+  const omslag = nu != null && vidSlut != null
+    && vaderKlass(nu) !== vaderKlass(vidSlut)
+    && Math.abs(nu - vidSlut) >= OMSLAG_MIN_GRADER;
+  return { nu, vidSlut, omslag };
 }
 
-/** "det har blivit kallt" / "det har blivit varmare" — åt vilket håll vädret gick. */
+/** Åt vilket håll vädret gick, i virkets ord. */
 export function omslagOrd(l: VaderLage): string {
-  if (l.nu == null || l.vidKontroll == null) return 'vädret har ändrat sig';
-  if (l.nu > l.vidKontroll) return vaderKlass(l.nu) === 'varmt' ? 'det har blivit plusgrader' : 'det har blivit mildare';
-  return vaderKlass(l.nu) === 'kallt' ? 'det har blivit sträng kyla' : 'det har blivit minusgrader';
+  if (l.nu == null || l.vidSlut == null) return 'vädret har slagit om';
+  const nu = vaderKlass(l.nu), da = vaderKlass(l.vidSlut);
+  if (nu === 'varmt') return 'virket har tinat';
+  if (nu === 'kallt') return da === 'varmt' ? 'virket har frusit och det är sträng kyla' : 'det har blivit sträng kyla';
+  return da === 'varmt' ? 'virket har frusit' : 'det har blivit mildare, men virket är fruset';
 }
 
-/** Pushens text. null = inget omslag. */
-export function omslagText(namn: string, l: VaderLage, kontrollDag: string | null): { title: string; body: string } | null {
-  if (!l.omslag || l.nu == null || l.vidKontroll == null) return null;
-  const da = kontrollDag ? `Vid senaste kontrollen ${kontrollDag}` : 'Vid senaste kontrollen';
+const VECKODAG = ['söndags', 'måndags', 'tisdags', 'onsdags', 'torsdags', 'fredags', 'lördags'];
+const MANAD = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+const svensk = (ms: number) => {
+  const p = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
+  const [y, m, d] = p.split('-').map(Number);
+  return { y, m, d, dag: Date.UTC(y, m - 1, d) };
+};
+
+/** "igår" / "i fredags" (2–6 dagar bakåt) / "14 nov". */
+export function slutDagOrd(slutMs: number, nuMs: number): string {
+  const s = svensk(slutMs), n = svensk(nuMs);
+  const dagar = Math.round((n.dag - s.dag) / 86_400_000);
+  if (dagar <= 0) return 'idag';
+  if (dagar === 1) return 'igår';
+  if (dagar <= 6) return `i ${VECKODAG[new Date(s.dag).getUTCDay()]}`;
+  return `${s.d} ${MANAD[s.m - 1]}`;
+}
+
+/** Pushens text: bara att vädret har slagit om, inget råd. null = inget omslag. */
+export function omslagText(namn: string, l: VaderLage, slutMs: number | null, nuMs: number): { title: string; body: string } | null {
+  if (!l.omslag || l.nu == null || l.vidSlut == null || slutMs == null) return null;
   return {
-    title: `Gör en kontrollmätning · ${namn}`,
-    body: `${da} var det ${grader(l.vidKontroll)}, nu ${grader(l.nu)} – ${omslagOrd(l)}. Kolla längd och diameter.`,
+    title: `Vädret har slagit om · ${namn}`,
+    body: `När maskinen slutade ${slutDagOrd(slutMs, nuMs)} var det ${grader(l.vidSlut)}, nu ${grader(l.nu)} – ${omslagOrd(l)}.`,
   };
 }
 
-/** Läget-raden "Vädret". */
-export function vaderRad(l: VaderLage): { varde: string; under: string | null; orange: boolean } | null {
+/** Läget-raden "Vädret". `kontrollIdag` = en kontroll är gjord sedan maskinen startade idag (då är omslaget redan kollat). */
+export function vaderRad(l: VaderLage, slutMs: number | null, nuMs: number, kontrollIdag: string | null = null): { varde: string; under: string | null; orange: boolean } | null {
   if (l.nu == null) return null;
-  if (l.omslag && l.vidKontroll != null) {
-    return { varde: `${grader(l.nu)} nu`, under: `${grader(l.vidKontroll)} vid senaste kontrollen · gör en kontroll`, orange: true };
-  }
-  return { varde: `${grader(l.nu)} nu`, under: l.vidKontroll != null ? `${grader(l.vidKontroll)} vid senaste kontrollen` : null, orange: false };
+  const varde = `${grader(l.nu)} nu`;
+  if (l.vidSlut == null || slutMs == null) return { varde, under: null, orange: false };
+  const da = `${grader(l.vidSlut)} när maskinen slutade ${slutDagOrd(slutMs, nuMs)}`;
+  if (!l.omslag) return { varde, under: da, orange: false };
+  if (kontrollIdag) return { varde, under: `${da} · kontroll gjord ${kontrollIdag}`, orange: false };
+  return { varde, under: `${da} · vädret har slagit om`, orange: true };
 }
