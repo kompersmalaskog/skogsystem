@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { kravInloggad } from "@/lib/auth/server";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
-import { byggFeletUnderlag, type FeletResp, type FeletStock } from "@/lib/kalibrering/felet";
+import { byggFeletUnderlag, LANGD_GRUPPER, type FeletResp, type FeletStock } from "@/lib/kalibrering/felet";
 
 /**
  * GET /api/kalibrering/felet?maskin_id=X — underlaget till Läget › "Var sitter felet?".
@@ -69,7 +70,7 @@ export async function GET(req: NextRequest) {
 
   const stockRes = await fetchAllRows<FeletStock & { maskin_toppdia_mm: number | null; operator_toppdia_mm: number | null }>((f, t) =>
     supabase.from("detalj_kontroll_stock")
-      .select(`id,filnamn,kontroll_datum,harvest_date,stam_nummer,stock_nummer,machine_measurement_date,operator_measurement_date,maskin_langd_cm,operator_langd_cm,${TOPPDIA_COLS}`)
+      .select(`id,filnamn,kontroll_datum,harvest_date,stam_nummer,stock_nummer,machine_measurement_date,operator_measurement_date,maskin_langd_cm,operator_langd_cm,sortiment_namn,${TOPPDIA_COLS}`)
       .eq("maskin_id", maskinId).order("id", { ascending: true }).range(f, t));
   if (stockRes.error) return fel(`stockar: ${(stockRes.error as { message?: string }).message}`);
 
@@ -84,11 +85,51 @@ export async function GET(req: NextRequest) {
     id: s.id, filnamn: s.filnamn, kontroll_datum: String(s.kontroll_datum).slice(0, 10), harvest_date: s.harvest_date ? String(s.harvest_date) : null,
     stam_nummer: s.stam_nummer, stock_nummer: s.stock_nummer, machine_measurement_date: s.machine_measurement_date ?? null,
     operator_measurement_date: s.operator_measurement_date ?? null, maskin_langd_cm: s.maskin_langd_cm, operator_langd_cm: s.operator_langd_cm,
+    sortiment_namn: s.sortiment_namn ?? null,
   }));
-  const { dia, rot, bortLangdfel } = byggFeletUnderlag({ stockar, punkter: punktRes.data, filTradslag, tolDia });
+  const klasser = await lasLangdklasser(supabase, maskinId);
+  const { dia, rot, bortLangdfel, langd } = byggFeletUnderlag({ stockar, punkter: punktRes.data, filTradslag, tolDia, klasser: klasser ?? undefined });
 
   return NextResponse.json({
-    ok: true, maskin_id: maskinId, tolDia, tolLangd, dia, rot, bortLangdfel,
+    ok: true, maskin_id: maskinId, tolDia, tolLangd, dia, rot, bortLangdfel, langd: klasser ? langd : null,
     senasteKalibrering: kal?.[0]?.datum ? svenskDag(String(kal[0].datum)) : null,
   } satisfies FeletResp);
+}
+
+/**
+ * Längdklasserna per sortimentnamn för maskinen: en lista undre gränser per matris (dim_sortiment + dim_sortiment_pris). Bara timmer, klentimmer och kubb.
+ * Nyckeln är namnet utan gruppen ("Timmer: Vislanda Tall_V3" → "Vislanda Tall_V3"), som kontrollfilens sortiment_namn. null = läsfel (raden säger det).
+ */
+async function lasLangdklasser(supabase: SupabaseClient, maskinId: string): Promise<Map<string, number[][]> | null> {
+  const sort = await fetchAllRows<{ sortiment_id: string; namn: string | null }>((f, t) =>
+    supabase.from("dim_sortiment").select("sortiment_id,namn").eq("maskin_id", maskinId).order("sortiment_id").range(f, t));
+  if (sort.error) { console.error("[kalibrering/felet] dim_sortiment", sort.error); return null; }
+  const namn = new Map<string, string>();
+  for (const s of sort.data) {
+    const [grupp, ...rest] = String(s.namn ?? "").split(":");
+    if (!(LANGD_GRUPPER as readonly string[]).includes(grupp.trim()) || rest.length === 0) continue;
+    namn.set(s.sortiment_id, rest.join(":").trim());
+  }
+  const ids = Array.from(namn.keys());
+  const lim = new Map<string, Set<number>>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const del = ids.slice(i, i + 200);
+    const pris = await fetchAllRows<{ sortiment_id: string; langd_min_cm: number | null }>((f, t) =>
+      supabase.from("dim_sortiment_pris").select("sortiment_id,langd_min_cm").in("sortiment_id", del)
+        .order("sortiment_id").order("langd_min_cm").order("dia_min_mm").range(f, t));
+    if (pris.error) { console.error("[kalibrering/felet] dim_sortiment_pris", pris.error); return null; }
+    for (const p of pris.data) {
+      if (p.langd_min_cm == null) continue;
+      const set = lim.get(p.sortiment_id) ?? new Set<number>();
+      set.add(Number(p.langd_min_cm)); lim.set(p.sortiment_id, set);
+    }
+  }
+  const ut = new Map<string, number[][]>();
+  for (const [id, set] of lim) {
+    const n = namn.get(id)!;
+    const lista = ut.get(n) ?? [];
+    lista.push(Array.from(set).sort((a, b) => a - b));
+    ut.set(n, lista);
+  }
+  return ut;
 }
