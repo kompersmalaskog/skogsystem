@@ -1,5 +1,6 @@
 'use client'
 
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
@@ -7,6 +8,7 @@ import { CURRENT_VERSION } from '@/lib/changelog'
 import { FARG, LAYOUT, TRAFFYTA, TYP } from '@/lib/design/tokens' // toppfältets höjd bor BARA i tokens
 import { VYER } from '@/lib/vyer'
 import { MENY_VALD_NYCKEL } from '@/lib/appStart'
+import { hamtaEnhetMaskin } from '@/lib/enhetMaskin'
 
 // Arbetsmiljöns delar (Kemikalier, Så gör vi, Riskbedömning …) nås från sidan Arbetsmiljö.
 // Där är vägen ut "‹ Arbetsmiljö", inte hem — annars måste man börja om från startsidan
@@ -71,7 +73,12 @@ const pageNames: Record<string, string> = {
 
 /** Hem-knappen är "tillbaka till appens meny". På en maskindator med vald maskin skickar startvakten annars `/` rakt till kartan (Martin 2026-11-19:
  *  trycker man hem i Arbetsrapport ska man hamna i menyn, inte i kartan). Flaggan gäller resten av sessionen, precis som "Till appen". */
-function vilMeny() {
+function vilMeny(e?: ReactMouseEvent) {
+  // På en maskindator är appens meny MASKINLÅDAN över kartan (halva kartan, halva appen) — som i Rottne H8 — inte en helsida: hem leder till planeringen
+  // med lådan öppen, och "Till kartan" stänger den utan att kartan laddas om.
+  try {
+    if (hamtaEnhetMaskin()) { e?.preventDefault(); window.location.assign('/planering?maskinmeny=1'); return }
+  } catch { /* */ }
   try { sessionStorage.setItem(MENY_VALD_NYCKEL, '1') } catch { /* ingen sessionStorage */ }
 }
 
