@@ -21,7 +21,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { SheetLageContext } from '@/components/Sheet'
 import { Sheet } from '@/components/Sheet'
-import Svarsrad from '@/components/design/Svarsrad'
 import Sektion from '@/components/design/Sektion'
 import Ikon from '@/components/design/Ikon'
 import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
@@ -45,7 +44,8 @@ import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar } from './Tillstand'
 import { HK_CSS } from './Lista'
 import { PanelContext, type PanelPost } from './PanelVal'
-import Tavla, { FlyttaSheet, PlaneraFlik, type PlaneraRoll, type OrdningsStyrning, type TraktVal } from './Tavla'
+import Lage from './Lage'
+import { FlyttaSheet, PlaneraFlik, type PlaneraRoll, type OrdningsStyrning, type TraktVal } from './Tavla'
 import { flyttaObjekt, sattOrdning } from '@/lib/objekt/data'
 import { stegaManad } from '@/lib/objekt/manad'
 import { DinMaskinSektion, VeckoNotisSektion } from './MaskinSektion'
@@ -425,7 +425,6 @@ export default function HelikopterVy() {
                 fel ? <Fel onRetry={() => setVersion(v => v + 1)} /> : <Laddar vad={manadNamn} />
               ) : (
                 <>
-                  {sida === 'laget' && <Svarsrad rubrik={tavla.svar.rubrik} avvikelse={tavla.svar.avvikelse} />}
                   {status !== 'avslutad' && klar.fel && (
                     <RadGrupp><RadLank orange text="Kunde inte läsa maskinernas trakter" smakprov="försök igen" onClick={() => void klar.ladda()} sista /></RadGrupp>
                   )}
@@ -435,7 +434,7 @@ export default function HelikopterVy() {
                     </div>
                   ) : (
                   <div className="hk-rutnat" data-sida="laget">
-                    <Tavla tavla={tavla} onTrakt={kanFlytta ? v => setArk(`flytta:${v.roll}:${v.objekt_id}`) : undefined} onBehov={typ => tillPlanera(typ, 'skordare')} onSkot={typ => tillPlanera(typ, 'skotare')} />
+                    <Lage tavla={tavla} iFas={status === 'pagaende' && dagar && dagar.totalt > 0 ? (dagar.totalt - dagar.kvar) / dagar.totalt : null} onSpar={tillPlanera} />
                     {dinMaskin && <DinMaskinSektion maskinNamn={maskinNamn(dinMaskin)} lage={maskinLage} fel={maskinLageFel} onRetry={() => setVersion(v => v + 1)} />}
                     <Sektion rubrik="Mer" kort={false}>
                       <RadGrupp marginBottom={0}>
