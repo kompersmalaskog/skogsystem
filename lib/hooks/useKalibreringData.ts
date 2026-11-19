@@ -12,6 +12,7 @@ import { maskinNamn, maskinKortNamn } from '@/lib/kalibrering/ordlista';
 import { filtreradSammanfattning } from '@/lib/kalibrering/kalender';
 import { idagManad } from '@/lib/kalibrering/datum';
 import { startMaskin } from '@/lib/kalibrering/laget';
+import type { FeletResp } from '@/lib/kalibrering/felet';
 import { aktivaMaskinIds, artSnitt, filtreraKalib, rapportSnitt, rapportSedan, tradslagRader } from '@/lib/kalibrering/rapport';
 import {
   type AlleMaskin, type BedomningResp, type CalResponse, type DiagnosResp, type FaktKalibrering, type GreppResp, type GrovlekResp,
@@ -54,6 +55,9 @@ export function useKalibreringData(activeTab: Flik) {
   const [grovlekFelMap, setGrovlekFelMap] = useState<Record<string, string>>({});
   const [greppMap, setGreppMap] = useState<Record<string, GreppResp>>({});
   const [greppFelMap, setGreppFelMap] = useState<Record<string, string>>({});
+  // Läget › Var sitter felet? — per maskin, hämtas när Läget visas.
+  const [feletMap, setFeletMap] = useState<Record<string, FeletResp>>({});
+  const [feletFelMap, setFeletFelMap] = useState<Record<string, string>>({});
   const greppPagar = useRef<Set<string>>(new Set()); // maskiner vars Grepp-hämtning pågår
   // Objekt-fliken (maskinoberoende)
   const [objektData, setObjektData] = useState<ObjektData | null>(null);
@@ -131,6 +135,18 @@ export function useKalibreringData(activeTab: Flik) {
       })
       .catch(() => setGrovlekFelMap(prev => ({ ...prev, [maskin]: 'Grovlekarna kunde inte läsas.' })));
   }, [grovlekMap, grovlekFelMap]);
+
+  // Var sitter felet?: underlaget per stam för maskinen, en gång. Ett läsfel tar aldrig med sig domen — det är en egen del.
+  const laddaFelet = useCallback((maskin: string) => {
+    if (!maskin || feletMap[maskin] || feletFelMap[maskin]) return;
+    fetch(`/api/kalibrering/felet?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: FeletResp) => {
+        if (!data?.ok) throw new Error('svar utan felet');
+        setFeletMap(prev => ({ ...prev, [maskin]: data }));
+      })
+      .catch(() => setFeletFelMap(prev => ({ ...prev, [maskin]: 'Kunde inte läsa var felet sitter.' })));
+  }, [feletMap, feletFelMap]);
 
   // Greppet: servern läser bara cachen (cron-jobbet räknar om efter importen). `kvar` > 0 = några objekt ligger efter; vyn säger "Räknas om" och det som
   // redan är räknat visas. Vi frågar en gång per maskin — siffrorna kompletteras nästa gång vyn öppnas, ingen väntar på dem.
@@ -304,6 +320,7 @@ export function useKalibreringData(activeTab: Flik) {
     setTradslagFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setGrovlekFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setGreppFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
+    setFeletFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setObjektFel(null);
     setTiderFel(null);
   }, [effektiv]);
@@ -327,6 +344,7 @@ export function useKalibreringData(activeTab: Flik) {
     objektData, objektFel, trData, trRader, tradslagFel: effektiv ? tradslagFelMap[effektiv] ?? null : null,
     tider, tiderFel,
     laddaGrovlek, grovlekData: effektiv ? grovlekMap[effektiv] ?? null : null, grovlekFel: effektiv ? grovlekFelMap[effektiv] ?? null : null,
+    laddaFelet, feletData: effektiv ? feletMap[effektiv] ?? null : null, feletFel: effektiv ? feletFelMap[effektiv] ?? null : null,
     laddaGrepp, greppData: effektiv ? greppMap[effektiv] ?? null : null, greppFel: effektiv ? greppFelMap[effektiv] ?? null : null,
     filteredKalib, speciesData, totalStockar, reportSedan,
   };

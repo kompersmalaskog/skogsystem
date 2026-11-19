@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
   for (const r of fk.data) if (r.tradslag) filTradslag.set(r.filnamn, r.tradslag.trim());
 
   const stockRes = await fetchAllRows<StockRad & { maskin_toppdia_mm: number | null; operator_toppdia_mm: number | null }>((f, t) =>
-    supabase.from("detalj_kontroll_stock").select(`id,filnamn,kontroll_datum,harvest_date,stam_nummer,stock_nummer,machine_measurement_date,operator_measurement_date,${TOPPDIA_COLS}`)
+    supabase.from("detalj_kontroll_stock").select(`id,filnamn,kontroll_datum,harvest_date,stam_nummer,stock_nummer,machine_measurement_date,operator_measurement_date,maskin_langd_cm,operator_langd_cm,${TOPPDIA_COLS}`)
       .eq("maskin_id", maskinId).order("id", { ascending: true }).range(f, t));
   if (stockRes.error) return NextResponse.json({ ok: false, error: `stockar: ${(stockRes.error as { message?: string }).message}` }, { status: 500 });
 
@@ -70,6 +70,7 @@ export async function GET(req: NextRequest) {
   const stockar: StockRad[] = stockRes.data.map(s => ({
     id: s.id, filnamn: s.filnamn, kontroll_datum: String(s.kontroll_datum).slice(0, 10), harvest_date: s.harvest_date ? String(s.harvest_date) : null,
     stam_nummer: s.stam_nummer, stock_nummer: s.stock_nummer, machine_measurement_date: s.machine_measurement_date ?? null, operator_measurement_date: s.operator_measurement_date ?? null,
+    maskin_langd_cm: s.maskin_langd_cm ?? null, operator_langd_cm: s.operator_langd_cm ?? null,
   }));
   const rader = byggGrovlekRader({ stockar, punkter: punktRes.data, filTradslag, tolerans });
 
