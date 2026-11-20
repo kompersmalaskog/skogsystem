@@ -287,10 +287,14 @@ async function flush() {
       // Prenumerationer ur push_subscriptions-TABELLEN (alla enheter) — inte
       // den döda kolumnen medarbetare.push_subscription som aldrig fylls.
       // Samma 410/404-städning som /api/notify.
-      const { data: subs } = await supabase
+      // "Välj din kod" (maskin_kod_val) går BARA till personens telefoner: en prenumeration som hör till en maskindator
+      // (push_subscriptions.maskin_id satt) får den aldrig — då hade notisen dykt upp i hytten, hos fel person.
+      let subsFraga = supabase
         .from("push_subscriptions")
         .select("id, subscription")
         .eq("medarbetare_id", n.mottagare_id);
+      if (arKodValNotis(n.typ)) subsFraga = subsFraga.is("maskin_id", null);
+      const { data: subs } = await subsFraga;
 
       if (!subs || subs.length === 0) {
         await supabase.from("notis_kö").update({

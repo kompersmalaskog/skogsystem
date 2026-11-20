@@ -43,6 +43,7 @@ const MUTANTER = [
   ['djuplänken /?kod=1 öppnar inget', 'components/startsida/Startsida.tsx', "if (u.searchParams.get('kod') !== '1') return", 'return', 'components/startsida/Startsida.maskinkonto.render.test.tsx'],
   ['djuplänken öppnar kodarket även på maskinen', 'components/startsida/Startsida.tsx', "if (mkonto.lage !== 'vanlig') return\n    try {\n      const u", "try {\n      const u", 'components/startsida/Startsida.maskinkonto.render.test.tsx'],
   ['notisen skickas även om koden redan valts', 'lib/maskinkonto/notis.ts', 'if (finns) return { typ: \'hoppa_over\'', 'if (false) return { typ: \'hoppa_over\'', 'lib/maskinkonto/maskinkonto.test.ts'],
+  ['kodnotisen skickas även till prenumerationer som hör till en maskindator', 'app/api/notis/flush/route.ts', 'if (arKodValNotis(n.typ)) subsFraga = subsFraga.is("maskin_id", null);', '', 'app/api/notis/flush/kodVal.route.test.ts'],
   ['brytaren tar emot allt', 'app/api/maskin/konto/route.ts', 'typeof body.aktiv !== "boolean"', 'false'],
 ]
 let fel = 0
