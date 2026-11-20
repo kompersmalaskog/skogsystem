@@ -115,11 +115,65 @@ function PerMaskin({ p, onTrakt }: { p: PrognosData; onTrakt: (typ: Typ, roll: P
   )
 }
 
+// Första sidan: bara svaret. Per spår och maskintyp ett ord ("Fattas 516"), och under det trakterna med ett enda besked var — klar eller inte.
+// Maskin, m³/G15h och delsiffror bor bakom "Visa detaljer".
+function enkelText(t: PrognosTrakt): { text: string; orange: boolean } {
+  if (t.status === 'hinns') return { text: t.klar, orange: false }
+  if (t.status === 'delvis') return { text: 'Hinns inte helt', orange: true }
+  return { text: t.status === 'ingen_maskin' ? 'Ingen maskin' : 'Hinns inte', orange: true }
+}
+
+function Enkel({ p, onTrakt }: { p: PrognosData; onTrakt: (typ: Typ, roll: PlaneraRoll) => void }) {
+  return (
+    <div data-prognos-enkel="" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', columnGap: AVSTAND.xxl, rowGap: AVSTAND.xl, alignItems: 'start' }}>
+      {p.spar.map(s => (
+        <Sektion key={s.typ} rubrik={`${s.namn} · beställt ${fmt(s.bestallt)}`} kort={false}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+            {s.roller.map(r => (
+              <div key={r.roll} data-enkel-kort={`${s.typ}:${r.roll}`} style={{ ...KORT, display: 'flex', flexDirection: 'column' }}>
+                <button type="button" onClick={() => onTrakt(s.typ, planeraRoll(r.roll))} data-prognos-ord=""
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.primar, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', color: FARG.text }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.listtitel }}>
+                    <span aria-hidden="true" style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: RADIE.cirkel, background: rollFarg(planeraRoll(r.roll)) }} />{r.rubrik}
+                  </span>
+                  <span style={{ ...TYP.rubrik, color: tonFarg(r.ton) }}>{r.ord}</span>
+                </button>
+                {r.trakter.map(t => {
+                  const e = enkelText(t)
+                  return (
+                    <button key={`${t.objekt_id}:${t.maskin_id}`} type="button" onClick={() => onTrakt(s.typ, planeraRoll(r.roll))} data-prognos-trakt={t.objekt_id} data-status={t.status}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', borderTop: `1px solid ${FARG.linje}` }}>
+                      <span style={{ ...TYP.text, color: e.orange ? FARG.text2 : FARG.text, overflowWrap: 'anywhere' }}>{t.namn}</span>
+                      <span style={{ ...TYP.meta, ...TNUM, flexShrink: 0, color: e.orange ? FARG.orange : FARG.text2 }}>{e.text}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+        </Sektion>
+      ))}
+    </div>
+  )
+}
+
 export default function Prognos({ prognos, onTrakt }: { prognos: PrognosData; onTrakt: (typ: Typ, roll: PlaneraRoll) => void }) {
   const [vy, setVy] = useState<Vy>('trakt')
+  const [detalj, setDetalj] = useState(false)
   if (prognos.spar.length === 0) return <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.l}px 0` }}>Ingen beställning inlagd</div>
+  if (!detalj) {
+    return (
+      <div data-prognos="" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xl }}>
+        <Enkel p={prognos} onTrakt={onTrakt} />
+        <button type="button" data-visa-detaljer="" onClick={() => setDetalj(true)}
+          style={{ ...TYP.text, color: FARG.bla, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', minHeight: TRAFFYTA.min, textAlign: 'left', padding: 0 }}>Visa detaljer</button>
+      </div>
+    )
+  }
   return (
     <div data-prognos="" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xl }}>
+      <button type="button" data-dolj-detaljer="" onClick={() => setDetalj(false)}
+        style={{ ...TYP.text, color: FARG.bla, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', minHeight: TRAFFYTA.min, textAlign: 'left', padding: 0 }}>‹ Enkel vy</button>
       <div data-prognos-svar-rad="" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: AVSTAND.s }}>
         {prognos.spar.map(s => s.roller.map(r => <Svar key={`${s.typ}:${r.roll}`} s={s} r={r} onTryck={() => onTrakt(s.typ, planeraRoll(r.roll))} />))}
       </div>
