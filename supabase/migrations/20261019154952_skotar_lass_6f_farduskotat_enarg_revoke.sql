@@ -1,1 +1,0 @@
-revoke execute on function skotar_farduskotat(uuid) from public, anon;
