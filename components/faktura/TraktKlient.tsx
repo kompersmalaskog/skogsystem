@@ -175,10 +175,7 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
                 titel={p.rubrik}
                 under={p.text}
                 hoger={p.varde ? <span style={TAL_FONT}>{p.varde}</span> : undefined}
-                href={p.var === 'redigering' && d.objekt_ids[0]
-                  ? `/redigering?objekt=${encodeURIComponent(d.objekt_ids[0])}`
-                  : undefined}
-                onTryck={p.var === 'granskning' ? () => setGranskning('sortiment') : undefined}
+                onTryck={p.ark ? () => setGranskning(p.ark as Vy) : undefined}
                 sista={i === d.fattas.length - 1}
               />
             ))}
@@ -332,6 +329,8 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
             prisdatum: d.granskning.prisdatum,
             sortiment: d.granskning.sortiment,
           }}
+          avstand={d.granskning.avstand}
+          terrangKr={d.granskning.terrangKr}
           summa={d.summa_kant}
           skotarAntal={skotarrad?.antal ?? null}
           skotarPris={skotarrad?.a_pris_beraknat ?? null}
