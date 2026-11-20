@@ -13,6 +13,7 @@
 // onSammaSida, så lådan stängs (och Inställningar öppnar inställningsarket) i stället för en navigering som inte syns.
 
 import { useCallback, useEffect, useState, type MouseEvent } from 'react'
+import { useMaskinKonto } from '@/components/maskinkonto/MaskinKontoProvider'
 import Startsida from '@/components/startsida/Startsida'
 import Ikon from '@/components/design/Ikon'
 import { useStartsidaData } from '@/components/startsida/useStartsidaData'
@@ -52,6 +53,7 @@ export default function MaskinMeny({ maskinNamn, objektNamn, onBytObjekt, onStan
   onSammaSida: (href: string) => void
 }) {
   const data = useStartsidaData()
+  const mk = useMaskinKonto()
   const { besked } = useDatahalsa()
   // Okänd roll → förarens vyer. Adminvyer visas aldrig på en gissning.
   const roll: Roll = data.roll === 'admin' ? 'admin' : 'forare'
@@ -95,10 +97,19 @@ export default function MaskinMeny({ maskinNamn, objektNamn, onBytObjekt, onStan
   const bytObjekt = () => { onStang(); onBytObjekt() }
 
   const overst = (
-    <button type="button" onClick={stang} style={{ ...KNAPP.lank, marginLeft: -AVSTAND.xs, padding: `0 ${AVSTAND.xs}px` }}>
-      <Ikon namn="chevron_left" storlek={IKON.text} farg={FARG.bla} />
-      Till kartan
-    </button>
+    <>
+      <button type="button" onClick={stang} style={{ ...KNAPP.lank, marginLeft: -AVSTAND.xs, padding: `0 ${AVSTAND.xs}px` }}>
+        <Ikon namn="chevron_left" storlek={IKON.text} farg={FARG.bla} />
+        Till kartan
+      </button>
+      {/* Maskinkontot: en liten knapp för den som ska låsa upp — admin för Ekonomi/Personal, förare för sina egna saker. */}
+      {mk.lage === 'last' && (
+        <button type="button" data-vem-ar-du onClick={() => mk.oppnaVemArDu('/')} style={{ ...KNAPP.lank, marginLeft: 'auto', padding: `0 ${AVSTAND.xs}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
+          <Ikon namn="lock" storlek={IKON.text} farg={FARG.bla} />
+          Vem är du?
+        </button>
+      )}
+    </>
   )
   const under = (
     <div style={{ marginBottom: AVSTAND.l }}>

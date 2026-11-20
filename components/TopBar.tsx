@@ -9,6 +9,7 @@ import { FARG, LAYOUT, TRAFFYTA, TYP } from '@/lib/design/tokens' // toppfältet
 import { VYER } from '@/lib/vyer'
 import { MENY_VALD_NYCKEL } from '@/lib/appStart'
 import { hamtaEnhetMaskin } from '@/lib/enhetMaskin'
+import { maskinUpplast } from '@/lib/maskinkonto/upplast'
 import { MASKIN_SOM_SESSION } from '@/lib/maskinSom'
 
 // Arbetsmiljöns delar (Kemikalier, Så gör vi, Riskbedömning …) nås från sidan Arbetsmiljö.
@@ -78,7 +79,8 @@ function vilMeny(e?: ReactMouseEvent) {
   // På en maskindator är appens meny MASKINLÅDAN över kartan (halva kartan, halva appen) — som i Rottne H8 — inte en helsida: hem leder till planeringen
   // med lådan öppen, och "Till kartan" stänger den utan att kartan laddas om.
   try {
-    if (hamtaEnhetMaskin()) { e?.preventDefault(); window.location.assign('/planering?maskinmeny=1'); return }
+    // Upplåst maskin: hem = personens startsida (kartan låser maskinen igen).
+    if (hamtaEnhetMaskin() && !maskinUpplast()) { e?.preventDefault(); window.location.assign('/planering?maskinmeny=1'); return }
     const som = sessionStorage.getItem(MASKIN_SOM_SESSION);   // admin som testar som en maskin (/maskin?som=)
     if (som) { e?.preventDefault(); window.location.assign(`/maskin?som=${encodeURIComponent(som)}&maskinmeny=1`); return }
   } catch { /* */ }

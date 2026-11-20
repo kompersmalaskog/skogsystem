@@ -31,6 +31,7 @@ import { AM_LAGAT, arLagatNotis, byggLagatNotis, koaLagatBesked, type HamtaLagat
 import { KALIB_MATDON, arMatdonNotis, byggMatdonNotis, koaMatdonPaminnelse, lasMatdon } from "@/lib/kalibrering/matdonNotis";
 import { KALIB_VADER, arVaderNotis, byggVaderNotis, koaVaderOmslag, lasVader } from "@/lib/kalibrering/vaderServer";
 import { AM_ARSHJUL, arArshjulNotis, byggArshjulNotis, koaArshjulPaminnelse, lasArshjul } from "@/lib/arbetsmiljo/arshjulNotis";
+import { MASKIN_KOD_SPAR, MASKIN_KOD_VAL, arMaskinKodNotis, arKodValNotis, byggMaskinKodNotis, byggKodValNotis } from "@/lib/maskinkonto/notis";
 import { LARMPLATS_NEJ, arLarmplatsNejNotis, byggLarmplatsNejNotis, koaLarmplatsNej, type HamtaNej } from "@/lib/larmKontrollNotis";
 import { larmpunkterUr, SAMMA_PUNKT_M } from "@/lib/larmpunkter";
 import { avstandPunktM } from "@/lib/larm/geo";
@@ -173,7 +174,7 @@ async function flush() {
     // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
     // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts), liksom lönenotiserna (lib/lonesystem/granskaNotis.ts).
-    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_KEMIKALIE, AM_ANMAL, AM_LAGAT, AM_ARSHJUL, LARMPLATS_NEJ, KALIB_MATDON, KALIB_VADER, ...LON_NOTIS_TYPER]))
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_KEMIKALIE, AM_ANMAL, AM_LAGAT, AM_ARSHJUL, LARMPLATS_NEJ, MASKIN_KOD_SPAR, MASKIN_KOD_VAL, KALIB_MATDON, KALIB_VADER, ...LON_NOTIS_TYPER]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -248,11 +249,17 @@ async function flush() {
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
       // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arKemikalieNotis(n.typ) || arAnmalNotis(n.typ) || arLagatNotis(n.typ) || arArshjulNotis(n.typ) || arLarmplatsNejNotis(n.typ) || arMatdonNotis(n.typ) || arVaderNotis(n.typ)) {
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arKemikalieNotis(n.typ) || arAnmalNotis(n.typ) || arLagatNotis(n.typ) || arArshjulNotis(n.typ) || arLarmplatsNejNotis(n.typ) || arMaskinKodNotis(n.typ) || arKodValNotis(n.typ) || arMatdonNotis(n.typ) || arVaderNotis(n.typ)) {
         // Maskinen ska stå (lib/arbetsmiljo/stoppNotis): borta, åtgärdad eller inte längre stopp → hoppas över.
         // Tillbud/olycka (lib/arbetsmiljo/tillbudNotis): borta eller redan åtgärdad → hoppas över.
         const u = arVaderNotis(n.typ) ? await byggVaderNotis(n, lasVader(supabase))
           : arMatdonNotis(n.typ) ? await byggMatdonNotis(n, lasMatdon(supabase))
+          : arMaskinKodNotis(n.typ) ? byggMaskinKodNotis(n)
+          : arKodValNotis(n.typ) ? await byggKodValNotis(n, async (id: string) => {
+              // Har personen redan valt kod är notisen inte längre sann. Läsfel → null (utskicket skjuts upp).
+              const r = await supabase.from("forare_maskinkod").select("medarbetare_id").eq("medarbetare_id", id).maybeSingle();
+              return r.error ? null : !!r.data;
+            })
           : arLarmplatsNejNotis(n.typ) ? await byggLarmplatsNejNotis(n, hamtaNej)
           : arArshjulNotis(n.typ) ? await byggArshjulNotis(n, () => lasArshjul(supabase, new Date()))
           : arLagatNotis(n.typ) ? await byggLagatNotis(n, hamtaLagat)
@@ -280,10 +287,14 @@ async function flush() {
       // Prenumerationer ur push_subscriptions-TABELLEN (alla enheter) — inte
       // den döda kolumnen medarbetare.push_subscription som aldrig fylls.
       // Samma 410/404-städning som /api/notify.
-      const { data: subs } = await supabase
+      // "Välj din kod" (maskin_kod_val) går BARA till personens telefoner: en prenumeration som hör till en maskindator
+      // (push_subscriptions.maskin_id satt) får den aldrig — då hade notisen dykt upp i hytten, hos fel person.
+      let subsFraga = supabase
         .from("push_subscriptions")
         .select("id, subscription")
         .eq("medarbetare_id", n.mottagare_id);
+      if (arKodValNotis(n.typ)) subsFraga = subsFraga.is("maskin_id", null);
+      const { data: subs } = await subsFraga;
 
       if (!subs || subs.length === 0) {
         await supabase.from("notis_kö").update({

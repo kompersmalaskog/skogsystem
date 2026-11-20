@@ -12,6 +12,7 @@ const data = vi.hoisted(() => ({
   rpcFel: false as boolean,
   datakalla: 'auto' as string,
   typ: 'semester' as string,
+  tabellLast: false as boolean,
   dagar: [] as { maskin_id: string; datum: string; status: string; orsak: string | null }[],
 }))
 
@@ -23,7 +24,7 @@ vi.mock('@/lib/supabase', () => {
       const rader =
         t === 'dim_maskin' ? [{ maskin_id: SCORPION, datakalla: data.datakalla }]
         : t === 'medarbetare' ? [{ id: 'm1', maskin_id: SCORPION, aktiv: true }]
-        : t === 'ledighet_ansokningar' ? [{ medarbetare_id: 'm1', typ: data.typ, startdatum: '2026-10-14', slutdatum: '2026-10-16' }]
+        : t === 'ledighet_ansokningar' ? (data.tabellLast = true, [])
         : []
       return Promise.resolve({ data: rader, error: null }).then(res)
     }
@@ -33,6 +34,10 @@ vi.mock('@/lib/supabase', () => {
     if (namn === 'helikopter_ny_maskindag') {
       if (data.rpcFel) return Promise.resolve({ data: null, error: new Error('nej') })
       return Promise.resolve({ data: args.p_manad === 10 ? data.dagar : [], error: null })
+    }
+    if (namn === 'maskin_ledighet') {
+      // Definer-funktionen svarar bara med 'semester' eller 'ledig' (aldrig sjuk/VAB …, aldrig personen).
+      return Promise.resolve({ data: [{ maskin_id: SCORPION, typ: data.typ === 'semester' ? 'semester' : 'ledig', startdatum: '2026-10-14', slutdatum: '2026-10-16' }], error: null })
     }
     const rader = namn === 'maskindata_produktion' ? [
       { datum: '2026-10-12', volym_m3sub: 100, stammar: 300, operator_id: 'op1', objekt_id: 'o1' },
@@ -65,7 +70,7 @@ beforeEach(() => {
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
   ;(globalThis as any).ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
   vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-22T10:00:00') })
-  data.rpcFel = false; data.datakalla = 'auto'; data.typ = 'semester'
+  data.rpcFel = false; data.datakalla = 'auto'; data.typ = 'semester'; data.tabellLast = false
   data.dagar = [
     rad('2026-10-14', 'planerat', 'ledig:Stefan'), rad('2026-10-15', 'planerat', 'ledig:Stefan'), rad('2026-10-16', 'planerat', 'ledig:Stefan'),
     rad('2026-10-19', 'registrerat', 'registrerat:service'), rad('2026-10-20', 'oforklarat'),
@@ -83,6 +88,10 @@ describe('Produktion › förklarade tomma dagar', () => {
     expect(titel(15)).toMatch(/50 m³/)
     expect(titel(14)).toBe('14: Semester')
     expect(rader()).toEqual(['Semester 14 okt', 'Semester 16 okt', 'Stopp 19 okt · Service'])
+  })
+  it('ledigheten läses via maskin_ledighet — tabellen ledighet_ansokningar är spärrad för maskinkontot och öppnas aldrig härifrån', async () => {
+    await montera()
+    expect(data.tabellLast).toBe(false)
   })
   it('allt annat än semester står som Ledig', async () => {
     data.typ = 'sjuk'

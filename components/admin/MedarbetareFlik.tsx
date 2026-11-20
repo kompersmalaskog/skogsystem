@@ -10,6 +10,7 @@ import { maskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
 import { hamtaAnstallning, sparaAnstallningsnummer } from "@/lib/admin/anstallningsnummer";
 import { introKlara, introSaknas, ochLista } from "@/lib/admin/introduktion";
 import NyMedarbetare from "./NyMedarbetare";
+import MaskinkontoSektion from "./MaskinkontoSektion";
 import { ROLLER, HempunktKort, KopplaOperatörModal, useAnstKontroll, AnstKontrollText, type Medarbetare, type OperatorRad } from "./medarbetarDelar";
 
 /** Listan är grupperad på roll: Förare först, sedan Admin. */
@@ -47,6 +48,7 @@ export default function MedarbetareFlik() {
       .catch(e => { setKontroller(null); setKontrollFel(e?.message || String(e)); });
     try {
       const [medRes0, opMedRes, dimOpRes, maskinRes] = await Promise.all([
+        // Maskinkontona (roll 'maskin') är ingen person: de hör till sektionen Maskinkonton längst ned.
         supabase.from("medarbetare")
           .select(`${MED_KOLUMNER}, foretagsledare, skyddsombud`)
           .order("namn"),
@@ -63,6 +65,7 @@ export default function MedarbetareFlik() {
         medRes = await supabase.from("medarbetare").select(MED_KOLUMNER).order("namn") as any;
       }
       if (medRes.error) throw medRes.error;
+      medRes = { ...medRes, data: (medRes.data || []).filter((m: { roll?: string }) => m.roll !== "maskin") };   // maskinkontona är ingen person
       setHarForetagsledare(harForetagsledare);
 
       const opMap = new Map<string, OperatorRad>();
@@ -131,6 +134,7 @@ export default function MedarbetareFlik() {
         onValj={oppnaPerson}
         onNy={() => gaTill({ flik: "medarbetare", params: { ny: "1" } })}
       />
+      <MaskinkontoSektion />
     </>
   );
 }
