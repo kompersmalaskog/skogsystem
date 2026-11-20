@@ -11,7 +11,7 @@ import { AVSTAND, FARG, KNAPP, KOLUMN, RADIE, TYP, medSafeBotten } from "@/lib/d
  *  - Esc och tryck utanför stänger (mus/tangentbord på kontoret, finger i maskinen — samma ark).
  * Kräver `designCss` på vyns rot (`.tona-opacity`, `.sheet-upp`).
  */
-export default function Ark({ rubrik, onStang, fot, stang = "Avbryt", children }: { rubrik: string; onStang: () => void; fot?: ReactNode; /** Stängknappens ord: "Avbryt" i ett formulär, "Klar" i ett ark man bara läser. */ stang?: "Avbryt" | "Klar"; children: ReactNode }) {
+export default function Ark({ rubrik, onStang, fot, stang = "Avbryt", bred, children }: { rubrik: string; onStang: () => void; fot?: ReactNode; /** Brett ark (`KOLUMN.bred`) för innehåll som står i två kolumner på datorn. Telefonen är oförändrad. */ bred?: boolean; /** Stängknappens ord: "Avbryt" i ett formulär, "Klar" i ett ark man bara läser. */ stang?: "Avbryt" | "Klar"; children: ReactNode }) {
   useEffect(() => {
     const t = (e: KeyboardEvent) => { if (e.key === "Escape") onStang(); };
     document.addEventListener("keydown", t);
@@ -22,7 +22,7 @@ export default function Ark({ rubrik, onStang, fot, stang = "Avbryt", children }
     <div className="tona-opacity" onClick={onStang} role="dialog" aria-modal="true" aria-label={rubrik}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1600, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div className="sheet-upp" onClick={e => e.stopPropagation()}
-        style={{ width: "100%", maxWidth: KOLUMN.ark, background: FARG.kort, borderRadius: `${RADIE.sheet}px ${RADIE.sheet}px 0 0`, maxHeight: "92vh", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+        style={{ width: "100%", maxWidth: bred ? KOLUMN.bred : KOLUMN.ark, background: FARG.kort, borderRadius: `${RADIE.sheet}px ${RADIE.sheet}px 0 0`, maxHeight: "92vh", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
         <div style={{ display: "flex", justifyContent: "center", padding: `${AVSTAND.s}px 0 ${AVSTAND.xs}px`, flexShrink: 0 }}>
           <div style={{ width: 36, height: AVSTAND.xs, borderRadius: RADIE.rad, background: FARG.fyllning }} />
         </div>

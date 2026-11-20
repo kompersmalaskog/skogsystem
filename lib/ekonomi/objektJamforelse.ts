@@ -29,7 +29,7 @@ import {
 import { fetchAllRows } from '@/lib/ekonomi/period';
 import { medelstamAuto, sortimentgrupperAuto, skotavstandVagtAuto } from '@/lib/ekonomi/ackordgrund';
 import { skotningsavstandM } from '@/lib/skotningsavstand';
-import { prisPerM3 } from '@/lib/ekonomi/prisPerM3';
+import { prisPerM3, type Tillaggspost } from '@/lib/ekonomi/prisPerM3';
 import { medForestlink, forestlinkKrPerTim } from '@/lib/ekonomi/forestlink';
 
 // Under så här många G15-timmar är ett kr/tim- eller kr/m³-tal brus, inte
@@ -52,6 +52,42 @@ export type MaskinDel = {
   timpris: number;        // gällande EFFEKTIVT timpris vid avräkningsdatumet (inkl. ForestLink)
   forestlinkKr: number;   // ForestLink-tillägget som ingår i timpris (0 = maskinen saknar FL)
   manuellTid: boolean;    // G15-timmarna är handsatta (redigeringsvyn), inte mätta
+  /**
+   * Hur `ackord` är hopsatt — samma tal, bara isärplockade så vyn kan visa
+   * "m³fub × kr/m³ = kr" utan att räkna själv:
+   *   ackord = volymAckord × (grundKrPerM3 + tillaggKrPerM3) + avstandKr + undantagKr
+   * Valfri: äldre anropare och testfixturer bär den inte, och vyn visar då
+   * bara summan.
+   */
+  pris?: MaskinPris;
+};
+export type MaskinPris = {
+  volymAckord: number;     // volymen ackordet räknas på (efter timpeng-undantag)
+  grundKrPerM3: number;    // prislistans pris för rollen i klassen
+  tillaggKrPerM3: number;  // rollens andel av de gemensamma tilläggen
+  avstandKr: number;       // skotningsavståndstillägget i kronor (0 för skördare)
+  undantagKr: number;      // timpeng-undantagets kronor
+};
+/** Det vyn behöver för att förklara VARFÖR — indata till räkningen, inga nya tal. */
+export type ObjektDetalj = {
+  voNummer: string | null;
+  avraknad: string;                 // avräkningsdagen (styr prisuppslagen)
+  stammar: number;
+  /** De gemensamma tilläggen i kr/m³fub med sin mottagare (prisPerM3). */
+  tillagg: Tillaggspost[];
+  avstand: {
+    /** dim_objekt.skotavstand_manuell — det avstånd ackordet räknats på. null = inte satt. */
+    manuellM: number | null;
+    /** Volymviktat snitt ur Opti-lassen (enkel väg). null = inga lass med sträcka. */
+    lassM: number | null;
+    /** Prislistans regel på avräkningsdagen. null = ingen regel → inget tillägg. */
+    regel: { grundavstand_m: number; kr_per_100m: number } | null;
+  };
+  skotadManuell: boolean;
+  terrangKr: number;
+  /** Prislistans poster som INTE räknas i jämförelsen (acord_ovrigt). null = finns inte i listan. */
+  dieselBas: number | null;
+  massa3mKr: number | null;
 };
 export type ObjektRad = {
   objekt_id: string;
@@ -69,6 +105,7 @@ export type ObjektRad = {
   // mätt i benvitt, manuellt/uppskattat i bärnsten)
   grund: { label: string; text: string; manuell: boolean }[];
   maskiner: MaskinDel[];
+  detalj?: ObjektDetalj;
 };
 
 export type JamforelseData = {
@@ -295,7 +332,8 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   const delar: Record<string, MaskinDel[]> = {};
   const utanPrisPerObjekt: Record<string, number> = {};
 
-  const laggTill = (oid: string, mid: string, roll: 'skördare' | 'skotare', volym: number, ackord: number) => {
+  const objTillagg: Record<string, Tillaggspost[]> = {};
+  const laggTill = (oid: string, mid: string, roll: 'skördare' | 'skotare', volym: number, ackord: number, pris?: MaskinPris) => {
     const avrakningsdag = avrakningsdatum(objMeta[oid]) || '';
     const tp = timprisList.find(p => p.maskin_id === mid && isValidOn(avrakningsdag, p.giltig_fran, p.giltig_till))
       || timprisList.find(p => p.maskin_id === mid);
@@ -312,6 +350,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
         timpris: tp?.timpris || 0,
         forestlinkKr: forestlinkPerMaskin[mid] || 0,
         manuellTid: true,
+        pris,
       });
       return;
     }
@@ -324,6 +363,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
       timpris: tp?.timpris || 0,
       forestlinkKr: forestlinkPerMaskin[mid] || 0,
       manuellTid: false,
+      pris,
     });
   };
 
@@ -339,7 +379,12 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     const meta = objMeta[oid];
     const undTp = timprisList.find(p => p.maskin_id === mid)?.timpris || 0;
     const und = tillampaTimpengUndantag(h.vol, meta?.timpeng_undantag_timmar_skordare, meta?.timpeng_undantag_dra_skordare !== false, meta?.timpeng_undantag_volym, undTp);
-    laggTill(oid, mid, 'skördare', h.vol, und.volymEfterUndantag * pris.krPerM3 + und.undantagKr);
+    objTillagg[oid] = pris.tillaggsposter;
+    const grund = pris.prislista?.skordare ?? 0;
+    laggTill(oid, mid, 'skördare', h.vol, und.volymEfterUndantag * pris.krPerM3 + und.undantagKr, {
+      volymAckord: und.volymEfterUndantag, grundKrPerM3: grund, tillaggKrPerM3: pris.krPerM3 - grund,
+      avstandKr: 0, undantagKr: und.undantagKr,
+    });
   }
   for (const [key, f] of Object.entries(fwdAgg)) {
     const [oid, mid] = key.split('|');
@@ -356,7 +401,12 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     const meta = objMeta[oid];
     const undTp = timprisList.find(p => p.maskin_id === mid)?.timpris || 0;
     const und = tillampaTimpengUndantag(f.vol, meta?.timpeng_undantag_timmar_skotare, meta?.timpeng_undantag_dra_skotare !== false, meta?.timpeng_undantag_volym, undTp);
-    laggTill(oid, mid, 'skotare', f.vol, und.volymEfterUndantag * pris.krPerM3 + f.skotKr + und.undantagKr);
+    objTillagg[oid] ||= pris.tillaggsposter;
+    const grund = pris.prislista?.skotare ?? 0;
+    laggTill(oid, mid, 'skotare', f.vol, und.volymEfterUndantag * pris.krPerM3 + f.skotKr + und.undantagKr, {
+      volymAckord: und.volymEfterUndantag, grundKrPerM3: grund, tillaggKrPerM3: pris.krPerM3 - grund,
+      avstandKr: f.skotKr, undantagKr: und.undantagKr,
+    });
   }
 
   const rader: ObjektRad[] = valda.map((o: any) => {
@@ -461,6 +511,26 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
       ejJamforbarOrsak: orsak,
       grund,
       maskiner: m,
+      detalj: (() => {
+        const dag = avrakningsdatum(o) || '';
+        const regel = avstandList.find(c => isValidOn(dag, c.giltig_fran, c.giltig_till)) ?? null;
+        const post = (nyckel: string) => ovrigtList.some(r => r.nyckel === nyckel) ? ovrigtKrPerM3(nyckel, ovrigtList, dag) : null;
+        return {
+          voNummer: o.vo_nummer || null,
+          avraknad: dag,
+          stammar: objVol[o.objekt_id]?.stammar || 0,
+          tillagg: objTillagg[o.objekt_id] || [],
+          avstand: {
+            manuellM: avstManuell ? Number(o.skotavstand_manuell) : null,
+            lassM: lassAvst,
+            regel: regel ? { grundavstand_m: Number(regel.grundavstand_m), kr_per_100m: Number(regel.kr_per_100m) } : null,
+          },
+          skotadManuell,
+          terrangKr: Number(o.terrang_kr_manuell) || 0,
+          dieselBas: post('diesel_basar'),
+          massa3mKr: post('massa_3m_tillagg'),
+        };
+      })(),
     };
   }).sort((a, b) => b.diff - a.diff);
 
