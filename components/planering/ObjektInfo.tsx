@@ -1,0 +1,165 @@
+'use client';
+
+// ObjektInfo = ramen (ark/panel) + de tre vyerna: kortet, Om trakten och Mer. Vilken vy som visas är komponentens eget tillstånd och börjar
+// på kortet vid varje öppning. "Läs allt ›" och raden På trakten öppnar Om trakten; Mer-knappen öppnar Mer; ‹ tar tillbaka till kortet.
+// Allt annat (vad en knapp GÖR, vad kartan gör) avgör sidan via callbacks.
+
+import React, { useState } from 'react';
+import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
+import InfoRam, { type InfoVy } from './InfoRam';
+import ObjektKort, { type ObjektKortProps } from './ObjektKort';
+import ObjektKortEnkel, { type ObjektKortEnkelProps } from './ObjektKortEnkel';
+import OmTrakten, { type OmNav, type OmTraktenProps } from './OmTrakten';
+import MerMeny, { type MerMenyProps } from './MerMeny';
+import VadBetyderKartan, { type VadBetyderKartanProps } from './VadBetyderKartan';
+import CertInfoVy from './CertInfoVy';
+import EgenkontrollVida, { type EgenkontrollVidaProps } from './EgenkontrollVida';
+import TraktOversikt, { type TraktOversiktProps } from './TraktOversikt';
+import { oversiktPanelBredd } from '@/lib/plusArk';
+import type { CertTyp } from '@/lib/certKrav';
+import { InstruktionLista } from './InstruktionKort';
+import { DIREKTIV_NYCKEL, type InstruktionerPaTrakten } from '@/lib/instruktioner/instruktioner';
+import KlarMedTrakten, { type KlarMedTraktenProps } from './KlarMedTrakten';
+import { ForarRisker, riskRadUnder } from './Risker';
+import type { Risk } from '@/lib/riskbedomning';
+import type { KartMarkering, KortKnappId } from '@/lib/objektKort';
+import type { PlusLage } from '@/lib/plusArk';
+import type { SlappOrsak } from '@/lib/omTraktenFramhav';
+
+export interface ObjektInfoProps {
+  oppen: boolean;
+  onStang: () => void;
+  objektNamn: string;
+  /** objektets id — Om trakten använder det för att hitta foton som väntar på uppladdning */
+  objektId: string | null;
+  /** en knapp på kortet utom Mer (Mer öppnar Mer-vyn här) */
+  onKnapp: (id: KortKnappId) => void;
+  kort: Omit<ObjektKortProps, 'namn' | 'onStang' | 'onKnapp' | 'onMer' | 'onPaTrakten' | 'direktivSett'>;
+  /** onVisa får även ramens läge: telefon stänger arket och flyger dit, bred skärm lämnar panelen */
+  om: Omit<OmTraktenProps, 'objektNamn' | 'objektId' | 'onTillbaka' | 'onStang' | 'onVisa' | 'onSlapp' | 'onTyp'> & {
+    onVisa: (m: KartMarkering, lage: PlusLage) => void; onSlapp: (orsak: SlappOrsak) => void;
+    /** typvyn öppen (alla av typen markeras på kartan; ramens läge följer med så kameran vet vilken del av kartan som syns) eller stängd (null) */
+    onTyp: (m: KartMarkering[] | null, lage: PlusLage) => void;
+  };
+  /** vilken vy som visas när ramen öppnas ('om' = telefonens "‹ Om trakten" tillbaka till listan); standard kortet */
+  startVy?: InfoVy;
+  mer: Omit<MerMenyProps, 'objektNamn' | 'onTillbaka' | 'onStang'>;
+  /** "Klar med trakten?" (bara planerare, bara medan trakten planeras). null = ingen rad på kortet och ingen vy. */
+  klar?: Omit<KlarMedTraktenProps, 'namn' | 'onStang'> | null;
+  /** Teckenförklaringen "Vad betyder kartan": det som finns på trakten (våra markeringar + Vidas lager). */
+  karta?: Pick<VadBetyderKartanProps, 'markeringar' | 'vida' | 'roll' | 'hogar'> | null;
+  /** MASKINLÄGET: instruktionerna på trakten (raden på kortet och listan bakom den) med förarens "✓ Sett". null = ingen rad, ingen vy. */
+  instruktioner?: { data: InstruktionerPaTrakten; onSett: (nycklar: string[]) => void } | null;
+  /**
+   * MASKINLÄGET: förarens enkla kort (bara tre delar — namn och framsteg, "Det här gäller här", 112 med larmkoordinaten · Kartans färger · Dokument · Mer). Ersätter `ObjektKort` på kortvyn.
+   * `onYta` flyger kartan till ytan; på telefon fälls arket ner först så att kartan syns ovanför. Saknas/null = det vanliga kortet (planeringsläget).
+   */
+  enkel?: (Omit<ObjektKortEnkelProps, 'onStang' | 'onMer' | 'onKnapp' | 'direktivSett' | 'onYta'> & { onYta: (nyckel: string, lage: PlusLage) => void }) | null;
+  /** MASKINLÄGET: riskbedömningen för föraren (lib/riskbedomning). lista null = inte gjord än (en dämpad rad). onLast → true när kvittot sparats. Saknas = ingen rad. */
+  forarRisker?: { lista: Risk[] | null; last: boolean; onLast: () => Promise<boolean> } | null;
+  /** PLANERAREN: körs innan "Klar med trakten?" öppnas från raden Risker — sidan ställer kortet på steget Risker. */
+  onRiskerForbered?: () => void;
+  /** Panelens bredd (px) på bred skärm. Standard `PANEL_BREDD_PX`; maskinläget ger den bredare panelen (som korten). På telefon är det ett ark i full bredd. */
+  bredd?: number;
+  /** Traktens certifieringar (PEFC/FSC) — en rad "PEFC – vad gäller?" på kortet öppnar kraven. Tom/saknas = ingen rad. */
+  cert?: CertTyp[];
+  /** "Ladda ner trakten" (lib/kartNedladdning): en dämpad rad på kortet — "Kartan sparad i enheten ✓" / "Sparar kartan … 60 %". null = ingen rad. */
+  kartaSparad?: string | null;
+  /**
+   * MASKINLÄGET: överblicken av hela trakten (lib/traktOversikt) — visas av sig själv första gången maskinen öppnar trakten (sidan öppnar med startVy 'oversikt')
+   * och går att öppna igen via "Visa hela trakten" på förarens kort. Markeringar, miljö och ytor tas ur `om`. null = ingen.
+   */
+  /** Vidas egenkontroll (lib/vidaEgenkontroll): raden på kortet och vyn bakom den. null = ingen rad (ingen Vida-mall). */
+  egenkontroll?: { under: string; vy: Omit<EgenkontrollVidaProps, 'objektNamn' | 'onTillbaka' | 'onStang'> } | null;
+  oversikt?: Omit<TraktOversiktProps, 'namn' | 'tillForaren' | 'markeringar' | 'miljo' | 'ikon' | 'objektId' | 'onFoto' | 'onMer' | 'onCert'> | null;
+}
+
+/** Mer har inget eget kvar (planeringen efter städningen 2026-11-10): då står Avsluta objekt och "Inte klar – fortsätt" på kortet och Mer-raden försvinner. */
+export const merArTom = (mer: Pick<MerMenyProps, 'grupper' | 'planerare'>): boolean => mer.grupper.every((g) => g.rader.length === 0) && !mer.planerare?.visaSom;
+
+export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, enkel = null, forarRisker = null, onRiskerForbered, bredd, startVy = 'kort', cert = [], kartaSparad = null, oversikt = null, egenkontroll = null }: ObjektInfoProps) {
+  // Om trakten öppnad från överblicken går tillbaka dit, inte till kortet.
+  const [omFran, setOmFran] = useState<'kort' | 'oversikt'>('kort');
+  // En sort öppnad från överblicken ('Stenmur · 3'): typvyns tillbaka går till överblicken.
+  const [sortFranOversikt, setSortFranOversikt] = useState(false);
+  const [kartaFran, setKartaFran] = useState<'kort' | 'oversikt'>('kort');
+  // I MASKINLÄGET är "Hela trakten" det ⓘ öppnar (Martin 2026-11-05): ett ställe med allt. Kortet nås via "Mer om trakten".
+  const forstaVy = (v: InfoVy): InfoVy => (v === 'kort' && oversikt ? 'oversikt' : v);
+  const onCert = cert.length ? { etikett: `${cert.join(' och ')} – vad gäller?`, onTryck: () => { setCertFran('kort'); setVy('cert'); } } : undefined;
+  const [certFran, setCertFran] = useState<'kort' | 'oversikt'>('kort');
+  const [vy, setVy] = useState<InfoVy>(forstaVy(startVy));
+  const [riskFel, setRiskFel] = useState(false);
+  // Vidas traktdirektiv är instruktion nr 1 (lib/instruktioner): finns det en post för det kan föraren kvittera det direkt under rutan på kortet.
+  const direktiv = instruktioner?.data.omraden.find((o) => o.nyckel === DIREKTIV_NYCKEL) ?? null;
+  const ramLage = useSkarmLage(oppen);
+  // Var man stod i Om trakten när ett objekt stängde arket ("‹ Lista"): ges till Om trakten EN gång, sedan börjar den rent.
+  const [aterstall, setAterstall] = useState<OmNav | undefined>(om.start);
+  // Typvyn öppen → arket på halv höjd (kartan med de markerade objekten syns ovanför).
+  const [typOppen, setTypOppen] = useState(!!om.start?.typ);
+  // Varje öppning börjar på kortet (eller på Om trakten när sidan ber om det) — och Om trakten med det den hade när ett objekt stängde arket. Görs UNDER renderingen
+  // (inte i en effekt): ramen monterar sitt innehåll i samma rendering som `oppen` slår om, så en effekt kommer för sent och Om trakten startade från listan.
+  const [forraOppen, setForraOppen] = useState(oppen);
+  if (oppen !== forraOppen) {
+    setForraOppen(oppen);
+    if (oppen) { setVy(forstaVy(startVy)); setOmFran('kort'); setKartaFran('kort'); setSortFranOversikt(false); setCertFran('kort'); setAterstall(startVy === 'om' ? om.start : undefined); setTypOppen(startVy === 'om' && !!om.start?.typ); }
+  }
+  // Bred skärm: panelen ligger kvar medan en markering är framhävd. Stängs Om trakten (×, Esc eller ‹ tillbaka) lämnas framhävningen. På telefon stänger
+  // "Visa ›" arket SJÄLV — det är inte en stängning att reagera på, så där släpps den först av kartan, raden eller "‹ Om trakten".
+  const stangOm = () => { if (vy === 'om' && ramLage === 'panel') om.onSlapp('stang'); };
+  const tillbakaFranOm = () => { stangOm(); om.onTyp(null, ramLage); om.onNav(null); setAterstall(undefined); setTypOppen(false); setSortFranOversikt(false); setVy(omFran === 'oversikt' && oversikt ? 'oversikt' : 'kort'); };
+  const stangRam = () => { stangOm(); if (vy === 'om') { om.onTyp(null, ramLage); om.onNav(null); } onStang(); };
+
+  return (
+    <InfoRam oppen={oppen} vy={vy} bredd={oversikt && typeof window !== 'undefined' ? oversiktPanelBredd(window.innerWidth) : bredd} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : vy === 'risker' ? 'Risker på trakten' : vy === 'cert' ? 'Certifiering' : vy === 'oversikt' ? 'Hela trakten' : vy === 'egenkontroll' ? 'Egenkontroll' : 'Mer'} onStang={stangRam}>
+      {({ lage, sattDetent }) => (
+        vy === 'oversikt' && oversikt ? (
+          <TraktOversikt {...oversikt} namn={objektNamn}
+            korUpp={enkel?.ytor.filter((r) => r.nyckel.startsWith('korupp:'))} onYta={enkel ? (nyckel) => { sattDetent('halv'); enkel.onYta(nyckel, lage); } : undefined}
+            onLast={async () => { const ok = await oversikt.onLast(); if (ok && direktiv && direktiv.nya > 0) instruktioner!.onSett([DIREKTIV_NYCKEL]); return ok; }} tillForaren={om.hela} markeringar={om.markeringar} miljo={om.miljo} ikon={om.ikon} objektId={objektId} onFoto={om.onFoto}
+            onStang={() => { oversikt.onStang(); onStang(); }}
+            onCert={cert.length ? () => { setCertFran('oversikt'); setVy('cert'); } : undefined}
+            onMer={() => setVy('kort')}
+            onKarta={karta ? () => { setKartaFran('oversikt'); setVy('karta'); } : undefined}
+            onSort={(nyckel) => { setOmFran('oversikt'); setSortFranOversikt(true); setAterstall({ typ: nyckel, scrollLista: 0, scrollTyp: 0, q: '' }); setTypOppen(true); setVy('om'); }} />
+        ) : vy === 'egenkontroll' && egenkontroll ? (
+          <EgenkontrollVida {...egenkontroll.vy} objektNamn={objektNamn} onTillbaka={() => setVy('kort')} onStang={stangRam} />
+        ) : vy === 'klar' && klar ? (
+          <KlarMedTrakten {...klar} namn={objektNamn} onStang={stangRam} onInfo={() => setVy('kort')} />
+        ) : (vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner)) && enkel ? (
+          <ObjektKortEnkel {...enkel} direktivSett={direktiv ? { sedd: direktiv.nya === 0, onSett: () => instruktioner!.onSett([DIREKTIV_NYCKEL]) } : null}
+            onStang={stangRam} onKnapp={onKnapp} onMer={() => setVy('mer')} onKarta={karta ? () => setVy('karta') : undefined} onCert={onCert} kartaSparad={kartaSparad}
+            risker={forarRisker ? { ...riskRadUnder(forarRisker.lista, forarRisker.last), onOppna: forarRisker.lista ? () => { setRiskFel(false); setVy('risker'); } : null } : null}
+            onYta={(nyckel) => { sattDetent('halv'); enkel.onYta(nyckel, lage); }}
+            onOversikt={oversikt ? () => setVy('oversikt') : undefined}
+            merLage={oversikt ? { onTillbaka: () => setVy('oversikt') } : null}
+            onEgenkontroll={egenkontroll ? { under: egenkontroll.under, onTryck: () => setVy('egenkontroll') } : undefined} />
+        ) : vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner) ? (
+          <ObjektKort {...kort} instruktioner={instruktioner && instruktioner.data.antal > 0 ? { antal: instruktioner.data.antal, nya: instruktioner.data.nya, onOppna: () => setVy('instruktioner') } : null}
+            direktivSett={direktiv ? { sedd: direktiv.nya === 0, onSett: () => instruktioner!.onSett([DIREKTIV_NYCKEL]) } : null}
+            namn={objektNamn} onStang={stangRam} onKlar={klar ? () => setVy('klar') : undefined}
+            onRisker={klar && kort.riskRad && onRiskerForbered ? () => { onRiskerForbered(); setVy('klar'); } : undefined}
+            onKnapp={onKnapp} onMer={merArTom(mer) ? undefined : () => setVy('mer')}
+            avsluta={merArTom(mer) ? mer.avsluta : null} fortsatt={merArTom(mer) ? mer.fortsatt : null}
+            onPaTrakten={() => setVy('om')} onKarta={karta ? () => setVy('karta') : undefined} onCert={onCert} kartaSparad={kartaSparad}
+            onEgenkontroll={egenkontroll ? { under: egenkontroll.under, onTryck: () => setVy('egenkontroll') } : undefined} />
+        ) : vy === 'om' ? (
+          // Ur Hela trakten (förarens meny): ett objekt i sortens lista öppnar LÄSKORTET — stort, med foto och kommentar och "Tillbaka till listan" —
+          // också Vidas ytor (Martin 2026-11-12). Det lilla kortet är för kartan, när man kör.
+          <OmTrakten {...om} start={aterstall} vidaOppna={sortFranOversikt && oversikt ? undefined : om.vidaOppna} onVisa={(m) => (sortFranOversikt && oversikt ? oversikt.onOppna(m) : om.onVisa(m, lage))} onSlapp={() => om.onSlapp('rad')} onTyp={(m) => { setTypOppen(!!m); om.onTyp(m, lage); }}
+            objektNamn={objektNamn} objektId={objektId} onTillbaka={tillbakaFranOm} typTillbaka={sortFranOversikt && oversikt ? { etikett: 'Hela trakten', onTryck: tillbakaFranOm } : undefined} onStang={stangRam} />
+        ) : vy === 'risker' && forarRisker?.lista ? (
+          <ForarRisker objektNamn={objektNamn} risker={forarRisker.lista} last={forarRisker.last} sparFel={riskFel}
+            onLast={() => { setRiskFel(false); void forarRisker.onLast().then((ok) => setRiskFel(!ok)); }} onTillbaka={() => setVy('kort')} onStang={stangRam} />
+        ) : vy === 'instruktioner' && instruktioner ? (
+          <InstruktionLista data={instruktioner.data} objektNamn={objektNamn} onSett={instruktioner.onSett} onTillbaka={() => setVy('kort')} onStang={stangRam} />
+        ) : vy === 'cert' && cert.length ? (
+          <CertInfoVy typer={cert} objektNamn={objektNamn} onTillbaka={() => setVy(certFran === 'oversikt' && oversikt ? 'oversikt' : 'kort')} onStang={stangRam} />
+        ) : vy === 'karta' && karta ? (
+          <VadBetyderKartan {...karta} objektNamn={objektNamn} onTillbaka={() => { setVy(kartaFran === 'oversikt' && oversikt ? 'oversikt' : 'kort'); setKartaFran('kort'); }} onStang={stangRam} />
+        ) : (
+          <MerMeny {...mer} objektNamn={objektNamn} onTillbaka={() => setVy('kort')} onStang={stangRam} />
+        )
+      )}
+    </InfoRam>
+  );
+}

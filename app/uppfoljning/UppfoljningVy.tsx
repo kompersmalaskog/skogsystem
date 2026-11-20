@@ -1,0 +1,1464 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { type ObjektTyp, arRisjobb, typLabel } from '@/lib/objekt/typ';
+import { tradslagFarg } from '@/lib/tradslag';
+import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
+import { uppskattaGrotM3fub, GROT_UTTAGSFAKTOR_DEFAULT } from '@/lib/grot';
+import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
+import { type AvvikelseRad } from './lib/avvikelser';
+import type { SkotareMaskinStat } from './lib/transform';
+import { FARG, TYP, AVSTAND, RADIE, TNUM, VIKT, KOLUMN, FONT, overgang } from '@/lib/design/tokens';
+import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
+
+// ── Types ──────────────────────────────────────────────────────────────────
+export interface Forare {
+  namn: string;
+  fran: string;
+  till: string;
+}
+
+export interface Maskin {
+  typ: 'Skördare' | 'Skotare';
+  modell: string;
+  start: string;
+  slut: string;
+  aktivForare: string;
+  tidigareForare?: Forare[];
+}
+
+export interface AvbrottRad {
+  orsak: string;
+  typ: string;
+  tid: string;
+  antal: number;
+}
+
+export interface DieselDag {
+  datum: string;
+  liter: number;
+}
+
+export interface UppfoljningData {
+  objektNamn: string;
+  objektId?: string | null;
+  // Våning 2 — beräknas i useObjektUppfoljning (kräver 90-dagarsreferensen)
+  avvikelser?: AvvikelseRad[];
+  senastUppdaterad?: string;
+  // Direktivets volym (objekt.volym, m³fub som "ska avverkas"). 0/saknas = okänd.
+  // Grund för skördarens "klart om" (direktiv − skördat) / snitt per dag. En
+  // uppskattning, inte en mätning — därför alltid "~".
+  volym?: number;
+  skordat: number;
+  skotat: number;
+  // Steg 2a — skotare per maskin på detta objekt (fakt_lass grupperat + manuellt
+  // lager). arOmlastning=true bidrar med 0 till skotad total (visas som arbete).
+  skotarePerMaskin?: { maskinId: string; namn: string; volym: number; antalLass: number; g15: number; arOmlastning: boolean; kalla: 'mätt' | 'manuell' }[];
+  // Tillskriven omlastning: annat objekts skotararbete som räknas UNDER detta
+  // objekt (via avser_objekt_id), men bidrar med 0 till skotad total.
+  omlastningArbete?: { maskinId: string; namn: string; volym: number; antalLass: number; g15: number; g0: number; diesel: number; franObjektId: string }[];
+  // Steg 2b — en post per skotarmaskin (inkl. tillskriven omlastning) med hela
+  // det platta skotarfält-settet. Maskinväljaren överstyr `data` med en post.
+  skotareMaskiner?: SkotareMaskinStat[];
+  kvarPct: number;
+  egenSkotning?: boolean;
+  grotSkotning?: boolean;
+  // Grot-anpassat avverkningsobjekt: det ligger ris på hygget att köra ut.
+  // grotHamtad = datum då riset hämtades, null = det ligger kvar. Frikopplat
+  // från virkets skotningsstatus — ett objekt kan vara "Klart" (virket hemma)
+  // men ha ris kvar, och det ska synas ärligt.
+  grotAnpassad?: boolean;
+  grotHamtad?: string | null;
+  externSkotning?: boolean;
+  externForetag?: string;
+  externPrisTyp?: 'm3' | 'timme';
+  externPris?: number;
+  externAntal?: number;
+  maskiner: Maskin[];
+  // V6 detail meta
+  typ?: ObjektTyp;
+  areal?: number;
+  agare?: string;
+  status?: 'pagaende' | 'avslutat';
+  skordareModell?: string | null;
+  skordareStart?: string | null;
+  skordareSlut?: string | null;
+  skordareLastDate?: string | null;
+  skotatArManuell?: boolean;
+  skotareModell?: string | null;
+  skotareStart?: string | null;
+  skotareSlut?: string | null;
+  skotareLastDate?: string | null;
+  operatorSkordare?: string | null;
+  operatorSkotare?: string | null;
+  prodSkordarePerDag?: { datum: string; m3: number }[];
+  // Tidredovisning
+  skordareG15h: number;
+  skordareG0: number;
+  skordareTomgang: number;
+  skordareKortaStopp: number;
+  skordareKortStoppRaa: number;  // rå kort_stopp (utan kortaAvbrott-fold) — signal-frånvaro = 0
+  skordareRast: number;
+  skordareAvbrott: number;
+  skotareG15h: number;
+  // true = skotartiden är manuellt angiven (JD810E, inga fakt_tid-filer)
+  skotareTidManuell?: boolean;
+  skotareG0: number;
+  skotareTomgang: number;
+  skotareKortaStopp: number;
+  skotareRast: number;
+  skotareAvbrott: number;
+  // Produktion
+  skordareM3G15h: number;
+  skordareStammarG15h: number;
+  skordareMedelstam: number;
+  skotareM3G15h: number;
+  skotareLassG15h: number;
+  skotareSnittlass: number;
+  tradslag: { namn: string; pct: number }[];
+  sortiment: { namn: string; m3: number }[];
+  // Diesel
+  dieselTotalt: number;
+  dieselPerM3: number;
+  skordareL: number;
+  skordareL_M3: number;
+  skordareL_G15h: number;
+  skotareL: number;
+  skotareL_M3: number;
+  skotareL_G15h: number;
+  dieselSkordare: DieselDag[];
+  dieselSkotare: DieselDag[];
+  // Avbrott
+  avbrottSkordare: AvbrottRad[];
+  avbrottSkotareTotalt: string;
+  avbrottSkordare_totalt: string;
+  avbrottSkotare: AvbrottRad[];
+  // Skotarproduktion
+  antalLass: number;
+  snittlassM3: number;
+  lassG15h: number;
+  skotningsavstand: number;
+  lassPerDag: { datum: string; lass: number; m3?: number }[];
+  // Balans
+  skordareBalG15h: number;
+  skotareBalG15h: number;
+  // Flerträdshantering (skördaren griper flera klena stammar i ett grepp) — HPR-härlett
+  // ur detalj_stam.stam_bunt_nyckel (#460), INTE MOM. matt=false = objektets senaste
+  // HPR-fil skrevs före 2026-08-23, då flerträd började läsas → "ej mätt", aldrig 0 %.
+  // Historik kräver omimport (scripts/omimport-multitree.py — Martins beslut).
+  flertrad?: { matt: boolean; andelPct: number; stammarPerGrepp: number; grepp: number; buntStammar: number; stammar: number } | null;
+}
+
+// ── Design tokens ─────────────────────────────────────────────────────────
+// Paletten är appens tokens (FARG) och rollfärgerna ur lib/sparStil — skördare
+// lila, skotare turkos, som maskinvyn/objektöversikten/kartan. Namnen V6_* behålls
+// så resten av filen inte behöver röras; bara värdena pekar nu på EN källa.
+const V6_GREY = FARG.text2;
+const V6_GREY2 = FARG.text3;
+const V6_CARD = FARG.kort;
+const V6_SEP = FARG.linje;
+const V6_SK = ROLLFARG_SKORDARE;
+const V6_ST = ROLLFARG_SKOTARE;
+const V6_WARN = FARG.orange;
+const V6_DONE = FARG.gron;
+const V6_BG = FARG.bg;
+const V6_FF = FONT;
+
+// Objektet fyller bredden på stor skärm (container queries, som objektöversikten),
+// så det inte blir en smal kolumn + lång lista i ett hav av svart. Telefon: en
+// kolumn, hero + maskiner + "Hur gick det?"-tryck som förut. Bred: hero och
+// maskiner sida vid sida, och "Hur gick det?"-sektionerna som ett rutnät av kort
+// (alltid synliga, ingen tryck-rad). Inga citattecken i selektorer — React
+// escapar dem i en <style> vid SSR (CLAUDE.md-fallgropen); synlighet via klass.
+// Rutnäts-läget triggas av BÅDE container- och viewport-queries (belt &
+// suspenders): när sidokolumnen syns (viewport ≥ 1100) har objektet garanterat
+// plats, så media-queryn tvingar fram rutnätet även om en webbläsare inte skulle
+// ta container-queryn. Container-queryn täcker full-bredds-objektet (iPad,
+// telefon liggande) där ingen sidokolumn finns.
+// Samma brytpunkt som UppfoljningRam (sidokolumnen dyker upp vid 1100 px). När
+// den syns är objektets pane viewport − 360 ≥ 740 px, alltså gott om plats.
+// VIKTIGT: kolumnerna är minmax(0, …fr) och barnen får min-width: 0 — annars
+// blir en grid-cells minsta bredd dess MIN-CONTENT (maskinkortens siffror/namn),
+// så maskinkolumnen vägrar krympa och svämmar över högerkanten på stor skärm.
+// (Precis skillnaden mot "Hur gick det?"-rutnätet nedan, som redan är minmax(0)
+// + overflow:hidden och därför krymper korrekt.)
+const FRAN_BRED_PX = 1100;
+const TOPP_SIDA_VID_SIDA = `.uf-topp { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }`;
+const SEKTIONER_RUTNAT = `
+  .uf-hur-knapp { display: none !important; }
+  .uf-hur-rubrik { display: block; }
+  .uf-hur-sektioner { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: ${AVSTAND.l}px; background: transparent; border-radius: 0; overflow: visible; align-items: start; }
+  .uf-hur-sektioner > div { background: ${V6_CARD}; border-radius: ${RADIE.knapp}px; border-top: none !important; overflow: hidden; }
+`;
+const SEKTIONER_TRE = `.uf-hur-sektioner { grid-template-columns: repeat(3, minmax(0, 1fr)); }`;
+
+const OBJEKT_CSS = `
+.uf-objekt { container-type: inline-size; max-width: ${KOLUMN.bred + 2 * AVSTAND.sidmarginal}px; margin: 0 auto; box-sizing: border-box; padding: ${AVSTAND.xl}px ${AVSTAND.sidmarginal}px ${AVSTAND.xxl}px; }
+.uf-topp { display: grid; grid-template-columns: minmax(0, 1fr); gap: ${AVSTAND.xl}px; align-items: start; }
+.uf-topp > * { min-width: 0; }
+.uf-kedjesteg { text-align: center; min-width: 0; }
+.uf-kedjelabel { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 5px; }
+.uf-kedjeval { font-size: 22px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+@container (min-width: 560px) { .uf-kedjeval-stor { font-size: 30px; } }
+.uf-kedjeenhet { font-size: 12px; color: ${FARG.text2}; font-weight: 400; margin-left: 2px; }
+.uf-kedjepil { color: ${FARG.text3}; font-size: 18px; line-height: 1; }
+.uf-avv-text { display: flex; flex-direction: column; gap: 2px; }
+.uf-avv-titel { font-size: 13px; color: ${V6_WARN}; font-weight: ${VIKT.halvfet}; line-height: 1.45; }
+.uf-avv-detalj { font-size: 12px; color: ${V6_GREY}; font-weight: 400; line-height: 1.4; }
+.uf-hur-rubrik { display: none; }
+.uf-hur-sektioner { background: ${V6_CARD}; border-radius: 0 0 ${RADIE.knapp}px ${RADIE.knapp}px; overflow: hidden; }
+.uf-hur-sektioner.ar-stangd { display: none; }
+@container (min-width: 560px) { ${TOPP_SIDA_VID_SIDA} }
+@media (min-width: ${FRAN_BRED_PX}px) { ${TOPP_SIDA_VID_SIDA} }
+@container (min-width: 500px) { ${SEKTIONER_RUTNAT} }
+@media (min-width: ${FRAN_BRED_PX}px) { ${SEKTIONER_RUTNAT} }
+@container (min-width: 820px) { ${SEKTIONER_TRE} }
+@media (min-width: 1500px) { ${SEKTIONER_TRE} }
+`;
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function fmtISO(iso?: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return `${d.getDate()} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()]}`;
+}
+function daysBetween(a?: string | null, b?: string | null): number {
+  if (!a) return 0;
+  const d1 = new Date(a);
+  const d2 = b ? new Date(b) : new Date();
+  return Math.max(1, Math.round((d2.getTime() - d1.getTime()) / 864e5));
+}
+function daysAgo(iso?: string | null): string | null {
+  if (!iso) return null;
+  const d = daysBetween(iso, undefined);
+  return d === 0 ? 'idag' : d === 1 ? 'igår' : `${d} dagar sedan`;
+}
+
+// Sortiment name cleanup (bevarad från tidigare version)
+const sortimentNamnMap: Record<string, string> = {
+  'BmavFall': 'Barrmassaved', 'BmavFall_V3': 'Barrmassaved', 'BmavFall_V4': 'Barrmassaved',
+  'BjörkmavFall': 'Björkmassaved', 'BjörkmavFall_V3': 'Björkmassaved',
+  'EngvedFall': 'Energived', 'EngvedFall_V3': 'Energived',
+  'Timmer': 'Sågtimmer', 'TimmerFall': 'Sågtimmer',
+  'Kubb': 'Kubb', 'KubbFall': 'Kubb',
+  'GranTimmer': 'Grantimmer', 'TallTimmer': 'Talltimmer',
+  'GranMassa': 'Granmassaved', 'TallMassa': 'Tallmassaved',
+};
+function sortimentSvenska(raw: string): string {
+  if (sortimentNamnMap[raw]) return sortimentNamnMap[raw];
+  const base = raw.replace(/_V\d+$/, '');
+  if (sortimentNamnMap[base]) return sortimentNamnMap[base];
+  const lower = raw.toLowerCase();
+  for (const [k, v] of Object.entries(sortimentNamnMap)) {
+    if (k.toLowerCase() === lower) return v;
+  }
+  return raw;
+}
+
+const avbrottOversattning: Record<string, string> = {
+  'Saw maintenance': 'Sågunderhåll',
+  'Refilling and lubrication': 'Påfyllning och smörjning',
+  'Boom failure': 'Kranfel',
+  'Saw failure': 'Sågfel',
+  'Engine failure': 'Motorfel',
+  'Hydraulic failure': 'Hydraulikfel',
+  'Electric failure': 'Elfel',
+  'Boom maintenance': 'Kranunderhåll',
+  'Track failure': 'Bandfel',
+  'Moving': 'Förflyttning',
+};
+function avbrottSv(raw: string): string {
+  return avbrottOversattning[raw] || raw;
+}
+
+// ── Headline (meta + H1) ──────────────────────────────────────────────────
+function Headline({ data }: { data: UppfoljningData }) {
+  // Typen kommer ur den delade regeln — 'Grot' för risjobb, aldrig gissad.
+  const label = data.typ ? typLabel(data.typ) : '';
+  const parts = [label, data.areal ? `${data.areal} ha` : null, data.agare || null].filter(Boolean);
+  return (
+    <section style={{ padding: '22px 24px 12px' }}>
+      {parts.length > 0 && (
+        <div style={{ fontSize: 13, color: V6_GREY, fontWeight: VIKT.normal }}>{parts.join(' · ')}</div>
+      )}
+      <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', margin: '4px 0 0', lineHeight: 1.2 }}>
+        {data.objektNamn}
+      </h1>
+    </section>
+  );
+}
+
+// ── Våning 1: läget i klartext ────────────────────────────────────────────
+// "Skotare kör · dag 34 · 412 m³ kvar". Statusen kommer ur den DELADE
+// funktionen (lib/uppfoljning/status.ts) — samma sanning som listan.
+// Kvar visas ALDRIG som "0 m³ kvar" när skördardatan saknas (skotat > 0
+// utan skördat, t.ex. OneDrive-synk-lucka) — då är kvar okänt, inte noll.
+function StatusRad({ data }: { data: UppfoljningData }) {
+  const s = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
+  return (
+    <section style={{ padding: '0 24px 20px', display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_FARG[s.k], flexShrink: 0 }} />
+      <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.2px' }}>{s.t}</span>
+      {s.dagar != null && (
+        <span style={{ fontSize: 15, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
+          · {s.k === 'done' ? `${s.dagar} dagar` : `dag ${s.dagar}`}
+        </span>
+      )}
+      {s.visaKvar && s.kvar != null && (
+        <span style={{ fontSize: 15, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
+          · {s.kvar > 0 ? `${Math.round(s.kvar).toLocaleString('sv-SE')} m³ kvar` : 'allt utkört'}
+        </span>
+      )}
+      {s.kvarOkant && (
+        <span style={{ fontSize: 15, color: V6_WARN, fontWeight: VIKT.normal }}>· skördardata saknas</span>
+      )}
+    </section>
+  );
+}
+
+// ── Svaret: EN fråga överst, ett tal (skillen: "ett tal per vy") ──────────
+// Virke på backen = skördat − skotat (avrundade delar, summeras sedan). Stapeln
+// visar hur mycket som är hemma, statusraden läget i ord (samma uppfoljningStatus
+// som listan). Klart objekt byter fråga — ingen stor nolla. Saknas skördardata
+// (risjobb, OneDrive-lucka) faller den tillbaka på den rena statusraden, aldrig
+// ett påhittat på-backen-tal. Grot-raden hör till ett senare steg (grot_hamtad
+// finns inte i datan än). På tokens — resten av vyn migreras separat.
+// Hero-svaret som kedja: Skördat → Skotat → Kvar i skogen. Man ser VARFÖR det
+// ligger kvar (fällt minus hemkört) utan att räkna själv. Rollfärgerna (skördare
+// lila, skotare turkos) är samma som resten av appen.
+function KedjePil() {
+  return <span className="uf-kedjepil">›</span>;
+}
+function KedjeSteg({ label, farg, varde, stor = false }: { label: string; farg: string; varde: number; stor?: boolean }) {
+  const sv = (n: number) => n.toLocaleString('sv-SE');
+  return (
+    <div className="uf-kedjesteg">
+      <div className="uf-kedjelabel" style={{ color: farg }}>{label}</div>
+      <div className={stor ? 'uf-kedjeval uf-kedjeval-stor' : 'uf-kedjeval'}>
+        {sv(varde)}<span className="uf-kedjeenhet">m³</span>
+      </div>
+    </div>
+  );
+}
+
+// En statusrad per maskin i hero: prick i rollfärg (lila skördare / turkos
+// skotare), läget i ord, och en valfri "· klart om ~N dagar". Färgen pekar ut
+// maskinen, orden bär läget (dämpad = passiv, t.ex. "har inte börjat").
+function Rollrad({ farg, text, suffix, dampad = false }: { farg: string; text: string; suffix?: React.ReactNode; dampad?: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.listtitel }}>
+      <span style={{ width: 11, height: 11, borderRadius: RADIE.cirkel, background: farg, flexShrink: 0 }} />
+      <span style={dampad ? { color: FARG.text2, fontWeight: VIKT.normal } : undefined}>{text}</span>
+      {suffix && <span style={{ ...TYP.text, color: FARG.text2 }}>{suffix}</span>}
+    </div>
+  );
+}
+
+function Svaret({ data }: { data: UppfoljningData }) {
+  const s = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
+  const klart = s.k === 'done';
+  const visSkordat = Math.round(data.skordat);
+  const visSkotat = Math.round(data.skotat);
+  const harBacken = visSkordat > 0;
+  if (!harBacken) return <StatusRad data={data} />;
+
+  const paBacken = Math.max(0, visSkordat - visSkotat);
+  const andel = Math.min(100, Math.round((visSkotat / visSkordat) * 100));
+  const sv = (n: number) => n.toLocaleString('sv-SE');
+
+  // "Klart om ~N dgr": virke på backen delat med skotarens snitt/dag (ur
+  // lassPerDag, inte en enskild dag). Skattning → alltid "~". Inte klart objekt,
+  // något kvar, och en takt att räkna på — annars ingen rad.
+  const stDagar = (data.lassPerDag || []).filter(d => typeof d.m3 === 'number' && (d.m3 || 0) > 0);
+  const stSnitt = stDagar.length > 0 ? stDagar.reduce((a, b) => a + (b.m3 || 0), 0) / stDagar.length : 0;
+  const klartOm = (!klart && paBacken > 0 && stSnitt > 0) ? Math.max(1, Math.round(paBacken / stSnitt)) : null;
+
+  // Skördarens "klart om": (direktivets volym − skördat) / skördarens snitt per
+  // dag. Direktivet (data.volym, "ska avverkas") är en UPPSKATTNING → alltid
+  // "~". Skördat ≥ direktivet (direktivet var lågt) → "snart klar", aldrig ett
+  // minustal. Snitt/dag = produktionsdagarnas medel (ur prodSkordarePerDag).
+  const skProdDagar = (data.prodSkordarePerDag || []).filter(d => (d.m3 || 0) > 0);
+  const skSnitt = skProdDagar.length > 0 ? skProdDagar.reduce((a, b) => a + (b.m3 || 0), 0) / skProdDagar.length : 0;
+  const direktiv = data.volym && data.volym > 0 ? data.volym : null;
+  const skKvar = direktiv != null ? Math.round(direktiv - visSkordat) : null;
+  const skKlartOm = (!s.skKlar && direktiv != null && skSnitt > 0 && (skKvar ?? 0) > 0) ? Math.max(1, Math.round((skKvar as number) / skSnitt)) : null;
+  const skSnartKlar = !s.skKlar && direktiv != null && skSnitt > 0 && (skKvar ?? 1) <= 0;
+
+  // "· klart om ~N dagar" som nod (fetstilt tal). En enda plats.
+  const klartOmNod = (n: number) => (
+    <>· klart om <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>~{n}</span> dagar</>
+  );
+  const skKor = !s.skKlar;
+  const stKor = !s.stKlar && !s.externt && (s.stAktiv || visSkotat > 0);
+
+  // Grot-rad: bara på ett grot-anpassat AVVERKNINGSobjekt (själva risjobbet följs
+  // upp som eget objekt). Visas i BÅDE pågående och Klart-läge — ett objekt kan
+  // vara klart avverkat och skotat men ha riset kvar på hygget, och då får det
+  // inte se färdigt ut. Raden visar PLANEN: hur mycket ris som väntar (schablon
+  // ×0,35 på skördad volym, märkt "ca" — en gissning, aldrig mätt) + status.
+  // Utkörningens UTFALL följs på det egna GROT-objektet, inte här.
+  const visaGrot = !!data.grotAnpassad && !arRisjobb(data);
+  const grotEst = visaGrot ? uppskattaGrotM3fub(data.skordat, GROT_UTTAGSFAKTOR_DEFAULT) : null;
+  const grotStatus = data.grotHamtad ? `hämtat ${fmtISO(data.grotHamtad)}` : 'ligger kvar på hygget';
+  const grotText = grotEst != null
+    ? `Ris: ca ${Math.round(grotEst).toLocaleString('sv-SE')} m³fub · ${grotStatus}`
+    : `Riset ${grotStatus}`;
+
+  return (
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: AVSTAND.l }}>
+        {klart ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+            <span style={{ ...TYP.tal }}>Klart</span>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="11" fill={FARG.gron} />
+              <path d="M7 12.5l3.2 3.2L17 9" stroke={FARG.bg} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr', alignItems: 'center', gap: AVSTAND.xs }}>
+            <KedjeSteg label="Skördat" farg={V6_SK} varde={visSkordat} />
+            <KedjePil />
+            <KedjeSteg label="Skotat" farg={V6_ST} varde={visSkotat} />
+            <KedjePil />
+            <KedjeSteg label="Kvar i skogen" farg={FARG.text2} varde={paBacken} stor />
+          </div>
+        )}
+        <div style={{ height: 10, borderRadius: RADIE.stapel, background: FARG.upphojt, overflow: 'hidden', margin: `${AVSTAND.m}px 0 ${AVSTAND.s}px` }}>
+          <div style={{ width: `${andel}%`, height: '100%', background: FARG.gron, borderRadius: RADIE.stapel }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', ...TYP.meta, color: FARG.text2, ...TNUM }}>
+          <span>{sv(visSkotat)} av {sv(visSkordat)} m³ hemma</span>
+          <span>{andel} %</span>
+        </div>
+        {!klart && (
+          // EN roll-rad per maskin: skördaren (lila) och skotaren (turkos), var
+          // för sig, var och en säger sitt läge. Bara skotaren får "klart om"
+          // ur backen; skördaren ur direktivet (objekt.volym). "dag N" är borta —
+          // den krockade med "klart om". Avslutat objekt visar bara "Klart ✓".
+          <div style={{ marginTop: AVSTAND.l, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+            <Rollrad
+              farg={V6_SK}
+              text={s.skKlar ? 'Skördaren klar' : 'Skördaren kör'}
+              suffix={skKor ? (skKlartOm != null ? klartOmNod(skKlartOm) : (skSnartKlar ? '· snart klar' : null)) : null}
+            />
+            <Rollrad
+              farg={V6_ST}
+              text={s.externt ? 'Skotas externt' : s.stKlar ? 'Skotaren klar' : stKor ? 'Skotaren kör' : 'Skotaren har inte börjat'}
+              dampad={s.externt || (!s.stKlar && !stKor)}
+              suffix={stKor && klartOm != null ? klartOmNod(klartOm) : null}
+            />
+          </div>
+        )}
+        {visaGrot && (
+          <div style={{ marginTop: AVSTAND.m, paddingTop: AVSTAND.s, borderTop: `0.5px solid ${V6_SEP}`, ...TYP.meta, color: FARG.text2 }}>
+            {grotText}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ── Våning 2: avvikelser — bara när något FAKTISKT avviker ────────────────
+// Trösklarna härleds ur maskinens egen 90-dagarsspridning (Tukey-staket,
+// se lib/avvikelser.ts). Allt normalt → zonen försvinner helt.
+function AvvikelseZon({ avvikelser }: { avvikelser?: AvvikelseRad[] }) {
+  if (!avvikelser || avvikelser.length === 0) return null;
+  return (
+    <section style={{ padding: '0 24px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {avvikelser.map(a => (
+        <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 9, background: 'rgba(255,159,10,0.09)', border: '0.5px solid rgba(255,159,10,0.28)', borderRadius: 10, padding: '10px 13px' }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={V6_WARN} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <div className="uf-avv-text">
+            <span className="uf-avv-titel">{a.text}</span>
+            {a.detalj && <span className="uf-avv-detalj">{a.detalj}</span>}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+// ── Maskinkort ────────────────────────────────────────────────────────────
+function MaskinCell({
+  label, color, modell, forare, statusOrd, primary, primaryUnit, primaryLabel, snitt, dagar,
+}: {
+  label: string; color: string; modell?: string | null; forare?: string | null;
+  statusOrd: string | null; primary: number; primaryUnit: string; primaryLabel: string;
+  snitt: number | null; dagar: number | null;
+}) {
+  return (
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 16px 14px', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+        <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
+        <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, minWidth: 0 }}>
+        <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' }}>{primary}</span>
+        <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 600 }}>{primaryUnit}</span>
+      </div>
+      <div style={{ fontSize: 11, color: V6_GREY, marginTop: 4, fontWeight: VIKT.normal, minHeight: 14 }}>{primaryLabel}</div>
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: 3, fontVariantNumeric: 'tabular-nums' }}>
+        {snitt != null && (
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Snitt/dag</span><span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{snitt} m³</span>
+          </div>
+        )}
+        {dagar != null && (
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>På trakten</span><span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{dagar} {dagar === 1 ? 'dag' : 'dagar'}</span>
+          </div>
+        )}
+        {(modell || statusOrd) && (
+          <div style={{ marginTop: snitt != null ? 4 : 0, fontSize: 11, color: V6_GREY2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {[modell, forare, statusOrd].filter(Boolean).join(' · ')}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Risjobbets rubrikvolym: RAPPORTERAD grotvolym ─────────────────────────
+// Ett risjobb skördar aldrig — dess volym är skotarens lassmätning i m³fub,
+// förarens bedömning, inte skördarmätt virke. Aldrig grön Mätt, aldrig "0 m³".
+// Badgen "rapporterat" är dämpad grå, aldrig blå: blått betyder navigation i
+// appen, och en etikett som inte går att trycka på får inte vara blå.
+function RisRubrik({ data }: { data: UppfoljningData }) {
+  const vol = Math.round(data.skotat);
+  const harVol = vol > 0;
+  // Samma härledning som skotarens hjälte (Maskinkort): snitt/dag ur dagar med
+  // m³, "på trakten" ur alla lassdagar. Riset följs upp som skotaren, inte som
+  // en lägre kopia — bara m³fub-enheten och "rapporterat"-märket skiljer (volymen
+  // är förarens lassmätning, inte skördarmätt virke).
+  const lassDagar = data.lassPerDag || [];
+  const dagarMedM3 = lassDagar.filter(d => typeof d.m3 === 'number' && (d.m3 || 0) > 0);
+  const snitt = dagarMedM3.length > 0 ? Math.round(dagarMedM3.reduce((a, b) => a + (b.m3 || 0), 0) / dagarMedM3.length) : null;
+  const dagar = lassDagar.length > 0 ? lassDagar.length : null;
+  const idag = new Date().toISOString().slice(0, 10);
+  const statusOrd = data.skotareSlut ? `klar ${fmtISO(data.skotareSlut)}` : data.skotareLastDate === idag ? 'kör idag' : null;
+  const visaBotten = harVol && (snitt != null || dagar != null || !!data.skotareModell || !!data.operatorSkotare || !!statusOrd);
+  return (
+    <section style={{ padding: '0 24px 20px' }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 18px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+          <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST }} />
+          <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Ris utkört</span>
+        </div>
+        {harVol ? (
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.8px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{vol.toLocaleString('sv-SE')}</span>
+            <span style={{ fontSize: 14, color: V6_GREY, fontWeight: VIKT.normal }}>m³fub</span>
+            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: FARG.text2, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.rad, padding: '1px 5px' }}>rapporterat</span>
+          </div>
+        ) : (
+          <div style={{ fontSize: 15, color: V6_GREY, fontWeight: 600 }}>Inga lass registrerade än</div>
+        )}
+        {visaBotten && (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: 3, fontVariantNumeric: 'tabular-nums' }}>
+            {snitt != null && (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Snitt/dag</span><span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{snitt} m³</span>
+              </div>
+            )}
+            {dagar != null && (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>På trakten</span><span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{dagar} {dagar === 1 ? 'dag' : 'dagar'}</span>
+              </div>
+            )}
+            {(data.skotareModell || data.operatorSkotare || statusOrd) && (
+              <div style={{ marginTop: snitt != null || dagar != null ? 4 : 0, fontSize: 11, color: V6_GREY2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {[data.skotareModell, data.operatorSkotare, statusOrd].filter(Boolean).join(' · ')}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// Källhyggen: avverkningsobjekten riset kommer från (grot_koppling). Namn +
+// länk till respektive detaljvy. Tomt/laddar/fel hålls isär (ärliga tillstånd).
+function Kallhyggen({ objektId }: { objektId?: string | null }) {
+  const router = useRouter();
+  const [lage, setLage] = useState<{ status: 'laddar' | 'ok' | 'fel'; hyggen: Kallhygge[]; fel: string }>({ status: 'laddar', hyggen: [], fel: '' });
+
+  useEffect(() => {
+    if (!objektId) { setLage({ status: 'ok', hyggen: [], fel: '' }); return; }
+    let avbruten = false;
+    (async () => {
+      const r = await hamtaKallhyggen(objektId);
+      if (avbruten) return;
+      setLage(r.ok ? { status: 'ok', hyggen: r.hyggen, fel: '' } : { status: 'fel', hyggen: [], fel: r.message });
+    })();
+    return () => { avbruten = true; };
+  }, [objektId]);
+
+  return (
+    <section style={{ padding: '0 24px 20px' }}>
+      <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: '0 0 8px 2px' }}>Ris hämtas från</div>
+      {lage.status === 'laddar' ? (
+        <div style={{ fontSize: 13, color: V6_GREY, padding: '4px 2px' }}>Läser källhyggen …</div>
+      ) : lage.status === 'fel' ? (
+        <div style={{ fontSize: 13, color: V6_WARN, padding: '4px 2px' }}>Kunde inte läsa källhyggena</div>
+      ) : lage.hyggen.length === 0 ? (
+        <div style={{ fontSize: 13, color: V6_GREY2, padding: '4px 2px' }}>Inga källhyggen kopplade — kopplas i redigeringen.</div>
+      ) : (
+        <div style={{ background: V6_CARD, borderRadius: RADIE.kort, overflow: 'hidden' }}>
+          {lage.hyggen.map((h, i) => (
+            <button key={h.objekt_id} onClick={() => router.push(`/uppfoljning/${encodeURIComponent(h.urlId)}`)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 48, padding: '11px 16px', background: 'transparent', border: 'none', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none', color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.namn}</span>
+              {h.auto_avbockad && <span style={{ fontSize: 10, color: V6_DONE, fontWeight: 600 }}>grot avbockat</span>}
+              <svg width="7" height="12" viewBox="0 0 8 14" fill="none" stroke={V6_GREY2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <polyline points="1 1 7 7 1 13" />
+              </svg>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotareOmlastning?: boolean }) {
+  const idag = new Date().toISOString().slice(0, 10);
+  // "kör idag" bara när senaste aktiviteten faktiskt är IDAG — läget i
+  // övrigt bor i våning 1 (statusraden), korten upprepar det inte.
+  const statusOrd = (slut?: string | null, lastDate?: string | null) =>
+    slut ? `klar ${fmtISO(slut)}` : lastDate === idag ? 'kör idag' : null;
+  const skProd = data.prodSkordarePerDag || [];
+  const skSnitt = skProd.length > 0 ? Math.round(skProd.reduce((a, b) => a + b.m3, 0) / skProd.length) : null;
+  const stProd = data.lassPerDag || [];
+  const stProdWithM3 = stProd.filter(d => typeof d.m3 === 'number');
+  const stSnitt = stProdWithM3.length > 0 ? Math.round(stProdWithM3.reduce((a, b) => a + (b.m3 || 0), 0) / stProdWithM3.length) : null;
+
+  const showSt = !!data.skotareModell || data.skotat > 0;
+  const hasSk = !!data.skordareModell || data.skordat > 0;
+
+  return (
+    <section style={{ padding: '0 24px 24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: showSt && hasSk ? '1fr 1fr' : '1fr', gap: 10 }}>
+        {hasSk && (
+          <MaskinCell
+            label="Skördare" color={V6_SK}
+            modell={data.skordareModell} forare={data.operatorSkordare}
+            statusOrd={statusOrd(data.skordareSlut, data.skordareLastDate)}
+            primary={Math.round(data.skordat)}
+            primaryUnit="m³" primaryLabel="skördat"
+            snitt={skSnitt}
+            dagar={skProd.length > 0 ? skProd.length : null}
+          />
+        )}
+        {showSt && (
+          <MaskinCell
+            label="Skotare" color={V6_ST}
+            modell={data.skotareModell} forare={data.operatorSkotare}
+            statusOrd={statusOrd(data.skotareSlut, data.skotareLastDate)}
+            primary={Math.round(data.skotat)}
+            primaryUnit="m³"
+            primaryLabel={skotareOmlastning ? 'omlastning · räknas ej i skotad total' : (data.skotatArManuell ? 'utkört (manuellt angivet)' : 'utkört')}
+            snitt={stSnitt}
+            dagar={stProd.length > 0 ? stProd.length : null}
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ── Skotare på objektet (per maskin + omlastning) ─────────────────────────
+// Steg 2a. En rad per skotarmaskin som kört PÅ objektet + separata rader för
+// tillskriven omlastning (annat objekts arbete som räknas hit). Omlastning
+// dämpas och märks — den bidrar med 0 till skotad total.
+function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
+  const list = data.skotarePerMaskin || [];
+  const oml = data.omlastningArbete || [];
+  if (list.length === 0 && oml.length === 0) return null;
+  const sv = (n: number) => n.toLocaleString('sv-SE');
+
+  // Jämbördiga skotarkort: Wisent (skotning) och omlastning har SAMMA storlek,
+  // ljusstyrka och layout. Skillnaden = en tydlig "Omlastning"-badge + texten
+  // "volymen räknas ej i skotad total" (ärlighetssignalen), ALDRIG nedtoning.
+  type Kortdata = { key: string; namn: string; volym: number; meta: string; omlastning: boolean };
+  const kort: Kortdata[] = [
+    ...list.map((s): Kortdata => ({
+      key: s.maskinId, namn: s.namn, volym: s.volym, omlastning: s.arOmlastning,
+      meta: [
+        s.antalLass > 0 ? `${s.antalLass} lass` : 'inga lass',
+        s.g15 > 0 ? `${s.g15.toFixed(1)} G15h` : null,
+        s.kalla === 'manuell' ? 'manuellt' : null,
+        s.arOmlastning ? 'volymen räknas ej i skotad total' : null,
+      ].filter(Boolean).join(' · '),
+    })),
+    ...oml.map((o): Kortdata => ({
+      key: `oml|${o.maskinId}|${o.franObjektId}`, namn: o.namn, volym: o.volym, omlastning: true,
+      meta: [
+        `${o.antalLass} lass`,
+        o.g15 > 0 ? `${o.g15.toFixed(1)} G15h` : null,
+        o.g0 > 0 && o.g0 !== o.g15 ? `${o.g0.toFixed(1)} G0h` : null,
+        o.diesel > 0 ? `${o.diesel.toLocaleString('sv-SE')} L` : null,
+        'volymen räknas ej i skotad total',
+      ].filter(Boolean).join(' · '),
+    })),
+  ];
+
+  return (
+    <div style={{ padding: '0 24px 16px' }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, overflow: 'hidden' }}>
+        {kort.map((k, i) => (
+          <div key={k.key} style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '14px 16px',
+            borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none',
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST, flexShrink: 0, marginTop: AVSTAND.xs }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 14, color: FARG.text, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.namn}</span>
+                {k.omlastning && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: FARG.orange, background: 'rgba(255,159,10,0.15)', padding: '2px 7px', borderRadius: RADIE.rad, whiteSpace: 'nowrap', letterSpacing: 0.3 }}>OMLASTNING</span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: V6_GREY, marginTop: 3 }}>{k.meta}</div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                {sv(k.volym)} <span style={{ fontSize: 10, color: V6_GREY, fontWeight: 600 }}>m³</span>
+              </div>
+              {k.omlastning && <div style={{ fontSize: 9, color: FARG.orange, marginTop: 2, whiteSpace: 'nowrap' }}>ej i total</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Kollapsbar sektion ────────────────────────────────────────────────────
+// Stängd sektion ger ändå sin siffra (varde) — man öppnar för att förstå
+// VARFÖR, inte för att få talet. Värdet radbryter på smal skärm.
+function Collapse({ title, varde, children, defaultOpen = false }: { title: string; varde?: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ borderTop: `0.5px solid ${V6_SEP}` }}>
+      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: '16px 24px', background: 'transparent', border: 'none', color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
+        <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.2px', flexShrink: 0 }}>{title}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          {varde != null && (
+            <span style={{ fontSize: 12, color: V6_GREY, fontWeight: VIKT.normal, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.35 }}>{varde}</span>
+          )}
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }}>
+            <polyline points="4 2 8 6 4 10" />
+          </svg>
+        </span>
+      </button>
+      {open && <div style={{ paddingBottom: 8 }}>{children}</div>}
+    </div>
+  );
+}
+
+// ── "Hur gick det?" — ETT tryck till djupet ────────────────────────────────
+// Apple-sättet: objektet svarar på EN fråga (hero) + maskinerna. Allt djup —
+// produktivitet, trädslag, tid, avbrott, tidslinje — ligger bakom EN rad, inte
+// åtta separata collapses på skärmen samtidigt. Stängd: en lugn rad med vad som
+// finns där inne. Öppen: raden blir rubrik och sektionerna veck ut sig under.
+function HurGickDet({ undertext, children }: { undertext: string; children: React.ReactNode }) {
+  // Smal skärm: tryck-raden (uf-hur-knapp) styr synligheten via ar-stangd.
+  // Bred skärm: knappen göms, rubriken visas, sektionerna är ett alltid-synligt
+  // rutnät (CSS i OBJEKT_CSS överstyr ar-stangd). Ingen JS-mätning.
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: AVSTAND.xxl }}>
+      <button
+        className="uf-hur-knapp"
+        onClick={() => setOpen(!open)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: '20px 24px', background: V6_CARD, border: 'none', borderRadius: open ? `${RADIE.knapp}px ${RADIE.knapp}px 0 0` : RADIE.knapp, color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}
+      >
+        <span style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.3px' }}>Hur gick det?</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minWidth: 0 }}>
+          {!open && <span style={{ ...TYP.meta, color: V6_GREY, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{undertext}</span>}
+          <svg width="13" height="13" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: overgang('transform'), flexShrink: 0 }}>
+            <polyline points="4 2 8 6 4 10" />
+          </svg>
+        </span>
+      </button>
+      <div className="uf-hur-rubrik" style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.3px', marginBottom: AVSTAND.l }}>Hur gick det?</div>
+      <div className={`uf-hur-sektioner${open ? '' : ' ar-stangd'}`}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Produktivitet ─────────────────────────────────────────────────────────
+// rows: [värde, enhet, manuellt?]. manuellt=true → "manuellt"-badge (G15-taltet
+// kommer ur skotning_g15_manuell, inte mätt maskintid — samma ärlighetsregel som
+// mätt/rapporterat/schablon: säg vilken sorts siffra det är).
+// Tredje elementet: true → "manuellt"-badge; en STRÄNG → badge med den texten
+// (källmärkning, t.ex. 'HPR' för flerträd som är HPR-härlett, inte MOM).
+function ProdKort({ color, label, rows }: { color: string; label: string; rows: [string, string, (boolean | string)?][] }) {
+  return (
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 16px 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+        <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
+        <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+        {rows.map(([v, u, manuell], i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', fontVariantNumeric: 'tabular-nums', lineHeight: 1, whiteSpace: 'nowrap' }}>{v}</span>
+            <span style={{ fontSize: 11, color: V6_GREY, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>{u}</span>
+            {manuell && (
+              <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: V6_GREY, border: `1px solid ${V6_SEP}`, borderRadius: RADIE.rad, padding: '1px 5px' }}>
+                {typeof manuell === 'string' ? manuell : 'manuellt'}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Produktivitet({ data }: { data: UppfoljningData }) {
+  const skRows: [string, string, (boolean | string)?][] = [];
+  if (data.skordareM3G15h > 0) skRows.push([String(data.skordareM3G15h), 'm³/G15h']);
+  if (data.skordareStammarG15h > 0) skRows.push([String(data.skordareStammarG15h), 'stammar/G15h']);
+  if (data.skordareMedelstam > 0) skRows.push([String(data.skordareMedelstam), 'm³ medelstam']);
+  // Flerträd — HPR-härlett (detalj_stam.stam_bunt_nyckel), källmärkt 'HPR'. Objekt utan
+  // stammar importerade sedan 2026-08-23 (#460) visar "ej mätt" — ALDRIG 0 %: deras
+  // flerträdsstammar hoppades över av den gamla importen och finns inte i tabellen.
+  if (data.flertrad) {
+    if (data.flertrad.matt) {
+      skRows.push([`${data.flertrad.andelPct.toLocaleString('sv-SE', { maximumFractionDigits: 0 })} %`, 'flerträd', 'HPR']);
+      if (data.flertrad.grepp > 0) skRows.push([data.flertrad.stammarPerGrepp.toLocaleString('sv-SE', { maximumFractionDigits: 1 }), 'stammar/grepp', 'HPR']);
+    } else {
+      skRows.push(['ej mätt', 'flerträd · importerad före 2026-08-23']);
+    }
+  }
+
+  // m³/G15h och lass/G15h delar G15-nämnaren → märks "manuellt" när skotartiden
+  // kommer ur skotning_g15_manuell. Snittlass/skotningsavstånd rör inte G15 → omärkta.
+  const st = data.skotareTidManuell;
+  const stRows: [string, string, boolean?][] = [];
+  if (data.skotareM3G15h > 0) stRows.push([String(data.skotareM3G15h), 'm³/G15h', st]);
+  if (data.skotareLassG15h > 0) stRows.push([String(data.skotareLassG15h), 'lass/G15h', st]);
+  if (data.skotareSnittlass > 0) stRows.push([`${data.skotareSnittlass} m³`, 'snittlass']);
+  if (data.skotningsavstand > 0) stRows.push([`${data.skotningsavstand} m`, 'skotningsavstånd']);
+
+  if (skRows.length === 0 && stRows.length === 0) {
+    return <div style={{ padding: '0 24px 16px', color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
+  }
+
+  return (
+    <div style={{ padding: '0 24px 16px', display: 'grid', gridTemplateColumns: skRows.length > 0 && stRows.length > 0 ? '1fr 1fr' : '1fr', gap: 10 }}>
+      {skRows.length > 0 && <ProdKort color={V6_SK} label="Skördare" rows={skRows} />}
+      {stRows.length > 0 && <ProdKort color={V6_ST} label="Skotare" rows={stRows} />}
+    </div>
+  );
+}
+
+// ── Produktion per dag ────────────────────────────────────────────────────
+function ProdChart({ data, color, snitt }: { data: { datum: string; m3: number; lass?: number }[]; color: string; snitt: number }) {
+  const [active, setActive] = useState<number | null>(null);
+  const max = Math.max(...data.map(d => d.m3), 1);
+  const chartH = 130;
+  const barMaxH = chartH - 20;
+  const snittH = snitt ? (snitt / max) * barMaxH : 0;
+  return (
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 18px 14px' }}>
+      <div style={{ position: 'relative', height: chartH, borderBottom: `0.5px solid ${V6_SEP}`, paddingBottom: 4 }}>
+        {snitt > 0 && (
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 4 + snittH, height: 0, borderTop: `1px dashed ${V6_GREY2}`, pointerEvents: 'none', zIndex: 2 }}>
+            <span style={{ position: 'absolute', right: 0, top: -16, fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 700, background: V6_CARD, padding: '0 4px' }}>snitt {Math.round(snitt)} m³</span>
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: '100%' }}>
+          {data.map((d, i) => {
+            const h = (d.m3 / max) * barMaxH;
+            const isActive = active === i;
+            return (
+              <div key={i} onClick={() => setActive(isActive ? null : i)} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end', cursor: 'pointer', position: 'relative' }}>
+                {isActive && d.lass != null && (
+                  <div style={{ position: 'absolute', bottom: h + 30, left: '50%', transform: 'translateX(-50%)', background: FARG.upphojt, border: `0.5px solid ${FARG.linje}`, borderRadius: 8, padding: '6px 9px', whiteSpace: 'nowrap', fontSize: 11, color: FARG.text, zIndex: 5, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}>{d.lass} lass · {Math.round(d.m3)} m³</div>
+                )}
+                <div style={{ fontSize: 11, color: FARG.text, fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{Math.round(d.m3)}</div>
+                <div style={{ width: '100%', maxWidth: 26, height: `${h}px`, background: color, borderRadius: 3, minHeight: 4, opacity: active != null && !isActive ? 0.4 : 1, transition: 'opacity .15s' }} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        {data.map((d, i) => (
+          <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 10, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{d.datum}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProdPerDag({ data }: { data: UppfoljningData }) {
+  const skData = data.prodSkordarePerDag || [];
+  const stRaw = data.lassPerDag || [];
+  // Bara dagar med m³-data för skotare
+  const stData = stRaw.filter(d => typeof d.m3 === 'number' && d.m3 > 0).map(d => ({ datum: d.datum, m3: d.m3 || 0, lass: d.lass }));
+  const hasSk = skData.length > 0;
+  const hasSt = stData.length > 0;
+  if (!hasSk && !hasSt) return <div style={{ padding: '0 24px 16px', color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
+
+  const skSnitt = hasSk ? skData.reduce((a, b) => a + b.m3, 0) / skData.length : 0;
+  const stSnitt = hasSt ? stData.reduce((a, b) => a + b.m3, 0) / stData.length : 0;
+  const stTotalLass = hasSt ? stData.reduce((a, b) => a + (b.lass || 0), 0) : 0;
+  const stTotal = hasSt ? stData.reduce((a, b) => a + b.m3, 0) : 0;
+  const skTotal = hasSk ? skData.reduce((a, b) => a + b.m3, 0) : 0;
+
+  return (
+    <div style={{ padding: '0 24px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {hasSk && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_SK, alignSelf: 'center' }} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Skördare</span>
+            <span style={{ fontSize: 11, color: V6_GREY, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
+              Snitt {Math.round(skSnitt)} m³/dag · {Math.round(skTotal)} m³
+            </span>
+          </div>
+          <ProdChart data={skData} color={V6_SK} snitt={skSnitt} />
+        </div>
+      )}
+      {hasSt && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST, alignSelf: 'center' }} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Skotare</span>
+            <span style={{ fontSize: 11, color: V6_GREY, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
+              Snitt {Math.round(stSnitt)} m³/dag · {stTotalLass} lass · {Math.round(stTotal)} m³
+            </span>
+          </div>
+          <ProdChart data={stData} color={V6_ST} snitt={stSnitt} />
+          <div style={{ fontSize: 10, color: V6_GREY2, marginTop: 6, textAlign: 'center' }}>Tryck på en stapel för att se antal lass</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Trädslag + Sortiment ──────────────────────────────────────────────────
+// Färg ur appens EN trädslagspalett (lib/tradslag) — Gran är grön här, i
+// maskinvyn och i gallringsvyn. Namnet står alltid i text bredvid färgen.
+function Tradslag({ tradslag }: { tradslag: { namn: string; pct: number }[] }) {
+  if (!tradslag || tradslag.length === 0) return null;
+  return (
+    <div style={{ padding: '0 24px 16px' }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 16px 14px' }}>
+        <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 12 }}>Trädslag</div>
+        <div style={{ display: 'flex', height: 14, borderRadius: 3, overflow: 'hidden', gap: 2, marginBottom: 14 }}>
+          {tradslag.map((t, i) => (
+            <div key={t.namn} style={{ width: `${t.pct}%`, background: tradslagFarg(t.namn, i) }} />
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {tradslag.map((t, i) => (
+            <div key={t.namn} style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+              <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: tradslagFarg(t.namn, i), flexShrink: 0, alignSelf: 'center' }} />
+              <span style={{ flex: 1, fontSize: 14, color: FARG.text }}>{t.namn}</span>
+              <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{t.pct}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Sortiment({ sortiment }: { sortiment: { namn: string; m3: number }[] }) {
+  if (!sortiment || sortiment.length === 0) return null;
+  const max = Math.max(...sortiment.map(s => s.m3), 1);
+  const total = sortiment.reduce((a, b) => a + b.m3, 0);
+  return (
+    <div style={{ padding: '0 24px 16px' }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 18px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>Sortiment</span>
+          <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{Math.round(total)} m³</span>
+        </div>
+        {sortiment.map((s, i) => (
+          <div key={s.namn} style={{ padding: '10px 0', borderTop: i === 0 ? 'none' : `0.5px solid ${V6_SEP}` }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, color: FARG.text, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: 8 }}>
+                {sortimentSvenska(s.namn)}
+              </span>
+              <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                {s.m3} <span style={{ fontSize: 10, color: V6_GREY, fontWeight: 600 }}>m³</span>
+              </span>
+            </div>
+            <div style={{ height: 3, background: FARG.tonad, borderRadius: 2 }}>
+              <div style={{ width: `${(s.m3 / max) * 100}%`, height: '100%', background: V6_SK, borderRadius: 2 }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Tid & Diesel ──────────────────────────────────────────────────────────
+// rows: [etikett, timmar|null, framhävd?]. null = måttet rapporteras inte av
+// maskinen (skotarens G0/korta stopp finns varken i StanForD eller Opti4G) —
+// visas som "rapporteras inte", aldrig som en falsk 0,0 h.
+function TidKort({ label, color, rows }: { label: string; color: string; rows: [string, number | null, boolean?][] }) {
+  return (
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 16px 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+        <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
+        <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {rows.map(([k, v, accent], i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontSize: 12, color: accent ? FARG.text : V6_GREY, fontWeight: accent ? 600 : 400 }}>{k}</span>
+            {v === null ? (
+              <span style={{ fontSize: 12, color: V6_GREY, fontWeight: 400 }}>rapporteras inte</span>
+            ) : (
+              <span style={{ fontSize: accent ? 17 : 13, fontWeight: accent ? 700 : VIKT.halvfet, color: FARG.text, fontVariantNumeric: 'tabular-nums' }}>
+                {v.toFixed(1)}<span style={{ fontSize: 10, color: V6_GREY, marginLeft: 2 }}>h</span>
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Tid({ data }: { data: UppfoljningData }) {
+  const hasSk = data.skordareG15h > 0;
+  const hasSt = data.skotareG15h > 0;
+  if (!hasSk && !hasSt) return null;
+  // G0 och korta pauser visas bara om maskinen rapporterar ShortDownTime (rå
+  // kort_stopp > 0). Villkoret avläses ur DATAN, inte ur maskintypen — Rottne
+  // rapporterar signalen, Ponsse-skotarna inte. Saknas den: "rapporteras inte".
+  const skKortSaknas = data.skordareG15h > 0 && data.skordareKortStoppRaa === 0;
+  const stKortSaknas = data.skotareG15h > 0 && data.skotareKortaStopp === 0;
+  const skRows: [string, number | null, boolean?][] = [
+    ['G15', data.skordareG15h, true],
+    ['G0', skKortSaknas ? null : data.skordareG0],
+    ['Korta pauser', skKortSaknas ? null : data.skordareKortaStopp],
+    ['Rast', data.skordareRast],
+    ['Avbrott', data.skordareAvbrott],
+  ];
+  const stRows: [string, number | null, boolean?][] = [
+    ['G15', data.skotareG15h, true],
+    ['G0', stKortSaknas ? null : data.skotareG0],
+    ['Korta pauser', stKortSaknas ? null : data.skotareKortaStopp],
+    ['Rast', data.skotareRast],
+    ['Avbrott', data.skotareAvbrott],
+  ];
+  return (
+    <div style={{ padding: '0 24px 16px', display: 'grid', gridTemplateColumns: hasSk && hasSt ? '1fr 1fr' : '1fr', gap: 10 }}>
+      {hasSk && <TidKort label="Skördare" color={V6_SK} rows={skRows} />}
+      {hasSt && <TidKort label={data.skotareTidManuell ? 'Skotare · manuell tid' : 'Skotare'} color={V6_ST} rows={stRows} />}
+    </div>
+  );
+}
+
+function Diesel({ data }: { data: UppfoljningData }) {
+  if (!data.dieselTotalt) return null;
+  const skL = data.skordareL || 0;
+  const stL = data.skotareL || 0;
+  return (
+    <div style={{ padding: '0 24px 16px' }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 18px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>Diesel</span>
+          {data.dieselPerM3 > 0 && (
+            <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{data.dieselPerM3.toFixed(2)} L/m³</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 14 }}>
+          <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.6px', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{Math.round(data.dieselTotalt)}</span>
+          <span style={{ fontSize: 13, color: V6_GREY }}>liter</span>
+        </div>
+        <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: FARG.tonad, marginBottom: 10 }}>
+          <div style={{ width: `${(skL / data.dieselTotalt) * 100}%`, background: V6_SK }} />
+          <div style={{ width: `${(stL / data.dieselTotalt) * 100}%`, background: V6_ST }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+          <div>
+            <span style={{ color: V6_GREY }}>
+              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: RADIE.cirkel, background: V6_SK, marginRight: AVSTAND.xs }} />
+              Skördare
+            </span>
+            <span style={{ marginLeft: 6, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{skL} L</span>
+          </div>
+          <div>
+            <span style={{ color: V6_GREY }}>
+              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: RADIE.cirkel, background: V6_ST, marginRight: AVSTAND.xs }} />
+              Skotare
+            </span>
+            <span style={{ marginLeft: 6, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{stL} L</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Avbrott ───────────────────────────────────────────────────────────────
+function AvbrottKort({ label, color, items, totalt }: { label: string; color: string; items: AvbrottRad[]; totalt: string }) {
+  return (
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 16px 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
+          <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: RADIE.cirkel, background: color, marginRight: AVSTAND.xs, verticalAlign: 'middle' }} />
+          {label}
+        </span>
+        <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{totalt}</span>
+      </div>
+      {items.map((a, i) => (
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, color: FARG.text }}>{avbrottSv(a.orsak)}</div>
+            <div style={{ fontSize: 11, color: V6_GREY, marginTop: 2 }}>{a.typ} · {a.antal} ggr</div>
+          </div>
+          <div style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{a.tid}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Avbrott({ data }: { data: UppfoljningData }) {
+  const sk = data.avbrottSkordare || [];
+  const st = data.avbrottSkotare || [];
+  if (sk.length === 0 && st.length === 0) return null;
+  return (
+    <div style={{ padding: '0 24px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {sk.length > 0 && <AvbrottKort label="Skördare" color={V6_SK} items={sk} totalt={data.avbrottSkordare_totalt} />}
+      {st.length > 0 && <AvbrottKort label="Skotare" color={V6_ST} items={st} totalt={data.avbrottSkotareTotalt} />}
+    </div>
+  );
+}
+
+// ── Extern skotning ───────────────────────────────────────────────────────
+function Extern({ data }: { data: UppfoljningData }) {
+  if (!data.externSkotning) return null;
+  // Pris och totalsumma bor i EKONOMIVYN — uppföljningen är en ren operativ
+  // vy som kan visas medarbetare. Här: vem som skotar och hur mycket.
+  return (
+    <div style={{ padding: '0 24px 16px' }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 18px 14px' }}>
+        <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Extern skotning</div>
+        <div style={{ fontSize: 18, fontWeight: 600 }}>{data.externForetag || '—'}</div>
+        {(data.externAntal || 0) > 0 && (
+          <div style={{ marginTop: 12, fontSize: 13, color: V6_GREY }}>
+            Omfattning{' '}
+            <span style={{ color: FARG.text, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              {data.externAntal} {data.externPrisTyp === 'timme' ? 'h' : 'm³'}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Sticky nav ────────────────────────────────────────────────────────────
+function Nav({ onBack }: { onBack?: () => void }) {
+  if (!onBack) return null;
+  return (
+    <nav style={{ position: 'sticky', top: 0, zIndex: 30, height: 44, display: 'flex', alignItems: 'center', padding: '0 6px', background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', borderBottom: `0.5px solid ${V6_SEP}` }}>
+      <button onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'none', border: 'none', color: FARG.text, fontSize: 17, cursor: 'pointer', padding: '8px 10px', fontFamily: V6_FF, letterSpacing: '-0.2px' }}>
+        <svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="10 2 2 10 10 18" />
+        </svg>
+        <span style={{ marginLeft: 2 }}>Uppföljning</span>
+      </button>
+    </nav>
+  );
+}
+
+// ── Skotarväljare ─────────────────────────────────────────────────────────
+// Visas BARA när objektet har 2+ skotarmaskiner (inkl. tillskriven omlastning).
+// Väljer man en maskin visar alla skotarkort nedan DEN maskinens siffror, full
+// storlek. "Alla" = objektets aggregat (omlastningsvolym alltid exkluderad ur
+// skotad total). Omlastningsmaskiner får en liten bärnstensgul OML-markör.
+function SkotareVal({ maskiner, vald, onValj }: { maskiner: SkotareMaskinStat[]; vald: string; onValj: (id: string) => void }) {
+  const knapp = (aktiv: boolean): React.CSSProperties => ({
+    padding: '7px 13px', borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: V6_FF,
+    cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6,
+    border: aktiv ? '1px solid transparent' : `1px solid ${V6_SEP}`,
+    background: aktiv ? V6_ST : 'transparent',
+    color: aktiv ? FARG.bg : FARG.text,
+  });
+  return (
+    <section style={{ padding: '0 24px 16px' }}>
+      <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: '0 0 8px 2px' }}>Skotare — välj maskin</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <button onClick={() => onValj('alla')} style={knapp(vald === 'alla')}>Alla</button>
+        {maskiner.map(m => {
+          const aktiv = vald === m.maskinId;
+          return (
+            <button key={m.maskinId} onClick={() => onValj(m.maskinId)} style={knapp(aktiv)}>
+              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{m.namn}</span>
+              {m.arOmlastning && (
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3, color: aktiv ? FARG.bg : FARG.orange, background: aktiv ? 'rgba(0,0,0,0.14)' : 'rgba(255,159,10,0.15)', padding: '1px 5px', borderRadius: 5 }}>OML</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// "Alla"-aggregatet: skotad VOLYM = summa av icke-omlastningsmaskiner (data.skotat,
+// oförändrat). Men TID/DIESEL/LASS/per-dag summeras över ALLA skotarmaskiner INKL
+// omlastning — Elephants G15/diesel/lass är fysiskt arbete ("det brändes ju diesel").
+// Kvoterna räknas om konsekvent ur totalerna. Skördarfält lämnas orörda.
+function byggAllaSkotare(data: UppfoljningData, skM: SkotareMaskinStat[]): UppfoljningData {
+  let totG15 = 0, totG0 = 0, totTomgang = 0, totKorta = 0, totRast = 0, totDiesel = 0, totLass = 0;
+  const dieselMap = new Map<string, number>();
+  const lassMap = new Map<string, { lass: number; m3: number }>();
+  skM.forEach(m => {
+    totG15 += m.skotareG15h; totG0 += m.skotareG0; totTomgang += m.skotareTomgang;
+    totKorta += m.skotareKortaStopp; totRast += m.skotareRast;
+    totDiesel += m.skotareL; totLass += m.antalLass;
+    m.dieselSkotare.forEach(d => dieselMap.set(d.datum, (dieselMap.get(d.datum) || 0) + d.liter));
+    m.lassPerDag.forEach(d => {
+      const prev = lassMap.get(d.datum) || { lass: 0, m3: 0 };
+      prev.lass += d.lass; prev.m3 += (d.m3 || 0);
+      lassMap.set(d.datum, prev);
+    });
+  });
+  // 'd/m'-strängar sorteras kronologiskt (månad först, dag sedan).
+  const dmSort = (a: string, b: string) => {
+    const [ad, am] = a.split('/').map(Number); const [bd, bm] = b.split('/').map(Number);
+    return am - bm || ad - bd;
+  };
+  const dieselSkotare: DieselDag[] = Array.from(dieselMap.entries())
+    .sort(([a], [b]) => dmSort(a, b)).map(([datum, liter]) => ({ datum, liter }));
+  const lassPerDag = Array.from(lassMap.entries())
+    .sort(([a], [b]) => dmSort(a, b)).map(([datum, v]) => ({ datum, lass: v.lass, m3: v.m3 }));
+
+  const skotat = data.skotat; // = summa icke-omlastningsvolym (1344), oförändrat
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const totalDiesel = (data.skordareL || 0) + totDiesel;
+  return {
+    ...data,
+    skotareG15h: r1(totG15),
+    skotareG0: r1(totG0),
+    skotareTomgang: r1(totTomgang),
+    skotareKortaStopp: r1(totKorta),
+    skotareRast: r1(totRast),
+    skotareL: Math.round(totDiesel),
+    skotareM3G15h: totG15 > 0 ? r1(skotat / totG15) : 0,
+    skotareLassG15h: totG15 > 0 ? r2(totLass / totG15) : 0,
+    skotareSnittlass: totLass > 0 ? r1(skotat / totLass) : 0,
+    skotareL_M3: skotat > 0 ? r2(totDiesel / skotat) : 0,
+    skotareL_G15h: totG15 > 0 ? r2(totDiesel / totG15) : 0,
+    dieselSkotare,
+    lassPerDag,
+    dieselTotalt: totalDiesel,
+    dieselPerM3: data.skordat > 0 ? r2(totalDiesel / data.skordat) : 0,
+  };
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────
+export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData; onBack?: () => void }) {
+  const hasAvbrott = (data.avbrottSkordare?.length || 0) > 0 || (data.avbrottSkotare?.length || 0) > 0;
+  const hasProduktivitet = data.skordareM3G15h > 0 || data.skordareStammarG15h > 0 || data.skotareM3G15h > 0 || data.skotningsavstand > 0 || data.skotareSnittlass > 0 || data.skotareLassG15h > 0 || data.skordareMedelstam > 0;
+  const hasProdPerDag = (data.prodSkordarePerDag?.length || 0) > 0 || (data.lassPerDag?.some(d => typeof d.m3 === 'number' && d.m3 > 0));
+  const hasTradslagSort = data.tradslag.length > 0 || data.sortiment.length > 0;
+  const hasTidDiesel = data.skordareG15h > 0 || data.skotareG15h > 0 || data.dieselTotalt > 0;
+  const risjobb = arRisjobb(data);
+
+  // ── Rubriktal — samma tal som sektionerna visar, inget nytt beräknas.
+  // ÄRLIGHET: en maskin utan data får inget påhittat värde — den utelämnas.
+  const sv = (n: number) => n.toLocaleString('sv-SE');
+
+  // ── Steg 2b: maskinväljare ────────────────────────────────────────────────
+  // Väljaren visas BARA vid 2+ skotarmaskiner (inkl. tillskriven omlastning).
+  const skM = data.skotareMaskiner || [];
+  const [valdSkotare, setValdSkotare] = useState<string>('alla');
+  useEffect(() => { setValdSkotare('alla'); }, [data.objektId]);
+  const valdMaskin = valdSkotare !== 'alla' ? skM.find(m => m.maskinId === valdSkotare) : undefined;
+  const valdOml = !!valdMaskin?.arOmlastning;
+  const visaSkotareVal = !risjobb && skM.length >= 2;
+  // visadData = data oförändrat på "Alla"; annars överstyr ENDAST de platta
+  // skotarfälten med vald maskins värden (skördarfält + allt annat orört).
+  // dieselTotalt/dieselPerM3 räknas om ur skördar-L + vald maskins L så
+  // Diesel-kortets fördelningsstapel förblir koherent. Den aggregerade skotade
+  // totalen (Headline/StatusRad läser `data`) förblir exkl. omlastning.
+  const visadData: UppfoljningData = valdMaskin ? {
+    ...data,
+    skotat: valdMaskin.skotat,
+    skotareG15h: valdMaskin.skotareG15h,
+    skotareG0: valdMaskin.skotareG0,
+    skotareTomgang: valdMaskin.skotareTomgang,
+    skotareKortaStopp: valdMaskin.skotareKortaStopp,
+    skotareRast: valdMaskin.skotareRast,
+    skotareM3G15h: valdMaskin.skotareM3G15h,
+    skotareLassG15h: valdMaskin.skotareLassG15h,
+    skotareSnittlass: valdMaskin.skotareSnittlass,
+    skotareL: valdMaskin.skotareL,
+    skotareL_M3: valdMaskin.skotareL_M3,
+    skotareL_G15h: valdMaskin.skotareL_G15h,
+    dieselSkotare: valdMaskin.dieselSkotare,
+    lassPerDag: valdMaskin.lassPerDag,
+    skotareModell: valdMaskin.skotareModell,
+    skotareLastDate: valdMaskin.skotareLastDate,
+    dieselTotalt: (data.skordareL || 0) + valdMaskin.skotareL,
+    dieselPerM3: data.skordat > 0 ? Math.round((((data.skordareL || 0) + valdMaskin.skotareL) / data.skordat) * 100) / 100 : 0,
+  } : (visaSkotareVal ? byggAllaSkotare(data, skM) : data);
+
+  // Steg 2a: visa skotar-per-maskin-sektionen bara när den tillför något utöver
+  // skotarkortet — flera skotare, en omlastningsrad, eller en egen skotare som
+  // är omlastning (förklarar då varför skotad total kan vara 0).
+  const skotareLista = data.skotarePerMaskin || [];
+  const omlLista = data.omlastningArbete || [];
+  const visaSkotare = omlLista.length > 0 || skotareLista.length > 1 || skotareLista.some(s => s.arOmlastning);
+  const skotareVarde = (() => {
+    const antal = skotareLista.length + omlLista.length;
+    if (antal === 0) return null;
+    const oml = omlLista.length > 0 || skotareLista.some(s => s.arOmlastning) ? ' · omlastning' : '';
+    return `${antal} ${antal === 1 ? 'maskin' : 'maskiner'}${oml}`;
+  })();
+
+  const prodVarde = (() => {
+    const sk = visadData.skordareM3G15h > 0 ? visadData.skordareM3G15h : null;
+    const st = visadData.skotareM3G15h > 0 ? visadData.skotareM3G15h : null;
+    const man = visadData.skotareTidManuell ? ' · manuellt' : '';
+    if (sk != null && st != null) return `Skördare ${sv(sk)} · Skotare ${sv(st)}${man}`;
+    if (sk != null) return `${sv(sk)} m³/G15h`;
+    if (st != null) return `${sv(st)} m³/G15h${man}`;
+    return null;
+  })();
+
+  const perDagVarde = (() => {
+    const skDagar = visadData.prodSkordarePerDag || [];
+    const skSnitt = skDagar.length > 0 ? Math.round(skDagar.reduce((a, b) => a + b.m3, 0) / skDagar.length) : null;
+    const stDagar = (visadData.lassPerDag || []).filter(d => typeof d.m3 === 'number' && d.m3 > 0);
+    const stSnitt = stDagar.length > 0 ? Math.round(stDagar.reduce((a, b) => a + (b.m3 || 0), 0) / stDagar.length) : null;
+    if (skSnitt != null && stSnitt != null) return `Skördare ${sv(skSnitt)} · Skotare ${sv(stSnitt)}`;
+    if (skSnitt != null) return `snitt ${sv(skSnitt)} m³/dag`;
+    if (stSnitt != null) return `snitt ${sv(stSnitt)} m³/dag`;
+    return null;
+  })();
+
+  const tradslagVarde = (() => {
+    // Teaser: dominerande trädslag ("Gran 73 %"), inte objektets volym en gång
+    // till (den står redan i hero och på maskinkortet). Faller tillbaka på volym
+    // om trädslagsandelar saknas.
+    if (data.tradslag.length > 0) {
+      const topp = data.tradslag.reduce((a, b) => (b.pct > a.pct ? b : a));
+      if (topp.pct > 0) return `${topp.namn} ${Math.round(topp.pct)} %`;
+    }
+    const total = data.skordat > 0 ? data.skordat : data.sortiment.reduce((a, b) => a + b.m3, 0);
+    return total > 0 ? `${sv(Math.round(total))} m³` : null;
+  })();
+
+  const tidDieselVarde = (() => {
+    const skG15 = visadData.skordareG15h > 0 ? visadData.skordareG15h : null;
+    const stG15 = visadData.skotareG15h > 0 ? visadData.skotareG15h : null;
+    let g15Del: string | null = null;
+    if (skG15 != null && stG15 != null) g15Del = `Skördare ${sv(skG15)} · Skotare ${sv(stG15)} G15h`;
+    else if (skG15 != null) g15Del = `${sv(skG15)} G15h`;
+    else if (stG15 != null) g15Del = `${sv(stG15)} G15h`;
+    const lm3Del = visadData.dieselPerM3 > 0 ? `${sv(visadData.dieselPerM3)} L/m³` : null;
+    const delar = [g15Del, lm3Del].filter(Boolean);
+    return delar.length > 0 ? delar.join(' · ') : null;
+  })();
+
+  const avbrottVarde = (() => {
+    // Totalsträngarna ("4.2h") är samma tal som sektionens kort visar.
+    const skH = (data.avbrottSkordare?.length || 0) > 0 ? parseFloat(data.avbrottSkordare_totalt) || 0 : 0;
+    const stH = (data.avbrottSkotare?.length || 0) > 0 ? parseFloat(data.avbrottSkotareTotalt) || 0 : 0;
+    const sum = skH + stH;
+    return sum > 0 ? `${sum.toFixed(1).replace('.', ',')} h` : null;
+  })();
+
+  // Undertext till "Hur gick det?" — vad som väntar bakom tryck, i ord. Tar de
+  // tre första som finns, så raden aldrig blir lång. Finns inget djup alls
+  // (harDjup=false) visas ingen rad.
+  const hurDelar: string[] = [];
+  if (!risjobb && visaSkotare) hurDelar.push('skotare');
+  // Risjobb följs upp som ett eget objekt: samma utkörnings-mått som skotaren
+  // (m³/G15h, lass/G15h, snittlass, skotningsavstånd, lass per dag). Komponenterna
+  // renderar redan bara forwarder-sidan när skördardata saknas.
+  if (hasProduktivitet) hurDelar.push('produktivitet');
+  if (hasProdPerDag) hurDelar.push('per dag');
+  if (!risjobb && hasTradslagSort) hurDelar.push('trädslag');
+  if (hasTidDiesel) hurDelar.push('tid & diesel');
+  if (hasAvbrott) hurDelar.push('avbrott');
+  if (data.externSkotning) hurDelar.push('extern skotning');
+  const harDjup = hurDelar.length > 0;
+  const hurUndertext = hurDelar.slice(0, 3).join(' · ');
+
+  return (
+    <div style={{ minHeight: '100%', background: V6_BG, color: FARG.text, fontFamily: V6_FF, WebkitFontSmoothing: 'antialiased' }}>
+      <style>{OBJEKT_CSS}</style>
+      <div className="uf-objekt">
+      <Nav onBack={onBack} />
+      <Headline data={data} />
+      {/* Topp: svaret (hero) + maskinerna. Smal skärm → staplat; bred skärm →
+          sida vid sida, så toppen fylls i stället för tomt till höger. */}
+      <div className="uf-topp">
+        <div>
+          <Svaret data={data} />
+          <AvvikelseZon avvikelser={data.avvikelser} />
+        </div>
+        {/* Ett objekts vy speglar vad objektet ÄR. Risjobb: rapporterad
+            grotvolym + källhyggen, inga virkessektioner. Virkesjobb: som förut. */}
+        {risjobb ? (
+          <div>
+            <RisRubrik data={data} />
+            <Kallhyggen objektId={data.objektId} />
+          </div>
+        ) : (
+          <div>
+            {visaSkotareVal && <SkotareVal maskiner={skM} vald={valdSkotare} onValj={setValdSkotare} />}
+            <Maskinkort data={visadData} skotareOmlastning={valdOml} />
+          </div>
+        )}
+      </div>
+
+      {harDjup && (
+        <HurGickDet undertext={hurUndertext}>
+          {!risjobb && visaSkotare && (
+            <Collapse title="Skotare på objektet" varde={skotareVarde} defaultOpen>
+              <SkotarePaObjektet data={data} />
+            </Collapse>
+          )}
+          {hasProduktivitet && <Collapse title="Produktivitet" varde={prodVarde}><Produktivitet data={visadData} /></Collapse>}
+          {hasProdPerDag && <Collapse title={risjobb ? 'Utkört per dag' : 'Produktion per dag'} varde={perDagVarde}><ProdPerDag data={visadData} /></Collapse>}
+          {!risjobb && hasTradslagSort && (
+            <Collapse title="Trädslag & sortiment" varde={tradslagVarde}>
+              <Tradslag tradslag={data.tradslag} />
+              <Sortiment sortiment={data.sortiment} />
+            </Collapse>
+          )}
+          {hasTidDiesel && (
+            <Collapse title="Tid & diesel" varde={tidDieselVarde}>
+              <Tid data={visadData} />
+              <Diesel data={visadData} />
+            </Collapse>
+          )}
+          {hasAvbrott && <Collapse title="Avbrott" varde={avbrottVarde}><Avbrott data={data} /></Collapse>}
+          {data.externSkotning && <Collapse title="Extern skotning" varde={data.externForetag || null}><Extern data={data} /></Collapse>}
+        </HurGickDet>
+      )}
+      <div style={{ height: 60 }} />
+      </div>
+    </div>
+  );
+}

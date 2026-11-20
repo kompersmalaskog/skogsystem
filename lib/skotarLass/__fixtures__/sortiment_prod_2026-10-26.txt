@@ -1,0 +1,127 @@
+Alvesta275_V3|Kubb|Alvesta|261-VAL
+Alvesta305|Kubb|Alvesta|2620
+Alvesta305_V3|Kubb|Alvesta|262-VAL
+AspmavFall_V3|Massa||105-1
+Avkap|||
+Avkap Gran V3|||432-2
+Avkap Tall V3|||431-2
+AvkapTall|||
+BERG&BERG Ek A-KUBB_V3|Kubb||018-BOB
+BERG&BERG EK-KUBB_V3|Kubb||018-BOB-2
+BjörkmavFall_V3|Massa||104-1
+BmavFall|Massa||1000
+BmavFall_V3|Massa||100-1
+Bokmavfall_V3|Massa||106-1
+Energi: AvkapGran|Energi||
+Energi: AvkapGran_V3|Energi||432-2
+Energi: AvkapTall_V3|Energi||431-2
+Energi: BränslevedFall 5090|Energi||
+Energi: Engved3mBjörk_V3|Energi||539-1
+Energi: Engved3mGran_V3|Energi||539-1
+Energi: Engved3mÖvLöv|Energi||
+Energi: Engved3mÖvLöv_V3|Energi||539-1
+Energi: Engved3mTall_V3|Energi||539-1
+Energi: EngvedFallBjörk|Energi||
+Energi: EngvedFallGran|Energi||
+Energi: EngvedFallGran_V3|Energi||509-1
+Energi: EngvedFallÖvLöv_V3|Energi||509-1
+Engved3mBjörk|Energi||
+Engved3mGran|Energi||
+Engved3mÖvLöv|Energi||
+EngVedFall|Energi||5090
+EngvedFallGran_V3|Energi||509-1
+EngvedFallÖvLöv|Energi||
+EngvedFallÖvLöv_V3|||509-1
+Grovbok_V3|||186-1
+HemvedFall_V3|Hemved||
+HestraHK Kv 1-3|Timmer||0210
+JGA Kubb|Kubb||
+KärstimmerEk_V3|Timmer||018-KHR
+Klentim Gran: V3_Klentimmer_Gran _JGA|Klentimmer||
+Klentimmer: JGA KTT 22 cm|Klentimmer||
+Klentimmer: Klt Gran ATA -22,9 V3|Klentimmer||
+Klentimmer: Klt Gran ATA 229 V3 Nannestad|Klentimmer||
+Klentimmer: Klt Tall ATA -22,9 V3|Klentimmer||
+Klentimmer: Krylbo305|Timmer||
+Kortlängd|Timmer||
+Kubb: 305 Grovkubb +14|Kubb|Alvesta|261-VKH,262-VKH
+Kubb: Alvesta275|Kubb|Alvesta|
+Kubb: Alvesta275_V3|Kubb|Alvesta|261-VAL
+Kubb: Alvesta305|Kubb|Alvesta|
+Kubb: Alvesta305_V3|Kubb|Alvesta|262-VAL
+kubb: BERGoBERG Ek A-KUBB_V3|Kubb||018-BOB
+kubb: BERGoBERG EK-KUBB_V3|Kubb||018-BOB-2
+Kubb: Bråthultskubb Gran|Kubb||
+Kubb: Bråthultskubb Tall|Kubb||
+Kubb: Tranemo245_V3|Kubb|Tranemo|261-VTR,262-VTR
+Lövtimmer|Timmer||2730
+Massa: Aspmassa V3|Massa||103-2
+Massa: Aspmav3m|Massa||
+Massa: AspmavFall|Massa||
+Massa: AspmavFall_V3|Massa||105-1
+Massa: Barrmassa 3M|Massa||130-1
+Massa: Barrmassa V3|Massa||
+Massa: Björkmassa V3|Massa||103-2
+Massa: BjörkmavFall|Massa||1040
+Massa: BjörkmavFall_V3|Massa||104-1
+Massa: BmavFall|Massa||
+Massa: BmavFall_V3|Massa||100-1
+Massa: Bokmav3m|Massa||
+Massa: Bokmav3mV3|Massa||136-1
+Massa: Bokmavfall|Massa||106k
+Massa: Bokmavfall_V3|Massa||106-1
+Massa: Bränsleved V3|Massa||509-1
+Massa: Granmassa V3|Massa||
+Massa: Hemved Bjök V3|Hemved||909-1
+Massa: Hemved Gran V3|Hemved||
+Massa: Hemved ÖvrLöv V3|Hemved||909-1
+Massa: Hemved Tall V3|Hemved||
+Massa: HemvedFall_V3|Hemved||909-1
+Massa: Tallmassa V3|Massa||
+Massaved: Barrmav Gran Fall V3|Massa||
+Massaved: Bjork mav3m|Massa||
+Massaved: Bjork mav3m_V3|Massa||
+Massaved: Björkmav3m 1340|Massa||
+Massaved: Bmav3m_V3|Massa||
+Massaved: BmavFall|Massa||
+Massaved: Mav Björk Fall V3|Massa||
+Övrigt Sågbart: Piggsmåla 2,45 KV 1|Övrigt||
+Övrigt Sågbart: Piggsmåla 2,45 KV 1-3|Övrigt||
+Stolp|Kubb||3010
+Tall Klentim: V3_Klentimmer _Tall _JGA|Klentimmer||
+Tall Timmer: Urshult 1-4|Timmer|Urshult|
+Tall Timmer: Urshult 1-4_V3|Timmer|Urshult|011-VUR-2
+Talltimmer: Vislanda kort V3|Timmer|Vislanda|011-VVI-4
+Timmer Gran: V3_Grantimmer JGA|Timmer||
+Timmer Tall: V3_Talltimmer_JGA|Timmer||
+Timmer: Hästveda 195 kv1_V3|Timmer|Hästveda|
+Timmer: Hästveda 195 kv2_V3|Timmer|Hästveda|
+Timmer: JGA GT Gran|Timmer||
+Timmer: JGA NT Gran|Timmer||
+Timmer: JGA TT Tall|Timmer||
+Timmer: Karbenning|Timmer||012-1
+Timmer: KärstimmerEk_V3|Timmer||018-KHR
+Timmer: Långasjö KV 1-2|Timmer||
+Timmer: Orrefors 1-3 _V3|Timmer||011-VOR-2
+Timmer: Orrefors 1-3 Spec-2_V3|Timmer||
+Timmer: Säter grov|Timmer||011-SET
+Timmer: Stamblock|Timmer||071-1
+Timmer: Stödlängd_V3|Timmer|Stödlängd|
+Timmer: Stödlängd_V3|Timmer|Vislanda|012-VVI-4
+Timmer: Tändsticksv_V3|Timmer||
+Timmer: Ti Gran Moh 23 V3|Timmer||
+Timmer: Ti Gran Moh 23- V3|Timmer||
+Timmer: Urshult 1-2_V3|Timmer|Urshult|012-VUR-2
+Timmer: Vislanda Tall_V3|Timmer|Vislanda|011-VVI
+Timmer: Vislanda_195_1-2_V3|Timmer|Vislanda|012-VVI
+Unclassified|Utan sortiment||
+Unspecified|Utan sortiment||
+Urshult 1-2|Timmer|Urshult|
+Urshult 1-2_V3|Timmer|Urshult|012-VUR-2
+Urshult 1-4|Timmer|Urshult|
+Urshult 1-4_V3|Timmer|Urshult|011-VUR-2
+Urshult 494_V3|Timmer|Urshult|011-VUR
+Urshult Gran 494_V3||Urshult|012-VUR
+Vislanda 1-2|Timmer|Vislanda|0120
+Vislanda kort V3|Timmer|Vislanda|011-VVI-4
+Vislanda_195_1-2_V3||Vislanda|012-VVI

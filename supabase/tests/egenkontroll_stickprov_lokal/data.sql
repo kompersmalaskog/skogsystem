@@ -1,0 +1,22 @@
+insert into objekt (id, namn, typ, status, lat, lng, avslutad_timestamp, avverkningsform) values
+('01e1568b-a96e-4b8d-b63d-2d8299accd3b','Ulfsnäs AU 2026','slutavverkning','avslutat',56.4997620115716,14.9182918876194,'2026-08-25 03:52:03.98+00',NULL),
+('031bccfd-a6ba-420d-972e-a0782316e498','Toftåsa gallring 2026','gallring','avslutat',56.555194050976,14.6902887794793,'2026-10-14 13:28:28.809+00','Gallring'),
+('0a57ddbb-1bae-4080-ab56-d0972512525f','Hålabäck au 2025','slutavverkning','avslutat',56.354784099622,15.0544807468525,'2026-09-28 08:52:58.215+00','Föryngringsavverkning'),
+('0f6be8d7-bff7-488f-ae30-45abff32b4d5','Krokshult AU 2026','slutavverkning','avslutat',56.4283631893472,14.7718473902989,'2026-09-28 08:53:59.789+00','Föryngringsavverkning'),
+('35606bd7-dcb8-4b67-a175-51d027e3791b','Rävemåla AU 2026','slutavverkning','avslutat',56.5517756439774,15.2567984114807,'2026-09-14 05:04:26.875+00',NULL),
+('3719fce9-b74c-43b5-91ef-f60381e12e7f','Bågskyttebanan RP J-Hus- 25','slutavverkning','avslutat',56.2348957579538,15.373079358122,'2026-10-13 08:31:13.721+00','Föryngringsavverkning'),
+('3f2d93db-9843-4b54-b835-7d63f5f64b92','Dockemåla AU 2026','slutavverkning','avslutat',56.4377556489069,15.0382899974933,'2026-08-25 15:04:46.875+00',NULL),
+('5870a4a1-3fe6-4e06-97d0-3a4794455289','Vällust RP M-R -25','slutavverkning','avslutat',56.2275658382978,14.6881817031149,'2026-10-05 14:18:55.71+00','Föryngringsavverkning'),
+('60d2a07a-83aa-4d7a-a8f0-4955eef5b66f','Kroksjömåla 1:23 A-A -25','slutavverkning','avslutat',56.2514640718269,14.9239314431017,'2026-10-06 16:34:19.144+00','Föryngringsavverkning'),
+('61c350b7-d85e-4503-bcec-65575ef31cd4','GROT Brokamåla 1:5 V-H avd 20 -25','slutavverkning','avslutat',56.3143621262867,14.4720046087998,'2026-10-09 12:37:07.857315+00','Biobränsle'),
+('820e66ea-4d8a-4550-a7c3-912953b1fba7','Kämpamåla AU 2026','slutavverkning','avslutat',56.4535959304547,14.8394914302678,'2026-09-09 19:38:07.567+00',NULL),
+('82e25a66-f342-476d-8304-ee9bdf985846','Betet gallring 2026','gallring','avslutat',56.457991113043,15.0245983882786,'2026-10-02 13:47:26.867068+00','Gallring'),
+('86c2494b-7ddb-4510-a5d1-48ce55228348','Betet AU 2025','slutavverkning','avslutat',56.4645053757032,15.024392340003,NULL,NULL),
+('97d640ff-1790-4c9f-a4aa-e3230ed4a8b8','Hallaslätt AU 2026','slutavverkning','avslutat',56.534568776976,14.8890463120319,'2026-09-14 05:04:49.234+00','Föryngringsavverkning'),
+('9cd47e9c-033c-4569-b7f1-8d4ef154e763','Stänkelsmåla 2025','slutavverkning','avslutat',56.5879579780586,15.3098648034509,'2026-09-01 09:29:00.732+00','Föryngringsavverkning'),
+('a5504834-78ed-4c1e-9039-1bcdbe7776c6','Hålabäck gallring 2026','gallring','avslutat',56.3542864555144,15.0605397606061,'2026-09-14 14:34:41.048+00','Gallring'),
+('b76ece95-1dc1-49be-a3ef-f5d9913ba363','Rössmåla Ga 2026','gallring','avslutat',56.5560769813111,14.8772070495246,'2026-09-17 13:30:33.579+00',NULL),
+('b7a9ca51-f86b-40ca-830c-c663d61fff10','Östra-Hoka 1:7 A-C -25','slutavverkning','avslutat',56.2042356003382,14.8945289505836,'2026-10-18 17:23:40.537+00','Föryngringsavverkning'),
+('c41d6d6b-3592-457d-a891-a58babc1d806','Räveboda gallring 2026','gallring','avslutat',56.5160763220073,14.8213551350884,'2026-09-17 13:30:08.41+00','Gallring'),
+('db493561-c61b-4c5b-8862-0386dcf02ec0','400763 Akelius Tåget SA','slutavverkning','avslutat',56.5678873390629,14.7447035061828,'2026-09-09 04:00:43.628+00',NULL);
+update objekt set faktisk_slut='2026-09-20' where namn='Betet AU 2025';

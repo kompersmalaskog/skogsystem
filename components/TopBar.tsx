@@ -1,0 +1,227 @@
+'use client'
+
+import type { MouseEvent as ReactMouseEvent } from 'react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { CURRENT_VERSION } from '@/lib/changelog'
+import { FARG, LAYOUT, TRAFFYTA, TYP } from '@/lib/design/tokens' // toppfältets höjd bor BARA i tokens
+import { VYER } from '@/lib/vyer'
+import { MENY_VALD_NYCKEL } from '@/lib/appStart'
+import { hamtaEnhetMaskin } from '@/lib/enhetMaskin'
+import { maskinUpplast } from '@/lib/maskinkonto/upplast'
+import { MASKIN_SOM_SESSION } from '@/lib/maskinSom'
+
+// Arbetsmiljöns delar (Kemikalier, Så gör vi, Riskbedömning …) nås från sidan Arbetsmiljö.
+// Där är vägen ut "‹ Arbetsmiljö", inte hem — annars måste man börja om från startsidan
+// för varje del (Martin 2026-11-05). Om något händer är undantaget: förarna öppnar den
+// från startsidan och ska alltid ha hemknappen där.
+export const ARBETSMILJO_DELAR: ReadonlySet<string> = new Set(
+  VYER.filter((v) => v.del === 'arbetsmiljo')
+    .map((v) => v.href.split('?')[0])
+    .filter((h) => h !== '/om-nagot-hander'),
+)
+
+const pageNames: Record<string, string> = {
+  '/': 'Kompersmåla Skog',
+  '/uppfoljning': 'Uppföljning',
+  '/maskinvy': 'Maskinvy',
+  '/arbetsrapport': 'Arbetsrapport',
+  '/planera': 'Planera',
+  '/starta-jobb': 'Starta jobb',
+  '/planering': 'Planering',
+  '/objekt': 'Objekt',
+  '/oversikt': 'Översikt',
+  '/redigering': 'Redigering',
+  '/kalibrering': 'Kalibrering',
+  '/bestallningar': 'Beställningar',
+  '/helikopter': 'Helikopter',
+  '/helikopter-v2': 'Helikopter v2',
+  '/helikopter/veckor': 'Veckor',
+  '/forbattringsforslag': 'Förslag',
+  '/maskin-service': 'Servicelogg',
+  '/datahalsa': 'Datahälsa',
+  '/utbildning': 'Utbildning',
+  '/utbildning/katalog': 'Katalog',
+  '/egenkontroll': 'Egenkontroll',
+  '/gallring': 'Gallring',
+  '/massaved': 'Massaved',
+  '/matning': 'Mätning',
+  '/affarsuppfoljning': 'Affärsuppföljning',
+  '/kontroller': 'Fordon',
+  '/maskinflytt/platser': 'Flyttplatser',
+  '/lastbil': 'Lastbilen',
+  '/inventarier': 'Inventarier',
+  '/atgarder': 'Åtgärder',
+  '/om-nagot-hander': 'Om något händer',
+  '/introduktion': 'Introduktion',
+  '/arbetsmiljo': 'Arbetsmiljö',
+  '/riskbedomning': 'Riskbedömning',
+  '/skyddsrond': 'Skyddsrond',
+  '/kemikalier': 'Kemikalier',
+  '/farligt-avfall': 'Farligt avfall',
+  '/sa-gor-vi': 'Så gör vi',
+  '/avtal': 'Avtal & Abonnemang',
+  '/personal': 'Personal',
+  '/om': 'Om appen',
+  // Ekonomin: toppfältet säger vilken flik man är på — ingen flik har en egen rubrik i sidan.
+  '/ekonomi': 'Ekonomi',
+  '/ekonomi/mot-ackord': 'Ackord',
+  '/ekonomi/resultat': 'Resultat',
+  '/ekonomi/fakturaunderlag': 'Fakturaunderlag',
+  '/ekonomi/prislista': 'Prislista',
+  '/ekonomi/installningar': 'Inställningar',
+}
+
+/** Hem-knappen är "tillbaka till appens meny". På en maskindator med vald maskin skickar startvakten annars `/` rakt till kartan (Martin 2026-11-19:
+ *  trycker man hem i Arbetsrapport ska man hamna i menyn, inte i kartan). Flaggan gäller resten av sessionen, precis som "Till appen". */
+function vilMeny(e?: ReactMouseEvent) {
+  // På en maskindator är appens meny MASKINLÅDAN över kartan (halva kartan, halva appen) — som i Rottne H8 — inte en helsida: hem leder till planeringen
+  // med lådan öppen, och "Till kartan" stänger den utan att kartan laddas om.
+  try {
+    // Upplåst maskin: hem = personens startsida (kartan låser maskinen igen).
+    if (hamtaEnhetMaskin() && !maskinUpplast()) { e?.preventDefault(); window.location.assign('/planering?maskinmeny=1'); return }
+    const som = sessionStorage.getItem(MASKIN_SOM_SESSION);   // admin som testar som en maskin (/maskin?som=)
+    if (som) { e?.preventDefault(); window.location.assign(`/maskin?som=${encodeURIComponent(som)}&maskinmeny=1`); return }
+  } catch { /* */ }
+  try { sessionStorage.setItem(MENY_VALD_NYCKEL, '1') } catch { /* ingen sessionStorage */ }
+}
+
+export default function TopBar() {
+  const pathname = usePathname()
+  const isHome = pathname === '/'
+  const pageName = pageNames[pathname]
+    || (pathname.startsWith('/objekt/') ? 'Objekt'
+    : pathname.startsWith('/affarsuppfoljning/') ? 'Affärsuppföljning'
+    : pathname.startsWith('/gallring/') ? 'Gallring'
+    // /utbildning/typ/<id> och /utbildning/person/<id>: sidans EGEN etikett säger
+    // vilken utbildning eller person det gäller — toppfältet säger bara var man är.
+    : pathname.startsWith('/utbildning/') ? 'Utbildning'
+    : pathname.startsWith('/maskin-service/') ? 'Servicelogg'
+    // /inventarier/plats/<id>: platsens namn står i sidan, toppfältet säger bara var man är.
+    : pathname.startsWith('/kontroller/') ? 'Fordon'
+    : pathname.startsWith('/inventarier/') ? 'Inventarier'
+    // /i/<rad_id>: QR-koden på en låda.
+    : pathname.startsWith('/i/') ? 'Inventarier'
+    : pathname.startsWith('/admin/markagarrapport') ? 'Markägarrapport'
+    : pathname.startsWith('/admin/objektoversikt') ? 'Objektöversikt'
+    : pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2))
+
+  // Undersida-vyer (t.ex. Arbetsrapport-interna steg) sätter body[data-hide-home]
+  // för att dölja hemknappen när de har egen bakåt-navigation.
+  const [hideHome, setHideHome] = useState(false)
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const check = () => setHideHome(document.body.hasAttribute('data-hide-home'))
+    check()
+    const mo = new MutationObserver(check)
+    mo.observe(document.body, { attributes: true, attributeFilter: ['data-hide-home'] })
+    return () => mo.disconnect()
+  }, [])
+
+  if (isHome) return null
+  const tillArbetsmiljo = ARBETSMILJO_DELAR.has(pathname)
+  // Planeringsvyn har egen minimal header (hem + objekt-pill + nödprick). /maskin är SAMMA vy i maskinläge
+  // ("Öppna som maskin") — utan den här raden ritades ett "Maskin v1.0.0"-fält ovanpå kartan.
+  if (pathname === '/planering' || pathname === '/maskin') return null
+  // Rundvyn (/egenkontroll/<objekt>) har ett eget huvud (KartHuvud: pil, objektnamn, antal kvar) — kartan ska ha hela skärmen och
+  // "var är jag" ska stå på ETT ställe. Listan /egenkontroll (utan id) behåller toppfältet.
+  if (pathname.startsWith('/egenkontroll/')) return null
+  // Den ritade kartan (steg 1) har eget huvud (KartHuvud) och hela skärmen.
+  if (pathname === '/karta-ritad') return null
+
+  return (
+    <header style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: LAYOUT.topbar,
+      paddingTop: LAYOUT.safeTopp,
+      background: 'rgba(13,13,15,0.92)',
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
+      borderBottom: '1px solid rgba(255,255,255,0.06)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif",
+    }}>
+      {/* Hem-knapp — dold när underliggande vy har egen bakåtpil */}
+      {!isHome && !hideHome && tillArbetsmiljo ? (
+        <Link href="/arbetsmiljo" aria-label="Tillbaka till Arbetsmiljö" style={{
+          position: 'absolute',
+          left: 4,
+          height: TRAFFYTA.min,
+          minWidth: TRAFFYTA.min,
+          padding: '0 8px',
+          display: 'flex',
+          alignItems: 'center',
+          textDecoration: 'none',
+          color: FARG.bla,
+          ...TYP.text,
+        }}>
+          ‹ Arbetsmiljö
+        </Link>
+      ) : !isHome && !hideHome ? (
+        <Link href="/" onClick={vilMeny} style={{
+          // Träffytan är appens minimiyta (44 px); den synliga rutan (36 px, vänsterkant 12 px) ligger centrerad i den och ser ut som förut.
+          position: 'absolute',
+          left: 12 - (TRAFFYTA.min - 36) / 2,
+          width: TRAFFYTA.min,
+          height: TRAFFYTA.min,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          textDecoration: 'none',
+        }}>
+          <span style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            background: 'rgba(255,255,255,0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'rgba(255,255,255,0.7)',
+            fontSize: 20,
+            lineHeight: 1,
+          }}>
+            <img src="/home-icon.png" alt="Hem" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />
+          </span>
+        </Link>
+      ) : null}
+
+      {/* Sidnamn */}
+      <span id="topbar-title" style={{
+        fontSize: 16,
+        fontWeight: 600,
+        color: '#fff',
+        letterSpacing: -0.3,
+      }}>
+        {pageName}
+      </span>
+
+      {/* Version-tagg nere t.h. — läsbar version (från changelog[0], samma källa som /om)
+          stort, git-SHA mindre under för felsökning/fälttest. Dold på / och /planering. */}
+      <span aria-hidden="true" style={{
+        position: 'absolute',
+        right: 12,
+        bottom: 4,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        lineHeight: 1.1,
+        pointerEvents: 'none',
+      }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.5)', letterSpacing: 0.2 }}>
+          v{CURRENT_VERSION}
+        </span>
+        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.26)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', letterSpacing: 0.2 }}>
+          {(process.env.NEXT_PUBLIC_BUILD_SHA || 'dev').slice(0, 7)}
+        </span>
+      </span>
+    </header>
+  )
+}

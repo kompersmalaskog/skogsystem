@@ -1,0 +1,10 @@
+create role authenticated; create role anon;
+create schema auth;
+create function auth.uid() returns uuid language sql as $$ select nullif(current_setting('test.uid', true), '')::uuid $$;
+create function ar_admin() returns boolean language sql as $$ select true $$;
+create table objekt (id uuid primary key default gen_random_uuid(), vo_nummer text);
+create table objekt_alt_nummer (objekt_id uuid, nummer text);
+create table dim_objekt (objekt_id text, vo_nummer text, skotning_avslutad date);
+create table dim_sortiment (sortiment_id text, namn text);
+create table fakt_sortiment (objekt_id text, sortiment_id text, volym_m3sub numeric);
+create table fakt_lass (objekt_id text, maskin_id text, volym_m3sub numeric);

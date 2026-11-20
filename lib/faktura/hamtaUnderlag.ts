@@ -1,0 +1,588 @@
+// Hämtar allt radbyggaren behöver för ETT vo-nummer.
+//
+// Skild från byggRader med flit: hämtningen är full av Supabase-detaljer
+// (paginering, RLS, tabellnamn) medan bygget är ren aritmetik som ska gå att
+// pröva mot riktiga fakturor utan databas.
+//
+// ⚠️ fakt_produktion OCH fakt_tid JOINAS ALDRIG DIREKT.
+// fakt_produktion har många rader per dag (en per trädslag/sortiment/
+// operatör), fakt_tid har en eller få. En direkt join multiplicerar tiden.
+// Båda hämtas separat och summeras var för sig — se CLAUDE.md.
+//
+// ⚠️ ETT VO KAN HA FLERA objekt_id.
+// Jätsbygd (11217392) har två rader i dim_objekt: en per maskin som skapat
+// filer. Allt aggregeras över HELA gruppen, annars saknas halva volymen.
+
+import { fetchAllRows } from '@/lib/ekonomi/period';
+import { avrakningsdatum } from '@/lib/objekt/avrakning';
+import { skotningsavstandM } from '@/lib/skotningsavstand';
+import {
+  valjLassKalla, lassMedStracka as barandeLass, kallorIOrd,
+  type AvstandsLass, type Lasskalla,
+} from '@/lib/faktura/lassAvstand';
+import { lasLassCykel } from '@/lib/faktura/lasAppLass';
+import { cykelTillAvstandsLass, sammanstallCykel,
+         type CykelSammanstallning } from '@/lib/faktura/lassCykel';
+import {
+  isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
+} from '@/lib/ekonomi/acord';
+import { kostnadsstalleFor, harKrockandeKostnadsstalle } from '@/lib/ekonomi/kostnadsstalle';
+import { medForestlink } from '@/lib/ekonomi/forestlink';
+import { raknaSortiment, type Sortimentsrakning } from '@/lib/ekonomi/sortimentAntal';
+import { maskinVisningsnamn, maskinNamnMap } from '@/lib/maskinNamn';
+import { lasDebiterbartArbete, tillArbetsposter } from '@/lib/faktura/lasManuellt';
+import { byggArbetsrader } from '@/lib/faktura/arbetspris';
+import type { VoUnderlag, Maskinrad } from '@/lib/faktura/radbyggare';
+
+// `rpc` behövs för skotningsavståndet: lasscykeln räknas i databasen
+// (skotar_lass_cykel), inte ur lassets egen spårkopia — se lib/faktura/lassCykel.
+type SB = { from: (t: string) => any; rpc: (namn: string, args: Record<string, unknown>) => any };
+
+/** Saker som inte är fel på en RAD men som granskningen måste visa. */
+export type Underlagsnot = { niva: 'varning' | 'info'; text: string };
+
+/**
+ * Underlaget BAKOM talen, så granskningen kan visa varför priset blev som det
+ * blev utan att räkna om något själv. Rent tillägg: inget här påverkar en rad
+ * eller ett pris, och tas fältet bort räknas fakturan exakt likadant.
+ */
+export type Granskningsunderlag = {
+  sortiment: {
+    /** Appens räkning med båda listorna (lib/ekonomi/sortimentAntal). */
+    rakning: Sortimentsrakning;
+    /** Antalet priset faktiskt räknades på — manuellt när det är satt. */
+    anvant: number;
+    /** true = någon har satt antalet själv (dim_objekt.sortiment_grupper_manuell). */
+    manuellt: boolean;
+    /** Prislistans villkor. null = ingen sats gäller uppslagsdagen. */
+    grundantal: number | null;
+    krPerExtra: number | null;
+    giltigFran: string | null;
+  };
+  /** Traktens m³fub — nämnaren i varje kr/m³fub-tillägg. */
+  volym: number;
+  /** Dagen prislistan slogs upp på (avräkningsdagen, annars idag). */
+  prisdatum: string;
+  /**
+   * Skotningsavståndets underlag, för "Vad behöver du kolla?"
+   * (lib/faktura/fattas). Avståndet summeras per lass på LASSETS egen volym,
+   * så täckningen avgör om talet duger: Skälviken har 1 725 m³ skördat och
+   * två lass som bär 40 m³, och tillägget blir 0,97 kr/m³ i stället för ~40.
+   */
+  avstand: {
+    /** dim_objekt.skotavstand_manuell i meter. Satt = talet är ett svar. */
+    manuellt: number | null;
+    /** Volymen i de lass som HAR körsträcka. */
+    lassVolym: number;
+    /** Antal lass med körsträcka. */
+    lassAntal: number;
+    /** Kronorna appen räknat fram. */
+    kronor: number;
+    /**
+     * Ett lass per post, längst först — så granskningen kan visa HUR talet
+     * blev till. `avstandM` är ENKEL VÄG (korstracka_m halverad), alltså det
+     * avstånd priset räknades på.
+     */
+    lass: { avstandM: number; volym: number; kronor: number; kalla: Lasskalla }[];
+    /** Vilka källor tillägget vilar på ('app', 'opti'). Tom = inga lass. */
+    kallor: Lasskalla[];
+    /**
+     * Appens lasscykler ur hyttspåret, sammanställda — de TRE talen som
+     * granskningen visar. null när trakten inte har några app-lass, eller när
+     * cykeln inte gick att läsa (migrationen inte körd).
+     *
+     * `enkelVagM` är det som blivit pris; `hemMedLassM` är vad maskinen körde
+     * MED virket, och `vidAvlaggetM` är landningsarbetet. De skiljer sig
+     * kraftigt på en trakt som Skälviken (739 / 660 / 250 m), och Martins
+     * handinskrivna avstånd på Brokamåla kan inte avgöra vilket Vida menar —
+     * se lib/faktura/lassCykel.
+     */
+    cykel: CykelSammanstallning | null;
+    /** Prislistans villkor. null = ingen sats gäller uppslagsdagen. */
+    grundavstandM: number | null;
+    krPer100m: number | null;
+    giltigFran: string | null;
+  };
+  /** dim_objekt.terrang_kr_manuell i kr/m³fub. 0 = tom, inte "normal mark". */
+  terrangKr: number;
+};
+
+export type HamtatUnderlag = {
+  underlag: VoUnderlag;
+  noter: Underlagsnot[];
+  /** dim_objekt-id:n som ingår — spårbarhet i granskningen. */
+  objektIds: string[];
+  granskning: Granskningsunderlag;
+};
+
+const sum = (rader: any[], f: string) =>
+  rader.reduce((s, r) => s + (Number(r[f]) || 0), 0);
+
+export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatUnderlag> {
+  const noter: Underlagsnot[] = [];
+
+  // ── Objektgruppen ──────────────────────────────────────────────────────
+  const { data: objRader, error: objFel } = await sb.from('dim_objekt')
+    .select('objekt_id, object_name, vo_nummer, bolag, timpeng, huvudtyp, exkludera, '
+      + 'skordning_avslutad, skotning_avslutad, egen_skotning, '
+      + 'medelstam_manuell, sortiment_grupper_manuell, terrang_kr_manuell, '
+      + 'skotavstand_manuell, acord_andel_skordare_manuell')
+    .eq('vo_nummer', voNummer)
+    .order('objekt_id');
+  if (objFel) throw new Error('Kunde inte läsa dim_objekt: ' + objFel.message);
+  const objekt = (objRader || []).filter((o: any) => !o.exkludera);
+  if (objekt.length === 0) throw new Error(`Inget icke-exkluderat objekt för VO ${voNummer}.`);
+
+  const objektIds = objekt.map((o: any) => o.objekt_id);
+  const huvud = objekt[0];
+
+  if (objekt.length > 1) {
+    noter.push({ niva: 'info', text: `VO:t har ${objekt.length} objektrader — allt är summerat över gruppen.` });
+  }
+  // Blandade flaggor inom gruppen är ett datafel som ändrar priset. Visa det.
+  for (const f of ['timpeng', 'egen_skotning'] as const) {
+    if (new Set(objekt.map((o: any) => !!o[f])).size > 1) {
+      noter.push({ niva: 'varning', text: `Objektraderna i VO:t har OLIKA ${f} — gruppens första rad används.` });
+    }
+  }
+
+  // ── Avräkningsdag: hela gruppen ska vara klar ──────────────────────────
+  const avrPerObjekt = objekt.map((o: any) => avrakningsdatum(o));
+  const oavraknade = objekt.filter((_: any, i: number) => !avrPerObjekt[i]);
+  // HELA gruppen måste vara klar. Räckte det med att NÅGON objektrad var
+  // avräknad skulle Jätsbygd se slutavräknad ut trots att A130743_7 saknar
+  // skördningsdatum — och översikten, som kräver alla, hade sagt "pågår" om
+  // samma VO som detaljen kallade klart. Två vyer oense om samma trakt är
+  // värre än en trakt som får vänta.
+  const avrDatum = oavraknade.length
+    ? null
+    : (avrPerObjekt.filter(Boolean).sort().slice(-1)[0] || null);
+  if (oavraknade.length) {
+    noter.push({
+      niva: 'varning',
+      text: `${oavraknade.length} av ${objekt.length} objektrader är inte slutavräknade: `
+        + oavraknade.map((o: any) => o.objekt_id).join(', '),
+    });
+  }
+  // Uppslagsdatum = avräkningsdagen. Saknas den kan inget pris slås upp, och
+  // då ska raderna visa 'pris_saknas' — inte tyst hämtas på dagens taxa.
+  const uppslag = avrDatum || new Date().toISOString().slice(0, 10);
+
+  // ── Fakta: fem separata hämtningar, aldrig en join ─────────────────────
+  const [prod, tid, lass, sort, appCykel] = await Promise.all([
+    fetchAllRows((f, t) => sb.from('fakt_produktion')
+      .select('maskin_id, volym_m3sub, stammar').in('objekt_id', objektIds)
+      .order('maskin_id').order('datum').order('id').range(f, t)),
+    fetchAllRows((f, t) => sb.from('fakt_tid')
+      .select('maskin_id, datum, processing_sek, terrain_sek, other_work_sek')
+      .in('objekt_id', objektIds).order('maskin_id').order('datum').order('id').range(f, t)),
+    // maskin_id följer med: Opti och appen vägs mot varandra per maskin och
+    // dag (lib/faktura/lassAvstand), aldrig summerade.
+    fetchAllRows((f, t) => sb.from('fakt_lass')
+      .select('datum, maskin_id, korstracka_m, volym_m3sub').in('objekt_id', objektIds)
+      .order('datum').order('id').range(f, t)),
+    fetchAllRows((f, t) => sb.from('fakt_sortiment')
+      .select('sortiment_id, volym_m3sub').in('objekt_id', objektIds)
+      .order('sortiment_id').order('id').range(f, t)),
+    // Appens lass (Elefanten rapporterar i appen sedan 20 okt) — läses på
+    // traktens VO OCH dess dim-nummer, annars tappas de tyst. Avståndet
+    // räknas ur HYTTSPÅRET (lib/faktura/lassCykel), inte ur lassets egen
+    // spårkopia, som saknar utturen.
+    lasLassCykel(sb, [voNummer, ...objektIds]),
+  ]);
+
+  // ── Register och prislistor ────────────────────────────────────────────
+  const [maskinRes, kstRes, timprisRes, acordRes, traktRes, sortConfRes, ovrigtRes, avstRes,
+         klassRes, bolagRes, objektRes, arbPrisRes] = await Promise.all([
+    sb.from('dim_maskin').select('maskin_id, visningsnamn, modell, tillverkare, maskin_typ, forestlink'),
+    sb.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod, giltig_fran, giltig_till'),
+    sb.from('maskin_timpris').select('maskin_id, timpris, giltig_fran, giltig_till'),
+    sb.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
+    sb.from('acord_traktstorlek').select('fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till'),
+    sb.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till'),
+    sb.from('acord_ovrigt').select('nyckel, varde, giltig_fran, giltig_till'),
+    sb.from('acord_skotningsavstand').select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till'),
+    // vy_sortiment_klass, ALDRIG dim_sortiment_grupp: den tabellen fylls av
+    // ingen trigger och saknar rad för 68 av 304 sortiment. Se
+    // lib/ekonomi/sortimentAntal.
+    sb.from('vy_sortiment_klass').select('sortiment_id, namn, kundkod'),
+    sb.from('bolag').select('namn, fortnox_kundnr'),
+    sb.from('objekt').select('id, vo_nummer, kontraktsnummer').eq('vo_nummer', voNummer),
+    // Timpriset för VÅRT eget manuella arbete. KRONOR PER TIMME — skilt från
+    // acord_ovrigt, som är kronor per m³fub. Se lib/faktura/arbetspris.
+    sb.from('arbete_timpris').select('nyckel, timpris, giltig_fran, giltig_till'),
+  ]);
+  for (const r of [maskinRes, kstRes, timprisRes, acordRes, traktRes, sortConfRes,
+                   ovrigtRes, avstRes, klassRes, bolagRes, objektRes]) {
+    if (r.error) throw new Error('Kunde inte läsa register: ' + r.error.message);
+  }
+  // arbete_timpris står MEDVETET utanför kastet ovan: tabellen finns inte
+  // förrän migrationen 20261116124352 är körd, och underlaget ska fungera
+  // ändå. Utan satser prissätts det manuella arbetet inte — timmarna visas
+  // utan belopp, som före den här ändringen, och noten säger varför.
+  if (arbPrisRes.error) {
+    noter.push({
+      niva: 'varning',
+      text: 'Timpriset för manuellt arbete kunde inte läsas, så de timmarna '
+        + 'faktureras inte: ' + arbPrisRes.error.message,
+    });
+  }
+
+  const giltiga = (rader: any[] | null) =>
+    (rader || []).filter((r: any) => isValidOn(uppslag, r.giltig_fran, r.giltig_till));
+  const effektivaTimpriser = medForestlink<any>(timprisRes.data || [], maskinRes.data || []);
+
+  // ── Ackordets delar ────────────────────────────────────────────────────
+  const volym = sum(prod, 'volym_m3sub');
+  const stammar = sum(prod, 'stammar');
+  const medelstamAuto = stammar > 0 ? volym / stammar : 0;
+  const medelstam = Number(huvud.medelstam_manuell) || medelstamAuto;
+  if (!huvud.medelstam_manuell && stammar === 0) {
+    noter.push({ niva: 'varning', text: 'Ingen stamdata — medelstammen kan inte räknas fram.' });
+  }
+
+  // ANTAL SORTIMENT — regeln bor i lib/ekonomi/sortimentAntal (kundkod som
+  // identitet, kvalitetsklasser ihop, avkap och stammar utan sortiment bort).
+  // Räkningen bär båda listorna så granskningen kan visa vad talet är byggt av.
+  const klassMap = new Map<string, { namn: string | null; kundkod: string | null }>(
+    (klassRes.data || []).map((g: any) => [g.sortiment_id, { namn: g.namn, kundkod: g.kundkod }]));
+  const sortimentsrakning = raknaSortiment(sort.map((s: any) => ({
+    sortiment_id: s.sortiment_id,
+    namn: klassMap.get(s.sortiment_id)?.namn ?? null,
+    kundkod: klassMap.get(s.sortiment_id)?.kundkod ?? null,
+    volym_m3sub: s.volym_m3sub,
+  })));
+  const sortimentgrupper = huvud.sortiment_grupper_manuell != null
+    ? Number(huvud.sortiment_grupper_manuell) : sortimentsrakning.antal;
+
+  const acordList = giltiga(acordRes.data);
+  const traktKr = traktTillagg(volym, giltiga(traktRes.data) as any).krPerM3;
+  const sortConf = giltiga(sortConfRes.data)[0] as any ?? null;
+  const sortKr = sortimentTillagg(sortimentgrupper, sortConf);
+  const kvalitetRad = giltiga(ovrigtRes.data).find((r: any) => r.nyckel === 'kvalitetssakring');
+  const kvalitetKr = kvalitetRad ? Number(kvalitetRad.varde) || 0 : 0;
+  if (!kvalitetRad) noter.push({ niva: 'varning', text: `Ingen kvalitetssäkringssats gäller ${uppslag}.` });
+  if (!acordList.length) noter.push({ niva: 'varning', text: `Ingen ackordsprislista gäller ${uppslag}.` });
+
+  // ── Skotningsavståndet: KRONOR, per lass eller ur den manuella siffran ──
+  // Manuell siffra är redan ENKELRIKTAD; korstracka_m är tur och retur.
+  //
+  // TVÅ KÄLLOR: Optis filer (fakt_lass) och appens lass (skotar_lass, med
+  // GPS-spår per lass). Per maskin och dag vinner den med mest volym, aldrig
+  // summan — regeln bor i lib/faktura/lassAvstand, samma som helikoptern.
+  const avstList = avstRes.data || [];
+  let skotKr = 0;
+  const optiLass: AvstandsLass[] = lass.map((l: any) => ({
+    datum: String(l.datum),
+    maskinId: l.maskin_id ?? null,
+    // Noll körsträcka är ingen mätning: null, så lasset väger när källorna
+    // jämförs men bidrar med 0 kr — precis som förut.
+    avstandM: (Number(l.korstracka_m) || 0) > 0 ? skotningsavstandM(l.korstracka_m) : null,
+    volym: Number(l.volym_m3sub) || 0,
+    kalla: 'opti' as const,
+  }));
+  // Appens cykler → lass med avståndet som enkel väg. Lass utan cykel följer
+  // med med `avstandM: null`: de kördes, så de väger när källorna jämförs,
+  // men bär 0 kr.
+  const appLass = cykelTillAvstandsLass(appCykel.rader);
+  // SÄGS ALLTID när cykeln inte gick att läsa. Tystnaden går åt FEL håll:
+  // utan appens lass bär Optis avståndet ensamma, och Optis lass är ofta de
+  // längsta (Skälviken: 1 198 m mot cykelns 739). Ett för högt tillägg till
+  // Vida är värre än inget.
+  if (!appCykel.tillganglig) {
+    noter.push({
+      niva: 'varning',
+      text: 'Skotarlassens cykel kunde inte läsas (migrationen '
+        + '20261118100350_skotar_lass_cykel är inte körd), så appens lass '
+        + 'räknas inte i skotningsavståndet. Finns Opti-lass bär de talet '
+        + 'ensamma, och det kan då bli för högt.',
+    });
+  }
+  const valdaLass = valjLassKalla([...optiLass, ...appLass]);
+  // Lassens TÄCKNING, inte bara om lass finns: ett lass utan mätt sträcka ger
+  // noll steg och bidrar därför inte till tillägget, hur mycket volym det än
+  // bär. Se lib/faktura/fattas.
+  const barande = barandeLass(valdaLass);
+  const lassVolymMedStracka = barande.reduce((s, l) => s + l.volym, 0);
+  // Lassen var för sig, för granskningen. Längst först — det är det avståndet
+  // som förklarar tillägget. Byggs här, inte i loopen nedan: den körs inte när
+  // den manuella siffran är satt, och då ska lassen ändå gå att se.
+  const lassRader = barande
+    .map(l => ({
+      avstandM: l.avstandM!,
+      volym: l.volym,
+      kronor: skotAvstandKr(l.datum, l.avstandM!, l.volym, avstList as any),
+      kalla: l.kalla,
+    }))
+    .sort((a, b) => b.avstandM - a.avstandM);
+  const avstConf = giltiga(avstRes.data)[0] as any ?? null;
+  const kallor = kallorIOrd(valdaLass);
+  if (huvud.skotavstand_manuell != null) {
+    skotKr = skotAvstandKr(uppslag, Number(huvud.skotavstand_manuell), volym, avstList as any);
+    noter.push({ niva: 'info', text: `Avståndet kommer från skotavstand_manuell (${huvud.skotavstand_manuell} m), inte ur lassen.` });
+  } else if (valdaLass.length) {
+    for (const l of barande) {
+      skotKr += skotAvstandKr(l.datum, l.avstandM!, l.volym, avstList as any);
+    }
+    if (kallor.includes('app')) {
+      noter.push({
+        niva: 'info',
+        text: kallor.length > 1
+          ? 'Avståndet räknas ur både appens lass och Optis filer — per maskin '
+            + 'och dag används den källa som har mest volym, aldrig båda.'
+          : 'Avståndet räknas ur appens lass (GPS-spåret sedan förra lossningen), '
+            + 'inte ur Optis filer.',
+      });
+    }
+  } else {
+    noter.push({ niva: 'varning', text: 'Inga lass och ingen manuell sträcka — avståndstillägget blir 0 kr.' });
+  }
+
+  // ── Maskinerna som arbetat på VO:t ─────────────────────────────────────
+  const typMap = new Map<string, any>((maskinRes.data || []).map((m: any) => [m.maskin_id, m]));
+  const g15PerMaskin = new Map<string, number>();
+  const sistaDagPerMaskin = new Map<string, string>();
+  for (const r of tid) {
+    const sek = (Number(r.processing_sek) || 0) + (Number(r.terrain_sek) || 0) + (Number(r.other_work_sek) || 0);
+    g15PerMaskin.set(r.maskin_id, (g15PerMaskin.get(r.maskin_id) || 0) + sek);
+    const f = sistaDagPerMaskin.get(r.maskin_id);
+    if (!f || r.datum > f) sistaDagPerMaskin.set(r.maskin_id, r.datum);
+  }
+
+  const maskiner: Maskinrad[] = [];
+  for (const [maskinId, sek] of Array.from(g15PerMaskin.entries())) {
+    const dm = typMap.get(maskinId);
+    const roll: 'skordare' | 'skotare' = dm?.maskin_typ === 'Harvester' ? 'skordare' : 'skotare';
+    // Kostnadsstället slås upp på maskinens SISTA arbetsdag på objektet —
+    // det är den dagen fakturan avser. Scorpionen låg på M13 till mars och
+    // SCO därefter; ett uppslag utan datum hade satt dagens kod på en
+    // gammal period. Se lib/ekonomi/kostnadsstalle.
+    const dag = sistaDagPerMaskin.get(maskinId) || uppslag;
+    const kst = kostnadsstalleFor(maskinId, dag, kstRes.data as any);
+    if (!kst) {
+      noter.push({
+        niva: 'varning',
+        text: harKrockandeKostnadsstalle(maskinId, dag, kstRes.data as any)
+          ? `${maskinId} har TVÅ kostnadsställen giltiga ${dag} — koden lämnas tom.`
+          : `${maskinId} saknar kostnadsställe ${dag}.`,
+      });
+    }
+    // EFFEKTIVT timpris (bas + ForestLink) — samma pris som timpeng-jämförelsen
+    // och Översikten räknar med, lib/ekonomi/forestlink.
+    const tp = effektivaTimpriser.find((p: any) =>
+      p.maskin_id === maskinId && isValidOn(dag, p.giltig_fran, p.giltig_till));
+    maskiner.push({
+      maskin_id: maskinId,
+      // visningsnamn är namnet Vida ser, och maskinVisningsnamn är appens ENDA
+      // regel för det (lib/maskinNamn): visningsnamn → tillverkare + modell ur
+      // filen → maskin_id. Modellen är en reserv, inte ett val — saknas
+      // visningsnamn ska det synas som ett tomt fält i registret.
+      namn: dm ? maskinVisningsnamn(dm) : maskinId,
+      roll,
+      kostnadsstalle: kst,
+      g15h: sek / 3600,
+      timpris: tp ? Number(tp.timpris) || 0 : null,
+    });
+  }
+  maskiner.sort((a, b) => (a.roll === b.roll ? a.maskin_id.localeCompare(b.maskin_id) : a.roll === 'skordare' ? -1 : 1));
+  if (!maskiner.length) noter.push({ niva: 'varning', text: 'Ingen maskin har tidrader på VO:t.' });
+
+  // ── Kund och kontrakt ──────────────────────────────────────────────────
+  const bolagRad = (bolagRes.data || []).find((b: any) => b.namn === huvud.bolag);
+  if (huvud.bolag && !bolagRad) {
+    noter.push({ niva: 'varning', text: `Bolaget "${huvud.bolag}" finns inte i bolagstabellen.` });
+  }
+  const kontrakt = (objektRes.data || []).map((o: any) => o.kontraktsnummer).filter(Boolean);
+  if (new Set(kontrakt).size > 1) {
+    noter.push({ niva: 'varning', text: `VO:t har flera kontraktsnummer: ${Array.from(new Set(kontrakt)).join(', ')}` });
+  }
+
+  // ── Flyttar: bärs av trakten maskinen kom TILL ────────────────────────
+  //
+  // Fakturatexten "Traillerflytt Wisent från Brokamåla" beskriver VARIFRÅN
+  // maskinen kom — den talar inte om vilken trakt raden hör till. Raden
+  // ligger på trakten maskinen kom till, för det är den trakten flytten
+  // utfördes för.
+  //
+  // Det gör också kopplingen hel: alla sex aktiva flyttar har
+  // till_objekt_id, medan tre saknar fran_objekt_id. Ett tomt avreseobjekt
+  // gör bara BENÄMNINGEN ofullständig, aldrig raden hemlös.
+  //
+  // Kopplingen går via objekt.id (uuid som TEXT i kolumnen), aldrig mot
+  // dim_objekt.objekt_id: objekt.dim_objekt_id är NULL på varenda rad.
+  const objektUuids = (objektRes.data || []).map((o: any) => String(o.id));
+  let flyttar: VoUnderlag['flyttar'] = [];
+  if (objektUuids.length) {
+    // faktura_objekt_id VINNER över till_objekt_id när den är satt: flytten
+    // kan ha registrerats på fel objekt för att måltrakten inte var upplagd
+    // än (Brokamålas GROT-flytt), och då pekas den om vid granskningen.
+    // Flyttloggen skrivs aldrig om — registreringen var riktig när den
+    // gjordes, det är faktureringen som ska peka rätt.
+    const lista = objektUuids.map((x: string) => `"${x}"`).join(",");
+    const { data: fl, error: flFel } = await sb.from('fakturaunderlag_flytt')
+      .select('id, datum, maskin, km, traillertimmar, status, fakturerad_tid, '
+        + 'fran_objekt_id, till_objekt_id, faktura_objekt_id')
+      .or(`faktura_objekt_id.in.(${lista}),`
+        + `and(faktura_objekt_id.is.null,till_objekt_id.in.(${lista}))`)
+      // KONTRAKTET (migration 20261015151948): faktureringen läser bara GODKÄNDA flyttar.
+      // En flytt godkänns med ett tryck i Lastbilen › Fakturering › Att godkänna; tills dess
+      // finns den inte här. faktura_oversikt() gör detsamma, så listan och underlaget är överens.
+      .eq('status', 'aktiv').is('fakturerad_tid', null).not('godkand_tid', 'is', null).order('datum');
+    if (flFel) throw new Error('Kunde inte läsa flyttar: ' + flFel.message);
+
+    // Avreseobjektets namn, bara för texten. Saknas det utelämnas "från …"
+    // och Martin kan skriva dit resten — raden är ändå komplett.
+    const franIds = Array.from(new Set((fl || []).map((f: any) => f.fran_objekt_id).filter(Boolean)));
+    const franNamn = new Map<string, string>();
+    if (franIds.length) {
+      const { data: fo } = await sb.from('objekt').select('id, namn').in('id', franIds);
+      for (const o of fo || []) if (o.namn) franNamn.set(String(o.id), o.namn);
+    }
+
+    // Maskinens NAMN, inte dess chassinummer. fakturaunderlag_flytt.maskin bär
+    // maskin_id (PONS20SDJAA270231), och fakturan ska säga Giant — samma namn
+    // som resten av appen, via dim_maskin.visningsnamn. Alla fem id:n i datan
+    // 2026-10-25 går att slå upp. En flytt med NÅGON ANNANS maskin bär fritext
+    // i samma fält (maskin_flytt.extern_maskin) och finns inte i registret —
+    // då står texten kvar som den skrevs, aldrig ett id vi hittat på.
+    const namnPerMaskinId = maskinNamnMap(maskinRes.data || []);
+    const maskinNamn = (v: string) => namnPerMaskinId[v] || v;
+
+    flyttar = (fl || []).map((f: any) => ({
+      id: f.id, datum: f.datum, maskin: maskinNamn(String(f.maskin ?? '')),
+      km: f.km == null ? null : Number(f.km),
+      traillertimmar: f.traillertimmar == null ? null : Number(f.traillertimmar),
+      franNamn: f.fran_objekt_id ? (franNamn.get(String(f.fran_objekt_id)) ?? null) : null,
+      omdirigerad: !!f.faktura_objekt_id,
+    }));
+
+    // Lastbilens dygnssummor som STÖD för den inskrivna tiden — aldrig som
+    // källa. Fakturan avser rundresan från LBC, och den syns här i stort.
+    const dagar = Array.from(new Set(flyttar.map(f => f.datum))).filter(Boolean);
+    for (const dag of dagar) {
+      const { data: lb } = await sb.from('lastbil_logg')
+        .select('tidpunkt, odometer_m')
+        .gte('tidpunkt', `${dag}T00:00:00`).lte('tidpunkt', `${dag}T23:59:59`)
+        .order('tidpunkt');
+      const pkt = lb || [];
+      if (!pkt.length) continue;
+      const tim = (new Date(pkt[pkt.length - 1].tidpunkt).getTime()
+                 - new Date(pkt[0].tidpunkt).getTime()) / 3600000;
+      const od = pkt.map((x: any) => Number(x.odometer_m)).filter((n: number) => Number.isFinite(n));
+      const km = od.length ? Math.round((Math.max(...od) - Math.min(...od)) / 1000) : null;
+      noter.push({
+        niva: 'info',
+        text: `Lastbilen rullade ${tim.toFixed(1).replace('.', ',')} tim`
+          + (km != null ? ` och ${km} km` : '') + ` den ${dag}.`
+          + ' Stöd för den inskrivna traillertiden, inte källa.',
+      });
+    }
+
+    for (const f of flyttar) {
+      if (f.omdirigerad) {
+        noter.push({
+          niva: 'info',
+          text: `Flytten ${f.datum} (${f.maskin}) är ompekad hit vid granskning — `
+            + 'den registrerades på ett annat objekt.',
+        });
+      }
+      if (f.km == null) {
+        noter.push({ niva: 'varning', text: `Flytten ${f.datum} saknar km — radtypen kan inte avgöras.` });
+      } else if (f.km > 30 && f.traillertimmar == null) {
+        noter.push({
+          niva: 'varning',
+          text: `Flytten ${f.datum} (${f.maskin}, ${f.km} km) faktureras på tid, och timmarna är inte ifyllda.`,
+        });
+      }
+    }
+  }
+
+  // ── Vårt eget manuella arbete ur arbetsrapporten ───────────────────────
+  // Timmarna är redan inskrivna av föraren (extra_tid, debiterbar). Det som
+  // fattades var priset: fakturan har burit "Man tim 16 à 490" för hand medan
+  // appen visade ett streck. ANDRAS fällning (Jacob 525, Isac 560, Kyrköns
+  // 475) ligger inte i extra_tid och prissätts inte här — se arbetspris.ts.
+  const arbSvar = await lasDebiterbartArbete(sb, voNummer);
+  if (arbSvar.status === 'fel') {
+    // Ärlig data eller ingen data: ett tystat läsfel blir timmar som aldrig
+    // faktureras, och det syns inte på fakturan.
+    noter.push({
+      niva: 'varning',
+      text: 'Det debiterbara arbetet ur arbetsrapporten kunde inte läsas, så '
+        + 'de timmarna är inte med: ' + arbSvar.fel,
+    });
+  }
+  const arbetsrader = arbSvar.status === 'ok'
+    ? byggArbetsrader(tillArbetsposter(arbSvar.poster), giltiga(arbPrisRes.data))
+    : [];
+  for (const r of arbetsrader.filter(r => r.timpris == null)) {
+    noter.push({
+      niva: 'varning',
+      text: `${r.etikett}: ${r.timmar} tim utan timsats — faktureras inte. `
+        + `Lägg in satsen för "${r.typ ?? 'okänd typ'}" i arbete_timpris.`,
+    });
+  }
+
+  // EN gång, två läsare: raden och granskningens terrängark.
+  const terrangKr = Number(huvud.terrang_kr_manuell) || 0;
+
+  const underlag: VoUnderlag = {
+    vo_nummer: voNummer,
+    objektnamn: huvud.object_name || voNummer,
+    kontraktsnummer: kontrakt[0] || null,
+    bolag: huvud.bolag || null,
+    fortnox_kundnr: bolagRad?.fortnox_kundnr ?? null,
+    timpeng: !!huvud.timpeng || (huvud.huvudtyp || '') === 'Gallring',
+    avrakningsdatum: avrDatum,
+    volymM3fub: volym,
+    medelstam,
+    sortimentgrupper,
+    terrangKr,
+    skotAvstandKr: skotKr,
+    andelSkordareManuell: huvud.acord_andel_skordare_manuell == null
+      ? null : Number(huvud.acord_andel_skordare_manuell),
+    acordList: acordList as any,
+    sortKr, traktKr, kvalitetKr,
+    maskiner,
+    flyttar,
+    // VÅRT eget arbete, en rad per aktivitetstyp. En typ utan timsats blir en
+    // rad utan belopp ('vantar_leverantorsfaktura' hos radbyggaren) — timmarna
+    // syns, men de räknas inte in i summan. GROT-skotning och papp har ännu
+    // ingen källa i appen och står fortfarande bara på Martins fakturor.
+    manuellaPoster: arbetsrader.map(r => ({
+      etikett: r.etikett,
+      antal: r.timmar,
+      enhet: 'h' as const,
+      a_pris: r.timpris,
+      kalla: r.typ === 'manuellt' ? ('manuell_fallning' as const) : ('manuell' as const),
+    })),
+  };
+
+  const granskning: Granskningsunderlag = {
+    sortiment: {
+      rakning: sortimentsrakning,
+      anvant: sortimentgrupper,
+      manuellt: huvud.sortiment_grupper_manuell != null,
+      grundantal: sortConf ? Number(sortConf.grundantal) : null,
+      krPerExtra: sortConf ? Number(sortConf.kr_per_extra_sortiment) : null,
+      giltigFran: sortConf?.giltig_fran ?? null,
+    },
+    volym,
+    prisdatum: uppslag,
+    avstand: {
+      manuellt: huvud.skotavstand_manuell == null ? null : Number(huvud.skotavstand_manuell),
+      lassVolym: lassVolymMedStracka,
+      lassAntal: barande.length,
+      kronor: skotKr,
+      lass: lassRader,
+      kallor,
+      cykel: appCykel.rader.length ? sammanstallCykel(appCykel.rader) : null,
+      grundavstandM: avstConf ? Number(avstConf.grundavstand_m) : null,
+      krPer100m: avstConf ? Number(avstConf.kr_per_100m) : null,
+      giltigFran: avstConf?.giltig_fran ?? null,
+    },
+    terrangKr,
+  };
+
+  return { underlag, noter, objektIds, granskning };
+}

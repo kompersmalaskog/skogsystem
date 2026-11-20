@@ -1,0 +1,14 @@
+-- Steg 5b: SLÅ PÅ RLS på medarbetare.
+-- 20260524131614_rls_medarbetare_operator skapade policyerna men körde
+-- aldrig ENABLE ROW LEVEL SECURITY — policyerna har varit verkningslösa
+-- och varje inloggad kunde läsa allas rader (lön, epost, hemadress,
+-- anhörigdata). Upptäckt 2026-07-17 av namnvy-verifieringens negativa test.
+--
+-- Befintliga policyer som nu träder i kraft:
+--   SELECT/UPDATE: user_id = auth.uid() OR ar_admin()
+--   INSERT/DELETE: ar_admin()
+-- Förare läser hela laget via vyn medarbetare_namn (bara id + förnamn).
+--
+-- OBS: auditen 2026-07-17 visade samma miss på tabellen objekt
+-- (4 policies, RLS av) — hanteras som eget beslut, inte här.
+ALTER TABLE medarbetare ENABLE ROW LEVEL SECURITY;

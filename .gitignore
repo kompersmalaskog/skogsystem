@@ -1,0 +1,96 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+
+# vercel
+.vercel
+
+# SLU Skogskarta GeoTIFF data (~5 GB)
+/data/slu-skogskarta/
+/data/slu-cog/
+
+# Lantmäteriet DEM raw data (temp processing files)
+/data/terrain-tmp/
+/data/lm-dem/
+/data/lm-dem.zip
+
+# Generated terrain tiles (run scripts/build-terrain-tiles.py to create)
+/public/terrain-tiles/
+
+# pdf.js-worker kopieras från node_modules i prebuild/predev/vercel-build
+/public/pdf.worker.min.mjs
+
+# Python import scripts — secrets now loaded from .env.local
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Wrangler
+.wrangler/
+
+# Claude Code local settings (may contain secrets)
+.claude/settings.local.json
+
+# Local Claude Code preview-server config (per-machine portar)
+.claude/launch.json
+
+# Lokal designgranskning — skärmdumpar + puppeteer-skript
+arbetsrapport-skarmdumpar/
+scripts/screenshot-arbetsrapport.mjs
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Throwaway / genererade filer från kalibrerings-arbetet
+backfill_errors.txt
+backfill_maj_errors.txt
+fill_weather_errors.txt
+dev_server.log
+kontroll_response.json
+verify_hqc_parser.py
+
+# Import-runtime-loggar (lokala per worktree, ska ej spåras)
+import_logg.txt
+hpr_import_logg.txt
+
+# Inkommande maskin- och traktfiler (rådata, ibland tiotusentals rader per fil).
+# De hör hemma i Inkommande-mappen och importflödet, aldrig i git.
+inkommande/*.envz
+inkommande/*.zip
+*.envz
+.diameter_huvud.json
+.diameter_antal.json
+diameter_utfall.json
+diameter_verifiering.json
+.diameter_lasta.json
+.rotkap_utfall.json
+
+# Historik-inventering: mejlexporter och PDF:er ska aldrig in i repot
+*.mbox
+scripts/historik/**/*.pdf
+/takeout-*/

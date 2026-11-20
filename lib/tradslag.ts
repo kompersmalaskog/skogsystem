@@ -1,0 +1,152 @@
+// EN palett och EN namnregel för trädslag i hela appen.
+//
+// Bakgrund: färgerna låg inline på minst sex ställen och sa olika saker.
+// Björk var #ffd60a i maskinvyn, #FFF176 i översiktskartan, #d4c5a0 i
+// markägarrapporten och blå i affärsuppföljningen. Samma trädslag, fyra
+// färger — då slutar färgen vara en genväg för ögat och blir en gissning.
+//
+// Nya vyer importerar HÄRIFRÅN. Skriv aldrig en egen trädslagsfärg inline.
+//
+// Färgerna är appens egna (samma värden som T i lib/utbildning.ts), inte en
+// egen palett vid sidan om:
+//   Gran        grön    T.green
+//   Tall        orange  T.orange
+//   Björk       vit     T.t1
+//   Övrigt löv  grå     T.gray
+//
+// Färg är ALDRIG ensam informationsbärare — varje stapel och prick som
+// använder de här färgerna ska ha trädslagets namn i text bredvid sig.
+
+export type TradslagStil = {
+  fyll: string;
+  /** Kontur att rita när underlaget är LJUST. Vit björk försvinner mot vitt
+   *  papper, så en fyllning som inte håller mot alla bakgrunder måste bära
+   *  sin egen kontur. null = fyllningen klarar sig själv.
+   *
+   *  På appens mörka bakgrund behövs den inte och ska inte ritas. Den finns
+   *  för utskrift och PDF-export, där underlaget är vitt. */
+  kontur: string | null;
+};
+
+const GRON = '#30D158';
+const ORANGE = '#FF9F0A';
+const VIT = '#FFFFFF';
+const GRA = '#8E8E93';
+
+export const TRADSLAG_STIL: Record<string, TradslagStil> = {
+  Gran: { fyll: GRON, kontur: null },
+  Tall: { fyll: ORANGE, kontur: null },
+  'Björk': { fyll: VIT, kontur: GRA },
+  'Övrigt löv': { fyll: GRA, kontur: null },
+  // Trädslag som förekommer sällan. Egna färger så de inte krockar med de
+  // fyra vanliga, men samma regel: namnet står alltid i text bredvid.
+  Contorta: { fyll: '#FF6482', kontur: null },
+  'Lärk': { fyll: '#FFD60A', kontur: null },
+  Ek: { fyll: '#AC8E68', kontur: null },
+  Bok: { fyll: '#BF5AF2', kontur: null },
+  Asp: { fyll: '#64D2FF', kontur: null },
+  Al: { fyll: '#5E5CE6', kontur: null },
+};
+
+/** För trädslag som inte finns i tabellen. Index håller dem isär inom samma
+ *  diagram; de är sällsynta nog att en fast färg per art inte lönar sig. */
+const RESERVFARGER = ['#8E8E93', '#5E5CE6', '#FF453A', '#AC8E68'];
+
+export function tradslagStil(namn: string, i = 0): TradslagStil {
+  return TRADSLAG_STIL[namn] ?? { fyll: RESERVFARGER[i % RESERVFARGER.length], kontur: null };
+}
+
+/** Bara fyllningen, för anropare som ritar mot mörk bakgrund. */
+export function tradslagFarg(namn: string, i = 0): string {
+  return tradslagStil(namn, i).fyll;
+}
+
+// ---------------------------------------------------------------------------
+// Namn
+// ---------------------------------------------------------------------------
+
+// dim_tradslag bär maskinens egna namn i versaler, och samma trädslag stavas
+// olika mellan maskiner. Prod 2026-09-10 (37 rader): GRAN, TALL, BJÖRK,
+// ÖVR_LÖV, 'ÖVR LÖV' (R64101), LÖV och LOV2 (R64101). Alla lövvarianterna
+// är samma grupp "Övrigt löv". Normalisera innan gruppering, annars delas ett
+// trädslag i två staplar med olika färg (uppföljningen visade 'ÖVR_LÖV' och
+// 'ÖVR LÖV' som två rader). Gruppera ALLTID på tradslagLabel(namn), aldrig
+// på tradslag_id — id:t är per maskin och slår isär samma art.
+const TRADSLAG_NAMN: Record<string, string> = {
+  TALL: 'Tall',
+  GRAN: 'Gran',
+  BJORK: 'Björk',
+  'BJÖRK': 'Björk',
+  OVR_LOV: 'Övrigt löv',
+  'ÖVR_LÖV': 'Övrigt löv',
+  'OVR_LÖV': 'Övrigt löv',
+  'ÖVR_LOV': 'Övrigt löv',
+  LOV: 'Övrigt löv',
+  'LÖV': 'Övrigt löv',
+  LOV2: 'Övrigt löv',
+  'LÖV2': 'Övrigt löv',
+  CONTORTA: 'Contorta',
+  LARK: 'Lärk',
+  'LÄRK': 'Lärk',
+  EK: 'Ek',
+  BOK: 'Bok',
+  ASP: 'Asp',
+  AL: 'Al',
+};
+
+export function tradslagLabel(ratt: string | null | undefined): string {
+  if (!ratt) return 'Okänt trädslag';
+  const nyckel = ratt.trim().toUpperCase().replace(/\s+/g, '_');
+  const traff = TRADSLAG_NAMN[nyckel];
+  if (traff) return traff;
+  const ord = nyckel.replace(/_/g, ' ').toLowerCase();
+  return ord.charAt(0).toUpperCase() + ord.slice(1);
+}
+
+// ---------------------------------------------------------------------------
+// Kartans högar och sortiment (planeringsvyn)
+// ---------------------------------------------------------------------------
+
+/** Tall: appens ORANGE — samma i kartan, diagrammen och markägarrapporten (lib/tradslag är enda källan). */
+export const TALL_FARG = TRADSLAG_STIL.Tall.fyll;
+/** GROT: EN färg, den bruna, i alla lager och listor. */
+export const GROT_FARG = '#8B5E3C';
+/** Björk är vit; på kartans pajer och prickar bär den en mörk kant så den inte försvinner mot vit karta eller vit pajkant. */
+export const BJORK_KANT_FARG = 'rgba(0,0,0,0.65)';
+
+const KARTA_GRAN = '#1d9e75';
+const KARTA_BJORK = '#f0f0f0';
+const KARTA_OVR_LOV = '#888780';
+export const KARTA_BLANDAT = '#6b7c3a';
+
+/** Färgen för ett sortiment ("Tall timmer", "Björk massa", "GROT"…) på kartan: trädslagets färg, GROT brun, annars blandat. */
+export function sortimentFarg(sortiment: string): string {
+  if (sortiment === 'GROT') return GROT_FARG;
+  if (sortiment.startsWith('Gran')) return KARTA_GRAN;
+  if (sortiment.startsWith('Tall')) return TALL_FARG;
+  if (sortiment.startsWith('Björk')) return KARTA_BJORK;
+  if (sortiment.startsWith('Övr_löv')) return KARTA_OVR_LOV;
+  return KARTA_BLANDAT;
+}
+
+/** Dominerande trädslag per hög (maskinens versaler, normaliserade) → färg. */
+export const HOG_TRADSLAG_FARG: Readonly<Record<string, string>> = { GRAN: KARTA_GRAN, TALL: TALL_FARG, 'BJÖRK': KARTA_BJORK, 'ÖVR_LÖV': KARTA_OVR_LOV };
+/** En hög är ett trädslag när det är mer än så här stor andel av stammarna; annars är den blandad. */
+export const HOG_ETT_TRADSLAG_ANDEL = 0.7;
+/**
+ * Högens färger på kartan (Martin 2026-11-06, bild K: "kör på det som är hela färger"): ett trädslag → `farg` och `farg2` null;
+ * blandad → de två största trädslagens färger (ritas halv–halv). Okänt trädslag → den blandade färgen, aldrig en gissning.
+ * Granen är KARTA_GRAN (blågrön), inte Natur-gruppens klara gröna, så granhögarna inte tävlar med evighetsträd och naturhörna.
+ */
+export function hogTradslagFarger(tradslagCount: Readonly<Record<string, number>>): { farg: string; farg2: string | null } {
+  const sorted = Object.entries(tradslagCount).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const n = sorted.reduce((s, [, v]) => s + v, 0);
+  if (!n) return { farg: KARTA_BLANDAT, farg2: null };
+  const f1 = HOG_TRADSLAG_FARG[sorted[0][0]] ?? null;
+  if (sorted[0][1] / n > HOG_ETT_TRADSLAG_ANDEL) return { farg: f1 ?? KARTA_BLANDAT, farg2: null };
+  const f2 = sorted[1] ? HOG_TRADSLAG_FARG[sorted[1][0]] ?? null : null;
+  if (!f1 || !f2 || f1 === f2) return { farg: KARTA_BLANDAT, farg2: null };
+  return { farg: f1, farg2: f2 };
+}
+/** Gallringszonens trädslagsfärger (Tall/Gran/Löv) — samma palett som högarna. */
+export const GALLRING_FARG = { tall: TALL_FARG, gran: KARTA_GRAN, lov: KARTA_BJORK } as const;

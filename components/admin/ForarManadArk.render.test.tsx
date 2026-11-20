@@ -1,0 +1,145 @@
+// @vitest-environment jsdom
+/**
+ * Admin → Förare · Månad, renderat: Stefan september 2026 (ur prod) genom samma beraknaLoneunderlag som exporten.
+ * Kräver att svaret (42 tim 10 min (42,17)), uträkningen, mil, dagarna med km-källa och dagens varningar står på skärmen,
+ * och att ingången finns i Löneunderlag (kortets "Öppna" → arket, adressen bär ?forare=).
+ */
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { stefanUnderlag } from "@/lib/lonesystem/testdata/stefanSep";
+import { danielUnderlag } from "@/lib/lonesystem/testdata/danielSep";
+
+vi.mock("@/lib/supabase", () => {
+  const fraga = (data: any[]) => ({ select: () => ({ then: (res: any) => Promise.resolve({ data, error: null }).then(res), order: () => Promise.resolve({ data, error: null }), gte: () => ({ lte: () => ({ not: () => Promise.resolve({ data: [], error: null }) , then: (res: any) => Promise.resolve({ data: [], error: null }).then(res) }) }) }) });
+  return { supabase: { from: (t: string) => fraga(t === "dim_maskin" ? [{ maskin_id: "PONS20SDJAA270231", visningsnamn: "Giant", modell: "Scorpion Giant 8W" }] : t === "medarbetare" ? [{ id: "stefan", namn: "Stefan Karlsson" }] : []) } };
+});
+
+import ForarManadArk from "./ForarManadArk";
+
+let rot: HTMLDivElement; let r: ReturnType<typeof createRoot>;
+beforeEach(() => { (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; rot = document.createElement("div"); document.body.appendChild(rot); r = createRoot(rot); });
+afterEach(() => { act(() => r.unmount()); document.body.innerHTML = ""; });
+
+const text = () => document.body.textContent || "";
+const q = (s: string) => document.body.querySelector(s) as HTMLElement | null;
+const flush = async () => { await act(async () => { await Promise.resolve(); await Promise.resolve(); }); };
+
+async function montera(andra?: (d: any) => any, extraTillagg: any[] = []) {
+  const { m } = await stefanUnderlag(andra, extraTillagg);
+  const stang = vi.fn();
+  await act(async () => { r.render(<ForarManadArk m={m} arbetsManad="2026-09" onStang={stang} />); });
+  await flush();
+  return { stang, m };
+}
+
+describe("ForarManadArk — Stefan september 2026", () => {
+  it("svaret överst: övertid i tim och min med decimalen i parentes", async () => {
+    await montera();
+    expect(q("[data-svar]")!.textContent).toBe("42 tim 10 min (42,17)");
+    expect(text()).toContain("September");   // arbetsmånaden är namnet
+  });
+
+  it("uträkningen: maskintid + extra tid = arbetat − ordinarie = övertid", async () => {
+    await montera();
+    expect(q('[data-del="maskin"]')!.textContent).toContain("214 tim 10 min");
+    expect(q('[data-del="extra"]')!.textContent).toContain("+ Extra tid");
+    expect(q('[data-del="extra"]')!.textContent).toContain("4 tim");
+    expect(q("[data-arbetat]")!.textContent).toContain("218 tim 10 min (218,17)");
+    expect(q("[data-ordinarie]")!.textContent).toContain("176 tim (176,00)");
+    expect(q("[data-ordinarie]")!.textContent).toContain("22 vardagar × 8 tim");
+    expect(q("[data-overtid]")!.textContent).toContain("42 tim 10 min (42,17)");
+  });
+
+  it("extra tid rad för rad med kommentar", async () => {
+    await montera();
+    const rad = q('[data-extra-post="2026-09-10"]')!;
+    expect(rad.textContent).toContain("Annat");
+    expect(rad.textContent).toContain("Gokart");
+    expect(rad.textContent).toContain("12:15–16:15");
+    expect(document.body.querySelectorAll("[data-extra-post]")).toHaveLength(1);
+  });
+
+  it("lönerader och mil", async () => {
+    await montera();
+    expect(q('[data-lonerad="timlon"]')!.textContent).toContain("176 tim (176,00)");
+    expect(q('[data-lonerad="premielon_skordare"]')).not.toBeNull();
+    expect(q("[data-mil]")!.textContent).toContain("mil");
+    expect(q("[data-km]")!.textContent).toContain("km");
+    expect(text()).toContain("12 dagar över gränsen");
+  });
+
+  it("dagarna: tid, rast, km med källa; avvikelsen står på dagen; tryck visar från → till", async () => {
+    await montera();
+    const d3 = q('[data-dag="2026-09-03"]')!;
+    expect(d3.querySelector("[data-dag-varning]")!.textContent).toContain("rast 3 tim 43 min");
+    const d14 = q('[data-dag="2026-09-14"]')!;
+    expect(d14.textContent).toContain("41 km beräknad");
+    expect(d14.querySelector("[data-dag-detalj]")).toBeNull();
+    await act(async () => { (d14.querySelector("button") as HTMLButtonElement).click(); });
+    const det = d14.querySelector("[data-dag-detalj]")!.textContent!;
+    expect(det).toContain("Hem → Hålabäck au 2025 · 34 km");
+    expect(det).toContain("Hallaslätt AU 2026 → Hem · 7 km");
+    expect(det).toContain("Maskin Giant");
+  });
+
+  it("förarens egen km märkt 'egen', och en dag utan källa är grå 'ingen uppgift'", async () => {
+    await montera(d => (d.datum === "2026-09-15" ? { ...d, km_kalla: "forare" } : d.datum === "2026-09-16" ? { ...d, km_kalla: null } : d));
+    expect(q('[data-dag="2026-09-15"]')!.textContent).toContain("68 km egen");
+    expect(q('[data-dag="2026-09-16"]')!.textContent).toContain("68 km ingen uppgift");
+    expect(q('[data-dag="2026-09-16"] [data-dag-varning]')).toBeNull();
+    await act(async () => { (q('[data-dag="2026-09-15"] button') as HTMLButtonElement).click(); });
+    expect(q('[data-dag="2026-09-15"] [data-dag-detalj]')!.textContent).toContain("Egen · 68 km totalt");
+  });
+
+  it("motorns notis om extra tid utan pass står under uträkningen", async () => {
+    await montera(undefined, [{ datum: "2026-09-12", typ: "annat", minuter: 60, debiterbar: false, objekt_id: null, kommentar: "Sågade ved", start_tid: "09:00:00", slut_tid: "10:00:00", aktivitet_typ: "annat" }]);
+    expect(text()).toContain("extra tid ligger på dagar utan maskinpass");
+    expect(q('[data-extra-post="2026-09-12"]')!.textContent).toContain("Sågade ved");
+  });
+
+  it("Daniel: egen 160 km visas med appens värde, beräknad 113 km utan; mil-listan har datum · Hem → trakt · km · → mil", async () => {
+    const { m } = await danielUnderlag();
+    await act(async () => { r.render(<ForarManadArk m={m} arbetsManad="2026-09" onStang={() => {}} />); });
+    await flush();
+    expect(q('[data-dag="2026-09-15"]')!.textContent).toContain("Hem → 400763 Akelius Tåget SA -26 · 160 km egen (appen: 118 km) · → 10 mil");
+    expect(q('[data-dag="2026-09-01"]')!.textContent).toContain("113 km beräknad");
+    expect(q('[data-dag="2026-09-01"]')!.textContent).not.toContain("appen");
+    await act(async () => { (q('[data-dag="2026-09-15"] button') as HTMLButtonElement).click(); });
+    const det = q('[data-dag="2026-09-15"] [data-dag-detalj]')!.textContent!;
+    expect(det).toContain("Hem → 400763 Akelius Tåget SA -26 · 80 km (appen: 58 km)");
+    expect(det).toContain("Egen · 160 km totalt (appen: 118 km) · 10 mil ersätts");
+    const milKnapp = Array.from(document.body.querySelectorAll("button")).find(b => /dagar över gränsen/.test(b.textContent || "")) as HTMLButtonElement;
+    await act(async () => { milKnapp.click(); });
+    expect(text()).toContain("15 sep · Hem → 400763 Akelius Tåget SA -26 · 160 km egen (appen: 118 km) · → 10 mil");
+    expect(text()).toContain("1 sep · Hem → Stänkelsmåla 2025 · 113 km beräknad · → 6 mil");
+  });
+
+  it("Lönekvot är en rad i arket, också för en förare utan maskinfiler ('–', aldrig 0 %)", async () => {
+    const { m } = await stefanUnderlag();
+    const mm = { ...m, dagar: m.dagar.map((d: any) => ({ ...d, maskintid: { min: 0, kalla: "ingen_fil", maskinens_min: 0 } })) };   // maskin som inte skickar filer (810E)
+    await act(async () => { r.render(<ForarManadArk m={mm} arbetsManad="2026-09" onStang={vi.fn()} />); });
+    await flush();
+    const rad = q("[data-lonekvot]")!;
+    expect(rad.textContent).toContain("Lönekvot");
+    expect(rad.textContent).toContain("Inga dagar med maskinfiler");
+    expect(rad.textContent).toContain("–");
+    expect(rad.textContent).not.toContain("0 %");
+  });
+
+  it("Lönekvot med maskinfiler: samma procent och förklaring som Dagar visar för samma dagar", async () => {
+    const { m } = await stefanUnderlag();
+    const mm = { ...m, dagar: m.dagar.map((d: any) => ({ ...d, maskintid: { min: Math.round(((d.arbetad_min || 0) + (d.extra_min || 0)) * 0.75), kalla: "fil", maskinens_min: 0 } })) };
+    await act(async () => { r.render(<ForarManadArk m={mm} arbetsManad="2026-09" onStang={vi.fn()} />); });
+    await flush();
+    const rad = q("[data-lonekvot]")!;
+    expect(rad.textContent).toContain("75 %");
+    expect(rad.textContent).toContain("med maskinfiler");
+  });
+
+  it("Stäng", async () => {
+    const { stang } = await montera();
+    await act(async () => { (Array.from(document.body.querySelectorAll("button")).find(b => b.textContent === "Stäng") as HTMLButtonElement).click(); });
+    expect(stang).toHaveBeenCalled();
+  });
+});

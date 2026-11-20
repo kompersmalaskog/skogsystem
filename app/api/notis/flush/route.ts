@@ -1,0 +1,648 @@
+import { NextRequest, NextResponse } from "next/server";
+import { VAPID_PUBLIC_KEY, VAPID_SUBJECT, VAPID_SAKNAS, vapidPrivatNyckel } from "@/lib/push/vapid";
+import { createClient } from "@supabase/supabase-js";
+import webpush from "web-push";
+import { arDagAvslutad } from "@/lib/arbetsdagStall";
+import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
+import { skaFragaBrandrisk } from "@/lib/ob";
+import { SKARP_START, foreSkarpStart } from "@/lib/skarpStart";
+import { formateraVeckoNotis } from "@/app/helikopter/_lib/veckoNotis";
+import { formateraManadNotis, manadNotisLank } from "@/app/helikopter/_lib/manadsfacit";
+import { idagStockholm } from "@/lib/grotvy/format";
+import { PAMINNELSE_TYP, paminnelseMeddelande } from "@/lib/grotvy/paminnelse";
+import { arLedighetNotis, byggLedighetNotis, flushUrval, type HamtaRad } from "@/lib/ledighet/notis";
+import { LASS_MASKIN, arLassNotis, byggLassNotis, type HamtaLass } from "@/lib/lastbil/lass/notis";
+import { EGENKONTROLL_STICKPROV, arStickprovNotis, byggStickprovNotis, type HamtaStickprov } from "@/lib/egenkontrollStickprovNotis";
+import { LON_NOTIS_TYPER, arLonNotis, byggLonNotis, lasLonRadMotDb } from "@/lib/lonesystem/granskaNotis";
+import { INVENTARIE_UNDER_MIN, arInventarieNotis, byggInventarieNotis, type HamtaInventarie } from "@/lib/inventarier/notis";
+import { arBesokPaminnelse, byggBesokNotis, type HamtaBesokObjekt } from "@/lib/besok/paminnelse";
+import { koaBesokPaminnelser } from "@/lib/besok/paminnelse-ko";
+import { arGodkannNotis, byggGodkannNotis } from "@/lib/lastbil/godkannNotis";
+import { koaGodkannPaminnelse, lasVantandeUnderlag } from "@/lib/lastbil/godkannKo";
+import { arBesokEjSett, byggEjSettNotis, type HamtaEjSett } from "@/lib/besok/ejsett";
+import { koaBesokEjSett } from "@/lib/besok/ejsett-ko";
+import { maskinEtikett } from "@/lib/besok/maskinerPaBesok";
+import { rollAvMaskintyp } from "@/lib/maskindatorStart";
+import { AM_STOPP, arStoppNotis, byggStoppNotis, type HamtaStopp } from "@/lib/arbetsmiljo/stoppNotis";
+import { AM_TILLBUD, arTillbudNotis, byggTillbudNotis, type HamtaTillbud } from "@/lib/arbetsmiljo/tillbudNotis";
+import { AM_KEMIKALIE, arKemikalieNotis, byggKemikalieNotis, type HamtaKemikalie } from "@/lib/arbetsmiljo/kemikalieNotis";
+import { AM_ANMAL, arAnmalNotis, byggAnmalNotis, koaAnmalPaminnelse, type HamtaAnmal } from "@/lib/arbetsmiljo/anmalNotis";
+import { AM_LAGAT, arLagatNotis, byggLagatNotis, koaLagatBesked, type HamtaLagat } from "@/lib/arbetsmiljo/lagatBesked";
+import { KALIB_MATDON, arMatdonNotis, byggMatdonNotis, koaMatdonPaminnelse, lasMatdon } from "@/lib/kalibrering/matdonNotis";
+import { KALIB_VADER, arVaderNotis, byggVaderNotis, koaVaderOmslag, lasVader } from "@/lib/kalibrering/vaderServer";
+import { AM_ARSHJUL, arArshjulNotis, byggArshjulNotis, koaArshjulPaminnelse, lasArshjul } from "@/lib/arbetsmiljo/arshjulNotis";
+import { MASKIN_KOD_SPAR, arMaskinKodNotis, byggMaskinKodNotis } from "@/lib/maskinkonto/notis";
+import { LARMPLATS_NEJ, arLarmplatsNejNotis, byggLarmplatsNejNotis, koaLarmplatsNej, type HamtaNej } from "@/lib/larmKontrollNotis";
+import { larmpunkterUr, SAMMA_PUNKT_M } from "@/lib/larmpunkter";
+import { avstandPunktM } from "@/lib/larm/geo";
+
+/**
+ * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
+ * server-side före 2026-09: en förare som stängt av fick pushar ändå. Alla stod
+ * på true, därför märkte ingen. Nu avgör de här, per notis:
+ *   push_aktiv=false        → inga pushar alls
+ *   daglig_pamin_aktiv=false → ingen dagsslut-påminnelse (andra typer går)
+ * Returnerar orsak (→ fel_meddelande, som bekräftad-fallet) eller null = skicka.
+ */
+export function skippOrsak(
+  med: { push_aktiv?: boolean | null; daglig_pamin_aktiv?: boolean | null } | null | undefined,
+  typ: string,
+): string | null {
+  if (med && med.push_aktiv === false) return "Ej skickad — push avstängd i medarbetarens inställningar";
+  if (typ === "dagsslut" && med && med.daglig_pamin_aktiv === false) return "Ej skickad — daglig påminnelse avstängd i medarbetarens inställningar";
+  return null;
+}
+
+/**
+ * Processar notis_kö — hämtar alla rader där skickas_at <= now() och
+ * skickad_at IS NULL, bygger titel/body baserat på typ, skickar via
+ * webpush till mottagarens push_subscription, markerar som skickade.
+ *
+ * Kan triggas av en cron (Vercel cron, Supabase pg_cron, eller extern).
+ */
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+// Vercel cron skickar Authorization: Bearer $CRON_SECRET automatiskt. Manuell
+// körning kräver admin-session. (Var helt öppen — vem som helst kunde tömma kön.)
+async function tillaten(req: NextRequest): Promise<NextResponse | null> {
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.headers.get("authorization") === `Bearer ${secret}`) return null;
+  const vakt = await kravRoll(ADMIN_ROLLER);
+  return vakt.ok ? null : vakt.res;
+}
+export async function GET(req: NextRequest) { return (await tillaten(req)) ?? flush(); }
+export async function POST(req: NextRequest) { return (await tillaten(req)) ?? flush(); }
+
+async function flush() {
+  // Den privata nyckeln finns bara i miljön. Saknas den: säg det och lämna kön orörd (inget skickas, inget märks som skickat).
+  const vapidPrivat = vapidPrivatNyckel();
+  if (!vapidPrivat) {
+    console.error("[notis/flush]", VAPID_SAKNAS);
+    return NextResponse.json({ ok: false, error: VAPID_SAKNAS }, { status: 500 });
+  }
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, vapidPrivat);
+
+  // Månadens stickprov för egenkontrollen: dras av databasen vid första anropet i en ny månad (annars no-op). Cronen går var 5:e minut, så
+  // dragningen och pushen sker utan att någon öppnat appen — och oberoende av pg_cron. Ett fel här får aldrig stoppa resten av kön.
+  try {
+    const { error: stickprovFel } = await supabase.rpc("egenkontroll_stickprov");
+    if (stickprovFel) console.error("[notis/flush] egenkontroll_stickprov:", stickprovFel.message);
+  } catch (e) {
+    console.error("[notis/flush] egenkontroll_stickprov:", e);
+  }
+
+  // Besöket på trakten: "<Trakt> startar i morgon/i dag – skicka till markägaren?" köas här (dagen före planerad start, eller när första maskinen startar), en gång per tillfälle. Ett fel stoppar aldrig kön.
+  try {
+    const bp = await koaBesokPaminnelser(supabase);
+    if (!bp.ok) console.error("[notis/flush] besökspåminnelse:", bp.fel);
+  } catch (e) {
+    console.error("[notis/flush] besökspåminnelse:", e);
+  }
+
+  // Besöket på trakten: en maskin som inte tryckt Uppfattat 10 minuter efter anmälan → push till planeringen. Samma regler och samma fel-hantering som påminnelsen ovan.
+  try {
+    const es = await koaBesokEjSett(supabase);
+    if (!es.ok) console.error("[notis/flush] besök ej sett:", es.fel);
+  } catch (e) {
+    console.error("[notis/flush] besök ej sett:", e);
+  }
+
+  // Lastbilen: "N flyttar väntar på godkännande" — måndagar från 07:00, bara när något väntar (lib/lastbil/godkannNotis). Ett fel stoppar aldrig kön.
+  try {
+    const gk = await koaGodkannPaminnelse(supabase);
+    if (!gk.ok) console.error("[notis/flush] godkänn-påminnelse:", gk.fel);
+  } catch (e) {
+    console.error("[notis/flush] godkänn-påminnelse:", e);
+  }
+
+  // Arbetsmiljö: olycka som inte markerats anmäld till Arbetsmiljöverket 2 h efter rapporten → en påminnelse till admin (lib/arbetsmiljo/anmalNotis).
+  try {
+    const an = await koaAnmalPaminnelse(supabase);
+    if (!an.ok) console.error("[notis/flush] anmälan-påminnelse:", an.fel);
+  } catch (e) {
+    console.error("[notis/flush] anmälan-påminnelse:", e);
+  }
+
+  // Arbetsmiljö: en åtgärd som markerats åtgärdad → den som rapporterade får veta det (lib/arbetsmiljo/lagatBesked). Ett fel stoppar aldrig kön.
+  try {
+    const lg = await koaLagatBesked(supabase);
+    if (!lg.ok) console.error("[notis/flush] lagat-besked:", lg.fel);
+  } catch (e) {
+    console.error("[notis/flush] lagat-besked:", e);
+  }
+
+  // Arbetsmiljö: årshjulet — en push i månaden till admin och skyddsombud när något är dags eller sent (lib/arbetsmiljo/arshjulNotis).
+  try {
+    const ah = await koaArshjulPaminnelse(supabase);
+    if (!ah.ok) console.error("[notis/flush] årshjul-påminnelse:", ah.fel);
+  } catch (e) {
+    console.error("[notis/flush] årshjul-påminnelse:", e);
+  }
+
+  // Kalibrering: klave och måttband — en push i kvartalet per maskin när de inte kollats (lib/kalibrering/matdonNotis).
+  try {
+    const md = await koaMatdonPaminnelse(supabase);
+    if (!md.ok) console.error("[notis/flush] klave-påminnelse:", md.fel);
+  } catch (e) {
+    console.error("[notis/flush] klave-påminnelse:", e);
+  }
+
+  // Kalibrering: vädret har slagit om sedan maskinen slutade förra arbetsdagen (SMHI:s station närmast maskinen) → förarna och MASKINEN får veta (lib/kalibrering/vaderServer).
+  try {
+    const vd = await koaVaderOmslag(supabase, new Date(), fetch, async (sub, payload) => { await webpush.sendNotification(sub as any, payload); });
+    if (!vd.ok) console.error("[notis/flush] väder-omslag:", vd.fel);
+  } catch (e) {
+    console.error("[notis/flush] väder-omslag:", e);
+  }
+
+  // Larmplatsen: någon svarade "Nej, ambulansen kommer inte fram" → planerarna får veta det (lib/larmKontrollNotis). Ett fel stoppar aldrig kön.
+  try {
+    const ln = await koaLarmplatsNej(supabase);
+    if (!ln.ok) console.error("[notis/flush] larmplats-nej:", ln.fel);
+  } catch (e) {
+    console.error("[notis/flush] larmplats-nej:", e);
+  }
+
+  const nu = new Date().toISOString();
+  const { data: pendingRader, error } = await supabase
+    .from("notis_kö")
+    .select("*")
+    // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
+    // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
+    // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts), liksom lönenotiserna (lib/lonesystem/granskaNotis.ts).
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_KEMIKALIE, AM_ANMAL, AM_LAGAT, AM_ARSHJUL, LARMPLATS_NEJ, MASKIN_KOD_SPAR, KALIB_MATDON, KALIB_VADER, ...LON_NOTIS_TYPER]))
+    .is("skickad_at", null)
+    .limit(200);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  let skickade = 0;
+  let fel = 0;
+  let skippade = 0;
+  let uppskjutna = 0;
+
+  // Växlarna läses EN gång per körning för alla mottagare i kön.
+  const mottagarIds = Array.from(new Set((pendingRader || []).map((n: any) => n.mottagare_id).filter(Boolean)));
+  const medRes = mottagarIds.length
+    ? await supabase.from("medarbetare").select("id, push_aktiv, daglig_pamin_aktiv").in("id", mottagarIds)
+    : { data: [] as any[] };
+  const medMap = new Map<string, any>(((medRes.data as any[]) || []).map(m => [m.id, m]));
+
+  for (const n of (pendingRader || [])) {
+    try {
+      // Medarbetarens växlar (push_aktiv / daglig_pamin_aktiv) — se skippOrsak.
+      const orsak = skippOrsak(medMap.get(n.mottagare_id), n.typ);
+      if (orsak) {
+        await supabase.from("notis_kö").update({ skickad_at: new Date().toISOString(), fel_meddelande: orsak }).eq("id", n.id);
+        skippade++;
+        continue;
+      }
+      // Golv: en omimport av gamla MOM-filer köar dagsslut-notiser för gamla
+      // datum, och stall-vakten nedan släpper igenom alla gårdagar. Dagar före
+      // skarp start ska aldrig pusha "Stämmer?" — markera som hanterad.
+      if (n.datum && foreSkarpStart(n.datum)) {
+        await supabase.from("notis_kö").update({
+          skickad_at: new Date().toISOString(),
+          fel_meddelande: `Ej skickad — dagen ligger före skarp start ${SKARP_START}`,
+        }).eq("id", n.id);
+        skippade++;
+        continue;
+      }
+      // Dagsslut: har föraren redan bekräftat dagen när flush kör finns
+      // inget att påminna om — markera som hanterad utan utskick.
+      if (n.typ === "dagsslut" && n.datum) {
+        const { data: dag } = await supabase
+          .from("arbetsdag")
+          .select("bekraftad, slut_tid")
+          .eq("medarbetare_id", n.mottagare_id)
+          .eq("datum", n.datum)
+          .maybeSingle();
+        if (dag?.bekraftad) {
+          await supabase.from("notis_kö").update({
+            skickad_at: new Date().toISOString(),
+            fel_meddelande: "Ej skickad — dagen var redan bekräftad",
+          }).eq("id", n.id);
+          skippade++;
+          continue;
+        }
+        // Stall-vakt: timvisa MOM-filer sätter slut_tid redan på morgonen —
+        // skicka inte "dagen är slut" mitt i pågående dag. Raden lämnas
+        // OSKICKAD (ingen markering): cronen var 5:e minut försöker igen
+        // och skickar av sig själv ~STALL_MIN efter dagens sista fil.
+        // Gårdagar är per definition avslutade och går direkt.
+        if (dag?.slut_tid && !arDagAvslutad(n.datum, dag.slut_tid)) {
+          uppskjutna++;
+          continue;
+        }
+      }
+
+      // Ledighet: texten byggs ur ansökan som den ser ut NU. Hanterad/borttagen ansökan → ingen
+      // utskick (notisen är inte längre sann). Läsfel → raden lämnas oskickad, nästa cron försöker igen.
+      // Lass: samma regler (färsk text, redan besvarat/för gammalt → hoppas över, läsfel → oskickad).
+      let ledighetMeddelande: Awaited<ReturnType<typeof byggMeddelande>> | null = null;
+      // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
+      // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
+      // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arKemikalieNotis(n.typ) || arAnmalNotis(n.typ) || arLagatNotis(n.typ) || arArshjulNotis(n.typ) || arLarmplatsNejNotis(n.typ) || arMaskinKodNotis(n.typ) || arMatdonNotis(n.typ) || arVaderNotis(n.typ)) {
+        // Maskinen ska stå (lib/arbetsmiljo/stoppNotis): borta, åtgärdad eller inte längre stopp → hoppas över.
+        // Tillbud/olycka (lib/arbetsmiljo/tillbudNotis): borta eller redan åtgärdad → hoppas över.
+        const u = arVaderNotis(n.typ) ? await byggVaderNotis(n, lasVader(supabase))
+          : arMatdonNotis(n.typ) ? await byggMatdonNotis(n, lasMatdon(supabase))
+          : arMaskinKodNotis(n.typ) ? byggMaskinKodNotis(n)
+          : arLarmplatsNejNotis(n.typ) ? await byggLarmplatsNejNotis(n, hamtaNej)
+          : arArshjulNotis(n.typ) ? await byggArshjulNotis(n, () => lasArshjul(supabase, new Date()))
+          : arLagatNotis(n.typ) ? await byggLagatNotis(n, hamtaLagat)
+          : arAnmalNotis(n.typ) ? await byggAnmalNotis(n, hamtaAnmal)
+          : arTillbudNotis(n.typ) ? await byggTillbudNotis(n, hamtaTillbud)
+          : arKemikalieNotis(n.typ) ? await byggKemikalieNotis(n, hamtaKemikalie)
+          : arStoppNotis(n.typ) ? await byggStoppNotis(n, hamtaStopp)
+          : arGodkannNotis(n.typ) ? await byggGodkannNotis(n, () => lasVantandeUnderlag(supabase))
+          : arBesokEjSett(n.typ) ? await byggEjSettNotis(n, hamtaEjSett)
+          : arBesokPaminnelse(n.typ) ? await byggBesokNotis(n, hamtaBesokObjekt)
+          : arInventarieNotis(n.typ) ? await byggInventarieNotis(n, hamtaInventarierad)
+          : arStickprovNotis(n.typ) ? await byggStickprovNotis(n, hamtaStickprovrad)
+          : arLassNotis(n.typ) ? await byggLassNotis(n, hamtaLassrad)
+          : arLonNotis(n.typ) ? await byggLonNotis(n, lasLonRadMotDb(supabase))
+          : await byggLedighetNotis(n, hamtaLedighetsrad);
+        if (u.typ === "uppskjut") { uppskjutna++; continue; }
+        if (u.typ === "hoppa_over") {
+          await supabase.from("notis_kö").update({ skickad_at: new Date().toISOString(), fel_meddelande: u.orsak }).eq("id", n.id);
+          skippade++;
+          continue;
+        }
+        ledighetMeddelande = u.meddelande;
+      }
+
+      // Prenumerationer ur push_subscriptions-TABELLEN (alla enheter) — inte
+      // den döda kolumnen medarbetare.push_subscription som aldrig fylls.
+      // Samma 410/404-städning som /api/notify.
+      const { data: subs } = await supabase
+        .from("push_subscriptions")
+        .select("id, subscription")
+        .eq("medarbetare_id", n.mottagare_id);
+
+      if (!subs || subs.length === 0) {
+        await supabase.from("notis_kö").update({
+          skickad_at: new Date().toISOString(),
+          fel_meddelande: "Mottagaren har inga push-prenumerationer",
+        }).eq("id", n.id);
+        fel++;
+        continue;
+      }
+
+      // Bygg titel/body baserat på typ — FÄRSKT vid utskick
+      const meddelande = ledighetMeddelande ?? await byggMeddelande(n);
+
+      let sänt = 0;
+      const döda: string[] = [];
+      for (const s of subs) {
+        try {
+          await webpush.sendNotification(s.subscription as any, JSON.stringify(meddelande));
+          sänt++;
+        } catch (e: any) {
+          if (e.statusCode === 410 || e.statusCode === 404) döda.push(s.id);
+        }
+      }
+      if (döda.length > 0) {
+        await supabase.from("push_subscriptions").delete().in("id", döda);
+      }
+
+      await supabase.from("notis_kö").update({
+        skickad_at: new Date().toISOString(),
+        fel_meddelande: sänt === 0 ? "Ingen enhet nådde fram (alla prenumerationer döda?)" : null,
+      }).eq("id", n.id);
+      if (sänt > 0) skickade++; else fel++;
+    } catch (e: any) {
+      fel++;
+      await supabase.from("notis_kö").update({
+        skickad_at: new Date().toISOString(),
+        fel_meddelande: (e?.message || String(e)).slice(0, 500),
+      }).eq("id", n.id);
+    }
+  }
+
+  return NextResponse.json({
+    totalt: pendingRader?.length || 0,
+    skickade,
+    skippade,
+    uppskjutna,
+    fel,
+  });
+}
+
+// Ansökan + sökandens namn för ledighetsnotiserna. `rad: null` = finns inte; `fel` = kunde inte läsas.
+const hamtaLedighetsrad: HamtaRad = async (ansokanId) => {
+  const { data, error } = await supabase
+    .from("ledighet_ansokningar")
+    .select("id, status, startdatum, slutdatum, medarbetare:medarbetare_id(namn)")
+    .eq("id", ansokanId)
+    .maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const med = Array.isArray(d.medarbetare) ? d.medarbetare[0] : d.medarbetare;
+  return { rad: { id: d.id, status: d.status, startdatum: d.startdatum, slutdatum: d.slutdatum, namn: med?.namn ?? null } };
+};
+
+// Lasset + förslagsmaskinens namn för "Vilken maskin?". `rad: null` = finns inte; `fel` = kunde inte läsas.
+const hamtaLassrad: HamtaLass = async (lassId) => {
+  const { data, error } = await supabase
+    .from("lastbil_lass")
+    .select("id, status, status_orsak, fran_namn, till_namn, lassning_tid, lossning_tid, forslag:forslag_maskin_id(visningsnamn, modell)")
+    .eq("id", lassId)
+    .maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const f = Array.isArray(d.forslag) ? d.forslag[0] : d.forslag;
+  return { rad: { id: d.id, status: d.status, status_orsak: d.status_orsak, fran_namn: d.fran_namn, till_namn: d.till_namn, lassning_tid: d.lassning_tid, lossning_tid: d.lossning_tid, forslag_maskin_namn: f?.visningsnamn ?? f?.modell ?? null } };
+};
+
+// Månadens stickprov för notisen. `rad: null` = finns inte; `fel` = kunde inte läsas. Tjänstenyckeln läser förbi RLS.
+const hamtaStickprovrad: HamtaStickprov = async (manad) => {
+  const { data, error } = await supabase
+    .from("egenkontroll_stickprov")
+    .select("manad, valda, spridning_km")
+    .eq("manad", manad)
+    .maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  return { rad: { manad: d.manad, valda: Array.isArray(d.valda) ? d.valda : [], spridning_km: d.spridning_km == null ? null : Number(d.spridning_km) } };
+};
+
+// Åtgärden bakom "Lagat" — status, vad som gjordes, maskinens och den som stängdes namn. Tjänstenyckeln läser förbi RLS.
+const hamtaNej: HamtaNej = async (id) => {
+  const { data, error } = await supabase.from("larmplats_kontroll")
+    .select("id, objekt_id, lat, lng, kommentar, skapad_at, medarbetare:medarbetare_id(namn)").eq("id", id).maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const [o, alla, pk] = await Promise.all([
+    supabase.from("objekt").select("namn").eq("id", d.objekt_id).maybeSingle(),
+    supabase.from("larmplats_kontroll").select("id, lat, lng, svar, kommentar, skapad_at").eq("objekt_id", d.objekt_id),
+    supabase.rpc("objekt_tillaggspunkter"),
+  ]);
+  if (alla.error) return { rad: null, fel: alla.error.message };
+  // Avläggets namn: samma regel som appen (lib/larmpunkter). Går punkterna inte att läsa skrivs koordinaten.
+  const features = !pk.error && Array.isArray(pk.data) ? (pk.data as any[]).filter((x) => x.objekt_id === d.objekt_id).map((x) => x.punkt) : [];
+  const punkt = larmpunkterUr(features, null).find((p) => avstandPunktM({ lat: p.lat, lon: p.lng }, { lat: Number(d.lat), lon: Number(d.lng) }) < SAMMA_PUNKT_M);
+  const forn = typeof d.medarbetare?.namn === "string" ? d.medarbetare.namn.trim().split(/\s+/)[0] : null;
+  return {
+    rad: {
+      id: d.id, objekt_id: d.objekt_id, objekt_namn: (o.data as any)?.namn ?? null, lat: Number(d.lat), lng: Number(d.lng),
+      kommentar: d.kommentar ?? null, vem: forn, skapad_at: d.skapad_at, plats: punkt?.namn ?? null,
+      alla: ((alla.data ?? []) as any[]).map((r) => ({ id: r.id, lat: Number(r.lat), lng: Number(r.lng), svar: r.svar === "ja" ? "ja" : "nej", kommentar: r.kommentar ?? null, vem: null, skapadAt: r.skapad_at })),
+    },
+  };
+};
+
+const hamtaLagat: HamtaLagat = async (id) => {
+  const { data, error } = await supabase.from("am_atgard")
+    .select("id, status, kalla, beskrivning, vad_gjordes, maskin_id, stangd_av").eq("id", id).maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const [m, p] = await Promise.all([
+    d.maskin_id ? supabase.from("dim_maskin").select("visningsnamn, modell").eq("maskin_id", d.maskin_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    d.stangd_av ? supabase.from("medarbetare").select("namn").eq("id", d.stangd_av).maybeSingle() : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (m.error || p.error) return { rad: null, fel: (m.error ?? p.error)!.message };
+  const maskin = m.data as any;
+  return { rad: { id: d.id, status: d.status, kalla: d.kalla, beskrivning: d.beskrivning ?? "", vad_gjordes: d.vad_gjordes, maskin_namn: maskin?.visningsnamn || maskin?.modell || null, stangd_av_namn: (p.data as any)?.namn ?? null } };
+};
+
+// Åtgärden för "Maskinen ska stå", med maskinens och rapportörens namn. `rad: null` = finns inte; `fel` = kunde inte läsas.
+// Tjänstenyckeln läser förbi RLS (am_atgarder() kräver en inloggad admin/skyddsombud och ger därför inga rader här).
+const hamtaStopp: HamtaStopp = async (id) => {
+  const { data, error } = await supabase
+    .from("am_atgard")
+    .select("id, status, stopp, beskrivning, maskin_id, rapporterad_av, svar:svar_id(koll:maskinkoll_id(medarbetare_id))")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const svar = Array.isArray(d.svar) ? d.svar[0] : d.svar;
+  const koll = svar ? (Array.isArray(svar.koll) ? svar.koll[0] : svar.koll) : null;
+  const vemId: string | null = d.rapporterad_av ?? koll?.medarbetare_id ?? null;
+  const [m, p] = await Promise.all([
+    d.maskin_id ? supabase.from("dim_maskin").select("visningsnamn, modell").eq("maskin_id", d.maskin_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    vemId ? supabase.from("medarbetare").select("namn").eq("id", vemId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (m.error || p.error) return { rad: null, fel: (m.error ?? p.error)!.message };
+  const maskin = m.data as any;
+  return { rad: { id: d.id, status: d.status, stopp: !!d.stopp, beskrivning: d.beskrivning, maskin_namn: maskin?.visningsnamn || maskin?.modell || d.maskin_id || null, rapportor_namn: (p.data as any)?.namn ?? null } };
+};
+
+// Åtgärden bakom en tillbudsrapport, med typ (tillbud/olycka), maskinens och rapportörens namn. Tjänstenyckeln läser förbi RLS.
+const hamtaTillbud: HamtaTillbud = async (id) => {
+  const { data, error } = await supabase
+    .from("am_atgard")
+    .select("id, status, beskrivning, maskin_id, rapporterad_av, tillbud:tillbud_id(typ)")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const t = Array.isArray(d.tillbud) ? d.tillbud[0] : d.tillbud;
+  const [m, p] = await Promise.all([
+    d.maskin_id ? supabase.from("dim_maskin").select("visningsnamn, modell").eq("maskin_id", d.maskin_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    d.rapporterad_av ? supabase.from("medarbetare").select("namn").eq("id", d.rapporterad_av).maybeSingle() : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (m.error || p.error) return { rad: null, fel: (m.error ?? p.error)!.message };
+  const maskin = m.data as any;
+  return { rad: { id: d.id, status: d.status, typ: t?.typ === "olycka" ? "olycka" : t?.typ === "tillbud" ? "tillbud" : null, beskrivning: d.beskrivning, maskin_namn: maskin?.visningsnamn || maskin?.modell || null, rapportor_namn: (p.data as any)?.namn ?? null } };
+};
+
+// Produkten bakom "Säkerhetsblad saknas", med namnet på den som lade till. Tjänstenyckeln läser förbi RLS.
+const hamtaKemikalie: HamtaKemikalie = async (id) => {
+  const { data, error } = await supabase.from("am_kemikalie").select("id, namn, var_finns, aktiv, sdb_sokvag, skapad_av").eq("id", id).maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const p = d.skapad_av ? await supabase.from("medarbetare").select("namn").eq("id", d.skapad_av).maybeSingle() : { data: null, error: null };
+  if (p.error) return { rad: null, fel: p.error.message };
+  return { rad: { id: d.id, namn: d.namn, var_finns: d.var_finns, aktiv: !!d.aktiv, har_blad: !!d.sdb_sokvag, tillagd_av_namn: (p.data as any)?.namn ?? null } };
+};
+
+// Olyckan för anmälan-påminnelsen. `rad: null` = finns inte; `fel` = kunde inte läsas.
+const hamtaAnmal: HamtaAnmal = async (id) => {
+  const { data, error } = await supabase.from("am_tillbud").select("id, typ, anmald_tid, beskrivning, maskin_id").eq("id", id).maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const [a, m] = await Promise.all([
+    supabase.from("am_atgard").select("id").eq("tillbud_id", id).maybeSingle(),
+    d.maskin_id ? supabase.from("dim_maskin").select("visningsnamn, modell").eq("maskin_id", d.maskin_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (a.error || m.error) return { rad: null, fel: (a.error ?? m.error)!.message };
+  const maskin = m.data as any;
+  return { rad: { tillbud_id: d.id, atgard_id: (a.data as any)?.id ?? null, typ: d.typ === "olycka" ? "olycka" : "tillbud", anmald: d.anmald_tid != null, beskrivning: d.beskrivning, maskin_namn: maskin?.visningsnamn || maskin?.modell || null } };
+};
+
+// Inventarieraden för "Börjar ta slut". `rad: null` = finns inte; `fel` = kunde inte läsas. Tjänstenyckeln läser förbi RLS.
+const hamtaInventarierad: HamtaInventarie = async (radId) => {
+  const { data, error } = await supabase
+    .from("inventarie_rad")
+    .select("id, antal, min_antal, bestalld_tid, tva_lador, reserv_oppnad_tid, artikel:artikel_id(namn, sitter_pa, enhet), plats:plats_id(namn)")
+    .eq("id", radId)
+    .maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const a = Array.isArray(d.artikel) ? d.artikel[0] : d.artikel;
+  const p = Array.isArray(d.plats) ? d.plats[0] : d.plats;
+  if (!a || !p) return { rad: null };
+  return { rad: { id: d.id, antal: d.antal, min_antal: d.min_antal, bestalld_tid: d.bestalld_tid, tva_lador: !!d.tva_lador, reserv_oppnad_tid: d.reserv_oppnad_tid ?? null, artikel_namn: a.namn, sitter_pa: a.sitter_pa ?? null, enhet: a.enhet ?? null, plats_namn: p.namn } };
+};
+
+// Objektet + om SMS:et till markägaren är BEKRÄFTAT skickat (handelse = 'skickad'; att knappen öppnats räknas inte), för besökspåminnelsen. `rad: null` = finns inte; `fel` = kunde inte läsas.
+const hamtaBesokObjekt: HamtaBesokObjekt = async (objektId) => {
+  const { data, error } = await supabase.from("objekt").select("id, namn, status").eq("id", objektId).maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const s = await supabase.from("objekt_besok_sms").select("id", { count: "exact", head: true }).eq("objekt_id", objektId).eq("handelse", "skickad");
+  if (s.error) return { rad: null, fel: s.error.message };
+  const d = data as any;
+  return { rad: { id: d.id, namn: d.namn, status: d.status ?? null, sms_skickat: (s.count ?? 0) > 0 } };
+};
+
+// Besöket + objektet + maskinens namn + om maskinen redan tryckt Uppfattat, för "maskinen har inte sett besöket". `rad: null` = finns inte; `fel` = kunde inte läsas (raden lämnas oskickad).
+const hamtaEjSett: HamtaEjSett = async (besokId, maskinId) => {
+  const b = await supabase.from("objekt_besok").select("id, namn, besokstid, objekt_id").eq("id", besokId).maybeSingle();
+  if (b.error) return { rad: null, fel: b.error.message };
+  if (!b.data) return { rad: null };
+  const bd = b.data as any;
+  const [o, k, m] = await Promise.all([
+    supabase.from("objekt").select("id, namn, status").eq("id", bd.objekt_id).maybeSingle(),
+    supabase.from("objekt_besok_kvittens").select("besok_id", { count: "exact", head: true }).eq("besok_id", besokId).eq("maskin_id", maskinId),
+    supabase.from("dim_maskin").select("visningsnamn, maskin_typ").eq("maskin_id", maskinId).maybeSingle(),
+  ]);
+  if (o.error) return { rad: null, fel: o.error.message };
+  if (k.error) return { rad: null, fel: k.error.message };
+  if (m.error) return { rad: null, fel: m.error.message };
+  const md = m.data as any;
+  const roll = rollAvMaskintyp(md?.maskin_typ);
+  return {
+    rad: {
+      besok: { id: bd.id, namn: bd.namn, besokstid: bd.besokstid, objekt_id: bd.objekt_id },
+      objekt: o.data ? { id: (o.data as any).id, namn: (o.data as any).namn, status: (o.data as any).status ?? null } : null,
+      maskinNamn: roll ? maskinEtikett({ roll, namn: md?.visningsnamn ?? null }) : (md?.visningsnamn ?? null),
+      sett: (k.count ?? 0) > 0,
+    },
+  };
+};
+
+const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
+
+export async function byggMeddelande(n: any): Promise<{ title: string; body: string; url: string; tag?: string }> {
+  if (n.typ === "dagsslut" && n.datum) {
+    // FÄRSK dagstotal vid utskick: maskintid + extra tid (samma formel som
+    // #188) — inte det som stod när notisen köades. Kumulativa MOM-filer
+    // kan ha uppdaterat dagen mellan köandet (t.ex. lunch) och 17-utskicket.
+    const [dagRes, extraRes] = await Promise.all([
+      supabase.from("arbetsdag")
+        .select("arbetad_min, start_tid, brandrisk_beordrad")
+        .eq("medarbetare_id", n.mottagare_id).eq("datum", n.datum).maybeSingle(),
+      supabase.from("extra_tid")
+        .select("minuter")
+        .eq("medarbetare_id", n.mottagare_id).eq("datum", n.datum),
+    ]);
+    const dag: any = dagRes.data || {};
+    const maskinMin = dag.arbetad_min || 0;
+    const extraMin = (extraRes.data || []).reduce((a: number, e: any) => a + (e.minuter || 0), 0);
+    const tot = maskinMin + extraMin;
+    const h = Math.floor(tot / 60);
+    const m = tot % 60;
+    // Låsskärmstext: kort. "brandrisk?" — ett ord — när dagen startade före 05:30
+    // och svaret saknas (samma regel som frågan vid bekräftelsen, lib/ob).
+    const fraga = skaFragaBrandrisk({ datum: n.datum, start_tid: dag.start_tid ?? null, brandrisk_beordrad: dag.brandrisk_beordrad ?? null });
+    return {
+      title: "Din arbetsdag",
+      body: `${h}h ${m}min${fraga ? " · brandrisk?" : ""} · Stämmer?`,
+      url: "/arbetsrapport",
+      tag: `dagsslut-${n.mottagare_id}-${n.datum}`,
+    };
+  }
+
+  if (n.typ === "manadsskifte") {
+    // Köas av /api/notis/manadsskifte (den 1:a) ur samma beräkning som
+    // löneunderlaget. payload: { period: "YYYY-MM", obekraftade, obesvarade, oforklarade }.
+    const p = n.payload || {};
+    const [å, mm] = String(p.period || "").split("-").map(Number);
+    const manad = mm ? MANADER[mm - 1] : "månaden";
+    const delar: string[] = [];
+    if (p.obekraftade > 0) delar.push(`${p.obekraftade} obekräftad${p.obekraftade === 1 ? "" : "e"} dag${p.obekraftade === 1 ? "" : "ar"}`);
+    if (p.obesvarade > 0) delar.push(`${p.obesvarade} brandriskfråg${p.obesvarade === 1 ? "a" : "or"}`);
+    if (p.oforklarade > 0) delar.push(`${p.oforklarade} tidsavvikelse${p.oforklarade === 1 ? "" : "r"}`);
+    return {
+      title: `${manad.charAt(0).toUpperCase()}${manad.slice(1)}${å ? ` ${å}` : ""}: fixa innan lönen`,
+      body: delar.join(" · ") || "Något saknas i din månad",
+      url: "/arbetsrapport",
+      tag: `manadsskifte-${n.mottagare_id}-${p.period || ""}`,
+    };
+  }
+
+  if (n.typ === "atk_återställd") {
+    const p = n.payload || {};
+    const [medRes, andrareRes] = await Promise.all([
+      supabase.from("medarbetare").select("namn").eq("id", p.medarbetare_id).maybeSingle(),
+      p.andrare_id
+        ? supabase.from("medarbetare").select("namn").eq("id", p.andrare_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+    const medNamn = (medRes.data as any)?.namn || "okänd medarbetare";
+    const andrareNamn = (andrareRes.data as any)?.namn || "okänd";
+    const datumStr = new Date(n.skapad_at).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" });
+    const url = `/admin?flik=lon&underflik=atk&period=${encodeURIComponent(p.period || "")}&medarbetare=${encodeURIComponent(p.medarbetare_id || "")}`;
+    return {
+      title: `ATK-val återställt – ${medNamn}`,
+      body: `${p.period} ändrades${p.andrare_id ? ` av ${andrareNamn}` : ""} (${datumStr}). Det godkända valet behöver granskas igen.`,
+      url,
+      tag: `atk-${p.medarbetare_id}-${p.period}`,
+    };
+  }
+
+  if (n.typ === "helikopter_vecka") {
+    // Onsdagsnotisen (helikopter_notis_vecka, migration 20260912110200). payload = rådatan
+    // ur helikopter_ny_*; texten byggs här av den rena, testade formateraren.
+    const p = n.payload || {};
+    return {
+      title: "Veckoläge",
+      body: formateraVeckoNotis(p),
+      url: p.idag ? `/helikopter/veckolage?datum=${encodeURIComponent(String(p.idag))}` : "/helikopter/veckolage",
+      tag: `helikopter-vecka-${n.mottagare_id}-${n.datum || n.id || ""}`,
+    };
+  }
+
+  if (n.typ === "helikopter_manad") {
+    // Månadsfacit första arbetsdagen (helikopter_notis_manad, migration 20261015175856). payload = helikopter_manadsfacit för föregående månad.
+    const p = n.payload || {};
+    return {
+      title: "Helikopter",
+      body: formateraManadNotis(p),
+      url: manadNotisLank(p),
+      tag: `helikopter-manad-${n.mottagare_id}-${n.datum || n.id || ""}`,
+    };
+  }
+
+  if (n.typ === PAMINNELSE_TYP) {
+    // GROT: markägarens datum närmar sig (7 och 2 dagar före). Köas av /api/grot/paminnelse (lib/grotvy/paminnelse-ko);
+    // payload = { namn, senast, dagar_fore, mark_begransning }. Texten byggs här, färskt, av den rena funktionen.
+    return paminnelseMeddelande(n.payload, idagStockholm());
+  }
+
+  // Generisk fallback
+  return {
+    title: "Notis",
+    body: JSON.stringify(n.payload || {}).slice(0, 200),
+    url: "/admin",
+  };
+}

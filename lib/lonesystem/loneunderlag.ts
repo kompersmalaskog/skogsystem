@@ -1,0 +1,723 @@
+// ─────────────────────────────────────────────────────────────
+// Löneunderlaget — EN beräkning, tre läsare: Fortnox-exporten (skarp sändning +
+// dry_run/granskningsvy), förarens egen tidsspecifikation (/api/lon/min-manad)
+// och PDF:en. Lyft ur app/api/fortnox/salary-export/route.ts 2026-09-07 utan
+// att ändra utfallet (byte-diff-test: loneunderlag.bytediff.test.ts).
+//
+// Regler som ärvs härifrån: MÄNGDER, aldrig kronor (Fortnox äger satserna);
+// fakt-tabellerna läses aldrig för BERÄKNINGEN — allt underlag kommer ur
+// arbetsdag/extra_tid (enda undantaget är granskningsstödet för långa raster,
+// som läser fakt_avbrott för att VISA maskinens avbrott — det ändrar inget tal);
+// per medarbetare filtreras ALDRIG i klienten utan här (medarbetareIds).
+// ─────────────────────────────────────────────────────────────
+import { beräknaExport, arbetsperiodFrånLöneperiod, type ExportSammanfattning } from "@/lib/lonesystem/loneberakning";
+import { hamtaLoneartkopplingar, kopplingarTillKoder, type Loneartkopplingar } from "@/lib/lonesystem/loneart";
+import { sistaDagenIManaden } from "@/lib/datumLokal";
+import { maskinSlag } from "@/lib/maskinNamn";
+import { synkAvvikelser as beraknaSynkAvvikelser } from "@/lib/synkAvvikelse";
+import { ledighetKollisioner } from "@/lib/ledighetKollision";
+import { hamtaFranvaro, arDeldag } from "@/lib/franvaro";
+import { obMinuter, arTidigVardag, oenighetsMorgnar } from "@/lib/ob";
+import { ersattningsMilDag } from "@/lib/kmErsattning";
+import { aktLabel } from "@/lib/aktiviteter";
+import { dagensPlatser, dagensObjektOrdnat, berakaDagKm, hamtaObjektKoordinater } from "@/lib/routing";
+import { RAST_FRAGA_MIN, passOrimlighet, rastSaknas, RAST_SAKNAS_FRAN_MINUTER, type PassOrimlighet } from "@/lib/arbetsdagRegler";
+import { godkannandeAv, type Godkannande } from "@/lib/lonesystem/forarGodkannande";
+
+export type LoneunderlagRad = ExportSammanfattning & {
+  status: string;
+  /**
+   * Förarens eget godkännande av arbetsmånaden (loneunderlag.status, lib/lonesystem/forarGodkannande). Exporten skickar bara 'godkand'.
+   * Saknad rad, NULL (nollställt av en ändring) och okänd status är 'vantar'.
+   */
+  godkannande: Godkannande;
+  /** När föraren godkände (loneunderlag.skickat_tidpunkt), om godkänd. */
+  godkand_tid?: string | null;
+  /** Godkännandet nollställdes av en ändring i månaden: när, och vilken dag som ändrades. Bara på en förare som väntar. */
+  andrad_efter_godkannande?: { at: string; datum: string | null } | null;
+  /**
+   * Månaden är redan SKICKAD till Fortnox och har ändrats efteråt (fortnox_export_logg.andrad_efter_skickat_*): när, och vilka dagar. Databasen
+   * nollställer då inte godkännandet och föraren får ingen notis — Admin visar i stället "Ändrad efter att den skickats · 10 sep" så att det rättas
+   * i nästa lön. Bara på en förare vars månad är skickad.
+   */
+  andrad_efter_skickat?: { at: string; dagar: string[] } | null;
+};
+
+/** Så många dagar före/efter arbetsmånaden frånvaron läses för helglönens närvarokrav (längsta glappet mellan två vardagar är påsk/jul, 5 dagar). */
+const FRANVARO_MARGINAL_DAGAR = 10;
+const plusDagar = (iso: string, n: number) => {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+/** En rad i förarens tidrapport — samma arbetsdag-rad beräkningen redan läser,
+ *  plus rast/objekt/extra tid. Mängder; km är rådata, ersattningsmil det som
+ *  blir ersättning (samma lib/kmErsattning som exporten). */
+/** En rad ur extra_tid, så som den står i underlaget. Summan av `minuter` över månaden är `arbetat.extra_min`. */
+export type ExtraPost = {
+  datum: string;
+  start_tid: string | null;
+  slut_tid: string | null;
+  minuter: number;
+  aktivitet: string;
+  objekt: string | null;
+  kommentar: string | null;
+  debiterbar: boolean;
+};
+
+export type LoneunderlagDag = {
+  id: string;
+  datum: string;
+  start_tid: string | null;
+  slut_tid: string | null;
+  rast_min: number | null;
+  arbetad_min: number;      // maskintid (arbetsdag.arbetad_min) — på en perioddag: perioderna
+  extra_min: number;        // extra tid samma dag (extra_tid) — 0 på en perioddag (tiden står i arbetad_min)
+  objekt: string[];         // objektnamn i dagens ordning — på en perioddag: ur perioderna
+  /** PERIODDAG: raden saknar klockslag, tiden bor i perioderna. Visning, inte
+   *  beräkning — beräknaExport ser samma arbetsdag/extra_tid som förr. */
+  perioddag: boolean;
+  /** Dagens maskin (arbetsdag.maskin_id) — null på perioddag, eller en maskindag
+   *  som saknar maskin (kontrollvyn Dagar larmar på det). */
+  maskin_id: string | null;
+  km_totalt: number;
+  ersattningsmil: number;   // påbörjade mil över fri pendling — det som ersätts
+  /** Pendlingsbenen (arbetsdag.km_morgon / km_kvall: hem → första trakten, sista trakten → hem). Rådata, inget räknas om. */
+  km_morgon: number;
+  km_kvall: number;
+  /** Varifrån km kommer: 'auto' = beräknad av appen, 'forare' = förarens egen uppgift, null = ingen uppgift (dagar från före källan sparades). */
+  km_kalla: "auto" | "forare" | null;
+  /** Trakterna benen gick mellan — på ALLA dagar med känd trakt, och bara i granskningen (`medMaskintid`). Härlett ur dagens objekt med samma
+   *  funktion som räknade km (lib/routing dagensPlatser); sparas inte. Saknar trakterna koordinat står ändå första och sista trakten.
+   *  `appen` = vad appen hade fått för dagen (samma routing som en beräknad dag), bara när dagens km är förarens EGEN: ren visning, dagens km
+   *  och lönen rörs aldrig. null när routing inte går att räkna (saknad koordinat eller hemadress, eller ingen väg hittades). */
+  km_rutt?: { forsta: string; sista: string; appen: { morgon: number; kvall: number; totalt: number } | null } | null;
+  /** LÖNEKVOT-underlag (bara dry_run för admin, `medMaskintid`): maskinens G15
+   *  den dagen under FÖRARENS inloggning (fakt_tid.operator_id → medarbetare via
+   *  operator_medarbetare). GRANSKNINGSSTÖD, aldrig lön.
+   *  kalla 'fil' = maskinen skickar filer, min är mätt (kan vara 0);
+   *  'ingen_fil' = filfri maskin (810E) — ingen maskintid rapporteras, ALDRIG 0 %;
+   *  'ingen_maskin' = perioddag/dag utan maskin.
+   *  maskinens_min = maskinens hela G15 den dagen oavsett inloggning — syns
+   *  när föraren har 0 men maskinen gick (annan förares inloggning). */
+  maskintid?: { min: number; kalla: "fil" | "ingen_fil" | "ingen_maskin"; maskinens_min: number };
+  traktamente: boolean;
+  dagtyp: string | null;
+  bekraftad: boolean;
+  brandrisk_beordrad: boolean | null;
+  ob_min: number;
+};
+
+/** Dag med rast över RAST_FRAGA_MIN — granskningsstöd. `avbrott` är maskinens
+ *  egna avbrott samma dag (fakt_avbrott): ett "Övrigt" med samma start som
+ *  rasten betyder att stoppet bokfördes som rast vid omstart. */
+export type RastLangRad = {
+  datum: string;
+  rast_min: number;
+  arbetad_min: number;
+  avbrott: { typ: string; kategori: string | null; minuter: number; klockslag: string | null }[];
+};
+
+/**
+ * Förarnas godkännande för ARBETSmånaden, per medarbetare. Ett läsfel stoppar underlaget: en tyst "ingen har godkänt" ger ett felaktigt
+ * stopp, en tyst "alla har" en felaktig sändning. Saknas nollställningskolumnerna (migrationen ej körd) läses bara status.
+ */
+async function lasGodkannanden(supabase: any, arbetsperiod: string): Promise<Map<string, Pick<LoneunderlagRad, "godkannande" | "godkand_tid" | "andrad_efter_godkannande">>> {
+  let res = await supabase.from("loneunderlag").select("medarbetare_id, status, skickat_tidpunkt, nollstalld_at, nollstalld_datum").eq("period", arbetsperiod);
+  if (res.error && (res.error.code === "42703" || res.error.code === "PGRST204")) {
+    res = await supabase.from("loneunderlag").select("medarbetare_id, status, skickat_tidpunkt").eq("period", arbetsperiod);
+  }
+  if (res.error) throw new Error(`Kunde inte läsa förarnas godkännande: ${res.error.message}`);
+  const ut = new Map<string, Pick<LoneunderlagRad, "godkannande" | "godkand_tid" | "andrad_efter_godkannande">>();
+  for (const r of (res.data || []) as any[]) {
+    if (!r.medarbetare_id) continue;
+    const godkannande = godkannandeAv(r.status);
+    ut.set(String(r.medarbetare_id), {
+      godkannande,
+      godkand_tid: godkannande === "godkand" ? r.skickat_tidpunkt ?? null : null,
+      andrad_efter_godkannande: godkannande === "vantar" && r.nollstalld_at ? { at: r.nollstalld_at, datum: r.nollstalld_datum ?? null } : null,
+    });
+  }
+  return ut;
+}
+
+/**
+ * Skickade månader som ändrats efteråt, per medarbetare. `lonePeriod` är LÖNEperioden (som exportloggens period), inte arbetsmånaden.
+ * Saknas kolumnerna (migrationen ej körd) finns inget att visa — då är resultatet tomt. Ett annat läsfel stoppar underlaget: en tyst "ingen
+ * ändring" vore just det Martin inte ska behöva gissa.
+ */
+async function lasAndradEfterSkickat(supabase: any, lonePeriod: string): Promise<Map<string, { at: string; dagar: string[] }>> {
+  const res = await supabase.from("fortnox_export_logg")
+    .select("medarbetare_id, status, andrad_efter_skickat_at, andrad_efter_skickat_dagar")
+    .eq("period", lonePeriod);
+  if (res.error && (res.error.code === "42703" || res.error.code === "PGRST204")) return new Map();
+  if (res.error) throw new Error(`Kunde inte läsa vilka skickade månader som ändrats efteråt: ${res.error.message}`);
+  const ut = new Map<string, { at: string; dagar: string[] }>();
+  for (const r of (res.data || []) as any[]) {
+    if (!r.medarbetare_id || r.status !== "skickat" || !r.andrad_efter_skickat_at) continue;
+    const dagar: string[] = Array.from(new Set<string>((Array.isArray(r.andrad_efter_skickat_dagar) ? r.andrad_efter_skickat_dagar : []).map((d: unknown) => String(d).slice(0, 10)))).sort();
+    ut.set(String(r.medarbetare_id), { at: r.andrad_efter_skickat_at, dagar });
+  }
+  return ut;
+}
+
+export type LoneunderlagBerikad = LoneunderlagRad & {
+  ob: { timmar: number; dagar: number; obesvarade: number };
+  maskin_utan_typ: string[];
+  synk: SynkRad[];
+  ledighetskollision: ReturnType<typeof ledighetKollisioner>;
+  dagar: LoneunderlagDag[];
+  /** All extra tid i månaden rad för rad (inkl. dagar utan maskinpass), äldst först. */
+  extra_poster: ExtraPost[];
+  km_grans: number;         // fri pendling km/dag ur gs_avtal — för förklaringstexten
+  rast_langa: RastLangRad[];
+  // Pass över ARBETSDAG_MAX_MINUTER ('lang') eller negativa ('negativ' = rast
+  // längre än passet). En FRÅGA i granskningen, inte ett påstående om fel.
+  orimliga: { datum: string; slag: PassOrimlighet; arbetad_min: number; start_tid: string | null; slut_tid: string | null; rast_min: number }[];
+  // Pass ≥ RAST_SAKNAS_FRAN_MINUTER utan rast — på Ponsse-skotarna loggas rasten
+  // aldrig i filen, så noll betyder "ingen tog ställning". Summering, inte rader:
+  // det är nästan varje dag på de maskinerna — och noll är det korrekta värdet
+  // där (ingen fråga till föraren, se lib/arbetsdagRegler). Information till
+  // arbetsgivaren: noll rast påverkar övertid och vilotid.
+  utan_rast: { dagar: number; timmar: number; datum: string[] };
+  // Markerade utjämningsperioder (tabellen utjamningsperiod, avtalet §5 mom 2)
+  // som överlappar arbetsmånaden — en UPPLYSNING: månadens övertid (arbetade
+  // dagar × 8) är inte avtalets modell i en sådan period; genomsnittet räknas
+  // i årsövertiden. Inga timmar, ingen saldoräkning.
+  utjamning: { startdatum: string; slutdatum: string; anteckning: string }[];
+  // Vilobrott i arbetsmånaden ur tabellen vilobrott (det förarens app upptäckt
+  // och sparat, lib/vilobrott-storage) — kontrollvyn Dagar visar dem per dag.
+  vilobrott: { datum: string; typ: string; vila_h: number; krav_h: number; besvarat: boolean }[];
+};
+
+export type SynkRad = {
+  medarbetare_id: string;
+  medarbetare: string;
+  datum: string;
+  diff_min: number;
+  bekraftat: string;
+  maskinen: string;
+};
+
+export type Loneunderlag = {
+  period: string;        // löneperiod YYYY-MM
+  arbetsperiod: string;  // arbetsmånad YYYY-MM (period − 1)
+  resultat: LoneunderlagRad[];       // det den skarpa sändningen itererar
+  berikad: LoneunderlagBerikad[];    // resultat + granskningsdata (dry_run)
+  totalt_rader: number;
+  synkAvvikelser: SynkRad[];
+  oenighet: { datum: string; svar: { medarbetare_id: string; start_tid: string | null; brandrisk_beordrad: boolean; namn: string }[] }[];
+  /** Kod + namn i Fortnox per löneart (ur lonesystem_artikelmappning) — förhandsvisningen visar koden med sitt namn. */
+  kopplingar: Loneartkopplingar;
+};
+
+/**
+ * Beräknar löneunderlaget för en LÖNEPERIOD (en månad efter arbetstiden).
+ * `medarbetareIds` begränsar till givna medarbetare — förarens egen spec
+ * skickar sitt eget id (härlett ur sessionen i routen, aldrig ur klienten).
+ */
+export async function beraknaLoneunderlag(
+  supabase: any,
+  p: { period: string; medarbetareIds?: string[]; medMaskintid?: boolean },
+): Promise<Loneunderlag> {
+  const period = p.period;
+  const filterIds = p.medarbetareIds;
+
+  // Löneperiod → arbetsperiod (en månad bakåt)
+  const arbetsperiod = arbetsperiodFrånLöneperiod(period);
+  const [aÅ, aM] = arbetsperiod.split("-").map(Number);
+  const arbStart = arbetsperiod + "-01";
+  const arbSlut = sistaDagenIManaden(aÅ, aM); // LOKALT — toISOString tappade sista dagen i UTC+2
+
+  // Ladda data
+  // Löneartskoderna ur lonesystem_artikelmappning — exportens ENDA källa till koder. Ett läsfel stoppar underlaget.
+  const kopplingar = await hamtaLoneartkopplingar(supabase);
+  const loneartskoder = kopplingarTillKoder(kopplingar);
+
+  const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, ledRuntRes, avtalRes, utjRes, viloRes] = await Promise.all([
+    // foretagsledare (inga lönerader alls) och anstallningsdatum (kvalifikationstid för helglön) styr vad en förare får: läses
+    // här, aldrig ur klienten. Ett läsfel stoppar underlaget (en tyst "false" skulle ge företagsledarna lönerader).
+    supabase.from("medarbetare").select("id, namn, maskin_id, foretagsledare, anstallningsdatum, aktiv, hem_lat, hem_lng").order("namn"),
+    // (id, slut_tid, rast_min, traktamente, objekt_id läses för förarens dag-
+    // för-dag-rader — de påverkar inte beräkningen, som bara ser de gamla fälten.)
+    supabase.from("arbetsdag")
+      .select("id, medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, km_morgon, km_kvall, km_kalla, bekraftad, dagtyp, synk_avvikelse, start_tid, brandrisk_beordrad, slut_tid, rast_min, traktamente, objekt_id")
+      .gte("datum", arbStart).lte("datum", arbSlut),
+    // Extra tid = arbete när maskinen var av — arbetstid rakt av,
+    // ska in i timlön/övertid (arbetad_min ser den inte)
+    // (objekt_id/aktivitet_typ/klockslag läses för perioddagens dag-för-dag-rad
+    // — beräkningen ser bara minuter.)
+    supabase.from("extra_tid")
+      .select("medarbetare_id, datum, minuter, objekt_id, aktivitet_typ, start_tid, slut_tid, kommentar, typ, debiterbar")
+      .gte("datum", arbStart).lte("datum", arbSlut),
+    // Maskintyp: EN källa, dim_maskin.maskin_typ (lib/maskinNamn maskinSlag) — aldrig `maskiner`.
+    supabase.from("dim_maskin").select("maskin_id, maskin_typ, sander_filer"),
+    supabase.from("medarbetare_lonesystem")
+      .select("medarbetare_id, anstallningsnummer"),
+    supabase.from("fortnox_export_logg")
+      .select("medarbetare_id, status")
+      .eq("period", period),
+    // Frånvaro som ÖVERLAPPAR arbetsperioden — ENDA källan (lib/franvaro):
+    // godkänd ledighet + registrerad sjuk/vab/föräldraledig ur morgonkortet.
+    // loneberakning tillämpar "arbete vinner" + begränsar till arbetsmånaden.
+    hamtaFranvaro(supabase, { fran: arbStart, till: arbSlut }),
+    // Samma frånvaro ±10 dagar runt månaden: helglönens närvarokrav tittar på närmaste vardag före/efter en röd dag, och 1 jan
+    // hör till januari medan dagen före (30 dec) hör till december. Används BARA för helglönen — allt annat läser ledRes.
+    hamtaFranvaro(supabase, { fran: plusDagar(arbStart, -FRANVARO_MARGINAL_DAGAR), till: plusDagar(arbSlut, FRANVARO_MARGINAL_DAGAR) }),
+    // Fri pendling km/dag — samma fält som appen (km_grans_per_dag), aldrig
+    // hårdkodad 60. Fortnox äger kr/mil-satsen, vi skickar bara mil-antalet.
+    supabase.from("gs_avtal").select("km_grans_per_dag, helglon_dagar, ordinarie_vecka_h")
+      .order("giltigt_fran", { ascending: false }).limit(1).maybeSingle(),
+    // Utjämningsperioder (§5 mom 2) som överlappar arbetsmånaden — upplysning i
+    // granskningen. Tål att tabellen saknas (migration 20260918100000 ej körd):
+    // då tom lista, underlaget faller inte.
+    supabase.from("utjamningsperiod")
+      .select("startdatum, slutdatum, medarbetare_id, anteckning")
+      .lte("startdatum", arbSlut).gte("slutdatum", arbStart),
+    // Vilobrott som förarens app upptäckt i arbetsmånaden — kontrollvyn Dagar.
+    // Granskningsstöd, aldrig underlag; ett läsfel ger tom lista.
+    supabase.from("vilobrott")
+      .select("medarbetare_id, datum, typ, vila_h, krav_h, besvarat_av_forare")
+      .gte("datum", arbStart).lte("datum", arbSlut),
+  ]);
+  const vilobrottAlla: { medarbetare_id: string; datum: string; typ: string; vila_h: number; krav_h: number; besvarat_av_forare: boolean | null }[] =
+    viloRes?.error ? [] : (viloRes?.data || []);
+
+  if (medRes.error) throw medRes.error;
+  if (arbRes.error) throw arbRes.error;
+  // Frånvaro är lönegrund — ett läsfel får inte bli "ingen frånvaro".
+  if (ledRes.fel) throw new Error(`Kunde inte läsa frånvaro: ${ledRes.fel}`);
+  if (ledRuntRes.fel) throw new Error(`Kunde inte läsa frånvaron runt månaden: ${ledRuntRes.fel}`);
+  // Utjämningsperioderna avgör också HUR månadens ordinarie räknas (lib/lonesystem/manadsordinarie): en månad som överlappar förarens
+  // period behåller dagens formel. Saknas tabellen helt (migrationen ej körd) finns inga perioder; ett annat läsfel stoppar underlaget —
+  // en tyst tom lista skulle ge en utjämnad förare den nya regeln.
+  if (utjRes?.error && !/42P01|PGRST205/.test(`${utjRes.error.code ?? ""} ${utjRes.error.message ?? ""}`)) {
+    throw new Error(`Kunde inte läsa utjämningsperioder: ${utjRes.error.message ?? utjRes.error.code}`);
+  }
+  const utjamningAlla: { startdatum: string; slutdatum: string; medarbetare_id: string | null; anteckning: string }[] =
+    utjRes?.error ? [] : (utjRes?.data || []);
+
+  // Ohanterade synk-avvikelser: bekraftade dagar vars maskintider byggts om
+  // till andra varden an de bekraftade, och foraren har inte kvitterat annu.
+  // VARNAR (blockerar ej) infor lonekorning — talet ar redan i den bekraftade
+  // arbetad_min, sa en ohanterad avvikelse = betald tid ingen granskat.
+  const _namnMap = new Map((medRes.data || []).map((m: any) => [m.id, m.namn]));
+  // Delad lib (lib/synkAvvikelse) — SAMMA beräkning som Lön-flikens kort, så
+  // varningen och kortet aldrig kan säga olika om samma dag. Filtrera till
+  // ohanterade (oforklarad) och formatera exakt som förr (identiskt utfall).
+  const synkAvvikelser: SynkRad[] = beraknaSynkAvvikelser((arbRes.data || []) as any[])
+    .filter(r => r.status === 'oforklarad')
+    .map(r => ({
+      medarbetare_id: r.medarbetare_id,
+      medarbetare: (_namnMap.get(r.medarbetare_id) as string | undefined) || r.medarbetare_id,
+      datum: r.datum, diff_min: r.deltaMin,
+      bekraftat: `${r.bekraftad_start}-${r.bekraftad_slut} rast ${r.bekraftad_rast_min}`,
+      maskinen: `${r.mom_start}-${r.mom_slut} rast ${r.mom_rast_min}`,
+    }))
+    .sort((a, b) => b.diff_min - a.diff_min);
+  if (extraRes.error) throw extraRes.error;
+
+  // Ledighet + registrerat arbete samma dag (delad lib — samma sanning som
+  // Lön-flikens kort). Grupperas per medarbetare för granskningsvyn.
+  // Kollision = HELDAGSfrånvaro på en arbetad dag. En deldag (klockslag) är
+  // arbete plus frånvaro med avsikt — ingen kollision (lib/franvaro).
+  const ledKollAlla = ledighetKollisioner(ledRes.rader.filter(r => !arDeldag(r)) as any[], (arbRes.data || []) as any[]);
+  const ledKollMap = new Map<string, typeof ledKollAlla>();
+  for (const k of ledKollAlla) {
+    if (!ledKollMap.has(k.medarbetare_id)) ledKollMap.set(k.medarbetare_id, []);
+    ledKollMap.get(k.medarbetare_id)!.push(k);
+  }
+  // Brandrisk-oenighet: morgnar där tidiga förare svarat olika (namn på ytan).
+  const oenighet = oenighetsMorgnar((arbRes.data || []) as any[]).map(o => ({
+    datum: o.datum,
+    svar: o.svar.map(s => ({ ...s, namn: (_namnMap.get(s.medarbetare_id) as string | undefined) || s.medarbetare_id })),
+  }));
+
+  // Maskintyp-map
+  const maskinTypMap: Record<string, "skordare" | "skotare"> = {};
+  for (const m of (maskinRes.data || [])) {
+    const slag = maskinSlag(m.maskin_typ);
+    if (m.maskin_id && slag) maskinTypMap[m.maskin_id] = slag;
+  }
+
+  const godkannanden = await lasGodkannanden(supabase, arbetsperiod);
+  const andradEfterSkickat = await lasAndradEfterSkickat(supabase, period);
+
+  // Anställningsnummer-map
+  const anstMap: Record<string, string> = {};
+  for (const ml of (mappRes.data || [])) {
+    if (ml.medarbetare_id && ml.anstallningsnummer) {
+      anstMap[ml.medarbetare_id] = ml.anstallningsnummer;
+    }
+  }
+
+  // Redan skickade
+  const redanSkickad = new Set<string>();
+  for (const l of (loggRes.data || [])) {
+    if (l.status === "skickat") redanSkickad.add(l.medarbetare_id);
+  }
+
+  // Gruppera arbetsdagar per medarbetare
+  const dagPerMed = new Map<string, any[]>();
+  for (const d of (arbRes.data || [])) {
+    if (!d.medarbetare_id) continue;
+    if (!dagPerMed.has(d.medarbetare_id)) dagPerMed.set(d.medarbetare_id, []);
+    dagPerMed.get(d.medarbetare_id)!.push(d);
+  }
+
+  // Gruppera extra tid per medarbetare (OBS: filtret på medarbetare_id är
+  // bärande — en förares extra tid får aldrig hamna på någon annan)
+  const extraPerMed = new Map<string, { datum: string | null; minuter: number | null }[]>();
+  for (const e of (extraRes.data || [])) {
+    if (!e.medarbetare_id) continue;
+    if (!extraPerMed.has(e.medarbetare_id)) extraPerMed.set(e.medarbetare_id, []);
+    extraPerMed.get(e.medarbetare_id)!.push({ datum: e.datum, minuter: e.minuter });
+  }
+
+  // Gruppera frånvaro per medarbetare (medarbetare_id bär identiteten —
+  // anvandare_id är fritext och används aldrig för koppling)
+  const ledPerMed = new Map<string, { typ: string; startdatum: string; slutdatum: string; ersatter_datum?: string | null; fran_tid?: string | null; till_tid?: string | null }[]>();
+  for (const l of ledRes.rader) {
+    if (!l.medarbetare_id) continue;
+    if (!ledPerMed.has(l.medarbetare_id)) ledPerMed.set(l.medarbetare_id, []);
+    ledPerMed.get(l.medarbetare_id)!.push({ typ: l.typ, startdatum: l.startdatum, slutdatum: l.slutdatum, ersatter_datum: l.ersatter_datum ?? null, fran_tid: l.fran_tid ?? null, till_tid: l.till_tid ?? null });
+  }
+
+  const ledRuntPerMed = new Map<string, { typ: string; startdatum: string; slutdatum: string; fran_tid?: string | null; till_tid?: string | null }[]>();
+  for (const l of ledRuntRes.rader) {
+    if (!l.medarbetare_id) continue;
+    if (!ledRuntPerMed.has(l.medarbetare_id)) ledRuntPerMed.set(l.medarbetare_id, []);
+    ledRuntPerMed.get(l.medarbetare_id)!.push({ typ: l.typ, startdatum: l.startdatum, slutdatum: l.slutdatum, fran_tid: l.fran_tid ?? null, till_tid: l.till_tid ?? null });
+  }
+
+  // Bytesdagar (inarbetad) vars RÖDA dag ligger utanför arbetsperioden: hämta
+  // om den dagen arbetades, så granskningen kan säga "inarbetningen saknas"
+  // även över ett månadsskifte. Liten fråga, bara de datumen.
+  const ersatterUtanfor = Array.from(new Set(
+    ledRes.rader
+      .filter(l => l.typ === "inarbetad" && l.ersatter_datum && (l.ersatter_datum < arbStart || l.ersatter_datum > arbSlut))
+      .map(l => l.ersatter_datum as string),
+  ));
+  const arbetadeUtanforPerMed = new Map<string, Set<string>>();
+  if (ersatterUtanfor.length > 0) {
+    const { data: rodRader, error: rodFel } = await supabase.from("arbetsdag")
+      .select("medarbetare_id, datum, arbetad_min")
+      .in("datum", ersatterUtanfor);
+    if (rodFel) throw new Error(`Kunde inte läsa bytesdagarnas röda dagar: ${rodFel.message}`);
+    for (const r of (rodRader || []) as any[]) {
+      if ((r.arbetad_min || 0) <= 0) continue;
+      if (!arbetadeUtanforPerMed.has(r.medarbetare_id)) arbetadeUtanforPerMed.set(r.medarbetare_id, new Set());
+      arbetadeUtanforPerMed.get(r.medarbetare_id)!.add(r.datum);
+    }
+  }
+
+  // Fri pendling km/dag ur avtalet (fallback 60) — matas in i beräkningen
+  const kmGrans = avtalRes.data?.km_grans_per_dag ?? 60;
+
+  // Beräkna per medarbetare
+  const medarbetare = (medRes.data || []) as { id: string; namn: string; maskin_id?: string | null; foretagsledare?: boolean | null; anstallningsdatum?: string | null; aktiv?: boolean | null }[];
+  const resultat: LoneunderlagRad[] = [];
+  // Granskningsdata som INTE går till Fortnox men syns i granskningsvyn:
+  // OB-timmar (löneart ej fastställd) + maskiner som saknar typ (tyst borttagen
+  // premie). Byggs per medarbetare, slås ihop i dry_run-svaret — den skarpa
+  // sändningen rör dem aldrig.
+  const obMap = new Map<string, { timmar: number; dagar: number; obesvarade: number }>();
+  const maskinUtanTypMap = new Map<string, string[]>();
+
+  for (const med of medarbetare) {
+    if (filterIds && !filterIds.includes(med.id)) continue;
+    const dagar = dagPerMed.get(med.id) || [];
+    const extra = extraPerMed.get(med.id) || [];
+    const ledigheter = ledPerMed.get(med.id) || [];
+    // Extra-only-månad (arbete utan ett enda maskinpass) ska också med —
+    // det är arbetstid; beräkningen varnar då om ordinarie-effekten. Även en
+    // ren frånvaromånad (bara ledighet) ska med så frånvaron syns.
+    if (dagar.length === 0 && extra.length === 0 && ledigheter.length === 0) continue;
+
+    const anstNr = anstMap[med.id] || "";
+    // Premiens fördelning en månad utan maskintid: typen på förarens rad-maskin.
+    const radMaskinTyp = med.maskin_id ? (maskinTypMap[med.maskin_id] ?? null) : null;
+    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans, avtalRes.data?.helglon_dagar ?? null, arbetadeUtanforPerMed.get(med.id) || new Set(), avtalRes.data?.ordinarie_vecka_h ?? null, radMaskinTyp, loneartskoder, {
+      franvaroRunt: ledRuntPerMed.get(med.id) || [],
+      anstallningsdatum: med.anstallningsdatum ?? null,
+      foretagsledare: med.foretagsledare === true,
+      // Månadens ordinarie (lib/lonesystem/manadsordinarie): en månad som överlappar förarens utjämningsperiod behåller dagens formel,
+      // och en förare som inte är aktiv varnas (medarbetare har inget slutdatum — dagar efter avslut kan inte dras av).
+      utjamning: utjamningAlla.filter(u => !u.medarbetare_id || u.medarbetare_id === med.id).map(u => ({ startdatum: u.startdatum, slutdatum: u.slutdatum })),
+      aktiv: med.aktiv ?? undefined,
+    }); // period = löneperiod
+
+    let status = "utkast";
+    if (redanSkickad.has(med.id)) status = "skickat";
+
+    const gk = godkannanden.get(med.id);
+    resultat.push({
+      ...export_, status, godkannande: gk?.godkannande ?? "vantar", godkand_tid: gk?.godkand_tid ?? null, andrad_efter_godkannande: gk?.andrad_efter_godkannande ?? null,
+      andrad_efter_skickat: status === "skickat" ? andradEfterSkickat.get(med.id) ?? null : null,
+    });
+
+    // OB (lib/ob) — härledd, aldrig lagrad, aldrig en Fortnox-rad
+    let obMin = 0, obDagar = 0, obObes = 0;
+    for (const d of dagar as any[]) {
+      const m = obMinuter(d);
+      if (m > 0) { obMin += m; obDagar++; }
+      if (d.brandrisk_beordrad == null && arTidigVardag(d)) obObes++;
+    }
+    obMap.set(med.id, { timmar: Math.round((obMin / 60) * 100) / 100, dagar: obDagar, obesvarade: obObes });
+
+    // Maskiner utan typ i registret → ingen premie beräknas (Daniel-fallet).
+    // Non-null maskin_id som inte finns i maskinTypMap = saknad eller otypad.
+    const utanTyp = Array.from(new Set(
+      (dagar as any[]).map(d => d.maskin_id).filter((mid: any) => mid && !maskinTypMap[mid])
+    )) as string[];
+    if (utanTyp.length) maskinUtanTypMap.set(med.id, utanTyp);
+  }
+
+  // Dag för dag (förarens tidrapport): objektnamn via arbetsdag_objekt →
+  // dim_objekt, extra tid per dag. Läses BARA för de medarbetare som beräknats
+  // (filterIds) — en förares spec hämtar aldrig andras dagar.
+  const beraknadeIds = new Set(resultat.map(r => r.medarbetare_id));
+  const dagRader = ((arbRes.data || []) as any[]).filter(d => beraknadeIds.has(d.medarbetare_id));
+  const arbIds = dagRader.map(d => d.id).filter(Boolean);
+  const aoRes = arbIds.length
+    ? await supabase.from("arbetsdag_objekt").select("arbetsdag_id, objekt_id, objekt_namn, ordning").in("arbetsdag_id", arbIds)
+    : { data: [] as any[] };
+  const objektIds = Array.from(new Set<string>([
+    ...dagRader.map(d => d.objekt_id).filter(Boolean).map(String),
+    ...((aoRes.data as any[]) || []).map(r => r.objekt_id).filter(Boolean).map(String),
+    ...((extraRes.data || []) as any[]).map(e => e.objekt_id).filter(Boolean).map(String),
+  ]));
+  const dimRes = objektIds.length
+    ? await supabase.from("dim_objekt").select("objekt_id, object_name").in("objekt_id", objektIds)
+    : { data: [] as any[] };
+  const objNamn = new Map<string, string>(((dimRes.data as any[]) || []).map(d => [String(d.objekt_id), d.object_name || String(d.objekt_id)]));
+  const aoByArb = new Map<string, { objekt_id: string | null; objekt_namn: string | null; ordning: number | null }[]>();
+  for (const r of ((aoRes.data as any[]) || [])) {
+    if (!aoByArb.has(r.arbetsdag_id)) aoByArb.set(r.arbetsdag_id, []);
+    aoByArb.get(r.arbetsdag_id)!.push(r);
+  }
+  // Platserna benen gick mellan (granskningen): bara för beräknade dagar, med SAMMA funktion och koordinatkedja som räknade km.
+  // Granskningsstöd — ett läsfel ger ingen rutt, aldrig ett fel i lönen.
+  let kmKoord: Awaited<ReturnType<typeof hamtaObjektKoordinater>> = {};
+  if (p.medMaskintid) {
+    const autoIds = Array.from(new Set<string>(dagRader.flatMap(d => [
+      ...(d.objekt_id ? [String(d.objekt_id)] : []),
+      ...((aoByArb.get(d.id) || []).map(r => r.objekt_id).filter(Boolean).map(String)),
+    ])));
+    try { kmKoord = await hamtaObjektKoordinater(supabase, autoIds); } catch { kmKoord = {}; }
+  }
+  // Hemmets koordinat per förare (för att räkna fram vad appen hade fått där km är förarens egen).
+  const hemPerMed = new Map<string, { lat: number | null; lng: number | null }>(
+    ((medRes.data || []) as any[]).map(m => [m.id, { lat: m.hem_lat != null ? Number(m.hem_lat) : null, lng: m.hem_lng != null ? Number(m.hem_lng) : null }]),
+  );
+  // Routing kan ge ett anrop mot ORS första gången en sträcka räknas (resultatet cachas i route_cache, som nattjobbet och månadsvyn). Högst så här
+  // många per körning: resten visas utan appens värde tills sträckan är cachad, så en granskning av ett helt år aldrig blir en storm mot ORS.
+  let orsBudget = 20;
+  const extraMinPerDag = new Map<string, number>(); // `${med}|${datum}` → min
+  const extraPerDag = new Map<string, any[]>();       // `${med}|${datum}` → perioder (för perioddagens rad)
+  for (const e of (extraRes.data || []) as any[]) {
+    if (!e.medarbetare_id || !e.datum) continue;
+    const k = `${e.medarbetare_id}|${e.datum}`;
+    extraMinPerDag.set(k, (extraMinPerDag.get(k) || 0) + (e.minuter || 0));
+    if (!extraPerDag.has(k)) extraPerDag.set(k, []);
+    extraPerDag.get(k)!.push(e);
+  }
+  const extraPosterPerMed = new Map<string, ExtraPost[]>();
+  for (const e of (extraRes.data || []) as any[]) {
+    if (!e.medarbetare_id || !e.datum || !beraknadeIds.has(e.medarbetare_id)) continue;
+    if (!extraPosterPerMed.has(e.medarbetare_id)) extraPosterPerMed.set(e.medarbetare_id, []);
+    extraPosterPerMed.get(e.medarbetare_id)!.push({
+      datum: e.datum,
+      start_tid: e.start_tid ? String(e.start_tid).slice(0, 5) : null,
+      slut_tid: e.slut_tid ? String(e.slut_tid).slice(0, 5) : null,
+      minuter: Number(e.minuter || 0),
+      aktivitet: aktLabel(e.aktivitet_typ || e.typ),
+      objekt: e.objekt_id ? (objNamn.get(String(e.objekt_id)) || String(e.objekt_id)) : null,
+      kommentar: e.kommentar ? String(e.kommentar) : null,
+      debiterbar: !!e.debiterbar,
+    });
+  }
+  for (const l of Array.from(extraPosterPerMed.values())) l.sort((a, b) => a.datum.localeCompare(b.datum) || String(a.start_tid || "").localeCompare(String(b.start_tid || "")));
+  const dagarPerMed = new Map<string, LoneunderlagDag[]>();
+  for (const d of dagRader) {
+    const k = `${d.medarbetare_id}|${d.datum}`;
+    const exMin = extraMinPerDag.get(k) || 0;
+    // PERIODDAG: raden saknar klockslag, tiden bor i perioderna. Visa tiden som
+    // Arbetad (det ÄR dagens arbete, inte "extra") och objekten ur perioderna.
+    // Bara visning — beräkningen (beräknaExport) läser samma rader som förr.
+    const perioddag = !d.start_tid && !d.slut_tid && exMin > 0;
+    const ao = (aoByArb.get(d.id) || []).sort((a: { ordning: number | null }, b: { ordning: number | null }) => (a.ordning ?? 0) - (b.ordning ?? 0));
+    const objektUrRad = ao.length
+      ? ao.map(r => r.objekt_namn || (r.objekt_id ? objNamn.get(String(r.objekt_id)) : null) || "").filter(Boolean)
+      : (d.objekt_id ? [objNamn.get(String(d.objekt_id)) || String(d.objekt_id)] : []);
+    const objektUrPerioder = Array.from(new Set(
+      (extraPerDag.get(k) || [])
+        .sort((a: any, b: any) => String(a.start_tid || "").localeCompare(String(b.start_tid || "")))
+        .map((e: any) => e.objekt_id ? (objNamn.get(String(e.objekt_id)) || String(e.objekt_id)) : "")
+        .filter(Boolean),
+    ));
+    const objekt = perioddag && objektUrRad.length === 0 ? objektUrPerioder : objektUrRad;
+    const km = Number(d.km_totalt || 0);
+    const kmKalla: LoneunderlagDag["km_kalla"] = d.km_kalla === "auto" || d.km_kalla === "forare" ? d.km_kalla : null;
+    let kmRutt: LoneunderlagDag["km_rutt"] = null;
+    if (p.medMaskintid) {
+      const aoRader = ao.map(r => ({ objekt_id: r.objekt_id, ordning: r.ordning }));
+      const namn = (id: string) => objNamn.get(id) || ao.find(r => String(r.objekt_id) === id)?.objekt_namn || id;
+      // Trakterna med koordinat är dem kmräkningen använde; saknas koordinat helt visas ändå första och sista trakten.
+      let platser = dagensPlatser(aoRader, [d.objekt_id], kmKoord);
+      if (platser.length === 0) platser = dagensObjektOrdnat(aoRader, [d.objekt_id]);
+      if (platser.length > 0) {
+        kmRutt = { forsta: namn(platser[0]), sista: namn(platser[platser.length - 1]), appen: null };
+        const hem = hemPerMed.get(d.medarbetare_id);
+        if (kmKalla === "forare" && hem?.lat != null && hem?.lng != null) {
+          try {
+            const ber = await berakaDagKm(supabase, { aoRader, fallbackObjektId: [d.objekt_id], koordMap: kmKoord, hemLat: hem.lat, hemLng: hem.lng, allowOrs: orsBudget > 0 });
+            // En haversine-gissning (källa 'fallback') är ingen routing: den visas aldrig som appens värde.
+            if (ber && ber.källa !== "fallback") {
+              orsBudget -= ber.orsAnrop;
+              kmRutt.appen = { morgon: ber.km_morgon, kvall: ber.km_kvall, totalt: ber.km_morgon + ber.km_kvall };
+            }
+          } catch { /* granskningsstöd: ingen routing, bara trakten */ }
+        }
+      }
+    }
+    const rad: LoneunderlagDag = {
+      id: d.id, datum: d.datum, start_tid: d.start_tid, slut_tid: d.slut_tid, rast_min: d.rast_min,
+      arbetad_min: perioddag ? exMin : Number(d.arbetad_min || 0),
+      extra_min: perioddag ? 0 : exMin,
+      objekt, maskin_id: d.maskin_id ?? null, km_totalt: km, ersattningsmil: ersattningsMilDag(km, kmGrans),
+      km_morgon: Number(d.km_morgon || 0), km_kvall: Number(d.km_kvall || 0), km_kalla: kmKalla, km_rutt: kmRutt,
+      traktamente: !!d.traktamente, dagtyp: d.dagtyp ?? null, bekraftad: !!d.bekraftad,
+      brandrisk_beordrad: d.brandrisk_beordrad ?? null, ob_min: obMinuter(d),
+      perioddag,
+    };
+    if (!dagarPerMed.has(d.medarbetare_id)) dagarPerMed.set(d.medarbetare_id, []);
+    dagarPerMed.get(d.medarbetare_id)!.push(rad);
+  }
+  for (const l of Array.from(dagarPerMed.values())) l.sort((a: LoneunderlagDag, b: LoneunderlagDag) => a.datum.localeCompare(b.datum));
+
+  // LÖNEKVOTEN (admin → Lön → Dagar, bara dry_run): maskintid per dagrad.
+  // GRANSKNINGSSTÖD, aldrig underlag — beräkningen ovan rör den inte, och
+  // förarnas spec (min-manad) begär den inte (lönekvot per person läses som
+  // ett omdöme, och det mesta kan föraren inte påverka). Täljaren är G15 —
+  // inte branschens G0 (Martin 2026-10-02, docs/lonesystem/lonekvot.md).
+  // Två hanteringar som gör talet ärligt:
+  //  1. delad maskin och dag → G15 per FÖRARE via fakt_tid.operator_id →
+  //     operator_medarbetare, aldrig delat lika;
+  //  2. filfri maskin (dim_maskin.sander_filer=false, 810E) → 'ingen_fil',
+  //     aldrig 0 % (810E gav Martin "32 %" i den grova räkningen).
+  if (p.medMaskintid) {
+    const sanderFiler = new Map<string, boolean>();
+    for (const m of (maskinRes.data || [])) if (m.maskin_id) sanderFiler.set(m.maskin_id, m.sander_filer !== false);
+    const maskinerIBruk = Array.from(new Set(dagRader.map(d => d.maskin_id).filter((x): x is string => !!x && sanderFiler.get(x) !== false)));
+    const opMedRes = await supabase.from("operator_medarbetare").select("operator_id, medarbetare_id");
+    const opTillMed = new Map<string, string>();
+    for (const r of (opMedRes.data || [])) opTillMed.set(r.operator_id, r.medarbetare_id);
+    // fakt_tid för månadens maskiner — paginerat (PostgREST svarar max 1000/anrop).
+    const tidRader: { maskin_id: string; datum: string; operator_id: string | null; processing_sek: number | null; terrain_sek: number | null; other_work_sek: number | null }[] = [];
+    if (maskinerIBruk.length) {
+      for (let fran = 0; ; fran += 1000) {
+        const r = await supabase.from("fakt_tid")
+          .select("maskin_id, datum, operator_id, processing_sek, terrain_sek, other_work_sek")
+          .in("maskin_id", maskinerIBruk).gte("datum", arbStart).lte("datum", arbSlut)
+          .order("id", { ascending: true }).range(fran, fran + 999);
+        if (r.error) break; // granskningsstöd: ett läsfel ger ingen maskintid, aldrig ett fel i lönen
+        tidRader.push(...(r.data || []));
+        if (!r.data || r.data.length < 1000) break;
+      }
+    }
+    const g15Min = (t: { processing_sek: number | null; terrain_sek: number | null; other_work_sek: number | null }) =>
+      ((t.processing_sek || 0) + (t.terrain_sek || 0) + (t.other_work_sek || 0)) / 60;
+    const perForareDag = new Map<string, number>();   // `${medarbetare}|${maskin}|${datum}`
+    const perMaskinDag = new Map<string, number>();   // `${maskin}|${datum}`
+    for (const t of tidRader) {
+      const mk = `${t.maskin_id}|${t.datum}`;
+      perMaskinDag.set(mk, (perMaskinDag.get(mk) || 0) + g15Min(t));
+      const med = t.operator_id ? opTillMed.get(t.operator_id) : null;
+      if (med) { const fk = `${med}|${mk}`; perForareDag.set(fk, (perForareDag.get(fk) || 0) + g15Min(t)); }
+    }
+    for (const [medId, lista] of Array.from(dagarPerMed.entries())) {
+      for (const d of lista) {
+        if (!d.maskin_id) { d.maskintid = { min: 0, kalla: "ingen_maskin", maskinens_min: 0 }; continue; }
+        if (sanderFiler.get(d.maskin_id) === false) { d.maskintid = { min: 0, kalla: "ingen_fil", maskinens_min: 0 }; continue; }
+        const mk = `${d.maskin_id}|${d.datum}`;
+        d.maskintid = {
+          min: Math.round(perForareDag.get(`${medId}|${mk}`) || 0),
+          kalla: "fil",
+          maskinens_min: Math.round(perMaskinDag.get(mk) || 0),
+        };
+      }
+    }
+  }
+
+  // Långa raster (> RAST_FRAGA_MIN) — GRANSKNINGSSTÖD, aldrig underlag. Det här
+  // är det enda stället som läser en fakt-tabell: maskinens avbrott samma dag,
+  // så granskaren ser "Övrigt 24 min med samma start" bredvid rasten. Beräkningen
+  // ovan rör den aldrig. (Stefan aug 2026: 98/107/110 min "Meal break" som var
+  // flytt/väntan — 4 timmar övertid för mycket.)
+  const rastLangaKandidater = dagRader.filter(d => Number(d.rast_min || 0) > RAST_FRAGA_MIN);
+  const avbrottPerDag = new Map<string, RastLangRad["avbrott"]>(); // `${maskin}|${datum}`
+  if (rastLangaKandidater.length) {
+    const maskiner = Array.from(new Set(rastLangaKandidater.map(d => d.maskin_id).filter(Boolean)));
+    const datumn = Array.from(new Set(rastLangaKandidater.map(d => d.datum)));
+    const avRes = maskiner.length
+      ? await supabase.from("fakt_avbrott").select("maskin_id, datum, typ, kategori_kod, langd_sek, klockslag").in("maskin_id", maskiner).in("datum", datumn)
+      : { data: [] as any[] };
+    for (const a of ((avRes.data as any[]) || [])) {
+      const k = `${a.maskin_id}|${a.datum}`;
+      if (!avbrottPerDag.has(k)) avbrottPerDag.set(k, []);
+      avbrottPerDag.get(k)!.push({ typ: a.typ, kategori: a.kategori_kod ?? null, minuter: Math.round((a.langd_sek || 0) / 60), klockslag: a.klockslag ? String(a.klockslag).slice(0, 5) : null });
+    }
+  }
+  const rastLangaPerMed = new Map<string, RastLangRad[]>();
+  for (const d of rastLangaKandidater) {
+    const rad: RastLangRad = {
+      datum: d.datum, rast_min: Number(d.rast_min || 0), arbetad_min: Number(d.arbetad_min || 0),
+      avbrott: (avbrottPerDag.get(`${d.maskin_id}|${d.datum}`) || []).sort((a, b) => (a.klockslag || "").localeCompare(b.klockslag || "")),
+    };
+    if (!rastLangaPerMed.has(d.medarbetare_id)) rastLangaPerMed.set(d.medarbetare_id, []);
+    rastLangaPerMed.get(d.medarbetare_id)!.push(rad);
+  }
+
+  // Berikning (dry_run/granskningsvy/förarspec): OB, maskin-luckor,
+  // tidsavvikelser, ledighetskollision, dag för dag — allt på ett ställe,
+  // ingen parallell beräkning någonstans.
+  const berikad: LoneunderlagBerikad[] = resultat.map(r => ({
+    ...r,
+    ob: obMap.get(r.medarbetare_id) || { timmar: 0, dagar: 0, obesvarade: 0 },
+    maskin_utan_typ: maskinUtanTypMap.get(r.medarbetare_id) || [],
+    synk: synkAvvikelser.filter(s => s.medarbetare_id === r.medarbetare_id),
+    ledighetskollision: ledKollMap.get(r.medarbetare_id) || [],
+    dagar: dagarPerMed.get(r.medarbetare_id) || [],
+    extra_poster: extraPosterPerMed.get(r.medarbetare_id) || [],
+    km_grans: kmGrans,
+    rast_langa: (rastLangaPerMed.get(r.medarbetare_id) || []).sort((a, b) => a.datum.localeCompare(b.datum)),
+    // Orimliga pass ur samma dagrader — arbetad_min är databasens tal (modulo 24 h).
+    utan_rast: (() => {
+      const d = (dagarPerMed.get(r.medarbetare_id) || []).filter(x => x.start_tid && x.slut_tid && rastSaknas(x.arbetad_min, x.rast_min));
+      return { dagar: d.length, timmar: Math.round(d.reduce((s, x) => s + x.arbetad_min, 0) / 6) / 10, datum: d.map(x => x.datum) };
+    })(),
+    orimliga: (dagarPerMed.get(r.medarbetare_id) || [])
+      .filter(d => d.start_tid && d.slut_tid && passOrimlighet(d.arbetad_min))
+      .map(d => ({ datum: d.datum, slag: passOrimlighet(d.arbetad_min)!, arbetad_min: d.arbetad_min, start_tid: d.start_tid, slut_tid: d.slut_tid, rast_min: Number(d.rast_min || 0) })),
+    utjamning: utjamningAlla
+      .filter(u => !u.medarbetare_id || u.medarbetare_id === r.medarbetare_id)
+      .map(u => ({ startdatum: u.startdatum, slutdatum: u.slutdatum, anteckning: u.anteckning })),
+    vilobrott: vilobrottAlla
+      .filter(v => v.medarbetare_id === r.medarbetare_id)
+      .map(v => ({ datum: v.datum, typ: v.typ, vila_h: Number(v.vila_h), krav_h: Number(v.krav_h), besvarat: !!v.besvarat_av_forare }))
+      .sort((a, b) => a.datum.localeCompare(b.datum)),
+  }));
+
+  return {
+    period,
+    arbetsperiod,
+    resultat,
+    berikad,
+    totalt_rader: resultat.reduce((s, r) => s + r.rader.length, 0),
+    synkAvvikelser,
+    oenighet,
+    kopplingar,
+  };
+}

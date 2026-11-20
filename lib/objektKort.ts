@@ -1,0 +1,351 @@
+// Objektinfon (ⓘ i /planering) som ett kort: allt som kortet, "Om trakten" och "Mer" behöver veta, som rena funktioner utan React och utan
+// kartan. Sidan (app/planering/page.tsx) matar in data och callbacks; komponenterna (components/planering/{ObjektKort,OmTrakten,MerMeny}.tsx)
+// ritar. Det som avgörs här är det som går att ha fel om: vilka knappar en roll får, vad som visas och vad som döljs, och vilka val "Mer" har.
+
+// ── Kortets rad under namnet: "typ · avtalsform · cert" ──────────────────────────────────────────────────────────────
+
+/** "Slutavverkning · Rp · FSC PEFC". Tomma delar utelämnas — aldrig ett tomt streck. Avtalsform finns bara på slutavverkning. */
+export function objektRad(o: { typ?: string | null; avtalsform?: string | null; cert?: string | null; arSlutavverkning?: boolean }): string {
+  const cert = String(o.cert ?? '').trim();
+  const delar = [
+    String(o.typ ?? '').trim(),
+    o.arSlutavverkning === false ? '' : String(o.avtalsform ?? '').trim(),
+    // "None" / "Not known" är databasens sätt att säga "vet ej" — det är inget certifikat.
+    cert && !/^(none|not known)$/i.test(cert) ? cert : '',
+  ];
+  return delar.filter(Boolean).join(' · ');
+}
+
+// ── Knapprad efter roll ──────────────────────────────────────────────────────────────────────────────────────────────
+
+export type KortKnappId = 'korvy' | 'skotning' | 'utkort';
+export interface KortKnapp { id: KortKnappId; etikett: string }
+export type KortRoll = 'planerare' | 'forare';
+
+/**
+ * Planerare: inga knappar. "Kör hit" är borttagen (Martin 2026-11-05: "den använder vi aldrig"); vägbeskrivningen finns på objektlistans rad (bilen).
+ * Förare: Körvy. "Mer" är INTE en knapp här: den är en rad längst ner i uppdraget (ObjektKort), eftersom den inte är det viktigaste på kortet. Körvy-knappen försvinner medan körvyn redan är igång (Avsluta körvy ligger i Mer). En skördarförare har
+ * ingen skotning att öppna eller markera utkört: Skotning och Utkört visas för skotare och när maskinen inte är känd.
+ */
+export function kortKnappar(o: { roll: KortRoll; harKoordinat: boolean; korvyAktiv: boolean; maskinSlag: 'skordare' | 'skotare' | null; utanSkotning?: boolean }): KortKnapp[] {
+  if (o.roll === 'planerare') return [];
+  return [
+    ...(o.korvyAktiv ? [] : [{ id: 'korvy' as const, etikett: 'Körvy' }]),
+    // Det gamla skotningsverktyget (Skotning: sortimentlistan, Utkört: rita yta → Skotningsuttag) är BORTTAGET (Martin 2026-11-06):
+    // tryck på en hög (Tagen / Ligger kvar) och + › Rita & mät › Högar i ett område gör samma sak. Redan sparade uttag dras av som förut.
+  ];
+}
+
+// ── Faktabrickor ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+export interface Bricka { id: string; varde: string; etikett?: string }
+
+const sv = (n: number, dec: number) => n.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: dec });
+/** Ett tal i svenskt format ("2,75"), också när det kommer som text med punkt ("2.75"). Text som inte är ett tal lämnas som den är. */
+export function svTal(v: unknown, dec = 2): string {
+  const n = tal(v);
+  return n != null ? sv(n, dec) : String(v ?? '').trim();
+}
+const tal = (v: unknown): number | null => {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/** ha, m³, medelstam (om den finns), GROT ja/nej. Bara det som har värde: 0, tomt och null ger ingen bricka. */
+export function faktaBrickor(o: { areal?: unknown; volym?: unknown; medelstam?: unknown; grot?: boolean | null }): Bricka[] {
+  const ut: Bricka[] = [];
+  const ha = tal(o.areal); if (ha != null) ut.push({ id: 'areal', varde: `${sv(ha, 2)} ha` });
+  const m3 = tal(o.volym); if (m3 != null) ut.push({ id: 'volym', varde: `${sv(m3, 0)} m³` });
+  const ms = tal(o.medelstam); if (ms != null) ut.push({ id: 'medelstam', varde: `${sv(ms, 2)} m³`, etikett: 'medelstam' });
+  if (o.grot === true) ut.push({ id: 'grot', varde: 'GROT ja' });
+  else if (o.grot === false) ut.push({ id: 'grot', varde: 'GROT nej' });
+  return ut;
+}
+
+/** Det som låg under "Fakta" förut (bärighet, terräng, basväg) — visas i kortets uppdragna läge så inget försvinner. */
+export function extraBrickor(o: { barighet?: string | null; terrang?: string | null; basvag?: string | null; avverkat?: string | null }): Bricka[] {
+  const ut: Bricka[] = [];
+  const t = (v: string | null | undefined) => String(v ?? '').trim();
+  if (t(o.avverkat)) ut.push({ id: 'avverkat', varde: t(o.avverkat), etikett: 'avverkat' });
+  if (t(o.barighet)) ut.push({ id: 'barighet', varde: t(o.barighet), etikett: 'bärighet' });
+  if (t(o.terrang)) ut.push({ id: 'terrang', varde: t(o.terrang), etikett: 'terräng' });
+  if (t(o.basvag)) ut.push({ id: 'basvag', varde: t(o.basvag), etikett: 'basväg' });
+  return ut;
+}
+
+// ── Till föraren ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+export interface TillForarenPost {
+  id: string; avsandare: string; text: string;
+  /** Bara Vidas text: delar planeraren strukit (lib/vidaStruket) — visas med streck, aldrig borttagna. */
+  struket?: readonly import('./vidaStruket').Struken[];
+  /** Bara Vidas text och bara planeraren: stryk/ta tillbaka en del. */
+  onVaxla?: (del: string) => void;
+  strykFel?: string | null;
+}
+
+export const AVSANDARE_VIDA = 'Vida';
+export const AVSANDARE_PLANERARE = 'Planerare';
+
+/**
+ * Vidas direktiv och planerarens egen text, var och en med vem som skrivit. Förardirektivet (planerarens korta körinstruktion) först, sedan Vida,
+ * sedan planerarens "Att tänka på". Tomma texter utelämnas. Ingen författare lagras per text i databasen — planerarens text signeras med rollen.
+ */
+export function tillForaren(o: { forardirektiv?: string | null; vida?: string | null; anteckningar?: string | null;
+  vidaStruket?: readonly import('./vidaStruket').Struken[]; onVaxla?: (del: string) => void; strykFel?: string | null }): TillForarenPost[] {
+  const rensa = (s: string | null | undefined) => String(s ?? '').trim();
+  const ut: TillForarenPost[] = [];
+  if (rensa(o.forardirektiv)) ut.push({ id: 'forardirektiv', avsandare: AVSANDARE_PLANERARE, text: rensa(o.forardirektiv) });
+  if (rensa(o.vida)) ut.push({ id: 'vida', avsandare: AVSANDARE_VIDA, text: rensa(o.vida), ...(o.vidaStruket?.length ? { struket: o.vidaStruket } : {}), ...(o.onVaxla ? { onVaxla: o.onVaxla } : {}), ...(o.strykFel ? { strykFel: o.strykFel } : {}) });
+  if (rensa(o.anteckningar)) ut.push({ id: 'anteckningar', avsandare: AVSANDARE_PLANERARE, text: rensa(o.anteckningar) });
+  return ut;
+}
+
+// ── Markeringar: "På trakten" och "Om trakten" ──────────────────────────────────────────────────────────────────────
+
+export type MarkeringsSlag = 'symbol' | 'linje' | 'zon';
+/** En kommentar på en markering/yta i Om trakten (samma uppgifter som kartkortets kommentarrader). */
+export interface OmKommentar {
+  id: string;
+  text: string;
+  /** "Martin · i går 16:20"; null = äldre kommentar utan författare */
+  forfattare: string | null;
+  vantar?: boolean;
+  /** Vidas text (blå "Vida · traktdirektiv") */
+  vida?: boolean;
+}
+
+export interface KartMarkering {
+  id: string;
+  slag: MarkeringsSlag;
+  typ: string;
+  /** visningsnamn i singular ("Högstubbe") */
+  namn: string;
+  comment: string;
+  /** Kommentarerna som rutor (kartkommentar + äldre fältet + Vidas text) — samma komponent som kartkortet. Saknas = bara `comment` (visas som äldre kommentar). */
+  kommentarer?: OmKommentar[];
+  photoPath?: string | null;
+  photoData?: string | null;
+  photoTs?: number | null;
+  /** ett foto är taget men väntar på uppladdning på den här enheten (lib/markeringFotoKo) — räknas som foto: raden listas och bilden visas lokalt */
+  fotoVantar?: boolean;
+  lat: number | null;
+  lng: number | null;
+  /** basväg (mainRoad): vald färg (röd/gul/blå) och längd i meter — "Basväg röd · 640 m" i Om trakten */
+  farg?: string | null;
+  langdM?: number | null;
+  /** Vidas egna objekt (hänsynsytor, avlägg ur traktgeometrin) har kalla 'vida'; allt annat är satt av oss. Källan syns bara när objektet öppnas — raderna är en per typ oavsett källa. */
+  kalla?: 'vida';
+  /** symbolens antal (högstubbar/evighetsträd sätts med `antal` per symbol) — saknas = 1 */
+  antal?: number | null;
+  /** hela linjen/ytan (lat/lng per punkt) — bara linjer och zoner; symbolen har bara lat/lng. "Visa ›" framhäver HELA figuren, inte en punkt. */
+  geometri?: { lat: number; lng: number }[];
+  /** när den skapades (ms) om det går att läsa ur id:t, annars null */
+  skapad: number | null;
+  /** plats i markeringslistan = ordningen de lästes in (reserv när tidsstämpel saknas) */
+  ordning: number;
+}
+
+export const harText = (m: Pick<KartMarkering, 'comment'> & { kommentarer?: readonly unknown[] }): boolean => !!m.comment.trim() || (m.kommentarer?.length ?? 0) > 0;
+export const harFoto = (m: Pick<KartMarkering, 'photoPath' | 'photoData' | 'fotoVantar'>): boolean => !!(m.photoPath || m.photoData || m.fotoVantar);
+/** Med kommentar eller foto ("med text" i kortets rad På trakten). */
+export const harInnehall = (m: KartMarkering): boolean => harText(m) || harFoto(m);
+/** Basvägen (mainRoad): egen rad överst under Vägar i Om trakten, med färg och längd. */
+export const arBasvag = (m: Pick<KartMarkering, 'slag' | 'typ'>): boolean => m.slag === 'linje' && m.typ === 'mainRoad';
+export interface MarkeringsSammanfattning { antal: number; medText: number }
+/** Raden i kortet: "N markeringar · M med text". "Med text" = med kommentar eller foto (det Om trakten listar). */
+export function sammanfattaMarkeringar(ms: readonly KartMarkering[]): MarkeringsSammanfattning {
+  return { antal: ms.length, medText: ms.filter(harInnehall).length };
+}
+export function markeringsRad(s: MarkeringsSammanfattning): string {
+  const ord = s.antal === 1 ? 'markering' : 'markeringar';
+  return s.medText > 0 ? `${s.antal} ${ord} · ${s.medText} med text` : `${s.antal} ${ord}`;
+}
+
+// Avstånd i luftlinje (m) mellan två punkter.
+export function distM(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * Positionen kortet och Om trakten räknar avstånd från. Sidans `currentPosition` är `{ lat, lon }` (INTE en GeolocationPosition — ingen `.coords`);
+ * körvyns effektiva position har samma form och går först. Ren funktion så att just den här omvandlingen går att testa: sidan går inte att montera
+ * i test, och en läsning av `.coords` kraschade ⓘ (PR 766) trots gröna komponenttester som matade in `{ lat, lng }` direkt.
+ */
+export function gpsNu(o: { korvyAktiv: boolean; korvyPos: { lat: number; lon: number } | null; position: { lat: number; lon: number } | null }): { lat: number; lng: number } | null {
+  const k = o.korvyAktiv ? o.korvyPos : null;
+  const p = k ?? o.position;
+  return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? { lat: p.lat, lng: p.lon } : null;
+}
+
+/** "85 m" under 1 km, "1,3 km" över. */
+export function avstandText(m: number): string {
+  if (!Number.isFinite(m)) return '';
+  return m < 1000 ? `${Math.max(5, Math.round(m / 5) * 5)} m` : `${(Math.round(m / 100) / 10).toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;
+}
+
+export interface MarkeringMedAvstand extends KartMarkering { avstandM: number | null }
+
+/** Närmast först när GPS finns; annars i den ordning de skapades. Markeringar utan position hamnar sist. */
+export function sorteraMarkeringar(ms: readonly KartMarkering[], pos: { lat: number; lng: number } | null): MarkeringMedAvstand[] {
+  const med: MarkeringMedAvstand[] = ms.map((m) => ({ ...m, avstandM: pos && m.lat != null && m.lng != null ? distM(pos, { lat: m.lat, lng: m.lng }) : null }));
+  const iSkapadOrdning = (a: MarkeringMedAvstand, b: MarkeringMedAvstand) =>
+    (a.skapad ?? Number.POSITIVE_INFINITY) - (b.skapad ?? Number.POSITIVE_INFINITY) || a.ordning - b.ordning;
+  if (!pos) return med.sort(iSkapadOrdning);
+  return med.sort((a, b) => {
+    if (a.avstandM == null && b.avstandM == null) return iSkapadOrdning(a, b);
+    if (a.avstandM == null) return 1;
+    if (b.avstandM == null) return -1;
+    return a.avstandM - b.avstandM || iSkapadOrdning(a, b);
+  });
+}
+
+// ── Om trakten › På kartan: avstånd, grupper och sammanslagna rader ─────────────────────────────────────────────────
+
+/** Avstånd visas bara när man är på trakten: inom ca 1 km från närmaste markering. Annars är det en avståndstext på varje rad ("39,3 km") som inte hjälper någon. */
+export const NAR_TRAKTEN_M = 1000;
+export function efektivPos(pos: { lat: number; lng: number } | null, ms: readonly KartMarkering[], granM: number = NAR_TRAKTEN_M): { lat: number; lng: number } | null {
+  if (!pos) return null;
+  for (const m of ms) {
+    if (m.lat != null && m.lng != null && distM(pos, { lat: m.lat, lng: m.lng }) <= granM) return pos;
+  }
+  return null;
+}
+
+/** Faror, vägar, övrigt — grunden för Om trakten (lib/omTrakten lägger hänsyn och "Från Vida" ovanpå). */
+export type MarkeringsGrupp = 'faror' | 'ovrigt' | 'vagar';
+// Det som kan göra illa: varning, el-ledning, vindfälle och "ej framkomlig". Manuell fällning och brant är information till den som fäller/kör, inte en fara att se upp för.
+// Markkabel (Röd sedan 2026-10-20) och El-ledning ritad som linje hör hit också (Martin 2026-11-12, Lidhem: jakttornen stod under "Vad ska du göra?").
+const FARA_SYMBOLER = new Set(['warning', 'powerline', 'windfall', 'groundcable']);
+const FARA_ZONER = new Set(['noentry']);
+const FARA_LINJER = new Set(['powerline']);
+const VAG_SYMBOLER = new Set(['road', 'turningpoint', 'bridge', 'corduroy', 'trail']);
+const VAG_LINJER = new Set(['mainRoad', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'trail']);
+export function markeringsGrupp(m: Pick<KartMarkering, 'slag' | 'typ'>): MarkeringsGrupp {
+  if (m.slag === 'symbol') return FARA_SYMBOLER.has(m.typ) ? 'faror' : VAG_SYMBOLER.has(m.typ) ? 'vagar' : 'ovrigt';
+  if (m.slag === 'zon') return FARA_ZONER.has(m.typ) ? 'faror' : 'ovrigt';
+  return FARA_LINJER.has(m.typ) ? 'faror' : VAG_LINJER.has(m.typ) ? 'vagar' : 'ovrigt';
+}
+
+/** Sökfältet i Om trakten: träffar text i kommentaren och symbolens namn (ingen skillnad på versaler). Tom sökning släpper igenom allt. */
+export function matcharSok(text: string, q: string): boolean {
+  const s = q.trim().toLowerCase();
+  return !s || String(text ?? '').toLowerCase().includes(s);
+}
+export function filtreraMarkeringar<T extends KartMarkering>(ms: readonly T[], q: string): T[] {
+  return ms.filter((m) => matcharSok(m.comment, q) || matcharSok(m.namn, q));
+}
+
+// ── Mer ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+export interface MerRad { id: string; etikett: string; under?: string; ikon: string; onTryck: () => void; farlig?: boolean }
+export type MerGruppId = 'korvy' | 'foraren' | 'planeraren' | 'ovrigt';
+export interface MerGrupp { id: MerGruppId; titel: string; rader: MerRad[] }
+
+export interface MerIn {
+  roll: KortRoll;
+  /** inloggad som admin på riktigt (inte "Visa som"): får välja skördar-/skotarkörvy och byta vy */
+  arAdmin: boolean;
+  korvyAktiv: boolean;
+  /** maskindatorn: hem leder till objektlistan, så startsidan (Inställningar, Förslag) nås inte därifrån */
+  maskinlage: boolean;
+  /** Skotning-knappen finns redan på kortet (förare på skotare/okänd maskin) → ingen dubblett i Mer */
+  skotningFinnsSomKnapp: boolean;
+  /** Skotarläget med lassrapportering: det gamla skotningsverktyget (Skotning, Markera utkört → Skotningsuttag) visas varken som knapp eller i Mer. */
+  utanSkotning?: boolean;
+  status: string | null;
+  korvy?: { gpsText: string; gpsProblem: boolean; dataText: string; andrasSparText: string | null };
+  go: {
+    avslutaKorvy: () => void; gps: () => void; data: () => void; andrasSpar: () => void;
+    skotning: () => void; markeraUtkort: () => void;
+    installningar: () => void; gpsKalla: (() => void) | null; forslag: () => void;
+    /** Brandriskpanelen. En fast väg in (2026-11-16): raden på ⓘ-kortet och eld-ikonen finns bara vid nivå 3 eller mer. */
+    brandrisk?: () => void;
+  };
+}
+
+/**
+ * Mer: Körvy · Föraren · Planeraren · Övrigt, och "Avsluta objekt" för sig (röd, längst ner, bara när objektet är pågående).
+ * "Planeraren" (Visa som, tilldelning, Klar — skicka till förare) är inga enkla rader — komponenten ritar dem som egna block och
+ * gruppen finns här bara som rubrik när blocken ska visas (`planerarenBlock`).
+ */
+export function byggMerGrupper(c: MerIn): { grupper: MerGrupp[]; planerarenBlock: boolean; avslutaObjekt: boolean } {
+  const grupper: MerGrupp[] = [];
+
+  // KÖRVY — igång: all kontroll bor här (ren kartskärm). Inte igång: bara de körvyer som inte redan ligger som knapp (admin saknar knapp, förare har den).
+  const korvy: MerRad[] = [];
+  if (c.korvyAktiv && c.korvy) {
+    korvy.push(
+      { id: 'gps', etikett: c.korvy.gpsText, ikon: 'my_location', onTryck: c.go.gps, farlig: c.korvy.gpsProblem },
+      { id: 'kartdata', etikett: c.korvy.dataText, ikon: 'refresh', onTryck: c.go.data },
+      ...(c.korvy.andrasSparText ? [{ id: 'andras-spar', etikett: c.korvy.andrasSparText, ikon: 'refresh', onTryck: c.go.andrasSpar }] : []),
+      { id: 'avsluta-korvy', etikett: 'Avsluta körvy', ikon: 'close', onTryck: c.go.avslutaKorvy, farlig: true },
+    );
+  }
+  if (korvy.length) grupper.push({ id: 'korvy', titel: 'Körvy', rader: korvy });
+
+  // STÄDAT 2026-11-10 (Martin): körvyerna utanför maskinläget (Skördar-/Skotarkörvy — körvyn bor i maskinerna, provas med /maskin?som=),
+  // Föraren › Genomgång & kvittering (den gamla briefingen som flög över trakten — ingen använde den; instruktionerna kvitteras vid inkörning),
+  // Planeraren › Visa som, och Övrigt › Trakt (larmplatsen ändras från raden Larmkoordinat på ⓘ-kortet). Vägdata är en rad på ⓘ-kortet.
+  const planerarenBlock = false;
+
+  // ÖVRIGT — Vägdata, Trakt (bara Larm kvar). Vidas egenkontroll-checklista (checklist_items) är borttagen härifrån 2026-10-15 — datan och /egenkontroll rörs inte. I körvy och maskinläge (där startsidan inte nås) även
+  // Inställningar, GPS-källa och Förslag. KARTLAGER/baskarta finns INTE här: lagervalet bor på ETT ställe i körvyn, + › Alla › Lager (ⓘ visar information, inga kartinställningar). Annars bor Inställningar och Förslag på startsidan.
+  const ovrigt: MerRad[] = [];
+  if (c.go.brandrisk) ovrigt.push({ id: 'brandrisk', etikett: 'Brandrisk', under: 'Prognos, utrustning och larm', ikon: 'local_fire_department', onTryck: c.go.brandrisk });
+  if (c.korvyAktiv || c.maskinlage) {
+    ovrigt.push({ id: 'installningar', etikett: 'Inställningar', under: 'Kompass, tillstånd, karta', ikon: 'settings', onTryck: c.go.installningar });
+    if (c.go.gpsKalla) ovrigt.push({ id: 'gps-kalla', etikett: 'GPS-källa', under: 'Serieport och baudrate', ikon: 'gps_fixed', onTryck: c.go.gpsKalla });
+    ovrigt.push({ id: 'forslag', etikett: 'Förslag', ikon: 'lightbulb', onTryck: c.go.forslag });
+  }
+  if (ovrigt.length) grupper.push({ id: 'ovrigt', titel: 'Övrigt', rader: ovrigt });
+
+  return { grupper, planerarenBlock, avslutaObjekt: c.status === 'pagaende' };
+}
+
+// ── Brandrisk: fem dagar som små färgstreck ─────────────────────────────────────────────────────────────────────────
+
+export interface BrandDag { dag: string; datum: string; klass: number }
+/** De fem första dagarna (idag först). Klassen 1–6 är SMHI:s MCF-klass — samma som veckolistan i brandriskpanelen. */
+export function femDagar(daily: ReadonlyArray<{ date: string; dayName: string; fwiIndex: number }> | null | undefined, idagIso: string): BrandDag[] {
+  if (!daily?.length) return [];
+  const i = daily.findIndex((d) => d.date === idagIso);
+  const fran = i > 0 ? [...daily.slice(i), ...daily.slice(0, i)] : [...daily];
+  return fran.slice(0, 5).map((d) => ({ dag: d.dayName, datum: d.date, klass: d.fwiIndex }));
+}
+
+/** Kortets färgbaserade klass bärs alltid av en siffra och ett ord bredvid (färg är aldrig ensam bärare). */
+export function brandKlassText(klass: number): string {
+  return ({ 1: 'Mycket liten', 2: 'Liten', 3: 'Måttlig', 4: 'Stor', 5: 'Mycket stor', 6: 'Extrem' } as Record<number, string>)[klass] ?? '';
+}
+
+
+
+// ── ⓘ-panelen för föraren i maskinläget ("så att ett barn förstår direkt", Martin 2026-10-22) ──────────────────────────────────────────────────────────
+
+/**
+ * GROT-raden: bara när trakten har GROT. Skördaren lägger riset i högar, skotaren kör inte på rishögarna. Okänd maskin (ingen roll) eller GROT nej/okänt → ingen rad: hellre ingen rad än fel
+ * besked till fel maskin.
+ */
+export function grotRad(grot: boolean | null | undefined, maskinSlag: 'skordare' | 'skotare' | null): string | null {
+  if (grot !== true) return null;
+  if (maskinSlag === 'skordare') return 'GROT tas ut – lägg riset i högar';
+  if (maskinSlag === 'skotare') return 'GROT tas ut – kör inte på rishögarna';
+  return null;
+}
+
+/**
+ * Raden under traktens namn: "Slutavverkning · 2,5 av 5,2 ha klart" när avverkad areal är känd, annars "Slutavverkning · 5,2 ha". Andelen (0..1, högst 1) styr den gröna stapeln — null när
+ * ingenting är mätt (inget skördarspår): då ritas ingen stapel, aldrig en tom som ser ut som "0 % klart".
+ */
+export function framstegRad(o: { typ: string; arealHa: number | null; klartHa: number | null }): { text: string; andel: number | null } {
+  const typ = o.typ.trim();
+  const del = (t: string) => [typ, t].filter(Boolean).join(' · ');
+  if (o.arealHa == null || !(o.arealHa > 0)) return { text: del(''), andel: null };
+  if (o.klartHa == null || !Number.isFinite(o.klartHa)) return { text: del(`${svTal(o.arealHa, 1)} ha`), andel: null };
+  return { text: del(`${svTal(o.klartHa, 1)} av ${svTal(o.arealHa, 1)} ha klart`), andel: Math.max(0, Math.min(1, o.klartHa / o.arealHa)) };
+}

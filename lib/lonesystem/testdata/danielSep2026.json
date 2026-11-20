@@ -1,0 +1,444 @@
+{
+ "_info": "Daniel Johanssons september 2026 ur prod (SELECT 2026-10-20): arbetsdag och dagens trakter. 1 sep = beräknad km (auto, 113 km), 15 sep = förarens egen km (160 km). Admin → Förare · Månad.",
+ "dagar": [
+  {
+   "datum": "2026-09-01",
+   "maskin_id": "A130743",
+   "arbetad_min": 565,
+   "km_morgon": 57,
+   "km_kvall": 56,
+   "km_totalt": 113,
+   "km_kalla": "auto",
+   "objekt_id": "11131022",
+   "objekt": [
+    {
+     "objekt_id": "11131022",
+     "objekt_namn": "Stänkelsmåla 2025",
+     "ordning": 1
+    },
+    {
+     "objekt_id": "A130743_9",
+     "objekt_namn": "VIDA FLYTT",
+     "ordning": 2
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-02",
+   "maskin_id": "A130743",
+   "arbetad_min": 561,
+   "km_morgon": 57,
+   "km_kvall": 56,
+   "km_totalt": 113,
+   "km_kalla": "forare",
+   "objekt_id": "11131022",
+   "objekt": [
+    {
+     "objekt_id": "11131022",
+     "objekt_namn": "Stänkelsmåla 2025",
+     "ordning": 1
+    },
+    {
+     "objekt_id": "A130743_9",
+     "objekt_namn": "VIDA FLYTT",
+     "ordning": 2
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-03",
+   "maskin_id": "A130743",
+   "arbetad_min": 480,
+   "km_morgon": 60,
+   "km_kvall": 60,
+   "km_totalt": 120,
+   "km_kalla": "forare",
+   "objekt_id": "A130743_9",
+   "objekt": [
+    {
+     "objekt_id": "A130743_9",
+     "objekt_namn": "VIDA FLYTT",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-04",
+   "maskin_id": "A130743",
+   "arbetad_min": 539,
+   "km_morgon": 57,
+   "km_kvall": 56,
+   "km_totalt": 113,
+   "km_kalla": "auto",
+   "objekt_id": "11131022",
+   "objekt": [
+    {
+     "objekt_id": "11131022",
+     "objekt_namn": "Stänkelsmåla 2025",
+     "ordning": 1
+    },
+    {
+     "objekt_id": "A130743_9",
+     "objekt_namn": "VIDA FLYTT",
+     "ordning": 2
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-07",
+   "maskin_id": "A130743",
+   "arbetad_min": 495,
+   "km_morgon": 57,
+   "km_kvall": 56,
+   "km_totalt": 113,
+   "km_kalla": "auto",
+   "objekt_id": "11131022",
+   "objekt": [
+    {
+     "objekt_id": "11131022",
+     "objekt_namn": "Stänkelsmåla 2025",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-08",
+   "maskin_id": "A130743",
+   "arbetad_min": 540,
+   "km_morgon": 57,
+   "km_kvall": 57,
+   "km_totalt": 114,
+   "km_kalla": "auto",
+   "objekt_id": "11131022",
+   "objekt": [
+    {
+     "objekt_id": "11131022",
+     "objekt_namn": "Stänkelsmåla 2025",
+     "ordning": 1
+    },
+    {
+     "objekt_id": "A130743_9",
+     "objekt_namn": "VIDA FLYTT",
+     "ordning": 2
+    },
+    {
+     "objekt_id": "11241031",
+     "objekt_namn": "Rävemåla AU 2026",
+     "ordning": 3
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-09",
+   "maskin_id": "A130743",
+   "arbetad_min": 520,
+   "km_morgon": 57,
+   "km_kvall": 57,
+   "km_totalt": 114,
+   "km_kalla": "auto",
+   "objekt_id": "11241031",
+   "objekt": [
+    {
+     "objekt_id": "11241031",
+     "objekt_namn": "Rävemåla AU 2026",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-10",
+   "maskin_id": "A130743",
+   "arbetad_min": 480,
+   "km_morgon": 60,
+   "km_kvall": 60,
+   "km_totalt": 120,
+   "km_kalla": "forare",
+   "objekt_id": "11241031",
+   "objekt": [
+    {
+     "objekt_id": "11241031",
+     "objekt_namn": "Rävemåla AU 2026",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-11",
+   "maskin_id": "A130743",
+   "arbetad_min": 561,
+   "km_morgon": 57,
+   "km_kvall": 57,
+   "km_totalt": 114,
+   "km_kalla": "auto",
+   "objekt_id": "11241031",
+   "objekt": [
+    {
+     "objekt_id": "11241031",
+     "objekt_namn": "Rävemåla AU 2026",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-14",
+   "maskin_id": "A130743",
+   "arbetad_min": 508,
+   "km_morgon": 67,
+   "km_kvall": 77,
+   "km_totalt": 144,
+   "km_kalla": "forare",
+   "objekt_id": "11208196",
+   "objekt": [
+    {
+     "objekt_id": "11208196",
+     "objekt_namn": "400763 Akelius Tåget SA -26",
+     "ordning": 1
+    },
+    {
+     "objekt_id": "11241031",
+     "objekt_namn": "Rävemåla AU 2026",
+     "ordning": 2
+    },
+    {
+     "objekt_id": "A130743_9",
+     "objekt_namn": "VIDA FLYTT",
+     "ordning": 3
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-15",
+   "maskin_id": "A130743",
+   "arbetad_min": 632,
+   "km_morgon": 80,
+   "km_kvall": 80,
+   "km_totalt": 160,
+   "km_kalla": "forare",
+   "objekt_id": "11208196",
+   "objekt": [
+    {
+     "objekt_id": "11208196",
+     "objekt_namn": "400763 Akelius Tåget SA -26",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-16",
+   "maskin_id": "A130743",
+   "arbetad_min": 560,
+   "km_morgon": 80,
+   "km_kvall": 80,
+   "km_totalt": 160,
+   "km_kalla": "forare",
+   "objekt_id": "11208196",
+   "objekt": [
+    {
+     "objekt_id": "11208196",
+     "objekt_namn": "400763 Akelius Tåget SA -26",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-17",
+   "maskin_id": "A130743",
+   "arbetad_min": 509,
+   "km_morgon": 80,
+   "km_kvall": 80,
+   "km_totalt": 160,
+   "km_kalla": "forare",
+   "objekt_id": "11208196",
+   "objekt": [
+    {
+     "objekt_id": "11208196",
+     "objekt_namn": "400763 Akelius Tåget SA -26",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-18",
+   "maskin_id": "A130743",
+   "arbetad_min": 579,
+   "km_morgon": 80,
+   "km_kvall": 80,
+   "km_totalt": 160,
+   "km_kalla": "forare",
+   "objekt_id": "11208196",
+   "objekt": [
+    {
+     "objekt_id": "11208196",
+     "objekt_namn": "400763 Akelius Tåget SA -26",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-21",
+   "maskin_id": "A130743",
+   "arbetad_min": 485,
+   "km_morgon": 80,
+   "km_kvall": 77,
+   "km_totalt": 157,
+   "km_kalla": "forare",
+   "objekt_id": "A130743_16",
+   "objekt": [
+    {
+     "objekt_id": "A130743_16",
+     "objekt_namn": "Kyrkhult GROT ATA",
+     "ordning": 1
+    },
+    {
+     "objekt_id": "11208196",
+     "objekt_namn": "400763 Akelius Tåget SA -26",
+     "ordning": 2
+    },
+    {
+     "objekt_id": "A130743_9",
+     "objekt_namn": "VIDA FLYTT",
+     "ordning": 3
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-22",
+   "maskin_id": "A130743",
+   "arbetad_min": 481,
+   "km_morgon": 90,
+   "km_kvall": 90,
+   "km_totalt": 180,
+   "km_kalla": "forare",
+   "objekt_id": "A130743_16",
+   "objekt": [
+    {
+     "objekt_id": "A130743_16",
+     "objekt_namn": "Kyrkhult GROT ATA",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-23",
+   "maskin_id": "A130743",
+   "arbetad_min": 536,
+   "km_morgon": 90,
+   "km_kvall": 80,
+   "km_totalt": 170,
+   "km_kalla": "forare",
+   "objekt_id": "A130743_16",
+   "objekt": [
+    {
+     "objekt_id": "A130743_16",
+     "objekt_namn": "Kyrkhult GROT ATA",
+     "ordning": 1
+    },
+    {
+     "objekt_id": "11218589",
+     "objekt_namn": "GROT Jeppshoka 1 14 H A RP",
+     "ordning": 2
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-24",
+   "maskin_id": "A130743",
+   "arbetad_min": 571,
+   "km_morgon": 80,
+   "km_kvall": 80,
+   "km_totalt": 160,
+   "km_kalla": "forare",
+   "objekt_id": "11218589",
+   "objekt": [
+    {
+     "objekt_id": "11218589",
+     "objekt_namn": "GROT Jeppshoka 1 14 H A RP",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-25",
+   "maskin_id": "A130743",
+   "arbetad_min": 515,
+   "km_morgon": 80,
+   "km_kvall": 80,
+   "km_totalt": 160,
+   "km_kalla": "forare",
+   "objekt_id": "11251359",
+   "objekt": [
+    {
+     "objekt_id": "11251359",
+     "objekt_namn": "Hålabäck au 2025",
+     "ordning": 1
+    },
+    {
+     "objekt_id": "11218589",
+     "objekt_namn": "GROT Jeppshoka 1 14 H A RP",
+     "ordning": 2
+    },
+    {
+     "objekt_id": "A130743_9",
+     "objekt_namn": "VIDA FLYTT",
+     "ordning": 3
+    },
+    {
+     "objekt_id": "A130743_11",
+     "objekt_namn": "Tjuvön GROT",
+     "ordning": 4
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-28",
+   "maskin_id": "A130743",
+   "arbetad_min": 611,
+   "km_morgon": 80,
+   "km_kvall": 80,
+   "km_totalt": 160,
+   "km_kalla": "forare",
+   "objekt_id": "11251359",
+   "objekt": [
+    {
+     "objekt_id": "11251359",
+     "objekt_namn": "Hålabäck au 2025",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-29",
+   "maskin_id": "A130743",
+   "arbetad_min": 494,
+   "km_morgon": 80,
+   "km_kvall": 80,
+   "km_totalt": 160,
+   "km_kalla": "forare",
+   "objekt_id": "11251359",
+   "objekt": [
+    {
+     "objekt_id": "11251359",
+     "objekt_namn": "Hålabäck au 2025",
+     "ordning": 1
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-30",
+   "maskin_id": "A130743",
+   "arbetad_min": 507,
+   "km_morgon": 80,
+   "km_kvall": 80,
+   "km_totalt": 160,
+   "km_kalla": "forare",
+   "objekt_id": "11251359",
+   "objekt": [
+    {
+     "objekt_id": "11251359",
+     "objekt_namn": "Hålabäck au 2025",
+     "ordning": 1
+    }
+   ]
+  }
+ ]
+}

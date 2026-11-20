@@ -1,0 +1,2354 @@
+[
+ {
+  "fro": "bd3ec2e4-f73b-4b27-8237-e459136bcf0a",
+  "kandidater": [
+   {
+    "id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "lat": 56.354784099622,
+    "lng": 15.0544807468525,
+    "typ": "slutavverkning",
+    "namn": "Hålabäck au 2025",
+    "avslutat": "2026-09-28T08:52:58.215+00:00"
+   },
+   {
+    "id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "lat": 56.4283631893472,
+    "lng": 14.7718473902989,
+    "typ": "slutavverkning",
+    "namn": "Krokshult AU 2026",
+    "avslutat": "2026-09-28T08:53:59.789+00:00"
+   },
+   {
+    "id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "lat": 56.5517756439774,
+    "lng": 15.2567984114807,
+    "typ": "slutavverkning",
+    "namn": "Rävemåla AU 2026",
+    "avslutat": "2026-09-14T05:04:26.875+00:00"
+   },
+   {
+    "id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "lat": 56.4535959304547,
+    "lng": 14.8394914302678,
+    "typ": "slutavverkning",
+    "namn": "Kämpamåla AU 2026",
+    "avslutat": "2026-09-09T19:38:07.567+00:00"
+   },
+   {
+    "id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "lat": 56.4645053757032,
+    "lng": 15.024392340003,
+    "typ": "slutavverkning",
+    "namn": "Betet AU 2025",
+    "avslutat": "2026-09-19T22:00:00+00:00"
+   },
+   {
+    "id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "lat": 56.534568776976,
+    "lng": 14.8890463120319,
+    "typ": "slutavverkning",
+    "namn": "Hallaslätt AU 2026",
+    "avslutat": "2026-09-14T05:04:49.234+00:00"
+   },
+   {
+    "id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "lat": 56.5879579780586,
+    "lng": 15.3098648034509,
+    "typ": "slutavverkning",
+    "namn": "Stänkelsmåla 2025",
+    "avslutat": "2026-09-01T09:29:00.732+00:00"
+   },
+   {
+    "id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "lat": 56.3542864555144,
+    "lng": 15.0605397606061,
+    "typ": "gallring",
+    "namn": "Hålabäck gallring 2026",
+    "avslutat": "2026-09-14T14:34:41.048+00:00"
+   },
+   {
+    "id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "lat": 56.5560769813111,
+    "lng": 14.8772070495246,
+    "typ": "gallring",
+    "namn": "Rössmåla Ga 2026",
+    "avslutat": "2026-09-17T13:30:33.579+00:00"
+   },
+   {
+    "id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "lat": 56.5160763220073,
+    "lng": 14.8213551350884,
+    "typ": "gallring",
+    "namn": "Räveboda gallring 2026",
+    "avslutat": "2026-09-17T13:30:08.41+00:00"
+   },
+   {
+    "id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "lat": 56.5678873390629,
+    "lng": 14.7447035061828,
+    "typ": "slutavverkning",
+    "namn": "400763 Akelius Tåget SA",
+    "avslutat": "2026-09-09T04:00:43.628+00:00"
+   }
+  ],
+  "ankare_objekt_id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+  "ankare_index": 8,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Rössmåla Ga 2026",
+    "ordning": 1,
+    "objekt_id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Hallaslätt AU 2026",
+    "ordning": 2,
+    "objekt_id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "km_fran_ankare": 2.5
+   },
+   {
+    "namn": "Räveboda gallring 2026",
+    "ordning": 3,
+    "objekt_id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "km_fran_ankare": 5.61
+   }
+  ],
+  "spridning_km": 5.6,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "f569af01-f335-4cb4-b7f8-7b594f78345a",
+  "kandidater": [
+   {
+    "id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "lat": 56.354784099622,
+    "lng": 15.0544807468525,
+    "typ": "slutavverkning",
+    "namn": "Hålabäck au 2025",
+    "avslutat": "2026-09-28T08:52:58.215+00:00"
+   },
+   {
+    "id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "lat": 56.4283631893472,
+    "lng": 14.7718473902989,
+    "typ": "slutavverkning",
+    "namn": "Krokshult AU 2026",
+    "avslutat": "2026-09-28T08:53:59.789+00:00"
+   },
+   {
+    "id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "lat": 56.5517756439774,
+    "lng": 15.2567984114807,
+    "typ": "slutavverkning",
+    "namn": "Rävemåla AU 2026",
+    "avslutat": "2026-09-14T05:04:26.875+00:00"
+   },
+   {
+    "id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "lat": 56.4535959304547,
+    "lng": 14.8394914302678,
+    "typ": "slutavverkning",
+    "namn": "Kämpamåla AU 2026",
+    "avslutat": "2026-09-09T19:38:07.567+00:00"
+   },
+   {
+    "id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "lat": 56.4645053757032,
+    "lng": 15.024392340003,
+    "typ": "slutavverkning",
+    "namn": "Betet AU 2025",
+    "avslutat": "2026-09-19T22:00:00+00:00"
+   },
+   {
+    "id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "lat": 56.534568776976,
+    "lng": 14.8890463120319,
+    "typ": "slutavverkning",
+    "namn": "Hallaslätt AU 2026",
+    "avslutat": "2026-09-14T05:04:49.234+00:00"
+   },
+   {
+    "id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "lat": 56.5879579780586,
+    "lng": 15.3098648034509,
+    "typ": "slutavverkning",
+    "namn": "Stänkelsmåla 2025",
+    "avslutat": "2026-09-01T09:29:00.732+00:00"
+   },
+   {
+    "id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "lat": 56.3542864555144,
+    "lng": 15.0605397606061,
+    "typ": "gallring",
+    "namn": "Hålabäck gallring 2026",
+    "avslutat": "2026-09-14T14:34:41.048+00:00"
+   },
+   {
+    "id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "lat": 56.5560769813111,
+    "lng": 14.8772070495246,
+    "typ": "gallring",
+    "namn": "Rössmåla Ga 2026",
+    "avslutat": "2026-09-17T13:30:33.579+00:00"
+   },
+   {
+    "id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "lat": 56.5160763220073,
+    "lng": 14.8213551350884,
+    "typ": "gallring",
+    "namn": "Räveboda gallring 2026",
+    "avslutat": "2026-09-17T13:30:08.41+00:00"
+   },
+   {
+    "id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "lat": 56.5678873390629,
+    "lng": 14.7447035061828,
+    "typ": "slutavverkning",
+    "namn": "400763 Akelius Tåget SA",
+    "avslutat": "2026-09-09T04:00:43.628+00:00"
+   }
+  ],
+  "ankare_objekt_id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+  "ankare_index": 6,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Stänkelsmåla 2025",
+    "ordning": 1,
+    "objekt_id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Rävemåla AU 2026",
+    "ordning": 2,
+    "objekt_id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "km_fran_ankare": 5.17
+   }
+  ],
+  "spridning_km": 5.2,
+  "forklaring": "for_langt",
+  "troskel_km": 15
+ },
+ {
+  "fro": "9a108083-d325-4d58-96aa-80b85c8c3958",
+  "kandidater": [
+   {
+    "id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "lat": 56.354784099622,
+    "lng": 15.0544807468525,
+    "typ": "slutavverkning",
+    "namn": "Hålabäck au 2025",
+    "avslutat": "2026-09-28T08:52:58.215+00:00"
+   },
+   {
+    "id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "lat": 56.4283631893472,
+    "lng": 14.7718473902989,
+    "typ": "slutavverkning",
+    "namn": "Krokshult AU 2026",
+    "avslutat": "2026-09-28T08:53:59.789+00:00"
+   },
+   {
+    "id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "lat": 56.5517756439774,
+    "lng": 15.2567984114807,
+    "typ": "slutavverkning",
+    "namn": "Rävemåla AU 2026",
+    "avslutat": "2026-09-14T05:04:26.875+00:00"
+   },
+   {
+    "id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "lat": 56.4535959304547,
+    "lng": 14.8394914302678,
+    "typ": "slutavverkning",
+    "namn": "Kämpamåla AU 2026",
+    "avslutat": "2026-09-09T19:38:07.567+00:00"
+   },
+   {
+    "id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "lat": 56.4645053757032,
+    "lng": 15.024392340003,
+    "typ": "slutavverkning",
+    "namn": "Betet AU 2025",
+    "avslutat": "2026-09-19T22:00:00+00:00"
+   },
+   {
+    "id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "lat": 56.534568776976,
+    "lng": 14.8890463120319,
+    "typ": "slutavverkning",
+    "namn": "Hallaslätt AU 2026",
+    "avslutat": "2026-09-14T05:04:49.234+00:00"
+   },
+   {
+    "id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "lat": 56.5879579780586,
+    "lng": 15.3098648034509,
+    "typ": "slutavverkning",
+    "namn": "Stänkelsmåla 2025",
+    "avslutat": "2026-09-01T09:29:00.732+00:00"
+   },
+   {
+    "id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "lat": 56.3542864555144,
+    "lng": 15.0605397606061,
+    "typ": "gallring",
+    "namn": "Hålabäck gallring 2026",
+    "avslutat": "2026-09-14T14:34:41.048+00:00"
+   },
+   {
+    "id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "lat": 56.5560769813111,
+    "lng": 14.8772070495246,
+    "typ": "gallring",
+    "namn": "Rössmåla Ga 2026",
+    "avslutat": "2026-09-17T13:30:33.579+00:00"
+   },
+   {
+    "id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "lat": 56.5160763220073,
+    "lng": 14.8213551350884,
+    "typ": "gallring",
+    "namn": "Räveboda gallring 2026",
+    "avslutat": "2026-09-17T13:30:08.41+00:00"
+   },
+   {
+    "id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "lat": 56.5678873390629,
+    "lng": 14.7447035061828,
+    "typ": "slutavverkning",
+    "namn": "400763 Akelius Tåget SA",
+    "avslutat": "2026-09-09T04:00:43.628+00:00"
+   }
+  ],
+  "ankare_objekt_id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+  "ankare_index": 2,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Rävemåla AU 2026",
+    "ordning": 1,
+    "objekt_id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Stänkelsmåla 2025",
+    "ordning": 2,
+    "objekt_id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "km_fran_ankare": 5.17
+   }
+  ],
+  "spridning_km": 5.2,
+  "forklaring": "for_langt",
+  "troskel_km": 15
+ },
+ {
+  "fro": "a675adef-bbc5-4dc7-8123-14351fb17ef5",
+  "kandidater": [
+   {
+    "id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "lat": 56.354784099622,
+    "lng": 15.0544807468525,
+    "typ": "slutavverkning",
+    "namn": "Hålabäck au 2025",
+    "avslutat": "2026-09-28T08:52:58.215+00:00"
+   },
+   {
+    "id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "lat": 56.4283631893472,
+    "lng": 14.7718473902989,
+    "typ": "slutavverkning",
+    "namn": "Krokshult AU 2026",
+    "avslutat": "2026-09-28T08:53:59.789+00:00"
+   },
+   {
+    "id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "lat": 56.5517756439774,
+    "lng": 15.2567984114807,
+    "typ": "slutavverkning",
+    "namn": "Rävemåla AU 2026",
+    "avslutat": "2026-09-14T05:04:26.875+00:00"
+   },
+   {
+    "id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "lat": 56.4535959304547,
+    "lng": 14.8394914302678,
+    "typ": "slutavverkning",
+    "namn": "Kämpamåla AU 2026",
+    "avslutat": "2026-09-09T19:38:07.567+00:00"
+   },
+   {
+    "id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "lat": 56.4645053757032,
+    "lng": 15.024392340003,
+    "typ": "slutavverkning",
+    "namn": "Betet AU 2025",
+    "avslutat": "2026-09-19T22:00:00+00:00"
+   },
+   {
+    "id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "lat": 56.534568776976,
+    "lng": 14.8890463120319,
+    "typ": "slutavverkning",
+    "namn": "Hallaslätt AU 2026",
+    "avslutat": "2026-09-14T05:04:49.234+00:00"
+   },
+   {
+    "id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "lat": 56.5879579780586,
+    "lng": 15.3098648034509,
+    "typ": "slutavverkning",
+    "namn": "Stänkelsmåla 2025",
+    "avslutat": "2026-09-01T09:29:00.732+00:00"
+   },
+   {
+    "id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "lat": 56.3542864555144,
+    "lng": 15.0605397606061,
+    "typ": "gallring",
+    "namn": "Hålabäck gallring 2026",
+    "avslutat": "2026-09-14T14:34:41.048+00:00"
+   },
+   {
+    "id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "lat": 56.5560769813111,
+    "lng": 14.8772070495246,
+    "typ": "gallring",
+    "namn": "Rössmåla Ga 2026",
+    "avslutat": "2026-09-17T13:30:33.579+00:00"
+   },
+   {
+    "id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "lat": 56.5160763220073,
+    "lng": 14.8213551350884,
+    "typ": "gallring",
+    "namn": "Räveboda gallring 2026",
+    "avslutat": "2026-09-17T13:30:08.41+00:00"
+   },
+   {
+    "id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "lat": 56.5678873390629,
+    "lng": 14.7447035061828,
+    "typ": "slutavverkning",
+    "namn": "400763 Akelius Tåget SA",
+    "avslutat": "2026-09-09T04:00:43.628+00:00"
+   }
+  ],
+  "ankare_objekt_id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+  "ankare_index": 6,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Stänkelsmåla 2025",
+    "ordning": 1,
+    "objekt_id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Rävemåla AU 2026",
+    "ordning": 2,
+    "objekt_id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "km_fran_ankare": 5.17
+   }
+  ],
+  "spridning_km": 5.2,
+  "forklaring": "for_langt",
+  "troskel_km": 15
+ },
+ {
+  "fro": "f32f8793-6ba2-45e5-b2af-af7b145eef68",
+  "kandidater": [
+   {
+    "id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "lat": 56.354784099622,
+    "lng": 15.0544807468525,
+    "typ": "slutavverkning",
+    "namn": "Hålabäck au 2025",
+    "avslutat": "2026-09-28T08:52:58.215+00:00"
+   },
+   {
+    "id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "lat": 56.4283631893472,
+    "lng": 14.7718473902989,
+    "typ": "slutavverkning",
+    "namn": "Krokshult AU 2026",
+    "avslutat": "2026-09-28T08:53:59.789+00:00"
+   },
+   {
+    "id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "lat": 56.5517756439774,
+    "lng": 15.2567984114807,
+    "typ": "slutavverkning",
+    "namn": "Rävemåla AU 2026",
+    "avslutat": "2026-09-14T05:04:26.875+00:00"
+   },
+   {
+    "id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "lat": 56.4535959304547,
+    "lng": 14.8394914302678,
+    "typ": "slutavverkning",
+    "namn": "Kämpamåla AU 2026",
+    "avslutat": "2026-09-09T19:38:07.567+00:00"
+   },
+   {
+    "id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "lat": 56.4645053757032,
+    "lng": 15.024392340003,
+    "typ": "slutavverkning",
+    "namn": "Betet AU 2025",
+    "avslutat": "2026-09-19T22:00:00+00:00"
+   },
+   {
+    "id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "lat": 56.534568776976,
+    "lng": 14.8890463120319,
+    "typ": "slutavverkning",
+    "namn": "Hallaslätt AU 2026",
+    "avslutat": "2026-09-14T05:04:49.234+00:00"
+   },
+   {
+    "id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "lat": 56.5879579780586,
+    "lng": 15.3098648034509,
+    "typ": "slutavverkning",
+    "namn": "Stänkelsmåla 2025",
+    "avslutat": "2026-09-01T09:29:00.732+00:00"
+   },
+   {
+    "id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "lat": 56.3542864555144,
+    "lng": 15.0605397606061,
+    "typ": "gallring",
+    "namn": "Hålabäck gallring 2026",
+    "avslutat": "2026-09-14T14:34:41.048+00:00"
+   },
+   {
+    "id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "lat": 56.5560769813111,
+    "lng": 14.8772070495246,
+    "typ": "gallring",
+    "namn": "Rössmåla Ga 2026",
+    "avslutat": "2026-09-17T13:30:33.579+00:00"
+   },
+   {
+    "id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "lat": 56.5160763220073,
+    "lng": 14.8213551350884,
+    "typ": "gallring",
+    "namn": "Räveboda gallring 2026",
+    "avslutat": "2026-09-17T13:30:08.41+00:00"
+   },
+   {
+    "id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "lat": 56.5678873390629,
+    "lng": 14.7447035061828,
+    "typ": "slutavverkning",
+    "namn": "400763 Akelius Tåget SA",
+    "avslutat": "2026-09-09T04:00:43.628+00:00"
+   }
+  ],
+  "ankare_objekt_id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+  "ankare_index": 9,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Räveboda gallring 2026",
+    "ordning": 1,
+    "objekt_id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Hallaslätt AU 2026",
+    "ordning": 2,
+    "objekt_id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "km_fran_ankare": 4.63
+   },
+   {
+    "namn": "Rössmåla Ga 2026",
+    "ordning": 3,
+    "objekt_id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "km_fran_ankare": 5.61
+   }
+  ],
+  "spridning_km": 5.6,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "1878c8eb-7b7a-4936-85c9-cc7eeb0f6c9f",
+  "kandidater": [
+   {
+    "id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "lat": 56.354784099622,
+    "lng": 15.0544807468525,
+    "typ": "slutavverkning",
+    "namn": "Hålabäck au 2025",
+    "avslutat": "2026-09-28T08:52:58.215+00:00"
+   },
+   {
+    "id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "lat": 56.4283631893472,
+    "lng": 14.7718473902989,
+    "typ": "slutavverkning",
+    "namn": "Krokshult AU 2026",
+    "avslutat": "2026-09-28T08:53:59.789+00:00"
+   },
+   {
+    "id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "lat": 56.5517756439774,
+    "lng": 15.2567984114807,
+    "typ": "slutavverkning",
+    "namn": "Rävemåla AU 2026",
+    "avslutat": "2026-09-14T05:04:26.875+00:00"
+   },
+   {
+    "id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "lat": 56.4535959304547,
+    "lng": 14.8394914302678,
+    "typ": "slutavverkning",
+    "namn": "Kämpamåla AU 2026",
+    "avslutat": "2026-09-09T19:38:07.567+00:00"
+   },
+   {
+    "id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "lat": 56.4645053757032,
+    "lng": 15.024392340003,
+    "typ": "slutavverkning",
+    "namn": "Betet AU 2025",
+    "avslutat": "2026-09-19T22:00:00+00:00"
+   },
+   {
+    "id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "lat": 56.534568776976,
+    "lng": 14.8890463120319,
+    "typ": "slutavverkning",
+    "namn": "Hallaslätt AU 2026",
+    "avslutat": "2026-09-14T05:04:49.234+00:00"
+   },
+   {
+    "id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "lat": 56.5879579780586,
+    "lng": 15.3098648034509,
+    "typ": "slutavverkning",
+    "namn": "Stänkelsmåla 2025",
+    "avslutat": "2026-09-01T09:29:00.732+00:00"
+   },
+   {
+    "id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "lat": 56.3542864555144,
+    "lng": 15.0605397606061,
+    "typ": "gallring",
+    "namn": "Hålabäck gallring 2026",
+    "avslutat": "2026-09-14T14:34:41.048+00:00"
+   },
+   {
+    "id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "lat": 56.5560769813111,
+    "lng": 14.8772070495246,
+    "typ": "gallring",
+    "namn": "Rössmåla Ga 2026",
+    "avslutat": "2026-09-17T13:30:33.579+00:00"
+   },
+   {
+    "id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "lat": 56.5160763220073,
+    "lng": 14.8213551350884,
+    "typ": "gallring",
+    "namn": "Räveboda gallring 2026",
+    "avslutat": "2026-09-17T13:30:08.41+00:00"
+   },
+   {
+    "id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "lat": 56.5678873390629,
+    "lng": 14.7447035061828,
+    "typ": "slutavverkning",
+    "namn": "400763 Akelius Tåget SA",
+    "avslutat": "2026-09-09T04:00:43.628+00:00"
+   }
+  ],
+  "ankare_objekt_id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+  "ankare_index": 1,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Krokshult AU 2026",
+    "ordning": 1,
+    "objekt_id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Kämpamåla AU 2026",
+    "ordning": 2,
+    "objekt_id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "km_fran_ankare": 5.02
+   },
+   {
+    "namn": "Räveboda gallring 2026",
+    "ordning": 3,
+    "objekt_id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "km_fran_ankare": 10.22
+   }
+  ],
+  "spridning_km": 10.2,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "f08bd644-82c4-4ab6-af66-2ff7d8c7fb3b",
+  "kandidater": [
+   {
+    "id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "lat": 56.354784099622,
+    "lng": 15.0544807468525,
+    "typ": "slutavverkning",
+    "namn": "Hålabäck au 2025",
+    "avslutat": "2026-09-28T08:52:58.215+00:00"
+   },
+   {
+    "id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "lat": 56.4283631893472,
+    "lng": 14.7718473902989,
+    "typ": "slutavverkning",
+    "namn": "Krokshult AU 2026",
+    "avslutat": "2026-09-28T08:53:59.789+00:00"
+   },
+   {
+    "id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "lat": 56.5517756439774,
+    "lng": 15.2567984114807,
+    "typ": "slutavverkning",
+    "namn": "Rävemåla AU 2026",
+    "avslutat": "2026-09-14T05:04:26.875+00:00"
+   },
+   {
+    "id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "lat": 56.4535959304547,
+    "lng": 14.8394914302678,
+    "typ": "slutavverkning",
+    "namn": "Kämpamåla AU 2026",
+    "avslutat": "2026-09-09T19:38:07.567+00:00"
+   },
+   {
+    "id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "lat": 56.4645053757032,
+    "lng": 15.024392340003,
+    "typ": "slutavverkning",
+    "namn": "Betet AU 2025",
+    "avslutat": "2026-09-19T22:00:00+00:00"
+   },
+   {
+    "id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "lat": 56.534568776976,
+    "lng": 14.8890463120319,
+    "typ": "slutavverkning",
+    "namn": "Hallaslätt AU 2026",
+    "avslutat": "2026-09-14T05:04:49.234+00:00"
+   },
+   {
+    "id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "lat": 56.5879579780586,
+    "lng": 15.3098648034509,
+    "typ": "slutavverkning",
+    "namn": "Stänkelsmåla 2025",
+    "avslutat": "2026-09-01T09:29:00.732+00:00"
+   },
+   {
+    "id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "lat": 56.3542864555144,
+    "lng": 15.0605397606061,
+    "typ": "gallring",
+    "namn": "Hålabäck gallring 2026",
+    "avslutat": "2026-09-14T14:34:41.048+00:00"
+   },
+   {
+    "id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "lat": 56.5560769813111,
+    "lng": 14.8772070495246,
+    "typ": "gallring",
+    "namn": "Rössmåla Ga 2026",
+    "avslutat": "2026-09-17T13:30:33.579+00:00"
+   },
+   {
+    "id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "lat": 56.5160763220073,
+    "lng": 14.8213551350884,
+    "typ": "gallring",
+    "namn": "Räveboda gallring 2026",
+    "avslutat": "2026-09-17T13:30:08.41+00:00"
+   },
+   {
+    "id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "lat": 56.5678873390629,
+    "lng": 14.7447035061828,
+    "typ": "slutavverkning",
+    "namn": "400763 Akelius Tåget SA",
+    "avslutat": "2026-09-09T04:00:43.628+00:00"
+   }
+  ],
+  "ankare_objekt_id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+  "ankare_index": 5,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Hallaslätt AU 2026",
+    "ordning": 1,
+    "objekt_id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Rössmåla Ga 2026",
+    "ordning": 2,
+    "objekt_id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "km_fran_ankare": 2.5
+   },
+   {
+    "namn": "Räveboda gallring 2026",
+    "ordning": 3,
+    "objekt_id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "km_fran_ankare": 4.63
+   }
+  ],
+  "spridning_km": 5.6,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "de01fd88-ec47-4567-bf3a-c56bdf52e0c3",
+  "kandidater": [
+   {
+    "id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "lat": 56.354784099622,
+    "lng": 15.0544807468525,
+    "typ": "slutavverkning",
+    "namn": "Hålabäck au 2025",
+    "avslutat": "2026-09-28T08:52:58.215+00:00"
+   },
+   {
+    "id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "lat": 56.4283631893472,
+    "lng": 14.7718473902989,
+    "typ": "slutavverkning",
+    "namn": "Krokshult AU 2026",
+    "avslutat": "2026-09-28T08:53:59.789+00:00"
+   },
+   {
+    "id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "lat": 56.5517756439774,
+    "lng": 15.2567984114807,
+    "typ": "slutavverkning",
+    "namn": "Rävemåla AU 2026",
+    "avslutat": "2026-09-14T05:04:26.875+00:00"
+   },
+   {
+    "id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "lat": 56.4535959304547,
+    "lng": 14.8394914302678,
+    "typ": "slutavverkning",
+    "namn": "Kämpamåla AU 2026",
+    "avslutat": "2026-09-09T19:38:07.567+00:00"
+   },
+   {
+    "id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "lat": 56.4645053757032,
+    "lng": 15.024392340003,
+    "typ": "slutavverkning",
+    "namn": "Betet AU 2025",
+    "avslutat": "2026-09-19T22:00:00+00:00"
+   },
+   {
+    "id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "lat": 56.534568776976,
+    "lng": 14.8890463120319,
+    "typ": "slutavverkning",
+    "namn": "Hallaslätt AU 2026",
+    "avslutat": "2026-09-14T05:04:49.234+00:00"
+   },
+   {
+    "id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "lat": 56.5879579780586,
+    "lng": 15.3098648034509,
+    "typ": "slutavverkning",
+    "namn": "Stänkelsmåla 2025",
+    "avslutat": "2026-09-01T09:29:00.732+00:00"
+   },
+   {
+    "id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "lat": 56.3542864555144,
+    "lng": 15.0605397606061,
+    "typ": "gallring",
+    "namn": "Hålabäck gallring 2026",
+    "avslutat": "2026-09-14T14:34:41.048+00:00"
+   },
+   {
+    "id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "lat": 56.5560769813111,
+    "lng": 14.8772070495246,
+    "typ": "gallring",
+    "namn": "Rössmåla Ga 2026",
+    "avslutat": "2026-09-17T13:30:33.579+00:00"
+   },
+   {
+    "id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "lat": 56.5160763220073,
+    "lng": 14.8213551350884,
+    "typ": "gallring",
+    "namn": "Räveboda gallring 2026",
+    "avslutat": "2026-09-17T13:30:08.41+00:00"
+   },
+   {
+    "id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "lat": 56.5678873390629,
+    "lng": 14.7447035061828,
+    "typ": "slutavverkning",
+    "namn": "400763 Akelius Tåget SA",
+    "avslutat": "2026-09-09T04:00:43.628+00:00"
+   }
+  ],
+  "ankare_objekt_id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+  "ankare_index": 9,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Räveboda gallring 2026",
+    "ordning": 1,
+    "objekt_id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Hallaslätt AU 2026",
+    "ordning": 2,
+    "objekt_id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "km_fran_ankare": 4.63
+   },
+   {
+    "namn": "Rössmåla Ga 2026",
+    "ordning": 3,
+    "objekt_id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "km_fran_ankare": 5.61
+   }
+  ],
+  "spridning_km": 5.6,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "84215cd2-018c-4000-8f0a-c354244d93be",
+  "kandidater": [
+   {
+    "id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "lat": 56.354784099622,
+    "lng": 15.0544807468525,
+    "typ": "slutavverkning",
+    "namn": "Hålabäck au 2025",
+    "avslutat": "2026-09-28T08:52:58.215+00:00"
+   },
+   {
+    "id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "lat": 56.4283631893472,
+    "lng": 14.7718473902989,
+    "typ": "slutavverkning",
+    "namn": "Krokshult AU 2026",
+    "avslutat": "2026-09-28T08:53:59.789+00:00"
+   },
+   {
+    "id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "lat": 56.5517756439774,
+    "lng": 15.2567984114807,
+    "typ": "slutavverkning",
+    "namn": "Rävemåla AU 2026",
+    "avslutat": "2026-09-14T05:04:26.875+00:00"
+   },
+   {
+    "id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "lat": 56.4535959304547,
+    "lng": 14.8394914302678,
+    "typ": "slutavverkning",
+    "namn": "Kämpamåla AU 2026",
+    "avslutat": "2026-09-09T19:38:07.567+00:00"
+   },
+   {
+    "id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "lat": 56.4645053757032,
+    "lng": 15.024392340003,
+    "typ": "slutavverkning",
+    "namn": "Betet AU 2025",
+    "avslutat": "2026-09-19T22:00:00+00:00"
+   },
+   {
+    "id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "lat": 56.534568776976,
+    "lng": 14.8890463120319,
+    "typ": "slutavverkning",
+    "namn": "Hallaslätt AU 2026",
+    "avslutat": "2026-09-14T05:04:49.234+00:00"
+   },
+   {
+    "id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "lat": 56.5879579780586,
+    "lng": 15.3098648034509,
+    "typ": "slutavverkning",
+    "namn": "Stänkelsmåla 2025",
+    "avslutat": "2026-09-01T09:29:00.732+00:00"
+   },
+   {
+    "id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "lat": 56.3542864555144,
+    "lng": 15.0605397606061,
+    "typ": "gallring",
+    "namn": "Hålabäck gallring 2026",
+    "avslutat": "2026-09-14T14:34:41.048+00:00"
+   },
+   {
+    "id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "lat": 56.5560769813111,
+    "lng": 14.8772070495246,
+    "typ": "gallring",
+    "namn": "Rössmåla Ga 2026",
+    "avslutat": "2026-09-17T13:30:33.579+00:00"
+   },
+   {
+    "id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "lat": 56.5160763220073,
+    "lng": 14.8213551350884,
+    "typ": "gallring",
+    "namn": "Räveboda gallring 2026",
+    "avslutat": "2026-09-17T13:30:08.41+00:00"
+   },
+   {
+    "id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "lat": 56.5678873390629,
+    "lng": 14.7447035061828,
+    "typ": "slutavverkning",
+    "namn": "400763 Akelius Tåget SA",
+    "avslutat": "2026-09-09T04:00:43.628+00:00"
+   }
+  ],
+  "ankare_objekt_id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+  "ankare_index": 5,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Hallaslätt AU 2026",
+    "ordning": 1,
+    "objekt_id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Rössmåla Ga 2026",
+    "ordning": 2,
+    "objekt_id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "km_fran_ankare": 2.5
+   },
+   {
+    "namn": "Räveboda gallring 2026",
+    "ordning": 3,
+    "objekt_id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "km_fran_ankare": 4.63
+   }
+  ],
+  "spridning_km": 5.6,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "6af7cac1-c926-4461-b84a-5e8400fc612c",
+  "kandidater": [
+   {
+    "id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "lat": 56.354784099622,
+    "lng": 15.0544807468525,
+    "typ": "slutavverkning",
+    "namn": "Hålabäck au 2025",
+    "avslutat": "2026-09-28T08:52:58.215+00:00"
+   },
+   {
+    "id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "lat": 56.4283631893472,
+    "lng": 14.7718473902989,
+    "typ": "slutavverkning",
+    "namn": "Krokshult AU 2026",
+    "avslutat": "2026-09-28T08:53:59.789+00:00"
+   },
+   {
+    "id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "lat": 56.5517756439774,
+    "lng": 15.2567984114807,
+    "typ": "slutavverkning",
+    "namn": "Rävemåla AU 2026",
+    "avslutat": "2026-09-14T05:04:26.875+00:00"
+   },
+   {
+    "id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "lat": 56.4535959304547,
+    "lng": 14.8394914302678,
+    "typ": "slutavverkning",
+    "namn": "Kämpamåla AU 2026",
+    "avslutat": "2026-09-09T19:38:07.567+00:00"
+   },
+   {
+    "id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "lat": 56.4645053757032,
+    "lng": 15.024392340003,
+    "typ": "slutavverkning",
+    "namn": "Betet AU 2025",
+    "avslutat": "2026-09-19T22:00:00+00:00"
+   },
+   {
+    "id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "lat": 56.534568776976,
+    "lng": 14.8890463120319,
+    "typ": "slutavverkning",
+    "namn": "Hallaslätt AU 2026",
+    "avslutat": "2026-09-14T05:04:49.234+00:00"
+   },
+   {
+    "id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "lat": 56.5879579780586,
+    "lng": 15.3098648034509,
+    "typ": "slutavverkning",
+    "namn": "Stänkelsmåla 2025",
+    "avslutat": "2026-09-01T09:29:00.732+00:00"
+   },
+   {
+    "id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "lat": 56.3542864555144,
+    "lng": 15.0605397606061,
+    "typ": "gallring",
+    "namn": "Hålabäck gallring 2026",
+    "avslutat": "2026-09-14T14:34:41.048+00:00"
+   },
+   {
+    "id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "lat": 56.5560769813111,
+    "lng": 14.8772070495246,
+    "typ": "gallring",
+    "namn": "Rössmåla Ga 2026",
+    "avslutat": "2026-09-17T13:30:33.579+00:00"
+   },
+   {
+    "id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "lat": 56.5160763220073,
+    "lng": 14.8213551350884,
+    "typ": "gallring",
+    "namn": "Räveboda gallring 2026",
+    "avslutat": "2026-09-17T13:30:08.41+00:00"
+   },
+   {
+    "id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "lat": 56.5678873390629,
+    "lng": 14.7447035061828,
+    "typ": "slutavverkning",
+    "namn": "400763 Akelius Tåget SA",
+    "avslutat": "2026-09-09T04:00:43.628+00:00"
+   }
+  ],
+  "ankare_objekt_id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+  "ankare_index": 10,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "400763 Akelius Tåget SA",
+    "ordning": 1,
+    "objekt_id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Räveboda gallring 2026",
+    "ordning": 2,
+    "objekt_id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "km_fran_ankare": 7.43
+   },
+   {
+    "namn": "Rössmåla Ga 2026",
+    "ordning": 3,
+    "objekt_id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "km_fran_ankare": 8.22
+   }
+  ],
+  "spridning_km": 8.2,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "559fdeef-fc37-41b6-a72a-a63229a6dfde",
+  "kandidater": [
+   {
+    "id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "lat": 56.354784099622,
+    "lng": 15.0544807468525,
+    "typ": "slutavverkning",
+    "namn": "Hålabäck au 2025",
+    "avslutat": "2026-09-28T08:52:58.215+00:00"
+   },
+   {
+    "id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "lat": 56.4283631893472,
+    "lng": 14.7718473902989,
+    "typ": "slutavverkning",
+    "namn": "Krokshult AU 2026",
+    "avslutat": "2026-09-28T08:53:59.789+00:00"
+   },
+   {
+    "id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "lat": 56.5517756439774,
+    "lng": 15.2567984114807,
+    "typ": "slutavverkning",
+    "namn": "Rävemåla AU 2026",
+    "avslutat": "2026-09-14T05:04:26.875+00:00"
+   },
+   {
+    "id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "lat": 56.4535959304547,
+    "lng": 14.8394914302678,
+    "typ": "slutavverkning",
+    "namn": "Kämpamåla AU 2026",
+    "avslutat": "2026-09-09T19:38:07.567+00:00"
+   },
+   {
+    "id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "lat": 56.4645053757032,
+    "lng": 15.024392340003,
+    "typ": "slutavverkning",
+    "namn": "Betet AU 2025",
+    "avslutat": "2026-09-19T22:00:00+00:00"
+   },
+   {
+    "id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "lat": 56.534568776976,
+    "lng": 14.8890463120319,
+    "typ": "slutavverkning",
+    "namn": "Hallaslätt AU 2026",
+    "avslutat": "2026-09-14T05:04:49.234+00:00"
+   },
+   {
+    "id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "lat": 56.5879579780586,
+    "lng": 15.3098648034509,
+    "typ": "slutavverkning",
+    "namn": "Stänkelsmåla 2025",
+    "avslutat": "2026-09-01T09:29:00.732+00:00"
+   },
+   {
+    "id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "lat": 56.3542864555144,
+    "lng": 15.0605397606061,
+    "typ": "gallring",
+    "namn": "Hålabäck gallring 2026",
+    "avslutat": "2026-09-14T14:34:41.048+00:00"
+   },
+   {
+    "id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "lat": 56.5560769813111,
+    "lng": 14.8772070495246,
+    "typ": "gallring",
+    "namn": "Rössmåla Ga 2026",
+    "avslutat": "2026-09-17T13:30:33.579+00:00"
+   },
+   {
+    "id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "lat": 56.5160763220073,
+    "lng": 14.8213551350884,
+    "typ": "gallring",
+    "namn": "Räveboda gallring 2026",
+    "avslutat": "2026-09-17T13:30:08.41+00:00"
+   },
+   {
+    "id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "lat": 56.5678873390629,
+    "lng": 14.7447035061828,
+    "typ": "slutavverkning",
+    "namn": "400763 Akelius Tåget SA",
+    "avslutat": "2026-09-09T04:00:43.628+00:00"
+   }
+  ],
+  "ankare_objekt_id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+  "ankare_index": 0,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Hålabäck au 2025",
+    "ordning": 1,
+    "objekt_id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Hålabäck gallring 2026",
+    "ordning": 2,
+    "objekt_id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "km_fran_ankare": 0.38
+   },
+   {
+    "namn": "Betet AU 2025",
+    "ordning": 3,
+    "objekt_id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "km_fran_ankare": 12.34
+   }
+  ],
+  "spridning_km": 12.5,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "f4acc728-ed1a-4d7d-83c5-056275ee136b",
+  "kandidater": [
+   {
+    "id": "0a57ddbb-1bae-4080-ab56-d0972512525f",
+    "lat": 56.354784099622,
+    "lng": 15.0544807468525,
+    "typ": "slutavverkning",
+    "namn": "Hålabäck au 2025",
+    "avslutat": "2026-09-28T08:52:58.215+00:00"
+   },
+   {
+    "id": "0f6be8d7-bff7-488f-ae30-45abff32b4d5",
+    "lat": 56.4283631893472,
+    "lng": 14.7718473902989,
+    "typ": "slutavverkning",
+    "namn": "Krokshult AU 2026",
+    "avslutat": "2026-09-28T08:53:59.789+00:00"
+   },
+   {
+    "id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "lat": 56.5517756439774,
+    "lng": 15.2567984114807,
+    "typ": "slutavverkning",
+    "namn": "Rävemåla AU 2026",
+    "avslutat": "2026-09-14T05:04:26.875+00:00"
+   },
+   {
+    "id": "820e66ea-4d8a-4550-a7c3-912953b1fba7",
+    "lat": 56.4535959304547,
+    "lng": 14.8394914302678,
+    "typ": "slutavverkning",
+    "namn": "Kämpamåla AU 2026",
+    "avslutat": "2026-09-09T19:38:07.567+00:00"
+   },
+   {
+    "id": "86c2494b-7ddb-4510-a5d1-48ce55228348",
+    "lat": 56.4645053757032,
+    "lng": 15.024392340003,
+    "typ": "slutavverkning",
+    "namn": "Betet AU 2025",
+    "avslutat": "2026-09-19T22:00:00+00:00"
+   },
+   {
+    "id": "97d640ff-1790-4c9f-a4aa-e3230ed4a8b8",
+    "lat": 56.534568776976,
+    "lng": 14.8890463120319,
+    "typ": "slutavverkning",
+    "namn": "Hallaslätt AU 2026",
+    "avslutat": "2026-09-14T05:04:49.234+00:00"
+   },
+   {
+    "id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "lat": 56.5879579780586,
+    "lng": 15.3098648034509,
+    "typ": "slutavverkning",
+    "namn": "Stänkelsmåla 2025",
+    "avslutat": "2026-09-01T09:29:00.732+00:00"
+   },
+   {
+    "id": "a5504834-78ed-4c1e-9039-1bcdbe7776c6",
+    "lat": 56.3542864555144,
+    "lng": 15.0605397606061,
+    "typ": "gallring",
+    "namn": "Hålabäck gallring 2026",
+    "avslutat": "2026-09-14T14:34:41.048+00:00"
+   },
+   {
+    "id": "b76ece95-1dc1-49be-a3ef-f5d9913ba363",
+    "lat": 56.5560769813111,
+    "lng": 14.8772070495246,
+    "typ": "gallring",
+    "namn": "Rössmåla Ga 2026",
+    "avslutat": "2026-09-17T13:30:33.579+00:00"
+   },
+   {
+    "id": "c41d6d6b-3592-457d-a891-a58babc1d806",
+    "lat": 56.5160763220073,
+    "lng": 14.8213551350884,
+    "typ": "gallring",
+    "namn": "Räveboda gallring 2026",
+    "avslutat": "2026-09-17T13:30:08.41+00:00"
+   },
+   {
+    "id": "db493561-c61b-4c5b-8862-0386dcf02ec0",
+    "lat": 56.5678873390629,
+    "lng": 14.7447035061828,
+    "typ": "slutavverkning",
+    "namn": "400763 Akelius Tåget SA",
+    "avslutat": "2026-09-09T04:00:43.628+00:00"
+   }
+  ],
+  "ankare_objekt_id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+  "ankare_index": 2,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Rävemåla AU 2026",
+    "ordning": 1,
+    "objekt_id": "35606bd7-dcb8-4b67-a175-51d027e3791b",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Stänkelsmåla 2025",
+    "ordning": 2,
+    "objekt_id": "9cd47e9c-033c-4569-b7f1-8d4ef154e763",
+    "km_fran_ankare": 5.17
+   }
+  ],
+  "spridning_km": 5.2,
+  "forklaring": "for_langt",
+  "troskel_km": 15
+ },
+ {
+  "fro": "ba973377-0956-4af8-bcef-2a0e4751037c",
+  "kandidater": [
+   {
+    "id": "031bccfd-a6ba-420d-972e-a0782316e498",
+    "lat": 56.555194050976,
+    "lng": 14.6902887794793,
+    "typ": "gallring",
+    "namn": "Toftåsa gallring 2026",
+    "avslutat": "2026-10-14T13:28:28.809+00:00"
+   },
+   {
+    "id": "3719fce9-b74c-43b5-91ef-f60381e12e7f",
+    "lat": 56.2348957579538,
+    "lng": 15.373079358122,
+    "typ": "slutavverkning",
+    "namn": "Bågskyttebanan RP J-Hus- 25",
+    "avslutat": "2026-10-13T08:31:13.721+00:00"
+   },
+   {
+    "id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "lat": 56.2275658382978,
+    "lng": 14.6881817031149,
+    "typ": "slutavverkning",
+    "namn": "Vällust RP M-R -25",
+    "avslutat": "2026-10-05T14:18:55.71+00:00"
+   },
+   {
+    "id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "lat": 56.2514640718269,
+    "lng": 14.9239314431017,
+    "typ": "slutavverkning",
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "avslutat": "2026-10-06T16:34:19.144+00:00"
+   },
+   {
+    "id": "82e25a66-f342-476d-8304-ee9bdf985846",
+    "lat": 56.457991113043,
+    "lng": 15.0245983882786,
+    "typ": "gallring",
+    "namn": "Betet gallring 2026",
+    "avslutat": "2026-10-02T13:47:26.867068+00:00"
+   },
+   {
+    "id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "lat": 56.2042356003382,
+    "lng": 14.8945289505836,
+    "typ": "slutavverkning",
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "avslutat": "2026-10-18T17:23:40.537+00:00"
+   }
+  ],
+  "ankare_objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+  "ankare_index": 5,
+  "ankare_forsok": 3,
+  "valda": [
+   {
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "ordning": 1,
+    "objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "ordning": 2,
+    "objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "km_fran_ankare": 5.56
+   },
+   {
+    "namn": "Vällust RP M-R -25",
+    "ordning": 3,
+    "objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "km_fran_ankare": 13.02
+   }
+  ],
+  "spridning_km": 14.8,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "c60a2203-98ea-4df5-b743-c99e2109cd74",
+  "kandidater": [
+   {
+    "id": "031bccfd-a6ba-420d-972e-a0782316e498",
+    "lat": 56.555194050976,
+    "lng": 14.6902887794793,
+    "typ": "gallring",
+    "namn": "Toftåsa gallring 2026",
+    "avslutat": "2026-10-14T13:28:28.809+00:00"
+   },
+   {
+    "id": "3719fce9-b74c-43b5-91ef-f60381e12e7f",
+    "lat": 56.2348957579538,
+    "lng": 15.373079358122,
+    "typ": "slutavverkning",
+    "namn": "Bågskyttebanan RP J-Hus- 25",
+    "avslutat": "2026-10-13T08:31:13.721+00:00"
+   },
+   {
+    "id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "lat": 56.2275658382978,
+    "lng": 14.6881817031149,
+    "typ": "slutavverkning",
+    "namn": "Vällust RP M-R -25",
+    "avslutat": "2026-10-05T14:18:55.71+00:00"
+   },
+   {
+    "id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "lat": 56.2514640718269,
+    "lng": 14.9239314431017,
+    "typ": "slutavverkning",
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "avslutat": "2026-10-06T16:34:19.144+00:00"
+   },
+   {
+    "id": "82e25a66-f342-476d-8304-ee9bdf985846",
+    "lat": 56.457991113043,
+    "lng": 15.0245983882786,
+    "typ": "gallring",
+    "namn": "Betet gallring 2026",
+    "avslutat": "2026-10-02T13:47:26.867068+00:00"
+   },
+   {
+    "id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "lat": 56.2042356003382,
+    "lng": 14.8945289505836,
+    "typ": "slutavverkning",
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "avslutat": "2026-10-18T17:23:40.537+00:00"
+   }
+  ],
+  "ankare_objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+  "ankare_index": 3,
+  "ankare_forsok": 2,
+  "valda": [
+   {
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "ordning": 1,
+    "objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "ordning": 2,
+    "objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "km_fran_ankare": 5.56
+   },
+   {
+    "namn": "Vällust RP M-R -25",
+    "ordning": 3,
+    "objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "km_fran_ankare": 14.81
+   }
+  ],
+  "spridning_km": 14.8,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "f7f8a0d7-c073-4777-b38d-4702337a3429",
+  "kandidater": [
+   {
+    "id": "031bccfd-a6ba-420d-972e-a0782316e498",
+    "lat": 56.555194050976,
+    "lng": 14.6902887794793,
+    "typ": "gallring",
+    "namn": "Toftåsa gallring 2026",
+    "avslutat": "2026-10-14T13:28:28.809+00:00"
+   },
+   {
+    "id": "3719fce9-b74c-43b5-91ef-f60381e12e7f",
+    "lat": 56.2348957579538,
+    "lng": 15.373079358122,
+    "typ": "slutavverkning",
+    "namn": "Bågskyttebanan RP J-Hus- 25",
+    "avslutat": "2026-10-13T08:31:13.721+00:00"
+   },
+   {
+    "id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "lat": 56.2275658382978,
+    "lng": 14.6881817031149,
+    "typ": "slutavverkning",
+    "namn": "Vällust RP M-R -25",
+    "avslutat": "2026-10-05T14:18:55.71+00:00"
+   },
+   {
+    "id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "lat": 56.2514640718269,
+    "lng": 14.9239314431017,
+    "typ": "slutavverkning",
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "avslutat": "2026-10-06T16:34:19.144+00:00"
+   },
+   {
+    "id": "82e25a66-f342-476d-8304-ee9bdf985846",
+    "lat": 56.457991113043,
+    "lng": 15.0245983882786,
+    "typ": "gallring",
+    "namn": "Betet gallring 2026",
+    "avslutat": "2026-10-02T13:47:26.867068+00:00"
+   },
+   {
+    "id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "lat": 56.2042356003382,
+    "lng": 14.8945289505836,
+    "typ": "slutavverkning",
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "avslutat": "2026-10-18T17:23:40.537+00:00"
+   }
+  ],
+  "ankare_objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+  "ankare_index": 2,
+  "ankare_forsok": 2,
+  "valda": [
+   {
+    "namn": "Vällust RP M-R -25",
+    "ordning": 1,
+    "objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "ordning": 2,
+    "objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "km_fran_ankare": 13.02
+   },
+   {
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "ordning": 3,
+    "objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "km_fran_ankare": 14.81
+   }
+  ],
+  "spridning_km": 14.8,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "9e3557d1-1b69-4074-bde2-9bcfbb5a34a6",
+  "kandidater": [
+   {
+    "id": "031bccfd-a6ba-420d-972e-a0782316e498",
+    "lat": 56.555194050976,
+    "lng": 14.6902887794793,
+    "typ": "gallring",
+    "namn": "Toftåsa gallring 2026",
+    "avslutat": "2026-10-14T13:28:28.809+00:00"
+   },
+   {
+    "id": "3719fce9-b74c-43b5-91ef-f60381e12e7f",
+    "lat": 56.2348957579538,
+    "lng": 15.373079358122,
+    "typ": "slutavverkning",
+    "namn": "Bågskyttebanan RP J-Hus- 25",
+    "avslutat": "2026-10-13T08:31:13.721+00:00"
+   },
+   {
+    "id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "lat": 56.2275658382978,
+    "lng": 14.6881817031149,
+    "typ": "slutavverkning",
+    "namn": "Vällust RP M-R -25",
+    "avslutat": "2026-10-05T14:18:55.71+00:00"
+   },
+   {
+    "id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "lat": 56.2514640718269,
+    "lng": 14.9239314431017,
+    "typ": "slutavverkning",
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "avslutat": "2026-10-06T16:34:19.144+00:00"
+   },
+   {
+    "id": "82e25a66-f342-476d-8304-ee9bdf985846",
+    "lat": 56.457991113043,
+    "lng": 15.0245983882786,
+    "typ": "gallring",
+    "namn": "Betet gallring 2026",
+    "avslutat": "2026-10-02T13:47:26.867068+00:00"
+   },
+   {
+    "id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "lat": 56.2042356003382,
+    "lng": 14.8945289505836,
+    "typ": "slutavverkning",
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "avslutat": "2026-10-18T17:23:40.537+00:00"
+   }
+  ],
+  "ankare_objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+  "ankare_index": 3,
+  "ankare_forsok": 2,
+  "valda": [
+   {
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "ordning": 1,
+    "objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "ordning": 2,
+    "objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "km_fran_ankare": 5.56
+   },
+   {
+    "namn": "Vällust RP M-R -25",
+    "ordning": 3,
+    "objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "km_fran_ankare": 14.81
+   }
+  ],
+  "spridning_km": 14.8,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "d9932e54-849a-4aaa-9c8d-ba719d932584",
+  "kandidater": [
+   {
+    "id": "031bccfd-a6ba-420d-972e-a0782316e498",
+    "lat": 56.555194050976,
+    "lng": 14.6902887794793,
+    "typ": "gallring",
+    "namn": "Toftåsa gallring 2026",
+    "avslutat": "2026-10-14T13:28:28.809+00:00"
+   },
+   {
+    "id": "3719fce9-b74c-43b5-91ef-f60381e12e7f",
+    "lat": 56.2348957579538,
+    "lng": 15.373079358122,
+    "typ": "slutavverkning",
+    "namn": "Bågskyttebanan RP J-Hus- 25",
+    "avslutat": "2026-10-13T08:31:13.721+00:00"
+   },
+   {
+    "id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "lat": 56.2275658382978,
+    "lng": 14.6881817031149,
+    "typ": "slutavverkning",
+    "namn": "Vällust RP M-R -25",
+    "avslutat": "2026-10-05T14:18:55.71+00:00"
+   },
+   {
+    "id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "lat": 56.2514640718269,
+    "lng": 14.9239314431017,
+    "typ": "slutavverkning",
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "avslutat": "2026-10-06T16:34:19.144+00:00"
+   },
+   {
+    "id": "82e25a66-f342-476d-8304-ee9bdf985846",
+    "lat": 56.457991113043,
+    "lng": 15.0245983882786,
+    "typ": "gallring",
+    "namn": "Betet gallring 2026",
+    "avslutat": "2026-10-02T13:47:26.867068+00:00"
+   },
+   {
+    "id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "lat": 56.2042356003382,
+    "lng": 14.8945289505836,
+    "typ": "slutavverkning",
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "avslutat": "2026-10-18T17:23:40.537+00:00"
+   }
+  ],
+  "ankare_objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+  "ankare_index": 3,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "ordning": 1,
+    "objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "ordning": 2,
+    "objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "km_fran_ankare": 5.56
+   },
+   {
+    "namn": "Vällust RP M-R -25",
+    "ordning": 3,
+    "objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "km_fran_ankare": 14.81
+   }
+  ],
+  "spridning_km": 14.8,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "740c0fb7-f4bf-4db6-82e7-7977d7422c72",
+  "kandidater": [
+   {
+    "id": "031bccfd-a6ba-420d-972e-a0782316e498",
+    "lat": 56.555194050976,
+    "lng": 14.6902887794793,
+    "typ": "gallring",
+    "namn": "Toftåsa gallring 2026",
+    "avslutat": "2026-10-14T13:28:28.809+00:00"
+   },
+   {
+    "id": "3719fce9-b74c-43b5-91ef-f60381e12e7f",
+    "lat": 56.2348957579538,
+    "lng": 15.373079358122,
+    "typ": "slutavverkning",
+    "namn": "Bågskyttebanan RP J-Hus- 25",
+    "avslutat": "2026-10-13T08:31:13.721+00:00"
+   },
+   {
+    "id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "lat": 56.2275658382978,
+    "lng": 14.6881817031149,
+    "typ": "slutavverkning",
+    "namn": "Vällust RP M-R -25",
+    "avslutat": "2026-10-05T14:18:55.71+00:00"
+   },
+   {
+    "id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "lat": 56.2514640718269,
+    "lng": 14.9239314431017,
+    "typ": "slutavverkning",
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "avslutat": "2026-10-06T16:34:19.144+00:00"
+   },
+   {
+    "id": "82e25a66-f342-476d-8304-ee9bdf985846",
+    "lat": 56.457991113043,
+    "lng": 15.0245983882786,
+    "typ": "gallring",
+    "namn": "Betet gallring 2026",
+    "avslutat": "2026-10-02T13:47:26.867068+00:00"
+   },
+   {
+    "id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "lat": 56.2042356003382,
+    "lng": 14.8945289505836,
+    "typ": "slutavverkning",
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "avslutat": "2026-10-18T17:23:40.537+00:00"
+   }
+  ],
+  "ankare_objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+  "ankare_index": 5,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "ordning": 1,
+    "objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "ordning": 2,
+    "objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "km_fran_ankare": 5.56
+   },
+   {
+    "namn": "Vällust RP M-R -25",
+    "ordning": 3,
+    "objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "km_fran_ankare": 13.02
+   }
+  ],
+  "spridning_km": 14.8,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "a48a554d-9e42-446d-a8f6-787fd080bf8f",
+  "kandidater": [
+   {
+    "id": "031bccfd-a6ba-420d-972e-a0782316e498",
+    "lat": 56.555194050976,
+    "lng": 14.6902887794793,
+    "typ": "gallring",
+    "namn": "Toftåsa gallring 2026",
+    "avslutat": "2026-10-14T13:28:28.809+00:00"
+   },
+   {
+    "id": "3719fce9-b74c-43b5-91ef-f60381e12e7f",
+    "lat": 56.2348957579538,
+    "lng": 15.373079358122,
+    "typ": "slutavverkning",
+    "namn": "Bågskyttebanan RP J-Hus- 25",
+    "avslutat": "2026-10-13T08:31:13.721+00:00"
+   },
+   {
+    "id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "lat": 56.2275658382978,
+    "lng": 14.6881817031149,
+    "typ": "slutavverkning",
+    "namn": "Vällust RP M-R -25",
+    "avslutat": "2026-10-05T14:18:55.71+00:00"
+   },
+   {
+    "id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "lat": 56.2514640718269,
+    "lng": 14.9239314431017,
+    "typ": "slutavverkning",
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "avslutat": "2026-10-06T16:34:19.144+00:00"
+   },
+   {
+    "id": "82e25a66-f342-476d-8304-ee9bdf985846",
+    "lat": 56.457991113043,
+    "lng": 15.0245983882786,
+    "typ": "gallring",
+    "namn": "Betet gallring 2026",
+    "avslutat": "2026-10-02T13:47:26.867068+00:00"
+   },
+   {
+    "id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "lat": 56.2042356003382,
+    "lng": 14.8945289505836,
+    "typ": "slutavverkning",
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "avslutat": "2026-10-18T17:23:40.537+00:00"
+   }
+  ],
+  "ankare_objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+  "ankare_index": 5,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "ordning": 1,
+    "objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "ordning": 2,
+    "objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "km_fran_ankare": 5.56
+   },
+   {
+    "namn": "Vällust RP M-R -25",
+    "ordning": 3,
+    "objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "km_fran_ankare": 13.02
+   }
+  ],
+  "spridning_km": 14.8,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "afebceed-625b-47cc-a8b2-0185b5db4d3b",
+  "kandidater": [
+   {
+    "id": "031bccfd-a6ba-420d-972e-a0782316e498",
+    "lat": 56.555194050976,
+    "lng": 14.6902887794793,
+    "typ": "gallring",
+    "namn": "Toftåsa gallring 2026",
+    "avslutat": "2026-10-14T13:28:28.809+00:00"
+   },
+   {
+    "id": "3719fce9-b74c-43b5-91ef-f60381e12e7f",
+    "lat": 56.2348957579538,
+    "lng": 15.373079358122,
+    "typ": "slutavverkning",
+    "namn": "Bågskyttebanan RP J-Hus- 25",
+    "avslutat": "2026-10-13T08:31:13.721+00:00"
+   },
+   {
+    "id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "lat": 56.2275658382978,
+    "lng": 14.6881817031149,
+    "typ": "slutavverkning",
+    "namn": "Vällust RP M-R -25",
+    "avslutat": "2026-10-05T14:18:55.71+00:00"
+   },
+   {
+    "id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "lat": 56.2514640718269,
+    "lng": 14.9239314431017,
+    "typ": "slutavverkning",
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "avslutat": "2026-10-06T16:34:19.144+00:00"
+   },
+   {
+    "id": "82e25a66-f342-476d-8304-ee9bdf985846",
+    "lat": 56.457991113043,
+    "lng": 15.0245983882786,
+    "typ": "gallring",
+    "namn": "Betet gallring 2026",
+    "avslutat": "2026-10-02T13:47:26.867068+00:00"
+   },
+   {
+    "id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "lat": 56.2042356003382,
+    "lng": 14.8945289505836,
+    "typ": "slutavverkning",
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "avslutat": "2026-10-18T17:23:40.537+00:00"
+   }
+  ],
+  "ankare_objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+  "ankare_index": 5,
+  "ankare_forsok": 2,
+  "valda": [
+   {
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "ordning": 1,
+    "objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "ordning": 2,
+    "objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "km_fran_ankare": 5.56
+   },
+   {
+    "namn": "Vällust RP M-R -25",
+    "ordning": 3,
+    "objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "km_fran_ankare": 13.02
+   }
+  ],
+  "spridning_km": 14.8,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "925c40dc-f4f9-4bee-9d02-74a325de21dc",
+  "kandidater": [
+   {
+    "id": "031bccfd-a6ba-420d-972e-a0782316e498",
+    "lat": 56.555194050976,
+    "lng": 14.6902887794793,
+    "typ": "gallring",
+    "namn": "Toftåsa gallring 2026",
+    "avslutat": "2026-10-14T13:28:28.809+00:00"
+   },
+   {
+    "id": "3719fce9-b74c-43b5-91ef-f60381e12e7f",
+    "lat": 56.2348957579538,
+    "lng": 15.373079358122,
+    "typ": "slutavverkning",
+    "namn": "Bågskyttebanan RP J-Hus- 25",
+    "avslutat": "2026-10-13T08:31:13.721+00:00"
+   },
+   {
+    "id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "lat": 56.2275658382978,
+    "lng": 14.6881817031149,
+    "typ": "slutavverkning",
+    "namn": "Vällust RP M-R -25",
+    "avslutat": "2026-10-05T14:18:55.71+00:00"
+   },
+   {
+    "id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "lat": 56.2514640718269,
+    "lng": 14.9239314431017,
+    "typ": "slutavverkning",
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "avslutat": "2026-10-06T16:34:19.144+00:00"
+   },
+   {
+    "id": "82e25a66-f342-476d-8304-ee9bdf985846",
+    "lat": 56.457991113043,
+    "lng": 15.0245983882786,
+    "typ": "gallring",
+    "namn": "Betet gallring 2026",
+    "avslutat": "2026-10-02T13:47:26.867068+00:00"
+   },
+   {
+    "id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "lat": 56.2042356003382,
+    "lng": 14.8945289505836,
+    "typ": "slutavverkning",
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "avslutat": "2026-10-18T17:23:40.537+00:00"
+   }
+  ],
+  "ankare_objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+  "ankare_index": 5,
+  "ankare_forsok": 2,
+  "valda": [
+   {
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "ordning": 1,
+    "objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "ordning": 2,
+    "objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "km_fran_ankare": 5.56
+   },
+   {
+    "namn": "Vällust RP M-R -25",
+    "ordning": 3,
+    "objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "km_fran_ankare": 13.02
+   }
+  ],
+  "spridning_km": 14.8,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "7e975ed0-d89e-4c35-a456-92013708bb79",
+  "kandidater": [
+   {
+    "id": "031bccfd-a6ba-420d-972e-a0782316e498",
+    "lat": 56.555194050976,
+    "lng": 14.6902887794793,
+    "typ": "gallring",
+    "namn": "Toftåsa gallring 2026",
+    "avslutat": "2026-10-14T13:28:28.809+00:00"
+   },
+   {
+    "id": "3719fce9-b74c-43b5-91ef-f60381e12e7f",
+    "lat": 56.2348957579538,
+    "lng": 15.373079358122,
+    "typ": "slutavverkning",
+    "namn": "Bågskyttebanan RP J-Hus- 25",
+    "avslutat": "2026-10-13T08:31:13.721+00:00"
+   },
+   {
+    "id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "lat": 56.2275658382978,
+    "lng": 14.6881817031149,
+    "typ": "slutavverkning",
+    "namn": "Vällust RP M-R -25",
+    "avslutat": "2026-10-05T14:18:55.71+00:00"
+   },
+   {
+    "id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "lat": 56.2514640718269,
+    "lng": 14.9239314431017,
+    "typ": "slutavverkning",
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "avslutat": "2026-10-06T16:34:19.144+00:00"
+   },
+   {
+    "id": "82e25a66-f342-476d-8304-ee9bdf985846",
+    "lat": 56.457991113043,
+    "lng": 15.0245983882786,
+    "typ": "gallring",
+    "namn": "Betet gallring 2026",
+    "avslutat": "2026-10-02T13:47:26.867068+00:00"
+   },
+   {
+    "id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "lat": 56.2042356003382,
+    "lng": 14.8945289505836,
+    "typ": "slutavverkning",
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "avslutat": "2026-10-18T17:23:40.537+00:00"
+   }
+  ],
+  "ankare_objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+  "ankare_index": 3,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "ordning": 1,
+    "objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "ordning": 2,
+    "objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "km_fran_ankare": 5.56
+   },
+   {
+    "namn": "Vällust RP M-R -25",
+    "ordning": 3,
+    "objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "km_fran_ankare": 14.81
+   }
+  ],
+  "spridning_km": 14.8,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "8318e753-9fb5-4111-a5b9-6d9086790bcf",
+  "kandidater": [
+   {
+    "id": "031bccfd-a6ba-420d-972e-a0782316e498",
+    "lat": 56.555194050976,
+    "lng": 14.6902887794793,
+    "typ": "gallring",
+    "namn": "Toftåsa gallring 2026",
+    "avslutat": "2026-10-14T13:28:28.809+00:00"
+   },
+   {
+    "id": "3719fce9-b74c-43b5-91ef-f60381e12e7f",
+    "lat": 56.2348957579538,
+    "lng": 15.373079358122,
+    "typ": "slutavverkning",
+    "namn": "Bågskyttebanan RP J-Hus- 25",
+    "avslutat": "2026-10-13T08:31:13.721+00:00"
+   },
+   {
+    "id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "lat": 56.2275658382978,
+    "lng": 14.6881817031149,
+    "typ": "slutavverkning",
+    "namn": "Vällust RP M-R -25",
+    "avslutat": "2026-10-05T14:18:55.71+00:00"
+   },
+   {
+    "id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "lat": 56.2514640718269,
+    "lng": 14.9239314431017,
+    "typ": "slutavverkning",
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "avslutat": "2026-10-06T16:34:19.144+00:00"
+   },
+   {
+    "id": "82e25a66-f342-476d-8304-ee9bdf985846",
+    "lat": 56.457991113043,
+    "lng": 15.0245983882786,
+    "typ": "gallring",
+    "namn": "Betet gallring 2026",
+    "avslutat": "2026-10-02T13:47:26.867068+00:00"
+   },
+   {
+    "id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "lat": 56.2042356003382,
+    "lng": 14.8945289505836,
+    "typ": "slutavverkning",
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "avslutat": "2026-10-18T17:23:40.537+00:00"
+   }
+  ],
+  "ankare_objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+  "ankare_index": 2,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Vällust RP M-R -25",
+    "ordning": 1,
+    "objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "ordning": 2,
+    "objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "km_fran_ankare": 13.02
+   },
+   {
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "ordning": 3,
+    "objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "km_fran_ankare": 14.81
+   }
+  ],
+  "spridning_km": 14.8,
+  "forklaring": "full",
+  "troskel_km": 15
+ },
+ {
+  "fro": "6cb9db37-44db-489d-a413-c7d6d2841f24",
+  "kandidater": [
+   {
+    "id": "031bccfd-a6ba-420d-972e-a0782316e498",
+    "lat": 56.555194050976,
+    "lng": 14.6902887794793,
+    "typ": "gallring",
+    "namn": "Toftåsa gallring 2026",
+    "avslutat": "2026-10-14T13:28:28.809+00:00"
+   },
+   {
+    "id": "3719fce9-b74c-43b5-91ef-f60381e12e7f",
+    "lat": 56.2348957579538,
+    "lng": 15.373079358122,
+    "typ": "slutavverkning",
+    "namn": "Bågskyttebanan RP J-Hus- 25",
+    "avslutat": "2026-10-13T08:31:13.721+00:00"
+   },
+   {
+    "id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "lat": 56.2275658382978,
+    "lng": 14.6881817031149,
+    "typ": "slutavverkning",
+    "namn": "Vällust RP M-R -25",
+    "avslutat": "2026-10-05T14:18:55.71+00:00"
+   },
+   {
+    "id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "lat": 56.2514640718269,
+    "lng": 14.9239314431017,
+    "typ": "slutavverkning",
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "avslutat": "2026-10-06T16:34:19.144+00:00"
+   },
+   {
+    "id": "82e25a66-f342-476d-8304-ee9bdf985846",
+    "lat": 56.457991113043,
+    "lng": 15.0245983882786,
+    "typ": "gallring",
+    "namn": "Betet gallring 2026",
+    "avslutat": "2026-10-02T13:47:26.867068+00:00"
+   },
+   {
+    "id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "lat": 56.2042356003382,
+    "lng": 14.8945289505836,
+    "typ": "slutavverkning",
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "avslutat": "2026-10-18T17:23:40.537+00:00"
+   }
+  ],
+  "ankare_objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+  "ankare_index": 3,
+  "ankare_forsok": 1,
+  "valda": [
+   {
+    "namn": "Kroksjömåla 1:23 A-A -25",
+    "ordning": 1,
+    "objekt_id": "60d2a07a-83aa-4d7a-a8f0-4955eef5b66f",
+    "km_fran_ankare": 0
+   },
+   {
+    "namn": "Östra-Hoka 1:7 A-C -25",
+    "ordning": 2,
+    "objekt_id": "b7a9ca51-f86b-40ca-830c-c663d61fff10",
+    "km_fran_ankare": 5.56
+   },
+   {
+    "namn": "Vällust RP M-R -25",
+    "ordning": 3,
+    "objekt_id": "5870a4a1-3fe6-4e06-97d0-3a4794455289",
+    "km_fran_ankare": 14.81
+   }
+  ],
+  "spridning_km": 14.8,
+  "forklaring": "full",
+  "troskel_km": 15
+ }
+]

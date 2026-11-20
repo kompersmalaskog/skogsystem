@@ -1,0 +1,28 @@
+# Design-lint på varje PR: räknar nya stil-literaler utanför lib/design/tokens.ts
+# i ändrade vy-filer och skriver resultatet i jobbets sammanfattning.
+#
+# VARNING, inte hinder: jobbet blir aldrig rött för skuld i orörda filer.
+# Bara filer listade i SKARPA i scripts/design-lint.mjs (rättade mot tokens)
+# kan fälla jobbet, via --strikt. Vercel bygger som vanligt oavsett.
+name: design-lint
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "components/**"
+      - "lib/design/**"
+      - "scripts/design-lint.mjs"
+
+jobs:
+  design-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Räkna literaler i ändrade vy-filer
+        run: node scripts/design-lint.mjs origin/${{ github.base_ref }} --strikt

@@ -1,0 +1,686 @@
+#!/usr/bin/env python3
+"""
+HPR Import — Importerar HPR-filer (Harvester Production Report) till hpr_filer och hpr_stammar i Supabase.
+Läser HPR-filer från Behandlade-mappen, samma struktur som MOM-importen.
+"""
+
+import os
+import sys
+import xml.etree.ElementTree as ET
+import re
+import logging
+from datetime import datetime
+from typing import Optional, Dict, Any, List
+from collections import Counter, defaultdict
+from urllib.parse import quote
+
+try:
+    import requests
+except ImportError:
+    print("Saknat bibliotek. Kör: py -m pip install requests")
+    sys.exit(1)
+
+try:
+    import objekt_koppling   # HPR-fil → objekt när ordernumret inte matchar (delas med skogsmaskin_import_version_6.py)
+except ImportError:
+    objekt_koppling = None
+
+# ============================================================
+# KONFIGURATION
+# ============================================================
+
+def _load_env_local():
+    """Läs .env.local från projektmappen (samma katalog som scriptet eller förälder)."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    for d in [script_dir, os.path.dirname(script_dir)]:
+        env_path = os.path.join(d, '.env.local')
+        if os.path.isfile(env_path):
+            with open(env_path, encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    key, _, val = line.partition('=')
+                    key = key.strip()
+                    val = val.strip().strip('"').strip("'")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+            return
+
+_load_env_local()
+
+SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL",
+               os.environ.get("SUPABASE_URL", "https://mxydghzfacbenbgpodex.supabase.co"))
+SUPABASE_KEY = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY")            # service-role: kringgår RLS (samma namn som importern + .env.local)
+                or os.environ.get("SUPABASE_SERVICE_KEY")             # legacy-namn (om någon satt det)
+                or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", ""))  # sista utväg: anon (RLS blockerar skrivning -> 42501)
+
+ONEDRIVE_BASE = r"C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer"
+BEHANDLADE = os.path.join(ONEDRIVE_BASE, "Behandlade")
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.path.join(SCRIPT_DIR, "hpr_import_logg.txt")  # repo-mappen, EJ OneDrive (OneDrive-synk gav [Errno 22] på flush)
+
+# Robust loggning: en logg-hicka (flush mot synkande fil / stängd konsol) får ALDRIG
+# spamma eller stoppa importen. Svälj OSError i emit/flush + stäng av logging-propagering.
+logging.raiseExceptions = False
+
+
+class _SafeFileHandler(logging.FileHandler):
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except Exception:
+            pass
+
+    def flush(self):
+        try:
+            super().flush()
+        except Exception:
+            pass
+
+
+class _SafeStreamHandler(logging.StreamHandler):
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except Exception:
+            pass
+
+    def flush(self):
+        try:
+            super().flush()
+        except Exception:
+            pass
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        _SafeFileHandler(LOG_FILE, encoding='utf-8'),
+        _SafeStreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=representation"
+}
+
+# ============================================================
+# XML HJÄLPFUNKTIONER (samma som i skogsmaskin_import_version_6.py)
+# ============================================================
+
+def get_namespace(root) -> str:
+    if root.tag.startswith('{'):
+        return root.tag.split('}')[0] + '}'
+    return ''
+
+def find_element(parent, tag, ns=''):
+    if ns:
+        elem = parent.find(f'{ns}{tag}')
+        if elem is not None:
+            return elem
+    return parent.find(tag)
+
+def find_all_elements(parent, tag, ns=''):
+    if ns:
+        elems = parent.findall(f'{ns}{tag}')
+        if elems:
+            return elems
+    return parent.findall(tag)
+
+def get_text(parent, tag, ns='', default='') -> str:
+    elem = find_element(parent, tag, ns)
+    if elem is not None and elem.text:
+        return elem.text.strip()
+    return default
+
+def get_attr(elem, attr, default='') -> str:
+    if elem is not None:
+        return elem.get(attr, default)
+    return default
+
+def safe_float(val, default=0.0) -> float:
+    try:
+        return float(val) if val else default
+    except:
+        return default
+
+def safe_int(val, default=0) -> int:
+    try:
+        return int(float(val)) if val else default
+    except:
+        return default
+
+def normalize_maskin_id(maskin_id: str, tillverkare: str = '') -> str:
+    if not maskin_id:
+        return maskin_id
+    if tillverkare and 'rottne' in tillverkare.lower():
+        if maskin_id.isdigit():
+            return f"R{maskin_id}"
+    if maskin_id.isdigit() and len(maskin_id) == 5:
+        return f"R{maskin_id}"
+    return maskin_id
+
+# ── Historiska vo-byten ───────────────────────────
+# En trakt kan få ett NYTT vo efter en dags körning; gamla vo:t ligger kvar i de äldre
+# filernas innehåll. Utan remap återskapar en re-import av de gamla filerna produktionen
+# under gamla vo:t = ett dubbelräknat spöke i uppföljningen (nya kumulativa filer bär redan
+# nya vo:t, så dedup slår ihop det som ska finnas). MÅSTE hållas identisk i båda importörerna.
+VO_REMAP = {
+    '11077137': '11240372',  # Rössmåla Ga 2026 — vo-byte efter 2026-08-05 (utrett + migrerat 2026-08-18)
+}
+
+
+def remap_vo(vo_nummer):
+    """Mappa historiskt utbytt vo → gällande vo (annars oförändrat)."""
+    return VO_REMAP.get((vo_nummer or '').strip(), (vo_nummer or '').strip())
+
+
+def make_objekt_id(vo_nummer: str, maskin_id: str, obj_key: str) -> str:
+    vo = remap_vo(vo_nummer)
+    if vo.isdigit():
+        return vo
+    return f"{maskin_id}_{obj_key}"
+
+
+def make_objekt_nyckel(maskin_id: str, vo_nummer: str, obj_key: str) -> Optional[str]:
+    """Stabil kompositnyckel per objekt för snapshot-dedup (oberoende av objekt-tabellen).
+    Format: '<maskin_id>:<numeriskt vo_nummer>'  annars  '<maskin_id>:k<ObjectKey>'.
+    Kompositen (maskin_id:) undviker krock mellan maskiner/objekt på korta vo-nummer."""
+    vo = remap_vo(vo_nummer)
+    ok = (obj_key or '').strip()
+    ident = vo if vo.isdigit() else (f"k{ok}" if ok else None)
+    if not maskin_id or ident is None:
+        return None
+    return f"{maskin_id}:{ident}"
+
+def parse_datetime(dt_str) -> Optional[datetime]:
+    if not dt_str:
+        return None
+    try:
+        dt_str = re.sub(r'[+-]\d{2}:\d{2}$', '', dt_str)
+        return datetime.fromisoformat(dt_str)
+    except:
+        return None
+
+# ============================================================
+# HPR-PARSER
+# ============================================================
+
+def parse_hpr_for_import(filepath: str) -> Dict[str, Any]:
+    """Parsa HPR-fil och returnera data för hpr_filer + hpr_stammar."""
+    tree = ET.parse(filepath)
+    root = tree.getroot()
+    ns = get_namespace(root)
+    filnamn = os.path.basename(filepath)
+
+    result = {
+        'filnamn': filnamn,
+        'maskin_id': None,       # text maskin_id (t.ex. R64101)
+        'vo_nummers': [],        # alla vo_nummer i filen
+        'objekt_defs': [],       # [{'vo_nummer','object_key','object_name'}] — för objekt_koppling
+        'objekt_nyckel': None,   # stabil dedup-nyckel (maskin_id:vo|kObjectKey), första objektet
+        'fil_datum': None,       # äldsta stam-tidpunkt
+        'stammar': [],           # lista av stammar
+    }
+
+    machine = find_element(root, 'Machine', ns)
+    if machine is None:
+        logger.warning(f"  Inget Machine-element i {filnamn}")
+        return result
+
+    # Maskin-ID
+    maskin_id = get_text(machine, 'BaseMachineManufacturerID', ns)
+    if not maskin_id:
+        maskin_id = get_text(machine, 'MachineKey', ns)
+    tillverkare = get_text(machine, 'MachineBaseManufacturer', ns)
+    maskin_id = normalize_maskin_id(maskin_id, tillverkare)
+    result['maskin_id'] = maskin_id
+
+    # Objekt — samla vo_nummer
+    obj_key_map = {}
+    for obj_def in find_all_elements(machine, 'ObjectDefinition', ns):
+        obj_key = get_text(obj_def, 'ObjectKey', ns)
+        contract_number = get_text(obj_def, 'ContractNumber', ns)
+        vo_nummer = contract_number if contract_number else get_text(obj_def, 'ObjectUserID', ns)
+        objekt_id = make_objekt_id(vo_nummer, maskin_id, obj_key)
+        obj_key_map[obj_key] = objekt_id
+        if vo_nummer and vo_nummer.strip().isdigit():
+            result['vo_nummers'].append(vo_nummer.strip())
+        result['objekt_defs'].append({'vo_nummer': remap_vo(vo_nummer), 'object_key': obj_key,
+                                      'object_name': (objekt_koppling.namn_ur_filnamn(filnamn, get_text(obj_def, 'ObjectName', ns))
+                                                      if objekt_koppling is not None else None)})
+        if result['objekt_nyckel'] is None:   # första objektet bestämmer dedup-nyckeln
+            result['objekt_nyckel'] = make_objekt_nyckel(maskin_id, vo_nummer, obj_key)
+
+    # Trädslag-karta
+    species_names = {}
+    for sp_def in find_all_elements(machine, 'SpeciesGroupDefinition', ns):
+        sp_key = get_text(sp_def, 'SpeciesGroupKey', ns)
+        sp_name = get_text(sp_def, 'SpeciesGroupName', ns)
+        species_names[sp_key] = sp_name
+
+    # Sortiment/produkt-karta (ProductGroupName = "Timmer", "Kubb", "Massa" etc.)
+    product_groups = {}
+    for prod_def in find_all_elements(machine, 'ProductDefinition', ns):
+        prod_key = get_text(prod_def, 'ProductKey', ns)
+        # ProductGroupName sitter under ClassifiedProductDefinition
+        pgn = None
+        for elem in prod_def.iter():
+            tag = elem.tag.replace(ns, '') if ns else elem.tag
+            if tag == 'ProductGroupName' and elem.text:
+                pgn = elem.text
+                break
+        if prod_key and pgn:
+            product_groups[prod_key] = pgn
+
+    # Stammar
+    stam_nummer = 0
+    earliest_date = None
+
+    for stem in find_all_elements(machine, 'Stem', ns):
+        # Enträds- ELLER flerträdshanterad stam. Flerträd hoppades tidigare
+        # över tyst; se STATUS.md, IMPORTUTREDNING 2026-08-23.
+        processed = find_element(stem, 'SingleTreeProcessedStem', ns)
+        if processed is None:
+            processed = find_element(stem, 'MultiTreeProcessedStem', ns)
+            if processed is None:
+                continue
+
+        stam_nummer += 1
+
+        # Trädslag
+        sp_key = get_text(stem, 'SpeciesGroupKey', ns) or get_text(processed, 'SpeciesGroupKey', ns)
+        tradslag = species_names.get(sp_key, sp_key or '')
+
+        # DBH
+        dbh = safe_int(get_text(processed, 'DBH', ns))
+
+        # GPS
+        stem_lat = None
+        stem_lon = None
+        stem_coords = find_element(stem, 'StemCoordinates', ns)
+        if stem_coords is None:
+            stem_coords = find_element(processed, 'Coordinates', ns)
+        if stem_coords is None:
+            stem_coords = find_element(processed, 'StemCoordinates', ns)
+        if stem_coords is not None:
+            stem_lat = safe_float(get_text(stem_coords, 'Latitude', ns)) or None
+            stem_lon = safe_float(get_text(stem_coords, 'Longitude', ns)) or None
+
+        # Tidpunkt
+        processing_date = get_text(processed, 'ProcessingDate', ns) or get_text(stem, 'HarvestDate', ns)
+        tidpunkt = parse_datetime(processing_date)
+        if tidpunkt and (earliest_date is None or tidpunkt < earliest_date):
+            earliest_date = tidpunkt
+
+        # Stockar: räkna antal och summera volym
+        antal_stockar = 0
+        total_volym = 0.0
+        sortiment_list = []
+
+        for log in find_all_elements(processed, 'Log', ns):
+            antal_stockar += 1
+            prod_key = get_text(log, 'ProductKey', ns)
+            if prod_key and prod_key in product_groups:
+                sortiment_list.append(product_groups[prod_key])
+
+            for vol_elem in find_all_elements(log, 'LogVolume', ns):
+                cat = get_attr(vol_elem, 'logVolumeCategory')
+                val = safe_float(vol_elem.text)
+                if 'm3sub' in cat.lower():
+                    total_volym += val
+
+        # BioEnergyAdaption (GROT) — sitter på Stem-nivån, inte SingleTreeProcessedStem
+        bio_energy = get_text(stem, 'BioEnergyAdaption', ns)
+
+        # Dominant sortiment: tradslag + ProductGroupName (t.ex. "Gran Timmer", "Tall Kubb")
+        sortiment = None
+        if sortiment_list:
+            dominant_group = Counter(sortiment_list).most_common(1)[0][0]
+            if dominant_group:
+                ts_cap = tradslag.capitalize() if tradslag else ''
+                sortiment = f"{ts_cap} {dominant_group}".strip() or None
+
+        result['stammar'].append({
+            'stam_nummer': stam_nummer,
+            'tradslag': tradslag,
+            'dbh': dbh if dbh > 0 else None,
+            'lat': stem_lat,
+            'lng': stem_lon,
+            'antal_stockar': antal_stockar,
+            'total_volym': round(total_volym, 6) if total_volym > 0 else None,
+            'bio_energy_adaption': bio_energy if bio_energy else None,
+            'sortiment': sortiment,
+        })
+
+    # Fil-datum: använd äldsta stam eller filnamnets datum
+    if earliest_date:
+        result['fil_datum'] = earliest_date
+    else:
+        date_match = re.search(r'(\d{8})', filnamn)
+        if date_match:
+            try:
+                ds = date_match.group(1)
+                result['fil_datum'] = datetime(int(ds[:4]), int(ds[4:6]), int(ds[6:8]))
+            except:
+                pass
+
+    return result
+
+# ============================================================
+# SUPABASE UPLOAD
+# ============================================================
+
+def fetch_objekt_uuid_map() -> Dict[str, str]:
+    """Hämta mapping vo_nummer → objekt.id (uuid) från objekt-tabellen."""
+    url = f"{SUPABASE_URL}/rest/v1/objekt?select=id,vo_nummer&vo_nummer=not.is.null"
+    resp = requests.get(url, headers=HEADERS, timeout=30)
+    if resp.status_code != 200:
+        logger.warning(f"Kunde inte hämta objekt: {resp.status_code}")
+        return {}
+    rows = resp.json()
+    return {r['vo_nummer']: r['id'] for r in rows if r.get('vo_nummer')}
+
+
+def delete_existing_by_nyckel(objekt_nyckel: str) -> int:
+    """Ersätt-logik: radera hpr_filer + hpr_stammar för ALLA filer med samma objekt_nyckel
+    (stammar först pga FK). Körs oavsett objekt_id — stoppar snapshot-ackumulering även för
+    objekt som saknas i objekt-tabellen. Returnerar antal raderade filer."""
+    q = quote(str(objekt_nyckel), safe='')
+    resp = requests.get(f"{SUPABASE_URL}/rest/v1/hpr_filer?select=id&objekt_nyckel=eq.{q}",
+                        headers=HEADERS, timeout=30)
+    if resp.status_code != 200 or not resp.json():
+        return 0
+    fil_ids = [r['id'] for r in resp.json()]
+    for fid in fil_ids:
+        requests.delete(f"{SUPABASE_URL}/rest/v1/hpr_stammar?hpr_fil_id=eq.{fid}",
+                        headers=HEADERS, timeout=60)
+    requests.delete(f"{SUPABASE_URL}/rest/v1/hpr_filer?objekt_nyckel=eq.{q}",
+                    headers=HEADERS, timeout=30)
+    return len(fil_ids)
+
+def fetch_existing_filnamn() -> set:
+    """Hämta redan importerade filnamn från hpr_filer."""
+    url = f"{SUPABASE_URL}/rest/v1/hpr_filer?select=filnamn"
+    all_names = set()
+    offset = 0
+    page_size = 1000
+    while True:
+        resp = requests.get(
+            f"{url}&offset={offset}&limit={page_size}",
+            headers=HEADERS, timeout=30
+        )
+        if resp.status_code != 200:
+            break
+        rows = resp.json()
+        if not rows:
+            break
+        for r in rows:
+            all_names.add(r['filnamn'])
+        if len(rows) < page_size:
+            break
+        offset += page_size
+    return all_names
+
+def delete_existing_for_objekt(objekt_id: str) -> int:
+    """Radera alla hpr_stammar och hpr_filer för ett objekt.
+    Stammar raderas först (FK-beroende), sedan filer.
+    Returnerar antal raderade filer."""
+    # Hämta alla hpr_filer.id för detta objekt
+    url = f"{SUPABASE_URL}/rest/v1/hpr_filer?select=id&objekt_id=eq.{objekt_id}"
+    resp = requests.get(url, headers=HEADERS, timeout=30)
+    if resp.status_code != 200 or not resp.json():
+        return 0
+
+    fil_ids = [r['id'] for r in resp.json()]
+
+    # Radera hpr_stammar per fil (FK-beroende)
+    for fid in fil_ids:
+        resp = requests.delete(
+            f"{SUPABASE_URL}/rest/v1/hpr_stammar?hpr_fil_id=eq.{fid}",
+            headers=HEADERS, timeout=60
+        )
+        if resp.status_code not in [200, 204]:
+            logger.warning(f"  Varning: kunde inte radera stammar för fil {fid}: {resp.status_code}")
+
+    # Radera hpr_filer för objektet
+    resp = requests.delete(
+        f"{SUPABASE_URL}/rest/v1/hpr_filer?objekt_id=eq.{objekt_id}",
+        headers=HEADERS, timeout=30
+    )
+    if resp.status_code not in [200, 204]:
+        logger.warning(f"  Varning: kunde inte radera hpr_filer för objekt {objekt_id}: {resp.status_code}")
+
+    return len(fil_ids)
+
+
+def upload_hpr(parsed: Dict[str, Any], objekt_map: Dict[str, str]) -> bool:
+    """Ladda upp en parsad HPR-fil till hpr_filer + hpr_stammar.
+    Raderar befintliga data för objektet först (senaste filen ersätter alltid)."""
+    filnamn = parsed['filnamn']
+
+    # Skapa hpr_filer-rad.
+    #
+    # stammar_count MÅSTE sättas. Den är inte statistik — den är vakten som
+    # skogsmaskin_import_version_6._save_hpr_tables jämför mot innan den
+    # ersätter ett snapshot ("ingen nedgradering"). Lämnas den osatt blir den
+    # 0 i DB, och då passerar VILKEN fil som helst jämförelsen och raderar ett
+    # komplett snapshot. Objekt 11217392 stod med stammar_count = 0 och 4 000
+    # faktiska hpr_stammar av precis det skälet — 60 av 90 rader var oräknade.
+    stammar_med_koordinat = sum(1 for s in parsed['stammar'] if s.get('lat') and s.get('lng'))
+    fil_row = {
+        'filnamn': filnamn,
+        'stammar_count': len(parsed['stammar']),
+        'has_coordinates': stammar_med_koordinat > 0,
+        'stammar_med_koordinat': stammar_med_koordinat,
+    }
+
+    if parsed['fil_datum']:
+        # Väggklocka (parse_datetime) → verkligt UTC, och raden märks så (hpr_filer.tid_ar_utc). Samma regel som
+        # skogsmaskin_import_version_6.py — regeln bor där, inte här.
+        import skogsmaskin_import_version_6 as M
+        fil_row['fil_datum'] = M.stockholm_lokal_till_utc(parsed['fil_datum']).isoformat()
+        fil_row['tid_ar_utc'] = True
+
+    # Matcha objekt_id (UUID-FK) via vo_nummer — för registrerade objekt. FRIKOPPLAT från dedupen.
+    for vo in parsed['vo_nummers']:
+        if vo in objekt_map:
+            fil_row['objekt_id'] = objekt_map[vo]
+            break
+    # Matchar numret inget objekt: extra nummer, sedan objektnamnet (exakt, sedan utan skillnad i mellanslag/versaler;
+    # exakt EN träff). Ändrar aldrig nyckeln filen skrivs under. Se objekt_koppling.py.
+    if 'objekt_id' not in fil_row and objekt_koppling is not None:
+        kopplad = objekt_koppling.koppla_fil(
+            requests, SUPABASE_URL, HEADERS, logger,
+            filnamn=filnamn, maskin_id=parsed.get('maskin_id') or '', objekt_defs=parsed.get('objekt_defs') or [])
+        if kopplad:
+            fil_row['objekt_id'] = kopplad
+
+    # DEDUP: ersätt per objekt_nyckel ALLTID (även utan objekt_id) — stoppar snapshot-
+    # ackumulering även för objekt som saknas i objekt-tabellen. Senaste/största ersätter.
+    objekt_nyckel = parsed.get('objekt_nyckel')
+    if objekt_nyckel:
+        fil_row['objekt_nyckel'] = objekt_nyckel
+        deleted = delete_existing_by_nyckel(objekt_nyckel)
+        if deleted > 0:
+            logger.info(f"  Ersätter: raderade {deleted} tidigare snapshot(s) för objekt {objekt_nyckel}")
+    else:
+        logger.warning(f"  {filnamn}: ingen objekt_nyckel kunde härledas — hoppar dedup (kan ackumulera)")
+
+    # maskin_id FK pekar på maskiner-tabellen som är tom — lämna null
+
+    # Insert hpr_filer
+    resp = requests.post(
+        f"{SUPABASE_URL}/rest/v1/hpr_filer",
+        json=fil_row,
+        headers=HEADERS,
+        timeout=30
+    )
+    if resp.status_code not in [200, 201]:
+        logger.error(f"  Kunde inte skapa hpr_filer-rad för {filnamn}: {resp.status_code} {resp.text}")
+        return False
+
+    fil_data = resp.json()
+    if isinstance(fil_data, list):
+        fil_data = fil_data[0]
+    hpr_fil_id = fil_data['id']
+
+    # Insert stammar i batchar
+    stammar = parsed['stammar']
+    if not stammar:
+        logger.info(f"  {filnamn}: 0 stammar (tom fil)")
+        return True
+
+    batch_size = 500
+    for i in range(0, len(stammar), batch_size):
+        batch = stammar[i:i + batch_size]
+        rows = []
+        for s in batch:
+            row = {
+                'hpr_fil_id': hpr_fil_id,
+                'stam_nummer': s['stam_nummer'],
+                'tradslag': s['tradslag'],
+            }
+            if s['dbh'] is not None:
+                row['dbh'] = s['dbh']
+            if s['lat'] is not None:
+                row['lat'] = s['lat']
+            if s['lng'] is not None:
+                row['lng'] = s['lng']
+            if s['antal_stockar']:
+                row['antal_stockar'] = s['antal_stockar']
+            if s['total_volym'] is not None:
+                row['total_volym'] = s['total_volym']
+            row['bio_energy_adaption'] = s.get('bio_energy_adaption') or None
+            row['sortiment'] = s.get('sortiment') or None
+            rows.append(row)
+
+        resp = requests.post(
+            f"{SUPABASE_URL}/rest/v1/hpr_stammar",
+            json=rows,
+            headers=HEADERS,
+            timeout=60
+        )
+        if resp.status_code not in [200, 201]:
+            logger.error(f"  Fel vid insert av stammar batch {i}: {resp.status_code} {resp.text}")
+            return False
+
+    return True
+
+# ============================================================
+# HUVUDPROGRAM
+# ============================================================
+
+def _object_key(filename: str) -> str:
+    """Gruppnyckel per objekt: filnamn utan datum/tid-suffix, så HPR-snapshots för samma
+    objekt grupperas (t.ex. 'Hössjömåla Gallring 25 2026-04-27 1712.hpr' och
+    '... 2026-04-25 1108.hpr' -> 'Hössjömåla Gallring 25'). Klipper vid första datum-token
+    (' YYYY-MM-DD' eller '_YYYYMMDD')."""
+    base = re.sub(r'\.hpr$', '', filename, flags=re.IGNORECASE)
+    base = re.split(r'\s+\d{4}-\d{2}-\d{2}|_\d{8}', base)[0]
+    return base.strip()
+
+
+def find_hpr_files() -> List[str]:
+    """Hitta alla HPR-filer i Behandlade-mappen."""
+    files = []
+    for root, dirs, filenames in os.walk(BEHANDLADE):
+        for f in filenames:
+            if f.upper().endswith('.HPR'):
+                files.append(os.path.join(root, f))
+    files.sort()
+    return files
+
+def main():
+    logger.info("=" * 60)
+    logger.info("HPR Import — Startar")
+    logger.info("=" * 60)
+
+    # Testa Supabase-anslutning
+    try:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/hpr_filer?select=id&limit=1",
+            headers=HEADERS, timeout=30
+        )
+        if resp.status_code not in [200, 406]:
+            logger.error(f"Kunde inte ansluta till Supabase: {resp.status_code}")
+            sys.exit(1)
+    except Exception as e:
+        logger.error(f"Anslutningsfel: {e}")
+        sys.exit(1)
+
+    logger.info("✓ Ansluten till Supabase")
+
+    # Hämta befintliga data
+    objekt_map = fetch_objekt_uuid_map()
+    logger.info(f"Hämtade {len(objekt_map)} objekt med vo_nummer")
+
+    existing = fetch_existing_filnamn()
+    logger.info(f"Redan importerade: {len(existing)} HPR-filer")
+
+    # Hitta HPR-filer
+    hpr_files = find_hpr_files()
+    logger.info(f"Hittade {len(hpr_files)} HPR-filer i Behandlade")
+
+    # HPR är KUMULATIVT per objekt: varje snapshot = alla tidigare stammar + nya.
+    # Verifierat via StemKey-mängder att varje snapshot ⊆ största filen. Importera därför
+    # BARA den STÖRSTA (= mest kompletta, "högst stammar_count") filen per objekt — aldrig
+    # alla snapshots. (Att importera alla orsakade timeouten: t.ex. 197 Hössjömåla-snapshots
+    # à ~145 MB, var och en full parse + delete + reinsert.)
+    groups = defaultdict(list)
+    for f in hpr_files:
+        groups[_object_key(os.path.basename(f))].append(f)
+    selected = []
+    for key, group in sorted(groups.items()):
+        chosen = max(group, key=os.path.getsize)
+        selected.append(chosen)
+        if len(group) > 1:
+            logger.info(f"  {key}: valde {os.path.basename(chosen)} "
+                        f"({os.path.getsize(chosen) // (1024 * 1024)} MB), "
+                        f"hoppade {len(group) - 1} äldre snapshot(s)")
+    logger.info(f"Senaste-per-objekt: {len(selected)} filer (av {len(hpr_files)} totalt, {len(groups)} objekt)")
+
+    # Filtrera bort redan importerade (på filnamn)
+    to_import = [f for f in selected if os.path.basename(f) not in existing]
+    logger.info(f"Att importera: {len(to_import)} nya filer")
+
+    if not to_import:
+        logger.info("Inget att importera — klart!")
+        return
+
+    # Importera
+    success = 0
+    fail = 0
+    total_stammar = 0
+
+    for i, filepath in enumerate(to_import, 1):
+        filnamn = os.path.basename(filepath)
+        logger.info(f"[{i}/{len(to_import)}] {filnamn}")
+
+        try:
+            parsed = parse_hpr_for_import(filepath)
+            n_stammar = len(parsed['stammar'])
+
+            if upload_hpr(parsed, objekt_map):
+                success += 1
+                total_stammar += n_stammar
+                logger.info(f"  ✓ {n_stammar} stammar importerade")
+            else:
+                fail += 1
+        except Exception as e:
+            logger.error(f"  ✗ Fel: {e}")
+            fail += 1
+
+    logger.info("=" * 60)
+    logger.info(f"Klart! {success} filer importerade, {fail} fel, {total_stammar} stammar totalt")
+    logger.info("=" * 60)
+
+if __name__ == '__main__':
+    main()

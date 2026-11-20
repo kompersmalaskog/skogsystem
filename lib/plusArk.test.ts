@@ -1,0 +1,177 @@
+import { describe, expect, it } from 'vitest';
+import {
+  DETENT_TARSKEL_PX, FLIKAR, arAndrad, arFlikId, dragHojd, flyttaPlats, laggTillPlats, ligger, platsUnderFinger, redigeringTillState,
+  startaRedigering, taBortPlats, valjDetent, valjListdetent, arketTarDraget,
+} from './plusArk';
+import { MAX_FASTA, STANDARD_ORDNING, type PlusPost, type PlusRadState } from './plusRad';
+
+const sym = (id: string): PlusPost => ({ typ: 'symbol', id });
+const nycklar = (l: PlusPost[]) => l.map((p) => `${p.typ}:${p.id}`);
+
+describe('flikarna', () => {
+  it('är exakt tre, i den ordning Martin bad om', () => {
+    expect(FLIKAR.map((f) => f.etikett)).toEqual(['Symboler', 'Rita & mät', 'Lager']);
+  });
+  it('arFlikId släpper bara igenom riktiga flikar (Ytor och Spårning är borta)', () => {
+    expect(arFlikId('lager')).toBe(true);
+    expect(arFlikId('rita')).toBe(true);
+    expect(arFlikId('ytor')).toBe(false);
+    expect(arFlikId('sparning')).toBe(false);
+    expect(arFlikId(undefined)).toBe(false);
+  });
+});
+
+describe('valjDetent — arket halv ↔ hel', () => {
+  it('halvt ark dras uppåt över tröskeln → helt', () => {
+    expect(valjDetent('halv', -DETENT_TARSKEL_PX)).toBe('hel');
+    expect(valjDetent('halv', -300)).toBe('hel');
+  });
+  it('halvt ark dras uppåt under tröskeln → far tillbaka', () => {
+    expect(valjDetent('halv', -(DETENT_TARSKEL_PX - 1))).toBe('halv');
+  });
+  it('halvt ark dras NEDÅT stänger inte, det blir kvar halvt', () => {
+    expect(valjDetent('halv', 400)).toBe('halv');
+  });
+  it('helt ark dras nedåt över tröskeln → halvt, under tröskeln → kvar helt', () => {
+    expect(valjDetent('hel', DETENT_TARSKEL_PX)).toBe('halv');
+    expect(valjDetent('hel', DETENT_TARSKEL_PX - 1)).toBe('hel');
+    expect(valjDetent('hel', -200)).toBe('hel');
+  });
+});
+
+describe('arketTarDraget — dra var som helst på objektlistans ark (2026-11-18)', () => {
+  it('halvt ark: varje lodrätt drag är arkets (upp lyfter, ner stänger)', () => {
+    expect(arketTarDraget('halv', 0, -30)).toBe(true);
+    expect(arketTarDraget('halv', 0, 30)).toBe(true);
+    expect(arketTarDraget('halv', 120, -30)).toBe(true);
+  });
+  it('lågt ark: varje lodrätt drag är arkets', () => {
+    expect(arketTarDraget('lag', 0, -30)).toBe(true);
+    expect(arketTarDraget('lag', 0, 30)).toBe(true);
+  });
+  it('helt ark: listan rullar — utom när den står högst upp och fingret drar nedåt', () => {
+    expect(arketTarDraget('hel', 0, 30)).toBe(true);
+    expect(arketTarDraget('hel', 0, -30)).toBe(false);
+    expect(arketTarDraget('hel', 200, 30)).toBe(false);
+    expect(arketTarDraget('hel', 200, -30)).toBe(false);
+  });
+});
+
+describe('valjListdetent — objektlistans ark: halv ↔ hel, och ett halvt ark som dras ned STÄNGS', () => {
+  const T = DETENT_TARSKEL_PX;
+  it('halvt ark dras uppåt över tröskeln → hel; under tröskeln → kvar halvt', () => {
+    expect(valjListdetent('halv', -T, true)).toBe('hel');
+    expect(valjListdetent('halv', -(T - 1), true)).toBe('halv');
+  });
+  it('halvt ark dras nedåt över tröskeln → stäng (till skillnad från plus-arket); under tröskeln → far tillbaka', () => {
+    expect(valjListdetent('halv', T, true)).toBe('stang');
+    expect(valjListdetent('halv', 400, true)).toBe('stang');
+    expect(valjListdetent('halv', T - 1, true)).toBe('halv');
+  });
+  it('listan som inte går att stänga (inget objekt valt): halvt ark dras ned → LÅGT läge (kartan syns), aldrig stäng', () => {
+    expect(valjListdetent('halv', 400, false)).toBe('lag');
+    expect(valjListdetent('halv', T, false)).toBe('lag');
+    expect(valjListdetent('halv', T - 1, false)).toBe('halv');
+    expect(valjListdetent('halv', -T, false)).toBe('hel');
+  });
+  it('lågt ark dras uppåt över tröskeln → halvt; annars kvar lågt; ett drag nedåt stänger aldrig', () => {
+    expect(valjListdetent('lag', -T, false)).toBe('halv');
+    expect(valjListdetent('lag', -(T - 1), false)).toBe('lag');
+    expect(valjListdetent('lag', 400, false)).toBe('lag');
+    expect(valjListdetent('lag', 400, true)).toBe('lag');
+  });
+  it('helt ark dras nedåt över tröskeln → halvt (inte stäng direkt), under → kvar helt', () => {
+    expect(valjListdetent('hel', T, true)).toBe('halv');
+    expect(valjListdetent('hel', 900, true)).toBe('halv');
+    expect(valjListdetent('hel', T - 1, true)).toBe('hel');
+    expect(valjListdetent('hel', -200, true)).toBe('hel');
+  });
+});
+
+describe('dragHojd', () => {
+  it('följer fingret', () => { expect(dragHojd(400, -100, 800)).toBe(500); expect(dragHojd(400, 100, 800)).toBe(300); });
+  it('aldrig över fönstret och aldrig under 30 %', () => { expect(dragHojd(400, -900, 800)).toBe(800); expect(dragHojd(400, 900, 800)).toBe(240); });
+});
+
+describe('Redigera — arbetskopian', () => {
+  const sex = STANDARD_ORDNING.slice();
+
+  it('startar som dockans platser, högst sex, bara dock-poster, utan dubbletter', () => {
+    expect(nycklar(startaRedigering(sex))).toEqual(nycklar(sex));
+    expect(startaRedigering([...sex, sym('bridge')])).toHaveLength(MAX_FASTA);
+    expect(startaRedigering([sym('wet'), sym('wet'), sym('steep')])).toHaveLength(2);
+    expect(startaRedigering([sym('highstump'), sym('eternitytree'), sym('wet')])).toEqual([sym('highstump'), sym('eternitytree'), sym('wet')]);
+    // lager / rita / mät är inga dock-poster
+    expect(startaRedigering([{ typ: 'lager', id: 'x' }, { typ: 'rita', id: 'linje' }, { typ: 'matning', id: 'yta' }])).toEqual([]);
+  });
+
+  it('rött minus tar bort exakt den platsen och ingen annan', () => {
+    const ut = taBortPlats(sex, 'symbol:steep');
+    expect(nycklar(ut)).toEqual(nycklar(sex).filter((k) => k !== 'symbol:steep'));
+    expect(taBortPlats(sex, 'symbol:finnsinte')).toEqual(sex);
+  });
+
+  it('grönt plus lägger sist; full docka byter inte ut något i smyg', () => {
+    const fem = sex.slice(0, 5);
+    const r = laggTillPlats(fem, sym('bridge'));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(nycklar(r.lista)).toEqual([...nycklar(fem), 'symbol:bridge']);
+    expect(laggTillPlats(sex, sym('bridge'))).toEqual({ ok: false, skal: 'full' });
+  });
+
+  it('plus på en som redan ligger i dockan, eller på något som inte är en symbol, ger inget', () => {
+    expect(laggTillPlats(sex, sym('warning'))).toEqual({ ok: false, skal: 'finns' });
+    expect(laggTillPlats([], { typ: 'lager', id: 'x' })).toEqual({ ok: false, skal: 'ej-symbol' });
+    expect(ligger(sex, sym('warning'))).toBe(true);
+    expect(ligger(sex, sym('bridge'))).toBe(false);
+  });
+
+  it('dra: flytta fram, flytta bak, övriga glider; ogiltigt index rör inget', () => {
+    const l = ['a', 'b', 'c', 'd'].map(sym);
+    expect(nycklar(flyttaPlats(l, 0, 2))).toEqual(['symbol:b', 'symbol:c', 'symbol:a', 'symbol:d']);
+    expect(nycklar(flyttaPlats(l, 3, 0))).toEqual(['symbol:d', 'symbol:a', 'symbol:b', 'symbol:c']);
+    expect(flyttaPlats(l, 1, 1)).toBe(l);
+    expect(flyttaPlats(l, 9, 0)).toBe(l);
+    expect(flyttaPlats(l, -1, 0)).toBe(l);
+    // till utanför ändarna → klipps till ändarna
+    expect(nycklar(flyttaPlats(l, 0, 99))).toEqual(['symbol:b', 'symbol:c', 'symbol:d', 'symbol:a']);
+    // ingen post försvinner eller dubbleras
+    expect(nycklar(flyttaPlats(l, 1, 3)).sort()).toEqual(nycklar(l).sort());
+  });
+
+  it('platsUnderFinger väljer närmaste mittpunkt — en rad (bred skärm) och två rader (smal)', () => {
+    const rad = [50, 150, 250].map((x) => ({ x, y: 100 }));
+    expect(platsUnderFinger(10, 100, rad)).toBe(0);
+    expect(platsUnderFinger(160, 90, rad)).toBe(1);
+    expect(platsUnderFinger(999, 100, rad)).toBe(2);
+    expect(platsUnderFinger(5, 5, [])).toBe(-1);
+    // 3 kolumner × 2 rader: index 0–2 överst, 3–5 nederst
+    const grid = [0, 1, 2, 3, 4, 5].map((i) => ({ x: 50 + (i % 3) * 100, y: 40 + Math.floor(i / 3) * 90 }));
+    expect(platsUnderFinger(60, 45, grid)).toBe(0);
+    expect(platsUnderFinger(250, 50, grid)).toBe(2);
+    expect(platsUnderFinger(60, 140, grid)).toBe(3);
+    expect(platsUnderFinger(240, 120, grid)).toBe(5);
+    expect(platsUnderFinger(160, 100, grid)).toBe(4);
+  });
+
+  it('Klar: arbetskopian blir FASTA platser, användningen rörs inte, ogiltigt kastas', () => {
+    const s: PlusRadState = { fasta: [sym('wet')], anv: { 'symbol:landing': 7 } };
+    const ny = redigeringTillState(s, [sym('steep'), { typ: 'lager', id: 'x' }, sym('wet'), sym('steep')]);
+    expect(nycklar(ny.fasta)).toEqual(['symbol:steep', 'symbol:wet']);
+    expect(ny.anv).toBe(s.anv);
+  });
+
+  it('arAndrad: samma ordning = oförändrad, annan ordning eller längd = ändrad', () => {
+    expect(arAndrad(sex, sex.slice())).toBe(false);
+    expect(arAndrad(sex, sex.slice().reverse())).toBe(true);
+    expect(arAndrad(sex, sex.slice(0, 5))).toBe(true);
+  });
+});
+
+describe('dragHojd — lägsta höjd kan sänkas (lågt läge i objektlistan)', () => {
+  it('standard 30 % av fönstret; med minHojd följer arket fingret ända ned till den', () => {
+    expect(dragHojd(400, 900, 800)).toBe(240);
+    expect(dragHojd(400, 900, 800, 80)).toBe(80);
+    expect(dragHojd(80, -100, 800, 80)).toBe(180);
+  });
+});

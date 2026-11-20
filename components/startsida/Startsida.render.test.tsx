@@ -1,0 +1,392 @@
+// @vitest-environment jsdom
+/**
+ * Nya startsidan: montera den riktiga komponenten (jsdom) och kontrollera det som får användaren att lita på den —
+ * att ingen vy försvinner, att Behöver dig bara visar det som väntar, att märken aldrig säger "0", sökningen och
+ * kontomenyn. Plus HomeClient: ALLTID den nya sidan — admin får admins vyer, alla andra förarens, och en sparad roll
+ * visas direkt utan att vänta på nätet.
+ */
+import React, { act } from 'react'
+import { createRoot } from 'react-dom/client'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
+const h = vi.hoisted(() => ({ roll: 'admin' as string | null, ek: 0, ledighet: 0, favoriter: null as string[] | null, haenger: false }))
+
+vi.mock('@/lib/supabase', () => ({
+  supabase: {
+    auth: {
+      // Nätet: hänger när h.haenger (dålig täckning) — sessionen läses alltid lokalt.
+      getUser: () => h.haenger ? new Promise(() => {}) : Promise.resolve({ data: { user: { id: 'u1', email: 't@exempel.se' } } }),
+      getSession: async () => ({ data: { session: { user: { id: 'u1', email: 't@exempel.se' } } } }),
+      signOut: async () => ({ error: null }),
+    },
+    from: (tabell: string) => tabell === 'startsida_favoriter'
+      ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: h.favoriter ? { vyer: h.favoriter } : null, error: null }) }) }) }
+      : { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: h.roll ? { roll: h.roll } : null }) }) }) },
+    rpc: async (namn: string) => namn === 'ledighet_prick'
+      ? { data: { att_godkanna: h.ledighet, nya_beslut: 0, nya_beslut_ids: [], nya_beslut_till: null }, error: null }
+      : { data: null, error: null },
+  },
+}))
+vi.mock('@/app/datahalsa/useDatahalsa', () => ({ useDatahalsa: () => ({ besked: { niva: 'rod', rubrik: '3 saker att titta på' } }) }))
+vi.mock('../../app/datahalsa/useDatahalsa', () => ({ useDatahalsa: () => ({ besked: { niva: 'rod', rubrik: '3 saker att titta på' } }) }))
+vi.mock('@/lib/egenkontroll', () => ({ hamtaVantande: async () => ({ antalVantande: h.ek }) }))
+
+import Startsida from './Startsida'
+import HomeClient from '@/app/HomeClient'
+import { VYER } from '@/lib/vyer'
+
+let rot: ReturnType<typeof createRoot> | null = null
+let el: HTMLDivElement | null = null
+
+beforeEach(() => {
+  ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
+  h.roll = 'admin'; h.ek = 0; h.ledighet = 0; h.favoriter = null; h.haenger = false
+  try { localStorage.clear() } catch { /* ok */ }
+  el = document.createElement('div'); document.body.appendChild(el)
+})
+afterEach(() => { act(() => { rot?.unmount() }); el?.remove(); rot = null; el = null })
+
+const flush = async () => { for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve() }) }
+async function montera(node: React.ReactElement) {
+  rot = createRoot(el!)
+  await act(async () => { rot!.render(node) })
+  await flush()
+}
+const sektion = (namn: string) => document.querySelector(`section[aria-label="${namn}"]`)
+const lankar = (s: Element | Document = document) => Array.from(s.querySelectorAll('a')).map(a => a.getAttribute('href'))
+const knapp = (text: string) => Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes(text)) as HTMLButtonElement
+const skriv = async (input: HTMLInputElement, varde: string) => {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+  await act(async () => { setter.call(input, varde); input.dispatchEvent(new Event('input', { bubbles: true })) })
+}
+
+describe('Startsida (admin)', () => {
+  it('varje vy går att nå: grupperna (utfällda) + kontomenyn innehåller alla vyer i registret', async () => {
+    await montera(<Startsida roll="admin" marken={{}} />)
+    for (const b of Array.from(sektion('Alla vyer')!.querySelectorAll('button[aria-expanded]'))) await act(async () => { (b as HTMLButtonElement).click() })
+    await act(async () => { (document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement).click() })
+    const nabara = new Set([...lankar(sektion('Alla vyer')!), ...lankar(document.querySelector('[role="dialog"]')!)])
+    // Arbetsmiljöns delar nås via kortet Arbetsmiljö (och sökningen), inte som egna kort.
+    expect(VYER.filter(v => !v.del).map(v => v.href).filter(href => !nabara.has(href))).toEqual([])
+    expect(nabara.has('/arbetsmiljo')).toBe(true)
+  })
+
+  it('Behöver dig visas inte när inget väntar — och okänt (null) räknas aldrig som noll', async () => {
+    await montera(<Startsida roll="admin" marken={{ egenkontroll: null, ledighet: 0 }} datahalsa={{ niva: 'gron', rubrik: 'Allt lugnt' }} />)
+    expect(sektion('Behöver dig')).toBeNull()
+    expect(document.querySelectorAll('[role="status"]')).toHaveLength(0)
+  })
+
+  it('Behöver dig: egenkontroll, ledighet och datahälsa när något är fel — med tal och länk', async () => {
+    await montera(<Startsida roll="admin" marken={{ egenkontroll: 3, ledighet: 2 }} datahalsa={{ niva: 'rod', rubrik: '3 saker att titta på' }} />)
+    const s = sektion('Behöver dig')!
+    expect(s.textContent).toContain('3 objekt väntar på egenkontroll')
+    expect(s.textContent).toContain('2 att göra i ledighet')
+    expect(s.textContent).toContain('Datahälsa: 3 saker att titta på')
+    expect(lankar(s)).toEqual(['/egenkontroll', '/ledighet', '/datahalsa'])
+  })
+
+  it('Lastbilen: "1 lass saknar maskin" står i Behöver dig, leder till /lastbil och sitter som märke på Lastbilen — bara när något väntar', async () => {
+    await montera(<Startsida roll="admin" marken={{ lass: 1 }} />)
+    const s = sektion('Behöver dig')!
+    expect(s.textContent).toContain('1 lass saknar maskin')
+    expect(lankar(s)).toEqual(['/lastbil'])
+    for (const b of Array.from(sektion('Alla vyer')!.querySelectorAll('button[aria-expanded]'))) await act(async () => { (b as HTMLButtonElement).click() })
+    const markeVidLastbil = Array.from(document.querySelectorAll('a[href="/lastbil"] [role="status"]')).map(m => m.getAttribute('aria-label'))
+    expect(markeVidLastbil).toContain('1 att göra i Lastbilen')
+  })
+
+  it('egna uppgifter: raden säger vad som saknas och leder till Personal; inget saknas → ingen rad', async () => {
+    await montera(<Startsida roll="forare" marken={{ personal: 1 }} egnaUppgifter="Fyll i telefon och anhörig" />)
+    const s = sektion('Behöver dig')!
+    expect(s.textContent).toContain('Fyll i telefon och anhörig')
+    expect(lankar(s)).toEqual(['/personal'])
+    act(() => { rot?.unmount() }); rot = null
+    await montera(<Startsida roll="forare" marken={{}} egnaUppgifter={null} />)
+    expect(sektion('Behöver dig')).toBeNull()
+  })
+
+  it('Lastbilen utan väntande lass (0) → varken rad eller märke', async () => {
+    await montera(<Startsida roll="admin" marken={{ lass: 0 }} />)
+    expect(sektion('Behöver dig')).toBeNull()
+  })
+
+  it('Lastbilen med okänt antal (läsfel = null) → inget märke, aldrig 0', async () => {
+    await montera(<Startsida roll="admin" marken={{ lass: null }} />)
+    expect(sektion('Behöver dig')).toBeNull()
+    expect(document.querySelectorAll('a[href="/lastbil"] [role="status"]')).toHaveLength(0)
+  })
+
+  it('favoriterna: sju rutor (Objekt och Beställningar är en vy sedan 2026-10-19), märket sitter på rätt ruta', async () => {
+    await montera(<Startsida roll="admin" marken={{ egenkontroll: 5 }} />)
+    expect(lankar(sektion('Dina vyer')!)).toHaveLength(7)
+    // Egenkontroll är inte en adminfavorit — märket syns i gruppen Objekt (ihopfälld: summan på gruppraden).
+    const objektRad = knapp('Objekt')
+    expect(objektRad.querySelector('[role="status"]')?.textContent).toBe('5')
+    await act(async () => { objektRad.click() })
+    const ek = Array.from(sektion('Alla vyer')!.querySelectorAll('a[href="/egenkontroll"]'))
+    expect(ek).toHaveLength(1)
+    expect(ek[0].querySelector('[role="status"]')?.getAttribute('aria-label')).toBe('5 objekt väntar på egenkontroll')
+  })
+
+  it('grupperna är ihopfällda på telefon och fälls ut med ett tryck', async () => {
+    await montera(<Startsida roll="admin" marken={{}} />)
+    expect(document.querySelector('a[href="/kalibrering"]')).toBeNull()
+    const maskiner = knapp('Maskiner')
+    expect(maskiner.getAttribute('aria-expanded')).toBe('false')
+    await act(async () => { maskiner.click() })
+    expect(maskiner.getAttribute('aria-expanded')).toBe('true')
+    expect(document.querySelector('a[href="/kalibrering"]')).not.toBeNull()
+  })
+
+  it('sökning ersätter sidan med träffar, och säger vad man ska göra när inget hittas', async () => {
+    await montera(<Startsida roll="admin" marken={{}} />)
+    const input = document.querySelector('input[type="search"]') as HTMLInputElement
+    await skriv(input, 'semester')
+    expect(sektion('Dina vyer')).toBeNull()
+    expect(lankar(sektion('Träffar')!)).toEqual(['/ledighet'])
+    await skriv(input, 'xyzzy')
+    expect(sektion('Träffar')!.textContent).toContain('Ingen vy heter "xyzzy"')
+    await act(async () => { (document.querySelector('button[aria-label="Rensa sökningen"]') as HTMLButtonElement).click() })
+    expect(sektion('Dina vyer')).not.toBeNull()
+  })
+
+  it('kontomenyn: Datahälsa först, sedan Inställningar, Feedback, Om appen — inte bland arbetsvyerna, och inte Admin', async () => {
+    await montera(<Startsida roll="admin" marken={{}} />)
+    expect(lankar(sektion('Alla vyer')!)).not.toContain('/om')
+    await act(async () => { (document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement).click() })
+    expect(lankar(document.querySelector('[role="dialog"]')!)).toEqual(['/datahalsa', '/planering?installningar=1', '/forbattringsforslag', '/om'])
+  })
+
+  it('Dina vyer står FÖRST — före Behöver dig — så favoriterna aldrig flyttar sig', async () => {
+    await montera(<Startsida roll="admin" marken={{ egenkontroll: 3 }} />)
+    const dina = sektion('Dina vyer')!, behover = sektion('Behöver dig')!
+    expect(dina.compareDocumentPosition(behover) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('favoriterna har fyllda ikoner: kort med namnet bredvid på bred skärm, rutor på telefon', async () => {
+    await montera(<Startsida roll="admin" marken={{}} bred />)
+    const kort = sektion('Dina vyer')!.querySelectorAll('a.start-kort')
+    expect(kort.length).toBe(7)
+    expect((kort[0].querySelector('.material-symbols-outlined') as HTMLElement).style.fontVariationSettings).toContain("'FILL' 1")
+    expect(sektion('Dina vyer')!.querySelectorAll('a.start-ruta').length).toBe(0)
+    act(() => { rot?.unmount() }); rot = null
+    await montera(<Startsida roll="admin" marken={{}} bred={false} />)
+    const rutor = sektion('Dina vyer')!.querySelectorAll('a.start-ruta')
+    expect(rutor.length).toBe(7)
+    expect((rutor[0].querySelector('.material-symbols-outlined') as HTMLElement).style.fontVariationSettings).toContain("'FILL' 1")
+  })
+
+  it('datahälsa gul: ingen rad i Behöver dig, en orange prick på personknappen och status på raden i Mer', async () => {
+    await montera(<Startsida roll="admin" marken={{}} datahalsa={{ niva: 'gul', rubrik: '2 att titta på' }} />)
+    expect(sektion('Behöver dig')).toBeNull()
+    const mer = document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement
+    expect(mer.getAttribute('aria-label')).toContain('2 att titta på')
+    expect((mer.querySelector('[data-mer-prick]') as HTMLElement).style.background).toBe('rgb(255, 159, 10)')
+    await act(async () => { mer.click() })
+    const status = document.querySelector('[role="dialog"] [data-datahalsa-status]') as HTMLElement
+    expect(status.textContent).toBe('2 att titta på')
+  })
+
+  it('datahälsa röd: raden står kvar i Behöver dig OCH pricken syns', async () => {
+    await montera(<Startsida roll="admin" marken={{}} datahalsa={{ niva: 'rod', rubrik: 'Import står still' }} />)
+    expect(sektion('Behöver dig')!.textContent).toContain('Datahälsa: Import står still')
+    expect(document.querySelector('[data-mer-prick]')).not.toBeNull()
+  })
+
+  it('datahälsa grön: ingen prick, ingen rad', async () => {
+    await montera(<Startsida roll="admin" marken={{}} datahalsa={{ niva: 'gron', rubrik: 'Allt i ordning' }} />)
+    expect(document.querySelector('[data-mer-prick]')).toBeNull()
+    expect(sektion('Behöver dig')).toBeNull()
+  })
+
+  it('förare: ingen datahälsoprick även om datahälsan är gul', async () => {
+    await montera(<Startsida roll="forare" marken={{}} datahalsa={{ niva: 'gul', rubrik: '2 att titta på' }} />)
+    expect(document.querySelector('[data-mer-prick]')).toBeNull()
+  })
+
+  it('Mer: vem som är inloggad överst, och Logga ut kräver ett andra tryck', async () => {
+    const loggaUt = vi.fn(async () => {})
+    await montera(<Startsida roll="admin" marken={{}} konto={{ namn: 'Martin Lindqvist', epost: 'm@exempel.se' }} onLoggaUt={loggaUt} />)
+    await act(async () => { (document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement).click() })
+    const dialog = document.querySelector('[role="dialog"]')!
+    const inloggad = dialog.querySelector('[aria-label="Inloggad"]')!
+    expect(inloggad.textContent).toContain('Martin Lindqvist')
+    expect(inloggad.textContent).toContain('Admin · m@exempel.se')
+    const forsta = Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === 'Logga ut') as HTMLButtonElement
+    await act(async () => { forsta.click() })
+    expect(loggaUt).not.toHaveBeenCalled()
+    expect(dialog.textContent).toContain('Du loggas ut från den här enheten.')
+    const andra = Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === 'Logga ut') as HTMLButtonElement
+    await act(async () => { andra.click() })
+    expect(loggaUt).toHaveBeenCalledTimes(1)
+  })
+
+  it('Mer utan onLoggaUt: ingen Logga ut-rad', async () => {
+    await montera(<Startsida roll="admin" marken={{}} />)
+    await act(async () => { (document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement).click() })
+    expect(document.querySelector('[role="dialog"]')!.textContent).not.toContain('Logga ut')
+  })
+
+  it('gruppen Admin samlar Ekonomi, Objektöversikt, Markägarrapport och Admin', async () => {
+    await montera(<Startsida roll="admin" marken={{}} />)
+    await act(async () => { knapp('Admin').click() })
+    const ekonomi = sektion('Alla vyer')!.querySelector('a[href="/ekonomi"]')!
+    expect(ekonomi).not.toBeNull()
+    const grupp = ekonomi.parentElement!
+    expect(Array.from(grupp.querySelectorAll('a')).map(a => a.getAttribute('href'))).toEqual(['/ekonomi', '/admin/objektoversikt', '/admin/markagarrapport', '/admin'])
+  })
+})
+
+describe('Startsida (förare) — samma sida, utan admin-vyer', () => {
+  it('ingen admin-vy, ingen Admin-grupp och ingen datahälsa-rad', async () => {
+    await montera(<Startsida roll="forare" marken={{}} datahalsa={{ niva: 'rod', rubrik: 'x' }} />)
+    for (const b of Array.from(document.querySelectorAll('button[aria-expanded]'))) await act(async () => { (b as HTMLButtonElement).click() })
+    await act(async () => { (document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement).click() })
+    const alla = lankar()
+    expect(alla).not.toContain('/ekonomi')
+    expect(alla).not.toContain('/admin')
+    expect(alla).not.toContain('/admin/markagarrapport')
+    expect(alla).not.toContain('/admin/objektoversikt')
+    expect(sektion('Behöver dig')).toBeNull()
+    expect(Array.from(document.querySelectorAll('button[aria-expanded]')).map(b => b.textContent)).not.toContainEqual(expect.stringContaining('Admin'))
+  })
+})
+
+describe('HomeClient väljer sida efter roll', () => {
+  it('admin → nya startsidan', async () => {
+    h.roll = 'admin'; h.ek = 2
+    await montera(<HomeClient />)
+    expect(sektion('Dina vyer')).not.toBeNull()
+    expect(sektion('Behöver dig')!.textContent).toContain('2 objekt väntar på egenkontroll')
+  })
+
+  it('förare → nya startsidan med förarens förinställda vyer, utan admin-vyer', async () => {
+    h.roll = 'forare'; h.ek = 4
+    await montera(<HomeClient />)
+    expect(lankar(sektion('Dina vyer')!)).toEqual(['/planera', '/planering', '/ledighet', '/lastbil', '/kalibrering', '/maskin-service', '/uppfoljning', '/utbildning'])
+    expect(lankar()).not.toContain('/admin')
+    expect(lankar()).not.toContain('/ekonomi')
+    // Datahälsan är admins; föraren ser den aldrig i Behöver dig. Egenkontrollen syns.
+    expect(sektion('Behöver dig')!.textContent).toContain('4 objekt väntar på egenkontroll')
+    expect(sektion('Behöver dig')!.textContent).not.toContain('Datahälsa')
+  })
+
+  it('rollen går inte att läsa → NYA startsidan med förarens vyer, aldrig den gamla och aldrig adminvyer', async () => {
+    h.roll = null; h.ek = 4
+    await montera(<HomeClient />)
+    expect(sektion('Dina vyer')).not.toBeNull()
+    expect(document.body.textContent).not.toContain('Administration')
+    expect(lankar()).not.toContain('/admin')
+    expect(sektion('Behöver dig')!.textContent).toContain('4 objekt väntar på egenkontroll')
+  })
+
+  it('okänd rolltext (varken admin eller förare) → nya startsidan med förarens vyer', async () => {
+    h.roll = 'nagot-annat'
+    await montera(<HomeClient />)
+    expect(sektion('Dina vyer')).not.toBeNull()
+    expect(lankar()).not.toContain('/admin')
+  })
+
+  it('dålig täckning: en sparad roll visas direkt — admin får sina vyer utan att vänta på nätet', async () => {
+    // Förra gången läste databasen rollen …
+    h.roll = 'admin'
+    await montera(<HomeClient />)
+    act(() => { rot?.unmount() }); rot = null
+    // … nu svarar nätet inte alls.
+    h.haenger = true
+    await montera(<HomeClient />)
+    expect(sektion('Dina vyer')).not.toBeNull()
+    expect(lankar(sektion('Dina vyer')!)).toContain('/ekonomi')
+  })
+
+  it('en annan användares sparade roll följer aldrig med (delad dator)', async () => {
+    localStorage.setItem('startsida_roll_v1', JSON.stringify({ epost: 'annan@exempel.se', roll: 'admin' }))
+    h.haenger = true
+    await montera(<HomeClient />)
+    expect(sektion('Dina vyer')).toBeNull()   // ingen egen sparad roll → väntar (högst 1,5 s) i stället för att gissa
+  })
+
+  it('databasen går före det sparade: admin som blivit förare får förarens vyer', async () => {
+    localStorage.setItem('startsida_roll_v1', JSON.stringify({ epost: 't@exempel.se', roll: 'admin' }))
+    h.roll = 'forare'
+    await montera(<HomeClient />)
+    expect(lankar()).not.toContain('/admin')
+    expect(JSON.parse(localStorage.getItem('startsida_roll_v1')!).roll).toBe('forare')
+  })
+})
+
+describe('Egna favoriter', () => {
+  const dinaVyer = () => lankar(sektion('Dina vyer')!)
+  const andra = async () => { await act(async () => { knapp('Ändra').click() }) }
+  const ark = () => document.querySelector('[role="dialog"]')!
+  const iArk = (etikett: string) => ark().querySelector(`button[aria-label="${etikett}"]`) as HTMLButtonElement
+  const spara = () => Array.from(ark().querySelectorAll('button')).find(b => b.textContent === 'Spara') as HTMLButtonElement
+
+  it('medan favoriterna läses: inga rutor och ingen Ändra-knapp (ingen blinkning av fel uppsättning)', async () => {
+    await montera(<Startsida roll="admin" marken={{}} onSparaFavoriter={async () => true} />)
+    expect(dinaVyer()).toHaveLength(0)
+    expect(knapp('Ändra')).toBeUndefined()
+  })
+
+  it('egna favoriter visas i sparad ordning', async () => {
+    await montera(<Startsida roll="admin" marken={{}} favoritIds={['ledighet', 'ekonomi']} onSparaFavoriter={async () => true} />)
+    expect(dinaVyer()).toEqual(['/ledighet', '/ekonomi'])
+  })
+
+  it('ta bort, lägg till, flytta upp → Spara skickar exakt den listan och arket stängs', async () => {
+    const sparat: string[][] = []
+    await montera(<Startsida roll="admin" marken={{}} favoritIds={['oversikt', 'uppfoljning']} onSparaFavoriter={async ids => { sparat.push(ids); return true }} />)
+    await andra()
+    expect(spara().disabled).toBe(true) // inget ändrat än
+    await act(async () => { iArk('Ta bort Översikt').click() })
+    await act(async () => { iArk('Lägg till Ledighet').click() })
+    await act(async () => { iArk('Flytta upp Ledighet').click() })
+    expect(spara().disabled).toBe(false)
+    await act(async () => { spara().click() })
+    await flush()
+    expect(sparat).toEqual([['ledighet', 'uppfoljning']])
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('sparningen misslyckas → arket står kvar och säger vad man ska göra', async () => {
+    await montera(<Startsida roll="admin" marken={{}} favoritIds={['oversikt']} onSparaFavoriter={async () => false} />)
+    await andra()
+    await act(async () => { iArk('Ta bort Översikt').click() })
+    await act(async () => { spara().click() })
+    await flush()
+    expect(ark().querySelector('[role="alert"]')!.textContent).toContain('tryck Spara igen')
+  })
+
+  it('åtta valda → plus är avstängt och det står varför', async () => {
+    await montera(<Startsida roll="admin" marken={{}} onSparaFavoriter={async () => true} favoritIds={['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'ekonomi', 'kalibrering']} />)
+    await andra()
+    expect(iArk('Lägg till Ledighet').disabled).toBe(true)
+    expect(ark().textContent).toContain('plats för 8')
+  })
+
+  it('förare kan inte lägga till en admin-vy', async () => {
+    await montera(<Startsida roll="forare" marken={{}} favoritIds={['ledighet']} onSparaFavoriter={async () => true} />)
+    await andra()
+    expect(iArk('Lägg till Ekonomi')).toBeNull()
+    expect(iArk('Lägg till Admin')).toBeNull()
+    expect(iArk('Lägg till Planera')).not.toBeNull()
+  })
+
+  it('Återställ ger rollens förinställda', async () => {
+    const sparat: string[][] = []
+    await montera(<Startsida roll="admin" marken={{}} favoritIds={['ledighet']} onSparaFavoriter={async ids => { sparat.push(ids); return true }} />)
+    await andra()
+    await act(async () => { Array.from(ark().querySelectorAll('button')).find(b => b.textContent?.includes('Återställ'))!.click() })
+    await act(async () => { spara().click() })
+    await flush()
+    expect(sparat[0]).toEqual(['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'ekonomi'])
+  })
+
+  it('HomeClient: sparade favoriter läses in för admin', async () => {
+    h.roll = 'admin'; h.favoriter = ['kalibrering', 'ledighet']
+    await montera(<HomeClient />)
+    expect(dinaVyer()).toEqual(['/kalibrering', '/ledighet'])
+    expect(knapp('Ändra')).toBeDefined()
+  })
+})

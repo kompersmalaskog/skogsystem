@@ -1,0 +1,462 @@
+{
+ "_info": "Stefan Karlssons september 2026 ur prod (SELECT 2026-10-20): arbetsdag, extra_tid och dagens trakter. Facit: 42,17 tim övertid, varav gokarten (4 tim) — Admin → Förare · Månad.",
+ "arbetsdag": [
+  {
+   "datum": "2026-09-01",
+   "start_tid": "06:04:00",
+   "slut_tid": "13:34:00",
+   "rast_min": 0,
+   "arbetad_min": 450,
+   "km_morgon": 38,
+   "km_kvall": 11,
+   "km_totalt": 49,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11131022",
+     "objekt_namn": "Stänkelsmåla 2025"
+    },
+    {
+     "objekt_id": "11208196",
+     "objekt_namn": "400763 Akelius Tåget SA -26"
+    },
+    {
+     "objekt_id": "20250731",
+     "objekt_namn": "Flyttobjekt"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-02",
+   "start_tid": "05:54:00",
+   "slut_tid": "17:16:00",
+   "rast_min": 32,
+   "arbetad_min": 650,
+   "km_morgon": 11,
+   "km_kvall": 11,
+   "km_totalt": 22,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11208196",
+     "objekt_namn": "400763 Akelius Tåget SA -26"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-03",
+   "start_tid": "05:55:00",
+   "slut_tid": "18:05:00",
+   "rast_min": 223,
+   "arbetad_min": 507,
+   "km_morgon": 11,
+   "km_kvall": 11,
+   "km_totalt": 22,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11208196",
+     "objekt_namn": "400763 Akelius Tåget SA -26"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-04",
+   "start_tid": "05:55:00",
+   "slut_tid": "16:36:00",
+   "rast_min": 16,
+   "arbetad_min": 625,
+   "km_morgon": 11,
+   "km_kvall": 11,
+   "km_totalt": 22,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11208196",
+     "objekt_namn": "400763 Akelius Tåget SA -26"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-07",
+   "start_tid": "05:56:00",
+   "slut_tid": "18:37:00",
+   "rast_min": 202,
+   "arbetad_min": 559,
+   "km_morgon": 11,
+   "km_kvall": 11,
+   "km_totalt": 22,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11208196",
+     "objekt_namn": "400763 Akelius Tåget SA -26"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-08",
+   "start_tid": "06:00:00",
+   "slut_tid": "16:30:00",
+   "rast_min": 16,
+   "arbetad_min": 614,
+   "km_morgon": 11,
+   "km_kvall": 11,
+   "km_totalt": 22,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11208196",
+     "objekt_namn": "400763 Akelius Tåget SA -26"
+    },
+    {
+     "objekt_id": "20250731",
+     "objekt_namn": "Flyttobjekt"
+    },
+    {
+     "objekt_id": "PONS20SDJAA270231_125",
+     "objekt_namn": "Vindfällen Akelius Tåget"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-09",
+   "start_tid": "06:00:00",
+   "slut_tid": "17:26:00",
+   "rast_min": 33,
+   "arbetad_min": 653,
+   "km_morgon": 12,
+   "km_kvall": 12,
+   "km_totalt": 24,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11218523",
+     "objekt_namn": "Kämpamåla AU 2026"
+    },
+    {
+     "objekt_id": "20250731",
+     "objekt_namn": "Flyttobjekt"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-10",
+   "start_tid": "06:03:00",
+   "slut_tid": "11:43:00",
+   "rast_min": 0,
+   "arbetad_min": 340,
+   "km_morgon": 7,
+   "km_kvall": 7,
+   "km_totalt": 14,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11249883",
+     "objekt_namn": "Hallaslätt AU 2026"
+    },
+    {
+     "objekt_id": "20250731",
+     "objekt_namn": "Flyttobjekt"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-11",
+   "start_tid": "05:57:00",
+   "slut_tid": "16:35:00",
+   "rast_min": 16,
+   "arbetad_min": 622,
+   "km_morgon": 7,
+   "km_kvall": 7,
+   "km_totalt": 14,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11249883",
+     "objekt_namn": "Hallaslätt AU 2026"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-14",
+   "start_tid": "05:56:00",
+   "slut_tid": "16:39:00",
+   "rast_min": 0,
+   "arbetad_min": 643,
+   "km_morgon": 34,
+   "km_kvall": 7,
+   "km_totalt": 41,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "20250731",
+     "objekt_namn": "Flyttobjekt"
+    },
+    {
+     "objekt_id": "11251359",
+     "objekt_namn": "Hålabäck au 2025"
+    },
+    {
+     "objekt_id": "11249883",
+     "objekt_namn": "Hallaslätt AU 2026"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-15",
+   "start_tid": "06:25:00",
+   "slut_tid": "16:35:00",
+   "rast_min": 36,
+   "arbetad_min": 574,
+   "km_morgon": 34,
+   "km_kvall": 34,
+   "km_totalt": 68,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11251359",
+     "objekt_namn": "Hålabäck au 2025"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-16",
+   "start_tid": "06:16:00",
+   "slut_tid": "16:04:00",
+   "rast_min": 18,
+   "arbetad_min": 570,
+   "km_morgon": 34,
+   "km_kvall": 34,
+   "km_totalt": 68,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11251359",
+     "objekt_namn": "Hålabäck au 2025"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-17",
+   "start_tid": "06:14:00",
+   "slut_tid": "17:42:00",
+   "rast_min": 0,
+   "arbetad_min": 688,
+   "km_morgon": 34,
+   "km_kvall": 34,
+   "km_totalt": 68,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11251359",
+     "objekt_namn": "Hålabäck au 2025"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-18",
+   "start_tid": "06:27:00",
+   "slut_tid": "16:55:00",
+   "rast_min": 21,
+   "arbetad_min": 607,
+   "km_morgon": 34,
+   "km_kvall": 34,
+   "km_totalt": 68,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11251359",
+     "objekt_namn": "Hålabäck au 2025"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-21",
+   "start_tid": "10:56:00",
+   "slut_tid": "19:00:00",
+   "rast_min": 0,
+   "arbetad_min": 484,
+   "km_morgon": 34,
+   "km_kvall": 34,
+   "km_totalt": 68,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11251359",
+     "objekt_namn": "Hålabäck au 2025"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-22",
+   "start_tid": "06:15:00",
+   "slut_tid": "17:15:00",
+   "rast_min": 16,
+   "arbetad_min": 644,
+   "km_morgon": 34,
+   "km_kvall": 47,
+   "km_totalt": 81,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11251359",
+     "objekt_namn": "Hålabäck au 2025"
+    },
+    {
+     "objekt_id": "20250731",
+     "objekt_namn": "Flyttobjekt"
+    },
+    {
+     "objekt_id": "11225601",
+     "objekt_namn": "Östra-Hoka 17 A-C -25"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-23",
+   "start_tid": "06:25:00",
+   "slut_tid": "16:41:00",
+   "rast_min": 19,
+   "arbetad_min": 597,
+   "km_morgon": 46,
+   "km_kvall": 47,
+   "km_totalt": 93,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11225601",
+     "objekt_namn": "Östra-Hoka 17 A-C -25"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-24",
+   "start_tid": "06:30:00",
+   "slut_tid": "17:12:00",
+   "rast_min": 0,
+   "arbetad_min": 642,
+   "km_morgon": 46,
+   "km_kvall": 47,
+   "km_totalt": 93,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11225601",
+     "objekt_namn": "Östra-Hoka 17 A-C -25"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-25",
+   "start_tid": "06:25:00",
+   "slut_tid": "16:39:00",
+   "rast_min": 15,
+   "arbetad_min": 599,
+   "km_morgon": 46,
+   "km_kvall": 47,
+   "km_totalt": 93,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11225601",
+     "objekt_namn": "Östra-Hoka 17 A-C -25"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-28",
+   "start_tid": "06:27:00",
+   "slut_tid": "16:48:00",
+   "rast_min": 16,
+   "arbetad_min": 605,
+   "km_morgon": 41,
+   "km_kvall": 47,
+   "km_totalt": 88,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11251460",
+     "objekt_namn": "Kroksjömåla 123 A-A -25"
+    },
+    {
+     "objekt_id": "11225601",
+     "objekt_namn": "Östra-Hoka 17 A-C -25"
+    },
+    {
+     "objekt_id": "20250731",
+     "objekt_namn": "Flyttobjekt"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-29",
+   "start_tid": "06:28:00",
+   "slut_tid": "16:56:00",
+   "rast_min": 16,
+   "arbetad_min": 612,
+   "km_morgon": 41,
+   "km_kvall": 41,
+   "km_totalt": 82,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11251460",
+     "objekt_namn": "Kroksjömåla 123 A-A -25"
+    }
+   ]
+  },
+  {
+   "datum": "2026-09-30",
+   "start_tid": "06:27:00",
+   "slut_tid": "15:52:00",
+   "rast_min": 0,
+   "arbetad_min": 565,
+   "km_morgon": 41,
+   "km_kvall": 41,
+   "km_totalt": 82,
+   "km_kalla": "auto",
+   "objekt": [
+    {
+     "objekt_id": "11251460",
+     "objekt_namn": "Kroksjömåla 123 A-A -25"
+    }
+   ]
+  }
+ ],
+ "extra_tid": [
+  {
+   "datum": "2026-09-10",
+   "typ": "annat",
+   "minuter": 240,
+   "debiterbar": false,
+   "objekt_id": null,
+   "kommentar": "Gokart",
+   "start_tid": "12:15:00",
+   "slut_tid": "16:15:00",
+   "aktivitet_typ": "annat"
+  },
+  {
+   "datum": "2026-09-11",
+   "typ": "annat",
+   "minuter": 0,
+   "debiterbar": false,
+   "objekt_id": null,
+   "kommentar": null,
+   "start_tid": "20:22:00",
+   "slut_tid": "20:22:00",
+   "aktivitet_typ": null
+  },
+  {
+   "datum": "2026-09-18",
+   "typ": "annat",
+   "minuter": 0,
+   "debiterbar": false,
+   "objekt_id": null,
+   "kommentar": null,
+   "start_tid": "18:57:00",
+   "slut_tid": "18:57:00",
+   "aktivitet_typ": null
+  }
+ ]
+}

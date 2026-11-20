@@ -1,0 +1,17 @@
+{
+  "kalla": "prod objekt_geometri, Gallring Santhe 2026., L_TILLAGGSPUNKTER (2026-11-10). Objektets egen larmkoordinat (envz) = 56.496913679594, 14.7086499324303.",
+  "objektLarm": { "lat": 56.496913679594, "lng": 14.7086499324303 },
+  "features": [
+    { "type": "Feature", "properties": { "_lager": "L_TILLAGGSPUNKTER", "FLBESKR": "Larmkoordinat", "TYP": "39", "LOPNR": "0", "EXTRA_LABE": "N6261239,  E478730" }, "geometry": { "type": "Point", "coordinates": [14.65453, 56.4951] } },
+    { "type": "Feature", "properties": { "_lager": "L_TILLAGGSPUNKTER", "FLBESKR": "Larmkoordinat", "TYP": "39", "LOPNR": "0", "EXTRA_LABE": "N6265009,  E481069" }, "geometry": { "type": "Point", "coordinates": [14.69224, 56.52908] } },
+    { "type": "Feature", "properties": { "_lager": "L_TILLAGGSPUNKTER", "FLBESKR": "Larmkoordinat", "TYP": "39", "LOPNR": "0", "EXTRA_LABE": "N6263718,  E481328" }, "geometry": { "type": "Point", "coordinates": [14.69655, 56.51749] } },
+    { "type": "Feature", "properties": { "_lager": "L_TILLAGGSPUNKTER", "FLBESKR": "Larmkoordinat", "TYP": "39", "LOPNR": "0", "EXTRA_LABE": "N6263578,  E482061" }, "geometry": { "type": "Point", "coordinates": [14.70847, 56.51626] } },
+    { "type": "Feature", "properties": { "_lager": "L_TILLAGGSPUNKTER", "FLBESKR": "Larmkoordinat", "TYP": "39", "LOPNR": "0", "EXTRA_LABE": "N6261425,  E482063" }, "geometry": { "type": "Point", "coordinates": [14.70865, 56.49691] } },
+    { "type": "Feature", "properties": { "_lager": "L_TILLAGGSPUNKTER", "FLBESKR": "Virkesavlägg", "TYP": "35", "LOPNR": "0", "EXTRA_LABE": "01-2", "ATGARD": "byvägen söftesmåla" }, "geometry": { "type": "Point", "coordinates": [14.6919, 56.5291] } },
+    { "type": "Feature", "properties": { "_lager": "L_TILLAGGSPUNKTER", "FLBESKR": "Virkesavlägg", "TYP": "35", "LOPNR": "0", "EXTRA_LABE": "01-1", "ATGARD": "skbv n karlstorp" }, "geometry": { "type": "Point", "coordinates": [14.65615, 56.4939] } },
+    { "type": "Feature", "properties": { "_lager": "L_TILLAGGSPUNKTER", "FLBESKR": "Virkesavlägg", "TYP": "35", "LOPNR": "0", "EXTRA_LABE": "01-3", "ATGARD": "skbv gräskulla" }, "geometry": { "type": "Point", "coordinates": [14.69351, 56.5156] } },
+    { "type": "Feature", "properties": { "_lager": "L_TILLAGGSPUNKTER", "FLBESKR": "Virkesavlägg", "TYP": "35", "LOPNR": "0", "EXTRA_LABE": "01-4", "ATGARD": "skbv gräskulla öst huset" }, "geometry": { "type": "Point", "coordinates": [14.70808, 56.51623] } },
+    { "type": "Feature", "properties": { "_lager": "L_TILLAGGSPUNKTER", "FLBESKR": "Virkesavlägg", "TYP": "35", "LOPNR": "0", "EXTRA_LABE": "01-5", "ATGARD": "skbv tresyenshult" }, "geometry": { "type": "Point", "coordinates": [14.70941, 56.49681] } },
+    { "type": "Feature", "properties": { "_lager": "L_RAA_POINT_101" }, "geometry": { "type": "Point", "coordinates": [14.66553, 56.52402] } }
+  ]
+}

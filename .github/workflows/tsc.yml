@@ -1,0 +1,28 @@
+# Typkontroll på varje PR: `tsc --noEmit` ska vara 0 fel. (Repot hade 464 fel som ingen såg — Next bygger med SWC och
+# hoppar över typkontrollen — tills de rättades i PR-serien "tsc: … → 0". Det här jobbet håller det på 0.)
+#
+# Jobbet blir RÖTT vid minsta typfel. Kör lokalt med `npm run typecheck`. Obs: `incremental: true` i tsconfig sparar resultat i
+# tsconfig.tsbuildinfo; ändrar du tsconfig.json själv, ta bort den filen först — annars kan en gammal körning visas igen.
+# (Använd aldrig `npx tsc` i en ny worktree utan node_modules: den ger "This is not the tsc command you are looking for" och exit 0.)
+name: tsc
+
+on:
+  pull_request:
+
+concurrency:
+  group: tsc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tsc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typkontroll (tsc --noEmit)
+        run: ./node_modules/.bin/tsc --noEmit -p tsconfig.json

@@ -1,0 +1,251 @@
+{
+ "post": {
+  "namn": "Jeppshoka 2025",
+  "fastighet": "Jeppshoka 1:14",
+  "agare": "Henrik Augustinsson",
+  "forrattare": "Johan Ardegård",
+  "datum": "2025-05-07",
+  "total_volym_m3sk": 3283.3
+ },
+ "tradslag": [
+  {
+   "namn": "Tall",
+   "klasser": [
+    {
+     "diameter_cm": 18,
+     "antal": 1,
+     "volym_m3sk": 0.26
+    },
+    {
+     "diameter_cm": 20,
+     "antal": 2,
+     "volym_m3sk": 0.66
+    },
+    {
+     "diameter_cm": 24,
+     "antal": 1,
+     "volym_m3sk": 0.5
+    },
+    {
+     "diameter_cm": 26,
+     "antal": 3,
+     "volym_m3sk": 1.79
+    },
+    {
+     "diameter_cm": 28,
+     "antal": 3,
+     "volym_m3sk": 2.1
+    },
+    {
+     "diameter_cm": 30,
+     "antal": 4,
+     "volym_m3sk": 3.27
+    },
+    {
+     "diameter_cm": 32,
+     "antal": 2,
+     "volym_m3sk": 1.88
+    },
+    {
+     "diameter_cm": 34,
+     "antal": 3,
+     "volym_m3sk": 3.23
+    },
+    {
+     "diameter_cm": 36,
+     "antal": 3,
+     "volym_m3sk": 3.66
+    },
+    {
+     "diameter_cm": 38,
+     "antal": 3,
+     "volym_m3sk": 4.12
+    },
+    {
+     "diameter_cm": 40,
+     "antal": 1,
+     "volym_m3sk": 1.54
+    },
+    {
+     "diameter_cm": 44,
+     "antal": 1,
+     "volym_m3sk": 1.89
+    }
+   ],
+   "tryckt_antal": 27,
+   "tryckt_volym_m3sk": 24.9
+  },
+  {
+   "namn": "Gran",
+   "klasser": [
+    {
+     "diameter_cm": 12,
+     "antal": 116,
+     "volym_m3sk": 13.13
+    },
+    {
+     "diameter_cm": 14,
+     "antal": 137,
+     "volym_m3sk": 22.22
+    },
+    {
+     "diameter_cm": 16,
+     "antal": 212,
+     "volym_m3sk": 46.74
+    },
+    {
+     "diameter_cm": 18,
+     "antal": 235,
+     "volym_m3sk": 67.67
+    },
+    {
+     "diameter_cm": 20,
+     "antal": 309,
+     "volym_m3sk": 112.68
+    },
+    {
+     "diameter_cm": 22,
+     "antal": 356,
+     "volym_m3sk": 160.38
+    },
+    {
+     "diameter_cm": 24,
+     "antal": 429,
+     "volym_m3sk": 233.97
+    },
+    {
+     "diameter_cm": 26,
+     "antal": 395,
+     "volym_m3sk": 256.47
+    },
+    {
+     "diameter_cm": 28,
+     "antal": 406,
+     "volym_m3sk": 309.4
+    },
+    {
+     "diameter_cm": 30,
+     "antal": 347,
+     "volym_m3sk": 306.64
+    },
+    {
+     "diameter_cm": 32,
+     "antal": 299,
+     "volym_m3sk": 303.19
+    },
+    {
+     "diameter_cm": 34,
+     "antal": 262,
+     "volym_m3sk": 302.08
+    },
+    {
+     "diameter_cm": 36,
+     "antal": 211,
+     "volym_m3sk": 274.41
+    },
+    {
+     "diameter_cm": 38,
+     "antal": 140,
+     "volym_m3sk": 203.91
+    },
+    {
+     "diameter_cm": 40,
+     "antal": 118,
+     "volym_m3sk": 191.27
+    },
+    {
+     "diameter_cm": 42,
+     "antal": 74,
+     "volym_m3sk": 132.73
+    },
+    {
+     "diameter_cm": 44,
+     "antal": 50,
+     "volym_m3sk": 98.73
+    },
+    {
+     "diameter_cm": 46,
+     "antal": 31,
+     "volym_m3sk": 67.07
+    },
+    {
+     "diameter_cm": 48,
+     "antal": 26,
+     "volym_m3sk": 61.38
+    },
+    {
+     "diameter_cm": 50,
+     "antal": 17,
+     "volym_m3sk": 43.62
+    },
+    {
+     "diameter_cm": 52,
+     "antal": 10,
+     "volym_m3sk": 27.79
+    },
+    {
+     "diameter_cm": 56,
+     "antal": 3,
+     "volym_m3sk": 9.69
+    },
+    {
+     "diameter_cm": 58,
+     "antal": 1,
+     "volym_m3sk": 3.47
+    },
+    {
+     "diameter_cm": 60,
+     "antal": 1,
+     "volym_m3sk": 3.71
+    },
+    {
+     "diameter_cm": 64,
+     "antal": 1,
+     "volym_m3sk": 4.22
+    }
+   ],
+   "tryckt_antal": 4186,
+   "tryckt_volym_m3sk": 3256.56
+  },
+  {
+   "namn": "Övrigt barr",
+   "klasser": [
+    {
+     "diameter_cm": 26,
+     "antal": 1,
+     "volym_m3sk": 0.63
+    },
+    {
+     "diameter_cm": 36,
+     "antal": 1,
+     "volym_m3sk": 1.25
+    }
+   ],
+   "tryckt_antal": 2,
+   "tryckt_volym_m3sk": 1.87
+  }
+ ],
+ "sammanfattning": [
+  {
+   "namn": "Tall",
+   "antal": 27,
+   "volym_m3sk": 24.9
+  },
+  {
+   "namn": "Gran",
+   "antal": 4186,
+   "volym_m3sk": 3256.6
+  },
+  {
+   "namn": "Övrigt barr",
+   "antal": 2,
+   "volym_m3sk": 1.9
+  },
+  {
+   "namn": "Summa",
+   "antal": 4215,
+   "volym_m3sk": 3283.3
+  }
+ ],
+ "osakerheter": []
+}

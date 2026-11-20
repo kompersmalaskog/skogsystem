@@ -1,0 +1,195 @@
+import React from 'react';
+
+export interface Maskin {
+  maskin_id: string;
+  tillverkare: string;
+  modell: string;
+  visningsnamn?: string | null;
+  modell_ar?: string;
+  aggregat_tillverkare?: string;
+  aggregat?: string;
+  aggregat_ar?: string;
+  namn?: string;
+  typ?: string;
+  marke?: string;
+  aktiv?: boolean;
+}
+
+export interface MaskinKoItem {
+  id: string;
+  maskin_id: string;
+  objekt_id: string;
+  ordning: number;
+}
+
+export interface OversiktObjekt {
+  id: string;
+  namn: string;
+  vo_nummer?: string;
+  typ: 'slutavverkning' | 'gallring' | 'slut';   // 'slut' = äldre värde i gammal data; /objekt skriver 'slutavverkning'
+  atgard?: string;
+  status: string;
+  volym: number;
+  areal: number;
+  lat: number | null;
+  lng: number | null;
+  ar: number | null;
+  manad: number | null;
+  bolag: string | null;
+  markagare: string | null;
+  // Planning fields
+  barighet?: string;
+  terrang?: string;
+  skordare_maskin?: string;
+  skordare_band?: boolean;
+  skordare_band_par?: string;
+  skordare_manuell_fallning?: boolean;
+  skordare_manuell_fallning_text?: string;
+  skotare_maskin?: string;
+  skotare_band?: boolean;
+  skotare_band_par?: string;
+  skotare_lastreder_breddat?: boolean;
+  skotare_ris_direkt?: boolean;
+  transport_trailer_in?: boolean;
+  transport_kommentar?: string;
+  markagare_ska_ha_ved?: boolean;
+  markagare_ved_text?: string;
+  info_anteckningar?: string;
+  kontakt_namn?: string;
+  kontakt_telefon?: string;
+  trailer_behovs?: boolean;
+  ovrigt_info?: string;
+  // Förarvy — verifierade kolumner i objekt-tabellen (se brief-oversikt-karta.md)
+  markagare_tel?: string | null;
+  markagare_epost?: string | null;
+  volym_planerad?: number | null;
+  volym_skordad?: number | null;
+  volym_skotad?: number | null;
+  anteckningar?: string | null;
+  ordning?: number | null;
+  assigned_skordare_user_id?: string | null;
+  assigned_skotare_user_id?: string | null;
+  grot?: boolean | null;
+  // Dates
+  faktisk_slut: string | null;
+  // GROT
+  grot_status: string;
+  grot_volym: number | null;
+  grot_anteckning: string | null;
+  grot_deadline: string | null;
+  // Beräknad data
+  trakt_data?: {
+    volym?: number;
+    areal?: number;
+    beraknad?: {
+      tradslag?: { namn: string; volymHa: number; totalVolym: number; andel: number }[];
+      jordart?: string;
+      jordartFordelning?: { namn: string; andel: number }[];
+      medelLutning?: number;
+      medeldiameter?: number;
+      medelhojd?: number;
+      restriktioner?: { type: string; name: string; details?: string; warning?: string }[];
+      beraknadAt?: number;
+    };
+  };
+}
+
+export type TabId = 'karta' | 'maskiner' | 'grot' | 'objekt';
+
+/* Design tokens — Apple iOS dark mode (flat) */
+export const C = {
+  bg: '#000',
+  surface: '#1c1c1e',
+  surface3: '#1c1c1e',
+  card: '#1c1c1e',
+  cardGrad: '#1c1c1e',
+  border: 'rgba(255,255,255,0.07)',
+  borderTop: 'rgba(255,255,255,0.18)',
+  borderStrong: 'rgba(255,255,255,0.13)',
+  shadowSm: 'none',
+  shadowMd: 'none',
+  t1: '#fff',
+  t2: '#a1a1a6',
+  t3: '#8e8e93',
+  t4: 'rgba(255,255,255,0.2)',
+  yellow: '#FFD60A',
+  green: '#30D158',
+  orange: '#FF9F0A',
+  blue: '#0A84FF',
+  red: '#FF453A',
+  yd: 'rgba(255,214,10,0.12)',
+  gd: 'rgba(48,209,88,0.12)',
+  bd: 'rgba(10,132,255,0.12)',
+  od: 'rgba(255,159,10,0.12)',
+  rd: 'rgba(255,69,58,0.12)',
+};
+
+/* Status — appens egna status-system (tvingas INTE mot iOS-paletten, se brief).
+   De fyra verkliga värdena är förstklassiga; markörformen bär distinktionen:
+   oplanerad = ofylld kontur · planerad = fylld blå · pagaende = fylld grön + puls ·
+   avslutat = nedtonad grå + bock. pagaende (grön, pulsar) och avslutat (grå, bock)
+   är tydligt olika. Äldre/utgående värden behålls bakåtkompatibelt. */
+export const ST: Record<string, { l: string; c: string; bg: string }> = {
+  oplanerad: { l: 'Oplanerad', c: C.t3, bg: 'rgba(142,142,147,0.12)' },
+  planerad: { l: 'Planerad', c: C.blue, bg: C.bd },
+  pagaende: { l: 'Pågående', c: C.green, bg: C.gd },
+  avslutat: { l: 'Avslutat', c: C.t3, bg: 'rgba(142,142,147,0.12)' },
+  // Utgående/äldre värden — finns ej i objekt.status enligt brief, behålls för bakåtkompatibilitet
+  importerad: { l: 'Importerad', c: C.blue, bg: C.bd },
+  skordning: { l: 'Skördning', c: C.yellow, bg: C.yd },
+  skotning: { l: 'Skotning', c: C.orange, bg: C.od },
+  klar: { l: 'Klar', c: C.t3, bg: 'rgba(113,113,122,0.1)' },
+};
+
+/** Statusgrupper för förarvyn — avgör synlighet och markörbehandling. */
+export const STATUS_AVSLUTADE = ['avslutat', 'klar'];
+export const STATUS_AKTIV = ['pagaende', 'skordning', 'skotning'];
+/** True om status saknar färdig form/färg och ska renderas med kontur-fallback. */
+export function isOkandStatus(status: string): boolean {
+  return !(status in ST);
+}
+
+/** DELAD status→visning för Objekt-fliken — lista OCH detaljvy läser SAMMA här,
+    så de aldrig säger olika. DB-status oförändrad, bara visning.
+    key = filterhink · ord = etikett · farg = färg · bg = tonad bakgrund. */
+export type StatusHink = 'planera' | 'kora' | 'pagar' | 'klar';
+export function statusVisning(status: string): { key: StatusHink; ord: string; farg: string; bg: string } {
+  if (STATUS_AKTIV.includes(status)) return { key: 'pagar', ord: 'Pågår', farg: C.green, bg: C.gd };                     // pagaende/skordning/skotning
+  if (STATUS_AVSLUTADE.includes(status)) return { key: 'klar', ord: 'Klar', farg: C.t3, bg: 'rgba(142,142,147,0.12)' };  // avslutat/klar
+  if (status === 'planerad') return { key: 'kora', ord: 'Att köra', farg: C.blue, bg: C.bd };                            // färdigplanerad = redo att köras
+  return { key: 'planera', ord: 'Att planera', farg: C.yellow, bg: C.yd };                                              // oplanerad/importerad/okänd
+}
+
+export const TF: Record<string, string> = {
+  slutavverkning: C.yellow,
+  gallring: C.green,
+  slut: C.yellow,
+};
+
+/* ── Typography system — Apple iOS ── */
+export const T = {
+  h1: { fontSize: 28, fontWeight: 700, color: C.t1, letterSpacing: '-0.02em', lineHeight: 1.2 } as React.CSSProperties,
+  h2: { fontSize: 17, fontWeight: 600, color: C.t1, letterSpacing: '-0.01em', lineHeight: 1.3 } as React.CSSProperties,
+  body: { fontSize: 17, fontWeight: 500, color: C.t1 } as React.CSSProperties,
+  caption: { fontSize: 13, fontWeight: 400, color: C.t3 } as React.CSSProperties,
+  label: { fontSize: 13, fontWeight: 600, color: C.t3 } as React.CSSProperties,
+};
+
+/* ── Button styles ── */
+export const BTN = {
+  primary: {
+    minHeight: 44, padding: '0 20px', borderRadius: 12,
+    background: 'rgba(255,255,255,0.1)', border: `1px solid ${C.borderStrong}`,
+    color: C.t1, fontSize: 14, fontWeight: 600,
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  } as React.CSSProperties,
+  secondary: {
+    minHeight: 44, padding: '0 20px', borderRadius: 12,
+    background: 'transparent', border: `1px solid ${C.border}`,
+    color: C.t2, fontSize: 14, fontWeight: 500,
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  } as React.CSSProperties,
+};
+
+/* ── Spacing scale ── */
+export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 };

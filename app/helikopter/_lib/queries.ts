@@ -1,0 +1,681 @@
+// Datalager för /helikopter. Alla beräkningar ligger i SQL-funktionerna
+// helikopter_ny_* (migration 20260908100000). Här: typade anrop, felkontroll
+// på VARJE svar, och sidvis hämtning där listor kan växa.
+//
+// Ett fel returneras alltid som { data: null, error } — aldrig som en tom lista.
+import { supabase } from '@/lib/supabase'
+import { medAbortRetry } from '@/lib/supabaseRetry'
+import { hamtaAlla } from '@/lib/supabaseAlla'
+import { sparaSkotning } from '@/lib/startaJobbSkotning'
+import { G15_TOM, g15Tabell, type G15DagRad, type G15Tabell } from '@/lib/helikopterG15'
+import type { VeckolageData } from './veckolage'
+import { lasHistorik, lasManadsfacit, type Historik, type Manadsfacit } from './manadsfacit'
+import { normStopp, normTakt } from './maskinData'
+import { lasKlar, type KlarData, type KlarRoll } from './klar'
+import type { UtfallRad } from '@/lib/g15Forslag'
+import type { FacitRad } from './traffsakerhet'
+
+export type Typ = 'slutavverkning' | 'gallring'
+
+export type SparRad = {
+  typ: Typ
+  bas: 'bestallt' | 'totalt'
+  bestallt: number
+  bolag: string[]
+  skordat: number
+  skotat: number
+  takt_skordat: number | null
+  takt_skotat: number | null
+  takt_dagar: number
+  takt_fonster: string[]
+  oskotat_forandring_per_dag: number | null
+  /** Oskotat vid månadens start på objekt som inte är skotningsavslutade (aldrig < 0 per objekt). */
+  ingaende_oskotat: number
+  /** De två öppna objekten med mest oskotat just nu. */
+  oskotat_objekt: { namn: string | null; oskotat: number }[]
+}
+
+export type Arbetsdagar = {
+  maskin_id: string | null
+  totalt: number
+  gangna: number
+  kvar: number
+  gangna_datum: string[]
+  kvar_datum: string[]
+}
+
+export type BolagRad = {
+  typ: Typ
+  bolag: string | null
+  lovat: number
+  skordat: number
+  skotat: number
+  takt_skordat: number | null
+  takt_skotat: number | null
+  takt_dagar: number
+}
+
+export type Avvikelse = { bolag: string; typ: Typ; antal: number; medel_kvot: number; std_kvot: number | null }
+
+export type PlaneringObjekt = {
+  objekt_id: string
+  namn: string | null
+  vo_nummer: string | null
+  typ: string
+  bolag: string | null
+  volym: number | null
+  status: string | null
+  skordare_maskin_id: string | null
+  skotare_maskin_id: string | null
+  skordare_utforare: string | null
+  skotare_utforare: string | null
+  prognos_skordare_h: number | null
+  prognos_skotare_h: number | null
+  klar_skordare: boolean
+  klar_skotare: boolean
+}
+
+export type Maskin = {
+  maskin_id: string
+  modell: string | null
+  /** Admin-satt visningsnamn — visas före modell överallt (maskinNamn). */
+  visningsnamn?: string | null
+  maskin_typ: string | null
+  klarar_typ: string | null
+  extramaskin: boolean | null
+  aktiv_till: string | null
+  /** 'manuell' = inga maskinfiler; föraren registrerar lass i arbetsrapporten (20260924). Fylls av hamtaManuellaMaskiner. */
+  datakalla?: 'auto' | 'manuell' | null
+}
+
+export type MaskinLage = {
+  roll: 'skordare' | 'skotare'
+  objekt_id: string
+  namn: string | null
+  volym: number | null
+  gjort: number
+  /** null = skördare utan planerad volym (inget att räkna kvar mot). */
+  kvar: number | null
+  takt_per_dag: number | null
+  takt_dagar: number
+  nasta_namn: string | null
+  /** Tilldelat pågående objekt när det är ett annat än där maskinen senast jobbade. */
+  planerad_namn: string | null
+  senast_datum: string | null
+}
+
+/**
+ * Takt per maskin, spår och bas (helikopter_ny_takt): snitt på maskinens 5 senaste KÖRDA eller OFÖRKLARADE dagar (planerade stopp hoppas över)
+ * och maskinens egna arbetsdagar kvar. Prognosen för ett spår = hittills + Σ takt × kvar över maskinerna (raknaSpar).
+ */
+export type MaskinTakt = {
+  typ: Typ
+  bas: 'bestallt' | 'totalt'
+  maskin_id: string
+  roll: 'skordare' | 'skotare'
+  /** null = maskinen har inga gångna dagar i månaden än. */
+  takt: number | null
+  takt_dagar: number
+  kvar: number
+  kvar_datum: string[]
+  /** Maskinens volym i spåret hittills i månaden — > 0 = maskinen hör till spåret. */
+  volym_manad: number
+}
+
+/**
+ * Stopp per maskin (helikopter_ny_stopp): närmaste stopp (pågående, annars första kommande, annars senaste som varit) HÄRLETT ur ledighet + filer,
+ * plus registrerade stopp. stopp_orsak = 'ledig:Stefan' | 'registrerat:produktionsbegransning'. oforklarade_datum = dagar bland de 5 i takten
+ * där maskinen inte körde och ingen förare var ledig. Härledda stopp lagras aldrig.
+ */
+export type MaskinStopp = {
+  maskin_id: string
+  namn: string
+  roll: 'skordare' | 'skotare'
+  stopp_fran: string | null
+  stopp_till: string | null
+  stopp_orsak: string | null
+  stopp_status: 'pagar' | 'kommande' | 'varit' | null
+  /** Första arbetsdag efter stoppet då maskinen inte är stoppad igen. */
+  stopp_kor_igen: string | null
+  stopp_dagar: number | null
+  stopp_dagar_gangna: number | null
+  /** Alla planerade/registrerade stoppdagar före idag i månaden (alla stopp, inte bara närmaste). */
+  stopp_dagar_manad: number
+  stopp_orsaker_manad: string[]
+  oforklarade_datum: string[]
+  /** Första dagen i maskinens takt-fönster. */
+  takt_fran: string | null
+}
+
+export type StoppRad = { id: string; fran_datum: string; till_datum: string; orsak: string; maskiner: string[] }
+
+export type BestallningRad = { typ: Typ; bolag: string; volym: number }
+
+/** Uppföljningens MASKINER-sektion: en rad per aktiv maskin (helikopter_ny_maskiner). */
+export type MaskinManad = {
+  maskin_id: string
+  modell: string | null
+  /** COALESCE(visningsnamn, modell, maskin_id) ur RPC:n — det namn användaren ser. */
+  namn: string
+  roll: 'skordare' | 'skotare'
+  volym_manad: number
+  objekt_namn: string | null
+  takt_per_dag: number | null
+  takt_dagar: number
+  oskotat_objekt: number | null
+  senast_datum: string | null
+}
+
+export type UtanTypRad = {
+  objekt_id: string
+  namn: string | null
+  vo_nummer: string | null
+  huvudtyp: string | null
+  bolag: string | null
+  skordat: number
+  skotat: number
+  /** skördat + skotat i månaden */
+  volym: number
+  senast_datum: string | null
+  objekt_uuid: string | null
+}
+
+/** Egen skotning (helikopter_ny_egen_skotning): markägaren skotar själv, inga lass kommer — skördat i månaden är talet. Visas bara, räknas aldrig. */
+export type EgenSkotningRad = {
+  objekt_id: string
+  namn: string | null
+  vo_nummer: string | null
+  typ: string | null
+  bolag: string | null
+  skordat: number
+  senast_datum: string | null
+}
+
+export type VeckaRad = {
+  isovecka: number
+  iso_ar: number
+  fran: string
+  till: string
+  arbetsdagar: number
+  arbetsdagar_kvar: number
+  plan: number | null
+  skordat: number
+  skotat: number
+  status: 'last' | 'pagar' | 'kommande'
+  orsak: string | null
+  maskiner: { maskin_id: string; modell: string | null; namn: string; roll: 'skordare' | 'skotare'; volym: number }[]
+}
+
+export type Svar<T> = { data: T; error: null } | { data: null; error: string }
+
+const tal = (v: unknown): number => (v == null ? 0 : Number(v))
+const talEllerNull = (v: unknown): number | null => (v == null ? null : Number(v))
+
+function felText(e: any): string {
+  return e?.message || e?.details || (typeof e === 'string' ? e : 'Kunde inte läsa data')
+}
+
+async function rpc<T>(namn: string, args: Record<string, unknown>): Promise<Svar<T>> {
+  try {
+    const { data, error } = await medAbortRetry(() => supabase.rpc(namn, args))
+    if (error) {
+      console.error(`[helikopter] ${namn} misslyckades`, error)
+      return { data: null, error: felText(error) }
+    }
+    return { data: data as T, error: null }
+  } catch (e) {
+    console.error(`[helikopter] ${namn} kastade`, e)
+    return { data: null, error: felText(e) }
+  }
+}
+
+function normSpar(r: any): SparRad {
+  return {
+    typ: r.typ, bas: r.bas, bestallt: tal(r.bestallt), bolag: r.bolag ?? [],
+    skordat: tal(r.skordat), skotat: tal(r.skotat),
+    takt_skordat: talEllerNull(r.takt_skordat), takt_skotat: talEllerNull(r.takt_skotat),
+    takt_dagar: tal(r.takt_dagar), takt_fonster: r.takt_fonster ?? [],
+    oskotat_forandring_per_dag: talEllerNull(r.oskotat_forandring_per_dag),
+    ingaende_oskotat: tal(r.ingaende_oskotat),
+    oskotat_objekt: Array.isArray(r.oskotat_objekt) ? r.oskotat_objekt.map((o: any) => ({ namn: o?.namn ?? null, oskotat: tal(o?.oskotat) })) : [],
+  }
+}
+function normDagar(r: any): Arbetsdagar {
+  return { maskin_id: r.maskin_id ?? null, totalt: tal(r.totalt), gangna: tal(r.gangna), kvar: tal(r.kvar), gangna_datum: r.gangna_datum ?? [], kvar_datum: r.kvar_datum ?? [] }
+}
+function normBolag(r: any): BolagRad {
+  return { typ: r.typ, bolag: r.bolag ?? null, lovat: tal(r.lovat), skordat: tal(r.skordat), skotat: tal(r.skotat), takt_skordat: talEllerNull(r.takt_skordat), takt_skotat: talEllerNull(r.takt_skotat), takt_dagar: tal(r.takt_dagar) }
+}
+function normPlanering(r: any): PlaneringObjekt {
+  return {
+    objekt_id: r.objekt_id, namn: r.namn ?? null, vo_nummer: r.vo_nummer ?? null, typ: r.typ ?? '', bolag: r.bolag ?? null,
+    volym: talEllerNull(r.volym), status: r.status ?? null,
+    skordare_maskin_id: r.skordare_maskin_id ?? null, skotare_maskin_id: r.skotare_maskin_id ?? null,
+    skordare_utforare: r.skordare_utforare ?? null, skotare_utforare: r.skotare_utforare ?? null,
+    prognos_skordare_h: talEllerNull(r.prognos_skordare_h), prognos_skotare_h: talEllerNull(r.prognos_skotare_h),
+    klar_skordare: !!r.klar_skordare, klar_skotare: !!r.klar_skotare,
+  }
+}
+function normAvvikelse(r: any): Avvikelse {
+  return { bolag: r.bolag, typ: r.typ, antal: tal(r.antal), medel_kvot: tal(r.medel_kvot), std_kvot: talEllerNull(r.std_kvot) }
+}
+function normMaskinLage(r: any): MaskinLage {
+  return {
+    roll: r.roll, objekt_id: String(r.objekt_id), namn: r.namn ?? null, volym: talEllerNull(r.volym), gjort: tal(r.gjort),
+    kvar: talEllerNull(r.kvar), takt_per_dag: talEllerNull(r.takt_per_dag), takt_dagar: tal(r.takt_dagar),
+    nasta_namn: r.nasta_namn ?? null, planerad_namn: r.planerad_namn ?? null, senast_datum: r.senast_datum ?? null,
+  }
+}
+function normVecka(r: any): VeckaRad {
+  return {
+    isovecka: tal(r.isovecka), iso_ar: tal(r.iso_ar), fran: r.fran, till: r.till,
+    arbetsdagar: tal(r.arbetsdagar), arbetsdagar_kvar: tal(r.arbetsdagar_kvar), plan: talEllerNull(r.plan),
+    skordat: tal(r.skordat), skotat: tal(r.skotat), status: r.status, orsak: r.orsak ?? null,
+    maskiner: Array.isArray(r.maskiner) ? r.maskiner.map((m: any) => ({ maskin_id: String(m?.maskin_id ?? ''), modell: m?.modell ?? null, namn: String(m?.namn ?? m?.modell ?? m?.maskin_id ?? ''), roll: m?.roll, volym: tal(m?.volym) })) : [],
+  }
+}
+
+/** utanTyp = null när RPC:n inte gick att läsa — raden visar då ett fel, aldrig "inget". */
+export type Manadsdata = {
+  spar: SparRad[]; arbetsdagar: Arbetsdagar[]; planering: PlaneringObjekt[]; stopp: StoppRad[]; bestallningar: BestallningRad[]; utanTyp: UtanTypRad[] | null
+  /** Egen skotning (helikopter_ny_egen_skotning). null = kunde inte läsas: rubriken säger det, aldrig "ingen egen skotning". */
+  egenSkotning: EgenSkotningRad[] | null
+  /** Takt per maskin (helikopter_ny_takt). null = kunde inte läsas (eller migrationen inte körd): prognosen räknas då som förut på spårets takt. */
+  takter: MaskinTakt[] | null
+  /** Stopp per maskin (helikopter_ny_stopp). null = kunde inte läsas: inga stopptexter och ingen varning, Planering visar bara registrerade stopp. */
+  maskinStopp: MaskinStopp[] | null
+  /** Maskinens rapportdagar (helikopter_ny_rapportdagar): arbetsdagar t.o.m. idag utom planerade stopp, orapporterade med. Larmet "inga lass registrerade" räknar på dem. null = kunde inte läsas: larmet räknar på maskinens arbetsdagar som förut. */
+  rapportdagar: Record<string, string[]> | null
+}
+
+/** Månadsberoende: spår, arbetsdagar, månadens objekt. Hämtas om vid månadsbyte. */
+export async function hamtaManadsdata(ar: number, manad: number, idag: string): Promise<Svar<Manadsdata>> {
+  const forsta = `${ar}-${String(manad).padStart(2, '0')}-01`
+  const sista = new Date(ar, manad, 0)
+  const sistaIso = `${sista.getFullYear()}-${String(sista.getMonth() + 1).padStart(2, '0')}-${String(sista.getDate()).padStart(2, '0')}`
+  const [spar, dagar, plan, stopp, stoppMaskin, best, utan, takt, maskinStopp, rapport, egen] = await Promise.all([
+    rpc<any[]>('helikopter_ny_spar', { p_ar: ar, p_manad: manad, p_idag: idag }),
+    rpc<any[]>('helikopter_ny_arbetsdagar', { p_ar: ar, p_manad: manad, p_idag: idag }),
+    rpc<any[]>('helikopter_ny_planering', { p_ar: ar, p_manad: manad }),
+    hamtaAlla<any>(() => supabase.from('stopp').select('id,fran_datum,till_datum,orsak').gte('till_datum', forsta).lte('fran_datum', sistaIso), 'id'),
+    hamtaAlla<any>(() => supabase.from('stopp_maskin').select('stopp_id,maskin_id'), ['stopp_id', 'maskin_id']),
+    hamtaAlla<any>(() => supabase.from('bestallningar').select('id,typ,bolag,volym').eq('ar', ar).eq('manad', manad), 'id'),
+    rpc<any[]>('helikopter_ny_utan_typ', { p_ar: ar, p_manad: manad }),
+    rpc<any[]>('helikopter_ny_takt', { p_ar: ar, p_manad: manad, p_idag: idag }),
+    rpc<any[]>('helikopter_ny_stopp', { p_ar: ar, p_manad: manad, p_idag: idag }),
+    rpc<any[]>('helikopter_ny_rapportdagar', { p_ar: ar, p_manad: manad, p_idag: idag }),
+    rpc<any[]>('helikopter_ny_egen_skotning', { p_ar: ar, p_manad: manad }),
+  ])
+  // utan typ-RPC:n är ett komplement: fel där fäller inte hela fliken utan syns på sin egen rad.
+  if (utan.error != null) console.error('[helikopter] helikopter_ny_utan_typ', utan.error)
+  // takt/stopp per maskin är lika komplement: går de inte att läsa faller prognosen tillbaka på spårets takt och stopptexterna uteblir.
+  if (takt.error != null) console.error('[helikopter] helikopter_ny_takt', takt.error)
+  if (maskinStopp.error != null) console.error('[helikopter] helikopter_ny_stopp', maskinStopp.error)
+  if (rapport.error != null) console.error('[helikopter] helikopter_ny_rapportdagar', rapport.error)
+  if (egen.error != null) console.error('[helikopter] helikopter_ny_egen_skotning', egen.error)
+  const fel = spar.error ?? dagar.error ?? plan.error ?? (stopp.error ? felText(stopp.error) : null) ?? (stoppMaskin.error ? felText(stoppMaskin.error) : null) ?? (best.error ? felText(best.error) : null)
+  if (fel) { if (stopp.error || stoppMaskin.error || best.error) console.error('[helikopter] stopp/bestallningar', stopp.error ?? stoppMaskin.error ?? best.error); return { data: null, error: fel } }
+  const maskinerPerStopp = new Map<string, string[]>()
+  for (const sm of stoppMaskin.data ?? []) maskinerPerStopp.set(sm.stopp_id, [...(maskinerPerStopp.get(sm.stopp_id) ?? []), sm.maskin_id])
+  return {
+    data: {
+      spar: (spar.data ?? []).map(normSpar),
+      arbetsdagar: (dagar.data ?? []).map(normDagar),
+      planering: (plan.data ?? []).map(normPlanering),
+      stopp: (stopp.data ?? []).map((s: any): StoppRad => ({ id: s.id, fran_datum: s.fran_datum, till_datum: s.till_datum, orsak: s.orsak ?? '', maskiner: maskinerPerStopp.get(s.id) ?? [] })),
+      bestallningar: (best.data ?? [])
+        .filter((b: any) => b.typ === 'gallring' || b.typ === 'slutavverkning')
+        .map((b: any): BestallningRad => ({ typ: b.typ, bolag: String(b.bolag ?? '').trim(), volym: tal(b.volym) })),
+      takter: takt.error != null ? null : (takt.data ?? []).map(normTakt),
+      maskinStopp: maskinStopp.error != null ? null : (maskinStopp.data ?? []).map(normStopp),
+      rapportdagar: rapport.error != null ? null : Object.fromEntries((rapport.data ?? []).map((r: any) => [String(r.maskin_id), Array.isArray(r.rapportdagar) ? r.rapportdagar.map(String) : []])),
+      utanTyp: utan.error != null ? null : (utan.data ?? []).map((u: any): UtanTypRad => ({
+        objekt_id: String(u.objekt_id), namn: u.namn ?? null, vo_nummer: u.vo_nummer ?? null, huvudtyp: u.huvudtyp ?? null, bolag: u.bolag ?? null,
+        skordat: tal(u.skordat), skotat: tal(u.skotat), volym: tal(u.volym), senast_datum: u.senast_datum ?? null, objekt_uuid: u.objekt_uuid ?? null,
+      })),
+      egenSkotning: egen.error != null ? null : (egen.data ?? []).map((e: any): EgenSkotningRad => ({
+        objekt_id: String(e.objekt_id), namn: e.namn ?? null, vo_nummer: e.vo_nummer ?? null, typ: e.typ ?? null, bolag: e.bolag ?? null,
+        skordat: tal(e.skordat), senast_datum: e.senast_datum ?? null,
+      })),
+    },
+    error: null,
+  }
+}
+
+export type FastData = { maskiner: Maskin[]; senasteData: string | null; avvikelse: Avvikelse[]; g15: G15Tabell }
+
+/** Månadsoberoende: maskiner, senaste importtid, bolagens historiska avvikelse. Hämtas en gång. */
+export async function hamtaFast(): Promise<Svar<FastData>> {
+  try {
+    const [maskiner, senaste, avvikelse, g15] = await Promise.all([
+      hamtaAlla<Maskin>(() => supabase.from('dim_maskin').select('maskin_id,visningsnamn,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'), 'maskin_id'),
+      rpc<string | null>('helikopter_ny_senaste_data', {}),
+      hamtaAlla<any>(() => supabase.from('helikopter_ny_bolag_avvikelse').select('bolag,typ,antal,medel_kvot,std_kvot'), ['bolag', 'typ']),
+      rpc<G15DagRad[]>('helikopter_ny_g15_per_arbetsdag', {}),
+    ])
+    if (maskiner.error) { console.error('[helikopter] dim_maskin', maskiner.error); return { data: null, error: felText(maskiner.error) } }
+    if (senaste.error) return { data: null, error: senaste.error }
+    if (avvikelse.error) { console.error('[helikopter] bolag_avvikelse', avvikelse.error); return { data: null, error: felText(avvikelse.error) } }
+    return { data: { maskiner: maskiner.data, senasteData: senaste.data ?? null, avvikelse: avvikelse.data.map(normAvvikelse),
+      // Kapaciteten i G15 hindrar aldrig sidan: går RPC:n inte att läsa gäller 8 h och vyn SÄGER det (g15KapacitetNot).
+      g15: g15.error != null ? G15_TOM : g15Tabell(g15.data) }, error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Per bolag för Uppföljning — hämtas först när fliken öppnas. */
+export async function hamtaBolag(ar: number, manad: number, idag: string): Promise<Svar<BolagRad[]>> {
+  const r = await rpc<any[]>('helikopter_ny_bolag', { p_ar: ar, p_manad: manad, p_idag: idag })
+  if (r.error) return { data: null, error: r.error }
+  return { data: (r.data ?? []).map(normBolag), error: null }
+}
+
+/** Uppföljningens maskinsektion — alla aktiva maskiner i ett anrop. Lazy när fliken öppnas. */
+export async function hamtaMaskiner(ar: number, manad: number, idag: string): Promise<Svar<MaskinManad[]>> {
+  const r = await rpc<any[]>('helikopter_ny_maskiner', { p_ar: ar, p_manad: manad, p_idag: idag })
+  if (r.error) return { data: null, error: r.error }
+  return {
+    data: (r.data ?? []).map((m: any): MaskinManad => ({
+      maskin_id: String(m.maskin_id), modell: m.modell ?? null, namn: String(m.namn ?? m.modell ?? m.maskin_id), roll: m.roll === 'skordare' ? 'skordare' : 'skotare',
+      volym_manad: tal(m.volym_manad), objekt_namn: m.objekt_namn ?? null, takt_per_dag: talEllerNull(m.takt_per_dag),
+      takt_dagar: tal(m.takt_dagar), oskotat_objekt: talEllerNull(m.oskotat_objekt), senast_datum: m.senast_datum ?? null,
+    })),
+    error: null,
+  }
+}
+
+/** Takt per aktiv maskin (senaste 5 arbetsdagarna) — Läge-sheeten "Skördare och skotare". */
+export async function hamtaMaskinTakter(maskinIds: string[], idag: string): Promise<Svar<Record<string, MaskinLage | null>>> {
+  const svar = await Promise.all(maskinIds.map(id => hamtaMaskinLage(id, idag)))
+  const fel = svar.find(s => s.error != null)?.error
+  if (fel != null) return { data: null, error: fel }
+  const ut: Record<string, MaskinLage | null> = {}
+  maskinIds.forEach((id, i) => { ut[id] = svar[i].data })
+  return { data: ut, error: null }
+}
+
+/** Veckor för ett spår i en månad — /helikopter/veckor. */
+export async function hamtaVeckor(ar: number, manad: number, typ: Typ, idag: string): Promise<Svar<VeckaRad[]>> {
+  const r = await rpc<any[]>('helikopter_ny_veckor', { p_ar: ar, p_manad: manad, p_typ: typ, p_idag: idag })
+  if (r.error) return { data: null, error: r.error }
+  return { data: (r.data ?? []).map(normVecka), error: null }
+}
+
+/** Veckoorsak: tom text raderar raden. Skrivning kräver admin (RLS). */
+export async function sparaOrsak(ar: number, manad: number, typ: Typ, isovecka: number, orsak: string): Promise<{ error: string | null }> {
+  try {
+    const text = orsak.trim().slice(0, 60)
+    if (text === '') {
+      const { error } = await supabase.from('helikopter_veckoorsak').delete().match({ ar, manad, typ, isovecka })
+      return { error: error ? felText(error) : null }
+    }
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('helikopter_veckoorsak')
+      .upsert({ ar, manad, typ, isovecka, orsak: text, uppdaterad: new Date().toISOString(), av: user?.id ?? null }, { onConflict: 'ar,manad,typ,isovecka' })
+    return { error: error ? felText(error) : null }
+  } catch (e) {
+    return { error: felText(e) }
+  }
+}
+
+/**
+ * Maskiner med manuell datakälla (dim_maskin.datakalla = 'manuell'). Egen fråga som tål att
+ * kolumnen saknas (migration 20260924100000 inte körd): då tom mängd, aldrig ett fel som
+ * fäller vyn — etiketten "manuell" och Läge-varningen uteblir bara.
+ */
+export async function hamtaManuellaMaskiner(): Promise<Set<string>> {
+  try {
+    const { data, error } = await medAbortRetry(() => supabase.from('dim_maskin').select('maskin_id').eq('datakalla', 'manuell'))
+    if (error) { console.warn('[helikopter] dim_maskin.datakalla kunde inte läsas', error.message); return new Set() }
+    return new Set(((data as { maskin_id: string }[]) ?? []).map(r => r.maskin_id))
+  } catch (e) {
+    console.warn('[helikopter] hamtaManuellaMaskiner', e)
+    return new Set()
+  }
+}
+
+/** Senaste lassdatum per maskin, för "inga lass registrerade sedan …" i Läge. null = inga lass alls.
+ *  Läser vyn `helikopter_lass` (Opti OCH appens lass, 2026-10-27) — samma källa som resten av helikoptern, så ett lass
+ *  registrerat i appen räknas som registrerat. */
+export async function hamtaSenasteLass(maskinIds: string[]): Promise<Svar<Record<string, string | null>>> {
+  try {
+    const ut: Record<string, string | null> = {}
+    for (const id of maskinIds) {
+      const { data, error } = await medAbortRetry(() => supabase.from('helikopter_lass').select('datum').eq('maskin_id', id).order('datum', { ascending: false }).limit(1))
+      if (error) { console.error('[helikopter] helikopter_lass senaste', error); return { data: null, error: felText(error) } }
+      ut[id] = (data as { datum: string }[])?.[0]?.datum ?? null
+    }
+    return { data: ut, error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Veckoläget för en dag (helikopter_veckolage): samma payload som onsdagsnotisen. Sidan /helikopter/veckolage. */
+export async function hamtaVeckolage(datum: string): Promise<Svar<VeckolageData>> {
+  const r = await rpc<VeckolageData | null>('helikopter_veckolage', { p_idag: datum })
+  if (r.error) return { data: null, error: r.error }
+  if (!r.data || typeof r.data !== 'object' || !Array.isArray(r.data.spar)) return { data: null, error: 'Tomt svar från helikopter_veckolage' }
+  return { data: r.data, error: null }
+}
+
+/**
+ * Onsdagsnotisen nu: köar veckoläget till mottagarna (helikopter_notis_vecka, kräver admin)
+ * och tömmer notis-kön direkt via /api/notis/flush. Lyckas köandet men inte tömningen går
+ * notisen ändå inom fem minuter (Vercel-cronen) — skickadNu säger vilket.
+ */
+export async function skickaVeckoNotis(): Promise<Svar<{ antal: number; skickadNu: boolean }>> {
+  const r = await rpc<number>('helikopter_notis_vecka', { p_manuell: true })
+  if (r.error) return { data: null, error: r.error }
+  const antal = Number(r.data ?? 0)
+  if (antal === 0) return { data: { antal, skickadNu: false }, error: null }
+  try {
+    const res = await fetch('/api/notis/flush', { method: 'POST' })
+    return { data: { antal, skickadNu: res.ok }, error: null }
+  } catch {
+    return { data: { antal, skickadNu: false }, error: null }
+  }
+}
+
+/** Inloggad förares maskin: var den senast jobbade, kvar och takt. null = ingen fakt-rad alls. */
+export async function hamtaMaskinLage(maskinId: string, idag: string): Promise<Svar<MaskinLage | null>> {
+  const r = await rpc<any[]>('helikopter_ny_maskin', { p_maskin_id: maskinId, p_idag: idag })
+  if (r.error) return { data: null, error: r.error }
+  const rad = (r.data ?? [])[0]
+  return { data: rad ? normMaskinLage(rad) : null, error: null }
+}
+
+/** Månadsfacit för en avslutad (eller pågående) månad — /helikopter/manad. Ett svar som inte är ett facit är ett fel, aldrig 0 %. */
+export async function hamtaManadsfacit(ar: number, manad: number): Promise<Svar<Manadsfacit>> {
+  const r = await rpc<unknown>('helikopter_manadsfacit', { p_ar: ar, p_manad: manad })
+  if (r.error) return { data: null, error: r.error }
+  try {
+    return { data: lasManadsfacit(r.data), error: null }
+  } catch (e) {
+    console.error('[helikopter] helikopter_manadsfacit gav ogiltigt svar', e)
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Månader med beställning, nyast först, utan den pågående månaden — historikfliken. */
+export async function hamtaHistorik(): Promise<Svar<Historik>> {
+  const r = await rpc<unknown>('helikopter_historik', { p_manader: 12 })
+  if (r.error) return { data: null, error: r.error }
+  try {
+    return { data: lasHistorik(r.data), error: null }
+  } catch (e) {
+    console.error('[helikopter] helikopter_historik gav ogiltigt svar', e)
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** "Räcker månaden?" som datum: klar-datum per maskin, trakter och spår (helikopter_ny_klar). Ett konstigt svar är ett fel. */
+export async function hamtaKlar(ar: number, manad: number, idag: string): Promise<Svar<KlarData>> {
+  const r = await rpc<unknown>('helikopter_ny_klar', { p_ar: ar, p_manad: manad, p_idag: idag })
+  if (r.error) return { data: null, error: r.error }
+  try {
+    return { data: lasKlar(r.data), error: null }
+  } catch (e) {
+    console.error('[helikopter] helikopter_ny_klar gav ett svar vi inte förstår', e)
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Uppmätt utfall per avslutad trakt (RPC prognos_utfall) — underlaget för G15-förslaget när en trakt saknar prognos. Ett fel är ett fel, aldrig en tom lista. */
+export async function hamtaPrognosUtfall(): Promise<Svar<UtfallRad[]>> {
+  const r = await rpc<any[]>('prognos_utfall', {})
+  if (r.error) return { data: null, error: r.error }
+  if (!Array.isArray(r.data)) return { data: null, error: 'prognos_utfall gav ett oväntat svar' }
+  return {
+    data: r.data.map((x: any): UtfallRad => ({
+      typ: x.typ ?? null, volymObjekt: talEllerNull(x.volym_objekt), skordadM3: talEllerNull(x.skordad_m3), stammar: talEllerNull(x.stammar),
+      skordareG15: talEllerNull(x.skordare_g15), skotareG15: talEllerNull(x.skotare_g15),
+    })),
+    error: null,
+  }
+}
+
+/** Facit per avslutad trakt (RPC prognos_facit): blev, planerarens och appens prognos — underlaget för Träffsäkerhet (_lib/traffsakerhet.ts). Ett fel är ett fel, aldrig en tom lista. */
+export async function hamtaPrognosFacit(): Promise<Svar<FacitRad[]>> {
+  const r = await rpc<any[]>('prognos_facit', {})
+  if (r.error) return { data: null, error: r.error }
+  if (!Array.isArray(r.data)) return { data: null, error: 'prognos_facit gav ett oväntat svar' }
+  return {
+    data: r.data.map((x: any): FacitRad => ({
+      objekt_id: String(x.objekt_id), namn: String(x.namn ?? 'Objekt'), typ: x.typ ?? null, klart: x.klart ?? null,
+      skordare_g15: talEllerNull(x.skordare_g15), skotare_g15: talEllerNull(x.skotare_g15),
+      manuell_prognos: x.manuell_prognos ?? null, app_prognos: x.app_prognos ?? null,
+    })),
+    error: null,
+  }
+}
+
+/** Byt maskin för en trakt: skriver objekt.skordare_maskin_id / skotare_maskin_id (samma kolumner som planeringsverktyget). Läser tillbaka raden — noll rader är ett fel. */
+export async function tilldelaMaskin(objektId: string, roll: KlarRoll, maskinId: string): Promise<{ error: string | null }> {
+  try {
+    const kolumn = roll === 'skordare' ? 'skordare_maskin_id' : 'skotare_maskin_id'
+    const { data, error } = await supabase.from('objekt').update({ [kolumn]: maskinId }).eq('id', objektId).select(`id, ${kolumn}`)
+    if (error) return { error: felText(error) }
+    if (!data || data.length === 0) return { error: 'Ändringen sparades inte (saknar behörighet eller trakten finns inte längre)' }
+    if ((data[0] as any)[kolumn] !== maskinId) return { error: 'Ändringen sparades inte' }
+    return { error: null }
+  } catch (e) {
+    return { error: felText(e) }
+  }
+}
+
+/**
+ * Trakter där markägaren skotar själv (objekt.egen_skotning, eller dim_objekt.egen_skotning på traktens maskinobjekt/VO).
+ * Tavlan räknar dem inte mot beställningen och visar dem aldrig som "ingen skotare".
+ */
+export async function hamtaEgenSkotningTrakter(objektIds: string[]): Promise<Svar<Set<string>>> {
+  if (objektIds.length === 0) return { data: new Set(), error: null }
+  try {
+    const [o, d] = await Promise.all([
+      medAbortRetry(() => supabase.from('objekt').select('id, vo_nummer, dim_objekt_id, egen_skotning').in('id', objektIds)),
+      medAbortRetry(() => supabase.from('dim_objekt').select('objekt_id, vo_nummer').eq('egen_skotning', true)),
+    ])
+    if (o.error) return { data: null, error: felText(o.error) }
+    if (d.error) return { data: null, error: felText(d.error) }
+    const dimId = new Set((d.data ?? []).map((r: any) => String(r.objekt_id)))
+    const dimVo = new Set((d.data ?? []).map((r: any) => r.vo_nummer).filter((v: unknown): v is string => typeof v === 'string' && v !== ''))
+    const ut = new Set<string>()
+    for (const r of (o.data ?? []) as any[]) {
+      if (r.egen_skotning === true || (r.dim_objekt_id && dimId.has(String(r.dim_objekt_id))) || (r.vo_nummer && (dimVo.has(r.vo_nummer) || dimId.has(r.vo_nummer)))) ut.add(String(r.id))
+    }
+    return { data: ut, error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Skördat i månaden per skördare på maskinobjekt med egen skotning (spårens egna tal räknar inte med dem). */
+export async function hamtaEgetSkordat(ar: number, manad: number, dimIds: string[]): Promise<Svar<{ objekt_id: string; maskin_id: string; volym: number }[]>> {
+  if (dimIds.length === 0) return { data: [], error: null }
+  try {
+    const fran = `${ar}-${String(manad).padStart(2, '0')}-01`
+    const till = manad === 12 ? `${ar + 1}-01-01` : `${ar}-${String(manad + 1).padStart(2, '0')}-01`
+    const r = await hamtaAlla<any>(() => supabase.from('fakt_produktion').select('id, objekt_id, maskin_id, volym_m3sub').in('objekt_id', dimIds).gte('datum', fran).lt('datum', till) as any, 'id')
+    if (r.error) return { data: null, error: felText(r.error) }
+    const per = new Map<string, { objekt_id: string; maskin_id: string; volym: number }>()
+    for (const x of r.data) {
+      if (!x.maskin_id) continue
+      const k = `${x.objekt_id}|${x.maskin_id}`
+      const rad = per.get(k) ?? { objekt_id: String(x.objekt_id), maskin_id: String(x.maskin_id), volym: 0 }
+      rad.volym += Number(x.volym_m3sub) || 0
+      per.set(k, rad)
+    }
+    return { data: [...per.values()], error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Allt maskinerna gjort i månaden per maskinobjekt — underlaget för "utanför beställningen" (tavlan avgör vad som räknas).
+ *  Skördare ur fakt_produktion, skotare ur helikopter_lass (Opti och appen, aldrig dubbelt). Exkluderade objekt (flyttobjekt) är inte med. */
+export type MaskinObjektRad = { maskin_id: string; roll: KlarRoll; objekt_id: string; namn: string | null; typ: string | null; bolag: string | null; egen_skotning: boolean; volym: number }
+export async function hamtaMaskinObjekt(ar: number, manad: number): Promise<Svar<MaskinObjektRad[]>> {
+  try {
+    const fran = `${ar}-${String(manad).padStart(2, '0')}-01`
+    const till = manad === 12 ? `${ar + 1}-01-01` : `${ar}-${String(manad + 1).padStart(2, '0')}-01`
+    const [p, l] = await Promise.all([
+      hamtaAlla<any>(() => supabase.from('fakt_produktion').select('id, objekt_id, maskin_id, volym_m3sub').gte('datum', fran).lt('datum', till) as any, 'id'),
+      supabase.from('helikopter_lass').select('objekt_id, maskin_id, volym_m3sub').gte('datum', fran).lt('datum', till).limit(1000),
+    ])
+    if (p.error) return { data: null, error: felText(p.error) }
+    if (l.error) return { data: null, error: felText(l.error) }
+    // 1 000 rader är PostgREST:s tak: då är svaret kanske avkapat, och en halv summa visas aldrig.
+    if ((l.data ?? []).length >= 1000) return { data: null, error: 'För många lass för en läsning' }
+    const per = new Map<string, { maskin_id: string; roll: KlarRoll; objekt_id: string; volym: number }>()
+    const lagg = (roll: KlarRoll, x: any) => {
+      if (!x.maskin_id || x.objekt_id == null) return
+      const k = `${roll}|${x.maskin_id}|${x.objekt_id}`
+      const rad = per.get(k) ?? { maskin_id: String(x.maskin_id), roll, objekt_id: String(x.objekt_id), volym: 0 }
+      rad.volym += Number(x.volym_m3sub) || 0
+      per.set(k, rad)
+    }
+    for (const x of p.data) lagg('skordare', x)
+    for (const x of (l.data ?? []) as any[]) lagg('skotare', x)
+    const ids = [...new Set([...per.values()].map(r => r.objekt_id))]
+    const dim = new Map<string, any>()
+    for (let i = 0; i < ids.length; i += 200) {
+      const d = await supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, bolag, egen_skotning, exkludera').in('objekt_id', ids.slice(i, i + 200))
+      if (d.error) return { data: null, error: felText(d.error) }
+      for (const x of (d.data ?? []) as any[]) dim.set(String(x.objekt_id), x)
+    }
+    return {
+      data: [...per.values()].filter(r => dim.get(r.objekt_id)?.exkludera !== true).map(r => {
+        const d = dim.get(r.objekt_id)
+        return { ...r, namn: d?.object_name ?? null, typ: d?.huvudtyp ?? null, bolag: d?.bolag ?? null, egen_skotning: d?.egen_skotning === true }
+      }),
+      error: null,
+    }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Sätter eller tar bort egen skotning på trakten: jobbet och alla maskinobjekt med samma nummer (lib/startaJobbSkotning). Bara admin. */
+export async function sattEgenSkotning(objektId: string, egen: boolean): Promise<{ error: string | null }> {
+  try {
+    const o = await supabase.from('objekt').select('id, vo_nummer, dim_objekt_id').eq('id', objektId).maybeSingle()
+    if (o.error) return { error: felText(o.error) }
+    if (!o.data) return { error: 'Trakten finns inte längre' }
+    const nycklar = [o.data.dim_objekt_id, o.data.vo_nummer].filter((v): v is string => typeof v === 'string' && v !== '')
+    const dim = new Set<string>()
+    if (nycklar.length) {
+      const [a, b] = await Promise.all([
+        supabase.from('dim_objekt').select('objekt_id').in('objekt_id', nycklar),
+        o.data.vo_nummer ? supabase.from('dim_objekt').select('objekt_id').eq('vo_nummer', o.data.vo_nummer) : Promise.resolve({ data: [], error: null }),
+      ])
+      if (a.error) return { error: felText(a.error) }
+      if (b.error) return { error: felText(b.error) }
+      for (const r of [...(a.data ?? []), ...(b.data ?? [])] as any[]) dim.add(String(r.objekt_id))
+    }
+    const r = await sparaSkotning(supabase as any, { jobbId: objektId, dimIds: [...dim] }, egen)
+    return { error: r.ok ? null : r.fel }
+  } catch (e) {
+    return { error: felText(e) }
+  }
+}

@@ -1,0 +1,97 @@
+// Kopiera pdf.js-workern till /public via webpack-hooken nedan — INTE prebuild.
+// Vercel kör `vercel-build`, och npm kör då bara `prevercel-build`, ALDRIG
+// `prebuild`. En prebuild-cp hoppas alltså tyst över på Vercel (grön preview,
+// död production). Webpack-hooken körs däremot alltid när Next kompilerar, både
+// lokalt och på Vercel.
+//
+// BÄST-EFFORT: allt ligger i try/catch och kastar ALDRIG. En saknad eller
+// oåtkomlig worker ger en trasig PDF-läsare (PdfLasare visar "kunde inte läsa"),
+// ALDRIG en död app eller ett brutet bygge. Ett hjälp-beroende ska aldrig kunna
+// sänka hela systemet — det isoleras här.
+function kopieraPdfWorker() {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const { createRequire } = require('module');
+    const req = createRequire(__filename);
+    const kalla = req.resolve('pdfjs-dist/legacy/build/pdf.worker.min.mjs');
+    const malDir = path.join(__dirname, 'public');
+    fs.mkdirSync(malDir, { recursive: true });
+    fs.copyFileSync(kalla, path.join(malDir, 'pdf.worker.min.mjs'));
+    console.log('[next.config] pdf.js-worker kopierad till /public/pdf.worker.min.mjs');
+  } catch (e) {
+    console.warn(
+      '[next.config] VARNING: kunde inte kopiera pdf.js-worker — PDF-läsaren blir ' +
+      'otillgänglig, men appen byggs och fungerar i övrigt:', e && e.message
+    );
+  }
+}
+
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  env: {
+    // Bakas in i klient-bundlen vid build. Vercel sätter VERCEL_GIT_COMMIT_SHA per deploy;
+    // /api/version läser SAMMA env i runtime. Skiljer de sig → klienten kör ett äldre bygge
+    // än det utrollade → visa "Ny version". Lokalt (ingen Vercel-env) → 'dev', ingen banner.
+    NEXT_PUBLIC_BUILD_SHA: process.env.VERCEL_GIT_COMMIT_SHA || 'dev',
+  },
+  // Worker-kopieringen körs som en del av kompileringen (aldrig prebuild). Hooken
+  // returnerar config oförändrad — kopian är en ren sidoeffekt, och kan aldrig
+  // fälla bygget (kopieraPdfWorker kastar aldrig).
+  webpack: (config) => {
+    kopieraPdfWorker();
+    return config;
+  },
+  outputFileTracingExcludes: {
+    '*': [
+      'maplibre-gl/**',
+      'sharp/**',
+    ],
+  },
+  // Kalibrerings-API:erna serverar live förar-/maskindata. Next:s default för
+  // force-dynamic-routes är "Cache-Control: public, max-age=0, must-revalidate"
+  // — 'public' låter webbläsare/Vercel-CDN lagra svaret, vilket serverade en
+  // förare 10 h gammal 90-dagarsfönster trots färsk data i DB. no-store förbjuder
+  // ALL cachning i alla lager. Ett ställe → gäller alla /api/kalibrering/*.
+  async headers() {
+    return [
+      {
+        source: '/api/kalibrering/:path*',
+        headers: [{ key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate' }],
+      },
+    ];
+  },
+  // Affärsuppföljningen är en helhet med tre flikar (Räkna, Året, Trakter — 2026-10-25). Massaved och rotkap bor under den: listan är
+  // "Massavedens längd" under Året, en trakt är EN skärm (/affarsuppfoljning/objekt/<id>) och rotkap är en undersida av den. Gamla adresser
+  // (bokmärken, delade länkar) omdirigeras; frågesträngen (?manad=, ?vy=, ?sort=) följer med. Tillfälliga (307) tills det har visat
+  // sig hålla — då kan de göras permanenta. Omdirigeringar körs före middleware, så en utloggad hamnar ändå på inloggningen med rätt mål.
+  async redirects() {
+    return [
+      // /planner var en gammal, helt egen kopia av planeringsvyn och är borttagen. Permanent: den kommer inte tillbaka, och ett bokmärke
+      // eller en gammal länk ska landa i /planering (förutom Next-bygget har inget annat — middleware, sw.js, manifestet — pekat dit).
+      { source: '/planner', destination: '/planering', permanent: true },
+      // Nya Översikten flyttade till /oversikt 2026-11-05; gamla länkar och notiser till /oversikt-v2 hamnar rätt.
+      { source: '/oversikt-v2', destination: '/oversikt', permanent: true },
+      // /maskinflytt (förarflödet) är ersatt av "Hämta en maskin" i Lastbilen (steg 3 av 4). 308: den kommer inte tillbaka, och ett bokmärke eller en
+      // hemskärmsgenväg ska landa i Lastbilen. Bara adressen ovan — /maskinflytt/platser (flyttplatserna) lever kvar.
+      { source: '/maskinflytt', destination: '/lastbil', permanent: true },
+      // Beställningsvyn och objektvyn är EN vy (2026-10-19): beställningen är behållaren, objekten raderna under. Frågeparametrarna (?ar=&manad=) följer med.
+      { source: '/bestallningar', destination: '/objekt', permanent: true },
+      { source: '/massaved', destination: '/affarsuppfoljning/kvalitet', permanent: false },
+      { source: '/massaved/:objektId/bitar', destination: '/affarsuppfoljning/objekt/:objektId/bitar', permanent: false },
+      { source: '/massaved/:objektId', destination: '/affarsuppfoljning/objekt/:objektId', permanent: false },
+      { source: '/rotkap', has: [{ type: 'query', key: 'objekt', value: '(?<objekt>.+)' }], destination: '/affarsuppfoljning/objekt/:objekt/rotkap', permanent: false },
+      { source: '/rotkap', destination: '/affarsuppfoljning/trakter', permanent: false },
+      // Gamla menyn "Räkna på post" (?vy=rakna) är nu fliken Räkna.
+      { source: '/affarsuppfoljning', has: [{ type: 'query', key: 'vy', value: 'rakna' }], destination: '/affarsuppfoljning/rakna', permanent: false },
+    ];
+  },
+}
+
+module.exports = nextConfig

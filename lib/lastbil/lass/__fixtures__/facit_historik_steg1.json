@@ -1,0 +1,857 @@
+[
+ {
+  "n": "1",
+  "dag": "2026-08-03",
+  "lassningFran": "08:51",
+  "lassningTid": "09:11",
+  "lossningFran": "09:24",
+  "lossningTill": "10:08",
+  "status": "saknas",
+  "maskin": "Okänd maskin",
+  "sakerhet": "okand",
+  "km": [
+   18.1,
+   40.8
+  ],
+  "bruttoKg": 49300,
+  "tomFore": 35.4,
+  "tomEfter": 22.3,
+  "reg": null
+ },
+ {
+  "n": "2",
+  "dag": "2026-08-03",
+  "lassningFran": "12:07",
+  "lassningTid": "12:19",
+  "lossningFran": "12:44",
+  "lossningTill": "13:28",
+  "status": "saknas",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   27.2,
+   27.2
+  ],
+  "bruttoKg": 57000,
+  "tomFore": 23.6,
+  "tomEfter": 25.6,
+  "reg": null
+ },
+ {
+  "n": "3",
+  "dag": "2026-08-07",
+  "lassningFran": "06:11",
+  "lassningTid": "06:43",
+  "lossningFran": "06:54",
+  "lossningTill": "07:44",
+  "status": "avbruten",
+  "maskin": "Wisent",
+  "sakerhet": "hog",
+  "km": [
+   11,
+   11
+  ],
+  "bruttoKg": 52000,
+  "tomFore": 33.9,
+  "tomEfter": 25,
+  "reg": "Wisent, påbörjad 06:11, aldrig avslutad (Till saknas)"
+ },
+ {
+  "n": "4",
+  "dag": "2026-08-07",
+  "lassningFran": "14:41",
+  "lassningTid": "15:26",
+  "lossningFran": "16:04",
+  "lossningTill": "16:43",
+  "status": "saknas",
+  "maskin": "Okänd tung maskin",
+  "sakerhet": "okand",
+  "km": [
+   47.5,
+   79.7
+  ],
+  "bruttoKg": 54600,
+  "tomFore": 23.6,
+  "tomEfter": 23.6,
+  "reg": null
+ },
+ {
+  "n": "5",
+  "dag": "2026-08-10",
+  "lassningFran": "15:44",
+  "lassningTid": "16:31",
+  "lossningFran": "16:31",
+  "lossningTill": "17:43",
+  "status": "reg",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   5,
+   5
+  ],
+  "bruttoKg": 57200,
+  "tomFore": 25.6,
+  "tomEfter": 23.8,
+  "reg": "Giant 15:56 → 16:56, 5 km"
+ },
+ {
+  "n": "6",
+  "dag": "2026-08-11",
+  "lassningFran": "föreg. kväll",
+  "lassningTid": "11:44",
+  "lossningFran": "12:13",
+  "lossningTill": "12:40",
+  "status": "avbruten",
+  "maskin": "Wisent",
+  "sakerhet": "hog",
+  "km": [
+   12.8,
+   65.2
+  ],
+  "bruttoKg": 48300,
+  "tomFore": 32.4,
+  "tomEfter": 23.6,
+  "reg": "Wisent 09:50, Bromåla → ?, aldrig avslutad"
+ },
+ {
+  "n": "7",
+  "dag": "2026-08-13",
+  "lassningFran": "05:28",
+  "lassningTid": "06:39",
+  "lossningFran": "06:53",
+  "lossningTill": "07:31",
+  "status": "reg",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   17,
+   17
+  ],
+  "bruttoKg": 57000,
+  "tomFore": 22.7,
+  "tomEfter": 22.6,
+  "reg": "Giant 05:50 → 07:10, 12 km"
+ },
+ {
+  "n": "8",
+  "dag": "2026-08-13",
+  "lassningFran": "08:01",
+  "lassningTid": "08:27",
+  "lossningFran": "08:57",
+  "lossningTill": "09:18",
+  "status": "saknas",
+  "maskin": "Elefant 26 (gissning)",
+  "sakerhet": "lag",
+  "km": [
+   48.1,
+   54.4
+  ],
+  "bruttoKg": 46100,
+  "tomFore": 26.3,
+  "tomEfter": 29,
+  "reg": null
+ },
+ {
+  "n": "9",
+  "dag": "2026-08-18",
+  "lassningFran": "09:46",
+  "lassningTid": "10:03",
+  "lossningFran": "10:24",
+  "lossningTill": "10:48",
+  "status": "reg",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   16.9,
+   16.9
+  ],
+  "bruttoKg": 54600,
+  "tomFore": 29.3,
+  "tomEfter": 29.2,
+  "reg": "Giant 09:23 → 10:35, 17 km"
+ },
+ {
+  "n": "10",
+  "dag": "2026-08-19",
+  "lassningFran": "15:06",
+  "lassningTid": "15:22",
+  "lossningFran": "15:33",
+  "lossningTill": "15:47",
+  "status": "saknas",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   10.1,
+   10.1
+  ],
+  "bruttoKg": 55100,
+  "tomFore": 32.5,
+  "tomEfter": 30.8,
+  "reg": null
+ },
+ {
+  "n": "11",
+  "dag": "2026-08-20",
+  "lassningFran": "06:41",
+  "lassningTid": "06:58",
+  "lossningFran": "07:00",
+  "lossningTill": "07:20",
+  "status": "reg",
+  "maskin": "Wisent",
+  "sakerhet": "hog",
+  "km": [
+   10.3,
+   10.3
+  ],
+  "bruttoKg": 51700,
+  "tomFore": 25.6,
+  "tomEfter": 30.4,
+  "reg": "Wisent 06:03 → 07:19, 10 km"
+ },
+ {
+  "n": "12",
+  "dag": "2026-08-20",
+  "lassningFran": "07:58",
+  "lassningTid": "08:10",
+  "lossningFran": "08:59",
+  "lossningTill": "09:08",
+  "status": "saknas",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   32.8,
+   32.8
+  ],
+  "bruttoKg": 53800,
+  "tomFore": 29.7,
+  "tomEfter": 25.5,
+  "reg": null
+ },
+ {
+  "n": "13",
+  "dag": "2026-08-20",
+  "lassningFran": "13:37",
+  "lassningTid": "14:01",
+  "lossningFran": "14:13",
+  "lossningTill": "14:38",
+  "status": "saknas",
+  "maskin": "810E (gissning)",
+  "sakerhet": "lag",
+  "km": [
+   13.4,
+   13.4
+  ],
+  "bruttoKg": 40900,
+  "tomFore": 28.3,
+  "tomEfter": 23.7,
+  "reg": null
+ },
+ {
+  "n": "14",
+  "dag": "2026-08-21",
+  "lassningFran": "11:43",
+  "lassningTid": "11:43",
+  "lossningFran": "12:58",
+  "lossningTill": "13:16",
+  "status": "saknas",
+  "maskin": "H8E -26",
+  "sakerhet": "medel",
+  "km": [
+   42.7,
+   42.7
+  ],
+  "bruttoKg": 35800,
+  "tomFore": 26,
+  "tomEfter": 30,
+  "reg": null
+ },
+ {
+  "n": "15",
+  "dag": "2026-08-25",
+  "lassningFran": "05:52",
+  "lassningTid": "06:22",
+  "lossningFran": "06:36",
+  "lossningTill": "07:02",
+  "status": "reg",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   18.8,
+   18.8
+  ],
+  "bruttoKg": 54300,
+  "tomFore": 29,
+  "tomEfter": 24.4,
+  "reg": "Giant 05:20 → 07:01, 34 km, fakturerbar"
+ },
+ {
+  "n": "16",
+  "dag": "2026-08-25",
+  "lassningFran": "16:00",
+  "lassningTid": "16:10",
+  "lossningFran": "16:43",
+  "lossningTill": "17:00",
+  "status": "reg",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   29.6,
+   29.6
+  ],
+  "bruttoKg": 49900,
+  "tomFore": 23.6,
+  "tomEfter": 29,
+  "reg": "Giant 16:17 → 16:51, 25 km"
+ },
+ {
+  "n": "17",
+  "dag": "2026-08-27",
+  "lassningFran": "06:11",
+  "lassningTid": "06:18",
+  "lossningFran": "06:28",
+  "lossningTill": "06:42",
+  "status": "saknas",
+  "maskin": "810E (gissning)",
+  "sakerhet": "lag",
+  "km": [
+   9.9,
+   9.9
+  ],
+  "bruttoKg": 41000,
+  "tomFore": 28.7,
+  "tomEfter": 28.4,
+  "reg": null
+ },
+ {
+  "n": "18",
+  "dag": "2026-08-27",
+  "lassningFran": "09:20",
+  "lassningTid": "09:28",
+  "lossningFran": "11:01",
+  "lossningTill": "11:33",
+  "status": "saknas",
+  "maskin": "810E",
+  "sakerhet": "medel",
+  "km": [
+   25.2,
+   25.2
+  ],
+  "bruttoKg": 41100,
+  "tomFore": 28.6,
+  "tomEfter": 30.7,
+  "reg": null
+ },
+ {
+  "n": "19",
+  "dag": "2026-08-28",
+  "lassningFran": "10:46",
+  "lassningTid": "11:05",
+  "lossningFran": "11:50",
+  "lossningTill": "12:08",
+  "status": "reg",
+  "maskin": "Elefant 26",
+  "sakerhet": "hog",
+  "km": [
+   41.2,
+   41.2
+  ],
+  "bruttoKg": 54400,
+  "tomFore": 30.8,
+  "tomEfter": 23.8,
+  "reg": "Elefant 26 10:36 → 12:14, 40 km (Från saknas)"
+ },
+ {
+  "n": "20",
+  "dag": "2026-08-31",
+  "lassningFran": "09:16",
+  "lassningTid": "09:26",
+  "lossningFran": "10:22",
+  "lossningTill": "10:39",
+  "status": "reg",
+  "maskin": "810E",
+  "sakerhet": "hog",
+  "km": [
+   31.7,
+   31.7
+  ],
+  "bruttoKg": 41200,
+  "tomFore": 24.8,
+  "tomEfter": 23.9,
+  "reg": "810E 08:36 → 10:39, 31 km (Från saknas)"
+ },
+ {
+  "n": "21",
+  "dag": "2026-09-01",
+  "lassningFran": "06:25",
+  "lassningTid": "06:44",
+  "lossningFran": "08:01",
+  "lossningTill": "08:23",
+  "status": "reg",
+  "maskin": "Elefant 26",
+  "sakerhet": "hog",
+  "km": [
+   72.3,
+   72.3
+  ],
+  "bruttoKg": 54400,
+  "tomFore": 29.4,
+  "tomEfter": 28.3,
+  "reg": "Elefant 26 05:49 → 08:17, 49 km (Från saknas)"
+ },
+ {
+  "n": "22+23",
+  "dag": "2026-09-01",
+  "lassningFran": "09:49",
+  "lassningTid": "10:24",
+  "lossningFran": "11:23",
+  "lossningTill": "11:41",
+  "status": "reg",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   52.6,
+   52.6
+  ],
+  "bruttoKg": 49100,
+  "tomFore": 27.5,
+  "tomEfter": 30.2,
+  "reg": "Giant 09:49 → 11:14, 47 km"
+ },
+ {
+  "n": "24",
+  "dag": "2026-09-02",
+  "lassningFran": "13:54",
+  "lassningTid": "14:00",
+  "lossningFran": "14:32",
+  "lossningTill": "14:42",
+  "status": "saknas",
+  "maskin": "Okänd tung maskin",
+  "sakerhet": "okand",
+  "km": [
+   24.6,
+   24.6
+  ],
+  "bruttoKg": 55300,
+  "tomFore": 22.8,
+  "tomEfter": 18.7,
+  "reg": null
+ },
+ {
+  "n": "25",
+  "dag": "2026-09-02",
+  "lassningFran": "15:12",
+  "lassningTid": "15:20",
+  "lossningFran": "15:54",
+  "lossningTill": "16:08",
+  "status": "saknas",
+  "maskin": "Wisent (gissning)",
+  "sakerhet": "lag",
+  "km": [
+   30,
+   30
+  ],
+  "bruttoKg": 46700,
+  "tomFore": 21.1,
+  "tomEfter": 30,
+  "reg": null
+ },
+ {
+  "n": "26",
+  "dag": "2026-09-02",
+  "lassningFran": "16:54",
+  "lassningTid": "17:16",
+  "lossningFran": "17:30",
+  "lossningTill": "17:46",
+  "status": "saknas",
+  "maskin": "810E (gissning)",
+  "sakerhet": "lag",
+  "km": [
+   16.2,
+   16.2
+  ],
+  "bruttoKg": 45200,
+  "tomFore": 22.2,
+  "tomEfter": 20.7,
+  "reg": null
+ },
+ {
+  "n": "27",
+  "dag": "2026-09-02",
+  "lassningFran": "17:46",
+  "lassningTid": "17:56",
+  "lossningFran": "18:26",
+  "lossningTill": "18:43",
+  "status": "saknas",
+  "maskin": "H8E -26",
+  "sakerhet": "medel",
+  "km": [
+   19.7,
+   19.7
+  ],
+  "bruttoKg": 39100,
+  "tomFore": 20.7,
+  "tomEfter": 27.1,
+  "reg": null
+ },
+ {
+  "n": "28",
+  "dag": "2026-09-10",
+  "lassningFran": "05:56",
+  "lassningTid": "06:11",
+  "lossningFran": "06:51",
+  "lossningTill": "07:09",
+  "status": "saknas",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   17,
+   17
+  ],
+  "bruttoKg": 50200,
+  "tomFore": 28.6,
+  "tomEfter": 28.7,
+  "reg": null
+ },
+ {
+  "n": "29",
+  "dag": "2026-09-14",
+  "lassningFran": "07:15",
+  "lassningTid": "07:31",
+  "lossningFran": "08:08",
+  "lossningTill": "08:39",
+  "status": "saknas",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   31.2,
+   35.4
+  ],
+  "bruttoKg": 49700,
+  "tomFore": 29,
+  "tomEfter": 28.8,
+  "reg": null
+ },
+ {
+  "n": "30",
+  "dag": "2026-09-14",
+  "lassningFran": "10:30",
+  "lassningTid": "10:57",
+  "lossningFran": "11:29",
+  "lossningTill": "11:39",
+  "status": "saknas",
+  "maskin": "Elefant 26",
+  "sakerhet": "medel",
+  "km": [
+   41.4,
+   41.4
+  ],
+  "bruttoKg": 55400,
+  "tomFore": 28.9,
+  "tomEfter": 23.1,
+  "reg": null
+ },
+ {
+  "n": "31",
+  "dag": "2026-09-14",
+  "lassningFran": "14:44",
+  "lassningTid": "15:02",
+  "lossningFran": "15:23",
+  "lossningTill": "15:33",
+  "status": "saknas",
+  "maskin": "810E (gissning)",
+  "sakerhet": "lag",
+  "km": [
+   19.6,
+   19.6
+  ],
+  "bruttoKg": 43200,
+  "tomFore": 28.9,
+  "tomEfter": 21.8,
+  "reg": null
+ },
+ {
+  "n": "32",
+  "dag": "2026-09-21",
+  "lassningFran": "09:26",
+  "lassningTid": "09:52",
+  "lossningFran": "10:50",
+  "lossningTill": "10:59",
+  "status": "saknas",
+  "maskin": "Elefant 26",
+  "sakerhet": "medel",
+  "km": [
+   33.2,
+   33.2
+  ],
+  "bruttoKg": 54400,
+  "tomFore": 29.3,
+  "tomEfter": 24.2,
+  "reg": null
+ },
+ {
+  "n": "33",
+  "dag": "2026-09-22",
+  "lassningFran": "15:17",
+  "lassningTid": "15:27",
+  "lossningFran": "16:37",
+  "lossningTill": "16:45",
+  "status": "saknas",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   36.9,
+   36.9
+  ],
+  "bruttoKg": 51500,
+  "tomFore": 28.8,
+  "tomEfter": 29.4,
+  "reg": null
+ },
+ {
+  "n": "34",
+  "dag": "2026-09-22",
+  "lassningFran": "17:28",
+  "lassningTid": "17:44",
+  "lossningFran": "18:19",
+  "lossningTill": "18:29",
+  "status": "saknas",
+  "maskin": "810E",
+  "sakerhet": "medel",
+  "km": [
+   27.8,
+   27.8
+  ],
+  "bruttoKg": 43700,
+  "tomFore": 29.7,
+  "tomEfter": 22,
+  "reg": null
+ },
+ {
+  "n": "35",
+  "dag": "2026-09-23",
+  "lassningFran": "10:13",
+  "lassningTid": "10:22",
+  "lossningFran": "11:12",
+  "lossningTill": "11:23",
+  "status": "saknas",
+  "maskin": "Elefant 26",
+  "sakerhet": "medel",
+  "km": [
+   42.6,
+   42.6
+  ],
+  "bruttoKg": 55000,
+  "tomFore": 26.1,
+  "tomEfter": 29.8,
+  "reg": null
+ },
+ {
+  "n": "36",
+  "dag": "2026-09-25",
+  "lassningFran": "09:56",
+  "lassningTid": "10:06",
+  "lossningFran": "10:53",
+  "lossningTill": "11:03",
+  "status": "reg",
+  "maskin": "Elefant 26",
+  "sakerhet": "hog",
+  "km": [
+   23.8,
+   23.8
+  ],
+  "bruttoKg": 55000,
+  "tomFore": 21.1,
+  "tomEfter": 23.7,
+  "reg": "Elefant 26 08:16 → 11:09, 18 km (Från saknas)"
+ },
+ {
+  "n": "37",
+  "dag": "2026-09-25",
+  "lassningFran": "12:42",
+  "lassningTid": "12:58",
+  "lossningFran": "13:55",
+  "lossningTill": "14:17",
+  "status": "reg",
+  "maskin": "Wisent",
+  "sakerhet": "hog",
+  "km": [
+   42.2,
+   42.2
+  ],
+  "bruttoKg": 47200,
+  "tomFore": 24.8,
+  "tomEfter": 28.6,
+  "reg": "Wisent 12:57 → 14:14, 44 km"
+ },
+ {
+  "n": "38",
+  "dag": "2026-09-28",
+  "lassningFran": "09:55",
+  "lassningTid": "10:06",
+  "lossningFran": "10:36",
+  "lossningTill": "10:50",
+  "status": "reg",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   18.5,
+   18.5
+  ],
+  "bruttoKg": 49800,
+  "tomFore": 22,
+  "tomEfter": 24.7,
+  "reg": "Giant 10:07 → 10:50, 10 km"
+ },
+ {
+  "n": "39",
+  "dag": "2026-10-01",
+  "lassningFran": "08:10",
+  "lassningTid": "08:33",
+  "lossningFran": "09:34",
+  "lossningTill": "09:41",
+  "status": "saknas",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   32.4,
+   32.4
+  ],
+  "bruttoKg": 49700,
+  "tomFore": 29.4,
+  "tomEfter": 27.3,
+  "reg": null
+ },
+ {
+  "n": "40",
+  "dag": "2026-10-01",
+  "lassningFran": "11:05",
+  "lassningTid": "11:28",
+  "lossningFran": "12:21",
+  "lossningTill": "12:37",
+  "status": "saknas",
+  "maskin": "Wisent",
+  "sakerhet": "medel",
+  "km": [
+   49,
+   49.6
+  ],
+  "bruttoKg": 46800,
+  "tomFore": 29.9,
+  "tomEfter": 24,
+  "reg": null
+ },
+ {
+  "n": "41",
+  "dag": "2026-10-01",
+  "lassningFran": "14:53",
+  "lassningTid": "15:13",
+  "lossningFran": "15:41",
+  "lossningTill": "15:41",
+  "status": "saknas",
+  "maskin": "H8E -26",
+  "sakerhet": "hog",
+  "km": [
+   11.3,
+   11.3
+  ],
+  "bruttoKg": 43200,
+  "tomFore": 29.3,
+  "tomEfter": 22.2,
+  "reg": null
+ },
+ {
+  "n": "42",
+  "dag": "2026-10-05",
+  "lassningFran": "06:47",
+  "lassningTid": "06:57",
+  "lossningFran": "08:21",
+  "lossningTill": "08:31",
+  "status": "reg",
+  "maskin": "Elefant 26",
+  "sakerhet": "hog",
+  "km": [
+   41,
+   41
+  ],
+  "bruttoKg": 54700,
+  "tomFore": 30.1,
+  "tomEfter": 24.1,
+  "reg": "Elefant 26 05:46 → 09:14, 36 km"
+ },
+ {
+  "n": "43",
+  "dag": "2026-10-06",
+  "lassningFran": "16:49",
+  "lassningTid": "16:59",
+  "lossningFran": "18:09",
+  "lossningTill": "18:29",
+  "status": "reg",
+  "maskin": "Giant",
+  "sakerhet": "hog",
+  "km": [
+   58.2,
+   58.2
+  ],
+  "bruttoKg": 50300,
+  "tomFore": 28.5,
+  "tomEfter": 23.8,
+  "reg": "Giant 15:45 → 18:27, 53 km"
+ },
+ {
+  "n": "44",
+  "dag": "2026-10-12",
+  "lassningFran": "12:13",
+  "lassningTid": "12:23",
+  "lossningFran": "13:16",
+  "lossningTill": "13:46",
+  "status": "saknas",
+  "maskin": "Elefant 26",
+  "sakerhet": "medel",
+  "km": [
+   45.7,
+   45.7
+  ],
+  "bruttoKg": 53900,
+  "tomFore": 24.3,
+  "tomEfter": 29.5,
+  "reg": null
+ },
+ {
+  "n": "45",
+  "dag": "2026-10-12",
+  "lassningFran": "15:23",
+  "lassningTid": "15:34",
+  "lossningFran": "16:08",
+  "lossningTill": "16:20",
+  "status": "saknas",
+  "maskin": "810E (gissning)",
+  "sakerhet": "lag",
+  "km": [
+   22.4,
+   22.4
+  ],
+  "bruttoKg": 40500,
+  "tomFore": 15.7,
+  "tomEfter": 22.5,
+  "reg": null
+ },
+ {
+  "n": "46",
+  "dag": "2026-10-12",
+  "lassningFran": "18:13",
+  "lassningTid": "18:26",
+  "lossningFran": "18:29",
+  "lossningTill": "18:49",
+  "status": "saknas",
+  "maskin": "Wisent",
+  "sakerhet": "medel",
+  "km": [
+   23.1,
+   40
+  ],
+  "bruttoKg": 47500,
+  "tomFore": 29.8,
+  "tomEfter": 24.2,
+  "reg": null
+ }
+]

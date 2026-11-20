@@ -1,0 +1,77 @@
+{
+  "_om": "Alla hyttspar-rader pa de objekt som hade en PAGAENDE egenkontroll i prod 2026-11-10. Lasta med select roll, datum, maskin_id, status, antal_punkter. Facit till lib/egenkontrollVaderFonster.test.ts: vilket skotningsfonster korsparet ger, och vilka dagar som inte raknas.",
+  "objekt": {
+    "400763 Akelius Tåget SA": {
+      "spar": [
+        { "roll": "skordare", "datum": "2026-09-04", "antal_punkter": 1 },
+        { "roll": "skordare", "datum": "2026-09-05", "antal_punkter": 1 },
+        { "roll": "skordare", "datum": "2026-09-06", "antal_punkter": 0 },
+        { "roll": "skordare", "datum": "2026-09-09", "antal_punkter": 2 },
+        { "roll": "skordare", "datum": "2026-09-10", "antal_punkter": 5 },
+        { "roll": "skotare", "datum": "2026-09-06", "antal_punkter": 0 },
+        { "roll": "skotare", "datum": "2026-09-09", "antal_punkter": 1 },
+        { "roll": "skotare", "datum": "2026-09-18", "antal_punkter": 2 },
+        { "roll": "skotare", "datum": "2026-09-19", "antal_punkter": 0 },
+        { "roll": "skotare", "datum": "2026-09-20", "antal_punkter": 0 }
+      ],
+      "vantat": { "skordare": null, "skotare": null },
+      "varfor": "Ingen dag over gransen. Appen var pa i hytten, maskinen jobbade inte dar - 0-2 punkter pa fjorton dygn. Ett fonster 6-20 sep hade raknat mm over dagar som inte var skotning."
+    },
+    "Betet gallring 2026": {
+      "spar": [
+        { "roll": "skordare", "datum": "2026-09-10", "antal_punkter": 3 },
+        { "roll": "skotare", "datum": "2026-09-10", "antal_punkter": 0 },
+        { "roll": "skotare", "datum": "2026-09-15", "antal_punkter": 165 },
+        { "roll": "skotare", "datum": "2026-09-16", "antal_punkter": 176 },
+        { "roll": "skotare", "datum": "2026-09-18", "antal_punkter": 217 },
+        { "roll": "skotare", "datum": "2026-09-21", "antal_punkter": 199 },
+        { "roll": "skotare", "datum": "2026-09-22", "antal_punkter": 262 }
+      ],
+      "vantat": { "skordare": null, "skotare": ["2026-09-15", "2026-09-22"] },
+      "varfor": "Skotaren kors 15-22 sep. Den 10 sep (0 punkter) raknas inte - annars hade fonstret borjat fem dygn for tidigt. Skordarens enda dag har 3 punkter och ger inget fonster."
+    },
+    "Kämpamåla AU 2026": {
+      "spar": [{ "roll": "skotare", "datum": "2026-09-10", "antal_punkter": 0 }],
+      "vantat": { "skordare": null, "skotare": null },
+      "varfor": "En rad, noll punkter. Ingen skotning att mata vader over."
+    },
+    "Östra-Hoka 1:7 A-C -25": {
+      "spar": [
+        { "roll": "skordare", "datum": "2026-09-23", "antal_punkter": 22 },
+        { "roll": "skotare", "datum": "2026-10-05", "antal_punkter": 537 },
+        { "roll": "skotare", "datum": "2026-10-06", "antal_punkter": 369 },
+        { "roll": "skotare", "datum": "2026-10-07", "antal_punkter": 133 },
+        { "roll": "skotare", "datum": "2026-10-08", "antal_punkter": 671 },
+        { "roll": "skotare", "datum": "2026-10-09", "antal_punkter": 496 },
+        { "roll": "skotare", "datum": "2026-10-12", "antal_punkter": 372 },
+        { "roll": "skotare", "datum": "2026-10-13", "antal_punkter": 3 },
+        { "roll": "skotare", "datum": "2026-10-14", "antal_punkter": 2 },
+        { "roll": "skotare", "datum": "2026-10-15", "antal_punkter": 0 },
+        { "roll": "skotare", "datum": "2026-10-16", "antal_punkter": 60 }
+      ],
+      "vantat": { "skordare": ["2026-09-23", "2026-09-23"], "skotare": ["2026-10-05", "2026-10-16"] },
+      "varfor": "Martins fall. Appen sa 'Vi vet inte nar trakten skotades' medan det stod tio dagar i oktober i databasen. 13-15 okt (3, 2, 0 punkter) raknas inte, men 16 okt (60) gor det - och den ar fonstrets sista dag."
+    },
+    "Rävemåla AU 2026": {
+      "spar": [{ "roll": "skotare", "datum": "2026-09-09", "antal_punkter": 2 }],
+      "vantat": { "skordare": null, "skotare": null },
+      "varfor": "En rad, tva punkter."
+    },
+    "Vällust RP M-R -25": {
+      "spar": [
+        { "roll": "skotare", "datum": "2026-10-13", "antal_punkter": 911 },
+        { "roll": "skotare", "datum": "2026-10-14", "antal_punkter": 837 },
+        { "roll": "skotare", "datum": "2026-10-15", "antal_punkter": 799 },
+        { "roll": "skotare", "datum": "2026-10-16", "antal_punkter": 745 },
+        { "roll": "skotare", "datum": "2026-10-19", "antal_punkter": 750 }
+      ],
+      "vantat": { "skordare": null, "skotare": ["2026-10-13", "2026-10-19"] },
+      "varfor": "Fem hela dagar, alla over 700 punkter."
+    },
+    "Betet AU 2025": { "spar": [], "vantat": { "skordare": null, "skotare": null }, "varfor": "Inget korspar alls - da ar 'vi vet inte nar trakten skotades' sant." },
+    "Jätsbygd au 2026": { "spar": [], "vantat": { "skordare": null, "skotare": null }, "varfor": "Inget korspar alls." },
+    "Krokshult AU 2026": { "spar": [], "vantat": { "skordare": null, "skotare": null }, "varfor": "Inget korspar alls." },
+    "Ulfsnäs AU 2026": { "spar": [], "vantat": { "skordare": null, "skotare": null }, "varfor": "Inget korspar alls." },
+    "Hössjömåla Gallring 25": { "spar": [], "vantat": { "skordare": null, "skotare": null }, "varfor": "Inget korspar - men objektet har dim_objekt_id, sa vadret kom ur maskindatan och var redan ok." }
+  }
+}

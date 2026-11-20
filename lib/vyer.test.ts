@@ -1,0 +1,110 @@
+import { describe, it, expect } from 'vitest'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { VYER, GRUPPER, STANDARD_FAVORITER, MAX_FAVORITER, vyerFor, favoriterFor, grupperFor, ovrigtFor, sokVyer } from './vyer'
+
+const ROT = join(__dirname, '..')
+const sokvag = (href: string) => href.split('?')[0]
+
+describe('vyregistret', () => {
+  it('varje vy pekar på en sida som finns', () => {
+    const saknas = VYER.filter(v => !existsSync(join(ROT, 'app', sokvag(v.href), 'page.tsx'))).map(v => v.href)
+    expect(saknas).toEqual([])
+  })
+
+  it('id, adress och namn är unika', () => {
+    for (const falt of ['id', 'href', 'namn'] as const) {
+      const alla = VYER.map(v => v[falt])
+      expect(new Set(alla).size).toBe(alla.length)
+    }
+  })
+
+  it('varje vy hör till en känd grupp', () => {
+    const kanda = new Set(GRUPPER.map(g => g.id))
+    expect(VYER.filter(v => !kanda.has(v.grupp))).toEqual([])
+  })
+
+  it('INGET har tagits bort: varje ruta på gamla startsidan finns i registret, med samma spärr', () => {
+    // Gamla startsidans rutor, frysta när den revs (2026-11-09, app/HomeClient.tsx före borttagningen).
+    const hrefs = ['/admin', '/admin/markagarrapport', '/affarsuppfoljning/rakna', '/arbetsrapport', '/avtal', '/egenkontroll',
+      '/ekonomi', '/forbattringsforslag', '/gallring', '/helikopter', '/helikopter-v2', '/kalibrering', '/kontroller', '/lastbil',
+      '/ledighet', '/maskin-service', '/maskinvy', '/maskinvy?ny=1', '/objekt', '/om', '/oversikt', '/personal', '/planera',
+      '/planering', '/planering?installningar=1', '/redigering', '/starta-jobb', '/uppfoljning', '/uppfoljning/fordelning', '/utbildning']
+    const iRegistret = new Set(VYER.map(v => v.href))
+    expect(hrefs.filter(h => !iRegistret.has(h))).toEqual([])
+    // Gamla sidans tre admin-poster är spärrade här också — plus Objektöversikten, Åtgärder, Skyddsrond, Massaved och Så gör vi (godkännandet; föraren läser under Om något händer) — och inget annat.
+    expect(VYER.filter(v => v.bara === 'admin').map(v => v.href).sort())
+      .toEqual(['/admin', '/admin/markagarrapport', '/admin/objektoversikt', '/atgarder', '/ekonomi', '/massaved', '/sa-gor-vi', '/skyddsrond'])
+  })
+
+  it('den gamla startsidan är borta: Hem visar bara den nya (inga egna rutor i HomeClient)', () => {
+    const hem = readFileSync(join(ROT, 'app', 'HomeClient.tsx'), 'utf8')
+    expect(hem).not.toMatch(/href: '/)
+    expect(hem).toContain('<Startsida')
+  })
+
+  it('förare ser aldrig en admin-vy — varken i grupperna, kontomenyn, favoriterna eller sökningen', () => {
+    const adminHrefs = new Set(VYER.filter(v => v.bara === 'admin').map(v => v.href))
+    const forare = [
+      ...grupperFor('forare').flatMap(g => g.vyer),
+      ...ovrigtFor('forare'),
+      ...favoriterFor('forare', VYER.map(v => v.id)),
+      ...sokVyer('forare', 'ekonomi'), ...sokVyer('forare', 'admin'), ...sokVyer('forare', 'markägar'),
+    ]
+    expect(forare.filter(v => adminHrefs.has(v.href))).toEqual([])
+    expect(vyerFor('admin')).toHaveLength(VYER.length)
+  })
+
+  it('skyddsombudet ser Åtgärder och Skyddsrond (och bara dem) av admin-vyerna — i grupperna, favoriterna och sökningen', () => {
+    const b = { skyddsombud: true }
+    const adminHrefs = new Set(VYER.filter(v => v.bara === 'admin').map(v => v.href))
+    const sedda = [...grupperFor('forare', b).flatMap(g => g.vyer), ...favoriterFor('forare', VYER.map(v => v.id), b),
+      ...sokVyer('forare', 'åtgärd', b), ...sokVyer('forare', 'skyddsrond', b), ...sokVyer('forare', 'ekonomi', b), ...sokVyer('forare', 'admin', b)]
+    expect([...new Set(sedda.filter(v => adminHrefs.has(v.href)).map(v => v.href))].sort()).toEqual(['/atgarder', '/skyddsrond'])
+    expect(sokVyer('forare', 'stopp', b).map(v => v.href)).toContain('/atgarder')
+    // Utan flaggan (eller med false) ser föraren den inte.
+    expect(vyerFor('forare').some(v => v.href === '/atgarder')).toBe(false)
+    expect(vyerFor('forare', { skyddsombud: false }).some(v => v.href === '/atgarder')).toBe(false)
+    // Bara Åtgärder och Skyddsrond bär undantaget.
+    expect(VYER.filter(v => v.aven === 'skyddsombud').map(v => v.id)).toEqual(['atgarder', 'skyddsrond'])
+  })
+
+  it('grupperna + kontomenyn innehåller varje synlig vy exakt en gång (delarna av Arbetsmiljö bor på dess sida)', () => {
+    for (const roll of ['admin', 'forare'] as const) {
+      const visade = [...grupperFor(roll).flatMap(g => g.vyer), ...ovrigtFor(roll)].map(v => v.id)
+      expect(visade.sort()).toEqual(vyerFor(roll).filter(v => !v.del).map(v => v.id).sort())
+    }
+  })
+
+  it('Arbetsmiljö är ETT kort; delarna syns inte i grupperna men går att söka fram', () => {
+    const delar = VYER.filter(v => v.del === 'arbetsmiljo').map(v => v.id).sort()
+    expect(delar).toEqual(['atgarder', 'farligt-avfall', 'introduktion', 'kemikalier', 'maskinkoll', 'om-nagot-hander', 'rapportera', 'riskbedomning', 'sa-gor-vi', 'skyddsrond'])
+    const iGrupper = grupperFor('admin').flatMap(g => g.vyer).map(v => v.id)
+    expect(iGrupper).toContain('arbetsmiljo')
+    expect(iGrupper.filter(id => delar.includes(id))).toEqual([])
+    expect(sokVyer('forare', '112').map(v => v.id)).toContain('om-nagot-hander')
+    expect(sokVyer('admin', 'skyddsrond').map(v => v.id)).toEqual(expect.arrayContaining(['skyddsrond', 'arbetsmiljo']))
+    expect(favoriterFor('forare', ['maskinkoll']).map(v => v.id)).toEqual(['maskinkoll'])
+  })
+
+  it('standardfavoriterna finns, är synliga för rollen och högst åtta', () => {
+    for (const roll of ['admin', 'forare'] as const) {
+      const ids = STANDARD_FAVORITER[roll]
+      expect(ids.length).toBeLessThanOrEqual(MAX_FAVORITER)
+      expect(favoriterFor(roll).map(v => v.id)).toEqual(ids)
+    }
+  })
+
+  it('favoriter: okänt id och admin-vy för förare hoppas över, dubbletter tas bort, max åtta', () => {
+    expect(favoriterFor('forare', ['ekonomi', 'finns-inte', 'ledighet', 'ledighet']).map(v => v.id)).toEqual(['ledighet'])
+    expect(favoriterFor('admin', VYER.map(v => v.id))).toHaveLength(MAX_FAVORITER)
+  })
+
+  it('sökning: namn före sökord, början av namnet först, tom fråga ger inget', () => {
+    expect(sokVyer('admin', '')).toEqual([])
+    expect(sokVyer('admin', 'semester').map(v => v.id)).toEqual(['ledighet'])
+    expect(sokVyer('admin', 'Maskin').map(v => v.id).slice(0, 3)).toEqual(['maskinvy', 'maskinvy-2', 'maskinkoll'])
+    expect(sokVyer('admin', 'flytt').map(v => v.id)).toEqual(['lastbilen'])
+    expect(sokVyer('admin', 'ÖVERSIKT').map(v => v.id)).toEqual(['oversikt', 'objektoversikt'])
+  })
+})

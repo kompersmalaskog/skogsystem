@@ -1,0 +1,238 @@
+'use client';
+
+// ⓘ-KORTET FÖR FÖRAREN I MASKINLÄGET — bara tre delar, så att ett barn förstår direkt (Martin 2026-10-22, skiss tavla 42–43):
+//
+//   1. Överst: traktens namn (stort) + "Slutavverkning · 2,5 av 5,2 ha klart" + grön stapel. ✕ i hörnet.
+//   2. "Det här gäller här" (vanlig rubrik, inte små versaler): Faror (röda, först) · GROT (bara om trakten har GROT) · Vidas traktdirektiv "Hela trakten · Vida" med numrerade punkter ·
+//      en rad per yta med KARTANS namn som bricka (lib/ytaRader) — osedda med en liten blå prick. Ett tryck på en yta flyger kartan dit.
+//   0. Överst: "Om något händer – ring 112" med den närmaste larmplatsen (lib/larmpunkter; 2026-11-10).
+//   3. Längst ner, EN grupp rader: Kartans färger · Dokument (N) · Mer.
+//
+// Bort för föraren (finns kvar i planeringsläget, `ObjektKort`): m³-chip och produktionssiffror (finns som lager) och "På trakten · N markeringar".
+// Brandrisk (bara klass 3+), knappraden (bara när det finns knappar) och skotarens väder är säkerhet/funktion och står kvar när de har något att säga.
+//
+// Ren presentation: sidan bygger texterna och bestämmer vad ett tryck gör. Bara tokens.
+
+import React, { useState } from 'react';
+import { AVSTAND, FARG, IKON, KNAPP, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
+import { type KortKnapp, type KortKnappId, type TillForarenPost } from '@/lib/objektKort';
+import type { YtaRad } from '@/lib/ytaRader';
+import BrandriskRad from './BrandriskRad';
+import { Gruppkort, Huvud, Pil, RadKnapp } from './infoDelar';
+import { SettKnapp } from './InstruktionKort';
+import { KommentarVisning } from './KommentarRuta';
+import { YtaRadVy } from './YtaRad';
+import LarmPlatser, { LarmValjSjalv } from './LarmPlatser';
+import type { LarmVisning } from '@/lib/larmpunkter';
+
+export interface ObjektKortEnkelProps {
+  namn: string;
+  /** "Slutavverkning · 2,5 av 5,2 ha klart" (lib/objektKort.framstegRad). */
+  under: string;
+  /** 0..1 = grön stapel under namnet; null = ingen stapel (inget mätt). */
+  andel: number | null;
+  onStang: () => void;
+  faror: string[];
+  /** "GROT tas ut – lägg riset i högar" / "… kör inte på rishögarna" (lib/objektKort.grotRad); null = ingen rad. */
+  grot: string | null;
+  /** Vidas traktdirektiv (och planerarens texter) — gäller hela trakten, alltid i sin helhet. */
+  tillForaren: TillForarenPost[];
+  /** Direktivet är instruktion nr 1: "✓ Sett" under rutan tills det setts. */
+  direktivSett?: { sedd: boolean; onSett: () => void } | null;
+  brand: { lat: number; lng: number } | null;
+  onBrand: () => void;
+  /** En rad per yta (lib/ytaRader). */
+  ytor: YtaRad[];
+  onYta: (nyckel: string) => void;
+  knappar: KortKnapp[];
+  onKnapp: (id: KortKnappId) => void;
+  /** Larmplatsen (lib/larmpunkter.larmVisning): den närmaste, eller alla när GPS saknas. `onVisaPlats` = en rad i listan över alla. */
+  larm: { satt: boolean; koordinat: string; beskrivning: string; onVisa: () => void } & Partial<Omit<LarmVisning, 'satt' | 'koordinat'>> & { onVisaPlats?: (index: number) => void };
+  onKarta?: () => void;
+  /** "PEFC – vad gäller?" — kraven för traktens certifiering. Saknas = ingen rad. */
+  onCert?: { etikett: string; onTryck: () => void };
+  /** "Ladda ner trakten": en dämpad rad ovanför Mer. null/saknas = ingen rad. */
+  kartaSparad?: string | null;
+  dokument: { antal: number; chips: React.ReactNode } | null;
+  onMer: () => void;
+  vader?: React.ReactNode;
+  /** Riskbedömningen: raden "Risker på trakten" (lib/riskbedomning, components/planering/Risker riskRadUnder). onOppna null = inte gjord än (raden går inte att trycka). */
+  risker?: { text: string; ton: 'orange' | 'gron' | 'dampad'; onOppna: (() => void) | null } | null;
+  /** "Visa hela trakten": överblicken (lib/traktOversikt) — allt på trakten på en sida. Saknas = ingen rad. */
+  onOversikt?: () => void;
+  /** Vidas egenkontroll: "Egenkontroll · 2 av 6 frågor". Saknas = ingen rad. */
+  onEgenkontroll?: { under: string; onTryck: () => void };
+  /**
+   * "Mer om trakten" ur Hela trakten (Martin 2026-11-12: EN meny, samma överallt): bara det som inte redan står i Hela trakten —
+   * knappar, egenkontroll, dokument, Mer och väder (certifieringen står under Gäller hela trakten). Larm, faror, risker, direktiv och ytor visas inte en gång till.
+   */
+  merLage?: { onTillbaka: () => void } | null;
+}
+
+/** Den gröna stapeln: hur stor del av trakten som är klar. Ord och tal står bredvid (under namnet) — färgen är aldrig ensam. */
+function Stapel({ andel }: { andel: number }) {
+  const pct = Math.round(andel * 100);
+  return (
+    <div data-testid="kort-stapel" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Klart på trakten"
+      style={{ height: AVSTAND.s, borderRadius: RADIE.rad, background: FARG.fyllning, overflow: 'hidden', margin: `0 ${AVSTAND.l}px ${AVSTAND.m}px` }}>
+      <div data-testid="kort-stapel-fyll" style={{ width: `${pct}%`, height: '100%', borderRadius: RADIE.rad, background: FARG.gron }} />
+    </div>
+  );
+}
+
+const Ruta = ({ children, testid }: { children: React.ReactNode; testid: string }) => (
+  <div data-testid={testid} role="note" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, marginBottom: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: FARG.upphojt }}>{children}</div>
+);
+
+export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
+  const [dokOppen, setDokOppen] = useState(false);
+  const [larmAllaOppen, setLarmAllaOppen] = useState(false);
+  const larmFlera = p.larm.platser && p.larm.onVisaPlats && p.larm.platser.length > 1;
+  const larmLista = larmFlera ? <LarmPlatser larm={{ namn: null, narmast: null, fagelvag: null, valjSjalv: false, kontroll: null, ...p.larm, platser: p.larm.platser! }} onVisa={p.larm.onVisaPlats!} /> : null;
+  const n = p.knappar.length;
+  const mer = p.merLage ?? null;
+  const harInnehall = !!p.risker || p.faror.length > 0 || !!p.grot || p.tillForaren.length > 0 || p.ytor.length > 0 || !!p.brand;
+
+  return (
+    <>
+      {mer ? <Huvud titel="Mer om trakten" undertitel={p.namn} tillbaka="Hela trakten" onTillbaka={mer.onTillbaka} onStang={p.onStang} /> : <Huvud titel={p.namn} undertitel={p.under} onStang={p.onStang} />}
+      {!mer && p.andel != null && <Stapel andel={p.andel} />}
+      <div data-testid="kort-innehall" data-enkel="ja" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
+        {!mer && <>
+        {/* OM NÅGOT HÄNDER — larmplatsen HÖGST UPP (Martin 2026-11-10: "man ska inte behöva leta"). Den närmaste maskinen, eller alla när positionen saknas. */}
+        <div style={{ marginBottom: AVSTAND.m }}>
+          <Gruppkort testid="kort-larm-grupp">
+          {p.larm.satt && p.larm.valjSjalv && larmLista ? (
+            <div data-testid="kort-larm" data-satt="1" data-valj-sjalv="1">
+              <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px 0`, ...TYP.text }}>Om något händer – ring 112</div>
+              <LarmValjSjalv />
+              {larmLista}
+            </div>
+          ) : p.larm.satt ? (
+            <RadKnapp forstaRad testid="kort-larm" etikett="Om något händer – ring 112" onTryck={p.larm.onVisa}
+              under={<>
+                {(p.larm.narmast || p.larm.namn) && <span data-testid="kort-larm-namn" style={{ display: 'block' }}>{[p.larm.narmast, p.larm.namn].filter(Boolean).join(' · ')}</span>}
+                <span data-testid="kort-larm-koordinat" style={{ display: 'block', ...TNUM }}>Larmkoordinat {p.larm.koordinat}</span>
+                {p.larm.kontroll && <span data-testid="kort-larm-kontroll" style={{ display: 'block', color: p.larm.kontroll.ton === 'gron' ? FARG.gron : FARG.orange }}>{p.larm.kontroll.text}</span>}
+              </>} />
+          ) : (
+            <div data-testid="kort-larm" data-satt="0" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px` }}>
+              <div style={{ ...TYP.text }}>Om något händer – ring 112</div>
+              <div style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.xs }}>Larmkoordinat ej satt</div>
+              {p.larm.beskrivning && <div style={{ ...TYP.text, marginTop: AVSTAND.s, whiteSpace: 'pre-wrap' }}>{p.larm.beskrivning}</div>}
+            </div>
+          )}
+          {p.larm.satt && p.larm.beskrivning && <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px`, ...TYP.text, whiteSpace: 'pre-wrap' }}>{p.larm.beskrivning}</div>}
+          {p.larm.satt && !p.larm.valjSjalv && larmLista && (
+            <>
+              <RadKnapp testid="kort-larm-alla" etikett={`Alla larmplatser (${p.larm.platser!.length})`} onTryck={() => setLarmAllaOppen((v) => !v)}
+                pil={false} hoger={<span style={{ display: 'inline-flex', transform: larmAllaOppen ? 'rotate(90deg)' : 'none' }}><Pil /></span>} />
+              {larmAllaOppen && larmLista}
+            </>
+          )}
+          </Gruppkort>
+        </div>
+        {/* VISA HELA TRAKTEN — överblicken som visades när maskinen kom till trakten, alltid ett tryck bort */}
+        {p.onOversikt && (
+          <div style={{ marginBottom: AVSTAND.m }}>
+            <Gruppkort testid="kort-oversikt">
+              <RadKnapp forstaRad testid="kort-visa-hela" ikon="map" etikett="Visa hela trakten" under="Faror, direktiv och allt på kartan" onTryck={p.onOversikt} />
+            </Gruppkort>
+          </div>
+        )}
+        {/* DET HÄR GÄLLER HÄR — vanlig rubrik (inte små versaler) */}
+        <h2 data-testid="kort-galler-rubrik" style={{ ...TYP.rubrik, color: FARG.text, margin: `${AVSTAND.s}px ${AVSTAND.xs}px ${AVSTAND.m}px` }}>Det här gäller här</h2>
+
+        {p.faror.length > 0 && (
+          <Ruta testid="kort-faror">
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.rod, flexShrink: 0 }}>warning</span>
+            <span style={{ ...TYP.listtitel, color: FARG.rod, overflowWrap: 'anywhere' }}>Faror: {p.faror.join(', ')}</span>
+          </Ruta>
+        )}
+
+        {/* RISKER PÅ TRAKTEN — planerarens riskbedömning; orange tills föraren läst just den här listan */}
+        {p.risker && (
+          <div style={{ marginBottom: AVSTAND.m }}>
+            <Gruppkort testid="kort-risker">
+              {p.risker.onOppna ? (
+                <RadKnapp forstaRad testid="kort-risker-rad" ikon="health_and_safety" etikett="Risker på trakten" onTryck={p.risker.onOppna}
+                  under={<span data-testid="kort-risker-under" style={{ color: p.risker.ton === 'orange' ? FARG.orange : p.risker.ton === 'gron' ? FARG.gron : FARG.text2 }}>{p.risker.text}</span>} />
+              ) : (
+                <div data-testid="kort-risker-rad" data-gjord="0" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px` }}>
+                  <div style={{ ...TYP.text }}>Risker på trakten</div>
+                  <div data-testid="kort-risker-under" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{p.risker.text}</div>
+                </div>
+              )}
+            </Gruppkort>
+          </div>
+        )}
+
+        {p.brand && <BrandriskRad lat={p.brand.lat} lng={p.brand.lng} onOppna={p.onBrand} luftUnder={AVSTAND.m} />}
+
+        {p.grot && (
+          <Ruta testid="kort-grot">
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.text, flexShrink: 0 }}>forest</span>
+            <span style={{ ...TYP.listtitel, overflowWrap: 'anywhere' }}>{p.grot}</span>
+          </Ruta>
+        )}
+
+        {/* Vidas traktdirektiv gäller hela trakten (ingen flygning): etiketten säger det, punkterna är numrerade. Planerarens texter står under, märkta med avsändaren. */}
+        {p.tillForaren.length > 0 && (
+          <div data-testid="kort-till-foraren" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s, marginBottom: AVSTAND.m }}>
+            {p.tillForaren.map((t) => {
+              const vida = t.id === 'vida';
+              return (
+                <div key={t.id} data-testid={`kort-post-${t.id}`}>
+                  <KommentarVisning vida={vida} etikett={vida ? undefined : `Hela trakten · ${t.avsandare}`} vidaEtikett="Hela trakten · Vida" text={t.text} meningar={vida} struket={t.struket} onVaxla={t.onVaxla} strykFel={t.strykFel} />
+                  {vida && p.direktivSett && !p.direktivSett.sedd && (
+                    <div style={{ marginTop: AVSTAND.s }}><SettKnapp testid="kort-direktiv-sett" onSett={p.direktivSett.onSett} /></div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* EN RAD PER YTA — kartans namn som bricka, typen och första punkten på en rad. Tryck = kartan flyger dit. */}
+        {p.ytor.length > 0 && (
+          <div style={{ marginBottom: AVSTAND.l }}>
+            <Gruppkort testid="kort-ytor">
+              {p.ytor.map((r, i) => <YtaRadVy key={r.nyckel} rad={r} onTryck={p.onYta} forstaRad={i === 0} />)}
+            </Gruppkort>
+          </div>
+        )}
+        {!harInnehall && <div data-testid="kort-galler-tomt" style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.l }}>Inget särskilt att tänka på här.</div>}
+        </>}
+
+        {/* Knapprad bara när det finns knappar (skotare utan lassläge; skördaren i körvyn har inga) */}
+        {n > 0 && (
+          <div data-testid="kort-knappar" style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, n)}, minmax(0, 1fr))`, gap: AVSTAND.s, marginBottom: AVSTAND.l }}>
+            {p.knappar.map((k, i) => (
+              <button key={k.id} type="button" data-testid={`kort-knapp-${k.id}`} onClick={() => p.onKnapp(k.id)} className="press-scale"
+                style={{ ...(i === 0 ? KNAPP.primar : KNAPP.sekundar), minHeight: TRAFFYTA.primar, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+                {k.etikett}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* LÄNGST NER — en grupp rader: Egenkontroll · Kartans färger · Dokument · Mer (larmplatsen står överst) */}
+        <Gruppkort testid="kort-uppdrag">
+          {p.onEgenkontroll && <RadKnapp forstaRad testid="kort-egenkontroll" etikett="Egenkontroll" under={p.onEgenkontroll.under} onTryck={p.onEgenkontroll.onTryck} />}
+          {p.onKarta && !mer && <RadKnapp forstaRad={!p.onEgenkontroll} testid="kort-vad-betyder-kartan" etikett="Kartans färger" onTryck={p.onKarta} />}
+          {p.onCert && !mer && <RadKnapp forstaRad={!p.onEgenkontroll && !(p.onKarta && !mer)} testid="kort-cert" etikett={p.onCert.etikett} onTryck={p.onCert.onTryck} />}
+          {p.dokument && (
+            <>
+              <RadKnapp testid="kort-dokument" etikett={`Dokument (${p.dokument.antal})`} onTryck={() => setDokOppen((v) => !v)}
+                pil={false} hoger={<span style={{ display: 'inline-flex', transform: dokOppen ? 'rotate(90deg)' : 'none' }}><Pil /></span>} />
+              {dokOppen && <div data-testid="kort-dokument-lista" style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px` }}>{p.dokument.chips}</div>}
+            </>
+          )}
+          {p.kartaSparad && <div data-testid="kort-karta-sparad" style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}`, ...TYP.meta, color: FARG.text2 }}>{p.kartaSparad}</div>}
+          <RadKnapp testid="kort-mer" etikett="Mer" under="Fler val och inställningar" onTryck={p.onMer} />
+        </Gruppkort>
+        {p.vader && <div data-testid="kort-vader" style={{ marginTop: AVSTAND.l }}>{p.vader}</div>}
+      </div>
+    </>
+  );
+}
