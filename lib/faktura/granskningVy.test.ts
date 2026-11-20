@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { CykelSammanstallning } from '@/lib/faktura/lassCykel';
 import {
-  byggSortimentVy, byggPrisVy, byggRattaVy, byggTillaggVy, byggAvstandVy,
+  byggSortimentVy, byggPrisVy, byggRattaVy, byggTillaggVy, byggAvstandVy, avstandRadVy,
   snyggtNamn, datumIOrd, ord, heltalTill100, LASS_SYNLIGA,
 } from './granskningVy';
 import { skotAvstandKr, skotAvstandKrPerM3 } from '@/lib/ekonomi/acord';
@@ -376,6 +376,67 @@ describe('avståndet: 1 680 kr på 1 725 m³ är 0,97 kr/m³fub', () => {
       volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13',
     });
     expect(v.prislistaRad).toBeNull();
+  });
+});
+
+describe('avstandRadVy — metrarna syns på trakten, inte bara kronorna', () => {
+  // Martin 2026-11-20, med Skälviken öppen: "jag ser ju inte
+  // skotningsavståndet". Maskinkortet sa "Skotningsavstånd +12,00" — vad det
+  // KOSTAR. 450-talet han själv skrivit in fanns ingenstans på sidan.
+  const bas = { volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13' };
+
+  it('handsatt: talet står, och lassen bredvid så man ser om det stämmer', () => {
+    const r = avstandRadVy({ ...bas, a: { ...SKALVIKEN_AVSTAND, manuellt: 450 } })!;
+    expect(r.varde).toBe('450');
+    expect(txt(r.under)).toBe('Satt för hand · lassen säger 1 198 m');
+  });
+
+  it('handsatt utan lass: säger bara att det är satt för hand', () => {
+    const r = avstandRadVy({
+      ...bas,
+      a: { ...SKALVIKEN_AVSTAND, manuellt: 450, lass: [], lassAntal: 0, lassVolym: 0 },
+    })!;
+    expect(r.under).toBe('Satt för hand');
+  });
+
+  it('ur lassen: snittet och täckningen — samma tal som arket', () => {
+    const r = avstandRadVy({ ...bas, a: SKALVIKEN_AVSTAND })!;
+    const ark = byggAvstandVy({ ...bas, a: SKALVIKEN_AVSTAND });
+    expect(txt(r.varde)).toBe('1 198');
+    expect(Math.round(ark.avstandM!)).toBe(1198);
+    expect(r.under).toBe('Ur 2 lass · 2 % av volymen');
+  });
+
+  it('ett enda lass heter "ett lass", inte "1 lass"', () => {
+    const r = avstandRadVy({
+      ...bas,
+      a: { ...SKALVIKEN_AVSTAND, lass: [SKALVIKEN_AVSTAND.lass[0]], lassAntal: 1, lassVolym: 20 },
+    })!;
+    expect(r.under).toContain('Ur ett lass');
+  });
+
+  it('varken handsatt eller mätt: ingen rad — frågan står redan i "saker att kolla"', () => {
+    expect(avstandRadVy({
+      ...bas,
+      a: { ...SKALVIKEN_AVSTAND, lass: [], lassAntal: 0, lassVolym: 0, kronor: 0 },
+    })).toBeNull();
+  });
+
+  it('snittet är VOLYMVIKTAT, inte ett snitt av snitt', () => {
+    // Ett lass på 900 m som bär 90 m³ och ett på 100 m som bär 10 m³ ger 820,
+    // inte 500.
+    const r = avstandRadVy({
+      ...bas,
+      a: {
+        ...SKALVIKEN_AVSTAND,
+        lass: [
+          { avstandM: 900, volym: 90, kronor: 0, kalla: 'opti' as const },
+          { avstandM: 100, volym: 10, kronor: 0, kalla: 'opti' as const },
+        ],
+        lassAntal: 2, lassVolym: 100,
+      },
+    })!;
+    expect(r.varde).toBe('820');
   });
 });
 

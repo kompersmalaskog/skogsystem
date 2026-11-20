@@ -88,7 +88,13 @@ function grundEtikett(r: MaskinRad): string {
 const tkr = (n: number) =>
   n.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-export function byggMaskinkort(r: MaskinRad): Maskinkort {
+const heltal = (n: number) => Math.round(n).toLocaleString('sv-SE')
+
+/**
+ * @param avstandM Skotningsavståndet i meter, när det är känt. Skrivs på
+ *   avståndsraden — se kommentaren vid raden.
+ */
+export function byggMaskinkort(r: MaskinRad, avstandM?: number | null): Maskinkort {
   const roll = rollFor(r.artikelnr)
   const timpeng = arTimpeng(r.artikelnr)
   const verb = roll === 'skordare' ? 'Skördning' : 'Skotning'
@@ -134,14 +140,27 @@ export function byggMaskinkort(r: MaskinRad): Maskinkort {
       })
     }
 
+    // METRARNA STÅR PÅ RADEN (Martin 2026-11-20: "jag ser ju inte
+    // skotningsavståndet"). Raden sa bara vad avståndet KOSTAR. Metrarna stod
+    // ingenstans på sidan, och på en trakt där de satts för hand försvann även
+    // frågan ur "saker att kolla" — talet som flyttar mest pengar på en
+    // skotarrad (Skälviken +12,00 av 57,50) var det enda man inte kunde se.
     if (r.delar_avstand) {
-      rader.push({ etikett: 'Skotningsavstånd', belopp: r.delar_avstand, tecken: true })
+      rader.push({
+        etikett: avstandM != null ? `Skotningsavstånd, ${heltal(avstandM)} m` : 'Skotningsavstånd',
+        belopp: r.delar_avstand,
+        tecken: true,
+      })
     }
   }
 
   const pris = r.a_pris_beraknat
   return {
-    etikett: `${verb} · ${r.kostnadsstalle ? `kostnadsställe ${r.kostnadsstalle}` : 'kostnadsställe saknas'}`,
+    // Kostnadsstället (SCO, EP) är en Fortnox-uppgift, inte något den som läser
+    // sidan behöver — och ett "kostnadsställe SCO" i rubriken är fyra ord som
+    // inte betyder något för den som ska godkänna en faktura. Det står kvar
+    // bara när det SAKNAS, alltså när det är något att göra åt.
+    etikett: r.kostnadsstalle ? verb : `${verb} · kostnadsställe saknas`,
     namn: maskinNamn(r),
     rader,
     prisEtikett: timpeng ? 'Pris per timme' : 'Pris per m³fub',
@@ -152,25 +171,17 @@ export function byggMaskinkort(r: MaskinRad): Maskinkort {
   }
 }
 
-/**
- * Meningen under maskinkorten: potten EN gång, i ord. Den ersätter kortet
- * "Delas mellan maskinerna", som visade samma tillägg en andra gång — samma
- * pengar på två ställen på samma skärm.
- */
-export function pottMening(poster: Tillaggspost[] | null, forslag: { skordare: number; skotare: number } | null, andelSkordare: number | null): string | null {
-  const med = (poster ?? []).filter(p => p.belopp !== 0)
-  if (med.length === 0) return null
-  const summa = med.reduce((s, p) => s + p.belopp, 0)
-  const delar = med.map(p => `${p.etikett.toLowerCase()} ${p.belopp > 0 ? '+' : '−'}${tkr(Math.abs(p.belopp))}`).join(', ')
-  let mening = `Traktens tillägg är ${tkr(summa)} kr/m³fub: ${delar}.`
-  if (forslag) {
-    mening += ` Appen föreslog ${tkr(forslag.skordare)} till skördaren och ${tkr(forslag.skotare)} till skotaren`
-    if (andelSkordare != null && ore(andelSkordare) !== ore(forslag.skordare)) {
-      const flyttat = Math.abs(Math.round((andelSkordare - forslag.skordare) * 100) / 100)
-      mening += ` — du flyttade ${tkr(flyttat)}.`
-    } else {
-      mening += '.'
-    }
-  }
-  return mening
-}
+// POTTMENINGEN ÄR BORTTAGEN (Martin 2026-11-20: "kan man göra sidan lättare så
+// ett barn förstår direkt", "inte för mycket text, det blir rörigt då").
+//
+// Den stod under maskinkorten och lät så här:
+//   "Traktens tillägg är 2,50 kr/m³fub: krönt +1,50, traktstorlek −1,00,
+//    sortiment +2,00. Appen föreslog 1,00 till skördaren och 1,50 till
+//    skotaren — du flyttade 1,00."
+//
+// Varje tal i den stod redan som en namngiven rad i korten ovanför, i en annan
+// ordning och i sidans minsta grad — och den flyttade kronan har sedan
+// 2026-10-24 en EGEN rad ("Tillägg du flyttade från skotaren +1,00"), vilket
+// var hela poängen med den omgången. Meningen var alltså sidans längsta text
+// och sa ingenting som inte redan stod. Fördelningen i detalj hör hemma bakom
+// "Hur räknades priset?", inte på sidan.

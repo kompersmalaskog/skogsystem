@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { byggMaskinkort, maskinNamn, pottMening, rollFor, type MaskinRad } from './traktVy'
+import { byggMaskinkort, maskinNamn, rollFor, type MaskinRad } from './traktVy'
 import type { Tillaggspost } from '@/lib/ekonomi/prisPerM3'
 
 // FACIT: Brokamåla 15 V-H avd 20 -25, VO 11226833, faktura 2026140.
@@ -103,6 +103,47 @@ describe('byggMaskinkort — timpeng', () => {
     expect(byggMaskinkort({ ...timpeng, kostnadsstalle: null }).etikett)
       .toBe('Skördning · kostnadsställe saknas')
   })
+
+  it('ett kostnadsställe som FINNS står inte i rubriken', () => {
+    // "Skördning · kostnadsställe SCO" är fyra ord Fortnox behöver och
+    // människan inte. Rubriken säger vad kortet är, inget mer.
+    expect(byggMaskinkort(timpeng).etikett).toBe('Skördning')
+    expect(byggMaskinkort(skordare).etikett).toBe('Skördning')
+    expect(byggMaskinkort(skotare).etikett).toBe('Skotning')
+  })
+})
+
+describe('byggMaskinkort — skotningsavståndet i meter', () => {
+  it('skriver metrarna på raden när de är kända', () => {
+    const k = byggMaskinkort(skotare, 450)
+    expect(k.rader.map(r => r.etikett)).toContain('Skotningsavstånd, 450 m')
+  })
+
+  it('avrundar till hel meter och skriver tusental som i resten av appen', () => {
+    // Tusentalsavgränsaren är ett smalt hårt mellanslag — normaliseras som i
+    // granskningens tester, annars provar testet typografi och inte regeln.
+    const txt = (s: string) => s.replace(/[  ]/g, ' ')
+    expect(byggMaskinkort(skotare, 1538.4).rader.map(r => txt(r.etikett)))
+      .toContain('Skotningsavstånd, 1 538 m')
+  })
+
+  it('utan kända meter står raden som förut — aldrig ett påhittat tal', () => {
+    for (const utan of [undefined, null]) {
+      expect(byggMaskinkort(skotare, utan).rader.map(r => r.etikett))
+        .toContain('Skotningsavstånd')
+    }
+  })
+
+  it('kronorna är orörda — metrarna är text, inte en ny uträkning', () => {
+    expect(summa(byggMaskinkort(skotare, 450))).toBe(56.5)
+    expect(byggMaskinkort(skotare, 450).rader.find(r => r.etikett.startsWith('Skotningsavstånd'))!.belopp)
+      .toBe(12)
+  })
+
+  it('skördaren har ingen avståndsrad, så metrarna syns inte där', () => {
+    expect(byggMaskinkort(skordare, 450).rader.map(r => r.etikett).join(' '))
+      .not.toContain('Skotningsavstånd')
+  })
 })
 
 describe('maskinNamn', () => {
@@ -126,24 +167,7 @@ describe('rollFor', () => {
   })
 })
 
-describe('pottMening — potten en gång, i ord', () => {
-  it('räknar upp posterna och säger vad som flyttades', () => {
-    const m = pottMening(poster, { skordare: 1, skotare: 1.5 }, 2)!
-    expect(m).toContain('Traktens tillägg är 2,50 kr/m³fub')
-    expect(m).toContain('krönt +1,50')
-    expect(m).toContain('traktstorlek −1,00')
-    expect(m).toContain('terräng +2,00')
-    expect(m).toContain('Appen föreslog 1,00 till skördaren och 1,50 till skotaren')
-    expect(m).toContain('du flyttade 1,00')
-  })
-
-  it('utan överskrivning sägs inget om att något flyttats', () => {
-    const m = pottMening(poster, { skordare: 1, skotare: 1.5 }, 1)!
-    expect(m).not.toContain('flyttade')
-  })
-
-  it('inga tillägg ger ingen mening alls', () => {
-    expect(pottMening([], null, null)).toBeNull()
-    expect(pottMening(null, null, null)).toBeNull()
-  })
-})
+// POTTMENINGEN ÄR BORTTAGEN 2026-11-20 — allt den sa stod redan som namngivna
+// rader i korten ovanför, och den var sidans längsta text. Det som den ensam
+// bar, den flyttade kronan, har en egen rad sedan 2026-10-24 och provas i
+// "skördaren: … den flyttade kronan namngiven" ovan.
