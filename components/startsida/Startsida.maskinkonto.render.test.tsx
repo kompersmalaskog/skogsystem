@@ -123,3 +123,27 @@ describe('telefon och dator (vanlig) — oförändrat', () => {
     expect(document.querySelector('[data-kod-ark]')).not.toBeNull()
   })
 })
+
+describe('notisen "Välj din kod för <maskin>" (/?kod=1)', () => {
+  const stalladress = (sok: string) => window.history.replaceState(null, '', '/' + sok)
+  afterEach(() => stalladress(''))
+  it('på telefonen öppnar adressen Kod för maskinen direkt, och märket tas bort så att det inte öppnas igen', async () => {
+    h.mk.lage = 'vanlig'; stalladress('?kod=1')
+    await montera('forare', { konto: { namn: 'Oskar', epost: 'o@x' }, onLoggaUt: vi.fn() })
+    expect(document.querySelector('[data-kod-ark]')).not.toBeNull()
+    expect(window.location.search).toBe('')
+  })
+  it('utan märket i adressen öppnas ingenting av sig självt', async () => {
+    h.mk.lage = 'vanlig'; stalladress('')
+    await montera('forare', { konto: { namn: 'Oskar', epost: 'o@x' }, onLoggaUt: vi.fn() })
+    expect(document.querySelector('[data-kod-ark]')).toBeNull()
+  })
+  it('på själva maskinen (låst eller upplåst) öppnas aldrig kodarket av adressen — koden väljs i telefonen', async () => {
+    for (const lage of ['last', 'upplast']) {
+      h.mk.lage = lage; stalladress('?kod=1')
+      await montera('forare', { konto: { namn: 'Oskar', epost: 'o@x' } })
+      expect(document.querySelector('[data-kod-ark]'), lage).toBeNull()
+      act(() => { rot?.unmount() }); rot = null
+    }
+  })
+})

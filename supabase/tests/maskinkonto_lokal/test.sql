@@ -260,6 +260,43 @@ begin
   raise notice 'OK: maskin_ledighet — maskinkontot får bara semester/ledig per maskin, aldrig typen eller personen';
 end $$;
 
+-- del 5: "Välj koden från maskinen" — en notis per person och två minuter, avgjort och loggat i databasen
+do $$ declare g record; n int; fel boolean;
+  a uuid := '10000000-0000-0000-0000-0000000005a1'; b uuid := '10000000-0000-0000-0000-0000000005a2';
+begin
+  insert into medarbetare (id, namn, roll, maskin_id, aktiv) values (a, 'Notis Ett', 'forare', 'R64428', true), (b, 'Notis Två', 'forare', 'R64428', true) on conflict do nothing;
+  -- första begäran tillåts och loggas
+  select * into g from maskin_kod_notis_begar(a, 'R64428');
+  if not g.tillat then raise exception 'FEL: första begäran nekades'; end if;
+  if g.vantar_till < now() + interval '119 seconds' or g.vantar_till > now() + interval '121 seconds' then raise exception 'FEL: nedräkningen är inte två minuter (%)', g.vantar_till; end if;
+  -- den andra, direkt efter, nekas och loggas — och nämner när den går att försöka igen
+  select * into g from maskin_kod_notis_begar(a, 'R64428');
+  if g.tillat then raise exception 'FEL: två notiser inom två minuter'; end if;
+  if g.vantar_till is null or g.vantar_till <= now() then raise exception 'FEL: ingen väntetid i svaret'; end if;
+  select count(*) into n from maskin_upplasning_logg where medarbetare_id = a and utfall = 'kod_notis'; if n <> 1 then raise exception 'FEL: % notiser loggade (ska vara 1)', n; end if;
+  select count(*) into n from maskin_upplasning_logg where medarbetare_id = a and utfall = 'kod_notis_vantar'; if n <> 1 then raise exception 'FEL: nekad begäran loggades inte (%)', n; end if;
+  -- en annan person påverkas inte
+  select * into g from maskin_kod_notis_begar(b, 'R64428'); if not g.tillat then raise exception 'FEL: annan person nekades'; end if;
+  -- efter två minuter går det igen
+  update maskin_upplasning_logg set tid = clock_timestamp() - interval '3 minutes' where medarbetare_id = a and utfall = 'kod_notis';
+  select * into g from maskin_kod_notis_begar(a, 'R64428'); if not g.tillat then raise exception 'FEL: nekad även efter två minuter'; end if;
+  -- "ingen push" är ett giltigt loggutfall (servern loggar det när personen saknar push i telefonen)
+  insert into maskin_upplasning_logg (maskin_id, medarbetare_id, utfall) values ('R64428', a, 'kod_notis_ingen_push');
+  -- bara servern får anropa funktionen: varken inloggad förare, maskinkonto eller anon
+  perform set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-0000000000b1', true); execute 'set local role authenticated';
+  begin perform maskin_kod_notis_begar(a, 'R64428'); fel := false; exception when insufficient_privilege then fel := true; end;
+  execute 'reset role'; if not fel then raise exception 'FEL: maskinkontot får anropa maskin_kod_notis_begar'; end if;
+  execute 'set local role anon';
+  begin perform maskin_kod_notis_begar(a, 'R64428'); fel := false; exception when insufficient_privilege then fel := true; end;
+  execute 'reset role'; if not fel then raise exception 'FEL: anon får anropa maskin_kod_notis_begar'; end if;
+  -- loggen går inte att läsa av maskinkontot (bara admin)
+  perform set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-0000000000b1', true); execute 'set local role authenticated';
+  select count(*) into n from maskin_upplasning_logg; execute 'reset role';
+  if n <> 0 then raise exception 'FEL: maskinkontot läser loggen (%)', n; end if;
+  insert into pg_temp.matris values ('maskin_kod_notis_begar (notis om att välja kod)', 'bara servern', 'bara servern', '1 notis / 2 min, loggas', true);
+  raise notice 'OK: kodnotis — en per två minuter, båda utfallen loggas, bara servern kan anropa';
+end $$;
+
 -- migrationen ger EXAKT listan: en policy per spärrad tabell, ingen extra
 do $$
 declare n_pol int; n_lista int;

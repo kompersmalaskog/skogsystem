@@ -22,8 +22,8 @@ function filer(dir: string, ut: string[] = []): string[] {
 
 describe('rutterna under /api/maskin', () => {
   const rutter = filer(join(ROT, 'app/api/maskin')).filter(f => f.endsWith('route.ts'))
-  it('finns (sex stycken) och varje metod börjar med en vakt — utom /las, som bevisar sig med personens egen token', () => {
-    expect(rutter.map(r => relative(join(ROT, 'app/api/maskin'), r)).sort()).toEqual(['kod/nollstall/route.ts', 'kod/route.ts', 'konto/route.ts', 'las-upp/route.ts', 'las/route.ts', 'vem/route.ts'])
+  it('finns (sju stycken) och varje metod börjar med en vakt — utom /las, som bevisar sig med personens egen token', () => {
+    expect(rutter.map(r => relative(join(ROT, 'app/api/maskin'), r)).sort()).toEqual(['kod-notis/route.ts', 'kod/nollstall/route.ts', 'kod/route.ts', 'konto/route.ts', 'las-upp/route.ts', 'las/route.ts', 'vem/route.ts'])
     for (const r of rutter) {
       const src = utanKommentarer(readFileSync(r, 'utf8'))
       const metoder = src.split(/export async function /).slice(1)
@@ -90,5 +90,46 @@ describe('spärrlistan', () => {
     const spar = new Set(iMigrationen)
     const oklara = misstankta.filter(t => !spar.has(t) && !(t in undantag) && !/^(backup_|_backup|hist_|maskin_kod|forare_maskinkod|maskin_upplasning|maskin_konto)/.test(t))
     expect(oklara, 'en tabell som ser ut som personal/tid/ekonomi saknar beslut — lägg den i spärrlistan (migration 2 + stub2.sql) eller i undantagslistan med ett skäl').toEqual([])
+  })
+})
+
+
+describe('"Välj koden från maskinen" — maskinen låser aldrig upp av sig själv', () => {
+  const kodNotis = utanKommentarer(lasFil('app/api/maskin/kod-notis/route.ts'))
+  it('rutten för notisen ger aldrig en token eller en session: ingen generateLink, ingen verifyOtp, ingen hash-kontroll, ingen pepper', () => {
+    expect(kodNotis).not.toMatch(/generateLink|token_hash|verifyOtp|setSession|stammerKod|skapaHash|MASKIN_KOD_PEPPAR|kod_hash/)
+    expect(kodNotis).not.toMatch(/auth\.admin/)
+  })
+  it('bara upplåsningsrutten skapar en token — och den kräver koden (stammerKod) före generateLink', () => {
+    for (const f of filer(join(ROT, 'app/api')).filter(f => f.endsWith('.ts') && !/\.test\./.test(f))) {
+      const src = utanKommentarer(readFileSync(f, 'utf8'))
+      if (/generateLink/.test(src)) expect(relative(ROT, f).replace(/\\/g, '/')).toBe('app/api/maskin/las-upp/route.ts')
+    }
+    const lasUpp = utanKommentarer(lasFil('app/api/maskin/las-upp/route.ts'))
+    expect(lasUpp.indexOf('stammerKod(')).toBeGreaterThan(-1)
+    expect(lasUpp.indexOf('generateLink')).toBeGreaterThan(lasUpp.indexOf('stammerKod('))
+  })
+  it('arket frågar bara (hamtaHarKod) — det låser aldrig upp, och bara kodplattan anropar lasUppMedKod', () => {
+    const ark = utanKommentarer(lasFil('components/maskinkonto/VemArDuArk.tsx'))
+    expect(ark.match(/lasUppMedKod\(/g)?.length).toBe(1)
+    expect(ark).toMatch(/const r = await lasUppMedKod\(person, kod\)/)
+    const klient = utanKommentarer(lasFil('lib/maskinkonto/klient.ts'))
+    const hamta = klient.slice(klient.indexOf('export async function hamtaHarKod'), klient.indexOf('export type LasUppSvar'))
+    expect(hamta).not.toMatch(/POST|verifyOtp|sattUpplast|sattMaskinSession/)
+  })
+  it('tvåminutersgränsen och loggningen bor i databasen: migrationen låser per person, loggar båda utfallen och är bara öppen för servern', () => {
+    const m = lasFil('supabase/migrations/20261120170001_maskinkonto_5_kod_notis.sql')
+    expect(m).toMatch(/pg_advisory_xact_lock/)
+    expect(m).toMatch(/interval '2 minutes'/)
+    for (const u of ['kod_notis', 'kod_notis_vantar', 'kod_notis_ingen_push']) expect(m).toContain(`'${u}'`)
+    expect(m).toMatch(/revoke all on function public\.maskin_kod_notis_begar\(uuid, text\) from public, anon, authenticated/)
+    expect(m).toMatch(/grant execute on function public\.maskin_kod_notis_begar\(uuid, text\) to service_role/)
+  })
+  it('notisens innehåll: ingen kod och inget personligt — bara maskinens namn — och den köas bakom skickas_at = infinity', () => {
+    const n = utanKommentarer(lasFil('lib/maskinkonto/notis.ts'))
+    const del = n.slice(n.indexOf('export async function byggKodValNotis'), n.indexOf('/** Köar notisen till personens'))
+    expect(del).not.toMatch(/kod_hash|\.namn\b|epost|telefon/)
+    expect(n).toMatch(/skickas_at: 'infinity', dedup_nyckel: `kodval:/)
+    expect(lasFil('app/api/notis/flush/route.ts')).toMatch(/MASKIN_KOD_SPAR, MASKIN_KOD_VAL, KALIB_MATDON/)
   })
 })

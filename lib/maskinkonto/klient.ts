@@ -18,6 +18,35 @@ export async function hamtaPersoner(): Promise<Person[] | null> {
   } catch { return null }
 }
 
+/** Svaret på "skicka notisen om att välja kod": vad arket ska visa. vantarTill = när "Skicka igen" går att trycka på (serverns klocka). */
+export type KodNotisSvar =
+  | { typ: 'harKod' }
+  | { typ: 'ingen_push' }
+  | { typ: 'skickad' | 'vantar'; vantarTill: string | null }
+  | { typ: 'fel' }
+
+/** Personen har tryckt på sitt namn och har ingen kod: be servern skicka en notis till hens telefon. Skickar aldrig något annat än id:t. */
+export async function begarKodNotis(p: Person): Promise<KodNotisSvar> {
+  try {
+    const r = await fetch('/api/maskin/kod-notis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ medarbetare_id: p.id }) })
+    const j = await r.json().catch(() => ({})) as { ok?: boolean; harKod?: boolean; harPush?: boolean; skickad?: boolean; vantarTill?: string | null }
+    if (!r.ok || !j.ok) return { typ: 'fel' }
+    if (j.harKod) return { typ: 'harKod' }
+    if (j.harPush === false) return { typ: 'ingen_push' }
+    return { typ: j.skickad ? 'skickad' : 'vantar', vantarTill: j.vantarTill ?? null }
+  } catch { return { typ: 'fel' } }
+}
+
+/** Har personen valt sin kod än? null = gick inte att läsa. Läsning — låser aldrig upp något. */
+export async function hamtaHarKod(id: string): Promise<boolean | null> {
+  try {
+    const r = await fetch(`/api/maskin/kod-notis?medarbetare_id=${encodeURIComponent(id)}`, { cache: 'no-store' })
+    if (!r.ok) return null
+    const j = await r.json() as { harKod?: boolean }
+    return typeof j.harKod === 'boolean' ? j.harKod : null
+  } catch { return null }
+}
+
 export type LasUppSvar =
   | { ok: true }
   | { ok: false; fel: 'fel_kod' | 'vantar' | 'ingen_kod' | 'natverk' | 'annat'; vantarTill?: string | null }

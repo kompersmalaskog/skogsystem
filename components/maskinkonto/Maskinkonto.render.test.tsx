@@ -14,6 +14,8 @@ const h = vi.hoisted(() => ({
   lage: { maskin_id: 'R64428', aktiv: true } as any,
   personer: [] as any[],
   lasUpp: vi.fn(),
+  begar: vi.fn(),
+  harKod: vi.fn(),
   lasMaskinen: vi.fn(async () => undefined),
   loggaUt: vi.fn(async () => undefined),
 }))
@@ -29,11 +31,11 @@ vi.mock('@/lib/supabase', () => ({
 }))
 vi.mock('@/lib/maskinkonto/klient', async () => {
   const orig = await vi.importActual<typeof import('@/lib/maskinkonto/klient')>('@/lib/maskinkonto/klient')
-  return { ...orig, hamtaPersoner: async () => h.personer, lasUppMedKod: (...a: any[]) => h.lasUpp(...a), lasMaskinen: () => h.lasMaskinen(), loggaUtMaskinen: () => h.loggaUt() }
+  return { ...orig, hamtaPersoner: async () => h.personer, lasUppMedKod: (...a: any[]) => h.lasUpp(...a), begarKodNotis: (...a: any[]) => h.begar(...a), hamtaHarKod: (...a: any[]) => h.harKod(...a), lasMaskinen: () => h.lasMaskinen(), loggaUtMaskinen: () => h.loggaUt() }
 })
 
 import KodPlatta from './KodPlatta'
-import VemArDuArk from './VemArDuArk'
+import VemArDuArk, { KOD_FRAGA_MS } from './VemArDuArk'
 import MaskinKontoProvider from './MaskinKontoProvider'
 import { CurrentMedarbetareProvider } from '@/lib/CurrentMedarbetareContext'
 import { IDLE_MS, sattMaskinSession, sattUpplast } from '@/lib/maskinkonto/upplast'
@@ -57,6 +59,8 @@ beforeEach(() => {
     { id: 'p3', namn: 'Martin', roll: 'admin', harKod: true },
   ]
   h.lasUpp.mockReset(); h.lasMaskinen.mockClear(); h.loggaUt.mockClear()
+  h.begar.mockReset(); h.begar.mockResolvedValue({ typ: 'skickad', vantarTill: new Date(Date.now() + 120_000).toISOString() })
+  h.harKod.mockReset(); h.harKod.mockResolvedValue(false)
   localStorage.clear(); sessionStorage.clear()
   el = document.createElement('div'); document.body.appendChild(el)
 })
@@ -97,10 +101,10 @@ describe('Vem är du?', () => {
     expect(namnKnappar()).toEqual(['Oskar Nilsson', 'Daniel', 'Martin'])
     expect(document.body.textContent).toContain('Arbetsledning')
   })
-  it('har personen ingen kod står bara "Välj din kod i telefonen först" — ingen platta', async () => {
+  it('har personen ingen kod: ingen platta — arket säger att en notis skickats (se "Välj koden från maskinen" nedan)', async () => {
     await montera(<VemArDuArk efterUpplasning="/arbetsrapport" onStang={() => undefined} />)
-    await act(async () => { (document.querySelector('[data-person="p2"]') as HTMLButtonElement).click() })
-    expect(document.querySelector('[data-ingen-kod]')?.textContent).toBe('Välj din kod i telefonen först')
+    await act(async () => { (document.querySelector('[data-person="p2"]') as HTMLButtonElement).click() }); await flush()
+    expect(document.querySelector('[data-ingen-kod]')?.textContent).toContain('Välj din kod i telefonen – vi har skickat en notis till dig')
     expect(document.querySelector('[data-kodplatta]')).toBeNull()
   })
   it('rätt kod → upplåst och sidan öppnas dit man ville (utan någon OK-knapp)', async () => {
@@ -133,6 +137,112 @@ describe('Vem är du?', () => {
     for (const t of ['1', '2', '3']) expect(tangent(t).disabled).toBe(true)
     await act(async () => { vi.advanceTimersByTime(61_000) })
     expect(tangent('1').disabled).toBe(false)
+  })
+})
+
+describe('Välj koden från maskinen', () => {
+  const rader = () => document.querySelector('[data-ingen-kod]')?.textContent ?? ''
+  const skickaIgen = () => document.querySelector('[data-skicka-igen]') as HTMLButtonElement | null
+  const tryckNamn = async (id: string) => { await act(async () => { (document.querySelector(`[data-person="${id}"]`) as HTMLButtonElement).click() }); await flush() }
+  const FAKE = { toFake: ['Date', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] as const }
+  const assign = vi.fn()
+  beforeEach(() => { assign.mockReset(); Object.defineProperty(window, 'location', { value: { assign }, writable: true }) })
+
+  it('namn utan kod → notis begärs för just den personen, arket säger det, "Skicka igen" är grå med nedräkning och ingen platta visas', async () => {
+    vi.useFakeTimers({ toFake: [...FAKE.toFake] })
+    await montera(<VemArDuArk efterUpplasning="/" onStang={() => undefined} />)
+    await tryckNamn('p2')
+    expect(h.begar).toHaveBeenCalledTimes(1)
+    expect(h.begar).toHaveBeenCalledWith(expect.objectContaining({ id: 'p2' }))
+    expect(rader()).toContain('Välj din kod i telefonen – vi har skickat en notis till dig')
+    expect(skickaIgen()!.disabled).toBe(true)
+    expect(skickaIgen()!.textContent).toMatch(/Skicka igen \(\d+ s\)/)
+    expect(document.querySelector('[data-kodplatta]')).toBeNull()
+    // Efter två minuter går den att trycka på — och ett tryck begär en ny notis.
+    await act(async () => { vi.advanceTimersByTime(121_000) })
+    expect(skickaIgen()!.disabled).toBe(false); expect(skickaIgen()!.textContent).toBe('Skicka igen')
+    await act(async () => { skickaIgen()!.click() }); await flush()
+    expect(h.begar).toHaveBeenCalledTimes(2)
+  })
+
+  it('under nedräkningen gör ett tryck på "Skicka igen" ingenting — ingen andra notis', async () => {
+    vi.useFakeTimers({ toFake: [...FAKE.toFake] })
+    await montera(<VemArDuArk efterUpplasning="/" onStang={() => undefined} />)
+    await tryckNamn('p2')
+    await act(async () => { vi.advanceTimersByTime(60_000) })
+    await act(async () => { skickaIgen()!.click() }); await flush()
+    expect(h.begar).toHaveBeenCalledTimes(1)
+  })
+
+  it('namnet trycks igen inom två minuter: servern svarar "vantar" (ingen ny notis) och arket visar nedräkningen kvar', async () => {
+    vi.useFakeTimers({ toFake: [...FAKE.toFake] })
+    await montera(<VemArDuArk efterUpplasning="/" onStang={() => undefined} />)
+    await tryckNamn('p2')
+    h.begar.mockResolvedValueOnce({ typ: 'vantar', vantarTill: new Date(Date.now() + 90_000).toISOString() })   // servern: redan skickad för 30 s sedan
+    const tillbaka = Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Det är inte jag') as HTMLButtonElement
+    await act(async () => { tillbaka.click() }); await flush()
+    await tryckNamn('p2')
+    expect(rader()).toContain('vi har skickat en notis till dig')
+    expect(skickaIgen()!.disabled).toBe(true)
+    expect(skickaIgen()!.textContent).toMatch(/Skicka igen \((8\d|90) s\)/)
+  })
+
+  it('personen saknar push i telefonen → reservtexten, ingen "Skicka igen", inget fel', async () => {
+    h.begar.mockResolvedValue({ typ: 'ingen_push' })
+    await montera(<VemArDuArk efterUpplasning="/" onStang={() => undefined} />)
+    await tryckNamn('p2')
+    expect(rader()).toBe('Öppna appen i telefonen → Profil → Kod för maskinen')
+    expect(skickaIgen()).toBeNull()
+    expect(document.querySelector('[role="alert"]')).toBeNull()
+    expect(document.querySelector('[data-kodplatta]')).toBeNull()
+  })
+
+  it('kunde inte skicka (täckning) → texten säger det och "Skicka igen" går att trycka direkt', async () => {
+    h.begar.mockResolvedValue({ typ: 'fel' })
+    await montera(<VemArDuArk efterUpplasning="/" onStang={() => undefined} />)
+    await tryckNamn('p2')
+    expect(rader()).toContain('Kunde inte skicka notisen')
+    expect(skickaIgen()!.disabled).toBe(false)
+  })
+
+  it('koden väljs i telefonen medan arket väntar → sifferplattan kommer för den personen, och upplåsningen kräver koden', async () => {
+    vi.useFakeTimers({ toFake: [...FAKE.toFake] })
+    h.lasUpp.mockResolvedValue({ ok: true })
+    await montera(<VemArDuArk efterUpplasning="/arbetsrapport" onStang={() => undefined} />)
+    await tryckNamn('p2')
+    expect(document.querySelector('[data-kodplatta]')).toBeNull()
+    await act(async () => { vi.advanceTimersByTime(KOD_FRAGA_MS + 50) }); await flush()
+    expect(h.harKod).toHaveBeenCalledWith('p2')
+    expect(document.querySelector('[data-kodplatta]')).toBeNull()      // ännu ingen kod vald
+    h.harKod.mockResolvedValue(true)                                    // personen väljer koden i telefonen
+    await act(async () => { vi.advanceTimersByTime(KOD_FRAGA_MS + 50) }); await flush()
+    expect(document.querySelector('[data-kodplatta]')).not.toBeNull()
+    // Plattan har kommit — men ingenting är upplåst: varken las-upp eller omladdning har anropats.
+    expect(h.lasUpp).not.toHaveBeenCalled(); expect(assign).not.toHaveBeenCalled()
+    await tryck('2', '4', '6', '8')
+    expect(h.lasUpp).toHaveBeenCalledWith(expect.objectContaining({ id: 'p2' }), '2468')
+    expect(assign).toHaveBeenCalledWith('/arbetsrapport')
+  })
+
+  it('koden väljs i telefonen medan arket är STÄNGT → frågandet har slutat och ingenting låses upp', async () => {
+    vi.useFakeTimers({ toFake: [...FAKE.toFake] })
+    await montera(<VemArDuArk efterUpplasning="/" onStang={() => undefined} />)
+    await tryckNamn('p2')
+    await act(async () => { vi.advanceTimersByTime(KOD_FRAGA_MS + 50) }); await flush()
+    const anrop = h.harKod.mock.calls.length
+    expect(anrop).toBeGreaterThan(0)
+    await act(async () => { rot!.unmount() }); rot = null          // arket stängs (maskinen går tillbaka till kartan)
+    h.harKod.mockResolvedValue(true)
+    await act(async () => { vi.advanceTimersByTime(10 * KOD_FRAGA_MS) }); await flush()
+    expect(h.harKod.mock.calls.length).toBe(anrop)                  // ingen fråga efter stängningen
+    expect(h.lasUpp).not.toHaveBeenCalled(); expect(assign).not.toHaveBeenCalled()
+  })
+
+  it('en person MED kod får ingen notis — plattan visas direkt', async () => {
+    await montera(<VemArDuArk efterUpplasning="/" onStang={() => undefined} />)
+    await tryckNamn('p1')
+    expect(h.begar).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-kodplatta]')).not.toBeNull()
   })
 })
 

@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { arGiltigKod, kodPepparFinns, skapaHash, stammerKod } from './kod'
-import { byggMaskinKodNotis, MASKIN_KOD_MAX_ALDER_MS } from './notis'
+import { byggMaskinKodNotis, byggKodValNotis, KOD_VAL_MAX_ALDER_MS, KOD_VAL_URL, MASKIN_KOD_MAX_ALDER_MS } from './notis'
 import {
   IDLE_MS, arDoldSokvag, arKartSokvag, arLastSokvag, lasUpplast, maskinUpplast, sattMaskinSession, sattUpplast, utgangen,
 } from './upplast'
@@ -121,5 +121,26 @@ describe('vyregistret på en maskin', () => {
     const last = VYER.filter(v => v.maskinLas).map(v => v.id).sort()
     expect(last).toEqual(['arbetsrapport', 'introduktion', 'ledighet', 'planera', 'utbildning'])
     for (const id of ['planering', 'oversikt', 'objekt', 'uppfoljning', 'maskinvy', 'maskinvy-2', 'kalibrering', 'maskinkoll', 'om-nagot-hander']) expect(VYER.find(v => v.id === id)?.maskinLas).toBeFalsy()
+  })
+})
+
+
+describe('notisen "Välj din kod för <maskin>"', () => {
+  const rad = { mottagare_id: 'p-oskar', payload: { maskin_namn: 'H8E -26' }, skapad_at: new Date(Date.now() - 30_000).toISOString() }
+  it('titeln har maskinens namn, ett tryck öppnar Kod för maskinen, och innehållet bär varken koden eller något personligt', async () => {
+    const u = await byggKodValNotis(rad, async () => false)
+    expect(u.typ).toBe('skicka')
+    if (u.typ !== 'skicka') return
+    expect(u.meddelande.title).toBe('Välj din kod för H8E -26')
+    expect(u.meddelande.url).toBe(KOD_VAL_URL); expect(KOD_VAL_URL).toBe('/?kod=1')
+    expect(JSON.stringify(u.meddelande)).not.toMatch(/Oskar|p-oskar@|\d{4}(?!\d)/)   // inget namn, ingen e-post, ingen sifferkod
+    expect(u.meddelande.body).toBe('Tryck här och välj fyra siffror. Då kan du logga in på maskinen.')
+  })
+  it('har personen redan valt kod → hoppas över; läsfel → skjuts upp (aldrig en gissning); för gammal eller utan maskin → hoppas över', async () => {
+    expect((await byggKodValNotis(rad, async () => true)).typ).toBe('hoppa_over')
+    expect((await byggKodValNotis(rad, async () => null)).typ).toBe('uppskjut')
+    expect((await byggKodValNotis({ ...rad, skapad_at: new Date(Date.now() - KOD_VAL_MAX_ALDER_MS - 1000).toISOString() }, async () => false)).typ).toBe('hoppa_over')
+    expect((await byggKodValNotis({ ...rad, payload: {} }, async () => false)).typ).toBe('hoppa_over')
+    expect((await byggKodValNotis({ ...rad, mottagare_id: null }, async () => false)).typ).toBe('hoppa_over')
   })
 })

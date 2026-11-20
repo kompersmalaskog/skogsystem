@@ -384,6 +384,17 @@ export default function Startsida({ roll, skyddsombud = false, marken, egnaUppgi
   const mkonto = useMaskinKonto()
   const maskin = arMaskinLage(mkonto.lage)
   const [kodArk, setKodArk] = useState(false)
+  // Notisen "Välj din kod för <maskin>" öppnar /?kod=1 → Kod för maskinen direkt (bara en vanlig förare/admin i sin egen session, aldrig maskinen).
+  useEffect(() => {
+    if (mkonto.lage !== 'vanlig') return
+    try {
+      const u = new URL(window.location.href)
+      if (u.searchParams.get('kod') !== '1') return
+      u.searchParams.delete('kod')
+      window.history.replaceState(null, '', u.pathname + u.search + u.hash)
+      setKodArk(true)
+    } catch { /* ingen adress att läsa — då öppnar man Mer › Kod för maskinen för hand */ }
+  }, [mkonto.lage])
   const inbaddad = huvud !== undefined
   const [fraga, setFraga] = useState('')
   const [oppna, setOppna] = useState<Set<string>>(new Set())

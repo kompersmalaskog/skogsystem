@@ -14,7 +14,7 @@ kor_en() {
   { echo "do \$\$ begin create role authenticated; exception when duplicate_object then null; end \$\$; do \$\$ begin create role service_role; exception when duplicate_object then null; end \$\$; do \$\$ begin create role anon; exception when duplicate_object then null; end \$\$;"
     grep -vE '^create role (authenticated|service_role|anon)' "$D/../forare_fran_opti_lokal/stub.sql"; cat "$D/stub2.sql"; } | su postgres -c "$PSQL" 2>&1 | { grep -v NOTICE || true; }
   for f in 20261120140001_forare_fran_opti_1_kolumner 20261120140002_forare_fran_opti_2_slagning 20261120140003_forare_fran_opti_3_omrakning \
-           20261120140004_forare_fran_opti_4_triggers 20261120150001_maskinkonto_1_grund 20261120150002_maskinkonto_2_sparr 20261120150003_maskinkonto_3_maskin_pa_raden 20261120150004_maskinkonto_4_ledighet_per_maskin; do
+           20261120140004_forare_fran_opti_4_triggers 20261120150001_maskinkonto_1_grund 20261120150002_maskinkonto_2_sparr 20261120150003_maskinkonto_3_maskin_pa_raden 20261120150004_maskinkonto_4_ledighet_per_maskin 20261120170001_maskinkonto_5_kod_notis; do
     su postgres -c "$PSQL" < "$MIGDIR/$f.sql" 2>&1 | { grep -v NOTICE || true; }
   done
   su postgres -c "$PSQL" < "$D/test.sql" 2>&1 || true
@@ -26,7 +26,7 @@ echo "$UT" | grep -q 'ALLA KONTROLLER OK' || { echo "FEL: kontrollerna kördes a
 [ -n "$SKIPPA_MUTANTER" ] && exit 0
 T=$(mktemp -d)
 mutant() { # namn fil sed-uttryck
-  rm -rf "$T/m"; mkdir "$T/m"; cp "$D/../../migrations"/20261120140*.sql "$D/../../migrations"/20261120150*.sql "$T/m/"
+  rm -rf "$T/m"; mkdir "$T/m"; cp "$D/../../migrations"/20261120140*.sql "$D/../../migrations"/20261120150*.sql "$D/../../migrations"/20261120170*.sql "$T/m/"
   sed -i "$3" "$T/m/$2"
   if cmp -s "$D/../../migrations/$2" "$T/m/$2"; then echo "FEL: mutanten '$1' ändrade ingenting"; exit 1; fi
   R=$(MIGDIR="$T/m" SKIPPA_MUTANTER=1 sh "$0" 2>&1) && { echo "FEL: mutanten '$1' överlevde"; exit 1; }
@@ -43,5 +43,10 @@ mutant "rätt kod nollar inte tio-i-rad" 20261120150001_maskinkonto_1_grund.sql 
 mutant "maskin_ledighet läcker typen" 20261120150004_maskinkonto_4_ledighet_per_maskin.sql "s/case when l.typ = 'semester' then 'semester' else 'ledig' end/l.typ/"
 mutant "maskin_ledighet tar med väntande ansökningar" 20261120150004_maskinkonto_4_ledighet_per_maskin.sql "s/l.status in ('godkänd', 'registrerad')/true/"
 mutant "kvittens från maskinkonto får ingen Opti-förare" 20261120150003_maskinkonto_3_maskin_pa_raden.sql "s/w.roll in ('forare', 'maskin')/w.roll = 'forare'/"
+mutant "kodnotisen har ingen tvåminutersgräns" 20261120170001_maskinkonto_5_kod_notis.sql "s/senast > clock_timestamp() - interval '2 minutes'/senast > clock_timestamp() + interval '2 minutes'/"
+mutant "en nekad kodnotis loggas inte" 20261120170001_maskinkonto_5_kod_notis.sql "s/insert into maskin_upplasning_logg (maskin_id, medarbetare_id, utfall) values (p_maskin, p_med, 'kod_notis_vantar');//"
+mutant "gränsen gäller alla personer gemensamt" 20261120170001_maskinkonto_5_kod_notis.sql "s/where l.medarbetare_id = p_med and l.utfall = 'kod_notis'/where l.utfall = 'kod_notis'/"
+mutant "inloggade får anropa kodnotis-funktionen" 20261120170001_maskinkonto_5_kod_notis.sql "s/(uuid, text) to service_role;/(uuid, text) to service_role, authenticated;/"
+mutant "ingen-push-utfallet saknas i loggens regel" 20261120170001_maskinkonto_5_kod_notis.sql "s/, 'kod_notis_ingen_push'//"
 rm -rf "$T"
 echo "MUTATIONSKONTROLL OK"
