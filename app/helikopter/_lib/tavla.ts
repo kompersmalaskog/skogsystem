@@ -289,7 +289,7 @@ function traktNamn(t: KlarTrakt): string {
   return `${arVirke(t.typ) ? '' : `${KLAR_TYP_NAMN[t.typ]} `}${kortNamn(t.namn.replace(/[.\s]+$/, ''))}`
 }
 
-function traktVy(r: KoRad, typ: Typ | null, sista: string): TavlaTrakt {
+export function traktVy(r: KoRad, typ: Typ | null, sista: string): TavlaTrakt {
   const osaker = r.trakt.uppskattad === true && !r.trakt.foljer
   return {
     objekt_id: r.trakt.objekt_id, roll: r.trakt.roll, namn: traktNamn(r.trakt),
@@ -342,7 +342,8 @@ export function slutordning(trakter: KlarTrakt[], ordning: string[] | undefined)
   return [...plats.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id)
 }
 
-export function byggTavla(d: TavlaIndata): Tavla {
+/** Trakterna efter ordning, flytt och egen skotning, och varje maskins kö. Tavlan och Prognos räknar på EXAKT samma rader. */
+export function koerFor(d: TavlaIndata): { trakter: KlarTrakt[]; koer: Map<string, KoRad[]>; sista: string } {
   const klar = d.klar
   const trakter = klar
     ? (d.flytt ? medOrdning(klar.trakter, d.ordning).map(t => (t.objekt_id === d.flytt!.objekt_id && t.roll === d.flytt!.roll ? { ...t, maskin_id: d.flytt!.maskin_id } : t)) : medOrdning(klar.trakter, d.ordning))
@@ -352,6 +353,12 @@ export function byggTavla(d: TavlaIndata): Tavla {
   const sista = klar?.sista_arbetsdag ?? ''
   const koer = new Map<string, KoRad[]>()
   for (const m of klar?.maskiner ?? []) koer.set(m.maskin_id, ko(m, trakter.filter(t => t.maskin_id === m.maskin_id), sista, d.egna))
+  return { trakter, koer, sista }
+}
+
+export function byggTavla(d: TavlaIndata): Tavla {
+  const klar = d.klar
+  const { trakter, koer, sista } = koerFor(d)
   const kanda = new Set((klar?.maskiner ?? []).map(m => m.maskin_id))
   const iNagotSpar = new Set<string>()
   // Utanför beställningen står EN gång per maskin: i det första spåret hon syns i.

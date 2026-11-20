@@ -77,11 +77,14 @@ describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chro
   it.skipIf(!CHROMIUM)('ingen sidscroll, inga träffytor under 44 px, talen i raka kolumner', async () => {
     const kort = (typ: string, roll: string) => `[data-lage-kort="${typ}:${roll}"]`
     const vyer = [
-      { namn: 'sida', html: await html([]) },
-      { namn: 'behov', html: await html([kort('slutavverkning', 'skordare')]) },
-      { namn: 'behov-ordning', html: await html([kort('slutavverkning', 'skordare'), '[data-trakt-rad] [data-pil="keyboard_arrow_down"]']) },
-      { namn: 'skot', html: await html([kort('slutavverkning', 'skotare')]) },
+      { namn: 'sida', html: await html([], 'ar=2026&manad=10&sida=laget') },
+      { namn: 'behov', html: await html([kort('slutavverkning', 'skordare')], 'ar=2026&manad=10&sida=laget') },
+      { namn: 'behov-ordning', html: await html([kort('slutavverkning', 'skordare'), '[data-trakt-rad] [data-pil="keyboard_arrow_down"]'], 'ar=2026&manad=10&sida=laget') },
+      { namn: 'skot', html: await html([kort('slutavverkning', 'skotare')], 'ar=2026&manad=10&sida=laget') },
       { namn: 'manader', html: await html([], 'ar=2026&manad=10&sida=manader') },
+      { namn: 'prognos', html: await html([]) },
+      { namn: 'prognos-detalj', html: await html(['[data-visa-detaljer]'], 'ar=2026&manad=10&sida=prognos') },
+      { namn: 'prognos-maskin', html: await html(['[data-visa-detaljer]', '[data-prognos] [role="tab"]:nth-child(2)'], 'ar=2026&manad=10&sida=prognos') },
     ]
     const b = await CHROMIUM!.launch({})
     const skriv = process.env.TAVLA_SKRIV
@@ -105,7 +108,7 @@ describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chro
             .filter(e => (e as HTMLElement).offsetParent !== null)
             .map(e => ({ t: (e.textContent || e.getAttribute('aria-label') || '?').trim().slice(0, 24), h: Math.round(e.getBoundingClientRect().height) }))
             .filter(x => x.h + 0.5 < min),
-          utanfor: Array.from(document.querySelectorAll('[data-lage] *, [data-planera] *')).filter(e => e.getBoundingClientRect().right > window.innerWidth + 0.5).length,
+          utanfor: Array.from(document.querySelectorAll('[data-lage] *, [data-planera] *, [data-prognos] *')).filter(e => e.getBoundingClientRect().right > window.innerWidth + 0.5).length,
           // Stapeln och ordet står i kortet: inget i ett Läget-kort sticker ut förbi kortets kant.
           forbi: Array.from(document.querySelectorAll('[data-lage-kort]')).filter(k => Array.from(k.querySelectorAll('span')).some(e => e.getBoundingClientRect().right > k.getBoundingClientRect().right + 0.5 && !e.hasAttribute('data-i-fas'))).length,
         }), TRAFFYTA.min)
