@@ -1,6 +1,6 @@
 'use client'
 
-// Menyn: tre sidor. Under 1000 px tre flikar i botten (telefon, iPad stående) — från 1000 px en meny till vänster under toppfältet
+// Menyn: fyra sidor. Under 1000 px fyra flikar i botten (telefon, iPad stående) — från 1000 px en meny till vänster under toppfältet
 // (dator, iPad liggande), som Arbetsrapporten. Samma knappar, samma ordning; innehållet flyttas åt höger med body:has(.hk-nav).
 // Selektorerna har inga citattecken (React escapar dem i <style>). !important på body: rotlayouten sätter padding inline.
 import Ikon from '@/components/design/Ikon'

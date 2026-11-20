@@ -179,18 +179,33 @@ describe('/helikopter — tavlan', () => {
     expect(sektion('Mer')!.textContent).toContain('Månadsfacit')
   })
 
-  it('menyn: tre sidor, Läget nu vald som standard, och ett tryck byter adress med månaden kvar', async () => {
+  it('menyn: fyra sidor, Läget nu vald som standard, och ett tryck byter adress med månaden kvar', async () => {
     await monter()
     const meny = Array.from(cont.querySelectorAll('[data-meny]')) as HTMLButtonElement[]
-    expect(meny.map(b => b.querySelector('.hk-nav-text')!.textContent)).toEqual(['Läget nu', 'Planera', 'Månader'])
+    expect(meny.map(b => b.querySelector('.hk-nav-text')!.textContent)).toEqual(['Läget nu', 'Prognos', 'Planera', 'Månader'])
     expect(meny[0].getAttribute('aria-current')).toBe('page')
     expect(cont.querySelector('[data-sida="laget"]')).not.toBeNull()
-    await act(async () => { meny[2].click() })
+    await act(async () => { meny[3].click() })
     expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10&sida=manader', { scroll: false })
     await ritaOm()
     expect(cont.querySelector('[data-meny="manader"]')!.getAttribute('aria-current')).toBe('page')
     await act(async () => { (cont.querySelector('[data-meny="laget"]') as HTMLButtonElement).click() })
     expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10', { scroll: false })
+  })
+
+  it('Prognos: hinner vi? — fyra svar, Per trakt som standard, Per maskin byter vy, och ett tryck på en rad leder till Planera', async () => {
+    q.params = 'ar=2026&manad=10&sida=prognos'
+    q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
+    await monter()
+    expect(cont.querySelector('[data-sida="prognos"]')).not.toBeNull()
+    expect(cont.querySelector('[data-sida="laget"]')).toBeNull()
+    expect(cont.querySelector('[data-prognos-svar-rad]')!.querySelectorAll('[data-prognos-svar]').length).toBeGreaterThan(0)
+    expect(cont.querySelector('[data-prognos-vy="trakt"]')).not.toBeNull()
+    await act(async () => { (Array.from(cont.querySelectorAll('[role="tab"]')).find(b => b.textContent === 'Per maskin') as HTMLButtonElement).click() })
+    expect(cont.querySelector('[data-prognos-vy="maskin"]')).not.toBeNull()
+    expect(cont.querySelector('[data-prognos-vy="trakt"]')).toBeNull()
+    await act(async () => { (cont.querySelector('[data-prognos-svar]') as HTMLButtonElement).click() })
+    expect(q.replace).toHaveBeenLastCalledWith(expect.stringContaining('sida=planera'), { scroll: false })
   })
 
   it('Månader: hur gick det? — procenten per månad står på sin egen sida, inte i en sidokolumn', async () => {

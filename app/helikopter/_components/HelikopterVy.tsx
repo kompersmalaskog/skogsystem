@@ -10,8 +10,8 @@
 // så sidan och flyttförslaget räknar på samma tal.
 //
 // Bredd: korten ligger i ett rutnät med CONTAINER QUERIES (sidans egen bredd): 1 kolumn, 2 från 640 px, 3 från 960 px.
-// MENY (2026-11-19): tre sidor, var och en svarar på en fråga — Läget nu (ligger vi bra till?), Planera (vilka trakter, i vilken ordning?), Månader (hur gick det?).
-// Sidomeny från 1000 px, tre flikar i botten under det (HelikopterMeny). Sidan ligger i adressen (?sida=). Ark underifrån under 600 px, panel från höger annars.
+// MENY (2026-11-19, Prognos 2026-11-20): fyra sidor, var och en svarar på en fråga — Läget nu (ligger vi bra till?), Prognos (hinner vi?), Planera (vilka trakter, i vilken ordning?), Månader (hur gick det?).
+// Sidomeny från 1000 px, fyra flikar i botten under det (HelikopterMeny). Sidan ligger i adressen (?sida=). Ark underifrån under 600 px, panel från höger annars.
 //
 // Data i lager, varje med eget fel (ett fel är ett fel, aldrig tomt):
 //   fast — maskiner, senaste importtid, bolagshistorik (en gång) · manadsdata — spår, arbetsdagar, planering, stopp (vid månadsbyte) ·
@@ -35,6 +35,7 @@ import { TYPER, TYP_NAMN, globalaArbetsdagar, manadStatus, maskinNamn, planering
 import { MANAD_NAMN, fmt, manadRubrik, relativTid } from '../_lib/format'
 import { medPrognoser } from '../_lib/klar'
 import type { SkogKort } from '@/lib/skogsdata/las'
+import { byggPrognos } from '../_lib/prognos'
 import { EGEN_SKOTNING, byggTavla, flyttVal, slutordning, utanforBestallning, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
@@ -45,6 +46,7 @@ import { Fel, Laddar } from './Tillstand'
 import { HK_CSS } from './Lista'
 import { PanelContext, type PanelPost } from './PanelVal'
 import Lage from './Lage'
+import Prognos from './Prognos'
 import { FlyttaSheet, PlaneraFlik, type PlaneraRoll, type OrdningsStyrning, type TraktVal } from './Tavla'
 import { flyttaObjekt, sattOrdning } from '@/lib/objekt/data'
 import { stegaManad } from '@/lib/objekt/manad'
@@ -302,6 +304,7 @@ export default function HelikopterVy() {
     return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), egetSkordat, stopp, senaste: senaste ?? undefined, utanfor: maskinObjekt ? utanforBestallning(maskinObjekt, spar) : undefined, ordning: nyOrdning ?? undefined }
   }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader, maskinObjekt, senaste, nyOrdning])
   const tavla = useMemo(() => (tavlaIn ? byggTavla(tavlaIn) : null), [tavlaIn])
+  const prognos = useMemo(() => (tavlaIn && tavla ? byggPrognos(tavlaIn, tavla) : null), [tavlaIn, tavla])
   const utanTypSumma = Math.round((manadsdata?.utanTyp ?? []).reduce((a, r) => a + r.volym, 0))
 
   const underrad = !dagar
@@ -446,6 +449,10 @@ export default function HelikopterVy() {
                   {sida === 'planera' ? (
                     <div data-sida="planera">
                       <PlaneraFlik tavla={tavla} typ={planera.typ} onTyp={typ => setPlanera({ typ, roll: 'skordare' })} start={planera.roll} manadNamn={MANAD_NAMN[manad - 1].toLowerCase()} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} ordning={ordningSt} onTrakt={bytMaskin} />
+                    </div>
+                  ) : sida === 'prognos' ? (
+                    <div data-sida="prognos">
+                      {prognos && <Prognos prognos={prognos} onTrakt={tillPlanera} />}
                     </div>
                   ) : (
                   <div className="hk-rutnat" data-sida="laget">
