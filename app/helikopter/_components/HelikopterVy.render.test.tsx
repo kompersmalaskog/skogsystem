@@ -200,7 +200,7 @@ describe('/helikopter — tavlan', () => {
     await monter()
     expect(cont.querySelector('[data-sida="prognos"]')).not.toBeNull()
     expect(cont.querySelector('[data-sida="laget"]')).toBeNull()
-    expect(cont.querySelectorAll('[data-enkel-kort]').length).toBeGreaterThan(0)
+    expect(cont.querySelector('[data-prognos-rubrik]')!.textContent).toMatch(/Vad ska vi göra\?|Inget behöver göras/)
     expect(cont.querySelector('[data-prognos-vy]')).toBeNull()
     expect(cont.textContent).not.toMatch(/G15h/)
     await act(async () => { (cont.querySelector('[data-visa-detaljer]') as HTMLButtonElement).click() })
@@ -209,8 +209,6 @@ describe('/helikopter — tavlan', () => {
     expect(cont.querySelector('[data-prognos-vy="maskin"]')).not.toBeNull()
     await act(async () => { (cont.querySelector('[data-dolj-detaljer]') as HTMLButtonElement).click() })
     expect(cont.querySelector('[data-prognos-enkel]')).not.toBeNull()
-    await act(async () => { (cont.querySelector('[data-prognos-ord]') as HTMLButtonElement).click() })
-    expect(q.replace).toHaveBeenLastCalledWith(expect.stringContaining('sida=planera'), { scroll: false })
   })
 
   it('Månader: hur gick det? — procenten per månad står på sin egen sida, inte i en sidokolumn', async () => {

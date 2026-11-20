@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { byggTavla, type TavlaIndata } from './tavla'
-import { byggPrognos, traktTakt } from './prognos'
+import { byggForslag, byggPrognos, traktTakt } from './prognos'
 import type { KlarData, KlarMaskin, KlarTrakt } from './klar'
 import type { SparLage } from './berakningar'
 
@@ -80,5 +80,52 @@ describe('prognos', () => {
   })
   it('ett spår utan beställning visas inte', () => {
     expect(prog({ spar: [spar({ bestallt: 0 })] }).spar).toEqual([])
+  })
+})
+
+describe('vad ska vi göra (förslag)', () => {
+  // Giant skördar 400 m³; skotarna Elefant (egen kö: A 300) och Wisent. Krokshult (221) har ingen skotare. Beställt 1000, skotat 200 → fattas.
+  const maskiner = [maskin('Elefant', 'skotare'), maskin('Wisent', 'skotare')]
+  const trakter = [
+    trakt('A', 'skotare', 'Elefant', { rest_volym: 300, timmar: 40 }),
+    trakt('B', 'skotare', 'Wisent', { rest_volym: 300, timmar: 40 }),
+    trakt('Krokshult', 'skotare', null, { rest_volym: 221, timmar: 16 }),
+  ]
+  const ind = (x: Partial<TavlaIndata> = {}): TavlaIndata => ({
+    status: 'pagaende', spar: [spar({ bestallt: 1000, skordat: 700, skotat: 200 })],
+    utfall: [{ typ: 'slutavverkning', maskin_id: 'Elefant', roll: 'skotare', volym: 200 }], klar: klar(maskiner, trakter), egna: new Set(), ...x,
+  })
+  const f = (x: Partial<TavlaIndata> = {}) => { const d = ind(x); return byggForslag(d, byggTavla(d)) }
+
+  it('en trakt utan maskin: förslaget säger vilken maskin, och efter-talet är bättre än före-talet', () => {
+    const k = f().find(x => x.id.startsWith('maskin:'))!
+    expect(k).toBeDefined()
+    expect(k.titel).toMatch(/^Ge Krokshult till (Elefant|Wisent)$/)
+    expect(k.aktion).toEqual({ slag: 'maskin', objekt_id: 'Krokshult' })
+    expect(k.vinst).toBeGreaterThan(0)
+    expect(k.efter).not.toBe(k.fore)
+  })
+  it('maskin som kör annat: vinsten är det vi får tillbaka när hon räknas in', () => {
+    const k = f({ senaste: [{ maskin_id: 'Wisent', pa: [] }, { maskin_id: 'Elefant', pa: ['A'] }] }).find(x => x.id.startsWith('kor:'))!
+    expect(k.titel).toBe('Wisent tillbaka på sina trakter')
+    expect(k.vinst).toBeGreaterThan(0)
+  })
+  it('störst vinst först, och "ny trakt" (ingen siffra) sist', () => {
+    const l = f({ spar: [spar({ bestallt: 5000, skordat: 700, skotat: 200 })] }).filter(x => x.roll === 'skotare')
+    const v = l.filter(x => x.vinst != null).map(x => x.vinst!)
+    expect(v).toEqual([...v].sort((a, b) => b - a))
+    expect(l[l.length - 1].id.startsWith('ny:')).toBe(true)
+    expect(l[l.length - 1].vinst).toBeNull()
+  })
+  it('för mycket skördat: förslaget är att flytta en trakt till nästa månad', () => {
+    const utfall: TavlaIndata['utfall'] = [{ typ: 'slutavverkning', maskin_id: 'Giant', roll: 'skordare', volym: 1500 }, { typ: 'slutavverkning', maskin_id: 'Elefant', roll: 'skotare', volym: 200 }]
+    const k = f({ spar: [spar({ bestallt: 1000, skordat: 1500, skotat: 200 })], utfall }).find(x => x.roll === 'skordare')!
+    expect(k).toMatchObject({ titel: 'Flytta en trakt till nästa månad', aktion: { slag: 'planera' } })
+  })
+  it('hinner vi eller månaden är slut: inga förslag', () => {
+    const utfall: TavlaIndata['utfall'] = [{ typ: 'slutavverkning', maskin_id: 'Elefant', roll: 'skotare', volym: 200 }, { typ: 'slutavverkning', maskin_id: 'Giant', roll: 'skordare', volym: 100 }]
+    expect(f({ spar: [spar({ bestallt: 100, skordat: 100, skotat: 200 })], utfall })).toEqual([])
+    expect(f({ status: 'avslutad' })).toEqual([])
+    expect(f({ klar: null })).toEqual([])
   })
 })

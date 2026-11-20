@@ -35,7 +35,7 @@ import { TYPER, TYP_NAMN, globalaArbetsdagar, manadStatus, maskinNamn, planering
 import { MANAD_NAMN, fmt, manadRubrik, relativTid } from '../_lib/format'
 import { medPrognoser } from '../_lib/klar'
 import type { SkogKort } from '@/lib/skogsdata/las'
-import { byggPrognos } from '../_lib/prognos'
+import { byggForslag, byggPrognos } from '../_lib/prognos'
 import { EGEN_SKOTNING, byggTavla, flyttVal, slutordning, utanforBestallning, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
@@ -305,6 +305,7 @@ export default function HelikopterVy() {
   }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader, maskinObjekt, senaste, nyOrdning])
   const tavla = useMemo(() => (tavlaIn ? byggTavla(tavlaIn) : null), [tavlaIn])
   const prognos = useMemo(() => (tavlaIn && tavla ? byggPrognos(tavlaIn, tavla) : null), [tavlaIn, tavla])
+  const forslag = useMemo(() => (tavlaIn && tavla ? byggForslag(tavlaIn, tavla) : []), [tavlaIn, tavla])
   const utanTypSumma = Math.round((manadsdata?.utanTyp ?? []).reduce((a, r) => a + r.volym, 0))
 
   const underrad = !dagar
@@ -452,7 +453,7 @@ export default function HelikopterVy() {
                     </div>
                   ) : sida === 'prognos' ? (
                     <div data-sida="prognos">
-                      {prognos && <Prognos prognos={prognos} onTrakt={tillPlanera} />}
+                      {prognos && <Prognos prognos={prognos} forslag={forslag} onTrakt={tillPlanera} onMaskin={(typ, objekt_id, roll) => (bytMaskin ? bytMaskin({ objekt_id, roll }) : tillPlanera(typ, roll))} />}
                     </div>
                   ) : (
                   <div className="hk-rutnat" data-sida="laget">

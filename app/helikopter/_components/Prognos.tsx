@@ -10,7 +10,7 @@ import Flikkontroll from '@/components/design/Flikkontroll'
 import { AVSTAND, FARG, IKON, KOLUMN, KORT, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens'
 import { rollFarg } from '@/lib/sparStil'
 import { fmt } from '../_lib/format'
-import type { Prognos as PrognosData, PrognosMaskin, PrognosRoll, PrognosSpar, PrognosTrakt } from '../_lib/prognos'
+import type { Forslag, Prognos as PrognosData, PrognosMaskin, PrognosRoll, PrognosSpar, PrognosTrakt } from '../_lib/prognos'
 import type { Typ } from '../_lib/queries'
 import type { PlaneraRoll } from './Tavla'
 
@@ -115,56 +115,61 @@ function PerMaskin({ p, onTrakt }: { p: PrognosData; onTrakt: (typ: Typ, roll: P
   )
 }
 
-// Första sidan: bara svaret. Per spår och maskintyp ett ord ("Fattas 516"), och under det trakterna med ett enda besked var — klar eller inte.
-// Maskin, m³/G15h och delsiffror bor bakom "Visa detaljer".
-function enkelText(t: PrognosTrakt): { text: string; orange: boolean } {
-  if (t.status === 'hinns') return { text: t.klar, orange: false }
-  if (t.status === 'delvis') return { text: 'Hinns inte helt', orange: true }
-  return { text: t.status === 'ingen_maskin' ? 'Ingen maskin' : 'Hinns inte', orange: true }
-}
-
-function Enkel({ p, onTrakt }: { p: PrognosData; onTrakt: (typ: Typ, roll: PlaneraRoll) => void }) {
+// Första sidan: vad ska vi göra? Per spår och maskintyp som inte hinner — de val som flyttar talet, med före och efter (räknade i tavlan),
+// störst vinst först. Hinner den, står det en rad. Trakterna, maskinerna och m³/G15h bor bakom "Visa detaljer".
+function Enkel({ p, forslag, onTrakt, onMaskin }: { p: PrognosData; forslag: Forslag[]; onTrakt: (typ: Typ, roll: PlaneraRoll) => void; onMaskin: (typ: Typ, objekt_id: string, roll: PlaneraRoll) => void }) {
+  const behover = p.spar.flatMap(s => s.roller.map(r => ({ s, r }))).filter(({ r }) => r.ton === 'orange')
+  const klara = p.spar.flatMap(s => s.roller.map(r => ({ s, r }))).filter(({ r }) => r.ton !== 'orange')
   return (
-    <div data-prognos-enkel="" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', columnGap: AVSTAND.xxl, rowGap: AVSTAND.xl, alignItems: 'start' }}>
-      {p.spar.map(s => (
-        <Sektion key={s.typ} rubrik={`${s.namn} · beställt ${fmt(s.bestallt)}`} kort={false}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-            {s.roller.map(r => (
-              <div key={r.roll} data-enkel-kort={`${s.typ}:${r.roll}`} style={{ ...KORT, display: 'flex', flexDirection: 'column' }}>
-                <button type="button" onClick={() => onTrakt(s.typ, planeraRoll(r.roll))} data-prognos-ord=""
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.primar, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', color: FARG.text }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.listtitel }}>
-                    <span aria-hidden="true" style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: RADIE.cirkel, background: rollFarg(planeraRoll(r.roll)) }} />{r.rubrik}
-                  </span>
-                  <span style={{ ...TYP.rubrik, color: tonFarg(r.ton) }}>{r.ord}</span>
-                </button>
-                {r.trakter.map(t => {
-                  const e = enkelText(t)
-                  return (
-                    <button key={`${t.objekt_id}:${t.maskin_id}`} type="button" onClick={() => onTrakt(s.typ, planeraRoll(r.roll))} data-prognos-trakt={t.objekt_id} data-status={t.status}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m, minHeight: TRAFFYTA.min, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', borderTop: `1px solid ${FARG.linje}` }}>
-                      <span style={{ ...TYP.text, color: e.orange ? FARG.text2 : FARG.text, overflowWrap: 'anywhere' }}>{t.namn}</span>
-                      <span style={{ ...TYP.meta, ...TNUM, flexShrink: 0, color: e.orange ? FARG.orange : FARG.text2 }}>{e.text}</span>
-                    </button>
-                  )
-                })}
+    <div data-prognos-enkel="" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xl }}>
+      <div data-prognos-rubrik="" style={{ ...TYP.titel }}>{behover.length === 0 ? 'Inget behöver göras' : 'Vad ska vi göra?'}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', columnGap: AVSTAND.xxl, rowGap: AVSTAND.xl, alignItems: 'start' }}>
+        {behover.map(({ s, r }) => {
+          const mina = forslag.filter(f => f.typ === s.typ && f.roll === r.roll)
+          return (
+            <Sektion key={`${s.typ}:${r.roll}`} rubrik={`${s.namn} · ${r.rubrik} · ${r.ord}`}>
+              <div data-forslag-grupp={`${s.typ}:${r.roll}`}>
+                {mina.length === 0 && (
+                  <button type="button" onClick={() => onTrakt(s.typ, planeraRoll(r.roll))} style={{ ...TYP.text, color: FARG.text2, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', minHeight: TRAFFYTA.min, textAlign: 'left', width: '100%', padding: `${AVSTAND.s}px 0` }}>
+                    Inget enkelt val flyttar talet — öppna Planera
+                  </button>
+                )}
+                {mina.map(f => (
+                  <button key={f.id} type="button" data-forslag={f.id} onClick={() => (f.aktion.slag === 'maskin' ? onMaskin(f.typ, f.aktion.objekt_id, planeraRoll(f.roll)) : onTrakt(f.typ, planeraRoll(f.roll)))}
+                    style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, width: '100%', minHeight: TRAFFYTA.primar, padding: `${AVSTAND.s}px 0`, background: 'none', border: 'none', borderTop: `1px solid ${FARG.linje}`, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', color: FARG.text }}>
+                    <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+                      <span style={{ ...TYP.listtitel, overflowWrap: 'anywhere' }}>{f.titel}</span>
+                      <span style={{ ...TYP.meta, color: FARG.text2 }}>{f.under}</span>
+                    </span>
+                    {f.efter != null && (
+                      <span data-forslag-efter="" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, ...TYP.meta, ...TNUM }}>
+                        <span style={{ color: FARG.text2 }}>{f.fore}</span>
+                        <span style={{ color: f.eftertons ? tonFarg(f.eftertons) : FARG.text }}>→ {f.efter}</span>
+                      </span>
+                    )}
+                    <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />
+                  </button>
+                ))}
               </div>
-            ))}
-          </div>
-        </Sektion>
-      ))}
+            </Sektion>
+          )
+        })}
+      </div>
+      {klara.length > 0 && (
+        <div data-prognos-klara="" style={{ ...TYP.meta, color: FARG.text2 }}>{klara.map(({ s, r }) => `${s.namn} ${r.rubrik.toLowerCase()}: ${r.ord.toLowerCase()}`).join(' · ')}</div>
+      )}
     </div>
   )
 }
 
-export default function Prognos({ prognos, onTrakt }: { prognos: PrognosData; onTrakt: (typ: Typ, roll: PlaneraRoll) => void }) {
+export default function Prognos({ prognos, forslag, onTrakt, onMaskin }: { prognos: PrognosData; forslag: Forslag[]; onTrakt: (typ: Typ, roll: PlaneraRoll) => void; onMaskin: (typ: Typ, objekt_id: string, roll: PlaneraRoll) => void }) {
   const [vy, setVy] = useState<Vy>('trakt')
   const [detalj, setDetalj] = useState(false)
   if (prognos.spar.length === 0) return <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.l}px 0` }}>Ingen beställning inlagd</div>
   if (!detalj) {
     return (
       <div data-prognos="" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xl }}>
-        <Enkel p={prognos} onTrakt={onTrakt} />
+        <Enkel p={prognos} forslag={forslag} onTrakt={onTrakt} onMaskin={onMaskin} />
         <button type="button" data-visa-detaljer="" onClick={() => setDetalj(true)}
           style={{ ...TYP.text, color: FARG.bla, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', minHeight: TRAFFYTA.min, textAlign: 'left', padding: 0 }}>Visa detaljer</button>
       </div>

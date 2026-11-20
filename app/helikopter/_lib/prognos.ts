@@ -8,7 +8,8 @@ import { fmtDag } from './format'
 import type { KlarRoll } from './klar'
 import type { Typ } from './queries'
 import type { Ton } from './kort'
-import { koerFor, traktVy, type KoRad, type Tavla, type TavlaBlock, type TavlaIndata } from './tavla'
+import { EGEN_SKOTNING, byggTavla, flyttVal, koerFor, traktVy, type KoRad, type Tavla, type TavlaBlock, type TavlaIndata } from './tavla'
+import { fmt } from './format'
 
 export type PrognosStatus = 'hinns' | 'delvis' | 'hinns_inte' | 'ingen_maskin'
 
@@ -149,4 +150,69 @@ export function byggPrognos(d: TavlaIndata, tavla: Tavla): Prognos {
   const maskiner = [...map.values()].sort((a, b) => Number(a.roll === 'skotare') - Number(b.roll === 'skotare') || a.namn.localeCompare(b.namn, 'sv'))
 
   return { slutDatum: pagar ? fmtDag(sista) : '', spar, maskiner }
+}
+
+// ── Vad ska vi göra? (2026-11-20, Martin: "jag måste kunna ta beslut vad vi ska göra") ─────────────────────────────────────────────────
+// För varje spår och maskintyp som inte hinner: de val som faktiskt flyttar talet, räknade med SAMMA tavla (en simulering per val) —
+// aldrig ett påstående utan siffra. Störst vinst först. "Lägg in ny trakt" har ingen siffra (vi vet inte vilken trakt) och står sist.
+export type Forslag = {
+  id: string
+  typ: Typ
+  roll: KlarRoll
+  titel: string
+  under: string
+  /** Spårets dom före och efter valet ("Fattas 1 501" → "Fattas 380"). efter = null när vi inte kan räkna. */
+  fore: string
+  efter: string | null
+  eftertons: Ton | null
+  /** m³ valet flyttar landar (positivt = bättre). null = går inte att räkna. */
+  vinst: number | null
+  aktion: { slag: 'maskin'; objekt_id: string } | { slag: 'planera' }
+}
+
+export function byggForslag(d: TavlaIndata, tavla: Tavla): Forslag[] {
+  if (d.klar == null || d.status === 'avslutad') return []
+  const ut: Forslag[] = []
+  const diffAv = (t: Tavla, typ: Typ, roll: KlarRoll) => t.spar.find(s => s.typ === typ)?.block.find(b => b.roll === roll) ?? null
+  for (const s of tavla.spar) {
+    if (s.bestallt <= 0) continue
+    for (const b of s.block) {
+      // För mycket skördat (bara skördaren): en trakt flyttas till nästa månad.
+      if (b.diff != null && b.diff > 0 && b.ton === 'orange' && b.roll === 'skordare') {
+        ut.push({ id: `over:${s.typ}:${b.roll}`, typ: s.typ, roll: b.roll, titel: 'Flytta en trakt till nästa månad', under: `${fmt(b.diff)} m³ över beställt`, fore: b.ord, efter: null, eftertons: null, vinst: null, aktion: { slag: 'planera' } })
+        continue
+      }
+      if (b.diff == null || b.diff >= 0) continue
+      const lista: Forslag[] = []
+      // 1. Trakter utan maskin: den maskin som ger mest.
+      for (const u of b.utan) {
+        const val = flyttVal(d, u.objekt_id, b.roll)?.val ?? []
+        let bast: { namn: string; b2: TavlaBlock } | null = null
+        for (const v of val) {
+          if (v.nuvarande || v.maskin_id === EGEN_SKOTNING) continue
+          const t2 = byggTavla({ ...d, flytt: { objekt_id: u.objekt_id, roll: b.roll, maskin_id: v.maskin_id } })
+          const b2 = diffAv(t2, s.typ, b.roll)
+          if (b2?.diff != null && (bast == null || b2.diff > (bast.b2.diff ?? -Infinity))) bast = { namn: v.namn, b2 }
+        }
+        if (bast && bast.b2.diff != null && bast.b2.diff - b.diff >= 1) {
+          lista.push({ id: `maskin:${s.typ}:${b.roll}:${u.objekt_id}`, typ: s.typ, roll: b.roll, titel: `Ge ${u.namn} till ${bast.namn}`, under: `${fmt(u.volym)} m³ som ingen maskin har`, fore: b.ord, efter: bast.b2.ord, eftertons: bast.b2.ton, vinst: Math.round(bast.b2.diff - b.diff), aktion: { slag: 'maskin', objekt_id: u.objekt_id } })
+        }
+      }
+      // 2. Maskin som kör annat: vad vi vinner om den är tillbaka på kön.
+      for (const m of b.maskiner) {
+        if (!m.korAnnat) continue
+        const t2 = byggTavla({ ...d, senaste: (d.senaste ?? []).filter(x => x.maskin_id !== m.maskin_id) })
+        const b2 = diffAv(t2, s.typ, b.roll)
+        if (b2?.diff != null && b2.diff - b.diff >= 1) {
+          lista.push({ id: `kor:${s.typ}:${b.roll}:${m.maskin_id}`, typ: s.typ, roll: b.roll, titel: `${m.namn} tillbaka på sina trakter`, under: `Kör annat just nu — räknas inte in`, fore: b.ord, efter: b2.ord, eftertons: b2.ton, vinst: Math.round(b2.diff - b.diff), aktion: { slag: 'planera' } })
+        }
+      }
+      lista.sort((a, c) => (c.vinst ?? 0) - (a.vinst ?? 0))
+      // 3. Räcker inte skogen: en ny trakt behövs, hur många m³ som saknas.
+      const saknar = s.racker.find(r => r.roll === b.roll && r.diff < 0)
+      if (saknar) lista.push({ id: `ny:${s.typ}:${b.roll}`, typ: s.typ, roll: b.roll, titel: 'Lägg in en ny trakt', under: `Trakterna räcker inte — ${fmt(-saknar.diff)} m³ saknas`, fore: b.ord, efter: null, eftertons: null, vinst: null, aktion: { slag: 'planera' } })
+      ut.push(...lista)
+    }
+  }
+  return ut
 }
