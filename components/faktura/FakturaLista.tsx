@@ -153,6 +153,15 @@ export default function FakturaLista({ vy }: { vy: ListVy }) {
         </Sektion>
       )}
 
+      {vy.hanteradeUtanfor && (
+        <p
+          style={{ margin: `0 0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text3 }}
+          data-hanterade-utanfor
+        >
+          {vy.hanteradeUtanfor}
+        </p>
+      )}
+
       <p style={{ margin: `0 0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text3 }}>{vy.fot}</p>
 
       {genomgang && (

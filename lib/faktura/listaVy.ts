@@ -32,6 +32,7 @@ import {
   type FakturaLage, type TraktFaktura, type Lage,
   lageFor, senasteFakturan, slutredovisningen,
 } from './fakturaLage'
+import { hanteradUtanforAppen, FAKTURERING_START, startText } from './start'
 
 export type OversiktsRad = {
   vo_nummer: string
@@ -108,6 +109,11 @@ export type ListVy = {
   vantar: { titel: string; under: string } | null
   /** Kön till genomgången: störst volym först, så det tyngsta blir gjort. */
   kontraktsKo: KontraktsPost[]
+  /**
+   * Trakter från före appen började fakturera som därför inte ber om något.
+   * null = inga. Står som en tyst rad längst ner, så ingenting tystas i smyg.
+   */
+  hanteradeUtanfor: string | null
   fot: string
 }
 
@@ -163,14 +169,26 @@ export function byggListVy(
   utanTrakt: ArbeteUtanTrakt | null,
   /** null = fakturorna kunde inte läsas. Då faller listan tillbaka på EN hög, och säger varför. */
   faktura: FakturaLage | null,
+  /**
+   * Dagen appen började fakturera (lib/faktura/start.ts). Trakter som blev
+   * klara före den slutar be om något. Bara tester skickar in en annan dag.
+   */
+  start: string = FAKTURERING_START,
 ): ListVy {
+  const utanforAppen = (r: OversiktsRad) => hanteradUtanforAppen(r.avrakningsdatum, start)
   const klaraRader = rader.filter(r => r.tillstand === 'klar')
   const lagetFor = (vo: string): Lage => lageFor(faktura?.[vo])
   // "Kräver något av dig" = trakter där EN sak på trakten saknas och fylls i.
   // De 31 utan kundnummer räknas INTE hit: bolaget (Privat, Karl Hedin)
   // faktureras inte på vo-nummer, så det är ett beslut om bolaget — inte
   // fyrtiotre fält att fylla i. De har sin egen rad under "Vad ska du göra?".
-  const kraverNagot = rader.filter(r => r.tillstand === 'atgard')
+  //
+  // En trakt som blev klar innan appen började fakturera ber inte om något:
+  // den fakturerades utanför appen, och ett kontraktsnummer eller en
+  // traillertid ändrar ingen faktura som ska skickas (lib/faktura/start.ts).
+  const kraverNagot = rader.filter(
+    r => r.tillstand === 'atgard' && !utanforAppen(r),
+  )
 
   // ── Högarna: faktureringens ordning ──────────────────────────────────────
   // Att fakturera och "går inte att se" gäller bara trakter maskinerna är klara
@@ -180,7 +198,13 @@ export function byggListVy(
   const attFaktureraRader = faktura
     ? klaraRader.filter(r => lagetFor(r.vo_nummer) === 'ofakturerat')
     : klaraRader
-  const okantRader = faktura ? klaraRader.filter(r => lagetFor(r.vo_nummer) === 'okant') : []
+  // "Går inte att se" är en fråga vi inte kan svara på. Före startdatumet är
+  // den också ointressant: trakten fakturerades utanför appen.
+  const okantRader = faktura
+    ? klaraRader.filter(
+        r => lagetFor(r.vo_nummer) === 'okant' && !utanforAppen(r),
+      )
+    : []
 
   // TIMPENG SLUTREDOVISAS INTE — den är klar så fort fakturan gått (Martin
   // 2026-10-25). Slutredovisningen hör till ackordet, där Vidas avräkning
@@ -425,6 +449,24 @@ export function byggListVy(
       saknarTrakt: r.saknar_objektrad,
     }))
 
+  // ── Det som tystats ──────────────────────────────────────────────────────
+  // Ingenting försvinner i smyg: raden säger hur många trakter som slutat be om
+  // något, och varför. En trakt räknas EN gång, även om den tystats i båda
+  // listorna ovan.
+  const tystade = new Set<string>([
+    ...rader
+      .filter(r => r.tillstand === 'atgard' && utanforAppen(r))
+      .map(r => r.vo_nummer),
+    ...(faktura
+      ? klaraRader
+          .filter(r => lagetFor(r.vo_nummer) === 'okant' && utanforAppen(r))
+          .map(r => r.vo_nummer)
+      : []),
+  ])
+  const hanteradeUtanfor = tystade.size > 0
+    ? `${tystade.size} ${tystade.size === 1 ? 'trakt blev' : 'trakter blev'} klar${tystade.size === 1 ? '' : 'a'} före ${startText(start)} och fakturerades utanför appen. ${tystade.size === 1 ? 'Den' : 'De'} ber inte om något här.`
+    : null
+
   return {
     svar,
     attGora,
@@ -432,6 +474,7 @@ export function byggListVy(
     arbeteVantar,
     vantar,
     kontraktsKo,
+    hanteradeUtanfor,
     fot: faktura
       ? 'Högarna följer fakturan i Fortnox, kopplad på kontraktsnumret. Priserna räknas när du öppnar en trakt.'
       : 'Listan kontrollerar kund, kontraktsnummer och traillertimmar. Priserna räknas när du öppnar en trakt.',

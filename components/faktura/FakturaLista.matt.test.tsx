@@ -100,7 +100,8 @@ function html(): string {
   document.body.appendChild(c);
   const r = createRoot(c);
   act(() => {
-    r.render(<FakturaLista vy={byggListVy(RADER, { poster: 2, timmar: 2.93 }, faktura)} />);
+    // Fixturens datum ligger före startdatumet; mätningen gäller formen, inte det.
+    r.render(<FakturaLista vy={byggListVy(RADER, { poster: 2, timmar: 2.93 }, faktura, '2000-01-01')} />);
   });
   const h = c.innerHTML;
   act(() => { r.unmount(); });
