@@ -11,6 +11,7 @@ grant usage on schema public to authenticated, service_role, anon;
 create table dim_maskin (maskin_id text primary key, visningsnamn text);
 insert into dim_maskin values ('R64428', 'H8E -26'), ('A130743', 'Elefant 26');
 
+alter table ledighet_ansokningar add column typ text;  -- prodens kolumn; behövs av maskin_ledighet (del 4)
 alter table medarbetare add column user_id uuid unique;
 alter table medarbetare add column epost text;
 alter table medarbetare add column timlon_kr numeric;

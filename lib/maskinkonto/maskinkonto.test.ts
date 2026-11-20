@@ -3,7 +3,8 @@
  * Maskinen som maskin — de rena reglerna: koden (hash, aldrig läsbar), vad som är öppet/låst/dolt, utgången upplåsning och vyregistret.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { arGiltigKod, skapaHash, stammerKod } from './kod'
+import { arGiltigKod, kodPepparFinns, skapaHash, stammerKod } from './kod'
+import { byggMaskinKodNotis, MASKIN_KOD_MAX_ALDER_MS } from './notis'
 import {
   IDLE_MS, arDoldSokvag, arKartSokvag, arLastSokvag, lasUpplast, maskinUpplast, sattMaskinSession, sattUpplast, utgangen,
 } from './upplast'
@@ -25,6 +26,35 @@ describe('koden', () => {
     expect(stammerKod('', a)).toBe(false)
     process.env.MASKIN_KOD_PEPPAR = 'annan-peppar'  // en läckt databasrad räcker inte utan servern hemlighet
     expect(stammerKod('4711', a)).toBe(false)
+  })
+})
+
+describe('peppar', () => {
+  it('bara MASKIN_KOD_PEPPAR — service-nyckeln är ingen reserv (den ska kunna bytas utan att koderna slutar fungera)', () => {
+    const a = process.env.MASKIN_KOD_PEPPAR, k = process.env.SUPABASE_SERVICE_ROLE_KEY
+    try {
+      process.env.MASKIN_KOD_PEPPAR = 'p1'; process.env.SUPABASE_SERVICE_ROLE_KEY = 'nyckel-A'
+      const rad = skapaHash('4711')
+      process.env.SUPABASE_SERVICE_ROLE_KEY = 'nyckel-B'               // nyckeln byts
+      expect(stammerKod('4711', rad)).toBe(true)                        // koderna fungerar fortfarande
+      delete process.env.MASKIN_KOD_PEPPAR
+      expect(kodPepparFinns()).toBe(false)
+      expect(() => skapaHash('4711')).toThrow(/MASKIN_KOD_PEPPAR/)      // aldrig tyst reserv
+      expect(() => stammerKod('4711', rad)).toThrow(/MASKIN_KOD_PEPPAR/) // aldrig ett tyst "fel kod"
+    } finally { if (a === undefined) delete process.env.MASKIN_KOD_PEPPAR; else process.env.MASKIN_KOD_PEPPAR = a; if (k === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = k }
+  })
+})
+
+describe('notisen "Många fel koder"', () => {
+  const p = { medarbetare_id: 'p1', namn: 'Oskar Nilsson', maskin_namn: 'H8E -26', till: '2026-11-20T18:00:00Z' }
+  it('säger vem och var — aldrig något om koden', () => {
+    const u = byggMaskinKodNotis({ payload: p, skapad_at: new Date().toISOString() })
+    expect(u.typ).toBe('skicka')
+    if (u.typ === 'skicka') { expect(u.meddelande.title).toBe('Många fel koder för Oskar Nilsson på H8E -26'); expect(u.meddelande.body).toContain('10 fel i rad'); expect(u.meddelande.url).toBe('/admin?flik=medarbetare') }
+  })
+  it('saknat namn/maskin eller för gammal → hoppas över', () => {
+    expect(byggMaskinKodNotis({ payload: { namn: 'X' } }).typ).toBe('hoppa_over')
+    expect(byggMaskinKodNotis({ payload: p, skapad_at: new Date(Date.now() - MASKIN_KOD_MAX_ALDER_MS - 1000).toISOString() }).typ).toBe('hoppa_over')
   })
 })
 

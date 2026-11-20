@@ -6,8 +6,8 @@
  */
 import { NextResponse } from "next/server";
 import { adminSupabase } from "@/lib/auth/admin";
-import { arGiltigKod, skapaHash } from "@/lib/maskinkonto/kod";
-import { kravPerson, nej } from "@/lib/maskinkonto/server";
+import { arGiltigKod, kodPepparFinns, skapaHash } from "@/lib/maskinkonto/kod";
+import { kravPerson, nej, pepparSaknas } from "@/lib/maskinkonto/server";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +24,7 @@ export async function POST(request: Request) {
   if (!v.ok) return v.res;
   const body = await request.json().catch(() => null) as { kod?: unknown } | null;
   if (!body || !arGiltigKod(body.kod)) return nej(400, "Koden är fyra siffror.");
+  if (!kodPepparFinns()) return pepparSaknas();
   const db = adminSupabase();
   const { kod_hash, salt } = skapaHash(body.kod);
   const { error } = await db.from("forare_maskinkod").upsert({ medarbetare_id: v.medarbetareId, kod_hash, salt, satt_at: new Date().toISOString(), satt_av: v.medarbetareId });

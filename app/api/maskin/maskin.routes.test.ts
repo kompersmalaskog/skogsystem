@@ -60,7 +60,7 @@ function fakeDb(t: Tabeller, rpc: Record<string, (a: any) => any> = {}, auth: an
 
 const req = (body: unknown, extra: Record<string, string> = {}) => new Request('http://x/api', { method: 'POST', headers: { 'content-type': 'application/json', ...extra }, body: JSON.stringify(body) })
 
-function standard(over: { koder?: any[]; gate?: any; konto?: any[] } = {}) {
+function standard(over: { koder?: any[]; gate?: any; konto?: any[]; fel?: any } = {}) {
   process.env.MASKIN_KOD_PEPPAR = 'p'
   const kod = skapaHash('1234')
   const rpcAnrop: string[] = []
@@ -80,7 +80,7 @@ function standard(over: { koder?: any[]; gate?: any; konto?: any[] } = {}) {
   }
   const db = fakeDb(t, {
     maskin_kod_forsok: () => { rpcAnrop.push('forsok'); return over.gate ?? [{ tillat: true, vantar_till: null }] },
-    maskin_kod_fel: () => { rpcAnrop.push('fel'); return null },
+    maskin_kod_fel: () => { rpcAnrop.push('fel'); return over.fel ?? [{ vantar_till: null, timme: false }] },
     maskin_kod_ratt: () => { rpcAnrop.push('ratt'); return null },
     schema_forare: () => P_OSKAR,
   }, {
@@ -148,6 +148,40 @@ describe('Låsa upp med kod', () => {
     standard({ gate: [] })
     const r = await lasUppPost(req({ medarbetare_id: P_OSKAR, kod: '1234' })); const j = await r.json()
     expect(r.status).toBe(500); expect(j.token_hash).toBeUndefined()
+  })
+  it('tio fel i rad: timmens väntan, loggen säger det och admin får en notis (aldrig personen själv) med namn och maskin — och direkt flush', async () => {
+    const till = new Date(Date.now() + 3_600_000).toISOString()
+    const { db } = standard({ fel: [{ vantar_till: till, timme: true }] })
+    ;(db as any).from('medarbetare')   // (fakeDb läser tabellerna per anrop)
+    const flush = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('fetch', flush)
+    const r = await lasUppPost(req({ medarbetare_id: P_OSKAR, kod: '9999' })); const j = await r.json()
+    vi.unstubAllGlobals()
+    expect(r.status).toBe(401); expect(j).toMatchObject({ fel: 'fel_kod', timme: true, vantar_till: till })
+    expect(db.skrivningar.filter(s => s.tabell === 'maskin_upplasning_logg').map(s => s.rad.utfall)).toEqual(['fel_kod', 'spard_timme'])
+    const kö = db.skrivningar.find(s => s.tabell === 'notis_kö')!.rad as any[]
+    expect(kö.map(x => x.mottagare_id)).toEqual([P_MARTIN])                           // bara aktiva admin
+    expect(kö[0]).toMatchObject({ typ: 'maskin_kod_spar', skickas_at: 'infinity', payload: { namn: 'Oskar Nilsson', maskin_id: 'R64428' } })
+    expect(JSON.stringify(kö)).not.toMatch(/9999|kod_hash|salt/)                      // aldrig något om själva koden
+    expect(flush).toHaveBeenCalledOnce()
+  })
+  it('fem fel (en minut) ger ingen notis', async () => {
+    const { db } = standard({ fel: [{ vantar_till: new Date(Date.now() + 60_000).toISOString(), timme: false }] })
+    const r = await lasUppPost(req({ medarbetare_id: P_OSKAR, kod: '9999' })); const j = await r.json()
+    expect(j.timme).toBe(false); expect(db.skrivningar.some(s => s.tabell === 'notis_kö')).toBe(false)
+    expect(db.skrivningar.some(s => s.tabell === 'maskin_upplasning_logg' && s.rad.utfall === 'spard_timme')).toBe(false)
+  })
+  it('MASKIN_KOD_PEPPAR saknas → tydligt 500, ingen token, inget räknat försök — och ALDRIG en reserv till service-nyckeln', async () => {
+    const { rpcAnrop } = standard()
+    const k = process.env.SUPABASE_SERVICE_ROLE_KEY; process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-nyckel'
+    delete process.env.MASKIN_KOD_PEPPAR
+    try {
+      const r = await lasUppPost(req({ medarbetare_id: P_OSKAR, kod: '1234' })); const j = await r.json()
+      expect(r.status).toBe(500); expect(j.fel).toBe('peppar_saknas'); expect(j.error).toContain('MASKIN_KOD_PEPPAR'); expect(j.token_hash).toBeUndefined()
+      expect(rpcAnrop).toEqual([])
+      h.session = { user: { id: 'u', email: 'o@x' }, medarbetareId: P_OSKAR, roll: 'forare' }
+      const s = await kodPost(req({ kod: '4711' })); expect(s.status).toBe(500); expect((await s.json()).fel).toBe('peppar_saknas')
+    } finally { process.env.MASKIN_KOD_PEPPAR = 'p'; if (k === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY; else process.env.SUPABASE_SERVICE_ROLE_KEY = k }
   })
   it('ingen kod vald → 409 "Välj din kod i telefonen först", ingen räknare rörs', async () => {
     const { rpcAnrop } = standard({ koder: [] })

@@ -35,3 +35,6 @@ export async function kravPerson(): Promise<PersonVakt> {
 }
 
 export { ADMIN_ROLLER };
+
+/** Servern saknar MASKIN_KOD_PEPPAR: ett tydligt fel, aldrig "fel kod" och aldrig ett räknat försök. */
+export const pepparSaknas = () => nej(500, "Servern saknar MASKIN_KOD_PEPPAR. Lägg in den i Vercel (Environment Variables) och släpp om.", { fel: "peppar_saknas" });

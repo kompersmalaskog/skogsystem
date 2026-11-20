@@ -125,29 +125,50 @@ begin
   raise notice 'OK: maskin_konto och kodtabellerna går inte att nå från webbläsaren';
 end $$;
 
--- felräknaren: fem fel → en minuts väntan, rätt kod nollar
+-- felräknaren: fem fel i rad → en minut, tio fel i rad → en timme (+ notis), rätt kod nollar allt
 do $$
-declare r record; ny timestamptz; i int; f uuid := '00000000-0000-0000-0000-0000000000f1';
+declare r record; f record; i int; id uuid := '00000000-0000-0000-0000-0000000000f1'; sek numeric;
 begin
   for i in 1..4 loop
-    select * into r from maskin_kod_forsok(f); if not r.tillat then raise exception 'FEL: försök % blockerades', i; end if;
-    if maskin_kod_fel(f) is not null then raise exception 'FEL: väntan satt för tidigt (försök %)', i; end if;
+    select * into r from maskin_kod_forsok(id); if not r.tillat then raise exception 'FEL: försök % blockerades', i; end if;
+    select * into f from maskin_kod_fel(id); if f.vantar_till is not null then raise exception 'FEL: väntan satt för tidigt (försök %)', i; end if;
   end loop;
-  perform maskin_kod_ratt(f);   -- rätt kod efter fyra fel nollar
+  perform maskin_kod_ratt(id);   -- rätt kod efter fyra fel nollar
   for i in 1..5 loop
-    select * into r from maskin_kod_forsok(f); if not r.tillat then raise exception 'FEL: nollad räknare — försök % blockerades', i; end if;
-    ny := maskin_kod_fel(f);
+    select * into r from maskin_kod_forsok(id); if not r.tillat then raise exception 'FEL: nollad räknare — försök % blockerades', i; end if;
+    select * into f from maskin_kod_fel(id);
   end loop;
-  if ny is null then raise exception 'FEL: det femte felet gav ingen väntan'; end if;
-  select * into r from maskin_kod_forsok(f);
+  if f.vantar_till is null or f.timme then raise exception 'FEL: det femte felet ska ge en MINUT, inte timme (%)', f; end if;
+  sek := extract(epoch from (f.vantar_till - now()));
+  if sek < 50 or sek > 61 then raise exception 'FEL: femte felet gav % s väntan (väntade ~60)', sek; end if;
+  select * into r from maskin_kod_forsok(id);
   if r.tillat or r.vantar_till is null then raise exception 'FEL: sjätte försöket under väntan släpptes igenom'; end if;
-  -- väntan över → börja om
-  update maskin_kod_las set last_until = now() - interval '1 second' where medarbetare_id = f;
-  select * into r from maskin_kod_forsok(f);
-  if not r.tillat then raise exception 'FEL: väntan släppte aldrig'; end if;
-  perform maskin_kod_ratt(f);
-  insert into pg_temp.matris values ('kod: fem fel i rad', 'sjätte försöket blockeras en minut', '-', 'väntan', true);
-  raise notice 'OK: fem fel i rad → en minuts väntan, väntan släpper, rätt kod nollar';
+  -- minuten över: de fem börjar om, men de tio i rad ligger kvar
+  update maskin_kod_las set last_until = now() - interval '1 second' where medarbetare_id = id;
+  for i in 6..10 loop
+    select * into r from maskin_kod_forsok(id); if not r.tillat then raise exception 'FEL: försök % (efter minuten) blockerades', i; end if;
+    select * into f from maskin_kod_fel(id);
+  end loop;
+  if not f.timme then raise exception 'FEL: det tionde felet i rad ska ge en TIMME (timme-flaggan saknas)'; end if;
+  sek := extract(epoch from (f.vantar_till - now()));
+  if sek < 3590 or sek > 3601 then raise exception 'FEL: tionde felet gav % s väntan (väntade ~3600)', sek; end if;
+  select * into r from maskin_kod_forsok(id);
+  if r.tillat then raise exception 'FEL: försök under timmen släpptes igenom'; end if;
+  -- timmen över: räknaren börjar om från noll (fel_rad nollades när timmen sattes)
+  update maskin_kod_las set last_until = now() - interval '1 second' where medarbetare_id = id;
+  select * into r from maskin_kod_forsok(id); if not r.tillat then raise exception 'FEL: timmen släppte aldrig'; end if;
+  if (select fel_rad from maskin_kod_las where medarbetare_id = id) <> 1 then raise exception 'FEL: tio-i-rad började inte om efter timmen'; end if;
+  -- nio fel + rätt kod nollar tio-i-rad
+  perform maskin_kod_ratt(id);
+  for i in 1..9 loop
+    select * into r from maskin_kod_forsok(id);
+    if not r.tillat then update maskin_kod_las set last_until = now() - interval '1 second' where medarbetare_id = id; select * into r from maskin_kod_forsok(id); end if;
+    perform maskin_kod_fel(id);
+  end loop;
+  perform maskin_kod_ratt(id);
+  if (select fel_rad + fel from maskin_kod_las where medarbetare_id = id) <> 0 then raise exception 'FEL: rätt kod nollade inte räknarna'; end if;
+  insert into pg_temp.matris values ('kod: fem fel i rad / tio fel i rad', '5 → en minut · 10 → en timme (+ notis)', '-', 'väntan', true);
+  raise notice 'OK: fem fel → en minut, tio fel i rad → en timme, räknarna nollas av rätt kod';
 end $$;
 
 -- skrivningar: maskinen sätts av databasen
@@ -215,6 +236,28 @@ do $$ declare n int; begin
   execute 'reset role';
   insert into pg_temp.matris values ('storage: bucket avtal + utbildningsbevis', 'nekad (0 av 2 filer)', 'nekad', 'nekad / nekad', true);
   raise notice 'OK: lagrade filer';
+end $$;
+
+-- del 4: kalenderns Semester/Ledig går via maskin_ledighet — tabellen är spärrad, funktionen lämnar bara ut 'semester'/'ledig' per maskin
+do $$ declare n int; r record; l uuid := '10000000-0000-0000-0000-0000000004a1';
+begin
+  insert into medarbetare (id, namn, roll, maskin_id, aktiv) values (l, 'Ledig Förare', 'forare', 'R64428', true) on conflict do nothing;
+  insert into ledighet_ansokningar (medarbetare_id, status, fran_tid, till_tid, startdatum, slutdatum, typ)
+    values (l, 'godkänd', null, null, '2026-11-10', '2026-11-12', 'sjuk'), (l, 'godkänd', null, null, '2026-11-20', '2026-11-21', 'semester'),
+           (l, 'väntar', null, null, '2026-11-25', '2026-11-26', 'semester');
+  perform set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-0000000000b1', true); execute 'set local role authenticated';
+  select count(*) into n from ledighet_ansokningar where medarbetare_id = l;
+  if n <> 0 then raise exception 'FEL: maskinkontot läser ledighet direkt (%)', n; end if;
+  select count(*) into n from maskin_ledighet(array['R64428'], '2026-11-01', '2026-11-30');
+  if n <> 2 then raise exception 'FEL: maskin_ledighet gav % rader (ska vara 2: ej väntande)', n; end if;
+  for r in select * from maskin_ledighet(array['R64428'], '2026-11-01', '2026-11-30') loop
+    if r.typ not in ('semester', 'ledig') then raise exception 'FEL: maskin_ledighet läcker typen %', r.typ; end if;
+  end loop;
+  if (select count(*) from maskin_ledighet(array['R64428'], '2026-11-01', '2026-11-30') where typ = 'ledig') <> 1 then raise exception 'FEL: sjuk ska bli ledig'; end if;
+  if exists (select 1 from maskin_ledighet(array['A130743'], '2026-11-01', '2026-11-30')) then raise exception 'FEL: fel maskin'; end if;
+  execute 'reset role';
+  insert into pg_temp.matris values ('ledighet via maskin_ledighet (kalendern)', 'bara semester/ledig per maskin', 'nekad', 'bara semester/ledig', true);
+  raise notice 'OK: maskin_ledighet — maskinkontot får bara semester/ledig per maskin, aldrig typen eller personen';
 end $$;
 
 -- migrationen ger EXAKT listan: en policy per spärrad tabell, ingen extra

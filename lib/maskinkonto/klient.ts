@@ -37,13 +37,31 @@ export async function lasUppMedKod(p: Person, kod: string): Promise<LasUppSvar> 
   const maskinId = hamtaEnhetMaskin()
   if (!session || !maskinId) return { ok: false, fel: 'annat' }
   sattMaskinSession({ access_token: session.access_token, refresh_token: session.refresh_token, maskin_id: maskinId })
-  const v = await supabase.auth.verifyOtp({ token_hash: j.token_hash, type: 'magiclink' })
-  if (v.error) { sattMaskinSession(null); return { ok: false, fel: 'annat' } }
+  // Upplåsningen skrivs FÖRE bytet: finns personens session i webbläsaren finns också minnet av att den ska kastas (aldrig en personlig session utan spår).
   sattUpplast({ id: p.id, namn: p.namn, roll: p.roll, aktivitet: Date.now() })
+  const v = await supabase.auth.verifyOtp({ token_hash: j.token_hash, type: 'magiclink' })
+  if (v.error) { sattUpplast(null); sattMaskinSession(null); return { ok: false, fel: 'annat' } }
   return { ok: true }
 }
 
-/** Spärrar personens session på servern (best effort) och sätter tillbaka maskinkontots. Returnerar false om maskinkontot inte gick att få tillbaka. */
+/** Rensar allt Supabase lagrat i webbläsaren (sessionen i localStorage och i cookies). Sista utvägen när ett vanligt signOut inte gick. */
+export function rensaSupabaseLagring(): void {
+  try { Object.keys(localStorage).filter(k => k.startsWith('sb-')).forEach(k => localStorage.removeItem(k)) } catch { /* */ }
+  try { sessionStorage && Object.keys(sessionStorage).filter(k => k.startsWith('sb-')).forEach(k => sessionStorage.removeItem(k)) } catch { /* */ }
+  try { document.cookie.split(';').map(c => c.split('=')[0].trim()).filter(n => n.startsWith('sb-')).forEach(n => { document.cookie = `${n}=; Max-Age=0; path=/` }) } catch { /* */ }
+}
+
+/** Personens session ska ALDRIG ligga kvar: utloggad lokalt (och på servern), och om inte ens det går rensas lagringen för hand. */
+async function loggaUtLokalt(): Promise<void> {
+  try { await supabase.auth.signOut({ scope: 'local' }) } catch { /* nästa steg tar det */ }
+  rensaSupabaseLagring()
+}
+
+/**
+ * Spärrar personens session på servern (best effort) och sätter tillbaka maskinkontots. Returnerar true om maskinkontot är tillbaka.
+ * GÅR DET INTE (maskinkontots sparade session saknas eller setSession misslyckas) loggas personen ut lokalt innan något annat händer — oavsett utfall
+ * ligger aldrig personens session kvar i webbläsaren.
+ */
 async function aterMaskin(): Promise<boolean> {
   const ms = lasMaskinSession()
   try {
@@ -51,13 +69,16 @@ async function aterMaskin(): Promise<boolean> {
     if (session?.access_token) void fetch('/api/maskin/las', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, keepalive: true }).catch(() => undefined)
   } catch { /* */ }
   sattUpplast(null)
-  if (!ms) return false
-  const r = await supabase.auth.setSession({ access_token: ms.access_token, refresh_token: ms.refresh_token })
+  let tillbaka = false
+  if (ms) {
+    try { tillbaka = !(await supabase.auth.setSession({ access_token: ms.access_token, refresh_token: ms.refresh_token })).error } catch { tillbaka = false }
+  }
   sattMaskinSession(null)
-  return !r.error
+  if (!tillbaka) await loggaUtLokalt()
+  return tillbaka
 }
 
-/** Maskinen låser sig: tillbaka till kartan som maskin. */
+/** Maskinen låser sig: tillbaka till kartan som maskin. Går maskinkontot inte att få tillbaka: utloggad och till inloggningen. */
 export async function lasMaskinen(): Promise<void> {
   const ok = await aterMaskin()
   window.location.assign(ok ? '/planering' : '/login')
@@ -66,7 +87,7 @@ export async function lasMaskinen(): Promise<void> {
 /** Admin loggar ut hela maskinen (maskinkontot också) — till inloggningssidan. */
 export async function loggaUtMaskinen(): Promise<void> {
   await aterMaskin()
-  try { await supabase.auth.signOut() } catch { /* */ }
+  await loggaUtLokalt()
   window.location.assign('/login')
 }
 

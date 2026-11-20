@@ -55,7 +55,9 @@ describe('hemligheter', () => {
   })
   it('klienten skickar koden bara till servern (aldrig till supabase direkt) och sparar den aldrig', () => {
     const klient = utanKommentarer(lasFil('lib/maskinkonto/klient.ts') + lasFil('components/maskinkonto/VemArDuArk.tsx') + lasFil('components/maskinkonto/KodArk.tsx') + lasFil('components/maskinkonto/KodPlatta.tsx'))
-    expect(klient).not.toMatch(/localStorage|sessionStorage/)   // inga koder i webbläsarens minne
+    // Inga koder i webbläsarens minne: ingenting skrivs (setItem) och ingenting annat än Supabase-sessionens egna sb-nycklar rensas.
+    expect(klient).not.toMatch(/setItem/)
+    expect([...klient.matchAll(/(?:localStorage|sessionStorage)[^\n]*/g)].map(m => m[0]).every(rad => /sb-/.test(rad) && /removeItem|Object\.keys/.test(rad))).toBe(true)
     expect(klient).not.toMatch(/\.from\(['"](forare_maskinkod|maskin_kod_las)/)
   })
 })

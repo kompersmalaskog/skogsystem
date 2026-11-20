@@ -9,8 +9,9 @@
  */
 import { NextResponse } from "next/server";
 import { adminSupabase } from "@/lib/auth/admin";
-import { arGiltigKod, stammerKod } from "@/lib/maskinkonto/kod";
-import { kravMaskinkonto, nej } from "@/lib/maskinkonto/server";
+import { arGiltigKod, kodPepparFinns, stammerKod } from "@/lib/maskinkonto/kod";
+import { kravMaskinkonto, nej, pepparSaknas } from "@/lib/maskinkonto/server";
+import { koaMaskinKodSparr } from "@/lib/maskinkonto/notis";
 
 export const dynamic = "force-dynamic";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
   if (!vakt.ok) return vakt.res;
   const body = await request.json().catch(() => null) as { medarbetare_id?: unknown; kod?: unknown } | null;
   if (!body || typeof body.medarbetare_id !== "string" || !UUID.test(body.medarbetare_id) || !arGiltigKod(body.kod)) return nej(400, "Fel indata");
+  if (!kodPepparFinns()) return pepparSaknas();       // före allt som räknar: saknad konfiguration är aldrig "fel kod"
 
   const db = adminSupabase();
   const logga = (utfall: string, medarbetareId: string | null, detalj?: string) =>
@@ -44,9 +46,16 @@ export async function POST(request: Request) {
   }
 
   if (!stammerKod(body.kod, rad)) {
-    const vantarTill = await db.rpc("maskin_kod_fel", { p_med: p.id });
+    const fel = await db.rpc("maskin_kod_fel", { p_med: p.id });
+    const f = (Array.isArray(fel.data) ? fel.data[0] : fel.data) as { vantar_till?: string | null; timme?: boolean } | null;
     await logga("fel_kod", p.id);
-    return nej(401, "Fel kod", { fel: "fel_kod", vantar_till: vantarTill.data ?? null });
+    if (f?.timme) {
+      // Tio fel i rad: en timmes väntan, och admin får veta det (en notis köas och skickas direkt).
+      await logga("spard_timme", p.id, "tio fel i rad");
+      const { data: m } = await db.from("dim_maskin").select("visningsnamn").eq("maskin_id", vakt.maskinId).maybeSingle();
+      await koaMaskinKodSparr(db, { medarbetareId: p.id, namn: p.namn, maskinId: vakt.maskinId, maskinNamn: m?.visningsnamn ?? vakt.maskinId, till: f.vantar_till ?? null }, request);
+    }
+    return nej(401, "Fel kod", { fel: "fel_kod", vantar_till: f?.vantar_till ?? null, timme: !!f?.timme });
   }
   await db.rpc("maskin_kod_ratt", { p_med: p.id });
 

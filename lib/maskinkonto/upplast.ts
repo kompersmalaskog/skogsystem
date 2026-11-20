@@ -60,3 +60,18 @@ export const arLastSokvag = (path: string): boolean => borjar(path, LASTA_SOKVAG
 export const arDoldSokvag = (path: string): boolean => borjar(path, DOLDA_SOKVAGAR)
 /** Planeringen/kartan är maskinens egen vy: att gå dit låser upp-läget. */
 export const arKartSokvag = (path: string): boolean => path === '/planering' || path.startsWith('/planering/') || path === '/maskin' || path.startsWith('/maskin/')
+
+/**
+ * SYNKRONT vid appstart: ska maskinen låsas INNAN något personligt renderas eller hämtas? Sant när enheten bär minnet av en upplåsning
+ * (personens upplåsning eller maskinkontots sparade session) som inte längre gäller: upplåsningen har gått ut (10 min utan tryck — också när
+ * Chrome varit stängd), saknas, eller maskinkontots session finns inte att få tillbaka. Ingen väntan på nätet — localStorage räcker.
+ */
+export function skaLasasVidStart(nu = Date.now()): boolean {
+  const u = lasUpplast()
+  const ms = lasMaskinSession()
+  if (!u && !ms) return false
+  if (u && utgangen(u, nu)) return true
+  if (u && !ms) return true      // personen är inne men maskinkontot går inte att få tillbaka: ut
+  if (!u && ms) return true      // en sparad maskinsession utan upplåsning: personens session kan ligga kvar efter ett avbrutet byte
+  return false
+}

@@ -61,10 +61,13 @@ create table if not exists public.forare_maskinkod (
 alter table public.forare_maskinkod enable row level security;
 revoke all on public.forare_maskinkod from anon, authenticated;
 
--- Fel kod i rad per namn (oberoende av maskin och enhet). Fem fel → en minuts väntan.
+-- Fel kod i rad per namn (oberoende av maskin och enhet). Två trappsteg:
+--   fem fel i rad (`fel`)      → en minuts väntan, sedan börjar de fem om
+--   tio fel i rad (`fel_rad`)  → en TIMMES väntan, och servern köar en notis till admin. `fel_rad` nollas bara av en rätt kod eller av den timmen.
 create table if not exists public.maskin_kod_las (
   medarbetare_id uuid primary key references public.medarbetare(id) on delete cascade,
   fel integer not null default 0,
+  fel_rad integer not null default 0,
   last_until timestamptz,
   senast timestamptz not null default now()
 );
@@ -76,7 +79,7 @@ create table if not exists public.maskin_upplasning_logg (
   tid timestamptz not null default now(),
   maskin_id text,
   medarbetare_id uuid,
-  utfall text not null check (utfall in ('upplast', 'fel_kod', 'last', 'ingen_kod', 'vantar', 'avslagen', 'las')),
+  utfall text not null check (utfall in ('upplast', 'fel_kod', 'last', 'ingen_kod', 'vantar', 'avslagen', 'las', 'spard_timme')),
   detalj text
 );
 alter table public.maskin_upplasning_logg enable row level security;
@@ -85,7 +88,7 @@ grant select on public.maskin_upplasning_logg to authenticated;
 create policy maskin_upplasning_logg_admin on public.maskin_upplasning_logg for select to authenticated using (public.ar_admin());
 
 -- Felräknaren. Anropas av servern FÖRE kontrollen av koden (räknar försöket direkt, så många parallella gissningar inte hinner före).
--- Returnerar (tillat, vantar_till). Det sjätte försöket i en period blockeras: fem fel → en minuts väntan.
+-- Returnerar (tillat, vantar_till). Det försök som kommer när fem fel redan räknats (eller tio i rad) blockeras.
 create or replace function public.maskin_kod_forsok(p_med uuid)
 returns table (tillat boolean, vantar_till timestamptz) language plpgsql security definer set search_path = public as $$
 declare r maskin_kod_las;
@@ -95,31 +98,39 @@ begin
   if r.last_until is not null and r.last_until > now() then
     return query select false, r.last_until; return;
   end if;
-  if r.last_until is not null then r.fel := 0; end if;           -- väntan är över: börja om
+  if r.last_until is not null then r.fel := 0; end if;           -- väntan är över: de fem börjar om (de tio i rad ligger kvar)
+  if r.fel_rad >= 10 then
+    update maskin_kod_las set last_until = now() + interval '1 hour', fel = 0, fel_rad = 0, senast = now() where medarbetare_id = p_med;
+    return query select false, now() + interval '1 hour'; return;
+  end if;
   if r.fel >= 5 then
     update maskin_kod_las set last_until = now() + interval '1 minute', fel = 0, senast = now() where medarbetare_id = p_med;
     return query select false, now() + interval '1 minute'; return;
   end if;
-  update maskin_kod_las set fel = r.fel + 1, last_until = null, senast = now() where medarbetare_id = p_med;
+  update maskin_kod_las set fel = r.fel + 1, fel_rad = r.fel_rad + 1, last_until = null, senast = now() where medarbetare_id = p_med;
   return query select true, null::timestamptz;
 end $$;
 
--- Efter ett FEL svar: har det femte felet kommit sätts väntan direkt, så föraren ser den på samma svar.
+-- Efter ett FEL svar: det tionde felet i rad ger en timmes väntan (timme = true → servern köar en notis till admin), det femte en minut.
 create or replace function public.maskin_kod_fel(p_med uuid)
-returns timestamptz language plpgsql security definer set search_path = public as $$
+returns table (vantar_till timestamptz, timme boolean) language plpgsql security definer set search_path = public as $$
 declare r maskin_kod_las;
 begin
   select * into r from maskin_kod_las where medarbetare_id = p_med for update;
+  if r.fel_rad >= 10 then
+    update maskin_kod_las set last_until = now() + interval '1 hour', fel = 0, fel_rad = 0, senast = now() where medarbetare_id = p_med;
+    return query select now() + interval '1 hour', true; return;
+  end if;
   if r.fel >= 5 then
     update maskin_kod_las set last_until = now() + interval '1 minute', fel = 0, senast = now() where medarbetare_id = p_med;
-    return now() + interval '1 minute';
+    return query select now() + interval '1 minute', false; return;
   end if;
-  return null;
+  return query select null::timestamptz, false;
 end $$;
 
 create or replace function public.maskin_kod_ratt(p_med uuid)
 returns void language sql security definer set search_path = public as $$
-  update maskin_kod_las set fel = 0, last_until = null, senast = now() where medarbetare_id = p_med;
+  update maskin_kod_las set fel = 0, fel_rad = 0, last_until = null, senast = now() where medarbetare_id = p_med;
 $$;
 
 revoke all on function public.maskin_kod_forsok(uuid), public.maskin_kod_fel(uuid), public.maskin_kod_ratt(uuid) from public, anon, authenticated;
