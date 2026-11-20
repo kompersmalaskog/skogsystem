@@ -892,7 +892,8 @@ export default function PlannerPage() {
     : null;
   const effectiveMedarbetare = simuleradForare ?? currentMedarbetare;
   const isAdminRiktig = currentMedarbetare?.roll === 'admin';
-  const isForare = effectiveMedarbetare?.roll === 'forare';
+  // Maskinkontot (roll 'maskin') är maskinen själv och behandlas som en förare här: aldrig planerarens verktyg.
+  const isForare = effectiveMedarbetare?.roll === 'forare' || effectiveMedarbetare?.roll === 'maskin';
   const visarSomForare = simuleradForareId !== null;
 
   // STEG 6a-3: härled förarens roll PÅ DETTA OBJEKT genom att matcha

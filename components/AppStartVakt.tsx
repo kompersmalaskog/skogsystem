@@ -16,6 +16,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { hamtaEnhetMaskin, sattEnhetMaskin } from '@/lib/enhetMaskin';
+import { maskinUpplast } from '@/lib/maskinkonto/upplast';
 import { serialGpsVald, harWebSerial, antalBeviljadeSerialPortar } from '@/lib/gpsSerialFlagga';
 import {
   avgorAppStart, harSerialGps, startbeslutGaller, vaktVy,
@@ -69,8 +70,10 @@ export default function AppStartVakt() {
     });
     if (!galler) { bytSteg('inte-aktuellt'); return; }
 
-    const enhetMaskinId = hamtaEnhetMaskin();
-    const flagga = serialGpsVald();
+    // Upplåst maskin: någon har loggat in på maskinen med sin kod och ska få appens meny, inte kartan.
+    const upplast = maskinUpplast();
+    const enhetMaskinId = upplast ? null : hamtaEnhetMaskin();
+    const flagga = upplast ? false : serialGpsVald();
     const fragaHoppad = sessionLas(FRAGA_HOPPAD_NYCKEL);
     const avgor = (beviljadePortar: number) => {
       const val = avgorAppStart({ enhetMaskinId, serialGps: harSerialGps({ flagga, beviljadePortar }), fragaHoppad });

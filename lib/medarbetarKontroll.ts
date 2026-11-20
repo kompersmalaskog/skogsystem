@@ -116,10 +116,12 @@ export async function hamtaMedarbetarKontroller(supabase: any, dagar = 42): Prom
   ])
   for (const r of [skiftRes, omRes, dimRes, medRes]) if (r.error) throw new Error(r.error.message)
   const kopplade = new Set<string>((omRes.data || []).map((r: any) => String(r.operator_id)))
+  // Maskinkontona (roll 'maskin', Maskinen som maskin) är ingen person: de har varken hempunkt eller telefon med flit.
+  const med = (medRes.data || []).filter((m: any) => m.roll !== "maskin")
   return {
-    okandaOperatorer: okandaOperatorer(skiftRes.data || [], kopplade, dimRes.data || [], medRes.data || []),
-    forareUtanMaskin: forareUtanMaskin(medRes.data || []),
-    saknarHempunkt: saknarHempunkt(medRes.data || []),
-    obekraftadHempunkt: obekraftadeHempunkter(medRes.data || []),
+    okandaOperatorer: okandaOperatorer(skiftRes.data || [], kopplade, dimRes.data || [], med),
+    forareUtanMaskin: forareUtanMaskin(med),
+    saknarHempunkt: saknarHempunkt(med),
+    obekraftadHempunkt: obekraftadeHempunkter(med),
   }
 }

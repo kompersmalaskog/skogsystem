@@ -18,6 +18,7 @@ import FartLoggStartare from './FartLoggStartare'
 import VersionChecker from './VersionChecker'
 import AppStartVakt from './AppStartVakt'
 import { CurrentMedarbetareProvider } from '@/lib/CurrentMedarbetareContext'
+import MaskinKontoProvider from './maskinkonto/MaskinKontoProvider'
 import { LAYOUT } from '@/lib/design/tokens'
 import { arBesoksSida } from '@/lib/besok/offentlig'
 import { arSkotarSida } from '@/lib/skotarlank/offentlig'
@@ -41,9 +42,12 @@ export default function AppRamverk({ children }: { children: React.ReactNode }) 
       <FartLoggStartare />
       <CurrentMedarbetareProvider>
         {/* Innehållet börjar under toppfältet — samma mått som TopBar (tokens LAYOUT). */}
-        <div style={{ paddingTop: LAYOUT.topbar }}>
-          {children}
-        </div>
+        {/* Maskinkontot (Maskinen som maskin): låser förarens egna saker, döljer Ekonomi/Personal och visar "Vem är du?". Renderar bara barnen för alla andra. */}
+        <MaskinKontoProvider>
+          <div style={{ paddingTop: LAYOUT.topbar }}>
+            {children}
+          </div>
+        </MaskinKontoProvider>
       </CurrentMedarbetareProvider>
     </>
   )
