@@ -17,6 +17,12 @@
 // 14 416 kr när appens lass räknas — och ett avstånd gissat ur de två
 // Opti-lassen hade blivit fem gånger för högt.
 //
+// RÄTTAT 2026-11-18: app-lassens avstånd kom ur `skotar_lass.spar`, som saknar
+// utturen (279 m per lass på Skälviken). Det kommer nu ur hyttspåret, se
+// lib/faktura/lassCykel och lasAppLass. Talen ovan är de uppmätta FÖRE den
+// rättningen och står kvar som historik — volymviktat är Skälviken 739 m, inte
+// 382, när utturen räknas med.
+//
 // ─────────────────────────────────────────────────────────────────────────
 // TVÅ REGLER, INGEN NY PRISMODELL
 //
@@ -37,9 +43,6 @@
 // i "Vad behöver du kolla?" (lib/faktura/fattas).
 // ─────────────────────────────────────────────────────────────────────────
 
-import { pathMeters } from '@/lib/geoMat';
-import { skotningsavstandM } from '@/lib/skotningsavstand';
-
 export type Lasskalla = 'opti' | 'app';
 
 /** Ett lass som kan bära avståndstillägg. `avstandM` är ENKEL VÄG. */
@@ -57,26 +60,11 @@ export type AvstandsLass = {
   kalla: Lasskalla;
 };
 
-/** En punkt i appens sparade spår. */
-export type SparPunkt = { lat: number; lng: number };
-
-/**
- * Spårets längd → skotningsavstånd enkel väg.
- *
- * `spar` är appens punkter sedan förra lossningen: ut i trakten, lasta,
- * tillbaka till avlägget — samma sak som Optis `DistanceFromLastUnloading`.
- * Därför halveras det med SAMMA funktion (lib/skotningsavstand), aldrig med
- * en egen division. Färre än två punkter är ingen sträcka: null, inte 0 —
- * noll ser ut som ett mätt kort avstånd.
- */
-export function sparAvstandM(spar: SparPunkt[] | null | undefined): number | null {
-  if (!Array.isArray(spar) || spar.length < 2) return null;
-  const koord = spar
-    .filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))
-    .map(p => [p.lng, p.lat] as [number, number]);
-  if (koord.length < 2) return null;
-  return skotningsavstandM(pathMeters(koord));
-}
+// `sparAvstandM` låg här och räknade avståndet ur `skotar_lass.spar`. Den är
+// BORTTAGEN 2026-11-18: spårkopian saknar utturen, så varje app-lass blev för
+// kort (Skälviken 383 m i stället för 739). Avståndet kommer nu ur hyttspåret
+// (lib/faktura/lassCykel). Bygg den inte tillbaka — vakten i
+// lassCykel.vakter.test.ts larmar om spårkopian används för ett avstånd igen.
 
 /** Gruppnyckeln: maskin + svensk dag. Okänd maskin får sin egen grupp. */
 function nyckel(l: AvstandsLass): string {

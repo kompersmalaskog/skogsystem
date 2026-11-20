@@ -25,6 +25,7 @@
 import { virkesGrupp } from '@/lib/markagarrapport/pris';
 import type { Granskningsunderlag } from '@/lib/faktura/hamtaUnderlag';
 import type { Lasskalla } from '@/lib/faktura/lassAvstand';
+import { SKAL_TEXT } from '@/lib/faktura/lassCykel';
 import type { TradslagPerSortiment, TradslagsAndel } from '@/lib/faktura/lasTradslag';
 import type { Tillaggspost } from '@/lib/ekonomi/prisPerM3';
 
@@ -490,6 +491,17 @@ export type AvstandVy = {
   merRad: string | null;
   /** Står bara när avståndet är satt för hand. */
   manuelltRad: string | null;
+  /**
+   * SAMMA KÖRNING, TRE MÅTT. Tom lista när trakten inte har app-lass.
+   *
+   * Talen skiljer sig kraftigt på en trakt som Skälviken (739 / 660 / 250 m),
+   * och Martins handinskrivna avstånd på Brokamåla och Tjuvön kan inte avgöra
+   * vilket Vida menar — där sammanföll de. Därför står alla tre på skärmen
+   * när han sätter avståndet, i stället för att appen låtsas veta.
+   */
+  jamforRader: { etikett: string; varde: string; not: string }[];
+  /** Vad som INTE kunde mätas, i ord. null när allt är mätt. */
+  cykelLuckaRad: string | null;
 };
 
 /** Så många lass visas; resten blir en rad som säger hur många de är. */
@@ -562,6 +574,50 @@ export function byggAvstandVy(i: AvstandIndata): AvstandVy {
   const raknasRad = 'Maskinen mäter hela vägen ut och tillbaka. Ackordet '
     + 'räknar enkel väg, så sträckan halveras.';
 
+  const c = a.cykel;
+  const jamforRader: AvstandVy['jamforRader'] = [];
+  if (c && c.enkelVagM != null) {
+    jamforRader.push({
+      etikett: 'Halva cykeln',
+      varde: `${heltal(c.enkelVagM)} m`,
+      not: 'Det här talet räknas priset på. Hela körningen fram och tillbaka, '
+        + 'delat på två — samma sätt som Opti mäter.',
+    });
+    if (c.hemMedLassM != null) {
+      jamforRader.push({
+        etikett: 'Efter vändpunkten',
+        // ÄRLIG ETIKETT: talet är inte "hemresan". Det är all körning efter
+        // den punkt som låg längst från avlägget, och kryssar maskinen innan
+        // den åker hem räknas det med — på 18 av 141 lass i prod är det mer
+        // än halva cykeln (max 67 %). Se lib/faktura/lassCykel.
+        varde: `${heltal(c.hemMedLassM)} m`,
+        not: 'All körning efter den punkt som låg längst från avlägget. '
+          + 'Oftast hemresan, men kryssar maskinen innan den åker hem räknas det med.',
+      });
+    }
+    if (c.vidAvlaggetM != null) {
+      jamforRader.push({
+        etikett: 'Vid avlägget',
+        varde: `${heltal(c.vidAvlaggetM)} m`,
+        // EXAKT: landningsarbetet ligger i hela cykeln, så HÄLFTEN av det
+        // ligger i talet priset räknas på. "Ingår i halva cykeln" hade varit
+        // slarvigt — 250 m ingår inte i 739, 125 m gör det.
+        not: 'Körning inom 60 m från lossningen — sortering och läggning, '
+          + 'inte skotning. Ligger i cykeln, så hälften av det räknas in i talet ovan.',
+      });
+    }
+  }
+
+  // Lass utan cykel bär 0 kr. Det gör talet försiktigt, inte fel — men det
+  // ska synas, annars ser tillägget ut som att det räknats på hela trakten.
+  const luckor = c ? Object.entries(c.utan)
+    .filter(([, n]) => (n ?? 0) > 0)
+    .map(([orsak, n]) => `${n} ${n === 1 ? 'lass' : 'lass'}: `
+      + SKAL_TEXT[orsak as keyof typeof SKAL_TEXT]) : [];
+  const cykelLuckaRad = !c || !luckor.length ? null
+    : `${c.medCykel} av ${c.lass} lass har mätt cykel. De andra bär 0 kr — `
+      + luckor.join('; ') + '.';
+
   const prislistaRad = a.grundavstandM == null || a.krPer100m == null ? null
     : [`${heltal(a.grundavstandM)} m ingår`,
        `${kr2(a.krPer100m)} kr per påbörjad 100 m`,
@@ -597,5 +653,7 @@ export function byggAvstandVy(i: AvstandIndata): AvstandVy {
       ? `Satt för hand till ${heltal(a.manuellt)} m.`
         + (snitt != null ? ` Lassen säger ${heltal(snitt)} m i snitt.` : '')
       : null,
+    jamforRader,
+    cykelLuckaRad,
   };
 }

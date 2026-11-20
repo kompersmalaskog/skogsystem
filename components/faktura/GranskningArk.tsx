@@ -513,6 +513,18 @@ function Avstand(p: GranskningProps) {
         <p style={{ margin: `0 0 ${AVSTAND.m}px ${AVSTAND.xs}px`, ...TYP.text, color: FARG.text }}>{v.mening}</p>
       )}
 
+      {/* SAMMA KÖRNING, TRE MÅTT. Står före lasslistan: det är det Martin ska
+          väga när han sätter talet, och talen skiljer sig med faktor två på
+          en trakt som Skälviken. */}
+      {vy.jamforRader.length > 0 && (
+        <Sektion rubrik="Samma körning, tre mått" not={vy.cykelLuckaRad || undefined}>
+          {vy.jamforRader.map((r, i) => (
+            <Rad key={r.etikett} pil={false} titel={r.etikett} under={r.not}
+              hoger={r.varde} sista={i === vy.jamforRader.length - 1} />
+          ))}
+        </Sektion>
+      )}
+
       {vy.lassRader.length > 0 && (
         <Sektion rubrik="Så räknade appen"
           not={[vy.kallaRad, vy.merRad].filter(Boolean).join(' ') || undefined}>

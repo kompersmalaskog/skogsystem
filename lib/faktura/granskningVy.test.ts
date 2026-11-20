@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { CykelSammanstallning } from '@/lib/faktura/lassCykel';
 import {
   byggSortimentVy, byggPrisVy, byggRattaVy, byggTillaggVy, byggAvstandVy,
   snyggtNamn, datumIOrd, ord, heltalTill100, LASS_SYNLIGA,
@@ -290,6 +291,7 @@ const SKALVIKEN_AVSTAND = {
     { avstandM: 858, volym: 20, kronor: 560, kalla: 'opti' as const },
   ],
   kallor: ['opti'] as Lasskalla[],
+  cykel: null as CykelSammanstallning | null,
   grundavstandM: 200 as number | null,
   krPer100m: 4 as number | null,
   giltigFran: '2025-06-03' as string | null,
@@ -421,5 +423,84 @@ describe('tillägget: Δkr/m³fub × skotarens antal, inget annat', () => {
   it('lägre tillägg säger "mindre", inte ett minustecken att tolka', () => {
     const v = byggTillaggVy({ ...bas, nuKr: 8, nyKr: 2 });
     expect(txt(v.mening)).toContain('10 351 kr mindre');
+  });
+});
+
+// ── Samma körning, tre mått ───────────────────────────────────────────────
+//
+// FACIT ÄR SKÄLVIKEN I PROD 2026-11-18: hyttspårets cykel 1 477 m, alltså
+// 739 m enkel väg, varav 660 m är hemresan med lasset och 250 m är arbete
+// inom 60 m från lossningen. Fågelvägen till stamhögarna är 377 m. De tre
+// talen ska stå bredvid varandra — Martins handinskrivna 450 m på Brokamåla
+// kan inte avgöra vilket Vida menar, för där sammanföll de.
+describe('samma körning, tre mått', () => {
+  const SKALVIKEN_CYKEL: CykelSammanstallning = {
+    lass: 85, medCykel: 70, volym: 1553, volymMedCykel: 1278,
+    cykelM: 1477, enkelVagM: 738.5, hemMedLassM: 660, vidAvlaggetM: 250,
+    ytterstM: 416,
+    utan: { fonster_for_langt: 14, forsta_lasset: 1 },
+  };
+
+  const vy = (c: CykelSammanstallning | null) => byggAvstandVy({
+    a: { ...SKALVIKEN_AVSTAND, cykel: c }, volym: 1734, prisdatum: '2026-11-02',
+  });
+
+  it('visar halva cykeln, hemresan och landningsarbetet', () => {
+    const r = vy(SKALVIKEN_CYKEL);
+    expect(r.jamforRader.map(x => [x.etikett, x.varde])).toEqual([
+      ['Halva cykeln', '739 m'],
+      ['Efter vändpunkten', '660 m'],
+      ['Vid avlägget', '250 m'],
+    ]);
+  });
+
+  it('säger vilket tal priset räknas på', () => {
+    const r = vy(SKALVIKEN_CYKEL);
+    expect(r.jamforRader[0].not).toMatch(/räknas priset på/i);
+  });
+
+  it('förklarar vad talen ÄR, i ord', () => {
+    const r = vy(SKALVIKEN_CYKEL);
+    // ÄRLIG ETIKETT: talet är inte hemresan. Säger texten "hem med virket"
+    // ljuger den på 13 % av lassen, där kryssandet efter vändpunkten är mer
+    // än halva cykeln.
+    expect(r.jamforRader[1].etikett).not.toMatch(/hem/i);
+    expect(r.jamforRader[1].not).toMatch(/längst från avlägget/i);
+    expect(r.jamforRader[1].not).toMatch(/kryssar/i);
+    expect(r.jamforRader[2].not).toMatch(/sortering och läggning/i);
+    // Landningsarbetet ingår i priset — det ska stå, annars ser raden ut som
+    // ett avdrag som redan är gjort. Och det ska stå EXAKT: 250 m ligger i
+    // cykeln, alltså 125 m i talet priset räknas på.
+    expect(r.jamforRader[2].not).toMatch(/hälften/i);
+    expect(r.jamforRader[2].not).not.toMatch(/ingår i halva cykeln/i);
+  });
+
+  it('säger hur många lass som saknar cykel och varför', () => {
+    const r = vy(SKALVIKEN_CYKEL);
+    expect(r.cykelLuckaRad).toContain('70 av 85');
+    expect(r.cykelLuckaRad).toContain('0 kr');
+    expect(r.cykelLuckaRad).toMatch(/14 lass/);
+    expect(r.cykelLuckaRad).toMatch(/3 timmar/);
+  });
+
+  it('inget att säga när alla lass har cykel', () => {
+    const r = vy({ ...SKALVIKEN_CYKEL, lass: 70, medCykel: 70, utan: {} });
+    expect(r.cykelLuckaRad).toBeNull();
+    expect(r.jamforRader).toHaveLength(3);
+  });
+
+  it('utan app-lass finns inga rader — inte tre nollor', () => {
+    expect(vy(null).jamforRader).toEqual([]);
+    expect(vy(null).cykelLuckaRad).toBeNull();
+  });
+
+  it('en del som inte gick att mäta får ingen rad', () => {
+    const r = vy({ ...SKALVIKEN_CYKEL, hemMedLassM: null, vidAvlaggetM: null });
+    expect(r.jamforRader.map(x => x.etikett)).toEqual(['Halva cykeln']);
+  });
+
+  it('för få lass för ett snitt ger inga rader alls', () => {
+    const r = vy({ ...SKALVIKEN_CYKEL, medCykel: 2, cykelM: null, enkelVagM: null });
+    expect(r.jamforRader).toEqual([]);
   });
 });

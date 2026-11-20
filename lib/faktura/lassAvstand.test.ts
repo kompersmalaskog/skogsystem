@@ -10,11 +10,14 @@
 // Fakturan såg bara dem och landade på 1 680 kr — 0,97 kr/m³fub i stället för
 // 8,36. Det är den buggen den här filen vaktar.
 import { describe, it, expect } from 'vitest';
-import {
-  sparAvstandM, valjLassKalla, lassMedStracka, kallorIOrd,
-  type AvstandsLass,
-} from './lassAvstand';
+import { valjLassKalla, lassMedStracka, kallorIOrd, type AvstandsLass } from './lassAvstand';
 import { skotAvstandKr } from '@/lib/ekonomi/acord';
+import { pathMeters } from '@/lib/geoMat';
+import { skotningsavstandM } from '@/lib/skotningsavstand';
+
+/** Spår → enkel väg. Samma två steg som lassCykel gör på hyttspårets cykel. */
+const banaEnkelVag = (punkter: { lat: number; lng: number }[]) =>
+  skotningsavstandM(pathMeters(punkter.map(p => [p.lng, p.lat] as [number, number])));
 
 const PRIS = [{ grundavstand_m: 200, kr_per_100m: 4, giltig_fran: null, giltig_till: null }];
 
@@ -22,31 +25,20 @@ const lass = (o: Partial<AvstandsLass>): AvstandsLass => ({
   datum: '2026-11-02', maskinId: 'A130743', avstandM: 400, volym: 20, kalla: 'app', ...o,
 });
 
-describe('spåret → skotningsavstånd enkel väg', () => {
+describe('banan → skotningsavstånd enkel väg', () => {
   // Två punkter ~111,2 m isär i latitud (0,001°) ger ~55,6 m enkel väg.
-  it('halveras, för spåret är ut OCH tillbaka', () => {
-    const m = sparAvstandM([{ lat: 56.000, lng: 15 }, { lat: 56.001, lng: 15 }]);
+  it('halveras, för en cykel är ut OCH tillbaka', () => {
+    const m = banaEnkelVag([{ lat: 56.000, lng: 15 }, { lat: 56.001, lng: 15 }]);
     expect(m).toBeGreaterThan(50);
     expect(m).toBeLessThan(60);
   });
 
   it('summerar hela banan, inte fågelvägen mellan ändpunkterna', () => {
     // Ut och tillbaka till samma punkt: fågelvägen är 0, banan är inte det.
-    const m = sparAvstandM([
+    const m = banaEnkelVag([
       { lat: 56.000, lng: 15 }, { lat: 56.002, lng: 15 }, { lat: 56.000, lng: 15 },
     ]);
     expect(m).toBeGreaterThan(200);
-  });
-
-  it('färre än två punkter är INGEN sträcka — null, aldrig 0', () => {
-    expect(sparAvstandM([{ lat: 56, lng: 15 }])).toBeNull();
-    expect(sparAvstandM([])).toBeNull();
-    expect(sparAvstandM(null)).toBeNull();
-    expect(sparAvstandM(undefined)).toBeNull();
-  });
-
-  it('skräp i spåret räknas inte som en punkt', () => {
-    expect(sparAvstandM([{ lat: NaN, lng: 15 }, { lat: 56, lng: 15 }] as any)).toBeNull();
   });
 });
 
@@ -174,20 +166,21 @@ describe('appens kod ger samma sträcka som en oberoende räkning', () => {
   // (lib/faktura/__fixtures__). Går det isär är det pathMeters eller
   // halveringen som ändrats — inte en siffra någon skrivit av.
   //
-  // Spåret går fram och tillbaka flera gånger på en kort sträcka. Hade
-  // sparAvstandM räknat fågelvägen mellan ändpunkterna i stället för banan
-  // hade det blivit någon meter, inte fyrtio.
+  // Spåret går fram och tillbaka flera gånger på en kort sträcka. Hade banan
+  // räknats som fågelvägen mellan ändpunkterna hade det blivit någon meter,
+  // inte fyrtio. Beviset gäller `pathMeters` + halveringen, oavsett vilken
+  // källa spåret kommer ur — samma två steg som lassCykel gör på cykeln.
   it('39,56 m enkel väg, samma som SQL', async () => {
     const f = (await import('./__fixtures__/skotarlass_spar_prod_2026-11-16.json')).default as any;
-    const m = sparAvstandM(f.punkter);
+    const m = banaEnkelVag(f.punkter);
     expect(m).not.toBeNull();
     // En halv meter: pathMeters och SQL:en kan runda olika i sista decimalen.
-    expect(Math.abs(m! - f.sql_enkel_m)).toBeLessThan(0.5);
+    expect(Math.abs(m - f.sql_enkel_m)).toBeLessThan(0.5);
   });
 
   it('samma spår, 4 kr per påbörjad 100 m över 200 → 0 kr', async () => {
     const f = (await import('./__fixtures__/skotarlass_spar_prod_2026-11-16.json')).default as any;
     // 40 m ligger under grundavståndet, så lasset bär inget tillägg.
-    expect(skotAvstandKr('2026-11-02', sparAvstandM(f.punkter)!, 20, PRIS)).toBe(0);
+    expect(skotAvstandKr('2026-11-02', banaEnkelVag(f.punkter), 20, PRIS)).toBe(0);
   });
 });

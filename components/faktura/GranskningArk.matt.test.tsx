@@ -69,7 +69,14 @@ const props = (vy: Vy): GranskningProps => ({
       { avstandM: 858, volym: 20, kronor: 560, kalla: 'opti' as const },
     ],
     kallor: ['opti' as const],
-  grundavstandM: 200, krPer100m: 4, giltigFran: '2025-06-03',
+    // Skälvikens riktiga cykel ur prod 2026-11-18: de tre raderna ska MÄTAS,
+    // inte bara finnas. Med dem blir avståndsskärmen den längsta i arket.
+    cykel: {
+      lass: 85, medCykel: 70, volym: 1553, volymMedCykel: 1278,
+      cykelM: 1477, enkelVagM: 738.5, hemMedLassM: 660, vidAvlaggetM: 250,
+      ytterstM: 416, utan: { fonster_for_langt: 14, forsta_lasset: 1 },
+    },
+    grundavstandM: 200, krPer100m: 4, giltigFran: '2025-06-03',
   },
   terrangKr: 0,
   summa: 254761, skotarAntal: 2186.79, skotarPris: 58.5,

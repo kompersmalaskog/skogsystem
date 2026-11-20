@@ -20,7 +20,9 @@ import {
   valjLassKalla, lassMedStracka as barandeLass, kallorIOrd,
   type AvstandsLass, type Lasskalla,
 } from '@/lib/faktura/lassAvstand';
-import { lasAppLass } from '@/lib/faktura/lasAppLass';
+import { lasLassCykel } from '@/lib/faktura/lasAppLass';
+import { cykelTillAvstandsLass, sammanstallCykel,
+         type CykelSammanstallning } from '@/lib/faktura/lassCykel';
 import {
   isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
 } from '@/lib/ekonomi/acord';
@@ -32,7 +34,9 @@ import { lasDebiterbartArbete, tillArbetsposter } from '@/lib/faktura/lasManuell
 import { byggArbetsrader } from '@/lib/faktura/arbetspris';
 import type { VoUnderlag, Maskinrad } from '@/lib/faktura/radbyggare';
 
-type SB = { from: (t: string) => any };
+// `rpc` behövs för skotningsavståndet: lasscykeln räknas i databasen
+// (skotar_lass_cykel), inte ur lassets egen spårkopia — se lib/faktura/lassCykel.
+type SB = { from: (t: string) => any; rpc: (namn: string, args: Record<string, unknown>) => any };
 
 /** Saker som inte är fel på en RAD men som granskningen måste visa. */
 export type Underlagsnot = { niva: 'varning' | 'info'; text: string };
@@ -82,6 +86,18 @@ export type Granskningsunderlag = {
     lass: { avstandM: number; volym: number; kronor: number; kalla: Lasskalla }[];
     /** Vilka källor tillägget vilar på ('app', 'opti'). Tom = inga lass. */
     kallor: Lasskalla[];
+    /**
+     * Appens lasscykler ur hyttspåret, sammanställda — de TRE talen som
+     * granskningen visar. null när trakten inte har några app-lass, eller när
+     * cykeln inte gick att läsa (migrationen inte körd).
+     *
+     * `enkelVagM` är det som blivit pris; `hemMedLassM` är vad maskinen körde
+     * MED virket, och `vidAvlaggetM` är landningsarbetet. De skiljer sig
+     * kraftigt på en trakt som Skälviken (739 / 660 / 250 m), och Martins
+     * handinskrivna avstånd på Brokamåla kan inte avgöra vilket Vida menar —
+     * se lib/faktura/lassCykel.
+     */
+    cykel: CykelSammanstallning | null;
     /** Prislistans villkor. null = ingen sats gäller uppslagsdagen. */
     grundavstandM: number | null;
     krPer100m: number | null;
@@ -153,7 +169,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
   const uppslag = avrDatum || new Date().toISOString().slice(0, 10);
 
   // ── Fakta: fem separata hämtningar, aldrig en join ─────────────────────
-  const [prod, tid, lass, sort, appLass] = await Promise.all([
+  const [prod, tid, lass, sort, appCykel] = await Promise.all([
     fetchAllRows((f, t) => sb.from('fakt_produktion')
       .select('maskin_id, volym_m3sub, stammar').in('objekt_id', objektIds)
       .order('maskin_id').order('datum').order('id').range(f, t)),
@@ -169,8 +185,10 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
       .select('sortiment_id, volym_m3sub').in('objekt_id', objektIds)
       .order('sortiment_id').order('id').range(f, t)),
     // Appens lass (Elefanten rapporterar i appen sedan 20 okt) — läses på
-    // traktens VO OCH dess dim-nummer, annars tappas de tyst.
-    lasAppLass(sb, [voNummer, ...objektIds]),
+    // traktens VO OCH dess dim-nummer, annars tappas de tyst. Avståndet
+    // räknas ur HYTTSPÅRET (lib/faktura/lassCykel), inte ur lassets egen
+    // spårkopia, som saknar utturen.
+    lasLassCykel(sb, [voNummer, ...objektIds]),
   ]);
 
   // ── Register och prislistor ────────────────────────────────────────────
@@ -263,6 +281,23 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     volym: Number(l.volym_m3sub) || 0,
     kalla: 'opti' as const,
   }));
+  // Appens cykler → lass med avståndet som enkel väg. Lass utan cykel följer
+  // med med `avstandM: null`: de kördes, så de väger när källorna jämförs,
+  // men bär 0 kr.
+  const appLass = cykelTillAvstandsLass(appCykel.rader);
+  // SÄGS ALLTID när cykeln inte gick att läsa. Tystnaden går åt FEL håll:
+  // utan appens lass bär Optis avståndet ensamma, och Optis lass är ofta de
+  // längsta (Skälviken: 1 198 m mot cykelns 739). Ett för högt tillägg till
+  // Vida är värre än inget.
+  if (!appCykel.tillganglig) {
+    noter.push({
+      niva: 'varning',
+      text: 'Skotarlassens cykel kunde inte läsas (migrationen '
+        + '20261118100350_skotar_lass_cykel är inte körd), så appens lass '
+        + 'räknas inte i skotningsavståndet. Finns Opti-lass bär de talet '
+        + 'ensamma, och det kan då bli för högt.',
+    });
+  }
   const valdaLass = valjLassKalla([...optiLass, ...appLass]);
   // Lassens TÄCKNING, inte bara om lass finns: ett lass utan mätt sträcka ger
   // noll steg och bidrar därför inte till tillägget, hur mycket volym det än
@@ -541,6 +576,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
       kronor: skotKr,
       lass: lassRader,
       kallor,
+      cykel: appCykel.rader.length ? sammanstallCykel(appCykel.rader) : null,
       grundavstandM: avstConf ? Number(avstConf.grundavstand_m) : null,
       krPer100m: avstConf ? Number(avstConf.kr_per_100m) : null,
       giltigFran: avstConf?.giltig_fran ?? null,
