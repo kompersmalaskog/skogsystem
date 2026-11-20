@@ -1,6 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import { byggListVy, kortDatum, manadsRubrik, type Hog, type OversiktsRad } from './listaVy'
+import { byggListVy as byggMedStart, kortDatum, manadsRubrik, type Hog, type OversiktsRad } from './listaVy'
 import { byggFakturaLage, type FakturaLage } from './fakturaLage'
+
+// Prods datum i den här filen ligger FÖRE appens startdatum (1 nov 2026), och
+// efter startdatumet slutar de be om något. Testerna nedan handlar om formen på
+// högarna och kön, inte om startdatumet, så de säger uttryckligen "räkna allt".
+// Startdatumet har sina egna tester längst ner.
+const RAKNA_ALLT = '2000-01-01'
+const byggListVy = (
+  rader: OversiktsRad[],
+  utanTrakt: Parameters<typeof byggMedStart>[1],
+  faktura: FakturaLage | null,
+) => byggMedStart(rader, utanTrakt, faktura, RAKNA_ALLT)
 
 // FACIT: prod 2026-10-24, läst ur faktura_oversikt() efter migrationen
 // 20261024_faktura_oversikt_allt_debiterbart.
@@ -406,5 +417,147 @@ describe('manadsRubrik', () => {
   it('utan datum blir en egen hög, aldrig en påhittad månad', () => {
     expect(manadsRubrik(null)).toBe('Utan avräkningsdatum')
     expect(manadsRubrik('trasigt')).toBe('Utan avräkningsdatum')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STARTDATUMET: 1 november 2026 (Martin 2026-11-20)
+//
+// Prod 2026-11-20 hade 45 trakter utan kontraktsnummer (7 jan – 26 okt, 28 av
+// dem inte upplagda som trakt) och 4 utan traillertimmar (alla redan
+// fakturerade) i "Vad ska du göra?" — 49 uppgifter för jobb som fakturerades
+// utanför appen för månader sedan. De fem som faktiskt skulle faktureras var
+// alla från november.
+//
+// Här används INTE RAKNA_ALLT: det här är appens riktiga startdatum.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('appen ber inte om något på trakter som blev klara före 1 november 2026', () => {
+  // I PROD är alla 45 utan kontraktsnummer daterade (7 jan – 26 okt) och alla 4
+  // utan traillertimmar likaså — hela kön försvinner. I fixturen är fyra av
+  // kontraktsraderna timpengstrakter UTAN avräkningsdatum, och de står kvar,
+  // för ett odaterat jobb är inte bevisligen gammalt.
+  it('prods oktoberkö tystnar: 44 kontraktsnummer blir 4 (de odaterade), traillertimmarna försvinner', () => {
+    const allt = byggListVy(prodRader(), null, null)
+    expect(allt.attGora.find(a => a.nyckel === 'kontraktsnr')?.titel).toBe('44 saknar kontraktsnummer')
+    expect(allt.attGora.find(a => a.nyckel === 'traillertimmar')?.titel).toBe('4 saknar traillertimmar')
+
+    const vy = byggMedStart(prodRader(), null, null)
+    expect(vy.attGora.find(a => a.nyckel === 'kontraktsnr')?.titel).toBe('4 saknar kontraktsnummer')
+    expect(vy.attGora.find(a => a.nyckel === 'traillertimmar')).toBeUndefined()
+    expect(vy.kontraktsKo).toHaveLength(4)
+    expect(vy.kontraktsKo.every(k => k.vo.startsWith('11200'))).toBe(true)
+  })
+
+  it('en daterad oktoberkö försvinner helt', () => {
+    const r = Array.from({ length: 45 }, (_, k) => rad({
+      vo_nummer: `c${k}`, tillstand: 'atgard', hinder_typ: 'kontraktsnr',
+      avrakningsdatum: '2026-10-26',
+    }))
+    const vy = byggMedStart(r, null, null)
+    expect(vy.attGora).toEqual([])
+    expect(vy.kontraktsKo).toEqual([])
+    expect(vy.svar.under).toBeNull()
+  })
+
+  it('en trakt från startdagen ber fortfarande om sitt kontraktsnummer', () => {
+    const r = [rad({
+      vo_nummer: '1', tillstand: 'atgard', hinder_typ: 'kontraktsnr',
+      avrakningsdatum: '2026-11-01',
+    })]
+    expect(byggMedStart(r, null, null).attGora[0].nyckel).toBe('kontraktsnr')
+  })
+
+  it('en trakt utan avräkningsdatum tystas aldrig — odaterat är inte gammalt', () => {
+    const r = [rad({
+      vo_nummer: '1', tillstand: 'atgard', hinder_typ: 'kontraktsnr',
+      avrakningsdatum: null,
+    })]
+    const vy = byggMedStart(r, null, null)
+    expect(vy.attGora[0].nyckel).toBe('kontraktsnr')
+    expect(vy.hanteradeUtanfor).toBeNull()
+  })
+
+  it('PENGAR VI SKA HA rörs aldrig: en gammal klar ofakturerad trakt står kvar', () => {
+    const r = [rad({ vo_nummer: '1', avrakningsdatum: '2026-02-18' })]
+    const vy = byggMedStart(r, null, byggFakturaLage([{ vo_nummer: '1', kontraktsnummer: '970001' }], []))
+    const hog = vy.hogar.find(h => h.nyckel === 'att_fakturera')
+    expect(hog?.grupper[0].rader.map(x => x.vo)).toEqual(['1'])
+  })
+
+  it('PENGAR VI VÄNTAR PÅ rörs aldrig: gammalt ackord utan slutredovisning står kvar', () => {
+    const r = [rad({ vo_nummer: '1', avrakningsdatum: '2026-09-08' })]
+    const vy = byggMedStart(r, null, byggFakturaLage(
+      [{ vo_nummer: '1', kontraktsnummer: '970001' }],
+      [{ document_number: 2026100, invoice_date: '2026-09-30', article_number: '8', description: 'Kontraktsnr 970001' }],
+    ))
+    expect(vy.hogar.find(h => h.nyckel === 'fakturerat')?.grupper[0].rader.map(x => x.vo)).toEqual(['1'])
+  })
+
+  it('historiken rörs aldrig: ett gammalt slutredovisat ackord ligger kvar under Vad är klart?', () => {
+    const r = [rad({ vo_nummer: '1', avrakningsdatum: '2026-07-31' })]
+    const vy = byggMedStart(r, null, byggFakturaLage(
+      [{ vo_nummer: '1', kontraktsnummer: '970001' }],
+      [
+        { document_number: 2026100, invoice_date: '2026-08-01', article_number: '8', description: 'Kontraktsnr 970001' },
+        { document_number: 2026100, invoice_date: '2026-08-01', article_number: '7', description: 'Slutredovisning' },
+      ],
+    ))
+    expect(vy.hogar.find(h => h.nyckel === 'klart')?.grupper[0].rader.map(x => x.vo)).toEqual(['1'])
+  })
+
+  it('"Vad går inte att se?" tystnar för en gammal trakt utan kontraktsnummer', () => {
+    const r = [rad({ vo_nummer: '1', avrakningsdatum: '2026-02-18' })]
+    const vy = byggMedStart(r, null, byggFakturaLage([{ vo_nummer: '1', kontraktsnummer: null }], []))
+    expect(vy.hogar.find(h => h.nyckel === 'okant_lage')).toBeUndefined()
+    expect(vy.hanteradeUtanfor).toContain('1 trakt blev klar före 1 november 2026')
+  })
+
+  it('raden säger hur många som tystats, och räknar en trakt EN gång', () => {
+    const r = [
+      rad({ vo_nummer: '1', tillstand: 'atgard', hinder_typ: 'kontraktsnr', avrakningsdatum: '2026-10-26' }),
+      rad({ vo_nummer: '2', tillstand: 'atgard', hinder_typ: 'traillertimmar', avrakningsdatum: '2026-08-06' }),
+      rad({ vo_nummer: '3', avrakningsdatum: '2026-02-18' }),   // klar, utan kontraktsnummer
+    ]
+    const vy = byggMedStart(r, null, byggFakturaLage(
+      [{ vo_nummer: '1', kontraktsnummer: null }, { vo_nummer: '2', kontraktsnummer: null }, { vo_nummer: '3', kontraktsnummer: null }],
+      [],
+    ))
+    expect(vy.hanteradeUtanfor).toBe(
+      '3 trakter blev klara före 1 november 2026 och fakturerades utanför appen. De ber inte om något här.',
+    )
+  })
+
+  // FACIT prod 2026-11-20: 45 + 4 trakter i kön och 1 i "går inte att se" blir
+  // 0 + 0 + 0; 50 unika trakter tystas. Formen provas här på prods verkliga
+  // antal och datum.
+  it('prods verkliga antal: 45 + 4 + 1 blir 0, och raden säger 50', () => {
+    const r: OversiktsRad[] = [
+      ...Array.from({ length: 45 }, (_, k) => rad({
+        vo_nummer: `c${k}`, tillstand: 'atgard', hinder_typ: 'kontraktsnr',
+        avrakningsdatum: k === 0 ? '2026-01-07' : '2026-10-26',
+      })),
+      ...Array.from({ length: 4 }, (_, k) => rad({
+        vo_nummer: `t${k}`, tillstand: 'atgard', hinder_typ: 'traillertimmar',
+        avrakningsdatum: '2026-08-06',
+      })),
+      rad({ vo_nummer: 'a1', namn: 'Anders Ingemarsson RP ATA', avrakningsdatum: '2026-02-18' }),
+      rad({ vo_nummer: 'n1', namn: 'Skälviken RP J-Hus -25', avrakningsdatum: '2026-11-13' }),
+    ]
+    const faktura = byggFakturaLage(
+      [...r.map(x => ({ vo_nummer: x.vo_nummer, kontraktsnummer: x.vo_nummer === 'n1' ? '969670' : null }))],
+      [],
+    )
+    const vy = byggMedStart(r, null, faktura)
+    expect(vy.attGora).toEqual([])
+    expect(vy.hogar.find(h => h.nyckel === 'okant_lage')).toBeUndefined()
+    expect(vy.hanteradeUtanfor).toContain('50 trakter blev klara')
+    // Novembertrakten står kvar att fakturera — pengar vi ska ha rörs aldrig.
+    expect(vy.hogar.find(h => h.nyckel === 'att_fakturera')?.grupper[0].rader.map(x => x.vo)).toEqual(['n1'])
+    expect(vy.svar.tal).toBe('1')
+  })
+
+  it('inget tystat = ingen rad', () => {
+    const r = [rad({ vo_nummer: '1', avrakningsdatum: '2026-11-13' })]
+    expect(byggMedStart(r, null, null).hanteradeUtanfor).toBeNull()
   })
 })
