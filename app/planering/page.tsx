@@ -293,7 +293,7 @@ import MaskinMeny from '@/components/startsida/MaskinMeny'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 import { optiLokalDag } from '@/lib/optiTid'
-import { KARTRUTA_MALL, KARTRUTA_MALL_IR, traktBbox, punktBbox } from '@/lib/kartNedladdning'
+import { KARTRUTA_MALL, traktBbox, punktBbox } from '@/lib/kartNedladdning'
 import { useLaddaNerTrakt } from '@/lib/hooks/useLaddaNerTrakt'
 import { useBakgrundsNedladdning } from '@/lib/hooks/useBakgrundsNedladdning'
 import { KORVY_BAKGRUND } from '@/lib/kartBas'
@@ -1528,14 +1528,6 @@ export default function PlannerPage() {
         maxzoom: 18,
         attribution: '&copy; Lantmäteriet',
       },
-      // IR-FLYGFOTO (Martin 2026-11-21): Lantmäteriets infraröda ortofoto, bredvid Flygfoto. Aldrig standard.
-      ir: {
-        type: 'raster' as const,
-        tiles: [KARTRUTA_MALL_IR],
-        tileSize: 256,
-        maxzoom: 18,
-        attribution: '&copy; Lantmäteriet',
-      },
       osm: {
         type: 'raster' as const,
         tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
@@ -1578,7 +1570,6 @@ export default function PlannerPage() {
       // handleMapReady läser mapType för att sätta exakt visibility vid map-init —
       // initial-värdena här är fallback om handleMapReady av nån anledning inte kör.
       { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: kartBasPaint('satellite'), layout: { visibility: (mapType === 'satellite' ? 'visible' : 'none') as 'visible' | 'none' } },
-      { id: 'ir-layer', type: 'raster' as const, source: 'ir', paint: kartBasPaint('ir'), layout: { visibility: (mapType === 'ir' ? 'visible' : 'none') as 'visible' | 'none' } },
       // LM-baskartan är TYST: nedtonad topowebb + avmättnad/kontrast/opacitet så förarens egna
       // symboler, traktgränser, larmpin och GPS-prick DOMINERAR. Kartan = underlag, ej huvudsak.
       { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: kartBasPaint('lantmateriet'), layout: { visibility: (mapType === 'lantmateriet' ? 'visible' : 'none') as 'visible' | 'none' } },
@@ -2245,7 +2236,6 @@ export default function PlannerPage() {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis ? 'visible' : 'none');
     };
     setBaseVis('satellite-layer', mapType === 'satellite');
-    setBaseVis('ir-layer', mapType === 'ir');
     setBaseVis('osm-layer', mapType === 'osm');
     setBaseVis('terrain-layer', mapType === 'terrain');
     setBaseVis('lm-layer', mapType === 'lantmateriet');
@@ -5070,7 +5060,6 @@ export default function PlannerPage() {
     };
     setVis('osm-layer', mapType === 'osm');
     setVis('satellite-layer', mapType === 'satellite');
-    setVis('ir-layer', mapType === 'ir');
     setVis('terrain-layer', mapType === 'terrain');
     setVis('lm-layer', mapType === 'lantmateriet');
   }, [mapType, mapLibreReady]);
@@ -5376,7 +5365,7 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    for (const l of ['satellite', 'ir', 'lantmateriet', 'terrain', 'osm'] as const) {
+    for (const l of ['satellite', 'lantmateriet', 'terrain', 'osm'] as const) {
       const id = KARTLAGER_LAGER_ID[l];
       if (!map.getLayer(id)) continue;
       const paint = kartBasPaint(l, styrkaFor(kartReglage.styrkor, l));
@@ -13092,7 +13081,6 @@ export default function PlannerPage() {
       rader: ([
         { id: 'lantmateriet', name: 'Karta', desc: 'Lantmäteriet — dämpad' },
         { id: 'satellite', name: 'Flygfoto', desc: 'Lantmäteriet ortofoto 0,5 m' },
-        { id: 'ir', name: 'IR-flygfoto', desc: 'Infraröd — växtlighet syns röd' },
         { id: 'terrain', name: 'Topokarta', desc: 'Lantmäteriet — full färg' },
         { id: 'osm', name: 'OpenStreetMap', desc: 'Standardkarta' },
         { id: 'ritad', name: 'Ritad', desc: mapType === 'ritad' ? ritadStatusText(ritadStatus) : 'Skogen ritad ur laserdatan' },
