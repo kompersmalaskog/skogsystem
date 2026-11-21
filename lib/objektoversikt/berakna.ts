@@ -57,7 +57,6 @@ export interface ObjektRad {
   markagare_ska_ha_ved?: boolean | null;
   markagare_ved_text?: string | null;
   grot?: boolean | null;
-  grot_status?: string | null;
   skordare_maskin_id?: string | null;
   skotare_maskin_id?: string | null;
   medelstam?: number | null;
@@ -342,7 +341,8 @@ export function sammanstall(o: ObjektRad, u: Underlag): Sammanstallning {
   if (!egen && typ !== 'grot') uppgifter.push({ id: 'skotning', lage: skotat ? 'klar' : rollMin.skotare > 0 ? 'pagar' : 'inte_borjat', datum: skotat });
   if (o.grot || typ === 'grot') {
     const hamtad = forsta(dims, 'grot_hamtad');
-    const klar = o.grot_status === 'skotat' || !!hamtad || (typ === 'grot' && !!skotat);
+    // grot_hamtad är den enda sanningen för "hämtat" (grot_status läses inte).
+    const klar = !!hamtad || (typ === 'grot' && !!skotat);
     uppgifter.push({ id: 'grot', lage: klar ? 'klar' : (typ === 'grot' && rollMin.skotare > 0) ? 'pagar' : 'inte_borjat', datum: hamtad });
   }
 
