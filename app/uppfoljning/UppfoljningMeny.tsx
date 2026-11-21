@@ -14,6 +14,7 @@ import { typLabel, arRisjobb } from '@/lib/objekt/typ';
 import { paBackenKvar } from '@/lib/skotat';
 import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT, GROT_UTTAGSFAKTOR_MIN, GROT_UTTAGSFAKTOR_MAX } from '@/lib/grot';
 import { type UppfoljningObjekt } from './lib/transform';
+import { liggetidText as liggetid } from './lib/liggetid';
 import { useUppfoljningList, urlIdFor } from './hooks/useUppfoljningList';
 
 const sv = (n: number) => Math.round(n).toLocaleString('sv-SE');
@@ -54,13 +55,9 @@ function sektionAv(o: UppfoljningObjekt): Sektion {
   return 'ovrigt';
 }
 
-// Liggetid ur sista avverkningsdag; null skrivs ut ärligt, aldrig gissat.
+// Liggetid ur sista avverkningsdag (lib/liggetid: samma regel som detaljvyn).
 function liggetidText(o: UppfoljningObjekt): string {
-  if (!o.sistaAvverkning) return 'avverkningsdatum saknas';
-  const dag = Math.max(0, Math.round((Date.now() - new Date(o.sistaAvverkning).getTime()) / 864e5));
-  const datum = new Date(o.sistaAvverkning).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
-  const man = dag >= 60 ? ` (${Math.round(dag / 30)} mån)` : '';
-  return `avverkat ${datum} · legat ${dag} dgr${man}`;
+  return liggetid(o.sistaAvverkning, Date.now());
 }
 
 type Vald = 'slutavverkning' | 'gallring' | 'ris' | null;
