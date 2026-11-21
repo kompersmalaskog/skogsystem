@@ -147,4 +147,35 @@ describe('UppfoljningMeny', () => {
     expect(text()).toContain('300m³ hämtat');
     expect(text()).not.toContain('Gammalthygget');
   });
+
+  it('Ligger i skogen: kortet visar det som legat längst, listan längst först och klara trakter', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-21T17:00:00Z'));
+    try {
+      data = [
+        obj({ vo_nummer: 'A', namn: 'Arvidstorp', typ: 'slutavverkning', volymSkordare: 628, volymSkotare: 440, sistaAvverkning: '2026-11-02', skordningAvslutad: true, tilldeladSkotare: 'Elefant 26' }),
+        obj({ vo_nummer: 'B', namn: 'Britteberg', typ: 'slutavverkning', volymSkordare: 673, volymSkotare: 0, antalLass: 0, sistaAvverkning: '2026-11-10', skordningAvslutad: true, tilldeladSkotare: 'Wisent' }),
+        obj({ vo_nummer: 'G', namn: 'Gallring Kör', typ: 'gallring', volymSkordare: 300, volymSkotare: 0, antalLass: 0, sistaAvverkning: '2026-11-21', skordareLastDate: '2026-11-21', tilldeladSkotare: '810E' }),
+        obj({ vo_nummer: 'S', namn: 'Skälviken', typ: 'slutavverkning', volymSkordare: 1725, volymSkotare: 1725, sistaAvverkning: '2026-10-28', skotareLastDate: '2026-11-12', skotningAvslutad: true, status: 'avslutat' }),
+      ];
+      await montera();
+      const kort = be!.querySelector('[data-skogen-kort]')!;
+      expect(kort.textContent).toContain('3 trakter');
+      expect(kort.textContent).toContain('19');
+      await klick(kort);
+      const t = text();
+      expect(t.indexOf('Arvidstorp')).toBeLessThan(t.indexOf('Britteberg'));
+      expect(t.indexOf('Britteberg')).toBeLessThan(t.indexOf('Gallring Kör'));
+      expect(t).toContain('Skotas nu · 188 m³ kvar');
+      expect(t).toContain('Väntar på skotare · 673 m³ kvar');
+      expect(t).toContain('Skördas · 300 m³ kvar');
+      expect(t).toContain('Framme vid avlägget');
+      expect(t).toContain('Skotat klart 12 nov');
+      // Ett tryck till på kortet tar tillbaka per skotare.
+      await klick(be!.querySelector('[data-skogen-kort]')!);
+      expect(text()).toContain('Per skotare');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

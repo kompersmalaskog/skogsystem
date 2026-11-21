@@ -17,6 +17,7 @@ import { type UppfoljningObjekt } from './lib/transform';
 import { risLage, risLista, risKvarM3, HAMTAT_VISAS_DAGAR } from './lib/ris';
 import { useUppfoljningList, urlIdFor } from './hooks/useUppfoljningList';
 import { liggetidText as liggetid } from './lib/liggetid';
+import { iSkogen, langstLegat, dagOrd, kortDatum, KLARA_VISAS_DAGAR, type SkogRad } from './lib/iSkogen';
 
 const sv = (n: number) => Math.round(n).toLocaleString('sv-SE');
 const TRAFFYTA_ROW = 56;
@@ -61,7 +62,7 @@ function liggetidText(o: UppfoljningObjekt): string {
   return liggetid(o.sistaAvverkning, Date.now());
 }
 
-type Vald = 'slutavverkning' | 'gallring' | 'ris' | null;
+type Vald = 'slutavverkning' | 'gallring' | 'ris' | 'skogen' | null;
 type Grupp = { namn: string | null; objs: UppfoljningObjekt[]; summa: number };
 type Manad = { key: string; label: string; objs: UppfoljningObjekt[] };
 
@@ -148,6 +149,12 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
     return lista;
   }, [uppdelning, skordasSet]);
 
+  // Ligger i skogen (lib/iSkogen): allt virke som skördas eller ligger kvar, oavsett typ och skotare.
+  const skogen = useMemo(() => iSkogen(paBackenVirke, sektioner.avslutade.filter(o => !arRisjobb(o)), o => skordasSet.has(o), kvarM3, Date.now()), [paBackenVirke, sektioner, skordasSet]);
+  const skogenLangst = useMemo(() => langstLegat(skogen.rader), [skogen]);
+  const skogenSynlig = useMemo(() => skogen.rader.filter(r => matchSok(r.o)), [skogen, sok]);
+  const skogenKlaraSynlig = useMemo(() => skogen.klara.filter(r => matchSok(r.o)), [skogen, sok]);
+
   const risSynlig = useMemo(() => ris.kvar.filter(matchSok), [ris, sok]);
   const risHamtatSynlig = useMemo(() => ris.hamtat.filter(matchSok), [ris, sok]);
   const [visaHamtat, setVisaHamtat] = useState(false);
@@ -227,6 +234,18 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
     );
   };
 
+  // ── En rad i Ligger i skogen: läget i ord, dagarna till höger ──
+  const skogRad = (r: SkogRad) => {
+    const l = r.lage;
+    const kvar = `${sv(r.kvarM3)} m³ kvar`;
+    if (l.lage === 'skordas') return rad(r.o, null, `Skördas · ${kvar}`, FARG.gron);
+    if (l.lage === 'okant') return rad(r.o, null, `Avverkningsdatum saknas · ${kvar}`, FARG.text2);
+    const dagar = { tal: String(l.dagar), enhet: dagOrd(l.dagar) };
+    return l.lage === 'skotas'
+      ? rad(r.o, dagar, `Skotas nu · ${kvar}`, FARG.gron)
+      : rad(r.o, dagar, `Väntar på skotare · ${kvar}`, FARG.orange);
+  };
+
   // ── Typ-kort (klickbara filter) ──
   const kortData: { nyckel: Vald; label: string; m3: number; n: number; schablon?: boolean }[] = [
     { nyckel: 'slutavverkning', label: 'Slutavv.', m3: kort.sM3, n: kort.sN },
@@ -303,6 +322,34 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
             })}
           </div>
 
+          {/* Ligger i skogen — ett eget, brett kort: det är ingen typ utan alla typer. */}
+          <button
+            onClick={() => setVald(v => (v === 'skogen' ? null : 'skogen'))}
+            aria-pressed={vald === 'skogen'}
+            data-skogen-kort
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m,
+              width: `calc(100% - ${AVSTAND.m * 2}px)`, minHeight: TRAFFYTA_ROW, margin: `0 ${AVSTAND.m}px ${AVSTAND.l}px`,
+              textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
+              background: vald === 'skogen' ? FARG.upphojt : FARG.kort, borderRadius: RADIE.kort,
+              border: `1px solid ${vald === 'skogen' ? FARG.text3 : 'transparent'}`,
+              padding: `${AVSTAND.m}px ${AVSTAND.m}px`, color: FARG.text,
+            }}
+          >
+            <span style={{ minWidth: 0 }}>
+              <span style={{ display: 'block', ...TYP.micro, color: FARG.text2 }}>Ligger i skogen</span>
+              <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
+                {skogen.rader.length === 0 ? 'inget virke i skogen' : `${skogen.rader.length} trakter · längst legat`}
+              </span>
+            </span>
+            {skogen.rader.length > 0 && (
+              <span style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, flexShrink: 0, ...TNUM }}>
+                <span style={{ ...TYP.rubrik }}>{skogenLangst == null ? '—' : skogenLangst}</span>
+                <span style={{ ...TYP.meta, color: FARG.text2 }}>{skogenLangst == null ? '' : dagOrd(skogenLangst)}</span>
+              </span>
+            )}
+          </button>
+
           {/* Grot-faktor — öppnas från schablon-taggen (oförändrad regel). */}
           {visaFaktor && (
             <div style={{ background: FARG.kort, borderRadius: RADIE.kort, margin: `0 ${AVSTAND.m}px ${AVSTAND.l}px`, padding: AVSTAND.m }}>
@@ -325,8 +372,30 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
             <button onClick={() => setVald(null)} style={{ display: 'block', margin: `0 ${AVSTAND.m}px ${AVSTAND.m}px`, padding: 0, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', ...TYP.meta, color: FARG.bla }}>✕ Visa alla typer</button>
           )}
 
-          {/* Ris valt → ris-listan (schablon, liggetid); annars per skotare. */}
-          {vald === 'ris' ? (
+          {/* Ligger i skogen valt → listan längst legat först; ris valt → ris-listan; annars per skotare. */}
+          {vald === 'skogen' ? (
+            <section style={{ marginBottom: AVSTAND.l }}>
+              <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.m}px ${AVSTAND.xs}px` }}>Ligger i skogen · längst först</div>
+              <div style={{ ...TYP.meta, color: FARG.text3, margin: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>Dagar sedan skördaren blev klar.</div>
+              {skogenSynlig.length === 0 ? (
+                <div style={{ ...TYP.meta, color: FARG.text3, padding: `${AVSTAND.s}px ${AVSTAND.m}px` }}>Inget virke ligger i skogen.</div>
+              ) : (
+                <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
+                  {skogenSynlig.map(r => skogRad(r))}
+                </div>
+              )}
+              {skogenKlaraSynlig.length > 0 && (
+                <div style={{ marginTop: AVSTAND.l }}>
+                  <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.m}px ${AVSTAND.xs}px` }}>Framme vid avlägget · senaste {KLARA_VISAS_DAGAR} dagarna</div>
+                  <div style={{ ...TYP.meta, color: FARG.text3, margin: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>Dagar från att skördaren blev klar till sista lasset.</div>
+                  <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
+                    {skogenKlaraSynlig.map(k => rad(k.o, k.dagar == null ? null : { tal: String(k.dagar), enhet: dagOrd(k.dagar) },
+                      `Skotat klart ${kortDatum(k.framme)}`, FARG.text2))}
+                  </div>
+                </div>
+              )}
+            </section>
+          ) : vald === 'ris' ? (
             <section style={{ marginBottom: AVSTAND.l }}>
               <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>Ris att skota</div>
               {risSynlig.length === 0 ? (

@@ -751,6 +751,7 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
   return {
     objektNamn: obj.namn,
     objektId: obj.skotareObjektId || obj.skordareObjektId || obj.vo_nummer || null,
+    voNummer: obj.vo_nummer || null,
     skordat: Math.round(volSk),
     skotat: Math.round(volSt),
     skotarePerMaskin,
@@ -851,6 +852,7 @@ export function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
   return {
     objektNamn: obj.namn,
     objektId: obj.skotareObjektId || obj.skordareObjektId || obj.vo_nummer || null,
+    voNummer: obj.vo_nummer || null,
     volym: obj.volym, skordat: 0, skotat: 0, skotarePerMaskin: [], omlastningArbete: [], skotareMaskiner: [], kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning, grotAnpassad: obj.grotAnpassad, grotHamtad: obj.grotHamtad,
     externSkotning: obj.externSkotning, externForetag: obj.externForetag, externPrisTyp: obj.externPrisTyp, externPris: obj.externPris, externAntal: obj.externAntal,
     maskiner: [],
