@@ -9,7 +9,7 @@ const sida = lasa('app/planering/page.tsx');
 describe('reglagen är inkopplade i planeringssidan (planering OCH körvy/maskinläge — samma Lager-lista)', () => {
   it('sidan hämtar reglagen ur useKartReglage och bakgrundens styrka sätts på alla fyra baslager via kartBasPaint', () => {
     expect(sida).toMatch(/const kartReglage = useKartReglage\(\);/);
-    expect(sida).toMatch(/for \(const l of \['satellite', 'ir', 'lantmateriet', 'terrain', 'osm'\] as const\) \{[\s\S]{0,200}KARTLAGER_LAGER_ID\[l\][\s\S]{0,260}kartBasPaint\(l, styrkaFor\(kartReglage\.styrkor, l\)\)/);
+    expect(sida).toMatch(/for \(const l of \['satellite', 'lantmateriet', 'terrain', 'osm'\] as const\) \{[\s\S]{0,200}KARTLAGER_LAGER_ID\[l\][\s\S]{0,260}kartBasPaint\(l, styrkaFor\(kartReglage\.styrkor, l\)\)/);
   });
   it('överläggens värden läggs på kartan av tillampaLagerOpacitet, och effekten ligger EFTER trakt-effekten (så ritade lager har sitt eget värde först)', () => {
     const trakt = sida.indexOf('overlays.traktLamning, mapLibreReady, geoTyper]);');

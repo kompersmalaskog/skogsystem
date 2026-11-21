@@ -12,15 +12,28 @@ describe('kartlager: standard och namn', () => {
     expect(STANDARD_KARTLAGER).toBe('satellite');
     expect(KARTLAGER_NAMN.satellite).toBe('Flygfoto');
   });
-  it('sju lager, varje med eget lager-id i kartstilen (Ritad och Mörk = skogsbilden ur laserdatan)', () => {
-    expect([...KARTLAGER]).toEqual(['satellite', 'ir', 'lantmateriet', 'terrain', 'osm', 'ritad', 'mork']);
-    expect(KARTLAGER_LAGER_ID).toEqual({ satellite: 'satellite-layer', ir: 'ir-layer', lantmateriet: 'lm-layer', terrain: 'terrain-layer', osm: 'osm-layer', ritad: 'ritad-skog', mork: 'ritad-skog' });
+  it('sex lager, varje med eget lager-id i kartstilen (Ritad och Mörk = skogsbilden ur laserdatan)', () => {
+    expect([...KARTLAGER]).toEqual(['satellite', 'lantmateriet', 'terrain', 'osm', 'ritad', 'mork']);
+    expect(KARTLAGER_LAGER_ID).toEqual({ satellite: 'satellite-layer', lantmateriet: 'lm-layer', terrain: 'terrain-layer', osm: 'osm-layer', ritad: 'ritad-skog', mork: 'ritad-skog' });
     expect(KARTLAGER_NAMN.mork).toBe('Mörk');
     expect(KARTLAGER_NAMN.ritad).toBe('Ritad');
   });
   it('arKartlager släpper bara igenom kända värden', () => {
     expect(['satellite', 'lantmateriet', 'terrain', 'osm', 'ritad'].every(arKartlager)).toBe(true);
     expect([null, undefined, '', 'hybrid', 'lm', 3, {}].some(arKartlager)).toBe(false);
+  });
+});
+
+describe('IR är inget bakgrundsval (Martin 2026-11-21) — ett gammalt värde tolkas som Flygfoto', () => {
+  it("'ir' är inget kartlager, varken i listan, namnen eller lager-id:na", () => {
+    expect(arKartlager('ir')).toBe(false);
+    expect([...KARTLAGER]).not.toContain('ir');
+    expect(Object.keys(KARTLAGER_NAMN)).not.toContain('ir');
+    expect(Object.keys(KARTLAGER_LAGER_ID)).not.toContain('ir');
+  });
+  it("ett sparat 'ir' på enheten ger Flygfoto, och ett 'ir' från kontot räknas som inget val (Flygfoto)", () => {
+    expect(startLager(lasLokal(lager({ [LOKAL_NYCKEL]: JSON.stringify({ val: 'ir', osynkad: true, anvandarId: 'jag' }) })))).toBe('satellite');
+    expect(avstam(null, 'jag', arKartlager('ir') ? ('ir' as never) : null)).toEqual({ gallande: 'satellite', skickaTillKontot: false });
   });
 });
 

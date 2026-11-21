@@ -107,25 +107,25 @@ describe('kartlagret Mörk: migrationen vidgar kolumnen och RPC:n (Martin 2026-1
   const sql = fil ? readFileSync(join(dir, fil), 'utf8') : '';
   it('finns, och tar emot de sex lagren i både kolumnen och RPC:n — samma lista som appen', () => {
     expect(fil).toBeTruthy();
-    const lista = KARTLAGER.filter((l) => l !== 'ir').map((l) => `'${l}'`).join(', ');
+    const lista = KARTLAGER.map((l) => `'${l}'`).join(', ');
     expect(sql).toContain(`kartlager in (${lista})`);
     expect(sql).toContain(`p_lager not in (${lista})`);
     expect(sql).not.toMatch(/^\s*update\s+medarbetare\s+set\s+kartlager\s*=\s*'/im);
   });
 });
 
-describe('kartlagret IR-flygfoto: migrationen vidgar kolumnen och RPC:n (Martin 2026-11-21)', () => {
-  const dir = join(rot, 'supabase/migrations');
-  const fil = readdirSync(dir).find((f) => /^\d+_kartlager_ir\.sql$/.test(f));
-  const sql = fil ? readFileSync(join(dir, fil), 'utf8') : '';
-  it('finns, och tar emot de sju lagren i både kolumnen och RPC:n — samma lista som appen', () => {
-    expect(fil).toBeTruthy();
-    const lista = KARTLAGER.map((l) => `'${l}'`).join(', ');
-    expect(sql).toContain(`kartlager in (${lista})`);
-    expect(sql).toContain(`p_lager not in (${lista})`);
-    expect(sql).toContain('update medarbetare set kartlager = p_lager where user_id = auth.uid();');
+describe('IR som bakgrundsval är borta, men IR-lagret som tänds finns kvar (Martin 2026-11-21)', () => {
+  const lasFil = (f: string) => readFileSync(join(rot, f), 'utf8');
+  it('ingen bakgrundskod nämner ir-layer, KARTRUTA_MALL_IR eller layer=ir, och ingen migration lägger till ir', () => {
+    for (const f of ['app/planering/page.tsx', 'lib/kartlager.ts', 'lib/kartBas.ts', 'lib/objektKarta.ts', 'lib/mapLayers.ts', 'lib/kartNedladdning.ts', 'app/api/forarkarta/route.ts']) {
+      const t = lasFil(f);
+      expect(t, f).not.toMatch(/ir-layer|KARTRUTA_MALL_IR|layer=ir\b/);
+    }
+    expect(readdirSync(join(rot, 'supabase/migrations')).some((n) => /kartlager_ir/.test(n))).toBe(false);
   });
-  it('ändrar inga rader', () => {
-    expect(sql).not.toMatch(/^\s*update\s+medarbetare\s+set\s+kartlager\s*=\s*'/im);
+  it('ritunderlaget Ortofoto IR (lm_ortofoto_ir) finns kvar som lager att tända, via wms-proxy', () => {
+    expect(lasFil('lib/mapLayers.ts')).toMatch(/id: 'lm_ortofoto_ir'[^\n]*layers: 'Ortofoto_IR'/);
+    expect(lasFil('app/api/wms-proxy/route.ts')).toMatch(/lm_ortofoto_ir:/);
+    expect(lasFil('app/planering/page.tsx')).toMatch(/'lm_ortofoto_ir'/);
   });
 });

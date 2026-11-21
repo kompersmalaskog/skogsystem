@@ -68,7 +68,7 @@ describe('vägarna: snitselfärg med mörk kant', () => {
 describe('fara rörs aldrig av nedtoning eller grått', () => {
   it('bakgrunden tonas bara i rasterlagren (baskartan); inget markerings-, larm- eller fara-lager får raster-egenskaper från lib/kartBas', () => {
     const rader = sida.split('\n').filter((r) => r.includes('paint: kartBasPaint('));
-    expect(rader.length).toBe(5);   // de fem baslagren (Flygfoto, IR-flygfoto, Karta, Topokarta, OSM)
+    expect(rader.length).toBe(4);   // de fyra baslagren
     for (const r of rader) expect(r).toMatch(/type: 'raster'/);
     // Det enda andra stället som läser kartBasPaint är reglage-effekten (Dämpad ↔ Skarp): den sätter paint på de fyra baslagren via KARTLAGER_LAGER_ID och inget annat lager.
     const ovriga = sida.split('\n').filter((r) => r.includes('kartBasPaint(') && !r.includes('paint: kartBasPaint('));
