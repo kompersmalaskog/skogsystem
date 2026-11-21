@@ -47,7 +47,10 @@ function rita(
   el = document.createElement('div');
   document.body.appendChild(el);
   root = createRoot(el);
-  act(() => { root!.render(<FakturaLista vy={byggListVy(rader, utanTrakt, faktura)} />); });
+  // Fixturens datum ligger före appens startdatum (1 nov 2026). De här testerna
+  // provar FORMEN på listan, inte startdatumet, så de säger uttryckligen
+  // "räkna allt". Startdatumet har sina egna tester i lib/faktura/listaVy.test.ts.
+  act(() => { root!.render(<FakturaLista vy={byggListVy(rader, utanTrakt, faktura, '2000-01-01')} />); });
   return el;
 }
 
@@ -228,5 +231,43 @@ describe('FakturaLista — faktureringens högar', () => {
     const ut = rita(bara, null, faktura);
     expect(Array.from(ut.querySelectorAll('[data-hog]')).map(h => h.getAttribute('data-hog')))
       .toEqual(['fakturerat']);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Startdatumet: trakter som blev klara före 1 november 2026 ber inte om något,
+// men det sägs i klartext längst ner — ingenting tystas i smyg.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("FakturaLista — det som tystats", () => {
+  it("säger hur många gamla trakter som slutat be om något", () => {
+    el = document.createElement("div");
+    document.body.appendChild(el);
+    root = createRoot(el);
+    const rader = [
+      rad({ vo_nummer: "c1", tillstand: "atgard", hinder_typ: "kontraktsnr", avrakningsdatum: "2026-10-26" }),
+      rad({ vo_nummer: "n1", avrakningsdatum: "2026-11-13" }),
+    ];
+    const faktura = byggFakturaLage(
+      [{ vo_nummer: "c1", kontraktsnummer: null }, { vo_nummer: "n1", kontraktsnummer: "970001" }],
+      [],
+    );
+    act(() => { root!.render(<FakturaLista vy={byggListVy(rader, null, faktura)} />); });
+
+    const tystRad = el.querySelector("[data-hanterade-utanfor]");
+    expect(tystRad).not.toBeNull();
+    expect(text(tystRad!)).toContain("1 trakt blev klar före 1 november 2026");
+    // Kön är tyst, men novembertrakten står kvar att fakturera.
+    expect(text(el)).not.toContain("saknar kontraktsnummer");
+    expect(el.querySelector('a[href="/ekonomi/fakturaunderlag/n1"]')).not.toBeNull();
+  });
+
+  it("ingen rad när inget är tystat", () => {
+    el = document.createElement("div");
+    document.body.appendChild(el);
+    root = createRoot(el);
+    act(() => {
+      root!.render(<FakturaLista vy={byggListVy([rad({ vo_nummer: "n1", avrakningsdatum: "2026-11-13" })], null, null)} />);
+    });
+    expect(el.querySelector("[data-hanterade-utanfor]")).toBeNull();
   });
 });
