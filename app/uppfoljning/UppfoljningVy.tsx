@@ -198,14 +198,14 @@ const OBJEKT_CSS = `
 .uf-topp { display: grid; grid-template-columns: minmax(0, 1fr); gap: ${AVSTAND.xl}px; align-items: start; }
 .uf-topp > * { min-width: 0; }
 .uf-kedjesteg { text-align: center; min-width: 0; }
-.uf-kedjelabel { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 5px; }
-.uf-kedjeval { font-size: 22px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-@container (min-width: 560px) { .uf-kedjeval-stor { font-size: 30px; } }
-.uf-kedjeenhet { font-size: 12px; color: ${FARG.text2}; font-weight: 400; margin-left: 2px; }
-.uf-kedjepil { color: ${FARG.text3}; font-size: 18px; line-height: 1; }
+.uf-kedjelabel { font-size: ${TYP.micro.fontSize}px; font-weight: ${VIKT.fet}; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: ${AVSTAND.xs}px; }
+.uf-kedjeval { font-size: ${TYP.rubrik.fontSize}px; font-weight: ${VIKT.fet}; line-height: 1; font-variant-numeric: tabular-nums; }
+@container (min-width: 560px) { .uf-kedjeval-stor { font-size: ${TYP.titel.fontSize}px; } }
+.uf-kedjeenhet { font-size: ${TYP.meta.fontSize}px; color: ${FARG.text2}; font-weight: ${VIKT.normal}; margin-left: ${AVSTAND.xs}px; }
+.uf-kedjepil { color: ${FARG.text3}; font-size: ${TYP.text.fontSize}px; line-height: 1; }
 .uf-avv-text { display: flex; flex-direction: column; gap: 2px; }
-.uf-avv-titel { font-size: 13px; color: ${V6_WARN}; font-weight: ${VIKT.halvfet}; line-height: 1.45; }
-.uf-avv-detalj { font-size: 12px; color: ${V6_GREY}; font-weight: 400; line-height: 1.4; }
+.uf-avv-titel { font-size: ${TYP.meta.fontSize}px; color: ${V6_WARN}; font-weight: ${VIKT.halvfet}; line-height: 1.45; }
+.uf-avv-detalj { font-size: ${TYP.meta.fontSize}px; color: ${V6_GREY}; font-weight: ${VIKT.normal}; line-height: 1.4; }
 .uf-hur-rubrik { display: none; }
 .uf-hur-sektioner { background: ${V6_CARD}; border-radius: 0 0 ${RADIE.knapp}px ${RADIE.knapp}px; overflow: hidden; }
 .uf-hur-sektioner.ar-stangd { display: none; }
@@ -278,11 +278,11 @@ function Headline({ data }: { data: UppfoljningData }) {
   const label = data.typ ? typLabel(data.typ) : '';
   const parts = [label, data.areal ? `${data.areal} ha` : null, data.agare || null].filter(Boolean);
   return (
-    <section style={{ padding: '22px 24px 12px' }}>
+    <section style={{ padding: `${AVSTAND.xl}px ${AVSTAND.xl}px ${AVSTAND.m}px` }}>
       {parts.length > 0 && (
         <div style={{ fontSize: 13, color: V6_GREY, fontWeight: VIKT.normal }}>{parts.join(' · ')}</div>
       )}
-      <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', margin: '4px 0 0', lineHeight: 1.2 }}>
+      <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', margin: `${AVSTAND.xs}px 0 0`, lineHeight: 1.2 }}>
         {data.objektNamn}
       </h1>
     </section>
@@ -297,21 +297,21 @@ function Headline({ data }: { data: UppfoljningData }) {
 function StatusRad({ data }: { data: UppfoljningData }) {
   const s = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
   return (
-    <section style={{ padding: '0 24px 20px', display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.s, flexWrap: 'wrap' }}>
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_FARG[s.k], flexShrink: 0 }} />
-      <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.2px' }}>{s.t}</span>
+      <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.2px' }}>{s.t}</span>
       {s.dagar != null && (
-        <span style={{ fontSize: 15, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
           · {s.k === 'done' ? `${s.dagar} dagar` : `dag ${s.dagar}`}
         </span>
       )}
       {s.visaKvar && s.kvar != null && (
-        <span style={{ fontSize: 15, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
           · {s.kvar > 0 ? `${Math.round(s.kvar).toLocaleString('sv-SE')} m³ kvar` : 'allt utkört'}
         </span>
       )}
       {s.kvarOkant && (
-        <span style={{ fontSize: 15, color: V6_WARN, fontWeight: VIKT.normal }}>· skördardata saknas</span>
+        <span style={{ fontSize: 13, color: V6_WARN, fontWeight: VIKT.normal }}>· skördardata saknas</span>
       )}
     </section>
   );
@@ -467,10 +467,10 @@ function Svaret({ data }: { data: UppfoljningData }) {
 function AvvikelseZon({ avvikelser }: { avvikelser?: AvvikelseRad[] }) {
   if (!avvikelser || avvikelser.length === 0) return null;
   return (
-    <section style={{ padding: '0 24px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: 8 }}>
       {avvikelser.map(a => (
-        <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 9, background: 'rgba(255,159,10,0.09)', border: '0.5px solid rgba(255,159,10,0.28)', borderRadius: 10, padding: '10px 13px' }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={V6_WARN} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+        <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.s, background: 'rgba(255,159,10,0.09)', border: '0.5px solid rgba(255,159,10,0.28)', borderRadius: 10, padding: `${AVSTAND.m}px` }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={V6_WARN} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: AVSTAND.xs }}>
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
@@ -494,17 +494,17 @@ function MaskinCell({
   snitt: number | null; dagar: number | null;
 }) {
   return (
-    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 16px 14px', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px`, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginBottom: 12 }}>
         <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
         <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, minWidth: 0 }}>
         <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' }}>{primary}</span>
         <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 600 }}>{primaryUnit}</span>
       </div>
       <div style={{ fontSize: 11, color: V6_GREY, marginTop: 4, fontWeight: VIKT.normal, minHeight: 14 }}>{primaryLabel}</div>
-      <div style={{ marginTop: 14, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: 3, fontVariantNumeric: 'tabular-nums' }}>
+      <div style={{ marginTop: AVSTAND.l, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 13, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, fontVariantNumeric: 'tabular-nums' }}>
         {snitt != null && (
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>Snitt/dag</span><span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{snitt} m³</span>
@@ -545,23 +545,23 @@ function RisRubrik({ data }: { data: UppfoljningData }) {
   const statusOrd = data.skotareSlut ? `klar ${fmtISO(data.skotareSlut)}` : data.skotareLastDate === idag ? 'kör idag' : null;
   const visaBotten = harVol && (snitt != null || dagar != null || !!data.skotareModell || !!data.operatorSkotare || !!statusOrd);
   return (
-    <section style={{ padding: '0 24px 20px' }}>
-      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 18px 14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginBottom: 12 }}>
           <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST }} />
           <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Ris utkört</span>
         </div>
         {harVol ? (
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.8px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{vol.toLocaleString('sv-SE')}</span>
-            <span style={{ fontSize: 14, color: V6_GREY, fontWeight: VIKT.normal }}>m³fub</span>
-            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: FARG.text2, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.rad, padding: '1px 5px' }}>rapporterat</span>
+            <span style={{ fontSize: 13, color: V6_GREY, fontWeight: VIKT.normal }}>m³fub</span>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: FARG.text2, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.rad, padding: `${AVSTAND.xs}px ${AVSTAND.s}px` }}>rapporterat</span>
           </div>
         ) : (
-          <div style={{ fontSize: 15, color: V6_GREY, fontWeight: 600 }}>Inga lass registrerade än</div>
+          <div style={{ fontSize: 17, color: V6_GREY, fontWeight: 600 }}>Inga lass registrerade än</div>
         )}
         {visaBotten && (
-          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: 3, fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ marginTop: AVSTAND.l, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 13, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, fontVariantNumeric: 'tabular-nums' }}>
             {snitt != null && (
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Snitt/dag</span><span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{snitt} m³</span>
@@ -602,21 +602,21 @@ function Kallhyggen({ objektId }: { objektId?: string | null }) {
   }, [objektId]);
 
   return (
-    <section style={{ padding: '0 24px 20px' }}>
-      <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: '0 0 8px 2px' }}>Ris hämtas från</div>
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: `0 0 ${AVSTAND.s}px ${AVSTAND.xs}px` }}>Ris hämtas från</div>
       {lage.status === 'laddar' ? (
-        <div style={{ fontSize: 13, color: V6_GREY, padding: '4px 2px' }}>Läser källhyggen …</div>
+        <div style={{ fontSize: 13, color: V6_GREY, padding: `${AVSTAND.xs}px` }}>Läser källhyggen …</div>
       ) : lage.status === 'fel' ? (
-        <div style={{ fontSize: 13, color: V6_WARN, padding: '4px 2px' }}>Kunde inte läsa källhyggena</div>
+        <div style={{ fontSize: 13, color: V6_WARN, padding: `${AVSTAND.xs}px` }}>Kunde inte läsa källhyggena</div>
       ) : lage.hyggen.length === 0 ? (
-        <div style={{ fontSize: 13, color: V6_GREY2, padding: '4px 2px' }}>Inga källhyggen kopplade — kopplas i redigeringen.</div>
+        <div style={{ fontSize: 13, color: V6_GREY2, padding: `${AVSTAND.xs}px` }}>Inga källhyggen kopplade — kopplas i redigeringen.</div>
       ) : (
         <div style={{ background: V6_CARD, borderRadius: RADIE.kort, overflow: 'hidden' }}>
           {lage.hyggen.map((h, i) => (
             <button key={h.objekt_id} onClick={() => router.push(`/uppfoljning/${encodeURIComponent(h.urlId)}`)}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 48, padding: '11px 16px', background: 'transparent', border: 'none', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none', color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.namn}</span>
-              {h.auto_avbockad && <span style={{ fontSize: 10, color: V6_DONE, fontWeight: 600 }}>grot avbockat</span>}
+              style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, width: '100%', minHeight: 48, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, background: 'transparent', border: 'none', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none', color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 17, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.namn}</span>
+              {h.auto_avbockad && <span style={{ fontSize: 13, color: V6_DONE, fontWeight: 600 }}>grot avbockat</span>}
               <svg width="7" height="12" viewBox="0 0 8 14" fill="none" stroke={V6_GREY2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                 <polyline points="1 1 7 7 1 13" />
               </svg>
@@ -644,8 +644,8 @@ function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotar
   const hasSk = !!data.skordareModell || data.skordat > 0;
 
   return (
-    <section style={{ padding: '0 24px 24px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: showSt && hasSk ? '1fr 1fr' : '1fr', gap: 10 }}>
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.xl}px` }}>
+      <div style={{ display: 'grid', gridTemplateColumns: showSt && hasSk ? '1fr 1fr' : '1fr', gap: AVSTAND.m }}>
         {hasSk && (
           <MaskinCell
             label="Skördare" color={V6_SK}
@@ -711,28 +711,28 @@ function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
   ];
 
   return (
-    <div style={{ padding: '0 24px 16px' }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
       <div style={{ background: V6_CARD, borderRadius: RADIE.kort, overflow: 'hidden' }}>
         {kort.map((k, i) => (
           <div key={k.key} style={{
-            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '14px 16px',
+            display: 'flex', alignItems: 'flex-start', gap: AVSTAND.m, padding: `${AVSTAND.l}px`,
             borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none',
           }}>
             <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST, flexShrink: 0, marginTop: AVSTAND.xs }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 14, color: FARG.text, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.namn}</span>
+                <span style={{ fontSize: 17, color: FARG.text, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.namn}</span>
                 {k.omlastning && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: FARG.orange, background: 'rgba(255,159,10,0.15)', padding: '2px 7px', borderRadius: RADIE.rad, whiteSpace: 'nowrap', letterSpacing: 0.3 }}>OMLASTNING</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: FARG.orange, background: 'rgba(255,159,10,0.15)', padding: `${AVSTAND.xs}px ${AVSTAND.s}px`, borderRadius: RADIE.rad, whiteSpace: 'nowrap', letterSpacing: 0.3 }}>OMLASTNING</span>
                 )}
               </div>
-              <div style={{ fontSize: 11, color: V6_GREY, marginTop: 3 }}>{k.meta}</div>
+              <div style={{ fontSize: 11, color: V6_GREY, marginTop: AVSTAND.xs }}>{k.meta}</div>
             </div>
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                {sv(k.volym)} <span style={{ fontSize: 10, color: V6_GREY, fontWeight: 600 }}>m³</span>
+              <div style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                {sv(k.volym)} <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 600 }}>m³</span>
               </div>
-              {k.omlastning && <div style={{ fontSize: 9, color: FARG.orange, marginTop: 2, whiteSpace: 'nowrap' }}>ej i total</div>}
+              {k.omlastning && <div style={{ fontSize: 11, color: FARG.orange, marginTop: AVSTAND.xs, whiteSpace: 'nowrap' }}>ej i total</div>}
             </div>
           </div>
         ))}
@@ -748,13 +748,13 @@ function Collapse({ title, varde, children, defaultOpen = false }: { title: stri
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{ borderTop: `0.5px solid ${V6_SEP}` }}>
-      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: '16px 24px', background: 'transparent', border: 'none', color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
+      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: `${AVSTAND.l}px ${AVSTAND.xl}px`, background: 'transparent', border: 'none', color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
         <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.2px', flexShrink: 0 }}>{title}</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           {varde != null && (
-            <span style={{ fontSize: 12, color: V6_GREY, fontWeight: VIKT.normal, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.35 }}>{varde}</span>
+            <span style={{ fontSize: 13, color: V6_GREY, fontWeight: VIKT.normal, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.35 }}>{varde}</span>
           )}
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: overgang('transform'), flexShrink: 0 }}>
             <polyline points="4 2 8 6 4 10" />
           </svg>
         </span>
@@ -779,7 +779,7 @@ function HurGickDet({ undertext, children }: { undertext: string; children: Reac
       <button
         className="uf-hur-knapp"
         onClick={() => setOpen(!open)}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: '20px 24px', background: V6_CARD, border: 'none', borderRadius: open ? `${RADIE.knapp}px ${RADIE.knapp}px 0 0` : RADIE.knapp, color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: `${AVSTAND.l}px ${AVSTAND.xl}px`, background: V6_CARD, border: 'none', borderRadius: open ? `${RADIE.knapp}px ${RADIE.knapp}px 0 0` : RADIE.knapp, color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}
       >
         <span style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.3px' }}>Hur gick det?</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minWidth: 0 }}>
@@ -805,18 +805,18 @@ function HurGickDet({ undertext, children }: { undertext: string; children: Reac
 // (källmärkning, t.ex. 'HPR' för flerträd som är HPR-härlett, inte MOM).
 function ProdKort({ color, label, rows }: { color: string; label: string; rows: [string, string, (boolean | string)?][] }) {
   return (
-    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 16px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginBottom: AVSTAND.m }}>
         <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
         <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
         {rows.map(([v, u, manuell], i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', fontVariantNumeric: 'tabular-nums', lineHeight: 1, whiteSpace: 'nowrap' }}>{v}</span>
             <span style={{ fontSize: 11, color: V6_GREY, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>{u}</span>
             {manuell && (
-              <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: V6_GREY, border: `1px solid ${V6_SEP}`, borderRadius: RADIE.rad, padding: '1px 5px' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: V6_GREY, border: `1px solid ${V6_SEP}`, borderRadius: RADIE.rad, padding: `${AVSTAND.xs}px ${AVSTAND.s}px` }}>
                 {typeof manuell === 'string' ? manuell : 'manuellt'}
               </span>
             )}
@@ -854,11 +854,11 @@ function Produktivitet({ data }: { data: UppfoljningData }) {
   if (data.skotningsavstand > 0) stRows.push([`${data.skotningsavstand} m`, 'skotningsavstånd']);
 
   if (skRows.length === 0 && stRows.length === 0) {
-    return <div style={{ padding: '0 24px 16px', color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
+    return <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
   }
 
   return (
-    <div style={{ padding: '0 24px 16px', display: 'grid', gridTemplateColumns: skRows.length > 0 && stRows.length > 0 ? '1fr 1fr' : '1fr', gap: 10 }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'grid', gridTemplateColumns: skRows.length > 0 && stRows.length > 0 ? '1fr 1fr' : '1fr', gap: AVSTAND.m }}>
       {skRows.length > 0 && <ProdKort color={V6_SK} label="Skördare" rows={skRows} />}
       {stRows.length > 0 && <ProdKort color={V6_ST} label="Skotare" rows={stRows} />}
     </div>
@@ -873,11 +873,11 @@ function ProdChart({ data, color, snitt }: { data: { datum: string; m3: number; 
   const barMaxH = chartH - 20;
   const snittH = snitt ? (snitt / max) * barMaxH : 0;
   return (
-    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 18px 14px' }}>
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
       <div style={{ position: 'relative', height: chartH, borderBottom: `0.5px solid ${V6_SEP}`, paddingBottom: 4 }}>
         {snitt > 0 && (
           <div style={{ position: 'absolute', left: 0, right: 0, bottom: 4 + snittH, height: 0, borderTop: `1px dashed ${V6_GREY2}`, pointerEvents: 'none', zIndex: 2 }}>
-            <span style={{ position: 'absolute', right: 0, top: -16, fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 700, background: V6_CARD, padding: '0 4px' }}>snitt {Math.round(snitt)} m³</span>
+            <span style={{ position: 'absolute', right: 0, top: -16, fontSize: 13, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 700, background: V6_CARD, padding: `0 ${AVSTAND.xs}px` }}>snitt {Math.round(snitt)} m³</span>
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: '100%' }}>
@@ -887,10 +887,10 @@ function ProdChart({ data, color, snitt }: { data: { datum: string; m3: number; 
             return (
               <div key={i} onClick={() => setActive(isActive ? null : i)} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end', cursor: 'pointer', position: 'relative' }}>
                 {isActive && d.lass != null && (
-                  <div style={{ position: 'absolute', bottom: h + 30, left: '50%', transform: 'translateX(-50%)', background: FARG.upphojt, border: `0.5px solid ${FARG.linje}`, borderRadius: 8, padding: '6px 9px', whiteSpace: 'nowrap', fontSize: 11, color: FARG.text, zIndex: 5, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}>{d.lass} lass · {Math.round(d.m3)} m³</div>
+                  <div style={{ position: 'absolute', bottom: h + 30, left: '50%', transform: 'translateX(-50%)', background: FARG.upphojt, border: `0.5px solid ${FARG.linje}`, borderRadius: RADIE.rad, padding: `${AVSTAND.s}px`, whiteSpace: 'nowrap', fontSize: 11, color: FARG.text, zIndex: 5, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}>{d.lass} lass · {Math.round(d.m3)} m³</div>
                 )}
                 <div style={{ fontSize: 11, color: FARG.text, fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{Math.round(d.m3)}</div>
-                <div style={{ width: '100%', maxWidth: 26, height: `${h}px`, background: color, borderRadius: 3, minHeight: 4, opacity: active != null && !isActive ? 0.4 : 1, transition: 'opacity .15s' }} />
+                <div style={{ width: '100%', maxWidth: 26, height: `${h}px`, background: color, borderRadius: RADIE.stapel, minHeight: 4, opacity: active != null && !isActive ? 0.4 : 1, transition: overgang('opacity') }} />
               </div>
             );
           })}
@@ -898,7 +898,7 @@ function ProdChart({ data, color, snitt }: { data: { datum: string; m3: number; 
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
         {data.map((d, i) => (
-          <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 10, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{d.datum}</div>
+          <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{d.datum}</div>
         ))}
       </div>
     </div>
@@ -912,7 +912,7 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
   const stData = stRaw.filter(d => typeof d.m3 === 'number' && d.m3 > 0).map(d => ({ datum: d.datum, m3: d.m3 || 0, lass: d.lass }));
   const hasSk = skData.length > 0;
   const hasSt = stData.length > 0;
-  if (!hasSk && !hasSt) return <div style={{ padding: '0 24px 16px', color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
+  if (!hasSk && !hasSt) return <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
 
   const skSnitt = hasSk ? skData.reduce((a, b) => a + b.m3, 0) / skData.length : 0;
   const stSnitt = hasSt ? stData.reduce((a, b) => a + b.m3, 0) / stData.length : 0;
@@ -921,7 +921,7 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
   const skTotal = hasSk ? skData.reduce((a, b) => a + b.m3, 0) : 0;
 
   return (
-    <div style={{ padding: '0 24px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: 16 }}>
       {hasSk && (
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
@@ -944,7 +944,7 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
             </span>
           </div>
           <ProdChart data={stData} color={V6_ST} snitt={stSnitt} />
-          <div style={{ fontSize: 10, color: V6_GREY2, marginTop: 6, textAlign: 'center' }}>Tryck på en stapel för att se antal lass</div>
+          <div style={{ fontSize: 13, color: V6_GREY2, marginTop: AVSTAND.s, textAlign: 'center' }}>Tryck på en stapel för att se antal lass</div>
         </div>
       )}
     </div>
@@ -957,20 +957,20 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
 function Tradslag({ tradslag }: { tradslag: { namn: string; pct: number }[] }) {
   if (!tradslag || tradslag.length === 0) return null;
   return (
-    <div style={{ padding: '0 24px 16px' }}>
-      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 16px 14px' }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
         <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 12 }}>Trädslag</div>
-        <div style={{ display: 'flex', height: 14, borderRadius: 3, overflow: 'hidden', gap: 2, marginBottom: 14 }}>
+        <div style={{ display: 'flex', height: 14, borderRadius: RADIE.stapel, overflow: 'hidden', gap: AVSTAND.xs, marginBottom: AVSTAND.l }}>
           {tradslag.map((t, i) => (
             <div key={t.namn} style={{ width: `${t.pct}%`, background: tradslagFarg(t.namn, i) }} />
           ))}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {tradslag.map((t, i) => (
-            <div key={t.namn} style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <div key={t.namn} style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.m }}>
               <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: tradslagFarg(t.namn, i), flexShrink: 0, alignSelf: 'center' }} />
-              <span style={{ flex: 1, fontSize: 14, color: FARG.text }}>{t.namn}</span>
-              <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{t.pct}%</span>
+              <span style={{ flex: 1, fontSize: 17, color: FARG.text }}>{t.namn}</span>
+              <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{t.pct}%</span>
             </div>
           ))}
         </div>
@@ -984,24 +984,24 @@ function Sortiment({ sortiment }: { sortiment: { namn: string; m3: number }[] })
   const max = Math.max(...sortiment.map(s => s.m3), 1);
   const total = sortiment.reduce((a, b) => a + b.m3, 0);
   return (
-    <div style={{ padding: '0 24px 16px' }}>
-      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 18px 14px' }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
           <span style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>Sortiment</span>
-          <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{Math.round(total)} m³</span>
+          <span style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{Math.round(total)} m³</span>
         </div>
         {sortiment.map((s, i) => (
-          <div key={s.namn} style={{ padding: '10px 0', borderTop: i === 0 ? 'none' : `0.5px solid ${V6_SEP}` }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+          <div key={s.namn} style={{ padding: `${AVSTAND.m}px 0`, borderTop: i === 0 ? 'none' : `0.5px solid ${V6_SEP}` }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: AVSTAND.s }}>
               <span style={{ fontSize: 13, color: FARG.text, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: 8 }}>
                 {sortimentSvenska(s.namn)}
               </span>
-              <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                {s.m3} <span style={{ fontSize: 10, color: V6_GREY, fontWeight: 600 }}>m³</span>
+              <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                {s.m3} <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 600 }}>m³</span>
               </span>
             </div>
-            <div style={{ height: 3, background: FARG.tonad, borderRadius: 2 }}>
-              <div style={{ width: `${(s.m3 / max) * 100}%`, height: '100%', background: V6_SK, borderRadius: 2 }} />
+            <div style={{ height: 3, background: FARG.tonad, borderRadius: RADIE.stapel }}>
+              <div style={{ width: `${(s.m3 / max) * 100}%`, height: '100%', background: V6_SK, borderRadius: RADIE.stapel }} />
             </div>
           </div>
         ))}
@@ -1016,20 +1016,20 @@ function Sortiment({ sortiment }: { sortiment: { namn: string; m3: number }[] })
 // visas som "rapporteras inte", aldrig som en falsk 0,0 h.
 function TidKort({ label, color, rows }: { label: string; color: string; rows: [string, number | null, boolean?][] }) {
   return (
-    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 16px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginBottom: AVSTAND.m }}>
         <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
         <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {rows.map(([k, v, accent], i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ fontSize: 12, color: accent ? FARG.text : V6_GREY, fontWeight: accent ? 600 : 400 }}>{k}</span>
+            <span style={{ fontSize: 13, color: accent ? FARG.text : V6_GREY, fontWeight: accent ? 600 : 400 }}>{k}</span>
             {v === null ? (
-              <span style={{ fontSize: 12, color: V6_GREY, fontWeight: 400 }}>rapporteras inte</span>
+              <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 400 }}>rapporteras inte</span>
             ) : (
               <span style={{ fontSize: accent ? 17 : 13, fontWeight: accent ? 700 : VIKT.halvfet, color: FARG.text, fontVariantNumeric: 'tabular-nums' }}>
-                {v.toFixed(1)}<span style={{ fontSize: 10, color: V6_GREY, marginLeft: 2 }}>h</span>
+                {v.toFixed(1)}<span style={{ fontSize: 13, color: V6_GREY, marginLeft: AVSTAND.xs }}>h</span>
               </span>
             )}
           </div>
@@ -1063,7 +1063,7 @@ function Tid({ data }: { data: UppfoljningData }) {
     ['Avbrott', data.skotareAvbrott],
   ];
   return (
-    <div style={{ padding: '0 24px 16px', display: 'grid', gridTemplateColumns: hasSk && hasSt ? '1fr 1fr' : '1fr', gap: 10 }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'grid', gridTemplateColumns: hasSk && hasSt ? '1fr 1fr' : '1fr', gap: AVSTAND.m }}>
       {hasSk && <TidKort label="Skördare" color={V6_SK} rows={skRows} />}
       {hasSt && <TidKort label={data.skotareTidManuell ? 'Skotare · manuell tid' : 'Skotare'} color={V6_ST} rows={stRows} />}
     </div>
@@ -1075,36 +1075,36 @@ function Diesel({ data }: { data: UppfoljningData }) {
   const skL = data.skordareL || 0;
   const stL = data.skotareL || 0;
   return (
-    <div style={{ padding: '0 24px 16px' }}>
-      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 18px 14px' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: AVSTAND.m }}>
           <span style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>Diesel</span>
           {data.dieselPerM3 > 0 && (
-            <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{data.dieselPerM3.toFixed(2)} L/m³</span>
+            <span style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{data.dieselPerM3.toFixed(2)} L/m³</span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 14 }}>
-          <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.6px', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{Math.round(data.dieselTotalt)}</span>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s, marginBottom: AVSTAND.l }}>
+          <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.8px', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{Math.round(data.dieselTotalt)}</span>
           <span style={{ fontSize: 13, color: V6_GREY }}>liter</span>
         </div>
-        <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: FARG.tonad, marginBottom: 10 }}>
+        <div style={{ display: 'flex', height: 6, borderRadius: RADIE.stapel, overflow: 'hidden', background: FARG.tonad, marginBottom: AVSTAND.m }}>
           <div style={{ width: `${(skL / data.dieselTotalt) * 100}%`, background: V6_SK }} />
           <div style={{ width: `${(stL / data.dieselTotalt) * 100}%`, background: V6_ST }} />
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.m, fontSize: 13 }}>
           <div>
             <span style={{ color: V6_GREY }}>
               <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: RADIE.cirkel, background: V6_SK, marginRight: AVSTAND.xs }} />
               Skördare
             </span>
-            <span style={{ marginLeft: 6, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{skL} L</span>
+            <span style={{ marginLeft: AVSTAND.s, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{skL} L</span>
           </div>
           <div>
             <span style={{ color: V6_GREY }}>
               <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: RADIE.cirkel, background: V6_ST, marginRight: AVSTAND.xs }} />
               Skotare
             </span>
-            <span style={{ marginLeft: 6, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{stL} L</span>
+            <span style={{ marginLeft: AVSTAND.s, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{stL} L</span>
           </div>
         </div>
       </div>
@@ -1115,19 +1115,19 @@ function Diesel({ data }: { data: UppfoljningData }) {
 // ── Avbrott ───────────────────────────────────────────────────────────────
 function AvbrottKort({ label, color, items, totalt }: { label: string; color: string; items: AvbrottRad[]; totalt: string }) {
   return (
-    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 16px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px` }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: AVSTAND.m }}>
         <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
           <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: RADIE.cirkel, background: color, marginRight: AVSTAND.xs, verticalAlign: 'middle' }} />
           {label}
         </span>
-        <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{totalt}</span>
+        <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{totalt}</span>
       </div>
       {items.map((a, i) => (
-        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: `${AVSTAND.s}px 0`, borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, color: FARG.text }}>{avbrottSv(a.orsak)}</div>
-            <div style={{ fontSize: 11, color: V6_GREY, marginTop: 2 }}>{a.typ} · {a.antal} ggr</div>
+            <div style={{ fontSize: 11, color: V6_GREY, marginTop: AVSTAND.xs }}>{a.typ} · {a.antal} ggr</div>
           </div>
           <div style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{a.tid}</div>
         </div>
@@ -1141,7 +1141,7 @@ function Avbrott({ data }: { data: UppfoljningData }) {
   const st = data.avbrottSkotare || [];
   if (sk.length === 0 && st.length === 0) return null;
   return (
-    <div style={{ padding: '0 24px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
       {sk.length > 0 && <AvbrottKort label="Skördare" color={V6_SK} items={sk} totalt={data.avbrottSkordare_totalt} />}
       {st.length > 0 && <AvbrottKort label="Skotare" color={V6_ST} items={st} totalt={data.avbrottSkotareTotalt} />}
     </div>
@@ -1154,10 +1154,10 @@ function Extern({ data }: { data: UppfoljningData }) {
   // Pris och totalsumma bor i EKONOMIVYN — uppföljningen är en ren operativ
   // vy som kan visas medarbetare. Här: vem som skotar och hur mycket.
   return (
-    <div style={{ padding: '0 24px 16px' }}>
-      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 18px 14px' }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
         <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Extern skotning</div>
-        <div style={{ fontSize: 18, fontWeight: 600 }}>{data.externForetag || '—'}</div>
+        <div style={{ fontSize: 17, fontWeight: 600 }}>{data.externForetag || '—'}</div>
         {(data.externAntal || 0) > 0 && (
           <div style={{ marginTop: 12, fontSize: 13, color: V6_GREY }}>
             Omfattning{' '}
@@ -1175,12 +1175,12 @@ function Extern({ data }: { data: UppfoljningData }) {
 function Nav({ onBack }: { onBack?: () => void }) {
   if (!onBack) return null;
   return (
-    <nav style={{ position: 'sticky', top: 0, zIndex: 30, height: 44, display: 'flex', alignItems: 'center', padding: '0 6px', background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', borderBottom: `0.5px solid ${V6_SEP}` }}>
-      <button onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'none', border: 'none', color: FARG.text, fontSize: 17, cursor: 'pointer', padding: '8px 10px', fontFamily: V6_FF, letterSpacing: '-0.2px' }}>
+    <nav style={{ position: 'sticky', top: 0, zIndex: 30, height: 44, display: 'flex', alignItems: 'center', padding: `0 ${AVSTAND.s}px`, background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', borderBottom: `0.5px solid ${V6_SEP}` }}>
+      <button onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, background: 'none', border: 'none', color: FARG.text, fontSize: 17, cursor: 'pointer', padding: `${AVSTAND.s}px ${AVSTAND.m}px`, fontFamily: V6_FF, letterSpacing: '-0.2px' }}>
         <svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="10 2 2 10 10 18" />
         </svg>
-        <span style={{ marginLeft: 2 }}>Uppföljning</span>
+        <span style={{ marginLeft: AVSTAND.xs }}>Uppföljning</span>
       </button>
     </nav>
   );
@@ -1193,15 +1193,15 @@ function Nav({ onBack }: { onBack?: () => void }) {
 // skotad total). Omlastningsmaskiner får en liten bärnstensgul OML-markör.
 function SkotareVal({ maskiner, vald, onValj }: { maskiner: SkotareMaskinStat[]; vald: string; onValj: (id: string) => void }) {
   const knapp = (aktiv: boolean): React.CSSProperties => ({
-    padding: '7px 13px', borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: V6_FF,
-    cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: `${AVSTAND.s}px ${AVSTAND.m}px`, borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: V6_FF,
+    cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s,
     border: aktiv ? '1px solid transparent' : `1px solid ${V6_SEP}`,
     background: aktiv ? V6_ST : 'transparent',
     color: aktiv ? FARG.bg : FARG.text,
   });
   return (
-    <section style={{ padding: '0 24px 16px' }}>
-      <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: '0 0 8px 2px' }}>Skotare — välj maskin</div>
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: `0 0 ${AVSTAND.s}px ${AVSTAND.xs}px` }}>Skotare — välj maskin</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <button onClick={() => onValj('alla')} style={knapp(vald === 'alla')}>Alla</button>
         {maskiner.map(m => {
@@ -1210,7 +1210,7 @@ function SkotareVal({ maskiner, vald, onValj }: { maskiner: SkotareMaskinStat[];
             <button key={m.maskinId} onClick={() => onValj(m.maskinId)} style={knapp(aktiv)}>
               <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{m.namn}</span>
               {m.arOmlastning && (
-                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3, color: aktiv ? FARG.bg : FARG.orange, background: aktiv ? 'rgba(0,0,0,0.14)' : 'rgba(255,159,10,0.15)', padding: '1px 5px', borderRadius: 5 }}>OML</span>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.3, color: aktiv ? FARG.bg : FARG.orange, background: aktiv ? 'rgba(0,0,0,0.14)' : 'rgba(255,159,10,0.15)', padding: `${AVSTAND.xs}px ${AVSTAND.s}px`, borderRadius: RADIE.rad }}>OML</span>
               )}
             </button>
           );
