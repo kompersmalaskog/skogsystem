@@ -550,13 +550,63 @@ export type AvstandIndata = {
  * en stor trakt ger ett tillägg nära noll. Det är hela skälet till att den här
  * skärmen finns: Skälviken har 1 725 m³ och två lass som bär 40.
  */
+/**
+ * Lassens volymviktade snitt i meter, enkel väg. null = inget lass med mätt
+ * sträcka. EN funktion, så arket och raden på trakten aldrig kan säga olika.
+ */
+export function lassSnittM(a: Granskningsunderlag['avstand']): number | null {
+  const lassVolym = a.lass.reduce((s, l) => s + l.volym, 0);
+  if (lassVolym <= 0) return null;
+  return a.lass.reduce((s, l) => s + l.avstandM * l.volym, 0) / lassVolym;
+}
+
+/** Avståndet priset räknas på: det handsatta först, annars lassens snitt. */
+export function avstandMeter(a: Granskningsunderlag['avstand']): number | null {
+  return a.manuellt ?? lassSnittM(a);
+}
+
+/**
+ * Raden på traktens prislista: avståndet i METER och var talet kommer ifrån.
+ *
+ * Fram till 2026-11-20 stod bara kronorna, inne i skotarens maskinkort
+ * ("Skotningsavstånd +12,00"). Metrarna fanns ingenstans på sidan, och när de
+ * satts för hand försvann även frågan ur "saker att kolla" — så det tal som
+ * flyttar mest pengar var sidans enda osynliga. Tre tal bestämmer priset
+ * (medelstam, sortiment, avstånd); två hade en rad, det tredje inte.
+ *
+ * null = inget avstånd alls, varken handsatt eller mätt. Då står frågan redan
+ * i "saker att kolla", och en tom rad här vore samma sak på två ställen.
+ */
+export function avstandRadVy(i: AvstandIndata): { varde: string; under: string } | null {
+  const m = avstandMeter(i.a);
+  if (m == null) return null;
+
+  // Talet utan enhet — enheten står under det, som på de andra två raderna
+  // ("100,00" / "kr/m³fub", "7" / "st").
+  if (i.a.manuellt != null) {
+    const snitt = lassSnittM(i.a);
+    return {
+      varde: heltal(m),
+      under: snitt != null
+        ? `Satt för hand · lassen säger ${heltal(snitt)} m`
+        : 'Satt för hand',
+    };
+  }
+
+  const lassVolym = i.a.lass.reduce((s, l) => s + l.volym, 0);
+  const tackning = i.volym > 0 ? Math.round((lassVolym / i.volym) * 100) : 0;
+  return {
+    varde: heltal(m),
+    under: `Ur ${i.a.lass.length === 1 ? 'ett lass' : `${i.a.lass.length} lass`} `
+      + `· ${tackning} % av volymen`,
+  };
+}
+
 export function byggAvstandVy(i: AvstandIndata): AvstandVy {
   const { a } = i;
   const lassVolym = a.lass.reduce((s, l) => s + l.volym, 0);
-  const snitt = lassVolym > 0
-    ? a.lass.reduce((s, l) => s + l.avstandM * l.volym, 0) / lassVolym
-    : null;
-  const avstandM = a.manuellt ?? snitt;
+  const snitt = lassSnittM(a);
+  const avstandM = avstandMeter(a);
   const tackning = i.volym > 0 ? Math.round((lassVolym / i.volym) * 100) : 0;
 
   const mening = a.manuellt != null
