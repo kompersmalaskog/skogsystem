@@ -142,6 +142,7 @@ import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
 import { MASKIN_PIL_BILD, MASKIN_PIL_BILD_GRA, MASKIN_PIL_BILD_ORANGE, maskinPilLage, MASKIN_PIL_PIXELRATIO, MASKIN_PIL_PX, MASKIN_PIL_UTTRYCK, maskinPilFarg, maskinPilSvg } from '../../lib/maskinPil'
 import { TOM_KURS, foljTid, kartRiktning, stegaKurs, type KursLage } from '../../lib/korvyKurs'
+import { kompletteraNamn } from '../../lib/medarbetarNamn'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
 import { valjObjektForPosition, objektTraffPunkt, objektHuvudtyp, traktgransRingar, arTilldelad, type ObjektForVal } from '../../lib/objektPlats'
 import { tolkaSparadPosition, MASKINPOS_NYCKEL, sparObjektGiltigt, valjPosObjekt, valjTilldelatObjekt, valjFlygPos } from '../../lib/maskinPosition'
@@ -1029,13 +1030,16 @@ export default function PlannerPage() {
       // GROT-jobb som hör till ett virkesobjekt visar OCKSÅ virkesobjektets ytanteckningar (ytorna kommer från dess traktgräns); jobbets egna vinner vid samma yta.
       const { data, error } = await supabase
         .from('objekt_yta_anteckning')
-        .select('objekt_id, yta_nyckel, text, uppdaterad_at, medarbetare:skapad_av(namn)')
+        .select('objekt_id, yta_nyckel, text, uppdaterad_at, skapad_av, medarbetare:skapad_av(namn)')
         .in('objekt_id', ytaKontextIds(valtObjekt));
       if (avbruten) return;
       if (error || !data) { setAnteckningar({}); return; }
+      // Namnet på andras anteckningar (en förare och maskinen ser bara sin egen medarbetarrad) kompletteras som namn och inget mer.
+      const rader = await kompletteraNamn(data as any[], (x) => x.skapad_av, (x) => (x.medarbetare as any)?.namn, (x, n) => ({ ...x, medarbetare: { namn: n } }));
+      if (avbruten) return;
       const karta: Record<string, { text: string; namn: string | null; uppdaterad_at: string | null }> = {};
       const egenId = valtObjekt.id;
-      for (const r of [...(data as any[]).filter((x) => x.objekt_id !== egenId), ...(data as any[]).filter((x) => x.objekt_id === egenId)]) {
+      for (const r of [...rader.filter((x) => x.objekt_id !== egenId), ...rader.filter((x) => x.objekt_id === egenId)]) {
         karta[r.yta_nyckel] = { text: r.text || '', namn: (r.medarbetare as any)?.namn ?? null, uppdaterad_at: r.uppdaterad_at ?? null };
       }
       setAnteckningar(karta);
@@ -1057,8 +1061,10 @@ export default function PlannerPage() {
         .order('skapad_at', { ascending: true });
       if (avbruten) return;
       if (error || !data) { setYtaMedia({}); return; }
+      const medRader = await kompletteraNamn(data as any[], (x) => x.skapad_av, (x) => (x.medarbetare as any)?.namn, (x, n) => ({ ...x, medarbetare: { namn: n } }));
+      if (avbruten) return;
       const karta: Record<string, { id: string; typ: 'audio' | 'foto'; url: string; text: string | null; namn: string | null; skapad_at: string; skapad_av: string | null }[]> = {};
-      for (const r of data as any[]) {
+      for (const r of medRader) {
         (karta[r.yta_nyckel] ||= []).push({ id: r.id, typ: r.typ, url: r.url, text: r.text ?? null, namn: (r.medarbetare as any)?.namn ?? null, skapad_at: r.skapad_at, skapad_av: r.skapad_av ?? null });
       }
       setYtaMedia(karta);

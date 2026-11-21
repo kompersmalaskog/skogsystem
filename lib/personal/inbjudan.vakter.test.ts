@@ -44,8 +44,9 @@ describe("inbjudan: konton skapas bara av servern", () => {
 
   it("auth.admin.* anropas bara från routen som bjuder in", () => {
     const traffar = alla.filter(f => /auth\.admin\./.test(kodUtanKommentarer(f.src))).map(f => f.rel);
-    // Maskinkonton (Maskinen som maskin): lägga upp kontot, ge ett lösenord och låsa upp med kod går också bara på servern, bakom kravRoll/kravMaskinkonto.
-    expect(traffar).toEqual(["app/api/maskin/konto/route.ts", "app/api/maskin/las/route.ts", "app/api/maskin/las-upp/route.ts", "app/api/personal/bjud-in/route.ts"]);
+    // Maskinkonton (Maskinen som maskin): kontot skapas av servern själv (auto/route + autoKonto, bakom kravPerson och brytaren), kontolistan läser skapad-tiden,
+    // och låsa upp med kod / låsa går också bara på servern, bakom kravMaskinkonto. Ingen webbläsare rör auth.admin.
+    expect(traffar).toEqual(["app/api/maskin/auto/route.ts", "app/api/maskin/konto/route.ts", "app/api/maskin/las/route.ts", "app/api/maskin/las-upp/route.ts", "app/api/personal/bjud-in/route.ts", "lib/maskinkonto/autoKonto.ts"]);
   });
 
   it("routen kräver admin FÖRE allt annat (kravRoll är första satsen i POST)", () => {

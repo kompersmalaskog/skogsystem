@@ -602,7 +602,7 @@ export default function Startsida({ roll, skyddsombud = false, marken, egnaUppgi
       )}
 
       {konto && (
-        <MerArk roll={roll} konto={kontoInfo} datahalsa={datahalsa} ovrigt={ovrigt} marken={marken} onStang={() => setKonto(false)}
+        <MerArk roll={roll} konto={mkonto.lage === 'last' && kontoInfo ? { namn: kontoInfo.namn, epost: null } : kontoInfo} datahalsa={datahalsa} ovrigt={ovrigt} marken={marken} onStang={() => setKonto(false)}
           // Maskinkontot loggar aldrig ut härifrån; en upplåst admin loggar ut maskinen, en upplåst förare låser med pillen. Alla andra som förut.
           onLoggaUt={mkonto.lage === 'last' ? undefined : mkonto.lage === 'upplast' ? (mkonto.upplast?.roll === 'admin' ? mkonto.loggaUtMaskinen : undefined) : onLoggaUt}
           onKod={mkonto.lage === 'vanlig' ? () => { setKonto(false); setKodArk(true) } : undefined} />

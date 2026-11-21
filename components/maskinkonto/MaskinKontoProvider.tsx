@@ -13,9 +13,11 @@ import Ikon from '@/components/design/Ikon'
 import VemArDuArk from '@/components/maskinkonto/VemArDuArk'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { supabase } from '@/lib/supabase'
-import { sattEnhetMaskin } from '@/lib/enhetMaskin'
+import { ENHET_MASKIN_ANDRAD, hamtaEnhetMaskin, sattEnhetMaskin } from '@/lib/enhetMaskin'
+import { antalBeviljadeSerialPortar, harWebSerial, serialGpsVald } from '@/lib/gpsSerialFlagga'
 import { AVSTAND, FARG, KNAPP, LAYOUT, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens'
-import { lasMaskinen, loggaUtMaskinen } from '@/lib/maskinkonto/klient'
+import { blirMaskinAutomatiskt, gaTillKartan, lasMaskinen, loggaUtMaskinen } from '@/lib/maskinkonto/klient'
+import { lasAutoPaus, skaBlimaMaskin } from '@/lib/maskinkonto/autoStart'
 import {
   IDLE_MS, arDoldSokvag, arKartSokvag, arLastSokvag, lasMaskinSession, lasUpplast, sattMaskinSession, sattUpplast, utgangen, type Upplast,
 } from '@/lib/maskinkonto/upplast'
@@ -49,6 +51,8 @@ export default function MaskinKontoProvider({ children }: { children: ReactNode 
   const [upplast, setUpplastState] = useState<Upplast | null>(null)
   const [vem, setVem] = useState<{ href: string } | null>(null)
   const lasKorsRef = useRef(false)
+  const autoRef = useRef<string | null>(null)   // maskinen som redan prövats i den här sidladdningen (ett försök per laddning, aldrig en slinga)
+  const [enhetTick, setEnhetTick] = useState(0)
 
   const las = useCallback(() => {
     if (lasKorsRef.current) return
@@ -86,6 +90,33 @@ export default function MaskinKontoProvider({ children }: { children: ReactNode 
     setLage('vanlig')
     return () => { avbruten = true }
   }, [medarbetare, loading, las])
+
+  // Enheten väljer maskin (frågan "Vilken maskin är det här?") eller släpper den: utvärdera om datorn ska bli maskinen.
+  useEffect(() => {
+    const f = () => setEnhetTick(t => t + 1)
+    window.addEventListener(ENHET_MASKIN_ANDRAD, f)
+    return () => window.removeEventListener(ENHET_MASKIN_ANDRAD, f)
+  }, [])
+
+  // MASKINENS KONTO SKAPAS OCH ANVÄNDS AV SIG SJÄLVT. En riktig maskindator (Web Serial-GPS, vald maskin, inte testläget) där en förare eller admin
+  // är inloggad ber servern om maskinens konto; servern kontrollerar brytaren, skapar kontot vid behov och ger en engångstoken. Inget tryck, inget
+  // lösenord. Brytaren av, telefon, surfplatta, testläge och hemdator utan maskinens GPS berörs aldrig (se lib/maskinkonto/autoStart).
+  useEffect(() => {
+    if (lage !== 'vanlig' || loading || !medarbetare) return
+    let avbruten = false
+    void (async () => {
+      const serialFlagga = serialGpsVald()
+      const beviljadePortar = harWebSerial() && !serialFlagga ? await antalBeviljadeSerialPortar() : 0
+      if (avbruten) return
+      const enhetMaskinId = hamtaEnhetMaskin()
+      const ska = skaBlimaMaskin({ roll: medarbetare.roll, pathname, harWebSerial: harWebSerial(), serialFlagga, beviljadePortar, enhetMaskinId, pausTill: lasAutoPaus(), nu: Date.now() })
+      if (!ska || !enhetMaskinId || autoRef.current === enhetMaskinId) return
+      autoRef.current = enhetMaskinId
+      // Efter det här anropet ändras inget om det gick fel (personen är kvar som förut). Går det bra är enheten maskinen: ladda om till kartan.
+      if ((await blirMaskinAutomatiskt(enhetMaskinId)) === 'ok') gaTillKartan()
+    })()
+    return () => { avbruten = true }
+  }, [lage, loading, medarbetare, pathname, enhetTick])
 
   // Upplåst: senaste tryck sparas, och en timer låser efter 10 min utan tryck. Karta = lås.
   useEffect(() => {

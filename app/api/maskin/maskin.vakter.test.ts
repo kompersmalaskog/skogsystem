@@ -22,8 +22,8 @@ function filer(dir: string, ut: string[] = []): string[] {
 
 describe('rutterna under /api/maskin', () => {
   const rutter = filer(join(ROT, 'app/api/maskin')).filter(f => f.endsWith('route.ts'))
-  it('finns (sju stycken) och varje metod börjar med en vakt — utom /las, som bevisar sig med personens egen token', () => {
-    expect(rutter.map(r => relative(join(ROT, 'app/api/maskin'), r)).sort()).toEqual(['kod-notis/route.ts', 'kod/nollstall/route.ts', 'kod/route.ts', 'konto/route.ts', 'las-upp/route.ts', 'las/route.ts', 'vem/route.ts'])
+  it('finns (åtta stycken) och varje metod börjar med en vakt — utom /las, som bevisar sig med personens egen token', () => {
+    expect(rutter.map(r => relative(join(ROT, 'app/api/maskin'), r)).sort()).toEqual(['auto/route.ts', 'kod-notis/route.ts', 'kod/nollstall/route.ts', 'kod/route.ts', 'konto/route.ts', 'las-upp/route.ts', 'las/route.ts', 'vem/route.ts'])
     for (const r of rutter) {
       const src = utanKommentarer(readFileSync(r, 'utf8'))
       const metoder = src.split(/export async function /).slice(1)
@@ -100,10 +100,10 @@ describe('"Välj koden från maskinen" — maskinen låser aldrig upp av sig sj�
     expect(kodNotis).not.toMatch(/generateLink|token_hash|verifyOtp|setSession|stammerKod|skapaHash|MASKIN_KOD_PEPPAR|kod_hash/)
     expect(kodNotis).not.toMatch(/auth\.admin/)
   })
-  it('bara upplåsningsrutten skapar en token — och den kräver koden (stammerKod) före generateLink', () => {
+  it('bara två rutter skapar en token: upplåsningen (kräver koden före generateLink) och det automatiska maskinbytet (bara åt MASKINENS konto, bara för en inloggad person)', () => {
     for (const f of filer(join(ROT, 'app/api')).filter(f => f.endsWith('.ts') && !/\.test\./.test(f))) {
       const src = utanKommentarer(readFileSync(f, 'utf8'))
-      if (/generateLink/.test(src)) expect(relative(ROT, f).replace(/\\/g, '/')).toBe('app/api/maskin/las-upp/route.ts')
+      if (/generateLink/.test(src)) expect(['app/api/maskin/las-upp/route.ts', 'app/api/maskin/auto/route.ts']).toContain(relative(ROT, f).replace(/\\/g, '/'))
     }
     const lasUpp = utanKommentarer(lasFil('app/api/maskin/las-upp/route.ts'))
     expect(lasUpp.indexOf('stammerKod(')).toBeGreaterThan(-1)
@@ -131,5 +131,55 @@ describe('"Välj koden från maskinen" — maskinen låser aldrig upp av sig sj�
     expect(del).not.toMatch(/kod_hash|\.namn\b|epost|telefon/)
     expect(n).toMatch(/skickas_at: 'infinity', dedup_nyckel: `kodval:/)
     expect(lasFil('app/api/notis/flush/route.ts')).toMatch(/MASKIN_KOD_SPAR, MASKIN_KOD_VAL, KALIB_MATDON/)
+  })
+})
+
+describe('maskinens konto skapas av sig självt — och bara på de villkoren', () => {
+  it('rutten: bara en person (kravPerson), maskinen måste finnas, brytaren kontrolleras FÖRE kontot skapas och FÖRE engångstoken — och svaret bär aldrig adressen eller lösenordet', () => {
+    const r = utanKommentarer(lasFil('app/api/maskin/auto/route.ts'))
+    expect(r.indexOf('kravPerson()')).toBeGreaterThan(-1)
+    expect(r).not.toMatch(/kravMaskinkonto|kravRoll/)
+    const brytare = r.indexOf('maskin_konto')
+    expect(brytare).toBeGreaterThan(r.indexOf('dim_maskin'))
+    expect(r.indexOf('sakraMaskinkonto(')).toBeGreaterThan(brytare)
+    expect(r.indexOf('generateLink')).toBeGreaterThan(r.indexOf('sakraMaskinkonto('))
+    expect(r).toMatch(/if \(!brytare\?\.aktiv\)/)
+    const svar = r.slice(r.lastIndexOf('NextResponse.json'))
+    expect(svar).not.toMatch(/epost|losenord|password|user_id|userId/)
+  })
+  it('auth-användare skapas bara av autoKonto (och inbjudan av personal) — en människa kan inte skapa ett maskinkonto med en egen adress eller ett eget lösenord', () => {
+    for (const f of [...filer(join(ROT, 'app')), ...filer(join(ROT, 'lib')), ...filer(join(ROT, 'components'))].filter(f => /\.(ts|tsx)$/.test(f) && !/\.test\./.test(f))) {
+      const src = utanKommentarer(readFileSync(f, 'utf8'))
+      if (/auth\.admin\.createUser/.test(src)) expect(['lib/maskinkonto/autoKonto.ts']).toContain(relative(ROT, f).replace(/\\/g, '/'))
+    }
+    expect(lasFil('app/api/maskin/konto/route.ts')).not.toMatch(/export async function POST/)
+    expect(utanKommentarer(lasFil('components/admin/MaskinkontoSektion.tsx'))).not.toMatch(/losenord|epost|Lägg upp/i)
+  })
+  it('webbläsaren: blirMaskinAutomatiskt anropas bara av maskin-providern, efter skaBlimaMaskin, och aldrig på ett testläge', () => {
+    const anropare: string[] = []
+    for (const f of [...filer(join(ROT, 'app')), ...filer(join(ROT, 'lib')), ...filer(join(ROT, 'components'))].filter(f => /\.(ts|tsx)$/.test(f) && !/\.test\./.test(f))) {
+      if (/blirMaskinAutomatiskt\(/.test(utanKommentarer(readFileSync(f, 'utf8')))) anropare.push(relative(ROT, f).replace(/\\/g, '/'))
+    }
+    expect(anropare.sort()).toEqual(['components/maskinkonto/MaskinKontoProvider.tsx', 'lib/maskinkonto/klient.ts'])
+    const prov = utanKommentarer(lasFil('components/maskinkonto/MaskinKontoProvider.tsx'))
+    expect(prov.indexOf('skaBlimaMaskin({')).toBeGreaterThan(-1)
+    expect(prov.indexOf('blirMaskinAutomatiskt(')).toBeGreaterThan(prov.indexOf('skaBlimaMaskin({'))
+    expect(prov).toMatch(/if \(lage !== 'vanlig' \|\| loading \|\| !medarbetare\) return/)
+    const start = utanKommentarer(lasFil('lib/maskinkonto/autoStart.ts'))
+    for (const villkor of ["a.roll !== 'forare' && a.roll !== 'admin'", 'arUndantagenSokvag(a.pathname)', '!a.harWebSerial', '!a.serialFlagga', 'a.beviljadePortar > 0', '!a.enhetMaskinId', 'a.pausTill > a.nu']) expect(start).toContain(villkor)
+    expect(start).toMatch(/path === '\/maskin' \|\| path\.startsWith\('\/maskin\/'\)/)    // testläget
+  })
+  it('nödfallet: "Logga ut maskinen" pausar bytet innan utloggningen, så att en person kan logga in som sig själv', () => {
+    const k = utanKommentarer(lasFil('lib/maskinkonto/klient.ts'))
+    const ut = k.slice(k.indexOf('export async function loggaUtMaskinen'))
+    expect(ut.indexOf('sattAutoPaus(')).toBeGreaterThan(-1)
+    expect(ut.indexOf('sattAutoPaus(')).toBeLessThan(ut.indexOf('aterMaskin()'))
+  })
+  it('personens session lämnas aldrig kvar efter bytet: den spärras på servern och minnet av en upplåsning rensas', () => {
+    const k = utanKommentarer(lasFil('lib/maskinkonto/klient.ts'))
+    const f = k.slice(k.indexOf('export async function blirMaskinAutomatiskt'), k.indexOf('export async function loggaUtMaskinen'))
+    expect(f).toMatch(/\/api\/maskin\/las/)
+    expect(f).toMatch(/sattUpplast\(null\)/); expect(f).toMatch(/sattMaskinSession\(null\)/)
+    expect(f.indexOf('verifyOtp')).toBeLessThan(f.indexOf('/api/maskin/las'))     // maskinkontot är inloggat INNAN personens session spärras
   })
 })

@@ -297,6 +297,54 @@ begin
   raise notice 'OK: kodnotis — en per två minuter, båda utfallen loggas, bara servern kan anropa';
 end $$;
 
+-- del 6: kontot skapas av sig självt (loggens utfall) och andras namn når maskinen (medarbetare_visning)
+do $$
+declare
+  M constant text := '10000000-0000-0000-0000-0000000000b1';
+  F constant text := '10000000-0000-0000-0000-0000000000f1';
+  n int; fel boolean; ids uuid[] := array['00000000-0000-0000-0000-0000000000f1','00000000-0000-0000-0000-0000000000e1','00000000-0000-0000-0000-0000000000a1','00000000-0000-0000-0000-0000000000b1']::uuid[];
+  txt text;
+begin
+  -- loggen tar de tre nya utfallen och inget annat
+  insert into maskin_upplasning_logg (maskin_id, medarbetare_id, utfall) values ('R64428', '00000000-0000-0000-0000-0000000000f1', 'auto_konto'), ('R64428', '00000000-0000-0000-0000-0000000000f1', 'auto_inloggad'), ('R64428', '00000000-0000-0000-0000-0000000000f1', 'auto_nekad');
+  begin insert into maskin_upplasning_logg (maskin_id, utfall) values ('R64428', 'hittepå'); fel := false; exception when check_violation then fel := true; end;
+  if not fel then raise exception 'FEL: loggen släpper igenom ett okänt utfall'; end if;
+  raise notice 'OK: loggen tar auto_konto, auto_inloggad och auto_nekad';
+
+  -- maskinkontot ser ANDRAS NAMN (förnamn) och maskinens eget namn — men medarbetare-tabellen är fortfarande stängd för andras rader
+  perform set_config('request.jwt.claim.sub', M, true); execute 'set local role authenticated';
+  select count(*) into n from medarbetare; if n <> 1 then raise exception 'FEL: maskinkontot ser % medarbetarrader (ska vara 1: sin egen)', n; end if;
+  select string_agg(v.namn, ',' order by v.namn) into txt from medarbetare_visning(ids) v;
+  execute 'reset role';
+  if txt is distinct from 'Daniel,H8,Martin,Oskar' then raise exception 'FEL: maskinkontot fick namnen "%"', txt; end if;
+  raise notice 'OK: maskinkontot får förnamn och maskinens namn (%) men ser bara sin egen medarbetarrad', txt;
+
+  -- ett fullständigt namn lämnas aldrig ut: bara förnamnet (en person) — och inga andra kolumner finns i svaret
+  perform set_config('request.jwt.claim.sub', F, true); execute 'set local role authenticated';
+  select count(*) into n from medarbetare_visning(ids) v where v.namn like '% %'; execute 'reset role';
+  if n <> 0 then raise exception 'FEL: ett namn med mellanslag lämnades ut (% st)', n; end if;
+  update medarbetare set namn = 'Oskar Nilsson' where id = '00000000-0000-0000-0000-0000000000f1';
+  perform set_config('request.jwt.claim.sub', M, true); execute 'set local role authenticated';
+  select v.namn into txt from medarbetare_visning(array['00000000-0000-0000-0000-0000000000f1']::uuid[]) v; execute 'reset role';
+  update medarbetare set namn = 'Oskar' where id = '00000000-0000-0000-0000-0000000000f1';
+  if txt is distinct from 'Oskar' then raise exception 'FEL: efternamnet lämnades ut (%)', txt; end if;
+  raise notice 'OK: bara förnamnet lämnas ut för en person';
+
+  -- en inloggad utan medarbetarrad, anon och en för stor lista får ingenting
+  perform set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-0000000000ff', true); execute 'set local role authenticated';
+  select count(*) into n from medarbetare_visning(ids); execute 'reset role';
+  if n <> 0 then raise exception 'FEL: en inloggad utan medarbetarrad fick % namn', n; end if;
+  execute 'set local role anon';
+  begin perform medarbetare_visning(ids); fel := false; exception when insufficient_privilege then fel := true; end;
+  execute 'reset role'; if not fel then raise exception 'FEL: anon får anropa medarbetare_visning'; end if;
+  perform set_config('request.jwt.claim.sub', M, true); execute 'set local role authenticated';
+  select count(*) into n from medarbetare_visning((select array_agg('00000000-0000-0000-0000-0000000000f1'::uuid) from generate_series(1, 201)));
+  execute 'reset role';
+  if n <> 0 then raise exception 'FEL: en lista på 201 id:n gav svar (%)', n; end if;
+  raise notice 'OK: bara med medarbetarrad, inte anon, högst 200 id:n';
+  insert into pg_temp.matris values ('medarbetare_visning (andras namn)', 'bara förnamn / maskinens namn', 'ingen skrivrätt', 'förnamn, inget mer', true);
+end $$;
+
 -- migrationen ger EXAKT listan: en policy per spärrad tabell, ingen extra
 do $$
 declare n_pol int; n_lista int;

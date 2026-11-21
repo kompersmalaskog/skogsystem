@@ -54,7 +54,7 @@ describe('GROT-jobb som hör till ett virkesobjekt visar dess traktgräns, ytor/
   });
   it('ytanteckningar och ytmedia hämtas för [jobbet, virkesobjektet] — jobbets egna vinner vid samma yta', () => {
     expect(n(page, /\.in\('objekt_id', ytaKontextIds\(valtObjekt\)\)/g)).toBe(2);
-    expect(page).toMatch(/\.filter\(\(x\) => x\.objekt_id !== egenId\), \.\.\.\(data as any\[\]\)\.filter\(\(x\) => x\.objekt_id === egenId\)/);
+    expect(page).toMatch(/\.filter\(\(x\) => x\.objekt_id !== egenId\), \.\.\.rader\.filter\(\(x\) => x\.objekt_id === egenId\)/);
   });
   it('skördarens spår på virkesobjektet läggs till som "den andres" spår (skotare) respektive tidigare dagar (skördare)', () => {
     expect(page).toMatch(/if \(horTillId && roll === 'skordare'\) \{/);

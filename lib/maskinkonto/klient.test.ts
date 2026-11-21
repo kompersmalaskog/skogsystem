@@ -44,7 +44,8 @@ vi.mock('@/lib/supabase', () => {
 })
 vi.mock('@/lib/enhetMaskin', () => ({ hamtaEnhetMaskin: () => 'R64428' }))
 
-import { lasMaskinen, loggaUtMaskinen, lasUppMedKod } from './klient'
+import { lasMaskinen, loggaUtMaskinen, lasUppMedKod, blirMaskinAutomatiskt } from './klient'
+import { lasAutoPaus } from './autoStart'
 import { lasMaskinSession, lasUpplast, sattMaskinSession, sattUpplast } from './upplast'
 
 const assign = vi.fn()
@@ -121,5 +122,50 @@ describe('låsa upp — upplåsningen skrivs FÖRE sessionsbytet', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({ ok: false, fel: 'fel_kod', vantar_till: null }) })))
     const r = await lasUppMedKod({ id: 'p1', namn: 'Oskar', roll: 'forare', harKod: true }, '0000')
     expect(r).toMatchObject({ ok: false, fel: 'fel_kod' }); expect(h.anrop).toEqual([]); expect(lasMaskinSession()).toBeNull()
+  })
+})
+
+describe('blirMaskinAutomatiskt — personen byts mot maskinens konto, och går något fel är personen kvar', () => {
+  const svar = (status: number, body: any) => vi.fn(async (url: string) => (url === '/api/maskin/auto' ? { ok: status < 400, status, json: async () => body } : { ok: true, status: 200, json: async () => ({}) }))
+  const anropadeUrl = () => (fetch as any).mock.calls.map((c: any[]) => c[0])
+  beforeEach(() => { sattUpplast(null) })
+
+  it('ok: servern frågas för maskinen, token byts mot en session (verifyOtp), personens gamla session spärras EFTER bytet och minnet av en upplåsning rensas', async () => {
+    vi.stubGlobal('fetch', svar(200, { ok: true, token_hash: 'tok' }))
+    sattUpplast({ id: 'p1', namn: 'Oskar', roll: 'forare', aktivitet: Date.now() }); sattMaskinSession({ access_token: 'a', refresh_token: 'b', maskin_id: 'R64428' })
+    h.vidVerify = () => { expect(anropadeUrl()).toEqual(['/api/maskin/auto']) }      // las-anropet har inte skett när bytet görs
+    const r = await blirMaskinAutomatiskt('R64428')
+    expect(r).toBe('ok')
+    const [url, init] = (fetch as any).mock.calls[0]
+    expect(url).toBe('/api/maskin/auto'); expect(init.method).toBe('POST'); expect(JSON.parse(init.body)).toEqual({ maskin_id: 'R64428' })
+    expect(h.anrop).toContain('verifyOtp')
+    const las = (fetch as any).mock.calls.find((c: any[]) => c[0] === '/api/maskin/las')
+    expect(las[1].headers.Authorization).toBe('Bearer person-jwt')
+    expect(lasUpplast()).toBeNull(); expect(lasMaskinSession()).toBeNull()
+  })
+  it('brytaren av (403 { fel: av }): "av", ingenting ändras — ingen verifyOtp, ingen spärr av personen', async () => {
+    vi.stubGlobal('fetch', svar(403, { ok: false, fel: 'av' }))
+    expect(await blirMaskinAutomatiskt('R64428')).toBe('av')
+    expect(h.anrop).not.toContain('verifyOtp'); expect(anropadeUrl()).toEqual(['/api/maskin/auto']); expect(h.nu).toBe('person')
+  })
+  it('serverfel och nätfel: "fel", ingen verifyOtp, personen är kvar', async () => {
+    vi.stubGlobal('fetch', svar(500, { ok: false, fel: 'konto' }))
+    expect(await blirMaskinAutomatiskt('R64428')).toBe('fel')
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('nät') }))
+    expect(await blirMaskinAutomatiskt('R64428')).toBe('fel')
+    vi.stubGlobal('fetch', svar(200, { ok: true }))            // ingen token
+    expect(await blirMaskinAutomatiskt('R64428')).toBe('fel')
+    expect(h.anrop).not.toContain('verifyOtp'); expect(h.nu).toBe('person')
+  })
+  it('verifyOtp misslyckas: "fel" — och personens session spärras INTE (annars vore personen utloggad utan att maskinen tagit över)', async () => {
+    vi.stubGlobal('fetch', svar(200, { ok: true, token_hash: 'tok' })); h.uppsattning.verifyOtp = 'fel'
+    expect(await blirMaskinAutomatiskt('R64428')).toBe('fel')
+    expect(anropadeUrl()).toEqual(['/api/maskin/auto'])
+  })
+  it('"Logga ut maskinen" pausar bytet i en halvtimme', async () => {
+    sattMaskinSession({ access_token: 'maskin-jwt', refresh_token: 'maskin-ref', maskin_id: 'R64428' })
+    expect(lasAutoPaus()).toBe(0)
+    await loggaUtMaskinen()
+    expect(lasAutoPaus()).toBeGreaterThan(Date.now() + 29 * 60 * 1000)
   })
 })

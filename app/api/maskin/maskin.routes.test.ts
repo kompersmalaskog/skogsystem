@@ -27,7 +27,7 @@ import { POST as lasUppPost } from './las-upp/route'
 import { POST as lasPost } from './las/route'
 import { GET as kodGet, POST as kodPost } from './kod/route'
 import { POST as nollstallPost } from './kod/nollstall/route'
-import { GET as kontoGet, POST as kontoPost, PATCH as kontoPatch } from './konto/route'
+import { GET as kontoGet, PATCH as kontoPatch } from './konto/route'
 
 const P_OSKAR = '00000000-0000-4000-8000-0000000000f1'
 const P_MARTIN = '00000000-0000-4000-8000-0000000000a1'
@@ -259,14 +259,13 @@ describe('Kod för maskinen (personens egen)', () => {
   })
 })
 
-describe('Admin: nollställa kod, lägga upp konto, brytare', () => {
+describe('Admin: nollställa kod, brytare (kontot skapas av servern själv — ingen väg för admin att lägga upp ett)', () => {
   it('bara admin', async () => {
     standard()
     for (const s of [{ user: { id: 'u', email: 'o@x' }, medarbetareId: P_OSKAR, roll: 'forare' }, { user: { id: 'u-m', email: 'h8@x' }, medarbetareId: 'med-m', roll: 'maskin' }, { user: null, medarbetareId: null, roll: null }]) {
       h.session = s as any
       expect([401, 403]).toContain((await nollstallPost(req({ medarbetare_id: P_OSKAR }))).status)
       expect([401, 403]).toContain((await kontoGet()).status)
-      expect([401, 403]).toContain((await kontoPost(req({ maskin_id: 'R64428', epost: 'a@b.se' }))).status)
       expect([401, 403]).toContain((await kontoPatch(req({ maskin_id: 'R64428', aktiv: true }))).status)
     }
   })

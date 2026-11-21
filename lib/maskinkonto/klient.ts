@@ -6,6 +6,7 @@
 import { supabase } from '@/lib/supabase'
 import { hamtaEnhetMaskin } from '@/lib/enhetMaskin'
 import { lasMaskinSession, lasUpplast, sattMaskinSession, sattUpplast } from '@/lib/maskinkonto/upplast'
+import { AUTO_PAUS_MS, sattAutoPaus } from '@/lib/maskinkonto/autoStart'
 
 export type Person = { id: string; namn: string; roll: 'forare' | 'admin'; harKod: boolean }
 
@@ -110,11 +111,40 @@ async function aterMaskin(): Promise<boolean> {
 /** Maskinen låser sig: tillbaka till kartan som maskin. Går maskinkontot inte att få tillbaka: utloggad och till inloggningen. */
 export async function lasMaskinen(): Promise<void> {
   const ok = await aterMaskin()
-  window.location.assign(ok ? '/planering' : '/login')
+  if (ok) gaTillKartan(); else window.location.assign('/login')
 }
+
+/** Resultatet av att be servern göra enheten till maskinen: 'ok' (sessionen är bytt), 'av' (brytaren är av — allt som förut) eller 'fel' (inget ändrades). */
+export type AutoSvar = 'ok' | 'av' | 'fel'
+
+/**
+ * Den här datorn är en riktig maskindator och en förare/admin är inloggad: byt till maskinens konto, utan tryck och utan lösenord.
+ * Servern kontrollerar person och brytare, skapar kontot vid behov och ger en engångstoken (verifyOtp). Personens session ersätts av maskinkontots och
+ * spärras på servern (best effort) — personen blir aldrig kvar inloggad i bakgrunden. Går bytet inte ändras ingenting: personen är kvar som förut.
+ */
+export async function blirMaskinAutomatiskt(maskinId: string): Promise<AutoSvar> {
+  let gammal: string | null = null
+  try { gammal = (await supabase.auth.getSession()).data.session?.access_token ?? null } catch { /* */ }
+  let r: Response
+  try { r = await fetch('/api/maskin/auto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maskin_id: maskinId }) }) } catch { return 'fel' }
+  const j = await r.json().catch(() => ({})) as { ok?: boolean; fel?: string; token_hash?: string }
+  if (!r.ok || !j.ok || !j.token_hash) return r.status === 403 && j.fel === 'av' ? 'av' : 'fel'
+  const v = await supabase.auth.verifyOtp({ token_hash: j.token_hash, type: 'magiclink' })
+  if (v.error) return 'fel'
+  // Maskinkontot är nu inloggat. Personens gamla session spärras på servern, och minnet av en upplåsning är borta (enheten är maskinen).
+  if (gammal) void fetch('/api/maskin/las', { method: 'POST', headers: { Authorization: `Bearer ${gammal}` }, keepalive: true }).catch(() => undefined)
+  sattUpplast(null)
+  sattMaskinSession(null)
+  return 'ok'
+}
+
+/** Enheten är maskinen: ladda om till kartan (en helt ny sida — inget som hämtats som personen ligger kvar i minnet). */
+export const gaTillKartan = (): void => window.location.assign('/planering')
 
 /** Admin loggar ut hela maskinen (maskinkontot också) — till inloggningssidan. */
 export async function loggaUtMaskinen(): Promise<void> {
+  // Nödfallet: en person ska kunna logga in som sig själv på maskindatorn utan att enheten genast byter tillbaka till maskinkontot.
+  sattAutoPaus(Date.now() + AUTO_PAUS_MS)
   await aterMaskin()
   await loggaUtLokalt()
   window.location.assign('/login')

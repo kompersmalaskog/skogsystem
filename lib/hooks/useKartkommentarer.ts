@@ -3,6 +3,7 @@
 // Kommentarerna på kartan för ett objekt (tabellen kartkommentar): serverns rader med den lokala kön (lib/kartkommentarKo) lagd OVANPÅ, så en kommentar syns
 // direkt och märks "väntar" tills den nått servern. En hook så att sidan och testerna kör exakt samma kod.
 
+import { kompletteraNamn } from '@/lib/medarbetarNamn';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
@@ -55,10 +56,12 @@ export function useKartkommentarer(i: KartkommentarerIn): KartkommentarerUt {
         .in('objekt_id', idNyckel.split(','))
         .order('skapad_at', { ascending: true });
       if (error || !Array.isArray(data)) { setLasFel(true); setLaddad(true); return; }
-      setServer(data.map((r: any) => ({
+      const rader = data.map((r: any) => ({
         id: r.id, objekt_id: r.objekt_id, yta_nyckel: r.yta_nyckel, text: r.text, skapad_av: r.skapad_av ?? null,
         namn: r.medarbetare?.namn ?? null, skapad_at: r.skapad_at, andrad_at: r.andrad_at,
-      })));
+      }));
+      // En förare och maskinen ser bara sin egen medarbetarrad: namnet på andras kommentarer hämtas som namn och inget mer (medarbetare_visning).
+      setServer(await kompletteraNamn(rader, (r) => r.skapad_av, (r) => r.namn, (r, n) => ({ ...r, namn: n }), dbRef.current as any));
       setLasFel(false); setLaddad(true);
     } catch { setLasFel(true); setLaddad(true); }
   }, [idNyckel]);
