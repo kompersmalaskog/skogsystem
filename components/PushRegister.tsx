@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { vapidPublikSomBytes } from '@/lib/push/vapid';
 import { ENHET_MASKIN_ANDRAD, hamtaEnhetMaskin } from '@/lib/enhetMaskin';
+import { maskinUpplast } from '@/lib/maskinkonto/upplast';
 
 function deviceName(): string {
   if (typeof navigator === 'undefined') return '';
@@ -16,6 +17,8 @@ export default function PushRegister() {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
 
     const register = async () => {
+      // Upplåst maskin: prenumerationen hör till maskinen, aldrig till personen som just råkar sitta där (personens egna notiser ska inte ringa i hytten).
+      if (maskinUpplast()) return;
       try {
         const reg = await navigator.serviceWorker.register('/sw.js');
         await navigator.serviceWorker.ready;

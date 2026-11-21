@@ -66,9 +66,10 @@ export function useAttGora(): AttGora {
           return j as MedarbetarKontroller;
         }),
         las<Person[]>(async () => {
-          const r = await supabase.from("medarbetare").select("id, namn, user_id").order("namn");
+          const r = await supabase.from("medarbetare").select("id, namn, user_id, roll").order("namn");
           if (r.error) throw r.error;
-          return (r.data || []) as Person[];
+          // Maskinkontona (roll maskin) är ingen person: de saknar hempunkt och telefon med flit.
+          return ((r.data || []) as (Person & { roll?: string })[]).filter(p => p.roll !== "maskin");
         }),
         las<MaskinRad[]>(async () => {
           const r = await supabase.from("dim_maskin").select("maskin_id, visningsnamn, modell, bekraftad, aktiv_till");

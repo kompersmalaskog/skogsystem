@@ -3,6 +3,7 @@
 // Kortet när man trycker på en avvikelse (röd romb) på kartan: fotot, vad, vem och när, och vad servern såg i körspåren.
 // Bara läsning — en avvikelse kan aldrig ändras eller tas bort.
 
+import { hamtaVisningsnamn } from '@/lib/medarbetarNamn';
 import { useEffect, useState } from 'react';
 import Ark from '@/components/design/Ark';
 import { AVSTAND, FARG, RADIE, TYP } from '@/lib/design/tokens';
@@ -36,8 +37,13 @@ export function AvvikelseKort({ avvikelse, onStang, maskinNamn }: { avvikelse: A
   useEffect(() => {
     if (!rad.skapad_av) return;
     let aktiv = true;
-    supabase.from('medarbetare').select('namn').eq('id', rad.skapad_av).maybeSingle()
-      .then(({ data }) => { if (aktiv) setFotograf((data as any)?.namn ?? null); });
+    // Egen rad eller admin ger hela namnet; annars (en annan persons foto, sett från en förare eller maskinen) bara namnet via medarbetare_visning.
+    const id = rad.skapad_av;
+    supabase.from('medarbetare').select('namn').eq('id', id).maybeSingle()
+      .then(async ({ data }) => {
+        const namn = (data as any)?.namn ?? (await hamtaVisningsnamn([id])).get(id) ?? null;
+        if (aktiv) setFotograf(namn);
+      });
     return () => { aktiv = false; };
   }, [rad.skapad_av]);
 

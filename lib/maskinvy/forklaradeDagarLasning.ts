@@ -42,7 +42,6 @@ export async function hamtaForklaringsUnderlag(maskinIds: string[], start: strin
   // Samma urval som helikopter_ny_ledig: aktiv förare knuten till maskinen.
   const forare = ((medarbRes.data || []) as { id: string; maskin_id: string; aktiv: boolean | null }[])
     .filter(m => m.aktiv !== false)
-  const maskinAv = new Map(forare.map(f => [f.id, f.maskin_id]))
 
   const rader: MaskindagRad[] = []
   for (const r of manadRes) {
@@ -51,18 +50,14 @@ export async function hamtaForklaringsUnderlag(maskinIds: string[], start: strin
     }
   }
 
+  // Ledigheten läses via maskin_ledighet (definer): den lämnar bara ut maskin + 'semester'/'ledig' per period, inte typen och inte
+  // personen — ledighet_ansokningar är spärrad för maskinkontot, och tabellen öppnas inte för det här.
   let ledighet: LedighetRad[] = []
   if (forare.length > 0 && rader.some(r => r.status === 'planerat')) {
-    const { data, error } = await supabase.from('ledighet_ansokningar')
-      .select('medarbetare_id, typ, startdatum, slutdatum')
-      .in('medarbetare_id', forare.map(f => f.id))
-      .in('status', ['godkänd', 'registrerad'])
-      .is('fran_tid', null).is('till_tid', null)
-      .lte('startdatum', end).gte('slutdatum', start)
+    const { data, error } = await supabase.rpc('maskin_ledighet', { p_maskiner: maskinIds, p_start: start, p_slut: end })
     if (error) throw error
-    ledighet = ((data || []) as { medarbetare_id: string; typ: string; startdatum: string; slutdatum: string }[])
-      .map(l => ({ maskin_id: maskinAv.get(l.medarbetare_id) ?? '', typ: l.typ, startdatum: l.startdatum, slutdatum: l.slutdatum }))
-      .filter(l => l.maskin_id)
+    ledighet = ((data || []) as { maskin_id: string; typ: string; startdatum: string; slutdatum: string }[])
+      .map(l => ({ maskin_id: l.maskin_id, typ: l.typ, startdatum: l.startdatum, slutdatum: l.slutdatum }))
   }
 
   return { maskinIds, manuella, rader, ledighet }
