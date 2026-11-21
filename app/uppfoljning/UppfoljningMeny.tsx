@@ -14,8 +14,8 @@ import { typLabel, arRisjobb } from '@/lib/objekt/typ';
 import { paBackenKvar } from '@/lib/skotat';
 import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT, GROT_UTTAGSFAKTOR_MIN, GROT_UTTAGSFAKTOR_MAX } from '@/lib/grot';
 import { type UppfoljningObjekt } from './lib/transform';
-import { liggetidText as liggetid } from './lib/liggetid';
 import { useUppfoljningList, urlIdFor } from './hooks/useUppfoljningList';
+import { liggetidText as liggetid } from './lib/liggetid';
 
 const sv = (n: number) => Math.round(n).toLocaleString('sv-SE');
 const TRAFFYTA_ROW = 56;
