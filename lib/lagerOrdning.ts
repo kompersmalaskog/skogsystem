@@ -103,7 +103,7 @@ const REGLER: Regel[] = [
   // ── Bakgrund: baskartor, sedan den ritade kartan (lib/ritadKarta/lager), sedan hillshade, WMS-underlag och Vidas kartbild ovanpå ──────
   // Den ritade kartan läggs till först när någon väljer Ritad (långt efter WMS-lagren); utan egna steg hamnade dess täckande bakgrund OVANPÅ markfuktighet,
   // naturvärden och andra underlag. Underlagen ligger därför ett steg över den.
-  [/^(bg$|bg-korvy$|osm-layer$|satellite-layer$|lm-layer$|terrain-layer$)/, RANG.bakgrund],
+  [/^(bg$|bg-korvy$|osm-layer$|satellite-layer$|ir-layer$|lm-layer$|terrain-layer$)/, RANG.bakgrund],
   [/^ritad-bakgrund$/, RANG.bakgrund + 1 * D],
   [/^ritad-skog$/, RANG.bakgrund + 2 * D],
   [/^ritad-relief$/, RANG.bakgrund + 3 * D],

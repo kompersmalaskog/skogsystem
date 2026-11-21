@@ -57,7 +57,7 @@ function index(pts: [number, number][], cell: number): Index {
   }
   return { cell, m };
 }
-function nara(ix: Index, p: [number, number], r: number): boolean {
+function naraIndex(ix: Index, p: [number, number], r: number): boolean {
   const cx = Math.floor(p[0] / ix.cell), cy = Math.floor(p[1] / ix.cell), n = Math.ceil(r / ix.cell);
   for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) {
     const a = ix.m.get(`${cx + i},${cy + j}`);
@@ -66,22 +66,41 @@ function nara(ix: Index, p: [number, number], r: number): boolean {
   return false;
 }
 
+// Indexet över "den andra" maskinens linjer byggs EN gång per linjesamling (WeakMap på samlingen) — live-ritningen delar om var 3:e sekund mot samma
+// samling, och att bygga om rutnätet varje gång var det som kostade (Martin 2026-11-21: maskindatorn får aldrig hacka).
+const indexCache = new WeakMap<object, { proj: Proj; ix: Index | null; radie: number }>();
+function motIndex(mot: Koord[][], radie: number, proj: Proj): Index | null {
+  const hit = indexCache.get(mot);
+  if (hit && hit.radie === radie && hit.proj === proj) return hit.ix;
+  const pts = fortata(mot, proj, SKOTAR_STEG_M);
+  const ix = pts.length ? index(pts, Math.max(radie, 1)) : null;
+  indexCache.set(mot, { proj, ix, radie });
+  return ix;
+}
+const projCache = new WeakMap<object, Proj>();
+function projFor(mot: Koord[][], linjer: LinjeFeature[]): Proj {
+  const hit = projCache.get(mot);
+  if (hit) return hit;
+  const p = projektion([...mot.flat(), ...linjer.flatMap((f) => f.geometry.coordinates)]);
+  projCache.set(mot, p);
+  return p;
+}
+
 /**
- * Skördarens stråk delade i bitar med `klar: true` där skotaren varit inom `radie` meter och `klar: false` annars.
- * Övriga egenskaper (t.ex. `alder`) följer med. Utan skotarspår kommer stråken tillbaka oförändrade med `klar: false`.
+ * Delar `linjer` i bitar efter om de ligger inom `radie` meter från någon av `mot`. Varje bit får `nara: true|false`; övriga egenskaper följer med.
+ * Ingen linje i `mot` → alla bitar `nara: false`. Bitarna ritas exakt längs originalets form (förtätat var `STRAK_STEG_M` meter).
  */
-export function delaKlart(skordare: LinjeFeature[], skotarLinjer: Koord[][], radie = KLART_RADIE_M): LinjeFeature[] {
-  const linjer = (skordare ?? []).filter((f) => f?.geometry?.type === 'LineString' && Array.isArray(f.geometry.coordinates));
-  const alla = [...linjer.flatMap((f) => f.geometry.coordinates), ...(skotarLinjer ?? []).flat()];
-  if (alla.length === 0) return [];
-  const proj = projektion(alla);
-  const skot = fortata(skotarLinjer ?? [], proj, SKOTAR_STEG_M);
-  if (skot.length === 0) return linjer.map((f) => ({ ...f, properties: { ...f.properties, klar: false } }));
-  const ix = index(skot, Math.max(radie, 1));
+export function delaNara(linjer: LinjeFeature[], mot: Koord[][], radie = KLART_RADIE_M): LinjeFeature[] {
+  const ls = (linjer ?? []).filter((f) => f?.geometry?.type === 'LineString' && Array.isArray(f.geometry.coordinates));
+  if (ls.length === 0) return [];
+  const motL = mot ?? [];
+  const proj = projFor(motL, ls);
+  const ix = motIndex(motL, radie, proj);
   const ut: LinjeFeature[] = [];
-  for (const f of linjer) {
+  for (const f of ls) {
     const ll = f.geometry.coordinates.filter(giltig);
     if (ll.length < 2) continue;
+    if (!ix) { ut.push({ ...f, geometry: { type: 'LineString', coordinates: ll }, properties: { ...f.properties, nara: false } }); continue; }
     // Förtäta i lng/lat parallellt med xy så att bitarna ritas exakt längs originalets form.
     const llT: Koord[] = [ll[0]], xyT: [number, number][] = [proj.xy(ll[0])];
     for (let i = 1; i < ll.length; i++) {
@@ -93,20 +112,43 @@ export function delaKlart(skordare: LinjeFeature[], skotarLinjer: Koord[][], rad
         xyT.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
       }
     }
-    let bit: Koord[] = [llT[0]], klar: boolean | null = null;
+    let bit: Koord[] = [llT[0]], nara: boolean | null = null;
     for (let i = 1; i < llT.length; i++) {
       const mitt: [number, number] = [(xyT[i][0] + xyT[i - 1][0]) / 2, (xyT[i][1] + xyT[i - 1][1]) / 2];
-      const k = nara(ix, mitt, radie);
-      if (klar !== null && k !== klar) {
-        ut.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: bit }, properties: { ...f.properties, klar } });
+      const k = naraIndex(ix, mitt, radie);
+      if (nara !== null && k !== nara) {
+        ut.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: bit }, properties: { ...f.properties, nara } });
         bit = [llT[i - 1]];
       }
-      klar = k;
+      nara = k;
       bit.push(llT[i]);
     }
-    if (bit.length >= 2) ut.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: bit }, properties: { ...f.properties, klar: !!klar } });
+    if (bit.length >= 2) ut.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: bit }, properties: { ...f.properties, nara: !!nara } });
   }
   return ut;
+}
+
+/**
+ * Skördarens stråk delade i bitar med `klar: true` där skotaren varit inom `radie` meter och `klar: false` annars.
+ * Övriga egenskaper (t.ex. `alder`) följer med. Utan skotarspår kommer stråken tillbaka oförändrade med `klar: false`.
+ */
+export function delaKlart(skordare: LinjeFeature[], skotarLinjer: Koord[][], radie = KLART_RADIE_M): LinjeFeature[] {
+  return delaNara(skordare, skotarLinjer, radie).map((f) => {
+    const { nara, ...rest } = f.properties as Record<string, unknown>;
+    return { ...f, properties: { ...rest, klar: !!nara } };
+  });
+}
+
+/**
+ * Skotarens spår UTANFÖR skördarens stråk (Martin 2026-11-21: "där skördaren inte kört — eget ljust band"): bara de bitar som ligger längre än
+ * `radie` meter från skördarens spår, med `ute: true`. Saknas skördarens spår helt är hela skotarens spår "ute". Bitarna INOM stråket ritas
+ * inte som egen linje — där syns skotaren som den vita mittlinjen i skördarens lila (delaKlart).
+ */
+export function delaUtanfor(skotare: LinjeFeature[], skordarLinjer: Koord[][], radie = KLART_RADIE_M): LinjeFeature[] {
+  return delaNara(skotare, skordarLinjer, radie).filter((f) => !f.properties.nara).map((f) => {
+    const { nara: _n, ...rest } = f.properties as Record<string, unknown>;
+    return { ...f, properties: { ...rest, ute: true } };
+  });
 }
 
 /** Linjerna ur en samling features (för att räkna mot dem). */

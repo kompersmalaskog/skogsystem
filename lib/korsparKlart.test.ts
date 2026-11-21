@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { delaKlart, linjerUr, KLART_RADIE_M, type LinjeFeature, type Koord } from './korsparKlart';
+import { delaKlart, delaUtanfor, delaNara, linjerUr, KLART_RADIE_M, type LinjeFeature, type Koord } from './korsparKlart';
 import { FARG } from './design/tokens';
-import { kartSpar, ROLLFARG_SKORDARE, ROLLFARG_SKOTARE, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER, STRAK_FARG, STRAK_KLAR_FARG, STRAK_KLAR_STYRKA } from './sparStil';
+import { kartSpar, ROLLFARG_SKORDARE, ROLLFARG_SKOTARE, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER, STRAK_FARG, STRAK_KLAR_FARG, STRAK_KLAR_STYRKA, UTE_FARG, UTE_FILTER } from './sparStil';
 
 // Ett lokalt plan runt Mölleryd: 1 m österut ≈ 1/(111320·cos 56,9°) grader.
 const LAT = 56.9, M_LNG = 1 / (111_320 * Math.cos((LAT * Math.PI) / 180)), M_LAT = 1 / 111_320;
@@ -47,30 +47,71 @@ describe('linjerUr', () => {
   });
 });
 
-describe('kartans stil (kartan stillren 2026-11-06): tunt lila stråk, svagare där skotaren kört', () => {
-  it('stråket är lila (skördarens färg) och svagare där `klar` — ingen grå, aldrig turkos', () => {
+describe('delaUtanfor (skotarens eget ljusa band, Martin 2026-11-21)', () => {
+  const skordar: Koord[][] = [[p(0, 0), p(100, 0)]];
+  it('bara bitarna längre än radien från skördarens spår blir kvar, märkta ute: true', () => {
+    // skotaren kör 0–50 m på skördarens väg och viker sedan av 40 m åt sidan (utanför stråket)
+    const skot = linje([p(0, 3), p(50, 3), p(50, 40)]);
+    const ut = delaUtanfor([skot], skordar);
+    expect(ut.length).toBeGreaterThan(0);
+    for (const f of ut) expect(f.properties).toEqual({ ute: true });
+    // all längd som blev kvar ligger längre än radien från skördarens spår (± en bit på 4 m)
+    for (const f of ut) for (const c of f.geometry.coordinates) { const y = (c[1] - LAT) / M_LAT; if (Math.abs(y) < KLART_RADIE_M - 4.5) throw new Error('för nära: ' + y); }
+    const langdUte = ut.reduce((s2, f) => s2 + langd(f), 0);
+    expect(langdUte).toBeGreaterThan(25); expect(langdUte).toBeLessThan(40);   // sträckan från ~8 m ut till 40 m ut
+  });
+  it('skotare helt inom skördarens stråk ger inget eget band — där syns den som vit mittlinje', () => {
+    expect(delaUtanfor([linje([p(0, 2), p(100, 2)])], skordar)).toEqual([]);
+    expect(delaKlart([linje([p(0, 0), p(100, 0)])], [[p(0, 2), p(100, 2)]])[0].properties).toEqual({ klar: true });
+  });
+  it('saknas skördarens spår helt är hela skotarens spår ute (Elefanten på en trakt där Giant inte loggat)', () => {
+    const skot = linje([p(0, 0), p(60, 0)], { dag: 'x' });
+    const ut = delaUtanfor([skot], []);
+    expect(ut).toHaveLength(1);
+    expect(ut[0].properties).toEqual({ dag: 'x', ute: true });
+    expect(ut[0].geometry.coordinates).toEqual(skot.geometry.coordinates);   // oförändrad form
+  });
+  it('delaNara sätter nara på varje bit och låter övriga egenskaper följa med; delaKlart är oförändrat ovanpå den', () => {
+    const f = linje([p(0, 3), p(50, 3), p(50, 40)], { alder: 2 });
+    const bitar = delaNara([f], skordar);
+    expect(bitar.some((b) => b.properties.nara === true)).toBe(true);
+    expect(bitar.some((b) => b.properties.nara === false)).toBe(true);
+    expect(bitar.every((b) => b.properties.alder === 2)).toBe(true);
+  });
+  it('närhetsindexet byggs EN gång per samling (samma identitet = samma index) — live-ritningen delar om var 3:e sekund mot samma samling', () => {
+    const mot: Koord[][] = [[p(0, 0), p(2000, 0)]];   // en lång väg: att bygga indexet är det som kostar
+    delaNara([linje([p(0, 1), p(10, 1)])], mot);   // värmer
+    const t0 = performance.now(); for (let i = 0; i < 200; i++) delaNara([linje([p(0, 1), p(10, 1)])], mot); const medCache = performance.now() - t0;
+    const t1 = performance.now(); for (let i = 0; i < 200; i++) delaNara([linje([p(0, 1), p(10, 1)])], [[p(0, 0), p(2000, 0)]]); const utanCache = performance.now() - t1;
+    expect(medCache).toBeLessThan(utanCache / 3);
+  });
+});
+
+describe('kartans stil (körspåren som band i meter, 2026-11-21): lila band, vitt där skotaren kört utanför', () => {
+  it('bandet är lila (skördarens färg) och vitt där `ute` — ingen grå, aldrig turkos', () => {
     for (const art of ['plan', 'egen', 'hist', 'andras'] as const) for (const lage of [false, true]) {
       const s = kartSpar(art, lage);
-      expect(s.farg).toEqual(['case', MITTLINJE_FILTER, STRAK_KLAR_FARG, STRAK_FARG]);
+      expect(s.farg).toEqual(['case', UTE_FILTER, UTE_FARG, STRAK_FARG]);
+      expect(s.kantFarg).toEqual(['case', UTE_FILTER, UTE_FARG, STRAK_FARG]);
       expect(JSON.stringify(s)).not.toContain(ROLLFARG_SKOTARE);
       expect(STRAK_FARG).toBe(ROLLFARG_SKORDARE);
       expect(STRAK_KLAR_FARG).toBe(ROLLFARG_SKORDARE);
-      expect(JSON.stringify(s.opacitet)).toContain(String(STRAK_KLAR_STYRKA));
+      expect(UTE_FARG).toBe(FARG.text);   // vitt: inga nya färger utöver lila/vitt
+      expect(STRAK_KLAR_STYRKA).toBe(1);
     }
   });
-  it('mittlinjen ritas igen, vit, och lila är lika starkt där skotaren kört (Martin 2026-11-11)', () => {
+  it('mittlinjen ritas, vit och full (Martin 2026-11-11)', () => {
     expect(MITTLINJE_OPACITET).toBe(1);
     expect(MITTLINJE_FARG).toBe(FARG.text);
-    expect(STRAK_KLAR_STYRKA).toBe(1);
     expect(MITTLINJE_FILTER).toEqual(['==', ['get', 'klar'], true]);
   });
-  it('alla lager validerar i MapLibre (zoom överst) — också skotarlägets svagare skördare', async () => {
+  it('alla lager validerar i MapLibre (zoom överst, exponentiell bas 2)', async () => {
     const { validateStyleMin } = await import('@maplibre/maplibre-gl-style-spec');
     const layers: any[] = [];
     for (const art of ['plan', 'egen', 'hist', 'andras'] as const) for (const l of [false, true]) {
       const s = kartSpar(art, l), id = `${art}-${l}`;
       layers.push({ id: id + '-l', type: 'line', source: 's', paint: { 'line-color': s.farg, 'line-width': s.bredd, 'line-opacity': s.opacitet } });
-      layers.push({ id: id + '-c', type: 'line', source: 's', paint: { 'line-color': s.kantFarg, 'line-width': s.kantBredd, 'line-opacity': s.kantOpacitet } });
+      layers.push({ id: id + '-c', type: 'line', source: 's', paint: { 'line-color': s.kantFarg, 'line-width': s.kantBredd, 'line-opacity': s.kantOpacitet, 'line-blur': s.kantSudd } });
     }
     layers.push({ id: 'mitt', type: 'line', source: 's', filter: MITTLINJE_FILTER, paint: { 'line-color': MITTLINJE_FARG, 'line-width': MITTLINJE_BREDD, 'line-opacity': MITTLINJE_OPACITET } });
     const fel = validateStyleMin({ version: 8, sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } }, layers } as any);
