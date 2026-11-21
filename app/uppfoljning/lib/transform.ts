@@ -70,6 +70,10 @@ export interface UppfoljningObjekt {
   skotareAvvikelse: { lass: string; tilldelad: string } | null;
   // Aktiv koppling till ett PÅGÅENDE risjobb (F3)
   risskotningPagar: boolean;
+  /** Summa lass (m³fub) på kopplade risjobb; null = inget kopplat risjobb med lass. */
+  risSkotatM3?: number | null;
+  /** Något kopplat risjobb gäller också andra trakter (lassen går inte att dela upp). */
+  risDelas?: boolean;
   externSkotning: boolean;
   externForetag: string;
   externPrisTyp: 'm3' | 'timme';
