@@ -21,6 +21,9 @@ export const KARTRUTA_MALL = {
   terrang: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
 } as const;
 
+/** IR-flygfoto (Martin 2026-11-21): ett VAL bredvid Flygfoto, inte standard — därför INTE med i KARTRUTA_MALL (som är det som laddas ner i förväg för varje trakt: IR skulle fördubbla flygfotots nedladdning för dem som aldrig väljer det). Rutorna sparas av service workern medan de visas (kartrutor-lopande-v1) och är alltså med nät-först efter första visningen. */
+export const KARTRUTA_MALL_IR = '/api/forarkarta?layer=ir&z={z}&x={x}&y={y}';
+
 type Lager = keyof typeof KARTRUTA_MALL;
 const ZOOM: Record<Lager, [number, number]> = {
   satellite: [13, 18],

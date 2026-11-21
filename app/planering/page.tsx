@@ -62,8 +62,9 @@ import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
 import { strakFeatures } from '../../lib/strak'
 import { installeraLagerOrdning, symbolSortKey, VAG_SORT_KEY } from '../../lib/lagerOrdning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
-import { dampatSpar, sparAlder, kartSpar, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER, STRAK_KLAR_FARG } from '../../lib/sparStil'
-import { delaKlart, linjerUr } from '../../lib/korsparKlart'
+import { sparAlder, kartSpar, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER, STRAK_FARG, UTE_FARG } from '../../lib/sparStil'
+import { delaKlart, delaUtanfor } from '../../lib/korsparKlart'
+import { korsparLinjer, cachadeKorspar } from '../../lib/korspar'
 import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
 import { useKlarFalt } from '../../lib/hooks/useKlarFalt'
@@ -292,7 +293,7 @@ import MaskinMeny from '@/components/startsida/MaskinMeny'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 import { optiLokalDag } from '@/lib/optiTid'
-import { KARTRUTA_MALL, traktBbox, punktBbox } from '@/lib/kartNedladdning'
+import { KARTRUTA_MALL, KARTRUTA_MALL_IR, traktBbox, punktBbox } from '@/lib/kartNedladdning'
 import { useLaddaNerTrakt } from '@/lib/hooks/useLaddaNerTrakt'
 import { useBakgrundsNedladdning } from '@/lib/hooks/useBakgrundsNedladdning'
 import { KORVY_BAKGRUND } from '@/lib/kartBas'
@@ -1527,6 +1528,14 @@ export default function PlannerPage() {
         maxzoom: 18,
         attribution: '&copy; Lantmäteriet',
       },
+      // IR-FLYGFOTO (Martin 2026-11-21): Lantmäteriets infraröda ortofoto, bredvid Flygfoto. Aldrig standard.
+      ir: {
+        type: 'raster' as const,
+        tiles: [KARTRUTA_MALL_IR],
+        tileSize: 256,
+        maxzoom: 18,
+        attribution: '&copy; Lantmäteriet',
+      },
       osm: {
         type: 'raster' as const,
         tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
@@ -1569,6 +1578,7 @@ export default function PlannerPage() {
       // handleMapReady läser mapType för att sätta exakt visibility vid map-init —
       // initial-värdena här är fallback om handleMapReady av nån anledning inte kör.
       { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: kartBasPaint('satellite'), layout: { visibility: (mapType === 'satellite' ? 'visible' : 'none') as 'visible' | 'none' } },
+      { id: 'ir-layer', type: 'raster' as const, source: 'ir', paint: kartBasPaint('ir'), layout: { visibility: (mapType === 'ir' ? 'visible' : 'none') as 'visible' | 'none' } },
       // LM-baskartan är TYST: nedtonad topowebb + avmättnad/kontrast/opacitet så förarens egna
       // symboler, traktgränser, larmpin och GPS-prick DOMINERAR. Kartan = underlag, ej huvudsak.
       { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: kartBasPaint('lantmateriet'), layout: { visibility: (mapType === 'lantmateriet' ? 'visible' : 'none') as 'visible' | 'none' } },
@@ -2235,6 +2245,7 @@ export default function PlannerPage() {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis ? 'visible' : 'none');
     };
     setBaseVis('satellite-layer', mapType === 'satellite');
+    setBaseVis('ir-layer', mapType === 'ir');
     setBaseVis('osm-layer', mapType === 'osm');
     setBaseVis('terrain-layer', mapType === 'terrain');
     setBaseVis('lm-layer', mapType === 'lantmateriet');
@@ -4372,7 +4383,8 @@ export default function PlannerPage() {
   // Samma refar som ett objekt, till lib/hyttsparSpara (refarna är stabila, så objektet byggs en gång).
   const hyttsparRefs = useRef<HyttsparRefs>({ rowId: hyttsparRowIdRef, points: hyttsparPointsRef, lastFix: hyttsparLastFixRef, datum: hyttsparDatumRef, ctx: hyttsparCtxRef, initKlar: hyttsparInitKlarRef, synced: hyttsparSyncedRef, dirty: hyttsparDirtyRef }).current;
   const [hyttsparBasVersion, setHyttsparBasVersion] = useState(0);   // bump när dagens redan loggade punkter laddats → rita om basen (även om kartlagret inte fanns vid livscykel-ritningen)
-  const egetHistRef = useRef<any[]>([]);   // tidigare dagars eget-spår (dämpade segment) → eget hist-lager, ritas separat från dagens (fulla) live-spår
+  const egetHistLinjerRef = useRef<[number, number][][]>([]);   // tidigare dagars eget-spår (rensade linjer, lib/korspar) → eget hist-lager, ritas separat från dagens live-spår
+  const andrasLinjerRef = useRef<[number, number][][]>([]);     // andra maskinens rensade linjer (lib/korspar) — STABIL identitet mellan ritningarna så närhetsindexet (lib/korsparKlart) återanvänds
   const andrasFeaturesRef = useRef<any[]>([]);   // andra maskinens spår — hämtas även INNAN kartan finns (maskinläge: körvyn öppnas först) och ritas när källan skapats
 
   // KÖRSPÅREN SOM SVAR (lib/korsparKlart, Martin 2026-11-04): körvyns tre källor (egen, hist, andras) ritas av EN funktion.
@@ -4381,27 +4393,36 @@ export default function PlannerPage() {
   const hyttRollRef = useRef<'skordare' | 'skotare' | null>(null);
   hyttRollRef.current = hyttRoll === 'skordare' || hyttRoll === 'skotare' ? hyttRoll : null;
   const korvySparSenastRef = useRef(0);
+  const korvyHistKlartRef = useRef<{ a: unknown; b: unknown; ut: any[] } | null>(null);
   const korvySparTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ritaKorvySpar = useCallback(() => {
     korvySparSenastRef.current = Date.now();
     const map = mapInstanceRef.current; if (!map) return;
     try {
-      // FANTOMLINJE-FIX (delad hjälpare): dela punkterna i segment vid tidsglapp → ett segment per
-      // sammanhängande körning. Ritas hela arrayen som EN linje bryggas glappen (app stängd) med en
-      // rak fantomlinje. Nu = en LineString per segment, ingen brygga.
-      // RITNINGEN är utjämnad (lib/sparJamning); hyttsparPointsRef är RÅDATA och det som sparas/räknas på.
-      const live: any[] = hyttsparRitadeLinjer(hyttsparPointsRef.current as any)
-        .map(coords => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
-      let egen: any[] = live, hist: any[] = egetHistRef.current, andras: any[] = andrasFeaturesRef.current;
+      // KÖRSPÅREN (lib/korspar, Martin 2026-11-21): varje dags punkter rensas (GPS-hopp bort), delas BARA vid steg > 200 m och jämnas lätt — hela vägen, ändarna kvar.
+      // hyttsparPointsRef är RÅDATA och det som sparas/räknas på. Tre lägen: skördarens band (lila), skotarens vita mittlinje där den kört i skördarens band (`klar`),
+      // och skotarens eget ljusa band där skördaren inte kört (`ute`). Den andra maskinens linjer har stabil identitet (andrasLinjerRef) → indexet byggs inte om varje gång.
+      const liveLinjer = korsparLinjer(hyttsparPointsRef.current as any);
+      const hist = egetHistLinjerRef.current, andrasL = andrasLinjerRef.current;
+      const feat = (ls: [number, number][][], props: Record<string, unknown> = {}): any[] => ls.map((c) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: c }, properties: { ...props } }));
+      // Tidigare dagar ändras inte under körning: deras delning mot den andra maskinen räknas EN gång per (historik, andras) — inte vid varje GPS-punkt.
+      const memo = <T,>(ref: { current: { a: unknown; b: unknown; ut: T } | null }, a: unknown, b: unknown, fn: () => T): T => {
+        if (ref.current && ref.current.a === a && ref.current.b === b) return ref.current.ut;
+        const ut = fn(); ref.current = { a, b, ut }; return ut;
+      };
+      let egen: any[] = [], histF: any[] = [], andras: any[] = [];
       const roll = hyttRollRef.current;
       if (roll === 'skordare') {
-        const skot = linjerUr(andras as any);
-        egen = delaKlart(live as any, skot); hist = delaKlart(hist as any, skot); andras = [];
+        egen = delaKlart(feat(liveLinjer, { band: 'skordare' }), andrasL);
+        histF = memo(korvyHistKlartRef, hist, andrasL, () => delaKlart(feat(hist, { band: 'skordare' }), andrasL));
+        andras = delaUtanfor(feat(andrasL), [...liveLinjer, ...hist]);
       } else if (roll === 'skotare') {
-        andras = delaKlart(andras as any, linjerUr([...live, ...egetHistRef.current] as any)); egen = []; hist = [];
+        andras = delaKlart(feat(andrasL, { band: 'skordare' }), [...liveLinjer, ...hist]);
+        egen = delaUtanfor(feat(liveLinjer), andrasL);
+        histF = memo(korvyHistKlartRef, hist, andrasL, () => delaUtanfor(feat(hist), andrasL));
       }
       const satt = (id: string, features: any[]) => { const src = map.getSource(id) as any; if (src) src.setData({ type: 'FeatureCollection', features }); };
-      satt('hyttspar-egen-source', egen); satt('hyttspar-hist-source', hist); satt('hyttspar-andras-source', andras);
+      satt('hyttspar-egen-source', egen); satt('hyttspar-hist-source', histF); satt('hyttspar-andras-source', andras);
     } catch (e) { console.error('[Hyttspår] ritning:', e); }
   }, []);
   // Live-ritningen (varje GPS-fix) räknas om högst var 3:e sekund — delningen går över alla stråk på trakten.
@@ -4586,7 +4607,7 @@ export default function PlannerPage() {
   // fullfärgat av eget-lagret (byggs live); historiken rörs inte under körning. Varje dags rad
   // segmenteras via samma delade hjälpare (inga fantomlinjer inom/mellan dagar). Gäller BÅDA rollerna.
   useEffect(() => {
-    if (!(korvyActive && valtObjekt?.id && hyttRoll)) { egetHistRef.current = []; return; }
+    if (!(korvyActive && valtObjekt?.id && hyttRoll)) { egetHistLinjerRef.current = []; return; }
     let avbruten = false;
     const objektId = valtObjekt.id, roll = hyttRoll, idag = lokaltDatumStockholm(serverNu());   // lokalt datum → matchar radernas datum
     (async () => {
@@ -4595,10 +4616,10 @@ export default function PlannerPage() {
         const horTillId: string | undefined = (valtObjekt as any)?.hor_till_objekt_id || undefined;
         const { data } = await supabase.from('hyttspar').select('objekt_id, datum, points').in('objekt_id', horTillId && roll === 'skordare' ? [objektId, horTillId] : [objektId]).eq('roll', roll);
         if (avbruten) return;
-        // STRÅK (lib/strak): alla tidigare dagar slås ihop till stråk — bara ritningen. alder = den nyaste dagen som ingår.
-        egetHistRef.current = strakFeatures((data || [])
-          .filter((r: any) => r.objekt_id !== objektId || r.datum !== idag)   // dagens EGNA = fulla eget-lagret (live), ej dubbelritning
-          .map((r: any) => ({ linjer: hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : []), alder: sparAlder(r.datum, idag) })), roll);
+        // Varje tidigare dag för sig, rensad och lätt utjämnad (lib/korspar) — räknas EN gång per dag och objekt (cachadeKorspar), inte vid varje kartrörelse.
+        egetHistLinjerRef.current = (data || [])
+          .filter((r: any) => r.objekt_id !== objektId || r.datum !== idag)   // dagens EGNA = live-lagret, ej dubbelritning
+          .flatMap((r: any) => cachadeKorspar(`${r.objekt_id}|${roll}|${r.datum}`, Array.isArray(r.points) ? r.points : []));
         setHyttsparBasVersion(v => v + 1);   // → redo-effekten ovan ritar historiken
       } catch (e) { console.error('[Hyttspår] eget-historik:', e); }
     })();
@@ -4764,17 +4785,22 @@ export default function PlannerPage() {
       const idagIso = lokaltDatumStockholm(serverNu());
       const tillRader = (rader: any[] | null) => (rader || [])
         .map((r: any) => ({ linjer: hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : []), alder: sparAlder(r.datum, idagIso) }));
-      const rader = tillRader(data);
+      const rader = roll === 'skordare' ? tillRader(data) : [];   // stråk bara för skotarlägets lass-logik (skördarens spår)
+      // Linjerna som RITAS (lib/korspar): en rensad linje per dag, cachade per dag och objekt. Stabil identitet → närhetsindexet återanvänds (lib/korsparKlart).
+      const ritLinjer: [number, number][][] = (data || []).flatMap((r: any) => cachadeKorspar(`${objektId}|${roll}|${r.datum}`, Array.isArray(r.points) ? r.points : []));
       // GROT-jobb (skotare) som hör till ett virkesobjekt: SKÖRDARENS spår på virkesobjektet visas också (som "den andres" spår).
       const horTillId: string | undefined = (valtObjekt as any)?.hor_till_objekt_id || undefined;
       if (horTillId && roll === 'skordare') {
         const { data: pd, error: pe } = await supabase.from('hyttspar').select('datum, points').eq('objekt_id', horTillId).eq('roll', 'skordare');
         if (pe) console.error('[Hyttspår] virkesobjektets skördarspår:', pe.message);
-        else rader.push(...tillRader(pd));
+        else {
+          rader.push(...tillRader(pd));
+          ritLinjer.push(...(pd || []).flatMap((r: any) => cachadeKorspar(`${horTillId}|${roll}|${r.datum}`, Array.isArray(r.points) ? r.points : [])));
+        }
       }
-      // STRÅK (lib/strak): alla dagar ihop till stråk — bara ritningen.
-      const features = strakFeatures(rader, roll);
-      andrasFeaturesRef.current = features;
+      andrasLinjerRef.current = ritLinjer;
+      // Skotarlägets lass-logik (skotarHamtaVagar: "Nytt avlägg här?", tid per väg) läser skördarens STRÅK som förut — oförändrad indata, bara ritningen är ny.
+      andrasFeaturesRef.current = roll === 'skordare' ? strakFeatures(rader, roll) : [];
       ritaKorvySpar();
       setAndrasSparTid(Date.now());
     } catch (e) { console.error('[Hyttspår] andras-undantag:', e); }
@@ -4785,7 +4811,7 @@ export default function PlannerPage() {
   useEffect(() => {
     if (korvyActive && valtObjekt?.id && andrasRoll) { hamtaAndrasSpar(); return; }
     const map = mapInstanceRef.current;
-    andrasFeaturesRef.current = [];
+    andrasFeaturesRef.current = []; andrasLinjerRef.current = [];
     try { const src = map?.getSource('hyttspar-andras-source') as any; if (src) src.setData({ type: 'FeatureCollection', features: [] }); } catch { /* */ }
     setAndrasSparTid(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5044,6 +5070,7 @@ export default function PlannerPage() {
     };
     setVis('osm-layer', mapType === 'osm');
     setVis('satellite-layer', mapType === 'satellite');
+    setVis('ir-layer', mapType === 'ir');
     setVis('terrain-layer', mapType === 'terrain');
     setVis('lm-layer', mapType === 'lantmateriet');
   }, [mapType, mapLibreReady]);
@@ -5349,7 +5376,7 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    for (const l of ['satellite', 'lantmateriet', 'terrain', 'osm'] as const) {
+    for (const l of ['satellite', 'ir', 'lantmateriet', 'terrain', 'osm'] as const) {
       const id = KARTLAGER_LAGER_ID[l];
       if (!map.getLayer(id)) continue;
       const paint = kartBasPaint(l, styrkaFor(kartReglage.styrkor, l));
@@ -10235,7 +10262,7 @@ export default function PlannerPage() {
     }
     // HYTTSPÅR eget-HISTORIK: tidigare dagars eget-spår, DÄMPAT (gråmare grönton + lägre opacitet) så
     // historik tydligt skiljs från dagens (fulla) spår. Läggs FÖRE egen-lagren → ritas UNDER dem. Data
-    // sätts av redo-effekten (egetHistRef). Whitelistat via 'hyttspar-'-prefix.
+    // sätts av redo-effekten (egetHistLinjerRef). Whitelistat via 'hyttspar-'-prefix.
     if (!map.getSource('hyttspar-hist-source')) {
       try { map.addSource('hyttspar-hist-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
       catch (e) { console.error('[Hyttspår] hist-source:', e); }
@@ -10244,7 +10271,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-hist-casing', type: 'line', source: 'hyttspar-hist-source',
-          paint: { 'line-color': kartSpar('hist').kantFarg, 'line-opacity': kartSpar('hist').kantOpacitet as any, 'line-width': kartSpar('hist').kantBredd },   // smal mörk kant under spåret, som vägarna (lib/sparStil dampatSpar)
+          paint: { 'line-color': kartSpar('hist').kantFarg, 'line-opacity': kartSpar('hist').kantOpacitet as any, 'line-width': kartSpar('hist').kantBredd, 'line-blur': kartSpar('hist').kantSudd },   // smal mörk kant under spåret, som vägarna (lib/sparStil dampatSpar)
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] hist-casing:', e); }
@@ -10269,7 +10296,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-egen-casing', type: 'line', source: 'hyttspar-egen-source',
-          paint: { 'line-color': kartSpar('egen').kantFarg, 'line-opacity': kartSpar('egen').kantOpacitet as any, 'line-width': kartSpar('egen').kantBredd },
+          paint: { 'line-color': kartSpar('egen').kantFarg, 'line-opacity': kartSpar('egen').kantOpacitet as any, 'line-width': kartSpar('egen').kantBredd, 'line-blur': kartSpar('egen').kantSudd },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] casing:', e); }
@@ -10294,7 +10321,7 @@ export default function PlannerPage() {
       try {
         map.addLayer({
           id: 'hyttspar-andras-casing', type: 'line', source: 'hyttspar-andras-source',
-          paint: { 'line-color': kartSpar('andras').kantFarg, 'line-opacity': kartSpar('andras').kantOpacitet as any, 'line-width': kartSpar('andras').kantBredd },
+          paint: { 'line-color': kartSpar('andras').kantFarg, 'line-opacity': kartSpar('andras').kantOpacitet as any, 'line-width': kartSpar('andras').kantBredd, 'line-blur': kartSpar('andras').kantSudd },
           layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
         });
       } catch (e) { console.error('[Hyttspår] andras-casing:', e); }
@@ -10324,7 +10351,7 @@ export default function PlannerPage() {
         try {
           map.addLayer({
             id: `planspar-${roll}-casing`, type: 'line', source: src,
-            paint: { 'line-color': st.kantFarg, 'line-opacity': st.kantOpacitet as any, 'line-width': st.kantBredd },
+            paint: { 'line-color': st.kantFarg, 'line-opacity': st.kantOpacitet as any, 'line-width': st.kantBredd, 'line-blur': st.kantSudd },
             layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
           });
         } catch (e) { console.error(`[Planspår] ${roll}-casing:`, e); }
@@ -10372,17 +10399,19 @@ export default function PlannerPage() {
         const { data, error } = await supabase.from('hyttspar').select('roll, datum, points').eq('objekt_id', objektId);
         if (avbruten) return;
         if (error) { console.error('[Planspår] hämtning:', error.message); return; }
-        const raderPerRoll: { skordare: any[]; skotare: any[] } = { skordare: [], skotare: [] };
-        const idagIso = lokaltDatumStockholm(serverNu());
+        // Varje dag för sig, rensad och lätt utjämnad (lib/korspar) — cachad per dag och objekt, så ett byte av vy räknar inte om.
+        const linjerPerRoll: { skordare: [number, number][][]; skotare: [number, number][][] } = { skordare: [], skotare: [] };
         for (const r of (data || [])) {
           const roll = (r as any).roll === 'skotare' ? 'skotare' : (r as any).roll === 'skordare' ? 'skordare' : null;
           if (!roll) continue;
-          raderPerRoll[roll].push({ linjer: hyttsparRitadeLinjer(Array.isArray((r as any).points) ? (r as any).points : []), alder: sparAlder((r as any).datum, idagIso) });
+          linjerPerRoll[roll].push(...cachadeKorspar(`${objektId}|${roll}|${(r as any).datum}`, Array.isArray((r as any).points) ? (r as any).points : []));
         }
-        // STRÅK (lib/strak): alla dagar per roll ihop till stråk — bara ritningen.
-        // KÖRSPÅREN SOM SVAR (lib/korsparKlart): skördarens stråk lila, med vit mittlinje (`klar`) där skotaren kört. Skotaren ritas inte som egen linje.
-        const skotarLinjer = raderPerRoll.skotare.flatMap((r: any) => r.linjer);
-        const perRoll = { skordare: delaKlart(strakFeatures(raderPerRoll.skordare, 'skordare') as any, skotarLinjer), skotare: [] as any[] };
+        // KÖRSPÅREN SOM SVAR (lib/korsparKlart): skördarens band lila, med vit mittlinje (`klar`) där skotaren kört; skotarens eget ljusa band (`ute`) där skördaren INTE kört.
+        const feat = (ls: [number, number][][], props: Record<string, unknown> = {}): any[] => ls.map((c) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: c }, properties: { ...props } }));
+        const perRoll = {
+          skordare: delaKlart(feat(linjerPerRoll.skordare, { band: 'skordare' }), linjerPerRoll.skotare) as any[],
+          skotare: delaUtanfor(feat(linjerPerRoll.skotare), linjerPerRoll.skordare) as any[],
+        };
         for (const roll of ['skordare', 'skotare'] as const) {
           try { const s = map.getSource(`planspar-${roll}-source`) as any; if (s) s.setData({ type: 'FeatureCollection', features: perRoll[roll] }); } catch { /* */ }
         }
@@ -10420,7 +10449,7 @@ export default function PlannerPage() {
       const s = kartSpar(art, skotarKorvy);
       satt(`${namn}-line`, 'line-color', s.farg); satt(`${namn}-line`, 'line-width', s.bredd); satt(`${namn}-line`, 'line-opacity', s.opacitet);
       satt(`${namn}-line`, 'line-dasharray', s.streck ? [...s.streck] : null);
-      satt(`${namn}-casing`, 'line-color', s.kantFarg); satt(`${namn}-casing`, 'line-width', s.kantBredd); satt(`${namn}-casing`, 'line-opacity', s.kantOpacitet);
+      satt(`${namn}-casing`, 'line-color', s.kantFarg); satt(`${namn}-casing`, 'line-width', s.kantBredd); satt(`${namn}-casing`, 'line-opacity', s.kantOpacitet); satt(`${namn}-casing`, 'line-blur', s.kantSudd);
     };
     if (hyttRoll) { stila('hyttspar-egen', hyttRoll, 'egen'); stila('hyttspar-hist', hyttRoll, 'hist'); }
     if (andrasRoll) stila('hyttspar-andras', andrasRoll, 'andras');
@@ -13046,7 +13075,7 @@ export default function PlannerPage() {
   // Spårens förhandsfärg = linjens riktiga färg på kartan (lib/sparStil dampatSpar), inte en egen.
   const sparFarg = (art: 'egen' | 'andras'): string => {
     const roll = art === 'egen' ? hyttRoll : andrasRoll;
-    return roll ? (roll === 'skotare' ? STRAK_KLAR_FARG : dampatSpar(roll, art).farg) : art === 'egen' ? FARG.gron : FARG.text2;
+    return roll ? (roll === 'skotare' ? UTE_FARG : STRAK_FARG) : art === 'egen' ? FARG.gron : FARG.text2;
   };
   // LAGER: samma grupper i samma ordning som den gamla Lager-menyn (Bakgrundskarta, Kompass, Overlay, WMS-grupperna, SMHI, Dina
   // markeringar, Produktionsdata, Zontyper, Linjetyper). Raderna skriver samma state som förut (overlays,
@@ -13063,6 +13092,7 @@ export default function PlannerPage() {
       rader: ([
         { id: 'lantmateriet', name: 'Karta', desc: 'Lantmäteriet — dämpad' },
         { id: 'satellite', name: 'Flygfoto', desc: 'Lantmäteriet ortofoto 0,5 m' },
+        { id: 'ir', name: 'IR-flygfoto', desc: 'Infraröd — växtlighet syns röd' },
         { id: 'terrain', name: 'Topokarta', desc: 'Lantmäteriet — full färg' },
         { id: 'osm', name: 'OpenStreetMap', desc: 'Standardkarta' },
         { id: 'ritad', name: 'Ritad', desc: mapType === 'ritad' ? ritadStatusText(ritadStatus) : 'Skogen ritad ur laserdatan' },
@@ -13103,7 +13133,7 @@ export default function PlannerPage() {
         ...(korvyActive ? [
           vaxel('mittSpar', 'Mitt spår', undefined, !!(overlays as any).mittSpar, sparYta(sparFarg('egen')), sla('mittSpar')),
           vaxel('andrasSpar', andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', undefined, !!(overlays as any).andrasSpar, sparYta(sparFarg('andras')), sla('andrasSpar')),
-        ] : PLANSPAR_LAGER.map((l) => vaxel(l.id, l.namn, undefined, planSparPa(overlays, l.roll), sparYta(l.roll === 'skotare' ? STRAK_KLAR_FARG : dampatSpar(l.roll, 'plan').farg),
+        ] : PLANSPAR_LAGER.map((l) => vaxel(l.id, l.namn, undefined, planSparPa(overlays, l.roll), sparYta(l.roll === 'skotare' ? UTE_FARG : STRAK_FARG),
           () => setOverlays((prev: any) => vaxlaPlanSpar(prev, l.roll))))),
       ],
     });

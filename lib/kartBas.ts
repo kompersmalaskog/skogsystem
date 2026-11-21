@@ -23,6 +23,8 @@ export type RasterPaint = Record<string, number>;
 export const KARTBAS_DAMPAD: Record<Kartlager, RasterPaint> = {
   // Flygfoto (Lantmäteriets ortofoto): ungefär HALVA ljusstyrkan och avmättat så vägar, gräns och symboler lyser direkt. Mörkast: ortofotot har de ljusaste ytorna (åker, hygge, grusväg).
   satellite: { 'raster-brightness-max': 0.5, 'raster-contrast': 0.05, 'raster-saturation': -0.6 },
+  // IR-flygfoto (Lantmäteriets infraröda ortofoto, falsk färg: levande växtlighet röd, barr mörkare än löv): samma ljus som Flygfoto men MINDRE avmättnad — färgen ÄR informationen.
+  ir: { 'raster-brightness-max': 0.55, 'raster-contrast': 0.05, 'raster-saturation': -0.15 },
   // Karta (Lantmäteriet topowebb, redan ljus och tyst): ned i ljus och färg, ljus bakgrund bakom.
   lantmateriet: { 'raster-brightness-max': 0.72, 'raster-contrast': -0.06, 'raster-saturation': -0.6, 'raster-opacity': 0.9 },
   // Topokarta (LM full färg) och OpenStreetMap: samma nedtoning som Karta.
@@ -37,6 +39,7 @@ export const KARTBAS_DAMPAD: Record<Kartlager, RasterPaint> = {
 /** Skarp (100): ingen nedtoning — samma egenskaper som Dämpad så att varje nyckel kan interpoleras. */
 export const KARTBAS_SKARP: Record<Kartlager, RasterPaint> = {
   satellite: { 'raster-brightness-max': 1, 'raster-contrast': 0, 'raster-saturation': 0 },
+  ir: { 'raster-brightness-max': 1, 'raster-contrast': 0, 'raster-saturation': 0 },
   lantmateriet: { 'raster-brightness-max': 1, 'raster-contrast': 0, 'raster-saturation': 0, 'raster-opacity': 1 },
   terrain: { 'raster-brightness-max': 1, 'raster-contrast': 0, 'raster-saturation': 0 },
   osm: { 'raster-brightness-max': 1, 'raster-contrast': 0, 'raster-saturation': 0 },

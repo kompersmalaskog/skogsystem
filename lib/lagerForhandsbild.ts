@@ -9,6 +9,7 @@ const NEUTRAL = 'linear-gradient(135deg, #3a3a3c, #636366)';
 export const BASKARTA_BILD: Readonly<Record<string, string>> = {
   lantmateriet: 'linear-gradient(135deg, #d9dbd6, #c4c7c1)',
   satellite: 'linear-gradient(135deg, #3d5a36, #6b7d4a, #2f4a2a)',
+  ir: 'linear-gradient(135deg, #4a1c28, #8a3a44, #2e1018)',
   terrain: 'linear-gradient(135deg, #e8e4cf, #a9bd8e, #d8c9a0)',
   osm: 'linear-gradient(135deg, #f2efe9, #aad3df)',
   ritad: 'linear-gradient(135deg, #20462e, #305c3a, #76684f)',

@@ -163,7 +163,7 @@ export const wmsLayers: LayerDef[] = wmsLayerGroups.flatMap(g => g.layers)
 // tills PR B - det ar hela poangen med att detta ar ett tillagg.
 // ---------------------------------------------------------------------------
 
-export type BaskartaId = 'lantmateriet' | 'satellite' | 'terrain' | 'osm'
+export type BaskartaId = 'lantmateriet' | 'satellite' | 'ir' | 'terrain' | 'osm'
 
 export interface Baskarta {
   id: BaskartaId
@@ -187,6 +187,11 @@ export const BASKARTOR: Baskarta[] = [
     id: 'satellite', layerId: 'satellite-layer', name: 'Flygfoto', desc: 'Lantmäteriet ortofoto 0,5 m',
     tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'],
     paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 },
+  },
+  {
+    id: 'ir', layerId: 'ir-layer', name: 'IR-flygfoto', desc: 'Lantmäteriet infraröd ortofoto 0,5 m',
+    tiles: ['/api/forarkarta?layer=ir&z={z}&x={x}&y={y}'],
+    paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.05 },
   },
   {
     id: 'terrain', layerId: 'terrain-layer', name: 'Topokarta', desc: 'Lantmäteriet — full färg',

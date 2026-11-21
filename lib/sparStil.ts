@@ -185,45 +185,65 @@ export function skotarlageSpar(roll: SparRoll, art: SparArt): SkotarlageSpar {
 // kört här (som mittlinjen på en väg). Skotaren ritas inte som en egen linje på kartan — den kör i skördarens stråk, och blått betyder vatten.
 // På ett GROT-jobb är det GROT-skotaren som ger mittlinjen; samma regel. Det som är kvar att skota visas av produktionshögarna, inte av linjerna.
 // ROLLFARG_SKOTARE finns kvar i diagram och listor med teckenförklaring. dampatSpar/skotarlageSpar för skotaren används inte av kartan längre.
-/** Skördarens stråk på kartan: bredare än förut så att mittlinjen får plats med lila på båda sidor (mätt mot flygfoto: 5 px vid zoom 17). */
-export const STRAK_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 1, 15, 2, 17, 3, 19, 4.5];
-export const STRAK_KANT_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 1 + SPAR_KANT_EXTRA_PX, 15, 2 + SPAR_KANT_EXTRA_PX, 17, 3 + SPAR_KANT_EXTRA_PX, 19, 4.5 + SPAR_KANT_EXTRA_PX];
 /**
- * KARTAN STILLREN (Martin 2026-11-06, bild H–K): skördarens stråk är TUNNA och LILA (rollfärgen) — skotaren hittar stråken, men de tar inte
- * över kartan. Där skotaren kört (`klar`) blir stråket svagare i samma lila: arbetet krymper på kartan, ingen ny färg. Det grå stråket
- * (prototypen "kartan lugn") är borta.
+ * KÖRSPÅREN SOM BAND I METER (Martin 2026-11-21): bredden följer verkligheten — maskinens bredd, ca 4 m — i stället för en fast pixelbredd.
+ * Utzoomat är bandet en smal linje (golv), inzoomat är det exakt så brett som maskinen (px = meter × 2^zoom / (78 271,5 · cos lat)).
+ * MapLibre interpolerar exponentiellt med bas 2 mellan två stopp som har samma förhållande (v22 = v15 · 2^7), vilket ger EXAKT den skalan.
+ * Kring Småland (56–57,5°N) är cos lat 0,545–0,554 — vi räknar med 56,5° (fel under 2 %).
  */
+export const BAND_LAT = 56.5;
+export const BAND_BREDD_M = 4;        // skördarens och skotarens band: ungefär maskinens bredd
+export const BAND_KANT_M = 7;         // den mjuka ytterkanten (hela bredden), svagare än bandet
+export const BAND_KANT_SUDD_M = 4;    // hur mjuk den är (line-blur, i meter)
+export const MITTLINJE_M = 0.8;       // den vita mittlinjen: en femtedel av bandet
+export const BAND_FRAN_ZOOM = 15;     // från så här är bredden exakt meter; under är den en smal linje
+const M_PER_PX_Z0 = 78_271.517;       // meter per pixel vid zoom 0 (512 px-rutor) på ekvatorn
+
+/** px vid zoom `z` för `m` meter på latituden `lat`. */
+export const meterTillPx = (m: number, z: number, lat: number = BAND_LAT): number => (m * 2 ** z) / (M_PER_PX_Z0 * Math.cos((lat * Math.PI) / 180));
+
+/** Linjebredd (px) som uttryck på zoom: golv `golvPx` utzoomat, exakt `m` meter från zoom 15. Stoppen stiger strikt — MapLibre kräver det. */
+export function meterBredd(m: number, golvPx = 1): any[] {
+  const p15 = Math.max(meterTillPx(m, BAND_FRAN_ZOOM), golvPx * 1.5);
+  return ['interpolate', ['exponential', 2], ['zoom'], 11, golvPx, 13, Math.min(p15 * 0.9, Math.max(golvPx * 1.2, meterTillPx(m, 13))), BAND_FRAN_ZOOM, p15, 22, p15 * 2 ** (22 - BAND_FRAN_ZOOM)];
+}
+
+/** Skördarens band: lila, och lila lika starkt alla dagar (Martin 2026-11-11). */
 export const STRAK_FARG = ROLLFARG_SKORDARE;
 export const STRAK_KLAR_FARG = ROLLFARG_SKORDARE;
-/** Där skotaren kört är lila lika starkt som annars (Martin 2026-11-11: nedtoningen såg urtvättad ut) — det körda visas av den GRÅ mittlinjen. */
 export const STRAK_KLAR_STYRKA = 1;
-/** Mittlinjen: VIT, drygt halva stråket (Martin 2026-11-11). Grått provades samma dag och försvann mot lila och flygfoto (som 2026-11-04). */
+/** Skotaren där skördaren inte kört: eget ljust band (vitt) — samma bredd och mjukhet som skördarens. Ingen ny färg. */
+export const UTE_FARG = FARG.text;
+export const BAND_OPACITET = 0.9;
+export const UTE_OPACITET = 0.85;
+export const BAND_KANT_OPACITET = 0.45;
+/** Filtret som avgör var bandet är skotarens egna: featurens `ute` (lib/korsparKlart delaUtanfor). */
+export const UTE_FILTER: readonly any[] = ['==', ['get', 'ute'], true];
+/** Mittlinjen: VIT, ca 1 m (Martin 2026-11-11), ritas där skotaren kört i skördarens band. */
 export const MITTLINJE_FARG = FARG.text;
-export const MITTLINJE_BREDD: readonly any[] = ['interpolate', ['linear'], ['zoom'], 13, 0.6, 15, 1, 17, 1.5, 19, 2];
-/**
- * Där skotaren kört är stråket BREDARE (som en väg med mittlinje), så det vita strecket får lila på båda sidor. Mätt i Chromium 2026-11-11: på det tunna
- * stråket (3 px vid zoom 17) täckte mittlinjen nästan allt lila och linjen såg grå/vit ut. Okört stråk är lika tunt som förut.
- */
-export const STRAK_KLAR_BREDD: readonly [number, number][] = [[13, 2], [15, 3.5], [17, 5], [19, 7]];
-/** Mittlinjen ritas igen (Martin 2026-11-11): lila = skördaren körde, vitt streck i det lila = skotaren har varit där. */
+export const MITTLINJE_BREDD: readonly any[] = meterBredd(MITTLINJE_M, 0.6);
 export const MITTLINJE_OPACITET = 1;
-/** Filtret som avgör var mittlinjen ritas: bitar av skördarens stråk där skotaren varit (lib/korsparKlart delaKlart sätter `klar`). */
+/** Filtret som avgör var mittlinjen ritas: bitar av skördarens band där skotaren varit (lib/korsparKlart delaKlart sätter `klar`). */
 export const MITTLINJE_FILTER: readonly any[] = ['==', ['get', 'klar'], true];
 
-export interface SparPaint { farg: any; bredd: any; opacitet: any; kantFarg: string; kantBredd: any; kantOpacitet: any; streck: readonly number[] | null }
+export interface SparPaint { farg: any; bredd: any; opacitet: any; kantFarg: any; kantBredd: any; kantOpacitet: any; kantSudd: any; streck: readonly number[] | null }
 
-/** Kartans stil för skördarens stråk: rollfärgen, alltid tydlig. `skotarlage` = i skotarens körvy (lite svagare, som förut). */
-export function kartSpar(art: SparArt, skotarlage = false): SparPaint {
-  const s = skotarlage ? skotarlageSpar('skordare', art) : { ...dampatSpar('skordare', art), streck: null };
-  const klar = MITTLINJE_FILTER as any[];
-  const faktor = ['case', klar, STRAK_KLAR_STYRKA, 1];
+const farger = (skordare: string, ute: string): any => ['case', UTE_FILTER, ute, skordare];
+
+/**
+ * Kartans stil för körspåren, EN för alla lager (körvyns egen/hist/andras och planeringens planspar-*): ett band i meter, lila för skördaren och
+ * vitt där skotaren kört utanför skördarens stråk (featurens `ute`), med en mjuk svagare ytterkant (kanten = det som förut var den mörka casingen).
+ * Dagens, tidigare dagars och den andres spår är lika starka — ingen nedtoning med ålder. `art` och `skotarlage` finns kvar i signaturen men ändrar inget.
+ */
+export function kartSpar(_art: SparArt = 'plan', _skotarlage = false): SparPaint {
   return {
-    farg: ['case', klar, STRAK_KLAR_FARG, STRAK_FARG],
-    bredd: ['interpolate', ['linear'], ['zoom'], ...STRAK_KLAR_BREDD.flatMap(([z, b], i) => [z, ['case', klar, b, (STRAK_BREDD as any[])[4 + i * 2]]])],
-    opacitet: ['*', faktor, s.opacitet],
-    kantFarg: s.kantFarg,
-    kantBredd: ['interpolate', ['linear'], ['zoom'], ...STRAK_KLAR_BREDD.flatMap(([z, b], i) => [z, ['case', klar, b + SPAR_KANT_EXTRA_PX, (STRAK_KANT_BREDD as any[])[4 + i * 2]]])],
-    kantOpacitet: ['interpolate', ['linear'], ['zoom'], SPAR_KANT_FRAN_ZOOM, 0, SPAR_KANT_FULL_ZOOM, ['*', faktor, 0.6]],
+    farg: farger(STRAK_FARG, UTE_FARG),
+    bredd: meterBredd(BAND_BREDD_M, 1),
+    opacitet: ['case', UTE_FILTER, UTE_OPACITET, BAND_OPACITET],
+    kantFarg: farger(STRAK_FARG, UTE_FARG),
+    kantBredd: meterBredd(BAND_KANT_M, 1.5),
+    kantOpacitet: BAND_KANT_OPACITET,
+    kantSudd: meterBredd(BAND_KANT_SUDD_M, 0.5),
     streck: null,
   };
 }

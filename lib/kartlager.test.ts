@@ -12,9 +12,9 @@ describe('kartlager: standard och namn', () => {
     expect(STANDARD_KARTLAGER).toBe('satellite');
     expect(KARTLAGER_NAMN.satellite).toBe('Flygfoto');
   });
-  it('sex lager, varje med eget lager-id i kartstilen (Ritad och Mörk = skogsbilden ur laserdatan)', () => {
-    expect([...KARTLAGER]).toEqual(['satellite', 'lantmateriet', 'terrain', 'osm', 'ritad', 'mork']);
-    expect(KARTLAGER_LAGER_ID).toEqual({ satellite: 'satellite-layer', lantmateriet: 'lm-layer', terrain: 'terrain-layer', osm: 'osm-layer', ritad: 'ritad-skog', mork: 'ritad-skog' });
+  it('sju lager, varje med eget lager-id i kartstilen (Ritad och Mörk = skogsbilden ur laserdatan)', () => {
+    expect([...KARTLAGER]).toEqual(['satellite', 'ir', 'lantmateriet', 'terrain', 'osm', 'ritad', 'mork']);
+    expect(KARTLAGER_LAGER_ID).toEqual({ satellite: 'satellite-layer', ir: 'ir-layer', lantmateriet: 'lm-layer', terrain: 'terrain-layer', osm: 'osm-layer', ritad: 'ritad-skog', mork: 'ritad-skog' });
     expect(KARTLAGER_NAMN.mork).toBe('Mörk');
     expect(KARTLAGER_NAMN.ritad).toBe('Ritad');
   });

@@ -220,11 +220,13 @@ export function tomKartaStil(lager: Kartlager, styrka?: number) {
   const kallor = {
     lantmateriet: { type: 'raster' as const, tiles: ['/api/forarkarta?z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 17, attribution: '&copy; Lantmäteriet' },
     satellite: { type: 'raster' as const, tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 18, attribution: '&copy; Lantmäteriet' },
+    ir: { type: 'raster' as const, tiles: ['/api/forarkarta?layer=ir&z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 18, attribution: '&copy; Lantmäteriet' },
     topographic: { type: 'raster' as const, tiles: ['/api/forarkarta?layer=farg&z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 17, attribution: '&copy; Lantmäteriet' },
     osm: { type: 'raster' as const, tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 19, attribution: '&copy; OpenStreetMap' },
   };
   const bas =
     lager === 'satellite' ? { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: kartBasPaint('satellite', styrka) }
+    : lager === 'ir' ? { id: 'ir-layer', type: 'raster' as const, source: 'ir', paint: kartBasPaint('ir', styrka) }
     : lager === 'terrain' ? { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', paint: kartBasPaint('terrain', styrka) }
     : lager === 'osm' ? { id: 'osm-layer', type: 'raster' as const, source: 'osm', paint: kartBasPaint('osm', styrka) }
     : { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: kartBasPaint('lantmateriet', styrka) };

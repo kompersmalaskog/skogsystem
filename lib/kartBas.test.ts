@@ -13,6 +13,7 @@ describe('Dämpad (0) = nivån från Kartan lugnare: mörkare och gråare, alla 
   it('varje bakgrundslager är dämpat: ljuset ner (vitt blir högst 80 % ljust) och färgen ner (mättnad högst −0,4)', () => {
     for (const lager of KARTLAGER) {
       if (lager === 'mork') continue;   // Mörk (Tesla) är mörk med flit — egen test nedan
+      if (lager === 'ir') continue;     // IR-flygfoto: färgen ÄR informationen, därför mindre avmättad — egen test nedan
       const p = kartBasPaint(lager, 0);
       expect(p, lager).toEqual(KARTBAS_DAMPAD[lager]);
       expect(p['raster-brightness-max'], `${lager} ljus`).toBeLessThanOrEqual(0.8);
@@ -22,8 +23,17 @@ describe('Dämpad (0) = nivån från Kartan lugnare: mörkare och gråare, alla 
   });
   it('Flygfotot är mörkast: ortofotot har de ljusaste ytorna (åker, hygge, grusväg) där en gul linje annars försvinner', () => {
     const ljus = (l: (typeof KARTLAGER)[number]) => kartBasPaint(l, 0)['raster-brightness-max'];
-    for (const l of KARTLAGER) if (l !== 'satellite' && l !== 'mork') expect(ljus('satellite')).toBeLessThan(ljus(l));
+    for (const l of KARTLAGER) if (l !== 'satellite' && l !== 'mork' && l !== 'ir') expect(ljus('satellite')).toBeLessThan(ljus(l));
     expect(ljus('satellite')).toBeGreaterThanOrEqual(0.45); expect(ljus('satellite')).toBeLessThanOrEqual(0.55);
+  });
+});
+
+describe('IR-flygfoto: ljuset ner som Flygfoto men färgen bevaras', () => {
+  it('ljuset är nedtonat (högst 0,8) men mättnaden bara lätt dämpad — falsk färg går inte att läsa i grått', () => {
+    const p = kartBasPaint('ir', 0);
+    expect(p['raster-brightness-max']).toBeLessThanOrEqual(0.8);
+    expect(p['raster-saturation']).toBeGreaterThan(-0.4);
+    expect(kartBasPaint('ir', 100)['raster-saturation']).toBe(0);
   });
 });
 

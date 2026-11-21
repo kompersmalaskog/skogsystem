@@ -32,6 +32,9 @@ const MINKARTA_HOST = 'minkarta.lantmateriet.se';
 // (betald Geotorget-produkt). Tills dess ligger flygfotot i samma minkarta-gråzon som basen.
 const LM_ORTO_WMS = 'https://minkarta.lantmateriet.se/map/ortofoto/wms/v1.3';
 const LM_ORTO_LAYER = 'Ortofoto_0.5';
+// IR-FLYGFOTO — samma tjänst, lagret Ortofoto_IR (infraröd ortofoto 0,5 m, falsk färg: levande växtlighet röd). Lagernamnet är hämtat ur Lantmäteriets tekniska beskrivning
+// av Ortofoto Visning (ortofotovisningv1.6.0) och INTE provat mot minkarta härifrån (nätet nås inte) — svarar tjänsten inte får kartan en tom ruta, aldrig ett fel i appen.
+const LM_ORTO_IR_LAYER = 'Ortofoto_IR';
 
 // B — öppna data-WMTS. Aktiveras när token finns i miljön (annars tom → A används).
 const OPEN_TOKEN = process.env.LM_OPEN_TOPO_TOKEN || '';
@@ -56,14 +59,14 @@ function tileBbox3857(z: number, x: number, y: number): string {
 }
 
 // Vad rutan föreställer: 'dampad' = Karta, 'farg' = Topokarta (full färg), 'ortofoto' = Flygfoto.
-type TileKind = 'dampad' | 'farg' | 'ortofoto';
+type TileKind = 'dampad' | 'farg' | 'ortofoto' | 'ir';
 
 // Upstream-URL för en enskild ruta. Öppna data (WMTS) om token satt, annars minkarta (WMS).
 function tileUpstreamUrl(z: number, x: number, y: number, kind: TileKind): string {
-  if (kind === 'ortofoto') {
-    // Flygfoto går alltid via minkarta — ingen öppen data-ortofoto finns att flippa till.
+  if (kind === 'ortofoto' || kind === 'ir') {
+    // Flygfoto (och IR-flygfoto) går alltid via minkarta — ingen öppen data-ortofoto finns att flippa till.
     const b = tileBbox3857(z, x, y);
-    return `${LM_ORTO_WMS}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=${LM_ORTO_LAYER}` +
+    return `${LM_ORTO_WMS}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=${kind === 'ir' ? LM_ORTO_IR_LAYER : LM_ORTO_LAYER}` +
       `&STYLES=&FORMAT=image/png&CRS=EPSG:3857&BBOX=${encodeURIComponent(b)}&WIDTH=256&HEIGHT=256`;
   }
   if (OPEN_TOKEN) {
@@ -135,7 +138,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'bad z/x/y' }, { status: 400 });
     }
     const lp = p.get('layer');
-    const kind: TileKind = lp === 'ortofoto' ? 'ortofoto' : lp === 'farg' ? 'farg' : 'dampad';
+    const kind: TileKind = lp === 'ortofoto' ? 'ortofoto' : lp === 'ir' ? 'ir' : lp === 'farg' ? 'farg' : 'dampad';
     const cacheKey = `t:${kind}:${OPEN_TOKEN ? 'o' : 'm'}:${z}/${x}/${y}`;
     const cached = getCached(cacheKey);
     if (cached) {
