@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Sidan "Ligger i skogen": bara tid, steg och väder per trakt — ingen volym — och
-// ett tryck på en trakt öppnar dess vanliga vy. Vädret visas aldrig som 0 mm innan det kommit.
+// ett tryck på en trakt öppnar tiden och vädret i ett ark, aldrig traktens uppföljning. Vädret visas aldrig som 0 mm innan det kommit.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
@@ -46,7 +46,7 @@ async function montera() {
 const text = () => be!.textContent || '';
 
 describe('Ligger i skogen — egen sida', () => {
-  it('visar trakterna med steg och väder, ingen volym, och öppnar trakten', async () => {
+  it('visar trakterna med steg och väder, ingen volym, och öppnar tiden och vädret i ett ark', async () => {
     data = [
       obj({ vo_nummer: 'A', namn: 'Arvidstorp', volymSkordare: 628, volymSkotare: 440, skordareStart: '2026-10-27', sistaAvverkning: '2026-11-02', skotareStart: '2026-11-10', skordningAvslutad: true }),
       obj({ vo_nummer: 'B', namn: 'Britteberg', volymSkordare: 673, antalLass: 0, skordareStart: '2026-11-04', sistaAvverkning: '2026-11-10', skordningAvslutad: true }),
@@ -63,14 +63,29 @@ describe('Ligger i skogen — egen sida', () => {
     expect((be!.querySelector('[data-skogen-pdf]') as HTMLElement).style.pointerEvents).toBe('none');
 
     await act(async () => {
-      for (const s of svara) s({ json: async () => ({ ok: true, summa: { regnMm: 61, regnDagar: 11, tMin: -3, tMax: 9, dagar: 25, saknas: 0 } }) });
+      for (const s of svara) s({ json: async () => ({ ok: true, summa: { regnMm: 61, regnDagar: 11, tMin: -3, tMax: 9, dagar: 25, saknas: 0 }, veckor: [
+        { vecka: 44, summa: { fran: '2026-10-27', till: '2026-11-01', regnMm: 22, regnDagar: 4, tMin: -2, tMax: 6, dagar: 6, saknas: 0 } },
+        { vecka: 45, summa: { fran: '2026-11-02', till: '2026-11-08', regnMm: 0, regnDagar: 0, tMin: 1, tMax: 9, dagar: 7, saknas: 0 } },
+      ] }) });
     });
     await act(async () => {});
     expect(text()).toContain('Regn 61 mm · 11 dagar med regn · −3 till 9 °C');
     expect((be!.querySelector('[data-skogen-pdf]') as HTMLElement).style.pointerEvents).not.toBe('none');
 
     await act(async () => { (be!.querySelector('[data-skogen-trakt="A"]') as HTMLElement).click(); });
-    expect(push).toHaveBeenCalledWith('/uppfoljning/A');
+    expect(push).not.toHaveBeenCalled();
+    const ark = be!.parentElement!.querySelector('[data-skogen-ark]') ?? document.querySelector('[data-skogen-ark]');
+    expect(ark).toBeTruthy();
+    expect(ark!.textContent).toContain('19 dagar sedan skördaren blev klar');
+    expect(ark!.textContent).toContain('Skördaren fällde 27 okt – 2 nov · 7 dagar');
+    expect(ark!.textContent).toContain('Regn 61 mm · 11 dagar med regn · −3 till 9 °C');
+    const v44 = document.querySelector('[data-skogen-vecka="Vecka 44"]')!.textContent!;
+    expect(v44).toContain('22 mm');
+    expect(v44).toContain('27 okt – 1 nov · 4 dagar med regn · −2 till 6 °C');
+    expect(document.querySelector('[data-skogen-vecka="Vecka 45"]')!.textContent).toContain('0 mm');
+    expect(ark!.textContent).not.toMatch(/m³/);
+    await act(async () => { (Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Klar') as HTMLElement).click(); });
+    expect(document.querySelector('[data-skogen-ark]')).toBeNull();
 
     await act(async () => { (be!.querySelector('[data-skogen-pdf]') as HTMLElement).click(); });
     expect(be!.querySelector('[data-pdf-oppen]')).toBeTruthy();

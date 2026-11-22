@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { UppfoljningObjekt } from './transform';
-import { skogKort, skogDokument, vaderRad, svarText } from './iSkogenSida';
+import { skogKort, skogDokument, vaderRad, svarText, veckaRader } from './iSkogenSida';
 
 const obj = (over: Partial<UppfoljningObjekt>): UppfoljningObjekt => ({
   vo_nummer: 'VO1', namn: 'Objekt', typ: 'slutavverkning', volymSkordare: 1000, volymSkotare: 0,
@@ -73,5 +73,23 @@ describe('skogDokument', () => {
   it('svaret', () => {
     expect(svarText(0, null)).toBe('Inget virke ligger i skogen');
     expect(svarText(2, null)).toBe('2 trakter i skogen');
+  });
+});
+
+describe('veckaRader', () => {
+  const summa = (fran: string, till: string, regnMm: number | null, regnDagar: number) =>
+    ({ fran, till, regnMm, regnDagar, tMin: -2, tMax: 6, dagar: 1, saknas: 0 });
+  it('en rad per vecka, saknat regn sägs', () => {
+    const r = veckaRader({ ok: true, summa: summa('2026-10-27', '2026-11-03', 22, 4), veckor: [
+      { vecka: 44, summa: summa('2026-10-27', '2026-11-01', 22, 4) },
+      { vecka: 45, summa: summa('2026-11-02', '2026-11-02', null, 0) },
+    ] })!;
+    expect(r[0]).toMatchObject({ titel: 'Vecka 44', hoger: '22 mm', under: '27 okt – 1 nov · 4 dagar med regn · −2 till 6 °C' });
+    expect(r[1]).toMatchObject({ titel: 'Vecka 45', hoger: 'regn saknas', under: '2 nov · −2 till 6 °C' });
+  });
+  it('inga veckor utan svar, vid fel eller i ett äldre svar', () => {
+    expect(veckaRader(undefined)).toBeNull();
+    expect(veckaRader({ ok: false, orsak: 'las' })).toBeNull();
+    expect(veckaRader({ ok: true, summa: summa('2026-10-27', '2026-11-01', 1, 1) })).toBeNull();
   });
 });

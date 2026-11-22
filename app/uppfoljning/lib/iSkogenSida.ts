@@ -9,7 +9,7 @@ import type { Dokument, DokRad } from '@/lib/arbetsmiljo/dokument';
 import type { UppfoljningObjekt } from './transform';
 import { kvarM3, sektionAv, type Sektion } from './sektion';
 import { iSkogen, dagOrd, kortDatum, period, stegFor, KLARA_VISAS_DAGAR, type StegIndata } from './iSkogen';
-import { tempText, type VaderSvar } from './vader';
+import { tempText, type VaderSumma, type VaderSvar } from './vader';
 
 /** Samma urval som kortet i menyn: allt virke som skördas eller ligger kvar + nyss framme. */
 export function skogenAvObjekt(objekt: UppfoljningObjekt[], nu: number) {
@@ -85,12 +85,30 @@ export function vaderRad(svar: VaderSvar | null | undefined): string {
     return 'Vädret saknas – inga datum';
   }
   const s = svar.summa;
+  return [s.regnMm == null ? 'Regn saknas' : `Regn ${s.regnMm} mm`, ...detaljer(s)].join(' · ');
+}
+
+/** Regndagar och temperatur, de delar av en summa som inte är millimetrarna. */
+function detaljer(s: VaderSumma): string[] {
   const delar: string[] = [];
-  delar.push(s.regnMm == null ? 'Regn saknas' : `Regn ${s.regnMm} mm`);
   if (s.regnMm != null && s.regnDagar > 0) delar.push(`${s.regnDagar} ${s.regnDagar === 1 ? 'dag' : 'dagar'} med regn`);
   const t = tempText(s.tMin, s.tMax);
   if (t) delar.push(t);
-  return delar.join(' · ');
+  return delar;
+}
+
+export type VeckaRad = { nyckel: string; titel: string; hoger: string; under: string };
+
+/** En rad per vecka i traktens ark: "Vecka 44" · "22 mm" · "4 dagar med regn · −2 till 6 °C".
+ *  null när svaret saknar veckor (fel, hämtas, eller ett äldre svar utan veckorna). */
+export function veckaRader(svar: VaderSvar | null | undefined): VeckaRad[] | null {
+  if (!svar || !svar.ok || !svar.veckor || svar.veckor.length === 0) return null;
+  return svar.veckor.map(v => ({
+    nyckel: v.summa.fran,
+    titel: `Vecka ${v.vecka}`,
+    hoger: v.summa.regnMm == null ? 'regn saknas' : `${v.summa.regnMm} mm`,
+    under: [`${kortDatum(v.summa.fran)}${v.summa.till !== v.summa.fran ? ` – ${kortDatum(v.summa.till)}` : ''}`, ...detaljer(v.summa)].join(' · '),
+  }));
 }
 
 export function svarText(antal: number, langst: number | null): string {

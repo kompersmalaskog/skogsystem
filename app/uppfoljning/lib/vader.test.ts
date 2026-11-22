@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { summera, tolkaDaily, tempText, vaderUrl } from './vader';
+import { summera, tolkaDaily, tempText, vaderUrl, veckor, isoVeckaNr, type VaderDag } from './vader';
 
 const svar = {
   daily: {
@@ -34,5 +34,33 @@ describe('vädret', () => {
   it('nyliga perioder läses från prognos-api, äldre från arkivet', () => {
     expect(vaderUrl(56.9, 15.2, '2026-11-01', '2026-11-21', '2026-11-21')).toContain('api.open-meteo.com/v1/forecast');
     expect(vaderUrl(56.9, 15.2, '2026-06-01', '2026-06-30', '2026-11-21')).toContain('historical-forecast-api');
+  });
+});
+
+describe('vädret per vecka', () => {
+  it('ISO-veckor, också över årsskiftet', () => {
+    expect(isoVeckaNr('2026-10-26')).toBe(44); // måndag
+    expect(isoVeckaNr('2026-11-01')).toBe(44); // söndag
+    expect(isoVeckaNr('2026-11-02')).toBe(45);
+    expect(isoVeckaNr('2025-12-29')).toBe(1);
+    expect(isoVeckaNr('2027-01-01')).toBe(53);
+    expect(isoVeckaNr('2027-01-04')).toBe(1);
+  });
+
+  it('delar perioden mån–sön, kapar första och sista veckan och saknat är aldrig 0', () => {
+    const dagar: VaderDag[] = [];
+    for (let d = 28; d <= 31; d++) dagar.push({ datum: `2026-10-${d}`, regnMm: 5, tMin: -1, tMax: 4 });
+    for (let d = 1; d <= 9; d++) dagar.push({ datum: `2026-11-0${d}`, regnMm: d === 3 ? null : 0.4, tMin: 2, tMax: 8 });
+    const v = veckor(dagar, '2026-10-28', '2026-11-09');
+    expect(v.map(x => [x.vecka, x.summa.fran, x.summa.till])).toEqual([
+      [44, '2026-10-28', '2026-11-01'],
+      [45, '2026-11-02', '2026-11-08'],
+      [46, '2026-11-09', '2026-11-09'],
+    ]);
+    expect(v[0].summa.regnMm).toBe(20);
+    expect(v[0].summa.regnDagar).toBe(4);
+    expect(v[1].summa.regnDagar).toBe(0);
+    // Veckornas regn går ihop med hela periodens (inom avrundning).
+    expect(summera(dagar, '2026-10-28', '2026-11-09').regnMm).toBe(Math.round(20 + 6 * 0.4 + 0.4 + 0.4));
   });
 });
