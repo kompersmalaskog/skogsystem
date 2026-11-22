@@ -13,7 +13,7 @@ import Ark from '@/components/design/Ark';
 import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning';
 import { useUppfoljningList } from '../hooks/useUppfoljningList';
 import { dagOrd, KLARA_VISAS_DAGAR } from '../lib/iSkogen';
-import { skogKort, skogDokument, skogenAvObjekt, svarText, tidRader, vaderPerPeriod, vaderRad, type SkogKort } from '../lib/iSkogenSida';
+import { skogKort, skogDokument, skogenAvObjekt, svarText, tidRader, helaCykeln, vaderPerPeriod, vaderRad, type SkogKort } from '../lib/iSkogenSida';
 import { useForstaDag } from './useForstaDag';
 import { useVaderAlla } from './useVaderAlla';
 
@@ -120,10 +120,18 @@ export default function ISkogenSida() {
         const svar = vader.get(vald.nyckel);
         const perioder = vaderPerPeriod(vald.tid, svar, idag);
         const tid = tidRader(vald.tid, idag);
+        const cykel = helaCykeln(vald.tid, idag);
         return (
           <Ark rubrik={vald.namn} onStang={() => setVald(null)} stang="Klar">
             <div data-skogen-ark>
-              <Sektion rubrik="Från stubbe till avlägg" kort={false}>
+              {cykel && (
+                <div style={{ marginBottom: AVSTAND.xl }} data-skogen-cykel>
+                  <div style={{ ...TYP.meta, color: FARG.text2 }}>{cykel.rubrik}</div>
+                  <div style={{ ...TYP.tal, color: FARG.text }}>{cykel.dagar} {dagOrd(cykel.dagar)}</div>
+                  <div style={{ ...TYP.meta, color: FARG.text3 }}>{cykel.under}</div>
+                </div>
+              )}
+              <Sektion rubrik="Tidslinjen" kort={false}>
                 {tid.map((r, i) => (
                   <Rad key={r.nyckel} titel={r.titel} hoger={r.hoger} under={r.under} sista={i === tid.length - 1} attr={{ 'data-skogen-tid': r.nyckel }} />
                 ))}

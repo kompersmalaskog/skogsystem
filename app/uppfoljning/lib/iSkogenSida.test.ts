@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { UppfoljningObjekt } from './transform';
-import { skogKort, skogDokument, vaderRad, svarText, tidRader, vaderPerPeriod, type Tidslinje } from './iSkogenSida';
+import { skogKort, skogDokument, vaderRad, svarText, tidRader, vaderPerPeriod, helaCykeln, type Tidslinje } from './iSkogenSida';
 
 const obj = (over: Partial<UppfoljningObjekt>): UppfoljningObjekt => ({
   vo_nummer: 'VO1', namn: 'Objekt', typ: 'slutavverkning', volymSkordare: 1000, volymSkotare: 0,
@@ -85,14 +85,22 @@ describe('arket: tidslinjen och vädret per period', () => {
   it('klar trakt: alla datum, legat och hela tiden', () => {
     expect(rad(tid({}))).toEqual({
       'Avverkningen började': '27 okt', 'Avverkningen slutade': '2 nov', 'Låg i skogen': '7 dagar',
-      'Skotaren började': '10 nov', 'Skotaren slutade': '18 nov', 'Från stubbe till avlägg': '23 dagar',
+      'Skotaren började': '10 nov', 'Skotaren slutade': '18 nov',
     });
+  });
+  it('hela cykeln: färdigskotat räknas med båda ändarna, annars hittills', () => {
+    expect(helaCykeln(tid({}), idag)).toEqual({ dagar: 23, klar: true, rubrik: 'Från stubbe till färdigskotat', under: '27 okt – 18 nov' });
+    expect(helaCykeln(tid({ skotSlut: null }), idag)).toMatchObject({ dagar: 27, klar: false, under: 'Sedan 27 okt · skotaren kör fortfarande' });
+    expect(helaCykeln(tid({ skotStart: null, skotSlut: null }), idag)!.under).toBe('Sedan 27 okt · skotaren har inte börjat');
+    expect(helaCykeln(tid({ avverkSlut: null, skotStart: null, skotSlut: null }), idag)!.under).toBe('Sedan 27 okt · skördaren kör fortfarande');
+    expect(helaCykeln(tid({ avverkStart: null }), idag)).toBeNull();
+    expect(helaCykeln(tid({ egenSkotning: true }), idag)).toBeNull();
   });
   it('väntar på skotaren: legat hittills, ingen sluttid', () => {
     const r = tidRader(tid({ skotStart: null, skotSlut: null }), idag);
     expect(r.find(x => x.titel === 'Låg i skogen')).toMatchObject({ hoger: '20 dagar', under: 'Hittills – skotaren har inte börjat' });
     expect(r.find(x => x.titel === 'Skotaren började')!.hoger).toBe('inte än');
-    expect(r.some(x => x.titel === 'Skotaren slutade' || x.titel === 'Från stubbe till avlägg')).toBe(false);
+    expect(r.some(x => x.titel === 'Skotaren slutade')).toBe(false);
   });
   it('skördaren kör, skotaren kör, egen skotning', () => {
     expect(rad(tid({ avverkSlut: null, skotStart: null, skotSlut: null }))['Avverkningen slutade']).toBe('pågår');

@@ -84,6 +84,9 @@ describe('Ligger i skogen — egen sida', () => {
     expect(tid('lag')).toContain('7 dagar');
     expect(tid('stStart')).toContain('10 nov');
     expect(tid('stSlut')).toContain('kör fortfarande');
+    const cykel = document.querySelector('[data-skogen-cykel]')!.textContent!;
+    expect(cykel).toContain('Från stubbe – hittills');
+    expect(cykel).toContain('Sedan 27 okt · skotaren kör fortfarande');
     const per = (k: string) => document.querySelector(`[data-skogen-period="${k}"]`)!.textContent!;
     expect(per('avverkning')).toContain('14 mm');
     expect(per('lag')).toContain('28 mm');

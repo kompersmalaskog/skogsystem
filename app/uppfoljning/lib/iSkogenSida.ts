@@ -138,7 +138,7 @@ const dagText = (n: number) => `${n} ${dagOrd(n)}`;
 const plusDag = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
 
 /** Tidslinjen i traktens ark, en rad per händelse: när avverkningen började och slutade, hur länge
- *  virket låg, när skotaren började och slutade, och hela tiden från stubbe till avlägg. */
+ *  virket låg, när skotaren började och slutade. Hela cykeln står överst (helaCykeln). */
 export function tidRader(t: Tidslinje, idag: string): ArkRad[] {
   const r: ArkRad[] = [];
   r.push({ nyckel: 'avStart', titel: 'Avverkningen började', hoger: t.avverkStart ? kortDatum(t.avverkStart) : 'okänt' });
@@ -158,10 +158,30 @@ export function tidRader(t: Tidslinje, idag: string): ArkRad[] {
   }
   r.push({ nyckel: 'stStart', titel: 'Skotaren började', hoger: t.skotStart ? kortDatum(t.skotStart) : 'inte än' });
   if (t.skotStart) r.push({ nyckel: 'stSlut', titel: 'Skotaren slutade', hoger: t.skotSlut ? kortDatum(t.skotSlut) : 'kör fortfarande' });
-  if (t.avverkStart && t.skotSlut) {
-    r.push({ nyckel: 'totalt', titel: 'Från stubbe till avlägg', hoger: dagText(dagarMellan(t.avverkStart, t.skotSlut) + 1) });
-  }
   return r;
+}
+
+/** Hela cykeln — från första trädet lämnade stubben tills trakten var färdigskotad. Står överst i
+ *  arket som svaret (Martin 2026-11-22: "tiden för hela cykeln"). Dagarna räknas med båda ändarna.
+ *  Inte färdigskotat: dagarna hittills, och det sägs. Egen skotning eller okänd start: ingen cykel. */
+export type Cykel = { dagar: number; klar: boolean; rubrik: string; under: string };
+export function helaCykeln(t: Tidslinje, idag: string): Cykel | null {
+  if (!t.avverkStart || t.egenSkotning) return null;
+  if (t.skotSlut) {
+    return {
+      dagar: dagarMellan(t.avverkStart, t.skotSlut) + 1,
+      klar: true,
+      rubrik: 'Från stubbe till färdigskotat',
+      under: `${kortDatum(t.avverkStart)} – ${kortDatum(t.skotSlut)}`,
+    };
+  }
+  const vad = !t.avverkSlut ? 'skördaren kör fortfarande' : t.skotStart ? 'skotaren kör fortfarande' : 'skotaren har inte börjat';
+  return {
+    dagar: dagarMellan(t.avverkStart, idag) + 1,
+    klar: false,
+    rubrik: 'Från stubbe – hittills',
+    under: `Sedan ${kortDatum(t.avverkStart)} · ${vad}`,
+  };
 }
 
 /** Perioderna vädret delas på: under avverkningen, medan virket låg, under skotningen.
