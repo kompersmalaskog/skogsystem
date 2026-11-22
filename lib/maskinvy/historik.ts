@@ -14,7 +14,7 @@
 //
 // Parametrarna lever bredvid de som redan fanns (`ny`, `vy`); alla andra parametrar i adressen lämnas orörda.
 
-import { useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 
 export type NavParam = 'vy' | 'lage' | 'skordare' | 'skotare' | 'per' | 'off'
 export type Metod = 'push' | 'replace'
@@ -102,11 +102,18 @@ export function skrivNavigering(andringar: NavAndringar, metod: Metod): void {
   } catch { /* ingen historik — vyn fungerar ändå, bara utan backa-steg */ }
 }
 
-/** Står vi på maskinvyns ingång (inget vi själva lagt i historiken)? Då ska ‹-knappen lämna vyn, inte "backa i tomma intet". */
-export function arPaIngangen(): boolean {
-  if (typeof window === 'undefined') return true
-  return nivaUr(window.history.state) === 0
+/** Låter alla som lyssnar (useNavSok, useNavNiva) läsa om adressen/historiken — efter en egen pushState som inte går genom skrivNavigering. */
+export function signalera(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(HAENDELSE))
 }
+
+/** ETT steg bakåt i historiken — exakt vad systemets backa (gest/webbläsarknapp) gör. Toppfältets tillbaka-knapp anropar den. */
+export function backaEttSteg(): void {
+  try { window.history.back() } catch { /* ingen historik */ }
+}
+
+/** Kroken som toppfältet (components/TopBar.tsx) läser: finns attributet visas en blå tillbaka-knapp i stället för hem-ikonen. */
+export const TILLBAKA_ATTR = 'data-topbar-tillbaka'
 
 function prenumerera(cb: () => void): () => void {
   window.addEventListener('popstate', cb)
@@ -118,10 +125,30 @@ function prenumerera(cb: () => void): () => void {
 }
 const lasSok = () => window.location.search
 const serverSok = () => ''
+const lasNiva = () => nivaUr(window.history.state)
 
 /** Sökdelen i adressen som React-state: ritas om vid backa/framåt och vid varje skrivning ovan. */
 export function useNavSok(): string {
   return useSyncExternalStore(prenumerera, lasSok, serverSok)
+}
+
+/** Hur många steg (flik, maskin, djupvy …) maskinvyn själv har lagt i historiken. 0 = vi står på ingången. */
+export function useNavNiva(): number {
+  return useSyncExternalStore(prenumerera, lasNiva, () => 0)
+}
+
+/**
+ * Knappen uppe till vänster följer historiken (Martin 2026-11-22): på ingången är den appens hem-ikon, så fort vyn lagt ett steg
+ * (ny flik, ny maskin, öppen djupvy eller panel) blir den en blå tillbaka-knapp som backar ETT steg — samma steg som systemets backa.
+ * Det här är den enda som avgör läget; toppfältet bara ritar det.
+ */
+export function useHornknapp(): void {
+  const niva = useNavNiva()
+  useEffect(() => {
+    if (niva > 0) document.body.setAttribute(TILLBAKA_ATTR, '')
+    else document.body.removeAttribute(TILLBAKA_ATTR)
+  }, [niva])
+  useEffect(() => () => document.body.removeAttribute(TILLBAKA_ATTR), [])
 }
 
 export function navParam(sok: string, nyckel: NavParam | 'ny'): string | null {

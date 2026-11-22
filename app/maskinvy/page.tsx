@@ -3,7 +3,7 @@ import { AVSTAND, FARG, FONT, RADIE, RORELSE, TYP, VIKT, underTopbar } from '@/l
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { arPaIngangen, navParam, skrivNavigering, useNavSok } from '@/lib/maskinvy/historik'
+import { navParam, skrivNavigering, useHornknapp, useNavSok } from '@/lib/maskinvy/historik'
 import { MASKINER, type Maskin } from './OversiktShared'
 import { useMaskinvyMaskiner } from './useMaskinvyMaskiner'
 import Sidolista from './Sidolista'
@@ -138,52 +138,16 @@ export default function MaskinvyPage() {
     }
   }
 
-  // Dölj TopBar-hemknappen i ny-vyn — vi visar egen bakåtpil + kryss istället.
-  useEffect(() => {
-    if (!ny) return
-    document.body.setAttribute('data-hide-home', '')
-    return () => document.body.removeAttribute('data-hide-home')
-  }, [ny])
+  // Knappen uppe till vänster (toppfältet) följer historiken, i båda vyerna: hem-ikonen på ingången, en blå tillbaka-knapp som backar
+  // ETT steg (samma som systemets backa) så fort vyn lagt ett steg i historiken — flik, maskin, djupvy eller panel.
+  useHornknapp()
 
   return (
     <>
-      {/* Bakåtknapp (vänster) + Stäng-kryss (höger) — bara i ny-vyn.
-          Placeras i TopBar-zonen ovanför .mv-toggle-bar.
+      {/* Stäng-kryss (höger) — bara i ny-vyn. Hem-/tillbaka-knappen uppe till vänster är toppfältets (useHornknapp).
           z-index: 1001 — ovanför TopBar:ns 1000. */}
       {ny && (
         <>
-          <button
-            onClick={() => {
-              // Ett steg tillbaka i vyn så länge vi lagt steg i historiken; på ingången lämnar knappen vyn som förut.
-              if (typeof window !== 'undefined' && (!arPaIngangen() || window.history.length > 1)) {
-                window.history.back()
-              } else {
-                window.location.href = '/'
-              }
-            }}
-            style={{
-              position: 'fixed',
-              left: AVSTAND.m,
-              top: `calc(env(safe-area-inset-top) + ${AVSTAND.s}px)`,
-              width: 36,
-              height: 36,
-              borderRadius: RADIE.kort,
-              background: FARG.linje,
-              border: 'none',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: FARG.text,
-              fontSize: TYP.rubrik.fontSize,
-              lineHeight: 1,
-              zIndex: 1001,
-              WebkitTapHighlightColor: 'transparent',
-            }}
-            aria-label="Gå tillbaka"
-          >
-            ‹
-          </button>
           <Link
             href="/"
             style={{

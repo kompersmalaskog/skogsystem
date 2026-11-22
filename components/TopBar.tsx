@@ -11,6 +11,7 @@ import { MENY_VALD_NYCKEL } from '@/lib/appStart'
 import { hamtaEnhetMaskin } from '@/lib/enhetMaskin'
 import { maskinUpplast } from '@/lib/maskinkonto/upplast'
 import { MASKIN_SOM_SESSION } from '@/lib/maskinSom'
+import { backaEttSteg, TILLBAKA_ATTR } from '@/lib/maskinvy/historik'
 
 // Arbetsmiljöns delar (Kemikalier, Så gör vi, Riskbedömning …) nås från sidan Arbetsmiljö.
 // Där är vägen ut "‹ Arbetsmiljö", inte hem — annars måste man börja om från startsidan
@@ -110,12 +111,18 @@ export default function TopBar() {
   // Undersida-vyer (t.ex. Arbetsrapport-interna steg) sätter body[data-hide-home]
   // för att dölja hemknappen när de har egen bakåt-navigation.
   const [hideHome, setHideHome] = useState(false)
+  // Maskinvyn (lib/maskinvy/historik.ts useHornknapp) sätter body[data-topbar-tillbaka] medan vyn är ett steg eller fler in från sin
+  // ingång: då är knappen uppe till vänster en blå tillbaka-knapp (ETT steg bakåt i historiken, som systemets backa) i stället för hem.
+  const [tillbaka, setTillbaka] = useState(false)
   useEffect(() => {
     if (typeof document === 'undefined') return
-    const check = () => setHideHome(document.body.hasAttribute('data-hide-home'))
+    const check = () => {
+      setHideHome(document.body.hasAttribute('data-hide-home'))
+      setTillbaka(document.body.hasAttribute(TILLBAKA_ATTR))
+    }
     check()
     const mo = new MutationObserver(check)
-    mo.observe(document.body, { attributes: true, attributeFilter: ['data-hide-home'] })
+    mo.observe(document.body, { attributes: true, attributeFilter: ['data-hide-home', TILLBAKA_ATTR] })
     return () => mo.disconnect()
   }, [])
 
@@ -149,7 +156,25 @@ export default function TopBar() {
       fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif",
     }}>
       {/* Hem-knapp — dold när underliggande vy har egen bakåtpil */}
-      {!isHome && !hideHome && tillArbetsmiljo ? (
+      {!isHome && tillbaka ? (
+        <button type="button" onClick={backaEttSteg} aria-label="Tillbaka" style={{
+          position: 'absolute',
+          left: 4,
+          height: TRAFFYTA.min,
+          minWidth: TRAFFYTA.min,
+          padding: '0 8px',
+          display: 'flex',
+          alignItems: 'center',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: FARG.bla,
+          WebkitTapHighlightColor: 'transparent',
+          ...TYP.text,
+        }}>
+          ‹ Tillbaka
+        </button>
+      ) : !isHome && !hideHome && tillArbetsmiljo ? (
         <Link href="/arbetsmiljo" aria-label="Tillbaka till Arbetsmiljö" style={{
           position: 'absolute',
           left: 4,
