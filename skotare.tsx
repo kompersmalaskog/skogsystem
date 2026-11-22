@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { navParam } from '@/lib/maskinvy/historik';
+import { useGammalMaskinvyNav } from '@/lib/hooks/useGammalMaskinvyNav';
+import { useDjupvyHistorik } from '@/lib/hooks/useDjupvyHistorik';
 import { supabase } from '@/lib/supabase';
 
 type Maskin = { maskin_id: string; modell: string; tillverkare: string; typ: string };
@@ -526,13 +529,17 @@ type IdagData = {
   senastAktiv: { datum: string; tid: string | null } | null;
 };
 
+const GILTIGA_VYER = ['idag', 'oversikt', 'produktion', 'avbrott', 'analys'];
+
 export default function SkotareVy() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
-  const [vald, setVald] = useState('');
-  const [activeView, setActiveView] = useState('idag');
+  // Flik, maskin och period ligger i adressen (lib/maskinvy/historik.ts): flik och maskin = ett steg i historiken (systemets
+  // backa går ett steg i taget), period och månadspilar = replace.
+  const nav = useGammalMaskinvyNav({ maskinParam: 'skotare', giltigaVyer: GILTIGA_VYER, standardVy: 'idag' });
+  const { activeView, setActiveView, period, periodOffset, setPeriodOffset, valjPeriod } = nav;
+  const valdMaskinUrval = maskiner.find(m => String(m.maskin_id) === nav.maskinId) ?? maskiner[0];
+  const vald = valdMaskinUrval ? valdMaskinUrval.modell : '';
   const [dataVersion, setDataVersion] = useState(0);
-  const [period, setPeriod] = useState<'V' | 'M' | 'K' | 'Å'>('M');
-  const [periodOffset, setPeriodOffset] = useState(0);
   const [loading, setLoading] = useState(false);
   const [maskinOpen, setMaskinOpen] = useState(false);
   // Idag
@@ -543,6 +550,8 @@ export default function SkotareVy() {
   const [panelType, setPanelType] = useState<'operator' | 'dag' | null>(null);
   const [panelOperator, setPanelOperator] = useState<OperatorData | null>(null);
   const [panelDag, setPanelDag] = useState<{ dayNum: number; entry: DagDataEntry } | null>(null);
+  // Panelen (operatör/dag) är ett steg i historiken: backa stänger den i stället för att lämna vyn.
+  useDjupvyHistorik(overlayOpen, () => { setOverlayOpen(false); setPanelType(null); setPanelOperator(null); setPanelDag(null); });
 
   // ── Hardcoded machines ──
   useEffect(() => {
@@ -551,7 +560,6 @@ export default function SkotareVy() {
       { maskin_id: 'A030353', modell: 'Wisent', tillverkare: 'Ponsse', typ: 'Skotare' },
     ];
     setMaskiner(skotare);
-    setVald(skotare[0].modell);
 
     // Auto-detect latest month with data
     (async () => {
@@ -564,7 +572,8 @@ export default function SkotareVy() {
         const latest = new Date(latestRes.data[0].datum);
         const now = new Date();
         const monthDiff = (latest.getFullYear() - now.getFullYear()) * 12 + (latest.getMonth() - now.getMonth());
-        if (monthDiff < 0) {
+        // Bara när adressen inte redan säger vilken period man tittar på (en omladdning/backa ska landa där man var).
+        if (monthDiff < 0 && navParam(window.location.search, 'off') === null) {
           setPeriodOffset(monthDiff);
         }
       }
@@ -1564,7 +1573,7 @@ export default function SkotareVy() {
                 maxHeight: 280, overflowY: 'auto', minWidth: '100%',
               }}>
                 {maskiner.map((m, i) => (
-                  <button key={m.maskin_id} onClick={() => { setVald(m.modell); setMaskinOpen(false); }} style={{
+                  <button key={m.maskin_id} onClick={() => { nav.valjMaskin(String(m.maskin_id), maskiner[0] && String(maskiner[0].maskin_id), valdMaskinUrval && String(valdMaskinUrval.maskin_id)); setMaskinOpen(false); }} style={{
                     width: '100%', padding: '12px 14px', border: 'none', minHeight: 44,
                     borderBottom: i < maskiner.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
                     background: m.modell === vald ? 'rgba(255,255,255,0.08)' : 'transparent',
@@ -1612,7 +1621,7 @@ export default function SkotareVy() {
           {/* Period type — segmentkontroll */}
           <div style={{ display: 'flex', gap: 2, background: 'rgba(120,120,128,0.16)', borderRadius: 9, padding: 2, height: 36 }}>
             {(['V', 'M', 'K', 'Å'] as const).map((p) => (
-              <button key={p} onClick={() => { setPeriod(p); setPeriodOffset(0); }} style={{
+              <button key={p} onClick={() => valjPeriod(p)} style={{
                 minWidth: 36, padding: '0 12px', border: 'none', borderRadius: 7,
                 background: period === p ? '#2c2c2a' : 'transparent',
                 color: period === p ? '#ffffff' : '#8e8e93', fontSize: 13, fontWeight: period === p ? 600 : 500,

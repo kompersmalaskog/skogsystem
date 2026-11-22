@@ -1,5 +1,6 @@
 'use client'
 import { AVSTAND, TYP, VIKT, medSafeBotten, RADIE, FARG, FONT, kolumnRot, overgang } from '@/lib/design/tokens'
+import { useDjupvyHistorik } from '@/lib/hooks/useDjupvyHistorik'
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -112,6 +113,8 @@ export default function VolymDeepView({
     setShown(false)
     window.setTimeout(onClose, 280)
   }
+  // Djupvyn är ett steg i historiken: systemets backa stänger den (med samma animation) i stället för att lämna maskinvyn.
+  useDjupvyHistorik(true, handleClose)
 
   const totalVolym = rader.reduce((s, r) => s + r.volym, 0)
   const totalStammar = rader.reduce((s, r) => s + r.stammar, 0)

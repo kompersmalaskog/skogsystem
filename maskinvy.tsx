@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { navParam } from '@/lib/maskinvy/historik';
+import { useGammalMaskinvyNav } from '@/lib/hooks/useGammalMaskinvyNav';
+import { usePanelDjupvyHistorik } from '@/lib/hooks/useDjupvyHistorik';
 import { supabase } from '@/lib/supabase';
 import { translateKategori } from '@/lib/avbrott-kategorier';
 
@@ -1383,13 +1386,22 @@ type PeriodKpi = {
   produktivitet: number; medelstam: number; label: string;
 };
 
+const GILTIGA_VYER = ['idag', 'oversikt', 'produktion', 'avbrott', 'analys', 'jamfor'];
+
 export default function Maskinvy() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
-  const [vald, setVald] = useState('');
-  const [activeView, setActiveView] = useState('idag');
+  // Flik, maskin och period ligger i adressen (lib/maskinvy/historik.ts): flik och maskin = ett steg i historiken (systemets
+  // backa går ett steg i taget), period och månadspilar = replace. periodOffset: 0=current, -1=previous, etc.
+  const nav = useGammalMaskinvyNav({ maskinParam: 'skordare', giltigaVyer: GILTIGA_VYER, standardVy: 'idag' });
+  const { activeView, setActiveView, period, periodOffset, setPeriodOffset, valjPeriod } = nav;
+  // Vald maskin: den i adressen om den finns i listan, annars listans första. Tom tills listan är satt (som förut).
+  const valdMaskinUrval = maskiner.find(m => String(m.maskin_id) === nav.maskinId) ?? maskiner[0];
+  const vald = valdMaskinUrval ? valdMaskinUrval.modell : '';
+  // Djupvyerna här (förare, bolag, trädslag, tid, dag, objekttyp, inköpare …) är DOM-paneler som skriptet öppnar genom att sätta
+  // klassen "open" på #forarOverlay. Vi läser det läget och gör det till ett steg i historiken: backa stänger panelen
+  // (closeAllPanels) i stället för att lämna vyn.
+  usePanelDjupvyHistorik('forarOverlay', () => { (window as any).closeAllPanels?.(); });
   const [dataVersion, setDataVersion] = useState(0); // increments on each data load
-  const [period, setPeriod] = useState<'V' | 'M' | 'K' | 'Å'>('M');
-  const [periodOffset, setPeriodOffset] = useState(0); // 0=current, -1=previous, etc.
   const [loading, setLoading] = useState(false);
   const [maskinOpen, setMaskinOpen] = useState(false);
   const [filterAtgard, setFilterAtgard] = useState('');
@@ -1505,7 +1517,6 @@ export default function Maskinvy() {
       { maskin_id: 'R64101+R64428', modell: 'H8E (total)', tillverkare: 'Rottne', typ: 'Skördare' },
     ];
     setMaskiner(skordare);
-    setVald(skordare[0].modell);
 
     // Auto-detect latest month with data and set periodOffset accordingly
     (async () => {
@@ -1518,7 +1529,8 @@ export default function Maskinvy() {
         const latest = new Date(latestRes.data[0].datum);
         const now = new Date();
         const monthDiff = (latest.getFullYear() - now.getFullYear()) * 12 + (latest.getMonth() - now.getMonth());
-        if (monthDiff < 0) {
+        // Bara när adressen inte redan säger vilken period man tittar på (en omladdning/backa ska landa där man var).
+        if (monthDiff < 0 && navParam(window.location.search, 'off') === null) {
           setPeriodOffset(monthDiff);
         }
       }
@@ -3025,7 +3037,7 @@ export default function Maskinvy() {
                 {maskiner.map((m, i) => (
                   <button
                     key={m.maskin_id}
-                    onClick={() => { setVald(m.modell); setMaskinOpen(false); }}
+                    onClick={() => { nav.valjMaskin(String(m.maskin_id), maskiner[0] && String(maskiner[0].maskin_id), valdMaskinUrval && String(valdMaskinUrval.maskin_id)); setMaskinOpen(false); }}
                     style={{
                       width: '100%', padding: '9px 12px', border: 'none',
                       borderBottom: i < maskiner.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
@@ -3067,7 +3079,7 @@ export default function Maskinvy() {
           {/* Period type: V M K Å */}
           <div style={{ display: 'flex', gap: 2, background: 'rgba(120,120,128,0.16)', borderRadius: 10, padding: 2, height: 44 }}>
             {(['V', 'M', 'K', 'Å'] as const).map((p) => (
-              <button key={p} onClick={() => { setPeriod(p); setPeriodOffset(0); }} style={{
+              <button key={p} onClick={() => valjPeriod(p)} style={{
                 minWidth: 44, padding: '0 14px', border: 'none', borderRadius: 8,
                 background: period === p ? '#2c2c2e' : 'transparent',
                 color: period === p ? '#ffffff' : '#8e8e93',
