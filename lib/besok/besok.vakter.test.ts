@@ -119,7 +119,16 @@ describe('planeringsvyn: besöken syns bara där de ska', () => {
   it('Uppfattat sparas på riktigt också i testläget (märkt testlage) — kvittenser sparas inte "torrt" här', () => {
     expect(page).toMatch(/testlage: !!testlage,\s*\n\s*ljudCtx/);
   });
-  it('hytten läser minst var 5:e sekund', () => { expect(HYTT_POLL_MS).toBeLessThanOrEqual(5000); });
+  // Fart 1 (2026-11-22): läsningen var 4 s och gav 300–500 anrop per maskin och dag. Ett nytt besök kommer i stället som server-push (hytt-push → läs om direkt),
+  // och läsningen är skyddsnät. Glesare än 30 s får den bara vara så länge pushvägen finns kvar.
+  it('hytten läser glest (skyddsnät) – och ett nytt besök kommer direkt som push', () => {
+    expect(HYTT_POLL_MS).toBeGreaterThanOrEqual(30000);
+    expect(HYTT_POLL_MS).toBeLessThanOrEqual(120000);
+    const hook = fs.readFileSync(path.join(process.cwd(), 'lib/hooks/useBesokHytt.ts'), 'utf8');
+    expect(hook).toMatch(/'hytt-push'\)\s*\{\s*las\(\)/);
+    expect(fs.readFileSync(path.join(process.cwd(), 'public/sw.js'), 'utf8')).toContain('hytt-push');
+    expect(fs.readFileSync(path.join(process.cwd(), 'app/api/besok/[token]/anmal/route.ts'), 'utf8')).toMatch(/hytt|maskin/i);
+  });
 });
 
 describe('migrationen', () => {

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaEnGpsFix } from '@/lib/gpsKalla';
+import { lasGeometrierMedCache } from '@/lib/geometriCache';
 import { grupperaForareObjekt, type ForareObjekt } from '@/lib/objektlista';
 import { oplaneradRadText } from '@/lib/klarTrakt';
 import { objektHuvudtyp, arTilldelad } from '@/lib/objektPlats';
@@ -137,7 +138,9 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
     (async () => {
       const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
       const [geoR, maskR, medR, hsR, flR] = await Promise.all([
-        supabase.from('objekt_geometri').select('objekt_id, geometri').abortSignal(ac.signal),
+        // Alla traktgränser, men via enhetens sparade kopia (lib/geometriCache): en liten versionsfråga, sedan hämtas bara det som saknas eller ändrats.
+        // Förut hämtades hela tabellen (~3,7 MB) vid varje öppning av listan: 31 284 hämtningar à 221 ms i pg_stat_statements. Ett fel är ett fel (data null → tom karta, som förut).
+        lasGeometrierMedCache({ from: (t: string) => { const f: any = supabase.from(t); return { select: (...a: any[]) => f.select(...a).abortSignal(ac.signal) }; } }, null),
         supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, klarar_typ').abortSignal(ac.signal),
         supabase.from('medarbetare').select('id, namn, maskin_id').abortSignal(ac.signal),
         supabase.from('hyttspar').select('objekt_id').gte('datum', weekAgo).abortSignal(ac.signal),
