@@ -679,7 +679,7 @@ describe('traktanalysen på raden — högst en rad, bara när något finns', ()
     expect(q('objekt-trakt-g')!.textContent).toBe('Fossil åker · vattenskydd');
     expect(q('objekt-rad-e')!.querySelectorAll('[data-testid^="objekt-trakt-"]')).toHaveLength(1);
   });
-  it('inget hittat, ej körd eller bara skydd (nyckelbiotop) → ingen rad; en kontroll som föll → "Ej kontrollerad"', async () => {
+  it('inget hittat eller ej körd → ingen rad; bara nyckelbiotop → "Nyckelbiotop"; en kontroll som föll → "Ej kontrollerad"', async () => {
     h.rader = [
       { ...RADER[1], trakt_analys: analys([]) },
       { ...RADER[3] },
@@ -689,7 +689,8 @@ describe('traktanalysen på raden — högst en rad, bara när något finns', ()
     await montera();
     expect(q('objekt-trakt-e')).toBeNull();
     expect(q('objekt-trakt-p')).toBeNull();
-    expect(q('objekt-trakt-g')).toBeNull();
+    expect(q('objekt-trakt-g')!.textContent).toBe('Nyckelbiotop');
+    expect(q('objekt-trakt-g')!.getAttribute('data-kategori')).toBe('skydd');
     expect(q('objekt-trakt-n')!.textContent).toBe('Ej kontrollerad');
     expect(behallare!.textContent).not.toMatch(/inget hittat/i);
   });
