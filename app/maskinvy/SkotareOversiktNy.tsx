@@ -1,5 +1,6 @@
 'use client'
 import { underTopbar, AVSTAND, RADIE, TYP, VIKT, medSafeBotten, FARG, FONT, kolumnRot, overgang } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { useDjupvyHistorik } from '@/lib/hooks/useDjupvyHistorik'
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -657,6 +658,8 @@ function SkotareOperatorDeepView({
     setShown(false)
     window.setTimeout(onClose, 280)
   }
+  // Djupvyn är ett steg i historiken: systemets backa stänger den (med samma animation) i stället för att lämna maskinvyn.
+  useDjupvyHistorik(true, handleClose)
 
   // Stäng på Escape
   useEffect(() => {

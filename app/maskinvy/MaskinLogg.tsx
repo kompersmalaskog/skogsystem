@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useDjupvyHistorik } from '@/lib/hooks/useDjupvyHistorik';
 import { supabase } from '@/lib/supabase';
 
 interface LogEntry {
@@ -254,6 +255,9 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
   };
 
   const maskinNamn = maskiner.find(m => m.maskin_id === selectedMaskin)?.namn || '';
+
+  // Maskinloggen är ett steg i historiken: backa stänger den i stället för att lämna vyn.
+  useDjupvyHistorik(open, () => setOpen(false));
 
   // Expose open function globally so sidebar menu can trigger it
   useEffect(() => {

@@ -3,6 +3,7 @@ import { AVSTAND, FARG, FONT, RADIE, RORELSE, TYP, VIKT, underTopbar } from '@/l
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { arPaIngangen, navParam, skrivNavigering, useNavSok } from '@/lib/maskinvy/historik'
 import { MASKINER, type Maskin } from './OversiktShared'
 import { useMaskinvyMaskiner } from './useMaskinvyMaskiner'
 import Sidolista from './Sidolista'
@@ -47,25 +48,33 @@ const SKOTARE_NY_VYER: { key: string; label: string }[] = [
   { key: 'jamforelse',  label: 'Jämförelse' },
 ]
 
+// Läge, flik och maskin ligger i adressen (lib/maskinvy/historik.ts): ett nytt ställe = en post i historiken, så systemets backa
+// går ett steg i taget och en omladdning landar på samma flik och maskin. Utelämnad parameter = standardvärdet.
+const LAGEN: readonly Mode[] = ['skordare', 'skotare', 'jamforelse']
+
 export default function MaskinvyPage() {
-  const [mode, setMode] = useState<Mode>('skordare')
-  const [ny, setNy] = useState(false)
-  const [vy, setVy] = useState<string>('')
-  const [maskinSkordare, setMaskinSkordare] = useState<Maskin>(MASKINER[0])
+  const sok = useNavSok()
+  const ny = navParam(sok, 'ny') === '1'
+  const lageParam = navParam(sok, 'lage')
+  const mode: Mode = LAGEN.find(l => l === lageParam) ?? 'skordare'
+  const vy = navParam(sok, 'vy') || ''
+  const maskinSkordare: Maskin = MASKINER.find(m => m.id === navParam(sok, 'skordare')) ?? MASKINER[0]
   // Skotarlistan är dynamisk (dim_maskin, bekräftad + data) — ny maskin syns
   // automatiskt. Default = första i listan när den laddats.
   const { maskiner: skotareMaskiner, laddar: skotareLaddar } = useMaskinvyMaskiner('skotare')
-  const [maskinSkotare, setMaskinSkotare] = useState<SkotareMaskin | null>(null)
-  useEffect(() => {
-    if (!maskinSkotare && skotareMaskiner.length > 0) setMaskinSkotare(skotareMaskiner[0])
-  }, [skotareMaskiner, maskinSkotare])
+  const maskinSkotare: SkotareMaskin | null =
+    skotareMaskiner.find(m => m.id === navParam(sok, 'skotare')) ?? skotareMaskiner[0] ?? null
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search)
-    setNy(params.get('ny') === '1')
-    setVy(params.get('vy') || '')
-  }, [])
+  // Maskinbyte = ett nytt ställe. Är maskinen redan vald händer ingenting (ingen tom post i historiken), och standardmaskinen
+  // skrivs som "ingen parameter" så adressen är densamma oavsett vilken väg man kom dit.
+  const valjSkordare = (m: Maskin) => {
+    if (m.id === maskinSkordare.id) return
+    skrivNavigering({ skordare: m.id === MASKINER[0].id ? null : m.id }, 'push')
+  }
+  const valjSkotare = (m: SkotareMaskin) => {
+    if (m.id === maskinSkotare?.id) return
+    skrivNavigering({ skotare: m.id === skotareMaskiner[0]?.id ? null : m.id }, 'push')
+  }
 
   // Vy-navet visas när vi är i nya vyn på Skördare- eller Skotare-fliken.
   const showVyNav = ny && (mode === 'skordare' || mode === 'skotare')
@@ -95,35 +104,38 @@ export default function MaskinvyPage() {
   // Vilka vy-knappar ska visas i navet?
   const vyNavList = mode === 'skotare' ? SKOTARE_NY_VYER : NY_VYER
 
-  // Mjuk vy-byte: ingen reload, bara state + URL silent update.
+  // Flikbyte: ingen reload, ett steg i historiken (backa = föregående flik).
   const handleVyChange = (newVy: string) => {
-    setVy(newVy)
-    if (typeof window === 'undefined') return
-    const url = new URL(window.location.href)
-    if (newVy) url.searchParams.set('vy', newVy)
-    else      url.searchParams.delete('vy')
-    history.replaceState({}, '', url.toString())
+    if (newVy === vy) return
+    skrivNavigering({ vy: newVy || null }, 'push')
   }
 
-  // Byte av flik (Skördare / Skotare / Jämförelse). Skördarens Kapacitet finns inte hos skotaren (och tvärtom Jämförelse):
-  // står vyn kvar på en vy som den nya fliken saknar blir navet utan vald knapp och Översikt visas — då går vi till Översikt.
-  const valjMode = (nytt: Mode) => {
-    setMode(nytt)
-    if (nytt === 'jamforelse') return
-    const lista = nytt === 'skotare' ? SKOTARE_NY_VYER : NY_VYER
-    if (!lista.some(v => v.key === vy)) handleVyChange('')
+  // Byte av läge (Skördare / Skotare / Jämförelse) = ett steg i historiken. Skördarens Kapacitet finns inte hos skotaren (och
+  // tvärtom Jämförelse): står vyn kvar på en vy som den nya fliken saknar blir navet utan vald knapp och Översikt visas — då går
+  // vi till Översikt, i SAMMA steg (en post, inte två). Bara i nya vyn: den gamla vyn rättar sig själv (okänd flik = Idag).
+  const lagePost = (nytt: Mode, vyOverstyr: string | null | undefined) => ({
+    lage: nytt === 'skordare' ? null : nytt,
+    ...(vyOverstyr === undefined ? {} : { vy: vyOverstyr }),
+  })
+  const valjMode = (nytt: Mode, maskinAndring: { skordare?: string | null; skotare?: string | null } = {}) => {
+    if (nytt === mode && Object.keys(maskinAndring).length === 0) return
+    let vyOverstyr: string | null | undefined
+    if (ny && nytt !== 'jamforelse') {
+      const lista = nytt === 'skotare' ? SKOTARE_NY_VYER : NY_VYER
+      if (!lista.some(v => v.key === vy)) vyOverstyr = null
+    }
+    skrivNavigering({ ...lagePost(nytt, vyOverstyr), ...maskinAndring }, 'push')
   }
 
-  // Ett tryck i sidolistan: välj maskinen och byt till dess flik. Vyn (Idag, Produktion …) står kvar när fliken har den.
+  // Ett tryck i sidolistan: välj maskinen och byt till dess flik — ETT steg. Vyn (Idag, Produktion …) står kvar när fliken har den.
   const valjFranSidolista = (roll: SidoRoll, id: string) => {
     if (roll === 'skordare') {
       const m = MASKINER.find(x => x.id === id)
-      if (m) setMaskinSkordare(m)
+      if (m) valjMode('skordare', { skordare: m.id === MASKINER[0].id ? null : m.id })
     } else {
       const m = skotareMaskiner.find(x => x.id === id)
-      if (m) setMaskinSkotare(m)
+      if (m) valjMode('skotare', { skotare: m.id === skotareMaskiner[0]?.id ? null : m.id })
     }
-    valjMode(roll)
   }
 
   // Dölj TopBar-hemknappen i ny-vyn — vi visar egen bakåtpil + kryss istället.
@@ -142,7 +154,8 @@ export default function MaskinvyPage() {
         <>
           <button
             onClick={() => {
-              if (typeof window !== 'undefined' && window.history.length > 1) {
+              // Ett steg tillbaka i vyn så länge vi lagt steg i historiken; på ingången lämnar knappen vyn som förut.
+              if (typeof window !== 'undefined' && (!arPaIngangen() || window.history.length > 1)) {
                 window.history.back()
               } else {
                 window.location.href = '/'
@@ -365,19 +378,19 @@ export default function MaskinvyPage() {
           <div className={`mv-wrapper${showVyNav ? ' with-vy-nav' : ''}`}>
             {mode === 'skordare'
               ? (ny
-                  ? (vy === 'produktion' ? <ProduktionNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />
-                     : vy === 'avbrott'    ? <AvbrottNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />
-                     : vy === 'kapacitet'  ? <KapacitetNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />
-                     : vy === 'idag'       ? <IdagNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />
-                     : <OversiktNy maskin={maskinSkordare} onMaskinChange={setMaskinSkordare} />)
+                  ? (vy === 'produktion' ? <ProduktionNy maskin={maskinSkordare} onMaskinChange={valjSkordare} />
+                     : vy === 'avbrott'    ? <AvbrottNy maskin={maskinSkordare} onMaskinChange={valjSkordare} />
+                     : vy === 'kapacitet'  ? <KapacitetNy maskin={maskinSkordare} onMaskinChange={valjSkordare} />
+                     : vy === 'idag'       ? <IdagNy maskin={maskinSkordare} onMaskinChange={valjSkordare} />
+                     : <OversiktNy maskin={maskinSkordare} onMaskinChange={valjSkordare} />)
                   : <Maskinvy />)
               : (ny
                   ? (vy === 'jamforelse' ? <SkotareJamforelseNy />
                      : !maskinSkotare ? <div style={{ padding: AVSTAND.xl, color: FARG.text2, fontSize: TYP.meta.fontSize }}>Laddar maskiner …</div>
-                     : vy === 'produktion'  ? <SkotareProduktionNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
-                     : vy === 'avbrott'   ? <SkotareAvbrottNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
-                     : vy === 'idag'      ? <SkotareIdagNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
-                     : <SkotareOversiktNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />)
+                     : vy === 'produktion'  ? <SkotareProduktionNy maskin={maskinSkotare} onMaskinChange={valjSkotare} />
+                     : vy === 'avbrott'   ? <SkotareAvbrottNy maskin={maskinSkotare} onMaskinChange={valjSkotare} />
+                     : vy === 'idag'      ? <SkotareIdagNy maskin={maskinSkotare} onMaskinChange={valjSkotare} />
+                     : <SkotareOversiktNy maskin={maskinSkotare} onMaskinChange={valjSkotare} />)
                   : <SkotareVy />)}
           </div>
           {!(ny && (mode === 'skordare' || mode === 'skotare')) && <MaskinLogg mode={mode} />}
