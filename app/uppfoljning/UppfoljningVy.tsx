@@ -6,6 +6,7 @@ import { type ObjektTyp, arRisjobb, typLabel } from '@/lib/objekt/typ';
 import { tradslagFarg } from '@/lib/tradslag';
 import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
 import { uppskattaGrotM3fub, GROT_UTTAGSFAKTOR_DEFAULT } from '@/lib/grot';
+import { liggetidText } from './lib/liggetid';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
 import type { SkotareMaskinStat } from './lib/transform';
@@ -85,6 +86,8 @@ export interface UppfoljningData {
   skordareStart?: string | null;
   skordareSlut?: string | null;
   skordareLastDate?: string | null;
+  // Sista avverkningsdagen (samma fält som listans liggetid).
+  sistaAvverkning?: string | null;
   skotatArManuell?: boolean;
   skotareModell?: string | null;
   skotareStart?: string | null;
@@ -432,6 +435,13 @@ function Svaret({ data }: { data: UppfoljningData }) {
           <span>{sv(visSkotat)} av {sv(visSkordat)} m³ hemma</span>
           <span>{andel} %</span>
         </div>
+        {!klart && s.skKlar && paBacken > 0 && !data.egenSkotning && (
+          // Liggetid: virket är fällt klart men ligger kvar — hur länge avgör om
+          // det brådskar. Samma regel och text som listan (lib/liggetid).
+          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }} data-liggetid>
+            {(() => { const t = liggetidText(data.sistaAvverkning, Date.now()); return t.charAt(0).toUpperCase() + t.slice(1); })()}
+          </div>
+        )}
         {!klart && (
           // EN roll-rad per maskin: skördaren (lila) och skotaren (turkos), var
           // för sig, var och en säger sitt läge. Bara skotaren får "klart om"

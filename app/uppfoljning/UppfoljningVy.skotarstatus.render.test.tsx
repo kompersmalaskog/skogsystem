@@ -73,4 +73,15 @@ describe('Detaljvyns skotarstatus', () => {
     expect(text).toContain('Skotaren klar');
     expect(text).not.toContain('Skotaren kör');
   });
+
+  it('liggetiden står när skördaren är klar och virke ligger kvar', () => {
+    const text = rendera(skalviken({ skotareSlut: null, sistaAvverkning: '2026-10-28' }));
+    expect(text).toMatch(/Avverkat 28 okt\.? · legat \d+ (dag|dgr)/);
+  });
+
+  it('ingen liggetid medan skördaren kör, eller när markägaren skotar själv', () => {
+    expect(rendera(skalviken({ skordareSlut: null, skordareLastDate: idag, sistaAvverkning: idag }))).not.toContain('legat');
+    act(() => { rot?.unmount(); }); be?.remove();
+    expect(rendera(skalviken({ sistaAvverkning: '2026-10-28', egenSkotning: true }))).not.toContain('legat');
+  });
 });
