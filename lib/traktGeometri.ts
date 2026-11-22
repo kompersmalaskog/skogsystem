@@ -137,60 +137,60 @@ export function ringCentroid(ring: [number, number][]): { lat: number; lng: numb
   return { lat: la / n, lng: lo / n };
 }
 
-/** EN nummerserie per objekt. Vidas hänsyn-LOPNR är FACIT (behåller sina nummer; högsta = vidaMax).
- *  Traktdel-delarna numreras vidaMax+1.. sorterade centroid N→S (lat fallande) sedan V→Ö (lng stigande),
- *  stabilt vid omimport (tie → partKey). Egna områden fortsätter efter delarna (nastaOmradeNr).
- *  visaBitNummer=false (och visaGransNummer=false) när objektet bara har EN yta sammanlagt OCH inga Vida-nummer (en ensam yta → ingen siffra). */
+/** TVÅ nummerserier per objekt (Martin 2026-11-01: "är det flera områden som ska avverkas ska man se område 1, 2, 3 — kör 1, kör 2"):
+ *  • OMRÅDEN (det som ska avverkas): Vidas traktdelar 1..n sorterade centroid N→S (lat fallande) sedan V→Ö (lng stigande), stabilt vid
+ *    omimport (tie → partKey); egna områden fortsätter efter delarna. Siffran betyder "kör det här i den ordningen".
+ *  • YTOR (hänsyn och annat man ritar): Vidas hänsyn-LOPNR är FACIT (behåller sina nummer, "HÄNSYN 3"); egna ytor fortsätter efter vidaMax.
+ *  Förut var det EN serie: Skälvikens enda område hette 8 för att hänsyn hade 3–7.
+ *  visaBitNummer/visaGransNummer = false när objektet har EN yta att avverka (bitar + egna områden, ej ärvda kopior): en ensam yta ÄR trakten.
+ *  visaZonNummer = true när egna ytor kan förväxlas med något: Vidas hänsyn-nummer finns eller fler än en egen yta. */
 export function numreraObjekt(input: {
   hansynLopnr: (number | string | null | undefined)[];
   bitar: { partKey: string; centroid: { lat: number; lng: number } }[];
-  // Egna områden + egenritade traktgränser = boundary-markörer (isLine). Alla får ett nummer i serien.
+  // Egna områden + egenritade traktgränser = boundary-markörer (isLine). Alla får ett nummer i OMRÅDES-serien.
   // fromVidaTd satt = "Justera gräns"-kopia → ÄRVER bitens nummer. Annars: lagrat nummer vinner, saknas → nästa lediga.
   granser?: { id: string | number; nummer?: number | null; fromVidaTd?: string | null }[];
-  // Egna ritade ytor (Hänsyn, Blött, Brant …; inte gallringszoner, som saknar etikett). Fortsätter serien efter
-  // områdena, stabil ordning på id — så en egen Hänsyn heter "HÄNSYN 9" bredvid Vidas "HÄNSYN 6", aldrig bara "HÄNSYN".
+  // Egna ritade ytor (Hänsyn, Blött, Brant …; inte gallringszoner, som saknar etikett). YTE-serien, efter Vidas hänsyn,
+  // stabil ordning på id — så en egen Hänsyn heter "HÄNSYN 10" bredvid Vidas "HÄNSYN 9", aldrig bara "HÄNSYN".
   zoner?: { id: string | number }[];
 }): { vidaMax: number; bitNr: Map<string, number>; gransNr: Map<string, number>; zonNr: Map<string, number>; nastaGransNr: number; visaBitNummer: boolean; visaGransNummer: boolean; visaZonNummer: boolean; usedNummer: Set<number> } {
   const toInt = (v: any) => { const n = parseInt(String(v ?? '').trim(), 10); return Number.isFinite(n) ? n : NaN; };
   const vidaMax = (input.hansynLopnr || []).reduce<number>((m, v) => { const n = toInt(v); return Number.isFinite(n) && n > m ? n : m; }, 0);
+  // ── OMRÅDEN ──
   const sorted = [...(input.bitar || [])].sort((a, b) =>
     (b.centroid.lat - a.centroid.lat) || (a.centroid.lng - b.centroid.lng) || a.partKey.localeCompare(b.partKey));
   const bitNr = new Map<string, number>();
-  sorted.forEach((b, i) => bitNr.set(b.partKey, vidaMax + 1 + i));
+  sorted.forEach((b, i) => bitNr.set(b.partKey, 1 + i));
   const numBitar = sorted.length;
-  const used = new Set<number>();
-  for (const v of input.hansynLopnr || []) { const n = toInt(v); if (Number.isFinite(n)) used.add(n); }
-  for (const n of Array.from(bitNr.values())) used.add(n);
+  const used = new Set<number>(bitNr.values());
   // Boundary-markörernas VISNINGSNUMMER kommer alltid härifrån (aldrig tomt). Stabil ordning (id) så att
-  // en gräns utan lagrat nummer får SAMMA serienummer vid varje inläsning.
+  // en gräns utan lagrat nummer får SAMMA nummer vid varje inläsning.
   const granser = [...(input.granser || [])].sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
   const gransNr = new Map<string, number>();
   // 1) "Justera gräns"-kopior ärver bitens nummer (fromVidaTd = bitens partKey).
   for (const g of granser) { const ft = g.fromVidaTd ? String(g.fromVidaTd) : ''; if (ft && bitNr.has(ft)) gransNr.set(String(g.id), bitNr.get(ft)!); }
   // 2) Lagrat nummer (ej ärvt) vinner (redigerbart) → reservera.
   for (const g of granser) { const k = String(g.id); if (gransNr.has(k)) continue; const n = toInt(g.nummer); if (Number.isFinite(n)) { gransNr.set(k, n); used.add(n); } }
-  // 3) Saknar nummer → nästa lediga efter delarna (i markörernas ordning). En ritad gräns utan korrekt
-  //    lagrat nummer får ändå en siffra. Befintliga traktgränser utan nummer numreras här (vid inläsning).
-  let cursor = vidaMax + numBitar + 1;
+  // 3) Saknar nummer → nästa lediga efter delarna (i markörernas ordning).
+  let cursor = numBitar + 1;
   const nastaLediga = () => { while (used.has(cursor)) cursor++; const v = cursor; used.add(v); return v; };
   for (const g of granser) { const k = String(g.id); if (!gransNr.has(k)) gransNr.set(k, nastaLediga()); }
-  // 4) Egna ytor efter allt ovan. Får alltid ett nummer i serien; visaZonNummer avgör om det visas.
+  // Nästa nya område tar första lediga i områdesserien — inget nummer delas, inget flyttar.
+  let nastaGransNr = numBitar + 1;
+  while (used.has(nastaGransNr)) nastaGransNr++;
+  // ── YTOR ──
+  const ytaUsed = new Set<number>();
+  for (const v of input.hansynLopnr || []) { const n = toInt(v); if (Number.isFinite(n)) ytaUsed.add(n); }
   const zoner = [...(input.zoner || [])].sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
   const zonNr = new Map<string, number>();
-  for (const z of zoner) zonNr.set(String(z.id), nastaLediga());
-  // Nästa nya område tar första lediga efter ALLT (också ytornas nummer) — inget nummer delas, inget flyttar.
-  let nastaGransNr = vidaMax + numBitar + 1;
-  while (used.has(nastaGransNr)) nastaGransNr++;
-  // ENSAM YTA: inga Vida-nummer (vidaMax=0) OCH högst EN yta sammanlagt (bitar + egna områden, ej ärvda kopior) → ingen
-  // siffra alls: en ensam yta behöver inget nummer (den ÄR trakten). TVÅ ytor är aldrig ensamma. Regeln räknade förr bitar och
-  // egna områden var för sig (≤ 1 av vardera), så en Vida-yta + ett nyritat område dolde BÅDA siffrorna — Östra-Höka 2026-10-06
-  // (1 traktdel, inga hänsyn): "varken Vidas yta eller det nyritade området får någon siffra".
+  let ytaCursor = vidaMax + 1;
+  for (const z of zoner) { while (ytaUsed.has(ytaCursor)) ytaCursor++; zonNr.set(String(z.id), ytaCursor); ytaUsed.add(ytaCursor); }
+  // ENSAM YTA att avverka (bitar + egna områden, ej ärvda kopior) → ingen siffra (den ÄR trakten). TVÅ är aldrig ensamma
+  // (Östra-Höka 2026-10-06: en Vida-yta + ett nyritat område ska ge 1 och 2). Hänsyn påverkar inte längre.
   const antalGranserEgna = granser.filter(g => { const ft = g.fromVidaTd ? String(g.fromVidaTd) : ''; return !(ft && bitNr.has(ft)); }).length;
-  const ensamYta = vidaMax === 0 && numBitar + antalGranserEgna <= 1;
-  // Egna ytor får sitt nummer bara när trakten redan visar nummer (ensamYta false). En trakt med en del och en ritad
-  // RISA-yta visar varken "1" eller "RISA 2" — den har ingen annan yta att förväxlas med. Ytorna räknas därför inte
-  // in i ensamYta (annars skulle en enda ritad yta ge traktdelen en siffra den aldrig haft).
-  return { vidaMax, bitNr, gransNr, zonNr, nastaGransNr, visaBitNummer: !ensamYta, visaGransNummer: !ensamYta, visaZonNummer: !ensamYta, usedNummer: used };
+  const ensamYta = numBitar + antalGranserEgna <= 1;
+  const visaZonNummer = vidaMax > 0 || zoner.length > 1;
+  return { vidaMax, bitNr, gransNr, zonNr, nastaGransNr, visaBitNummer: !ensamYta, visaGransNummer: !ensamYta, visaZonNummer, usedNummer: used };
 }
 
 /** Stabil traktdels-nyckel (utan prefix) = TRDEL_ID (fallback TRDEL_NR_K). Används för att koppla
