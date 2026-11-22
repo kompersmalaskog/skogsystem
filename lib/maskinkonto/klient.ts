@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { hamtaEnhetMaskin } from '@/lib/enhetMaskin'
 import { lasMaskinSession, lasUpplast, sattMaskinSession, sattUpplast } from '@/lib/maskinkonto/upplast'
 import { AUTO_PAUS_MS, sattAutoPaus } from '@/lib/maskinkonto/autoStart'
+import { glomAtervand, kartaEfterLasning, tagAtervand } from '@/lib/maskinkonto/aterstall'
 
 export type Person = { id: string; namn: string; roll: 'forare' | 'admin'; harKod: boolean }
 
@@ -70,7 +71,7 @@ export async function lasUppMedKod(p: Person, kod: string): Promise<LasUppSvar> 
   // Upplåsningen skrivs FÖRE bytet: finns personens session i webbläsaren finns också minnet av att den ska kastas (aldrig en personlig session utan spår).
   sattUpplast({ id: p.id, namn: p.namn, roll: p.roll, aktivitet: Date.now() })
   const v = await supabase.auth.verifyOtp({ token_hash: j.token_hash, type: 'magiclink' })
-  if (v.error) { sattUpplast(null); sattMaskinSession(null); return { ok: false, fel: 'annat' } }
+  if (v.error) { sattUpplast(null); sattMaskinSession(null); glomAtervand(); return { ok: false, fel: 'annat' } }
   return { ok: true }
 }
 
@@ -111,7 +112,9 @@ async function aterMaskin(): Promise<boolean> {
 /** Maskinen låser sig: tillbaka till kartan som maskin. Går maskinkontot inte att få tillbaka: utloggad och till inloggningen. */
 export async function lasMaskinen(): Promise<void> {
   const ok = await aterMaskin()
-  if (ok) gaTillKartan(); else window.location.assign('/login')
+  // Tillbaka dit maskinen var INNAN upplåsningen (maskinlådan över kartan, annars körvyn). Sessionerna är redan bytta ovan — det här väljer bara adress.
+  const atervand = tagAtervand()
+  if (ok) window.location.assign(kartaEfterLasning(atervand)); else window.location.assign('/login')
 }
 
 /** Resultatet av att be servern göra enheten till maskinen: 'ok' (sessionen är bytt), 'av' (brytaren är av — allt som förut) eller 'fel' (inget ändrades). */
@@ -135,6 +138,7 @@ export async function blirMaskinAutomatiskt(maskinId: string): Promise<AutoSvar>
   if (gammal) void fetch('/api/maskin/las', { method: 'POST', headers: { Authorization: `Bearer ${gammal}` }, keepalive: true }).catch(() => undefined)
   sattUpplast(null)
   sattMaskinSession(null)
+  glomAtervand()
   return 'ok'
 }
 
@@ -147,6 +151,7 @@ export async function loggaUtMaskinen(): Promise<void> {
   sattAutoPaus(Date.now() + AUTO_PAUS_MS)
   await aterMaskin()
   await loggaUtLokalt()
+  glomAtervand()
   window.location.assign('/login')
 }
 
