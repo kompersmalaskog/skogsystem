@@ -113,6 +113,16 @@ describe.each([
     expect(hem()).toBeTruthy()
   })
 
+  it('inget stäng-kryss och ingen egen fast hörnknapp (hem-ikonen/tillbaka är toppfältets, som i övriga vyer)', async () => {
+    await montera(url)
+    expect(el.querySelector('[aria-label="Stäng"]')).toBeNull()
+    expect(el.textContent).not.toContain('✕')
+    expect(el.querySelector('[aria-label="Gå tillbaka"]')).toBeNull()
+    // Länkar till startsidan finns bara i toppfältet (header), inte som fast knapp i sidan
+    const utanforHeader = Array.from(el.querySelectorAll('a')).filter(a => a.getAttribute('href') === '/' && !a.closest('header'))
+    expect(utanforHeader).toHaveLength(0)
+  })
+
   it('går man ut ur vyn tas knapplägesmärket bort (andra vyer får sin vanliga hem-knapp)', async () => {
     await montera(url)
     if (flikNamn) await klicka(flik(flikNamn)); else await klicka(lage('Skotare'))

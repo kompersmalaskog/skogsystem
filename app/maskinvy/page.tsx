@@ -1,7 +1,6 @@
 'use client'
 import { AVSTAND, FARG, FONT, RADIE, RORELSE, TYP, VIKT, underTopbar } from '@/lib/design/tokens'
 
-import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { navParam, skrivNavigering, useHornknapp, useNavSok } from '@/lib/maskinvy/historik'
 import { MASKINER, type Maskin } from './OversiktShared'
@@ -144,37 +143,6 @@ export default function MaskinvyPage() {
 
   return (
     <>
-      {/* Stäng-kryss (höger) — bara i ny-vyn. Hem-/tillbaka-knappen uppe till vänster är toppfältets (useHornknapp).
-          z-index: 1001 — ovanför TopBar:ns 1000. */}
-      {ny && (
-        <>
-          <Link
-            href="/"
-            style={{
-              position: 'fixed',
-              right: AVSTAND.m,
-              top: `calc(env(safe-area-inset-top) + ${AVSTAND.s}px)`,
-              width: 36,
-              height: 36,
-              borderRadius: RADIE.kort,
-              background: FARG.linje,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              textDecoration: 'none',
-              color: FARG.text,
-              fontSize: TYP.text.fontSize,
-              lineHeight: 1,
-              zIndex: 1001,
-              WebkitTapHighlightColor: 'transparent',
-            }}
-            aria-label="Stäng"
-          >
-            ✕
-          </Link>
-        </>
-      )}
-
       {/* iOS-style segmented controls under TopBar */}
       <style>{`
         .mv-toggle-bar {
