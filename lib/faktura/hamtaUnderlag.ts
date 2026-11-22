@@ -15,9 +15,8 @@
 
 import { fetchAllRows } from '@/lib/ekonomi/period';
 import { avrakningsdatum } from '@/lib/objekt/avrakning';
-import { skotningsavstandM } from '@/lib/skotningsavstand';
 import {
-  valjLassKalla, lassMedStracka as barandeLass, kallorIOrd,
+  avstandsTillagg, optiTillAvstandsLass, kallorIOrd,
   type AvstandsLass, type Lasskalla,
 } from '@/lib/faktura/lassAvstand';
 import { lasLassCykel } from '@/lib/faktura/lasAppLass';
@@ -271,16 +270,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
   // GPS-spår per lass). Per maskin och dag vinner den med mest volym, aldrig
   // summan — regeln bor i lib/faktura/lassAvstand, samma som helikoptern.
   const avstList = avstRes.data || [];
-  let skotKr = 0;
-  const optiLass: AvstandsLass[] = lass.map((l: any) => ({
-    datum: String(l.datum),
-    maskinId: l.maskin_id ?? null,
-    // Noll körsträcka är ingen mätning: null, så lasset väger när källorna
-    // jämförs men bidrar med 0 kr — precis som förut.
-    avstandM: (Number(l.korstracka_m) || 0) > 0 ? skotningsavstandM(l.korstracka_m) : null,
-    volym: Number(l.volym_m3sub) || 0,
-    kalla: 'opti' as const,
-  }));
+  const optiLass = optiTillAvstandsLass(lass);
   // Appens cykler → lass med avståndet som enkel väg. Lass utan cykel följer
   // med med `avstandM: null`: de kördes, så de väger när källorna jämförs,
   // men bär 0 kr.
@@ -298,15 +288,21 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
         + 'ensamma, och det kan då bli för högt.',
     });
   }
-  const valdaLass = valjLassKalla([...optiLass, ...appLass]);
+  // EN räkning för fakturan och Ekonomi › Ackord (lib/faktura/lassAvstand).
+  const tillagg = avstandsTillagg({
+    opti: optiLass, app: appLass,
+    manuellM: huvud.skotavstand_manuell != null ? Number(huvud.skotavstand_manuell) : null,
+    skordadVolym: volym, uppslag, avstList: avstList as any,
+  });
+  const skotKr = tillagg.kr;
+  const valdaLass = tillagg.valda;
   // Lassens TÄCKNING, inte bara om lass finns: ett lass utan mätt sträcka ger
   // noll steg och bidrar därför inte till tillägget, hur mycket volym det än
   // bär. Se lib/faktura/fattas.
-  const barande = barandeLass(valdaLass);
+  const barande = tillagg.barande;
   const lassVolymMedStracka = barande.reduce((s, l) => s + l.volym, 0);
   // Lassen var för sig, för granskningen. Längst först — det är det avståndet
-  // som förklarar tillägget. Byggs här, inte i loopen nedan: den körs inte när
-  // den manuella siffran är satt, och då ska lassen ändå gå att se.
+  // som förklarar tillägget.
   const lassRader = barande
     .map(l => ({
       avstandM: l.avstandM!,
@@ -317,13 +313,9 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
     .sort((a, b) => b.avstandM - a.avstandM);
   const avstConf = giltiga(avstRes.data)[0] as any ?? null;
   const kallor = kallorIOrd(valdaLass);
-  if (huvud.skotavstand_manuell != null) {
-    skotKr = skotAvstandKr(uppslag, Number(huvud.skotavstand_manuell), volym, avstList as any);
+  if (tillagg.grund === 'manuell') {
     noter.push({ niva: 'info', text: `Avståndet kommer från skotavstand_manuell (${huvud.skotavstand_manuell} m), inte ur lassen.` });
-  } else if (valdaLass.length) {
-    for (const l of barande) {
-      skotKr += skotAvstandKr(l.datum, l.avstandM!, l.volym, avstList as any);
-    }
+  } else if (tillagg.grund === 'lass') {
     if (kallor.includes('app')) {
       noter.push({
         niva: 'info',

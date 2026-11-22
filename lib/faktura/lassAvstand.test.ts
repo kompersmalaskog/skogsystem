@@ -10,7 +10,8 @@
 // Fakturan såg bara dem och landade på 1 680 kr — 0,97 kr/m³fub i stället för
 // 8,36. Det är den buggen den här filen vaktar.
 import { describe, it, expect } from 'vitest';
-import { valjLassKalla, lassMedStracka, kallorIOrd, type AvstandsLass } from './lassAvstand';
+import { valjLassKalla, lassMedStracka, kallorIOrd, avstandsTillagg, fordelaPaSkotare, optiTillAvstandsLass, type AvstandsLass } from './lassAvstand';
+import { readFileSync } from 'node:fs';
 import { skotAvstandKr } from '@/lib/ekonomi/acord';
 import { pathMeters } from '@/lib/geoMat';
 import { skotningsavstandM } from '@/lib/skotningsavstand';
@@ -182,5 +183,95 @@ describe('appens kod ger samma sträcka som en oberoende räkning', () => {
     const f = (await import('./__fixtures__/skotarlass_spar_prod_2026-11-16.json')).default as any;
     // 40 m ligger under grundavståndet, så lasset bär inget tillägg.
     expect(skotAvstandKr('2026-11-02', banaEnkelVag(f.punkter), 20, PRIS)).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// EN räkning för fakturan och Ekonomi › Ackord (2026-11-22). Förut räknade
+// Ackord bara Optis lass: Arvidstorp (0 Opti-lass, 19 app-lass med mätt
+// cykel) stod på 0 kr i Ackord men fick tillägg på fakturan.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('avstandsTillagg — samma tal som fakturan', () => {
+  const PRISLISTA = [{ grundavstand_m: 300, kr_per_100m: 4, giltig_fran: '2026-01-01', giltig_till: null }];
+  const app = (datum: string, m: number | null, volym: number, maskinId = 'A130743'): AvstandsLass =>
+    ({ datum, maskinId, avstandM: m, volym, kalla: 'app' });
+
+  it('bara app-lass (Arvidstorp): tillägget räknas, inte 0 kr', () => {
+    const t = avstandsTillagg({
+      opti: [], app: [app('2026-11-10', 516, 20), app('2026-11-11', 516, 20)],
+      manuellM: null, skordadVolym: 627.7, uppslag: '2026-11-18', avstList: PRISLISTA,
+    });
+    // 516 m: 3 påbörjade 100 m över 300 m = 12 kr/m³ × 40 m³
+    expect(t.kr).toBe(12 * 40);
+    expect(t.grund).toBe('lass');
+    expect(t.perMaskin!.get('A130743')).toBe(480);
+    expect(t.lassSnittM).toBe(516);
+  });
+
+  it('handsatt avstånd går före lassen och räknas på skördad volym', () => {
+    const t = avstandsTillagg({
+      opti: [], app: [app('2026-11-10', 900, 20)],
+      manuellM: 450, skordadVolym: 1725, uppslag: '2026-11-13', avstList: PRISLISTA,
+    });
+    expect(t.kr).toBe(skotAvstandKr('2026-11-13', 450, 1725, PRISLISTA));
+    expect(t.grund).toBe('manuell');
+    expect(t.perMaskin).toBeNull();
+    // Lassens meter finns kvar att visa bredvid ("lassen säger …").
+    expect(t.lassSnittM).toBe(900);
+  });
+
+  it('samma dag i båda källorna: den med mest volym, aldrig summan', () => {
+    const opti = optiTillAvstandsLass([{ datum: '2026-10-20', maskin_id: 'A130743', korstracka_m: 2000, volym_m3sub: 40 }]);
+    const t = avstandsTillagg({
+      opti, app: [app('2026-10-20', 400, 200)],
+      manuellM: null, skordadVolym: 1000, uppslag: '2026-10-26', avstList: PRISLISTA,
+    });
+    expect(t.kr).toBe(4 * 200);
+  });
+
+  it('inga lass och inget handsatt: 0 kr och det sägs', () => {
+    const t = avstandsTillagg({ opti: [], app: [], manuellM: null, skordadVolym: 500, uppslag: '2026-11-01', avstList: PRISLISTA });
+    expect(t).toMatchObject({ kr: 0, grund: 'inga', lassSnittM: null });
+  });
+});
+
+describe('fordelaPaSkotare — totalen är alltid fakturans', () => {
+  it('kronorna hamnar på skotaren som körde lassen', () => {
+    const ut = fordelaPaSkotare({ kr: 900, perMaskin: new Map([['A', 600], ['B', 300]]) },
+      [{ maskinId: 'A', volym: 100 }, { maskinId: 'B', volym: 900 }]);
+    expect(ut.get('A')).toBe(600);
+    expect(ut.get('B')).toBe(300);
+  });
+
+  it('handsatt avstånd delas efter volym', () => {
+    const ut = fordelaPaSkotare({ kr: 1000, perMaskin: null },
+      [{ maskinId: 'A', volym: 300 }, { maskinId: 'B', volym: 700 }]);
+    expect(ut.get('A')).toBeCloseTo(300);
+    expect(ut.get('B')).toBeCloseTo(700);
+  });
+
+  it('kronor från en maskin utan skotarvolym här delas — de tappas inte', () => {
+    const ut = fordelaPaSkotare({ kr: 500, perMaskin: new Map([['A', 200], ['JD810E', 300]]) },
+      [{ maskinId: 'A', volym: 100 }]);
+    expect(ut.get('A')).toBe(500);
+  });
+
+  it('ingen skotare med volym: inget att lägga kronorna på', () => {
+    expect(fordelaPaSkotare({ kr: 500, perMaskin: null }, [{ maskinId: 'A', volym: 0 }]).size).toBe(0);
+  });
+});
+
+describe('vakt: Ackord och fakturan räknar avståndet på ETT ställe', () => {
+  const kod = (f: string) => readFileSync(f, 'utf8').replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  it('objektJamforelse använder fakturans funktion och räknar inget eget tillägg', () => {
+    const k = kod('lib/ekonomi/objektJamforelse.ts');
+    expect(k).toContain('avstandsTillagg(');
+    expect(k).toContain('lasLassCykel(');
+    expect(k).not.toMatch(/skotAvstandKr\(/);
+    expect(k).not.toMatch(/skotavstandVagtAuto\(/);
+  });
+  it('fakturan använder samma funktion', () => {
+    expect(kod('lib/faktura/hamtaUnderlag.ts')).toContain('avstandsTillagg(');
   });
 });
