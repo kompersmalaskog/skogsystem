@@ -147,9 +147,14 @@ describe('källvakter: hur det är kopplat', () => {
   });
 
   it('källorna vägs mot varandra — aldrig summerade', () => {
-    expect(HAMTA).toContain('valjLassKalla([...optiLass, ...appLass])');
+    // Räkningen bor i lib/faktura/lassAvstand.avstandsTillagg (delas med
+    // Ekonomi › Ackord). Underlaget skickar båda källorna dit.
+    expect(HAMTA).toMatch(/avstandsTillagg\(\{\s*opti: optiLass, app: appLass/);
+    const AVST = readFileSync('lib/faktura/lassAvstand.ts', 'utf8');
+    expect(AVST).toContain('valjLassKalla([...p.opti, ...p.app])');
     // Loopen som summerar kronor går över de VALDA lassen, inte över båda.
-    expect(HAMTA).toMatch(/for \(const l of barande\)/);
+    expect(AVST).toMatch(/for \(const l of barande\)/);
+    expect(AVST).not.toMatch(/for \(const l of \[\.\.\.p\.opti/);
     expect(HAMTA).not.toMatch(/for \(const l of \[\.\.\.optiLass/);
   });
 

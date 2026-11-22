@@ -22,13 +22,15 @@ import { hamtaExkluderadeObjektId } from '@/lib/objekt/exkludera';
 import { arSlutavraknad, avrakningsdatum } from '@/lib/objekt/avrakning';
 import {
   type MaskinTimpris, type AcordPris, type AvstandConfig, type TraktBracket, type SortConfig,
-  isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
+  isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg,
   timpengForTidRows, ANTAGEN_MEDELSTAM, tillampaTimpengUndantag,
   fordelaSkotadVolymFrånDB, type SkotareManuellRad, ovrigtKrPerM3, type OvrigtRad,
 } from '@/lib/ekonomi/acord';
 import { fetchAllRows } from '@/lib/ekonomi/period';
-import { medelstamAuto, sortimentgrupperAuto, skotavstandVagtAuto } from '@/lib/ekonomi/ackordgrund';
-import { skotningsavstandM } from '@/lib/skotningsavstand';
+import { medelstamAuto, sortimentgrupperAuto } from '@/lib/ekonomi/ackordgrund';
+import { avstandsTillagg, fordelaPaSkotare, optiTillAvstandsLass, type AvstandsLass } from '@/lib/faktura/lassAvstand';
+import { lasLassCykel } from '@/lib/faktura/lasAppLass';
+import { cykelTillAvstandsLass } from '@/lib/faktura/lassCykel';
 import { prisPerM3, type Tillaggspost } from '@/lib/ekonomi/prisPerM3';
 import { medForestlink, forestlinkKrPerTim } from '@/lib/ekonomi/forestlink';
 
@@ -171,7 +173,7 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   const ids = valda.map((o: any) => o.objekt_id);
 
   // HELA objektets data — inget datumfilter; objektet räknas helt, en gång
-  const [prodRows, lassRows, tidRows, sortRows, skotareManuellRes] = await Promise.all([
+  const [prodRows, lassRows, tidRows, sortRows, skotareManuellRes, appCykel] = await Promise.all([
     fetchAllRows((from, to) =>
       supabase.from('fakt_produktion')
         .select('datum, maskin_id, objekt_id, volym_m3sub, stammar')
@@ -195,7 +197,31 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     supabase.from('skotare_objekt_manuell')
       .select('objekt_id, maskin_id, volym_m3, g15_timmar')
       .in('objekt_id', ids),
+    // Appens lass — samma läsning som fakturan (lib/faktura/hamtaUnderlag):
+    // lassen bär VO-numret, så både maskinobjektets id och VO:t skickas.
+    lasLassCykel(supabase, [...ids, ...valda.map((o: any) => o.vo_nummer).filter(Boolean)]),
   ]);
+  // Ett riktigt läsfel kastar redan i lasLassCykel. Saknas funktionen helt
+  // räknas avståndet bara på Optis lass — och det kan bli fel åt båda håll,
+  // så vyn får inte visa det som om allt vore med.
+  if (!appCykel.tillganglig) {
+    throw new Error('Skotarlassens cykel kunde inte läsas (migrationen 20261118100350_skotar_lass_cykel), så skotningsavståndet kan inte räknas som på fakturan.');
+  }
+  // App-lassen till sin skog. Lasset bär VO-numret; en skog vars id ÄR
+  // VO-numret går före en annan rad med samma VO, så ett lass räknas en gång.
+  const skogForVo = new Map<string, string>();
+  for (const o of valda) {
+    if (o.vo_nummer && !skogForVo.has(o.vo_nummer)) skogForVo.set(o.vo_nummer, o.objekt_id);
+  }
+  for (const o of valda) skogForVo.set(o.objekt_id, o.objekt_id);
+  const appPerObjekt: Record<string, AvstandsLass[]> = {};
+  const appRaderPerObjekt: Record<string, typeof appCykel.rader> = {};
+  for (const r of appCykel.rader) {
+    const skog = r.voNummer ? skogForVo.get(r.voNummer) : undefined;
+    if (!skog) continue;
+    (appRaderPerObjekt[skog] ||= []).push(r);
+  }
+  for (const [skog, rader] of Object.entries(appRaderPerObjekt)) appPerObjekt[skog] = cykelTillAvstandsLass(rader);
   const manuellRaderPerObjekt = new Map<string, SkotareManuellRad[]>();
   const volymManuellPerObjekt = new Map<string, number>();
   const g15ManuellPerObjekt = new Map<string, number>();
@@ -284,13 +310,11 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
   }
   // Skotarvolym per (objekt, maskin) via motorn — manuell korrigering
   // (skotad_volym_manuell) när satt, annars lass. Skotavståndstillägget
-  // räknas alltid enbart ur faktiska lass.
+  // räknas längre ner, med fakturans funktion.
   const fwdAgg: Record<string, { vol: number; skotKr: number }> = {};
   for (const r of lassRows) {
     if (!r.objekt_id) continue;
-    const key = `${r.objekt_id}|${r.maskin_id}`;
-    (fwdAgg[key] ||= { vol: 0, skotKr: 0 });
-    fwdAgg[key].skotKr += skotAvstandKr(r.datum, skotningsavstandM(r.korstracka_m), Number(r.volym_m3sub) || 0, avstandList);
+    (fwdAgg[`${r.objekt_id}|${r.maskin_id}`] ||= { vol: 0, skotKr: 0 });
   }
   const lassPerObjekt: Record<string, any[]> = {};
   for (const r of lassRows) { if (r.objekt_id) (lassPerObjekt[r.objekt_id] ||= []).push(r); }
@@ -316,16 +340,31 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     objSkotadVol[oid] = (objSkotadVol[oid] || 0) + f.vol;
   }
 
-  // Manuellt skotavstånd: tillägget räknas om på HELA maskinens skotarvolym
-  // med det angivna avståndet — ersätter per-lass-summan för objektet.
+  // ── Skotningsavståndet: SAMMA räkning som fakturan ───────────────────
+  // lib/faktura/lassAvstand.avstandsTillagg — Opti och appens lass, per
+  // maskin och dag den källa som har mest volym; handsatt avstånd på den
+  // skördade volymen. Förut räknade vyn bara Optis lass och sa 0 kr på
+  // trakter som Elefanten rapporterat i appen (Arvidstorp, 516 m kört).
+  //
+  // Kronorna läggs på skotaren som körde lassen. Det handsatta avståndet,
+  // och kronor från en maskin som inte har någon skotarvolym här, delas på
+  // skotarna efter deras volym — totalen är alltid fakturans.
+  const lassAvstPerObjekt: Record<string, number | null> = {};
   for (const o of valda) {
-    const avst = Number(o.skotavstand_manuell);
-    if (!(avst > 0)) continue;
-    const dag = avrakningsdatum(o) || '';
-    for (const [key, f] of Object.entries(fwdAgg)) {
-      if (key.split('|')[0] !== o.objekt_id) continue;
-      f.skotKr = skotAvstandKr(dag, avst, f.vol, avstandList);
-    }
+    const oid = o.objekt_id;
+    const t = avstandsTillagg({
+      opti: optiTillAvstandsLass(lassPerObjekt[oid] || []),
+      app: appPerObjekt[oid] || [],
+      manuellM: o.skotavstand_manuell != null ? Number(o.skotavstand_manuell) : null,
+      skordadVolym: objVol[oid]?.vol || 0,
+      uppslag: avrakningsdatum(o) || '',
+      avstList: avstandList,
+    });
+    lassAvstPerObjekt[oid] = t.lassSnittM;
+    const skotare = Object.entries(fwdAgg)
+      .filter(([key]) => key.split('|')[0] === oid)
+      .map(([key, f]) => ({ maskinId: key.split('|')[1], volym: f.vol }));
+    for (const [mid, kr] of fordelaPaSkotare(t, skotare)) fwdAgg[`${oid}|${mid}`].skotKr += kr;
   }
 
   // ── Maskindelar per objekt: ackord (motorn) + timpeng (G15 × timpris) ──
@@ -435,11 +474,13 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
     // Ackordgrunden — färgregeln: mätt värde = benvitt, manuellt/uppskattat = bärnsten
     const egen = o.egen_skotning === true;
     const skotadManuell = (volymManuellPerObjekt.get(o.objekt_id) ?? 0) > 0;
-    const avstManuell = Number(o.skotavstand_manuell) > 0;
+    // Samma villkor som räkningen (och fakturan): satt = satt, också 0 m.
+    const avstManuell = o.skotavstand_manuell != null;
     const msMan = medelstamOverride(o.objekt_id);
     const msAuto = objMedelstam[o.objekt_id];
-    // Viktat snittavstånd ur faktiska lass — delad helper (ackordgrund)
-    const lassAvst = skotavstandVagtAuto(lassPerObjekt[o.objekt_id] || []);
+    // Volymviktat avstånd över lassen som bär tillägget — samma lass som
+    // fakturan räknar (Opti och appen, lib/faktura/lassAvstand).
+    const lassAvst = lassAvstPerObjekt[o.objekt_id] ?? null;
     const g15Sk = m.filter(d => d.roll === 'skördare');
     const g15St = m.filter(d => d.roll === 'skotare');
     const fmtM3 = (n: number) => Math.round(n).toLocaleString('sv-SE');
@@ -467,9 +508,8 @@ export async function hamtaObjektJamforelse(start: string, end: string): Promise
         text: avstManuell ? `${Math.round(Number(o.skotavstand_manuell))} m · manuell`
           : egen ? '— egen skotning'
           : lassAvst == null ? '— saknas i lassen'
-          : skotadManuell ? `≈${Math.round(lassAvst)} m · uppskattat ur ofullständiga lass`
           : `${Math.round(lassAvst)} m`,
-        manuell: avstManuell || (!egen && (lassAvst == null || skotadManuell)),
+        manuell: avstManuell || (!egen && lassAvst == null),
       },
       {
         label: 'G15 skördare',

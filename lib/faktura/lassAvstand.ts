@@ -43,6 +43,9 @@
 // i "Vad behöver du kolla?" (lib/faktura/fattas).
 // ─────────────────────────────────────────────────────────────────────────
 
+import { skotAvstandKr, type AvstandConfig } from '@/lib/ekonomi/acord';
+import { skotningsavstandM } from '@/lib/skotningsavstand';
+
 export type Lasskalla = 'opti' | 'app';
 
 /** Ett lass som kan bära avståndstillägg. `avstandM` är ENKEL VÄG. */
@@ -118,4 +121,112 @@ export function lassMedStracka(valda: AvstandsLass[]): AvstandsLass[] {
 export function kallorIOrd(valda: AvstandsLass[]): Lasskalla[] {
   const k = new Set(lassMedStracka(valda).map(l => l.kalla));
   return (['app', 'opti'] as Lasskalla[]).filter(x => k.has(x));
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// TILLÄGGET I KRONOR — EN funktion för fakturan och Ekonomi › Ackord.
+//
+// Fram till 2026-11-22 räknade Ackord-vyn (lib/ekonomi/objektJamforelse)
+// avståndet själv, ur BARA Optis lass. Fakturan läste Opti och appen. På de
+// trakter där Elefanten rapporterat i appen sa vyn därför 0 kr när fakturan
+// sa 9 000: Arvidstorp 516 m kört, 0 kr i Ackord. Nu räknar båda här, så de
+// kan inte glida isär igen (vakt: lassAvstand.test.ts "samma tal som fakturan").
+//
+// Reglerna är fakturans, oförändrade:
+//   - handsatt avstånd (`manuellM` ej null) går före lassen och räknas på
+//     traktens SKÖRDADE volym, på avräkningsdagen
+//   - annars per lass, på lassets egen volym och dag, ur den källa som
+//     vinner per maskin och dag (`valjLassKalla`)
+// ─────────────────────────────────────────────────────────────────────────
+
+
+/** Optis lass → lass som kan bära tillägg. Noll körsträcka är ingen mätning. */
+export function optiTillAvstandsLass(
+  rader: { datum: unknown; maskin_id?: string | null; korstracka_m: unknown; volym_m3sub: unknown }[],
+): AvstandsLass[] {
+  return rader.map(l => ({
+    datum: String(l.datum),
+    maskinId: l.maskin_id ?? null,
+    avstandM: (Number(l.korstracka_m) || 0) > 0 ? skotningsavstandM(Number(l.korstracka_m)) : null,
+    volym: Number(l.volym_m3sub) || 0,
+    kalla: 'opti' as const,
+  }));
+}
+
+export type AvstandsTillagg = {
+  /** Tillägget i kronor — det som står på fakturan. */
+  kr: number;
+  /** 'manuell' = handsatt avstånd, 'lass' = ur lassen, 'inga' = inget att räkna på. */
+  grund: 'manuell' | 'lass' | 'inga';
+  /** Lassen ur den vinnande källan (också de utan sträcka). */
+  valda: AvstandsLass[];
+  /** De lass som bär tillägget (har sträcka). */
+  barande: AvstandsLass[];
+  /**
+   * Kronor per maskin när tillägget kommer ur lassen. null när det är
+   * handsatt — då hör det till trakten, inte till ett lass, och den som
+   * delar upp det per maskin får göra det på volym.
+   */
+  perMaskin: Map<string | null, number> | null;
+  /** Volymviktat avstånd (enkel väg) över lassen som bär tillägget. */
+  lassSnittM: number | null;
+};
+
+export function avstandsTillagg(p: {
+  opti: AvstandsLass[];
+  app: AvstandsLass[];
+  /** dim_objekt.skotavstand_manuell (enkel väg). null = inte satt. */
+  manuellM: number | null;
+  /** Traktens skördade volym — det handsatta avståndet räknas på den. */
+  skordadVolym: number;
+  /** Avräkningsdagen, prisuppslaget för det handsatta avståndet. */
+  uppslag: string;
+  avstList: AvstandConfig[];
+}): AvstandsTillagg {
+  const valda = valjLassKalla([...p.opti, ...p.app]);
+  const barande = lassMedStracka(valda);
+  const vol = barande.reduce((s, l) => s + l.volym, 0);
+  const lassSnittM = vol > 0 ? barande.reduce((s, l) => s + l.avstandM! * l.volym, 0) / vol : null;
+
+  if (p.manuellM != null) {
+    return {
+      kr: skotAvstandKr(p.uppslag, p.manuellM, p.skordadVolym, p.avstList),
+      grund: 'manuell', valda, barande, perMaskin: null, lassSnittM,
+    };
+  }
+  const perMaskin = new Map<string | null, number>();
+  let kr = 0;
+  for (const l of barande) {
+    const k = skotAvstandKr(l.datum, l.avstandM!, l.volym, p.avstList);
+    kr += k;
+    perMaskin.set(l.maskinId, (perMaskin.get(l.maskinId) || 0) + k);
+  }
+  return { kr, grund: valda.length ? 'lass' : 'inga', valda, barande, perMaskin, lassSnittM };
+}
+
+/**
+ * Tillägget per skotare, för Ekonomi › Ackord. Kronorna läggs på maskinen
+ * som körde lassen. Det handsatta avståndet — och kronor från en maskin som
+ * inte finns bland `skotare` — delas efter volym. Summan är alltid
+ * `t.kr` när det finns minst en skotare med volym; finns ingen, tom karta.
+ */
+export function fordelaPaSkotare(
+  t: Pick<AvstandsTillagg, 'kr' | 'perMaskin'>,
+  skotare: { maskinId: string; volym: number }[],
+): Map<string, number> {
+  const ut = new Map<string, number>();
+  const medVolym = skotare.filter(s => s.volym > 0);
+  if (!medVolym.length) return ut;
+  for (const s of medVolym) ut.set(s.maskinId, 0);
+  let attDela = t.perMaskin == null ? t.kr : 0;
+  if (t.perMaskin) {
+    for (const [mid, kr] of Array.from(t.perMaskin.entries())) {
+      if (mid != null && ut.has(mid)) ut.set(mid, ut.get(mid)! + kr); else attDela += kr;
+    }
+  }
+  if (attDela !== 0) {
+    const tot = medVolym.reduce((s, x) => s + x.volym, 0);
+    for (const s of medVolym) ut.set(s.maskinId, ut.get(s.maskinId)! + attDela * s.volym / tot);
+  }
+  return ut;
 }
