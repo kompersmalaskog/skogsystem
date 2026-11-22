@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { FLYGFOTO_MALL, FLYGFOTO_MALL_RETINA, RETINA_FRAN_DPR, arRetina, flygfotoMall, skarmDpr } from './flygfotoRuta';
+import { FLYGFOTO_MALL, FLYGFOTO_MALL_RETINA, RETINA_FRAN_DPR, arRetina, flygfotoMall, rutVarianter, skarmDpr, utanRutstorlek } from './flygfotoRuta';
 
 const las = (f: string) => fs.readFileSync(path.resolve(__dirname, '..', f), 'utf8');
 
@@ -31,5 +31,15 @@ describe('vakter: kartans källa är fortfarande 256 med maxzoom 18, och alla st
   });
   it('ingen annan fil än mallen skriver flygfotots adress för hand (nedladdningen och kartan måste hålla ihop)', () => {
     for (const f of ['app/planering/page.tsx', 'lib/objektKarta.ts']) expect(las(f), f).not.toContain("layer=ortofoto&z={z}");
+  });
+});
+
+describe('256-varianten av en 512-adress (offlinekartor sparade före uppdateringen)', () => {
+  const r512 = '/api/forarkarta?layer=ortofoto&z=17&x=1&y=2&s=512', r256 = '/api/forarkarta?layer=ortofoto&z=17&x=1&y=2';
+  it('512 → 256 är exakt adressen en gammal nedladdning sparade; allt annat är oförändrat', () => {
+    expect(utanRutstorlek(r512)).toBe(r256);
+    expect(utanRutstorlek(FLYGFOTO_MALL_RETINA)).toBe(FLYGFOTO_MALL);
+    for (const u of [r256, '/api/forarkarta?z=17&x=1&y=2', '/api/forarkarta?layer=ortofoto&z=17&x=1&y=2&s=5123', 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/15/1/2.png']) expect(utanRutstorlek(u), u).toBe(u);
+    expect(rutVarianter(r512)).toEqual([r512, r256]); expect(rutVarianter(r256)).toEqual([r256]);
   });
 });

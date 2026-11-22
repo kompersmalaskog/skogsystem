@@ -49,6 +49,46 @@ describe('service workern: kartrutor', () => {
     expect((await hamta(w, R512)).namn).toBe('flyg512');
     await expect(hamta(w, RUTA)).rejects.toThrow();   // 256-rutan är en annan adress: den finns inte sparad
   });
+  // OFFLINEKARTOR EFTER UPPDATERINGEN (flygfoto på hög upplösning, 512-rutor): telefonen laddade ner området som 256 före uppdateringen,
+  // kartan begär nu 512 — adressen finns inte i cachen. Utan nät ska den gamla 256-rutan visas, inte en tom karta.
+  describe('512 begärd utan nät, bara 256 sparad (nedladdning före uppdateringen)', () => {
+    const R256 = RUTA, R512 = `${RUTA}&s=512`;
+    it('nedladdningen (kartrutor-v1): 256-rutan visas', async () => {
+      const w = ladda(async () => { throw new Error('offline'); });
+      w.lager.set('kartrutor-v1', new Map([[R256, bild('gammal256')]]));
+      expect((await hamta(w, R512)).namn).toBe('gammal256');
+    });
+    it('rutor som sparats under körning (kartrutor-lopande-v1): 256-rutan visas', async () => {
+      const w = ladda(async () => { throw new Error('offline'); });
+      w.lager.set('kartrutor-lopande-v1', new Map([[R256, bild('lopande256')]]));
+      expect((await hamta(w, R512)).namn).toBe('lopande256');
+    });
+    it('finns båda sparade vinner 512; finns ingen alls är det ett fel som förut (ingen gissad ruta)', async () => {
+      const w = ladda(async () => { throw new Error('offline'); });
+      w.lager.set('kartrutor-v1', new Map([[R256, bild('256')], [R512, bild('512')]]));
+      expect((await hamta(w, R512)).namn).toBe('512');
+      const tom = ladda(async () => { throw new Error('offline'); });
+      await expect(hamta(tom, R512)).rejects.toThrow('offline');
+    });
+    it('MED nät hämtas alltid den skarpa 512-rutan (fallbacken används bara när nätet felar), och 256-rutan sparas aldrig under 512-adressen', async () => {
+      let nat = false;
+      const w = ladda(async () => { if (!nat) throw new Error('offline'); return bild('ny512'); });
+      w.lager.set('kartrutor-v1', new Map([[R256, bild('gammal256')]]));
+      expect((await hamta(w, R512)).namn).toBe('gammal256');          // utan nät: gammal
+      expect(w.lager.get('kartrutor-lopande-v1')?.has(R512) ?? false).toBe(false);
+      nat = true;
+      expect((await hamta(w, R512)).namn).toBe('ny512');              // med nät: den skarpa — inte den gamla
+      expect(w.fetch).toHaveBeenCalledTimes(2);
+      nat = false;
+      expect((await hamta(w, R512)).namn).toBe('ny512');              // och nu ur det sparade
+    });
+    it('gäller bara flygfotots 512-adress: en 256-ruta, kartan och höjddatan faller aldrig tillbaka på något annat', async () => {
+      const w = ladda(async () => { throw new Error('offline'); });
+      w.lager.set('kartrutor-v1', new Map([[R256, bild('x')]]));
+      await expect(hamta(w, `${ORIGIN}/api/forarkarta?layer=ortofoto&z=17&x=1&y=3&s=512`)).rejects.toThrow();   // annan ruta
+      await expect(hamta(w, `${ORIGIN}/api/forarkarta?layer=farg&z=17&x=1&y=2`)).rejects.toThrow();
+    });
+  });
   it('det nedladdade (kartrutor-v1) tas FÖRST, utan att nätet frågas', async () => {
     const w = ladda(async () => bild('nat'));
     w.lager.set('kartrutor-v1', new Map([[TERRANG, bild('sparad')]]));
@@ -76,5 +116,12 @@ describe('service workern: kartrutor', () => {
     nat = false;
     expect((await hamta(w, 'https://tiles.openfreemap.org/planet')).namn).toBe('kalla');
     expect((await hamta(w, RUTA_OFM)).namn).toBe('ruta');
+  });
+});
+
+describe('vakt: service workern och sidan känner igen 512-adressen på samma sätt', () => {
+  it('FLYGFOTO_512 i public/sw.js är ordagrant lib/flygfotoRuta RUTA_512_SUFFIX', async () => {
+    const { RUTA_512_SUFFIX } = await import('./flygfotoRuta');
+    expect(SW).toContain(`const FLYGFOTO_512 = ${RUTA_512_SUFFIX.toString()};`);
   });
 });

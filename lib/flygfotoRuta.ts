@@ -38,3 +38,12 @@ export const arRetina = (dpr: number = skarmDpr()): boolean => Number.isFinite(d
 
 /** Flygfotots rutadress för skärmens täthet. */
 export const flygfotoMall = (dpr: number = skarmDpr()): string => (arRetina(dpr) ? FLYGFOTO_MALL_RETINA : FLYGFOTO_MALL);
+
+/** Suffixet som gör flygfotots adress till en 512-ruta. public/sw.js har samma uttryck (`FLYGFOTO_512`) — vaktas av ett test. */
+export const RUTA_512_SUFFIX = /&s=512(?=&|$)/;
+
+/** Samma ruta i 256 (adressen en nedladdning före 512-rutorna sparade den under). Ingen 512-adress: oförändrad. */
+export const utanRutstorlek = (url: string): string => url.replace(RUTA_512_SUFFIX, '');
+
+/** Adresserna en ruta kan ligga sparad under på en enhet: dagens (256 eller 512) och 256-varianten av en 512-adress. */
+export const rutVarianter = (url: string): string[] => { const g = utanRutstorlek(url); return g === url ? [url] : [url, g]; };

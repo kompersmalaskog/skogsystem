@@ -1,5 +1,6 @@
 // Själva nedladdningen av en traktkarta (lib/kartNedladdning): EN väg för trakten som är öppen (useLaddaNerTrakt) och för trakterna
 // som hämtas i bakgrunden (useBakgrundsNedladdning). Bara i webbläsaren (Cache Storage + fetch).
+import { rutVarianter } from '@/lib/flygfotoRuta';
 import { KART_CACHE, lasMeta, medMarginal, medTrakt, planeraRutor, rutorFor, sparaMeta, type Bbox } from '@/lib/kartNedladdning';
 
 export const GILTIG_DAGAR = 60;       // äldre än så laddas trakten ner igen (ett flygfoto byts vartannat år)
@@ -15,7 +16,12 @@ export async function arSparad(id: string, bbox: Bbox): Promise<boolean> {
   const rutor = planeraRutor(bbox);
   const cache = await caches.open(KART_CACHE);
   const prov = [rutor[0], rutor[Math.floor(rutor.length / 2)], rutor[rutor.length - 1]];
-  const finns = await Promise.all(prov.map((u) => cache.match(abs(u)).then(Boolean).catch(() => false)));
+  // Flygfotot på en skärm med hög upplösning: en trakt som sparades före 512-rutorna ligger i 256 och räknas som sparad — appen startar ALDRIG en ny
+  // nedladdning av sig själv bara för att rutstorleken ändrats (kartan hämtar den skarpa rutan med nät, och tar den gamla utan; public/sw.js).
+  const finns = await Promise.all(prov.map(async (u) => {
+    for (const v of rutVarianter(u)) { if (await cache.match(abs(v)).then(Boolean).catch(() => false)) return true; }
+    return false;
+  }));
   return finns.every(Boolean);
 }
 
@@ -69,9 +75,10 @@ export async function taBortTrakter(ids: string[]): Promise<void> {
   const bort = alla.filter((m) => ids.includes(m.id));
   const kvar = alla.filter((m) => !ids.includes(m.id));
   sparaMeta(lagring(), kvar);
-  const behall = new Set(kvar.flatMap((m) => planeraRutor(m.bbox)));
+  const behall = new Set(kvar.flatMap((m) => planeraRutor(m.bbox).flatMap(rutVarianter)));
   const cache = await caches.open(KART_CACHE);
-  for (const m of bort) for (const u of planeraRutor(m.bbox)) if (!behall.has(u)) { try { await cache.delete(abs(u)); } catch { /* */ } }
+  // Båda storlekarna: en trakt sparad som 256 före uppdateringen ska inte lämna kvar sina rutor.
+  for (const m of bort) for (const u of planeraRutor(m.bbox).flatMap(rutVarianter)) if (!behall.has(u)) { try { await cache.delete(abs(u)); } catch { /* */ } }
 }
 
 // ── Ritad: vägar och vatten (OpenFreeMap, vektorrutor) ──────────────────────────────────────────────────────────────
