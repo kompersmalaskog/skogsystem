@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-// "Från stubbe till avlägg" i trakten: tre steg och vädret. Vädret hämtas från
-// /api/uppfoljning/vader (mockat här) — ett fel är ett fel med Försök igen, aldrig 0 mm.
+// "Från stubbe till avlägg" finns INTE i traktens uppföljning (Martin 2026-11-22):
+// tid och väder per trakt bor bara på sidan Ligger i skogen (/uppfoljning/i-skogen).
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
@@ -45,33 +45,14 @@ async function rendera(data: UppfoljningData) {
   rot = createRoot(be);
   await act(async () => { rot!.render(<UppfoljningVy data={data} />); });
 }
-async function oppna(titel: string) {
-  const knapp = Array.from(be!.querySelectorAll('button')).find(b => (b.textContent || '').includes(titel))!;
-  await act(async () => { knapp.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-  await act(async () => { await new Promise(r => setTimeout(r, 0)); });
-}
-
 describe('Från stubbe till avlägg', () => {
-  it('visar stegen och vädret för traktens VO och period', async () => {
-    const fetchMock = vi.fn(async (_url: string) => ({ json: async () => ({ ok: true, summa: { fran: '2026-10-27', till: idag, dagar: 20, saknas: 0, regnMm: 61, regnDagar: 11, tMin: -2, tMax: 11 } }) }));
+  it('står inte i traktens Hur gick det? och vädret hämtas inte', async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     await rendera(skalviken({ voNummer: '11271860', sistaAvverkning: '2026-10-28' }));
-    await oppna('Från stubbe till avlägg');
     const t = be!.textContent || '';
-    expect(t).toContain('Skördaren fällde');
-    expect(t).toContain('27–28 okt · 2 dagar');
-    expect(t).toContain('Skotaren kör');
-    expect(t).toContain('61 mm · 11 dagar med regn');
-    expect(t).toContain('−2 till 11 °C');
-    expect(String(fetchMock.mock.calls[0][0])).toContain('vo=11271860&fran=2026-10-27&till=' + idag);
-  });
-
-  it('ett läsfel är ett fel med Försök igen, aldrig 0 mm', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ json: async () => ({ ok: false, orsak: 'las' }) })));
-    await rendera(skalviken({ voNummer: '11271860', sistaAvverkning: '2026-10-28' }));
-    await oppna('Från stubbe till avlägg');
-    const t = be!.textContent || '';
-    expect(t).toContain('Kunde inte hämta vädret');
-    expect(t).not.toContain('0 mm');
+    expect(t).toContain('Produktivitet');
+    expect(t).not.toContain('Från stubbe');
+    expect(fetchMock.mock.calls.some(c => String(c[0]).includes('/api/uppfoljning/vader'))).toBe(false);
   });
 });

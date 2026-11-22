@@ -12,8 +12,6 @@ import { type AvvikelseRad } from './lib/avvikelser';
 import type { SkotareMaskinStat } from './lib/transform';
 import { FARG, TYP, AVSTAND, RADIE, TNUM, VIKT, KOLUMN, FONT, overgang } from '@/lib/design/tokens';
 import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
-import { LiggetidVader } from './LiggetidVader';
-import type { StegIndata } from './lib/iSkogen';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -1415,21 +1413,6 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   if (hasTidDiesel) hurDelar.push('tid & diesel');
   if (hasAvbrott) hurDelar.push('avbrott');
   if (data.externSkotning) hurDelar.push('extern skotning');
-  // Från stubbe till avlägg: de tre stegen och vädret (lib/iSkogen + /api/uppfoljning/vader).
-  const statusNu = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
-  const visaLiggetid = !risjobb && data.skordat > 0;
-  const stegIndata: StegIndata = {
-    skordarDagar: (data.prodSkordarePerDag || []).filter(d => (d.m3 || 0) > 0).map(d => d.datum.slice(0, 10)),
-    skordareStart: data.skordareStart ?? null,
-    sistaAvverkning: data.sistaAvverkning ?? null,
-    skordareKlar: statusNu.skKlar,
-    lassDagar: (data.lassPerDag || []).filter(d => (d.lass || 0) > 0 || (d.m3 || 0) > 0).map(d => d.datum.slice(0, 10)),
-    skotareStart: data.skotareStart ?? null,
-    skotareLastDate: data.skotareLastDate ?? null,
-    skotningKlar: statusNu.k === 'done',
-    egenSkotning: !!data.egenSkotning,
-  };
-  if (visaLiggetid) hurDelar.unshift('väder');
   const harDjup = hurDelar.length > 0;
   const hurUndertext = hurDelar.slice(0, 3).join(' · ');
 
@@ -1463,11 +1446,6 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
 
       {harDjup && (
         <HurGickDet undertext={hurUndertext}>
-          {visaLiggetid && (
-            <Collapse title="Från stubbe till avlägg" varde="tid och väder">
-              <LiggetidVader indata={stegIndata} vo={data.voNummer} />
-            </Collapse>
-          )}
           {!risjobb && visaSkotare && (
             <Collapse title="Skotare på objektet" varde={skotareVarde} defaultOpen>
               <SkotarePaObjektet data={data} />
