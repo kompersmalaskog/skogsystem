@@ -97,13 +97,19 @@ export function tidPerLass(lass: TidLass[], punkter: TidPunkt[]): LassTid[] {
   return ut;
 }
 
-export type TidSnitt = { lass: number; lastaMin: number; koraMin: number; avlaggMin: number };
+/** Snitt per lass. totalMin = lasta + köra + avlägg + paus (raster, stopp över 6 min). */
+export type TidSnitt = { lass: number; lastaMin: number; koraMin: number; avlaggMin: number; pausMin: number; totalMin: number };
 
 /** Minuter per lass i snitt. null under MIN_LASS — ett par lass är inget snitt. */
 export function tidSnitt(tider: LassTid[]): TidSnitt | null {
   if (tider.length < TIDER.MIN_LASS) return null;
   const snitt = (f: (t: LassTid) => number) => tider.reduce((s, t) => s + f(t), 0) / tider.length;
-  return { lass: tider.length, lastaMin: snitt(t => t.lastaMin), koraMin: snitt(t => t.koraMin), avlaggMin: snitt(t => t.avlaggMin) };
+  return {
+    lass: tider.length,
+    lastaMin: snitt(t => t.lastaMin), koraMin: snitt(t => t.koraMin), avlaggMin: snitt(t => t.avlaggMin),
+    pausMin: snitt(t => t.pausMin),
+    totalMin: snitt(t => t.lastaMin + t.koraMin + t.avlaggMin + t.pausMin),
+  };
 }
 
 export type LassSnitt = { lass: number; snittM3: number; breddade: number };

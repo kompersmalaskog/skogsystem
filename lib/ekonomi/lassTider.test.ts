@@ -50,7 +50,9 @@ describe('tid per lass ur körspåret', () => {
   it('snitt kräver minst tre lass', () => {
     const t = { id: 'x', lastaMin: 20, koraMin: 10, avlaggMin: 5, pausMin: 0 };
     expect(tidSnitt([t, t])).toBeNull();
-    expect(tidSnitt([t, t, { ...t, lastaMin: 26 }])).toEqual({ lass: 3, lastaMin: 22, koraMin: 10, avlaggMin: 5 });
+    // Totalen tar med stoppen över 6 min, så delarna + övrigt går att räkna ihop.
+    expect(tidSnitt([t, t, { ...t, lastaMin: 26, pausMin: 9 }]))
+      .toEqual({ lass: 3, lastaMin: 22, koraMin: 10, avlaggMin: 5, pausMin: 3, totalMin: 40 });
   });
 
   it('snittlass och breddat', () => {

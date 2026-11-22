@@ -212,19 +212,23 @@ describe('Ackord — varför', () => {
     expect(t).toContain('Gemensamt');
   });
 
-  it('med körspår: avståndet blir den orange raden när det förklarar mest', async () => {
-    // 700 m = 5 steg × 4 kr = 20 kr/m³ × 500 = 10 000 mot räknade 2 000: 8 000 av skotarens 16 000 … och resten 8 000.
-    // 900 m = 7 steg = 14 000: 12 000 av minuset — mer än skotarens egna 4 000.
+  it('med körspår: avståndet visas som mått, aldrig som orsak — skotaren är den orange raden', async () => {
+    // Datan byggs fortfarande upp: körspårets mått står bredvid det räknade, men
+    // inga kronor räknas in i varför och inget "borde fått" sägs.
     cyklerSvar = new Map([['b', { lass: 30, medCykel: 30, volym: 500, volymMedCykel: 500, cykelM: 1800, enkelVagM: 900, hemMedLassM: null, vidAvlaggetM: null, ytterstM: null, utan: {} }]]);
-    mattSvar = { tider: { lass: 30, lastaMin: 25, koraMin: 20, avlaggMin: 10 }, lass: { lass: 30, snittM3: 16.7, breddade: 0 }, flyttar: 1 };
+    mattSvar = { tider: { lass: 30, lastaMin: 25, koraMin: 20, avlaggMin: 10, pausMin: 4, totalMin: 59 }, lass: { lass: 30, snittM3: 16.7, breddade: 0 }, flyttar: 1 };
     await montera();
-    expect(document.querySelectorAll('[data-rad="skog"]')[1].textContent!.replace(/\s/g, ' ')).toContain('Skotningsavståndet – kört 900 m, räknat 300 m');
+    expect(document.querySelectorAll('[data-rad="skog"]')[1].textContent!.replace(/\s/g, ' ')).toContain('Skotaren under – 13 m³/h');
     await tryck(document.querySelectorAll('[data-rad="skog"]')[1]);
     await flush();
     const ark = document.querySelector('[role="dialog"]')!;
-    expect(ark.querySelector('[data-orange]')!.getAttribute('data-varfor')).toBe('avstand');
+    expect(ark.querySelector('[data-orange]')!.getAttribute('data-varfor')).toMatch(/^takt:/);
     const t = ark.textContent!.replace(/\s/g, ' ');
-    expect(t).toContain('Per lass: lastar ca 25 min · kör ca 20 min · avlägg ca 10 min');
+    expect(t).toContain('halva körningen ca 900 m');
+    expect(t).toContain('Vilket mått som gäller är inte avgjort.');
+    expect(t).not.toContain('borde');
+    expect(t).toContain('Ett lass tar ca 59 min');
+    expect(t).toContain('lastar 25 · kör 20 · avlägg 10 · övrigt 4');
     expect(t).toContain('Snittlass 16,7 m³ · kördes smal');
     expect(t).not.toContain('Ingen flytt är registrerad hit');
   });

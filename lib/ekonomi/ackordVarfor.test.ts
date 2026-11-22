@@ -54,14 +54,16 @@ const arvidstorp = skog('11277905', 'Arvidstorp RP J-Hus -25', 0.775, [
   del('skotare', 628, 44, 1, 0, 88977),
 ], [KRONT, storlek(2)], null);
 
-const cykel = (enkelVagM: number, lass: number, medCykel: number): CykelSammanstallning => ({
+const cykel = (enkelVagM: number, lass: number, medCykel: number, ytterstM: number | null = null, hemMedLassM: number | null = null): CykelSammanstallning => ({
   lass, medCykel, volym: 0, volymMedCykel: 0, cykelM: enkelVagM * 2, enkelVagM,
-  hemMedLassM: null, vidAvlaggetM: null, ytterstM: null, utan: {},
+  hemMedLassM, vidAvlaggetM: null, ytterstM, utan: {},
 });
 const matt = (m: Partial<Matt>): Matt => ({ ...INGET_MATT, flyttar: 0, ...m });
 const SKALVIKEN_MATT = matt({
-  cykel: cykel(739, 85, 70),
-  tider: { lass: 70, lastaMin: 28.5, koraMin: 21.3, avlaggMin: 12 },
+  cykel: cykel(739, 85, 70, 377, 660),
+  // Facit ur prod (skotar_lass_cykel + hyttspar, räknat i SQL 2026-11-20):
+  // 68 min per lass, varav 29 lasta, 21 köra, 12 avlägg och 6 stopp över 6 min.
+  tider: { lass: 70, lastaMin: 28.5, koraMin: 21.3, avlaggMin: 12, pausMin: 6.2, totalMin: 68 },
   lass: { lass: 85, snittM3: 18.3, breddade: 0 },
 });
 
@@ -104,16 +106,21 @@ describe('talet överst = talet i listan', () => {
 });
 
 describe('varför', () => {
-  it('Skälviken: avståndet är den orange raden — 20 700 kr av minuset', () => {
+  it('Skälviken: avståndet påstår ingen orsak — tre mått, inget avgjort, inga "borde fått"', () => {
     const v = skogVarfor(skalviken, namn, SKALVIKEN_MATT);
-    const orange = v.varfor.filter(r => r.orange);
-    expect(orange).toHaveLength(1);
-    expect(orange[0].nyckel).toBe('avstand');
-    expect(orange[0].forklararKr).toBe(20700); // 739 m = 6 steg × 4 kr = 24 kr/m³ mot räknade 12
-    expect(orange[0].titel).toContain('räknat 450 m (satt för hand) · kört 739 m');
-    expect(orange[0].under).toContain('vi kanske borde fått – inte dålig körning');
-    expect(orange[0].under).toContain('Mätt på 70 av 85 lass');
-    expect(v.orsak).toBe('Skotningsavståndet – kört 739 m, räknat 450 m');
+    const rad = v.varfor.find(r => r.nyckel === 'avstand')!;
+    expect(rad.titel).toBe('Skotningsavstånd: räknat 450 m (satt för hand)');
+    expect(rad.under).toContain('längst bort ca 377 m · efter vändpunkten ca 660 m · halva körningen ca 739 m');
+    expect(rad.under).toContain('Vilket mått som gäller är inte avgjort.');
+    // 739 m = 6 steg × 4 kr = 24 kr/m³ mot räknade 12 → 41 400 mot 20 700.
+    expect(rad.under?.replace(/\s/g, ' ')).toContain('Med 739 m blir tillägget ca 41 400 kr i stället för 20 700 kr.');
+    expect(rad.under).toContain('Mätt på 70 av 85 lass');
+    expect(rad.under).not.toContain('borde');
+    expect(rad.forklararKr).toBe(0);
+    expect(rad.orange).toBe(false);
+    // Den orange raden är skotarens: vad den hann mot vad den behöver.
+    expect(v.varfor.find(r => r.orange)!.nyckel).toBe(`takt:${ELEFANT}`);
+    expect(v.orsak).toBe('Skotaren under – 17 m³/h, behöver 23');
   });
 
   it('den orange raden är alltid den som förklarar mest', () => {
@@ -129,8 +136,8 @@ describe('varför', () => {
     expect(v.orsak).toBe('Skotaren under – 17 m³/h, behöver 23');
     expect(v.varfor.find(r => r.orange)!.nyckel).toBe(`takt:${ELEFANT}`);
     const text = JSON.stringify(v.varfor);
-    expect(text).not.toContain('kört');
-    expect(text).not.toContain('Per lass');
+    expect(text).not.toContain('Körspåret');
+    expect(text).not.toContain('Ett lass tar');
     expect(text).not.toContain('Snittlass');
     expect(v.varfor.find(r => r.nyckel === 'avstand')!.titel).toBe('Skotningsavstånd: räknat 450 m (satt för hand)');
   });
@@ -143,7 +150,10 @@ describe('varför', () => {
 
   it('lasta, köra, avlägg och snittlass står med när de är mätta', () => {
     const v = skogVarfor(skalviken, namn, SKALVIKEN_MATT);
-    expect(v.varfor.find(r => r.nyckel === 'tider')!.titel).toBe('Per lass: lastar ca 29 min · kör ca 21 min · avlägg ca 12 min');
+    const tider = v.varfor.find(r => r.nyckel === 'tider')!;
+    expect(tider.titel).toBe('Ett lass tar ca 68 min');
+    // Delarna går att räkna ihop: 29 + 21 + 12 + 6 = 68.
+    expect(tider.under).toBe('lastar 29 · kör 21 · avlägg 12 · övrigt 6 · ur körspåret, 70 lass');
     expect(v.varfor.find(r => r.nyckel === 'lass')!.titel).toBe('Snittlass 18,3 m³ · kördes smal');
     expect(v.varfor.length).toBeLessThanOrEqual(MAX_VARFOR);
   });
@@ -152,15 +162,19 @@ describe('varför', () => {
     const v = skogVarfor(edestad, namn, matt({ cykel: cykel(557, 31, 28) }));
     expect(v.varfor.some(r => r.orange)).toBe(false);
     expect(v.orsak).toBeNull();
-    // Avståndet sägs ändå: 557 m = 16 kr/m³ mot räknade 8.
-    expect(v.varfor.find(r => r.nyckel === 'avstand')!.forklararKr).toBe(4704);
+    // Avståndet sägs ändå, som ett "om": 557 m = 16 kr/m³ mot räknade 8.
+    const rad = v.varfor.find(r => r.nyckel === 'avstand')!;
+    expect(rad.forklararKr).toBe(0);
+    expect(rad.under).toContain('Med 557 m blir tillägget');
   });
 
-  it('Arvidstorp: inget avstånd räknat alls — hela tillägget är pengar vi kanske borde fått', () => {
+  it('Arvidstorp: inget avstånd räknat — körspåret visas, men räknas inte som orsak', () => {
     const v = skogVarfor(arvidstorp, namn, matt({ cykel: cykel(516, 22, 19) }));
     const rad = v.varfor.find(r => r.nyckel === 'avstand')!;
-    expect(rad.titel).toBe('Skotningsavstånd: inget avstånd räknat · kört 516 m');
-    expect(rad.forklararKr).toBe(16 * 628);
+    expect(rad.titel).toBe('Skotningsavstånd: inget avstånd räknat');
+    expect(rad.under).toContain('halva körningen ca 516 m');
+    expect(rad.under?.replace(/\s/g, ' ')).toContain(`blir tillägget ca ${(16 * 628).toLocaleString('sv-SE').replace(/\s/g, ' ')} kr`);
+    expect(rad.forklararKr).toBe(0);
   });
 });
 
@@ -196,7 +210,7 @@ describe('gemensamt och maskin-fliken', () => {
     const maskiner = maskinRader(alla, namn);
     const varfor = new Map(alla.map(o => [o.objekt_id, skogVarfor(o, namn, o === skalviken ? SKALVIKEN_MATT : matt({}))] as const));
     const elefant = maskiner.find(m => m.maskin_id === ELEFANT)!;
-    expect(maskinVanligastOrsak(elefant, varfor)).toBe('Oftast för få m³ per timme · 2 av 3 skogar under');
+    expect(maskinVanligastOrsak(elefant, varfor)).toBe('Oftast för få m³ per timme · 3 av 3 skogar under');
     expect(maskinVanligastOrsak(maskiner.find(m => m.maskin_id === GIANT)!, varfor)).toBeNull();
   });
 });

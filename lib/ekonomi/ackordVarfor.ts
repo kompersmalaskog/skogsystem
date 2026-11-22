@@ -77,6 +77,19 @@ export type SkogVarfor = {
 
 export const MAX_VARFOR = 6;
 
+/**
+ * Lassets delar som går att räkna ihop: delarna avrundas och "övrigt" tar
+ * resten, så talen summerar exakt till det avrundade totalet.
+ */
+export function tidDelar(t: TidSnitt): string {
+  const tot = Math.round(t.totalMin);
+  const lasta = Math.round(t.lastaMin), kora = Math.round(t.koraMin), avlagg = Math.round(t.avlaggMin);
+  const ovrigt = tot - lasta - kora - avlagg;
+  const delar = [`lastar ${lasta}`, `kör ${kora}`, `avlägg ${avlagg}`];
+  if (ovrigt > 0) delar.push(`övrigt ${ovrigt}`);
+  return delar.join(' · ');
+}
+
 /** Två tal som heltal — eller med en decimal när de annars ser lika ut. */
 function parTal(a: number, b: number): [string, string] {
   return Math.round(a) === Math.round(b) ? [dec(a, 1), dec(b, 1)] : [heltal(a), heltal(b)];
@@ -137,45 +150,50 @@ function gemensamt(o: ObjektRad): GemensamRad[] {
   });
 }
 
-/** Avståndet: det ackordet räknats på mot det som körts enligt hyttspåret. */
-function avstand(o: ObjektRad, matt: Matt): { rad: VarforRad; diffKr: number; kort: string | null } | null {
+/**
+ * Avståndet: det ackordet räknats på, bredvid körspårets tre mått.
+ *
+ * DATAN BYGGS FORTFARANDE UPP — raden påstår ingen orsak och räknar inga
+ * kronor in i "varför". Körspåret ger tre olika mått på samma körning
+ * (längst bort, efter vändpunkten, halva cykeln) och vilket Vida menar är
+ * inte avgjort. Raden visar dem och vad tillägget blir på det längsta, som
+ * ett "om", aldrig som pengar vi borde fått.
+ */
+function avstand(o: ObjektRad, matt: Matt): VarforRad | null {
   const a = o.detalj?.avstand;
   const skotare = o.maskiner.filter(d => d.roll === 'skotare');
   if (!a || o.egenSkotning || skotare.length === 0) return null;
   const raknatM = a.manuellM ?? a.lassM;
-  const kordM = matt.cykel?.enkelVagM ?? null;
-  if (raknatM == null && kordM == null) return null;
+  const c = matt.cykel;
+  const matten: [string, number][] = [];
+  if (c) {
+    if (c.ytterstM != null) matten.push(['längst bort', c.ytterstM]);
+    if (c.hemMedLassM != null) matten.push(['efter vändpunkten', c.hemMedLassM]);
+    if (c.enkelVagM != null) matten.push(['halva körningen', c.enkelVagM]);
+  }
+  if (raknatM == null && matten.length === 0) return null;
 
   const raknatText = raknatM != null ? `räknat ${heltal(raknatM)} m${a.manuellM != null ? ' (satt för hand)' : ''}` : 'inget avstånd räknat';
-  if (kordM == null) {
-    return { rad: { nyckel: 'avstand', titel: `Skotningsavstånd: ${raknatText}`, forklararKr: 0, orange: false }, diffKr: 0, kort: null };
-  }
-  const c = matt.cykel!;
-  const tackning = c.medCykel < c.lass ? ` Mätt på ${c.medCykel} av ${c.lass} lass.` : '';
-  const titel = `Skotningsavstånd: ${raknatText} · kört ${heltal(kordM)} m`;
+  const titel = `Skotningsavstånd: ${raknatText}`;
+  if (!matten.length) return { nyckel: 'avstand', titel, forklararKr: 0, orange: false };
+
+  const delar = [`Körspåret: ${matten.map(([n, m]) => `${n} ca ${heltal(m)} m`).join(' · ')}.`];
+  delar.push('Vilket mått som gäller är inte avgjort.');
+  const storstM = Math.max(...matten.map(([, m]) => m));
   const raknatKr = skotare.reduce((s, d) => s + (d.pris?.avstandKr ?? 0), 0);
   const volym = skotare.reduce((s, d) => s + d.volym, 0);
-  const hadeBlivit = a.regel ? skotAvstandKrPerM3(kordM, a.regel) * volym : null;
-  const diffKr = hadeBlivit != null ? Math.round(hadeBlivit - raknatKr) : 0;
-  if (hadeBlivit != null && diffKr > 0) {
-    return {
-      rad: {
-        nyckel: 'avstand', titel,
-        under: `Tillägget hade blivit ca ${kr(hadeBlivit)} i stället för ${kr(raknatKr)}. Det är ca ${kr(diffKr)} vi kanske borde fått – inte dålig körning.${tackning}`,
-        forklararKr: diffKr, orange: false,
-      },
-      diffKr,
-      kort: `Skotningsavståndet – kört ${heltal(kordM)} m, ${raknatM != null ? `räknat ${heltal(raknatM)} m` : 'inget räknat'}`,
-    };
+  const hade = a.regel ? skotAvstandKrPerM3(storstM, a.regel) * volym : null;
+  if (hade != null && Math.round(hade) !== Math.round(raknatKr)) {
+    delar.push(`Med ${heltal(storstM)} m blir tillägget ca ${kr(hade)} i stället för ${kr(raknatKr)}.`);
   }
-  return { rad: { nyckel: 'avstand', titel, under: `Enkel väg enligt körspåret.${tackning}`, forklararKr: 0, orange: false }, diffKr: 0, kort: null };
+  if (c && c.medCykel < c.lass) delar.push(`Mätt på ${c.medCykel} av ${c.lass} lass.`);
+  return { nyckel: 'avstand', titel, under: delar.join(' '), forklararKr: 0, orange: false };
 }
 
 export function skogVarfor(o: ObjektRad, namn: (maskin_id: string) => string, matt: Matt = INGET_MATT): SkogVarfor {
   const total = objektKr(o);
   const maskiner = o.maskiner.map(d => maskinKort(d, namn(d.maskin_id)));
   const avst = avstand(o, matt);
-  const skotadVol = o.maskiner.filter(d => d.roll === 'skotare').reduce((s, d) => s + d.volym, 0);
 
   // ── Varför ──
   const rader: (VarforRad & { kort?: string | null; maskin?: string })[] = [];
@@ -189,10 +207,9 @@ export function skogVarfor(o: ObjektRad, namn: (maskin_id: string) => string, ma
     // tillägg ingår i ackordet per m³ — det är maskinens verkliga pris.
     const behov = (d.timpeng / d.timmar) / (d.ackord / d.volym);
     const minus = Math.max(0, -diff);
-    // Skotarens minus som beror på avståndet står på avståndsraden, inte här.
-    const avstDel = d.roll === 'skotare' && avst && skotadVol > 0 ? avst.diffKr * (d.volym / skotadVol) : 0;
-    const egen = Math.max(0, minus - avstDel);
-    if (minus > 0) maskinOrsak[d.maskin_id] = avstDel > egen ? 'avstand' : 'takt';
+    // Ingen uppdelning på orsaker: datan räcker inte än för att säga hur mycket
+    // av minuset som är avstånd och hur mycket som är körning.
+    if (minus > 0) maskinOrsak[d.maskin_id] = 'takt';
     const [t, b] = parTal(takt, behov);
     const fler = o.maskiner.filter(x => x.roll === d.roll).length > 1;
     const vem = fler ? `${Roll(d.roll)} ${namn(d.maskin_id)}` : Roll(d.roll);
@@ -200,11 +217,11 @@ export function skogVarfor(o: ObjektRad, namn: (maskin_id: string) => string, ma
       nyckel: `takt:${d.maskin_id}`, maskin: d.maskin_id,
       titel: `${vem} ${t} m³/h · behöver ${b}`,
       under: diff < 0 ? `${kr(-diff)} under timpeng` : diff > 0 ? `${kr(diff)} över timpeng` : 'Jämnt med timpeng',
-      forklararKr: egen, orange: false,
+      forklararKr: minus, orange: false,
       kort: `${vem} under – ${t} m³/h, behöver ${b}`,
     });
   }
-  if (avst) rader.push({ ...avst.rad, kort: avst.kort });
+  if (avst) rader.push(avst);
 
   if (o.detalj) {
     const terr = o.detalj.terrangKr > 0 ? `terräng svår +${dec(o.detalj.terrangKr, 0)} kr/m³` : 'terräng normal';
@@ -214,8 +231,8 @@ export function skogVarfor(o: ObjektRad, namn: (maskin_id: string) => string, ma
     const t = matt.tider;
     rader.push({
       nyckel: 'tider',
-      titel: `Per lass: lastar ca ${heltal(t.lastaMin)} min · kör ca ${heltal(t.koraMin)} min · avlägg ca ${heltal(t.avlaggMin)} min`,
-      under: `Ur körspåret, ${t.lass} lass`, forklararKr: 0, orange: false,
+      titel: `Ett lass tar ca ${heltal(t.totalMin)} min`,
+      under: `${tidDelar(t)} · ur körspåret, ${t.lass} lass`, forklararKr: 0, orange: false,
     });
   }
   if (matt.lass) {
