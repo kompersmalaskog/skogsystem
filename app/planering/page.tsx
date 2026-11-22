@@ -290,6 +290,7 @@ import { useMarkeringarSynk } from '@/lib/hooks/useMarkeringarSynk'
 import type { ServerRad } from '@/lib/markeringSynk'
 import MarkeringFoto from './MarkeringFoto'
 import MaskinMeny from '@/components/startsida/MaskinMeny'
+import { sattPlaneringLage } from '@/lib/maskinkonto/aterstall'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 import { optiLokalDag } from '@/lib/optiTid'
@@ -3205,7 +3206,11 @@ export default function PlannerPage() {
     } catch { /* */ }
   }, []);
   // ?maskinmeny=1: Hem från en annan vy (Arbetsrapport m.fl.) på maskindatorn öppnar maskinlådan över kartan. Parametern tas bort direkt.
-  const [maskinMenyBegard, setMaskinMenyBegard] = useState(false);
+  // Begäran läses SYNKRONT vid första renderingen (inte först i en effekt): efter en låsning ska lådan finnas i samma bild som kartan, inte en stund
+  // efteråt (Martin 2026-11-22: ingen helskärm ens en kort stund). Inget renderas av den före maskinläget är känt, så ingen hydreringsskillnad.
+  const [maskinMenyBegard, setMaskinMenyBegard] = useState(() => {
+    try { return typeof window !== 'undefined' && new URL(window.location.href).searchParams.get('maskinmeny') === '1'; } catch { return false; }
+  });
   useEffect(() => {
     try {
       const u = new URL(window.location.href);
@@ -3951,6 +3956,14 @@ export default function PlannerPage() {
   // på maskindatorn, med "Byt objekt" överst. Kartan lämnas aldrig; startsidan nås inte från maskindatorn.
   const [maskinMenyOppen, setMaskinMenyOppen] = useState(false);
   useEffect(() => { if (maskinMenyBegard && maskinlage) { setMaskinMenyOppen(true); setMaskinMenyBegard(false); } }, [maskinMenyBegard, maskinlage]);
+  // Maskindatorn minns hur den ser ut (lådan över kartan eller körvyn) så att en låsning efter Arbetsrapport m.fl. kommer tillbaka dit —
+  // lib/maskinkonto/aterstall. Vyn lämnas = inget läge att minnas.
+  useEffect(() => { if (maskinlage) sattPlaneringLage(maskinMenyOppen || maskinMenyBegard); }, [maskinlage, maskinMenyOppen, maskinMenyBegard]);
+  useEffect(() => {
+    const glom = () => sattPlaneringLage(null);
+    window.addEventListener('pagehide', glom);
+    return () => { window.removeEventListener('pagehide', glom); glom(); };
+  }, []);
   // "Byt objekt" i lådan: tillbaka till objektlistan (förarlistan).
   // Samma stängning som "Annat objekt" på bekräftelsekortet: körvyn av, ingen vald roll, inget valt objekt.
   const tillObjektlistan = useCallback(() => {
@@ -14048,7 +14061,7 @@ export default function PlannerPage() {
       {maskinLager}
 
       {/* Maskinlådan: hem-knappen i maskinläge. Länkar till /planering stänger bara lådan (Inställningar öppnar arket). */}
-      {maskinlage && maskinMenyOppen && (
+      {maskinlage && (maskinMenyOppen || maskinMenyBegard) && (
         <MaskinMeny
           maskinNamn={startMaskinNamn}
           objektNamn={valtObjekt?.namn ?? null}

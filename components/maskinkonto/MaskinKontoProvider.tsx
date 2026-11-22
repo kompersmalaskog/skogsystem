@@ -18,6 +18,7 @@ import { antalBeviljadeSerialPortar, harWebSerial, serialGpsVald } from '@/lib/g
 import { AVSTAND, FARG, KNAPP, LAYOUT, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens'
 import { blirMaskinAutomatiskt, gaTillKartan, lasMaskinen, loggaUtMaskinen } from '@/lib/maskinkonto/klient'
 import { lasAutoPaus, skaBlimaMaskin } from '@/lib/maskinkonto/autoStart'
+import { minnsLageForeUpplasning } from '@/lib/maskinkonto/aterstall'
 import {
   IDLE_MS, arDoldSokvag, arKartSokvag, arLastSokvag, lasMaskinSession, lasUpplast, sattMaskinSession, sattUpplast, utgangen, type Upplast,
 } from '@/lib/maskinkonto/upplast'
@@ -139,9 +140,13 @@ export default function MaskinKontoProvider({ children }: { children: ReactNode 
   }, [lage, las])
   useEffect(() => { if (lage === 'upplast' && arKartSokvag(pathname)) las() }, [lage, pathname, las])
 
+  // Varje väg till "Vem är du?" går här: maskinen minns hur den såg ut INNAN upplåsningen (lådan över kartan eller körvyn), så att låsningen
+  // kommer tillbaka dit (lib/maskinkonto/aterstall).
+  const oppnaVem = useCallback((href: string) => { minnsLageForeUpplasning(); setVem({ href }) }, [])
+
   const varde = useMemo<MaskinKonto>(() => ({
-    lage, maskinId, upplast, oppnaVemArDu: (href = '/') => setVem({ href }), las, loggaUtMaskinen: loggaUt,
-  }), [lage, maskinId, upplast, las, loggaUt])
+    lage, maskinId, upplast, oppnaVemArDu: (href = '/') => oppnaVem(href), las, loggaUtMaskinen: loggaUt,
+  }), [lage, maskinId, upplast, las, loggaUt, oppnaVem])
 
   const hemma = <Link href="/" style={{ ...KNAPP.lank, ...TYP.text, display: 'inline-flex', alignItems: 'center', minHeight: TRAFFYTA.min }}>Till menyn</Link>
   let innehall: ReactNode = children
@@ -157,7 +162,7 @@ export default function MaskinKontoProvider({ children }: { children: ReactNode 
   } else if (lage === 'last' && arLastSokvag(pathname)) {
     innehall = (
       <Skarm ikon="lock" rubrik="Förarens egna saker" text="Välj vem du är för att öppna dem.">
-        <button type="button" onClick={() => setVem({ href: pathname })} style={KNAPP.primar}>Vem är du?</button>
+        <button type="button" onClick={() => oppnaVem(pathname)} style={KNAPP.primar}>Vem är du?</button>
         {hemma}
       </Skarm>
     )

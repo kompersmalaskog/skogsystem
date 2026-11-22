@@ -45,7 +45,7 @@ describe('hem-knappen i maskinläge öppnar maskinlådan; Byt objekt i lådan g�
     expect(page).toMatch(/<Link href="\/" aria-label="Hem"/);
   });
   it('lådan visas bara i maskinläge och dess Byt objekt kör tillObjektlistan', () => {
-    expect(page).toMatch(/\{maskinlage && maskinMenyOppen && \(\s*<MaskinMeny[\s\S]*?onBytObjekt=\{tillObjektlistan\}/);
+    expect(page).toMatch(/\{maskinlage && \(maskinMenyOppen \|\| maskinMenyBegard\) && \(\s*<MaskinMeny[\s\S]*?onBytObjekt=\{tillObjektlistan\}/);
   });
   it('tillObjektlistan stänger körvyn och nollar roll + objekt (som "Annat objekt")', () => {
     const m = /const tillObjektlistan = useCallback\(\(\) => \{([\s\S]*?)\}, \[\]\);/.exec(page);
