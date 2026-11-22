@@ -117,7 +117,34 @@ describe('UppfoljningMeny', () => {
     // Grot-kortet syns (schablon ≈ 350 vid 0,35 × 1000) och är märkt schablon.
     expect(text()).toContain('schablon');
     await klick(knappMedText('Grot')!);
-    expect(text()).toContain('Ris kvar på hygget');
+    expect(text()).toContain('Ris att skota');
     expect(text()).toContain('Grotobjekt');
+  });
+
+  it('ris att skota: kvar, skotas nu med riktiga lass, och hämtat bakom en rad', async () => {
+    const idag = new Date().toISOString().slice(0, 10);
+    data = [
+      obj({ vo_nummer: 'K', namn: 'Kvarhygget', grotAnpassad: true }),
+      obj({ vo_nummer: 'S', namn: 'Skotashygget', grotAnpassad: true, risSkotatM3: 123 }),
+      obj({ vo_nummer: 'D', namn: 'Delathygget', grotAnpassad: true, risSkotatM3: 200, risDelas: true }),
+      obj({ vo_nummer: 'H', namn: 'Hamtathygget', grotAnpassad: true, grotHamtad: idag, risSkotatM3: 300 }),
+      obj({ vo_nummer: 'G', namn: 'Gammalthygget', grotAnpassad: true, grotHamtad: '2025-01-01' }),
+    ];
+    await montera();
+    // Kortet räknar bara det som är kvar: 350 + (350 − 123) + 350 (delat: lassen går inte att dela) = 927.
+    expect(knappMedText('Grot')!.textContent).toContain('927');
+    await klick(knappMedText('Grot')!);
+    expect(text()).toContain('Kvarhygget');
+    expect(text()).toContain('Ris kvar');
+    expect(text()).toContain('Skotas nu');
+    expect(text()).toContain('123m³ hämtat');
+    expect(text()).toContain('m³ hela risjobbet');
+    // Hämtat ligger hopfällt; gammalt hämtat visas inte alls.
+    expect(text()).not.toContain('Hamtathygget');
+    expect(text()).not.toContain('Gammalthygget');
+    await klick(knappMedText('Hämtat senaste')!);
+    expect(text()).toContain('Hamtathygget');
+    expect(text()).toContain('300m³ hämtat');
+    expect(text()).not.toContain('Gammalthygget');
   });
 });

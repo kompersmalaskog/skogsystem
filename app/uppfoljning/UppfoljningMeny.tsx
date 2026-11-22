@@ -14,6 +14,7 @@ import { typLabel, arRisjobb } from '@/lib/objekt/typ';
 import { paBackenKvar } from '@/lib/skotat';
 import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT, GROT_UTTAGSFAKTOR_MIN, GROT_UTTAGSFAKTOR_MAX } from '@/lib/grot';
 import { type UppfoljningObjekt } from './lib/transform';
+import { risLage, risLista, risKvarM3, HAMTAT_VISAS_DAGAR } from './lib/ris';
 import { useUppfoljningList, urlIdFor } from './hooks/useUppfoljningList';
 
 const sv = (n: number) => Math.round(n).toLocaleString('sv-SE');
@@ -110,8 +111,9 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
     return b;
   }, [objekt]);
 
-  // Ris-urval: grot-anpassat, har stamvolym, grot inte hämtad.
-  const risAlla = useMemo(() => objekt.filter(o => o.grotAnpassad && o.volymSkordare > 0 && !o.grotHamtad), [objekt]);
+  // Ris att skota (lib/ris): kvar = inget lass än eller skotas nu; hämtat = grot_hamtad satt.
+  const idag = new Date().toISOString().slice(0, 10);
+  const ris = useMemo(() => risLista(objekt, grotFaktor, idag), [objekt, grotFaktor, idag]);
 
   // Kort-summor — TOTALEN på backen per typ (inkl. pågående skörd). Virke = mätt
   // kvar (skördat − skotat); ris = schablon. Ärlig nolla: ingen typ → kortet "—".
@@ -121,9 +123,9 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
       if (arRisjobb(o) || kvarM3(o) <= 0) continue;
       if (o.typ === 'gallring') { gM3 += kvarM3(o); gN++; } else { sM3 += kvarM3(o); sN++; }
     }
-    const risM3 = risAlla.reduce((a, o) => a + (uppskattaGrotM3fub(o.volymSkordare, grotFaktor) || 0), 0);
-    return { sM3, sN, gM3, gN, risM3, risN: risAlla.length };
-  }, [sektioner, risAlla, grotFaktor]);
+    const risM3 = ris.kvar.reduce((a, o) => a + risKvarM3(o, grotFaktor), 0);
+    return { sM3, sN, gM3, gN, risM3, risN: ris.kvar.length };
+  }, [sektioner, ris, grotFaktor]);
 
   // På-backen-virke (oskotat + pågående skörd), filtrerat på valt kort + sök.
   const paBackenVirke = useMemo(() => [...sektioner.skordare, ...sektioner.oskotat].filter(o => !arRisjobb(o) && kvarM3(o) > 0), [sektioner]);
@@ -149,8 +151,9 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
     return lista;
   }, [uppdelning, skordasSet]);
 
-  const risSynlig = useMemo(() => risAlla.filter(matchSok).slice().sort((a, b) =>
-    !a.sistaAvverkning ? 1 : !b.sistaAvverkning ? -1 : a.sistaAvverkning.localeCompare(b.sistaAvverkning)), [risAlla, sok]);
+  const risSynlig = useMemo(() => ris.kvar.filter(matchSok), [ris, sok]);
+  const risHamtatSynlig = useMemo(() => ris.hamtat.filter(matchSok), [ris, sok]);
+  const [visaHamtat, setVisaHamtat] = useState(false);
 
   // Avslutade (filtrerat på kort + sök) grupperat per månad, nyast överst.
   const manader = useMemo<Manad[]>(() => {
@@ -178,7 +181,7 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
   const oppna = (o: UppfoljningObjekt) => { const id = urlIdFor(o); if (id) router.push(`/uppfoljning/${encodeURIComponent(id)}`); };
 
   // ── En objektrad ──
-  const rad = (o: UppfoljningObjekt, hoger: 'kvar' | 'volym' | 'schablon', under?: string) => {
+  const rad = (o: UppfoljningObjekt, hoger: 'kvar' | 'volym' | 'schablon' | { tal: string; enhet: string } | null, under?: string, underFarg?: string) => {
     const aktiv = aktivFor(o);
     const annu = skordasSet.has(o);
     const undertext = under ?? (annu ? 'skördas ännu' : liggetidText(o));
@@ -196,12 +199,17 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
       >
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', ...TYP.listtitel, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</span>
-          <span style={{ display: 'block', ...TYP.meta, color: annu ? FARG.gron : FARG.text2, marginTop: AVSTAND.xs, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{undertext}</span>
+          <span style={{ display: 'block', ...TYP.meta, color: underFarg ?? (annu ? FARG.gron : FARG.text2), marginTop: AVSTAND.xs, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{undertext}</span>
           {o.skotareAvvikelse && (
             <span style={{ display: 'block', ...TYP.micro, color: FARG.text3, marginTop: AVSTAND.xs, textTransform: 'none', letterSpacing: 0 }}>Lass: {o.skotareAvvikelse.lass} · tilldelad: {o.skotareAvvikelse.tilldelad}</span>
           )}
         </span>
-        {hoger === 'kvar' ? (
+        {hoger === null ? null : typeof hoger === 'object' ? (
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, flexShrink: 0, ...TNUM }}>
+            <span style={{ ...TYP.listtitel }}>{hoger.tal}</span>
+            <span style={{ ...TYP.meta, color: FARG.text2 }}>{hoger.enhet}</span>
+          </span>
+        ) : hoger === 'kvar' ? (
           <span style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, flexShrink: 0, ...TNUM }}>
             <span style={{ ...TYP.listtitel }}>{sv(kvarM3(o))}</span>
             <span style={{ ...TYP.meta, color: FARG.text2 }}>kvar m³</span>
@@ -323,12 +331,47 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
           {/* Ris valt → ris-listan (schablon, liggetid); annars per skotare. */}
           {vald === 'ris' ? (
             <section style={{ marginBottom: AVSTAND.l }}>
-              <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>Ris kvar på hygget · äldst först</div>
+              <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>Ris att skota</div>
               {risSynlig.length === 0 ? (
-                <div style={{ ...TYP.meta, color: FARG.text3, padding: `${AVSTAND.s}px ${AVSTAND.m}px` }}>Inget ris kvar.</div>
+                <div style={{ ...TYP.meta, color: FARG.text3, padding: `${AVSTAND.s}px ${AVSTAND.m}px` }}>Inget ris kvar att skota.</div>
               ) : (
                 <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
-                  {risSynlig.map(o => rad(o, 'schablon', o.risskotningPagar ? 'risskotning pågår · ' + liggetidText(o) : liggetidText(o)))}
+                  {risSynlig.map(o => {
+                    const l = risLage(o, grotFaktor);
+                    if (l.lage === 'skotas') {
+                      return rad(o, { tal: sv(l.m3), enhet: l.delas ? 'm³ hela risjobbet' : 'm³ hämtat' },
+                        l.delas ? 'Skotas nu · risjobbet gäller fler trakter' : 'Skotas nu', FARG.gron);
+                    }
+                    return rad(o, 'schablon', 'Ris kvar · ' + liggetidText(o));
+                  })}
+                </div>
+              )}
+              {risSynlig.length > 0 && (
+                <div style={{ ...TYP.micro, color: FARG.text3, margin: `${AVSTAND.s}px ${AVSTAND.m}px 0`, textTransform: 'none', letterSpacing: 0, lineHeight: 1.45 }}>
+                  ≈ är en uppskattning tills första lasset. Raden blir Hämtat när risjobbet är färdigskotat.
+                </div>
+              )}
+              {risHamtatSynlig.length > 0 && (
+                <div style={{ marginTop: AVSTAND.l }}>
+                  <button
+                    onClick={() => setVisaHamtat(v => !v)}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.s, width: '100%', padding: `${AVSTAND.s}px ${AVSTAND.m}px`, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >
+                    <span style={{ ...TYP.micro, color: FARG.text2 }}>Hämtat senaste {HAMTAT_VISAS_DAGAR} dagarna ({risHamtatSynlig.length})</span>
+                    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke={FARG.text2} strokeWidth="2" strokeLinecap="round" style={{ transform: visaHamtat ? 'rotate(90deg)' : 'none', transition: overgang('transform') }}>
+                      <polyline points="4 2 8 6 4 10" />
+                    </svg>
+                  </button>
+                  {visaHamtat && (
+                    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
+                      {risHamtatSynlig.map(o => {
+                        const l = risLage(o, grotFaktor);
+                        if (l.lage !== 'hamtat') return null;
+                        const datum = new Date(l.datum).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+                        return rad(o, l.m3 != null ? { tal: sv(l.m3), enhet: 'm³ hämtat' } : null, `Hämtat ${datum}`);
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </section>
