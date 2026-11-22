@@ -11,6 +11,7 @@
 
 import type { Kartlager } from '@/lib/kartlager';
 import { kartBasPaint } from './kartBas';
+import { flygfotoMall } from './flygfotoRuta';
 import { grundKallor, grundLager } from './ritadKarta/lager';
 import { morkGrundLager } from './ritadKarta/mork';
 import { harKoordinat } from './navigera';
@@ -218,7 +219,7 @@ export function tomKartaStil(lager: Kartlager, styrka?: number) {
   if (lager === 'mork') return { version: 8 as const, sources: grundKallor() as any, layers: morkGrundLager() };
   const kallor = {
     lantmateriet: { type: 'raster' as const, tiles: ['/api/forarkarta?z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 17, attribution: '&copy; Lantmäteriet' },
-    satellite: { type: 'raster' as const, tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 18, attribution: '&copy; Lantmäteriet' },
+    satellite: { type: 'raster' as const, tiles: [flygfotoMall()], tileSize: 256, maxzoom: 18, attribution: '&copy; Lantmäteriet' },
     topographic: { type: 'raster' as const, tiles: ['/api/forarkarta?layer=farg&z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 17, attribution: '&copy; Lantmäteriet' },
     osm: { type: 'raster' as const, tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 19, attribution: '&copy; OpenStreetMap' },
   };

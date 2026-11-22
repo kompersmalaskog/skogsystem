@@ -56,14 +56,16 @@ describe('reglaget syns bara under ett påslaget/valt lager', () => {
     expect(q('plus-lager-overlay-produktionshogar')!.getAttribute('data-pa')).toBe('1');
     expect(q('plus-reglage-input-overlay-produktionshogar')).toBeNull();
   });
-  it('bara den valda bakgrunden har sitt Dämpad ↔ Skarp (standard 85, 0–100 steg 5)', () => {
+  it('bara den valda bakgrunden har sitt reglage: Flygfoto Dämpad ↔ Ljus (standard 120, 0–120), övriga Dämpad ↔ Skarp (standard 85, 0–100), steg 5', () => {
     montera();
     const i = q('plus-reglage-input-bakgrundskarta-satellite') as HTMLInputElement;
-    expect([i.min, i.max, i.step, i.value]).toEqual(['0', '100', '5', '85']);
-    expect(q('plus-reglage-bakgrundskarta-satellite')!.textContent).toMatch(/Dämpad.*Skarp/);
+    expect([i.min, i.max, i.step, i.value]).toEqual(['0', '120', '5', '120']);
+    expect(q('plus-reglage-bakgrundskarta-satellite')!.textContent).toMatch(/Dämpad.*Ljus/);
     expect(q('plus-reglage-input-bakgrundskarta-lantmateriet')).toBeNull();
     act(() => { q('plus-lager-bakgrundskarta-lantmateriet')!.click(); });
-    expect(q('plus-reglage-input-bakgrundskarta-lantmateriet')).not.toBeNull();
+    const k = q('plus-reglage-input-bakgrundskarta-lantmateriet') as HTMLInputElement;
+    expect([k.min, k.max, k.step, k.value]).toEqual(['0', '100', '5', '85']);
+    expect(q('plus-reglage-bakgrundskarta-lantmateriet')!.textContent).toMatch(/Dämpad.*Skarp/);
     expect(q('plus-reglage-input-bakgrundskarta-satellite')).toBeNull();
   });
   it('träffytan är minst 44 px hög (finger på maskindatorn) och reglaget ligger i en egen yta som inte skymmer raden', () => {

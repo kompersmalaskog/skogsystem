@@ -40,6 +40,15 @@ describe('service workern: kartrutor', () => {
     expect((await hamta(w, RUTA)).namn).toBe('flyg');
     expect(w.fetch).toHaveBeenCalledTimes(1);
   });
+  it('en 512-ruta (flygfoto på hög upplösning) hanteras som en ruta: sparas, och kommer utan nät under SIN adress (inte 256-rutans)', async () => {
+    let nat = true;
+    const w = ladda(async () => { if (!nat) throw new Error('offline'); return bild('flyg512'); });
+    const R512 = `${RUTA}&s=512`;
+    expect((await hamta(w, R512)).namn).toBe('flyg512');
+    nat = false;
+    expect((await hamta(w, R512)).namn).toBe('flyg512');
+    await expect(hamta(w, RUTA)).rejects.toThrow();   // 256-rutan är en annan adress: den finns inte sparad
+  });
   it('det nedladdade (kartrutor-v1) tas FÖRST, utan att nätet frågas', async () => {
     const w = ladda(async () => bild('nat'));
     w.lager.set('kartrutor-v1', new Map([[TERRANG, bild('sparad')]]));

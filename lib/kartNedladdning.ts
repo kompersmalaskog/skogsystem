@@ -11,6 +11,8 @@
 //     bara på wifi/kabel (`bakgrundNat`) och bara med gott om plats (`nogPlats`). En trakt som inte längre behövs och inte öppnats på
 //     `RENSA_EFTER_DAGAR` tas bort.
 
+import { flygfotoMall } from './flygfotoRuta';
+
 export const KART_CACHE = 'kartrutor-v1';
 
 /** Adresserna kartan begär rutorna på. Planeringssidans källor använder EXAKT de här (annars hittar service workern dem inte i cachen). */
@@ -58,14 +60,16 @@ export function medMarginal(b: Bbox, m = MARGINAL_M): Bbox {
 }
 
 /** Alla rutadresser för trakten. Fler än `max` → högsta zoomen bort först, lager för lager, tills det ryms. */
-export function planeraRutor(trakt: Bbox, max = MAX_RUTOR): string[] {
+export function planeraRutor(trakt: Bbox, max = MAX_RUTOR, dpr?: number): string[] {
   const b = medMarginal(trakt);
+  // Flygfotot sparas i SAMMA storlek som kartan begär på den här skärmen (512 på hög upplösning, 256 annars) — nyckeln är exakt adressen.
+  const mall: Record<Lager, string> = { ...KARTRUTA_MALL, satellite: flygfotoMall(dpr) };
   const tak: Record<Lager, number> = { satellite: ZOOM.satellite[1], lantmateriet: ZOOM.lantmateriet[1], topographic: ZOOM.topographic[1], terrang: ZOOM.terrang[1] };
   const bygg = () => {
     const ut: string[] = [];
     for (const l of Object.keys(KARTRUTA_MALL) as Lager[]) {
       for (let z = ZOOM[l][0]; z <= tak[l]; z++) {
-        for (const { x, y } of rutorFor(b, z)) ut.push(KARTRUTA_MALL[l].replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y)));
+        for (const { x, y } of rutorFor(b, z)) ut.push(mall[l].replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y)));
       }
     }
     return ut;
