@@ -3,7 +3,7 @@
 // (pushState, back() och popstate), inte mot en fejkad.
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  arPaIngangen, beslutaSkrivning, byggSok, DJUP_MARKOR, lasOffset, lasPeriod, nivaUr, NIVA_NYCKEL, offsetAndring,
+  beslutaSkrivning, byggSok, DJUP_MARKOR, lasOffset, lasPeriod, nivaUr, NIVA_NYCKEL, offsetAndring,
   periodAndring, skrivNavigering,
 } from './historik'
 
@@ -70,13 +70,13 @@ describe('skrivNavigering mot riktig history', () => {
     skrivNavigering({ vy: 'analys' }, 'push')
     expect(window.location.search).toBe('?ny=1&vy=analys')
     expect(nivaUr(window.history.state)).toBe(2)
-    expect(arPaIngangen()).toBe(false)
+    expect(nivaUr(window.history.state)).toBe(2)
 
     window.history.back(); await vanta()
     expect(window.location.search).toBe('?ny=1&vy=produktion')
     window.history.back(); await vanta()
     expect(window.location.search).toBe('?ny=1')
-    expect(arPaIngangen()).toBe(true)
+    expect(nivaUr(window.history.state)).toBe(0)
   })
 
   it('period och månadspilar är replace: ingen ny post, backa hoppar inte över dem', async () => {

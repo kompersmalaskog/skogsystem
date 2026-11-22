@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { DJUP_MARKOR, NIVA_NYCKEL, nivaUr } from '@/lib/maskinvy/historik'
+import { DJUP_MARKOR, NIVA_NYCKEL, nivaUr, signalera } from '@/lib/maskinvy/historik'
 
 let rakna = 0
 
@@ -31,6 +31,7 @@ export function useDjupvyHistorik(oppen: boolean, onTillbaka: () => void): void 
       try {
         window.history.pushState({ [DJUP_MARKOR]: id, [NIVA_NYCKEL]: nivaUr(window.history.state) + 1 }, '', window.location.href)
         pushad = true
+        signalera() // toppfältets knapp ska bli en tillbaka-knapp så fort djupvyn är ett steg i historiken
       } catch { /* ingen historik — vyns egna stängknappar räcker */ }
     }, 0)
 
