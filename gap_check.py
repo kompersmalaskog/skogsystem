@@ -510,8 +510,9 @@ def check_inkommande_ko():
     larm = []
     for fn, typ, h in sorted(gamla, key=lambda x: -x[2]):
         if fn in importerade:
-            orsak = ('redan OK i meta men inte flyttad till Behandlade — flytten misslyckas '
-                     'och filen körs om vid varje scan')
+            orsak = ('redan OK i meta men ligger kvar i Inkommande — importen flyttar numera '
+                     'kopian till Behandlade (suffix vid namnkrock); ligger den kvar efter nästa '
+                     'scan misslyckas själva flytten (filen låst?), se import_logg.txt')
         else:
             orsak = ('aldrig importerad — watchern nere eller importen kraschar på filen '
                      '(se import_logg.txt i drift)')
