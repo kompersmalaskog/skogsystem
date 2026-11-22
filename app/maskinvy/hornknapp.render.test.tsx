@@ -28,8 +28,6 @@ vi.mock('./SkotareIdagNy', () => st('SkotarIdag'))
 vi.mock('./SkotareJamforelseNy', () => st('SkotarJämförelse'))
 vi.mock('./Jamforelse', () => st('Jämförelse'))
 vi.mock('./MaskinLogg', () => ({ default: () => null }))
-vi.mock('../../maskinvy', () => st('GamlaSkördare'))
-vi.mock('../../skotare', () => st('GamlaSkotare'))
 vi.mock('./Sidolista', () => ({ default: () => null }))
 
 import MaskinvyPage from './page'
@@ -59,8 +57,8 @@ beforeEach(() => {
 afterEach(() => { act(() => rot.unmount()); el.remove(); document.body.removeAttribute('data-topbar-tillbaka') })
 
 describe.each([
-  ['nya vyn (?ny=1)', '/maskinvy?ny=1', 'Översikt', 'Produktion'],
-  ['gamla vyn', '/maskinvy', 'GamlaSkördare', null],
+  ['maskinvyn', '/maskinvy', 'Översikt', 'Produktion'],
+  ['maskinvyn, Skotare-läget', '/maskinvy?lage=skotare', 'SkotarÖversikt', 'Produktion'],
 ])('Knappen uppe till vänster — %s', (_namn, url, startVy, flikNamn) => {
   it('vid ingången: hem-ikonen (samma som övriga vyer), ingen tillbaka-knapp', async () => {
     await montera(url)

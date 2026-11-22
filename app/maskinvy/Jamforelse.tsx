@@ -1,5 +1,5 @@
 'use client';
-import { underTopbar, AVSTAND, FARG, RADIE, TYP, VIKT } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, AVSTAND, FARG, FONT, RADIE, TNUM, TRAFFYTA, TYP, VIKT, kolumnRot, medSafeBotten } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Chart as ChartJS, registerables } from 'chart.js';
@@ -13,7 +13,7 @@ import {
   summeraPerMaskinObjekt, objektSkotningsavstand, volymPerObjekt,
   ORSAK_INGEN_G15, ORSAK_INGEN_MASKIN,
 } from '@/lib/maskinvy/jamforelse';
-import { fetchAll, getPeriodRange, fmtSv, fmtSvDelta, type Period } from './OversiktShared';
+import { fetchAll, getPeriodRange, fmtSv, fmtSvDelta, tint, type Period } from './OversiktShared';
 import { useJamforelseMaskinRader } from './useJamforelseMaskiner';
 
 // Maskinerna väljs ur dim_maskin per period (lib/maskinvy/jamforelse) — inga
@@ -37,29 +37,7 @@ const METRICS: { id: MetricId; label: string; sublabel: string; unit: string; hi
   { id: 'bransle_m3', label: 'Bränsle',      sublabel: 'Liter diesel per kubikmeter virke',    unit: 'l/m³',      higherIsBetter: false },
 ];
 
-const ff = "'Geist', system-ui, sans-serif";
-
-const C = {
-  bg: '#000000',
-  surface: '#1c1c1e',
-  surface2: '#2c2c2e',
-  surface3: '#2a2a28',
-  border: 'rgba(255,255,255,0.07)',
-  border2: 'rgba(255,255,255,0.13)',
-  border3: 'rgba(255,255,255,0.2)',
-  t1: '#ffffff',
-  t2: '#8e8e93',
-  t3: '#8e8e93',
-  t4: '#48484a',
-  green: '#30d158',
-  greenBg: 'rgba(48,209,88,0.08)',
-  greenBorder: 'rgba(48,209,88,0.2)',
-  red: '#ff453a',
-  redBg: 'rgba(255,69,58,0.08)',
-  amber: '#ffb340',
-};
-
-// Bar colors — white tones for EK, green for Wisent
+// Maskinfärgerna: samma som Skotare › Jämförelse (lila Elephant King, blå Wisent)
 const COLOR_EK = JAMFORELSE_FARG.ek;
 const COLOR_WI = JAMFORELSE_FARG.wisent;
 
@@ -113,10 +91,10 @@ function ScoreCard({
   return (
     <div style={{
       flex: 1,
-      background: C.surface,
-      border: `1px solid ${vinner ? 'rgba(48,209,88,0.28)' : C.border}`,
-      borderRadius: 12,
-      padding: '22px 20px 18px',
+      background: FARG.kort,
+      border: `1px solid ${vinner ? tint(FARG.gron, 28) : FARG.linje}`,
+      borderRadius: RADIE.kort,
+      padding: AVSTAND.xl,
       position: 'relative',
       overflow: 'hidden',
     }}>
@@ -124,52 +102,47 @@ function ScoreCard({
       {/* Rank badge — bara när båda maskinerna har ett värde att jämföra */}
       {isWinner !== null && (
         <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 4,
-          fontSize: 11, fontWeight: VIKT.halvfet, padding: '3px 9px', borderRadius: 4, marginBottom: AVSTAND.s,
-          background: vinner ? C.greenBg : 'transparent',
-          border: `1px solid ${vinner ? C.greenBorder : C.border}`,
-          color: vinner ? C.green : C.t4,
+          display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs,
+          ...TYP.meta, fontWeight: VIKT.halvfet, padding: `${AVSTAND.xs}px ${AVSTAND.s}px`, borderRadius: RADIE.stapel, marginBottom: AVSTAND.s,
+          background: vinner ? tint(FARG.gron, 8) : 'transparent',
+          border: `1px solid ${vinner ? tint(FARG.gron, 20) : FARG.linje}`,
+          color: vinner ? FARG.gron : FARG.text3,
         }}>
           {vinner ? 'Bäst' : '2:a plats'}
         </div>
       )}
 
       {/* Name */}
-      <div style={{
-        fontSize: 15, fontWeight: 600, letterSpacing: -0.3, marginBottom: 2,
-        color: vinner ? C.t1 : FARG.text2,
-      }}>{name}</div>
+      <div style={{ ...TYP.listtitel, marginBottom: AVSTAND.xs, color: vinner ? FARG.text : FARG.text2 }}>{name}</div>
 
       {/* Hero number */}
       <div style={{
-        fontSize: 64, fontWeight: 700, lineHeight: 1, letterSpacing: -3,
-        marginTop: 12, marginBottom: 4,
-        color: vinner ? C.t1 : FARG.text2,
-                fontVariantNumeric: 'tabular-nums',
+        ...TYP.tal,
+        marginTop: AVSTAND.m, marginBottom: AVSTAND.xs,
+        color: vinner ? FARG.text : FARG.text2,
       }}>
         {value !== null ? fmtSv(value, 1) : '–'}
       </div>
-      <div style={{ fontSize: 11, color: FARG.text3, marginBottom: AVSTAND.xs }}>{unit}</div>
-      <div style={{ fontSize: 11, color: C.t4, marginBottom: 12 }}>
+      <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>{unit}</div>
+      <div style={{ ...TYP.meta, color: FARG.text3, marginBottom: AVSTAND.m }}>
         {value !== null ? 'summa / summa' : orsak}
       </div>
 
       {/* Diff badge */}
       <div style={{
-        fontSize: TYP.meta.fontSize, fontWeight: 700, marginBottom: 16, letterSpacing: -0.3,
-        color: goodDiff ? C.green : C.red,
-        textShadow: goodDiff && vinner ? '0 0 20px rgba(48,209,88,0.4)' : 'none',
+        ...TYP.meta, fontWeight: VIKT.fet, marginBottom: AVSTAND.l,
+        color: goodDiff ? FARG.gron : FARG.rod,
       }}>
         {pctDiff !== null ? `${fmtSvDelta(pctDiff)} ${goodDiff ? 'bättre' : 'sämre'}` : '–'}
       </div>
 
       {/* Data volume */}
       <div style={{
-        paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)',
-        fontSize: 10, color: C.t4,
+        paddingTop: AVSTAND.m, borderTop: `1px solid ${FARG.linje}`,
+        ...TYP.meta, color: FARG.text3,
       }}>
         {vol > 0 ? (
-          <span style={{ color: C.t3 }}>
+          <span style={{ color: FARG.text2 }}>
             {fmtSv(vol, 0)} m³ data
           </span>
         ) : '–'}
@@ -292,13 +265,13 @@ export default function Jamforelse() {
             label: `Elephant King (${ekConfig})`,
             data: ekVals,
             backgroundColor: COLOR_EK,
-            borderRadius: 4,
+            borderRadius: RADIE.stapel,
           },
           {
             label: 'Wisent',
             data: wiVals,
             backgroundColor: COLOR_WI,
-            borderRadius: 4,
+            borderRadius: RADIE.stapel,
           },
         ],
       },
@@ -310,17 +283,17 @@ export default function Jamforelse() {
           legend: {
             position: 'top' as const,
             labels: {
-              font: { family: ff, size: 11 },
-              boxWidth: 10, borderRadius: 2, padding: 16, color: C.t3,
+              font: { family: FONT, size: TYP.micro.fontSize },
+              boxWidth: AVSTAND.s, borderRadius: RADIE.stapel, padding: AVSTAND.l, color: FARG.text2,
             },
           },
           tooltip: {
-            backgroundColor: C.surface2,
-            titleColor: C.t1,
-            bodyColor: C.t3,
-            borderColor: C.border2,
+            backgroundColor: FARG.upphojt,
+            titleColor: FARG.text,
+            bodyColor: FARG.text2,
+            borderColor: FARG.linje,
             borderWidth: 1,
-            padding: 12,
+            padding: AVSTAND.m,
             callbacks: {
               label: (c: any) => ` ${c.dataset.label}: ${c.parsed.y > 0 ? fmtSv(c.parsed.y, 1) : '–'} ${currentMetric.unit}`,
               afterBody: (items: any[]) => {
@@ -335,14 +308,14 @@ export default function Jamforelse() {
         },
         scales: {
           x: {
-            grid: { color: 'rgba(255,255,255,0.04)' },
-            ticks: { color: C.t3, font: { size: 11, family: ff } },
+            grid: { color: FARG.tonad },
+            ticks: { color: FARG.text2, font: { size: TYP.micro.fontSize, family: FONT } },
           },
           y: {
-            grid: { color: 'rgba(255,255,255,0.04)' },
-            ticks: { color: C.t3, font: { size: 11, family: ff } },
+            grid: { color: FARG.tonad },
+            ticks: { color: FARG.text2, font: { size: TYP.micro.fontSize, family: FONT } },
             beginAtZero: true,
-            title: { display: true, text: currentMetric.unit, color: C.t3, font: { size: 10, family: ff } },
+            title: { display: true, text: currentMetric.unit, color: FARG.text2, font: { size: TYP.micro.fontSize, family: FONT } },
           },
         },
       },
@@ -388,32 +361,42 @@ export default function Jamforelse() {
     return (
       <div style={{
         position: 'fixed', top: underTopbar(52), left: 0, right: 0, bottom: 0,
-        background: C.bg, display: 'flex', alignItems: 'center',
-        justifyContent: 'center', color: C.t3, fontFamily: ff, fontSize: 13, zIndex: 1,
+        background: FARG.bg, display: 'flex', alignItems: 'center',
+        justifyContent: 'center', color: FARG.text2, fontFamily: FONT, ...TYP.meta, zIndex: 1,
       }}>
         Laddar data...
       </div>
     );
   }
 
+  const periodKnapp = (aktiv: boolean) => ({
+    minHeight: TRAFFYTA.min, minWidth: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, border: 'none', borderRadius: RADIE.rad,
+    fontFamily: 'inherit', ...TYP.meta, cursor: 'pointer',
+    background: aktiv ? FARG.upphojt : 'transparent',
+    color: aktiv ? FARG.text : FARG.text2,
+    fontWeight: aktiv ? VIKT.halvfet : VIKT.normal,
+  });
+  const pilKnapp = { minHeight: TRAFFYTA.min, minWidth: TRAFFYTA.min, border: 'none', background: 'transparent', color: FARG.text2, fontFamily: 'inherit', ...TYP.rubrik, cursor: 'pointer' } as const;
+  const tabellRubrik = { ...TYP.meta, color: FARG.text2, fontWeight: VIKT.halvfet } as const;
+
   return (
     <div style={{
       position: 'fixed', top: underTopbar(52), left: 0, right: 0, bottom: 0,
       overflow: 'auto', WebkitOverflowScrolling: 'touch' as const,
-      background: C.bg, fontFamily: ff, color: C.t1, zIndex: 1,
+      background: FARG.bg, fontFamily: FONT, color: FARG.text, zIndex: 1,
     }}>
-      <div style={{ padding: '20px 20px 60px', maxWidth: 900, margin: '0 auto' }}>
+      <div style={{ ...kolumnRot('smal'), padding: `${AVSTAND.l}px ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
 
       {/* TU för ALLA maskiner (skördare + skotare) — resten av fliken jämför
           bara de två skotarna. Egen komponent mot tokens (components/maskinvy). */}
       <TuTabell />
 
       {/* ── HEADER ── */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5, marginBottom: 4 }}>
+      <div style={{ marginBottom: AVSTAND.xl }}>
+        <div style={{ ...TYP.rubrik, marginBottom: AVSTAND.xs }}>
           Elephant King vs Wisent
         </div>
-        <div style={{ fontSize: 13, color: C.t3 }}>
+        <div style={{ ...TYP.meta, color: FARG.text2 }}>
           Jämförelse per skotningsavstånd (enkel väg) · summa / summa
         </div>
       </div>
@@ -421,59 +404,52 @@ export default function Jamforelse() {
       {/* ── PERIOD ── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        marginBottom: AVSTAND.xl, gap: 8, flexWrap: 'wrap',
+        marginBottom: AVSTAND.xl, gap: AVSTAND.s, flexWrap: 'wrap',
       }}>
         <div style={{ display: 'flex', gap: AVSTAND.xs }}>
           {(['V', 'M', 'K', 'Å'] as Period[]).map(p => (
             <button
               key={p}
               onClick={() => { setPeriod(p); setOffset(0); }}
-              style={{
-                minHeight: 44, minWidth: 44, padding: '0 12px', border: 'none', borderRadius: 10,
-                fontFamily: ff, fontSize: TYP.meta.fontSize, cursor: 'pointer',
-                background: period === p ? C.surface2 : 'transparent',
-                color: period === p ? C.t1 : C.t3,
-                fontWeight: period === p ? 600 : 400,
-              }}
+              style={periodKnapp(period === p)}
             >{p}</button>
           ))}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
           <button
             onClick={() => setOffset(o => o - 1)}
             aria-label="Föregående period"
-            style={{ minHeight: 44, minWidth: 44, border: 'none', background: 'transparent', color: C.t3, fontFamily: ff, fontSize: 20, cursor: 'pointer' }}
+            style={pilKnapp}
           >‹</button>
-          <span style={{ fontSize: 13, color: C.t3, minWidth: 130, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2, minWidth: AVSTAND.xxl * 4, textAlign: 'center' }}>
             {label}
           </span>
           <button
             onClick={() => setOffset(o => o + 1)}
             aria-label="Nästa period"
-            style={{ minHeight: 44, minWidth: 44, border: 'none', background: 'transparent', color: C.t3, fontFamily: ff, fontSize: 20, cursor: 'pointer' }}
+            style={pilKnapp}
           >›</button>
         </div>
       </div>
 
       {/* ── EK CONFIG SELECTOR ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <span style={{ fontSize: 13, color: C.t3, fontWeight: 500 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, marginBottom: AVSTAND.xl }}>
+        <span style={{ ...TYP.meta, color: FARG.text2, fontWeight: VIKT.halvfet }}>
           EK konfiguration:
         </span>
         <div style={{
-          display: 'flex', gap: 2, background: 'rgba(255,255,255,0.05)',
-          borderRadius: 8, padding: 3,
+          display: 'flex', gap: AVSTAND.xs, background: FARG.tonad,
+          borderRadius: RADIE.rad, padding: AVSTAND.xs,
         }}>
           {(['bred', 'smal'] as const).map(cfg => (
             <button
               key={cfg}
               onClick={() => setEkConfig(cfg)}
               style={{
-                minHeight: 44, padding: '0 18px', border: 'none', borderRadius: 10, fontFamily: ff,
-                fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s',
-                background: ekConfig === cfg ? C.surface2 : 'transparent',
-                color: ekConfig === cfg ? C.t1 : C.t3,
-                letterSpacing: -0.2,
+                minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, border: 'none', borderRadius: RADIE.rad, fontFamily: 'inherit',
+                ...TYP.meta, fontWeight: VIKT.halvfet, cursor: 'pointer',
+                background: ekConfig === cfg ? FARG.upphojt : 'transparent',
+                color: ekConfig === cfg ? FARG.text : FARG.text2,
               }}
             >
               {cfg === 'bred' ? 'Breddat lastred' : 'Smalt lastred'}
@@ -483,21 +459,21 @@ export default function Jamforelse() {
       </div>
 
       {/* ── METRIC TABS ── */}
-      <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: 28, gap: 0 }}>
+      <div style={{ display: 'flex', borderBottom: `1px solid ${FARG.linje}`, marginBottom: AVSTAND.xl, gap: AVSTAND.xl }}>
         {METRICS.map(m => (
           <button
             key={m.id}
             onClick={() => setMetric(m.id)}
             style={{
-              padding: '0 0 12px', marginRight: 28, border: 'none', background: 'none',
-              fontFamily: ff, cursor: 'pointer', transition: 'all 0.15s', textAlign: 'left',
-              borderBottom: `1px solid ${metric === m.id ? C.t1 : 'transparent'}`,
+              padding: `0 0 ${AVSTAND.m}px`, border: 'none', background: 'none',
+              fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left',
+              borderBottom: `1px solid ${metric === m.id ? FARG.text : 'transparent'}`,
             }}
           >
-            <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: -0.2, color: metric === m.id ? C.t1 : C.t4, marginBottom: 3 }}>
+            <div style={{ ...TYP.meta, fontWeight: VIKT.halvfet, color: metric === m.id ? FARG.text : FARG.text3, marginBottom: AVSTAND.xs }}>
               {m.label}
             </div>
-            <div style={{ fontSize: 11, fontWeight: 400, color: metric === m.id ? C.t3 : C.t4 }}>
+            <div style={{ ...TYP.meta, color: metric === m.id ? FARG.text2 : FARG.text3 }}>
               {m.sublabel}
             </div>
           </button>
@@ -505,7 +481,7 @@ export default function Jamforelse() {
       </div>
 
       {/* ── SCORE CARDS ── */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 28 }}>
+      <div style={{ display: 'flex', gap: AVSTAND.m, marginBottom: AVSTAND.xl }}>
         <ScoreCard
           name={`Elephant King (${ekConfig})`}
           value={ekAvg}
@@ -529,7 +505,7 @@ export default function Jamforelse() {
       </div>
 
       {utanKlassRader.length > 0 && (
-        <div data-utan-klass style={{ fontSize: 11, color: C.t4, lineHeight: 1.5, margin: '-16px 0 24px' }}>
+        <div data-utan-klass style={{ ...TYP.meta, color: FARG.text3, marginBottom: AVSTAND.xl }}>
           Ingår i totalen men i ingen avståndsklass (tid på objekt utan lass, till exempel flytt):{' '}
           {utanKlassRader.map(x => `${x.kort} ${fmtSv(x.d.g15h, 1)} h G15`).join(' · ')}
         </div>
@@ -537,20 +513,18 @@ export default function Jamforelse() {
 
       {/* ── BAR CHART ── */}
       <div style={{
-        background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
-        padding: '18px 18px 14px', marginBottom: 14,
+        background: FARG.kort, borderRadius: RADIE.kort, border: `1px solid ${FARG.linje}`,
+        padding: AVSTAND.l, marginBottom: AVSTAND.m,
       }}>
-        <div style={{
-          fontSize: 13, fontWeight: 500, color: C.t3, marginBottom: 16,
-        }}>
+        <div style={{ ...tabellRubrik, marginBottom: AVSTAND.l }}>
           {currentMetric.label} per avståndsklass
         </div>
         {harKlassvarde ? (
-          <div style={{ height: 280, position: 'relative' }}>
+          <div style={{ height: AVSTAND.xxl * 9, position: 'relative' }}>
             <canvas ref={chartRef} />
           </div>
         ) : (
-          <div data-graf-tom style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TYP.meta.fontSize, color: C.t3, textAlign: 'center' }}>
+          <div data-graf-tom style={{ height: AVSTAND.xxl * 4, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta, color: FARG.text2, textAlign: 'center' }}>
             Inget värde att rita för {currentMetric.label.toLowerCase()} i perioden.
           </div>
         )}
@@ -558,30 +532,30 @@ export default function Jamforelse() {
 
       {/* ── DETAILS TABLE ── */}
       <div style={{
-        background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
+        background: FARG.kort, borderRadius: RADIE.kort, border: `1px solid ${FARG.linje}`,
         overflow: 'hidden',
       }}>
         <div style={{
-          fontSize: 13, fontWeight: 500, color: C.t3, padding: '16px 18px 12px',
-          borderBottom: `1px solid ${C.border}`,
+          ...tabellRubrik, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px`,
+          borderBottom: `1px solid ${FARG.linje}`,
         }}>
           Detaljer per avståndsklass
         </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', ...TYP.meta }}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${C.border2}` }}>
-              <th style={{ padding: '10px 18px', textAlign: 'left', color: C.t3, fontWeight: 500, fontSize: 11 }}>
+            <tr style={{ borderBottom: `1px solid ${FARG.linje}` }}>
+              <th style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, textAlign: 'left', ...tabellRubrik }}>
                 Klass
               </th>
-              <th style={{ padding: '10px 14px', textAlign: 'right', color: C.t3, fontWeight: 500, fontSize: 11 }}>
-                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: RADIE.stapel, background: COLOR_EK, marginRight: AVSTAND.xs, verticalAlign: 'middle' }} />
+              <th style={{ padding: `${AVSTAND.m}px ${AVSTAND.m}px`, textAlign: 'right', ...tabellRubrik }}>
+                <span style={{ display: 'inline-block', width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.stapel, background: COLOR_EK, marginRight: AVSTAND.xs, verticalAlign: 'middle' }} />
                 EK {ekConfig}
               </th>
-              <th style={{ padding: '10px 14px', textAlign: 'right', color: C.t3, fontWeight: 500, fontSize: 11 }}>
-                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: RADIE.stapel, background: COLOR_WI, marginRight: AVSTAND.xs, verticalAlign: 'middle' }} />
+              <th style={{ padding: `${AVSTAND.m}px ${AVSTAND.m}px`, textAlign: 'right', ...tabellRubrik }}>
+                <span style={{ display: 'inline-block', width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.stapel, background: COLOR_WI, marginRight: AVSTAND.xs, verticalAlign: 'middle' }} />
                 Wisent
               </th>
-              <th style={{ padding: '10px 18px', textAlign: 'right', color: C.t3, fontWeight: 500, fontSize: 11 }}>
+              <th style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, textAlign: 'right', ...tabellRubrik }}>
                 Skillnad
               </th>
             </tr>
@@ -594,41 +568,41 @@ export default function Jamforelse() {
               const goodDiff = diff !== null && (currentMetric.higherIsBetter ? diff >= 0 : diff <= 0);
 
               return (
-                <tr key={label} style={{ borderBottom: `1px solid ${C.border}` }}>
-                  <td style={{ padding: '12px 18px', color: C.t2, fontWeight: 500 }}>
+                <tr key={label} style={{ borderBottom: `1px solid ${FARG.linje}` }}>
+                  <td style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, color: FARG.text2, fontWeight: VIKT.halvfet }}>
                     {label}
-                    <div style={{ fontSize: 10, color: C.t4, marginTop: 2 }}>
+                    <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.xs }}>
                       {(ekData[i].skift + wi[i].skift)} skift
                     </div>
                   </td>
-                  <td style={{ padding: '12px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  <td style={{ padding: `${AVSTAND.m}px ${AVSTAND.m}px`, textAlign: 'right', ...TNUM }}>
                     {ekV !== null && ekV > 0 ? (
                       <>
-                        <span style={{ color: C.t1, fontWeight: 600 }}>{fmtSv(ekV, 1)}</span>
-                        <span style={{ fontSize: 10, color: C.t4, marginLeft: 3 }}>{currentMetric.unit}</span>
+                        <span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{fmtSv(ekV, 1)}</span>
+                        <span style={{ ...TYP.meta, color: FARG.text3, marginLeft: AVSTAND.xs }}>{currentMetric.unit}</span>
                       </>
-                    ) : <span style={{ color: C.t4 }}>–</span>}
+                    ) : <span style={{ color: FARG.text3 }}>–</span>}
                   </td>
-                  <td style={{ padding: '12px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  <td style={{ padding: `${AVSTAND.m}px ${AVSTAND.m}px`, textAlign: 'right', ...TNUM }}>
                     {wiV !== null && wiV > 0 ? (
                       <>
-                        <span style={{ color: C.t1, fontWeight: 600 }}>{fmtSv(wiV, 1)}</span>
-                        <span style={{ fontSize: 10, color: C.t4, marginLeft: 3 }}>{currentMetric.unit}</span>
+                        <span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{fmtSv(wiV, 1)}</span>
+                        <span style={{ ...TYP.meta, color: FARG.text3, marginLeft: AVSTAND.xs }}>{currentMetric.unit}</span>
                       </>
-                    ) : <span style={{ color: C.t4 }}>–</span>}
+                    ) : <span style={{ color: FARG.text3 }}>–</span>}
                   </td>
-                  <td style={{ padding: '12px 18px', textAlign: 'right' }}>
+                  <td style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, textAlign: 'right' }}>
                     {diff !== null && ekV !== null && ekV > 0 && wiV !== null && wiV > 0 ? (
                       <span style={{
                         display: 'inline-block',
-                        padding: '2px 8px', borderRadius: 4,
-                        fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
-                        background: goodDiff ? C.greenBg : C.redBg,
-                        color: goodDiff ? C.green : C.red,
+                        padding: `${AVSTAND.xs}px ${AVSTAND.s}px`, borderRadius: RADIE.stapel,
+                        ...TYP.meta, fontWeight: VIKT.fet, ...TNUM,
+                        background: goodDiff ? tint(FARG.gron, 8) : tint(FARG.rod, 8),
+                        color: goodDiff ? FARG.gron : FARG.rod,
                       }}>
                         {fmtSvDelta(diff)}
                       </span>
-                    ) : <span style={{ color: C.t4 }}>–</span>}
+                    ) : <span style={{ color: FARG.text3 }}>–</span>}
                   </td>
                 </tr>
               );

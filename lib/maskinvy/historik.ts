@@ -16,7 +16,9 @@
 
 import { useEffect, useSyncExternalStore } from 'react'
 
-export type NavParam = 'vy' | 'lage' | 'skordare' | 'skotare' | 'per' | 'off'
+export type NavParam = 'vy' | 'lage' | 'skordare' | 'skotare' | GammalParam
+/** Parametrar den gamla maskinvyn (borttagen 2026-11-22) använde. Läses aldrig, bara städas bort ur gamla bokmärken. */
+export type GammalParam = 'ny' | 'per' | 'off'
 export type Metod = 'push' | 'replace'
 export type NavAndringar = Partial<Record<NavParam, string | null>>
 
@@ -155,21 +157,42 @@ export function navParam(sok: string, nyckel: NavParam | 'ny'): string | null {
   return new URLSearchParams(sok).get(nyckel)
 }
 
-// ── Periodparametrarna (gamla vyerna): V/M/K/Å + antal steg bakåt ─────────────────────────────────────────
+// ── Gamla adresser (bokmärken) ────────────────────────────────────────────────────────────────────────────────
+// Den gamla maskinvyn (/maskinvy utan ?ny=1) är borta; nya vyn bor på /maskinvy. Ett bokmärke kan ändå bära det gamla:
+//   ny=1                     → tas bort (den enda vyn behöver ingen flagga)
+//   per, off                 → tas bort (periodval var lokal state i nya vyn)
+//   vy=jamfor                → lage=jamforelse
+//   vy=oversikt | analys     → ingen vy = Översikt (Analys har ingen motsvarighet)
+//   vy som flikraden saknar  → tas bort
+// Allt annat lämnas orört. null = adressen är redan ren.
 
-export type PeriodTyp = 'V' | 'M' | 'K' | 'Å'
-const PERIODER: readonly PeriodTyp[] = ['V', 'M', 'K', 'Å']
+const GAMLA_PARAMS: readonly GammalParam[] = ['ny', 'per', 'off']
+/** Flikarna per läge (samma som flikraden i app/maskinvy/page.tsx). Tom nyckel = Översikt = ingen parameter. */
+export const VYER_PER_LAGE = {
+  skordare: ['idag', 'produktion', 'avbrott', 'kapacitet'],
+  skotare: ['idag', 'produktion', 'avbrott', 'jamforelse'],
+} as const
 
-export function lasPeriod(sok: string): PeriodTyp {
-  const v = navParam(sok, 'per')
-  return PERIODER.find(p => p === v) ?? 'M'
+export function gammalAdressAndring(sok: string): NavAndringar | null {
+  const p = new URLSearchParams(sok)
+  const a: NavAndringar = {}
+  for (const k of GAMLA_PARAMS) if (p.has(k)) a[k] = null
+  let lage = p.get('lage')
+  const vy = p.get('vy')
+  if (vy === 'jamfor') {
+    a.vy = null
+    a.lage = 'jamforelse'
+    lage = 'jamforelse'
+  } else if (vy !== null && lage !== 'jamforelse') {
+    const giltiga: readonly string[] = lage === 'skotare' ? VYER_PER_LAGE.skotare : VYER_PER_LAGE.skordare
+    if (!giltiga.includes(vy)) a.vy = null
+  }
+  return Object.keys(a).length > 0 ? a : null
 }
 
-/** Steg bakåt från innevarande period: 0 eller negativt. Ogiltigt eller positivt värde = 0. */
-export function lasOffset(sok: string): number {
-  const n = Number(navParam(sok, 'off'))
-  return Number.isInteger(n) && n < 0 ? n : 0
+/** Skriver om ett gammalt bokmärke på plats (replace — ingen ny post i historiken). */
+export function stadaGammalAdress(): void {
+  if (typeof window === 'undefined') return
+  const a = gammalAdressAndring(window.location.search)
+  if (a) skrivNavigering(a, 'replace')
 }
-
-export const periodAndring = (p: PeriodTyp): NavAndringar => ({ per: p === 'M' ? null : p, off: null })
-export const offsetAndring = (o: number): NavAndringar => ({ off: o < 0 ? String(o) : null })

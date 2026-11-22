@@ -359,7 +359,7 @@ describe('Egna favoriter', () => {
   })
 
   it('åtta valda → plus är avstängt och det står varför', async () => {
-    await montera(<Startsida roll="admin" marken={{}} onSparaFavoriter={async () => true} favoritIds={['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'ekonomi', 'kalibrering']} />)
+    await montera(<Startsida roll="admin" marken={{}} onSparaFavoriter={async () => true} favoritIds={['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy', 'ekonomi', 'kalibrering']} />)
     await andra()
     expect(iArk('Lägg till Ledighet').disabled).toBe(true)
     expect(ark().textContent).toContain('plats för 8')
@@ -380,7 +380,18 @@ describe('Egna favoriter', () => {
     await act(async () => { Array.from(ark().querySelectorAll('button')).find(b => b.textContent?.includes('Återställ'))!.click() })
     await act(async () => { spara().click() })
     await flush()
-    expect(sparat[0]).toEqual(['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'ekonomi'])
+    expect(sparat[0]).toEqual(['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy', 'ekonomi'])
+  })
+
+  it('en sparad favorit med det gamla id:t maskinvy-2 visas som Maskinvy och sparas som maskinvy', async () => {
+    const sparat: string[][] = []
+    await montera(<Startsida roll="admin" marken={{}} favoritIds={['oversikt', 'maskinvy-2']} onSparaFavoriter={async ids => { sparat.push(ids); return true }} />)
+    expect(dinaVyer()).toEqual(['/oversikt', '/maskinvy'])
+    await andra()
+    await act(async () => { iArk('Flytta upp Maskinvy').click() })
+    await act(async () => { spara().click() })
+    await flush()
+    expect(sparat[0]).toEqual(['maskinvy', 'oversikt'])
   })
 
   it('HomeClient: sparade favoriter läses in för admin', async () => {

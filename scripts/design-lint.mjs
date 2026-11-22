@@ -136,7 +136,7 @@ export const SKARPA = [
   "components/design/Falt.tsx",
   "components/design/TalRad.tsx",
   "components/design/Manadsvaljare.tsx",
-  // Maskinvyn ?ny=1 (PR 1, 2026-10-21): kläd om mot tokens, noll literaler. Jamforelse.tsx och MaskinLogg.tsx (delas med den äldre vyn) ligger kvar utanför.
+  // Maskinvyn (PR 1, 2026-10-21; Jamforelse och MaskinLogg 2026-11-22, när den äldre vyn togs bort): klädd mot tokens, noll literaler.
   "app/maskinvy/OversiktNy.tsx",
   "app/maskinvy/OversiktShared.tsx",
   "app/maskinvy/IdagNy.tsx",
@@ -157,6 +157,8 @@ export const SKARPA = [
   "app/maskinvy/Livestatus.tsx",
   "app/maskinvy/DagensObjekt.tsx",
   "app/maskinvy/Sidolista.tsx",
+  "app/maskinvy/Jamforelse.tsx",
+  "app/maskinvy/MaskinLogg.tsx",
   "app/maskinvy/page.tsx",
   // Uppföljningens detaljvy (2026-11-13): flyttad från egna V6-literaler till tokens — noll literaler.
   "app/uppfoljning/UppfoljningVy.tsx",

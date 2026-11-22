@@ -28,8 +28,6 @@ vi.mock('./SkotareIdagNy', () => st('SkotarIdag'))
 vi.mock('./SkotareJamforelseNy', () => st('SkotarJämförelse'))
 vi.mock('./Jamforelse', () => st('Jämförelse'))
 vi.mock('./MaskinLogg', () => ({ default: () => null }))
-vi.mock('../../maskinvy', () => st('GamlaSkördare'))
-vi.mock('../../skotare', () => st('GamlaSkotare'))
 vi.mock('./Sidolista', () => ({
   default: ({ onVal }: any) => <button data-sido onClick={() => onVal('skotare', 'A030353')}>sido</button>,
 }))
@@ -59,7 +57,7 @@ afterEach(() => { act(() => rot.unmount()); el.remove() })
 
 describe('Maskinvyn: backa ett steg i taget', () => {
   it('Översikt → Produktion → Avbrott: backa går tillbaka flik för flik och lämnar först sist', async () => {
-    await montera('/maskinvy?ny=1')
+    await montera('/maskinvy')
     expect(vy()?.getAttribute('data-vy')).toBe('Översikt')
     await klicka(flik('Produktion'))
     await klicka(flik('Avbrott'))
@@ -73,14 +71,14 @@ describe('Maskinvyn: backa ett steg i taget', () => {
   })
 
   it('tryck på redan vald flik lägger ingen post (backa blir inte ett tomt steg)', async () => {
-    await montera('/maskinvy?ny=1&vy=produktion')
+    await montera('/maskinvy?vy=produktion')
     const niva = niv()
     await klicka(flik('Produktion'))
     expect(niv()).toBe(niva)
   })
 
   it('maskinbyte är ett steg: backa = föregående maskin', async () => {
-    await montera('/maskinvy?ny=1')
+    await montera('/maskinvy')
     expect(vy()?.getAttribute('data-maskin')).toBe('PONS20SDJAA270231')
     await klicka(el.querySelector('[data-byt="Översikt"]'))
     expect(vy()?.getAttribute('data-maskin')).toBe('R64428')
@@ -89,7 +87,7 @@ describe('Maskinvyn: backa ett steg i taget', () => {
   })
 
   it('läge: Skotare → backa = Skördare, och varje läge minns sin egen maskin i adressen', async () => {
-    await montera('/maskinvy?ny=1&vy=produktion')
+    await montera('/maskinvy?vy=produktion')
     await klicka(lage('Skotare'))
     expect(vy()?.getAttribute('data-vy')).toBe('SkotarProduktion')
     expect(vy()?.getAttribute('data-maskin')).toBe('A110148')
@@ -98,7 +96,7 @@ describe('Maskinvyn: backa ett steg i taget', () => {
   })
 
   it('byte till ett läge som saknar fliken (Kapacitet → Skotare) är ETT steg, inte två', async () => {
-    await montera('/maskinvy?ny=1&vy=kapacitet')
+    await montera('/maskinvy?vy=kapacitet')
     expect(vy()?.getAttribute('data-vy')).toBe('Kapacitet')
     const niva = niv()
     await klicka(lage('Skotare'))
@@ -110,7 +108,7 @@ describe('Maskinvyn: backa ett steg i taget', () => {
 
   it('sidolistan: maskin + läge i ETT steg', async () => {
     ;(window as any).matchMedia = (q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {} })
-    await montera('/maskinvy?ny=1')
+    await montera('/maskinvy')
     const niva = niv()
     await klicka(el.querySelector('[data-sido]'))
     expect(niv()).toBe(niva + 1)
@@ -120,23 +118,27 @@ describe('Maskinvyn: backa ett steg i taget', () => {
   })
 
   it('omladdning: flik, läge och maskin kommer ur adressen', async () => {
-    await montera('/maskinvy?ny=1&lage=skotare&vy=avbrott&skotare=A030353')
+    await montera('/maskinvy?lage=skotare&vy=avbrott&skotare=A030353')
     expect(vy()?.getAttribute('data-vy')).toBe('SkotarAvbrott')
     expect(vy()?.getAttribute('data-maskin')).toBe('A030353')
   })
 
   it('okänt läge/maskin i adressen faller tillbaka på standard', async () => {
-    await montera('/maskinvy?ny=1&lage=nonsens&skordare=finnsinte')
+    await montera('/maskinvy?lage=nonsens&skordare=finnsinte')
     expect(vy()?.getAttribute('data-vy')).toBe('Översikt')
     expect(vy()?.getAttribute('data-maskin')).toBe('PONS20SDJAA270231')
   })
 
-  it('den gamla vyn (utan ny=1) byter läge i historiken på samma sätt', async () => {
-    await montera('/maskinvy')
-    expect(vy()?.getAttribute('data-vy')).toBe('GamlaSkördare')
-    await klicka(lage('Skotare'))
-    expect(vy()?.getAttribute('data-vy')).toBe('GamlaSkotare')
-    await backa()
-    expect(vy()?.getAttribute('data-vy')).toBe('GamlaSkördare')
+  it('ett gammalt bokmärke städas på plats: ?ny=1 och vy=analys blir Översikt, utan ny post i historiken', async () => {
+    await montera('/maskinvy?ny=1&vy=analys&per=K&off=-1')
+    expect(vy()?.getAttribute('data-vy')).toBe('Översikt')
+    expect(window.location.search).toBe('')
+    expect(niv()).toBe(0)
+  })
+
+  it('vy=jamfor i ett gammalt bokmärke öppnar Jämförelse-läget', async () => {
+    await montera('/maskinvy?ny=1&vy=jamfor')
+    expect(vy()?.getAttribute('data-vy')).toBe('Jämförelse')
+    expect(window.location.search).toBe('?lage=jamforelse')
   })
 })
