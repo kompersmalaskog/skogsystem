@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { UppfoljningObjekt } from './transform';
-import { skogKort, skogDokument, vaderRad, svarText, veckaRader } from './iSkogenSida';
+import { skogKort, skogDokument, vaderRad, svarText, tidRader, vaderPerPeriod, type Tidslinje } from './iSkogenSida';
 
 const obj = (over: Partial<UppfoljningObjekt>): UppfoljningObjekt => ({
   vo_nummer: 'VO1', namn: 'Objekt', typ: 'slutavverkning', volymSkordare: 1000, volymSkotare: 0,
@@ -76,20 +76,46 @@ describe('skogDokument', () => {
   });
 });
 
-describe('veckaRader', () => {
-  const summa = (fran: string, till: string, regnMm: number | null, regnDagar: number) =>
-    ({ fran, till, regnMm, regnDagar, tMin: -2, tMax: 6, dagar: 1, saknas: 0 });
-  it('en rad per vecka, saknat regn sägs', () => {
-    const r = veckaRader({ ok: true, summa: summa('2026-10-27', '2026-11-03', 22, 4), veckor: [
-      { vecka: 44, summa: summa('2026-10-27', '2026-11-01', 22, 4) },
-      { vecka: 45, summa: summa('2026-11-02', '2026-11-02', null, 0) },
-    ] })!;
-    expect(r[0]).toMatchObject({ titel: 'Vecka 44', hoger: '22 mm', under: '27 okt – 1 nov · 4 dagar med regn · −2 till 6 °C' });
-    expect(r[1]).toMatchObject({ titel: 'Vecka 45', hoger: 'regn saknas', under: '2 nov · −2 till 6 °C' });
+
+describe('arket: tidslinjen och vädret per period', () => {
+  const idag = '2026-11-22';
+  const tid = (over: Partial<Tidslinje>): Tidslinje => ({ avverkStart: '2026-10-27', avverkSlut: '2026-11-02', skotStart: '2026-11-10', skotSlut: '2026-11-18', egenSkotning: false, ...over });
+  const rad = (t: Tidslinje) => Object.fromEntries(tidRader(t, idag).map(r => [r.titel, r.hoger]));
+
+  it('klar trakt: alla datum, legat och hela tiden', () => {
+    expect(rad(tid({}))).toEqual({
+      'Avverkningen började': '27 okt', 'Avverkningen slutade': '2 nov', 'Låg i skogen': '7 dagar',
+      'Skotaren började': '10 nov', 'Skotaren slutade': '18 nov', 'Från stubbe till avlägg': '23 dagar',
+    });
   });
-  it('inga veckor utan svar, vid fel eller i ett äldre svar', () => {
-    expect(veckaRader(undefined)).toBeNull();
-    expect(veckaRader({ ok: false, orsak: 'las' })).toBeNull();
-    expect(veckaRader({ ok: true, summa: summa('2026-10-27', '2026-11-01', 1, 1) })).toBeNull();
+  it('väntar på skotaren: legat hittills, ingen sluttid', () => {
+    const r = tidRader(tid({ skotStart: null, skotSlut: null }), idag);
+    expect(r.find(x => x.titel === 'Låg i skogen')).toMatchObject({ hoger: '20 dagar', under: 'Hittills – skotaren har inte börjat' });
+    expect(r.find(x => x.titel === 'Skotaren började')!.hoger).toBe('inte än');
+    expect(r.some(x => x.titel === 'Skotaren slutade' || x.titel === 'Från stubbe till avlägg')).toBe(false);
+  });
+  it('skördaren kör, skotaren kör, egen skotning', () => {
+    expect(rad(tid({ avverkSlut: null, skotStart: null, skotSlut: null }))['Avverkningen slutade']).toBe('pågår');
+    expect(rad(tid({ skotSlut: null }))['Skotaren slutade']).toBe('kör fortfarande');
+    expect(rad(tid({ skotStart: '2026-11-01', skotSlut: null }))['Låg i skogen']).toBe('0 dagar');
+    expect(rad(tid({ egenSkotning: true, skotStart: null, skotSlut: null }))).toEqual({
+      'Avverkningen började': '27 okt', 'Avverkningen slutade': '2 nov', 'Skotning': 'egen skotning',
+    });
+  });
+
+  it('vädret delas på avverkning, liggetid och skotning', () => {
+    const dagar = [];
+    for (let d = Date.parse('2026-10-27'); d <= Date.parse('2026-11-18'); d += 864e5) {
+      const datum = new Date(d).toISOString().slice(0, 10);
+      dagar.push({ datum, regnMm: datum <= '2026-11-02' ? 1 : datum < '2026-11-10' ? 3 : 0, tMin: -1, tMax: 4 });
+    }
+    const svar = { ok: true as const, summa: { fran: '', till: '', dagar: 0, saknas: 0, regnMm: 0, regnDagar: 0, tMin: 0, tMax: 0 }, dagar };
+    const r = vaderPerPeriod(tid({}), svar, idag)!;
+    expect(r.map(x => [x.titel, x.hoger])).toEqual([
+      ['Under avverkningen', '7 mm'], ['Medan virket låg', '21 mm'], ['Under skotningen', '0 mm'],
+    ]);
+    expect(r[1].under).toBe('3 nov – 9 nov · 7 dagar med regn · −1 till 4 °C');
+    expect(vaderPerPeriod(tid({}), { ok: false, orsak: 'las' }, idag)).toBeNull();
+    expect(vaderPerPeriod(tid({}), { ...svar, dagar: undefined }, idag)).toBeNull();
   });
 });

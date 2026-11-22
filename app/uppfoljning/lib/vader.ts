@@ -20,11 +20,8 @@ export type VaderSumma = {
   tMax: number | null;
 };
 
-/** En vecka av perioden: ISO-veckans nummer och samma summa som hela perioden, för dagarna i veckan. */
-export type VaderVecka = { vecka: number; summa: VaderSumma };
-
 export type VaderSvar =
-  | { ok: true; summa: VaderSumma; veckor?: VaderVecka[] }
+  | { ok: true; summa: VaderSumma; /** Dagarna i perioden, så en vy kan dela den (Ligger i skogen). Saknas i äldre svar. */ dagar?: VaderDag[] }
   | { ok: false; orsak: 'saknar_plats' | 'saknar_datum' | 'las'; fel?: string };
 
 const tal = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -59,31 +56,6 @@ export function summera(dagar: VaderDag[], fran: string, till: string): VaderSum
     tMin: mins.length > 0 ? Math.round(Math.min(...mins)) : null,
     tMax: maxs.length > 0 ? Math.round(Math.max(...maxs)) : null,
   };
-}
-
-/** ISO-veckans nummer för ett datum "YYYY-MM-DD" (räknat på datumet, aldrig på klockan). */
-export function isoVeckaNr(datum: string): number {
-  const d = new Date(`${datum}T00:00:00Z`);
-  const dag = (d.getUTCDay() + 6) % 7; // mån = 0
-  d.setUTCDate(d.getUTCDate() - dag + 3); // torsdagen i samma vecka
-  return 1 + Math.floor((d.getTime() - Date.UTC(d.getUTCFullYear(), 0, 1)) / 864e5 / 7);
-}
-
-/** Perioden fran..till delad i ISO-veckor (måndag–söndag, första och sista veckan kapade mot perioden),
- *  varje vecka summerad med `summera`. Samma regler som hela perioden: saknat värde är aldrig 0. */
-export function veckor(dagar: VaderDag[], fran: string, till: string): VaderVecka[] {
-  const ut: VaderVecka[] = [];
-  let start = fran;
-  while (start <= till) {
-    const d = new Date(`${start}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() + (6 - ((d.getUTCDay() + 6) % 7))); // söndagen
-    const son = d.toISOString().slice(0, 10);
-    const slut = son < till ? son : till;
-    ut.push({ vecka: isoVeckaNr(start), summa: summera(dagar, start, slut) });
-    d.setUTCDate(d.getUTCDate() + 1);
-    start = d.toISOString().slice(0, 10);
-  }
-  return ut;
 }
 
 /** "−2 till 11 °C" — minustecken, inte bindestreck. */

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { kravInloggad } from "@/lib/auth/server";
-import { summera, tolkaDaily, vaderUrl, veckor, type VaderSvar } from "@/app/uppfoljning/lib/vader";
+import { summera, tolkaDaily, vaderUrl, type VaderSvar } from "@/app/uppfoljning/lib/vader";
 
 /**
  * GET /api/uppfoljning/vader?vo=11277905&fran=2026-10-28&till=2026-11-21
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
     clearTimeout(t);
     if (!res.ok) throw new Error(`Open-Meteo svarade ${res.status}`);
     const dagar = tolkaDaily(await res.json());
-    const svar: VaderSvar = { ok: true, summa: summera(dagar, fran, till), veckor: veckor(dagar, fran, till) };
+    const svar: VaderSvar = { ok: true, summa: summera(dagar, fran, till), dagar: dagar.filter(d => d.datum >= fran && d.datum <= till) };
     cache.set(nyckel, { at: Date.now(), svar });
     return NextResponse.json(svar);
   } catch (e) {

@@ -13,6 +13,8 @@ vi.mock('../hooks/useUppfoljningList', async () => {
   const faktisk = await vi.importActual<typeof import('../hooks/useUppfoljningList')>('../hooks/useUppfoljningList');
   return { ...faktisk, useUppfoljningList: () => ({ objekt: data, loading: false, error: null }) };
 });
+let forsta: Map<string, string> | null = new Map();
+vi.mock('./useForstaDag', () => ({ useForstaDag: () => forsta }));
 vi.mock('@/app/helikopter/_components/PdfForhandsvisning', () => ({ default: () => <div data-pdf-oppen /> }));
 
 import ISkogenSida from './page';
@@ -31,7 +33,7 @@ let rot: Root | null = null;
 let be: HTMLElement | null = null;
 let svara: ((v: unknown) => void)[] = [];
 beforeEach(() => {
-  push.mockReset(); svara = [];
+  push.mockReset(); svara = []; forsta = new Map();
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-11-21T17:00:00Z'));
   globalThis.fetch = vi.fn(() => new Promise(res => { svara.push(res); })) as never;
@@ -63,10 +65,10 @@ describe('Ligger i skogen — egen sida', () => {
     expect((be!.querySelector('[data-skogen-pdf]') as HTMLElement).style.pointerEvents).toBe('none');
 
     await act(async () => {
-      for (const s of svara) s({ json: async () => ({ ok: true, summa: { regnMm: 61, regnDagar: 11, tMin: -3, tMax: 9, dagar: 25, saknas: 0 }, veckor: [
-        { vecka: 44, summa: { fran: '2026-10-27', till: '2026-11-01', regnMm: 22, regnDagar: 4, tMin: -2, tMax: 6, dagar: 6, saknas: 0 } },
-        { vecka: 45, summa: { fran: '2026-11-02', till: '2026-11-08', regnMm: 0, regnDagar: 0, tMin: 1, tMax: 9, dagar: 7, saknas: 0 } },
-      ] }) });
+      for (const s of svara) s({ json: async () => ({ ok: true, summa: { regnMm: 61, regnDagar: 11, tMin: -3, tMax: 9, dagar: 25, saknas: 0 }, dagar: Array.from({ length: 26 }, (_, n) => {
+        const datum = new Date(Date.parse('2026-10-27T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+        return { datum, regnMm: datum <= '2026-11-02' ? 2 : datum < '2026-11-10' ? 4 : 0, tMin: -2, tMax: 6 };
+      }) }) });
     });
     await act(async () => {});
     expect(text()).toContain('Regn 61 mm · 11 dagar med regn · −3 till 9 °C');
@@ -76,13 +78,17 @@ describe('Ligger i skogen — egen sida', () => {
     expect(push).not.toHaveBeenCalled();
     const ark = be!.parentElement!.querySelector('[data-skogen-ark]') ?? document.querySelector('[data-skogen-ark]');
     expect(ark).toBeTruthy();
-    expect(ark!.textContent).toContain('19 dagar sedan skördaren blev klar');
-    expect(ark!.textContent).toContain('Skördaren fällde 27 okt – 2 nov · 7 dagar');
-    expect(ark!.textContent).toContain('Regn 61 mm · 11 dagar med regn · −3 till 9 °C');
-    const v44 = document.querySelector('[data-skogen-vecka="Vecka 44"]')!.textContent!;
-    expect(v44).toContain('22 mm');
-    expect(v44).toContain('27 okt – 1 nov · 4 dagar med regn · −2 till 6 °C');
-    expect(document.querySelector('[data-skogen-vecka="Vecka 45"]')!.textContent).toContain('0 mm');
+    const tid = (k: string) => document.querySelector(`[data-skogen-tid="${k}"]`)!.textContent!;
+    expect(tid('avStart')).toContain('27 okt');
+    expect(tid('avSlut')).toContain('2 nov');
+    expect(tid('lag')).toContain('7 dagar');
+    expect(tid('stStart')).toContain('10 nov');
+    expect(tid('stSlut')).toContain('kör fortfarande');
+    const per = (k: string) => document.querySelector(`[data-skogen-period="${k}"]`)!.textContent!;
+    expect(per('avverkning')).toContain('14 mm');
+    expect(per('lag')).toContain('28 mm');
+    expect(per('lag')).toContain('3 nov – 9 nov · 7 dagar med regn · −2 till 6 °C');
+    expect(per('skotning')).toContain('0 mm');
     expect(ark!.textContent).not.toMatch(/m³/);
     await act(async () => { (Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Klar') as HTMLElement).click(); });
     expect(document.querySelector('[data-skogen-ark]')).toBeNull();
@@ -99,5 +105,23 @@ describe('Ligger i skogen — egen sida', () => {
     expect(text()).toContain('Vädret kunde inte hämtas');
     expect(text()).toContain('Hämta vädret igen');
     expect(text()).not.toContain('0 mm');
+  });
+});
+
+describe('första fällningsdagen', () => {
+  it('väntar på den innan trakterna visas, och den går före listans felaktiga startdatum', async () => {
+    // Bondeskog 2026: dim_objekt.start_date bar skotarens start (20 nov) efter sista fällning (6 nov).
+    data = [obj({ vo_nummer: 'B', namn: 'Bondeskog', skordareStart: '2026-11-20', sistaAvverkning: '2026-11-06', skordningAvslutad: true, antalLass: 0, skordareObjektId: 'B' } as never)];
+    forsta = null;
+    await montera();
+    expect(text()).toContain('Läser trakterna');
+    forsta = new Map([['B', '2026-11-05']]);
+    await act(async () => { rot!.render(<ISkogenSida />); });
+    expect(text()).toContain('Skördaren fällde 5–6 nov · 2 dagar');
+  });
+  it('utan läst dag gäller listans start bara om den inte ligger efter sista fällningen', async () => {
+    data = [obj({ vo_nummer: 'B', namn: 'Bondeskog', skordareStart: '2026-11-20', sistaAvverkning: '2026-11-06', skordningAvslutad: true, antalLass: 0 })];
+    await montera();
+    expect(text()).not.toContain('Skördaren fällde 20 nov');
   });
 });

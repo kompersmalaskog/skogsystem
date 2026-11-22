@@ -8,8 +8,8 @@ import { arRisjobb } from '@/lib/objekt/typ';
 import type { Dokument, DokRad } from '@/lib/arbetsmiljo/dokument';
 import type { UppfoljningObjekt } from './transform';
 import { kvarM3, sektionAv, type Sektion } from './sektion';
-import { iSkogen, dagOrd, kortDatum, period, stegFor, KLARA_VISAS_DAGAR, type StegIndata } from './iSkogen';
-import { tempText, type VaderSumma, type VaderSvar } from './vader';
+import { iSkogen, dagOrd, dagarMellan, kortDatum, period, stegFor, KLARA_VISAS_DAGAR, type StegIndata } from './iSkogen';
+import { summera, tempText, type VaderSumma, type VaderSvar } from './vader';
 
 /** Samma urval som kortet i menyn: allt virke som skördas eller ligger kvar + nyss framme. */
 export function skogenAvObjekt(objekt: UppfoljningObjekt[], nu: number) {
@@ -33,12 +33,33 @@ export type SkogKort = {
   steg: string[];
   /** Perioden vädret gäller. null = inga datum. */
   period: { fran: string; till: string } | null;
+  /** Tidslinjen i traktens ark. */
+  tid: Tidslinje;
 };
 
-function stegIndata(o: UppfoljningObjekt, skordareKlar: boolean): StegIndata {
+/** Datumen från stubbe till avlägg. null = har inte hänt (eller okänt). */
+export type Tidslinje = {
+  avverkStart: string | null;
+  avverkSlut: string | null;   // null = skördaren kör fortfarande
+  skotStart: string | null;
+  skotSlut: string | null;     // null = skotaren har inte börjat eller kör fortfarande
+  egenSkotning: boolean;
+};
+
+/** Första fällningsdagen: skördarens första dag med produktion om den är läst, annars
+ *  dim_objekt.start_date — men bara om den inte ligger efter sista fällningsdagen (raden blandar
+ *  maskiner: Bondeskog 2026 bar skotarens start, 20 nov, mot sista fällning 6 nov). */
+function forstaDag(o: UppfoljningObjekt, forsta: string | undefined): string | null {
+  if (forsta) return forsta;
+  const s = o.skordareStart?.slice(0, 10) ?? null;
+  const sista = o.sistaAvverkning?.slice(0, 10) ?? null;
+  return s && sista && s > sista ? null : s;
+}
+
+function stegIndata(o: UppfoljningObjekt, skordareKlar: boolean, forsta?: string): StegIndata {
   return {
     skordarDagar: [],
-    skordareStart: o.skordareStart,
+    skordareStart: forstaDag(o, forsta),
     sistaAvverkning: o.sistaAvverkning,
     skordareKlar,
     lassDagar: [],
@@ -49,27 +70,41 @@ function stegIndata(o: UppfoljningObjekt, skordareKlar: boolean): StegIndata {
   };
 }
 
-function kortFor(o: UppfoljningObjekt, dagar: number | null, skordareKlar: boolean, idag: string): SkogKort {
-  const i = stegIndata(o, skordareKlar);
+/** Nyckeln ett kort har — också nyckeln i kartan med första fällningsdagar. */
+export function kortNyckel(o: UppfoljningObjekt): string {
+  return o.vo_nummer || o.skordareObjektId || o.skotareObjektId || o.namn;
+}
+
+function tidslinje(i: StegIndata): Tidslinje {
+  const avverkStart = i.skordareStart?.slice(0, 10) ?? null;
+  const avverkSlut = i.skordareKlar ? (i.sistaAvverkning?.slice(0, 10) ?? null) : null;
+  const skotStart = i.egenSkotning ? null : (i.skotareStart?.slice(0, 10) ?? null);
+  const skotSlut = skotStart && i.skotningKlar ? (i.skotareLastDate?.slice(0, 10) ?? null) : null;
+  return { avverkStart, avverkSlut, skotStart, skotSlut, egenSkotning: i.egenSkotning };
+}
+
+function kortFor(o: UppfoljningObjekt, dagar: number | null, skordareKlar: boolean, idag: string, forsta?: string): SkogKort {
+  const i = stegIndata(o, skordareKlar, forsta);
   return {
-    nyckel: o.vo_nummer || o.skordareObjektId || o.skotareObjektId || o.namn,
+    nyckel: kortNyckel(o),
     urlId: o.vo_nummer || o.skordareObjektId || o.skotareObjektId || '',
     vo: o.vo_nummer || null,
     namn: o.namn,
     dagar,
     steg: stegFor(i, idag).map(s => `${s.rubrik} ${s.under}`),
     period: period(i, idag),
+    tid: tidslinje(i),
   };
 }
 
 /** Korten: i skogen (längst legat först), sedan framme vid avlägget (senast först). */
-export function skogKort(objekt: UppfoljningObjekt[], nu: number, idag: string): { iSkogen: SkogKort[]; framme: SkogKort[] } {
+export function skogKort(objekt: UppfoljningObjekt[], nu: number, idag: string, forsta: Map<string, string> = new Map()): { iSkogen: SkogKort[]; framme: SkogKort[] } {
   const { skogen, skordas } = skogenAvObjekt(objekt, nu);
   return {
     iSkogen: skogen.rader.map(r =>
-      kortFor(r.o, r.lage.lage === 'vantar' || r.lage.lage === 'skotas' ? r.lage.dagar : null, !skordas.has(r.o), idag)),
+      kortFor(r.o, r.lage.lage === 'vantar' || r.lage.lage === 'skotas' ? r.lage.dagar : null, !skordas.has(r.o), idag, forsta.get(kortNyckel(r.o)))),
     framme: skogen.klara.map(k => {
-      const kort = kortFor(k.o, k.dagar, true, idag);
+      const kort = kortFor(k.o, k.dagar, true, idag, forsta.get(kortNyckel(k.o)));
       // Framme: säg när sista lasset kom, så raden inte påstår "kör" när den är klar.
       return { ...kort, steg: kort.steg.length > 0 ? kort.steg : [`Skotat klart ${kortDatum(k.framme)}`] };
     }),
@@ -97,18 +132,67 @@ function detaljer(s: VaderSumma): string[] {
   return delar;
 }
 
-export type VeckaRad = { nyckel: string; titel: string; hoger: string; under: string };
+export type ArkRad = { nyckel: string; titel: string; hoger: string; under?: string };
 
-/** En rad per vecka i traktens ark: "Vecka 44" · "22 mm" · "4 dagar med regn · −2 till 6 °C".
- *  null när svaret saknar veckor (fel, hämtas, eller ett äldre svar utan veckorna). */
-export function veckaRader(svar: VaderSvar | null | undefined): VeckaRad[] | null {
-  if (!svar || !svar.ok || !svar.veckor || svar.veckor.length === 0) return null;
-  return svar.veckor.map(v => ({
-    nyckel: v.summa.fran,
-    titel: `Vecka ${v.vecka}`,
-    hoger: v.summa.regnMm == null ? 'regn saknas' : `${v.summa.regnMm} mm`,
-    under: [`${kortDatum(v.summa.fran)}${v.summa.till !== v.summa.fran ? ` – ${kortDatum(v.summa.till)}` : ''}`, ...detaljer(v.summa)].join(' · '),
-  }));
+const dagText = (n: number) => `${n} ${dagOrd(n)}`;
+const plusDag = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+
+/** Tidslinjen i traktens ark, en rad per händelse: när avverkningen började och slutade, hur länge
+ *  virket låg, när skotaren började och slutade, och hela tiden från stubbe till avlägg. */
+export function tidRader(t: Tidslinje, idag: string): ArkRad[] {
+  const r: ArkRad[] = [];
+  r.push({ nyckel: 'avStart', titel: 'Avverkningen började', hoger: t.avverkStart ? kortDatum(t.avverkStart) : 'okänt' });
+  r.push({ nyckel: 'avSlut', titel: 'Avverkningen slutade', hoger: t.avverkSlut ? kortDatum(t.avverkSlut) : 'pågår' });
+  if (t.egenSkotning) {
+    r.push({ nyckel: 'egen', titel: 'Skotning', hoger: 'egen skotning' });
+    return r;
+  }
+  if (t.avverkSlut) {
+    if (t.skotStart && t.skotStart <= t.avverkSlut) {
+      r.push({ nyckel: 'lag', titel: 'Låg i skogen', hoger: '0 dagar', under: 'Skotaren började medan skördaren körde' });
+    } else if (t.skotStart) {
+      r.push({ nyckel: 'lag', titel: 'Låg i skogen', hoger: dagText(dagarMellan(t.avverkSlut, t.skotStart) - 1) });
+    } else {
+      r.push({ nyckel: 'lag', titel: 'Låg i skogen', hoger: dagText(dagarMellan(t.avverkSlut, idag)), under: 'Hittills – skotaren har inte börjat' });
+    }
+  }
+  r.push({ nyckel: 'stStart', titel: 'Skotaren började', hoger: t.skotStart ? kortDatum(t.skotStart) : 'inte än' });
+  if (t.skotStart) r.push({ nyckel: 'stSlut', titel: 'Skotaren slutade', hoger: t.skotSlut ? kortDatum(t.skotSlut) : 'kör fortfarande' });
+  if (t.avverkStart && t.skotSlut) {
+    r.push({ nyckel: 'totalt', titel: 'Från stubbe till avlägg', hoger: dagText(dagarMellan(t.avverkStart, t.skotSlut) + 1) });
+  }
+  return r;
+}
+
+/** Perioderna vädret delas på: under avverkningen, medan virket låg, under skotningen.
+ *  En period som inte har börjat finns inte; en som pågår slutar idag. */
+export function vaderPerioder(t: Tidslinje, idag: string): { nyckel: string; titel: string; fran: string; till: string }[] {
+  const ut: { nyckel: string; titel: string; fran: string; till: string }[] = [];
+  const lagg = (nyckel: string, titel: string, fran: string | null, till: string | null) => {
+    if (fran && till && fran <= till) ut.push({ nyckel, titel, fran, till });
+  };
+  lagg('avverkning', 'Under avverkningen', t.avverkStart, t.avverkSlut ?? idag);
+  if (t.avverkSlut && !t.egenSkotning && !(t.skotStart && t.skotStart <= t.avverkSlut)) {
+    lagg('lag', 'Medan virket låg', plusDag(t.avverkSlut, 1), t.skotStart ? plusDag(t.skotStart, -1) : idag);
+  }
+  if (!t.egenSkotning) lagg('skotning', 'Under skotningen', t.skotStart, t.skotSlut ?? idag);
+  return ut;
+}
+
+/** Vädret per period i arket. null när dagarna inte finns (hämtas, fel, eller ett äldre svar). */
+export function vaderPerPeriod(t: Tidslinje, svar: VaderSvar | null | undefined, idag: string): ArkRad[] | null {
+  if (!svar || !svar.ok || !svar.dagar) return null;
+  const dagar = svar.dagar;
+  return vaderPerioder(t, idag).map(p => {
+    const s = summera(dagar, p.fran, p.till);
+    const datum = p.fran === p.till ? kortDatum(p.fran) : `${kortDatum(p.fran)} – ${kortDatum(p.till)}`;
+    return {
+      nyckel: p.nyckel,
+      titel: p.titel,
+      hoger: s.regnMm == null ? 'regn saknas' : `${s.regnMm} mm`,
+      under: [datum, ...detaljer(s)].join(' · '),
+    };
+  });
 }
 
 export function svarText(antal: number, langst: number | null): string {

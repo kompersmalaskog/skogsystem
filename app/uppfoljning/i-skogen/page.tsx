@@ -13,7 +13,8 @@ import Ark from '@/components/design/Ark';
 import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning';
 import { useUppfoljningList } from '../hooks/useUppfoljningList';
 import { dagOrd, KLARA_VISAS_DAGAR } from '../lib/iSkogen';
-import { skogKort, skogDokument, svarText, vaderRad, veckaRader, type SkogKort } from '../lib/iSkogenSida';
+import { skogKort, skogDokument, skogenAvObjekt, svarText, tidRader, vaderPerPeriod, vaderRad, type SkogKort } from '../lib/iSkogenSida';
+import { useForstaDag } from './useForstaDag';
 import { useVaderAlla } from './useVaderAlla';
 
 function svenskIdag(): string {
@@ -24,7 +25,13 @@ export default function ISkogenSida() {
   const router = useRouter();
   const { objekt, loading, error } = useUppfoljningList();
   const idag = svenskIdag();
-  const kort = useMemo(() => skogKort(objekt, Date.now(), idag), [objekt, idag]);
+  // Bara trakterna på sidan får sin första fällningsdag läst.
+  const visade = useMemo(() => {
+    const { skogen } = skogenAvObjekt(objekt, Date.now());
+    return [...skogen.rader.map(r => r.o), ...skogen.klara.map(k => k.o)];
+  }, [objekt]);
+  const forsta = useForstaDag(visade);
+  const kort = useMemo(() => skogKort(forsta ? objekt : [], Date.now(), idag, forsta ?? undefined), [objekt, idag, forsta]);
   const alla = useMemo(() => [...kort.iSkogen, ...kort.framme], [kort]);
   const { vader, forsokIgen } = useVaderAlla(alla);
   const [pdf, setPdf] = useState(false);
@@ -63,7 +70,7 @@ export default function ISkogenSida() {
       </button>
       <h1 style={{ ...TYP.titel, margin: `${AVSTAND.s}px 0 ${AVSTAND.xs}px` }}>Ligger i skogen</h1>
 
-      {loading ? (
+      {loading || (!error && !forsta) ? (
         <div style={{ ...TYP.meta, color: FARG.text2 }}>Läser trakterna …</div>
       ) : error ? (
         <div style={{ ...TYP.meta, color: FARG.orange }}>Kunde inte läsa trakterna.</div>
@@ -111,23 +118,22 @@ export default function ISkogenSida() {
 
       {vald && (() => {
         const svar = vader.get(vald.nyckel);
-        const v = veckaRader(svar);
+        const perioder = vaderPerPeriod(vald.tid, svar, idag);
+        const tid = tidRader(vald.tid, idag);
         return (
           <Ark rubrik={vald.namn} onStang={() => setVald(null)} stang="Klar">
             <div data-skogen-ark>
-              {vald.dagar != null && (
-                <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.l }}>
-                  {`${vald.dagar} ${dagOrd(vald.dagar)} sedan skördaren blev klar`}
-                </div>
-              )}
-              <Sektion rubrik="Tiden" kort={false}>
-                {vald.steg.map((st, i) => <Rad key={st} titel={st} sista={i === vald.steg.length - 1} />)}
+              <Sektion rubrik="Från stubbe till avlägg" kort={false}>
+                {tid.map((r, i) => (
+                  <Rad key={r.nyckel} titel={r.titel} hoger={r.hoger} under={r.under} sista={i === tid.length - 1} attr={{ 'data-skogen-tid': r.nyckel }} />
+                ))}
               </Sektion>
               <Sektion rubrik="Vädret" kort={false} not="Beräknat för traktens plats (Open-Meteo).">
-                <Rad titel="Hela tiden" under={vaderRad(svar)} sista={!v} />
-                {v?.map((r, i) => (
-                  <Rad key={r.nyckel} titel={r.titel} hoger={r.hoger} under={r.under} sista={i === v.length - 1} attr={{ 'data-skogen-vecka': r.titel }} />
-                ))}
+                {perioder && perioder.length > 0
+                  ? perioder.map((r, i) => (
+                    <Rad key={r.nyckel} titel={r.titel} hoger={r.hoger} under={r.under} sista={i === perioder.length - 1} attr={{ 'data-skogen-period': r.nyckel }} />
+                  ))
+                  : <Rad titel="Hela tiden" under={vaderRad(svar)} sista />}
               </Sektion>
             </div>
           </Ark>

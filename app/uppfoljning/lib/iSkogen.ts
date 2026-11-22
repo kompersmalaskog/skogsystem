@@ -26,7 +26,7 @@ export type SkogLage =
 export type SkogRad = { o: UppfoljningObjekt; lage: SkogLage; kvarM3: number };
 export type KlarRad = { o: UppfoljningObjekt; dagar: number | null; framme: string };
 
-function dagarMellan(fran: string, till: string): number {
+export function dagarMellan(fran: string, till: string): number {
   return Math.max(0, Math.round((Date.parse(till.slice(0, 10)) - Date.parse(fran.slice(0, 10))) / DAG));
 }
 
