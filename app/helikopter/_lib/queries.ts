@@ -6,6 +6,7 @@
 import { supabase } from '@/lib/supabase'
 import { medAbortRetry } from '@/lib/supabaseRetry'
 import { hamtaAlla } from '@/lib/supabaseAlla'
+import { lasSkogKort, type SkogKort } from '@/lib/skogsdata/las'
 import { sparaSkotning } from '@/lib/startaJobbSkotning'
 import { G15_TOM, g15Tabell, type G15DagRad, type G15Tabell } from '@/lib/helikopterG15'
 import type { VeckolageData } from './veckolage'
@@ -530,9 +531,19 @@ export async function hamtaPrognosUtfall(): Promise<Svar<UtfallRad[]>> {
   return {
     data: r.data.map((x: any): UtfallRad => ({
       typ: x.typ ?? null, volymObjekt: talEllerNull(x.volym_objekt), skordadM3: talEllerNull(x.skordad_m3), stammar: talEllerNull(x.stammar),
-      skordareG15: talEllerNull(x.skordare_g15), skotareG15: talEllerNull(x.skotare_g15),
+      skordareG15: talEllerNull(x.skordare_g15), skotareG15: talEllerNull(x.skotare_g15), objektId: x.objekt_id != null ? String(x.objekt_id) : null,
     })),
     error: null,
+  }
+}
+
+/** Laserns medeldiameter och det uppmätta uttaget per trakt (objekt_skogsdata) — underlag för prognosen. Ett fel är ett fel: då räknas prognosen som utan laserdata. */
+export async function hamtaSkogKort(): Promise<Svar<Map<string, SkogKort>>> {
+  try {
+    const r = await lasSkogKort(supabase)
+    return r.error != null || !r.data ? { data: null, error: r.error ?? 'objekt_skogsdata gav inget svar' } : { data: r.data, error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
   }
 }
 

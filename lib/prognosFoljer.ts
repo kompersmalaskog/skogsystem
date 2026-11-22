@@ -26,6 +26,8 @@ export type FoljerIndata = {
   utfortH: number
   /** m³fub redan gjorda för rollen (skördat resp. skotat). */
   utfortVolym: number
+  /** Volymen prognosen gällde när den sattes (Vidas) — när `volym` har ersatts av den uppmätta. Prognosens takt räknas på den. */
+  prognosVolym?: number | null
 }
 
 export type FoljerResultat = {
@@ -44,7 +46,8 @@ export function foljPrognos(i: FoljerIndata): FoljerResultat | null {
   if (i.volym == null || !(i.volym > 0)) return null
   if (!(i.utfortH >= FOLJER_MIN_H) || !(i.utfortVolym > 0)) return null
   const uppmatt = i.utfortVolym / i.utfortH
-  const prior = i.prognosH != null && i.prognosH > 0 ? i.volym / i.prognosH : null
+  const pv = i.prognosVolym != null && i.prognosVolym > 0 ? i.prognosVolym : i.volym
+  const prior = i.prognosH != null && i.prognosH > 0 ? pv / i.prognosH : null
   const takt = prior == null ? uppmatt : (prior * FOLJER_PRIOR_H + uppmatt * i.utfortH) / (FOLJER_PRIOR_H + i.utfortH)
   const restVol = Math.max(0, i.volym - i.utfortVolym)
   const restH = Math.round((restVol / takt) * 100) / 100

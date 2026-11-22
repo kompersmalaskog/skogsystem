@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beraknaG15Forslag, forslagKalla, fmtMs, percentil, prestation, prestationVarning, snittTypOrd, type RollForslag, type UtfallRad } from './g15Forslag';
+import { beraknaG15Forslag, forslagKalla, fmtMs, laserModell, percentil, prestation, prestationVarning, snittTypOrd, type RollForslag, type UtfallRad } from './g15Forslag';
 import { UTFALL_2026_10_17 } from './__fixtures__/utfall_2026-10-17';
 
 const ok = <T extends { ok: boolean }>(r: T) => { expect(r.ok).toBe(true); return (r as any).forslag as RollForslag; };
@@ -154,5 +154,46 @@ describe('prestationVarning — siffran utanför liknande trakter', () => {
     expect(prestationVarning(1800, null, iv)).toBeNull();
     expect(prestationVarning(1800, 0, iv)).toBeNull();
     expect(prestationVarning(1800, 60, { lag: 0, hog: 0 })).toBeNull();
+  });
+});
+
+describe('medelstam ur laserskanningen (metod laser)', () => {
+  // Elva gallringar ur prod 2026-11-17: laserns medeldiameter (cm) och uppmätt medelstam. Takten följer medelstammen (≈ 80 × medelstam m³/G15h).
+  const PAR: [number, number][] = [[8.4, 0.032], [10.8, 0.032], [13.1, 0.037], [17.9, 0.044], [12.4, 0.049], [15, 0.052], [21.9, 0.057], [13.9, 0.057], [17.2, 0.069], [21.4, 0.093], [24, 0.116]];
+  const rader: UtfallRad[] = PAR.map(([dia, ms], i) => ({ typ: 'gallring', volymObjekt: null, skordadM3: 200, stammar: Math.round(200 / ms), skordareG15: 200 / (80 * ms), skotareG15: 30, objektId: `o${i}`, laserDiaCm: dia }));
+
+  it('laserModell: stiger med grovleken och ligger rimligt (13 cm ≈ 0,04–0,06, 22 cm ≈ 0,07–0,11)', () => {
+    const m = laserModell(PAR.map(([dia, medelstam]) => ({ dia, medelstam })))!;
+    expect(m(13)).toBeGreaterThan(0.04); expect(m(13)).toBeLessThan(0.06);
+    expect(m(22)).toBeGreaterThan(0.07); expect(m(22)).toBeLessThan(0.11);
+    expect(m(22)).toBeGreaterThan(m(13));
+  });
+  it('för få par, eller ett samband som inte stiger: ingen modell', () => {
+    expect(laserModell(PAR.slice(0, 4).map(([dia, medelstam]) => ({ dia, medelstam })))).toBeNull();
+    expect(laserModell([[10, 0.1], [12, 0.09], [14, 0.08], [16, 0.07], [18, 0.06]].map(([dia, medelstam]) => ({ dia, medelstam })))).toBeNull();
+  });
+  it('trakt utan medelstam men med laserdiameter: skördaren räknas på liknande medelstam, och det sägs', () => {
+    const f = beraknaG15Forslag({ typ: 'gallring', volym: 300, medelstam: null, laserDiaCm: 9.5 }, rader);
+    const s = ok(f.skordare);
+    expect(s.metod).toBe('laser');
+    expect(s.laserMedelstam).toBeGreaterThan(0.025); expect(s.laserMedelstam).toBeLessThan(0.04);
+    expect(forslagKalla(s)).toContain('ur laserskanningen');
+    // utan laserdatan: snittet över alla gallringar — ett annat tal
+    const utan = ok(beraknaG15Forslag({ typ: 'gallring', volym: 300, medelstam: null }, rader).skordare);
+    expect(utan.metod).toBe('snitt-medelstam-saknas');
+    expect(s.g15).toBeGreaterThan(utan.g15);                     // klen skog tar längre tid än snittet
+  });
+  it('en angiven medelstam går alltid före lasern', () => {
+    const s = ok(beraknaG15Forslag({ typ: 'gallring', volym: 300, medelstam: 0.05, laserDiaCm: 24 }, rader).skordare);
+    expect(s.metod).toBe('medelstam');
+    expect(s.laserMedelstam).toBeUndefined();
+  });
+  it('lasern ger en medelstam ingen liknande trakt har: snittet gäller som förut (aldrig "inget förslag" på grund av lasern)', () => {
+    const s = ok(beraknaG15Forslag({ typ: 'gallring', volym: 300, medelstam: null, laserDiaCm: 60 }, rader).skordare);
+    expect(s.metod).toBe('snitt-medelstam-saknas');
+  });
+  it('utan laserdata på raderna (äldre underlag): som förut', () => {
+    const gamla = rader.map(({ laserDiaCm: _l, ...r }) => r);
+    expect(ok(beraknaG15Forslag({ typ: 'gallring', volym: 300, medelstam: null, laserDiaCm: 14 }, gamla).skordare).metod).toBe('snitt-medelstam-saknas');
   });
 });

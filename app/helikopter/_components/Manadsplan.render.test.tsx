@@ -10,16 +10,16 @@ import klarOkt from '../_lib/__fixtures__/klar_2026-10-17.json'
 import { lasKlar } from '../_lib/klar'
 
 const q = vi.hoisted(() => ({ hamtaKlar: vi.fn(), hamtaPrognosUtfall: vi.fn(), params: '' }))
-vi.mock('../_lib/queries', () => ({ hamtaKlar: q.hamtaKlar, hamtaPrognosUtfall: q.hamtaPrognosUtfall }))
+vi.mock('../_lib/queries', () => ({ hamtaKlar: q.hamtaKlar, hamtaPrognosUtfall: q.hamtaPrognosUtfall, hamtaSkogKort: async () => ({ data: new Map(), error: null }) }))
 vi.mock('../_lib/manadsplanDela', () => ({ skapaManadsplanPdf: vi.fn(), delaManadsplan: vi.fn() }))
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(q.params) }))
-// Sidan ska gå genom SAMMA steg som HelikopterVy (medUppskattadPrognos → medFoljandePrognos). Spionen märker Giants trakter som G15-förslag
+// Sidan ska gå genom SAMMA kedja som HelikopterVy (medPrognoser: G15-förslag → uppmätt volym → följande prognos). Spionen märker Giants trakter som G15-förslag
 // när utfallet bär markören, så testet ser att vyn verkligen matar modellen med resultatet — inte med rådatan.
 vi.mock('../_lib/klar', async (orig) => {
   const m = await orig<typeof import('../_lib/klar')>()
   return {
     ...m,
-    medUppskattadPrognos: (d: import('../_lib/klar').KlarData, utfall: unknown[] | null) => {
+    medPrognoser: (d: import('../_lib/klar').KlarData, utfall: unknown[] | null) => {
       if (!utfall || utfall.length === 0) return d
       const giant = d.maskiner.find(x => x.namn === 'Giant')!
       return { ...d, trakter: d.trakter.map(t => (t.maskin_id === giant.maskin_id ? { ...t, uppskattad: true } : t)) }
