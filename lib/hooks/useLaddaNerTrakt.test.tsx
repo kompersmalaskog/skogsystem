@@ -48,6 +48,23 @@ describe('ladda ner trakten', () => {
     expect(igen.lage).toEqual({ lage: 'klar' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+  it('EN TRAKT SPARAD FÖRE 512-RUTORNA: på en skärm med hög upplösning räknas den som sparad — appen startar ingen ny nedladdning av sig själv', async () => {
+    const dpr = (v: number) => Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: v });
+    dpr(1);
+    const forst = await montera();                                   // "före uppdateringen": ladda ner som 256
+    expect(forst.lage).toEqual({ lage: 'klar' });
+    const sparade = lager.size;
+    await act(async () => { rot!.unmount(); });
+    fetchMock.mockClear();
+    dpr(3);                                                          // uppdaterad app på en telefon
+    try {
+      expect(planeraRutor(TRAKT).some((u) => u.includes('&s=512'))).toBe(true);
+      const igen = await montera();
+      expect(igen.lage).toEqual({ lage: 'klar' });
+      expect(fetchMock).not.toHaveBeenCalled();                      // ingen automatisk nedladdning
+      expect(lager.size).toBe(sparade);
+    } finally { dpr(1); }
+  });
   it('dåligt nät: inget hämtas, ingen rad', async () => {
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
     const ut = await montera();

@@ -198,6 +198,8 @@ const KART_LOPANDE_MAX = 3000;
 const KART_VEKTOR = 'kartrutor-vektor-v1';
 const OFM_HOST = 'tiles.openfreemap.org';
 let kartSparade = 0;
+// Flygfotots 512-ruta: `&s=512` sist i adressen. Ordagrant lika lib/flygfotoRuta `RUTA_512_SUFFIX` (vaktas av ett test).
+const FLYGFOTO_512 = /&s=512(?=&|$)/;
 
 function arKartruta(url) {
   if (url.origin === self.location.origin) return url.pathname === '/api/forarkarta' && url.searchParams.has('z');
@@ -238,7 +240,17 @@ async function kartruta(req) {
     const sparad = (await (await caches.open(KART_CACHE)).match(nyckel)) || (await (await caches.open(KART_LOPANDE)).match(nyckel));
     if (sparad) return sparad;
   } catch (_) { /* Cache API saknas — hämta som vanligt */ }
-  const svar = await fetch(req);
+  let svar;
+  try { svar = await fetch(req); } catch (e) {
+    // FLYGFOTOT PÅ HÖG UPPLÖSNING UTAN NÄT (lib/flygfotoRuta): kartan begär 512-rutan (`&s=512`). Finns den inte sparad men samma ruta finns i 256 — från en
+    // nedladdning före uppdateringen — visas den (suddigare, men kartan är inte tom). Bara när nätet felar; med nät hämtas alltid den skarpa rutan, och
+    // 256-rutan sparas aldrig under 512-adressen (då hade den dolt den riktiga för alltid). Ingen ny nedladdning startas av detta.
+    const gammal = nyckel.replace(FLYGFOTO_512, '');
+    if (gammal !== nyckel) {
+      try { const sparad = (await (await caches.open(KART_CACHE)).match(gammal)) || (await (await caches.open(KART_LOPANDE)).match(gammal)); if (sparad) return sparad; } catch (_) { /* */ }
+    }
+    throw e;
+  }
   if (arBild(svar)) {
     try {
       const lopande = await caches.open(KART_LOPANDE);

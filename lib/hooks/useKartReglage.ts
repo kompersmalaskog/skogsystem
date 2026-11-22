@@ -28,7 +28,7 @@ export function useKartReglage(): KartReglage {
 
   const setStyrka = useCallback((lager: Kartlager, v: number) => {
     setStyrkor((prev) => {
-      const nytt = { ...prev, [lager]: klamStyrka(v) };
+      const nytt = { ...prev, [lager]: klamStyrka(v, lager) };
       skrivStyrkor(lagring(), nytt);
       return nytt;
     });

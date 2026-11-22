@@ -296,6 +296,7 @@ import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 import { optiLokalDag } from '@/lib/optiTid'
 import { KARTRUTA_MALL, traktBbox, punktBbox } from '@/lib/kartNedladdning'
+import { flygfotoMall } from '@/lib/flygfotoRuta'
 import { useLaddaNerTrakt } from '@/lib/hooks/useLaddaNerTrakt'
 import { useBakgrundsNedladdning } from '@/lib/hooks/useBakgrundsNedladdning'
 import { KORVY_BAKGRUND } from '@/lib/kartBas'
@@ -1525,7 +1526,7 @@ export default function PlannerPage() {
       // visningsnamnet är "Flygfoto", vilket är vad bilden faktiskt är.)
       satellite: {
         type: 'raster' as const,
-        tiles: [KARTRUTA_MALL.satellite],
+        tiles: [flygfotoMall()],   // 256-rutor; 512 (JPEG) på skärmar med hög upplösning — lib/flygfotoRuta
         tileSize: 256,
         maxzoom: 18,
         attribution: '&copy; Lantmäteriet',
