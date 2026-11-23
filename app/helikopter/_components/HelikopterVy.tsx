@@ -36,6 +36,7 @@ import { MANAD_NAMN, fmt, manadRubrik, relativTid } from '../_lib/format'
 import { medPrognoser } from '../_lib/klar'
 import type { SkogKort } from '@/lib/skogsdata/las'
 import { byggForslag, byggPrognos } from '../_lib/prognos'
+import { byggTraktLista } from '../_lib/traktLista'
 import { EGEN_SKOTNING, byggTavla, flyttVal, slutordning, utanforBestallning, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
@@ -304,6 +305,12 @@ export default function HelikopterVy() {
     return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), egetSkordat, stopp, senaste: senaste ?? undefined, utanfor: maskinObjekt ? utanforBestallning(maskinObjekt, spar) : undefined, ordning: nyOrdning ?? undefined }
   }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader, maskinObjekt, senaste, nyOrdning])
   const tavla = useMemo(() => (tavlaIn ? byggTavla(tavlaIn) : null), [tavlaIn])
+  // Trakterna som ska köras (Läget nu). Bara i en pågående månad med köunderlag: annars finns ingen körordning att visa.
+  const traktLista = useMemo(() => {
+    if (!tavla || !tavlaIn?.klar || status === 'avslutad') return undefined
+    const klarTrakter = tavlaIn.klar.trakter
+    return Object.fromEntries(tavla.spar.map(s => [s.typ, byggTraktLista(s, klarTrakter)])) as Partial<Record<Typ, ReturnType<typeof byggTraktLista>>>
+  }, [tavla, tavlaIn, status])
   const prognos = useMemo(() => (tavlaIn && tavla ? byggPrognos(tavlaIn, tavla) : null), [tavlaIn, tavla])
   const forslag = useMemo(() => (tavlaIn && tavla ? byggForslag(tavlaIn, tavla) : []), [tavlaIn, tavla])
   const utanTypSumma = Math.round((manadsdata?.utanTyp ?? []).reduce((a, r) => a + r.volym, 0))
@@ -457,7 +464,7 @@ export default function HelikopterVy() {
                     </div>
                   ) : (
                   <div className="hk-rutnat" data-sida="laget">
-                    <Lage tavla={tavla} iFas={status === 'pagaende' && dagar && dagar.totalt > 0 ? (dagar.totalt - dagar.kvar) / dagar.totalt : null} onSpar={tillPlanera} />
+                    <Lage tavla={tavla} iFas={status === 'pagaende' && dagar && dagar.totalt > 0 ? (dagar.totalt - dagar.kvar) / dagar.totalt : null} onSpar={tillPlanera} traktLista={traktLista} />
                     {dinMaskin && <DinMaskinSektion maskinNamn={maskinNamn(dinMaskin)} lage={maskinLage} fel={maskinLageFel} onRetry={() => setVersion(v => v + 1)} />}
                     <Sektion rubrik="Mer" kort={false}>
                       <RadGrupp marginBottom={0}>

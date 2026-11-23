@@ -9,7 +9,9 @@ import { AVSTAND, FARG, KORT, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/to
 import { rollFarg } from '@/lib/sparStil'
 import { fmt } from '../_lib/format'
 import type { Tavla as TavlaVy, TavlaBlock, TavlaSpar } from '../_lib/tavla'
+import type { TraktLista } from '../_lib/traktLista'
 import type { PlaneraRoll } from './Tavla'
+import Trakter from './Trakter'
 
 const STAPEL_HOJD = 12
 const idFarg = (ton: TavlaBlock['ton']) => (ton === 'orange' ? FARG.orange : ton === 'gron' ? FARG.gron : FARG.text2)
@@ -47,17 +49,24 @@ function LageKort({ spar, b, iFas, onOppna }: { spar: TavlaSpar; b: TavlaBlock; 
 }
 
 /** `iFas`: andelen av månadens arbetsdagar som gått (0–1), null när månaden inte pågår. */
-export default function Lage({ tavla, iFas, onSpar }: { tavla: TavlaVy; iFas: number | null; onSpar: (typ: TavlaSpar['typ'], roll: PlaneraRoll) => void }) {
+export default function Lage({ tavla, iFas, onSpar, traktLista }: {
+  tavla: TavlaVy; iFas: number | null; onSpar: (typ: TavlaSpar['typ'], roll: PlaneraRoll) => void
+  /** Trakterna som ska köras, per spår (byggTraktLista). Utelämnat = underlaget saknas: inga trakter visas, aldrig en tom lista som ser ut som "inga". */
+  traktLista?: Partial<Record<TavlaSpar['typ'], TraktLista>>
+}) {
   const spar = tavla.spar.filter(s => s.bestallt > 0)
   if (spar.length === 0) return <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.l}px 0` }}>Ingen beställning inlagd</div>
   return (
     <div data-lage="" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', columnGap: AVSTAND.xxl, rowGap: AVSTAND.xl, alignItems: 'start' }}>
       {spar.map(s => (
-        <Sektion key={s.typ} rubrik={`${s.namn} · beställt ${fmt(s.bestallt)}`} kort={false}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-            {s.block.map(b => <LageKort key={b.roll} spar={s} b={b} iFas={iFas} onOppna={() => onSpar(s.typ, b.roll === 'skordare' ? 'skordare' : 'skotare')} />)}
-          </div>
-        </Sektion>
+        <div key={s.typ} style={{ minWidth: 0 }}>
+          <Sektion rubrik={`${s.namn} · beställt ${fmt(s.bestallt)}`} kort={false}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+              {s.block.map(b => <LageKort key={b.roll} spar={s} b={b} iFas={iFas} onOppna={() => onSpar(s.typ, b.roll === 'skordare' ? 'skordare' : 'skotare')} />)}
+            </div>
+          </Sektion>
+          {traktLista?.[s.typ] && <Trakter spar={s} rader={traktLista[s.typ]!.rader} />}
+        </div>
       ))}
     </div>
   )
