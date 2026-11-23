@@ -19,6 +19,7 @@ vi.mock('@/lib/grot-koppling', () => ({
 }));
 
 vi.mock('@/lib/skotarLass/koKopplad', () => ({ lasSortimentKlass: async () => false }));
+vi.mock('./hooks/useKlarDatum', () => ({ useKlarDatum: () => null }));
 import UppfoljningVy, { type UppfoljningData } from './UppfoljningVy';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

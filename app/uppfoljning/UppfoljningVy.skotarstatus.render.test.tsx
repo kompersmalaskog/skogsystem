@@ -14,6 +14,8 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 vi.mock('@/lib/skotarLass/koKopplad', () => ({ lasSortimentKlass: async () => false }));
+let klarSvar: any = null;
+vi.mock('./hooks/useKlarDatum', () => ({ useKlarDatum: () => klarSvar }));
 import UppfoljningVy, { type UppfoljningData } from './UppfoljningVy';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -49,7 +51,7 @@ const skalviken = (over: Partial<UppfoljningData>): UppfoljningData => ({
 
 let rot: Root | null = null;
 let be: HTMLElement | null = null;
-afterEach(() => { act(() => { rot?.unmount(); }); be?.remove(); rot = null; be = null; });
+afterEach(() => { klarSvar = null; act(() => { rot?.unmount(); }); be?.remove(); rot = null; be = null; });
 
 function rendera(data: UppfoljningData): string {
   be = document.createElement('div'); document.body.appendChild(be);
@@ -84,5 +86,17 @@ describe('Detaljvyns skotarstatus', () => {
     expect(rendera(skalviken({ skordareSlut: null, skordareLastDate: idag, sistaAvverkning: idag }))).not.toContain('legat');
     act(() => { rot?.unmount(); }); be?.remove();
     expect(rendera(skalviken({ sistaAvverkning: '2026-10-28', egenSkotning: true }))).not.toContain('legat');
+  });
+
+  it('klar-datumet kommer ur helikopterns plan, och saknas det står inget', () => {
+    const om3 = new Date(Date.now() + 3 * 864e5 + 6 * 36e5).toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' });
+    klarSvar = { skotare: { datum: om3, ca: true } };
+    const text = rendera(skalviken({ skotareSlut: null }));
+    expect(text).toMatch(/Skotaren kör· klar om ~[34] dagar/);
+    expect(text).not.toContain('klart om');
+    act(() => { rot?.unmount(); }); be?.remove();
+    klarSvar = null;
+    const utan = rendera(skalviken({ skotareSlut: null }));
+    expect(utan).not.toMatch(/klar om|klart om/);
   });
 });
