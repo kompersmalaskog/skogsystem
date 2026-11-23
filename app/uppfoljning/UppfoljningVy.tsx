@@ -1036,12 +1036,12 @@ function TidKort({ label, color, rows }: { label: string; color: string; rows: [
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {rows.map(([k, v, accent], i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: AVSTAND.s }}>
             <span style={{ fontSize: 13, color: accent ? FARG.text : V6_GREY, fontWeight: accent ? 600 : 400 }}>{k}</span>
             {v === null ? (
-              <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 400 }}>rapporteras inte</span>
+              <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 400, textAlign: 'right' }}>rapporteras inte</span>
             ) : (
-              <span style={{ fontSize: accent ? 17 : 13, fontWeight: accent ? 700 : VIKT.halvfet, color: FARG.text, fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ fontSize: accent ? 17 : 13, fontWeight: accent ? 700 : VIKT.halvfet, color: FARG.text, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                 {tidH(v)}
               </span>
             )}
@@ -1056,7 +1056,7 @@ function Tid({ data }: { data: UppfoljningData }) {
   const hasSk = data.skordareG15h > 0;
   const hasSt = data.skotareG15h > 0;
   if (!hasSk && !hasSt) return null;
-  // G0 och korta pauser visas bara om maskinen rapporterar ShortDownTime (rå
+  // G0 och korta stopp visas bara om maskinen rapporterar ShortDownTime (rå
   // kort_stopp > 0). Villkoret avläses ur DATAN, inte ur maskintypen — Rottne
   // rapporterar signalen, Ponsse-skotarna inte. Saknas den: "rapporteras inte".
   const skKortSaknas = data.skordareG15h > 0 && data.skordareKortStoppRaa === 0;
@@ -1064,14 +1064,14 @@ function Tid({ data }: { data: UppfoljningData }) {
   const skRows: [string, number | null, boolean?][] = [
     ['G15', data.skordareG15h, true],
     ['G0', skKortSaknas ? null : data.skordareG0],
-    ['Korta pauser', skKortSaknas ? null : data.skordareKortaStopp],
+    ['Korta stopp', skKortSaknas ? null : data.skordareKortaStopp],
     ['Rast', data.skordareRast],
     ['Avbrott', data.skordareAvbrott],
   ];
   const stRows: [string, number | null, boolean?][] = [
     ['G15', data.skotareG15h, true],
     ['G0', stKortSaknas ? null : data.skotareG0],
-    ['Korta pauser', stKortSaknas ? null : data.skotareKortaStopp],
+    ['Korta stopp', stKortSaknas ? null : data.skotareKortaStopp],
     ['Rast', data.skotareRast],
     ['Avbrott', data.skotareAvbrott],
   ];

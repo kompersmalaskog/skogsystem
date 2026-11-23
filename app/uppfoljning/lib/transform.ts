@@ -290,7 +290,7 @@ export function buildAvbrott(rows: any[], opts: { g15Split?: boolean } = {}): Av
   const { g15Split = true } = opts;
   const deduped = deduplicateAvbrott(rows);
   // G15-splitten gäller SKÖRDARE: DownTime under gränsen är samma fenomen som
-  // maskinens korta pauser och räknas in i "Korta pauser"-raden via
+  // maskinens korta pauser och räknas in i "Korta stopp"-raden via
   // kortaAvbrottTimmar() — inte här. SKOTARE saknar korta pauser-begreppet
   // (kort_stopp_sek = 0) — deras rader visas OFILTRERADE med riktiga kategorier
   // (g15Split: false). Se lib/g15.ts.
@@ -829,7 +829,7 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     // Avbrott — deduplicated totals from fakt_avbrott
     avbrottSkordare: buildAvbrott(skAvbrott),
     // Skördare: totalen räknar ENBART avbrott ≥ G15-gränsen — korta ingår i
-    // "Korta pauser"-raden ovan (kortaAvbrottTimmar).
+    // "Korta stopp"-raden ovan (kortaAvbrottTimmar).
     avbrottSkordareSek: deduplicateAvbrott(skAvbrott).filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0),
     // Skotare: INGEN G15-split — alla DownTime i lista + total (skotare saknar
     // korta pauser-begreppet; se lib/g15.ts).
