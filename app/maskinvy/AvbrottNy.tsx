@@ -63,7 +63,7 @@ async function fetchAvbrott(maskinId: string, start: string, end: string): Promi
 
   // 2. G15-gränsen: bara DownTime ≥ 15 min är avbrott. Rader UNDER gränsen är
   //    samma fenomen som maskinens korta pauser (objektbytesglapp m.m. — verifierat
-  //    i MOM-källor, 0 väggklocke-överlapp) och räknas in i "Korta pauser" i
+  //    i MOM-källor, 0 väggklocke-överlapp) och räknas in i "Korta stopp" i
   //    Översikten/uppföljningen — inte här. Se lib/g15.ts.
   const riktigaRows = avbrottRows.filter(r => (r.langd_sek || 0) >= G15_GRANS_SEK)
 
@@ -537,7 +537,7 @@ export default function AvbrottNy({ maskin, onMaskinChange }: {
 
           {/* G15-fotnot: hemflytten synlig och begriplig — inget tyst filter */}
           <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, padding: `${AVSTAND.m}px 0 ${AVSTAND.xs}px` }}>
-            Stopp under 15 min räknas som korta pauser (se Översikt)
+            Stopp under 15 min räknas som korta stopp (se Översikt)
           </div>
         </div>
       </div>
