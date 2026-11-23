@@ -147,4 +147,34 @@ describe('UppfoljningMeny', () => {
     expect(text()).toContain('300m³ hämtat');
     expect(text()).not.toContain('Gammalthygget');
   });
+
+  it('Ligger i skogen: kortet visar det som legat längst och öppnar den egna sidan', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-21T17:00:00Z'));
+    try {
+      data = [
+        obj({ vo_nummer: 'A', namn: 'Arvidstorp', typ: 'slutavverkning', volymSkordare: 628, volymSkotare: 440, sistaAvverkning: '2026-11-02', skordningAvslutad: true, tilldeladSkotare: 'Elefant 26' }),
+        obj({ vo_nummer: 'B', namn: 'Britteberg', typ: 'slutavverkning', volymSkordare: 673, volymSkotare: 0, antalLass: 0, sistaAvverkning: '2026-11-10', skordningAvslutad: true, tilldeladSkotare: 'Wisent' }),
+        obj({ vo_nummer: 'G', namn: 'Gallring Kör', typ: 'gallring', volymSkordare: 300, volymSkotare: 0, antalLass: 0, sistaAvverkning: '2026-11-21', skordareLastDate: '2026-11-21', tilldeladSkotare: '810E' }),
+      ];
+      await montera();
+      const kort = be!.querySelector('[data-skogen-kort]')!;
+      expect(kort.textContent).toContain('3 trakter');
+      expect(kort.textContent).toContain('19');
+      await klick(kort);
+      expect(push).toHaveBeenCalledWith('/uppfoljning/i-skogen');
+      // Ingen lista i menyn: samma sak står inte på två ställen.
+      expect(text()).not.toContain('Väntar på skotare');
+      expect(text()).toContain('Per skotare');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ett gammalt sparat läge 'skogen' ger vanliga menyn", async () => {
+    sessionStorage.setItem('uppfoljning:vald', JSON.stringify('skogen'));
+    data = [obj({ vo_nummer: 'A', namn: 'Arvidstorp', tilldeladSkotare: 'Elefant 26' })];
+    await montera();
+    expect(text()).toContain('Per skotare');
+  });
 });

@@ -44,6 +44,8 @@ export interface DieselDag {
 export interface UppfoljningData {
   objektNamn: string;
   objektId?: string | null;
+  // Traktens VO-nummer — vädret hämtas för objektets punkt (objekt.lat/lng).
+  voNummer?: string | null;
   // Våning 2 — beräknas i useObjektUppfoljning (kräver 90-dagarsreferensen)
   avvikelser?: AvvikelseRad[];
   senastUppdaterad?: string;
