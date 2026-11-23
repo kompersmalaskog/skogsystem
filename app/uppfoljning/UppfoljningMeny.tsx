@@ -9,7 +9,7 @@
 // design-tokens. Så siffrorna är desamma som "innan", bara ny look.
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AVSTAND, FARG, RADIE, TNUM, TYP, overgang } from '@/lib/design/tokens';
+import { AVSTAND, FARG, RADIE, TNUM, TRAFFYTA, TYP, overgang } from '@/lib/design/tokens';
 import { typLabel, arRisjobb } from '@/lib/objekt/typ';
 import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT, GROT_UTTAGSFAKTOR_MIN, GROT_UTTAGSFAKTOR_MAX } from '@/lib/grot';
 import { type UppfoljningObjekt } from './lib/transform';
@@ -19,6 +19,7 @@ import { liggetidText as liggetid } from './lib/liggetid';
 import { langstLegat, dagOrd } from './lib/iSkogen';
 import { skogenAvObjekt } from './lib/iSkogenSida';
 import { kvarM3, sektionAv, type Sektion } from './lib/sektion';
+import { svenskIdag } from './lib/datum';
 
 const sv = (n: number) => Math.round(n).toLocaleString('sv-SE');
 const TRAFFYTA_ROW = 56;
@@ -39,7 +40,7 @@ type Manad = { key: string; label: string; objs: UppfoljningObjekt[] };
 
 export default function UppfoljningMeny({ valt = null }: { valt?: string | null }) {
   const router = useRouter();
-  const { objekt, loading, error } = useUppfoljningList();
+  const { objekt, loading, error, forsokIgen } = useUppfoljningList();
 
   const [vald, setVald] = useState<Vald>(null);
   const [sok, setSok] = useState('');
@@ -81,7 +82,7 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
   }, [objekt]);
 
   // Ris att skota (lib/ris): kvar = inget lass än eller skotas nu; hämtat = grot_hamtad satt.
-  const idag = new Date().toISOString().slice(0, 10);
+  const idag = svenskIdag();
   const ris = useMemo(() => risLista(objekt, grotFaktor, idag), [objekt, grotFaktor, idag]);
 
   // Kort-summor — TOTALEN på backen per typ (inkl. pågående skörd). Virke = mätt
@@ -175,7 +176,7 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
           <span style={{ display: 'block', ...TYP.listtitel, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</span>
           <span style={{ display: 'block', ...TYP.meta, color: underFarg ?? (annu ? FARG.gron : FARG.text2), marginTop: AVSTAND.xs, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{undertext}</span>
           {o.skotareAvvikelse && (
-            <span style={{ display: 'block', ...TYP.micro, color: FARG.text3, marginTop: AVSTAND.xs, textTransform: 'none', letterSpacing: 0 }}>Lass: {o.skotareAvvikelse.lass} · tilldelad: {o.skotareAvvikelse.tilldelad}</span>
+            <span style={{ display: 'block', ...TYP.micro, color: FARG.text3, marginTop: AVSTAND.xs, textTransform: 'none', letterSpacing: 0 }}>Skotad av {o.skotareAvvikelse.lass} · tilldelad {o.skotareAvvikelse.tilldelad}</span>
           )}
         </span>
         {hoger === null ? null : typeof hoger === 'object' ? (
@@ -219,7 +220,7 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
         <input
           value={sok} onChange={e => setSok(e.target.value)} placeholder="Sök objekt" inputMode="search" autoComplete="off"
           style={{
-            width: '100%', boxSizing: 'border-box', minHeight: 40, padding: `0 ${AVSTAND.m}px`,
+            width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`,
             background: FARG.fyllning, border: 'none', outline: 'none', borderRadius: RADIE.rad,
             color: FARG.text, ...TYP.text, fontFamily: 'inherit', colorScheme: 'dark',
           }}
@@ -231,7 +232,8 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
       ) : error ? (
         <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.m}px` }}>
           <div style={{ ...TYP.listtitel, color: FARG.orange }}>Kunde inte läsa objekten</div>
-          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Kontrollera anslutningen och försök igen.</div>
+          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Kontrollera anslutningen.</div>
+          <button onClick={forsokIgen} style={{ marginTop: AVSTAND.s, minHeight: TRAFFYTA.min, padding: 0, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', ...TYP.meta, color: FARG.bla }}>Försök igen</button>
         </div>
       ) : (
         <>
@@ -313,9 +315,9 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
                   <div style={{ ...TYP.meta, color: FARG.text }}>Grot-uttagsfaktor</div>
                   <div style={{ ...TYP.micro, color: FARG.text3, textTransform: 'none', letterSpacing: 0 }}>Skogforsk {GROT_UTTAGSFAKTOR_MIN.toLocaleString('sv-SE')}–{GROT_UTTAGSFAKTOR_MAX.toLocaleString('sv-SE')} av stamvolym</div>
                 </div>
-                <button onClick={() => steg(-0.01)} disabled={grotFaktor <= GROT_UTTAGSFAKTOR_MIN + 1e-9} style={{ width: 32, height: 32, borderRadius: RADIE.knapp, border: `1px solid ${FARG.linje}`, background: 'transparent', color: grotFaktor <= GROT_UTTAGSFAKTOR_MIN + 1e-9 ? FARG.text3 : FARG.text, cursor: 'pointer', fontFamily: 'inherit', ...TYP.rubrik, lineHeight: 1 }} aria-label="Minska">−</button>
+                <button onClick={() => steg(-0.01)} disabled={grotFaktor <= GROT_UTTAGSFAKTOR_MIN + 1e-9} style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, borderRadius: RADIE.knapp, border: `1px solid ${FARG.linje}`, background: 'transparent', color: grotFaktor <= GROT_UTTAGSFAKTOR_MIN + 1e-9 ? FARG.text3 : FARG.text, cursor: 'pointer', fontFamily: 'inherit', ...TYP.rubrik, lineHeight: 1 }} aria-label="Minska">−</button>
                 <span style={{ ...TYP.listtitel, ...TNUM, minWidth: 40, textAlign: 'center' }}>{faktorStr}</span>
-                <button onClick={() => steg(0.01)} disabled={grotFaktor >= GROT_UTTAGSFAKTOR_MAX - 1e-9} style={{ width: 32, height: 32, borderRadius: RADIE.knapp, border: `1px solid ${FARG.linje}`, background: 'transparent', color: grotFaktor >= GROT_UTTAGSFAKTOR_MAX - 1e-9 ? FARG.text3 : FARG.text, cursor: 'pointer', fontFamily: 'inherit', ...TYP.rubrik, lineHeight: 1 }} aria-label="Öka">+</button>
+                <button onClick={() => steg(0.01)} disabled={grotFaktor >= GROT_UTTAGSFAKTOR_MAX - 1e-9} style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, borderRadius: RADIE.knapp, border: `1px solid ${FARG.linje}`, background: 'transparent', color: grotFaktor >= GROT_UTTAGSFAKTOR_MAX - 1e-9 ? FARG.text3 : FARG.text, cursor: 'pointer', fontFamily: 'inherit', ...TYP.rubrik, lineHeight: 1 }} aria-label="Öka">+</button>
               </div>
               <div style={{ ...TYP.micro, color: FARG.text3, marginTop: AVSTAND.s, textTransform: 'none', letterSpacing: 0, lineHeight: 1.45 }}>
                 Grot är en uppskattning (Skogforsk-schablon: stamvolym × faktor), inte en mätning. Faktisk volym registreras vid skotning.

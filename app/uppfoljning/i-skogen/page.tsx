@@ -6,7 +6,7 @@
 // Modellen (urval, rader, A4) bor i lib/iSkogenSida; sidan ritar bara.
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AVSTAND, FARG, INAKTIV, KNAPP, ROT_MIN_HOJD, TYP, kolumnRot } from '@/lib/design/tokens';
+import { AVSTAND, FARG, INAKTIV, KNAPP, ROT_MIN_HOJD, TRAFFYTA, TYP, kolumnRot } from '@/lib/design/tokens';
 import Sektion from '@/components/design/Sektion';
 import Rad from '@/components/design/Rad';
 import Ark from '@/components/design/Ark';
@@ -16,14 +16,11 @@ import { dagOrd, KLARA_VISAS_DAGAR } from '../lib/iSkogen';
 import { skogKort, skogDokument, skogenAvObjekt, svarText, tidRader, helaCykeln, vaderPerPeriod, vaderRad, type SkogKort } from '../lib/iSkogenSida';
 import { useForstaDag } from './useForstaDag';
 import { useVaderAlla } from './useVaderAlla';
-
-function svenskIdag(): string {
-  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' });
-}
+import { svenskIdag } from '../lib/datum';
 
 export default function ISkogenSida() {
   const router = useRouter();
-  const { objekt, loading, error } = useUppfoljningList();
+  const { objekt, loading, error, forsokIgen: lasOmListan } = useUppfoljningList();
   const idag = svenskIdag();
   // Bara trakterna på sidan får sin första fällningsdag läst.
   const visade = useMemo(() => {
@@ -73,7 +70,10 @@ export default function ISkogenSida() {
       {loading || (!error && !forsta) ? (
         <div style={{ ...TYP.meta, color: FARG.text2 }}>Läser trakterna …</div>
       ) : error ? (
-        <div style={{ ...TYP.meta, color: FARG.orange }}>Kunde inte läsa trakterna.</div>
+        <div>
+          <div style={{ ...TYP.meta, color: FARG.orange }}>Kunde inte läsa trakterna.</div>
+          <button onClick={lasOmListan} style={{ marginTop: AVSTAND.s, minHeight: TRAFFYTA.min, padding: 0, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', ...TYP.meta, color: FARG.bla }}>Försök igen</button>
+        </div>
       ) : (
         <>
           <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.xl }} data-skogen-svar>{svarText(kort.iSkogen.length, langst)}</div>
