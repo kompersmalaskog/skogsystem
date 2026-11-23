@@ -89,13 +89,14 @@ describe('Detaljvyns skotarstatus', () => {
   });
 
   it('klar-datumet kommer ur helikopterns plan, och saknas det står inget', () => {
-    klarSvar = { skotare: { datum: '2026-12-10', ca: true } };
+    const om3 = new Date(Date.now() + 3 * 864e5 + 6 * 36e5).toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' });
+    klarSvar = { skotare: { datum: om3, ca: true } };
     const text = rendera(skalviken({ skotareSlut: null }));
-    expect(text).toContain('Skotaren kör· klar ca 10 dec');
+    expect(text).toMatch(/Skotaren kör· klar om ~[34] dagar/);
     expect(text).not.toContain('klart om');
     act(() => { rot?.unmount(); }); be?.remove();
     klarSvar = null;
     const utan = rendera(skalviken({ skotareSlut: null }));
-    expect(utan).not.toMatch(/klar ca|klart om/);
+    expect(utan).not.toMatch(/klar om|klart om/);
   });
 });

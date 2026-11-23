@@ -18,6 +18,7 @@ import { sortimentVisning } from '@/lib/skotarLass/sortiment';
 import { lasSortimentKlass } from '@/lib/skotarLass/koKopplad';
 import { useKlarDatum } from './hooks/useKlarDatum';
 import { klarDatumText } from './lib/klarDatum';
+import { sthlmDelar } from '@/lib/sthlmTid';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -373,7 +374,7 @@ function Svaret({ data }: { data: UppfoljningData }) {
   // maskins plan står inget datum; uppföljningen räknar aldrig ett eget.
   const klarText = (roll: 'skordare' | 'skotare') => {
     const k = klarDatum?.[roll];
-    return k ? <>· <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>{klarDatumText(k)}</span></> : null;
+    return k ? <>· <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>{klarDatumText(k, sthlmDelar(new Date())?.datum ?? new Date().toISOString().slice(0, 10))}</span></> : null;
   };
   const skKor = !s.skKlar;
   const stKor = !s.stKlar && !s.externt && (s.stAktiv || visSkotat > 0);

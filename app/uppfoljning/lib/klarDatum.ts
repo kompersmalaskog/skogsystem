@@ -23,9 +23,14 @@ export function klarDatumFor(planer: Record<string, MaskinPlan>, objektUuid: str
   return ut;
 }
 
-/** "klar 4 dec" / "klar ca 4 dec". */
-export function klarDatumText(k: KlarDatum): string {
-  const d = new Date(`${k.datum}T12:00:00Z`);
-  const txt = d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', timeZone: 'UTC' }).replace('.', '');
-  return k.ca ? `klar ca ${txt}` : `klar ${txt}`;
+/**
+ * "klar om 3 dagar" / "klar om ~3 dagar" (ca = bygger på ett G15-förslag) — lättare att förstå än ett datum.
+ * Kalenderdagar från idag (svensk tid), räknade på datum, aldrig på millisekunder. Idag → "klar idag", i morgon → "klar i morgon".
+ */
+export function klarDatumText(k: KlarDatum, idag: string): string {
+  const dag = (iso: string) => { const [a, m, d] = iso.split('-').map(Number); return Date.UTC(a, m - 1, d) / 864e5; };
+  const n = Math.max(0, Math.round(dag(k.datum) - dag(idag)));
+  if (n === 0) return 'klar idag';
+  if (n === 1) return 'klar i morgon';
+  return `klar om ${k.ca ? '~' : ''}${n} dagar`;
 }

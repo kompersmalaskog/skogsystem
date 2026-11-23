@@ -39,8 +39,14 @@ describe('klarDatumFor', () => {
 });
 
 describe('klarDatumText', () => {
-  it('svenskt kort datum, ca när det är en uppskattning', () => {
-    expect(klarDatumText({ datum: '2026-12-04', ca: false })).toBe('klar 4 dec');
-    expect(klarDatumText({ datum: '2026-12-04', ca: true })).toBe('klar ca 4 dec');
+  it('dagar kvar i ord, ~ när det är en uppskattning', () => {
+    expect(klarDatumText({ datum: '2026-11-26', ca: false }, '2026-11-23')).toBe('klar om 3 dagar');
+    expect(klarDatumText({ datum: '2026-11-26', ca: true }, '2026-11-23')).toBe('klar om ~3 dagar');
+    expect(klarDatumText({ datum: '2026-11-24', ca: true }, '2026-11-23')).toBe('klar i morgon');
+    expect(klarDatumText({ datum: '2026-11-23', ca: false }, '2026-11-23')).toBe('klar idag');
+    expect(klarDatumText({ datum: '2026-11-20', ca: false }, '2026-11-23')).toBe('klar idag');   // planen ligger efter: aldrig "om -3"
+  });
+  it('kalenderdagar över sommartidsskiftet', () => {
+    expect(klarDatumText({ datum: '2026-11-02', ca: false }, '2026-10-24')).toBe('klar om 9 dagar');
   });
 });
