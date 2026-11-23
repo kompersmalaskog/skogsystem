@@ -12,8 +12,7 @@ import { beslutaOrigo, KVITTO, lasVidaGrans, markeringsGranser, markeringsPunkte
 import { svgToLatLon, type Origo } from '@/lib/kartkoordinater';
 import { objektStartKamera } from '@/lib/objektFlyg';
 import { hamtaAltNummer, hogarObjektIds } from '@/lib/objektNummer';
-import { hyttsparRitadeLinjer } from '@/lib/sparJamning';
-import { byggStrak } from '@/lib/strak';
+import { korsparLinjerForServer } from '@/lib/korspar';
 import { hamtaAlla } from '@/lib/supabaseAlla';
 import { markerNyckel } from '@/lib/kartkommentar';
 import { LASS_SELECT, lassFranServer } from '@/lib/skotarLass/server';
@@ -284,19 +283,17 @@ export async function lasSkotarVy(sb: Sb, o: ObjektRad): Promise<SkotarVy> {
     }
   }
 
-  // Skördarens körspår: utjämnat och ihopslaget till stråk (samma ritning som planeringen och objektöversikten). Inga tider lämnar servern.
+  // Skördarens körspår (lib/korspar): en rensad linje per dag och körning, samma ritning som planeringen och objektöversikten. Inga tider lämnar servern.
   let spar: LngLat[][] = [];
   if (sparSvar.error) fel.push('körspåren');
   else {
-    const linjer: LngLat[][] = [];
     for (const rad of (sparSvar.data ?? []) as { points: unknown }[]) {
       if (!Array.isArray(rad.points)) continue;
       const punkter = (rad.points as { lat?: unknown; lng?: unknown; tid?: unknown }[])
         .filter((p) => typeof p?.lat === 'number' && typeof p?.lng === 'number')
         .map((p) => ({ lat: p.lat as number, lng: p.lng as number, tid: typeof p.tid === 'string' ? p.tid : '' }));
-      for (const l of hyttsparRitadeLinjer(punkter)) linjer.push(l as LngLat[]);
+      spar.push(...(korsparLinjerForServer(punkter) as LngLat[][]));
     }
-    spar = byggStrak(linjer, 'skordare') as LngLat[][];
   }
 
   // Produktionshögarna. Går stammarna inte att läsa finns inga högar; går uttag, lass eller markeringar inte att läsa sägs det (högarna visas då som skördade).

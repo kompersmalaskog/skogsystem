@@ -18,11 +18,13 @@ describe('RITNINGEN går genom körspårskedjan (lib/korspar) — på exakt rits
     // den andres spår (egna rader + GROT-jobbets virkesobjekt) och planeringens båda roller: alla via cachadeKorspar med nyckel objekt|roll|datum
     expect(page.match(/cachadeKorspar\(/g)!.length).toBe(4);   // historik, den andres, virkesobjektets, planeringens
     expect(page).toMatch(/cachadeKorspar\(`\$\{objektId\}\|\$\{roll\}\|\$\{\(r as any\)\.datum\}`/);
-    // Den GAMLA utjämningen + stråkbyggaren finns kvar för EN sak: skotarlägets lass-logik (skotarHamtaVagar) läser skördarens STRÅK som förut. Ritningen går aldrig genom dem.
-    expect(forekomster(/hyttsparRitadeLinjer\(/g)).toBe(1);
-    expect(page.match(/strakFeatures\(/g)!.length).toBe(1);
-    expect(page.slice(live, live + 2600)).not.toContain('strakFeatures');
-    expect(page.slice(live, live + 2600)).not.toContain('hyttsparRitadeLinjer');
+    // Ritningen går aldrig genom den gamla utjämningen (hyttsparRitadeLinjer) eller stråkbyggaren (lib/strak, borttagen 2026-11-23). Skotarlägets lass-logik (skotarHamtaVagar)
+    // väger mot SAMMA körspårslinjer som ritas (andrasLinjerRef → andrasFeaturesRef).
+    expect(forekomster(/hyttsparRitadeLinjer\(/g)).toBe(0);
+    expect(page).not.toContain('strakFeatures');
+    expect(page).not.toContain('lib/strak');
+    expect(page).toContain("andrasFeaturesRef.current = roll === 'skordare' ? ritLinjer.map(");
+    expect(page).toContain('vag: `k${i}`');   // lassens vägar: k<n> = körspårslinje (före 2026-11-23 s<n> = stråkbit) — nyckeln skiljer de två räknesätten åt i sparade lass
   });
   it('importerna finns', () => {
     expect(page).toContain("import { korsparLinjer, cachadeKorspar } from '../../lib/korspar'");
@@ -71,8 +73,8 @@ describe('stilen: körspårsbandet (lib/sparStil kartSpar), en källa för alla 
     expect(page).toContain("'line-opacity': st.opacitet as any, 'line-width': st.bredd");
     expect(page).toContain("'line-color': st.kantFarg, 'line-opacity': st.kantOpacitet as any, 'line-width': st.kantBredd, 'line-blur': st.kantSudd");
   });
-  it('ingen blekning med åldern: raderna läses utan alder på bandet (bara lass-logikens stråk bär den)', () => {
-    expect(page.match(/alder: sparAlder\(/g)).toHaveLength(1);   // tillRader (stråk för skotarlägets lass-logik) — kartans band är lika starka alla dagar (Martin 2026-11-11)
+  it('ingen blekning med åldern: raderna läses utan alder på bandet (kartans band är lika starka alla dagar, Martin 2026-11-11)', () => {
+    expect(page).not.toContain('sparAlder');
     expect(page).toContain(".select('datum, points').eq('objekt_id', objektId).eq('roll', roll)");
     expect(page).toContain("select('datum, points').eq('objekt_id', horTillId).eq('roll', 'skordare')");
     expect(page).toContain("select('roll, datum, points').eq('objekt_id', objektId)");

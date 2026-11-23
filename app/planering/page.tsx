@@ -59,11 +59,9 @@ import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaG15Forslag, forslagKalla, prestation, prestationVarning, snittTypOrd, type UtfallRad } from '../../lib/g15Forslag'
 import { lasSkogKort, medLaser } from '../../lib/skogsdata/las'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
-import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
-import { strakFeatures } from '../../lib/strak'
 import { installeraLagerOrdning, symbolSortKey, VAG_SORT_KEY } from '../../lib/lagerOrdning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
-import { sparAlder, kartSpar, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER, STRAK_FARG, UTE_FARG } from '../../lib/sparStil'
+import { kartSpar, MITTLINJE_FARG, MITTLINJE_BREDD, MITTLINJE_OPACITET, MITTLINJE_FILTER, STRAK_FARG, UTE_FARG } from '../../lib/sparStil'
 import { delaKlart, delaUtanfor } from '../../lib/korsparKlart'
 import { korsparLinjer, cachadeKorspar } from '../../lib/korspar'
 import { serverNu } from '../../lib/serverKlocka'
@@ -4795,10 +4793,6 @@ export default function PlannerPage() {
       // FANTOMLINJE-FIX (samma delade hjälpare som eget-spåret): varje rad delas dessutom i SEGMENT
       // vid interna tidsglapp (app stängd mitt i passet) → en LineString per segment, ingen rak brygga
       // över glappet. Förr: en LineString per rad (bryggade interna glapp — Martins fältfynd).
-      const idagIso = lokaltDatumStockholm(serverNu());
-      const tillRader = (rader: any[] | null) => (rader || [])
-        .map((r: any) => ({ linjer: hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : []), alder: sparAlder(r.datum, idagIso) }));
-      const rader = roll === 'skordare' ? tillRader(data) : [];   // stråk bara för skotarlägets lass-logik (skördarens spår)
       // Linjerna som RITAS (lib/korspar): en rensad linje per dag, cachade per dag och objekt. Stabil identitet → närhetsindexet återanvänds (lib/korsparKlart).
       const ritLinjer: [number, number][][] = (data || []).flatMap((r: any) => cachadeKorspar(`${objektId}|${roll}|${r.datum}`, Array.isArray(r.points) ? r.points : []));
       // GROT-jobb (skotare) som hör till ett virkesobjekt: SKÖRDARENS spår på virkesobjektet visas också (som "den andres" spår).
@@ -4807,13 +4801,12 @@ export default function PlannerPage() {
         const { data: pd, error: pe } = await supabase.from('hyttspar').select('datum, points').eq('objekt_id', horTillId).eq('roll', 'skordare');
         if (pe) console.error('[Hyttspår] virkesobjektets skördarspår:', pe.message);
         else {
-          rader.push(...tillRader(pd));
           ritLinjer.push(...(pd || []).flatMap((r: any) => cachadeKorspar(`${horTillId}|${roll}|${r.datum}`, Array.isArray(r.points) ? r.points : [])));
         }
       }
       andrasLinjerRef.current = ritLinjer;
-      // Skotarlägets lass-logik (skotarHamtaVagar: "Nytt avlägg här?", tid per väg) läser skördarens STRÅK som förut — oförändrad indata, bara ritningen är ny.
-      andrasFeaturesRef.current = roll === 'skordare' ? strakFeatures(rader, roll) : [];
+      // Skotarlägets lass-logik (skotarHamtaVagar: tid per väg) väger mot SAMMA körspår som ritas (en rensad linje per dag och körning, lib/korspar).
+      andrasFeaturesRef.current = roll === 'skordare' ? ritLinjer.map((c) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: c }, properties: {} })) : [];
       ritaKorvySpar();
       setAndrasSparTid(Date.now());
     } catch (e) { console.error('[Hyttspår] andras-undantag:', e); }
@@ -12551,14 +12544,14 @@ export default function PlannerPage() {
     : []),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [skotarLassAktiv, markers, mapCenter.lat, mapCenter.lng, scale]);
-  // Skördarens stråk som linjer (cachade på källans identitet): för "Nytt avlägg här?" (långt från spåret) och tid per väg.
+  // Skördarens körspår som linjer (cachade på källans identitet) för tid per väg. Id:n är `k<n>` (före 2026-11-23 `s<n>` = stråkbit): nyckeln skiljer de två räknesätten åt i sparade lass.
   const skotarVagCacheRef = useRef<{ kalla: any[]; linjer: VagLinje[] }>({ kalla: [], linjer: [] });
   const skotarHamtaVagar = (): VagLinje[] => {
     const kalla = andrasFeaturesRef.current;
     if (skotarVagCacheRef.current.kalla !== kalla) {
       skotarVagCacheRef.current = {
         kalla,
-        linjer: kalla.map((f: any, i: number) => ({ vag: `s${i}`, linje: ((f?.geometry?.coordinates ?? []) as [number, number][]).map(([lng, lat]) => ({ lat, lng })) })).filter((v: VagLinje) => v.linje.length > 1),
+        linjer: kalla.map((f: any, i: number) => ({ vag: `k${i}`, linje: ((f?.geometry?.coordinates ?? []) as [number, number][]).map(([lng, lat]) => ({ lat, lng })) })).filter((v: VagLinje) => v.linje.length > 1),
       };
     }
     return skotarVagCacheRef.current.linjer;

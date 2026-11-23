@@ -24,7 +24,7 @@ import Flikkontroll from '@/components/design/Flikkontroll';
 import { buildKartStil, type BaskartaId } from '@/lib/mapLayers';
 import { FORARKARTA_ATTRIBUTION } from '@/app/oversikt/forarkarta-stil';
 import {
-  BACKVAG_KALLA, SPAR_KALLA, VIDA_GRANS_KALLA, backvagFeatureUrData, backvagLager, kontextFeature, sparFeatures, sparLager,
+  BACKVAG_KALLA, SPAR_KALLA, VIDA_GRANS_KALLA, backvagFeatureUrData, backvagLager, kontextFeature,
   vidaGransFeatures, vidaGransLager,
 } from '@/lib/egenkontrollkarta';
 import { VIDA_BASVAG_FARG, kraftledningLager, linjeLager, pilLager, symbolLager, zonFyllLager, zonKantLager, zonSnedstreckLager, PIL_STIL, backvagIkonNamn, ritaBackvagStreck, ritaPilIkon, ritaStolpeIkon } from '@/lib/kartstil';
@@ -32,6 +32,7 @@ import { VAG_LINJETYPER, BACKVAG_STRECK_FARGER } from '@/lib/backvag';
 import { snedstreckBild, snedstreckId, SNEDSTRECK_GRUPPER } from '@/lib/ytaStil';
 import { canvasToMapLibreImage, loadMarkerImageForMaplibre, markerIconDefs } from '@/lib/marker-icons';
 import { rollFarg } from '@/lib/sparStil';
+import { korsparKallor, korsparLager, korsparLagerId } from '@/lib/korsparLager';
 import { arDubbeltryck, type TryckPunkt } from '@/lib/ritaPunkter';
 import { formatLength, pathMeters } from '@/lib/geoMat';
 import { lasKartdata, type KartData, type KartMaskin } from '@/lib/objektoversikt/lasKarta';
@@ -55,6 +56,7 @@ export const LAGER: readonly { id: Lager; namn: string }[] = [
   { id: 'grans', namn: 'Traktgräns' },
   { id: 'maskiner', namn: 'Maskinerna' },
 ];
+const MITT_ID = korsparLagerId('oo-spar', 'skordare').mitt;
 const ALLA_PA: Record<Lager, boolean> = { skordare: true, skotare: true, hogar: true, vagar: true, kraftledning: true, symboler: true, grans: true, maskiner: true };
 const LAGRING = 'oo_karta_lager_v1';
 
@@ -88,8 +90,9 @@ function lagerSpec() {
       'circle-stroke-color': 'rgba(0,0,0,0.6)', 'circle-stroke-width': 1, 'circle-opacity': 0.9,
     },
   }];
-  const skordare = sparLager('skordare');
-  const skotare = sparLager('skotare');
+  // Körspåren (lib/korsparLager): lila band, vit mittlinje där skotaren kört, skotarens eget ljusa band där skördaren inte kört. Läggs till avstängda; lagervalen slår på dem.
+  const skordare = korsparLager('oo-spar', 'skordare', SPAR_KALLA.skordare, false);
+  const skotare = korsparLager('oo-spar', 'skotare', SPAR_KALLA.skotare, false);
   return { grans, vagar, kraftledning, ovrigaFyll, ovrigaLinjer, ovrigaSymboler, hogar, skordare, skotare };
 }
 
@@ -99,7 +102,7 @@ function lagerIdn(): Record<Exclude<Lager, 'maskiner'>, string[]> {
   const id = (l: any[]) => l.map(x => x.id as string);
   return {
     grans: id(s.grans), vagar: id(s.vagar), kraftledning: id(s.kraftledning), symboler: [...id(s.ovrigaFyll), ...id(s.ovrigaLinjer), ...id(s.ovrigaSymboler)],
-    hogar: id(s.hogar), skordare: id(s.skordare), skotare: id(s.skotare),
+    hogar: id(s.hogar), skordare: id(s.skordare).filter((i) => i !== MITT_ID), skotare: id(s.skotare),
   };
 }
 
@@ -217,14 +220,15 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
       ? data.markeringar.map((m, i) => { const f = kontextFeature(m.data, data.origo!); return f ? { ...f, properties: { ...f.properties, i } } : null; }).filter(Boolean)
       : [];
     const backvag = data.origo ? data.markeringar.map(m => backvagFeatureUrData(m.data, data.origo!, undefined, false)).filter(Boolean) : [];
-    const sparOf = (roll: 'skordare' | 'skotare') => ({ ...tom, features: sparFeatures(data.spar.filter(s => s.roll === roll).flatMap(s => s.linjer.map(l => l.map(([lng, lat]) => ({ lat, lng }))))) });
+    const linjerAv = (roll: 'skordare' | 'skotare') => data.spar.filter(s => s.roll === roll).flatMap(s => s.linjer);
+    const spar = korsparKallor(linjerAv('skordare'), linjerAv('skotare'));
     return {
       mark: { ...tom, features: mark as any[] },
       backvag: { ...tom, features: backvag as any[] },
       vida: { ...tom, features: vidaGransFeatures(data.vidaRingar) },
       vidaLinjer: { ...tom, features: vidaLinjeFeatures(data.vidaLinjer) as any[] },
-      skordare: sparOf('skordare'),
-      skotare: sparOf('skotare'),
+      skordare: { ...tom, features: spar.skordare as any[] },
+      skotare: { ...tom, features: spar.skotare as any[] },
       hogar: { ...tom, features: hogFeatures(data.stammar) },
     };
   }, [data]);
@@ -323,6 +327,8 @@ export default function ObjektKarta({ objektUuid, ids, maskiner, jobbade }: {
     for (const [val, lista] of Object.entries(idn) as [Exclude<Lager, 'maskiner'>, string[]][]) {
       for (const id of lista) { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', lager[val] ? 'visible' : 'none'); }
     }
+    // Den vita mittlinjen = skotaren har kört i skördarens band: den syns bara när BÅDA spåren är på (som i planeringen).
+    if (map.getLayer(MITT_ID)) map.setLayoutProperty(MITT_ID, 'visibility', lager.skordare && lager.skotare ? 'visible' : 'none');
   }, [lager, mapLaddad, geo]);
 
   // Maskinerna: HTML-markörer (få, och namnet ska alltid gå att läsa).

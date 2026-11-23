@@ -2,10 +2,9 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as spec from '@maplibre/maplibre-gl-style-spec';
-import { KORSPAR, rensaHopp, segmentera, jamnaLatt, korsparLinjer, cachadeKorspar, tomKorsparCache, korsparCacheStorlek, type Koord } from './korspar';
+import { KORSPAR, rensaHopp, segmentera, jamnaLatt, korsparLinjer, cachadeKorspar, tomKorsparCache, korsparCacheStorlek, langdM, type Koord } from './korspar';
 import { hyttsparTillLinjer } from './hyttspar';
 import { hyttsparRitadeLinjer } from './sparJamning';
-import { langdM } from './strak';
 import { kartSpar, meterBredd, meterTillPx, BAND_BREDD_M, BAND_LAT, MITTLINJE_BREDD, MITTLINJE_M } from './sparStil';
 
 // Giants och Elefantens RIKTIGA hyttspår ur prod (fixturerna är deltakodade mikrograder, se _kalla i filerna).

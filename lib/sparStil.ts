@@ -105,13 +105,6 @@ export function sparBlekning(idag: number, aldst: number): any[] {
   return ['interpolate', ['linear'], ['coalesce', ['to-number', ['get', 'alder']], 0], 0, idag, SPAR_BLEKNA_DAGAR, aldst];
 }
 
-/** Dagar mellan spårets datum (YYYY-MM-DD) och idag (YYYY-MM-DD), aldrig negativt. Saknas datumet gäller dagens (0): vi gissar inte att något är gammalt. */
-export function sparAlder(datum: string | null | undefined, idagIso: string): number {
-  const a = Date.parse(`${String(datum ?? '').slice(0, 10)}T00:00:00Z`), b = Date.parse(`${idagIso.slice(0, 10)}T00:00:00Z`);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
-  return Math.max(0, Math.round((b - a) / 86_400_000));
-}
-
 /**
  * Stilen för en rolls spår i ett lager.
  *   skördare: 3 px, dagens 0,9 (planering/den andres 0,9 → 0,45 efter 14 dagar, historik 0,85 → 0,45)
