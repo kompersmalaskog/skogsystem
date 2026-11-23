@@ -74,7 +74,7 @@ describe('areal ur geometrin för ytor utan Vidas areal', () => {
   it('punkt och linje har ingen areal', () => { expect(geometriM2({ type: 'Point', coordinates: [1, 2] })).toBeNull(); expect(geometriM2({ type: 'LineString', coordinates: [[0, 0], [1, 1]] })).toBeNull(); });
   it('en yta utan Vidas areal får _arealM2, en med SHAPE.STAr lämnas orörd', () => {
     const g = { type: 'Polygon', coordinates: ruta(14.47, 56.3, 0.0007, 0.00045) };
-    const ut = medAreal({ features: [{ properties: { _lager: 'L_RAA_POLY_101' }, geometry: g }, { properties: { _lager: 'L_TILLAGGSYTOR', 'SHAPE.STAr': 5000 }, geometry: g }] });
+    const ut = medAreal<{ features?: any[] }>({ features: [{ properties: { _lager: 'L_RAA_POLY_101' }, geometry: g }, { properties: { _lager: 'L_TILLAGGSYTOR', 'SHAPE.STAr': 5000 }, geometry: g }] });
     expect(ut.features![0].properties._arealM2).toBeGreaterThan(0);
     expect(ut.features![1].properties._arealM2).toBeUndefined();
   });

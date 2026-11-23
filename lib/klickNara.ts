@@ -71,3 +71,33 @@ export function meterPerPixel(lat: number, zoom: number): number {
 export function ragangToleransM(lat: number, zoom: number, traffRadiePx = 11): number {
   return Math.max(14, Math.ceil(traffRadiePx * meterPerPixel(lat, zoom)) + 1);
 }
+
+// ---- ÖVERLAPPANDE YTOR: alla visas i samma kort, staplade (Martin 2026-11-23) --------------------------------------------------------------------------------
+/** Lagren vars ytor staplas. Traktdelen (`trakt-gr-fill`), egna områden och rågången tas aldrig med. */
+export const STAPEL_LAGER: readonly string[] = ['trakt-hansyn-fill', 'trakt-ovrigt-fill', 'trakt-nb-fill', 'trakt-raa-fill'];
+
+/** Ordning i stapeln: fara först, sedan kultur/fornlämning, sedan hänsyn/nyckelbiotop (natur), sist övriga ytor. */
+export function stapelRang(grupp: string): number {
+  return grupp === 'fara' ? 0 : grupp === 'kultur' ? 1 : grupp === 'natur' ? 2 : 3;
+}
+
+/**
+ * De ytor som ligger under trycket, i stapelordning. Varje yta en gång (samma feature kan komma från flera lager, t.ex. fyllning och kant), inom samma rang den MINSTA först
+ * (areal ur `traktArealHa`/`_arealM2`; saknas den sist). Bara lagren i STAPEL_LAGER — en traktdel, ett område eller en rågång är aldrig med. Färre än två → tom lista
+ * (en enda yta öppnas som alltid, utan stapel).
+ */
+export function stapelOrdning<T extends Traff>(traffar: readonly T[], nyckelAv: (t: T) => string, rangAv: (t: T) => number, arealAv: (t: T) => number | null): T[] {
+  const sett = new Set<string>();
+  const ytor: T[] = [];
+  for (const t of traffar) {
+    if (!STAPEL_LAGER.includes(t.layer?.id ?? '')) continue;
+    const k = nyckelAv(t);
+    if (sett.has(k)) continue;
+    sett.add(k); ytor.push(t);
+  }
+  if (ytor.length < 2) return [];
+  return ytor
+    .map((t, i) => ({ t, i, rang: rangAv(t), a: arealAv(t) ?? Infinity }))
+    .sort((x, y) => x.rang - y.rang || x.a - y.a || x.i - y.i)
+    .map((x) => x.t);
+}
