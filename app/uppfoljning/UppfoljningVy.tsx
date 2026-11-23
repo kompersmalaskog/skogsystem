@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { type ObjektTyp, arRisjobb, typLabel } from '@/lib/objekt/typ';
 import { tradslagFarg } from '@/lib/tradslag';
 import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
-import { uppskattaGrotM3fub, GROT_UTTAGSFAKTOR_DEFAULT } from '@/lib/grot';
+import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT } from '@/lib/grot';
+import { risLage, risDetaljText } from './lib/ris';
 import { liggetidText } from './lib/liggetid';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
@@ -13,6 +14,8 @@ import type { SkotareMaskinStat } from './lib/transform';
 import { FARG, TYP, AVSTAND, RADIE, TNUM, VIKT, KOLUMN, FONT, overgang } from '@/lib/design/tokens';
 import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 import { tal, tidH, tidSek } from './lib/format';
+import { sortimentVisning } from '@/lib/skotarLass/sortiment';
+import { lasSortimentKlass } from '@/lib/skotarLass/koKopplad';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -74,6 +77,10 @@ export interface UppfoljningData {
   // men ha ris kvar, och det ska synas ärligt.
   grotAnpassad?: boolean;
   grotHamtad?: string | null;
+  /** Summa lass (m³fub) på kopplade risjobb — samma tal som listan. */
+  risSkotatM3?: number | null;
+  /** Något kopplat risjobb gäller också andra trakter. */
+  risDelas?: boolean;
   externSkotning?: boolean;
   externForetag?: string;
   externPrisTyp?: 'm3' | 'timme';
@@ -241,27 +248,6 @@ function daysAgo(iso?: string | null): string | null {
   return d === 0 ? 'idag' : d === 1 ? 'igår' : `${d} dagar sedan`;
 }
 
-// Sortiment name cleanup (bevarad från tidigare version)
-const sortimentNamnMap: Record<string, string> = {
-  'BmavFall': 'Barrmassaved', 'BmavFall_V3': 'Barrmassaved', 'BmavFall_V4': 'Barrmassaved',
-  'BjörkmavFall': 'Björkmassaved', 'BjörkmavFall_V3': 'Björkmassaved',
-  'EngvedFall': 'Energived', 'EngvedFall_V3': 'Energived',
-  'Timmer': 'Sågtimmer', 'TimmerFall': 'Sågtimmer',
-  'Kubb': 'Kubb', 'KubbFall': 'Kubb',
-  'GranTimmer': 'Grantimmer', 'TallTimmer': 'Talltimmer',
-  'GranMassa': 'Granmassaved', 'TallMassa': 'Tallmassaved',
-};
-function sortimentSvenska(raw: string): string {
-  if (sortimentNamnMap[raw]) return sortimentNamnMap[raw];
-  const base = raw.replace(/_V\d+$/, '');
-  if (sortimentNamnMap[base]) return sortimentNamnMap[base];
-  const lower = raw.toLowerCase();
-  for (const [k, v] of Object.entries(sortimentNamnMap)) {
-    if (k.toLowerCase() === lower) return v;
-  }
-  return raw;
-}
-
 const avbrottOversattning: Record<string, string> = {
   'Saw maintenance': 'Sågunderhåll',
   'Refilling and lubrication': 'Påfyllning och smörjning',
@@ -362,6 +348,13 @@ function Rollrad({ farg, text, suffix, dampad = false }: { farg: string; text: s
 }
 
 function Svaret({ data }: { data: UppfoljningData }) {
+  const [grotFaktor, setGrotFaktor] = useState(GROT_UTTAGSFAKTOR_DEFAULT);
+  useEffect(() => {
+    try {
+      const gf = sessionStorage.getItem('uppfoljning:grotFaktor');
+      if (gf !== null) setGrotFaktor(klampaGrotFaktor(JSON.parse(gf)));
+    } catch { /* ingen sparad faktor → default */ }
+  }, []);
   const s = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
   const klart = s.k === 'done';
   const visSkordat = Math.round(data.skordat);
@@ -404,12 +397,16 @@ function Svaret({ data }: { data: UppfoljningData }) {
   // inte se färdigt ut. Raden visar PLANEN: hur mycket ris som väntar (schablon
   // ×0,35 på skördad volym, märkt "ca" — en gissning, aldrig mätt) + status.
   // Utkörningens UTFALL följs på det egna GROT-objektet, inte här.
+  // Läget kommer ur SAMMA funktion som listan (lib/ris risLage): riktiga lass på
+  // ett kopplat risjobb → "skotas nu", annars schablonen tills första lasset.
+  // Faktorn är listans (sessionStorage), så ≈-talet är detsamma på båda ställena.
   const visaGrot = !!data.grotAnpassad && !arRisjobb(data);
-  const grotEst = visaGrot ? uppskattaGrotM3fub(data.skordat, GROT_UTTAGSFAKTOR_DEFAULT) : null;
-  const grotStatus = data.grotHamtad ? `hämtat ${fmtISO(data.grotHamtad)}` : 'ligger kvar på hygget';
-  const grotText = grotEst != null
-    ? `Ris: ca ${Math.round(grotEst).toLocaleString('sv-SE')} m³fub · ${grotStatus}`
-    : `Riset ${grotStatus}`;
+  const grotEst = visaGrot ? uppskattaGrotM3fub(data.skordat, grotFaktor) : null;
+  const grotText = visaGrot
+    ? risDetaljText(
+        risLage({ grotAnpassad: true, grotHamtad: data.grotHamtad ?? null, volymSkordare: data.skordat, sistaAvverkning: null, risSkotatM3: data.risSkotatM3 ?? null, risDelas: data.risDelas === true }, grotFaktor),
+        grotEst, fmtISO)
+    : '';
 
   return (
     <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
@@ -993,6 +990,15 @@ function Tradslag({ tradslag }: { tradslag: { namn: string; pct: number }[] }) {
 }
 
 function Sortiment({ sortiment }: { sortiment: { namn: string; m3: number }[] }) {
+  // Namnen i klartext ur appens EN källa (samma som skotarläget, lasskortet och
+  // Kvar). Sortimentstabellen läses en gång; tills den kommit tolkas namnet ur
+  // texten, aldrig en kod.
+  const [, setKlass] = useState(0);
+  useEffect(() => {
+    let avbruten = false;
+    void lasSortimentKlass().then((nytt) => { if (!avbruten && nytt) setKlass((v) => v + 1); });
+    return () => { avbruten = true; };
+  }, []);
   if (!sortiment || sortiment.length === 0) return null;
   const max = Math.max(...sortiment.map(s => s.m3), 1);
   const total = sortiment.reduce((a, b) => a + b.m3, 0);
@@ -1007,7 +1013,7 @@ function Sortiment({ sortiment }: { sortiment: { namn: string; m3: number }[] })
           <div key={s.namn} style={{ padding: `${AVSTAND.m}px 0`, borderTop: i === 0 ? 'none' : `0.5px solid ${V6_SEP}` }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: AVSTAND.s }}>
               <span style={{ fontSize: 13, color: FARG.text, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: 8 }}>
-                {sortimentSvenska(s.namn)}
+                {sortimentVisning(s.namn) || s.namn}
               </span>
               <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                 {s.m3} <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 600 }}>m³</span>

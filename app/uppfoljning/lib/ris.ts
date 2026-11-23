@@ -57,6 +57,23 @@ export function risKvarM3(o: RisObjekt, faktor: number): number {
   return schablon;
 }
 
+/** Detaljvyns grot-rad i ord, ur SAMMA läge som listan (risLage). Listan och
+ *  detaljen får aldrig säga olika om samma trakt. `schablon` = ≈-talet, visas
+ *  bara när inget lass säger hur mycket som hämtats. `datum` formaterar dagen. */
+export function risDetaljText(l: RisLage, schablon: number | null, datum: (iso: string) => string): string {
+  const m3 = (n: number) => `${Math.round(n).toLocaleString('sv-SE')} m³fub`;
+  if (l.lage === 'hamtat') {
+    if (l.m3 != null) return `Ris: ${m3(l.m3)} hämtat ${datum(l.datum)}`;
+    return schablon != null ? `Ris: ca ${m3(schablon)} · hämtat ${datum(l.datum)}` : `Riset hämtat ${datum(l.datum)}`;
+  }
+  if (l.lage === 'skotas') {
+    return l.delas
+      ? `Ris: skotas nu · ${m3(l.m3)} på hela risjobbet, som gäller fler trakter`
+      : `Ris: skotas nu · ${m3(l.m3)} hämtat`;
+  }
+  return l.schablon != null ? `Ris: ca ${m3(l.schablon)} · ligger kvar på hygget` : 'Riset ligger kvar på hygget';
+}
+
 const DAG = 864e5;
 
 export const HAMTAT_VISAS_DAGAR = 60;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arRisTrakt, risKvarM3, risLage, risLista, type RisObjekt } from './ris';
+import { arRisTrakt, risDetaljText, risKvarM3, risLage, risLista, type RisObjekt } from './ris';
 
 const bas: RisObjekt = { grotAnpassad: true, grotHamtad: null, volymSkordare: 1000, sistaAvverkning: '2026-10-01' };
 const F = 0.35;
@@ -53,5 +53,21 @@ describe('risLista', () => {
     const { kvar, hamtat } = risLista([a, b, c, d, e, gammal, ej], F, '2026-11-21');
     expect(kvar.map(o => o.id)).toEqual(['c', 'b', 'a']);
     expect(hamtat.map(o => o.id)).toEqual(['e', 'd']);
+  });
+});
+
+describe('risDetaljText — detaljvyns rad ur samma läge som listan', () => {
+  const d = (iso: string) => iso.slice(5);
+  it('kvar: schablonen med ca', () => {
+    expect(risDetaljText({ lage: 'kvar', schablon: 308 }, 308, d)).toBe('Ris: ca 308 m³fub · ligger kvar på hygget');
+  });
+  it('skotas: lassen, aldrig schablonen', () => {
+    expect(risDetaljText({ lage: 'skotas', m3: 120, delas: false }, 308, d)).toBe('Ris: skotas nu · 120 m³fub hämtat');
+    expect(risDetaljText({ lage: 'skotas', m3: 400, delas: true }, 308, d)).toBe('Ris: skotas nu · 400 m³fub på hela risjobbet, som gäller fler trakter');
+  });
+  it('hämtat: lassen om de finns, annars schablonen med ca', () => {
+    expect(risDetaljText({ lage: 'hamtat', datum: '2026-10-28', m3: 250 }, 308, d)).toBe('Ris: 250 m³fub hämtat 10-28');
+    expect(risDetaljText({ lage: 'hamtat', datum: '2026-10-28', m3: null }, 308, d)).toBe('Ris: ca 308 m³fub · hämtat 10-28');
+    expect(risDetaljText({ lage: 'hamtat', datum: '2026-10-28', m3: null }, null, d)).toBe('Riset hämtat 10-28');
   });
 });
