@@ -11,6 +11,7 @@ import { getPeriodRange, type Period } from "@/app/maskinvy/OversiktShared";
 import { useAdminNav } from "./nav";
 import { Ikon, Sektion } from "./ui";
 import { synkVisas } from "@/lib/admin/loneunderlagVy";
+import { gpsStartForPass, gpsStartText, gpsStartAvvikelse } from "@/lib/admin/gpsStart";
 
 /**
  * Lön → Dagar — KONTROLLVYN. Alla förares dagar för en arbetsmånad, en rad per
@@ -63,7 +64,7 @@ type Medarbetare = {
   ledighetskollision: { datum: string; typ: string }[];
   vilobrott: { datum: string; typ: string; vila_h: number; krav_h: number }[];
 };
-type Rad = { nyckel: string; datum: string; id: string; namn: string; d: Dag; min: number; avv: string[] };
+type Rad = { nyckel: string; datum: string; id: string; namn: string; d: Dag; min: number; avv: string[]; gps?: ReturnType<typeof gpsStartForPass> };
 
 const stega = (ym: string, delta: number) => { const [å, m] = ym.split("-").map(Number); const d = new Date(å, m - 1 + delta, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 /** Löneperiod = arbetsmånad + 1 (samma regel som /api/lon/min-manad). */
@@ -127,6 +128,8 @@ export default function DagarUnderflik() {
   const [oppen, setOppen] = useState<string | null>(null);
   const [maskinNamn, setMaskinNamn] = useState<Record<string, string>>({});
   const [forsok, setForsok] = useState(0);
+  // "GPS i hytten från …" per maskin och dag (RPC hyttspar_starter). Bara visning: ett läsfel ger inga GPS-rader, aldrig ett fel i vyn.
+  const [gpsStarter, setGpsStarter] = useState<Map<string, string[]>>(new Map());
 
   useEffect(() => {
     supabase.from("dim_maskin").select("maskin_id, visningsnamn, modell").then(({ data }) => {
@@ -135,6 +138,25 @@ export default function DagarUnderflik() {
       setMaskinNamn(m);
     });
   }, []);
+
+  useEffect(() => {
+    let avbruten = false;
+    setGpsStarter(new Map());
+    // Bara visning: går det inte att läsa står inga GPS-rader, aldrig ett fel i vyn.
+    (async () => {
+      try {
+        const { data, error } = await supabase.rpc("hyttspar_starter", { p_fran: range.start, p_till: range.end });
+        if (avbruten) return;
+        if (error) { console.warn("[Dagar] GPS i hytten kunde inte läsas", error.message); return; }
+        const m = new Map<string, string[]>();
+        for (const r of (data || []) as { maskin_id: string; datum: string; starter: string[] }[]) m.set(`${r.maskin_id}|${r.datum}`, r.starter || []);
+        setGpsStarter(m);
+      } catch (e) {
+        console.warn("[Dagar] GPS i hytten kunde inte läsas", e);
+      }
+    })();
+    return () => { avbruten = true; };
+  }, [range.start, range.end, forsok]);
 
   useEffect(() => {
     let avbruten = false;
@@ -190,11 +212,14 @@ export default function DagarUnderflik() {
         });
         // En rad utan någon tid alls är också något att titta på (tom skalrad).
         if (min === 0) avv.unshift("ingen tid");
-        ut.push({ nyckel: `${m.medarbetare_id}|${d.datum}`, datum: d.datum, id: m.medarbetare_id, namn: m.namn, d, min, avv });
+        const gps = d.maskin_id ? gpsStartForPass(d.datum, d.start_tid, gpsStarter.get(`${d.maskin_id}|${d.datum}`)) : null;
+        const gpsAvv = gps ? gpsStartAvvikelse(gps) : null;
+        if (gpsAvv) avv.push(gpsAvv);
+        ut.push({ nyckel: `${m.medarbetare_id}|${d.datum}`, datum: d.datum, id: m.medarbetare_id, namn: m.namn, d, min, avv, gps });
       }
     }
     return ut.sort((a, b) => a.datum.localeCompare(b.datum) || a.namn.localeCompare(b.namn, "sv"));
-  }, [data, roda]);
+  }, [data, roda, gpsStarter]);
 
   const antalForare = new Set(rader.map(r => r.namn)).size;
   const medAvv = rader.filter(r => r.avv.length > 0);
@@ -376,6 +401,7 @@ export default function DagarUnderflik() {
                   r.d.start_tid || r.d.slut_tid
                     ? `${(r.d.start_tid || "").slice(0, 5) || "–"}–${(r.d.slut_tid || "").slice(0, 5) || "–"}${r.d.rast_min ? ` · rast ${minText(r.d.rast_min)}` : ""}`
                     : "Inga klockslag, tiden ligger i perioder",
+                  r.gps ? gpsStartText(r.gps) : null,
                   // Rast noll på ett långt pass är ingen varning (skotarna loggar ingen rast): bara information om hur tiden räknas.
                   rastSaknas(r.d.arbetad_min, r.d.rast_min) ? RAST_SAKNAS_INFO : null,
                   r.d.extra_min > 0 ? `Betald ${minText(r.d.arbetad_min)} vid maskinen + extra tid ${minText(r.d.extra_min)}` : null,

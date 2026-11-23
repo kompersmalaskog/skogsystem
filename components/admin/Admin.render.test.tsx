@@ -89,7 +89,7 @@ vi.mock("@/lib/supabase", () => {
       return g.__storage.signFel ? { data: null, error: g.__storage.signFel } : { data: { signedUrl: `https://signerad.example/${bucket}/${path}?t=1` }, error: null };
     },
   }) };
-  return { supabase: { from: (t: string) => new Q(t), storage } };
+  return { supabase: { from: (t: string) => new Q(t), storage, rpc: async () => ({ data: (globalThis as any).__gpsStarter ?? [], error: null }) } };
 });
 
 import AdminClient from "./AdminClient";
@@ -4387,6 +4387,27 @@ describe("Lön → Dagar: svaret först", () => {
     expect(text()).toContain(INFO);
     expect((text().match(/Inget stopp över 15 min/g) || []).length).toBe(1);
     expect(text()).not.toContain("ingen rast");
+  });
+
+  it("GPS i hytten (2026-11-23): mer än 10 min efter starttiden är en avvikelse med raden i detaljen; inom gränsen bara raden", async () => {
+    // 1 sep: start 06:00, GPS 06:25 svensk tid (04:25Z sommartid) → 25 min senare. 2 sep: GPS 06:03 → ingen avvikelse.
+    g.__gpsStarter = [
+      { maskin_id: "R64101", datum: "2026-09-01", starter: ["2026-09-01T04:25:00Z"] },
+      { maskin_id: "R64101", datum: "2026-09-02", starter: ["2026-09-02T04:03:00Z"] },
+    ];
+    try {
+      await oppna("flik=lon&underflik=dagar", [dag("2026-09-01"), dag("2026-09-02")]);
+      expect(text()).toContain("1 dag med avvikelse");
+      expect(text()).toContain("GPS 25 min senare");
+      await klick("Visa alla 2");
+      expect(text()).not.toContain("GPS i hytten från 06:03"); // hopfälld
+      const dagKnappar = () => Array.from(cont.querySelectorAll<HTMLElement>("button[aria-expanded]"));
+      await act(async () => { dagKnappar()[0].click(); }); // tis 1 sep (rader i datumordning)
+      expect(text()).toContain("GPS i hytten från 06:25 · 25 min senare");
+      await act(async () => { dagKnappar()[1].click(); }); // ons 2 sep — en dag öppen åt gången
+      expect(text()).toContain("GPS i hytten från 06:03");
+      expect(text()).not.toContain("06:03 · ");
+    } finally { delete g.__gpsStarter; }
   });
 
   // ── Lönekvot per förare överst (2026-10-23) ──
