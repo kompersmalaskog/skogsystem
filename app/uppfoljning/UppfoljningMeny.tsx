@@ -190,8 +190,8 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
           </span>
         ) : hoger === 'schablon' ? (
           <span style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, flexShrink: 0, ...TNUM }}>
-            <span style={{ ...TYP.meta, color: FARG.orange, fontWeight: 700 }}>≈</span>
-            <span style={{ ...TYP.listtitel, color: FARG.orange }}>{sv(uppskattaGrotM3fub(o.volymSkordare, grotFaktor) || 0)}</span>
+            <span style={{ ...TYP.meta, color: FARG.text2, fontWeight: 700 }}>≈</span>
+            <span style={{ ...TYP.listtitel }}>{sv(uppskattaGrotM3fub(o.volymSkordare, grotFaktor) || 0)}</span>
             <span style={{ ...TYP.meta, color: FARG.text2 }}>m³fub</span>
           </span>
         ) : (
@@ -258,8 +258,8 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
                     <div style={{ ...TYP.rubrik, color: FARG.text3, marginTop: AVSTAND.xs }}>—</div>
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, marginTop: AVSTAND.xs, ...TNUM }}>
-                      {k.schablon && <span style={{ ...TYP.meta, color: FARG.orange, fontWeight: 700 }}>≈</span>}
-                      <span style={{ ...TYP.rubrik, color: k.schablon ? FARG.orange : FARG.text }}>{sv(k.m3)}</span>
+                      {k.schablon && <span style={{ ...TYP.meta, color: FARG.text2, fontWeight: 700 }}>≈</span>}
+                      <span style={{ ...TYP.rubrik, color: FARG.text }}>{sv(k.m3)}</span>
                       <span style={{ ...TYP.meta, color: FARG.text2 }}>m³</span>
                     </div>
                   )}
@@ -268,7 +268,7 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
                       role="button" tabIndex={0}
                       onClick={(e) => { e.stopPropagation(); setVisaFaktor(f => !f); }}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setVisaFaktor(f => !f); } }}
-                      style={{ display: 'inline-block', ...TYP.micro, color: FARG.orange, marginTop: AVSTAND.xs, textTransform: 'none', letterSpacing: 0, cursor: 'pointer' }}
+                      style={{ display: 'inline-block', ...TYP.micro, color: FARG.text2, marginTop: AVSTAND.xs, textTransform: 'none', letterSpacing: 0, cursor: 'pointer' }}
                     >
                       schablon · ×{faktorStr}
                     </span>

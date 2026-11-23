@@ -23,6 +23,7 @@ vi.mock('@/lib/grot-koppling', () => ({
   hamtaKallhyggen: async () => ({ ok: true, hyggen: [], message: '' }),
 }));
 
+vi.mock('@/lib/skotarLass/koKopplad', () => ({ lasSortimentKlass: async () => false }));
 import UppfoljningVy, { type UppfoljningData } from './UppfoljningVy';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

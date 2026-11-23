@@ -10,9 +10,10 @@
 // riktningar: ett slutdatum GER "klar", null GER "kör" — så den dag någon åter
 // matar end_date in i skotareSlut syns det som "Skotaren klar" på en oskotad
 // trakt och ett test faller.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
+vi.mock('@/lib/skotarLass/koKopplad', () => ({ lasSortimentKlass: async () => false }));
 import UppfoljningVy, { type UppfoljningData } from './UppfoljningVy';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

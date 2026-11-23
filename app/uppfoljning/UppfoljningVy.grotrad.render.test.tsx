@@ -18,6 +18,7 @@ vi.mock('@/lib/grot-koppling', () => ({
   hamtaKallhyggen: async () => ({ ok: true, hyggen: [], message: '' }),
 }));
 
+vi.mock('@/lib/skotarLass/koKopplad', () => ({ lasSortimentKlass: async () => false }));
 import UppfoljningVy, { type UppfoljningData } from './UppfoljningVy';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -95,6 +96,26 @@ describe('Grot-raden på ett avverkningsobjekt', () => {
     expect(text).toContain('ligger kvar på hygget');
   });
 
+  // Samma svar som listan (lib/ris risLage): riktiga lass på ett kopplat risjobb
+  // säger "skotas nu", aldrig "ligger kvar på hygget".
+  it('lass på kopplat risjobb: "skotas nu · 120 m³fub hämtat", inte schablonen', () => {
+    const text = rendera(hygge({ grotHamtad: null, risSkotatM3: 120, risDelas: false }));
+    expect(text).toContain('Ris: skotas nu · 120 m³fub hämtat');
+    expect(text).not.toContain('ligger kvar på hygget');
+    expect(text).not.toContain('ca 308');
+  });
+
+  it('risjobbet gäller fler trakter: lassen sägs för hela risjobbet', () => {
+    const text = rendera(hygge({ grotHamtad: null, risSkotatM3: 400, risDelas: true }));
+    expect(text).toContain('400 m³fub på hela risjobbet');
+  });
+
+  it('hämtat med lass: det riktiga talet, inte schablonen', () => {
+    const text = rendera(hygge({ grotHamtad: '2026-10-28', risSkotatM3: 250, risDelas: false }));
+    expect(text).toContain('Ris: 250 m³fub hämtat 28 okt');
+    expect(text).not.toContain('ca 308');
+  });
+
   it('inte grot-anpassat: ingen grot-rad', () => {
     const text = rendera(hygge({ grotAnpassad: false, grotHamtad: null }));
     expect(text).not.toContain('ligger kvar på hygget');
@@ -106,5 +127,21 @@ describe('Grot-raden på ett avverkningsobjekt', () => {
     const text = rendera(hygge({ grotSkotning: true, grotAnpassad: true, skordat: 0, grotHamtad: null }));
     expect(text).not.toContain('ligger kvar på hygget');
     expect(text).not.toContain('Ris: ca');
+  });
+});
+
+// Sortimenten heter som i resten av appen (lib/skotarLass/sortiment
+// sortimentVisning) — aldrig maskinkoden, aldrig en egen översättning.
+describe('Sortimentsnamnen i detaljvyn', () => {
+  it('maskinkoden blir klartext ur appens EN källa', () => {
+    rendera(hygge({ sortiment: [{ namn: 'BmavFall_V3', m3: 300 }, { namn: 'Timmer: Vislanda_195_1-2_V3', m3: 500 }] }));
+    const knapp = Array.from(be!.querySelectorAll('button')).find(b => (b.textContent || '').includes('Trädslag & sortiment'));
+    expect(knapp).toBeTruthy();
+    act(() => { knapp!.click(); });
+    const text = be!.textContent || '';
+    expect(text).toContain('Massaved barr');
+    expect(text).toContain('Timmer · Vislanda');
+    expect(text).not.toContain('BmavFall');
+    expect(text).not.toContain('Barrmassaved');
   });
 });
