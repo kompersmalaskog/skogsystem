@@ -161,7 +161,7 @@ export function Mening({ children }: { children: ReactNode }) {
 
 /** En rad i ett kort. Ett värde: talet längst ut före ›. Två värden: talet intill etiketten, kubiken längst ut.
  *  Stapel under om raden är en del av en fördelning. */
-export function Rad({ text, sub, tal, farg, hoger, href, onClick, dampad, stapel, prick, oppen }: {
+export function Rad({ text, sub, tal, farg, hoger, href, onClick, dampad, stapel, prick, oppen, radbryt }: {
   text: string; sub?: string; tal?: string; farg?: string; hoger?: string;
   href?: string; onClick?: () => void; dampad?: boolean;
   /** Raden öppnar innehåll under sig: › när stängd, ⌄ när öppen. Utelämnad = en vanlig länkrad (›). */
@@ -169,6 +169,8 @@ export function Rad({ text, sub, tal, farg, hoger, href, onClick, dampad, stapel
   stapel?: { andel: number; max: number; farg: string };
   /** En färgruta framför etiketten — teckenförklaringen och raden i ett. Färgen bär aldrig ensam: ordet står bredvid. */
   prick?: string;
+  /** Långa etiketter radbryts i stället för att kortas med … (default: en rad). */
+  radbryt?: boolean;
 }) {
   const leder = !!(href || onClick);
   const talStil = { ...TYP.listtitel, ...TNUM, color: farg ?? (dampad ? FARG.text2 : FARG.text) };
@@ -178,8 +180,8 @@ export function Rad({ text, sub, tal, farg, hoger, href, onClick, dampad, stapel
         <span style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
           {prick && <span aria-hidden style={{ width: AVSTAND.m, height: AVSTAND.m, borderRadius: '50%', background: prick, border: LINJE,
                                               flexShrink: 0, boxSizing: 'border-box' }} />}
-          <span style={{ ...TYP.text, color: dampad ? FARG.text2 : FARG.text, whiteSpace: 'nowrap',
-                         overflow: 'hidden', textOverflow: 'ellipsis' }}>{text}</span>
+          <span style={{ ...TYP.text, color: dampad ? FARG.text2 : FARG.text,
+                         ...(radbryt ? { whiteSpace: 'normal' } : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }) }}>{text}</span>
           {tal != null && hoger != null && <span style={talStil}>{tal}</span>}
         </span>
         <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>

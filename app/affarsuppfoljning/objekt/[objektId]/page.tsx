@@ -7,7 +7,8 @@
 //   vy=massaved      massaveden: "Ulfsnäs AU ⌄", 4,03 m, medellängd
 //                    barrmassaved, under Vidas önskade 4,6 m, augusti ⌄,
 //                    179,8 m³fub · 1 589 bitar, sedan raderna
-//   vy=tre-m         3 m-stockar: 26 %, Utan dem, Rötan fortsatte, Visa bitarna
+//   vy=tre-m         3 m-stockar: 26 %, Efter 3 m blev nästa bit timmer eller kubb (98 %, bara från 10 rotbitar),
+//                    Utan dem, Rötan fortsatte, Visa bitarna
 //   vy=langd         längdfördelning: 42 % når 4,6 m, staplar per klass
 //   vy=sagbar        sågbar dimension: 21 %, ett sortiment per rad
 //   vy=sortiment     ett sortiment: volymen, Längd, Diameter, Visa bitarna,
@@ -30,6 +31,7 @@ import { SIDA, GUL, GRON, TEXT, DAMPAD, nf0, nf1, nf2, manadNamn, manadEtikett, 
          Rubrik, Tillbakarad, Stort, Tillstand, Damp, Kontroll, Mening, Rad, Rader, Stycken, Laddar, Fel } from '@/components/Ytform';
 import { AVSTAND, FARG, RADIE } from '@/lib/design/tokens';
 import { sortimentEtiketter } from '@/lib/massaved/sortimentnamn';
+import { tolkaRotbitar, rotbitarProcent, type Rotbitar } from '@/lib/massaved/rotbitar';
 import TraktVy from './TraktVy';
 
 type Tradslag = { namn: string; m3fub: number; medellangd_m: number; sagbar_m3: number };
@@ -76,6 +78,7 @@ function Innehall() {
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<{ kod: string; text: string } | null>(null);
   const [rotkap, setRotkap] = useState<Rotkap | null>(null);
+  const [rotbitar, setRotbitar] = useState<Rotbitar | null>(null);
 
   const hamta = useCallback(async () => {
     setLaddar(true); setFel(null);
@@ -99,6 +102,16 @@ function Innehall() {
       .then(({ data }) => setRotkap((data as Rotkap | null) ?? null));
   }, [objektId]);
 
+  // Blev nästa bit timmer eller kubb efter 3 m? Räknas live för hela objektet (massaved_rotbitar).
+  // Ett fel, eller att funktionen inte finns än, ger ingen rad — resten av sidan påverkas inte.
+  useEffect(() => {
+    let avbruten = false;
+    setRotbitar(null);
+    supabase.rpc('massaved_rotbitar', { p_objekt_id: objektId })
+      .then(({ data, error }) => { if (!avbruten) setRotbitar(error ? null : tolkaRotbitar(data)); },
+            () => { if (!avbruten) setRotbitar(null); });
+    return () => { avbruten = true; };
+  }, [objektId]);
 
   const namn = kortObjekt(d?.namn ?? objektId);
   const periodOrd = manad ? manadNamn(manad) : 'hela trakten';
@@ -183,6 +196,7 @@ function Innehall() {
   // ── 3 m-stockar ───────────────────────────────────────────────────────
   if (vy === 'tre-m') {
     const t = d.tre_m_stock;
+    const rotbitarPct = rotbitarProcent(rotbitar);
     return (
       <div style={SIDA}>
         <Tillbakarad href={objektUrl} text={har} />
@@ -191,6 +205,7 @@ function Innehall() {
           <Mening>Bitar på 3 m som maskinen kapat längst ner på stammen för att få bort röta.</Mening>
         </Stort>
         <Rader>
+          {rotbitarPct != null && <Rad text="Efter 3 m blev nästa bit timmer eller kubb" tal={`${nf0(rotbitarPct)} %`} farg={GRON} radbryt />}
           {t.medellangd_utan_m3 != null && <Rad text="Utan dem" tal={`${nf2(t.medellangd_utan_m3)} m`} farg={GRON} />}
           {rotkap && rotkap.grupp2_stammar > 0 && (
             <Rad text="Rötan fortsatte" tal={`${nf0(rotkap.grupp2_stammar)} st`} href={rotkapUrl} />
