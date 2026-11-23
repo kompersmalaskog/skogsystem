@@ -1,8 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Chart as ChartJS, registerables } from 'chart.js';
+import { AVSTAND, FARG, FONT, RADIE, TRAFFYTA, TYP, VIKT, medSafeBotten } from '@/lib/design/tokens';
 import { useDjupvyHistorik } from '@/lib/hooks/useDjupvyHistorik';
 import { supabase } from '@/lib/supabase';
+import { tint } from './OversiktShared';
+
+// Chart.js ur paketet — inte window.Chart: den gamla maskinvyn som laddade det globalt är borttagen.
+ChartJS.register(...registerables);
 
 interface LogEntry {
   id: string;
@@ -23,15 +29,7 @@ interface DailyProd {
   g15h: number;
 }
 
-const ff = "'Geist', system-ui, sans-serif";
-const C = {
-  bg: '#000000', surface: '#1c1c1e', surface2: '#2c2c2e',
-  border: 'rgba(255,255,255,0.07)', border2: 'rgba(255,255,255,0.12)',
-  t1: '#ffffff', t3: '#8e8e93', t4: '#48484a',
-  accent: '#30d158', accent2: 'rgba(48,209,88,0.16)', blue: '#5b8fff', warn: '#ffb340',
-};
-
-export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
+export default function MaskinLogg() {
   const [open, setOpen] = useState(false);
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [selectedMaskin, setSelectedMaskin] = useState('');
@@ -106,8 +104,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
   // Draw chart
   useEffect(() => {
     if (!open || !chartRef.current || dailyProd.length === 0) return;
-    const Chart = (window as any).Chart;
-    if (!Chart) return;
+    const Chart = ChartJS as any;
 
     if (chartInstance.current) chartInstance.current.destroy();
 
@@ -125,18 +122,18 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
           annotations['line' + i] = {
             type: 'line',
             xMin: idx, xMax: idx,
-            borderColor: 'rgba(255,179,64,0.7)',
+            borderColor: FARG.orange,
             borderWidth: 2,
-            borderDash: [4, 3],
+            borderDash: [AVSTAND.xs, AVSTAND.xs],
             label: {
               display: true,
               content: entry.atgard.length > 30 ? entry.atgard.slice(0, 30) + '…' : entry.atgard,
               position: 'start',
-              backgroundColor: 'rgba(26,26,24,0.95)',
-              color: C.warn,
-              font: { size: 10, family: ff },
-              padding: 4,
-              borderRadius: 4,
+              backgroundColor: FARG.kort,
+              color: FARG.orange,
+              font: { size: TYP.micro.fontSize, family: FONT },
+              padding: AVSTAND.xs,
+              borderRadius: RADIE.stapel,
             }
           };
         }
@@ -152,8 +149,8 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
         datasets: [{
           label: 'm³fub/G15h',
           data: m3g15,
-          backgroundColor: m3g15.map((v: number) => v === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(48,209,88,0.5)'),
-          borderRadius: 3,
+          backgroundColor: m3g15.map((v: number) => v === 0 ? FARG.tonad : FARG.gron),
+          borderRadius: RADIE.stapel,
         }],
       },
       options: {
@@ -162,12 +159,12 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: C.surface,
-            titleColor: C.t1,
-            bodyColor: C.t3,
-            borderColor: C.border2,
+            backgroundColor: FARG.kort,
+            titleColor: FARG.text,
+            bodyColor: FARG.text2,
+            borderColor: FARG.linje,
             borderWidth: 1,
-            padding: 10,
+            padding: AVSTAND.m,
             callbacks: {
               label: (c: any) => ` ${c.parsed.y.toFixed(1)} m³fub/G15h`,
               afterLabel: (c: any) => {
@@ -180,9 +177,9 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
           ...(hasAnnotationPlugin ? { annotation: { annotations } } : {}),
         },
         scales: {
-          x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: C.t3, font: { size: 10 } } },
-          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: C.t3, font: { size: 10 } }, beginAtZero: true,
-            title: { display: true, text: 'm³fub/G15h', color: C.t3, font: { size: 10 } } },
+          x: { grid: { color: FARG.tonad }, ticks: { color: FARG.text2, font: { size: TYP.micro.fontSize, family: FONT } } },
+          y: { grid: { color: FARG.tonad }, ticks: { color: FARG.text2, font: { size: TYP.micro.fontSize, family: FONT } }, beginAtZero: true,
+            title: { display: true, text: 'm³fub/G15h', color: FARG.text2, font: { size: TYP.micro.fontSize, family: FONT } } },
         },
       },
     });
@@ -200,21 +197,21 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
           if (idx < 0) return;
           const x = xScale.getPixelForValue(idx);
           ctx.save();
-          ctx.strokeStyle = 'rgba(255,179,64,0.7)';
+          ctx.strokeStyle = FARG.orange;
           ctx.lineWidth = 2;
-          ctx.setLineDash([4, 3]);
+          ctx.setLineDash([AVSTAND.xs, AVSTAND.xs]);
           ctx.beginPath();
           ctx.moveTo(x, yScale.top);
           ctx.lineTo(x, yScale.bottom);
           ctx.stroke();
           // Label
           ctx.setLineDash([]);
-          ctx.fillStyle = 'rgba(26,26,24,0.95)';
+          ctx.fillStyle = FARG.kort;
           const txt = entry.atgard.length > 25 ? entry.atgard.slice(0, 25) + '…' : entry.atgard;
           const tw = ctx.measureText(txt).width + 8;
           ctx.fillRect(x - tw / 2, yScale.top - 18, tw, 16);
-          ctx.fillStyle = C.warn;
-          ctx.font = `10px ${ff}`;
+          ctx.fillStyle = FARG.orange;
+          ctx.font = `${TYP.micro.fontSize}px ${FONT}`;
           ctx.textAlign = 'center';
           ctx.fillText(txt, x, yScale.top - 6);
           ctx.restore();
@@ -259,7 +256,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
   // Maskinloggen är ett steg i historiken: backa stänger den i stället för att lämna vyn.
   useDjupvyHistorik(open, () => setOpen(false));
 
-  // Expose open function globally so sidebar menu can trigger it
+  // Öppnas utifrån via window.__openMaskinLogg (ingen ingång finns i vyn i dag; kommer som djupvy från Översikt)
   useEffect(() => {
     (window as any).__openMaskinLogg = () => setOpen(true);
     return () => { delete (window as any).__openMaskinLogg; };
@@ -268,6 +265,19 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
   if (!open && !toast) {
     return null;
   }
+
+  const falt = {
+    width: '100%', padding: `${AVSTAND.m}px ${AVSTAND.m}px`, borderRadius: RADIE.rad,
+    background: FARG.upphojt, border: `1px solid ${FARG.linje}`,
+    color: FARG.text, ...TYP.meta, fontFamily: 'inherit', outline: 'none',
+  } as const;
+  const gronKnapp = {
+    minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, borderRadius: RADIE.rad,
+    background: tint(FARG.gron, 16), border: `1px solid ${tint(FARG.gron, 20)}`,
+    color: FARG.gron, fontFamily: 'inherit', ...TYP.listtitel, cursor: 'pointer',
+  } as const;
+  const kort = { background: FARG.kort, borderRadius: RADIE.kort, border: `1px solid ${FARG.linje}` } as const;
+  const sektionsrubrik = { ...TYP.meta, fontWeight: VIKT.halvfet, color: FARG.text2 } as const;
 
   return (
     <div style={{
@@ -278,13 +288,13 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
       {/* Toast — synligt även när panelen stängs */}
       {toast && (
         <div style={{
-          position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)',
-          background: toast.kind === 'ok' ? 'rgba(48,209,88,0.16)' : 'rgba(255,69,58,0.16)',
-          border: `1px solid ${toast.kind === 'ok' ? 'rgba(48,209,88,0.38)' : 'rgba(255,69,58,0.38)'}`,
-          color: toast.kind === 'ok' ? '#30d158' : '#ff453a',
-          padding: '12px 20px', borderRadius: 12, fontSize: 15, fontFamily: ff, fontWeight: 500,
+          position: 'fixed', left: '50%', bottom: AVSTAND.xl, transform: 'translateX(-50%)',
+          background: tint(toast.kind === 'ok' ? FARG.gron : FARG.rod, 16),
+          border: `1px solid ${tint(toast.kind === 'ok' ? FARG.gron : FARG.rod, 38)}`,
+          color: toast.kind === 'ok' ? FARG.gron : FARG.rod,
+          padding: `${AVSTAND.m}px ${AVSTAND.xl}px`, borderRadius: RADIE.kort, ...TYP.text, fontFamily: FONT,
           backdropFilter: 'saturate(180%) blur(20px)', WebkitBackdropFilter: 'saturate(180%) blur(20px)',
-          zIndex: 1100, maxWidth: 'calc(100vw - 32px)', pointerEvents: 'auto',
+          zIndex: 1100, maxWidth: `calc(100vw - ${2 * AVSTAND.l}px)`, pointerEvents: 'auto',
         }}>{toast.msg}</div>
       )}
 
@@ -292,48 +302,46 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
       {open && (<>
       {/* Backdrop */}
       <div onClick={() => setOpen(false)} style={{
-        position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)',
+        position: 'absolute', inset: 0, background: tint(FARG.bg, 60),
       }} />
 
       {/* Panel */}
       <div style={{
         position: 'absolute', bottom: 0, left: 0, right: 0,
-        maxHeight: '85vh', background: C.bg, borderTop: `1px solid ${C.border2}`,
-        borderRadius: '12px 12px 0 0', overflow: 'auto',
-        fontFamily: ff, color: C.t1,
+        maxHeight: '85vh', background: FARG.bg, borderTop: `1px solid ${FARG.linje}`,
+        borderRadius: `${RADIE.kort}px ${RADIE.kort}px 0 0`, overflow: 'auto',
+        fontFamily: FONT, color: FARG.text,
       }}>
         {/* Header */}
         <div style={{
           position: 'sticky', top: 0, zIndex: 10,
-          background: 'rgba(17,17,16,0.95)', backdropFilter: 'blur(20px)',
-          borderBottom: `1px solid ${C.border}`, padding: '14px 20px',
+          background: tint(FARG.bg, 95), backdropFilter: 'blur(20px)',
+          borderBottom: `1px solid ${FARG.linje}`, padding: `${AVSTAND.s}px ${AVSTAND.l}px`,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: -0.3 }}>Maskinlogg</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
+            <span style={TYP.listtitel}>Maskinlogg</span>
           </div>
           <button onClick={() => setOpen(false)} aria-label="Stäng" style={{
-            background: 'none', border: 'none', color: C.t3, fontSize: 20, cursor: 'pointer',
-            width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            borderRadius: 10,
+            background: 'none', border: 'none', color: FARG.text2, ...TYP.rubrik, cursor: 'pointer',
+            width: TRAFFYTA.min, height: TRAFFYTA.min, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            borderRadius: RADIE.rad,
           }}>✕</button>
         </div>
 
-        <div style={{ padding: '16px 20px' }}>
+        <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.l}px`, paddingBottom: medSafeBotten(AVSTAND.l) }}>
           {/* Machine selector */}
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: AVSTAND.l }}>
             <select
               value={selectedMaskin}
               onChange={e => setSelectedMaskin(e.target.value)}
               style={{
-                width: '100%', padding: '10px 14px', borderRadius: 10,
-                background: C.surface2, border: `1px solid ${C.border2}`,
-                color: C.t1, fontSize: 14, fontFamily: ff, outline: 'none',
+                ...falt,
                 appearance: 'none' as const, WebkitAppearance: 'none' as const,
               }}
             >
               {maskiner.map(m => (
-                <option key={m.maskin_id} value={m.maskin_id} style={{ background: C.bg }}>
+                <option key={m.maskin_id} value={m.maskin_id} style={{ background: FARG.bg }}>
                   {m.namn} ({m.maskin_id})
                 </option>
               ))}
@@ -341,29 +349,26 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
           </div>
 
           {/* Production chart with log annotations */}
-          <div style={{
-            background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
-            padding: 16, marginBottom: 16,
-          }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: C.t3, marginBottom: 12 }}>
+          <div style={{ ...kort, padding: AVSTAND.l, marginBottom: AVSTAND.l }}>
+            <div style={{ ...sektionsrubrik, marginBottom: AVSTAND.m }}>
               Produktion & åtgärder – {maskinNamn}
             </div>
-            <div style={{ height: 200, position: 'relative' }}>
+            <div style={{ height: AVSTAND.xxl * 6, position: 'relative' }}>
               {dailyProd.length > 0 ? (
                 <canvas ref={chartRef} />
               ) : (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: C.t3, fontSize: 13 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: FARG.text2, ...TYP.meta }}>
                   Ingen produktionsdata
                 </div>
               )}
             </div>
-            <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 10, color: C.t3 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <div style={{ width: 12, height: 12, borderRadius: 3, background: 'rgba(48,209,88,0.5)' }} />
+            <div style={{ display: 'flex', gap: AVSTAND.l, marginTop: AVSTAND.m, ...TYP.meta, color: FARG.text2 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
+                <div style={{ width: AVSTAND.m, height: AVSTAND.m, borderRadius: RADIE.stapel, background: FARG.gron }} />
                 m³fub/G15h
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <div style={{ width: 16, height: 2, background: C.warn, borderRadius: 1 }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
+                <div style={{ width: AVSTAND.l, height: AVSTAND.xs, background: FARG.orange, borderRadius: RADIE.stapel }} />
                 Loggad åtgärd
               </div>
             </div>
@@ -373,33 +378,20 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
           {!formOpen ? (
             <button
               onClick={() => setFormOpen(true)}
-              style={{
-                width: '100%', minHeight: 44, padding: '0 16px', borderRadius: 10,
-                background: C.accent2, border: `1px solid rgba(48,209,88,0.2)`,
-                color: C.accent, fontFamily: ff, fontSize: 15, fontWeight: 600,
-                cursor: 'pointer', marginBottom: 16, letterSpacing: -0.2,
-              }}
+              style={{ ...gronKnapp, width: '100%', marginBottom: AVSTAND.l }}
             >
               + Logga åtgärd
             </button>
           ) : (
-            <div style={{
-              background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
-              padding: 16, marginBottom: 16,
-            }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: C.t3, marginBottom: 12 }}>
+            <div style={{ ...kort, padding: AVSTAND.l, marginBottom: AVSTAND.l }}>
+              <div style={{ ...sektionsrubrik, marginBottom: AVSTAND.m }}>
                 Ny åtgärd
               </div>
               <input
                 type="date"
                 value={formDatum}
                 onChange={e => setFormDatum(e.target.value)}
-                style={{
-                  width: '100%', padding: '10px 14px', borderRadius: 10, marginBottom: 10,
-                  background: C.surface2, border: `1px solid ${C.border2}`,
-                  color: C.t1, fontSize: 14, fontFamily: ff, outline: 'none',
-                  colorScheme: 'dark',
-                }}
+                style={{ ...falt, marginBottom: AVSTAND.m, colorScheme: 'dark' }}
               />
               <input
                 type="text"
@@ -408,20 +400,14 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
                 onChange={e => setFormAtgard(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
                 autoFocus
-                style={{
-                  width: '100%', padding: '10px 14px', borderRadius: 10, marginBottom: 12,
-                  background: C.surface2, border: `1px solid ${C.border2}`,
-                  color: C.t1, fontSize: 14, fontFamily: ff, outline: 'none',
-                }}
+                style={{ ...falt, marginBottom: AVSTAND.m }}
               />
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: AVSTAND.s }}>
                 <button
                   onClick={handleSave}
                   disabled={saving || !formAtgard.trim()}
                   style={{
-                    flex: 1, minHeight: 44, padding: '0 16px', borderRadius: 10,
-                    background: C.accent2, border: `1px solid rgba(48,209,88,0.2)`,
-                    color: C.accent, fontFamily: ff, fontSize: 15, fontWeight: 600,
+                    ...gronKnapp, flex: 1,
                     cursor: saving ? 'wait' : 'pointer',
                     opacity: !formAtgard.trim() ? 0.4 : 1,
                   }}
@@ -431,9 +417,9 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
                 <button
                   onClick={() => { setFormOpen(false); setFormAtgard(''); }}
                   style={{
-                    minHeight: 44, padding: '0 20px', borderRadius: 10,
-                    background: 'transparent', border: `1px solid ${C.border2}`,
-                    color: C.t3, fontFamily: ff, fontSize: 15, cursor: 'pointer',
+                    minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.xl}px`, borderRadius: RADIE.rad,
+                    background: 'transparent', border: `1px solid ${FARG.linje}`,
+                    color: FARG.text2, fontFamily: 'inherit', ...TYP.text, cursor: 'pointer',
                   }}
                 >
                   Avbryt
@@ -443,18 +429,17 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
           )}
 
           {/* Log list */}
-          <div style={{ fontSize: 13, fontWeight: 500, color: C.t3, marginBottom: 10 }}>
+          <div style={{ ...sektionsrubrik, marginBottom: AVSTAND.m }}>
             Loggade åtgärder ({logg.length})
           </div>
           {logg.length === 0 ? (
             <div style={{
-              background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
-              padding: '24px 16px', textAlign: 'center' as const, color: C.t3, fontSize: 13,
+              ...kort, padding: `${AVSTAND.xl}px ${AVSTAND.l}px`, textAlign: 'center' as const, color: FARG.text2, ...TYP.meta,
             }}>
               Inga åtgärder loggade för denna maskin
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 1 }}>
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: AVSTAND.xs }}>
               {logg.map((entry) => {
                 // Find production before and after
                 const idx = dailyProd.findIndex(d => d.datum >= entry.datum);
@@ -466,24 +451,23 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
 
                 return (
                   <div key={entry.id} style={{
-                    background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
-                    padding: '12px 14px', display: 'flex', alignItems: 'flex-start', gap: 12,
+                    ...kort, padding: AVSTAND.m, display: 'flex', alignItems: 'flex-start', gap: AVSTAND.m,
                   }}>
                     <div style={{
-                      width: 4, height: 36, borderRadius: 2, flexShrink: 0, marginTop: 2,
-                      background: C.warn,
+                      width: AVSTAND.xs, height: AVSTAND.xl + AVSTAND.m, borderRadius: RADIE.stapel, flexShrink: 0, marginTop: AVSTAND.xs,
+                      background: FARG.orange,
                     }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: C.t1, marginBottom: 2 }}>
+                      <div style={{ ...TYP.meta, fontWeight: VIKT.halvfet, color: FARG.text, marginBottom: AVSTAND.xs }}>
                         {entry.atgard}
                       </div>
-                      <div style={{ fontSize: 11, color: C.t3 }}>
+                      <div style={{ ...TYP.meta, color: FARG.text2 }}>
                         {entry.datum}
                         {delta !== null && (
                           <span style={{
-                            marginLeft: 10,
-                            color: delta >= 0 ? C.accent : '#ff453a',
-                            fontWeight: 600,
+                            marginLeft: AVSTAND.m,
+                            color: delta >= 0 ? FARG.gron : FARG.rod,
+                            fontWeight: VIKT.halvfet,
                           }}>
                             {delta >= 0 ? '↑' : '↓'} {Math.abs(delta).toFixed(1)} m³fub/G15h
                           </span>
@@ -493,8 +477,8 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
                     <button
                       onClick={() => handleDelete(entry.id)}
                       style={{
-                        background: 'none', border: 'none', color: C.t4, fontSize: 14,
-                        cursor: 'pointer', padding: '4px 6px', borderRadius: 6,
+                        background: 'none', border: 'none', color: FARG.text3, ...TYP.meta,
+                        cursor: 'pointer', minWidth: TRAFFYTA.min, minHeight: TRAFFYTA.min, borderRadius: RADIE.rad,
                         flexShrink: 0,
                       }}
                       title="Ta bort"

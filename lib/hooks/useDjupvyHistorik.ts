@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { DJUP_MARKOR, NIVA_NYCKEL, nivaUr, signalera } from '@/lib/maskinvy/historik'
 
 let rakna = 0
@@ -54,21 +54,4 @@ export function useDjupvyHistorik(oppen: boolean, onTillbaka: () => void): void 
       }
     }
   }, [oppen])
-}
-
-/**
- * Djupvyer som inte är React utan DOM-paneler: den gamla maskinvyns skript öppnar dem genom att sätta en klass (`open`) på ett
- * överdrag (#forarOverlay) och stänger via en global funktion. Läser klassen och gör den till ett steg i historiken, på samma sätt
- * som useDjupvyHistorik. `stang` anropas när man backar (den ska ta bort klassen).
- */
-export function usePanelDjupvyHistorik(overdragId: string, stang: () => void, klass = 'open'): void {
-  const [oppen, setOppen] = useState(false)
-  useEffect(() => {
-    const kolla = () => setOppen(!!document.getElementById(overdragId)?.classList.contains(klass))
-    const obs = new MutationObserver(kolla)
-    obs.observe(document.body, { attributes: true, attributeFilter: ['class'], subtree: true })
-    kolla()
-    return () => obs.disconnect()
-  }, [overdragId, klass])
-  useDjupvyHistorik(oppen, stang)
 }

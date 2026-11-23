@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
-import { useDjupvyHistorik, usePanelDjupvyHistorik } from './useDjupvyHistorik'
+import { useDjupvyHistorik } from './useDjupvyHistorik'
 import { skrivNavigering } from '@/lib/maskinvy/historik'
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -93,39 +93,5 @@ describe('useDjupvyHistorik', () => {
     expect(stangA).not.toHaveBeenCalled()
     await act(async () => { window.history.back(); await vanta() })
     expect(stangA).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe('usePanelDjupvyHistorik (den gamla vyns DOM-paneler)', () => {
-  it('klassen "open" på överdraget = ett steg i historiken; backa anropar stäng som tar bort klassen', async () => {
-    const overdrag = document.createElement('div'); overdrag.id = 'forarOverlay'; document.body.appendChild(overdrag)
-    const stang = vi.fn(() => overdrag.classList.remove('open'))
-    function Panel() { usePanelDjupvyHistorik('forarOverlay', stang); return null }
-    await act(async () => { rot.render(<Panel />); await vanta() })
-    const n0 = niv()
-    await act(async () => { overdrag.classList.add('open'); await vanta() })
-    await vanta()
-    expect(niv()).toBe(n0 + 1)
-
-    await act(async () => { window.history.back(); await vanta() })
-    expect(stang).toHaveBeenCalledTimes(1)
-    expect(overdrag.classList.contains('open')).toBe(false)
-    expect(window.location.search).toBe('?ny=1&vy=produktion') // vyn är kvar
-    expect(niv()).toBe(n0)
-    overdrag.remove()
-  })
-
-  it('stängs panelen i appen (✕) tas historikposten bort', async () => {
-    const overdrag = document.createElement('div'); overdrag.id = 'forarOverlay'; document.body.appendChild(overdrag)
-    const stang = vi.fn()
-    function Panel() { usePanelDjupvyHistorik('forarOverlay', stang); return null }
-    await act(async () => { rot.render(<Panel />); await vanta() })
-    const n0 = niv()
-    await act(async () => { overdrag.classList.add('open'); await vanta() }); await vanta()
-    expect(niv()).toBe(n0 + 1)
-    await act(async () => { overdrag.classList.remove('open'); await vanta() }); await vanta()
-    expect(niv()).toBe(n0)
-    expect(stang).not.toHaveBeenCalled()
-    overdrag.remove()
   })
 })

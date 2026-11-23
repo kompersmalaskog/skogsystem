@@ -1,10 +1,8 @@
 /**
- * Maskinvyn ?ny=1 är klädd mot lib/design/tokens (PR 1, 2026-10-21). Den här vakten håller det så:
+ * Maskinvyn är klädd mot lib/design/tokens (PR 1, 2026-10-21; Jamforelse och MaskinLogg 2026-11-22). Den här vakten håller det så:
  * inga egna färger, textstorlekar, vikter, radier eller typsnitt, ingen egen palett (`C`) och kolumnen kommer
  * från `kolumnRot`, inte från en handskriven maxbredd. design-lint larmar bara på ÄNDRADE rader; vakten läser
  * hela filerna, så ett värde som smugit sig in på en gammal rad syns också.
- *
- * Utanför, med skäl: Jamforelse.tsx och MaskinLogg.tsx delas med den äldre vyn ("den äldre vyn är orörd").
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -14,7 +12,7 @@ const DIR = __dirname
 const FILER = [
   'OversiktNy', 'OversiktShared', 'IdagNy', 'ProduktionNy', 'AvbrottNy', 'KapacitetNy', 'TradslagKort', 'FlertradKort',
   'OperatorDeepView', 'VolymDeepView', 'SkotareOversiktNy', 'SkotareProduktionNy', 'SkotareAvbrottNy', 'SkotareIdagNy',
-  'SkotareJamforelseNy', 'SpecialBadge', 'SortimentKort', 'Livestatus', 'DagensObjekt', 'Sidolista', 'page',
+  'SkotareJamforelseNy', 'SpecialBadge', 'SortimentKort', 'Livestatus', 'DagensObjekt', 'Sidolista', 'Jamforelse', 'MaskinLogg', 'page',
 ]
 
 /** Källan utan kommentarer, rad för rad (kommentarer får nämna hexvärden och gamla px). */

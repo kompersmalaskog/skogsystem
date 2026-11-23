@@ -67,7 +67,6 @@ export const VYER: Vy[] = [
 
   // Maskiner
   { id: 'maskinvy', namn: 'Maskinvy', href: '/maskinvy', ikon: 'visibility', grupp: 'maskiner' },
-  { id: 'maskinvy-2', namn: 'Maskinvy 2', href: '/maskinvy?ny=1', ikon: 'new_releases', grupp: 'maskiner' },
   { id: 'kalibrering', namn: 'Kalibrering', href: '/kalibrering', ikon: 'straighten', grupp: 'maskiner', sokord: ['kontrollmätning', 'hqc'] },
   { id: 'inventarier', namn: 'Inventarier', href: '/inventarier', ikon: 'inventory_2', grupp: 'maskiner', sokord: ['lager', 'sågkedja', 'beställa', 'verktyg', 'bil', 'depåskåp', 'slang'] },
   { id: 'servicelogg', namn: 'Servicelogg', href: '/maskin-service', ikon: 'build', grupp: 'maskiner', sokord: ['service'] },
@@ -126,11 +125,27 @@ export const VYER: Vy[] = [
 
 /** Förinställda favoriter per roll (tills var och en kan ändra sina — nästa PR). Max 8. */
 export const STANDARD_FAVORITER: Record<Roll, string[]> = {
-  admin: ['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'ekonomi'],
+  admin: ['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy', 'ekonomi'],
   forare: ['planera', 'planering', 'ledighet', 'lastbilen', 'kalibrering', 'servicelogg', 'uppfoljning', 'utbildning'],
 }
 
 export const MAX_FAVORITER = 8
+
+/**
+ * Vy-id som har ersatts av ett annat. Sparade favoriter kan fortfarande bära dem: de läses som det nya id:t (en gång, i ordningen
+ * de stod). 'maskinvy-2' var kortet för den nya maskinvyn; den gamla vyn är borta och vyn heter nu bara Maskinvy (2026-11-22).
+ */
+export const ERSATTA_VY_ID: Record<string, string> = { 'maskinvy-2': 'maskinvy' }
+
+/** Sparade vy-id med ersatta id utbytta och dubbletter borttagna (första träffen gäller). */
+export function migreraVyIds(ids: string[]): string[] {
+  const ut: string[] = []
+  for (const id of ids) {
+    const nytt = ERSATTA_VY_ID[id] ?? id
+    if (!ut.includes(nytt)) ut.push(nytt)
+  }
+  return ut
+}
 
 /** Det som utöver rollen avgör vad man ser. */
 export type Behorighet = { skyddsombud?: boolean; /** Enheten är en maskin (maskinkonto eller upplåst på en maskin): vyer märkta `maskinDold` syns bara för admin. */ maskin?: boolean }
@@ -144,7 +159,7 @@ export function vyerFor(roll: Roll, b: Behorighet = {}): Vy[] {
 export function favoriterFor(roll: Roll, ids: string[] = STANDARD_FAVORITER[roll], b: Behorighet = {}): Vy[] {
   const synliga = new Map(vyerFor(roll, b).map(v => [v.id, v]))
   const ut: Vy[] = []
-  for (const id of ids) {
+  for (const id of migreraVyIds(ids)) {
     const v = synliga.get(id)
     if (v && !ut.includes(v)) ut.push(v)
     if (ut.length === MAX_FAVORITER) break
