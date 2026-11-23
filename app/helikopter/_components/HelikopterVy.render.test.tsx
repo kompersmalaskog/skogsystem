@@ -103,25 +103,25 @@ const takter = [
 ]
 
 describe('/helikopter — tavlan', () => {
-  it('Läget nu: ett kort per spår och maskintyp — ett ord, en stapel, "gjort" och "landar" — och inget annat', async () => {
+  it('Läget nu: en mening som svar, fyra rutor (ett ord, ett tal, en stapel) och en tidslinje — och inget annat', async () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
     expect(text()).toContain('Oktober 2026')
     expect(text()).toContain('10 arbetsdagar kvar')
-    expect(sektion(`Slutavverkning · beställt ${fmt(5000)}`)).not.toBeNull()
-    expect(sektion(`Gallring · beställt ${fmt(1000)}`)).not.toBeNull()
+    // Svaret först: EN mening.
+    expect(cont.querySelector('[data-lage-svar]')?.textContent).toContain('Vi hinner inte allt.')
+    expect(sektion('Mot beställningen')).not.toBeNull()
     expect(cont.querySelectorAll('[data-lage-kort]').length).toBe(4)
     // Giant: 4 800 skördat, Skälviken hinns: landar 6 534 → över beställt.
     const sk = cont.querySelector('[data-lage-kort="slutavverkning:skordare"]') as HTMLElement
-    expect(sk.querySelector('[data-lage-ord]')?.textContent).toContain('över')
-    expect(sk.textContent).toContain(`${fmt(4800)} gjort`)
-    expect(sk.textContent).toContain(`landar ${fmt(6534)}`)
+    expect(sk.querySelector('[data-lage-ord]')?.textContent).toBe('Över')
+    expect(sk.textContent).toContain(`${fmt(4800)} av ${fmt(5000)}`)
+    expect(sk.textContent).toContain(`${fmt(1534)} m³ över beställt`)
     // Elefant: 3 000 skotat, landar 3 658 → fattas 1 342.
     const so = cont.querySelector('[data-lage-kort="slutavverkning:skotare"]') as HTMLElement
-    expect(so.querySelector('[data-lage-ord]')?.textContent).toContain(`Fattas ${fmt(1342)}`)
-    expect(so.textContent).toContain(`${fmt(3000)} gjort`)
-    // Strecket "i fas idag": 0 av 10 arbetsdagar kvar-andel kommer ur månaden; det finns på pågående månad.
-    expect(sk.querySelector('[data-i-fas]')).not.toBeNull()
+    expect(so.querySelector('[data-lage-ord]')?.textContent).toBe('Fattas')
+    expect(so.textContent).toContain(`${fmt(1342)} m³`)
+    expect(so.textContent).toContain(`${fmt(3000)} av ${fmt(5000)}`)
     // De gamla korten, listorna och maskinraderna bor inte här — de bor i Planera.
     for (const n of ['Skotat', 'Gör detta', 'Egen skotning', 'Onsdagsnotis']) expect(sektion(n)).toBeNull()
     expect(cont.querySelector('[data-maskin], [data-trakt], [data-racker-rad], [data-rad-vaxla]')).toBeNull()
@@ -145,8 +145,7 @@ describe('/helikopter — tavlan', () => {
   it('utfallet per maskin kunde inte läsas: korten står kvar med gjort, utan prognos', async () => {
     await monter() // takter: null
     const so = cont.querySelector('[data-lage-kort="slutavverkning:skotare"]') as HTMLElement
-    expect(so.textContent).toContain(`${fmt(3000)} gjort`)
-    expect(so.textContent).not.toContain('landar')
+    expect(so.textContent).toContain(`${fmt(3000)} av ${fmt(5000)}`)
   })
 
   it('köerna kunde inte läsas: en rad säger det, och korten står kvar utan prognos', async () => {
@@ -154,8 +153,8 @@ describe('/helikopter — tavlan', () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
     expect(text()).toContain('Kunde inte läsa maskinernas trakter')
-    expect(cont.querySelector('[data-lage-kort="slutavverkning:skotare"]')?.textContent).toContain(`${fmt(3000)} gjort`)
-    expect(cont.querySelector('[data-lage-kort]')?.textContent).not.toContain('landar')
+    expect(cont.querySelector('[data-lage-kort="slutavverkning:skotare"]')?.textContent).toContain(`${fmt(3000)} av ${fmt(5000)}`)
+    expect(cont.querySelector('[data-tidslinje]')).toBeNull()
   })
 
   it('ett fel i månadsdatan är ett fel med Försök igen — aldrig tomma kort', async () => {
@@ -174,28 +173,31 @@ describe('/helikopter — tavlan', () => {
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
     expect(Array.from(cont.querySelectorAll('button')).some(b => b.textContent === 'Idag')).toBe(true)
-    expect(cont.querySelector('[data-lage-kort]')?.textContent).not.toContain('landar')
+    expect(cont.querySelector('[data-tidslinje]')).toBeNull()
     expect(q.hamtaKlar).not.toHaveBeenCalled()
     expect(sektion('Mer')!.textContent).toContain('Månadsfacit')
   })
 
-  it('menyn: fyra sidor, Hinner vi? vald som standard, och ett tryck byter adress med månaden kvar', async () => {
+  it('menyn: fyra sidor, Läget nu vald som standard, och ett tryck byter adress med månaden kvar', async () => {
     q.params = 'ar=2026&manad=10'
     await monter()
     const meny = Array.from(cont.querySelectorAll('[data-meny]')) as HTMLButtonElement[]
-    expect(meny.map(b => b.querySelector('.hk-nav-text')!.textContent)).toEqual(['Hinner vi?', 'Läget nu', 'Planera', 'Månader'])
+    expect(meny.map(b => b.querySelector('.hk-nav-text')!.textContent)).toEqual(['Läget nu', 'Hinner vi?', 'Planera', 'Månader'])
     expect(meny[0].getAttribute('aria-current')).toBe('page')
-    expect(cont.querySelector('[data-sida="prognos"]')).not.toBeNull()
+    expect(cont.querySelector('[data-sida="laget"]')).not.toBeNull()
     await act(async () => { meny[3].click() })
     expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10&sida=manader', { scroll: false })
     await ritaOm()
     expect(cont.querySelector('[data-meny="manader"]')!.getAttribute('aria-current')).toBe('page')
+    await act(async () => { (cont.querySelector('[data-meny="prognos"]') as HTMLButtonElement).click() })
+    expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10&sida=prognos', { scroll: false })
+    // Läget nu är standard och har ingen parameter.
     await act(async () => { (cont.querySelector('[data-meny="laget"]') as HTMLButtonElement).click() })
-    expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10&sida=laget', { scroll: false })
+    expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10', { scroll: false })
   })
 
-  it('Hinner vi? är första sidan och enkel: ett ord per spår och maskintyp, trakterna med ett besked var; detaljerna bor bakom "Visa detaljer"', async () => {
-    q.params = 'ar=2026&manad=10'
+  it('Hinner vi? är en egen sida i menyn och enkel: ett ord per spår och maskintyp, trakterna med ett besked var; detaljerna bor bakom "Visa detaljer"', async () => {
+    q.params = 'ar=2026&manad=10&sida=prognos'
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
     expect(cont.querySelector('[data-sida="prognos"]')).not.toBeNull()
