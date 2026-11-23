@@ -145,6 +145,8 @@ import { TOM_KURS, foljTid, kartRiktning, stegaKurs, type KursLage } from '../..
 import { kompletteraNamn } from '../../lib/medarbetarNamn'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
 import { KORVY_SKYDDSLAGER, skyddslagerSynligt, tillampaSkyddslager } from '../../lib/korvySkyddslager'
+import { KORVY_BASE_ZOOM, narhetsZoom, ZOOM_KVITTO_MS } from '../../lib/korvyZoom'
+import { useKorvyGrundzoom } from '../../lib/hooks/useKorvyGrundzoom'
 import { useKorvySkyddslager } from '../../lib/hooks/useKorvySkyddslager'
 import { valjObjektForPosition, objektTraffPunkt, objektHuvudtyp, traktgransRingar, arTilldelad, type ObjektForVal } from '../../lib/objektPlats'
 import { tolkaSparadPosition, MASKINPOS_NYCKEL, sparObjektGiltigt, valjPosObjekt, valjTilldelatObjekt, valjFlygPos } from '../../lib/maskinPosition'
@@ -155,7 +157,7 @@ import { tonaInLager, TRAKTGRANS_LAGER, TRAKT_FYLL_OPACITET } from '../../lib/ka
 import { vantaPaGrundkarta, kameraLage, kameraAndrad } from '../../lib/kartaLaddad'
 import { arKartanPaPositionen, centreraKnappSynlig } from '../../lib/centrera'
 import { jamkaMarkhojd, MARKHOJD_KONTROLL_MS } from '../../lib/kartaMarkhojd'
-import { CentreraKnapp } from '../../components/planering/CentreraKnapp'
+import { CentreraKnapp, CentreraZoomVal } from '../../components/planering/CentreraKnapp'
 import { KorvyObjektPill, PILL_HOJD_PX } from '../../components/planering/KorvyObjektPill'
 import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
 import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } from '../../lib/borttagenKvitto'
@@ -426,18 +428,10 @@ const PLAN_HANSYN_KANT = 1.5;
 // VÄRDENA sänkta: 18.5/19.5 var för hårt (nära symboler föll utanför kant). Sikta på "utdragna
 // vyn där allt syns runt pricken utan att dra".
 const KORVY_OVERSIKT_ZOOM = 14.5; // startsekvensens utzoomade översikt över maskinens position (kartans STARTkamera → inga nya rutor att hämta)
-const KORVY_BASE_ZOOM = 17.5;    // inget nära → lugn överblick, allt runt om ryms
-const KORVY_FULL_ZOOM = 18;      // full inzoom vid fällningsradien (mjukt, ej beskuret)
-const KORVY_ZOOM_START_M = 100;  // börja glida in här
-// dist (förar-avstånd till korvyNextItems[0]) → mål-zoom. Full vid FALLNINGSRADIE_M (40 m,
-// hänger ihop med ringen), bas bortom 100 m, mjuk ramp emellan. Lerpen i follow-effekten
-// dämpar sedan jitter → zoomen studsar aldrig nervöst runt en tröskel.
-function korvyProximityZoom(dist: number | null): number {
-  if (dist == null || dist > KORVY_ZOOM_START_M) return KORVY_BASE_ZOOM;
-  if (dist <= FALLNINGSRADIE_M) return KORVY_FULL_ZOOM;
-  const t = (KORVY_ZOOM_START_M - dist) / (KORVY_ZOOM_START_M - FALLNINGSRADIE_M);  // 0..1
-  return KORVY_BASE_ZOOM + (KORVY_FULL_ZOOM - KORVY_BASE_ZOOM) * t;
-}
+// Baszoomen (KORVY_BASE_ZOOM = 17,5), närhets-tillägget och förarens EGNA sparade grundzoom bor i lib/korvyZoom.ts.
+// dist (förar-avstånd till korvyNextItems[0]) → mål-zoom, räknad från förarens grundzoom: full vid FALLNINGSRADIE_M (40 m, hänger ihop med ringen),
+// grundzoomen bortom 100 m, mjuk ramp emellan. Lerpen i follow-effekten dämpar sedan jitter → zoomen studsar aldrig nervöst runt en tröskel.
+const korvyProximityZoom = (dist: number | null, grund: number): number => narhetsZoom(dist, grund, FALLNINGSRADIE_M);
 
 // === HYTTSPÅR-STIL (delad av körvy OCH planeringsvyn) bor i lib/sparStil.ts ===
 // Bredd per zoom, ljus casing, absoluta rollfärger — och SKÖRDARENS linje: jämn ~3 px, full färg, alla dagar (skotaren följer stråken).
@@ -4338,6 +4332,8 @@ export default function PlannerPage() {
   const korvyBasKarta = mapType;
   const korvyPrevCameraRef = useRef<{ center: [number, number]; zoom: number; bearing: number; pitch: number } | null>(null);
   const korvyZoomRef = useRef<number>(KORVY_BASE_ZOOM);  // utjämnad närhets-zoom (lerp → ingen studs)
+  // Förarens egen grundzoom (Centrera: håll in → Spara den här zoomen), per maskin. Allt som förut satte KORVY_BASE_ZOOM startar nu från den.
+  const { grundzoomRef: korvyGrundzoomRef, spara: sparaKorvyGrundzoom } = useKorvyGrundzoom(enhetMaskinId ?? maskinSomParam ?? null);
   // GPS-heading (pos.coords.heading) — sätts när användaren rör sig (speed >= ~1 m/s).
   // Föredras framför deviceHeading i Körvy eftersom det är faktisk färdriktning, inte enhetens orientering.
   const [gpsHeading, setGpsHeading] = useState<number | null>(null);
@@ -8789,11 +8785,11 @@ export default function PlannerPage() {
       return;
     }
     const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
-    korvyZoomRef.current = KORVY_BASE_ZOOM;   // närhets-zoomen startar från bas (som körvyns egen setup)
+    korvyZoomRef.current = korvyGrundzoomRef.current;   // närhets-zoomen startar från förarens grundzoom (standard: bas), som körvyns egen setup
     try {
       map.flyTo({
         center: [pos.lon, pos.lat],
-        zoom: KORVY_BASE_ZOOM,
+        zoom: korvyGrundzoomRef.current,
         pitch: 28,
         bearing: kartBearing,
         padding: { top: topPad, bottom: 0, left: 0, right: 0 },
@@ -9249,10 +9245,10 @@ export default function PlannerPage() {
         ? [pos.lon, pos.lat]
         : [map.getCenter().lng, map.getCenter().lat];
       const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
-      korvyZoomRef.current = KORVY_BASE_ZOOM;  // starta närhets-zoomen från bas
+      korvyZoomRef.current = korvyGrundzoomRef.current;  // starta närhets-zoomen från förarens grundzoom (standard: bas)
       map.easeTo({
         center: targetCenter,
-        zoom: KORVY_BASE_ZOOM,
+        zoom: korvyGrundzoomRef.current,
         // STEG 1: lätt lutning (~28°) ger "vägen framåt"-känsla utan brant 3D. Platt mark
         // (terräng-exaggeration 1.0, ej 1.8 — se effekten nedan) gör att stenmurar/markeringar
         // inte förvrängs. Heading-up + följande = "det känns som att köra", ej statisk norr-upp.
@@ -9287,7 +9283,7 @@ export default function PlannerPage() {
     const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
     // Närhets-zoom: glid mot närmaste hindret (korvyNextItems[0], förar-avstånd). Lerp (0.35)
     // mot mål-zoomen → mjuk glidning som dämpar GPS-jitter så zoomen aldrig studsar runt en tröskel.
-    const rawZoom = korvyProximityZoom(korvyNextItems[0]?.dist ?? null);
+    const rawZoom = korvyProximityZoom(korvyNextItems[0]?.dist ?? null, korvyGrundzoomRef.current);
     korvyZoomRef.current += (rawZoom - korvyZoomRef.current) * 0.35;
     const nuMs = Date.now();
     map.easeTo({
@@ -9316,11 +9312,11 @@ export default function PlannerPage() {
     const pos = korvyEffectivePos ?? startPosRef.current;
     if (!pos) return;
     startKameraAssertGjordRef.current = true;
-    korvyZoomRef.current = KORVY_BASE_ZOOM;
+    korvyZoomRef.current = korvyGrundzoomRef.current;
     const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
     try {
       map.easeTo({
-        center: [pos.lon, pos.lat], zoom: KORVY_BASE_ZOOM, pitch: 28, bearing: kartBearing,
+        center: [pos.lon, pos.lat], zoom: korvyGrundzoomRef.current, pitch: 28, bearing: kartBearing,
         padding: { top: topPad, bottom: 0, left: 0, right: 0 },
         duration: startFlygGjordRef.current ? 0 : 800,   // flygningen landade → samma ram, ingen synlig rörelse; annars mjuk inflygning
       });
@@ -9354,7 +9350,11 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     const onDrag = (e: any) => { if (korvyOppenRef.current && e && e.originalEvent) setKorvyFollowPaused(true); };
     map.on('dragstart', onDrag);
-    return () => { try { map.off('dragstart', onDrag); } catch { /* */ } };
+    // Nyp och hjul pausar följet på samma sätt som drag (zoomen är tillfällig tills föraren trycker Centrera). Nyp bär originalEvent redan på 'zoomstart', men
+    // HJULET först på de följande 'zoom'-bilderna (uppmätt i MapLibre 5: movestart/zoomstart saknar originalEvent vid hjul, zoom-bilderna har det) — därför båda.
+    map.on('zoomstart', onDrag);
+    map.on('zoom', onDrag);
+    return () => { try { map.off('dragstart', onDrag); map.off('zoomstart', onDrag); map.off('zoom', onDrag); } catch { /* */ } };
   }, [mapLibreReady]);
   useEffect(() => { if (!korvyActive) setKorvyFollowPaused(false); }, [korvyActive]);
 
@@ -9381,14 +9381,44 @@ export default function PlannerPage() {
     if (!map || !pos) return;
     if (navigator.vibrate) navigator.vibrate(15);
     if (korvyActive) {
-      // Körvyn: följningen igen — recentrera direkt på maskinen med körvyns zoom/riktning/padding, sedan tar följ-effekten över.
+      // Körvyn: följningen igen — recentrera direkt på maskinen med förarens SPARADE zoom (grundzoomen, plus närhets-tillägget om något är nära),
+      // riktning och padding, sedan tar följ-effekten över. All zoom och allt drag i körvyn är tillfälligt; det som gäller är det han sparat.
       setKorvyFollowPaused(false);
+      const zoom = korvyProximityZoom(korvyNextItems[0]?.dist ?? null, korvyGrundzoomRef.current);
+      korvyZoomRef.current = zoom;   // följet fortsätter från exakt den här zoomen (inget hopp vid nästa GPS-punkt)
       const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
-      map.easeTo({ center: [pos.lon, pos.lat], zoom: korvyZoomRef.current, bearing: kartBearing, padding: { top: topPad, bottom: 0, left: 0, right: 0 }, duration: 500 });
+      map.easeTo({ center: [pos.lon, pos.lat], zoom, bearing: kartBearing, padding: { top: topPad, bottom: 0, left: 0, right: 0 }, duration: 500 });
     } else {
       // Planeringen: centrera EN gång (ingen följning) — kartan står då på positionen och knappen döljs av sig själv.
       map.flyTo({ center: [pos.lon, pos.lat], zoom: Math.max(map.getZoom(), 16), duration: 600 });
     }
+  };
+
+  // === Håll in Centrera → "Spara den här zoomen" (lib/korvyZoom). Valet stängs av ett tryck utanför (inget sparas) och av att följet återupptas. ===
+  const [zoomValOppen, setZoomValOppen] = useState(false);
+  const [zoomKvitto, setZoomKvitto] = useState(false);
+  useEffect(() => { if (!korvyActive || !centreraSynlig) setZoomValOppen(false); }, [korvyActive, centreraSynlig]);
+  useEffect(() => { if (!korvyActive) setZoomKvitto(false); }, [korvyActive]);
+  useEffect(() => {
+    if (!zoomKvitto) return;
+    const t = setTimeout(() => setZoomKvitto(false), ZOOM_KVITTO_MS);
+    return () => clearTimeout(t);
+  }, [zoomKvitto]);
+  const sparaZoomNu = () => {
+    setZoomValOppen(false);
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const z = sparaKorvyGrundzoom(map.getZoom());   // aktuell zoom blir den nya grundzoomen
+    if (z == null) return;
+    korvyZoomRef.current = z;
+    setKorvyFollowPaused(false);   // kartan centreras på maskinen på den nya nivån, följet tar över
+    const pos = korvyEffectivePos;
+    if (pos) {
+      const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
+      map.easeTo({ center: [pos.lon, pos.lat], zoom: z, bearing: kartBearing, padding: { top: topPad, bottom: 0, left: 0, right: 0 }, duration: 500 });
+    }
+    if (navigator.vibrate) navigator.vibrate(15);
+    setZoomKvitto(true);
   };
 
   // 3) Större ikoner i Körvy via icon-size paint expression
@@ -17005,8 +17035,10 @@ export default function PlannerPage() {
              länge kartan följer maskinen; drar föraren i kartan pausas följningen och knappen syns; tryck → följning igen.
              Planeringen: dold när kartan står på positionen; dras kartan bort syns den; tryck → centrera EN gång (ingen följning). */}
       {valtObjekt && !(volymLoading || volymResultat) && (
-        <CentreraKnapp synlig={centreraSynlig} onTryck={centreraTryck} />
+        <CentreraKnapp synlig={centreraSynlig} onTryck={centreraTryck} onHall={korvyActive ? () => setZoomValOppen(true) : undefined} />
       )}
+      {korvyActive && zoomValOppen && centreraSynlig && <CentreraZoomVal onSpara={sparaZoomNu} onStang={() => setZoomValOppen(false)} />}
+      {korvyActive && zoomKvitto && <KorvyKvitto text="Zoomen sparad" ton="ok" smal={smalSkarm} />}
 
       {/* === FLYTTA-INDIKATOR === */}
       {draggingMarker && hasMoved && (
