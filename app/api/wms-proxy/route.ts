@@ -71,7 +71,7 @@ const WMS_LAYERS: Record<string, LayerConfig> = {
     layers: 'LC.LandCoverRaster.Bas_2.0',
     srs: 'EPSG:3857',
   },
-  // Körvyns tvingade skyddslager — routas hit för 5-min-cache + AbortController-timeout
+  // Körvyns skyddslager (tända från start, släckbara per objekt — lib/korvySkyddslager) — routas hit för 5-min-cache + AbortController-timeout
   // (fail-fast om en gov-server hänger). Alla EPSG:3857, ingen auth (öppna tjänster).
   nyckelbiotoper: { url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer', layers: 'Nyckelbiotop_Skogsstyrelsen', srs: 'EPSG:3857' },
   biotopskydd:    { url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer/WmsServer', layers: 'Biotopskydd_Skogsstyrelsen', srs: 'EPSG:3857' },
