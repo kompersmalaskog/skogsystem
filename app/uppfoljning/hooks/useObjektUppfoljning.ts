@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { buildUppfoljningData, buildEmptyData, type UppfoljningObjekt } from '../lib/transform';
 import { byggAvvikelser } from '../lib/avvikelser';
 import { lasAllaSidor } from '../lib/lasAllaSidor';
+import { svenskIdag, dagarFore } from '../lib/datum';
 import type { UppfoljningData } from '../UppfoljningVy';
 
 export interface UseObjektUppfoljningResult {
@@ -116,7 +117,7 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
         // Per-objekt-kvoter ur fakt_tid; volymgrunden hämtas SEPARAT ur
         // fakt_produktion (skördare) resp. fakt_lass (skotare) och möts
         // per objekt_id i JS — fakt_tid joinas ALDRIG med produktionen.
-        const refFran = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+        const refFran = dagarFore(svenskIdag(), 90);
         const refMaskiner = [skMidFb, stMidFb].filter(Boolean) as string[];
         // Referensen (90 dagar) läses också sida för sida. Ett läsfel ger INGEN
         // referens (inga avvikelser), aldrig en halv som ger fel trösklar.

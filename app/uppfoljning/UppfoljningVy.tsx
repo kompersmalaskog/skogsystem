@@ -16,6 +16,7 @@ import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 import { tal, tidH, tidSek } from './lib/format';
 import { sortimentVisning } from '@/lib/skotarLass/sortiment';
 import { lasSortimentKlass } from '@/lib/skotarLass/koKopplad';
+import { svenskIdag } from './lib/datum';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -551,7 +552,7 @@ function RisRubrik({ data }: { data: UppfoljningData }) {
   const dagarMedM3 = lassDagar.filter(d => typeof d.m3 === 'number' && (d.m3 || 0) > 0);
   const snitt = dagarMedM3.length > 0 ? Math.round(dagarMedM3.reduce((a, b) => a + (b.m3 || 0), 0) / dagarMedM3.length) : null;
   const dagar = lassDagar.length > 0 ? lassDagar.length : null;
-  const idag = new Date().toISOString().slice(0, 10);
+  const idag = svenskIdag();
   const statusOrd = data.skotareSlut ? `klar ${fmtISO(data.skotareSlut)}` : data.skotareLastDate === idag ? 'kör idag' : null;
   const visaBotten = harVol && (snitt != null || dagar != null || !!data.skotareModell || !!data.operatorSkotare || !!statusOrd);
   return (
@@ -639,7 +640,7 @@ function Kallhyggen({ objektId }: { objektId?: string | null }) {
 }
 
 function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotareOmlastning?: boolean }) {
-  const idag = new Date().toISOString().slice(0, 10);
+  const idag = svenskIdag();
   // "kör idag" bara när senaste aktiviteten faktiskt är IDAG — läget i
   // övrigt bor i våning 1 (statusraden), korten upprepar det inte.
   const statusOrd = (slut?: string | null, lastDate?: string | null) =>
