@@ -1,5 +1,5 @@
 // Korta rotbitar — raden "Efter 3 m blev nästa bit timmer eller kubb" på vy=tre-m.
-// Tolkar svaret från massaved_rotbitar (supabase/migrations/20261123120000_massaved_rotbitar.sql).
+// Tolkar svaret från massaved_rotbitar (supabase/migrations/20261123111830_massaved_rotbitar.sql).
 // Procenten räknas här av de två talen; databasen räknar bara stammarna.
 
 export const ROTBITAR_MIN = 10;
